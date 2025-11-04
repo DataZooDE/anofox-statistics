@@ -1,3 +1,6 @@
+// Define _USE_MATH_DEFINES before including cmath to make M_PI available on Windows/MSVC
+#define _USE_MATH_DEFINES
+
 #include "information_criteria.hpp"
 #include "../utils/tracing.hpp"
 #include "../utils/validation.hpp"
