@@ -1,0 +1,261 @@
+# Quick Start Guide
+
+Get up and running with Anofox Statistics in 5 minutes.
+
+## Installation
+
+```bash
+# Build the extension
+cd anofox-statistics-duckdb-extension
+make release
+```
+
+## Load Extension
+
+<!-- include: test/sql/guide01_load_extension.sql -->
+
+## Example 1: Simple Linear Regression
+
+**What it does**: Performs ordinary least squares (OLS) regression to find the best-fit line for your data. This is the foundation of regression analysis.
+
+**When to use**: When you want to understand the relationship between two continuous variables (e.g., how sales change with price, or how performance correlates with training hours).
+
+**How it works**: The `ols_fit_agg` function analyzes your y and x columns, calculating the slope (coefficient) and quality metrics. It automatically handles missing values and computes goodness-of-fit statistics.
+
+<!-- include: test/sql/guide01_example_1_simple_linear_regression.sql -->
+
+**Output:**
+```
+┌──────────────┬───────────┬──────────┬───────────────┬──────┬───────┐
+│ variable     │ coef      │ r²       │ adj_r²        │ rmse │ n_obs │
+├──────────────┼───────────┼──────────┼───────────────┼──────┼───────┤
+│ x1           │ 1.02      │ 0.998    │ 0.997         │ 0.05 │ 5     │
+└──────────────┴───────────┴──────────┴───────────────┴──────┴───────┘
+```
+
+**What the results mean**:
+- **coef (1.02)**: For every 1-unit increase in x1, y increases by 1.02 units
+- **R² (0.998)**: The model explains 99.8% of the variation in y - an excellent fit
+- **RMSE (0.05)**: The typical prediction error is only 0.05 units
+
+## Example 2: Get p-values and Significance
+
+**What it does**: Performs statistical hypothesis testing to determine if your predictors have a real effect or if the observed relationship could be due to chance.
+
+**When to use**: When you need to validate that a relationship is statistically significant before making business decisions or reporting findings. Essential for scientific research and evidence-based decision making.
+
+**How it works**: The `ols_inference` function computes test statistics and p-values using the t-distribution. It tests the null hypothesis that each coefficient equals zero (no effect). Lower p-values provide stronger evidence against the null hypothesis.
+
+<!-- include: test/sql/guide01_example_2_get_p_values_and_significance.sql -->
+
+**Output:**
+```
+┌───────────┬─────────────┬─────────┬─────────────┐
+│ variable  │ coefficient │ p_value │ significant │
+├───────────┼─────────────┼─────────┼─────────────┤
+│ intercept │ 0.03        │ 0.9766  │ false       │
+│ x1        │ 2.01        │ 0.0000  │ true        │
+└───────────┴─────────────┴─────────┴─────────────┘
+```
+
+**What the results mean**:
+- **intercept (0.03, p=0.98)**: Not statistically significant - could be zero
+- **x1 (2.01, p<0.0001)**: Highly significant - very strong evidence of a real effect
+- **significant flag**: Automatically marks coefficients with p < 0.05
+
+The coefficient x1 = 2.01 is highly significant (p < 0.0001), meaning we can confidently say there's a real relationship between x1 and y.
+
+## Example 3: Regression Per Group
+
+**What it does**: Runs separate regressions for each group in your data using SQL's GROUP BY clause. This reveals whether relationships differ across segments.
+
+**When to use**: When analyzing multiple products, regions, customers, or time periods simultaneously. Common for A/B testing, market segmentation, and comparative analysis.
+
+**How it works**: The `ols_fit_agg` function works like any SQL aggregate (SUM, AVG, etc.). Combined with GROUP BY, it computes separate regression models for each group. The extension automatically parallelizes these calculations for performance.
+
+<!-- include: test/sql/guide01_example_3_regression_per_group.sql -->
+
+**Output:**
+```
+┌───────────┬──────────────────┬──────────────┐
+│ product   │ price_elasticity │ fit_quality  │
+├───────────┼──────────────────┼──────────────┤
+│ Product A │ 1.98             │ 0.996        │
+│ Product B │ 2.02             │ 0.997        │
+└───────────┴──────────────────┴──────────────┘
+```
+
+**What the results mean**:
+- **Product A**: Price elasticity of 1.98 means a 1% price increase leads to ~2% decrease in quantity
+- **Product B**: Similar elasticity (2.02), suggesting both products are price-sensitive
+- **Fit quality**: R² > 0.99 indicates price strongly predicts demand for both products
+
+This analysis completed in a single query across all products - no need for loops or separate analyses.
+
+## Example 4: Time-Series Rolling Regression
+
+**What it does**: Computes regression coefficients over a moving window of data points. This captures how relationships change over time.
+
+**When to use**: For trend analysis with time-series data where you expect the relationship to evolve (e.g., seasonal patterns, market dynamics changing, or detecting regime shifts).
+
+**How it works**: Uses SQL window functions with `ROWS BETWEEN ... PRECEDING AND CURRENT ROW` to define the rolling window. The `ols_coeff_agg` function then runs on each window. Perfect for detecting when trends accelerate or reverse.
+
+<!-- include: test/sql/guide01_example_4_time_series_rolling_regression.sql -->
+
+**Output:**
+```
+┌───────────┬───────┬───────────────┐
+│ time_idx  │ value │ rolling_trend │
+├───────────┼───────┼───────────────┤
+│ 10        │ 15.2  │ 1.51          │
+│ 11        │ 16.7  │ 1.49          │
+│ 12        │ 18.1  │ 1.52          │
+│ ...       │ ...   │ ...           │
+└───────────┴───────┴───────────────┘
+```
+
+**What the results mean**:
+- **rolling_trend (1.51)**: Based on the last 10 observations, the value increases by 1.51 per time unit
+- **Changing values**: If rolling_trend was 1.49 earlier and now 1.52, the growth rate is accelerating
+- **Applications**: Detect market momentum, identify inflection points, or adapt forecasts to recent patterns
+
+## Example 5: Make Predictions
+
+**What it does**: Generates predictions for new data points along with confidence intervals that quantify uncertainty.
+
+**When to use**: For forecasting, scenario planning, or any situation where you need point estimates plus a sense of how confident you should be in those estimates.
+
+**How it works**: The `ols_predict_interval` function takes your fitted model and new predictor values, computing both the predicted value and the standard error. Confidence intervals are constructed using the t-distribution, accounting for both model uncertainty and inherent data variability.
+
+<!-- include: test/sql/guide01_example_5_make_predictions.sql -->
+
+**Output:**
+```
+┌────────────────┬───────────┬──────────┬───────────┬─────┐
+│ observation_id │ predicted │ ci_lower │ ci_upper  │ se  │
+├────────────────┼───────────┼──────────┼───────────┼─────┤
+│ 1              │ 6.0       │ 5.2      │ 6.8       │ 0.4 │
+│ 2              │ 7.0       │ 6.1      │ 7.9       │ 0.45│
+│ 3              │ 8.0       │ 7.0      │ 9.0       │ 0.5 │
+└────────────────┴───────────┴──────────┴───────────┴─────┘
+```
+
+**What the results mean**:
+- **predicted (6.0)**: Best estimate for observation 1
+- **ci_lower/ci_upper (5.2 to 6.8)**: 95% confidence interval - the true mean is very likely in this range
+- **se (0.4)**: Standard error increases for predictions farther from the training data
+- **Narrower intervals = more confident**, wider intervals = more uncertainty
+
+Use these intervals for risk assessment: plan for the midpoint, but prepare for the range.
+
+## Example 6: Check Model Quality
+
+**What it does**: Computes information criteria (AIC, BIC) to help you choose between competing models. These metrics balance goodness-of-fit against model complexity.
+
+**When to use**: When deciding whether to add more predictors, comparing different model specifications, or preventing overfitting by penalizing complexity.
+
+**How it works**: The `information_criteria` function calculates AIC and BIC, which combine the residual sum of squares (fit quality) with a penalty for the number of parameters. Lower values indicate better models that balance fit and parsimony.
+
+<!-- include: test/sql/guide01_example_6_check_model_quality.sql -->
+
+**Output:**
+```
+┌───────┬──────────┬──────┬───────────┬────────┬────────┐
+│ n_obs │ n_params │ rss  │ r_squared │ aic    │ bic    │
+├───────┼──────────┼──────┼───────────┼────────┼────────┤
+│ 8     │ 2        │ 0.13 │ 0.9994    │ -40.23 │ -39.81 │
+└───────┴──────────┴──────┴───────────┴────────┴────────┘
+```
+
+**What the results mean**:
+- **R² (0.9994)**: Excellent fit - model explains 99.94% of variation
+- **AIC (-40.23), BIC (-39.81)**: Lower is better - use to compare against alternative models
+- **Rule of thumb**: If adding a predictor decreases AIC/BIC by >2, the extra complexity is justified
+- **BIC penalty**: Stronger than AIC, so BIC favors simpler models more aggressively
+
+When comparing models, choose the one with the lowest AIC (prediction focus) or BIC (simplicity focus).
+
+## Example 7: Detect Outliers
+
+**What it does**: Identifies observations that don't fit the model well (outliers) and those that heavily influence the regression results (influential points).
+
+**When to use**: For data quality checks, identifying data entry errors, finding special cases that need investigation, or assessing model robustness.
+
+**How it works**: The `residual_diagnostics` function computes leverage (how unusual x values are), Cook's distance (combined measure of influence), and studentized residuals (standardized prediction errors). It flags observations exceeding statistical thresholds.
+
+<!-- include: test/sql/guide01_example_7_detect_outliers.sql -->
+
+**Output:**
+```
+┌────────┬──────────┬──────────┬─────────┬────────────┬────────────────┐
+│ obs_id │ residual │ leverage │ cooks_d │ is_outlier │ is_influential │
+├────────┼──────────┼──────────┼─────────┼────────────┼────────────────┤
+│ 8      │ 8.95     │ 0.417    │ 49.23   │ true       │ true           │
+│ 1      │ 0.12     │ 0.417    │ 0.09    │ false      │ false          │
+│ 7      │ -0.18    │ 0.274    │ 0.08    │ false      │ false          │
+└────────┴──────────┴──────────┴─────────┴────────────┴────────────────┘
+```
+
+**What the results mean**:
+- **Observation 8**: Large residual (8.95) + high leverage (0.417) + high Cook's D (49.23) = problematic point
+- **is_outlier (true)**: Prediction error is extreme (> 2.5 standard deviations)
+- **is_influential (true)**: Removing this point would significantly change the regression line
+- **Action**: Investigate observation 8 - could be data error, special case, or genuine extreme value
+
+Most observations (like 1 and 7) fit well and have minimal influence on the results.
+
+## Common Patterns
+
+These patterns demonstrate best practices for different analytical scenarios.
+
+### Pattern 1: Quick coefficient check
+
+**Use case**: Get a fast coefficient estimate without full model details. Ideal for exploratory analysis or when you only care about the slope.
+
+<!-- include: test/sql/guide01_pattern_1_quick_coefficient_check.sql -->
+
+### Pattern 2: Per-group with GROUP BY
+
+**Use case**: Compare relationships across multiple segments simultaneously. More efficient than running separate analyses for each group.
+
+<!-- include: test/sql/guide01_pattern_2_per_group_with_group_by.sql -->
+
+### Pattern 3: Rolling window with OVER
+
+**Use case**: Track how relationships evolve over time or across ordered data. Essential for time-series analysis and detecting trend changes.
+
+<!-- include: test/sql/guide01_pattern_3_rolling_window_with_over.sql -->
+
+### Pattern 4: Full statistical workflow
+
+**Use case**: Complete regression analysis from model fitting through diagnostics. This is the comprehensive approach for rigorous statistical work.
+
+<!-- include: test/sql/guide01_pattern_4_full_statistical_workflow.sql -->
+
+## Next Steps
+
+- **[Technical Guide](02_technical_guide.md)**: Learn about architecture and implementation
+- **[Statistics Guide](03_statistics_guide.md)**: Understand the statistical methodology
+- **[Business Guide](04_business_guide.md)**: See real-world business applications
+- **[Advanced Use Cases](05_advanced_use_cases.md)**: Complex analytical workflows
+
+## Common Issues
+
+### Issue: Extension won't load
+<!-- include: test/sql/guide01_issue_extension_wont_load.sql -->
+
+### Issue: Type mismatch
+<!-- include: test/sql/guide01_issue_type_mismatch.sql -->
+
+### Issue: Insufficient observations
+```
+Error: Need at least n+1 observations for n parameters
+```
+
+Solution: Ensure you have more observations than predictors.
+
+## Getting Help
+
+- Check function signatures: See [README.md](../README.md)
+- Report bugs: [GitHub Issues](https://github.com/yourusername/anofox-statistics-duckdb-extension/issues)
+- Ask questions: [GitHub Discussions](https://github.com/yourusername/anofox-statistics-duckdb-extension/discussions)

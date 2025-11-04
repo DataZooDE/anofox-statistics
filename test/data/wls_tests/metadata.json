@@ -1,0 +1,11 @@
+{
+  "generated_at": ["2025-10-30 22:30:58 CET"],
+  "r_version": ["R version 4.5.1 (2025-06-13)"],
+  "seed": [42],
+  "description": ["Weighted Least Squares test data with different weight schemes"],
+  "test_cases": {
+    "wls_equal_weights": ["Equal weights (should match OLS)"],
+    "wls_inverse_variance": ["Inverse variance weights for heteroscedastic data"]
+  },
+  "note": ["Uses R lm() with weights parameter"]
+}

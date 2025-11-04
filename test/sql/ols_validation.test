@@ -1,0 +1,198 @@
+# name: test/sql/ols_validation.test
+# description: OLS regression validation tests (validated against R statistical computing)
+# group: [sql]
+
+require anofox_statistics
+
+# Test 1: Simple Linear Regression with Intercept
+# Data: y = [2.1, 4.2, 5.9, 8.1, 10.0], x = [1, 2, 3, 4, 5]
+# Expected (from R): intercept=0.15, slope=1.97, R²=0.9989, RMSE=0.1197
+query RRRRR
+SELECT
+    round(intercept::DOUBLE, 10) as intercept,
+    round(coefficients[1]::DOUBLE, 10) as slope,
+    round(r_squared::DOUBLE, 10) as r_squared,
+    round(adj_r_squared::DOUBLE, 10) as adj_r_squared,
+    round(rmse::DOUBLE, 10) as rmse
+FROM anofox_statistics_ols_fit(
+    [2.1, 4.2, 5.9, 8.1, 10.0]::DOUBLE[],
+    [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],
+    true
+);
+----
+0.15	1.97	0.9988932359	0.9985243145	0.1197219
+
+# Test 1b: Verify coefficients are not aliased
+query T
+SELECT coefficients IS NOT NULL as slopes_not_null
+FROM anofox_statistics_ols_fit(
+    [2.1, 4.2, 5.9, 8.1, 10.0]::DOUBLE[],
+    [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],
+    true
+);
+----
+true
+
+# Test 2: Multiple Regression with independent predictors
+# Data: y = -1.5 + 3.5*x1 + 0.5*x2 + 2.0*x3 + noise (R²≈0.9998)
+# Predictors are independent (VIF: x1=10.08, x2=5.03, x3=4.97)
+query RRRRR
+SELECT
+    round(intercept::DOUBLE, 10) as intercept,
+    round(coefficients[1]::DOUBLE, 10) as slope1,
+    round(coefficients[2]::DOUBLE, 10) as slope2,
+    round(coefficients[3]::DOUBLE, 10) as slope3,
+    round(r_squared::DOUBLE, 10) as r_squared
+FROM anofox_statistics_ols_fit(
+    [9.3490142459, 23.0585207096, 20.1443065614, 27.5069089569, 23.3797539876, 40.4297589129, 36.6737638447, 43.2302304187, 44.8091576842, 59.3127680131]::DOUBLE[],
+    [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]::DOUBLE[],
+    [5.2, 2.8, 7.1, 1.5, 9.3, 3.6, 8.4, 4.2, 6.7, 10.1]::DOUBLE[],
+    [2.3, 8.1, 3.7, 6.9, 1.4, 9.6, 4.5, 7.2, 5.8, 10.3]::DOUBLE[],
+    true
+);
+----
+-1.2644666911	3.5092902696	0.4860377434	1.9882987012	0.9997870909
+
+# Test 3: OLS without Intercept
+# Data: y = 2*x (perfect fit, no intercept)
+# Expected (from R): slope=2.0 (exact)
+query R
+SELECT round(coefficients[1]::DOUBLE, 10) as slope
+FROM anofox_statistics_ols_fit(
+    [2.0, 4.0, 6.0, 8.0, 10.0]::DOUBLE[],
+    [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],
+    false
+);
+----
+2.0
+
+# Test 3b: Verify intercept is zero when not fitted
+query R
+SELECT round(intercept::DOUBLE, 10) as intercept
+FROM anofox_statistics_ols_fit(
+    [2.0, 4.0, 6.0, 8.0, 10.0]::DOUBLE[],
+    [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],
+    false
+);
+----
+0.0
+
+# Test 4: Rank-Deficient (Constant Feature)
+# Data: x1=[1,2,3,4,5], x2=[5,5,5,5,5] (constant), y=2*x1
+# Expected (from R): intercept≈0, x1=2.0, x2=NULL (aliased)
+query RRT
+SELECT
+    round(intercept::DOUBLE, 10) as intercept,
+    round(coefficients[1]::DOUBLE, 10) as x1_coef,
+    coefficients[2] IS NULL as x2_is_null
+FROM anofox_statistics_ols_fit(
+    [2.0, 4.0, 6.0, 8.0, 10.0]::DOUBLE[],
+    [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],
+    [5.0, 5.0, 5.0, 5.0, 5.0]::DOUBLE[],
+    true
+);
+----
+0.0	2.0	true
+
+# Test 5: Perfect Collinearity
+# Data: x1=[1,2,3,4,5], x2=2*x1 (perfect collinearity), y=2*x1+1
+# Expected (from R): intercept=1.0, exactly one non-NULL coefficient, R²=1.0
+query RIR
+SELECT
+    round(intercept::DOUBLE, 10) as intercept,
+    (CASE WHEN coefficients[1] IS NOT NULL THEN 1 ELSE 0 END +
+     CASE WHEN coefficients[2] IS NOT NULL THEN 1 ELSE 0 END) as non_null_count,
+    round(r_squared::DOUBLE, 10) as r_squared
+FROM anofox_statistics_ols_fit(
+    [3.0, 5.0, 7.0, 9.0, 11.0]::DOUBLE[],
+    [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],
+    [2.0, 4.0, 6.0, 8.0, 10.0]::DOUBLE[],
+    true
+);
+----
+1.0	1	1.0
+
+# Test 5b: Verify the non-NULL coefficient has correct value
+# Either x1=2.0 or x2=1.0, both are valid solutions
+query T
+SELECT
+    CASE
+        WHEN coefficients[1] IS NOT NULL THEN round(coefficients[1]::DOUBLE, 10) = 2.0
+        WHEN coefficients[2] IS NOT NULL THEN round(coefficients[2]::DOUBLE, 10) = 1.0
+        ELSE false
+    END as coefficient_correct
+FROM anofox_statistics_ols_fit(
+    [3.0, 5.0, 7.0, 9.0, 11.0]::DOUBLE[],
+    [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],
+    [2.0, 4.0, 6.0, 8.0, 10.0]::DOUBLE[],
+    true
+);
+----
+true
+
+# Test 6: Edge Case - Exact fit with intercept
+# Verify RMSE is very small for near-perfect fit
+query T
+SELECT rmse::DOUBLE < 0.0001 as rmse_near_zero
+FROM anofox_statistics_ols_fit(
+    [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],
+    [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],
+    true
+);
+----
+true
+
+# Test 7: Edge Case - Small sample size (n=3, minimum for OLS with intercept)
+query RRR
+SELECT
+    round(intercept::DOUBLE, 10) as intercept,
+    round(coefficients[1]::DOUBLE, 10) as slope,
+    round(r_squared::DOUBLE, 10) as r_squared
+FROM anofox_statistics_ols_fit(
+    [2.0, 4.0, 6.0]::DOUBLE[],
+    [1.0, 2.0, 3.0]::DOUBLE[],
+    true
+);
+----
+0.0	2.0	1.0
+
+# Test 8: Numerical Stability - Large values
+query T
+SELECT r_squared::DOUBLE > 0.99 as high_r_squared
+FROM anofox_statistics_ols_fit(
+    [1000.0, 2000.0, 3000.0, 4000.0, 5000.0]::DOUBLE[],
+    [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],
+    true
+);
+----
+true
+
+# Test 9: Verify all output fields are present and correct type
+query TTTTTTTT
+SELECT
+    intercept IS NOT NULL as has_intercept,
+    coefficients IS NOT NULL as has_coefficients,
+    r_squared IS NOT NULL as has_r_squared,
+    adj_r_squared IS NOT NULL as has_adj_r_squared,
+    mse IS NOT NULL as has_mse,
+    rmse IS NOT NULL as has_rmse,
+    n_obs IS NOT NULL as has_n_obs,
+    n_features IS NOT NULL as has_n_features
+FROM anofox_statistics_ols_fit(
+    [2.1, 4.2, 5.9, 8.1, 10.0]::DOUBLE[],
+    [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],
+    true
+);
+----
+true	true	true	true	true	true	true	true
+
+# Test 10: Consistency check - MSE = RMSE²
+query T
+SELECT abs(mse::DOUBLE - (rmse::DOUBLE * rmse::DOUBLE)) < 1e-10 as mse_equals_rmse_squared
+FROM anofox_statistics_ols_fit(
+    [2.1, 4.2, 5.9, 8.1, 10.0]::DOUBLE[],
+    [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],
+    true
+);
+----
+true

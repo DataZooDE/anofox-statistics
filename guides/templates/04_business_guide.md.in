@@ -1,0 +1,286 @@
+# Business Guide
+
+Real-world business applications of the Anofox Statistics extension, demonstrating how to turn data into actionable business insights.
+
+## Important Note About Examples
+
+**All examples below are copy-paste runnable!** Each example includes sample data creation.
+
+**Working Patterns**:
+- **Aggregate functions** (`ols_fit_agg`, `ols_coeff_agg`) work directly with table data - use these for GROUP BY analysis
+- **Table functions** (`ols_inference`, `ols_predict_interval`) require literal arrays - examples show small datasets with explicit arrays
+- All functions use positional parameters only (no `:=` syntax)
+
+**To adapt for your tables**: Replace sample data creation with your actual tables. For table functions with large datasets, use the two-step approach: run `SELECT LIST(column) FROM table`, copy result, paste as literal array.
+
+## Marketing Analytics
+
+### Use Case 1: Marketing Mix Modeling
+
+**Business Question**: Which marketing channels drive the most sales?
+
+<!-- include: test/sql/guide04_use_case_1_marketing_mix_modeling.sql -->
+
+**Business Interpretation**:
+- **ROI (coefficient)**: For every $1 increase in channel spend, revenue increases by $X
+- **R²**: How well the channel spend predicts revenue (higher is better)
+- Univariate analysis shows individual channel impact
+
+**Business Decision**: Prioritize channels with highest ROI. Digital and TV show strongest returns.
+
+### Use Case 2: Price Elasticity Analysis
+
+**Business Question**: How sensitive are customers to price changes?
+
+<!-- include: test/sql/guide04_use_case_2_price_elasticity_analysis.sql -->
+
+**Business Interpretation**:
+- **Negative elasticity**: Lower prices → higher quantity (normal demand curve)
+- **High |elasticity|**: Elastic demand - customers are price-sensitive
+- **R²**: How well price predicts quantity
+
+**Business Decision**: Use competitive pricing for elastic categories, premium pricing for inelastic categories.
+
+### Use Case 3: Customer Lifetime Value Prediction
+
+**Business Question**: Predict future customer value to guide acquisition spending.
+
+<!-- include: test/sql/guide04_use_case_3_customer_lifetime_value_predi.sql -->
+
+**Business Interpretation**:
+- **Coefficient**: Impact of each factor on customer lifetime value
+- **R²**: How well features predict CLV
+- **Tenure** and **frequency** typically show strongest CLV correlation
+
+**Business Decision**: Focus acquisition on customers likely to have high tenure and purchase frequency.
+
+## Financial Analytics
+
+### Use Case 4: Portfolio Beta Calculation
+
+**Business Question**: Measure market sensitivity of each stock for risk management.
+
+<!-- include: test/sql/guide04_use_case_4_portfolio_beta_calculation.sql -->
+
+**Business Interpretation**:
+- **Beta = 1.0**: Moves with market (average risk)
+- **Beta > 1.0**: More volatile than market (higher risk, higher potential return)
+- **Beta < 1.0**: Less volatile than market (lower risk, lower potential return)
+- **R² > 0.7**: Strong correlation with market
+
+**Example Output**:
+```
+┌──────────────┬──────┬───────────┬───────────────┬───────────────────────┐
+│ stock_ticker │ beta │ r_squared │ risk_category │ investor_suitability  │
+├──────────────┼──────┼───────────┼───────────────┼───────────────────────┤
+│ TECH         │ 1.45 │ 0.823     │ High Risk     │ Aggressive            │
+│ GROWTH       │ 1.18 │ 0.756     │ High Risk     │ Aggressive            │
+│ INDEX        │ 0.98 │ 0.912     │ Medium Risk   │ Moderate              │
+│ UTILITY      │ 0.42 │ 0.645     │ Low Risk      │ Defensive             │
+└──────────────┴──────┴───────────┴───────────────┴───────────────────────┘
+```
+
+**Business Decision**: Balance portfolio with mix of high/low beta stocks based on risk tolerance.
+
+### Use Case 5: Credit Risk Modeling
+
+**Business Question**: Predict loan default risk to optimize lending decisions.
+
+<!-- include: test/sql/guide04_use_case_5_credit_risk_modeling.sql -->
+
+**Business Interpretation**:
+- **Positive coefficient**: Factor increases default probability
+- **Negative coefficient**: Factor decreases default probability
+- **P-value < 0.05**: Factor is statistically significant predictor
+
+**Business Decision**: Adjust lending criteria based on most significant risk factors.
+
+### Use Case 6: Revenue Forecasting with Trend Analysis
+
+**Business Question**: Forecast next quarter's revenue with confidence intervals.
+
+<!-- include: test/sql/guide04_use_case_6_revenue_forecasting_with_tren.sql -->
+
+**Example Output**:
+```
+┌────────────────┬────────────┬──────────────────────────┬──────────────────────────────┬─────────────────────────────┬─────────────────┐
+│ quarter_offset │ quarter_id │ forecast_revenue_millions│ conservative_estimate_millions│ optimistic_estimate_millions│ uncertainty_pct │
+├────────────────┼────────────┼──────────────────────────┼──────────────────────────────┼─────────────────────────────┼─────────────────┤
+│ 1              │ 21         │ 52.3                     │ 48.1                         │ 56.5                        │ 16.1            │
+│ 2              │ 22         │ 54.8                     │ 49.8                         │ 59.8                        │ 18.2            │
+│ 3              │ 23         │ 57.3                     │ 51.2                         │ 63.4                        │ 21.3            │
+│ 4              │ 24         │ 59.8                     │ 52.4                         │ 67.2                        │ 24.7            │
+└────────────────┴────────────┴──────────────────────────┴──────────────────────────────┴─────────────────────────────┴─────────────────┘
+```
+
+**Business Decision**: Plan for $52.3M revenue in Q21, with contingency plans for $48-56M range.
+
+## Operational Analytics
+
+### Use Case 7: Demand Forecasting for Inventory
+
+**Business Question**: Optimize inventory levels by predicting product demand.
+
+<!-- include: test/sql/guide04_use_case_7_demand_forecasting_for_invent.sql -->
+
+**Business Decision**: Automate replenishment for high-confidence products, manual review for others.
+
+### Use Case 8: Quality Control Process Optimization
+
+**Business Question**: Identify which process parameters affect product defects.
+
+<!-- include: test/sql/guide04_use_case_8_quality_control_process_optim.sql -->
+
+**Business Decision**: Optimize process parameters that significantly affect defect rates.
+
+### Use Case 9: Employee Productivity Analysis
+
+**Business Question**: Understand factors driving team productivity.
+
+<!-- include: test/sql/guide04_use_case_9_employee_productivity_analysi.sql -->
+
+**Business Decision**: Allocate training budget to departments with highest ROI.
+
+## Sales Analytics
+
+### Use Case 10: Territory Performance Analysis
+
+**Business Question**: Which territories are underperforming and why?
+
+<!-- include: test/sql/guide04_use_case_10_territory_performance_analys.sql -->
+
+**Business Decision**: Prioritize intervention in declining territories, invest in rising stars.
+
+## Key Business Metrics & Interpretation
+
+### Understanding R² (R-Squared)
+
+**What it means**: Percentage of variation in outcome explained by your model.
+
+- **R² = 0.95**: Model explains 95% of variation (excellent for forecasting)
+- **R² = 0.70**: Model explains 70% of variation (good for business decisions)
+- **R² = 0.40**: Model explains 40% of variation (use with caution)
+
+**Business Context**:
+- **Marketing**: R² > 0.6 is strong (many external factors)
+- **Finance**: R² > 0.7 expected (more predictable)
+- **Operations**: R² > 0.8 desired (controlled environment)
+
+### Understanding P-Values
+
+**What it means**: Probability that relationship is due to chance.
+
+- **p < 0.001**: Extremely strong evidence (***) - Very confident
+- **p < 0.01**: Strong evidence (**) - Confident
+- **p < 0.05**: Moderate evidence (*) - Reasonably confident
+- **p > 0.05**: Weak evidence - Not confident
+
+**Business Rule**: Only act on factors with p < 0.05 (95% confidence).
+
+### Understanding Coefficients
+
+**What it means**: How much Y changes when X increases by 1 unit.
+
+**Example**: Marketing spend coefficient = 3.2
+- For every $1 increase in marketing, revenue increases by $3.20
+- ROI = 3.2 - 1 = 2.2, or 220% return
+
+**Business Decision Framework**:
+- If coefficient × volume > costs, invest
+- If p-value < 0.05, trust the estimate
+- If R² > 0.7, forecast with confidence
+
+### Understanding Confidence Intervals
+
+**What it means**: Range where true value likely falls (e.g., 90% or 95% confidence).
+
+**Example**: Revenue forecast = $50M with 90% CI [$45M, $55M]
+- Best estimate: $50M
+- Conservative plan: $45M
+- Optimistic plan: $55M
+- Planning buffer: $5M variance
+
+**Business Application**:
+- **Budgeting**: Use lower bound (conservative)
+- **Target Setting**: Use point estimate (realistic)
+- **Capacity Planning**: Use upper bound (optimistic)
+
+### Understanding Outliers & Influence
+
+**Outliers**: Data points that don't fit the pattern.
+**Influential**: Points that strongly affect the model.
+
+**Business Decisions**:
+- **Outlier + Influential**: Investigate (data error or special case?)
+- **Outlier + Not Influential**: Monitor (unusual but not problematic)
+- **Not Outlier + Influential**: Normal leverage point
+
+**Example**:
+- Q4 sales spike (outlier) due to holiday season → Keep (real pattern)
+- Data entry error showing $10M sale → Remove (data quality issue)
+
+## ROI Analysis Framework
+
+### Marketing Campaign ROI
+
+<!-- include: test/sql/guide04_marketing_campaign_roi.sql -->
+
+### Process Improvement ROI
+
+**Formula**: (Defect Reduction × Cost per Defect) - Implementation Cost
+
+Use regression to quantify defect reduction from process changes.
+
+## Best Practices for Business Users
+
+### 1. Always Check Statistical Significance
+
+Don't act on p-values > 0.05 unless you have strong business reasons.
+
+### 2. Validate Model Quality
+
+- Check R² before making forecasts
+- Review residual diagnostics for unusual patterns
+- Look for influential outliers
+
+### 3. Use Confidence Intervals for Risk Management
+
+- Plan for lower bound (pessimistic)
+- Expect point estimate (realistic)
+- Hope for upper bound (optimistic)
+
+### 4. Consider Business Context
+
+Statistical significance ≠ Business significance
+
+**Example**:
+- Coefficient = 0.001, p < 0.001 (statistically significant)
+- But $1 increase → $0.001 revenue (not business significant)
+
+### 5. Monitor Model Performance Over Time
+
+Use rolling regressions to detect changes in relationships:
+
+<!-- include: test/sql/guide04_5_monitor_model_performance_over_time.sql -->
+
+### 6. Combine Multiple Models
+
+Don't rely on single model - triangulate with multiple approaches:
+
+<!-- include: test/sql/guide04_6_combine_multiple_models.sql -->
+
+## Conclusion
+
+The Anofox Statistics extension transforms DuckDB into a powerful business analytics platform. Key takeaways:
+
+1. **Test Everything**: Use p-values to validate relationships
+2. **Quantify Impact**: Use coefficients for ROI calculations
+3. **Measure Uncertainty**: Use confidence intervals for risk management
+4. **Monitor Quality**: Use diagnostics to ensure model validity
+5. **Act with Confidence**: Statistical evidence → Better business decisions
+
+For more examples:
+- [Quick Start Guide](01_quick_start.md) - Basic usage
+- [Technical Guide](02_technical_guide.md) - Implementation details
+- [Statistics Guide](03_statistics_guide.md) - Statistical theory
+- [Advanced Use Cases](05_advanced_use_cases.md) - Complex workflows

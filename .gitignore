@@ -6,3 +6,28 @@ duckdb_unittest_tempdir/
 testext
 test/python/__pycache__/
 .Rhistory
+build_standalone
+build_standalone/
+
+# Note: Generated .md files in guides/ ARE committed (not ignored)
+# They are built from guides/templates/*.md.in and need to be visible on GitHub
+# The build process is automated via pre-commit hooks
+
+# Only ignore these documentation-related items if needed:
+# /guides/build/
+# *.md.backup
+
+# Test data IS committed (important for reproducibility!)
+# test/data/
+
+# But ignore temporary files in test/data/
+test/data/**/*.tmp
+test/data/**/*.log
+test/data/**/.DS_Store
+
+# Validation temporary outputs
+validation/**/*.Rout
+validation/**/__pycache__/
+validation/**/*.pyc
+validation/R_libs/
+AGENTS.md

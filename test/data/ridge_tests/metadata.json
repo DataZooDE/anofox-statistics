@@ -1,0 +1,12 @@
+{
+  "generated_at": ["2025-10-30 22:30:58 CET"],
+  "r_version": ["R version 4.5.1 (2025-06-13)"],
+  "glmnet_version": ["4.1.10"],
+  "seed": [42],
+  "description": ["Ridge regression test data with different lambda values"],
+  "test_cases": {
+    "ridge_lambda_0.1": ["Ridge with lambda=0.1 (light regularization)"],
+    "ridge_lambda_1.0": ["Ridge with lambda=1.0 (stronger regularization)"]
+  },
+  "note": ["Uses glmnet with alpha=0, standardize=FALSE, intercept=TRUE"]
+}
