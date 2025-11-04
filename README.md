@@ -1,6 +1,6 @@
 # Anofox Statistics - DuckDB Extension
 
-A comprehensive statistical analysis extension for DuckDB, providing professional-grade regression analysis, diagnostics, and inference capabilities directly within your database.
+A statistical analysis extension for DuckDB, providing regression analysis, diagnostics, and inference capabilities directly within your database.
 
 [![License: BSL 1.1](https://img.shields.io/badge/License-BSL%201.1-blue.svg)](LICENSE)
 [![DuckDB Version](https://img.shields.io/badge/DuckDB-v1.4.1-brightgreen.svg)](https://duckdb.org)
@@ -287,7 +287,7 @@ make format
 
 ## Roadmap
 
-### Current (v1.0.0) ✅
+### Current (v0.1.0) ✅
 - ✅ **Complete regression suite**: OLS, Ridge, WLS, RLS
 - ✅ **Time-series support**: Rolling and expanding window regressions
 - ✅ **Rank-deficiency handling**: R-like behavior for constant features and multicollinearity
@@ -296,16 +296,16 @@ make format
 - ✅ **Aggregate & window functions**: Per-group and rolling analysis
 - ✅ **Multi-platform support**: Linux, macOS, Windows (x64 & ARM64)
 
-### Planned (v1.1.0)
+### Planned (v0.2.0)
+- ⏳ LighGBM
 - ⏳ Heteroscedasticity tests (White, Breusch-Pagan)
 - ⏳ Autocorrelation tests (Durbin-Watson, Ljung-Box)
 - ⏳ Robust regression (M-estimators, Huber)
 - ⏳ Model selection helpers (cross-validation, stepwise)
 
-### Future (v2.0.0)
+### Future 
 - 🔮 Generalized Linear Models (GLM)
 - 🔮 Quantile regression
-- 🔮 Time series decomposition (STL)
 - 🔮 Survival analysis (Cox proportional hazards)
 - 🔮 Mixed effects models
 
