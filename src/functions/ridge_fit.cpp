@@ -252,12 +252,12 @@ static void ComputeRidge(RidgeFitBindData &data) {
 	// Adjusted R² using effective rank
 	idx_t effective_params = data.rank;
 	if (n > effective_params + 1) {
-		data.adj_r_squared = 1.0 - ((1.0 - data.r_squared) * (n - 1.0) / (n - effective_params - 1.0));
+		data.adj_r_squared = 1.0 - ((1.0 - data.r_squared) * (static_cast<double>(n) - 1.0) / (static_cast<double>(n) - static_cast<double>(effective_params) - 1.0));
 	} else {
 		data.adj_r_squared = data.r_squared;
 	}
 
-	data.mse = ss_res / n;
+	data.mse = ss_res / static_cast<double>(n);
 	data.rmse = std::sqrt(data.mse);
 
 	ANOFOX_DEBUG("Ridge complete: R² = " << data.r_squared << ", λ=" << data.lambda << ", rank = " << data.rank << "/"
@@ -360,7 +360,7 @@ static unique_ptr<FunctionData> RidgeFitBind(ClientContext &context, TableFuncti
 
 static void RidgeFitExecute(ClientContext &context, TableFunctionInput &data, DataChunk &output) {
 
-	auto &bind_data = const_cast<RidgeFitBindData &>(dynamic_cast<const RidgeFitBindData &>(*data.bind_data));
+	auto &bind_data = data.bind_data->CastNoConst<RidgeFitBindData>();
 
 	if (bind_data.result_returned) {
 		return;
@@ -386,8 +386,8 @@ static void RidgeFitExecute(ClientContext &context, TableFunctionInput &data, Da
 	output.data[3].SetValue(0, Value(bind_data.adj_r_squared));
 	output.data[4].SetValue(0, Value(bind_data.mse));
 	output.data[5].SetValue(0, Value(bind_data.rmse));
-	output.data[6].SetValue(0, Value::BIGINT(bind_data.n_obs));
-	output.data[7].SetValue(0, Value::BIGINT(bind_data.n_features));
+	output.data[6].SetValue(0, Value::BIGINT(static_cast<int64_t>(bind_data.n_obs)));
+	output.data[7].SetValue(0, Value::BIGINT(static_cast<int64_t>(bind_data.n_features)));
 	output.data[8].SetValue(0, Value(bind_data.lambda));
 }
 
