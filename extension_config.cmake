@@ -1,10 +1,11 @@
-# This file is included by DuckDB's build system. It specifies which extension to load
+# Extension configuration for anofox-statistics
+# This extension provides statistical regression functions backed by the AnofoxStatistics C++ library
 
-# Extension from this repo
-duckdb_extension_load(quack
+# Fix for older glibc versions (< 2.17) - add missing madvise constants
+# This must be set BEFORE any DuckDB components are built
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DMADV_DONTDUMP=24 -DMADV_DODUMP=25" CACHE STRING "C flags" FORCE)
+
+duckdb_extension_load(anofox_statistics
     SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}
     LOAD_TESTS
 )
-
-# Any extra extensions that should be built
-# e.g.: duckdb_extension_load(json)
