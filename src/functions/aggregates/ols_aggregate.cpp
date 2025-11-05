@@ -1,6 +1,7 @@
 #include "ols_aggregate.hpp"
 #include "../utils/tracing.hpp"
 #include "../utils/rank_deficient_ols.hpp"
+#include "../utils/options_parser.hpp"
 
 #include "duckdb.hpp"
 #include "duckdb/common/exception.hpp"
@@ -34,11 +35,15 @@ struct OlsArrayAggregateState {
 	vector<double> y_values;
 	vector<vector<double>> x_matrix; // Each row is one observation's features
 	idx_t n_features = 0;
+	RegressionOptions options;
+	bool options_initialized = false;
 
 	void Reset() {
 		y_values.clear();
 		x_matrix.clear();
 		n_features = 0;
+		options = RegressionOptions();
+		options_initialized = false;
 	}
 };
 
@@ -278,14 +283,17 @@ static void OlsArrayUpdate(Vector inputs[], AggregateInputData &aggr_input_data,
 	state_vector.ToUnifiedFormat(count, state_data);
 	auto states = UnifiedVectorFormat::GetData<OlsArrayAggregateState *>(state_data);
 
-	// Get y and x_array vectors
+	// Get y, x_array, and options vectors
 	auto &y_vector = inputs[0];
 	auto &x_array_vector = inputs[1];
+	auto &options_vector = inputs[2];
 
 	UnifiedVectorFormat y_data;
 	UnifiedVectorFormat x_array_data;
+	UnifiedVectorFormat options_data;
 	y_vector.ToUnifiedFormat(count, y_data);
 	x_array_vector.ToUnifiedFormat(count, x_array_data);
+	options_vector.ToUnifiedFormat(count, options_data);
 
 	auto y_ptr = UnifiedVectorFormat::GetData<double>(y_data);
 
@@ -296,6 +304,14 @@ static void OlsArrayUpdate(Vector inputs[], AggregateInputData &aggr_input_data,
 
 		auto y_idx = y_data.sel->get_index(i);
 		auto x_array_idx = x_array_data.sel->get_index(i);
+		auto options_idx = options_data.sel->get_index(i);
+
+		// Initialize options from first row
+		if (!state.options_initialized && options_data.validity.RowIsValid(options_idx)) {
+			auto options_value = options_vector.GetValue(options_idx);
+			state.options = RegressionOptions::ParseFromMap(options_value);
+			state.options_initialized = true;
+		}
 
 		// Skip if y or x_array is NULL
 		if (!y_data.validity.RowIsValid(y_idx) || !x_array_data.validity.RowIsValid(x_array_idx)) {
@@ -358,6 +374,10 @@ static void OlsArrayCombine(Vector &source, Vector &target, AggregateInputData &
 		if (target_state.n_features == 0) {
 			target_state.n_features = source_state.n_features;
 		}
+		if (!target_state.options_initialized && source_state.options_initialized) {
+			target_state.options = source_state.options;
+			target_state.options_initialized = true;
+		}
 	}
 }
 
@@ -406,22 +426,39 @@ static void OlsArrayFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
 			}
 		}
 
-		// Use rank-deficient OLS solver (handles constant/aliased features)
-		auto ols_result = RankDeficientOls::Fit(y, X);
+		// Handle intercept option
+		double intercept = 0.0;
+		RankDeficientOlsResult ols_result;
 
-		// Compute intercept (using only non-aliased features)
-		double mean_y = y.mean();
-		double beta_dot_xmean = 0.0;
-		for (idx_t j = 0; j < p; j++) {
-			if (!ols_result.is_aliased[j]) {
-				double x_mean = X.col(j).mean();
-				beta_dot_xmean += ols_result.coefficients[j] * x_mean;
+		if (state.options.intercept) {
+			// With intercept: center data, solve, compute intercept
+			double mean_y = y.mean();
+			Eigen::VectorXd x_means = X.colwise().mean();
+
+			Eigen::VectorXd y_centered = y.array() - mean_y;
+			Eigen::MatrixXd X_centered = X;
+			for (idx_t j = 0; j < p; j++) {
+				X_centered.col(j).array() -= x_means(j);
 			}
+
+			ols_result = RankDeficientOls::Fit(y_centered, X_centered);
+
+			// Compute intercept (using only non-aliased features)
+			double beta_dot_xmean = 0.0;
+			for (idx_t j = 0; j < p; j++) {
+				if (!ols_result.is_aliased[j]) {
+					beta_dot_xmean += ols_result.coefficients[j] * x_means(j);
+				}
+			}
+			intercept = mean_y - beta_dot_xmean;
+		} else {
+			// No intercept: solve directly on raw data
+			ols_result = RankDeficientOls::Fit(y, X);
+			intercept = 0.0;
 		}
-		double intercept = mean_y - beta_dot_xmean;
 
 		// Compute predictions using only non-aliased features
-		Eigen::VectorXd y_pred = Eigen::VectorXd::Zero(n);
+		Eigen::VectorXd y_pred = Eigen::VectorXd::Constant(n, intercept);
 		for (idx_t j = 0; j < p; j++) {
 			if (!ols_result.is_aliased[j]) {
 				y_pred += ols_result.coefficients[j] * X.col(j);
@@ -431,10 +468,21 @@ static void OlsArrayFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
 		// Compute R² and adjusted R² using effective rank
 		Eigen::VectorXd residuals = y - y_pred;
 		double ss_res = residuals.squaredNorm();
-		double ss_tot = (y.array() - mean_y).square().sum();
+
+		double ss_tot;
+		if (state.options.intercept) {
+			double mean_y = y.mean();
+			ss_tot = (y.array() - mean_y).square().sum();
+		} else {
+			// No intercept: total sum of squares from zero
+			ss_tot = y.squaredNorm();
+		}
 
 		double r2 = (ss_tot > 1e-10) ? (1.0 - ss_res / ss_tot) : 0.0;
-		double adj_r2 = 1.0 - (1.0 - r2) * (n - 1) / (n - ols_result.rank - 1);
+
+		// Adjusted R²: account for intercept in degrees of freedom
+		idx_t df_model = ols_result.rank + (state.options.intercept ? 1 : 0);
+		double adj_r2 = 1.0 - (1.0 - r2) * (n - 1) / (n - df_model);
 
 		// Store coefficients in child vector (NaN for aliased -> will be NULL)
 		auto coef_data = FlatVector::GetData<double>(coef_child);
@@ -466,12 +514,7 @@ static void OlsArrayFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
 	ListVector::SetListSize(coef_list, list_offset);
 }
 
-static void OlsArrayDestroy(Vector &state_vector, AggregateInputData &aggr_input_data, idx_t count) {
-	auto states = FlatVector::GetData<OlsArrayAggregateState *>(state_vector);
-	for (idx_t i = 0; i < count; i++) {
-		states[i]->~OlsArrayAggregateState();
-	}
-}
+// Destroy function not needed - std::vector handles cleanup automatically
 
 void OlsAggregateFunction::Register(ExtensionLoader &loader) {
 	ANOFOX_DEBUG("Registering OLS aggregate functions");
@@ -511,9 +554,20 @@ void OlsAggregateFunction::Register(ExtensionLoader &loader) {
 	    "ols_fit_agg_array", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
 	    LogicalType::STRUCT(array_fit_struct_fields), AggregateFunction::StateSize<OlsArrayAggregateState>,
 	    OlsArrayInitialize, OlsArrayUpdate, OlsArrayCombine, OlsArrayFinalize,
-	    FunctionNullHandling::DEFAULT_NULL_HANDLING, nullptr, nullptr, OlsArrayDestroy, nullptr, nullptr, nullptr,
+	    FunctionNullHandling::DEFAULT_NULL_HANDLING, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
 	    nullptr);
 	loader.RegisterFunction(ols_fit_agg_array);
+
+	// 4. anofox_statistics_ols_agg(y DOUBLE, x DOUBLE[], options MAP) -> STRUCT
+	// This is the new unified API that matches table function signatures
+	AggregateFunction anofox_statistics_ols_agg(
+	    "anofox_statistics_ols_agg",
+	    {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
+	    LogicalType::STRUCT(array_fit_struct_fields), AggregateFunction::StateSize<OlsArrayAggregateState>,
+	    OlsArrayInitialize, OlsArrayUpdate, OlsArrayCombine, OlsArrayFinalize,
+	    FunctionNullHandling::DEFAULT_NULL_HANDLING, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
+	    nullptr);
+	loader.RegisterFunction(anofox_statistics_ols_agg);
 
 	ANOFOX_DEBUG("All OLS aggregate functions registered successfully");
 }
