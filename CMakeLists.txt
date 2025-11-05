@@ -27,6 +27,7 @@ set(EXTENSION_SOURCES
     # Utils
     src/utils/tracing.cpp
     src/utils/validation.cpp  # Updated for DuckDB v1.4.1 API
+    src/utils/options_parser.cpp  # MAP-based options parsing for regression functions
 
     # Bridge layer (for Eigen integration)
     # src/bridge/type_converter.cpp  # TODO: Update for v1.4.1 if needed
@@ -46,7 +47,10 @@ set(EXTENSION_SOURCES
     src/functions/expanding_ols.cpp # Expanding window OLS (cumulative)
 
     # Phase 4 - Aggregates (✅ completed)
-    src/functions/aggregates/ols_aggregate.cpp  # OLS aggregate with GROUP BY
+    src/functions/aggregates/ols_aggregate.cpp   # OLS aggregate with GROUP BY
+    src/functions/aggregates/wls_aggregate.cpp   # WLS aggregate with GROUP BY
+    src/functions/aggregates/ridge_aggregate.cpp # Ridge aggregate with GROUP BY
+    src/functions/aggregates/rls_aggregate.cpp   # RLS aggregate with GROUP BY
 
     # Phase 5 - Statistical Inference & Diagnostics (In Progress)
     src/functions/inference/ols_inference.cpp          # Coefficient inference with p-values
