@@ -9,6 +9,9 @@
 #include "functions/rolling_ols.hpp"                          // Phase 3 - Rolling window
 #include "functions/expanding_ols.hpp"                        // Phase 3 - Expanding window
 #include "functions/aggregates/ols_aggregate.hpp"             // Phase 4 - Aggregates
+#include "functions/aggregates/wls_aggregate.hpp"             // Phase 4 - WLS Aggregate
+#include "functions/aggregates/ridge_aggregate.hpp"           // Phase 4 - Ridge Aggregate
+#include "functions/aggregates/rls_aggregate.hpp"             // Phase 4 - RLS Aggregate
 #include "functions/inference/ols_inference.hpp"              // Phase 5 - Inference
 #include "functions/inference/prediction_intervals.hpp"       // Phase 5 - Prediction
 #include "functions/model_selection/information_criteria.hpp" // Phase 5 - Model selection
@@ -35,7 +38,10 @@ void AnofoxStatisticsExtension::Load(ExtensionLoader &loader) {
 	anofox_statistics::ExpandingOlsFunction::Register(loader); // Expanding window OLS
 
 	// Phase 4: Aggregates & Window Functions (✅ completed)
-	anofox_statistics::OlsAggregateFunction::Register(loader); // OLS with GROUP BY
+	anofox_statistics::OlsAggregateFunction::Register(loader);   // OLS with GROUP BY
+	anofox_statistics::WlsAggregateFunction::Register(loader);   // WLS with GROUP BY
+	anofox_statistics::RidgeAggregateFunction::Register(loader); // Ridge with GROUP BY
+	anofox_statistics::RlsAggregateFunction::Register(loader);   // RLS with GROUP BY
 
 	// Phase 5: Statistical Inference & Diagnostics (✅ completed)
 	anofox_statistics::OlsInferenceFunction::Register(loader);        // Coefficient inference
