@@ -1,6 +1,7 @@
 #include "ols_fit.hpp"
 #include "../utils/tracing.hpp"
 #include "../utils/rank_deficient_ols.hpp"
+#include "../utils/options_parser.hpp"
 
 #include "duckdb.hpp"
 #include "duckdb/common/exception.hpp"
@@ -14,16 +15,19 @@ namespace duckdb {
 namespace anofox_statistics {
 
 /**
- * @brief Simplified OLS fit using array inputs (v1.4.1 compatible)
+ * @brief OLS fit using array inputs with MAP-based options (v1.4.1 compatible)
  *
- * New signature:
- *   SELECT * FROM anofox_statistics_ols_fit(
- *       y := [1.0, 2.0, 3.0],
- *       x1 := [1.1, 2.1, 2.9],
- *       x2 := [...]
+ * Signature:
+ *   SELECT * FROM anofox_statistics_ols(
+ *       y := [1.0, 2.0, 3.0, 4.0],
+ *       x := [[1.1, 2.1, 2.9, 4.2], [0.5, 1.5, 2.5, 3.5]],
+ *       options := MAP{'intercept': true}
  *   )
  *
- * This avoids the TABLE input complexity and works cleanly with v1.4.1.
+ * Parameters:
+ *   - y: Response variable (DOUBLE[])
+ *   - x: Feature matrix (DOUBLE[][], each inner array is one feature)
+ *   - options: Optional MAP with keys: 'intercept' (BOOLEAN, default true)
  */
 
 struct OlsFitArrayBindData : public FunctionData {
@@ -32,8 +36,7 @@ struct OlsFitArrayBindData : public FunctionData {
 	vector<vector<double>> x_values; // Each inner vector is one feature
 
 	// Fit parameters
-	bool add_intercept = true;
-	string method = "auto";
+	RegressionOptions options;
 
 	// Results from fitting
 	vector<double> coefficients;
@@ -45,7 +48,7 @@ struct OlsFitArrayBindData : public FunctionData {
 	idx_t n_obs = 0;
 	idx_t n_features = 0;
 
-	// Rank-deficiency tracking (NEW)
+	// Rank-deficiency tracking
 	vector<bool> is_aliased; // True for constant/aliased features
 	idx_t rank = 0;          // Numerical rank (rank <= n_features)
 
@@ -55,8 +58,7 @@ struct OlsFitArrayBindData : public FunctionData {
 		auto result = make_uniq<OlsFitArrayBindData>();
 		result->y_values = y_values;
 		result->x_values = x_values;
-		result->add_intercept = add_intercept;
-		result->method = method;
+		result->options = options;
 		result->coefficients = coefficients;
 		result->intercept = intercept;
 		result->r_squared = r_squared;
@@ -91,9 +93,9 @@ static void ComputeOLS(OlsFitArrayBindData &data) {
 	// Check minimum observations
 	// With intercept: need n >= p + 2 (p features + intercept + 1 for degrees of freedom)
 	// Without intercept: need n >= p + 1
-	idx_t min_obs = data.add_intercept ? (p + 2) : (p + 1);
+	idx_t min_obs = data.options.intercept ? (p + 2) : (p + 1);
 	if (n < min_obs) {
-		if (data.add_intercept) {
+		if (data.options.intercept) {
 			throw InvalidInputException(
 			    "Insufficient observations: need at least %d observations for %d features + intercept, got %d", min_obs,
 			    p, n);
@@ -107,7 +109,7 @@ static void ComputeOLS(OlsFitArrayBindData &data) {
 	data.n_features = p;
 
 	ANOFOX_DEBUG("Computing OLS with " << n << " observations and " << p << " features"
-	                                   << (data.add_intercept ? " (with intercept)" : " (no intercept)"));
+	                                   << (data.options.intercept ? " (with intercept)" : " (no intercept)"));
 
 	// Build design matrix X (without intercept) and response vector y
 	Eigen::MatrixXd X(n, p);
@@ -134,7 +136,7 @@ static void ComputeOLS(OlsFitArrayBindData &data) {
 	double y_mean = 0.0;
 	Eigen::VectorXd x_means(static_cast<Eigen::Index>(p));
 
-	if (data.add_intercept) {
+	if (data.options.intercept) {
 		// Compute means
 		y_mean = y.mean();
 		x_means = X.colwise().mean();
@@ -162,7 +164,7 @@ static void ComputeOLS(OlsFitArrayBindData &data) {
 	}
 
 	// Compute intercept
-	if (data.add_intercept) {
+	if (data.options.intercept) {
 		// intercept = ȳ - sum(beta_j * x̄_j) for non-aliased features
 		double beta_dot_xmean = 0.0;
 		for (idx_t j = 0; j < p; j++) {
@@ -181,9 +183,9 @@ static void ComputeOLS(OlsFitArrayBindData &data) {
 	data.adj_r_squared = result.adj_r_squared;
 
 	// Adjust MSE/RMSE for intercept if fitted
-	// When add_intercept=true, we centered the data, so we need to account for
+	// When intercept=true, we centered the data, so we need to account for
 	// the implicit intercept parameter in the degrees of freedom
-	if (data.add_intercept) {
+	if (data.options.intercept) {
 		// Correct df: n - rank - 1 (subtract 1 for intercept)
 		idx_t df = (n > result.rank + 1) ? (n - result.rank - 1) : 1;
 		double ss_res = result.residuals.squaredNorm();
@@ -206,11 +208,11 @@ static unique_ptr<FunctionData> OlsFitArrayBind(ClientContext &context, TableFun
 
 	auto result = make_uniq<OlsFitArrayBindData>();
 
-	// Expected parameters: y (DOUBLE[]), x1 (DOUBLE[]), [x2 (DOUBLE[]), ...], [add_intercept (BOOLEAN)]
+	// Expected parameters: y (DOUBLE[]), x (DOUBLE[][]), [options (MAP)]
 
 	if (input.inputs.size() < 2) {
-		throw InvalidInputException("anofox_statistics_ols_fit requires at least 2 parameters: "
-		                            "y (DOUBLE[]), x1 (DOUBLE[]), [x2 (DOUBLE[]), ...], [add_intercept (BOOLEAN)]");
+		throw InvalidInputException("anofox_statistics_ols requires at least 2 parameters: "
+		                            "y (DOUBLE[]), x (DOUBLE[][]), [options (MAP)]");
 	}
 
 	// Extract y values (first parameter)
@@ -225,36 +227,40 @@ static unique_ptr<FunctionData> OlsFitArrayBind(ClientContext &context, TableFun
 	idx_t n = result->y_values.size();
 	ANOFOX_DEBUG("y has " << n << " observations");
 
-	// Extract x values (all remaining array parameters before the optional boolean)
-	// Last parameter might be add_intercept (BOOLEAN), check for that
-	idx_t last_param_idx = input.inputs.size() - 1;
-	bool has_add_intercept = false;
-
-	if (input.inputs[last_param_idx].type().id() == LogicalTypeId::BOOLEAN) {
-		result->add_intercept = input.inputs[last_param_idx].GetValue<bool>();
-		has_add_intercept = true;
-		last_param_idx--;
+	// Extract x values (second parameter - 2D array)
+	if (input.inputs[1].type().id() != LogicalTypeId::LIST) {
+		throw InvalidInputException("Second parameter (x) must be a 2D array (DOUBLE[][])");
 	}
 
-	// Extract all x feature arrays (from index 1 to last_param_idx)
-	for (idx_t param_idx = 1; param_idx <= last_param_idx; param_idx++) {
-		if (input.inputs[param_idx].type().id() != LogicalTypeId::LIST) {
-			throw InvalidInputException("Parameter %d (x%d) must be an array of DOUBLE", param_idx + 1, param_idx);
+	auto x_outer = ListValue::GetChildren(input.inputs[1]);
+	for (const auto &x_inner_val : x_outer) {
+		if (x_inner_val.type().id() != LogicalTypeId::LIST) {
+			throw InvalidInputException("Second parameter (x) must be a 2D array where each element is DOUBLE[]");
 		}
 
-		auto x_list = ListValue::GetChildren(input.inputs[param_idx]);
+		auto x_feature_list = ListValue::GetChildren(x_inner_val);
 		vector<double> x_feature;
-		for (const auto &val : x_list) {
+		for (const auto &val : x_feature_list) {
 			x_feature.push_back(val.GetValue<double>());
 		}
 
 		// Validate dimensions
 		if (x_feature.size() != n) {
-			throw InvalidInputException("Array dimensions mismatch: y has %d elements, x%d has %d elements", n,
-			                            param_idx, x_feature.size());
+			throw InvalidInputException("Array dimensions mismatch: y has %d elements, feature %d has %d elements", n,
+			                            result->x_values.size() + 1, x_feature.size());
 		}
 
 		result->x_values.push_back(x_feature);
+	}
+
+	// Extract options (third parameter - MAP, optional)
+	if (input.inputs.size() >= 3) {
+		if (input.inputs[2].type().id() == LogicalTypeId::MAP) {
+			result->options = RegressionOptions::ParseFromMap(input.inputs[2]);
+			result->options.Validate();
+		} else if (!input.inputs[2].IsNull()) {
+			throw InvalidInputException("Third parameter (options) must be a MAP or NULL");
+		}
 	}
 
 	ANOFOX_INFO("Fitting OLS with " << n << " observations and " << result->x_values.size() << " features");
@@ -280,8 +286,7 @@ static unique_ptr<FunctionData> OlsFitArrayBind(ClientContext &context, TableFun
 }
 
 static void OlsFitArrayExecute(ClientContext &context, TableFunctionInput &data, DataChunk &output) {
-	// NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
-	auto &bind_data = const_cast<OlsFitArrayBindData &>(dynamic_cast<const OlsFitArrayBindData &>(*data.bind_data));
+	auto &bind_data = data.bind_data->CastNoConst<OlsFitArrayBindData>();
 
 	if (bind_data.result_returned) {
 		return; // Already returned the single result row
@@ -313,24 +318,22 @@ static void OlsFitArrayExecute(ClientContext &context, TableFunctionInput &data,
 }
 
 void OlsFitFunction::Register(ExtensionLoader &loader) {
-	ANOFOX_DEBUG("Registering anofox_statistics_ols_fit (array-based v1.4.1 with multi-variable support)");
+	ANOFOX_DEBUG("Registering anofox_statistics_ols (array-based v1.4.1 with MAP options)");
 
-	// Array-based signature: (DOUBLE[], DOUBLE[], [DOUBLE[], ...], [BOOLEAN])
-	// Required arguments: y (DOUBLE[]), x1 (DOUBLE[])
+	// Signature: anofox_statistics_ols(y DOUBLE[], x DOUBLE[][], [options MAP])
 	vector<LogicalType> arguments = {
-	    LogicalType::LIST(LogicalType::DOUBLE), // y
-	    LogicalType::LIST(LogicalType::DOUBLE)  // x1
+	    LogicalType::LIST(LogicalType::DOUBLE),                     // y: DOUBLE[]
+	    LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE))   // x: DOUBLE[][]
 	};
 
-	TableFunction function("anofox_statistics_ols_fit", arguments, OlsFitArrayExecute, OlsFitArrayBind);
+	TableFunction function("anofox_statistics_ols", arguments, OlsFitArrayExecute, OlsFitArrayBind);
 
-	// Optional arguments: x2-x10 (DOUBLE[]), add_intercept (BOOLEAN)
-	// Using varargs for additional x features and optional boolean
-	function.varargs = LogicalType::ANY;
+	// Optional third parameter: options (MAP)
+	function.varargs = LogicalType::MAP(LogicalType::VARCHAR, LogicalType::ANY);
 
 	loader.RegisterFunction(function);
 
-	ANOFOX_DEBUG("anofox_statistics_ols_fit registered successfully with multi-variable support");
+	ANOFOX_DEBUG("anofox_statistics_ols registered successfully with MAP-based options");
 }
 
 } // namespace anofox_statistics

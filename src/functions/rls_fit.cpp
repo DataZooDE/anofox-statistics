@@ -1,6 +1,7 @@
 #include "rls_fit.hpp"
 #include "../utils/tracing.hpp"
 #include "../utils/rank_deficient_ols.hpp"
+#include "../utils/options_parser.hpp"
 
 #include "duckdb.hpp"
 #include "duckdb/common/exception.hpp"
@@ -14,7 +15,14 @@ namespace duckdb {
 namespace anofox_statistics {
 
 /**
- * Recursive Least Squares (RLS)
+ * Recursive Least Squares (RLS) with MAP-based options
+ *
+ * Signature:
+ *   SELECT * FROM anofox_statistics_rls(
+ *       y := [1.0, 2.0, 3.0, 4.0],
+ *       x := [[1.1, 2.1, 2.9, 4.2], [0.5, 1.5, 2.5, 3.5]],
+ *       options := MAP{'intercept': true, 'forgetting_factor': 1.0}
+ *   )
  *
  * Online learning algorithm that updates coefficients sequentially:
  *
@@ -31,8 +39,7 @@ namespace anofox_statistics {
 struct RlsFitBindData : public FunctionData {
 	vector<double> y_values;
 	vector<vector<double>> x_values;
-	double lambda = 1.0; // Forgetting factor (default: no forgetting)
-	bool add_intercept = true;
+	RegressionOptions options;
 
 	// Results
 	vector<double> coefficients;
@@ -54,8 +61,7 @@ struct RlsFitBindData : public FunctionData {
 		auto result = make_uniq<RlsFitBindData>();
 		result->y_values = y_values;
 		result->x_values = x_values;
-		result->lambda = lambda;
-		result->add_intercept = add_intercept;
+		result->options = options;
 		result->coefficients = coefficients;
 		result->intercept = intercept;
 		result->r_squared = r_squared;
@@ -91,14 +97,14 @@ static void ComputeRLS(RlsFitBindData &data) {
 		                            p + 1, p, n);
 	}
 
-	if (data.lambda <= 0.0 || data.lambda > 1.0) {
-		throw InvalidInputException("Lambda (forgetting factor) must be in range (0, 1], got %f", data.lambda);
+	if (data.options.forgetting_factor <= 0.0 || data.options.forgetting_factor > 1.0) {
+		throw InvalidInputException("Forgetting factor must be in range (0, 1], got %f", data.options.forgetting_factor);
 	}
 
 	data.n_obs = n;
 	data.n_features = p;
 
-	ANOFOX_DEBUG("Computing RLS with " << n << " observations and " << p << " features, lambda = " << data.lambda);
+	ANOFOX_DEBUG("Computing RLS with " << n << " observations and " << p << " features, forgetting_factor = " << data.options.forgetting_factor);
 
 	// Build design matrix X (n x p) and response vector y (n x 1)
 	Eigen::MatrixXd X(n, p);
@@ -119,13 +125,13 @@ static void ComputeRLS(RlsFitBindData &data) {
 		y(i) = data.y_values[i];
 	}
 
-	// If add_intercept is true, augment X with column of 1s for intercept
+	// If options.intercept is true, augment X with column of 1s for intercept
 	// This is the standard way to handle intercepts in online RLS
 	Eigen::MatrixXd X_work;
 	idx_t p_work;               // Number of columns in working matrix
 	idx_t intercept_offset = 0; // Offset for feature indices
 
-	if (data.add_intercept) {
+	if (data.options.intercept) {
 		// Augment: X_work = [1, X] where 1 is column of ones
 		p_work = p + 1;
 		X_work = Eigen::MatrixXd(n, p_work);
@@ -147,7 +153,7 @@ static void ComputeRLS(RlsFitBindData &data) {
 
 	// If we have an intercept column, it should never be marked as constant
 	// (it's a column of 1s, which is constant, but we always want to keep it)
-	if (data.add_intercept) {
+	if (data.options.intercept) {
 		constant_cols_work[0] = false; // Never alias the intercept
 	}
 
@@ -195,7 +201,7 @@ static void ComputeRLS(RlsFitBindData &data) {
 		double error = y_t - y_pred;
 
 		// Compute denominator: λ + x_t' P_{t-1} x_t
-		double denominator = data.lambda + x_t.dot(P * x_t);
+		double denominator = data.options.forgetting_factor + x_t.dot(P * x_t);
 
 		// Kalman gain: K_t = P_{t-1} x_t / (λ + x_t' P_{t-1} x_t)
 		Eigen::VectorXd K = P * x_t / denominator;
@@ -204,7 +210,7 @@ static void ComputeRLS(RlsFitBindData &data) {
 		beta_valid = beta_valid + K * error;
 
 		// Update covariance: P_t = (1/λ) * (P_{t-1} - K_t x_t' P_{t-1})
-		P = (P - K * x_t.transpose() * P) / data.lambda;
+		P = (P - K * x_t.transpose() * P) / data.options.forgetting_factor;
 
 		ANOFOX_DEBUG("RLS step " << t << ": error = " << error
 		                         << ", beta_valid[0] = " << (p_valid > 0 ? beta_valid(0) : 0.0));
@@ -214,7 +220,7 @@ static void ComputeRLS(RlsFitBindData &data) {
 	data.coefficients.resize(p);
 	data.is_aliased.resize(p);
 
-	if (data.add_intercept) {
+	if (data.options.intercept) {
 		// With intercept: extract from augmented system
 		// valid_indices_work contains indices in X_work [0=intercept, 1=x1, 2=x2, ...]
 
@@ -295,7 +301,7 @@ static void ComputeRLS(RlsFitBindData &data) {
 			y_pred += data.coefficients[j] * X.col(j);
 		}
 	}
-	if (data.add_intercept) {
+	if (data.options.intercept) {
 		y_pred.array() += data.intercept;
 	}
 
@@ -330,13 +336,11 @@ static unique_ptr<FunctionData> RlsFitBind(ClientContext &context, TableFunction
 
 	auto result = make_uniq<RlsFitBindData>();
 
-	// Expected parameters: y (DOUBLE[]), x1 (DOUBLE[]), [x2 (DOUBLE[]), ...], [lambda (DOUBLE)], [add_intercept
-	// (BOOLEAN)]
+	// Expected parameters: y (DOUBLE[]), x (DOUBLE[][]), [options (MAP)]
 
 	if (input.inputs.size() < 2) {
-		throw InvalidInputException(
-		    "anofox_statistics_rls_fit requires at least 2 parameters: "
-		    "y (DOUBLE[]), x1 (DOUBLE[]), [x2 (DOUBLE[]), ...], [lambda (DOUBLE)], [add_intercept (BOOLEAN)]");
+		throw InvalidInputException("anofox_statistics_rls requires at least 2 parameters: "
+		                            "y (DOUBLE[]), x (DOUBLE[][]), [options (MAP)]");
 	}
 
 	// Extract y values (first parameter)
@@ -351,49 +355,44 @@ static unique_ptr<FunctionData> RlsFitBind(ClientContext &context, TableFunction
 	idx_t n = result->y_values.size();
 	ANOFOX_DEBUG("y has " << n << " observations");
 
-	// Determine parameter structure from the end
-	idx_t last_param_idx = input.inputs.size() - 1;
-	bool has_add_intercept = false;
-	bool has_lambda = false;
-
-	// Check last parameter: might be add_intercept (BOOLEAN)
-	if (input.inputs[last_param_idx].type().id() == LogicalTypeId::BOOLEAN) {
-		result->add_intercept = input.inputs[last_param_idx].GetValue<bool>();
-		has_add_intercept = true;
-		last_param_idx--;
+	// Extract x values (second parameter - 2D array)
+	if (input.inputs[1].type().id() != LogicalTypeId::LIST) {
+		throw InvalidInputException("Second parameter (x) must be a 2D array (DOUBLE[][])");
 	}
 
-	// Check second-to-last (or last if no boolean): might be lambda (DOUBLE scalar)
-	if (last_param_idx >= 1 && input.inputs[last_param_idx].type().id() == LogicalTypeId::DOUBLE) {
-		result->lambda = input.inputs[last_param_idx].GetValue<double>();
-		has_lambda = true;
-		last_param_idx--;
-	}
-
-	// Remaining parameters (from index 1 to last_param_idx) are x feature arrays
-	for (idx_t param_idx = 1; param_idx <= last_param_idx; param_idx++) {
-		if (input.inputs[param_idx].type().id() != LogicalTypeId::LIST) {
-			throw InvalidInputException("Parameter %d (x%d) must be an array of DOUBLE (got type %s)", param_idx + 1,
-			                            param_idx, input.inputs[param_idx].type().ToString().c_str());
+	auto x_outer = ListValue::GetChildren(input.inputs[1]);
+	for (const auto &x_inner_val : x_outer) {
+		if (x_inner_val.type().id() != LogicalTypeId::LIST) {
+			throw InvalidInputException("Second parameter (x) must be a 2D array where each element is DOUBLE[]");
 		}
 
-		auto x_list = ListValue::GetChildren(input.inputs[param_idx]);
+		auto x_feature_list = ListValue::GetChildren(x_inner_val);
 		vector<double> x_feature;
-		for (const auto &val : x_list) {
+		for (const auto &val : x_feature_list) {
 			x_feature.push_back(val.GetValue<double>());
 		}
 
 		// Validate dimensions
 		if (x_feature.size() != n) {
-			throw InvalidInputException("Array dimensions mismatch: y has %d elements, x%d has %d elements", n,
-			                            param_idx, x_feature.size());
+			throw InvalidInputException("Array dimensions mismatch: y has %d elements, feature %d has %d elements", n,
+			                            result->x_values.size() + 1, x_feature.size());
 		}
 
 		result->x_values.push_back(x_feature);
 	}
 
-	ANOFOX_INFO("Fitting RLS with " << n << " observations and " << result->x_values.size()
-	                                << " features, lambda = " << result->lambda);
+	// Extract options (third parameter - MAP, optional)
+	if (input.inputs.size() >= 3) {
+		if (input.inputs[2].type().id() == LogicalTypeId::MAP) {
+			result->options = RegressionOptions::ParseFromMap(input.inputs[2]);
+			result->options.Validate();
+		} else if (!input.inputs[2].IsNull()) {
+			throw InvalidInputException("Third parameter (options) must be a MAP or NULL");
+		}
+	}
+
+	ANOFOX_INFO("Fitting RLS with " << n << " observations, " << result->x_values.size()
+	                                << " features, forgetting_factor=" << result->options.forgetting_factor);
 
 	// Perform RLS fitting
 	ComputeRLS(*result);
@@ -401,7 +400,7 @@ static unique_ptr<FunctionData> RlsFitBind(ClientContext &context, TableFunction
 	ANOFOX_INFO("RLS fit completed: R² = " << result->r_squared);
 
 	// Set return schema
-	names = {"coefficients", "intercept", "r_squared", "adj_r_squared", "mse", "rmse", "lambda", "n_obs", "n_features"};
+	names = {"coefficients", "intercept", "r_squared", "adj_r_squared", "mse", "rmse", "forgetting_factor", "n_obs", "n_features"};
 
 	return_types = {
 	    LogicalType::LIST(LogicalType::DOUBLE), // coefficients
@@ -410,7 +409,7 @@ static unique_ptr<FunctionData> RlsFitBind(ClientContext &context, TableFunction
 	    LogicalType::DOUBLE,                    // adj_r_squared
 	    LogicalType::DOUBLE,                    // mse
 	    LogicalType::DOUBLE,                    // rmse
-	    LogicalType::DOUBLE,                    // lambda
+	    LogicalType::DOUBLE,                    // forgetting_factor
 	    LogicalType::BIGINT,                    // n_obs
 	    LogicalType::BIGINT                     // n_features
 	};
@@ -420,7 +419,7 @@ static unique_ptr<FunctionData> RlsFitBind(ClientContext &context, TableFunction
 
 static void RlsFitExecute(ClientContext &context, TableFunctionInput &data, DataChunk &output) {
 
-	auto &bind_data = const_cast<RlsFitBindData &>(dynamic_cast<const RlsFitBindData &>(*data.bind_data));
+	auto &bind_data = data.bind_data->CastNoConst<RlsFitBindData>();
 
 	if (bind_data.result_returned) {
 		return;
@@ -446,28 +445,28 @@ static void RlsFitExecute(ClientContext &context, TableFunctionInput &data, Data
 	output.data[3].SetValue(0, Value(bind_data.adj_r_squared));
 	output.data[4].SetValue(0, Value(bind_data.mse));
 	output.data[5].SetValue(0, Value(bind_data.rmse));
-	output.data[6].SetValue(0, Value(bind_data.lambda));
-	output.data[7].SetValue(0, Value::BIGINT(bind_data.n_obs));
-	output.data[8].SetValue(0, Value::BIGINT(bind_data.n_features));
+	output.data[6].SetValue(0, Value(bind_data.options.forgetting_factor));
+	output.data[7].SetValue(0, Value::BIGINT(static_cast<int64_t>(bind_data.n_obs)));
+	output.data[8].SetValue(0, Value::BIGINT(static_cast<int64_t>(bind_data.n_features)));
 }
 
 void RlsFitFunction::Register(ExtensionLoader &loader) {
-	ANOFOX_DEBUG("Registering anofox_statistics_rls_fit with recursive least squares");
+	ANOFOX_DEBUG("Registering anofox_statistics_rls with recursive least squares");
 
-	// Required arguments: y (DOUBLE[]), x1 (DOUBLE[])
+	// Signature: anofox_statistics_rls(y DOUBLE[], x DOUBLE[][], [options MAP])
 	vector<LogicalType> arguments = {
-	    LogicalType::LIST(LogicalType::DOUBLE), // y
-	    LogicalType::LIST(LogicalType::DOUBLE)  // x1
+	    LogicalType::LIST(LogicalType::DOUBLE),                     // y: DOUBLE[]
+	    LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE))   // x: DOUBLE[][]
 	};
 
-	TableFunction function("anofox_statistics_rls_fit", arguments, RlsFitExecute, RlsFitBind);
+	TableFunction function("anofox_statistics_rls", arguments, RlsFitExecute, RlsFitBind);
 
-	// Optional arguments: x2-xN (DOUBLE[]), lambda (DOUBLE), add_intercept (BOOLEAN)
-	function.varargs = LogicalType::ANY;
+	// Optional third parameter: options (MAP)
+	function.varargs = LogicalType::MAP(LogicalType::VARCHAR, LogicalType::ANY);
 
 	loader.RegisterFunction(function);
 
-	ANOFOX_DEBUG("anofox_statistics_rls_fit registered successfully");
+	ANOFOX_DEBUG("anofox_statistics_rls registered successfully");
 }
 
 } // namespace anofox_statistics

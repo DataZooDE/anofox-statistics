@@ -67,12 +67,23 @@ SELECT * FROM ols_inference(
     true                                                   -- add_intercept
 );
 
--- Per-group regression
+-- Per-group regression with aggregate functions
 SELECT
     category,
-    ols_fit_agg(sales, price) as model
-FROM sales_data
-GROUP BY category;
+    result.coefficients[1] as price_effect,
+    result.intercept,
+    result.r2
+FROM (
+    SELECT
+        category,
+        anofox_statistics_ols_agg(
+            sales,
+            [price],
+            MAP{'intercept': true}
+        ) as result
+    FROM sales_data
+    GROUP BY category
+) sub;
 ```
 
 ## Installation
@@ -126,9 +137,15 @@ Comprehensive guides are available in the [`guides/`](guides/) directory:
 - `anofox_statistics_expanding_ols(...)` - Expanding window OLS
 
 ### Phase 4: Aggregates
-- `ols_coeff_agg(y, x)` - Simple coefficient per group
-- `ols_fit_agg(y, x)` - Full statistics per group
-- `ols_fit_agg_array(y, x[])` - Multi-variable per group
+- `anofox_statistics_ols_agg(y DOUBLE, x DOUBLE[], options MAP)` - OLS regression per group
+- `anofox_statistics_wls_agg(y DOUBLE, x DOUBLE[], weights DOUBLE, options MAP)` - Weighted LS per group
+- `anofox_statistics_ridge_agg(y DOUBLE, x DOUBLE[], options MAP)` - Ridge regression per group
+- `anofox_statistics_rls_agg(y DOUBLE, x DOUBLE[], options MAP)` - Recursive LS per group
+
+**Options MAP keys**:
+- `intercept` (BOOLEAN): Include intercept term (default: true)
+- `lambda` (DOUBLE): Ridge regularization parameter (Ridge only)
+- `forgetting_factor` (DOUBLE): Exponential weighting for RLS (RLS only, default: 1.0)
 
 ### Phase 5: Inference & Diagnostics
 - `ols_inference(y, x, ...)` - Coefficient inference with tests
@@ -145,12 +162,21 @@ Comprehensive guides are available in the [`guides/`](guides/) directory:
 -- Analyze effect of marketing channels on sales
 SELECT
     week,
-    ols_fit_agg_array(
-        revenue,
-        [tv_spend, digital_spend, print_spend]::DOUBLE[]
-    ) as marketing_model
-FROM campaigns
-GROUP BY week;
+    result.coefficients[1] as tv_roi,
+    result.coefficients[2] as digital_roi,
+    result.coefficients[3] as print_roi,
+    result.r2
+FROM (
+    SELECT
+        week,
+        anofox_statistics_ols_agg(
+            revenue,
+            [tv_spend, digital_spend, print_spend],
+            MAP{'intercept': true}
+        ) as result
+    FROM campaigns
+    GROUP BY week
+) sub;
 ```
 
 ### Financial Risk Analysis
@@ -158,10 +184,20 @@ GROUP BY week;
 -- Calculate beta for each stock (market sensitivity)
 SELECT
     stock_id,
-    (ols_fit_agg(stock_return, market_return)).coefficient as beta,
-    (ols_fit_agg(stock_return, market_return)).r2 as correlation
-FROM daily_returns
-GROUP BY stock_id;
+    result.coefficients[1] as beta,
+    result.intercept as alpha,
+    result.r2 as correlation
+FROM (
+    SELECT
+        stock_id,
+        anofox_statistics_ols_agg(
+            stock_return,
+            [market_return],
+            MAP{'intercept': true}
+        ) as result
+    FROM daily_returns
+    GROUP BY stock_id
+) sub;
 ```
 
 ### Time-Series Forecasting
@@ -170,11 +206,22 @@ GROUP BY stock_id;
 SELECT
     date,
     value,
-    ols_coeff_agg(value, time_index) OVER (
-        ORDER BY date
-        ROWS BETWEEN 30 PRECEDING AND CURRENT ROW
-    ) as trend_coefficient
-FROM time_series_data;
+    model.coefficients[1] as trend_coefficient,
+    model.r2 as trend_strength
+FROM (
+    SELECT
+        date,
+        value,
+        anofox_statistics_ols_agg(
+            value,
+            [time_index],
+            MAP{'intercept': true}
+        ) OVER (
+            ORDER BY date
+            ROWS BETWEEN 30 PRECEDING AND CURRENT ROW
+        ) as model
+    FROM time_series_data
+) sub;
 ```
 
 ### Model Diagnostics

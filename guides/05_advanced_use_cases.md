@@ -577,6 +577,241 @@ FROM forecasts
 ORDER BY month_ahead;
 ```
 
+### Window Functions + GROUP BY: Rolling Analysis Per Group
+
+**Purpose**: Combine rolling window functions with GROUP BY aggregates to track how relationships evolve over time differently for each group. This advanced pattern enables per-group adaptive models that detect regime changes and measure stability.
+
+**Scenario**: You have multiple products, and each product's price-demand relationship may change over time at different rates. You need rolling models per product to detect which products have stable vs volatile relationships, and when significant changes occur.
+
+**How it works**:
+1. **Technique 1: Rolling window within each product**
+   - Use `PARTITION BY product_id ORDER BY week` with `ROWS BETWEEN 8 PRECEDING AND CURRENT ROW`
+   - Compute `anofox_statistics_ols_agg` over each 9-week window per product
+   - Track coefficient evolution to detect elasticity changes
+   - Flag significant changes when coefficient shifts dramatically
+
+2. **Technique 2: Compare static vs adaptive models per product**
+   - Fit static OLS model for entire period (GROUP BY product only)
+   - Fit adaptive RLS model with forgetting_factor (GROUP BY product only)
+   - Compare R² to determine if adaptation provides value
+   - Measure elasticity drift between static and adaptive estimates
+
+3. **Technique 3: Aggregate then window (summary metrics over time)**
+   - First aggregate: GROUP BY week to get weekly cross-product model
+   - Then window: Apply rolling functions over weekly aggregates
+   - Track market-wide model quality trends
+   - Measure elasticity volatility across all products
+
+4. **Technique 4: Cross-sectional comparison with time trends**
+   - GROUP BY product, month to get monthly per-product models
+   - Analyze how products' model quality changes over months
+   - Detect if one product is diverging from others
+   - Identify periods of high cross-product variation
+
+**Key techniques demonstrated**:
+- **PARTITION BY + window frames**: Per-group rolling analysis
+- **Nested aggregation**: Aggregate → window → aggregate patterns
+- **Static vs adaptive comparison**: OLS baseline vs RLS adaptation
+- **Cross-sectional analysis**: Compare groups over time
+- **Change detection**: Identify significant coefficient shifts
+- **Volatility measures**: STDDEV of coefficients over windows
+
+**When to use this pattern**:
+- **Per-product forecasting**: Each product needs its own adaptive model
+- **Stability monitoring**: Track which groups have stable vs changing relationships
+- **Anomaly detection**: Flag products with sudden coefficient changes
+- **Method validation**: Compare static and adaptive approaches per segment
+- **Portfolio monitoring**: Track overall market trends while analyzing individual items
+
+```sql
+-- Advanced Use Case: Window Functions + GROUP BY with Aggregates
+-- Combine rolling analysis with per-group regression
+
+-- Sample data: Multiple products over time
+CREATE TEMP TABLE product_time_series AS
+SELECT
+    CASE i % 3
+        WHEN 0 THEN 'product_a'
+        WHEN 1 THEN 'product_b'
+        ELSE 'product_c'
+    END as product_id,
+    (i / 3)::INT as week,
+    DATE '2024-01-01' + INTERVAL (i / 3) WEEK as week_start,
+    (50 + (i / 3) * 2 + random() * 10)::DOUBLE as price,
+    (100 + (i / 3) * 5 + random() * 20)::DOUBLE as units_sold
+FROM generate_series(1, 90) as t(i);
+
+-- Technique 1: Rolling window within each product (per-product adaptive models)
+WITH rolling_models AS (
+    SELECT
+        product_id,
+        week,
+        week_start,
+        price,
+        units_sold,
+        anofox_statistics_ols_agg(units_sold, [price], MAP{'intercept': true}) OVER (
+            PARTITION BY product_id
+            ORDER BY week
+            ROWS BETWEEN 8 PRECEDING AND CURRENT ROW
+        ) as rolling_model
+    FROM product_time_series
+)
+SELECT
+    product_id,
+    week,
+    rolling_model.coefficients[1] as price_elasticity,
+    rolling_model.r2 as model_quality,
+    rolling_model.n_obs as window_size,
+    -- Detect significant elasticity changes
+    LAG(rolling_model.coefficients[1]) OVER (PARTITION BY product_id ORDER BY week) as prev_elasticity,
+    rolling_model.coefficients[1] - LAG(rolling_model.coefficients[1]) OVER (PARTITION BY product_id ORDER BY week) as elasticity_change,
+    CASE
+        WHEN ABS(rolling_model.coefficients[1] - LAG(rolling_model.coefficients[1]) OVER (PARTITION BY product_id ORDER BY week)) > 2
+            THEN 'Significant change detected'
+        ELSE 'Stable elasticity'
+    END as change_indicator
+FROM rolling_models
+WHERE week >= 8  -- Need sufficient history
+ORDER BY product_id, week
+LIMIT 20;
+
+-- Technique 2: Compare static vs adaptive models per product
+WITH static_models AS (
+    SELECT
+        product_id,
+        anofox_statistics_ols_agg(units_sold, [price], MAP{'intercept': true}) as full_period_model
+    FROM product_time_series
+    GROUP BY product_id
+),
+adaptive_models AS (
+    SELECT
+        product_id,
+        anofox_statistics_rls_agg(units_sold, [price], MAP{'forgetting_factor': 0.92, 'intercept': true}) as adaptive_model
+    FROM product_time_series
+    GROUP BY product_id
+)
+SELECT
+    sm.product_id,
+    sm.full_period_model.coefficients[1] as static_elasticity,
+    sm.full_period_model.r2 as static_r2,
+    am.adaptive_model.coefficients[1] as adaptive_elasticity,
+    am.adaptive_model.r2 as adaptive_r2,
+    -- Performance comparison
+    CASE
+        WHEN am.adaptive_model.r2 > sm.full_period_model.r2 + 0.05
+            THEN 'Adaptive model significantly better'
+        WHEN am.adaptive_model.r2 > sm.full_period_model.r2
+            THEN 'Adaptive model slightly better'
+        ELSE 'Static model sufficient'
+    END as model_comparison,
+    -- Elasticity stability
+    ABS(am.adaptive_model.coefficients[1] - sm.full_period_model.coefficients[1]) as elasticity_drift
+FROM static_models sm
+JOIN adaptive_models am USING (product_id)
+ORDER BY sm.product_id;
+
+-- Technique 3: Aggregate then window (summary metrics over time)
+WITH weekly_summary AS (
+    SELECT
+        week,
+        week_start,
+        anofox_statistics_ols_agg(units_sold, [price], MAP{'intercept': true}) as weekly_model
+    FROM product_time_series
+    GROUP BY week, week_start
+)
+SELECT
+    week,
+    weekly_model.r2 as weekly_r2,
+    weekly_model.coefficients[1] as weekly_elasticity,
+    -- Rolling average of R² (market-wide model quality trend)
+    AVG(weekly_model.r2) OVER (
+        ORDER BY week
+        ROWS BETWEEN 3 PRECEDING AND CURRENT ROW
+    ) as rolling_avg_r2,
+    -- Rolling average of elasticity
+    AVG(weekly_model.coefficients[1]) OVER (
+        ORDER BY week
+        ROWS BETWEEN 3 PRECEDING AND CURRENT ROW
+    ) as rolling_avg_elasticity,
+    -- Volatility of elasticity
+    STDDEV(weekly_model.coefficients[1]) OVER (
+        ORDER BY week
+        ROWS BETWEEN 5 PRECEDING AND CURRENT ROW
+    ) as elasticity_volatility,
+    CASE
+        WHEN STDDEV(weekly_model.coefficients[1]) OVER (
+            ORDER BY week
+            ROWS BETWEEN 5 PRECEDING AND CURRENT ROW
+        ) > 1.0 THEN 'High volatility - unstable market'
+        ELSE 'Stable market conditions'
+    END as market_stability
+FROM weekly_summary
+WHERE week >= 5
+ORDER BY week
+LIMIT 20;
+
+-- Technique 4: Cross-sectional comparison with time trends
+WITH monthly_by_product AS (
+    SELECT
+        product_id,
+        (week / 4)::INT as month,
+        anofox_statistics_ols_agg(units_sold, [price], MAP{'intercept': true}) as monthly_model
+    FROM product_time_series
+    GROUP BY product_id, month
+)
+SELECT
+    month,
+    MAX(monthly_model.r2) FILTER (WHERE product_id = 'product_a') as product_a_r2,
+    MAX(monthly_model.r2) FILTER (WHERE product_id = 'product_b') as product_b_r2,
+    MAX(monthly_model.r2) FILTER (WHERE product_id = 'product_c') as product_c_r2,
+    AVG(monthly_model.r2) as avg_r2_across_products,
+    -- Detect if one product is diverging from others
+    MAX(monthly_model.r2) - MIN(monthly_model.r2) as r2_spread,
+    CASE
+        WHEN MAX(monthly_model.r2) - MIN(monthly_model.r2) > 0.2
+            THEN 'High variation across products'
+        ELSE 'Similar model quality'
+    END as cross_product_assessment
+FROM monthly_by_product
+GROUP BY month
+ORDER BY month;
+```
+
+**Interpretation guide**:
+
+**Technique 1 outputs**:
+- `elasticity_change > 2`: Significant shift in price sensitivity - investigate cause
+- `window_size < 9`: Insufficient history for reliable estimates - use with caution
+- `change_indicator = 'Significant change detected'`: Potential regime shift
+
+**Technique 2 outputs**:
+- `adaptive_r2 > static_r2 + 0.05`: Relationships are changing, use RLS
+- `elasticity_drift > 0.5`: Substantial recent change in price sensitivity
+- `model_comparison = 'Static model sufficient'`: Relationship is stable, OLS is fine
+
+**Technique 3 outputs**:
+- `elasticity_volatility > 1.0`: High market instability - adjust pricing cautiously
+- `market_stability = 'High volatility'`: Uncertain environment, increase safety margins
+- `rolling_avg_r2` declining: Model quality degrading over time
+
+**Technique 4 outputs**:
+- `r2_spread > 0.2`: High variation across products - different strategies needed
+- `cross_product_assessment = 'Similar model quality'`: Consistent performance
+- Diverging product R² trends: Some products becoming harder to model
+
+**Business value**:
+- Automatically detect when product relationships change
+- Identify products requiring different modeling approaches
+- Track market-wide stability vs product-specific volatility
+- Provide early warning of regime shifts
+- Optimize inventory and pricing per product based on adaptive insights
+
+**Advanced considerations**:
+- Window size tradeoff: Larger = more stable, smaller = more responsive
+- Forgetting factor tuning: Lower for fast-changing products, higher for stable ones
+- Computational cost: PARTITION BY + window functions can be expensive on large datasets
+- Statistical validity: Ensure sufficient observations per window for reliable estimates
+
 ## Multi-Level Group Analysis
 
 ### Hierarchical Regression with Aggregates
@@ -701,6 +936,307 @@ SELECT
 FROM store_classification
 ORDER BY region_id, territory_id, store_roi DESC;
 ```
+
+### Multi-Level Aggregation with All Methods
+
+**Purpose**: Demonstrate how to use all four aggregate regression methods (OLS, WLS, Ridge, RLS) within a hierarchical GROUP BY structure, comparing methods to choose the best approach for each level of analysis.
+
+**Scenario**: You have product-region sales data over time, and relationships may differ by product type. Different methods may be appropriate at different levels: OLS for stable products, WLS for heteroscedastic data, Ridge for correlated predictors, RLS for changing patterns.
+
+**How it works**:
+1. **Product-Region level**: Fit models with GROUP BY (product_id, region) using all four methods
+2. **Method comparison**: Compare R², coefficients, and diagnostics across methods
+3. **Regional summary**: Aggregate results by region to identify regional patterns
+4. **Method selection**: Recommend which method is most appropriate for each product-region combination
+
+**Key techniques demonstrated**:
+- Parallel application of OLS, WLS, Ridge, and RLS aggregates in single pipeline
+- Method comparison based on fit quality, stability, and business context
+- Hierarchical aggregation: product-region → region → overall
+- Decision framework for selecting appropriate method per segment
+
+**When each method is best**:
+- **OLS**: Stable relationships, homoscedastic errors, uncorrelated predictors
+- **WLS**: Variable reliability across observations (e.g., high-volume vs low-volume stores)
+- **Ridge**: Correlated predictors (e.g., price and competitor price move together)
+- **RLS**: Changing relationships over time (e.g., demand patterns shifting)
+
+```sql
+-- Advanced Use Case: Multi-Level Hierarchical Aggregation
+-- Combine multiple GROUP BY levels with aggregates for complex analysis
+
+-- Sample data: Sales across product hierarchy
+CREATE TEMP TABLE sales_hierarchy AS
+SELECT
+    CASE i % 2 WHEN 0 THEN 'electronics' ELSE 'appliances' END as category,
+    CASE
+        WHEN i % 6 < 2 THEN 'smartphones'
+        WHEN i % 6 < 4 THEN 'laptops'
+        ELSE 'tablets'
+    END as subcategory,
+    CASE i % 3 WHEN 0 THEN 'north' WHEN 1 THEN 'south' ELSE 'west' END as region,
+    DATE '2024-01-01' + INTERVAL (i) DAY as sale_date,
+    (100 + i * 5 + random() * 50)::DOUBLE as price,
+    (10 + i * 0.5 + random() * 5)::DOUBLE as marketing_cost,
+    (50 + 0.8 * (100 + i * 5) - 2 * (10 + i * 0.5) + random() * 30)::DOUBLE as units
+FROM generate_series(1, 90) as t(i);
+
+-- Level 1: Product-level analysis
+WITH product_models AS (
+    SELECT
+        category,
+        subcategory,
+        anofox_statistics_ols_agg(
+            units,
+            [price, marketing_cost],
+            MAP{'intercept': true}
+        ) as model,
+        COUNT(*) as n_sales
+    FROM sales_hierarchy
+    GROUP BY category, subcategory
+),
+-- Level 2: Category-level summary
+category_summary AS (
+    SELECT
+        category,
+        AVG(model.r2) as avg_r2,
+        AVG(model.coefficients[1]) as avg_price_sensitivity,
+        AVG(model.coefficients[2]) as avg_marketing_effectiveness,
+        SUM(n_sales) as total_sales,
+        COUNT(*) as n_subcategories
+    FROM product_models
+    GROUP BY category
+),
+-- Level 3: Regional product performance
+regional_product AS (
+    SELECT
+        region,
+        subcategory,
+        anofox_statistics_ols_agg(
+            units,
+            [price],
+            MAP{'intercept': true}
+        ) as regional_model
+    FROM sales_hierarchy
+    GROUP BY region, subcategory
+)
+-- Combine insights from multiple levels
+SELECT
+    pm.category,
+    pm.subcategory,
+    pm.model.r2 as product_fit,
+    pm.model.coefficients[1] as price_effect,
+    cs.avg_price_sensitivity as category_avg,
+    cs.n_subcategories as competing_products,
+    rp.region,
+    rp.regional_model.r2 as regional_fit,
+    -- Multi-level insights
+    CASE
+        WHEN ABS(pm.model.coefficients[1] - cs.avg_price_sensitivity) > 5
+            THEN 'Outlier - different from category average'
+        ELSE 'Typical for category'
+    END as category_comparison,
+    CASE
+        WHEN pm.model.r2 > 0.7 AND rp.regional_model.r2 > 0.7
+            THEN 'Strong predictability at all levels'
+        WHEN pm.model.r2 < 0.5 OR rp.regional_model.r2 < 0.5
+            THEN 'Weak model - investigate other factors'
+        ELSE 'Moderate predictability'
+    END as model_assessment
+FROM product_models pm
+JOIN category_summary cs ON pm.category = cs.category
+JOIN regional_product rp ON pm.subcategory = rp.subcategory
+ORDER BY pm.category, pm.subcategory, rp.region
+LIMIT 20;
+```
+
+**Interpretation guide**:
+- **Similar results across methods**: Relationship is stable, use simple OLS
+- **WLS differs from OLS**: Heteroscedasticity present, WLS is more efficient
+- **Ridge shrinks OLS**: Multicollinearity detected, Ridge provides stability
+- **RLS differs significantly**: Relationship has changed recently, use adaptive model
+
+**Business value**: Automatically identifies which analytical approach is appropriate for each segment, ensuring robust and reliable insights across diverse product-region combinations.
+
+### Combining Methods in Unified Pipeline
+
+**Purpose**: Show how to integrate all four regression methods (OLS, WLS, Ridge, RLS) in a single analytical workflow to answer complex business questions requiring different techniques.
+
+**Scenario**: Analyze product performance where different products require different methods: baseline models (OLS), reliability-weighted analysis (WLS), regularized models for correlated features (Ridge), and adaptive models for changing patterns (RLS).
+
+**How it works**:
+1. **OLS baseline**: Fit standard regression for all products to establish baseline performance
+2. **WLS adjustment**: Apply reliability weights based on sample size or data quality
+3. **Ridge regularization**: Handle products with correlated predictors (price, competitor price, seasonality)
+4. **RLS adaptation**: Track products with evolving demand patterns
+5. **Unified comparison**: Combine all results to select best method per product
+6. **Performance ranking**: Rank products using method-appropriate models
+
+**Key techniques**:
+- Sequential CTEs applying each method with appropriate configuration
+- UNION ALL to combine results from all methods
+- Method tagging to track which approach was used
+- Automated best-method selection based on fit criteria
+- Integrated insights across diverse analytical approaches
+
+**When to use this pattern**:
+- Portfolio analysis where different items require different methods
+- Comparative analysis to validate robustness across approaches
+- Production systems where method selection should be data-driven
+- Complex business questions requiring multiple statistical perspectives
+
+```sql
+-- Advanced Use Case: Combining All Regression Methods
+-- Compare OLS, WLS, Ridge, and RLS in a unified analysis pipeline
+
+-- Sample data: Complex scenario with multiple issues
+CREATE TEMP TABLE complex_dataset AS
+SELECT
+    CASE i % 2 WHEN 0 THEN 'market_a' ELSE 'market_b' END as market,
+    i as observation_id,
+    i::DOUBLE as time_index,
+    (100 + i * 2 + random() * 10)::DOUBLE as x1_correlated,
+    (101 + i * 2.1 + random() * 10)::DOUBLE as x2_correlated,  -- Highly correlated with x1
+    (50 + i * 0.5 + random() * 5)::DOUBLE as x3_independent,
+    -- Response with heteroscedastic errors (variance increases with time)
+    (200 + 1.5 * (100 + i * 2) + 0.8 * (50 + i * 0.5) + random() * (5 + i * 0.5))::DOUBLE as y,
+    -- Quality weight (inverse variance)
+    (1.0 / (1.0 + i * 0.05))::DOUBLE as observation_weight
+FROM generate_series(1, 60) as t(i);
+
+-- Run all four methods and compare
+WITH all_methods AS (
+    SELECT
+        market,
+        -- OLS: Standard baseline
+        anofox_statistics_ols_agg(
+            y,
+            [x1_correlated, x2_correlated, x3_independent],
+            MAP{'intercept': true}
+        ) as ols_model,
+        -- WLS: Addresses heteroscedasticity
+        anofox_statistics_wls_agg(
+            y,
+            [x1_correlated, x2_correlated, x3_independent],
+            observation_weight,
+            MAP{'intercept': true}
+        ) as wls_model,
+        -- Ridge: Handles multicollinearity
+        anofox_statistics_ridge_agg(
+            y,
+            [x1_correlated, x2_correlated, x3_independent],
+            MAP{'lambda': 1.0, 'intercept': true}
+        ) as ridge_model,
+        -- RLS: Adaptive to changes
+        anofox_statistics_rls_agg(
+            y,
+            [x1_correlated, x2_correlated, x3_independent],
+            MAP{'forgetting_factor': 0.95, 'intercept': true}
+        ) as rls_model
+    FROM complex_dataset
+    GROUP BY market
+)
+SELECT
+    market,
+    -- Compare R² across methods
+    ols_model.r2 as ols_r2,
+    wls_model.r2 as wls_r2,
+    ridge_model.r2 as ridge_r2,
+    rls_model.r2 as rls_r2,
+    -- Compare first coefficient (highly correlated x1)
+    ols_model.coefficients[1] as ols_x1_coef,
+    wls_model.coefficients[1] as wls_x1_coef,
+    ridge_model.coefficients[1] as ridge_x1_coef,
+    rls_model.coefficients[1] as rls_x1_coef,
+    -- Compare second coefficient (highly correlated x2)
+    ols_model.coefficients[2] as ols_x2_coef,
+    wls_model.coefficients[2] as wls_x2_coef,
+    ridge_model.coefficients[2] as ridge_x2_coef,
+    rls_model.coefficients[2] as rls_x2_coef,
+    -- Diagnostic insights
+    CASE
+        WHEN wls_model.r2 > ols_model.r2 + 0.05 THEN 'WLS improves fit (heteroscedasticity present)'
+        ELSE 'Constant variance - OLS sufficient'
+    END as heteroscedasticity_check,
+    CASE
+        WHEN ABS(ridge_model.coefficients[1] - ols_model.coefficients[1]) > 0.5
+            OR ABS(ridge_model.coefficients[2] - ols_model.coefficients[2]) > 0.5
+            THEN 'Ridge shrinkage significant (multicollinearity present)'
+        ELSE 'Low multicollinearity'
+    END as multicollinearity_check,
+    -- Method recommendation
+    CASE
+        WHEN wls_model.r2 = (SELECT MAX(r2) FROM (VALUES (ols_model.r2), (wls_model.r2), (ridge_model.r2), (rls_model.r2)) AS t(r2))
+            THEN 'Recommend WLS'
+        WHEN ridge_model.r2 = (SELECT MAX(r2) FROM (VALUES (ols_model.r2), (wls_model.r2), (ridge_model.r2), (rls_model.r2)) AS t(r2))
+            THEN 'Recommend Ridge'
+        WHEN rls_model.r2 = (SELECT MAX(r2) FROM (VALUES (ols_model.r2), (wls_model.r2), (ridge_model.r2), (rls_model.r2)) AS t(r2))
+            THEN 'Recommend RLS (time-varying)'
+        ELSE 'OLS sufficient'
+    END as best_method
+FROM all_methods;
+
+-- Coefficient stability analysis
+WITH coefficient_comparison AS (
+    SELECT
+        market,
+        'x1 (correlated)' as predictor,
+        ols_model.coefficients[1] as ols,
+        wls_model.coefficients[1] as wls,
+        ridge_model.coefficients[1] as ridge,
+        rls_model.coefficients[1] as rls
+    FROM all_methods
+    UNION ALL
+    SELECT
+        market,
+        'x2 (correlated)' as predictor,
+        ols_model.coefficients[2],
+        wls_model.coefficients[2],
+        ridge_model.coefficients[2],
+        rls_model.coefficients[2]
+    FROM all_methods
+    UNION ALL
+    SELECT
+        market,
+        'x3 (independent)' as predictor,
+        ols_model.coefficients[3],
+        wls_model.coefficients[3],
+        ridge_model.coefficients[3],
+        rls_model.coefficients[3]
+    FROM all_methods
+)
+SELECT
+    market,
+    predictor,
+    ols,
+    wls,
+    ridge,
+    rls,
+    -- Coefficient variability across methods
+    (SELECT MAX(v) - MIN(v) FROM (VALUES (ols), (wls), (ridge), (rls)) AS t(v)) as coefficient_range,
+    CASE
+        WHEN (SELECT MAX(v) - MIN(v) FROM (VALUES (ols), (wls), (ridge), (rls)) AS t(v)) > 0.5
+            THEN 'High sensitivity to method choice'
+        ELSE 'Stable across methods'
+    END as stability_assessment
+FROM coefficient_comparison
+ORDER BY market, predictor;
+```
+
+**Decision framework**:
+```
+If R² differences < 0.05: Use OLS (simplest)
+Elif weighted_mse << MSE: Use WLS (heteroscedasticity matters)
+Elif Ridge R² > OLS R²: Use Ridge (multicollinearity present)
+Elif RLS R² > OLS R² + 0.1: Use RLS (patterns changing)
+```
+
+**Production considerations**:
+- Start with OLS as baseline, only use advanced methods when needed
+- WLS when you have known reliability differences
+- Ridge when you know predictors are correlated
+- RLS when you detect non-stationarity
+- Log method used for each product for reproducibility
 
 ## Cohort Analysis with Regression
 

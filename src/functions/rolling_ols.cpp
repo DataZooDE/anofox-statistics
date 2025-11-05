@@ -1,6 +1,7 @@
 #include "rolling_ols.hpp"
 #include "../utils/tracing.hpp"
 #include "../utils/rank_deficient_ols.hpp"
+#include "../utils/options_parser.hpp"
 
 #include "duckdb.hpp"
 #include "duckdb/common/exception.hpp"
@@ -44,8 +45,7 @@ struct WindowResult {
 struct RollingOlsBindData : public FunctionData {
 	vector<double> y_values;
 	vector<vector<double>> x_values;
-	idx_t window_size;
-	bool add_intercept = true;
+	RegressionOptions options;
 
 	// Results (one per window)
 	vector<WindowResult> windows;
@@ -55,8 +55,7 @@ struct RollingOlsBindData : public FunctionData {
 		auto result = make_uniq<RollingOlsBindData>();
 		result->y_values = y_values;
 		result->x_values = x_values;
-		result->window_size = window_size;
-		result->add_intercept = add_intercept;
+		result->options = options;
 		result->windows = windows;
 		result->result_index = result_index;
 		return std::move(result);
@@ -158,10 +157,15 @@ static WindowResult ComputeWindowOLS(const vector<double> &y_values, const vecto
 	// Compute statistics
 	Eigen::VectorXd residuals = y - y_pred;
 	double ss_res = residuals.squaredNorm();
-	if (!add_intercept) {
-		y_mean = y.mean(); // Need to compute y_mean if not already done
+
+	double ss_tot;
+	if (add_intercept) {
+		// With intercept: total sum of squares from mean
+		ss_tot = (y.array() - y_mean).square().sum();
+	} else {
+		// No intercept: total sum of squares from zero
+		ss_tot = y.squaredNorm();
 	}
-	double ss_tot = (y.array() - y_mean).square().sum();
 
 	result.r_squared = (ss_tot > 0) ? 1.0 - (ss_res / ss_tot) : 0.0;
 	result.mse = ss_res / n;
@@ -175,7 +179,7 @@ static WindowResult ComputeWindowOLS(const vector<double> &y_values, const vecto
 static void ComputeRollingOLS(RollingOlsBindData &data) {
 	idx_t n = data.y_values.size();
 	idx_t p = data.x_values.size();
-	idx_t w = data.window_size;
+	idx_t w = data.options.window_size;
 
 	if (n == 0 || p == 0) {
 		throw InvalidInputException("Cannot fit rolling OLS with empty data");
@@ -200,7 +204,7 @@ static void ComputeRollingOLS(RollingOlsBindData &data) {
 		idx_t window_end = i + w;
 
 		WindowResult window_result =
-		    ComputeWindowOLS(data.y_values, data.x_values, window_start, window_end, data.add_intercept);
+		    ComputeWindowOLS(data.y_values, data.x_values, window_start, window_end, data.options.intercept);
 
 		data.windows.push_back(window_result);
 
@@ -218,12 +222,11 @@ static unique_ptr<FunctionData> RollingOlsBind(ClientContext &context, TableFunc
 
 	auto result = make_uniq<RollingOlsBindData>();
 
-	// Expected parameters: y (DOUBLE[]), x1 (DOUBLE[]), [x2, ...], window_size (BIGINT), [add_intercept (BOOLEAN)]
+	// Expected parameters: y (DOUBLE[]), x (DOUBLE[][]), options (MAP)
 
 	if (input.inputs.size() < 3) {
-		throw InvalidInputException(
-		    "anofox_statistics_rolling_ols requires at least 3 parameters: "
-		    "y (DOUBLE[]), x1 (DOUBLE[]), [x2 (DOUBLE[]), ...], window_size (BIGINT), [add_intercept (BOOLEAN)]");
+		throw InvalidInputException("anofox_statistics_rolling_ols requires 3 parameters: "
+		                            "y (DOUBLE[]), x (DOUBLE[][]), options (MAP with 'window_size' key)");
 	}
 
 	// Extract y values (first parameter)
@@ -238,49 +241,46 @@ static unique_ptr<FunctionData> RollingOlsBind(ClientContext &context, TableFunc
 	idx_t n = result->y_values.size();
 	ANOFOX_DEBUG("y has " << n << " observations");
 
-	// Determine parameter structure from the end
-	idx_t last_param_idx = input.inputs.size() - 1;
-	bool has_add_intercept = false;
-
-	// Check last parameter: might be add_intercept (BOOLEAN)
-	if (input.inputs[last_param_idx].type().id() == LogicalTypeId::BOOLEAN) {
-		result->add_intercept = input.inputs[last_param_idx].GetValue<bool>();
-		has_add_intercept = true;
-		last_param_idx--;
+	// Extract x values (second parameter - 2D array)
+	if (input.inputs[1].type().id() != LogicalTypeId::LIST) {
+		throw InvalidInputException("Second parameter (x) must be a 2D array (DOUBLE[][])");
 	}
 
-	// Second-to-last (or last if no boolean) should be window_size (BIGINT)
-	if (input.inputs[last_param_idx].type().id() != LogicalTypeId::BIGINT) {
-		throw InvalidInputException("Window size parameter must be BIGINT (got type %s)",
-		                            input.inputs[last_param_idx].type().ToString().c_str());
-	}
-	result->window_size = input.inputs[last_param_idx].GetValue<int64_t>();
-	idx_t window_param_idx = last_param_idx;
-	last_param_idx--;
-
-	// Remaining parameters (from index 1 to last_param_idx) are x feature arrays
-	for (idx_t param_idx = 1; param_idx <= last_param_idx; param_idx++) {
-		if (input.inputs[param_idx].type().id() != LogicalTypeId::LIST) {
-			throw InvalidInputException("Parameter %d (x%d) must be an array of DOUBLE", param_idx + 1, param_idx);
+	auto x_outer = ListValue::GetChildren(input.inputs[1]);
+	for (const auto &x_inner_val : x_outer) {
+		if (x_inner_val.type().id() != LogicalTypeId::LIST) {
+			throw InvalidInputException("Second parameter (x) must be a 2D array where each element is DOUBLE[]");
 		}
 
-		auto x_list = ListValue::GetChildren(input.inputs[param_idx]);
+		auto x_feature_list = ListValue::GetChildren(x_inner_val);
 		vector<double> x_feature;
-		for (const auto &val : x_list) {
+		for (const auto &val : x_feature_list) {
 			x_feature.push_back(val.GetValue<double>());
 		}
 
 		// Validate dimensions
 		if (x_feature.size() != n) {
-			throw InvalidInputException("Array dimensions mismatch: y has %d elements, x%d has %d elements", n,
-			                            param_idx, x_feature.size());
+			throw InvalidInputException("Array dimensions mismatch: y has %d elements, feature %d has %d elements", n,
+			                            result->x_values.size() + 1, x_feature.size());
 		}
 
 		result->x_values.push_back(x_feature);
 	}
 
+	// Extract options (third parameter - MAP, required for window functions)
+	if (input.inputs[2].type().id() != LogicalTypeId::MAP) {
+		throw InvalidInputException("Third parameter (options) must be a MAP with 'window_size' key");
+	}
+	result->options = RegressionOptions::ParseFromMap(input.inputs[2]);
+	result->options.Validate();
+
+	// Validate window_size was provided
+	if (result->options.window_size == 0) {
+		throw InvalidInputException("options MAP must include 'window_size' (BIGINT)");
+	}
+
 	ANOFOX_INFO("Fitting rolling OLS with " << n << " observations, " << result->x_values.size()
-	                                        << " features, window size = " << result->window_size);
+	                                        << " features, window_size=" << result->options.window_size);
 
 	// Perform rolling OLS computation
 	ComputeRollingOLS(*result);
@@ -306,7 +306,7 @@ static unique_ptr<FunctionData> RollingOlsBind(ClientContext &context, TableFunc
 
 static void RollingOlsExecute(ClientContext &context, TableFunctionInput &data, DataChunk &output) {
 
-	auto &bind_data = const_cast<RollingOlsBindData &>(dynamic_cast<const RollingOlsBindData &>(*data.bind_data));
+	auto &bind_data = data.bind_data->CastNoConst<RollingOlsBindData>();
 
 	idx_t output_idx = 0;
 	idx_t max_output = STANDARD_VECTOR_SIZE;
@@ -359,17 +359,15 @@ static void RollingOlsExecute(ClientContext &context, TableFunctionInput &data, 
 void RollingOlsFunction::Register(ExtensionLoader &loader) {
 	ANOFOX_DEBUG("Registering anofox_statistics_rolling_ols with sliding window regression");
 
-	// Required arguments: y (DOUBLE[]), x1 (DOUBLE[])
-	// Note: window_size is handled through varargs to support multi-variable case
+	// Signature: anofox_statistics_rolling_ols(y DOUBLE[], x DOUBLE[][], options MAP)
+	// options MAP must include 'window_size' (BIGINT), and optionally 'intercept' (BOOLEAN)
 	vector<LogicalType> arguments = {
-	    LogicalType::LIST(LogicalType::DOUBLE), // y
-	    LogicalType::LIST(LogicalType::DOUBLE)  // x1
+	    LogicalType::LIST(LogicalType::DOUBLE),                     // y: DOUBLE[]
+	    LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)), // x: DOUBLE[][]
+	    LogicalType::MAP(LogicalType::VARCHAR, LogicalType::ANY)    // options: MAP (required)
 	};
 
 	TableFunction function("anofox_statistics_rolling_ols", arguments, RollingOlsExecute, RollingOlsBind);
-
-	// Varargs: x2-xN (DOUBLE[]), window_size (BIGINT), add_intercept (BOOLEAN)
-	function.varargs = LogicalType::ANY;
 
 	loader.RegisterFunction(function);
 

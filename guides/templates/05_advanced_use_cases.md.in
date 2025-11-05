@@ -104,6 +104,89 @@ Complex analytical workflows demonstrating sophisticated applications of the Ano
 
 <!-- include: test/sql/guide05_seasonality_adjusted_forecasting.sql -->
 
+### Window Functions + GROUP BY: Rolling Analysis Per Group
+
+**Purpose**: Combine rolling window functions with GROUP BY aggregates to track how relationships evolve over time differently for each group. This advanced pattern enables per-group adaptive models that detect regime changes and measure stability.
+
+**Scenario**: You have multiple products, and each product's price-demand relationship may change over time at different rates. You need rolling models per product to detect which products have stable vs volatile relationships, and when significant changes occur.
+
+**How it works**:
+1. **Technique 1: Rolling window within each product**
+   - Use `PARTITION BY product_id ORDER BY week` with `ROWS BETWEEN 8 PRECEDING AND CURRENT ROW`
+   - Compute `anofox_statistics_ols_agg` over each 9-week window per product
+   - Track coefficient evolution to detect elasticity changes
+   - Flag significant changes when coefficient shifts dramatically
+
+2. **Technique 2: Compare static vs adaptive models per product**
+   - Fit static OLS model for entire period (GROUP BY product only)
+   - Fit adaptive RLS model with forgetting_factor (GROUP BY product only)
+   - Compare R² to determine if adaptation provides value
+   - Measure elasticity drift between static and adaptive estimates
+
+3. **Technique 3: Aggregate then window (summary metrics over time)**
+   - First aggregate: GROUP BY week to get weekly cross-product model
+   - Then window: Apply rolling functions over weekly aggregates
+   - Track market-wide model quality trends
+   - Measure elasticity volatility across all products
+
+4. **Technique 4: Cross-sectional comparison with time trends**
+   - GROUP BY product, month to get monthly per-product models
+   - Analyze how products' model quality changes over months
+   - Detect if one product is diverging from others
+   - Identify periods of high cross-product variation
+
+**Key techniques demonstrated**:
+- **PARTITION BY + window frames**: Per-group rolling analysis
+- **Nested aggregation**: Aggregate → window → aggregate patterns
+- **Static vs adaptive comparison**: OLS baseline vs RLS adaptation
+- **Cross-sectional analysis**: Compare groups over time
+- **Change detection**: Identify significant coefficient shifts
+- **Volatility measures**: STDDEV of coefficients over windows
+
+**When to use this pattern**:
+- **Per-product forecasting**: Each product needs its own adaptive model
+- **Stability monitoring**: Track which groups have stable vs changing relationships
+- **Anomaly detection**: Flag products with sudden coefficient changes
+- **Method validation**: Compare static and adaptive approaches per segment
+- **Portfolio monitoring**: Track overall market trends while analyzing individual items
+
+<!-- include: test/sql/guide05_rolling_with_aggregates.sql -->
+
+**Interpretation guide**:
+
+**Technique 1 outputs**:
+- `elasticity_change > 2`: Significant shift in price sensitivity - investigate cause
+- `window_size < 9`: Insufficient history for reliable estimates - use with caution
+- `change_indicator = 'Significant change detected'`: Potential regime shift
+
+**Technique 2 outputs**:
+- `adaptive_r2 > static_r2 + 0.05`: Relationships are changing, use RLS
+- `elasticity_drift > 0.5`: Substantial recent change in price sensitivity
+- `model_comparison = 'Static model sufficient'`: Relationship is stable, OLS is fine
+
+**Technique 3 outputs**:
+- `elasticity_volatility > 1.0`: High market instability - adjust pricing cautiously
+- `market_stability = 'High volatility'`: Uncertain environment, increase safety margins
+- `rolling_avg_r2` declining: Model quality degrading over time
+
+**Technique 4 outputs**:
+- `r2_spread > 0.2`: High variation across products - different strategies needed
+- `cross_product_assessment = 'Similar model quality'`: Consistent performance
+- Diverging product R² trends: Some products becoming harder to model
+
+**Business value**:
+- Automatically detect when product relationships change
+- Identify products requiring different modeling approaches
+- Track market-wide stability vs product-specific volatility
+- Provide early warning of regime shifts
+- Optimize inventory and pricing per product based on adaptive insights
+
+**Advanced considerations**:
+- Window size tradeoff: Larger = more stable, smaller = more responsive
+- Forgetting factor tuning: Lower for fast-changing products, higher for stable ones
+- Computational cost: PARTITION BY + window functions can be expensive on large datasets
+- Statistical validity: Ensure sufficient observations per window for reliable estimates
+
 ## Multi-Level Group Analysis
 
 ### Hierarchical Regression with Aggregates
@@ -133,6 +216,84 @@ Complex analytical workflows demonstrating sophisticated applications of the Ano
 **When to use**: Any hierarchical organization structure (retail chains, sales territories, franchise networks) where you need to assess performance at multiple levels and identify outliers or best practices for replication.
 
 <!-- include: test/sql/guide05_hierarchical_regression_with_aggregates.sql -->
+
+### Multi-Level Aggregation with All Methods
+
+**Purpose**: Demonstrate how to use all four aggregate regression methods (OLS, WLS, Ridge, RLS) within a hierarchical GROUP BY structure, comparing methods to choose the best approach for each level of analysis.
+
+**Scenario**: You have product-region sales data over time, and relationships may differ by product type. Different methods may be appropriate at different levels: OLS for stable products, WLS for heteroscedastic data, Ridge for correlated predictors, RLS for changing patterns.
+
+**How it works**:
+1. **Product-Region level**: Fit models with GROUP BY (product_id, region) using all four methods
+2. **Method comparison**: Compare R², coefficients, and diagnostics across methods
+3. **Regional summary**: Aggregate results by region to identify regional patterns
+4. **Method selection**: Recommend which method is most appropriate for each product-region combination
+
+**Key techniques demonstrated**:
+- Parallel application of OLS, WLS, Ridge, and RLS aggregates in single pipeline
+- Method comparison based on fit quality, stability, and business context
+- Hierarchical aggregation: product-region → region → overall
+- Decision framework for selecting appropriate method per segment
+
+**When each method is best**:
+- **OLS**: Stable relationships, homoscedastic errors, uncorrelated predictors
+- **WLS**: Variable reliability across observations (e.g., high-volume vs low-volume stores)
+- **Ridge**: Correlated predictors (e.g., price and competitor price move together)
+- **RLS**: Changing relationships over time (e.g., demand patterns shifting)
+
+<!-- include: test/sql/guide05_multi_level_aggregation.sql -->
+
+**Interpretation guide**:
+- **Similar results across methods**: Relationship is stable, use simple OLS
+- **WLS differs from OLS**: Heteroscedasticity present, WLS is more efficient
+- **Ridge shrinks OLS**: Multicollinearity detected, Ridge provides stability
+- **RLS differs significantly**: Relationship has changed recently, use adaptive model
+
+**Business value**: Automatically identifies which analytical approach is appropriate for each segment, ensuring robust and reliable insights across diverse product-region combinations.
+
+### Combining Methods in Unified Pipeline
+
+**Purpose**: Show how to integrate all four regression methods (OLS, WLS, Ridge, RLS) in a single analytical workflow to answer complex business questions requiring different techniques.
+
+**Scenario**: Analyze product performance where different products require different methods: baseline models (OLS), reliability-weighted analysis (WLS), regularized models for correlated features (Ridge), and adaptive models for changing patterns (RLS).
+
+**How it works**:
+1. **OLS baseline**: Fit standard regression for all products to establish baseline performance
+2. **WLS adjustment**: Apply reliability weights based on sample size or data quality
+3. **Ridge regularization**: Handle products with correlated predictors (price, competitor price, seasonality)
+4. **RLS adaptation**: Track products with evolving demand patterns
+5. **Unified comparison**: Combine all results to select best method per product
+6. **Performance ranking**: Rank products using method-appropriate models
+
+**Key techniques**:
+- Sequential CTEs applying each method with appropriate configuration
+- UNION ALL to combine results from all methods
+- Method tagging to track which approach was used
+- Automated best-method selection based on fit criteria
+- Integrated insights across diverse analytical approaches
+
+**When to use this pattern**:
+- Portfolio analysis where different items require different methods
+- Comparative analysis to validate robustness across approaches
+- Production systems where method selection should be data-driven
+- Complex business questions requiring multiple statistical perspectives
+
+<!-- include: test/sql/guide05_combined_methods.sql -->
+
+**Decision framework**:
+```
+If R² differences < 0.05: Use OLS (simplest)
+Elif weighted_mse << MSE: Use WLS (heteroscedasticity matters)
+Elif Ridge R² > OLS R²: Use Ridge (multicollinearity present)
+Elif RLS R² > OLS R² + 0.1: Use RLS (patterns changing)
+```
+
+**Production considerations**:
+- Start with OLS as baseline, only use advanced methods when needed
+- WLS when you have known reliability differences
+- Ridge when you know predictors are correlated
+- RLS when you detect non-stationarity
+- Log method used for each product for reproducibility
 
 ## Cohort Analysis with Regression
 

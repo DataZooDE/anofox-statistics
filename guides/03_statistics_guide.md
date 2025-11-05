@@ -57,6 +57,143 @@ GROUP BY category;
 - **RMSE (Root Mean Squared Error)**: Standard deviation of residuals - typical prediction error in y units. Lower is better
 - **Adjusted R²**: R² penalized for number of predictors - use when comparing models with different numbers of variables
 
+#### OLS Aggregate for GROUP BY Analysis
+
+For per-group regression analysis, use the `anofox_statistics_ols_agg` aggregate function. This computes separate OLS regressions for each group efficiently in a single query.
+
+```sql
+-- Statistics Guide: Comprehensive OLS Aggregate Example
+-- Demonstrates full statistical output and interpretation
+
+-- Create sample data: advertising effectiveness study
+CREATE TEMP TABLE advertising_data AS
+SELECT
+    CASE WHEN i <= 20 THEN 'campaign_a' ELSE 'campaign_b' END as campaign,
+    i as week,
+    (1000 + i * 50 + random() * 100)::DOUBLE as tv_spend,
+    (500 + i * 25 + random() * 50)::DOUBLE as digital_spend,
+    (10000 + i * 200 + 0.8 * (1000 + i * 50) + 1.2 * (500 + i * 25) + random() * 500)::DOUBLE as sales
+FROM generate_series(1, 40) as t(i);
+
+-- Run comprehensive OLS analysis per campaign
+SELECT
+    campaign,
+    -- Coefficients (interpretation: change in sales per dollar spent)
+    result.coefficients[1] as tv_roi,
+    result.coefficients[2] as digital_roi,
+    result.intercept as baseline_sales,
+    -- Model fit
+    result.r2 as r_squared,
+    result.adj_r2 as adjusted_r_squared,
+    result.n_obs as sample_size,
+    result.n_features as num_predictors,
+    -- Interpretation flags
+    CASE
+        WHEN result.r2 > 0.8 THEN 'Excellent fit'
+        WHEN result.r2 > 0.6 THEN 'Good fit'
+        WHEN result.r2 > 0.4 THEN 'Moderate fit'
+        ELSE 'Poor fit'
+    END as model_quality,
+    CASE
+        WHEN result.coefficients[1] > result.coefficients[2] THEN 'TV more effective'
+        ELSE 'Digital more effective'
+    END as channel_comparison
+FROM (
+    SELECT
+        campaign,
+        anofox_statistics_ols_agg(
+            sales,
+            [tv_spend, digital_spend],
+            MAP{'intercept': true}
+        ) as result
+    FROM advertising_data
+    GROUP BY campaign
+) sub;
+```
+
+**Aggregate-Specific Notes**:
+- Works with `GROUP BY` for per-group models
+- Can be used with window functions (`OVER`) for rolling analysis
+- Automatically parallelizes across groups
+- Returns STRUCT with all regression statistics
+- Access fields with `.` notation: `result.coefficients[1]`, `result.r2`
+
+#### Understanding the Intercept Parameter
+
+The intercept parameter controls whether the regression line must pass through the origin (intercept=false) or can have any y-intercept (intercept=true).
+
+```sql
+-- Statistics Guide: Understanding the Intercept Parameter
+-- Demonstrates when to use intercept=true vs intercept=false
+
+-- Example 1: Physical law (proportional relationship, no intercept)
+CREATE TEMP TABLE physics_data AS
+SELECT
+    'force_mass_relationship' as experiment,
+    i::DOUBLE as mass_kg,
+    (i * 9.81)::DOUBLE as force_newtons  -- F = m * g (passes through origin)
+FROM generate_series(1, 20) as t(i);
+
+SELECT
+    'Physics: With intercept' as model_type,
+    result.intercept,
+    result.coefficients[1] as acceleration_estimate,
+    result.r2
+FROM (
+    SELECT anofox_statistics_ols_agg(force_newtons, [mass_kg], MAP{'intercept': true}) as result
+    FROM physics_data
+) sub
+UNION ALL
+SELECT
+    'Physics: Without intercept (correct)' as model_type,
+    result.intercept,
+    result.coefficients[1] as acceleration_estimate,
+    result.r2
+FROM (
+    SELECT anofox_statistics_ols_agg(force_newtons, [mass_kg], MAP{'intercept': false}) as result
+    FROM physics_data
+) sub;
+
+-- Example 2: Business scenario (with natural intercept)
+CREATE TEMP TABLE business_data AS
+SELECT
+    'sales_model' as model,
+    i::DOUBLE as employees,
+    (50000 + i * 75000)::DOUBLE as revenue  -- Base revenue + per-employee contribution
+FROM generate_series(1, 15) as t(i);
+
+SELECT
+    'Business: With intercept (correct)' as model_type,
+    result.intercept as fixed_costs,
+    result.coefficients[1] as revenue_per_employee,
+    result.r2
+FROM (
+    SELECT anofox_statistics_ols_agg(revenue, [employees], MAP{'intercept': true}) as result
+    FROM business_data
+) sub
+UNION ALL
+SELECT
+    'Business: Without intercept (wrong)' as model_type,
+    result.intercept,
+    result.coefficients[1] as biased_estimate,
+    result.r2
+FROM (
+    SELECT anofox_statistics_ols_agg(revenue, [employees], MAP{'intercept': false}) as result
+    FROM business_data
+) sub;
+
+-- Key insight: R² comparison
+SELECT
+    'R² comparison' as note,
+    'intercept=true uses SS from mean, intercept=false uses SS from zero' as explanation;
+```
+
+**Choosing Intercept Setting**:
+- **intercept=true (default)**: Use for most business/social science applications where a natural baseline exists
+- **intercept=false**: Use when theory requires zero intercept (physical laws, rates, or when data is already centered)
+- **R² difference**: With intercept uses SS from mean; without intercept uses SS from zero (not directly comparable)
+- **Degrees of freedom**: With intercept adds 1 to model parameters for adjusted R² calculation
+
 ### Ridge Regression
 
 **Model**: Minimize ||y - Xβ||² + λ||β||²
@@ -101,6 +238,102 @@ SELECT * FROM anofox_statistics_ridge_fit(
 
 **Practical tip**: Try λ values on a log scale (0.001, 0.01, 0.1, 1, 10) and use cross-validation to choose the best one.
 
+#### Ridge Aggregate for GROUP BY Analysis
+
+For per-group ridge regression, use `anofox_statistics_ridge_agg` with lambda parameter in the options MAP.
+
+```sql
+-- Statistics Guide: Ridge Regression - Handling Multicollinearity
+-- Demonstrates lambda tuning and coefficient shrinkage
+
+-- Create data with severe multicollinearity
+CREATE TEMP TABLE collinear_data AS
+SELECT
+    'product_line_a' as product,
+    i::DOUBLE as advertising,
+    (i + random() * 0.5)::DOUBLE as social_media,  -- Nearly identical to advertising
+    (i + random() * 0.5)::DOUBLE as influencer,     -- Nearly identical to advertising
+    (1000 + 50 * i + random() * 100)::DOUBLE as sales
+FROM generate_series(1, 25) as t(i);
+
+-- Compare different lambda values
+SELECT
+    product,
+    'OLS (lambda=0)' as method,
+    result.lambda,
+    result.coefficients[1] as adv_coef,
+    result.coefficients[2] as social_coef,
+    result.coefficients[3] as influencer_coef,
+    result.r2,
+    result.adj_r2
+FROM (
+    SELECT
+        product,
+        anofox_statistics_ridge_agg(
+            sales,
+            [advertising, social_media, influencer],
+            MAP{'lambda': 0.0, 'intercept': true}
+        ) as result
+    FROM collinear_data
+    GROUP BY product
+) sub
+UNION ALL
+SELECT
+    product,
+    'Ridge (lambda=1)' as method,
+    result.lambda,
+    result.coefficients[1],
+    result.coefficients[2],
+    result.coefficients[3],
+    result.r2,
+    result.adj_r2
+FROM (
+    SELECT
+        product,
+        anofox_statistics_ridge_agg(
+            sales,
+            [advertising, social_media, influencer],
+            MAP{'lambda': 1.0, 'intercept': true}
+        ) as result
+    FROM collinear_data
+    GROUP BY product
+) sub
+UNION ALL
+SELECT
+    product,
+    'Ridge (lambda=10)' as method,
+    result.lambda,
+    result.coefficients[1],
+    result.coefficients[2],
+    result.coefficients[3],
+    result.r2,
+    result.adj_r2
+FROM (
+    SELECT
+        product,
+        anofox_statistics_ridge_agg(
+            sales,
+            [advertising, social_media, influencer],
+            MAP{'lambda': 10.0, 'intercept': true}
+        ) as result
+    FROM collinear_data
+    GROUP BY product
+) sub;
+
+-- Interpretation note
+SELECT
+    'Key Insight' as note,
+    'Ridge shrinks coefficients towards zero, reducing variance at the cost of small bias. Higher lambda = more shrinkage.' as interpretation;
+```
+
+**Lambda Selection Guide**:
+- **λ = 0**: Equivalent to OLS (no regularization)
+- **λ = 0.01-0.1**: Light regularization (slight coefficient shrinkage)
+- **λ = 1-10**: Moderate regularization (recommended starting point)
+- **λ > 10**: Heavy regularization (strong shrinkage, high bias)
+- **Cross-validation**: Optimal λ minimizes prediction error on held-out data
+- **Compare coefficients**: Ridge coefficients should be smaller but more stable than OLS
+
 ### Weighted Least Squares (WLS)
 
 **Model**: y = Xβ + ε, where Var(εᵢ) = σ²/wᵢ
@@ -136,6 +369,93 @@ SELECT * FROM anofox_statistics_wls_fit(
 - **Grouped data**: If observation i represents nᵢ replicates, use wᵢ = nᵢ
 
 **Diagnostic**: Use Breusch-Pagan test or plot residuals vs. fitted values to detect heteroscedasticity and validate weight specification.
+
+#### WLS Aggregate for GROUP BY Analysis
+
+**What it does**: Computes Weighted Least Squares regression per group using SQL's GROUP BY clause. Each group gets its own model with observation-specific weights.
+
+**When to use**: When analyzing multiple segments with heteroscedastic errors, combining data sources with different reliability, or when observations within groups have different precision levels.
+
+**How it works**: The `anofox_statistics_wls_agg` function accumulates weighted data per group, applying observation weights to account for varying variance or reliability.
+
+```sql
+-- Statistics Guide: Weighted Least Squares - Handling Heteroscedasticity
+-- Demonstrates when and how to use weights for non-constant variance
+
+-- Scenario: Customer spending analysis where variance increases with income
+-- High-income customers have more variable spending patterns
+CREATE TEMP TABLE customer_spending AS
+SELECT
+    CASE
+        WHEN i <= 15 THEN 'low_income'
+        WHEN i <= 30 THEN 'medium_income'
+        ELSE 'high_income'
+    END as segment,
+    i as customer_id,
+    (20000 + i * 1000)::DOUBLE as annual_income,
+    -- Spending with heteroscedastic errors (variance increases with income)
+    (5000 + 0.3 * (20000 + i * 1000) + random() * (100 + i * 20))::DOUBLE as annual_spending,
+    -- Weight by inverse variance (precision weighting)
+    (1.0 / (1.0 + i * 0.1))::DOUBLE as precision_weight
+FROM generate_series(1, 45) as t(i);
+
+-- Compare OLS (ignores heteroscedasticity) vs WLS (accounts for it)
+SELECT
+    segment,
+    'OLS (unweighted)' as method,
+    result.coefficients[1] as income_propensity,
+    result.intercept as base_spending,
+    result.r2,
+    NULL as weighted_mse
+FROM (
+    SELECT
+        segment,
+        anofox_statistics_ols_agg(
+            annual_spending,
+            [annual_income],
+            MAP{'intercept': true}
+        ) as result
+    FROM customer_spending
+    GROUP BY segment
+) sub
+UNION ALL
+SELECT
+    segment,
+    'WLS (precision weighted)' as method,
+    result.coefficients[1] as income_propensity,
+    result.intercept as base_spending,
+    result.r2,
+    result.weighted_mse
+FROM (
+    SELECT
+        segment,
+        anofox_statistics_wls_agg(
+            annual_spending,
+            [annual_income],
+            precision_weight,
+            MAP{'intercept': true}
+        ) as result
+    FROM customer_spending
+    GROUP BY segment
+) sub
+ORDER BY segment, method;
+
+-- Interpretation note
+SELECT
+    'Statistical Note' as category,
+    'WLS gives more weight to observations with lower variance (more reliable data points). This produces more efficient estimates when heteroscedasticity is present.' as explanation
+UNION ALL
+SELECT
+    'When to use WLS',
+    'Use WLS when: (1) variance changes systematically with predictors, (2) you have reliability measures for observations, or (3) you are combining data from sources with different precision.' as guidance;
+```
+
+**What the results mean**:
+- **Coefficients**: Estimated while giving more influence to high-weight (reliable) observations
+- **weighted_mse**: Error metric that accounts for observation weights
+- **Comparison**: WLS typically produces more efficient estimates than OLS when heteroscedasticity is present
+
+Use WLS aggregates when observations within each group have known reliability differences or non-constant variance.
 
 ## Statistical Inference
 
@@ -576,6 +896,138 @@ SELECT * FROM anofox_statistics_rls_fit(
     true::BOOLEAN                                      -- add_intercept
 );
 ```
+
+#### RLS Aggregate for GROUP BY Analysis
+
+**What it does**: Computes Recursive Least Squares regression per group with exponential weighting of past observations. Adapts to changing relationships over time within each group.
+
+**When to use**: For streaming data analysis per group, when relationships evolve differently across segments, or when recent patterns are more relevant than historical data for each category.
+
+**How it works**: The `anofox_statistics_rls_agg` function sequentially updates coefficients as it processes rows within each group. The `forgetting_factor` parameter controls adaptation speed - values below 1.0 emphasize recent observations.
+
+```sql
+-- Statistics Guide: Recursive Least Squares - Adaptive Online Learning
+-- Demonstrates forgetting factor tuning for time-varying relationships
+
+-- Scenario: Market beta estimation with regime changes
+-- Stock's relationship to market changes over time
+CREATE TEMP TABLE stock_market_data AS
+SELECT
+    CASE
+        WHEN i <= 20 THEN 'regime_bull'
+        WHEN i <= 40 THEN 'regime_bear'
+        ELSE 'regime_recovery'
+    END as market_regime,
+    i as time_period,
+    -- Market return (independent variable)
+    (0.01 + random() * 0.02 - 0.01)::DOUBLE as market_return,
+    -- Stock return (dependent variable) with changing beta
+    CASE
+        WHEN i <= 20 THEN (0.005 + 1.2 * (0.01 + random() * 0.02 - 0.01) + random() * 0.01)  -- Bull: high beta (1.2)
+        WHEN i <= 40 THEN (0.001 + 0.8 * (0.01 + random() * 0.02 - 0.01) + random() * 0.015) -- Bear: low beta (0.8)
+        ELSE (0.003 + 1.5 * (0.01 + random() * 0.02 - 0.01) + random() * 0.012)              -- Recovery: very high beta (1.5)
+    END::DOUBLE as stock_return
+FROM generate_series(1, 60) as t(i);
+
+-- Compare different forgetting factors
+SELECT
+    'Forgetting Factor: 1.0 (OLS equivalent)' as model,
+    result.forgetting_factor,
+    result.coefficients[1] as estimated_beta,
+    result.r2,
+    'Averages all data equally - slow to adapt' as interpretation
+FROM (
+    SELECT anofox_statistics_rls_agg(
+        stock_return,
+        [market_return],
+        MAP{'forgetting_factor': 1.0, 'intercept': true}
+    ) as result
+    FROM stock_market_data
+) sub
+UNION ALL
+SELECT
+    'Forgetting Factor: 0.98 (slow adaptation)' as model,
+    result.forgetting_factor,
+    result.coefficients[1] as estimated_beta,
+    result.r2,
+    'Gradual weight decay - moderate adaptation' as interpretation
+FROM (
+    SELECT anofox_statistics_rls_agg(
+        stock_return,
+        [market_return],
+        MAP{'forgetting_factor': 0.98, 'intercept': true}
+    ) as result
+    FROM stock_market_data
+) sub
+UNION ALL
+SELECT
+    'Forgetting Factor: 0.95 (moderate adaptation)' as model,
+    result.forgetting_factor,
+    result.coefficients[1] as estimated_beta,
+    result.r2,
+    'Balanced - good for detecting regime changes' as interpretation
+FROM (
+    SELECT anofox_statistics_rls_agg(
+        stock_return,
+        [market_return],
+        MAP{'forgetting_factor': 0.95, 'intercept': true}
+    ) as result
+    FROM stock_market_data
+) sub
+UNION ALL
+SELECT
+    'Forgetting Factor: 0.90 (fast adaptation)' as model,
+    result.forgetting_factor,
+    result.coefficients[1] as estimated_beta,
+    result.r2,
+    'Heavy decay - very responsive to recent changes' as interpretation
+FROM (
+    SELECT anofox_statistics_rls_agg(
+        stock_return,
+        [market_return],
+        MAP{'forgetting_factor': 0.90, 'intercept': true}
+    ) as result
+    FROM stock_market_data
+) sub;
+
+-- Per-regime analysis
+SELECT
+    market_regime,
+    result.coefficients[1] as regime_beta,
+    result.forgetting_factor,
+    result.r2,
+    result.n_obs
+FROM (
+    SELECT
+        market_regime,
+        anofox_statistics_rls_agg(
+            stock_return,
+            [market_return],
+            MAP{'forgetting_factor': 0.95, 'intercept': true}
+        ) as result
+    FROM stock_market_data
+    GROUP BY market_regime
+) sub
+ORDER BY market_regime;
+
+-- Guidance
+SELECT
+    'Choosing Forgetting Factor' as topic,
+    'λ close to 1.0: More stable, slower adaptation. λ < 0.95: More responsive, tracks changes quickly. Choose based on how fast you expect relationships to change.' as guidance;
+```
+
+**What the results mean**:
+- **Coefficients**: Final adaptive estimates emphasizing recent patterns per group
+- **forgetting_factor**: Controls memory - 1.0 = no forgetting (OLS), 0.90-0.95 = moderate adaptation
+- **Applications**: Sensor calibration drift, adaptive forecasting, regime change detection
+
+**Choosing forgetting_factor**:
+- **λ = 1.0**: Equal weighting (equivalent to OLS) - use for stable relationships
+- **λ = 0.95-0.97**: Slow adaptation - relationships change gradually
+- **λ = 0.90-0.94**: Fast adaptation - relationships change frequently
+- **λ < 0.90**: Very fast adaptation - may be volatile, use for rapidly changing patterns
+
+Use RLS aggregates when per-group relationships are non-stationary and recent data is more predictive.
 
 ### Rolling/Expanding Windows
 

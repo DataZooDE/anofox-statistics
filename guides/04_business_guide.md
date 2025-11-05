@@ -198,6 +198,140 @@ WHERE cohort_month <= CURRENT_DATE - INTERVAL '12 months';
 
 **Business Decision**: Focus acquisition on customers likely to have high tenure and purchase frequency.
 
+### Use Case 3b: Customer Segment Analysis with WLS Aggregate
+
+**Business Question**: How do customer segments differ in their spending patterns? Are some segments more reliable to analyze than others?
+
+**Method**: Use `anofox_statistics_wls_agg` with GROUP BY to fit separate models per segment, weighting by customer value or data reliability.
+
+```sql
+-- Business Guide: Customer Lifetime Value by Segment (Weighted Analysis)
+-- Weight analysis by customer value to focus on high-value relationships
+
+-- Sample data: Customer cohorts with varying reliability and value
+CREATE TEMP TABLE customer_cohorts AS
+SELECT
+    CASE
+        WHEN i <= 30 THEN 'enterprise'
+        WHEN i <= 60 THEN 'smb'
+        ELSE 'startup'
+    END as segment,
+    i as customer_id,
+    (i * 100)::DOUBLE as acquisition_cost,
+    (1 + i / 20.0)::DOUBLE as tenure_months,
+    CASE
+        WHEN i <= 30 THEN (10000 + acquisition_cost * 0.8 + tenure_months * 1200 + random() * 1000)
+        WHEN i <= 60 THEN (3000 + acquisition_cost * 0.6 + tenure_months * 500 + random() * 800)
+        ELSE (800 + acquisition_cost * 0.4 + tenure_months * 200 + random() * 400)
+    END::DOUBLE as lifetime_revenue,
+    -- Weight by contract size (larger customers = more reliable data)
+    CASE
+        WHEN i <= 30 THEN 5.0  -- Enterprise: high weight
+        WHEN i <= 60 THEN 2.0  -- SMB: medium weight
+        ELSE 1.0               -- Startup: standard weight
+    END as customer_value_weight
+FROM generate_series(1, 90) as t(i);
+
+-- Weighted analysis: Focus on high-value customer patterns
+SELECT
+    segment,
+    -- Standard OLS (treats all customers equally)
+    ols.coefficients[1] as ols_acq_cost_roi,
+    ols.coefficients[2] as ols_tenure_value,
+    ols.r2 as ols_r2,
+    -- Weighted LS (emphasizes high-value customers)
+    wls.coefficients[1] as wls_acq_cost_roi,
+    wls.coefficients[2] as wls_tenure_value,
+    wls.r2 as wls_r2,
+    -- Business insights
+    CASE
+        WHEN wls.coefficients[1] > 1.0 THEN 'Positive ROI on acquisition'
+        WHEN wls.coefficients[1] > 0.5 THEN 'Break-even on acquisition'
+        ELSE 'Review acquisition strategy'
+    END as acquisition_assessment,
+    wls.coefficients[2] * 12 as annual_value_per_customer,
+    wls.n_obs as customers_analyzed
+FROM (
+    SELECT
+        segment,
+        anofox_statistics_ols_agg(
+            lifetime_revenue,
+            [acquisition_cost, tenure_months],
+            MAP{'intercept': true}
+        ) as ols,
+        anofox_statistics_wls_agg(
+            lifetime_revenue,
+            [acquisition_cost, tenure_months],
+            customer_value_weight,
+            MAP{'intercept': true}
+        ) as wls
+    FROM customer_cohorts
+    GROUP BY segment
+) sub
+ORDER BY segment;
+
+-- Calculate LTV:CAC ratio by segment
+WITH ltv_analysis AS (
+    SELECT
+        segment,
+        result.coefficients[1] as roi_per_dollar,
+        result.coefficients[2] as monthly_value,
+        result.intercept as base_value,
+        AVG(acquisition_cost) as avg_cac
+    FROM (
+        SELECT
+            segment,
+            anofox_statistics_wls_agg(
+                lifetime_revenue,
+                [acquisition_cost, tenure_months],
+                customer_value_weight,
+                MAP{'intercept': true}
+            ) as result
+        FROM customer_cohorts
+        GROUP BY segment
+    ) sub
+    JOIN (
+        SELECT segment, AVG(acquisition_cost) as avg_cac
+        FROM customer_cohorts
+        GROUP BY segment
+    ) cac USING (segment)
+)
+SELECT
+    segment,
+    avg_cac,
+    monthly_value * 24 as estimated_24mo_ltv,
+    (monthly_value * 24) / NULLIF(avg_cac, 0) as ltv_cac_ratio,
+    CASE
+        WHEN (monthly_value * 24) / NULLIF(avg_cac, 0) > 3.0 THEN 'Excellent (LTV > 3x CAC)'
+        WHEN (monthly_value * 24) / NULLIF(avg_cac, 0) > 2.0 THEN 'Good (LTV > 2x CAC)'
+        WHEN (monthly_value * 24) / NULLIF(avg_cac, 0) > 1.0 THEN 'Acceptable'
+        ELSE 'Concerning - Review unit economics'
+    END as segment_health
+FROM ltv_analysis
+ORDER BY ltv_cac_ratio DESC;
+```
+
+**Business Interpretation**:
+- **Weighted coefficients**: Estimated while giving more influence to high-value or reliable customers
+- **weighted_mse**: Model error accounting for customer weights
+- **Segment differences**: Premium customers may show different behavior than budget customers
+
+**Why use WLS here**:
+- **High-value customers**: Weight by LTV - premium customers get more influence in the model
+- **Data reliability**: Weight by transaction count - customers with more data points get higher weight
+- **Heteroscedasticity**: Variance may differ across customer types (premium vs budget)
+
+**Business Decision**:
+- **Premium segment**: If income sensitivity is high, target promotions at income milestones
+- **Budget segment**: If income sensitivity is low, focus on value messaging rather than income targeting
+- **Resource allocation**: Prioritize strategies for segments with strong, reliable patterns (high R², low weighted_mse)
+
+**Example Insights**:
+```
+Premium segment: income_coef = 0.15, weighted_mse = 250 → Strong income effect, reliable estimate
+Budget segment: income_coef = 0.08, weighted_mse = 180 → Weaker income effect, tighter variance
+```
+
 ## Financial Analytics
 
 ### Use Case 4: Portfolio Beta Calculation
@@ -273,6 +407,138 @@ ORDER BY beta DESC;
 ```
 
 **Business Decision**: Balance portfolio with mix of high/low beta stocks based on risk tolerance.
+
+### Use Case 4b: Multi-Factor Portfolio Analysis with Ridge Aggregate
+
+**Business Question**: How do multiple risk factors (market, sector, value) affect each stock? Handle correlated factors without multicollinearity issues.
+
+**Method**: Use `anofox_statistics_ridge_agg` with GROUP BY to fit factor models per stock with L2 regularization to handle correlated risk factors.
+
+```sql
+-- Business Guide: Portfolio Risk Management with Ridge Regression
+-- Handle correlated securities in portfolio beta estimation
+
+-- Sample data: Portfolio holdings with correlated market factors
+CREATE TEMP TABLE portfolio_holdings AS
+SELECT
+    CASE
+        WHEN i <= 30 THEN 'stock_tech_a'
+        WHEN i <= 60 THEN 'stock_tech_b'
+        ELSE 'stock_finance'
+    END as ticker,
+    i as trading_day,
+    (random() * 0.04 - 0.02)::DOUBLE as return,
+    (random() * 0.03 - 0.015)::DOUBLE as market_return,
+    (random() * 0.035 - 0.0175)::DOUBLE as tech_sector_return,  -- Correlated with market
+    (random() * 0.025 - 0.0125)::DOUBLE as value_factor,
+    (random() * 0.03 - 0.015)::DOUBLE as momentum_factor
+FROM generate_series(1, 90) as t(i);
+
+-- Compare OLS vs Ridge for beta estimation with correlated factors
+SELECT
+    ticker,
+    -- OLS (may have unstable coefficients due to multicollinearity)
+    ols.coefficients[1] as ols_market_beta,
+    ols.coefficients[2] as ols_sector_beta,
+    ols.coefficients[3] as ols_value_beta,
+    ols.coefficients[4] as ols_momentum_beta,
+    ols.r2 as ols_r2,
+    -- Ridge (stabilized coefficients)
+    ridge.coefficients[1] as ridge_market_beta,
+    ridge.coefficients[2] as ridge_sector_beta,
+    ridge.coefficients[3] as ridge_value_beta,
+    ridge.coefficients[4] as ridge_momentum_beta,
+    ridge.r2 as ridge_r2,
+    ridge.lambda,
+    -- Risk assessment
+    CASE
+        WHEN ridge.coefficients[1] > 1.2 THEN 'High systematic risk'
+        WHEN ridge.coefficients[1] > 0.8 THEN 'Market-level risk'
+        ELSE 'Defensive positioning'
+    END as risk_profile
+FROM (
+    SELECT
+        ticker,
+        anofox_statistics_ols_agg(
+            return,
+            [market_return, tech_sector_return, value_factor, momentum_factor],
+            MAP{'intercept': true}
+        ) as ols,
+        anofox_statistics_ridge_agg(
+            return,
+            [market_return, tech_sector_return, value_factor, momentum_factor],
+            MAP{'lambda': 1.0, 'intercept': true}
+        ) as ridge
+    FROM portfolio_holdings
+    GROUP BY ticker
+) sub
+ORDER BY ticker;
+
+-- Calculate portfolio-level risk metrics
+WITH stock_betas AS (
+    SELECT
+        ticker,
+        result.coefficients[1] as market_beta,
+        result.coefficients[2] as sector_beta,
+        result.r2
+    FROM (
+        SELECT
+            ticker,
+            anofox_statistics_ridge_agg(
+                return,
+                [market_return, tech_sector_return],
+                MAP{'lambda': 1.0, 'intercept': true}
+            ) as result
+        FROM portfolio_holdings
+        GROUP BY ticker
+    ) sub
+)
+SELECT
+    ticker,
+    market_beta,
+    sector_beta,
+    r2 as model_fit,
+    -- Risk interpretation for portfolio management
+    CASE
+        WHEN market_beta > 1.5 THEN 'Aggressive - Consider hedging'
+        WHEN market_beta > 1.0 THEN 'Growth-oriented'
+        WHEN market_beta > 0.7 THEN 'Balanced'
+        ELSE 'Defensive/Low volatility'
+    END as investment_style,
+    -- Expected volatility relative to market
+    ROUND(market_beta * 100, 1) || '% of market volatility' as volatility_profile
+FROM stock_betas
+ORDER BY market_beta DESC;
+```
+
+**Business Interpretation**:
+- **Market beta**: Stock's sensitivity to overall market movements
+- **Sector beta**: Stock's sensitivity to sector-specific movements
+- **Value factor**: Stock's tilt toward value vs growth stocks
+- **Lambda (regularization)**: Controls shrinkage - stabilizes estimates when factors are correlated
+
+**Why use Ridge here**:
+- **Multicollinearity**: Market and sector returns are often correlated
+- **Stability**: Ridge produces more stable factor exposures than OLS
+- **Better out-of-sample**: Regularization prevents overfitting to historical patterns
+- **Risk management**: More reliable factor exposures for hedging strategies
+
+**Business Decision**:
+- **Factor exposure**: Understand true drivers of each stock's returns
+- **Portfolio construction**: Build factor-neutral or factor-tilted portfolios
+- **Hedging**: Use stable factor estimates for risk management
+- **Comparison**: Stocks with similar factor profiles can be treated as substitutes
+
+**Choosing lambda**:
+- **lambda = 0.1**: Light regularization (factors mostly uncorrelated)
+- **lambda = 1.0**: Moderate regularization (standard choice)
+- **lambda = 10.0**: Heavy regularization (factors highly correlated)
+
+**Example Insights**:
+```
+TECH: market_beta = 1.2, sector_beta = 0.8, value = -0.3 → Growth stock, sector-heavy
+UTIL: market_beta = 0.5, sector_beta = 0.3, value = 0.2 → Defensive stock, value tilt
+```
 
 ### Use Case 5: Credit Risk Modeling
 
@@ -478,6 +744,165 @@ ORDER BY forecast_accuracy DESC;
 ```
 
 **Business Decision**: Automate replenishment for high-confidence products, manual review for others.
+
+### Use Case 7b: Adaptive Demand Forecasting with RLS Aggregate
+
+**Business Question**: How can we create forecasts that automatically adapt to changing demand patterns per product? Which products have the most volatile demand?
+
+**Method**: Use `anofox_statistics_rls_agg` with GROUP BY to fit adaptive models per product that emphasize recent patterns over historical data.
+
+```sql
+-- Business Guide: Adaptive Demand Forecasting with RLS
+-- Real-time demand prediction that adapts to market changes
+
+-- Sample data: Product demand with evolving seasonality and trends
+CREATE TEMP TABLE demand_history AS
+SELECT
+    CASE
+        WHEN i <= 40 THEN 'product_seasonal'
+        ELSE 'product_trending'
+    END as product_id,
+    i as week,
+    -- Cyclical pattern changes over time
+    CASE
+        WHEN i <= 20 THEN (1000 + 200 * SIN(i * 0.5) + i * 10 + random() * 50)
+        WHEN i <= 40 THEN (1200 + 300 * SIN(i * 0.5) + i * 15 + random() * 80)  -- Pattern shift
+        ELSE (1500 + 100 * SIN(i * 0.5) + i * 25 + random() * 60)                -- New trend
+    END::DOUBLE as actual_demand,
+    -- Predictors: lagged demand and trend
+    LAG(CASE
+        WHEN i <= 20 THEN (1000 + 200 * SIN(i * 0.5) + i * 10 + random() * 50)
+        WHEN i <= 40 THEN (1200 + 300 * SIN(i * 0.5) + i * 15 + random() * 80)
+        ELSE (1500 + 100 * SIN(i * 0.5) + i * 25 + random() * 60)
+    END, 1) OVER (ORDER BY i) as lagged_demand,
+    i::DOUBLE as time_trend
+FROM generate_series(1, 80) as t(i);
+
+-- Compare static OLS vs adaptive RLS forecasting
+SELECT
+    product_id,
+    -- Static OLS model (fixed coefficients)
+    ols.coefficients[1] as ols_lag_coef,
+    ols.coefficients[2] as ols_trend_coef,
+    ols.r2 as ols_r2,
+    -- Adaptive RLS model (adjusts to changes)
+    rls_slow.coefficients[1] as rls_slow_lag_coef,
+    rls_slow.coefficients[2] as rls_slow_trend_coef,
+    rls_slow.r2 as rls_slow_r2,
+    rls_slow.forgetting_factor as ff_slow,
+    -- Fast-adapting RLS
+    rls_fast.coefficients[1] as rls_fast_lag_coef,
+    rls_fast.coefficients[2] as rls_fast_trend_coef,
+    rls_fast.r2 as rls_fast_r2,
+    rls_fast.forgetting_factor as ff_fast,
+    -- Business insight
+    CASE
+        WHEN rls_fast.r2 > ols.r2 + 0.05 THEN 'RLS significantly better - demand pattern changing'
+        WHEN rls_fast.r2 > ols.r2 THEN 'RLS slightly better - moderate changes'
+        ELSE 'OLS sufficient - stable demand pattern'
+    END as model_recommendation
+FROM (
+    SELECT
+        product_id,
+        anofox_statistics_ols_agg(
+            actual_demand,
+            [lagged_demand, time_trend],
+            MAP{'intercept': true}
+        ) as ols,
+        anofox_statistics_rls_agg(
+            actual_demand,
+            [lagged_demand, time_trend],
+            MAP{'forgetting_factor': 0.98, 'intercept': true}
+        ) as rls_slow,
+        anofox_statistics_rls_agg(
+            actual_demand,
+            [lagged_demand, time_trend],
+            MAP{'forgetting_factor': 0.92, 'intercept': true}
+        ) as rls_fast
+    FROM demand_history
+    WHERE lagged_demand IS NOT NULL
+    GROUP BY product_id
+) sub;
+
+-- Rolling window analysis: Track model adaptation
+WITH recent_performance AS (
+    SELECT
+        product_id,
+        week,
+        actual_demand,
+        anofox_statistics_rls_agg(
+            actual_demand,
+            [lagged_demand, time_trend],
+            MAP{'forgetting_factor': 0.95, 'intercept': true}
+        ) OVER (
+            PARTITION BY product_id
+            ORDER BY week
+            ROWS BETWEEN 20 PRECEDING AND CURRENT ROW
+        ) as rolling_model
+    FROM demand_history
+    WHERE lagged_demand IS NOT NULL
+)
+SELECT
+    product_id,
+    week,
+    rolling_model.coefficients[1] as adaptive_lag_coefficient,
+    rolling_model.r2 as rolling_r2,
+    CASE
+        WHEN rolling_model.r2 > 0.8 THEN 'High forecast confidence'
+        WHEN rolling_model.r2 > 0.6 THEN 'Moderate forecast confidence'
+        ELSE 'Low confidence - model recalibration needed'
+    END as forecast_confidence
+FROM recent_performance
+WHERE week >= 60
+ORDER BY product_id, week
+LIMIT 15;
+
+-- Business recommendation
+SELECT
+    'Forecasting Strategy' as topic,
+    'Use RLS for products with evolving demand patterns, seasonal shifts, or trend changes. Lower forgetting factors (0.90-0.95) adapt faster but may be more volatile.' as guidance
+UNION ALL
+SELECT
+    'When to Use',
+    'RLS is ideal for: (1) Fast-moving consumer goods with changing preferences, (2) Tech products with rapid adoption curves, (3) Markets with frequent promotions or competitive dynamics.' as use_cases;
+```
+
+**Business Interpretation**:
+- **Adaptive coefficients**: Final model emphasizes recent demand patterns, automatically adjusting to changes
+- **forgetting_factor**: Controls adaptation speed - lower values = faster response to changes
+- **Per-product models**: Each product gets its own adaptive forecast model
+- **Recent emphasis**: Old data is exponentially down-weighted
+
+**Why use RLS here**:
+- **Non-stationary demand**: Product demand patterns change over time (seasonality, trends, market shifts)
+- **Fast adaptation**: Detects and responds to demand regime changes quickly
+- **Automatic updates**: No need to retrain models - they adapt as new data arrives
+- **Relevant patterns**: Recent data often predicts better than old data for operational decisions
+
+**Business Decision**:
+- **Inventory planning**: Use adaptive forecasts for ordering decisions
+- **Volatility assessment**: Products with high forgetting_factor needs indicate unstable demand
+- **Promotional impact**: RLS automatically adjusts to post-promotion demand changes
+- **New product launches**: Adapts quickly as demand patterns stabilize
+
+**Choosing forgetting_factor**:
+- **λ = 0.98-0.99**: Slow adaptation - stable products with gradual changes
+- **λ = 0.95-0.97**: Moderate adaptation - standard operational forecasting
+- **λ = 0.90-0.94**: Fast adaptation - volatile products or rapid market changes
+- **λ < 0.90**: Very fast - new products or post-disruption recovery
+
+**Example Insights**:
+```
+Product A: coef = 1.2, λ = 0.95 → Growing demand, moderate volatility
+Product B: coef = 0.8, λ = 0.90 → Declining demand, high volatility - needs attention
+Product C: coef = 1.0, λ = 0.98 → Stable demand, predictable pattern
+```
+
+**Operational Actions**:
+- **High adaptation needs (λ < 0.93)**: Review demand drivers, increase safety stock
+- **Stable patterns (λ > 0.97)**: Can use tighter inventory controls
+- **Growing trends (coef > 1.0)**: Plan capacity increases
+- **Declining trends (coef < 1.0)**: Review product positioning, consider promotions
 
 ### Use Case 8: Quality Control Process Optimization
 
@@ -735,6 +1160,113 @@ ORDER BY avg_sales DESC;
 ```
 
 **Business Decision**: Prioritize intervention in declining territories, invest in rising stars.
+
+### Use Case 11: Regional Sales Analysis with OLS Aggregate
+
+**Business Question**: How does pricing elasticity differ across regions? Which regions are most price-sensitive?
+
+**Method**: Use `anofox_statistics_ols_agg` with GROUP BY to fit separate price-demand models per region in a single query.
+
+```sql
+-- Business Guide: Regional Sales Performance Analysis
+-- Analyze how pricing and promotions affect sales across different regions
+
+-- Sample data: Multi-region sales with pricing and promotion data
+CREATE TEMP TABLE regional_sales AS
+SELECT
+    CASE i % 4
+        WHEN 0 THEN 'north'
+        WHEN 1 THEN 'south'
+        WHEN 2 THEN 'east'
+        ELSE 'west'
+    END as region,
+    i as week,
+    (15.0 + random() * 5.0)::DOUBLE as price,
+    (1000 + random() * 500)::DOUBLE as promo_spend,
+    (500 + i * 10 - 50 * (15.0 + random() * 5.0) + 0.8 * (1000 + random() * 500) + random() * 200)::DOUBLE as units_sold
+FROM generate_series(1, 80) as t(i);
+
+-- Analyze price elasticity and promotion effectiveness per region
+SELECT
+    region,
+    -- Key business metrics
+    result.coefficients[1] as price_elasticity,
+    result.coefficients[2] as promo_roi,
+    result.intercept as baseline_demand,
+    result.r2,
+    result.n_obs as weeks_analyzed,
+    -- Business interpretation
+    CASE
+        WHEN result.coefficients[1] < -30 THEN 'Highly price-sensitive'
+        WHEN result.coefficients[1] < -20 THEN 'Moderately price-sensitive'
+        ELSE 'Low price sensitivity'
+    END as price_sensitivity_category,
+    CASE
+        WHEN result.coefficients[2] > 1.0 THEN 'Strong promotion response'
+        WHEN result.coefficients[2] > 0.5 THEN 'Moderate promotion response'
+        ELSE 'Weak promotion response'
+    END as promo_effectiveness,
+    -- Strategic recommendations
+    CASE
+        WHEN result.coefficients[1] < -30 AND result.coefficients[2] > 1.0
+            THEN 'Focus on promotions over pricing'
+        WHEN result.coefficients[1] > -20 AND result.coefficients[2] < 0.5
+            THEN 'Consider premium pricing strategy'
+        ELSE 'Balanced price and promotion strategy'
+    END as strategy_recommendation
+FROM (
+    SELECT
+        region,
+        anofox_statistics_ols_agg(
+            units_sold,
+            [price, promo_spend],
+            MAP{'intercept': true}
+        ) as result
+    FROM regional_sales
+    GROUP BY region
+) sub
+ORDER BY result.r2 DESC;
+
+-- Calculate revenue impact of $1 price change
+SELECT
+    region,
+    result.coefficients[1] as unit_change_per_dollar,
+    AVG(price) as avg_price,
+    result.coefficients[1] * AVG(price) as revenue_impact_per_dollar_increase,
+    CASE
+        WHEN result.coefficients[1] * AVG(price) < -1.0 THEN 'Price decrease would increase revenue'
+        ELSE 'Current pricing may be optimal'
+    END as pricing_insight
+FROM (
+    SELECT
+        region,
+        anofox_statistics_ols_agg(units_sold, [price], MAP{'intercept': true}) as result
+    FROM regional_sales
+    GROUP BY region
+) sub
+JOIN (
+    SELECT region, AVG(price) as avg_price
+    FROM regional_sales
+    GROUP BY region
+) price_stats USING (region);
+```
+
+**Business Interpretation**:
+- **Price elasticity coefficient**: How quantity responds to price changes in each region
+- **Negative values**: Normal demand curve - higher price → lower demand
+- **R²**: How well price predicts demand in each region
+- **Regional differences**: Some regions may be more price-sensitive than others
+
+**Business Decision**:
+- **High |elasticity| regions**: Use competitive pricing strategies, run promotions carefully
+- **Low |elasticity| regions**: Can support premium pricing, focus on value messaging
+- **Poor fit (low R²)**: Price isn't the main driver - investigate other factors (competition, demographics)
+
+**Example Insights**:
+```
+North region: elasticity = -1.2, R² = 0.85 → Price-sensitive, good fit
+South region: elasticity = -0.4, R² = 0.72 → Less price-sensitive, moderate fit
+```
 
 ## Key Business Metrics & Interpretation
 

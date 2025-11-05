@@ -46,6 +46,31 @@ This example demonstrates a basic OLS fit using the extension. The function comp
 - **RMSE (Root Mean Squared Error)**: Standard deviation of residuals - typical prediction error in y units. Lower is better
 - **Adjusted R²**: R² penalized for number of predictors - use when comparing models with different numbers of variables
 
+#### OLS Aggregate for GROUP BY Analysis
+
+For per-group regression analysis, use the `anofox_statistics_ols_agg` aggregate function. This computes separate OLS regressions for each group efficiently in a single query.
+
+<!-- include: test/sql/guide03_ols_aggregate_detailed.sql -->
+
+**Aggregate-Specific Notes**:
+- Works with `GROUP BY` for per-group models
+- Can be used with window functions (`OVER`) for rolling analysis
+- Automatically parallelizes across groups
+- Returns STRUCT with all regression statistics
+- Access fields with `.` notation: `result.coefficients[1]`, `result.r2`
+
+#### Understanding the Intercept Parameter
+
+The intercept parameter controls whether the regression line must pass through the origin (intercept=false) or can have any y-intercept (intercept=true).
+
+<!-- include: test/sql/guide03_intercept_comparison.sql -->
+
+**Choosing Intercept Setting**:
+- **intercept=true (default)**: Use for most business/social science applications where a natural baseline exists
+- **intercept=false**: Use when theory requires zero intercept (physical laws, rates, or when data is already centered)
+- **R² difference**: With intercept uses SS from mean; without intercept uses SS from zero (not directly comparable)
+- **Degrees of freedom**: With intercept adds 1 to model parameters for adjusted R² calculation
+
 ### Ridge Regression
 
 **Model**: Minimize ||y - Xβ||² + λ||β||²
@@ -81,6 +106,20 @@ This example shows ridge regression with a regularization parameter λ=0.1. The 
 
 **Practical tip**: Try λ values on a log scale (0.001, 0.01, 0.1, 1, 10) and use cross-validation to choose the best one.
 
+#### Ridge Aggregate for GROUP BY Analysis
+
+For per-group ridge regression, use `anofox_statistics_ridge_agg` with lambda parameter in the options MAP.
+
+<!-- include: test/sql/guide03_ridge_aggregate_regularization.sql -->
+
+**Lambda Selection Guide**:
+- **λ = 0**: Equivalent to OLS (no regularization)
+- **λ = 0.01-0.1**: Light regularization (slight coefficient shrinkage)
+- **λ = 1-10**: Moderate regularization (recommended starting point)
+- **λ > 10**: Heavy regularization (strong shrinkage, high bias)
+- **Cross-validation**: Optimal λ minimizes prediction error on held-out data
+- **Compare coefficients**: Ridge coefficients should be smaller but more stable than OLS
+
 ### Weighted Least Squares (WLS)
 
 **Model**: y = Xβ + ε, where Var(εᵢ) = σ²/wᵢ
@@ -108,6 +147,23 @@ This example demonstrates WLS when observations have different levels of precisi
 - **Grouped data**: If observation i represents nᵢ replicates, use wᵢ = nᵢ
 
 **Diagnostic**: Use Breusch-Pagan test or plot residuals vs. fitted values to detect heteroscedasticity and validate weight specification.
+
+#### WLS Aggregate for GROUP BY Analysis
+
+**What it does**: Computes Weighted Least Squares regression per group using SQL's GROUP BY clause. Each group gets its own model with observation-specific weights.
+
+**When to use**: When analyzing multiple segments with heteroscedastic errors, combining data sources with different reliability, or when observations within groups have different precision levels.
+
+**How it works**: The `anofox_statistics_wls_agg` function accumulates weighted data per group, applying observation weights to account for varying variance or reliability.
+
+<!-- include: test/sql/guide03_wls_aggregate_heteroscedasticity.sql -->
+
+**What the results mean**:
+- **Coefficients**: Estimated while giving more influence to high-weight (reliable) observations
+- **weighted_mse**: Error metric that accounts for observation weights
+- **Comparison**: WLS typically produces more efficient estimates than OLS when heteroscedasticity is present
+
+Use WLS aggregates when observations within each group have known reliability differences or non-constant variance.
 
 ## Statistical Inference
 
@@ -411,6 +467,29 @@ where Kₜ = Pₜ₋₁xₜ / (1 + xₜ'Pₜ₋₁xₜ)
 
 **Example**:
 <!-- include: test/sql/guide03_sequentialonline_estimation.sql -->
+
+#### RLS Aggregate for GROUP BY Analysis
+
+**What it does**: Computes Recursive Least Squares regression per group with exponential weighting of past observations. Adapts to changing relationships over time within each group.
+
+**When to use**: For streaming data analysis per group, when relationships evolve differently across segments, or when recent patterns are more relevant than historical data for each category.
+
+**How it works**: The `anofox_statistics_rls_agg` function sequentially updates coefficients as it processes rows within each group. The `forgetting_factor` parameter controls adaptation speed - values below 1.0 emphasize recent observations.
+
+<!-- include: test/sql/guide03_rls_aggregate_adaptive.sql -->
+
+**What the results mean**:
+- **Coefficients**: Final adaptive estimates emphasizing recent patterns per group
+- **forgetting_factor**: Controls memory - 1.0 = no forgetting (OLS), 0.90-0.95 = moderate adaptation
+- **Applications**: Sensor calibration drift, adaptive forecasting, regime change detection
+
+**Choosing forgetting_factor**:
+- **λ = 1.0**: Equal weighting (equivalent to OLS) - use for stable relationships
+- **λ = 0.95-0.97**: Slow adaptation - relationships change gradually
+- **λ = 0.90-0.94**: Fast adaptation - relationships change frequently
+- **λ < 0.90**: Very fast adaptation - may be volatile, use for rapidly changing patterns
+
+Use RLS aggregates when per-group relationships are non-stationary and recent data is more predictive.
 
 ### Rolling/Expanding Windows
 

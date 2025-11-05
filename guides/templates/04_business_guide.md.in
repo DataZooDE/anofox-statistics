@@ -54,6 +54,35 @@ Real-world business applications of the Anofox Statistics extension, demonstrati
 
 **Business Decision**: Focus acquisition on customers likely to have high tenure and purchase frequency.
 
+### Use Case 3b: Customer Segment Analysis with WLS Aggregate
+
+**Business Question**: How do customer segments differ in their spending patterns? Are some segments more reliable to analyze than others?
+
+**Method**: Use `anofox_statistics_wls_agg` with GROUP BY to fit separate models per segment, weighting by customer value or data reliability.
+
+<!-- include: test/sql/guide04_customer_segments_wls.sql -->
+
+**Business Interpretation**:
+- **Weighted coefficients**: Estimated while giving more influence to high-value or reliable customers
+- **weighted_mse**: Model error accounting for customer weights
+- **Segment differences**: Premium customers may show different behavior than budget customers
+
+**Why use WLS here**:
+- **High-value customers**: Weight by LTV - premium customers get more influence in the model
+- **Data reliability**: Weight by transaction count - customers with more data points get higher weight
+- **Heteroscedasticity**: Variance may differ across customer types (premium vs budget)
+
+**Business Decision**:
+- **Premium segment**: If income sensitivity is high, target promotions at income milestones
+- **Budget segment**: If income sensitivity is low, focus on value messaging rather than income targeting
+- **Resource allocation**: Prioritize strategies for segments with strong, reliable patterns (high R², low weighted_mse)
+
+**Example Insights**:
+```
+Premium segment: income_coef = 0.15, weighted_mse = 250 → Strong income effect, reliable estimate
+Budget segment: income_coef = 0.08, weighted_mse = 180 → Weaker income effect, tighter variance
+```
+
 ## Financial Analytics
 
 ### Use Case 4: Portfolio Beta Calculation
@@ -81,6 +110,43 @@ Real-world business applications of the Anofox Statistics extension, demonstrati
 ```
 
 **Business Decision**: Balance portfolio with mix of high/low beta stocks based on risk tolerance.
+
+### Use Case 4b: Multi-Factor Portfolio Analysis with Ridge Aggregate
+
+**Business Question**: How do multiple risk factors (market, sector, value) affect each stock? Handle correlated factors without multicollinearity issues.
+
+**Method**: Use `anofox_statistics_ridge_agg` with GROUP BY to fit factor models per stock with L2 regularization to handle correlated risk factors.
+
+<!-- include: test/sql/guide04_portfolio_beta_ridge.sql -->
+
+**Business Interpretation**:
+- **Market beta**: Stock's sensitivity to overall market movements
+- **Sector beta**: Stock's sensitivity to sector-specific movements
+- **Value factor**: Stock's tilt toward value vs growth stocks
+- **Lambda (regularization)**: Controls shrinkage - stabilizes estimates when factors are correlated
+
+**Why use Ridge here**:
+- **Multicollinearity**: Market and sector returns are often correlated
+- **Stability**: Ridge produces more stable factor exposures than OLS
+- **Better out-of-sample**: Regularization prevents overfitting to historical patterns
+- **Risk management**: More reliable factor exposures for hedging strategies
+
+**Business Decision**:
+- **Factor exposure**: Understand true drivers of each stock's returns
+- **Portfolio construction**: Build factor-neutral or factor-tilted portfolios
+- **Hedging**: Use stable factor estimates for risk management
+- **Comparison**: Stocks with similar factor profiles can be treated as substitutes
+
+**Choosing lambda**:
+- **lambda = 0.1**: Light regularization (factors mostly uncorrelated)
+- **lambda = 1.0**: Moderate regularization (standard choice)
+- **lambda = 10.0**: Heavy regularization (factors highly correlated)
+
+**Example Insights**:
+```
+TECH: market_beta = 1.2, sector_beta = 0.8, value = -0.3 → Growth stock, sector-heavy
+UTIL: market_beta = 0.5, sector_beta = 0.3, value = 0.2 → Defensive stock, value tilt
+```
 
 ### Use Case 5: Credit Risk Modeling
 
@@ -125,6 +191,51 @@ Real-world business applications of the Anofox Statistics extension, demonstrati
 
 **Business Decision**: Automate replenishment for high-confidence products, manual review for others.
 
+### Use Case 7b: Adaptive Demand Forecasting with RLS Aggregate
+
+**Business Question**: How can we create forecasts that automatically adapt to changing demand patterns per product? Which products have the most volatile demand?
+
+**Method**: Use `anofox_statistics_rls_agg` with GROUP BY to fit adaptive models per product that emphasize recent patterns over historical data.
+
+<!-- include: test/sql/guide04_adaptive_forecasting_rls.sql -->
+
+**Business Interpretation**:
+- **Adaptive coefficients**: Final model emphasizes recent demand patterns, automatically adjusting to changes
+- **forgetting_factor**: Controls adaptation speed - lower values = faster response to changes
+- **Per-product models**: Each product gets its own adaptive forecast model
+- **Recent emphasis**: Old data is exponentially down-weighted
+
+**Why use RLS here**:
+- **Non-stationary demand**: Product demand patterns change over time (seasonality, trends, market shifts)
+- **Fast adaptation**: Detects and responds to demand regime changes quickly
+- **Automatic updates**: No need to retrain models - they adapt as new data arrives
+- **Relevant patterns**: Recent data often predicts better than old data for operational decisions
+
+**Business Decision**:
+- **Inventory planning**: Use adaptive forecasts for ordering decisions
+- **Volatility assessment**: Products with high forgetting_factor needs indicate unstable demand
+- **Promotional impact**: RLS automatically adjusts to post-promotion demand changes
+- **New product launches**: Adapts quickly as demand patterns stabilize
+
+**Choosing forgetting_factor**:
+- **λ = 0.98-0.99**: Slow adaptation - stable products with gradual changes
+- **λ = 0.95-0.97**: Moderate adaptation - standard operational forecasting
+- **λ = 0.90-0.94**: Fast adaptation - volatile products or rapid market changes
+- **λ < 0.90**: Very fast - new products or post-disruption recovery
+
+**Example Insights**:
+```
+Product A: coef = 1.2, λ = 0.95 → Growing demand, moderate volatility
+Product B: coef = 0.8, λ = 0.90 → Declining demand, high volatility - needs attention
+Product C: coef = 1.0, λ = 0.98 → Stable demand, predictable pattern
+```
+
+**Operational Actions**:
+- **High adaptation needs (λ < 0.93)**: Review demand drivers, increase safety stock
+- **Stable patterns (λ > 0.97)**: Can use tighter inventory controls
+- **Growing trends (coef > 1.0)**: Plan capacity increases
+- **Declining trends (coef < 1.0)**: Review product positioning, consider promotions
+
 ### Use Case 8: Quality Control Process Optimization
 
 **Business Question**: Identify which process parameters affect product defects.
@@ -150,6 +261,31 @@ Real-world business applications of the Anofox Statistics extension, demonstrati
 <!-- include: test/sql/guide04_use_case_10_territory_performance_analys.sql -->
 
 **Business Decision**: Prioritize intervention in declining territories, invest in rising stars.
+
+### Use Case 11: Regional Sales Analysis with OLS Aggregate
+
+**Business Question**: How does pricing elasticity differ across regions? Which regions are most price-sensitive?
+
+**Method**: Use `anofox_statistics_ols_agg` with GROUP BY to fit separate price-demand models per region in a single query.
+
+<!-- include: test/sql/guide04_sales_by_region_aggregate.sql -->
+
+**Business Interpretation**:
+- **Price elasticity coefficient**: How quantity responds to price changes in each region
+- **Negative values**: Normal demand curve - higher price → lower demand
+- **R²**: How well price predicts demand in each region
+- **Regional differences**: Some regions may be more price-sensitive than others
+
+**Business Decision**:
+- **High |elasticity| regions**: Use competitive pricing strategies, run promotions carefully
+- **Low |elasticity| regions**: Can support premium pricing, focus on value messaging
+- **Poor fit (low R²)**: Price isn't the main driver - investigate other factors (competition, demographics)
+
+**Example Insights**:
+```
+North region: elasticity = -1.2, R² = 0.85 → Price-sensitive, good fit
+South region: elasticity = -0.4, R² = 0.72 → Less price-sensitive, moderate fit
+```
 
 ## Key Business Metrics & Interpretation
 

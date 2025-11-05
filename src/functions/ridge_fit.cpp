@@ -1,6 +1,7 @@
 #include "ridge_fit.hpp"
 #include "../utils/tracing.hpp"
 #include "../utils/rank_deficient_ols.hpp"
+#include "../utils/options_parser.hpp"
 
 #include "duckdb.hpp"
 #include "duckdb/common/exception.hpp"
@@ -14,7 +15,14 @@ namespace duckdb {
 namespace anofox_statistics {
 
 /**
- * Ridge Regression with L2 Regularization
+ * Ridge Regression with L2 Regularization and MAP-based options
+ *
+ * Signature:
+ *   SELECT * FROM anofox_statistics_ridge(
+ *       y := [1.0, 2.0, 3.0, 4.0],
+ *       x := [[1.1, 2.1, 2.9, 4.2], [0.5, 1.5, 2.5, 3.5]],
+ *       options := MAP{'intercept': true, 'lambda': 1.0}
+ *   )
  *
  * Formula: β = (X'X + λI)^(-1) X'y
  *
@@ -28,8 +36,7 @@ namespace anofox_statistics {
 struct RidgeFitBindData : public FunctionData {
 	vector<double> y_values;
 	vector<vector<double>> x_values;
-	bool add_intercept = true;
-	double lambda = 1.0; // Regularization parameter
+	RegressionOptions options;
 
 	// Results
 	vector<double> coefficients;
@@ -51,8 +58,7 @@ struct RidgeFitBindData : public FunctionData {
 		auto result = make_uniq<RidgeFitBindData>();
 		result->y_values = y_values;
 		result->x_values = x_values;
-		result->add_intercept = add_intercept;
-		result->lambda = lambda;
+		result->options = options;
 		result->coefficients = coefficients;
 		result->intercept = intercept;
 		result->r_squared = r_squared;
@@ -93,14 +99,14 @@ static void ComputeRidge(RidgeFitBindData &data) {
 		                            p + 1, p, n);
 	}
 
-	if (data.lambda < 0.0) {
-		throw InvalidInputException("Lambda must be non-negative, got %f", data.lambda);
+	if (data.options.lambda < 0.0) {
+		throw InvalidInputException("Lambda must be non-negative, got %f", data.options.lambda);
 	}
 
 	data.n_obs = n;
 	data.n_features = p;
 
-	ANOFOX_DEBUG("Computing Ridge regression with " << n << " observations, " << p << " features, λ=" << data.lambda);
+	ANOFOX_DEBUG("Computing Ridge regression with " << n << " observations, " << p << " features, λ=" << data.options.lambda);
 
 	// Build design matrix X (n x p) and response vector y (n x 1)
 	Eigen::MatrixXd X(n, p);
@@ -122,7 +128,7 @@ static void ComputeRidge(RidgeFitBindData &data) {
 	}
 
 	// Special case: λ=0 reduces to OLS, use rank-deficient solver
-	if (data.lambda == 0.0) {
+	if (data.options.lambda == 0.0) {
 		auto result = RankDeficientOls::Fit(y, X);
 
 		data.rank = result.rank;
@@ -142,7 +148,7 @@ static void ComputeRidge(RidgeFitBindData &data) {
 		data.rmse = result.rmse;
 
 		// Compute intercept
-		if (data.add_intercept) {
+		if (data.options.intercept) {
 			double y_mean = y.mean();
 			Eigen::VectorXd x_means = X.colwise().mean();
 			double beta_dot_xmean = 0.0;
@@ -171,7 +177,7 @@ static void ComputeRidge(RidgeFitBindData &data) {
 	Eigen::VectorXd x_means = Eigen::VectorXd::Zero(p);
 	double y_mean = 0.0;
 
-	if (data.add_intercept) {
+	if (data.options.intercept) {
 		// Compute means
 		y_mean = y.mean();
 		x_means = X.colwise().mean();
@@ -191,7 +197,7 @@ static void ComputeRidge(RidgeFitBindData &data) {
 
 	// Add regularization: X'X + λI
 	Eigen::MatrixXd identity = Eigen::MatrixXd::Identity(p, p);
-	Eigen::MatrixXd XtX_regularized = XtX + data.lambda * identity;
+	Eigen::MatrixXd XtX_regularized = XtX + data.options.lambda * identity;
 
 	// Use ColPivHouseholderQR for rank-revealing solve
 	Eigen::ColPivHouseholderQR<Eigen::MatrixXd> qr(XtX_regularized);
@@ -217,7 +223,7 @@ static void ComputeRidge(RidgeFitBindData &data) {
 	}
 
 	// Compute intercept (for centered data: intercept = y_mean - beta·x_mean)
-	if (data.add_intercept) {
+	if (data.options.intercept) {
 		double beta_dot_xmean = 0.0;
 		for (idx_t j = 0; j < p; j++) {
 			if (!constant_features[j]) {
@@ -236,7 +242,7 @@ static void ComputeRidge(RidgeFitBindData &data) {
 			y_pred += data.coefficients[j] * X.col(j);
 		}
 	}
-	if (data.add_intercept) {
+	if (data.options.intercept) {
 		y_pred.array() += data.intercept;
 	}
 
@@ -260,7 +266,7 @@ static void ComputeRidge(RidgeFitBindData &data) {
 	data.mse = ss_res / static_cast<double>(n);
 	data.rmse = std::sqrt(data.mse);
 
-	ANOFOX_DEBUG("Ridge complete: R² = " << data.r_squared << ", λ=" << data.lambda << ", rank = " << data.rank << "/"
+	ANOFOX_DEBUG("Ridge complete: R² = " << data.r_squared << ", λ=" << data.options.lambda << ", rank = " << data.rank << "/"
 	                                     << p);
 }
 
@@ -271,13 +277,11 @@ static unique_ptr<FunctionData> RidgeFitBind(ClientContext &context, TableFuncti
 
 	auto result = make_uniq<RidgeFitBindData>();
 
-	// Expected parameters: y (DOUBLE[]), x1 (DOUBLE[]), [x2 (DOUBLE[]), ...], [lambda (DOUBLE)], [add_intercept
-	// (BOOLEAN)]
+	// Expected parameters: y (DOUBLE[]), x (DOUBLE[][]), [options (MAP)]
 
 	if (input.inputs.size() < 2) {
-		throw InvalidInputException(
-		    "anofox_statistics_ridge_fit requires at least 2 parameters: "
-		    "y (DOUBLE[]), x1 (DOUBLE[]), [x2 (DOUBLE[]), ...], [lambda (DOUBLE)], [add_intercept (BOOLEAN)]");
+		throw InvalidInputException("anofox_statistics_ridge requires at least 2 parameters: "
+		                            "y (DOUBLE[]), x (DOUBLE[][]), [options (MAP)]");
 	}
 
 	// Extract y values (first parameter)
@@ -292,48 +296,44 @@ static unique_ptr<FunctionData> RidgeFitBind(ClientContext &context, TableFuncti
 	idx_t n = result->y_values.size();
 	ANOFOX_DEBUG("y has " << n << " observations");
 
-	// Determine where x features end
-	idx_t last_param_idx = input.inputs.size() - 1;
-	bool has_add_intercept = false;
-	bool has_lambda = false;
-
-	// Check last parameter: might be add_intercept (BOOLEAN)
-	if (input.inputs[last_param_idx].type().id() == LogicalTypeId::BOOLEAN) {
-		result->add_intercept = input.inputs[last_param_idx].GetValue<bool>();
-		has_add_intercept = true;
-		last_param_idx--;
+	// Extract x values (second parameter - 2D array)
+	if (input.inputs[1].type().id() != LogicalTypeId::LIST) {
+		throw InvalidInputException("Second parameter (x) must be a 2D array (DOUBLE[][])");
 	}
 
-	// Check second-to-last parameter: might be lambda (DOUBLE)
-	if (last_param_idx > 0 && input.inputs[last_param_idx].type().id() == LogicalTypeId::DOUBLE) {
-		result->lambda = input.inputs[last_param_idx].GetValue<double>();
-		has_lambda = true;
-		last_param_idx--;
-	}
-
-	// Extract all x feature arrays (from index 1 to last_param_idx)
-	for (idx_t param_idx = 1; param_idx <= last_param_idx; param_idx++) {
-		if (input.inputs[param_idx].type().id() != LogicalTypeId::LIST) {
-			throw InvalidInputException("Parameter %d (x%d) must be an array of DOUBLE", param_idx + 1, param_idx);
+	auto x_outer = ListValue::GetChildren(input.inputs[1]);
+	for (const auto &x_inner_val : x_outer) {
+		if (x_inner_val.type().id() != LogicalTypeId::LIST) {
+			throw InvalidInputException("Second parameter (x) must be a 2D array where each element is DOUBLE[]");
 		}
 
-		auto x_list = ListValue::GetChildren(input.inputs[param_idx]);
+		auto x_feature_list = ListValue::GetChildren(x_inner_val);
 		vector<double> x_feature;
-		for (const auto &val : x_list) {
+		for (const auto &val : x_feature_list) {
 			x_feature.push_back(val.GetValue<double>());
 		}
 
 		// Validate dimensions
 		if (x_feature.size() != n) {
-			throw InvalidInputException("Array dimensions mismatch: y has %d elements, x%d has %d elements", n,
-			                            param_idx, x_feature.size());
+			throw InvalidInputException("Array dimensions mismatch: y has %d elements, feature %d has %d elements", n,
+			                            result->x_values.size() + 1, x_feature.size());
 		}
 
 		result->x_values.push_back(x_feature);
 	}
 
+	// Extract options (third parameter - MAP, optional)
+	if (input.inputs.size() >= 3) {
+		if (input.inputs[2].type().id() == LogicalTypeId::MAP) {
+			result->options = RegressionOptions::ParseFromMap(input.inputs[2]);
+			result->options.Validate();
+		} else if (!input.inputs[2].IsNull()) {
+			throw InvalidInputException("Third parameter (options) must be a MAP or NULL");
+		}
+	}
+
 	ANOFOX_INFO("Fitting Ridge with " << n << " observations, " << result->x_values.size()
-	                                  << " features, λ=" << result->lambda);
+	                                  << " features, λ=" << result->options.lambda);
 
 	// Perform Ridge fitting
 	ComputeRidge(*result);
@@ -388,26 +388,26 @@ static void RidgeFitExecute(ClientContext &context, TableFunctionInput &data, Da
 	output.data[5].SetValue(0, Value(bind_data.rmse));
 	output.data[6].SetValue(0, Value::BIGINT(static_cast<int64_t>(bind_data.n_obs)));
 	output.data[7].SetValue(0, Value::BIGINT(static_cast<int64_t>(bind_data.n_features)));
-	output.data[8].SetValue(0, Value(bind_data.lambda));
+	output.data[8].SetValue(0, Value(bind_data.options.lambda));
 }
 
 void RidgeFitFunction::Register(ExtensionLoader &loader) {
-	ANOFOX_DEBUG("Registering anofox_statistics_ridge_fit with L2 regularization");
+	ANOFOX_DEBUG("Registering anofox_statistics_ridge with L2 regularization");
 
-	// Required arguments: y (DOUBLE[]), x1 (DOUBLE[])
+	// Signature: anofox_statistics_ridge(y DOUBLE[], x DOUBLE[][], [options MAP])
 	vector<LogicalType> arguments = {
-	    LogicalType::LIST(LogicalType::DOUBLE), // y
-	    LogicalType::LIST(LogicalType::DOUBLE)  // x1
+	    LogicalType::LIST(LogicalType::DOUBLE),                     // y: DOUBLE[]
+	    LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE))   // x: DOUBLE[][]
 	};
 
-	TableFunction function("anofox_statistics_ridge_fit", arguments, RidgeFitExecute, RidgeFitBind);
+	TableFunction function("anofox_statistics_ridge", arguments, RidgeFitExecute, RidgeFitBind);
 
-	// Optional arguments: x2-xN (DOUBLE[]), lambda (DOUBLE), add_intercept (BOOLEAN)
-	function.varargs = LogicalType::ANY;
+	// Optional third parameter: options (MAP)
+	function.varargs = LogicalType::MAP(LogicalType::VARCHAR, LogicalType::ANY);
 
 	loader.RegisterFunction(function);
 
-	ANOFOX_DEBUG("anofox_statistics_ridge_fit registered successfully");
+	ANOFOX_DEBUG("anofox_statistics_ridge registered successfully");
 }
 
 } // namespace anofox_statistics

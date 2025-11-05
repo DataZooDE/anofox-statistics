@@ -1,6 +1,7 @@
 #include "wls_fit.hpp"
 #include "../utils/tracing.hpp"
 #include "../utils/rank_deficient_ols.hpp"
+#include "../utils/options_parser.hpp"
 
 #include "duckdb.hpp"
 #include "duckdb/common/exception.hpp"
@@ -14,7 +15,15 @@ namespace duckdb {
 namespace anofox_statistics {
 
 /**
- * Weighted Least Squares (WLS)
+ * Weighted Least Squares (WLS) with MAP-based options
+ *
+ * Signature:
+ *   SELECT * FROM anofox_statistics_wls(
+ *       y := [1.0, 2.0, 3.0, 4.0],
+ *       x := [[1.1, 2.1, 2.9, 4.2], [0.5, 1.5, 2.5, 3.5]],
+ *       weights := [1.0, 1.0, 2.0, 2.0],
+ *       options := MAP{'intercept': true}
+ *   )
  *
  * Formula: β = (X'WX)^(-1) X'Wy
  *
@@ -29,7 +38,7 @@ struct WlsFitBindData : public FunctionData {
 	vector<double> y_values;
 	vector<vector<double>> x_values;
 	vector<double> weights;
-	bool add_intercept = true;
+	RegressionOptions options;
 
 	// Results
 	vector<double> coefficients;
@@ -53,7 +62,7 @@ struct WlsFitBindData : public FunctionData {
 		result->y_values = y_values;
 		result->x_values = x_values;
 		result->weights = weights;
-		result->add_intercept = add_intercept;
+		result->options = options;
 		result->coefficients = coefficients;
 		result->intercept = intercept;
 		result->r_squared = r_squared;
@@ -147,11 +156,11 @@ static void ComputeWLS(WlsFitBindData &data) {
 		x_weighted_means(j) = (w.array() * X.col(j).array()).sum() / sum_weights;
 	}
 
-	// Work matrices (will be centered if add_intercept=true)
+	// Work matrices (will be centered if options.intercept=true)
 	Eigen::MatrixXd X_work = X;
 	Eigen::VectorXd y_work = y;
 
-	if (data.add_intercept) {
+	if (data.options.intercept) {
 		// Center the data BEFORE applying sqrt(W)
 		// This ensures the regression coefficients are for centered data
 		for (idx_t i = 0; i < n; i++) {
@@ -183,7 +192,7 @@ static void ComputeWLS(WlsFitBindData &data) {
 	}
 
 	// Compute intercept (coefficients were computed on centered data)
-	if (data.add_intercept) {
+	if (data.options.intercept) {
 		double beta_dot_xmean = 0.0;
 		for (idx_t j = 0; j < p; j++) {
 			if (!result.is_aliased[j]) {
@@ -202,7 +211,7 @@ static void ComputeWLS(WlsFitBindData &data) {
 			y_pred += result.coefficients[j] * X.col(j);
 		}
 	}
-	if (data.add_intercept) {
+	if (data.options.intercept) {
 		y_pred.array() += data.intercept;
 	}
 
@@ -245,13 +254,11 @@ static unique_ptr<FunctionData> WlsFitBind(ClientContext &context, TableFunction
 
 	auto result = make_uniq<WlsFitBindData>();
 
-	// Expected parameters: y (DOUBLE[]), x1 (DOUBLE[]), [x2 (DOUBLE[]), ...], weights (DOUBLE[]), [add_intercept
-	// (BOOLEAN)]
+	// Expected parameters: y (DOUBLE[]), x (DOUBLE[][]), weights (DOUBLE[]), [options (MAP)]
 
 	if (input.inputs.size() < 3) {
-		throw InvalidInputException(
-		    "anofox_statistics_wls_fit requires at least 3 parameters: "
-		    "y (DOUBLE[]), x1 (DOUBLE[]), [x2 (DOUBLE[]), ...], weights (DOUBLE[]), [add_intercept (BOOLEAN)]");
+		throw InvalidInputException("anofox_statistics_wls requires at least 3 parameters: "
+		                            "y (DOUBLE[]), x (DOUBLE[][]), weights (DOUBLE[]), [options (MAP)]");
 	}
 
 	// Extract y values (first parameter)
@@ -266,47 +273,49 @@ static unique_ptr<FunctionData> WlsFitBind(ClientContext &context, TableFunction
 	idx_t n = result->y_values.size();
 	ANOFOX_DEBUG("y has " << n << " observations");
 
-	// Determine where x features end and weights begin
-	idx_t last_param_idx = input.inputs.size() - 1;
-	bool has_add_intercept = false;
-
-	// Check last parameter: might be add_intercept (BOOLEAN)
-	if (input.inputs[last_param_idx].type().id() == LogicalTypeId::BOOLEAN) {
-		result->add_intercept = input.inputs[last_param_idx].GetValue<bool>();
-		has_add_intercept = true;
-		last_param_idx--;
+	// Extract x values (second parameter - 2D array)
+	if (input.inputs[1].type().id() != LogicalTypeId::LIST) {
+		throw InvalidInputException("Second parameter (x) must be a 2D array (DOUBLE[][])");
 	}
 
-	// Second-to-last (or last if no boolean) should be weights (DOUBLE[])
-	if (input.inputs[last_param_idx].type().id() != LogicalTypeId::LIST) {
-		throw InvalidInputException("Weights parameter must be an array of DOUBLE");
-	}
-	auto weights_list = ListValue::GetChildren(input.inputs[last_param_idx]);
-	for (const auto &val : weights_list) {
-		result->weights.push_back(val.GetValue<double>());
-	}
-	idx_t weights_param_idx = last_param_idx;
-	last_param_idx--;
-
-	// Extract all x feature arrays (from index 1 to last_param_idx)
-	for (idx_t param_idx = 1; param_idx <= last_param_idx; param_idx++) {
-		if (input.inputs[param_idx].type().id() != LogicalTypeId::LIST) {
-			throw InvalidInputException("Parameter %d (x%d) must be an array of DOUBLE", param_idx + 1, param_idx);
+	auto x_outer = ListValue::GetChildren(input.inputs[1]);
+	for (const auto &x_inner_val : x_outer) {
+		if (x_inner_val.type().id() != LogicalTypeId::LIST) {
+			throw InvalidInputException("Second parameter (x) must be a 2D array where each element is DOUBLE[]");
 		}
 
-		auto x_list = ListValue::GetChildren(input.inputs[param_idx]);
+		auto x_feature_list = ListValue::GetChildren(x_inner_val);
 		vector<double> x_feature;
-		for (const auto &val : x_list) {
+		for (const auto &val : x_feature_list) {
 			x_feature.push_back(val.GetValue<double>());
 		}
 
 		// Validate dimensions
 		if (x_feature.size() != n) {
-			throw InvalidInputException("Array dimensions mismatch: y has %d elements, x%d has %d elements", n,
-			                            param_idx, x_feature.size());
+			throw InvalidInputException("Array dimensions mismatch: y has %d elements, feature %d has %d elements", n,
+			                            result->x_values.size() + 1, x_feature.size());
 		}
 
 		result->x_values.push_back(x_feature);
+	}
+
+	// Extract weights (third parameter - DOUBLE[])
+	if (input.inputs[2].type().id() != LogicalTypeId::LIST) {
+		throw InvalidInputException("Third parameter (weights) must be an array of DOUBLE");
+	}
+	auto weights_list = ListValue::GetChildren(input.inputs[2]);
+	for (const auto &val : weights_list) {
+		result->weights.push_back(val.GetValue<double>());
+	}
+
+	// Extract options (fourth parameter - MAP, optional)
+	if (input.inputs.size() >= 4) {
+		if (input.inputs[3].type().id() == LogicalTypeId::MAP) {
+			result->options = RegressionOptions::ParseFromMap(input.inputs[3]);
+			result->options.Validate();
+		} else if (!input.inputs[3].IsNull()) {
+			throw InvalidInputException("Fourth parameter (options) must be a MAP or NULL");
+		}
 	}
 
 	ANOFOX_INFO("Fitting WLS with " << n << " observations and " << result->x_values.size() << " features");
@@ -369,23 +378,23 @@ static void WlsFitExecute(ClientContext &context, TableFunctionInput &data, Data
 }
 
 void WlsFitFunction::Register(ExtensionLoader &loader) {
-	ANOFOX_DEBUG("Registering anofox_statistics_wls_fit with weighted least squares");
+	ANOFOX_DEBUG("Registering anofox_statistics_wls with weighted least squares");
 
-	// Required arguments: y (DOUBLE[]), x1 (DOUBLE[]), weights (DOUBLE[])
+	// Signature: anofox_statistics_wls(y DOUBLE[], x DOUBLE[][], weights DOUBLE[], [options MAP])
 	vector<LogicalType> arguments = {
-	    LogicalType::LIST(LogicalType::DOUBLE), // y
-	    LogicalType::LIST(LogicalType::DOUBLE), // x1
-	    LogicalType::LIST(LogicalType::DOUBLE)  // weights (minimum for varargs to work)
+	    LogicalType::LIST(LogicalType::DOUBLE),                     // y: DOUBLE[]
+	    LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)), // x: DOUBLE[][]
+	    LogicalType::LIST(LogicalType::DOUBLE)                      // weights: DOUBLE[]
 	};
 
-	TableFunction function("anofox_statistics_wls_fit", arguments, WlsFitExecute, WlsFitBind);
+	TableFunction function("anofox_statistics_wls", arguments, WlsFitExecute, WlsFitBind);
 
-	// Optional arguments: x2-xN (DOUBLE[]), weights (DOUBLE[]), add_intercept (BOOLEAN)
-	function.varargs = LogicalType::ANY;
+	// Optional fourth parameter: options (MAP)
+	function.varargs = LogicalType::MAP(LogicalType::VARCHAR, LogicalType::ANY);
 
 	loader.RegisterFunction(function);
 
-	ANOFOX_DEBUG("anofox_statistics_wls_fit registered successfully");
+	ANOFOX_DEBUG("anofox_statistics_wls registered successfully");
 }
 
 } // namespace anofox_statistics

@@ -299,6 +299,237 @@ LIMIT 3;
 
 Most observations (like 1 and 7) fit well and have minimal influence on the results.
 
+## Aggregate Functions for GROUP BY
+
+The extension provides four specialized aggregate functions that work seamlessly with SQL GROUP BY clauses for per-group regression analysis.
+
+### OLS Aggregate: Basic Per-Group Regression
+
+**What it does**: Performs ordinary least squares regression for each group in your data using `GROUP BY`. Perfect for analyzing multiple segments simultaneously.
+
+**When to use**: When you need to fit separate models for different categories (products, regions, time periods) in a single query.
+
+**How it works**: The `anofox_statistics_ols_agg` function accumulates data per group, then computes full OLS regression with all statistics.
+
+```sql
+-- Quick Start Example: Simple OLS Aggregate with GROUP BY
+-- Demonstrates basic per-group regression analysis
+
+-- Sample data: sales by product category
+CREATE TEMP TABLE product_sales AS
+SELECT
+    'electronics' as category, 100 as price, 250 as units_sold
+UNION ALL SELECT 'electronics', 120, 230
+UNION ALL SELECT 'electronics', 140, 210
+UNION ALL SELECT 'electronics', 160, 190
+UNION ALL SELECT 'electronics', 180, 170
+UNION ALL SELECT 'furniture', 200, 180
+UNION ALL SELECT 'furniture', 250, 165
+UNION ALL SELECT 'furniture', 300, 150
+UNION ALL SELECT 'furniture', 350, 135
+UNION ALL SELECT 'furniture', 400, 120;
+
+-- Run OLS regression for each category
+SELECT
+    category,
+    result.coefficients[1] as price_elasticity,
+    result.intercept,
+    result.r2,
+    result.n_obs
+FROM (
+    SELECT
+        category,
+        anofox_statistics_ols_agg(
+            units_sold::DOUBLE,
+            [price::DOUBLE],
+            MAP{'intercept': true}
+        ) as result
+    FROM product_sales
+    GROUP BY category
+) sub;
+```
+
+**What the results mean**:
+- **price_elasticity**: Coefficient showing demand response to price changes per category
+- **r2**: Model quality for each category separately
+- **n_obs**: Number of observations in each group
+
+This runs multiple regressions in parallel across all groups efficiently.
+
+### WLS Aggregate: Weighted Analysis
+
+**What it does**: Weighted Least Squares for each group, accounting for observation reliability or importance through weights.
+
+**When to use**: When observations have different precision (heteroscedasticity) or when some data points are more reliable/important than others.
+
+**How it works**: The `anofox_statistics_wls_agg` function applies observation weights during regression, giving more influence to high-weight observations.
+
+```sql
+-- Quick Start Example: Weighted Least Squares Aggregate
+-- Demonstrates regression with observation weights (for heteroscedasticity)
+
+-- Sample data: customer transactions with varying reliability
+CREATE TEMP TABLE customer_transactions AS
+SELECT
+    'premium' as segment, 1 as month, 1000.0 as spend, 500.0 as income, 1.0 as reliability_weight
+UNION ALL SELECT 'premium', 2, 1100.0, 510.0, 1.0
+UNION ALL SELECT 'premium', 3, 1200.0, 520.0, 1.0
+UNION ALL SELECT 'premium', 4, 1300.0, 530.0, 1.0
+UNION ALL SELECT 'standard', 1, 300.0, 400.0, 0.8
+UNION ALL SELECT 'standard', 2, 320.0, 410.0, 0.8
+UNION ALL SELECT 'standard', 3, 340.0, 420.0, 0.8
+UNION ALL SELECT 'standard', 4, 360.0, 430.0, 0.8
+UNION ALL SELECT 'budget', 1, 100.0, 300.0, 0.5
+UNION ALL SELECT 'budget', 2, 110.0, 305.0, 0.5
+UNION ALL SELECT 'budget', 3, 120.0, 310.0, 0.5
+UNION ALL SELECT 'budget', 4, 130.0, 315.0, 0.5;
+
+-- WLS regression weighted by reliability
+SELECT
+    segment,
+    result.coefficients[1] as income_sensitivity,
+    result.intercept,
+    result.r2,
+    result.weighted_mse
+FROM (
+    SELECT
+        segment,
+        anofox_statistics_wls_agg(
+            spend,
+            [income],
+            reliability_weight,
+            MAP{'intercept': true}
+        ) as result
+    FROM customer_transactions
+    GROUP BY segment
+) sub;
+```
+
+**What the results mean**:
+- **income_sensitivity**: How spending responds to income per segment, weighted by reliability
+- **weighted_mse**: Error metric accounting for observation weights
+- Premium segment weights (1.0) = most reliable, Budget weights (0.5) = less reliable
+
+Weighting ensures high-value or high-quality observations have appropriate influence.
+
+### Ridge Aggregate: Handling Multicollinearity
+
+**What it does**: Ridge regression with L2 regularization per group. Stabilizes coefficients when predictors are highly correlated.
+
+**When to use**: When you have correlated predictors (multicollinearity) or want to prevent overfitting with many features.
+
+**How it works**: The `anofox_statistics_ridge_agg` function adds a penalty term (lambda × sum of squared coefficients) to shrink coefficient estimates toward zero.
+
+```sql
+-- Quick Start Example: Ridge Regression Aggregate
+-- Demonstrates L2 regularization for handling multicollinearity
+
+-- Sample data: stock returns with correlated factors
+CREATE TEMP TABLE stock_returns AS
+SELECT
+    'tech_stock' as ticker,
+    1 as period,
+    0.05 as return,
+    0.03 as market_return,
+    0.04 as sector_return,  -- Highly correlated with market_return
+    0.02 as momentum
+UNION ALL SELECT 'tech_stock', 2, 0.08, 0.06, 0.07, 0.05
+UNION ALL SELECT 'tech_stock', 3, -0.02, -0.01, -0.01, -0.03
+UNION ALL SELECT 'tech_stock', 4, 0.12, 0.10, 0.11, 0.08
+UNION ALL SELECT 'tech_stock', 5, 0.06, 0.04, 0.05, 0.03
+UNION ALL SELECT 'finance_stock', 1, 0.04, 0.03, 0.02, 0.01
+UNION ALL SELECT 'finance_stock', 2, 0.07, 0.06, 0.05, 0.04
+UNION ALL SELECT 'finance_stock', 3, -0.01, -0.01, -0.02, -0.02
+UNION ALL SELECT 'finance_stock', 4, 0.09, 0.10, 0.08, 0.06
+UNION ALL SELECT 'finance_stock', 5, 0.05, 0.04, 0.03, 0.02;
+
+-- Ridge regression with regularization parameter lambda=1.0
+SELECT
+    ticker,
+    result.coefficients[1] as market_beta,
+    result.coefficients[2] as sector_beta,
+    result.coefficients[3] as momentum_factor,
+    result.r2,
+    result.lambda
+FROM (
+    SELECT
+        ticker,
+        anofox_statistics_ridge_agg(
+            return,
+            [market_return, sector_return, momentum],
+            MAP{'lambda': 1.0, 'intercept': true}
+        ) as result
+    FROM stock_returns
+    GROUP BY ticker
+) sub;
+```
+
+**What the results mean**:
+- **market_beta**, **sector_beta**: Factor exposures stabilized by regularization
+- **lambda**: Penalty parameter (higher = more shrinkage)
+- Ridge coefficients are smaller but more stable than OLS when predictors correlate
+
+Use lambda=1.0 as starting point; increase if coefficients seem unstable.
+
+### RLS Aggregate: Adaptive Online Learning
+
+**What it does**: Recursive Least Squares per group with exponential weighting. Adapts to changing relationships over time.
+
+**When to use**: For time-series data where relationships evolve, real-time forecasting, or when recent observations are more relevant.
+
+**How it works**: The `anofox_statistics_rls_agg` function sequentially updates coefficients as it processes rows, with forgetting_factor controlling how quickly old data is down-weighted.
+
+```sql
+-- Quick Start Example: Recursive Least Squares Aggregate
+-- Demonstrates adaptive regression for changing relationships (online learning)
+
+-- Sample data: sensor readings with evolving calibration
+CREATE TEMP TABLE sensor_readings AS
+SELECT
+    'sensor_a' as sensor_id,
+    1 as time_index,
+    100.0 as raw_reading,
+    98.0 as true_value
+UNION ALL SELECT 'sensor_a', 2, 105.0, 103.0
+UNION ALL SELECT 'sensor_a', 3, 110.0, 107.0
+UNION ALL SELECT 'sensor_a', 4, 115.0, 112.0  -- Drift starts here
+UNION ALL SELECT 'sensor_a', 5, 120.0, 116.5
+UNION ALL SELECT 'sensor_a', 6, 125.0, 121.0
+UNION ALL SELECT 'sensor_b', 1, 200.0, 202.0
+UNION ALL SELECT 'sensor_b', 2, 205.0, 207.5
+UNION ALL SELECT 'sensor_b', 3, 210.0, 213.0
+UNION ALL SELECT 'sensor_b', 4, 215.0, 218.5
+UNION ALL SELECT 'sensor_b', 5, 220.0, 224.0
+UNION ALL SELECT 'sensor_b', 6, 225.0, 229.5;
+
+-- RLS with forgetting_factor=0.95 (emphasizes recent observations)
+SELECT
+    sensor_id,
+    result.coefficients[1] as calibration_slope,
+    result.intercept as calibration_offset,
+    result.r2,
+    result.forgetting_factor,
+    result.n_obs
+FROM (
+    SELECT
+        sensor_id,
+        anofox_statistics_rls_agg(
+            true_value,
+            [raw_reading],
+            MAP{'forgetting_factor': 0.95, 'intercept': true}
+        ) as result
+    FROM sensor_readings
+    GROUP BY sensor_id
+) sub;
+```
+
+**What the results mean**:
+- **calibration_slope**: Adaptive coefficient emphasizing recent patterns
+- **forgetting_factor** (0.95): 95% weight retention per step (5% decay)
+- Lower forgetting_factor = faster adaptation to changes
+
+Use forgetting_factor=1.0 for no adaptation (equivalent to OLS), or 0.90-0.95 for moderate adaptation.
+
 ## Common Patterns
 
 These patterns demonstrate best practices for different analytical scenarios.

@@ -204,6 +204,78 @@ When comparing models, choose the one with the lowest AIC (prediction focus) or 
 
 Most observations (like 1 and 7) fit well and have minimal influence on the results.
 
+## Aggregate Functions for GROUP BY
+
+The extension provides four specialized aggregate functions that work seamlessly with SQL GROUP BY clauses for per-group regression analysis.
+
+### OLS Aggregate: Basic Per-Group Regression
+
+**What it does**: Performs ordinary least squares regression for each group in your data using `GROUP BY`. Perfect for analyzing multiple segments simultaneously.
+
+**When to use**: When you need to fit separate models for different categories (products, regions, time periods) in a single query.
+
+**How it works**: The `anofox_statistics_ols_agg` function accumulates data per group, then computes full OLS regression with all statistics.
+
+<!-- include: test/sql/guide01_aggregate_ols_simple.sql -->
+
+**What the results mean**:
+- **price_elasticity**: Coefficient showing demand response to price changes per category
+- **r2**: Model quality for each category separately
+- **n_obs**: Number of observations in each group
+
+This runs multiple regressions in parallel across all groups efficiently.
+
+### WLS Aggregate: Weighted Analysis
+
+**What it does**: Weighted Least Squares for each group, accounting for observation reliability or importance through weights.
+
+**When to use**: When observations have different precision (heteroscedasticity) or when some data points are more reliable/important than others.
+
+**How it works**: The `anofox_statistics_wls_agg` function applies observation weights during regression, giving more influence to high-weight observations.
+
+<!-- include: test/sql/guide01_aggregate_wls_weighted.sql -->
+
+**What the results mean**:
+- **income_sensitivity**: How spending responds to income per segment, weighted by reliability
+- **weighted_mse**: Error metric accounting for observation weights
+- Premium segment weights (1.0) = most reliable, Budget weights (0.5) = less reliable
+
+Weighting ensures high-value or high-quality observations have appropriate influence.
+
+### Ridge Aggregate: Handling Multicollinearity
+
+**What it does**: Ridge regression with L2 regularization per group. Stabilizes coefficients when predictors are highly correlated.
+
+**When to use**: When you have correlated predictors (multicollinearity) or want to prevent overfitting with many features.
+
+**How it works**: The `anofox_statistics_ridge_agg` function adds a penalty term (lambda × sum of squared coefficients) to shrink coefficient estimates toward zero.
+
+<!-- include: test/sql/guide01_aggregate_ridge_regularized.sql -->
+
+**What the results mean**:
+- **market_beta**, **sector_beta**: Factor exposures stabilized by regularization
+- **lambda**: Penalty parameter (higher = more shrinkage)
+- Ridge coefficients are smaller but more stable than OLS when predictors correlate
+
+Use lambda=1.0 as starting point; increase if coefficients seem unstable.
+
+### RLS Aggregate: Adaptive Online Learning
+
+**What it does**: Recursive Least Squares per group with exponential weighting. Adapts to changing relationships over time.
+
+**When to use**: For time-series data where relationships evolve, real-time forecasting, or when recent observations are more relevant.
+
+**How it works**: The `anofox_statistics_rls_agg` function sequentially updates coefficients as it processes rows, with forgetting_factor controlling how quickly old data is down-weighted.
+
+<!-- include: test/sql/guide01_aggregate_rls_streaming.sql -->
+
+**What the results mean**:
+- **calibration_slope**: Adaptive coefficient emphasizing recent patterns
+- **forgetting_factor** (0.95): 95% weight retention per step (5% decay)
+- Lower forgetting_factor = faster adaptation to changes
+
+Use forgetting_factor=1.0 for no adaptation (equivalent to OLS), or 0.90-0.95 for moderate adaptation.
+
 ## Common Patterns
 
 These patterns demonstrate best practices for different analytical scenarios.
