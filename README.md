@@ -5,6 +5,10 @@ A statistical analysis extension for DuckDB, providing regression analysis, diag
 [![License: BSL 1.1](https://img.shields.io/badge/License-BSL%201.1-blue.svg)](LICENSE)
 [![DuckDB Version](https://img.shields.io/badge/DuckDB-v1.4.1-brightgreen.svg)](https://duckdb.org)
 
+> [!IMPORTANT]
+> Gaggle is in early development, so bugs and breaking changes are expected.
+> Please use the [issues page](https://github.com/DataZooDE/anofox-statistics/issues) to report bugs or request features.
+
 ## Features
 
 ### 🎯 Core Regression Functions
@@ -73,6 +77,13 @@ GROUP BY category;
 
 ## Installation
 
+### Community Extension
+
+```sql
+INSTALL anofox_statistics FROM community;
+LOAD anofox_statistics;
+```
+
 ### From Source
 
 ```bash
@@ -85,17 +96,6 @@ make release
 
 # The extension will be built to:
 # build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension
-```
-
-### Usage in DuckDB
-
-```sql
--- Load from file
-LOAD '/path/to/anofox_statistics.duckdb_extension';
-
--- Or install from repository (once published)
-INSTALL anofox_statistics FROM community;
-LOAD anofox_statistics;
 ```
 
 ## Documentation
