@@ -181,7 +181,7 @@ static void NormalityTestTableFunc(ClientContext &context, TableFunctionInput &d
 void NormalityTestFunction::Register(ExtensionLoader &loader) {
 	ANOFOX_DEBUG("Registering normality test function");
 
-	TableFunction normality_test_func("normality_test",
+	TableFunction normality_test_func("anofox_statistics_normality_test",
 	                                  {LogicalType::LIST(LogicalType::DOUBLE), // residuals
 	                                   LogicalType::DOUBLE},                   // alpha
 	                                  NormalityTestTableFunc, NormalityTestBind);
