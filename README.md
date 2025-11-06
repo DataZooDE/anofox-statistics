@@ -30,10 +30,13 @@ A statistical analysis extension for DuckDB, providing regression analysis, diag
 - **Outlier Detection**: Studentized residuals and influence measures
 
 ### 🚀 Advanced Features
-- **Aggregate Functions**: Regression per group with `GROUP BY`
-- **Window Functions**: Rolling/expanding regressions with `OVER`
+- **Aggregate Functions**: Regression per group with `GROUP BY` (OLS, WLS, Ridge, RLS)
+- **Window Functions**: Rolling/expanding regressions with `OVER` clause for all four methods
+  - Rolling windows: `ROWS BETWEEN N PRECEDING AND CURRENT ROW`
+  - Expanding windows: `ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW`
+  - Partitioned analysis: `PARTITION BY` for group-specific time series
 - **Array Operations**: Multi-variable regression with array inputs
-- **Full Statistics**: Comprehensive fit statistics in structured output
+- **Full Statistics**: Comprehensive fit statistics in structured output (coefficients, R², adj. R², intercepts, etc.)
 
 ## Quick Start
 
@@ -136,11 +139,17 @@ Comprehensive guides are available in the [`guides/`](guides/) directory:
 - `anofox_statistics_rolling_ols(...)` - Rolling window OLS
 - `anofox_statistics_expanding_ols(...)` - Expanding window OLS
 
-### Phase 4: Aggregates
-- `anofox_statistics_ols_agg(y DOUBLE, x DOUBLE[], options MAP)` - OLS regression per group
-- `anofox_statistics_wls_agg(y DOUBLE, x DOUBLE[], weights DOUBLE, options MAP)` - Weighted LS per group
-- `anofox_statistics_ridge_agg(y DOUBLE, x DOUBLE[], options MAP)` - Ridge regression per group
-- `anofox_statistics_rls_agg(y DOUBLE, x DOUBLE[], options MAP)` - Recursive LS per group
+### Phase 4: Aggregates & Window Functions
+All aggregate functions support both `GROUP BY` and `OVER` (window functions):
+
+- `anofox_statistics_ols_agg(y DOUBLE, x DOUBLE[], options MAP)` - OLS regression per group/window
+- `anofox_statistics_wls_agg(y DOUBLE, x DOUBLE[], weights DOUBLE, options MAP)` - Weighted LS per group/window
+- `anofox_statistics_ridge_agg(y DOUBLE, x DOUBLE[], options MAP)` - Ridge regression per group/window
+- `anofox_statistics_rls_agg(y DOUBLE, x DOUBLE[], options MAP)` - Recursive LS per group/window
+
+**Usage:**
+- **GROUP BY**: `SELECT category, anofox_statistics_ols_agg(...) FROM data GROUP BY category`
+- **Window Functions**: `SELECT anofox_statistics_ols_agg(...) OVER (ORDER BY date ROWS BETWEEN 9 PRECEDING AND CURRENT ROW) FROM data`
 
 **Options MAP keys**:
 - `intercept` (BOOLEAN): Include intercept term (default: true)
@@ -200,13 +209,17 @@ FROM (
 ) sub;
 ```
 
-### Time-Series Forecasting
+### Time-Series Forecasting with Window Functions
+
+All four aggregate functions (OLS, WLS, Ridge, RLS) now support SQL window functions with the `OVER` clause, enabling rolling and expanding window regression:
+
 ```sql
--- Rolling regression for adaptive forecasting
+-- Rolling OLS (30-period window)
 SELECT
     date,
     value,
     model.coefficients[1] as trend_coefficient,
+    model.intercept,
     model.r2 as trend_strength
 FROM (
     SELECT
@@ -218,11 +231,74 @@ FROM (
             MAP{'intercept': true}
         ) OVER (
             ORDER BY date
-            ROWS BETWEEN 30 PRECEDING AND CURRENT ROW
+            ROWS BETWEEN 29 PRECEDING AND CURRENT ROW
         ) as model
     FROM time_series_data
 ) sub;
+
+-- Expanding window (cumulative regression)
+SELECT
+    date,
+    anofox_statistics_ols_agg(
+        sales,
+        [price, advertising],
+        MAP{'intercept': true}
+    ) OVER (
+        ORDER BY date
+        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+    ) as cumulative_model
+FROM sales_history;
+
+-- Partitioned rolling window (per-category)
+SELECT
+    category,
+    date,
+    anofox_statistics_wls_agg(
+        outcome,
+        [predictor1, predictor2],
+        weight,
+        MAP{'intercept': true}
+    ) OVER (
+        PARTITION BY category
+        ORDER BY date
+        ROWS BETWEEN 59 PRECEDING AND CURRENT ROW
+    ) as category_model
+FROM panel_data;
+
+-- Ridge regression with rolling window (addresses multicollinearity)
+SELECT
+    date,
+    anofox_statistics_ridge_agg(
+        returns,
+        [market_factor, size_factor, value_factor],
+        MAP{'intercept': true, 'lambda': 1.0}
+    ) OVER (
+        ORDER BY date
+        ROWS BETWEEN 251 PRECEDING AND CURRENT ROW  -- 1 year rolling
+    ) as factor_model
+FROM daily_returns;
+
+-- RLS for adaptive online learning
+SELECT
+    timestamp,
+    anofox_statistics_rls_agg(
+        sensor_reading,
+        [temperature, humidity, pressure],
+        MAP{'intercept': true, 'forgetting_factor': 0.99}
+    ) OVER (
+        ORDER BY timestamp
+        ROWS BETWEEN 9 PRECEDING AND CURRENT ROW
+    ) as adaptive_model
+FROM sensor_data;
 ```
+
+**Window Function Features:**
+- ✅ **All regression methods**: OLS, WLS, Ridge, RLS work with `OVER`
+- ✅ **Rolling windows**: `ROWS BETWEEN N PRECEDING AND CURRENT ROW`
+- ✅ **Expanding windows**: `ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW`
+- ✅ **Partitioned analysis**: `PARTITION BY` for group-specific models
+- ✅ **Full statistics**: Each window returns complete regression results (coefficients, R², intercept, etc.)
+- ✅ **Efficient computation**: Frame-based processing optimized for performance
 
 ### Model Diagnostics
 ```sql
