@@ -6,7 +6,7 @@ A statistical analysis extension for DuckDB, providing regression analysis, diag
 [![DuckDB Version](https://img.shields.io/badge/DuckDB-v1.4.1-brightgreen.svg)](https://duckdb.org)
 
 > [!IMPORTANT]
-> Gaggle is in early development, so bugs and breaking changes are expected.
+> This extension is in early development, so bugs and breaking changes are expected.
 > Please use the [issues page](https://github.com/DataZooDE/anofox-statistics/issues) to report bugs or request features.
 
 ## Features
