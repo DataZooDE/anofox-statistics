@@ -1,72 +1,72 @@
 #include "elastic_net_fit.hpp"
-#include "../bridge/type_converter.hpp"
-#include "../bridge/memory_manager.hpp"
-#include "../utils/validation.hpp"
 #include "../utils/tracing.hpp"
+#include "../utils/elastic_net_solver.hpp"
+#include "../utils/options_parser.hpp"
 
 #include "duckdb.hpp"
 #include "duckdb/common/exception.hpp"
 #include "duckdb/function/table_function.hpp"
-#include "duckdb/planner/expression/bound_function_expression.hpp"
-#include "duckdb/function/function.hpp"
-#include "duckdb/parser/parsed_data/create_table_function_info.hpp"
 
-// #include <anofox/elastic_net.hpp>  // Library integration in Phase 2
-#include <vector>
+#include <Eigen/Dense>
 #include <cmath>
+#include <vector>
 
 namespace duckdb {
 namespace anofox_statistics {
 
 /**
- * @brief Bind data structure for ElasticNet fit function
+ * @brief Elastic Net fit using array inputs with MAP-based options (v1.4.1 compatible)
+ *
+ * Signature:
+ *   SELECT * FROM anofox_statistics_elastic_net(
+ *       y := [1.0, 2.0, 3.0, 4.0],
+ *       x := [[1.1, 2.1, 2.9, 4.2], [0.5, 1.5, 2.5, 3.5]],
+ *       options := MAP{'intercept': true, 'alpha': 0.5, 'lambda': 0.01}
+ *   )
+ *
+ * Parameters:
+ *   - y: Response variable (DOUBLE[])
+ *   - x: Feature matrix (DOUBLE[][], each inner array is one feature)
+ *   - options: Optional MAP with keys:
+ *     - 'intercept' (BOOLEAN, default true)
+ *     - 'alpha' (DOUBLE, default 0.5) - mixing: 0=Ridge, 1=Lasso, (0,1)=Elastic Net
+ *     - 'lambda' (DOUBLE, default 0.01) - regularization strength
  */
-struct ElasticNetFitBindData : public FunctionData {
-	// Input parameters
-	std::vector<std::string> x_col_names;
-	std::string y_col_name;
-	double alpha;
-	double lambda;
-	bool add_intercept;
 
-	// Data collected from input
-	Eigen::MatrixXd x_data;
-	Eigen::VectorXd y_data;
-	idx_t n_obs;
-	idx_t n_features;
+struct ElasticNetFitBindData : public FunctionData {
+	// Input data extracted from arrays
+	vector<double> y_values;
+	vector<vector<double>> x_values; // Each inner vector is one feature
+
+	// Fit parameters
+	RegressionOptions options;
 
 	// Results from fitting
-	Eigen::VectorXd coefficients;
-	double intercept;
-	double r_squared;
-	double adj_r_squared;
-	double mse;
-	double rmse;
-	idx_t n_nonzero;
+	vector<double> coefficients;
+	double intercept = 0.0;
+	double r_squared = 0.0;
+	double adj_r_squared = 0.0;
+	double mse = 0.0;
+	double rmse = 0.0;
+	idx_t n_obs = 0;
+	idx_t n_features = 0;
+	idx_t n_nonzero = 0;
 
-	// For result streaming
 	bool result_returned = false;
-
-	ElasticNetFitBindData() : alpha(0.5), lambda(0.01), add_intercept(true), n_nonzero(0) {
-	}
 
 	unique_ptr<FunctionData> Copy() const override {
 		auto result = make_uniq<ElasticNetFitBindData>();
-		result->x_col_names = x_col_names;
-		result->y_col_name = y_col_name;
-		result->alpha = alpha;
-		result->lambda = lambda;
-		result->add_intercept = add_intercept;
-		result->x_data = x_data;
-		result->y_data = y_data;
-		result->n_obs = n_obs;
-		result->n_features = n_features;
+		result->y_values = y_values;
+		result->x_values = x_values;
+		result->options = options;
 		result->coefficients = coefficients;
 		result->intercept = intercept;
 		result->r_squared = r_squared;
 		result->adj_r_squared = adj_r_squared;
 		result->mse = mse;
 		result->rmse = rmse;
+		result->n_obs = n_obs;
+		result->n_features = n_features;
 		result->n_nonzero = n_nonzero;
 		result->result_returned = result_returned;
 		return std::move(result);
@@ -77,186 +77,237 @@ struct ElasticNetFitBindData : public FunctionData {
 	}
 };
 
-unique_ptr<FunctionData> ElasticNetFitFunction::ElasticNetFitBind(ClientContext &context,
-                                                                  TableFunctionBindInput &input) {
-	ANOFOX_INFO("Starting ElasticNet fit bind phase");
+/**
+ * Elastic Net implementation using coordinate descent solver
+ */
+static void ComputeElasticNet(ElasticNetFitBindData &data) {
+	idx_t n = data.y_values.size();
+	idx_t p = data.x_values.size();
+
+	if (n == 0 || p == 0) {
+		throw InvalidInputException("Cannot fit Elastic Net with empty data");
+	}
+
+	// Check minimum observations
+	idx_t min_obs = data.options.intercept ? (p + 2) : (p + 1);
+	if (n < min_obs) {
+		if (data.options.intercept) {
+			throw InvalidInputException(
+			    "Insufficient observations: need at least %d observations for %d features + intercept, got %d", min_obs,
+			    p, n);
+		} else {
+			throw InvalidInputException("Insufficient observations: need at least %d observations for %d features, got %d",
+			                            min_obs, p, n);
+		}
+	}
+
+	data.n_obs = n;
+	data.n_features = p;
+
+	ANOFOX_DEBUG("Computing Elastic Net with " << n << " observations and " << p << " features, alpha=" << data.options.alpha
+	                                           << ", lambda=" << data.options.lambda
+	                                           << (data.options.intercept ? " (with intercept)" : " (no intercept)"));
+
+	// Build design matrix X and response vector y
+	Eigen::MatrixXd X(n, p);
+	Eigen::VectorXd y(n);
+
+	// Fill X matrix with features
+	for (idx_t j = 0; j < p; j++) {
+		if (data.x_values[j].size() != n) {
+			throw InvalidInputException("Feature %d has %d values, expected %d", j, data.x_values[j].size(), n);
+		}
+		for (idx_t i = 0; i < n; i++) {
+			X(static_cast<Eigen::Index>(i), static_cast<Eigen::Index>(j)) = data.x_values[j][i];
+		}
+	}
+
+	// Fill y vector
+	for (idx_t i = 0; i < n; i++) {
+		y(static_cast<Eigen::Index>(i)) = data.y_values[i];
+	}
+
+	// If intercept requested, center the data before fitting
+	Eigen::VectorXd y_centered = y;
+	Eigen::MatrixXd X_centered = X;
+	double y_mean = 0.0;
+	Eigen::VectorXd x_means(static_cast<Eigen::Index>(p));
+
+	if (data.options.intercept) {
+		// Compute means
+		y_mean = y.mean();
+		x_means = X.colwise().mean();
+
+		// Center data
+		y_centered = y.array() - y_mean;
+		for (idx_t j = 0; j < p; j++) {
+			auto j_idx = static_cast<Eigen::Index>(j);
+			X_centered.col(j_idx) = X.col(j_idx).array() - x_means(j_idx);
+		}
+	}
+
+	// Fit Elastic Net using coordinate descent
+	auto result = ElasticNetSolver::Fit(y_centered, X_centered, data.options.alpha, data.options.lambda);
+
+	// Store coefficients
+	data.coefficients.resize(p);
+	for (idx_t j = 0; j < p; j++) {
+		auto j_idx = static_cast<Eigen::Index>(j);
+		data.coefficients[j] = result.coefficients[j_idx];
+	}
+
+	// Compute intercept
+	if (data.options.intercept) {
+		// intercept = ȳ - sum(beta_j * x̄_j)
+		double beta_dot_xmean = 0.0;
+		for (idx_t j = 0; j < p; j++) {
+			auto j_idx = static_cast<Eigen::Index>(j);
+			beta_dot_xmean += result.coefficients[j_idx] * x_means(j_idx);
+		}
+		data.intercept = y_mean - beta_dot_xmean;
+	} else {
+		data.intercept = 0.0;
+	}
+
+	// Store fit statistics
+	data.r_squared = result.r_squared;
+	data.adj_r_squared = result.adj_r_squared;
+	data.mse = result.mse;
+	data.rmse = result.rmse;
+	data.n_nonzero = result.n_nonzero;
+
+	ANOFOX_DEBUG("Elastic Net complete: R² = " << data.r_squared << ", nonzero = " << data.n_nonzero << "/" << p
+	                                           << ", converged = " << result.converged << ", iterations = "
+	                                           << result.n_iterations);
+}
+
+static unique_ptr<FunctionData> ElasticNetFitBind(ClientContext &context, TableFunctionBindInput &input,
+                                                   vector<LogicalType> &return_types, vector<string> &names) {
+
+	ANOFOX_INFO("Elastic Net fit (array-based) bind phase");
 
 	auto result = make_uniq<ElasticNetFitBindData>();
 
-	// Parse input parameters
-	if (input.inputs.size() < 4 || input.inputs.size() > 6) {
-		throw InvalidInputException("anofox_statistics_elastic_net_fit requires 4-6 parameters: "
-		                            "data, x_cols, y_col, alpha, lambda, [add_intercept]");
+	// Expected parameters: y (DOUBLE[]), x (DOUBLE[][]), [options (MAP)]
+
+	if (input.inputs.size() < 2) {
+		throw InvalidInputException("anofox_statistics_elastic_net requires at least 2 parameters: "
+		                            "y (DOUBLE[]), x (DOUBLE[][]), [options (MAP)]");
 	}
 
-	// Get the input table expression
-	auto &table_expr = input.inputs[0];
-
-	// Get X column names
-	if (input.inputs[1]->type != ExpressionType::VALUE_CONSTANT) {
-		throw InvalidInputException("x_cols must be a constant array");
+	// Extract y values (first parameter)
+	if (input.inputs[0].type().id() != LogicalTypeId::LIST) {
+		throw InvalidInputException("First parameter (y) must be an array of DOUBLE");
 	}
-	auto &x_cols_const = dynamic_cast<BoundConstantExpression &>(*input.inputs[1]);
-	if (x_cols_const.value.type() != LogicalType::LIST) {
-		throw InvalidInputException("x_cols must be an array of strings");
+	auto y_list = ListValue::GetChildren(input.inputs[0]);
+	for (const auto &val : y_list) {
+		result->y_values.push_back(val.GetValue<double>());
 	}
 
-	auto &x_cols_list = ListVector::GetEntry(x_cols_const.value);
-	for (idx_t i = 0; i < ListVector::GetListSize(x_cols_const.value); i++) {
-		if (FlatVector::IsNull(x_cols_list, i)) {
-			throw InvalidInputException("x_cols contains NULL values");
+	idx_t n = result->y_values.size();
+	ANOFOX_DEBUG("y has " << n << " observations");
+
+	// Extract x values (second parameter - 2D array)
+	if (input.inputs[1].type().id() != LogicalTypeId::LIST) {
+		throw InvalidInputException("Second parameter (x) must be a 2D array (DOUBLE[][])");
+	}
+
+	auto x_outer = ListValue::GetChildren(input.inputs[1]);
+	for (const auto &x_inner_val : x_outer) {
+		if (x_inner_val.type().id() != LogicalTypeId::LIST) {
+			throw InvalidInputException("Second parameter (x) must be a 2D array where each element is DOUBLE[]");
 		}
-		auto col_str = FlatVector::GetData<string_t>(x_cols_list)[i];
-		result->x_col_names.push_back(col_str.GetString());
-	}
 
-	// Get Y column name
-	if (input.inputs[2]->type != ExpressionType::VALUE_CONSTANT) {
-		throw InvalidInputException("y_col must be a constant string");
-	}
-	auto &y_col_const = dynamic_cast<BoundConstantExpression &>(*input.inputs[2]);
-	if (y_col_const.value.type() != LogicalType::VARCHAR) {
-		throw InvalidInputException("y_col must be a string");
-	}
-	result->y_col_name = y_col_const.value.ToString();
-
-	// Get alpha (L1 weight)
-	if (input.inputs[3]->type != ExpressionType::VALUE_CONSTANT) {
-		throw InvalidInputException("alpha must be a constant numeric value");
-	}
-	auto &alpha_const = dynamic_cast<BoundConstantExpression &>(*input.inputs[3]);
-	if (alpha_const.value.type() != LogicalType::DOUBLE) {
-		throw InvalidInputException("alpha must be a DOUBLE");
-	}
-	result->alpha = alpha_const.value.GetValue<double>();
-	if (result->alpha < 0.0 || result->alpha > 1.0) {
-		throw InvalidInputException("alpha must be in range [0, 1]");
-	}
-
-	// Get lambda (regularization strength)
-	if (input.inputs[4]->type != ExpressionType::VALUE_CONSTANT) {
-		throw InvalidInputException("lambda must be a constant numeric value");
-	}
-	auto &lambda_const = dynamic_cast<BoundConstantExpression &>(*input.inputs[4]);
-	if (lambda_const.value.type() != LogicalType::DOUBLE) {
-		throw InvalidInputException("lambda must be a DOUBLE");
-	}
-	result->lambda = lambda_const.value.GetValue<double>();
-	if (result->lambda < 0.0) {
-		throw InvalidInputException("lambda must be >= 0");
-	}
-
-	// Get add_intercept flag
-	if (input.inputs.size() > 5) {
-		if (input.inputs[5]->type != ExpressionType::VALUE_CONSTANT) {
-			throw InvalidInputException("add_intercept must be a constant boolean");
+		auto x_feature_list = ListValue::GetChildren(x_inner_val);
+		vector<double> x_feature;
+		for (const auto &val : x_feature_list) {
+			x_feature.push_back(val.GetValue<double>());
 		}
-		auto &intercept_const = dynamic_cast<BoundConstantExpression &>(*input.inputs[5]);
-		result->add_intercept = intercept_const.value.GetValue<bool>();
+
+		// Validate dimensions
+		if (x_feature.size() != n) {
+			throw InvalidInputException("Array dimensions mismatch: y has %d elements, feature %d has %d elements", n,
+			                            result->x_values.size() + 1, x_feature.size());
+		}
+
+		result->x_values.push_back(x_feature);
 	}
 
-	ANOFOX_DEBUG("ElasticNet parameters: alpha=" + std::to_string(result->alpha) +
-	             ", lambda=" + std::to_string(result->lambda) + ", intercept=" + std::to_string(result->add_intercept));
+	// Extract options (third parameter - MAP, optional)
+	if (input.inputs.size() >= 3) {
+		if (input.inputs[2].type().id() == LogicalTypeId::MAP) {
+			result->options = RegressionOptions::ParseFromMap(input.inputs[2]);
+			result->options.Validate();
+		} else if (!input.inputs[2].IsNull()) {
+			throw InvalidInputException("Third parameter (options) must be a MAP or NULL");
+		}
+	}
 
-	// Validate column names and collect data would happen here
-	// Similar to OLS fit implementation
+	ANOFOX_INFO("Fitting Elastic Net with " << n << " observations and " << result->x_values.size()
+	                                         << " features, alpha=" << result->options.alpha
+	                                         << ", lambda=" << result->options.lambda);
 
-	result->n_obs = 0;
-	result->n_features = result->x_col_names.size();
+	// Perform Elastic Net fitting
+	ComputeElasticNet(*result);
 
-	ANOFOX_INFO("ElasticNet fit bind phase completed");
+	ANOFOX_INFO("Elastic Net fit completed: R² = " << result->r_squared << ", nonzero=" << result->n_nonzero);
+
+	// Set return schema
+	names = {"coefficients", "intercept", "r_squared", "adj_r_squared", "mse", "rmse",
+	         "n_obs",        "n_features", "alpha",     "lambda",        "n_nonzero"};
+
+	return_types = {LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE, LogicalType::DOUBLE,
+	                LogicalType::DOUBLE,                    LogicalType::DOUBLE, LogicalType::DOUBLE,
+	                LogicalType::BIGINT,                    LogicalType::BIGINT, LogicalType::DOUBLE,
+	                LogicalType::DOUBLE,                    LogicalType::BIGINT};
 
 	return std::move(result);
 }
 
-void ElasticNetFitFunction::ElasticNetFitExecute(ClientContext &context, TableFunctionInput &data, DataChunk &output) {
-	ANOFOX_DEBUG("ElasticNet fit execute phase");
-
-	auto &bind_data = dynamic_cast<ElasticNetFitBindData &>(*data.bind_data);
+static void ElasticNetFitExecute(ClientContext &context, TableFunctionInput &data, DataChunk &output) {
+	auto &bind_data = data.bind_data->CastNoConst<ElasticNetFitBindData>();
 
 	if (bind_data.result_returned) {
-		return;
+		return; // Already returned the single result row
 	}
 
-	// Set output columns
+	bind_data.result_returned = true;
 	output.SetCardinality(1);
 
-	// Column 0: coefficients (DOUBLE[])
-	auto &coeff_vec = output.data[0];
-	coeff_vec.SetVectorType(VectorType::FLAT_VECTOR);
-	auto coeff_data = FlatVector::GetData<list_entry_t>(coeff_vec);
-	coeff_data[0].offset = 0;
-	coeff_data[0].length = bind_data.n_features;
+	// Return results
+	vector<Value> coeffs_values;
+	for (idx_t i = 0; i < bind_data.coefficients.size(); i++) {
+		coeffs_values.push_back(Value(bind_data.coefficients[i]));
+	}
 
-	// Column 1: intercept (DOUBLE)
-	auto &intercept_vec = output.data[1];
-	intercept_vec.SetVectorType(VectorType::FLAT_VECTOR);
-	FlatVector::GetData<double>(intercept_vec)[0] = bind_data.intercept;
-
-	// Column 2: r_squared (DOUBLE)
-	auto &r2_vec = output.data[2];
-	r2_vec.SetVectorType(VectorType::FLAT_VECTOR);
-	FlatVector::GetData<double>(r2_vec)[0] = bind_data.r_squared;
-
-	// Column 3: adj_r_squared (DOUBLE)
-	auto &adj_r2_vec = output.data[3];
-	adj_r2_vec.SetVectorType(VectorType::FLAT_VECTOR);
-	FlatVector::GetData<double>(adj_r2_vec)[0] = bind_data.adj_r_squared;
-
-	// Column 4: mse (DOUBLE)
-	auto &mse_vec = output.data[4];
-	mse_vec.SetVectorType(VectorType::FLAT_VECTOR);
-	FlatVector::GetData<double>(mse_vec)[0] = bind_data.mse;
-
-	// Column 5: rmse (DOUBLE)
-	auto &rmse_vec = output.data[5];
-	rmse_vec.SetVectorType(VectorType::FLAT_VECTOR);
-	FlatVector::GetData<double>(rmse_vec)[0] = bind_data.rmse;
-
-	// Column 6: n_obs (BIGINT)
-	auto &n_obs_vec = output.data[6];
-	n_obs_vec.SetVectorType(VectorType::FLAT_VECTOR);
-	FlatVector::GetData<int64_t>(n_obs_vec)[0] = static_cast<int64_t>(bind_data.n_obs);
-
-	// Column 7: n_features (BIGINT)
-	auto &n_feat_vec = output.data[7];
-	n_feat_vec.SetVectorType(VectorType::FLAT_VECTOR);
-	FlatVector::GetData<int64_t>(n_feat_vec)[0] = static_cast<int64_t>(bind_data.n_features);
-
-	// Column 8: alpha (DOUBLE)
-	auto &alpha_vec = output.data[8];
-	alpha_vec.SetVectorType(VectorType::FLAT_VECTOR);
-	FlatVector::GetData<double>(alpha_vec)[0] = bind_data.alpha;
-
-	// Column 9: lambda (DOUBLE)
-	auto &lambda_vec = output.data[9];
-	lambda_vec.SetVectorType(VectorType::FLAT_VECTOR);
-	FlatVector::GetData<double>(lambda_vec)[0] = bind_data.lambda;
-
-	// Column 10: n_nonzero (BIGINT)
-	auto &nonzero_vec = output.data[10];
-	nonzero_vec.SetVectorType(VectorType::FLAT_VECTOR);
-	FlatVector::GetData<int64_t>(nonzero_vec)[0] = static_cast<int64_t>(bind_data.n_nonzero);
-
-	bind_data.result_returned = true;
-
-	ANOFOX_DEBUG("ElasticNet fit execute completed");
+	output.data[0].SetValue(0, Value::LIST(LogicalType::DOUBLE, coeffs_values));
+	output.data[1].SetValue(0, Value(bind_data.intercept));
+	output.data[2].SetValue(0, Value(bind_data.r_squared));
+	output.data[3].SetValue(0, Value(bind_data.adj_r_squared));
+	output.data[4].SetValue(0, Value(bind_data.mse));
+	output.data[5].SetValue(0, Value(bind_data.rmse));
+	output.data[6].SetValue(0, Value::BIGINT(static_cast<int64_t>(bind_data.n_obs)));
+	output.data[7].SetValue(0, Value::BIGINT(static_cast<int64_t>(bind_data.n_features)));
+	output.data[8].SetValue(0, Value(bind_data.options.alpha));
+	output.data[9].SetValue(0, Value(bind_data.options.lambda));
+	output.data[10].SetValue(0, Value::BIGINT(static_cast<int64_t>(bind_data.n_nonzero)));
 }
 
 void ElasticNetFitFunction::Register(ExtensionLoader &loader) {
-	ANOFOX_INFO("Registering anofox_statistics_elastic_net_fit table function");
+	ANOFOX_DEBUG("Registering anofox_statistics_elastic_net (array-based v1.4.1 with MAP options)");
 
-	auto elastic_net_func = make_uniq<TableFunction>(
-	    "anofox_statistics_elastic_net_fit",
-	    std::vector<LogicalType> {LogicalType::TABLE, LogicalType::LIST(LogicalType::VARCHAR), LogicalType::VARCHAR,
-	                              LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::BOOLEAN},
-	    ElasticNetFitExecute, ElasticNetFitBind);
+	// Signature: anofox_statistics_elastic_net(y DOUBLE[], x DOUBLE[][], [options MAP])
+	vector<LogicalType> arguments = {
+	    LogicalType::LIST(LogicalType::DOUBLE),                   // y: DOUBLE[]
+	    LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)) // x: DOUBLE[][]
+	};
 
-	elastic_net_func->bind_replace_projection = true;
+	TableFunction function("anofox_statistics_elastic_net", arguments, ElasticNetFitExecute, ElasticNetFitBind);
+	function.named_parameters["options"] = LogicalType::MAP(LogicalType::VARCHAR, LogicalType::ANY);
 
-	loader.RegisterTableFunction(std::move(elastic_net_func));
+	loader.RegisterFunction(function);
 
-	ANOFOX_INFO("anofox_statistics_elastic_net_fit registered successfully");
+	ANOFOX_INFO("anofox_statistics_elastic_net registered successfully");
 }
 
 } // namespace anofox_statistics
