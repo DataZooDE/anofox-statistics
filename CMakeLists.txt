@@ -28,6 +28,7 @@ set(EXTENSION_SOURCES
     src/utils/tracing.cpp
     src/utils/validation.cpp  # Updated for DuckDB v1.4.1 API
     src/utils/options_parser.cpp  # MAP-based options parsing for regression functions
+    src/utils/elastic_net_solver.cpp  # Elastic Net coordinate descent solver
 
     # Bridge layer (for Eigen integration)
     # src/bridge/type_converter.cpp  # TODO: Update for v1.4.1 if needed
@@ -37,9 +38,9 @@ set(EXTENSION_SOURCES
     src/functions/ols_metrics.cpp
 
     # Functions - Fit (Phase 2 - Array-based implementation for v1.4.1)
-    src/functions/ols_fit_v2.cpp   # Array-based OLS fit using DOUBLE[] inputs
-    src/functions/ridge_fit.cpp    # Ridge regression with L2 regularization
-    src/functions/wls_fit.cpp      # Weighted Least Squares
+    src/functions/ridge_fit.cpp       # Ridge regression with L2 regularization
+    src/functions/wls_fit.cpp         # Weighted Least Squares
+    src/functions/elastic_net_fit.cpp # Elastic Net with L1+L2 regularization
 
     # Functions - Online/Sequential (Phase 3)
     src/functions/rls_fit.cpp       # Recursive Least Squares (online learning)
@@ -47,10 +48,14 @@ set(EXTENSION_SOURCES
     src/functions/expanding_ols.cpp # Expanding window OLS (cumulative)
 
     # Phase 4 - Aggregates (✅ completed)
-    src/functions/aggregates/ols_aggregate.cpp   # OLS aggregate with GROUP BY
-    src/functions/aggregates/wls_aggregate.cpp   # WLS aggregate with GROUP BY
-    src/functions/aggregates/ridge_aggregate.cpp # Ridge aggregate with GROUP BY
-    src/functions/aggregates/rls_aggregate.cpp   # RLS aggregate with GROUP BY
+    src/functions/aggregates/ols_aggregate.cpp                    # OLS aggregate with GROUP BY
+    src/functions/aggregates/wls_aggregate.cpp                    # WLS aggregate with GROUP BY
+    src/functions/aggregates/ridge_aggregate.cpp                  # Ridge aggregate with GROUP BY
+    src/functions/aggregates/rls_aggregate.cpp                    # RLS aggregate with GROUP BY
+    src/functions/aggregates/elastic_net_aggregate.cpp            # Elastic Net aggregate with GROUP BY
+    src/functions/aggregates/residual_diagnostics_aggregate.cpp   # Residual Diagnostics aggregate
+    src/functions/aggregates/vif_aggregate.cpp                    # VIF aggregate
+    src/functions/aggregates/normality_test_aggregate.cpp         # Normality Test aggregate
 
     # Phase 5 - Statistical Inference & Diagnostics (In Progress)
     src/functions/inference/ols_inference.cpp          # Coefficient inference with p-values
