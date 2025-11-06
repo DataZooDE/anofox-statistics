@@ -44,8 +44,6 @@ set(EXTENSION_SOURCES
 
     # Functions - Online/Sequential (Phase 3)
     src/functions/rls_fit.cpp       # Recursive Least Squares (online learning)
-    src/functions/rolling_ols.cpp   # Rolling window OLS (time-series)
-    src/functions/expanding_ols.cpp # Expanding window OLS (cumulative)
 
     # Phase 4 - Aggregates (✅ completed)
     src/functions/aggregates/ols_aggregate.cpp                    # OLS aggregate with GROUP BY
