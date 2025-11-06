@@ -19,15 +19,24 @@ test_sql_file() {
     # Create temporary file with extension setup
     local test_file=$(mktemp)
 
-    cat > "$test_file" <<EOF
+    # Check if SQL file already has a LOAD statement
+    if grep -q "^LOAD.*${EXTENSION_NAME}" "$sql_file"; then
+        # File has its own LOAD statement, just use it as-is
+        cat > "$test_file" <<EOF
+.bail on
+EOF
+        cat "$sql_file" >> "$test_file"
+    else
+        # File doesn't have LOAD statement, add one
+        cat > "$test_file" <<EOF
 -- Load extension if available
 .bail on
 LOAD '${BUILD_DIR}/extension/${EXTENSION_NAME}/${EXTENSION_NAME}.duckdb_extension';
 
 -- Run actual SQL
 EOF
-
-    cat "$sql_file" >> "$test_file"
+        cat "$sql_file" >> "$test_file"
+    fi
 
     # Run test
     if "$DUCKDB_CLI" -unsigned :memory: < "$test_file" > /dev/null 2>&1; then

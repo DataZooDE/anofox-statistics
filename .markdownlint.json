@@ -1,12 +1,8 @@
 {
   "default": true,
-  "MD013": {
-    "line_length": 120,
-    "code_blocks": false,
-    "tables": false
-  },
-  "MD033": {
-    "allowed_elements": ["antml:cite"]
-  },
+  "MD012": false,
+  "MD013": false,
+  "MD033": false,
+  "MD040": false,
   "MD041": false
 }

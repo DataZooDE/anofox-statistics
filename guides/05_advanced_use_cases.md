@@ -7,6 +7,7 @@ Complex analytical workflows demonstrating sophisticated applications of the Ano
 **All examples below are copy-paste runnable!** Each example includes sample data creation.
 
 **Working Patterns**:
+
 - **Aggregate functions** (`anofox_statistics_ols_agg`, `anofox_statistics_ols_agg`) work directly with table data - use these for GROUP BY and window function analysis
 - **Table functions** require literal arrays for small examples, shown where needed
 - All functions use positional parameters only (no `:=` syntax)
@@ -18,6 +19,7 @@ Complex analytical workflows demonstrating sophisticated applications of the Ano
 ### Complete Statistical Pipeline
 
 **What this demonstrates**: A realistic end-to-end workflow where each stage uses results from previous calculations. This shows how to:
+
 - Train a model on one dataset (`retail_stores`)
 - Use the fitted coefficients to calculate residuals and detect outliers
 - Apply the same model to make predictions on new data (`new_stores`)
@@ -26,6 +28,7 @@ Complex analytical workflows demonstrating sophisticated applications of the Ano
 **Key pattern**: The `full_model` CTE fits the model once, then subsequent stages reference these results using subqueries like `(SELECT beta_advertising FROM full_model)`. This ensures consistency across all downstream analyses.
 
 **Realistic workflow**: Creates separate training and prediction datasets, fits models, calculates fitted values and residuals from the actual model, identifies outliers based on those residuals, and makes predictions for new stores using the fitted coefficients - all connected in a single pipeline.
+
 
 ```sql
 -- Create sample training data
@@ -248,17 +251,20 @@ ORDER BY report_section, detail_1;
 **Scenario**: You have sales data with several potential predictors (marketing, seasonality, competition, price) but aren't sure which combination explains sales best. Instead of manually testing each combination, automate the comparison.
 
 **How it works**:
+
 1. **Create sample data** (100 periods) with known effects from multiple predictors
 2. **Fit competing models**: Model 1 (marketing only), Model 2 (marketing + seasonality), Model 3 (full model with all predictors)
 3. **Compare using R²**: Rank models by goodness-of-fit to identify which predictors matter most
 4. **Flag best model**: Automatically recommend the best specification
 
 **Key techniques**:
+
 - Uses GROUP BY with different predictor subsets to fit multiple models in parallel
 - Compares model quality using R² to balance fit against complexity
 - Demonstrates how to automate model selection workflows in SQL
 
 **When to use**: When you have multiple candidate predictors and need to determine which combination provides the best explanatory power.
+
 
 ```sql
 -- Create sample business data
@@ -355,6 +361,7 @@ ORDER BY r_squared DESC;
 **Scenario**: Your daily revenue has been growing steadily, but you suspect the growth rate accelerated around day 150 (perhaps due to a marketing campaign or product launch). You need to detect when this change occurred and quantify the shift.
 
 **How it works**:
+
 1. **Create time-series data** (365 days) with an embedded regime shift at day 150 where growth accelerates
 2. **Compute three parallel regressions**:
    - **30-day window**: Captures short-term trend (responsive to recent changes)
@@ -364,12 +371,14 @@ ORDER BY r_squared DESC;
 4. **Assess forecast reliability**: High R² across windows = stable trend, diverging R² = regime shift
 
 **Key techniques**:
+
 - Uses window functions with different frame specifications (30 PRECEDING, 90 PRECEDING, UNBOUNDED PRECEDING)
 - Computes `anofox_statistics_ols_agg` over each window to get time-varying slopes
 - Flags "Regime Change" when short-term trend diverges significantly from long-term trend
 - Provides confidence assessment based on model fit quality
 
 **When to use**: For time-series data where relationships may not be constant - market conditions change, user behavior evolves, or business interventions create structural breaks. Essential for adaptive forecasting systems.
+
 
 ```sql
 -- Create sample daily revenue data
@@ -476,23 +485,27 @@ LIMIT 30;
 **Scenario**: Your monthly revenue follows a clear seasonal pattern (higher in December, lower in February) plus an underlying growth trend. To forecast the next 12 months accurately, you need to account for both seasonality and trend.
 
 **How it works**:
+
 1. **Fit trend model**: Use regression on time index to capture the overall growth trajectory
 2. **Detrend the data**: Subtract trend from actual values to isolate seasonal effects
 3. **Calculate seasonal factors**: Average the detrended values by month to get typical seasonal deviations
 4. **Forecast future periods**: For each future month, combine trend component (from regression) with seasonal component (from historical averages)
 
 **Steps in the query**:
+
 - **trend_model**: Fits `revenue ~ time_idx` to get long-term growth rate
 - **detrended**: Removes trend to reveal pure seasonality
 - **seasonal_factors**: Averages detrended values by month (Jan, Feb, ..., Dec)
 - **forecasts**: Projects next 12 months using `trend + seasonal_component`
 
 **Key techniques**:
+
 - Classical decomposition approach (additive model: Y = Trend + Seasonal + Random)
 - Uses `anofox_statistics_ols_agg` to estimate trend, then manual calculation for seasonality
 - Demonstrates how to structure multi-stage forecasting pipelines
 
 **When to use**: Any business with monthly/quarterly patterns (retail, tourism, subscriptions) where you need forecasts that respect both growth trends and recurring seasonal cycles.
+
 
 ```sql
 -- Create sample monthly sales data with seasonality
@@ -584,6 +597,7 @@ ORDER BY month_ahead;
 **Scenario**: You have multiple products, and each product's price-demand relationship may change over time at different rates. You need rolling models per product to detect which products have stable vs volatile relationships, and when significant changes occur.
 
 **How it works**:
+
 1. **Technique 1: Rolling window within each product**
    - Use `PARTITION BY product_id ORDER BY week` with `ROWS BETWEEN 8 PRECEDING AND CURRENT ROW`
    - Compute `anofox_statistics_ols_agg` over each 9-week window per product
@@ -609,6 +623,7 @@ ORDER BY month_ahead;
    - Identify periods of high cross-product variation
 
 **Key techniques demonstrated**:
+
 - **PARTITION BY + window frames**: Per-group rolling analysis
 - **Nested aggregation**: Aggregate → window → aggregate patterns
 - **Static vs adaptive comparison**: OLS baseline vs RLS adaptation
@@ -617,11 +632,13 @@ ORDER BY month_ahead;
 - **Volatility measures**: STDDEV of coefficients over windows
 
 **When to use this pattern**:
+
 - **Per-product forecasting**: Each product needs its own adaptive model
 - **Stability monitoring**: Track which groups have stable vs changing relationships
 - **Anomaly detection**: Flag products with sudden coefficient changes
 - **Method validation**: Compare static and adaptive approaches per segment
 - **Portfolio monitoring**: Track overall market trends while analyzing individual items
+
 
 ```sql
 -- Advanced Use Case: Window Functions + GROUP BY with Aggregates
@@ -780,26 +797,31 @@ ORDER BY month;
 **Interpretation guide**:
 
 **Technique 1 outputs**:
+
 - `elasticity_change > 2`: Significant shift in price sensitivity - investigate cause
 - `window_size < 9`: Insufficient history for reliable estimates - use with caution
 - `change_indicator = 'Significant change detected'`: Potential regime shift
 
 **Technique 2 outputs**:
+
 - `adaptive_r2 > static_r2 + 0.05`: Relationships are changing, use RLS
 - `elasticity_drift > 0.5`: Substantial recent change in price sensitivity
 - `model_comparison = 'Static model sufficient'`: Relationship is stable, OLS is fine
 
 **Technique 3 outputs**:
+
 - `elasticity_volatility > 1.0`: High market instability - adjust pricing cautiously
 - `market_stability = 'High volatility'`: Uncertain environment, increase safety margins
 - `rolling_avg_r2` declining: Model quality degrading over time
 
 **Technique 4 outputs**:
+
 - `r2_spread > 0.2`: High variation across products - different strategies needed
 - `cross_product_assessment = 'Similar model quality'`: Consistent performance
 - Diverging product R² trends: Some products becoming harder to model
 
 **Business value**:
+
 - Automatically detect when product relationships change
 - Identify products requiring different modeling approaches
 - Track market-wide stability vs product-specific volatility
@@ -807,6 +829,7 @@ ORDER BY month;
 - Optimize inventory and pricing per product based on adaptive insights
 
 **Advanced considerations**:
+
 - Window size tradeoff: Larger = more stable, smaller = more responsive
 - Forgetting factor tuning: Lower for fast-changing products, higher for stable ones
 - Computational cost: PARTITION BY + window functions can be expensive on large datasets
@@ -821,24 +844,28 @@ ORDER BY month;
 **Scenario**: You operate a retail chain with 3 regions, each containing 5 territories, each containing 20 stores. You want to understand marketing ROI at each level and identify which stores/territories/regions are outperforming their peers.
 
 **How it works**:
+
 1. **Store-level analysis**: Fit `sales ~ marketing` for each individual store (60 stores total)
 2. **Territory-level aggregation**: Average store ROI within each territory, measure variability
 3. **Region-level rollup**: Aggregate territory performance to regional benchmarks
 4. **Classification & recommendations**: Compare each store to its territory and region benchmarks, categorize as "Top Performer", "Underperformer", or "Average"
 
 **Steps in the query**:
+
 - **store_level**: Uses `anofox_statistics_ols_agg` with GROUP BY (region, territory, store) to get 60 individual models
 - **territory_level**: Aggregates store results, computes territory averages and variability
 - **region_level**: Further rolls up to regional benchmarks
 - **store_classification**: Joins all levels, classifies performance, recommends actions
 
 **Key techniques**:
+
 - Demonstrates hierarchical GROUP BY analysis across multiple levels
 - Uses aggregate functions to summarize models at each level
 - Shows how to compare individual units to their peer groups and hierarchical benchmarks
 - Provides actionable recommendations based on performance and consistency
 
 **When to use**: Any hierarchical organization structure (retail chains, sales territories, franchise networks) where you need to assess performance at multiple levels and identify outliers or best practices for replication.
+
 
 ```sql
 -- Create sample hierarchical store data
@@ -944,22 +971,26 @@ ORDER BY region_id, territory_id, store_roi DESC;
 **Scenario**: You have product-region sales data over time, and relationships may differ by product type. Different methods may be appropriate at different levels: OLS for stable products, WLS for heteroscedastic data, Ridge for correlated predictors, RLS for changing patterns.
 
 **How it works**:
+
 1. **Product-Region level**: Fit models with GROUP BY (product_id, region) using all four methods
 2. **Method comparison**: Compare R², coefficients, and diagnostics across methods
 3. **Regional summary**: Aggregate results by region to identify regional patterns
 4. **Method selection**: Recommend which method is most appropriate for each product-region combination
 
 **Key techniques demonstrated**:
+
 - Parallel application of OLS, WLS, Ridge, and RLS aggregates in single pipeline
 - Method comparison based on fit quality, stability, and business context
 - Hierarchical aggregation: product-region → region → overall
 - Decision framework for selecting appropriate method per segment
 
 **When each method is best**:
+
 - **OLS**: Stable relationships, homoscedastic errors, uncorrelated predictors
 - **WLS**: Variable reliability across observations (e.g., high-volume vs low-volume stores)
 - **Ridge**: Correlated predictors (e.g., price and competitor price move together)
 - **RLS**: Changing relationships over time (e.g., demand patterns shifting)
+
 
 ```sql
 -- Advanced Use Case: Multi-Level Hierarchical Aggregation
@@ -1051,6 +1082,7 @@ LIMIT 20;
 ```
 
 **Interpretation guide**:
+
 - **Similar results across methods**: Relationship is stable, use simple OLS
 - **WLS differs from OLS**: Heteroscedasticity present, WLS is more efficient
 - **Ridge shrinks OLS**: Multicollinearity detected, Ridge provides stability
@@ -1065,6 +1097,7 @@ LIMIT 20;
 **Scenario**: Analyze product performance where different products require different methods: baseline models (OLS), reliability-weighted analysis (WLS), regularized models for correlated features (Ridge), and adaptive models for changing patterns (RLS).
 
 **How it works**:
+
 1. **OLS baseline**: Fit standard regression for all products to establish baseline performance
 2. **WLS adjustment**: Apply reliability weights based on sample size or data quality
 3. **Ridge regularization**: Handle products with correlated predictors (price, competitor price, seasonality)
@@ -1073,6 +1106,7 @@ LIMIT 20;
 6. **Performance ranking**: Rank products using method-appropriate models
 
 **Key techniques**:
+
 - Sequential CTEs applying each method with appropriate configuration
 - UNION ALL to combine results from all methods
 - Method tagging to track which approach was used
@@ -1080,10 +1114,12 @@ LIMIT 20;
 - Integrated insights across diverse analytical approaches
 
 **When to use this pattern**:
+
 - Portfolio analysis where different items require different methods
 - Comparative analysis to validate robustness across approaches
 - Production systems where method selection should be data-driven
 - Complex business questions requiring multiple statistical perspectives
+
 
 ```sql
 -- Advanced Use Case: Combining All Regression Methods
@@ -1224,6 +1260,7 @@ ORDER BY market, predictor;
 ```
 
 **Decision framework**:
+
 ```
 If R² differences < 0.05: Use OLS (simplest)
 Elif weighted_mse << MSE: Use WLS (heteroscedasticity matters)
@@ -1232,6 +1269,7 @@ Elif RLS R² > OLS R² + 0.1: Use RLS (patterns changing)
 ```
 
 **Production considerations**:
+
 - Start with OLS as baseline, only use advanced methods when needed
 - WLS when you have known reliability differences
 - Ridge when you know predictors are correlated
@@ -1247,6 +1285,7 @@ Elif RLS R² > OLS R² + 0.1: Use RLS (patterns changing)
 **Scenario**: You acquire customers monthly and want to understand how their spending evolves over time. Some cohorts may start strong but decline, others may grow steadily. You need to project 36-month LTV for strategic planning.
 
 **How it works**:
+
 1. **Track cohort behavior**: For each cohort (customers acquired in a given month), track average order value over their lifecycle (months 0-24)
 2. **Fit cohort-specific models**: Use regression to model how `avg_order_value ~ months_since_first` for each cohort
 3. **Project future LTV**: Extrapolate each cohort's curve to month 36 using fitted coefficients
@@ -1254,18 +1293,21 @@ Elif RLS R² > OLS R² + 0.1: Use RLS (patterns changing)
 5. **Calculate cohort revenue**: Multiply projected individual LTV by cohort size
 
 **Steps in the query**:
+
 - **cohort_models**: Fits individual growth curves for each acquisition cohort using `anofox_statistics_ols_agg`
 - **cohort_projections**: Uses fitted `intercept + slope * 36` to project month-36 LTV
 - **Classification**: Tags cohorts as Growing/Declining/Unstable based on slope and model quality
 - **Strategic actions**: Recommends whether to replicate acquisition strategy or improve retention
 
 **Key techniques**:
+
 - GROUP BY cohort to fit separate models for each customer segment
 - Extrapolation using fitted coefficients beyond training data
 - Combines statistical modeling with business logic (cohort size × individual LTV)
 - Demonstrates how regression enables cohort analysis for SaaS/subscription metrics
 
 **When to use**: SaaS, subscription, e-commerce, or any business with recurring revenue where customer value evolves over time. Essential for CAC/LTV analysis, cohort retention, and acquisition strategy optimization.
+
 
 ```sql
 -- Create sample cohort behavior data
@@ -1360,6 +1402,7 @@ ORDER BY cohort_month DESC;
 **Scenario**: You ran a pricing test with 1,000 users (500 control, 500 treatment). Treatment group saw higher conversion and revenue, but you need to confirm the difference is statistically significant before launching.
 
 **How it works**:
+
 1. **Generate experiment data**: Create realistic A/B test data where variant B has true improvements (3% higher conversion, $7 higher revenue per user)
 2. **Descriptive statistics**: Calculate averages and standard deviations by variant
 3. **Statistical testing**: Run regression of `metric ~ treatment_indicator` where coefficient = treatment effect
@@ -1368,6 +1411,7 @@ ORDER BY cohort_month DESC;
 6. **Business decision**: Recommend launch if statistically significant and practically meaningful
 
 **Steps in the query**:
+
 - **experiment_data**: Joins A/B test results, creates treatment indicator (0=A, 1=B)
 - **variant_summary**: Descriptive stats by variant (sample size, means, std devs)
 - **conversion_test & revenue_test**: Regression-based hypothesis tests using actual data
@@ -1376,12 +1420,14 @@ ORDER BY cohort_month DESC;
 - **Final output**: Clear recommendation (Launch/Keep Control/Extend Test) with confidence intervals
 
 **Key techniques**:
+
 - Regression for difference-in-means testing (treatment coefficient = effect size)
 - Proper statistical inference with t-statistics and confidence intervals
 - Sample size adequacy check (warns if underpowered)
 - Business interpretation layer on top of statistical results
 
 **When to use**: Any A/B test, multivariate test, or controlled experiment where you need rigorous statistical validation before making product/business decisions.
+
 
 ```sql
 -- Create sample A/B test data
@@ -1542,12 +1588,14 @@ CROSS JOIN power_analysis pa;
 **Scenario**: You rolled out a new store layout to 5 stores (treatment group) starting May 20th, while 5 stores kept the old layout (control group). You want to estimate the causal effect of the new layout on weekly sales.
 
 **How it works - The DID Logic**:
+
 - **Treatment group change**: New layout stores saw sales increase from pre to post period
 - **Control group change**: Old layout stores also saw some increase (general time trend)
 - **DID estimate**: Treatment effect = (Treatment change) - (Control change)
 - This removes confounding time trends and isolates the causal effect of the layout
 
 **Steps in the query**:
+
 1. **Create weekly sales data** (10 stores × 52 weeks = 520 observations) with embedded treatment effect
 2. **Define indicators**:
    - `treatment_group`: 1 for new layout stores, 0 for control
@@ -1558,17 +1606,20 @@ CROSS JOIN power_analysis pa;
 5. **Significance testing**: Check if effect is statistically significant (|t| > 1.96)
 
 **Output interpretation**:
+
 - **DID Regression Estimate**: Causal effect with standard error and confidence interval
 - **Manual DID Calculation**: Shows treatment and control changes separately for transparency
 - Both should match, confirming the regression correctly estimates the causal effect
 
 **Key techniques**:
+
 - Difference-in-differences framework for causal inference with observational data
 - Uses regression with interaction terms to estimate treatment effects
 - Provides both regression and manual calculations for pedagogical clarity
 - Demonstrates how to structure quasi-experimental analyses in SQL
 
 **When to use**: Policy evaluation, marketing interventions, product rollouts - any situation where you have pre/post data for treatment and control groups but couldn't randomize assignment. Common in economics, public policy, and business analytics.
+
 
 ```sql
 -- Create sample weekly store sales data
@@ -1721,6 +1772,7 @@ ORDER BY analysis_type DESC, metric;
 **Scenario**: You run product-level price elasticity models daily for 1,000 products. Dashboard users need instant access to coefficients and R² values. Instead of refitting models on every query, cache the results.
 
 **How it works**:
+
 1. **Fit models once**: Run `anofox_statistics_ols_agg` grouped by product on last 365 days of data
 2. **Extract key metrics**: Store coefficients, R² values, training period, timestamp
 3. **Materialize to table**: Save results to `model_results_cache` table
@@ -1728,18 +1780,21 @@ ORDER BY analysis_type DESC, metric;
 5. **Refresh periodically**: Update cache on a schedule (daily, weekly, etc.)
 
 **Benefits**:
+
 - **Performance**: Querying cache is 100x+ faster than refitting models
 - **Consistency**: All users see same model version at same time
 - **Auditability**: Track model evolution over time via timestamps
 - **Resource efficiency**: Fit once, query many times
 
 **Steps in the query**:
+
 - **source_data**: Filters to last 365 days for training window
 - **product_models**: Fits separate models for each product using `anofox_statistics_ols_agg`
 - **CREATE TABLE**: Materializes results with metadata (training dates, update time)
 - **Query cached models**: Fast retrieval without recalculation
 
 **When to use**: Production environments where models are queried frequently (dashboards, APIs, reporting) but underlying data changes slowly (daily/weekly). Essential for real-time applications that need sub-second response times.
+
 
 ```sql
 -- Create materialized model table
@@ -1806,6 +1861,7 @@ ORDER BY r2_price DESC;
 **Scenario**: Your price elasticity models were trained on 2023 data, but it's now mid-2024 and customer behavior has changed. You need to refresh models monthly without manual intervention.
 
 **How it works**:
+
 1. **Archive old models**: Save previous version to `model_results_archive` for comparison
 2. **Clear cache**: Delete outdated results from `model_results_cache`
 3. **Retrain on fresh data**: Fit new models using configurable lookback window (e.g., last 365 days)
@@ -1813,19 +1869,23 @@ ORDER BY r2_price DESC;
 5. **Log refresh**: Record when models were updated and how many products included
 
 **Procedure structure**:
+
 ```sql
 CREATE PROCEDURE refresh_product_models(lookback_days INT DEFAULT 365)
 ```
+
 - Accepts parameter for training window size
 - Automatically handles archiving, training, caching, and logging
 - Can be scheduled via cron, Airflow, or DuckDB scheduler
 
 **Production workflow**:
+
 - **Daily schedule**: `CALL refresh_product_models(365);`
 - **Monitor drift**: Compare new R² to archived R² to detect model degradation
 - **Alert on failures**: Track refresh log for missing products or errors
 
 **When to use**: Any production ML system where data evolves over time. Models become stale as patterns shift, so regular retraining maintains accuracy. Common schedule: daily (fast-moving data), weekly (moderate), monthly (slow-changing).
+
 
 ```sql
 -- Incremental model update procedure
@@ -1901,31 +1961,37 @@ END;
 **Scenario**: You have 10 million sales transactions and want to analyze trends by month and category. Fitting models on the full dataset at once would be slow and memory-intensive.
 
 **Strategy 1: Partition and Aggregate**:
+
 1. **Pre-aggregate to partitions**: Group data into monthly × category buckets
 2. **Use LIST aggregation**: Collect values within each partition as arrays
 3. **Fit models per partition**: Use `anofox_statistics_ols_agg` on each partition separately
 4. **Parallel processing**: DuckDB parallelizes across partitions automatically
 
 **Benefits**:
+
 - Reduces memory footprint (process chunks, not full dataset)
 - Enables parallelization (independent partitions processed concurrently)
 - Fast even on commodity hardware
 
 **Strategy 2: Sample-Then-Scale**:
+
 1. **Sample for exploration**: Use `USING SAMPLE 10 PERCENT` to fit models on subset
 2. **Validate approach**: Check R² and coefficients on sample
 3. **Scale to full data**: If promising, run on complete dataset
 4. **Iterative refinement**: Quick feedback loop for model development
 
 **When to use**:
+
 - **Strategy 1**: Production pipelines with structured hierarchies (time × category, region × product)
 - **Strategy 2**: Exploratory analysis, feature selection, model prototyping
 
 **Performance tips**:
+
 - Partition by dimensions you'll GROUP BY (month, category, region)
 - Use aggregate functions (`anofox_statistics_ols_agg`) over table functions when possible
 - Filter early to reduce data scanned (WHERE date >= '2023-01-01')
 - Create indexes on partition columns for faster grouping
+
 
 ```sql
 -- Efficient processing of large datasets
@@ -1991,22 +2057,26 @@ SELECT * FROM sample_model;
 **Scenario**: Your BI tool (Tableau, PowerBI) doesn't support in-database regression, but needs model coefficients for scoring. Or you want to hand off predictions to a Python application.
 
 **What this demonstrates**:
+
 1. **Model export**: Save coefficients, standard errors, p-values to CSV for external scoring
 2. **Prediction export**: Save predictions with confidence intervals to Parquet for downstream systems
 3. **Metadata tracking**: Include training timestamp and sample size for auditability
 
 **Use cases**:
+
 - **BI integration**: Export coefficients to CSV, import into Tableau for visualization
 - **Model handoff**: Train in DuckDB, deploy in Python/R application
 - **Data interchange**: Parquet for efficient columnar storage and cross-tool compatibility
 - **Archival**: Save model snapshots for regulatory compliance or reproducibility
 
 **File formats**:
+
 - **CSV**: Human-readable, universal compatibility, good for small coefficient tables
 - **Parquet**: Columnar, compressed, efficient for large prediction datasets
 - **JSON**: Hierarchical data, APIs, configuration files
 
 **When to use**: Any workflow where DuckDB is the analytical engine but downstream consumers need structured output (reporting, dashboards, applications, other data tools).
+
 
 ```sql
 -- Export model coefficients for external scoring (using literal array sample)
@@ -2050,23 +2120,27 @@ COPY (
 **Purpose**: Systematically check regression assumptions (sample size, multicollinearity, normality, outliers) before deploying models to production.
 
 **Why this matters**: Regression models make statistical assumptions. Violating them can lead to:
+
 - Unreliable coefficients (multicollinearity)
 - Invalid p-values (non-normality)
 - Biased predictions (influential outliers)
 - Underpowered tests (small sample size)
 
 **Validation checklist**:
+
 1. **Sample size**: ≥30 observations (bare minimum), preferably ≥100
 2. **Multicollinearity**: VIF < 10 for all predictors
 3. **Normality**: Residuals approximately normal (Jarque-Bera test p > 0.05)
 4. **Outliers**: < 5% of observations should be influential (Cook's D > 0.5)
 
 **Query structure**:
+
 - Runs 4 diagnostic checks in parallel
 - Each returns PASS/FAIL/WARN status
 - Quick pre-deployment validation before pushing models to production
 
 **When to use**: Always run this before deploying any regression model. Automate as part of CI/CD pipeline or model refresh procedure.
+
 
 ```sql
 -- Check list before deploying model (using literal array examples)
@@ -2106,24 +2180,28 @@ SELECT * FROM validation;
 **Purpose**: Track model performance over time to detect when coefficients or predictions degrade, signaling need for retraining.
 
 **Why this matters**: Models trained on historical data become stale as:
+
 - Customer behavior evolves
 - Market conditions change
 - Seasonal patterns shift
 - Competitor actions alter dynamics
 
 **What to monitor**:
+
 - **R² degradation**: Current R² < 90% of historical baseline → model deteriorating
 - **Coefficient drift**: Slopes changing significantly → relationships evolving
 - **Prediction error**: Increasing RMSE on holdout set → losing accuracy
 - **Data distribution shifts**: Feature means/variances changing → different population
 
 **Monitoring workflow**:
+
 1. Archive model metrics after each training run
 2. Compare new metrics to previous version
 3. Flag "DEGRADED" status if R² drops >10%
 4. Trigger alerts for manual investigation or automatic retraining
 
 **When to use**: Production models that are periodically refreshed. Essential for maintaining forecast accuracy in dynamic environments.
+
 
 ```sql
 -- Track model performance over time
@@ -2147,12 +2225,14 @@ FROM current_model;
 **Purpose**: Maintain a model registry with metadata about training data, variables, performance, ownership, and refresh schedule for governance and reproducibility.
 
 **Why this matters**: In production environments with many models:
+
 - Teams need to know what models exist and what they predict
 - Auditors need to verify model validity and training procedures
 - Debugging requires understanding model provenance
 - Compliance may require documented model lineage
 
 **Metadata to track**:
+
 - **Model identification**: ID, name, type (OLS, Ridge, WLS)
 - **Training details**: Data source query, sample size, training date
 - **Variables**: Dependent variable, list of independent variables
@@ -2161,12 +2241,14 @@ FROM current_model;
 - **Operations**: Refresh frequency, last refresh date
 
 **Model registry benefits**:
+
 - **Discovery**: Find existing models before building duplicates
 - **Governance**: Track who owns what and for what purpose
 - **Debugging**: Quickly identify stale or problematic models
 - **Compliance**: Demonstrate model validation and monitoring
 
 **When to use**: Any organization with multiple regression models in production. Essential for regulated industries (finance, healthcare) requiring model documentation.
+
 
 ```sql
 -- Model metadata table
@@ -2200,6 +2282,7 @@ These advanced use cases demonstrate:
 6. **Performance optimization** for large-scale data
 
 For more information:
+
 - [Quick Start Guide](01_quick_start.md) - Getting started
 - [Technical Guide](02_technical_guide.md) - Implementation details
 - [Statistics Guide](03_statistics_guide.md) - Statistical theory

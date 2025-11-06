@@ -7,6 +7,7 @@ Real-world business applications of the Anofox Statistics extension, demonstrati
 **All examples below are copy-paste runnable!** Each example includes sample data creation.
 
 **Working Patterns**:
+
 - **Aggregate functions** (`anofox_statistics_ols_agg`, `anofox_statistics_ols_agg`) work directly with table data - use these for GROUP BY analysis
 - **Table functions** (`ols_inference`, `ols_predict_interval`) require literal arrays - examples show small datasets with explicit arrays
 - All functions use positional parameters only (no `:=` syntax)
@@ -18,6 +19,7 @@ Real-world business applications of the Anofox Statistics extension, demonstrati
 ### Use Case 1: Marketing Mix Modeling
 
 **Business Question**: Which marketing channels drive the most sales?
+
 
 ```sql
 -- Create sample marketing campaign data
@@ -72,6 +74,7 @@ ORDER BY roi DESC;
 ```
 
 **Business Interpretation**:
+
 - **ROI (coefficient)**: For every $1 increase in channel spend, revenue increases by $X
 - **R²**: How well the channel spend predicts revenue (higher is better)
 - Univariate analysis shows individual channel impact
@@ -81,6 +84,7 @@ ORDER BY roi DESC;
 ### Use Case 2: Price Elasticity Analysis
 
 **Business Question**: How sensitive are customers to price changes?
+
 
 ```sql
 -- Create sample sales transaction data
@@ -134,6 +138,7 @@ ORDER BY ABS(elasticity) DESC;
 ```
 
 **Business Interpretation**:
+
 - **Negative elasticity**: Lower prices → higher quantity (normal demand curve)
 - **High |elasticity|**: Elastic demand - customers are price-sensitive
 - **R²**: How well price predicts quantity
@@ -143,6 +148,7 @@ ORDER BY ABS(elasticity) DESC;
 ### Use Case 3: Customer Lifetime Value Prediction
 
 **Business Question**: Predict future customer value to guide acquisition spending.
+
 
 ```sql
 -- Create sample customer data
@@ -192,6 +198,7 @@ WHERE cohort_month <= CURRENT_DATE - INTERVAL '12 months';
 ```
 
 **Business Interpretation**:
+
 - **Coefficient**: Impact of each factor on customer lifetime value
 - **R²**: How well features predict CLV
 - **Tenure** and **frequency** typically show strongest CLV correlation
@@ -203,6 +210,7 @@ WHERE cohort_month <= CURRENT_DATE - INTERVAL '12 months';
 **Business Question**: How do customer segments differ in their spending patterns? Are some segments more reliable to analyze than others?
 
 **Method**: Use `anofox_statistics_wls_agg` with GROUP BY to fit separate models per segment, weighting by customer value or data reliability.
+
 
 ```sql
 -- Business Guide: Customer Lifetime Value by Segment (Weighted Analysis)
@@ -312,21 +320,25 @@ ORDER BY ltv_cac_ratio DESC;
 ```
 
 **Business Interpretation**:
+
 - **Weighted coefficients**: Estimated while giving more influence to high-value or reliable customers
 - **weighted_mse**: Model error accounting for customer weights
 - **Segment differences**: Premium customers may show different behavior than budget customers
 
 **Why use WLS here**:
+
 - **High-value customers**: Weight by LTV - premium customers get more influence in the model
 - **Data reliability**: Weight by transaction count - customers with more data points get higher weight
 - **Heteroscedasticity**: Variance may differ across customer types (premium vs budget)
 
 **Business Decision**:
+
 - **Premium segment**: If income sensitivity is high, target promotions at income milestones
 - **Budget segment**: If income sensitivity is low, focus on value messaging rather than income targeting
 - **Resource allocation**: Prioritize strategies for segments with strong, reliable patterns (high R², low weighted_mse)
 
 **Example Insights**:
+
 ```
 Premium segment: income_coef = 0.15, weighted_mse = 250 → Strong income effect, reliable estimate
 Budget segment: income_coef = 0.08, weighted_mse = 180 → Weaker income effect, tighter variance
@@ -337,6 +349,7 @@ Budget segment: income_coef = 0.08, weighted_mse = 180 → Weaker income effect,
 ### Use Case 4: Portfolio Beta Calculation
 
 **Business Question**: Measure market sensitivity of each stock for risk management.
+
 
 ```sql
 -- Create sample stock returns data
@@ -389,12 +402,14 @@ ORDER BY beta DESC;
 ```
 
 **Business Interpretation**:
+
 - **Beta = 1.0**: Moves with market (average risk)
 - **Beta > 1.0**: More volatile than market (higher risk, higher potential return)
 - **Beta < 1.0**: Less volatile than market (lower risk, lower potential return)
 - **R² > 0.7**: Strong correlation with market
 
 **Example Output**:
+
 ```
 ┌──────────────┬──────┬───────────┬───────────────┬───────────────────────┐
 │ stock_ticker │ beta │ r_squared │ risk_category │ investor_suitability  │
@@ -413,6 +428,7 @@ ORDER BY beta DESC;
 **Business Question**: How do multiple risk factors (market, sector, value) affect each stock? Handle correlated factors without multicollinearity issues.
 
 **Method**: Use `anofox_statistics_ridge_agg` with GROUP BY to fit factor models per stock with L2 regularization to handle correlated risk factors.
+
 
 ```sql
 -- Business Guide: Portfolio Risk Management with Ridge Regression
@@ -512,29 +528,34 @@ ORDER BY market_beta DESC;
 ```
 
 **Business Interpretation**:
+
 - **Market beta**: Stock's sensitivity to overall market movements
 - **Sector beta**: Stock's sensitivity to sector-specific movements
 - **Value factor**: Stock's tilt toward value vs growth stocks
 - **Lambda (regularization)**: Controls shrinkage - stabilizes estimates when factors are correlated
 
 **Why use Ridge here**:
+
 - **Multicollinearity**: Market and sector returns are often correlated
 - **Stability**: Ridge produces more stable factor exposures than OLS
 - **Better out-of-sample**: Regularization prevents overfitting to historical patterns
 - **Risk management**: More reliable factor exposures for hedging strategies
 
 **Business Decision**:
+
 - **Factor exposure**: Understand true drivers of each stock's returns
 - **Portfolio construction**: Build factor-neutral or factor-tilted portfolios
 - **Hedging**: Use stable factor estimates for risk management
 - **Comparison**: Stocks with similar factor profiles can be treated as substitutes
 
 **Choosing lambda**:
+
 - **lambda = 0.1**: Light regularization (factors mostly uncorrelated)
 - **lambda = 1.0**: Moderate regularization (standard choice)
 - **lambda = 10.0**: Heavy regularization (factors highly correlated)
 
 **Example Insights**:
+
 ```
 TECH: market_beta = 1.2, sector_beta = 0.8, value = -0.3 → Growth stock, sector-heavy
 UTIL: market_beta = 0.5, sector_beta = 0.3, value = 0.2 → Defensive stock, value tilt
@@ -543,6 +564,7 @@ UTIL: market_beta = 0.5, sector_beta = 0.3, value = 0.2 → Defensive stock, val
 ### Use Case 5: Credit Risk Modeling
 
 **Business Question**: Predict loan default risk to optimize lending decisions.
+
 
 ```sql
 -- Create sample loan data
@@ -617,6 +639,7 @@ ORDER BY ABS(coefficient) DESC;
 ```
 
 **Business Interpretation**:
+
 - **Positive coefficient**: Factor increases default probability
 - **Negative coefficient**: Factor decreases default probability
 - **P-value < 0.05**: Factor is statistically significant predictor
@@ -626,6 +649,7 @@ ORDER BY ABS(coefficient) DESC;
 ### Use Case 6: Revenue Forecasting with Trend Analysis
 
 **Business Question**: Forecast next quarter's revenue with confidence intervals.
+
 
 ```sql
 -- Create sample quarterly revenue data
@@ -659,6 +683,7 @@ FROM forecast;
 ```
 
 **Example Output**:
+
 ```
 ┌────────────────┬────────────┬──────────────────────────┬──────────────────────────────┬─────────────────────────────┬─────────────────┐
 │ quarter_offset │ quarter_id │ forecast_revenue_millions│ conservative_estimate_millions│ optimistic_estimate_millions│ uncertainty_pct │
@@ -677,6 +702,7 @@ FROM forecast;
 ### Use Case 7: Demand Forecasting for Inventory
 
 **Business Question**: Optimize inventory levels by predicting product demand.
+
 
 ```sql
 -- Create sample daily sales data
@@ -750,6 +776,7 @@ ORDER BY forecast_accuracy DESC;
 **Business Question**: How can we create forecasts that automatically adapt to changing demand patterns per product? Which products have the most volatile demand?
 
 **Method**: Use `anofox_statistics_rls_agg` with GROUP BY to fit adaptive models per product that emphasize recent patterns over historical data.
+
 
 ```sql
 -- Business Guide: Adaptive Demand Forecasting with RLS
@@ -868,30 +895,35 @@ SELECT
 ```
 
 **Business Interpretation**:
+
 - **Adaptive coefficients**: Final model emphasizes recent demand patterns, automatically adjusting to changes
 - **forgetting_factor**: Controls adaptation speed - lower values = faster response to changes
 - **Per-product models**: Each product gets its own adaptive forecast model
 - **Recent emphasis**: Old data is exponentially down-weighted
 
 **Why use RLS here**:
+
 - **Non-stationary demand**: Product demand patterns change over time (seasonality, trends, market shifts)
 - **Fast adaptation**: Detects and responds to demand regime changes quickly
 - **Automatic updates**: No need to retrain models - they adapt as new data arrives
 - **Relevant patterns**: Recent data often predicts better than old data for operational decisions
 
 **Business Decision**:
+
 - **Inventory planning**: Use adaptive forecasts for ordering decisions
 - **Volatility assessment**: Products with high forgetting_factor needs indicate unstable demand
 - **Promotional impact**: RLS automatically adjusts to post-promotion demand changes
 - **New product launches**: Adapts quickly as demand patterns stabilize
 
 **Choosing forgetting_factor**:
+
 - **λ = 0.98-0.99**: Slow adaptation - stable products with gradual changes
 - **λ = 0.95-0.97**: Moderate adaptation - standard operational forecasting
 - **λ = 0.90-0.94**: Fast adaptation - volatile products or rapid market changes
 - **λ < 0.90**: Very fast - new products or post-disruption recovery
 
 **Example Insights**:
+
 ```
 Product A: coef = 1.2, λ = 0.95 → Growing demand, moderate volatility
 Product B: coef = 0.8, λ = 0.90 → Declining demand, high volatility - needs attention
@@ -899,6 +931,7 @@ Product C: coef = 1.0, λ = 0.98 → Stable demand, predictable pattern
 ```
 
 **Operational Actions**:
+
 - **High adaptation needs (λ < 0.93)**: Review demand drivers, increase safety stock
 - **Stable patterns (λ > 0.97)**: Can use tighter inventory controls
 - **Growing trends (coef > 1.0)**: Plan capacity increases
@@ -907,6 +940,7 @@ Product C: coef = 1.0, λ = 0.98 → Stable demand, predictable pattern
 ### Use Case 8: Quality Control Process Optimization
 
 **Business Question**: Identify which process parameters affect product defects.
+
 
 ```sql
 -- Create sample manufacturing batch data
@@ -1016,6 +1050,7 @@ ORDER BY ABS(impact_on_defects) DESC;
 
 **Business Question**: Understand factors driving team productivity.
 
+
 ```sql
 -- Create sample employee productivity data
 CREATE OR REPLACE TABLE employee_productivity AS
@@ -1084,6 +1119,7 @@ ORDER BY training_impact DESC;
 ### Use Case 10: Territory Performance Analysis
 
 **Business Question**: Which territories are underperforming and why?
+
 
 ```sql
 -- Create sample monthly sales data by territory
@@ -1166,6 +1202,7 @@ ORDER BY avg_sales DESC;
 **Business Question**: How does pricing elasticity differ across regions? Which regions are most price-sensitive?
 
 **Method**: Use `anofox_statistics_ols_agg` with GROUP BY to fit separate price-demand models per region in a single query.
+
 
 ```sql
 -- Business Guide: Regional Sales Performance Analysis
@@ -1252,17 +1289,20 @@ JOIN (
 ```
 
 **Business Interpretation**:
+
 - **Price elasticity coefficient**: How quantity responds to price changes in each region
 - **Negative values**: Normal demand curve - higher price → lower demand
 - **R²**: How well price predicts demand in each region
 - **Regional differences**: Some regions may be more price-sensitive than others
 
 **Business Decision**:
+
 - **High |elasticity| regions**: Use competitive pricing strategies, run promotions carefully
 - **Low |elasticity| regions**: Can support premium pricing, focus on value messaging
 - **Poor fit (low R²)**: Price isn't the main driver - investigate other factors (competition, demographics)
 
 **Example Insights**:
+
 ```
 North region: elasticity = -1.2, R² = 0.85 → Price-sensitive, good fit
 South region: elasticity = -0.4, R² = 0.72 → Less price-sensitive, moderate fit
@@ -1279,6 +1319,7 @@ South region: elasticity = -0.4, R² = 0.72 → Less price-sensitive, moderate f
 - **R² = 0.40**: Model explains 40% of variation (use with caution)
 
 **Business Context**:
+
 - **Marketing**: R² > 0.6 is strong (many external factors)
 - **Finance**: R² > 0.7 expected (more predictable)
 - **Operations**: R² > 0.8 desired (controlled environment)
@@ -1299,10 +1340,12 @@ South region: elasticity = -0.4, R² = 0.72 → Less price-sensitive, moderate f
 **What it means**: How much Y changes when X increases by 1 unit.
 
 **Example**: Marketing spend coefficient = 3.2
+
 - For every $1 increase in marketing, revenue increases by $3.20
 - ROI = 3.2 - 1 = 2.2, or 220% return
 
 **Business Decision Framework**:
+
 - If coefficient × volume > costs, invest
 - If p-value < 0.05, trust the estimate
 - If R² > 0.7, forecast with confidence
@@ -1312,12 +1355,14 @@ South region: elasticity = -0.4, R² = 0.72 → Less price-sensitive, moderate f
 **What it means**: Range where true value likely falls (e.g., 90% or 95% confidence).
 
 **Example**: Revenue forecast = $50M with 90% CI [$45M, $55M]
+
 - Best estimate: $50M
 - Conservative plan: $45M
 - Optimistic plan: $55M
 - Planning buffer: $5M variance
 
 **Business Application**:
+
 - **Budgeting**: Use lower bound (conservative)
 - **Target Setting**: Use point estimate (realistic)
 - **Capacity Planning**: Use upper bound (optimistic)
@@ -1328,17 +1373,20 @@ South region: elasticity = -0.4, R² = 0.72 → Less price-sensitive, moderate f
 **Influential**: Points that strongly affect the model.
 
 **Business Decisions**:
+
 - **Outlier + Influential**: Investigate (data error or special case?)
 - **Outlier + Not Influential**: Monitor (unusual but not problematic)
 - **Not Outlier + Influential**: Normal leverage point
 
 **Example**:
+
 - Q4 sales spike (outlier) due to holiday season → Keep (real pattern)
 - Data entry error showing $10M sale → Remove (data quality issue)
 
 ## ROI Analysis Framework
 
 ### Marketing Campaign ROI
+
 
 ```sql
 -- Create sample campaign data
@@ -1401,12 +1449,14 @@ Don't act on p-values > 0.05 unless you have strong business reasons.
 Statistical significance ≠ Business significance
 
 **Example**:
+
 - Coefficient = 0.001, p < 0.001 (statistically significant)
 - But $1 increase → $0.001 revenue (not business significant)
 
 ### 5. Monitor Model Performance Over Time
 
 Use rolling regressions to detect changes in relationships:
+
 
 ```sql
 -- Create sample monthly data
@@ -1441,6 +1491,7 @@ LIMIT 12;  -- Show last 12 months
 ### 6. Combine Multiple Models
 
 Don't rely on single model - triangulate with multiple approaches:
+
 
 ```sql
 -- Create sample data with multiple predictors
@@ -1525,6 +1576,7 @@ The Anofox Statistics extension transforms DuckDB into a powerful business analy
 5. **Act with Confidence**: Statistical evidence → Better business decisions
 
 For more examples:
+
 - [Quick Start Guide](01_quick_start.md) - Basic usage
 - [Technical Guide](02_technical_guide.md) - Implementation details
 - [Statistics Guide](03_statistics_guide.md) - Statistical theory

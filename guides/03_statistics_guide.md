@@ -18,6 +18,7 @@ A comprehensive guide to the statistical methodology and interpretation for stat
 **Model**: y = Xβ + ε
 
 **Assumptions**:
+
 1. **Linearity**: E[ε|X] = 0
 2. **Homoscedasticity**: Var(ε|X) = σ²
 3. **Independence**: Cov(εᵢ, εⱼ) = 0 for i ≠ j
@@ -25,11 +26,13 @@ A comprehensive guide to the statistical methodology and interpretation for stat
 5. **No perfect multicollinearity**: rank(X) = p
 
 **Estimation**:
+
 ```
 β̂ = (X'X)⁻¹X'y
 ```
 
 **Properties** (under assumptions):
+
 - **BLUE**: Best Linear Unbiased Estimator (Gauss-Markov)
 - **Consistency**: β̂ →ᵖ β as n → ∞
 - **Asymptotic Normality**: √n(β̂ - β) →ᵈ N(0, σ²(X'X)⁻¹)
@@ -37,6 +40,7 @@ A comprehensive guide to the statistical methodology and interpretation for stat
 **Example**:
 
 This example demonstrates a basic OLS fit using the extension. The function computes all standard OLS statistics including coefficients, R², and residuals.
+
 
 ```sql
 -- Simple OLS with aggregate function (works directly with table data)
@@ -52,6 +56,7 @@ GROUP BY category;
 ```
 
 **Interpretation**:
+
 - **Coefficients (β̂ⱼ)**: Marginal effect of each predictor - the expected change in y for a one-unit increase in xⱼ, holding other predictors constant
 - **R² (Coefficient of Determination)**: Proportion of variance in y explained by the model. Range [0,1], where 1 = perfect fit
 - **RMSE (Root Mean Squared Error)**: Standard deviation of residuals - typical prediction error in y units. Lower is better
@@ -60,6 +65,7 @@ GROUP BY category;
 #### OLS Aggregate for GROUP BY Analysis
 
 For per-group regression analysis, use the `anofox_statistics_ols_agg` aggregate function. This computes separate OLS regressions for each group efficiently in a single query.
+
 
 ```sql
 -- Statistics Guide: Comprehensive OLS Aggregate Example
@@ -112,6 +118,7 @@ FROM (
 ```
 
 **Aggregate-Specific Notes**:
+
 - Works with `GROUP BY` for per-group models
 - Can be used with window functions (`OVER`) for rolling analysis
 - Automatically parallelizes across groups
@@ -121,6 +128,7 @@ FROM (
 #### Understanding the Intercept Parameter
 
 The intercept parameter controls whether the regression line must pass through the origin (intercept=false) or can have any y-intercept (intercept=true).
+
 
 ```sql
 -- Statistics Guide: Understanding the Intercept Parameter
@@ -189,6 +197,7 @@ SELECT
 ```
 
 **Choosing Intercept Setting**:
+
 - **intercept=true (default)**: Use for most business/social science applications where a natural baseline exists
 - **intercept=false**: Use when theory requires zero intercept (physical laws, rates, or when data is already centered)
 - **R² difference**: With intercept uses SS from mean; without intercept uses SS from zero (not directly comparable)
@@ -201,16 +210,19 @@ SELECT
 **Purpose**: Handle multicollinearity by shrinking coefficients
 
 **Solution**:
+
 ```
 β̂ᵣᵢᵈᵍₑ = (X'X + λI)⁻¹X'y
 ```
 
 **Properties**:
+
 - **Biased** but lower variance than OLS
 - **Shrinks** coefficients toward zero
 - **Stabilizes** estimation when X'X is near-singular
 
 **Choosing λ**:
+
 - Cross-validation
 - Generalized Cross-Validation (GCV)
 - L-curve method
@@ -218,6 +230,7 @@ SELECT
 **Example**:
 
 This example shows ridge regression with a regularization parameter λ=0.1. The regularization shrinks coefficients, trading some bias for reduced variance and improved prediction stability.
+
 
 ```sql
 -- Table function requires literal arrays (positional parameters)
@@ -231,6 +244,7 @@ SELECT * FROM anofox_statistics_ridge(
 ```
 
 **When to Use**:
+
 - **VIF > 10**: High multicollinearity between predictors causes unstable OLS estimates
 - **n < p**: More predictors than observations (OLS is undefined, ridge still works)
 - **Prediction focus**: When you care more about accurate predictions than interpreting individual coefficients
@@ -241,6 +255,7 @@ SELECT * FROM anofox_statistics_ridge(
 #### Ridge Aggregate for GROUP BY Analysis
 
 For per-group ridge regression, use `anofox_statistics_ridge_agg` with lambda parameter in the options MAP.
+
 
 ```sql
 -- Statistics Guide: Ridge Regression - Handling Multicollinearity
@@ -327,6 +342,7 @@ SELECT
 ```
 
 **Lambda Selection Guide**:
+
 - **λ = 0**: Equivalent to OLS (no regularization)
 - **λ = 0.01-0.1**: Light regularization (slight coefficient shrinkage)
 - **λ = 1-10**: Moderate regularization (recommended starting point)
@@ -339,12 +355,14 @@ SELECT
 **Model**: y = Xβ + ε, where Var(εᵢ) = σ²/wᵢ
 
 **Estimation**:
+
 ```
 β̂ᵂᴸˢ = (X'WX)⁻¹X'Wy
 where W = diag(w₁, ..., wₙ)
 ```
 
 **Use Cases**:
+
 1. **Heteroscedasticity**: Variance increases with x
 2. **Weighted observations**: Different precision/reliability
 3. **Grouped data**: Group sizes vary
@@ -352,6 +370,7 @@ where W = diag(w₁, ..., wₙ)
 **Example**:
 
 This example demonstrates WLS when observations have different levels of precision. Observations with higher weights (more reliable) have greater influence on the fitted model.
+
 
 ```sql
 -- Variance proportional to x (positional parameters, literal arrays)
@@ -364,6 +383,7 @@ SELECT * FROM anofox_statistics_wls(
 ```
 
 **Weight Selection Guidelines**:
+
 - **Heteroscedasticity**: If Var(εᵢ) = σ²xᵢ, use weights wᵢ = 1/xᵢ
 - **Measurement error**: If observations have known standard errors sᵢ, use wᵢ = 1/sᵢ²
 - **Grouped data**: If observation i represents nᵢ replicates, use wᵢ = nᵢ
@@ -377,6 +397,7 @@ SELECT * FROM anofox_statistics_wls(
 **When to use**: When analyzing multiple segments with heteroscedastic errors, combining data sources with different reliability, or when observations within groups have different precision levels.
 
 **How it works**: The `anofox_statistics_wls_agg` function accumulates weighted data per group, applying observation weights to account for varying variance or reliability.
+
 
 ```sql
 -- Statistics Guide: Weighted Least Squares - Handling Heteroscedasticity
@@ -451,6 +472,7 @@ SELECT
 ```
 
 **What the results mean**:
+
 - **Coefficients**: Estimated while giving more influence to high-weight (reliable) observations
 - **weighted_mse**: Error metric that accounts for observation weights
 - **Comparison**: WLS typically produces more efficient estimates than OLS when heteroscedasticity is present
@@ -464,6 +486,7 @@ Use WLS aggregates when observations within each group have known reliability di
 **Hypothesis**: H₀: βⱼ = 0 vs H₁: βⱼ ≠ 0
 
 **Test Statistic**:
+
 ```
 t = β̂ⱼ / SE(β̂ⱼ)
 where SE(β̂ⱼ) = √(MSE · (X'X)⁻¹ⱼⱼ)
@@ -472,12 +495,14 @@ where SE(β̂ⱼ) = √(MSE · (X'X)⁻¹ⱼⱼ)
 **Distribution**: t ~ t(n-p) under H₀
 
 **Decision Rule**:
+
 - Reject H₀ if |t| > t_{α/2,n-p}
 - Or equivalently, if p-value < α
 
 **Example**:
 
 This query performs hypothesis tests for each coefficient, testing whether each predictor has a statistically significant relationship with the response variable.
+
 
 ```sql
 SELECT
@@ -496,12 +521,14 @@ FROM ols_inference(
 ```
 
 **Interpretation**:
+
 - **t-statistic**: Measures how many standard errors the coefficient is from zero. |t| > 2 typically indicates significance
 - **p-value**: Probability of observing this effect (or stronger) if the true coefficient is zero. p < 0.05 is commonly used as the significance threshold
 - **Significant flag**: Automatically identifies predictors with p < 0.05
 - **Confidence intervals**: Provide a range of plausible values for the true coefficient
 
 **Common interpretations**:
+
 - **p < 0.001**: Highly significant - very strong evidence of an effect
 - **p < 0.05**: Significant - conventional threshold for statistical significance
 - **p > 0.10**: Not significant - insufficient evidence of an effect
@@ -509,6 +536,7 @@ FROM ols_inference(
 ### Confidence Intervals
 
 **Coefficient CI**:
+
 ```
 CI₁₋α(βⱼ) = β̂ⱼ ± t_{α/2,n-p} · SE(β̂ⱼ)
 ```
@@ -516,6 +544,7 @@ CI₁₋α(βⱼ) = β̂ⱼ ± t_{α/2,n-p} · SE(β̂ⱼ)
 **Interpretation**: With 95% confidence, true βⱼ lies in interval
 
 **Example Result**:
+
 ```
 variable: study_hours
 estimate: 5.2
@@ -530,6 +559,7 @@ ci_upper: 6.3
 Two types of intervals:
 
 **1. Confidence Interval** (for mean prediction):
+
 ```
 CI(E[y|x₀]) = x₀'β̂ ± t_{α/2,n-p} · √(MSE · x₀'(X'X)⁻¹x₀)
 ```
@@ -537,6 +567,7 @@ CI(E[y|x₀]) = x₀'β̂ ± t_{α/2,n-p} · √(MSE · x₀'(X'X)⁻¹x₀)
 Interpretation: Uncertainty in **average** y for given x₀
 
 **2. Prediction Interval** (for single prediction):
+
 ```
 PI(y|x₀) = x₀'β̂ ± t_{α/2,n-p} · √(MSE · (1 + x₀'(X'X)⁻¹x₀))
 ```
@@ -544,12 +575,14 @@ PI(y|x₀) = x₀'β̂ ± t_{α/2,n-p} · √(MSE · (1 + x₀'(X'X)⁻¹x₀))
 Interpretation: Uncertainty in **individual** y for given x₀
 
 **Key Difference**:
+
 - PI is wider than CI (includes σ² term)
 - CI → 0 as n → ∞, but PI → σ
 
 **Example**:
 
 This example demonstrates both confidence intervals (for the mean) and prediction intervals (for individual observations). Notice how prediction intervals are wider because they account for both model uncertainty and random error.
+
 
 ```sql
 SELECT
@@ -568,10 +601,12 @@ FROM ols_predict_interval(
 ```
 
 **When to use which interval**:
+
 - **Confidence Interval**: "What's the average outcome for this input?" - Use for understanding population means
 - **Prediction Interval**: "What outcome should I expect for this specific case?" - Use for forecasting individual values
 
 **Example scenario**: Predicting house prices
+
 - CI: "The average price for 3-bedroom houses in this neighborhood is $400K ± $20K"
 - PI: "This specific 3-bedroom house will sell for $400K ± $80K"
 
@@ -584,17 +619,20 @@ The prediction interval is wider because individual houses vary around the avera
 **Residual**: eᵢ = yᵢ - ŷᵢ
 
 **Standardized Residual**:
+
 ```
 rᵢ = eᵢ / √MSE
 ```
 
 **Studentized Residual**:
+
 ```
 tᵢ = eᵢ / √(MSE · (1 - hᵢᵢ))
 where hᵢᵢ = leverage of observation i
 ```
 
 **Properties**:
+
 - Mean ≈ 0
 - Variance ≈ 1 (if homoscedastic)
 - ~95% should be in [-2, 2]
@@ -602,6 +640,7 @@ where hᵢᵢ = leverage of observation i
 **Example**:
 
 Residual diagnostics help you assess whether the regression assumptions hold and identify problematic observations.
+
 
 ```sql
 SELECT
@@ -620,6 +659,7 @@ FROM anofox_statistics_residual_diagnostics(
 ```
 
 **What to look for**:
+
 - **Pattern in residuals**: Should be randomly scattered around zero. Patterns indicate model misspecification
 - **Outliers**: Standardized residuals > |2.5| are unusual and merit investigation
 - **Heteroscedasticity**: If residual variance increases with fitted values, consider WLS or transformations
@@ -628,11 +668,13 @@ FROM anofox_statistics_residual_diagnostics(
 ### Leverage and Influence
 
 **Leverage** (Hat Values):
+
 ```
 hᵢᵢ = xᵢ'(X'X)⁻¹xᵢ
 ```
 
 **Properties**:
+
 - Range: 0 to 1
 - Average: p/n
 - Threshold: 2p/n or 3p/n
@@ -640,24 +682,29 @@ hᵢᵢ = xᵢ'(X'X)⁻¹xᵢ
 **Interpretation**: Potential to influence fitted values
 
 **Cook's Distance**:
+
 ```
 Dᵢ = (rᵢ²/p) · (hᵢᵢ/(1-hᵢᵢ))
 ```
 
 **Interpretation**: Overall influence on regression coefficients
+
 - Dᵢ > 1: Highly influential
 - Dᵢ > 4/n: Potentially influential
 - Dᵢ > 0.5: Use caution
 
 **DFFITS**:
+
 ```
 DFFITSᵢ = tᵢ · √(hᵢᵢ/(1-hᵢᵢ))
 ```
 
 **Interpretation**: Change in fitted value when removing observation i
+
 - |DFFITS| > 2√(p/n): Potentially influential
 
 **Example**:
+
 ```sql
 -- Find most influential observations (using literal arrays)
 SELECT
@@ -679,23 +726,27 @@ ORDER BY cooks_distance DESC;
 ### Multicollinearity
 
 **Variance Inflation Factor (VIF)**:
+
 ```
 VIFⱼ = 1 / (1 - Rⱼ²)
 where Rⱼ² = R² from regressing xⱼ on other x's
 ```
 
 **Interpretation**:
+
 - VIF = 1: No correlation
 - VIF < 5: Low multicollinearity ✓
 - VIF = 5-10: Moderate multicollinearity ⚠️
 - VIF > 10: High multicollinearity ✗
 
 **Effects of Multicollinearity**:
+
 - Large standard errors
 - Unstable coefficients
 - Insignificant t-tests despite high R²
 
 **Example**:
+
 ```sql
 SELECT
     variable_name,
@@ -708,6 +759,7 @@ FROM anofox_statistics_vif(
 ```
 
 **Solutions**:
+
 1. Remove correlated variables
 2. Combine into single variable (PCA)
 3. Use ridge regression
@@ -716,6 +768,7 @@ FROM anofox_statistics_vif(
 ### Normality Tests
 
 **Jarque-Bera Test**:
+
 ```
 JB = (n/6) · (S² + (K-3)²/4)
 where S = skewness, K = kurtosis
@@ -724,11 +777,13 @@ where S = skewness, K = kurtosis
 **Distribution**: JB ~ χ²(2) under H₀: normality
 
 **Interpretation**:
+
 - Skewness = 0: Symmetric
 - Kurtosis = 3: Normal tails
 - p > 0.05: Cannot reject normality
 
 **Example**:
+
 ```sql
 -- Test normality of residuals (use literal array)
 SELECT * FROM anofox_statistics_normality_test(
@@ -741,6 +796,7 @@ SELECT * FROM anofox_statistics_normality_test(
 ```
 
 **Result Interpretation**:
+
 ```
 skewness: 0.12 (slightly right-skewed)
 kurtosis: 3.2 (slightly heavy-tailed)
@@ -754,27 +810,32 @@ conclusion: normal ✓
 ### Information Criteria
 
 **Akaike Information Criterion (AIC)**:
+
 ```
 AIC = n·ln(RSS/n) + 2k
 where k = number of parameters
 ```
 
 **Bayesian Information Criterion (BIC)**:
+
 ```
 BIC = n·ln(RSS/n) + k·ln(n)
 ```
 
 **Corrected AIC (AICc)** - for small samples:
+
 ```
 AICc = AIC + 2k(k+1)/(n-k-1)
 ```
 
 **Properties**:
+
 - Lower is better
 - BIC penalizes complexity more than AIC
 - Use AICc when n/k < 40
 
 **Example**:
+
 ```sql
 -- Compare two models (using literal arrays)
 WITH model1 AS (
@@ -801,6 +862,7 @@ SELECT
 ```
 
 **Decision**:
+
 - ΔAIC > 10: Strong evidence for better model
 - ΔAIC = 4-7: Considerable evidence
 - ΔAIC < 2: Weak evidence
@@ -808,16 +870,19 @@ SELECT
 ### Adjusted R²
 
 **Formula**:
+
 ```
 R̄² = 1 - (1-R²)·(n-1)/(n-p-1)
 ```
 
 **Properties**:
+
 - Penalizes additional predictors
 - Can decrease when adding variables
 - Use for model comparison
 
 **Interpretation**:
+
 ```
 R² = 0.85: Explains 85% of variance
 R̄² = 0.82: Explains 82% adjusting for complexity
@@ -836,6 +901,7 @@ R̄² = 0.82: Explains 82% adjusting for complexity
 | No multicollinearity | VIF | Remove variables, ridge |
 
 ### Diagnostic Plots (Manual)
+
 
 ```sql
 -- 1. Residuals vs Fitted
@@ -876,17 +942,20 @@ FROM diagnostics;
 **Recursive Least Squares (RLS)**:
 
 Updates coefficients as new data arrives:
+
 ```
 β̂ₜ = β̂ₜ₋₁ + Kₜ(yₜ - xₜ'β̂ₜ₋₁)
 where Kₜ = Pₜ₋₁xₜ / (1 + xₜ'Pₜ₋₁xₜ)
 ```
 
 **Use Cases**:
+
 - Streaming data
 - Adaptive estimation
 - Real-time predictions
 
 **Example**:
+
 ```sql
 -- Recursive Least Squares (positional parameters, literal arrays)
 SELECT * FROM anofox_statistics_rls(
@@ -904,6 +973,7 @@ SELECT * FROM anofox_statistics_rls(
 **When to use**: For streaming data analysis per group, when relationships evolve differently across segments, or when recent patterns are more relevant than historical data for each category.
 
 **How it works**: The `anofox_statistics_rls_agg` function sequentially updates coefficients as it processes rows within each group. The `forgetting_factor` parameter controls adaptation speed - values below 1.0 emphasize recent observations.
+
 
 ```sql
 -- Statistics Guide: Recursive Least Squares - Adaptive Online Learning
@@ -1017,11 +1087,13 @@ SELECT
 ```
 
 **What the results mean**:
+
 - **Coefficients**: Final adaptive estimates emphasizing recent patterns per group
 - **forgetting_factor**: Controls memory - 1.0 = no forgetting (OLS), 0.90-0.95 = moderate adaptation
 - **Applications**: Sensor calibration drift, adaptive forecasting, regime change detection
 
 **Choosing forgetting_factor**:
+
 - **λ = 1.0**: Equal weighting (equivalent to OLS) - use for stable relationships
 - **λ = 0.95-0.97**: Slow adaptation - relationships change gradually
 - **λ = 0.90-0.94**: Fast adaptation - relationships change frequently
@@ -1032,6 +1104,7 @@ Use RLS aggregates when per-group relationships are non-stationary and recent da
 ### Rolling/Expanding Windows
 
 **Rolling Window**: Fixed-size window moves through time
+
 ```sql
 SELECT
     date,
@@ -1043,6 +1116,7 @@ FROM time_series;
 ```
 
 **Expanding Window**: Window starts small, grows over time
+
 ```sql
 SELECT
     date,
@@ -1054,6 +1128,7 @@ FROM time_series;
 ```
 
 **Applications**:
+
 - Time-varying relationships
 - Structural breaks
 - Forecasting
@@ -1061,6 +1136,7 @@ FROM time_series;
 ### Hypothesis Testing Framework
 
 **General Framework**:
+
 1. State hypotheses (H₀, H₁)
 2. Choose test statistic
 3. Determine distribution under H₀
@@ -1072,6 +1148,7 @@ FROM time_series;
 **Power**: 1 - β (probability of detecting true effect)
 
 **Example Workflow**:
+
 ```sql
 -- Test: Does advertising affect sales?
 -- H₀: β_advertising = 0
@@ -1128,6 +1205,7 @@ WHERE variable = 'advertising';
 ### Reporting Standards
 
 **Minimum to Report**:
+
 - Sample size (n)
 - Model specification
 - Coefficients with SE or CI
@@ -1135,6 +1213,7 @@ WHERE variable = 'advertising';
 - Diagnostic checks passed/failed
 
 **Example Report**:
+
 ```
 Linear regression of sales on price and advertising
 (n = 150 stores)
@@ -1151,11 +1230,13 @@ Diagnostics: No violations detected
 ## References
 
 ### Textbooks
+
 - Wooldridge (2020): *Introductory Econometrics*
 - Greene (2018): *Econometric Analysis*
 - Hastie et al. (2009): *Elements of Statistical Learning*
 
 ### Papers
+
 - Gauss-Markov Theorem: Aitken (1935)
 - Ridge Regression: Hoerl & Kennard (1970)
 - Cook's Distance: Cook (1977)

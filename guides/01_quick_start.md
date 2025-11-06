@@ -12,6 +12,7 @@ make release
 
 ## Load Extension
 
+
 ```sql
 -- Start DuckDB
 duckdb
@@ -28,6 +29,7 @@ LOAD '/path/to/anofox_statistics.duckdb_extension';
 
 **How it works**: The `anofox_statistics_ols_agg` function analyzes your y and x columns, calculating the slope (coefficient) and quality metrics. It automatically handles missing values and computes goodness-of-fit statistics.
 
+
 ```sql
 -- Basic OLS fit (use positional parameters)
 SELECT * FROM anofox_statistics_ols(
@@ -38,6 +40,7 @@ SELECT * FROM anofox_statistics_ols(
 ```
 
 **Output:**
+
 ```
 ┌──────────────┬───────────┬──────────┬───────────────┬──────┬───────┐
 │ variable     │ coef      │ r²       │ adj_r²        │ rmse │ n_obs │
@@ -47,6 +50,7 @@ SELECT * FROM anofox_statistics_ols(
 ```
 
 **What the results mean**:
+
 - **coef (1.02)**: For every 1-unit increase in x1, y increases by 1.02 units
 - **R² (0.998)**: The model explains 99.8% of the variation in y - an excellent fit
 - **RMSE (0.05)**: The typical prediction error is only 0.05 units
@@ -58,6 +62,7 @@ SELECT * FROM anofox_statistics_ols(
 **When to use**: When you need to validate that a relationship is statistically significant before making business decisions or reporting findings. Essential for scientific research and evidence-based decision making.
 
 **How it works**: The `ols_inference` function computes test statistics and p-values using the t-distribution. It tests the null hypothesis that each coefficient equals zero (no effect). Lower p-values provide stronger evidence against the null hypothesis.
+
 
 ```sql
 -- Inference with confidence intervals (use positional parameters)
@@ -75,6 +80,7 @@ FROM ols_inference(
 ```
 
 **Output:**
+
 ```
 ┌───────────┬─────────────┬─────────┬─────────────┐
 │ variable  │ coefficient │ p_value │ significant │
@@ -85,6 +91,7 @@ FROM ols_inference(
 ```
 
 **What the results mean**:
+
 - **intercept (0.03, p=0.98)**: Not statistically significant - could be zero
 - **x1 (2.01, p<0.0001)**: Highly significant - very strong evidence of a real effect
 - **significant flag**: Automatically marks coefficients with p < 0.05
@@ -98,6 +105,7 @@ The coefficient x1 = 2.01 is highly significant (p < 0.0001), meaning we can con
 **When to use**: When analyzing multiple products, regions, customers, or time periods simultaneously. Common for A/B testing, market segmentation, and comparative analysis.
 
 **How it works**: The `anofox_statistics_ols_agg` function works like any SQL aggregate (SUM, AVG, etc.). Combined with GROUP BY, it computes separate regression models for each group. The extension automatically parallelizes these calculations for performance.
+
 
 ```sql
 -- Create sample data
@@ -118,6 +126,7 @@ GROUP BY product;
 ```
 
 **Output:**
+
 ```
 ┌───────────┬──────────────────┬──────────────┐
 │ product   │ price_elasticity │ fit_quality  │
@@ -128,6 +137,7 @@ GROUP BY product;
 ```
 
 **What the results mean**:
+
 - **Product A**: Price elasticity of 1.98 means a 1% price increase leads to ~2% decrease in quantity
 - **Product B**: Similar elasticity (2.02), suggesting both products are price-sensitive
 - **Fit quality**: R² > 0.99 indicates price strongly predicts demand for both products
@@ -141,6 +151,7 @@ This analysis completed in a single query across all products - no need for loop
 **When to use**: For trend analysis with time-series data where you expect the relationship to evolve (e.g., seasonal patterns, market dynamics changing, or detecting regime shifts).
 
 **How it works**: Uses SQL window functions with `ROWS BETWEEN ... PRECEDING AND CURRENT ROW` to define the rolling window. The `anofox_statistics_ols_agg` function then runs on each window. Perfect for detecting when trends accelerate or reverse.
+
 
 ```sql
 -- Create time series
@@ -163,6 +174,7 @@ WHERE time_idx >= 10;
 ```
 
 **Output:**
+
 ```
 ┌───────────┬───────┬───────────────┐
 │ time_idx  │ value │ rolling_trend │
@@ -175,6 +187,7 @@ WHERE time_idx >= 10;
 ```
 
 **What the results mean**:
+
 - **rolling_trend (1.51)**: Based on the last 10 observations, the value increases by 1.51 per time unit
 - **Changing values**: If rolling_trend was 1.49 earlier and now 1.52, the growth rate is accelerating
 - **Applications**: Detect market momentum, identify inflection points, or adapt forecasts to recent patterns
@@ -186,6 +199,7 @@ WHERE time_idx >= 10;
 **When to use**: For forecasting, scenario planning, or any situation where you need point estimates plus a sense of how confident you should be in those estimates.
 
 **How it works**: The `ols_predict_interval` function takes your fitted model and new predictor values, computing both the predicted value and the standard error. Confidence intervals are constructed using the t-distribution, accounting for both model uncertainty and inherent data variability.
+
 
 ```sql
 -- Predict for new values (use positional parameters and literal arrays)
@@ -200,6 +214,7 @@ SELECT * FROM ols_predict_interval(
 ```
 
 **Output:**
+
 ```
 ┌────────────────┬───────────┬──────────┬───────────┬─────┐
 │ observation_id │ predicted │ ci_lower │ ci_upper  │ se  │
@@ -211,6 +226,7 @@ SELECT * FROM ols_predict_interval(
 ```
 
 **What the results mean**:
+
 - **predicted (6.0)**: Best estimate for observation 1
 - **ci_lower/ci_upper (5.2 to 6.8)**: 95% confidence interval - the true mean is very likely in this range
 - **se (0.4)**: Standard error increases for predictions farther from the training data
@@ -226,6 +242,7 @@ Use these intervals for risk assessment: plan for the midpoint, but prepare for 
 
 **How it works**: The `information_criteria` function calculates AIC and BIC, which combine the residual sum of squares (fit quality) with a penalty for the number of parameters. Lower values indicate better models that balance fit and parsimony.
 
+
 ```sql
 -- Compare models (use positional parameters)
 SELECT * FROM information_criteria(
@@ -236,6 +253,7 @@ SELECT * FROM information_criteria(
 ```
 
 **Output:**
+
 ```
 ┌───────┬──────────┬──────┬───────────┬────────┬────────┐
 │ n_obs │ n_params │ rss  │ r_squared │ aic    │ bic    │
@@ -245,6 +263,7 @@ SELECT * FROM information_criteria(
 ```
 
 **What the results mean**:
+
 - **R² (0.9994)**: Excellent fit - model explains 99.94% of variation
 - **AIC (-40.23), BIC (-39.81)**: Lower is better - use to compare against alternative models
 - **Rule of thumb**: If adding a predictor decreases AIC/BIC by >2, the extra complexity is justified
@@ -259,6 +278,7 @@ When comparing models, choose the one with the lowest AIC (prediction focus) or 
 **When to use**: For data quality checks, identifying data entry errors, finding special cases that need investigation, or assessing model robustness.
 
 **How it works**: The `residual_diagnostics` function computes leverage (how unusual x values are), Cook's distance (combined measure of influence), and studentized residuals (standardized prediction errors). It flags observations exceeding statistical thresholds.
+
 
 ```sql
 -- Detect outliers and influential points (use positional parameters)
@@ -281,6 +301,7 @@ LIMIT 3;
 ```
 
 **Output:**
+
 ```
 ┌────────┬──────────┬──────────┬─────────┬────────────┬────────────────┐
 │ obs_id │ residual │ leverage │ cooks_d │ is_outlier │ is_influential │
@@ -292,6 +313,7 @@ LIMIT 3;
 ```
 
 **What the results mean**:
+
 - **Observation 8**: Large residual (8.95) + high leverage (0.417) + high Cook's D (49.23) = problematic point
 - **is_outlier (true)**: Prediction error is extreme (> 2.5 standard deviations)
 - **is_influential (true)**: Removing this point would significantly change the regression line
@@ -310,6 +332,7 @@ The extension provides four specialized aggregate functions that work seamlessly
 **When to use**: When you need to fit separate models for different categories (products, regions, time periods) in a single query.
 
 **How it works**: The `anofox_statistics_ols_agg` function accumulates data per group, then computes full OLS regression with all statistics.
+
 
 ```sql
 -- Quick Start Example: Simple OLS Aggregate with GROUP BY
@@ -350,6 +373,7 @@ FROM (
 ```
 
 **What the results mean**:
+
 - **price_elasticity**: Coefficient showing demand response to price changes per category
 - **r2**: Model quality for each category separately
 - **n_obs**: Number of observations in each group
@@ -363,6 +387,7 @@ This runs multiple regressions in parallel across all groups efficiently.
 **When to use**: When observations have different precision (heteroscedasticity) or when some data points are more reliable/important than others.
 
 **How it works**: The `anofox_statistics_wls_agg` function applies observation weights during regression, giving more influence to high-weight observations.
+
 
 ```sql
 -- Quick Start Example: Weighted Least Squares Aggregate
@@ -406,6 +431,7 @@ FROM (
 ```
 
 **What the results mean**:
+
 - **income_sensitivity**: How spending responds to income per segment, weighted by reliability
 - **weighted_mse**: Error metric accounting for observation weights
 - Premium segment weights (1.0) = most reliable, Budget weights (0.5) = less reliable
@@ -419,6 +445,7 @@ Weighting ensures high-value or high-quality observations have appropriate influ
 **When to use**: When you have correlated predictors (multicollinearity) or want to prevent overfitting with many features.
 
 **How it works**: The `anofox_statistics_ridge_agg` function adds a penalty term (lambda × sum of squared coefficients) to shrink coefficient estimates toward zero.
+
 
 ```sql
 -- Quick Start Example: Ridge Regression Aggregate
@@ -465,6 +492,7 @@ FROM (
 ```
 
 **What the results mean**:
+
 - **market_beta**, **sector_beta**: Factor exposures stabilized by regularization
 - **lambda**: Penalty parameter (higher = more shrinkage)
 - Ridge coefficients are smaller but more stable than OLS when predictors correlate
@@ -478,6 +506,7 @@ Use lambda=1.0 as starting point; increase if coefficients seem unstable.
 **When to use**: For time-series data where relationships evolve, real-time forecasting, or when recent observations are more relevant.
 
 **How it works**: The `anofox_statistics_rls_agg` function sequentially updates coefficients as it processes rows, with forgetting_factor controlling how quickly old data is down-weighted.
+
 
 ```sql
 -- Quick Start Example: Recursive Least Squares Aggregate
@@ -524,6 +553,7 @@ FROM (
 ```
 
 **What the results mean**:
+
 - **calibration_slope**: Adaptive coefficient emphasizing recent patterns
 - **forgetting_factor** (0.95): 95% weight retention per step (5% decay)
 - Lower forgetting_factor = faster adaptation to changes
@@ -538,6 +568,7 @@ These patterns demonstrate best practices for different analytical scenarios.
 
 **Use case**: Get a fast coefficient estimate without full model details. Ideal for exploratory analysis or when you only care about the slope.
 
+
 ```sql
 SELECT ols_coeff_agg(y, x) as slope FROM data;
 ```
@@ -545,6 +576,7 @@ SELECT ols_coeff_agg(y, x) as slope FROM data;
 ### Pattern 2: Per-group with GROUP BY
 
 **Use case**: Compare relationships across multiple segments simultaneously. More efficient than running separate analyses for each group.
+
 
 ```sql
 SELECT category, ols_fit_agg(y, x) as model
@@ -555,6 +587,7 @@ FROM data GROUP BY category;
 
 **Use case**: Track how relationships evolve over time or across ordered data. Essential for time-series analysis and detecting trend changes.
 
+
 ```sql
 SELECT *, ols_coeff_agg(y, x) OVER (
     ORDER BY time ROWS BETWEEN 30 PRECEDING AND CURRENT ROW
@@ -564,6 +597,7 @@ SELECT *, ols_coeff_agg(y, x) OVER (
 ### Pattern 4: Full statistical workflow
 
 **Use case**: Complete regression analysis from model fitting through diagnostics. This is the comprehensive approach for rigorous statistical work.
+
 
 ```sql
 -- Create sample data table
@@ -648,12 +682,14 @@ ORDER BY section, metric;
 ## Common Issues
 
 ### Issue: Extension won't load
+
 ```sql
 -- Check if file exists
 LOAD '/full/path/to/anofox_statistics.duckdb_extension';
 ```
 
 ### Issue: Type mismatch
+
 ```sql
 -- Ensure arrays are DOUBLE[] and use positional parameters
 SELECT * FROM anofox_statistics_ols(
@@ -664,6 +700,7 @@ SELECT * FROM anofox_statistics_ols(
 ```
 
 ### Issue: Insufficient observations
+
 ```
 Error: Need at least n+1 observations for n parameters
 ```

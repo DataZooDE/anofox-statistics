@@ -27,6 +27,7 @@ process_template() {
             local sql_file="${PROJECT_ROOT}/${BASH_REMATCH[1]}"
 
             if [ -f "$sql_file" ]; then
+                echo ''  # Blank line before code fence for markdownlint
                 echo '```sql'
                 cat "$sql_file"
                 echo '```'
@@ -46,22 +47,32 @@ process_template() {
 # Lint markdown files
 lint_markdown() {
     echo ""
-    echo "📝 Running markdownlint on generated files..."
+    echo "📝 Running markdownlint on generated files and templates..."
 
-    # Check if markdownlint is available
-    if ! command -v markdownlint &> /dev/null; then
-        echo "⚠️  Warning: markdownlint not found. Install with: npm install -g markdownlint-cli"
+    # Check if markdownlint is available (global or local)
+    MARKDOWNLINT_CMD="markdownlint"
+    if [ -x "${PROJECT_ROOT}/node_modules/.bin/markdownlint" ]; then
+        MARKDOWNLINT_CMD="${PROJECT_ROOT}/node_modules/.bin/markdownlint"
+    elif ! command -v markdownlint &> /dev/null; then
+        echo "⚠️  Warning: markdownlint not found. Install with: npm install markdownlint-cli"
         return 0
     fi
 
-    # Lint all generated markdown files in guides/
+    # Lint all generated markdown files in guides/ and templates in guides/templates/
     local lint_failed=0
+
+    # Lint generated files
     if [ -d "$OUTPUT_DIR" ]; then
-        while IFS= read -r md_file; do
-            if ! markdownlint "$md_file"; then
-                lint_failed=1
-            fi
-        done < <(find "$OUTPUT_DIR" -name "*.md" -not -name "*.md.in" -type f)
+        if ! $MARKDOWNLINT_CMD "$OUTPUT_DIR"/*.md --ignore node_modules; then
+            lint_failed=1
+        fi
+    fi
+
+    # Lint template files
+    if [ -d "$TEMPLATES_DIR" ]; then
+        if ! $MARKDOWNLINT_CMD "$TEMPLATES_DIR"/*.md.in --ignore node_modules; then
+            lint_failed=1
+        fi
     fi
 
     if [ $lint_failed -eq 1 ]; then
@@ -69,7 +80,7 @@ lint_markdown() {
         return 1
     fi
 
-    echo "✅ All markdown files passed linting"
+    echo "✅ All markdown files and templates passed linting"
     return 0
 }
 

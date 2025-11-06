@@ -20,6 +20,7 @@ Aggregate functions work with `GROUP BY` and window functions (`OVER`) to perfor
 **Description:** Ordinary Least Squares regression per group. Fits a linear model minimizing squared residuals.
 
 **Signature:**
+
 ```sql
 anofox_statistics_ols_agg(
     y DOUBLE,
@@ -29,6 +30,7 @@ anofox_statistics_ols_agg(
 ```
 
 **Parameters:**
+
 - `y`: Response variable (dependent variable)
 - `x`: Array of predictor variables (independent variables)
 - `options`: Configuration MAP (see [Options Reference](#options-map-reference))
@@ -36,6 +38,7 @@ anofox_statistics_ols_agg(
 **Returns:** STRUCT containing coefficients, intercept, R², adjusted R², observation count, and feature count.
 
 **Example:**
+
 
 ```sql
 -- Quick Start Example: Simple OLS Aggregate with GROUP BY
@@ -84,6 +87,7 @@ FROM (
 **Description:** Weighted Least Squares regression. Handles heteroscedasticity by giving different weights to observations.
 
 **Signature:**
+
 ```sql
 anofox_statistics_wls_agg(
     y DOUBLE,
@@ -94,6 +98,7 @@ anofox_statistics_wls_agg(
 ```
 
 **Parameters:**
+
 - `y`: Response variable
 - `x`: Array of predictors
 - `weights`: Observation weights (precision weights = 1/variance)
@@ -102,6 +107,7 @@ anofox_statistics_wls_agg(
 **Returns:** STRUCT with coefficients, metrics, and weighted MSE.
 
 **Example:**
+
 
 ```sql
 -- Quick Start Example: Weighted Least Squares Aggregate
@@ -153,6 +159,7 @@ FROM (
 **Description:** Ridge regression with L2 regularization per group. Stabilizes coefficients when predictors are correlated.
 
 **Signature:**
+
 ```sql
 anofox_statistics_ridge_agg(
     y DOUBLE,
@@ -162,6 +169,7 @@ anofox_statistics_ridge_agg(
 ```
 
 **Parameters:**
+
 - `y`: Response variable
 - `x`: Array of predictors
 - `options`: Configuration MAP with `lambda` (regularization parameter)
@@ -169,6 +177,7 @@ anofox_statistics_ridge_agg(
 **Returns:** STRUCT with regularized coefficients and fit metrics.
 
 **Example:**
+
 
 ```sql
 -- Quick Start Example: Ridge Regression Aggregate
@@ -223,6 +232,7 @@ FROM (
 **Description:** Recursive Least Squares with exponential weighting. Adapts to changing relationships over time.
 
 **Signature:**
+
 ```sql
 anofox_statistics_rls_agg(
     y DOUBLE,
@@ -232,6 +242,7 @@ anofox_statistics_rls_agg(
 ```
 
 **Parameters:**
+
 - `y`: Response variable
 - `x`: Array of predictors
 - `options`: Configuration MAP with `forgetting_factor` (default: 1.0, range: 0.9-1.0)
@@ -239,6 +250,7 @@ anofox_statistics_rls_agg(
 **Returns:** STRUCT with adaptive coefficients emphasizing recent data.
 
 **Example:**
+
 
 ```sql
 -- Quick Start Example: Recursive Least Squares Aggregate
@@ -293,6 +305,7 @@ FROM (
 **Description:** Elastic Net regression with combined L1 and L2 regularization per group. Performs feature selection while handling multicollinearity.
 
 **Signature:**
+
 ```sql
 anofox_statistics_elastic_net_agg(
     y DOUBLE,
@@ -302,6 +315,7 @@ anofox_statistics_elastic_net_agg(
 ```
 
 **Parameters:**
+
 - `y`: Response variable
 - `x`: Array of predictors
 - `options`: Configuration MAP with `alpha` (L1/L2 mix, 0=Ridge, 1=Lasso, default: 0.5) and `lambda` (regularization strength)
@@ -309,6 +323,7 @@ anofox_statistics_elastic_net_agg(
 **Returns:** STRUCT with sparse coefficients, convergence info, and fit metrics.
 
 **Example:**
+
 
 ```sql
 -- Test file for Elastic Net and Diagnostic Aggregate functions
@@ -680,6 +695,7 @@ SELECT 'All tests completed successfully' as status;
 **Description:** Per-group residual analysis aggregate. Identifies outliers and influential observations within each group.
 
 **Signature:**
+
 ```sql
 anofox_statistics_residual_diagnostics_agg(
     y_actual DOUBLE,
@@ -689,6 +705,7 @@ anofox_statistics_residual_diagnostics_agg(
 ```
 
 **Parameters:**
+
 - `y_actual`: Actual observed values
 - `y_predicted`: Predicted values from model
 - `options`: Configuration MAP with `mode` ('summary' or 'detailed'), `outlier_threshold` (default: 2.5)
@@ -696,6 +713,7 @@ anofox_statistics_residual_diagnostics_agg(
 **Returns:** Summary statistics (mode='summary') or detailed diagnostics per observation (mode='detailed').
 
 **Example:**
+
 
 ```sql
 -- Test file for Elastic Net and Diagnostic Aggregate functions
@@ -1067,6 +1085,7 @@ SELECT 'All tests completed successfully' as status;
 **Description:** Variance Inflation Factor aggregate per group. Detects multicollinearity within each group.
 
 **Signature:**
+
 ```sql
 anofox_statistics_vif_agg(
     x DOUBLE[]
@@ -1074,11 +1093,13 @@ anofox_statistics_vif_agg(
 ```
 
 **Parameters:**
+
 - `x`: Array of predictor variables
 
 **Returns:** VIF values for each predictor, max/mean VIF, severity classification.
 
 **Example:**
+
 
 ```sql
 -- Test file for Elastic Net and Diagnostic Aggregate functions
@@ -1450,6 +1471,7 @@ SELECT 'All tests completed successfully' as status;
 **Description:** Jarque-Bera normality test aggregate per group. Tests if residuals follow a normal distribution.
 
 **Signature:**
+
 ```sql
 anofox_statistics_normality_test_agg(
     residual DOUBLE,
@@ -1458,12 +1480,14 @@ anofox_statistics_normality_test_agg(
 ```
 
 **Parameters:**
+
 - `residual`: Residuals from regression model
 - `options`: Configuration MAP with `alpha` (significance level, default: 0.05)
 
 **Returns:** Skewness, kurtosis, test statistic, p-value, normality verdict.
 
 **Example:**
+
 
 ```sql
 -- Test file for Elastic Net and Diagnostic Aggregate functions
@@ -1839,6 +1863,7 @@ Table functions perform regression on array inputs and return detailed results a
 **Description:** Ordinary Least Squares regression for array inputs. Returns comprehensive fit statistics.
 
 **Signature:**
+
 ```sql
 anofox_statistics_ols(
     y DOUBLE[],
@@ -1848,6 +1873,7 @@ anofox_statistics_ols(
 ```
 
 **Parameters:**
+
 - `y`: Response vector
 - `x`: Feature matrix (n_observations × n_features)
 - `options`: Configuration MAP with `intercept` (default: true)
@@ -1855,6 +1881,7 @@ anofox_statistics_ols(
 **Returns:** Table with one row containing all regression results.
 
 **Example:**
+
 
 ```sql
 -- Simplified OLS Validation Test
@@ -1902,6 +1929,7 @@ SELECT * FROM validation_result WHERE status = 'PASS';
 **Description:** Weighted Least Squares for array inputs.
 
 **Signature:**
+
 ```sql
 anofox_statistics_wls(
     y DOUBLE[],
@@ -1912,6 +1940,7 @@ anofox_statistics_wls(
 ```
 
 **Example:**
+
 
 ```sql
 -- Variance proportional to x (positional parameters, literal arrays)
@@ -1930,6 +1959,7 @@ SELECT * FROM anofox_statistics_wls(
 **Description:** Ridge regression for array inputs with L2 regularization.
 
 **Signature:**
+
 ```sql
 anofox_statistics_ridge(
     y DOUBLE[],
@@ -1939,6 +1969,7 @@ anofox_statistics_ridge(
 ```
 
 **Example:**
+
 
 ```sql
 -- Table function requires literal arrays (positional parameters)
@@ -1958,6 +1989,7 @@ SELECT * FROM anofox_statistics_ridge(
 **Description:** Recursive Least Squares for array inputs with sequential updating.
 
 **Signature:**
+
 ```sql
 anofox_statistics_rls(
     y DOUBLE[],
@@ -1967,6 +1999,7 @@ anofox_statistics_rls(
 ```
 
 **Parameters:**
+
 - `options`: MAP with `forgetting_factor` (0.9-1.0, default: 1.0)
 
 **When to use:** Sequential data processing, adaptive filtering.
@@ -1978,6 +2011,7 @@ anofox_statistics_rls(
 **Description:** Elastic Net regression for array inputs with L1+L2 regularization.
 
 **Signature:**
+
 ```sql
 anofox_statistics_elastic_net(
     y DOUBLE[],
@@ -1987,9 +2021,11 @@ anofox_statistics_elastic_net(
 ```
 
 **Parameters:**
+
 - `options`: MAP with `alpha` (0-1, L1/L2 mix), `lambda` (strength), `max_iterations`, `tolerance`
 
 **Example:**
+
 
 ```sql
 -- Test file for Elastic Net and Diagnostic Aggregate functions
@@ -2361,6 +2397,7 @@ SELECT 'All tests completed successfully' as status;
 **Description:** Statistical inference for OLS coefficients. Computes t-statistics, p-values, and confidence intervals.
 
 **Signature:**
+
 ```sql
 anofox_statistics_ols_inference(
     y DOUBLE[],
@@ -2370,11 +2407,13 @@ anofox_statistics_ols_inference(
 ```
 
 **Parameters:**
+
 - `options`: MAP with `confidence_level` (default: 0.95), `intercept` (default: true)
 
 **Returns:** One row per predictor with full inference statistics.
 
 **Example:**
+
 
 ```sql
 -- Predict for new values (use positional parameters and literal arrays)
@@ -2397,6 +2436,7 @@ SELECT * FROM ols_predict_interval(
 **Description:** Predictions with confidence and prediction intervals.
 
 **Signature:**
+
 ```sql
 anofox_statistics_ols_predict_interval(
     y DOUBLE[],
@@ -2406,11 +2446,13 @@ anofox_statistics_ols_predict_interval(
 ```
 
 **Parameters:**
+
 - `options`: MAP with `confidence_level` (default: 0.95), `intercept` (default: true)
 
 **Returns:** Predictions with both confidence intervals (for mean) and prediction intervals (for individual predictions).
 
 **Example:**
+
 
 ```sql
 SELECT
@@ -2435,6 +2477,7 @@ FROM ols_predict_interval(
 **Description:** Model selection criteria (AIC, BIC) for comparing models.
 
 **Signature:**
+
 ```sql
 anofox_statistics_information_criteria(
     y DOUBLE[],
@@ -2444,6 +2487,7 @@ anofox_statistics_information_criteria(
 ```
 
 **Example:**
+
 
 ```sql
 -- Compare two models (using literal arrays)
@@ -2479,6 +2523,7 @@ SELECT
 **Description:** Comprehensive residual diagnostics including leverage, Cook's distance, and influence measures.
 
 **Signature:**
+
 ```sql
 anofox_statistics_residual_diagnostics(
     y_actual DOUBLE[],
@@ -2488,6 +2533,7 @@ anofox_statistics_residual_diagnostics(
 ```
 
 **Example:**
+
 
 ```sql
 SELECT
@@ -2512,6 +2558,7 @@ FROM anofox_statistics_residual_diagnostics(
 **Description:** Variance Inflation Factor for detecting multicollinearity.
 
 **Signature:**
+
 ```sql
 anofox_statistics_vif(
     x DOUBLE[][]
@@ -2527,6 +2574,7 @@ anofox_statistics_vif(
 **Description:** Jarque-Bera test for normality of residuals.
 
 **Signature:**
+
 ```sql
 anofox_statistics_normality_test(
     residuals DOUBLE[],
@@ -2535,6 +2583,7 @@ anofox_statistics_normality_test(
 ```
 
 **Example:**
+
 
 ```sql
 -- Test normality of residuals (use literal array)
@@ -2556,6 +2605,7 @@ All functions accept an `options` MAP parameter for configuration. Common keys:
 ### Common Options (All Functions)
 
 - **`intercept`** (BOOLEAN, default: `true`): Include intercept term in model
+
   ```sql
   MAP{'intercept': false}  -- No intercept (forced through origin)
   ```
@@ -2563,9 +2613,11 @@ All functions accept an `options` MAP parameter for configuration. Common keys:
 ### Ridge-specific Options
 
 - **`lambda`** (DOUBLE, default: `1.0`): Regularization strength for Ridge regression
+
   ```sql
   MAP{'lambda': 0.5, 'intercept': true}
   ```
+
   - Higher λ = more shrinkage toward zero
   - λ = 0 equivalent to OLS
   - Typical range: 0.01 to 10
@@ -2573,9 +2625,11 @@ All functions accept an `options` MAP parameter for configuration. Common keys:
 ### RLS-specific Options
 
 - **`forgetting_factor`** (DOUBLE, default: `1.0`): Exponential weighting for RLS
+
   ```sql
   MAP{'forgetting_factor': 0.95}
   ```
+
   - Range: 0.9 to 1.0
   - 1.0 = no forgetting (equivalent to OLS)
   - 0.95 = moderate adaptation (5% decay per step)
@@ -2584,9 +2638,11 @@ All functions accept an `options` MAP parameter for configuration. Common keys:
 ### Elastic Net-specific Options
 
 - **`alpha`** (DOUBLE, default: `0.5`): L1/L2 mixing parameter
+
   ```sql
   MAP{'alpha': 0.5, 'lambda': 0.1}
   ```
+
   - α = 0: Pure Ridge (L2 only)
   - α = 1: Pure Lasso (L1 only)
   - α = 0.5: Equal mix of L1 and L2
@@ -2600,9 +2656,11 @@ All functions accept an `options` MAP parameter for configuration. Common keys:
 ### Inference Options
 
 - **`confidence_level`** (DOUBLE, default: `0.95`): Confidence level for intervals
+
   ```sql
   MAP{'confidence_level': 0.99, 'intercept': true}
   ```
+
   - 0.90 = 90% confidence
   - 0.95 = 95% confidence (standard)
   - 0.99 = 99% confidence (stricter)
@@ -2610,15 +2668,18 @@ All functions accept an `options` MAP parameter for configuration. Common keys:
 ### Diagnostic Aggregate Options
 
 - **`mode`** (VARCHAR, default: `'summary'`): Output mode for residual diagnostics
+
   ```sql
   MAP{'mode': 'detailed', 'outlier_threshold': 3.0}
   ```
+
   - `'summary'`: Group-level summary statistics
   - `'detailed'`: Per-observation diagnostics
 
 - **`outlier_threshold`** (DOUBLE, default: `2.5`): Threshold for flagging outliers (in standard deviations)
 
 - **`alpha`** (DOUBLE, default: `0.05`): Significance level for normality test
+
   ```sql
   MAP{'alpha': 0.01}  -- 99% confidence
   ```

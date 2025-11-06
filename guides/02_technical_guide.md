@@ -67,6 +67,7 @@ static void OlsR2ScalarFunction(DataChunk &args, ExpressionState &state, Vector 
 ```
 
 **Key Features**:
+
 - Single return value per call
 - Vectorized execution (processes multiple rows at once)
 - Direct Eigen integration
@@ -92,6 +93,7 @@ static void OlsFitFunction(...) {
 ```
 
 **Key Features**:
+
 - Two-phase execution (bind + execute)
 - Stateful result streaming
 - Complex return types (structs, arrays)
@@ -129,6 +131,7 @@ static void OlsFinalize(Vector& state_vector, Vector& result, idx_t count) {
 ```
 
 **Key Features**:
+
 - Parallel-safe (combine operation)
 - Memory-efficient (streaming accumulation)
 - Automatic window function support
@@ -151,6 +154,7 @@ Eigen::VectorXd beta = XtX.ldlt().solve(Xty);
 ```
 
 **Why LDLT?**
+
 - Numerically stable
 - Exploits symmetry of X'X
 - Faster than LU decomposition
@@ -165,6 +169,7 @@ Eigen::VectorXd beta_ridge = XtX_ridge.ldlt().solve(Xty);
 ```
 
 **Benefits**:
+
 - Reduces multicollinearity issues
 - Trades bias for lower variance
 - Shrinks coefficients toward zero
@@ -180,6 +185,7 @@ Eigen::VectorXd beta_wls = XtWX.ldlt().solve(XtWy);
 ```
 
 **Use Cases**:
+
 - Heteroscedastic errors
 - Observations with different precisions
 - Weighted samples
@@ -255,6 +261,7 @@ static double student_t_pvalue(double t_stat, int df) {
 ```
 
 **Accuracy**:
+
 - df > 30: Error < 0.01
 - df = 10-30: Error < 0.05
 - df < 10: Error < 0.10
@@ -411,6 +418,7 @@ SELECT * FROM anofox_statistics_ols(
 ```
 
 ### Benchmark Tests
+
 
 ```sql
 -- Generate large dataset

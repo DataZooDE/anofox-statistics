@@ -31,3 +31,4 @@ validation/**/__pycache__/
 validation/**/*.pyc
 validation/R_libs/
 AGENTS.md
+node_modules/
