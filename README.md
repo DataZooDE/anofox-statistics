@@ -14,6 +14,7 @@ A statistical analysis extension for DuckDB, providing regression analysis, diag
 ### 🎯 Core Regression Functions
 - **OLS Regression**: Ordinary Least Squares with multiple predictors
 - **Ridge Regression**: L2 regularization for multicollinearity
+- **Elastic Net**: Combined L1+L2 regularization for feature selection and stability
 - **Weighted Least Squares**: Handle heteroscedasticity
 - **Recursive Least Squares**: Online/streaming estimation
 - **Rolling/Expanding Windows**: Time-series regression
@@ -24,17 +25,20 @@ A statistical analysis extension for DuckDB, providing regression analysis, diag
 - **Model Selection**: AIC, BIC, adjusted R² for model comparison
 
 ### 🔍 Diagnostics & Validation
-- **Residual Diagnostics**: Leverage, Cook's Distance, DFFITS
+- **Residual Diagnostics**: Outlier detection with standardized residuals
+- **Residual Diagnostics Aggregate**: Group-wise residual analysis with summary/detailed modes
 - **Multicollinearity**: VIF (Variance Inflation Factor) detection
+- **VIF Aggregate**: Per-group multicollinearity detection with severity classification
 - **Normality Tests**: Jarque-Bera test for residual normality
-- **Outlier Detection**: Studentized residuals and influence measures
+- **Normality Test Aggregate**: Per-group normality testing with skewness and kurtosis
 
 ### 🚀 Advanced Features
-- **Aggregate Functions**: Regression per group with `GROUP BY` (OLS, WLS, Ridge, RLS)
-- **Window Functions**: Rolling/expanding regressions with `OVER` clause for all four methods
+- **Aggregate Functions**: Regression per group with `GROUP BY` (OLS, WLS, Ridge, RLS, Elastic Net)
+- **Window Functions**: Rolling/expanding regressions with `OVER` clause for all regression methods
   - Rolling windows: `ROWS BETWEEN N PRECEDING AND CURRENT ROW`
   - Expanding windows: `ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW`
   - Partitioned analysis: `PARTITION BY` for group-specific time series
+- **Diagnostic Aggregates**: Group-wise diagnostic analysis (Residuals, VIF, Normality)
 - **Array Operations**: Multi-variable regression with array inputs
 - **Full Statistics**: Comprehensive fit statistics in structured output (coefficients, R², adj. R², intercepts, etc.)
 
@@ -63,11 +67,10 @@ SELECT * FROM anofox_statistics_ols_fit(
 );
 
 -- Coefficient inference with p-values (also uses positional parameters)
-SELECT * FROM ols_inference(
+SELECT * FROM anofox_statistics_ols_inference(
     [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],                  -- y
     [[1.0], [2.0], [3.0], [4.0], [5.0]]::DOUBLE[][],      -- x (matrix format)
-    0.95,                                                  -- confidence_level
-    true                                                   -- add_intercept
+    MAP{'confidence_level': 0.95, 'intercept': true}      -- options
 );
 
 -- Per-group regression with aggregate functions
@@ -130,9 +133,10 @@ Comprehensive guides are available in the [`guides/`](guides/) directory:
 - `ols_mse(y, x)` - Mean Squared Error
 
 ### Phase 2: Regression Fitting
-- `anofox_statistics_ols_fit(...)` - Multi-variable OLS
-- `anofox_statistics_ridge_fit(...)` - Ridge regression
-- `anofox_statistics_wls_fit(...)` - Weighted Least Squares
+- `anofox_statistics_ols(y DOUBLE[], x DOUBLE[][], options MAP)` - Multi-variable OLS
+- `anofox_statistics_ridge(y DOUBLE[], x DOUBLE[][], options MAP)` - Ridge regression
+- `anofox_statistics_wls(y DOUBLE[], x DOUBLE[][], weights DOUBLE[], options MAP)` - Weighted Least Squares
+- `anofox_statistics_elastic_net(y DOUBLE[], x DOUBLE[][], options MAP)` - Elastic Net (L1+L2 regularization)
 
 ### Phase 3: Sequential/Time-Series
 - `anofox_statistics_rls_fit(...)` - Recursive Least Squares
@@ -142,10 +146,17 @@ Comprehensive guides are available in the [`guides/`](guides/) directory:
 ### Phase 4: Aggregates & Window Functions
 All aggregate functions support both `GROUP BY` and `OVER` (window functions):
 
+**Regression Aggregates:**
 - `anofox_statistics_ols_agg(y DOUBLE, x DOUBLE[], options MAP)` - OLS regression per group/window
 - `anofox_statistics_wls_agg(y DOUBLE, x DOUBLE[], weights DOUBLE, options MAP)` - Weighted LS per group/window
 - `anofox_statistics_ridge_agg(y DOUBLE, x DOUBLE[], options MAP)` - Ridge regression per group/window
 - `anofox_statistics_rls_agg(y DOUBLE, x DOUBLE[], options MAP)` - Recursive LS per group/window
+- `anofox_statistics_elastic_net_agg(y DOUBLE, x DOUBLE[], options MAP)` - Elastic Net per group/window
+
+**Diagnostic Aggregates (GROUP BY only, no window functions):**
+- `anofox_statistics_residual_diagnostics_agg(y_actual DOUBLE, y_predicted DOUBLE, options MAP)` - Residual analysis per group
+- `anofox_statistics_vif_agg(x DOUBLE[])` - VIF per group
+- `anofox_statistics_normality_test_agg(residual DOUBLE, options MAP)` - Jarque-Bera test per group
 
 **Usage:**
 - **GROUP BY**: `SELECT category, anofox_statistics_ols_agg(...) FROM data GROUP BY category`
@@ -157,12 +168,12 @@ All aggregate functions support both `GROUP BY` and `OVER` (window functions):
 - `forgetting_factor` (DOUBLE): Exponential weighting for RLS (RLS only, default: 1.0)
 
 ### Phase 5: Inference & Diagnostics
-- `ols_inference(y, x, ...)` - Coefficient inference with tests
-- `ols_predict_interval(...)` - Predictions with intervals
-- `information_criteria(y, x, ...)` - AIC, BIC, model selection
-- `residual_diagnostics(y, x, ...)` - Outliers and influence
-- `vif(x)` - Variance Inflation Factor
-- `normality_test(residuals, ...)` - Jarque-Bera test
+- `anofox_statistics_ols_inference(y, x, options MAP)` - Coefficient inference with tests
+- `anofox_statistics_ols_predict_interval(y, x, options MAP)` - Predictions with intervals
+- `anofox_statistics_information_criteria(y, x, options MAP)` - AIC, BIC, model selection
+- `anofox_statistics_residual_diagnostics(y_actual, y_predicted, outlier_threshold)` - Outlier detection
+- `anofox_statistics_vif(x DOUBLE[][])` - Variance Inflation Factor
+- `anofox_statistics_normality_test(residuals DOUBLE[], alpha DOUBLE)` - Jarque-Bera test
 
 ## Examples
 
@@ -209,9 +220,30 @@ FROM (
 ) sub;
 ```
 
+### Elastic Net for Feature Selection
+
+```sql
+-- Elastic Net with both L1 and L2 regularization
+SELECT *
+FROM anofox_statistics_elastic_net(
+    [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]::DOUBLE[],  -- y
+    [[1.0, 2.0, 1.5], [2.0, 4.0, 3.0], [3.0, 6.0, 4.5],
+     [4.0, 8.0, 6.0], [5.0, 10.0, 7.5], [6.0, 12.0, 9.0],
+     [7.0, 14.0, 10.5], [8.0, 16.0, 12.0]]::DOUBLE[][],  -- x
+    MAP{
+        'alpha': 0.5,        -- Mix of L1 and L2 (0=Ridge, 1=Lasso)
+        'lambda': 0.1,       -- Regularization strength
+        'intercept': true,   -- Include intercept
+        'max_iterations': 1000,
+        'tolerance': 1e-6
+    }
+);
+-- Returns: coefficients[], intercept, n_nonzero, n_iterations, converged, r_squared, etc.
+```
+
 ### Time-Series Forecasting with Window Functions
 
-All four aggregate functions (OLS, WLS, Ridge, RLS) now support SQL window functions with the `OVER` clause, enabling rolling and expanding window regression:
+All five regression aggregates (OLS, WLS, Ridge, RLS, Elastic Net) support SQL window functions with the `OVER` clause, enabling rolling and expanding window regression:
 
 ```sql
 -- Rolling OLS (30-period window)
