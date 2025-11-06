@@ -160,7 +160,7 @@ FROM ols_predict_interval(
 -- ======================================================================
 SELECT '=== Test 11: VIF with Constant Feature ===' as test_name;
 
-SELECT * FROM vif([
+SELECT * FROM anofox_statistics_vif([
     [1.0::DOUBLE, 5.0, 1.1],
     [2.0, 5.0, 2.1],
     [3.0, 5.0, 2.9],
@@ -174,7 +174,7 @@ SELECT * FROM vif([
 -- ======================================================================
 SELECT '=== Test 12: VIF with Perfect Collinearity ===' as test_name;
 
-SELECT * FROM vif([
+SELECT * FROM anofox_statistics_vif([
     [1.0::DOUBLE, 2.0, 1.1],
     [2.0, 4.0, 2.1],
     [3.0, 6.0, 2.9],
@@ -183,21 +183,20 @@ SELECT * FROM vif([
 ]);
 
 -- ======================================================================
--- Test 13: Residual Diagnostics with Constant Feature
--- Expected: Diagnostics computed using effective rank
+-- Test 13: Residual Diagnostics (Simplified API)
+-- Expected: Computes residuals and detects outliers
+-- Note: API changed to (y_actual, y_predicted, outlier_threshold)
 -- ======================================================================
-SELECT '=== Test 13: Residual Diagnostics with Constant ===' as test_name;
+SELECT '=== Test 13: Residual Diagnostics Simplified API ===' as test_name;
 
 SELECT obs_id,
        ROUND(residual, 6) as residual,
-       ROUND(leverage, 4) as leverage,
+       ROUND(std_residual, 4) as std_residual,
        is_outlier
-FROM residual_diagnostics(
-    [1.0::DOUBLE, 2.0, 3.0, 4.0, 5.0],
-    [[1.0::DOUBLE, 5.0], [2.0, 5.0], [3.0, 5.0], [4.0, 5.0], [5.0, 5.0]],
-    true,  -- Add intercept
-    2.5,   -- Outlier threshold
-    0.5    -- Influence threshold
+FROM anofox_statistics_residual_diagnostics(
+    [1.0::DOUBLE, 2.0, 3.0, 4.0, 5.0],  -- y_actual
+    [1.1::DOUBLE, 1.9, 3.1, 3.9, 4.8],  -- y_predicted
+    2.5   -- Outlier threshold
 )
 LIMIT 3;
 

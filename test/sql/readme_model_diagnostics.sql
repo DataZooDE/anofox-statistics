@@ -3,7 +3,7 @@ WITH fit AS (
     SELECT * FROM ols_inference(y_data, x_data, 0.95, true)
 ),
 diagnostics AS (
-    SELECT * FROM residual_diagnostics(y_data, x_data, true, 2.5, 0.5)
+    SELECT * FROM anofox_statistics_residual_diagnostics(y_data, x_data, true, 2.5, 0.5)
 ),
 quality AS (
     SELECT * FROM information_criteria(y_data, x_data, true)

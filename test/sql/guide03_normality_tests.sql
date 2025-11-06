@@ -1,5 +1,5 @@
 -- Test normality of residuals (use literal array)
-SELECT * FROM normality_test(
+SELECT * FROM anofox_statistics_normality_test(
     [0.1, -0.2, 0.3, -0.1, 0.2, -0.3, 0.0, 0.1, -0.1, 0.2]::DOUBLE[],  -- residuals
     0.05                                                                 -- alpha
 );

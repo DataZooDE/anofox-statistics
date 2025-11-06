@@ -82,7 +82,7 @@ SELECT
     residual,
     std_residual,
     is_outlier
-FROM residual_diagnostics(
+FROM anofox_statistics_residual_diagnostics(
     [50.0, 55.0, 60.0, 65.0, 70.0, 75.0]::DOUBLE[],
     [[1.0], [2.0], [3.0], [4.0], [5.0], [6.0]]::DOUBLE[][],
     true,
@@ -96,13 +96,13 @@ SELECT '--- VIF Example ---';
 SELECT
     variable_name,
     vif
-FROM vif(
+FROM anofox_statistics_vif(
     [[10.0, 9.9, 10.1], [20.0, 19.8, 20.2], [30.0, 29.9, 30.1], [40.0, 39.7, 40.3]]::DOUBLE[][]
 );
 
 -- Example: Normality Test
 SELECT '--- Normality Test Example ---';
-SELECT * FROM normality_test(
+SELECT * FROM anofox_statistics_normality_test(
     [0.1, -0.2, 0.3, -0.1, 0.2, -0.3, 0.0, 0.1, -0.1, 0.2]::DOUBLE[],
     0.05
 );
