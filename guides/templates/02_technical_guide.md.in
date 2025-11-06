@@ -13,14 +13,16 @@ anofox-statistics-duckdb-extension/
 │   ├── include/                         # Header files
 │   ├── functions/                       # Function implementations
 │   │   ├── ols_metrics.cpp             # Phase 1: Basic metrics
-│   │   ├── ols_fit_v2.cpp              # Phase 2: Regression fitting
 │   │   ├── ridge_fit.cpp               # Phase 2: Ridge regression
 │   │   ├── wls_fit.cpp                 # Phase 2: Weighted LS
+│   │   ├── elastic_net_fit.cpp         # Phase 2: Elastic Net
 │   │   ├── rls_fit.cpp                 # Phase 3: Recursive LS
-│   │   ├── rolling_ols.cpp             # Phase 3: Rolling window
-│   │   ├── expanding_ols.cpp           # Phase 3: Expanding window
 │   │   ├── aggregates/
-│   │   │   └── ols_aggregate.cpp       # Phase 4: GROUP BY support
+│   │   │   ├── ols_aggregate.cpp       # Phase 4: OLS with GROUP BY
+│   │   │   ├── wls_aggregate.cpp       # Phase 4: WLS with GROUP BY
+│   │   │   ├── ridge_aggregate.cpp     # Phase 4: Ridge with GROUP BY
+│   │   │   ├── rls_aggregate.cpp       # Phase 4: RLS with GROUP BY
+│   │   │   └── elastic_net_aggregate.cpp # Phase 4: Elastic Net with GROUP BY
 │   │   ├── inference/
 │   │   │   ├── ols_inference.cpp       # Phase 5: Statistical tests
 │   │   │   └── prediction_intervals.cpp # Phase 5: Predictions
@@ -398,10 +400,10 @@ make debug ASAN=1
 ```cpp
 // test/sql/anofox_basic_tests.sql
 -- Test basic OLS (use positional parameters)
-SELECT * FROM anofox_statistics_ols_fit(
-    [1.0, 2.0, 3.0]::DOUBLE[],  -- y
-    [1.0, 2.0, 3.0]::DOUBLE[],  -- x1
-    true                         -- add_intercept
+SELECT * FROM anofox_statistics_ols(
+    [1.0, 2.0, 3.0]::DOUBLE[],           -- y
+    [[1.0], [2.0], [3.0]]::DOUBLE[][],   -- x (matrix format)
+    MAP{'intercept': true}                -- options
 );
 
 -- Verify results

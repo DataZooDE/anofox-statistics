@@ -7,7 +7,7 @@ Complex analytical workflows demonstrating sophisticated applications of the Ano
 **All examples below are copy-paste runnable!** Each example includes sample data creation.
 
 **Working Patterns**:
-- **Aggregate functions** (`ols_fit_agg`, `ols_coeff_agg`) work directly with table data - use these for GROUP BY and window function analysis
+- **Aggregate functions** (`anofox_statistics_ols_agg`, `anofox_statistics_ols_agg`) work directly with table data - use these for GROUP BY and window function analysis
 - **Table functions** require literal arrays for small examples, shown where needed
 - All functions use positional parameters only (no `:=` syntax)
 
@@ -365,7 +365,7 @@ ORDER BY r_squared DESC;
 
 **Key techniques**:
 - Uses window functions with different frame specifications (30 PRECEDING, 90 PRECEDING, UNBOUNDED PRECEDING)
-- Computes `ols_coeff_agg` over each window to get time-varying slopes
+- Computes `anofox_statistics_ols_agg` over each window to get time-varying slopes
 - Flags "Regime Change" when short-term trend diverges significantly from long-term trend
 - Provides confidence assessment based on model fit quality
 
@@ -489,7 +489,7 @@ LIMIT 30;
 
 **Key techniques**:
 - Classical decomposition approach (additive model: Y = Trend + Seasonal + Random)
-- Uses `ols_fit_agg` to estimate trend, then manual calculation for seasonality
+- Uses `anofox_statistics_ols_agg` to estimate trend, then manual calculation for seasonality
 - Demonstrates how to structure multi-stage forecasting pipelines
 
 **When to use**: Any business with monthly/quarterly patterns (retail, tourism, subscriptions) where you need forecasts that respect both growth trends and recurring seasonal cycles.
@@ -649,7 +649,7 @@ WITH rolling_models AS (
         week_start,
         price,
         units_sold,
-        anofox_statistics_ols_agg(units_sold, [price], MAP{'intercept': true}) OVER (
+        anofox_statistics_ols_agg(units_sold, [price], {'intercept': true}) OVER (
             PARTITION BY product_id
             ORDER BY week
             ROWS BETWEEN 8 PRECEDING AND CURRENT ROW
@@ -679,14 +679,14 @@ LIMIT 20;
 WITH static_models AS (
     SELECT
         product_id,
-        anofox_statistics_ols_agg(units_sold, [price], MAP{'intercept': true}) as full_period_model
+        anofox_statistics_ols_agg(units_sold, [price], {'intercept': true}) as full_period_model
     FROM product_time_series
     GROUP BY product_id
 ),
 adaptive_models AS (
     SELECT
         product_id,
-        anofox_statistics_rls_agg(units_sold, [price], MAP{'forgetting_factor': 0.92, 'intercept': true}) as adaptive_model
+        anofox_statistics_rls_agg(units_sold, [price], {'forgetting_factor': 0.92, 'intercept': true}) as adaptive_model
     FROM product_time_series
     GROUP BY product_id
 )
@@ -715,7 +715,7 @@ WITH weekly_summary AS (
     SELECT
         week,
         week_start,
-        anofox_statistics_ols_agg(units_sold, [price], MAP{'intercept': true}) as weekly_model
+        anofox_statistics_ols_agg(units_sold, [price], {'intercept': true}) as weekly_model
     FROM product_time_series
     GROUP BY week, week_start
 )
@@ -755,7 +755,7 @@ WITH monthly_by_product AS (
     SELECT
         product_id,
         (week / 4)::INT as month,
-        anofox_statistics_ols_agg(units_sold, [price], MAP{'intercept': true}) as monthly_model
+        anofox_statistics_ols_agg(units_sold, [price], {'intercept': true}) as monthly_model
     FROM product_time_series
     GROUP BY product_id, month
 )
@@ -827,7 +827,7 @@ ORDER BY month;
 4. **Classification & recommendations**: Compare each store to its territory and region benchmarks, categorize as "Top Performer", "Underperformer", or "Average"
 
 **Steps in the query**:
-- **store_level**: Uses `ols_fit_agg` with GROUP BY (region, territory, store) to get 60 individual models
+- **store_level**: Uses `anofox_statistics_ols_agg` with GROUP BY (region, territory, store) to get 60 individual models
 - **territory_level**: Aggregates store results, computes territory averages and variability
 - **region_level**: Further rolls up to regional benchmarks
 - **store_classification**: Joins all levels, classifies performance, recommends actions
@@ -989,7 +989,7 @@ WITH product_models AS (
         anofox_statistics_ols_agg(
             units,
             [price, marketing_cost],
-            MAP{'intercept': true}
+            {'intercept': true}
         ) as model,
         COUNT(*) as n_sales
     FROM sales_hierarchy
@@ -1015,7 +1015,7 @@ regional_product AS (
         anofox_statistics_ols_agg(
             units,
             [price],
-            MAP{'intercept': true}
+            {'intercept': true}
         ) as regional_model
     FROM sales_hierarchy
     GROUP BY region, subcategory
@@ -1112,26 +1112,26 @@ WITH all_methods AS (
         anofox_statistics_ols_agg(
             y,
             [x1_correlated, x2_correlated, x3_independent],
-            MAP{'intercept': true}
+            {'intercept': true}
         ) as ols_model,
         -- WLS: Addresses heteroscedasticity
         anofox_statistics_wls_agg(
             y,
             [x1_correlated, x2_correlated, x3_independent],
             observation_weight,
-            MAP{'intercept': true}
+            {'intercept': true}
         ) as wls_model,
         -- Ridge: Handles multicollinearity
         anofox_statistics_ridge_agg(
             y,
             [x1_correlated, x2_correlated, x3_independent],
-            MAP{'lambda': 1.0, 'intercept': true}
+            {'lambda': 1.0, 'intercept': true}
         ) as ridge_model,
         -- RLS: Adaptive to changes
         anofox_statistics_rls_agg(
             y,
             [x1_correlated, x2_correlated, x3_independent],
-            MAP{'forgetting_factor': 0.95, 'intercept': true}
+            {'forgetting_factor': 0.95, 'intercept': true}
         ) as rls_model
     FROM complex_dataset
     GROUP BY market
@@ -1254,7 +1254,7 @@ Elif RLS R² > OLS R² + 0.1: Use RLS (patterns changing)
 5. **Calculate cohort revenue**: Multiply projected individual LTV by cohort size
 
 **Steps in the query**:
-- **cohort_models**: Fits individual growth curves for each acquisition cohort using `ols_fit_agg`
+- **cohort_models**: Fits individual growth curves for each acquisition cohort using `anofox_statistics_ols_agg`
 - **cohort_projections**: Uses fitted `intercept + slope * 36` to project month-36 LTV
 - **Classification**: Tags cohorts as Growing/Declining/Unstable based on slope and model quality
 - **Strategic actions**: Recommends whether to replicate acquisition strategy or improve retention
@@ -1721,7 +1721,7 @@ ORDER BY analysis_type DESC, metric;
 **Scenario**: You run product-level price elasticity models daily for 1,000 products. Dashboard users need instant access to coefficients and R² values. Instead of refitting models on every query, cache the results.
 
 **How it works**:
-1. **Fit models once**: Run `ols_fit_agg` grouped by product on last 365 days of data
+1. **Fit models once**: Run `anofox_statistics_ols_agg` grouped by product on last 365 days of data
 2. **Extract key metrics**: Store coefficients, R² values, training period, timestamp
 3. **Materialize to table**: Save results to `model_results_cache` table
 4. **Fast retrieval**: Applications query the cache table instead of refitting models
@@ -1735,7 +1735,7 @@ ORDER BY analysis_type DESC, metric;
 
 **Steps in the query**:
 - **source_data**: Filters to last 365 days for training window
-- **product_models**: Fits separate models for each product using `ols_fit_agg`
+- **product_models**: Fits separate models for each product using `anofox_statistics_ols_agg`
 - **CREATE TABLE**: Materializes results with metadata (training dates, update time)
 - **Query cached models**: Fast retrieval without recalculation
 
@@ -1903,7 +1903,7 @@ END;
 **Strategy 1: Partition and Aggregate**:
 1. **Pre-aggregate to partitions**: Group data into monthly × category buckets
 2. **Use LIST aggregation**: Collect values within each partition as arrays
-3. **Fit models per partition**: Use `ols_fit_agg` on each partition separately
+3. **Fit models per partition**: Use `anofox_statistics_ols_agg` on each partition separately
 4. **Parallel processing**: DuckDB parallelizes across partitions automatically
 
 **Benefits**:
@@ -1923,7 +1923,7 @@ END;
 
 **Performance tips**:
 - Partition by dimensions you'll GROUP BY (month, category, region)
-- Use aggregate functions (`ols_fit_agg`) over table functions when possible
+- Use aggregate functions (`anofox_statistics_ols_agg`) over table functions when possible
 - Filter early to reduce data scanned (WHERE date >= '2023-01-01')
 - Create indexes on partition columns for faster grouping
 
@@ -2080,19 +2080,19 @@ WITH validation AS (
         'Multicollinearity',
         CAST(MAX(vif_value) AS VARCHAR),
         CASE WHEN MAX(vif_value) < 10 THEN 'PASS' ELSE 'FAIL' END
-    FROM vif([[1.0, 2.0, 3.0], [1.1, 2.1, 3.1], [1.2, 2.2, 3.2], [1.3, 2.3, 3.3], [1.4, 2.4, 3.4]])
+    FROM anofox_statistics_vif([[1.0, 2.0, 3.0], [1.1, 2.1, 3.1], [1.2, 2.2, 3.2], [1.3, 2.3, 3.3], [1.4, 2.4, 3.4]])
     UNION ALL
     SELECT
         'Normality',
         CAST(p_value AS VARCHAR),
         CASE WHEN p_value > 0.05 THEN 'PASS' ELSE 'FAIL' END
-    FROM normality_test([0.1, -0.2, 0.3, -0.1, 0.2, -0.3, 0.15, -0.25])
+    FROM anofox_statistics_normality_test([0.1, -0.2, 0.3, -0.1, 0.2, -0.3, 0.15, -0.25])
     UNION ALL
     SELECT
         'Outliers',
         CAST(COUNT(*) AS VARCHAR),
         CASE WHEN COUNT(*) < 0.05 * (SELECT COUNT(*) FROM data) THEN 'PASS' ELSE 'WARN' END
-    FROM residual_diagnostics(
+    FROM anofox_statistics_residual_diagnostics(
         [100.0, 110.0, 120.0, 130.0, 140.0],
         [[1.0, 2.0], [1.1, 2.1], [1.2, 2.2], [1.3, 2.3], [1.4, 2.4]],
         true, 2.5, 0.5

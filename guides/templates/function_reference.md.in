@@ -1,0 +1,583 @@
+# Function Reference
+
+Comprehensive reference for all functions in the Anofox Statistics extension.
+
+## Table of Contents
+
+- [Aggregate Functions](#aggregate-functions)
+- [Table Functions](#table-functions)
+- [Diagnostic Functions](#diagnostic-functions)
+- [Options MAP Reference](#options-map-reference)
+
+---
+
+## Aggregate Functions
+
+Aggregate functions work with `GROUP BY` and window functions (`OVER`) to perform regression analysis per group or within rolling windows.
+
+### anofox_statistics_ols_agg
+
+**Description:** Ordinary Least Squares regression per group. Fits a linear model minimizing squared residuals.
+
+**Signature:**
+```sql
+anofox_statistics_ols_agg(
+    y DOUBLE,
+    x DOUBLE[],
+    options MAP(VARCHAR, ANY)
+) → STRUCT(coefficients DOUBLE[], intercept DOUBLE, r2 DOUBLE, adj_r2 DOUBLE, n_obs BIGINT, n_features BIGINT)
+```
+
+**Parameters:**
+- `y`: Response variable (dependent variable)
+- `x`: Array of predictor variables (independent variables)
+- `options`: Configuration MAP (see [Options Reference](#options-map-reference))
+
+**Returns:** STRUCT containing coefficients, intercept, R², adjusted R², observation count, and feature count.
+
+**Example:**
+
+<!-- include: test/sql/guide01_aggregate_ols_simple.sql -->
+
+**When to use:** Standard regression analysis, per-group modeling, baseline comparisons.
+
+---
+
+### anofox_statistics_wls_agg
+
+**Description:** Weighted Least Squares regression. Handles heteroscedasticity by giving different weights to observations.
+
+**Signature:**
+```sql
+anofox_statistics_wls_agg(
+    y DOUBLE,
+    x DOUBLE[],
+    weights DOUBLE,
+    options MAP(VARCHAR, ANY)
+) → STRUCT(coefficients DOUBLE[], intercept DOUBLE, r2 DOUBLE, adj_r2 DOUBLE, weighted_mse DOUBLE, n_obs BIGINT)
+```
+
+**Parameters:**
+- `y`: Response variable
+- `x`: Array of predictors
+- `weights`: Observation weights (precision weights = 1/variance)
+- `options`: Configuration MAP
+
+**Returns:** STRUCT with coefficients, metrics, and weighted MSE.
+
+**Example:**
+
+<!-- include: test/sql/guide01_aggregate_wls_weighted.sql -->
+
+**When to use:** When observations have different reliability or precision, heteroscedastic errors.
+
+---
+
+### anofox_statistics_ridge_agg
+
+**Description:** Ridge regression with L2 regularization per group. Stabilizes coefficients when predictors are correlated.
+
+**Signature:**
+```sql
+anofox_statistics_ridge_agg(
+    y DOUBLE,
+    x DOUBLE[],
+    options MAP(VARCHAR, ANY)
+) → STRUCT(coefficients DOUBLE[], intercept DOUBLE, r2 DOUBLE, adj_r2 DOUBLE, lambda DOUBLE, n_obs BIGINT)
+```
+
+**Parameters:**
+- `y`: Response variable
+- `x`: Array of predictors
+- `options`: Configuration MAP with `lambda` (regularization parameter)
+
+**Returns:** STRUCT with regularized coefficients and fit metrics.
+
+**Example:**
+
+<!-- include: test/sql/guide01_aggregate_ridge_regularized.sql -->
+
+**When to use:** Multicollinearity, overfitting prevention, many correlated predictors.
+
+---
+
+### anofox_statistics_rls_agg
+
+**Description:** Recursive Least Squares with exponential weighting. Adapts to changing relationships over time.
+
+**Signature:**
+```sql
+anofox_statistics_rls_agg(
+    y DOUBLE,
+    x DOUBLE[],
+    options MAP(VARCHAR, ANY)
+) → STRUCT(coefficients DOUBLE[], intercept DOUBLE, r2 DOUBLE, adj_r2 DOUBLE, forgetting_factor DOUBLE, n_obs BIGINT)
+```
+
+**Parameters:**
+- `y`: Response variable
+- `x`: Array of predictors
+- `options`: Configuration MAP with `forgetting_factor` (default: 1.0, range: 0.9-1.0)
+
+**Returns:** STRUCT with adaptive coefficients emphasizing recent data.
+
+**Example:**
+
+<!-- include: test/sql/guide01_aggregate_rls_streaming.sql -->
+
+**When to use:** Time-series with evolving relationships, online learning, real-time forecasting.
+
+---
+
+### anofox_statistics_elastic_net_agg
+
+**Description:** Elastic Net regression with combined L1 and L2 regularization per group. Performs feature selection while handling multicollinearity.
+
+**Signature:**
+```sql
+anofox_statistics_elastic_net_agg(
+    y DOUBLE,
+    x DOUBLE[],
+    options MAP(VARCHAR, ANY)
+) → STRUCT(coefficients DOUBLE[], intercept DOUBLE, r2 DOUBLE, adj_r2 DOUBLE, n_nonzero BIGINT, n_iterations BIGINT, converged BOOLEAN, n_obs BIGINT)
+```
+
+**Parameters:**
+- `y`: Response variable
+- `x`: Array of predictors
+- `options`: Configuration MAP with `alpha` (L1/L2 mix, 0=Ridge, 1=Lasso, default: 0.5) and `lambda` (regularization strength)
+
+**Returns:** STRUCT with sparse coefficients, convergence info, and fit metrics.
+
+**Example:**
+
+<!-- include: test/sql/elastic_net_and_diagnostics_test.sql -->
+
+**When to use:** Feature selection, high-dimensional data, when you need both shrinkage and sparsity.
+
+---
+
+### anofox_statistics_residual_diagnostics_agg
+
+**Description:** Per-group residual analysis aggregate. Identifies outliers and influential observations within each group.
+
+**Signature:**
+```sql
+anofox_statistics_residual_diagnostics_agg(
+    y_actual DOUBLE,
+    y_predicted DOUBLE,
+    options MAP(VARCHAR, ANY)
+) → STRUCT(n_obs BIGINT, n_outliers BIGINT, outlier_pct DOUBLE, max_abs_residual DOUBLE, ...)
+```
+
+**Parameters:**
+- `y_actual`: Actual observed values
+- `y_predicted`: Predicted values from model
+- `options`: Configuration MAP with `mode` ('summary' or 'detailed'), `outlier_threshold` (default: 2.5)
+
+**Returns:** Summary statistics (mode='summary') or detailed diagnostics per observation (mode='detailed').
+
+**Example:**
+
+<!-- include: test/sql/elastic_net_and_diagnostics_test.sql -->
+
+**When to use:** Group-wise outlier detection, model quality checks per segment.
+
+---
+
+### anofox_statistics_vif_agg
+
+**Description:** Variance Inflation Factor aggregate per group. Detects multicollinearity within each group.
+
+**Signature:**
+```sql
+anofox_statistics_vif_agg(
+    x DOUBLE[]
+) → STRUCT(vif_values DOUBLE[], max_vif DOUBLE, mean_vif DOUBLE, severity VARCHAR, n_obs BIGINT)
+```
+
+**Parameters:**
+- `x`: Array of predictor variables
+
+**Returns:** VIF values for each predictor, max/mean VIF, severity classification.
+
+**Example:**
+
+<!-- include: test/sql/elastic_net_and_diagnostics_test.sql -->
+
+**When to use:** Check for multicollinearity before modeling, per-group correlation analysis.
+
+---
+
+### anofox_statistics_normality_test_agg
+
+**Description:** Jarque-Bera normality test aggregate per group. Tests if residuals follow a normal distribution.
+
+**Signature:**
+```sql
+anofox_statistics_normality_test_agg(
+    residual DOUBLE,
+    options MAP(VARCHAR, ANY)
+) → STRUCT(n_obs BIGINT, skewness DOUBLE, kurtosis DOUBLE, jb_statistic DOUBLE, p_value DOUBLE, is_normal BOOLEAN)
+```
+
+**Parameters:**
+- `residual`: Residuals from regression model
+- `options`: Configuration MAP with `alpha` (significance level, default: 0.05)
+
+**Returns:** Skewness, kurtosis, test statistic, p-value, normality verdict.
+
+**Example:**
+
+<!-- include: test/sql/elastic_net_and_diagnostics_test.sql -->
+
+**When to use:** Validate OLS assumptions, check residual distributions per group.
+
+---
+
+## Table Functions
+
+Table functions perform regression on array inputs and return detailed results as tables.
+
+### anofox_statistics_ols
+
+**Description:** Ordinary Least Squares regression for array inputs. Returns comprehensive fit statistics.
+
+**Signature:**
+```sql
+anofox_statistics_ols(
+    y DOUBLE[],
+    x DOUBLE[][],
+    options MAP(VARCHAR, ANY)
+) → TABLE(coefficients DOUBLE[], intercept DOUBLE, r2 DOUBLE, adj_r2 DOUBLE, ...)
+```
+
+**Parameters:**
+- `y`: Response vector
+- `x`: Feature matrix (n_observations × n_features)
+- `options`: Configuration MAP with `intercept` (default: true)
+
+**Returns:** Table with one row containing all regression results.
+
+**Example:**
+
+<!-- include: test/sql/validate_ols_simple.sql -->
+
+**When to use:** Single model fitting, small datasets, when you have arrays ready.
+
+---
+
+### anofox_statistics_wls
+
+**Description:** Weighted Least Squares for array inputs.
+
+**Signature:**
+```sql
+anofox_statistics_wls(
+    y DOUBLE[],
+    x DOUBLE[][],
+    weights DOUBLE[],
+    options MAP(VARCHAR, ANY)
+) → TABLE(coefficients DOUBLE[], intercept DOUBLE, ...)
+```
+
+**Example:**
+
+<!-- include: test/sql/guide03_weighted_least_squares_wls.sql -->
+
+---
+
+### anofox_statistics_ridge
+
+**Description:** Ridge regression for array inputs with L2 regularization.
+
+**Signature:**
+```sql
+anofox_statistics_ridge(
+    y DOUBLE[],
+    x DOUBLE[][],
+    options MAP(VARCHAR, ANY)
+) → TABLE(coefficients DOUBLE[], intercept DOUBLE, lambda DOUBLE, ...)
+```
+
+**Example:**
+
+<!-- include: test/sql/guide03_ridge_regression.sql -->
+
+---
+
+### anofox_statistics_rls
+
+**Description:** Recursive Least Squares for array inputs with sequential updating.
+
+**Signature:**
+```sql
+anofox_statistics_rls(
+    y DOUBLE[],
+    x DOUBLE[][],
+    options MAP(VARCHAR, ANY)
+) → TABLE(coefficients DOUBLE[], intercept DOUBLE, forgetting_factor DOUBLE, ...)
+```
+
+**Parameters:**
+- `options`: MAP with `forgetting_factor` (0.9-1.0, default: 1.0)
+
+**When to use:** Sequential data processing, adaptive filtering.
+
+---
+
+### anofox_statistics_elastic_net
+
+**Description:** Elastic Net regression for array inputs with L1+L2 regularization.
+
+**Signature:**
+```sql
+anofox_statistics_elastic_net(
+    y DOUBLE[],
+    x DOUBLE[][],
+    options MAP(VARCHAR, ANY)
+) → TABLE(coefficients DOUBLE[], intercept DOUBLE, n_nonzero BIGINT, converged BOOLEAN, ...)
+```
+
+**Parameters:**
+- `options`: MAP with `alpha` (0-1, L1/L2 mix), `lambda` (strength), `max_iterations`, `tolerance`
+
+**Example:**
+
+<!-- include: test/sql/elastic_net_and_diagnostics_test.sql -->
+
+---
+
+## Diagnostic Functions
+
+### anofox_statistics_ols_inference
+
+**Description:** Statistical inference for OLS coefficients. Computes t-statistics, p-values, and confidence intervals.
+
+**Signature:**
+```sql
+anofox_statistics_ols_inference(
+    y DOUBLE[],
+    x DOUBLE[][],
+    options MAP(VARCHAR, ANY)
+) → TABLE(variable VARCHAR, coefficient DOUBLE, std_error DOUBLE, t_statistic DOUBLE, p_value DOUBLE, ci_lower DOUBLE, ci_upper DOUBLE, significant BOOLEAN)
+```
+
+**Parameters:**
+- `options`: MAP with `confidence_level` (default: 0.95), `intercept` (default: true)
+
+**Returns:** One row per predictor with full inference statistics.
+
+**Example:**
+
+<!-- include: test/sql/guide01_example_5_make_predictions.sql -->
+
+**When to use:** Hypothesis testing, determining which predictors are significant.
+
+---
+
+### anofox_statistics_ols_predict_interval
+
+**Description:** Predictions with confidence and prediction intervals.
+
+**Signature:**
+```sql
+anofox_statistics_ols_predict_interval(
+    y DOUBLE[],
+    x DOUBLE[][],
+    options MAP(VARCHAR, ANY)
+) → TABLE(predicted DOUBLE, ci_lower DOUBLE, ci_upper DOUBLE, pi_lower DOUBLE, pi_upper DOUBLE, std_error DOUBLE)
+```
+
+**Parameters:**
+- `options`: MAP with `confidence_level` (default: 0.95), `intercept` (default: true)
+
+**Returns:** Predictions with both confidence intervals (for mean) and prediction intervals (for individual predictions).
+
+**Example:**
+
+<!-- include: test/sql/guide03_prediction_intervals.sql -->
+
+---
+
+### anofox_statistics_information_criteria
+
+**Description:** Model selection criteria (AIC, BIC) for comparing models.
+
+**Signature:**
+```sql
+anofox_statistics_information_criteria(
+    y DOUBLE[],
+    x DOUBLE[][],
+    options MAP(VARCHAR, ANY)
+) → TABLE(n_obs BIGINT, n_params BIGINT, rss DOUBLE, r_squared DOUBLE, aic DOUBLE, bic DOUBLE)
+```
+
+**Example:**
+
+<!-- include: test/sql/guide03_information_criteria.sql -->
+
+**When to use:** Model comparison, preventing overfitting.
+
+---
+
+### anofox_statistics_residual_diagnostics
+
+**Description:** Comprehensive residual diagnostics including leverage, Cook's distance, and influence measures.
+
+**Signature:**
+```sql
+anofox_statistics_residual_diagnostics(
+    y_actual DOUBLE[],
+    y_predicted DOUBLE[],
+    outlier_threshold DOUBLE DEFAULT 2.5
+) → TABLE(obs_id BIGINT, residual DOUBLE, standardized_residual DOUBLE, is_outlier BOOLEAN, ...)
+```
+
+**Example:**
+
+<!-- include: test/sql/guide03_residual_analysis.sql -->
+
+---
+
+### anofox_statistics_vif
+
+**Description:** Variance Inflation Factor for detecting multicollinearity.
+
+**Signature:**
+```sql
+anofox_statistics_vif(
+    x DOUBLE[][]
+) → TABLE(variable_index BIGINT, vif DOUBLE, severity VARCHAR)
+```
+
+**Returns:** VIF for each predictor. VIF > 10 indicates problematic multicollinearity.
+
+---
+
+### anofox_statistics_normality_test
+
+**Description:** Jarque-Bera test for normality of residuals.
+
+**Signature:**
+```sql
+anofox_statistics_normality_test(
+    residuals DOUBLE[],
+    alpha DOUBLE DEFAULT 0.05
+) → TABLE(n_obs BIGINT, skewness DOUBLE, kurtosis DOUBLE, jb_statistic DOUBLE, p_value DOUBLE, is_normal BOOLEAN, conclusion VARCHAR)
+```
+
+**Example:**
+
+<!-- include: test/sql/guide03_normality_tests.sql -->
+
+---
+
+## Options MAP Reference
+
+All functions accept an `options` MAP parameter for configuration. Common keys:
+
+### Common Options (All Functions)
+
+- **`intercept`** (BOOLEAN, default: `true`): Include intercept term in model
+  ```sql
+  MAP{'intercept': false}  -- No intercept (forced through origin)
+  ```
+
+### Ridge-specific Options
+
+- **`lambda`** (DOUBLE, default: `1.0`): Regularization strength for Ridge regression
+  ```sql
+  MAP{'lambda': 0.5, 'intercept': true}
+  ```
+  - Higher λ = more shrinkage toward zero
+  - λ = 0 equivalent to OLS
+  - Typical range: 0.01 to 10
+
+### RLS-specific Options
+
+- **`forgetting_factor`** (DOUBLE, default: `1.0`): Exponential weighting for RLS
+  ```sql
+  MAP{'forgetting_factor': 0.95}
+  ```
+  - Range: 0.9 to 1.0
+  - 1.0 = no forgetting (equivalent to OLS)
+  - 0.95 = moderate adaptation (5% decay per step)
+  - Lower values = faster adaptation to recent changes
+
+### Elastic Net-specific Options
+
+- **`alpha`** (DOUBLE, default: `0.5`): L1/L2 mixing parameter
+  ```sql
+  MAP{'alpha': 0.5, 'lambda': 0.1}
+  ```
+  - α = 0: Pure Ridge (L2 only)
+  - α = 1: Pure Lasso (L1 only)
+  - α = 0.5: Equal mix of L1 and L2
+
+- **`lambda`** (DOUBLE, default: `0.1`): Overall regularization strength
+
+- **`max_iterations`** (BIGINT, default: `1000`): Maximum coordinate descent iterations
+
+- **`tolerance`** (DOUBLE, default: `1e-6`): Convergence tolerance
+
+### Inference Options
+
+- **`confidence_level`** (DOUBLE, default: `0.95`): Confidence level for intervals
+  ```sql
+  MAP{'confidence_level': 0.99, 'intercept': true}
+  ```
+  - 0.90 = 90% confidence
+  - 0.95 = 95% confidence (standard)
+  - 0.99 = 99% confidence (stricter)
+
+### Diagnostic Aggregate Options
+
+- **`mode`** (VARCHAR, default: `'summary'`): Output mode for residual diagnostics
+  ```sql
+  MAP{'mode': 'detailed', 'outlier_threshold': 3.0}
+  ```
+  - `'summary'`: Group-level summary statistics
+  - `'detailed'`: Per-observation diagnostics
+
+- **`outlier_threshold`** (DOUBLE, default: `2.5`): Threshold for flagging outliers (in standard deviations)
+
+- **`alpha`** (DOUBLE, default: `0.05`): Significance level for normality test
+  ```sql
+  MAP{'alpha': 0.01}  -- 99% confidence
+  ```
+
+---
+
+## Quick Reference Table
+
+| Function | Type | Use Case | Key Options |
+|----------|------|----------|-------------|
+| `anofox_statistics_ols_agg` | Aggregate | Standard regression per group | `intercept` |
+| `anofox_statistics_wls_agg` | Aggregate | Weighted regression (heteroscedasticity) | `intercept` |
+| `anofox_statistics_ridge_agg` | Aggregate | Regularized regression (multicollinearity) | `lambda`, `intercept` |
+| `anofox_statistics_rls_agg` | Aggregate | Adaptive regression (time-series) | `forgetting_factor`, `intercept` |
+| `anofox_statistics_elastic_net_agg` | Aggregate | Feature selection + regularization | `alpha`, `lambda`, `intercept` |
+| `anofox_statistics_residual_diagnostics_agg` | Aggregate | Group-wise outlier detection | `mode`, `outlier_threshold` |
+| `anofox_statistics_vif_agg` | Aggregate | Group-wise multicollinearity check | None |
+| `anofox_statistics_normality_test_agg` | Aggregate | Group-wise normality test | `alpha` |
+| `anofox_statistics_ols` | Table | OLS for arrays | `intercept` |
+| `anofox_statistics_wls` | Table | WLS for arrays | `intercept` |
+| `anofox_statistics_ridge` | Table | Ridge for arrays | `lambda`, `intercept` |
+| `anofox_statistics_rls` | Table | RLS for arrays | `forgetting_factor`, `intercept` |
+| `anofox_statistics_elastic_net` | Table | Elastic Net for arrays | `alpha`, `lambda`, `max_iterations` |
+| `anofox_statistics_ols_inference` | Table | Coefficient significance tests | `confidence_level` |
+| `anofox_statistics_ols_predict_interval` | Table | Predictions with intervals | `confidence_level` |
+| `anofox_statistics_information_criteria` | Table | Model selection (AIC/BIC) | `intercept` |
+| `anofox_statistics_residual_diagnostics` | Table | Outlier and influence detection | `outlier_threshold` |
+| `anofox_statistics_vif` | Table | Multicollinearity detection | None |
+| `anofox_statistics_normality_test` | Table | Residual normality test | `alpha` |
+
+---
+
+## See Also
+
+- [Quick Start Guide](01_quick_start.md): Get started quickly with examples
+- [Statistics Guide](03_statistics_guide.md): Understanding the statistical methodology
+- [Business Guide](04_business_guide.md): Real-world business applications
+- [Advanced Use Cases](05_advanced_use_cases.md): Complex analytical workflows

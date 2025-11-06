@@ -7,7 +7,7 @@ Real-world business applications of the Anofox Statistics extension, demonstrati
 **All examples below are copy-paste runnable!** Each example includes sample data creation.
 
 **Working Patterns**:
-- **Aggregate functions** (`ols_fit_agg`, `ols_coeff_agg`) work directly with table data - use these for GROUP BY analysis
+- **Aggregate functions** (`anofox_statistics_ols_agg`, `anofox_statistics_ols_agg`) work directly with table data - use these for GROUP BY analysis
 - **Table functions** (`ols_inference`, `ols_predict_interval`) require literal arrays - examples show small datasets with explicit arrays
 - All functions use positional parameters only (no `:=` syntax)
 

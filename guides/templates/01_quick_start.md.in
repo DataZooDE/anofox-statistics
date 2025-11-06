@@ -20,7 +20,7 @@ make release
 
 **When to use**: When you want to understand the relationship between two continuous variables (e.g., how sales change with price, or how performance correlates with training hours).
 
-**How it works**: The `ols_fit_agg` function analyzes your y and x columns, calculating the slope (coefficient) and quality metrics. It automatically handles missing values and computes goodness-of-fit statistics.
+**How it works**: The `anofox_statistics_ols_agg` function analyzes your y and x columns, calculating the slope (coefficient) and quality metrics. It automatically handles missing values and computes goodness-of-fit statistics.
 
 <!-- include: test/sql/guide01_example_1_simple_linear_regression.sql -->
 
@@ -71,7 +71,7 @@ The coefficient x1 = 2.01 is highly significant (p < 0.0001), meaning we can con
 
 **When to use**: When analyzing multiple products, regions, customers, or time periods simultaneously. Common for A/B testing, market segmentation, and comparative analysis.
 
-**How it works**: The `ols_fit_agg` function works like any SQL aggregate (SUM, AVG, etc.). Combined with GROUP BY, it computes separate regression models for each group. The extension automatically parallelizes these calculations for performance.
+**How it works**: The `anofox_statistics_ols_agg` function works like any SQL aggregate (SUM, AVG, etc.). Combined with GROUP BY, it computes separate regression models for each group. The extension automatically parallelizes these calculations for performance.
 
 <!-- include: test/sql/guide01_example_3_regression_per_group.sql -->
 
@@ -98,7 +98,7 @@ This analysis completed in a single query across all products - no need for loop
 
 **When to use**: For trend analysis with time-series data where you expect the relationship to evolve (e.g., seasonal patterns, market dynamics changing, or detecting regime shifts).
 
-**How it works**: Uses SQL window functions with `ROWS BETWEEN ... PRECEDING AND CURRENT ROW` to define the rolling window. The `ols_coeff_agg` function then runs on each window. Perfect for detecting when trends accelerate or reverse.
+**How it works**: Uses SQL window functions with `ROWS BETWEEN ... PRECEDING AND CURRENT ROW` to define the rolling window. The `anofox_statistics_ols_agg` function then runs on each window. Perfect for detecting when trends accelerate or reverse.
 
 <!-- include: test/sql/guide01_example_4_time_series_rolling_regression.sql -->
 

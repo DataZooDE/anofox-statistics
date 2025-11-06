@@ -51,19 +51,18 @@ A statistical analysis extension for DuckDB, providing regression analysis, diag
 LOAD 'anofox_statistics';
 
 -- Simple OLS regression
-SELECT * FROM anofox_statistics_ols_fit(
+SELECT * FROM anofox_statistics_ols(
     [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],  -- y: response variable
-    [1.1, 2.1, 2.9, 4.2, 4.8]::DOUBLE[],  -- x1: first predictor
-    true                                   -- add_intercept
+    [[1.1], [2.1], [2.9], [4.2], [4.8]]::DOUBLE[][],  -- x: feature matrix
+    MAP{'intercept': true}                 -- options
 );
 
 -- Multiple regression with 3 predictors
-SELECT * FROM anofox_statistics_ols_fit(
+SELECT * FROM anofox_statistics_ols(
     [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],  -- y: response variable
-    [1.1, 2.1, 2.9, 4.2, 4.8]::DOUBLE[],  -- x1: first predictor
-    [2.0, 3.0, 4.0, 5.0, 6.0]::DOUBLE[],  -- x2: second predictor
-    [3.0, 4.0, 5.0, 6.0, 7.0]::DOUBLE[],  -- x3: third predictor
-    true                                   -- add_intercept
+    [[1.1, 2.0, 3.0], [2.1, 3.0, 4.0], [2.9, 4.0, 5.0],
+     [4.2, 5.0, 6.0], [4.8, 6.0, 7.0]]::DOUBLE[][],  -- x: feature matrix
+    MAP{'intercept': true}                 -- options
 );
 
 -- Coefficient inference with p-values (also uses positional parameters)
@@ -139,9 +138,9 @@ Comprehensive guides are available in the [`guides/`](guides/) directory:
 - `anofox_statistics_elastic_net(y DOUBLE[], x DOUBLE[][], options MAP)` - Elastic Net (L1+L2 regularization)
 
 ### Phase 3: Sequential/Time-Series
-- `anofox_statistics_rls_fit(...)` - Recursive Least Squares
-- `anofox_statistics_rolling_ols(...)` - Rolling window OLS
-- `anofox_statistics_expanding_ols(...)` - Expanding window OLS
+- `anofox_statistics_rls(y DOUBLE[], x DOUBLE[][], options MAP)` - Recursive Least Squares
+
+Note: Rolling and expanding window regressions are available through aggregate window functions (see Phase 4 below).
 
 ### Phase 4: Aggregates & Window Functions
 All aggregate functions support both `GROUP BY` and `OVER` (window functions):

@@ -26,11 +26,11 @@ LOAD '/path/to/anofox_statistics.duckdb_extension';
 
 **When to use**: When you want to understand the relationship between two continuous variables (e.g., how sales change with price, or how performance correlates with training hours).
 
-**How it works**: The `ols_fit_agg` function analyzes your y and x columns, calculating the slope (coefficient) and quality metrics. It automatically handles missing values and computes goodness-of-fit statistics.
+**How it works**: The `anofox_statistics_ols_agg` function analyzes your y and x columns, calculating the slope (coefficient) and quality metrics. It automatically handles missing values and computes goodness-of-fit statistics.
 
 ```sql
 -- Basic OLS fit (use positional parameters)
-SELECT * FROM anofox_statistics_ols_fit(
+SELECT * FROM anofox_statistics_ols(
     [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],  -- y
     [1.1, 2.1, 2.9, 4.2, 4.8]::DOUBLE[],  -- x1
     true                                   -- add_intercept
@@ -97,7 +97,7 @@ The coefficient x1 = 2.01 is highly significant (p < 0.0001), meaning we can con
 
 **When to use**: When analyzing multiple products, regions, customers, or time periods simultaneously. Common for A/B testing, market segmentation, and comparative analysis.
 
-**How it works**: The `ols_fit_agg` function works like any SQL aggregate (SUM, AVG, etc.). Combined with GROUP BY, it computes separate regression models for each group. The extension automatically parallelizes these calculations for performance.
+**How it works**: The `anofox_statistics_ols_agg` function works like any SQL aggregate (SUM, AVG, etc.). Combined with GROUP BY, it computes separate regression models for each group. The extension automatically parallelizes these calculations for performance.
 
 ```sql
 -- Create sample data
@@ -140,7 +140,7 @@ This analysis completed in a single query across all products - no need for loop
 
 **When to use**: For trend analysis with time-series data where you expect the relationship to evolve (e.g., seasonal patterns, market dynamics changing, or detecting regime shifts).
 
-**How it works**: Uses SQL window functions with `ROWS BETWEEN ... PRECEDING AND CURRENT ROW` to define the rolling window. The `ols_coeff_agg` function then runs on each window. Perfect for detecting when trends accelerate or reverse.
+**How it works**: Uses SQL window functions with `ROWS BETWEEN ... PRECEDING AND CURRENT ROW` to define the rolling window. The `anofox_statistics_ols_agg` function then runs on each window. Perfect for detecting when trends accelerate or reverse.
 
 ```sql
 -- Create time series
@@ -269,7 +269,7 @@ SELECT
     ROUND(cooks_distance, 3) as cooks_d,
     is_outlier,
     is_influential
-FROM residual_diagnostics(
+FROM anofox_statistics_residual_diagnostics(
     [2.1, 4.0, 6.1, 7.9, 10.2, 11.8, 14.1, 25.0]::DOUBLE[], -- y (last point is outlier)
     [[1.0], [2.0], [3.0], [4.0], [5.0], [6.0], [7.0], [8.0]]::DOUBLE[][], -- x
     true,  -- add_intercept
@@ -342,7 +342,7 @@ FROM (
         anofox_statistics_ols_agg(
             units_sold::DOUBLE,
             [price::DOUBLE],
-            MAP{'intercept': true}
+            {'intercept': true}
         ) as result
     FROM product_sales
     GROUP BY category
@@ -398,7 +398,7 @@ FROM (
             spend,
             [income],
             reliability_weight,
-            MAP{'intercept': true}
+            {'intercept': true}
         ) as result
     FROM customer_transactions
     GROUP BY segment
@@ -457,7 +457,7 @@ FROM (
         anofox_statistics_ridge_agg(
             return,
             [market_return, sector_return, momentum],
-            MAP{'lambda': 1.0, 'intercept': true}
+            {'lambda': 1.0, 'intercept': true}
         ) as result
     FROM stock_returns
     GROUP BY ticker
@@ -516,7 +516,7 @@ FROM (
         anofox_statistics_rls_agg(
             true_value,
             [raw_reading],
-            MAP{'forgetting_factor': 0.95, 'intercept': true}
+            {'forgetting_factor': 0.95, 'intercept': true}
         ) as result
     FROM sensor_readings
     GROUP BY sensor_id
@@ -656,7 +656,7 @@ LOAD '/full/path/to/anofox_statistics.duckdb_extension';
 ### Issue: Type mismatch
 ```sql
 -- Ensure arrays are DOUBLE[] and use positional parameters
-SELECT * FROM anofox_statistics_ols_fit(
+SELECT * FROM anofox_statistics_ols(
     [1.0, 2.0, 3.0]::DOUBLE[],  -- y: Cast to DOUBLE[]
     [1.0, 2.0, 3.0]::DOUBLE[],  -- x1: Cast to DOUBLE[]
     true                         -- add_intercept

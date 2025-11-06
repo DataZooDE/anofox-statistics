@@ -7,7 +7,7 @@ Real-world business applications of the Anofox Statistics extension, demonstrati
 **All examples below are copy-paste runnable!** Each example includes sample data creation.
 
 **Working Patterns**:
-- **Aggregate functions** (`ols_fit_agg`, `ols_coeff_agg`) work directly with table data - use these for GROUP BY analysis
+- **Aggregate functions** (`anofox_statistics_ols_agg`, `anofox_statistics_ols_agg`) work directly with table data - use these for GROUP BY analysis
 - **Table functions** (`ols_inference`, `ols_predict_interval`) require literal arrays - examples show small datasets with explicit arrays
 - All functions use positional parameters only (no `:=` syntax)
 
@@ -257,13 +257,13 @@ FROM (
         anofox_statistics_ols_agg(
             lifetime_revenue,
             [acquisition_cost, tenure_months],
-            MAP{'intercept': true}
+            {'intercept': true}
         ) as ols,
         anofox_statistics_wls_agg(
             lifetime_revenue,
             [acquisition_cost, tenure_months],
             customer_value_weight,
-            MAP{'intercept': true}
+            {'intercept': true}
         ) as wls
     FROM customer_cohorts
     GROUP BY segment
@@ -285,7 +285,7 @@ WITH ltv_analysis AS (
                 lifetime_revenue,
                 [acquisition_cost, tenure_months],
                 customer_value_weight,
-                MAP{'intercept': true}
+                {'intercept': true}
             ) as result
         FROM customer_cohorts
         GROUP BY segment
@@ -462,12 +462,12 @@ FROM (
         anofox_statistics_ols_agg(
             return,
             [market_return, tech_sector_return, value_factor, momentum_factor],
-            MAP{'intercept': true}
+            {'intercept': true}
         ) as ols,
         anofox_statistics_ridge_agg(
             return,
             [market_return, tech_sector_return, value_factor, momentum_factor],
-            MAP{'lambda': 1.0, 'intercept': true}
+            {'lambda': 1.0, 'intercept': true}
         ) as ridge
     FROM portfolio_holdings
     GROUP BY ticker
@@ -487,7 +487,7 @@ WITH stock_betas AS (
             anofox_statistics_ridge_agg(
                 return,
                 [market_return, tech_sector_return],
-                MAP{'lambda': 1.0, 'intercept': true}
+                {'lambda': 1.0, 'intercept': true}
             ) as result
         FROM portfolio_holdings
         GROUP BY ticker
@@ -807,17 +807,17 @@ FROM (
         anofox_statistics_ols_agg(
             actual_demand,
             [lagged_demand, time_trend],
-            MAP{'intercept': true}
+            {'intercept': true}
         ) as ols,
         anofox_statistics_rls_agg(
             actual_demand,
             [lagged_demand, time_trend],
-            MAP{'forgetting_factor': 0.98, 'intercept': true}
+            {'forgetting_factor': 0.98, 'intercept': true}
         ) as rls_slow,
         anofox_statistics_rls_agg(
             actual_demand,
             [lagged_demand, time_trend],
-            MAP{'forgetting_factor': 0.92, 'intercept': true}
+            {'forgetting_factor': 0.92, 'intercept': true}
         ) as rls_fast
     FROM demand_history
     WHERE lagged_demand IS NOT NULL
@@ -833,7 +833,7 @@ WITH recent_performance AS (
         anofox_statistics_rls_agg(
             actual_demand,
             [lagged_demand, time_trend],
-            MAP{'forgetting_factor': 0.95, 'intercept': true}
+            {'forgetting_factor': 0.95, 'intercept': true}
         ) OVER (
             PARTITION BY product_id
             ORDER BY week
@@ -1220,7 +1220,7 @@ FROM (
         anofox_statistics_ols_agg(
             units_sold,
             [price, promo_spend],
-            MAP{'intercept': true}
+            {'intercept': true}
         ) as result
     FROM regional_sales
     GROUP BY region
@@ -1240,7 +1240,7 @@ SELECT
 FROM (
     SELECT
         region,
-        anofox_statistics_ols_agg(units_sold, [price], MAP{'intercept': true}) as result
+        anofox_statistics_ols_agg(units_sold, [price], {'intercept': true}) as result
     FROM regional_sales
     GROUP BY region
 ) sub

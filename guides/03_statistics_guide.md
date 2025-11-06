@@ -104,7 +104,7 @@ FROM (
         anofox_statistics_ols_agg(
             sales,
             [tv_spend, digital_spend],
-            MAP{'intercept': true}
+            {'intercept': true}
         ) as result
     FROM advertising_data
     GROUP BY campaign
@@ -140,7 +140,7 @@ SELECT
     result.coefficients[1] as acceleration_estimate,
     result.r2
 FROM (
-    SELECT anofox_statistics_ols_agg(force_newtons, [mass_kg], MAP{'intercept': true}) as result
+    SELECT anofox_statistics_ols_agg(force_newtons, [mass_kg], {'intercept': true}) as result
     FROM physics_data
 ) sub
 UNION ALL
@@ -150,7 +150,7 @@ SELECT
     result.coefficients[1] as acceleration_estimate,
     result.r2
 FROM (
-    SELECT anofox_statistics_ols_agg(force_newtons, [mass_kg], MAP{'intercept': false}) as result
+    SELECT anofox_statistics_ols_agg(force_newtons, [mass_kg], {'intercept': false}) as result
     FROM physics_data
 ) sub;
 
@@ -168,7 +168,7 @@ SELECT
     result.coefficients[1] as revenue_per_employee,
     result.r2
 FROM (
-    SELECT anofox_statistics_ols_agg(revenue, [employees], MAP{'intercept': true}) as result
+    SELECT anofox_statistics_ols_agg(revenue, [employees], {'intercept': true}) as result
     FROM business_data
 ) sub
 UNION ALL
@@ -178,7 +178,7 @@ SELECT
     result.coefficients[1] as biased_estimate,
     result.r2
 FROM (
-    SELECT anofox_statistics_ols_agg(revenue, [employees], MAP{'intercept': false}) as result
+    SELECT anofox_statistics_ols_agg(revenue, [employees], {'intercept': false}) as result
     FROM business_data
 ) sub;
 
@@ -221,7 +221,7 @@ This example shows ridge regression with a regularization parameter λ=0.1. The 
 
 ```sql
 -- Table function requires literal arrays (positional parameters)
-SELECT * FROM anofox_statistics_ridge_fit(
+SELECT * FROM anofox_statistics_ridge(
     [100.0, 98.0, 102.0, 97.0, 101.0]::DOUBLE[],  -- y: sales
     [10.0, 9.8, 10.2, 9.7, 10.1]::DOUBLE[],       -- x1: price
     [9.9, 9.7, 10.1, 9.8, 10.0]::DOUBLE[],        -- x2: competitors_price (correlated!)
@@ -272,7 +272,7 @@ FROM (
         anofox_statistics_ridge_agg(
             sales,
             [advertising, social_media, influencer],
-            MAP{'lambda': 0.0, 'intercept': true}
+            {'lambda': 0.0, 'intercept': true}
         ) as result
     FROM collinear_data
     GROUP BY product
@@ -293,7 +293,7 @@ FROM (
         anofox_statistics_ridge_agg(
             sales,
             [advertising, social_media, influencer],
-            MAP{'lambda': 1.0, 'intercept': true}
+            {'lambda': 1.0, 'intercept': true}
         ) as result
     FROM collinear_data
     GROUP BY product
@@ -314,7 +314,7 @@ FROM (
         anofox_statistics_ridge_agg(
             sales,
             [advertising, social_media, influencer],
-            MAP{'lambda': 10.0, 'intercept': true}
+            {'lambda': 10.0, 'intercept': true}
         ) as result
     FROM collinear_data
     GROUP BY product
@@ -355,7 +355,7 @@ This example demonstrates WLS when observations have different levels of precisi
 
 ```sql
 -- Variance proportional to x (positional parameters, literal arrays)
-SELECT * FROM anofox_statistics_wls_fit(
+SELECT * FROM anofox_statistics_wls(
     [50.0, 100.0, 150.0, 200.0, 250.0]::DOUBLE[],  -- y: sales
     [10.0, 20.0, 30.0, 40.0, 50.0]::DOUBLE[],      -- x1: size
     [10.0, 20.0, 30.0, 40.0, 50.0]::DOUBLE[],      -- weights: proportional to size
@@ -413,7 +413,7 @@ FROM (
         anofox_statistics_ols_agg(
             annual_spending,
             [annual_income],
-            MAP{'intercept': true}
+            {'intercept': true}
         ) as result
     FROM customer_spending
     GROUP BY segment
@@ -433,7 +433,7 @@ FROM (
             annual_spending,
             [annual_income],
             precision_weight,
-            MAP{'intercept': true}
+            {'intercept': true}
         ) as result
     FROM customer_spending
     GROUP BY segment
@@ -610,7 +610,7 @@ SELECT
     std_residual,
     studentized_residual,
     is_outlier  -- TRUE if |studentized| > 2.5
-FROM residual_diagnostics(
+FROM anofox_statistics_residual_diagnostics(
     [50.0, 55.0, 60.0, 65.0, 70.0, 75.0]::DOUBLE[],      -- y: data
     [[1.0], [2.0], [3.0], [4.0], [5.0], [6.0]]::DOUBLE[][],  -- x: features
     true,                                                  -- add_intercept
@@ -665,7 +665,7 @@ SELECT
     cooks_distance,
     leverage,
     dffits
-FROM residual_diagnostics(
+FROM anofox_statistics_residual_diagnostics(
     [50.0, 55.0, 60.0, 65.0, 70.0, 75.0]::DOUBLE[],
     [[1.0], [2.0], [3.0], [4.0], [5.0], [6.0]]::DOUBLE[][],
     true,
@@ -701,7 +701,7 @@ SELECT
     variable_name,
     vif,
     severity
-FROM vif(
+FROM anofox_statistics_vif(
     [[10.0, 9.9, 10.1], [20.0, 19.8, 20.2], [30.0, 29.9, 30.1], [40.0, 39.7, 40.3]]::DOUBLE[][]
     -- x matrix: price, competitors_price, industry_avg_price (highly correlated columns)
 );
@@ -731,7 +731,7 @@ where S = skewness, K = kurtosis
 **Example**:
 ```sql
 -- Test normality of residuals (use literal array)
-SELECT * FROM normality_test(
+SELECT * FROM anofox_statistics_normality_test(
     [0.1, -0.2, 0.3, -0.1, 0.2, -0.3, 0.0, 0.1, -0.1, 0.2]::DOUBLE[],  -- residuals
     0.05                                                                 -- alpha
 );
@@ -889,7 +889,7 @@ where Kₜ = Pₜ₋₁xₜ / (1 + xₜ'Pₜ₋₁xₜ)
 **Example**:
 ```sql
 -- Recursive Least Squares (positional parameters, literal arrays)
-SELECT * FROM anofox_statistics_rls_fit(
+SELECT * FROM anofox_statistics_rls(
     [10.0, 11.0, 12.0, 13.0, 14.0, 15.0]::DOUBLE[],  -- y: streaming_values
     [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]::DOUBLE[],        -- x1: streaming_features
     0.99::DOUBLE,                                      -- forgetting_factor (explicit cast required)
@@ -940,7 +940,7 @@ FROM (
     SELECT anofox_statistics_rls_agg(
         stock_return,
         [market_return],
-        MAP{'forgetting_factor': 1.0, 'intercept': true}
+        {'forgetting_factor': 1.0, 'intercept': true}
     ) as result
     FROM stock_market_data
 ) sub
@@ -955,7 +955,7 @@ FROM (
     SELECT anofox_statistics_rls_agg(
         stock_return,
         [market_return],
-        MAP{'forgetting_factor': 0.98, 'intercept': true}
+        {'forgetting_factor': 0.98, 'intercept': true}
     ) as result
     FROM stock_market_data
 ) sub
@@ -970,7 +970,7 @@ FROM (
     SELECT anofox_statistics_rls_agg(
         stock_return,
         [market_return],
-        MAP{'forgetting_factor': 0.95, 'intercept': true}
+        {'forgetting_factor': 0.95, 'intercept': true}
     ) as result
     FROM stock_market_data
 ) sub
@@ -985,7 +985,7 @@ FROM (
     SELECT anofox_statistics_rls_agg(
         stock_return,
         [market_return],
-        MAP{'forgetting_factor': 0.90, 'intercept': true}
+        {'forgetting_factor': 0.90, 'intercept': true}
     ) as result
     FROM stock_market_data
 ) sub;
@@ -1003,7 +1003,7 @@ FROM (
         anofox_statistics_rls_agg(
             stock_return,
             [market_return],
-            MAP{'forgetting_factor': 0.95, 'intercept': true}
+            {'forgetting_factor': 0.95, 'intercept': true}
         ) as result
     FROM stock_market_data
     GROUP BY market_regime
