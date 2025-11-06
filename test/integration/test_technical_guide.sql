@@ -11,7 +11,7 @@ SELECT '========================================';
 
 -- Unit Test Example
 SELECT '--- Unit Test: Basic OLS ---';
-SELECT * FROM anofox_statistics_ols_fit(
+SELECT * FROM anofox_statistics_ols(
     [1.0, 2.0, 3.0]::DOUBLE[],
     [1.0, 2.0, 3.0]::DOUBLE[],
     true

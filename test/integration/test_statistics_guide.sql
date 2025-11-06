@@ -27,7 +27,7 @@ LIMIT 1;
 
 -- Example: Ridge Regression
 SELECT '--- Ridge Regression Example ---';
-SELECT * FROM anofox_statistics_ridge_fit(
+SELECT * FROM anofox_statistics_ridge(
     [100.0, 98.0, 102.0, 97.0, 101.0]::DOUBLE[],
     [10.0, 9.8, 10.2, 9.7, 10.1]::DOUBLE[],
     [9.9, 9.7, 10.1, 9.8, 10.0]::DOUBLE[],
@@ -37,7 +37,7 @@ SELECT * FROM anofox_statistics_ridge_fit(
 
 -- Example: WLS
 SELECT '--- Weighted Least Squares Example ---';
-SELECT * FROM anofox_statistics_wls_fit(
+SELECT * FROM anofox_statistics_wls(
     [50.0, 100.0, 150.0, 200.0, 250.0]::DOUBLE[],
     [10.0, 20.0, 30.0, 40.0, 50.0]::DOUBLE[],
     [10.0, 20.0, 30.0, 40.0, 50.0]::DOUBLE[],
@@ -133,7 +133,7 @@ SELECT
 
 -- Example: RLS
 SELECT '--- Recursive Least Squares Example ---';
-SELECT * FROM anofox_statistics_rls_fit(
+SELECT * FROM anofox_statistics_rls(
     [10.0, 11.0, 12.0, 13.0, 14.0, 15.0]::DOUBLE[],
     [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]::DOUBLE[],
     0.99::DOUBLE,
