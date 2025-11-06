@@ -1,3 +1,5 @@
+LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
+
 -- Create sample weekly store sales data
 CREATE OR REPLACE TABLE weekly_store_sales AS
 SELECT

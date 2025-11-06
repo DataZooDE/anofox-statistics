@@ -1,3 +1,5 @@
+LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
+
 -- Test normality of residuals (use literal array)
 SELECT * FROM anofox_statistics_normality_test(
     [0.1, -0.2, 0.3, -0.1, 0.2, -0.3, 0.0, 0.1, -0.1, 0.2]::DOUBLE[],  -- residuals

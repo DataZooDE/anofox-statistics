@@ -31,6 +31,7 @@ Complex analytical workflows demonstrating sophisticated applications of the Ano
 
 
 ```sql
+
 -- Create sample training data
 CREATE OR REPLACE TABLE retail_stores AS
 SELECT
@@ -267,6 +268,7 @@ ORDER BY report_section, detail_1;
 
 
 ```sql
+
 -- Create sample business data
 CREATE OR REPLACE TABLE business_data AS
 SELECT
@@ -381,6 +383,7 @@ ORDER BY r_squared DESC;
 
 
 ```sql
+
 -- Create sample daily revenue data
 CREATE OR REPLACE TABLE daily_revenue AS
 SELECT
@@ -508,6 +511,7 @@ LIMIT 30;
 
 
 ```sql
+
 -- Create sample monthly sales data with seasonality
 CREATE OR REPLACE TABLE monthly_sales AS
 SELECT
@@ -641,6 +645,7 @@ ORDER BY month_ahead;
 
 
 ```sql
+
 -- Advanced Use Case: Window Functions + GROUP BY with Aggregates
 -- Combine rolling analysis with per-group regression
 
@@ -868,6 +873,7 @@ ORDER BY month;
 
 
 ```sql
+
 -- Create sample hierarchical store data
 CREATE OR REPLACE TABLE daily_store_data AS
 SELECT
@@ -993,6 +999,7 @@ ORDER BY region_id, territory_id, store_roi DESC;
 
 
 ```sql
+
 -- Advanced Use Case: Multi-Level Hierarchical Aggregation
 -- Combine multiple GROUP BY levels with aggregates for complex analysis
 
@@ -1122,6 +1129,7 @@ LIMIT 20;
 
 
 ```sql
+
 -- Advanced Use Case: Combining All Regression Methods
 -- Compare OLS, WLS, Ridge, and RLS in a unified analysis pipeline
 
@@ -1310,6 +1318,7 @@ Elif RLS R² > OLS R² + 0.1: Use RLS (patterns changing)
 
 
 ```sql
+
 -- Create sample cohort behavior data
 CREATE OR REPLACE TABLE cohort_behavior AS
 SELECT
@@ -1430,6 +1439,7 @@ ORDER BY cohort_month DESC;
 
 
 ```sql
+
 -- Create sample A/B test data
 CREATE OR REPLACE TABLE ab_test_results AS
 SELECT
@@ -1622,6 +1632,7 @@ CROSS JOIN power_analysis pa;
 
 
 ```sql
+
 -- Create sample weekly store sales data
 CREATE OR REPLACE TABLE weekly_store_sales AS
 SELECT
@@ -1797,6 +1808,7 @@ ORDER BY analysis_type DESC, metric;
 
 
 ```sql
+
 -- Create materialized model table
 CREATE TABLE IF NOT EXISTS model_results_cache AS
 WITH source_data AS (
@@ -1888,6 +1900,7 @@ CREATE PROCEDURE refresh_product_models(lookback_days INT DEFAULT 365)
 
 
 ```sql
+
 -- Incremental model update procedure
 CREATE OR REPLACE PROCEDURE refresh_product_models(lookback_days INT DEFAULT 365)
 AS
@@ -1994,6 +2007,7 @@ END;
 
 
 ```sql
+
 -- Efficient processing of large datasets
 -- Strategy 1: Partition by time/category
 WITH monthly_partitions AS (
@@ -2079,6 +2093,7 @@ SELECT * FROM sample_model;
 
 
 ```sql
+
 -- Export model coefficients for external scoring (using literal array sample)
 COPY (
     WITH model AS (
@@ -2143,6 +2158,7 @@ COPY (
 
 
 ```sql
+
 -- Check list before deploying model (using literal array examples)
 WITH validation AS (
     SELECT
@@ -2204,6 +2220,7 @@ SELECT * FROM validation;
 
 
 ```sql
+
 -- Track model performance over time
 CREATE TABLE model_performance_log AS
 SELECT
@@ -2251,6 +2268,7 @@ FROM current_model;
 
 
 ```sql
+
 -- Model metadata table
 CREATE TABLE model_registry (
     model_id VARCHAR PRIMARY KEY,

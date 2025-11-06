@@ -1,3 +1,5 @@
+LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
+
 -- Create sample campaign data
 CREATE OR REPLACE TABLE campaigns AS
 SELECT

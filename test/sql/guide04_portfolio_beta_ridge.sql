@@ -1,3 +1,5 @@
+LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
+
 -- Business Guide: Portfolio Risk Management with Ridge Regression
 -- Handle correlated securities in portfolio beta estimation
 

@@ -1,3 +1,5 @@
+LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
+
 -- Simple OLS with aggregate function (works directly with table data)
 SELECT
     category,

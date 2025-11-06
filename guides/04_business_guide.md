@@ -22,6 +22,7 @@ Real-world business applications of the Anofox Statistics extension, demonstrati
 
 
 ```sql
+
 -- Create sample marketing campaign data
 CREATE OR REPLACE TABLE weekly_campaigns AS
 SELECT
@@ -87,6 +88,7 @@ ORDER BY roi DESC;
 
 
 ```sql
+
 -- Create sample sales transaction data
 CREATE OR REPLACE TABLE sales_transactions AS
 SELECT
@@ -151,6 +153,7 @@ ORDER BY ABS(elasticity) DESC;
 
 
 ```sql
+
 -- Create sample customer data
 CREATE OR REPLACE TABLE customer_summary AS
 SELECT
@@ -213,6 +216,7 @@ WHERE cohort_month <= CURRENT_DATE - INTERVAL '12 months';
 
 
 ```sql
+
 -- Business Guide: Customer Lifetime Value by Segment (Weighted Analysis)
 -- Weight analysis by customer value to focus on high-value relationships
 
@@ -352,6 +356,7 @@ Budget segment: income_coef = 0.08, weighted_mse = 180 → Weaker income effect,
 
 
 ```sql
+
 -- Create sample stock returns data
 CREATE OR REPLACE TABLE daily_stock_returns AS
 SELECT
@@ -431,6 +436,7 @@ ORDER BY beta DESC;
 
 
 ```sql
+
 -- Business Guide: Portfolio Risk Management with Ridge Regression
 -- Handle correlated securities in portfolio beta estimation
 
@@ -567,6 +573,7 @@ UTIL: market_beta = 0.5, sector_beta = 0.3, value = 0.2 → Defensive stock, val
 
 
 ```sql
+
 -- Create sample loan data
 CREATE OR REPLACE TABLE loans AS
 SELECT
@@ -652,6 +659,7 @@ ORDER BY ABS(coefficient) DESC;
 
 
 ```sql
+
 -- Create sample quarterly revenue data
 CREATE OR REPLACE TABLE quarterly_financials AS
 SELECT
@@ -705,6 +713,7 @@ FROM forecast;
 
 
 ```sql
+
 -- Create sample daily sales data
 CREATE OR REPLACE TABLE daily_sales AS
 SELECT
@@ -779,6 +788,7 @@ ORDER BY forecast_accuracy DESC;
 
 
 ```sql
+
 -- Business Guide: Adaptive Demand Forecasting with RLS
 -- Real-time demand prediction that adapts to market changes
 
@@ -943,6 +953,7 @@ Product C: coef = 1.0, λ = 0.98 → Stable demand, predictable pattern
 
 
 ```sql
+
 -- Create sample manufacturing batch data
 CREATE OR REPLACE TABLE production_batches AS
 SELECT
@@ -1052,6 +1063,7 @@ ORDER BY ABS(impact_on_defects) DESC;
 
 
 ```sql
+
 -- Create sample employee productivity data
 CREATE OR REPLACE TABLE employee_productivity AS
 SELECT
@@ -1122,6 +1134,7 @@ ORDER BY training_impact DESC;
 
 
 ```sql
+
 -- Create sample monthly sales data by territory
 CREATE OR REPLACE TABLE monthly_sales AS
 SELECT
@@ -1205,6 +1218,7 @@ ORDER BY avg_sales DESC;
 
 
 ```sql
+
 -- Business Guide: Regional Sales Performance Analysis
 -- Analyze how pricing and promotions affect sales across different regions
 
@@ -1389,6 +1403,7 @@ South region: elasticity = -0.4, R² = 0.72 → Less price-sensitive, moderate f
 
 
 ```sql
+
 -- Create sample campaign data
 CREATE OR REPLACE TABLE campaigns AS
 SELECT
@@ -1459,6 +1474,7 @@ Use rolling regressions to detect changes in relationships:
 
 
 ```sql
+
 -- Create sample monthly data
 CREATE OR REPLACE TABLE monthly_data AS
 SELECT
@@ -1494,6 +1510,7 @@ Don't rely on single model - triangulate with multiple approaches:
 
 
 ```sql
+
 -- Create sample data with multiple predictors
 CREATE OR REPLACE TABLE model_comparison_data AS
 SELECT

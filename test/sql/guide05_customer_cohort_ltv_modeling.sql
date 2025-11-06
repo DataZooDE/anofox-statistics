@@ -1,3 +1,5 @@
+LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
+
 -- Create sample cohort behavior data
 CREATE OR REPLACE TABLE cohort_behavior AS
 SELECT

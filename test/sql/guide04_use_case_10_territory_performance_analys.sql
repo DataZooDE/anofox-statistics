@@ -1,3 +1,5 @@
+LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
+
 -- Create sample monthly sales data by territory
 CREATE OR REPLACE TABLE monthly_sales AS
 SELECT

@@ -1,3 +1,5 @@
+LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
+
 -- Predict for new values (use positional parameters and literal arrays)
 SELECT * FROM ols_predict_interval(
     [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],          -- y_train

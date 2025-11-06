@@ -41,6 +41,7 @@ anofox_statistics_ols_agg(
 
 
 ```sql
+
 -- Quick Start Example: Simple OLS Aggregate with GROUP BY
 -- Demonstrates basic per-group regression analysis
 
@@ -110,6 +111,7 @@ anofox_statistics_wls_agg(
 
 
 ```sql
+
 -- Quick Start Example: Weighted Least Squares Aggregate
 -- Demonstrates regression with observation weights (for heteroscedasticity)
 
@@ -180,6 +182,7 @@ anofox_statistics_ridge_agg(
 
 
 ```sql
+
 -- Quick Start Example: Ridge Regression Aggregate
 -- Demonstrates L2 regularization for handling multicollinearity
 
@@ -253,6 +256,7 @@ anofox_statistics_rls_agg(
 
 
 ```sql
+
 -- Quick Start Example: Recursive Least Squares Aggregate
 -- Demonstrates adaptive regression for changing relationships (online learning)
 
@@ -389,8 +393,6 @@ SELECT
     array_length(coefficients) = 2 as correct_size,
     converged
 FROM data, anofox_statistics_elastic_net(y, X, MAP{'alpha': 0.5, 'lambda': 0.1, 'intercept': false});
-
-
 -- =============================================================================
 -- PART 2: Elastic Net Aggregate Function
 -- =============================================================================
@@ -440,8 +442,6 @@ FROM (
     FROM data
 )
 WHERE time >= 3;  -- Only check windows with enough data
-
-
 -- =============================================================================
 -- PART 3: Renamed Diagnostic Functions (with anofox_statistics_ prefix)
 -- =============================================================================
@@ -484,8 +484,6 @@ SELECT
     SUM(CASE WHEN is_outlier THEN 1 ELSE 0 END) as n_outliers,
     MAX(ABS(std_residual)) > 2.0 as has_extreme_residual
 FROM data, anofox_statistics_residual_diagnostics(y_actual, y_predicted, 2.5);
-
-
 -- =============================================================================
 -- PART 4: Diagnostic Aggregate Functions
 -- =============================================================================
@@ -612,8 +610,6 @@ FROM (
     SELECT anofox_statistics_normality_test_agg(residual, MAP{'alpha': 0.01}) as result
     FROM data
 );
-
-
 -- =============================================================================
 -- PART 5: Integration Tests - Combined Usage
 -- =============================================================================
@@ -779,8 +775,6 @@ SELECT
     array_length(coefficients) = 2 as correct_size,
     converged
 FROM data, anofox_statistics_elastic_net(y, X, MAP{'alpha': 0.5, 'lambda': 0.1, 'intercept': false});
-
-
 -- =============================================================================
 -- PART 2: Elastic Net Aggregate Function
 -- =============================================================================
@@ -830,8 +824,6 @@ FROM (
     FROM data
 )
 WHERE time >= 3;  -- Only check windows with enough data
-
-
 -- =============================================================================
 -- PART 3: Renamed Diagnostic Functions (with anofox_statistics_ prefix)
 -- =============================================================================
@@ -874,8 +866,6 @@ SELECT
     SUM(CASE WHEN is_outlier THEN 1 ELSE 0 END) as n_outliers,
     MAX(ABS(std_residual)) > 2.0 as has_extreme_residual
 FROM data, anofox_statistics_residual_diagnostics(y_actual, y_predicted, 2.5);
-
-
 -- =============================================================================
 -- PART 4: Diagnostic Aggregate Functions
 -- =============================================================================
@@ -1002,8 +992,6 @@ FROM (
     SELECT anofox_statistics_normality_test_agg(residual, MAP{'alpha': 0.01}) as result
     FROM data
 );
-
-
 -- =============================================================================
 -- PART 5: Integration Tests - Combined Usage
 -- =============================================================================
@@ -1165,8 +1153,6 @@ SELECT
     array_length(coefficients) = 2 as correct_size,
     converged
 FROM data, anofox_statistics_elastic_net(y, X, MAP{'alpha': 0.5, 'lambda': 0.1, 'intercept': false});
-
-
 -- =============================================================================
 -- PART 2: Elastic Net Aggregate Function
 -- =============================================================================
@@ -1216,8 +1202,6 @@ FROM (
     FROM data
 )
 WHERE time >= 3;  -- Only check windows with enough data
-
-
 -- =============================================================================
 -- PART 3: Renamed Diagnostic Functions (with anofox_statistics_ prefix)
 -- =============================================================================
@@ -1260,8 +1244,6 @@ SELECT
     SUM(CASE WHEN is_outlier THEN 1 ELSE 0 END) as n_outliers,
     MAX(ABS(std_residual)) > 2.0 as has_extreme_residual
 FROM data, anofox_statistics_residual_diagnostics(y_actual, y_predicted, 2.5);
-
-
 -- =============================================================================
 -- PART 4: Diagnostic Aggregate Functions
 -- =============================================================================
@@ -1388,8 +1370,6 @@ FROM (
     SELECT anofox_statistics_normality_test_agg(residual, MAP{'alpha': 0.01}) as result
     FROM data
 );
-
-
 -- =============================================================================
 -- PART 5: Integration Tests - Combined Usage
 -- =============================================================================
@@ -1553,8 +1533,6 @@ SELECT
     array_length(coefficients) = 2 as correct_size,
     converged
 FROM data, anofox_statistics_elastic_net(y, X, MAP{'alpha': 0.5, 'lambda': 0.1, 'intercept': false});
-
-
 -- =============================================================================
 -- PART 2: Elastic Net Aggregate Function
 -- =============================================================================
@@ -1604,8 +1582,6 @@ FROM (
     FROM data
 )
 WHERE time >= 3;  -- Only check windows with enough data
-
-
 -- =============================================================================
 -- PART 3: Renamed Diagnostic Functions (with anofox_statistics_ prefix)
 -- =============================================================================
@@ -1648,8 +1624,6 @@ SELECT
     SUM(CASE WHEN is_outlier THEN 1 ELSE 0 END) as n_outliers,
     MAX(ABS(std_residual)) > 2.0 as has_extreme_residual
 FROM data, anofox_statistics_residual_diagnostics(y_actual, y_predicted, 2.5);
-
-
 -- =============================================================================
 -- PART 4: Diagnostic Aggregate Functions
 -- =============================================================================
@@ -1776,8 +1750,6 @@ FROM (
     SELECT anofox_statistics_normality_test_agg(residual, MAP{'alpha': 0.01}) as result
     FROM data
 );
-
-
 -- =============================================================================
 -- PART 5: Integration Tests - Combined Usage
 -- =============================================================================
@@ -1943,6 +1915,7 @@ anofox_statistics_wls(
 
 
 ```sql
+
 -- Variance proportional to x (positional parameters, literal arrays)
 SELECT * FROM anofox_statistics_wls(
     [50.0, 100.0, 150.0, 200.0, 250.0]::DOUBLE[],  -- y: sales
@@ -1972,6 +1945,7 @@ anofox_statistics_ridge(
 
 
 ```sql
+
 -- Table function requires literal arrays (positional parameters)
 SELECT * FROM anofox_statistics_ridge(
     [100.0, 98.0, 102.0, 97.0, 101.0]::DOUBLE[],  -- y: sales
@@ -2091,8 +2065,6 @@ SELECT
     array_length(coefficients) = 2 as correct_size,
     converged
 FROM data, anofox_statistics_elastic_net(y, X, MAP{'alpha': 0.5, 'lambda': 0.1, 'intercept': false});
-
-
 -- =============================================================================
 -- PART 2: Elastic Net Aggregate Function
 -- =============================================================================
@@ -2142,8 +2114,6 @@ FROM (
     FROM data
 )
 WHERE time >= 3;  -- Only check windows with enough data
-
-
 -- =============================================================================
 -- PART 3: Renamed Diagnostic Functions (with anofox_statistics_ prefix)
 -- =============================================================================
@@ -2186,8 +2156,6 @@ SELECT
     SUM(CASE WHEN is_outlier THEN 1 ELSE 0 END) as n_outliers,
     MAX(ABS(std_residual)) > 2.0 as has_extreme_residual
 FROM data, anofox_statistics_residual_diagnostics(y_actual, y_predicted, 2.5);
-
-
 -- =============================================================================
 -- PART 4: Diagnostic Aggregate Functions
 -- =============================================================================
@@ -2314,8 +2282,6 @@ FROM (
     SELECT anofox_statistics_normality_test_agg(residual, MAP{'alpha': 0.01}) as result
     FROM data
 );
-
-
 -- =============================================================================
 -- PART 5: Integration Tests - Combined Usage
 -- =============================================================================
@@ -2416,6 +2382,7 @@ anofox_statistics_ols_inference(
 
 
 ```sql
+
 -- Predict for new values (use positional parameters and literal arrays)
 SELECT * FROM ols_predict_interval(
     [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],          -- y_train
@@ -2455,6 +2422,7 @@ anofox_statistics_ols_predict_interval(
 
 
 ```sql
+
 SELECT
     predicted,
     ci_lower,
@@ -2490,6 +2458,7 @@ anofox_statistics_information_criteria(
 
 
 ```sql
+
 -- Compare two models (using literal arrays)
 WITH model1 AS (
     SELECT * FROM information_criteria(
@@ -2536,6 +2505,7 @@ anofox_statistics_residual_diagnostics(
 
 
 ```sql
+
 SELECT
     obs_id,
     residual,
@@ -2586,6 +2556,7 @@ anofox_statistics_normality_test(
 
 
 ```sql
+
 -- Test normality of residuals (use literal array)
 SELECT * FROM anofox_statistics_normality_test(
     [0.1, -0.2, 0.3, -0.1, 0.2, -0.3, 0.0, 0.1, -0.1, 0.2]::DOUBLE[],  -- residuals

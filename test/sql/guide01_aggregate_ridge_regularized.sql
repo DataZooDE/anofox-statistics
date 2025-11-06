@@ -1,3 +1,5 @@
+LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
+
 -- Quick Start Example: Ridge Regression Aggregate
 -- Demonstrates L2 regularization for handling multicollinearity
 

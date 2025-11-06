@@ -1,3 +1,5 @@
+LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
+
 -- Quick Start Example: Recursive Least Squares Aggregate
 -- Demonstrates adaptive regression for changing relationships (online learning)
 

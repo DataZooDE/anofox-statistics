@@ -1,3 +1,5 @@
+LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
+
 -- Business Guide: Regional Sales Performance Analysis
 -- Analyze how pricing and promotions affect sales across different regions
 

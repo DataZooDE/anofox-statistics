@@ -1,3 +1,5 @@
+LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
+
 -- Incremental model update procedure
 CREATE OR REPLACE PROCEDURE refresh_product_models(lookback_days INT DEFAULT 365)
 AS

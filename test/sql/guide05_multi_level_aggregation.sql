@@ -1,3 +1,5 @@
+LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
+
 -- Advanced Use Case: Multi-Level Hierarchical Aggregation
 -- Combine multiple GROUP BY levels with aggregates for complex analysis
 

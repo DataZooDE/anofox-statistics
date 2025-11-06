@@ -1,3 +1,5 @@
+LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
+
 SELECT
     date,
     ols_coeff_agg(sales, price) OVER (

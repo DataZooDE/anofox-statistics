@@ -1,3 +1,5 @@
+LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
+
 -- Statistics Guide: Comprehensive OLS Aggregate Example
 -- Demonstrates full statistical output and interpretation
 

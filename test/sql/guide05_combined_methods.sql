@@ -1,3 +1,5 @@
+LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
+
 -- Advanced Use Case: Combining All Regression Methods
 -- Compare OLS, WLS, Ridge, and RLS in a unified analysis pipeline
 

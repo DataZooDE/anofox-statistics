@@ -1,3 +1,5 @@
+LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
+
 -- Create sample quarterly revenue data
 CREATE OR REPLACE TABLE quarterly_financials AS
 SELECT

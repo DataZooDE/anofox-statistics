@@ -421,6 +421,7 @@ SELECT * FROM anofox_statistics_ols(
 
 
 ```sql
+
 -- Generate large dataset
 CREATE TABLE large_data AS
 SELECT

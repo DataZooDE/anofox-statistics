@@ -1,3 +1,5 @@
+LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
+
 -- Efficient processing of large datasets
 -- Strategy 1: Partition by time/category
 WITH monthly_partitions AS (

@@ -1,3 +1,5 @@
+LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
+
 -- Create sample business data
 CREATE OR REPLACE TABLE business_data AS
 SELECT

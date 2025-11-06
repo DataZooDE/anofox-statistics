@@ -1,3 +1,5 @@
+LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
+
 -- Statistics Guide: Weighted Least Squares - Handling Heteroscedasticity
 -- Demonstrates when and how to use weights for non-constant variance
 

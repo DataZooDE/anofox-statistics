@@ -1,3 +1,5 @@
+LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
+
 -- Quick Start Example: Simple OLS Aggregate with GROUP BY
 -- Demonstrates basic per-group regression analysis
 

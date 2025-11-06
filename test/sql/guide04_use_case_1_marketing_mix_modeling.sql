@@ -1,3 +1,5 @@
+LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
+
 -- Create sample marketing campaign data
 CREATE OR REPLACE TABLE weekly_campaigns AS
 SELECT

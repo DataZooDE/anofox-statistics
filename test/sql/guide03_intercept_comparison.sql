@@ -1,3 +1,5 @@
+LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
+
 -- Statistics Guide: Understanding the Intercept Parameter
 -- Demonstrates when to use intercept=true vs intercept=false
 

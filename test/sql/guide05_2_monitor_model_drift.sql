@@ -1,3 +1,5 @@
+LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
+
 -- Track model performance over time
 CREATE TABLE model_performance_log AS
 SELECT

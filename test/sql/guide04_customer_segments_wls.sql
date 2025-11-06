@@ -1,3 +1,5 @@
+LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
+
 -- Business Guide: Customer Lifetime Value by Segment (Weighted Analysis)
 -- Weight analysis by customer value to focus on high-value relationships
 

@@ -1,3 +1,5 @@
+LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
+
 -- Business Guide: Adaptive Demand Forecasting with RLS
 -- Real-time demand prediction that adapts to market changes
 

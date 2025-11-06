@@ -1,3 +1,5 @@
+LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
+
 -- Find most influential observations (using literal arrays)
 SELECT
     obs_id,

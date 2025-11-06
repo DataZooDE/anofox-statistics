@@ -1,3 +1,5 @@
+LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
+
 -- Table function requires literal arrays (positional parameters)
 SELECT * FROM anofox_statistics_ridge(
     [100.0, 98.0, 102.0, 97.0, 101.0]::DOUBLE[],  -- y: sales

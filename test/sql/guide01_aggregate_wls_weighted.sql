@@ -1,3 +1,5 @@
+LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
+
 -- Quick Start Example: Weighted Least Squares Aggregate
 -- Demonstrates regression with observation weights (for heteroscedasticity)
 

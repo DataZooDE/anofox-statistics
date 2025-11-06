@@ -43,6 +43,7 @@ This example demonstrates a basic OLS fit using the extension. The function comp
 
 
 ```sql
+
 -- Simple OLS with aggregate function (works directly with table data)
 SELECT
     category,
@@ -68,6 +69,7 @@ For per-group regression analysis, use the `anofox_statistics_ols_agg` aggregate
 
 
 ```sql
+
 -- Statistics Guide: Comprehensive OLS Aggregate Example
 -- Demonstrates full statistical output and interpretation
 
@@ -131,6 +133,7 @@ The intercept parameter controls whether the regression line must pass through t
 
 
 ```sql
+
 -- Statistics Guide: Understanding the Intercept Parameter
 -- Demonstrates when to use intercept=true vs intercept=false
 
@@ -233,6 +236,7 @@ This example shows ridge regression with a regularization parameter λ=0.1. The 
 
 
 ```sql
+
 -- Table function requires literal arrays (positional parameters)
 SELECT * FROM anofox_statistics_ridge(
     [100.0, 98.0, 102.0, 97.0, 101.0]::DOUBLE[],  -- y: sales
@@ -258,6 +262,7 @@ For per-group ridge regression, use `anofox_statistics_ridge_agg` with lambda pa
 
 
 ```sql
+
 -- Statistics Guide: Ridge Regression - Handling Multicollinearity
 -- Demonstrates lambda tuning and coefficient shrinkage
 
@@ -373,6 +378,7 @@ This example demonstrates WLS when observations have different levels of precisi
 
 
 ```sql
+
 -- Variance proportional to x (positional parameters, literal arrays)
 SELECT * FROM anofox_statistics_wls(
     [50.0, 100.0, 150.0, 200.0, 250.0]::DOUBLE[],  -- y: sales
@@ -400,6 +406,7 @@ SELECT * FROM anofox_statistics_wls(
 
 
 ```sql
+
 -- Statistics Guide: Weighted Least Squares - Handling Heteroscedasticity
 -- Demonstrates when and how to use weights for non-constant variance
 
@@ -505,6 +512,7 @@ This query performs hypothesis tests for each coefficient, testing whether each 
 
 
 ```sql
+
 SELECT
     variable,
     estimate,
@@ -585,6 +593,7 @@ This example demonstrates both confidence intervals (for the mean) and predictio
 
 
 ```sql
+
 SELECT
     predicted,
     ci_lower,
@@ -643,6 +652,7 @@ Residual diagnostics help you assess whether the regression assumptions hold and
 
 
 ```sql
+
 SELECT
     obs_id,
     residual,
@@ -706,6 +716,7 @@ DFFITSᵢ = tᵢ · √(hᵢᵢ/(1-hᵢᵢ))
 **Example**:
 
 ```sql
+
 -- Find most influential observations (using literal arrays)
 SELECT
     obs_id,
@@ -748,6 +759,7 @@ where Rⱼ² = R² from regressing xⱼ on other x's
 **Example**:
 
 ```sql
+
 SELECT
     variable_name,
     vif,
@@ -785,6 +797,7 @@ where S = skewness, K = kurtosis
 **Example**:
 
 ```sql
+
 -- Test normality of residuals (use literal array)
 SELECT * FROM anofox_statistics_normality_test(
     [0.1, -0.2, 0.3, -0.1, 0.2, -0.3, 0.0, 0.1, -0.1, 0.2]::DOUBLE[],  -- residuals
@@ -837,6 +850,7 @@ AICc = AIC + 2k(k+1)/(n-k-1)
 **Example**:
 
 ```sql
+
 -- Compare two models (using literal arrays)
 WITH model1 AS (
     SELECT * FROM information_criteria(
@@ -904,6 +918,7 @@ R̄² = 0.82: Explains 82% adjusting for complexity
 
 
 ```sql
+
 -- 1. Residuals vs Fitted
 SELECT
     predicted,
@@ -957,6 +972,7 @@ where Kₜ = Pₜ₋₁xₜ / (1 + xₜ'Pₜ₋₁xₜ)
 **Example**:
 
 ```sql
+
 -- Recursive Least Squares (positional parameters, literal arrays)
 SELECT * FROM anofox_statistics_rls(
     [10.0, 11.0, 12.0, 13.0, 14.0, 15.0]::DOUBLE[],  -- y: streaming_values
@@ -976,6 +992,7 @@ SELECT * FROM anofox_statistics_rls(
 
 
 ```sql
+
 -- Statistics Guide: Recursive Least Squares - Adaptive Online Learning
 -- Demonstrates forgetting factor tuning for time-varying relationships
 
@@ -1106,6 +1123,7 @@ Use RLS aggregates when per-group relationships are non-stationary and recent da
 **Rolling Window**: Fixed-size window moves through time
 
 ```sql
+
 SELECT
     date,
     ols_coeff_agg(sales, price) OVER (
@@ -1118,6 +1136,7 @@ FROM time_series;
 **Expanding Window**: Window starts small, grows over time
 
 ```sql
+
 SELECT
     date,
     ols_coeff_agg(sales, price) OVER (
@@ -1150,6 +1169,7 @@ FROM time_series;
 **Example Workflow**:
 
 ```sql
+
 -- Test: Does advertising affect sales?
 -- H₀: β_advertising = 0
 -- H₁: β_advertising ≠ 0

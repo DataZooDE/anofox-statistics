@@ -1,3 +1,5 @@
+LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
+
 -- Export model coefficients for external scoring (using literal array sample)
 COPY (
     WITH model AS (

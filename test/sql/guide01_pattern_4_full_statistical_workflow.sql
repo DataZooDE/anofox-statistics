@@ -1,3 +1,5 @@
+LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
+
 -- Create sample data table
 CREATE OR REPLACE TABLE workflow_sample AS
 SELECT * FROM (VALUES

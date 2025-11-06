@@ -1,3 +1,5 @@
+LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
+
 -- Create materialized model table
 CREATE TABLE IF NOT EXISTS model_results_cache AS
 WITH source_data AS (

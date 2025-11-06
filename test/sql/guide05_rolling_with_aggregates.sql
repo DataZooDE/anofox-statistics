@@ -1,3 +1,5 @@
+LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
+
 -- Advanced Use Case: Window Functions + GROUP BY with Aggregates
 -- Combine rolling analysis with per-group regression
 

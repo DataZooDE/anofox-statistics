@@ -1,3 +1,5 @@
+LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
+
 -- Test: Does advertising affect sales?
 -- H₀: β_advertising = 0
 -- H₁: β_advertising ≠ 0

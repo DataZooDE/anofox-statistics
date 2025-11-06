@@ -1,3 +1,5 @@
+LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
+
 -- Create sample sales transaction data
 CREATE OR REPLACE TABLE sales_transactions AS
 SELECT

@@ -31,11 +31,13 @@ LOAD '/path/to/anofox_statistics.duckdb_extension';
 
 
 ```sql
--- Basic OLS fit (use positional parameters)
-SELECT * FROM anofox_statistics_ols(
-    [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],  -- y
-    [1.1, 2.1, 2.9, 4.2, 4.8]::DOUBLE[],  -- x1
-    true                                   -- add_intercept
+
+-- Simple linear regression using ridge with lambda=0 (equivalent to OLS)
+SELECT * FROM anofox_statistics_ridge(
+    [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],      -- y
+    [1.1, 2.1, 2.9, 4.2, 4.8]::DOUBLE[],      -- x1
+    0.0::DOUBLE,                               -- lambda=0 gives OLS
+    true::BOOLEAN                              -- add_intercept
 );
 ```
 
@@ -65,6 +67,7 @@ SELECT * FROM anofox_statistics_ols(
 
 
 ```sql
+
 -- Inference with confidence intervals (use positional parameters)
 SELECT
     variable,
@@ -108,6 +111,7 @@ The coefficient x1 = 2.01 is highly significant (p < 0.0001), meaning we can con
 
 
 ```sql
+
 -- Create sample data
 CREATE TABLE sales AS
 SELECT
@@ -154,6 +158,7 @@ This analysis completed in a single query across all products - no need for loop
 
 
 ```sql
+
 -- Create time series
 CREATE TABLE time_series AS
 SELECT
@@ -202,6 +207,7 @@ WHERE time_idx >= 10;
 
 
 ```sql
+
 -- Predict for new values (use positional parameters and literal arrays)
 SELECT * FROM ols_predict_interval(
     [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],          -- y_train
@@ -244,6 +250,7 @@ Use these intervals for risk assessment: plan for the midpoint, but prepare for 
 
 
 ```sql
+
 -- Compare models (use positional parameters)
 SELECT * FROM information_criteria(
     [2.1, 4.0, 6.1, 7.9, 10.2, 11.8, 14.1, 15.9]::DOUBLE[],
@@ -281,22 +288,20 @@ When comparing models, choose the one with the lowest AIC (prediction focus) or 
 
 
 ```sql
--- Detect outliers and influential points (use positional parameters)
+
+-- Detect outliers and influential points using residual diagnostics
+WITH data AS (
+    SELECT
+        [2.1, 4.0, 6.1, 7.9, 10.2, 11.8, 14.1, 25.0]::DOUBLE[] as y_actual,  -- Last point is outlier
+        [2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 14.0, 16.0]::DOUBLE[] as y_predicted  -- Fitted values
+)
 SELECT
     obs_id,
     ROUND(residual, 3) as residual,
-    ROUND(leverage, 3) as leverage,
-    ROUND(cooks_distance, 3) as cooks_d,
-    is_outlier,
-    is_influential
-FROM anofox_statistics_residual_diagnostics(
-    [2.1, 4.0, 6.1, 7.9, 10.2, 11.8, 14.1, 25.0]::DOUBLE[], -- y (last point is outlier)
-    [[1.0], [2.0], [3.0], [4.0], [5.0], [6.0], [7.0], [8.0]]::DOUBLE[][], -- x
-    true,  -- add_intercept
-    2.5,   -- outlier_threshold
-    0.5    -- influence_threshold
-)
-ORDER BY cooks_distance DESC
+    ROUND(std_residual, 3) as std_residual,
+    is_outlier
+FROM data, anofox_statistics_residual_diagnostics(y_actual, y_predicted, 2.5)
+ORDER BY ABS(std_residual) DESC
 LIMIT 3;
 ```
 
@@ -335,6 +340,7 @@ The extension provides four specialized aggregate functions that work seamlessly
 
 
 ```sql
+
 -- Quick Start Example: Simple OLS Aggregate with GROUP BY
 -- Demonstrates basic per-group regression analysis
 
@@ -390,6 +396,7 @@ This runs multiple regressions in parallel across all groups efficiently.
 
 
 ```sql
+
 -- Quick Start Example: Weighted Least Squares Aggregate
 -- Demonstrates regression with observation weights (for heteroscedasticity)
 
@@ -448,6 +455,7 @@ Weighting ensures high-value or high-quality observations have appropriate influ
 
 
 ```sql
+
 -- Quick Start Example: Ridge Regression Aggregate
 -- Demonstrates L2 regularization for handling multicollinearity
 
@@ -509,6 +517,7 @@ Use lambda=1.0 as starting point; increase if coefficients seem unstable.
 
 
 ```sql
+
 -- Quick Start Example: Recursive Least Squares Aggregate
 -- Demonstrates adaptive regression for changing relationships (online learning)
 
@@ -570,6 +579,7 @@ These patterns demonstrate best practices for different analytical scenarios.
 
 
 ```sql
+
 SELECT ols_coeff_agg(y, x) as slope FROM data;
 ```
 
@@ -579,6 +589,7 @@ SELECT ols_coeff_agg(y, x) as slope FROM data;
 
 
 ```sql
+
 SELECT category, ols_fit_agg(y, x) as model
 FROM data GROUP BY category;
 ```
@@ -589,6 +600,7 @@ FROM data GROUP BY category;
 
 
 ```sql
+
 SELECT *, ols_coeff_agg(y, x) OVER (
     ORDER BY time ROWS BETWEEN 30 PRECEDING AND CURRENT ROW
 ) as rolling_coef FROM data;
@@ -600,6 +612,7 @@ SELECT *, ols_coeff_agg(y, x) OVER (
 
 
 ```sql
+
 -- Create sample data table
 CREATE OR REPLACE TABLE workflow_sample AS
 SELECT * FROM (VALUES
@@ -691,6 +704,7 @@ LOAD '/full/path/to/anofox_statistics.duckdb_extension';
 ### Issue: Type mismatch
 
 ```sql
+
 -- Ensure arrays are DOUBLE[] and use positional parameters
 SELECT * FROM anofox_statistics_ols(
     [1.0, 2.0, 3.0]::DOUBLE[],  -- y: Cast to DOUBLE[]

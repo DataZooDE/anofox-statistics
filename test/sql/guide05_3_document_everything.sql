@@ -1,3 +1,5 @@
+LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
+
 -- Model metadata table
 CREATE TABLE model_registry (
     model_id VARCHAR PRIMARY KEY,

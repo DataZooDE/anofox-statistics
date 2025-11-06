@@ -1,3 +1,5 @@
+LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
+
 -- Statistics Guide: Ridge Regression - Handling Multicollinearity
 -- Demonstrates lambda tuning and coefficient shrinkage
 

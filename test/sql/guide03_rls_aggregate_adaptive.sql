@@ -1,3 +1,5 @@
+LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
+
 -- Statistics Guide: Recursive Least Squares - Adaptive Online Learning
 -- Demonstrates forgetting factor tuning for time-varying relationships
 

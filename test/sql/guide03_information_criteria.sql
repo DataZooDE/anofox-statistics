@@ -1,3 +1,5 @@
+LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
+
 -- Compare two models (using literal arrays)
 WITH model1 AS (
     SELECT * FROM information_criteria(

@@ -1,3 +1,5 @@
+LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
+
 -- Check list before deploying model (using literal array examples)
 WITH validation AS (
     SELECT

@@ -1,3 +1,5 @@
+LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
+
 -- Create sample manufacturing batch data
 CREATE OR REPLACE TABLE production_batches AS
 SELECT

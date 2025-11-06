@@ -1,3 +1,5 @@
+LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
+
 -- Generate large dataset
 CREATE TABLE large_data AS
 SELECT

@@ -1,3 +1,5 @@
+LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
+
 -- Create sample A/B test data
 CREATE OR REPLACE TABLE ab_test_results AS
 SELECT

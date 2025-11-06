@@ -29,7 +29,8 @@ process_template() {
             if [ -f "$sql_file" ]; then
                 echo ''  # Blank line before code fence for markdownlint
                 echo '```sql'
-                cat "$sql_file"
+                # Strip LOAD statements from SQL files for documentation
+                grep -v "^LOAD 'build/release" "$sql_file" | sed '/^$/N;/^\n$/d'
                 echo '```'
             else
                 echo "⚠️  Warning: File not found: $sql_file" >&2
