@@ -303,7 +303,7 @@ void ElasticNetFitFunction::Register(ExtensionLoader &loader) {
 	};
 
 	TableFunction function("anofox_statistics_elastic_net", arguments, ElasticNetFitExecute, ElasticNetFitBind);
-	function.named_parameters["options"] = LogicalType::MAP(LogicalType::VARCHAR, LogicalType::ANY);
+	function.named_parameters["options"] = LogicalType::ANY;
 
 	loader.RegisterFunction(function);
 
