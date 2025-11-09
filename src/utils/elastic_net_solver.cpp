@@ -17,7 +17,7 @@ double ElasticNetSolver::SoftThreshold(double z, double gamma) {
 }
 
 ElasticNetResult ElasticNetSolver::Fit(const Eigen::VectorXd &y, const Eigen::MatrixXd &X, double alpha, double lambda,
-                                        idx_t max_iterations, double tolerance) {
+                                       idx_t max_iterations, double tolerance) {
 
 	idx_t n = static_cast<idx_t>(X.rows());
 	idx_t p = static_cast<idx_t>(X.cols());
@@ -58,7 +58,7 @@ ElasticNetResult ElasticNetSolver::Fit(const Eigen::VectorXd &y, const Eigen::Ma
 		idx_t df = (n > result.n_nonzero) ? (n - result.n_nonzero) : 1;
 		result.mse = ss_res / static_cast<double>(df);
 		result.rmse = std::sqrt(result.mse);
-		result.adj_r_squared = 1.0 - (1.0 - result.r_squared) * (n - 1) / static_cast<double>(df);
+		result.adj_r_squared = 1.0 - (1.0 - result.r_squared) * static_cast<double>(n - 1) / static_cast<double>(df);
 
 		return result;
 	}
@@ -92,11 +92,11 @@ ElasticNetResult ElasticNetSolver::Fit(const Eigen::VectorXd &y, const Eigen::Ma
 			double rho = X.col(j).dot(residuals);
 
 			// Soft thresholding for L1 penalty
-			double threshold = lambda * alpha * n;
+			double threshold = lambda * alpha * static_cast<double>(n);
 			double z = SoftThreshold(rho, threshold);
 
 			// Update coefficient with L2 penalty
-			double denominator = x_norms_sq(j) + lambda * (1.0 - alpha) * n;
+			double denominator = x_norms_sq(j) + lambda * (1.0 - alpha) * static_cast<double>(n);
 			double beta_new = z / denominator;
 
 			result.coefficients(j) = beta_new;
@@ -138,10 +138,10 @@ ElasticNetResult ElasticNetSolver::Fit(const Eigen::VectorXd &y, const Eigen::Ma
 	idx_t df = (n > result.n_nonzero) ? (n - result.n_nonzero) : 1;
 	result.mse = ss_res / static_cast<double>(df);
 	result.rmse = std::sqrt(result.mse);
-	result.adj_r_squared = 1.0 - (1.0 - result.r_squared) * (n - 1) / static_cast<double>(df);
+	result.adj_r_squared = 1.0 - (1.0 - result.r_squared) * static_cast<double>(n - 1) / static_cast<double>(df);
 
-	ANOFOX_DEBUG("Elastic Net: converged=" << result.converged << ", iterations=" << result.n_iterations
-	                                       << ", nonzero=" << result.n_nonzero << "/" << p << ", R²=" << result.r_squared);
+	ANOFOX_DEBUG("Elastic Net: converged=" << result.converged << ", iterations=" << result.n_iterations << ", nonzero="
+	                                       << result.n_nonzero << "/" << p << ", R²=" << result.r_squared);
 
 	return result;
 }

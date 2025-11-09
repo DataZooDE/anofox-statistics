@@ -40,7 +40,8 @@ struct ResidualDiagnosticsOptions {
 		for (idx_t i = 0; i < map_children.size(); i++) {
 			auto &key_val = map_children[i];
 			auto key_list = ListValue::GetChildren(key_val);
-			if (key_list.size() != 2) continue;
+			if (key_list.size() != 2)
+				continue;
 
 			string key = key_list[0].ToString();
 			auto &value = key_list[1];
@@ -73,7 +74,7 @@ static void ResidualDiagnosticsInitialize(const AggregateFunction &function, dat
 }
 
 static void ResidualDiagnosticsUpdate(Vector inputs[], AggregateInputData &aggr_input_data, idx_t input_count,
-                                       Vector &state_vector, idx_t count) {
+                                      Vector &state_vector, idx_t count) {
 
 	UnifiedVectorFormat state_data;
 	state_vector.ToUnifiedFormat(count, state_data);
@@ -99,7 +100,8 @@ static void ResidualDiagnosticsUpdate(Vector inputs[], AggregateInputData &aggr_
 		auto y_predicted_idx = y_predicted_data.sel->get_index(i);
 		auto options_idx = options_data.sel->get_index(i);
 
-		if (!y_actual_data.validity.RowIsValid(y_actual_idx) || !y_predicted_data.validity.RowIsValid(y_predicted_idx)) {
+		if (!y_actual_data.validity.RowIsValid(y_actual_idx) ||
+		    !y_predicted_data.validity.RowIsValid(y_predicted_idx)) {
 			continue;
 		}
 
@@ -115,7 +117,8 @@ static void ResidualDiagnosticsUpdate(Vector inputs[], AggregateInputData &aggr_
 	}
 }
 
-static void ResidualDiagnosticsCombine(Vector &source, Vector &target, AggregateInputData &aggr_input_data, idx_t count) {
+static void ResidualDiagnosticsCombine(Vector &source, Vector &target, AggregateInputData &aggr_input_data,
+                                       idx_t count) {
 	auto source_ptr = FlatVector::GetData<ResidualDiagnosticsAggregateState *>(source);
 	auto target_ptr = FlatVector::GetData<ResidualDiagnosticsAggregateState *>(target);
 
@@ -134,7 +137,7 @@ static void ResidualDiagnosticsCombine(Vector &source, Vector &target, Aggregate
 }
 
 static void ResidualDiagnosticsFinalize(Vector &state_vector, AggregateInputData &aggr_input_data, Vector &result,
-                                         idx_t count, idx_t offset) {
+                                        idx_t count, idx_t offset) {
 
 	auto states = FlatVector::GetData<ResidualDiagnosticsAggregateState *>(state_vector);
 	auto &result_validity = FlatVector::Validity(result);
@@ -225,9 +228,9 @@ static void ResidualDiagnosticsFinalize(Vector &state_vector, AggregateInputData
 				is_outlier_child_data[list_offset + j] = is_outlier[j];
 			}
 
-			residuals_entries[result_idx] = list_entry_t{list_offset, n};
-			std_residuals_entries[result_idx] = list_entry_t{list_offset, n};
-			is_outlier_entries[result_idx] = list_entry_t{list_offset, n};
+			residuals_entries[result_idx] = list_entry_t {list_offset, n};
+			std_residuals_entries[result_idx] = list_entry_t {list_offset, n};
+			is_outlier_entries[result_idx] = list_entry_t {list_offset, n};
 			n_obs_data[result_idx] = static_cast<int64_t>(n);
 			n_outliers_data[result_idx] = static_cast<int64_t>(n_outliers);
 

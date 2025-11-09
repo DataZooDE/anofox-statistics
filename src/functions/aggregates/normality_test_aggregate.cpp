@@ -35,7 +35,8 @@ struct NormalityTestOptions {
 		for (idx_t i = 0; i < map_children.size(); i++) {
 			auto &key_val = map_children[i];
 			auto key_list = ListValue::GetChildren(key_val);
-			if (key_list.size() != 2) continue;
+			if (key_list.size() != 2)
+				continue;
 
 			string key = key_list[0].ToString();
 			auto &value = key_list[1];
@@ -66,7 +67,7 @@ static void NormalityTestInitialize(const AggregateFunction &function, data_ptr_
 }
 
 static void NormalityTestUpdate(Vector inputs[], AggregateInputData &aggr_input_data, idx_t input_count,
-                                 Vector &state_vector, idx_t count) {
+                                Vector &state_vector, idx_t count) {
 
 	UnifiedVectorFormat state_data;
 	state_vector.ToUnifiedFormat(count, state_data);
@@ -122,7 +123,7 @@ static void NormalityTestCombine(Vector &source, Vector &target, AggregateInputD
 }
 
 static void NormalityTestFinalize(Vector &state_vector, AggregateInputData &aggr_input_data, Vector &result,
-                                   idx_t count, idx_t offset) {
+                                  idx_t count, idx_t offset) {
 
 	auto states = FlatVector::GetData<NormalityTestAggregateState *>(state_vector);
 	auto &result_validity = FlatVector::Validity(result);
@@ -142,7 +143,7 @@ static void NormalityTestFinalize(Vector &state_vector, AggregateInputData &aggr
 		idx_t result_idx = offset + i;
 
 		idx_t n = state.residuals.size();
-		if (n < 8) {  // Need at least 8 observations for reliable JB test
+		if (n < 8) { // Need at least 8 observations for reliable JB test
 			result_validity.SetInvalid(result_idx);
 			continue;
 		}
@@ -171,7 +172,7 @@ static void NormalityTestFinalize(Vector &state_vector, AggregateInputData &aggr
 
 		// Sample skewness and kurtosis
 		double skewness = m3 / (std_dev * std_dev * std_dev);
-		double kurtosis = (m4 / (variance * variance)) - 3.0;  // Excess kurtosis
+		double kurtosis = (m4 / (variance * variance)) - 3.0; // Excess kurtosis
 
 		// Jarque-Bera test statistic: JB = n/6 * (S² + K²/4)
 		double jb_statistic = static_cast<double>(n) / 6.0 * (skewness * skewness + kurtosis * kurtosis / 4.0);

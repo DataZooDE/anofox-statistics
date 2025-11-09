@@ -143,7 +143,7 @@ static void WlsCombine(Vector &source, Vector &target, AggregateInputData &aggr_
 		target_state.x_matrix.insert(target_state.x_matrix.end(), source_state.x_matrix.begin(),
 		                             source_state.x_matrix.end());
 		target_state.weights.insert(target_state.weights.end(), source_state.weights.begin(),
-		                             source_state.weights.end());
+		                            source_state.weights.end());
 
 		if (target_state.n_features == 0) {
 			target_state.n_features = source_state.n_features;
@@ -313,12 +313,13 @@ static void WlsFinalize(Vector &state_vector, AggregateInputData &aggr_input_dat
  * Computes weighted least squares on the current window frame(s) for each row
  */
 static void WlsWindow(AggregateInputData &aggr_input_data, const WindowPartitionInput &partition,
-                      const_data_ptr_t g_state, data_ptr_t l_state, const SubFrames &subframes,
-                      Vector &result, idx_t rid) {
+                      const_data_ptr_t g_state, data_ptr_t l_state, const SubFrames &subframes, Vector &result,
+                      idx_t rid) {
 
 	auto &result_validity = FlatVector::Validity(result);
 
-	// Result: STRUCT(coefficients DOUBLE[], intercept DOUBLE, r2 DOUBLE, adj_r2 DOUBLE, weighted_mse DOUBLE, n_obs BIGINT)
+	// Result: STRUCT(coefficients DOUBLE[], intercept DOUBLE, r2 DOUBLE, adj_r2 DOUBLE, weighted_mse DOUBLE, n_obs
+	// BIGINT)
 	auto &struct_entries = StructVector::GetEntries(result);
 	auto &coef_list = *struct_entries[0];
 	auto intercept_data = FlatVector::GetData<double>(*struct_entries[1]);
@@ -343,10 +344,10 @@ static void WlsWindow(AggregateInputData &aggr_input_data, const WindowPartition
 	chunk.Initialize(Allocator::DefaultAllocator(), partition.inputs->Types());
 
 	while (partition.inputs->Scan(scan_state, chunk)) {
-		auto &y_chunk = chunk.data[0];  // y
-		auto &x_array_chunk = chunk.data[1];  // x array
+		auto &y_chunk = chunk.data[0];       // y
+		auto &x_array_chunk = chunk.data[1]; // x array
 		auto &weight_chunk = chunk.data[2];  // weight
-		auto &options_chunk = chunk.data[3];  // options
+		auto &options_chunk = chunk.data[3]; // options
 
 		UnifiedVectorFormat y_data;
 		UnifiedVectorFormat x_array_data;
@@ -534,7 +535,7 @@ static void WlsWindow(AggregateInputData &aggr_input_data, const WindowPartition
 	auto coef_data = FlatVector::GetData<double>(coef_child);
 	auto &coef_validity = FlatVector::Validity(coef_child);
 
-	idx_t list_offset = rid * p;  // Each result gets p coefficients
+	idx_t list_offset = rid * p; // Each result gets p coefficients
 	ListVector::Reserve(coef_list, (rid + 1) * p);
 
 	for (idx_t j = 0; j < p; j++) {

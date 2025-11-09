@@ -48,7 +48,7 @@ static void ElasticNetInitialize(const AggregateFunction &function, data_ptr_t s
 }
 
 static void ElasticNetUpdate(Vector inputs[], AggregateInputData &aggr_input_data, idx_t input_count,
-                              Vector &state_vector, idx_t count) {
+                             Vector &state_vector, idx_t count) {
 
 	UnifiedVectorFormat state_data;
 	state_vector.ToUnifiedFormat(count, state_data);
@@ -143,7 +143,7 @@ static void ElasticNetCombine(Vector &source, Vector &target, AggregateInputData
 }
 
 static void ElasticNetFinalize(Vector &state_vector, AggregateInputData &aggr_input_data, Vector &result, idx_t count,
-                                idx_t offset) {
+                               idx_t offset) {
 
 	auto states = FlatVector::GetData<ElasticNetAggregateState *>(state_vector);
 	auto &result_validity = FlatVector::Validity(result);
@@ -241,9 +241,9 @@ static void ElasticNetFinalize(Vector &state_vector, AggregateInputData &aggr_in
 		n_nonzero_data[result_idx] = static_cast<int64_t>(fit_result.n_nonzero);
 		n_obs_data[result_idx] = static_cast<int64_t>(n);
 
-		ANOFOX_DEBUG("Elastic Net aggregate: n=" << n << ", p=" << p << ", alpha=" << state.options.alpha
-		                                          << ", lambda=" << state.options.lambda
-		                                          << ", nonzero=" << fit_result.n_nonzero << ", r2=" << fit_result.r_squared);
+		ANOFOX_DEBUG("Elastic Net aggregate: n=" << n << ", p=" << p << ", alpha=" << state.options.alpha << ", lambda="
+		                                         << state.options.lambda << ", nonzero=" << fit_result.n_nonzero
+		                                         << ", r2=" << fit_result.r_squared);
 	}
 
 	ListVector::SetListSize(coef_list, list_offset);
@@ -254,8 +254,8 @@ static void ElasticNetFinalize(Vector &state_vector, AggregateInputData &aggr_in
  * Computes Elastic Net regression on the current window frame(s) for each row
  */
 static void ElasticNetWindow(AggregateInputData &aggr_input_data, const WindowPartitionInput &partition,
-                              const_data_ptr_t g_state, data_ptr_t l_state, const SubFrames &subframes,
-                              Vector &result, idx_t rid) {
+                             const_data_ptr_t g_state, data_ptr_t l_state, const SubFrames &subframes, Vector &result,
+                             idx_t rid) {
 
 	auto &result_validity = FlatVector::Validity(result);
 
@@ -423,8 +423,8 @@ static void ElasticNetWindow(AggregateInputData &aggr_input_data, const WindowPa
 	n_obs_data[rid] = static_cast<int64_t>(n);
 
 	ANOFOX_DEBUG("Elastic Net window: n=" << n << ", p=" << p << ", alpha=" << options.alpha
-	                                       << ", lambda=" << options.lambda << ", nonzero=" << fit_result.n_nonzero
-	                                       << ", r2=" << fit_result.r_squared);
+	                                      << ", lambda=" << options.lambda << ", nonzero=" << fit_result.n_nonzero
+	                                      << ", r2=" << fit_result.r_squared);
 }
 
 void ElasticNetAggregateFunction::Register(ExtensionLoader &loader) {
@@ -442,7 +442,8 @@ void ElasticNetAggregateFunction::Register(ExtensionLoader &loader) {
 	elastic_net_struct_fields.push_back(make_pair("n_obs", LogicalType::BIGINT));
 
 	AggregateFunction anofox_statistics_elastic_net_agg(
-	    "anofox_statistics_elastic_net_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
+	    "anofox_statistics_elastic_net_agg",
+	    {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
 	    LogicalType::STRUCT(elastic_net_struct_fields), AggregateFunction::StateSize<ElasticNetAggregateState>,
 	    ElasticNetInitialize, ElasticNetUpdate, ElasticNetCombine, ElasticNetFinalize,
 	    FunctionNullHandling::DEFAULT_NULL_HANDLING, nullptr, nullptr, nullptr, nullptr, ElasticNetWindow, nullptr,

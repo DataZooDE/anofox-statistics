@@ -144,8 +144,8 @@ static void OlsFinalize(Vector &state_vector, AggregateInputData &aggr_input_dat
 			sum_y += state.y_values[j];
 		}
 
-		double mean_x = sum_x / n;
-		double mean_y = sum_y / n;
+		double mean_x = sum_x / static_cast<double>(n);
+		double mean_y = sum_y / static_cast<double>(n);
 
 		double cov_xy = 0.0;
 		double var_x = 0.0;
@@ -216,8 +216,8 @@ static void OlsFitFinalize(Vector &state_vector, AggregateInputData &aggr_input_
 			sum_y += state.y_values[j];
 		}
 
-		double mean_x = sum_x / n;
-		double mean_y = sum_y / n;
+		double mean_x = sum_x / static_cast<double>(n);
+		double mean_y = sum_y / static_cast<double>(n);
 
 		double cov_xy = 0.0;
 		double var_x = 0.0;
@@ -254,7 +254,7 @@ static void OlsFitFinalize(Vector &state_vector, AggregateInputData &aggr_input_
 		double r2 = (ss_tot > 1e-10) ? (1.0 - ss_res / ss_tot) : 0.0;
 
 		// Standard error of coefficient: sqrt(MSE / sum((x - mean_x)²))
-		double mse = (n > 2) ? (ss_res / (n - 2)) : 0.0;
+		double mse = (n > 2) ? (ss_res / static_cast<double>(n - 2)) : 0.0;
 		double std_error = std::sqrt(mse / var_x);
 
 		// Fill struct fields
@@ -522,8 +522,8 @@ static void OlsArrayFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
  * Computes OLS on the current window frame(s) for each row
  */
 static void OlsArrayWindow(AggregateInputData &aggr_input_data, const WindowPartitionInput &partition,
-                           const_data_ptr_t g_state, data_ptr_t l_state, const SubFrames &subframes,
-                           Vector &result, idx_t rid) {
+                           const_data_ptr_t g_state, data_ptr_t l_state, const SubFrames &subframes, Vector &result,
+                           idx_t rid) {
 
 	auto &result_validity = FlatVector::Validity(result);
 
@@ -556,9 +556,9 @@ static void OlsArrayWindow(AggregateInputData &aggr_input_data, const WindowPart
 	idx_t row_idx = 0;
 	while (partition.inputs->Scan(scan_state, chunk)) {
 		// Access columns by their column IDs
-		auto &y_chunk = chunk.data[0];  // First input is y
-		auto &x_array_chunk = chunk.data[1];  // Second input is x array
-		auto &options_chunk = chunk.data[2];  // Third input is options
+		auto &y_chunk = chunk.data[0];       // First input is y
+		auto &x_array_chunk = chunk.data[1]; // Second input is x array
+		auto &options_chunk = chunk.data[2]; // Third input is options
 
 		UnifiedVectorFormat y_data;
 		UnifiedVectorFormat x_array_data;
@@ -718,7 +718,7 @@ static void OlsArrayWindow(AggregateInputData &aggr_input_data, const WindowPart
 	auto coef_data = FlatVector::GetData<double>(coef_child);
 	auto &coef_validity = FlatVector::Validity(coef_child);
 
-	idx_t list_offset = rid * p;  // Each result gets p coefficients
+	idx_t list_offset = rid * p; // Each result gets p coefficients
 	ListVector::Reserve(coef_list, (rid + 1) * p);
 
 	for (idx_t j = 0; j < p; j++) {
@@ -779,16 +779,14 @@ void OlsAggregateFunction::Register(ExtensionLoader &loader) {
 	    "ols_fit_agg_array", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
 	    LogicalType::STRUCT(array_fit_struct_fields), AggregateFunction::StateSize<OlsArrayAggregateState>,
 	    OlsArrayInitialize, OlsArrayUpdate, OlsArrayCombine, OlsArrayFinalize,
-	    FunctionNullHandling::DEFAULT_NULL_HANDLING, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
-	    nullptr);
+	    FunctionNullHandling::DEFAULT_NULL_HANDLING, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
 	loader.RegisterFunction(ols_fit_agg_array);
 
 	// 4. anofox_statistics_ols_agg(y DOUBLE, x DOUBLE[], options MAP) -> STRUCT
 	// This is the new unified API that matches table function signatures
 	// Now supports window functions with OVER clause
 	AggregateFunction anofox_statistics_ols_agg(
-	    "anofox_statistics_ols_agg",
-	    {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
+	    "anofox_statistics_ols_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
 	    LogicalType::STRUCT(array_fit_struct_fields), AggregateFunction::StateSize<OlsArrayAggregateState>,
 	    OlsArrayInitialize, OlsArrayUpdate, OlsArrayCombine, OlsArrayFinalize,
 	    FunctionNullHandling::DEFAULT_NULL_HANDLING, nullptr, nullptr, nullptr, nullptr, OlsArrayWindow, nullptr,

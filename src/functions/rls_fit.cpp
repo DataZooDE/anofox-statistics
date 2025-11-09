@@ -98,13 +98,15 @@ static void ComputeRLS(RlsFitBindData &data) {
 	}
 
 	if (data.options.forgetting_factor <= 0.0 || data.options.forgetting_factor > 1.0) {
-		throw InvalidInputException("Forgetting factor must be in range (0, 1], got %f", data.options.forgetting_factor);
+		throw InvalidInputException("Forgetting factor must be in range (0, 1], got %f",
+		                            data.options.forgetting_factor);
 	}
 
 	data.n_obs = n;
 	data.n_features = p;
 
-	ANOFOX_DEBUG("Computing RLS with " << n << " observations and " << p << " features, forgetting_factor = " << data.options.forgetting_factor);
+	ANOFOX_DEBUG("Computing RLS with " << n << " observations and " << p
+	                                   << " features, forgetting_factor = " << data.options.forgetting_factor);
 
 	// Build design matrix X (n x p) and response vector y (n x 1)
 	Eigen::MatrixXd X(n, p);
@@ -316,13 +318,14 @@ static void ComputeRLS(RlsFitBindData &data) {
 
 	// Adjusted R² using effective rank
 	if (n > data.rank + 1) {
-		data.adj_r_squared = 1.0 - ((1.0 - data.r_squared) * (n - 1.0) / (n - data.rank - 1.0));
+		data.adj_r_squared =
+		    1.0 - ((1.0 - data.r_squared) * static_cast<double>(n - 1) / static_cast<double>(n - data.rank - 1));
 	} else {
 		data.adj_r_squared = data.r_squared;
 	}
 
 	// MSE and RMSE
-	data.mse = ss_res / n;
+	data.mse = ss_res / static_cast<double>(n);
 	data.rmse = std::sqrt(data.mse);
 
 	ANOFOX_DEBUG("RLS complete: R² = " << data.r_squared << ", MSE = " << data.mse << ", coefficients = ["
@@ -359,9 +362,8 @@ struct RlsFitInOutLocalState : public LocalTableFunctionState {
 	idx_t current_input_row = 0;
 };
 
-static unique_ptr<LocalTableFunctionState> RlsFitInOutLocalInit(ExecutionContext &context,
-                                                                 TableFunctionInitInput &input,
-                                                                 GlobalTableFunctionState *global_state) {
+static unique_ptr<LocalTableFunctionState>
+RlsFitInOutLocalInit(ExecutionContext &context, TableFunctionInitInput &input, GlobalTableFunctionState *global_state) {
 	return make_uniq<RlsFitInOutLocalState>();
 }
 
@@ -375,7 +377,8 @@ static unique_ptr<FunctionData> RlsFitBind(ClientContext &context, TableFunction
 	ANOFOX_INFO("RLS regression bind phase");
 
 	// Set return schema first (needed for both literal and lateral join modes)
-	names = {"coefficients", "intercept", "r_squared", "adj_r_squared", "mse", "rmse", "forgetting_factor", "n_obs", "n_features"};
+	names = {"coefficients", "intercept",         "r_squared", "adj_r_squared", "mse",
+	         "rmse",         "forgetting_factor", "n_obs",     "n_features"};
 	return_types = {
 	    LogicalType::LIST(LogicalType::DOUBLE), // coefficients
 	    LogicalType::DOUBLE,                    // intercept
@@ -417,8 +420,9 @@ static unique_ptr<FunctionData> RlsFitBind(ClientContext &context, TableFunction
 
 				// Validate dimensions
 				if (x_feature.size() != n) {
-					throw InvalidInputException("Array dimensions mismatch: y has %d elements, feature %d has %d elements", n,
-					                            result->x_values.size() + 1, x_feature.size());
+					throw InvalidInputException(
+					    "Array dimensions mismatch: y has %d elements, feature %d has %d elements", n,
+					    result->x_values.size() + 1, x_feature.size());
 				}
 
 				result->x_values.push_back(x_feature);
@@ -622,12 +626,13 @@ void RlsFitFunction::Register(ExtensionLoader &loader) {
 
 	// Register single function with BOTH literal and lateral join support
 	vector<LogicalType> arguments = {
-	    LogicalType::LIST(LogicalType::DOUBLE),                     // y: DOUBLE[]
-	    LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE))   // x: DOUBLE[][]
+	    LogicalType::LIST(LogicalType::DOUBLE),                   // y: DOUBLE[]
+	    LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)) // x: DOUBLE[][]
 	};
 
 	// Register with literal mode (bind + execute)
-	TableFunction function("anofox_statistics_rls", arguments, RlsFitExecute, RlsFitBind, nullptr, RlsFitInOutLocalInit);
+	TableFunction function("anofox_statistics_rls", arguments, RlsFitExecute, RlsFitBind, nullptr,
+	                       RlsFitInOutLocalInit);
 
 	// Add lateral join support (in_out_function)
 	function.in_out_function = RlsFitInOut;

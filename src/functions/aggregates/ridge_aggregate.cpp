@@ -302,8 +302,8 @@ static void RidgeFinalize(Vector &state_vector, AggregateInputData &aggr_input_d
  * Computes Ridge regression with L2 regularization on the current window frame(s) for each row
  */
 static void RidgeWindow(AggregateInputData &aggr_input_data, const WindowPartitionInput &partition,
-                        const_data_ptr_t g_state, data_ptr_t l_state, const SubFrames &subframes,
-                        Vector &result, idx_t rid) {
+                        const_data_ptr_t g_state, data_ptr_t l_state, const SubFrames &subframes, Vector &result,
+                        idx_t rid) {
 
 	auto &result_validity = FlatVector::Validity(result);
 
@@ -522,8 +522,7 @@ void RidgeAggregateFunction::Register(ExtensionLoader &loader) {
 	ridge_struct_fields.push_back(make_pair("n_obs", LogicalType::BIGINT));
 
 	AggregateFunction anofox_statistics_ridge_agg(
-	    "anofox_statistics_ridge_agg",
-	    {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
+	    "anofox_statistics_ridge_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
 	    LogicalType::STRUCT(ridge_struct_fields), AggregateFunction::StateSize<RidgeAggregateState>, RidgeInitialize,
 	    RidgeUpdate, RidgeCombine, RidgeFinalize, FunctionNullHandling::DEFAULT_NULL_HANDLING, nullptr, nullptr,
 	    nullptr, nullptr, RidgeWindow, nullptr, nullptr);

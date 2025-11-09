@@ -293,7 +293,8 @@ static void RlsFinalize(Vector &state_vector, AggregateInputData &aggr_input_dat
 		ff_data[result_idx] = state.options.forgetting_factor;
 		n_data[result_idx] = n;
 
-		ANOFOX_DEBUG("RLS aggregate: n=" << n << ", p=" << p << ", ff=" << state.options.forgetting_factor << ", r2=" << r2);
+		ANOFOX_DEBUG("RLS aggregate: n=" << n << ", p=" << p << ", ff=" << state.options.forgetting_factor
+		                                 << ", r2=" << r2);
 	}
 
 	ListVector::SetListSize(coef_list, list_offset);
@@ -306,12 +307,13 @@ static void RlsFinalize(Vector &state_vector, AggregateInputData &aggr_input_dat
  * Computes Recursive Least Squares with sequential updates on the current window frame(s) for each row
  */
 static void RlsWindow(AggregateInputData &aggr_input_data, const WindowPartitionInput &partition,
-                      const_data_ptr_t g_state, data_ptr_t l_state, const SubFrames &subframes,
-                      Vector &result, idx_t rid) {
+                      const_data_ptr_t g_state, data_ptr_t l_state, const SubFrames &subframes, Vector &result,
+                      idx_t rid) {
 
 	auto &result_validity = FlatVector::Validity(result);
 
-	// Result: STRUCT(coefficients DOUBLE[], intercept DOUBLE, r2 DOUBLE, adj_r2 DOUBLE, forgetting_factor DOUBLE, n_obs BIGINT)
+	// Result: STRUCT(coefficients DOUBLE[], intercept DOUBLE, r2 DOUBLE, adj_r2 DOUBLE, forgetting_factor DOUBLE, n_obs
+	// BIGINT)
 	auto &struct_entries = StructVector::GetEntries(result);
 	auto &coef_list = *struct_entries[0];
 	auto intercept_data = FlatVector::GetData<double>(*struct_entries[1]);
@@ -534,8 +536,7 @@ void RlsAggregateFunction::Register(ExtensionLoader &loader) {
 	rls_struct_fields.push_back(make_pair("n_obs", LogicalType::BIGINT));
 
 	AggregateFunction anofox_statistics_rls_agg(
-	    "anofox_statistics_rls_agg",
-	    {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
+	    "anofox_statistics_rls_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
 	    LogicalType::STRUCT(rls_struct_fields), AggregateFunction::StateSize<RlsAggregateState>, RlsInitialize,
 	    RlsUpdate, RlsCombine, RlsFinalize, FunctionNullHandling::DEFAULT_NULL_HANDLING, nullptr, nullptr, nullptr,
 	    nullptr, RlsWindow, nullptr, nullptr);

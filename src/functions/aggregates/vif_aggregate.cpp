@@ -24,7 +24,7 @@ namespace anofox_statistics {
  */
 
 struct VifAggregateState {
-	vector<vector<double>> x_matrix;  // Each row is an observation, columns are features
+	vector<vector<double>> x_matrix; // Each row is an observation, columns are features
 	idx_t n_features = 0;
 
 	void Reset() {
@@ -85,7 +85,7 @@ static void VifUpdate(Vector inputs[], AggregateInputData &aggr_input_data, idx_
 		if (state.n_features == 0) {
 			state.n_features = features.size();
 		} else if (features.size() != state.n_features) {
-			continue;  // Skip mismatched dimensions
+			continue; // Skip mismatched dimensions
 		}
 
 		state.x_matrix.push_back(features);
@@ -111,7 +111,7 @@ static void VifCombine(Vector &source, Vector &target, AggregateInputData &aggr_
 
 static string GetSeverityLabel(double vif) {
 	if (std::isnan(vif) || std::isinf(vif)) {
-		return "perfect";  // Perfect multicollinearity
+		return "perfect"; // Perfect multicollinearity
 	} else if (vif < 5.0) {
 		return "low";
 	} else if (vif < 10.0) {
@@ -160,10 +160,10 @@ static void VifFinalize(Vector &state_vector, AggregateInputData &aggr_input_dat
 
 		if (n < p + 2 || p == 0) {
 			result_validity.SetInvalid(result_idx);
-			variable_id_entries[result_idx] = list_entry_t{list_offset, 0};
-			variable_name_entries[result_idx] = list_entry_t{list_offset, 0};
-			vif_entries[result_idx] = list_entry_t{list_offset, 0};
-			severity_entries[result_idx] = list_entry_t{list_offset, 0};
+			variable_id_entries[result_idx] = list_entry_t {list_offset, 0};
+			variable_name_entries[result_idx] = list_entry_t {list_offset, 0};
+			vif_entries[result_idx] = list_entry_t {list_offset, 0};
+			severity_entries[result_idx] = list_entry_t {list_offset, 0};
 			continue;
 		}
 
@@ -218,9 +218,9 @@ static void VifFinalize(Vector &state_vector, AggregateInputData &aggr_input_dat
 			// VIF = 1 / (1 - R²)
 			double vif;
 			string severity;
-			if (r2_j >= 0.9999) {  // Near-perfect multicollinearity
+			if (r2_j >= 0.9999) { // Near-perfect multicollinearity
 				vif_child_validity.SetInvalid(list_offset + j);
-				vif_child_data[list_offset + j] = 0.0;  // Placeholder
+				vif_child_data[list_offset + j] = 0.0; // Placeholder
 				severity = "perfect";
 			} else {
 				vif = 1.0 / (1.0 - r2_j);
@@ -233,10 +233,10 @@ static void VifFinalize(Vector &state_vector, AggregateInputData &aggr_input_dat
 			ListVector::PushBack(severity_child, severity_val);
 		}
 
-		variable_id_entries[result_idx] = list_entry_t{list_offset, p};
-		variable_name_entries[result_idx] = list_entry_t{list_offset, p};
-		vif_entries[result_idx] = list_entry_t{list_offset, p};
-		severity_entries[result_idx] = list_entry_t{list_offset, p};
+		variable_id_entries[result_idx] = list_entry_t {list_offset, p};
+		variable_name_entries[result_idx] = list_entry_t {list_offset, p};
+		vif_entries[result_idx] = list_entry_t {list_offset, p};
+		severity_entries[result_idx] = list_entry_t {list_offset, p};
 		list_offset += p;
 
 		ANOFOX_DEBUG("VIF aggregate: n=" << n << ", p=" << p);
