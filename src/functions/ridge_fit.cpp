@@ -270,79 +270,53 @@ static void ComputeRidge(RidgeFitBindData &data) {
 	                                     << p);
 }
 
+//===--------------------------------------------------------------------===//
+// Lateral Join Support Structures (must be declared before RidgeFitBind)
+//===--------------------------------------------------------------------===//
+
+/**
+ * Bind data for in-out mode (lateral join support)
+ * Stores only options, not data (data comes from input rows)
+ */
+struct RidgeFitInOutBindData : public FunctionData {
+	RegressionOptions options;
+
+	unique_ptr<FunctionData> Copy() const override {
+		auto result = make_uniq<RidgeFitInOutBindData>();
+		result->options = options;
+		return std::move(result);
+	}
+
+	bool Equals(const FunctionData &other) const override {
+		return false;
+	}
+};
+
+/**
+ * Local state for in-out mode
+ * Tracks which input rows have been processed
+ */
+struct RidgeFitInOutLocalState : public LocalTableFunctionState {
+	idx_t current_input_row = 0;
+};
+
+static unique_ptr<LocalTableFunctionState> RidgeFitInOutLocalInit(ExecutionContext &context,
+                                                                   TableFunctionInitInput &input,
+                                                                   GlobalTableFunctionState *global_state) {
+	return make_uniq<RidgeFitInOutLocalState>();
+}
+
+//===--------------------------------------------------------------------===//
+// Bind Function (supports both literal and lateral join modes)
+//===--------------------------------------------------------------------===//
+
 static unique_ptr<FunctionData> RidgeFitBind(ClientContext &context, TableFunctionBindInput &input,
                                              vector<LogicalType> &return_types, vector<string> &names) {
 
 	ANOFOX_INFO("Ridge regression bind phase");
 
-	auto result = make_uniq<RidgeFitBindData>();
-
-	// Expected parameters: y (DOUBLE[]), x (DOUBLE[][]), [options (MAP)]
-
-	if (input.inputs.size() < 2) {
-		throw InvalidInputException("anofox_statistics_ridge requires at least 2 parameters: "
-		                            "y (DOUBLE[]), x (DOUBLE[][]), [options (MAP)]");
-	}
-
-	// Extract y values (first parameter)
-	if (input.inputs[0].type().id() != LogicalTypeId::LIST) {
-		throw InvalidInputException("First parameter (y) must be an array of DOUBLE");
-	}
-	auto y_list = ListValue::GetChildren(input.inputs[0]);
-	for (const auto &val : y_list) {
-		result->y_values.push_back(val.GetValue<double>());
-	}
-
-	idx_t n = result->y_values.size();
-	ANOFOX_DEBUG("y has " << n << " observations");
-
-	// Extract x values (second parameter - 2D array)
-	if (input.inputs[1].type().id() != LogicalTypeId::LIST) {
-		throw InvalidInputException("Second parameter (x) must be a 2D array (DOUBLE[][])");
-	}
-
-	auto x_outer = ListValue::GetChildren(input.inputs[1]);
-	for (const auto &x_inner_val : x_outer) {
-		if (x_inner_val.type().id() != LogicalTypeId::LIST) {
-			throw InvalidInputException("Second parameter (x) must be a 2D array where each element is DOUBLE[]");
-		}
-
-		auto x_feature_list = ListValue::GetChildren(x_inner_val);
-		vector<double> x_feature;
-		for (const auto &val : x_feature_list) {
-			x_feature.push_back(val.GetValue<double>());
-		}
-
-		// Validate dimensions
-		if (x_feature.size() != n) {
-			throw InvalidInputException("Array dimensions mismatch: y has %d elements, feature %d has %d elements", n,
-			                            result->x_values.size() + 1, x_feature.size());
-		}
-
-		result->x_values.push_back(x_feature);
-	}
-
-	// Extract options (third parameter - MAP, optional)
-	if (input.inputs.size() >= 3) {
-		if (input.inputs[2].type().id() == LogicalTypeId::MAP) {
-			result->options = RegressionOptions::ParseFromMap(input.inputs[2]);
-			result->options.Validate();
-		} else if (!input.inputs[2].IsNull()) {
-			throw InvalidInputException("Third parameter (options) must be a MAP or NULL");
-		}
-	}
-
-	ANOFOX_INFO("Fitting Ridge with " << n << " observations, " << result->x_values.size()
-	                                  << " features, λ=" << result->options.lambda);
-
-	// Perform Ridge fitting
-	ComputeRidge(*result);
-
-	ANOFOX_INFO("Ridge fit completed: R² = " << result->r_squared);
-
-	// Set return schema
+	// Set return schema first (needed for both literal and lateral join modes)
 	names = {"coefficients", "intercept", "r_squared", "adj_r_squared", "mse", "rmse", "n_obs", "n_features", "lambda"};
-
 	return_types = {
 	    LogicalType::LIST(LogicalType::DOUBLE), // coefficients
 	    LogicalType::DOUBLE,                    // intercept
@@ -355,6 +329,83 @@ static unique_ptr<FunctionData> RidgeFitBind(ClientContext &context, TableFuncti
 	    LogicalType::DOUBLE                     // lambda
 	};
 
+	// Check if this is being called for lateral joins (in-out function mode)
+	// In that case, we don't have literal values to process
+	if (input.inputs.size() >= 2 && !input.inputs[0].IsNull()) {
+		// Check if the first input is actually a constant value
+		try {
+			auto y_list = ListValue::GetChildren(input.inputs[0]);
+			// If we can get children, it's a literal value - process it normally
+
+			auto result = make_uniq<RidgeFitBindData>();
+
+			// Extract y values
+			for (const auto &val : y_list) {
+				result->y_values.push_back(val.GetValue<double>());
+			}
+
+			idx_t n = result->y_values.size();
+			ANOFOX_DEBUG("y has " << n << " observations");
+
+			// Extract x values (second parameter - 2D array)
+			auto x_outer = ListValue::GetChildren(input.inputs[1]);
+			for (const auto &x_inner_val : x_outer) {
+				auto x_feature_list = ListValue::GetChildren(x_inner_val);
+				vector<double> x_feature;
+				for (const auto &val : x_feature_list) {
+					x_feature.push_back(val.GetValue<double>());
+				}
+
+				// Validate dimensions
+				if (x_feature.size() != n) {
+					throw InvalidInputException("Array dimensions mismatch: y has %d elements, feature %d has %d elements", n,
+					                            result->x_values.size() + 1, x_feature.size());
+				}
+
+				result->x_values.push_back(x_feature);
+			}
+
+			// Extract options (third parameter - MAP, optional)
+			if (input.inputs.size() >= 3 && !input.inputs[2].IsNull()) {
+				if (input.inputs[2].type().id() == LogicalTypeId::MAP) {
+					result->options = RegressionOptions::ParseFromMap(input.inputs[2]);
+					result->options.Validate();
+				}
+			}
+
+			ANOFOX_INFO("Fitting Ridge with " << n << " observations, " << result->x_values.size()
+			                                  << " features, λ=" << result->options.lambda);
+
+			// Perform Ridge fitting
+			ComputeRidge(*result);
+
+			ANOFOX_INFO("Ridge fit completed: R² = " << result->r_squared);
+
+			return std::move(result);
+
+		} catch (...) {
+			// If we can't get children, it's probably a column reference (lateral join mode)
+			// Return minimal bind data for in-out function mode
+			auto result = make_uniq<RidgeFitInOutBindData>();
+
+			// Extract options if provided as literal
+			if (input.inputs.size() >= 3 && !input.inputs[2].IsNull()) {
+				try {
+					if (input.inputs[2].type().id() == LogicalTypeId::MAP) {
+						result->options = RegressionOptions::ParseFromMap(input.inputs[2]);
+						result->options.Validate();
+					}
+				} catch (...) {
+					// Ignore if we can't parse options
+				}
+			}
+
+			return std::move(result);
+		}
+	}
+
+	// Fallback: return minimal bind data
+	auto result = make_uniq<RidgeFitInOutBindData>();
 	return std::move(result);
 }
 
@@ -391,23 +442,141 @@ static void RidgeFitExecute(ClientContext &context, TableFunctionInput &data, Da
 	output.data[8].SetValue(0, Value(bind_data.options.lambda));
 }
 
-void RidgeFitFunction::Register(ExtensionLoader &loader) {
-	ANOFOX_DEBUG("Registering anofox_statistics_ridge with L2 regularization");
+/**
+ * In-out function for lateral join support
+ * Processes rows from input table, computes regression for each row
+ */
+static OperatorResultType RidgeFitInOut(ExecutionContext &context, TableFunctionInput &data_p, DataChunk &input,
+                                        DataChunk &output) {
+	auto &bind_data = data_p.bind_data->Cast<RidgeFitInOutBindData>();
+	auto &state = data_p.local_state->Cast<RidgeFitInOutLocalState>();
 
-	// Signature: anofox_statistics_ridge(y DOUBLE[], x DOUBLE[][], [options MAP])
+	// Process all input rows
+	if (state.current_input_row >= input.size()) {
+		// Finished processing all rows in this chunk
+		state.current_input_row = 0;
+		return OperatorResultType::NEED_MORE_INPUT;
+	}
+
+	// Flatten input vectors for easier access
+	input.Flatten();
+
+	idx_t output_count = 0;
+	while (state.current_input_row < input.size() && output_count < STANDARD_VECTOR_SIZE) {
+		idx_t row_idx = state.current_input_row;
+
+		// Check for NULL inputs
+		if (FlatVector::IsNull(input.data[0], row_idx) || FlatVector::IsNull(input.data[1], row_idx)) {
+			// Skip NULL rows - don't produce output
+			state.current_input_row++;
+			continue;
+		}
+
+		// Extract y values from column 0 (LIST of DOUBLE)
+		auto y_list_value = FlatVector::GetValue<list_entry_t>(input.data[0], row_idx);
+		auto &y_child_vector = ListVector::GetEntry(input.data[0]);
+		vector<double> y_values;
+		for (idx_t i = y_list_value.offset; i < y_list_value.offset + y_list_value.length; i++) {
+			if (!FlatVector::IsNull(y_child_vector, i)) {
+				y_values.push_back(FlatVector::GetValue<double>(y_child_vector, i));
+			}
+		}
+
+		// Extract x values from column 1 (LIST of LIST of DOUBLE)
+		auto x_outer_list = FlatVector::GetValue<list_entry_t>(input.data[1], row_idx);
+		auto &x_outer_vector = ListVector::GetEntry(input.data[1]);
+		vector<vector<double>> x_values;
+
+		for (idx_t j = x_outer_list.offset; j < x_outer_list.offset + x_outer_list.length; j++) {
+			if (FlatVector::IsNull(x_outer_vector, j)) {
+				continue;
+			}
+
+			auto x_inner_list = FlatVector::GetValue<list_entry_t>(x_outer_vector, j);
+			auto &x_inner_vector = ListVector::GetEntry(x_outer_vector);
+			vector<double> x_feature;
+
+			for (idx_t k = x_inner_list.offset; k < x_inner_list.offset + x_inner_list.length; k++) {
+				if (!FlatVector::IsNull(x_inner_vector, k)) {
+					x_feature.push_back(FlatVector::GetValue<double>(x_inner_vector, k));
+				}
+			}
+
+			x_values.push_back(x_feature);
+		}
+
+		// Create temporary bind data for computation (reuse existing RidgeFitBindData)
+		RidgeFitBindData temp_data;
+		temp_data.y_values = y_values;
+		temp_data.x_values = x_values;
+		temp_data.options = bind_data.options;
+
+		// Compute regression using existing logic
+		try {
+			ComputeRidge(temp_data);
+		} catch (const Exception &e) {
+			// If regression fails for this row, skip it
+			state.current_input_row++;
+			continue;
+		}
+
+		// Write results to output
+		vector<Value> coeffs_values;
+		for (idx_t i = 0; i < temp_data.coefficients.size(); i++) {
+			double coef = temp_data.coefficients[i];
+			if (std::isnan(coef)) {
+				coeffs_values.push_back(Value(LogicalType::DOUBLE));
+			} else {
+				coeffs_values.push_back(Value(coef));
+			}
+		}
+
+		output.data[0].SetValue(output_count, Value::LIST(LogicalType::DOUBLE, coeffs_values));
+		output.data[1].SetValue(output_count, Value(temp_data.intercept));
+		output.data[2].SetValue(output_count, Value(temp_data.r_squared));
+		output.data[3].SetValue(output_count, Value(temp_data.adj_r_squared));
+		output.data[4].SetValue(output_count, Value(temp_data.mse));
+		output.data[5].SetValue(output_count, Value(temp_data.rmse));
+		output.data[6].SetValue(output_count, Value::BIGINT(static_cast<int64_t>(temp_data.n_obs)));
+		output.data[7].SetValue(output_count, Value::BIGINT(static_cast<int64_t>(temp_data.n_features)));
+		output.data[8].SetValue(output_count, Value(temp_data.options.lambda));
+
+		output_count++;
+		state.current_input_row++;
+	}
+
+	output.SetCardinality(output_count);
+
+	if (output_count > 0) {
+		return OperatorResultType::HAVE_MORE_OUTPUT;
+	} else {
+		return OperatorResultType::NEED_MORE_INPUT;
+	}
+}
+
+//===--------------------------------------------------------------------===//
+// Registration - Dual Mode Support
+//===--------------------------------------------------------------------===//
+
+void RidgeFitFunction::Register(ExtensionLoader &loader) {
+	ANOFOX_DEBUG("Registering anofox_statistics_ridge (dual mode: literals + lateral joins)");
+
+	// Register single function with BOTH literal and lateral join support
 	vector<LogicalType> arguments = {
 	    LogicalType::LIST(LogicalType::DOUBLE),                     // y: DOUBLE[]
 	    LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE))   // x: DOUBLE[][]
 	};
 
-	TableFunction function("anofox_statistics_ridge", arguments, RidgeFitExecute, RidgeFitBind);
+	// Register with literal mode (bind + execute)
+	TableFunction function("anofox_statistics_ridge", arguments, RidgeFitExecute, RidgeFitBind, nullptr, RidgeFitInOutLocalInit);
 
-	// Optional third parameter: options (MAP)
-	function.varargs = LogicalType::MAP(LogicalType::VARCHAR, LogicalType::ANY);
+	// Add lateral join support (in_out_function)
+	function.in_out_function = RidgeFitInOut;
+	function.varargs = LogicalType::ANY;
 
 	loader.RegisterFunction(function);
 
-	ANOFOX_DEBUG("anofox_statistics_ridge registered successfully");
+	ANOFOX_DEBUG("anofox_statistics_ridge registered successfully (both modes)");
 }
 
 } // namespace anofox_statistics

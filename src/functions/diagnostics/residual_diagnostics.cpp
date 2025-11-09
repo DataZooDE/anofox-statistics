@@ -41,38 +41,50 @@ struct ResidualDiagnosticsBindData : public FunctionData {
 	}
 };
 
+//===--------------------------------------------------------------------===//
+// Lateral Join Support Structures (must be declared before bind function)
+//===--------------------------------------------------------------------===//
+
 /**
- * Bind function - Compute residual diagnostics from y_actual and y_predicted
+ * Bind data for in-out mode (lateral join support)
+ * Stores only options, not data (data comes from input rows)
  */
-static unique_ptr<FunctionData> ResidualDiagnosticsBind(ClientContext &context, TableFunctionBindInput &input,
-                                                        vector<LogicalType> &return_types, vector<string> &names) {
+struct ResidualDiagnosticsInOutBindData : public FunctionData {
+	double outlier_threshold = 2.5;
 
-	auto bind_data = make_uniq<ResidualDiagnosticsBindData>();
-
-	// Get parameters: y_actual, y_predicted, outlier_threshold
-	auto &y_actual_value = input.inputs[0];
-	auto &y_predicted_value = input.inputs[1];
-
-	bind_data->outlier_threshold = 2.5;  // Default
-	if (input.inputs.size() > 2 && !input.inputs[2].IsNull()) {
-		bind_data->outlier_threshold = input.inputs[2].GetValue<double>();
+	unique_ptr<FunctionData> Copy() const override {
+		auto result = make_uniq<ResidualDiagnosticsInOutBindData>();
+		result->outlier_threshold = outlier_threshold;
+		return std::move(result);
 	}
 
-	// Extract y_actual array
-	vector<double> y_actual;
-	auto &y_actual_list = ListValue::GetChildren(y_actual_value);
-	for (auto &val : y_actual_list) {
-		y_actual.push_back(val.GetValue<double>());
+	bool Equals(const FunctionData &other) const override {
+		return false;
 	}
+};
 
-	// Extract y_predicted array
-	vector<double> y_predicted;
-	auto &y_predicted_list = ListValue::GetChildren(y_predicted_value);
-	for (auto &val : y_predicted_list) {
-		y_predicted.push_back(val.GetValue<double>());
-	}
+/**
+ * Local state for in-out mode
+ * Tracks which input rows have been processed
+ */
+struct ResidualDiagnosticsInOutLocalState : public LocalTableFunctionState {
+	idx_t current_input_row = 0;
+};
 
+static unique_ptr<LocalTableFunctionState> ResidualDiagnosticsInOutLocalInit(ExecutionContext &context,
+                                                                               TableFunctionInitInput &input,
+                                                                               GlobalTableFunctionState *global_state) {
+	return make_uniq<ResidualDiagnosticsInOutLocalState>();
+}
+
+/**
+ * Helper function to compute residual diagnostics
+ * Extracted for reuse in both literal and lateral join modes
+ */
+static void ComputeResidualDiagnostics(const vector<double> &y_actual, const vector<double> &y_predicted,
+                                       double outlier_threshold, ResidualDiagnosticsBindData &result) {
 	idx_t n = y_actual.size();
+
 	if (y_predicted.size() != n) {
 		throw InvalidInputException("y_actual and y_predicted must have the same length: got %d and %d", n,
 		                            y_predicted.size());
@@ -82,44 +94,105 @@ static unique_ptr<FunctionData> ResidualDiagnosticsBind(ClientContext &context, 
 		throw InvalidInputException("Need at least 3 observations for residual diagnostics, got %d", n);
 	}
 
+	result.outlier_threshold = outlier_threshold;
+
 	// Compute residuals
-	bind_data->residuals.resize(n);
+	result.residuals.resize(n);
 	for (idx_t i = 0; i < n; i++) {
-		bind_data->residuals[i] = y_actual[i] - y_predicted[i];
+		result.residuals[i] = y_actual[i] - y_predicted[i];
 	}
 
 	// Compute standardized residuals (z-scores)
-	// Mean should be ~0 for residuals, so we can use sample SD directly
 	double mean_residual = 0.0;
 	for (idx_t i = 0; i < n; i++) {
-		mean_residual += bind_data->residuals[i];
+		mean_residual += result.residuals[i];
 	}
 	mean_residual /= static_cast<double>(n);
 
 	double variance = 0.0;
 	for (idx_t i = 0; i < n; i++) {
-		double diff = bind_data->residuals[i] - mean_residual;
+		double diff = result.residuals[i] - mean_residual;
 		variance += diff * diff;
 	}
 	double sd = std::sqrt(variance / static_cast<double>(n - 1));
 
-	bind_data->std_residuals.resize(n);
-	bind_data->is_outlier.resize(n);
+	result.std_residuals.resize(n);
+	result.is_outlier.resize(n);
 	for (idx_t i = 0; i < n; i++) {
 		if (sd > 1e-10) {
-			bind_data->std_residuals[i] = (bind_data->residuals[i] - mean_residual) / sd;
-			bind_data->is_outlier[i] = std::abs(bind_data->std_residuals[i]) > bind_data->outlier_threshold;
+			result.std_residuals[i] = (result.residuals[i] - mean_residual) / sd;
+			result.is_outlier[i] = std::abs(result.std_residuals[i]) > outlier_threshold;
 		} else {
-			bind_data->std_residuals[i] = 0.0;
-			bind_data->is_outlier[i] = false;
+			result.std_residuals[i] = 0.0;
+			result.is_outlier[i] = false;
 		}
 	}
+}
 
-	// Set return schema
+/**
+ * Bind function - Compute residual diagnostics from y_actual and y_predicted
+ */
+static unique_ptr<FunctionData> ResidualDiagnosticsBind(ClientContext &context, TableFunctionBindInput &input,
+                                                        vector<LogicalType> &return_types, vector<string> &names) {
+
+	// Set return schema first (needed for both literal and lateral join modes)
 	names = {"obs_id", "residual", "std_residual", "is_outlier"};
 	return_types = {LogicalType::BIGINT, LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::BOOLEAN};
 
-	return std::move(bind_data);
+	// Check if this is being called for lateral joins (in-out function mode)
+	// In that case, we don't have literal values to process
+	if (input.inputs.size() >= 2 && !input.inputs[0].IsNull()) {
+		// Check if the first input is actually a constant value
+		try {
+			auto y_actual_list = ListValue::GetChildren(input.inputs[0]);
+			// If we can get children, it's a literal value - process it normally
+
+			auto bind_data = make_uniq<ResidualDiagnosticsBindData>();
+
+			double outlier_threshold = 2.5;  // Default
+			if (input.inputs.size() > 2 && !input.inputs[2].IsNull()) {
+				outlier_threshold = input.inputs[2].GetValue<double>();
+			}
+
+			// Extract y_actual array
+			vector<double> y_actual;
+			for (auto &val : y_actual_list) {
+				y_actual.push_back(val.GetValue<double>());
+			}
+
+			// Extract y_predicted array
+			auto y_predicted_list = ListValue::GetChildren(input.inputs[1]);
+			vector<double> y_predicted;
+			for (auto &val : y_predicted_list) {
+				y_predicted.push_back(val.GetValue<double>());
+			}
+
+			// Compute diagnostics using helper function
+			ComputeResidualDiagnostics(y_actual, y_predicted, outlier_threshold, *bind_data);
+
+			return std::move(bind_data);
+
+		} catch (...) {
+			// If we can't get children, it's probably a column reference (lateral join mode)
+			// Return minimal bind data for in-out function mode
+			auto result = make_uniq<ResidualDiagnosticsInOutBindData>();
+
+			// Extract outlier_threshold if provided as literal
+			if (input.inputs.size() > 2 && !input.inputs[2].IsNull()) {
+				try {
+					result->outlier_threshold = input.inputs[2].GetValue<double>();
+				} catch (...) {
+					// Ignore if we can't parse threshold
+				}
+			}
+
+			return std::move(result);
+		}
+	}
+
+	// Fallback: return minimal bind data
+	auto result = make_uniq<ResidualDiagnosticsInOutBindData>();
+	return std::move(result);
 }
 
 /**
@@ -165,14 +238,115 @@ static void ResidualDiagnosticsTableFunc(ClientContext &context, TableFunctionIn
 	bind_data.current_row += rows_to_output;
 }
 
-void ResidualDiagnosticsFunction::Register(ExtensionLoader &loader) {
-	ANOFOX_DEBUG("Registering residual diagnostics function");
+/**
+ * In-out function for lateral join support
+ * Processes rows from input table, computes diagnostics for each row
+ */
+static OperatorResultType ResidualDiagnosticsInOut(ExecutionContext &context, TableFunctionInput &data_p,
+                                                     DataChunk &input, DataChunk &output) {
+	auto &bind_data = data_p.bind_data->Cast<ResidualDiagnosticsInOutBindData>();
+	auto &state = data_p.local_state->Cast<ResidualDiagnosticsInOutLocalState>();
 
-	TableFunction residual_diagnostics_func("anofox_statistics_residual_diagnostics",
-	                                        {LogicalType::LIST(LogicalType::DOUBLE), // y_actual
-	                                         LogicalType::LIST(LogicalType::DOUBLE), // y_predicted
-	                                         LogicalType::DOUBLE},                   // outlier_threshold
-	                                        ResidualDiagnosticsTableFunc, ResidualDiagnosticsBind);
+	// Process all input rows
+	if (state.current_input_row >= input.size()) {
+		// Finished processing all rows in this chunk
+		state.current_input_row = 0;
+		return OperatorResultType::NEED_MORE_INPUT;
+	}
+
+	// Flatten input vectors for easier access
+	input.Flatten();
+
+	idx_t output_idx = 0;
+	while (state.current_input_row < input.size() && output_idx < STANDARD_VECTOR_SIZE) {
+		idx_t row_idx = state.current_input_row;
+
+		// Check for NULL inputs
+		if (FlatVector::IsNull(input.data[0], row_idx) || FlatVector::IsNull(input.data[1], row_idx)) {
+			// Skip NULL rows
+			state.current_input_row++;
+			continue;
+		}
+
+		// Extract y_actual from column 0 (LIST of DOUBLE)
+		auto y_actual_list = FlatVector::GetValue<list_entry_t>(input.data[0], row_idx);
+		auto &y_actual_child = ListVector::GetEntry(input.data[0]);
+		vector<double> y_actual;
+		for (idx_t i = y_actual_list.offset; i < y_actual_list.offset + y_actual_list.length; i++) {
+			if (!FlatVector::IsNull(y_actual_child, i)) {
+				y_actual.push_back(FlatVector::GetValue<double>(y_actual_child, i));
+			}
+		}
+
+		// Extract y_predicted from column 1 (LIST of DOUBLE)
+		auto y_predicted_list = FlatVector::GetValue<list_entry_t>(input.data[1], row_idx);
+		auto &y_predicted_child = ListVector::GetEntry(input.data[1]);
+		vector<double> y_predicted;
+		for (idx_t i = y_predicted_list.offset; i < y_predicted_list.offset + y_predicted_list.length; i++) {
+			if (!FlatVector::IsNull(y_predicted_child, i)) {
+				y_predicted.push_back(FlatVector::GetValue<double>(y_predicted_child, i));
+			}
+		}
+
+		// Compute diagnostics
+		ResidualDiagnosticsBindData temp_data;
+		try {
+			ComputeResidualDiagnostics(y_actual, y_predicted, bind_data.outlier_threshold, temp_data);
+		} catch (const Exception &e) {
+			// If computation fails for this row, skip it
+			state.current_input_row++;
+			continue;
+		}
+
+		// Output all diagnostics for this input row
+		idx_t n = temp_data.residuals.size();
+		for (idx_t i = 0; i < n && output_idx < STANDARD_VECTOR_SIZE; i++, output_idx++) {
+			// Column 0: obs_id (1-indexed)
+			FlatVector::GetData<int64_t>(output.data[0])[output_idx] = static_cast<int64_t>(i + 1);
+
+			// Column 1: residual
+			FlatVector::GetData<double>(output.data[1])[output_idx] = temp_data.residuals[i];
+
+			// Column 2: std_residual
+			FlatVector::GetData<double>(output.data[2])[output_idx] = temp_data.std_residuals[i];
+
+			// Column 3: is_outlier
+			FlatVector::GetData<bool>(output.data[3])[output_idx] = temp_data.is_outlier[i];
+		}
+
+		state.current_input_row++;
+
+		// If we filled the output buffer mid-row, break and continue later
+		if (output_idx >= STANDARD_VECTOR_SIZE) {
+			break;
+		}
+	}
+
+	output.SetCardinality(output_idx);
+
+	if (output_idx > 0) {
+		return OperatorResultType::HAVE_MORE_OUTPUT;
+	} else {
+		return OperatorResultType::NEED_MORE_INPUT;
+	}
+}
+
+void ResidualDiagnosticsFunction::Register(ExtensionLoader &loader) {
+	ANOFOX_DEBUG("Registering residual diagnostics function (dual mode: literals + lateral joins)");
+
+	vector<LogicalType> arguments = {
+	    LogicalType::LIST(LogicalType::DOUBLE), // y_actual
+	    LogicalType::LIST(LogicalType::DOUBLE)  // y_predicted
+	};
+
+	// Register with literal mode (bind + execute)
+	TableFunction residual_diagnostics_func("anofox_statistics_residual_diagnostics", arguments,
+	                                        ResidualDiagnosticsTableFunc, ResidualDiagnosticsBind,
+	                                        nullptr, ResidualDiagnosticsInOutLocalInit);
+
+	// Add lateral join support (in_out_function)
+	residual_diagnostics_func.in_out_function = ResidualDiagnosticsInOut;
+	residual_diagnostics_func.varargs = LogicalType::ANY;
 
 	// Set named parameters
 	residual_diagnostics_func.named_parameters["y_actual"] = LogicalType::LIST(LogicalType::DOUBLE);
@@ -181,7 +355,7 @@ void ResidualDiagnosticsFunction::Register(ExtensionLoader &loader) {
 
 	loader.RegisterFunction(residual_diagnostics_func);
 
-	ANOFOX_DEBUG("Residual diagnostics function registered successfully");
+	ANOFOX_DEBUG("Residual diagnostics function registered successfully (both modes)");
 }
 
 } // namespace anofox_statistics
