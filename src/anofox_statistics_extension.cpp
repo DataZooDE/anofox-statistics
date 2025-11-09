@@ -2,6 +2,7 @@
 
 #include "anofox_statistics_extension.hpp"
 #include "functions/ols_metrics.hpp"
+#include "functions/ols_fit.hpp"                              // Phase 2 - OLS regression
 #include "functions/ridge_fit.hpp"                            // Phase 2 - Ridge regression
 #include "functions/wls_fit.hpp"                              // Phase 2 - Weighted LS
 #include "functions/rls_fit.hpp"                              // Phase 3 - Recursive LS
@@ -30,6 +31,7 @@ void AnofoxStatisticsExtension::Load(ExtensionLoader &loader) {
 	anofox_statistics::OlsMetricsFunction::Register(loader);
 
 	// Phase 2: Regression fit functions (✅ completed)
+	anofox_statistics::OlsFitFunction::Register(loader);        // Ordinary Least Squares
 	anofox_statistics::RidgeFitFunction::Register(loader);      // Ridge regression (L2)
 	anofox_statistics::WlsFitFunction::Register(loader);        // Weighted Least Squares
 	anofox_statistics::ElasticNetFitFunction::Register(loader); // Elastic Net (L1+L2)

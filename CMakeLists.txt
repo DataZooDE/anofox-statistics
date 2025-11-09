@@ -38,6 +38,7 @@ set(EXTENSION_SOURCES
     src/functions/ols_metrics.cpp
 
     # Functions - Fit (Phase 2 - Array-based implementation for v1.4.1)
+    src/functions/ols_fit.cpp         # Ordinary Least Squares regression
     src/functions/ridge_fit.cpp       # Ridge regression with L2 regularization
     src/functions/wls_fit.cpp         # Weighted Least Squares
     src/functions/elastic_net_fit.cpp # Elastic Net with L1+L2 regularization
