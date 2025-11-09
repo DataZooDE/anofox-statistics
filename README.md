@@ -9,6 +9,21 @@ A statistical analysis extension for DuckDB, providing regression analysis, diag
 > This extension is in early development, so bugs and breaking changes are expected.
 > Please use the [issues page](https://github.com/DataZooDE/anofox-statistics/issues) to report bugs or request features.
 
+## What's New Since v0.1.0
+
+**Breaking Changes:**
+- **Function naming**: Removed `_fit` suffix from table functions (`anofox_statistics_ols_fit` → `anofox_statistics_ols`)
+- **Parameter format**: Changed from individual predictor arrays to matrix format (`DOUBLE[][]`) for features
+- **Options API**: Switched from positional parameters to MAP-based options for better flexibility
+
+**New Features:**
+- **Elastic Net regression**: Combined L1+L2 regularization for feature selection
+- **Lateral join support**: All regression functions now support lateral joins with column references
+- **Window functions**: All aggregate functions now support OVER clause for rolling/expanding analysis
+- **Diagnostic aggregates**: Group-wise residual analysis, VIF detection, and normality testing
+
+See the [Migration Guide](guides/01_quick_start.md#migration-from-v010) for detailed upgrade instructions.
+
 ## Features
 
 ### 🎯 Core Regression Functions
