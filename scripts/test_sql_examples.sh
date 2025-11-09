@@ -7,7 +7,7 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
 # Configuration - adjust these to match your extension
 EXTENSION_NAME="${EXTENSION_NAME:-anofox_statistics}"
-BUILD_DIR="${BUILD_DIR:-./build/release}"
+BUILD_DIR="${BUILD_DIR:-${PROJECT_ROOT}/build/release}"
 SQL_DIR="${PROJECT_ROOT}/test/sql"
 DUCKDB_CLI="${DUCKDB_CLI:-/tmp/duckdb}"
 
@@ -15,6 +15,8 @@ DUCKDB_CLI="${DUCKDB_CLI:-/tmp/duckdb}"
 test_sql_file() {
     local sql_file=$1
     local filename=$(basename "$sql_file")
+    local test_num=$2
+    local total_tests=$3
 
     # Create temporary file with extension setup
     local test_file=$(mktemp)
@@ -38,9 +40,12 @@ EOF
         cat "$sql_file" >> "$test_file"
     fi
 
+    # Show which file is being tested
+    echo "  [$test_num/$total_tests] Testing $filename..."
+
     # Run test
     if "$DUCKDB_CLI" -unsigned :memory: < "$test_file" > /dev/null 2>&1; then
-        echo "  ✅ $filename"
+        echo "  [$test_num/$total_tests] ✅ $filename"
         rm "$test_file"
         return 0
     else
@@ -73,14 +78,18 @@ main() {
 
     local total=0
     local failed=0
+    local file_count=0
 
-    # Test all SQL files
-    while IFS= read -r sql_file; do
-        ((total++))
-        if ! test_sql_file "$sql_file"; then
-            ((failed++))
-        fi
-    done < <(find "$SQL_DIR" -name "*.sql" -type f 2>/dev/null | sort)
+    # Count files first
+    file_count=$(find "$SQL_DIR" -name "*.sql" -type f 2>/dev/null | wc -l)
+    echo "Found $file_count SQL test files to run"
+    echo ""
+
+    # Test all SQL files using command substitution in for loop
+    for sql_file in $(find "$SQL_DIR" -name "*.sql" -type f 2>/dev/null | sort); do
+        total=$((total + 1))
+        test_sql_file "$sql_file" "$total" "$file_count" && true || failed=$((failed + 1))
+    done
 
     echo ""
     echo "================================"
