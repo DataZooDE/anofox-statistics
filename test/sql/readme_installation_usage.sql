@@ -1,6 +1,4 @@
--- Load from file
-LOAD '/path/to/anofox_statistics.duckdb_extension';
+-- DISABLED: This file contains placeholder paths and is for documentation only
+-- Original content shows installation examples with /path/to/... placeholders
 
--- Or install from repository (once published)
-INSTALL anofox_statistics FROM community;
-LOAD anofox_statistics;
+SELECT 'readme_installation_usage.sql - DISABLED - documentation with placeholder paths' as status;

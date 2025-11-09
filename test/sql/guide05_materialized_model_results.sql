@@ -1,5 +1,16 @@
 LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
 
+-- Create sample daily product data
+CREATE TEMP TABLE daily_product_data AS
+SELECT
+    (i % 10 + 1) as product_id,
+    CURRENT_DATE - INTERVAL (i) DAY as date,
+    (500 + i * 5 + random() * 100)::DOUBLE as sales,
+    (20 + random() * 10)::DOUBLE as price,
+    (100 + i * 2 + random() * 50)::DOUBLE as advertising,
+    (15 + random() * 5)::DOUBLE as competition
+FROM generate_series(1, 400) as t(i);
+
 -- Create materialized model table
 CREATE TABLE IF NOT EXISTS model_results_cache AS
 WITH source_data AS (

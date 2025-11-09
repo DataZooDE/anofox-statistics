@@ -5,10 +5,10 @@ CREATE OR REPLACE TABLE customer_summary AS
 SELECT
     i as customer_id,
     (tenure * 45 + aov * 3 + freq * 80 + engagement * 500 + RANDOM() * 200)::DOUBLE as total_purchases,
-    tenure::DOUBLE,
-    aov::DOUBLE,
-    freq::DOUBLE,
-    engagement::DOUBLE,
+    tenure,
+    aov,
+    freq,
+    engagement,
     CURRENT_DATE - (12 + (RANDOM() * 24)::INT) * INTERVAL '1 month' as cohort_month
 FROM (
     SELECT

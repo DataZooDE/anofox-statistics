@@ -72,7 +72,7 @@ WITH ltv_analysis AS (
         result.coefficients[1] as roi_per_dollar,
         result.coefficients[2] as monthly_value,
         result.intercept as base_value,
-        AVG(acquisition_cost) as avg_cac
+        cac.avg_cac
     FROM (
         SELECT
             segment,

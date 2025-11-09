@@ -23,6 +23,15 @@ COPY (
     FROM model
 ) TO 'model_coefficients.csv' (HEADER, DELIMITER ',');
 
+-- Create sample prediction results for export
+CREATE TEMP TABLE prediction_results AS
+SELECT
+    i as customer_id,
+    (100 + i * 10 + random() * 20)::DOUBLE as predicted,
+    (90 + i * 10 + random() * 10)::DOUBLE as ci_lower,
+    (110 + i * 10 + random() * 10)::DOUBLE as ci_upper
+FROM generate_series(1, 20) t(i);
+
 -- Export predictions with confidence intervals
 COPY (
     SELECT

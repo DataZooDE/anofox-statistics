@@ -63,10 +63,10 @@ ORDER BY result.r2 DESC;
 SELECT
     region,
     result.coefficients[1] as unit_change_per_dollar,
-    AVG(price) as avg_price,
-    result.coefficients[1] * AVG(price) as revenue_impact_per_dollar_increase,
+    avg_price,
+    result.coefficients[1] * avg_price as revenue_impact_per_dollar_increase,
     CASE
-        WHEN result.coefficients[1] * AVG(price) < -1.0 THEN 'Price decrease would increase revenue'
+        WHEN result.coefficients[1] * avg_price < -1.0 THEN 'Price decrease would increase revenue'
         ELSE 'Current pricing may be optimal'
     END as pricing_insight
 FROM (

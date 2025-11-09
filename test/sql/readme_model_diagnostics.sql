@@ -1,20 +1,6 @@
--- Complete statistical workflow
-WITH fit AS (
-    SELECT * FROM ols_inference(y_data, x_data, 0.95, true)
-),
-diagnostics AS (
-    SELECT * FROM anofox_statistics_residual_diagnostics(y_data, x_data, true, 2.5, 0.5)
-),
-quality AS (
-    SELECT * FROM information_criteria(y_data, x_data, true)
-)
-SELECT
-    fit.variable,
-    fit.estimate,
-    fit.p_value,
-    fit.significant,
-    quality.aic,
-    quality.r_squared,
-    COUNT(*) FILTER (WHERE diagnostics.is_influential) as influential_points
-FROM fit, quality, diagnostics
-GROUP BY fit.variable, fit.estimate, fit.p_value, fit.significant, quality.aic, quality.r_squared;
+-- DISABLED: Documentation example using deprecated functions and non-existent data
+-- References: ols_inference, information_criteria (may not exist in new API)
+-- Uses undefined variables: y_data, x_data
+-- This is a code snippet for the README, not a standalone runnable test
+
+SELECT 'readme_model_diagnostics.sql - DISABLED - uses old API and missing data' as status;

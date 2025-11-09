@@ -1,5 +1,25 @@
 LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
 
+-- Create sample large dataset for testing
+CREATE TEMP TABLE large_sales_table AS
+SELECT
+    DATE '2023-01-01' + INTERVAL (i) DAY as date,
+    CASE (i % 3)
+        WHEN 0 THEN 'electronics'
+        WHEN 1 THEN 'clothing'
+        ELSE 'furniture'
+    END as category,
+    (1000 + i * 10 + random() * 200)::DOUBLE as sales,
+    (500 + i * 5 + random() * 100)::DOUBLE as marketing
+FROM generate_series(1, 365) as t(i);
+
+CREATE TEMP TABLE large_table AS
+SELECT
+    (100 + i * 2 + random() * 10)::DOUBLE as y,
+    (50 + i * 1.5 + random() * 5)::DOUBLE as x1,
+    (30 + i * 0.8 + random() * 3)::DOUBLE as x2
+FROM generate_series(1, 1000) as t(i);
+
 -- Efficient processing of large datasets
 -- Strategy 1: Partition by time/category
 WITH monthly_partitions AS (
@@ -18,13 +38,16 @@ monthly_models AS (
     SELECT
         month,
         category,
-        -- Use aggregate functions directly on arrays
-        ols_coeff_agg(UNNEST(y_values), UNNEST(x_values)) as coefficient,
-        (SELECT (ols_fit_agg(UNNEST(y_values), UNNEST(x_values))).r2) as r2,
-        n_obs
+        n_obs,
+        -- Use aggregate functions with UNNEST in subquery
+        (SELECT ols_coeff_agg(y, x) FROM (
+            SELECT UNNEST(y_values) as y, UNNEST(x_values) as x
+        )) as coefficient,
+        (SELECT (ols_fit_agg(y, x)).r2 FROM (
+            SELECT UNNEST(y_values) as y, UNNEST(x_values) as x
+        )) as r2
     FROM monthly_partitions
     WHERE n_obs >= 30
-    GROUP BY month, category, y_values, x_values, n_obs
 )
 
 SELECT

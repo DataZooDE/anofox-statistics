@@ -1,5 +1,4 @@
--- Start DuckDB
-duckdb
+-- DISABLED: This is a documentation example, not a runnable test
+-- Shows command-line usage, not SQL
 
--- Load the extension
-LOAD '/path/to/anofox_statistics.duckdb_extension';
+SELECT 'guide01_load_extension.sql - DISABLED - documentation example only' as status;

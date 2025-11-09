@@ -1,5 +1,17 @@
 LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
 
+-- Create sample diagnostics data
+CREATE TEMP TABLE diagnostics AS
+SELECT
+    i as obs_id,
+    (10 + i * 0.5)::DOUBLE as predicted,
+    (random() * 2 - 1)::DOUBLE as residual,
+    (random() * 2 - 1)::DOUBLE as studentized_residual,
+    ABS(random() * 2 - 1)::DOUBLE as sqrt_abs_residual,
+    (random() * 0.5)::DOUBLE as leverage,
+    (random() * 0.3)::DOUBLE as cooks_distance
+FROM generate_series(1, 50) t(i);
+
 -- 1. Residuals vs Fitted
 SELECT
     predicted,
@@ -18,7 +30,7 @@ FROM diagnostics;
 -- 3. Scale-Location (homoscedasticity)
 SELECT
     predicted,
-    SQRT(ABS(std_residual)) as sqrt_abs_std_resid
+    SQRT(ABS(studentized_residual)) as sqrt_abs_std_resid
 FROM diagnostics;
 -- Look for: Horizontal band (good), funnel (heteroscedastic)
 

@@ -19,37 +19,38 @@ SELECT
 FROM generate_series(1, 60) as t(i);
 
 -- Run all four methods and compare
-WITH all_methods AS (
-    SELECT
-        market,
-        -- OLS: Standard baseline
-        anofox_statistics_ols_agg(
-            y,
-            [x1_correlated, x2_correlated, x3_independent],
-            {'intercept': true}
-        ) as ols_model,
-        -- WLS: Addresses heteroscedasticity
-        anofox_statistics_wls_agg(
-            y,
-            [x1_correlated, x2_correlated, x3_independent],
-            observation_weight,
-            {'intercept': true}
-        ) as wls_model,
-        -- Ridge: Handles multicollinearity
-        anofox_statistics_ridge_agg(
-            y,
-            [x1_correlated, x2_correlated, x3_independent],
-            {'lambda': 1.0, 'intercept': true}
-        ) as ridge_model,
-        -- RLS: Adaptive to changes
-        anofox_statistics_rls_agg(
-            y,
-            [x1_correlated, x2_correlated, x3_independent],
-            {'forgetting_factor': 0.95, 'intercept': true}
-        ) as rls_model
-    FROM complex_dataset
-    GROUP BY market
-)
+CREATE TEMP TABLE all_methods AS
+SELECT
+    market,
+    -- OLS: Standard baseline
+    anofox_statistics_ols_agg(
+        y,
+        [x1_correlated, x2_correlated, x3_independent],
+        {'intercept': true}
+    ) as ols_model,
+    -- WLS: Addresses heteroscedasticity
+    anofox_statistics_wls_agg(
+        y,
+        [x1_correlated, x2_correlated, x3_independent],
+        observation_weight,
+        {'intercept': true}
+    ) as wls_model,
+    -- Ridge: Handles multicollinearity
+    anofox_statistics_ridge_agg(
+        y,
+        [x1_correlated, x2_correlated, x3_independent],
+        {'lambda': 1.0, 'intercept': true}
+    ) as ridge_model,
+    -- RLS: Adaptive to changes
+    anofox_statistics_rls_agg(
+        y,
+        [x1_correlated, x2_correlated, x3_independent],
+        {'forgetting_factor': 0.95, 'intercept': true}
+    ) as rls_model
+FROM complex_dataset
+GROUP BY market;
+
+-- Display comparison results
 SELECT
     market,
     -- Compare R² across methods

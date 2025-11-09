@@ -21,7 +21,7 @@ FROM (
         (10 + RANDOM() * 30)::DOUBLE as training_hours,  -- 10-40 hours training
         (1 + RANDOM() * 14)::DOUBLE as experience_years,  -- 1-15 years
         (3 + RANDOM() * 7)::INT::DOUBLE as team_size,  -- 3-10 people
-        output
+        output as output_per_hour
     FROM (
         SELECT
             i,

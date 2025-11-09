@@ -1,15 +1,18 @@
 LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
 
+-- Note: residual_diagnostics expects y_actual and y_predicted, not y and X
+WITH predictions AS (
+    SELECT
+        [50.0, 55.0, 60.0, 65.0, 70.0, 75.0]::DOUBLE[] as y_actual,
+        [50.5, 54.8, 60.2, 64.9, 70.1, 74.7]::DOUBLE[] as y_predicted  -- Simulated predictions
+)
 SELECT
     obs_id,
     residual,
     std_residual,
-    studentized_residual,
-    is_outlier  -- TRUE if |studentized| > 2.5
-FROM anofox_statistics_residual_diagnostics(
-    [50.0, 55.0, 60.0, 65.0, 70.0, 75.0]::DOUBLE[],      -- y: data
-    [[1.0], [2.0], [3.0], [4.0], [5.0], [6.0]]::DOUBLE[][],  -- x: features
-    true,                                                  -- add_intercept
-    2.5,                                                   -- outlier_threshold
-    0.5                                                    -- influence_threshold
+    is_outlier  -- TRUE if |std_residual| > 2.5
+FROM predictions, anofox_statistics_residual_diagnostics(
+    y_actual,
+    y_predicted,
+    2.5  -- outlier_threshold
 );

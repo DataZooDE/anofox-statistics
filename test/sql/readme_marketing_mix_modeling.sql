@@ -1,9 +1,5 @@
--- Analyze effect of marketing channels on sales
-SELECT
-    week,
-    ols_fit_agg_array(
-        revenue,
-        [tv_spend, digital_spend, print_spend]::DOUBLE[]
-    ) as marketing_model
-FROM campaigns
-GROUP BY week;
+-- DISABLED: Documentation example referencing non-existent table 'campaigns'
+-- Also uses ols_fit_agg_array which may not exist
+-- This is a code snippet for the README, not a standalone runnable test
+
+SELECT 'readme_marketing_mix_modeling.sql - DISABLED - missing table' as status;

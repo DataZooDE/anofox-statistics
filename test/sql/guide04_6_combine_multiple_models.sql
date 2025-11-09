@@ -2,23 +2,23 @@ LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extensi
 
 -- Create sample data with multiple predictors
 CREATE OR REPLACE TABLE model_comparison_data AS
+WITH raw_data AS (
+    SELECT
+        i,
+        (RANDOM() * 10)::DOUBLE as x1,
+        (RANDOM() * 10)::DOUBLE as x2,
+        (RANDOM() * 10)::DOUBLE as x3,  -- Noise
+        (RANDOM() * 10)::DOUBLE as x4  -- Noise
+    FROM range(1, 101) t(i)
+)
 SELECT
     i as obs_id,
-    y,
+    (10 + x1 * 2.5 + x2 * 0.5 + RANDOM() * 5)::DOUBLE as y,  -- x1 is strong, x2 is weak
     x1,
     x2,
     x3,
     x4
-FROM (
-    SELECT
-        i,
-        (10 + x1 * 2.5 + x2 * 0.5 + RANDOM() * 5)::DOUBLE as y,  -- x1 is strong, x2 is weak
-        (RANDOM() * 10)::DOUBLE as x1,
-        (RANDOM() * 10)::DOUBLE as x2,
-        (RANDOM() * 10)::DOUBLE as x3,  -- Noise
-        (RANDOM() * 10)::DOUBLE as x4   -- Noise
-    FROM range(1, 101) t(i)
-);
+FROM raw_data;
 
 -- Compare simple vs complex models using aggregate functions
 -- Simple model: just x1

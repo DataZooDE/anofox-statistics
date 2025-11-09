@@ -104,7 +104,7 @@ SELECT '=== Test 6: Three predictors ===' as test_name;
 SELECT
     product,
     result.coefficients,
-    result.n_features,
+    len(result.coefficients) as n_features,
     result.r2
 FROM (
     SELECT
@@ -138,7 +138,7 @@ SELECT
     result.r2,
     result.adj_r2,
     result.n_obs,
-    result.n_features
+    len(result.coefficients) as n_features
 FROM (
     SELECT
         anofox_statistics_ols_agg(sales, [price, marketing_spend, time], {'intercept': true}) as result

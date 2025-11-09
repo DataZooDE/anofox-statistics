@@ -19,13 +19,11 @@ SELECT
     ROUND((ols_fit_agg(revenue, spend)).coefficient - 1, 2) as roi_multiplier,
     ROUND(((ols_fit_agg(revenue, spend)).coefficient - 1) * 100, 1) || '%' as roi_percentage,
     CASE
-        WHEN (ols_fit_agg(revenue, spend)).p_value < 0.05
-             AND (ols_fit_agg(revenue, spend)).coefficient > 1.5 THEN 'Strong - Scale Up'
-        WHEN (ols_fit_agg(revenue, spend)).p_value < 0.05
-             AND (ols_fit_agg(revenue, spend)).coefficient > 1.0 THEN 'Positive - Continue'
-        WHEN (ols_fit_agg(revenue, spend)).p_value < 0.05 THEN 'Negative - Stop Campaign'
+        WHEN (ols_fit_agg(revenue, spend)).coefficient > 1.5 THEN 'Strong - Scale Up'
+        WHEN (ols_fit_agg(revenue, spend)).coefficient > 1.0 THEN 'Positive - Continue'
+        WHEN (ols_fit_agg(revenue, spend)).coefficient < 1.0 THEN 'Negative - Stop Campaign'
         ELSE 'Inconclusive - Gather More Data'
     END as recommendation,
-    ROUND((ols_fit_agg(revenue, spend)).p_value, 4) as p_value,
+    ROUND((ols_fit_agg(revenue, spend)).std_error, 4) as std_error,
     ROUND((ols_fit_agg(revenue, spend)).r2, 3) as model_quality
 FROM campaigns;

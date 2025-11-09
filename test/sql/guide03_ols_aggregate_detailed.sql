@@ -24,7 +24,7 @@ SELECT
     result.r2 as r_squared,
     result.adj_r2 as adjusted_r_squared,
     result.n_obs as sample_size,
-    result.n_features as num_predictors,
+    array_length(result.coefficients) as num_predictors,
     -- Interpretation flags
     CASE
         WHEN result.r2 > 0.8 THEN 'Excellent fit'
