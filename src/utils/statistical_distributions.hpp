@@ -211,8 +211,10 @@ public:
 	// Complementary CDF: P(X > x) = 1 - CDF(x, df)
 	// Uses incomplete gamma function relationship
 	static double ComplementaryCDF(double x, double df) {
-		if (x <= 0.0) return 1.0;
-		if (df <= 0.0) return 0.5;
+		if (x <= 0.0)
+			return 1.0;
+		if (df <= 0.0)
+			return 0.5;
 
 		// For chi-squared with df degrees of freedom:
 		// P(X > x) = 1 - P(X ≤ x) = 1 - P(gamma(df/2, x/2))
@@ -222,7 +224,7 @@ public:
 		// For large df or x, use normal approximation
 		if (df > 100 || x > 1000) {
 			// Wilson-Hilferty approximation: (X/df)^(1/3) ~ N(1-2/(9df), 2/(9df))
-			double z = (std::pow(x / df, 1.0/3.0) - (1.0 - 2.0/(9.0*df))) / std::sqrt(2.0/(9.0*df));
+			double z = (std::pow(x / df, 1.0 / 3.0) - (1.0 - 2.0 / (9.0 * df))) / std::sqrt(2.0 / (9.0 * df));
 			return 0.5 * (1.0 - std::erf(z / std::sqrt(2.0)));
 		}
 
@@ -237,13 +239,14 @@ public:
 		for (int n = 1; n < 200; n++) {
 			term *= z / (a + n);
 			sum += term;
-			if (std::abs(term) < 1e-12) break;
+			if (std::abs(term) < 1e-12)
+				break;
 		}
 
 		double log_result = a * std::log(z) - z - log_gamma(a);
 		double cdf = std::exp(log_result) * sum;
 
-		return 1.0 - cdf;  // Complementary CDF
+		return 1.0 - cdf; // Complementary CDF
 	}
 };
 

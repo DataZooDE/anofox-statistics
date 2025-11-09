@@ -179,11 +179,11 @@ static unique_ptr<FunctionData> OlsPredictIntervalBind(ClientContext &context, T
 		                            n_params_fitted);
 	}
 
-	double mse = ss_res / df;
+	double mse = ss_res / static_cast<double>(df);
 
 	// Get critical value
 	double alpha = 1.0 - confidence_level;
-	double t_crit = student_t_critical(alpha / 2.0, df);
+	double t_crit = student_t_critical(alpha / 2.0, static_cast<int>(df));
 
 	// Compute (X'X)^-1 for leverage calculation (using centered X for non-aliased features)
 	Eigen::MatrixXd XtX_inv;
@@ -245,7 +245,7 @@ static unique_ptr<FunctionData> OlsPredictIntervalBind(ClientContext &context, T
 		// Confidence interval: SE = sqrt(MSE * (1/n + leverage))
 		// Prediction interval: SE = sqrt(MSE * (1 + 1/n + leverage))
 		double variance_factor = is_prediction_interval ? 1.0 : 0.0;
-		double se = std::sqrt(mse * (variance_factor + (1.0 / n_train) + leverage));
+		double se = std::sqrt(mse * (variance_factor + (1.0 / static_cast<double>(n_train)) + leverage));
 
 		// Confidence/Prediction interval
 		double ci_lower = y_pred - t_crit * se;

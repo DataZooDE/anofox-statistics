@@ -89,7 +89,7 @@ static unique_ptr<FunctionData> NormalityTestBind(ClientContext &context, TableF
 	for (double val : residuals) {
 		mean += val;
 	}
-	mean /= n;
+	mean /= static_cast<double>(n);
 
 	// Compute moments
 	double m2 = 0.0; // Second moment (variance)
@@ -104,9 +104,9 @@ static unique_ptr<FunctionData> NormalityTestBind(ClientContext &context, TableF
 		m4 += dev2 * dev2;
 	}
 
-	m2 /= n;
-	m3 /= n;
-	m4 /= n;
+	m2 /= static_cast<double>(n);
+	m3 /= static_cast<double>(n);
+	m4 /= static_cast<double>(n);
 
 	double sigma = std::sqrt(m2);
 
@@ -119,7 +119,7 @@ static unique_ptr<FunctionData> NormalityTestBind(ClientContext &context, TableF
 	// Jarque-Bera statistic: JB = n/6 * (S² + (K-3)²/4)
 	double S2 = skewness * skewness;
 	double K_minus_3 = kurtosis - 3.0;
-	double jb = (n / 6.0) * (S2 + 0.25 * K_minus_3 * K_minus_3);
+	double jb = (static_cast<double>(n) / 6.0) * (S2 + 0.25 * K_minus_3 * K_minus_3);
 
 	// P-value from chi-square(2) distribution
 	double p_value = 1.0 - chi_square_cdf_df2(jb);
@@ -167,7 +167,7 @@ static void NormalityTestTableFunc(ClientContext &context, TableFunctionInput &d
 	auto normal_data = FlatVector::GetData<bool>(output.data[5]);
 	auto conclusion_data = FlatVector::GetData<string_t>(output.data[6]);
 
-	n_obs_data[0] = bind_data.n_obs;
+	n_obs_data[0] = static_cast<int64_t>(bind_data.n_obs);
 	skew_data[0] = bind_data.skewness;
 	kurt_data[0] = bind_data.kurtosis;
 	jb_data[0] = bind_data.jb_statistic;

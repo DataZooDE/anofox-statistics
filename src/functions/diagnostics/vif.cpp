@@ -218,7 +218,8 @@ static void VifTableFunc(ClientContext &context, TableFunctionInput &data_p, Dat
 void VifFunction::Register(ExtensionLoader &loader) {
 	ANOFOX_DEBUG("Registering VIF function");
 
-	TableFunction vif_func("anofox_statistics_vif", {LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE))}, // X matrix
+	TableFunction vif_func("anofox_statistics_vif",
+	                       {LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE))}, // X matrix
 	                       VifTableFunc, VifBind);
 
 	// Set named parameters

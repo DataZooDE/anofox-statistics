@@ -231,7 +231,8 @@ static void ComputeWLS(WlsFitBindData &data) {
 	// Adjusted R² using effective rank
 	idx_t effective_params = data.rank;
 	if (n > effective_params + 1) {
-		data.adj_r_squared = 1.0 - ((1.0 - data.r_squared) * (static_cast<double>(n) - 1.0) / (static_cast<double>(n) - static_cast<double>(effective_params) - 1.0));
+		data.adj_r_squared = 1.0 - ((1.0 - data.r_squared) * (static_cast<double>(n) - 1.0) /
+		                            (static_cast<double>(n) - static_cast<double>(effective_params) - 1.0));
 	} else {
 		data.adj_r_squared = data.r_squared;
 	}
@@ -277,9 +278,8 @@ struct WlsFitInOutLocalState : public LocalTableFunctionState {
 	idx_t current_input_row = 0;
 };
 
-static unique_ptr<LocalTableFunctionState> WlsFitInOutLocalInit(ExecutionContext &context,
-                                                                 TableFunctionInitInput &input,
-                                                                 GlobalTableFunctionState *global_state) {
+static unique_ptr<LocalTableFunctionState>
+WlsFitInOutLocalInit(ExecutionContext &context, TableFunctionInitInput &input, GlobalTableFunctionState *global_state) {
 	return make_uniq<WlsFitInOutLocalState>();
 }
 
@@ -336,8 +336,9 @@ static unique_ptr<FunctionData> WlsFitBind(ClientContext &context, TableFunction
 
 				// Validate dimensions
 				if (x_feature.size() != n) {
-					throw InvalidInputException("Array dimensions mismatch: y has %d elements, feature %d has %d elements", n,
-					                            result->x_values.size() + 1, x_feature.size());
+					throw InvalidInputException(
+					    "Array dimensions mismatch: y has %d elements, feature %d has %d elements", n,
+					    result->x_values.size() + 1, x_feature.size());
 				}
 
 				result->x_values.push_back(x_feature);
@@ -558,13 +559,14 @@ void WlsFitFunction::Register(ExtensionLoader &loader) {
 
 	// Register single function with BOTH literal and lateral join support
 	vector<LogicalType> arguments = {
-	    LogicalType::LIST(LogicalType::DOUBLE),                     // y: DOUBLE[]
+	    LogicalType::LIST(LogicalType::DOUBLE),                    // y: DOUBLE[]
 	    LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)), // x: DOUBLE[][]
-	    LogicalType::LIST(LogicalType::DOUBLE)                      // weights: DOUBLE[]
+	    LogicalType::LIST(LogicalType::DOUBLE)                     // weights: DOUBLE[]
 	};
 
 	// Register with literal mode (bind + execute)
-	TableFunction function("anofox_statistics_wls", arguments, WlsFitExecute, WlsFitBind, nullptr, WlsFitInOutLocalInit);
+	TableFunction function("anofox_statistics_wls", arguments, WlsFitExecute, WlsFitBind, nullptr,
+	                       WlsFitInOutLocalInit);
 
 	// Add lateral join support (in_out_function)
 	function.in_out_function = WlsFitInOut;

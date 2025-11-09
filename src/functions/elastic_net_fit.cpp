@@ -96,16 +96,16 @@ static void ComputeElasticNet(ElasticNetFitBindData &data) {
 			    "Insufficient observations: need at least %d observations for %d features + intercept, got %d", min_obs,
 			    p, n);
 		} else {
-			throw InvalidInputException("Insufficient observations: need at least %d observations for %d features, got %d",
-			                            min_obs, p, n);
+			throw InvalidInputException(
+			    "Insufficient observations: need at least %d observations for %d features, got %d", min_obs, p, n);
 		}
 	}
 
 	data.n_obs = n;
 	data.n_features = p;
 
-	ANOFOX_DEBUG("Computing Elastic Net with " << n << " observations and " << p << " features, alpha=" << data.options.alpha
-	                                           << ", lambda=" << data.options.lambda
+	ANOFOX_DEBUG("Computing Elastic Net with " << n << " observations and " << p << " features, alpha="
+	                                           << data.options.alpha << ", lambda=" << data.options.lambda
 	                                           << (data.options.intercept ? " (with intercept)" : " (no intercept)"));
 
 	// Build design matrix X and response vector y
@@ -177,12 +177,12 @@ static void ComputeElasticNet(ElasticNetFitBindData &data) {
 	data.n_nonzero = result.n_nonzero;
 
 	ANOFOX_DEBUG("Elastic Net complete: R² = " << data.r_squared << ", nonzero = " << data.n_nonzero << "/" << p
-	                                           << ", converged = " << result.converged << ", iterations = "
-	                                           << result.n_iterations);
+	                                           << ", converged = " << result.converged
+	                                           << ", iterations = " << result.n_iterations);
 }
 
 static unique_ptr<FunctionData> ElasticNetFitBind(ClientContext &context, TableFunctionBindInput &input,
-                                                   vector<LogicalType> &return_types, vector<string> &names) {
+                                                  vector<LogicalType> &return_types, vector<string> &names) {
 
 	ANOFOX_INFO("Elastic Net fit (array-based) bind phase");
 
@@ -244,8 +244,8 @@ static unique_ptr<FunctionData> ElasticNetFitBind(ClientContext &context, TableF
 	}
 
 	ANOFOX_INFO("Fitting Elastic Net with " << n << " observations and " << result->x_values.size()
-	                                         << " features, alpha=" << result->options.alpha
-	                                         << ", lambda=" << result->options.lambda);
+	                                        << " features, alpha=" << result->options.alpha
+	                                        << ", lambda=" << result->options.lambda);
 
 	// Perform Elastic Net fitting
 	ComputeElasticNet(*result);
@@ -253,13 +253,20 @@ static unique_ptr<FunctionData> ElasticNetFitBind(ClientContext &context, TableF
 	ANOFOX_INFO("Elastic Net fit completed: R² = " << result->r_squared << ", nonzero=" << result->n_nonzero);
 
 	// Set return schema
-	names = {"coefficients", "intercept", "r_squared", "adj_r_squared", "mse", "rmse",
+	names = {"coefficients", "intercept",  "r_squared", "adj_r_squared", "mse",      "rmse",
 	         "n_obs",        "n_features", "alpha",     "lambda",        "n_nonzero"};
 
-	return_types = {LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE, LogicalType::DOUBLE,
-	                LogicalType::DOUBLE,                    LogicalType::DOUBLE, LogicalType::DOUBLE,
-	                LogicalType::BIGINT,                    LogicalType::BIGINT, LogicalType::DOUBLE,
-	                LogicalType::DOUBLE,                    LogicalType::BIGINT};
+	return_types = {LogicalType::LIST(LogicalType::DOUBLE),
+	                LogicalType::DOUBLE,
+	                LogicalType::DOUBLE,
+	                LogicalType::DOUBLE,
+	                LogicalType::DOUBLE,
+	                LogicalType::DOUBLE,
+	                LogicalType::BIGINT,
+	                LogicalType::BIGINT,
+	                LogicalType::DOUBLE,
+	                LogicalType::DOUBLE,
+	                LogicalType::BIGINT};
 
 	return std::move(result);
 }

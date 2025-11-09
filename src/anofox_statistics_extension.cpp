@@ -2,25 +2,25 @@
 
 #include "anofox_statistics_extension.hpp"
 #include "functions/ols_metrics.hpp"
-#include "functions/ols_fit.hpp"                              // Phase 2 - OLS regression
-#include "functions/ridge_fit.hpp"                            // Phase 2 - Ridge regression
-#include "functions/wls_fit.hpp"                              // Phase 2 - Weighted LS
-#include "functions/rls_fit.hpp"                              // Phase 3 - Recursive LS
-#include "functions/elastic_net_fit.hpp"                      // Phase 2 - Elastic Net (L1+L2)
-#include "functions/aggregates/ols_aggregate.hpp"             // Phase 4 - Aggregates
-#include "functions/aggregates/wls_aggregate.hpp"             // Phase 4 - WLS Aggregate
-#include "functions/aggregates/ridge_aggregate.hpp"           // Phase 4 - Ridge Aggregate
-#include "functions/aggregates/rls_aggregate.hpp"             // Phase 4 - RLS Aggregate
+#include "functions/ols_fit.hpp"                                   // Phase 2 - OLS regression
+#include "functions/ridge_fit.hpp"                                 // Phase 2 - Ridge regression
+#include "functions/wls_fit.hpp"                                   // Phase 2 - Weighted LS
+#include "functions/rls_fit.hpp"                                   // Phase 3 - Recursive LS
+#include "functions/elastic_net_fit.hpp"                           // Phase 2 - Elastic Net (L1+L2)
+#include "functions/aggregates/ols_aggregate.hpp"                  // Phase 4 - Aggregates
+#include "functions/aggregates/wls_aggregate.hpp"                  // Phase 4 - WLS Aggregate
+#include "functions/aggregates/ridge_aggregate.hpp"                // Phase 4 - Ridge Aggregate
+#include "functions/aggregates/rls_aggregate.hpp"                  // Phase 4 - RLS Aggregate
 #include "functions/aggregates/elastic_net_aggregate.hpp"          // Phase 4 - Elastic Net Aggregate
 #include "functions/aggregates/residual_diagnostics_aggregate.hpp" // Phase 4 - Residual Diagnostics Aggregate
 #include "functions/aggregates/vif_aggregate.hpp"                  // Phase 4 - VIF Aggregate
 #include "functions/aggregates/normality_test_aggregate.hpp"       // Phase 4 - Normality Test Aggregate
-#include "functions/inference/ols_inference.hpp"              // Phase 5 - Inference
-#include "functions/inference/prediction_intervals.hpp"       // Phase 5 - Prediction
-#include "functions/model_selection/information_criteria.hpp" // Phase 5 - Model selection
-#include "functions/diagnostics/residual_diagnostics.hpp"     // Phase 5 - Diagnostics
-#include "functions/diagnostics/vif.hpp"                      // Phase 5 - Multicollinearity
-#include "functions/diagnostics/normality_test.hpp"           // Phase 5 - Normality
+#include "functions/inference/ols_inference.hpp"                   // Phase 5 - Inference
+#include "functions/inference/prediction_intervals.hpp"            // Phase 5 - Prediction
+#include "functions/model_selection/information_criteria.hpp"      // Phase 5 - Model selection
+#include "functions/diagnostics/residual_diagnostics.hpp"          // Phase 5 - Diagnostics
+#include "functions/diagnostics/vif.hpp"                           // Phase 5 - Multicollinearity
+#include "functions/diagnostics/normality_test.hpp"                // Phase 5 - Normality
 #include "duckdb/common/exception.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
 
@@ -37,17 +37,17 @@ void AnofoxStatisticsExtension::Load(ExtensionLoader &loader) {
 	anofox_statistics::ElasticNetFitFunction::Register(loader); // Elastic Net (L1+L2)
 
 	// Phase 3: Online/Sequential learning (✅ completed)
-	anofox_statistics::RlsFitFunction::Register(loader);       // Recursive Least Squares
+	anofox_statistics::RlsFitFunction::Register(loader); // Recursive Least Squares
 
 	// Phase 4: Aggregates & Window Functions (✅ completed)
-	anofox_statistics::OlsAggregateFunction::Register(loader);                  // OLS with GROUP BY
-	anofox_statistics::WlsAggregateFunction::Register(loader);                  // WLS with GROUP BY
-	anofox_statistics::RidgeAggregateFunction::Register(loader);                // Ridge with GROUP BY
-	anofox_statistics::RlsAggregateFunction::Register(loader);                  // RLS with GROUP BY
-	anofox_statistics::ElasticNetAggregateFunction::Register(loader);           // Elastic Net with GROUP BY
-	anofox_statistics::ResidualDiagnosticsAggregateFunction::Register(loader);  // Residual Diagnostics Aggregate
-	anofox_statistics::VifAggregateFunction::Register(loader);                  // VIF Aggregate
-	anofox_statistics::NormalityTestAggregateFunction::Register(loader);        // Normality Test Aggregate
+	anofox_statistics::OlsAggregateFunction::Register(loader);                 // OLS with GROUP BY
+	anofox_statistics::WlsAggregateFunction::Register(loader);                 // WLS with GROUP BY
+	anofox_statistics::RidgeAggregateFunction::Register(loader);               // Ridge with GROUP BY
+	anofox_statistics::RlsAggregateFunction::Register(loader);                 // RLS with GROUP BY
+	anofox_statistics::ElasticNetAggregateFunction::Register(loader);          // Elastic Net with GROUP BY
+	anofox_statistics::ResidualDiagnosticsAggregateFunction::Register(loader); // Residual Diagnostics Aggregate
+	anofox_statistics::VifAggregateFunction::Register(loader);                 // VIF Aggregate
+	anofox_statistics::NormalityTestAggregateFunction::Register(loader);       // Normality Test Aggregate
 
 	// Phase 5: Statistical Inference & Diagnostics (✅ completed)
 	anofox_statistics::OlsInferenceFunction::Register(loader);        // Coefficient inference

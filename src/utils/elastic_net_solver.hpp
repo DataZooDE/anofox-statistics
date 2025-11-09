@@ -18,14 +18,14 @@ namespace anofox_statistics {
  *   - lambda >= 0: regularization strength
  */
 struct ElasticNetResult {
-	Eigen::VectorXd coefficients;  // Estimated coefficients
-	idx_t n_nonzero;               // Number of non-zero coefficients
-	idx_t n_iterations;            // Number of iterations until convergence
-	bool converged;                // Whether the algorithm converged
-	double r_squared;              // R-squared
-	double adj_r_squared;          // Adjusted R-squared
-	double mse;                    // Mean squared error
-	double rmse;                   // Root mean squared error
+	Eigen::VectorXd coefficients; // Estimated coefficients
+	idx_t n_nonzero;              // Number of non-zero coefficients
+	idx_t n_iterations;           // Number of iterations until convergence
+	bool converged;               // Whether the algorithm converged
+	double r_squared;             // R-squared
+	double adj_r_squared;         // Adjusted R-squared
+	double mse;                   // Mean squared error
+	double rmse;                  // Root mean squared error
 };
 
 class ElasticNetSolver {
@@ -42,7 +42,7 @@ public:
 	 * @return ElasticNetResult with coefficients and diagnostics
 	 */
 	static ElasticNetResult Fit(const Eigen::VectorXd &y, const Eigen::MatrixXd &X, double alpha, double lambda,
-	                             idx_t max_iterations = 1000, double tolerance = 1e-6);
+	                            idx_t max_iterations = 1000, double tolerance = 1e-6);
 
 private:
 	/**

@@ -20,7 +20,7 @@ namespace anofox_statistics {
  */
 struct ResidualDiagnosticsBindData : public FunctionData {
 	vector<double> residuals;
-	vector<double> std_residuals;  // Standardized using sample SD
+	vector<double> std_residuals; // Standardized using sample SD
 	vector<bool> is_outlier;
 
 	double outlier_threshold;
@@ -72,8 +72,8 @@ struct ResidualDiagnosticsInOutLocalState : public LocalTableFunctionState {
 };
 
 static unique_ptr<LocalTableFunctionState> ResidualDiagnosticsInOutLocalInit(ExecutionContext &context,
-                                                                               TableFunctionInitInput &input,
-                                                                               GlobalTableFunctionState *global_state) {
+                                                                             TableFunctionInitInput &input,
+                                                                             GlobalTableFunctionState *global_state) {
 	return make_uniq<ResidualDiagnosticsInOutLocalState>();
 }
 
@@ -149,7 +149,7 @@ static unique_ptr<FunctionData> ResidualDiagnosticsBind(ClientContext &context, 
 
 			auto bind_data = make_uniq<ResidualDiagnosticsBindData>();
 
-			double outlier_threshold = 2.5;  // Default
+			double outlier_threshold = 2.5; // Default
 			if (input.inputs.size() > 2 && !input.inputs[2].IsNull()) {
 				outlier_threshold = input.inputs[2].GetValue<double>();
 			}
@@ -243,7 +243,7 @@ static void ResidualDiagnosticsTableFunc(ClientContext &context, TableFunctionIn
  * Processes rows from input table, computes diagnostics for each row
  */
 static OperatorResultType ResidualDiagnosticsInOut(ExecutionContext &context, TableFunctionInput &data_p,
-                                                     DataChunk &input, DataChunk &output) {
+                                                   DataChunk &input, DataChunk &output) {
 	auto &bind_data = data_p.bind_data->Cast<ResidualDiagnosticsInOutBindData>();
 	auto &state = data_p.local_state->Cast<ResidualDiagnosticsInOutLocalState>();
 
@@ -341,8 +341,8 @@ void ResidualDiagnosticsFunction::Register(ExtensionLoader &loader) {
 
 	// Register with literal mode (bind + execute)
 	TableFunction residual_diagnostics_func("anofox_statistics_residual_diagnostics", arguments,
-	                                        ResidualDiagnosticsTableFunc, ResidualDiagnosticsBind,
-	                                        nullptr, ResidualDiagnosticsInOutLocalInit);
+	                                        ResidualDiagnosticsTableFunc, ResidualDiagnosticsBind, nullptr,
+	                                        ResidualDiagnosticsInOutLocalInit);
 
 	// Add lateral join support (in_out_function)
 	residual_diagnostics_func.in_out_function = ResidualDiagnosticsInOut;

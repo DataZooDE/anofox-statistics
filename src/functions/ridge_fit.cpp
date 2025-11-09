@@ -106,7 +106,8 @@ static void ComputeRidge(RidgeFitBindData &data) {
 	data.n_obs = n;
 	data.n_features = p;
 
-	ANOFOX_DEBUG("Computing Ridge regression with " << n << " observations, " << p << " features, λ=" << data.options.lambda);
+	ANOFOX_DEBUG("Computing Ridge regression with " << n << " observations, " << p
+	                                                << " features, λ=" << data.options.lambda);
 
 	// Build design matrix X (n x p) and response vector y (n x 1)
 	Eigen::MatrixXd X(n, p);
@@ -258,7 +259,8 @@ static void ComputeRidge(RidgeFitBindData &data) {
 	// Adjusted R² using effective rank
 	idx_t effective_params = data.rank;
 	if (n > effective_params + 1) {
-		data.adj_r_squared = 1.0 - ((1.0 - data.r_squared) * (static_cast<double>(n) - 1.0) / (static_cast<double>(n) - static_cast<double>(effective_params) - 1.0));
+		data.adj_r_squared = 1.0 - ((1.0 - data.r_squared) * (static_cast<double>(n) - 1.0) /
+		                            (static_cast<double>(n) - static_cast<double>(effective_params) - 1.0));
 	} else {
 		data.adj_r_squared = data.r_squared;
 	}
@@ -266,8 +268,8 @@ static void ComputeRidge(RidgeFitBindData &data) {
 	data.mse = ss_res / static_cast<double>(n);
 	data.rmse = std::sqrt(data.mse);
 
-	ANOFOX_DEBUG("Ridge complete: R² = " << data.r_squared << ", λ=" << data.options.lambda << ", rank = " << data.rank << "/"
-	                                     << p);
+	ANOFOX_DEBUG("Ridge complete: R² = " << data.r_squared << ", λ=" << data.options.lambda << ", rank = " << data.rank
+	                                     << "/" << p);
 }
 
 //===--------------------------------------------------------------------===//
@@ -301,8 +303,8 @@ struct RidgeFitInOutLocalState : public LocalTableFunctionState {
 };
 
 static unique_ptr<LocalTableFunctionState> RidgeFitInOutLocalInit(ExecutionContext &context,
-                                                                   TableFunctionInitInput &input,
-                                                                   GlobalTableFunctionState *global_state) {
+                                                                  TableFunctionInitInput &input,
+                                                                  GlobalTableFunctionState *global_state) {
 	return make_uniq<RidgeFitInOutLocalState>();
 }
 
@@ -358,8 +360,9 @@ static unique_ptr<FunctionData> RidgeFitBind(ClientContext &context, TableFuncti
 
 				// Validate dimensions
 				if (x_feature.size() != n) {
-					throw InvalidInputException("Array dimensions mismatch: y has %d elements, feature %d has %d elements", n,
-					                            result->x_values.size() + 1, x_feature.size());
+					throw InvalidInputException(
+					    "Array dimensions mismatch: y has %d elements, feature %d has %d elements", n,
+					    result->x_values.size() + 1, x_feature.size());
 				}
 
 				result->x_values.push_back(x_feature);
@@ -563,12 +566,13 @@ void RidgeFitFunction::Register(ExtensionLoader &loader) {
 
 	// Register single function with BOTH literal and lateral join support
 	vector<LogicalType> arguments = {
-	    LogicalType::LIST(LogicalType::DOUBLE),                     // y: DOUBLE[]
-	    LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE))   // x: DOUBLE[][]
+	    LogicalType::LIST(LogicalType::DOUBLE),                   // y: DOUBLE[]
+	    LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)) // x: DOUBLE[][]
 	};
 
 	// Register with literal mode (bind + execute)
-	TableFunction function("anofox_statistics_ridge", arguments, RidgeFitExecute, RidgeFitBind, nullptr, RidgeFitInOutLocalInit);
+	TableFunction function("anofox_statistics_ridge", arguments, RidgeFitExecute, RidgeFitBind, nullptr,
+	                       RidgeFitInOutLocalInit);
 
 	// Add lateral join support (in_out_function)
 	function.in_out_function = RidgeFitInOut;

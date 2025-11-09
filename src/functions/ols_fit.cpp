@@ -102,7 +102,8 @@ static void ComputeRidge(OlsFitBindData &data) {
 	data.n_obs = n;
 	data.n_features = p;
 
-	ANOFOX_DEBUG("Computing OLS regression with " << n << " observations, " << p << " features, λ=" << data.options.lambda);
+	ANOFOX_DEBUG("Computing OLS regression with " << n << " observations, " << p
+	                                              << " features, λ=" << data.options.lambda);
 
 	// Build design matrix X (n x p) and response vector y (n x 1)
 	Eigen::MatrixXd X(n, p);
@@ -254,7 +255,8 @@ static void ComputeRidge(OlsFitBindData &data) {
 	// Adjusted R² using effective rank
 	idx_t effective_params = data.rank;
 	if (n > effective_params + 1) {
-		data.adj_r_squared = 1.0 - ((1.0 - data.r_squared) * (static_cast<double>(n) - 1.0) / (static_cast<double>(n) - static_cast<double>(effective_params) - 1.0));
+		data.adj_r_squared = 1.0 - ((1.0 - data.r_squared) * (static_cast<double>(n) - 1.0) /
+		                            (static_cast<double>(n) - static_cast<double>(effective_params) - 1.0));
 	} else {
 		data.adj_r_squared = data.r_squared;
 	}
@@ -262,8 +264,8 @@ static void ComputeRidge(OlsFitBindData &data) {
 	data.mse = ss_res / static_cast<double>(n);
 	data.rmse = std::sqrt(data.mse);
 
-	ANOFOX_DEBUG("Ridge complete: R² = " << data.r_squared << ", λ=" << data.options.lambda << ", rank = " << data.rank << "/"
-	                                     << p);
+	ANOFOX_DEBUG("Ridge complete: R² = " << data.r_squared << ", λ=" << data.options.lambda << ", rank = " << data.rank
+	                                     << "/" << p);
 }
 
 //===--------------------------------------------------------------------===//
@@ -296,9 +298,8 @@ struct OlsFitInOutLocalState : public LocalTableFunctionState {
 	idx_t current_input_row = 0;
 };
 
-static unique_ptr<LocalTableFunctionState> OlsFitInOutLocalInit(ExecutionContext &context,
-                                                                  TableFunctionInitInput &input,
-                                                                  GlobalTableFunctionState *global_state) {
+static unique_ptr<LocalTableFunctionState>
+OlsFitInOutLocalInit(ExecutionContext &context, TableFunctionInitInput &input, GlobalTableFunctionState *global_state) {
 	return make_uniq<OlsFitInOutLocalState>();
 }
 
@@ -307,7 +308,7 @@ static unique_ptr<LocalTableFunctionState> OlsFitInOutLocalInit(ExecutionContext
 //===--------------------------------------------------------------------===//
 
 static unique_ptr<FunctionData> OlsFitBind(ClientContext &context, TableFunctionBindInput &input,
-                                             vector<LogicalType> &return_types, vector<string> &names) {
+                                           vector<LogicalType> &return_types, vector<string> &names) {
 
 	ANOFOX_INFO("OLS regression bind phase");
 
@@ -353,8 +354,9 @@ static unique_ptr<FunctionData> OlsFitBind(ClientContext &context, TableFunction
 
 				// Validate dimensions
 				if (x_feature.size() != n) {
-					throw InvalidInputException("Array dimensions mismatch: y has %d elements, feature %d has %d elements", n,
-					                            result->x_values.size() + 1, x_feature.size());
+					throw InvalidInputException(
+					    "Array dimensions mismatch: y has %d elements, feature %d has %d elements", n,
+					    result->x_values.size() + 1, x_feature.size());
 				}
 
 				result->x_values.push_back(x_feature);
@@ -365,7 +367,7 @@ static unique_ptr<FunctionData> OlsFitBind(ClientContext &context, TableFunction
 				if (input.inputs[2].type().id() == LogicalTypeId::MAP) {
 					result->options = RegressionOptions::ParseFromMap(input.inputs[2]);
 					result->options.Validate();
-					result->options.lambda = 0.0;  // Force lambda=0 for OLS
+					result->options.lambda = 0.0; // Force lambda=0 for OLS
 				}
 			}
 
@@ -390,7 +392,7 @@ static unique_ptr<FunctionData> OlsFitBind(ClientContext &context, TableFunction
 					if (input.inputs[2].type().id() == LogicalTypeId::MAP) {
 						result->options = RegressionOptions::ParseFromMap(input.inputs[2]);
 						result->options.Validate();
-						result->options.lambda = 0.0;  // Force lambda=0 for OLS
+						result->options.lambda = 0.0; // Force lambda=0 for OLS
 					}
 				} catch (...) {
 					// Ignore if we can't parse options
@@ -447,7 +449,7 @@ static void OlsFitExecute(ClientContext &context, TableFunctionInput &data, Data
  * happens in the OlsFitInOut execution function.
  */
 static unique_ptr<FunctionData> OlsFitInOutBind(ClientContext &context, TableFunctionBindInput &input,
-                                                 vector<LogicalType> &return_types, vector<string> &names) {
+                                                vector<LogicalType> &return_types, vector<string> &names) {
 	ANOFOX_INFO("OLS regression bind phase (in-out mode for lateral joins)");
 
 	auto result = make_uniq<OlsFitInOutBindData>();
@@ -462,7 +464,7 @@ static unique_ptr<FunctionData> OlsFitInOutBind(ClientContext &context, TableFun
 		if (!input.inputs[2].IsNull() && input.inputs[2].type().id() == LogicalTypeId::MAP) {
 			result->options = RegressionOptions::ParseFromMap(input.inputs[2]);
 			result->options.Validate();
-			result->options.lambda = 0.0;  // Force lambda=0 for OLS
+			result->options.lambda = 0.0; // Force lambda=0 for OLS
 		}
 	}
 
@@ -487,7 +489,7 @@ static unique_ptr<FunctionData> OlsFitInOutBind(ClientContext &context, TableFun
  * Processes rows from input table, computes regression for each row
  */
 static OperatorResultType OlsFitInOut(ExecutionContext &context, TableFunctionInput &data_p, DataChunk &input,
-                                       DataChunk &output) {
+                                      DataChunk &output) {
 	auto &bind_data = data_p.bind_data->Cast<OlsFitInOutBindData>();
 	auto &state = data_p.local_state->Cast<OlsFitInOutLocalState>();
 
@@ -602,12 +604,13 @@ void OlsFitFunction::Register(ExtensionLoader &loader) {
 
 	// Register single function with BOTH literal and lateral join support
 	vector<LogicalType> arguments = {
-	    LogicalType::LIST(LogicalType::DOUBLE),                     // y: DOUBLE[]
-	    LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE))   // x: DOUBLE[][]
+	    LogicalType::LIST(LogicalType::DOUBLE),                   // y: DOUBLE[]
+	    LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)) // x: DOUBLE[][]
 	};
 
 	// Register with literal mode (bind + execute)
-	TableFunction function("anofox_statistics_ols", arguments, OlsFitExecute, OlsFitBind, nullptr, OlsFitInOutLocalInit);
+	TableFunction function("anofox_statistics_ols", arguments, OlsFitExecute, OlsFitBind, nullptr,
+	                       OlsFitInOutLocalInit);
 
 	// Add lateral join support (in_out_function)
 	function.in_out_function = OlsFitInOut;

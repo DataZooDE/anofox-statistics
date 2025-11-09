@@ -1,6 +1,3 @@
-// Define _USE_MATH_DEFINES before including cmath to make M_PI available on Windows/MSVC
-#define _USE_MATH_DEFINES
-
 #include "information_criteria.hpp"
 #include "../utils/tracing.hpp"
 #include "../utils/validation.hpp"
@@ -12,6 +9,10 @@
 #include <Eigen/Dense>
 #include <cmath>
 #include <vector>
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 
 namespace duckdb {
 namespace anofox_statistics {

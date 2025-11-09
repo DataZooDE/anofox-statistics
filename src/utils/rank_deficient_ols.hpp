@@ -185,15 +185,11 @@ inline RankDeficientOlsResult RankDeficientOls::Fit(const Eigen::VectorXd &y, co
 		Eigen::VectorXd QtY = qr.matrixQ().transpose() * y;
 
 		// Extract upper-left rank×rank portion of R
-		Eigen::MatrixXd R_reduced = qr.matrixQR().topLeftCorner(
-			static_cast<Eigen::Index>(result.rank),
-			static_cast<Eigen::Index>(result.rank)
-		);
+		Eigen::MatrixXd R_reduced =
+		    qr.matrixQR().topLeftCorner(static_cast<Eigen::Index>(result.rank), static_cast<Eigen::Index>(result.rank));
 
 		// Solve the rank-r triangular system: R_r * coef_r = (Q^T y)_r
-		coef_reduced = R_reduced.triangularView<Eigen::Upper>().solve(
-			QtY.head(static_cast<Eigen::Index>(result.rank))
-		);
+		coef_reduced = R_reduced.triangularView<Eigen::Upper>().solve(QtY.head(static_cast<Eigen::Index>(result.rank)));
 	}
 
 	// Step 5: Assign coefficients based on R's algorithm

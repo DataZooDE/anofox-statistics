@@ -17,15 +17,15 @@ struct RegressionOptions {
 	bool intercept = true;
 
 	// Regularization (Ridge, Elastic Net)
-	double lambda = 0.0;  // L2 penalty strength
-	double alpha = 0.0;   // Elastic net mixing: 0=ridge, 1=lasso, (0,1)=elastic net
+	double lambda = 0.0; // L2 penalty strength
+	double alpha = 0.0;  // Elastic net mixing: 0=ridge, 1=lasso, (0,1)=elastic net
 
 	// RLS specific
 	double forgetting_factor = 1.0; // Weight recent observations more: (0,1]
 
 	// Window functions
-	idx_t window_size = 0;     // Rolling window size (0 = not set)
-	idx_t min_periods = 0;     // Expanding minimum periods (0 = not set)
+	idx_t window_size = 0; // Rolling window size (0 = not set)
+	idx_t min_periods = 0; // Expanding minimum periods (0 = not set)
 
 	// Statistical inference (future extensibility)
 	double confidence_level = 0.95;
