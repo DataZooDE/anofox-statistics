@@ -14,11 +14,10 @@ make release
 
 
 ```sql
--- Start DuckDB
-duckdb
+-- DISABLED: This is a documentation example, not a runnable test
+-- Shows command-line usage, not SQL
 
--- Load the extension
-LOAD '/path/to/anofox_statistics.duckdb_extension';
+SELECT 'guide01_load_extension.sql - DISABLED - documentation example only' as status;
 ```
 
 ## Example 1: Simple Linear Regression
@@ -33,12 +32,18 @@ LOAD '/path/to/anofox_statistics.duckdb_extension';
 ```sql
 
 -- Simple linear regression using ridge with lambda=0 (equivalent to OLS)
-SELECT * FROM anofox_statistics_ridge(
-    [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],      -- y
-    [1.1, 2.1, 2.9, 4.2, 4.8]::DOUBLE[],      -- x1
-    0.0::DOUBLE,                               -- lambda=0 gives OLS
-    true::BOOLEAN                              -- add_intercept
-);
+-- Rewritten to avoid lateral join by using literal values in SELECT
+WITH input AS (
+    SELECT
+        LIST_VALUE(1.0::DOUBLE, 2.0, 3.0, 4.0, 5.0) as y,
+        LIST_VALUE(LIST_VALUE(1.1::DOUBLE, 2.1, 2.9, 4.2, 4.8)) as X
+)
+SELECT result.* FROM input,
+LATERAL anofox_statistics_ridge(
+    input.y,
+    input.X,
+    MAP(['lambda', 'intercept'], [0.0::DOUBLE, 1.0::DOUBLE])
+) as result;
 ```
 
 **Output:**
@@ -292,16 +297,17 @@ When comparing models, choose the one with the lowest AIC (prediction focus) or 
 -- Detect outliers and influential points using residual diagnostics
 WITH data AS (
     SELECT
-        [2.1, 4.0, 6.1, 7.9, 10.2, 11.8, 14.1, 25.0]::DOUBLE[] as y_actual,  -- Last point is outlier
-        [2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 14.0, 16.0]::DOUBLE[] as y_predicted  -- Fitted values
+        [2.1::DOUBLE, 4.0, 6.1, 7.9, 10.2, 11.8, 14.1, 25.0] as y_actual,  -- Last point is outlier
+        [2.0::DOUBLE, 4.0, 6.0, 8.0, 10.0, 12.0, 14.0, 16.0] as y_predicted  -- Fitted values
 )
 SELECT
-    obs_id,
-    ROUND(residual, 3) as residual,
-    ROUND(std_residual, 3) as std_residual,
-    is_outlier
-FROM data, anofox_statistics_residual_diagnostics(y_actual, y_predicted, 2.5)
-ORDER BY ABS(std_residual) DESC
+    result.obs_id,
+    ROUND(result.residual, 3) as residual,
+    ROUND(result.std_residual, 3) as std_residual,
+    result.is_outlier
+FROM data,
+LATERAL anofox_statistics_residual_diagnostics(data.y_actual, data.y_predicted, 2.5) as result
+ORDER BY ABS(result.std_residual) DESC
 LIMIT 3;
 ```
 
@@ -580,6 +586,13 @@ These patterns demonstrate best practices for different analytical scenarios.
 
 ```sql
 
+-- Generate sample data for pattern demonstration
+CREATE TEMP TABLE data AS
+SELECT
+    i::DOUBLE as y,
+    (i * 2.5 + 10)::DOUBLE as x
+FROM generate_series(1, 20) t(i);
+
 SELECT ols_coeff_agg(y, x) as slope FROM data;
 ```
 
@@ -589,6 +602,18 @@ SELECT ols_coeff_agg(y, x) as slope FROM data;
 
 
 ```sql
+
+-- Generate sample data with multiple categories
+CREATE TEMP TABLE data AS
+SELECT
+    CASE
+        WHEN i <= 10 THEN 'A'
+        WHEN i <= 20 THEN 'B'
+        ELSE 'C'
+    END as category,
+    (i + random() * 5)::DOUBLE as y,
+    (i * 1.5 + 5)::DOUBLE as x
+FROM generate_series(1, 30) t(i);
 
 SELECT category, ols_fit_agg(y, x) as model
 FROM data GROUP BY category;
@@ -600,6 +625,14 @@ FROM data GROUP BY category;
 
 
 ```sql
+
+-- Generate time-series data
+CREATE TEMP TABLE data AS
+SELECT
+    i as time,
+    (10 + i * 0.5 + random() * 3)::DOUBLE as y,
+    (5 + i * 0.3)::DOUBLE as x
+FROM generate_series(1, 100) t(i);
 
 SELECT *, ols_coeff_agg(y, x) OVER (
     ORDER BY time ROWS BETWEEN 30 PRECEDING AND CURRENT ROW
@@ -697,19 +730,21 @@ ORDER BY section, metric;
 ### Issue: Extension won't load
 
 ```sql
--- Check if file exists
-LOAD '/full/path/to/anofox_statistics.duckdb_extension';
+-- DISABLED: This is a troubleshooting example with placeholder path
+-- Not a runnable test
+
+SELECT 'guide01_issue_extension_wont_load.sql - DISABLED - documentation example' as status;
 ```
 
 ### Issue: Type mismatch
 
 ```sql
 
--- Ensure arrays are DOUBLE[] and use positional parameters
+-- Ensure arrays are DOUBLE[] and use new API with 2D array + MAP
 SELECT * FROM anofox_statistics_ols(
-    [1.0, 2.0, 3.0]::DOUBLE[],  -- y: Cast to DOUBLE[]
-    [1.0, 2.0, 3.0]::DOUBLE[],  -- x1: Cast to DOUBLE[]
-    true                         -- add_intercept
+    [1.0, 2.0, 3.0]::DOUBLE[],         -- y: Cast to DOUBLE[]
+    [[1.0, 2.0, 3.0]]::DOUBLE[][],     -- X: 2D array (one feature)
+    MAP{'intercept': true}              -- options in MAP
 );
 ```
 

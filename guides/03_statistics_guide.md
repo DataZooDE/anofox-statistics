@@ -44,6 +44,18 @@ This example demonstrates a basic OLS fit using the extension. The function comp
 
 ```sql
 
+-- Create sample products data
+CREATE TEMP TABLE products AS
+SELECT
+    CASE
+        WHEN i <= 15 THEN 'electronics'
+        WHEN i <= 30 THEN 'clothing'
+        ELSE 'furniture'
+    END as category,
+    (100 + i * 5 + random() * 20)::DOUBLE as sales,
+    (50 + i * 2 + random() * 10)::DOUBLE as price
+FROM generate_series(1, 45) t(i);
+
 -- Simple OLS with aggregate function (works directly with table data)
 SELECT
     category,
@@ -94,7 +106,7 @@ SELECT
     result.r2 as r_squared,
     result.adj_r2 as adjusted_r_squared,
     result.n_obs as sample_size,
-    result.n_features as num_predictors,
+    array_length(result.coefficients) as num_predictors,
     -- Interpretation flags
     CASE
         WHEN result.r2 > 0.8 THEN 'Excellent fit'
@@ -237,14 +249,21 @@ This example shows ridge regression with a regularization parameter λ=0.1. The 
 
 ```sql
 
--- Table function requires literal arrays (positional parameters)
-SELECT * FROM anofox_statistics_ridge(
-    [100.0, 98.0, 102.0, 97.0, 101.0]::DOUBLE[],  -- y: sales
-    [10.0, 9.8, 10.2, 9.7, 10.1]::DOUBLE[],       -- x1: price
-    [9.9, 9.7, 10.1, 9.8, 10.0]::DOUBLE[],        -- x2: competitors_price (correlated!)
-    0.1::DOUBLE,                                    -- lambda (explicit cast required)
-    true::BOOLEAN                                   -- add_intercept
-);
+-- Table function requires literal arrays with 2D array + MAP
+WITH data AS (
+    SELECT
+        [100.0::DOUBLE, 98.0, 102.0, 97.0, 101.0] as y,
+        [
+            [10.0::DOUBLE, 9.8, 10.2, 9.7, 10.1],
+            [9.9::DOUBLE, 9.7, 10.1, 9.8, 10.0]
+        ] as X
+)
+SELECT result.* FROM data,
+LATERAL anofox_statistics_ridge(
+    data.y,
+    data.X,
+    MAP(['lambda', 'intercept'], [0.1::DOUBLE, 1.0::DOUBLE])
+) as result;
 ```
 
 **When to Use**:
@@ -379,12 +398,12 @@ This example demonstrates WLS when observations have different levels of precisi
 
 ```sql
 
--- Variance proportional to x (positional parameters, literal arrays)
+-- Variance proportional to x (new API with 2D array + MAP)
 SELECT * FROM anofox_statistics_wls(
     [50.0, 100.0, 150.0, 200.0, 250.0]::DOUBLE[],  -- y: sales
-    [10.0, 20.0, 30.0, 40.0, 50.0]::DOUBLE[],      -- x1: size
+    [[10.0, 20.0, 30.0, 40.0, 50.0]]::DOUBLE[][],  -- X: 2D array (one feature)
     [10.0, 20.0, 30.0, 40.0, 50.0]::DOUBLE[],      -- weights: proportional to size
-    true                                             -- add_intercept
+    MAP{'intercept': true}                          -- options in MAP
 );
 ```
 
@@ -653,18 +672,21 @@ Residual diagnostics help you assess whether the regression assumptions hold and
 
 ```sql
 
+-- Note: residual_diagnostics expects y_actual and y_predicted, not y and X
+WITH predictions AS (
+    SELECT
+        [50.0, 55.0, 60.0, 65.0, 70.0, 75.0]::DOUBLE[] as y_actual,
+        [50.5, 54.8, 60.2, 64.9, 70.1, 74.7]::DOUBLE[] as y_predicted  -- Simulated predictions
+)
 SELECT
     obs_id,
     residual,
     std_residual,
-    studentized_residual,
-    is_outlier  -- TRUE if |studentized| > 2.5
-FROM anofox_statistics_residual_diagnostics(
-    [50.0, 55.0, 60.0, 65.0, 70.0, 75.0]::DOUBLE[],      -- y: data
-    [[1.0], [2.0], [3.0], [4.0], [5.0], [6.0]]::DOUBLE[][],  -- x: features
-    true,                                                  -- add_intercept
-    2.5,                                                   -- outlier_threshold
-    0.5                                                    -- influence_threshold
+    is_outlier  -- TRUE if |std_residual| > 2.5
+FROM predictions, anofox_statistics_residual_diagnostics(
+    y_actual,
+    y_predicted,
+    2.5  -- outlier_threshold
 );
 ```
 
@@ -718,20 +740,24 @@ DFFITSᵢ = tᵢ · √(hᵢᵢ/(1-hᵢᵢ))
 ```sql
 
 -- Find most influential observations (using literal arrays)
+-- Note: residual_diagnostics expects y_actual and y_predicted, not y and X
+-- Generate simple predicted values for demonstration
+WITH predictions AS (
+    SELECT
+        [50.0, 55.0, 60.0, 65.0, 70.0, 75.0]::DOUBLE[] as y_actual,
+        [50.5, 54.8, 60.2, 64.9, 70.1, 74.7]::DOUBLE[] as y_predicted  -- Simulated predictions
+)
 SELECT
     obs_id,
-    cooks_distance,
-    leverage,
-    dffits
-FROM anofox_statistics_residual_diagnostics(
-    [50.0, 55.0, 60.0, 65.0, 70.0, 75.0]::DOUBLE[],
-    [[1.0], [2.0], [3.0], [4.0], [5.0], [6.0]]::DOUBLE[][],
-    true,
-    2.5,
-    0.5
+    residual,
+    std_residual,
+    is_outlier
+FROM predictions, anofox_statistics_residual_diagnostics(
+    y_actual,
+    y_predicted,
+    2.5  -- outlier_threshold
 )
-WHERE is_influential = TRUE
-ORDER BY cooks_distance DESC;
+ORDER BY ABS(std_residual) DESC;
 ```
 
 ### Multicollinearity
@@ -919,6 +945,18 @@ R̄² = 0.82: Explains 82% adjusting for complexity
 
 ```sql
 
+-- Create sample diagnostics data
+CREATE TEMP TABLE diagnostics AS
+SELECT
+    i as obs_id,
+    (10 + i * 0.5)::DOUBLE as predicted,
+    (random() * 2 - 1)::DOUBLE as residual,
+    (random() * 2 - 1)::DOUBLE as studentized_residual,
+    ABS(random() * 2 - 1)::DOUBLE as sqrt_abs_residual,
+    (random() * 0.5)::DOUBLE as leverage,
+    (random() * 0.3)::DOUBLE as cooks_distance
+FROM generate_series(1, 50) t(i);
+
 -- 1. Residuals vs Fitted
 SELECT
     predicted,
@@ -937,7 +975,7 @@ FROM diagnostics;
 -- 3. Scale-Location (homoscedasticity)
 SELECT
     predicted,
-    SQRT(ABS(std_residual)) as sqrt_abs_std_resid
+    SQRT(ABS(studentized_residual)) as sqrt_abs_std_resid
 FROM diagnostics;
 -- Look for: Horizontal band (good), funnel (heteroscedastic)
 
@@ -973,13 +1011,18 @@ where Kₜ = Pₜ₋₁xₜ / (1 + xₜ'Pₜ₋₁xₜ)
 
 ```sql
 
--- Recursive Least Squares (positional parameters, literal arrays)
-SELECT * FROM anofox_statistics_rls(
-    [10.0, 11.0, 12.0, 13.0, 14.0, 15.0]::DOUBLE[],  -- y: streaming_values
-    [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]::DOUBLE[],        -- x1: streaming_features
-    0.99::DOUBLE,                                      -- forgetting_factor (explicit cast required)
-    true::BOOLEAN                                      -- add_intercept
-);
+-- Recursive Least Squares (new API with 2D array + MAP)
+WITH data AS (
+    SELECT
+        [10.0::DOUBLE, 11.0, 12.0, 13.0, 14.0, 15.0] as y,
+        [[1.0::DOUBLE, 2.0, 3.0, 4.0, 5.0, 6.0]] as X
+)
+SELECT result.* FROM data,
+LATERAL anofox_statistics_rls(
+    data.y,
+    data.X,
+    MAP(['lambda', 'intercept'], [0.99::DOUBLE, 1.0::DOUBLE])
+) as result;
 ```
 
 #### RLS Aggregate for GROUP BY Analysis
@@ -1124,6 +1167,14 @@ Use RLS aggregates when per-group relationships are non-stationary and recent da
 
 ```sql
 
+-- Generate time-series data
+CREATE TEMP TABLE time_series AS
+SELECT
+    DATE '2023-01-01' + INTERVAL (i) DAY as date,
+    (100 + i * 2 + random() * 10)::DOUBLE as sales,
+    (50 + i * 0.5 + random() * 5)::DOUBLE as price
+FROM generate_series(1, 100) t(i);
+
 SELECT
     date,
     ols_coeff_agg(sales, price) OVER (
@@ -1136,6 +1187,14 @@ FROM time_series;
 **Expanding Window**: Window starts small, grows over time
 
 ```sql
+
+-- Generate time-series data
+CREATE TEMP TABLE time_series AS
+SELECT
+    DATE '2023-01-01' + INTERVAL (i) DAY as date,
+    (100 + i * 2 + random() * 10)::DOUBLE as sales,
+    (50 + i * 0.5 + random() * 5)::DOUBLE as price
+FROM generate_series(1, 100) t(i);
 
 SELECT
     date,

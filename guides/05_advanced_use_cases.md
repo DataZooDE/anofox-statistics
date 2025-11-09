@@ -313,7 +313,7 @@ model2 AS (
         2 as model_id,
         'Marketing + Seasonality' as model_name,
         -- For multiple predictors, show R² from individual models
-        MAX((ols_fit_agg(y, x1)).r2) as r_squared,
+        (ols_fit_agg(y, x1)).r2 as r_squared,
         COUNT(*) as n_obs,
         3 as n_params
     FROM data
@@ -324,7 +324,7 @@ model3 AS (
     SELECT
         3 as model_id,
         'Full Model' as model_name,
-        MAX((ols_fit_agg(y, x1)).r2) as r_squared,
+        (ols_fit_agg(y, x1)).r2 as r_squared,
         COUNT(*) as n_obs,
         5 as n_params
     FROM data
@@ -1149,37 +1149,38 @@ SELECT
 FROM generate_series(1, 60) as t(i);
 
 -- Run all four methods and compare
-WITH all_methods AS (
-    SELECT
-        market,
-        -- OLS: Standard baseline
-        anofox_statistics_ols_agg(
-            y,
-            [x1_correlated, x2_correlated, x3_independent],
-            {'intercept': true}
-        ) as ols_model,
-        -- WLS: Addresses heteroscedasticity
-        anofox_statistics_wls_agg(
-            y,
-            [x1_correlated, x2_correlated, x3_independent],
-            observation_weight,
-            {'intercept': true}
-        ) as wls_model,
-        -- Ridge: Handles multicollinearity
-        anofox_statistics_ridge_agg(
-            y,
-            [x1_correlated, x2_correlated, x3_independent],
-            {'lambda': 1.0, 'intercept': true}
-        ) as ridge_model,
-        -- RLS: Adaptive to changes
-        anofox_statistics_rls_agg(
-            y,
-            [x1_correlated, x2_correlated, x3_independent],
-            {'forgetting_factor': 0.95, 'intercept': true}
-        ) as rls_model
-    FROM complex_dataset
-    GROUP BY market
-)
+CREATE TEMP TABLE all_methods AS
+SELECT
+    market,
+    -- OLS: Standard baseline
+    anofox_statistics_ols_agg(
+        y,
+        [x1_correlated, x2_correlated, x3_independent],
+        {'intercept': true}
+    ) as ols_model,
+    -- WLS: Addresses heteroscedasticity
+    anofox_statistics_wls_agg(
+        y,
+        [x1_correlated, x2_correlated, x3_independent],
+        observation_weight,
+        {'intercept': true}
+    ) as wls_model,
+    -- Ridge: Handles multicollinearity
+    anofox_statistics_ridge_agg(
+        y,
+        [x1_correlated, x2_correlated, x3_independent],
+        {'lambda': 1.0, 'intercept': true}
+    ) as ridge_model,
+    -- RLS: Adaptive to changes
+    anofox_statistics_rls_agg(
+        y,
+        [x1_correlated, x2_correlated, x3_independent],
+        {'forgetting_factor': 0.95, 'intercept': true}
+    ) as rls_model
+FROM complex_dataset
+GROUP BY market;
+
+-- Display comparison results
 SELECT
     market,
     -- Compare R² across methods
@@ -1809,6 +1810,17 @@ ORDER BY analysis_type DESC, metric;
 
 ```sql
 
+-- Create sample daily product data
+CREATE TEMP TABLE daily_product_data AS
+SELECT
+    (i % 10 + 1) as product_id,
+    CURRENT_DATE - INTERVAL (i) DAY as date,
+    (500 + i * 5 + random() * 100)::DOUBLE as sales,
+    (20 + random() * 10)::DOUBLE as price,
+    (100 + i * 2 + random() * 50)::DOUBLE as advertising,
+    (15 + random() * 5)::DOUBLE as competition
+FROM generate_series(1, 400) as t(i);
+
 -- Create materialized model table
 CREATE TABLE IF NOT EXISTS model_results_cache AS
 WITH source_data AS (
@@ -1901,68 +1913,132 @@ CREATE PROCEDURE refresh_product_models(lookback_days INT DEFAULT 365)
 
 ```sql
 
--- Incremental model update procedure
-CREATE OR REPLACE PROCEDURE refresh_product_models(lookback_days INT DEFAULT 365)
-AS
-BEGIN
-    -- Archive old models
-    INSERT INTO model_results_archive
-    SELECT *, CURRENT_TIMESTAMP as archived_at
-    FROM model_results_cache;
+-- Example: Incremental model refresh using parameterized queries
+-- NOTE: DuckDB doesn't support stored procedures, but the same functionality
+-- can be achieved using parameter variables and prepared statements
 
-    -- Delete old cache
-    DELETE FROM model_results_cache;
+-- Set parameters (in practice, these would be passed from your application)
+CREATE TEMP TABLE params AS SELECT 365 as lookback_days;
 
-    -- Rebuild with fresh data
-    INSERT INTO model_results_cache
-    WITH source_data AS (
-        SELECT
-            product_id,
-            sales::DOUBLE as y,
-            price::DOUBLE as x1,
-            advertising::DOUBLE as x2,
-            competition::DOUBLE as x3
-        FROM daily_product_data
-        WHERE date >= CURRENT_DATE - INTERVAL lookback_days DAYS
-    ),
-    product_models AS (
-        SELECT
-            product_id,
-            ols_fit_agg(y, x1) as model_x1,
-            ols_fit_agg(y, x2) as model_x2,
-            ols_fit_agg(y, x3) as model_x3,
-            COUNT(*) as data_points,
-            CURRENT_DATE - INTERVAL lookback_days DAYS as training_start,
-            CURRENT_DATE as training_end,
-            CURRENT_TIMESTAMP as model_update_time
-        FROM source_data
-        GROUP BY product_id
-        HAVING COUNT(*) >= 30
-    )
+-- Create sample schema tables for demonstration
+CREATE OR REPLACE TABLE model_results_archive (
+    product_id INT,
+    price_coefficient DOUBLE,
+    advertising_coefficient DOUBLE,
+    competition_coefficient DOUBLE,
+    r2_price DOUBLE,
+    r2_advertising DOUBLE,
+    r2_competition DOUBLE,
+    data_points INT,
+    training_start DATE,
+    training_end DATE,
+    model_update_time TIMESTAMP,
+    archived_at TIMESTAMP
+);
+
+CREATE OR REPLACE TABLE model_results_cache (
+    product_id INT,
+    price_coefficient DOUBLE,
+    advertising_coefficient DOUBLE,
+    competition_coefficient DOUBLE,
+    r2_price DOUBLE,
+    r2_advertising DOUBLE,
+    r2_competition DOUBLE,
+    data_points INT,
+    training_start DATE,
+    training_end DATE,
+    model_update_time TIMESTAMP
+);
+
+CREATE OR REPLACE TABLE model_refresh_log (
+    refresh_time TIMESTAMP,
+    lookback_days INT,
+    models_refreshed INT
+);
+
+-- Create sample daily product data
+CREATE OR REPLACE TABLE daily_product_data AS
+SELECT
+    (i % 10) + 1 as product_id,
+    CURRENT_DATE - ((RANDOM() * 365)::INT) as date,
+    (1000 + RANDOM() * 1000)::INT as sales,
+    (50 + RANDOM() * 50)::DOUBLE as price,
+    (500 + RANDOM() * 500)::DOUBLE as advertising,
+    (10 + RANDOM() * 20)::DOUBLE as competition
+FROM range(1, 1001) t(i);
+
+-- ==============================================================================
+-- Model Refresh Logic (equivalent to stored procedure functionality)
+-- ==============================================================================
+
+-- Step 1: Archive old models
+INSERT INTO model_results_archive
+SELECT *, CURRENT_TIMESTAMP as archived_at
+FROM model_results_cache;
+
+-- Step 2: Delete old cache
+DELETE FROM model_results_cache;
+
+-- Step 3: Rebuild with fresh data
+INSERT INTO model_results_cache
+WITH lookback_param AS (
+    SELECT lookback_days FROM params
+),
+source_data AS (
     SELECT
         product_id,
-        (model_x1).coefficient as price_coefficient,
-        (model_x2).coefficient as advertising_coefficient,
-        (model_x3).coefficient as competition_coefficient,
-        (model_x1).r2 as r2_price,
-        (model_x2).r2 as r2_advertising,
-        (model_x3).r2 as r2_competition,
-        data_points,
-        training_start,
-        training_end,
-        model_update_time
-    FROM product_models;
+        sales::DOUBLE as y,
+        price::DOUBLE as x1,
+        advertising::DOUBLE as x2,
+        competition::DOUBLE as x3,
+        (SELECT lookback_days FROM lookback_param) as lookback
+    FROM daily_product_data
+    CROSS JOIN lookback_param
+    WHERE date >= CURRENT_DATE - (lookback_param.lookback_days || ' DAYS')::INTERVAL
+),
+product_models AS (
+    SELECT
+        product_id,
+        ols_fit_agg(y, x1) as model_x1,
+        ols_fit_agg(y, x2) as model_x2,
+        ols_fit_agg(y, x3) as model_x3,
+        COUNT(*) as data_points,
+        CURRENT_DATE - (MAX(lookback) || ' DAYS')::INTERVAL as training_start,
+        CURRENT_DATE as training_end,
+        CURRENT_TIMESTAMP as model_update_time
+    FROM source_data
+    GROUP BY product_id
+    HAVING COUNT(*) >= 30
+)
+SELECT
+    product_id,
+    (model_x1).coefficient as price_coefficient,
+    (model_x2).coefficient as advertising_coefficient,
+    (model_x3).coefficient as competition_coefficient,
+    (model_x1).r2 as r2_price,
+    (model_x2).r2 as r2_advertising,
+    (model_x3).r2 as r2_competition,
+    data_points,
+    training_start,
+    training_end,
+    model_update_time
+FROM product_models;
 
-    -- Log refresh
-    INSERT INTO model_refresh_log VALUES (
-        CURRENT_TIMESTAMP,
-        lookback_days,
-        (SELECT COUNT(*) FROM model_results_cache)
-    );
-END;
+-- Step 4: Log refresh
+INSERT INTO model_refresh_log
+SELECT
+    CURRENT_TIMESTAMP as refresh_time,
+    lookback_days,
+    (SELECT COUNT(*) FROM model_results_cache) as models_refreshed
+FROM params;
 
--- Schedule: Run daily
--- CALL refresh_product_models(365);
+-- Display results
+SELECT 'Refresh completed at: ' || CURRENT_TIMESTAMP::VARCHAR as status;
+SELECT * FROM model_refresh_log ORDER BY refresh_time DESC LIMIT 1;
+SELECT COUNT(*) as models_in_cache FROM model_results_cache;
+
+-- NOTE: To schedule this daily, use an external scheduler (cron, Airflow, etc.)
+-- and execute this script with: duckdb < guide05_automated_model_refresh.sql
 ```
 
 ## Performance Optimization
@@ -2008,6 +2084,26 @@ END;
 
 ```sql
 
+-- Create sample large dataset for testing
+CREATE TEMP TABLE large_sales_table AS
+SELECT
+    DATE '2023-01-01' + INTERVAL (i) DAY as date,
+    CASE (i % 3)
+        WHEN 0 THEN 'electronics'
+        WHEN 1 THEN 'clothing'
+        ELSE 'furniture'
+    END as category,
+    (1000 + i * 10 + random() * 200)::DOUBLE as sales,
+    (500 + i * 5 + random() * 100)::DOUBLE as marketing
+FROM generate_series(1, 365) as t(i);
+
+CREATE TEMP TABLE large_table AS
+SELECT
+    (100 + i * 2 + random() * 10)::DOUBLE as y,
+    (50 + i * 1.5 + random() * 5)::DOUBLE as x1,
+    (30 + i * 0.8 + random() * 3)::DOUBLE as x2
+FROM generate_series(1, 1000) as t(i);
+
 -- Efficient processing of large datasets
 -- Strategy 1: Partition by time/category
 WITH monthly_partitions AS (
@@ -2026,13 +2122,16 @@ monthly_models AS (
     SELECT
         month,
         category,
-        -- Use aggregate functions directly on arrays
-        ols_coeff_agg(UNNEST(y_values), UNNEST(x_values)) as coefficient,
-        (SELECT (ols_fit_agg(UNNEST(y_values), UNNEST(x_values))).r2) as r2,
-        n_obs
+        n_obs,
+        -- Use aggregate functions with UNNEST in subquery
+        (SELECT ols_coeff_agg(y, x) FROM (
+            SELECT UNNEST(y_values) as y, UNNEST(x_values) as x
+        )) as coefficient,
+        (SELECT (ols_fit_agg(y, x)).r2 FROM (
+            SELECT UNNEST(y_values) as y, UNNEST(x_values) as x
+        )) as r2
     FROM monthly_partitions
     WHERE n_obs >= 30
-    GROUP BY month, category, y_values, x_values, n_obs
 )
 
 SELECT
@@ -2117,6 +2216,15 @@ COPY (
     FROM model
 ) TO 'model_coefficients.csv' (HEADER, DELIMITER ',');
 
+-- Create sample prediction results for export
+CREATE TEMP TABLE prediction_results AS
+SELECT
+    i as customer_id,
+    (100 + i * 10 + random() * 20)::DOUBLE as predicted,
+    (90 + i * 10 + random() * 10)::DOUBLE as ci_lower,
+    (110 + i * 10 + random() * 10)::DOUBLE as ci_upper
+FROM generate_series(1, 20) t(i);
+
 -- Export predictions with confidence intervals
 COPY (
     SELECT
@@ -2159,6 +2267,13 @@ COPY (
 
 ```sql
 
+-- Create sample data for validation checks
+CREATE TEMP TABLE data AS
+SELECT
+    (i + random() * 5)::DOUBLE as y,
+    (i * 2)::DOUBLE as x
+FROM generate_series(1, 50) t(i);
+
 -- Check list before deploying model (using literal array examples)
 WITH validation AS (
     SELECT
@@ -2168,25 +2283,25 @@ WITH validation AS (
     UNION ALL
     SELECT
         'Multicollinearity',
-        CAST(MAX(vif_value) AS VARCHAR),
-        CASE WHEN MAX(vif_value) < 10 THEN 'PASS' ELSE 'FAIL' END
-    FROM anofox_statistics_vif([[1.0, 2.0, 3.0], [1.1, 2.1, 3.1], [1.2, 2.2, 3.2], [1.3, 2.3, 3.3], [1.4, 2.4, 3.4]])
+        CAST(MAX(vif) AS VARCHAR),
+        CASE WHEN MAX(vif) < 10 THEN 'PASS' ELSE 'FAIL' END
+    FROM anofox_statistics_vif([[1.0::DOUBLE, 2.0, 3.0], [1.1::DOUBLE, 2.1, 3.1], [1.2::DOUBLE, 2.2, 3.2], [1.3::DOUBLE, 2.3, 3.3], [1.4::DOUBLE, 2.4, 3.4]])
     UNION ALL
     SELECT
         'Normality',
         CAST(p_value AS VARCHAR),
         CASE WHEN p_value > 0.05 THEN 'PASS' ELSE 'FAIL' END
-    FROM anofox_statistics_normality_test([0.1, -0.2, 0.3, -0.1, 0.2, -0.3, 0.15, -0.25])
+    FROM anofox_statistics_normality_test([0.1::DOUBLE, -0.2, 0.3, -0.1, 0.2, -0.3, 0.15, -0.25], 0.05)
     UNION ALL
     SELECT
         'Outliers',
         CAST(COUNT(*) AS VARCHAR),
         CASE WHEN COUNT(*) < 0.05 * (SELECT COUNT(*) FROM data) THEN 'PASS' ELSE 'WARN' END
     FROM anofox_statistics_residual_diagnostics(
-        [100.0, 110.0, 120.0, 130.0, 140.0],
-        [[1.0, 2.0], [1.1, 2.1], [1.2, 2.2], [1.3, 2.3], [1.4, 2.4]],
-        true, 2.5, 0.5
-    ) WHERE is_influential
+        [100.0::DOUBLE, 110.0, 120.0, 130.0, 140.0],
+        [102.0::DOUBLE, 108.0, 118.0, 132.0, 138.0],
+        outlier_threshold := 2.5
+    ) WHERE is_outlier
 )
 SELECT * FROM validation;
 ```
@@ -2221,20 +2336,46 @@ SELECT * FROM validation;
 
 ```sql
 
--- Track model performance over time
-CREATE TABLE model_performance_log AS
+-- Create model performance archive
+CREATE TEMP TABLE model_results_archive AS
 SELECT
-    CURRENT_DATE as check_date,
     'product_sales_model' as model_name,
-    r_squared as current_r2,
-    (SELECT r_squared FROM model_results_archive
-     WHERE model_name = 'product_sales_model'
-     ORDER BY archived_at DESC LIMIT 1 OFFSET 1) as previous_r2,
+    0.85 as r_squared,
+    (DATE '2024-01-01' + i * INTERVAL '1' DAY) as archived_at
+FROM generate_series(1, 30) t(i);
+
+-- Create current model results
+CREATE TEMP TABLE current_model AS
+SELECT
+    0.82 as r_squared,
+    0.81 as adj_r_squared;
+
+-- Track model performance over time
+CREATE TEMP TABLE model_performance_log AS
+WITH previous_performance AS (
+    SELECT r_squared as previous_r2
+    FROM model_results_archive
+    WHERE model_name = 'product_sales_model'
+    ORDER BY archived_at DESC LIMIT 1 OFFSET 1
+),
+performance_with_previous AS (
+    SELECT
+        CURRENT_DATE as check_date,
+        'product_sales_model' as model_name,
+        r_squared as current_r2,
+        (SELECT previous_r2 FROM previous_performance) as previous_r2
+    FROM current_model
+)
+SELECT
+    check_date,
+    model_name,
+    current_r2,
+    previous_r2,
     CASE
-        WHEN r_squared < previous_r2 * 0.9 THEN 'DEGRADED'
+        WHEN current_r2 < previous_r2 * 0.9 THEN 'DEGRADED'
         ELSE 'STABLE'
     END as status
-FROM current_model;
+FROM performance_with_previous;
 ```
 
 ### 3. Document Everything

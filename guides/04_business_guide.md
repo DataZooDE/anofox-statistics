@@ -159,10 +159,10 @@ CREATE OR REPLACE TABLE customer_summary AS
 SELECT
     i as customer_id,
     (tenure * 45 + aov * 3 + freq * 80 + engagement * 500 + RANDOM() * 200)::DOUBLE as total_purchases,
-    tenure::DOUBLE,
-    aov::DOUBLE,
-    freq::DOUBLE,
-    engagement::DOUBLE,
+    tenure,
+    aov,
+    freq,
+    engagement,
     CURRENT_DATE - (12 + (RANDOM() * 24)::INT) * INTERVAL '1 month' as cohort_month
 FROM (
     SELECT
@@ -289,7 +289,7 @@ WITH ltv_analysis AS (
         result.coefficients[1] as roi_per_dollar,
         result.coefficients[2] as monthly_value,
         result.intercept as base_value,
-        AVG(acquisition_cost) as avg_cac
+        cac.avg_cac
     FROM (
         SELECT
             segment,
@@ -587,61 +587,61 @@ SELECT
 FROM range(1, 101) t(i);
 
 -- Build default prediction model using aggregate functions
-SELECT
-    'Credit Score' as variable,
-    ROUND((ols_fit_agg(default_flag::DOUBLE, credit_score)).coefficient, 5) as coefficient,
-    ROUND((ols_fit_agg(default_flag::DOUBLE, credit_score)).p_value, 4) as p_value,
-    (ols_fit_agg(default_flag::DOUBLE, credit_score)).significant as significant,
-    CASE
-        WHEN (ols_fit_agg(default_flag::DOUBLE, credit_score)).coefficient > 0 THEN 'Increases Risk'
-        WHEN (ols_fit_agg(default_flag::DOUBLE, credit_score)).coefficient < 0 THEN 'Decreases Risk'
-        ELSE 'No Effect'
-    END as risk_impact,
-    ROUND((ols_fit_agg(default_flag::DOUBLE, credit_score)).r2, 3) as model_quality
-FROM loans
-WHERE origination_date >= '2022-01-01'
-UNION ALL
-SELECT
-    'Debt-to-Income' as variable,
-    ROUND((ols_fit_agg(default_flag::DOUBLE, debt_to_income)).coefficient, 5) as coefficient,
-    ROUND((ols_fit_agg(default_flag::DOUBLE, debt_to_income)).p_value, 4) as p_value,
-    (ols_fit_agg(default_flag::DOUBLE, debt_to_income)).significant as significant,
-    CASE
-        WHEN (ols_fit_agg(default_flag::DOUBLE, debt_to_income)).coefficient > 0 THEN 'Increases Risk'
-        WHEN (ols_fit_agg(default_flag::DOUBLE, debt_to_income)).coefficient < 0 THEN 'Decreases Risk'
-        ELSE 'No Effect'
-    END as risk_impact,
-    ROUND((ols_fit_agg(default_flag::DOUBLE, debt_to_income)).r2, 3) as model_quality
-FROM loans
-WHERE origination_date >= '2022-01-01'
-UNION ALL
-SELECT
-    'Loan-to-Value' as variable,
-    ROUND((ols_fit_agg(default_flag::DOUBLE, loan_to_value)).coefficient, 5) as coefficient,
-    ROUND((ols_fit_agg(default_flag::DOUBLE, loan_to_value)).p_value, 4) as p_value,
-    (ols_fit_agg(default_flag::DOUBLE, loan_to_value)).significant as significant,
-    CASE
-        WHEN (ols_fit_agg(default_flag::DOUBLE, loan_to_value)).coefficient > 0 THEN 'Increases Risk'
-        WHEN (ols_fit_agg(default_flag::DOUBLE, loan_to_value)).coefficient < 0 THEN 'Decreases Risk'
-        ELSE 'No Effect'
-    END as risk_impact,
-    ROUND((ols_fit_agg(default_flag::DOUBLE, loan_to_value)).r2, 3) as model_quality
-FROM loans
-WHERE origination_date >= '2022-01-01'
-UNION ALL
-SELECT
-    'Employment Years' as variable,
-    ROUND((ols_fit_agg(default_flag::DOUBLE, employment_years)).coefficient, 5) as coefficient,
-    ROUND((ols_fit_agg(default_flag::DOUBLE, employment_years)).p_value, 4) as p_value,
-    (ols_fit_agg(default_flag::DOUBLE, employment_years)).significant as significant,
-    CASE
-        WHEN (ols_fit_agg(default_flag::DOUBLE, employment_years)).coefficient > 0 THEN 'Increases Risk'
-        WHEN (ols_fit_agg(default_flag::DOUBLE, employment_years)).coefficient < 0 THEN 'Decreases Risk'
-        ELSE 'No Effect'
-    END as risk_impact,
-    ROUND((ols_fit_agg(default_flag::DOUBLE, employment_years)).r2, 3) as model_quality
-FROM loans
-WHERE origination_date >= '2022-01-01'
+WITH risk_factors AS (
+    SELECT
+        'Credit Score' as variable,
+        ROUND((ols_fit_agg(default_flag::DOUBLE, credit_score)).coefficient, 5) as coefficient,
+        ROUND((ols_fit_agg(default_flag::DOUBLE, credit_score)).std_error, 4) as std_error,
+        CASE
+            WHEN (ols_fit_agg(default_flag::DOUBLE, credit_score)).coefficient > 0 THEN 'Increases Risk'
+            WHEN (ols_fit_agg(default_flag::DOUBLE, credit_score)).coefficient < 0 THEN 'Decreases Risk'
+            ELSE 'No Effect'
+        END as risk_impact,
+        ROUND((ols_fit_agg(default_flag::DOUBLE, credit_score)).r2, 3) as model_quality
+    FROM loans
+    WHERE origination_date >= '2022-01-01'
+    UNION ALL
+    SELECT
+        'Debt-to-Income' as variable,
+        ROUND((ols_fit_agg(default_flag::DOUBLE, debt_to_income)).coefficient, 5) as coefficient,
+        ROUND((ols_fit_agg(default_flag::DOUBLE, debt_to_income)).std_error, 4) as std_error,
+        CASE
+            WHEN (ols_fit_agg(default_flag::DOUBLE, debt_to_income)).coefficient > 0 THEN 'Increases Risk'
+            WHEN (ols_fit_agg(default_flag::DOUBLE, debt_to_income)).coefficient < 0 THEN 'Decreases Risk'
+            ELSE 'No Effect'
+        END as risk_impact,
+        ROUND((ols_fit_agg(default_flag::DOUBLE, debt_to_income)).r2, 3) as model_quality
+    FROM loans
+    WHERE origination_date >= '2022-01-01'
+    UNION ALL
+    SELECT
+        'Loan-to-Value' as variable,
+        ROUND((ols_fit_agg(default_flag::DOUBLE, loan_to_value)).coefficient, 5) as coefficient,
+        ROUND((ols_fit_agg(default_flag::DOUBLE, loan_to_value)).std_error, 4) as std_error,
+        CASE
+            WHEN (ols_fit_agg(default_flag::DOUBLE, loan_to_value)).coefficient > 0 THEN 'Increases Risk'
+            WHEN (ols_fit_agg(default_flag::DOUBLE, loan_to_value)).coefficient < 0 THEN 'Decreases Risk'
+            ELSE 'No Effect'
+        END as risk_impact,
+        ROUND((ols_fit_agg(default_flag::DOUBLE, loan_to_value)).r2, 3) as model_quality
+    FROM loans
+    WHERE origination_date >= '2022-01-01'
+    UNION ALL
+    SELECT
+        'Employment Years' as variable,
+        ROUND((ols_fit_agg(default_flag::DOUBLE, employment_years)).coefficient, 5) as coefficient,
+        ROUND((ols_fit_agg(default_flag::DOUBLE, employment_years)).std_error, 4) as std_error,
+        CASE
+            WHEN (ols_fit_agg(default_flag::DOUBLE, employment_years)).coefficient > 0 THEN 'Increases Risk'
+            WHEN (ols_fit_agg(default_flag::DOUBLE, employment_years)).coefficient < 0 THEN 'Decreases Risk'
+            ELSE 'No Effect'
+        END as risk_impact,
+        ROUND((ols_fit_agg(default_flag::DOUBLE, employment_years)).r2, 3) as model_quality
+    FROM loans
+    WHERE origination_date >= '2022-01-01'
+)
+SELECT *
+FROM risk_factors
 ORDER BY ABS(coefficient) DESC;
 ```
 
@@ -963,95 +963,65 @@ SELECT
     pressure::DOUBLE as pressure,
     humidity::DOUBLE as humidity,
     speed::DOUBLE as line_speed,
-    defect_rate::DOUBLE
+    -- Defects increase with high temp, high speed, decrease with optimal pressure
+    (2.0 + temp * 0.05 + speed * 0.03 - pressure * 0.02 + humidity * 0.01 + RANDOM() * 1.5)::DOUBLE as defect_rate
 FROM (
     SELECT
         i,
         (180 + RANDOM() * 40) as temp,  -- 180-220°F
         (25 + RANDOM() * 10) as pressure,  -- 25-35 PSI
         (40 + RANDOM() * 30) as humidity,  -- 40-70%
-        (50 + RANDOM() * 30) as speed,  -- 50-80 units/min
-        -- Defects increase with high temp, high speed, decrease with optimal pressure
-        (2.0 + temp * 0.05 + speed * 0.03 - pressure * 0.02 + humidity * 0.01 + RANDOM() * 1.5) as defect_rate
+        (50 + RANDOM() * 30) as speed  -- 50-80 units/min
     FROM range(1, 101) t(i)
 );
 
 -- Analyze impact of each process parameter on defect rates
+WITH recent_batches AS (
+    SELECT * FROM production_batches
+    WHERE batch_date >= CURRENT_DATE - INTERVAL '3 months'
+),
+parameter_impacts AS (
+    SELECT
+        'Temperature' as variable,
+        ROUND((ols_fit_agg(defect_rate, temperature)).coefficient, 4) as impact_on_defects,
+        ROUND((ols_fit_agg(defect_rate, temperature)).r2, 3) as model_fit
+    FROM recent_batches
+    UNION ALL
+    SELECT
+        'Pressure' as variable,
+        ROUND((ols_fit_agg(defect_rate, pressure)).coefficient, 4) as impact_on_defects,
+        ROUND((ols_fit_agg(defect_rate, pressure)).r2, 3) as model_fit
+    FROM recent_batches
+    UNION ALL
+    SELECT
+        'Humidity' as variable,
+        ROUND((ols_fit_agg(defect_rate, humidity)).coefficient, 4) as impact_on_defects,
+        ROUND((ols_fit_agg(defect_rate, humidity)).r2, 3) as model_fit
+    FROM recent_batches
+    UNION ALL
+    SELECT
+        'Line Speed' as variable,
+        ROUND((ols_fit_agg(defect_rate, line_speed)).coefficient, 4) as impact_on_defects,
+        ROUND((ols_fit_agg(defect_rate, line_speed)).r2, 3) as model_fit
+    FROM recent_batches
+),
+impacts_materialized AS (
+    SELECT * FROM parameter_impacts
+)
 SELECT
-    'Temperature' as variable,
-    ROUND((ols_fit_agg(defect_rate, temperature)).coefficient, 4) as impact_on_defects,
-    ROUND((ols_fit_agg(defect_rate, temperature)).p_value, 4) as p_value,
-    (ols_fit_agg(defect_rate, temperature)).significant as significant,
+    variable,
+    impact_on_defects,
+    model_fit,
     CASE
-        WHEN (ols_fit_agg(defect_rate, temperature)).coefficient > 0 THEN 'Increases Defects'
-        WHEN (ols_fit_agg(defect_rate, temperature)).coefficient < 0 THEN 'Reduces Defects'
+        WHEN impact_on_defects > 0 THEN 'Increases Defects'
+        WHEN impact_on_defects < 0 THEN 'Reduces Defects'
     END as quality_impact,
     CASE
-        WHEN (ols_fit_agg(defect_rate, temperature)).significant
-             AND (ols_fit_agg(defect_rate, temperature)).coefficient > 0 THEN 'Critical - Reduce'
-        WHEN (ols_fit_agg(defect_rate, temperature)).significant
-             AND (ols_fit_agg(defect_rate, temperature)).coefficient < 0 THEN 'Beneficial - Increase'
-        ELSE 'Not Significant'
+        WHEN ABS(impact_on_defects) > 0.05 AND impact_on_defects > 0 THEN 'Critical - Reduce'
+        WHEN ABS(impact_on_defects) > 0.05 AND impact_on_defects < 0 THEN 'Beneficial - Increase'
+        ELSE 'Low Impact'
     END as action_recommendation
-FROM production_batches
-WHERE batch_date >= CURRENT_DATE - INTERVAL '3 months'
-UNION ALL
-SELECT
-    'Pressure' as variable,
-    ROUND((ols_fit_agg(defect_rate, pressure)).coefficient, 4) as impact_on_defects,
-    ROUND((ols_fit_agg(defect_rate, pressure)).p_value, 4) as p_value,
-    (ols_fit_agg(defect_rate, pressure)).significant as significant,
-    CASE
-        WHEN (ols_fit_agg(defect_rate, pressure)).coefficient > 0 THEN 'Increases Defects'
-        WHEN (ols_fit_agg(defect_rate, pressure)).coefficient < 0 THEN 'Reduces Defects'
-    END as quality_impact,
-    CASE
-        WHEN (ols_fit_agg(defect_rate, pressure)).significant
-             AND (ols_fit_agg(defect_rate, pressure)).coefficient > 0 THEN 'Critical - Reduce'
-        WHEN (ols_fit_agg(defect_rate, pressure)).significant
-             AND (ols_fit_agg(defect_rate, pressure)).coefficient < 0 THEN 'Beneficial - Increase'
-        ELSE 'Not Significant'
-    END as action_recommendation
-FROM production_batches
-WHERE batch_date >= CURRENT_DATE - INTERVAL '3 months'
-UNION ALL
-SELECT
-    'Humidity' as variable,
-    ROUND((ols_fit_agg(defect_rate, humidity)).coefficient, 4) as impact_on_defects,
-    ROUND((ols_fit_agg(defect_rate, humidity)).p_value, 4) as p_value,
-    (ols_fit_agg(defect_rate, humidity)).significant as significant,
-    CASE
-        WHEN (ols_fit_agg(defect_rate, humidity)).coefficient > 0 THEN 'Increases Defects'
-        WHEN (ols_fit_agg(defect_rate, humidity)).coefficient < 0 THEN 'Reduces Defects'
-    END as quality_impact,
-    CASE
-        WHEN (ols_fit_agg(defect_rate, humidity)).significant
-             AND (ols_fit_agg(defect_rate, humidity)).coefficient > 0 THEN 'Critical - Reduce'
-        WHEN (ols_fit_agg(defect_rate, humidity)).significant
-             AND (ols_fit_agg(defect_rate, humidity)).coefficient < 0 THEN 'Beneficial - Increase'
-        ELSE 'Not Significant'
-    END as action_recommendation
-FROM production_batches
-WHERE batch_date >= CURRENT_DATE - INTERVAL '3 months'
-UNION ALL
-SELECT
-    'Line Speed' as variable,
-    ROUND((ols_fit_agg(defect_rate, line_speed)).coefficient, 4) as impact_on_defects,
-    ROUND((ols_fit_agg(defect_rate, line_speed)).p_value, 4) as p_value,
-    (ols_fit_agg(defect_rate, line_speed)).significant as significant,
-    CASE
-        WHEN (ols_fit_agg(defect_rate, line_speed)).coefficient > 0 THEN 'Increases Defects'
-        WHEN (ols_fit_agg(defect_rate, line_speed)).coefficient < 0 THEN 'Reduces Defects'
-    END as quality_impact,
-    CASE
-        WHEN (ols_fit_agg(defect_rate, line_speed)).significant
-             AND (ols_fit_agg(defect_rate, line_speed)).coefficient > 0 THEN 'Critical - Reduce'
-        WHEN (ols_fit_agg(defect_rate, line_speed)).significant
-             AND (ols_fit_agg(defect_rate, line_speed)).coefficient < 0 THEN 'Beneficial - Increase'
-        ELSE 'Not Significant'
-    END as action_recommendation
-FROM production_batches
-WHERE batch_date >= CURRENT_DATE - INTERVAL '3 months'
+FROM impacts_materialized
 ORDER BY ABS(impact_on_defects) DESC;
 ```
 
@@ -1085,7 +1055,7 @@ FROM (
         (10 + RANDOM() * 30)::DOUBLE as training_hours,  -- 10-40 hours training
         (1 + RANDOM() * 14)::DOUBLE as experience_years,  -- 1-15 years
         (3 + RANDOM() * 7)::INT::DOUBLE as team_size,  -- 3-10 people
-        output
+        output as output_per_hour
     FROM (
         SELECT
             i,
@@ -1282,10 +1252,10 @@ ORDER BY result.r2 DESC;
 SELECT
     region,
     result.coefficients[1] as unit_change_per_dollar,
-    AVG(price) as avg_price,
-    result.coefficients[1] * AVG(price) as revenue_impact_per_dollar_increase,
+    avg_price,
+    result.coefficients[1] * avg_price as revenue_impact_per_dollar_increase,
     CASE
-        WHEN result.coefficients[1] * AVG(price) < -1.0 THEN 'Price decrease would increase revenue'
+        WHEN result.coefficients[1] * avg_price < -1.0 THEN 'Price decrease would increase revenue'
         ELSE 'Current pricing may be optimal'
     END as pricing_insight
 FROM (
@@ -1423,14 +1393,12 @@ SELECT
     ROUND((ols_fit_agg(revenue, spend)).coefficient - 1, 2) as roi_multiplier,
     ROUND(((ols_fit_agg(revenue, spend)).coefficient - 1) * 100, 1) || '%' as roi_percentage,
     CASE
-        WHEN (ols_fit_agg(revenue, spend)).p_value < 0.05
-             AND (ols_fit_agg(revenue, spend)).coefficient > 1.5 THEN 'Strong - Scale Up'
-        WHEN (ols_fit_agg(revenue, spend)).p_value < 0.05
-             AND (ols_fit_agg(revenue, spend)).coefficient > 1.0 THEN 'Positive - Continue'
-        WHEN (ols_fit_agg(revenue, spend)).p_value < 0.05 THEN 'Negative - Stop Campaign'
+        WHEN (ols_fit_agg(revenue, spend)).coefficient > 1.5 THEN 'Strong - Scale Up'
+        WHEN (ols_fit_agg(revenue, spend)).coefficient > 1.0 THEN 'Positive - Continue'
+        WHEN (ols_fit_agg(revenue, spend)).coefficient < 1.0 THEN 'Negative - Stop Campaign'
         ELSE 'Inconclusive - Gather More Data'
     END as recommendation,
-    ROUND((ols_fit_agg(revenue, spend)).p_value, 4) as p_value,
+    ROUND((ols_fit_agg(revenue, spend)).std_error, 4) as std_error,
     ROUND((ols_fit_agg(revenue, spend)).r2, 3) as model_quality
 FROM campaigns;
 ```
@@ -1513,23 +1481,23 @@ Don't rely on single model - triangulate with multiple approaches:
 
 -- Create sample data with multiple predictors
 CREATE OR REPLACE TABLE model_comparison_data AS
+WITH raw_data AS (
+    SELECT
+        i,
+        (RANDOM() * 10)::DOUBLE as x1,
+        (RANDOM() * 10)::DOUBLE as x2,
+        (RANDOM() * 10)::DOUBLE as x3,  -- Noise
+        (RANDOM() * 10)::DOUBLE as x4  -- Noise
+    FROM range(1, 101) t(i)
+)
 SELECT
     i as obs_id,
-    y,
+    (10 + x1 * 2.5 + x2 * 0.5 + RANDOM() * 5)::DOUBLE as y,  -- x1 is strong, x2 is weak
     x1,
     x2,
     x3,
     x4
-FROM (
-    SELECT
-        i,
-        (10 + x1 * 2.5 + x2 * 0.5 + RANDOM() * 5)::DOUBLE as y,  -- x1 is strong, x2 is weak
-        (RANDOM() * 10)::DOUBLE as x1,
-        (RANDOM() * 10)::DOUBLE as x2,
-        (RANDOM() * 10)::DOUBLE as x3,  -- Noise
-        (RANDOM() * 10)::DOUBLE as x4   -- Noise
-    FROM range(1, 101) t(i)
-);
+FROM raw_data;
 
 -- Compare simple vs complex models using aggregate functions
 -- Simple model: just x1
