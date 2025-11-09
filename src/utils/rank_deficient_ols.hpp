@@ -152,21 +152,20 @@ inline RankDeficientOlsResult RankDeficientOls::Fit(const Eigen::VectorXd &y, co
 	result.is_aliased.resize(p, true); // Assume aliased until proven otherwise
 	result.permutation_indices.resize(static_cast<Eigen::Index>(p));
 
-	// Step 0: Detect constant columns (these should always be aliased)
-	auto constant_cols = DetectConstantColumns(X);
-
 	// Step 1: Perform QR decomposition with column pivoting
+	// This automatically detects ALL dependencies including constant columns
 	Eigen::ColPivHouseholderQR<Eigen::MatrixXd> qr(X);
 
 	// Step 2: Set tolerance if specified
 	if (tolerance > 0.0) {
 		qr.setThreshold(tolerance);
 	}
-	// else: use Eigen's default
+	// else: use Eigen's default (epsilon * max(n, p))
 
 	result.tolerance_used = qr.threshold();
 
-	// Step 3: Get rank and permutation
+	// Step 3: Get rank and permutation from QR decomposition
+	// This is the ONLY source of truth for rank (matches R's DQRLS)
 	result.rank = qr.rank();
 	const Eigen::PermutationMatrix<Eigen::Dynamic, Eigen::Dynamic> &P = qr.colsPermutation();
 
@@ -175,46 +174,52 @@ inline RankDeficientOlsResult RankDeficientOls::Fit(const Eigen::VectorXd &y, co
 		result.permutation_indices[static_cast<Eigen::Index>(i)] = P.indices()[static_cast<Eigen::Index>(i)];
 	}
 
-	// Step 4: Solve least squares
-	// IMPORTANT: qr.solve() returns coefficients in ORIGINAL column order, not pivoted!
-	Eigen::VectorXd coef = qr.solve(y);
+	// Step 4: Solve least squares for rank-r subsystem only
+	// CRITICAL: For rank-deficient matrices, qr.solve() gives unreliable results
+	// Instead, we explicitly solve R_r * beta_r = (Q^T * y)_r for the rank-r subsystem
+	// This matches R's DQRLS algorithm exactly
 
-	// Step 5: Identify non-aliased columns using rank and permutation
-	// The first 'rank' pivoted columns are non-aliased
-	// Constant columns remain aliased even if chosen by QR
+	Eigen::VectorXd coef_reduced;
+	if (result.rank > 0) {
+		// Extract Q^T * y
+		Eigen::VectorXd QtY = qr.matrixQ().transpose() * y;
+
+		// Extract upper-left rank×rank portion of R
+		Eigen::MatrixXd R_reduced = qr.matrixQR().topLeftCorner(
+			static_cast<Eigen::Index>(result.rank),
+			static_cast<Eigen::Index>(result.rank)
+		);
+
+		// Solve the rank-r triangular system: R_r * coef_r = (Q^T y)_r
+		coef_reduced = R_reduced.triangularView<Eigen::Upper>().solve(
+			QtY.head(static_cast<Eigen::Index>(result.rank))
+		);
+	}
+
+	// Step 5: Assign coefficients based on R's algorithm
+	// The first 'rank' columns in PIVOTED order are non-aliased
+	// Map coefficients from reduced system back to original column positions
+	// Columns at pivoted positions [rank:p] remain NaN (aliased)
 	for (idx_t i = 0; i < result.rank; i++) {
-		idx_t original_idx = P.indices()[static_cast<Eigen::Index>(i)];
-
-		// Skip constant columns - they must remain aliased
-		if (constant_cols[original_idx]) {
-			continue;
-		}
-
-		// Mark this column as non-aliased and copy its coefficient
-		// Note: coef[original_idx] is already in the right place!
+		auto i_idx = static_cast<Eigen::Index>(i);
+		idx_t original_idx = P.indices()[i_idx];
 		auto orig_idx = static_cast<Eigen::Index>(original_idx);
-		result.coefficients[orig_idx] = coef[orig_idx];
+
+		// Assign coefficient from reduced system
+		result.coefficients[orig_idx] = coef_reduced[i_idx];
 		result.is_aliased[original_idx] = false;
 	}
 
-	// Coefficients beyond rank remain NaN and is_aliased=true
-	// Constant columns also remain NaN and is_aliased=true
-
-	// Adjust rank to account for constant columns we excluded
-	idx_t n_constant = 0;
-	for (idx_t j = 0; j < p; j++) {
-		if (constant_cols[j]) {
-			n_constant++;
-		}
-	}
-	// Effective rank should not include constant columns
-	result.rank = result.rank > n_constant ? result.rank - n_constant : 0;
+	// Coefficients at pivoted positions [rank:p] remain NaN and is_aliased=true
+	// No special handling needed - they're already initialized as aliased
 
 	// Step 6: Compute predictions using only non-aliased features
+	// Skip NaN coefficients (aliased columns) to avoid numerical errors
 	Eigen::VectorXd y_pred = Eigen::VectorXd::Zero(static_cast<Eigen::Index>(n));
 	for (idx_t j = 0; j < p; j++) {
-		if (!result.is_aliased[j]) {
-			auto j_idx = static_cast<Eigen::Index>(j);
+		auto j_idx = static_cast<Eigen::Index>(j);
+		// Check both is_aliased flag and NaN status for safety
+		if (!result.is_aliased[j] && !std::isnan(result.coefficients[j_idx])) {
 			y_pred += result.coefficients[j_idx] * X.col(j_idx);
 		}
 	}
@@ -295,11 +300,26 @@ inline void RankDeficientOls::ComputeStatistics(const Eigen::VectorXd &y, const 
 	// R-squared
 	result.r_squared = (ss_tot > 1e-10) ? (1.0 - ss_res / ss_tot) : 0.0;
 
+	// Bound R-squared to valid range [0, 1]
+	// Numerical errors in rank-deficient case can produce invalid values
+	if (result.r_squared < 0.0) {
+		result.r_squared = 0.0;
+	} else if (result.r_squared > 1.0) {
+		result.r_squared = 1.0;
+	}
+
 	// Adjusted R-squared
 	// Use rank instead of n_params for degrees of freedom
 	if (n > rank + 1) {
 		double adj_factor = static_cast<double>(n - 1) / static_cast<double>(n - rank - 1);
 		result.adj_r_squared = 1.0 - (1.0 - result.r_squared) * adj_factor;
+
+		// Bound adjusted R-squared as well
+		if (result.adj_r_squared < 0.0) {
+			result.adj_r_squared = 0.0;
+		} else if (result.adj_r_squared > 1.0) {
+			result.adj_r_squared = 1.0;
+		}
 	} else {
 		result.adj_r_squared = result.r_squared;
 	}
