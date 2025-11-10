@@ -52,11 +52,11 @@ void AnofoxStatisticsExtension::Load(ExtensionLoader &loader) {
 	anofox_statistics::NormalityTestAggregateFunction::Register(loader);       // Normality Test Aggregate
 
 	// Phase 5: Statistical Inference & Diagnostics (✅ completed)
-	anofox_statistics::OlsInferenceFunction::Register(loader);              // Coefficient inference
-	anofox_statistics::OlsPredictIntervalFunction::Register(loader);        // Prediction intervals
-	anofox_statistics::AnofoxStatisticsModelPredictFunction::Register(loader);  // Model-based prediction
-	anofox_statistics::PredictScalarFunctions::Register(loader);            // Scalar predict functions (user-friendly)
-	anofox_statistics::InformationCriteriaFunction::Register(loader);       // AIC, BIC
+	anofox_statistics::OlsInferenceFunction::Register(loader);                 // Coefficient inference
+	anofox_statistics::OlsPredictIntervalFunction::Register(loader);           // Prediction intervals
+	anofox_statistics::AnofoxStatisticsModelPredictFunction::Register(loader); // Model-based prediction
+	anofox_statistics::PredictScalarFunctions::Register(loader);      // Scalar predict functions (user-friendly)
+	anofox_statistics::InformationCriteriaFunction::Register(loader); // AIC, BIC
 	anofox_statistics::ResidualDiagnosticsFunction::Register(loader); // Residual diagnostics
 	anofox_statistics::VifFunction::Register(loader);                 // Multicollinearity (VIF)
 	anofox_statistics::NormalityTestFunction::Register(loader);       // Normality test

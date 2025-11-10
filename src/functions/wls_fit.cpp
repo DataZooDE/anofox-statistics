@@ -187,9 +187,8 @@ static void ComputeWLS(WlsFitBindData &data) {
 
 	// Use rank-deficient solver on weighted, centered matrices
 	// Use FitWithStdErrors if full_output requested
-	auto result = data.options.full_output ?
-		RankDeficientOls::FitWithStdErrors(y_weighted, X_weighted) :
-		RankDeficientOls::Fit(y_weighted, X_weighted);
+	auto result = data.options.full_output ? RankDeficientOls::FitWithStdErrors(y_weighted, X_weighted)
+	                                       : RankDeficientOls::Fit(y_weighted, X_weighted);
 
 	// Store rank and aliasing info
 	data.rank = result.rank;
@@ -341,7 +340,8 @@ static unique_ptr<FunctionData> WlsFitBind(ClientContext &context, TableFunction
 	bool full_output = false;
 	if (input.inputs.size() >= 4 && !input.inputs[3].IsNull()) {
 		try {
-			if (input.inputs[3].type().id() == LogicalTypeId::MAP || input.inputs[3].type().id() == LogicalTypeId::STRUCT) {
+			if (input.inputs[3].type().id() == LogicalTypeId::MAP ||
+			    input.inputs[3].type().id() == LogicalTypeId::STRUCT) {
 				auto opts = RegressionOptions::ParseFromMap(input.inputs[3]);
 				full_output = opts.full_output;
 			}
@@ -373,11 +373,11 @@ static unique_ptr<FunctionData> WlsFitBind(ClientContext &context, TableFunction
 		names.push_back("is_aliased");
 		names.push_back("x_train_means");
 
-		return_types.push_back(LogicalType::LIST(LogicalType::DOUBLE)); // coefficient_std_errors
-		return_types.push_back(LogicalType::DOUBLE);                    // intercept_std_error
-		return_types.push_back(LogicalType::BIGINT);                    // df_residual
+		return_types.push_back(LogicalType::LIST(LogicalType::DOUBLE));  // coefficient_std_errors
+		return_types.push_back(LogicalType::DOUBLE);                     // intercept_std_error
+		return_types.push_back(LogicalType::BIGINT);                     // df_residual
 		return_types.push_back(LogicalType::LIST(LogicalType::BOOLEAN)); // is_aliased
-		return_types.push_back(LogicalType::LIST(LogicalType::DOUBLE)); // x_train_means
+		return_types.push_back(LogicalType::LIST(LogicalType::DOUBLE));  // x_train_means
 	}
 
 	// Check if this is being called for lateral joins (in-out function mode)
@@ -406,8 +406,8 @@ static unique_ptr<FunctionData> WlsFitBind(ClientContext &context, TableFunction
 
 			// Validate we have the right number of rows
 			if (x_outer.size() != n) {
-				throw InvalidInputException(
-				    "Array dimensions mismatch: y has %d elements, but x has %d rows", n, x_outer.size());
+				throw InvalidInputException("Array dimensions mismatch: y has %d elements, but x has %d rows", n,
+				                            x_outer.size());
 			}
 
 			// Determine number of features from first row
@@ -428,8 +428,8 @@ static unique_ptr<FunctionData> WlsFitBind(ClientContext &context, TableFunction
 				auto row = ListValue::GetChildren(x_outer[i]);
 				if (row.size() != p) {
 					throw InvalidInputException(
-					    "Inconsistent number of features: row 0 has %d features, but row %d has %d features",
-					    p, i, row.size());
+					    "Inconsistent number of features: row 0 has %d features, but row %d has %d features", p, i,
+					    row.size());
 				}
 				for (idx_t j = 0; j < p; j++) {
 					result->x_values[j].push_back(row[j].GetValue<double>());
@@ -444,7 +444,8 @@ static unique_ptr<FunctionData> WlsFitBind(ClientContext &context, TableFunction
 
 			// Extract options (fourth parameter - MAP, optional)
 			if (input.inputs.size() >= 4 && !input.inputs[3].IsNull()) {
-				if (input.inputs[3].type().id() == LogicalTypeId::MAP || input.inputs[3].type().id() == LogicalTypeId::STRUCT) {
+				if (input.inputs[3].type().id() == LogicalTypeId::MAP ||
+				    input.inputs[3].type().id() == LogicalTypeId::STRUCT) {
 					result->options = RegressionOptions::ParseFromMap(input.inputs[3]);
 					result->options.Validate();
 				}
@@ -473,7 +474,8 @@ static unique_ptr<FunctionData> WlsFitBind(ClientContext &context, TableFunction
 			// Extract options if provided as literal
 			if (input.inputs.size() >= 4 && !input.inputs[3].IsNull()) {
 				try {
-					if (input.inputs[3].type().id() == LogicalTypeId::MAP || input.inputs[3].type().id() == LogicalTypeId::STRUCT) {
+					if (input.inputs[3].type().id() == LogicalTypeId::MAP ||
+					    input.inputs[3].type().id() == LogicalTypeId::STRUCT) {
 						result->options = RegressionOptions::ParseFromMap(input.inputs[3]);
 						result->options.Validate();
 					}

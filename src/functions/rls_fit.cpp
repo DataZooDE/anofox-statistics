@@ -456,7 +456,8 @@ static unique_ptr<FunctionData> RlsFitBind(ClientContext &context, TableFunction
 	bool full_output = false;
 	if (input.inputs.size() >= 3 && !input.inputs[2].IsNull()) {
 		try {
-			if (input.inputs[2].type().id() == LogicalTypeId::MAP || input.inputs[2].type().id() == LogicalTypeId::STRUCT) {
+			if (input.inputs[2].type().id() == LogicalTypeId::MAP ||
+			    input.inputs[2].type().id() == LogicalTypeId::STRUCT) {
 				auto opts = RegressionOptions::ParseFromMap(input.inputs[2]);
 				full_output = opts.full_output;
 			}
@@ -488,11 +489,11 @@ static unique_ptr<FunctionData> RlsFitBind(ClientContext &context, TableFunction
 		names.push_back("is_aliased");
 		names.push_back("x_train_means");
 
-		return_types.push_back(LogicalType::LIST(LogicalType::DOUBLE)); // coefficient_std_errors
-		return_types.push_back(LogicalType::DOUBLE);                    // intercept_std_error
-		return_types.push_back(LogicalType::BIGINT);                    // df_residual
+		return_types.push_back(LogicalType::LIST(LogicalType::DOUBLE));  // coefficient_std_errors
+		return_types.push_back(LogicalType::DOUBLE);                     // intercept_std_error
+		return_types.push_back(LogicalType::BIGINT);                     // df_residual
 		return_types.push_back(LogicalType::LIST(LogicalType::BOOLEAN)); // is_aliased
-		return_types.push_back(LogicalType::LIST(LogicalType::DOUBLE)); // x_train_means
+		return_types.push_back(LogicalType::LIST(LogicalType::DOUBLE));  // x_train_means
 	}
 
 	// Check if this is being called for lateral joins (in-out function mode)
@@ -541,8 +542,8 @@ static unique_ptr<FunctionData> RlsFitBind(ClientContext &context, TableFunction
 			for (idx_t i = 0; i < n; i++) {
 				auto row = ListValue::GetChildren(x_outer[i]);
 				if (row.size() != p) {
-					throw InvalidInputException("Array dimensions mismatch: row 0 has %d features, row %d has %d features",
-					                            p, i, row.size());
+					throw InvalidInputException(
+					    "Array dimensions mismatch: row 0 has %d features, row %d has %d features", p, i, row.size());
 				}
 
 				for (idx_t j = 0; j < p; j++) {
@@ -552,7 +553,8 @@ static unique_ptr<FunctionData> RlsFitBind(ClientContext &context, TableFunction
 
 			// Extract options (third parameter - MAP, optional)
 			if (input.inputs.size() >= 3 && !input.inputs[2].IsNull()) {
-				if (input.inputs[2].type().id() == LogicalTypeId::MAP || input.inputs[2].type().id() == LogicalTypeId::STRUCT) {
+				if (input.inputs[2].type().id() == LogicalTypeId::MAP ||
+				    input.inputs[2].type().id() == LogicalTypeId::STRUCT) {
 					result->options = RegressionOptions::ParseFromMap(input.inputs[2]);
 					result->options.Validate();
 				}
@@ -576,7 +578,8 @@ static unique_ptr<FunctionData> RlsFitBind(ClientContext &context, TableFunction
 			// Extract options if provided as literal
 			if (input.inputs.size() >= 3 && !input.inputs[2].IsNull()) {
 				try {
-					if (input.inputs[2].type().id() == LogicalTypeId::MAP || input.inputs[2].type().id() == LogicalTypeId::STRUCT) {
+					if (input.inputs[2].type().id() == LogicalTypeId::MAP ||
+					    input.inputs[2].type().id() == LogicalTypeId::STRUCT) {
 						result->options = RegressionOptions::ParseFromMap(input.inputs[2]);
 						result->options.Validate();
 					}

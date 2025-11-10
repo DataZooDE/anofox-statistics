@@ -203,7 +203,7 @@ static void RlsFinalize(Vector &state_vector, AggregateInputData &aggr_input_dat
 		// Handle intercept option
 		double intercept = 0.0;
 		Eigen::VectorXd beta;
-		Eigen::VectorXd x_means;  // Store for extended metadata
+		Eigen::VectorXd x_means; // Store for extended metadata
 
 		if (state.options.intercept) {
 			// With intercept: center data first, then do RLS
@@ -269,7 +269,7 @@ static void RlsFinalize(Vector &state_vector, AggregateInputData &aggr_input_dat
 			}
 
 			intercept = 0.0;
-		x_means = Eigen::VectorXd::Zero(p);
+			x_means = Eigen::VectorXd::Zero(p);
 		}
 
 		// Compute predictions

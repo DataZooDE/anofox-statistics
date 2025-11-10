@@ -280,7 +280,7 @@ static void WlsFinalize(Vector &state_vector, AggregateInputData &aggr_input_dat
 
 		// Compute weighted statistics
 		Eigen::VectorXd residuals = y - y_pred;
-		double ss_res = residuals.squaredNorm();  // Unweighted for MSE calculation
+		double ss_res = residuals.squaredNorm(); // Unweighted for MSE calculation
 		double ss_res_weighted = (w.array() * residuals.array().square()).sum();
 
 		double ss_tot_weighted;
@@ -572,7 +572,7 @@ static void WlsWindow(AggregateInputData &aggr_input_data, const WindowPartition
 
 	// Compute weighted statistics
 	Eigen::VectorXd residuals = y - y_pred;
-	double ss_res = residuals.squaredNorm();  // Unweighted for MSE calculation
+	double ss_res = residuals.squaredNorm(); // Unweighted for MSE calculation
 	double ss_res_weighted = (w.array() * residuals.array().square()).sum();
 
 	double ss_tot_weighted;

@@ -30,10 +30,10 @@ struct ModelPredictBindData : public TableFunctionData {
 
 	// Prediction settings
 	double confidence_level;
-	string interval_type;  // 'confidence', 'prediction', or 'none'
+	string interval_type; // 'confidence', 'prediction', or 'none'
 
 	// New observations to predict
-	vector<vector<double>> x_new;  // [n_new x p] matrix
+	vector<vector<double>> x_new; // [n_new x p] matrix
 
 	// Computed results
 	vector<double> predictions;
@@ -55,8 +55,8 @@ struct ModelPredictInOutLocalState : public LocalTableFunctionState {
  * Local state initializer for in-out mode
  */
 static unique_ptr<LocalTableFunctionState> ModelPredictInOutLocalInit(ExecutionContext &context,
-                                                                        TableFunctionInitInput &input,
-                                                                        GlobalTableFunctionState *global_state) {
+                                                                      TableFunctionInitInput &input,
+                                                                      GlobalTableFunctionState *global_state) {
 	return make_uniq<ModelPredictInOutLocalState>();
 }
 
@@ -66,11 +66,8 @@ static unique_ptr<LocalTableFunctionState> ModelPredictInOutLocalInit(ExecutionC
  *
  * This is an approximation. For exact leverage, we'd need (X'X)⁻¹
  */
-static double ComputeApproximateLeverage(const vector<double> &x_new,
-                                         const vector<double> &x_means,
-                                         const vector<double> &coef_std_errors,
-                                         double mse,
-                                         idx_t n_train) {
+static double ComputeApproximateLeverage(const vector<double> &x_new, const vector<double> &x_means,
+                                         const vector<double> &coef_std_errors, double mse, idx_t n_train) {
 	// Start with baseline leverage
 	double h = 1.0 / static_cast<double>(n_train);
 
@@ -80,7 +77,7 @@ static double ComputeApproximateLeverage(const vector<double> &x_new,
 	idx_t p = x_new.size();
 	for (idx_t j = 0; j < p; j++) {
 		if (std::isnan(coef_std_errors[j]) || coef_std_errors[j] == 0.0) {
-			continue;  // Skip aliased/constant features
+			continue; // Skip aliased/constant features
 		}
 
 		double x_centered = x_new[j] - x_means[j];
@@ -100,14 +97,14 @@ static double ComputeApproximateLeverage(const vector<double> &x_new,
  * Bind function - handles both literal mode and LATERAL join mode
  */
 static unique_ptr<FunctionData> ModelPredictBind(ClientContext &context, TableFunctionBindInput &input,
-                                                  vector<LogicalType> &return_types, vector<string> &names) {
+                                                 vector<LogicalType> &return_types, vector<string> &names) {
 
 	// Set return types and names first (required for both modes)
-	return_types = {LogicalType::BIGINT,    // observation_id
-	                LogicalType::DOUBLE,    // predicted
-	                LogicalType::DOUBLE,    // ci_lower
-	                LogicalType::DOUBLE,    // ci_upper
-	                LogicalType::DOUBLE};   // se
+	return_types = {LogicalType::BIGINT,  // observation_id
+	                LogicalType::DOUBLE,  // predicted
+	                LogicalType::DOUBLE,  // ci_lower
+	                LogicalType::DOUBLE,  // ci_upper
+	                LogicalType::DOUBLE}; // se
 
 	names = {"observation_id", "predicted", "ci_lower", "ci_upper", "se"};
 
@@ -126,11 +123,11 @@ static unique_ptr<FunctionData> ModelPredictBind(ClientContext &context, TableFu
 		// Try to detect if this is LATERAL mode by checking if the first input is constant
 		try {
 			if (input.inputs[0].IsNull()) {
-				is_lateral = false;  // NULL is a valid literal
+				is_lateral = false; // NULL is a valid literal
 			} else {
 				// Try to access as a constant double value
 				input.inputs[0].GetValue<double>();
-				is_lateral = false;  // Success means it's a literal
+				is_lateral = false; // Success means it's a literal
 			}
 		} catch (...) {
 			// Not a constant value - this is LATERAL join mode
@@ -222,7 +219,8 @@ static unique_ptr<FunctionData> ModelPredictBind(ClientContext &context, TableFu
 	} else {
 		// 1D array: [x1, x2, x3, ...] - treat as multiple observations of single feature
 		if (p != 1) {
-			throw InvalidInputException("Model has %llu features but x_new is 1D array. Use [[x11, x12], ...] for multiple features", p);
+			throw InvalidInputException(
+			    "Model has %llu features but x_new is 1D array. Use [[x11, x12], ...] for multiple features", p);
 		}
 		for (auto &val : x_new_outer) {
 			vector<double> row = {val.GetValue<double>()};
@@ -245,8 +243,7 @@ static unique_ptr<FunctionData> ModelPredictBind(ClientContext &context, TableFu
 	bind_data->interval_type = "prediction";
 	if (input.inputs.size() > 9 && !input.inputs[9].IsNull()) {
 		bind_data->interval_type = input.inputs[9].GetValue<string>();
-		if (bind_data->interval_type != "confidence" &&
-		    bind_data->interval_type != "prediction" &&
+		if (bind_data->interval_type != "confidence" && bind_data->interval_type != "prediction" &&
 		    bind_data->interval_type != "none") {
 			throw InvalidInputException("interval_type must be 'confidence', 'prediction', or 'none'");
 		}
@@ -255,19 +252,18 @@ static unique_ptr<FunctionData> ModelPredictBind(ClientContext &context, TableFu
 	// Validation
 	if (bind_data->x_train_means.size() != p) {
 		throw InvalidInputException("x_train_means has %llu elements but model has %llu features",
-		                           bind_data->x_train_means.size(), p);
+		                            bind_data->x_train_means.size(), p);
 	}
 	if (bind_data->coefficient_std_errors.size() != p) {
 		throw InvalidInputException("coefficient_std_errors has %llu elements but model has %llu features",
-		                           bind_data->coefficient_std_errors.size(), p);
+		                            bind_data->coefficient_std_errors.size(), p);
 	}
 	if (bind_data->df_residual == 0 && bind_data->interval_type != "none") {
 		throw InvalidInputException("Cannot compute intervals with df_residual=0");
 	}
 
-	ANOFOX_DEBUG("ModelPredict: n_new=" << n_new << ", p=" << p
-	            << ", interval_type=" << bind_data->interval_type
-	            << ", confidence_level=" << bind_data->confidence_level);
+	ANOFOX_DEBUG("ModelPredict: n_new=" << n_new << ", p=" << p << ", interval_type=" << bind_data->interval_type
+	                                    << ", confidence_level=" << bind_data->confidence_level);
 
 	// Compute predictions and intervals
 	bind_data->predictions.resize(n_new);
@@ -308,9 +304,8 @@ static unique_ptr<FunctionData> ModelPredictBind(ClientContext &context, TableFu
 			bind_data->std_errors[i] = std::numeric_limits<double>::quiet_NaN();
 		} else {
 			// Compute approximate leverage
-			double h = ComputeApproximateLeverage(x_i, bind_data->x_train_means,
-			                                     bind_data->coefficient_std_errors,
-			                                     bind_data->mse, n_train_approx);
+			double h = ComputeApproximateLeverage(x_i, bind_data->x_train_means, bind_data->coefficient_std_errors,
+			                                      bind_data->mse, n_train_approx);
 
 			// Compute standard error
 			double se;
@@ -326,9 +321,8 @@ static unique_ptr<FunctionData> ModelPredictBind(ClientContext &context, TableFu
 			bind_data->ci_lowers[i] = y_pred - t_crit * se;
 			bind_data->ci_uppers[i] = y_pred + t_crit * se;
 
-			ANOFOX_DEBUG("Observation " << i << ": pred=" << y_pred
-			            << ", h=" << h << ", se=" << se
-			            << ", CI=[" << bind_data->ci_lowers[i] << ", " << bind_data->ci_uppers[i] << "]");
+			ANOFOX_DEBUG("Observation " << i << ": pred=" << y_pred << ", h=" << h << ", se=" << se << ", CI=["
+			                            << bind_data->ci_lowers[i] << ", " << bind_data->ci_uppers[i] << "]");
 		}
 	}
 
@@ -347,11 +341,17 @@ static void ModelPredictExecute(ClientContext &context, TableFunctionInput &data
 	while (bind_data.current_row < n_new && count < STANDARD_VECTOR_SIZE) {
 		idx_t row = bind_data.current_row;
 
-		output.SetValue(0, count, Value::BIGINT(row + 1));                       // observation_id (1-indexed)
-		output.SetValue(1, count, Value::DOUBLE(bind_data.predictions[row]));   // predicted
-		output.SetValue(2, count, std::isnan(bind_data.ci_lowers[row]) ? Value(LogicalType::DOUBLE) : Value::DOUBLE(bind_data.ci_lowers[row]));     // ci_lower
-		output.SetValue(3, count, std::isnan(bind_data.ci_uppers[row]) ? Value(LogicalType::DOUBLE) : Value::DOUBLE(bind_data.ci_uppers[row]));     // ci_upper
-		output.SetValue(4, count, std::isnan(bind_data.std_errors[row]) ? Value(LogicalType::DOUBLE) : Value::DOUBLE(bind_data.std_errors[row]));    // se
+		output.SetValue(0, count, Value::BIGINT(row + 1));                    // observation_id (1-indexed)
+		output.SetValue(1, count, Value::DOUBLE(bind_data.predictions[row])); // predicted
+		output.SetValue(2, count,
+		                std::isnan(bind_data.ci_lowers[row]) ? Value(LogicalType::DOUBLE)
+		                                                     : Value::DOUBLE(bind_data.ci_lowers[row])); // ci_lower
+		output.SetValue(3, count,
+		                std::isnan(bind_data.ci_uppers[row]) ? Value(LogicalType::DOUBLE)
+		                                                     : Value::DOUBLE(bind_data.ci_uppers[row])); // ci_upper
+		output.SetValue(4, count,
+		                std::isnan(bind_data.std_errors[row]) ? Value(LogicalType::DOUBLE)
+		                                                      : Value::DOUBLE(bind_data.std_errors[row])); // se
 
 		bind_data.current_row++;
 		count++;
@@ -439,7 +439,7 @@ static OperatorResultType ModelPredictInOut(ExecutionContext &context, TableFunc
 
 		if (x_new_outer.empty()) {
 			state.current_input_row++;
-			continue;  // Skip empty x_new
+			continue; // Skip empty x_new
 		}
 
 		// Parse x_new (detect 1D vs 2D)
@@ -481,7 +481,7 @@ static OperatorResultType ModelPredictInOut(ExecutionContext &context, TableFunc
 			double alpha = 1.0 - confidence_level;
 			t_crit = student_t_critical(alpha / 2.0, static_cast<int>(df_residual));
 			ANOFOX_DEBUG("ModelPredictInOut: df_residual=" << df_residual << ", alpha=" << alpha
-			            << ", t_crit=" << t_crit << ", mse=" << mse << ", p=" << p);
+			                                               << ", t_crit=" << t_crit << ", mse=" << mse << ", p=" << p);
 		}
 
 		idx_t n_train_approx = df_residual + p + 1;
@@ -505,8 +505,7 @@ static OperatorResultType ModelPredictInOut(ExecutionContext &context, TableFunc
 				ci_upper = std::numeric_limits<double>::quiet_NaN();
 				se = std::numeric_limits<double>::quiet_NaN();
 			} else {
-				double h = ComputeApproximateLeverage(x_i, x_train_means,
-				                                      coefficient_std_errors, mse, n_train_approx);
+				double h = ComputeApproximateLeverage(x_i, x_train_means, coefficient_std_errors, mse, n_train_approx);
 
 				if (interval_type == "confidence") {
 					se = std::sqrt(mse * h);
@@ -514,7 +513,8 @@ static OperatorResultType ModelPredictInOut(ExecutionContext &context, TableFunc
 					se = std::sqrt(mse * (1.0 + h));
 				}
 
-				ANOFOX_DEBUG("  obs " << i << ": x=" << x_i[0] << ", y_pred=" << y_pred << ", h=" << h << ", se=" << se);
+				ANOFOX_DEBUG("  obs " << i << ": x=" << x_i[0] << ", y_pred=" << y_pred << ", h=" << h
+				                      << ", se=" << se);
 
 				ci_lower = y_pred - t_crit * se;
 				ci_upper = y_pred + t_crit * se;
@@ -523,9 +523,11 @@ static OperatorResultType ModelPredictInOut(ExecutionContext &context, TableFunc
 			// Write output row
 			output.SetValue(0, output_count, Value::BIGINT(i + 1));  // observation_id
 			output.SetValue(1, output_count, Value::DOUBLE(y_pred)); // predicted
-			output.SetValue(2, output_count, std::isnan(ci_lower) ? Value(LogicalType::DOUBLE) : Value::DOUBLE(ci_lower)); // ci_lower
-			output.SetValue(3, output_count, std::isnan(ci_upper) ? Value(LogicalType::DOUBLE) : Value::DOUBLE(ci_upper)); // ci_upper
-			output.SetValue(4, output_count, std::isnan(se) ? Value(LogicalType::DOUBLE) : Value::DOUBLE(se));      // se
+			output.SetValue(2, output_count,
+			                std::isnan(ci_lower) ? Value(LogicalType::DOUBLE) : Value::DOUBLE(ci_lower)); // ci_lower
+			output.SetValue(3, output_count,
+			                std::isnan(ci_upper) ? Value(LogicalType::DOUBLE) : Value::DOUBLE(ci_upper)); // ci_upper
+			output.SetValue(4, output_count, std::isnan(se) ? Value(LogicalType::DOUBLE) : Value::DOUBLE(se)); // se
 
 			output_count++;
 		}
@@ -541,7 +543,7 @@ static OperatorResultType ModelPredictInOut(ExecutionContext &context, TableFunc
 		return OperatorResultType::HAVE_MORE_OUTPUT;
 	} else {
 		// We've finished processing all input rows in this batch
-		state.current_input_row = 0;  // Reset for next input batch
+		state.current_input_row = 0; // Reset for next input batch
 		return OperatorResultType::NEED_MORE_INPUT;
 	}
 }
@@ -553,16 +555,16 @@ void AnofoxStatisticsModelPredictFunction::Register(ExtensionLoader &loader) {
 	ANOFOX_DEBUG("Registering anofox_statistics_model_predict function (with LATERAL join support)");
 
 	TableFunction func("anofox_statistics_model_predict",
-	                   {LogicalType::DOUBLE,                // intercept
-	                    LogicalType::LIST(LogicalType::DOUBLE),  // coefficients
-	                    LogicalType::DOUBLE,                // mse
-	                    LogicalType::LIST(LogicalType::DOUBLE),  // x_train_means
-	                    LogicalType::LIST(LogicalType::DOUBLE),  // coefficient_std_errors
-	                    LogicalType::DOUBLE,                // intercept_std_error
-	                    LogicalType::BIGINT,                // df_residual
-	                    LogicalType::ANY,                   // x_new (DOUBLE[] or DOUBLE[][])
-	                    LogicalType::DOUBLE,                // confidence_level (optional)
-	                    LogicalType::VARCHAR},              // interval_type (optional)
+	                   {LogicalType::DOUBLE,                    // intercept
+	                    LogicalType::LIST(LogicalType::DOUBLE), // coefficients
+	                    LogicalType::DOUBLE,                    // mse
+	                    LogicalType::LIST(LogicalType::DOUBLE), // x_train_means
+	                    LogicalType::LIST(LogicalType::DOUBLE), // coefficient_std_errors
+	                    LogicalType::DOUBLE,                    // intercept_std_error
+	                    LogicalType::BIGINT,                    // df_residual
+	                    LogicalType::ANY,                       // x_new (DOUBLE[] or DOUBLE[][])
+	                    LogicalType::DOUBLE,                    // confidence_level (optional)
+	                    LogicalType::VARCHAR},                  // interval_type (optional)
 	                   ModelPredictExecute, ModelPredictBind, nullptr, ModelPredictInOutLocalInit);
 
 	// Add LATERAL join support (in_out_function)

@@ -337,7 +337,8 @@ static void RidgeFinalize(Vector &state_vector, AggregateInputData &aggr_input_d
 		intercept_se_data[result_idx] = intercept_se;
 		df_resid_data[result_idx] = df_residual;
 
-		ANOFOX_DEBUG("Ridge aggregate: n=" << n << ", p=" << p << ", lambda=" << state.options.lambda << ", r2=" << r2 << ", mse=" << mse);
+		ANOFOX_DEBUG("Ridge aggregate: n=" << n << ", p=" << p << ", lambda=" << state.options.lambda << ", r2=" << r2
+		                                   << ", mse=" << mse);
 	}
 
 	ListVector::SetListSize(coef_list, list_offset);

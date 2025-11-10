@@ -302,8 +302,8 @@ static unique_ptr<FunctionData> ElasticNetFitBind(ClientContext &context, TableF
 
 		auto row = ListValue::GetChildren(x_outer[i]);
 		if (row.size() != p) {
-			throw InvalidInputException("Array dimensions mismatch: row 0 has %d features, row %d has %d features",
-			                            p, i, row.size());
+			throw InvalidInputException("Array dimensions mismatch: row 0 has %d features, row %d has %d features", p,
+			                            i, row.size());
 		}
 
 		for (idx_t j = 0; j < p; j++) {
@@ -354,11 +354,11 @@ static unique_ptr<FunctionData> ElasticNetFitBind(ClientContext &context, TableF
 		names.push_back("is_zero");
 		names.push_back("x_train_means");
 
-		return_types.push_back(LogicalType::LIST(LogicalType::DOUBLE)); // coefficient_std_errors
-		return_types.push_back(LogicalType::DOUBLE);                    // intercept_std_error
-		return_types.push_back(LogicalType::BIGINT);                    // df_residual
+		return_types.push_back(LogicalType::LIST(LogicalType::DOUBLE));  // coefficient_std_errors
+		return_types.push_back(LogicalType::DOUBLE);                     // intercept_std_error
+		return_types.push_back(LogicalType::BIGINT);                     // df_residual
 		return_types.push_back(LogicalType::LIST(LogicalType::BOOLEAN)); // is_zero
-		return_types.push_back(LogicalType::LIST(LogicalType::DOUBLE)); // x_train_means
+		return_types.push_back(LogicalType::LIST(LogicalType::DOUBLE));  // x_train_means
 	}
 
 	return std::move(result);

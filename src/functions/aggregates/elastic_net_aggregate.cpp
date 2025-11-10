@@ -207,7 +207,7 @@ static void ElasticNetFinalize(Vector &state_vector, AggregateInputData &aggr_in
 		// Handle intercept option
 		double intercept = 0.0;
 		ElasticNetResult fit_result;
-		Eigen::VectorXd x_means;  // Store for extended metadata
+		Eigen::VectorXd x_means; // Store for extended metadata
 
 		if (state.options.intercept) {
 			// With intercept: center data

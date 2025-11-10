@@ -68,10 +68,11 @@ RegressionOptions RegressionOptions::ParseFromMap(const Value &options_map) {
 			} else if (key == "compute_per_group") {
 				opts.compute_per_group = val_value.GetValue<bool>();
 			} else {
-				throw InvalidInputException("Unknown option: '%s'. Valid options are: intercept, full_output, lambda, alpha, "
-				                            "forgetting_factor, window_size, min_periods, confidence_level, robust_se, "
-				                            "max_iterations, tolerance, solver, compute_per_group",
-				                            key);
+				throw InvalidInputException(
+				    "Unknown option: '%s'. Valid options are: intercept, full_output, lambda, alpha, "
+				    "forgetting_factor, window_size, min_periods, confidence_level, robust_se, "
+				    "max_iterations, tolerance, solver, compute_per_group",
+				    key);
 			}
 		}
 		return opts;
@@ -141,10 +142,11 @@ RegressionOptions RegressionOptions::ParseFromMap(const Value &options_map) {
 			} else if (key == "compute_per_group") {
 				opts.compute_per_group = val_value.GetValue<bool>();
 			} else {
-				throw InvalidInputException("Unknown option: '%s'. Valid options are: intercept, full_output, lambda, alpha, "
-				                            "forgetting_factor, window_size, min_periods, confidence_level, robust_se, "
-				                            "max_iterations, tolerance, solver, compute_per_group",
-				                            key);
+				throw InvalidInputException(
+				    "Unknown option: '%s'. Valid options are: intercept, full_output, lambda, alpha, "
+				    "forgetting_factor, window_size, min_periods, confidence_level, robust_se, "
+				    "max_iterations, tolerance, solver, compute_per_group",
+				    key);
 			}
 		}
 	}

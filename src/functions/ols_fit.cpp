@@ -157,9 +157,8 @@ static void ComputeRidge(OlsFitBindData &data) {
 		// Fit on centered data if intercept=true
 		const Eigen::MatrixXd &X_fit = data.options.intercept ? X_centered : X;
 		const Eigen::VectorXd &y_fit = data.options.intercept ? y_centered : y;
-		auto result = data.options.full_output ?
-			RankDeficientOls::FitWithStdErrors(y_fit, X_fit) :
-			RankDeficientOls::Fit(y_fit, X_fit);
+		auto result = data.options.full_output ? RankDeficientOls::FitWithStdErrors(y_fit, X_fit)
+		                                       : RankDeficientOls::Fit(y_fit, X_fit);
 
 		data.rank = result.rank;
 		data.is_aliased.resize(p);
@@ -409,7 +408,8 @@ static unique_ptr<FunctionData> OlsFitBind(ClientContext &context, TableFunction
 	bool full_output = false;
 	if (input.inputs.size() >= 3 && !input.inputs[2].IsNull()) {
 		try {
-			if (input.inputs[2].type().id() == LogicalTypeId::MAP || input.inputs[2].type().id() == LogicalTypeId::STRUCT) {
+			if (input.inputs[2].type().id() == LogicalTypeId::MAP ||
+			    input.inputs[2].type().id() == LogicalTypeId::STRUCT) {
 				auto opts = RegressionOptions::ParseFromMap(input.inputs[2]);
 				full_output = opts.full_output;
 			}
@@ -439,11 +439,11 @@ static unique_ptr<FunctionData> OlsFitBind(ClientContext &context, TableFunction
 		names.push_back("is_aliased");
 		names.push_back("x_train_means");
 
-		return_types.push_back(LogicalType::LIST(LogicalType::DOUBLE)); // coefficient_std_errors
-		return_types.push_back(LogicalType::DOUBLE);                    // intercept_std_error
-		return_types.push_back(LogicalType::BIGINT);                    // df_residual
+		return_types.push_back(LogicalType::LIST(LogicalType::DOUBLE));  // coefficient_std_errors
+		return_types.push_back(LogicalType::DOUBLE);                     // intercept_std_error
+		return_types.push_back(LogicalType::BIGINT);                     // df_residual
 		return_types.push_back(LogicalType::LIST(LogicalType::BOOLEAN)); // is_aliased
-		return_types.push_back(LogicalType::LIST(LogicalType::DOUBLE)); // x_train_means
+		return_types.push_back(LogicalType::LIST(LogicalType::DOUBLE));  // x_train_means
 	}
 
 	// Check if this is being called for lateral joins (in-out function mode)
@@ -482,8 +482,8 @@ static unique_ptr<FunctionData> OlsFitBind(ClientContext &context, TableFunction
 
 			// Validate we have the right number of rows
 			if (x_outer.size() != n) {
-				throw InvalidInputException(
-				    "Array dimensions mismatch: y has %d elements, but x has %d rows", n, x_outer.size());
+				throw InvalidInputException("Array dimensions mismatch: y has %d elements, but x has %d rows", n,
+				                            x_outer.size());
 			}
 
 			// Determine number of features from first row
@@ -501,8 +501,8 @@ static unique_ptr<FunctionData> OlsFitBind(ClientContext &context, TableFunction
 				auto row = ListValue::GetChildren(x_outer[i]);
 				if (row.size() != p) {
 					throw InvalidInputException(
-					    "Inconsistent feature count: row 0 has %d features, but row %d has %d features",
-					    p, i, row.size());
+					    "Inconsistent feature count: row 0 has %d features, but row %d has %d features", p, i,
+					    row.size());
 				}
 
 				for (idx_t j = 0; j < p; j++) {
@@ -512,7 +512,8 @@ static unique_ptr<FunctionData> OlsFitBind(ClientContext &context, TableFunction
 
 			// Extract options (third parameter - MAP or STRUCT, optional)
 			if (input.inputs.size() >= 3 && !input.inputs[2].IsNull()) {
-				if (input.inputs[2].type().id() == LogicalTypeId::MAP || input.inputs[2].type().id() == LogicalTypeId::STRUCT) {
+				if (input.inputs[2].type().id() == LogicalTypeId::MAP ||
+				    input.inputs[2].type().id() == LogicalTypeId::STRUCT) {
 					result->options = RegressionOptions::ParseFromMap(input.inputs[2]);
 					result->options.Validate();
 					result->options.lambda = 0.0; // Force lambda=0 for OLS
@@ -535,7 +536,8 @@ static unique_ptr<FunctionData> OlsFitBind(ClientContext &context, TableFunction
 			// Extract options if provided as literal
 			if (input.inputs.size() >= 3 && !input.inputs[2].IsNull()) {
 				try {
-					if (input.inputs[2].type().id() == LogicalTypeId::MAP || input.inputs[2].type().id() == LogicalTypeId::STRUCT) {
+					if (input.inputs[2].type().id() == LogicalTypeId::MAP ||
+					    input.inputs[2].type().id() == LogicalTypeId::STRUCT) {
 						result->options = RegressionOptions::ParseFromMap(input.inputs[2]);
 						result->options.Validate();
 						result->options.lambda = 0.0; // Force lambda=0 for OLS
@@ -650,7 +652,8 @@ static unique_ptr<FunctionData> OlsFitInOutBind(ClientContext &context, TableFun
 	bool full_output = false;
 	if (input.inputs.size() >= 3) {
 		// Only try to parse if it's actually a constant MAP value
-		if (!input.inputs[2].IsNull() && (input.inputs[2].type().id() == LogicalTypeId::MAP || input.inputs[2].type().id() == LogicalTypeId::STRUCT)) {
+		if (!input.inputs[2].IsNull() && (input.inputs[2].type().id() == LogicalTypeId::MAP ||
+		                                  input.inputs[2].type().id() == LogicalTypeId::STRUCT)) {
 			result->options = RegressionOptions::ParseFromMap(input.inputs[2]);
 			result->options.Validate();
 			result->options.lambda = 0.0; // Force lambda=0 for OLS
@@ -679,11 +682,11 @@ static unique_ptr<FunctionData> OlsFitInOutBind(ClientContext &context, TableFun
 		names.push_back("is_aliased");
 		names.push_back("x_train_means");
 
-		return_types.push_back(LogicalType::LIST(LogicalType::DOUBLE)); // coefficient_std_errors
-		return_types.push_back(LogicalType::DOUBLE);                    // intercept_std_error
-		return_types.push_back(LogicalType::BIGINT);                    // df_residual
+		return_types.push_back(LogicalType::LIST(LogicalType::DOUBLE));  // coefficient_std_errors
+		return_types.push_back(LogicalType::DOUBLE);                     // intercept_std_error
+		return_types.push_back(LogicalType::BIGINT);                     // df_residual
 		return_types.push_back(LogicalType::LIST(LogicalType::BOOLEAN)); // is_aliased
-		return_types.push_back(LogicalType::LIST(LogicalType::DOUBLE)); // x_train_means
+		return_types.push_back(LogicalType::LIST(LogicalType::DOUBLE));  // x_train_means
 	}
 
 	return std::move(result);

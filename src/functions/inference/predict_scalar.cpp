@@ -107,7 +107,7 @@ static void PredictSimpleFunction(DataChunk &args, ExpressionState &state, Vecto
 
 		if (!model_data.validity.RowIsValid(model_idx) || !x_new_data.validity.RowIsValid(x_new_idx)) {
 			result_validity.SetInvalid(i);
-			list_entries[i] = list_entry_t{list_offset, 0};
+			list_entries[i] = list_entry_t {list_offset, 0};
 			continue;
 		}
 
@@ -161,7 +161,7 @@ static void PredictSimpleFunction(DataChunk &args, ExpressionState &state, Vecto
 			pred_data[list_offset++] = predicted;
 		}
 
-		list_entries[i] = list_entry_t{start_offset, x_new_entry.length};
+		list_entries[i] = list_entry_t {start_offset, x_new_entry.length};
 	}
 
 	ListVector::SetListSize(list_child, list_offset);
@@ -213,7 +213,7 @@ static void PredictFullFunction(DataChunk &args, ExpressionState &state, Vector 
 
 		if (!model_data.validity.RowIsValid(model_idx) || !x_new_data.validity.RowIsValid(x_new_idx)) {
 			result_validity.SetInvalid(i);
-			list_entries[i] = list_entry_t{list_offset, 0};
+			list_entries[i] = list_entry_t {list_offset, 0};
 			continue;
 		}
 
@@ -299,9 +299,9 @@ static void PredictFullFunction(DataChunk &args, ExpressionState &state, Vector 
 			}
 
 			// Compute prediction with intervals
-			PredictionResult pred = ComputePrediction(intercept, coefficients, mse, x_train_means,
-			                                          coefficient_std_errors, intercept_se, df_residual, x_obs,
-			                                          confidence_level, interval_type);
+			PredictionResult pred =
+			    ComputePrediction(intercept, coefficients, mse, x_train_means, coefficient_std_errors, intercept_se,
+			                      df_residual, x_obs, confidence_level, interval_type);
 
 			pred_data[list_offset] = pred.predicted;
 			ci_lower_data[list_offset] = pred.ci_lower;
@@ -310,7 +310,7 @@ static void PredictFullFunction(DataChunk &args, ExpressionState &state, Vector 
 			list_offset++;
 		}
 
-		list_entries[i] = list_entry_t{start_offset, x_new_entry.length};
+		list_entries[i] = list_entry_t {start_offset, x_new_entry.length};
 	}
 
 	ListVector::SetListSize(list_child, list_offset);
@@ -330,11 +330,10 @@ void PredictScalarFunctions::Register(ExtensionLoader &loader) {
 	pred_struct_fields.push_back(make_pair("ci_upper", LogicalType::DOUBLE));
 	pred_struct_fields.push_back(make_pair("std_error", LogicalType::DOUBLE));
 
-	ScalarFunction predict_full(
-	    "anofox_statistics_predict",
-	    {LogicalType::ANY, LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)), LogicalType::DOUBLE,
-	     LogicalType::VARCHAR},
-	    LogicalType::LIST(LogicalType::STRUCT(pred_struct_fields)), PredictFullFunction);
+	ScalarFunction predict_full("anofox_statistics_predict",
+	                            {LogicalType::ANY, LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)),
+	                             LogicalType::DOUBLE, LogicalType::VARCHAR},
+	                            LogicalType::LIST(LogicalType::STRUCT(pred_struct_fields)), PredictFullFunction);
 	loader.RegisterFunction(predict_full);
 }
 
