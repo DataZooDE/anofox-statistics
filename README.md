@@ -12,19 +12,27 @@ A statistical analysis extension for DuckDB, providing regression analysis, diag
 ## What's New Since v0.1.0
 
 **Breaking Changes:**
+
 - **Function naming**: Removed `_fit` suffix from table functions (`anofox_statistics_ols_fit` → `anofox_statistics_ols`)
 - **Parameter format**: Changed from individual predictor arrays to matrix format (`DOUBLE[][]`) for features
 - **Options API**: Switched from positional parameters to MAP-based options for better flexibility
 
 **New Features:**
+
 - **Elastic Net regression**: Combined L1+L2 regularization for feature selection
 - **Model-based prediction**: Efficient prediction using pre-fitted models with confidence/prediction intervals
 - **Full model output**: Store complete model metadata with `full_output` option for all regression functions
 - **Lateral join support**: All regression functions now support lateral joins with column references
 - **Window functions**: All aggregate functions now support OVER clause for rolling/expanding analysis
 - **Diagnostic aggregates**: Group-wise residual analysis, VIF detection, and normality testing
+- **Structured output**: All aggregates return rich STRUCT types with comprehensive regression statistics
 
-See the [Migration Guide](guides/01_quick_start.md#migration-from-v010) for detailed upgrade instructions.
+**Removed Functions:**
+
+- **Rolling/expanding table functions**: `rolling_ols` and `expanding_ols` removed in favor of window functions
+- **Legacy aggregates**: `ols_coeff_agg`, `ols_fit_agg` replaced by unified `anofox_statistics_*_agg` functions
+
+See the [Migration Guide](guides/01_quick_start.md#migration-from-v010) for upgrade instructions, or the [Complete API Changes](guides/api_changes_v0.1.0.md) document for comprehensive details.
 
 ## Features
 
