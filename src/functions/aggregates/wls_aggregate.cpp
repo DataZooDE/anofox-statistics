@@ -295,7 +295,7 @@ static void WlsFinalize(Vector &state_vector, AggregateInputData &aggr_input_dat
 		double r2 = (ss_tot_weighted > 1e-10) ? (1.0 - ss_res_weighted / ss_tot_weighted) : 0.0;
 
 		// Adjusted R²: account for intercept in degrees of freedom
-		idx_t df_model = ols_result.rank;
+		idx_t df_model = ols_result.rank + (state.options.intercept ? 1 : 0);
 		double adj_r2 = 1.0 - (1.0 - r2) * (n - 1) / (n - df_model);
 		double weighted_mse = ss_res_weighted / sum_weights;
 
@@ -587,7 +587,7 @@ static void WlsWindow(AggregateInputData &aggr_input_data, const WindowPartition
 	double r2 = (ss_tot_weighted > 1e-10) ? (1.0 - ss_res_weighted / ss_tot_weighted) : 0.0;
 
 	// Adjusted R²: account for intercept in degrees of freedom
-	idx_t df_model = ols_result.rank;
+	idx_t df_model = ols_result.rank + (options.intercept ? 1 : 0);
 	double adj_r2 = 1.0 - (1.0 - r2) * (n - 1) / (n - df_model);
 	double weighted_mse = ss_res_weighted / sum_weights;
 

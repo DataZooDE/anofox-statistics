@@ -263,7 +263,10 @@ static void ComputeWLS(WlsFitBindData &data) {
 		for (idx_t i = 0; i < p; i++) {
 			data.coefficient_std_errors[i] = result.std_errors[i];
 		}
-		data.df_residual = n > result.rank ? (n - result.rank) : 0;
+		// Account for intercept in df calculation: df_residual = n - (p_full)
+		// where p_full = rank + (intercept ? 1 : 0)
+		idx_t df_model = result.rank + (data.options.intercept ? 1 : 0);
+		data.df_residual = n > df_model ? (n - df_model) : 0;
 
 		// Store x_train_means
 		if (data.options.intercept) {
@@ -381,9 +384,11 @@ static unique_ptr<FunctionData> WlsFitBind(ClientContext &context, TableFunction
 	// In that case, we don't have literal values to process
 	if (input.inputs.size() >= 3 && !input.inputs[0].IsNull()) {
 		// Check if the first input is actually a constant value
+		bool is_literal = false;
 		try {
 			auto y_list = ListValue::GetChildren(input.inputs[0]);
 			// If we can get children, it's a literal value - process it normally
+			is_literal = true;
 
 			auto result = make_uniq<WlsFitBindData>();
 
@@ -395,23 +400,40 @@ static unique_ptr<FunctionData> WlsFitBind(ClientContext &context, TableFunction
 			idx_t n = result->y_values.size();
 			ANOFOX_DEBUG("y has " << n << " observations");
 
-			// Extract x values (second parameter - 2D array)
+			// Extract x values (second parameter - 2D array in row-major format)
+			// Format: [[row1_feat1, row1_feat2, ...], [row2_feat1, row2_feat2, ...], ...]
 			auto x_outer = ListValue::GetChildren(input.inputs[1]);
-			for (const auto &x_inner_val : x_outer) {
-				auto x_feature_list = ListValue::GetChildren(x_inner_val);
-				vector<double> x_feature;
-				for (const auto &val : x_feature_list) {
-					x_feature.push_back(val.GetValue<double>());
-				}
 
-				// Validate dimensions
-				if (x_feature.size() != n) {
+			// Validate we have the right number of rows
+			if (x_outer.size() != n) {
+				throw InvalidInputException(
+				    "Array dimensions mismatch: y has %d elements, but x has %d rows", n, x_outer.size());
+			}
+
+			// Determine number of features from first row
+			idx_t p = 0;
+			if (n > 0) {
+				auto first_row = ListValue::GetChildren(x_outer[0]);
+				p = first_row.size();
+			}
+
+			// Initialize feature vectors
+			result->x_values.resize(p);
+			for (idx_t j = 0; j < p; j++) {
+				result->x_values[j].reserve(n);
+			}
+
+			// Transpose: convert row-major input to column-major storage
+			for (idx_t i = 0; i < n; i++) {
+				auto row = ListValue::GetChildren(x_outer[i]);
+				if (row.size() != p) {
 					throw InvalidInputException(
-					    "Array dimensions mismatch: y has %d elements, feature %d has %d elements", n,
-					    result->x_values.size() + 1, x_feature.size());
+					    "Inconsistent number of features: row 0 has %d features, but row %d has %d features",
+					    p, i, row.size());
 				}
-
-				result->x_values.push_back(x_feature);
+				for (idx_t j = 0; j < p; j++) {
+					result->x_values[j].push_back(row[j].GetValue<double>());
+				}
 			}
 
 			// Extract weights (third parameter - DOUBLE[])
@@ -438,6 +460,12 @@ static unique_ptr<FunctionData> WlsFitBind(ClientContext &context, TableFunction
 			return std::move(result);
 
 		} catch (...) {
+			// If is_literal is true, we successfully extracted y_list so we're in literal mode
+			// Any exception after that point should propagate, not fall through to LATERAL mode
+			if (is_literal) {
+				throw;
+			}
+
 			// If we can't get children, it's probably a column reference (lateral join mode)
 			// Return minimal bind data for in-out function mode
 			auto result = make_uniq<WlsFitInOutBindData>();
@@ -639,15 +667,55 @@ static OperatorResultType WlsFitInOut(ExecutionContext &context, TableFunctionIn
 			}
 		}
 
-		output.data[0].SetValue(output_count, Value::LIST(LogicalType::DOUBLE, coeffs_values));
-		output.data[1].SetValue(output_count, Value(temp_data.intercept));
-		output.data[2].SetValue(output_count, Value(temp_data.r_squared));
-		output.data[3].SetValue(output_count, Value(temp_data.adj_r_squared));
-		output.data[4].SetValue(output_count, Value(temp_data.mse));
-		output.data[5].SetValue(output_count, Value(temp_data.rmse));
-		output.data[6].SetValue(output_count, Value(temp_data.weighted_mse));
-		output.data[7].SetValue(output_count, Value::BIGINT(static_cast<int64_t>(temp_data.n_obs)));
-		output.data[8].SetValue(output_count, Value::BIGINT(static_cast<int64_t>(temp_data.n_features)));
+		idx_t col_idx = 0;
+		output.data[col_idx++].SetValue(output_count, Value::LIST(LogicalType::DOUBLE, coeffs_values));
+		output.data[col_idx++].SetValue(output_count, Value(temp_data.intercept));
+		output.data[col_idx++].SetValue(output_count, Value(temp_data.r_squared));
+		output.data[col_idx++].SetValue(output_count, Value(temp_data.adj_r_squared));
+		output.data[col_idx++].SetValue(output_count, Value(temp_data.mse));
+		output.data[col_idx++].SetValue(output_count, Value(temp_data.rmse));
+		output.data[col_idx++].SetValue(output_count, Value(temp_data.weighted_mse));
+		output.data[col_idx++].SetValue(output_count, Value::BIGINT(static_cast<int64_t>(temp_data.n_obs)));
+		output.data[col_idx++].SetValue(output_count, Value::BIGINT(static_cast<int64_t>(temp_data.n_features)));
+
+		// Extended columns (only if full_output=true)
+		if (bind_data.options.full_output) {
+			// coefficient_std_errors
+			vector<Value> se_values;
+			for (idx_t i = 0; i < temp_data.coefficient_std_errors.size(); i++) {
+				double se = temp_data.coefficient_std_errors[i];
+				if (std::isnan(se)) {
+					se_values.push_back(Value(LogicalType::DOUBLE));
+				} else {
+					se_values.push_back(Value(se));
+				}
+			}
+			output.data[col_idx++].SetValue(output_count, Value::LIST(LogicalType::DOUBLE, se_values));
+
+			// intercept_std_error
+			if (std::isnan(temp_data.intercept_std_error)) {
+				output.data[col_idx++].SetValue(output_count, Value(LogicalType::DOUBLE));
+			} else {
+				output.data[col_idx++].SetValue(output_count, Value(temp_data.intercept_std_error));
+			}
+
+			// df_residual
+			output.data[col_idx++].SetValue(output_count, Value::BIGINT(static_cast<int64_t>(temp_data.df_residual)));
+
+			// is_aliased
+			vector<Value> aliased_values;
+			for (idx_t i = 0; i < temp_data.is_aliased.size(); i++) {
+				aliased_values.push_back(Value::BOOLEAN(temp_data.is_aliased[i]));
+			}
+			output.data[col_idx++].SetValue(output_count, Value::LIST(LogicalType::BOOLEAN, aliased_values));
+
+			// x_train_means
+			vector<Value> means_values;
+			for (idx_t i = 0; i < temp_data.x_train_means.size(); i++) {
+				means_values.push_back(Value(temp_data.x_train_means[i]));
+			}
+			output.data[col_idx++].SetValue(output_count, Value::LIST(LogicalType::DOUBLE, means_values));
+		}
 
 		output_count++;
 		state.current_input_row++;

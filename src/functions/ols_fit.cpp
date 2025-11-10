@@ -136,10 +136,30 @@ static void ComputeRidge(OlsFitBindData &data) {
 
 	// Special case: λ=0 reduces to OLS, use rank-deficient solver
 	if (data.options.lambda == 0.0) {
+		// Center data if fitting with intercept
+		Eigen::MatrixXd X_centered = X;
+		Eigen::VectorXd y_centered = y;
+		double y_mean = 0.0;
+		if (data.options.intercept) {
+			// Center X columns and y
+			Eigen::VectorXd x_means = X.colwise().mean();
+			y_mean = y.mean();
+			for (idx_t j = 0; j < p; j++) {
+				for (idx_t i = 0; i < n; i++) {
+					X_centered(i, j) -= x_means(j);
+				}
+			}
+			for (idx_t i = 0; i < n; i++) {
+				y_centered(i) = y(i) - y_mean;
+			}
+		}
 		// Use FitWithStdErrors if full_output requested
+		// Fit on centered data if intercept=true
+		const Eigen::MatrixXd &X_fit = data.options.intercept ? X_centered : X;
+		const Eigen::VectorXd &y_fit = data.options.intercept ? y_centered : y;
 		auto result = data.options.full_output ?
-			RankDeficientOls::FitWithStdErrors(y, X) :
-			RankDeficientOls::Fit(y, X);
+			RankDeficientOls::FitWithStdErrors(y_fit, X_fit) :
+			RankDeficientOls::Fit(y_fit, X_fit);
 
 		data.rank = result.rank;
 		data.is_aliased.resize(p);
@@ -163,12 +183,12 @@ static void ComputeRidge(OlsFitBindData &data) {
 			for (idx_t i = 0; i < p; i++) {
 				data.coefficient_std_errors[i] = result.std_errors[i];
 			}
-			data.df_residual = n > result.rank ? (n - result.rank) : 0;
+			idx_t df_model = result.rank + (data.options.intercept ? 1 : 0);
+			data.df_residual = n > df_model ? (n - df_model) : 0;
 		}
 
-		// Compute intercept
+		// Compute intercept (y_mean and x_means already computed above)
 		if (data.options.intercept) {
-			double y_mean = y.mean();
 			Eigen::VectorXd x_means = X.colwise().mean();
 			double beta_dot_xmean = 0.0;
 			for (idx_t j = 0; j < p; j++) {
@@ -177,6 +197,34 @@ static void ComputeRidge(OlsFitBindData &data) {
 				}
 			}
 			data.intercept = y_mean - beta_dot_xmean;
+
+			// Recompute R², MSE, RMSE on original scale with intercept
+			Eigen::VectorXd predictions(n);
+			for (idx_t i = 0; i < n; i++) {
+				predictions(i) = data.intercept;
+				for (idx_t j = 0; j < p; j++) {
+					if (!result.is_aliased[j]) {
+						predictions(i) += result.coefficients[j] * X(i, j);
+					}
+				}
+			}
+
+			Eigen::VectorXd residuals = y - predictions;
+			double ss_res = residuals.squaredNorm();
+			double ss_tot = (y.array() - y_mean).square().sum();
+
+			data.r_squared = (ss_tot > 1e-10) ? (1.0 - ss_res / ss_tot) : 0.0;
+			data.mse = (n > result.rank + 1) ? (ss_res / static_cast<double>(n - result.rank - 1)) : 0.0;
+			data.rmse = std::sqrt(data.mse);
+
+			// Adjusted R²
+			idx_t df_model = result.rank + 1; // +1 for intercept
+			if (n > df_model + 1) {
+				double adj_factor = static_cast<double>(n - 1) / static_cast<double>(n - df_model);
+				data.adj_r_squared = 1.0 - (1.0 - data.r_squared) * adj_factor;
+			} else {
+				data.adj_r_squared = data.r_squared;
+			}
 
 			// Store x_means for later predictions if full_output=true
 			if (data.options.full_output) {
@@ -401,14 +449,26 @@ static unique_ptr<FunctionData> OlsFitBind(ClientContext &context, TableFunction
 	// Check if this is being called for lateral joins (in-out function mode)
 	// In that case, we don't have literal values to process
 	if (input.inputs.size() >= 2 && !input.inputs[0].IsNull()) {
-		// Check if the first input is actually a constant value
+		// First, detect if we have literal values or column references
+		// Use a narrow try-catch to avoid catching exceptions from actual parsing errors
+		bool is_literal = false;
 		try {
-			auto y_list = ListValue::GetChildren(input.inputs[0]);
-			// If we can get children, it's a literal value - process it normally
+			// Try to get children from the first input
+			// This will only succeed if it's a literal value, not a column reference
+			ListValue::GetChildren(input.inputs[0]);
+			ListValue::GetChildren(input.inputs[1]);
+			is_literal = true;
+		} catch (...) {
+			// Not literal values - this is lateral join mode
+			is_literal = false;
+		}
 
+		if (is_literal) {
+			// Process literal values - don't catch exceptions here, let them propagate
 			auto result = make_uniq<OlsFitBindData>();
 
 			// Extract y values
+			auto y_list = ListValue::GetChildren(input.inputs[0]);
 			for (const auto &val : y_list) {
 				result->y_values.push_back(val.GetValue<double>());
 			}
@@ -416,23 +476,38 @@ static unique_ptr<FunctionData> OlsFitBind(ClientContext &context, TableFunction
 			idx_t n = result->y_values.size();
 			ANOFOX_DEBUG("y has " << n << " observations");
 
-			// Extract x values (second parameter - 2D array)
+			// Extract x values (second parameter - 2D array in row-major format)
+			// Format: [[row1_feat1, row1_feat2, ...], [row2_feat1, row2_feat2, ...], ...]
 			auto x_outer = ListValue::GetChildren(input.inputs[1]);
-			for (const auto &x_inner_val : x_outer) {
-				auto x_feature_list = ListValue::GetChildren(x_inner_val);
-				vector<double> x_feature;
-				for (const auto &val : x_feature_list) {
-					x_feature.push_back(val.GetValue<double>());
-				}
 
-				// Validate dimensions
-				if (x_feature.size() != n) {
+			// Validate we have the right number of rows
+			if (x_outer.size() != n) {
+				throw InvalidInputException(
+				    "Array dimensions mismatch: y has %d elements, but x has %d rows", n, x_outer.size());
+			}
+
+			// Determine number of features from first row
+			idx_t p = 0;
+			if (n > 0) {
+				auto first_row = ListValue::GetChildren(x_outer[0]);
+				p = first_row.size();
+			}
+
+			// Initialize feature vectors
+			result->x_values.resize(p);
+
+			// Parse rows and transpose to column-major format
+			for (idx_t i = 0; i < n; i++) {
+				auto row = ListValue::GetChildren(x_outer[i]);
+				if (row.size() != p) {
 					throw InvalidInputException(
-					    "Array dimensions mismatch: y has %d elements, feature %d has %d elements", n,
-					    result->x_values.size() + 1, x_feature.size());
+					    "Inconsistent feature count: row 0 has %d features, but row %d has %d features",
+					    p, i, row.size());
 				}
 
-				result->x_values.push_back(x_feature);
+				for (idx_t j = 0; j < p; j++) {
+					result->x_values[j].push_back(row[j].GetValue<double>());
+				}
 			}
 
 			// Extract options (third parameter - MAP or STRUCT, optional)
@@ -453,10 +528,8 @@ static unique_ptr<FunctionData> OlsFitBind(ClientContext &context, TableFunction
 			ANOFOX_INFO("Ridge fit completed: R² = " << result->r_squared);
 
 			return std::move(result);
-
-		} catch (...) {
-			// If we can't get children, it's probably a column reference (lateral join mode)
-			// Return minimal bind data for in-out function mode
+		} else {
+			// Lateral join mode - return bind data for in-out function
 			auto result = make_uniq<OlsFitInOutBindData>();
 
 			// Extract options if provided as literal

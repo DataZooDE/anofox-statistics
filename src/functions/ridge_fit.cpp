@@ -140,10 +140,30 @@ static void ComputeRidge(RidgeFitBindData &data) {
 
 	// Special case: λ=0 reduces to OLS, use rank-deficient solver
 	if (data.options.lambda == 0.0) {
+		// Center data if intercept requested (standard practice for computing SEs)
+		Eigen::MatrixXd X_fit = X;
+		Eigen::VectorXd y_fit = y;
+		Eigen::VectorXd x_means = Eigen::VectorXd::Zero(p);
+		double y_mean = 0.0;
+
+		if (data.options.intercept) {
+			// Compute means
+			y_mean = y.mean();
+			x_means = X.colwise().mean();
+
+			// Center the data for standard error computation
+			for (idx_t i = 0; i < n; i++) {
+				y_fit(i) = y(i) - y_mean;
+				for (idx_t j = 0; j < p; j++) {
+					X_fit(i, j) = X(i, j) - x_means(j);
+				}
+			}
+		}
+
 		// Use FitWithStdErrors if full_output requested
 		auto result = data.options.full_output ?
-			RankDeficientOls::FitWithStdErrors(y, X) :
-			RankDeficientOls::Fit(y, X);
+			RankDeficientOls::FitWithStdErrors(y_fit, X_fit) :
+			RankDeficientOls::Fit(y_fit, X_fit);
 
 		data.rank = result.rank;
 		data.is_aliased.resize(p);
@@ -167,13 +187,14 @@ static void ComputeRidge(RidgeFitBindData &data) {
 			for (idx_t i = 0; i < p; i++) {
 				data.coefficient_std_errors[i] = result.std_errors[i];
 			}
-			data.df_residual = n > result.rank ? (n - result.rank) : 0;
+			// Account for intercept in df calculation: df_residual = n - (p_full)
+			// where p_full = rank + (intercept ? 1 : 0)
+			idx_t df_model = result.rank + (data.options.intercept ? 1 : 0);
+			data.df_residual = n > df_model ? (n - df_model) : 0;
 		}
 
-		// Compute intercept
+		// Compute intercept (using pre-computed means from centering step)
 		if (data.options.intercept) {
-			double y_mean = y.mean();
-			Eigen::VectorXd x_means = X.colwise().mean();
 			double beta_dot_xmean = 0.0;
 			for (idx_t j = 0; j < p; j++) {
 				if (!result.is_aliased[j]) {
@@ -420,7 +441,7 @@ static unique_ptr<FunctionData> RidgeFitBind(ClientContext &context, TableFuncti
 	}
 
 	// Set return schema (basic columns)
-	names = {"coefficients", "intercept", "r_squared", "adj_r_squared", "mse", "rmse", "n_obs", "n_features", "lambda"};
+	names = {"coefficients", "intercept", "r_squared", "adj_r_squared", "mse", "rmse", "n_obs", "n_features", "reg_lambda"};
 	return_types = {
 	    LogicalType::LIST(LogicalType::DOUBLE), // coefficients
 	    LogicalType::DOUBLE,                    // intercept
@@ -451,10 +472,23 @@ static unique_ptr<FunctionData> RidgeFitBind(ClientContext &context, TableFuncti
 	// Check if this is being called for lateral joins (in-out function mode)
 	// In that case, we don't have literal values to process
 	if (input.inputs.size() >= 2 && !input.inputs[0].IsNull()) {
-		// Check if the first input is actually a constant value
+		// First, detect if this is literal mode or lateral join mode
+		// Use narrow try-catch to avoid catching parsing errors
+		bool is_literal = false;
 		try {
+			// Try to get children from the inputs - this will only succeed for literals
+			ListValue::GetChildren(input.inputs[0]);
+			ListValue::GetChildren(input.inputs[1]);
+			is_literal = true;
+		} catch (...) {
+			// Not literal values - this is lateral join mode
+			is_literal = false;
+		}
+
+		if (is_literal) {
+			// Literal mode - process the values
+			// DO NOT catch exceptions here - let them propagate
 			auto y_list = ListValue::GetChildren(input.inputs[0]);
-			// If we can get children, it's a literal value - process it normally
 
 			auto result = make_uniq<RidgeFitBindData>();
 
@@ -466,23 +500,38 @@ static unique_ptr<FunctionData> RidgeFitBind(ClientContext &context, TableFuncti
 			idx_t n = result->y_values.size();
 			ANOFOX_DEBUG("y has " << n << " observations");
 
-			// Extract x values (second parameter - 2D array)
+			// Extract x values (second parameter - 2D array in row-major format)
+			// Format: [[row1_feat1, row1_feat2, ...], [row2_feat1, row2_feat2, ...], ...]
 			auto x_outer = ListValue::GetChildren(input.inputs[1]);
-			for (const auto &x_inner_val : x_outer) {
-				auto x_feature_list = ListValue::GetChildren(x_inner_val);
-				vector<double> x_feature;
-				for (const auto &val : x_feature_list) {
-					x_feature.push_back(val.GetValue<double>());
-				}
 
-				// Validate dimensions
-				if (x_feature.size() != n) {
+			// Validate we have the right number of rows
+			if (x_outer.size() != n) {
+				throw InvalidInputException(
+				    "Array dimensions mismatch: y has %d elements, but x has %d rows", n, x_outer.size());
+			}
+
+			// Determine number of features from first row
+			idx_t p = 0;
+			if (n > 0) {
+				auto first_row = ListValue::GetChildren(x_outer[0]);
+				p = first_row.size();
+			}
+
+			// Initialize feature vectors
+			result->x_values.resize(p);
+
+			// Parse rows and transpose to column-major format
+			for (idx_t i = 0; i < n; i++) {
+				auto row = ListValue::GetChildren(x_outer[i]);
+				if (row.size() != p) {
 					throw InvalidInputException(
-					    "Array dimensions mismatch: y has %d elements, feature %d has %d elements", n,
-					    result->x_values.size() + 1, x_feature.size());
+					    "Inconsistent feature count: row 0 has %d features, but row %d has %d features",
+					    p, i, row.size());
 				}
 
-				result->x_values.push_back(x_feature);
+				for (idx_t j = 0; j < p; j++) {
+					result->x_values[j].push_back(row[j].GetValue<double>());
+				}
 			}
 
 			// Extract options (third parameter - MAP, optional)
@@ -502,10 +551,8 @@ static unique_ptr<FunctionData> RidgeFitBind(ClientContext &context, TableFuncti
 			ANOFOX_INFO("Ridge fit completed: R² = " << result->r_squared);
 
 			return std::move(result);
-
-		} catch (...) {
-			// If we can't get children, it's probably a column reference (lateral join mode)
-			// Return minimal bind data for in-out function mode
+		} else {
+			// Lateral join mode - return in-out bind data
 			auto result = make_uniq<RidgeFitInOutBindData>();
 
 			// Extract options if provided as literal

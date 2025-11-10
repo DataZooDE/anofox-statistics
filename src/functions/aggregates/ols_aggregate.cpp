@@ -503,7 +503,7 @@ static void OlsArrayFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
 		double r2 = (ss_tot > 1e-10) ? (1.0 - ss_res / ss_tot) : 0.0;
 
 		// Adjusted R²: rank already includes intercept if fitted
-		idx_t df_model = ols_result.rank;
+		idx_t df_model = ols_result.rank + (state.options.intercept ? 1 : 0);
 		double adj_r2 = 1.0 - (1.0 - r2) * (n - 1) / (n - df_model);
 
 		// Store coefficients in child vector (NaN for aliased -> will be NULL)
@@ -770,7 +770,7 @@ static void OlsArrayWindow(AggregateInputData &aggr_input_data, const WindowPart
 	double r2 = (ss_tot > 1e-10) ? (1.0 - ss_res / ss_tot) : 0.0;
 
 	// Adjusted R²
-	idx_t df_model = ols_result.rank;
+	idx_t df_model = ols_result.rank + (options.intercept ? 1 : 0);
 	double adj_r2 = 1.0 - (1.0 - r2) * (n - 1) / (n - df_model);
 
 	// Store coefficients in list
