@@ -1,1 +1,0 @@
-/home/simonm/miniconda3/bin/python: No module named pytest
