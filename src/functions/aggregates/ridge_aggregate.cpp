@@ -146,7 +146,8 @@ static void RidgeFinalize(Vector &state_vector, AggregateInputData &aggr_input_d
 	auto states = FlatVector::GetData<RidgeAggregateState *>(state_vector);
 	auto &result_validity = FlatVector::Validity(result);
 
-	// Result: STRUCT(coefficients DOUBLE[], intercept DOUBLE, r2 DOUBLE, adj_r2 DOUBLE, lambda DOUBLE, n_obs BIGINT)
+	// Result: STRUCT(coefficients, intercept, r2, adj_r2, lambda, n_obs,
+	// mse, x_train_means, coefficient_std_errors, intercept_std_error, df_residual)
 	auto &struct_entries = StructVector::GetEntries(result);
 	auto &coef_list = *struct_entries[0];
 	auto intercept_data = FlatVector::GetData<double>(*struct_entries[1]);
@@ -154,10 +155,26 @@ static void RidgeFinalize(Vector &state_vector, AggregateInputData &aggr_input_d
 	auto adj_r2_data = FlatVector::GetData<double>(*struct_entries[3]);
 	auto lambda_data = FlatVector::GetData<double>(*struct_entries[4]);
 	auto n_data = FlatVector::GetData<int64_t>(*struct_entries[5]);
+	// Extended metadata
+	auto mse_data = FlatVector::GetData<double>(*struct_entries[6]);
+	auto &x_means_list = *struct_entries[7];
+	auto &coef_se_list = *struct_entries[8];
+	auto intercept_se_data = FlatVector::GetData<double>(*struct_entries[9]);
+	auto df_resid_data = FlatVector::GetData<int64_t>(*struct_entries[10]);
 
 	auto list_entries = FlatVector::GetData<list_entry_t>(coef_list);
 	auto &coef_child = ListVector::GetEntry(coef_list);
 	ListVector::Reserve(coef_list, count * 10);
+
+	// Prepare x_means list
+	auto x_means_list_entries = FlatVector::GetData<list_entry_t>(x_means_list);
+	auto &x_means_child = ListVector::GetEntry(x_means_list);
+	ListVector::Reserve(x_means_list, count * 10);
+
+	// Prepare coefficient_std_errors list
+	auto coef_se_list_entries = FlatVector::GetData<list_entry_t>(coef_se_list);
+	auto &coef_se_child = ListVector::GetEntry(coef_se_list);
+	ListVector::Reserve(coef_se_list, count * 10);
 
 	idx_t list_offset = 0;
 	for (idx_t i = 0; i < count; i++) {
@@ -189,11 +206,12 @@ static void RidgeFinalize(Vector &state_vector, AggregateInputData &aggr_input_d
 		Eigen::VectorXd beta;
 		idx_t rank;
 		vector<bool> constant_features;
+		Eigen::VectorXd x_means; // Store for extended metadata
 
 		if (state.options.intercept) {
 			// With intercept: center data
 			double y_mean = y.mean();
-			Eigen::VectorXd x_means = X.colwise().mean();
+			x_means = X.colwise().mean();
 			Eigen::MatrixXd X_centered = X;
 			Eigen::VectorXd y_centered = y;
 
@@ -239,6 +257,7 @@ static void RidgeFinalize(Vector &state_vector, AggregateInputData &aggr_input_d
 			// Detect constant features
 			constant_features = RankDeficientOls::DetectConstantColumns(X);
 			intercept = 0.0;
+			x_means = Eigen::VectorXd::Zero(p);
 		}
 
 		// Compute predictions
@@ -281,6 +300,32 @@ static void RidgeFinalize(Vector &state_vector, AggregateInputData &aggr_input_d
 		}
 
 		list_entries[result_idx] = list_entry_t {list_offset, p};
+
+		// Compute extended metadata
+		idx_t df_residual = n - df_model;
+		double mse = (df_residual > 0) ? (ss_res / df_residual) : std::numeric_limits<double>::quiet_NaN();
+
+		// Ridge regression is biased, so standard errors are approximate
+		// For now, set them to NaN to indicate they're not available
+		double intercept_se = std::numeric_limits<double>::quiet_NaN();
+
+		// Store x_train_means
+		auto x_means_data = FlatVector::GetData<double>(x_means_child);
+		for (idx_t j = 0; j < p; j++) {
+			x_means_data[list_offset + j] = x_means(j);
+		}
+		x_means_list_entries[result_idx] = list_entry_t {list_offset, p};
+
+		// Store coefficient_std_errors (NULL for Ridge - standard errors not well-defined)
+		auto coef_se_data = FlatVector::GetData<double>(coef_se_child);
+		auto &coef_se_validity = FlatVector::Validity(coef_se_child);
+		for (idx_t j = 0; j < p; j++) {
+			coef_se_validity.SetInvalid(list_offset + j);
+			coef_se_data[list_offset + j] = 0.0;
+		}
+		coef_se_list_entries[result_idx] = list_entry_t {list_offset, p};
+
+		// Increment offset for next result
 		list_offset += p;
 
 		intercept_data[result_idx] = intercept;
@@ -288,11 +333,16 @@ static void RidgeFinalize(Vector &state_vector, AggregateInputData &aggr_input_d
 		adj_r2_data[result_idx] = adj_r2;
 		lambda_data[result_idx] = state.options.lambda;
 		n_data[result_idx] = n;
+		mse_data[result_idx] = mse;
+		intercept_se_data[result_idx] = intercept_se;
+		df_resid_data[result_idx] = df_residual;
 
-		ANOFOX_DEBUG("Ridge aggregate: n=" << n << ", p=" << p << ", lambda=" << state.options.lambda << ", r2=" << r2);
+		ANOFOX_DEBUG("Ridge aggregate: n=" << n << ", p=" << p << ", lambda=" << state.options.lambda << ", r2=" << r2 << ", mse=" << mse);
 	}
 
 	ListVector::SetListSize(coef_list, list_offset);
+	ListVector::SetListSize(x_means_list, list_offset);
+	ListVector::SetListSize(coef_se_list, list_offset);
 }
 
 // Destroy function not needed - std::vector handles cleanup automatically
@@ -520,6 +570,12 @@ void RidgeAggregateFunction::Register(ExtensionLoader &loader) {
 	ridge_struct_fields.push_back(make_pair("adj_r2", LogicalType::DOUBLE));
 	ridge_struct_fields.push_back(make_pair("lambda", LogicalType::DOUBLE));
 	ridge_struct_fields.push_back(make_pair("n_obs", LogicalType::BIGINT));
+	// Extended metadata for model_predict compatibility
+	ridge_struct_fields.push_back(make_pair("mse", LogicalType::DOUBLE));
+	ridge_struct_fields.push_back(make_pair("x_train_means", LogicalType::LIST(LogicalType::DOUBLE)));
+	ridge_struct_fields.push_back(make_pair("coefficient_std_errors", LogicalType::LIST(LogicalType::DOUBLE)));
+	ridge_struct_fields.push_back(make_pair("intercept_std_error", LogicalType::DOUBLE));
+	ridge_struct_fields.push_back(make_pair("df_residual", LogicalType::BIGINT));
 
 	AggregateFunction anofox_statistics_ridge_agg(
 	    "anofox_statistics_ridge_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},

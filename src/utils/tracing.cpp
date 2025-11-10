@@ -36,13 +36,13 @@ void Tracer::Initialize() {
 	if (level_str == "trace") {
 		current_level_ = LogLevel::TRACE;
 	} else if (level_str == "debug") {
-		current_level_ = LogLevel::DEBUG;
+		current_level_ = LogLevel::DBG;
 	} else if (level_str == "info") {
 		current_level_ = LogLevel::INFO;
 	} else if (level_str == "warn") {
 		current_level_ = LogLevel::WARN;
 	} else if (level_str == "error") {
-		current_level_ = LogLevel::ERROR;
+		current_level_ = LogLevel::ERR;
 	} else if (level_str == "none") {
 		current_level_ = LogLevel::NONE;
 	} else {
@@ -74,13 +74,13 @@ std::string Tracer::GetLevelName(LogLevel level) {
 	switch (level) {
 	case LogLevel::TRACE:
 		return "TRACE";
-	case LogLevel::DEBUG:
+	case LogLevel::DBG:
 		return "DEBUG";
 	case LogLevel::INFO:
 		return "INFO";
 	case LogLevel::WARN:
 		return "WARN";
-	case LogLevel::ERROR:
+	case LogLevel::ERR:
 		return "ERROR";
 	case LogLevel::NONE:
 		return "NONE";
@@ -146,7 +146,7 @@ double Tracer::TimingEnd(uint64_t handle, const std::string &operation_name) {
 	oss << std::fixed << std::setprecision(2);
 	oss << operation_name << " completed in " << duration_ms << " ms";
 
-	LogDirect(LogLevel::DEBUG, oss.str());
+	LogDirect(LogLevel::DBG, oss.str());
 
 	return duration_ms;
 }

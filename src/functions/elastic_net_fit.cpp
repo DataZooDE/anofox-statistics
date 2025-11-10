@@ -52,6 +52,13 @@ struct ElasticNetFitBindData : public FunctionData {
 	idx_t n_features = 0;
 	idx_t n_nonzero = 0;
 
+	// Extended metadata (when full_output=true)
+	vector<double> coefficient_std_errors;
+	double intercept_std_error = std::numeric_limits<double>::quiet_NaN();
+	idx_t df_residual = 0;
+	vector<bool> is_zero; // Track which coefficients are exactly zero (feature selection)
+	vector<double> x_train_means;
+
 	bool result_returned = false;
 
 	unique_ptr<FunctionData> Copy() const override {
@@ -68,6 +75,11 @@ struct ElasticNetFitBindData : public FunctionData {
 		result->n_obs = n_obs;
 		result->n_features = n_features;
 		result->n_nonzero = n_nonzero;
+		result->coefficient_std_errors = coefficient_std_errors;
+		result->intercept_std_error = intercept_std_error;
+		result->df_residual = df_residual;
+		result->is_zero = is_zero;
+		result->x_train_means = x_train_means;
 		result->result_returned = result_returned;
 		return std::move(result);
 	}
@@ -176,6 +188,47 @@ static void ComputeElasticNet(ElasticNetFitBindData &data) {
 	data.rmse = result.rmse;
 	data.n_nonzero = result.n_nonzero;
 
+	// Compute extended metadata if full_output=true
+	if (data.options.full_output) {
+		data.df_residual = n > data.n_nonzero ? (n - data.n_nonzero) : 0;
+
+		// Track which coefficients are zero (feature selection result)
+		data.is_zero.resize(p);
+		for (idx_t j = 0; j < p; j++) {
+			data.is_zero[j] = (std::abs(data.coefficients[j]) < 1e-10);
+		}
+
+		// Store x_train_means
+		if (data.options.intercept) {
+			data.x_train_means.resize(p);
+			for (idx_t j = 0; j < p; j++) {
+				data.x_train_means[j] = x_means(j);
+			}
+		}
+
+		// Note: Elastic Net standard errors are complex due to regularization bias
+		// We provide approximate SEs assuming the selected model is correct
+		// For proper post-selection inference, use specialized methods
+		data.coefficient_std_errors.resize(p);
+		for (idx_t j = 0; j < p; j++) {
+			if (data.is_zero[j]) {
+				// Zero coefficient -> SE is undefined/not meaningful
+				data.coefficient_std_errors[j] = std::numeric_limits<double>::quiet_NaN();
+			} else {
+				// Approximate SE for non-zero coefficients (naive, ignores selection)
+				// SE ≈ sqrt(MSE) / sqrt(n) as a rough estimate
+				data.coefficient_std_errors[j] = std::sqrt(data.mse / static_cast<double>(n));
+			}
+		}
+
+		// Approximate intercept SE
+		if (data.options.intercept) {
+			data.intercept_std_error = std::sqrt(data.mse / static_cast<double>(n));
+		} else {
+			data.intercept_std_error = std::numeric_limits<double>::quiet_NaN();
+		}
+	}
+
 	ANOFOX_DEBUG("Elastic Net complete: R² = " << data.r_squared << ", nonzero = " << data.n_nonzero << "/" << p
 	                                           << ", converged = " << result.converged
 	                                           << ", iterations = " << result.n_iterations);
@@ -252,7 +305,7 @@ static unique_ptr<FunctionData> ElasticNetFitBind(ClientContext &context, TableF
 
 	ANOFOX_INFO("Elastic Net fit completed: R² = " << result->r_squared << ", nonzero=" << result->n_nonzero);
 
-	// Set return schema
+	// Set return schema (basic columns)
 	names = {"coefficients", "intercept",  "r_squared", "adj_r_squared", "mse",      "rmse",
 	         "n_obs",        "n_features", "alpha",     "lambda",        "n_nonzero"};
 
@@ -267,6 +320,21 @@ static unique_ptr<FunctionData> ElasticNetFitBind(ClientContext &context, TableF
 	                LogicalType::DOUBLE,
 	                LogicalType::DOUBLE,
 	                LogicalType::BIGINT};
+
+	// Add extended columns if full_output=true
+	if (result->options.full_output) {
+		names.push_back("coefficient_std_errors");
+		names.push_back("intercept_std_error");
+		names.push_back("df_residual");
+		names.push_back("is_zero");
+		names.push_back("x_train_means");
+
+		return_types.push_back(LogicalType::LIST(LogicalType::DOUBLE)); // coefficient_std_errors
+		return_types.push_back(LogicalType::DOUBLE);                    // intercept_std_error
+		return_types.push_back(LogicalType::BIGINT);                    // df_residual
+		return_types.push_back(LogicalType::LIST(LogicalType::BOOLEAN)); // is_zero
+		return_types.push_back(LogicalType::LIST(LogicalType::DOUBLE)); // x_train_means
+	}
 
 	return std::move(result);
 }
@@ -287,17 +355,58 @@ static void ElasticNetFitExecute(ClientContext &context, TableFunctionInput &dat
 		coeffs_values.push_back(Value(bind_data.coefficients[i]));
 	}
 
-	output.data[0].SetValue(0, Value::LIST(LogicalType::DOUBLE, coeffs_values));
-	output.data[1].SetValue(0, Value(bind_data.intercept));
-	output.data[2].SetValue(0, Value(bind_data.r_squared));
-	output.data[3].SetValue(0, Value(bind_data.adj_r_squared));
-	output.data[4].SetValue(0, Value(bind_data.mse));
-	output.data[5].SetValue(0, Value(bind_data.rmse));
-	output.data[6].SetValue(0, Value::BIGINT(static_cast<int64_t>(bind_data.n_obs)));
-	output.data[7].SetValue(0, Value::BIGINT(static_cast<int64_t>(bind_data.n_features)));
-	output.data[8].SetValue(0, Value(bind_data.options.alpha));
-	output.data[9].SetValue(0, Value(bind_data.options.lambda));
-	output.data[10].SetValue(0, Value::BIGINT(static_cast<int64_t>(bind_data.n_nonzero)));
+	// Basic columns (always present)
+	idx_t col_idx = 0;
+	output.data[col_idx++].SetValue(0, Value::LIST(LogicalType::DOUBLE, coeffs_values));
+	output.data[col_idx++].SetValue(0, Value(bind_data.intercept));
+	output.data[col_idx++].SetValue(0, Value(bind_data.r_squared));
+	output.data[col_idx++].SetValue(0, Value(bind_data.adj_r_squared));
+	output.data[col_idx++].SetValue(0, Value(bind_data.mse));
+	output.data[col_idx++].SetValue(0, Value(bind_data.rmse));
+	output.data[col_idx++].SetValue(0, Value::BIGINT(static_cast<int64_t>(bind_data.n_obs)));
+	output.data[col_idx++].SetValue(0, Value::BIGINT(static_cast<int64_t>(bind_data.n_features)));
+	output.data[col_idx++].SetValue(0, Value(bind_data.options.alpha));
+	output.data[col_idx++].SetValue(0, Value(bind_data.options.lambda));
+	output.data[col_idx++].SetValue(0, Value::BIGINT(static_cast<int64_t>(bind_data.n_nonzero)));
+
+	// Extended columns (only if full_output=true)
+	if (bind_data.options.full_output) {
+		// coefficient_std_errors
+		vector<Value> se_values;
+		for (idx_t i = 0; i < bind_data.coefficient_std_errors.size(); i++) {
+			double se = bind_data.coefficient_std_errors[i];
+			if (std::isnan(se)) {
+				se_values.push_back(Value(LogicalType::DOUBLE));
+			} else {
+				se_values.push_back(Value(se));
+			}
+		}
+		output.data[col_idx++].SetValue(0, Value::LIST(LogicalType::DOUBLE, se_values));
+
+		// intercept_std_error
+		if (std::isnan(bind_data.intercept_std_error)) {
+			output.data[col_idx++].SetValue(0, Value(LogicalType::DOUBLE));
+		} else {
+			output.data[col_idx++].SetValue(0, Value(bind_data.intercept_std_error));
+		}
+
+		// df_residual
+		output.data[col_idx++].SetValue(0, Value::BIGINT(static_cast<int64_t>(bind_data.df_residual)));
+
+		// is_zero
+		vector<Value> zero_values;
+		for (idx_t i = 0; i < bind_data.is_zero.size(); i++) {
+			zero_values.push_back(Value::BOOLEAN(bind_data.is_zero[i]));
+		}
+		output.data[col_idx++].SetValue(0, Value::LIST(LogicalType::BOOLEAN, zero_values));
+
+		// x_train_means
+		vector<Value> means_values;
+		for (idx_t i = 0; i < bind_data.x_train_means.size(); i++) {
+			means_values.push_back(Value(bind_data.x_train_means[i]));
+		}
+		output.data[col_idx++].SetValue(0, Value::LIST(LogicalType::DOUBLE, means_values));
+	}
 }
 
 void ElasticNetFitFunction::Register(ExtensionLoader &loader) {

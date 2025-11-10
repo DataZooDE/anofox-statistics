@@ -388,18 +388,35 @@ static void OlsArrayFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
 	auto states = FlatVector::GetData<OlsArrayAggregateState *>(state_vector);
 	auto &result_validity = FlatVector::Validity(result);
 
-	// Result is a STRUCT with fields: coefficients (DOUBLE[]), intercept, r2, adj_r2, n_obs
+	// Result is a STRUCT with fields: coefficients, intercept, r2, adj_r2, n_obs,
+	// mse, x_train_means, coefficient_std_errors, intercept_std_error, df_residual
 	auto &struct_entries = StructVector::GetEntries(result);
 	auto &coef_list = *struct_entries[0]; // LIST of coefficients
 	auto intercept_data = FlatVector::GetData<double>(*struct_entries[1]);
 	auto r2_data = FlatVector::GetData<double>(*struct_entries[2]);
 	auto adj_r2_data = FlatVector::GetData<double>(*struct_entries[3]);
 	auto n_data = FlatVector::GetData<int64_t>(*struct_entries[4]);
+	// Extended metadata
+	auto mse_data = FlatVector::GetData<double>(*struct_entries[5]);
+	auto &x_means_list = *struct_entries[6];
+	auto &coef_se_list = *struct_entries[7];
+	auto intercept_se_data = FlatVector::GetData<double>(*struct_entries[8]);
+	auto df_resid_data = FlatVector::GetData<int64_t>(*struct_entries[9]);
 
-	// Get list entry data and child vector
+	// Get list entry data and child vector for coefficients
 	auto list_entries = FlatVector::GetData<list_entry_t>(coef_list);
 	auto &coef_child = ListVector::GetEntry(coef_list);
 	ListVector::Reserve(coef_list, count * 10); // Reserve space (estimate)
+
+	// Prepare x_means list
+	auto x_means_list_entries = FlatVector::GetData<list_entry_t>(x_means_list);
+	auto &x_means_child = ListVector::GetEntry(x_means_list);
+	ListVector::Reserve(x_means_list, count * 10);
+
+	// Prepare coefficient_std_errors list
+	auto coef_se_list_entries = FlatVector::GetData<list_entry_t>(coef_se_list);
+	auto &coef_se_child = ListVector::GetEntry(coef_se_list);
+	ListVector::Reserve(coef_se_list, count * 10);
 
 	idx_t list_offset = 0;
 	for (idx_t i = 0; i < count; i++) {
@@ -431,10 +448,13 @@ static void OlsArrayFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
 		double intercept = 0.0;
 		RankDeficientOlsResult ols_result;
 
+		// Store x_means for later use
+		Eigen::VectorXd x_means;
+
 		if (state.options.intercept) {
 			// With intercept: center data, solve, compute intercept
 			double mean_y = y.mean();
-			Eigen::VectorXd x_means = X.colwise().mean();
+			x_means = X.colwise().mean();
 
 			Eigen::VectorXd y_centered = y.array() - mean_y;
 			Eigen::MatrixXd X_centered = X;
@@ -442,7 +462,7 @@ static void OlsArrayFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
 				X_centered.col(j).array() -= x_means(j);
 			}
 
-			ols_result = RankDeficientOls::Fit(y_centered, X_centered);
+			ols_result = RankDeficientOls::FitWithStdErrors(y_centered, X_centered);
 
 			// Compute intercept (using only non-aliased features)
 			double beta_dot_xmean = 0.0;
@@ -454,8 +474,9 @@ static void OlsArrayFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
 			intercept = mean_y - beta_dot_xmean;
 		} else {
 			// No intercept: solve directly on raw data
-			ols_result = RankDeficientOls::Fit(y, X);
+			ols_result = RankDeficientOls::FitWithStdErrors(y, X);
 			intercept = 0.0;
+			x_means = Eigen::VectorXd::Zero(p);
 		}
 
 		// Compute predictions using only non-aliased features
@@ -498,21 +519,61 @@ static void OlsArrayFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
 			}
 		}
 
-		// Set list entry
+		// Set list entry for coefficients
 		list_entries[result_idx] = list_entry_t {list_offset, p};
+
+		// Compute extended metadata
+		// 1. MSE
+		idx_t df_residual = n - df_model;
+		double mse = (df_residual > 0) ? (ss_res / df_residual) : std::numeric_limits<double>::quiet_NaN();
+
+		// 2. Intercept standard error
+		double intercept_se = std::numeric_limits<double>::quiet_NaN();
+		if (state.options.intercept && ols_result.has_std_errors && df_residual > 0) {
+			// SE(intercept) = sqrt(MSE * (1/n + x_mean' * (X'X)^-1 * x_mean))
+			// Approximation: SE(intercept) ≈ sqrt(MSE / n) for centered data
+			intercept_se = std::sqrt(mse / n);
+		}
+
+		// 3. Store x_train_means in list (same offset as coefficients)
+		auto x_means_data = FlatVector::GetData<double>(x_means_child);
+		for (idx_t j = 0; j < p; j++) {
+			x_means_data[list_offset + j] = x_means(j);
+		}
+		x_means_list_entries[result_idx] = list_entry_t {list_offset, p};
+
+		// 4. Store coefficient_std_errors in list (same offset as coefficients)
+		auto coef_se_data = FlatVector::GetData<double>(coef_se_child);
+		auto &coef_se_validity = FlatVector::Validity(coef_se_child);
+		for (idx_t j = 0; j < p; j++) {
+			if (ols_result.has_std_errors && !std::isnan(ols_result.std_errors(j))) {
+				coef_se_data[list_offset + j] = ols_result.std_errors(j);
+			} else {
+				coef_se_validity.SetInvalid(list_offset + j);
+				coef_se_data[list_offset + j] = 0.0;
+			}
+		}
+		coef_se_list_entries[result_idx] = list_entry_t {list_offset, p};
+
+		// Increment offset for next result
 		list_offset += p;
 
-		// Fill other struct fields
+		// Fill all struct fields
 		intercept_data[result_idx] = intercept;
 		r2_data[result_idx] = r2;
 		adj_r2_data[result_idx] = adj_r2;
 		n_data[result_idx] = n;
+		mse_data[result_idx] = mse;
+		intercept_se_data[result_idx] = intercept_se;
+		df_resid_data[result_idx] = df_residual;
 
-		ANOFOX_DEBUG("OLS array aggregate: n=" << n << ", p=" << p << ", r2=" << r2);
+		ANOFOX_DEBUG("OLS array aggregate: n=" << n << ", p=" << p << ", r2=" << r2 << ", mse=" << mse);
 	}
 
-	// Set final list size
+	// Set final list sizes
 	ListVector::SetListSize(coef_list, list_offset);
+	ListVector::SetListSize(x_means_list, list_offset);
+	ListVector::SetListSize(coef_se_list, list_offset);
 }
 
 // Destroy function not needed - std::vector handles cleanup automatically
@@ -767,13 +828,20 @@ void OlsAggregateFunction::Register(ExtensionLoader &loader) {
 	loader.RegisterFunction(ols_fit_agg);
 
 	// 3. ols_fit_agg_array(y DOUBLE, x DOUBLE[]) -> STRUCT(coefficients DOUBLE[], intercept DOUBLE, r2 DOUBLE, adj_r2
-	// DOUBLE, n_obs BIGINT)
+	// DOUBLE, n_obs BIGINT, mse, x_train_means, coefficient_std_errors, intercept_std_error, df_residual)
+	// Extended to always include metadata needed for model_predict
 	child_list_t<LogicalType> array_fit_struct_fields;
 	array_fit_struct_fields.push_back(make_pair("coefficients", LogicalType::LIST(LogicalType::DOUBLE)));
 	array_fit_struct_fields.push_back(make_pair("intercept", LogicalType::DOUBLE));
 	array_fit_struct_fields.push_back(make_pair("r2", LogicalType::DOUBLE));
 	array_fit_struct_fields.push_back(make_pair("adj_r2", LogicalType::DOUBLE));
 	array_fit_struct_fields.push_back(make_pair("n_obs", LogicalType::BIGINT));
+	// Extended metadata for model_predict compatibility
+	array_fit_struct_fields.push_back(make_pair("mse", LogicalType::DOUBLE));
+	array_fit_struct_fields.push_back(make_pair("x_train_means", LogicalType::LIST(LogicalType::DOUBLE)));
+	array_fit_struct_fields.push_back(make_pair("coefficient_std_errors", LogicalType::LIST(LogicalType::DOUBLE)));
+	array_fit_struct_fields.push_back(make_pair("intercept_std_error", LogicalType::DOUBLE));
+	array_fit_struct_fields.push_back(make_pair("df_residual", LogicalType::BIGINT));
 
 	AggregateFunction ols_fit_agg_array(
 	    "ols_fit_agg_array", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},

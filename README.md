@@ -18,6 +18,8 @@ A statistical analysis extension for DuckDB, providing regression analysis, diag
 
 **New Features:**
 - **Elastic Net regression**: Combined L1+L2 regularization for feature selection
+- **Model-based prediction**: Efficient prediction using pre-fitted models with confidence/prediction intervals
+- **Full model output**: Store complete model metadata with `full_output` option for all regression functions
 - **Lateral join support**: All regression functions now support lateral joins with column references
 - **Window functions**: All aggregate functions now support OVER clause for rolling/expanding analysis
 - **Diagnostic aggregates**: Group-wise residual analysis, VIF detection, and normality testing
@@ -37,6 +39,7 @@ See the [Migration Guide](guides/01_quick_start.md#migration-from-v010) for deta
 ### 📊 Statistical Inference
 - **Coefficient Tests**: t-statistics, p-values, confidence intervals
 - **Prediction Intervals**: Confidence and prediction intervals for forecasts
+- **Model-Based Prediction**: Efficient prediction using pre-fitted models (no refitting required)
 - **Model Selection**: AIC, BIC, adjusted R² for model comparison
 
 ### 🔍 Diagnostics & Validation
@@ -184,6 +187,7 @@ All aggregate functions support both `GROUP BY` and `OVER` (window functions):
 ### Phase 5: Inference & Diagnostics
 - `anofox_statistics_ols_inference(y, x, options MAP)` - Coefficient inference with tests
 - `anofox_statistics_ols_predict_interval(y, x, options MAP)` - Predictions with intervals
+- `anofox_statistics_model_predict(...)` - Efficient prediction using pre-fitted models (with confidence/prediction intervals)
 - `anofox_statistics_information_criteria(y, x, options MAP)` - AIC, BIC, model selection
 - `anofox_statistics_residual_diagnostics(y_actual, y_predicted, outlier_threshold)` - Outlier detection
 - `anofox_statistics_vif(x DOUBLE[][])` - Variance Inflation Factor
@@ -369,6 +373,77 @@ SELECT
 FROM fit, quality, diagnostics
 GROUP BY fit.variable, fit.estimate, fit.p_value, fit.significant, quality.aic, quality.r_squared;
 ```
+
+### Efficient Model-Based Prediction
+
+Store a fitted model once, then make predictions on new data without refitting:
+
+```sql
+-- 1. Fit model with full_output to store all metadata
+CREATE TABLE sales_model AS
+SELECT * FROM anofox_statistics_ols(
+    sales_array,
+    [[price], [advertising], [seasonality]]::DOUBLE[][],
+    MAP{'intercept': true, 'full_output': true}
+);
+
+-- 2. Make predictions on new data with confidence intervals
+SELECT p.*
+FROM sales_model m,
+LATERAL anofox_statistics_model_predict(
+    m.intercept,
+    m.coefficients,
+    m.mse,
+    m.x_train_means,
+    m.coefficient_std_errors,
+    m.intercept_std_error,
+    m.df_residual,
+    [[29.99, 5000.0, 0.8], [34.99, 6000.0, 0.9]]::DOUBLE[][],  -- new observations
+    0.95,           -- confidence level
+    'confidence'    -- interval type: 'confidence', 'prediction', or 'none'
+) p;
+
+-- Returns:
+-- observation_id | predicted | ci_lower | ci_upper | se
+-- 1              | 125000.0  | 120000.0 | 130000.0 | 2500.0
+-- 2              | 135000.0  | 129500.0 | 140500.0 | 2750.0
+
+-- 3. Prediction intervals (wider than confidence intervals)
+SELECT
+    observation_id,
+    round(predicted, 2) as forecast,
+    round(ci_lower, 2) as lower_bound,
+    round(ci_upper, 2) as upper_bound
+FROM sales_model m,
+LATERAL anofox_statistics_model_predict(
+    m.intercept, m.coefficients, m.mse, m.x_train_means,
+    m.coefficient_std_errors, m.intercept_std_error, m.df_residual,
+    [[29.99, 5000.0, 0.8]]::DOUBLE[][],
+    0.95,
+    'prediction'  -- Prediction intervals account for individual observation uncertainty
+) p;
+
+-- 4. Batch predictions without intervals (fastest)
+SELECT
+    customer_id,
+    p.predicted as expected_sales
+FROM sales_model m,
+     customers c,
+LATERAL anofox_statistics_model_predict(
+    m.intercept, m.coefficients, m.mse, m.x_train_means,
+    m.coefficient_std_errors, m.intercept_std_error, m.df_residual,
+    [[c.price, c.ad_budget, c.seasonality]]::DOUBLE[][],
+    0.95,
+    'none'  -- Skip interval computation for speed
+) p;
+```
+
+**Benefits of Model-Based Prediction:**
+- ✅ **Performance**: No model refitting - just matrix multiplication
+- ✅ **Flexibility**: Predict on any new observations
+- ✅ **Intervals**: Confidence intervals (mean) or prediction intervals (individual)
+- ✅ **Batch-friendly**: Efficient for scoring large datasets
+- ✅ **Works with all regression types**: OLS, Ridge, WLS, Elastic Net, RLS
 
 ## Performance
 

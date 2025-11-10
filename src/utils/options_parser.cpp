@@ -22,6 +22,8 @@ RegressionOptions RegressionOptions::ParseFromMap(const Value &options_map) {
 			// Parse based on key
 			if (key == "intercept") {
 				opts.intercept = val_value.GetValue<bool>();
+			} else if (key == "full_output") {
+				opts.full_output = val_value.GetValue<bool>();
 			} else if (key == "lambda") {
 				opts.lambda = val_value.GetValue<double>();
 			} else if (key == "alpha") {
@@ -66,7 +68,7 @@ RegressionOptions RegressionOptions::ParseFromMap(const Value &options_map) {
 			} else if (key == "compute_per_group") {
 				opts.compute_per_group = val_value.GetValue<bool>();
 			} else {
-				throw InvalidInputException("Unknown option: '%s'. Valid options are: intercept, lambda, alpha, "
+				throw InvalidInputException("Unknown option: '%s'. Valid options are: intercept, full_output, lambda, alpha, "
 				                            "forgetting_factor, window_size, min_periods, confidence_level, robust_se, "
 				                            "max_iterations, tolerance, solver, compute_per_group",
 				                            key);
@@ -93,6 +95,8 @@ RegressionOptions RegressionOptions::ParseFromMap(const Value &options_map) {
 			// Parse based on key
 			if (key == "intercept") {
 				opts.intercept = val_value.GetValue<bool>();
+			} else if (key == "full_output") {
+				opts.full_output = val_value.GetValue<bool>();
 			} else if (key == "lambda") {
 				opts.lambda = val_value.GetValue<double>();
 			} else if (key == "alpha") {
@@ -137,7 +141,7 @@ RegressionOptions RegressionOptions::ParseFromMap(const Value &options_map) {
 			} else if (key == "compute_per_group") {
 				opts.compute_per_group = val_value.GetValue<bool>();
 			} else {
-				throw InvalidInputException("Unknown option: '%s'. Valid options are: intercept, lambda, alpha, "
+				throw InvalidInputException("Unknown option: '%s'. Valid options are: intercept, full_output, lambda, alpha, "
 				                            "forgetting_factor, window_size, min_periods, confidence_level, robust_se, "
 				                            "max_iterations, tolerance, solver, compute_per_group",
 				                            key);

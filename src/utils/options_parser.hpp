@@ -15,6 +15,7 @@ namespace anofox_statistics {
 struct RegressionOptions {
 	// Common options
 	bool intercept = true;
+	bool full_output = false; // Return extended metadata (std errors, df, training stats)
 
 	// Regularization (Ridge, Elastic Net)
 	double lambda = 0.0; // L2 penalty strength

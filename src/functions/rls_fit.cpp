@@ -55,6 +55,12 @@ struct RlsFitBindData : public FunctionData {
 	vector<bool> is_aliased;
 	idx_t rank = 0;
 
+	// Extended metadata (when full_output=true)
+	vector<double> coefficient_std_errors;
+	double intercept_std_error = std::numeric_limits<double>::quiet_NaN();
+	idx_t df_residual = 0;
+	vector<double> x_train_means;
+
 	bool result_returned = false;
 
 	unique_ptr<FunctionData> Copy() const override {
@@ -72,6 +78,10 @@ struct RlsFitBindData : public FunctionData {
 		result->n_features = n_features;
 		result->is_aliased = is_aliased;
 		result->rank = rank;
+		result->coefficient_std_errors = coefficient_std_errors;
+		result->intercept_std_error = intercept_std_error;
+		result->df_residual = df_residual;
+		result->x_train_means = x_train_means;
 		result->result_returned = result_returned;
 		return std::move(result);
 	}
@@ -328,6 +338,69 @@ static void ComputeRLS(RlsFitBindData &data) {
 	data.mse = ss_res / static_cast<double>(n);
 	data.rmse = std::sqrt(data.mse);
 
+	// Compute extended metadata if full_output=true
+	// Note: RLS standard errors are complex due to time-varying nature
+	// We provide approximate statistics for the final model state
+	if (data.options.full_output) {
+		data.df_residual = n > data.rank ? (n - data.rank) : 0;
+
+		// Compute x_train_means from original X matrix (not X_work)
+		Eigen::VectorXd x_means = Eigen::VectorXd::Zero(p);
+		for (idx_t j = 0; j < p; j++) {
+			x_means(j) = X.col(j).mean();
+		}
+
+		// Approximate standard errors from final covariance matrix
+		// SE ≈ sqrt(MSE * diag(P))
+		// Need to map from original feature index to valid index in P
+		data.coefficient_std_errors.resize(p);
+		for (idx_t j = 0; j < p; j++) {
+			if (data.is_aliased[j]) {
+				data.coefficient_std_errors[j] = std::numeric_limits<double>::quiet_NaN();
+			} else {
+				// Find j_work in valid_indices_work (same mapping as for coefficients)
+				idx_t j_work = data.options.intercept ? (j + 1) : j;
+				idx_t j_valid = 0;
+				bool found = false;
+				for (idx_t k = 0; k < valid_indices_work.size(); k++) {
+					if (valid_indices_work[k] == j_work) {
+						j_valid = k;
+						found = true;
+						break;
+					}
+				}
+				if (!found) {
+					throw InternalException("RLS: Feature index not found in valid indices for SE computation");
+				}
+
+				// Approximate SE from covariance diagonal
+				auto j_valid_idx = static_cast<Eigen::Index>(j_valid);
+				double var_j = data.mse * P(j_valid_idx, j_valid_idx);
+				data.coefficient_std_errors[j] = std::sqrt(std::max(0.0, var_j));
+			}
+		}
+
+		// Store x_train_means
+		data.x_train_means.resize(p);
+		for (idx_t j = 0; j < p; j++) {
+			data.x_train_means[j] = x_means(j);
+		}
+
+		// Approximate intercept SE
+		if (data.options.intercept) {
+			double intercept_variance = data.mse / static_cast<double>(n);
+			for (idx_t j = 0; j < p; j++) {
+				if (!data.is_aliased[j]) {
+					double se_beta_j = data.coefficient_std_errors[j];
+					intercept_variance += se_beta_j * se_beta_j * x_means(j) * x_means(j);
+				}
+			}
+			data.intercept_std_error = std::sqrt(intercept_variance);
+		} else {
+			data.intercept_std_error = std::numeric_limits<double>::quiet_NaN();
+		}
+	}
+
 	ANOFOX_DEBUG("RLS complete: R² = " << data.r_squared << ", MSE = " << data.mse << ", coefficients = ["
 	                                   << data.coefficients[0] << (p > 1 ? ", ...]" : "]"));
 }
@@ -376,7 +449,20 @@ static unique_ptr<FunctionData> RlsFitBind(ClientContext &context, TableFunction
 
 	ANOFOX_INFO("RLS regression bind phase");
 
-	// Set return schema first (needed for both literal and lateral join modes)
+	// Determine if full_output is requested
+	bool full_output = false;
+	if (input.inputs.size() >= 3 && !input.inputs[2].IsNull()) {
+		try {
+			if (input.inputs[2].type().id() == LogicalTypeId::MAP || input.inputs[2].type().id() == LogicalTypeId::STRUCT) {
+				auto opts = RegressionOptions::ParseFromMap(input.inputs[2]);
+				full_output = opts.full_output;
+			}
+		} catch (...) {
+			// Ignore parsing errors
+		}
+	}
+
+	// Set return schema (basic columns)
 	names = {"coefficients", "intercept",         "r_squared", "adj_r_squared", "mse",
 	         "rmse",         "forgetting_factor", "n_obs",     "n_features"};
 	return_types = {
@@ -390,6 +476,21 @@ static unique_ptr<FunctionData> RlsFitBind(ClientContext &context, TableFunction
 	    LogicalType::BIGINT,                    // n_obs
 	    LogicalType::BIGINT                     // n_features
 	};
+
+	// Add extended columns if full_output=true
+	if (full_output) {
+		names.push_back("coefficient_std_errors");
+		names.push_back("intercept_std_error");
+		names.push_back("df_residual");
+		names.push_back("is_aliased");
+		names.push_back("x_train_means");
+
+		return_types.push_back(LogicalType::LIST(LogicalType::DOUBLE)); // coefficient_std_errors
+		return_types.push_back(LogicalType::DOUBLE);                    // intercept_std_error
+		return_types.push_back(LogicalType::BIGINT);                    // df_residual
+		return_types.push_back(LogicalType::LIST(LogicalType::BOOLEAN)); // is_aliased
+		return_types.push_back(LogicalType::LIST(LogicalType::DOUBLE)); // x_train_means
+	}
 
 	// Check if this is being called for lateral joins (in-out function mode)
 	// In that case, we don't have literal values to process
@@ -494,15 +595,57 @@ static void RlsFitExecute(ClientContext &context, TableFunctionInput &data, Data
 			coeffs_values.push_back(Value(coef));
 		}
 	}
-	output.data[0].SetValue(0, Value::LIST(LogicalType::DOUBLE, coeffs_values));
-	output.data[1].SetValue(0, Value(bind_data.intercept));
-	output.data[2].SetValue(0, Value(bind_data.r_squared));
-	output.data[3].SetValue(0, Value(bind_data.adj_r_squared));
-	output.data[4].SetValue(0, Value(bind_data.mse));
-	output.data[5].SetValue(0, Value(bind_data.rmse));
-	output.data[6].SetValue(0, Value(bind_data.options.forgetting_factor));
-	output.data[7].SetValue(0, Value::BIGINT(static_cast<int64_t>(bind_data.n_obs)));
-	output.data[8].SetValue(0, Value::BIGINT(static_cast<int64_t>(bind_data.n_features)));
+
+	// Basic columns (always present)
+	idx_t col_idx = 0;
+	output.data[col_idx++].SetValue(0, Value::LIST(LogicalType::DOUBLE, coeffs_values));
+	output.data[col_idx++].SetValue(0, Value(bind_data.intercept));
+	output.data[col_idx++].SetValue(0, Value(bind_data.r_squared));
+	output.data[col_idx++].SetValue(0, Value(bind_data.adj_r_squared));
+	output.data[col_idx++].SetValue(0, Value(bind_data.mse));
+	output.data[col_idx++].SetValue(0, Value(bind_data.rmse));
+	output.data[col_idx++].SetValue(0, Value(bind_data.options.forgetting_factor));
+	output.data[col_idx++].SetValue(0, Value::BIGINT(static_cast<int64_t>(bind_data.n_obs)));
+	output.data[col_idx++].SetValue(0, Value::BIGINT(static_cast<int64_t>(bind_data.n_features)));
+
+	// Extended columns (only if full_output=true)
+	if (bind_data.options.full_output) {
+		// coefficient_std_errors
+		vector<Value> se_values;
+		for (idx_t i = 0; i < bind_data.coefficient_std_errors.size(); i++) {
+			double se = bind_data.coefficient_std_errors[i];
+			if (std::isnan(se)) {
+				se_values.push_back(Value(LogicalType::DOUBLE));
+			} else {
+				se_values.push_back(Value(se));
+			}
+		}
+		output.data[col_idx++].SetValue(0, Value::LIST(LogicalType::DOUBLE, se_values));
+
+		// intercept_std_error
+		if (std::isnan(bind_data.intercept_std_error)) {
+			output.data[col_idx++].SetValue(0, Value(LogicalType::DOUBLE));
+		} else {
+			output.data[col_idx++].SetValue(0, Value(bind_data.intercept_std_error));
+		}
+
+		// df_residual
+		output.data[col_idx++].SetValue(0, Value::BIGINT(static_cast<int64_t>(bind_data.df_residual)));
+
+		// is_aliased
+		vector<Value> aliased_values;
+		for (idx_t i = 0; i < bind_data.is_aliased.size(); i++) {
+			aliased_values.push_back(Value::BOOLEAN(bind_data.is_aliased[i]));
+		}
+		output.data[col_idx++].SetValue(0, Value::LIST(LogicalType::BOOLEAN, aliased_values));
+
+		// x_train_means
+		vector<Value> means_values;
+		for (idx_t i = 0; i < bind_data.x_train_means.size(); i++) {
+			means_values.push_back(Value(bind_data.x_train_means[i]));
+		}
+		output.data[col_idx++].SetValue(0, Value::LIST(LogicalType::DOUBLE, means_values));
+	}
 }
 
 /**

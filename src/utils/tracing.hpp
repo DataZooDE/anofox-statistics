@@ -29,7 +29,7 @@ namespace anofox_statistics {
  *   ANOFOX_TIMING_END("Some operation");
  */
 
-enum class LogLevel { TRACE = 0, DEBUG = 1, INFO = 2, WARN = 3, ERROR = 4, NONE = 5 };
+enum class LogLevel { TRACE = 0, DBG = 1, INFO = 2, WARN = 3, ERR = 4, NONE = 5 };
 
 class Tracer {
 public:
@@ -145,10 +145,10 @@ private:
  */
 #define ANOFOX_DEBUG(msg)                                                                                              \
 	do {                                                                                                               \
-		if (duckdb::anofox_statistics::Tracer::ShouldLog(duckdb::anofox_statistics::LogLevel::DEBUG)) {                \
+		if (duckdb::anofox_statistics::Tracer::ShouldLog(duckdb::anofox_statistics::LogLevel::DBG)) {                \
 			std::ostringstream oss;                                                                                    \
 			oss << msg;                                                                                                \
-			duckdb::anofox_statistics::Tracer::Log(duckdb::anofox_statistics::LogLevel::DEBUG, __FILE__, __LINE__,     \
+			duckdb::anofox_statistics::Tracer::Log(duckdb::anofox_statistics::LogLevel::DBG, __FILE__, __LINE__,     \
 			                                       oss.str());                                                         \
 		}                                                                                                              \
 	} while (0)
@@ -192,7 +192,7 @@ private:
 	do {                                                                                                               \
 		std::ostringstream oss;                                                                                        \
 		oss << msg;                                                                                                    \
-		duckdb::anofox_statistics::Tracer::Log(duckdb::anofox_statistics::LogLevel::ERROR, __FILE__, __LINE__,         \
+		duckdb::anofox_statistics::Tracer::Log(duckdb::anofox_statistics::LogLevel::ERR, __FILE__, __LINE__,         \
 		                                       oss.str());                                                             \
 	} while (0)
 

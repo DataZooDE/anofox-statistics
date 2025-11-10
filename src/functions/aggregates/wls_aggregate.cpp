@@ -161,8 +161,8 @@ static void WlsFinalize(Vector &state_vector, AggregateInputData &aggr_input_dat
 	auto states = FlatVector::GetData<WlsAggregateState *>(state_vector);
 	auto &result_validity = FlatVector::Validity(result);
 
-	// Result: STRUCT(coefficients DOUBLE[], intercept DOUBLE, r2 DOUBLE, adj_r2 DOUBLE, weighted_mse DOUBLE, n_obs
-	// BIGINT)
+	// Result: STRUCT(coefficients, intercept, r2, adj_r2, weighted_mse, n_obs,
+	// mse, x_train_means, coefficient_std_errors, intercept_std_error, df_residual)
 	auto &struct_entries = StructVector::GetEntries(result);
 	auto &coef_list = *struct_entries[0];
 	auto intercept_data = FlatVector::GetData<double>(*struct_entries[1]);
@@ -170,10 +170,26 @@ static void WlsFinalize(Vector &state_vector, AggregateInputData &aggr_input_dat
 	auto adj_r2_data = FlatVector::GetData<double>(*struct_entries[3]);
 	auto weighted_mse_data = FlatVector::GetData<double>(*struct_entries[4]);
 	auto n_data = FlatVector::GetData<int64_t>(*struct_entries[5]);
+	// Extended metadata
+	auto mse_data = FlatVector::GetData<double>(*struct_entries[6]);
+	auto &x_means_list = *struct_entries[7];
+	auto &coef_se_list = *struct_entries[8];
+	auto intercept_se_data = FlatVector::GetData<double>(*struct_entries[9]);
+	auto df_resid_data = FlatVector::GetData<int64_t>(*struct_entries[10]);
 
 	auto list_entries = FlatVector::GetData<list_entry_t>(coef_list);
 	auto &coef_child = ListVector::GetEntry(coef_list);
 	ListVector::Reserve(coef_list, count * 10);
+
+	// Prepare x_means list
+	auto x_means_list_entries = FlatVector::GetData<list_entry_t>(x_means_list);
+	auto &x_means_child = ListVector::GetEntry(x_means_list);
+	ListVector::Reserve(x_means_list, count * 10);
+
+	// Prepare coefficient_std_errors list
+	auto coef_se_list_entries = FlatVector::GetData<list_entry_t>(coef_se_list);
+	auto &coef_se_child = ListVector::GetEntry(coef_se_list);
+	ListVector::Reserve(coef_se_list, count * 10);
 
 	idx_t list_offset = 0;
 	for (idx_t i = 0; i < count; i++) {
@@ -206,6 +222,7 @@ static void WlsFinalize(Vector &state_vector, AggregateInputData &aggr_input_dat
 		double intercept = 0.0;
 		RankDeficientOlsResult ols_result;
 		double sum_weights = w.sum();
+		Eigen::VectorXd x_means; // Store for extended metadata
 
 		if (state.options.intercept) {
 			// With intercept: compute weighted means and center data
@@ -214,6 +231,7 @@ static void WlsFinalize(Vector &state_vector, AggregateInputData &aggr_input_dat
 			for (idx_t j = 0; j < p; j++) {
 				x_weighted_means(j) = (w.array() * X.col(j).array()).sum() / sum_weights;
 			}
+			x_means = x_weighted_means; // Store weighted means for later
 
 			// Center data
 			Eigen::MatrixXd X_centered = X;
@@ -231,7 +249,7 @@ static void WlsFinalize(Vector &state_vector, AggregateInputData &aggr_input_dat
 			Eigen::VectorXd y_weighted = sqrt_w.asDiagonal() * y_centered;
 
 			// Solve WLS on centered data
-			ols_result = RankDeficientOls::Fit(y_weighted, X_weighted);
+			ols_result = RankDeficientOls::FitWithStdErrors(y_weighted, X_weighted);
 
 			// Compute intercept
 			double beta_dot_xmean = 0.0;
@@ -247,8 +265,9 @@ static void WlsFinalize(Vector &state_vector, AggregateInputData &aggr_input_dat
 			Eigen::MatrixXd X_weighted = sqrt_w.asDiagonal() * X;
 			Eigen::VectorXd y_weighted = sqrt_w.asDiagonal() * y;
 
-			ols_result = RankDeficientOls::Fit(y_weighted, X_weighted);
+			ols_result = RankDeficientOls::FitWithStdErrors(y_weighted, X_weighted);
 			intercept = 0.0;
+			x_means = Eigen::VectorXd::Zero(p);
 		}
 
 		// Compute predictions
@@ -261,6 +280,7 @@ static void WlsFinalize(Vector &state_vector, AggregateInputData &aggr_input_dat
 
 		// Compute weighted statistics
 		Eigen::VectorXd residuals = y - y_pred;
+		double ss_res = residuals.squaredNorm();  // Unweighted for MSE calculation
 		double ss_res_weighted = (w.array() * residuals.array().square()).sum();
 
 		double ss_tot_weighted;
@@ -292,18 +312,59 @@ static void WlsFinalize(Vector &state_vector, AggregateInputData &aggr_input_dat
 		}
 
 		list_entries[result_idx] = list_entry_t {list_offset, p};
+
+		// Compute extended metadata
+		// 1. MSE (unweighted MSE for standard errors)
+		idx_t df_residual = n - df_model;
+		double mse = (df_residual > 0) ? (ss_res / df_residual) : std::numeric_limits<double>::quiet_NaN();
+
+		// 2. Intercept standard error
+		double intercept_se = std::numeric_limits<double>::quiet_NaN();
+		if (state.options.intercept && ols_result.has_std_errors && df_residual > 0) {
+			// SE(intercept) = sqrt(MSE * (1/n + x_mean' * (X'X)^-1 * x_mean))
+			// Approximation: SE(intercept) ≈ sqrt(MSE / n) for centered data
+			intercept_se = std::sqrt(mse / n);
+		}
+
+		// 3. Store x_train_means in list (same offset as coefficients)
+		auto x_means_data = FlatVector::GetData<double>(x_means_child);
+		for (idx_t j = 0; j < p; j++) {
+			x_means_data[list_offset + j] = x_means(j);
+		}
+		x_means_list_entries[result_idx] = list_entry_t {list_offset, p};
+
+		// 4. Store coefficient_std_errors in list (same offset as coefficients)
+		auto coef_se_data = FlatVector::GetData<double>(coef_se_child);
+		auto &coef_se_validity = FlatVector::Validity(coef_se_child);
+		for (idx_t j = 0; j < p; j++) {
+			if (ols_result.has_std_errors && !std::isnan(ols_result.std_errors(j))) {
+				coef_se_data[list_offset + j] = ols_result.std_errors(j);
+			} else {
+				coef_se_validity.SetInvalid(list_offset + j);
+				coef_se_data[list_offset + j] = 0.0;
+			}
+		}
+		coef_se_list_entries[result_idx] = list_entry_t {list_offset, p};
+
+		// Increment offset for next result
 		list_offset += p;
 
+		// Fill all struct fields
 		intercept_data[result_idx] = intercept;
 		r2_data[result_idx] = r2;
 		adj_r2_data[result_idx] = adj_r2;
 		weighted_mse_data[result_idx] = weighted_mse;
 		n_data[result_idx] = n;
+		mse_data[result_idx] = mse;
+		intercept_se_data[result_idx] = intercept_se;
+		df_resid_data[result_idx] = df_residual;
 
 		ANOFOX_DEBUG("WLS aggregate: n=" << n << ", p=" << p << ", r2=" << r2);
 	}
 
 	ListVector::SetListSize(coef_list, list_offset);
+	ListVector::SetListSize(x_means_list, list_offset);
+	ListVector::SetListSize(coef_se_list, list_offset);
 }
 
 // Destroy function not needed - std::vector handles cleanup automatically
@@ -481,7 +542,7 @@ static void WlsWindow(AggregateInputData &aggr_input_data, const WindowPartition
 		Eigen::VectorXd y_weighted = sqrt_w.asDiagonal() * y_centered;
 
 		// Solve WLS on centered data
-		ols_result = RankDeficientOls::Fit(y_weighted, X_weighted);
+		ols_result = RankDeficientOls::FitWithStdErrors(y_weighted, X_weighted);
 
 		// Compute intercept
 		double beta_dot_xmean = 0.0;
@@ -497,7 +558,7 @@ static void WlsWindow(AggregateInputData &aggr_input_data, const WindowPartition
 		Eigen::MatrixXd X_weighted = sqrt_w.asDiagonal() * X;
 		Eigen::VectorXd y_weighted = sqrt_w.asDiagonal() * y;
 
-		ols_result = RankDeficientOls::Fit(y_weighted, X_weighted);
+		ols_result = RankDeficientOls::FitWithStdErrors(y_weighted, X_weighted);
 		intercept = 0.0;
 	}
 
@@ -511,6 +572,7 @@ static void WlsWindow(AggregateInputData &aggr_input_data, const WindowPartition
 
 	// Compute weighted statistics
 	Eigen::VectorXd residuals = y - y_pred;
+	double ss_res = residuals.squaredNorm();  // Unweighted for MSE calculation
 	double ss_res_weighted = (w.array() * residuals.array().square()).sum();
 
 	double ss_tot_weighted;
@@ -569,6 +631,12 @@ void WlsAggregateFunction::Register(ExtensionLoader &loader) {
 	wls_struct_fields.push_back(make_pair("adj_r2", LogicalType::DOUBLE));
 	wls_struct_fields.push_back(make_pair("weighted_mse", LogicalType::DOUBLE));
 	wls_struct_fields.push_back(make_pair("n_obs", LogicalType::BIGINT));
+	// Extended metadata for model_predict compatibility
+	wls_struct_fields.push_back(make_pair("mse", LogicalType::DOUBLE));
+	wls_struct_fields.push_back(make_pair("x_train_means", LogicalType::LIST(LogicalType::DOUBLE)));
+	wls_struct_fields.push_back(make_pair("coefficient_std_errors", LogicalType::LIST(LogicalType::DOUBLE)));
+	wls_struct_fields.push_back(make_pair("intercept_std_error", LogicalType::DOUBLE));
+	wls_struct_fields.push_back(make_pair("df_residual", LogicalType::BIGINT));
 
 	AggregateFunction anofox_statistics_wls_agg(
 	    "anofox_statistics_wls_agg",

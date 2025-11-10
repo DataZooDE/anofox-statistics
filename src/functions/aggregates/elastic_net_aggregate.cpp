@@ -160,10 +160,24 @@ static void ElasticNetFinalize(Vector &state_vector, AggregateInputData &aggr_in
 	auto lambda_data = FlatVector::GetData<double>(*struct_entries[6]);
 	auto n_nonzero_data = FlatVector::GetData<int64_t>(*struct_entries[7]);
 	auto n_obs_data = FlatVector::GetData<int64_t>(*struct_entries[8]);
+	auto &x_means_list = *struct_entries[9];
+	auto &coef_se_list = *struct_entries[10];
+	auto intercept_se_data = FlatVector::GetData<double>(*struct_entries[11]);
+	auto df_resid_data = FlatVector::GetData<int64_t>(*struct_entries[12]);
 
 	auto list_entries = FlatVector::GetData<list_entry_t>(coef_list);
 	auto &coef_child = ListVector::GetEntry(coef_list);
 	ListVector::Reserve(coef_list, count * 10);
+
+	// Prepare x_means list
+	auto x_means_list_entries = FlatVector::GetData<list_entry_t>(x_means_list);
+	auto &x_means_child = ListVector::GetEntry(x_means_list);
+	ListVector::Reserve(x_means_list, count * 10);
+
+	// Prepare coefficient_std_errors list
+	auto coef_se_list_entries = FlatVector::GetData<list_entry_t>(coef_se_list);
+	auto &coef_se_child = ListVector::GetEntry(coef_se_list);
+	ListVector::Reserve(coef_se_list, count * 10);
 
 	idx_t list_offset = 0;
 	for (idx_t i = 0; i < count; i++) {
@@ -193,11 +207,12 @@ static void ElasticNetFinalize(Vector &state_vector, AggregateInputData &aggr_in
 		// Handle intercept option
 		double intercept = 0.0;
 		ElasticNetResult fit_result;
+		Eigen::VectorXd x_means;  // Store for extended metadata
 
 		if (state.options.intercept) {
 			// With intercept: center data
 			double y_mean = y.mean();
-			Eigen::VectorXd x_means = X.colwise().mean();
+			x_means = X.colwise().mean();
 			Eigen::MatrixXd X_centered = X;
 			Eigen::VectorXd y_centered = y;
 
@@ -221,6 +236,7 @@ static void ElasticNetFinalize(Vector &state_vector, AggregateInputData &aggr_in
 			// No intercept: fit on raw data
 			fit_result = ElasticNetSolver::Fit(y, X, state.options.alpha, state.options.lambda);
 			intercept = 0.0;
+			x_means = Eigen::VectorXd::Zero(p);
 		}
 
 		// Store coefficients
@@ -230,8 +246,34 @@ static void ElasticNetFinalize(Vector &state_vector, AggregateInputData &aggr_in
 		}
 
 		list_entries[result_idx] = list_entry_t {list_offset, p};
+
+		// Compute extended metadata
+		idx_t df_model = state.options.intercept ? (p + 1) : p;
+		idx_t df_residual = n - df_model;
+
+		// Elastic Net regression is biased (like Ridge), so standard errors are not well-defined
+		double intercept_se = std::numeric_limits<double>::quiet_NaN();
+
+		// Store x_train_means
+		auto x_means_data = FlatVector::GetData<double>(x_means_child);
+		for (idx_t j = 0; j < p; j++) {
+			x_means_data[list_offset + j] = x_means(j);
+		}
+		x_means_list_entries[result_idx] = list_entry_t {list_offset, p};
+
+		// Store coefficient_std_errors (NULL for Elastic Net - standard errors not well-defined)
+		auto coef_se_data = FlatVector::GetData<double>(coef_se_child);
+		auto &coef_se_validity = FlatVector::Validity(coef_se_child);
+		for (idx_t j = 0; j < p; j++) {
+			coef_se_validity.SetInvalid(list_offset + j);
+			coef_se_data[list_offset + j] = 0.0;
+		}
+		coef_se_list_entries[result_idx] = list_entry_t {list_offset, p};
+
+		// Increment offset for next result
 		list_offset += p;
 
+		// Fill all struct fields
 		intercept_data[result_idx] = intercept;
 		r2_data[result_idx] = fit_result.r_squared;
 		adj_r2_data[result_idx] = fit_result.adj_r_squared;
@@ -240,6 +282,8 @@ static void ElasticNetFinalize(Vector &state_vector, AggregateInputData &aggr_in
 		lambda_data[result_idx] = state.options.lambda;
 		n_nonzero_data[result_idx] = static_cast<int64_t>(fit_result.n_nonzero);
 		n_obs_data[result_idx] = static_cast<int64_t>(n);
+		intercept_se_data[result_idx] = intercept_se;
+		df_resid_data[result_idx] = df_residual;
 
 		ANOFOX_DEBUG("Elastic Net aggregate: n=" << n << ", p=" << p << ", alpha=" << state.options.alpha << ", lambda="
 		                                         << state.options.lambda << ", nonzero=" << fit_result.n_nonzero
@@ -247,6 +291,8 @@ static void ElasticNetFinalize(Vector &state_vector, AggregateInputData &aggr_in
 	}
 
 	ListVector::SetListSize(coef_list, list_offset);
+	ListVector::SetListSize(x_means_list, list_offset);
+	ListVector::SetListSize(coef_se_list, list_offset);
 }
 
 /**
@@ -440,6 +486,10 @@ void ElasticNetAggregateFunction::Register(ExtensionLoader &loader) {
 	elastic_net_struct_fields.push_back(make_pair("lambda", LogicalType::DOUBLE));
 	elastic_net_struct_fields.push_back(make_pair("n_nonzero", LogicalType::BIGINT));
 	elastic_net_struct_fields.push_back(make_pair("n_obs", LogicalType::BIGINT));
+	elastic_net_struct_fields.push_back(make_pair("x_train_means", LogicalType::LIST(LogicalType::DOUBLE)));
+	elastic_net_struct_fields.push_back(make_pair("coefficient_std_errors", LogicalType::LIST(LogicalType::DOUBLE)));
+	elastic_net_struct_fields.push_back(make_pair("intercept_std_error", LogicalType::DOUBLE));
+	elastic_net_struct_fields.push_back(make_pair("df_residual", LogicalType::BIGINT));
 
 	AggregateFunction anofox_statistics_elastic_net_agg(
 	    "anofox_statistics_elastic_net_agg",
