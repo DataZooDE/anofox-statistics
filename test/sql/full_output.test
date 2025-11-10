@@ -24,7 +24,7 @@ SELECT
 FROM anofox_statistics_ols(
     [2.1, 4.2, 5.9, 8.1, 10.0]::DOUBLE[],
     [[1.0], [2.0], [3.0], [4.0], [5.0]]::DOUBLE[][],
-    MAP{'intercept': true, 'full_output': true}
+    {'intercept': true, 'full_output': true}
 );
 ----
 true	true	true	true	true	true	true	true	true	true	true	true	true
@@ -44,7 +44,7 @@ SELECT
 FROM anofox_statistics_ols(
     [2.1, 4.2, 5.9, 8.1, 10.0]::DOUBLE[],
     [[1.0], [2.0], [3.0], [4.0], [5.0]]::DOUBLE[][],
-    MAP{'intercept': true, 'full_output': false}
+    {'intercept': true, 'full_output': false}
 );
 ----
 true	true	true	true	true	true	true	true
@@ -56,7 +56,7 @@ SELECT df_residual::BIGINT as df_residual
 FROM anofox_statistics_ols(
     [2.1, 4.2, 5.9, 8.1, 10.0]::DOUBLE[],
     [[1.0], [2.0], [3.0], [4.0], [5.0]]::DOUBLE[][],
-    MAP{'intercept': true, 'full_output': true}
+    {'intercept': true, 'full_output': true}
 );
 ----
 3
@@ -69,7 +69,7 @@ SELECT
 FROM anofox_statistics_ols(
     [2.1, 4.2, 5.9, 8.1, 10.0]::DOUBLE[],
     [[1.0], [2.0], [3.0], [4.0], [5.0]]::DOUBLE[][],
-    MAP{'intercept': true, 'full_output': true}
+    {'intercept': true, 'full_output': true}
 );
 ----
 true
@@ -81,18 +81,18 @@ SELECT round(x_train_means[1]::DOUBLE, 10) as x_mean
 FROM anofox_statistics_ols(
     [2.1, 4.2, 5.9, 8.1, 10.0]::DOUBLE[],
     [[1.0], [2.0], [3.0], [4.0], [5.0]]::DOUBLE[][],
-    MAP{'intercept': true, 'full_output': true}
+    {'intercept': true, 'full_output': true}
 );
 ----
 3.0
 
 # Test 6: OLS full_output - verify is_aliased array length matches n_features
 query T
-SELECT list_length(is_aliased) = n_features::BIGINT as aliased_array_correct_length
+SELECT array_length(is_aliased) = n_features::BIGINT as aliased_array_correct_length
 FROM anofox_statistics_ols(
     [2.1, 4.2, 5.9, 8.1, 10.0]::DOUBLE[],
     [[1.0, 10.0], [2.0, 11.0], [3.0, 12.0], [4.0, 13.0], [5.0, 14.0]]::DOUBLE[][],
-    MAP{'intercept': true, 'full_output': true}
+    {'intercept': true, 'full_output': true}
 );
 ----
 true
@@ -106,7 +106,7 @@ SELECT
 FROM anofox_statistics_ols(
     [2.0, 4.0, 6.0, 8.0, 10.0]::DOUBLE[],
     [[1.0, 5.0], [2.0, 5.0], [3.0, 5.0], [4.0, 5.0], [5.0, 5.0]]::DOUBLE[][],
-    MAP{'intercept': true, 'full_output': true}
+    {'intercept': true, 'full_output': true}
 );
 ----
 true	true
@@ -129,7 +129,7 @@ SELECT
 FROM anofox_statistics_ridge(
     [2.1, 4.2, 5.9, 8.1, 10.0]::DOUBLE[],
     [[1.0], [2.0], [3.0], [4.0], [5.0]]::DOUBLE[][],
-    MAP{'intercept': true, 'lambda': 0.1, 'full_output': true}
+    {'intercept': true, 'lambda': 0.1, 'full_output': true}
 );
 ----
 true	true	true	true	true	true	true	true	true	true	true	true
@@ -142,7 +142,7 @@ SELECT
 FROM anofox_statistics_ridge(
     [2.1, 4.2, 5.9, 8.1, 10.0]::DOUBLE[],
     [[1.0], [2.0], [3.0], [4.0], [5.0]]::DOUBLE[][],
-    MAP{'intercept': true, 'lambda': 0.0, 'full_output': true}
+    {'intercept': true, 'lambda': 0.0, 'full_output': true}
 );
 ----
 true
@@ -164,10 +164,9 @@ SELECT
     x_train_means IS NOT NULL as has_x_train_means
 FROM anofox_statistics_wls(
     [2.1, 4.2, 5.9, 8.1, 10.0]::DOUBLE[],
-    [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],
+    [[1.0], [2.0], [3.0], [4.0], [5.0]]::DOUBLE[][],
     [1.0, 1.0, 1.0, 1.0, 1.0]::DOUBLE[],
-    true,
-    {'full_output': true}
+    {'intercept': true, 'full_output': true}
 );
 ----
 true	true	true	true	true	true	true	true	true	true	true	true
@@ -185,7 +184,7 @@ SELECT
     n_obs IS NOT NULL as has_n_obs,
     n_features IS NOT NULL as has_n_features,
     alpha IS NOT NULL as has_alpha,
-    lambda IS NOT NULL as has_lambda,
+    reg_lambda IS NOT NULL as has_lambda,
     n_nonzero IS NOT NULL as has_n_nonzero,
     coefficient_std_errors IS NOT NULL as has_coef_se,
     intercept_std_error IS NOT NULL as has_intercept_se,
@@ -195,7 +194,7 @@ SELECT
 FROM anofox_statistics_elastic_net(
     [2.1, 4.2, 5.9, 8.1, 10.0]::DOUBLE[],
     [[1.0], [2.0], [3.0], [4.0], [5.0]]::DOUBLE[][],
-    MAP{'intercept': true, 'alpha': 0.5, 'lambda': 0.01, 'full_output': true}
+    {'intercept': true, 'alpha': 0.5, 'full_output': true}
 );
 ----
 true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true
@@ -204,11 +203,11 @@ true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true
 # High lambda should cause some coefficients to be exactly zero
 query T
 SELECT
-    list_length(is_zero) = n_features::BIGINT as is_zero_array_correct_length
+    array_length(is_zero) = n_features::BIGINT as is_zero_array_correct_length
 FROM anofox_statistics_elastic_net(
     [2.1, 4.2, 5.9, 8.1, 10.0]::DOUBLE[],
     [[1.0, 5.0], [2.0, 6.0], [3.0, 7.0], [4.0, 8.0], [5.0, 9.0]]::DOUBLE[][],
-    MAP{'intercept': true, 'alpha': 1.0, 'lambda': 10.0, 'full_output': true}
+    {'intercept': true, 'alpha': 1.0, 'lambda': 10.0, 'full_output': true}
 );
 ----
 true
@@ -231,7 +230,7 @@ SELECT
 FROM anofox_statistics_rls(
     [2.1, 4.2, 5.9, 8.1, 10.0]::DOUBLE[],
     [[1.0], [2.0], [3.0], [4.0], [5.0]]::DOUBLE[][],
-    MAP{'intercept': true, 'lambda': 0.99, 'full_output': true}
+    {'intercept': true, 'lambda': 0.99, 'full_output': true}
 );
 ----
 true	true	true	true	true	true	true	true	true	true	true	true
@@ -239,11 +238,11 @@ true	true	true	true	true	true	true	true	true	true	true	true
 # Test 14: Multiple regression - verify coefficient_std_errors array length
 query T
 SELECT
-    list_length(coefficient_std_errors) = n_features::BIGINT as se_array_correct_length
+    array_length(coefficient_std_errors) = n_features::BIGINT as se_array_correct_length
 FROM anofox_statistics_ols(
     [9.3, 23.0, 20.1, 27.5, 23.3, 40.4, 36.6, 43.2, 44.8, 59.3]::DOUBLE[],
     [[1.0, 5.2, 2.3], [2.0, 2.8, 8.1], [3.0, 7.1, 3.7], [4.0, 1.5, 6.9], [5.0, 9.3, 1.4], [6.0, 3.6, 9.6], [7.0, 8.4, 4.5], [8.0, 4.2, 7.2], [9.0, 6.7, 5.8], [10.0, 10.1, 10.3]]::DOUBLE[][],
-    MAP{'intercept': true, 'full_output': true}
+    {'intercept': true, 'full_output': true}
 );
 ----
 true
@@ -251,11 +250,11 @@ true
 # Test 15: Verify x_train_means array length matches n_features
 query T
 SELECT
-    list_length(x_train_means) = n_features::BIGINT as means_array_correct_length
+    array_length(x_train_means) = n_features::BIGINT as means_array_correct_length
 FROM anofox_statistics_ridge(
     [9.3, 23.0, 20.1, 27.5, 23.3, 40.4, 36.6, 43.2, 44.8, 59.3]::DOUBLE[],
     [[1.0, 5.2, 2.3], [2.0, 2.8, 8.1], [3.0, 7.1, 3.7], [4.0, 1.5, 6.9], [5.0, 9.3, 1.4], [6.0, 3.6, 9.6], [7.0, 8.4, 4.5], [8.0, 4.2, 7.2], [9.0, 6.7, 5.8], [10.0, 10.1, 10.3]]::DOUBLE[][],
-    MAP{'intercept': true, 'lambda': 0.5, 'full_output': true}
+    {'intercept': true, 'lambda': 0.5, 'full_output': true}
 );
 ----
 true
@@ -267,7 +266,7 @@ SELECT df_residual::BIGINT as df_residual
 FROM anofox_statistics_ols(
     [2.0, 4.0, 6.0, 8.0, 10.0]::DOUBLE[],
     [[1.0], [2.0], [3.0], [4.0], [5.0]]::DOUBLE[][],
-    MAP{'intercept': false, 'full_output': true}
+    {'intercept': false, 'full_output': true}
 );
 ----
 4

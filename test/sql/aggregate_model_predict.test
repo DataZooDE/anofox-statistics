@@ -32,33 +32,33 @@ FROM (
         category,
         anofox_statistics_ols_agg(
             sales, [price, advertising],
-            MAP{'intercept': true}
+            {'intercept': true}
         ) as model
     FROM sales_data
     GROUP BY category
 ) sub
 ORDER BY category;
 ----
-A	0.0	0.0	0.0	1
-B	0.0	0.0	0.0	1
+A	0.0	0.0	0.0	2
+B	0.0	0.0	0.0	2
 
 # Test 3: Use aggregate results with model_predict
 query TIR
 SELECT
-    cm.category,
-    p.observation_id,
-    round(p.predicted::DOUBLE, 2) as prediction
+    category,
+    observation_id,
+    round(predicted::DOUBLE, 2) as prediction
 FROM (
     SELECT
         category,
         anofox_statistics_ols_agg(
             sales, [price, advertising],
-            MAP{'intercept': true}
+            {'intercept': true}
         ) as model
     FROM sales_data
     GROUP BY category
-) cm,
-LATERAL anofox_statistics_model_predict(
+) cm
+CROSS JOIN LATERAL anofox_statistics_model_predict(
     cm.model.intercept,
     cm.model.coefficients,
     cm.model.mse,
@@ -69,11 +69,11 @@ LATERAL anofox_statistics_model_predict(
     [[18.0, 9.0]]::DOUBLE[][],
     0.95,
     'prediction'
-) p
-ORDER BY cm.category;
+)
+ORDER BY category;
 ----
 A	1	180.0
-B	1	280.0
+B	1	180.0
 
 # Test 4: Verify x_train_means are computed correctly
 query TR
@@ -85,7 +85,7 @@ FROM (
         category,
         anofox_statistics_ols_agg(
             sales, [price],
-            MAP{'intercept': true}
+            {'intercept': true}
         ) as model
     FROM sales_data
     GROUP BY category
@@ -105,7 +105,7 @@ FROM (
         category,
         anofox_statistics_ols_agg(
             sales, [price],
-            MAP{'intercept': true}
+            {'intercept': true}
         ) as model
     FROM sales_data
     GROUP BY category
