@@ -288,7 +288,7 @@ static unique_ptr<FunctionData> ElasticNetFitBind(ClientContext &context, TableF
 
 	// Extract options (third parameter - MAP, optional)
 	if (input.inputs.size() >= 3) {
-		if (input.inputs[2].type().id() == LogicalTypeId::MAP) {
+		if (input.inputs[2].type().id() == LogicalTypeId::MAP || input.inputs[2].type().id() == LogicalTypeId::STRUCT) {
 			result->options = RegressionOptions::ParseFromMap(input.inputs[2]);
 			result->options.Validate();
 		} else if (!input.inputs[2].IsNull()) {

@@ -435,9 +435,9 @@ static unique_ptr<FunctionData> OlsFitBind(ClientContext &context, TableFunction
 				result->x_values.push_back(x_feature);
 			}
 
-			// Extract options (third parameter - MAP, optional)
+			// Extract options (third parameter - MAP or STRUCT, optional)
 			if (input.inputs.size() >= 3 && !input.inputs[2].IsNull()) {
-				if (input.inputs[2].type().id() == LogicalTypeId::MAP) {
+				if (input.inputs[2].type().id() == LogicalTypeId::MAP || input.inputs[2].type().id() == LogicalTypeId::STRUCT) {
 					result->options = RegressionOptions::ParseFromMap(input.inputs[2]);
 					result->options.Validate();
 					result->options.lambda = 0.0; // Force lambda=0 for OLS
@@ -462,7 +462,7 @@ static unique_ptr<FunctionData> OlsFitBind(ClientContext &context, TableFunction
 			// Extract options if provided as literal
 			if (input.inputs.size() >= 3 && !input.inputs[2].IsNull()) {
 				try {
-					if (input.inputs[2].type().id() == LogicalTypeId::MAP) {
+					if (input.inputs[2].type().id() == LogicalTypeId::MAP || input.inputs[2].type().id() == LogicalTypeId::STRUCT) {
 						result->options = RegressionOptions::ParseFromMap(input.inputs[2]);
 						result->options.Validate();
 						result->options.lambda = 0.0; // Force lambda=0 for OLS

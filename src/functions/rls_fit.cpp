@@ -531,7 +531,7 @@ static unique_ptr<FunctionData> RlsFitBind(ClientContext &context, TableFunction
 
 			// Extract options (third parameter - MAP, optional)
 			if (input.inputs.size() >= 3 && !input.inputs[2].IsNull()) {
-				if (input.inputs[2].type().id() == LogicalTypeId::MAP) {
+				if (input.inputs[2].type().id() == LogicalTypeId::MAP || input.inputs[2].type().id() == LogicalTypeId::STRUCT) {
 					result->options = RegressionOptions::ParseFromMap(input.inputs[2]);
 					result->options.Validate();
 				}
@@ -555,7 +555,7 @@ static unique_ptr<FunctionData> RlsFitBind(ClientContext &context, TableFunction
 			// Extract options if provided as literal
 			if (input.inputs.size() >= 3 && !input.inputs[2].IsNull()) {
 				try {
-					if (input.inputs[2].type().id() == LogicalTypeId::MAP) {
+					if (input.inputs[2].type().id() == LogicalTypeId::MAP || input.inputs[2].type().id() == LogicalTypeId::STRUCT) {
 						result->options = RegressionOptions::ParseFromMap(input.inputs[2]);
 						result->options.Validate();
 					}
