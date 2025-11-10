@@ -17,6 +17,8 @@
 #include "functions/aggregates/normality_test_aggregate.hpp"       // Phase 4 - Normality Test Aggregate
 #include "functions/inference/ols_inference.hpp"                   // Phase 5 - Inference
 #include "functions/inference/prediction_intervals.hpp"            // Phase 5 - Prediction
+#include "functions/inference/model_predict.hpp"                   // Phase 5 - Model-based prediction
+#include "functions/inference/predict_scalar.hpp"                  // Phase 5 - Scalar predict functions
 #include "functions/model_selection/information_criteria.hpp"      // Phase 5 - Model selection
 #include "functions/diagnostics/residual_diagnostics.hpp"          // Phase 5 - Diagnostics
 #include "functions/diagnostics/vif.hpp"                           // Phase 5 - Multicollinearity
@@ -50,9 +52,11 @@ void AnofoxStatisticsExtension::Load(ExtensionLoader &loader) {
 	anofox_statistics::NormalityTestAggregateFunction::Register(loader);       // Normality Test Aggregate
 
 	// Phase 5: Statistical Inference & Diagnostics (✅ completed)
-	anofox_statistics::OlsInferenceFunction::Register(loader);        // Coefficient inference
-	anofox_statistics::OlsPredictIntervalFunction::Register(loader);  // Prediction intervals
-	anofox_statistics::InformationCriteriaFunction::Register(loader); // AIC, BIC
+	anofox_statistics::OlsInferenceFunction::Register(loader);              // Coefficient inference
+	anofox_statistics::OlsPredictIntervalFunction::Register(loader);        // Prediction intervals
+	anofox_statistics::AnofoxStatisticsModelPredictFunction::Register(loader);  // Model-based prediction
+	anofox_statistics::PredictScalarFunctions::Register(loader);            // Scalar predict functions (user-friendly)
+	anofox_statistics::InformationCriteriaFunction::Register(loader);       // AIC, BIC
 	anofox_statistics::ResidualDiagnosticsFunction::Register(loader); // Residual diagnostics
 	anofox_statistics::VifFunction::Register(loader);                 // Multicollinearity (VIF)
 	anofox_statistics::NormalityTestFunction::Register(loader);       // Normality test

@@ -59,6 +59,8 @@ set(EXTENSION_SOURCES
     # Phase 5 - Statistical Inference & Diagnostics (In Progress)
     src/functions/inference/ols_inference.cpp          # Coefficient inference with p-values
     src/functions/inference/prediction_intervals.cpp   # Confidence/prediction intervals
+    src/functions/inference/model_predict.cpp          # Model-based prediction with intervals
+    src/functions/inference/predict_scalar.cpp         # Scalar predict functions (accept column refs)
     src/functions/model_selection/information_criteria.cpp  # AIC, BIC, model selection
     src/functions/diagnostics/residual_diagnostics.cpp # Leverage, Cook's D, DFFITS
     src/functions/diagnostics/vif.cpp                  # Multicollinearity detection
