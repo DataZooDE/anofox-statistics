@@ -342,7 +342,10 @@ static void ComputeRLS(RlsFitBindData &data) {
 	// Note: RLS standard errors are complex due to time-varying nature
 	// We provide approximate statistics for the final model state
 	if (data.options.full_output) {
-		data.df_residual = n > data.rank ? (n - data.rank) : 0;
+		// Account for intercept in df calculation: df_residual = n - (p_full)
+		// where p_full = rank + (intercept ? 1 : 0)
+		idx_t df_model = data.rank + (data.options.intercept ? 1 : 0);
+		data.df_residual = n > df_model ? (n - df_model) : 0;
 
 		// Compute x_train_means from original X matrix (not X_work)
 		Eigen::VectorXd x_means = Eigen::VectorXd::Zero(p);
@@ -512,21 +515,39 @@ static unique_ptr<FunctionData> RlsFitBind(ClientContext &context, TableFunction
 
 			// Extract x values (second parameter - 2D array)
 			auto x_outer = ListValue::GetChildren(input.inputs[1]);
-			for (const auto &x_inner_val : x_outer) {
-				auto x_feature_list = ListValue::GetChildren(x_inner_val);
-				vector<double> x_feature;
-				for (const auto &val : x_feature_list) {
-					x_feature.push_back(val.GetValue<double>());
+
+			// Validate that number of rows matches y
+			if (x_outer.size() != n) {
+				throw InvalidInputException("Array dimensions mismatch: y has %d elements, x has %d rows", n,
+				                            x_outer.size());
+			}
+
+			// Get number of features from first row
+			if (x_outer.empty()) {
+				throw InvalidInputException("Second parameter (x) must have at least one row");
+			}
+
+			auto first_row = ListValue::GetChildren(x_outer[0]);
+			idx_t p = first_row.size();
+
+			if (p == 0) {
+				throw InvalidInputException("Second parameter (x) must have at least one feature");
+			}
+
+			// Initialize x_values with p features, each will hold n observations
+			result->x_values.resize(p);
+
+			// Transpose row-major input to column-major storage
+			for (idx_t i = 0; i < n; i++) {
+				auto row = ListValue::GetChildren(x_outer[i]);
+				if (row.size() != p) {
+					throw InvalidInputException("Array dimensions mismatch: row 0 has %d features, row %d has %d features",
+					                            p, i, row.size());
 				}
 
-				// Validate dimensions
-				if (x_feature.size() != n) {
-					throw InvalidInputException(
-					    "Array dimensions mismatch: y has %d elements, feature %d has %d elements", n,
-					    result->x_values.size() + 1, x_feature.size());
+				for (idx_t j = 0; j < p; j++) {
+					result->x_values[j].push_back(row[j].GetValue<double>());
 				}
-
-				result->x_values.push_back(x_feature);
 			}
 
 			// Extract options (third parameter - MAP, optional)

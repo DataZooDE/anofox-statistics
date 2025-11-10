@@ -190,7 +190,10 @@ static void ComputeElasticNet(ElasticNetFitBindData &data) {
 
 	// Compute extended metadata if full_output=true
 	if (data.options.full_output) {
-		data.df_residual = n > data.n_nonzero ? (n - data.n_nonzero) : 0;
+		// Account for intercept in df calculation: df_residual = n - (p_full)
+		// where p_full = n_nonzero + (intercept ? 1 : 0)
+		idx_t df_model = data.n_nonzero + (data.options.intercept ? 1 : 0);
+		data.df_residual = n > df_model ? (n - df_model) : 0;
 
 		// Track which coefficients are zero (feature selection result)
 		data.is_zero.resize(p);
@@ -266,24 +269,46 @@ static unique_ptr<FunctionData> ElasticNetFitBind(ClientContext &context, TableF
 	}
 
 	auto x_outer = ListValue::GetChildren(input.inputs[1]);
-	for (const auto &x_inner_val : x_outer) {
-		if (x_inner_val.type().id() != LogicalTypeId::LIST) {
+
+	// Validate that number of rows matches y
+	if (x_outer.size() != n) {
+		throw InvalidInputException("Array dimensions mismatch: y has %d elements, x has %d rows", n, x_outer.size());
+	}
+
+	// Get number of features from first row
+	if (x_outer.empty()) {
+		throw InvalidInputException("Second parameter (x) must have at least one row");
+	}
+
+	if (x_outer[0].type().id() != LogicalTypeId::LIST) {
+		throw InvalidInputException("Second parameter (x) must be a 2D array where each element is DOUBLE[]");
+	}
+
+	auto first_row = ListValue::GetChildren(x_outer[0]);
+	idx_t p = first_row.size();
+
+	if (p == 0) {
+		throw InvalidInputException("Second parameter (x) must have at least one feature");
+	}
+
+	// Initialize x_values with p features, each will hold n observations
+	result->x_values.resize(p);
+
+	// Transpose row-major input to column-major storage
+	for (idx_t i = 0; i < n; i++) {
+		if (x_outer[i].type().id() != LogicalTypeId::LIST) {
 			throw InvalidInputException("Second parameter (x) must be a 2D array where each element is DOUBLE[]");
 		}
 
-		auto x_feature_list = ListValue::GetChildren(x_inner_val);
-		vector<double> x_feature;
-		for (const auto &val : x_feature_list) {
-			x_feature.push_back(val.GetValue<double>());
+		auto row = ListValue::GetChildren(x_outer[i]);
+		if (row.size() != p) {
+			throw InvalidInputException("Array dimensions mismatch: row 0 has %d features, row %d has %d features",
+			                            p, i, row.size());
 		}
 
-		// Validate dimensions
-		if (x_feature.size() != n) {
-			throw InvalidInputException("Array dimensions mismatch: y has %d elements, feature %d has %d elements", n,
-			                            result->x_values.size() + 1, x_feature.size());
+		for (idx_t j = 0; j < p; j++) {
+			result->x_values[j].push_back(row[j].GetValue<double>());
 		}
-
-		result->x_values.push_back(x_feature);
 	}
 
 	// Extract options (third parameter - MAP, optional)
@@ -307,7 +332,7 @@ static unique_ptr<FunctionData> ElasticNetFitBind(ClientContext &context, TableF
 
 	// Set return schema (basic columns)
 	names = {"coefficients", "intercept",  "r_squared", "adj_r_squared", "mse",      "rmse",
-	         "n_obs",        "n_features", "alpha",     "lambda",        "n_nonzero"};
+	         "n_obs",        "n_features", "alpha",     "reg_lambda",    "n_nonzero"};
 
 	return_types = {LogicalType::LIST(LogicalType::DOUBLE),
 	                LogicalType::DOUBLE,
@@ -419,7 +444,7 @@ void ElasticNetFitFunction::Register(ExtensionLoader &loader) {
 	};
 
 	TableFunction function("anofox_statistics_elastic_net", arguments, ElasticNetFitExecute, ElasticNetFitBind);
-	function.named_parameters["options"] = LogicalType::ANY;
+	function.varargs = LogicalType::ANY;
 
 	loader.RegisterFunction(function);
 
