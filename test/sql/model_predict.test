@@ -9,9 +9,8 @@ statement ok
 CREATE TEMP TABLE model AS
 SELECT * FROM anofox_statistics_ols(
     [2.1, 4.2, 5.9, 8.1, 10.0]::DOUBLE[],
-    [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],
-    true,
-    {'full_output': true}
+    [[1.0], [2.0], [3.0], [4.0], [5.0]]::DOUBLE[][],
+    MAP{'intercept': true, 'full_output': true}
 );
 
 # Test 2: Verify model was fitted correctly
@@ -101,10 +100,8 @@ statement ok
 CREATE TEMP TABLE model2 AS
 SELECT * FROM anofox_statistics_ols(
     [10.0, 20.0, 30.0, 40.0, 50.0]::DOUBLE[],
-    [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],
-    [2.0, 4.0, 6.0, 8.0, 10.0]::DOUBLE[],
-    true,
-    {'full_output': true}
+    [[1.0, 2.0], [2.0, 4.0], [3.0, 6.0], [4.0, 8.0], [5.0, 10.0]]::DOUBLE[][],
+    MAP{'intercept': true, 'full_output': true}
 );
 
 # Test 8: Predict with multiple features using 2D array
@@ -228,9 +225,8 @@ statement ok
 CREATE TEMP TABLE ridge_model AS
 SELECT * FROM anofox_statistics_ridge(
     [2.1, 4.2, 5.9, 8.1, 10.0]::DOUBLE[],
-    [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],
-    true,
-    {'lambda': 0.1, 'full_output': true}
+    [[1.0], [2.0], [3.0], [4.0], [5.0]]::DOUBLE[][],
+    MAP{'intercept': true, 'lambda': 0.1, 'full_output': true}
 );
 
 # Test 16: Predict using Ridge model
