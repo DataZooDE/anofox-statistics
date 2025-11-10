@@ -1,0 +1,116 @@
+# name: test/sql/aggregate_model_predict.test
+# description: Test aggregates with model_predict integration
+# group: [sql]
+
+require anofox_statistics
+
+# Test 1: OLS aggregate returns extended metadata
+statement ok
+CREATE TEMP TABLE sales_data (category VARCHAR, sales DOUBLE, price DOUBLE, advertising DOUBLE);
+
+statement ok
+INSERT INTO sales_data VALUES
+    ('A', 100, 10, 5),
+    ('A', 120, 12, 6),
+    ('A', 140, 14, 7),
+    ('A', 160, 16, 8),
+    ('B', 200, 20, 10),
+    ('B', 220, 22, 11),
+    ('B', 240, 24, 12),
+    ('B', 260, 26, 13);
+
+# Test 2: Verify OLS aggregate returns all required fields for model_predict
+query TRRRT
+SELECT
+    category,
+    round(model.intercept::DOUBLE, 2) as intercept,
+    round(model.mse::DOUBLE, 4) as mse,
+    round(model.intercept_std_error::DOUBLE, 4) as intercept_se,
+    model.df_residual::BIGINT as df_resid
+FROM (
+    SELECT
+        category,
+        anofox_statistics_ols_agg(
+            sales, [price, advertising],
+            MAP{'intercept': true}
+        ) as model
+    FROM sales_data
+    GROUP BY category
+) sub
+ORDER BY category;
+----
+A	0.0	0.0	0.0	1
+B	0.0	0.0	0.0	1
+
+# Test 3: Use aggregate results with model_predict
+query TIR
+SELECT
+    cm.category,
+    p.observation_id,
+    round(p.predicted::DOUBLE, 2) as prediction
+FROM (
+    SELECT
+        category,
+        anofox_statistics_ols_agg(
+            sales, [price, advertising],
+            MAP{'intercept': true}
+        ) as model
+    FROM sales_data
+    GROUP BY category
+) cm,
+LATERAL anofox_statistics_model_predict(
+    cm.model.intercept,
+    cm.model.coefficients,
+    cm.model.mse,
+    cm.model.x_train_means,
+    cm.model.coefficient_std_errors,
+    cm.model.intercept_std_error,
+    cm.model.df_residual,
+    [[18.0, 9.0]]::DOUBLE[][],
+    0.95,
+    'prediction'
+) p
+ORDER BY cm.category;
+----
+A	1	180.0
+B	1	280.0
+
+# Test 4: Verify x_train_means are computed correctly
+query TR
+SELECT
+    category,
+    round(model.x_train_means[1]::DOUBLE, 2) as avg_price
+FROM (
+    SELECT
+        category,
+        anofox_statistics_ols_agg(
+            sales, [price],
+            MAP{'intercept': true}
+        ) as model
+    FROM sales_data
+    GROUP BY category
+) sub
+ORDER BY category;
+----
+A	13.0
+B	23.0
+
+# Test 5: Verify coefficient_std_errors are populated
+query TT
+SELECT
+    category,
+    model.coefficient_std_errors[1] IS NOT NULL as has_std_error
+FROM (
+    SELECT
+        category,
+        anofox_statistics_ols_agg(
+            sales, [price],
+            MAP{'intercept': true}
+        ) as model
+    FROM sales_data
+    GROUP BY category
+) sub
+ORDER BY category;
+----
+A	true
+B	true
