@@ -1,12 +1,3 @@
-# Aggregate Function Validation Tests: DuckDB vs R
-# Validates anofox_statistics_{ols|wls|ridge|rls}_agg against R equivalents
-#
-# Tests GROUP BY aggregation for all 4 regression methods:
-# - OLS aggregate vs R's aggregate() + lm()
-# - WLS aggregate vs R's aggregate() + lm(weights=...)
-# - Ridge aggregate vs R's aggregate() + glmnet(alpha=0)
-# - RLS aggregate vs custom RLS implementation
-
 library(DBI)
 library(duckdb)
 library(glmnet)  # For Ridge regression
@@ -14,7 +5,7 @@ library(glmnet)  # For Ridge regression
 cat("=== Aggregate Function Validation: DuckDB Extension vs R ===\n\n")
 
 # Configuration
-EXTENSION_PATH <- "build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension"
+EXTENSION_PATH <- "extension/mingw/anofox_statistics.duckdb_extension"
 STRICT_TOL <- 1e-10
 RELAXED_TOL <- 1e-8
 
@@ -24,9 +15,9 @@ test_counter <- 0
 
 # Helper function to compare values
 compare_values <- function(duckdb_val, r_val, tolerance = STRICT_TOL,
-                          test_name = "", value_name = "") {
+                           test_name = "", value_name = "") {
   test_counter <<- test_counter + 1
-
+  
   # Handle NULL/NA
   if ((is.null(duckdb_val) || is.na(duckdb_val)) && is.na(r_val)) {
     result <- list(
@@ -43,10 +34,10 @@ compare_values <- function(duckdb_val, r_val, tolerance = STRICT_TOL,
     test_results[[test_counter]] <<- result
     return(TRUE)
   }
-
+  
   # Calculate difference
   diff <- abs(duckdb_val - r_val)
-
+  
   if (diff < tolerance) {
     result <- list(
       test = test_counter,
@@ -82,12 +73,14 @@ compare_values <- function(duckdb_val, r_val, tolerance = STRICT_TOL,
   }
 }
 
+
 # Connect to DuckDB
 cat("Connecting to DuckDB...\n")
-con <- dbConnect(duckdb::duckdb())
-
-# Load extension
+con <- dbConnect(
+  duckdb::duckdb(config = list(allow_unsigned_extensions = "true"))
+)
 cat("Loading extension:", EXTENSION_PATH, "\n")
+
 tryCatch({
   dbExecute(con, sprintf("LOAD '%s';", EXTENSION_PATH))
   cat("✓ Extension loaded successfully\n\n")
@@ -140,11 +133,11 @@ cat("\nComputing DuckDB aggregate...\n")
 duckdb_result <- dbGetQuery(con, "
   SELECT
     category,
+    (result).intercept as intercept,
     (result).coefficients[1] as coef_x1,
-    (result).intercept,
-    (result).r2,
-    (result).adj_r2,
-    (result).n_obs
+    (result).r2 as r2,
+    (result).adj_r2 as adj_r2,
+    (result).n_obs as n_obs
   FROM (
     SELECT
       category,
@@ -206,10 +199,10 @@ print(r_results_no_int, digits = 15)
 duckdb_result_no_int <- dbGetQuery(con, "
   SELECT
     category,
+    (result).intercept as intercept,
     (result).coefficients[1] as coef_x1,
-    (result).intercept,
-    (result).r2,
-    (result).n_obs
+    (result).r2 as r2,
+    (result).n_obs as n_obs
   FROM (
     SELECT
       category,
@@ -238,6 +231,7 @@ for (i in 1:nrow(r_results_no_int)) {
   compare_values(d_row$r2, r_row$r2,
                  test_name = paste("OLS_agg_no_int", group), value_name = "r2")
 }
+
 
 # ==============================================================================
 # Test 3: WLS Aggregate with GROUP BY (intercept=TRUE)
@@ -272,11 +266,11 @@ print(r_wls_results, digits = 15)
 duckdb_wls_result <- dbGetQuery(con, "
   SELECT
     category,
+    (result).intercept as intercept,
     (result).coefficients[1] as coef_x1,
-    (result).intercept,
-    (result).r2,
-    (result).adj_r2,
-    (result).n_obs
+    (result).r2 as r2,
+    (result).adj_r2 as adj_r2,
+    (result).n_obs as n_obs
   FROM (
     SELECT
       category,
@@ -319,11 +313,12 @@ r_ridge_results <- by(test_data, test_data$category, function(df) {
   # Center y and X for intercept estimation
   y_mean <- mean(df$y)
   x_mean <- mean(df$x1)
-  y_centered <- df$y - y_mean
-  x_centered <- df$x1 - x_mean
+  y_centered <- df$y # - y_mean
+  x_centered <- df$x1 # - x_mean
 
   # glmnet expects matrix input
   X_matrix <- as.matrix(x_centered)
+  X_matrix = cbind(1, X_matrix)
 
   # glmnet uses lambda differently: lambda_glmnet = lambda_ours / n
   n <- nrow(df)
@@ -331,11 +326,12 @@ r_ridge_results <- by(test_data, test_data$category, function(df) {
 
   # Fit ridge (alpha=0 for L2 penalty only)
   fit <- glmnet(X_matrix, y_centered, alpha = 0, lambda = lambda_glmnet,
-                intercept = FALSE)  # Already centered
+                intercept = T)  # Already centered
 
   # Extract coefficient
-  coef_ridge <- as.numeric(coef(fit, s = lambda_glmnet))[-1]  # Remove intercept row
-  intercept_ridge <- y_mean - coef_ridge * x_mean
+  coef_ridge <- as.numeric(coef(fit, s = lambda_glmnet))# [-1]  # Remove intercept row
+  intercept_ridge <- coef_ridge[1] #  y_mean - coef_ridge * x_mean
+  coef_ridge <- coef_ridge[3]
 
   # Compute R² on original scale
   y_pred <- intercept_ridge + coef_ridge * df$x1
@@ -352,6 +348,7 @@ r_ridge_results <- by(test_data, test_data$category, function(df) {
     n_obs = n
   )
 })
+
 r_ridge_results <- do.call(rbind, lapply(r_ridge_results, as.data.frame))
 row.names(r_ridge_results) <- NULL
 
@@ -362,11 +359,11 @@ print(r_ridge_results, digits = 15)
 duckdb_ridge_result <- dbGetQuery(con, sprintf("
   SELECT
     category,
+    (result).intercept as intercept,
     (result).coefficients[1] as coef_x1,
-    (result).intercept,
-    (result).r2,
-    (result).lambda,
-    (result).n_obs
+    (result).r2 as r2,
+    (result).lambda as lambda,
+    (result).n_obs as n_obs
   FROM (
     SELECT
       category,
@@ -397,6 +394,7 @@ for (i in 1:nrow(r_ridge_results)) {
   compare_values(d_row$lambda, r_row$lambda,
                  test_name = paste("Ridge_agg", group), value_name = "lambda")
 }
+
 
 # ==============================================================================
 # Test 5: RLS Aggregate with GROUP BY (intercept=TRUE)
@@ -486,11 +484,11 @@ print(r_rls_results, digits = 15)
 duckdb_rls_result <- dbGetQuery(con, sprintf("
   SELECT
     category,
+    (result).intercept as intercept,
     (result).coefficients[1] as coef_x1,
-    (result).intercept,
-    (result).r2,
-    (result).forgetting_factor,
-    (result).n_obs
+    (result).r2 as r2,
+    (result).forgetting_factor as forgetting_factor,
+    (result).n_obs as n_obs
   FROM (
     SELECT
       category,
