@@ -186,6 +186,37 @@ void OlsFitPredictFinalize(duckdb::Vector &state_vector, duckdb::AggregateInputD
     }
 }
 
+// State for fit-predict aggregates
+struct FitPredictState {
+    // Empty state - window callback reads partition directly
+};
+
+// Initialize state
+static void FitPredictInitialize(const AggregateFunction &function, data_ptr_t state_ptr) {
+    new (state_ptr) FitPredictState();
+}
+
+// Update (no-op for window-only function)
+static void FitPredictUpdate(Vector inputs[], AggregateInputData &aggr_input_data, idx_t input_count,
+                              Vector &state_vector, idx_t count) {
+    // No-op: window callback reads partition directly
+}
+
+// Combine (no-op for window-only function)
+static void FitPredictCombine(Vector &source, Vector &target, AggregateInputData &aggr_input_data, idx_t count) {
+    // No-op
+}
+
+// Finalize (returns NULL for non-window mode)
+static void FitPredictFinalize(Vector &state_vector, AggregateInputData &aggr_input_data,
+                                Vector &result, idx_t count, idx_t offset) {
+    // Return NULL for non-window mode (user must use OVER clause)
+    auto &result_validity = FlatVector::Validity(result);
+    for (idx_t i = 0; i < count; i++) {
+        result_validity.SetInvalid(i);
+    }
+}
+
 /**
  * Window callback: Fit model on training data, predict for current row
  * This is called once per row in the window
@@ -407,23 +438,29 @@ static void OlsFitPredictWindow(duckdb::AggregateInputData &aggr_input_data, con
 void OlsFitPredictFunction::Register(ExtensionLoader &loader) {
     ANOFOX_DEBUG("Registering OLS fit-predict function");
 
-    LogicalType return_type = CreateFitPredictReturnType();
+    // Define struct fields inline like the working function does
+    child_list_t<LogicalType> fit_predict_struct_fields;
+    fit_predict_struct_fields.push_back(make_pair("yhat", LogicalType::DOUBLE));
+    fit_predict_struct_fields.push_back(make_pair("yhat_lower", LogicalType::DOUBLE));
+    fit_predict_struct_fields.push_back(make_pair("yhat_upper", LogicalType::DOUBLE));
+    fit_predict_struct_fields.push_back(make_pair("std_error", LogicalType::DOUBLE));
 
+    // Use real callback functions (not lambdas) like the working function does
     AggregateFunction anofox_statistics_fit_predict_ols(
         "anofox_statistics_fit_predict_ols",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
-        return_type,
+        LogicalType::STRUCT(fit_predict_struct_fields),
         AggregateFunction::StateSize<FitPredictState>,
-        OlsFitPredictInitialize,
-        OlsFitPredictUpdate,
-        OlsFitPredictCombine,
-        OlsFitPredictFinalize,  // Finalize function (returns NULL in non-window mode)
+        FitPredictInitialize,
+        FitPredictUpdate,
+        FitPredictCombine,
+        FitPredictFinalize,
         FunctionNullHandling::DEFAULT_NULL_HANDLING,
         nullptr,
         nullptr,
-        OlsFitPredictDestroy,  // Destroy function
+        nullptr,  // destroy - use nullptr like the working function
         nullptr,
-        OlsFitPredictWindow,  // Window callback
+        OlsFitPredictWindow,  // Window callback does all the work
         nullptr,
         nullptr
     );

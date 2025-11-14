@@ -1,5 +1,4 @@
 #include "ridge_fit_predict.hpp"
-#include "ols_fit_predict.hpp"  // For OlsFitPredictInitialize, Update, Combine, Destroy, Finalize
 #include "fit_predict_base.hpp"
 #include "../utils/tracing.hpp"
 #include "../utils/rank_deficient_ols.hpp"
@@ -16,6 +15,37 @@
 namespace duckdb {
 namespace anofox_statistics {
 
+// State for Ridge fit-predict
+struct RidgeFitPredictState {
+    // Empty state - window callback reads partition directly
+};
+
+// Initialize state
+static void RidgeFitPredictInitialize(const AggregateFunction &function, data_ptr_t state_ptr) {
+    new (state_ptr) RidgeFitPredictState();
+}
+
+// Update (no-op for window-only function)
+static void RidgeFitPredictUpdate(Vector inputs[], AggregateInputData &aggr_input_data, idx_t input_count,
+                                   Vector &state_vector, idx_t count) {
+    // No-op: window callback reads partition directly
+}
+
+// Combine (no-op for window-only function)
+static void RidgeFitPredictCombine(Vector &source, Vector &target, AggregateInputData &aggr_input_data, idx_t count) {
+    // No-op
+}
+
+// Finalize (returns NULL for non-window mode)
+static void RidgeFitPredictFinalize(Vector &state_vector, AggregateInputData &aggr_input_data,
+                                     Vector &result, idx_t count, idx_t offset) {
+    // Return NULL for non-window mode (user must use OVER clause)
+    auto &result_validity = FlatVector::Validity(result);
+    for (idx_t i = 0; i < count; i++) {
+        result_validity.SetInvalid(i);
+    }
+}
+
 /**
  * Window callback for Ridge fit-predict
  * Fits Ridge regression and predicts for current row
@@ -24,17 +54,10 @@ static void RidgeFitPredictWindow(duckdb::AggregateInputData &aggr_input_data, c
                                    duckdb::const_data_ptr_t g_state, duckdb::data_ptr_t l_state, const duckdb::SubFrames &subframes,
                                    duckdb::Vector &result, duckdb::idx_t rid) {
 
-    // Ensure result vector is in flat format
-    result.SetVectorType(VectorType::FLAT_VECTOR);
     auto &result_validity = FlatVector::Validity(result);
 
     // Result is a STRUCT with fields: yhat, yhat_lower, yhat_upper, std_error
     auto &struct_entries = StructVector::GetEntries(result);
-
-    // Ensure each struct child is also flat
-    for (auto &entry : struct_entries) {
-        entry->SetVectorType(VectorType::FLAT_VECTOR);
-    }
 
     auto yhat_data = FlatVector::GetData<double>(*struct_entries[0]);
     auto yhat_lower_data = FlatVector::GetData<double>(*struct_entries[1]);
@@ -249,22 +272,27 @@ static void RidgeFitPredictWindow(duckdb::AggregateInputData &aggr_input_data, c
 void RidgeFitPredictFunction::Register(ExtensionLoader &loader) {
     ANOFOX_DEBUG("Registering Ridge fit-predict function");
 
-    LogicalType return_type = CreateFitPredictReturnType();
+    // Define struct fields inline
+    child_list_t<LogicalType> fit_predict_struct_fields;
+    fit_predict_struct_fields.push_back(make_pair("yhat", LogicalType::DOUBLE));
+    fit_predict_struct_fields.push_back(make_pair("yhat_lower", LogicalType::DOUBLE));
+    fit_predict_struct_fields.push_back(make_pair("yhat_upper", LogicalType::DOUBLE));
+    fit_predict_struct_fields.push_back(make_pair("std_error", LogicalType::DOUBLE));
 
-    // Ridge uses same state management as OLS, only differs in solver
+    // Use real callback functions (not lambdas)
     AggregateFunction anofox_statistics_fit_predict_ridge(
         "anofox_statistics_fit_predict_ridge",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
-        return_type,
-        AggregateFunction::StateSize<FitPredictState>,
-        OlsFitPredictInitialize,  // Reuse OLS initialize (same state structure)
-        OlsFitPredictUpdate,       // Reuse OLS update (same state structure)
-        OlsFitPredictCombine,      // Reuse OLS combine (same state structure)
-        OlsFitPredictFinalize,     // Reuse OLS finalize (same behavior)
+        LogicalType::STRUCT(fit_predict_struct_fields),
+        AggregateFunction::StateSize<RidgeFitPredictState>,
+        RidgeFitPredictInitialize,
+        RidgeFitPredictUpdate,
+        RidgeFitPredictCombine,
+        RidgeFitPredictFinalize,
         FunctionNullHandling::DEFAULT_NULL_HANDLING,
         nullptr,
         nullptr,
-        OlsFitPredictDestroy,      // Reuse OLS destroy (same state structure)
+        nullptr,  // destroy - use nullptr like the working function
         nullptr,
         RidgeFitPredictWindow,  // Ridge-specific window callback
         nullptr,
