@@ -193,19 +193,13 @@ static void OlsFitPredictWindow(duckdb::AggregateInputData &aggr_input_data, con
                                  duckdb::const_data_ptr_t g_state, duckdb::data_ptr_t l_state, const duckdb::SubFrames &subframes,
                                  duckdb::Vector &result, duckdb::idx_t rid) {
 
-    // Flatten the result vector to convert from CONSTANT to FLAT
-    // We need to flatten up to rid+1 rows to ensure proper initialization
-    result.Flatten(rid + 1);
+    // Access result validity (like the working function does - no Flatten needed)
     auto &result_validity = FlatVector::Validity(result);
 
     // Result is a STRUCT with fields: yhat, yhat_lower, yhat_upper, std_error
     auto &struct_entries = StructVector::GetEntries(result);
 
-    // Flatten struct children to convert from CONSTANT NULL to FLAT
-    for (auto &entry : struct_entries) {
-        entry->Flatten(rid + 1);
-    }
-
+    // Access struct children directly (like the working function - no Flatten!)
     auto yhat_data = FlatVector::GetData<double>(*struct_entries[0]);
     auto yhat_lower_data = FlatVector::GetData<double>(*struct_entries[1]);
     auto yhat_upper_data = FlatVector::GetData<double>(*struct_entries[2]);
