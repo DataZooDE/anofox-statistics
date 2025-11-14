@@ -54,17 +54,23 @@ static void RidgeFitPredictWindow(duckdb::AggregateInputData &aggr_input_data, c
                                    duckdb::const_data_ptr_t g_state, duckdb::data_ptr_t l_state, const duckdb::SubFrames &subframes,
                                    duckdb::Vector &result, duckdb::idx_t rid) {
 
-    // Access result validity (like the working function does - no Flatten needed)
+    // Access result validity
     auto &result_validity = FlatVector::Validity(result);
 
-    // Result is a STRUCT with fields: yhat, yhat_lower, yhat_upper, std_error
+    // Result is a STRUCT with fields: yhat, yhat_lower, yhat_upper, std_error, _dummy
     auto &struct_entries = StructVector::GetEntries(result);
 
-    // Access struct children directly (like the working function - no Flatten!)
+    // Access DOUBLE fields
     auto yhat_data = FlatVector::GetData<double>(*struct_entries[0]);
     auto yhat_lower_data = FlatVector::GetData<double>(*struct_entries[1]);
     auto yhat_upper_data = FlatVector::GetData<double>(*struct_entries[2]);
     auto std_error_data = FlatVector::GetData<double>(*struct_entries[3]);
+
+    // Trigger struct initialization via dummy LIST field (DuckDB limitation workaround)
+    auto &dummy_list = *struct_entries[4];
+    ListVector::Reserve(dummy_list, rid + 1);
+    auto list_entries = FlatVector::GetData<list_entry_t>(dummy_list);
+    list_entries[rid] = list_entry_t{0, 0};  // Empty list for this row
 
     // Extract data for the entire partition
     vector<double> all_y;
@@ -275,11 +281,13 @@ void RidgeFitPredictFunction::Register(ExtensionLoader &loader) {
     ANOFOX_DEBUG("Registering Ridge fit-predict function");
 
     // Define struct fields inline
+    // NOTE: Includes dummy LIST field to trigger proper DuckDB struct initialization in window aggregates
     child_list_t<LogicalType> fit_predict_struct_fields;
     fit_predict_struct_fields.push_back(make_pair("yhat", LogicalType::DOUBLE));
     fit_predict_struct_fields.push_back(make_pair("yhat_lower", LogicalType::DOUBLE));
     fit_predict_struct_fields.push_back(make_pair("yhat_upper", LogicalType::DOUBLE));
     fit_predict_struct_fields.push_back(make_pair("std_error", LogicalType::DOUBLE));
+    fit_predict_struct_fields.push_back(make_pair("_dummy", LogicalType::LIST(LogicalType::DOUBLE)));
 
     // Use real callback functions (not lambdas)
     AggregateFunction anofox_statistics_fit_predict_ridge(
