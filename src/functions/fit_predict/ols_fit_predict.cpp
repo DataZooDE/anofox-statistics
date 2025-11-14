@@ -16,6 +16,9 @@
 namespace duckdb {
 namespace anofox_statistics {
 
+// State for fit-predict aggregates (empty state - window callback reads partition directly)
+struct FitPredictState {};
+
 /**
  * Initialize state (called once per partition)
  * Non-static so it can be reused by other fit-predict functions
@@ -186,37 +189,6 @@ void OlsFitPredictFinalize(duckdb::Vector &state_vector, duckdb::AggregateInputD
     }
 }
 
-// State for fit-predict aggregates
-struct FitPredictState {
-    // Empty state - window callback reads partition directly
-};
-
-// Initialize state
-static void FitPredictInitialize(const AggregateFunction &function, data_ptr_t state_ptr) {
-    new (state_ptr) FitPredictState();
-}
-
-// Update (no-op for window-only function)
-static void FitPredictUpdate(Vector inputs[], AggregateInputData &aggr_input_data, idx_t input_count,
-                              Vector &state_vector, idx_t count) {
-    // No-op: window callback reads partition directly
-}
-
-// Combine (no-op for window-only function)
-static void FitPredictCombine(Vector &source, Vector &target, AggregateInputData &aggr_input_data, idx_t count) {
-    // No-op
-}
-
-// Finalize (returns NULL for non-window mode)
-static void FitPredictFinalize(Vector &state_vector, AggregateInputData &aggr_input_data,
-                                Vector &result, idx_t count, idx_t offset) {
-    // Return NULL for non-window mode (user must use OVER clause)
-    auto &result_validity = FlatVector::Validity(result);
-    for (idx_t i = 0; i < count; i++) {
-        result_validity.SetInvalid(i);
-    }
-}
-
 /**
  * Window callback: Fit model on training data, predict for current row
  * This is called once per row in the window
@@ -225,10 +197,18 @@ static void OlsFitPredictWindow(duckdb::AggregateInputData &aggr_input_data, con
                                  duckdb::const_data_ptr_t g_state, duckdb::data_ptr_t l_state, const duckdb::SubFrames &subframes,
                                  duckdb::Vector &result, duckdb::idx_t rid) {
 
+    // Set result vector to FLAT before accessing children
+    result.SetVectorType(VectorType::FLAT_VECTOR);
     auto &result_validity = FlatVector::Validity(result);
 
     // Result is a STRUCT with fields: yhat, yhat_lower, yhat_upper, std_error
     auto &struct_entries = StructVector::GetEntries(result);
+
+    // Initialize struct children as flat vectors before writing
+    for (auto &entry : struct_entries) {
+        entry->SetVectorType(VectorType::FLAT_VECTOR);
+    }
+
     auto yhat_data = FlatVector::GetData<double>(*struct_entries[0]);
     auto yhat_lower_data = FlatVector::GetData<double>(*struct_entries[1]);
     auto yhat_upper_data = FlatVector::GetData<double>(*struct_entries[2]);

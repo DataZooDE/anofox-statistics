@@ -54,10 +54,17 @@ static void RidgeFitPredictWindow(duckdb::AggregateInputData &aggr_input_data, c
                                    duckdb::const_data_ptr_t g_state, duckdb::data_ptr_t l_state, const duckdb::SubFrames &subframes,
                                    duckdb::Vector &result, duckdb::idx_t rid) {
 
+    // Set result vector to FLAT before accessing children
+    result.SetVectorType(VectorType::FLAT_VECTOR);
     auto &result_validity = FlatVector::Validity(result);
 
     // Result is a STRUCT with fields: yhat, yhat_lower, yhat_upper, std_error
     auto &struct_entries = StructVector::GetEntries(result);
+
+    // Initialize struct children as flat vectors before writing
+    for (auto &entry : struct_entries) {
+        entry->SetVectorType(VectorType::FLAT_VECTOR);
+    }
 
     auto yhat_data = FlatVector::GetData<double>(*struct_entries[0]);
     auto yhat_lower_data = FlatVector::GetData<double>(*struct_entries[1]);
