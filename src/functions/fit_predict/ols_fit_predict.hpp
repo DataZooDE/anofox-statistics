@@ -1,9 +1,20 @@
 #pragma once
 
 #include "duckdb.hpp"
+#include "fit_predict_base.hpp"
 
 namespace duckdb {
 namespace anofox_statistics {
+
+// Forward declarations for aggregate callbacks (used by other models like Ridge)
+// Note: Using duckdb:: prefix to reference types from parent namespace
+void OlsFitPredictInitialize(data_ptr_t state_ptr);
+void OlsFitPredictUpdate(duckdb::Vector inputs[], duckdb::AggregateInputData &aggr_input_data, idx_t input_count,
+                         duckdb::Vector &state_vector, idx_t count);
+void OlsFitPredictCombine(duckdb::Vector &source, duckdb::Vector &target, duckdb::AggregateInputData &aggr_input_data, idx_t count);
+void OlsFitPredictDestroy(duckdb::Vector &state_vector, duckdb::AggregateInputData &aggr_input_data, idx_t count);
+void OlsFitPredictFinalize(duckdb::Vector &state_vector, duckdb::AggregateInputData &aggr_input_data,
+                          duckdb::Vector &result, idx_t count, idx_t offset);
 
 /**
  * @brief OLS Fit-Predict Aggregate Function

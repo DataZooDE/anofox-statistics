@@ -1,4 +1,5 @@
 #include "ridge_fit_predict.hpp"
+#include "ols_fit_predict.hpp"  // For OlsFitPredictInitialize, Update, Combine, Destroy, Finalize
 #include "fit_predict_base.hpp"
 #include "../utils/tracing.hpp"
 #include "../utils/rank_deficient_ols.hpp"
@@ -19,9 +20,9 @@ namespace anofox_statistics {
  * Window callback for Ridge fit-predict
  * Fits Ridge regression and predicts for current row
  */
-static void RidgeFitPredictWindow(AggregateInputData &aggr_input_data, const WindowPartitionInput &partition,
-                                   const_data_ptr_t g_state, data_ptr_t l_state, const SubFrames &subframes,
-                                   Vector &result, idx_t rid) {
+static void RidgeFitPredictWindow(duckdb::AggregateInputData &aggr_input_data, const duckdb::WindowPartitionInput &partition,
+                                   duckdb::const_data_ptr_t g_state, duckdb::data_ptr_t l_state, const duckdb::SubFrames &subframes,
+                                   duckdb::Vector &result, duckdb::idx_t rid) {
 
     auto &result_validity = FlatVector::Validity(result);
 
@@ -242,6 +243,7 @@ void RidgeFitPredictFunction::Register(ExtensionLoader &loader) {
 
     LogicalType return_type = CreateFitPredictReturnType();
 
+    // Ridge uses same state management as OLS, only differs in solver
     AggregateFunction anofox_statistics_fit_predict_ridge(
         "anofox_statistics_fit_predict_ridge",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
@@ -250,11 +252,11 @@ void RidgeFitPredictFunction::Register(ExtensionLoader &loader) {
         OlsFitPredictInitialize,  // Reuse OLS initialize (same state structure)
         OlsFitPredictUpdate,       // Reuse OLS update (same state structure)
         OlsFitPredictCombine,      // Reuse OLS combine (same state structure)
-        nullptr,
+        OlsFitPredictFinalize,     // Reuse OLS finalize (same behavior)
         FunctionNullHandling::DEFAULT_NULL_HANDLING,
         nullptr,
         nullptr,
-        nullptr,
+        OlsFitPredictDestroy,      // Reuse OLS destroy (same state structure)
         nullptr,
         RidgeFitPredictWindow,  // Ridge-specific window callback
         nullptr,

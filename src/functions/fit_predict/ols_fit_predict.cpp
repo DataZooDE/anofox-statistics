@@ -163,12 +163,36 @@ void OlsFitPredictCombine(Vector &source, Vector &target, AggregateInputData &ag
 }
 
 /**
+ * Destroy: Clean up state
+ */
+void OlsFitPredictDestroy(duckdb::Vector &state_vector, duckdb::AggregateInputData &aggr_input_data, idx_t count) {
+    auto states = FlatVector::GetData<FitPredictState *>(state_vector);
+    for (idx_t i = 0; i < count; i++) {
+        states[i]->~FitPredictState();
+    }
+}
+
+/**
+ * Finalize: For non-window aggregate mode
+ * Window functions use the window callback instead, but DuckDB still requires a finalize function
+ */
+void OlsFitPredictFinalize(duckdb::Vector &state_vector, duckdb::AggregateInputData &aggr_input_data,
+                          duckdb::Vector &result, idx_t count, idx_t offset) {
+    // Not used in window mode
+    // If called in non-window mode, return NULL (user should use OVER clause)
+    auto &result_validity = FlatVector::Validity(result);
+    for (idx_t i = 0; i < count; i++) {
+        result_validity.SetInvalid(i);
+    }
+}
+
+/**
  * Window callback: Fit model on training data, predict for current row
  * This is called once per row in the window
  */
-static void OlsFitPredictWindow(AggregateInputData &aggr_input_data, const WindowPartitionInput &partition,
-                                 const_data_ptr_t g_state, data_ptr_t l_state, const SubFrames &subframes,
-                                 Vector &result, idx_t rid) {
+static void OlsFitPredictWindow(duckdb::AggregateInputData &aggr_input_data, const duckdb::WindowPartitionInput &partition,
+                                 duckdb::const_data_ptr_t g_state, duckdb::data_ptr_t l_state, const duckdb::SubFrames &subframes,
+                                 duckdb::Vector &result, duckdb::idx_t rid) {
 
     auto &result_validity = FlatVector::Validity(result);
 
@@ -393,11 +417,11 @@ void OlsFitPredictFunction::Register(ExtensionLoader &loader) {
         OlsFitPredictInitialize,
         OlsFitPredictUpdate,
         OlsFitPredictCombine,
-        nullptr,  // No finalize (only window mode)
+        OlsFitPredictFinalize,  // Finalize function (returns NULL in non-window mode)
         FunctionNullHandling::DEFAULT_NULL_HANDLING,
         nullptr,
         nullptr,
-        nullptr,
+        OlsFitPredictDestroy,  // Destroy function
         nullptr,
         OlsFitPredictWindow,  // Window callback
         nullptr,
