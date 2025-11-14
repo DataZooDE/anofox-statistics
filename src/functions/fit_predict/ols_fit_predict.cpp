@@ -16,16 +16,12 @@
 namespace duckdb {
 namespace anofox_statistics {
 
-// State for fit-predict aggregates (empty state - window callback reads partition directly)
-struct FitPredictState {};
-
 /**
  * Initialize state (called once per partition)
- * Non-static so it can be reused by other fit-predict functions
+ * For window-only functions, state is unused but must be initialized
  */
 void OlsFitPredictInitialize(const AggregateFunction &function, data_ptr_t state_ptr) {
-    auto state = reinterpret_cast<FitPredictState *>(state_ptr);
-    new (state) FitPredictState();
+    new (state_ptr) FitPredictState();
 }
 
 /**
@@ -197,16 +193,17 @@ static void OlsFitPredictWindow(duckdb::AggregateInputData &aggr_input_data, con
                                  duckdb::const_data_ptr_t g_state, duckdb::data_ptr_t l_state, const duckdb::SubFrames &subframes,
                                  duckdb::Vector &result, duckdb::idx_t rid) {
 
-    // Set result vector to FLAT before accessing children
-    result.SetVectorType(VectorType::FLAT_VECTOR);
+    // Flatten the result vector to convert from CONSTANT to FLAT
+    // We need to flatten up to rid+1 rows to ensure proper initialization
+    result.Flatten(rid + 1);
     auto &result_validity = FlatVector::Validity(result);
 
     // Result is a STRUCT with fields: yhat, yhat_lower, yhat_upper, std_error
     auto &struct_entries = StructVector::GetEntries(result);
 
-    // Initialize struct children as flat vectors before writing
+    // Flatten struct children to convert from CONSTANT NULL to FLAT
     for (auto &entry : struct_entries) {
-        entry->SetVectorType(VectorType::FLAT_VECTOR);
+        entry->Flatten(rid + 1);
     }
 
     auto yhat_data = FlatVector::GetData<double>(*struct_entries[0]);
@@ -431,10 +428,10 @@ void OlsFitPredictFunction::Register(ExtensionLoader &loader) {
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
         LogicalType::STRUCT(fit_predict_struct_fields),
         AggregateFunction::StateSize<FitPredictState>,
-        FitPredictInitialize,
-        FitPredictUpdate,
-        FitPredictCombine,
-        FitPredictFinalize,
+        OlsFitPredictInitialize,
+        OlsFitPredictUpdate,
+        OlsFitPredictCombine,
+        OlsFitPredictFinalize,
         FunctionNullHandling::DEFAULT_NULL_HANDLING,
         nullptr,
         nullptr,
