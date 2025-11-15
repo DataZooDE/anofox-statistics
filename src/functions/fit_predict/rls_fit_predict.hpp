@@ -54,7 +54,7 @@ namespace anofox_statistics {
  */
 class RlsFitPredictFunction {
 public:
-    static void Register(ExtensionLoader &loader);
+	static void Register(ExtensionLoader &loader);
 };
 
 } // namespace anofox_statistics

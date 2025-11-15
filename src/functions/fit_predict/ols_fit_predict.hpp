@@ -74,12 +74,12 @@ namespace anofox_statistics {
  */
 class OlsFitPredictFunction {
 public:
-    /**
-     * @brief Register OLS fit-predict aggregate function
-     *
-     * @param loader Extension loader context
-     */
-    static void Register(ExtensionLoader &loader);
+	/**
+	 * @brief Register OLS fit-predict aggregate function
+	 *
+	 * @param loader Extension loader context
+	 */
+	static void Register(ExtensionLoader &loader);
 };
 
 } // namespace anofox_statistics

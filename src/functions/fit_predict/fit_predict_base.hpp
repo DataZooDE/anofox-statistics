@@ -18,60 +18,60 @@ namespace anofox_statistics {
  * 3. Returns predictions with optional intervals
  */
 struct FitPredictState {
-    // Training data (only non-NULL y values)
-    vector<double> y_train;
-    vector<vector<double>> x_train;
+	// Training data (only non-NULL y values)
+	vector<double> y_train;
+	vector<vector<double>> x_train;
 
-    // All rows (for prediction - includes NULL y)
-    vector<vector<double>> x_all;
-    vector<bool> is_train_row;  // true if y was NOT NULL
+	// All rows (for prediction - includes NULL y)
+	vector<vector<double>> x_all;
+	vector<bool> is_train_row; // true if y was NOT NULL
 
-    idx_t n_features = 0;
-    RegressionOptions options;
-    bool options_initialized = false;
+	idx_t n_features = 0;
+	RegressionOptions options;
+	bool options_initialized = false;
 
-    // Model state (filled after fitting)
-    bool model_fitted = false;
-    Eigen::VectorXd coefficients;
-    double intercept = 0.0;
-    double mse = 0.0;
-    Eigen::VectorXd x_train_means;
-    Eigen::VectorXd coefficient_std_errors;
-    double intercept_std_error = 0.0;
-    idx_t df_residual = 0;
-    idx_t rank = 0;
+	// Model state (filled after fitting)
+	bool model_fitted = false;
+	Eigen::VectorXd coefficients;
+	double intercept = 0.0;
+	double mse = 0.0;
+	Eigen::VectorXd x_train_means;
+	Eigen::VectorXd coefficient_std_errors;
+	double intercept_std_error = 0.0;
+	idx_t df_residual = 0;
+	idx_t rank = 0;
 
-    void Reset() {
-        y_train.clear();
-        x_train.clear();
-        x_all.clear();
-        is_train_row.clear();
-        n_features = 0;
-        options = RegressionOptions();
-        options_initialized = false;
-        model_fitted = false;
-    }
+	void Reset() {
+		y_train.clear();
+		x_train.clear();
+		x_all.clear();
+		is_train_row.clear();
+		n_features = 0;
+		options = RegressionOptions();
+		options_initialized = false;
+		model_fitted = false;
+	}
 };
 
 /**
  * @brief Parse prediction options from options MAP
  */
 struct PredictionOptions {
-    double confidence_level = 0.95;
-    string interval_type = "prediction";  // "prediction" or "confidence"
+	double confidence_level = 0.95;
+	string interval_type = "prediction"; // "prediction" or "confidence"
 
-    static PredictionOptions ParseFromOptions(const RegressionOptions &reg_options);
+	static PredictionOptions ParseFromOptions(const RegressionOptions &reg_options);
 };
 
 /**
  * @brief Result structure for per-row predictions
  */
 struct PredictionResult {
-    double yhat = 0.0;
-    double yhat_lower = 0.0;
-    double yhat_upper = 0.0;
-    double std_error = 0.0;
-    bool is_valid = false;
+	double yhat = 0.0;
+	double yhat_lower = 0.0;
+	double yhat_upper = 0.0;
+	double std_error = 0.0;
+	bool is_valid = false;
 };
 
 /**
@@ -88,17 +88,10 @@ struct PredictionResult {
  * @param interval_type "prediction" or "confidence"
  * @return PredictionResult with yhat and interval bounds
  */
-PredictionResult ComputePredictionWithInterval(
-    const vector<double> &x_new,
-    double intercept,
-    const Eigen::VectorXd &coefficients,
-    double mse,
-    const Eigen::VectorXd &x_train_means,
-    const Eigen::MatrixXd &X_train,
-    idx_t df_residual,
-    double confidence_level,
-    const string &interval_type
-);
+PredictionResult ComputePredictionWithInterval(const vector<double> &x_new, double intercept,
+                                               const Eigen::VectorXd &coefficients, double mse,
+                                               const Eigen::VectorXd &x_train_means, const Eigen::MatrixXd &X_train,
+                                               idx_t df_residual, double confidence_level, const string &interval_type);
 
 /**
  * @brief Helper to extract list data from DuckDB vector
@@ -122,8 +115,8 @@ LogicalType CreateFitPredictReturnType();
  * since they all use the same FitPredictState structure
  */
 void OlsFitPredictInitialize(const AggregateFunction &function, data_ptr_t state_ptr);
-void OlsFitPredictUpdate(Vector inputs[], AggregateInputData &aggr_input_data, idx_t input_count,
-                          Vector &state_vector, idx_t count);
+void OlsFitPredictUpdate(Vector inputs[], AggregateInputData &aggr_input_data, idx_t input_count, Vector &state_vector,
+                         idx_t count);
 void OlsFitPredictCombine(Vector &source, Vector &target, AggregateInputData &aggr_input_data, idx_t count);
 
 } // namespace anofox_statistics

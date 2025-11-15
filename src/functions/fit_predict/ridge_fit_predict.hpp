@@ -41,7 +41,7 @@ namespace anofox_statistics {
  */
 class RidgeFitPredictFunction {
 public:
-    static void Register(ExtensionLoader &loader);
+	static void Register(ExtensionLoader &loader);
 };
 
 } // namespace anofox_statistics

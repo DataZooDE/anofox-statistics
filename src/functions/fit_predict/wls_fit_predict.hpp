@@ -44,7 +44,7 @@ namespace anofox_statistics {
  */
 class WlsFitPredictFunction {
 public:
-    static void Register(ExtensionLoader &loader);
+	static void Register(ExtensionLoader &loader);
 };
 
 } // namespace anofox_statistics

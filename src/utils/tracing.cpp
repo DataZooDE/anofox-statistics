@@ -30,9 +30,9 @@ void Tracer::Initialize() {
 	if (env_level == nullptr) {
 		// Use build-type-specific default if no env var is set
 #ifdef NDEBUG
-		current_level_ = LogLevel::WARN;  // Release: suppress INFO messages
+		current_level_ = LogLevel::WARN; // Release: suppress INFO messages
 #else
-		current_level_ = LogLevel::INFO;  // Debug: show INFO messages
+		current_level_ = LogLevel::INFO; // Debug: show INFO messages
 #endif
 		return;
 	}
