@@ -239,9 +239,15 @@ static void RidgeFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 	Eigen::VectorXd residuals = y_train - y_pred_train;
 	double ss_res = residuals.squaredNorm();
 
-	idx_t df_model = rank;
+	// df_model includes intercept when fitting with intercept
+	// The rank from QR decomposition counts feature columns, but we fit intercept separately
+	idx_t df_model = rank + (options.intercept ? 1 : 0);
 	idx_t df_residual = n_train - df_model;
 	double mse = (df_residual > 0) ? (ss_res / df_residual) : std::numeric_limits<double>::quiet_NaN();
+
+	ANOFOX_DEBUG("Ridge fit-predict: n_train=" << n_train << ", rank=" << rank
+	             << ", intercept=" << options.intercept << ", df_model=" << df_model
+	             << ", df_residual=" << df_residual << ", mse=" << mse << ", ss_res=" << ss_res);
 
 	// Predict for current row
 	if (rid >= all_x.size() || all_x[rid].empty()) {
