@@ -38,7 +38,7 @@ FROM (
         anofox_statistics_fit_predict_ols(
             y,
             [x1],
-            MAP{'intercept': true}
+            MAP{'intercept': 1}
         ) OVER () as pred
     FROM train_test_data
 )

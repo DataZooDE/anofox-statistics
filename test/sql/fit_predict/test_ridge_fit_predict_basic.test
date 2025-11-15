@@ -25,7 +25,7 @@ FROM (
         anofox_statistics_fit_predict_ridge(
             y,
             [x1],
-            MAP{'intercept': true, 'lambda': 1.0}
+            MAP{'intercept': 1, 'lambda': 1.0}
         ) OVER () as pred
     FROM ridge_data
 )
@@ -68,12 +68,12 @@ FROM (
             anofox_statistics_fit_predict_ridge(
                 y,
                 [x, x_corr],
-                MAP{'intercept': true, 'lambda': 10.0}
+                MAP{'intercept': 1, 'lambda': 10.0}
             ) OVER () as ridge_pred,
             anofox_statistics_fit_predict_ols(
                 y,
                 [x, x_corr],
-                MAP{'intercept': true}
+                MAP{'intercept': 1}
             ) OVER () as ols_pred
         FROM collinear_data
     )
@@ -107,7 +107,7 @@ FROM (
         anofox_statistics_fit_predict_ridge(
             y,
             [x],
-            MAP{'intercept': true, 'lambda': 0.5}
+            MAP{'intercept': 1, 'lambda': 0.5}
         ) OVER (PARTITION BY group_id) as pred
     FROM ridge_groups
 )
