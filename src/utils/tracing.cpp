@@ -6,7 +6,13 @@ namespace duckdb {
 namespace anofox_statistics {
 
 // Static member initialization
+// Release builds: default to WARN (suppress INFO messages)
+// Debug builds: default to INFO (show all non-debug messages)
+#ifdef NDEBUG
+LogLevel Tracer::current_level_ = LogLevel::WARN;
+#else
 LogLevel Tracer::current_level_ = LogLevel::INFO;
+#endif
 bool Tracer::initialized_ = false;
 
 // Global mutex for thread-safe logging
@@ -22,7 +28,12 @@ void Tracer::Initialize() {
 
 	const char *env_level = std::getenv("ANOFOX_LOG_LEVEL");
 	if (env_level == nullptr) {
-		current_level_ = LogLevel::INFO;
+		// Use build-type-specific default if no env var is set
+#ifdef NDEBUG
+		current_level_ = LogLevel::WARN; // Release: suppress INFO messages
+#else
+		current_level_ = LogLevel::INFO; // Debug: show INFO messages
+#endif
 		return;
 	}
 
@@ -46,8 +57,12 @@ void Tracer::Initialize() {
 	} else if (level_str == "none") {
 		current_level_ = LogLevel::NONE;
 	} else {
-		// Default if unrecognized
+		// Default if unrecognized - use build-type-specific default
+#ifdef NDEBUG
+		current_level_ = LogLevel::WARN;
+#else
 		current_level_ = LogLevel::INFO;
+#endif
 	}
 }
 
