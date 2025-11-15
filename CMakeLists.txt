@@ -70,6 +70,9 @@ set(EXTENSION_SOURCES
     src/functions/fit_predict/fit_predict_base.cpp     # Shared infrastructure for fit-predict
     src/functions/fit_predict/ols_fit_predict.cpp      # OLS fit-predict aggregate
     src/functions/fit_predict/ridge_fit_predict.cpp    # Ridge fit-predict aggregate
+    src/functions/fit_predict/wls_fit_predict.cpp      # WLS fit-predict aggregate
+    src/functions/fit_predict/elastic_net_fit_predict.cpp  # Elastic Net fit-predict aggregate
+    src/functions/fit_predict/rls_fit_predict.cpp      # RLS fit-predict aggregate
 )
 
 # Build the static extension (required for DuckDB to link against when building statically)

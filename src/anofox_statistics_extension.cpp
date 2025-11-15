@@ -25,6 +25,9 @@
 #include "functions/diagnostics/normality_test.hpp"                // Phase 5 - Normality
 #include "functions/fit_predict/ols_fit_predict.hpp"               // Phase 6 - OLS Fit-Predict
 #include "functions/fit_predict/ridge_fit_predict.hpp"             // Phase 6 - Ridge Fit-Predict
+#include "functions/fit_predict/wls_fit_predict.hpp"               // Phase 6 - WLS Fit-Predict
+#include "functions/fit_predict/elastic_net_fit_predict.hpp"       // Phase 6 - Elastic Net Fit-Predict
+#include "functions/fit_predict/rls_fit_predict.hpp"               // Phase 6 - RLS Fit-Predict
 #include "duckdb/common/exception.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
 
@@ -64,8 +67,11 @@ void AnofoxStatisticsExtension::Load(ExtensionLoader &loader) {
 	anofox_statistics::NormalityTestFunction::Register(loader);       // Normality test
 
 	// Phase 6: Unified Fit-Predict API (🚧 in progress)
-	anofox_statistics::OlsFitPredictFunction::Register(loader);   // OLS fit-predict aggregate
-	anofox_statistics::RidgeFitPredictFunction::Register(loader); // Ridge fit-predict aggregate
+	anofox_statistics::OlsFitPredictFunction::Register(loader);        // OLS fit-predict aggregate
+	anofox_statistics::RidgeFitPredictFunction::Register(loader);      // Ridge fit-predict aggregate
+	anofox_statistics::WlsFitPredictFunction::Register(loader);        // WLS fit-predict aggregate
+	anofox_statistics::ElasticNetFitPredictFunction::Register(loader); // Elastic Net fit-predict aggregate
+	anofox_statistics::RlsFitPredictFunction::Register(loader);        // RLS fit-predict aggregate
 
 	// Future additions:
 	// - Heteroscedasticity tests (Breusch-Pagan, White)
