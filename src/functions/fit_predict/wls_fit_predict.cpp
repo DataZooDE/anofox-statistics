@@ -247,8 +247,7 @@ static void WlsFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 	// Weighted sum of squared residuals
 	double ss_res = (w.array() * residuals.array() * residuals.array()).sum();
 
-	// df_model includes intercept when fitting with intercept
-	idx_t df_model = rank + (options.intercept ? 1 : 0);
+	idx_t df_model = rank;
 	idx_t df_residual = n_train - df_model;
 	double mse = (df_residual > 0) ? (ss_res / df_residual) : std::numeric_limits<double>::quiet_NaN();
 
