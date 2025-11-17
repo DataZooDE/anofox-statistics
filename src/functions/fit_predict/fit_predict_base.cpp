@@ -135,6 +135,92 @@ vector<double> ExtractListAsVector(Vector &list_vector, idx_t row_idx, UnifiedVe
 	return result;
 }
 
+void LoadPartitionData(const WindowPartitionInput &partition, PartitionDataCache &cache) {
+	// Only load once per partition
+	if (cache.initialized) {
+		return;
+	}
+
+	// Read input data from the partition
+	ColumnDataScanState scan_state;
+	partition.inputs->InitializeScan(scan_state);
+
+	DataChunk chunk;
+	chunk.Initialize(Allocator::DefaultAllocator(), partition.inputs->Types());
+
+	while (partition.inputs->Scan(scan_state, chunk)) {
+		auto &y_chunk = chunk.data[0];
+		auto &x_array_chunk = chunk.data[1];
+		auto &options_chunk = chunk.data[2];
+
+		UnifiedVectorFormat y_data;
+		UnifiedVectorFormat x_array_data;
+		UnifiedVectorFormat options_data;
+		y_chunk.ToUnifiedFormat(chunk.size(), y_data);
+		x_array_chunk.ToUnifiedFormat(chunk.size(), x_array_data);
+		options_chunk.ToUnifiedFormat(chunk.size(), options_data);
+
+		auto y_ptr = UnifiedVectorFormat::GetData<double>(y_data);
+
+		for (idx_t i = 0; i < chunk.size(); i++) {
+			auto y_idx = y_data.sel->get_index(i);
+			auto x_array_idx = x_array_data.sel->get_index(i);
+			auto options_idx = options_data.sel->get_index(i);
+
+			// Parse options from first valid row
+			if (!cache.options_initialized && options_data.validity.RowIsValid(options_idx)) {
+				auto options_value = options_chunk.GetValue(options_idx);
+				cache.options = RegressionOptions::ParseFromMap(options_value);
+				cache.options_initialized = true;
+			}
+
+			vector<double> features;
+			bool x_valid = false;
+
+			if (x_array_data.validity.RowIsValid(x_array_idx)) {
+				auto x_array_entry = UnifiedVectorFormat::GetData<list_entry_t>(x_array_data)[x_array_idx];
+				auto &x_child = ListVector::GetEntry(x_array_chunk);
+
+				UnifiedVectorFormat x_child_data;
+				x_child.ToUnifiedFormat(ListVector::GetListSize(x_array_chunk), x_child_data);
+				auto x_child_ptr = UnifiedVectorFormat::GetData<double>(x_child_data);
+
+				for (idx_t j = 0; j < x_array_entry.length; j++) {
+					auto child_idx = x_child_data.sel->get_index(x_array_entry.offset + j);
+					if (x_child_data.validity.RowIsValid(child_idx)) {
+						features.push_back(x_child_ptr[child_idx]);
+					} else {
+						features.clear();
+						break;
+					}
+				}
+
+				if (!features.empty()) {
+					if (cache.n_features == 0) {
+						cache.n_features = features.size();
+					}
+					x_valid = (features.size() == cache.n_features);
+				}
+			}
+
+			// Store data for all rows
+			if (x_valid) {
+				cache.all_x.push_back(features);
+				if (y_data.validity.RowIsValid(y_idx)) {
+					cache.all_y.push_back(y_ptr[y_idx]);
+				} else {
+					cache.all_y.push_back(std::numeric_limits<double>::quiet_NaN());
+				}
+			} else {
+				cache.all_x.push_back(vector<double>());
+				cache.all_y.push_back(std::numeric_limits<double>::quiet_NaN());
+			}
+		}
+	}
+
+	cache.initialized = true;
+}
+
 LogicalType CreateFitPredictReturnType() {
 	child_list_t<LogicalType> struct_fields;
 	struct_fields.push_back(make_pair("yhat", LogicalType::DOUBLE));

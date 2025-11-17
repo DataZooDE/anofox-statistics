@@ -99,6 +99,29 @@ PredictionResult ComputePredictionWithInterval(const vector<double> &x_new, doub
 vector<double> ExtractListAsVector(Vector &list_vector, idx_t row_idx, UnifiedVectorFormat &list_data);
 
 /**
+ * @brief Cached partition data for fit-predict window functions
+ *
+ * This structure caches the partition data to prevent O(n²) scanning.
+ * The data is loaded once per partition and reused for all rows.
+ */
+struct PartitionDataCache {
+	vector<double> all_y;
+	vector<vector<double>> all_x;
+	RegressionOptions options;
+	bool options_initialized = false;
+	idx_t n_features = 0;
+	bool initialized = false;
+};
+
+/**
+ * @brief Load partition data into cache (called once per partition)
+ *
+ * This function scans the entire partition once and caches all data,
+ * preventing O(n²) performance issues from scanning the partition for every row.
+ */
+void LoadPartitionData(const WindowPartitionInput &partition, PartitionDataCache &cache);
+
+/**
  * @brief Create return type for fit-predict functions
  *
  * Returns STRUCT with:

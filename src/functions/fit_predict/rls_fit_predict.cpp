@@ -15,9 +15,9 @@
 namespace duckdb {
 namespace anofox_statistics {
 
-// State for RLS fit-predict (empty - window-only approach)
+// State for RLS fit-predict
 struct RlsFitPredictState {
-	// Empty state - window callback reads partition directly
+	PartitionDataCache cache; // Cached partition data (loaded once)
 };
 
 // Initialize state
@@ -52,87 +52,17 @@ static void RlsFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 	auto list_entries = FlatVector::GetData<list_entry_t>(dummy_list);
 	list_entries[rid] = list_entry_t {0, 0}; // Empty list for this row
 
-	// Extract data for the entire partition
-	vector<double> all_y;
-	vector<vector<double>> all_x;
-	RegressionOptions options;
-	bool options_initialized = false;
-	idx_t n_features = 0;
+	// Access global state (cached partition data)
+	auto &state = *reinterpret_cast<RlsFitPredictState *>(const_cast<data_ptr_t>(g_state));
 
-	// Read input data from the partition
-	ColumnDataScanState scan_state;
-	partition.inputs->InitializeScan(scan_state);
+	// Load partition data once (cached for all rows)
+	LoadPartitionData(partition, state.cache);
 
-	DataChunk chunk;
-	chunk.Initialize(Allocator::DefaultAllocator(), partition.inputs->Types());
-
-	while (partition.inputs->Scan(scan_state, chunk)) {
-		auto &y_chunk = chunk.data[0];
-		auto &x_array_chunk = chunk.data[1];
-		auto &options_chunk = chunk.data[2];
-
-		UnifiedVectorFormat y_data;
-		UnifiedVectorFormat x_array_data;
-		UnifiedVectorFormat options_data;
-		y_chunk.ToUnifiedFormat(chunk.size(), y_data);
-		x_array_chunk.ToUnifiedFormat(chunk.size(), x_array_data);
-		options_chunk.ToUnifiedFormat(chunk.size(), options_data);
-
-		auto y_ptr = UnifiedVectorFormat::GetData<double>(y_data);
-
-		for (idx_t i = 0; i < chunk.size(); i++) {
-			auto y_idx = y_data.sel->get_index(i);
-			auto x_array_idx = x_array_data.sel->get_index(i);
-			auto options_idx = options_data.sel->get_index(i);
-
-			if (!options_initialized && options_data.validity.RowIsValid(options_idx)) {
-				auto options_value = options_chunk.GetValue(options_idx);
-				options = RegressionOptions::ParseFromMap(options_value);
-				options_initialized = true;
-			}
-
-			vector<double> features;
-			bool x_valid = false;
-
-			if (x_array_data.validity.RowIsValid(x_array_idx)) {
-				auto x_array_entry = UnifiedVectorFormat::GetData<list_entry_t>(x_array_data)[x_array_idx];
-				auto &x_child = ListVector::GetEntry(x_array_chunk);
-
-				UnifiedVectorFormat x_child_data;
-				x_child.ToUnifiedFormat(ListVector::GetListSize(x_array_chunk), x_child_data);
-				auto x_child_ptr = UnifiedVectorFormat::GetData<double>(x_child_data);
-
-				for (idx_t j = 0; j < x_array_entry.length; j++) {
-					auto child_idx = x_child_data.sel->get_index(x_array_entry.offset + j);
-					if (x_child_data.validity.RowIsValid(child_idx)) {
-						features.push_back(x_child_ptr[child_idx]);
-					} else {
-						features.clear();
-						break;
-					}
-				}
-
-				if (!features.empty()) {
-					if (n_features == 0) {
-						n_features = features.size();
-					}
-					x_valid = (features.size() == n_features);
-				}
-			}
-
-			if (x_valid) {
-				all_x.push_back(features);
-				if (y_data.validity.RowIsValid(y_idx)) {
-					all_y.push_back(y_ptr[y_idx]);
-				} else {
-					all_y.push_back(std::numeric_limits<double>::quiet_NaN());
-				}
-			} else {
-				all_x.push_back(vector<double>());
-				all_y.push_back(std::numeric_limits<double>::quiet_NaN());
-			}
-		}
-	}
+	// Use cached data
+	auto &all_y = state.cache.all_y;
+	auto &all_x = state.cache.all_x;
+	auto &options = state.cache.options;
+	idx_t n_features = state.cache.n_features;
 
 	// Collect training data from window frame
 	vector<double> train_y;
