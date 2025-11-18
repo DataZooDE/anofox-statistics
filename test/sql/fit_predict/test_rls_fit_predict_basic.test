@@ -192,6 +192,54 @@ WHERE (pred).yhat IS NOT NULL;
 ----
 10
 
+# Test 8: RLS with extreme forgetting factors
+statement ok
+CREATE TABLE rls_extreme AS
+SELECT
+    i as id,
+    i::DOUBLE as x,
+    CASE WHEN i <= 5 THEN (i * 2.5)::DOUBLE ELSE NULL END as y
+FROM range(1, 9) t(i);
+
+query I
+SELECT
+    COUNT(*) as predictions
+FROM (
+    SELECT
+        id,
+        anofox_statistics_fit_predict_rls(y, [x], MAP{'intercept': 1, 'forgetting_factor': 0.98}) OVER () as pred_adaptive,
+        anofox_statistics_fit_predict_rls(y, [x], MAP{'intercept': 1, 'forgetting_factor': 0.999}) OVER () as pred_near_one
+    FROM rls_extreme
+)
+WHERE (pred_adaptive).yhat IS NOT NULL AND (pred_near_one).yhat IS NOT NULL;
+----
+8
+
+# Test 9: Verify prediction intervals widen appropriately
+query I
+SELECT
+    COUNT(*) as valid_intervals
+FROM (
+    SELECT
+        id,
+        (pred).yhat as yhat,
+        (pred).yhat_lower as lower,
+        (pred).yhat_upper as upper
+    FROM (
+        SELECT
+            id,
+            anofox_statistics_fit_predict_rls(
+                y,
+                [x],
+                MAP{'intercept': 1, 'forgetting_factor': 1.0}
+            ) OVER () as pred
+        FROM rls_data
+    )
+)
+WHERE lower < yhat AND yhat < upper AND (upper - lower) > 0;
+----
+10
+
 # Cleanup
 statement ok
 DROP TABLE rls_data;
@@ -204,3 +252,6 @@ DROP TABLE rls_groups;
 
 statement ok
 DROP TABLE rls_multifeature;
+
+statement ok
+DROP TABLE rls_extreme;

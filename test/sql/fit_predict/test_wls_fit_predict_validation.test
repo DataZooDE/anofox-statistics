@@ -1,0 +1,44 @@
+# name: test/sql/fit_predict/test_wls_fit_predict_validation.test
+# description: Numerical validation tests for WLS fit-predict
+# group: [fit_predict]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE wls_val AS
+SELECT
+    i as id,
+    i::DOUBLE as x,
+    CASE WHEN i <= 10 THEN (i * 2.0)::DOUBLE ELSE NULL END as y,
+    1.0::DOUBLE as w
+FROM range(1, 16) t(i);
+
+# Test 1: Prediction intervals should contain predictions
+query I
+SELECT COUNT(*) FROM (
+    SELECT (pred).yhat as y, (pred).yhat_lower as lo, (pred).yhat_upper as up
+    FROM (SELECT anofox_statistics_fit_predict_wls(y, [x], w, MAP{'intercept': 1}) OVER () as pred FROM wls_val)
+) WHERE lo <= y AND y <= up;
+----
+15
+
+# Test 2: Intervals should have positive width
+query I
+SELECT COUNT(*) FROM (
+    SELECT (pred).yhat_upper - (pred).yhat_lower as width
+    FROM (SELECT anofox_statistics_fit_predict_wls(y, [x], w, MAP{'intercept': 1}) OVER () as pred FROM wls_val)
+) WHERE width > 0;
+----
+15
+
+# Test 3: Standard errors should be positive
+query I
+SELECT COUNT(*) FROM (
+    SELECT (pred).std_error as err
+    FROM (SELECT anofox_statistics_fit_predict_wls(y, [x], w, MAP{'intercept': 1}) OVER () as pred FROM wls_val)
+) WHERE err > 0;
+----
+15
+
+statement ok
+DROP TABLE wls_val;

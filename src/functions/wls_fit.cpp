@@ -1,7 +1,7 @@
 #include "wls_fit.hpp"
 #include "../utils/tracing.hpp"
-#include "../utils/rank_deficient_ols.hpp"
 #include "../utils/options_parser.hpp"
+#include "../bridge/libanostat_wrapper.hpp"
 
 #include "duckdb.hpp"
 #include "duckdb/common/exception.hpp"
@@ -94,13 +94,8 @@ struct WlsFitBindData : public FunctionData {
 };
 
 /**
- * WLS implementation with rank-deficiency handling
+ * WLS implementation using libanostat bridge layer
  * β = (X'WX)^(-1) X'Wy
- *
- * Approach: Transform to weighted OLS problem
- * - X_weighted = sqrt(W) * X
- * - y_weighted = sqrt(W) * y
- * - Then solve OLS on weighted matrices with rank-deficient solver
  */
 static void ComputeWLS(WlsFitBindData &data) {
 	idx_t n = data.y_values.size();
@@ -132,154 +127,104 @@ static void ComputeWLS(WlsFitBindData &data) {
 
 	ANOFOX_DEBUG("Computing WLS with " << n << " observations and " << p << " features");
 
-	// Build design matrix X (n x p) and response vector y (n x 1)
-	Eigen::MatrixXd X(n, p);
-	Eigen::VectorXd y(n);
-	Eigen::VectorXd w(n);
+	// Fit WLS using libanostat bridge layer
+	using namespace bridge;
 
-	// Fill X matrix with features
-	for (idx_t j = 0; j < p; j++) {
-		if (data.x_values[j].size() != n) {
-			throw InvalidInputException("Feature %d has %d values, expected %d", j, data.x_values[j].size(), n);
-		}
-		for (idx_t i = 0; i < n; i++) {
-			X(i, j) = data.x_values[j][i];
-		}
-	}
+	auto result = LibanostatWrapper::FitWLS(
+	    data.y_values,       // vector<double>
+	    data.x_values,       // vector<vector<double>> (column-major)
+	    data.weights,        // vector<double>: observation weights
+	    data.options,        // RegressionOptions
+	    data.options.full_output
+	);
 
-	// Fill y vector and weight vector
-	for (idx_t i = 0; i < n; i++) {
-		y(i) = data.y_values[i];
-		w(i) = data.weights[i];
-	}
+	// Extract coefficients and aliasing info
+	data.coefficients = TypeConverters::ExtractCoefficients(result);
+	data.is_aliased = TypeConverters::ExtractIsAliased(result);
+	data.rank = TypeConverters::ExtractRank(result);
 
-	// Transform to weighted problem:
-	// For WLS with intercept, we must center using WEIGHTED means before transformation
-	// This is analogous to how OLS centers data before solving
-	Eigen::VectorXd sqrt_w = w.array().sqrt();
-
-	// Compute weighted means (needed for R² and for centering if add_intercept=true)
-	double sum_weights = w.sum();
-	double y_weighted_mean = (w.array() * y.array()).sum() / sum_weights;
-	Eigen::VectorXd x_weighted_means = Eigen::VectorXd::Zero(p);
-	for (idx_t j = 0; j < p; j++) {
-		x_weighted_means(j) = (w.array() * X.col(j).array()).sum() / sum_weights;
-	}
-
-	// Work matrices (will be centered if options.intercept=true)
-	Eigen::MatrixXd X_work = X;
-	Eigen::VectorXd y_work = y;
-
+	// Compute intercept from centered coefficients
 	if (data.options.intercept) {
-		// Center the data BEFORE applying sqrt(W)
-		// This ensures the regression coefficients are for centered data
+		// Compute weighted means
+		double sum_weights = 0.0;
 		for (idx_t i = 0; i < n; i++) {
-			y_work(i) = y(i) - y_weighted_mean;
-			for (idx_t j = 0; j < p; j++) {
-				X_work(i, j) = X(i, j) - x_weighted_means(j);
+			sum_weights += data.weights[i];
+		}
+
+		double y_weighted_mean = 0.0;
+		for (idx_t i = 0; i < n; i++) {
+			y_weighted_mean += data.weights[i] * data.y_values[i];
+		}
+		y_weighted_mean /= sum_weights;
+
+		Eigen::VectorXd x_weighted_means(p);
+		for (idx_t j = 0; j < p; j++) {
+			double sum = 0.0;
+			for (idx_t i = 0; i < n; i++) {
+				sum += data.weights[i] * data.x_values[j][i];
 			}
+			x_weighted_means(j) = sum / sum_weights;
 		}
-	}
 
-	// Now apply sqrt(W) transformation to centered (or uncentered) data
-	Eigen::MatrixXd X_weighted = sqrt_w.asDiagonal() * X_work;
-	Eigen::VectorXd y_weighted = sqrt_w.asDiagonal() * y_work;
-
-	// Use rank-deficient solver on weighted, centered matrices
-	// Use FitWithStdErrors if full_output requested
-	auto result = data.options.full_output ? RankDeficientOls::FitWithStdErrors(y_weighted, X_weighted)
-	                                       : RankDeficientOls::Fit(y_weighted, X_weighted);
-
-	// Store rank and aliasing info
-	data.rank = result.rank;
-	data.is_aliased.resize(p);
-	for (idx_t i = 0; i < p; i++) {
-		data.is_aliased[i] = result.is_aliased[i];
-	}
-
-	// Store coefficients (NaN for aliased features)
-	data.coefficients.resize(p);
-	for (idx_t i = 0; i < p; i++) {
-		data.coefficients[i] = result.coefficients[i];
-	}
-
-	// Compute intercept (coefficients were computed on centered data)
-	if (data.options.intercept) {
 		double beta_dot_xmean = 0.0;
 		for (idx_t j = 0; j < p; j++) {
-			if (!result.is_aliased[j]) {
-				beta_dot_xmean += result.coefficients[j] * x_weighted_means(j);
+			if (!data.is_aliased[j]) {
+				beta_dot_xmean += data.coefficients[j] * x_weighted_means(j);
 			}
 		}
 		data.intercept = y_weighted_mean - beta_dot_xmean;
+
+		// Store weighted means for later use
+		if (data.options.full_output) {
+			data.x_train_means.resize(p);
+			for (idx_t j = 0; j < p; j++) {
+				data.x_train_means[j] = x_weighted_means(j);
+			}
+		}
 	} else {
 		data.intercept = 0.0;
 	}
 
-	// Compute predictions (using only non-aliased features)
-	Eigen::VectorXd y_pred = Eigen::VectorXd::Zero(n);
-	for (idx_t j = 0; j < p; j++) {
-		if (!result.is_aliased[j]) {
-			y_pred += result.coefficients[j] * X.col(j);
+	// Extract fit statistics
+	data.r_squared = TypeConverters::ExtractRSquared(result);
+	data.adj_r_squared = TypeConverters::ExtractAdjRSquared(result);
+	data.mse = TypeConverters::ExtractMSE(result);
+	data.rmse = TypeConverters::ExtractRMSE(result);
+
+	// Compute weighted MSE manually
+	// (libanostat returns unweighted MSE)
+	double sum_weights = 0.0;
+	double ss_res_weighted = 0.0;
+	for (idx_t i = 0; i < n; i++) {
+		double y_pred = data.intercept;
+		for (idx_t j = 0; j < p; j++) {
+			if (!data.is_aliased[j]) {
+				y_pred += data.coefficients[j] * data.x_values[j][i];
+			}
 		}
+		double residual = data.y_values[i] - y_pred;
+		ss_res_weighted += data.weights[i] * residual * residual;
+		sum_weights += data.weights[i];
 	}
-	if (data.options.intercept) {
-		y_pred.array() += data.intercept;
-	}
-
-	// Compute residuals
-	Eigen::VectorXd residuals = y - y_pred;
-
-	// Compute weighted sum of squares
-	double ss_res_weighted = (w.array() * residuals.array().square()).sum();
-	double ss_tot_weighted = (w.array() * (y.array() - y_weighted_mean).square()).sum();
-
-	// Compute unweighted statistics (for comparison)
-	double ss_res = residuals.squaredNorm();
-
-	// Weighted R² (uses weighted SS)
-	data.r_squared = (ss_tot_weighted > 0) ? 1.0 - (ss_res_weighted / ss_tot_weighted) : 0.0;
-
-	// Adjusted R² using effective rank
-	idx_t effective_params = data.rank;
-	if (n > effective_params + 1) {
-		data.adj_r_squared = 1.0 - ((1.0 - data.r_squared) * (static_cast<double>(n) - 1.0) /
-		                            (static_cast<double>(n) - static_cast<double>(effective_params) - 1.0));
-	} else {
-		data.adj_r_squared = data.r_squared;
-	}
-
-	// Weighted MSE
 	data.weighted_mse = ss_res_weighted / sum_weights;
 
-	// Unweighted MSE (for comparison with OLS)
-	data.mse = ss_res / static_cast<double>(n);
-	data.rmse = std::sqrt(data.mse);
-
 	// Compute extended metadata if full_output=true
-	if (data.options.full_output && result.has_std_errors) {
-		data.coefficient_std_errors.resize(p);
-		for (idx_t i = 0; i < p; i++) {
-			data.coefficient_std_errors[i] = result.std_errors[i];
+	if (data.options.full_output) {
+		if (result.has_std_errors) {
+			data.coefficient_std_errors = TypeConverters::ExtractStdErrors(result);
 		}
-		// Account for intercept in df calculation: df_residual = n - (p_full)
-		// where p_full = rank + (intercept ? 1 : 0)
-		idx_t df_model = result.rank + (data.options.intercept ? 1 : 0);
+
+		// Degrees of freedom
+		idx_t df_model = data.rank + (data.options.intercept ? 1 : 0);
 		data.df_residual = n > df_model ? (n - df_model) : 0;
 
-		// Store x_train_means
-		if (data.options.intercept) {
-			data.x_train_means.resize(p);
-			for (idx_t j = 0; j < p; j++) {
-				data.x_train_means[j] = x_weighted_means[j];
-			}
-
-			// Compute intercept standard error (approximation)
+		// Intercept standard error (approximation)
+		if (data.options.intercept && result.has_std_errors) {
 			double intercept_variance = data.weighted_mse / sum_weights;
 			for (idx_t j = 0; j < p; j++) {
-				if (!result.is_aliased[j] && !std::isnan(result.std_errors[j])) {
-					double se_beta_j = result.std_errors[j];
-					intercept_variance += se_beta_j * se_beta_j * x_weighted_means[j] * x_weighted_means[j];
+				if (!data.is_aliased[j] && !std::isnan(data.coefficient_std_errors[j])) {
+					double se_beta_j = data.coefficient_std_errors[j];
+					intercept_variance += se_beta_j * se_beta_j * data.x_train_means[j] * data.x_train_means[j];
 				}
 			}
 			data.intercept_std_error = std::sqrt(intercept_variance);
@@ -288,8 +233,8 @@ static void ComputeWLS(WlsFitBindData &data) {
 		}
 	}
 
-	ANOFOX_DEBUG("WLS complete: R² = " << data.r_squared << ", weighted MSE = " << data.weighted_mse
-	                                   << ", coefficients = [" << data.coefficients[0] << (p > 1 ? ", ...]" : "]"));
+	ANOFOX_DEBUG("WLS (via libanostat): R² = " << data.r_squared << ", weighted MSE = " << data.weighted_mse
+	                                           << ", coefficients = [" << data.coefficients[0] << (p > 1 ? ", ...]" : "]"));
 }
 
 //===--------------------------------------------------------------------===//

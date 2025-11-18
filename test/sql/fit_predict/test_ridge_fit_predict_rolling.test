@@ -1,0 +1,139 @@
+# name: test/sql/fit_predict/test_ridge_fit_predict_rolling.test
+# description: Test Ridge fit-predict with rolling windows
+# group: [fit_predict]
+
+require anofox_statistics
+
+# Test 1: Expanding window (train on all previous rows)
+statement ok
+CREATE TABLE ridge_timeseries AS
+SELECT
+    i as time_id,
+    i::DOUBLE as x,
+    (i * 2.0 + random() * 0.5)::DOUBLE as y
+FROM range(1, 16) t(i);
+
+query II
+SELECT
+    time_id,
+    ROUND((pred).yhat, 1) as yhat
+FROM (
+    SELECT
+        time_id,
+        anofox_statistics_fit_predict_ridge(
+            y,
+            [x],
+            MAP{'intercept': 1, 'lambda': 1.0}
+        ) OVER (ORDER BY time_id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred
+    FROM ridge_timeseries
+)
+WHERE time_id <= 5
+ORDER BY time_id;
+----
+1	2.0
+2	4.1
+3	6.1
+4	8.1
+5	10.1
+
+# Test 2: Fixed-size rolling window (last 5 rows)
+query I
+SELECT
+    COUNT(*) as predictions
+FROM (
+    SELECT
+        time_id,
+        anofox_statistics_fit_predict_ridge(
+            y,
+            [x],
+            MAP{'intercept': 1, 'lambda': 1.0}
+        ) OVER (ORDER BY time_id ROWS BETWEEN 4 PRECEDING AND CURRENT ROW) as pred
+    FROM ridge_timeseries
+)
+WHERE (pred).yhat IS NOT NULL;
+----
+15
+
+# Test 3: Sliding window with gap (train on rows 3-7 back, predict current)
+query I
+SELECT
+    COUNT(*) as predictions
+FROM (
+    SELECT
+        time_id,
+        anofox_statistics_fit_predict_ridge(
+            y,
+            [x],
+            MAP{'intercept': 1, 'lambda': 1.0}
+        ) OVER (ORDER BY time_id ROWS BETWEEN 7 PRECEDING AND 3 PRECEDING) as pred
+    FROM ridge_timeseries
+)
+WHERE (pred).yhat IS NOT NULL AND time_id >= 8;
+----
+8
+
+# Test 4: ORDER BY with PARTITION BY
+statement ok
+CREATE TABLE ridge_multi_series AS
+SELECT
+    series_id,
+    t as time_id,
+    t::DOUBLE as x,
+    (t * series_mult + random() * 0.3)::DOUBLE as y
+FROM range(1, 11) r(t),
+     (VALUES ('A', 2.0), ('B', 3.0)) s(series_id, series_mult);
+
+query III
+SELECT
+    series_id,
+    time_id,
+    (pred).yhat IS NOT NULL as has_prediction
+FROM (
+    SELECT
+        series_id,
+        time_id,
+        anofox_statistics_fit_predict_ridge(
+            y,
+            [x],
+            MAP{'intercept': 1, 'lambda': 0.5}
+        ) OVER (PARTITION BY series_id ORDER BY time_id ROWS BETWEEN 3 PRECEDING AND CURRENT ROW) as pred
+    FROM ridge_multi_series
+)
+WHERE time_id <= 5
+ORDER BY series_id, time_id;
+----
+A	1	1
+A	2	1
+A	3	1
+A	4	1
+A	5	1
+B	1	1
+B	2	1
+B	3	1
+B	4	1
+B	5	1
+
+# Test 5: Window with insufficient initial data
+query I
+SELECT
+    COUNT(*) as null_early_predictions
+FROM (
+    SELECT
+        time_id,
+        anofox_statistics_fit_predict_ridge(
+            y,
+            [x],
+            MAP{'intercept': 1, 'lambda': 1.0}
+        ) OVER (ORDER BY time_id ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) as pred
+    FROM ridge_timeseries
+)
+WHERE time_id <= 2 AND (pred).yhat IS NULL;
+----
+2
+
+# Cleanup
+statement ok
+DROP TABLE ridge_timeseries;
+
+statement ok
+DROP TABLE ridge_multi_series;

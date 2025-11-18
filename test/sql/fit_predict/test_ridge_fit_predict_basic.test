@@ -126,6 +126,109 @@ B	4	8.5
 B	5	10.4
 B	6	12.3
 
+# Test 5: Ridge with different lambda values (higher lambda = more shrinkage)
+statement ok
+CREATE TABLE ridge_lambda_test AS
+SELECT
+    CASE WHEN i <= 6 THEN (i * 3.0 + 2.0)::DOUBLE ELSE NULL END as y,
+    i::DOUBLE as x,
+    i as id
+FROM range(1, 10) t(i);
+
+query IIII
+SELECT
+    id,
+    ROUND((pred_low).yhat, 1) as yhat_low_lambda,
+    ROUND((pred_med).yhat, 1) as yhat_med_lambda,
+    ROUND((pred_high).yhat, 1) as yhat_high_lambda
+FROM (
+    SELECT
+        id,
+        anofox_statistics_fit_predict_ridge(y, [x], MAP{'intercept': 1, 'lambda': 0.1}) OVER () as pred_low,
+        anofox_statistics_fit_predict_ridge(y, [x], MAP{'intercept': 1, 'lambda': 1.0}) OVER () as pred_med,
+        anofox_statistics_fit_predict_ridge(y, [x], MAP{'intercept': 1, 'lambda': 10.0}) OVER () as pred_high
+    FROM ridge_lambda_test
+)
+WHERE id = 8
+ORDER BY id;
+----
+8	26.0	25.8	24.4
+
+# Test 6: Ridge without intercept
+query II
+SELECT
+    id,
+    ROUND((pred).yhat, 1) as yhat
+FROM (
+    SELECT
+        id,
+        anofox_statistics_fit_predict_ridge(
+            y,
+            [x],
+            MAP{'intercept': 0, 'lambda': 1.0}
+        ) OVER () as pred
+    FROM ridge_data
+)
+WHERE id <= 3
+ORDER BY id;
+----
+1	1.9
+2	3.8
+3	5.7
+
+# Test 7: Multi-feature Ridge regression
+statement ok
+CREATE TABLE ridge_multifeature AS
+SELECT
+    i as id,
+    i::DOUBLE as x1,
+    (i * 0.5)::DOUBLE as x2,
+    (i * 2.0)::DOUBLE as x3,
+    CASE WHEN i <= 7 THEN (2.0 * i + 3.0 * (i * 0.5) + 1.5 * (i * 2.0))::DOUBLE ELSE NULL END as y
+FROM range(1, 12) t(i);
+
+query I
+SELECT
+    COUNT(*) as predictions
+FROM (
+    SELECT
+        id,
+        anofox_statistics_fit_predict_ridge(
+            y,
+            [x1, x2, x3],
+            MAP{'intercept': 1, 'lambda': 0.5}
+        ) OVER () as pred
+    FROM ridge_multifeature
+)
+WHERE (pred).yhat IS NOT NULL;
+----
+12
+
+# Test 8: Verify prediction intervals are reasonable
+query I
+SELECT
+    COUNT(*) as valid_intervals
+FROM (
+    SELECT
+        id,
+        (pred).yhat as yhat,
+        (pred).yhat_lower as lower,
+        (pred).yhat_upper as upper
+    FROM (
+        SELECT
+            id,
+            anofox_statistics_fit_predict_ridge(
+                y,
+                [x],
+                MAP{'intercept': 1, 'lambda': 1.0}
+            ) OVER () as pred
+        FROM ridge_data
+    )
+)
+WHERE lower < yhat AND yhat < upper;
+----
+10
+
 # Cleanup
 statement ok
 DROP TABLE ridge_data;
@@ -135,3 +238,9 @@ DROP TABLE collinear_data;
 
 statement ok
 DROP TABLE ridge_groups;
+
+statement ok
+DROP TABLE ridge_lambda_test;
+
+statement ok
+DROP TABLE ridge_multifeature;
