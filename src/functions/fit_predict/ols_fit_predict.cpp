@@ -18,7 +18,7 @@ namespace anofox_statistics {
 
 // State for OLS fit-predict
 struct OlsFitPredictState {
-	PartitionDataCache cache; // Cached partition data (loaded once)
+	PartitionDataCache cache; // Cached partition data (loaded once in window callback)
 };
 
 /**
@@ -29,146 +29,15 @@ void OlsFitPredictInitialize(const AggregateFunction &function, data_ptr_t state
 	new (state_ptr) OlsFitPredictState();
 }
 
-/**
- * Update state with new row (called for each row in partition)
- * Accumulates both training data (y NOT NULL) and all data for prediction
- * Non-static so it can be reused by other fit-predict functions
- */
-void OlsFitPredictUpdate(Vector inputs[], AggregateInputData &aggr_input_data, idx_t input_count, Vector &state_vector,
-                         idx_t count) {
-
-	UnifiedVectorFormat state_data;
-	state_vector.ToUnifiedFormat(count, state_data);
-	auto states = UnifiedVectorFormat::GetData<FitPredictState *>(state_data);
-
-	// Get y, x_array, and options vectors
-	auto &y_vector = inputs[0];
-	auto &x_array_vector = inputs[1];
-	auto &options_vector = inputs[2];
-
-	UnifiedVectorFormat y_data;
-	UnifiedVectorFormat x_array_data;
-	UnifiedVectorFormat options_data;
-	y_vector.ToUnifiedFormat(count, y_data);
-	x_array_vector.ToUnifiedFormat(count, x_array_data);
-	options_vector.ToUnifiedFormat(count, options_data);
-
-	auto y_ptr = UnifiedVectorFormat::GetData<double>(y_data);
-
-	// Process each row
-	for (idx_t i = 0; i < count; i++) {
-		auto state_idx = state_data.sel->get_index(i);
-		auto &state = *states[state_idx];
-
-		auto y_idx = y_data.sel->get_index(i);
-		auto x_array_idx = x_array_data.sel->get_index(i);
-		auto options_idx = options_data.sel->get_index(i);
-
-		// Initialize options from first row
-		if (!state.options_initialized && options_data.validity.RowIsValid(options_idx)) {
-			auto options_value = options_vector.GetValue(options_idx);
-			state.options = RegressionOptions::ParseFromMap(options_value);
-			state.options_initialized = true;
-		}
-
-		// Extract features from x_array
-		vector<double> features;
-		bool x_valid = false;
-
-		if (x_array_data.validity.RowIsValid(x_array_idx)) {
-			auto x_array_entry = UnifiedVectorFormat::GetData<list_entry_t>(x_array_data)[x_array_idx];
-			auto &x_child = ListVector::GetEntry(x_array_vector);
-
-			UnifiedVectorFormat x_child_data;
-			x_child.ToUnifiedFormat(ListVector::GetListSize(x_array_vector), x_child_data);
-			auto x_child_ptr = UnifiedVectorFormat::GetData<double>(x_child_data);
-
-			for (idx_t j = 0; j < x_array_entry.length; j++) {
-				auto child_idx = x_child_data.sel->get_index(x_array_entry.offset + j);
-				if (x_child_data.validity.RowIsValid(child_idx)) {
-					features.push_back(x_child_ptr[child_idx]);
-				} else {
-					// NULL in features array - skip this row entirely
-					features.clear();
-					break;
-				}
-			}
-
-			if (!features.empty()) {
-				x_valid = true;
-
-				// Initialize n_features from first valid row
-				if (state.n_features == 0) {
-					state.n_features = features.size();
-				} else if (features.size() != state.n_features) {
-					// Feature count mismatch - skip this row
-					x_valid = false;
-				}
-			}
-		}
-
-		// Store x_all for prediction (even if y is NULL)
-		if (x_valid) {
-			state.x_all.push_back(features);
-
-			// Check if this is a training row (y NOT NULL)
-			bool is_train = y_data.validity.RowIsValid(y_idx);
-			state.is_train_row.push_back(is_train);
-
-			if (is_train) {
-				// Add to training data
-				state.y_train.push_back(y_ptr[y_idx]);
-				state.x_train.push_back(features);
-			}
-		} else {
-			// Invalid x - mark as non-trainable
-			state.x_all.push_back(vector<double>());
-			state.is_train_row.push_back(false);
-		}
-	}
+// Update (no-op for window-only function)
+void OlsFitPredictUpdate(Vector inputs[], AggregateInputData &aggr_input_data, idx_t input_count,
+                         Vector &state_vector, idx_t count) {
+	// No-op: window callback reads partition directly via LoadPartitionData
 }
 
-/**
- * Combine two states (for parallel aggregation)
- * Non-static so it can be reused by other fit-predict functions
- */
+// Combine (no-op for window-only function)
 void OlsFitPredictCombine(Vector &source, Vector &target, AggregateInputData &aggr_input_data, idx_t count) {
-	auto source_ptr = FlatVector::GetData<FitPredictState *>(source);
-	auto target_ptr = FlatVector::GetData<FitPredictState *>(target);
-
-	for (idx_t i = 0; i < count; i++) {
-		auto &source_state = *source_ptr[i];
-		auto &target_state = *target_ptr[i];
-
-		// Merge training data
-		target_state.y_train.insert(target_state.y_train.end(), source_state.y_train.begin(),
-		                            source_state.y_train.end());
-		target_state.x_train.insert(target_state.x_train.end(), source_state.x_train.begin(),
-		                            source_state.x_train.end());
-
-		// Merge all data
-		target_state.x_all.insert(target_state.x_all.end(), source_state.x_all.begin(), source_state.x_all.end());
-		target_state.is_train_row.insert(target_state.is_train_row.end(), source_state.is_train_row.begin(),
-		                                 source_state.is_train_row.end());
-
-		if (target_state.n_features == 0) {
-			target_state.n_features = source_state.n_features;
-		}
-		if (!target_state.options_initialized && source_state.options_initialized) {
-			target_state.options = source_state.options;
-			target_state.options_initialized = true;
-		}
-	}
-}
-
-/**
- * Destroy: Clean up state
- */
-void OlsFitPredictDestroy(duckdb::Vector &state_vector, duckdb::AggregateInputData &aggr_input_data, idx_t count) {
-	auto states = FlatVector::GetData<FitPredictState *>(state_vector);
-	for (idx_t i = 0; i < count; i++) {
-		states[i]->~FitPredictState();
-	}
+	// No-op
 }
 
 /**
@@ -215,7 +84,7 @@ static void OlsFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 	// Access global state (cached partition data)
 	auto &state = *reinterpret_cast<OlsFitPredictState *>(const_cast<data_ptr_t>(g_state));
 
-	// Load partition data once (cached for all rows)
+	// Load partition data once (cached for all rows in this partition)
 	LoadPartitionData(partition, state.cache);
 
 	// Use cached data
@@ -224,86 +93,192 @@ static void OlsFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 	auto &options = state.cache.options;
 	idx_t n_features = state.cache.n_features;
 
-	// Collect training data from window frame
-	vector<double> train_y;
-	vector<vector<double>> train_x;
+	// Compute frame signature to check if we can use cached model
+	vector<idx_t> current_frame_sig = ComputeFrameSignature(subframes, all_y, all_x);
 
-	for (const auto &frame : subframes) {
-		for (idx_t frame_idx = frame.start; frame_idx < frame.end; frame_idx++) {
-			if (frame_idx < all_y.size() && !std::isnan(all_y[frame_idx]) && !all_x[frame_idx].empty()) {
-				train_y.push_back(all_y[frame_idx]);
-				train_x.push_back(all_x[frame_idx]);
+	// Check if we have a cached model that matches this frame
+	OlsModelCache *cache = state.cache.model_cache;
+	bool use_cache = false;
+	if (cache && cache->initialized) {
+		if (FrameSignaturesMatch(cache->train_indices, current_frame_sig)) {
+			use_cache = true;
+			ANOFOX_DEBUG("Using cached OLS model for row " << rid << ", frame_sig_size=" << current_frame_sig.size());
+		} else {
+			ANOFOX_DEBUG("Cache miss for row " << rid << ": cached_sig_size=" << cache->train_indices.size()
+			                                    << ", current_sig_size=" << current_frame_sig.size());
+		}
+	} else {
+		ANOFOX_DEBUG("No cache available for row " << rid << ", will fit new model");
+	}
+
+	// Variables to hold model parameters (either from cache or newly computed)
+	double intercept = 0.0;
+	Eigen::VectorXd coefficients;
+	double mse = 0.0;
+	Eigen::VectorXd x_means;
+	Eigen::MatrixXd XtX_inv; // Precomputed (X'X)^(-1) for leverage calculation (always use this, never store X_train)
+	idx_t df_residual = 0;
+	idx_t n_train = 0; // Number of training samples (for debugging)
+
+	if (!use_cache) {
+		// Collect training data from window frame
+		vector<double> train_y;
+		vector<vector<double>> train_x;
+
+		for (const auto &frame : subframes) {
+			for (idx_t frame_idx = frame.start; frame_idx < frame.end; frame_idx++) {
+				if (frame_idx < all_y.size() && !std::isnan(all_y[frame_idx]) && !all_x[frame_idx].empty()) {
+					train_y.push_back(all_y[frame_idx]);
+					train_x.push_back(all_x[frame_idx]);
+				}
 			}
 		}
-	}
 
-	idx_t n_train = train_y.size();
-	idx_t p = n_features;
+		n_train = train_y.size();
+		idx_t p = n_features;
 
-	// Need at least p+1 observations for p features
-	if (n_train < p + 1 || p == 0) {
-		result_validity.SetInvalid(rid);
-		return;
-	}
-
-	// Build training design matrix
-	Eigen::MatrixXd X_train(n_train, p);
-	Eigen::VectorXd y_train(n_train);
-
-	for (idx_t row = 0; row < n_train; row++) {
-		y_train(row) = train_y[row];
-		for (idx_t col = 0; col < p; col++) {
-			X_train(row, col) = train_x[row][col];
-		}
-	}
-
-	// Fit OLS model
-	double intercept = 0.0;
-	RankDeficientOlsResult ols_result;
-	Eigen::VectorXd x_means;
-
-	if (options.intercept) {
-		// With intercept: center data, solve, compute intercept
-		double mean_y = y_train.mean();
-		x_means = X_train.colwise().mean();
-
-		Eigen::VectorXd y_centered = y_train.array() - mean_y;
-		Eigen::MatrixXd X_centered = X_train;
-		for (idx_t j = 0; j < p; j++) {
-			X_centered.col(j).array() -= x_means(j);
+		// Need at least p + (intercept ? 1 : 0) + 1 observations for p features
+		// This ensures we have at least one more observation than parameters
+		idx_t min_required = p + (options.intercept ? 1 : 0) + 1;
+		if (n_train < min_required || p == 0) {
+			ANOFOX_DEBUG("Insufficient data: n_train=" << n_train << " < " << min_required << " (p=" << p << ", intercept=" << options.intercept << "): returning NULL");
+			result_validity.SetInvalid(rid);
+			return;
 		}
 
-		ols_result = RankDeficientOls::FitWithStdErrors(y_centered, X_centered);
+		// Build training design matrix
+		Eigen::MatrixXd X_train(n_train, p);
+		Eigen::VectorXd y_train(n_train);
 
-		// Compute intercept
-		double beta_dot_xmean = 0.0;
+		for (idx_t row = 0; row < n_train; row++) {
+			y_train(row) = train_y[row];
+			for (idx_t col = 0; col < p; col++) {
+				X_train(row, col) = train_x[row][col];
+			}
+		}
+
+		// Fit OLS model
+		RankDeficientOlsResult ols_result;
+
+		if (options.intercept) {
+			// With intercept: center data, solve, compute intercept
+			double mean_y = y_train.mean();
+			x_means = X_train.colwise().mean();
+
+			Eigen::VectorXd y_centered = y_train.array() - mean_y;
+			Eigen::MatrixXd X_centered = X_train;
+			for (idx_t j = 0; j < p; j++) {
+				X_centered.col(j).array() -= x_means(j);
+			}
+
+			ols_result = RankDeficientOls::FitWithStdErrors(y_centered, X_centered);
+
+			// Compute intercept
+			double beta_dot_xmean = 0.0;
+			for (idx_t j = 0; j < p; j++) {
+				if (!ols_result.is_aliased[j]) {
+					beta_dot_xmean += ols_result.coefficients[j] * x_means(j);
+				}
+			}
+			intercept = mean_y - beta_dot_xmean;
+
+			// Compute XtX_inv for leverage calculation (using already-centered X)
+			Eigen::MatrixXd XtX = X_centered.transpose() * X_centered;
+			// Use pseudo-inverse for numerical stability
+			Eigen::BDCSVD<Eigen::MatrixXd> svd(XtX, Eigen::ComputeThinU | Eigen::ComputeThinV);
+			XtX_inv = svd.solve(Eigen::MatrixXd::Identity(p, p));
+		} else {
+			// No intercept
+			ols_result = RankDeficientOls::FitWithStdErrors(y_train, X_train);
+			intercept = 0.0;
+			x_means = Eigen::VectorXd::Zero(p);
+
+			// Compute XtX_inv for leverage calculation
+			Eigen::MatrixXd XtX = X_train.transpose() * X_train;
+			// Use pseudo-inverse for numerical stability
+			Eigen::BDCSVD<Eigen::MatrixXd> svd(XtX, Eigen::ComputeThinU | Eigen::ComputeThinV);
+			XtX_inv = svd.solve(Eigen::MatrixXd::Identity(p, p));
+		}
+
+		// Compute MSE and df_residual
+		Eigen::VectorXd y_pred_train = Eigen::VectorXd::Constant(n_train, intercept);
 		for (idx_t j = 0; j < p; j++) {
 			if (!ols_result.is_aliased[j]) {
-				beta_dot_xmean += ols_result.coefficients[j] * x_means(j);
+				y_pred_train += ols_result.coefficients[j] * X_train.col(j);
 			}
 		}
-		intercept = mean_y - beta_dot_xmean;
-	} else {
-		// No intercept
-		ols_result = RankDeficientOls::FitWithStdErrors(y_train, X_train);
-		intercept = 0.0;
-		x_means = Eigen::VectorXd::Zero(p);
-	}
 
-	// Compute MSE and df_residual
-	Eigen::VectorXd y_pred_train = Eigen::VectorXd::Constant(n_train, intercept);
-	for (idx_t j = 0; j < p; j++) {
-		if (!ols_result.is_aliased[j]) {
-			y_pred_train += ols_result.coefficients[j] * X_train.col(j);
+		Eigen::VectorXd residuals = y_train - y_pred_train;
+		double ss_res = residuals.squaredNorm();
+
+		// df_model includes intercept if present
+		// Note: ols_result.rank is for centered X (features only), so add 1 for intercept if present
+		idx_t df_model = ols_result.rank + (options.intercept ? 1 : 0);
+		df_residual = n_train - df_model;
+		mse = (df_residual > 0) ? (ss_res / df_residual) : std::numeric_limits<double>::quiet_NaN();
+
+		// Store coefficients
+		coefficients = ols_result.coefficients;
+
+		// Verify coefficients are valid
+		if (coefficients.size() == 0) {
+			ANOFOX_DEBUG("Fitted model has empty coefficients, returning NULL for row " << rid);
+			result_validity.SetInvalid(rid);
+			return;
 		}
+
+		// X_train goes out of scope here - we only keep XtX_inv (much smaller)
+
+		ANOFOX_DEBUG("Fitted OLS model: n_train=" << n_train << ", p=" << p << ", coefficients.size()="
+		                                           << coefficients.size() << ", intercept=" << intercept);
+
+		// Cache the model if frame is constant (caching is beneficial)
+		// We cache when the frame covers all training rows (common case with OVER ())
+		// For rolling windows, each row may have different frames, so caching may not help
+		// But we still cache to avoid recomputation if frames happen to match
+		// Only delete old cache if frame signature changed (optimization: reuse cache object if possible)
+		if (state.cache.model_cache) {
+			// Check if frame signature changed
+			if (!FrameSignaturesMatch(state.cache.model_cache->train_indices, current_frame_sig)) {
+				delete state.cache.model_cache;
+				state.cache.model_cache = new OlsModelCache();
+			}
+			// Otherwise reuse existing cache object
+		} else {
+			state.cache.model_cache = new OlsModelCache();
+		}
+		cache = state.cache.model_cache;
+		cache->coefficients = coefficients;
+		cache->intercept = intercept;
+		cache->mse = mse;
+		cache->XtX_inv = XtX_inv; // Store XtX_inv instead of X_train (much smaller: P×P vs N×P)
+		cache->x_means = x_means;
+		cache->df_residual = df_residual;
+		cache->rank = ols_result.rank;
+		cache->n_train = n_train;
+		cache->train_indices = current_frame_sig;
+		cache->initialized = true;
+
+		ANOFOX_DEBUG("Fitted and cached OLS model: n_train=" << n_train << ", p=" << p);
+	} else {
+		// Use cached model
+		if (!cache || !cache->initialized || cache->coefficients.size() == 0) {
+			ANOFOX_DEBUG("Cache invalid or empty, refitting model for row " << rid);
+			// Fall back to fitting (this shouldn't happen, but be defensive)
+			use_cache = false;
+			// Recursively call the fitting logic - actually, better to just return NULL
+			result_validity.SetInvalid(rid);
+			return;
+		}
+		intercept = cache->intercept;
+		coefficients = cache->coefficients;
+		mse = cache->mse;
+		x_means = cache->x_means;
+		XtX_inv = cache->XtX_inv; // Use precomputed XtX_inv from cache
+		df_residual = cache->df_residual;
+		n_train = cache->n_train; // Get from cache for debugging
+		ANOFOX_DEBUG("Using cached OLS model: n_train=" << n_train << ", coefficients.size()=" << coefficients.size());
 	}
-
-	Eigen::VectorXd residuals = y_train - y_pred_train;
-	double ss_res = residuals.squaredNorm();
-
-	idx_t df_model = ols_result.rank;
-	idx_t df_residual = n_train - df_model;
-	double mse = (df_residual > 0) ? (ss_res / df_residual) : std::numeric_limits<double>::quiet_NaN();
 
 	// Now predict for the current row (rid)
 	if (rid >= all_x.size() || all_x[rid].empty()) {
@@ -311,11 +286,10 @@ static void OlsFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 		return;
 	}
 
-	// Compute prediction with interval
-	PredictionResult pred = ComputePredictionWithInterval(all_x[rid], intercept, ols_result.coefficients, mse, x_means,
-	                                                      X_train, df_residual,
-	                                                      0.95,        // TODO: Get from options
-	                                                      "prediction" // TODO: Get from options
+	// Compute prediction with interval (always use XtX_inv for memory efficiency)
+	PredictionResult pred = ComputePredictionWithIntervalXtXInv(all_x[rid], intercept, coefficients, mse, x_means,
+	                                                            XtX_inv, n_train, df_residual, 0.95, // TODO: Get from options
+	                                                            "prediction"                         // TODO: Get from options
 	);
 
 	if (!pred.is_valid) {
