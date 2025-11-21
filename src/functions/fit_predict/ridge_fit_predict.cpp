@@ -110,8 +110,11 @@ static void RidgeFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 
 	ANOFOX_FIT_PREDICT_DEBUG("Training data collected: n_train=" << n_train << ", p=" << p);
 
-	if (n_train < p + 1 || p == 0) {
-		ANOFOX_FIT_PREDICT_DEBUG("Insufficient data: returning NULL");
+	// Need at least p + (intercept ? 1 : 0) + 1 observations for p features
+	// This ensures we have at least one more observation than parameters
+	idx_t min_required = p + (options.intercept ? 1 : 0) + 1;
+	if (n_train < min_required || p == 0) {
+		ANOFOX_FIT_PREDICT_DEBUG("Insufficient data: n_train=" << n_train << " < " << min_required << " (p=" << p << ", intercept=" << options.intercept << "): returning NULL");
 		result_validity.SetInvalid(rid);
 		return;
 	}
@@ -183,7 +186,8 @@ static void RidgeFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 	Eigen::VectorXd residuals = y_train - y_pred_train;
 	double ss_res = residuals.squaredNorm();
 
-	idx_t df_model = rank;
+	// df_model includes intercept if present
+	idx_t df_model = rank + (options.intercept ? 1 : 0);
 	idx_t df_residual = n_train - df_model;
 	double mse = (df_residual > 0) ? (ss_res / df_residual) : std::numeric_limits<double>::quiet_NaN();
 

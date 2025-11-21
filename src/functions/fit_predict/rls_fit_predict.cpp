@@ -80,7 +80,9 @@ static void RlsFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 	idx_t n_train = train_y.size();
 	idx_t p = n_features;
 
-	if (n_train < p + 1 || p == 0) {
+	// Need at least p + (intercept ? 1 : 0) + 1 observations for p features
+	idx_t min_required = p + (options.intercept ? 1 : 0) + 1;
+	if (n_train < min_required || p == 0) {
 		result_validity.SetInvalid(rid);
 		return;
 	}
@@ -178,7 +180,11 @@ static void RlsFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 	Eigen::VectorXd residuals = y_train - y_pred_train;
 	double ss_res = residuals.squaredNorm();
 
-	idx_t df_model = rank;
+	// df_model includes intercept if present
+	// Note: rank is for X_work (which includes intercept column if intercept=true)
+	// So rank already includes intercept, but we need to check
+	// Actually, for RLS, rank = p_work which includes intercept column, so it already includes intercept
+	idx_t df_model = rank;  // rank already includes intercept if present
 	idx_t df_residual = n_train - df_model;
 	double mse = (df_residual > 0) ? (ss_res / df_residual) : std::numeric_limits<double>::quiet_NaN();
 

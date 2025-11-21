@@ -171,7 +171,9 @@ static void WlsFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 	idx_t n_train = train_y.size();
 	idx_t p = n_features;
 
-	if (n_train < p + 1 || p == 0) {
+	// Need at least p + (intercept ? 1 : 0) + 1 observations for p features
+	idx_t min_required = p + (options.intercept ? 1 : 0) + 1;
+	if (n_train < min_required || p == 0) {
 		FlatVector::SetNull(result, rid, true);
 		return;
 	}
@@ -255,9 +257,24 @@ static void WlsFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 	// Weighted sum of squared residuals
 	double ss_res = (w.array() * residuals.array() * residuals.array()).sum();
 
-	idx_t df_model = rank;
+	// df_model includes intercept if present
+	// Note: rank is computed from weighted, centered X (features only), so add 1 for intercept if present
+	idx_t df_model = rank + (options.intercept ? 1 : 0);
 	idx_t df_residual = n_train - df_model;
-	double mse = (df_residual > 0) ? (ss_res / df_residual) : std::numeric_limits<double>::quiet_NaN();
+	
+	// Check that we have sufficient degrees of freedom for residual
+	if (df_residual <= 0) {
+		FlatVector::SetNull(result, rid, true);
+		return;
+	}
+	
+	double mse = ss_res / df_residual;
+	
+	// Check that MSE is valid and positive
+	if (mse <= 0 || std::isnan(mse) || std::isinf(mse)) {
+		FlatVector::SetNull(result, rid, true);
+		return;
+	}
 
 	// Predict for current row
 	if (rid >= all_x.size() || all_x[rid].empty()) {
