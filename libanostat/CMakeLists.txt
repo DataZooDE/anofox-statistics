@@ -47,27 +47,26 @@ if(BUILD_TESTING)
 
     if(Catch2_FOUND)
         set(TEST_SOURCES
-            tests/main.cpp
-            tests/test_core_structures.cpp
-            tests/test_compilation.cpp
-            tests/test_i_regressor.cpp
-            tests/test_distributions.cpp
-            tests/test_inference.cpp
+            test/main.cpp
+            test/core/test_core_structures.cpp
+            test/test_compilation.cpp
+            test/solvers/test_i_regressor.cpp
+            test/utils/test_distributions.cpp
+            test/inference/test_inference.cpp
         )
 
         # R Validation Tests
         set(VALIDATION_TEST_SOURCES
-            test/test_ols.cpp
-            test/test_ridge.cpp
-            test/test_elastic_net.cpp
-            test/test_wls.cpp
-            test/test_rls.cpp
+            test/solvers/test_ols.cpp
+            test/solvers/test_ridge.cpp
+            test/solvers/test_elastic_net.cpp
+            test/solvers/test_wls.cpp
+            test/solvers/test_rls.cpp
         )
 
         add_executable(libanostat-tests ${TEST_SOURCES})
         target_link_libraries(libanostat-tests PRIVATE libanostat Catch2::Catch2WithMain)
         target_compile_definitions(libanostat-tests PRIVATE LIBANOSTAT_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
-        target_include_directories(libanostat-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 
         # Only build validation tests if nlohmann_json is available
         # NOTE: Validation tests are temporarily disabled due to API incompatibilities

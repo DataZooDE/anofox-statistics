@@ -138,7 +138,7 @@ const double TOLERANCE = 1e-6;
 
 TEST_CASE("WLS: Uniform Weights Equals OLS", "[wls][validation]") {
 	// WLS with all weights = 1.0 should equal OLS
-	TestData data = load_csv("test/data/ols_tests/input/simple_linear.csv");
+	TestData data = load_csv("../../../test/data/ols_tests/input/simple_linear.csv");
 
 	// Create uniform weights
 	std::vector<double> weights(data.n_obs, 1.0);
@@ -175,8 +175,8 @@ TEST_CASE("WLS: Uniform Weights Equals OLS", "[wls][validation]") {
 
 TEST_CASE("WLS: Heteroscedastic Weights", "[wls][validation]") {
 	// Load test data with heteroscedastic variance structure
-	TestData data = load_csv_with_weights("test/data/wls_tests/input/wls_heteroscedastic.csv");
-	json expected = load_expected_json("test/data/wls_tests/expected/wls_heteroscedastic.json");
+	TestData data = load_csv_with_weights("../../../test/data/wls_tests/input/wls_heteroscedastic.csv");
+	json expected = load_expected_json("../../../test/data/wls_tests/expected/wls_heteroscedastic.json");
 
 	// Fit model with WLS
 	core::RegressionOptions opts;
@@ -217,8 +217,8 @@ TEST_CASE("WLS: Heteroscedastic Weights", "[wls][validation]") {
 
 TEST_CASE("WLS: Downweight Outliers", "[wls][validation]") {
 	// Load test data where some observations are outliers with low weights
-	TestData data = load_csv_with_weights("test/data/wls_tests/input/wls_outliers.csv");
-	json expected = load_expected_json("test/data/wls_tests/expected/wls_outliers.json");
+	TestData data = load_csv_with_weights("../../../test/data/wls_tests/input/wls_outliers.csv");
+	json expected = load_expected_json("../../../test/data/wls_tests/expected/wls_outliers.json");
 
 	// Fit model with WLS
 	core::RegressionOptions opts;
@@ -248,7 +248,7 @@ TEST_CASE("WLS: Downweight Outliers", "[wls][validation]") {
 
 TEST_CASE("WLS: No Intercept", "[wls][validation]") {
 	// Test WLS without intercept
-	TestData data = load_csv("test/data/ols_tests/input/no_intercept.csv");
+	TestData data = load_csv("../../../test/data/ols_tests/input/no_intercept.csv");
 
 	// Create some varying weights
 	std::vector<double> weights(data.n_obs);
@@ -276,7 +276,7 @@ TEST_CASE("WLS: No Intercept", "[wls][validation]") {
 
 TEST_CASE("WLS: Zero Weights", "[wls][validation]") {
 	// Test WLS with some zero weights (excluded observations)
-	TestData data = load_csv("test/data/ols_tests/input/simple_linear.csv");
+	TestData data = load_csv("../../../test/data/ols_tests/input/simple_linear.csv");
 
 	// Create weights where some observations are excluded
 	std::vector<double> weights(data.n_obs, 1.0);
@@ -305,8 +305,8 @@ TEST_CASE("WLS: Zero Weights", "[wls][validation]") {
 
 TEST_CASE("WLS: Variance Proportional to X", "[wls][validation]") {
 	// Load test data where variance is proportional to predictor
-	TestData data = load_csv_with_weights("test/data/wls_tests/input/wls_variance_prop_x.csv");
-	json expected = load_expected_json("test/data/wls_tests/expected/wls_variance_prop_x.json");
+	TestData data = load_csv_with_weights("../../../test/data/wls_tests/input/wls_variance_prop_x.csv");
+	json expected = load_expected_json("../../../test/data/wls_tests/expected/wls_variance_prop_x.json");
 
 	// Fit model with WLS
 	core::RegressionOptions opts;
@@ -336,7 +336,7 @@ TEST_CASE("WLS: Variance Proportional to X", "[wls][validation]") {
 
 TEST_CASE("WLS: Handles Collinearity", "[wls][validation]") {
 	// Load data with perfect collinearity
-	TestData data = load_csv("test/data/ols_tests/input/perfect_collinearity.csv");
+	TestData data = load_csv("../../../test/data/ols_tests/input/perfect_collinearity.csv");
 
 	// Create uniform weights
 	std::vector<double> weights(data.n_obs, 1.0);

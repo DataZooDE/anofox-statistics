@@ -84,7 +84,7 @@ const double TOLERANCE = 1e-6;
 
 TEST_CASE("RLS: Lambda Close to 1.0 Approximates OLS", "[rls][validation]") {
 	// RLS with lambda very close to 1.0 (minimal forgetting) should approximate OLS
-	TestData data = load_csv("test/data/ols_tests/input/simple_linear.csv");
+	TestData data = load_csv("../../../test/data/ols_tests/input/simple_linear.csv");
 
 	// Fit RLS with lambda=0.9999 (almost no forgetting)
 	core::RegressionOptions rls_opts;
@@ -115,8 +115,8 @@ TEST_CASE("RLS: Lambda Close to 1.0 Approximates OLS", "[rls][validation]") {
 
 TEST_CASE("RLS: Lambda 0.95", "[rls][validation]") {
 	// Load test data
-	TestData data = load_csv("test/data/rls_tests/input/rls_lambda_0.95.csv");
-	json expected = load_expected_json("test/data/rls_tests/expected/rls_lambda_0.95.json");
+	TestData data = load_csv("../../../test/data/rls_tests/input/rls_lambda_0.95.csv");
+	json expected = load_expected_json("../../../test/data/rls_tests/expected/rls_lambda_0.95.json");
 
 	// Fit model with RLS (lambda=0.95 means more weight on recent observations)
 	core::RegressionOptions opts;
@@ -158,8 +158,8 @@ TEST_CASE("RLS: Lambda 0.95", "[rls][validation]") {
 
 TEST_CASE("RLS: Lambda 0.90", "[rls][validation]") {
 	// Load test data
-	TestData data = load_csv("test/data/rls_tests/input/rls_lambda_0.90.csv");
-	json expected = load_expected_json("test/data/rls_tests/expected/rls_lambda_0.90.json");
+	TestData data = load_csv("../../../test/data/rls_tests/input/rls_lambda_0.90.csv");
+	json expected = load_expected_json("../../../test/data/rls_tests/expected/rls_lambda_0.90.json");
 
 	// Fit model with RLS (lambda=0.90 means more aggressive forgetting)
 	core::RegressionOptions opts;
@@ -190,7 +190,7 @@ TEST_CASE("RLS: Lambda 0.90", "[rls][validation]") {
 
 TEST_CASE("RLS: Adapts to Change Point", "[rls][validation]") {
 	// Test that RLS adapts better than OLS to structural breaks in data
-	TestData data = load_csv("test/data/rls_tests/input/rls_change_point.csv");
+	TestData data = load_csv("../../../test/data/rls_tests/input/rls_change_point.csv");
 
 	// Fit RLS with moderate forgetting
 	core::RegressionOptions rls_opts;
@@ -223,7 +223,7 @@ TEST_CASE("RLS: Adapts to Change Point", "[rls][validation]") {
 
 TEST_CASE("RLS: No Intercept", "[rls][validation]") {
 	// Test RLS without intercept
-	TestData data = load_csv("test/data/ols_tests/input/no_intercept.csv");
+	TestData data = load_csv("../../../test/data/ols_tests/input/no_intercept.csv");
 
 	core::RegressionOptions opts;
 	opts.intercept = false;
@@ -246,7 +246,7 @@ TEST_CASE("RLS: No Intercept", "[rls][validation]") {
 
 TEST_CASE("RLS: Effect of Different Lambdas", "[rls][validation]") {
 	// Test that different lambda values produce different results
-	TestData data = load_csv("test/data/ols_tests/input/multiple_regression.csv");
+	TestData data = load_csv("../../../test/data/ols_tests/input/multiple_regression.csv");
 
 	// Fit with lambda = 0.90 (more forgetting)
 	core::RegressionOptions opts_90;
@@ -282,8 +282,8 @@ TEST_CASE("RLS: Effect of Different Lambdas", "[rls][validation]") {
 
 TEST_CASE("RLS: Time-Varying Regression", "[rls][validation]") {
 	// Load test data with time-varying coefficients
-	TestData data = load_csv("test/data/rls_tests/input/rls_time_varying.csv");
-	json expected = load_expected_json("test/data/rls_tests/expected/rls_time_varying.json");
+	TestData data = load_csv("../../../test/data/rls_tests/input/rls_time_varying.csv");
+	json expected = load_expected_json("../../../test/data/rls_tests/expected/rls_time_varying.json");
 
 	// Fit model with RLS
 	core::RegressionOptions opts;
@@ -314,7 +314,7 @@ TEST_CASE("RLS: Time-Varying Regression", "[rls][validation]") {
 
 TEST_CASE("RLS: Handles Collinearity", "[rls][validation]") {
 	// Load data with perfect collinearity
-	TestData data = load_csv("test/data/ols_tests/input/perfect_collinearity.csv");
+	TestData data = load_csv("../../../test/data/ols_tests/input/perfect_collinearity.csv");
 
 	core::RegressionOptions opts;
 	opts.intercept = true;

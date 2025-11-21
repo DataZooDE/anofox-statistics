@@ -83,8 +83,8 @@ const double TOLERANCE = 1e-6;
 
 TEST_CASE("OLS: Simple Linear Regression", "[ols][validation]") {
 	// Load test data
-	TestData data = load_csv("test/data/ols_tests/input/simple_linear.csv");
-	json expected = load_expected_json("test/data/ols_tests/expected/simple_linear.json");
+	TestData data = load_csv("../../../test/data/ols_tests/input/simple_linear.csv");
+	json expected = load_expected_json("../../../test/data/ols_tests/expected/simple_linear.json");
 
 	// Fit model with intercept
 	core::RegressionOptions opts;
@@ -147,8 +147,8 @@ TEST_CASE("OLS: Simple Linear Regression", "[ols][validation]") {
 
 TEST_CASE("OLS: Multiple Regression", "[ols][validation]") {
 	// Load test data
-	TestData data = load_csv("test/data/ols_tests/input/multiple_regression.csv");
-	json expected = load_expected_json("test/data/ols_tests/expected/multiple_regression.json");
+	TestData data = load_csv("../../../test/data/ols_tests/input/multiple_regression.csv");
+	json expected = load_expected_json("../../../test/data/ols_tests/expected/multiple_regression.json");
 
 	// Fit model with intercept
 	core::RegressionOptions opts;
@@ -190,8 +190,8 @@ TEST_CASE("OLS: Multiple Regression", "[ols][validation]") {
 
 TEST_CASE("OLS: No Intercept", "[ols][validation]") {
 	// Load test data
-	TestData data = load_csv("test/data/ols_tests/input/no_intercept.csv");
-	json expected = load_expected_json("test/data/ols_tests/expected/no_intercept.json");
+	TestData data = load_csv("../../../test/data/ols_tests/input/no_intercept.csv");
+	json expected = load_expected_json("../../../test/data/ols_tests/expected/no_intercept.json");
 
 	// Fit model WITHOUT intercept
 	core::RegressionOptions opts;
@@ -219,8 +219,8 @@ TEST_CASE("OLS: No Intercept", "[ols][validation]") {
 
 TEST_CASE("OLS: Rank Deficient Matrix", "[ols][validation]") {
 	// Load test data with perfect collinearity
-	TestData data = load_csv("test/data/ols_tests/input/rank_deficient.csv");
-	json expected = load_expected_json("test/data/ols_tests/expected/rank_deficient.json");
+	TestData data = load_csv("../../../test/data/ols_tests/input/rank_deficient.csv");
+	json expected = load_expected_json("../../../test/data/ols_tests/expected/rank_deficient.json");
 
 	// Fit model with intercept
 	core::RegressionOptions opts;
@@ -266,8 +266,8 @@ TEST_CASE("OLS: Rank Deficient Matrix", "[ols][validation]") {
 
 TEST_CASE("OLS: Perfect Collinearity", "[ols][validation]") {
 	// Load test data with perfect collinearity
-	TestData data = load_csv("test/data/ols_tests/input/perfect_collinearity.csv");
-	json expected = load_expected_json("test/data/ols_tests/expected/perfect_collinearity.json");
+	TestData data = load_csv("../../../test/data/ols_tests/input/perfect_collinearity.csv");
+	json expected = load_expected_json("../../../test/data/ols_tests/expected/perfect_collinearity.json");
 
 	// Fit model with intercept
 	core::RegressionOptions opts;

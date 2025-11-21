@@ -84,8 +84,8 @@ const double TOLERANCE = 1e-6;
 
 TEST_CASE("Ridge: Lambda 0.1", "[ridge][validation]") {
 	// Load test data
-	TestData data = load_csv("test/data/ridge_tests/input/ridge_lambda_0.1.csv");
-	json expected = load_expected_json("test/data/ridge_tests/expected/ridge_lambda_0.1.json");
+	TestData data = load_csv("../../../test/data/ridge_tests/input/ridge_lambda_0.1.csv");
+	json expected = load_expected_json("../../../test/data/ridge_tests/expected/ridge_lambda_0.1.json");
 
 	// Fit model with Ridge regularization
 	core::RegressionOptions opts;
@@ -138,8 +138,8 @@ TEST_CASE("Ridge: Lambda 0.1", "[ridge][validation]") {
 
 TEST_CASE("Ridge: Lambda 1.0", "[ridge][validation]") {
 	// Load test data
-	TestData data = load_csv("test/data/ridge_tests/input/ridge_lambda_1.0.csv");
-	json expected = load_expected_json("test/data/ridge_tests/expected/ridge_lambda_1.0.json");
+	TestData data = load_csv("../../../test/data/ridge_tests/input/ridge_lambda_1.0.csv");
+	json expected = load_expected_json("../../../test/data/ridge_tests/expected/ridge_lambda_1.0.json");
 
 	// Fit model with stronger Ridge regularization
 	core::RegressionOptions opts;
@@ -173,7 +173,7 @@ TEST_CASE("Ridge: Lambda 1.0", "[ridge][validation]") {
 
 TEST_CASE("Ridge: Lambda 0 equals OLS", "[ridge][validation]") {
 	// Ridge with lambda=0 should equal OLS
-	TestData data = load_csv("test/data/ols_tests/input/simple_linear.csv");
+	TestData data = load_csv("../../../test/data/ols_tests/input/simple_linear.csv");
 
 	// Fit Ridge with lambda=0
 	core::RegressionOptions ridge_opts;
@@ -208,7 +208,7 @@ TEST_CASE("Ridge: Lambda 0 equals OLS", "[ridge][validation]") {
 
 TEST_CASE("Ridge: Handles Multicollinearity Better Than OLS", "[ridge][validation]") {
 	// Load data with perfect collinearity
-	TestData data = load_csv("test/data/ols_tests/input/perfect_collinearity.csv");
+	TestData data = load_csv("../../../test/data/ols_tests/input/perfect_collinearity.csv");
 
 	// Ridge should handle this better than OLS
 	core::RegressionOptions opts;
@@ -234,7 +234,7 @@ TEST_CASE("Ridge: Handles Multicollinearity Better Than OLS", "[ridge][validatio
 
 TEST_CASE("Ridge: No Intercept", "[ridge][validation]") {
 	// Test Ridge without intercept
-	TestData data = load_csv("test/data/ols_tests/input/no_intercept.csv");
+	TestData data = load_csv("../../../test/data/ols_tests/input/no_intercept.csv");
 
 	core::RegressionOptions opts;
 	opts.intercept = false;

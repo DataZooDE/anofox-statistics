@@ -85,8 +85,8 @@ const double TOLERANCE = 1e-6;
 
 TEST_CASE("Elastic Net: Alpha 0.5, Lambda 0.1", "[elastic_net][validation]") {
 	// Load test data
-	TestData data = load_csv("test/data/elastic_net_tests/input/elastic_net_alpha_0.5_lambda_0.1.csv");
-	json expected = load_expected_json("test/data/elastic_net_tests/expected/elastic_net_alpha_0.5_lambda_0.1.json");
+	TestData data = load_csv("../../../test/data/elastic_net_tests/input/elastic_net_alpha_0.5_lambda_0.1.csv");
+	json expected = load_expected_json("../../../test/data/elastic_net_tests/expected/elastic_net_alpha_0.5_lambda_0.1.json");
 
 	// Fit model with Elastic Net regularization (alpha=0.5 is halfway between Ridge and Lasso)
 	core::RegressionOptions opts;
@@ -129,7 +129,7 @@ TEST_CASE("Elastic Net: Alpha 0.5, Lambda 0.1", "[elastic_net][validation]") {
 
 TEST_CASE("Elastic Net: Alpha 0.0 equals Ridge", "[elastic_net][validation]") {
 	// Elastic Net with alpha=0 should equal Ridge regression
-	TestData data = load_csv("test/data/ols_tests/input/simple_linear.csv");
+	TestData data = load_csv("../../../test/data/ols_tests/input/simple_linear.csv");
 
 	// Fit Elastic Net with alpha=0 (pure Ridge)
 	core::RegressionOptions enet_opts;
@@ -166,8 +166,8 @@ TEST_CASE("Elastic Net: Alpha 0.0 equals Ridge", "[elastic_net][validation]") {
 
 TEST_CASE("Elastic Net: Alpha 1.0, Lambda 0.1", "[elastic_net][validation]") {
 	// Load test data
-	TestData data = load_csv("test/data/elastic_net_tests/input/elastic_net_alpha_1.0_lambda_0.1.csv");
-	json expected = load_expected_json("test/data/elastic_net_tests/expected/elastic_net_alpha_1.0_lambda_0.1.json");
+	TestData data = load_csv("../../../test/data/elastic_net_tests/input/elastic_net_alpha_1.0_lambda_0.1.csv");
+	json expected = load_expected_json("../../../test/data/elastic_net_tests/expected/elastic_net_alpha_1.0_lambda_0.1.json");
 
 	// Fit model with pure Lasso (alpha=1.0)
 	core::RegressionOptions opts;
@@ -199,7 +199,7 @@ TEST_CASE("Elastic Net: Alpha 1.0, Lambda 0.1", "[elastic_net][validation]") {
 
 TEST_CASE("Elastic Net: Variable Selection (Sparsity)", "[elastic_net][validation]") {
 	// Test that Elastic Net with high lambda and high alpha produces sparse solutions
-	TestData data = load_csv("test/data/elastic_net_tests/input/elastic_net_sparse.csv");
+	TestData data = load_csv("../../../test/data/elastic_net_tests/input/elastic_net_sparse.csv");
 
 	core::RegressionOptions opts;
 	opts.intercept = true;
@@ -231,7 +231,7 @@ TEST_CASE("Elastic Net: Variable Selection (Sparsity)", "[elastic_net][validatio
 
 TEST_CASE("Elastic Net: No Intercept", "[elastic_net][validation]") {
 	// Test Elastic Net without intercept
-	TestData data = load_csv("test/data/ols_tests/input/no_intercept.csv");
+	TestData data = load_csv("../../../test/data/ols_tests/input/no_intercept.csv");
 
 	core::RegressionOptions opts;
 	opts.intercept = false;
@@ -255,7 +255,7 @@ TEST_CASE("Elastic Net: No Intercept", "[elastic_net][validation]") {
 
 TEST_CASE("Elastic Net: Handles Multicollinearity", "[elastic_net][validation]") {
 	// Load data with perfect collinearity
-	TestData data = load_csv("test/data/ols_tests/input/perfect_collinearity.csv");
+	TestData data = load_csv("../../../test/data/ols_tests/input/perfect_collinearity.csv");
 
 	// Elastic Net should handle this gracefully
 	core::RegressionOptions opts;
