@@ -37,7 +37,7 @@ FROM (
             y,
             [x],
             MAP{'intercept': 1, 'alpha': 0.5, 'lambda': 0.01}
-        ) OVER () as pred
+        ) OVER (ORDER BY id) as pred
     FROM elastic_net_data
 )
 ORDER BY id;
@@ -74,7 +74,7 @@ FROM (
             y,
             [x1, x2],
             MAP{'intercept': 1, 'alpha': 1.0, 'lambda': 0.5}
-        ) OVER () as pred
+        ) OVER (ORDER BY id) as pred
     FROM elastic_net_multi
 )
 WHERE (pred).yhat IS NOT NULL;
@@ -92,7 +92,7 @@ FROM (
             y,
             [x1, x2],
             MAP{'intercept': 1, 'alpha': 0.0, 'lambda': 1.0}
-        ) OVER () as pred
+        ) OVER (ORDER BY id) as pred
     FROM elastic_net_multi
 )
 WHERE (pred).yhat IS NOT NULL;
@@ -157,7 +157,7 @@ FROM (
             y,
             [x],
             MAP{'intercept': 1, 'alpha': 0.5, 'lambda': 0.1}
-        ) OVER () as pred
+        ) OVER (ORDER BY id) as pred
     FROM elastic_net_data
 )
 WHERE id <= 3
@@ -178,7 +178,7 @@ FROM (
             y,
             [x],
             MAP{'intercept': 0, 'alpha': 0.5, 'lambda': 0.1}
-        ) OVER () as pred
+        ) OVER (ORDER BY id) as pred
     FROM elastic_net_data
 )
 WHERE (pred).yhat IS NOT NULL;
@@ -202,19 +202,19 @@ FROM (
     SELECT
         id,
         'lasso' as alpha_type,
-        anofox_statistics_fit_predict_elastic_net(y, [x1, x2], MAP{'intercept': 1, 'alpha': 1.0, 'lambda': 0.5}) OVER () as pred
+        anofox_statistics_fit_predict_elastic_net(y, [x1, x2], MAP{'intercept': 1, 'alpha': 1.0, 'lambda': 0.5}) OVER (ORDER BY id) as pred
     FROM alpha_comparison
     UNION ALL
     SELECT
         id,
         'ridge' as alpha_type,
-        anofox_statistics_fit_predict_elastic_net(y, [x1, x2], MAP{'intercept': 1, 'alpha': 0.0, 'lambda': 0.5}) OVER () as pred
+        anofox_statistics_fit_predict_elastic_net(y, [x1, x2], MAP{'intercept': 1, 'alpha': 0.0, 'lambda': 0.5}) OVER (ORDER BY id) as pred
     FROM alpha_comparison
     UNION ALL
     SELECT
         id,
         'elastic' as alpha_type,
-        anofox_statistics_fit_predict_elastic_net(y, [x1, x2], MAP{'intercept': 1, 'alpha': 0.5, 'lambda': 0.5}) OVER () as pred
+        anofox_statistics_fit_predict_elastic_net(y, [x1, x2], MAP{'intercept': 1, 'alpha': 0.5, 'lambda': 0.5}) OVER (ORDER BY id) as pred
     FROM alpha_comparison
 )
 WHERE (pred).yhat IS NOT NULL;
@@ -236,7 +236,7 @@ FROM (
                 y,
                 [x],
                 MAP{'intercept': 1, 'alpha': 0.5, 'lambda': 0.1}
-            ) OVER () as pred
+            ) OVER (ORDER BY id) as pred
         FROM elastic_net_data
     )
 )

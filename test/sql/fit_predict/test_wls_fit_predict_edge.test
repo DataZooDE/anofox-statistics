@@ -26,7 +26,7 @@ FROM (
             [x1, x2],
             w,
             MAP{'intercept': 1}
-        ) OVER () as pred
+        ) OVER (ORDER BY id) as pred
     FROM wls_insufficient
 )
 WHERE (pred).yhat IS NULL;
@@ -54,7 +54,7 @@ FROM (
             [x],
             w,
             MAP{'intercept': 1}
-        ) OVER () as pred
+        ) OVER (ORDER BY id) as pred
     FROM wls_all_null
 )
 WHERE (pred).yhat IS NULL;
@@ -82,7 +82,7 @@ FROM (
             [x],
             w,
             MAP{'intercept': 1}
-        ) OVER () as pred
+        ) OVER (ORDER BY id) as pred
     FROM wls_negative_weights
 )
 WHERE (pred).yhat IS NULL;
@@ -110,7 +110,7 @@ FROM (
             [x],
             w,
             MAP{'intercept': 1}
-        ) OVER () as pred
+        ) OVER (ORDER BY id) as pred
     FROM wls_zero_weights
 )
 WHERE (pred).yhat IS NULL;
@@ -138,7 +138,7 @@ FROM (
             [x],
             w,
             MAP{'intercept': 1}
-        ) OVER () as pred
+        ) OVER (ORDER BY id) as pred
     FROM wls_null_weights
 )
 WHERE (pred).yhat IS NOT NULL;
@@ -166,7 +166,7 @@ FROM (
             x_empty,
             w,
             MAP{'intercept': 1}
-        ) OVER () as pred
+        ) OVER (ORDER BY id) as pred
     FROM wls_empty
 )
 WHERE (pred).yhat IS NULL;
@@ -194,7 +194,7 @@ FROM (
             x,
             w,
             MAP{'intercept': 1}
-        ) OVER () as pred
+        ) OVER (ORDER BY id) as pred
     FROM wls_null_features
 )
 WHERE (pred).yhat IS NOT NULL;
@@ -222,7 +222,7 @@ FROM (
             [x],
             w,
             MAP{'intercept': 1}
-        ) OVER () as pred
+        ) OVER (ORDER BY id) as pred
     FROM wls_single
 )
 WHERE (pred).yhat IS NULL;
@@ -250,7 +250,7 @@ FROM (
             [x],
             w,
             MAP{'intercept': 1}
-        ) OVER () as pred
+        ) OVER (ORDER BY id) as pred
     FROM wls_extreme_weights
 )
 WHERE (pred).yhat IS NOT NULL AND NOT ISINF((pred).yhat) AND NOT ISNAN((pred).yhat);

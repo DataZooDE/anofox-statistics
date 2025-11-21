@@ -38,7 +38,7 @@ FROM (
             [x],
             w,
             MAP{'intercept': 1}
-        ) OVER () as pred
+        ) OVER (ORDER BY id) as pred
     FROM wls_data
 )
 ORDER BY id;
@@ -76,7 +76,7 @@ FROM (
             [x],
             w,
             MAP{'intercept': 1}
-        ) OVER () as pred
+        ) OVER (ORDER BY id) as pred
     FROM wls_weighted
 )
 WHERE (pred).yhat IS NOT NULL;
@@ -149,7 +149,7 @@ FROM (
             [x1, x2],
             w,
             MAP{'intercept': 1}
-        ) OVER () as pred
+        ) OVER (ORDER BY id) as pred
     FROM wls_multifeature
 )
 WHERE (pred).yhat IS NOT NULL;
@@ -171,7 +171,7 @@ FROM (
             [x],
             w,
             MAP{'intercept': 1}
-        ) OVER () as pred
+        ) OVER (ORDER BY id) as pred
     FROM wls_data
 )
 WHERE id <= 3
@@ -194,7 +194,7 @@ FROM (
             [x],
             w,
             MAP{'intercept': 0}
-        ) OVER () as pred
+        ) OVER (ORDER BY id) as pred
     FROM wls_data
 )
 WHERE id <= 3
@@ -219,8 +219,8 @@ SELECT
 FROM (
     SELECT
         id,
-        anofox_statistics_fit_predict_wls(y, [x], 1.0, MAP{'intercept': 1}) OVER () as pred_uniform,
-        anofox_statistics_fit_predict_wls(y, [x], CASE WHEN id <= 2 THEN 10.0 ELSE 1.0 END, MAP{'intercept': 1}) OVER () as pred_weighted
+        anofox_statistics_fit_predict_wls(y, [x], 1.0, MAP{'intercept': 1}) OVER (ORDER BY id) as pred_uniform,
+        anofox_statistics_fit_predict_wls(y, [x], CASE WHEN id <= 2 THEN 10.0 ELSE 1.0 END, MAP{'intercept': 1}) OVER (ORDER BY id) as pred_weighted
     FROM wls_weight_comparison
 )
 WHERE (pred_uniform).yhat IS NOT NULL AND (pred_weighted).yhat IS NOT NULL;

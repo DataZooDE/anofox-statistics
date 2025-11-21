@@ -24,7 +24,7 @@ FROM (
             y,
             [x1, x2],
             MAP{'intercept': 1, 'forgetting_factor': 1.0}
-        ) OVER () as pred
+        ) OVER (ORDER BY id) as pred
     FROM rls_insufficient
 )
 WHERE (pred).yhat IS NULL;
@@ -50,7 +50,7 @@ FROM (
             y,
             [x],
             MAP{'intercept': 1, 'forgetting_factor': 1.0}
-        ) OVER () as pred
+        ) OVER (ORDER BY id) as pred
     FROM rls_all_null
 )
 WHERE (pred).yhat IS NULL;
@@ -76,7 +76,7 @@ FROM (
             y,
             [x],
             MAP{'intercept': 1, 'forgetting_factor': 1.5}
-        ) OVER () as pred
+        ) OVER (ORDER BY id) as pred
     FROM rls_params
 )
 WHERE (pred).yhat IS NULL;
@@ -94,7 +94,7 @@ FROM (
             y,
             [x],
             MAP{'intercept': 1, 'forgetting_factor': 0.0}
-        ) OVER () as pred
+        ) OVER (ORDER BY id) as pred
     FROM rls_params
 )
 WHERE (pred).yhat IS NULL;
@@ -112,7 +112,7 @@ FROM (
             y,
             [x],
             MAP{'intercept': 1, 'forgetting_factor': 1.0}
-        ) OVER () as pred
+        ) OVER (ORDER BY id) as pred
     FROM rls_params
 )
 WHERE (pred).yhat IS NOT NULL;
@@ -130,7 +130,7 @@ FROM (
             y,
             [x],
             MAP{'intercept': 1, 'forgetting_factor': 0.01}
-        ) OVER () as pred
+        ) OVER (ORDER BY id) as pred
     FROM rls_params
 )
 WHERE (pred).yhat IS NOT NULL;
@@ -156,7 +156,7 @@ FROM (
             y,
             x_empty,
             MAP{'intercept': 1, 'forgetting_factor': 1.0}
-        ) OVER () as pred
+        ) OVER (ORDER BY id) as pred
     FROM rls_empty
 )
 WHERE (pred).yhat IS NULL;
@@ -182,7 +182,7 @@ FROM (
             y,
             x,
             MAP{'intercept': 1, 'forgetting_factor': 1.0}
-        ) OVER () as pred
+        ) OVER (ORDER BY id) as pred
     FROM rls_null_features
 )
 WHERE (pred).yhat IS NOT NULL;
@@ -208,7 +208,7 @@ FROM (
             y,
             [x],
             MAP{'intercept': 1, 'forgetting_factor': 1.0}
-        ) OVER () as pred
+        ) OVER (ORDER BY id) as pred
     FROM rls_single
 )
 WHERE (pred).yhat IS NULL;
@@ -270,7 +270,7 @@ FROM (
             y,
             [x_large],
             MAP{'intercept': 1, 'forgetting_factor': 1.0}
-        ) OVER () as pred
+        ) OVER (ORDER BY id) as pred
     FROM rls_extreme
 )
 WHERE (pred).yhat IS NOT NULL AND NOT ISINF((pred).yhat) AND NOT ISNAN((pred).yhat);

@@ -24,7 +24,7 @@ FROM (
             y,
             [x1, x2],
             MAP{'intercept': 1, 'lambda': 1.0}
-        ) OVER () as pred
+        ) OVER (ORDER BY id) as pred
     FROM ridge_insufficient
 )
 WHERE (pred).yhat IS NULL;
@@ -50,7 +50,7 @@ FROM (
             y,
             [x],
             MAP{'intercept': 1, 'lambda': 1.0}
-        ) OVER () as pred
+        ) OVER (ORDER BY id) as pred
     FROM ridge_all_null
 )
 WHERE (pred).yhat IS NULL;
@@ -76,7 +76,7 @@ FROM (
             y,
             x_empty,
             MAP{'intercept': 1, 'lambda': 1.0}
-        ) OVER () as pred
+        ) OVER (ORDER BY id) as pred
     FROM ridge_empty_features
 )
 WHERE (pred).yhat IS NULL;
@@ -102,7 +102,7 @@ FROM (
             y,
             x,
             MAP{'intercept': 1, 'lambda': 1.0}
-        ) OVER () as pred
+        ) OVER (ORDER BY id) as pred
     FROM ridge_null_features
 )
 WHERE (pred).yhat IS NOT NULL;
@@ -128,7 +128,7 @@ FROM (
             y,
             x,
             MAP{'intercept': 1, 'lambda': 1.0}
-        ) OVER () as pred
+        ) OVER (ORDER BY id) as pred
     FROM ridge_inconsistent_features
 )
 WHERE (pred).yhat IS NOT NULL;
@@ -154,7 +154,7 @@ FROM (
             y,
             [x],
             MAP{'intercept': 1, 'lambda': 1.0}
-        ) OVER () as pred
+        ) OVER (ORDER BY id) as pred
     FROM ridge_single_train
 )
 WHERE (pred).yhat IS NULL;
@@ -180,7 +180,7 @@ FROM (
             y,
             [x],
             MAP{'intercept': 1, 'lambda': 0.0}
-        ) OVER () as pred
+        ) OVER (ORDER BY id) as pred
     FROM ridge_params
 )
 WHERE (pred).yhat IS NOT NULL;
@@ -198,7 +198,7 @@ FROM (
             y,
             [x],
             MAP{'intercept': 1, 'lambda': 10000.0}
-        ) OVER () as pred
+        ) OVER (ORDER BY id) as pred
     FROM ridge_params
 )
 WHERE (pred).yhat IS NOT NULL AND ABS((pred).yhat) < 100;
@@ -260,7 +260,7 @@ FROM (
             y,
             [x_large],
             MAP{'intercept': 1, 'lambda': 1.0}
-        ) OVER () as pred
+        ) OVER (ORDER BY id) as pred
     FROM ridge_extreme_values
 )
 WHERE (pred).yhat IS NOT NULL AND NOT ISINF((pred).yhat) AND NOT ISNAN((pred).yhat);

@@ -26,7 +26,7 @@ FROM (
             y,
             [x1],
             MAP{'intercept': 1, 'lambda': 1.0}
-        ) OVER () as pred
+        ) OVER (ORDER BY id) as pred
     FROM ridge_data
 )
 ORDER BY id;
@@ -69,12 +69,12 @@ FROM (
                 y,
                 [x, x_corr],
                 MAP{'intercept': 1, 'lambda': 10.0}
-            ) OVER () as ridge_pred,
+            ) OVER (ORDER BY id) as ridge_pred,
             anofox_statistics_fit_predict_ols(
                 y,
                 [x, x_corr],
                 MAP{'intercept': 1}
-            ) OVER () as ols_pred
+            ) OVER (ORDER BY id) as ols_pred
         FROM collinear_data
     )
     WHERE id > 8  -- Prediction rows
@@ -144,9 +144,9 @@ SELECT
 FROM (
     SELECT
         id,
-        anofox_statistics_fit_predict_ridge(y, [x], MAP{'intercept': 1, 'lambda': 0.1}) OVER () as pred_low,
-        anofox_statistics_fit_predict_ridge(y, [x], MAP{'intercept': 1, 'lambda': 1.0}) OVER () as pred_med,
-        anofox_statistics_fit_predict_ridge(y, [x], MAP{'intercept': 1, 'lambda': 10.0}) OVER () as pred_high
+        anofox_statistics_fit_predict_ridge(y, [x], MAP{'intercept': 1, 'lambda': 0.1}) OVER (ORDER BY id) as pred_low,
+        anofox_statistics_fit_predict_ridge(y, [x], MAP{'intercept': 1, 'lambda': 1.0}) OVER (ORDER BY id) as pred_med,
+        anofox_statistics_fit_predict_ridge(y, [x], MAP{'intercept': 1, 'lambda': 10.0}) OVER (ORDER BY id) as pred_high
     FROM ridge_lambda_test
 )
 WHERE id = 8
@@ -166,7 +166,7 @@ FROM (
             y,
             [x],
             MAP{'intercept': 0, 'lambda': 1.0}
-        ) OVER () as pred
+        ) OVER (ORDER BY id) as pred
     FROM ridge_data
 )
 WHERE id <= 3
@@ -197,7 +197,7 @@ FROM (
             y,
             [x1, x2, x3],
             MAP{'intercept': 1, 'lambda': 0.5}
-        ) OVER () as pred
+        ) OVER (ORDER BY id) as pred
     FROM ridge_multifeature
 )
 WHERE (pred).yhat IS NOT NULL;
@@ -221,7 +221,7 @@ FROM (
                 y,
                 [x],
                 MAP{'intercept': 1, 'lambda': 1.0}
-            ) OVER () as pred
+            ) OVER (ORDER BY id) as pred
         FROM ridge_data
     )
 )

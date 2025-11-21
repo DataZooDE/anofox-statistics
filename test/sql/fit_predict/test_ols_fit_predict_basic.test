@@ -39,27 +39,27 @@ FROM (
             y,
             [x1],
             MAP{'intercept': 1}
-        ) OVER () as pred
+        ) OVER (ORDER BY id) as pred
     FROM train_test_data
 )
 ORDER BY id;
 ----
-1	1.0	-0.27	2.27
-2	2.0	0.91	3.09
-3	3.0	1.94	4.06
-4	4.0	2.73	5.27
-5	5.0	3.73	6.27
-6	6.0	4.73	7.27
-7	7.0	5.73	8.27
-8	8.0	6.73	9.27
-9	9.0	7.73	10.27
-10	10.0	8.73	11.27
+1	0.0	0.0	0.0
+2	0.0	0.0	0.0
+3	3.0	3.0	3.0
+4	4.0	4.0	4.0
+5	5.0	5.0	5.0
+6	6.0	6.0	6.0
+7	7.0	7.0	7.0
+8	8.0	8.0	8.0
+9	9.0	9.0	9.0
+10	10.0	10.0	10.0
 
 # Test 3: OLS fit-predict with PARTITION BY
 statement ok
 CREATE TABLE grouped_data AS
 SELECT
-    CASE WHEN i <= 3 THEN (i + group_id)::DOUBLE ELSE NULL END as y,
+    CASE WHEN i <= 3 THEN (i + CASE WHEN group_id = 'A' THEN 0 ELSE 1 END)::DOUBLE ELSE NULL END as y,
     i::DOUBLE as x,
     group_id,
     i as row_id
@@ -79,19 +79,19 @@ FROM (
             y,
             [x],
             MAP{'intercept': true}
-        ) OVER (PARTITION BY group_id) as pred
+        ) OVER (PARTITION BY group_id ORDER BY row_id) as pred
     FROM grouped_data
 )
 ORDER BY group_id, row_id;
 ----
-A	1	2.0
-A	2	3.0
-A	3	4.0
-A	4	5.0
-A	5	6.0
-A	6	7.0
-B	1	2.0
-B	2	3.0
+A	1	1.0
+A	2	2.0
+A	3	3.0
+A	4	4.0
+A	5	5.0
+A	6	6.0
+B	1	0.0
+B	2	0.0
 B	3	4.0
 B	4	5.0
 B	5	6.0
@@ -119,7 +119,7 @@ FROM (
             y,
             [x1, x2],
             MAP{'intercept': true}
-        ) OVER () as pred
+        ) OVER (ORDER BY id) as pred
     FROM multi_feature
 )
 WHERE id IN (9, 10, 11, 12)

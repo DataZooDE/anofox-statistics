@@ -37,7 +37,7 @@ FROM (
             y,
             [x],
             MAP{'intercept': 1, 'forgetting_factor': 1.0}
-        ) OVER () as pred
+        ) OVER (ORDER BY id) as pred
     FROM rls_data
 )
 ORDER BY id;
@@ -73,7 +73,7 @@ FROM (
             y,
             [x],
             MAP{'intercept': 1, 'forgetting_factor': 0.95}
-        ) OVER () as pred
+        ) OVER (ORDER BY id) as pred
     FROM rls_adaptive
 )
 WHERE (pred).yhat IS NOT NULL;
@@ -143,7 +143,7 @@ FROM (
             y,
             [x1, x2],
             MAP{'intercept': 1, 'forgetting_factor': 1.0}
-        ) OVER () as pred
+        ) OVER (ORDER BY id) as pred
     FROM rls_multifeature
 )
 WHERE (pred).yhat IS NOT NULL;
@@ -164,7 +164,7 @@ FROM (
             y,
             [x],
             MAP{'intercept': 1, 'forgetting_factor': 1.0}
-        ) OVER () as pred
+        ) OVER (ORDER BY id) as pred
     FROM rls_data
 )
 WHERE id <= 3
@@ -185,7 +185,7 @@ FROM (
             y,
             [x],
             MAP{'intercept': 0, 'forgetting_factor': 1.0}
-        ) OVER () as pred
+        ) OVER (ORDER BY id) as pred
     FROM rls_data
 )
 WHERE (pred).yhat IS NOT NULL;
@@ -207,8 +207,8 @@ SELECT
 FROM (
     SELECT
         id,
-        anofox_statistics_fit_predict_rls(y, [x], MAP{'intercept': 1, 'forgetting_factor': 0.98}) OVER () as pred_adaptive,
-        anofox_statistics_fit_predict_rls(y, [x], MAP{'intercept': 1, 'forgetting_factor': 0.999}) OVER () as pred_near_one
+        anofox_statistics_fit_predict_rls(y, [x], MAP{'intercept': 1, 'forgetting_factor': 0.98}) OVER (ORDER BY id) as pred_adaptive,
+        anofox_statistics_fit_predict_rls(y, [x], MAP{'intercept': 1, 'forgetting_factor': 0.999}) OVER (ORDER BY id) as pred_near_one
     FROM rls_extreme
 )
 WHERE (pred_adaptive).yhat IS NOT NULL AND (pred_near_one).yhat IS NOT NULL;
@@ -232,7 +232,7 @@ FROM (
                 y,
                 [x],
                 MAP{'intercept': 1, 'forgetting_factor': 1.0}
-            ) OVER () as pred
+            ) OVER (ORDER BY id) as pred
         FROM rls_data
     )
 )

@@ -46,6 +46,7 @@ void OlsFitPredictCombine(Vector &source, Vector &target, AggregateInputData &ag
  */
 void OlsFitPredictFinalize(duckdb::Vector &state_vector, duckdb::AggregateInputData &aggr_input_data,
                            duckdb::Vector &result, idx_t count, idx_t offset) {
+	std::cerr << "[OLS FINALIZE] Called with count=" << count << ", offset=" << offset << " (should use OVER clause!)" << std::endl;
 	// Not used in window mode
 	// If called in non-window mode, return NULL (user should use OVER clause)
 	auto &result_validity = FlatVector::Validity(result);
@@ -62,6 +63,8 @@ static void OlsFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
                                 const duckdb::WindowPartitionInput &partition, duckdb::const_data_ptr_t g_state,
                                 duckdb::data_ptr_t l_state, const duckdb::SubFrames &subframes, duckdb::Vector &result,
                                 duckdb::idx_t rid) {
+
+	std::cerr << "[OLS WINDOW] Called for row " << rid << std::endl;
 
 	// Access result validity
 	auto &result_validity = FlatVector::Validity(result);
@@ -165,13 +168,24 @@ static void OlsFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 			double mean_y = y_train.mean();
 			x_means = X_train.colwise().mean();
 
+			std::cerr << "[OLS FIT] n_train=" << n_train << ", p=" << p << std::endl;
+			std::cerr << "[OLS FIT] mean_y=" << mean_y << ", x_means[0]=" << x_means(0) << std::endl;
+			std::cerr << "[OLS FIT] y_train: " << y_train.transpose() << std::endl;
+			std::cerr << "[OLS FIT] X_train row 0: " << X_train.row(0) << std::endl;
+
 			Eigen::VectorXd y_centered = y_train.array() - mean_y;
 			Eigen::MatrixXd X_centered = X_train;
 			for (idx_t j = 0; j < p; j++) {
 				X_centered.col(j).array() -= x_means(j);
 			}
 
+			std::cerr << "[OLS FIT] y_centered: " << y_centered.transpose() << std::endl;
+			std::cerr << "[OLS FIT] X_centered row 0: " << X_centered.row(0) << std::endl;
+
 			ols_result = RankDeficientOls::FitWithStdErrors(y_centered, X_centered);
+
+			std::cerr << "[OLS FIT] coefficients from libanostat: " << ols_result.coefficients.transpose() << std::endl;
+			std::cerr << "[OLS FIT] rank=" << ols_result.rank << std::endl;
 
 			// Compute intercept
 			double beta_dot_xmean = 0.0;
@@ -181,6 +195,8 @@ static void OlsFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 				}
 			}
 			intercept = mean_y - beta_dot_xmean;
+
+			std::cerr << "[OLS FIT] beta_dot_xmean=" << beta_dot_xmean << ", intercept=" << intercept << std::endl;
 
 			// Compute XtX_inv for leverage calculation (using already-centered X)
 			Eigen::MatrixXd XtX = X_centered.transpose() * X_centered;
@@ -201,21 +217,32 @@ static void OlsFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 		}
 
 		// Compute MSE and df_residual
-		Eigen::VectorXd y_pred_train = Eigen::VectorXd::Constant(n_train, intercept);
-		for (idx_t j = 0; j < p; j++) {
-			if (!ols_result.is_aliased[j]) {
-				y_pred_train += ols_result.coefficients[j] * X_train.col(j);
+		// NOTE: ols_result.coefficients are for centered X, but we can use them with uncentered X
+		// as long as we add the intercept: yhat = intercept + beta * X
+		Eigen::VectorXd y_pred_train(n_train);
+		for (idx_t row = 0; row < n_train; row++) {
+			y_pred_train(row) = intercept;
+			for (idx_t j = 0; j < p; j++) {
+				if (!ols_result.is_aliased[j]) {
+					y_pred_train(row) += ols_result.coefficients[j] * X_train(row, j);
+				}
 			}
 		}
 
 		Eigen::VectorXd residuals = y_train - y_pred_train;
 		double ss_res = residuals.squaredNorm();
 
-		// df_model includes intercept if present
-		// Note: ols_result.rank is for centered X (features only), so add 1 for intercept if present
+		std::cerr << "[OLS FIT] y_pred_train[0]=" << y_pred_train(0) << ", residuals[0]=" << residuals(0) << std::endl;
+		std::cerr << "[OLS FIT] ss_res=" << ss_res << std::endl;
+
+		// NOTE: ols_result.rank is from libanostat which includes intercept in the design matrix
+		// But in fit-predict, we call libanostat_ols directly which gets the CENTERED X
+		// So rank is for p features, and we need +1 for intercept
 		idx_t df_model = ols_result.rank + (options.intercept ? 1 : 0);
 		df_residual = n_train - df_model;
 		mse = (df_residual > 0) ? (ss_res / df_residual) : std::numeric_limits<double>::quiet_NaN();
+
+		std::cerr << "[OLS FIT] df_model=" << df_model << ", df_residual=" << df_residual << ", mse=" << mse << std::endl;
 
 		// Store coefficients
 		coefficients = ols_result.coefficients;
@@ -282,8 +309,16 @@ static void OlsFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 
 	// Now predict for the current row (rid)
 	if (rid >= all_x.size() || all_x[rid].empty()) {
+		std::cerr << "[OLS PREDICT] Row " << rid << " invalid: size=" << all_x.size() << std::endl;
 		result_validity.SetInvalid(rid);
 		return;
+	}
+
+	if (rid < 3) {
+		std::cerr << "[OLS PREDICT] Row " << rid << ": x=" << all_x[rid][0]
+		          << ", intercept=" << intercept
+		          << ", coef[0]=" << coefficients(0)
+		          << ", x_means[0]=" << x_means(0) << std::endl;
 	}
 
 	// Compute prediction with interval (always use XtX_inv for memory efficiency)
@@ -293,8 +328,13 @@ static void OlsFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 	);
 
 	if (!pred.is_valid) {
+		std::cerr << "[OLS PREDICT] Row " << rid << " prediction INVALID" << std::endl;
 		result_validity.SetInvalid(rid);
 		return;
+	}
+
+	if (rid < 3) {
+		std::cerr << "[OLS PREDICT] Row " << rid << " SUCCESS: yhat=" << pred.yhat << std::endl;
 	}
 
 	// Fill result
@@ -322,13 +362,23 @@ void OlsFitPredictFunction::Register(ExtensionLoader &loader) {
 	AggregateFunction anofox_statistics_fit_predict_ols(
 	    "anofox_statistics_fit_predict_ols",
 	    {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
-	    LogicalType::STRUCT(fit_predict_struct_fields), AggregateFunction::StateSize<OlsFitPredictState>,
-	    OlsFitPredictInitialize, OlsFitPredictUpdate, OlsFitPredictCombine, OlsFitPredictFinalize,
-	    FunctionNullHandling::DEFAULT_NULL_HANDLING, nullptr, nullptr,
-	    nullptr, // destroy - use nullptr like the working function
-	    nullptr,
-	    OlsFitPredictWindow, // Window callback does all the work
-	    nullptr, nullptr);
+	    LogicalType::STRUCT(fit_predict_struct_fields),
+	    AggregateFunction::StateSize<OlsFitPredictState>,
+	    OlsFitPredictInitialize,                        // initialize
+	    OlsFitPredictUpdate,                            // update
+	    OlsFitPredictCombine,                           // combine
+	    OlsFitPredictFinalize,                          // finalize
+	    FunctionNullHandling::DEFAULT_NULL_HANDLING,    // null_handling
+	    nullptr,                                        // simple_update (not needed, we use window)
+	    nullptr,                                        // bind
+	    nullptr,                                        // destructor
+	    nullptr,                                        // statistics
+	    OlsFitPredictWindow,                            // window callback - THIS IS THE KEY!
+	    nullptr,                                        // serialize
+	    nullptr);                                       // deserialize
+
+	// Mark as order-dependent to ensure window processing is used
+	anofox_statistics_fit_predict_ols.order_dependent = AggregateOrderDependent::ORDER_DEPENDENT;
 
 	loader.RegisterFunction(anofox_statistics_fit_predict_ols);
 
