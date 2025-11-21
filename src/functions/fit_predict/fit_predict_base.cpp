@@ -108,6 +108,75 @@ PredictionResult ComputePredictionWithInterval(const vector<double> &x_new, doub
 	return result;
 }
 
+PredictionResult ComputePredictionWithIntervalXtXInv(const vector<double> &x_new, double intercept,
+                                                     const Eigen::VectorXd &coefficients, double mse,
+                                                     const Eigen::VectorXd &x_train_means,
+                                                     const Eigen::MatrixXd &XtX_inv, idx_t n_train,
+                                                     idx_t df_residual, double confidence_level,
+                                                     const string &interval_type) {
+	PredictionResult result;
+
+	if (x_new.size() != static_cast<size_t>(coefficients.size())) {
+		result.is_valid = false;
+		return result;
+	}
+
+	// Compute point prediction
+	result.yhat = intercept;
+	for (size_t i = 0; i < x_new.size(); i++) {
+		result.yhat += coefficients(i) * x_new[i];
+	}
+
+	// Compute prediction standard error using precomputed XtX_inv
+	if (df_residual == 0 || mse <= 0 || std::isnan(mse)) {
+		// Cannot compute intervals without valid MSE and df
+		result.yhat_lower = result.yhat;
+		result.yhat_upper = result.yhat;
+		result.std_error = std::numeric_limits<double>::quiet_NaN();
+		result.is_valid = true;
+		return result;
+	}
+
+	// Convert x_new to Eigen vector and center it
+	Eigen::VectorXd x_eigen(x_new.size());
+	for (size_t i = 0; i < x_new.size(); i++) {
+		x_eigen(i) = x_new[i] - x_train_means(i);
+	}
+
+	// Compute leverage: h = x' * (X'X)^{-1} * x
+	Eigen::VectorXd XtX_inv_x = XtX_inv * x_eigen;
+	double leverage = x_eigen.dot(XtX_inv_x);
+
+	// Compute standard error based on interval type
+	double variance;
+	if (interval_type == "confidence") {
+		// Confidence interval for E[Y|X]
+		variance = mse * (1.0 / n_train + leverage);
+	} else {
+		// Prediction interval for new observation
+		variance = mse * (1.0 + 1.0 / n_train + leverage);
+	}
+
+	result.std_error = std::sqrt(variance);
+
+	// Compute critical value from t-distribution
+	// Simple approximation: use z-value for now (TODO: implement proper t-distribution)
+	double z_crit = 1.96; // Approximation for 95% CI
+	if (confidence_level > 0.98) {
+		z_crit = 2.576; // 99% CI
+	} else if (confidence_level < 0.92) {
+		z_crit = 1.645; // 90% CI
+	}
+
+	// Compute interval bounds
+	double margin = z_crit * result.std_error;
+	result.yhat_lower = result.yhat - margin;
+	result.yhat_upper = result.yhat + margin;
+	result.is_valid = true;
+
+	return result;
+}
+
 vector<double> ExtractListAsVector(Vector &list_vector, idx_t row_idx, UnifiedVectorFormat &list_data) {
 	vector<double> result;
 
@@ -139,6 +208,12 @@ void LoadPartitionData(const WindowPartitionInput &partition, PartitionDataCache
 	// Only load once per partition
 	if (cache.initialized) {
 		return;
+	}
+
+	// Clear any existing model cache (new partition = new data)
+	if (cache.model_cache) {
+		delete cache.model_cache;
+		cache.model_cache = nullptr;
 	}
 
 	// Read input data from the partition
@@ -228,6 +303,31 @@ LogicalType CreateFitPredictReturnType() {
 	struct_fields.push_back(make_pair("yhat_upper", LogicalType::DOUBLE));
 	struct_fields.push_back(make_pair("std_error", LogicalType::DOUBLE));
 	return LogicalType::STRUCT(struct_fields);
+}
+
+vector<idx_t> ComputeFrameSignature(const SubFrames &subframes, const vector<double> &all_y,
+                                     const vector<vector<double>> &all_x) {
+	vector<idx_t> signature;
+	for (const auto &frame : subframes) {
+		for (idx_t frame_idx = frame.start; frame_idx < frame.end; frame_idx++) {
+			if (frame_idx < all_y.size() && !std::isnan(all_y[frame_idx]) && !all_x[frame_idx].empty()) {
+				signature.push_back(frame_idx);
+			}
+		}
+	}
+	return signature;
+}
+
+bool FrameSignaturesMatch(const vector<idx_t> &sig1, const vector<idx_t> &sig2) {
+	if (sig1.size() != sig2.size()) {
+		return false;
+	}
+	for (size_t i = 0; i < sig1.size(); i++) {
+		if (sig1[i] != sig2[i]) {
+			return false;
+		}
+	}
+	return true;
 }
 
 } // namespace anofox_statistics
