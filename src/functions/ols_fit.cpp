@@ -147,9 +147,38 @@ static void ComputeRidge(OlsFitBindData &data) {
 			data.options.full_output  // compute std errors if full_output
 		);
 
-		// Extract results using TypeConverters
-		data.coefficients = TypeConverters::ExtractCoefficients(result);
-		data.is_aliased = TypeConverters::ExtractIsAliased(result);
+		// Extract intercept first (if present)
+		if (data.options.intercept) {
+			data.intercept = TypeConverters::ExtractIntercept(result, true);
+		} else {
+			data.intercept = 0.0;
+		}
+
+		// Extract feature coefficients (excluding intercept)
+		data.coefficients = TypeConverters::ExtractFeatureCoefficients(result, data.options.intercept);
+		
+		// Extract is_aliased for features only (excluding intercept, in original order)
+		if (data.options.intercept) {
+			// Build map: original_column_index -> is_aliased
+			size_t n_params = result.is_aliased.size();
+			vector<bool> aliased_map(n_params, true);
+			for (size_t i = 0; i < n_params; i++) {
+				size_t orig_col = result.permutation_indices[i];
+				if (orig_col < n_params) {
+					aliased_map[orig_col] = result.is_aliased[i];
+				}
+			}
+			
+			// Extract is_aliased for features only (columns 1..n_features, excluding intercept at 0)
+			data.is_aliased.clear();
+			data.is_aliased.reserve(n_params - 1);
+			for (size_t j = 1; j < n_params; j++) {
+				data.is_aliased.push_back(aliased_map[j]);
+			}
+		} else {
+			data.is_aliased = TypeConverters::ExtractIsAliased(result);
+		}
+		
 		data.rank = TypeConverters::ExtractRank(result);
 
 		// Extract fit statistics
@@ -160,14 +189,37 @@ static void ComputeRidge(OlsFitBindData &data) {
 		data.rmse = stats.rmse;
 		data.df_residual = stats.df_residual;
 
-		// Extract standard errors if computed
+		// Extract standard errors if computed (for features only, excluding intercept, in original order)
 		if (data.options.full_output && result.has_std_errors) {
-			data.coefficient_std_errors = TypeConverters::ExtractStdErrors(result);
+			if (data.options.intercept) {
+				// Build map: original_column_index -> std_error
+				size_t n_params = static_cast<size_t>(result.std_errors.size());
+				vector<double> se_map(n_params, std::numeric_limits<double>::quiet_NaN());
+				for (size_t i = 0; i < n_params; i++) {
+					size_t orig_col = result.permutation_indices[i];
+					if (orig_col < n_params) {
+						se_map[orig_col] = result.std_errors(static_cast<Eigen::Index>(i));
+					}
+				}
+				
+				// Extract std errors for features only (columns 1..n_features, excluding intercept at 0)
+				data.coefficient_std_errors.clear();
+				data.coefficient_std_errors.reserve(n_params - 1);
+				for (size_t j = 1; j < n_params; j++) {
+					data.coefficient_std_errors.push_back(se_map[j]);
+				}
+				
+				// Extract intercept standard error
+				data.intercept_std_error = se_map[0];
+			} else {
+				data.coefficient_std_errors = TypeConverters::ExtractStdErrors(result);
+				data.intercept_std_error = std::numeric_limits<double>::quiet_NaN();
+			}
 		}
 
-		// Compute intercept from centered coefficients
-		if (data.options.intercept) {
-			// Compute x_means
+		// Store x_means for predictions if full_output=true
+		if (data.options.full_output && data.options.intercept) {
+			// Compute x_means for feature columns only
 			Eigen::VectorXd x_means(p);
 			for (idx_t j = 0; j < p; j++) {
 				double sum = 0.0;
@@ -176,46 +228,11 @@ static void ComputeRidge(OlsFitBindData &data) {
 				}
 				x_means(j) = sum / static_cast<double>(n);
 			}
-
-			// Compute y_mean
-			double y_mean = 0.0;
-			for (idx_t i = 0; i < n; i++) {
-				y_mean += data.y_values[i];
-			}
-			y_mean /= static_cast<double>(n);
-
-			// intercept = y_mean - beta·x_mean
-			double beta_dot_xmean = 0.0;
+			
+			data.x_train_means.resize(p);
 			for (idx_t j = 0; j < p; j++) {
-				if (!data.is_aliased[j]) {
-					beta_dot_xmean += data.coefficients[j] * x_means[j];
-				}
+				data.x_train_means[j] = x_means(j);
 			}
-			data.intercept = y_mean - beta_dot_xmean;
-
-			// Store x_means for predictions if full_output=true
-			if (data.options.full_output) {
-				data.x_train_means.resize(p);
-				for (idx_t j = 0; j < p; j++) {
-					data.x_train_means[j] = x_means[j];
-				}
-
-				// Compute intercept standard error if we have coefficient std errors
-				if (result.has_std_errors) {
-					// Simple approximation: SE(intercept) ≈ sqrt(MSE/n + sum(SE(beta_j)^2 * x_mean_j^2))
-					double intercept_variance = data.mse / static_cast<double>(n);
-					for (idx_t j = 0; j < p; j++) {
-						if (!data.is_aliased[j] && !std::isnan(data.coefficient_std_errors[j])) {
-							double se_beta_j = data.coefficient_std_errors[j];
-							intercept_variance += se_beta_j * se_beta_j * x_means[j] * x_means[j];
-						}
-					}
-					data.intercept_std_error = std::sqrt(intercept_variance);
-				}
-			}
-		} else {
-			data.intercept = 0.0;
-			data.intercept_std_error = std::numeric_limits<double>::quiet_NaN();
 		}
 
 		ANOFOX_DEBUG("OLS (via libanostat): R² = " << data.r_squared << ", rank = " << data.rank << "/" << p);
@@ -233,9 +250,38 @@ static void ComputeRidge(OlsFitBindData &data) {
 	    data.options.full_output  // compute std errors if full_output
 	);
 
-	// Extract results using TypeConverters
-	data.coefficients = TypeConverters::ExtractCoefficients(result);
-	data.is_aliased = TypeConverters::ExtractIsAliased(result);
+	// Extract intercept first (if present)
+	if (data.options.intercept) {
+		data.intercept = TypeConverters::ExtractIntercept(result, true);
+	} else {
+		data.intercept = 0.0;
+	}
+
+	// Extract feature coefficients (excluding intercept)
+	data.coefficients = TypeConverters::ExtractFeatureCoefficients(result, data.options.intercept);
+	
+		// Extract is_aliased for features only (excluding intercept, in original order)
+		if (data.options.intercept) {
+			// Build map: original_column_index -> is_aliased
+			size_t n_params = result.is_aliased.size();
+			vector<bool> aliased_map(n_params, true);
+			for (size_t i = 0; i < n_params; i++) {
+				size_t orig_col = result.permutation_indices[i];
+				if (orig_col < n_params) {
+					aliased_map[orig_col] = result.is_aliased[i];
+				}
+			}
+			
+			// Extract is_aliased for features only (columns 1..n_features, excluding intercept at 0)
+			data.is_aliased.clear();
+			data.is_aliased.reserve(n_params - 1);
+			for (size_t j = 1; j < n_params; j++) {
+				data.is_aliased.push_back(aliased_map[j]);
+			}
+		} else {
+			data.is_aliased = TypeConverters::ExtractIsAliased(result);
+		}
+	
 	data.rank = TypeConverters::ExtractRank(result);
 
 	// Extract fit statistics
@@ -246,14 +292,42 @@ static void ComputeRidge(OlsFitBindData &data) {
 	data.rmse = stats.rmse;
 	data.df_residual = stats.df_residual;
 
-	// Extract standard errors if computed
+	// Extract standard errors if computed (for features only, excluding intercept)
 	if (data.options.full_output && result.has_std_errors) {
-		data.coefficient_std_errors = TypeConverters::ExtractStdErrors(result);
+		if (data.options.intercept) {
+			// Find intercept position
+			size_t intercept_pos = std::numeric_limits<size_t>::max();
+			for (size_t i = 0; i < result.permutation_indices.size(); i++) {
+				if (result.permutation_indices[i] == 0) {
+					intercept_pos = i;
+					break;
+				}
+			}
+			
+			// Extract std errors for features only
+			data.coefficient_std_errors.clear();
+			data.coefficient_std_errors.reserve(result.std_errors.size() - 1);
+			for (size_t i = 0; i < static_cast<size_t>(result.std_errors.size()); i++) {
+				if (i != intercept_pos) {
+					data.coefficient_std_errors.push_back(result.std_errors(static_cast<Eigen::Index>(i)));
+				}
+			}
+			
+			// Extract intercept standard error
+			if (intercept_pos < static_cast<size_t>(result.std_errors.size())) {
+				data.intercept_std_error = result.std_errors(static_cast<Eigen::Index>(intercept_pos));
+			} else {
+				data.intercept_std_error = std::numeric_limits<double>::quiet_NaN();
+			}
+		} else {
+			data.coefficient_std_errors = TypeConverters::ExtractStdErrors(result);
+			data.intercept_std_error = std::numeric_limits<double>::quiet_NaN();
+		}
 	}
 
-	// Compute intercept from centered coefficients
-	if (data.options.intercept) {
-		// Compute x_means
+	// Store x_means for predictions if full_output=true
+	if (data.options.full_output && data.options.intercept) {
+		// Compute x_means for feature columns only
 		Eigen::VectorXd x_means(p);
 		for (idx_t j = 0; j < p; j++) {
 			double sum = 0.0;
@@ -262,46 +336,11 @@ static void ComputeRidge(OlsFitBindData &data) {
 			}
 			x_means(j) = sum / static_cast<double>(n);
 		}
-
-		// Compute y_mean
-		double y_mean = 0.0;
-		for (idx_t i = 0; i < n; i++) {
-			y_mean += data.y_values[i];
-		}
-		y_mean /= static_cast<double>(n);
-
-		// intercept = y_mean - beta·x_mean
-		double beta_dot_xmean = 0.0;
+		
+		data.x_train_means.resize(p);
 		for (idx_t j = 0; j < p; j++) {
-			if (!data.is_aliased[j]) {
-				beta_dot_xmean += data.coefficients[j] * x_means[j];
-			}
+			data.x_train_means[j] = x_means(j);
 		}
-		data.intercept = y_mean - beta_dot_xmean;
-
-		// Store x_means for predictions if full_output=true
-		if (data.options.full_output) {
-			data.x_train_means.resize(p);
-			for (idx_t j = 0; j < p; j++) {
-				data.x_train_means[j] = x_means[j];
-			}
-
-			// Compute intercept standard error if we have coefficient std errors
-			if (result.has_std_errors) {
-				// Simple approximation: SE(intercept) ≈ sqrt(MSE/n + sum(SE(beta_j)^2 * x_mean_j^2))
-				double intercept_variance = data.mse / static_cast<double>(n);
-				for (idx_t j = 0; j < p; j++) {
-					if (!data.is_aliased[j] && !std::isnan(data.coefficient_std_errors[j])) {
-						double se_beta_j = data.coefficient_std_errors[j];
-						intercept_variance += se_beta_j * se_beta_j * x_means[j] * x_means[j];
-					}
-				}
-				data.intercept_std_error = std::sqrt(intercept_variance);
-			}
-		}
-	} else {
-		data.intercept = 0.0;
-		data.intercept_std_error = std::numeric_limits<double>::quiet_NaN();
 	}
 
 	ANOFOX_DEBUG("Ridge (via libanostat): R² = " << data.r_squared << ", λ=" << data.options.lambda
