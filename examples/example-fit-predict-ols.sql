@@ -15,9 +15,9 @@ LOAD anofox_statistics;
 
 CREATE OR REPLACE TABLE simple_linear AS
 SELECT
-    CASE WHEN i <= 10 THEN (2.0 * i + 1.0 + (random() * 0.5 - 0.25))::DOUBLE ELSE NULL END as y,
-    i::DOUBLE as x,
-    i as id
+    CASE WHEN id <= 10 THEN (2.0 * id + 1.0 + (random() * 0.5 - 0.25))::DOUBLE ELSE NULL END as y,
+    id::DOUBLE as x,
+    id
 FROM range(1, 16) t(id);
 
 -- View the data
@@ -53,14 +53,14 @@ ORDER BY id;
 
 CREATE OR REPLACE TABLE multiple_regression AS
 SELECT
-    CASE WHEN i <= 20 THEN
+    CASE WHEN id <= 20 THEN
         (3.0 * x1 + 5.0 * x2 - 2.0 * x3 + 10.0 + (random() * 2.0 - 1.0))::DOUBLE
     ELSE NULL END as y,
-    i::DOUBLE as x1,
-    (i * 0.5)::DOUBLE as x2,
-    (i * 0.25)::DOUBLE as x3,
-    i as id
-FROM range(1, 31) t(i);
+    id::DOUBLE as x1,
+    (id * 0.5)::DOUBLE as x2,
+    (id * 0.25)::DOUBLE as x3,
+    id
+FROM range(1, 31) t(id);
 
 -- Fit with multiple features
 SELECT
@@ -92,10 +92,10 @@ ORDER BY id;
 
 CREATE OR REPLACE TABLE time_series AS
 SELECT
-    (2.0 * i + 5.0 + (random() * 3.0 - 1.5))::DOUBLE as y,
-    i::DOUBLE as x,
-    i as time_id
-FROM range(1, 31) t(i);
+    (2.0 * time_id + 5.0 + (random() * 3.0 - 1.5))::DOUBLE as y,
+    time_id::DOUBLE as x,
+    time_id
+FROM range(1, 31) t(time_id);
 
 -- Compare expanding window vs rolling window (size 10)
 SELECT
@@ -131,13 +131,13 @@ ORDER BY time_id;
 
 CREATE OR REPLACE TABLE grouped_data AS
 SELECT
-    (slope * i + intercept + (random() * 2.0 - 1.0))::DOUBLE as y,
-    i::DOUBLE as x,
+    (slope * id + intercept + (random() * 2.0 - 1.0))::DOUBLE as y,
+    id::DOUBLE as x,
     group_name,
     slope,
     intercept,
-    i as id
-FROM range(1, 21) t(i),
+    id
+FROM range(1, 21) t(id),
 (VALUES
     ('Group_A', 2.0, 5.0),
     ('Group_B', -1.5, 20.0),
@@ -173,10 +173,10 @@ ORDER BY group_name, id;
 
 CREATE OR REPLACE TABLE no_intercept_data AS
 SELECT
-    (3.5 * x + (random() * 1.0 - 0.5))::DOUBLE as y,
-    i::DOUBLE as x,
-    i as id
-FROM range(1, 21) t(i);
+    (3.5 * id + (random() * 1.0 - 0.5))::DOUBLE as y,
+    id::DOUBLE as x,
+    id
+FROM range(1, 21) t(id);
 
 -- Compare with and without intercept
 SELECT
@@ -209,10 +209,10 @@ ORDER BY id;
 
 CREATE OR REPLACE TABLE confidence_demo AS
 SELECT
-    CASE WHEN i <= 15 THEN (2.0 * i + 10.0 + (random() * 4.0 - 2.0))::DOUBLE ELSE NULL END as y,
-    i::DOUBLE as x,
-    i as id
-FROM range(1, 21) t(i);
+    CASE WHEN id <= 15 THEN (2.0 * id + 10.0 + (random() * 4.0 - 2.0))::DOUBLE ELSE NULL END as y,
+    id::DOUBLE as x,
+    id
+FROM range(1, 21) t(id);
 
 -- Compare different confidence levels
 SELECT
@@ -306,10 +306,10 @@ ORDER BY month;
 CREATE OR REPLACE TABLE model_quality AS
 SELECT
     (2.5 * x1 + 1.5 * x2 + 5.0 + (random() * 3.0 - 1.5))::DOUBLE as y,
-    i::DOUBLE as x1,
-    (i * 0.7)::DOUBLE as x2,
-    i as id
-FROM range(1, 31) t(i);
+    id::DOUBLE as x1,
+    (id * 0.7)::DOUBLE as x2,
+    id
+FROM range(1, 31) t(id);
 
 -- Calculate predictions and residuals
 WITH predictions AS (
