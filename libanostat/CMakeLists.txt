@@ -51,8 +51,11 @@ if(BUILD_TESTING)
             test/core/test_core_structures.cpp
             test/test_compilation.cpp
             test/solvers/test_i_regressor.cpp
+            test/solvers/test_coefficient_extraction.cpp
             test/utils/test_distributions.cpp
             test/inference/test_inference.cpp
+            test/diagnostics/test_regression_diagnostics.cpp
+            test/integration/test_full_workflow.cpp
         )
 
         # R Validation Tests
