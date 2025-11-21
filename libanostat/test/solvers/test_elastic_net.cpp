@@ -279,3 +279,28 @@ TEST_CASE("Elastic Net: Handles Multicollinearity", "[elastic_net][validation]")
 		REQUIRE(std::abs(result.coefficients(i)) < 1000.0);  // No extreme values
 	}
 }
+
+TEST_CASE("Elastic Net: Constant Feature", "[elastic_net][constant]") {
+	// Test Elastic Net with constant feature
+	std::vector<std::vector<double>> X(2);
+	X[0] = {1.0, 2.0, 3.0, 4.0, 5.0};
+	X[1] = {5.0, 5.0, 5.0, 5.0, 5.0};  // Constant feature
+	std::vector<double> y = {1.0, 2.0, 3.0, 4.0, 5.0};
+
+	core::RegressionOptions opts;
+	opts.intercept = true;
+	opts.compute_inference = false;
+	opts.lambda = 0.5;
+	opts.alpha = 0.5;
+
+	auto result = ElasticNetSolver::Fit(X, y, opts);
+
+	REQUIRE(result.success);
+	
+	// Elastic Net should handle constant feature gracefully
+	// All coefficients should be finite (regularization prevents NaN)
+	for (size_t i = 0; i < result.coefficients.size(); i++) {
+		REQUIRE_FALSE(std::isnan(result.coefficients(i)));
+		REQUIRE_FALSE(std::isinf(result.coefficients(i)));
+	}
+}

@@ -358,3 +358,72 @@ TEST_CASE("WLS: Handles Collinearity", "[wls][validation]") {
 		REQUIRE_FALSE(std::isinf(result.residuals(i)));
 	}
 }
+
+TEST_CASE("WLS: Constant Feature", "[wls][constant]") {
+	// Test WLS with constant feature
+	std::vector<std::vector<double>> X(2);
+	X[0] = {1.0, 2.0, 3.0, 4.0, 5.0};
+	X[1] = {5.0, 5.0, 5.0, 5.0, 5.0};  // Constant feature
+	std::vector<double> y = {1.0, 2.0, 3.0, 4.0, 5.0};
+	std::vector<double> weights = {1.0, 1.0, 1.0, 1.0, 1.0};
+
+	core::RegressionOptions opts;
+	opts.intercept = true;
+	opts.compute_inference = false;
+
+	auto result = WLSSolver::Fit(X, y, weights, opts);
+
+	REQUIRE(result.success);
+	
+	// Should handle constant feature (may mark as aliased)
+	// All coefficients should be finite
+	for (size_t i = 0; i < result.coefficients.size(); i++) {
+		REQUIRE_FALSE(std::isinf(result.coefficients(i)));
+	}
+}
+
+TEST_CASE("WLS: Zero Weights", "[wls][edge]") {
+	// Test WLS with some zero weights (should exclude observations)
+	std::vector<std::vector<double>> X(1);
+	X[0] = {1.0, 2.0, 3.0, 4.0, 5.0};
+	std::vector<double> y = {2.0, 4.0, 6.0, 8.0, 10.0};
+	std::vector<double> weights = {1.0, 0.0, 1.0, 0.0, 1.0};  // Exclude observations 2 and 4
+
+	core::RegressionOptions opts;
+	opts.intercept = true;
+	opts.compute_inference = false;
+
+	auto result = WLSSolver::Fit(X, y, weights, opts);
+
+	REQUIRE(result.success);
+	
+	// Should still produce valid results
+	REQUIRE_FALSE(std::isnan(result.r_squared));
+	REQUIRE(result.r_squared >= 0.0);
+	REQUIRE(result.r_squared <= 1.0);
+	
+	// All coefficients should be finite
+	for (size_t i = 0; i < result.coefficients.size(); i++) {
+		REQUIRE_FALSE(std::isnan(result.coefficients(i)));
+		REQUIRE_FALSE(std::isinf(result.coefficients(i)));
+	}
+}
+
+TEST_CASE("WLS: All Zero Weights", "[wls][edge]") {
+	// Test WLS with all zero weights (should fail gracefully)
+	std::vector<std::vector<double>> X(1);
+	X[0] = {1.0, 2.0, 3.0, 4.0, 5.0};
+	std::vector<double> y = {2.0, 4.0, 6.0, 8.0, 10.0};
+	std::vector<double> weights = {0.0, 0.0, 0.0, 0.0, 0.0};  // All zero
+
+	core::RegressionOptions opts;
+	opts.intercept = true;
+	opts.compute_inference = false;
+
+	auto result = WLSSolver::Fit(X, y, weights, opts);
+
+	// Should either fail or return rank=0
+	if (result.success) {
+		REQUIRE(result.rank == 0);
+	}
+}

@@ -254,3 +254,50 @@ TEST_CASE("Ridge: No Intercept", "[ridge][validation]") {
 		REQUIRE_FALSE(std::isinf(result.coefficients(i)));
 	}
 }
+
+TEST_CASE("Ridge: Constant Feature", "[ridge][constant]") {
+	// Test Ridge with constant feature (lambda > 0 should still handle it)
+	std::vector<std::vector<double>> X(2);
+	X[0] = {1.0, 2.0, 3.0, 4.0, 5.0};
+	X[1] = {5.0, 5.0, 5.0, 5.0, 5.0};  // Constant feature
+	std::vector<double> y = {1.0, 2.0, 3.0, 4.0, 5.0};
+
+	core::RegressionOptions opts;
+	opts.intercept = true;
+	opts.compute_inference = false;
+	opts.lambda = 0.1;
+
+	auto result = RidgeSolver::Fit(X, y, opts);
+
+	REQUIRE(result.success);
+	
+	// Ridge should handle constant feature (may mark as aliased or shrink to near-zero)
+	// All coefficients should be finite (Ridge doesn't produce NaN)
+	for (size_t i = 0; i < result.coefficients.size(); i++) {
+		REQUIRE_FALSE(std::isnan(result.coefficients(i)));
+		REQUIRE_FALSE(std::isinf(result.coefficients(i)));
+	}
+}
+
+TEST_CASE("Ridge: Constant Feature with Lambda 0", "[ridge][constant]") {
+	// Ridge with lambda=0 should behave like OLS
+	std::vector<std::vector<double>> X(2);
+	X[0] = {1.0, 2.0, 3.0, 4.0, 5.0};
+	X[1] = {5.0, 5.0, 5.0, 5.0, 5.0};  // Constant feature
+	std::vector<double> y = {1.0, 2.0, 3.0, 4.0, 5.0};
+
+	core::RegressionOptions opts;
+	opts.intercept = true;
+	opts.compute_inference = false;
+	opts.lambda = 0.0;
+
+	auto result = RidgeSolver::Fit(X, y, opts);
+
+	REQUIRE(result.success);
+	
+	// With lambda=0, should behave like OLS (may have aliased features)
+	// But coefficients should still be finite
+	for (size_t i = 0; i < result.coefficients.size(); i++) {
+		REQUIRE_FALSE(std::isinf(result.coefficients(i)));
+	}
+}

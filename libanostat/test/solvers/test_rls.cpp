@@ -337,3 +337,27 @@ TEST_CASE("RLS: Handles Collinearity", "[rls][validation]") {
 		REQUIRE(std::abs(result.coefficients(i)) < 1000.0);  // No extreme values
 	}
 }
+
+TEST_CASE("RLS: Constant Feature", "[rls][constant]") {
+	// Test RLS with constant feature
+	std::vector<std::vector<double>> X(2);
+	X[0] = {1.0, 2.0, 3.0, 4.0, 5.0};
+	X[1] = {5.0, 5.0, 5.0, 5.0, 5.0};  // Constant feature
+	std::vector<double> y = {1.0, 2.0, 3.0, 4.0, 5.0};
+
+	core::RegressionOptions opts;
+	opts.intercept = true;
+	opts.compute_inference = false;
+	opts.lambda = 0.95;
+
+	auto result = RLSSolver::Fit(X, y, opts);
+
+	REQUIRE(result.success);
+	
+	// RLS should handle constant feature gracefully
+	// All coefficients should be finite (RLS provides implicit regularization)
+	for (size_t i = 0; i < result.coefficients.size(); i++) {
+		REQUIRE_FALSE(std::isnan(result.coefficients(i)));
+		REQUIRE_FALSE(std::isinf(result.coefficients(i)));
+	}
+}
