@@ -5,6 +5,7 @@
 #include "libanostat/core/regression_options.hpp"
 #include <Eigen/Dense>
 #include <vector>
+#include <limits>
 
 namespace duckdb {
 namespace anofox_statistics {
@@ -127,6 +128,75 @@ public:
 	 */
 	static vector<double> ExtractCoefficients(const libanostat::core::RegressionResult &result) {
 		return FromEigenVector(result.coefficients);
+	}
+
+	/**
+	 * Extract feature coefficients (excluding intercept) from libanostat result
+	 * When intercept=true, libanostat includes intercept in coefficients array.
+	 * This function extracts only the feature coefficients in original feature order.
+	 *
+	 * @param result Regression result from libanostat
+	 * @param intercept Whether intercept was included in the model
+	 * @return Vector of feature coefficients (excluding intercept, in original order, NaN for aliased)
+	 */
+	static vector<double> ExtractFeatureCoefficients(const libanostat::core::RegressionResult &result,
+	                                                  bool intercept) {
+		if (!intercept) {
+			// No intercept, return all coefficients
+			return ExtractCoefficients(result);
+		}
+
+		// When intercept=true, original column 0 is intercept, columns 1..p_user are features
+		// We need to extract coefficients for original columns 1..p_user in order
+		// permutation_indices maps: pivoted_position -> original_column_index
+		// We need inverse: original_column_index -> coefficient_value
+		
+		size_t n_params = result.coefficients.size();
+		size_t n_features = n_params - 1; // Excluding intercept
+		
+		// Build map: original_column_index -> coefficient_value
+		vector<double> coeff_map(n_params, std::numeric_limits<double>::quiet_NaN());
+		for (size_t i = 0; i < n_params; i++) {
+			size_t orig_col = result.permutation_indices[i];
+			if (orig_col < n_params) {
+				coeff_map[orig_col] = result.coefficients(static_cast<Eigen::Index>(i));
+			}
+		}
+		
+		// Extract feature coefficients in original order (columns 1..n_features)
+		vector<double> feature_coeffs;
+		feature_coeffs.reserve(n_features);
+		for (size_t j = 1; j <= n_features; j++) {
+			feature_coeffs.push_back(coeff_map[j]);
+		}
+		
+		return feature_coeffs;
+	}
+
+	/**
+	 * Extract intercept from libanostat result
+	 * When intercept=true, libanostat includes intercept in coefficients array at position 0 (after pivoting).
+	 *
+	 * @param result Regression result from libanostat
+	 * @param intercept Whether intercept was included in the model
+	 * @return Intercept value, or 0.0 if intercept=false
+	 */
+	static double ExtractIntercept(const libanostat::core::RegressionResult &result, bool intercept) {
+		if (!intercept) {
+			return 0.0;
+		}
+
+		// Find intercept position using permutation_indices
+		// Original column 0 is the intercept, find where it ended up after pivoting
+		for (size_t i = 0; i < result.permutation_indices.size(); i++) {
+			if (result.permutation_indices[i] == 0) {
+				// Found intercept position
+				return result.coefficients(static_cast<Eigen::Index>(i));
+			}
+		}
+
+		// Intercept not found (should not happen if intercept=true)
+		return std::numeric_limits<double>::quiet_NaN();
 	}
 
 	/**
@@ -256,10 +326,15 @@ public:
 
 	/**
 	 * Compute degrees of freedom (residual) from result
+	 * 
+	 * Note: When intercept=true, result.rank already includes the intercept column
+	 * (since X_work has intercept as first column), so we don't add 1 for intercept.
 	 */
 	static idx_t ComputeDFResidual(const libanostat::core::RegressionResult &result,
 	                                size_t n_obs, bool intercept) {
-		size_t df_model = result.rank + (intercept ? 1 : 0);
+		// result.rank already includes intercept if intercept=true (it's the rank of X_work)
+		// So df_model = result.rank (no need to add 1 for intercept)
+		size_t df_model = result.rank;
 		if (n_obs > df_model) {
 			return ToIdxT(n_obs - df_model);
 		}
