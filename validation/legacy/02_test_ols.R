@@ -1,5 +1,5 @@
 # OLS Validation Tests: DuckDB vs R
-# Validates anofox_statistics_ols_fit against R's lm()
+# Validates anofox_statistics_ols against R's lm()
 
 library(DBI)
 library(duckdb)
@@ -7,7 +7,7 @@ library(duckdb)
 cat("=== OLS Validation: DuckDB Extension vs R ===\n\n")
 
 # Configuration
-EXTENSION_PATH <- "build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension"
+EXTENSION_PATH <- "../../build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension"
 STRICT_TOL <- 1e-10
 RELAXED_TOL <- 1e-8
 
@@ -77,7 +77,7 @@ compare_values <- function(duckdb_val, r_val, tolerance = STRICT_TOL,
 
 # Connect to DuckDB
 cat("Connecting to DuckDB...\n")
-con <- dbConnect(duckdb::duckdb())
+con <- dbConnect(duckdb::duckdb(config = list(allow_unsigned_extensions = "true")))
 
 # Load extension
 cat("Loading extension:", EXTENSION_PATH, "\n")
@@ -121,10 +121,10 @@ cat("  RMSE:", r_rmse, "\n")
 
 # DuckDB query
 query <- "
-SELECT * FROM anofox_statistics_ols_fit(
-  y := [2.1, 4.2, 5.9, 8.1, 10.0]::DOUBLE[],
-  x1 := [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],
-  add_intercept := true
+SELECT * FROM anofox_statistics_ols(
+  [2.1, 4.2, 5.9, 8.1, 10.0]::DOUBLE[],
+  [[1.0], [2.0], [3.0], [4.0], [5.0]]::DOUBLE[][],
+  {'intercept': true}
 );
 "
 
@@ -169,12 +169,10 @@ print(r_coefs)
 
 # DuckDB query
 query <- "
-SELECT * FROM anofox_statistics_ols_fit(
-  y := [5.0, 10.0, 15.0, 18.0, 25.0]::DOUBLE[],
-  x1 := [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],
-  x2 := [2.0, 4.0, 5.0, 4.0, 5.0]::DOUBLE[],
-  x3 := [1.0, 1.0, 2.0, 2.0, 3.0]::DOUBLE[],
-  add_intercept := true
+SELECT * FROM anofox_statistics_ols(
+  [5.0, 10.0, 15.0, 18.0, 25.0]::DOUBLE[],
+  [[1.0, 2.0, 1.0], [2.0, 4.0, 1.0], [3.0, 5.0, 2.0], [4.0, 4.0, 2.0], [5.0, 5.0, 3.0]]::DOUBLE[][],
+  {'intercept': true}
 );
 "
 
@@ -209,10 +207,10 @@ cat("\nR slope:", r_slope, "\n")
 
 # DuckDB query
 query <- "
-SELECT * FROM anofox_statistics_ols_fit(
-  y := [2.0, 4.0, 6.0, 8.0, 10.0]::DOUBLE[],
-  x1 := [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],
-  add_intercept := false
+SELECT * FROM anofox_statistics_ols(
+  [2.0, 4.0, 6.0, 8.0, 10.0]::DOUBLE[],
+  [[1.0], [2.0], [3.0], [4.0], [5.0]]::DOUBLE[][],
+  {'intercept': false}
 );
 "
 
@@ -246,11 +244,10 @@ cat("Note: NA indicates aliased/rank-deficient\n")
 
 # DuckDB query
 query <- "
-SELECT * FROM anofox_statistics_ols_fit(
-  y := [2.0, 4.0, 6.0, 8.0, 10.0]::DOUBLE[],
-  x1 := [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],
-  x2 := [5.0, 5.0, 5.0, 5.0, 5.0]::DOUBLE[],
-  add_intercept := true
+SELECT * FROM anofox_statistics_ols(
+  [2.0, 4.0, 6.0, 8.0, 10.0]::DOUBLE[],
+  [[1.0, 5.0], [2.0, 5.0], [3.0, 5.0], [4.0, 5.0], [5.0, 5.0]]::DOUBLE[][],
+  {'intercept': true}
 );
 "
 
@@ -288,11 +285,10 @@ print(r_coefs)
 
 # DuckDB query
 query <- "
-SELECT * FROM anofox_statistics_ols_fit(
-  y := [3.0, 5.0, 7.0, 9.0, 11.0]::DOUBLE[],
-  x1 := [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],
-  x2 := [2.0, 4.0, 6.0, 8.0, 10.0]::DOUBLE[],
-  add_intercept := true
+SELECT * FROM anofox_statistics_ols(
+  [3.0, 5.0, 7.0, 9.0, 11.0]::DOUBLE[],
+  [[1.0, 2.0], [2.0, 4.0], [3.0, 6.0], [4.0, 8.0], [5.0, 10.0]]::DOUBLE[][],
+  {'intercept': true}
 );
 "
 

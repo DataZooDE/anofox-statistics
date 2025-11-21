@@ -2,7 +2,7 @@
 
 # Ridge Regression Validation: DuckDB Extension vs R (glmnet)
 #
-# Validates anofox_statistics_ridge_fit against R's glmnet package
+# Validates anofox_statistics_ridge against R's glmnet package
 # Uses DuckDB CLI for extension testing
 
 library(glmnet)
@@ -12,7 +12,7 @@ STRICT_TOL <- 1e-10  # For coefficients, R²
 RELAXED_TOL <- 1e-8  # For p-values
 
 DUCKDB_CLI <- "/tmp/duckdb"
-EXTENSION_PATH <- "build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension"
+EXTENSION_PATH <- "../../build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension"
 
 # Helper: Parse DuckDB CSV output
 parse_duckdb_csv <- function(csv_lines) {
@@ -171,19 +171,18 @@ cat(sprintf("  R²:        %.10f\n", r_r2))
 cat(sprintf("  Lambda:    %.10f (glmnet: %.10f)\n", lambda_test1, glmnet_lambda))
 
 # DuckDB query
+# Build matrix in row-major format: [[x1[1], x2[1]], [x1[2], x2[2]], ...]
+matrix_rows <- paste(sprintf("[%s, %s]", x1_test1, x2_test1), collapse = ", ")
 query <- sprintf("
 LOAD '%s';
-SELECT * FROM anofox_statistics_ridge_fit(
+SELECT * FROM anofox_statistics_ridge(
     [%s]::DOUBLE[],
-    [%s]::DOUBLE[],
-    [%s]::DOUBLE[],
-    %f::DOUBLE,
-    true
+    [%s]::DOUBLE[][],
+    {'lambda': %f, 'intercept': true}
 );
 ", EXTENSION_PATH,
    paste(y_test1, collapse = ", "),
-   paste(x1_test1, collapse = ", "),
-   paste(x2_test1, collapse = ", "),
+   matrix_rows,
    lambda_test1)
 
 csv_result <- run_duckdb_query(query)
@@ -248,21 +247,18 @@ cat(sprintf("  Slope 3:   %.10f\n", r_slopes2[3]))
 cat(sprintf("  R²:        %.10f\n", r_r2_2))
 
 # DuckDB query
+# Build matrix with 3 predictors
+matrix_rows2 <- paste(sprintf("[%s, %s, %s]", x1_test2, x2_test2, x3_test2), collapse = ", ")
 query2 <- sprintf("
 LOAD '%s';
-SELECT * FROM anofox_statistics_ridge_fit(
+SELECT * FROM anofox_statistics_ridge(
     [%s]::DOUBLE[],
-    [%s]::DOUBLE[],
-    [%s]::DOUBLE[],
-    [%s]::DOUBLE[],
-    %f::DOUBLE,
-    true
+    [%s]::DOUBLE[][],
+    {'lambda': %f, 'intercept': true}
 );
 ", EXTENSION_PATH,
    paste(y_test2, collapse = ", "),
-   paste(x1_test2, collapse = ", "),
-   paste(x2_test2, collapse = ", "),
-   paste(x3_test2, collapse = ", "),
+   matrix_rows2,
    lambda_test2)
 
 csv_result2 <- run_duckdb_query(query2)
@@ -315,19 +311,17 @@ cat(sprintf("  Slope 2:   %.10f\n", r_slope2_3))
 cat(sprintf("  R²:        %.10f\n", r_r2_3))
 
 # DuckDB Ridge with λ=0
+matrix_rows3 <- paste(sprintf("[%s, %s]", x1_test1, x2_test1), collapse = ", ")
 query3 <- sprintf("
 LOAD '%s';
-SELECT * FROM anofox_statistics_ridge_fit(
+SELECT * FROM anofox_statistics_ridge(
     [%s]::DOUBLE[],
-    [%s]::DOUBLE[],
-    [%s]::DOUBLE[],
-    %f::DOUBLE,
-    true
+    [%s]::DOUBLE[][],
+    {'lambda': %f, 'intercept': true}
 );
 ", EXTENSION_PATH,
    paste(y_test1, collapse = ", "),
-   paste(x1_test1, collapse = ", "),
-   paste(x2_test1, collapse = ", "),
+   matrix_rows3,
    lambda_test3)
 
 csv_result3 <- run_duckdb_query(query3)
@@ -387,19 +381,17 @@ cat(sprintf("  Slope 2:   %.10f (shrinkage from OLS: %.1f%%)\n",
 cat(sprintf("  R²:        %.10f\n", r_r2_4))
 
 # DuckDB query
+matrix_rows4 <- paste(sprintf("[%s, %s]", x1_test1, x2_test1), collapse = ", ")
 query4 <- sprintf("
 LOAD '%s';
-SELECT * FROM anofox_statistics_ridge_fit(
+SELECT * FROM anofox_statistics_ridge(
     [%s]::DOUBLE[],
-    [%s]::DOUBLE[],
-    [%s]::DOUBLE[],
-    %f::DOUBLE,
-    true
+    [%s]::DOUBLE[][],
+    {'lambda': %f, 'intercept': true}
 );
 ", EXTENSION_PATH,
    paste(y_test1, collapse = ", "),
-   paste(x1_test1, collapse = ", "),
-   paste(x2_test1, collapse = ", "),
+   matrix_rows4,
    lambda_test4)
 
 csv_result4 <- run_duckdb_query(query4)
