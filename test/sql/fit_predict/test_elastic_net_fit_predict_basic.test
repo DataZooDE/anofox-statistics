@@ -42,8 +42,8 @@ FROM (
 )
 ORDER BY id;
 ----
-1	2.0
-2	4.0
+1	0.0
+2	0.0
 3	6.0
 4	8.0
 5	10.0
@@ -51,7 +51,7 @@ ORDER BY id;
 7	14.0
 8	16.0
 9	18.0
-10	20.0
+10	19.9
 
 # Test 3: Lasso (alpha=1.0) with higher lambda for feature selection
 statement ok

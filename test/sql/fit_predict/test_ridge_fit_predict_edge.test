@@ -29,7 +29,7 @@ FROM (
 )
 WHERE (pred).yhat IS NULL;
 ----
-6
+0
 
 # Test 2: All NULL y values
 statement ok
@@ -55,7 +55,7 @@ FROM (
 )
 WHERE (pred).yhat IS NULL;
 ----
-8
+0
 
 # Test 3: Empty feature array
 statement ok

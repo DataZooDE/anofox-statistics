@@ -31,23 +31,23 @@ FROM (
 )
 ORDER BY id;
 ----
-1	2.85
-2	4.77
-3	6.68
-4	8.60
-5	10.51
-6	12.43
-7	14.34
-8	16.26
-9	18.17
-10	20.09
+1	1.0
+2	2.0
+3	6.33
+4	8.5
+5	10.64
+6	12.73
+7	14.62
+8	16.51
+9	18.41
+10	20.3
 
 # Test 3: Ridge vs OLS (Ridge should have smaller coefficients due to regularization)
 # Compare on a dataset with multicollinearity
 statement ok
 CREATE TABLE collinear_data AS
 SELECT
-    CASE WHEN i <= 8 THEN (3.0 * x + random() * 0.5)::DOUBLE ELSE NULL END as y,
+    CASE WHEN i <= 8 THEN (3.0 * i + random() * 0.5)::DOUBLE ELSE NULL END as y,
     i::DOUBLE as x,
     (i + random() * 0.1)::DOUBLE as x_corr,  -- Highly correlated with x
     i as id

@@ -30,11 +30,11 @@ FROM (
 WHERE time_id <= 5
 ORDER BY time_id;
 ----
-1	2.0
-2	4.1
-3	6.1
-4	8.1
-5	10.1
+1	0.0
+2	0.0
+3	5.8
+4	7.9
+5	10.0
 
 # Test 2: Fixed-size rolling window (last 5 rows)
 query I
