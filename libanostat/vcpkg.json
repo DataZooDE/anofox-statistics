@@ -1,0 +1,10 @@
+{
+  "name": "libanostat",
+  "version-string": "0.1.0",
+  "description": "Core statistical regression library - independent from DuckDB",
+  "dependencies": [
+    "catch2",
+    "eigen3",
+    "nlohmann-json"
+  ]
+}

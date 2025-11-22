@@ -1,7 +1,7 @@
 #include "elastic_net_fit.hpp"
 #include "../utils/tracing.hpp"
-#include "../utils/elastic_net_solver.hpp"
 #include "../utils/options_parser.hpp"
+#include "../bridge/libanostat_wrapper.hpp"
 
 #include "duckdb.hpp"
 #include "duckdb/common/exception.hpp"
@@ -120,73 +120,59 @@ static void ComputeElasticNet(ElasticNetFitBindData &data) {
 	                                           << data.options.alpha << ", lambda=" << data.options.lambda
 	                                           << (data.options.intercept ? " (with intercept)" : " (no intercept)"));
 
-	// Build design matrix X and response vector y
-	Eigen::MatrixXd X(n, p);
-	Eigen::VectorXd y(n);
+	// Fit Elastic Net using libanostat bridge layer
+	using namespace bridge;
 
-	// Fill X matrix with features
-	for (idx_t j = 0; j < p; j++) {
-		if (data.x_values[j].size() != n) {
-			throw InvalidInputException("Feature %d has %d values, expected %d", j, data.x_values[j].size(), n);
-		}
-		for (idx_t i = 0; i < n; i++) {
-			X(static_cast<Eigen::Index>(i), static_cast<Eigen::Index>(j)) = data.x_values[j][i];
-		}
-	}
+	auto result = LibanostatWrapper::FitElasticNet(
+	    data.y_values,       // vector<double>
+	    data.x_values,       // vector<vector<double>> (column-major)
+	    data.options,        // RegressionOptions (includes alpha and lambda)
+	    data.options.full_output
+	);
 
-	// Fill y vector
-	for (idx_t i = 0; i < n; i++) {
-		y(static_cast<Eigen::Index>(i)) = data.y_values[i];
-	}
+	// Extract coefficients
+	data.coefficients = TypeConverters::ExtractCoefficients(result);
 
-	// If intercept requested, center the data before fitting
-	Eigen::VectorXd y_centered = y;
-	Eigen::MatrixXd X_centered = X;
-	double y_mean = 0.0;
-	Eigen::VectorXd x_means(static_cast<Eigen::Index>(p));
-
+	// Compute intercept from centered coefficients
 	if (data.options.intercept) {
-		// Compute means
-		y_mean = y.mean();
-		x_means = X.colwise().mean();
-
-		// Center data
-		y_centered = y.array() - y_mean;
+		// Compute x_means and y_mean
+		Eigen::VectorXd x_means(p);
 		for (idx_t j = 0; j < p; j++) {
-			auto j_idx = static_cast<Eigen::Index>(j);
-			X_centered.col(j_idx) = X.col(j_idx).array() - x_means(j_idx);
+			double sum = 0.0;
+			for (idx_t i = 0; i < n; i++) {
+				sum += data.x_values[j][i];
+			}
+			x_means(j) = sum / static_cast<double>(n);
 		}
-	}
 
-	// Fit Elastic Net using coordinate descent
-	auto result = ElasticNetSolver::Fit(y_centered, X_centered, data.options.alpha, data.options.lambda);
+		double y_mean = 0.0;
+		for (idx_t i = 0; i < n; i++) {
+			y_mean += data.y_values[i];
+		}
+		y_mean /= static_cast<double>(n);
 
-	// Store coefficients
-	data.coefficients.resize(p);
-	for (idx_t j = 0; j < p; j++) {
-		auto j_idx = static_cast<Eigen::Index>(j);
-		data.coefficients[j] = result.coefficients[j_idx];
-	}
-
-	// Compute intercept
-	if (data.options.intercept) {
-		// intercept = ȳ - sum(beta_j * x̄_j)
 		double beta_dot_xmean = 0.0;
 		for (idx_t j = 0; j < p; j++) {
-			auto j_idx = static_cast<Eigen::Index>(j);
-			beta_dot_xmean += result.coefficients[j_idx] * x_means(j_idx);
+			beta_dot_xmean += data.coefficients[j] * x_means[j];
 		}
 		data.intercept = y_mean - beta_dot_xmean;
 	} else {
 		data.intercept = 0.0;
 	}
 
-	// Store fit statistics
-	data.r_squared = result.r_squared;
-	data.adj_r_squared = result.adj_r_squared;
-	data.mse = result.mse;
-	data.rmse = result.rmse;
-	data.n_nonzero = result.n_nonzero;
+	// Extract fit statistics
+	data.r_squared = TypeConverters::ExtractRSquared(result);
+	data.adj_r_squared = TypeConverters::ExtractAdjRSquared(result);
+	data.mse = TypeConverters::ExtractMSE(result);
+	data.rmse = TypeConverters::ExtractRMSE(result);
+
+	// Count non-zero coefficients
+	data.n_nonzero = 0;
+	for (idx_t j = 0; j < p; j++) {
+		if (std::abs(data.coefficients[j]) >= 1e-10) {
+			data.n_nonzero++;
+		}
+	}
 
 	// Compute extended metadata if full_output=true
 	if (data.options.full_output) {
@@ -201,26 +187,35 @@ static void ComputeElasticNet(ElasticNetFitBindData &data) {
 			data.is_zero[j] = (std::abs(data.coefficients[j]) < 1e-10);
 		}
 
-		// Store x_train_means
+		// Store x_train_means for intercept computation
 		if (data.options.intercept) {
 			data.x_train_means.resize(p);
 			for (idx_t j = 0; j < p; j++) {
-				data.x_train_means[j] = x_means(j);
+				double sum = 0.0;
+				for (idx_t i = 0; i < n; i++) {
+					sum += data.x_values[j][i];
+				}
+				data.x_train_means[j] = sum / static_cast<double>(n);
 			}
 		}
 
 		// Note: Elastic Net standard errors are complex due to regularization bias
-		// We provide approximate SEs assuming the selected model is correct
-		// For proper post-selection inference, use specialized methods
-		data.coefficient_std_errors.resize(p);
-		for (idx_t j = 0; j < p; j++) {
-			if (data.is_zero[j]) {
-				// Zero coefficient -> SE is undefined/not meaningful
-				data.coefficient_std_errors[j] = std::numeric_limits<double>::quiet_NaN();
-			} else {
-				// Approximate SE for non-zero coefficients (naive, ignores selection)
-				// SE ≈ sqrt(MSE) / sqrt(n) as a rough estimate
-				data.coefficient_std_errors[j] = std::sqrt(data.mse / static_cast<double>(n));
+		// libanostat returns NaN for Elastic Net standard errors (bootstrap recommended)
+		if (result.has_std_errors) {
+			data.coefficient_std_errors = TypeConverters::ExtractStdErrors(result);
+		} else {
+			// Provide approximate SEs assuming the selected model is correct
+			// For proper post-selection inference, use specialized methods
+			data.coefficient_std_errors.resize(p);
+			for (idx_t j = 0; j < p; j++) {
+				if (data.is_zero[j]) {
+					// Zero coefficient -> SE is undefined/not meaningful
+					data.coefficient_std_errors[j] = std::numeric_limits<double>::quiet_NaN();
+				} else {
+					// Approximate SE for non-zero coefficients (naive, ignores selection)
+					// SE ≈ sqrt(MSE) / sqrt(n) as a rough estimate
+					data.coefficient_std_errors[j] = std::sqrt(data.mse / static_cast<double>(n));
+				}
 			}
 		}
 
@@ -232,9 +227,9 @@ static void ComputeElasticNet(ElasticNetFitBindData &data) {
 		}
 	}
 
-	ANOFOX_DEBUG("Elastic Net complete: R² = " << data.r_squared << ", nonzero = " << data.n_nonzero << "/" << p
-	                                           << ", converged = " << result.converged
-	                                           << ", iterations = " << result.n_iterations);
+	ANOFOX_DEBUG("Elastic Net (via libanostat): R² = " << data.r_squared
+	             << ", nonzero = " << data.n_nonzero << "/" << p
+	             << ", α=" << data.options.alpha << ", λ=" << data.options.lambda);
 }
 
 static unique_ptr<FunctionData> ElasticNetFitBind(ClientContext &context, TableFunctionBindInput &input,

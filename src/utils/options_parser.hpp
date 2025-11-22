@@ -27,6 +27,7 @@ struct RegressionOptions {
 	// Window functions
 	idx_t window_size = 0; // Rolling window size (0 = not set)
 	idx_t min_periods = 0; // Expanding minimum periods (0 = not set)
+	string fit_predict_mode = "expanding"; // Fit-predict mode: "expanding" (default) or "fixed"
 
 	// Statistical inference (future extensibility)
 	double confidence_level = 0.95;
