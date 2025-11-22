@@ -394,10 +394,93 @@ SELECT
 FROM stats;
 
 -- ============================================================================
+-- Example 10: Extracting Model Coefficients
+-- ============================================================================
+-- Use anofox_statistics_ols_agg to fit a model and extract coefficients,
+-- intercept, R-squared, and other statistics
+
+CREATE OR REPLACE TABLE coef_demo AS
+SELECT
+    id::DOUBLE as x1,
+    (id + random() * 3.0)::DOUBLE as x2,
+    (2.0 * id + 1.5 * (id + random() * 3.0) + 10.0 + (random() * 5.0 - 2.5))::DOUBLE as y,
+    id
+FROM range(1, 51) t(id);
+
+-- Fit model and extract all statistics
+SELECT
+    'Model Statistics' as description,
+    (fit).intercept as intercept,
+    (fit).coefficients as coefficients,
+    (fit).r2 as r_squared,
+    (fit).adj_r2 as adj_r_squared,
+    (fit).mse as mean_squared_error,
+    (fit).n_obs as n_observations,
+    (fit).df_residual as degrees_of_freedom
+FROM (
+    SELECT anofox_statistics_ols_agg(y, [x1, x2], MAP{'intercept': 1}) as fit
+    FROM coef_demo
+);
+
+-- Extract just the coefficients with interpretation
+SELECT
+    'Coefficient Interpretation' as description,
+    ROUND((fit).intercept, 4) as intercept,
+    ROUND((fit).coefficients[1], 4) as beta_x1,
+    ROUND((fit).coefficients[2], 4) as beta_x2,
+    'y = ' || ROUND((fit).intercept, 2)::VARCHAR ||
+    ' + ' || ROUND((fit).coefficients[1], 2)::VARCHAR || '*x1' ||
+    ' + ' || ROUND((fit).coefficients[2], 2)::VARCHAR || '*x2' as equation
+FROM (
+    SELECT anofox_statistics_ols_agg(y, [x1, x2], MAP{'intercept': 1}) as fit
+    FROM coef_demo
+);
+
+-- Coefficients with standard errors and t-statistics
+SELECT
+    'Statistical Significance' as description,
+    ROUND((fit).coefficients[1], 4) as beta_x1,
+    ROUND((fit).coefficient_std_errors[1], 4) as se_x1,
+    ROUND((fit).coefficients[1] / (fit).coefficient_std_errors[1], 4) as t_stat_x1,
+    ROUND((fit).coefficients[2], 4) as beta_x2,
+    ROUND((fit).coefficient_std_errors[2], 4) as se_x2,
+    ROUND((fit).coefficients[2] / (fit).coefficient_std_errors[2], 4) as t_stat_x2
+FROM (
+    SELECT anofox_statistics_ols_agg(y, [x1, x2], MAP{'intercept': 1}) as fit
+    FROM coef_demo
+);
+
+-- Fit separate models for different groups and compare coefficients
+CREATE OR REPLACE TABLE grouped_coef AS
+SELECT
+    id::DOUBLE as x,
+    (slope * id + intercept + (random() * 3.0 - 1.5))::DOUBLE as y,
+    group_name
+FROM range(1, 31) t(id),
+(VALUES ('Group_A', 2.5, 10.0), ('Group_B', -1.2, 25.0)) g(group_name, slope, intercept);
+
+-- Compare coefficients across groups
+SELECT
+    group_name,
+    ROUND((fit).intercept, 2) as intercept,
+    ROUND((fit).coefficients[1], 2) as slope,
+    ROUND((fit).r2, 4) as r_squared,
+    (fit).n_obs as n
+FROM (
+    SELECT
+        group_name,
+        anofox_statistics_ols_agg(y, [x], MAP{'intercept': 1}) as fit
+    FROM grouped_coef
+    GROUP BY group_name
+)
+ORDER BY group_name;
+
+-- ============================================================================
 -- Cleanup
 -- ============================================================================
 
 DROP TABLE IF EXISTS simple_linear;
+DROP TABLE IF EXISTS train_test_split;
 DROP TABLE IF EXISTS multiple_regression;
 DROP TABLE IF EXISTS time_series;
 DROP TABLE IF EXISTS grouped_data;
@@ -405,3 +488,5 @@ DROP TABLE IF EXISTS no_intercept_data;
 DROP TABLE IF EXISTS confidence_demo;
 DROP TABLE IF EXISTS sales_data;
 DROP TABLE IF EXISTS model_quality;
+DROP TABLE IF EXISTS coef_demo;
+DROP TABLE IF EXISTS grouped_coef;
