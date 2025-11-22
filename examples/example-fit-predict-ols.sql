@@ -47,7 +47,61 @@ FROM (
 ORDER BY id;
 
 -- ============================================================================
--- Example 2: Multiple Linear Regression
+-- Example 2: Fixed Model - Train Once, Predict All (In-Sample Predictions)
+-- ============================================================================
+-- Fit ONE model using all training data, then use that SAME fixed model to
+-- predict on both training and test sets. This is the classic train/test approach.
+--
+-- KEY INSIGHT: The expanding window automatically stops growing when y IS NULL
+-- (test rows), so the model is fit once on all training data and then reused
+-- for all test predictions. The fit-predict function caches the model when the
+-- training window stops changing, making this efficient!
+
+CREATE OR REPLACE TABLE train_test_split AS
+SELECT
+    CASE WHEN id <= 12 THEN (2.5 * id + 3.0 + (random() * 2.0 - 1.0))::DOUBLE ELSE NULL END as y,
+    id::DOUBLE as x,
+    id
+FROM range(1, 21) t(id);
+
+-- View the data split
+SELECT
+    COUNT(*) as total_rows,
+    SUM(CASE WHEN y IS NOT NULL THEN 1 ELSE 0 END) as training_rows,
+    SUM(CASE WHEN y IS NULL THEN 1 ELSE 0 END) as test_rows
+FROM train_test_split;
+
+-- Fit model on ALL training data (rows 1-12), then predict on ALL rows (1-20)
+-- Because y IS NULL for test rows (13-20), the expanding window includes only
+-- rows 1-12 for ALL predictions, effectively creating a fixed model!
+SELECT
+    id,
+    x,
+    y,
+    ROUND((pred).yhat, 2) as yhat,
+    ROUND((pred).yhat_lower, 2) as lower,
+    ROUND((pred).yhat_upper, 2) as upper,
+    CASE
+        WHEN y IS NOT NULL THEN ROUND(ABS(y - (pred).yhat), 2)
+        ELSE NULL
+    END as abs_error,
+    CASE WHEN y IS NULL THEN 'Test (Out-of-Sample)' ELSE 'Train (In-Sample)' END as dataset
+FROM (
+    SELECT
+        id,
+        x,
+        y,
+        anofox_statistics_fit_predict_ols(
+            y,
+            [x],
+            MAP{'intercept': true}
+        ) OVER (ORDER BY id) as pred
+    FROM train_test_split
+)
+ORDER BY id;
+
+-- ============================================================================
+-- Example 3: Multiple Linear Regression
 -- ============================================================================
 -- Dataset where y = 3*x1 + 5*x2 - 2*x3 + 10
 
@@ -85,7 +139,7 @@ FROM (
 ORDER BY id;
 
 -- ============================================================================
--- Example 3: Rolling Window Regression
+-- Example 4: Rolling Window Regression
 -- ============================================================================
 -- Use only the last N observations to fit the model
 -- Useful for non-stationary data or detecting regime changes
@@ -125,7 +179,7 @@ WHERE time_id >= 11  -- Only show after rolling window is full
 ORDER BY time_id;
 
 -- ============================================================================
--- Example 4: Grouped/Partitioned Regression
+-- Example 5: Grouped/Partitioned Regression
 -- ============================================================================
 -- Separate models for different groups
 
@@ -167,7 +221,7 @@ FROM (
 ORDER BY group_name, id;
 
 -- ============================================================================
--- Example 5: Regression Without Intercept
+-- Example 6: Regression Without Intercept
 -- ============================================================================
 -- Force the line through the origin (useful in some physical models)
 
@@ -203,7 +257,7 @@ FROM (
 ORDER BY id;
 
 -- ============================================================================
--- Example 6: Prediction Intervals with Different Confidence Levels
+-- Example 7: Prediction Intervals with Different Confidence Levels
 -- ============================================================================
 -- Control the width of prediction intervals with alpha parameter
 
@@ -241,7 +295,7 @@ WHERE id > 15  -- Show only predictions
 ORDER BY id;
 
 -- ============================================================================
--- Example 7: Forecasting Future Values
+-- Example 8: Forecasting Future Values
 -- ============================================================================
 -- Practical example: predict sales based on historical data
 
@@ -299,7 +353,7 @@ FROM (
 ORDER BY month;
 
 -- ============================================================================
--- Example 8: Model Quality Assessment
+-- Example 9: Model Quality Assessment
 -- ============================================================================
 -- Extract predictions and calculate R-squared on training set
 
