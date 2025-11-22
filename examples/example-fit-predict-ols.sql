@@ -41,7 +41,7 @@ FROM (
             y,                              -- Dependent variable
             [x],                            -- Independent variables (array)
             MAP{'intercept': true}          -- Options: include intercept
-        ) OVER (ORDER BY id) as pred
+        ) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred
     FROM simple_linear
 )
 ORDER BY id;
@@ -150,7 +150,7 @@ FROM (
             y,
             [x],
             {'fit_predict_mode': 'expanding', 'intercept': true}
-        ) OVER (ORDER BY id) as pred_expanding,
+        ) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred_expanding,
         -- Fixed mode: one model fit on ALL training data (rows 1-18)
         anofox_statistics_fit_predict_ols(
             y,
@@ -193,7 +193,7 @@ FROM (
             y,
             [x1, x2],                       -- Multiple features
             MAP{'intercept': true}
-        ) OVER (ORDER BY id) as pred
+        ) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred
     FROM multiple_regression
 )
 ORDER BY id;
@@ -306,12 +306,12 @@ FROM (
             y,
             [x],
             MAP{'intercept': true}
-        ) OVER (ORDER BY id) as pred_with_intercept,
+        ) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred_with_intercept,
         anofox_statistics_fit_predict_ols(
             y,
             [x],
             MAP{'intercept': false}
-        ) OVER (ORDER BY id) as pred_no_intercept
+        ) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred_no_intercept
     FROM no_intercept_data
 )
 ORDER BY id;
@@ -343,12 +343,12 @@ FROM (
             y,
             [x],
             MAP{'intercept': 1, 'alpha': 0.05}  -- 95% confidence (default)
-        ) OVER (ORDER BY id) as pred_95,
+        ) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred_95,
         anofox_statistics_fit_predict_ols(
             y,
             [x],
             MAP{'intercept': 1, 'alpha': 0.01}  -- 99% confidence
-        ) OVER (ORDER BY id) as pred_99
+        ) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred_99
     FROM confidence_demo
 )
 WHERE id > 15  -- Show only predictions
@@ -434,7 +434,7 @@ WITH predictions AS (
                 y,
                 [x1, x2],
                 MAP{'intercept': true}
-            ) OVER (ORDER BY id) as pred
+            ) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred
         FROM model_quality
     )
     WHERE y IS NOT NULL
