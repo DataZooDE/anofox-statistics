@@ -103,16 +103,15 @@ ORDER BY id;
 -- ============================================================================
 -- Example 3: Multiple Linear Regression
 -- ============================================================================
--- Dataset where y = 3*x1 + 5*x2 - 2*x3 + 10
+-- Dataset where y = 2*x1 + 3*x2 + 10, with independent features
 
 CREATE OR REPLACE TABLE multiple_regression AS
 SELECT
-    CASE WHEN id <= 20 THEN
-        (3.0 * x1 + 5.0 * x2 - 2.0 * x3 + 10.0 + (random() * 2.0 - 1.0))::DOUBLE
-    ELSE NULL END as y,
     id::DOUBLE as x1,
-    (id * 0.5)::DOUBLE as x2,
-    (id * 0.25)::DOUBLE as x3,
+    (id + random() * 2.0)::DOUBLE as x2,  -- Independent feature
+    CASE WHEN id <= 20 THEN
+        (2.0 * id + 3.0 * (id + random() * 2.0) + 10.0 + (random() * 2.0 - 1.0))::DOUBLE
+    ELSE NULL END as y,
     id
 FROM range(1, 31) t(id);
 
@@ -131,7 +130,7 @@ FROM (
         y,
         anofox_statistics_fit_predict_ols(
             y,
-            [x1, x2, x3],                   -- Multiple features
+            [x1, x2],                       -- Multiple features
             MAP{'intercept': true}
         ) OVER (ORDER BY id) as pred
     FROM multiple_regression
@@ -282,12 +281,12 @@ FROM (
         anofox_statistics_fit_predict_ols(
             y,
             [x],
-            MAP{'intercept': true, 'alpha': 0.05}  -- 95% confidence (default)
+            MAP{'intercept': 1, 'alpha': 0.05}  -- 95% confidence (default)
         ) OVER (ORDER BY id) as pred_95,
         anofox_statistics_fit_predict_ols(
             y,
             [x],
-            MAP{'intercept': true, 'alpha': 0.01}  -- 99% confidence
+            MAP{'intercept': 1, 'alpha': 0.01}  -- 99% confidence
         ) OVER (ORDER BY id) as pred_99
     FROM confidence_demo
 )
@@ -301,28 +300,25 @@ ORDER BY id;
 
 CREATE OR REPLACE TABLE sales_data AS
 SELECT
-    CASE WHEN month <= 12 THEN sales ELSE NULL END as sales,
     month,
-    marketing_spend,
-    season
-FROM (
-    SELECT
-        month,
-        (500.0 + 2.5 * marketing_spend + season_effect + (random() * 50.0 - 25.0))::DOUBLE as sales,
-        (100.0 + month * 10.0)::DOUBLE as marketing_spend,
-        CASE
-            WHEN month % 12 IN (11, 0, 1) THEN 100.0  -- Winter boost
-            WHEN month % 12 IN (5, 6, 7) THEN 50.0     -- Summer boost
-            ELSE 0.0
-        END as season_effect,
-        CASE
-            WHEN month % 12 IN (11, 0, 1) THEN 'Winter'
-            WHEN month % 12 IN (2, 3, 4) THEN 'Spring'
-            WHEN month % 12 IN (5, 6, 7) THEN 'Summer'
-            ELSE 'Fall'
-        END as season
-    FROM range(1, 19) t(month)
-);
+    (100.0 + month * 10.0)::DOUBLE as marketing_spend,
+    CASE
+        WHEN month % 12 IN (11, 0, 1) THEN 'Winter'
+        WHEN month % 12 IN (2, 3, 4) THEN 'Spring'
+        WHEN month % 12 IN (5, 6, 7) THEN 'Summer'
+        ELSE 'Fall'
+    END as season,
+    CASE
+        WHEN month % 12 IN (11, 0, 1) THEN 100.0  -- Winter boost
+        WHEN month % 12 IN (5, 6, 7) THEN 50.0     -- Summer boost
+        ELSE 0.0
+    END as season_effect,
+    CASE WHEN month <= 12 THEN
+        (500.0 + 2.5 * (100.0 + month * 10.0) +
+         CASE WHEN month % 12 IN (11, 0, 1) THEN 100.0 WHEN month % 12 IN (5, 6, 7) THEN 50.0 ELSE 0.0 END +
+         (random() * 50.0 - 25.0))::DOUBLE
+    ELSE NULL END as sales
+FROM range(1, 19) t(month);
 
 -- Forecast next 6 months of sales
 SELECT
@@ -346,7 +342,7 @@ FROM (
         anofox_statistics_fit_predict_ols(
             sales,
             [marketing_spend],
-            MAP{'intercept': true, 'alpha': 0.05}
+            MAP{'intercept': 1, 'alpha': 0.05}
         ) OVER (ORDER BY month) as forecast
     FROM sales_data
 )
@@ -359,9 +355,9 @@ ORDER BY month;
 
 CREATE OR REPLACE TABLE model_quality AS
 SELECT
-    (2.5 * x1 + 1.5 * x2 + 5.0 + (random() * 3.0 - 1.5))::DOUBLE as y,
     id::DOUBLE as x1,
-    (id * 0.7)::DOUBLE as x2,
+    (id + random() * 5.0)::DOUBLE as x2,  -- Independent feature
+    (2.5 * id + 1.5 * (id + random() * 5.0) + 5.0 + (random() * 3.0 - 1.5))::DOUBLE as y,
     id
 FROM range(1, 31) t(id);
 
@@ -382,17 +378,20 @@ WITH predictions AS (
     )
     WHERE y IS NOT NULL
 ),
+y_mean AS (
+    SELECT AVG(y) as mean_y FROM predictions
+),
 stats AS (
     SELECT
-        SUM(POW(y - y_pred, 2)) as ss_res,          -- Residual sum of squares
-        SUM(POW(y - AVG(y) OVER (), 2)) as ss_tot    -- Total sum of squares
+        SUM(POW(y - y_pred, 2)) as ss_res,              -- Residual sum of squares
+        SUM(POW(y - (SELECT mean_y FROM y_mean), 2)) as ss_tot,  -- Total sum of squares
+        COUNT(*) as n
     FROM predictions
 )
 SELECT
     ROUND(1.0 - ss_res / ss_tot, 4) as r_squared,
-    ROUND(SQRT(ss_res / COUNT(*)), 4) as rmse
-FROM stats, predictions
-GROUP BY ss_res, ss_tot;
+    ROUND(SQRT(ss_res / n), 4) as rmse
+FROM stats;
 
 -- ============================================================================
 -- Cleanup
