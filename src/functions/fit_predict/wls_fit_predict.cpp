@@ -153,19 +153,18 @@ static void WlsFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 	auto &options = state.cache.options;
 	idx_t n_features = state.cache.n_features;
 
-	// Collect training data from window frame
+	// Compute frame signature (training row indices)
+	vector<idx_t> frame_indices = ComputeFrameSignature(subframes, all_y, all_x, options);
+
+	// Collect training data from frame signature
 	vector<double> train_y;
 	vector<vector<double>> train_x;
 	vector<double> train_weights;
 
-	for (const auto &frame : subframes) {
-		for (idx_t frame_idx = frame.start; frame_idx < frame.end; frame_idx++) {
-			if (frame_idx < all_y.size() && !std::isnan(all_y[frame_idx]) && !all_x[frame_idx].empty()) {
-				train_y.push_back(all_y[frame_idx]);
-				train_x.push_back(all_x[frame_idx]);
-				train_weights.push_back(all_weights[frame_idx]);
-			}
-		}
+	for (idx_t idx : frame_indices) {
+		train_y.push_back(all_y[idx]);
+		train_x.push_back(all_x[idx]);
+		train_weights.push_back(all_weights[idx]);
 	}
 
 	idx_t n_train = train_y.size();
@@ -257,8 +256,7 @@ static void WlsFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 	// Weighted sum of squared residuals
 	double ss_res = (w.array() * residuals.array() * residuals.array()).sum();
 
-	// df_model includes intercept if present
-	// Note: rank is computed from weighted, centered X (features only), so add 1 for intercept if present
+	// NOTE: rank is from QR of centered X (p features), so add 1 for intercept
 	idx_t df_model = rank + (options.intercept ? 1 : 0);
 	idx_t df_residual = n_train - df_model;
 	

@@ -122,6 +122,9 @@ PredictionResult ComputePredictionWithIntervalXtXInv(const vector<double> &x_new
 	}
 
 	// Compute point prediction
+	// NOTE: Even though we fit with centered X, the coefficients (slopes) are the same
+	// for centered and uncentered X. The intercept already accounts for centering:
+	// intercept = mean(y) - beta * mean(X), so yhat = intercept + beta * X
 	result.yhat = intercept;
 	for (size_t i = 0; i < x_new.size(); i++) {
 		result.yhat += coefficients(i) * x_new[i];
@@ -137,7 +140,7 @@ PredictionResult ComputePredictionWithIntervalXtXInv(const vector<double> &x_new
 		return result;
 	}
 
-	// Convert x_new to Eigen vector and center it
+	// Convert x_new to Eigen vector and center it (for leverage calculation)
 	Eigen::VectorXd x_eigen(x_new.size());
 	for (size_t i = 0; i < x_new.size(); i++) {
 		x_eigen(i) = x_new[i] - x_train_means(i);
@@ -306,8 +309,20 @@ LogicalType CreateFitPredictReturnType() {
 }
 
 vector<idx_t> ComputeFrameSignature(const SubFrames &subframes, const vector<double> &all_y,
-                                     const vector<vector<double>> &all_x) {
+                                     const vector<vector<double>> &all_x, const RegressionOptions &options) {
 	vector<idx_t> signature;
+
+	// Fixed mode: use ALL training data (ignore window frames)
+	if (options.fit_predict_mode == "fixed") {
+		for (idx_t i = 0; i < all_y.size(); i++) {
+			if (!std::isnan(all_y[i]) && !all_x[i].empty()) {
+				signature.push_back(i);
+			}
+		}
+		return signature;
+	}
+
+	// Expanding/rolling mode: use window frames (current behavior)
 	for (const auto &frame : subframes) {
 		for (idx_t frame_idx = frame.start; frame_idx < frame.end; frame_idx++) {
 			if (frame_idx < all_y.size() && !std::isnan(all_y[frame_idx]) && !all_x[frame_idx].empty()) {

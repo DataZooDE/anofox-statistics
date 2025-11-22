@@ -65,17 +65,16 @@ static void ElasticNetFitPredictWindow(duckdb::AggregateInputData &aggr_input_da
 	auto &options = state.cache.options;
 	idx_t n_features = state.cache.n_features;
 
-	// Collect training data from window frame
+	// Compute frame signature (training row indices)
+	vector<idx_t> frame_indices = ComputeFrameSignature(subframes, all_y, all_x, options);
+
+	// Collect training data from frame signature
 	vector<double> train_y;
 	vector<vector<double>> train_x;
 
-	for (const auto &frame : subframes) {
-		for (idx_t frame_idx = frame.start; frame_idx < frame.end; frame_idx++) {
-			if (frame_idx < all_y.size() && !std::isnan(all_y[frame_idx]) && !all_x[frame_idx].empty()) {
-				train_y.push_back(all_y[frame_idx]);
-				train_x.push_back(all_x[frame_idx]);
-			}
-		}
+	for (idx_t idx : frame_indices) {
+		train_y.push_back(all_y[idx]);
+		train_x.push_back(all_x[idx]);
 	}
 
 	idx_t n_train = train_y.size();
@@ -141,8 +140,7 @@ static void ElasticNetFitPredictWindow(duckdb::AggregateInputData &aggr_input_da
 	Eigen::VectorXd residuals = y_train - y_pred_train;
 	double ss_res = residuals.squaredNorm();
 
-	// df_model includes intercept if present
-	// Note: rank is computed from centered X (features only), so add 1 for intercept if present
+	// NOTE: rank is from QR of centered X (p features), so add 1 for intercept
 	idx_t df_model = rank + (options.intercept ? 1 : 0);
 	idx_t df_residual = n_train - df_model;
 	double mse = (df_residual > 0) ? (ss_res / df_residual) : std::numeric_limits<double>::quiet_NaN();

@@ -195,10 +195,11 @@ void LoadPartitionData(const WindowPartitionInput &partition, PartitionDataCache
  * @param subframes Window frames for current row
  * @param all_y Cached y values from partition
  * @param all_x Cached x values from partition
+ * @param options Regression options (used to determine fit_predict_mode)
  * @return Vector of indices of training rows (where y is not NULL and x is valid)
  */
 vector<idx_t> ComputeFrameSignature(const SubFrames &subframes, const vector<double> &all_y,
-                                     const vector<vector<double>> &all_x);
+                                     const vector<vector<double>> &all_x, const RegressionOptions &options);
 
 /**
  * @brief Check if two frame signatures are identical

@@ -97,7 +97,7 @@ static void OlsFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 	idx_t n_features = state.cache.n_features;
 
 	// Compute frame signature to check if we can use cached model
-	vector<idx_t> current_frame_sig = ComputeFrameSignature(subframes, all_y, all_x);
+	vector<idx_t> current_frame_sig = ComputeFrameSignature(subframes, all_y, all_x, options);
 
 	// Check if we have a cached model that matches this frame
 	OlsModelCache *cache = state.cache.model_cache;

@@ -47,15 +47,19 @@ FROM (
 ORDER BY id;
 
 -- ============================================================================
--- Example 2: Fixed Model - Train Once, Predict All (In-Sample Predictions)
+-- Example 2: Fixed Model - Train Once, Predict All
 -- ============================================================================
--- Fit ONE model using all training data, then use that SAME fixed model to
--- predict on both training and test sets. This is the classic train/test approach.
+-- Fit ONE model using all training data (y IS NOT NULL), then use that SAME
+-- fixed model to predict on ALL rows (both training and test sets).
+-- This is the classic train/test approach.
 --
--- KEY INSIGHT: The expanding window automatically stops growing when y IS NULL
--- (test rows), so the model is fit once on all training data and then reused
--- for all test predictions. The fit-predict function caches the model when the
--- training window stops changing, making this efficient!
+-- The 'fit_predict_mode': 'fixed' option tells the function to:
+-- 1. Fit the model using ALL training data (where y IS NOT NULL)
+-- 2. Use that same fixed model for ALL predictions (every row)
+-- 3. Ignore the window frame specification - OVER () is just for per-row output
+--
+-- This is different from 'expanding' mode which fits a growing model as it
+-- moves through the data.
 
 CREATE OR REPLACE TABLE train_test_split AS
 SELECT
@@ -72,8 +76,7 @@ SELECT
 FROM train_test_split;
 
 -- Fit model on ALL training data (rows 1-12), then predict on ALL rows (1-20)
--- Because y IS NULL for test rows (13-20), the expanding window includes only
--- rows 1-12 for ALL predictions, effectively creating a fixed model!
+-- Using 'fit_predict_mode': 'fixed' ensures one model fit, not expanding window
 SELECT
     id,
     x,
@@ -94,9 +97,64 @@ FROM (
         anofox_statistics_fit_predict_ols(
             y,
             [x],
-            MAP{'intercept': true}
-        ) OVER (ORDER BY id) as pred
+            {'fit_predict_mode': 'fixed', 'intercept': true}
+        ) OVER () as pred  -- OVER () just provides per-row output
     FROM train_test_split
+)
+ORDER BY id;
+
+-- ============================================================================
+-- Example 2b: Comparing Expanding vs Fixed Mode
+-- ============================================================================
+-- This example demonstrates the key difference between the two fit_predict_modes:
+-- - 'expanding': Fits model on growing window (rows 1 to current-1), predicts current row
+-- - 'fixed': Fits model ONCE on all training data, predicts all rows with same model
+
+-- Create data where relationship changes over time to highlight the difference
+CREATE OR REPLACE TABLE mode_comparison AS
+SELECT
+    id::DOUBLE as x,
+    -- First 15 rows: y = 2*x + 5 (one regime)
+    -- Last 5 rows: y = 4*x + 1 (different regime) - to show expanding adapts
+    CASE
+        WHEN id <= 15 THEN (2.0 * id + 5.0 + (random() * 1.0 - 0.5))::DOUBLE
+        WHEN id <= 18 THEN (4.0 * id + 1.0 + (random() * 1.0 - 0.5))::DOUBLE
+        ELSE NULL  -- Test data
+    END as y,
+    id
+FROM range(1, 21) t(id);
+
+-- Compare both modes side-by-side
+SELECT
+    id,
+    x,
+    y,
+    ROUND((pred_expanding).yhat, 2) as expanding_pred,
+    ROUND((pred_fixed).yhat, 2) as fixed_pred,
+    ROUND((pred_expanding).yhat - (pred_fixed).yhat, 2) as difference,
+    CASE
+        WHEN id <= 15 THEN 'Regime 1 (slope=2)'
+        WHEN id <= 18 THEN 'Regime 2 (slope=4)'
+        ELSE 'Test Data'
+    END as regime
+FROM (
+    SELECT
+        id,
+        x,
+        y,
+        -- Expanding mode: model grows/adapts as it moves through data
+        anofox_statistics_fit_predict_ols(
+            y,
+            [x],
+            {'fit_predict_mode': 'expanding', 'intercept': true}
+        ) OVER (ORDER BY id) as pred_expanding,
+        -- Fixed mode: one model fit on ALL training data (rows 1-18)
+        anofox_statistics_fit_predict_ols(
+            y,
+            [x],
+            {'fit_predict_mode': 'fixed', 'intercept': true}
+        ) OVER () as pred_fixed
+    FROM mode_comparison
 )
 ORDER BY id;
 
@@ -481,6 +539,7 @@ ORDER BY group_name;
 
 DROP TABLE IF EXISTS simple_linear;
 DROP TABLE IF EXISTS train_test_split;
+DROP TABLE IF EXISTS mode_comparison;
 DROP TABLE IF EXISTS multiple_regression;
 DROP TABLE IF EXISTS time_series;
 DROP TABLE IF EXISTS grouped_data;
