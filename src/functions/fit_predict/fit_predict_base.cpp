@@ -312,17 +312,22 @@ vector<idx_t> ComputeFrameSignature(const SubFrames &subframes, const vector<dou
                                      const vector<vector<double>> &all_x, const RegressionOptions &options) {
 	vector<idx_t> signature;
 
+	ANOFOX_DEBUG("ComputeFrameSignature: mode=" << options.fit_predict_mode << ", n_rows=" << all_y.size());
+
 	// Fixed mode: use ALL training data (ignore window frames)
 	if (options.fit_predict_mode == "fixed") {
+		ANOFOX_DEBUG("Using FIXED mode - collecting ALL training rows");
 		for (idx_t i = 0; i < all_y.size(); i++) {
 			if (!std::isnan(all_y[i]) && !all_x[i].empty()) {
 				signature.push_back(i);
 			}
 		}
+		ANOFOX_DEBUG("Fixed mode signature size: " << signature.size());
 		return signature;
 	}
 
 	// Expanding/rolling mode: use window frames (current behavior)
+	ANOFOX_DEBUG("Using EXPANDING mode - using window frames");
 	for (const auto &frame : subframes) {
 		for (idx_t frame_idx = frame.start; frame_idx < frame.end; frame_idx++) {
 			if (frame_idx < all_y.size() && !std::isnan(all_y[frame_idx]) && !all_x[frame_idx].empty()) {
@@ -330,6 +335,7 @@ vector<idx_t> ComputeFrameSignature(const SubFrames &subframes, const vector<dou
 			}
 		}
 	}
+	ANOFOX_DEBUG("Expanding mode signature size: " << signature.size());
 	return signature;
 }
 

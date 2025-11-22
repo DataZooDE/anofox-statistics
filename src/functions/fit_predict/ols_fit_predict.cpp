@@ -124,17 +124,13 @@ static void OlsFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 	idx_t n_train = 0; // Number of training samples (for debugging)
 
 	if (!use_cache) {
-		// Collect training data from window frame
+		// Collect training data using frame signature (works for both expanding and fixed modes)
 		vector<double> train_y;
 		vector<vector<double>> train_x;
 
-		for (const auto &frame : subframes) {
-			for (idx_t frame_idx = frame.start; frame_idx < frame.end; frame_idx++) {
-				if (frame_idx < all_y.size() && !std::isnan(all_y[frame_idx]) && !all_x[frame_idx].empty()) {
-					train_y.push_back(all_y[frame_idx]);
-					train_x.push_back(all_x[frame_idx]);
-				}
-			}
+		for (idx_t data_idx : current_frame_sig) {
+			train_y.push_back(all_y[data_idx]);
+			train_x.push_back(all_x[data_idx]);
 		}
 
 		n_train = train_y.size();
