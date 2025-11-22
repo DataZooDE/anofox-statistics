@@ -46,7 +46,7 @@ void OlsFitPredictCombine(Vector &source, Vector &target, AggregateInputData &ag
  */
 void OlsFitPredictFinalize(duckdb::Vector &state_vector, duckdb::AggregateInputData &aggr_input_data,
                            duckdb::Vector &result, idx_t count, idx_t offset) {
-	std::cerr << "[OLS FINALIZE] Called with count=" << count << ", offset=" << offset << " (should use OVER clause!)" << std::endl;
+	// std::cerr << "[OLS FINALIZE] Called with count=" << count << ", offset=" << offset << " (should use OVER clause!)" << std::endl;
 	// Not used in window mode
 	// If called in non-window mode, return NULL (user should use OVER clause)
 	auto &result_validity = FlatVector::Validity(result);
@@ -64,7 +64,7 @@ static void OlsFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
                                 duckdb::data_ptr_t l_state, const duckdb::SubFrames &subframes, duckdb::Vector &result,
                                 duckdb::idx_t rid) {
 
-	std::cerr << "[OLS WINDOW] Called for row " << rid << std::endl;
+	// std::cerr << "[OLS WINDOW] Called for row " << rid << std::endl;
 
 	// Access result validity
 	auto &result_validity = FlatVector::Validity(result);
@@ -164,10 +164,10 @@ static void OlsFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 			double mean_y = y_train.mean();
 			x_means = X_train.colwise().mean();
 
-			std::cerr << "[OLS FIT] n_train=" << n_train << ", p=" << p << std::endl;
-			std::cerr << "[OLS FIT] mean_y=" << mean_y << ", x_means[0]=" << x_means(0) << std::endl;
-			std::cerr << "[OLS FIT] y_train: " << y_train.transpose() << std::endl;
-			std::cerr << "[OLS FIT] X_train row 0: " << X_train.row(0) << std::endl;
+			// std::cerr << "[OLS FIT] n_train=" << n_train << ", p=" << p << std::endl;
+			// std::cerr << "[OLS FIT] mean_y=" << mean_y << ", x_means[0]=" << x_means(0) << std::endl;
+			// std::cerr << "[OLS FIT] y_train: " << y_train.transpose() << std::endl;
+			// std::cerr << "[OLS FIT] X_train row 0: " << X_train.row(0) << std::endl;
 
 			Eigen::VectorXd y_centered = y_train.array() - mean_y;
 			Eigen::MatrixXd X_centered = X_train;
@@ -175,13 +175,13 @@ static void OlsFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 				X_centered.col(j).array() -= x_means(j);
 			}
 
-			std::cerr << "[OLS FIT] y_centered: " << y_centered.transpose() << std::endl;
-			std::cerr << "[OLS FIT] X_centered row 0: " << X_centered.row(0) << std::endl;
+			// std::cerr << "[OLS FIT] y_centered: " << y_centered.transpose() << std::endl;
+			// std::cerr << "[OLS FIT] X_centered row 0: " << X_centered.row(0) << std::endl;
 
 			ols_result = RankDeficientOls::FitWithStdErrors(y_centered, X_centered);
 
-			std::cerr << "[OLS FIT] coefficients from libanostat: " << ols_result.coefficients.transpose() << std::endl;
-			std::cerr << "[OLS FIT] rank=" << ols_result.rank << std::endl;
+			// std::cerr << "[OLS FIT] coefficients from libanostat: " << ols_result.coefficients.transpose() << std::endl;
+			// std::cerr << "[OLS FIT] rank=" << ols_result.rank << std::endl;
 
 			// Compute intercept
 			double beta_dot_xmean = 0.0;
@@ -192,7 +192,7 @@ static void OlsFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 			}
 			intercept = mean_y - beta_dot_xmean;
 
-			std::cerr << "[OLS FIT] beta_dot_xmean=" << beta_dot_xmean << ", intercept=" << intercept << std::endl;
+			// std::cerr << "[OLS FIT] beta_dot_xmean=" << beta_dot_xmean << ", intercept=" << intercept << std::endl;
 
 			// Compute XtX_inv for leverage calculation (using already-centered X)
 			Eigen::MatrixXd XtX = X_centered.transpose() * X_centered;
@@ -228,8 +228,8 @@ static void OlsFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 		Eigen::VectorXd residuals = y_train - y_pred_train;
 		double ss_res = residuals.squaredNorm();
 
-		std::cerr << "[OLS FIT] y_pred_train[0]=" << y_pred_train(0) << ", residuals[0]=" << residuals(0) << std::endl;
-		std::cerr << "[OLS FIT] ss_res=" << ss_res << std::endl;
+		// std::cerr << "[OLS FIT] y_pred_train[0]=" << y_pred_train(0) << ", residuals[0]=" << residuals(0) << std::endl;
+		// std::cerr << "[OLS FIT] ss_res=" << ss_res << std::endl;
 
 		// NOTE: ols_result.rank is from libanostat which includes intercept in the design matrix
 		// But in fit-predict, we call libanostat_ols directly which gets the CENTERED X
@@ -238,7 +238,7 @@ static void OlsFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 		df_residual = n_train - df_model;
 		mse = (df_residual > 0) ? (ss_res / df_residual) : std::numeric_limits<double>::quiet_NaN();
 
-		std::cerr << "[OLS FIT] df_model=" << df_model << ", df_residual=" << df_residual << ", mse=" << mse << std::endl;
+		// std::cerr << "[OLS FIT] df_model=" << df_model << ", df_residual=" << df_residual << ", mse=" << mse << std::endl;
 
 		// Store coefficients
 		coefficients = ols_result.coefficients;
@@ -305,16 +305,16 @@ static void OlsFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 
 	// Now predict for the current row (rid)
 	if (rid >= all_x.size() || all_x[rid].empty()) {
-		std::cerr << "[OLS PREDICT] Row " << rid << " invalid: size=" << all_x.size() << std::endl;
+		// std::cerr << "[OLS PREDICT] Row " << rid << " invalid: size=" << all_x.size() << std::endl;
 		result_validity.SetInvalid(rid);
 		return;
 	}
 
 	if (rid < 3) {
-		std::cerr << "[OLS PREDICT] Row " << rid << ": x=" << all_x[rid][0]
-		          << ", intercept=" << intercept
-		          << ", coef[0]=" << coefficients(0)
-		          << ", x_means[0]=" << x_means(0) << std::endl;
+		// std::cerr << "[OLS PREDICT] Row " << rid << ": x=" << all_x[rid][0]
+		//           << ", intercept=" << intercept
+		//           << ", coef[0]=" << coefficients(0)
+		//           << ", x_means[0]=" << x_means(0) << std::endl;
 	}
 
 	// Compute prediction with interval (always use XtX_inv for memory efficiency)
@@ -324,13 +324,13 @@ static void OlsFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 	);
 
 	if (!pred.is_valid) {
-		std::cerr << "[OLS PREDICT] Row " << rid << " prediction INVALID" << std::endl;
+		// std::cerr << "[OLS PREDICT] Row " << rid << " prediction INVALID" << std::endl;
 		result_validity.SetInvalid(rid);
 		return;
 	}
 
 	if (rid < 3) {
-		std::cerr << "[OLS PREDICT] Row " << rid << " SUCCESS: yhat=" << pred.yhat << std::endl;
+		// std::cerr << "[OLS PREDICT] Row " << rid << " SUCCESS: yhat=" << pred.yhat << std::endl;
 	}
 
 	// Fill result
