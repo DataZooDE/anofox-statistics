@@ -56,7 +56,10 @@ ORDER BY id;
 -- The 'fit_predict_mode': 'fixed' option tells the function to:
 -- 1. Fit the model using ALL training data (where y IS NOT NULL)
 -- 2. Use that same fixed model for ALL predictions (every row)
--- 3. Ignore the window frame specification - OVER () is just for per-row output
+-- 3. Ignore the window frame - it uses all training data regardless of the frame
+--
+-- Note: You still need OVER (ORDER BY ... ROWS BETWEEN ...) for proper operation
+-- (using just OVER () causes a DuckDB query profiler assertion error)
 --
 -- This is different from 'expanding' mode which fits a growing model as it
 -- moves through the data.
@@ -98,7 +101,7 @@ FROM (
             y,
             [x],
             {'fit_predict_mode': 'fixed', 'intercept': true}
-        ) OVER () as pred  -- OVER () just provides per-row output
+        ) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred
     FROM train_test_split
 )
 ORDER BY id;
@@ -153,7 +156,7 @@ FROM (
             y,
             [x],
             {'fit_predict_mode': 'fixed', 'intercept': true}
-        ) OVER () as pred_fixed
+        ) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred_fixed
     FROM mode_comparison
 )
 ORDER BY id;
