@@ -111,98 +111,118 @@ inline core::RegressionResult OLSSolver::Fit(const Eigen::VectorXd &y, const Eig
 	// Validate options
 	options.Validate();
 
-	// Auto-add intercept column if requested (user-friendly API)
+	// R-COMPATIBLE APPROACH: Handle intercept by centering data, NOT by augmenting design matrix
+	// This ensures the intercept is NEVER marked as aliased (matches R's lm() behavior)
 	Eigen::MatrixXd X_work;
-	size_t p;
+	Eigen::VectorXd y_work;
+	Eigen::VectorXd x_means;
+	double y_mean = 0.0;
+	size_t p;  // Number of columns in X_work (features only, no intercept column)
+
 	if (options.intercept) {
-		// Prepend column of ones for intercept
-		p = p_user + 1;
+		// Center data instead of adding intercept column
+		p = p_user;
+		y_mean = y.mean();
+		x_means = X.colwise().mean();
+
+		// Center y and X
+		y_work = y.array() - y_mean;
 		X_work.resize(static_cast<Eigen::Index>(n), static_cast<Eigen::Index>(p));
-		X_work.col(0) = Eigen::VectorXd::Ones(static_cast<Eigen::Index>(n));
-		X_work.rightCols(static_cast<Eigen::Index>(p_user)) = X;
+		for (size_t j = 0; j < p_user; j++) {
+			X_work.col(static_cast<Eigen::Index>(j)) = X.col(static_cast<Eigen::Index>(j)).array() - x_means(static_cast<Eigen::Index>(j));
+		}
 	} else {
-		// Use X as-is
+		// No intercept: use X and y as-is
 		p = p_user;
 		X_work = X;
+		y_work = y;
+		x_means = Eigen::VectorXd::Zero(static_cast<Eigen::Index>(p_user));
 	}
 
-	// Initialize result
-	core::RegressionResult result(n, p, 0);
+	// Initialize result for features + intercept (if requested)
+	const size_t result_n_params = options.intercept ? (p_user + 1) : p_user;
+	core::RegressionResult result(n, result_n_params, 0);
 	result.tolerance_used = options.qr_tolerance;
 
-	// Step 1: Perform QR decomposition with column pivoting
-	// This automatically detects ALL dependencies including constant columns
+	// Step 1: Perform QR decomposition with column pivoting on FEATURES ONLY
+	// The intercept is NOT part of this decomposition (R-compatible)
 	Eigen::ColPivHouseholderQR<Eigen::MatrixXd> qr(X_work);
 
 	// Step 2: Set tolerance if specified
 	if (options.qr_tolerance > 0.0) {
 		qr.setThreshold(options.qr_tolerance);
 	}
-	// else: use Eigen's default (epsilon * max(n, p))
 
 	result.tolerance_used = qr.threshold();
 
 	// Step 3: Get rank and permutation from QR decomposition
-	// This is the ONLY source of truth for rank (matches R's DQRLS)
+	// rank is for features only (intercept handled separately)
 	result.rank = static_cast<size_t>(qr.rank());
 	const Eigen::PermutationMatrix<Eigen::Dynamic, Eigen::Dynamic> &P = qr.colsPermutation();
 
-	// Store permutation indices for later use
+	// Store permutation indices (for features, offset by +1 if intercept present)
 	for (size_t i = 0; i < p; i++) {
-		result.permutation_indices[i] = static_cast<size_t>(P.indices()[static_cast<Eigen::Index>(i)]);
+		size_t perm_idx = static_cast<size_t>(P.indices()[static_cast<Eigen::Index>(i)]);
+		// If intercept, feature permutations are at positions 1..p (position 0 is intercept)
+		result.permutation_indices[options.intercept ? (i + 1) : i] = options.intercept ? (perm_idx + 1) : perm_idx;
+	}
+	if (options.intercept) {
+		result.permutation_indices[0] = 0;  // Intercept is always at position 0, never permuted
 	}
 
-	// Step 4: Solve least squares for rank-r subsystem only
-	// CRITICAL: For rank-deficient matrices, qr.solve() gives unreliable results
-	// Instead, we explicitly solve R_r * beta_r = (Q^T * y)_r for the rank-r subsystem
-	// This matches R's DQRLS algorithm exactly
-
+	// Step 4: Solve least squares for rank-r subsystem only (on centered data)
 	Eigen::VectorXd coef_reduced;
 	if (result.rank > 0) {
-		// Extract Q^T * y
-		Eigen::VectorXd QtY = qr.matrixQ().transpose() * y;
-
-		// Extract upper-left rank×rank portion of R
+		Eigen::VectorXd QtY = qr.matrixQ().transpose() * y_work;
 		Eigen::MatrixXd R_reduced =
 		    qr.matrixQR().topLeftCorner(static_cast<Eigen::Index>(result.rank), static_cast<Eigen::Index>(result.rank));
-
-		// Solve the rank-r triangular system: R_r * coef_r = (Q^T y)_r
 		coef_reduced =
 		    R_reduced.triangularView<Eigen::Upper>().solve(QtY.head(static_cast<Eigen::Index>(result.rank)));
 	}
 
-	// Step 5: Assign coefficients based on R's algorithm
-	// The first 'rank' columns in PIVOTED order are non-aliased
-	// Map coefficients from reduced system back to original column positions
-	// Columns at pivoted positions [rank:p] remain NaN (aliased)
+	// Step 5: Assign feature coefficients (at positions 1..p_user if intercept, else 0..p_user-1)
+	const size_t coef_offset = options.intercept ? 1 : 0;
 	for (size_t i = 0; i < result.rank; i++) {
 		auto i_idx = static_cast<Eigen::Index>(i);
 		size_t original_idx = static_cast<size_t>(P.indices()[i_idx]);
 		auto orig_idx = static_cast<Eigen::Index>(original_idx);
 
-		// Assign coefficient from reduced system
-		result.coefficients[orig_idx] = coef_reduced[i_idx];
-		result.is_aliased[original_idx] = false;
+		// Assign coefficient from reduced system (offset if intercept present)
+		result.coefficients[orig_idx + coef_offset] = coef_reduced[i_idx];
+		result.is_aliased[original_idx + coef_offset] = false;
 	}
 
-	// Coefficients at pivoted positions [rank:p] remain NaN and is_aliased=true
-	// No special handling needed - they're already initialized as aliased
+	// Step 6: Compute intercept separately (NEVER aliased, matches R)
+	if (options.intercept) {
+		double intercept = y_mean;
+		// Subtract contribution of non-aliased features: intercept = mean(y) - sum(coef[j] * mean(x[j]))
+		for (size_t j = 0; j < p_user; j++) {
+			if (!result.is_aliased[j + 1]) {  // Feature coefficients are at positions 1..p_user
+				intercept -= result.coefficients[j + 1] * x_means(static_cast<Eigen::Index>(j));
+			}
+		}
+		result.coefficients[0] = intercept;
+		result.is_aliased[0] = false;  // Intercept is NEVER aliased
+	}
 
-	// Step 6: Compute predictions using only non-aliased features
-	// Skip NaN coefficients (aliased columns) to avoid numerical errors
+	// Step 7: Compute predictions using intercept + non-aliased features
 	Eigen::VectorXd y_pred = Eigen::VectorXd::Zero(static_cast<Eigen::Index>(n));
-	for (size_t j = 0; j < p; j++) {
+	if (options.intercept) {
+		y_pred = Eigen::VectorXd::Constant(static_cast<Eigen::Index>(n), result.coefficients[0]);
+	}
+	for (size_t j = 0; j < p_user; j++) {
+		const size_t coef_idx = options.intercept ? (j + 1) : j;
+		auto coef_idx_eigen = static_cast<Eigen::Index>(coef_idx);
 		auto j_idx = static_cast<Eigen::Index>(j);
-		// Check both is_aliased flag and NaN status for safety
-		if (!result.is_aliased[j] && std::isfinite(result.coefficients[j_idx])) {
-			y_pred += result.coefficients[j_idx] * X_work.col(j_idx);
+		if (!result.is_aliased[coef_idx] && std::isfinite(result.coefficients[coef_idx_eigen])) {
+			y_pred += result.coefficients[coef_idx_eigen] * X.col(j_idx);
 		}
 	}
 
-	// Step 7: Compute residuals
+	// Step 8: Compute residuals
 	result.residuals = y - y_pred;
 
-	// Step 8: Compute fit statistics
+	// Step 9: Compute fit statistics
 	ComputeStatistics(y, y_pred, result.residuals, result.rank, n, result);
 
 	return result;
@@ -213,30 +233,41 @@ inline core::RegressionResult OLSSolver::FitWithStdErrors(const Eigen::VectorXd 
 	const size_t n = static_cast<size_t>(X.rows());
 	const size_t p_user = static_cast<size_t>(X.cols());
 
-	// Auto-add intercept column if requested (user-friendly API)
-	Eigen::MatrixXd X_work;
-	size_t p;
-	if (options.intercept) {
-		// Prepend column of ones for intercept
-		p = p_user + 1;
-		X_work.resize(static_cast<Eigen::Index>(n), static_cast<Eigen::Index>(p));
-		X_work.col(0) = Eigen::VectorXd::Ones(static_cast<Eigen::Index>(n));
-		X_work.rightCols(static_cast<Eigen::Index>(p_user)) = X;
-	} else {
-		// Use X as-is
-		p = p_user;
-		X_work = X;
-	}
-
-	// First, perform basic fit
+	// First, perform basic fit using R-compatible centered data approach
 	auto result = Fit(y, X, options);
 
-	// Initialize std_errors with NaN
+	// Prepare working matrices for standard error computation
+	// Follow same centering approach as Fit() to ensure consistency
+	Eigen::MatrixXd X_work;
+	Eigen::VectorXd y_work;
+	size_t p;
+
+	if (options.intercept) {
+		// Center data (same as Fit())
+		p = p_user;
+		double y_mean = y.mean();
+		Eigen::VectorXd x_means = X.colwise().mean();
+
+		y_work = y.array() - y_mean;
+		X_work.resize(static_cast<Eigen::Index>(n), static_cast<Eigen::Index>(p));
+		for (size_t j = 0; j < p_user; j++) {
+			X_work.col(static_cast<Eigen::Index>(j)) =
+				X.col(static_cast<Eigen::Index>(j)).array() - x_means(static_cast<Eigen::Index>(j));
+		}
+	} else {
+		// Use X as-is (no intercept)
+		p = p_user;
+		X_work = X;
+		y_work = y;
+	}
+
+	// Initialize std_errors: size = p + (intercept ? 1 : 0)
+	size_t n_coeffs = p + (options.intercept ? 1 : 0);
 	result.std_errors =
-	    Eigen::VectorXd::Constant(static_cast<Eigen::Index>(p), std::numeric_limits<double>::quiet_NaN());
+	    Eigen::VectorXd::Constant(static_cast<Eigen::Index>(n_coeffs), std::numeric_limits<double>::quiet_NaN());
 	result.has_std_errors = true;
 
-	// Need to reconstruct QR for standard error computation
+	// Perform QR decomposition on centered/raw feature matrix (no intercept column)
 	Eigen::ColPivHouseholderQR<Eigen::MatrixXd> qr(X_work);
 	if (options.qr_tolerance > 0.0) {
 		qr.setThreshold(options.qr_tolerance);

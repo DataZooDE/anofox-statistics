@@ -511,3 +511,132 @@ TEST_CASE("OLS: Edge Case - Two Observations", "[ols][edge]") {
 	REQUIRE(result.r_squared >= 0.0);
 	REQUIRE(result.r_squared <= 1.0);
 }
+
+TEST_CASE("OLS: R-Compatible Simple Linear Regression", "[ols][r-compatible]") {
+	// Test data from R: y = [2.1, 4.2, 5.9, 8.1, 10.0], x = [1, 2, 3, 4, 5]
+	// R lm() output: intercept=0.15, slope=1.97, R²=0.9989, RMSE≈0.104
+	Eigen::VectorXd y(5);
+	Eigen::MatrixXd X(5, 1);
+
+	y << 2.1, 4.2, 5.9, 8.1, 10.0;
+	X << 1.0, 2.0, 3.0, 4.0, 5.0;
+
+	core::RegressionOptions opts;
+	opts.intercept = true;
+
+	auto result = OLSSolver::Fit(y, X, opts);
+
+	REQUIRE(result.success);
+
+	// Check intercept (position 0)
+	REQUIRE_THAT(result.coefficients(0),
+	             Catch::Matchers::WithinAbs(0.15, TOLERANCE));
+
+	// Check slope (position 1)
+	REQUIRE_THAT(result.coefficients(1),
+	             Catch::Matchers::WithinAbs(1.97, TOLERANCE));
+
+	// Check R²
+	REQUIRE_THAT(result.r_squared,
+	             Catch::Matchers::WithinAbs(0.9988932359, TOLERANCE));
+
+	// Check RMSE
+	double rmse = std::sqrt(result.mse);
+	REQUIRE_THAT(rmse,
+	             Catch::Matchers::WithinAbs(0.1036822068, TOLERANCE));
+}
+
+TEST_CASE("OLS: R-Compatible Multivariate Regression", "[ols][r-compatible]") {
+	// Test data from R: y ~ x1 + x2 + x3
+	// R lm() output: intercept=-1.264, x1=3.509, x2=0.486, x3=1.988, R²=0.9998
+	Eigen::VectorXd y(10);
+	Eigen::MatrixXd X(10, 3);
+
+	y << 9.3490142459, 23.0585207096, 20.1443065614, 27.5069089569, 23.3797539876,
+	     40.4297589129, 36.6737638447, 43.2302304187, 44.8091576842, 59.3127680131;
+
+	X << 1.0, 5.2, 2.3,
+	     2.0, 2.8, 8.1,
+	     3.0, 7.1, 3.7,
+	     4.0, 1.5, 6.9,
+	     5.0, 9.3, 1.4,
+	     6.0, 3.6, 9.6,
+	     7.0, 8.4, 4.5,
+	     8.0, 4.2, 7.2,
+	     9.0, 6.7, 5.8,
+	     10.0, 10.1, 10.3;
+
+	core::RegressionOptions opts;
+	opts.intercept = true;
+
+	auto result = OLSSolver::Fit(y, X, opts);
+
+	REQUIRE(result.success);
+
+	// Check intercept (position 0)
+	REQUIRE_THAT(result.coefficients(0),
+	             Catch::Matchers::WithinAbs(-1.2644666912, TOLERANCE));
+
+	// Check slopes in original feature order (positions 1, 2, 3)
+	REQUIRE_THAT(result.coefficients(1),
+	             Catch::Matchers::WithinAbs(3.5092902696, TOLERANCE));
+	REQUIRE_THAT(result.coefficients(2),
+	             Catch::Matchers::WithinAbs(0.4860377434, TOLERANCE));
+	REQUIRE_THAT(result.coefficients(3),
+	             Catch::Matchers::WithinAbs(1.9882987012, TOLERANCE));
+
+	// Check R²
+	REQUIRE_THAT(result.r_squared,
+	             Catch::Matchers::WithinAbs(0.9997870909, TOLERANCE));
+}
+
+TEST_CASE("OLS: R-Compatible Perfect Collinearity with Intercept", "[ols][r-compatible][rank-deficient]") {
+	// Test data: x1=[1,2,3,4,5], x2=2*x1 (perfect collinearity), y=2*x1+1
+	// R lm() output: intercept=1.0, exactly one non-NULL coefficient, R²=1.0
+	// Intercept should NEVER be aliased (R-compatible behavior)
+	Eigen::VectorXd y(5);
+	Eigen::MatrixXd X(5, 2);
+
+	y << 3.0, 5.0, 7.0, 9.0, 11.0;
+	X << 1.0, 2.0,
+	     2.0, 4.0,
+	     3.0, 6.0,
+	     4.0, 8.0,
+	     5.0, 10.0;
+
+	core::RegressionOptions opts;
+	opts.intercept = true;
+
+	auto result = OLSSolver::Fit(y, X, opts);
+
+	REQUIRE(result.success);
+
+	// Check intercept is NOT aliased (R-compatible)
+	REQUIRE_FALSE(result.is_aliased[0]);
+	REQUIRE_THAT(result.coefficients(0),
+	             Catch::Matchers::WithinAbs(1.0, TOLERANCE));
+
+	// Exactly one feature coefficient should be non-NULL
+	int non_null_count = 0;
+	for (size_t i = 1; i < result.is_aliased.size(); i++) {
+		if (!result.is_aliased[i]) {
+			non_null_count++;
+		}
+	}
+	REQUIRE(non_null_count == 1);
+
+	// The non-NULL coefficient should be either 2.0 (for x1) or 1.0 (for x2)
+	bool valid_coefficient = false;
+	if (!result.is_aliased[1]) {
+		// x1 coefficient
+		valid_coefficient = std::abs(result.coefficients(1) - 2.0) < TOLERANCE;
+	} else if (!result.is_aliased[2]) {
+		// x2 coefficient
+		valid_coefficient = std::abs(result.coefficients(2) - 1.0) < TOLERANCE;
+	}
+	REQUIRE(valid_coefficient);
+
+	// R² should be perfect
+	REQUIRE_THAT(result.r_squared,
+	             Catch::Matchers::WithinAbs(1.0, TOLERANCE));
+}
