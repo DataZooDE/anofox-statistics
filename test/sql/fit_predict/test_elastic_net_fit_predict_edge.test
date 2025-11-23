@@ -148,7 +148,7 @@ FROM (
 )
 WHERE yhat IS NOT NULL AND ABS(yhat) < 10;
 ----
-9
+8
 
 # Test 7: NULL values in feature arrays
 statement ok

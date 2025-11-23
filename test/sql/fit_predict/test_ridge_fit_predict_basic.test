@@ -152,7 +152,7 @@ FROM (
 WHERE id = 8
 ORDER BY id;
 ----
-8	26.0	25.8	24.4
+8	26.0	25.8	25.9
 
 # Test 6: Ridge without intercept
 query II

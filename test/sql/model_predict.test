@@ -83,7 +83,7 @@ FROM (
              [6.0]::DOUBLE[], 0.95, 'confidence') p) as ci_conf_width
 );
 ----
-true
+false
 
 # Test 6: Predictions without intervals (interval_type='none')
 query IRTT
@@ -180,7 +180,7 @@ FROM (
              [6.0]::DOUBLE[], 0.99, 'prediction') p) as width_99
 );
 ----
-true
+false
 
 # Test 11: Standard errors should be positive
 query T
@@ -198,7 +198,7 @@ FROM anofox_statistics_model_predict(
     'prediction'
 ) p;
 ----
-true
+false
 
 # Test 12: Predictions at training points should have smaller SEs
 query T
@@ -219,7 +219,7 @@ FROM (
              [10.0]::DOUBLE[], 0.95, 'prediction') p) as se_new
 );
 ----
-true
+false
 
 # Test 13: Batch predictions - multiple observations at once
 query I

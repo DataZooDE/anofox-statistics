@@ -57,7 +57,7 @@ WHERE (pred).yhat IS NULL;
 ----
 8
 
-# Test 3: Invalid forgetting_factor (> 1.0)
+# Test 3: Invalid forgetting_factor (> 1.8)
 statement ok
 CREATE TABLE rls_params AS
 SELECT

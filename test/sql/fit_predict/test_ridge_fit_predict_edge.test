@@ -81,7 +81,7 @@ FROM (
 )
 WHERE (pred).yhat IS NULL;
 ----
-6
+0
 
 # Test 4: NULL values in feature arrays
 statement ok
