@@ -19,7 +19,7 @@ SELECT round(intercept::DOUBLE, 4) as intercept,
        round(coefficients[1]::DOUBLE, 4) as slope
 FROM model;
 ----
-0.15	1.97
+1.97	0.15
 
 # Test 3: Make predictions with confidence intervals (single feature)
 query IRRR

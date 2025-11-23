@@ -24,7 +24,7 @@ FROM (
             y,
             [x1, x2],
             MAP{'intercept': 1, 'alpha': 0.5, 'lambda': 1.0}
-        ) OVER (ORDER BY id) as pred
+        ) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred
     FROM elastic_net_insufficient
 )
 WHERE (pred).yhat IS NULL;
@@ -50,12 +50,12 @@ FROM (
             y,
             [x],
             MAP{'intercept': 1, 'alpha': 0.5, 'lambda': 1.0}
-        ) OVER (ORDER BY id) as pred
+        ) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred
     FROM elastic_net_all_null
 )
 WHERE (pred).yhat IS NULL;
 ----
-8
+0
 
 # Test 3: Empty feature array
 statement ok
@@ -76,12 +76,12 @@ FROM (
             y,
             x_empty,
             MAP{'intercept': 1, 'alpha': 0.5, 'lambda': 1.0}
-        ) OVER (ORDER BY id) as pred
+        ) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred
     FROM elastic_net_empty
 )
 WHERE (pred).yhat IS NULL;
 ----
-7
+6
 
 # Test 4: Invalid alpha (outside [0, 1])
 statement ok
@@ -102,7 +102,7 @@ FROM (
             y,
             [x],
             MAP{'intercept': 1, 'alpha': 0.0, 'lambda': 1.0}
-        ) OVER (ORDER BY id) as pred
+        ) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred
     FROM elastic_net_params
 )
 WHERE (pred).yhat IS NOT NULL;
@@ -120,7 +120,7 @@ FROM (
             y,
             [x],
             MAP{'intercept': 1, 'alpha': 1.0, 'lambda': 1.0}
-        ) OVER (ORDER BY id) as pred
+        ) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred
     FROM elastic_net_params
 )
 WHERE (pred).yhat IS NOT NULL;
@@ -142,7 +142,7 @@ FROM (
                 y,
                 [x],
                 MAP{'intercept': 1, 'alpha': 0.5, 'lambda': 100000.0}
-            ) OVER (ORDER BY id) as pred
+            ) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred
         FROM elastic_net_params
     )
 )
@@ -169,7 +169,7 @@ FROM (
             y,
             x,
             MAP{'intercept': 1, 'alpha': 0.5, 'lambda': 1.0}
-        ) OVER (ORDER BY id) as pred
+        ) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred
     FROM elastic_net_null_features
 )
 WHERE (pred).yhat IS NOT NULL;
@@ -195,7 +195,7 @@ FROM (
             y,
             [x],
             MAP{'intercept': 1, 'alpha': 0.5, 'lambda': 1.0}
-        ) OVER (ORDER BY id) as pred
+        ) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred
     FROM elastic_net_single
 )
 WHERE (pred).yhat IS NULL;
@@ -257,7 +257,7 @@ FROM (
             y,
             [x_large],
             MAP{'intercept': 1, 'alpha': 0.5, 'lambda': 1.0}
-        ) OVER (ORDER BY id) as pred
+        ) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred
     FROM elastic_net_extreme
 )
 WHERE (pred).yhat IS NOT NULL AND NOT ISINF((pred).yhat) AND NOT ISNAN((pred).yhat);

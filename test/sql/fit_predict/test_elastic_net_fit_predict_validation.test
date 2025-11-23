@@ -28,7 +28,7 @@ SELECT COUNT(*) FROM (
     FROM (SELECT anofox_statistics_fit_predict_elastic_net(y, [x], MAP{'intercept': 1, 'alpha': 0.5, 'lambda': 1.0}) OVER (ORDER BY id) as pred FROM elastic_net_val)
 ) WHERE width > 0;
 ----
-15
+14
 
 # Test 3: Standard errors should be positive
 query I

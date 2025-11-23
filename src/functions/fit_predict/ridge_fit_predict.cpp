@@ -73,21 +73,6 @@ static void RidgeFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 	// Access result validity
 	auto &result_validity = FlatVector::Validity(result);
 
-	// Result is a STRUCT with fields: yhat, yhat_lower, yhat_upper, std_error, _dummy
-	auto &struct_entries = StructVector::GetEntries(result);
-
-	// Access DOUBLE fields
-	auto yhat_data = FlatVector::GetData<double>(*struct_entries[0]);
-	auto yhat_lower_data = FlatVector::GetData<double>(*struct_entries[1]);
-	auto yhat_upper_data = FlatVector::GetData<double>(*struct_entries[2]);
-	auto std_error_data = FlatVector::GetData<double>(*struct_entries[3]);
-
-	// Trigger struct initialization via dummy LIST field (DuckDB limitation workaround)
-	auto &dummy_list = *struct_entries[4];
-	ListVector::Reserve(dummy_list, rid + 1);
-	auto list_entries = FlatVector::GetData<list_entry_t>(dummy_list);
-	list_entries[rid] = list_entry_t {0, 0}; // Empty list for this row
-
 	// Access global state (cached partition data)
 	auto &state = *reinterpret_cast<RidgeFitPredictState *>(const_cast<data_ptr_t>(g_state));
 
@@ -163,8 +148,8 @@ static void RidgeFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 			std::cerr << "[DEBUG Ridge] Fitting new model: n_train=" << n_train << ", p=" << p << std::endl;
 		}
 
-		// Validation
-		idx_t min_required = p + (options.intercept ? 1 : 0) + 1;
+		// Validation: with intercept we can fit even with n=1 (intercept-only model)
+		idx_t min_required = options.intercept ? std::max((idx_t)1, p) : p;
 		if (n_train < min_required || p == 0) {
 			result_validity.SetInvalid(rid);
 			return;
@@ -188,26 +173,35 @@ static void RidgeFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 			double y_mean = y_train.mean();
 			x_means = X_train.colwise().mean();
 
-			Eigen::VectorXd y_centered = y_train.array() - y_mean;
-			Eigen::MatrixXd X_centered = X_train;
-			for (idx_t j = 0; j < p; j++) {
-				X_centered.col(j).array() -= x_means(j);
+			// Special case: n=1 with intercept → X_centered is all zeros (degenerate)
+			// Solution: intercept = y[0], beta = 0 (intercept-only model)
+			if (n_train == 1) {
+				beta = Eigen::VectorXd::Zero(p);
+				rank = 0; // Rank of centered X (all zeros) is 0
+				intercept = y_mean;
+				XtX_inv = Eigen::MatrixXd::Zero(p, p);
+			} else {
+				Eigen::VectorXd y_centered = y_train.array() - y_mean;
+				Eigen::MatrixXd X_centered = X_train;
+				for (idx_t j = 0; j < p; j++) {
+					X_centered.col(j).array() -= x_means(j);
+				}
+
+				Eigen::MatrixXd XtX = X_centered.transpose() * X_centered;
+				Eigen::VectorXd Xty = X_centered.transpose() * y_centered;
+				Eigen::MatrixXd identity = Eigen::MatrixXd::Identity(p, p);
+				Eigen::MatrixXd XtX_regularized = XtX + options.lambda * identity;
+
+				Eigen::ColPivHouseholderQR<Eigen::MatrixXd> qr(XtX_regularized);
+				beta = qr.solve(Xty);
+				rank = qr.rank();
+
+				intercept = y_mean - beta.dot(x_means);
+
+				// Compute XtX_inv for prediction intervals
+				Eigen::BDCSVD<Eigen::MatrixXd> svd(XtX, Eigen::ComputeThinU | Eigen::ComputeThinV);
+				XtX_inv = svd.solve(Eigen::MatrixXd::Identity(p, p));
 			}
-
-			Eigen::MatrixXd XtX = X_centered.transpose() * X_centered;
-			Eigen::VectorXd Xty = X_centered.transpose() * y_centered;
-			Eigen::MatrixXd identity = Eigen::MatrixXd::Identity(p, p);
-			Eigen::MatrixXd XtX_regularized = XtX + options.lambda * identity;
-
-			Eigen::ColPivHouseholderQR<Eigen::MatrixXd> qr(XtX_regularized);
-			beta = qr.solve(Xty);
-			rank = qr.rank();
-
-			intercept = y_mean - beta.dot(x_means);
-
-			// Compute XtX_inv for prediction intervals
-			Eigen::BDCSVD<Eigen::MatrixXd> svd(XtX, Eigen::ComputeThinU | Eigen::ComputeThinV);
-			XtX_inv = svd.solve(Eigen::MatrixXd::Identity(p, p));
 		} else {
 			x_means = Eigen::VectorXd::Zero(p);
 
@@ -274,6 +268,22 @@ static void RidgeFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 		result_validity.SetInvalid(rid);
 		return;
 	}
+
+	// Result is a STRUCT with fields: yhat, yhat_lower, yhat_upper, std_error, _dummy
+	// NOTE: Must access struct AFTER validation checks to avoid assertion failures
+	auto &struct_entries = StructVector::GetEntries(result);
+
+	// Access DOUBLE fields
+	auto yhat_data = FlatVector::GetData<double>(*struct_entries[0]);
+	auto yhat_lower_data = FlatVector::GetData<double>(*struct_entries[1]);
+	auto yhat_upper_data = FlatVector::GetData<double>(*struct_entries[2]);
+	auto std_error_data = FlatVector::GetData<double>(*struct_entries[3]);
+
+	// Trigger struct initialization via dummy LIST field (DuckDB limitation workaround)
+	auto &dummy_list = *struct_entries[4];
+	ListVector::Reserve(dummy_list, rid + 1);
+	auto list_entries = FlatVector::GetData<list_entry_t>(dummy_list);
+	list_entries[rid] = list_entry_t {0, 0}; // Empty list for this row
 
 	// DEBUG: Show input data for prediction
 	if (rid < 3) {

@@ -38,21 +38,6 @@ static void ElasticNetFitPredictWindow(duckdb::AggregateInputData &aggr_input_da
 	// Access result validity
 	auto &result_validity = FlatVector::Validity(result);
 
-	// Result is a STRUCT with fields: yhat, yhat_lower, yhat_upper, std_error, _dummy
-	auto &struct_entries = StructVector::GetEntries(result);
-
-	// Access DOUBLE fields
-	auto yhat_data = FlatVector::GetData<double>(*struct_entries[0]);
-	auto yhat_lower_data = FlatVector::GetData<double>(*struct_entries[1]);
-	auto yhat_upper_data = FlatVector::GetData<double>(*struct_entries[2]);
-	auto std_error_data = FlatVector::GetData<double>(*struct_entries[3]);
-
-	// Trigger struct initialization via dummy LIST field (DuckDB limitation workaround)
-	auto &dummy_list = *struct_entries[4];
-	ListVector::Reserve(dummy_list, rid + 1);
-	auto list_entries = FlatVector::GetData<list_entry_t>(dummy_list);
-	list_entries[rid] = list_entry_t {0, 0}; // Empty list for this row
-
 	// Access global state (cached partition data)
 	auto &state = *reinterpret_cast<ElasticNetFitPredictState *>(const_cast<data_ptr_t>(g_state));
 
@@ -80,12 +65,28 @@ static void ElasticNetFitPredictWindow(duckdb::AggregateInputData &aggr_input_da
 	idx_t n_train = train_y.size();
 	idx_t p = n_features;
 
-	// Need at least p + (intercept ? 1 : 0) + 1 observations for p features
-	idx_t min_required = p + (options.intercept ? 1 : 0) + 1;
+	// Minimum observations: with intercept we can fit even with n=1 (intercept-only model)
+	idx_t min_required = options.intercept ? std::max((idx_t)1, p) : p;
 	if (n_train < min_required || p == 0) {
 		result_validity.SetInvalid(rid);
 		return;
 	}
+
+	// Result is a STRUCT with fields: yhat, yhat_lower, yhat_upper, std_error, _dummy
+	// NOTE: Must access struct AFTER validation checks to avoid assertion failures
+	auto &struct_entries = StructVector::GetEntries(result);
+
+	// Access DOUBLE fields
+	auto yhat_data = FlatVector::GetData<double>(*struct_entries[0]);
+	auto yhat_lower_data = FlatVector::GetData<double>(*struct_entries[1]);
+	auto yhat_upper_data = FlatVector::GetData<double>(*struct_entries[2]);
+	auto std_error_data = FlatVector::GetData<double>(*struct_entries[3]);
+
+	// Trigger struct initialization via dummy LIST field (DuckDB limitation workaround)
+	auto &dummy_list = *struct_entries[4];
+	ListVector::Reserve(dummy_list, rid + 1);
+	auto list_entries = FlatVector::GetData<list_entry_t>(dummy_list);
+	list_entries[rid] = list_entry_t {0, 0}; // Empty list for this row
 
 	// Build training design matrix
 	Eigen::MatrixXd X_train(n_train, p);
@@ -109,20 +110,28 @@ static void ElasticNetFitPredictWindow(duckdb::AggregateInputData &aggr_input_da
 		double y_mean = y_train.mean();
 		x_means = X_train.colwise().mean();
 
-		Eigen::VectorXd y_centered = y_train.array() - y_mean;
-		Eigen::MatrixXd X_centered = X_train;
-		for (idx_t j = 0; j < p; j++) {
-			X_centered.col(j).array() -= x_means(j);
+		// Special case: n=1 with intercept → X_centered is all zeros (degenerate)
+		// Solution: intercept = y[0], beta = 0 (intercept-only model)
+		if (n_train == 1) {
+			beta = Eigen::VectorXd::Zero(p);
+			rank = 0; // Rank of centered X (all zeros) is 0
+			intercept = y_mean;
+		} else {
+			Eigen::VectorXd y_centered = y_train.array() - y_mean;
+			Eigen::MatrixXd X_centered = X_train;
+			for (idx_t j = 0; j < p; j++) {
+				X_centered.col(j).array() -= x_means(j);
+			}
+
+			// Fit Elastic Net on centered data
+			auto result = ElasticNetSolver::Fit(y_centered, X_centered, options.alpha, options.lambda);
+			beta = result.coefficients;
+			rank = (beta.array().abs() > 1e-10).count(); // Count non-zero coefficients
+
+			// Compute intercept
+			double beta_dot_xmean = beta.dot(x_means);
+			intercept = y_mean - beta_dot_xmean;
 		}
-
-		// Fit Elastic Net on centered data
-		auto result = ElasticNetSolver::Fit(y_centered, X_centered, options.alpha, options.lambda);
-		beta = result.coefficients;
-		rank = (beta.array().abs() > 1e-10).count(); // Count non-zero coefficients
-
-		// Compute intercept
-		double beta_dot_xmean = beta.dot(x_means);
-		intercept = y_mean - beta_dot_xmean;
 	} else {
 		// No intercept
 		auto result = ElasticNetSolver::Fit(y_train, X_train, options.alpha, options.lambda);

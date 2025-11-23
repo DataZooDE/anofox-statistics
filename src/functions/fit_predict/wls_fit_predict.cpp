@@ -35,21 +35,6 @@ static void WlsFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
                                 duckdb::data_ptr_t l_state, const duckdb::SubFrames &subframes, duckdb::Vector &result,
                                 duckdb::idx_t rid) {
 
-	// Result is a STRUCT with fields: yhat, yhat_lower, yhat_upper, std_error, _dummy
-	auto &struct_entries = StructVector::GetEntries(result);
-
-	// Access DOUBLE fields
-	auto yhat_data = FlatVector::GetData<double>(*struct_entries[0]);
-	auto yhat_lower_data = FlatVector::GetData<double>(*struct_entries[1]);
-	auto yhat_upper_data = FlatVector::GetData<double>(*struct_entries[2]);
-	auto std_error_data = FlatVector::GetData<double>(*struct_entries[3]);
-
-	// Trigger struct initialization via dummy LIST field (DuckDB limitation workaround)
-	auto &dummy_list = *struct_entries[4];
-	ListVector::Reserve(dummy_list, rid + 1);
-	auto list_entries = FlatVector::GetData<list_entry_t>(dummy_list);
-	list_entries[rid] = list_entry_t {0, 0}; // Empty list for this row
-
 	// Access global state (cached partition data)
 	auto &state = *reinterpret_cast<WlsFitPredictState *>(const_cast<data_ptr_t>(g_state));
 
@@ -170,12 +155,31 @@ static void WlsFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 	idx_t n_train = train_y.size();
 	idx_t p = n_features;
 
-	// Need at least p + (intercept ? 1 : 0) + 1 observations for p features
-	idx_t min_required = p + (options.intercept ? 1 : 0) + 1;
+	// Minimum observations:
+	// - With intercept and p <= 1: n >= 1 (allows intercept-only models)
+	// - With intercept and p >= 2: n >= p + 1 (need degrees of freedom)
+	// - Without intercept: n >= p
+	idx_t min_required = options.intercept ? (p <= 1 ? 1 : p + 1) : p;
 	if (n_train < min_required || p == 0) {
 		FlatVector::SetNull(result, rid, true);
 		return;
 	}
+
+	// Result is a STRUCT with fields: yhat, yhat_lower, yhat_upper, std_error, _dummy
+	// NOTE: Must access struct AFTER validation checks to avoid assertion failures
+	auto &struct_entries = StructVector::GetEntries(result);
+
+	// Access DOUBLE fields
+	auto yhat_data = FlatVector::GetData<double>(*struct_entries[0]);
+	auto yhat_lower_data = FlatVector::GetData<double>(*struct_entries[1]);
+	auto yhat_upper_data = FlatVector::GetData<double>(*struct_entries[2]);
+	auto std_error_data = FlatVector::GetData<double>(*struct_entries[3]);
+
+	// Trigger struct initialization via dummy LIST field (DuckDB limitation workaround)
+	auto &dummy_list = *struct_entries[4];
+	ListVector::Reserve(dummy_list, rid + 1);
+	auto list_entries = FlatVector::GetData<list_entry_t>(dummy_list);
+	list_entries[rid] = list_entry_t {0, 0}; // Empty list for this row
 
 	// Validate weights are positive
 	for (idx_t i = 0; i < n_train; i++) {
@@ -216,25 +220,33 @@ static void WlsFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 			x_means(j) = (w.array() * X_train.col(j).array()).sum() / sum_weights;
 		}
 
-		// Center data using weighted means
-		Eigen::VectorXd y_centered = y_train.array() - y_weighted_mean;
-		Eigen::MatrixXd X_centered = X_train;
-		for (idx_t j = 0; j < p; j++) {
-			X_centered.col(j).array() -= x_means(j);
+		// Special case: n=1 with intercept → X_centered is all zeros (degenerate)
+		// Solution: intercept = y[0], beta = 0 (intercept-only model)
+		if (n_train == 1) {
+			beta = Eigen::VectorXd::Zero(p);
+			rank = 0; // Rank of centered X (all zeros) is 0
+			intercept = y_weighted_mean;
+		} else {
+			// Center data using weighted means
+			Eigen::VectorXd y_centered = y_train.array() - y_weighted_mean;
+			Eigen::MatrixXd X_centered = X_train;
+			for (idx_t j = 0; j < p; j++) {
+				X_centered.col(j).array() -= x_means(j);
+			}
+
+			// Apply sqrt(W) transformation to centered data
+			Eigen::MatrixXd X_weighted = sqrt_w.asDiagonal() * X_centered;
+			Eigen::VectorXd y_weighted = sqrt_w.asDiagonal() * y_centered;
+
+			// Solve weighted OLS on transformed data
+			Eigen::ColPivHouseholderQR<Eigen::MatrixXd> qr(X_weighted);
+			beta = qr.solve(y_weighted);
+			rank = qr.rank();
+
+			// Compute intercept
+			double beta_dot_xmean = beta.dot(x_means);
+			intercept = y_weighted_mean - beta_dot_xmean;
 		}
-
-		// Apply sqrt(W) transformation to centered data
-		Eigen::MatrixXd X_weighted = sqrt_w.asDiagonal() * X_centered;
-		Eigen::VectorXd y_weighted = sqrt_w.asDiagonal() * y_centered;
-
-		// Solve weighted OLS on transformed data
-		Eigen::ColPivHouseholderQR<Eigen::MatrixXd> qr(X_weighted);
-		beta = qr.solve(y_weighted);
-		rank = qr.rank();
-
-		// Compute intercept
-		double beta_dot_xmean = beta.dot(x_means);
-		intercept = y_weighted_mean - beta_dot_xmean;
 	} else {
 		// No intercept - apply sqrt(W) transformation directly
 		Eigen::MatrixXd X_weighted = sqrt_w.asDiagonal() * X_train;

@@ -735,11 +735,15 @@ static void OlsArrayWindow(AggregateInputData &aggr_input_data, const WindowPart
 		// Compute intercept (using only non-aliased features)
 		double beta_dot_xmean = 0.0;
 		for (idx_t j = 0; j < p; j++) {
+			ANOFOX_DEBUG("OLS: j=" << j << ", is_aliased=" << ols_result.is_aliased[j]
+			             << ", coef=" << ols_result.coefficients[j] << ", x_mean=" << x_means(j));
 			if (!ols_result.is_aliased[j]) {
 				beta_dot_xmean += ols_result.coefficients[j] * x_means(j);
 			}
 		}
+		ANOFOX_DEBUG("OLS: mean_y=" << mean_y << ", beta_dot_xmean=" << beta_dot_xmean);
 		intercept = mean_y - beta_dot_xmean;
+		ANOFOX_DEBUG("OLS: intercept=" << intercept << ", rank=" << ols_result.rank);
 	} else {
 		// No intercept: solve directly on raw data
 		ols_result = RankDeficientOls::Fit(y, X);

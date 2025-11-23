@@ -69,21 +69,6 @@ static void OlsFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 	// Access result validity
 	auto &result_validity = FlatVector::Validity(result);
 
-	// Result is a STRUCT with fields: yhat, yhat_lower, yhat_upper, std_error, _dummy
-	auto &struct_entries = StructVector::GetEntries(result);
-
-	// Access DOUBLE fields
-	auto yhat_data = FlatVector::GetData<double>(*struct_entries[0]);
-	auto yhat_lower_data = FlatVector::GetData<double>(*struct_entries[1]);
-	auto yhat_upper_data = FlatVector::GetData<double>(*struct_entries[2]);
-	auto std_error_data = FlatVector::GetData<double>(*struct_entries[3]);
-
-	// Trigger struct initialization via dummy LIST field (DuckDB limitation workaround)
-	auto &dummy_list = *struct_entries[4];
-	ListVector::Reserve(dummy_list, rid + 1);
-	auto list_entries = FlatVector::GetData<list_entry_t>(dummy_list);
-	list_entries[rid] = list_entry_t {0, 0}; // Empty list for this row
-
 	// Access global state (cached partition data)
 	auto &state = *reinterpret_cast<OlsFitPredictState *>(const_cast<data_ptr_t>(g_state));
 
@@ -136,9 +121,9 @@ static void OlsFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 		n_train = train_y.size();
 		idx_t p = n_features;
 
-		// Need at least p + (intercept ? 1 : 0) + 1 observations for p features
-		// This ensures we have at least one more observation than parameters
-		idx_t min_required = p + (options.intercept ? 1 : 0) + 1;
+		// Minimum observations: with intercept we can fit even with n=1 (intercept-only model)
+		// Without intercept, we need at least p observations
+		idx_t min_required = options.intercept ? std::max((idx_t)1, p) : p;
 		if (n_train < min_required || p == 0) {
 			ANOFOX_DEBUG("Insufficient data: n_train=" << n_train << " < " << min_required << " (p=" << p << ", intercept=" << options.intercept << "): returning NULL");
 			result_validity.SetInvalid(rid);
@@ -164,41 +149,41 @@ static void OlsFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 			double mean_y = y_train.mean();
 			x_means = X_train.colwise().mean();
 
-			// std::cerr << "[OLS FIT] n_train=" << n_train << ", p=" << p << std::endl;
-			// std::cerr << "[OLS FIT] mean_y=" << mean_y << ", x_means[0]=" << x_means(0) << std::endl;
-			// std::cerr << "[OLS FIT] y_train: " << y_train.transpose() << std::endl;
-			// std::cerr << "[OLS FIT] X_train row 0: " << X_train.row(0) << std::endl;
+			// Special case: n=1 with intercept → X_centered is all zeros (degenerate)
+			// Solution: intercept = y[0], beta = 0 (intercept-only model)
+			if (n_train == 1) {
+				ols_result.coefficients = Eigen::VectorXd::Zero(p);
+				ols_result.std_errors = Eigen::VectorXd::Zero(p);
+				ols_result.is_aliased.assign(p, false);
+				ols_result.rank = 0; // Rank of centered X (all zeros) is 0
+				intercept = mean_y;
 
-			Eigen::VectorXd y_centered = y_train.array() - mean_y;
-			Eigen::MatrixXd X_centered = X_train;
-			for (idx_t j = 0; j < p; j++) {
-				X_centered.col(j).array() -= x_means(j);
-			}
-
-			// std::cerr << "[OLS FIT] y_centered: " << y_centered.transpose() << std::endl;
-			// std::cerr << "[OLS FIT] X_centered row 0: " << X_centered.row(0) << std::endl;
-
-			ols_result = RankDeficientOls::FitWithStdErrors(y_centered, X_centered);
-
-			// std::cerr << "[OLS FIT] coefficients from libanostat: " << ols_result.coefficients.transpose() << std::endl;
-			// std::cerr << "[OLS FIT] rank=" << ols_result.rank << std::endl;
-
-			// Compute intercept
-			double beta_dot_xmean = 0.0;
-			for (idx_t j = 0; j < p; j++) {
-				if (!ols_result.is_aliased[j]) {
-					beta_dot_xmean += ols_result.coefficients[j] * x_means(j);
+				// XtX_inv is undefined for n=1, but not used (df_residual=0 → no intervals)
+				XtX_inv = Eigen::MatrixXd::Zero(p, p);
+			} else {
+				Eigen::VectorXd y_centered = y_train.array() - mean_y;
+				Eigen::MatrixXd X_centered = X_train;
+				for (idx_t j = 0; j < p; j++) {
+					X_centered.col(j).array() -= x_means(j);
 				}
+
+				ols_result = RankDeficientOls::FitWithStdErrors(y_centered, X_centered);
+
+				// Compute intercept
+				double beta_dot_xmean = 0.0;
+				for (idx_t j = 0; j < p; j++) {
+					if (!ols_result.is_aliased[j]) {
+						beta_dot_xmean += ols_result.coefficients[j] * x_means(j);
+					}
+				}
+				intercept = mean_y - beta_dot_xmean;
+
+				// Compute XtX_inv for leverage calculation (using already-centered X)
+				Eigen::MatrixXd XtX = X_centered.transpose() * X_centered;
+				// Use pseudo-inverse for numerical stability
+				Eigen::BDCSVD<Eigen::MatrixXd> svd(XtX, Eigen::ComputeThinU | Eigen::ComputeThinV);
+				XtX_inv = svd.solve(Eigen::MatrixXd::Identity(p, p));
 			}
-			intercept = mean_y - beta_dot_xmean;
-
-			// std::cerr << "[OLS FIT] beta_dot_xmean=" << beta_dot_xmean << ", intercept=" << intercept << std::endl;
-
-			// Compute XtX_inv for leverage calculation (using already-centered X)
-			Eigen::MatrixXd XtX = X_centered.transpose() * X_centered;
-			// Use pseudo-inverse for numerical stability
-			Eigen::BDCSVD<Eigen::MatrixXd> svd(XtX, Eigen::ComputeThinU | Eigen::ComputeThinV);
-			XtX_inv = svd.solve(Eigen::MatrixXd::Identity(p, p));
 		} else {
 			// No intercept
 			ols_result = RankDeficientOls::FitWithStdErrors(y_train, X_train);
@@ -310,12 +295,28 @@ static void OlsFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 		return;
 	}
 
-	if (rid < 3) {
-		// std::cerr << "[OLS PREDICT] Row " << rid << ": x=" << all_x[rid][0]
-		//           << ", intercept=" << intercept
-		//           << ", coef[0]=" << coefficients(0)
-		//           << ", x_means[0]=" << x_means(0) << std::endl;
-	}
+	// Result is a STRUCT with fields: yhat, yhat_lower, yhat_upper, std_error, _dummy
+	// NOTE: Must access struct AFTER validation checks to avoid assertion failures
+	auto &struct_entries = StructVector::GetEntries(result);
+
+	// Access DOUBLE fields
+	auto yhat_data = FlatVector::GetData<double>(*struct_entries[0]);
+	auto yhat_lower_data = FlatVector::GetData<double>(*struct_entries[1]);
+	auto yhat_upper_data = FlatVector::GetData<double>(*struct_entries[2]);
+	auto std_error_data = FlatVector::GetData<double>(*struct_entries[3]);
+
+	// Trigger struct initialization via dummy LIST field (DuckDB limitation workaround)
+	auto &dummy_list = *struct_entries[4];
+	ListVector::Reserve(dummy_list, rid + 1);
+	auto list_entries = FlatVector::GetData<list_entry_t>(dummy_list);
+	list_entries[rid] = list_entry_t {0, 0}; // Empty list for this row
+
+	// if (rid < 3) {
+	// 	std::cerr << "[OLS PREDICT] Row " << rid << ": x=" << all_x[rid][0]
+	// 	          << ", intercept=" << intercept
+	// 	          << ", coef[0]=" << coefficients(0)
+	// 	          << ", x_means[0]=" << x_means(0) << std::endl;
+	// }
 
 	// Compute prediction with interval (always use XtX_inv for memory efficiency)
 	PredictionResult pred = ComputePredictionWithIntervalXtXInv(all_x[rid], intercept, coefficients, mse, x_means,

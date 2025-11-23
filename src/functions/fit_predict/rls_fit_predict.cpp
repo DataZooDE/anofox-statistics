@@ -37,21 +37,6 @@ static void RlsFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 	// Access result validity
 	auto &result_validity = FlatVector::Validity(result);
 
-	// Result is a STRUCT with fields: yhat, yhat_lower, yhat_upper, std_error, _dummy
-	auto &struct_entries = StructVector::GetEntries(result);
-
-	// Access DOUBLE fields
-	auto yhat_data = FlatVector::GetData<double>(*struct_entries[0]);
-	auto yhat_lower_data = FlatVector::GetData<double>(*struct_entries[1]);
-	auto yhat_upper_data = FlatVector::GetData<double>(*struct_entries[2]);
-	auto std_error_data = FlatVector::GetData<double>(*struct_entries[3]);
-
-	// Trigger struct initialization via dummy LIST field (DuckDB limitation workaround)
-	auto &dummy_list = *struct_entries[4];
-	ListVector::Reserve(dummy_list, rid + 1);
-	auto list_entries = FlatVector::GetData<list_entry_t>(dummy_list);
-	list_entries[rid] = list_entry_t {0, 0}; // Empty list for this row
-
 	// Access global state (cached partition data)
 	auto &state = *reinterpret_cast<RlsFitPredictState *>(const_cast<data_ptr_t>(g_state));
 
@@ -79,12 +64,31 @@ static void RlsFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 	idx_t n_train = train_y.size();
 	idx_t p = n_features;
 
-	// Need at least p + (intercept ? 1 : 0) + 1 observations for p features
-	idx_t min_required = p + (options.intercept ? 1 : 0) + 1;
+	// Minimum observations:
+	// - With intercept and p <= 1: n >= 1 (allows intercept-only models)
+	// - With intercept and p >= 2: n >= p + 1 (need degrees of freedom)
+	// - Without intercept: n >= p
+	idx_t min_required = options.intercept ? (p <= 1 ? 1 : p + 1) : p;
 	if (n_train < min_required || p == 0) {
 		result_validity.SetInvalid(rid);
 		return;
 	}
+
+	// Result is a STRUCT with fields: yhat, yhat_lower, yhat_upper, std_error, _dummy
+	// NOTE: Must access struct AFTER validation checks to avoid assertion failures
+	auto &struct_entries = StructVector::GetEntries(result);
+
+	// Access DOUBLE fields
+	auto yhat_data = FlatVector::GetData<double>(*struct_entries[0]);
+	auto yhat_lower_data = FlatVector::GetData<double>(*struct_entries[1]);
+	auto yhat_upper_data = FlatVector::GetData<double>(*struct_entries[2]);
+	auto std_error_data = FlatVector::GetData<double>(*struct_entries[3]);
+
+	// Trigger struct initialization via dummy LIST field (DuckDB limitation workaround)
+	auto &dummy_list = *struct_entries[4];
+	ListVector::Reserve(dummy_list, rid + 1);
+	auto list_entries = FlatVector::GetData<list_entry_t>(dummy_list);
+	list_entries[rid] = list_entry_t {0, 0}; // Empty list for this row
 
 	// Validate forgetting factor
 	if (options.forgetting_factor <= 0.0 || options.forgetting_factor > 1.0) {
@@ -109,68 +113,77 @@ static void RlsFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 	Eigen::VectorXd x_means;
 	idx_t rank;
 
-	// For intercept, augment X with column of ones
-	Eigen::MatrixXd X_work;
-	idx_t p_work;
+	// Special case: n=1 with intercept → intercept-only model
+	// With a single observation, features provide no information
+	if (options.intercept && n_train == 1) {
+		intercept = y_train(0);
+		beta = Eigen::VectorXd::Zero(p);
+		x_means = X_train.row(0); // Single observation
+		rank = 1; // Only intercept estimated
+	} else {
+		// For intercept, augment X with column of ones
+		Eigen::MatrixXd X_work;
+		idx_t p_work;
 
-	if (options.intercept) {
-		// Augment: X_work = [1, X] where 1 is column of ones
-		p_work = p + 1;
-		X_work = Eigen::MatrixXd(n_train, p_work);
-		X_work.col(0) = Eigen::VectorXd::Ones(n_train); // Intercept column
-		for (idx_t j = 0; j < p; j++) {
-			X_work.col(j + 1) = X_train.col(j);
+		if (options.intercept) {
+			// Augment: X_work = [1, X] where 1 is column of ones
+			p_work = p + 1;
+			X_work = Eigen::MatrixXd(n_train, p_work);
+			X_work.col(0) = Eigen::VectorXd::Ones(n_train); // Intercept column
+			for (idx_t j = 0; j < p; j++) {
+				X_work.col(j + 1) = X_train.col(j);
+			}
+		} else {
+			// No intercept: use X as-is
+			p_work = p;
+			X_work = X_train;
 		}
-	} else {
-		// No intercept: use X as-is
-		p_work = p;
-		X_work = X_train;
+
+		// Initialize RLS state
+		// β_0 = 0 (start with zero coefficients)
+		// P_0 = large_value * I (large uncertainty initially)
+		Eigen::VectorXd beta_work = Eigen::VectorXd::Zero(p_work);
+		double initial_p = 1000.0; // Large initial uncertainty
+		Eigen::MatrixXd P = Eigen::MatrixXd::Identity(p_work, p_work) * initial_p;
+
+		// Sequential RLS updates for each observation
+		for (idx_t t = 0; t < n_train; t++) {
+			// Get current observation x_t (p_work x 1 vector)
+			Eigen::VectorXd x_t = X_work.row(t).transpose();
+			double y_t = y_train(t);
+
+			// Prediction: ŷ_t = x_t' β_{t-1}
+			double y_pred = x_t.dot(beta_work);
+
+			// Prediction error: e_t = y_t - ŷ_t
+			double error = y_t - y_pred;
+
+			// Compute denominator: λ + x_t' P_{t-1} x_t
+			double denominator = options.forgetting_factor + x_t.dot(P * x_t);
+
+			// Kalman gain: K_t = P_{t-1} x_t / (λ + x_t' P_{t-1} x_t)
+			Eigen::VectorXd K = P * x_t / denominator;
+
+			// Update coefficients: β_t = β_{t-1} + K_t * e_t
+			beta_work = beta_work + K * error;
+
+			// Update covariance: P_t = (1/λ) * (P_{t-1} - K_t x_t' P_{t-1})
+			P = (P - K * x_t.transpose() * P) / options.forgetting_factor;
+		}
+
+		// Extract intercept and coefficients
+		if (options.intercept) {
+			intercept = beta_work(0);
+			beta = beta_work.tail(p);
+			x_means = X_train.colwise().mean();
+		} else {
+			intercept = 0.0;
+			beta = beta_work;
+			x_means = Eigen::VectorXd::Zero(p);
+		}
+
+		rank = p_work; // RLS typically maintains full rank
 	}
-
-	// Initialize RLS state
-	// β_0 = 0 (start with zero coefficients)
-	// P_0 = large_value * I (large uncertainty initially)
-	Eigen::VectorXd beta_work = Eigen::VectorXd::Zero(p_work);
-	double initial_p = 1000.0; // Large initial uncertainty
-	Eigen::MatrixXd P = Eigen::MatrixXd::Identity(p_work, p_work) * initial_p;
-
-	// Sequential RLS updates for each observation
-	for (idx_t t = 0; t < n_train; t++) {
-		// Get current observation x_t (p_work x 1 vector)
-		Eigen::VectorXd x_t = X_work.row(t).transpose();
-		double y_t = y_train(t);
-
-		// Prediction: ŷ_t = x_t' β_{t-1}
-		double y_pred = x_t.dot(beta_work);
-
-		// Prediction error: e_t = y_t - ŷ_t
-		double error = y_t - y_pred;
-
-		// Compute denominator: λ + x_t' P_{t-1} x_t
-		double denominator = options.forgetting_factor + x_t.dot(P * x_t);
-
-		// Kalman gain: K_t = P_{t-1} x_t / (λ + x_t' P_{t-1} x_t)
-		Eigen::VectorXd K = P * x_t / denominator;
-
-		// Update coefficients: β_t = β_{t-1} + K_t * e_t
-		beta_work = beta_work + K * error;
-
-		// Update covariance: P_t = (1/λ) * (P_{t-1} - K_t x_t' P_{t-1})
-		P = (P - K * x_t.transpose() * P) / options.forgetting_factor;
-	}
-
-	// Extract intercept and coefficients
-	if (options.intercept) {
-		intercept = beta_work(0);
-		beta = beta_work.tail(p);
-		x_means = X_train.colwise().mean();
-	} else {
-		intercept = 0.0;
-		beta = beta_work;
-		x_means = Eigen::VectorXd::Zero(p);
-	}
-
-	rank = p_work; // RLS typically maintains full rank
 
 	// Compute MSE
 	Eigen::VectorXd y_pred_train = Eigen::VectorXd::Constant(n_train, intercept);

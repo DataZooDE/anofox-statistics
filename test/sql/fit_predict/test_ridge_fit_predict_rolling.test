@@ -30,8 +30,8 @@ FROM (
 WHERE time_id <= 5
 ORDER BY time_id;
 ----
-1	0.0
-2	0.0
+1	2.2
+2	3.6
 3	5.8
 4	7.9
 5	10.0
