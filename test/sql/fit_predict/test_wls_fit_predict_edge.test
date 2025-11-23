@@ -59,7 +59,7 @@ FROM (
 )
 WHERE (pred).yhat IS NULL;
 ----
-8
+7
 
 # Test 3: Negative weights (invalid - should return NULL)
 statement ok

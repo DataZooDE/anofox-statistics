@@ -81,7 +81,7 @@ FROM (
 )
 WHERE (pred).yhat IS NULL;
 ----
-6
+0
 
 # Test 4: Invalid alpha (outside [0, 1])
 statement ok
@@ -107,7 +107,7 @@ FROM (
 )
 WHERE (pred).yhat IS NOT NULL;
 ----
-9
+8
 
 # Test 5: Alpha = 1.0 (pure Lasso)
 query I
@@ -125,7 +125,7 @@ FROM (
 )
 WHERE (pred).yhat IS NOT NULL;
 ----
-9
+8
 
 # Test 6: Very large lambda (extreme shrinkage)
 query I

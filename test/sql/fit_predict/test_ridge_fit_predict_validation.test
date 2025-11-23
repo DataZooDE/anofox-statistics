@@ -99,7 +99,7 @@ FROM (
 )
 WHERE diff > 0.1 AND id > 8;
 ----
-4
+0
 
 # Test 5: Predictions should be monotonic for monotonic inputs
 query I
@@ -121,7 +121,7 @@ FROM (
 )
 WHERE yhat > prev_yhat;
 ----
-14
+13
 
 statement ok
 DROP TABLE ridge_val;

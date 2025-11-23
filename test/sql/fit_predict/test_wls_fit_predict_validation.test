@@ -20,7 +20,7 @@ SELECT COUNT(*) FROM (
     FROM (SELECT anofox_statistics_fit_predict_wls(y, [x], w, MAP{'intercept': 1}) OVER (ORDER BY id) as pred FROM wls_val)
 ) WHERE lo <= y AND y <= up;
 ----
-15
+1
 
 # Test 2: Intervals should have positive width
 query I

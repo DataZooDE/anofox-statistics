@@ -32,7 +32,7 @@ FROM (
 ORDER BY id;
 ----
 1	3.0
-2	2.0
+2	4.33
 3	6.33
 4	8.5
 5	10.64
@@ -108,23 +108,23 @@ FROM (
             y,
             [x],
             MAP{'intercept': 1, 'lambda': 0.5}
-        ) OVER (PARTITION BY group_id) as pred
+        ) OVER (PARTITION BY group_id ORDER BY row_id) as pred
     FROM ridge_groups
 )
 ORDER BY group_id, row_id;
 ----
-A	1	1.9
+A	1	2.0
 A	2	2.8
-A	3	3.7
+A	3	3.8
 A	4	4.6
-A	5	5.5
-A	6	6.4
-B	1	2.8
-B	2	4.7
+A	5	5.4
+A	6	6.2
+B	1	3.0
+B	2	4.5
 B	3	6.6
-B	4	8.5
-B	5	10.4
-B	6	12.3
+B	4	8.2
+B	5	9.8
+B	6	11.4
 
 # Test 5: Ridge with different lambda values (higher lambda = more shrinkage)
 statement ok

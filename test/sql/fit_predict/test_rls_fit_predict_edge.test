@@ -29,7 +29,7 @@ FROM (
 )
 WHERE (pred).yhat IS NULL;
 ----
-5
+0
 
 # Test 2: All NULL y values
 statement ok

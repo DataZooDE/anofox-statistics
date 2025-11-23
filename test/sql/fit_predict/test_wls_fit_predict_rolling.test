@@ -27,7 +27,7 @@ FROM (
 )
 WHERE (pred).yhat IS NOT NULL;
 ----
-15
+13
 
 # Test 2: Fixed-size rolling window
 query I

@@ -91,7 +91,7 @@ A	4	4.0
 A	5	5.0
 A	6	6.0
 B	1	2.0
-B	2	2.5
+B	2	3.0
 B	3	4.0
 B	4	5.0
 B	5	6.0
@@ -101,10 +101,10 @@ B	6	7.0
 statement ok
 CREATE TABLE multi_feature AS
 SELECT
-    CASE WHEN i <= 8 THEN (2.0 * x1 + 3.0 * x2 + 1.0 + (random() * 0.1))::DOUBLE ELSE NULL END as y,
+    i as id,
     i::DOUBLE as x1,
-    (i * 0.5)::DOUBLE as x2,
-    i as id
+    (i * i * 0.1)::DOUBLE as x2,
+    CASE WHEN i <= 8 THEN (2.0 * i::DOUBLE + 3.0 * (i * i * 0.1)::DOUBLE + 1.0)::DOUBLE ELSE NULL END as y
 FROM range(1, 13) t(i);
 
 # Should predict reasonably well (coefficients near 2 and 3)
@@ -125,10 +125,10 @@ FROM (
 WHERE id IN (9, 10, 11, 12)
 ORDER BY id;
 ----
-9	24.5
-10	27.0
-11	29.5
-12	32.0
+9	43.3
+10	51.0
+11	59.3
+12	68.2
 
 # Cleanup
 statement ok

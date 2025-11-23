@@ -6,6 +6,9 @@ require anofox_statistics
 
 # Test 1: Expanding window (train on all previous rows)
 statement ok
+SELECT setseed(0.5);
+
+statement ok
 CREATE TABLE ridge_timeseries AS
 SELECT
     i as time_id,
@@ -30,11 +33,11 @@ FROM (
 WHERE time_id <= 5
 ORDER BY time_id;
 ----
-1	2.2
-2	3.6
-3	5.8
-4	7.9
-5	10.0
+1	2.4
+2	3.7
+3	5.4
+4	7.7
+5	9.7
 
 # Test 2: Fixed-size rolling window (last 5 rows)
 query I

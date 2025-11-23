@@ -148,8 +148,11 @@ static void RidgeFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 			std::cerr << "[DEBUG Ridge] Fitting new model: n_train=" << n_train << ", p=" << p << std::endl;
 		}
 
-		// Validation: with intercept we can fit even with n=1 (intercept-only model)
-		idx_t min_required = options.intercept ? std::max((idx_t)1, p) : p;
+		// Validation:
+		// - With intercept and p<=1: can fit with n=1 (intercept-only or simple regression)
+		// - With intercept and p>=2: need n >= p+1 to ensure df_residual >= 1
+		// - Without intercept: need n >= p
+		idx_t min_required = options.intercept ? (p <= 1 ? 1 : p + 1) : p;
 		if (n_train < min_required || p == 0) {
 			result_validity.SetInvalid(rid);
 			return;
