@@ -96,7 +96,8 @@ private:
 	 */
 	static void ComputeStandardErrors(const Eigen::MatrixXd &X,
 	                                  const Eigen::ColPivHouseholderQR<Eigen::MatrixXd> &qr, double mse, size_t rank,
-	                                  core::RegressionResult &result);
+	                                  core::RegressionResult &result, size_t coef_offset,
+	                                  bool compute_intercept_se, size_t n_obs, const Eigen::VectorXd &x_means);
 };
 
 // ============================================================================
@@ -156,8 +157,15 @@ inline core::RegressionResult OLSSolver::Fit(const Eigen::VectorXd &y, const Eig
 	result.tolerance_used = qr.threshold();
 
 	// Step 3: Get rank and permutation from QR decomposition
-	// rank is for features only (intercept handled separately)
-	result.rank = static_cast<size_t>(qr.rank());
+	// Feature rank from QR (features only, not including intercept)
+	size_t feature_rank = static_cast<size_t>(qr.rank());
+
+	// Total model rank includes intercept if present
+	result.rank = feature_rank;
+	if (options.intercept) {
+		// Intercept is never aliased, so total rank = feature_rank + 1
+		result.rank += 1;
+	}
 	const Eigen::PermutationMatrix<Eigen::Dynamic, Eigen::Dynamic> &P = qr.colsPermutation();
 
 	// Store permutation indices (for features, offset by +1 if intercept present)
@@ -172,17 +180,17 @@ inline core::RegressionResult OLSSolver::Fit(const Eigen::VectorXd &y, const Eig
 
 	// Step 4: Solve least squares for rank-r subsystem only (on centered data)
 	Eigen::VectorXd coef_reduced;
-	if (result.rank > 0) {
+	if (feature_rank > 0) {
 		Eigen::VectorXd QtY = qr.matrixQ().transpose() * y_work;
 		Eigen::MatrixXd R_reduced =
-		    qr.matrixQR().topLeftCorner(static_cast<Eigen::Index>(result.rank), static_cast<Eigen::Index>(result.rank));
+		    qr.matrixQR().topLeftCorner(static_cast<Eigen::Index>(feature_rank), static_cast<Eigen::Index>(feature_rank));
 		coef_reduced =
-		    R_reduced.triangularView<Eigen::Upper>().solve(QtY.head(static_cast<Eigen::Index>(result.rank)));
+		    R_reduced.triangularView<Eigen::Upper>().solve(QtY.head(static_cast<Eigen::Index>(feature_rank)));
 	}
 
 	// Step 5: Assign feature coefficients (at positions 1..p_user if intercept, else 0..p_user-1)
 	const size_t coef_offset = options.intercept ? 1 : 0;
-	for (size_t i = 0; i < result.rank; i++) {
+	for (size_t i = 0; i < feature_rank; i++) {
 		auto i_idx = static_cast<Eigen::Index>(i);
 		size_t original_idx = static_cast<size_t>(P.indices()[i_idx]);
 		auto orig_idx = static_cast<Eigen::Index>(original_idx);
@@ -273,8 +281,17 @@ inline core::RegressionResult OLSSolver::FitWithStdErrors(const Eigen::VectorXd 
 		qr.setThreshold(options.qr_tolerance);
 	}
 
-	// Compute standard errors for non-aliased coefficients
-	ComputeStandardErrors(X_work, qr, result.mse, result.rank, result);
+	// Get feature rank from QR (rank of features only, not including intercept)
+	size_t feature_rank = static_cast<size_t>(qr.rank());
+
+	// Compute standard errors for non-aliased coefficients (and intercept if present)
+	size_t coef_offset = options.intercept ? 1 : 0;
+
+	// Pass feature means for intercept SE computation if needed
+	Eigen::VectorXd x_means = options.intercept ? X.colwise().mean() : Eigen::VectorXd();
+
+	ComputeStandardErrors(X_work, qr, result.mse, feature_rank, result, coef_offset,
+	                      options.intercept, n, x_means);
 
 	return result;
 }
@@ -348,8 +365,16 @@ inline void OLSSolver::ComputeStatistics(const Eigen::VectorXd &y, const Eigen::
 	// MSE (using rank for degrees of freedom)
 	if (n > rank) {
 		result.mse = ss_res / static_cast<double>(n - rank);
+		// For numerical stability with near-perfect fits, use a minimum threshold
+		// This ensures standard errors remain finite even with tiny residuals
+		constexpr double min_mse = 1e-20;
+		if (result.mse < min_mse) {
+			result.mse = min_mse;
+		}
 	} else {
-		result.mse = 0.0;
+		// Saturated model: no degrees of freedom for error
+		// Set MSE to NaN as standard errors are undefined
+		result.mse = std::numeric_limits<double>::quiet_NaN();
 	}
 
 	// RMSE
@@ -358,7 +383,8 @@ inline void OLSSolver::ComputeStatistics(const Eigen::VectorXd &y, const Eigen::
 
 inline void OLSSolver::ComputeStandardErrors(const Eigen::MatrixXd &X,
                                              const Eigen::ColPivHouseholderQR<Eigen::MatrixXd> &qr, double mse,
-                                             size_t rank, core::RegressionResult &result) {
+                                             size_t rank, core::RegressionResult &result, size_t coef_offset,
+                                             bool compute_intercept_se, size_t n_obs, const Eigen::VectorXd &x_means) {
 	// Get permutation
 	const auto &P = qr.colsPermutation();
 
@@ -366,6 +392,14 @@ inline void OLSSolver::ComputeStandardErrors(const Eigen::MatrixXd &X,
 	// This is more complex - we need to work with the pivoted system
 
 	try {
+		if (rank == 0) {
+			// No valid features - only intercept if present
+			if (compute_intercept_se && n_obs > 0) {
+				result.std_errors[0] = std::sqrt(mse / static_cast<double>(n_obs));
+			}
+			return;
+		}
+
 		// Extract the rank-r subsystem
 		// Create X_reduced with only non-aliased columns (in pivoted order)
 		Eigen::MatrixXd X_reduced(X.rows(), static_cast<Eigen::Index>(rank));
@@ -380,13 +414,29 @@ inline void OLSSolver::ComputeStandardErrors(const Eigen::MatrixXd &X,
 		Eigen::MatrixXd XtX = X_reduced.transpose() * X_reduced;
 		Eigen::MatrixXd XtX_inv = XtX.inverse();
 
-		// Standard errors: SE_j = sqrt(MSE * (X'X)^-1_jj)
+		// Standard errors for features: SE_j = sqrt(MSE * (X'X)^-1_jj)
 		for (size_t i = 0; i < rank; i++) {
 			auto i_idx = static_cast<Eigen::Index>(i);
 			size_t original_idx = static_cast<size_t>(P.indices()[i_idx]);
-			auto orig_idx = static_cast<Eigen::Index>(original_idx);
+			auto orig_idx = static_cast<Eigen::Index>(original_idx + coef_offset);
 			double se = std::sqrt(mse * XtX_inv(i_idx, i_idx));
 			result.std_errors[orig_idx] = se;
+		}
+
+		// Compute intercept standard error if requested
+		if (compute_intercept_se) {
+			// SE(intercept) = sqrt(MSE * (1/n + x_mean' * (X'X)^-1 * x_mean))
+			// Extract means for non-aliased features (in pivoted order to match X_reduced)
+			Eigen::VectorXd x_means_reduced(static_cast<Eigen::Index>(rank));
+			for (size_t i = 0; i < rank; i++) {
+				auto i_idx = static_cast<Eigen::Index>(i);
+				size_t original_idx = static_cast<size_t>(P.indices()[i_idx]);
+				auto orig_idx = static_cast<Eigen::Index>(original_idx);
+				x_means_reduced(i_idx) = x_means(orig_idx);
+			}
+
+			double variance_component = x_means_reduced.transpose() * XtX_inv * x_means_reduced;
+			result.std_errors[0] = std::sqrt(mse * (1.0 / static_cast<double>(n_obs) + variance_component));
 		}
 
 	} catch (...) {
