@@ -40,3 +40,6 @@ libanostat/build/coverage/
 *.gcda
 *.gcno
 *.gcov
+libanostat/vcpkg_installed/
+*.pyc
+**/__pycache__/

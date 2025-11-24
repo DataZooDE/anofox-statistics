@@ -5,6 +5,7 @@
 #include "libanostat/core/regression_options.hpp"
 #include <Eigen/Dense>
 #include <vector>
+#include "../utils/options_parser.hpp"
 #include <limits>
 
 namespace duckdb {

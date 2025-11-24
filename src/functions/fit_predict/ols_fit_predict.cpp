@@ -1,4 +1,7 @@
 #include "ols_fit_predict.hpp"
+#include "../bridge/libanostat_wrapper.hpp"
+#include "../bridge/type_converters.hpp"
+#include "../utils/options_parser.hpp"
 #include "fit_predict_base.hpp"
 #include "../utils/tracing.hpp"
 #include "../utils/rank_deficient_ols.hpp"
@@ -145,7 +148,7 @@ static void OlsFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 		}
 
 		// Fit OLS model
-		RankDeficientOlsResult ols_result;
+		libanostat::core::RegressionResult ols_result;
 
 		if (options.intercept) {
 			// With intercept: center data, solve, compute intercept
@@ -170,13 +173,25 @@ static void OlsFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 					X_centered.col(j).array() -= x_means(j);
 				}
 
-				ols_result = RankDeficientOls::FitWithStdErrors(y_centered, X_centered);
+				// Convert Eigen to DuckDB vectors
+				vector<double> y_vec(n_train);
+				vector<vector<double>> x_vec(n_train, vector<double>(p));
+				for (size_t row = 0; row < n_train; row++) {
+					y_vec[row] = y_centered(row);
+					for (size_t col = 0; col < p; col++) {
+						x_vec[row][col] = X_centered(row, col);
+					}
+				}
+				// Use libanostat on centered data
+				RegressionOptions centered_opts;
+				centered_opts.intercept = false;
+				ols_result = bridge::LibanostatWrapper::FitOLS(y_vec, x_vec, centered_opts, true);
 
 				// Compute intercept
 				double beta_dot_xmean = 0.0;
 				for (idx_t j = 0; j < p; j++) {
-					if (!ols_result.is_aliased[j]) {
-						beta_dot_xmean += ols_result.coefficients[j] * x_means(j);
+					if (!std::isnan(ols_result.coefficients(j))) {
+						beta_dot_xmean += ols_result.coefficients(j) * x_means(j);
 					}
 				}
 				intercept = mean_y - beta_dot_xmean;
@@ -189,7 +204,18 @@ static void OlsFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 			}
 		} else {
 			// No intercept
-			ols_result = RankDeficientOls::FitWithStdErrors(y_train, X_train);
+			// Convert Eigen to DuckDB vectors
+			vector<double> y_vec(n_train);
+			vector<vector<double>> x_vec(n_train, vector<double>(p));
+			for (size_t row = 0; row < n_train; row++) {
+				y_vec[row] = y_train(row);
+				for (size_t col = 0; col < p; col++) {
+					x_vec[row][col] = X_train(row, col);
+				}
+			}
+			RegressionOptions no_intercept_opts;
+			no_intercept_opts.intercept = false;
+			ols_result = bridge::LibanostatWrapper::FitOLS(y_vec, x_vec, no_intercept_opts, true);
 			intercept = 0.0;
 			x_means = Eigen::VectorXd::Zero(p);
 
@@ -207,8 +233,8 @@ static void OlsFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 		for (idx_t row = 0; row < n_train; row++) {
 			y_pred_train(row) = intercept;
 			for (idx_t j = 0; j < p; j++) {
-				if (!ols_result.is_aliased[j]) {
-					y_pred_train(row) += ols_result.coefficients[j] * X_train(row, j);
+				if (!std::isnan(ols_result.coefficients(j))) {
+					y_pred_train(row) += ols_result.coefficients(j) * X_train(row, j);
 				}
 			}
 		}

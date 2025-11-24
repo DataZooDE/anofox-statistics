@@ -435,90 +435,79 @@ static void OlsArrayFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
 			continue;
 		}
 
-		// Build design matrix using Eigen
-		Eigen::MatrixXd X(n, p);
-		Eigen::VectorXd y(n);
+		// Use libanostat OLSSolver (handles intercept and centering automatically)
+		auto lib_result = bridge::LibanostatWrapper::FitOLS(state.y_values, state.x_matrix, state.options, true);
 
-		for (idx_t row = 0; row < n; row++) {
-			y(row) = state.y_values[row];
-			for (idx_t col = 0; col < p; col++) {
-				X(row, col) = state.x_matrix[row][col];
+		// Extract results using TypeConverters
+		double intercept = bridge::TypeConverters::ExtractIntercept(lib_result, state.options.intercept);
+		auto feature_coefs_vec = bridge::TypeConverters::ExtractFeatureCoefficients(lib_result, state.options.intercept);
+		Eigen::VectorXd feature_coefs = Eigen::Map<const Eigen::VectorXd>(feature_coefs_vec.data(), feature_coefs_vec.size());
+		// Compute x_means manually (libanostat doesn't store this)
+		Eigen::VectorXd x_means(p);
+		for (idx_t j = 0; j < p; j++) {
+			double sum = 0.0;
+			for (idx_t i = 0; i < n; i++) {
+				sum += state.x_matrix[i][j];
 			}
+			x_means(j) = sum / n;
 		}
+		idx_t rank = lib_result.rank; // Already includes intercept if fitted!
 
-		// Handle intercept option
-		double intercept = 0.0;
-		RankDeficientOlsResult ols_result;
-
-		// Store x_means for later use
-		Eigen::VectorXd x_means;
-
-		if (state.options.intercept) {
-			// With intercept: center data, solve, compute intercept
-			double mean_y = y.mean();
-			x_means = X.colwise().mean();
-
-			Eigen::VectorXd y_centered = y.array() - mean_y;
-			Eigen::MatrixXd X_centered = X;
+		// Compute predictions
+		Eigen::VectorXd y_pred(n);
+		for (idx_t i = 0; i < n; i++) {
+			y_pred(i) = intercept;
 			for (idx_t j = 0; j < p; j++) {
-				X_centered.col(j).array() -= x_means(j);
-			}
-
-			ols_result = RankDeficientOls::FitWithStdErrors(y_centered, X_centered);
-
-			// Compute intercept (using only non-aliased features)
-			double beta_dot_xmean = 0.0;
-			for (idx_t j = 0; j < p; j++) {
-				if (!ols_result.is_aliased[j]) {
-					beta_dot_xmean += ols_result.coefficients[j] * x_means(j);
+				if (!std::isnan(feature_coefs(j))) {
+					y_pred(i) += feature_coefs(j) * state.x_matrix[i][j];
 				}
 			}
-			intercept = mean_y - beta_dot_xmean;
-		} else {
-			// No intercept: solve directly on raw data
-			ols_result = RankDeficientOls::FitWithStdErrors(y, X);
-			intercept = 0.0;
-			x_means = Eigen::VectorXd::Zero(p);
 		}
 
-		// Compute predictions using only non-aliased features
-		Eigen::VectorXd y_pred = Eigen::VectorXd::Constant(n, intercept);
-		for (idx_t j = 0; j < p; j++) {
-			if (!ols_result.is_aliased[j]) {
-				y_pred += ols_result.coefficients[j] * X.col(j);
-			}
+		// Compute R²
+		Eigen::VectorXd y_eigen(n);
+		for (idx_t i = 0; i < n; i++) {
+			y_eigen(i) = state.y_values[i];
 		}
-
-		// Compute R² and adjusted R² using effective rank
-		Eigen::VectorXd residuals = y - y_pred;
+		Eigen::VectorXd residuals = y_eigen - y_pred;
 		double ss_res = residuals.squaredNorm();
 
 		double ss_tot;
 		if (state.options.intercept) {
-			double mean_y = y.mean();
-			ss_tot = (y.array() - mean_y).square().sum();
+			double mean_y = 0.0;
+			for (idx_t i = 0; i < n; i++) {
+				mean_y += state.y_values[i];
+			}
+			mean_y /= n;
+			ss_tot = 0.0;
+			for (idx_t i = 0; i < n; i++) {
+				double diff = state.y_values[i] - mean_y;
+				ss_tot += diff * diff;
+			}
 		} else {
-			// No intercept: total sum of squares from zero
-			ss_tot = y.squaredNorm();
+			ss_tot = 0.0;
+			for (idx_t i = 0; i < n; i++) {
+				ss_tot += state.y_values[i] * state.y_values[i];
+			}
 		}
 
 		double r2 = (ss_tot > 1e-10) ? (1.0 - ss_res / ss_tot) : 0.0;
 
-		// Adjusted R²: RankDeficientOls.rank is feature rank only (doesn't include intercept)
-	// Total model rank = feature_rank + (intercept ? 1 : 0)
-		idx_t df_model = ols_result.rank + (state.options.intercept ? 1 : 0);
+		// Adjusted R²: lib_result.rank already includes intercept
+		idx_t df_model = rank;
 		double adj_r2 = 1.0 - (1.0 - r2) * (n - 1) / (n - df_model);
+
 
 		// Store coefficients in child vector (NaN for aliased -> will be NULL)
 		auto coef_data = FlatVector::GetData<double>(coef_child);
 		auto &coef_validity = FlatVector::Validity(coef_child);
 		for (idx_t j = 0; j < p; j++) {
-			if (std::isnan(ols_result.coefficients[j])) {
+			if (std::isnan(feature_coefs(j))) {
 				// Aliased coefficient -> set as invalid (NULL)
 				coef_validity.SetInvalid(list_offset + j);
 				coef_data[list_offset + j] = 0.0; // Placeholder value
 			} else {
-				coef_data[list_offset + j] = ols_result.coefficients[j];
+				coef_data[list_offset + j] = feature_coefs(j);
 			}
 		}
 
@@ -532,7 +521,7 @@ static void OlsArrayFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
 
 		// 2. Intercept standard error
 		double intercept_se = std::numeric_limits<double>::quiet_NaN();
-		if (state.options.intercept && ols_result.has_std_errors && df_residual > 0) {
+		if (state.options.intercept && lib_result.has_std_errors && df_residual > 0) {
 			// SE(intercept) = sqrt(MSE * (1/n + x_mean' * (X'X)^-1 * x_mean))
 			// Approximation: SE(intercept) ≈ sqrt(MSE / n) for centered data
 			intercept_se = std::sqrt(mse / n);
@@ -548,9 +537,19 @@ static void OlsArrayFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
 		// 4. Store coefficient_std_errors in list (same offset as coefficients)
 		auto coef_se_data = FlatVector::GetData<double>(coef_se_child);
 		auto &coef_se_validity = FlatVector::Validity(coef_se_child);
+		// Extract feature std errors (excluding intercept)
+		auto all_std_errors_vec = bridge::TypeConverters::ExtractStdErrors(lib_result);
+		vector<double> feature_std_errors_vec;
+		if (state.options.intercept && all_std_errors_vec.size() > 0) {
+			// Skip first element (intercept), extract rest
+			feature_std_errors_vec.assign(all_std_errors_vec.begin() + 1, all_std_errors_vec.end());
+		} else {
+			feature_std_errors_vec = all_std_errors_vec;
+		}
+		Eigen::VectorXd feature_std_errors = Eigen::Map<const Eigen::VectorXd>(feature_std_errors_vec.data(), feature_std_errors_vec.size());
 		for (idx_t j = 0; j < p; j++) {
-			if (ols_result.has_std_errors && !std::isnan(ols_result.std_errors(j))) {
-				coef_se_data[list_offset + j] = ols_result.std_errors(j);
+			if (lib_result.has_std_errors && !std::isnan(feature_std_errors(j))) {
+				coef_se_data[list_offset + j] = feature_std_errors(j);
 			} else {
 				coef_se_validity.SetInvalid(list_offset + j);
 				coef_se_data[list_offset + j] = 0.0;
@@ -718,67 +717,67 @@ static void OlsArrayWindow(AggregateInputData &aggr_input_data, const WindowPart
 		}
 	}
 
-	// Handle intercept option
-	double intercept = 0.0;
-	RankDeficientOlsResult ols_result;
-
-	if (options.intercept) {
-		// With intercept: center data, solve, compute intercept
-		double mean_y = y.mean();
-		Eigen::VectorXd x_means = X.colwise().mean();
-
-		Eigen::VectorXd y_centered = y.array() - mean_y;
-		Eigen::MatrixXd X_centered = X;
+	// Convert to DuckDB vectors for libanostat
+	vector<double> y_vec(n);
+	vector<vector<double>> x_vec(n, vector<double>(p));
+	for (idx_t i = 0; i < n; i++) {
+		y_vec[i] = window_y[i];
 		for (idx_t j = 0; j < p; j++) {
-			X_centered.col(j).array() -= x_means(j);
+			x_vec[i][j] = window_x[i][j];
 		}
+	}
 
-		ols_result = RankDeficientOls::Fit(y_centered, X_centered);
+	// Use libanostat OLSSolver
+	auto lib_result = bridge::LibanostatWrapper::FitOLS(y_vec, x_vec, options, false);
 
-		// Compute intercept (using only non-aliased features)
-		double beta_dot_xmean = 0.0;
+	// Extract results
+	double intercept = bridge::TypeConverters::ExtractIntercept(lib_result, options.intercept);
+		auto feature_coefs_vec = bridge::TypeConverters::ExtractFeatureCoefficients(lib_result, options.intercept);
+		Eigen::VectorXd feature_coefs = Eigen::Map<const Eigen::VectorXd>(feature_coefs_vec.data(), feature_coefs_vec.size());
+	idx_t rank = lib_result.rank; // Already includes intercept!
+
+	// Compute predictions
+	Eigen::VectorXd y_pred(n);
+	for (idx_t i = 0; i < n; i++) {
+		y_pred(i) = intercept;
 		for (idx_t j = 0; j < p; j++) {
-			ANOFOX_DEBUG("OLS: j=" << j << ", is_aliased=" << ols_result.is_aliased[j]
-			                       << ", coef=" << ols_result.coefficients[j] << ", x_mean=" << x_means(j));
-			if (!ols_result.is_aliased[j]) {
-				beta_dot_xmean += ols_result.coefficients[j] * x_means(j);
+			if (!std::isnan(lib_result.coefficients(j))) {
+				y_pred(i) += lib_result.coefficients(j) * window_x[i][j];
 			}
 		}
-		ANOFOX_DEBUG("OLS: mean_y=" << mean_y << ", beta_dot_xmean=" << beta_dot_xmean);
-		intercept = mean_y - beta_dot_xmean;
-		ANOFOX_DEBUG("OLS: intercept=" << intercept << ", rank=" << ols_result.rank);
-	} else {
-		// No intercept: solve directly on raw data
-		ols_result = RankDeficientOls::Fit(y, X);
-		intercept = 0.0;
 	}
 
-	// Compute predictions using only non-aliased features
-	Eigen::VectorXd y_pred = Eigen::VectorXd::Constant(n, intercept);
-	for (idx_t j = 0; j < p; j++) {
-		if (!ols_result.is_aliased[j]) {
-			y_pred += ols_result.coefficients[j] * X.col(j);
-		}
+	// Compute R²
+	Eigen::VectorXd y_eigen(n);
+	for (idx_t i = 0; i < n; i++) {
+		y_eigen(i) = window_y[i];
 	}
-
-	// Compute R² and adjusted R²
-	Eigen::VectorXd residuals = y - y_pred;
+	Eigen::VectorXd residuals = y_eigen - y_pred;
 	double ss_res = residuals.squaredNorm();
 
 	double ss_tot;
 	if (options.intercept) {
-		double mean_y = y.mean();
-		ss_tot = (y.array() - mean_y).square().sum();
+		double mean_y = 0.0;
+		for (idx_t i = 0; i < n; i++) {
+			mean_y += window_y[i];
+		}
+		mean_y /= n;
+		ss_tot = 0.0;
+		for (idx_t i = 0; i < n; i++) {
+			double diff = window_y[i] - mean_y;
+			ss_tot += diff * diff;
+		}
 	} else {
-		// No intercept: total sum of squares from zero
-		ss_tot = y.squaredNorm();
+		ss_tot = 0.0;
+		for (idx_t i = 0; i < n; i++) {
+			ss_tot += window_y[i] * window_y[i];
+		}
 	}
 
 	double r2 = (ss_tot > 1e-10) ? (1.0 - ss_res / ss_tot) : 0.0;
 
-	// Adjusted R²: RankDeficientOls.rank is feature rank only (doesn't include intercept)
-	// Total model rank = feature_rank + (intercept ? 1 : 0)
-	idx_t df_model = ols_result.rank + (options.intercept ? 1 : 0);
+	// Adjusted R²: lib_result.rank already includes intercept
+	idx_t df_model = rank;
 	double adj_r2 = 1.0 - (1.0 - r2) * (n - 1) / (n - df_model);
 
 	// Store coefficients in list
@@ -791,11 +790,11 @@ static void OlsArrayWindow(AggregateInputData &aggr_input_data, const WindowPart
 	ListVector::Reserve(coef_list, (rid + 1) * p);
 
 	for (idx_t j = 0; j < p; j++) {
-		if (std::isnan(ols_result.coefficients[j])) {
+		if (std::isnan(feature_coefs(j))) {
 			coef_validity.SetInvalid(list_offset + j);
 			coef_data[list_offset + j] = 0.0;
 		} else {
-			coef_data[list_offset + j] = ols_result.coefficients[j];
+			coef_data[list_offset + j] = feature_coefs(j);
 		}
 	}
 

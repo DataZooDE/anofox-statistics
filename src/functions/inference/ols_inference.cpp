@@ -1,5 +1,8 @@
 #include "ols_inference.hpp"
 #include "../utils/tracing.hpp"
+#include "../bridge/libanostat_wrapper.hpp"
+#include "../bridge/type_converters.hpp"
+#include "../utils/options_parser.hpp"
 #include "../utils/validation.hpp"
 #include "../utils/statistical_distributions.hpp"
 #include "../utils/rank_deficient_ols.hpp"
@@ -141,15 +144,28 @@ static unique_ptr<FunctionData> OlsInferenceBind(ClientContext &context, TableFu
 	}
 
 	// Use rank-deficient OLS solver with standard errors on CENTERED data
-	auto ols_result = RankDeficientOls::FitWithStdErrors(y_work, X_work);
+	// Convert Eigen to DuckDB vectors
+	vector<double> y_vec(n);
+	vector<vector<double>> x_vec(n, vector<double>(n_params));
+	for (size_t i = 0; i < n; i++) {
+		y_vec[i] = y_work(i);
+		for (size_t j = 0; j < n_params; j++) {
+			x_vec[i][j] = X_work(i, j);
+		}
+	}
+
+	// Use libanostat OLSSolver on centered data
+	RegressionOptions centered_opts;
+	centered_opts.intercept = false; // Data already centered
+	auto ols_result = bridge::LibanostatWrapper::FitOLS(y_vec, x_vec, centered_opts, true);
 
 	// Compute intercept first (needed for MSE calculation)
 	double intercept = 0.0;
 	if (add_intercept) {
 		intercept = y_mean;
 		for (idx_t j = 0; j < p; j++) {
-			if (!ols_result.is_aliased[j]) {
-				intercept -= ols_result.coefficients[j] * x_means(j);
+			if (!std::isnan(ols_result.coefficients(j))) {
+				intercept -= ols_result.coefficients(j) * x_means(j);
 			}
 		}
 	}
@@ -158,8 +174,8 @@ static unique_ptr<FunctionData> OlsInferenceBind(ClientContext &context, TableFu
 	// Predictions: y_pred = intercept + X * beta
 	Eigen::VectorXd y_pred = Eigen::VectorXd::Zero(n);
 	for (idx_t j = 0; j < p; j++) {
-		if (!ols_result.is_aliased[j]) {
-			y_pred += ols_result.coefficients[j] * X.col(j);
+		if (!std::isnan(ols_result.coefficients(j))) {
+			y_pred += ols_result.coefficients(j) * X.col(j);
 		}
 	}
 	if (add_intercept) {
@@ -193,7 +209,7 @@ static unique_ptr<FunctionData> OlsInferenceBind(ClientContext &context, TableFu
 		// Build (X'X)^-1 for non-aliased features
 		idx_t n_valid = 0;
 		for (idx_t j = 0; j < p; j++) {
-			if (!ols_result.is_aliased[j]) {
+			if (!std::isnan(ols_result.coefficients(j))) {
 				n_valid++;
 			}
 		}
@@ -202,7 +218,7 @@ static unique_ptr<FunctionData> OlsInferenceBind(ClientContext &context, TableFu
 			Eigen::MatrixXd X_valid(n, n_valid);
 			idx_t valid_idx = 0;
 			for (idx_t j = 0; j < p; j++) {
-				if (!ols_result.is_aliased[j]) {
+				if (!std::isnan(ols_result.coefficients(j))) {
 					X_valid.col(valid_idx) = X_work.col(j);
 					valid_idx++;
 				}
@@ -215,7 +231,7 @@ static unique_ptr<FunctionData> OlsInferenceBind(ClientContext &context, TableFu
 			// Recompute standard errors using correct MSE
 			valid_idx = 0;
 			for (idx_t j = 0; j < p; j++) {
-				if (!ols_result.is_aliased[j]) {
+				if (!std::isnan(ols_result.coefficients(j))) {
 					slope_std_errors[j] = std::sqrt(mse * XtX_inv(valid_idx, valid_idx));
 					valid_idx++;
 				}
@@ -235,7 +251,7 @@ static unique_ptr<FunctionData> OlsInferenceBind(ClientContext &context, TableFu
 			// Build (X'X) for non-aliased features only
 			idx_t n_valid = 0;
 			for (idx_t j = 0; j < p; j++) {
-				if (!ols_result.is_aliased[j]) {
+				if (!std::isnan(ols_result.coefficients(j))) {
 					n_valid++;
 				}
 			}
@@ -245,7 +261,7 @@ static unique_ptr<FunctionData> OlsInferenceBind(ClientContext &context, TableFu
 				Eigen::VectorXd x_means_valid(n_valid);
 				idx_t valid_idx = 0;
 				for (idx_t j = 0; j < p; j++) {
-					if (!ols_result.is_aliased[j]) {
+					if (!std::isnan(ols_result.coefficients(j))) {
 						X_valid.col(valid_idx) = X_work.col(j);
 						x_means_valid(valid_idx) = x_means(j);
 						valid_idx++;
@@ -294,7 +310,7 @@ static unique_ptr<FunctionData> OlsInferenceBind(ClientContext &context, TableFu
 		string var_name = "x" + std::to_string(j + 1);
 
 		// Check if coefficient is aliased (NaN)
-		double estimate = ols_result.coefficients[j];
+		double estimate = ols_result.coefficients(j);
 		bool is_aliased = ols_result.is_aliased[j];
 
 		double std_error, t_stat, p_value, ci_lower, ci_upper;

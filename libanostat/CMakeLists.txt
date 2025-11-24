@@ -56,6 +56,7 @@ if(BUILD_TESTING)
             test/inference/test_inference.cpp
             test/diagnostics/test_regression_diagnostics.cpp
             test/integration/test_full_workflow.cpp
+            test/test_duckdb_failures.cpp
         )
 
         # R Validation Tests
