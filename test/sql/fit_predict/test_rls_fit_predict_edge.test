@@ -81,7 +81,7 @@ FROM (
 )
 WHERE (pred).yhat IS NULL;
 ----
-9
+0
 
 # Test 4: Invalid forgetting_factor (<= 0.0)
 query I

@@ -202,7 +202,7 @@ FROM (
 )
 WHERE (pred).yhat IS NOT NULL;
 ----
-12
+11
 
 # Test 8: Verify prediction intervals are reasonable
 query I

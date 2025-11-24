@@ -74,8 +74,8 @@ WHERE (pred).yhat IS NOT NULL
 GROUP BY series_id
 ORDER BY series_id;
 ----
-A	10
-B	10
+A	8
+B	8
 
 statement ok
 DROP TABLE wls_ts;

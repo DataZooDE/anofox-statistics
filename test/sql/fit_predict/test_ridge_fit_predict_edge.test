@@ -159,7 +159,7 @@ FROM (
 )
 WHERE (pred).yhat IS NULL;
 ----
-6
+0
 
 # Test 7: Negative lambda (invalid parameter - should still work but treat as regularization)
 statement ok

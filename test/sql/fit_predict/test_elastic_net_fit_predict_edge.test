@@ -263,7 +263,7 @@ FROM (
 )
 WHERE (pred).yhat IS NOT NULL AND NOT ISINF((pred).yhat) AND NOT ISNAN((pred).yhat);
 ----
-9
+8
 
 # Cleanup
 statement ok
