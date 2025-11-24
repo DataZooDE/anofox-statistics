@@ -170,8 +170,8 @@ static unique_ptr<FunctionData> OlsPredictIntervalBind(ClientContext &context, T
 	Eigen::VectorXd residuals_train = y - y_pred_train;
 	double ss_res = residuals_train.squaredNorm();
 
-	// Degrees of freedom: n - (rank + intercept if present)
-	idx_t n_params_fitted = ols_result.rank + (add_intercept ? 1 : 0);
+	// Degrees of freedom: After ba2334b fix, rank now includes intercept if present
+	idx_t n_params_fitted = ols_result.rank;
 	idx_t df = n_train - n_params_fitted;
 
 	if (df == 0) {

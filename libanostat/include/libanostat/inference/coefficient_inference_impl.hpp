@@ -202,8 +202,8 @@ inline core::InferenceResult CoefficientInference::ComputeInference(
 
 	size_t p = result.coefficients.size();
 
-	// Compute degrees of freedom
-	size_t n_params_fitted = result.rank + (intercept ? 1 : 0);
+	// Compute degrees of freedom: rank now includes intercept if fitted
+	size_t n_params_fitted = result.rank;
 
 	if (n_obs <= n_params_fitted) {
 		throw std::invalid_argument("Insufficient observations for inference: n <= p");

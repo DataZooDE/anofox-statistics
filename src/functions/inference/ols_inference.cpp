@@ -169,8 +169,8 @@ static unique_ptr<FunctionData> OlsInferenceBind(ClientContext &context, TableFu
 	Eigen::VectorXd residuals = y - y_pred;
 	double ss_res = residuals.squaredNorm();
 
-	// Degrees of freedom: n - (number of non-aliased params + intercept if present)
-	idx_t n_params_fitted = ols_result.rank + (add_intercept ? 1 : 0);
+	// Degrees of freedom: After ba2334b fix, rank now includes intercept if present
+	idx_t n_params_fitted = ols_result.rank;
 	idx_t df = n - n_params_fitted;
 
 	if (df == 0) {

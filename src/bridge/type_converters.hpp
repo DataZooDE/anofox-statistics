@@ -299,20 +299,23 @@ public:
 
 	/**
 	 * Compute degrees of freedom (model) from result
+	 *
+	 * After R-compatible fix in ba2334b: result.rank now includes intercept if present.
+	 * df_model = result.rank
 	 */
 	static idx_t ComputeDFModel(const libanostat::core::RegressionResult &result, bool intercept) {
-		return ToIdxT(result.rank + (intercept ? 1 : 0));
+		return ToIdxT(result.rank);
 	}
 
 	/**
 	 * Compute degrees of freedom (residual) from result
 	 *
-	 * After R-compatible fix: result.rank represents the rank of FEATURES ONLY.
-	 * When intercept=true, we need to add 1 to account for the intercept parameter.
+	 * After R-compatible fix in ba2334b: result.rank now includes BOTH features AND intercept.
+	 * df_residual = n_obs - result.rank
 	 */
 	static idx_t ComputeDFResidual(const libanostat::core::RegressionResult &result, size_t n_obs, bool intercept) {
-		// df_model = rank of features + (intercept ? 1 : 0)
-		size_t df_model = result.rank + (intercept ? 1 : 0);
+		// df_model = rank (already includes intercept if present)
+		size_t df_model = result.rank;
 		if (n_obs > df_model) {
 			return ToIdxT(n_obs - df_model);
 		}

@@ -219,10 +219,9 @@ static void OlsFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 		// std::cerr << "[OLS FIT] y_pred_train[0]=" << y_pred_train(0) << ", residuals[0]=" << residuals(0) <<
 		// std::endl; std::cerr << "[OLS FIT] ss_res=" << ss_res << std::endl;
 
-		// NOTE: ols_result.rank is from libanostat which includes intercept in the design matrix
-		// But in fit-predict, we call libanostat_ols directly which gets the CENTERED X
-		// So rank is for p features, and we need +1 for intercept
-		idx_t df_model = ols_result.rank + (options.intercept ? 1 : 0);
+		// NOTE: After ba2334b fix, ols_result.rank now includes intercept if fitted
+		// df_model = rank directly
+		idx_t df_model = ols_result.rank;
 		df_residual = n_train - df_model;
 		mse = (df_residual > 0) ? (ss_res / df_residual) : std::numeric_limits<double>::quiet_NaN();
 

@@ -120,9 +120,9 @@ TEST_CASE("OLS: Simple Linear Regression", "[ols][validation]") {
 	REQUIRE_THAT(sigma,
 	             Catch::Matchers::WithinAbs(expected_sigma, TOLERANCE));
 
-	// Check degrees of freedom
+	// Check degrees of freedom: rank now includes intercept if fitted
 	int expected_df = expected["df_residual"].get<int>();
-	size_t n_params = result.rank + (opts.intercept ? 1 : 0);
+	size_t n_params = result.rank;
 	size_t df_residual = data.n_obs - n_params;
 	REQUIRE(df_residual == static_cast<size_t>(expected_df));
 

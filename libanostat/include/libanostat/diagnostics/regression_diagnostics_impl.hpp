@@ -184,8 +184,8 @@ inline RegressionDiagnostics::DiagnosticsResult RegressionDiagnostics::ComputeAl
 		diag.standardized_residuals = ComputeStandardizedResiduals(
 		    result.residuals, diag.leverage, result.mse);
 
-		// Compute Cook's distance
-		size_t n_params = result.rank + (intercept ? 1 : 0);
+		// Compute Cook's distance: rank now includes intercept if fitted
+		size_t n_params = result.rank;
 		diag.cooks_distance = ComputeCooksDistance(
 		    diag.standardized_residuals, diag.leverage, n_params);
 
