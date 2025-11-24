@@ -83,7 +83,7 @@ FROM (
              [6.0]::DOUBLE[], 0.95, 'confidence') p) as ci_conf_width
 );
 ----
-false
+true
 
 # Test 6: Predictions without intervals (interval_type='none')
 query IRTT

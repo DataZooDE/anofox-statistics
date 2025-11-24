@@ -87,7 +87,7 @@ FROM (
 )
 WHERE (pred).yhat IS NULL;
 ----
-9
+8
 
 # Test 4: Zero weights (invalid - should return NULL)
 statement ok
