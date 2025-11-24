@@ -24,8 +24,16 @@ A statistical analysis extension for DuckDB, providing regression analysis, diag
 - **Full model output**: Store complete model metadata with `full_output` option for all regression functions
 - **Lateral join support**: All regression functions now support lateral joins with column references
 - **Window functions**: All aggregate functions now support OVER clause for rolling/expanding analysis
+- **Fit-predict operations**: Unified window functions combining model fitting and prediction in a single pass
 - **Diagnostic aggregates**: Group-wise residual analysis, VIF detection, and normality testing
 - **Structured output**: All aggregates return rich STRUCT types with comprehensive regression statistics
+
+**Improvements & Bug Fixes:**
+
+- **Validation logic**: Fixed minimum sample size requirements to ensure sufficient degrees of freedom (df_residual ≥ 1)
+- **Intercept-only models**: Correctly handle models with no features (p=0) that can fit with n≥1
+- **Degrees of freedom**: Corrected df_residual calculation to avoid double-counting intercept term
+- **Performance**: Removed debug logging that was degrading test execution performance
 
 **Removed Functions:**
 
