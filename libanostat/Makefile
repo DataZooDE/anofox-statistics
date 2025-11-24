@@ -94,7 +94,7 @@ coverage:
 	@lcov --config-file .lcovrc --add-tracefile coverage_base.info --add-tracefile coverage_test.info --output-file coverage_total.info
 	@echo "Filtering coverage data (removing test code, external libraries)..."
 	@lcov --config-file .lcovrc --remove coverage_total.info \
-		'*/test/*' '*/tests/*' '*/catch2/*' '*/Catch2/*' \
+		'*/test/*' '*/catch2/*' '*/Catch2/*' \
 		'*/eigen3/*' '*/Eigen/*' '/usr/*' '*/vcpkg_installed/*' \
 		--output-file coverage_filtered.info
 	@echo "Generating HTML report..."
