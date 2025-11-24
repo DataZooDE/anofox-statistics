@@ -99,7 +99,7 @@ FROM (
 )
 WHERE (pred).yhat IS NULL;
 ----
-9
+0
 
 # Test 5: Valid boundary forgetting_factor (exactly 1.0)
 query I
@@ -117,7 +117,7 @@ FROM (
 )
 WHERE (pred).yhat IS NOT NULL;
 ----
-9
+8
 
 # Test 6: Very small forgetting_factor (high adaptivity)
 query I

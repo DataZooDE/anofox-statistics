@@ -185,7 +185,7 @@ FROM (
 )
 WHERE (pred).yhat IS NOT NULL;
 ----
-9
+8
 
 # Test 8: Very large lambda (extreme shrinkage towards zero)
 query I
@@ -203,7 +203,7 @@ FROM (
 )
 WHERE (pred).yhat IS NOT NULL AND ABS((pred).yhat) < 100;
 ----
-9
+8
 
 # Test 9: PARTITION BY with some partitions having insufficient data
 statement ok

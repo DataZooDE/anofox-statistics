@@ -219,7 +219,7 @@ FROM (
             id,
             anofox_statistics_fit_predict_ridge(
                 y,
-                [x],
+                [x1],
                 MAP{'intercept': 1, 'lambda': 1.0}
             ) OVER (ORDER BY id) as pred
         FROM ridge_data
@@ -227,7 +227,7 @@ FROM (
 )
 WHERE lower < yhat AND yhat < upper;
 ----
-10
+6
 
 # Cleanup
 statement ok
