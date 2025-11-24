@@ -130,13 +130,11 @@ static void ComputeWLS(WlsFitBindData &data) {
 	// Fit WLS using libanostat bridge layer
 	using namespace bridge;
 
-	auto result = LibanostatWrapper::FitWLS(
-	    data.y_values,       // vector<double>
-	    data.x_values,       // vector<vector<double>> (column-major)
-	    data.weights,        // vector<double>: observation weights
-	    data.options,        // RegressionOptions
-	    data.options.full_output
-	);
+	auto result = LibanostatWrapper::FitWLS(data.y_values, // vector<double>
+	                                        data.x_values, // vector<vector<double>> (column-major)
+	                                        data.weights,  // vector<double>: observation weights
+	                                        data.options,  // RegressionOptions
+	                                        data.options.full_output);
 
 	// Extract coefficients and aliasing info
 	data.coefficients = TypeConverters::ExtractCoefficients(result);
@@ -234,7 +232,8 @@ static void ComputeWLS(WlsFitBindData &data) {
 	}
 
 	ANOFOX_DEBUG("WLS (via libanostat): R² = " << data.r_squared << ", weighted MSE = " << data.weighted_mse
-	                                           << ", coefficients = [" << data.coefficients[0] << (p > 1 ? ", ...]" : "]"));
+	                                           << ", coefficients = [" << data.coefficients[0]
+	                                           << (p > 1 ? ", ...]" : "]"));
 }
 
 //===--------------------------------------------------------------------===//

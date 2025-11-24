@@ -121,12 +121,10 @@ static void ComputeRLS(RlsFitBindData &data) {
 	// Fit RLS using libanostat bridge layer
 	using namespace bridge;
 
-	auto result = LibanostatWrapper::FitRLS(
-	    data.y_values,       // vector<double>
-	    data.x_values,       // vector<vector<double>> (column-major)
-	    data.options,        // RegressionOptions (includes forgetting_factor)
-	    data.options.full_output
-	);
+	auto result = LibanostatWrapper::FitRLS(data.y_values, // vector<double>
+	                                        data.x_values, // vector<vector<double>> (column-major)
+	                                        data.options,  // RegressionOptions (includes forgetting_factor)
+	                                        data.options.full_output);
 
 	// Extract coefficients and aliasing info
 	data.coefficients = TypeConverters::ExtractCoefficients(result);
@@ -202,8 +200,8 @@ static void ComputeRLS(RlsFitBindData &data) {
 		}
 	}
 
-	ANOFOX_DEBUG("RLS (via libanostat): R² = " << data.r_squared << ", MSE = " << data.mse
-	                                           << ", coefficients = [" << data.coefficients[0] << (p > 1 ? ", ...]" : "]"));
+	ANOFOX_DEBUG("RLS (via libanostat): R² = " << data.r_squared << ", MSE = " << data.mse << ", coefficients = ["
+	                                           << data.coefficients[0] << (p > 1 ? ", ...]" : "]"));
 }
 
 //===--------------------------------------------------------------------===//

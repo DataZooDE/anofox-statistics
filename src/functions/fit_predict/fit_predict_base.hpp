@@ -111,9 +111,8 @@ PredictionResult ComputePredictionWithInterval(const vector<double> &x_new, doub
 PredictionResult ComputePredictionWithIntervalXtXInv(const vector<double> &x_new, double intercept,
                                                      const Eigen::VectorXd &coefficients, double mse,
                                                      const Eigen::VectorXd &x_train_means,
-                                                     const Eigen::MatrixXd &XtX_inv, idx_t n_train,
-                                                     idx_t df_residual, double confidence_level,
-                                                     const string &interval_type);
+                                                     const Eigen::MatrixXd &XtX_inv, idx_t n_train, idx_t df_residual,
+                                                     double confidence_level, const string &interval_type);
 
 /**
  * @brief Helper to extract list data from DuckDB vector
@@ -125,7 +124,7 @@ vector<double> ExtractListAsVector(Vector &list_vector, idx_t row_idx, UnifiedVe
  *
  * This structure caches a fitted OLS model to avoid refitting the same model
  * for every row when the window frame is constant (e.g., OVER ()).
- * 
+ *
  * NOTE: We do NOT store X_train to avoid OOM. Instead, we store XtX_inv
  * (inverse of X'X) which is much smaller (P×P instead of N×P) and sufficient
  * for leverage calculation.
@@ -199,7 +198,7 @@ void LoadPartitionData(const WindowPartitionInput &partition, PartitionDataCache
  * @return Vector of indices of training rows (where y is not NULL and x is valid)
  */
 vector<idx_t> ComputeFrameSignature(const SubFrames &subframes, const vector<double> &all_y,
-                                     const vector<vector<double>> &all_x, const RegressionOptions &options);
+                                    const vector<vector<double>> &all_x, const RegressionOptions &options);
 
 /**
  * @brief Check if two frame signatures are identical

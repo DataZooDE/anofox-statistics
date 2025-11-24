@@ -53,8 +53,8 @@ public:
 			return Eigen::MatrixXd(0, 0);
 		}
 
-		const size_t p = data.size();      // number of features
-		const size_t n = data[0].size();   // number of observations
+		const size_t p = data.size();    // number of features
+		const size_t n = data[0].size(); // number of observations
 
 		// Validate all columns have same length
 		for (size_t j = 0; j < p; j++) {
@@ -143,8 +143,7 @@ public:
 	 * @param intercept Whether intercept was included in the model
 	 * @return Vector of feature coefficients (excluding intercept, in original order, NaN for aliased)
 	 */
-	static vector<double> ExtractFeatureCoefficients(const libanostat::core::RegressionResult &result,
-	                                                  bool intercept) {
+	static vector<double> ExtractFeatureCoefficients(const libanostat::core::RegressionResult &result, bool intercept) {
 		if (!intercept) {
 			// No intercept, return all coefficients
 			return ExtractCoefficients(result);
@@ -223,8 +222,7 @@ public:
 	 * @param duckdb_opts DuckDB regression options
 	 * @return libanostat regression options
 	 */
-	static libanostat::core::RegressionOptions ToLibanostatOptions(
-	    const RegressionOptions &duckdb_opts) {
+	static libanostat::core::RegressionOptions ToLibanostatOptions(const RegressionOptions &duckdb_opts) {
 
 		libanostat::core::RegressionOptions result;
 
@@ -312,8 +310,7 @@ public:
 	 * After R-compatible fix: result.rank represents the rank of FEATURES ONLY.
 	 * When intercept=true, we need to add 1 to account for the intercept parameter.
 	 */
-	static idx_t ComputeDFResidual(const libanostat::core::RegressionResult &result,
-	                                size_t n_obs, bool intercept) {
+	static idx_t ComputeDFResidual(const libanostat::core::RegressionResult &result, size_t n_obs, bool intercept) {
 		// df_model = rank of features + (intercept ? 1 : 0)
 		size_t df_model = result.rank + (intercept ? 1 : 0);
 		if (n_obs > df_model) {

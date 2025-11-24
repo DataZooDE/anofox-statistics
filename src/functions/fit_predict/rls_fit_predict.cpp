@@ -119,7 +119,7 @@ static void RlsFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 		intercept = y_train(0);
 		beta = Eigen::VectorXd::Zero(p);
 		x_means = X_train.row(0); // Single observation
-		rank = 1; // Only intercept estimated
+		rank = 1;                 // Only intercept estimated
 	} else {
 		// For intercept, augment X with column of ones
 		Eigen::MatrixXd X_work;
@@ -196,7 +196,7 @@ static void RlsFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 	// Note: rank is for X_work (which includes intercept column if intercept=true)
 	// So rank already includes intercept, but we need to check
 	// Actually, for RLS, rank = p_work which includes intercept column, so it already includes intercept
-	idx_t df_model = rank;  // rank already includes intercept if present
+	idx_t df_model = rank; // rank already includes intercept if present
 	idx_t df_residual = n_train - df_model;
 	double mse = (df_residual > 0) ? (ss_res / df_residual) : std::numeric_limits<double>::quiet_NaN();
 

@@ -17,11 +17,12 @@ namespace duckdb {
 namespace anofox_statistics {
 
 // DEBUG helper
-#define RIDGE_DEBUG(msg) do { \
-	std::ofstream debug("/tmp/ridge_debug.txt", std::ios::app); \
-	debug << msg << std::endl; \
-	debug.close(); \
-} while(0)
+#define RIDGE_DEBUG(msg)                                                                                               \
+	do {                                                                                                               \
+		std::ofstream debug("/tmp/ridge_debug.txt", std::ios::app);                                                    \
+		debug << msg << std::endl;                                                                                     \
+		debug.close();                                                                                                 \
+	} while (0)
 
 // State for Ridge fit-predict
 struct RidgeFitPredictState {
@@ -35,7 +36,7 @@ void RidgeFitPredictInitialize(const AggregateFunction &function, data_ptr_t sta
 
 // Update (no-op for window-only function)
 void RidgeFitPredictUpdate(Vector inputs[], AggregateInputData &aggr_input_data, idx_t input_count,
-                                  Vector &state_vector, idx_t count) {
+                           Vector &state_vector, idx_t count) {
 	// No-op: window callback reads partition directly
 }
 
@@ -45,8 +46,8 @@ void RidgeFitPredictCombine(Vector &source, Vector &target, AggregateInputData &
 }
 
 // Finalize (returns NULL for non-window mode)
-void RidgeFitPredictFinalize(Vector &state_vector, AggregateInputData &aggr_input_data, Vector &result,
-                                    idx_t count, idx_t offset) {
+void RidgeFitPredictFinalize(Vector &state_vector, AggregateInputData &aggr_input_data, Vector &result, idx_t count,
+                             idx_t offset) {
 	// Return NULL for non-window mode (user must use OVER clause)
 	auto &result_validity = FlatVector::Validity(result);
 	for (idx_t i = 0; i < count; i++) {
@@ -85,10 +86,9 @@ static void RidgeFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 	auto &options = state.cache.options;
 	idx_t n_features = state.cache.n_features;
 
-	ANOFOX_FIT_PREDICT_DEBUG("Partition data loaded: n_rows=" << all_y.size()
-	                         << ", n_features=" << n_features
-	                         << ", lambda=" << options.lambda
-	                         << ", intercept=" << options.intercept);
+	ANOFOX_FIT_PREDICT_DEBUG("Partition data loaded: n_rows=" << all_y.size() << ", n_features=" << n_features
+	                                                          << ", lambda=" << options.lambda
+	                                                          << ", intercept=" << options.intercept);
 
 	// DEBUG
 	if (rid < 3) {
@@ -126,10 +126,9 @@ static void RidgeFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 		mse = state.cache.model_cache->mse;
 
 		if (rid < 3) {
-			RIDGE_DEBUG("[CACHE] Using cached model for row " << rid
-			          << ": intercept=" << intercept
-			          << ", beta.size()=" << beta.size()
-			          << ", beta[0]=" << (beta.size() > 0 ? beta(0) : 0.0));
+			RIDGE_DEBUG("[CACHE] Using cached model for row " << rid << ": intercept=" << intercept
+			                                                  << ", beta.size()=" << beta.size()
+			                                                  << ", beta[0]=" << (beta.size() > 0 ? beta(0) : 0.0));
 		}
 	} else {
 		// Fit new model
@@ -242,17 +241,16 @@ static void RidgeFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 
 		if (rid < 3) {
 			RIDGE_DEBUG("[FIT] Model fitted and cached: intercept=" << intercept
-			          << ", beta[0]=" << (p > 0 ? beta(0) : 0.0)
-			          << ", mse=" << mse << ", n_train=" << n_train);
+			                                                        << ", beta[0]=" << (p > 0 ? beta(0) : 0.0)
+			                                                        << ", mse=" << mse << ", n_train=" << n_train);
 		}
 	}
 
 	// Predict for current row
 	if (rid >= all_x.size() || all_x[rid].empty()) {
 		if (rid < 3) {
-			RIDGE_DEBUG("[INVALID] Row " << rid << " invalid: rid=" << rid
-			          << ", all_x.size()=" << all_x.size()
-			          << ", empty=" << (rid < all_x.size() ? all_x[rid].empty() : true));
+			RIDGE_DEBUG("[INVALID] Row " << rid << " invalid: rid=" << rid << ", all_x.size()=" << all_x.size()
+			                             << ", empty=" << (rid < all_x.size() ? all_x[rid].empty() : true));
 		}
 		result_validity.SetInvalid(rid);
 		return;
@@ -276,11 +274,9 @@ static void RidgeFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 
 	// DEBUG: Show input data for prediction
 	if (rid < 3) {
-		RIDGE_DEBUG("[PREDICT] Predicting for row " << rid
-		          << ": x.size()=" << all_x[rid].size()
-		          << ", x[0]=" << (all_x[rid].size() > 0 ? all_x[rid][0] : 0.0)
-		          << ", intercept=" << intercept
-		          << ", beta.size()=" << beta.size());
+		RIDGE_DEBUG("[PREDICT] Predicting for row " << rid << ": x.size()=" << all_x[rid].size()
+		                                            << ", x[0]=" << (all_x[rid].size() > 0 ? all_x[rid][0] : 0.0)
+		                                            << ", intercept=" << intercept << ", beta.size()=" << beta.size());
 	}
 
 	// Compute prediction with interval (using precomputed XtX_inv - memory efficient!)
@@ -297,17 +293,13 @@ static void RidgeFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 		return;
 	}
 
-	ANOFOX_FIT_PREDICT_DEBUG("Prediction computed: yhat=" << pred.yhat
-	                         << ", lower=" << pred.yhat_lower
-	                         << ", upper=" << pred.yhat_upper
-	                         << ", std_error=" << pred.std_error);
+	ANOFOX_FIT_PREDICT_DEBUG("Prediction computed: yhat=" << pred.yhat << ", lower=" << pred.yhat_lower << ", upper="
+	                                                      << pred.yhat_upper << ", std_error=" << pred.std_error);
 
 	// DEBUG
 	if (rid < 3) {
-		RIDGE_DEBUG("[SUCCESS] Prediction SUCCESS for row " << rid
-		          << ": yhat=" << pred.yhat
-		          << ", lower=" << pred.yhat_lower
-		          << ", upper=" << pred.yhat_upper);
+		RIDGE_DEBUG("[SUCCESS] Prediction SUCCESS for row "
+		            << rid << ": yhat=" << pred.yhat << ", lower=" << pred.yhat_lower << ", upper=" << pred.yhat_upper);
 	}
 
 	yhat_data[rid] = pred.yhat;
@@ -315,8 +307,7 @@ static void RidgeFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 	yhat_upper_data[rid] = pred.yhat_upper;
 	std_error_data[rid] = pred.std_error;
 
-	ANOFOX_FIT_PREDICT_DEBUG("Results assigned to row " << rid
-	                         << ": yhat_data[" << rid << "]=" << yhat_data[rid]);
+	ANOFOX_FIT_PREDICT_DEBUG("Results assigned to row " << rid << ": yhat_data[" << rid << "]=" << yhat_data[rid]);
 
 	ANOFOX_DEBUG("Ridge fit-predict: n_train=" << n_train << ", lambda=" << options.lambda << ", yhat=" << pred.yhat);
 }

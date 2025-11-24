@@ -17,7 +17,7 @@ namespace anofox_statistics {
 
 // State for WLS fit-predict
 struct WlsFitPredictState {
-	PartitionDataCache cache; // Cached partition data (loaded once)
+	PartitionDataCache cache;   // Cached partition data (loaded once)
 	vector<double> all_weights; // WLS-specific: weights for each row
 };
 
@@ -271,15 +271,15 @@ static void WlsFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 	// NOTE: rank is from QR of centered X (p features), so add 1 for intercept
 	idx_t df_model = rank + (options.intercept ? 1 : 0);
 	idx_t df_residual = n_train - df_model;
-	
+
 	// Check that we have sufficient degrees of freedom for residual
 	if (df_residual <= 0) {
 		FlatVector::SetNull(result, rid, true);
 		return;
 	}
-	
+
 	double mse = ss_res / df_residual;
-	
+
 	// Check that MSE is valid and positive
 	if (mse <= 0 || std::isnan(mse) || std::isinf(mse)) {
 		FlatVector::SetNull(result, rid, true);

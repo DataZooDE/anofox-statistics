@@ -123,12 +123,10 @@ static void ComputeElasticNet(ElasticNetFitBindData &data) {
 	// Fit Elastic Net using libanostat bridge layer
 	using namespace bridge;
 
-	auto result = LibanostatWrapper::FitElasticNet(
-	    data.y_values,       // vector<double>
-	    data.x_values,       // vector<vector<double>> (column-major)
-	    data.options,        // RegressionOptions (includes alpha and lambda)
-	    data.options.full_output
-	);
+	auto result = LibanostatWrapper::FitElasticNet(data.y_values, // vector<double>
+	                                               data.x_values, // vector<vector<double>> (column-major)
+	                                               data.options,  // RegressionOptions (includes alpha and lambda)
+	                                               data.options.full_output);
 
 	// Extract coefficients
 	data.coefficients = TypeConverters::ExtractCoefficients(result);
@@ -227,9 +225,9 @@ static void ComputeElasticNet(ElasticNetFitBindData &data) {
 		}
 	}
 
-	ANOFOX_DEBUG("Elastic Net (via libanostat): R² = " << data.r_squared
-	             << ", nonzero = " << data.n_nonzero << "/" << p
-	             << ", α=" << data.options.alpha << ", λ=" << data.options.lambda);
+	ANOFOX_DEBUG("Elastic Net (via libanostat): R² = " << data.r_squared << ", nonzero = " << data.n_nonzero << "/" << p
+	                                                   << ", α=" << data.options.alpha
+	                                                   << ", λ=" << data.options.lambda);
 }
 
 static unique_ptr<FunctionData> ElasticNetFitBind(ClientContext &context, TableFunctionBindInput &input,

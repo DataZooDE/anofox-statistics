@@ -37,11 +37,9 @@ public:
 	 * @param compute_std_errors If true, compute standard errors
 	 * @return libanostat RegressionResult (can be converted back using TypeConverters)
 	 */
-	static libanostat::core::RegressionResult FitOLS(
-	    const vector<double> &y_data,
-	    const vector<vector<double>> &x_data,
-	    const RegressionOptions &options,
-	    bool compute_std_errors = false) {
+	static libanostat::core::RegressionResult FitOLS(const vector<double> &y_data, const vector<vector<double>> &x_data,
+	                                                 const RegressionOptions &options,
+	                                                 bool compute_std_errors = false) {
 
 		// Convert DuckDB types to Eigen
 		auto y = TypeConverters::ToEigenVector(y_data);
@@ -69,11 +67,10 @@ public:
 	 * @param compute_std_errors If true, compute approximate standard errors
 	 * @return libanostat RegressionResult
 	 */
-	static libanostat::core::RegressionResult FitRidge(
-	    const vector<double> &y_data,
-	    const vector<vector<double>> &x_data,
-	    const RegressionOptions &options,
-	    bool compute_std_errors = false) {
+	static libanostat::core::RegressionResult FitRidge(const vector<double> &y_data,
+	                                                   const vector<vector<double>> &x_data,
+	                                                   const RegressionOptions &options,
+	                                                   bool compute_std_errors = false) {
 
 		auto y = TypeConverters::ToEigenVector(y_data);
 		auto X = TypeConverters::ToEigenMatrix(x_data);
@@ -99,11 +96,10 @@ public:
 	 * @param compute_std_errors If true, return NaN for std_errors (bootstrap recommended)
 	 * @return libanostat RegressionResult
 	 */
-	static libanostat::core::RegressionResult FitElasticNet(
-	    const vector<double> &y_data,
-	    const vector<vector<double>> &x_data,
-	    const RegressionOptions &options,
-	    bool compute_std_errors = false) {
+	static libanostat::core::RegressionResult FitElasticNet(const vector<double> &y_data,
+	                                                        const vector<vector<double>> &x_data,
+	                                                        const RegressionOptions &options,
+	                                                        bool compute_std_errors = false) {
 
 		auto y = TypeConverters::ToEigenVector(y_data);
 		auto X = TypeConverters::ToEigenMatrix(x_data);
@@ -130,12 +126,9 @@ public:
 	 * @param compute_std_errors If true, compute standard errors
 	 * @return libanostat RegressionResult
 	 */
-	static libanostat::core::RegressionResult FitWLS(
-	    const vector<double> &y_data,
-	    const vector<vector<double>> &x_data,
-	    const vector<double> &weights,
-	    const RegressionOptions &options,
-	    bool compute_std_errors = false) {
+	static libanostat::core::RegressionResult FitWLS(const vector<double> &y_data, const vector<vector<double>> &x_data,
+	                                                 const vector<double> &weights, const RegressionOptions &options,
+	                                                 bool compute_std_errors = false) {
 
 		auto y = TypeConverters::ToEigenVector(y_data);
 		auto X = TypeConverters::ToEigenMatrix(x_data);
@@ -162,11 +155,9 @@ public:
 	 * @param compute_std_errors If true, compute approximate standard errors
 	 * @return libanostat RegressionResult
 	 */
-	static libanostat::core::RegressionResult FitRLS(
-	    const vector<double> &y_data,
-	    const vector<vector<double>> &x_data,
-	    const RegressionOptions &options,
-	    bool compute_std_errors = false) {
+	static libanostat::core::RegressionResult FitRLS(const vector<double> &y_data, const vector<vector<double>> &x_data,
+	                                                 const RegressionOptions &options,
+	                                                 bool compute_std_errors = false) {
 
 		auto y = TypeConverters::ToEigenVector(y_data);
 		auto X = TypeConverters::ToEigenMatrix(x_data);
@@ -197,11 +188,10 @@ public:
 	 * @param compute_std_errors If true, compute standard errors
 	 * @return libanostat RegressionResult
 	 */
-	static libanostat::core::RegressionResult FitAuto(
-	    const vector<double> &y_data,
-	    const vector<vector<double>> &x_data,
-	    const RegressionOptions &options,
-	    bool compute_std_errors = false) {
+	static libanostat::core::RegressionResult FitAuto(const vector<double> &y_data,
+	                                                  const vector<vector<double>> &x_data,
+	                                                  const RegressionOptions &options,
+	                                                  bool compute_std_errors = false) {
 
 		// Determine which solver to use based on parameters
 		if (options.lambda <= 1e-10) {
@@ -237,10 +227,8 @@ public:
 	 * @param intercept Whether intercept was included
 	 * @return FitStatistics struct
 	 */
-	static FitStatistics ComputeFitStatistics(
-	    const libanostat::core::RegressionResult &result,
-	    size_t n_obs,
-	    bool intercept) {
+	static FitStatistics ComputeFitStatistics(const libanostat::core::RegressionResult &result, size_t n_obs,
+	                                          bool intercept) {
 
 		FitStatistics stats;
 		stats.r_squared = TypeConverters::ExtractRSquared(result);

@@ -140,11 +140,10 @@ static void ComputeRidge(OlsFitBindData &data) {
 		using namespace bridge;
 
 		// Call libanostat OLS solver via bridge
-		auto result = LibanostatWrapper::FitOLS(
-			data.y_values,  // vector<double>
-			data.x_values,  // vector<vector<double>> (column-major)
-			data.options,   // RegressionOptions
-			data.options.full_output  // compute std errors if full_output
+		auto result = LibanostatWrapper::FitOLS(data.y_values,           // vector<double>
+		                                        data.x_values,           // vector<vector<double>> (column-major)
+		                                        data.options,            // RegressionOptions
+		                                        data.options.full_output // compute std errors if full_output
 		);
 
 		// Extract intercept first (if present)
@@ -156,7 +155,7 @@ static void ComputeRidge(OlsFitBindData &data) {
 
 		// Extract feature coefficients (excluding intercept)
 		data.coefficients = TypeConverters::ExtractFeatureCoefficients(result, data.options.intercept);
-		
+
 		// Extract is_aliased for features only (excluding intercept, in original order)
 		if (data.options.intercept) {
 			// Build map: original_column_index -> is_aliased
@@ -168,7 +167,7 @@ static void ComputeRidge(OlsFitBindData &data) {
 					aliased_map[orig_col] = result.is_aliased[i];
 				}
 			}
-			
+
 			// Extract is_aliased for features only (columns 1..n_features, excluding intercept at 0)
 			data.is_aliased.clear();
 			data.is_aliased.reserve(n_params - 1);
@@ -178,7 +177,7 @@ static void ComputeRidge(OlsFitBindData &data) {
 		} else {
 			data.is_aliased = TypeConverters::ExtractIsAliased(result);
 		}
-		
+
 		data.rank = TypeConverters::ExtractRank(result);
 
 		// Extract fit statistics
@@ -201,14 +200,14 @@ static void ComputeRidge(OlsFitBindData &data) {
 						se_map[orig_col] = result.std_errors(static_cast<Eigen::Index>(i));
 					}
 				}
-				
+
 				// Extract std errors for features only (columns 1..n_features, excluding intercept at 0)
 				data.coefficient_std_errors.clear();
 				data.coefficient_std_errors.reserve(n_params - 1);
 				for (size_t j = 1; j < n_params; j++) {
 					data.coefficient_std_errors.push_back(se_map[j]);
 				}
-				
+
 				// Extract intercept standard error
 				data.intercept_std_error = se_map[0];
 			} else {
@@ -228,7 +227,7 @@ static void ComputeRidge(OlsFitBindData &data) {
 				}
 				x_means(j) = sum / static_cast<double>(n);
 			}
-			
+
 			data.x_train_means.resize(p);
 			for (idx_t j = 0; j < p; j++) {
 				data.x_train_means[j] = x_means(j);
@@ -243,11 +242,10 @@ static void ComputeRidge(OlsFitBindData &data) {
 	using namespace bridge;
 
 	// Call libanostat Ridge solver via bridge
-	auto result = LibanostatWrapper::FitRidge(
-	    data.y_values,  // vector<double>
-	    data.x_values,  // vector<vector<double>> (column-major)
-	    data.options,   // RegressionOptions (includes lambda)
-	    data.options.full_output  // compute std errors if full_output
+	auto result = LibanostatWrapper::FitRidge(data.y_values,           // vector<double>
+	                                          data.x_values,           // vector<vector<double>> (column-major)
+	                                          data.options,            // RegressionOptions (includes lambda)
+	                                          data.options.full_output // compute std errors if full_output
 	);
 
 	// Extract intercept first (if present)
@@ -259,29 +257,29 @@ static void ComputeRidge(OlsFitBindData &data) {
 
 	// Extract feature coefficients (excluding intercept)
 	data.coefficients = TypeConverters::ExtractFeatureCoefficients(result, data.options.intercept);
-	
-		// Extract is_aliased for features only (excluding intercept, in original order)
-		if (data.options.intercept) {
-			// Build map: original_column_index -> is_aliased
-			size_t n_params = result.is_aliased.size();
-			vector<bool> aliased_map(n_params, true);
-			for (size_t i = 0; i < n_params; i++) {
-				size_t orig_col = result.permutation_indices[i];
-				if (orig_col < n_params) {
-					aliased_map[orig_col] = result.is_aliased[i];
-				}
+
+	// Extract is_aliased for features only (excluding intercept, in original order)
+	if (data.options.intercept) {
+		// Build map: original_column_index -> is_aliased
+		size_t n_params = result.is_aliased.size();
+		vector<bool> aliased_map(n_params, true);
+		for (size_t i = 0; i < n_params; i++) {
+			size_t orig_col = result.permutation_indices[i];
+			if (orig_col < n_params) {
+				aliased_map[orig_col] = result.is_aliased[i];
 			}
-			
-			// Extract is_aliased for features only (columns 1..n_features, excluding intercept at 0)
-			data.is_aliased.clear();
-			data.is_aliased.reserve(n_params - 1);
-			for (size_t j = 1; j < n_params; j++) {
-				data.is_aliased.push_back(aliased_map[j]);
-			}
-		} else {
-			data.is_aliased = TypeConverters::ExtractIsAliased(result);
 		}
-	
+
+		// Extract is_aliased for features only (columns 1..n_features, excluding intercept at 0)
+		data.is_aliased.clear();
+		data.is_aliased.reserve(n_params - 1);
+		for (size_t j = 1; j < n_params; j++) {
+			data.is_aliased.push_back(aliased_map[j]);
+		}
+	} else {
+		data.is_aliased = TypeConverters::ExtractIsAliased(result);
+	}
+
 	data.rank = TypeConverters::ExtractRank(result);
 
 	// Extract fit statistics
@@ -303,7 +301,7 @@ static void ComputeRidge(OlsFitBindData &data) {
 					break;
 				}
 			}
-			
+
 			// Extract std errors for features only
 			data.coefficient_std_errors.clear();
 			data.coefficient_std_errors.reserve(result.std_errors.size() - 1);
@@ -312,7 +310,7 @@ static void ComputeRidge(OlsFitBindData &data) {
 					data.coefficient_std_errors.push_back(result.std_errors(static_cast<Eigen::Index>(i)));
 				}
 			}
-			
+
 			// Extract intercept standard error
 			if (intercept_pos < static_cast<size_t>(result.std_errors.size())) {
 				data.intercept_std_error = result.std_errors(static_cast<Eigen::Index>(intercept_pos));
@@ -336,7 +334,7 @@ static void ComputeRidge(OlsFitBindData &data) {
 			}
 			x_means(j) = sum / static_cast<double>(n);
 		}
-		
+
 		data.x_train_means.resize(p);
 		for (idx_t j = 0; j < p; j++) {
 			data.x_train_means[j] = x_means(j);
@@ -344,7 +342,7 @@ static void ComputeRidge(OlsFitBindData &data) {
 	}
 
 	ANOFOX_DEBUG("Ridge (via libanostat): R² = " << data.r_squared << ", λ=" << data.options.lambda
-	                                              << ", rank = " << data.rank << "/" << p);
+	                                             << ", rank = " << data.rank << "/" << p);
 }
 
 //===--------------------------------------------------------------------===//

@@ -30,8 +30,8 @@ void OlsFitPredictInitialize(const AggregateFunction &function, data_ptr_t state
 }
 
 // Update (no-op for window-only function)
-void OlsFitPredictUpdate(Vector inputs[], AggregateInputData &aggr_input_data, idx_t input_count,
-                         Vector &state_vector, idx_t count) {
+void OlsFitPredictUpdate(Vector inputs[], AggregateInputData &aggr_input_data, idx_t input_count, Vector &state_vector,
+                         idx_t count) {
 	// No-op: window callback reads partition directly via LoadPartitionData
 }
 
@@ -46,9 +46,9 @@ void OlsFitPredictCombine(Vector &source, Vector &target, AggregateInputData &ag
  */
 void OlsFitPredictFinalize(duckdb::Vector &state_vector, duckdb::AggregateInputData &aggr_input_data,
                            duckdb::Vector &result, idx_t count, idx_t offset) {
-	// std::cerr << "[OLS FINALIZE] Called with count=" << count << ", offset=" << offset << " (should use OVER clause!)" << std::endl;
-	// Not used in window mode
-	// If called in non-window mode, return NULL (user should use OVER clause)
+	// std::cerr << "[OLS FINALIZE] Called with count=" << count << ", offset=" << offset << " (should use OVER
+	// clause!)" << std::endl; Not used in window mode If called in non-window mode, return NULL (user should use OVER
+	// clause)
 	auto &result_validity = FlatVector::Validity(result);
 	for (idx_t i = 0; i < count; i++) {
 		result_validity.SetInvalid(i);
@@ -93,7 +93,7 @@ static void OlsFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 			ANOFOX_DEBUG("Using cached OLS model for row " << rid << ", frame_sig_size=" << current_frame_sig.size());
 		} else {
 			ANOFOX_DEBUG("Cache miss for row " << rid << ": cached_sig_size=" << cache->train_indices.size()
-			                                    << ", current_sig_size=" << current_frame_sig.size());
+			                                   << ", current_sig_size=" << current_frame_sig.size());
 		}
 	} else {
 		ANOFOX_DEBUG("No cache available for row " << rid << ", will fit new model");
@@ -127,7 +127,8 @@ static void OlsFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 		// - Without intercept: need n >= p
 		idx_t min_required = options.intercept ? (p <= 1 ? 1 : p + 1) : p;
 		if (n_train < min_required || p == 0) {
-			ANOFOX_DEBUG("Insufficient data: n_train=" << n_train << " < " << min_required << " (p=" << p << ", intercept=" << options.intercept << "): returning NULL");
+			ANOFOX_DEBUG("Insufficient data: n_train=" << n_train << " < " << min_required << " (p=" << p
+			                                           << ", intercept=" << options.intercept << "): returning NULL");
 			result_validity.SetInvalid(rid);
 			return;
 		}
@@ -215,8 +216,8 @@ static void OlsFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 		Eigen::VectorXd residuals = y_train - y_pred_train;
 		double ss_res = residuals.squaredNorm();
 
-		// std::cerr << "[OLS FIT] y_pred_train[0]=" << y_pred_train(0) << ", residuals[0]=" << residuals(0) << std::endl;
-		// std::cerr << "[OLS FIT] ss_res=" << ss_res << std::endl;
+		// std::cerr << "[OLS FIT] y_pred_train[0]=" << y_pred_train(0) << ", residuals[0]=" << residuals(0) <<
+		// std::endl; std::cerr << "[OLS FIT] ss_res=" << ss_res << std::endl;
 
 		// NOTE: ols_result.rank is from libanostat which includes intercept in the design matrix
 		// But in fit-predict, we call libanostat_ols directly which gets the CENTERED X
@@ -225,7 +226,8 @@ static void OlsFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 		df_residual = n_train - df_model;
 		mse = (df_residual > 0) ? (ss_res / df_residual) : std::numeric_limits<double>::quiet_NaN();
 
-		// std::cerr << "[OLS FIT] df_model=" << df_model << ", df_residual=" << df_residual << ", mse=" << mse << std::endl;
+		// std::cerr << "[OLS FIT] df_model=" << df_model << ", df_residual=" << df_residual << ", mse=" << mse <<
+		// std::endl;
 
 		// Store coefficients
 		coefficients = ols_result.coefficients;
@@ -240,7 +242,7 @@ static void OlsFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 		// X_train goes out of scope here - we only keep XtX_inv (much smaller)
 
 		ANOFOX_DEBUG("Fitted OLS model: n_train=" << n_train << ", p=" << p << ", coefficients.size()="
-		                                           << coefficients.size() << ", intercept=" << intercept);
+		                                          << coefficients.size() << ", intercept=" << intercept);
 
 		// Cache the model if frame is constant (caching is beneficial)
 		// We cache when the frame covers all training rows (common case with OVER ())
@@ -321,10 +323,11 @@ static void OlsFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 	// }
 
 	// Compute prediction with interval (always use XtX_inv for memory efficiency)
-	PredictionResult pred = ComputePredictionWithIntervalXtXInv(all_x[rid], intercept, coefficients, mse, x_means,
-	                                                            XtX_inv, n_train, df_residual, 0.95, // TODO: Get from options
-	                                                            "prediction"                         // TODO: Get from options
-	);
+	PredictionResult pred =
+	    ComputePredictionWithIntervalXtXInv(all_x[rid], intercept, coefficients, mse, x_means, XtX_inv, n_train,
+	                                        df_residual, 0.95, // TODO: Get from options
+	                                        "prediction"       // TODO: Get from options
+	    );
 
 	if (!pred.is_valid) {
 		// std::cerr << "[OLS PREDICT] Row " << rid << " prediction INVALID" << std::endl;
@@ -361,20 +364,19 @@ void OlsFitPredictFunction::Register(ExtensionLoader &loader) {
 	AggregateFunction anofox_statistics_fit_predict_ols(
 	    "anofox_statistics_fit_predict_ols",
 	    {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
-	    LogicalType::STRUCT(fit_predict_struct_fields),
-	    AggregateFunction::StateSize<OlsFitPredictState>,
-	    OlsFitPredictInitialize,                        // initialize
-	    OlsFitPredictUpdate,                            // update
-	    OlsFitPredictCombine,                           // combine
-	    OlsFitPredictFinalize,                          // finalize
-	    FunctionNullHandling::DEFAULT_NULL_HANDLING,    // null_handling
-	    nullptr,                                        // simple_update (not needed, we use window)
-	    nullptr,                                        // bind
-	    nullptr,                                        // destructor
-	    nullptr,                                        // statistics
-	    OlsFitPredictWindow,                            // window callback - THIS IS THE KEY!
-	    nullptr,                                        // serialize
-	    nullptr);                                       // deserialize
+	    LogicalType::STRUCT(fit_predict_struct_fields), AggregateFunction::StateSize<OlsFitPredictState>,
+	    OlsFitPredictInitialize,                     // initialize
+	    OlsFitPredictUpdate,                         // update
+	    OlsFitPredictCombine,                        // combine
+	    OlsFitPredictFinalize,                       // finalize
+	    FunctionNullHandling::DEFAULT_NULL_HANDLING, // null_handling
+	    nullptr,                                     // simple_update (not needed, we use window)
+	    nullptr,                                     // bind
+	    nullptr,                                     // destructor
+	    nullptr,                                     // statistics
+	    OlsFitPredictWindow,                         // window callback - THIS IS THE KEY!
+	    nullptr,                                     // serialize
+	    nullptr);                                    // deserialize
 
 	// Mark as order-dependent to ensure window processing is used
 	anofox_statistics_fit_predict_ols.order_dependent = AggregateOrderDependent::ORDER_DEPENDENT;

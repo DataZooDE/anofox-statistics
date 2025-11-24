@@ -196,7 +196,8 @@ void RegressionOptions::Validate() const {
 
 	// Validate fit_predict_mode
 	if (fit_predict_mode != "expanding" && fit_predict_mode != "fixed") {
-		throw InvalidInputException("Option 'fit_predict_mode' must be 'expanding' or 'fixed', got: '%s'", fit_predict_mode);
+		throw InvalidInputException("Option 'fit_predict_mode' must be 'expanding' or 'fixed', got: '%s'",
+		                            fit_predict_mode);
 	}
 
 	// Validate window size if set

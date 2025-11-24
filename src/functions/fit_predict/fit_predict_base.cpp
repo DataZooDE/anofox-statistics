@@ -111,9 +111,8 @@ PredictionResult ComputePredictionWithInterval(const vector<double> &x_new, doub
 PredictionResult ComputePredictionWithIntervalXtXInv(const vector<double> &x_new, double intercept,
                                                      const Eigen::VectorXd &coefficients, double mse,
                                                      const Eigen::VectorXd &x_train_means,
-                                                     const Eigen::MatrixXd &XtX_inv, idx_t n_train,
-                                                     idx_t df_residual, double confidence_level,
-                                                     const string &interval_type) {
+                                                     const Eigen::MatrixXd &XtX_inv, idx_t n_train, idx_t df_residual,
+                                                     double confidence_level, const string &interval_type) {
 	PredictionResult result;
 
 	if (x_new.size() != static_cast<size_t>(coefficients.size())) {
@@ -309,7 +308,7 @@ LogicalType CreateFitPredictReturnType() {
 }
 
 vector<idx_t> ComputeFrameSignature(const SubFrames &subframes, const vector<double> &all_y,
-                                     const vector<vector<double>> &all_x, const RegressionOptions &options) {
+                                    const vector<vector<double>> &all_x, const RegressionOptions &options) {
 	vector<idx_t> signature;
 
 	ANOFOX_DEBUG("ComputeFrameSignature: mode=" << options.fit_predict_mode << ", n_rows=" << all_y.size());
