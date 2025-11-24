@@ -5,10 +5,11 @@ set(TARGET_NAME anofox_statistics)
 project(${TARGET_NAME})
 
 # Enable fit-predict debug logging for debug builds
-if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-    add_definitions(-DANOFOX_ENABLE_FIT_PREDICT_DEBUG)
-    message(STATUS "Fit-predict debug logging enabled")
-endif()
+# DISABLED: Slows down tests significantly
+# if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+#     add_definitions(-DANOFOX_ENABLE_FIT_PREDICT_DEBUG)
+#     message(STATUS "Fit-predict debug logging enabled")
+# endif()
 
 # DuckDB extension boilerplate
 include_directories(src/include)

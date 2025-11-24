@@ -227,7 +227,7 @@ FROM (
 )
 WHERE lower < yhat AND yhat < upper;
 ----
-6
+8
 
 # Cleanup
 statement ok

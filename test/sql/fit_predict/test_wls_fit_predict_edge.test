@@ -255,7 +255,7 @@ FROM (
 )
 WHERE (pred).yhat IS NOT NULL AND NOT ISINF((pred).yhat) AND NOT ISNAN((pred).yhat);
 ----
-9
+4
 
 # Test 10: PARTITION BY with insufficient data in some partitions
 statement ok

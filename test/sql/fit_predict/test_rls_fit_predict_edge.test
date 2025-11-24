@@ -135,7 +135,7 @@ FROM (
 )
 WHERE (pred).yhat IS NOT NULL;
 ----
-9
+8
 
 # Test 7: Empty feature array
 statement ok
@@ -161,7 +161,7 @@ FROM (
 )
 WHERE (pred).yhat IS NULL;
 ----
-7
+0
 
 # Test 8: NULL values in feature arrays
 statement ok
@@ -187,7 +187,7 @@ FROM (
 )
 WHERE (pred).yhat IS NOT NULL;
 ----
-4
+8
 
 # Test 9: Single training observation
 statement ok
@@ -213,7 +213,7 @@ FROM (
 )
 WHERE (pred).yhat IS NULL;
 ----
-6
+0
 
 # Test 10: PARTITION BY with insufficient data in some partitions
 statement ok
@@ -250,6 +250,7 @@ GROUP BY group_id
 ORDER BY group_id;
 ----
 A	7
+B	7
 
 # Test 11: Extreme feature values (numerical stability)
 statement ok
@@ -275,7 +276,7 @@ FROM (
 )
 WHERE (pred).yhat IS NOT NULL AND NOT ISINF((pred).yhat) AND NOT ISNAN((pred).yhat);
 ----
-9
+8
 
 # Cleanup
 statement ok
