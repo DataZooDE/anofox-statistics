@@ -49,9 +49,13 @@ if(BUILD_TESTING)
         set(TEST_SOURCES
             test/main.cpp
             test/core/test_core_structures.cpp
+            test/core/test_input_validation.cpp
             test/test_compilation.cpp
             test/solvers/test_i_regressor.cpp
             test/solvers/test_coefficient_extraction.cpp
+            test/solvers/test_rank_deficiency_edge_cases.cpp
+            test/solvers/test_saturated_models.cpp
+            test/solvers/test_statistics_edge_cases.cpp
             test/utils/test_distributions.cpp
             test/inference/test_inference.cpp
             test/diagnostics/test_regression_diagnostics.cpp
