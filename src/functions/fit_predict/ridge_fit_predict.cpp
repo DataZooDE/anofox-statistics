@@ -92,10 +92,6 @@ static void RidgeFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 
 	// DEBUG
 	if (rid < 3) {
-		std::cerr << "[DEBUG Ridge] Partition: n_rows=" << all_y.size()
-		          << ", n_features=" << n_features
-		          << ", lambda=" << options.lambda
-		          << ", intercept=" << options.intercept << std::endl;
 	}
 
 	// Build frame signature for caching (detect if frame changes across rows)
@@ -134,10 +130,6 @@ static void RidgeFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 			          << ": intercept=" << intercept
 			          << ", beta.size()=" << beta.size()
 			          << ", beta[0]=" << (beta.size() > 0 ? beta(0) : 0.0));
-			std::cerr << "[DEBUG Ridge] Using cached model for row " << rid
-			          << ": intercept=" << intercept
-			          << ", beta.size()=" << beta.size()
-			          << ", beta[0]=" << (beta.size() > 0 ? beta(0) : 0.0) << std::endl;
 		}
 	} else {
 		// Fit new model
@@ -145,7 +137,6 @@ static void RidgeFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 
 		if (rid < 3) {
 			RIDGE_DEBUG("[FIT] Fitting new model: n_train=" << n_train << ", p=" << p);
-			std::cerr << "[DEBUG Ridge] Fitting new model: n_train=" << n_train << ", p=" << p << std::endl;
 		}
 
 		// Validation:
@@ -253,8 +244,6 @@ static void RidgeFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 			RIDGE_DEBUG("[FIT] Model fitted and cached: intercept=" << intercept
 			          << ", beta[0]=" << (p > 0 ? beta(0) : 0.0)
 			          << ", mse=" << mse << ", n_train=" << n_train);
-			std::cerr << "[DEBUG Ridge] Model fitted and cached: intercept=" << intercept
-			          << ", beta[0]=" << (p > 0 ? beta(0) : 0.0) << std::endl;
 		}
 	}
 
@@ -264,9 +253,6 @@ static void RidgeFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 			RIDGE_DEBUG("[INVALID] Row " << rid << " invalid: rid=" << rid
 			          << ", all_x.size()=" << all_x.size()
 			          << ", empty=" << (rid < all_x.size() ? all_x[rid].empty() : true));
-			std::cerr << "[DEBUG Ridge] Row " << rid << " invalid: rid=" << rid
-			          << ", all_x.size()=" << all_x.size()
-			          << ", empty=" << (rid < all_x.size() ? all_x[rid].empty() : true) << std::endl;
 		}
 		result_validity.SetInvalid(rid);
 		return;
@@ -295,11 +281,6 @@ static void RidgeFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 		          << ", x[0]=" << (all_x[rid].size() > 0 ? all_x[rid][0] : 0.0)
 		          << ", intercept=" << intercept
 		          << ", beta.size()=" << beta.size());
-		std::cerr << "[DEBUG Ridge] Predicting for row " << rid
-		          << ": x.size()=" << all_x[rid].size()
-		          << ", x[0]=" << (all_x[rid].size() > 0 ? all_x[rid][0] : 0.0)
-		          << ", intercept=" << intercept
-		          << ", beta.size()=" << beta.size() << std::endl;
 	}
 
 	// Compute prediction with interval (using precomputed XtX_inv - memory efficient!)
@@ -310,7 +291,6 @@ static void RidgeFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 	if (!pred.is_valid) {
 		if (rid < 3) {
 			RIDGE_DEBUG("[INVALID_PRED] Prediction INVALID for row " << rid);
-			std::cerr << "[DEBUG Ridge] Prediction INVALID for row " << rid << std::endl;
 		}
 		ANOFOX_FIT_PREDICT_DEBUG("Prediction invalid: returning NULL");
 		result_validity.SetInvalid(rid);
@@ -328,7 +308,6 @@ static void RidgeFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 		          << ": yhat=" << pred.yhat
 		          << ", lower=" << pred.yhat_lower
 		          << ", upper=" << pred.yhat_upper);
-		std::cerr << "[DEBUG Ridge] Prediction SUCCESS for row " << rid << ": yhat=" << pred.yhat << std::endl;
 	}
 
 	yhat_data[rid] = pred.yhat;
