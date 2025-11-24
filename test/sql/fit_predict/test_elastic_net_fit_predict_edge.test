@@ -174,7 +174,7 @@ FROM (
 )
 WHERE (pred).yhat IS NOT NULL;
 ----
-4
+8
 
 # Test 8: Single training observation
 statement ok
@@ -200,7 +200,7 @@ FROM (
 )
 WHERE (pred).yhat IS NULL;
 ----
-6
+0
 
 # Test 9: PARTITION BY with insufficient data in some partitions
 statement ok

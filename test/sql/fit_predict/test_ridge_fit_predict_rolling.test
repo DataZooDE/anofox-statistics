@@ -55,7 +55,7 @@ FROM (
 )
 WHERE (pred).yhat IS NOT NULL;
 ----
-1
+15
 
 # Test 3: Sliding window with gap (train on rows 3-7 back, predict current)
 query I

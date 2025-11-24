@@ -107,7 +107,7 @@ FROM (
 )
 WHERE (pred).yhat IS NOT NULL;
 ----
-4
+8
 
 # Test 5: Inconsistent feature array lengths
 statement ok

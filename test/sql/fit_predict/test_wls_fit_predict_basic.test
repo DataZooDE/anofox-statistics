@@ -109,7 +109,7 @@ FROM (
             [x],
             w,
             MAP{'intercept': 1}
-        ) OVER (PARTITION BY group_id) as pred
+        ) OVER (PARTITION BY group_id ORDER BY row_id) as pred
     FROM wls_groups
 )
 ORDER BY group_id, row_id;

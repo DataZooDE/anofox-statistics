@@ -164,7 +164,7 @@ FROM (
         id,
         anofox_statistics_fit_predict_ridge(
             y,
-            [x],
+            [x1],
             MAP{'intercept': 0, 'lambda': 1.0}
         ) OVER (ORDER BY id) as pred
     FROM ridge_data
