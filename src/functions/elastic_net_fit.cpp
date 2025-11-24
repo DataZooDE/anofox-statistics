@@ -126,7 +126,8 @@ static void ComputeElasticNet(ElasticNetFitBindData &data) {
 	auto result = LibanostatWrapper::FitElasticNet(data.y_values, // vector<double>
 	                                               data.x_values, // vector<vector<double>> (column-major)
 	                                               data.options,  // RegressionOptions (includes alpha and lambda)
-	                                               data.options.full_output);
+	                                               data.options.full_output, // compute std errors if full_output
+	                                               false);        // row_major=false (column-major data)
 
 	// Extract coefficients
 	data.coefficients = TypeConverters::ExtractCoefficients(result);

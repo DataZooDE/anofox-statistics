@@ -134,7 +134,8 @@ static void ComputeWLS(WlsFitBindData &data) {
 	                                        data.x_values, // vector<vector<double>> (column-major)
 	                                        data.weights,  // vector<double>: observation weights
 	                                        data.options,  // RegressionOptions
-	                                        data.options.full_output);
+	                                        data.options.full_output, // compute std errors if full_output
+	                                        false);        // row_major=false (column-major data)
 
 	// Extract coefficients and aliasing info
 	data.coefficients = TypeConverters::ExtractCoefficients(result);

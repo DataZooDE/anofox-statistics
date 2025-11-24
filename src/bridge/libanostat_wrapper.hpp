@@ -32,18 +32,19 @@ public:
 	 * Fit OLS regression
 	 *
 	 * @param y_data Response vector (DuckDB format)
-	 * @param x_data Design matrix (DuckDB column-major format)
+	 * @param x_data Design matrix (DuckDB format, row-major by default)
 	 * @param options Regression options (DuckDB format)
 	 * @param compute_std_errors If true, compute standard errors
+	 * @param row_major If true (default), x_data is row-major; if false, column-major
 	 * @return libanostat RegressionResult (can be converted back using TypeConverters)
 	 */
 	static libanostat::core::RegressionResult FitOLS(const vector<double> &y_data, const vector<vector<double>> &x_data,
 	                                                 const RegressionOptions &options,
-	                                                 bool compute_std_errors = false) {
+	                                                 bool compute_std_errors = false, bool row_major = true) {
 
 		// Convert DuckDB types to Eigen
 		auto y = TypeConverters::ToEigenVector(y_data);
-		auto X = TypeConverters::ToEigenMatrix(x_data);
+		auto X = TypeConverters::ToEigenMatrix(x_data, row_major);
 		auto lib_opts = TypeConverters::ToLibanostatOptions(options);
 
 		// Call libanostat solver
@@ -62,18 +63,19 @@ public:
 	 * Fit Ridge regression with L2 regularization
 	 *
 	 * @param y_data Response vector
-	 * @param x_data Design matrix (column-major)
+	 * @param x_data Design matrix (row-major by default)
 	 * @param options Regression options (must include lambda parameter)
 	 * @param compute_std_errors If true, compute approximate standard errors
+	 * @param row_major If true (default), x_data is row-major; if false, column-major
 	 * @return libanostat RegressionResult
 	 */
 	static libanostat::core::RegressionResult FitRidge(const vector<double> &y_data,
 	                                                   const vector<vector<double>> &x_data,
 	                                                   const RegressionOptions &options,
-	                                                   bool compute_std_errors = false) {
+	                                                   bool compute_std_errors = false, bool row_major = true) {
 
 		auto y = TypeConverters::ToEigenVector(y_data);
-		auto X = TypeConverters::ToEigenMatrix(x_data);
+		auto X = TypeConverters::ToEigenMatrix(x_data, row_major);
 		auto lib_opts = TypeConverters::ToLibanostatOptions(options);
 
 		if (compute_std_errors) {
@@ -91,18 +93,19 @@ public:
 	 * Fit Elastic Net regression with L1+L2 penalties
 	 *
 	 * @param y_data Response vector
-	 * @param x_data Design matrix (column-major)
+	 * @param x_data Design matrix (row-major by default)
 	 * @param options Regression options (must include lambda and alpha)
 	 * @param compute_std_errors If true, return NaN for std_errors (bootstrap recommended)
+	 * @param row_major If true (default), x_data is row-major; if false, column-major
 	 * @return libanostat RegressionResult
 	 */
 	static libanostat::core::RegressionResult FitElasticNet(const vector<double> &y_data,
 	                                                        const vector<vector<double>> &x_data,
 	                                                        const RegressionOptions &options,
-	                                                        bool compute_std_errors = false) {
+	                                                        bool compute_std_errors = false, bool row_major = true) {
 
 		auto y = TypeConverters::ToEigenVector(y_data);
-		auto X = TypeConverters::ToEigenMatrix(x_data);
+		auto X = TypeConverters::ToEigenMatrix(x_data, row_major);
 		auto lib_opts = TypeConverters::ToLibanostatOptions(options);
 
 		if (compute_std_errors) {
@@ -120,18 +123,19 @@ public:
 	 * Fit Weighted Least Squares regression
 	 *
 	 * @param y_data Response vector
-	 * @param x_data Design matrix (column-major)
+	 * @param x_data Design matrix (row-major by default)
 	 * @param weights Observation weights (all must be > 0)
 	 * @param options Regression options
 	 * @param compute_std_errors If true, compute standard errors
+	 * @param row_major If true (default), x_data is row-major; if false, column-major
 	 * @return libanostat RegressionResult
 	 */
 	static libanostat::core::RegressionResult FitWLS(const vector<double> &y_data, const vector<vector<double>> &x_data,
 	                                                 const vector<double> &weights, const RegressionOptions &options,
-	                                                 bool compute_std_errors = false) {
+	                                                 bool compute_std_errors = false, bool row_major = true) {
 
 		auto y = TypeConverters::ToEigenVector(y_data);
-		auto X = TypeConverters::ToEigenMatrix(x_data);
+		auto X = TypeConverters::ToEigenMatrix(x_data, row_major);
 		auto w = TypeConverters::ToEigenWeights(weights);
 		auto lib_opts = TypeConverters::ToLibanostatOptions(options);
 
@@ -150,17 +154,18 @@ public:
 	 * Fit Recursive Least Squares regression
 	 *
 	 * @param y_data Response vector
-	 * @param x_data Design matrix (column-major)
+	 * @param x_data Design matrix (row-major by default)
 	 * @param options Regression options (must include forgetting_factor)
 	 * @param compute_std_errors If true, compute approximate standard errors
+	 * @param row_major If true (default), x_data is row-major; if false, column-major
 	 * @return libanostat RegressionResult
 	 */
 	static libanostat::core::RegressionResult FitRLS(const vector<double> &y_data, const vector<vector<double>> &x_data,
 	                                                 const RegressionOptions &options,
-	                                                 bool compute_std_errors = false) {
+	                                                 bool compute_std_errors = false, bool row_major = true) {
 
 		auto y = TypeConverters::ToEigenVector(y_data);
-		auto X = TypeConverters::ToEigenMatrix(x_data);
+		auto X = TypeConverters::ToEigenMatrix(x_data, row_major);
 		auto lib_opts = TypeConverters::ToLibanostatOptions(options);
 
 		if (compute_std_errors) {
@@ -183,26 +188,27 @@ public:
 	 * - lambda>0, alpha>0 → Elastic Net
 	 *
 	 * @param y_data Response vector
-	 * @param x_data Design matrix
+	 * @param x_data Design matrix (row-major by default)
 	 * @param options Regression options (determines which solver to use)
 	 * @param compute_std_errors If true, compute standard errors
+	 * @param row_major If true (default), x_data is row-major; if false, column-major
 	 * @return libanostat RegressionResult
 	 */
 	static libanostat::core::RegressionResult FitAuto(const vector<double> &y_data,
 	                                                  const vector<vector<double>> &x_data,
 	                                                  const RegressionOptions &options,
-	                                                  bool compute_std_errors = false) {
+	                                                  bool compute_std_errors = false, bool row_major = true) {
 
 		// Determine which solver to use based on parameters
 		if (options.lambda <= 1e-10) {
 			// OLS (no regularization)
-			return FitOLS(y_data, x_data, options, compute_std_errors);
+			return FitOLS(y_data, x_data, options, compute_std_errors, row_major);
 		} else if (options.alpha <= 1e-10) {
 			// Ridge (L2 only)
-			return FitRidge(y_data, x_data, options, compute_std_errors);
+			return FitRidge(y_data, x_data, options, compute_std_errors, row_major);
 		} else {
 			// Elastic Net (L1 + L2)
-			return FitElasticNet(y_data, x_data, options, compute_std_errors);
+			return FitElasticNet(y_data, x_data, options, compute_std_errors, row_major);
 		}
 	}
 

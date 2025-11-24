@@ -245,9 +245,10 @@ static void OlsFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 		// std::cerr << "[OLS FIT] y_pred_train[0]=" << y_pred_train(0) << ", residuals[0]=" << residuals(0) <<
 		// std::endl; std::cerr << "[OLS FIT] ss_res=" << ss_res << std::endl;
 
-		// NOTE: After ba2334b fix, ols_result.rank now includes intercept if fitted
-		// df_model = rank directly
-		idx_t df_model = ols_result.rank;
+		// Compute degrees of freedom
+		// NOTE: When we fit with centered data (options.intercept=true), we pass intercept=false to libanostat.
+		// libanostat's rank only counts features, so we must add 1 for the intercept we computed manually.
+		idx_t df_model = ols_result.rank + (options.intercept ? 1 : 0);
 		df_residual = n_train - df_model;
 		mse = (df_residual > 0) ? (ss_res / df_residual) : std::numeric_limits<double>::quiet_NaN();
 
@@ -340,11 +341,13 @@ static void OlsFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 	auto list_entries = FlatVector::GetData<list_entry_t>(dummy_list);
 	list_entries[rid] = list_entry_t {0, 0}; // Empty list for this row
 
-	// if (rid < 3) {
+	// if (rid < 5) {
 	// 	std::cerr << "[OLS PREDICT] Row " << rid << ": x=" << all_x[rid][0]
 	// 	          << ", intercept=" << intercept
 	// 	          << ", coef[0]=" << coefficients(0)
-	// 	          << ", x_means[0]=" << x_means(0) << std::endl;
+	// 	          << ", x_means[0]=" << x_means(0)
+	// 	          << ", df_residual=" << df_residual
+	// 	          << ", mse=" << mse << std::endl;
 	// }
 
 	// Compute prediction with interval (always use XtX_inv for memory efficiency)
@@ -360,9 +363,11 @@ static void OlsFitPredictWindow(duckdb::AggregateInputData &aggr_input_data,
 		return;
 	}
 
-	if (rid < 3) {
-		// std::cerr << "[OLS PREDICT] Row " << rid << " SUCCESS: yhat=" << pred.yhat << std::endl;
-	}
+	// if (rid < 5) {
+	// 	std::cerr << "[OLS PREDICT] Row " << rid << " SUCCESS: yhat=" << pred.yhat
+	// 	          << ", lower=" << pred.yhat_lower
+	// 	          << ", upper=" << pred.yhat_upper << std::endl;
+	// }
 
 	// Fill result
 	yhat_data[rid] = pred.yhat;

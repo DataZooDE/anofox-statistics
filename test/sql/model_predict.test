@@ -61,7 +61,7 @@ FROM anofox_statistics_model_predict(
     'prediction'
 ) p;
 ----
-1	11.97	11.4179	12.5221
+1	11.97	11.1583	12.7817
 
 # Test 5: Prediction intervals should be wider than confidence intervals
 query T
@@ -159,7 +159,7 @@ FROM anofox_statistics_model_predict(
     'prediction'
 ) p;
 ----
-0.8166	2.0267
+1.6233	1.9032
 
 # Test 10: Higher confidence level should give wider intervals
 query T
@@ -219,7 +219,7 @@ FROM (
              [10.0]::DOUBLE[], 0.95, 'prediction') p) as se_new
 );
 ----
-false
+true
 
 # Test 13: Batch predictions - multiple observations at once
 query I

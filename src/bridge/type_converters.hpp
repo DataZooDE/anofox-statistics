@@ -43,34 +43,66 @@ public:
 	}
 
 	/**
-	 * Convert DuckDB 2D vector (column-major) to Eigen::MatrixXd
+	 * Convert DuckDB 2D vector to Eigen::MatrixXd
 	 *
-	 * @param data Column-major 2D array: data[j][i] = X(i,j)
-	 *             where j is feature index, i is observation index
+	 * IMPORTANT: Supports both row-major and column-major formats:
+	 *
+	 * Row-major (row_major=true, DEFAULT for aggregates/fit_predict):
+	 *   data[i][j] = X(i,j) where i=observation, j=feature
+	 *   Example: [[1.0, 2.0], [3.0, 4.0]] = 2 observations × 2 features
+	 *
+	 * Column-major (row_major=false, for scalar functions):
+	 *   data[j][i] = X(i,j) where j=feature, i=observation
+	 *   Example: [[1.0, 3.0], [2.0, 4.0]] = 2 observations × 2 features
+	 *
+	 * @param data 2D array in specified format
+	 * @param row_major If true, data is row-major; if false, column-major
 	 * @return Eigen::MatrixXd with n rows (observations) and p columns (features)
 	 */
-	static Eigen::MatrixXd ToEigenMatrix(const vector<vector<double>> &data) {
+	static Eigen::MatrixXd ToEigenMatrix(const vector<vector<double>> &data, bool row_major = true) {
 		if (data.empty()) {
 			return Eigen::MatrixXd(0, 0);
 		}
 
-		const size_t p = data.size();    // number of features
-		const size_t n = data[0].size(); // number of observations
+		if (row_major) {
+			// Row-major: data[observation][feature]
+			const size_t n = data.size();    // number of observations
+			const size_t p = data[0].size(); // number of features
 
-		// Validate all columns have same length
-		for (size_t j = 0; j < p; j++) {
-			if (data[j].size() != n) {
-				throw InvalidInputException("All feature columns must have same length");
-			}
-		}
-
-		Eigen::MatrixXd result(static_cast<Eigen::Index>(n), static_cast<Eigen::Index>(p));
-		for (size_t j = 0; j < p; j++) {
+			// Validate all rows have same length
 			for (size_t i = 0; i < n; i++) {
-				result(static_cast<Eigen::Index>(i), static_cast<Eigen::Index>(j)) = data[j][i];
+				if (data[i].size() != p) {
+					throw InvalidInputException("All observation rows must have same length");
+				}
 			}
+
+			Eigen::MatrixXd result(static_cast<Eigen::Index>(n), static_cast<Eigen::Index>(p));
+			for (size_t i = 0; i < n; i++) {
+				for (size_t j = 0; j < p; j++) {
+					result(static_cast<Eigen::Index>(i), static_cast<Eigen::Index>(j)) = data[i][j];
+				}
+			}
+			return result;
+		} else {
+			// Column-major: data[feature][observation]
+			const size_t p = data.size();    // number of features
+			const size_t n = data[0].size(); // number of observations
+
+			// Validate all columns have same length
+			for (size_t j = 0; j < p; j++) {
+				if (data[j].size() != n) {
+					throw InvalidInputException("All feature columns must have same length");
+				}
+			}
+
+			Eigen::MatrixXd result(static_cast<Eigen::Index>(n), static_cast<Eigen::Index>(p));
+			for (size_t j = 0; j < p; j++) {
+				for (size_t i = 0; i < n; i++) {
+					result(static_cast<Eigen::Index>(i), static_cast<Eigen::Index>(j)) = data[j][i];
+				}
+			}
+			return result;
 		}
-		return result;
 	}
 
 	/**
