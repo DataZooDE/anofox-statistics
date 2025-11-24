@@ -121,11 +121,11 @@ static void ComputeRLS(RlsFitBindData &data) {
 	// Fit RLS using libanostat bridge layer
 	using namespace bridge;
 
-	auto result = LibanostatWrapper::FitRLS(data.y_values, // vector<double>
-	                                        data.x_values, // vector<vector<double>> (column-major)
-	                                        data.options,  // RegressionOptions (includes forgetting_factor)
+	auto result = LibanostatWrapper::FitRLS(data.y_values,            // vector<double>
+	                                        data.x_values,            // vector<vector<double>> (column-major)
+	                                        data.options,             // RegressionOptions (includes forgetting_factor)
 	                                        data.options.full_output, // compute std errors if full_output
-	                                        false);        // row_major=false (column-major data)
+	                                        false);                   // row_major=false (column-major data)
 
 	// Extract coefficients and aliasing info
 	data.coefficients = TypeConverters::ExtractCoefficients(result);

@@ -440,8 +440,10 @@ static void OlsArrayFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
 
 		// Extract results using TypeConverters
 		double intercept = bridge::TypeConverters::ExtractIntercept(lib_result, state.options.intercept);
-		auto feature_coefs_vec = bridge::TypeConverters::ExtractFeatureCoefficients(lib_result, state.options.intercept);
-		Eigen::VectorXd feature_coefs = Eigen::Map<const Eigen::VectorXd>(feature_coefs_vec.data(), feature_coefs_vec.size());
+		auto feature_coefs_vec =
+		    bridge::TypeConverters::ExtractFeatureCoefficients(lib_result, state.options.intercept);
+		Eigen::VectorXd feature_coefs =
+		    Eigen::Map<const Eigen::VectorXd>(feature_coefs_vec.data(), feature_coefs_vec.size());
 		// Compute x_means manually (libanostat doesn't store this)
 		Eigen::VectorXd x_means(p);
 		for (idx_t j = 0; j < p; j++) {
@@ -497,7 +499,6 @@ static void OlsArrayFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
 		idx_t df_model = rank;
 		double adj_r2 = 1.0 - (1.0 - r2) * (n - 1) / (n - df_model);
 
-
 		// Store coefficients in child vector (NaN for aliased -> will be NULL)
 		auto coef_data = FlatVector::GetData<double>(coef_child);
 		auto &coef_validity = FlatVector::Validity(coef_child);
@@ -546,7 +547,8 @@ static void OlsArrayFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
 		} else {
 			feature_std_errors_vec = all_std_errors_vec;
 		}
-		Eigen::VectorXd feature_std_errors = Eigen::Map<const Eigen::VectorXd>(feature_std_errors_vec.data(), feature_std_errors_vec.size());
+		Eigen::VectorXd feature_std_errors =
+		    Eigen::Map<const Eigen::VectorXd>(feature_std_errors_vec.data(), feature_std_errors_vec.size());
 		for (idx_t j = 0; j < p; j++) {
 			if (lib_result.has_std_errors && !std::isnan(feature_std_errors(j))) {
 				coef_se_data[list_offset + j] = feature_std_errors(j);
@@ -732,8 +734,9 @@ static void OlsArrayWindow(AggregateInputData &aggr_input_data, const WindowPart
 
 	// Extract results
 	double intercept = bridge::TypeConverters::ExtractIntercept(lib_result, options.intercept);
-		auto feature_coefs_vec = bridge::TypeConverters::ExtractFeatureCoefficients(lib_result, options.intercept);
-		Eigen::VectorXd feature_coefs = Eigen::Map<const Eigen::VectorXd>(feature_coefs_vec.data(), feature_coefs_vec.size());
+	auto feature_coefs_vec = bridge::TypeConverters::ExtractFeatureCoefficients(lib_result, options.intercept);
+	Eigen::VectorXd feature_coefs =
+	    Eigen::Map<const Eigen::VectorXd>(feature_coefs_vec.data(), feature_coefs_vec.size());
 	idx_t rank = lib_result.rank; // Already includes intercept!
 
 	// Compute predictions

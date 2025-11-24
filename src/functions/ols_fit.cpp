@@ -141,9 +141,9 @@ static void ComputeRidge(OlsFitBindData &data) {
 
 		// Call libanostat OLS solver via bridge
 		// NOTE: x_values is column-major (feature-first) for scalar functions
-		auto result = LibanostatWrapper::FitOLS(data.y_values,           // vector<double>
-		                                        data.x_values,           // vector<vector<double>> (column-major)
-		                                        data.options,            // RegressionOptions
+		auto result = LibanostatWrapper::FitOLS(data.y_values,            // vector<double>
+		                                        data.x_values,            // vector<vector<double>> (column-major)
+		                                        data.options,             // RegressionOptions
 		                                        data.options.full_output, // compute std errors if full_output
 		                                        false                     // row_major=false (column-major data)
 		);
@@ -245,9 +245,9 @@ static void ComputeRidge(OlsFitBindData &data) {
 
 	// Call libanostat Ridge solver via bridge
 	// NOTE: x_values is column-major (feature-first) for scalar functions
-	auto result = LibanostatWrapper::FitRidge(data.y_values,           // vector<double>
-	                                          data.x_values,           // vector<vector<double>> (column-major)
-	                                          data.options,            // RegressionOptions (includes lambda)
+	auto result = LibanostatWrapper::FitRidge(data.y_values,            // vector<double>
+	                                          data.x_values,            // vector<vector<double>> (column-major)
+	                                          data.options,             // RegressionOptions (includes lambda)
 	                                          data.options.full_output, // compute std errors if full_output
 	                                          false                     // row_major=false (column-major data)
 	);

@@ -221,12 +221,15 @@ static void WlsFinalize(Vector &state_vector, AggregateInputData &aggr_input_dat
 		}
 
 		// Use libanostat WLSSolver (handles weighting and intercept automatically)
-		auto lib_result = bridge::LibanostatWrapper::FitWLS(state.y_values, state.x_matrix, state.weights, state.options, true);
+		auto lib_result =
+		    bridge::LibanostatWrapper::FitWLS(state.y_values, state.x_matrix, state.weights, state.options, true);
 
 		// Extract results
 		double intercept = bridge::TypeConverters::ExtractIntercept(lib_result, state.options.intercept);
-		auto feature_coefs_vec = bridge::TypeConverters::ExtractFeatureCoefficients(lib_result, state.options.intercept);
-		Eigen::VectorXd feature_coefs = Eigen::Map<const Eigen::VectorXd>(feature_coefs_vec.data(), feature_coefs_vec.size());
+		auto feature_coefs_vec =
+		    bridge::TypeConverters::ExtractFeatureCoefficients(lib_result, state.options.intercept);
+		Eigen::VectorXd feature_coefs =
+		    Eigen::Map<const Eigen::VectorXd>(feature_coefs_vec.data(), feature_coefs_vec.size());
 		idx_t rank = lib_result.rank; // Already includes intercept!
 
 		// Compute x_means manually for metadata
@@ -314,23 +317,23 @@ static void WlsFinalize(Vector &state_vector, AggregateInputData &aggr_input_dat
 		// 4. Store coefficient_std_errors in list (same offset as coefficients)
 		auto coef_se_data = FlatVector::GetData<double>(coef_se_child);
 		auto &coef_se_validity = FlatVector::Validity(coef_se_child);
-	// Extract feature std errors
+		// Extract feature std errors
 
-	auto all_std_errors_vec = bridge::TypeConverters::ExtractStdErrors(lib_result);
+		auto all_std_errors_vec = bridge::TypeConverters::ExtractStdErrors(lib_result);
 
-	vector<double> feature_std_errors_vec;
+		vector<double> feature_std_errors_vec;
 
-	if (state.options.intercept && all_std_errors_vec.size() > 0) {
+		if (state.options.intercept && all_std_errors_vec.size() > 0) {
 
-		feature_std_errors_vec.assign(all_std_errors_vec.begin() + 1, all_std_errors_vec.end());
+			feature_std_errors_vec.assign(all_std_errors_vec.begin() + 1, all_std_errors_vec.end());
 
-	} else {
+		} else {
 
-		feature_std_errors_vec = all_std_errors_vec;
+			feature_std_errors_vec = all_std_errors_vec;
+		}
 
-	}
-
-	Eigen::VectorXd feature_std_errors = Eigen::Map<const Eigen::VectorXd>(feature_std_errors_vec.data(), feature_std_errors_vec.size());
+		Eigen::VectorXd feature_std_errors =
+		    Eigen::Map<const Eigen::VectorXd>(feature_std_errors_vec.data(), feature_std_errors_vec.size());
 
 		for (idx_t j = 0; j < p; j++) {
 			if (lib_result.has_std_errors && !std::isnan(feature_std_errors(j))) {
@@ -533,7 +536,8 @@ static void WlsWindow(AggregateInputData &aggr_input_data, const WindowPartition
 	// Extract results
 	double intercept = bridge::TypeConverters::ExtractIntercept(lib_result, options.intercept);
 	auto feature_coefs_vec = bridge::TypeConverters::ExtractFeatureCoefficients(lib_result, options.intercept);
-	Eigen::VectorXd feature_coefs = Eigen::Map<const Eigen::VectorXd>(feature_coefs_vec.data(), feature_coefs_vec.size());
+	Eigen::VectorXd feature_coefs =
+	    Eigen::Map<const Eigen::VectorXd>(feature_coefs_vec.data(), feature_coefs_vec.size());
 	idx_t rank = lib_result.rank;
 
 	// Compute predictions

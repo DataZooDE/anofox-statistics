@@ -130,12 +130,12 @@ static void ComputeWLS(WlsFitBindData &data) {
 	// Fit WLS using libanostat bridge layer
 	using namespace bridge;
 
-	auto result = LibanostatWrapper::FitWLS(data.y_values, // vector<double>
-	                                        data.x_values, // vector<vector<double>> (column-major)
-	                                        data.weights,  // vector<double>: observation weights
-	                                        data.options,  // RegressionOptions
+	auto result = LibanostatWrapper::FitWLS(data.y_values,            // vector<double>
+	                                        data.x_values,            // vector<vector<double>> (column-major)
+	                                        data.weights,             // vector<double>: observation weights
+	                                        data.options,             // RegressionOptions
 	                                        data.options.full_output, // compute std errors if full_output
-	                                        false);        // row_major=false (column-major data)
+	                                        false);                   // row_major=false (column-major data)
 
 	// Extract coefficients and aliasing info
 	data.coefficients = TypeConverters::ExtractCoefficients(result);

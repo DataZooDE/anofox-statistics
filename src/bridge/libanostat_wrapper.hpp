@@ -39,8 +39,8 @@ public:
 	 * @return libanostat RegressionResult (can be converted back using TypeConverters)
 	 */
 	static libanostat::core::RegressionResult FitOLS(const vector<double> &y_data, const vector<vector<double>> &x_data,
-	                                                 const RegressionOptions &options,
-	                                                 bool compute_std_errors = false, bool row_major = true) {
+	                                                 const RegressionOptions &options, bool compute_std_errors = false,
+	                                                 bool row_major = true) {
 
 		// Convert DuckDB types to Eigen
 		auto y = TypeConverters::ToEigenVector(y_data);
@@ -161,8 +161,8 @@ public:
 	 * @return libanostat RegressionResult
 	 */
 	static libanostat::core::RegressionResult FitRLS(const vector<double> &y_data, const vector<vector<double>> &x_data,
-	                                                 const RegressionOptions &options,
-	                                                 bool compute_std_errors = false, bool row_major = true) {
+	                                                 const RegressionOptions &options, bool compute_std_errors = false,
+	                                                 bool row_major = true) {
 
 		auto y = TypeConverters::ToEigenVector(y_data);
 		auto X = TypeConverters::ToEigenMatrix(x_data, row_major);
@@ -196,8 +196,8 @@ public:
 	 */
 	static libanostat::core::RegressionResult FitAuto(const vector<double> &y_data,
 	                                                  const vector<vector<double>> &x_data,
-	                                                  const RegressionOptions &options,
-	                                                  bool compute_std_errors = false, bool row_major = true) {
+	                                                  const RegressionOptions &options, bool compute_std_errors = false,
+	                                                  bool row_major = true) {
 
 		// Determine which solver to use based on parameters
 		if (options.lambda <= 1e-10) {
