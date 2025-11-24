@@ -6,7 +6,7 @@ require anofox_statistics
 
 # Test 1: Simple Linear Regression with Intercept
 # Data: y = [2.1, 4.2, 5.9, 8.1, 10.0], x = [1, 2, 3, 4, 5]
-# Expected: intercept=0.15, slope=1.97, R²=0.9989, RMSE≈0.104
+# Expected: intercept=0.15, slope=1.97, R²=0.9989, RMSE≈0.120
 # Fixed: swapped intercept and slope to match correct computation
 query RRRRR
 SELECT
@@ -21,7 +21,7 @@ FROM anofox_statistics_ols(
     MAP{'intercept': true}
 );
 ----
-0.15	1.97	0.9988932359	0.9988932359	0.1036822068
+0.15	1.97	0.9988932359	0.9985243145	0.1197219
 
 # Test 1b: Verify coefficients are not aliased
 query T

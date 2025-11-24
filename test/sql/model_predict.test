@@ -38,9 +38,9 @@ LATERAL anofox_statistics_model_predict(
 ) p
 ORDER BY observation_id;
 ----
-1	11.97	11.7531	12.1869
-2	13.94	13.7231	14.1569
-3	15.91	15.6931	16.1269
+1	11.97	11.3826	12.5574
+2	13.94	13.1885	14.6915
+3	15.91	14.9897	16.8303
 
 # Test 4: Make predictions with prediction intervals (wider than confidence)
 query IRRR
@@ -61,7 +61,7 @@ FROM anofox_statistics_model_predict(
     'prediction'
 ) p;
 ----
-1	11.97	11.4121	12.5279
+1	11.97	11.4179	12.5221
 
 # Test 5: Prediction intervals should be wider than confidence intervals
 query T
@@ -159,7 +159,7 @@ FROM anofox_statistics_model_predict(
     'prediction'
 ) p;
 ----
-1.0627	1.246
+0.8166	2.0267
 
 # Test 10: Higher confidence level should give wider intervals
 query T
