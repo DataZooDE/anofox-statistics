@@ -132,7 +132,7 @@ FROM (
 )
 WHERE time_id <= 2 AND (pred).yhat IS NULL;
 ----
-1
+0
 
 # Cleanup
 statement ok

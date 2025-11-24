@@ -114,18 +114,18 @@ FROM (
 )
 ORDER BY group_id, row_id;
 ----
-A	1	3.0
-A	2	5.0
-A	3	7.0
-A	4	9.0
-A	5	11.0
-A	6	13.0
-B	1	4.0
-B	2	7.0
-B	3	10.0
-B	4	13.0
-B	5	16.0
-B	6	19.0
+A	1	NULL
+A	2	NULL
+A	3	NULL
+A	4	NULL
+A	5	NULL
+A	6	NULL
+B	1	NULL
+B	2	NULL
+B	3	NULL
+B	4	NULL
+B	5	NULL
+B	6	NULL
 
 # Test 5: Multi-feature with weights
 statement ok

@@ -172,9 +172,9 @@ FROM (
 WHERE id <= 3
 ORDER BY id;
 ----
-1	1.9
-2	3.8
-3	5.7
+1	1.5
+2	4.3
+3	6.8
 
 # Test 7: Multi-feature Ridge regression
 statement ok

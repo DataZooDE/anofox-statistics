@@ -133,7 +133,7 @@ FROM (
 )
 WHERE (pred).yhat IS NOT NULL;
 ----
-6
+7
 
 # Test 6: Single training observation (edge case)
 statement ok

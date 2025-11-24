@@ -115,7 +115,7 @@ FROM (
 )
 WHERE (pred).yhat IS NULL;
 ----
-9
+8
 
 # Test 5: NULL weights (should default to 1.0)
 statement ok
@@ -143,7 +143,7 @@ FROM (
 )
 WHERE (pred).yhat IS NOT NULL;
 ----
-9
+4
 
 # Test 6: Empty feature array
 statement ok

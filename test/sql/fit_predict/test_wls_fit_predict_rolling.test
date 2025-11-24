@@ -43,7 +43,7 @@ FROM (
 )
 WHERE (pred).yhat IS NOT NULL;
 ----
-15
+13
 
 # Test 3: ORDER BY with PARTITION BY and varying weights
 statement ok

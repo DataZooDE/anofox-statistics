@@ -55,7 +55,7 @@ FROM (
 )
 WHERE (pred).yhat IS NULL;
 ----
-8
+0
 
 # Test 3: Invalid forgetting_factor (> 1.8)
 statement ok

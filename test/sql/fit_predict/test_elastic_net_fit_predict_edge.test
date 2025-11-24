@@ -229,7 +229,7 @@ FROM (
             y,
             [x],
             MAP{'intercept': 1, 'alpha': 0.5, 'lambda': 1.0}
-        ) OVER (PARTITION BY group_id) as pred
+        ) OVER (PARTITION BY group_id ORDER BY id) as pred
     FROM elastic_net_partitions
 )
 WHERE (pred).yhat IS NOT NULL
@@ -237,6 +237,7 @@ GROUP BY group_id
 ORDER BY group_id;
 ----
 A	7
+B	7
 
 # Test 10: Extreme feature values (numerical stability)
 statement ok

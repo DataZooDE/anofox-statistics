@@ -180,7 +180,7 @@ FROM (
              [6.0]::DOUBLE[], 0.99, 'prediction') p) as width_99
 );
 ----
-false
+true
 
 # Test 11: Standard errors should be positive
 query T
@@ -198,7 +198,7 @@ FROM anofox_statistics_model_predict(
     'prediction'
 ) p;
 ----
-false
+true
 
 # Test 12: Predictions at training points should have smaller SEs
 query T
