@@ -193,11 +193,11 @@ static unique_ptr<FunctionData> OlsInferenceBind(ClientContext &context, TableFu
 		                            n_params_fitted);
 	}
 
-	double mse = ss_res / df;
+	double mse = ss_res / static_cast<double>(df);
 
 	// Compute critical value for confidence intervals
 	double alpha = 1.0 - confidence_level;
-	double t_crit = student_t_critical(alpha / 2.0, df);
+	double t_crit = student_t_critical(alpha / 2.0, static_cast<int>(df));
 
 	// Recompute standard errors for slopes using correct MSE
 	// The slope SEs from ols_result are based on centered MSE, we need original-scale MSE
@@ -273,10 +273,10 @@ static unique_ptr<FunctionData> OlsInferenceBind(ClientContext &context, TableFu
 
 				// SE(intercept) = sqrt(MSE * (1/n + x_mean' * (X'X)^-1 * x_mean))
 				double variance_component = x_means_valid.transpose() * XtX_inv * x_means_valid;
-				intercept_se = std::sqrt(mse * (1.0 / n + variance_component));
+				intercept_se = std::sqrt(mse * (1.0 / static_cast<double>(n) + variance_component));
 			} else {
 				// No valid features -> just use MSE/n
-				intercept_se = std::sqrt(mse / n);
+				intercept_se = std::sqrt(mse / static_cast<double>(n));
 			}
 		} catch (...) {
 			// If computation fails, set to NaN
@@ -285,7 +285,7 @@ static unique_ptr<FunctionData> OlsInferenceBind(ClientContext &context, TableFu
 
 		// Compute t-statistic and p-value for intercept
 		double t_stat = intercept / intercept_se;
-		double p_value = student_t_pvalue(t_stat, df);
+		double p_value = student_t_pvalue(t_stat, static_cast<int>(df));
 		double ci_lower = intercept - t_crit * intercept_se;
 		double ci_upper = intercept + t_crit * intercept_se;
 		bool is_sig = p_value < 0.05;
@@ -330,7 +330,7 @@ static unique_ptr<FunctionData> OlsInferenceBind(ClientContext &context, TableFu
 			// Valid coefficient - compute statistics using recomputed SE
 			std_error = slope_std_errors[j];
 			t_stat = estimate / std_error;
-			p_value = student_t_pvalue(t_stat, df);
+			p_value = student_t_pvalue(t_stat, static_cast<int>(df));
 			ci_lower = estimate - t_crit * std_error;
 			ci_upper = estimate + t_crit * std_error;
 			is_sig = p_value < 0.05;
