@@ -14,9 +14,10 @@ The Anofox Statistics extension provides comprehensive statistical regression an
 
 - **5 Regression Methods**: OLS, Ridge, WLS, RLS, Elastic Net
 - **Flexible Function Types**: Table functions, aggregates, window functions
-- **Complete Statistical Inference**: Coefficient testing, prediction intervals
+- **Integrated Statistical Inference**: F-statistic, coefficient/intercept testing, AIC/BIC (with `full_output=true`)
+- **Prediction Intervals**: Confidence and prediction intervals for all methods
 - **Diagnostic Tools**: VIF, residual analysis, normality tests
-- **Model Selection**: AIC, BIC, adjusted R²
+- **Efficient API**: Single-call fit + inference workflow
 
 ### Function Naming Conventions
 
@@ -58,12 +59,13 @@ All functions follow the pattern: `anofox_statistics_{method}[_operation][_agg]`
 1. [Regression Table Functions](#regression-table-functions)
 2. [Regression Aggregate Functions](#regression-aggregate-functions)
 3. [Fit-Predict Window Aggregates](#fit-predict-window-aggregates)
-4. [Inference Functions](#inference-functions)
+4. [Statistical Inference (Integrated)](#statistical-inference-integrated)
 5. [Prediction Interval Functions](#prediction-interval-functions)
-6. [Diagnostic Functions](#diagnostic-functions)
-7. [Model Selection Functions](#model-selection-functions)
-8. [Scalar Functions](#scalar-functions)
-9. [Function Coverage Matrix](#function-coverage-matrix)
+6. [Model Selection Workflows](#model-selection-workflows)
+7. [Diagnostic Functions](#diagnostic-functions)
+8. [Model-Based Prediction](#model-based-prediction)
+9. [Scalar Functions](#scalar-functions)
+10. [Function Coverage Matrix](#function-coverage-matrix)
 
 ---
 
@@ -85,6 +87,7 @@ anofox_statistics_{method}(
 
 ```sql
 STRUCT(
+    -- Basic model fit
     coefficients        DOUBLE[],     -- Feature coefficients (β)
     intercept           DOUBLE,        -- Model intercept
     r_squared           DOUBLE,        -- R² statistic
@@ -94,14 +97,38 @@ STRUCT(
     n_obs               BIGINT,        -- Number of observations
     n_features          BIGINT,        -- Number of features
 
-    -- With full_output=true:
+    -- Extended with full_output=true:
     x_train_means             DOUBLE[],
     coefficient_std_errors    DOUBLE[],
     intercept_std_error       DOUBLE,
     df_residual               BIGINT,
-    rank                      BIGINT
+    rank                      BIGINT,
+    is_aliased                BOOLEAN[],
+
+    -- Model-level inference (full_output=true):
+    residual_standard_error   DOUBLE,   -- √(RSS / df_residual), matches R lm()
+    f_statistic               DOUBLE,   -- Overall model F-statistic
+    f_statistic_pvalue        DOUBLE,   -- p-value for F-statistic
+    aic                       DOUBLE,   -- Akaike Information Criterion
+    aicc                      DOUBLE,   -- Corrected AIC (small samples)
+    bic                       DOUBLE,   -- Bayesian Information Criterion
+    log_likelihood            DOUBLE,   -- Log-likelihood
+
+    -- Coefficient-level inference (full_output=true):
+    coefficient_t_statistics  DOUBLE[], -- t-statistic for each coefficient
+    coefficient_p_values      DOUBLE[], -- p-value for each coefficient
+    coefficient_ci_lower      DOUBLE[], -- Lower confidence bound (per coef)
+    coefficient_ci_upper      DOUBLE[], -- Upper confidence bound (per coef)
+
+    -- Intercept-level inference (full_output=true):
+    intercept_t_statistic     DOUBLE,   -- t-statistic for intercept
+    intercept_p_value         DOUBLE,   -- p-value for intercept
+    intercept_ci_lower        DOUBLE,   -- Lower CI bound for intercept
+    intercept_ci_upper        DOUBLE    -- Upper CI bound for intercept
 )
 ```
+
+**Note:** All regression table and aggregate functions return this structure when `full_output=true`.
 
 ---
 
@@ -129,12 +156,31 @@ anofox_statistics_ols(
 
 **Returns:** STRUCT with regression statistics (see Common Return Structure)
 
-**Example:**
+**Example (Basic):**
 ```sql
 SELECT * FROM anofox_statistics_ols(
     [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],
     [[1.0], [2.0], [3.0], [4.0], [5.0]]::DOUBLE[][],
     MAP{'intercept': true}
+);
+```
+
+**Example (With Statistical Inference):**
+```sql
+SELECT
+    coefficients,
+    intercept,
+    r_squared,
+    f_statistic,
+    f_statistic_pvalue,
+    aic,
+    bic,
+    coefficient_p_values,
+    intercept_p_value
+FROM anofox_statistics_ols(
+    [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],
+    [[1.0], [2.0], [3.0], [4.0], [5.0]]::DOUBLE[][],
+    MAP{'intercept': true, 'full_output': true, 'confidence_level': 0.95}
 );
 ```
 
@@ -642,184 +688,121 @@ anofox_statistics_fit_predict_rls(
 
 ---
 
-## Inference Functions
+## Statistical Inference (Integrated)
 
-Test statistical significance of model coefficients. Returns one row per parameter.
+**As of v0.2.0**, all regression functions include comprehensive statistical inference when called with `full_output=true`. This replaces the standalone `*_inference` functions from v0.1.0.
 
-### Common Return Structure
+### Overview
 
-```sql
-TABLE(
-    variable      VARCHAR,    -- Parameter name ("intercept", "x1", "x2", ...)
-    estimate      DOUBLE,     -- Coefficient value (β)
-    std_error     DOUBLE,     -- Standard error of coefficient
-    t_statistic   DOUBLE,     -- t = estimate / std_error
-    p_value       DOUBLE,     -- Two-tailed p-value
-    ci_lower      DOUBLE,     -- Lower confidence bound
-    ci_upper      DOUBLE,     -- Upper confidence bound
-    significant   BOOLEAN     -- Is p_value < (1 - confidence_level)?
-)
-```
+Statistical inference is now fully integrated into all regression table and aggregate functions. Simply set `full_output=true` in the options MAP to receive:
 
----
+- **Model-level inference**: F-statistic, AIC, BIC, residual standard error
+- **Coefficient-level inference**: t-statistics, p-values, confidence intervals (one per feature)
+- **Intercept-level inference**: t-statistic, p-value, confidence intervals
 
-### anofox_statistics_ols_inference
+### Model-Level Inference
 
-**OLS Coefficient Inference**
+Test overall model significance with the F-statistic:
 
-**Signature:**
-```sql
-anofox_statistics_ols_inference(
-    y       DOUBLE[],
-    x       DOUBLE[][],
-    options MAP
-) → TABLE
-```
+**F-statistic**: Tests H₀: all coefficients are zero
+- Formula: F = (ESS/df_model) / (RSS/df_residual)
+- Distribution: F(df_model, df_residual)
+- Reject H₀ if p-value < α (typically 0.05)
 
-**Options:**
-- `confidence_level` (DOUBLE, default=0.95)
-- `intercept` (BOOLEAN, default=true)
+**Information Criteria**: Compare models (lower is better)
+- **AIC** = n×log(RSS/n) + 2×k
+- **AICc** = AIC + 2×k×(k+1)/(n-k-1) (corrected for small samples)
+- **BIC** = n×log(RSS/n) + k×log(n)
 
 **Example:**
+```sql
+SELECT
+    f_statistic,
+    f_statistic_pvalue,
+    f_statistic_pvalue < 0.05 as model_significant,
+    aic,
+    bic
+FROM anofox_statistics_ols(
+    y_array,
+    x_matrix,
+    MAP{'intercept': true, 'full_output': true}
+);
+```
+
+### Coefficient-Level Inference
+
+Test individual coefficients for significance:
+
+**t-statistics**: coefficient / std_error
+**p-values**: Two-tailed test for H₀: coefficient = 0
+**Confidence intervals**: [ci_lower, ci_upper] at specified confidence level
+
+**Example:**
+```sql
+WITH model AS (
+    SELECT * FROM anofox_statistics_ols(
+        [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],
+        [[1.0], [2.0], [3.0], [4.0], [5.0]]::DOUBLE[][],
+        MAP{'intercept': true, 'full_output': true, 'confidence_level': 0.95}
+    )
+)
+SELECT
+    unnest(coefficients) as coefficient,
+    unnest(coefficient_t_statistics) as t_stat,
+    unnest(coefficient_p_values) as p_value,
+    unnest(coefficient_p_values) < 0.05 as significant,
+    unnest(coefficient_ci_lower) as ci_lower,
+    unnest(coefficient_ci_upper) as ci_upper
+FROM model;
+```
+
+### Intercept Inference
+
+The intercept has its own dedicated inference fields (not in arrays):
+
+```sql
+SELECT
+    intercept,
+    intercept_t_statistic,
+    intercept_p_value,
+    intercept_ci_lower,
+    intercept_ci_upper
+FROM anofox_statistics_ols(
+    y_array,
+    x_matrix,
+    MAP{'intercept': true, 'full_output': true}
+);
+```
+
+### Migration from v0.1.0
+
+**OLD (v0.1.0)** - Separate inference call:
 ```sql
 SELECT * FROM anofox_statistics_ols_inference(
-    [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],
-    [[1.0], [2.0], [3.0], [4.0], [5.0]]::DOUBLE[][],
-    MAP{'confidence_level': 0.95, 'intercept': true}
-);
-
--- Output:
--- variable | estimate | std_error | t_statistic | p_value | ci_lower | ci_upper | significant
--- intercept|   0.00   |   0.15    |    0.00     |  1.000  |  -0.47   |   0.47   | false
--- x1       |   1.00   |   0.05    |   20.00     |  0.000  |   0.88   |   1.12   | true
-```
-
-**Statistical Implementation:**
-- Standard errors from (X'X)⁻¹σ²
-- t-statistics with n - p - 1 degrees of freedom
-- Two-tailed p-values from Student's t-distribution
-
----
-
-### anofox_statistics_ridge_inference
-
-**Ridge Coefficient Inference**
-
-**Status:** ✅ **IMPLEMENTED**
-
-**Signature:**
-```sql
-anofox_statistics_ridge_inference(
-    y       DOUBLE[],
-    x       DOUBLE[][],
-    [options MAP]  -- Optional via varargs
-) → TABLE
-```
-
-**Required Option:** `lambda`
-
-**Example:**
-```sql
-SELECT * FROM anofox_statistics_ridge_inference(
-    [2.0, 5.0, 8.0, 11.0, 14.0],
-    [[1.0], [2.0], [3.0], [4.0], [5.0]],
-    MAP(['lambda'], [0.1])
+    y_array, x_matrix, MAP{'confidence_level': 0.95}
 );
 ```
 
-**Note:** Ridge coefficients are biased by design. Standard errors account for regularization.
-
----
-
-### anofox_statistics_wls_inference
-
-**WLS Coefficient Inference**
-
-**Status:** ✅ **IMPLEMENTED**
-
-**Signature:**
+**NEW (v0.2.0)** - Integrated with fit:
 ```sql
-anofox_statistics_wls_inference(
-    y       DOUBLE[],
-    x       DOUBLE[][],
-    weights DOUBLE[],
-    [options MAP]  -- Optional via varargs
-) → TABLE
-```
-
-**Example:**
-```sql
-SELECT * FROM anofox_statistics_wls_inference(
-    [2.0, 5.0, 8.0, 11.0, 14.0],
-    [[1.0], [2.0], [3.0], [4.0], [5.0]],
-    [1.0, 1.0, 1.0, 1.0, 1.0],
-    MAP(['intercept'], [true])
+SELECT
+    coefficient_t_statistics,
+    coefficient_p_values,
+    coefficient_ci_lower,
+    coefficient_ci_upper,
+    intercept_t_statistic,
+    intercept_p_value
+FROM anofox_statistics_ols(
+    y_array, x_matrix,
+    MAP{'full_output': true, 'confidence_level': 0.95}
 );
 ```
 
-**Note:** Uses heteroscedasticity-consistent standard errors.
-
----
-
-### anofox_statistics_rls_inference
-
-**RLS Coefficient Inference**
-
-**Status:** ✅ **IMPLEMENTED**
-
-**Signature:**
-```sql
-anofox_statistics_rls_inference(
-    y       DOUBLE[],
-    x       DOUBLE[][],
-    [options MAP]  -- Optional via varargs
-) → TABLE
-```
-
-**Example:**
-```sql
-SELECT * FROM anofox_statistics_rls_inference(
-    [2.0, 5.0, 8.0, 11.0, 14.0],
-    [[1.0], [2.0], [3.0], [4.0], [5.0]],
-    MAP(['forgetting_factor'], [0.99])
-);
-```
-
-**Note:** Tests coefficients from final iteration of recursive least squares.
-
----
-
-### anofox_statistics_elastic_net_inference
-
-**Elastic Net Coefficient Inference**
-
-**Status:** ✅ **IMPLEMENTED**
-
-**Signature:**
-```sql
-anofox_statistics_elastic_net_inference(
-    y       DOUBLE[],
-    x       DOUBLE[][],
-    [options MAP]  -- Optional via varargs
-) → TABLE
-```
-
-**Required Options:** `alpha`, `lambda`
-
-**Example:**
-```sql
-SELECT * FROM anofox_statistics_elastic_net_inference(
-    [2.0, 5.0, 8.0, 11.0, 14.0],
-    [[1.0], [2.0], [3.0], [4.0], [5.0]],
-    MAP(['lambda', 'alpha'], [0.1, 0.5])
-);
-```
-
-**Notes:**
-- Handles sparse coefficients (coefficients exactly zero appear as NULL)
-- Intercept is automatically computed when `intercept=true`
-- Standard errors for coefficients are NaN (require bootstrap), but intercept SE is estimated
-- Coefficients may be zeroed by L1 penalty (sparse solutions)
+**Benefits:**
+- Single function call (more efficient)
+- Consistent API across all regression methods
+- Works with both table functions and aggregates
+- Supports window functions with full inference
 
 ---
 
@@ -1241,67 +1224,126 @@ GROUP BY model_id;
 
 ---
 
-## Model Selection Functions
+## Model Selection Workflows
 
-### anofox_statistics_information_criteria
+**As of v0.2.0**, information criteria (AIC, AICc, BIC) are automatically included in all regression function outputs when `full_output=true`. This replaces the standalone `anofox_statistics_information_criteria` function from v0.1.0.
 
-**AIC, BIC, and Model Selection Metrics**
+### Information Criteria
 
-**Signature:**
-```sql
-anofox_statistics_information_criteria(
-    y       DOUBLE[],
-    x       DOUBLE[][],
-    options MAP
-) → STRUCT
-```
-
-**Options:**
-- `intercept` (BOOLEAN, default=true)
-
-**Returns:**
-```sql
-STRUCT(
-    n_obs          BIGINT,
-    n_params       BIGINT,
-    rss            DOUBLE,     -- Residual sum of squares
-    r_squared      DOUBLE,
-    adj_r_squared  DOUBLE,
-    aic            DOUBLE,     -- Akaike Information Criterion
-    bic            DOUBLE,     -- Bayesian Information Criterion
-    aicc           DOUBLE,     -- Corrected AIC (small sample)
-    log_likelihood DOUBLE
-)
-```
+Use AIC, AICc, and BIC to compare models and select the best fit:
 
 **Formulas:**
-- AIC = 2k - 2ln(L) = n×ln(RSS/n) + 2k
-- BIC = k×ln(n) - 2ln(L) = n×ln(RSS/n) + k×ln(n)
-- AICc = AIC + 2k(k+1)/(n-k-1)
+- **AIC** = n×log(RSS/n) + 2×k (Akaike Information Criterion)
+- **AICc** = AIC + 2×k×(k+1)/(n-k-1) (Corrected AIC for small samples)
+- **BIC** = n×log(RSS/n) + k×log(n) (Bayesian Information Criterion)
 
-Where k = number of parameters, n = number of observations, L = likelihood
+Where: k = number of parameters (rank), n = number of observations
 
-**Model Selection Rule:** Lower is better (prefer model with minimum AIC/BIC)
+**Selection Rule:** Lower is better - choose the model with minimum AIC/BIC
 
-**Example:**
+**When to use:**
+- **AIC**: General model selection, balances fit vs. complexity
+- **AICc**: Small sample sizes (n/k < 40)
+- **BIC**: Stronger penalty for complexity, favors simpler models
+
+### Comparing Multiple Models
+
+**Example: Simple Model Comparison**
 ```sql
--- Compare two models
-WITH model1 AS (
-    SELECT * FROM anofox_statistics_information_criteria(
-        y_array, x_matrix_2_features, MAP{'intercept': true}
+-- Compare 2-feature vs 5-feature model
+WITH model_2feat AS (
+    SELECT
+        'Model 2 features' as model_name,
+        aic, aicc, bic, r_squared
+    FROM anofox_statistics_ols(
+        y_array,
+        x_matrix_2features,
+        MAP{'full_output': true}
     )
 ),
-model2 AS (
-    SELECT * FROM anofox_statistics_information_criteria(
-        y_array, x_matrix_5_features, MAP{'intercept': true}
+model_5feat AS (
+    SELECT
+        'Model 5 features' as model_name,
+        aic, aicc, bic, r_squared
+    FROM anofox_statistics_ols(
+        y_array,
+        x_matrix_5features,
+        MAP{'full_output': true}
     )
 )
-SELECT
-    'Model 1' as model, model1.aic, model1.bic FROM model1
+SELECT * FROM model_2feat
 UNION ALL
-SELECT
-    'Model 2' as model, model2.aic, model2.bic FROM model2
+SELECT * FROM model_5feat
+ORDER BY aic;  -- Best model first
+```
+
+### Group-wise Model Selection
+
+Select the best regularization strength per category:
+
+```sql
+-- Find best lambda per category
+WITH models AS (
+    SELECT
+        category,
+        lambda,
+        aic,
+        ROW_NUMBER() OVER (PARTITION BY category ORDER BY aic) as rank
+    FROM (
+        SELECT category, 0.1 as lambda, aic
+        FROM (SELECT category, anofox_statistics_ridge_agg(y, [x1, x2], MAP{'lambda': 0.1, 'full_output': true}) as m FROM data GROUP BY category) t1, LATERAL (SELECT m.aic) t2
+        UNION ALL
+        SELECT category, 1.0 as lambda, aic
+        FROM (SELECT category, anofox_statistics_ridge_agg(y, [x1, x2], MAP{'lambda': 1.0, 'full_output': true}) as m FROM data GROUP BY category) t1, LATERAL (SELECT m.aic) t2
+        UNION ALL
+        SELECT category, 10.0 as lambda, aic
+        FROM (SELECT category, anofox_statistics_ridge_agg(y, [x1, x2], MAP{'lambda': 10.0, 'full_output': true}) as m FROM data GROUP BY category) t1, LATERAL (SELECT m.aic) t2
+    )
+)
+SELECT category, lambda, aic
+FROM models
+WHERE rank = 1;  -- Best lambda per category
+```
+
+### Cross-Method Comparison
+
+Compare OLS, Ridge, and Elastic Net:
+
+```sql
+WITH ols_model AS (
+    SELECT 'OLS' as method, aic, bic, r_squared
+    FROM anofox_statistics_ols(y_array, x_matrix, MAP{'full_output': true})
+),
+ridge_model AS (
+    SELECT 'Ridge' as method, aic, bic, r_squared
+    FROM anofox_statistics_ridge(y_array, x_matrix, MAP{'lambda': 1.0, 'full_output': true})
+),
+en_model AS (
+    SELECT 'Elastic Net' as method, aic, bic, r_squared
+    FROM anofox_statistics_elastic_net(y_array, x_matrix, MAP{'lambda': 0.1, 'alpha': 0.5, 'full_output': true})
+)
+SELECT * FROM ols_model
+UNION ALL SELECT * FROM ridge_model
+UNION ALL SELECT * FROM en_model
 ORDER BY aic;
+```
+
+### Migration from v0.1.0
+
+**OLD (v0.1.0)** - Separate function:
+```sql
+SELECT * FROM anofox_statistics_information_criteria(
+    y_array, x_matrix, MAP{'intercept': true}
+);
+```
+
+**NEW (v0.2.0)** - Integrated with fit:
+```sql
+SELECT aic, aicc, bic, log_likelihood
+FROM anofox_statistics_ols(
+    y_array, x_matrix,
+    MAP{'intercept': true, 'full_output': true}
+);
 ```
 
 ---
@@ -1509,20 +1551,23 @@ FROM test_data t, model m;
 
 ## Function Coverage Matrix
 
-This matrix shows which functions are currently **implemented** (✅).
+This matrix shows which capabilities are currently **implemented** (✅) for each regression method.
 
-| Function Type | OLS | Ridge | WLS | RLS | Elastic Net |
-|---------------|-----|-------|-----|-----|-------------|
-| **Fit Table** | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **Fit Aggregate** | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **Fit-Predict Aggregate** | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **Inference Table** | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **Predict Interval Table** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Capability | OLS | Ridge | WLS | RLS | Elastic Net |
+|------------|-----|-------|-----|-----|-------------|
+| **Fit Table Function** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Fit Aggregate (GROUP BY)** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Fit-Predict (Window)** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Full Statistical Inference** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Prediction Intervals** | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+**Note:** "Full Statistical Inference" includes F-statistic, AIC/BIC, coefficient t-stats/p-values/CIs, and intercept inference - available with `full_output=true`.
 
 ### Summary Statistics
 
-- **Total Functions:** 38 (fully implemented)
-- **Removed (v0.2.0):** 3 legacy functions
+- **Total Functions:** 32 (fully implemented)
+- **Removed (v0.2.0):** 9 functions (6 inference + 3 legacy)
+- **Integration:** Inference and model selection now built into fit functions
 
 ### Function Categories
 
@@ -1531,14 +1576,23 @@ This matrix shows which functions are currently **implemented** (✅).
 | Regression Table Functions | 5 |
 | Regression Aggregates | 5 |
 | Fit-Predict Window Aggregates | 5 |
-| Inference Functions | 5 (OLS, Ridge, WLS, RLS, Elastic Net) |
-| Predict Interval Functions | 5 (OLS, Ridge, WLS, RLS, Elastic Net) |
+| Prediction Interval Functions | 5 |
 | Diagnostic Functions | 6 (3 table + 3 aggregate) |
-| Model Selection | 1 |
 | Model-Based Prediction | 1 |
 | Scalar Metrics | 4 |
 | Scalar Prediction | 1 |
-| **Total** | **38** |
+| **Total** | **32** |
+
+### v0.2.0 Changes
+
+**Removed (integrated into fit functions):**
+- 5 standalone inference functions → now `full_output=true`
+- 1 information_criteria function → now AIC/BIC/AICc in fit output
+
+**Benefits:**
+- More efficient (single function call)
+- Consistent API across all methods
+- Works with aggregates and window functions
 
 ---
 
@@ -1546,19 +1600,69 @@ This matrix shows which functions are currently **implemented** (✅).
 
 ### v0.2.0 (Current)
 
+**Major Changes:**
+
+**Integrated Statistical Inference:**
+- ✅ **REMOVED** standalone inference functions (`*_inference`)
+- ✅ **REMOVED** `anofox_statistics_information_criteria` function
+- ✅ ALL regression functions now include comprehensive inference with `full_output=true`
+- ✅ New metrics: F-statistic, AIC, AICc, BIC, log_likelihood, residual_standard_error
+- ✅ Coefficient-level: t-statistics, p-values, confidence intervals (per feature)
+- ✅ Intercept-level: t-statistic, p-value, confidence intervals
+
 **Breaking Changes:**
-- Removed `anofox_statistics_ols_predict` (variadic)
-- Removed `anofox_statistics_ols_predict_array`
-- Removed `anofox_statistics_predict_simple`
+- Removed 5 standalone inference functions:
+  - `anofox_statistics_ols_inference`
+  - `anofox_statistics_ridge_inference`
+  - `anofox_statistics_wls_inference`
+  - `anofox_statistics_rls_inference`
+  - `anofox_statistics_elastic_net_inference`
+- Removed `anofox_statistics_information_criteria` function
+- Removed 3 legacy prediction functions:
+  - `anofox_statistics_ols_predict` (variadic)
+  - `anofox_statistics_ols_predict_array`
+  - `anofox_statistics_predict_simple`
 
-**Migration:**
-- Use `anofox_statistics_predict` (scalar) for simple predictions
-- Use `anofox_statistics_model_predict` (table) for batch predictions
+**Migration Guide:**
 
-**Planned Additions:**
-- Inference functions for Ridge, WLS, RLS, Elastic Net
-- Predict interval functions for Ridge, WLS, RLS, Elastic Net
-- Predict aggregate functions for all methods
+1. **Inference functions** → Use `full_output=true`:
+   ```sql
+   -- OLD:
+   SELECT * FROM anofox_statistics_ols_inference(y, x, MAP{'confidence_level': 0.95});
+
+   -- NEW:
+   SELECT
+       coefficient_p_values,
+       intercept_p_value,
+       coefficient_ci_lower,
+       coefficient_ci_upper
+   FROM anofox_statistics_ols(y, x, MAP{'full_output': true, 'confidence_level': 0.95});
+   ```
+
+2. **Information criteria** → Use `full_output=true`:
+   ```sql
+   -- OLD:
+   SELECT aic, bic FROM anofox_statistics_information_criteria(y, x, MAP{});
+
+   -- NEW:
+   SELECT aic, aicc, bic, log_likelihood
+   FROM anofox_statistics_ols(y, x, MAP{'full_output': true});
+   ```
+
+3. **Legacy predict functions** → Use new functions:
+   - Simple predictions: `anofox_statistics_predict` (scalar)
+   - Batch predictions: `anofox_statistics_model_predict` (table)
+
+**Improvements:**
+- Single-call workflow for fit + inference (faster, more efficient)
+- Consistent API across all 5 regression methods
+- All aggregates support window functions with statistical inference
+- Reduced function count while adding capabilities
+
+**Completed Additions:**
+- ✅ Inference for all methods (OLS, Ridge, WLS, RLS, Elastic Net)
+- ✅ Prediction intervals for all methods
+- ✅ Fit-predict aggregates for all methods
 
 ### v0.1.0
 
@@ -1566,7 +1670,7 @@ This matrix shows which functions are currently **implemented** (✅).
 - Aggregate and window function support
 - OLS inference and prediction intervals
 - Diagnostic tools (VIF, residuals, normality)
-- Model selection (AIC, BIC)
+- Model selection (AIC, BIC via separate function)
 
 ---
 
