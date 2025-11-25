@@ -1,7 +1,8 @@
 #include "ridge_aggregate.hpp"
 #include "../utils/tracing.hpp"
-#include "../utils/rank_deficient_ols.hpp"
 #include "../utils/options_parser.hpp"
+#include "../bridge/libanostat_wrapper.hpp"
+#include "../bridge/type_converters.hpp"
 
 #include "duckdb.hpp"
 #include "duckdb/common/exception.hpp"
@@ -190,155 +191,80 @@ static void RidgeFinalize(Vector &state_vector, AggregateInputData &aggr_input_d
 			continue;
 		}
 
-		// Build matrices
-		Eigen::MatrixXd X(n, p);
-		Eigen::VectorXd y(n);
+		// Use libanostat RidgeSolver
+		try {
+			auto lib_result = bridge::LibanostatWrapper::FitRidge(state.y_values, state.x_matrix, state.options, false);
 
-		for (idx_t row = 0; row < n; row++) {
-			y(row) = state.y_values[row];
-			for (idx_t col = 0; col < p; col++) {
-				X(row, col) = state.x_matrix[row][col];
-			}
-		}
+			// Extract intercept and feature coefficients from libanostat result
+			double intercept = bridge::TypeConverters::ExtractIntercept(lib_result, state.options.intercept);
+			auto feature_coefs_vec =
+			    bridge::TypeConverters::ExtractFeatureCoefficients(lib_result, state.options.intercept);
 
-		// Handle intercept option
-		double intercept = 0.0;
-		Eigen::VectorXd beta;
-		idx_t rank;
-		vector<bool> constant_features;
-		Eigen::VectorXd x_means; // Store for extended metadata
-
-		if (state.options.intercept) {
-			// With intercept: center data
-			double y_mean = y.mean();
-			x_means = X.colwise().mean();
-			Eigen::MatrixXd X_centered = X;
-			Eigen::VectorXd y_centered = y;
-
-			for (idx_t row = 0; row < n; row++) {
-				y_centered(row) = y(row) - y_mean;
-				for (idx_t col = 0; col < p; col++) {
-					X_centered(row, col) = X(row, col) - x_means(col);
+			// Compute x_means for prediction (needed for extended metadata)
+			// For no-intercept case, x_means are zero; for intercept case, compute from data
+			Eigen::VectorXd x_means;
+			if (state.options.intercept) {
+				Eigen::MatrixXd X(n, p);
+				for (idx_t row = 0; row < n; row++) {
+					for (idx_t col = 0; col < p; col++) {
+						X(row, col) = state.x_matrix[row][col];
+					}
 				}
-			}
-
-			// Ridge regression: β = (X'X + λI)^(-1) X'y
-			Eigen::MatrixXd XtX = X_centered.transpose() * X_centered;
-			Eigen::VectorXd Xty = X_centered.transpose() * y_centered;
-			Eigen::MatrixXd identity = Eigen::MatrixXd::Identity(p, p);
-			Eigen::MatrixXd XtX_regularized = XtX + state.options.lambda * identity;
-
-			Eigen::ColPivHouseholderQR<Eigen::MatrixXd> qr(XtX_regularized);
-			beta = qr.solve(Xty);
-			rank = qr.rank();
-
-			// Detect constant features
-			constant_features = RankDeficientOls::DetectConstantColumns(X_centered);
-
-			// Compute intercept
-			double beta_dot_xmean = 0.0;
-			for (idx_t j = 0; j < p; j++) {
-				if (!constant_features[j]) {
-					beta_dot_xmean += beta(j) * x_means(j);
-				}
-			}
-			intercept = y_mean - beta_dot_xmean;
-		} else {
-			// No intercept: solve directly on raw data
-			Eigen::MatrixXd XtX = X.transpose() * X;
-			Eigen::VectorXd Xty = X.transpose() * y;
-			Eigen::MatrixXd identity = Eigen::MatrixXd::Identity(p, p);
-			Eigen::MatrixXd XtX_regularized = XtX + state.options.lambda * identity;
-
-			Eigen::ColPivHouseholderQR<Eigen::MatrixXd> qr(XtX_regularized);
-			beta = qr.solve(Xty);
-			rank = qr.rank();
-
-			// Detect constant features
-			constant_features = RankDeficientOls::DetectConstantColumns(X);
-			intercept = 0.0;
-			x_means = Eigen::VectorXd::Zero(p);
-		}
-
-		// Compute predictions
-		Eigen::VectorXd y_pred = Eigen::VectorXd::Constant(n, intercept);
-		for (idx_t j = 0; j < p; j++) {
-			if (!constant_features[j]) {
-				y_pred += beta(j) * X.col(j);
-			}
-		}
-
-		// Compute statistics
-		Eigen::VectorXd residuals = y - y_pred;
-		double ss_res = residuals.squaredNorm();
-
-		double ss_tot;
-		if (state.options.intercept) {
-			double y_mean = y.mean();
-			ss_tot = (y.array() - y_mean).square().sum();
-		} else {
-			// No intercept: total sum of squares from zero
-			ss_tot = y.squaredNorm();
-		}
-
-		double r2 = (ss_tot > 1e-10) ? (1.0 - ss_res / ss_tot) : 0.0;
-
-		// Adjusted R²: account for intercept in degrees of freedom
-		idx_t df_model = rank + (state.options.intercept ? 1 : 0);
-		double adj_r2 = 1.0 - (1.0 - r2) * (n - 1) / (n - df_model);
-
-		// Store coefficients
-		auto coef_data = FlatVector::GetData<double>(coef_child);
-		auto &coef_validity = FlatVector::Validity(coef_child);
-		for (idx_t j = 0; j < p; j++) {
-			if (constant_features[j]) {
-				coef_validity.SetInvalid(list_offset + j);
-				coef_data[list_offset + j] = 0.0;
+				x_means = X.colwise().mean();
 			} else {
-				coef_data[list_offset + j] = beta(j);
+				x_means = Eigen::VectorXd::Zero(p);
 			}
+
+			// Store coefficients
+			auto coef_data = FlatVector::GetData<double>(coef_child);
+			auto &coef_validity = FlatVector::Validity(coef_child);
+			for (idx_t j = 0; j < p; j++) {
+				size_t coef_idx = state.options.intercept ? (j + 1) : j;
+				if (lib_result.is_aliased[coef_idx]) {
+					coef_validity.SetInvalid(list_offset + j);
+					coef_data[list_offset + j] = 0.0;
+				} else {
+					coef_data[list_offset + j] = lib_result.coefficients[coef_idx];
+				}
+			}
+
+			list_entries[result_idx] = list_entry_t {list_offset, p};
+
+			// Store x_train_means
+			auto x_means_data = FlatVector::GetData<double>(x_means_child);
+			for (idx_t j = 0; j < p; j++) {
+				x_means_data[list_offset + j] = x_means(j);
+			}
+			x_means_list_entries[result_idx] = list_entry_t {list_offset, p};
+
+			// Store coefficient_std_errors (NULL for Ridge - standard errors not well-defined)
+			auto coef_se_data = FlatVector::GetData<double>(coef_se_child);
+			auto &coef_se_validity = FlatVector::Validity(coef_se_child);
+			for (idx_t j = 0; j < p; j++) {
+				coef_se_validity.SetInvalid(list_offset + j);
+				coef_se_data[list_offset + j] = 0.0;
+			}
+			coef_se_list_entries[result_idx] = list_entry_t {list_offset, p};
+
+			// Increment offset for next result
+			list_offset += p;
+
+			// Extract all statistics from libanostat result
+			intercept_data[result_idx] = intercept;
+			r2_data[result_idx] = lib_result.r_squared;
+			adj_r2_data[result_idx] = lib_result.adj_r_squared;
+			lambda_data[result_idx] = state.options.lambda;
+			n_data[result_idx] = n;
+			mse_data[result_idx] = lib_result.mse;
+			intercept_se_data[result_idx] = std::numeric_limits<double>::quiet_NaN(); // Ridge SE not well-defined
+			df_resid_data[result_idx] = lib_result.df_residual();
+
+			ANOFOX_DEBUG("Ridge aggregate: n=" << n << ", p=" << p << ", lambda=" << state.options.lambda
+			                                   << ", r2=" << lib_result.r_squared << ", mse=" << lib_result.mse);
+		} catch (...) {
+			result_validity.SetInvalid(result_idx);
+			list_entries[result_idx] = list_entry_t {list_offset, 0};
 		}
-
-		list_entries[result_idx] = list_entry_t {list_offset, p};
-
-		// Compute extended metadata
-		idx_t df_residual = n - df_model;
-		double mse = (df_residual > 0) ? (ss_res / df_residual) : std::numeric_limits<double>::quiet_NaN();
-
-		// Ridge regression is biased, so standard errors are approximate
-		// For now, set them to NaN to indicate they're not available
-		double intercept_se = std::numeric_limits<double>::quiet_NaN();
-
-		// Store x_train_means
-		auto x_means_data = FlatVector::GetData<double>(x_means_child);
-		for (idx_t j = 0; j < p; j++) {
-			x_means_data[list_offset + j] = x_means(j);
-		}
-		x_means_list_entries[result_idx] = list_entry_t {list_offset, p};
-
-		// Store coefficient_std_errors (NULL for Ridge - standard errors not well-defined)
-		auto coef_se_data = FlatVector::GetData<double>(coef_se_child);
-		auto &coef_se_validity = FlatVector::Validity(coef_se_child);
-		for (idx_t j = 0; j < p; j++) {
-			coef_se_validity.SetInvalid(list_offset + j);
-			coef_se_data[list_offset + j] = 0.0;
-		}
-		coef_se_list_entries[result_idx] = list_entry_t {list_offset, p};
-
-		// Increment offset for next result
-		list_offset += p;
-
-		intercept_data[result_idx] = intercept;
-		r2_data[result_idx] = r2;
-		adj_r2_data[result_idx] = adj_r2;
-		lambda_data[result_idx] = state.options.lambda;
-		n_data[result_idx] = n;
-		mse_data[result_idx] = mse;
-		intercept_se_data[result_idx] = intercept_se;
-		df_resid_data[result_idx] = df_residual;
-
-		ANOFOX_DEBUG("Ridge aggregate: n=" << n << ", p=" << p << ", lambda=" << state.options.lambda << ", r2=" << r2
-		                                   << ", mse=" << mse);
 	}
 
 	ListVector::SetListSize(coef_list, list_offset);
@@ -457,108 +383,49 @@ static void RidgeWindow(AggregateInputData &aggr_input_data, const WindowPartiti
 		return;
 	}
 
-	// Build matrices
-	Eigen::MatrixXd X(n, p);
-	Eigen::VectorXd y(n);
-	for (idx_t row = 0; row < n; row++) {
-		y(row) = window_y[row];
-		for (idx_t col = 0; col < p; col++) {
-			X(row, col) = window_x[row][col];
-		}
-	}
+	// Fit using libanostat
+	try {
+		auto lib_result = bridge::LibanostatWrapper::FitRidge(window_y, window_x, options, false);
 
-	// Ridge regression with intercept handling
-	double intercept = 0.0;
-	Eigen::VectorXd beta;
-	idx_t rank;
-	vector<bool> constant_features;
+		double intercept = bridge::TypeConverters::ExtractIntercept(lib_result, options.intercept);
+		auto feature_coefs_vec = bridge::TypeConverters::ExtractFeatureCoefficients(lib_result, options.intercept);
 
-	if (options.intercept) {
-		double y_mean = y.mean();
-		Eigen::VectorXd x_means = X.colwise().mean();
-		Eigen::MatrixXd X_centered = X;
-		Eigen::VectorXd y_centered = y;
-		for (idx_t row = 0; row < n; row++) {
-			y_centered(row) = y(row) - y_mean;
-			for (idx_t col = 0; col < p; col++) {
-				X_centered(row, col) = X(row, col) - x_means(col);
-			}
-		}
+		idx_t rank = lib_result.rank;
+		double r2 = lib_result.r_squared;
+		double adj_r2 = lib_result.adj_r_squared;
 
-		Eigen::MatrixXd XtX = X_centered.transpose() * X_centered;
-		Eigen::VectorXd Xty = X_centered.transpose() * y_centered;
-		Eigen::MatrixXd identity = Eigen::MatrixXd::Identity(p, p);
-		Eigen::MatrixXd XtX_regularized = XtX + options.lambda * identity;
+		// Store coefficients
+		auto list_entries = FlatVector::GetData<list_entry_t>(coef_list);
+		auto &coef_child = ListVector::GetEntry(coef_list);
+		auto coef_data = FlatVector::GetData<double>(coef_child);
+		auto &coef_validity = FlatVector::Validity(coef_child);
 
-		Eigen::ColPivHouseholderQR<Eigen::MatrixXd> qr(XtX_regularized);
-		beta = qr.solve(Xty);
-		rank = qr.rank();
+		idx_t list_offset = rid * p;
+		ListVector::Reserve(coef_list, (rid + 1) * p);
 
-		constant_features = RankDeficientOls::DetectConstantColumns(X_centered);
-
-		double beta_dot_xmean = 0.0;
 		for (idx_t j = 0; j < p; j++) {
-			if (!constant_features[j]) {
-				beta_dot_xmean += beta(j) * x_means(j);
+			if (lib_result.is_aliased[j]) {
+				coef_validity.SetInvalid(list_offset + j);
+				coef_data[list_offset + j] = 0.0;
+			} else {
+				coef_data[list_offset + j] = feature_coefs_vec[j];
 			}
 		}
-		intercept = y_mean - beta_dot_xmean;
-	} else {
-		Eigen::MatrixXd XtX = X.transpose() * X;
-		Eigen::VectorXd Xty = X.transpose() * y;
-		Eigen::MatrixXd identity = Eigen::MatrixXd::Identity(p, p);
-		Eigen::MatrixXd XtX_regularized = XtX + options.lambda * identity;
 
-		Eigen::ColPivHouseholderQR<Eigen::MatrixXd> qr(XtX_regularized);
-		beta = qr.solve(Xty);
-		rank = qr.rank();
+		list_entries[rid] = list_entry_t {list_offset, p};
+		intercept_data[rid] = intercept;
+		r2_data[rid] = r2;
+		adj_r2_data[rid] = adj_r2;
+		lambda_data[rid] = options.lambda;
+		n_data[rid] = n;
 
-		constant_features = RankDeficientOls::DetectConstantColumns(X);
-		intercept = 0.0;
+		ANOFOX_DEBUG("Ridge window: n=" << n << ", p=" << p << ", lambda=" << options.lambda << ", r2=" << r2);
+	} catch (const std::exception &e) {
+		ANOFOX_DEBUG("Ridge window failed: " << e.what());
+		result_validity.SetInvalid(rid);
+		auto list_entries = FlatVector::GetData<list_entry_t>(coef_list);
+		list_entries[rid] = list_entry_t {0, 0};
 	}
-
-	// Compute predictions
-	Eigen::VectorXd y_pred = Eigen::VectorXd::Constant(n, intercept);
-	for (idx_t j = 0; j < p; j++) {
-		if (!constant_features[j]) {
-			y_pred += beta(j) * X.col(j);
-		}
-	}
-
-	// Compute statistics
-	Eigen::VectorXd residuals = y - y_pred;
-	double ss_res = residuals.squaredNorm();
-	double ss_tot = options.intercept ? (y.array() - y.mean()).square().sum() : y.squaredNorm();
-	double r2 = (ss_tot > 1e-10) ? (1.0 - ss_res / ss_tot) : 0.0;
-	idx_t df_model = rank + (options.intercept ? 1 : 0);
-	double adj_r2 = 1.0 - (1.0 - r2) * (n - 1) / (n - df_model);
-
-	// Store coefficients
-	auto list_entries = FlatVector::GetData<list_entry_t>(coef_list);
-	auto &coef_child = ListVector::GetEntry(coef_list);
-	auto coef_data = FlatVector::GetData<double>(coef_child);
-	auto &coef_validity = FlatVector::Validity(coef_child);
-
-	idx_t list_offset = rid * p;
-	ListVector::Reserve(coef_list, (rid + 1) * p);
-
-	for (idx_t j = 0; j < p; j++) {
-		if (constant_features[j]) {
-			coef_validity.SetInvalid(list_offset + j);
-			coef_data[list_offset + j] = 0.0;
-		} else {
-			coef_data[list_offset + j] = beta(j);
-		}
-	}
-
-	list_entries[rid] = list_entry_t {list_offset, p};
-	intercept_data[rid] = intercept;
-	r2_data[rid] = r2;
-	adj_r2_data[rid] = adj_r2;
-	lambda_data[rid] = options.lambda;
-	n_data[rid] = n;
-
-	ANOFOX_DEBUG("Ridge window: n=" << n << ", p=" << p << ", lambda=" << options.lambda << ", r2=" << r2);
 }
 
 void RidgeAggregateFunction::Register(ExtensionLoader &loader) {
