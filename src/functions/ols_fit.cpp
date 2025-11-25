@@ -1,6 +1,5 @@
 #include "ols_fit.hpp"
 #include "../utils/tracing.hpp"
-#include "../utils/rank_deficient_ols.hpp"
 #include "../utils/options_parser.hpp"
 #include "../bridge/libanostat_wrapper.hpp"
 

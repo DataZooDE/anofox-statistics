@@ -5,7 +5,6 @@
 #include "../utils/options_parser.hpp"
 #include "../utils/validation.hpp"
 #include "../utils/statistical_distributions.hpp"
-#include "../utils/rank_deficient_ols.hpp"
 
 #include "duckdb.hpp"
 #include "duckdb/common/exception.hpp"

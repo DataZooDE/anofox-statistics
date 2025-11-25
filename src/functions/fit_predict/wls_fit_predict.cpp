@@ -1,7 +1,6 @@
 #include "wls_fit_predict.hpp"
 #include "fit_predict_base.hpp"
 #include "../utils/tracing.hpp"
-#include "../utils/rank_deficient_ols.hpp"
 #include "../utils/options_parser.hpp"
 
 #include "duckdb.hpp"
