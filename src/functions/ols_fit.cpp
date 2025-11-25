@@ -138,9 +138,9 @@ static void ComputeRidge(OlsFitBindData &data) {
 	if (data.options.lambda == 0.0) {
 		// Call libanostat OLS solver via bridge
 		// NOTE: x_values is column-major (feature-first) for scalar functions
-		auto result = bridge::LibanostatWrapper::FitOLS(data.y_values,            // vector<double>
-		                                                data.x_values,            // vector<vector<double>> (column-major)
-		                                                data.options,             // RegressionOptions
+		auto result = bridge::LibanostatWrapper::FitOLS(data.y_values, // vector<double>
+		                                                data.x_values, // vector<vector<double>> (column-major)
+		                                                data.options,  // RegressionOptions
 		                                                data.options.full_output, // compute std errors if full_output
 		                                                false                     // row_major=false (column-major data)
 		);

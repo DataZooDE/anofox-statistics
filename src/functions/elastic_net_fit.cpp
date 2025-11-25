@@ -121,11 +121,12 @@ static void ComputeElasticNet(ElasticNetFitBindData &data) {
 	                                           << (data.options.intercept ? " (with intercept)" : " (no intercept)"));
 
 	// Fit Elastic Net using libanostat bridge layer
-	auto result = bridge::LibanostatWrapper::FitElasticNet(data.y_values, // vector<double>
-	                                                       data.x_values, // vector<vector<double>> (column-major)
-	                                                       data.options,  // RegressionOptions (includes alpha and lambda)
-	                                                       data.options.full_output, // compute std errors if full_output
-	                                                       false);                   // row_major=false (column-major data)
+	auto result =
+	    bridge::LibanostatWrapper::FitElasticNet(data.y_values, // vector<double>
+	                                             data.x_values, // vector<vector<double>> (column-major)
+	                                             data.options,  // RegressionOptions (includes alpha and lambda)
+	                                             data.options.full_output, // compute std errors if full_output
+	                                             false);                   // row_major=false (column-major data)
 
 	// Extract coefficients
 	data.coefficients = bridge::TypeConverters::ExtractCoefficients(result);

@@ -119,9 +119,9 @@ static void ComputeRLS(RlsFitBindData &data) {
 	                                   << " features, forgetting_factor = " << data.options.forgetting_factor);
 
 	// Fit RLS using libanostat bridge layer
-	auto result = bridge::LibanostatWrapper::FitRLS(data.y_values,            // vector<double>
-	                                                data.x_values,            // vector<vector<double>> (column-major)
-	                                                data.options,             // RegressionOptions (includes forgetting_factor)
+	auto result = bridge::LibanostatWrapper::FitRLS(data.y_values, // vector<double>
+	                                                data.x_values, // vector<vector<double>> (column-major)
+	                                                data.options,  // RegressionOptions (includes forgetting_factor)
 	                                                data.options.full_output, // compute std errors if full_output
 	                                                false);                   // row_major=false (column-major data)
 
