@@ -1,7 +1,8 @@
 #include "elastic_net_aggregate.hpp"
 #include "../utils/tracing.hpp"
-#include "../utils/elastic_net_solver.hpp"
 #include "../utils/options_parser.hpp"
+#include "../bridge/libanostat_wrapper.hpp"
+#include "../bridge/type_converters.hpp"
 
 #include "duckdb.hpp"
 #include "duckdb/common/exception.hpp"
@@ -193,101 +194,96 @@ static void ElasticNetFinalize(Vector &state_vector, AggregateInputData &aggr_in
 			continue;
 		}
 
-		// Build matrices
-		Eigen::MatrixXd X(n, p);
-		Eigen::VectorXd y(n);
+		// Use libanostat ElasticNetSolver
+		try {
+			auto lib_result =
+			    bridge::LibanostatWrapper::FitElasticNet(state.y_values, state.x_matrix, state.options, false);
 
-		for (idx_t row = 0; row < n; row++) {
-			y(row) = state.y_values[row];
-			for (idx_t col = 0; col < p; col++) {
-				X(row, col) = state.x_matrix[row][col];
+			// Extract intercept and feature coefficients from libanostat result
+			double intercept = bridge::TypeConverters::ExtractIntercept(lib_result, state.options.intercept);
+			auto feature_coefs_vec =
+			    bridge::TypeConverters::ExtractFeatureCoefficients(lib_result, state.options.intercept);
+
+			// Compute x_means for prediction (needed for extended metadata)
+			Eigen::VectorXd x_means;
+			if (state.options.intercept) {
+				Eigen::MatrixXd X(n, p);
+				for (idx_t row = 0; row < n; row++) {
+					for (idx_t col = 0; col < p; col++) {
+						X(row, col) = state.x_matrix[row][col];
+					}
+				}
+				x_means = X.colwise().mean();
+			} else {
+				x_means = Eigen::VectorXd::Zero(p);
 			}
-		}
 
-		// Handle intercept option
-		double intercept = 0.0;
-		ElasticNetResult fit_result;
-		Eigen::VectorXd x_means; // Store for extended metadata
+			// Extract all fit statistics from libanostat (no recomputation)
+			idx_t rank = lib_result.rank;
+			double r2 = lib_result.r_squared;
+			double adj_r2 = lib_result.adj_r_squared;
+			double mse = lib_result.mse;
+			idx_t df_residual = lib_result.df_residual();
 
-		if (state.options.intercept) {
-			// With intercept: center data
-			double y_mean = y.mean();
-			x_means = X.colwise().mean();
-			Eigen::MatrixXd X_centered = X;
-			Eigen::VectorXd y_centered = y;
+			// Store coefficients
+			auto coef_data = FlatVector::GetData<double>(coef_child);
+			for (idx_t j = 0; j < p; j++) {
+				size_t coef_idx = state.options.intercept ? (j + 1) : j;
+				coef_data[list_offset + j] = lib_result.coefficients[coef_idx];
+			}
 
-			for (idx_t row = 0; row < n; row++) {
-				y_centered(row) = y(row) - y_mean;
-				for (idx_t col = 0; col < p; col++) {
-					X_centered(row, col) = X(row, col) - x_means(col);
+			list_entries[result_idx] = list_entry_t {list_offset, p};
+
+			// Elastic Net regression is biased (like Ridge), so standard errors are not well-defined
+			double intercept_se = std::numeric_limits<double>::quiet_NaN();
+
+			// Store x_train_means
+			auto x_means_data = FlatVector::GetData<double>(x_means_child);
+			for (idx_t j = 0; j < p; j++) {
+				x_means_data[list_offset + j] = x_means(j);
+			}
+			x_means_list_entries[result_idx] = list_entry_t {list_offset, p};
+
+			// Store coefficient_std_errors (NULL for Elastic Net - standard errors not well-defined)
+			auto coef_se_data = FlatVector::GetData<double>(coef_se_child);
+			auto &coef_se_validity = FlatVector::Validity(coef_se_child);
+			for (idx_t j = 0; j < p; j++) {
+				coef_se_validity.SetInvalid(list_offset + j);
+				coef_se_data[list_offset + j] = 0.0;
+			}
+			coef_se_list_entries[result_idx] = list_entry_t {list_offset, p};
+
+			// Increment offset for next result
+			list_offset += p;
+
+			// Count non-zero coefficients for sparsity info
+			idx_t n_nonzero = 0;
+			for (idx_t j = 0; j < p; j++) {
+				size_t coef_idx = state.options.intercept ? (j + 1) : j;
+				if (std::abs(lib_result.coefficients[coef_idx]) > 1e-10) {
+					n_nonzero++;
 				}
 			}
 
-			// Fit Elastic Net on centered data
-			fit_result = ElasticNetSolver::Fit(y_centered, X_centered, state.options.alpha, state.options.lambda);
+			// Fill all struct fields
+			intercept_data[result_idx] = intercept;
+			r2_data[result_idx] = r2;
+			adj_r2_data[result_idx] = adj_r2;
+			mse_data[result_idx] = mse;
+			alpha_data[result_idx] = state.options.alpha;
+			lambda_data[result_idx] = state.options.lambda;
+			n_nonzero_data[result_idx] = static_cast<int64_t>(n_nonzero);
+			n_obs_data[result_idx] = static_cast<int64_t>(n);
+			intercept_se_data[result_idx] = intercept_se;
+			df_resid_data[result_idx] = df_residual;
 
-			// Compute intercept: intercept = ȳ - β'x̄
-			double beta_dot_xmean = 0.0;
-			for (idx_t j = 0; j < p; j++) {
-				beta_dot_xmean += fit_result.coefficients(j) * x_means(j);
-			}
-			intercept = y_mean - beta_dot_xmean;
-		} else {
-			// No intercept: fit on raw data
-			fit_result = ElasticNetSolver::Fit(y, X, state.options.alpha, state.options.lambda);
-			intercept = 0.0;
-			x_means = Eigen::VectorXd::Zero(p);
+			ANOFOX_DEBUG("Elastic Net aggregate: n=" << n << ", p=" << p << ", alpha=" << state.options.alpha
+			                                         << ", lambda=" << state.options.lambda << ", nonzero=" << n_nonzero
+			                                         << ", r2=" << r2);
+		} catch (...) {
+			result_validity.SetInvalid(result_idx);
+			list_entries[result_idx] = list_entry_t {list_offset, 0};
 		}
-
-		// Store coefficients
-		auto coef_data = FlatVector::GetData<double>(coef_child);
-		for (idx_t j = 0; j < p; j++) {
-			coef_data[list_offset + j] = fit_result.coefficients(j);
-		}
-
-		list_entries[result_idx] = list_entry_t {list_offset, p};
-
-		// Compute extended metadata
-		idx_t df_model = state.options.intercept ? (p + 1) : p;
-		idx_t df_residual = n - df_model;
-
-		// Elastic Net regression is biased (like Ridge), so standard errors are not well-defined
-		double intercept_se = std::numeric_limits<double>::quiet_NaN();
-
-		// Store x_train_means
-		auto x_means_data = FlatVector::GetData<double>(x_means_child);
-		for (idx_t j = 0; j < p; j++) {
-			x_means_data[list_offset + j] = x_means(j);
-		}
-		x_means_list_entries[result_idx] = list_entry_t {list_offset, p};
-
-		// Store coefficient_std_errors (NULL for Elastic Net - standard errors not well-defined)
-		auto coef_se_data = FlatVector::GetData<double>(coef_se_child);
-		auto &coef_se_validity = FlatVector::Validity(coef_se_child);
-		for (idx_t j = 0; j < p; j++) {
-			coef_se_validity.SetInvalid(list_offset + j);
-			coef_se_data[list_offset + j] = 0.0;
-		}
-		coef_se_list_entries[result_idx] = list_entry_t {list_offset, p};
-
-		// Increment offset for next result
-		list_offset += p;
-
-		// Fill all struct fields
-		intercept_data[result_idx] = intercept;
-		r2_data[result_idx] = fit_result.r_squared;
-		adj_r2_data[result_idx] = fit_result.adj_r_squared;
-		mse_data[result_idx] = fit_result.mse;
-		alpha_data[result_idx] = state.options.alpha;
-		lambda_data[result_idx] = state.options.lambda;
-		n_nonzero_data[result_idx] = static_cast<int64_t>(fit_result.n_nonzero);
-		n_obs_data[result_idx] = static_cast<int64_t>(n);
-		intercept_se_data[result_idx] = intercept_se;
-		df_resid_data[result_idx] = df_residual;
-
-		ANOFOX_DEBUG("Elastic Net aggregate: n=" << n << ", p=" << p << ", alpha=" << state.options.alpha << ", lambda="
-		                                         << state.options.lambda << ", nonzero=" << fit_result.n_nonzero
-		                                         << ", r2=" << fit_result.r_squared);
 	}
 
 	ListVector::SetListSize(coef_list, list_offset);
@@ -408,69 +404,53 @@ static void ElasticNetWindow(AggregateInputData &aggr_input_data, const WindowPa
 		return;
 	}
 
-	// Build matrices
-	Eigen::MatrixXd X(n, p);
-	Eigen::VectorXd y(n);
-	for (idx_t row = 0; row < n; row++) {
-		y(row) = window_y[row];
-		for (idx_t col = 0; col < p; col++) {
-			X(row, col) = window_x[row][col];
-		}
-	}
+	// Fit using libanostat
+	try {
+		auto lib_result = bridge::LibanostatWrapper::FitElasticNet(window_y, window_x, options, false);
 
-	// Elastic Net with intercept handling
-	double intercept = 0.0;
-	ElasticNetResult fit_result;
+		double intercept = bridge::TypeConverters::ExtractIntercept(lib_result, options.intercept);
+		auto feature_coefs_vec = bridge::TypeConverters::ExtractFeatureCoefficients(lib_result, options.intercept);
 
-	if (options.intercept) {
-		double y_mean = y.mean();
-		Eigen::VectorXd x_means = X.colwise().mean();
-		Eigen::MatrixXd X_centered = X;
-		Eigen::VectorXd y_centered = y;
-		for (idx_t row = 0; row < n; row++) {
-			y_centered(row) = y(row) - y_mean;
-			for (idx_t col = 0; col < p; col++) {
-				X_centered(row, col) = X(row, col) - x_means(col);
+		double r2 = lib_result.r_squared;
+		double adj_r2 = lib_result.adj_r_squared;
+		double mse = lib_result.mse;
+		size_t n_nonzero = 0;
+		for (idx_t j = 0; j < p; j++) {
+			if (std::abs(feature_coefs_vec[j]) > 1e-10) {
+				n_nonzero++;
 			}
 		}
 
-		fit_result = ElasticNetSolver::Fit(y_centered, X_centered, options.alpha, options.lambda);
+		// Store coefficients
+		auto list_entries = FlatVector::GetData<list_entry_t>(coef_list);
+		auto &coef_child = ListVector::GetEntry(coef_list);
+		auto coef_data = FlatVector::GetData<double>(coef_child);
 
-		double beta_dot_xmean = 0.0;
+		idx_t list_offset = rid * p;
+		ListVector::Reserve(coef_list, (rid + 1) * p);
+
 		for (idx_t j = 0; j < p; j++) {
-			beta_dot_xmean += fit_result.coefficients(j) * x_means(j);
+			coef_data[list_offset + j] = feature_coefs_vec[j];
 		}
-		intercept = y_mean - beta_dot_xmean;
-	} else {
-		fit_result = ElasticNetSolver::Fit(y, X, options.alpha, options.lambda);
-		intercept = 0.0;
+
+		list_entries[rid] = list_entry_t {list_offset, p};
+		intercept_data[rid] = intercept;
+		r2_data[rid] = r2;
+		adj_r2_data[rid] = adj_r2;
+		mse_data[rid] = mse;
+		alpha_data[rid] = options.alpha;
+		lambda_data[rid] = options.lambda;
+		n_nonzero_data[rid] = static_cast<int64_t>(n_nonzero);
+		n_obs_data[rid] = static_cast<int64_t>(n);
+
+		ANOFOX_DEBUG("Elastic Net window: n=" << n << ", p=" << p << ", alpha=" << options.alpha << ", lambda="
+		                                      << options.lambda << ", nonzero=" << n_nonzero << ", r2=" << r2);
+	} catch (const std::exception &e) {
+		ANOFOX_DEBUG("Elastic Net window failed: " << e.what());
+		result_validity.SetInvalid(rid);
+		auto list_entries = FlatVector::GetData<list_entry_t>(coef_list);
+		list_entries[rid] = list_entry_t {0, 0};
 	}
-
-	// Store coefficients
-	auto list_entries = FlatVector::GetData<list_entry_t>(coef_list);
-	auto &coef_child = ListVector::GetEntry(coef_list);
-	auto coef_data = FlatVector::GetData<double>(coef_child);
-
-	idx_t list_offset = rid * p;
-	ListVector::Reserve(coef_list, (rid + 1) * p);
-
-	for (idx_t j = 0; j < p; j++) {
-		coef_data[list_offset + j] = fit_result.coefficients(j);
-	}
-
-	list_entries[rid] = list_entry_t {list_offset, p};
-	intercept_data[rid] = intercept;
-	r2_data[rid] = fit_result.r_squared;
-	adj_r2_data[rid] = fit_result.adj_r_squared;
-	mse_data[rid] = fit_result.mse;
-	alpha_data[rid] = options.alpha;
-	lambda_data[rid] = options.lambda;
-	n_nonzero_data[rid] = static_cast<int64_t>(fit_result.n_nonzero);
-	n_obs_data[rid] = static_cast<int64_t>(n);
-
-	ANOFOX_DEBUG("Elastic Net window: n=" << n << ", p=" << p << ", alpha=" << options.alpha
-	                                      << ", lambda=" << options.lambda << ", nonzero=" << fit_result.n_nonzero
-	                                      << ", r2=" << fit_result.r_squared);
 }
 
 void ElasticNetAggregateFunction::Register(ExtensionLoader &loader) {
