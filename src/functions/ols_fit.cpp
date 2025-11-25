@@ -136,26 +136,24 @@ static void ComputeRidge(OlsFitBindData &data) {
 
 	// Special case: λ=0 reduces to OLS, use libanostat bridge layer
 	if (data.options.lambda == 0.0) {
-		using namespace bridge;
-
 		// Call libanostat OLS solver via bridge
 		// NOTE: x_values is column-major (feature-first) for scalar functions
-		auto result = LibanostatWrapper::FitOLS(data.y_values,            // vector<double>
-		                                        data.x_values,            // vector<vector<double>> (column-major)
-		                                        data.options,             // RegressionOptions
-		                                        data.options.full_output, // compute std errors if full_output
-		                                        false                     // row_major=false (column-major data)
+		auto result = bridge::LibanostatWrapper::FitOLS(data.y_values,            // vector<double>
+		                                                data.x_values,            // vector<vector<double>> (column-major)
+		                                                data.options,             // RegressionOptions
+		                                                data.options.full_output, // compute std errors if full_output
+		                                                false                     // row_major=false (column-major data)
 		);
 
 		// Extract intercept first (if present)
 		if (data.options.intercept) {
-			data.intercept = TypeConverters::ExtractIntercept(result, true);
+			data.intercept = bridge::TypeConverters::ExtractIntercept(result, true);
 		} else {
 			data.intercept = 0.0;
 		}
 
 		// Extract feature coefficients (excluding intercept)
-		data.coefficients = TypeConverters::ExtractFeatureCoefficients(result, data.options.intercept);
+		data.coefficients = bridge::TypeConverters::ExtractFeatureCoefficients(result, data.options.intercept);
 
 		// Extract is_aliased for features only (excluding intercept, in original order)
 		if (data.options.intercept) {
@@ -176,13 +174,13 @@ static void ComputeRidge(OlsFitBindData &data) {
 				data.is_aliased.push_back(aliased_map[j]);
 			}
 		} else {
-			data.is_aliased = TypeConverters::ExtractIsAliased(result);
+			data.is_aliased = bridge::TypeConverters::ExtractIsAliased(result);
 		}
 
-		data.rank = TypeConverters::ExtractRank(result);
+		data.rank = bridge::TypeConverters::ExtractRank(result);
 
 		// Extract fit statistics
-		auto stats = LibanostatWrapper::ComputeFitStatistics(result, n, data.options.intercept);
+		auto stats = bridge::LibanostatWrapper::ComputeFitStatistics(result, n, data.options.intercept);
 		data.r_squared = stats.r_squared;
 		data.adj_r_squared = stats.adj_r_squared;
 		data.mse = stats.mse;
@@ -212,7 +210,7 @@ static void ComputeRidge(OlsFitBindData &data) {
 				// Extract intercept standard error
 				data.intercept_std_error = se_map[0];
 			} else {
-				data.coefficient_std_errors = TypeConverters::ExtractStdErrors(result);
+				data.coefficient_std_errors = bridge::TypeConverters::ExtractStdErrors(result);
 				data.intercept_std_error = std::numeric_limits<double>::quiet_NaN();
 			}
 		}
@@ -240,26 +238,24 @@ static void ComputeRidge(OlsFitBindData &data) {
 	}
 
 	// λ > 0: Use Ridge regression via libanostat bridge layer
-	using namespace bridge;
-
 	// Call libanostat Ridge solver via bridge
 	// NOTE: x_values is column-major (feature-first) for scalar functions
-	auto result = LibanostatWrapper::FitRidge(data.y_values,            // vector<double>
-	                                          data.x_values,            // vector<vector<double>> (column-major)
-	                                          data.options,             // RegressionOptions (includes lambda)
-	                                          data.options.full_output, // compute std errors if full_output
-	                                          false                     // row_major=false (column-major data)
+	auto result = bridge::LibanostatWrapper::FitRidge(data.y_values,            // vector<double>
+	                                                  data.x_values,            // vector<vector<double>> (column-major)
+	                                                  data.options,             // RegressionOptions (includes lambda)
+	                                                  data.options.full_output, // compute std errors if full_output
+	                                                  false                     // row_major=false (column-major data)
 	);
 
 	// Extract intercept first (if present)
 	if (data.options.intercept) {
-		data.intercept = TypeConverters::ExtractIntercept(result, true);
+		data.intercept = bridge::TypeConverters::ExtractIntercept(result, true);
 	} else {
 		data.intercept = 0.0;
 	}
 
 	// Extract feature coefficients (excluding intercept)
-	data.coefficients = TypeConverters::ExtractFeatureCoefficients(result, data.options.intercept);
+	data.coefficients = bridge::TypeConverters::ExtractFeatureCoefficients(result, data.options.intercept);
 
 	// Extract is_aliased for features only (excluding intercept, in original order)
 	if (data.options.intercept) {
@@ -280,13 +276,13 @@ static void ComputeRidge(OlsFitBindData &data) {
 			data.is_aliased.push_back(aliased_map[j]);
 		}
 	} else {
-		data.is_aliased = TypeConverters::ExtractIsAliased(result);
+		data.is_aliased = bridge::TypeConverters::ExtractIsAliased(result);
 	}
 
-	data.rank = TypeConverters::ExtractRank(result);
+	data.rank = bridge::TypeConverters::ExtractRank(result);
 
 	// Extract fit statistics
-	auto stats = LibanostatWrapper::ComputeFitStatistics(result, n, data.options.intercept);
+	auto stats = bridge::LibanostatWrapper::ComputeFitStatistics(result, n, data.options.intercept);
 	data.r_squared = stats.r_squared;
 	data.adj_r_squared = stats.adj_r_squared;
 	data.mse = stats.mse;
@@ -321,7 +317,7 @@ static void ComputeRidge(OlsFitBindData &data) {
 				data.intercept_std_error = std::numeric_limits<double>::quiet_NaN();
 			}
 		} else {
-			data.coefficient_std_errors = TypeConverters::ExtractStdErrors(result);
+			data.coefficient_std_errors = bridge::TypeConverters::ExtractStdErrors(result);
 			data.intercept_std_error = std::numeric_limits<double>::quiet_NaN();
 		}
 	}

@@ -538,7 +538,7 @@ static void WlsWindow(AggregateInputData &aggr_input_data, const WindowPartition
 
 	// Adjusted R²: rank already includes intercept if fitted
 	idx_t df_model = rank;
-	double adj_r2 = 1.0 - (1.0 - r2) * (n - 1) / (n - df_model);
+	double adj_r2 = 1.0 - (1.0 - r2) * static_cast<double>(n - 1) / static_cast<double>(n - df_model);
 	double weighted_mse = ss_res_weighted / sum_weights;
 
 	// Store coefficients in list

@@ -121,16 +121,14 @@ static void ComputeElasticNet(ElasticNetFitBindData &data) {
 	                                           << (data.options.intercept ? " (with intercept)" : " (no intercept)"));
 
 	// Fit Elastic Net using libanostat bridge layer
-	using namespace bridge;
-
-	auto result = LibanostatWrapper::FitElasticNet(data.y_values, // vector<double>
-	                                               data.x_values, // vector<vector<double>> (column-major)
-	                                               data.options,  // RegressionOptions (includes alpha and lambda)
-	                                               data.options.full_output, // compute std errors if full_output
-	                                               false);                   // row_major=false (column-major data)
+	auto result = bridge::LibanostatWrapper::FitElasticNet(data.y_values, // vector<double>
+	                                                       data.x_values, // vector<vector<double>> (column-major)
+	                                                       data.options,  // RegressionOptions (includes alpha and lambda)
+	                                                       data.options.full_output, // compute std errors if full_output
+	                                                       false);                   // row_major=false (column-major data)
 
 	// Extract coefficients
-	data.coefficients = TypeConverters::ExtractCoefficients(result);
+	data.coefficients = bridge::TypeConverters::ExtractCoefficients(result);
 
 	// Compute intercept from centered coefficients
 	if (data.options.intercept) {
@@ -160,10 +158,10 @@ static void ComputeElasticNet(ElasticNetFitBindData &data) {
 	}
 
 	// Extract fit statistics
-	data.r_squared = TypeConverters::ExtractRSquared(result);
-	data.adj_r_squared = TypeConverters::ExtractAdjRSquared(result);
-	data.mse = TypeConverters::ExtractMSE(result);
-	data.rmse = TypeConverters::ExtractRMSE(result);
+	data.r_squared = bridge::TypeConverters::ExtractRSquared(result);
+	data.adj_r_squared = bridge::TypeConverters::ExtractAdjRSquared(result);
+	data.mse = bridge::TypeConverters::ExtractMSE(result);
+	data.rmse = bridge::TypeConverters::ExtractRMSE(result);
 
 	// Count non-zero coefficients
 	data.n_nonzero = 0;
@@ -201,7 +199,7 @@ static void ComputeElasticNet(ElasticNetFitBindData &data) {
 		// Note: Elastic Net standard errors are complex due to regularization bias
 		// libanostat returns NaN for Elastic Net standard errors (bootstrap recommended)
 		if (result.has_std_errors) {
-			data.coefficient_std_errors = TypeConverters::ExtractStdErrors(result);
+			data.coefficient_std_errors = bridge::TypeConverters::ExtractStdErrors(result);
 		} else {
 			// Provide approximate SEs assuming the selected model is correct
 			// For proper post-selection inference, use specialized methods

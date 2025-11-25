@@ -422,7 +422,7 @@ static void OlsArrayFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
 			for (idx_t i = 0; i < n; i++) {
 				sum += state.x_matrix[i][j];
 			}
-			x_means(j) = sum / n;
+			x_means(j) = sum / static_cast<double>(n);
 		}
 
 		// Extract all fit statistics from libanostat (no recomputation)
@@ -693,7 +693,7 @@ static void OlsArrayWindow(AggregateInputData &aggr_input_data, const WindowPart
 		for (idx_t i = 0; i < n; i++) {
 			mean_y += window_y[i];
 		}
-		mean_y /= n;
+		mean_y /= static_cast<double>(n);
 		ss_tot = 0.0;
 		for (idx_t i = 0; i < n; i++) {
 			double diff = window_y[i] - mean_y;
@@ -710,7 +710,7 @@ static void OlsArrayWindow(AggregateInputData &aggr_input_data, const WindowPart
 
 	// Adjusted R²: lib_result.rank already includes intercept
 	idx_t df_model = rank;
-	double adj_r2 = 1.0 - (1.0 - r2) * (n - 1) / (n - df_model);
+	double adj_r2 = 1.0 - (1.0 - r2) * static_cast<double>(n - 1) / static_cast<double>(n - df_model);
 
 	// Store coefficients in list
 	auto list_entries = FlatVector::GetData<list_entry_t>(coef_list);

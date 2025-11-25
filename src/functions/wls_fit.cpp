@@ -128,19 +128,17 @@ static void ComputeWLS(WlsFitBindData &data) {
 	ANOFOX_DEBUG("Computing WLS with " << n << " observations and " << p << " features");
 
 	// Fit WLS using libanostat bridge layer
-	using namespace bridge;
-
-	auto result = LibanostatWrapper::FitWLS(data.y_values,            // vector<double>
-	                                        data.x_values,            // vector<vector<double>> (column-major)
-	                                        data.weights,             // vector<double>: observation weights
-	                                        data.options,             // RegressionOptions
-	                                        data.options.full_output, // compute std errors if full_output
-	                                        false);                   // row_major=false (column-major data)
+	auto result = bridge::LibanostatWrapper::FitWLS(data.y_values,            // vector<double>
+	                                                data.x_values,            // vector<vector<double>> (column-major)
+	                                                data.weights,             // vector<double>: observation weights
+	                                                data.options,             // RegressionOptions
+	                                                data.options.full_output, // compute std errors if full_output
+	                                                false);                   // row_major=false (column-major data)
 
 	// Extract coefficients and aliasing info
-	data.coefficients = TypeConverters::ExtractCoefficients(result);
-	data.is_aliased = TypeConverters::ExtractIsAliased(result);
-	data.rank = TypeConverters::ExtractRank(result);
+	data.coefficients = bridge::TypeConverters::ExtractCoefficients(result);
+	data.is_aliased = bridge::TypeConverters::ExtractIsAliased(result);
+	data.rank = bridge::TypeConverters::ExtractRank(result);
 
 	// Compute intercept from centered coefficients
 	if (data.options.intercept) {
@@ -185,10 +183,10 @@ static void ComputeWLS(WlsFitBindData &data) {
 	}
 
 	// Extract fit statistics
-	data.r_squared = TypeConverters::ExtractRSquared(result);
-	data.adj_r_squared = TypeConverters::ExtractAdjRSquared(result);
-	data.mse = TypeConverters::ExtractMSE(result);
-	data.rmse = TypeConverters::ExtractRMSE(result);
+	data.r_squared = bridge::TypeConverters::ExtractRSquared(result);
+	data.adj_r_squared = bridge::TypeConverters::ExtractAdjRSquared(result);
+	data.mse = bridge::TypeConverters::ExtractMSE(result);
+	data.rmse = bridge::TypeConverters::ExtractRMSE(result);
 
 	// Compute weighted MSE manually
 	// (libanostat returns unweighted MSE)
@@ -210,7 +208,7 @@ static void ComputeWLS(WlsFitBindData &data) {
 	// Compute extended metadata if full_output=true
 	if (data.options.full_output) {
 		if (result.has_std_errors) {
-			data.coefficient_std_errors = TypeConverters::ExtractStdErrors(result);
+			data.coefficient_std_errors = bridge::TypeConverters::ExtractStdErrors(result);
 		}
 
 		// Degrees of freedom

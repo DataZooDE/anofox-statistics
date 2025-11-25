@@ -480,7 +480,7 @@ static void RlsWindow(AggregateInputData &aggr_input_data, const WindowPartition
 	double ss_tot = options.intercept ? (y.array() - y.mean()).square().sum() : y.squaredNorm();
 	double r2 = (ss_tot > 1e-10) ? (1.0 - ss_res / ss_tot) : 0.0;
 	idx_t df_model = p + (options.intercept ? 1 : 0);
-	double adj_r2 = 1.0 - (1.0 - r2) * (n - 1) / (n - df_model);
+	double adj_r2 = 1.0 - (1.0 - r2) * static_cast<double>(n - 1) / static_cast<double>(n - df_model);
 
 	// Store coefficients
 	auto list_entries = FlatVector::GetData<list_entry_t>(coef_list);
