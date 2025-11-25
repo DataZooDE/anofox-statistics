@@ -105,6 +105,28 @@ inline core::RegressionResult ElasticNetSolver::Fit(const Eigen::VectorXd &y, co
 		return RidgeSolver::Fit(y, X, options);
 	}
 
+	// Center data if intercept requested (similar to OLS)
+	Eigen::VectorXd y_work;
+	Eigen::MatrixXd X_work;
+	Eigen::VectorXd x_means;
+	double y_mean = 0.0;
+
+	if (options.intercept) {
+		// Center y and X
+		y_mean = y.mean();
+		x_means = X.colwise().mean();
+
+		y_work = y.array() - y_mean;
+		X_work = X;
+		for (size_t j = 0; j < p; j++) {
+			auto j_idx = static_cast<Eigen::Index>(j);
+			X_work.col(j_idx) = X.col(j_idx).array() - x_means(j_idx);
+		}
+	} else {
+		y_work = y;
+		X_work = X;
+	}
+
 	// Initialize result
 	core::RegressionResult result(n, p, 0);
 	result.coefficients = Eigen::VectorXd::Zero(static_cast<Eigen::Index>(p));
@@ -113,11 +135,11 @@ inline core::RegressionResult ElasticNetSolver::Fit(const Eigen::VectorXd &y, co
 	Eigen::VectorXd x_norms_sq(static_cast<Eigen::Index>(p));
 	for (size_t j = 0; j < p; j++) {
 		auto j_idx = static_cast<Eigen::Index>(j);
-		x_norms_sq(j_idx) = X.col(j_idx).squaredNorm();
+		x_norms_sq(j_idx) = X_work.col(j_idx).squaredNorm();
 	}
 
 	// Initialize residuals
-	Eigen::VectorXd residuals = y;
+	Eigen::VectorXd residuals = y_work;
 
 	// Coordinate descent iterations
 	size_t iterations = 0;
@@ -141,10 +163,10 @@ inline core::RegressionResult ElasticNetSolver::Fit(const Eigen::VectorXd &y, co
 
 			// Add back the contribution of feature j to residuals
 			// (so we can compute the optimal coefficient for j in isolation)
-			residuals += beta_old * X.col(j_idx);
+			residuals += beta_old * X_work.col(j_idx);
 
 			// Compute partial correlation: X_j' * residuals
-			double rho = X.col(j_idx).dot(residuals);
+			double rho = X_work.col(j_idx).dot(residuals);
 
 			// Apply soft thresholding for L1 penalty
 			double threshold = options.lambda * options.alpha * static_cast<double>(n);
@@ -157,7 +179,7 @@ inline core::RegressionResult ElasticNetSolver::Fit(const Eigen::VectorXd &y, co
 			result.coefficients(j_idx) = beta_new;
 
 			// Update residuals by removing new contribution
-			residuals -= beta_new * X.col(j_idx);
+			residuals -= beta_new * X_work.col(j_idx);
 
 			// Track maximum coefficient change for convergence
 			double change = std::abs(beta_new - beta_old);
@@ -188,8 +210,30 @@ inline core::RegressionResult ElasticNetSolver::Fit(const Eigen::VectorXd &y, co
 	// (This is the "effective" rank for sparse models)
 	result.rank = n_nonzero;
 
-	// Compute final predictions
-	Eigen::VectorXd y_pred = X * result.coefficients;
+	// Compute intercept if requested (similar to OLS)
+	double intercept = 0.0;
+	if (options.intercept) {
+		// intercept = y_mean - sum(coef[j] * x_mean[j])
+		intercept = y_mean;
+		for (size_t j = 0; j < p; j++) {
+			auto j_idx = static_cast<Eigen::Index>(j);
+			if (!result.is_aliased[j]) {
+				intercept -= result.coefficients(j_idx) * x_means(j_idx);
+			}
+		}
+
+		// Populate intercept fields
+		result.intercept = intercept;
+		result.has_intercept = true;
+	}
+
+	// Compute final predictions on ORIGINAL (uncentered) data
+	Eigen::VectorXd y_pred;
+	if (options.intercept) {
+		y_pred = Eigen::VectorXd::Constant(static_cast<Eigen::Index>(n), intercept) + X * result.coefficients;
+	} else {
+		y_pred = X * result.coefficients;
+	}
 	result.residuals = y - y_pred;
 
 	// Compute fit statistics
@@ -200,6 +244,7 @@ inline core::RegressionResult ElasticNetSolver::Fit(const Eigen::VectorXd &y, co
 
 inline core::RegressionResult ElasticNetSolver::FitWithStdErrors(const Eigen::VectorXd &y, const Eigen::MatrixXd &X,
                                                                    const core::RegressionOptions &options) {
+	const size_t n = static_cast<size_t>(X.rows());
 	const size_t p = static_cast<size_t>(X.cols());
 
 	// Special case: α=0 reduces to Ridge with proper standard errors
@@ -215,6 +260,12 @@ inline core::RegressionResult ElasticNetSolver::FitWithStdErrors(const Eigen::Ve
 	result.std_errors =
 	    Eigen::VectorXd::Constant(static_cast<Eigen::Index>(p), std::numeric_limits<double>::quiet_NaN());
 	result.has_std_errors = true;
+
+	// Compute simple intercept standard error estimate if intercept was fitted
+	if (options.intercept && result.has_intercept) {
+		// Simple estimate: SE(intercept) = sqrt(MSE / n)
+		result.intercept_std_error = std::sqrt(result.mse / static_cast<double>(n));
+	}
 
 	return result;
 }

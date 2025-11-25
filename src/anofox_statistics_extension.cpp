@@ -15,10 +15,23 @@
 #include "functions/aggregates/residual_diagnostics_aggregate.hpp" // Phase 4 - Residual Diagnostics Aggregate
 #include "functions/aggregates/vif_aggregate.hpp"                  // Phase 4 - VIF Aggregate
 #include "functions/aggregates/normality_test_aggregate.hpp"       // Phase 4 - Normality Test Aggregate
-#include "functions/inference/ols_inference.hpp"                   // Phase 5 - Inference
-#include "functions/inference/prediction_intervals.hpp"            // Phase 5 - Prediction
+// Phase 4b - Predict Aggregates (DISABLED: stub implementations need completion)
+// #include "functions/aggregates/ols_predict_aggregate.hpp"          // Phase 4b - OLS Predict Aggregate
+// #include "functions/aggregates/ridge_predict_aggregate.hpp"        // Phase 4b - Ridge Predict Aggregate
+// #include "functions/aggregates/wls_predict_aggregate.hpp"          // Phase 4b - WLS Predict Aggregate
+// #include "functions/aggregates/rls_predict_aggregate.hpp"          // Phase 4b - RLS Predict Aggregate
+// #include "functions/aggregates/elastic_net_predict_aggregate.hpp"  // Phase 4b - Elastic Net Predict Aggregate
+#include "functions/inference/ols_inference.hpp"                   // Phase 5 - OLS Inference
+#include "functions/inference/ridge_inference.hpp"                 // Phase 5 - Ridge Inference
+#include "functions/inference/wls_inference.hpp"                   // Phase 5 - WLS Inference
+#include "functions/inference/rls_inference.hpp"                   // Phase 5 - RLS Inference
+#include "functions/inference/elastic_net_inference.hpp"           // Phase 5 - Elastic Net Inference
+#include "functions/inference/prediction_intervals.hpp"            // Phase 5 - OLS Prediction Intervals
+#include "functions/inference/ridge_prediction_intervals.hpp"      // Phase 5 - Ridge Prediction Intervals
+#include "functions/inference/wls_prediction_intervals.hpp"        // Phase 5 - WLS Prediction Intervals
+#include "functions/inference/rls_prediction_intervals.hpp"        // Phase 5 - RLS Prediction Intervals
+#include "functions/inference/elastic_net_prediction_intervals.hpp" // Phase 5 - Elastic Net Prediction Intervals
 #include "functions/inference/model_predict.hpp"                   // Phase 5 - Model-based prediction
-#include "functions/inference/predict_scalar.hpp"                  // Phase 5 - Scalar predict functions
 #include "functions/model_selection/information_criteria.hpp"      // Phase 5 - Model selection
 #include "functions/diagnostics/residual_diagnostics.hpp"          // Phase 5 - Diagnostics
 #include "functions/diagnostics/vif.hpp"                           // Phase 5 - Multicollinearity
@@ -56,11 +69,26 @@ void AnofoxStatisticsExtension::Load(ExtensionLoader &loader) {
 	anofox_statistics::VifAggregateFunction::Register(loader);                 // VIF Aggregate
 	anofox_statistics::NormalityTestAggregateFunction::Register(loader);       // Normality Test Aggregate
 
+	// Phase 4b: Predict Aggregates (NEW - DISABLED: stub implementations need completion)
+	// TODO: Fix aggregate state and window function signatures before enabling
+	// anofox_statistics::OLSPredictAggregateFunction::Register(loader);          // OLS predict aggregate
+	// anofox_statistics::RidgePredictAggregateFunction::Register(loader);        // Ridge predict aggregate
+	// anofox_statistics::WLSPredictAggregateFunction::Register(loader);          // WLS predict aggregate
+	// anofox_statistics::RLSPredictAggregateFunction::Register(loader);          // RLS predict aggregate
+	// anofox_statistics::ElasticNetPredictAggregateFunction::Register(loader);   // Elastic Net predict aggregate
+
 	// Phase 5: Statistical Inference & Diagnostics (✅ completed)
-	anofox_statistics::OlsInferenceFunction::Register(loader);                 // Coefficient inference
-	anofox_statistics::OlsPredictIntervalFunction::Register(loader);           // Prediction intervals
+	anofox_statistics::OlsInferenceFunction::Register(loader);                 // OLS coefficient inference
+	anofox_statistics::RidgeInferenceFunction::Register(loader);               // Ridge coefficient inference
+	anofox_statistics::WlsInferenceFunction::Register(loader);                 // WLS coefficient inference
+	anofox_statistics::RlsInferenceFunction::Register(loader);                 // RLS coefficient inference
+	anofox_statistics::ElasticNetInferenceFunction::Register(loader);          // Elastic Net coefficient inference
+	anofox_statistics::OlsPredictIntervalFunction::Register(loader);           // OLS prediction intervals
+	anofox_statistics::RidgePredictIntervalFunction::Register(loader);         // Ridge prediction intervals
+	anofox_statistics::WLSPredictIntervalFunction::Register(loader);           // WLS prediction intervals
+	anofox_statistics::RLSPredictIntervalFunction::Register(loader);           // RLS prediction intervals
+	anofox_statistics::ElasticNetPredictIntervalFunction::Register(loader);    // Elastic Net prediction intervals
 	anofox_statistics::AnofoxStatisticsModelPredictFunction::Register(loader); // Model-based prediction
-	anofox_statistics::PredictScalarFunctions::Register(loader);      // Scalar predict functions (user-friendly)
 	anofox_statistics::InformationCriteriaFunction::Register(loader); // AIC, BIC
 	anofox_statistics::ResidualDiagnosticsFunction::Register(loader); // Residual diagnostics
 	anofox_statistics::VifFunction::Register(loader);                 // Multicollinearity (VIF)

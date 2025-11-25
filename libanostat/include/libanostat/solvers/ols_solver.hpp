@@ -211,6 +211,10 @@ inline core::RegressionResult OLSSolver::Fit(const Eigen::VectorXd &y, const Eig
 		}
 		result.coefficients[0] = intercept;
 		result.is_aliased[0] = false;  // Intercept is NEVER aliased
+
+		// NEW: Populate intercept fields in result
+		result.intercept = intercept;
+		result.has_intercept = true;
 	}
 
 	// Step 7: Compute predictions using intercept + non-aliased features
@@ -436,7 +440,11 @@ inline void OLSSolver::ComputeStandardErrors(const Eigen::MatrixXd &X,
 			}
 
 			double variance_component = x_means_reduced.transpose() * XtX_inv * x_means_reduced;
-			result.std_errors[0] = std::sqrt(mse * (1.0 / static_cast<double>(n_obs) + variance_component));
+			double intercept_se = std::sqrt(mse * (1.0 / static_cast<double>(n_obs) + variance_component));
+			result.std_errors[0] = intercept_se;
+
+			// NEW: Populate intercept_std_error field
+			result.intercept_std_error = intercept_se;
 		}
 
 	} catch (...) {

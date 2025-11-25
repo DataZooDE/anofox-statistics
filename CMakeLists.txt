@@ -66,11 +66,26 @@ set(EXTENSION_SOURCES
     src/functions/aggregates/vif_aggregate.cpp                    # VIF aggregate
     src/functions/aggregates/normality_test_aggregate.cpp         # Normality Test aggregate
 
-    # Phase 5 - Statistical Inference & Diagnostics (In Progress)
-    src/functions/inference/ols_inference.cpp          # Coefficient inference with p-values
-    src/functions/inference/prediction_intervals.cpp   # Confidence/prediction intervals
+    # Phase 4b - Predict Aggregates (NEW - DISABLED: stub implementations need proper window function and state design)
+    # TODO: Fix aggregate state (must be trivially move constructible) and window function signatures
+    # src/functions/aggregates/ols_predict_aggregate.cpp            # OLS predict aggregate
+    # src/functions/aggregates/ridge_predict_aggregate.cpp          # Ridge predict aggregate
+    # src/functions/aggregates/wls_predict_aggregate.cpp            # WLS predict aggregate
+    # src/functions/aggregates/rls_predict_aggregate.cpp            # RLS predict aggregate
+    # src/functions/aggregates/elastic_net_predict_aggregate.cpp    # Elastic Net predict aggregate
+
+    # Phase 5 - Statistical Inference & Diagnostics
+    src/functions/inference/ols_inference.cpp          # OLS coefficient inference
+    src/functions/inference/ridge_inference.cpp        # Ridge coefficient inference
+    src/functions/inference/wls_inference.cpp          # WLS coefficient inference
+    src/functions/inference/rls_inference.cpp          # RLS coefficient inference
+    src/functions/inference/elastic_net_inference.cpp  # Elastic Net coefficient inference
+    src/functions/inference/prediction_intervals.cpp   # OLS prediction intervals
+    src/functions/inference/ridge_prediction_intervals.cpp       # Ridge prediction intervals
+    src/functions/inference/wls_prediction_intervals.cpp         # WLS prediction intervals
+    src/functions/inference/rls_prediction_intervals.cpp         # RLS prediction intervals
+    src/functions/inference/elastic_net_prediction_intervals.cpp # Elastic Net prediction intervals
     src/functions/inference/model_predict.cpp          # Model-based prediction with intervals
-    src/functions/inference/predict_scalar.cpp         # Scalar predict functions (accept column refs)
     src/functions/model_selection/information_criteria.cpp  # AIC, BIC, model selection
     src/functions/diagnostics/residual_diagnostics.cpp # Leverage, Cook's D, DFFITS
     src/functions/diagnostics/vif.cpp                  # Multicollinearity detection

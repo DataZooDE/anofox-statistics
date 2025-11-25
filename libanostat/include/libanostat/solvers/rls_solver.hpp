@@ -187,6 +187,8 @@ inline core::RegressionResult RLSSolver::Fit(const Eigen::VectorXd &y, const Eig
 	result.coefficients = Eigen::VectorXd::Constant(static_cast<Eigen::Index>(p),
 	                                                 std::numeric_limits<double>::quiet_NaN());
 
+	double intercept_value = 0.0;  // Store intercept for later
+
 	if (options.intercept) {
 		// Extract intercept (should be at valid_indices position 0 in X_work)
 		// Find intercept in valid set
@@ -203,7 +205,7 @@ inline core::RegressionResult RLSSolver::Fit(const Eigen::VectorXd &y, const Eig
 		}
 
 		// Extract intercept value (not stored in coefficients array)
-		double intercept = beta_valid(static_cast<Eigen::Index>(intercept_pos));
+		intercept_value = beta_valid(static_cast<Eigen::Index>(intercept_pos));
 
 		// Map feature coefficients (skip intercept column in X_work)
 		for (size_t j = 0; j < p; j++) {
@@ -234,7 +236,7 @@ inline core::RegressionResult RLSSolver::Fit(const Eigen::VectorXd &y, const Eig
 		result.rank = p_valid - 1;
 
 		// Compute predictions including intercept
-		Eigen::VectorXd y_pred = Eigen::VectorXd::Constant(static_cast<Eigen::Index>(n), intercept);
+		Eigen::VectorXd y_pred = Eigen::VectorXd::Constant(static_cast<Eigen::Index>(n), intercept_value);
 		for (size_t j = 0; j < p; j++) {
 			if (!result.is_aliased[j]) {
 				y_pred += result.coefficients(static_cast<Eigen::Index>(j)) * X.col(static_cast<Eigen::Index>(j));
@@ -267,6 +269,10 @@ inline core::RegressionResult RLSSolver::Fit(const Eigen::VectorXd &y, const Eig
 		}
 
 		result.rank = p_valid;
+
+		// NEW: Store intercept fields
+		result.intercept = intercept_value;
+		result.has_intercept = true;
 
 		// Compute predictions
 		Eigen::VectorXd y_pred = Eigen::VectorXd::Zero(static_cast<Eigen::Index>(n));
@@ -364,6 +370,9 @@ inline core::RegressionResult RLSSolver::FitWithStdErrors(const Eigen::VectorXd 
 	                                               std::numeric_limits<double>::quiet_NaN());
 	result.has_std_errors = true;
 
+	double intercept_value = 0.0;  // Store intercept for later
+	size_t intercept_pos_outer = std::numeric_limits<size_t>::max();  // Store position for later
+
 	// Map coefficients and compute standard errors
 	if (options.intercept) {
 		// Find intercept position
@@ -375,7 +384,8 @@ inline core::RegressionResult RLSSolver::FitWithStdErrors(const Eigen::VectorXd 
 			}
 		}
 
-		double intercept = beta_valid(static_cast<Eigen::Index>(intercept_pos));
+		intercept_pos_outer = intercept_pos;  // Store for later use
+		intercept_value = beta_valid(static_cast<Eigen::Index>(intercept_pos));
 
 		// Map feature coefficients
 		for (size_t j = 0; j < p; j++) {
@@ -399,7 +409,7 @@ inline core::RegressionResult RLSSolver::FitWithStdErrors(const Eigen::VectorXd 
 		result.rank = p_valid - 1;
 
 		// Compute predictions
-		Eigen::VectorXd y_pred = Eigen::VectorXd::Constant(static_cast<Eigen::Index>(n), intercept);
+		Eigen::VectorXd y_pred = Eigen::VectorXd::Constant(static_cast<Eigen::Index>(n), intercept_value);
 		for (size_t j = 0; j < p; j++) {
 			if (!result.is_aliased[j]) {
 				y_pred += result.coefficients(static_cast<Eigen::Index>(j)) * X.col(static_cast<Eigen::Index>(j));
@@ -473,7 +483,16 @@ inline core::RegressionResult RLSSolver::FitWithStdErrors(const Eigen::VectorXd 
 				result.std_errors(static_cast<Eigen::Index>(j)) = std::sqrt(std::max(0.0, var_j));
 			}
 		}
+
+		// NEW: Compute intercept standard error
+		auto intercept_idx = static_cast<Eigen::Index>(intercept_pos_outer);
+		double var_intercept = result.mse * P(intercept_idx, intercept_idx);
+		result.intercept_std_error = std::sqrt(std::max(0.0, var_intercept));
 	}
+
+	// NEW: Store intercept fields
+	result.intercept = intercept_value;
+	result.has_intercept = true;
 
 	return result;
 }

@@ -28,7 +28,15 @@ struct RegressionResult {
 
 	/// Estimated regression coefficients (length = n_params)
 	/// For rank-deficient case, aliased coefficients are set to NaN
+	/// NOTE: Does NOT include intercept - see intercept field below
 	Eigen::VectorXd coefficients;
+
+	/// Intercept term (if fitted with intercept)
+	/// Only valid if has_intercept is true
+	double intercept = 0.0;
+
+	/// Flag indicating if intercept was fitted
+	bool has_intercept = false;
 
 	/// Residuals: y - X*beta (length = n_obs)
 	Eigen::VectorXd residuals;
@@ -79,7 +87,12 @@ struct RegressionResult {
 
 	/// Standard errors of coefficients (length = n_params)
 	/// Only computed if requested; aliased coefficients have NaN std errors
+	/// NOTE: Does NOT include intercept std error - see intercept_std_error field below
 	Eigen::VectorXd std_errors;
+
+	/// Standard error of intercept term (if fitted with intercept and std errors computed)
+	/// Only valid if has_intercept && has_std_errors
+	double intercept_std_error = std::numeric_limits<double>::quiet_NaN();
 
 	/// Flag indicating if standard errors have been computed
 	bool has_std_errors = false;
