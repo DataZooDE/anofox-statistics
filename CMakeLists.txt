@@ -67,18 +67,14 @@ set(EXTENSION_SOURCES
     src/functions/aggregates/normality_test_aggregate.cpp         # Normality Test aggregate
 
     # Phase 5 - Statistical Inference & Diagnostics
-    src/functions/inference/ols_inference.cpp          # OLS coefficient inference
-    src/functions/inference/ridge_inference.cpp        # Ridge coefficient inference
-    src/functions/inference/wls_inference.cpp          # WLS coefficient inference
-    src/functions/inference/rls_inference.cpp          # RLS coefficient inference
-    src/functions/inference/elastic_net_inference.cpp  # Elastic Net coefficient inference
+    # Inference functions removed - metrics now integrated into table & aggregate functions
     src/functions/inference/prediction_intervals.cpp   # OLS prediction intervals
     src/functions/inference/ridge_prediction_intervals.cpp       # Ridge prediction intervals
     src/functions/inference/wls_prediction_intervals.cpp         # WLS prediction intervals
     src/functions/inference/rls_prediction_intervals.cpp         # RLS prediction intervals
     src/functions/inference/elastic_net_prediction_intervals.cpp # Elastic Net prediction intervals
     src/functions/inference/model_predict.cpp          # Model-based prediction with intervals
-    src/functions/model_selection/information_criteria.cpp  # AIC, BIC, model selection
+    # information_criteria.cpp removed - metrics now integrated into table & aggregate functions
     src/functions/diagnostics/residual_diagnostics.cpp # Leverage, Cook's D, DFFITS
     src/functions/diagnostics/vif.cpp                  # Multicollinearity detection
     src/functions/diagnostics/normality_test.cpp       # Jarque-Bera normality test

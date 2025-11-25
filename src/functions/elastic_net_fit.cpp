@@ -59,6 +59,27 @@ struct ElasticNetFitBindData : public FunctionData {
 	vector<bool> is_zero; // Track which coefficients are exactly zero (feature selection)
 	vector<double> x_train_means;
 
+	// New statistical metrics (when full_output=true)
+	double residual_standard_error = std::numeric_limits<double>::quiet_NaN();
+	double f_statistic = std::numeric_limits<double>::quiet_NaN();
+	double f_statistic_pvalue = std::numeric_limits<double>::quiet_NaN();
+	double aic = std::numeric_limits<double>::quiet_NaN();
+	double aicc = std::numeric_limits<double>::quiet_NaN();
+	double bic = std::numeric_limits<double>::quiet_NaN();
+	double log_likelihood = std::numeric_limits<double>::quiet_NaN();
+
+	// Coefficient-level inference (when full_output=true)
+	vector<double> coefficient_t_statistics;
+	vector<double> coefficient_p_values;
+	vector<double> coefficient_ci_lower;
+	vector<double> coefficient_ci_upper;
+
+	// Intercept-level inference (when full_output=true)
+	double intercept_t_statistic = std::numeric_limits<double>::quiet_NaN();
+	double intercept_p_value = std::numeric_limits<double>::quiet_NaN();
+	double intercept_ci_lower = std::numeric_limits<double>::quiet_NaN();
+	double intercept_ci_upper = std::numeric_limits<double>::quiet_NaN();
+
 	bool result_returned = false;
 
 	unique_ptr<FunctionData> Copy() const override {
@@ -80,6 +101,21 @@ struct ElasticNetFitBindData : public FunctionData {
 		result->df_residual = df_residual;
 		result->is_zero = is_zero;
 		result->x_train_means = x_train_means;
+		result->residual_standard_error = residual_standard_error;
+		result->f_statistic = f_statistic;
+		result->f_statistic_pvalue = f_statistic_pvalue;
+		result->aic = aic;
+		result->aicc = aicc;
+		result->bic = bic;
+		result->log_likelihood = log_likelihood;
+		result->coefficient_t_statistics = coefficient_t_statistics;
+		result->coefficient_p_values = coefficient_p_values;
+		result->coefficient_ci_lower = coefficient_ci_lower;
+		result->coefficient_ci_upper = coefficient_ci_upper;
+		result->intercept_t_statistic = intercept_t_statistic;
+		result->intercept_p_value = intercept_p_value;
+		result->intercept_ci_lower = intercept_ci_lower;
+		result->intercept_ci_upper = intercept_ci_upper;
 		result->result_returned = result_returned;
 		return std::move(result);
 	}
@@ -223,6 +259,29 @@ static void ComputeElasticNet(ElasticNetFitBindData &data) {
 		} else {
 			data.intercept_std_error = std::numeric_limits<double>::quiet_NaN();
 		}
+
+		// Extract new statistical metrics
+		data.residual_standard_error = bridge::TypeConverters::ExtractResidualStandardError(result);
+		data.f_statistic = bridge::TypeConverters::ExtractFStatistic(result);
+		data.f_statistic_pvalue = bridge::TypeConverters::ExtractFStatisticPValue(result);
+		data.aic = bridge::TypeConverters::ExtractAIC(result);
+		data.aicc = bridge::TypeConverters::ExtractAICc(result);
+		data.bic = bridge::TypeConverters::ExtractBIC(result);
+		data.log_likelihood = bridge::TypeConverters::ExtractLogLikelihood(result);
+
+		// Extract coefficient-level inference
+		if (result.has_std_errors) {
+			data.coefficient_t_statistics = bridge::TypeConverters::ExtractTStatistics(result);
+			data.coefficient_p_values = bridge::TypeConverters::ExtractPValues(result);
+			data.coefficient_ci_lower = bridge::TypeConverters::ExtractCILower(result);
+			data.coefficient_ci_upper = bridge::TypeConverters::ExtractCIUpper(result);
+
+			// Extract intercept-level inference
+			data.intercept_t_statistic = bridge::TypeConverters::ExtractInterceptTStatistic(result);
+			data.intercept_p_value = bridge::TypeConverters::ExtractInterceptPValue(result);
+			data.intercept_ci_lower = bridge::TypeConverters::ExtractInterceptCILower(result);
+			data.intercept_ci_upper = bridge::TypeConverters::ExtractInterceptCIUpper(result);
+		}
 	}
 
 	ANOFOX_DEBUG("Elastic Net (via libanostat): R² = " << data.r_squared << ", nonzero = " << data.n_nonzero << "/" << p
@@ -347,11 +406,53 @@ static unique_ptr<FunctionData> ElasticNetFitBind(ClientContext &context, TableF
 		names.push_back("is_zero");
 		names.push_back("x_train_means");
 
+		// New statistical metrics
+		names.push_back("residual_standard_error");
+		names.push_back("f_statistic");
+		names.push_back("f_statistic_pvalue");
+		names.push_back("aic");
+		names.push_back("aicc");
+		names.push_back("bic");
+		names.push_back("log_likelihood");
+
+		// Coefficient-level inference
+		names.push_back("coefficient_t_statistics");
+		names.push_back("coefficient_p_values");
+		names.push_back("coefficient_ci_lower");
+		names.push_back("coefficient_ci_upper");
+
+		// Intercept-level inference
+		names.push_back("intercept_t_statistic");
+		names.push_back("intercept_p_value");
+		names.push_back("intercept_ci_lower");
+		names.push_back("intercept_ci_upper");
+
 		return_types.push_back(LogicalType::LIST(LogicalType::DOUBLE));  // coefficient_std_errors
 		return_types.push_back(LogicalType::DOUBLE);                     // intercept_std_error
 		return_types.push_back(LogicalType::BIGINT);                     // df_residual
 		return_types.push_back(LogicalType::LIST(LogicalType::BOOLEAN)); // is_zero
 		return_types.push_back(LogicalType::LIST(LogicalType::DOUBLE));  // x_train_means
+
+		// New statistical metrics
+		return_types.push_back(LogicalType::DOUBLE); // residual_standard_error
+		return_types.push_back(LogicalType::DOUBLE); // f_statistic
+		return_types.push_back(LogicalType::DOUBLE); // f_statistic_pvalue
+		return_types.push_back(LogicalType::DOUBLE); // aic
+		return_types.push_back(LogicalType::DOUBLE); // aicc
+		return_types.push_back(LogicalType::DOUBLE); // bic
+		return_types.push_back(LogicalType::DOUBLE); // log_likelihood
+
+		// Coefficient-level inference
+		return_types.push_back(LogicalType::LIST(LogicalType::DOUBLE)); // coefficient_t_statistics
+		return_types.push_back(LogicalType::LIST(LogicalType::DOUBLE)); // coefficient_p_values
+		return_types.push_back(LogicalType::LIST(LogicalType::DOUBLE)); // coefficient_ci_lower
+		return_types.push_back(LogicalType::LIST(LogicalType::DOUBLE)); // coefficient_ci_upper
+
+		// Intercept-level inference
+		return_types.push_back(LogicalType::DOUBLE); // intercept_t_statistic
+		return_types.push_back(LogicalType::DOUBLE); // intercept_p_value
+		return_types.push_back(LogicalType::DOUBLE); // intercept_ci_lower
+		return_types.push_back(LogicalType::DOUBLE); // intercept_ci_upper
 	}
 
 	return std::move(result);
@@ -424,6 +525,119 @@ static void ElasticNetFitExecute(ClientContext &context, TableFunctionInput &dat
 			means_values.push_back(Value(bind_data.x_train_means[i]));
 		}
 		output.data[col_idx++].SetValue(0, Value::LIST(LogicalType::DOUBLE, means_values));
+
+		// New statistical metrics
+		if (std::isnan(bind_data.residual_standard_error)) {
+			output.data[col_idx++].SetValue(0, Value(LogicalType::DOUBLE));
+		} else {
+			output.data[col_idx++].SetValue(0, Value(bind_data.residual_standard_error));
+		}
+
+		if (std::isnan(bind_data.f_statistic)) {
+			output.data[col_idx++].SetValue(0, Value(LogicalType::DOUBLE));
+		} else {
+			output.data[col_idx++].SetValue(0, Value(bind_data.f_statistic));
+		}
+
+		if (std::isnan(bind_data.f_statistic_pvalue)) {
+			output.data[col_idx++].SetValue(0, Value(LogicalType::DOUBLE));
+		} else {
+			output.data[col_idx++].SetValue(0, Value(bind_data.f_statistic_pvalue));
+		}
+
+		if (std::isnan(bind_data.aic)) {
+			output.data[col_idx++].SetValue(0, Value(LogicalType::DOUBLE));
+		} else {
+			output.data[col_idx++].SetValue(0, Value(bind_data.aic));
+		}
+
+		if (std::isnan(bind_data.aicc)) {
+			output.data[col_idx++].SetValue(0, Value(LogicalType::DOUBLE));
+		} else {
+			output.data[col_idx++].SetValue(0, Value(bind_data.aicc));
+		}
+
+		if (std::isnan(bind_data.bic)) {
+			output.data[col_idx++].SetValue(0, Value(LogicalType::DOUBLE));
+		} else {
+			output.data[col_idx++].SetValue(0, Value(bind_data.bic));
+		}
+
+		if (std::isnan(bind_data.log_likelihood)) {
+			output.data[col_idx++].SetValue(0, Value(LogicalType::DOUBLE));
+		} else {
+			output.data[col_idx++].SetValue(0, Value(bind_data.log_likelihood));
+		}
+
+		// Coefficient-level inference
+		vector<Value> t_stat_values;
+		for (idx_t i = 0; i < bind_data.coefficient_t_statistics.size(); i++) {
+			double val = bind_data.coefficient_t_statistics[i];
+			if (std::isnan(val)) {
+				t_stat_values.push_back(Value(LogicalType::DOUBLE));
+			} else {
+				t_stat_values.push_back(Value(val));
+			}
+		}
+		output.data[col_idx++].SetValue(0, Value::LIST(LogicalType::DOUBLE, t_stat_values));
+
+		vector<Value> p_val_values;
+		for (idx_t i = 0; i < bind_data.coefficient_p_values.size(); i++) {
+			double val = bind_data.coefficient_p_values[i];
+			if (std::isnan(val)) {
+				p_val_values.push_back(Value(LogicalType::DOUBLE));
+			} else {
+				p_val_values.push_back(Value(val));
+			}
+		}
+		output.data[col_idx++].SetValue(0, Value::LIST(LogicalType::DOUBLE, p_val_values));
+
+		vector<Value> ci_lower_values;
+		for (idx_t i = 0; i < bind_data.coefficient_ci_lower.size(); i++) {
+			double val = bind_data.coefficient_ci_lower[i];
+			if (std::isnan(val)) {
+				ci_lower_values.push_back(Value(LogicalType::DOUBLE));
+			} else {
+				ci_lower_values.push_back(Value(val));
+			}
+		}
+		output.data[col_idx++].SetValue(0, Value::LIST(LogicalType::DOUBLE, ci_lower_values));
+
+		vector<Value> ci_upper_values;
+		for (idx_t i = 0; i < bind_data.coefficient_ci_upper.size(); i++) {
+			double val = bind_data.coefficient_ci_upper[i];
+			if (std::isnan(val)) {
+				ci_upper_values.push_back(Value(LogicalType::DOUBLE));
+			} else {
+				ci_upper_values.push_back(Value(val));
+			}
+		}
+		output.data[col_idx++].SetValue(0, Value::LIST(LogicalType::DOUBLE, ci_upper_values));
+
+		// Intercept-level inference
+		if (std::isnan(bind_data.intercept_t_statistic)) {
+			output.data[col_idx++].SetValue(0, Value(LogicalType::DOUBLE));
+		} else {
+			output.data[col_idx++].SetValue(0, Value(bind_data.intercept_t_statistic));
+		}
+
+		if (std::isnan(bind_data.intercept_p_value)) {
+			output.data[col_idx++].SetValue(0, Value(LogicalType::DOUBLE));
+		} else {
+			output.data[col_idx++].SetValue(0, Value(bind_data.intercept_p_value));
+		}
+
+		if (std::isnan(bind_data.intercept_ci_lower)) {
+			output.data[col_idx++].SetValue(0, Value(LogicalType::DOUBLE));
+		} else {
+			output.data[col_idx++].SetValue(0, Value(bind_data.intercept_ci_lower));
+		}
+
+		if (std::isnan(bind_data.intercept_ci_upper)) {
+			output.data[col_idx++].SetValue(0, Value(LogicalType::DOUBLE));
+		} else {
+			output.data[col_idx++].SetValue(0, Value(bind_data.intercept_ci_upper));
+		}
 	}
 }
 

@@ -375,6 +375,24 @@ static void OlsArrayFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
 	auto &coef_se_list = *struct_entries[7];
 	auto intercept_se_data = FlatVector::GetData<double>(*struct_entries[8]);
 	auto df_resid_data = FlatVector::GetData<int64_t>(*struct_entries[9]);
+	// New statistical metrics
+	auto rse_data = FlatVector::GetData<double>(*struct_entries[10]);
+	auto f_stat_data = FlatVector::GetData<double>(*struct_entries[11]);
+	auto f_pval_data = FlatVector::GetData<double>(*struct_entries[12]);
+	auto aic_data = FlatVector::GetData<double>(*struct_entries[13]);
+	auto aicc_data = FlatVector::GetData<double>(*struct_entries[14]);
+	auto bic_data = FlatVector::GetData<double>(*struct_entries[15]);
+	auto loglik_data = FlatVector::GetData<double>(*struct_entries[16]);
+	// Coefficient-level inference lists
+	auto &coef_t_list = *struct_entries[17];
+	auto &coef_p_list = *struct_entries[18];
+	auto &coef_ci_lower_list = *struct_entries[19];
+	auto &coef_ci_upper_list = *struct_entries[20];
+	// Intercept-level inference
+	auto intercept_t_data = FlatVector::GetData<double>(*struct_entries[21]);
+	auto intercept_p_data = FlatVector::GetData<double>(*struct_entries[22]);
+	auto intercept_ci_lower_data = FlatVector::GetData<double>(*struct_entries[23]);
+	auto intercept_ci_upper_data = FlatVector::GetData<double>(*struct_entries[24]);
 
 	// Get list entry data and child vector for coefficients
 	auto list_entries = FlatVector::GetData<list_entry_t>(coef_list);
@@ -390,6 +408,23 @@ static void OlsArrayFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
 	auto coef_se_list_entries = FlatVector::GetData<list_entry_t>(coef_se_list);
 	auto &coef_se_child = ListVector::GetEntry(coef_se_list);
 	ListVector::Reserve(coef_se_list, count * 10);
+
+	// Prepare coefficient-level inference lists
+	auto coef_t_list_entries = FlatVector::GetData<list_entry_t>(coef_t_list);
+	auto &coef_t_child = ListVector::GetEntry(coef_t_list);
+	ListVector::Reserve(coef_t_list, count * 10);
+
+	auto coef_p_list_entries = FlatVector::GetData<list_entry_t>(coef_p_list);
+	auto &coef_p_child = ListVector::GetEntry(coef_p_list);
+	ListVector::Reserve(coef_p_list, count * 10);
+
+	auto coef_ci_lower_list_entries = FlatVector::GetData<list_entry_t>(coef_ci_lower_list);
+	auto &coef_ci_lower_child = ListVector::GetEntry(coef_ci_lower_list);
+	ListVector::Reserve(coef_ci_lower_list, count * 10);
+
+	auto coef_ci_upper_list_entries = FlatVector::GetData<list_entry_t>(coef_ci_upper_list);
+	auto &coef_ci_upper_child = ListVector::GetEntry(coef_ci_upper_list);
+	ListVector::Reserve(coef_ci_upper_list, count * 10);
 
 	idx_t list_offset = 0;
 	for (idx_t i = 0; i < count; i++) {
@@ -488,6 +523,90 @@ static void OlsArrayFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
 		}
 		coef_se_list_entries[result_idx] = list_entry_t {list_offset, p};
 
+		// Extract and store new statistical metrics
+		double rse = bridge::TypeConverters::ExtractResidualStandardError(lib_result);
+		double f_stat = bridge::TypeConverters::ExtractFStatistic(lib_result);
+		double f_pval = bridge::TypeConverters::ExtractFStatisticPValue(lib_result);
+		double aic = bridge::TypeConverters::ExtractAIC(lib_result);
+		double aicc = bridge::TypeConverters::ExtractAICc(lib_result);
+		double bic = bridge::TypeConverters::ExtractBIC(lib_result);
+		double loglik = bridge::TypeConverters::ExtractLogLikelihood(lib_result);
+
+		// Extract coefficient-level inference (feature coefficients only, excluding intercept)
+		auto all_t_stats = bridge::TypeConverters::ExtractTStatistics(lib_result);
+		auto all_p_vals = bridge::TypeConverters::ExtractPValues(lib_result);
+		auto all_ci_lower = bridge::TypeConverters::ExtractCILower(lib_result);
+		auto all_ci_upper = bridge::TypeConverters::ExtractCIUpper(lib_result);
+
+		// Skip intercept (index 0) if present, extract feature coefficients
+		vector<double> feature_t_stats, feature_p_vals, feature_ci_lower, feature_ci_upper;
+		if (state.options.intercept && all_t_stats.size() > 0) {
+			feature_t_stats.assign(all_t_stats.begin() + 1, all_t_stats.end());
+			feature_p_vals.assign(all_p_vals.begin() + 1, all_p_vals.end());
+			feature_ci_lower.assign(all_ci_lower.begin() + 1, all_ci_lower.end());
+			feature_ci_upper.assign(all_ci_upper.begin() + 1, all_ci_upper.end());
+		} else {
+			feature_t_stats = all_t_stats;
+			feature_p_vals = all_p_vals;
+			feature_ci_lower = all_ci_lower;
+			feature_ci_upper = all_ci_upper;
+		}
+
+		// Store coefficient-level inference in lists
+		auto coef_t_data = FlatVector::GetData<double>(coef_t_child);
+		auto &coef_t_validity = FlatVector::Validity(coef_t_child);
+		auto coef_p_data = FlatVector::GetData<double>(coef_p_child);
+		auto &coef_p_validity = FlatVector::Validity(coef_p_child);
+		auto coef_ci_lower_data = FlatVector::GetData<double>(coef_ci_lower_child);
+		auto &coef_ci_lower_validity = FlatVector::Validity(coef_ci_lower_child);
+		auto coef_ci_upper_data = FlatVector::GetData<double>(coef_ci_upper_child);
+		auto &coef_ci_upper_validity = FlatVector::Validity(coef_ci_upper_child);
+
+		for (idx_t j = 0; j < p; j++) {
+			// t-statistics
+			if (j < feature_t_stats.size() && !std::isnan(feature_t_stats[j])) {
+				coef_t_data[list_offset + j] = feature_t_stats[j];
+			} else {
+				coef_t_validity.SetInvalid(list_offset + j);
+				coef_t_data[list_offset + j] = 0.0;
+			}
+
+			// p-values
+			if (j < feature_p_vals.size() && !std::isnan(feature_p_vals[j])) {
+				coef_p_data[list_offset + j] = feature_p_vals[j];
+			} else {
+				coef_p_validity.SetInvalid(list_offset + j);
+				coef_p_data[list_offset + j] = 0.0;
+			}
+
+			// CI lower
+			if (j < feature_ci_lower.size() && !std::isnan(feature_ci_lower[j])) {
+				coef_ci_lower_data[list_offset + j] = feature_ci_lower[j];
+			} else {
+				coef_ci_lower_validity.SetInvalid(list_offset + j);
+				coef_ci_lower_data[list_offset + j] = 0.0;
+			}
+
+			// CI upper
+			if (j < feature_ci_upper.size() && !std::isnan(feature_ci_upper[j])) {
+				coef_ci_upper_data[list_offset + j] = feature_ci_upper[j];
+			} else {
+				coef_ci_upper_validity.SetInvalid(list_offset + j);
+				coef_ci_upper_data[list_offset + j] = 0.0;
+			}
+		}
+
+		coef_t_list_entries[result_idx] = list_entry_t {list_offset, p};
+		coef_p_list_entries[result_idx] = list_entry_t {list_offset, p};
+		coef_ci_lower_list_entries[result_idx] = list_entry_t {list_offset, p};
+		coef_ci_upper_list_entries[result_idx] = list_entry_t {list_offset, p};
+
+		// Extract intercept-level inference
+		double intercept_t = bridge::TypeConverters::ExtractInterceptTStatistic(lib_result);
+		double intercept_p = bridge::TypeConverters::ExtractInterceptPValue(lib_result);
+		double intercept_ci_lower = bridge::TypeConverters::ExtractInterceptCILower(lib_result);
+		double intercept_ci_upper = bridge::TypeConverters::ExtractInterceptCIUpper(lib_result);
+
 		// Increment offset for next result
 		list_offset += p;
 
@@ -499,6 +618,19 @@ static void OlsArrayFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
 		mse_data[result_idx] = mse;
 		intercept_se_data[result_idx] = intercept_se;
 		df_resid_data[result_idx] = df_residual;
+		// New statistical metrics
+		rse_data[result_idx] = rse;
+		f_stat_data[result_idx] = f_stat;
+		f_pval_data[result_idx] = f_pval;
+		aic_data[result_idx] = aic;
+		aicc_data[result_idx] = aicc;
+		bic_data[result_idx] = bic;
+		loglik_data[result_idx] = loglik;
+		// Intercept-level inference
+		intercept_t_data[result_idx] = intercept_t;
+		intercept_p_data[result_idx] = intercept_p;
+		intercept_ci_lower_data[result_idx] = intercept_ci_lower;
+		intercept_ci_upper_data[result_idx] = intercept_ci_upper;
 
 		ANOFOX_DEBUG("OLS array aggregate: n=" << n << ", p=" << p << ", r2=" << r2 << ", mse=" << mse);
 	}
@@ -507,6 +639,10 @@ static void OlsArrayFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
 	ListVector::SetListSize(coef_list, list_offset);
 	ListVector::SetListSize(x_means_list, list_offset);
 	ListVector::SetListSize(coef_se_list, list_offset);
+	ListVector::SetListSize(coef_t_list, list_offset);
+	ListVector::SetListSize(coef_p_list, list_offset);
+	ListVector::SetListSize(coef_ci_lower_list, list_offset);
+	ListVector::SetListSize(coef_ci_upper_list, list_offset);
 }
 
 // Destroy function not needed - std::vector handles cleanup automatically
@@ -781,6 +917,24 @@ void OlsAggregateFunction::Register(ExtensionLoader &loader) {
 	array_fit_struct_fields.push_back(make_pair("coefficient_std_errors", LogicalType::LIST(LogicalType::DOUBLE)));
 	array_fit_struct_fields.push_back(make_pair("intercept_std_error", LogicalType::DOUBLE));
 	array_fit_struct_fields.push_back(make_pair("df_residual", LogicalType::BIGINT));
+	// New statistical metrics
+	array_fit_struct_fields.push_back(make_pair("residual_standard_error", LogicalType::DOUBLE));
+	array_fit_struct_fields.push_back(make_pair("f_statistic", LogicalType::DOUBLE));
+	array_fit_struct_fields.push_back(make_pair("f_statistic_pvalue", LogicalType::DOUBLE));
+	array_fit_struct_fields.push_back(make_pair("aic", LogicalType::DOUBLE));
+	array_fit_struct_fields.push_back(make_pair("aicc", LogicalType::DOUBLE));
+	array_fit_struct_fields.push_back(make_pair("bic", LogicalType::DOUBLE));
+	array_fit_struct_fields.push_back(make_pair("log_likelihood", LogicalType::DOUBLE));
+	// Coefficient-level inference
+	array_fit_struct_fields.push_back(make_pair("coefficient_t_statistics", LogicalType::LIST(LogicalType::DOUBLE)));
+	array_fit_struct_fields.push_back(make_pair("coefficient_p_values", LogicalType::LIST(LogicalType::DOUBLE)));
+	array_fit_struct_fields.push_back(make_pair("coefficient_ci_lower", LogicalType::LIST(LogicalType::DOUBLE)));
+	array_fit_struct_fields.push_back(make_pair("coefficient_ci_upper", LogicalType::LIST(LogicalType::DOUBLE)));
+	// Intercept-level inference
+	array_fit_struct_fields.push_back(make_pair("intercept_t_statistic", LogicalType::DOUBLE));
+	array_fit_struct_fields.push_back(make_pair("intercept_p_value", LogicalType::DOUBLE));
+	array_fit_struct_fields.push_back(make_pair("intercept_ci_lower", LogicalType::DOUBLE));
+	array_fit_struct_fields.push_back(make_pair("intercept_ci_upper", LogicalType::DOUBLE));
 
 	AggregateFunction ols_fit_agg_array(
 	    "ols_fit_agg_array", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},

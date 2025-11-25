@@ -330,6 +330,72 @@ public:
 		return ToIdxT(result.rank);
 	}
 
+	// ========================================================================
+	// New Statistical Metrics Extractors
+	// ========================================================================
+
+	static double ExtractResidualStandardError(const libanostat::core::RegressionResult &result) {
+		return result.residual_standard_error;
+	}
+
+	static double ExtractFStatistic(const libanostat::core::RegressionResult &result) {
+		return result.f_statistic;
+	}
+
+	static double ExtractFStatisticPValue(const libanostat::core::RegressionResult &result) {
+		return result.f_statistic_pvalue;
+	}
+
+	static double ExtractAIC(const libanostat::core::RegressionResult &result) {
+		return result.aic;
+	}
+
+	static double ExtractAICc(const libanostat::core::RegressionResult &result) {
+		return result.aicc;
+	}
+
+	static double ExtractBIC(const libanostat::core::RegressionResult &result) {
+		return result.bic;
+	}
+
+	static double ExtractLogLikelihood(const libanostat::core::RegressionResult &result) {
+		return result.log_likelihood;
+	}
+
+	// Coefficient-level inference extractors
+	static vector<double> ExtractTStatistics(const libanostat::core::RegressionResult &result) {
+		return FromEigenVector(result.t_statistics);
+	}
+
+	static vector<double> ExtractPValues(const libanostat::core::RegressionResult &result) {
+		return FromEigenVector(result.p_values);
+	}
+
+	static vector<double> ExtractCILower(const libanostat::core::RegressionResult &result) {
+		return FromEigenVector(result.ci_lower);
+	}
+
+	static vector<double> ExtractCIUpper(const libanostat::core::RegressionResult &result) {
+		return FromEigenVector(result.ci_upper);
+	}
+
+	// Intercept-level inference extractors
+	static double ExtractInterceptTStatistic(const libanostat::core::RegressionResult &result) {
+		return result.intercept_t_statistic;
+	}
+
+	static double ExtractInterceptPValue(const libanostat::core::RegressionResult &result) {
+		return result.intercept_p_value;
+	}
+
+	static double ExtractInterceptCILower(const libanostat::core::RegressionResult &result) {
+		return result.intercept_ci_lower;
+	}
+
+	static double ExtractInterceptCIUpper(const libanostat::core::RegressionResult &result) {
+		return result.intercept_ci_upper;
+	}
+
 	/**
 	 * Compute degrees of freedom (model) from result
 	 *

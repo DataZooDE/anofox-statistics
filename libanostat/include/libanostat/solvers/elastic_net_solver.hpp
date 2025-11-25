@@ -3,6 +3,7 @@
 #include "libanostat/core/regression_result.hpp"
 #include "libanostat/core/regression_options.hpp"
 #include "libanostat/solvers/ridge_solver.hpp"
+#include "libanostat/utils/distributions.hpp"
 #include <Eigen/Dense>
 #include <vector>
 #include <limits>
@@ -322,6 +323,54 @@ inline void ElasticNetSolver::ComputeStatistics(const Eigen::VectorXd &y, const 
 
 	// RMSE
 	result.rmse = std::sqrt(result.mse);
+
+	// Residual standard error (same as RMSE for consistency with R)
+	result.residual_standard_error = result.rmse;
+
+	// F-statistic for overall model significance
+	size_t df_model = n_nonzero;
+	size_t df_residual = df;
+
+	if (df_residual > 0 && df_model > 0 && result.mse > 0.0 && ss_tot > 1e-10) {
+		double explained_ss = ss_tot - ss_res;
+		double mean_sq_model = explained_ss / static_cast<double>(df_model);
+		result.f_statistic = mean_sq_model / result.mse;
+
+		// Compute F-statistic p-value
+		result.f_statistic_pvalue = utils::f_distribution_pvalue(result.f_statistic,
+		                                                          static_cast<int>(df_model),
+		                                                          static_cast<int>(df_residual));
+	} else {
+		result.f_statistic = std::numeric_limits<double>::quiet_NaN();
+		result.f_statistic_pvalue = std::numeric_limits<double>::quiet_NaN();
+	}
+
+	// Information criteria (AIC, AICc, BIC, log-likelihood)
+	if (n > 0 && n_nonzero > 0 && ss_res >= 0.0) {
+		double n_dbl = static_cast<double>(n);
+		double k = static_cast<double>(n_nonzero);
+
+		// Log-likelihood under normal errors
+		double sigma_sq_mle = ss_res / n_dbl;
+		if (sigma_sq_mle > 1e-300) {
+			const double log_2pi = 1.8378770664093453;
+			result.log_likelihood = -0.5 * n_dbl * (log_2pi + std::log(sigma_sq_mle) + 1.0);
+
+			// AIC = n*log(RSS/n) + 2*k
+			result.aic = n_dbl * std::log(sigma_sq_mle) + 2.0 * k;
+
+			// BIC = n*log(RSS/n) + k*log(n)
+			result.bic = n_dbl * std::log(sigma_sq_mle) + k * std::log(n_dbl);
+
+			// AICc = AIC + 2*k*(k+1)/(n-k-1)
+			if (n > n_nonzero + 1) {
+				double correction = 2.0 * k * (k + 1.0) / (n_dbl - k - 1.0);
+				result.aicc = result.aic + correction;
+			} else {
+				result.aicc = std::numeric_limits<double>::quiet_NaN();
+			}
+		}
+	}
 }
 
 } // namespace solvers
