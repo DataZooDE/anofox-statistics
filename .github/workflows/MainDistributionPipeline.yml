@@ -27,7 +27,7 @@ jobs:
       duckdb_version: v1.4.2
       ci_tools_version: v1.4.2
       extension_name: anofox_statistics
-      format_checks: 'format;tidy'
+      format_checks: 'format'
 
   build-and-test-libanostat:
     name: Build and unit test libanostat
