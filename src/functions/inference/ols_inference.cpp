@@ -1,8 +1,10 @@
 #include "ols_inference.hpp"
 #include "../utils/tracing.hpp"
+#include "../bridge/libanostat_wrapper.hpp"
+#include "../bridge/type_converters.hpp"
+#include "../utils/options_parser.hpp"
 #include "../utils/validation.hpp"
 #include "../utils/statistical_distributions.hpp"
-#include "../utils/rank_deficient_ols.hpp"
 
 #include "duckdb.hpp"
 #include "duckdb/common/exception.hpp"
@@ -141,15 +143,28 @@ static unique_ptr<FunctionData> OlsInferenceBind(ClientContext &context, TableFu
 	}
 
 	// Use rank-deficient OLS solver with standard errors on CENTERED data
-	auto ols_result = RankDeficientOls::FitWithStdErrors(y_work, X_work);
+	// Convert Eigen to DuckDB vectors
+	vector<double> y_vec(n);
+	vector<vector<double>> x_vec(n, vector<double>(n_params));
+	for (size_t i = 0; i < n; i++) {
+		y_vec[i] = y_work(i);
+		for (size_t j = 0; j < n_params; j++) {
+			x_vec[i][j] = X_work(i, j);
+		}
+	}
+
+	// Use libanostat OLSSolver on centered data
+	RegressionOptions centered_opts;
+	centered_opts.intercept = false; // Data already centered
+	auto ols_result = bridge::LibanostatWrapper::FitOLS(y_vec, x_vec, centered_opts, true);
 
 	// Compute intercept first (needed for MSE calculation)
 	double intercept = 0.0;
 	if (add_intercept) {
 		intercept = y_mean;
 		for (idx_t j = 0; j < p; j++) {
-			if (!ols_result.is_aliased[j]) {
-				intercept -= ols_result.coefficients[j] * x_means(j);
+			if (!std::isnan(ols_result.coefficients(j))) {
+				intercept -= ols_result.coefficients(j) * x_means(j);
 			}
 		}
 	}
@@ -158,8 +173,8 @@ static unique_ptr<FunctionData> OlsInferenceBind(ClientContext &context, TableFu
 	// Predictions: y_pred = intercept + X * beta
 	Eigen::VectorXd y_pred = Eigen::VectorXd::Zero(n);
 	for (idx_t j = 0; j < p; j++) {
-		if (!ols_result.is_aliased[j]) {
-			y_pred += ols_result.coefficients[j] * X.col(j);
+		if (!std::isnan(ols_result.coefficients(j))) {
+			y_pred += ols_result.coefficients(j) * X.col(j);
 		}
 	}
 	if (add_intercept) {
@@ -169,8 +184,8 @@ static unique_ptr<FunctionData> OlsInferenceBind(ClientContext &context, TableFu
 	Eigen::VectorXd residuals = y - y_pred;
 	double ss_res = residuals.squaredNorm();
 
-	// Degrees of freedom: n - (number of non-aliased params + intercept if present)
-	idx_t n_params_fitted = ols_result.rank + (add_intercept ? 1 : 0);
+	// Degrees of freedom: After ba2334b fix, rank now includes intercept if present
+	idx_t n_params_fitted = ols_result.rank;
 	idx_t df = n - n_params_fitted;
 
 	if (df == 0) {
@@ -178,11 +193,11 @@ static unique_ptr<FunctionData> OlsInferenceBind(ClientContext &context, TableFu
 		                            n_params_fitted);
 	}
 
-	double mse = ss_res / df;
+	double mse = ss_res / static_cast<double>(df);
 
 	// Compute critical value for confidence intervals
 	double alpha = 1.0 - confidence_level;
-	double t_crit = student_t_critical(alpha / 2.0, df);
+	double t_crit = student_t_critical(alpha / 2.0, static_cast<int>(df));
 
 	// Recompute standard errors for slopes using correct MSE
 	// The slope SEs from ols_result are based on centered MSE, we need original-scale MSE
@@ -193,7 +208,7 @@ static unique_ptr<FunctionData> OlsInferenceBind(ClientContext &context, TableFu
 		// Build (X'X)^-1 for non-aliased features
 		idx_t n_valid = 0;
 		for (idx_t j = 0; j < p; j++) {
-			if (!ols_result.is_aliased[j]) {
+			if (!std::isnan(ols_result.coefficients(j))) {
 				n_valid++;
 			}
 		}
@@ -202,7 +217,7 @@ static unique_ptr<FunctionData> OlsInferenceBind(ClientContext &context, TableFu
 			Eigen::MatrixXd X_valid(n, n_valid);
 			idx_t valid_idx = 0;
 			for (idx_t j = 0; j < p; j++) {
-				if (!ols_result.is_aliased[j]) {
+				if (!std::isnan(ols_result.coefficients(j))) {
 					X_valid.col(valid_idx) = X_work.col(j);
 					valid_idx++;
 				}
@@ -215,7 +230,7 @@ static unique_ptr<FunctionData> OlsInferenceBind(ClientContext &context, TableFu
 			// Recompute standard errors using correct MSE
 			valid_idx = 0;
 			for (idx_t j = 0; j < p; j++) {
-				if (!ols_result.is_aliased[j]) {
+				if (!std::isnan(ols_result.coefficients(j))) {
 					slope_std_errors[j] = std::sqrt(mse * XtX_inv(valid_idx, valid_idx));
 					valid_idx++;
 				}
@@ -235,7 +250,7 @@ static unique_ptr<FunctionData> OlsInferenceBind(ClientContext &context, TableFu
 			// Build (X'X) for non-aliased features only
 			idx_t n_valid = 0;
 			for (idx_t j = 0; j < p; j++) {
-				if (!ols_result.is_aliased[j]) {
+				if (!std::isnan(ols_result.coefficients(j))) {
 					n_valid++;
 				}
 			}
@@ -245,7 +260,7 @@ static unique_ptr<FunctionData> OlsInferenceBind(ClientContext &context, TableFu
 				Eigen::VectorXd x_means_valid(n_valid);
 				idx_t valid_idx = 0;
 				for (idx_t j = 0; j < p; j++) {
-					if (!ols_result.is_aliased[j]) {
+					if (!std::isnan(ols_result.coefficients(j))) {
 						X_valid.col(valid_idx) = X_work.col(j);
 						x_means_valid(valid_idx) = x_means(j);
 						valid_idx++;
@@ -258,10 +273,10 @@ static unique_ptr<FunctionData> OlsInferenceBind(ClientContext &context, TableFu
 
 				// SE(intercept) = sqrt(MSE * (1/n + x_mean' * (X'X)^-1 * x_mean))
 				double variance_component = x_means_valid.transpose() * XtX_inv * x_means_valid;
-				intercept_se = std::sqrt(mse * (1.0 / n + variance_component));
+				intercept_se = std::sqrt(mse * (1.0 / static_cast<double>(n) + variance_component));
 			} else {
 				// No valid features -> just use MSE/n
-				intercept_se = std::sqrt(mse / n);
+				intercept_se = std::sqrt(mse / static_cast<double>(n));
 			}
 		} catch (...) {
 			// If computation fails, set to NaN
@@ -270,7 +285,7 @@ static unique_ptr<FunctionData> OlsInferenceBind(ClientContext &context, TableFu
 
 		// Compute t-statistic and p-value for intercept
 		double t_stat = intercept / intercept_se;
-		double p_value = student_t_pvalue(t_stat, df);
+		double p_value = student_t_pvalue(t_stat, static_cast<int>(df));
 		double ci_lower = intercept - t_crit * intercept_se;
 		double ci_upper = intercept + t_crit * intercept_se;
 		bool is_sig = p_value < 0.05;
@@ -294,7 +309,7 @@ static unique_ptr<FunctionData> OlsInferenceBind(ClientContext &context, TableFu
 		string var_name = "x" + std::to_string(j + 1);
 
 		// Check if coefficient is aliased (NaN)
-		double estimate = ols_result.coefficients[j];
+		double estimate = ols_result.coefficients(j);
 		bool is_aliased = ols_result.is_aliased[j];
 
 		double std_error, t_stat, p_value, ci_lower, ci_upper;
@@ -315,7 +330,7 @@ static unique_ptr<FunctionData> OlsInferenceBind(ClientContext &context, TableFu
 			// Valid coefficient - compute statistics using recomputed SE
 			std_error = slope_std_errors[j];
 			t_stat = estimate / std_error;
-			p_value = student_t_pvalue(t_stat, df);
+			p_value = student_t_pvalue(t_stat, static_cast<int>(df));
 			ci_lower = estimate - t_crit * std_error;
 			ci_upper = estimate + t_crit * std_error;
 			is_sig = p_value < 0.05;

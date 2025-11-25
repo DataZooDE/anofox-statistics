@@ -1,7 +1,8 @@
 #include "rls_aggregate.hpp"
 #include "../utils/tracing.hpp"
-#include "../utils/rank_deficient_ols.hpp"
 #include "../utils/options_parser.hpp"
+#include "../bridge/libanostat_wrapper.hpp"
+#include "../bridge/type_converters.hpp"
 
 #include "duckdb.hpp"
 #include "duckdb/common/exception.hpp"
@@ -189,158 +190,87 @@ static void RlsFinalize(Vector &state_vector, AggregateInputData &aggr_input_dat
 			continue;
 		}
 
-		// Build matrices
-		Eigen::MatrixXd X(n, p);
-		Eigen::VectorXd y(n);
+		// Use libanostat RLSSolver
+		try {
+			auto lib_result = bridge::LibanostatWrapper::FitRLS(state.y_values, state.x_matrix, state.options, false);
 
-		for (idx_t row = 0; row < n; row++) {
-			y(row) = state.y_values[row];
-			for (idx_t col = 0; col < p; col++) {
-				X(row, col) = state.x_matrix[row][col];
+			// Extract intercept and feature coefficients from libanostat result
+			double intercept = bridge::TypeConverters::ExtractIntercept(lib_result, state.options.intercept);
+			auto feature_coefs_vec =
+			    bridge::TypeConverters::ExtractFeatureCoefficients(lib_result, state.options.intercept);
+
+			// Compute x_means for prediction (needed for extended metadata)
+			Eigen::VectorXd x_means;
+			if (state.options.intercept) {
+				Eigen::MatrixXd X(n, p);
+				for (idx_t row = 0; row < n; row++) {
+					for (idx_t col = 0; col < p; col++) {
+						X(row, col) = state.x_matrix[row][col];
+					}
+				}
+				x_means = X.colwise().mean();
+			} else {
+				x_means = Eigen::VectorXd::Zero(p);
 			}
-		}
 
-		// Handle intercept option
-		double intercept = 0.0;
-		Eigen::VectorXd beta;
-		Eigen::VectorXd x_means; // Store for extended metadata
+			// Extract all fit statistics from libanostat (no recomputation)
+			idx_t rank = lib_result.rank;
+			double r2 = lib_result.r_squared;
+			double adj_r2 = lib_result.adj_r_squared;
+			double mse = lib_result.mse;
+			idx_t df_residual = lib_result.df_residual();
 
-		if (state.options.intercept) {
-			// With intercept: center data first, then do RLS
-			double y_mean = y.mean();
-			x_means = X.colwise().mean();
-
-			Eigen::VectorXd y_centered = y.array() - y_mean;
-			Eigen::MatrixXd X_centered = X;
+			// Store coefficients
+			auto coef_data = FlatVector::GetData<double>(coef_child);
 			for (idx_t j = 0; j < p; j++) {
-				X_centered.col(j).array() -= x_means(j);
+				size_t coef_idx = state.options.intercept ? (j + 1) : j;
+				if (lib_result.is_aliased[coef_idx]) {
+					coef_data[list_offset + j] = std::numeric_limits<double>::quiet_NaN();
+				} else {
+					coef_data[list_offset + j] = lib_result.coefficients[coef_idx];
+				}
 			}
 
-			// RLS: Sequential updates on centered data
-			// Initialize: β_0 = 0, P_0 = large * I
-			beta = Eigen::VectorXd::Zero(p);
-			double initial_p = 1000.0;
-			Eigen::MatrixXd P = Eigen::MatrixXd::Identity(p, p) * initial_p;
+			list_entries[result_idx] = list_entry_t {list_offset, p};
 
-			// Sequential updates
-			for (idx_t t = 0; t < n; t++) {
-				Eigen::VectorXd x_t = X_centered.row(t).transpose();
-				double y_t = y_centered(t);
+			// RLS is a biased estimator (like Ridge/Elastic Net), so standard errors are not well-defined
+			double intercept_se = std::numeric_limits<double>::quiet_NaN();
 
-				// Prediction error
-				double y_pred = x_t.dot(beta);
-				double error = y_t - y_pred;
-
-				// Kalman gain
-				double denominator = state.options.forgetting_factor + x_t.dot(P * x_t);
-				Eigen::VectorXd K = P * x_t / denominator;
-
-				// Update
-				beta = beta + K * error;
-				P = (P - K * x_t.transpose() * P) / state.options.forgetting_factor;
+			// Store x_train_means
+			auto x_means_data = FlatVector::GetData<double>(x_means_child);
+			for (idx_t j = 0; j < p; j++) {
+				x_means_data[list_offset + j] = x_means(j);
 			}
+			x_means_list_entries[result_idx] = list_entry_t {list_offset, p};
 
-			// Compute intercept from centered coefficients
-			double beta_dot_xmean = beta.dot(x_means);
-			intercept = y_mean - beta_dot_xmean;
-		} else {
-			// No intercept: RLS on raw data
-			// Initialize: β_0 = 0, P_0 = large * I
-			beta = Eigen::VectorXd::Zero(p);
-			double initial_p = 1000.0;
-			Eigen::MatrixXd P = Eigen::MatrixXd::Identity(p, p) * initial_p;
-
-			// Sequential updates
-			for (idx_t t = 0; t < n; t++) {
-				Eigen::VectorXd x_t = X.row(t).transpose();
-				double y_t = y(t);
-
-				// Prediction error
-				double y_pred = x_t.dot(beta);
-				double error = y_t - y_pred;
-
-				// Kalman gain
-				double denominator = state.options.forgetting_factor + x_t.dot(P * x_t);
-				Eigen::VectorXd K = P * x_t / denominator;
-
-				// Update
-				beta = beta + K * error;
-				P = (P - K * x_t.transpose() * P) / state.options.forgetting_factor;
+			// Store coefficient_std_errors (NULL for RLS - standard errors not well-defined)
+			auto coef_se_data = FlatVector::GetData<double>(coef_se_child);
+			auto &coef_se_validity = FlatVector::Validity(coef_se_child);
+			for (idx_t j = 0; j < p; j++) {
+				coef_se_validity.SetInvalid(list_offset + j);
+				coef_se_data[list_offset + j] = 0.0;
 			}
+			coef_se_list_entries[result_idx] = list_entry_t {list_offset, p};
 
-			intercept = 0.0;
-			x_means = Eigen::VectorXd::Zero(p);
+			// Increment offset for next result
+			list_offset += p;
+
+			// Fill all struct fields
+			intercept_data[result_idx] = intercept;
+			r2_data[result_idx] = r2;
+			adj_r2_data[result_idx] = adj_r2;
+			ff_data[result_idx] = state.options.forgetting_factor;
+			n_data[result_idx] = n;
+			mse_data[result_idx] = mse;
+			intercept_se_data[result_idx] = intercept_se;
+			df_resid_data[result_idx] = df_residual;
+
+			ANOFOX_DEBUG("RLS aggregate: n=" << n << ", p=" << p << ", ff=" << state.options.forgetting_factor
+			                                 << ", r2=" << r2);
+		} catch (...) {
+			result_validity.SetInvalid(result_idx);
+			list_entries[result_idx] = list_entry_t {list_offset, 0};
 		}
-
-		// Compute predictions
-		Eigen::VectorXd y_pred = X * beta;
-		y_pred.array() += intercept;
-
-		// Compute statistics
-		Eigen::VectorXd residuals = y - y_pred;
-		double ss_res = residuals.squaredNorm();
-
-		double ss_tot;
-		if (state.options.intercept) {
-			double y_mean = y.mean();
-			ss_tot = (y.array() - y_mean).square().sum();
-		} else {
-			// No intercept: total sum of squares from zero
-			ss_tot = y.squaredNorm();
-		}
-
-		double r2 = (ss_tot > 1e-10) ? (1.0 - ss_res / ss_tot) : 0.0;
-
-		// Adjusted R²: account for intercept in degrees of freedom
-		idx_t df_model = p + (state.options.intercept ? 1 : 0);
-		double adj_r2 = 1.0 - (1.0 - r2) * (n - 1) / (n - df_model);
-
-		// Store coefficients
-		auto coef_data = FlatVector::GetData<double>(coef_child);
-		for (idx_t j = 0; j < p; j++) {
-			coef_data[list_offset + j] = beta(j);
-		}
-
-		list_entries[result_idx] = list_entry_t {list_offset, p};
-
-		// Compute extended metadata
-		idx_t df_residual = n - df_model;
-		double mse = (df_residual > 0) ? (ss_res / df_residual) : std::numeric_limits<double>::quiet_NaN();
-
-		// RLS is a biased estimator (like Ridge/Elastic Net), so standard errors are not well-defined
-		double intercept_se = std::numeric_limits<double>::quiet_NaN();
-
-		// Store x_train_means
-		auto x_means_data = FlatVector::GetData<double>(x_means_child);
-		for (idx_t j = 0; j < p; j++) {
-			x_means_data[list_offset + j] = x_means(j);
-		}
-		x_means_list_entries[result_idx] = list_entry_t {list_offset, p};
-
-		// Store coefficient_std_errors (NULL for RLS - standard errors not well-defined)
-		auto coef_se_data = FlatVector::GetData<double>(coef_se_child);
-		auto &coef_se_validity = FlatVector::Validity(coef_se_child);
-		for (idx_t j = 0; j < p; j++) {
-			coef_se_validity.SetInvalid(list_offset + j);
-			coef_se_data[list_offset + j] = 0.0;
-		}
-		coef_se_list_entries[result_idx] = list_entry_t {list_offset, p};
-
-		// Increment offset for next result
-		list_offset += p;
-
-		// Fill all struct fields
-		intercept_data[result_idx] = intercept;
-		r2_data[result_idx] = r2;
-		adj_r2_data[result_idx] = adj_r2;
-		ff_data[result_idx] = state.options.forgetting_factor;
-		n_data[result_idx] = n;
-		mse_data[result_idx] = mse;
-		intercept_se_data[result_idx] = intercept_se;
-		df_resid_data[result_idx] = df_residual;
-
-		ANOFOX_DEBUG("RLS aggregate: n=" << n << ", p=" << p << ", ff=" << state.options.forgetting_factor
-		                                 << ", r2=" << r2);
 	}
 
 	ListVector::SetListSize(coef_list, list_offset);
@@ -550,7 +480,7 @@ static void RlsWindow(AggregateInputData &aggr_input_data, const WindowPartition
 	double ss_tot = options.intercept ? (y.array() - y.mean()).square().sum() : y.squaredNorm();
 	double r2 = (ss_tot > 1e-10) ? (1.0 - ss_res / ss_tot) : 0.0;
 	idx_t df_model = p + (options.intercept ? 1 : 0);
-	double adj_r2 = 1.0 - (1.0 - r2) * (n - 1) / (n - df_model);
+	double adj_r2 = 1.0 - (1.0 - r2) * static_cast<double>(n - 1) / static_cast<double>(n - df_model);
 
 	// Store coefficients
 	auto list_entries = FlatVector::GetData<list_entry_t>(coef_list);

@@ -32,3 +32,14 @@ validation/**/*.pyc
 validation/R_libs/
 AGENTS.md
 node_modules/
+
+# Coverage outputs
+libanostat/coverage_html/
+libanostat/*.info
+libanostat/build/coverage/
+*.gcda
+*.gcno
+*.gcov
+libanostat/vcpkg_installed/
+*.pyc
+**/__pycache__/

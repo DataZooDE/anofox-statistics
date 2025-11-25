@@ -209,5 +209,33 @@ private:
 #define ANOFOX_TIMING_END(operation_name)                                                                              \
 	duckdb::anofox_statistics::Tracer::TimingEnd(__anofox_timing_handle, operation_name)
 
+/**
+ * @brief Macro for detailed fit-predict debugging
+ *
+ * Set environment variable ANOFOX_FIT_PREDICT_DEBUG=1 to enable detailed logging
+ * for fit-predict functions. This provides fine-grained visibility into:
+ * - Window callback invocations
+ * - Partition data loading
+ * - Options parsing (lambda, alpha, intercept, etc.)
+ * - Training data collection
+ * - Model fitting (coefficients, matrix operations)
+ * - Prediction computation
+ * - Result assignment
+ *
+ * Usage:
+ *   ANOFOX_FIT_PREDICT_DEBUG("Window callback invoked for row " << rid);
+ */
+#ifdef ANOFOX_ENABLE_FIT_PREDICT_DEBUG
+#define ANOFOX_FIT_PREDICT_DEBUG(msg)                                                                                  \
+	do {                                                                                                               \
+		std::ostringstream oss;                                                                                        \
+		oss << "[FIT_PREDICT] " << msg;                                                                                \
+		duckdb::anofox_statistics::Tracer::Log(duckdb::anofox_statistics::LogLevel::DBG, __FILE__, __LINE__,           \
+		                                       oss.str());                                                             \
+	} while (0)
+#else
+#define ANOFOX_FIT_PREDICT_DEBUG(msg) ((void)0)
+#endif
+
 } // namespace anofox_statistics
 } // namespace duckdb

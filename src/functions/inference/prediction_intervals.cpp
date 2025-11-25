@@ -1,8 +1,10 @@
 #include "prediction_intervals.hpp"
 #include "../utils/tracing.hpp"
+#include "../bridge/libanostat_wrapper.hpp"
+#include "../bridge/type_converters.hpp"
+#include "../utils/options_parser.hpp"
 #include "../utils/validation.hpp"
 #include "../utils/statistical_distributions.hpp"
-#include "../utils/rank_deficient_ols.hpp"
 
 #include "duckdb.hpp"
 #include "duckdb/common/exception.hpp"
@@ -143,15 +145,30 @@ static unique_ptr<FunctionData> OlsPredictIntervalBind(ClientContext &context, T
 	}
 
 	// Use rank-deficient OLS solver on CENTERED data
-	auto ols_result = RankDeficientOls::FitWithStdErrors(y_work, X_work);
+	size_t n_params = X_work.cols();
+	// Convert Eigen to DuckDB vectors
+	vector<double> y_vec(n_train);
+	vector<vector<double>> x_vec(n_train, vector<double>(n_params));
+	for (size_t i = 0; i < n_train; i++) {
+		y_vec[i] = y_work(i);
+		for (size_t j = 0; j < n_params; j++) {
+			x_vec[i][j] = X_work(i, j);
+		}
+	}
+
+	// Use libanostat OLSSolver on centered data
+	// NOTE: Data is already centered, so we set intercept=false to prevent double-centering
+	RegressionOptions centered_opts;
+	centered_opts.intercept = false; // Data already centered
+	auto ols_result = bridge::LibanostatWrapper::FitOLS(y_vec, x_vec, centered_opts, true);
 
 	// Compute intercept from centered coefficients
 	double intercept = 0.0;
 	if (add_intercept) {
 		intercept = y_mean;
 		for (idx_t j = 0; j < p; j++) {
-			if (!ols_result.is_aliased[j]) {
-				intercept -= ols_result.coefficients[j] * x_means(j);
+			if (!std::isnan(ols_result.coefficients(j))) {
+				intercept -= ols_result.coefficients(j) * x_means(j);
 			}
 		}
 	}
@@ -159,8 +176,8 @@ static unique_ptr<FunctionData> OlsPredictIntervalBind(ClientContext &context, T
 	// Recompute MSE on ORIGINAL scale (not centered scale)
 	Eigen::VectorXd y_pred_train = Eigen::VectorXd::Zero(n_train);
 	for (idx_t j = 0; j < p; j++) {
-		if (!ols_result.is_aliased[j]) {
-			y_pred_train += ols_result.coefficients[j] * X_train.col(j);
+		if (!std::isnan(ols_result.coefficients(j))) {
+			y_pred_train += ols_result.coefficients(j) * X_train.col(j);
 		}
 	}
 	if (add_intercept) {
@@ -170,8 +187,8 @@ static unique_ptr<FunctionData> OlsPredictIntervalBind(ClientContext &context, T
 	Eigen::VectorXd residuals_train = y - y_pred_train;
 	double ss_res = residuals_train.squaredNorm();
 
-	// Degrees of freedom: n - (rank + intercept if present)
-	idx_t n_params_fitted = ols_result.rank + (add_intercept ? 1 : 0);
+	// Degrees of freedom: After ba2334b fix, rank now includes intercept if present
+	idx_t n_params_fitted = ols_result.rank;
 	idx_t df = n_train - n_params_fitted;
 
 	if (df == 0) {
@@ -189,7 +206,7 @@ static unique_ptr<FunctionData> OlsPredictIntervalBind(ClientContext &context, T
 	Eigen::MatrixXd XtX_inv;
 	idx_t n_valid = 0;
 	for (idx_t j = 0; j < p; j++) {
-		if (!ols_result.is_aliased[j]) {
+		if (!std::isnan(ols_result.coefficients(j))) {
 			n_valid++;
 		}
 	}
@@ -198,7 +215,7 @@ static unique_ptr<FunctionData> OlsPredictIntervalBind(ClientContext &context, T
 		Eigen::MatrixXd X_valid(n_train, n_valid);
 		idx_t valid_idx = 0;
 		for (idx_t j = 0; j < p; j++) {
-			if (!ols_result.is_aliased[j]) {
+			if (!std::isnan(ols_result.coefficients(j))) {
 				X_valid.col(valid_idx) = X_work.col(j); // Use centered X
 				valid_idx++;
 			}
@@ -221,8 +238,8 @@ static unique_ptr<FunctionData> OlsPredictIntervalBind(ClientContext &context, T
 		// Point prediction on original scale: y_pred = intercept + beta' * x_new
 		double y_pred = intercept;
 		for (idx_t j = 0; j < p; j++) {
-			if (!ols_result.is_aliased[j]) {
-				y_pred += ols_result.coefficients[j] * x_new(j);
+			if (!std::isnan(ols_result.coefficients(j))) {
+				y_pred += ols_result.coefficients(j) * x_new(j);
 			}
 		}
 
@@ -233,7 +250,7 @@ static unique_ptr<FunctionData> OlsPredictIntervalBind(ClientContext &context, T
 			Eigen::VectorXd x_new_centered(n_valid);
 			idx_t valid_idx = 0;
 			for (idx_t j = 0; j < p; j++) {
-				if (!ols_result.is_aliased[j]) {
+				if (!std::isnan(ols_result.coefficients(j))) {
 					x_new_centered(valid_idx) = x_new(j) - x_means(j);
 					valid_idx++;
 				}

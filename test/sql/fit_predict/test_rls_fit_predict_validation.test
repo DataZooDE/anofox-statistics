@@ -1,0 +1,43 @@
+# name: test/sql/fit_predict/test_rls_fit_predict_validation.test
+# description: Numerical validation tests for RLS fit-predict
+# group: [fit_predict]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE rls_val AS
+SELECT
+    i as id,
+    i::DOUBLE as x,
+    CASE WHEN i <= 10 THEN (i * 2.0)::DOUBLE ELSE NULL END as y
+FROM range(1, 16) t(i);
+
+# Test 1: Prediction intervals should contain predictions
+query I
+SELECT COUNT(*) FROM (
+    SELECT (pred).yhat as y, (pred).yhat_lower as lo, (pred).yhat_upper as up
+    FROM (SELECT anofox_statistics_fit_predict_rls(y, [x], MAP{'intercept': 1, 'forgetting_factor': 1.0}) OVER (ORDER BY id) as pred FROM rls_val)
+) WHERE lo <= y AND y <= up;
+----
+15
+
+# Test 2: Intervals should have positive width
+query I
+SELECT COUNT(*) FROM (
+    SELECT (pred).yhat_upper - (pred).yhat_lower as width
+    FROM (SELECT anofox_statistics_fit_predict_rls(y, [x], MAP{'intercept': 1, 'forgetting_factor': 1.0}) OVER (ORDER BY id) as pred FROM rls_val)
+) WHERE width > 0;
+----
+13
+
+# Test 3: Standard errors should be positive
+query I
+SELECT COUNT(*) FROM (
+    SELECT (pred).std_error as err
+    FROM (SELECT anofox_statistics_fit_predict_rls(y, [x], MAP{'intercept': 1, 'forgetting_factor': 1.0}) OVER (ORDER BY id) as pred FROM rls_val)
+) WHERE err > 0;
+----
+15
+
+statement ok
+DROP TABLE rls_val;

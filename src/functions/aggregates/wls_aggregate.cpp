@@ -1,7 +1,8 @@
 #include "wls_aggregate.hpp"
 #include "../utils/tracing.hpp"
-#include "../utils/rank_deficient_ols.hpp"
 #include "../utils/options_parser.hpp"
+#include "../bridge/libanostat_wrapper.hpp"
+#include "../bridge/type_converters.hpp"
 
 #include "duckdb.hpp"
 #include "duckdb/common/exception.hpp"
@@ -218,112 +219,64 @@ static void WlsFinalize(Vector &state_vector, AggregateInputData &aggr_input_dat
 			}
 		}
 
-		// Handle intercept option
-		double intercept = 0.0;
-		RankDeficientOlsResult ols_result;
-		double sum_weights = w.sum();
-		Eigen::VectorXd x_means; // Store for extended metadata
+		// Use libanostat WLSSolver (handles weighting and intercept automatically)
+		auto lib_result =
+		    bridge::LibanostatWrapper::FitWLS(state.y_values, state.x_matrix, state.weights, state.options, true);
 
-		if (state.options.intercept) {
-			// With intercept: compute weighted means and center data
-			double y_weighted_mean = (w.array() * y.array()).sum() / sum_weights;
-			Eigen::VectorXd x_weighted_means = Eigen::VectorXd::Zero(p);
-			for (idx_t j = 0; j < p; j++) {
-				x_weighted_means(j) = (w.array() * X.col(j).array()).sum() / sum_weights;
-			}
-			x_means = x_weighted_means; // Store weighted means for later
+		// Extract results
+		double intercept = bridge::TypeConverters::ExtractIntercept(lib_result, state.options.intercept);
+		auto feature_coefs_vec =
+		    bridge::TypeConverters::ExtractFeatureCoefficients(lib_result, state.options.intercept);
+		Eigen::VectorXd feature_coefs =
+		    Eigen::Map<const Eigen::VectorXd>(feature_coefs_vec.data(), feature_coefs_vec.size());
 
-			// Center data
-			Eigen::MatrixXd X_centered = X;
-			Eigen::VectorXd y_centered = y;
-			for (idx_t row = 0; row < n; row++) {
-				y_centered(row) = y(row) - y_weighted_mean;
-				for (idx_t col = 0; col < p; col++) {
-					X_centered(row, col) = X(row, col) - x_weighted_means(col);
-				}
-			}
+		// Extract all fit statistics from libanostat (no recomputation)
+		idx_t rank = lib_result.rank; // Already includes intercept!
+		double r2 = lib_result.r_squared;
+		double adj_r2 = lib_result.adj_r_squared;
+		double mse = lib_result.mse;
+		idx_t df_residual = lib_result.df_residual();
 
-			// Apply sqrt(W) transformation
-			Eigen::VectorXd sqrt_w = w.array().sqrt();
-			Eigen::MatrixXd X_weighted = sqrt_w.asDiagonal() * X_centered;
-			Eigen::VectorXd y_weighted = sqrt_w.asDiagonal() * y_centered;
-
-			// Solve WLS on centered data
-			ols_result = RankDeficientOls::FitWithStdErrors(y_weighted, X_weighted);
-
-			// Compute intercept
-			double beta_dot_xmean = 0.0;
-			for (idx_t j = 0; j < p; j++) {
-				if (!ols_result.is_aliased[j]) {
-					beta_dot_xmean += ols_result.coefficients[j] * x_weighted_means(j);
-				}
-			}
-			intercept = y_weighted_mean - beta_dot_xmean;
-		} else {
-			// No intercept: solve directly on weighted data
-			Eigen::VectorXd sqrt_w = w.array().sqrt();
-			Eigen::MatrixXd X_weighted = sqrt_w.asDiagonal() * X;
-			Eigen::VectorXd y_weighted = sqrt_w.asDiagonal() * y;
-
-			ols_result = RankDeficientOls::FitWithStdErrors(y_weighted, X_weighted);
-			intercept = 0.0;
-			x_means = Eigen::VectorXd::Zero(p);
+		// Compute x_means manually for metadata (for prediction API - this is data marshaling)
+		// For WLS, we need weighted means
+		Eigen::VectorXd w_eigen(n);
+		for (idx_t i = 0; i < n; i++) {
+			w_eigen(i) = state.weights[i];
 		}
-
-		// Compute predictions
-		Eigen::VectorXd y_pred = Eigen::VectorXd::Constant(n, intercept);
+		double sum_weights = w_eigen.sum();
+		Eigen::VectorXd x_means(p);
 		for (idx_t j = 0; j < p; j++) {
-			if (!ols_result.is_aliased[j]) {
-				y_pred += ols_result.coefficients[j] * X.col(j);
+			double weighted_sum = 0.0;
+			for (idx_t i = 0; i < n; i++) {
+				weighted_sum += state.weights[i] * state.x_matrix[i][j];
 			}
+			x_means(j) = weighted_sum / sum_weights;
 		}
-
-		// Compute weighted statistics
-		Eigen::VectorXd residuals = y - y_pred;
-		double ss_res = residuals.squaredNorm(); // Unweighted for MSE calculation
-		double ss_res_weighted = (w.array() * residuals.array().square()).sum();
-
-		double ss_tot_weighted;
-		if (state.options.intercept) {
-			double y_weighted_mean = (w.array() * y.array()).sum() / sum_weights;
-			ss_tot_weighted = (w.array() * (y.array() - y_weighted_mean).square()).sum();
-		} else {
-			// No intercept: total sum of squares from zero
-			ss_tot_weighted = (w.array() * y.array().square()).sum();
-		}
-
-		double r2 = (ss_tot_weighted > 1e-10) ? (1.0 - ss_res_weighted / ss_tot_weighted) : 0.0;
-
-		// Adjusted R²: account for intercept in degrees of freedom
-		idx_t df_model = ols_result.rank + (state.options.intercept ? 1 : 0);
-		double adj_r2 = 1.0 - (1.0 - r2) * (n - 1) / (n - df_model);
-		double weighted_mse = ss_res_weighted / sum_weights;
 
 		// Store coefficients
 		auto coef_data = FlatVector::GetData<double>(coef_child);
 		auto &coef_validity = FlatVector::Validity(coef_child);
 		for (idx_t j = 0; j < p; j++) {
-			if (std::isnan(ols_result.coefficients[j])) {
+			if (std::isnan(feature_coefs(j))) {
 				coef_validity.SetInvalid(list_offset + j);
 				coef_data[list_offset + j] = 0.0;
 			} else {
-				coef_data[list_offset + j] = ols_result.coefficients[j];
+				coef_data[list_offset + j] = feature_coefs(j);
 			}
 		}
 
 		list_entries[result_idx] = list_entry_t {list_offset, p};
 
-		// Compute extended metadata
-		// 1. MSE (unweighted MSE for standard errors)
-		idx_t df_residual = n - df_model;
-		double mse = (df_residual > 0) ? (ss_res / df_residual) : std::numeric_limits<double>::quiet_NaN();
-
-		// 2. Intercept standard error
+		// Extract extended metadata from libanostat
+		// Intercept standard error
 		double intercept_se = std::numeric_limits<double>::quiet_NaN();
-		if (state.options.intercept && ols_result.has_std_errors && df_residual > 0) {
+		if (state.options.intercept && lib_result.has_std_errors && df_residual > 0) {
 			// SE(intercept) = sqrt(MSE * (1/n + x_mean' * (X'X)^-1 * x_mean))
 			// Approximation: SE(intercept) ≈ sqrt(MSE / n) for centered data
-			intercept_se = std::sqrt(mse / n);
+			// Extract intercept std error (first element if intercept=true)
+			if (lib_result.has_std_errors && lib_result.std_errors.size() > 0) {
+				intercept_se = lib_result.std_errors(0);
+			}
 		}
 
 		// 3. Store x_train_means in list (same offset as coefficients)
@@ -336,9 +289,27 @@ static void WlsFinalize(Vector &state_vector, AggregateInputData &aggr_input_dat
 		// 4. Store coefficient_std_errors in list (same offset as coefficients)
 		auto coef_se_data = FlatVector::GetData<double>(coef_se_child);
 		auto &coef_se_validity = FlatVector::Validity(coef_se_child);
+		// Extract feature std errors
+
+		auto all_std_errors_vec = bridge::TypeConverters::ExtractStdErrors(lib_result);
+
+		vector<double> feature_std_errors_vec;
+
+		if (state.options.intercept && all_std_errors_vec.size() > 0) {
+
+			feature_std_errors_vec.assign(all_std_errors_vec.begin() + 1, all_std_errors_vec.end());
+
+		} else {
+
+			feature_std_errors_vec = all_std_errors_vec;
+		}
+
+		Eigen::VectorXd feature_std_errors =
+		    Eigen::Map<const Eigen::VectorXd>(feature_std_errors_vec.data(), feature_std_errors_vec.size());
+
 		for (idx_t j = 0; j < p; j++) {
-			if (ols_result.has_std_errors && !std::isnan(ols_result.std_errors(j))) {
-				coef_se_data[list_offset + j] = ols_result.std_errors(j);
+			if (lib_result.has_std_errors && !std::isnan(feature_std_errors(j))) {
+				coef_se_data[list_offset + j] = feature_std_errors(j);
 			} else {
 				coef_se_validity.SetInvalid(list_offset + j);
 				coef_se_data[list_offset + j] = 0.0;
@@ -353,7 +324,7 @@ static void WlsFinalize(Vector &state_vector, AggregateInputData &aggr_input_dat
 		intercept_data[result_idx] = intercept;
 		r2_data[result_idx] = r2;
 		adj_r2_data[result_idx] = adj_r2;
-		weighted_mse_data[result_idx] = weighted_mse;
+		weighted_mse_data[result_idx] = mse; // For WLS, mse is already weighted
 		n_data[result_idx] = n;
 		mse_data[result_idx] = mse;
 		intercept_se_data[result_idx] = intercept_se;
@@ -492,6 +463,12 @@ static void WlsWindow(AggregateInputData &aggr_input_data, const WindowPartition
 	idx_t n = window_y.size();
 	idx_t p = n_features;
 
+	// Compute sum of weights
+	double sum_weights = 0.0;
+	for (idx_t i = 0; i < n; i++) {
+		sum_weights += window_weights[i];
+	}
+
 	// Need at least p+1 observations for p features
 	if (n < p + 1 || p == 0) {
 		result_validity.SetInvalid(rid);
@@ -513,60 +490,33 @@ static void WlsWindow(AggregateInputData &aggr_input_data, const WindowPartition
 		}
 	}
 
-	// Handle intercept option
-	double intercept = 0.0;
-	RankDeficientOlsResult ols_result;
-	double sum_weights = w.sum();
-
-	if (options.intercept) {
-		// With intercept: compute weighted means and center data
-		double y_weighted_mean = (w.array() * y.array()).sum() / sum_weights;
-		Eigen::VectorXd x_weighted_means = Eigen::VectorXd::Zero(p);
+	// Convert window data to DuckDB vectors for libanostat
+	vector<double> y_vec(n);
+	vector<double> w_vec(n);
+	vector<vector<double>> x_vec(n, vector<double>(p));
+	for (idx_t i = 0; i < n; i++) {
+		y_vec[i] = window_y[i];
+		w_vec[i] = window_weights[i];
 		for (idx_t j = 0; j < p; j++) {
-			x_weighted_means(j) = (w.array() * X.col(j).array()).sum() / sum_weights;
+			x_vec[i][j] = window_x[i][j];
 		}
-
-		// Center data
-		Eigen::MatrixXd X_centered = X;
-		Eigen::VectorXd y_centered = y;
-		for (idx_t row = 0; row < n; row++) {
-			y_centered(row) = y(row) - y_weighted_mean;
-			for (idx_t col = 0; col < p; col++) {
-				X_centered(row, col) = X(row, col) - x_weighted_means(col);
-			}
-		}
-
-		// Apply sqrt(W) transformation
-		Eigen::VectorXd sqrt_w = w.array().sqrt();
-		Eigen::MatrixXd X_weighted = sqrt_w.asDiagonal() * X_centered;
-		Eigen::VectorXd y_weighted = sqrt_w.asDiagonal() * y_centered;
-
-		// Solve WLS on centered data
-		ols_result = RankDeficientOls::FitWithStdErrors(y_weighted, X_weighted);
-
-		// Compute intercept
-		double beta_dot_xmean = 0.0;
-		for (idx_t j = 0; j < p; j++) {
-			if (!ols_result.is_aliased[j]) {
-				beta_dot_xmean += ols_result.coefficients[j] * x_weighted_means(j);
-			}
-		}
-		intercept = y_weighted_mean - beta_dot_xmean;
-	} else {
-		// No intercept: solve directly on weighted data
-		Eigen::VectorXd sqrt_w = w.array().sqrt();
-		Eigen::MatrixXd X_weighted = sqrt_w.asDiagonal() * X;
-		Eigen::VectorXd y_weighted = sqrt_w.asDiagonal() * y;
-
-		ols_result = RankDeficientOls::FitWithStdErrors(y_weighted, X_weighted);
-		intercept = 0.0;
 	}
+
+	// Use libanostat WLSSolver
+	auto lib_result = bridge::LibanostatWrapper::FitWLS(y_vec, x_vec, w_vec, options, false);
+
+	// Extract results
+	double intercept = bridge::TypeConverters::ExtractIntercept(lib_result, options.intercept);
+	auto feature_coefs_vec = bridge::TypeConverters::ExtractFeatureCoefficients(lib_result, options.intercept);
+	Eigen::VectorXd feature_coefs =
+	    Eigen::Map<const Eigen::VectorXd>(feature_coefs_vec.data(), feature_coefs_vec.size());
+	idx_t rank = lib_result.rank;
 
 	// Compute predictions
 	Eigen::VectorXd y_pred = Eigen::VectorXd::Constant(n, intercept);
 	for (idx_t j = 0; j < p; j++) {
-		if (!ols_result.is_aliased[j]) {
-			y_pred += ols_result.coefficients[j] * X.col(j);
+		if (!std::isnan(feature_coefs(j))) {
+			y_pred += feature_coefs(j) * X.col(j);
 		}
 	}
 
@@ -586,9 +536,9 @@ static void WlsWindow(AggregateInputData &aggr_input_data, const WindowPartition
 
 	double r2 = (ss_tot_weighted > 1e-10) ? (1.0 - ss_res_weighted / ss_tot_weighted) : 0.0;
 
-	// Adjusted R²: account for intercept in degrees of freedom
-	idx_t df_model = ols_result.rank + (options.intercept ? 1 : 0);
-	double adj_r2 = 1.0 - (1.0 - r2) * (n - 1) / (n - df_model);
+	// Adjusted R²: rank already includes intercept if fitted
+	idx_t df_model = rank;
+	double adj_r2 = 1.0 - (1.0 - r2) * static_cast<double>(n - 1) / static_cast<double>(n - df_model);
 	double weighted_mse = ss_res_weighted / sum_weights;
 
 	// Store coefficients in list
@@ -601,11 +551,11 @@ static void WlsWindow(AggregateInputData &aggr_input_data, const WindowPartition
 	ListVector::Reserve(coef_list, (rid + 1) * p);
 
 	for (idx_t j = 0; j < p; j++) {
-		if (std::isnan(ols_result.coefficients[j])) {
+		if (std::isnan(feature_coefs(j))) {
 			coef_validity.SetInvalid(list_offset + j);
 			coef_data[list_offset + j] = 0.0;
 		} else {
-			coef_data[list_offset + j] = ols_result.coefficients[j];
+			coef_data[list_offset + j] = feature_coefs(j);
 		}
 	}
 

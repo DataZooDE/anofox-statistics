@@ -1,0 +1,6 @@
+# lcov configuration for libanostat coverage
+# Exclude patterns for line coverage
+lcov_excl_line = LCOV_EXCL_LINE|assert\(
+
+# Exclude patterns for branch coverage
+lcov_excl_br_line = LCOV_EXCL_BR_LINE|assert\(

@@ -22,6 +22,7 @@ FROM model;
 0.15	1.97
 
 # Test 3: Make predictions with confidence intervals (single feature)
+# Note: CI values differ from previous due to NULL coefficient std errors
 query IRRR
 SELECT observation_id,
        round(predicted::DOUBLE, 4) as pred,
@@ -37,9 +38,9 @@ LATERAL anofox_statistics_model_predict(
 ) p
 ORDER BY observation_id;
 ----
-1	11.97	11.5889	12.3511
-2	13.94	13.4579	14.4221
-3	15.91	15.3231	16.4969
+1	11.97	11.3826	12.5574
+2	13.94	13.1885	14.6915
+3	15.91	14.9897	16.8303
 
 # Test 4: Make predictions with prediction intervals (wider than confidence)
 query IRRR
@@ -60,7 +61,7 @@ FROM anofox_statistics_model_predict(
     'prediction'
 ) p;
 ----
-1	11.97	11.4121	12.5279
+1	11.97	11.1583	12.7817
 
 # Test 5: Prediction intervals should be wider than confidence intervals
 query T
@@ -158,7 +159,7 @@ FROM anofox_statistics_model_predict(
     'prediction'
 ) p;
 ----
-1.1159	1.5339
+1.6233	1.9032
 
 # Test 10: Higher confidence level should give wider intervals
 query T

@@ -1,0 +1,304 @@
+# name: test/sql/fit_predict/test_rls_fit_predict_edge.test
+# description: Test edge cases for RLS fit-predict
+# group: [fit_predict]
+
+require anofox_statistics
+
+# Test 1: Insufficient training data
+statement ok
+CREATE TABLE rls_insufficient AS
+SELECT
+    i as id,
+    i::DOUBLE as x1,
+    (i * 0.5)::DOUBLE as x2,
+    CASE WHEN i <= 2 THEN (i * 2.0)::DOUBLE ELSE NULL END as y
+FROM range(1, 6) t(i);
+
+query I
+SELECT
+    COUNT(*) as null_predictions
+FROM (
+    SELECT
+        id,
+        anofox_statistics_fit_predict_rls(
+            y,
+            [x1, x2],
+            MAP{'intercept': 1, 'forgetting_factor': 1.0}
+        ) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred
+    FROM rls_insufficient
+)
+WHERE (pred).yhat IS NULL;
+----
+0
+
+# Test 2: All NULL y values
+statement ok
+CREATE TABLE rls_all_null AS
+SELECT
+    i as id,
+    i::DOUBLE as x,
+    NULL::DOUBLE as y
+FROM range(1, 8) t(i);
+
+query I
+SELECT
+    COUNT(*) as null_predictions
+FROM (
+    SELECT
+        id,
+        anofox_statistics_fit_predict_rls(
+            y,
+            [x],
+            MAP{'intercept': 1, 'forgetting_factor': 1.0}
+        ) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred
+    FROM rls_all_null
+)
+WHERE (pred).yhat IS NULL;
+----
+0
+
+# Test 3: Invalid forgetting_factor (> 1.8)
+statement ok
+CREATE TABLE rls_params AS
+SELECT
+    i as id,
+    i::DOUBLE as x,
+    CASE WHEN i <= 5 THEN (i * 2.0)::DOUBLE ELSE NULL END as y
+FROM range(1, 9) t(i);
+
+query I
+SELECT
+    COUNT(*) as null_predictions
+FROM (
+    SELECT
+        id,
+        anofox_statistics_fit_predict_rls(
+            y,
+            [x],
+            MAP{'intercept': 1, 'forgetting_factor': 1.5}
+        ) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred
+    FROM rls_params
+)
+WHERE (pred).yhat IS NULL;
+----
+0
+
+# Test 4: Invalid forgetting_factor (<= 0.0)
+query I
+SELECT
+    COUNT(*) as null_predictions
+FROM (
+    SELECT
+        id,
+        anofox_statistics_fit_predict_rls(
+            y,
+            [x],
+            MAP{'intercept': 1, 'forgetting_factor': 0.0}
+        ) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred
+    FROM rls_params
+)
+WHERE (pred).yhat IS NULL;
+----
+0
+
+# Test 5: Valid boundary forgetting_factor (exactly 1.0)
+query I
+SELECT
+    COUNT(*) as predictions
+FROM (
+    SELECT
+        id,
+        anofox_statistics_fit_predict_rls(
+            y,
+            [x],
+            MAP{'intercept': 1, 'forgetting_factor': 1.0}
+        ) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred
+    FROM rls_params
+)
+WHERE (pred).yhat IS NOT NULL;
+----
+8
+
+# Test 6: Very small forgetting_factor (high adaptivity)
+query I
+SELECT
+    COUNT(*) as predictions
+FROM (
+    SELECT
+        id,
+        anofox_statistics_fit_predict_rls(
+            y,
+            [x],
+            MAP{'intercept': 1, 'forgetting_factor': 0.01}
+        ) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred
+    FROM rls_params
+)
+WHERE (pred).yhat IS NOT NULL;
+----
+8
+
+# Test 7: Empty feature array
+statement ok
+CREATE TABLE rls_empty AS
+SELECT
+    i as id,
+    CASE WHEN i <= 4 THEN (i * 2.0)::DOUBLE ELSE NULL END as y,
+    []::DOUBLE[] as x_empty
+FROM range(1, 7) t(i);
+
+query I
+SELECT
+    COUNT(*) as null_predictions
+FROM (
+    SELECT
+        id,
+        anofox_statistics_fit_predict_rls(
+            y,
+            x_empty,
+            MAP{'intercept': 1, 'forgetting_factor': 1.0}
+        ) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred
+    FROM rls_empty
+)
+WHERE (pred).yhat IS NULL;
+----
+0
+
+# Test 8: NULL values in feature arrays
+statement ok
+CREATE TABLE rls_null_features AS
+SELECT
+    i as id,
+    CASE WHEN i <= 5 THEN (i * 2.0)::DOUBLE ELSE NULL END as y,
+    CASE WHEN i % 2 = 0 THEN [i::DOUBLE, NULL] ELSE [i::DOUBLE, (i * 0.5)::DOUBLE] END as x
+FROM range(1, 9) t(i);
+
+query I
+SELECT
+    COUNT(*) as has_predictions
+FROM (
+    SELECT
+        id,
+        anofox_statistics_fit_predict_rls(
+            y,
+            x,
+            MAP{'intercept': 1, 'forgetting_factor': 1.0}
+        ) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred
+    FROM rls_null_features
+)
+WHERE (pred).yhat IS NOT NULL;
+----
+8
+
+# Test 9: Single training observation
+statement ok
+CREATE TABLE rls_single AS
+SELECT
+    i as id,
+    i::DOUBLE as x,
+    CASE WHEN i = 1 THEN 5.0 ELSE NULL END as y
+FROM range(1, 6) t(i);
+
+query I
+SELECT
+    COUNT(*) as null_predictions
+FROM (
+    SELECT
+        id,
+        anofox_statistics_fit_predict_rls(
+            y,
+            [x],
+            MAP{'intercept': 1, 'forgetting_factor': 1.0}
+        ) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred
+    FROM rls_single
+)
+WHERE (pred).yhat IS NULL;
+----
+0
+
+# Test 10: PARTITION BY with insufficient data in some partitions
+statement ok
+CREATE TABLE rls_partitions AS
+SELECT
+    i as id,
+    group_id,
+    i::DOUBLE as x,
+    CASE
+        WHEN group_id = 'A' AND i <= 5 THEN (i * 2.0)::DOUBLE
+        WHEN group_id = 'B' AND i <= 1 THEN (i * 3.0)::DOUBLE
+        ELSE NULL
+    END as y
+FROM range(1, 8) t(i),
+     (VALUES ('A'), ('B')) g(group_id);
+
+query II
+SELECT
+    group_id,
+    COUNT(*) as predictions
+FROM (
+    SELECT
+        group_id,
+        id,
+        anofox_statistics_fit_predict_rls(
+            y,
+            [x],
+            MAP{'intercept': 1, 'forgetting_factor': 0.99}
+        ) OVER (PARTITION BY group_id) as pred
+    FROM rls_partitions
+)
+WHERE (pred).yhat IS NOT NULL
+GROUP BY group_id
+ORDER BY group_id;
+----
+A	7
+B	7
+
+# Test 11: Extreme feature values (numerical stability)
+statement ok
+CREATE TABLE rls_extreme AS
+SELECT
+    i as id,
+    (i * 1000000.0)::DOUBLE as x_large,
+    CASE WHEN i <= 5 THEN (i * 2.0)::DOUBLE ELSE NULL END as y
+FROM range(1, 9) t(i);
+
+query I
+SELECT
+    COUNT(*) as predictions
+FROM (
+    SELECT
+        id,
+        anofox_statistics_fit_predict_rls(
+            y,
+            [x_large],
+            MAP{'intercept': 1, 'forgetting_factor': 1.0}
+        ) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred
+    FROM rls_extreme
+)
+WHERE (pred).yhat IS NOT NULL AND NOT ISINF((pred).yhat) AND NOT ISNAN((pred).yhat);
+----
+8
+
+# Cleanup
+statement ok
+DROP TABLE rls_insufficient;
+
+statement ok
+DROP TABLE rls_all_null;
+
+statement ok
+DROP TABLE rls_params;
+
+statement ok
+DROP TABLE rls_empty;
+
+statement ok
+DROP TABLE rls_null_features;
+
+statement ok
+DROP TABLE rls_single;
+
+statement ok
+DROP TABLE rls_partitions;
+
+statement ok
+DROP TABLE rls_extreme;

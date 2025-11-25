@@ -1,7 +1,7 @@
 #include "rls_fit.hpp"
 #include "../utils/tracing.hpp"
-#include "../utils/rank_deficient_ols.hpp"
 #include "../utils/options_parser.hpp"
+#include "../bridge/libanostat_wrapper.hpp"
 
 #include "duckdb.hpp"
 #include "duckdb/common/exception.hpp"
@@ -118,284 +118,79 @@ static void ComputeRLS(RlsFitBindData &data) {
 	ANOFOX_DEBUG("Computing RLS with " << n << " observations and " << p
 	                                   << " features, forgetting_factor = " << data.options.forgetting_factor);
 
-	// Build design matrix X (n x p) and response vector y (n x 1)
-	Eigen::MatrixXd X(n, p);
-	Eigen::VectorXd y(n);
+	// Fit RLS using libanostat bridge layer
+	auto result = bridge::LibanostatWrapper::FitRLS(data.y_values, // vector<double>
+	                                                data.x_values, // vector<vector<double>> (column-major)
+	                                                data.options,  // RegressionOptions (includes forgetting_factor)
+	                                                data.options.full_output, // compute std errors if full_output
+	                                                false);                   // row_major=false (column-major data)
 
-	// Fill X matrix with features
-	for (idx_t j = 0; j < p; j++) {
-		if (data.x_values[j].size() != n) {
-			throw InvalidInputException("Feature %d has %d values, expected %d", j, data.x_values[j].size(), n);
-		}
+	// Extract coefficients and aliasing info
+	data.coefficients = bridge::TypeConverters::ExtractCoefficients(result);
+	data.is_aliased = bridge::TypeConverters::ExtractIsAliased(result);
+	data.rank = bridge::TypeConverters::ExtractRank(result);
+
+	// Compute intercept (libanostat returns centered coefficients)
+	if (data.options.intercept) {
+		// Compute means
+		double y_mean = 0.0;
 		for (idx_t i = 0; i < n; i++) {
-			X(i, j) = data.x_values[j][i];
+			y_mean += data.y_values[i];
 		}
-	}
+		y_mean /= static_cast<double>(n);
 
-	// Fill y vector
-	for (idx_t i = 0; i < n; i++) {
-		y(i) = data.y_values[i];
-	}
-
-	// If options.intercept is true, augment X with column of 1s for intercept
-	// This is the standard way to handle intercepts in online RLS
-	Eigen::MatrixXd X_work;
-	idx_t p_work;               // Number of columns in working matrix
-	idx_t intercept_offset = 0; // Offset for feature indices
-
-	if (data.options.intercept) {
-		// Augment: X_work = [1, X] where 1 is column of ones
-		p_work = p + 1;
-		X_work = Eigen::MatrixXd(n, p_work);
-		X_work.col(0) = Eigen::VectorXd::Ones(n); // Intercept column
+		Eigen::VectorXd x_means(p);
 		for (idx_t j = 0; j < p; j++) {
-			X_work.col(j + 1) = X.col(j);
+			double sum = 0.0;
+			for (idx_t i = 0; i < n; i++) {
+				sum += data.x_values[j][i];
+			}
+			x_means(j) = sum / static_cast<double>(n);
 		}
-		intercept_offset = 1;
-		ANOFOX_DEBUG("RLS with intercept: augmented design matrix to " << p_work << " columns");
+
+		// Intercept = y_mean - β' * x_mean
+		double beta_dot_xmean = 0.0;
+		for (idx_t j = 0; j < p; j++) {
+			if (!data.is_aliased[j]) {
+				beta_dot_xmean += data.coefficients[j] * x_means(j);
+			}
+		}
+		data.intercept = y_mean - beta_dot_xmean;
+
+		// Store x_train_means for later use
+		if (data.options.full_output) {
+			data.x_train_means.resize(p);
+			for (idx_t j = 0; j < p; j++) {
+				data.x_train_means[j] = x_means(j);
+			}
+		}
 	} else {
-		// No intercept: use X as-is
-		p_work = p;
-		X_work = X;
-		ANOFOX_DEBUG("RLS without intercept: using " << p_work << " columns");
-	}
-
-	// Detect constant columns (these will be aliased)
-	auto constant_cols_work = RankDeficientOls::DetectConstantColumns(X_work);
-
-	// If we have an intercept column, it should never be marked as constant
-	// (it's a column of 1s, which is constant, but we always want to keep it)
-	if (data.options.intercept) {
-		constant_cols_work[0] = false; // Never alias the intercept
-	}
-
-	// Build list of non-constant column indices in X_work
-	vector<idx_t> valid_indices_work;
-	for (idx_t j = 0; j < p_work; j++) {
-		if (!constant_cols_work[j]) {
-			valid_indices_work.push_back(j);
-		}
-	}
-
-	idx_t p_valid = valid_indices_work.size();
-	if (p_valid == 0) {
-		throw InvalidInputException("All features are constant - cannot fit RLS");
-	}
-
-	// Create reduced X matrix with only non-constant columns
-	Eigen::MatrixXd X_valid(n, p_valid);
-	for (idx_t j_new = 0; j_new < p_valid; j_new++) {
-		X_valid.col(j_new) = X_work.col(valid_indices_work[j_new]);
-	}
-
-	ANOFOX_DEBUG("RLS using " << p_valid << " non-constant features out of " << p_work
-	                          << " total (including intercept if requested)");
-
-	// Initialize RLS state (for reduced matrix)
-	// β_0 = 0 (start with zero coefficients for valid features)
-	// P_0 = large_value * I (large uncertainty initially)
-	Eigen::VectorXd beta_valid = Eigen::VectorXd::Zero(p_valid);
-	double initial_p = 1000.0; // Large initial uncertainty
-	Eigen::MatrixXd P = Eigen::MatrixXd::Identity(p_valid, p_valid) * initial_p;
-
-	ANOFOX_DEBUG("RLS initialization: beta = [0, ...], P_0 = " << initial_p << " * I");
-
-	// Sequential RLS updates for each observation
-	for (idx_t t = 0; t < n; t++) {
-		// Get current observation x_t (p_valid x 1 vector) from reduced matrix
-		Eigen::VectorXd x_t = X_valid.row(t).transpose();
-		double y_t = y(t);
-
-		// Prediction: ŷ_t = x_t' β_{t-1}
-		double y_pred = x_t.dot(beta_valid);
-
-		// Prediction error: e_t = y_t - ŷ_t
-		double error = y_t - y_pred;
-
-		// Compute denominator: λ + x_t' P_{t-1} x_t
-		double denominator = data.options.forgetting_factor + x_t.dot(P * x_t);
-
-		// Kalman gain: K_t = P_{t-1} x_t / (λ + x_t' P_{t-1} x_t)
-		Eigen::VectorXd K = P * x_t / denominator;
-
-		// Update coefficients: β_t = β_{t-1} + K_t * e_t
-		beta_valid = beta_valid + K * error;
-
-		// Update covariance: P_t = (1/λ) * (P_{t-1} - K_t x_t' P_{t-1})
-		P = (P - K * x_t.transpose() * P) / data.options.forgetting_factor;
-
-		ANOFOX_DEBUG("RLS step " << t << ": error = " << error
-		                         << ", beta_valid[0] = " << (p_valid > 0 ? beta_valid(0) : 0.0));
-	}
-
-	// Map coefficients back to full feature space (with NaN for constant columns)
-	data.coefficients.resize(p);
-	data.is_aliased.resize(p);
-
-	if (data.options.intercept) {
-		// With intercept: extract from augmented system
-		// valid_indices_work contains indices in X_work [0=intercept, 1=x1, 2=x2, ...]
-
-		// Find intercept in valid set (should be index 0 in X_work)
 		data.intercept = 0.0;
-		bool found_intercept = false;
-		for (idx_t k = 0; k < valid_indices_work.size(); k++) {
-			if (valid_indices_work[k] == 0) {
-				data.intercept = beta_valid(k);
-				found_intercept = true;
-				break;
-			}
-		}
-		if (!found_intercept) {
-			throw InternalException("RLS: Intercept not found in valid indices (this should never happen)");
-		}
-
-		// Extract feature coefficients
-		// For feature j in original X, its column in X_work is j+1
-		for (idx_t j = 0; j < p; j++) {
-			idx_t j_work = j + 1; // Column index in X_work
-
-			if (constant_cols_work[j_work]) {
-				// This feature is constant (aliased)
-				data.coefficients[j] = std::numeric_limits<double>::quiet_NaN();
-				data.is_aliased[j] = true;
-			} else {
-				// Find j_work in valid_indices_work
-				idx_t j_valid = 0;
-				bool found = false;
-				for (idx_t k = 0; k < valid_indices_work.size(); k++) {
-					if (valid_indices_work[k] == j_work) {
-						j_valid = k;
-						found = true;
-						break;
-					}
-				}
-				if (!found) {
-					throw InternalException("RLS: Feature index not found in valid indices");
-				}
-				data.coefficients[j] = beta_valid(j_valid);
-				data.is_aliased[j] = false;
-			}
-		}
-
-		// Rank is number of valid features INCLUDING intercept, minus 1 for intercept
-		data.rank = p_valid - 1; // Don't count intercept in rank
-
-	} else {
-		// Without intercept: map coefficients directly (original logic)
-		data.intercept = 0.0;
-
-		for (idx_t j = 0; j < p; j++) {
-			if (constant_cols_work[j]) {
-				data.coefficients[j] = std::numeric_limits<double>::quiet_NaN();
-				data.is_aliased[j] = true;
-			} else {
-				// Find index in valid set
-				idx_t j_valid = 0;
-				for (idx_t k = 0; k < valid_indices_work.size(); k++) {
-					if (valid_indices_work[k] == j) {
-						j_valid = k;
-						break;
-					}
-				}
-				data.coefficients[j] = beta_valid(j_valid);
-				data.is_aliased[j] = false;
-			}
-		}
-
-		data.rank = p_valid;
 	}
 
-	// Compute final predictions using only non-aliased features
-	Eigen::VectorXd y_pred = Eigen::VectorXd::Zero(n);
-	for (idx_t j = 0; j < p; j++) {
-		if (!data.is_aliased[j]) {
-			y_pred += data.coefficients[j] * X.col(j);
-		}
-	}
-	if (data.options.intercept) {
-		y_pred.array() += data.intercept;
-	}
-
-	// Compute residuals and statistics
-	Eigen::VectorXd residuals = y - y_pred;
-	double ss_res = residuals.squaredNorm();
-	double y_mean = y.mean();
-	double ss_tot = (y.array() - y_mean).square().sum();
-
-	// R²
-	data.r_squared = (ss_tot > 0) ? 1.0 - (ss_res / ss_tot) : 0.0;
-
-	// Adjusted R² using effective rank
-	if (n > data.rank + 1) {
-		data.adj_r_squared =
-		    1.0 - ((1.0 - data.r_squared) * static_cast<double>(n - 1) / static_cast<double>(n - data.rank - 1));
-	} else {
-		data.adj_r_squared = data.r_squared;
-	}
-
-	// MSE and RMSE
-	data.mse = ss_res / static_cast<double>(n);
-	data.rmse = std::sqrt(data.mse);
+	// Extract fit statistics
+	data.r_squared = bridge::TypeConverters::ExtractRSquared(result);
+	data.adj_r_squared = bridge::TypeConverters::ExtractAdjRSquared(result);
+	data.mse = bridge::TypeConverters::ExtractMSE(result);
+	data.rmse = bridge::TypeConverters::ExtractRMSE(result);
 
 	// Compute extended metadata if full_output=true
-	// Note: RLS standard errors are complex due to time-varying nature
-	// We provide approximate statistics for the final model state
 	if (data.options.full_output) {
-		// Account for intercept in df calculation: df_residual = n - (p_full)
-		// where p_full = rank + (intercept ? 1 : 0)
+		if (result.has_std_errors) {
+			data.coefficient_std_errors = bridge::TypeConverters::ExtractStdErrors(result);
+		}
+
+		// Degrees of freedom
 		idx_t df_model = data.rank + (data.options.intercept ? 1 : 0);
 		data.df_residual = n > df_model ? (n - df_model) : 0;
 
-		// Compute x_train_means from original X matrix (not X_work)
-		Eigen::VectorXd x_means = Eigen::VectorXd::Zero(p);
-		for (idx_t j = 0; j < p; j++) {
-			x_means(j) = X.col(j).mean();
-		}
-
-		// Approximate standard errors from final covariance matrix
-		// SE ≈ sqrt(MSE * diag(P))
-		// Need to map from original feature index to valid index in P
-		data.coefficient_std_errors.resize(p);
-		for (idx_t j = 0; j < p; j++) {
-			if (data.is_aliased[j]) {
-				data.coefficient_std_errors[j] = std::numeric_limits<double>::quiet_NaN();
-			} else {
-				// Find j_work in valid_indices_work (same mapping as for coefficients)
-				idx_t j_work = data.options.intercept ? (j + 1) : j;
-				idx_t j_valid = 0;
-				bool found = false;
-				for (idx_t k = 0; k < valid_indices_work.size(); k++) {
-					if (valid_indices_work[k] == j_work) {
-						j_valid = k;
-						found = true;
-						break;
-					}
-				}
-				if (!found) {
-					throw InternalException("RLS: Feature index not found in valid indices for SE computation");
-				}
-
-				// Approximate SE from covariance diagonal
-				auto j_valid_idx = static_cast<Eigen::Index>(j_valid);
-				double var_j = data.mse * P(j_valid_idx, j_valid_idx);
-				data.coefficient_std_errors[j] = std::sqrt(std::max(0.0, var_j));
-			}
-		}
-
-		// Store x_train_means
-		data.x_train_means.resize(p);
-		for (idx_t j = 0; j < p; j++) {
-			data.x_train_means[j] = x_means(j);
-		}
-
 		// Approximate intercept SE
-		if (data.options.intercept) {
+		if (data.options.intercept && result.has_std_errors) {
 			double intercept_variance = data.mse / static_cast<double>(n);
 			for (idx_t j = 0; j < p; j++) {
-				if (!data.is_aliased[j]) {
+				if (!data.is_aliased[j] && !std::isnan(data.coefficient_std_errors[j])) {
 					double se_beta_j = data.coefficient_std_errors[j];
-					intercept_variance += se_beta_j * se_beta_j * x_means(j) * x_means(j);
+					intercept_variance += se_beta_j * se_beta_j * data.x_train_means[j] * data.x_train_means[j];
 				}
 			}
 			data.intercept_std_error = std::sqrt(intercept_variance);
@@ -404,8 +199,8 @@ static void ComputeRLS(RlsFitBindData &data) {
 		}
 	}
 
-	ANOFOX_DEBUG("RLS complete: R² = " << data.r_squared << ", MSE = " << data.mse << ", coefficients = ["
-	                                   << data.coefficients[0] << (p > 1 ? ", ...]" : "]"));
+	ANOFOX_DEBUG("RLS (via libanostat): R² = " << data.r_squared << ", MSE = " << data.mse << ", coefficients = ["
+	                                           << data.coefficients[0] << (p > 1 ? ", ...]" : "]"));
 }
 
 //===--------------------------------------------------------------------===//

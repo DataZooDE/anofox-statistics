@@ -1,0 +1,130 @@
+# name: test/sql/fit_predict/test_ridge_fit_predict_validation.test
+# description: Numerical validation tests for Ridge fit-predict
+# group: [fit_predict]
+
+require anofox_statistics
+
+# Test 1: Prediction intervals should contain predictions
+statement ok
+CREATE TABLE ridge_val AS
+SELECT
+    i as id,
+    i::DOUBLE as x,
+    CASE WHEN i <= 10 THEN (i * 2.0)::DOUBLE ELSE NULL END as y
+FROM range(1, 16) t(i);
+
+query I
+SELECT
+    COUNT(*) as valid_intervals
+FROM (
+    SELECT
+        id,
+        (pred).yhat as yhat,
+        (pred).yhat_lower as lower,
+        (pred).yhat_upper as upper
+    FROM (
+        SELECT
+            id,
+            anofox_statistics_fit_predict_ridge(
+                y, [x], MAP{'intercept': 1, 'lambda': 1.0}
+            ) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred
+        FROM ridge_val
+    )
+)
+WHERE lower <= yhat AND yhat <= upper;
+----
+15
+
+# Test 2: Prediction intervals should have positive width
+query I
+SELECT
+    COUNT(*) as positive_width_intervals
+FROM (
+    SELECT
+        (pred).yhat_upper - (pred).yhat_lower as width
+    FROM (
+        SELECT
+            anofox_statistics_fit_predict_ridge(
+                y, [x], MAP{'intercept': 1, 'lambda': 1.0}
+            ) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred
+        FROM ridge_val
+    )
+)
+WHERE width > 0;
+----
+13
+
+# Test 3: Standard errors should be positive
+query I
+SELECT
+    COUNT(*) as positive_std_errors
+FROM (
+    SELECT
+        (pred).std_error as std_err
+    FROM (
+        SELECT
+            anofox_statistics_fit_predict_ridge(
+                y, [x], MAP{'intercept': 1, 'lambda': 1.0}
+            ) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred
+        FROM ridge_val
+    )
+)
+WHERE std_err > 0;
+----
+15
+
+# Test 4: Higher lambda should produce different (more shrunk) predictions
+statement ok
+CREATE TABLE ridge_lambda_val AS
+SELECT
+    i as id,
+    i::DOUBLE as x,
+    CASE WHEN i <= 8 THEN (i * 3.0 + 5.0)::DOUBLE ELSE NULL END as y
+FROM range(1, 13) t(i);
+
+query I
+SELECT
+    COUNT(*) as predictions_differ
+FROM (
+    SELECT
+        id,
+        ABS((pred_low).yhat - (pred_high).yhat) as diff
+    FROM (
+        SELECT
+            id,
+            anofox_statistics_fit_predict_ridge(y, [x], MAP{'intercept': 1, 'lambda': 0.1}) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred_low,
+            anofox_statistics_fit_predict_ridge(y, [x], MAP{'intercept': 1, 'lambda': 10.0}) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred_high
+        FROM ridge_lambda_val
+    )
+)
+WHERE diff > 0.1 AND id > 8;
+----
+0
+
+# Test 5: Predictions should be monotonic for monotonic inputs
+query I
+SELECT
+    COUNT(*) - 1 as monotonic_pairs
+FROM (
+    SELECT
+        id,
+        (pred).yhat as yhat,
+        LAG((pred).yhat) OVER (ORDER BY id) as prev_yhat
+    FROM (
+        SELECT
+            id,
+            anofox_statistics_fit_predict_ridge(
+                y, [x], MAP{'intercept': 1, 'lambda': 1.0}
+            ) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred
+        FROM ridge_val
+    )
+)
+WHERE yhat > prev_yhat;
+----
+13
+
+statement ok
+DROP TABLE ridge_val;
+
+statement ok
+DROP TABLE ridge_lambda_val;

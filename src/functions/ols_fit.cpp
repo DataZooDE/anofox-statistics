@@ -1,7 +1,7 @@
 #include "ols_fit.hpp"
 #include "../utils/tracing.hpp"
-#include "../utils/rank_deficient_ols.hpp"
 #include "../utils/options_parser.hpp"
+#include "../bridge/libanostat_wrapper.hpp"
 
 #include "duckdb.hpp"
 #include "duckdb/common/exception.hpp"
@@ -134,230 +134,214 @@ static void ComputeRidge(OlsFitBindData &data) {
 		y(i) = data.y_values[i];
 	}
 
-	// Special case: λ=0 reduces to OLS, use rank-deficient solver
+	// Special case: λ=0 reduces to OLS, use libanostat bridge layer
 	if (data.options.lambda == 0.0) {
-		// Center data if fitting with intercept
-		Eigen::MatrixXd X_centered = X;
-		Eigen::VectorXd y_centered = y;
-		double y_mean = 0.0;
+		// Call libanostat OLS solver via bridge
+		// NOTE: x_values is column-major (feature-first) for scalar functions
+		auto result = bridge::LibanostatWrapper::FitOLS(data.y_values, // vector<double>
+		                                                data.x_values, // vector<vector<double>> (column-major)
+		                                                data.options,  // RegressionOptions
+		                                                data.options.full_output, // compute std errors if full_output
+		                                                false                     // row_major=false (column-major data)
+		);
+
+		// Extract intercept first (if present)
 		if (data.options.intercept) {
-			// Center X columns and y
-			Eigen::VectorXd x_means = X.colwise().mean();
-			y_mean = y.mean();
-			for (idx_t j = 0; j < p; j++) {
-				for (idx_t i = 0; i < n; i++) {
-					X_centered(i, j) -= x_means(j);
-				}
-			}
-			for (idx_t i = 0; i < n; i++) {
-				y_centered(i) = y(i) - y_mean;
-			}
-		}
-		// Use FitWithStdErrors if full_output requested
-		// Fit on centered data if intercept=true
-		const Eigen::MatrixXd &X_fit = data.options.intercept ? X_centered : X;
-		const Eigen::VectorXd &y_fit = data.options.intercept ? y_centered : y;
-		auto result = data.options.full_output ? RankDeficientOls::FitWithStdErrors(y_fit, X_fit)
-		                                       : RankDeficientOls::Fit(y_fit, X_fit);
-
-		data.rank = result.rank;
-		data.is_aliased.resize(p);
-		for (idx_t i = 0; i < p; i++) {
-			data.is_aliased[i] = result.is_aliased[i];
-		}
-
-		data.coefficients.resize(p);
-		for (idx_t i = 0; i < p; i++) {
-			data.coefficients[i] = result.coefficients[i];
-		}
-
-		data.r_squared = result.r_squared;
-		data.adj_r_squared = result.adj_r_squared;
-		data.mse = result.mse;
-		data.rmse = result.rmse;
-
-		// Store extended metadata if full_output=true
-		if (data.options.full_output && result.has_std_errors) {
-			data.coefficient_std_errors.resize(p);
-			for (idx_t i = 0; i < p; i++) {
-				data.coefficient_std_errors[i] = result.std_errors[i];
-			}
-			idx_t df_model = result.rank + (data.options.intercept ? 1 : 0);
-			data.df_residual = n > df_model ? (n - df_model) : 0;
-		}
-
-		// Compute intercept (y_mean and x_means already computed above)
-		if (data.options.intercept) {
-			Eigen::VectorXd x_means = X.colwise().mean();
-			double beta_dot_xmean = 0.0;
-			for (idx_t j = 0; j < p; j++) {
-				if (!result.is_aliased[j]) {
-					beta_dot_xmean += result.coefficients[j] * x_means[j];
-				}
-			}
-			data.intercept = y_mean - beta_dot_xmean;
-
-			// Recompute R², MSE, RMSE on original scale with intercept
-			Eigen::VectorXd predictions(n);
-			for (idx_t i = 0; i < n; i++) {
-				predictions(i) = data.intercept;
-				for (idx_t j = 0; j < p; j++) {
-					if (!result.is_aliased[j]) {
-						predictions(i) += result.coefficients[j] * X(i, j);
-					}
-				}
-			}
-
-			Eigen::VectorXd residuals = y - predictions;
-			double ss_res = residuals.squaredNorm();
-			double ss_tot = (y.array() - y_mean).square().sum();
-
-			data.r_squared = (ss_tot > 1e-10) ? (1.0 - ss_res / ss_tot) : 0.0;
-			data.mse = (n > result.rank + 1) ? (ss_res / static_cast<double>(n - result.rank - 1)) : 0.0;
-			data.rmse = std::sqrt(data.mse);
-
-			// Adjusted R²
-			idx_t df_model = result.rank + 1; // +1 for intercept
-			if (n > df_model + 1) {
-				double adj_factor = static_cast<double>(n - 1) / static_cast<double>(n - df_model);
-				data.adj_r_squared = 1.0 - (1.0 - data.r_squared) * adj_factor;
-			} else {
-				data.adj_r_squared = data.r_squared;
-			}
-
-			// Store x_means for later predictions if full_output=true
-			if (data.options.full_output) {
-				data.x_train_means.resize(p);
-				for (idx_t j = 0; j < p; j++) {
-					data.x_train_means[j] = x_means[j];
-				}
-
-				// Compute intercept standard error
-				// SE(intercept) = sqrt(MSE * (1/n + x_mean' * (X'X)^-1 * x_mean))
-				if (result.has_std_errors) {
-					// Simple approximation: SE(intercept) ≈ sqrt(MSE/n + sum(SE(beta_j)^2 * x_mean_j^2))
-					double intercept_variance = data.mse / static_cast<double>(n);
-					for (idx_t j = 0; j < p; j++) {
-						if (!result.is_aliased[j] && !std::isnan(result.std_errors[j])) {
-							double se_beta_j = result.std_errors[j];
-							intercept_variance += se_beta_j * se_beta_j * x_means[j] * x_means[j];
-						}
-					}
-					data.intercept_std_error = std::sqrt(intercept_variance);
-				}
-			}
+			data.intercept = bridge::TypeConverters::ExtractIntercept(result, true);
 		} else {
 			data.intercept = 0.0;
-			data.intercept_std_error = std::numeric_limits<double>::quiet_NaN();
 		}
 
-		ANOFOX_DEBUG("Ridge (λ=0, OLS mode): R² = " << data.r_squared << ", rank = " << data.rank << "/" << p);
+		// Extract feature coefficients (excluding intercept)
+		data.coefficients = bridge::TypeConverters::ExtractFeatureCoefficients(result, data.options.intercept);
+
+		// Extract is_aliased for features only (excluding intercept, in original order)
+		if (data.options.intercept) {
+			// Build map: original_column_index -> is_aliased
+			size_t n_params = result.is_aliased.size();
+			vector<bool> aliased_map(n_params, true);
+			for (size_t i = 0; i < n_params; i++) {
+				size_t orig_col = result.permutation_indices[i];
+				if (orig_col < n_params) {
+					aliased_map[orig_col] = result.is_aliased[i];
+				}
+			}
+
+			// Extract is_aliased for features only (columns 1..n_features, excluding intercept at 0)
+			data.is_aliased.clear();
+			data.is_aliased.reserve(n_params - 1);
+			for (size_t j = 1; j < n_params; j++) {
+				data.is_aliased.push_back(aliased_map[j]);
+			}
+		} else {
+			data.is_aliased = bridge::TypeConverters::ExtractIsAliased(result);
+		}
+
+		data.rank = bridge::TypeConverters::ExtractRank(result);
+
+		// Extract fit statistics
+		auto stats = bridge::LibanostatWrapper::ComputeFitStatistics(result, n, data.options.intercept);
+		data.r_squared = stats.r_squared;
+		data.adj_r_squared = stats.adj_r_squared;
+		data.mse = stats.mse;
+		data.rmse = stats.rmse;
+		data.df_residual = stats.df_residual;
+
+		// Extract standard errors if computed (for features only, excluding intercept, in original order)
+		if (data.options.full_output && result.has_std_errors) {
+			if (data.options.intercept) {
+				// Build map: original_column_index -> std_error
+				size_t n_params = static_cast<size_t>(result.std_errors.size());
+				vector<double> se_map(n_params, std::numeric_limits<double>::quiet_NaN());
+				for (size_t i = 0; i < n_params; i++) {
+					size_t orig_col = result.permutation_indices[i];
+					if (orig_col < n_params) {
+						se_map[orig_col] = result.std_errors(static_cast<Eigen::Index>(i));
+					}
+				}
+
+				// Extract std errors for features only (columns 1..n_features, excluding intercept at 0)
+				data.coefficient_std_errors.clear();
+				data.coefficient_std_errors.reserve(n_params - 1);
+				for (size_t j = 1; j < n_params; j++) {
+					data.coefficient_std_errors.push_back(se_map[j]);
+				}
+
+				// Extract intercept standard error
+				data.intercept_std_error = se_map[0];
+			} else {
+				data.coefficient_std_errors = bridge::TypeConverters::ExtractStdErrors(result);
+				data.intercept_std_error = std::numeric_limits<double>::quiet_NaN();
+			}
+		}
+
+		// Store x_means for predictions if full_output=true
+		if (data.options.full_output && data.options.intercept) {
+			// Compute x_means for feature columns only
+			Eigen::VectorXd x_means(p);
+			for (idx_t j = 0; j < p; j++) {
+				double sum = 0.0;
+				for (idx_t i = 0; i < n; i++) {
+					sum += data.x_values[j][i];
+				}
+				x_means(j) = sum / static_cast<double>(n);
+			}
+
+			data.x_train_means.resize(p);
+			for (idx_t j = 0; j < p; j++) {
+				data.x_train_means[j] = x_means(j);
+			}
+		}
+
+		ANOFOX_DEBUG("OLS (via libanostat): R² = " << data.r_squared << ", rank = " << data.rank << "/" << p);
 		return;
 	}
 
-	// λ > 0: Use ridge regression with rank-deficiency detection
-	// First, detect constant features
-	auto constant_features = RankDeficientOls::DetectConstantColumns(X);
+	// λ > 0: Use Ridge regression via libanostat bridge layer
+	// Call libanostat Ridge solver via bridge
+	// NOTE: x_values is column-major (feature-first) for scalar functions
+	auto result = bridge::LibanostatWrapper::FitRidge(data.y_values,            // vector<double>
+	                                                  data.x_values,            // vector<vector<double>> (column-major)
+	                                                  data.options,             // RegressionOptions (includes lambda)
+	                                                  data.options.full_output, // compute std errors if full_output
+	                                                  false                     // row_major=false (column-major data)
+	);
 
-	// Center data if fitting intercept (standard OLS regression practice)
-	// Ridge should only penalize slopes, not the intercept
-	Eigen::MatrixXd X_work = X;
-	Eigen::VectorXd y_work = y;
-	Eigen::VectorXd x_means = Eigen::VectorXd::Zero(p);
-	double y_mean = 0.0;
-
+	// Extract intercept first (if present)
 	if (data.options.intercept) {
-		// Compute means
-		y_mean = y.mean();
-		x_means = X.colwise().mean();
-
-		// Center the data
-		for (idx_t i = 0; i < n; i++) {
-			y_work(i) = y(i) - y_mean;
-			for (idx_t j = 0; j < p; j++) {
-				X_work(i, j) = X(i, j) - x_means(j);
-			}
-		}
-	}
-
-	// OLS regression on (centered) data: β = (X'X + λI)^(-1) X'y
-	Eigen::MatrixXd XtX = X_work.transpose() * X_work;
-	Eigen::VectorXd Xty = X_work.transpose() * y_work;
-
-	// Add regularization: X'X + λI
-	Eigen::MatrixXd identity = Eigen::MatrixXd::Identity(p, p);
-	Eigen::MatrixXd XtX_regularized = XtX + data.options.lambda * identity;
-
-	// Use ColPivHouseholderQR for rank-revealing solve
-	Eigen::ColPivHouseholderQR<Eigen::MatrixXd> qr(XtX_regularized);
-	data.rank = qr.rank();
-
-	// Solve for coefficients (these are coefficients for centered data if add_intercept=true)
-	Eigen::VectorXd beta = qr.solve(Xty);
-
-	// Initialize aliasing info
-	data.is_aliased.resize(p);
-	for (idx_t i = 0; i < p; i++) {
-		data.is_aliased[i] = constant_features[i]; // Mark constant features as aliased
-	}
-
-	// Store coefficients (set NaN for constant features)
-	data.coefficients.resize(p);
-	for (idx_t i = 0; i < p; i++) {
-		if (constant_features[i]) {
-			data.coefficients[i] = std::numeric_limits<double>::quiet_NaN();
-		} else {
-			data.coefficients[i] = beta(i);
-		}
-	}
-
-	// Compute intercept (for centered data: intercept = y_mean - beta·x_mean)
-	if (data.options.intercept) {
-		double beta_dot_xmean = 0.0;
-		for (idx_t j = 0; j < p; j++) {
-			if (!constant_features[j]) {
-				beta_dot_xmean += data.coefficients[j] * x_means[j];
-			}
-		}
-		data.intercept = y_mean - beta_dot_xmean;
+		data.intercept = bridge::TypeConverters::ExtractIntercept(result, true);
 	} else {
 		data.intercept = 0.0;
 	}
 
-	// Compute predictions on ORIGINAL scale
-	Eigen::VectorXd y_pred = Eigen::VectorXd::Zero(n);
-	for (idx_t j = 0; j < p; j++) {
-		if (!constant_features[j]) {
-			y_pred += data.coefficients[j] * X.col(j);
+	// Extract feature coefficients (excluding intercept)
+	data.coefficients = bridge::TypeConverters::ExtractFeatureCoefficients(result, data.options.intercept);
+
+	// Extract is_aliased for features only (excluding intercept, in original order)
+	if (data.options.intercept) {
+		// Build map: original_column_index -> is_aliased
+		size_t n_params = result.is_aliased.size();
+		vector<bool> aliased_map(n_params, true);
+		for (size_t i = 0; i < n_params; i++) {
+			size_t orig_col = result.permutation_indices[i];
+			if (orig_col < n_params) {
+				aliased_map[orig_col] = result.is_aliased[i];
+			}
+		}
+
+		// Extract is_aliased for features only (columns 1..n_features, excluding intercept at 0)
+		data.is_aliased.clear();
+		data.is_aliased.reserve(n_params - 1);
+		for (size_t j = 1; j < n_params; j++) {
+			data.is_aliased.push_back(aliased_map[j]);
+		}
+	} else {
+		data.is_aliased = bridge::TypeConverters::ExtractIsAliased(result);
+	}
+
+	data.rank = bridge::TypeConverters::ExtractRank(result);
+
+	// Extract fit statistics
+	auto stats = bridge::LibanostatWrapper::ComputeFitStatistics(result, n, data.options.intercept);
+	data.r_squared = stats.r_squared;
+	data.adj_r_squared = stats.adj_r_squared;
+	data.mse = stats.mse;
+	data.rmse = stats.rmse;
+	data.df_residual = stats.df_residual;
+
+	// Extract standard errors if computed (for features only, excluding intercept)
+	if (data.options.full_output && result.has_std_errors) {
+		if (data.options.intercept) {
+			// Find intercept position
+			size_t intercept_pos = std::numeric_limits<size_t>::max();
+			for (size_t i = 0; i < result.permutation_indices.size(); i++) {
+				if (result.permutation_indices[i] == 0) {
+					intercept_pos = i;
+					break;
+				}
+			}
+
+			// Extract std errors for features only
+			data.coefficient_std_errors.clear();
+			data.coefficient_std_errors.reserve(result.std_errors.size() - 1);
+			for (size_t i = 0; i < static_cast<size_t>(result.std_errors.size()); i++) {
+				if (i != intercept_pos) {
+					data.coefficient_std_errors.push_back(result.std_errors(static_cast<Eigen::Index>(i)));
+				}
+			}
+
+			// Extract intercept standard error
+			if (intercept_pos < static_cast<size_t>(result.std_errors.size())) {
+				data.intercept_std_error = result.std_errors(static_cast<Eigen::Index>(intercept_pos));
+			} else {
+				data.intercept_std_error = std::numeric_limits<double>::quiet_NaN();
+			}
+		} else {
+			data.coefficient_std_errors = bridge::TypeConverters::ExtractStdErrors(result);
+			data.intercept_std_error = std::numeric_limits<double>::quiet_NaN();
 		}
 	}
-	if (data.options.intercept) {
-		y_pred.array() += data.intercept;
+
+	// Store x_means for predictions if full_output=true
+	if (data.options.full_output && data.options.intercept) {
+		// Compute x_means for feature columns only
+		Eigen::VectorXd x_means(p);
+		for (idx_t j = 0; j < p; j++) {
+			double sum = 0.0;
+			for (idx_t i = 0; i < n; i++) {
+				sum += data.x_values[j][i];
+			}
+			x_means(j) = sum / static_cast<double>(n);
+		}
+
+		data.x_train_means.resize(p);
+		for (idx_t j = 0; j < p; j++) {
+			data.x_train_means[j] = x_means(j);
+		}
 	}
 
-	// Compute residuals
-	Eigen::VectorXd residuals = y - y_pred;
-
-	// Compute statistics
-	double ss_res = residuals.squaredNorm();
-	double ss_tot = (y.array() - y.mean()).square().sum();
-
-	data.r_squared = (ss_tot > 0) ? 1.0 - (ss_res / ss_tot) : 0.0;
-
-	// Adjusted R² using effective rank
-	idx_t effective_params = data.rank;
-	if (n > effective_params + 1) {
-		data.adj_r_squared = 1.0 - ((1.0 - data.r_squared) * (static_cast<double>(n) - 1.0) /
-		                            (static_cast<double>(n) - static_cast<double>(effective_params) - 1.0));
-	} else {
-		data.adj_r_squared = data.r_squared;
-	}
-
-	data.mse = ss_res / static_cast<double>(n);
-	data.rmse = std::sqrt(data.mse);
-
-	ANOFOX_DEBUG("Ridge complete: R² = " << data.r_squared << ", λ=" << data.options.lambda << ", rank = " << data.rank
-	                                     << "/" << p);
+	ANOFOX_DEBUG("Ridge (via libanostat): R² = " << data.r_squared << ", λ=" << data.options.lambda
+	                                             << ", rank = " << data.rank << "/" << p);
 }
 
 //===--------------------------------------------------------------------===//

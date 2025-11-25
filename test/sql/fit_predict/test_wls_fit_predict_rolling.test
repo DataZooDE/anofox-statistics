@@ -1,0 +1,84 @@
+# name: test/sql/fit_predict/test_wls_fit_predict_rolling.test
+# description: Test WLS fit-predict with rolling windows
+# group: [fit_predict]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE wls_ts AS
+SELECT
+    i as time_id,
+    i::DOUBLE as x,
+    (i * 2.0 + random() * 0.5)::DOUBLE as y,
+    CASE WHEN i % 3 = 0 THEN 2.0 ELSE 1.0 END::DOUBLE as w
+FROM range(1, 16) t(i);
+
+# Test 1: Expanding window
+query I
+SELECT
+    COUNT(*) as predictions
+FROM (
+    SELECT
+        time_id,
+        anofox_statistics_fit_predict_wls(
+            y, [x], w, MAP{'intercept': 1}
+        ) OVER (ORDER BY time_id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred
+    FROM wls_ts
+)
+WHERE (pred).yhat IS NOT NULL;
+----
+13
+
+# Test 2: Fixed-size rolling window
+query I
+SELECT
+    COUNT(*) as predictions
+FROM (
+    SELECT
+        time_id,
+        anofox_statistics_fit_predict_wls(
+            y, [x], w, MAP{'intercept': 1}
+        ) OVER (ORDER BY time_id ROWS BETWEEN 4 PRECEDING AND CURRENT ROW) as pred
+    FROM wls_ts
+)
+WHERE (pred).yhat IS NOT NULL;
+----
+13
+
+# Test 3: ORDER BY with PARTITION BY and varying weights
+statement ok
+CREATE TABLE wls_multi_series AS
+SELECT
+    series_id,
+    t as time_id,
+    t::DOUBLE as x,
+    (t * series_mult + random() * 0.3)::DOUBLE as y,
+    CASE WHEN t <= 5 THEN 2.0 ELSE 1.0 END::DOUBLE as w
+FROM range(1, 11) r(t),
+     (VALUES ('A', 2.0), ('B', 3.0)) s(series_id, series_mult);
+
+query II
+SELECT
+    series_id,
+    COUNT(*) as predictions
+FROM (
+    SELECT
+        series_id,
+        time_id,
+        anofox_statistics_fit_predict_wls(
+            y, [x], w, MAP{'intercept': 1}
+        ) OVER (PARTITION BY series_id ORDER BY time_id ROWS BETWEEN 3 PRECEDING AND CURRENT ROW) as pred
+    FROM wls_multi_series
+)
+WHERE (pred).yhat IS NOT NULL
+GROUP BY series_id
+ORDER BY series_id;
+----
+A	8
+B	8
+
+statement ok
+DROP TABLE wls_ts;
+
+statement ok
+DROP TABLE wls_multi_series;

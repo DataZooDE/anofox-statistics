@@ -35,8 +35,9 @@ struct NormalityTestOptions {
 		for (idx_t i = 0; i < map_children.size(); i++) {
 			auto &key_val = map_children[i];
 			auto key_list = ListValue::GetChildren(key_val);
-			if (key_list.size() != 2)
+			if (key_list.size() != 2) {
 				continue;
+			}
 
 			string key = key_list[0].ToString();
 			auto &value = key_list[1];

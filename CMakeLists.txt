@@ -4,8 +4,18 @@ cmake_minimum_required(VERSION 3.20)
 set(TARGET_NAME anofox_statistics)
 project(${TARGET_NAME})
 
+# Enable fit-predict debug logging for debug builds
+# DISABLED: Slows down tests significantly
+# if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+#     add_definitions(-DANOFOX_ENABLE_FIT_PREDICT_DEBUG)
+#     message(STATUS "Fit-predict debug logging enabled")
+# endif()
+
 # DuckDB extension boilerplate
 include_directories(src/include)
+
+# Include libanostat library headers
+include_directories(libanostat/include)
 
 # Find Eigen3 - required for compilation but optional for CMake configure (code quality checks)
 find_package(Eigen3 QUIET CONFIG)
@@ -65,6 +75,14 @@ set(EXTENSION_SOURCES
     src/functions/diagnostics/residual_diagnostics.cpp # Leverage, Cook's D, DFFITS
     src/functions/diagnostics/vif.cpp                  # Multicollinearity detection
     src/functions/diagnostics/normality_test.cpp       # Jarque-Bera normality test
+
+    # Phase 6 - Unified Fit-Predict API
+    src/functions/fit_predict/fit_predict_base.cpp     # Shared infrastructure for fit-predict
+    src/functions/fit_predict/ols_fit_predict.cpp      # OLS fit-predict aggregate
+    src/functions/fit_predict/ridge_fit_predict.cpp    # Ridge fit-predict aggregate
+    src/functions/fit_predict/wls_fit_predict.cpp      # WLS fit-predict aggregate
+    src/functions/fit_predict/elastic_net_fit_predict.cpp  # Elastic Net fit-predict aggregate
+    src/functions/fit_predict/rls_fit_predict.cpp      # RLS fit-predict aggregate
 )
 
 # Build the static extension (required for DuckDB to link against when building statically)

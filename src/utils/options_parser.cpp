@@ -67,11 +67,13 @@ RegressionOptions RegressionOptions::ParseFromMap(const Value &options_map) {
 				opts.solver = val_value.GetValue<string>();
 			} else if (key == "compute_per_group") {
 				opts.compute_per_group = val_value.GetValue<bool>();
+			} else if (key == "fit_predict_mode") {
+				opts.fit_predict_mode = val_value.GetValue<string>();
 			} else {
 				throw InvalidInputException(
 				    "Unknown option: '%s'. Valid options are: intercept, full_output, lambda, alpha, "
 				    "forgetting_factor, window_size, min_periods, confidence_level, robust_se, "
-				    "max_iterations, tolerance, solver, compute_per_group",
+				    "max_iterations, tolerance, solver, compute_per_group, fit_predict_mode",
 				    key);
 			}
 		}
@@ -141,11 +143,13 @@ RegressionOptions RegressionOptions::ParseFromMap(const Value &options_map) {
 				opts.solver = val_value.GetValue<string>();
 			} else if (key == "compute_per_group") {
 				opts.compute_per_group = val_value.GetValue<bool>();
+			} else if (key == "fit_predict_mode") {
+				opts.fit_predict_mode = val_value.GetValue<string>();
 			} else {
 				throw InvalidInputException(
 				    "Unknown option: '%s'. Valid options are: intercept, full_output, lambda, alpha, "
 				    "forgetting_factor, window_size, min_periods, confidence_level, robust_se, "
-				    "max_iterations, tolerance, solver, compute_per_group",
+				    "max_iterations, tolerance, solver, compute_per_group, fit_predict_mode",
 				    key);
 			}
 		}
@@ -188,6 +192,12 @@ void RegressionOptions::Validate() const {
 	// Validate solver
 	if (solver != "qr" && solver != "svd" && solver != "cholesky") {
 		throw InvalidInputException("Option 'solver' must be one of 'qr', 'svd', 'cholesky', got: '%s'", solver);
+	}
+
+	// Validate fit_predict_mode
+	if (fit_predict_mode != "expanding" && fit_predict_mode != "fixed") {
+		throw InvalidInputException("Option 'fit_predict_mode' must be 'expanding' or 'fixed', got: '%s'",
+		                            fit_predict_mode);
 	}
 
 	// Validate window size if set

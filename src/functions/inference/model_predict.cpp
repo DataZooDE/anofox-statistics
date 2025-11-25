@@ -341,8 +341,8 @@ static void ModelPredictExecute(ClientContext &context, TableFunctionInput &data
 	while (bind_data.current_row < n_new && count < STANDARD_VECTOR_SIZE) {
 		idx_t row = bind_data.current_row;
 
-		output.SetValue(0, count, Value::BIGINT(row + 1));                    // observation_id (1-indexed)
-		output.SetValue(1, count, Value::DOUBLE(bind_data.predictions[row])); // predicted
+		output.SetValue(0, count, Value::BIGINT(static_cast<int64_t>(row + 1))); // observation_id (1-indexed)
+		output.SetValue(1, count, Value::DOUBLE(bind_data.predictions[row]));    // predicted
 		output.SetValue(2, count,
 		                std::isnan(bind_data.ci_lowers[row]) ? Value(LogicalType::DOUBLE)
 		                                                     : Value::DOUBLE(bind_data.ci_lowers[row])); // ci_lower
@@ -521,8 +521,8 @@ static OperatorResultType ModelPredictInOut(ExecutionContext &context, TableFunc
 			}
 
 			// Write output row
-			output.SetValue(0, output_count, Value::BIGINT(i + 1));  // observation_id
-			output.SetValue(1, output_count, Value::DOUBLE(y_pred)); // predicted
+			output.SetValue(0, output_count, Value::BIGINT(static_cast<int64_t>(i + 1))); // observation_id
+			output.SetValue(1, output_count, Value::DOUBLE(y_pred));                      // predicted
 			output.SetValue(2, output_count,
 			                std::isnan(ci_lower) ? Value(LogicalType::DOUBLE) : Value::DOUBLE(ci_lower)); // ci_lower
 			output.SetValue(3, output_count,

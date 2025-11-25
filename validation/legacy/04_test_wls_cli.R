@@ -2,7 +2,7 @@
 
 # Weighted Least Squares (WLS) Validation: DuckDB Extension vs R (lm with weights)
 #
-# Validates anofox_statistics_wls_fit against R's lm() with weights parameter
+# Validates anofox_statistics_wls against R's lm() with weights parameter
 # Uses DuckDB CLI for extension testing
 
 # Configuration
@@ -10,7 +10,7 @@ STRICT_TOL <- 1e-10  # For coefficients, R²
 RELAXED_TOL <- 1e-8  # For p-values
 
 DUCKDB_CLI <- "/tmp/duckdb"
-EXTENSION_PATH <- "build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension"
+EXTENSION_PATH <- "../../build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension"
 
 # Helper: Parse DuckDB CSV output
 parse_duckdb_csv <- function(csv_lines) {
@@ -143,17 +143,18 @@ cat(sprintf("  Slope:     %.10f\n", r_slope))
 cat(sprintf("  R²:        %.10f\n", r_r2))
 
 # DuckDB query
+matrix_rows <- paste(sprintf("[%s]", x_test1), collapse = ", ")
 query <- sprintf("
 LOAD '%s';
-SELECT * FROM anofox_statistics_wls_fit(
+SELECT * FROM anofox_statistics_wls(
     [%s]::DOUBLE[],
+    [%s]::DOUBLE[][],
     [%s]::DOUBLE[],
-    [%s]::DOUBLE[],
-    true
+    {'intercept': true}
 );
 ", EXTENSION_PATH,
    paste(y_test1, collapse = ", "),
-   paste(x_test1, collapse = ", "),
+   matrix_rows,
    paste(weights_test1, collapse = ", "))
 
 csv_result <- run_duckdb_query(query)
@@ -203,17 +204,18 @@ cat(sprintf("  R²:        %.10f\n", r_r2_2))
 cat("  Weights:  ", paste(weights_test2, collapse = ", "), "\n")
 
 # DuckDB query
+matrix_rows2 <- paste(sprintf("[%s]", x_test2), collapse = ", ")
 query2 <- sprintf("
 LOAD '%s';
-SELECT * FROM anofox_statistics_wls_fit(
+SELECT * FROM anofox_statistics_wls(
     [%s]::DOUBLE[],
+    [%s]::DOUBLE[][],
     [%s]::DOUBLE[],
-    [%s]::DOUBLE[],
-    true
+    {'intercept': true}
 );
 ", EXTENSION_PATH,
    paste(y_test2, collapse = ", "),
-   paste(x_test2, collapse = ", "),
+   matrix_rows2,
    paste(weights_test2, collapse = ", "))
 
 csv_result2 <- run_duckdb_query(query2)
@@ -265,21 +267,18 @@ cat(sprintf("  Slope 3:   %.10f\n", r_coefs3[4]))
 cat(sprintf("  R²:        %.10f\n", r_r2_3))
 
 # DuckDB query
+matrix_rows3 <- paste(sprintf("[%s, %s, %s]", x1_test3, x2_test3, x3_test3), collapse = ", ")
 query3 <- sprintf("
 LOAD '%s';
-SELECT * FROM anofox_statistics_wls_fit(
+SELECT * FROM anofox_statistics_wls(
     [%s]::DOUBLE[],
+    [%s]::DOUBLE[][],
     [%s]::DOUBLE[],
-    [%s]::DOUBLE[],
-    [%s]::DOUBLE[],
-    [%s]::DOUBLE[],
-    true
+    {'intercept': true}
 );
 ", EXTENSION_PATH,
    paste(y_test3, collapse = ", "),
-   paste(x1_test3, collapse = ", "),
-   paste(x2_test3, collapse = ", "),
-   paste(x3_test3, collapse = ", "),
+   matrix_rows3,
    paste(weights_test3, collapse = ", "))
 
 csv_result3 <- run_duckdb_query(query3)
@@ -333,17 +332,18 @@ cat(sprintf("  R²:        %.10f\n", r_r2_4))
 cat("  Note: Observation 3 (y=100) has weight=0\n")
 
 # DuckDB query
+matrix_rows4 <- paste(sprintf("[%s]", x_test4), collapse = ", ")
 query4 <- sprintf("
 LOAD '%s';
-SELECT * FROM anofox_statistics_wls_fit(
+SELECT * FROM anofox_statistics_wls(
     [%s]::DOUBLE[],
+    [%s]::DOUBLE[][],
     [%s]::DOUBLE[],
-    [%s]::DOUBLE[],
-    true
+    {'intercept': true}
 );
 ", EXTENSION_PATH,
    paste(y_test4, collapse = ", "),
-   paste(x_test4, collapse = ", "),
+   matrix_rows4,
    paste(weights_test4, collapse = ", "))
 
 csv_result4 <- run_duckdb_query(query4)

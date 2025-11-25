@@ -6,7 +6,7 @@ cat("Method: DuckDB CLI + R comparison\n\n")
 
 # Configuration
 DUCKDB_CLI <- "/tmp/duckdb"
-EXTENSION_PATH <- "build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension"
+EXTENSION_PATH <- "../../build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension"
 STRICT_TOL <- 1e-10
 RELAXED_TOL <- 1e-8
 
@@ -189,13 +189,13 @@ cat(sprintf("  R²:        %.10f\n", r_r2))
 cat(sprintf("  Adj R²:    %.10f\n", r_adj_r2))
 cat(sprintf("  RMSE:      %.10f\n", r_rmse))
 
-# DuckDB query (positional arguments: y, x1, ..., add_intercept)
+# DuckDB query (matrix-based API with MAP options)
 query <- sprintf("
 LOAD '%s';
-SELECT * FROM anofox_statistics_ols_fit(
+SELECT * FROM anofox_statistics_ols(
   [2.1, 4.2, 5.9, 8.1, 10.0]::DOUBLE[],
-  [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],
-  true
+  [[1.0], [2.0], [3.0], [4.0], [5.0]]::DOUBLE[][],
+  {'intercept': true}
 );
 ", ext_full_path)
 
@@ -249,15 +249,13 @@ for (i in seq_along(r_coefs)) {
 }
 cat(sprintf("R²: %.10f\n", r_r2))
 
-# DuckDB query (positional: y, x1, x2, x3, add_intercept)
+# DuckDB query (matrix-based API with MAP options)
 query <- sprintf("
 LOAD '%s';
-SELECT * FROM anofox_statistics_ols_fit(
+SELECT * FROM anofox_statistics_ols(
   [5.0, 10.0, 15.0, 18.0, 25.0]::DOUBLE[],
-  [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],
-  [2.0, 4.0, 5.0, 4.0, 5.0]::DOUBLE[],
-  [1.0, 1.0, 2.0, 2.0, 3.0]::DOUBLE[],
-  true
+  [[1.0, 2.0, 1.0], [2.0, 4.0, 1.0], [3.0, 5.0, 2.0], [4.0, 4.0, 2.0], [5.0, 5.0, 3.0]]::DOUBLE[][],
+  {'intercept': true}
 );
 ", ext_full_path)
 
@@ -295,13 +293,13 @@ r_slope <- coef(r_model)[1]
 
 cat(sprintf("\nR slope: %.10f\n", r_slope))
 
-# DuckDB query (positional: y, x1, add_intercept=false)
+# DuckDB query (matrix-based API with intercept=false)
 query <- sprintf("
 LOAD '%s';
-SELECT * FROM anofox_statistics_ols_fit(
+SELECT * FROM anofox_statistics_ols(
   [2.0, 4.0, 6.0, 8.0, 10.0]::DOUBLE[],
-  [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],
-  false
+  [[1.0], [2.0], [3.0], [4.0], [5.0]]::DOUBLE[][],
+  {'intercept': false}
 );
 ", ext_full_path)
 
@@ -336,14 +334,13 @@ for (i in seq_along(r_coefs)) {
 }
 cat("Note: NA indicates aliased/rank-deficient\n")
 
-# DuckDB query (positional: y, x1, x2, add_intercept)
+# DuckDB query (matrix-based API)
 query <- sprintf("
 LOAD '%s';
-SELECT * FROM anofox_statistics_ols_fit(
+SELECT * FROM anofox_statistics_ols(
   [2.0, 4.0, 6.0, 8.0, 10.0]::DOUBLE[],
-  [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],
-  [5.0, 5.0, 5.0, 5.0, 5.0]::DOUBLE[],
-  true
+  [[1.0, 5.0], [2.0, 5.0], [3.0, 5.0], [4.0, 5.0], [5.0, 5.0]]::DOUBLE[][],
+  {'intercept': true}
 );
 ", ext_full_path)
 
@@ -385,14 +382,13 @@ for (i in seq_along(r_coefs)) {
   cat(sprintf("  %s: %s\n", names(r_coefs)[i], val))
 }
 
-# DuckDB query (positional: y, x1, x2, add_intercept)
+# DuckDB query (matrix-based API)
 query <- sprintf("
 LOAD '%s';
-SELECT * FROM anofox_statistics_ols_fit(
+SELECT * FROM anofox_statistics_ols(
   [3.0, 5.0, 7.0, 9.0, 11.0]::DOUBLE[],
-  [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],
-  [2.0, 4.0, 6.0, 8.0, 10.0]::DOUBLE[],
-  true
+  [[1.0, 2.0], [2.0, 4.0], [3.0, 6.0], [4.0, 8.0], [5.0, 10.0]]::DOUBLE[][],
+  {'intercept': true}
 );
 ", ext_full_path)
 

@@ -1,0 +1,257 @@
+# name: test/sql/fit_predict/test_rls_fit_predict_basic.test
+# description: Test basic RLS fit-predict functionality
+# group: [fit_predict]
+
+require anofox_statistics
+
+# Test 1: Simple train/test split with forgetting_factor=1.0 (standard RLS)
+statement ok
+CREATE TABLE rls_data AS
+SELECT
+    i as id,
+    i::DOUBLE as x,
+    CASE WHEN i <= 5 THEN (i * 2.0)::DOUBLE ELSE NULL END as y
+FROM range(1, 11) t(i);
+
+# Verify data split
+query I
+SELECT COUNT(*) FROM rls_data WHERE y IS NOT NULL;
+----
+5
+
+query I
+SELECT COUNT(*) FROM rls_data WHERE y IS NULL;
+----
+5
+
+# Test 2: Basic RLS fit-predict (forgetting_factor=1.0, no forgetting)
+# With forgetting_factor=1.0, RLS should converge to OLS solution
+query II
+SELECT
+    id,
+    ROUND((pred).yhat, 1) as yhat
+FROM (
+    SELECT
+        id,
+        anofox_statistics_fit_predict_rls(
+            y,
+            [x],
+            MAP{'intercept': 1, 'forgetting_factor': 1.0}
+        ) OVER (ORDER BY id) as pred
+    FROM rls_data
+)
+ORDER BY id;
+----
+1	2.0
+2	4.0
+3	6.0
+4	8.0
+5	10.0
+6	12.0
+7	14.0
+8	16.0
+9	18.0
+10	20.0
+
+# Test 3: RLS with forgetting factor < 1.0 (adaptive tracking)
+statement ok
+CREATE TABLE rls_adaptive AS
+SELECT
+    i as id,
+    i::DOUBLE as x,
+    CASE WHEN i <= 6 THEN (i * 2.0 + 0.1 * i)::DOUBLE ELSE NULL END as y
+FROM range(1, 10) t(i);
+
+# With forgetting_factor < 1.0, recent observations get higher weight
+query I
+SELECT
+    COUNT(*) as predictions
+FROM (
+    SELECT
+        id,
+        anofox_statistics_fit_predict_rls(
+            y,
+            [x],
+            MAP{'intercept': 1, 'forgetting_factor': 0.95}
+        ) OVER (ORDER BY id) as pred
+    FROM rls_adaptive
+)
+WHERE (pred).yhat IS NOT NULL;
+----
+9
+
+# Test 4: PARTITION BY with different forgetting factors per group
+statement ok
+CREATE TABLE rls_groups AS
+SELECT
+    i as row_id,
+    group_id,
+    i::DOUBLE as x,
+    CASE WHEN i <= 3 THEN (i * group_mult + 1.0)::DOUBLE ELSE NULL END as y,
+    group_ff
+FROM range(1, 7) t(i),
+     (VALUES ('A', 2.0, 1.0), ('B', 3.0, 0.99)) g(group_id, group_mult, group_ff);
+
+query III
+SELECT
+    group_id,
+    row_id,
+    ROUND((pred).yhat, 1) as yhat
+FROM (
+    SELECT
+        group_id,
+        row_id,
+        anofox_statistics_fit_predict_rls(
+            y,
+            [x],
+            MAP{'intercept': 1, 'forgetting_factor': group_ff}
+        ) OVER (PARTITION BY group_id) as pred
+    FROM rls_groups
+)
+ORDER BY group_id, row_id;
+----
+A	1	3.0
+A	2	5.0
+A	3	7.0
+A	4	9.0
+A	5	11.0
+A	6	13.0
+B	1	4.0
+B	2	7.0
+B	3	10.0
+B	4	13.0
+B	5	16.0
+B	6	19.0
+
+# Test 5: Multi-feature RLS
+statement ok
+CREATE TABLE rls_multifeature AS
+SELECT
+    i as id,
+    i::DOUBLE as x1,
+    (i * 0.5)::DOUBLE as x2,
+    CASE WHEN i <= 6 THEN (2.0 * i + 3.0 * (i * 0.5) + 1.0)::DOUBLE ELSE NULL END as y
+FROM range(1, 10) t(i);
+
+query I
+SELECT
+    COUNT(*) as predictions
+FROM (
+    SELECT
+        id,
+        anofox_statistics_fit_predict_rls(
+            y,
+            [x1, x2],
+            MAP{'intercept': 1, 'forgetting_factor': 1.0}
+        ) OVER (ORDER BY id) as pred
+    FROM rls_multifeature
+)
+WHERE (pred).yhat IS NOT NULL;
+----
+9
+
+# Test 6: Verify struct fields are accessible
+query IIII
+SELECT
+    id,
+    (pred).yhat IS NOT NULL as has_yhat,
+    (pred).yhat_lower IS NOT NULL as has_lower,
+    (pred).yhat_upper IS NOT NULL as has_upper
+FROM (
+    SELECT
+        id,
+        anofox_statistics_fit_predict_rls(
+            y,
+            [x],
+            MAP{'intercept': 1, 'forgetting_factor': 1.0}
+        ) OVER (ORDER BY id) as pred
+    FROM rls_data
+)
+WHERE id <= 3
+ORDER BY id;
+----
+1	1	1	1
+2	1	1	1
+3	1	1	1
+
+# Test 7: RLS without intercept
+query I
+SELECT
+    COUNT(*) as predictions
+FROM (
+    SELECT
+        id,
+        anofox_statistics_fit_predict_rls(
+            y,
+            [x],
+            MAP{'intercept': 0, 'forgetting_factor': 1.0}
+        ) OVER (ORDER BY id) as pred
+    FROM rls_data
+)
+WHERE (pred).yhat IS NOT NULL;
+----
+10
+
+# Test 8: RLS with extreme forgetting factors
+statement ok
+CREATE TABLE rls_extreme AS
+SELECT
+    i as id,
+    i::DOUBLE as x,
+    CASE WHEN i <= 5 THEN (i * 2.5)::DOUBLE ELSE NULL END as y
+FROM range(1, 9) t(i);
+
+query I
+SELECT
+    COUNT(*) as predictions
+FROM (
+    SELECT
+        id,
+        anofox_statistics_fit_predict_rls(y, [x], MAP{'intercept': 1, 'forgetting_factor': 0.98}) OVER (ORDER BY id) as pred_adaptive,
+        anofox_statistics_fit_predict_rls(y, [x], MAP{'intercept': 1, 'forgetting_factor': 0.999}) OVER (ORDER BY id) as pred_near_one
+    FROM rls_extreme
+)
+WHERE (pred_adaptive).yhat IS NOT NULL AND (pred_near_one).yhat IS NOT NULL;
+----
+8
+
+# Test 9: Verify prediction intervals widen appropriately
+query I
+SELECT
+    COUNT(*) as valid_intervals
+FROM (
+    SELECT
+        id,
+        (pred).yhat as yhat,
+        (pred).yhat_lower as lower,
+        (pred).yhat_upper as upper
+    FROM (
+        SELECT
+            id,
+            anofox_statistics_fit_predict_rls(
+                y,
+                [x],
+                MAP{'intercept': 1, 'forgetting_factor': 1.0}
+            ) OVER (ORDER BY id) as pred
+        FROM rls_data
+    )
+)
+WHERE lower < yhat AND yhat < upper AND (upper - lower) > 0;
+----
+8
+
+# Cleanup
+statement ok
+DROP TABLE rls_data;
+
+statement ok
+DROP TABLE rls_adaptive;
+
+statement ok
+DROP TABLE rls_groups;
+
+statement ok
+DROP TABLE rls_multifeature;
+
+statement ok
+DROP TABLE rls_extreme;

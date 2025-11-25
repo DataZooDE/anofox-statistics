@@ -186,9 +186,9 @@ static void ComputeRidge(RidgeFitBindData &data) {
 			for (idx_t i = 0; i < p; i++) {
 				data.coefficient_std_errors[i] = result.std_errors[i];
 			}
-			// Account for intercept in df calculation: df_residual = n - (p_full)
-			// where p_full = rank + (intercept ? 1 : 0)
-			idx_t df_model = result.rank + (data.options.intercept ? 1 : 0);
+			// After ba2334b fix: result.rank now includes intercept if fitted
+			// df_model = rank directly
+			idx_t df_model = result.rank;
 			data.df_residual = n > df_model ? (n - df_model) : 0;
 		}
 

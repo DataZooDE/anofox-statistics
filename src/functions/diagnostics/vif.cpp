@@ -1,7 +1,8 @@
 #include "vif.hpp"
 #include "../utils/tracing.hpp"
 #include "../utils/validation.hpp"
-#include "../utils/rank_deficient_ols.hpp"
+#include "../bridge/type_converters.hpp"
+#include "libanostat/diagnostics/vif.hpp"
 
 #include "duckdb.hpp"
 #include "duckdb/common/exception.hpp"
@@ -85,95 +86,53 @@ static unique_ptr<FunctionData> VifBind(ClientContext &context, TableFunctionBin
 		}
 	}
 
-	// Detect constant columns (VIF is undefined for constant features)
-	auto constant_cols = RankDeficientOls::DetectConstantColumns(X);
+	// Use libanostat VIFCalculator
+	// VIF is computed WITH intercept (standard definition)
+	libanostat::core::RegressionOptions opts = libanostat::core::RegressionOptions::OLS();
+	opts.intercept = true;
 
-	// Compute VIF for each variable
-	for (idx_t j = 0; j < p; j++) {
-		// Check if column is constant
-		if (constant_cols[j]) {
-			// Constant feature - VIF is undefined (return NULL)
-			bind_data->variable_names.push_back("x" + std::to_string(j + 1));
-			bind_data->vif_values.push_back(std::numeric_limits<double>::quiet_NaN());
-			bind_data->severities.push_back("undefined");
-			ANOFOX_DEBUG("VIF[" << j << "]: constant column (undefined)");
-			continue;
-		}
-		// Extract dependent variable (column j)
-		Eigen::VectorXd y_j = X.col(j);
+	try {
+		auto vif_results = libanostat::diagnostics::VIFCalculator::ComputeVIF(X, opts);
 
-		// Build X matrix with all columns except j
-		Eigen::MatrixXd X_reduced(n, p - 1);
-		idx_t col_idx = 0;
-		for (idx_t k = 0; k < p; k++) {
-			if (k != j) {
-				X_reduced.col(col_idx) = X.col(k);
-				col_idx++;
+		// Extract VIF values and determine severities
+		for (const auto &vif_result : vif_results) {
+			std::string var_name = "x" + std::to_string(vif_result.variable_index + 1);
+
+			if (!vif_result.is_defined) {
+				// VIF is undefined (constant feature or perfect collinearity)
+				if (vif_result.status == libanostat::diagnostics::VIFCalculator::VIFResult::Status::CONSTANT_FEATURE) {
+					bind_data->variable_names.push_back(var_name);
+					bind_data->vif_values.push_back(std::numeric_limits<double>::quiet_NaN());
+					bind_data->severities.push_back("undefined");
+					ANOFOX_DEBUG("VIF[" << vif_result.variable_index << "]: constant column (undefined)");
+				} else {
+					// Perfect collinearity
+					bind_data->variable_names.push_back(var_name);
+					bind_data->vif_values.push_back(std::numeric_limits<double>::infinity());
+					bind_data->severities.push_back("perfect");
+					ANOFOX_DEBUG("VIF[" << vif_result.variable_index << "]: perfect collinearity");
+				}
+			} else {
+				// VIF is defined - determine severity
+				double vif = vif_result.vif;
+				string severity;
+				if (vif < 5.0) {
+					severity = "low";
+				} else if (vif < 10.0) {
+					severity = "moderate";
+				} else {
+					severity = "high";
+				}
+
+				bind_data->variable_names.push_back(var_name);
+				bind_data->vif_values.push_back(vif);
+				bind_data->severities.push_back(severity);
+
+				ANOFOX_DEBUG("VIF[" << vif_result.variable_index << "]: " << vif << " (" << severity << ")");
 			}
 		}
-
-		// VIF requires auxiliary regression WITH intercept (standard definition)
-		// Center y_j and X_reduced before regression
-		double mean_y = y_j.mean();
-		Eigen::VectorXd y_centered = y_j.array() - mean_y;
-
-		Eigen::VectorXd x_means = X_reduced.colwise().mean();
-		Eigen::MatrixXd X_centered(n, p - 1);
-		for (idx_t i = 0; i < n; i++) {
-			for (idx_t k = 0; k < p - 1; k++) {
-				X_centered(i, k) = X_reduced(i, k) - x_means(k);
-			}
-		}
-
-		// Fit OLS on centered data: y_centered = X_centered * beta
-		Eigen::MatrixXd XtX = X_centered.transpose() * X_centered;
-		Eigen::VectorXd Xty = X_centered.transpose() * y_centered;
-
-		// Check if matrix is invertible
-		double det = XtX.determinant();
-		if (std::abs(det) < 1e-10) {
-			// Perfect multicollinearity - VIF is infinite
-			bind_data->variable_names.push_back("x" + std::to_string(j + 1));
-			bind_data->vif_values.push_back(std::numeric_limits<double>::infinity());
-			bind_data->severities.push_back("perfect");
-			continue;
-		}
-
-		Eigen::VectorXd beta = XtX.ldlt().solve(Xty);
-
-		// Compute intercept: intercept = mean_y - beta·x_means
-		double intercept = mean_y - beta.dot(x_means);
-
-		// Predictions on original scale
-		Eigen::VectorXd y_pred = X_reduced * beta;
-		y_pred.array() += intercept;
-
-		// Residuals and R² (now computed correctly with intercept)
-		Eigen::VectorXd residuals = y_j - y_pred;
-
-		double ss_res = residuals.squaredNorm();
-		double ss_tot = (y_j.array() - mean_y).square().sum();
-
-		double r_squared = 1.0 - ss_res / ss_tot;
-
-		// VIF = 1 / (1 - R²)
-		double vif = 1.0 / (1.0 - r_squared);
-
-		// Determine severity
-		string severity;
-		if (vif < 5.0) {
-			severity = "low";
-		} else if (vif < 10.0) {
-			severity = "moderate";
-		} else {
-			severity = "high";
-		}
-
-		bind_data->variable_names.push_back("x" + std::to_string(j + 1));
-		bind_data->vif_values.push_back(vif);
-		bind_data->severities.push_back(severity);
-
-		ANOFOX_DEBUG("VIF[" << j << "]: " << vif << " (" << severity << ")");
+	} catch (const std::exception &e) {
+		throw InvalidInputException("VIF calculation failed: %s", e.what());
 	}
 
 	// Define return types
