@@ -1,6 +1,5 @@
 #include "wls_aggregate.hpp"
 #include "../utils/tracing.hpp"
-#include "../utils/rank_deficient_ols.hpp"
 #include "../utils/options_parser.hpp"
 #include "../bridge/libanostat_wrapper.hpp"
 #include "../bridge/type_converters.hpp"
@@ -230,9 +229,15 @@ static void WlsFinalize(Vector &state_vector, AggregateInputData &aggr_input_dat
 		    bridge::TypeConverters::ExtractFeatureCoefficients(lib_result, state.options.intercept);
 		Eigen::VectorXd feature_coefs =
 		    Eigen::Map<const Eigen::VectorXd>(feature_coefs_vec.data(), feature_coefs_vec.size());
-		idx_t rank = lib_result.rank; // Already includes intercept!
 
-		// Compute x_means manually for metadata
+		// Extract all fit statistics from libanostat (no recomputation)
+		idx_t rank = lib_result.rank; // Already includes intercept!
+		double r2 = lib_result.r_squared;
+		double adj_r2 = lib_result.adj_r_squared;
+		double mse = lib_result.mse;
+		idx_t df_residual = lib_result.df_residual();
+
+		// Compute x_means manually for metadata (for prediction API - this is data marshaling)
 		// For WLS, we need weighted means
 		Eigen::VectorXd w_eigen(n);
 		for (idx_t i = 0; i < n; i++) {
@@ -248,35 +253,6 @@ static void WlsFinalize(Vector &state_vector, AggregateInputData &aggr_input_dat
 			x_means(j) = weighted_sum / sum_weights;
 		}
 
-		// Compute predictions
-		Eigen::VectorXd y_pred = Eigen::VectorXd::Constant(n, intercept);
-		for (idx_t j = 0; j < p; j++) {
-			if (!std::isnan(feature_coefs(j))) {
-				y_pred += feature_coefs(j) * X.col(j);
-			}
-		}
-
-		// Compute weighted statistics
-		Eigen::VectorXd residuals = y - y_pred;
-		double ss_res = residuals.squaredNorm(); // Unweighted for MSE calculation
-		double ss_res_weighted = (w.array() * residuals.array().square()).sum();
-
-		double ss_tot_weighted;
-		if (state.options.intercept) {
-			double y_weighted_mean = (w.array() * y.array()).sum() / sum_weights;
-			ss_tot_weighted = (w.array() * (y.array() - y_weighted_mean).square()).sum();
-		} else {
-			// No intercept: total sum of squares from zero
-			ss_tot_weighted = (w.array() * y.array().square()).sum();
-		}
-
-		double r2 = (ss_tot_weighted > 1e-10) ? (1.0 - ss_res_weighted / ss_tot_weighted) : 0.0;
-
-		// Adjusted R²: rank already includes intercept if fitted
-		idx_t df_model = rank;
-		double adj_r2 = 1.0 - (1.0 - r2) * (n - 1) / (n - df_model);
-		double weighted_mse = ss_res_weighted / sum_weights;
-
 		// Store coefficients
 		auto coef_data = FlatVector::GetData<double>(coef_child);
 		auto &coef_validity = FlatVector::Validity(coef_child);
@@ -291,12 +267,8 @@ static void WlsFinalize(Vector &state_vector, AggregateInputData &aggr_input_dat
 
 		list_entries[result_idx] = list_entry_t {list_offset, p};
 
-		// Compute extended metadata
-		// 1. MSE (unweighted MSE for standard errors)
-		idx_t df_residual = n - df_model;
-		double mse = (df_residual > 0) ? (ss_res / df_residual) : std::numeric_limits<double>::quiet_NaN();
-
-		// 2. Intercept standard error
+		// Extract extended metadata from libanostat
+		// Intercept standard error
 		double intercept_se = std::numeric_limits<double>::quiet_NaN();
 		if (state.options.intercept && lib_result.has_std_errors && df_residual > 0) {
 			// SE(intercept) = sqrt(MSE * (1/n + x_mean' * (X'X)^-1 * x_mean))
@@ -352,7 +324,7 @@ static void WlsFinalize(Vector &state_vector, AggregateInputData &aggr_input_dat
 		intercept_data[result_idx] = intercept;
 		r2_data[result_idx] = r2;
 		adj_r2_data[result_idx] = adj_r2;
-		weighted_mse_data[result_idx] = weighted_mse;
+		weighted_mse_data[result_idx] = mse; // For WLS, mse is already weighted
 		n_data[result_idx] = n;
 		mse_data[result_idx] = mse;
 		intercept_se_data[result_idx] = intercept_se;
