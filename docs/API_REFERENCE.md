@@ -60,11 +60,10 @@ All functions follow the pattern: `anofox_statistics_{method}[_operation][_agg]`
 3. [Fit-Predict Window Aggregates](#fit-predict-window-aggregates)
 4. [Inference Functions](#inference-functions)
 5. [Prediction Interval Functions](#prediction-interval-functions)
-6. [Predict Aggregate Functions](#predict-aggregate-functions)
-7. [Diagnostic Functions](#diagnostic-functions)
-8. [Model Selection Functions](#model-selection-functions)
-9. [Scalar Functions](#scalar-functions)
-10. [Function Coverage Matrix](#function-coverage-matrix)
+6. [Diagnostic Functions](#diagnostic-functions)
+7. [Model Selection Functions](#model-selection-functions)
+8. [Scalar Functions](#scalar-functions)
+9. [Function Coverage Matrix](#function-coverage-matrix)
 
 ---
 
@@ -1007,87 +1006,6 @@ SELECT * FROM anofox_statistics_elastic_net_predict_interval(
 
 ---
 
-## Predict Aggregate Functions
-
-Apply pre-fitted models to new data within GROUP BY or window contexts.
-
-**Status:** ⚠️ **NOT YET IMPLEMENTED** (All 5 methods planned)
-
-### Common Signature Pattern
-
-```sql
-anofox_statistics_predict_{method}_agg(
-    coefficients             DOUBLE[],
-    intercept                DOUBLE,
-    mse                      DOUBLE,
-    x_train_means            DOUBLE[],
-    coefficient_std_errors   DOUBLE[],
-    intercept_std_error      DOUBLE,
-    df_residual              BIGINT,
-    x                        DOUBLE[],
-    options                  MAP
-) [GROUP BY ...] [OVER (...)] → STRUCT
-```
-
-### Common Return Structure
-
-```sql
-STRUCT(
-    yhat        DOUBLE,
-    yhat_lower  DOUBLE,
-    yhat_upper  DOUBLE,
-    std_error   DOUBLE
-)
-```
-
-### Use Case
-
-```sql
--- Step 1: Fit model per category with full_output
-CREATE TABLE models AS
-SELECT
-    category,
-    anofox_statistics_ols_agg(
-        y, [x1, x2],
-        MAP{'intercept': true, 'full_output': true}
-    ) as model
-FROM training_data
-GROUP BY category;
-
--- Step 2: Predict on new data using stored model
-SELECT
-    t.category,
-    t.observation_id,
-    pred.yhat,
-    pred.yhat_lower,
-    pred.yhat_upper
-FROM test_data t
-JOIN models m ON t.category = m.category,
-LATERAL (
-    SELECT anofox_statistics_predict_ols_agg(
-        m.model.coefficients,
-        m.model.intercept,
-        m.model.mse,
-        m.model.x_train_means,
-        m.model.coefficient_std_errors,
-        m.model.intercept_std_error,
-        m.model.df_residual,
-        [t.x1, t.x2],
-        MAP{'confidence_level': 0.95, 'interval_type': 'prediction'}
-    ) as pred
-);
-```
-
-### Planned Functions
-
-- `anofox_statistics_predict_ols_agg`
-- `anofox_statistics_predict_ridge_agg`
-- `anofox_statistics_predict_wls_agg`
-- `anofox_statistics_predict_rls_agg`
-- `anofox_statistics_predict_elastic_net_agg`
-
----
-
 ## Diagnostic Functions
 
 ### Residual Diagnostics
@@ -1591,7 +1509,7 @@ FROM test_data t, model m;
 
 ## Function Coverage Matrix
 
-This matrix shows which functions are currently **implemented** (✅) vs **planned** (⏳).
+This matrix shows which functions are currently **implemented** (✅).
 
 | Function Type | OLS | Ridge | WLS | RLS | Elastic Net |
 |---------------|-----|-------|-----|-----|-------------|
@@ -1600,13 +1518,10 @@ This matrix shows which functions are currently **implemented** (✅) vs **plann
 | **Fit-Predict Aggregate** | ✅ | ✅ | ✅ | ✅ | ✅ |
 | **Inference Table** | ✅ | ✅ | ✅ | ✅ | ✅ |
 | **Predict Interval Table** | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **Predict Aggregate** | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 
 ### Summary Statistics
 
-- **Total Functions:** 51 (current) → 56 (when complete)
-- **Implemented:** 38 functions
-- **Planned:** 5 functions (predict_agg only)
+- **Total Functions:** 38 (fully implemented)
 - **Removed (v0.2.0):** 3 legacy functions
 
 ### Function Categories
@@ -1618,13 +1533,12 @@ This matrix shows which functions are currently **implemented** (✅) vs **plann
 | Fit-Predict Window Aggregates | 5 |
 | Inference Functions | 5 (OLS, Ridge, WLS, RLS, Elastic Net) |
 | Predict Interval Functions | 5 (OLS, Ridge, WLS, RLS, Elastic Net) |
-| Predict Aggregate Functions | 0 (+ 5 planned) |
 | Diagnostic Functions | 6 (3 table + 3 aggregate) |
 | Model Selection | 1 |
 | Model-Based Prediction | 1 |
 | Scalar Metrics | 4 |
 | Scalar Prediction | 1 |
-| **Total** | **38** (+ 5 planned) |
+| **Total** | **38** |
 
 ---
 
