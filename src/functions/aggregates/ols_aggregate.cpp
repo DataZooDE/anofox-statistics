@@ -1,6 +1,5 @@
 #include "ols_aggregate.hpp"
 #include "../utils/tracing.hpp"
-#include "../utils/rank_deficient_ols.hpp"
 #include "../utils/options_parser.hpp"
 #include "../bridge/libanostat_wrapper.hpp"
 #include "../bridge/type_converters.hpp"
@@ -137,38 +136,32 @@ static void OlsFinalize(Vector &state_vector, AggregateInputData &aggr_input_dat
 			continue;
 		}
 
-		// Simple OLS for single variable: β = Cov(x,y) / Var(x)
-		// Or equivalently: β = (X'X)^(-1) X'y for single column X
-
-		double sum_x = 0.0, sum_y = 0.0;
+		// Use libanostat OLSSolver for single variable OLS (NO intercept)
+		// Convert to vector<vector<double>> format for X matrix (single column)
+		vector<vector<double>> x_matrix;
+		x_matrix.reserve(n);
 		for (idx_t j = 0; j < n; j++) {
-			sum_x += state.x_values[j];
-			sum_y += state.y_values[j];
+			x_matrix.push_back({state.x_values[j]});
 		}
 
-		double mean_x = sum_x / static_cast<double>(n);
-		double mean_y = sum_y / static_cast<double>(n);
+		// Fit using libanostat (no intercept)
+		RegressionOptions opts;
+		opts.intercept = false;
 
-		double cov_xy = 0.0;
-		double var_x = 0.0;
+		try {
+			auto lib_result = bridge::LibanostatWrapper::FitOLS(state.y_values, x_matrix, opts, false);
 
-		for (idx_t j = 0; j < n; j++) {
-			double dx = state.x_values[j] - mean_x;
-			double dy = state.y_values[j] - mean_y;
-			cov_xy += dx * dy;
-			var_x += dx * dx;
-		}
+			// Extract coefficient (position 0 since no intercept)
+			if (lib_result.is_aliased[0]) {
+				result_validity.SetInvalid(result_idx);
+				continue;
+			}
 
-		// Avoid division by zero
-		if (var_x < 1e-10) {
+			result_data[result_idx] = lib_result.coefficients[0];
+			ANOFOX_DEBUG("OLS aggregate: n=" << n << ", coeff=" << lib_result.coefficients[0]);
+		} catch (...) {
 			result_validity.SetInvalid(result_idx);
-			continue;
 		}
-
-		double coefficient = cov_xy / var_x;
-		result_data[result_idx] = coefficient;
-
-		ANOFOX_DEBUG("OLS aggregate: n=" << n << ", coeff=" << coefficient);
 	}
 }
 
@@ -211,62 +204,40 @@ static void OlsFitFinalize(Vector &state_vector, AggregateInputData &aggr_input_
 			continue;
 		}
 
-		// Compute OLS: y = intercept + coefficient * x
-		double sum_x = 0.0, sum_y = 0.0;
+		// Use libanostat OLSSolver for single variable OLS WITH intercept
+		// Convert to vector<vector<double>> format for X matrix (single column)
+		vector<vector<double>> x_matrix;
+		x_matrix.reserve(n);
 		for (idx_t j = 0; j < n; j++) {
-			sum_x += state.x_values[j];
-			sum_y += state.y_values[j];
+			x_matrix.push_back({state.x_values[j]});
 		}
 
-		double mean_x = sum_x / static_cast<double>(n);
-		double mean_y = sum_y / static_cast<double>(n);
+		// Fit using libanostat WITH intercept and standard errors
+		RegressionOptions opts;
+		opts.intercept = true;
 
-		double cov_xy = 0.0;
-		double var_x = 0.0;
+		try {
+			auto lib_result = bridge::LibanostatWrapper::FitOLS(state.y_values, x_matrix, opts, true);
 
-		for (idx_t j = 0; j < n; j++) {
-			double dx = state.x_values[j] - mean_x;
-			double dy = state.y_values[j] - mean_y;
-			cov_xy += dx * dy;
-			var_x += dx * dx;
-		}
+			// Check if coefficient is aliased
+			// With intercept: coefficients[0] = intercept, coefficients[1] = slope
+			if (lib_result.is_aliased[1]) {
+				result_validity.SetInvalid(result_idx);
+				continue;
+			}
 
-		// Avoid division by zero
-		if (var_x < 1e-10) {
+			// Extract all statistics from libanostat result
+			intercept_data[result_idx] = lib_result.coefficients[0];
+			coef_data[result_idx] = lib_result.coefficients[1];
+			r2_data[result_idx] = lib_result.r_squared;
+			n_data[result_idx] = static_cast<int64_t>(n);
+			stderr_data[result_idx] = lib_result.std_errors[1]; // SE of slope
+
+			ANOFOX_DEBUG("OLS fit aggregate: n=" << n << ", coef=" << lib_result.coefficients[1]
+			                                     << ", r2=" << lib_result.r_squared);
+		} catch (...) {
 			result_validity.SetInvalid(result_idx);
-			continue;
 		}
-
-		double coefficient = cov_xy / var_x;
-		double intercept = mean_y - coefficient * mean_x;
-
-		// Compute R² and residual standard error
-		double ss_tot = 0.0; // Total sum of squares
-		double ss_res = 0.0; // Residual sum of squares
-
-		for (idx_t j = 0; j < n; j++) {
-			double y_pred = intercept + coefficient * state.x_values[j];
-			double residual = state.y_values[j] - y_pred;
-			ss_res += residual * residual;
-
-			double deviation = state.y_values[j] - mean_y;
-			ss_tot += deviation * deviation;
-		}
-
-		double r2 = (ss_tot > 1e-10) ? (1.0 - ss_res / ss_tot) : 0.0;
-
-		// Standard error of coefficient: sqrt(MSE / sum((x - mean_x)²))
-		double mse = (n > 2) ? (ss_res / static_cast<double>(n - 2)) : 0.0;
-		double std_error = std::sqrt(mse / var_x);
-
-		// Fill struct fields
-		coef_data[result_idx] = coefficient;
-		intercept_data[result_idx] = intercept;
-		r2_data[result_idx] = r2;
-		n_data[result_idx] = n;
-		stderr_data[result_idx] = std_error;
-
-		ANOFOX_DEBUG("OLS fit aggregate: n=" << n << ", coef=" << coefficient << ", r2=" << r2);
 	}
 }
 
@@ -444,7 +415,7 @@ static void OlsArrayFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
 		    bridge::TypeConverters::ExtractFeatureCoefficients(lib_result, state.options.intercept);
 		Eigen::VectorXd feature_coefs =
 		    Eigen::Map<const Eigen::VectorXd>(feature_coefs_vec.data(), feature_coefs_vec.size());
-		// Compute x_means manually (libanostat doesn't store this)
+		// Compute x_means manually (for prediction API - this is data marshaling, not statistics)
 		Eigen::VectorXd x_means(p);
 		for (idx_t j = 0; j < p; j++) {
 			double sum = 0.0;
@@ -453,51 +424,11 @@ static void OlsArrayFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
 			}
 			x_means(j) = sum / n;
 		}
+
+		// Extract all fit statistics from libanostat (no recomputation)
 		idx_t rank = lib_result.rank; // Already includes intercept if fitted!
-
-		// Compute predictions
-		Eigen::VectorXd y_pred(n);
-		for (idx_t i = 0; i < n; i++) {
-			y_pred(i) = intercept;
-			for (idx_t j = 0; j < p; j++) {
-				if (!std::isnan(feature_coefs(j))) {
-					y_pred(i) += feature_coefs(j) * state.x_matrix[i][j];
-				}
-			}
-		}
-
-		// Compute R²
-		Eigen::VectorXd y_eigen(n);
-		for (idx_t i = 0; i < n; i++) {
-			y_eigen(i) = state.y_values[i];
-		}
-		Eigen::VectorXd residuals = y_eigen - y_pred;
-		double ss_res = residuals.squaredNorm();
-
-		double ss_tot;
-		if (state.options.intercept) {
-			double mean_y = 0.0;
-			for (idx_t i = 0; i < n; i++) {
-				mean_y += state.y_values[i];
-			}
-			mean_y /= n;
-			ss_tot = 0.0;
-			for (idx_t i = 0; i < n; i++) {
-				double diff = state.y_values[i] - mean_y;
-				ss_tot += diff * diff;
-			}
-		} else {
-			ss_tot = 0.0;
-			for (idx_t i = 0; i < n; i++) {
-				ss_tot += state.y_values[i] * state.y_values[i];
-			}
-		}
-
-		double r2 = (ss_tot > 1e-10) ? (1.0 - ss_res / ss_tot) : 0.0;
-
-		// Adjusted R²: lib_result.rank already includes intercept
-		idx_t df_model = rank;
-		double adj_r2 = 1.0 - (1.0 - r2) * (n - 1) / (n - df_model);
+		double r2 = lib_result.r_squared;
+		double adj_r2 = lib_result.adj_r_squared;
 
 		// Store coefficients in child vector (NaN for aliased -> will be NULL)
 		auto coef_data = FlatVector::GetData<double>(coef_child);
@@ -515,17 +446,15 @@ static void OlsArrayFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
 		// Set list entry for coefficients
 		list_entries[result_idx] = list_entry_t {list_offset, p};
 
-		// Compute extended metadata
-		// 1. MSE
-		idx_t df_residual = n - df_model;
-		double mse = (df_residual > 0) ? (ss_res / df_residual) : std::numeric_limits<double>::quiet_NaN();
+		// Extract extended metadata from libanostat (no recomputation)
+		// 1. MSE and df_residual
+		double mse = lib_result.mse;
+		idx_t df_residual = lib_result.df_residual();
 
-		// 2. Intercept standard error
+		// 2. Intercept standard error from libanostat
 		double intercept_se = std::numeric_limits<double>::quiet_NaN();
-		if (state.options.intercept && lib_result.has_std_errors && df_residual > 0) {
-			// SE(intercept) = sqrt(MSE * (1/n + x_mean' * (X'X)^-1 * x_mean))
-			// Approximation: SE(intercept) ≈ sqrt(MSE / n) for centered data
-			intercept_se = std::sqrt(mse / n);
+		if (state.options.intercept && lib_result.has_std_errors) {
+			intercept_se = lib_result.std_errors[0]; // Intercept SE at position 0
 		}
 
 		// 3. Store x_train_means in list (same offset as coefficients)
