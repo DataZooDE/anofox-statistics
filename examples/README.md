@@ -89,6 +89,48 @@ LATERAL anofox_statistics_model_predict(
 - ✅ **Memory efficient**: Model stored once, reused many times
 - ✅ **Production-ready**: Perfect for prediction pipelines
 
+## Performance Testing
+
+### Overview
+
+A comprehensive performance testing suite that compares DuckDB extension functions against R's `lm()` implementation using identical datasets.
+
+### Quick Start
+
+```bash
+# Run all tests (generates data, runs SQL & R tests, saves results)
+./examples/run_all_tests.sh
+
+# Or run individual steps:
+duckdb < examples/generate_test_data.sql              # 1. Generate test data
+duckdb < examples/performance_test_ols_fit_predict.sql  # 2. SQL fit-predict tests
+duckdb < examples/performance_test_ols_aggregate.sql    # 3. SQL aggregate tests
+Rscript examples/performance_test_ols_fit_predict.R     # 4. R fit-predict tests
+Rscript examples/performance_test_ols_aggregate.R       # 5. R aggregate tests
+duckdb < examples/compare_sql_vs_r.sql                  # 6. Compare results
+```
+
+### Files
+
+- **`generate_test_data.sql`**: Generates test datasets as parquet files
+- **`performance_test_ols_fit_predict.sql`**: SQL window function tests
+- **`performance_test_ols_fit_predict.R`**: R equivalent tests
+- **`performance_test_ols_aggregate.sql`**: SQL aggregate function tests
+- **`performance_test_ols_aggregate.R`**: R equivalent tests
+- **`compare_sql_vs_r.sql`**: Compares SQL vs R results
+- **`run_all_tests.sh`**: Master script to run all tests
+- **`README_performance_tests.md`**: Detailed documentation
+
+### Default Configuration
+
+- **Groups**: 10,000
+- **Observations per group**: 100
+- **Total rows**: 1,000,000
+- **Features**: 8 (x1-x8)
+- **Tests**: Window functions (expanding/fixed) & GROUP BY aggregates
+
+See [README_performance_tests.md](README_performance_tests.md) for complete documentation.
+
 ## More Examples
 
 For more comprehensive examples, see:

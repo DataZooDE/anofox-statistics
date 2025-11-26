@@ -1,7 +1,7 @@
 -- ============================================================================
 -- Performance Test: OLS Aggregate Functions with GROUP BY
 -- ============================================================================
--- This script generates a large dataset for performance testing of
+-- This script loads a pre-generated dataset and tests the performance of
 -- anofox_statistics_ols_fit_agg with GROUP BY functionality.
 --
 -- Dataset characteristics:
@@ -10,109 +10,28 @@
 -- - Gaussian noise added to simulate realistic data
 -- - No NULL values (required for aggregate functions)
 --
+-- Prerequisites:
+-- 1. Run generate_test_data.sql first to create the parquet file
+--
 -- Usage:
--- 1. Adjust configuration parameters below
--- 2. Run the entire script in DuckDB
--- 3. Observe timing output for performance analysis
+-- 1. Run the entire script in DuckDB
+-- 2. Observe timing output for performance analysis
+-- 3. Results are saved to examples/results/
 -- ============================================================================
 
 -- ============================================================================
--- CONFIGURATION PARAMETERS (easily changeable)
+-- STEP 1: Load Performance Data from Parquet File
 -- ============================================================================
-SET VARIABLE n_groups = 10000;          -- Number of groups
-SET VARIABLE n_obs_per_group = 100;     -- Observations per group
-SET VARIABLE n_features = 8;            -- Number of features (x1, x2, ..., x8)
-SET VARIABLE noise_std = 2.0;           -- Standard deviation of Gaussian noise
-
--- ============================================================================
--- STEP 1: Generate Random Coefficients for Each Group
--- ============================================================================
--- Each group gets its own "true" linear relationship with randomly sampled
--- coefficients. This creates heterogeneous data across groups.
 
 .print '============================================================================'
-.print 'Generating group-specific coefficients...'
-.print '============================================================================'
-
-CREATE OR REPLACE TABLE group_coefficients AS
-SELECT
-    group_id,
-    -- Intercept: random value between -10 and 10
-    (random() * 20.0 - 10.0) as beta_0,
-    -- Coefficient for x1: random value between -5 and 5
-    (random() * 10.0 - 5.0) as beta_1,
-    -- Coefficient for x2
-    (random() * 10.0 - 5.0) as beta_2,
-    -- Coefficient for x3
-    (random() * 10.0 - 5.0) as beta_3,
-    -- Coefficient for x4
-    (random() * 10.0 - 5.0) as beta_4,
-    -- Coefficient for x5
-    (random() * 10.0 - 5.0) as beta_5,
-    -- Coefficient for x6
-    (random() * 10.0 - 5.0) as beta_6,
-    -- Coefficient for x7
-    (random() * 10.0 - 5.0) as beta_7,
-    -- Coefficient for x8
-    (random() * 10.0 - 5.0) as beta_8
-FROM range(1, getvariable('n_groups') + 1) t(group_id);
-
-.print 'Generated coefficients for ' || getvariable('n_groups') || ' groups'
-.print ''
-
--- ============================================================================
--- STEP 2: Generate Observations for Each Group
--- ============================================================================
--- For each group, generate n_obs_per_group observations with:
--- - Features x1-x8: random uniform values between -10 and 10
--- - Response y: calculated from true linear relationship + Gaussian noise
-
-.print '============================================================================'
-.print 'Generating observations...'
+.print 'Loading performance data from parquet file...'
 .print '============================================================================'
 
 CREATE OR REPLACE TABLE performance_data AS
-SELECT
-    gc.group_id,
-    obs.obs_id,
-    -- Generate features x1 through x8 (uniform random between -10 and 10)
-    (random() * 20.0 - 10.0)::DOUBLE as x1,
-    (random() * 20.0 - 10.0)::DOUBLE as x2,
-    (random() * 20.0 - 10.0)::DOUBLE as x3,
-    (random() * 20.0 - 10.0)::DOUBLE as x4,
-    (random() * 20.0 - 10.0)::DOUBLE as x5,
-    (random() * 20.0 - 10.0)::DOUBLE as x6,
-    (random() * 20.0 - 10.0)::DOUBLE as x7,
-    (random() * 20.0 - 10.0)::DOUBLE as x8,
-    -- Store coefficients for y calculation
-    gc.beta_0, gc.beta_1, gc.beta_2, gc.beta_3, gc.beta_4,
-    gc.beta_5, gc.beta_6, gc.beta_7, gc.beta_8
-FROM
-    group_coefficients gc
-    CROSS JOIN range(1, getvariable('n_obs_per_group') + 1) obs(obs_id);
-
--- Add response variable y with true linear relationship + noise
-CREATE OR REPLACE TABLE performance_data AS
-SELECT
-    group_id,
-    obs_id,
-    x1, x2, x3, x4, x5, x6, x7, x8,
-    -- y = beta_0 + beta_1*x1 + beta_2*x2 + ... + beta_8*x8 + noise
-    (beta_0 +
-     beta_1 * x1 +
-     beta_2 * x2 +
-     beta_3 * x3 +
-     beta_4 * x4 +
-     beta_5 * x5 +
-     beta_6 * x6 +
-     beta_7 * x7 +
-     beta_8 * x8 +
-     -- Gaussian noise using Box-Muller transform
-     sqrt(-2.0 * ln(random())) * cos(2.0 * pi() * random()) * getvariable('noise_std')
-    )::DOUBLE as y
-FROM performance_data;
+SELECT * FROM 'examples/data/performance_data_aggregate.parquet';
 
 -- Report dataset size
+.print ''
 SELECT
     COUNT(*) as total_rows,
     COUNT(DISTINCT group_id) as n_groups,
@@ -120,7 +39,7 @@ SELECT
 FROM performance_data;
 
 .print ''
-.print 'Dataset generated successfully!'
+.print 'Dataset loaded successfully!'
 .print ''
 
 -- ============================================================================
@@ -340,27 +259,69 @@ WHERE gc.group_id = 1;
 .print ''
 
 -- ============================================================================
+-- STEP 7: Save Results to Parquet Files
+-- ============================================================================
+
+.print '============================================================================'
+.print 'Saving results to parquet files...'
+.print '============================================================================'
+
+-- Save basic model results (all groups)
+COPY (
+    SELECT
+        group_id,
+        model.intercept,
+        model.coefficients,
+        model.r2,
+        model.adj_r2,
+        model.n_obs,
+        model.df_model,
+        model.df_residual
+    FROM group_models
+) TO 'examples/results/sql_group_models.parquet' (FORMAT PARQUET);
+
+-- Save full model results (all groups)
+COPY (
+    SELECT
+        group_id,
+        model.intercept,
+        model.coefficients,
+        model.coefficient_std_errors,
+        model.coefficient_t_statistics,
+        model.coefficient_p_values,
+        model.r2,
+        model.adj_r2,
+        model.f_statistic,
+        model.f_statistic_p_value,
+        model.aic,
+        model.bic,
+        model.n_obs,
+        model.df_model,
+        model.df_residual
+    FROM group_models_full
+) TO 'examples/results/sql_group_models_full.parquet' (FORMAT PARQUET);
+
+.print 'Results saved to examples/results/'
+.print ''
+
+-- ============================================================================
 -- SUMMARY
 -- ============================================================================
 .print '============================================================================'
 .print 'PERFORMANCE TEST SUMMARY'
 .print '============================================================================'
-.print 'Configuration:'
-.print '  - Groups: ' || getvariable('n_groups')
-.print '  - Observations per group: ' || getvariable('n_obs_per_group')
-.print '  - Total rows: ' || (getvariable('n_groups') * getvariable('n_obs_per_group'))
-.print '  - Features: ' || getvariable('n_features')
-.print '  - Noise std dev: ' || getvariable('noise_std')
-.print ''
 .print 'Tests completed:'
 .print '  1. GROUP BY aggregation on all groups (basic output)'
 .print '  2. GROUP BY aggregation on all groups (full output)'
 .print '  3. GROUP BY aggregation on subset (100 groups)'
 .print ''
 .print 'Tables created:'
-.print '  - group_coefficients: True coefficients for each group'
 .print '  - performance_data: Raw observations with features and response'
 .print '  - group_models: Fitted models (basic output)'
 .print '  - group_models_full: Fitted models (full statistical output)'
 .print '  - subset_models: Fitted models for subset'
+.print ''
+.print 'Results saved to:'
+.print '  - examples/results/sql_group_models.parquet'
+.print '  - examples/results/sql_group_models_full.parquet'
 .print '============================================================================'
