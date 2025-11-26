@@ -108,26 +108,22 @@ anofox_statistics_{method}(
 
 ```sql
 STRUCT(
-    -- Basic model fit
+    -- Basic model fit (always included)
     coefficients        DOUBLE[],     -- Feature coefficients (β)
     intercept           DOUBLE,        -- Model intercept
-    r_squared           DOUBLE,        -- R² statistic
-    adj_r_squared       DOUBLE,        -- Adjusted R²
-    mse                 DOUBLE,        -- Mean squared error
-    rmse                DOUBLE,        -- Root mean squared error
+    r2                  DOUBLE,        -- R² statistic
+    adj_r2              DOUBLE,        -- Adjusted R²
     n_obs               BIGINT,        -- Number of observations
-    n_features          BIGINT,        -- Number of features
 
-    -- Extended with full_output=true:
-    x_train_means             DOUBLE[],
-    coefficient_std_errors    DOUBLE[],
-    intercept_std_error       DOUBLE,
-    df_residual               BIGINT,
-    rank                      BIGINT,
-    is_aliased                BOOLEAN[],
+    -- Extended metadata (always included)
+    mse                 DOUBLE,        -- Mean squared error
+    x_train_means       DOUBLE[],      -- Mean of training features
+    coefficient_std_errors    DOUBLE[], -- Standard errors of coefficients
+    intercept_std_error       DOUBLE,   -- Standard error of intercept
+    df_residual               BIGINT,   -- Degrees of freedom (residual)
 
-    -- Model-level inference (full_output=true):
-    residual_standard_error   DOUBLE,   -- √(RSS / df_residual), matches R lm()
+    -- Model-level inference (always included)
+    residual_standard_error   DOUBLE,   -- √(MSE), matches R lm()
     f_statistic               DOUBLE,   -- Overall model F-statistic
     f_statistic_pvalue        DOUBLE,   -- p-value for F-statistic
     aic                       DOUBLE,   -- Akaike Information Criterion
@@ -135,13 +131,13 @@ STRUCT(
     bic                       DOUBLE,   -- Bayesian Information Criterion
     log_likelihood            DOUBLE,   -- Log-likelihood
 
-    -- Coefficient-level inference (full_output=true):
+    -- Coefficient-level inference (always included)
     coefficient_t_statistics  DOUBLE[], -- t-statistic for each coefficient
     coefficient_p_values      DOUBLE[], -- p-value for each coefficient
     coefficient_ci_lower      DOUBLE[], -- Lower confidence bound (per coef)
     coefficient_ci_upper      DOUBLE[], -- Upper confidence bound (per coef)
 
-    -- Intercept-level inference (full_output=true):
+    -- Intercept-level inference (always included)
     intercept_t_statistic     DOUBLE,   -- t-statistic for intercept
     intercept_p_value         DOUBLE,   -- p-value for intercept
     intercept_ci_lower        DOUBLE,   -- Lower CI bound for intercept
@@ -149,7 +145,7 @@ STRUCT(
 )
 ```
 
-**Note:** All regression table and aggregate functions return this structure when `full_output=true`.
+**Note:** All regression aggregate functions return this complete structure with all statistical inference fields included.
 
 ---
 
@@ -182,7 +178,7 @@ anofox_statistics_ols_fit(
 SELECT * FROM anofox_statistics_ols_fit(
     [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],
     [[1.0], [2.0], [3.0], [4.0], [5.0]]::DOUBLE[][],
-    MAP{'intercept': true}
+    {'intercept': true}
 );
 ```
 
@@ -191,7 +187,7 @@ SELECT * FROM anofox_statistics_ols_fit(
 SELECT
     coefficients,
     intercept,
-    r_squared,
+    r2,
     f_statistic,
     f_statistic_pvalue,
     aic,
@@ -201,7 +197,7 @@ SELECT
 FROM anofox_statistics_ols_fit(
     [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],
     [[1.0], [2.0], [3.0], [4.0], [5.0]]::DOUBLE[][],
-    MAP{'intercept': true, 'full_output': true, 'confidence_level': 0.95}
+    {'intercept': true, 'full_output': true, 'confidence_level': 0.95}
 );
 ```
 
@@ -239,7 +235,7 @@ anofox_statistics_ridge_fit(
 SELECT * FROM anofox_statistics_ridge_fit(
     y_array,
     x_matrix,
-    MAP{'intercept': true, 'lambda': 1.0}
+    {'intercept': true, 'lambda': 1.0}
 );
 ```
 
@@ -279,7 +275,7 @@ SELECT * FROM anofox_statistics_wls_fit(
     y_array,
     x_matrix,
     [1.0, 2.0, 1.5, 3.0, 2.0]::DOUBLE[],
-    MAP{'intercept': true}
+    {'intercept': true}
 );
 ```
 
@@ -325,7 +321,7 @@ anofox_statistics_elastic_net_fit(
 SELECT * FROM anofox_statistics_elastic_net_fit(
     y_array,
     x_matrix,
-    MAP{
+    {
         'alpha': 0.5,
         'lambda': 0.1,
         'intercept': true
@@ -369,7 +365,7 @@ anofox_statistics_rls_fit(
 SELECT * FROM anofox_statistics_rls_fit(
     y_array,
     x_matrix,
-    MAP{'intercept': true, 'forgetting_factor': 0.99}
+    {'intercept': true, 'forgetting_factor': 0.99}
 );
 ```
 
@@ -423,7 +419,7 @@ anofox_statistics_ols_fit_agg(
 ```sql
 SELECT
     category,
-    anofox_statistics_ols_fit_agg(sales, [price, advertising], MAP{'intercept': true}) as model
+    anofox_statistics_ols_fit_agg(sales, [price, advertising], {'intercept': true}) as model
 FROM sales_data
 GROUP BY category;
 ```
@@ -432,7 +428,7 @@ GROUP BY category;
 ```sql
 SELECT
     date,
-    anofox_statistics_ols_fit_agg(value, [time_index], MAP{'intercept': true})
+    anofox_statistics_ols_fit_agg(value, [time_index], {'intercept': true})
         OVER (ORDER BY date ROWS BETWEEN 29 PRECEDING AND CURRENT ROW) as model
 FROM time_series;
 ```
@@ -465,7 +461,7 @@ SELECT
         outcome,
         [predictor1, predictor2],
         weight_column,
-        MAP{'intercept': true}
+        {'intercept': true}
     ) as model
 FROM panel_data
 GROUP BY region;
@@ -499,7 +495,7 @@ SELECT
     anofox_statistics_ridge_fit_agg(
         returns,
         [factor1, factor2, factor3],
-        MAP{'intercept': true, 'lambda': 1.0}
+        {'intercept': true, 'lambda': 1.0}
     ) OVER (ORDER BY date ROWS BETWEEN 251 PRECEDING AND CURRENT ROW) as model
 FROM daily_returns;
 ```
@@ -530,7 +526,7 @@ SELECT
     anofox_statistics_rls_fit_agg(
         sensor_reading,
         [temperature, humidity],
-        MAP{'forgetting_factor': 0.98}
+        {'forgetting_factor': 0.98}
     ) OVER (ORDER BY timestamp ROWS BETWEEN 19 PRECEDING AND CURRENT ROW) as model
 FROM sensor_data;
 ```
@@ -563,7 +559,7 @@ SELECT
     anofox_statistics_elastic_net_fit_agg(
         y_value,
         [x1, x2, x3, x4, x5],
-        MAP{'alpha': 0.7, 'lambda': 0.1, 'intercept': true}
+        {'alpha': 0.7, 'lambda': 0.1, 'intercept': true}
     ) as sparse_model
 FROM training_data
 GROUP BY category;
@@ -633,7 +629,7 @@ FROM (
         anofox_statistics_ols_fit_predict(
             actual_value,
             [feature1, feature2],
-            MAP{'intercept': true, 'interval_type': 'prediction'}
+            {'intercept': true, 'interval_type': 'prediction'}
         ) OVER (
             ORDER BY date
             ROWS BETWEEN 29 PRECEDING AND CURRENT ROW
@@ -763,7 +759,7 @@ SELECT * FROM anofox_statistics_predict_ols(
     [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],
     [[1.0], [2.0], [3.0], [4.0], [5.0]]::DOUBLE[][],
     [[6.0], [7.0]]::DOUBLE[][],
-    MAP{'interval_type': 'prediction', 'confidence_level': 0.95}
+    {'interval_type': 'prediction', 'confidence_level': 0.95}
 );
 
 -- Output:
@@ -967,7 +963,7 @@ SELECT
     anofox_statistics_residual_diagnostics_agg(
         actual,
         predicted,
-        MAP{'outlier_threshold': 3.0, 'detailed': false}
+        {'outlier_threshold': 3.0, 'detailed': false}
     ) as diagnostics
 FROM predictions
 GROUP BY category;
@@ -1109,7 +1105,7 @@ SELECT
     model_id,
     anofox_statistics_normality_test_agg(
         residual,
-        MAP{'alpha': 0.05}
+        {'alpha': 0.05}
     ) as normality_test
 FROM model_residuals
 GROUP BY model_id;
@@ -1170,7 +1166,7 @@ CREATE TABLE model AS
 SELECT * FROM anofox_statistics_ols_fit(
     y_array,
     x_matrix,
-    MAP{'intercept': true, 'full_output': true}
+    {'intercept': true, 'full_output': true}
 );
 
 -- Step 2: Predict on new data (no refitting!)

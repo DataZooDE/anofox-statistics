@@ -139,7 +139,7 @@ SELECT
     anofox_statistics_ols_fit_agg(
         y,
         [x1, x2, x3, x4, x5, x6, x7, x8],
-        MAP{'intercept': true, 'confidence_level': 0.95}
+        {'intercept': true, 'confidence_level': 0.95}
     ) as model
 FROM performance_data
 GROUP BY group_id;
@@ -152,8 +152,8 @@ GROUP BY group_id;
 SELECT
     group_id,
     model.coefficients as coefficients,
-    model.r_squared as r_squared,
-    model.adj_r_squared as adj_r_squared,
+    model.r2 as r_squared,
+    model.adj_r2 as adj_r_squared,
     model.n_obs as n_obs
 FROM group_models
 WHERE group_id <= 5
@@ -177,7 +177,7 @@ SELECT
     anofox_statistics_ols_fit_agg(
         y,
         [x1, x2, x3, x4, x5, x6, x7, x8],
-        MAP{'intercept': true, 'confidence_level': 0.95, 'full_output': true}
+        {'intercept': true, 'confidence_level': 0.95, 'full_output': true}
     ) as model
 FROM performance_data
 GROUP BY group_id;
@@ -189,11 +189,11 @@ GROUP BY group_id;
 .print 'Sample comprehensive output (group 1):'
 SELECT
     model.coefficients as coefficients,
-    model.std_errors as std_errors,
-    model.t_statistics as t_statistics,
-    model.p_values as p_values,
-    model.r_squared as r_squared,
-    model.adj_r_squared as adj_r_squared,
+    model.coefficient_std_errors as std_errors,
+    model.coefficient_t_statistics as t_statistics,
+    model.coefficient_p_values as p_values,
+    model.r2 as r_squared,
+    model.adj_r2 as adj_r_squared,
     model.f_statistic as f_statistic,
     model.aic as aic,
     model.bic as bic
@@ -218,7 +218,7 @@ SELECT
     anofox_statistics_ols_fit_agg(
         y,
         [x1, x2, x3, x4, x5, x6, x7, x8],
-        MAP{'intercept': true}
+        {'intercept': true}
     ) as model
 FROM performance_data
 WHERE group_id <= 100
@@ -241,8 +241,8 @@ GROUP BY group_id;
 SELECT
     'Intercept' as parameter,
     gc.beta_0 as true_value,
-    gm.model.coefficients[1] as estimated_value,
-    gm.model.coefficients[1] - gc.beta_0 as error
+    gm.model.intercept as estimated_value,
+    gm.model.intercept - gc.beta_0 as error
 FROM group_coefficients gc
 JOIN group_models gm ON gc.group_id = gm.group_id
 WHERE gc.group_id = 1
@@ -252,8 +252,8 @@ UNION ALL
 SELECT
     'x1',
     gc.beta_1,
-    gm.model.coefficients[2],
-    gm.model.coefficients[2] - gc.beta_1
+    gm.model.coefficients[1],
+    gm.model.coefficients[1] - gc.beta_1
 FROM group_coefficients gc
 JOIN group_models gm ON gc.group_id = gm.group_id
 WHERE gc.group_id = 1
@@ -263,8 +263,8 @@ UNION ALL
 SELECT
     'x2',
     gc.beta_2,
-    gm.model.coefficients[3],
-    gm.model.coefficients[3] - gc.beta_2
+    gm.model.coefficients[2],
+    gm.model.coefficients[2] - gc.beta_2
 FROM group_coefficients gc
 JOIN group_models gm ON gc.group_id = gm.group_id
 WHERE gc.group_id = 1
@@ -274,8 +274,8 @@ UNION ALL
 SELECT
     'x3',
     gc.beta_3,
-    gm.model.coefficients[4],
-    gm.model.coefficients[4] - gc.beta_3
+    gm.model.coefficients[3],
+    gm.model.coefficients[3] - gc.beta_3
 FROM group_coefficients gc
 JOIN group_models gm ON gc.group_id = gm.group_id
 WHERE gc.group_id = 1
@@ -285,8 +285,8 @@ UNION ALL
 SELECT
     'x4',
     gc.beta_4,
-    gm.model.coefficients[5],
-    gm.model.coefficients[5] - gc.beta_4
+    gm.model.coefficients[4],
+    gm.model.coefficients[4] - gc.beta_4
 FROM group_coefficients gc
 JOIN group_models gm ON gc.group_id = gm.group_id
 WHERE gc.group_id = 1
@@ -296,8 +296,8 @@ UNION ALL
 SELECT
     'x5',
     gc.beta_5,
-    gm.model.coefficients[6],
-    gm.model.coefficients[6] - gc.beta_5
+    gm.model.coefficients[5],
+    gm.model.coefficients[5] - gc.beta_5
 FROM group_coefficients gc
 JOIN group_models gm ON gc.group_id = gm.group_id
 WHERE gc.group_id = 1
@@ -307,8 +307,8 @@ UNION ALL
 SELECT
     'x6',
     gc.beta_6,
-    gm.model.coefficients[7],
-    gm.model.coefficients[7] - gc.beta_6
+    gm.model.coefficients[6],
+    gm.model.coefficients[6] - gc.beta_6
 FROM group_coefficients gc
 JOIN group_models gm ON gc.group_id = gm.group_id
 WHERE gc.group_id = 1
@@ -318,8 +318,8 @@ UNION ALL
 SELECT
     'x7',
     gc.beta_7,
-    gm.model.coefficients[8],
-    gm.model.coefficients[8] - gc.beta_7
+    gm.model.coefficients[7],
+    gm.model.coefficients[7] - gc.beta_7
 FROM group_coefficients gc
 JOIN group_models gm ON gc.group_id = gm.group_id
 WHERE gc.group_id = 1
@@ -329,8 +329,8 @@ UNION ALL
 SELECT
     'x8',
     gc.beta_8,
-    gm.model.coefficients[9],
-    gm.model.coefficients[9] - gc.beta_8
+    gm.model.coefficients[8],
+    gm.model.coefficients[8] - gc.beta_8
 FROM group_coefficients gc
 JOIN group_models gm ON gc.group_id = gm.group_id
 WHERE gc.group_id = 1;
