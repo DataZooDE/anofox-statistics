@@ -321,8 +321,8 @@ void WlsFitPredictFunction::Register(ExtensionLoader &loader) {
 	fit_predict_struct_fields.push_back(make_pair("_dummy", LogicalType::LIST(LogicalType::DOUBLE)));
 
 	// Use ONLY window callback to force WindowCustomAggregator path
-	AggregateFunction anofox_statistics_fit_predict_wls(
-	    "anofox_statistics_fit_predict_wls",
+	AggregateFunction anofox_statistics_wls_fit_predict(
+	    "anofox_statistics_wls_fit_predict",
 	    {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE, LogicalType::ANY},
 	    LogicalType::STRUCT(fit_predict_struct_fields), AggregateFunction::StateSize<WlsFitPredictState>,
 	    WlsFitPredictInitialize,
@@ -333,7 +333,7 @@ void WlsFitPredictFunction::Register(ExtensionLoader &loader) {
 	    WlsFitPredictWindow, // WLS-specific window callback - called per row
 	    nullptr, nullptr);
 
-	loader.RegisterFunction(anofox_statistics_fit_predict_wls);
+	loader.RegisterFunction(anofox_statistics_wls_fit_predict);
 
 	ANOFOX_DEBUG("WLS fit-predict function registered successfully");
 }

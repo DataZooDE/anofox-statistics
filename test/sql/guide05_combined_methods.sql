@@ -23,26 +23,26 @@ CREATE TEMP TABLE all_methods AS
 SELECT
     market,
     -- OLS: Standard baseline
-    anofox_statistics_ols_agg(
+    anofox_statistics_ols_fit_agg(
         y,
         [x1_correlated, x2_correlated, x3_independent],
         {'intercept': true}
     ) as ols_model,
     -- WLS: Addresses heteroscedasticity
-    anofox_statistics_wls_agg(
+    anofox_statistics_wls_fit_agg(
         y,
         [x1_correlated, x2_correlated, x3_independent],
         observation_weight,
         {'intercept': true}
     ) as wls_model,
     -- Ridge: Handles multicollinearity
-    anofox_statistics_ridge_agg(
+    anofox_statistics_ridge_fit_agg(
         y,
         [x1_correlated, x2_correlated, x3_independent],
         {'lambda': 1.0, 'intercept': true}
     ) as ridge_model,
     -- RLS: Adaptive to changes
-    anofox_statistics_rls_agg(
+    anofox_statistics_rls_fit_agg(
         y,
         [x1_correlated, x2_correlated, x3_independent],
         {'forgetting_factor': 0.95, 'intercept': true}

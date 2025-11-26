@@ -640,3 +640,67 @@ TEST_CASE("OLS: R-Compatible Perfect Collinearity with Intercept", "[ols][r-comp
 	REQUIRE_THAT(result.r_squared,
 	             Catch::Matchers::WithinAbs(1.0, TOLERANCE));
 }
+
+TEST_CASE("OLS: Intercept Fields in Result", "[ols][intercept]") {
+	// Simple test data: y = 2 + 3*x
+	Eigen::VectorXd y(5);
+	y << 2, 5, 8, 11, 14;  // 2+3*0, 2+3*1, 2+3*2, 2+3*3, 2+3*4
+	
+	Eigen::MatrixXd X(5, 1);
+	X << 0, 1, 2, 3, 4;
+	
+	// Test WITH intercept
+	core::RegressionOptions opts_with_intercept;
+	opts_with_intercept.intercept = true;
+	
+	auto result_with = OLSSolver::Fit(y, X, opts_with_intercept);
+	
+	// Check has_intercept flag
+	REQUIRE(result_with.has_intercept == true);
+	
+	// Check intercept value (should be 2.0)
+	REQUIRE_THAT(result_with.intercept, Catch::Matchers::WithinAbs(2.0, 1e-10));
+	
+	// Check that coefficient is correct (should be 3.0)
+	REQUIRE_THAT(result_with.coefficients(0), Catch::Matchers::WithinAbs(3.0, 1e-10));
+	
+	// Test WITHOUT intercept
+	core::RegressionOptions opts_no_intercept;
+	opts_no_intercept.intercept = false;
+	
+	auto result_without = OLSSolver::Fit(y, X, opts_no_intercept);
+	
+	// Check has_intercept flag
+	REQUIRE(result_without.has_intercept == false);
+	
+	// intercept should be 0.0 when not fitted
+	REQUIRE(result_without.intercept == 0.0);
+}
+
+TEST_CASE("OLS: Intercept Standard Error", "[ols][intercept][inference]") {
+	// Simple test data
+	Eigen::VectorXd y(10);
+	y << 2, 5, 8, 11, 14, 17, 20, 23, 26, 29;
+	
+	Eigen::MatrixXd X(10, 1);
+	X << 0, 1, 2, 3, 4, 5, 6, 7, 8, 9;
+	
+	core::RegressionOptions opts;
+	opts.intercept = true;
+	
+	auto result = OLSSolver::FitWithStdErrors(y, X, opts);
+	
+	// Check intercept and has_intercept
+	REQUIRE(result.has_intercept == true);
+	REQUIRE_THAT(result.intercept, Catch::Matchers::WithinAbs(2.0, 1e-10));
+	
+	// Check has_std_errors flag
+	REQUIRE(result.has_std_errors == true);
+	
+	// Check intercept_std_error is finite and positive
+	REQUIRE(std::isfinite(result.intercept_std_error));
+	REQUIRE(result.intercept_std_error > 0.0);
+	
+	// For this perfect linear relationship, std error should be very small
+	REQUIRE(result.intercept_std_error < 1e-6);
+}

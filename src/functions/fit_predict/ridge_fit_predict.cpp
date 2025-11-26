@@ -324,8 +324,8 @@ void RidgeFitPredictFunction::Register(ExtensionLoader &loader) {
 	fit_predict_struct_fields.push_back(make_pair("_dummy", LogicalType::LIST(LogicalType::DOUBLE)));
 
 	// Use real callback functions (not lambdas)
-	AggregateFunction anofox_statistics_fit_predict_ridge(
-	    "anofox_statistics_fit_predict_ridge",
+	AggregateFunction anofox_statistics_ridge_fit_predict(
+	    "anofox_statistics_ridge_fit_predict",
 	    {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
 	    LogicalType::STRUCT(fit_predict_struct_fields), AggregateFunction::StateSize<RidgeFitPredictState>,
 	    RidgeFitPredictInitialize, RidgeFitPredictUpdate, RidgeFitPredictCombine, RidgeFitPredictFinalize,
@@ -335,7 +335,7 @@ void RidgeFitPredictFunction::Register(ExtensionLoader &loader) {
 	    RidgeFitPredictWindow, // Ridge-specific window callback
 	    nullptr, nullptr);
 
-	loader.RegisterFunction(anofox_statistics_fit_predict_ridge);
+	loader.RegisterFunction(anofox_statistics_ridge_fit_predict);
 
 	ANOFOX_DEBUG("Ridge fit-predict function registered successfully");
 }

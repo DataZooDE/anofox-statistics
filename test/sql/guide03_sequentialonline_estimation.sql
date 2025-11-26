@@ -7,7 +7,7 @@ WITH data AS (
         [[1.0::DOUBLE, 2.0, 3.0, 4.0, 5.0, 6.0]] as X
 )
 SELECT result.* FROM data,
-LATERAL anofox_statistics_rls(
+LATERAL anofox_statistics_rls_fit(
     data.y,
     data.X,
     MAP(['lambda', 'intercept'], [0.99::DOUBLE, 1.0::DOUBLE])

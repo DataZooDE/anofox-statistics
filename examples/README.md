@@ -42,7 +42,7 @@ python3 examples/model_prediction_demo.py
 **Traditional approach (refitting each time):**
 ```sql
 -- Inefficient: refits model for each prediction
-SELECT * FROM anofox_statistics_ols_predict_interval(
+SELECT * FROM anofox_statistics_predict_ols(
     y_train, x_train, x_new, 0.95, 'prediction', true
 );
 ```
@@ -51,7 +51,7 @@ SELECT * FROM anofox_statistics_ols_predict_interval(
 ```sql
 -- 1. Fit once with full_output
 CREATE TABLE model AS
-SELECT * FROM anofox_statistics_ols(
+SELECT * FROM anofox_statistics_ols_fit(
     y_train, x_train, MAP{'intercept': true, 'full_output': true}
 );
 

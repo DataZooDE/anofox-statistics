@@ -33,7 +33,7 @@ SELECT
 FROM (
     SELECT
         id,
-        anofox_statistics_fit_predict_rls(
+        anofox_statistics_rls_fit_predict(
             y,
             [x],
             MAP{'intercept': 1, 'forgetting_factor': 1.0}
@@ -69,7 +69,7 @@ SELECT
 FROM (
     SELECT
         id,
-        anofox_statistics_fit_predict_rls(
+        anofox_statistics_rls_fit_predict(
             y,
             [x],
             MAP{'intercept': 1, 'forgetting_factor': 0.95}
@@ -101,7 +101,7 @@ FROM (
     SELECT
         group_id,
         row_id,
-        anofox_statistics_fit_predict_rls(
+        anofox_statistics_rls_fit_predict(
             y,
             [x],
             MAP{'intercept': 1, 'forgetting_factor': group_ff}
@@ -139,7 +139,7 @@ SELECT
 FROM (
     SELECT
         id,
-        anofox_statistics_fit_predict_rls(
+        anofox_statistics_rls_fit_predict(
             y,
             [x1, x2],
             MAP{'intercept': 1, 'forgetting_factor': 1.0}
@@ -160,7 +160,7 @@ SELECT
 FROM (
     SELECT
         id,
-        anofox_statistics_fit_predict_rls(
+        anofox_statistics_rls_fit_predict(
             y,
             [x],
             MAP{'intercept': 1, 'forgetting_factor': 1.0}
@@ -181,7 +181,7 @@ SELECT
 FROM (
     SELECT
         id,
-        anofox_statistics_fit_predict_rls(
+        anofox_statistics_rls_fit_predict(
             y,
             [x],
             MAP{'intercept': 0, 'forgetting_factor': 1.0}
@@ -207,8 +207,8 @@ SELECT
 FROM (
     SELECT
         id,
-        anofox_statistics_fit_predict_rls(y, [x], MAP{'intercept': 1, 'forgetting_factor': 0.98}) OVER (ORDER BY id) as pred_adaptive,
-        anofox_statistics_fit_predict_rls(y, [x], MAP{'intercept': 1, 'forgetting_factor': 0.999}) OVER (ORDER BY id) as pred_near_one
+        anofox_statistics_rls_fit_predict(y, [x], MAP{'intercept': 1, 'forgetting_factor': 0.98}) OVER (ORDER BY id) as pred_adaptive,
+        anofox_statistics_rls_fit_predict(y, [x], MAP{'intercept': 1, 'forgetting_factor': 0.999}) OVER (ORDER BY id) as pred_near_one
     FROM rls_extreme
 )
 WHERE (pred_adaptive).yhat IS NOT NULL AND (pred_near_one).yhat IS NOT NULL;
@@ -228,7 +228,7 @@ FROM (
     FROM (
         SELECT
             id,
-            anofox_statistics_fit_predict_rls(
+            anofox_statistics_rls_fit_predict(
                 y,
                 [x],
                 MAP{'intercept': 1, 'forgetting_factor': 1.0}

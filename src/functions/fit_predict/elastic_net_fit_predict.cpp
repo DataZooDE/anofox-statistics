@@ -196,8 +196,8 @@ void ElasticNetFitPredictFunction::Register(ExtensionLoader &loader) {
 
 	// Use ONLY window callback to force WindowCustomAggregator path
 	// This prevents WindowConstantAggregator from broadcasting a single result to all rows
-	AggregateFunction anofox_statistics_fit_predict_elastic_net(
-	    "anofox_statistics_fit_predict_elastic_net",
+	AggregateFunction anofox_statistics_elastic_net_fit_predict(
+	    "anofox_statistics_elastic_net_fit_predict",
 	    {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
 	    LogicalType::STRUCT(fit_predict_struct_fields), AggregateFunction::StateSize<ElasticNetFitPredictState>,
 	    ElasticNetFitPredictInitialize,
@@ -208,7 +208,7 @@ void ElasticNetFitPredictFunction::Register(ExtensionLoader &loader) {
 	    ElasticNetFitPredictWindow, // Elastic Net-specific window callback - called per row
 	    nullptr, nullptr);
 
-	loader.RegisterFunction(anofox_statistics_fit_predict_elastic_net);
+	loader.RegisterFunction(anofox_statistics_elastic_net_fit_predict);
 
 	ANOFOX_DEBUG("Elastic Net fit-predict function registered successfully");
 }

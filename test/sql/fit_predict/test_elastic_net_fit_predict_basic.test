@@ -33,7 +33,7 @@ SELECT
 FROM (
     SELECT
         id,
-        anofox_statistics_fit_predict_elastic_net(
+        anofox_statistics_elastic_net_fit_predict(
             y,
             [x],
             MAP{'intercept': 1, 'alpha': 0.5, 'lambda': 0.01}
@@ -70,7 +70,7 @@ SELECT
 FROM (
     SELECT
         id,
-        anofox_statistics_fit_predict_elastic_net(
+        anofox_statistics_elastic_net_fit_predict(
             y,
             [x1, x2],
             MAP{'intercept': 1, 'alpha': 1.0, 'lambda': 0.5}
@@ -88,7 +88,7 @@ SELECT
 FROM (
     SELECT
         id,
-        anofox_statistics_fit_predict_elastic_net(
+        anofox_statistics_elastic_net_fit_predict(
             y,
             [x1, x2],
             MAP{'intercept': 1, 'alpha': 0.0, 'lambda': 1.0}
@@ -121,7 +121,7 @@ FROM (
     SELECT
         group_id,
         row_id,
-        anofox_statistics_fit_predict_elastic_net(
+        anofox_statistics_elastic_net_fit_predict(
             y,
             [x],
             MAP{'intercept': 1, 'alpha': group_alpha, 'lambda': group_lambda}
@@ -153,7 +153,7 @@ SELECT
 FROM (
     SELECT
         id,
-        anofox_statistics_fit_predict_elastic_net(
+        anofox_statistics_elastic_net_fit_predict(
             y,
             [x],
             MAP{'intercept': 1, 'alpha': 0.5, 'lambda': 0.1}
@@ -174,7 +174,7 @@ SELECT
 FROM (
     SELECT
         id,
-        anofox_statistics_fit_predict_elastic_net(
+        anofox_statistics_elastic_net_fit_predict(
             y,
             [x],
             MAP{'intercept': 0, 'alpha': 0.5, 'lambda': 0.1}
@@ -202,19 +202,19 @@ FROM (
     SELECT
         id,
         'lasso' as alpha_type,
-        anofox_statistics_fit_predict_elastic_net(y, [x1, x2], MAP{'intercept': 1, 'alpha': 1.0, 'lambda': 0.5}) OVER (ORDER BY id) as pred
+        anofox_statistics_elastic_net_fit_predict(y, [x1, x2], MAP{'intercept': 1, 'alpha': 1.0, 'lambda': 0.5}) OVER (ORDER BY id) as pred
     FROM alpha_comparison
     UNION ALL
     SELECT
         id,
         'ridge' as alpha_type,
-        anofox_statistics_fit_predict_elastic_net(y, [x1, x2], MAP{'intercept': 1, 'alpha': 0.0, 'lambda': 0.5}) OVER (ORDER BY id) as pred
+        anofox_statistics_elastic_net_fit_predict(y, [x1, x2], MAP{'intercept': 1, 'alpha': 0.0, 'lambda': 0.5}) OVER (ORDER BY id) as pred
     FROM alpha_comparison
     UNION ALL
     SELECT
         id,
         'elastic' as alpha_type,
-        anofox_statistics_fit_predict_elastic_net(y, [x1, x2], MAP{'intercept': 1, 'alpha': 0.5, 'lambda': 0.5}) OVER (ORDER BY id) as pred
+        anofox_statistics_elastic_net_fit_predict(y, [x1, x2], MAP{'intercept': 1, 'alpha': 0.5, 'lambda': 0.5}) OVER (ORDER BY id) as pred
     FROM alpha_comparison
 )
 WHERE (pred).yhat IS NOT NULL;
@@ -232,7 +232,7 @@ FROM (
     FROM (
         SELECT
             id,
-            anofox_statistics_fit_predict_elastic_net(
+            anofox_statistics_elastic_net_fit_predict(
                 y,
                 [x],
                 MAP{'intercept': 1, 'alpha': 0.5, 'lambda': 0.1}

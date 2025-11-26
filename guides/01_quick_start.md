@@ -39,7 +39,7 @@ WITH input AS (
         LIST_VALUE(LIST_VALUE(1.1::DOUBLE, 2.1, 2.9, 4.2, 4.8)) as X
 )
 SELECT result.* FROM input,
-LATERAL anofox_statistics_ridge(
+LATERAL anofox_statistics_ridge_fit(
     input.y,
     input.X,
     MAP(['lambda', 'intercept'], [0.0::DOUBLE, 1.0::DOUBLE])
@@ -374,7 +374,7 @@ SELECT
 FROM (
     SELECT
         category,
-        anofox_statistics_ols_agg(
+        anofox_statistics_ols_fit_agg(
             units_sold::DOUBLE,
             [price::DOUBLE],
             {'intercept': true}
@@ -432,7 +432,7 @@ SELECT
 FROM (
     SELECT
         segment,
-        anofox_statistics_wls_agg(
+        anofox_statistics_wls_fit_agg(
             spend,
             [income],
             reliability_weight,
@@ -495,7 +495,7 @@ SELECT
 FROM (
     SELECT
         ticker,
-        anofox_statistics_ridge_agg(
+        anofox_statistics_ridge_fit_agg(
             return,
             [market_return, sector_return, momentum],
             {'lambda': 1.0, 'intercept': true}
@@ -557,7 +557,7 @@ SELECT
 FROM (
     SELECT
         sensor_id,
-        anofox_statistics_rls_agg(
+        anofox_statistics_rls_fit_agg(
             true_value,
             [raw_reading],
             {'forgetting_factor': 0.95, 'intercept': true}
@@ -741,7 +741,7 @@ SELECT 'guide01_issue_extension_wont_load.sql - DISABLED - documentation example
 ```sql
 
 -- Ensure arrays are DOUBLE[] and use new API with 2D array + MAP
-SELECT * FROM anofox_statistics_ols(
+SELECT * FROM anofox_statistics_ols_fit(
     [1.0, 2.0, 3.0]::DOUBLE[],         -- y: Cast to DOUBLE[]
     [[1.0, 2.0, 3.0]]::DOUBLE[][],     -- X: 2D array (one feature)
     MAP{'intercept': true}              -- options in MAP

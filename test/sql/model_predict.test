@@ -7,7 +7,7 @@ require anofox_statistics
 # Test 1: Simple linear regression - fit model with full_output
 statement ok
 CREATE TEMP TABLE model AS
-SELECT * FROM anofox_statistics_ols(
+SELECT * FROM anofox_statistics_ols_fit(
     [2.1, 4.2, 5.9, 8.1, 10.0]::DOUBLE[],
     [[1.0], [2.0], [3.0], [4.0], [5.0]]::DOUBLE[][],
     {'intercept': true, 'full_output': true}
@@ -110,7 +110,7 @@ FROM anofox_statistics_model_predict(
 # Test 7: Multiple features - fit 2-feature model
 statement ok
 CREATE TEMP TABLE model2 AS
-SELECT * FROM anofox_statistics_ols(
+SELECT * FROM anofox_statistics_ols_fit(
     [10.0, 20.0, 30.0, 40.0, 50.0]::DOUBLE[],
     [[1.0, 2.0], [2.0, 4.0], [3.0, 6.0], [4.0, 8.0], [5.0, 10.0]]::DOUBLE[][],
     {'intercept': true, 'full_output': true}
@@ -260,7 +260,7 @@ FROM anofox_statistics_model_predict(
 # Test 15: Model with Ridge regression
 statement ok
 CREATE TEMP TABLE ridge_model AS
-SELECT * FROM anofox_statistics_ridge(
+SELECT * FROM anofox_statistics_ridge_fit(
     [2.1, 4.2, 5.9, 8.1, 10.0]::DOUBLE[],
     [[1.0], [2.0], [3.0], [4.0], [5.0]]::DOUBLE[][],
     {'intercept': true, 'lambda': 0.1, 'full_output': true}

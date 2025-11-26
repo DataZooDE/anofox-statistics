@@ -28,7 +28,15 @@ struct RegressionResult {
 
 	/// Estimated regression coefficients (length = n_params)
 	/// For rank-deficient case, aliased coefficients are set to NaN
+	/// NOTE: Does NOT include intercept - see intercept field below
 	Eigen::VectorXd coefficients;
+
+	/// Intercept term (if fitted with intercept)
+	/// Only valid if has_intercept is true
+	double intercept = 0.0;
+
+	/// Flag indicating if intercept was fitted
+	bool has_intercept = false;
 
 	/// Residuals: y - X*beta (length = n_obs)
 	Eigen::VectorXd residuals;
@@ -73,13 +81,85 @@ struct RegressionResult {
 	/// Mean squared error: SSE / df_residual
 	double mse = std::numeric_limits<double>::quiet_NaN();
 
+	/// Residual standard error: sqrt(MSE) = sqrt(RSS / df_residual)
+	/// Same as RMSE in theory, but computed for consistency with R's lm()
+	double residual_standard_error = std::numeric_limits<double>::quiet_NaN();
+
+	/// F-statistic for overall model significance
+	/// F = (TSS - RSS) / df_model / (RSS / df_residual)
+	/// Tests H0: all coefficients are zero
+	double f_statistic = std::numeric_limits<double>::quiet_NaN();
+
+	/// p-value for F-statistic
+	double f_statistic_pvalue = std::numeric_limits<double>::quiet_NaN();
+
+	// ========================================================================
+	// Model selection criteria
+	// ========================================================================
+
+	/// Akaike Information Criterion
+	/// AIC = n*log(RSS/n) + 2*k where k = rank
+	double aic = std::numeric_limits<double>::quiet_NaN();
+
+	/// Corrected AIC for small samples
+	/// AICc = AIC + 2*k*(k+1)/(n-k-1)
+	double aicc = std::numeric_limits<double>::quiet_NaN();
+
+	/// Bayesian Information Criterion
+	/// BIC = n*log(RSS/n) + k*log(n)
+	double bic = std::numeric_limits<double>::quiet_NaN();
+
+	/// Log-likelihood (under normal errors assumption)
+	/// log L = -n/2 * (log(2π) + log(RSS/n) + 1)
+	double log_likelihood = std::numeric_limits<double>::quiet_NaN();
+
 	// ========================================================================
 	// Optional: Statistical inference outputs
 	// ========================================================================
 
 	/// Standard errors of coefficients (length = n_params)
 	/// Only computed if requested; aliased coefficients have NaN std errors
+	/// NOTE: Does NOT include intercept std error - see intercept_std_error field below
 	Eigen::VectorXd std_errors;
+
+	/// Standard error of intercept term (if fitted with intercept and std errors computed)
+	/// Only valid if has_intercept && has_std_errors
+	double intercept_std_error = std::numeric_limits<double>::quiet_NaN();
+
+	/// t-statistics for coefficients: coef / std_error (length = n_params)
+	/// Aliased coefficients have NaN t-statistics
+	/// NOTE: Does NOT include intercept t-statistic
+	Eigen::VectorXd t_statistics;
+
+	/// t-statistic for intercept term
+	double intercept_t_statistic = std::numeric_limits<double>::quiet_NaN();
+
+	/// p-values for coefficients (two-tailed test, H0: coef = 0) (length = n_params)
+	/// Aliased coefficients have NaN p-values
+	/// NOTE: Does NOT include intercept p-value
+	Eigen::VectorXd p_values;
+
+	/// p-value for intercept term
+	double intercept_p_value = std::numeric_limits<double>::quiet_NaN();
+
+	/// Lower bounds of confidence intervals for coefficients (length = n_params)
+	/// Aliased coefficients have NaN bounds
+	/// NOTE: Does NOT include intercept CI
+	Eigen::VectorXd ci_lower;
+
+	/// Lower bound of confidence interval for intercept
+	double intercept_ci_lower = std::numeric_limits<double>::quiet_NaN();
+
+	/// Upper bounds of confidence intervals for coefficients (length = n_params)
+	/// Aliased coefficients have NaN bounds
+	/// NOTE: Does NOT include intercept CI
+	Eigen::VectorXd ci_upper;
+
+	/// Upper bound of confidence interval for intercept
+	double intercept_ci_upper = std::numeric_limits<double>::quiet_NaN();
+
+	/// Confidence level used for intervals (e.g., 0.95 for 95% CI)
+	double confidence_level = 0.95;
 
 	/// Flag indicating if standard errors have been computed
 	bool has_std_errors = false;

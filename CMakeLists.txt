@@ -44,9 +44,6 @@ set(EXTENSION_SOURCES
     # src/bridge/type_converter.cpp  # TODO: Update for v1.4.1 if needed
     # src/bridge/memory_manager.cpp  # TODO: Update for v1.4.1 if needed
 
-    # Functions - Metrics
-    src/functions/ols_metrics.cpp
-
     # Functions - Fit (Phase 2 - Array-based implementation for v1.4.1)
     src/functions/ols_fit.cpp         # Ordinary Least Squares regression
     src/functions/ridge_fit.cpp       # Ridge regression with L2 regularization
@@ -66,12 +63,15 @@ set(EXTENSION_SOURCES
     src/functions/aggregates/vif_aggregate.cpp                    # VIF aggregate
     src/functions/aggregates/normality_test_aggregate.cpp         # Normality Test aggregate
 
-    # Phase 5 - Statistical Inference & Diagnostics (In Progress)
-    src/functions/inference/ols_inference.cpp          # Coefficient inference with p-values
-    src/functions/inference/prediction_intervals.cpp   # Confidence/prediction intervals
+    # Phase 5 - Statistical Inference & Diagnostics
+    # Inference functions removed - metrics now integrated into table & aggregate functions
+    src/functions/inference/prediction_intervals.cpp   # OLS prediction intervals
+    src/functions/inference/ridge_prediction_intervals.cpp       # Ridge prediction intervals
+    src/functions/inference/wls_prediction_intervals.cpp         # WLS prediction intervals
+    src/functions/inference/rls_prediction_intervals.cpp         # RLS prediction intervals
+    src/functions/inference/elastic_net_prediction_intervals.cpp # Elastic Net prediction intervals
     src/functions/inference/model_predict.cpp          # Model-based prediction with intervals
-    src/functions/inference/predict_scalar.cpp         # Scalar predict functions (accept column refs)
-    src/functions/model_selection/information_criteria.cpp  # AIC, BIC, model selection
+    # information_criteria.cpp removed - metrics now integrated into table & aggregate functions
     src/functions/diagnostics/residual_diagnostics.cpp # Leverage, Cook's D, DFFITS
     src/functions/diagnostics/vif.cpp                  # Multicollinearity detection
     src/functions/diagnostics/normality_test.cpp       # Jarque-Bera normality test

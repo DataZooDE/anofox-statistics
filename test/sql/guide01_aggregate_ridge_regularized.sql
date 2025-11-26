@@ -33,7 +33,7 @@ SELECT
 FROM (
     SELECT
         ticker,
-        anofox_statistics_ridge_agg(
+        anofox_statistics_ridge_fit_agg(
             return,
             [market_return, sector_return, momentum],
             {'lambda': 1.0, 'intercept': true}

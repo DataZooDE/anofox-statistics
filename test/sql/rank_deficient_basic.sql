@@ -2,7 +2,7 @@
 
 -- Test 1: Single constant feature
 -- x2 is constant (all values = 5.0), should return NULL coefficient
-SELECT * FROM anofox_statistics_ols(
+SELECT * FROM anofox_statistics_ols_fit(
     [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],  -- y
     [                                       -- X: 2D array
         [1.0, 2.0, 3.0, 4.0, 5.0],        -- x1: valid feature
@@ -15,7 +15,7 @@ SELECT * FROM anofox_statistics_ols(
 -- coefficients: [valid_value, NULL] where x1 has a coefficient, x2 is NULL
 
 -- Test 2: All valid features (regression test)
-SELECT * FROM anofox_statistics_ols(
+SELECT * FROM anofox_statistics_ols_fit(
     [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],  -- y
     [
         [1.0, 2.0, 3.0, 4.0, 5.0],        -- x1: valid
@@ -27,7 +27,7 @@ SELECT * FROM anofox_statistics_ols(
 -- Expected: Both coefficients should be valid (not NULL)
 
 -- Test 3: Perfect collinearity (x2 = 2 * x1)
-SELECT * FROM anofox_statistics_ols(
+SELECT * FROM anofox_statistics_ols_fit(
     [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],  -- y
     [
         [1.0, 2.0, 3.0, 4.0, 5.0],        -- x1
@@ -39,7 +39,7 @@ SELECT * FROM anofox_statistics_ols(
 -- Expected: One of x1 or x2 should be NULL (aliased due to perfect correlation)
 
 -- Test 4: Multiple constant features
-SELECT * FROM anofox_statistics_ols(
+SELECT * FROM anofox_statistics_ols_fit(
     [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],  -- y
     [
         [7.0, 7.0, 7.0, 7.0, 7.0],        -- x1: constant

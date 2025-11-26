@@ -49,12 +49,12 @@ SELECT
 FROM (
     SELECT
         segment,
-        anofox_statistics_ols_agg(
+        anofox_statistics_ols_fit_agg(
             lifetime_revenue,
             [acquisition_cost, tenure_months],
             {'intercept': true}
         ) as ols,
-        anofox_statistics_wls_agg(
+        anofox_statistics_wls_fit_agg(
             lifetime_revenue,
             [acquisition_cost, tenure_months],
             customer_value_weight,
@@ -76,7 +76,7 @@ WITH ltv_analysis AS (
     FROM (
         SELECT
             segment,
-            anofox_statistics_wls_agg(
+            anofox_statistics_wls_fit_agg(
                 lifetime_revenue,
                 [acquisition_cost, tenure_months],
                 customer_value_weight,

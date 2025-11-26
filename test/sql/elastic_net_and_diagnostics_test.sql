@@ -12,7 +12,7 @@ SELECT
     result.intercept,
     result.n_nonzero,
     result.r_squared > 0.9 as good_fit
-FROM anofox_statistics_elastic_net(
+FROM anofox_statistics_elastic_net_fit(
     [1.0::DOUBLE, 2.0, 3.0, 4.0, 5.0],
     [[1.0::DOUBLE, 2.0, 3.0, 4.0, 5.0], [2.0::DOUBLE, 3.0, 4.0, 5.0, 6.0]],
     options := MAP(['alpha', 'lambda', 'intercept'], [0.5::DOUBLE, 0.1::DOUBLE, 1.0::DOUBLE])
@@ -24,7 +24,7 @@ SELECT
     array_length(result.coefficients) as n_coeffs,
     result.intercept IS NOT NULL as has_intercept,
     result.n_nonzero >= 2 as all_nonzero  -- Ridge doesn't zero coefficients
-FROM anofox_statistics_elastic_net(
+FROM anofox_statistics_elastic_net_fit(
     [2.5::DOUBLE, 3.7, 5.1, 6.8, 8.2],
     [[1.0::DOUBLE, 2.0, 3.0, 4.0, 5.0], [1.5::DOUBLE, 2.5, 3.5, 4.5, 5.5]],
     options := MAP(['alpha', 'lambda', 'intercept'], [0.0::DOUBLE, 1.0::DOUBLE, 1.0::DOUBLE])
@@ -36,7 +36,7 @@ SELECT
     array_length(result.coefficients) as n_features,
     result.n_nonzero <= 2 as has_sparsity,  -- Lasso should zero some coefficients
     result.r_squared
-FROM anofox_statistics_elastic_net(
+FROM anofox_statistics_elastic_net_fit(
     [1.0::DOUBLE, 2.0, 3.0, 4.0, 5.0, 6.0],
     [[1.0::DOUBLE, 2.0, 3.0, 4.0, 5.0, 6.0], [0.1::DOUBLE, 0.2, 0.3, 0.4, 0.5, 0.6], [0.05::DOUBLE, 0.10, 0.15, 0.20, 0.25, 0.30]],
     options := MAP(['alpha', 'lambda', 'intercept'], [1.0::DOUBLE, 0.5::DOUBLE, 1.0::DOUBLE])
@@ -47,7 +47,7 @@ SELECT 'Test 1.4: Elastic Net no intercept' as test_name;
 SELECT
     result.intercept IS NULL as no_intercept,
     array_length(result.coefficients) = 2 as correct_size
-FROM anofox_statistics_elastic_net(
+FROM anofox_statistics_elastic_net_fit(
     [1.0::DOUBLE, 2.0, 3.0, 4.0, 5.0],
     [[1.0::DOUBLE, 2.0, 3.0, 4.0, 5.0], [2.0::DOUBLE, 3.0, 4.0, 5.0, 6.0]],
     options := MAP(['alpha', 'lambda', 'intercept'], [0.5::DOUBLE, 0.1::DOUBLE, 0.0::DOUBLE])
@@ -73,7 +73,7 @@ WITH data AS (
 aggregated AS (
     SELECT
         category,
-        anofox_statistics_elastic_net_agg(y, x, MAP(['alpha', 'lambda'], [0.5::DOUBLE, 0.01::DOUBLE])) as result
+        anofox_statistics_elastic_net_fit_agg(y, x, MAP(['alpha', 'lambda'], [0.5::DOUBLE, 0.01::DOUBLE])) as result
     FROM data
     GROUP BY category
 )
@@ -101,7 +101,7 @@ SELECT
 FROM (
     SELECT
         time,
-        anofox_statistics_elastic_net_agg(y, x, MAP(['alpha', 'lambda'], [0.3::DOUBLE, 0.1::DOUBLE]))
+        anofox_statistics_elastic_net_fit_agg(y, x, MAP(['alpha', 'lambda'], [0.3::DOUBLE, 0.1::DOUBLE]))
             OVER (ORDER BY time ROWS BETWEEN 2 PRECEDING AND CURRENT ROW) as result
     FROM data
 )
@@ -301,7 +301,7 @@ WITH model AS (
         result.intercept,
         result.r_squared,
         result.n_nonzero
-    FROM anofox_statistics_elastic_net(
+    FROM anofox_statistics_elastic_net_fit(
         [2.5::DOUBLE, 3.7, 5.1, 6.8, 8.2, 9.5, 11.2, 12.8, 14.5, 16.1],
         [[1.0::DOUBLE, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0],
          [1.5::DOUBLE, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5, 10.5],

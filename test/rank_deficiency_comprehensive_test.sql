@@ -35,7 +35,7 @@ SELECT * FROM ols_inference(
 -- ======================================================================
 SELECT '=== Test 3: Ridge with Constant (lambda=0) ===' as test_name;
 
-SELECT * FROM anofox_statistics_ridge(
+SELECT * FROM anofox_statistics_ridge_fit(
     [1.0::DOUBLE, 2.0, 3.0, 4.0, 5.0],
     [[1.0::DOUBLE], [2.0], [3.0], [4.0], [5.0]],
     [[5.0::DOUBLE], [5.0], [5.0], [5.0], [5.0]],
@@ -48,7 +48,7 @@ SELECT * FROM anofox_statistics_ridge(
 -- ======================================================================
 SELECT '=== Test 4: Ridge with Constant (lambda=0.1) ===' as test_name;
 
-SELECT * FROM anofox_statistics_ridge(
+SELECT * FROM anofox_statistics_ridge_fit(
     [1.0::DOUBLE, 2.0, 3.0, 4.0, 5.0],
     [[1.0::DOUBLE], [2.0], [3.0], [4.0], [5.0]],
     [[5.0::DOUBLE], [5.0], [5.0], [5.0], [5.0]],
@@ -61,7 +61,7 @@ SELECT * FROM anofox_statistics_ridge(
 -- ======================================================================
 SELECT '=== Test 5: WLS with Constant Feature ===' as test_name;
 
-SELECT * FROM anofox_statistics_wls(
+SELECT * FROM anofox_statistics_wls_fit(
     [1.0::DOUBLE, 2.0, 3.0, 4.0, 5.0],
     [[1.0::DOUBLE], [2.0], [3.0], [4.0], [5.0]],
     [[5.0::DOUBLE], [5.0], [5.0], [5.0], [5.0]],
@@ -74,7 +74,7 @@ SELECT * FROM anofox_statistics_wls(
 -- ======================================================================
 SELECT '=== Test 6: RLS with Constant Feature ===' as test_name;
 
-SELECT * FROM anofox_statistics_rls(
+SELECT * FROM anofox_statistics_rls_fit(
     [1.0::DOUBLE, 2.0, 3.0, 4.0, 5.0],
     [[1.0::DOUBLE], [2.0], [3.0], [4.0], [5.0]],
     [[5.0::DOUBLE], [5.0], [5.0], [5.0], [5.0]],

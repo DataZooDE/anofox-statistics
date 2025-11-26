@@ -121,7 +121,7 @@ SELECT
 FROM (
     SELECT
         campaign,
-        anofox_statistics_ols_agg(
+        anofox_statistics_ols_fit_agg(
             sales,
             [tv_spend, digital_spend],
             {'intercept': true}
@@ -163,7 +163,7 @@ SELECT
     result.coefficients[1] as acceleration_estimate,
     result.r2
 FROM (
-    SELECT anofox_statistics_ols_agg(force_newtons, [mass_kg], {'intercept': true}) as result
+    SELECT anofox_statistics_ols_fit_agg(force_newtons, [mass_kg], {'intercept': true}) as result
     FROM physics_data
 ) sub
 UNION ALL
@@ -173,7 +173,7 @@ SELECT
     result.coefficients[1] as acceleration_estimate,
     result.r2
 FROM (
-    SELECT anofox_statistics_ols_agg(force_newtons, [mass_kg], {'intercept': false}) as result
+    SELECT anofox_statistics_ols_fit_agg(force_newtons, [mass_kg], {'intercept': false}) as result
     FROM physics_data
 ) sub;
 
@@ -191,7 +191,7 @@ SELECT
     result.coefficients[1] as revenue_per_employee,
     result.r2
 FROM (
-    SELECT anofox_statistics_ols_agg(revenue, [employees], {'intercept': true}) as result
+    SELECT anofox_statistics_ols_fit_agg(revenue, [employees], {'intercept': true}) as result
     FROM business_data
 ) sub
 UNION ALL
@@ -201,7 +201,7 @@ SELECT
     result.coefficients[1] as biased_estimate,
     result.r2
 FROM (
-    SELECT anofox_statistics_ols_agg(revenue, [employees], {'intercept': false}) as result
+    SELECT anofox_statistics_ols_fit_agg(revenue, [employees], {'intercept': false}) as result
     FROM business_data
 ) sub;
 
@@ -259,7 +259,7 @@ WITH data AS (
         ] as X
 )
 SELECT result.* FROM data,
-LATERAL anofox_statistics_ridge(
+LATERAL anofox_statistics_ridge_fit(
     data.y,
     data.X,
     MAP(['lambda', 'intercept'], [0.1::DOUBLE, 1.0::DOUBLE])
@@ -308,7 +308,7 @@ SELECT
 FROM (
     SELECT
         product,
-        anofox_statistics_ridge_agg(
+        anofox_statistics_ridge_fit_agg(
             sales,
             [advertising, social_media, influencer],
             {'lambda': 0.0, 'intercept': true}
@@ -329,7 +329,7 @@ SELECT
 FROM (
     SELECT
         product,
-        anofox_statistics_ridge_agg(
+        anofox_statistics_ridge_fit_agg(
             sales,
             [advertising, social_media, influencer],
             {'lambda': 1.0, 'intercept': true}
@@ -350,7 +350,7 @@ SELECT
 FROM (
     SELECT
         product,
-        anofox_statistics_ridge_agg(
+        anofox_statistics_ridge_fit_agg(
             sales,
             [advertising, social_media, influencer],
             {'lambda': 10.0, 'intercept': true}
@@ -399,7 +399,7 @@ This example demonstrates WLS when observations have different levels of precisi
 ```sql
 
 -- Variance proportional to x (new API with 2D array + MAP)
-SELECT * FROM anofox_statistics_wls(
+SELECT * FROM anofox_statistics_wls_fit(
     [50.0, 100.0, 150.0, 200.0, 250.0]::DOUBLE[],  -- y: sales
     [[10.0, 20.0, 30.0, 40.0, 50.0]]::DOUBLE[][],  -- X: 2D array (one feature)
     [10.0, 20.0, 30.0, 40.0, 50.0]::DOUBLE[],      -- weights: proportional to size
@@ -457,7 +457,7 @@ SELECT
 FROM (
     SELECT
         segment,
-        anofox_statistics_ols_agg(
+        anofox_statistics_ols_fit_agg(
             annual_spending,
             [annual_income],
             {'intercept': true}
@@ -476,7 +476,7 @@ SELECT
 FROM (
     SELECT
         segment,
-        anofox_statistics_wls_agg(
+        anofox_statistics_wls_fit_agg(
             annual_spending,
             [annual_income],
             precision_weight,
@@ -1018,7 +1018,7 @@ WITH data AS (
         [[1.0::DOUBLE, 2.0, 3.0, 4.0, 5.0, 6.0]] as X
 )
 SELECT result.* FROM data,
-LATERAL anofox_statistics_rls(
+LATERAL anofox_statistics_rls_fit(
     data.y,
     data.X,
     MAP(['lambda', 'intercept'], [0.99::DOUBLE, 1.0::DOUBLE])
@@ -1067,7 +1067,7 @@ SELECT
     result.r2,
     'Averages all data equally - slow to adapt' as interpretation
 FROM (
-    SELECT anofox_statistics_rls_agg(
+    SELECT anofox_statistics_rls_fit_agg(
         stock_return,
         [market_return],
         {'forgetting_factor': 1.0, 'intercept': true}
@@ -1082,7 +1082,7 @@ SELECT
     result.r2,
     'Gradual weight decay - moderate adaptation' as interpretation
 FROM (
-    SELECT anofox_statistics_rls_agg(
+    SELECT anofox_statistics_rls_fit_agg(
         stock_return,
         [market_return],
         {'forgetting_factor': 0.98, 'intercept': true}
@@ -1097,7 +1097,7 @@ SELECT
     result.r2,
     'Balanced - good for detecting regime changes' as interpretation
 FROM (
-    SELECT anofox_statistics_rls_agg(
+    SELECT anofox_statistics_rls_fit_agg(
         stock_return,
         [market_return],
         {'forgetting_factor': 0.95, 'intercept': true}
@@ -1112,7 +1112,7 @@ SELECT
     result.r2,
     'Heavy decay - very responsive to recent changes' as interpretation
 FROM (
-    SELECT anofox_statistics_rls_agg(
+    SELECT anofox_statistics_rls_fit_agg(
         stock_return,
         [market_return],
         {'forgetting_factor': 0.90, 'intercept': true}
@@ -1130,7 +1130,7 @@ SELECT
 FROM (
     SELECT
         market_regime,
-        anofox_statistics_rls_agg(
+        anofox_statistics_rls_fit_agg(
             stock_return,
             [market_return],
             {'forgetting_factor': 0.95, 'intercept': true}

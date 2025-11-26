@@ -210,6 +210,28 @@ inline double student_t_pvalue(double t_stat, int df) {
 	return 2.0 * p_upper; // Two-tailed
 }
 
+// F-distribution p-value (upper tail probability)
+// P(F > f_stat | df1, df2) where F ~ F(df1, df2)
+// Uses the relationship: P(F > f) = 1 - I_x(df1/2, df2/2)
+// where x = df1*f / (df1*f + df2)
+inline double f_distribution_pvalue(double f_stat, int df1, int df2) {
+	if (f_stat <= 0.0 || df1 <= 0 || df2 <= 0)
+		return 1.0; // Invalid input
+
+	// Compute x = df1*f / (df1*f + df2)
+	double df1_d = static_cast<double>(df1);
+	double df2_d = static_cast<double>(df2);
+	double numerator = df1_d * f_stat;
+	double x = numerator / (numerator + df2_d);
+
+	// P(F > f) = 1 - I_x(df1/2, df2/2)
+	double a = df1_d / 2.0;
+	double b = df2_d / 2.0;
+
+	double cdf = beta_inc_reg(x, a, b);
+	return 1.0 - cdf; // Upper tail probability
+}
+
 // Chi-squared distribution functions
 class ChiSquaredCDF {
 public:

@@ -54,6 +54,25 @@ struct OlsFitBindData : public FunctionData {
 	idx_t df_residual = 0;
 	vector<double> x_train_means;
 
+	// New statistical metrics (when full_output=true)
+	double residual_standard_error = std::numeric_limits<double>::quiet_NaN();
+	double f_statistic = std::numeric_limits<double>::quiet_NaN();
+	double f_statistic_pvalue = std::numeric_limits<double>::quiet_NaN();
+	double aic = std::numeric_limits<double>::quiet_NaN();
+	double aicc = std::numeric_limits<double>::quiet_NaN();
+	double bic = std::numeric_limits<double>::quiet_NaN();
+	double log_likelihood = std::numeric_limits<double>::quiet_NaN();
+
+	// Coefficient-level inference (when full_output=true)
+	vector<double> coefficient_t_statistics;
+	double intercept_t_statistic = std::numeric_limits<double>::quiet_NaN();
+	vector<double> coefficient_p_values;
+	double intercept_p_value = std::numeric_limits<double>::quiet_NaN();
+	vector<double> coefficient_ci_lower;
+	double intercept_ci_lower = std::numeric_limits<double>::quiet_NaN();
+	vector<double> coefficient_ci_upper;
+	double intercept_ci_upper = std::numeric_limits<double>::quiet_NaN();
+
 	bool result_returned = false;
 
 	unique_ptr<FunctionData> Copy() const override {
@@ -75,6 +94,21 @@ struct OlsFitBindData : public FunctionData {
 		result->intercept_std_error = intercept_std_error;
 		result->df_residual = df_residual;
 		result->x_train_means = x_train_means;
+		result->residual_standard_error = residual_standard_error;
+		result->f_statistic = f_statistic;
+		result->f_statistic_pvalue = f_statistic_pvalue;
+		result->aic = aic;
+		result->aicc = aicc;
+		result->bic = bic;
+		result->log_likelihood = log_likelihood;
+		result->coefficient_t_statistics = coefficient_t_statistics;
+		result->intercept_t_statistic = intercept_t_statistic;
+		result->coefficient_p_values = coefficient_p_values;
+		result->intercept_p_value = intercept_p_value;
+		result->coefficient_ci_lower = coefficient_ci_lower;
+		result->intercept_ci_lower = intercept_ci_lower;
+		result->coefficient_ci_upper = coefficient_ci_upper;
+		result->intercept_ci_upper = intercept_ci_upper;
 		result->result_returned = result_returned;
 		return std::move(result);
 	}
@@ -215,6 +249,65 @@ static void ComputeRidge(OlsFitBindData &data) {
 			}
 		}
 
+		// Extract new statistical metrics if full_output=true
+		if (data.options.full_output) {
+			data.residual_standard_error = result.residual_standard_error;
+			data.f_statistic = result.f_statistic;
+			data.f_statistic_pvalue = result.f_statistic_pvalue;
+			data.aic = result.aic;
+			data.aicc = result.aicc;
+			data.bic = result.bic;
+			data.log_likelihood = result.log_likelihood;
+
+			// Extract coefficient-level inference (t-stats, p-values, CIs)
+			if (result.has_std_errors) {
+				if (data.options.intercept) {
+					// Build maps for permutation
+					size_t n_params = static_cast<size_t>(result.t_statistics.size());
+					vector<double> t_stat_map(n_params, std::numeric_limits<double>::quiet_NaN());
+					vector<double> p_val_map(n_params, std::numeric_limits<double>::quiet_NaN());
+					vector<double> ci_lower_map(n_params, std::numeric_limits<double>::quiet_NaN());
+					vector<double> ci_upper_map(n_params, std::numeric_limits<double>::quiet_NaN());
+
+					for (size_t i = 0; i < n_params; i++) {
+						size_t orig_col = result.permutation_indices[i];
+						if (orig_col < n_params) {
+							t_stat_map[orig_col] = result.t_statistics(static_cast<Eigen::Index>(i));
+							p_val_map[orig_col] = result.p_values(static_cast<Eigen::Index>(i));
+							ci_lower_map[orig_col] = result.ci_lower(static_cast<Eigen::Index>(i));
+							ci_upper_map[orig_col] = result.ci_upper(static_cast<Eigen::Index>(i));
+						}
+					}
+
+					// Extract for features only (columns 1..n_features)
+					data.coefficient_t_statistics.clear();
+					data.coefficient_p_values.clear();
+					data.coefficient_ci_lower.clear();
+					data.coefficient_ci_upper.clear();
+					for (size_t j = 1; j < n_params; j++) {
+						data.coefficient_t_statistics.push_back(t_stat_map[j]);
+						data.coefficient_p_values.push_back(p_val_map[j]);
+						data.coefficient_ci_lower.push_back(ci_lower_map[j]);
+						data.coefficient_ci_upper.push_back(ci_upper_map[j]);
+					}
+
+					// Extract intercept values
+					data.intercept_t_statistic = result.intercept_t_statistic;
+					data.intercept_p_value = result.intercept_p_value;
+					data.intercept_ci_lower = result.intercept_ci_lower;
+					data.intercept_ci_upper = result.intercept_ci_upper;
+				} else {
+					// No intercept: extract directly
+					for (size_t i = 0; i < static_cast<size_t>(result.t_statistics.size()); i++) {
+						data.coefficient_t_statistics.push_back(result.t_statistics(static_cast<Eigen::Index>(i)));
+						data.coefficient_p_values.push_back(result.p_values(static_cast<Eigen::Index>(i)));
+						data.coefficient_ci_lower.push_back(result.ci_lower(static_cast<Eigen::Index>(i)));
+						data.coefficient_ci_upper.push_back(result.ci_upper(static_cast<Eigen::Index>(i)));
+					}
+				}
+			}
+		}
+
 		// Store x_means for predictions if full_output=true
 		if (data.options.full_output && data.options.intercept) {
 			// Compute x_means for feature columns only
@@ -322,6 +415,59 @@ static void ComputeRidge(OlsFitBindData &data) {
 		}
 	}
 
+	// Extract new statistical metrics if full_output=true (same as OLS path)
+	if (data.options.full_output) {
+		data.residual_standard_error = result.residual_standard_error;
+		data.f_statistic = result.f_statistic;
+		data.f_statistic_pvalue = result.f_statistic_pvalue;
+		data.aic = result.aic;
+		data.aicc = result.aicc;
+		data.bic = result.bic;
+		data.log_likelihood = result.log_likelihood;
+
+		// Extract coefficient-level inference for Ridge path
+		if (result.has_std_errors) {
+			if (data.options.intercept) {
+				// Find intercept position
+				size_t intercept_pos = std::numeric_limits<size_t>::max();
+				for (size_t i = 0; i < result.permutation_indices.size(); i++) {
+					if (result.permutation_indices[i] == 0) {
+						intercept_pos = i;
+						break;
+					}
+				}
+
+				// Extract for features only (excluding intercept)
+				data.coefficient_t_statistics.clear();
+				data.coefficient_p_values.clear();
+				data.coefficient_ci_lower.clear();
+				data.coefficient_ci_upper.clear();
+				for (size_t i = 0; i < static_cast<size_t>(result.t_statistics.size()); i++) {
+					if (i != intercept_pos) {
+						data.coefficient_t_statistics.push_back(result.t_statistics(static_cast<Eigen::Index>(i)));
+						data.coefficient_p_values.push_back(result.p_values(static_cast<Eigen::Index>(i)));
+						data.coefficient_ci_lower.push_back(result.ci_lower(static_cast<Eigen::Index>(i)));
+						data.coefficient_ci_upper.push_back(result.ci_upper(static_cast<Eigen::Index>(i)));
+					}
+				}
+
+				// Extract intercept values
+				data.intercept_t_statistic = result.intercept_t_statistic;
+				data.intercept_p_value = result.intercept_p_value;
+				data.intercept_ci_lower = result.intercept_ci_lower;
+				data.intercept_ci_upper = result.intercept_ci_upper;
+			} else {
+				// No intercept: extract directly
+				for (size_t i = 0; i < static_cast<size_t>(result.t_statistics.size()); i++) {
+					data.coefficient_t_statistics.push_back(result.t_statistics(static_cast<Eigen::Index>(i)));
+					data.coefficient_p_values.push_back(result.p_values(static_cast<Eigen::Index>(i)));
+					data.coefficient_ci_lower.push_back(result.ci_lower(static_cast<Eigen::Index>(i)));
+					data.coefficient_ci_upper.push_back(result.ci_upper(static_cast<Eigen::Index>(i)));
+				}
+			}
+		}
+	}
+
 	// Store x_means for predictions if full_output=true
 	if (data.options.full_output && data.options.intercept) {
 		// Compute x_means for feature columns only
@@ -423,11 +569,49 @@ static unique_ptr<FunctionData> OlsFitBind(ClientContext &context, TableFunction
 		names.push_back("is_aliased");
 		names.push_back("x_train_means");
 
+		// New statistical metrics
+		names.push_back("residual_standard_error");
+		names.push_back("f_statistic");
+		names.push_back("f_statistic_pvalue");
+		names.push_back("aic");
+		names.push_back("aicc");
+		names.push_back("bic");
+		names.push_back("log_likelihood");
+
+		// Coefficient-level inference
+		names.push_back("coefficient_t_statistics");
+		names.push_back("intercept_t_statistic");
+		names.push_back("coefficient_p_values");
+		names.push_back("intercept_p_value");
+		names.push_back("coefficient_ci_lower");
+		names.push_back("intercept_ci_lower");
+		names.push_back("coefficient_ci_upper");
+		names.push_back("intercept_ci_upper");
+
 		return_types.push_back(LogicalType::LIST(LogicalType::DOUBLE));  // coefficient_std_errors
 		return_types.push_back(LogicalType::DOUBLE);                     // intercept_std_error
 		return_types.push_back(LogicalType::BIGINT);                     // df_residual
 		return_types.push_back(LogicalType::LIST(LogicalType::BOOLEAN)); // is_aliased
 		return_types.push_back(LogicalType::LIST(LogicalType::DOUBLE));  // x_train_means
+
+		// New statistical metrics types
+		return_types.push_back(LogicalType::DOUBLE); // residual_standard_error
+		return_types.push_back(LogicalType::DOUBLE); // f_statistic
+		return_types.push_back(LogicalType::DOUBLE); // f_statistic_pvalue
+		return_types.push_back(LogicalType::DOUBLE); // aic
+		return_types.push_back(LogicalType::DOUBLE); // aicc
+		return_types.push_back(LogicalType::DOUBLE); // bic
+		return_types.push_back(LogicalType::DOUBLE); // log_likelihood
+
+		// Coefficient-level inference types
+		return_types.push_back(LogicalType::LIST(LogicalType::DOUBLE)); // coefficient_t_statistics
+		return_types.push_back(LogicalType::DOUBLE);                    // intercept_t_statistic
+		return_types.push_back(LogicalType::LIST(LogicalType::DOUBLE)); // coefficient_p_values
+		return_types.push_back(LogicalType::DOUBLE);                    // intercept_p_value
+		return_types.push_back(LogicalType::LIST(LogicalType::DOUBLE)); // coefficient_ci_lower
+		return_types.push_back(LogicalType::DOUBLE);                    // intercept_ci_lower
+		return_types.push_back(LogicalType::LIST(LogicalType::DOUBLE)); // coefficient_ci_upper
+		return_types.push_back(LogicalType::DOUBLE);                    // intercept_ci_upper
 	}
 
 	// Check if this is being called for lateral joins (in-out function mode)
@@ -611,6 +795,67 @@ static void OlsFitExecute(ClientContext &context, TableFunctionInput &data, Data
 			means_values.push_back(Value(bind_data.x_train_means[i]));
 		}
 		output.data[col_idx++].SetValue(0, Value::LIST(LogicalType::DOUBLE, means_values));
+
+		// New statistical metrics
+		output.data[col_idx++].SetValue(0, Value(bind_data.residual_standard_error));
+		output.data[col_idx++].SetValue(0, Value(bind_data.f_statistic));
+		output.data[col_idx++].SetValue(0, Value(bind_data.f_statistic_pvalue));
+		output.data[col_idx++].SetValue(0, Value(bind_data.aic));
+		output.data[col_idx++].SetValue(0, Value(bind_data.aicc));
+		output.data[col_idx++].SetValue(0, Value(bind_data.bic));
+		output.data[col_idx++].SetValue(0, Value(bind_data.log_likelihood));
+
+		// Coefficient-level inference: t-statistics
+		vector<Value> t_stat_values;
+		for (idx_t i = 0; i < bind_data.coefficient_t_statistics.size(); i++) {
+			double t_stat = bind_data.coefficient_t_statistics[i];
+			if (std::isnan(t_stat)) {
+				t_stat_values.push_back(Value(LogicalType::DOUBLE));
+			} else {
+				t_stat_values.push_back(Value(t_stat));
+			}
+		}
+		output.data[col_idx++].SetValue(0, Value::LIST(LogicalType::DOUBLE, t_stat_values));
+		output.data[col_idx++].SetValue(0, Value(bind_data.intercept_t_statistic));
+
+		// Coefficient-level inference: p-values
+		vector<Value> p_val_values;
+		for (idx_t i = 0; i < bind_data.coefficient_p_values.size(); i++) {
+			double p_val = bind_data.coefficient_p_values[i];
+			if (std::isnan(p_val)) {
+				p_val_values.push_back(Value(LogicalType::DOUBLE));
+			} else {
+				p_val_values.push_back(Value(p_val));
+			}
+		}
+		output.data[col_idx++].SetValue(0, Value::LIST(LogicalType::DOUBLE, p_val_values));
+		output.data[col_idx++].SetValue(0, Value(bind_data.intercept_p_value));
+
+		// Coefficient-level inference: CI lower bounds
+		vector<Value> ci_lower_values;
+		for (idx_t i = 0; i < bind_data.coefficient_ci_lower.size(); i++) {
+			double ci_lower = bind_data.coefficient_ci_lower[i];
+			if (std::isnan(ci_lower)) {
+				ci_lower_values.push_back(Value(LogicalType::DOUBLE));
+			} else {
+				ci_lower_values.push_back(Value(ci_lower));
+			}
+		}
+		output.data[col_idx++].SetValue(0, Value::LIST(LogicalType::DOUBLE, ci_lower_values));
+		output.data[col_idx++].SetValue(0, Value(bind_data.intercept_ci_lower));
+
+		// Coefficient-level inference: CI upper bounds
+		vector<Value> ci_upper_values;
+		for (idx_t i = 0; i < bind_data.coefficient_ci_upper.size(); i++) {
+			double ci_upper = bind_data.coefficient_ci_upper[i];
+			if (std::isnan(ci_upper)) {
+				ci_upper_values.push_back(Value(LogicalType::DOUBLE));
+			} else {
+				ci_upper_values.push_back(Value(ci_upper));
+			}
+		}
+		output.data[col_idx++].SetValue(0, Value::LIST(LogicalType::DOUBLE, ci_upper_values));
+		output.data[col_idx++].SetValue(0, Value(bind_data.intercept_ci_upper));
 	}
 }
 
@@ -665,12 +910,42 @@ static unique_ptr<FunctionData> OlsFitInOutBind(ClientContext &context, TableFun
 		names.push_back("df_residual");
 		names.push_back("is_aliased");
 		names.push_back("x_train_means");
+		names.push_back("residual_standard_error");
+		names.push_back("f_statistic");
+		names.push_back("f_statistic_pvalue");
+		names.push_back("aic");
+		names.push_back("aicc");
+		names.push_back("bic");
+		names.push_back("log_likelihood");
+		names.push_back("coefficient_t_statistics");
+		names.push_back("intercept_t_statistic");
+		names.push_back("coefficient_p_values");
+		names.push_back("intercept_p_value");
+		names.push_back("coefficient_ci_lower");
+		names.push_back("intercept_ci_lower");
+		names.push_back("coefficient_ci_upper");
+		names.push_back("intercept_ci_upper");
 
 		return_types.push_back(LogicalType::LIST(LogicalType::DOUBLE));  // coefficient_std_errors
 		return_types.push_back(LogicalType::DOUBLE);                     // intercept_std_error
 		return_types.push_back(LogicalType::BIGINT);                     // df_residual
 		return_types.push_back(LogicalType::LIST(LogicalType::BOOLEAN)); // is_aliased
 		return_types.push_back(LogicalType::LIST(LogicalType::DOUBLE));  // x_train_means
+		return_types.push_back(LogicalType::DOUBLE);                     // residual_standard_error
+		return_types.push_back(LogicalType::DOUBLE);                     // f_statistic
+		return_types.push_back(LogicalType::DOUBLE);                     // f_statistic_pvalue
+		return_types.push_back(LogicalType::DOUBLE);                     // aic
+		return_types.push_back(LogicalType::DOUBLE);                     // aicc
+		return_types.push_back(LogicalType::DOUBLE);                     // bic
+		return_types.push_back(LogicalType::DOUBLE);                     // log_likelihood
+		return_types.push_back(LogicalType::LIST(LogicalType::DOUBLE));  // coefficient_t_statistics
+		return_types.push_back(LogicalType::DOUBLE);                     // intercept_t_statistic
+		return_types.push_back(LogicalType::LIST(LogicalType::DOUBLE));  // coefficient_p_values
+		return_types.push_back(LogicalType::DOUBLE);                     // intercept_p_value
+		return_types.push_back(LogicalType::LIST(LogicalType::DOUBLE));  // coefficient_ci_lower
+		return_types.push_back(LogicalType::DOUBLE);                     // intercept_ci_lower
+		return_types.push_back(LogicalType::LIST(LogicalType::DOUBLE));  // coefficient_ci_upper
+		return_types.push_back(LogicalType::DOUBLE);                     // intercept_ci_upper
 	}
 
 	return std::move(result);
@@ -765,14 +1040,119 @@ static OperatorResultType OlsFitInOut(ExecutionContext &context, TableFunctionIn
 			}
 		}
 
-		output.data[0].SetValue(output_count, Value::LIST(LogicalType::DOUBLE, coeffs_values));
-		output.data[1].SetValue(output_count, Value(temp_data.intercept));
-		output.data[2].SetValue(output_count, Value(temp_data.r_squared));
-		output.data[3].SetValue(output_count, Value(temp_data.adj_r_squared));
-		output.data[4].SetValue(output_count, Value(temp_data.mse));
-		output.data[5].SetValue(output_count, Value(temp_data.rmse));
-		output.data[6].SetValue(output_count, Value::BIGINT(static_cast<int64_t>(temp_data.n_obs)));
-		output.data[7].SetValue(output_count, Value::BIGINT(static_cast<int64_t>(temp_data.n_features)));
+		idx_t col_idx = 0;
+		output.data[col_idx++].SetValue(output_count, Value::LIST(LogicalType::DOUBLE, coeffs_values));
+		output.data[col_idx++].SetValue(output_count, Value(temp_data.intercept));
+		output.data[col_idx++].SetValue(output_count, Value(temp_data.r_squared));
+		output.data[col_idx++].SetValue(output_count, Value(temp_data.adj_r_squared));
+		output.data[col_idx++].SetValue(output_count, Value(temp_data.mse));
+		output.data[col_idx++].SetValue(output_count, Value(temp_data.rmse));
+		output.data[col_idx++].SetValue(output_count, Value::BIGINT(static_cast<int64_t>(temp_data.n_obs)));
+		output.data[col_idx++].SetValue(output_count, Value::BIGINT(static_cast<int64_t>(temp_data.n_features)));
+
+		// Add extended columns if full_output=true
+		if (bind_data.options.full_output) {
+			// coefficient_std_errors
+			vector<Value> std_err_values;
+			for (idx_t i = 0; i < temp_data.coefficient_std_errors.size(); i++) {
+				double se = temp_data.coefficient_std_errors[i];
+				if (std::isnan(se)) {
+					std_err_values.push_back(Value(LogicalType::DOUBLE));
+				} else {
+					std_err_values.push_back(Value(se));
+				}
+			}
+			output.data[col_idx++].SetValue(output_count, Value::LIST(LogicalType::DOUBLE, std_err_values));
+
+			// intercept_std_error
+			output.data[col_idx++].SetValue(output_count, Value(temp_data.intercept_std_error));
+
+			// df_residual
+			output.data[col_idx++].SetValue(output_count, Value::BIGINT(static_cast<int64_t>(temp_data.df_residual)));
+
+			// is_aliased
+			vector<Value> is_aliased_values;
+			for (idx_t i = 0; i < temp_data.is_aliased.size(); i++) {
+				is_aliased_values.push_back(Value::BOOLEAN(temp_data.is_aliased[i]));
+			}
+			output.data[col_idx++].SetValue(output_count, Value::LIST(LogicalType::BOOLEAN, is_aliased_values));
+
+			// x_train_means
+			vector<Value> x_means_values;
+			for (idx_t i = 0; i < temp_data.x_train_means.size(); i++) {
+				x_means_values.push_back(Value(temp_data.x_train_means[i]));
+			}
+			output.data[col_idx++].SetValue(output_count, Value::LIST(LogicalType::DOUBLE, x_means_values));
+
+			// New statistical metrics
+			output.data[col_idx++].SetValue(output_count, Value(temp_data.residual_standard_error));
+			output.data[col_idx++].SetValue(output_count, Value(temp_data.f_statistic));
+			output.data[col_idx++].SetValue(output_count, Value(temp_data.f_statistic_pvalue));
+			output.data[col_idx++].SetValue(output_count, Value(temp_data.aic));
+			output.data[col_idx++].SetValue(output_count, Value(temp_data.aicc));
+			output.data[col_idx++].SetValue(output_count, Value(temp_data.bic));
+			output.data[col_idx++].SetValue(output_count, Value(temp_data.log_likelihood));
+
+			// coefficient_t_statistics
+			vector<Value> t_stat_values;
+			for (idx_t i = 0; i < temp_data.coefficient_t_statistics.size(); i++) {
+				double t = temp_data.coefficient_t_statistics[i];
+				if (std::isnan(t)) {
+					t_stat_values.push_back(Value(LogicalType::DOUBLE));
+				} else {
+					t_stat_values.push_back(Value(t));
+				}
+			}
+			output.data[col_idx++].SetValue(output_count, Value::LIST(LogicalType::DOUBLE, t_stat_values));
+
+			// intercept_t_statistic
+			output.data[col_idx++].SetValue(output_count, Value(temp_data.intercept_t_statistic));
+
+			// coefficient_p_values
+			vector<Value> p_val_values;
+			for (idx_t i = 0; i < temp_data.coefficient_p_values.size(); i++) {
+				double p = temp_data.coefficient_p_values[i];
+				if (std::isnan(p)) {
+					p_val_values.push_back(Value(LogicalType::DOUBLE));
+				} else {
+					p_val_values.push_back(Value(p));
+				}
+			}
+			output.data[col_idx++].SetValue(output_count, Value::LIST(LogicalType::DOUBLE, p_val_values));
+
+			// intercept_p_value
+			output.data[col_idx++].SetValue(output_count, Value(temp_data.intercept_p_value));
+
+			// coefficient_ci_lower
+			vector<Value> ci_lower_values;
+			for (idx_t i = 0; i < temp_data.coefficient_ci_lower.size(); i++) {
+				double ci = temp_data.coefficient_ci_lower[i];
+				if (std::isnan(ci)) {
+					ci_lower_values.push_back(Value(LogicalType::DOUBLE));
+				} else {
+					ci_lower_values.push_back(Value(ci));
+				}
+			}
+			output.data[col_idx++].SetValue(output_count, Value::LIST(LogicalType::DOUBLE, ci_lower_values));
+
+			// intercept_ci_lower
+			output.data[col_idx++].SetValue(output_count, Value(temp_data.intercept_ci_lower));
+
+			// coefficient_ci_upper
+			vector<Value> ci_upper_values;
+			for (idx_t i = 0; i < temp_data.coefficient_ci_upper.size(); i++) {
+				double ci = temp_data.coefficient_ci_upper[i];
+				if (std::isnan(ci)) {
+					ci_upper_values.push_back(Value(LogicalType::DOUBLE));
+				} else {
+					ci_upper_values.push_back(Value(ci));
+				}
+			}
+			output.data[col_idx++].SetValue(output_count, Value::LIST(LogicalType::DOUBLE, ci_upper_values));
+
+			// intercept_ci_upper
+			output.data[col_idx++].SetValue(output_count, Value(temp_data.intercept_ci_upper));
+		}
 
 		output_count++;
 		state.current_input_row++;
@@ -801,7 +1181,7 @@ void OlsFitFunction::Register(ExtensionLoader &loader) {
 	};
 
 	// Register with literal mode (bind + execute)
-	TableFunction function("anofox_statistics_ols", arguments, OlsFitExecute, OlsFitBind, nullptr,
+	TableFunction function("anofox_statistics_ols_fit", arguments, OlsFitExecute, OlsFitBind, nullptr,
 	                       OlsFitInOutLocalInit);
 
 	// Add lateral join support (in_out_function)

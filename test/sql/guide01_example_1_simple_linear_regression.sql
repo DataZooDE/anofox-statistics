@@ -8,7 +8,7 @@ WITH input AS (
         LIST_VALUE(LIST_VALUE(1.1::DOUBLE, 2.1, 2.9, 4.2, 4.8)) as X
 )
 SELECT result.* FROM input,
-LATERAL anofox_statistics_ridge(
+LATERAL anofox_statistics_ridge_fit(
     input.y,
     input.X,
     MAP(['lambda', 'intercept'], [0.0::DOUBLE, 1.0::DOUBLE])

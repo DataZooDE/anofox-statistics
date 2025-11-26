@@ -16,7 +16,7 @@ FROM range(1, 16) t(i);
 query I
 SELECT COUNT(*) FROM (
     SELECT (pred).yhat as y, (pred).yhat_lower as lo, (pred).yhat_upper as up
-    FROM (SELECT anofox_statistics_fit_predict_rls(y, [x], MAP{'intercept': 1, 'forgetting_factor': 1.0}) OVER (ORDER BY id) as pred FROM rls_val)
+    FROM (SELECT anofox_statistics_rls_fit_predict(y, [x], MAP{'intercept': 1, 'forgetting_factor': 1.0}) OVER (ORDER BY id) as pred FROM rls_val)
 ) WHERE lo <= y AND y <= up;
 ----
 15
@@ -25,7 +25,7 @@ SELECT COUNT(*) FROM (
 query I
 SELECT COUNT(*) FROM (
     SELECT (pred).yhat_upper - (pred).yhat_lower as width
-    FROM (SELECT anofox_statistics_fit_predict_rls(y, [x], MAP{'intercept': 1, 'forgetting_factor': 1.0}) OVER (ORDER BY id) as pred FROM rls_val)
+    FROM (SELECT anofox_statistics_rls_fit_predict(y, [x], MAP{'intercept': 1, 'forgetting_factor': 1.0}) OVER (ORDER BY id) as pred FROM rls_val)
 ) WHERE width > 0;
 ----
 13
@@ -34,7 +34,7 @@ SELECT COUNT(*) FROM (
 query I
 SELECT COUNT(*) FROM (
     SELECT (pred).std_error as err
-    FROM (SELECT anofox_statistics_fit_predict_rls(y, [x], MAP{'intercept': 1, 'forgetting_factor': 1.0}) OVER (ORDER BY id) as pred FROM rls_val)
+    FROM (SELECT anofox_statistics_rls_fit_predict(y, [x], MAP{'intercept': 1, 'forgetting_factor': 1.0}) OVER (ORDER BY id) as pred FROM rls_val)
 ) WHERE err > 0;
 ----
 15

@@ -2,6 +2,7 @@
 
 #include "libanostat/core/regression_result.hpp"
 #include "libanostat/core/regression_options.hpp"
+#include "libanostat/utils/distributions.hpp"
 #include <Eigen/Dense>
 #include <vector>
 #include <limits>
@@ -80,6 +81,14 @@ public:
 	 * @return true if rank(X) == ncol(X)
 	 */
 	static bool IsFullRank(const Eigen::MatrixXd &X, double tolerance = -1.0);
+
+	/**
+	 * Compute t-statistics, p-values, and confidence intervals from standard errors
+	 *
+	 * Requires that std_errors have already been computed.
+	 * This is public so other solvers can use it.
+	 */
+	static void ComputeInferenceStatistics(core::RegressionResult &result, size_t n_coeffs, double confidence_level);
 
 private:
 	/**
@@ -211,6 +220,10 @@ inline core::RegressionResult OLSSolver::Fit(const Eigen::VectorXd &y, const Eig
 		}
 		result.coefficients[0] = intercept;
 		result.is_aliased[0] = false;  // Intercept is NEVER aliased
+
+		// NEW: Populate intercept fields in result
+		result.intercept = intercept;
+		result.has_intercept = true;
 	}
 
 	// Step 7: Compute predictions using intercept + non-aliased features
@@ -292,6 +305,9 @@ inline core::RegressionResult OLSSolver::FitWithStdErrors(const Eigen::VectorXd 
 
 	ComputeStandardErrors(X_work, qr, result.mse, feature_rank, result, coef_offset,
 	                      options.intercept, n, x_means);
+
+	// Compute t-statistics, p-values, and confidence intervals
+	ComputeInferenceStatistics(result, n_coeffs, options.confidence_level);
 
 	return result;
 }
@@ -379,6 +395,61 @@ inline void OLSSolver::ComputeStatistics(const Eigen::VectorXd &y, const Eigen::
 
 	// RMSE
 	result.rmse = std::sqrt(result.mse);
+
+	// Residual standard error (same as RMSE for consistency with R)
+	result.residual_standard_error = result.rmse;
+
+	// F-statistic for overall model significance
+	// F = (TSS - RSS) / df_model / (RSS / df_residual)
+	// F = (explained SS / df_model) / (RSS / df_residual)
+	// F = (R² * TSS / df_model) / (MSE)
+	size_t df_model = rank;
+	size_t df_residual = (n > rank) ? (n - rank) : 0;
+
+	if (df_residual > 0 && df_model > 0 && result.mse > 0.0 && ss_tot > 1e-10) {
+		double explained_ss = ss_tot - ss_res;
+		double mean_sq_model = explained_ss / static_cast<double>(df_model);
+		result.f_statistic = mean_sq_model / result.mse;
+
+		// Compute F-statistic p-value using F-distribution
+		result.f_statistic_pvalue = utils::f_distribution_pvalue(result.f_statistic,
+		                                                          static_cast<int>(df_model),
+		                                                          static_cast<int>(df_residual));
+	} else {
+		result.f_statistic = std::numeric_limits<double>::quiet_NaN();
+		result.f_statistic_pvalue = std::numeric_limits<double>::quiet_NaN();
+	}
+
+	// Information criteria (AIC, AICc, BIC, log-likelihood)
+	// These assume normal errors: RSS/n is the MLE for σ²
+	if (n > 0 && rank > 0 && ss_res >= 0.0) {
+		double n_dbl = static_cast<double>(n);
+		double k = static_cast<double>(rank);  // number of estimated parameters (including intercept if present)
+
+		// Log-likelihood under normal errors
+		// log L = -n/2 * (log(2π) + log(σ²) + 1)
+		// where σ² = RSS/n (MLE)
+		double sigma_sq_mle = ss_res / n_dbl;
+		if (sigma_sq_mle > 1e-300) {  // Avoid log(0)
+			const double log_2pi = 1.8378770664093453;  // log(2π)
+			result.log_likelihood = -0.5 * n_dbl * (log_2pi + std::log(sigma_sq_mle) + 1.0);
+
+			// AIC = -2*log(L) + 2*k = n*log(RSS/n) + 2*k
+			result.aic = n_dbl * std::log(sigma_sq_mle) + 2.0 * k;
+
+			// BIC = -2*log(L) + k*log(n) = n*log(RSS/n) + k*log(n)
+			result.bic = n_dbl * std::log(sigma_sq_mle) + k * std::log(n_dbl);
+
+			// AICc = AIC + 2*k*(k+1)/(n-k-1) for small sample correction
+			if (n > rank + 1) {
+				double correction = 2.0 * k * (k + 1.0) / (n_dbl - k - 1.0);
+				result.aicc = result.aic + correction;
+			} else {
+				// Not enough data for AICc correction
+				result.aicc = std::numeric_limits<double>::quiet_NaN();
+			}
+		}
+	}
 }
 
 inline void OLSSolver::ComputeStandardErrors(const Eigen::MatrixXd &X,
@@ -436,7 +507,11 @@ inline void OLSSolver::ComputeStandardErrors(const Eigen::MatrixXd &X,
 			}
 
 			double variance_component = x_means_reduced.transpose() * XtX_inv * x_means_reduced;
-			result.std_errors[0] = std::sqrt(mse * (1.0 / static_cast<double>(n_obs) + variance_component));
+			double intercept_se = std::sqrt(mse * (1.0 / static_cast<double>(n_obs) + variance_component));
+			result.std_errors[0] = intercept_se;
+
+			// NEW: Populate intercept_std_error field
+			result.intercept_std_error = intercept_se;
 		}
 
 	} catch (...) {
@@ -445,6 +520,66 @@ inline void OLSSolver::ComputeStandardErrors(const Eigen::MatrixXd &X,
 	}
 
 	// Aliased columns remain NaN (already initialized)
+}
+
+inline void OLSSolver::ComputeInferenceStatistics(core::RegressionResult &result, size_t n_coeffs,
+                                                   double confidence_level) {
+	if (!result.has_std_errors) {
+		return; // No standard errors to work with
+	}
+
+	size_t df_residual = result.df_residual();
+	if (df_residual == 0) {
+		return; // No degrees of freedom for inference
+	}
+
+	int df = static_cast<int>(df_residual);
+
+	// Initialize vectors for t-statistics, p-values, and confidence intervals
+	result.t_statistics = Eigen::VectorXd::Constant(static_cast<Eigen::Index>(n_coeffs),
+	                                                 std::numeric_limits<double>::quiet_NaN());
+	result.p_values = Eigen::VectorXd::Constant(static_cast<Eigen::Index>(n_coeffs),
+	                                            std::numeric_limits<double>::quiet_NaN());
+	result.ci_lower = Eigen::VectorXd::Constant(static_cast<Eigen::Index>(n_coeffs),
+	                                            std::numeric_limits<double>::quiet_NaN());
+	result.ci_upper = Eigen::VectorXd::Constant(static_cast<Eigen::Index>(n_coeffs),
+	                                            std::numeric_limits<double>::quiet_NaN());
+	result.confidence_level = confidence_level;
+
+	// Compute critical value for confidence intervals
+	double alpha = 1.0 - confidence_level;
+	double t_crit = utils::student_t_critical(alpha / 2.0, df);
+
+	// Process all coefficients (including intercept if present at position 0)
+	for (size_t i = 0; i < n_coeffs; i++) {
+		auto idx = static_cast<Eigen::Index>(i);
+		double coef = result.coefficients[idx];
+		double se = result.std_errors[idx];
+
+		// Skip if coefficient or standard error is NaN (aliased)
+		if (std::isnan(coef) || std::isnan(se) || se == 0.0) {
+			continue;
+		}
+
+		// Compute t-statistic
+		double t_stat = coef / se;
+		result.t_statistics[idx] = t_stat;
+
+		// Compute p-value (two-tailed)
+		result.p_values[idx] = utils::student_t_pvalue(t_stat, df);
+
+		// Compute confidence interval
+		result.ci_lower[idx] = coef - t_crit * se;
+		result.ci_upper[idx] = coef + t_crit * se;
+	}
+
+	// Separate handling for intercept if present
+	if (result.has_intercept && !std::isnan(result.intercept_std_error) && result.intercept_std_error > 0.0) {
+		result.intercept_t_statistic = result.intercept / result.intercept_std_error;
+		result.intercept_p_value = utils::student_t_pvalue(result.intercept_t_statistic, df);
+		result.intercept_ci_lower = result.intercept - t_crit * result.intercept_std_error;
+		result.intercept_ci_upper = result.intercept + t_crit * result.intercept_std_error;
+	}
 }
 
 } // namespace solvers

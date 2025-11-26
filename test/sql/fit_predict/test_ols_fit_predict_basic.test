@@ -35,7 +35,7 @@ SELECT
 FROM (
     SELECT
         id,
-        anofox_statistics_fit_predict_ols(
+        anofox_statistics_ols_fit_predict(
             y,
             [x1],
             MAP{'intercept': 1}
@@ -75,7 +75,7 @@ FROM (
     SELECT
         group_id,
         row_id,
-        anofox_statistics_fit_predict_ols(
+        anofox_statistics_ols_fit_predict(
             y,
             [x],
             MAP{'intercept': true}
@@ -115,7 +115,7 @@ SELECT
 FROM (
     SELECT
         id,
-        anofox_statistics_fit_predict_ols(
+        anofox_statistics_ols_fit_predict(
             y,
             [x1, x2],
             MAP{'intercept': true}

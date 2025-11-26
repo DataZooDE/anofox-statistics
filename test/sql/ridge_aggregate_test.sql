@@ -1,4 +1,4 @@
--- Test suite for anofox_statistics_ridge_agg aggregate function (Ridge Regression with L2 regularization)
+-- Test suite for anofox_statistics_ridge_fit_agg aggregate function (Ridge Regression with L2 regularization)
 
 LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
 
@@ -28,7 +28,7 @@ SELECT
 FROM (
     SELECT
         sector,
-        anofox_statistics_ridge_agg(
+        anofox_statistics_ridge_fit_agg(
             returns,
             [price, volume],
             {'lambda': 0.1, 'intercept': true}
@@ -50,8 +50,8 @@ SELECT
 FROM (
     SELECT
         sector,
-        anofox_statistics_ridge_agg(returns, [price, price_correlated], {'lambda': 1.0, 'intercept': true}) as ridge,
-        anofox_statistics_ols_agg(returns, [price, price_correlated], {'intercept': true}) as ols
+        anofox_statistics_ridge_fit_agg(returns, [price, price_correlated], {'lambda': 1.0, 'intercept': true}) as ridge,
+        anofox_statistics_ols_fit_agg(returns, [price, price_correlated], {'intercept': true}) as ols
     FROM ridge_agg_data
     GROUP BY sector
 ) sub
@@ -70,9 +70,9 @@ SELECT
 FROM (
     SELECT
         sector,
-        anofox_statistics_ridge_agg(returns, [price], {'lambda': 0.0, 'intercept': true}) as lambda_0,
-        anofox_statistics_ridge_agg(returns, [price], {'lambda': 1.0, 'intercept': true}) as lambda_1,
-        anofox_statistics_ridge_agg(returns, [price], {'lambda': 10.0, 'intercept': true}) as lambda_10
+        anofox_statistics_ridge_fit_agg(returns, [price], {'lambda': 0.0, 'intercept': true}) as lambda_0,
+        anofox_statistics_ridge_fit_agg(returns, [price], {'lambda': 1.0, 'intercept': true}) as lambda_1,
+        anofox_statistics_ridge_fit_agg(returns, [price], {'lambda': 10.0, 'intercept': true}) as lambda_10
     FROM ridge_agg_data
     GROUP BY sector
 ) sub
@@ -88,7 +88,7 @@ SELECT
 FROM (
     SELECT
         sector,
-        anofox_statistics_ridge_agg(
+        anofox_statistics_ridge_fit_agg(
             returns,
             [price, volume],
             {'lambda': 1.0, 'intercept': false}
@@ -117,7 +117,7 @@ SELECT
 FROM (
     SELECT
         grp,
-        anofox_statistics_ridge_agg(y, [x1, x2, x3], {'lambda': 1.0, 'intercept': true}) as result
+        anofox_statistics_ridge_fit_agg(y, [x1, x2, x3], {'lambda': 1.0, 'intercept': true}) as result
     FROM multi_collinear_data
     GROUP BY grp
 ) sub;
@@ -134,7 +134,7 @@ SELECT
     'No regularization (lambda=0)' as scenario,
     result.coefficients[1] as coefficient
 FROM (
-    SELECT anofox_statistics_ridge_agg(y, [x], {'lambda': 0.0, 'intercept': true}) as result
+    SELECT anofox_statistics_ridge_fit_agg(y, [x], {'lambda': 0.0, 'intercept': true}) as result
     FROM shrinkage_test
 ) sub
 UNION ALL
@@ -142,7 +142,7 @@ SELECT
     'Light regularization (lambda=1)' as scenario,
     result.coefficients[1] as coefficient
 FROM (
-    SELECT anofox_statistics_ridge_agg(y, [x], {'lambda': 1.0, 'intercept': true}) as result
+    SELECT anofox_statistics_ridge_fit_agg(y, [x], {'lambda': 1.0, 'intercept': true}) as result
     FROM shrinkage_test
 ) sub
 UNION ALL
@@ -150,7 +150,7 @@ SELECT
     'Heavy regularization (lambda=100)' as scenario,
     result.coefficients[1] as coefficient
 FROM (
-    SELECT anofox_statistics_ridge_agg(y, [x], {'lambda': 100.0, 'intercept': true}) as result
+    SELECT anofox_statistics_ridge_fit_agg(y, [x], {'lambda': 100.0, 'intercept': true}) as result
     FROM shrinkage_test
 ) sub;
 
@@ -164,7 +164,7 @@ SELECT
     result.n_obs
 FROM (
     SELECT
-        anofox_statistics_ridge_agg(returns, [price, volume], {'lambda': 0.5, 'intercept': true}) as result
+        anofox_statistics_ridge_fit_agg(returns, [price, volume], {'lambda': 0.5, 'intercept': true}) as result
     FROM ridge_agg_data
 ) sub;
 
@@ -178,7 +178,7 @@ SELECT
 FROM (
     SELECT
         sector,
-        anofox_statistics_ridge_agg(returns, [price, volume, price_correlated], {'lambda': 2.0, 'intercept': true}) as result
+        anofox_statistics_ridge_fit_agg(returns, [price, volume, price_correlated], {'lambda': 2.0, 'intercept': true}) as result
     FROM ridge_agg_data
     GROUP BY sector
 ) sub
