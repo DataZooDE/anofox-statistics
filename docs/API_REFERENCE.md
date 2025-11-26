@@ -24,7 +24,7 @@ The Anofox Statistics extension provides comprehensive statistical regression an
 All functions follow the pattern: `anofox_statistics_{method}[_operation][_agg]`
 
 - `{method}`: Regression method (ols, ridge, wls, rls, elastic_net)
-- `_operation`: Optional operation (inference, predict_interval, etc.)
+- `_operation`: Optional operation (fit, fit_predict, predict, etc.)
 - `_agg`: Suffix for aggregate functions
 
 ### Parameter Conventions
@@ -58,19 +58,20 @@ All functions follow the pattern: `anofox_statistics_{method}[_operation][_agg]`
 
 This table shows which function types are available for each regression method:
 
-| Method | Table Fit | Aggregate Fit | Fit-Predict Window | Predict | Notes |
-|--------|-----------|---------------|-------------------|---------|-------|
-| **OLS** | ✅ `anofox_statistics_ols_fit` | ✅ `anofox_statistics_ols_fit_agg` | ✅ `anofox_statistics_ols_fit_predict` | ✅ `anofox_statistics_predict_ols` | Full support |
-| **Ridge** | ✅ `anofox_statistics_ridge_fit` | ✅ `anofox_statistics_ridge_fit_agg` | ✅ `anofox_statistics_ridge_fit_predict` | ✅ `anofox_statistics_predict_ridge` | Requires `lambda` |
-| **WLS** | ✅ `anofox_statistics_wls_fit` | ✅ `anofox_statistics_wls_fit_agg` | ✅ `anofox_statistics_wls_fit_predict` | ✅ `anofox_statistics_predict_wls` | Requires `weights` |
-| **RLS** | ✅ `anofox_statistics_rls_fit` | ✅ `anofox_statistics_rls_fit_agg` | ✅ `anofox_statistics_rls_fit_predict` | ✅ `anofox_statistics_predict_rls` | Optional `forgetting_factor` |
-| **Elastic Net** | ✅ `anofox_statistics_elastic_net_fit` | ✅ `anofox_statistics_elastic_net_fit_agg` | ✅ `anofox_statistics_elastic_net_fit_predict` | ✅ `anofox_statistics_predict_elastic_net` | Requires `alpha`, `lambda` |
+| Method | Table Fit | Aggregate Fit | Fit-Predict Window | Predict | Aggregate Predict | Notes |
+|--------|-----------|---------------|-------------------|---------|-------------------|-------|
+| **OLS** | ✅ `anofox_statistics_ols_fit` | ✅ `anofox_statistics_ols_fit_agg` | ✅ `anofox_statistics_ols_fit_predict` | ✅ `anofox_statistics_predict_ols` | ❌ Not implemented | Full support |
+| **Ridge** | ✅ `anofox_statistics_ridge_fit` | ✅ `anofox_statistics_ridge_fit_agg` | ✅ `anofox_statistics_ridge_fit_predict` | ✅ `anofox_statistics_predict_ridge` | ❌ Not implemented | Requires `lambda` |
+| **WLS** | ✅ `anofox_statistics_wls_fit` | ✅ `anofox_statistics_wls_fit_agg` | ✅ `anofox_statistics_wls_fit_predict` | ✅ `anofox_statistics_predict_wls` | ❌ Not implemented | Requires `weights` |
+| **RLS** | ✅ `anofox_statistics_rls_fit` | ✅ `anofox_statistics_rls_fit_agg` | ✅ `anofox_statistics_rls_fit_predict` | ✅ `anofox_statistics_predict_rls` | ❌ Not implemented | Optional `forgetting_factor` |
+| **Elastic Net** | ✅ `anofox_statistics_elastic_net_fit` | ✅ `anofox_statistics_elastic_net_fit_agg` | ✅ `anofox_statistics_elastic_net_fit_predict` | ✅ `anofox_statistics_predict_elastic_net` | ❌ Not implemented | Requires `alpha`, `lambda` |
 
 **Function Types:**
 - **Table Fit**: Fit on array inputs `y[]`, `x[][]` → STRUCT with model statistics
 - **Aggregate Fit**: Fit per group with `GROUP BY` or window with `OVER` → STRUCT with model statistics
 - **Fit-Predict Window**: Window function that fits and predicts → STRUCT with `(yhat, yhat_lower, yhat_upper, std_error)`
 - **Predict**: Make predictions on new data with intervals → TABLE with predictions per observation
+- **Aggregate Predict**: Predict per group with `GROUP BY` using pre-fitted model → STRUCT (not yet implemented)
 
 **Additional Functions:**
 - **Model-Based Prediction**: `anofox_statistics_model_predict` - Predict from pre-fitted models (any method with `full_output=true`)
