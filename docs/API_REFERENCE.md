@@ -54,6 +54,30 @@ All functions follow the pattern: `anofox_statistics_{method}[_operation][_agg]`
 
 ---
 
+## Coverage Matrix
+
+This table shows which function types are available for each regression method:
+
+| Method | Table Fit | Aggregate Fit | Fit-Predict Window | Predict | Notes |
+|--------|-----------|---------------|-------------------|---------|-------|
+| **OLS** | ✅ `anofox_statistics_ols_fit` | ✅ `anofox_statistics_ols_fit_agg` | ✅ `anofox_statistics_ols_fit_predict` | ✅ `anofox_statistics_predict_ols` | Full support |
+| **Ridge** | ✅ `anofox_statistics_ridge_fit` | ✅ `anofox_statistics_ridge_fit_agg` | ✅ `anofox_statistics_ridge_fit_predict` | ✅ `anofox_statistics_predict_ridge` | Requires `lambda` |
+| **WLS** | ✅ `anofox_statistics_wls_fit` | ✅ `anofox_statistics_wls_fit_agg` | ✅ `anofox_statistics_wls_fit_predict` | ✅ `anofox_statistics_predict_wls` | Requires `weights` |
+| **RLS** | ✅ `anofox_statistics_rls_fit` | ✅ `anofox_statistics_rls_fit_agg` | ✅ `anofox_statistics_rls_fit_predict` | ✅ `anofox_statistics_predict_rls` | Optional `forgetting_factor` |
+| **Elastic Net** | ✅ `anofox_statistics_elastic_net_fit` | ✅ `anofox_statistics_elastic_net_fit_agg` | ✅ `anofox_statistics_elastic_net_fit_predict` | ✅ `anofox_statistics_predict_elastic_net` | Requires `alpha`, `lambda` |
+
+**Function Types:**
+- **Table Fit**: Fit on array inputs `y[]`, `x[][]` → STRUCT with model statistics
+- **Aggregate Fit**: Fit per group with `GROUP BY` or window with `OVER` → STRUCT with model statistics
+- **Fit-Predict Window**: Window function that fits and predicts → STRUCT with `(yhat, yhat_lower, yhat_upper, std_error)`
+- **Predict**: Make predictions on new data with intervals → TABLE with predictions per observation
+
+**Additional Functions:**
+- **Model-Based Prediction**: `anofox_statistics_model_predict` - Predict from pre-fitted models (any method with `full_output=true`)
+- **Diagnostics**: VIF (table + aggregate), Residual diagnostics (table + aggregate), Normality tests (table + aggregate)
+
+---
+
 ## Table of Contents
 
 1. [Fit Functions](#fit-functions)
@@ -62,7 +86,6 @@ All functions follow the pattern: `anofox_statistics_{method}[_operation][_agg]`
 4. [Predict Functions](#predict-functions)
 5. [Diagnostic Functions](#diagnostic-functions)
 6. [Model-Based Prediction](#model-based-prediction)
-7. [Function Coverage Matrix](#function-coverage-matrix)
 
 ---
 
@@ -1175,82 +1198,6 @@ LATERAL anofox_statistics_model_predict(
 ```
 
 **Works with:** All regression methods (OLS, Ridge, WLS, RLS, Elastic Net) when fitted with `full_output=true`.
-
----
-
-### v0.2.0 (Current)
-
-**Major Changes:**
-
-**Integrated Statistical Inference:**
-- ✅ **REMOVED** standalone inference functions (`*_inference`)
-- ✅ **REMOVED** `anofox_statistics_information_criteria` function
-- ✅ ALL regression functions now include comprehensive inference with `full_output=true`
-- ✅ New metrics: F-statistic, AIC, AICc, BIC, log_likelihood, residual_standard_error
-- ✅ Coefficient-level: t-statistics, p-values, confidence intervals (per feature)
-- ✅ Intercept-level: t-statistic, p-value, confidence intervals
-
-**Breaking Changes:**
-- Removed 5 standalone inference functions:
-  - `anofox_statistics_ols_inference`
-  - `anofox_statistics_ridge_inference`
-  - `anofox_statistics_wls_inference`
-  - `anofox_statistics_rls_inference`
-  - `anofox_statistics_elastic_net_inference`
-- Removed `anofox_statistics_information_criteria` function
-- Removed 3 legacy prediction functions:
-  - `anofox_statistics_ols_predict` (variadic)
-  - `anofox_statistics_ols_predict_array`
-  - `anofox_statistics_predict_simple`
-
-**Migration Guide:**
-
-1. **Inference functions** → Use `full_output=true`:
-   ```sql
-   -- OLD:
-   SELECT * FROM anofox_statistics_ols_inference(y, x, MAP{'confidence_level': 0.95});
-
-   -- NEW:
-   SELECT
-       coefficient_p_values,
-       intercept_p_value,
-       coefficient_ci_lower,
-       coefficient_ci_upper
-   FROM anofox_statistics_ols_fit(y, x, MAP{'full_output': true, 'confidence_level': 0.95});
-   ```
-
-2. **Information criteria** → Use `full_output=true`:
-   ```sql
-   -- OLD:
-   SELECT aic, bic FROM anofox_statistics_information_criteria(y, x, MAP{});
-
-   -- NEW:
-   SELECT aic, aicc, bic, log_likelihood
-   FROM anofox_statistics_ols_fit(y, x, MAP{'full_output': true});
-   ```
-
-3. **Legacy predict functions** → Use new functions:
-   - Simple predictions: `anofox_statistics_predict` (scalar)
-   - Batch predictions: `anofox_statistics_model_predict` (table)
-
-**Improvements:**
-- Single-call workflow for fit + inference (faster, more efficient)
-- Consistent API across all 5 regression methods
-- All aggregates support window functions with statistical inference
-- Reduced function count while adding capabilities
-
-**Completed Additions:**
-- ✅ Inference for all methods (OLS, Ridge, WLS, RLS, Elastic Net)
-- ✅ Prediction intervals for all methods
-- ✅ Fit-predict aggregates for all methods
-
-### v0.1.0
-
-- Initial release with 5 regression methods
-- Aggregate and window function support
-- OLS inference and prediction intervals
-- Diagnostic tools (VIF, residuals, normality)
-- Model selection (AIC, BIC via separate function)
 
 ---
 
