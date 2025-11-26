@@ -778,8 +778,6 @@ SELECT * FROM anofox_statistics_predict_ols(
 
 **Ridge Prediction with Intervals**
 
-**Status:** ✅ **IMPLEMENTED**
-
 **Signature:**
 ```sql
 anofox_statistics_predict_ridge(
@@ -807,8 +805,6 @@ SELECT * FROM anofox_statistics_predict_ridge(
 ### anofox_statistics_predict_wls
 
 **WLS Prediction with Intervals**
-
-**Status:** ✅ **IMPLEMENTED**
 
 **Signature:**
 ```sql
@@ -838,8 +834,6 @@ SELECT * FROM anofox_statistics_predict_wls(
 
 **RLS Prediction with Intervals**
 
-**Status:** ✅ **IMPLEMENTED**
-
 **Signature:**
 ```sql
 anofox_statistics_predict_rls(
@@ -865,8 +859,6 @@ SELECT * FROM anofox_statistics_predict_rls(
 ### anofox_statistics_predict_elastic_net
 
 **Elastic Net Prediction with Intervals**
-
-**Status:** ✅ **IMPLEMENTED**
 
 **Signature:**
 ```sql
