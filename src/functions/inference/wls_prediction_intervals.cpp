@@ -41,7 +41,7 @@ struct WlsPredictIntervalBindData : public FunctionData {
 };
 
 static unique_ptr<FunctionData> WlsPredictIntervalBind(ClientContext &context, TableFunctionBindInput &input,
-                                                                 vector<LogicalType> &return_types, vector<string> &names) {
+                                                       vector<LogicalType> &return_types, vector<string> &names) {
 
 	auto bind_data = make_uniq<WlsPredictIntervalBindData>();
 
@@ -95,7 +95,8 @@ static unique_ptr<FunctionData> WlsPredictIntervalBind(ClientContext &context, T
 
 	// Validate weights length matches y_train
 	if (weights.size() != y_train.size()) {
-		throw InvalidInputException("Length mismatch: y_train has %llu observations, weights has %llu", y_train.size(), weights.size());
+		throw InvalidInputException("Length mismatch: y_train has %llu observations, weights has %llu", y_train.size(),
+		                            weights.size());
 	}
 
 	// Extract X_train matrix
@@ -141,7 +142,8 @@ static unique_ptr<FunctionData> WlsPredictIntervalBind(ClientContext &context, T
 	idx_t df = n_train - rank;
 
 	if (df == 0) {
-		throw InvalidInputException("Not enough observations for effective parameters: n=%llu, rank=%llu", n_train, rank);
+		throw InvalidInputException("Not enough observations for effective parameters: n=%llu, rank=%llu", n_train,
+		                            rank);
 	}
 
 	double mse = result.mse;
@@ -274,9 +276,9 @@ void WLSPredictIntervalFunction::Register(ExtensionLoader &loader) {
 	ANOFOX_DEBUG("Registering WLS predict_interval function");
 
 	TableFunction func("anofox_statistics_predict_wls",
-	                   {LogicalType::LIST(LogicalType::DOUBLE),                    // y_train
-	                    LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)), // x_train
-	                    LogicalType::LIST(LogicalType::DOUBLE),                    // weights
+	                   {LogicalType::LIST(LogicalType::DOUBLE),                     // y_train
+	                    LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)),  // x_train
+	                    LogicalType::LIST(LogicalType::DOUBLE),                     // weights
 	                    LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE))}, // x_new
 	                   WlsPredictIntervalTableFunc, WlsPredictIntervalBind);
 

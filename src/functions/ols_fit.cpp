@@ -595,23 +595,23 @@ static unique_ptr<FunctionData> OlsFitBind(ClientContext &context, TableFunction
 		return_types.push_back(LogicalType::LIST(LogicalType::DOUBLE));  // x_train_means
 
 		// New statistical metrics types
-		return_types.push_back(LogicalType::DOUBLE);                     // residual_standard_error
-		return_types.push_back(LogicalType::DOUBLE);                     // f_statistic
-		return_types.push_back(LogicalType::DOUBLE);                     // f_statistic_pvalue
-		return_types.push_back(LogicalType::DOUBLE);                     // aic
-		return_types.push_back(LogicalType::DOUBLE);                     // aicc
-		return_types.push_back(LogicalType::DOUBLE);                     // bic
-		return_types.push_back(LogicalType::DOUBLE);                     // log_likelihood
+		return_types.push_back(LogicalType::DOUBLE); // residual_standard_error
+		return_types.push_back(LogicalType::DOUBLE); // f_statistic
+		return_types.push_back(LogicalType::DOUBLE); // f_statistic_pvalue
+		return_types.push_back(LogicalType::DOUBLE); // aic
+		return_types.push_back(LogicalType::DOUBLE); // aicc
+		return_types.push_back(LogicalType::DOUBLE); // bic
+		return_types.push_back(LogicalType::DOUBLE); // log_likelihood
 
 		// Coefficient-level inference types
-		return_types.push_back(LogicalType::LIST(LogicalType::DOUBLE));  // coefficient_t_statistics
-		return_types.push_back(LogicalType::DOUBLE);                     // intercept_t_statistic
-		return_types.push_back(LogicalType::LIST(LogicalType::DOUBLE));  // coefficient_p_values
-		return_types.push_back(LogicalType::DOUBLE);                     // intercept_p_value
-		return_types.push_back(LogicalType::LIST(LogicalType::DOUBLE));  // coefficient_ci_lower
-		return_types.push_back(LogicalType::DOUBLE);                     // intercept_ci_lower
-		return_types.push_back(LogicalType::LIST(LogicalType::DOUBLE));  // coefficient_ci_upper
-		return_types.push_back(LogicalType::DOUBLE);                     // intercept_ci_upper
+		return_types.push_back(LogicalType::LIST(LogicalType::DOUBLE)); // coefficient_t_statistics
+		return_types.push_back(LogicalType::DOUBLE);                    // intercept_t_statistic
+		return_types.push_back(LogicalType::LIST(LogicalType::DOUBLE)); // coefficient_p_values
+		return_types.push_back(LogicalType::DOUBLE);                    // intercept_p_value
+		return_types.push_back(LogicalType::LIST(LogicalType::DOUBLE)); // coefficient_ci_lower
+		return_types.push_back(LogicalType::DOUBLE);                    // intercept_ci_lower
+		return_types.push_back(LogicalType::LIST(LogicalType::DOUBLE)); // coefficient_ci_upper
+		return_types.push_back(LogicalType::DOUBLE);                    // intercept_ci_upper
 	}
 
 	// Check if this is being called for lateral joins (in-out function mode)

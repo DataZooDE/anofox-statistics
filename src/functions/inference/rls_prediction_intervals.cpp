@@ -41,7 +41,7 @@ struct RlsPredictIntervalBindData : public FunctionData {
 };
 
 static unique_ptr<FunctionData> RlsPredictIntervalBind(ClientContext &context, TableFunctionBindInput &input,
-                                                                 vector<LogicalType> &return_types, vector<string> &names) {
+                                                       vector<LogicalType> &return_types, vector<string> &names) {
 
 	auto bind_data = make_uniq<RlsPredictIntervalBindData>();
 
@@ -123,7 +123,8 @@ static unique_ptr<FunctionData> RlsPredictIntervalBind(ClientContext &context, T
 	idx_t df = n_train - rank;
 
 	if (df == 0) {
-		throw InvalidInputException("Not enough observations for effective parameters: n=%llu, rank=%llu", n_train, rank);
+		throw InvalidInputException("Not enough observations for effective parameters: n=%llu, rank=%llu", n_train,
+		                            rank);
 	}
 
 	double mse = result.mse;
@@ -256,8 +257,8 @@ void RLSPredictIntervalFunction::Register(ExtensionLoader &loader) {
 	ANOFOX_DEBUG("Registering RLS predict_interval function");
 
 	TableFunction func("anofox_statistics_predict_rls",
-	                   {LogicalType::LIST(LogicalType::DOUBLE),                    // y_train
-	                    LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)), // x_train
+	                   {LogicalType::LIST(LogicalType::DOUBLE),                     // y_train
+	                    LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)),  // x_train
 	                    LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE))}, // x_new
 	                   RlsPredictIntervalTableFunc, RlsPredictIntervalBind);
 

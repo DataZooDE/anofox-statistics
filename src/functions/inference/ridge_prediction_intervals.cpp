@@ -41,7 +41,7 @@ struct RidgePredictIntervalBindData : public FunctionData {
 };
 
 static unique_ptr<FunctionData> RidgePredictIntervalBind(ClientContext &context, TableFunctionBindInput &input,
-                                                                 vector<LogicalType> &return_types, vector<string> &names) {
+                                                         vector<LogicalType> &return_types, vector<string> &names) {
 
 	auto bind_data = make_uniq<RidgePredictIntervalBindData>();
 
@@ -127,7 +127,8 @@ static unique_ptr<FunctionData> RidgePredictIntervalBind(ClientContext &context,
 	idx_t df = n_train - rank;
 
 	if (df == 0) {
-		throw InvalidInputException("Not enough observations for effective parameters: n=%llu, rank=%llu", n_train, rank);
+		throw InvalidInputException("Not enough observations for effective parameters: n=%llu, rank=%llu", n_train,
+		                            rank);
 	}
 
 	double mse = result.mse;
@@ -260,8 +261,8 @@ void RidgePredictIntervalFunction::Register(ExtensionLoader &loader) {
 	ANOFOX_DEBUG("Registering Ridge predict_interval function");
 
 	TableFunction func("anofox_statistics_predict_ridge",
-	                   {LogicalType::LIST(LogicalType::DOUBLE),                    // y_train
-	                    LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)), // x_train
+	                   {LogicalType::LIST(LogicalType::DOUBLE),                     // y_train
+	                    LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)),  // x_train
 	                    LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE))}, // x_new
 	                   RidgePredictIntervalTableFunc, RidgePredictIntervalBind);
 

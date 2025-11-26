@@ -20,20 +20,20 @@
 // #include "functions/aggregates/wls_predict_aggregate.hpp"          // Phase 4b - WLS Predict Aggregate
 // #include "functions/aggregates/rls_predict_aggregate.hpp"          // Phase 4b - RLS Predict Aggregate
 // #include "functions/aggregates/elastic_net_predict_aggregate.hpp"  // Phase 4b - Elastic Net Predict Aggregate
-#include "functions/inference/prediction_intervals.hpp"            // Phase 5 - OLS Prediction Intervals
-#include "functions/inference/ridge_prediction_intervals.hpp"      // Phase 5 - Ridge Prediction Intervals
-#include "functions/inference/wls_prediction_intervals.hpp"        // Phase 5 - WLS Prediction Intervals
-#include "functions/inference/rls_prediction_intervals.hpp"        // Phase 5 - RLS Prediction Intervals
+#include "functions/inference/prediction_intervals.hpp"             // Phase 5 - OLS Prediction Intervals
+#include "functions/inference/ridge_prediction_intervals.hpp"       // Phase 5 - Ridge Prediction Intervals
+#include "functions/inference/wls_prediction_intervals.hpp"         // Phase 5 - WLS Prediction Intervals
+#include "functions/inference/rls_prediction_intervals.hpp"         // Phase 5 - RLS Prediction Intervals
 #include "functions/inference/elastic_net_prediction_intervals.hpp" // Phase 5 - Elastic Net Prediction Intervals
-#include "functions/inference/model_predict.hpp"                   // Phase 5 - Model-based prediction
-#include "functions/diagnostics/residual_diagnostics.hpp"          // Phase 5 - Diagnostics
-#include "functions/diagnostics/vif.hpp"                           // Phase 5 - Multicollinearity
-#include "functions/diagnostics/normality_test.hpp"                // Phase 5 - Normality
-#include "functions/fit_predict/ols_fit_predict.hpp"               // Phase 6 - OLS Fit-Predict
-#include "functions/fit_predict/ridge_fit_predict.hpp"             // Phase 6 - Ridge Fit-Predict
-#include "functions/fit_predict/wls_fit_predict.hpp"               // Phase 6 - WLS Fit-Predict
-#include "functions/fit_predict/elastic_net_fit_predict.hpp"       // Phase 6 - Elastic Net Fit-Predict
-#include "functions/fit_predict/rls_fit_predict.hpp"               // Phase 6 - RLS Fit-Predict
+#include "functions/inference/model_predict.hpp"                    // Phase 5 - Model-based prediction
+#include "functions/diagnostics/residual_diagnostics.hpp"           // Phase 5 - Diagnostics
+#include "functions/diagnostics/vif.hpp"                            // Phase 5 - Multicollinearity
+#include "functions/diagnostics/normality_test.hpp"                 // Phase 5 - Normality
+#include "functions/fit_predict/ols_fit_predict.hpp"                // Phase 6 - OLS Fit-Predict
+#include "functions/fit_predict/ridge_fit_predict.hpp"              // Phase 6 - Ridge Fit-Predict
+#include "functions/fit_predict/wls_fit_predict.hpp"                // Phase 6 - WLS Fit-Predict
+#include "functions/fit_predict/elastic_net_fit_predict.hpp"        // Phase 6 - Elastic Net Fit-Predict
+#include "functions/fit_predict/rls_fit_predict.hpp"                // Phase 6 - RLS Fit-Predict
 #include "duckdb/common/exception.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
 

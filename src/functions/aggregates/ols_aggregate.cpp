@@ -947,7 +947,8 @@ void OlsAggregateFunction::Register(ExtensionLoader &loader) {
 	// This is the new unified API that matches table function signatures
 	// Now supports window functions with OVER clause
 	AggregateFunction anofox_statistics_ols_fit_agg(
-	    "anofox_statistics_ols_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
+	    "anofox_statistics_ols_fit_agg",
+	    {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
 	    LogicalType::STRUCT(array_fit_struct_fields), AggregateFunction::StateSize<OlsArrayAggregateState>,
 	    OlsArrayInitialize, OlsArrayUpdate, OlsArrayCombine, OlsArrayFinalize,
 	    FunctionNullHandling::DEFAULT_NULL_HANDLING, nullptr, nullptr, nullptr, nullptr, OlsArrayWindow, nullptr,
