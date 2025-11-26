@@ -644,16 +644,24 @@ static void ElasticNetFitExecute(ClientContext &context, TableFunctionInput &dat
 void ElasticNetFitFunction::Register(ExtensionLoader &loader) {
 	ANOFOX_DEBUG("Registering anofox_statistics_elastic_net (array-based v1.4.1 with MAP options)");
 
-	// Signature: anofox_statistics_elastic_net(y DOUBLE[], x DOUBLE[][], [options MAP])
-	vector<LogicalType> arguments = {
+	// Register 2-argument overload: (y DOUBLE[], x DOUBLE[][])
+	vector<LogicalType> args_2 = {
 	    LogicalType::LIST(LogicalType::DOUBLE),                   // y: DOUBLE[]
 	    LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)) // x: DOUBLE[][]
 	};
 
-	TableFunction function("anofox_statistics_elastic_net_fit", arguments, ElasticNetFitExecute, ElasticNetFitBind);
-	function.varargs = LogicalType::ANY;
+	TableFunction func_2("anofox_statistics_elastic_net_fit", args_2, ElasticNetFitExecute, ElasticNetFitBind);
+	loader.RegisterFunction(func_2);
 
-	loader.RegisterFunction(function);
+	// Register 3-argument overload: (y DOUBLE[], x DOUBLE[][], options MAP/STRUCT)
+	vector<LogicalType> args_3 = {
+	    LogicalType::LIST(LogicalType::DOUBLE),                   // y: DOUBLE[]
+	    LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)), // x: DOUBLE[][]
+	    LogicalType::ANY                                          // options: MAP or STRUCT
+	};
+
+	TableFunction func_3("anofox_statistics_elastic_net_fit", args_3, ElasticNetFitExecute, ElasticNetFitBind);
+	loader.RegisterFunction(func_3);
 
 	ANOFOX_INFO("anofox_statistics_elastic_net registered successfully");
 }

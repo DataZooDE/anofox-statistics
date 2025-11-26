@@ -64,7 +64,7 @@ SELECT
     category,
     result.coefficients[1] as price_elasticity,
     result.intercept,
-    result.r2,
+    result.r_squared,
     result.n_obs
 FROM (
     SELECT
@@ -136,7 +136,7 @@ SELECT
     segment,
     result.coefficients[1] as income_sensitivity,
     result.intercept,
-    result.r2,
+    result.r_squared,
     result.weighted_mse
 FROM (
     SELECT
@@ -211,7 +211,7 @@ SELECT
     result.coefficients[1] as market_beta,
     result.coefficients[2] as sector_beta,
     result.coefficients[3] as momentum_factor,
-    result.r2,
+    result.r_squared,
     result.lambda
 FROM (
     SELECT
@@ -284,7 +284,7 @@ SELECT
     sensor_id,
     result.coefficients[1] as calibration_slope,
     result.intercept as calibration_offset,
-    result.r2,
+    result.r_squared,
     result.forgetting_factor,
     result.n_obs
 FROM (
@@ -411,7 +411,7 @@ SELECT
     category,
     array_length(result.coefficients) as n_coeffs,
     result.n_nonzero >= 1 as has_nonzero,
-    result.r2 > 0.8 as good_fit
+    result.r_squared > 0.8 as good_fit
 FROM aggregated;
 
 -- Test 2.2: Elastic Net Aggregate with window function (rolling)
@@ -427,7 +427,7 @@ WITH data AS (
 SELECT
     time,
     result.n_obs >= 3 as sufficient_data,
-    result.r2
+    result.r_squared
 FROM (
     SELECT
         time,
@@ -585,7 +585,7 @@ FROM (
 -- aggregated AS (
 --     SELECT
 --         group_id,
---         anofox_statistics_normality_test_agg(residual, MAP(['alpha'], [0.05::DOUBLE])) as result
+--         anofox_statistics_normality_test_agg(residual, {'alpha': 0.05}) as result
 --     FROM data
 --     GROUP BY group_id
 -- )
@@ -610,7 +610,7 @@ FROM (
 --     result.is_normal IS NOT NULL as has_test_result,
 --     result.p_value >= 0 as valid_pvalue
 -- FROM (
---     SELECT anofox_statistics_normality_test_agg(residual, MAP(['alpha'], [0.01::DOUBLE])) as result
+--     SELECT anofox_statistics_normality_test_agg(residual, {'alpha': 0.01}) as result
 --     FROM data
 -- );
 -- =============================================================================
@@ -794,7 +794,7 @@ SELECT
     category,
     array_length(result.coefficients) as n_coeffs,
     result.n_nonzero >= 1 as has_nonzero,
-    result.r2 > 0.8 as good_fit
+    result.r_squared > 0.8 as good_fit
 FROM aggregated;
 
 -- Test 2.2: Elastic Net Aggregate with window function (rolling)
@@ -810,7 +810,7 @@ WITH data AS (
 SELECT
     time,
     result.n_obs >= 3 as sufficient_data,
-    result.r2
+    result.r_squared
 FROM (
     SELECT
         time,
@@ -968,7 +968,7 @@ FROM (
 -- aggregated AS (
 --     SELECT
 --         group_id,
---         anofox_statistics_normality_test_agg(residual, MAP(['alpha'], [0.05::DOUBLE])) as result
+--         anofox_statistics_normality_test_agg(residual, {'alpha': 0.05}) as result
 --     FROM data
 --     GROUP BY group_id
 -- )
@@ -993,7 +993,7 @@ FROM (
 --     result.is_normal IS NOT NULL as has_test_result,
 --     result.p_value >= 0 as valid_pvalue
 -- FROM (
---     SELECT anofox_statistics_normality_test_agg(residual, MAP(['alpha'], [0.01::DOUBLE])) as result
+--     SELECT anofox_statistics_normality_test_agg(residual, {'alpha': 0.01}) as result
 --     FROM data
 -- );
 -- =============================================================================
@@ -1173,7 +1173,7 @@ SELECT
     category,
     array_length(result.coefficients) as n_coeffs,
     result.n_nonzero >= 1 as has_nonzero,
-    result.r2 > 0.8 as good_fit
+    result.r_squared > 0.8 as good_fit
 FROM aggregated;
 
 -- Test 2.2: Elastic Net Aggregate with window function (rolling)
@@ -1189,7 +1189,7 @@ WITH data AS (
 SELECT
     time,
     result.n_obs >= 3 as sufficient_data,
-    result.r2
+    result.r_squared
 FROM (
     SELECT
         time,
@@ -1347,7 +1347,7 @@ FROM (
 -- aggregated AS (
 --     SELECT
 --         group_id,
---         anofox_statistics_normality_test_agg(residual, MAP(['alpha'], [0.05::DOUBLE])) as result
+--         anofox_statistics_normality_test_agg(residual, {'alpha': 0.05}) as result
 --     FROM data
 --     GROUP BY group_id
 -- )
@@ -1372,7 +1372,7 @@ FROM (
 --     result.is_normal IS NOT NULL as has_test_result,
 --     result.p_value >= 0 as valid_pvalue
 -- FROM (
---     SELECT anofox_statistics_normality_test_agg(residual, MAP(['alpha'], [0.01::DOUBLE])) as result
+--     SELECT anofox_statistics_normality_test_agg(residual, {'alpha': 0.01}) as result
 --     FROM data
 -- );
 -- =============================================================================
@@ -1554,7 +1554,7 @@ SELECT
     category,
     array_length(result.coefficients) as n_coeffs,
     result.n_nonzero >= 1 as has_nonzero,
-    result.r2 > 0.8 as good_fit
+    result.r_squared > 0.8 as good_fit
 FROM aggregated;
 
 -- Test 2.2: Elastic Net Aggregate with window function (rolling)
@@ -1570,7 +1570,7 @@ WITH data AS (
 SELECT
     time,
     result.n_obs >= 3 as sufficient_data,
-    result.r2
+    result.r_squared
 FROM (
     SELECT
         time,
@@ -1728,7 +1728,7 @@ FROM (
 -- aggregated AS (
 --     SELECT
 --         group_id,
---         anofox_statistics_normality_test_agg(residual, MAP(['alpha'], [0.05::DOUBLE])) as result
+--         anofox_statistics_normality_test_agg(residual, {'alpha': 0.05}) as result
 --     FROM data
 --     GROUP BY group_id
 -- )
@@ -1753,7 +1753,7 @@ FROM (
 --     result.is_normal IS NOT NULL as has_test_result,
 --     result.p_value >= 0 as valid_pvalue
 -- FROM (
---     SELECT anofox_statistics_normality_test_agg(residual, MAP(['alpha'], [0.01::DOUBLE])) as result
+--     SELECT anofox_statistics_normality_test_agg(residual, {'alpha': 0.01}) as result
 --     FROM data
 -- );
 -- =============================================================================
@@ -1870,8 +1870,8 @@ SELECT * FROM read_csv('test/data/ols_tests/input/simple_linear.csv');
 -- Test using aggregate function (works directly on table data)
 CREATE OR REPLACE TABLE ols_agg_result AS
 SELECT
-    (ols_fit_agg(y, x)).coefficient as slope,
-    (ols_fit_agg(y, x)).r2 as r_squared
+    (anofox_statistics_ols_fit_agg(y, [x], {'intercept': true})).coefficients[1] as slope,
+    (anofox_statistics_ols_fit_agg(y, [x], {'intercept': true})).r_squared as r_squared
 FROM ols_input;
 
 -- Load expected R² from reference data
@@ -1925,7 +1925,7 @@ SELECT * FROM anofox_statistics_wls_fit(
     [50.0, 100.0, 150.0, 200.0, 250.0]::DOUBLE[],  -- y: sales
     [[10.0, 20.0, 30.0, 40.0, 50.0]]::DOUBLE[][],  -- X: 2D array (one feature)
     [10.0, 20.0, 30.0, 40.0, 50.0]::DOUBLE[],      -- weights: proportional to size
-    MAP{'intercept': true}                          -- options in MAP
+    {'intercept': true}                          -- options in MAP
 );
 ```
 
@@ -1963,7 +1963,7 @@ SELECT result.* FROM data,
 LATERAL anofox_statistics_ridge_fit(
     data.y,
     data.X,
-    MAP(['lambda', 'intercept'], [0.1::DOUBLE, 1.0::DOUBLE])
+    {'lambda': 0.1, 'intercept': true}
 ) as result;
 ```
 
@@ -2094,7 +2094,7 @@ SELECT
     category,
     array_length(result.coefficients) as n_coeffs,
     result.n_nonzero >= 1 as has_nonzero,
-    result.r2 > 0.8 as good_fit
+    result.r_squared > 0.8 as good_fit
 FROM aggregated;
 
 -- Test 2.2: Elastic Net Aggregate with window function (rolling)
@@ -2110,7 +2110,7 @@ WITH data AS (
 SELECT
     time,
     result.n_obs >= 3 as sufficient_data,
-    result.r2
+    result.r_squared
 FROM (
     SELECT
         time,
@@ -2268,7 +2268,7 @@ FROM (
 -- aggregated AS (
 --     SELECT
 --         group_id,
---         anofox_statistics_normality_test_agg(residual, MAP(['alpha'], [0.05::DOUBLE])) as result
+--         anofox_statistics_normality_test_agg(residual, {'alpha': 0.05}) as result
 --     FROM data
 --     GROUP BY group_id
 -- )
@@ -2293,7 +2293,7 @@ FROM (
 --     result.is_normal IS NOT NULL as has_test_result,
 --     result.p_value >= 0 as valid_pvalue
 -- FROM (
---     SELECT anofox_statistics_normality_test_agg(residual, MAP(['alpha'], [0.01::DOUBLE])) as result
+--     SELECT anofox_statistics_normality_test_agg(residual, {'alpha': 0.01}) as result
 --     FROM data
 -- );
 -- =============================================================================
@@ -2370,58 +2370,73 @@ SELECT 'All tests completed successfully' as status;
 
 ## Diagnostic Functions
 
-### anofox_statistics_ols_inference
+### Statistical Inference (Integrated)
 
-**Description:** Statistical inference for OLS coefficients. Computes t-statistics, p-values, and confidence intervals.
+**Description:** Statistical inference is integrated into fit functions using `full_output=true`. Computes t-statistics, p-values, and confidence intervals.
 
 **Signature:**
 
 ```sql
-anofox_statistics_ols_inference(
+anofox_statistics_ols_fit(
     y DOUBLE[],
     x DOUBLE[][],
-    options MAP(VARCHAR, ANY)
-) → TABLE(variable VARCHAR, coefficient DOUBLE, std_error DOUBLE, t_statistic DOUBLE, p_value DOUBLE, ci_lower DOUBLE, ci_upper DOUBLE, significant BOOLEAN)
+    {'intercept': true, 'full_output': true, 'confidence_level': 0.95}
+) → STRUCT(coefficients, coefficient_p_values, coefficient_t_statistics, intercept_p_value, f_statistic, ...)
 ```
 
 **Parameters:**
 
-- `options`: MAP with `confidence_level` (default: 0.95), `intercept` (default: true)
+- `full_output`: Set to true to get inference statistics
+- `confidence_level`: Confidence level (default: 0.95)
+- `intercept`: Include intercept (default: true)
 
-**Returns:** One row per predictor with full inference statistics.
+**Returns:** STRUCT with all regression statistics including inference.
 
 **Example:**
 
 
 ```sql
 
--- Predict for new values (use positional parameters and literal arrays)
-SELECT * FROM ols_predict_interval(
-    [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],          -- y_train
-    [[1.0], [2.0], [3.0], [4.0], [5.0]]::DOUBLE[][], -- x_train
-    [[6.0], [7.0], [8.0]]::DOUBLE[][],             -- x_new: values to predict
-    0.95,                                           -- confidence_level
-    'prediction',                                   -- interval_type
-    true                                            -- add_intercept
-);
+-- Get statistical inference using fit with full_output
+WITH model AS (
+    SELECT * FROM anofox_statistics_ols_fit(
+        [2.1, 4.0, 6.1, 7.9, 10.2]::DOUBLE[],
+        [[1.0], [2.0], [3.0], [4.0], [5.0]]::DOUBLE[][],
+        {'intercept': true, 'full_output': true, 'confidence_level': 0.95::DOUBLE}
+    )
+)
+SELECT
+    'x1' as variable,
+    ROUND(coefficients[1], 4) as coefficient,
+    ROUND(coefficient_p_values[1], 4) as p_value,
+    coefficient_p_values[1] < 0.05 as significant
+FROM model
+UNION ALL
+SELECT
+    'intercept' as variable,
+    ROUND(intercept, 4) as coefficient,
+    ROUND(intercept_p_value, 4) as p_value,
+    intercept_p_value < 0.05 as significant
+FROM model;
 ```
 
 **When to use:** Hypothesis testing, determining which predictors are significant.
 
 ---
 
-### anofox_statistics_ols_predict_interval
+### anofox_statistics_predict_ols
 
 **Description:** Predictions with confidence and prediction intervals.
 
 **Signature:**
 
 ```sql
-anofox_statistics_ols_predict_interval(
-    y DOUBLE[],
-    x DOUBLE[][],
-    options MAP(VARCHAR, ANY)
-) → TABLE(predicted DOUBLE, ci_lower DOUBLE, ci_upper DOUBLE, pi_lower DOUBLE, pi_upper DOUBLE, std_error DOUBLE)
+anofox_statistics_predict_ols(
+    y_train DOUBLE[],
+    x_train DOUBLE[][],
+    x_new DOUBLE[][],
+    options MAP
+) → TABLE(observation_id BIGINT, predicted DOUBLE, ci_lower DOUBLE, ci_upper DOUBLE, se DOUBLE)
 ```
 
 **Parameters:**
@@ -2435,18 +2450,19 @@ anofox_statistics_ols_predict_interval(
 
 ```sql
 
+-- Use the predict function for prediction intervals
 SELECT
     predicted,
     ci_lower,
     ci_upper,
     ci_upper - ci_lower as interval_width
-FROM ols_predict_interval(
+FROM anofox_statistics_predict_ols(
     [50.0, 55.0, 60.0, 65.0, 70.0]::DOUBLE[],           -- y_train: historical_sales
     [[1.0], [2.0], [3.0], [4.0], [5.0]]::DOUBLE[][],    -- x_train: historical_features
     [[6.0], [7.0], [8.0]]::DOUBLE[][],                  -- x_new: future_features
     0.95,                                                 -- confidence_level
-    'prediction',                                         -- interval_type (or 'confidence')
-    true                                                  -- add_intercept
+    'prediction',                                         -- interval_type
+    true                                                  -- intercept
 );
 ```
 
@@ -2689,8 +2705,8 @@ All functions accept an `options` MAP parameter for configuration. Common keys:
 | `anofox_statistics_ridge` | Table | Ridge for arrays | `lambda`, `intercept` |
 | `anofox_statistics_rls` | Table | RLS for arrays | `forgetting_factor`, `intercept` |
 | `anofox_statistics_elastic_net` | Table | Elastic Net for arrays | `alpha`, `lambda`, `max_iterations` |
-| `anofox_statistics_ols_inference` | Table | Coefficient significance tests | `confidence_level` |
-| `anofox_statistics_ols_predict_interval` | Table | Predictions with intervals | `confidence_level` |
+| `anofox_statistics_ols_fit` (with `full_output=true`) | Table | Coefficient significance tests | `confidence_level` |
+| `anofox_statistics_predict_ols` | Table | Predictions with intervals | `confidence_level`, `interval_type` |
 | `anofox_statistics_information_criteria` | Table | Model selection (AIC/BIC) | `intercept` |
 | `anofox_statistics_residual_diagnostics` | Table | Outlier and influence detection | `outlier_threshold` |
 | `anofox_statistics_vif` | Table | Multicollinearity detection | None |

@@ -8,9 +8,10 @@ Real-world business applications of the Anofox Statistics extension, demonstrati
 
 **Working Patterns**:
 
-- **Aggregate functions** (`anofox_statistics_ols_agg`, `anofox_statistics_ols_agg`) work directly with table data - use these for GROUP BY analysis
-- **Table functions** (`ols_inference`, `ols_predict_interval`) require literal arrays - examples show small datasets with explicit arrays
-- All functions use positional parameters only (no `:=` syntax)
+- **Aggregate functions** (`anofox_statistics_ols_fit_agg`, etc.) work directly with table data - use these for GROUP BY analysis
+- **Table functions** (`anofox_statistics_ols_fit`, `anofox_statistics_predict_ols`) require literal arrays - examples show small datasets with explicit arrays
+- **Inference** is integrated into fit functions using `full_output=true` option
+- All functions use positional parameters with MAP options (no `:=` syntax)
 
 **To adapt for your tables**: Replace sample data creation with your actual tables. For table functions with large datasets, use the two-step approach: run `SELECT LIST(column) FROM table`, copy result, paste as literal array.
 
@@ -46,29 +47,29 @@ FROM (
 -- Analyze relationship between marketing spend and revenue using aggregate function
 SELECT
     'tv' as channel,
-    ROUND(ols_coeff_agg(revenue, tv_spend), 2) as roi,
-    ROUND((ols_fit_agg(revenue, tv_spend)).r2, 3) as r_squared,
+    ROUND((anofox_statistics_ols_fit_agg(revenue, [tv_spend], {'intercept': true})).coefficients[1], 2) as roi,
+    ROUND((anofox_statistics_ols_fit_agg(revenue, [tv_spend], {'intercept': true})).r_squared, 3) as r_squared,
     'High Impact' as business_impact
 FROM weekly_campaigns WHERE year = 2024
 UNION ALL
 SELECT
     'digital' as channel,
-    ROUND(ols_coeff_agg(revenue, digital_spend), 2) as roi,
-    ROUND((ols_fit_agg(revenue, digital_spend)).r2, 3) as r_squared,
+    ROUND((anofox_statistics_ols_fit_agg(revenue, [digital_spend], {'intercept': true})).coefficients[1], 2) as roi,
+    ROUND((anofox_statistics_ols_fit_agg(revenue, [digital_spend], {'intercept': true})).r_squared, 3) as r_squared,
     'High Impact' as business_impact
 FROM weekly_campaigns WHERE year = 2024
 UNION ALL
 SELECT
     'print' as channel,
-    ROUND(ols_coeff_agg(revenue, print_spend), 2) as roi,
-    ROUND((ols_fit_agg(revenue, print_spend)).r2, 3) as r_squared,
+    ROUND((anofox_statistics_ols_fit_agg(revenue, [print_spend], {'intercept': true})).coefficients[1], 2) as roi,
+    ROUND((anofox_statistics_ols_fit_agg(revenue, [print_spend], {'intercept': true})).r_squared, 3) as r_squared,
     'Low Impact' as business_impact
 FROM weekly_campaigns WHERE year = 2024
 UNION ALL
 SELECT
     'radio' as channel,
-    ROUND(ols_coeff_agg(revenue, radio_spend), 2) as roi,
-    ROUND((ols_fit_agg(revenue, radio_spend)).r2, 3) as r_squared,
+    ROUND((anofox_statistics_ols_fit_agg(revenue, [radio_spend], {'intercept': true})).coefficients[1], 2) as roi,
+    ROUND((anofox_statistics_ols_fit_agg(revenue, [radio_spend], {'intercept': true})).r_squared, 3) as r_squared,
     'High Impact' as business_impact
 FROM weekly_campaigns WHERE year = 2024
 ORDER BY roi DESC;
@@ -123,14 +124,14 @@ FROM (
 -- Calculate price elasticity by product category
 SELECT
     category,
-    ROUND((ols_fit_agg(quantity, price)).coefficient, 3) as elasticity,
-    ROUND((ols_fit_agg(quantity, price)).r2, 3) as predictability,
+    ROUND((anofox_statistics_ols_fit_agg(quantity, price)).coefficients[1], 3) as elasticity,
+    ROUND((anofox_statistics_ols_fit_agg(quantity, price)).r_squared, 3) as predictability,
     CASE
-        WHEN ABS((ols_fit_agg(quantity, price)).coefficient) > 0.5 THEN 'Elastic'
+        WHEN ABS((anofox_statistics_ols_fit_agg(quantity, price)).coefficients[1]) > 0.5 THEN 'Elastic'
         ELSE 'Inelastic'
     END as elasticity_type,
     CASE
-        WHEN ABS((ols_fit_agg(quantity, price)).coefficient) > 0.5 THEN 'Discount Strategy'
+        WHEN ABS((anofox_statistics_ols_fit_agg(quantity, price)).coefficients[1]) > 0.5 THEN 'Discount Strategy'
         ELSE 'Premium Pricing'
     END as pricing_recommendation
 FROM sales_transactions
@@ -177,25 +178,25 @@ FROM (
 -- Build CLV model using aggregate functions (works directly with table data)
 SELECT
     'Model Coefficient: Tenure' as metric,
-    ROUND((ols_fit_agg(total_purchases, tenure)).coefficient, 2) as value
+    ROUND((anofox_statistics_ols_fit_agg(total_purchases, tenure)).coefficients[1], 2) as value
 FROM customer_summary
 WHERE cohort_month <= CURRENT_DATE - INTERVAL '12 months'
 UNION ALL
 SELECT
     'Model Coefficient: AOV' as metric,
-    ROUND((ols_fit_agg(total_purchases, aov)).coefficient, 2) as value
+    ROUND((anofox_statistics_ols_fit_agg(total_purchases, aov)).coefficients[1], 2) as value
 FROM customer_summary
 WHERE cohort_month <= CURRENT_DATE - INTERVAL '12 months'
 UNION ALL
 SELECT
     'Model Coefficient: Frequency' as metric,
-    ROUND((ols_fit_agg(total_purchases, freq)).coefficient, 2) as value
+    ROUND((anofox_statistics_ols_fit_agg(total_purchases, freq)).coefficients[1], 2) as value
 FROM customer_summary
 WHERE cohort_month <= CURRENT_DATE - INTERVAL '12 months'
 UNION ALL
 SELECT
     'Model Quality (R²)' as metric,
-    ROUND((ols_fit_agg(total_purchases, tenure)).r2, 3) as value
+    ROUND((anofox_statistics_ols_fit_agg(total_purchases, tenure)).r_squared, 3) as value
 FROM customer_summary
 WHERE cohort_month <= CURRENT_DATE - INTERVAL '12 months';
 ```
@@ -250,11 +251,11 @@ SELECT
     -- Standard OLS (treats all customers equally)
     ols.coefficients[1] as ols_acq_cost_roi,
     ols.coefficients[2] as ols_tenure_value,
-    ols.r2 as ols_r2,
+    ols.r_squared as ols_r2,
     -- Weighted LS (emphasizes high-value customers)
     wls.coefficients[1] as wls_acq_cost_roi,
     wls.coefficients[2] as wls_tenure_value,
-    wls.r2 as wls_r2,
+    wls.r_squared as wls_r2,
     -- Business insights
     CASE
         WHEN wls.coefficients[1] > 1.0 THEN 'Positive ROI on acquisition'
@@ -388,16 +389,16 @@ FROM (
 -- Calculate beta (market sensitivity) for each stock
 SELECT
     stock_ticker,
-    ROUND((ols_fit_agg(stock_return, market_return)).coefficient, 3) as beta,
-    ROUND((ols_fit_agg(stock_return, market_return)).r2, 3) as r_squared,
+    ROUND((anofox_statistics_ols_fit_agg(stock_return, market_return)).coefficients[1], 3) as beta,
+    ROUND((anofox_statistics_ols_fit_agg(stock_return, market_return)).r_squared, 3) as r_squared,
     CASE
-        WHEN (ols_fit_agg(stock_return, market_return)).coefficient > 1.2 THEN 'High Risk'
-        WHEN (ols_fit_agg(stock_return, market_return)).coefficient > 0.8 THEN 'Medium Risk'
+        WHEN (anofox_statistics_ols_fit_agg(stock_return, market_return)).coefficients[1] > 1.2 THEN 'High Risk'
+        WHEN (anofox_statistics_ols_fit_agg(stock_return, market_return)).coefficients[1] > 0.8 THEN 'Medium Risk'
         ELSE 'Low Risk'
     END as risk_category,
     CASE
-        WHEN (ols_fit_agg(stock_return, market_return)).coefficient > 1.0 THEN 'Aggressive'
-        WHEN (ols_fit_agg(stock_return, market_return)).coefficient > 0.5 THEN 'Moderate'
+        WHEN (anofox_statistics_ols_fit_agg(stock_return, market_return)).coefficients[1] > 1.0 THEN 'Aggressive'
+        WHEN (anofox_statistics_ols_fit_agg(stock_return, market_return)).coefficients[1] > 0.5 THEN 'Moderate'
         ELSE 'Defensive'
     END as investor_suitability
 FROM daily_stock_returns
@@ -464,13 +465,13 @@ SELECT
     ols.coefficients[2] as ols_sector_beta,
     ols.coefficients[3] as ols_value_beta,
     ols.coefficients[4] as ols_momentum_beta,
-    ols.r2 as ols_r2,
+    ols.r_squared as ols_r2,
     -- Ridge (stabilized coefficients)
     ridge.coefficients[1] as ridge_market_beta,
     ridge.coefficients[2] as ridge_sector_beta,
     ridge.coefficients[3] as ridge_value_beta,
     ridge.coefficients[4] as ridge_momentum_beta,
-    ridge.r2 as ridge_r2,
+    ridge.r_squared as ridge_r2,
     ridge.lambda,
     -- Risk assessment
     CASE
@@ -502,7 +503,7 @@ WITH stock_betas AS (
         ticker,
         result.coefficients[1] as market_beta,
         result.coefficients[2] as sector_beta,
-        result.r2
+        result.r_squared
     FROM (
         SELECT
             ticker,
@@ -590,53 +591,53 @@ FROM range(1, 101) t(i);
 WITH risk_factors AS (
     SELECT
         'Credit Score' as variable,
-        ROUND((ols_fit_agg(default_flag::DOUBLE, credit_score)).coefficient, 5) as coefficient,
-        ROUND((ols_fit_agg(default_flag::DOUBLE, credit_score)).std_error, 4) as std_error,
+        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, credit_score)).coefficients[1], 5) as coefficient,
+        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, credit_score)).std_error, 4) as std_error,
         CASE
-            WHEN (ols_fit_agg(default_flag::DOUBLE, credit_score)).coefficient > 0 THEN 'Increases Risk'
-            WHEN (ols_fit_agg(default_flag::DOUBLE, credit_score)).coefficient < 0 THEN 'Decreases Risk'
+            WHEN (anofox_statistics_ols_fit_agg(default_flag::DOUBLE, credit_score)).coefficients[1] > 0 THEN 'Increases Risk'
+            WHEN (anofox_statistics_ols_fit_agg(default_flag::DOUBLE, credit_score)).coefficients[1] < 0 THEN 'Decreases Risk'
             ELSE 'No Effect'
         END as risk_impact,
-        ROUND((ols_fit_agg(default_flag::DOUBLE, credit_score)).r2, 3) as model_quality
+        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, credit_score)).r_squared, 3) as model_quality
     FROM loans
     WHERE origination_date >= '2022-01-01'
     UNION ALL
     SELECT
         'Debt-to-Income' as variable,
-        ROUND((ols_fit_agg(default_flag::DOUBLE, debt_to_income)).coefficient, 5) as coefficient,
-        ROUND((ols_fit_agg(default_flag::DOUBLE, debt_to_income)).std_error, 4) as std_error,
+        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, debt_to_income)).coefficients[1], 5) as coefficient,
+        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, debt_to_income)).std_error, 4) as std_error,
         CASE
-            WHEN (ols_fit_agg(default_flag::DOUBLE, debt_to_income)).coefficient > 0 THEN 'Increases Risk'
-            WHEN (ols_fit_agg(default_flag::DOUBLE, debt_to_income)).coefficient < 0 THEN 'Decreases Risk'
+            WHEN (anofox_statistics_ols_fit_agg(default_flag::DOUBLE, debt_to_income)).coefficients[1] > 0 THEN 'Increases Risk'
+            WHEN (anofox_statistics_ols_fit_agg(default_flag::DOUBLE, debt_to_income)).coefficients[1] < 0 THEN 'Decreases Risk'
             ELSE 'No Effect'
         END as risk_impact,
-        ROUND((ols_fit_agg(default_flag::DOUBLE, debt_to_income)).r2, 3) as model_quality
+        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, debt_to_income)).r_squared, 3) as model_quality
     FROM loans
     WHERE origination_date >= '2022-01-01'
     UNION ALL
     SELECT
         'Loan-to-Value' as variable,
-        ROUND((ols_fit_agg(default_flag::DOUBLE, loan_to_value)).coefficient, 5) as coefficient,
-        ROUND((ols_fit_agg(default_flag::DOUBLE, loan_to_value)).std_error, 4) as std_error,
+        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, loan_to_value)).coefficients[1], 5) as coefficient,
+        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, loan_to_value)).std_error, 4) as std_error,
         CASE
-            WHEN (ols_fit_agg(default_flag::DOUBLE, loan_to_value)).coefficient > 0 THEN 'Increases Risk'
-            WHEN (ols_fit_agg(default_flag::DOUBLE, loan_to_value)).coefficient < 0 THEN 'Decreases Risk'
+            WHEN (anofox_statistics_ols_fit_agg(default_flag::DOUBLE, loan_to_value)).coefficients[1] > 0 THEN 'Increases Risk'
+            WHEN (anofox_statistics_ols_fit_agg(default_flag::DOUBLE, loan_to_value)).coefficients[1] < 0 THEN 'Decreases Risk'
             ELSE 'No Effect'
         END as risk_impact,
-        ROUND((ols_fit_agg(default_flag::DOUBLE, loan_to_value)).r2, 3) as model_quality
+        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, loan_to_value)).r_squared, 3) as model_quality
     FROM loans
     WHERE origination_date >= '2022-01-01'
     UNION ALL
     SELECT
         'Employment Years' as variable,
-        ROUND((ols_fit_agg(default_flag::DOUBLE, employment_years)).coefficient, 5) as coefficient,
-        ROUND((ols_fit_agg(default_flag::DOUBLE, employment_years)).std_error, 4) as std_error,
+        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, employment_years)).coefficients[1], 5) as coefficient,
+        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, employment_years)).std_error, 4) as std_error,
         CASE
-            WHEN (ols_fit_agg(default_flag::DOUBLE, employment_years)).coefficient > 0 THEN 'Increases Risk'
-            WHEN (ols_fit_agg(default_flag::DOUBLE, employment_years)).coefficient < 0 THEN 'Decreases Risk'
+            WHEN (anofox_statistics_ols_fit_agg(default_flag::DOUBLE, employment_years)).coefficients[1] > 0 THEN 'Increases Risk'
+            WHEN (anofox_statistics_ols_fit_agg(default_flag::DOUBLE, employment_years)).coefficients[1] < 0 THEN 'Decreases Risk'
             ELSE 'No Effect'
         END as risk_impact,
-        ROUND((ols_fit_agg(default_flag::DOUBLE, employment_years)).r2, 3) as model_quality
+        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, employment_years)).r_squared, 3) as model_quality
     FROM loans
     WHERE origination_date >= '2022-01-01'
 )
@@ -671,13 +672,13 @@ FROM range(1, 21) t(i);
 -- For real tables: Run `SELECT LIST(revenue) FROM quarterly_financials` first,
 -- then paste the result as a literal array below
 WITH forecast AS (
-    SELECT * FROM ols_predict_interval(
+    SELECT * FROM anofox_statistics_predict_ols(
         [40572849.0, 41233491.0, 42455123.0, 42789456.0, 43891234.0, 43234567.0, 44567890.0, 44123456.0, 45678901.0, 45234567.0, 46789012.0, 46345678.0, 47890123.0, 47456789.0, 48901234.0, 48567890.0, 49912345.0, 49678901.0, 50923456.0, 50789012.0]::DOUBLE[],
         [[1.0], [2.0], [3.0], [4.0], [5.0], [6.0], [7.0], [8.0], [9.0], [10.0], [11.0], [12.0], [13.0], [14.0], [15.0], [16.0], [17.0], [18.0], [19.0], [20.0]]::DOUBLE[][],
         [[21.0], [22.0], [23.0], [24.0]]::DOUBLE[][],  -- Next 4 quarters
-        0.90,
-        'prediction',
-        true
+        0.90,                                           -- confidence_level
+        'prediction',                                   -- interval_type
+        true                                            -- intercept
     )
 )
 SELECT
@@ -760,15 +761,15 @@ FROM (
 SELECT
     product_id,
     season,
-    ROUND((ols_fit_agg(units_sold, price)).coefficient, 2) as price_sensitivity,
-    ROUND((ols_fit_agg(units_sold, price)).r2, 3) as forecast_accuracy,
+    ROUND((anofox_statistics_ols_fit_agg(units_sold, price)).coefficients[1], 2) as price_sensitivity,
+    ROUND((anofox_statistics_ols_fit_agg(units_sold, price)).r_squared, 3) as forecast_accuracy,
     CASE
-        WHEN (ols_fit_agg(units_sold, price)).r2 > 0.8 THEN 'High Confidence'
-        WHEN (ols_fit_agg(units_sold, price)).r2 > 0.5 THEN 'Medium Confidence'
+        WHEN (anofox_statistics_ols_fit_agg(units_sold, price)).r_squared > 0.8 THEN 'High Confidence'
+        WHEN (anofox_statistics_ols_fit_agg(units_sold, price)).r_squared > 0.5 THEN 'Medium Confidence'
         ELSE 'Low Confidence'
     END as forecast_reliability,
     CASE
-        WHEN (ols_fit_agg(units_sold, price)).r2 > 0.7 THEN 'Auto-Replenish'
+        WHEN (anofox_statistics_ols_fit_agg(units_sold, price)).r_squared > 0.7 THEN 'Auto-Replenish'
         ELSE 'Manual Review'
     END as inventory_strategy,
     COUNT(*) as sample_size
@@ -821,21 +822,21 @@ SELECT
     -- Static OLS model (fixed coefficients)
     ols.coefficients[1] as ols_lag_coef,
     ols.coefficients[2] as ols_trend_coef,
-    ols.r2 as ols_r2,
+    ols.r_squared as ols_r2,
     -- Adaptive RLS model (adjusts to changes)
     rls_slow.coefficients[1] as rls_slow_lag_coef,
     rls_slow.coefficients[2] as rls_slow_trend_coef,
-    rls_slow.r2 as rls_slow_r2,
+    rls_slow.r_squared as rls_slow_r2,
     rls_slow.forgetting_factor as ff_slow,
     -- Fast-adapting RLS
     rls_fast.coefficients[1] as rls_fast_lag_coef,
     rls_fast.coefficients[2] as rls_fast_trend_coef,
-    rls_fast.r2 as rls_fast_r2,
+    rls_fast.r_squared as rls_fast_r2,
     rls_fast.forgetting_factor as ff_fast,
     -- Business insight
     CASE
-        WHEN rls_fast.r2 > ols.r2 + 0.05 THEN 'RLS significantly better - demand pattern changing'
-        WHEN rls_fast.r2 > ols.r2 THEN 'RLS slightly better - moderate changes'
+        WHEN rls_fast.r_squared > ols.r_squared + 0.05 THEN 'RLS significantly better - demand pattern changing'
+        WHEN rls_fast.r_squared > ols.r_squared THEN 'RLS slightly better - moderate changes'
         ELSE 'OLS sufficient - stable demand pattern'
     END as model_recommendation
 FROM (
@@ -883,10 +884,10 @@ SELECT
     product_id,
     week,
     rolling_model.coefficients[1] as adaptive_lag_coefficient,
-    rolling_model.r2 as rolling_r2,
+    rolling_model.r_squared as rolling_r2,
     CASE
-        WHEN rolling_model.r2 > 0.8 THEN 'High forecast confidence'
-        WHEN rolling_model.r2 > 0.6 THEN 'Moderate forecast confidence'
+        WHEN rolling_model.r_squared > 0.8 THEN 'High forecast confidence'
+        WHEN rolling_model.r_squared > 0.6 THEN 'Moderate forecast confidence'
         ELSE 'Low confidence - model recalibration needed'
     END as forecast_confidence
 FROM recent_performance
@@ -983,26 +984,26 @@ WITH recent_batches AS (
 parameter_impacts AS (
     SELECT
         'Temperature' as variable,
-        ROUND((ols_fit_agg(defect_rate, temperature)).coefficient, 4) as impact_on_defects,
-        ROUND((ols_fit_agg(defect_rate, temperature)).r2, 3) as model_fit
+        ROUND((anofox_statistics_ols_fit_agg(defect_rate, [temperature], {'intercept': true})).coefficients[1], 4) as impact_on_defects,
+        ROUND((anofox_statistics_ols_fit_agg(defect_rate, [temperature], {'intercept': true})).r_squared, 3) as model_fit
     FROM recent_batches
     UNION ALL
     SELECT
         'Pressure' as variable,
-        ROUND((ols_fit_agg(defect_rate, pressure)).coefficient, 4) as impact_on_defects,
-        ROUND((ols_fit_agg(defect_rate, pressure)).r2, 3) as model_fit
+        ROUND((anofox_statistics_ols_fit_agg(defect_rate, [pressure], {'intercept': true})).coefficients[1], 4) as impact_on_defects,
+        ROUND((anofox_statistics_ols_fit_agg(defect_rate, [pressure], {'intercept': true})).r_squared, 3) as model_fit
     FROM recent_batches
     UNION ALL
     SELECT
         'Humidity' as variable,
-        ROUND((ols_fit_agg(defect_rate, humidity)).coefficient, 4) as impact_on_defects,
-        ROUND((ols_fit_agg(defect_rate, humidity)).r2, 3) as model_fit
+        ROUND((anofox_statistics_ols_fit_agg(defect_rate, [humidity], {'intercept': true})).coefficients[1], 4) as impact_on_defects,
+        ROUND((anofox_statistics_ols_fit_agg(defect_rate, [humidity], {'intercept': true})).r_squared, 3) as model_fit
     FROM recent_batches
     UNION ALL
     SELECT
         'Line Speed' as variable,
-        ROUND((ols_fit_agg(defect_rate, line_speed)).coefficient, 4) as impact_on_defects,
-        ROUND((ols_fit_agg(defect_rate, line_speed)).r2, 3) as model_fit
+        ROUND((anofox_statistics_ols_fit_agg(defect_rate, [line_speed], {'intercept': true})).coefficients[1], 4) as impact_on_defects,
+        ROUND((anofox_statistics_ols_fit_agg(defect_rate, [line_speed], {'intercept': true})).r_squared, 3) as model_fit
     FROM recent_batches
 ),
 impacts_materialized AS (
@@ -1077,15 +1078,15 @@ FROM (
 -- Analyze productivity drivers by department - focus on training impact
 SELECT
     department,
-    ROUND((ols_fit_agg(output_per_hour, training_hours)).coefficient, 2) as training_impact,
-    ROUND((ols_fit_agg(output_per_hour, training_hours)).r2, 3) as model_fit,
+    ROUND((anofox_statistics_ols_fit_agg(output_per_hour, training_hours)).coefficients[1], 2) as training_impact,
+    ROUND((anofox_statistics_ols_fit_agg(output_per_hour, training_hours)).r_squared, 3) as model_fit,
     CASE
-        WHEN (ols_fit_agg(output_per_hour, training_hours)).coefficient > 5.0 THEN 'High Training ROI'
-        WHEN (ols_fit_agg(output_per_hour, training_hours)).coefficient > 2.0 THEN 'Medium Training ROI'
+        WHEN (anofox_statistics_ols_fit_agg(output_per_hour, training_hours)).coefficients[1] > 5.0 THEN 'High Training ROI'
+        WHEN (anofox_statistics_ols_fit_agg(output_per_hour, training_hours)).coefficients[1] > 2.0 THEN 'Medium Training ROI'
         ELSE 'Low Training ROI'
     END as training_effectiveness,
     CASE
-        WHEN (ols_fit_agg(output_per_hour, training_hours)).coefficient > 3.0 THEN 'Increase Training Budget'
+        WHEN (anofox_statistics_ols_fit_agg(output_per_hour, training_hours)).coefficients[1] > 3.0 THEN 'Increase Training Budget'
         ELSE 'Maintain Current Level'
     END as budget_recommendation,
     COUNT(*) as sample_size
@@ -1135,11 +1136,11 @@ WITH territory_trends AS (
         territory_id,
         month_date,
         sales_amount,
-        (ols_fit_agg(sales_amount::DOUBLE, month_index::DOUBLE) OVER (
+        (anofox_statistics_ols_fit_agg(sales_amount::DOUBLE, month_index::DOUBLE) OVER (
             PARTITION BY territory_id
             ORDER BY month_date
             ROWS BETWEEN 5 PRECEDING AND CURRENT ROW
-        )).coefficient as trend_coefficient
+        )).coefficients[1] as trend_coefficient
     FROM monthly_sales
     WHERE month_date >= CURRENT_DATE - INTERVAL '12 months'
 ),
@@ -1214,7 +1215,7 @@ SELECT
     result.coefficients[1] as price_elasticity,
     result.coefficients[2] as promo_roi,
     result.intercept as baseline_demand,
-    result.r2,
+    result.r_squared,
     result.n_obs as weeks_analyzed,
     -- Business interpretation
     CASE
@@ -1246,7 +1247,7 @@ FROM (
     FROM regional_sales
     GROUP BY region
 ) sub
-ORDER BY result.r2 DESC;
+ORDER BY result.r_squared DESC;
 
 -- Calculate revenue impact of $1 price change
 SELECT
@@ -1390,16 +1391,16 @@ FROM (
 -- Calculate marketing ROI with statistical confidence using aggregate functions
 SELECT
     'Marketing ROI' as metric,
-    ROUND((ols_fit_agg(revenue, spend)).coefficient - 1, 2) as roi_multiplier,
-    ROUND(((ols_fit_agg(revenue, spend)).coefficient - 1) * 100, 1) || '%' as roi_percentage,
+    ROUND((anofox_statistics_ols_fit_agg(revenue, spend)).coefficients[1] - 1, 2) as roi_multiplier,
+    ROUND(((anofox_statistics_ols_fit_agg(revenue, spend)).coefficients[1] - 1) * 100, 1) || '%' as roi_percentage,
     CASE
-        WHEN (ols_fit_agg(revenue, spend)).coefficient > 1.5 THEN 'Strong - Scale Up'
-        WHEN (ols_fit_agg(revenue, spend)).coefficient > 1.0 THEN 'Positive - Continue'
-        WHEN (ols_fit_agg(revenue, spend)).coefficient < 1.0 THEN 'Negative - Stop Campaign'
+        WHEN (anofox_statistics_ols_fit_agg(revenue, spend)).coefficients[1] > 1.5 THEN 'Strong - Scale Up'
+        WHEN (anofox_statistics_ols_fit_agg(revenue, spend)).coefficients[1] > 1.0 THEN 'Positive - Continue'
+        WHEN (anofox_statistics_ols_fit_agg(revenue, spend)).coefficients[1] < 1.0 THEN 'Negative - Stop Campaign'
         ELSE 'Inconclusive - Gather More Data'
     END as recommendation,
-    ROUND((ols_fit_agg(revenue, spend)).std_error, 4) as std_error,
-    ROUND((ols_fit_agg(revenue, spend)).r2, 3) as model_quality
+    ROUND((anofox_statistics_ols_fit_agg(revenue, spend)).std_error, 4) as std_error,
+    ROUND((anofox_statistics_ols_fit_agg(revenue, spend)).r_squared, 3) as model_quality
 FROM campaigns;
 ```
 
@@ -1459,14 +1460,14 @@ FROM (
 -- Track rolling 12-month ROI to detect relationship changes over time
 SELECT
     month,
-    ROUND((ols_fit_agg(sales, marketing) OVER (
+    ROUND((anofox_statistics_ols_fit_agg(sales, marketing) OVER (
         ORDER BY month
         ROWS BETWEEN 11 PRECEDING AND CURRENT ROW
-    )).coefficient, 2) as rolling_12mo_roi,
-    ROUND((ols_fit_agg(sales, marketing) OVER (
+    )).coefficients[1], 2) as rolling_12mo_roi,
+    ROUND((anofox_statistics_ols_fit_agg(sales, marketing) OVER (
         ORDER BY month
         ROWS BETWEEN 11 PRECEDING AND CURRENT ROW
-    )).r2, 3) as rolling_model_quality
+    )).r_squared, 3) as rolling_model_quality
 FROM monthly_data
 ORDER BY month DESC
 LIMIT 12;  -- Show last 12 months
@@ -1504,20 +1505,20 @@ FROM raw_data;
 WITH simple_model AS (
     SELECT
         'Simple Model (x1 only)' as model_type,
-        ROUND((ols_fit_agg(y, x1)).r2, 4) as r_squared,
+        ROUND((anofox_statistics_ols_fit_agg(y, x1)).r_squared, 4) as r_squared,
         COUNT(*) as n_obs,
         1 as n_predictors
     FROM model_comparison_data
 ),
 -- Complex model: analyze multiple predictors individually
 complex_predictors AS (
-    SELECT 'x1' as var, (ols_fit_agg(y, x1)).r2 as r2 FROM model_comparison_data
+    SELECT 'x1' as var, (anofox_statistics_ols_fit_agg(y, x1)).r_squared as r2 FROM model_comparison_data
     UNION ALL
-    SELECT 'x2' as var, (ols_fit_agg(y, x2)).r2 as r2 FROM model_comparison_data
+    SELECT 'x2' as var, (anofox_statistics_ols_fit_agg(y, x2)).r_squared as r2 FROM model_comparison_data
     UNION ALL
-    SELECT 'x3' as var, (ols_fit_agg(y, x3)).r2 as r2 FROM model_comparison_data
+    SELECT 'x3' as var, (anofox_statistics_ols_fit_agg(y, x3)).r_squared as r2 FROM model_comparison_data
     UNION ALL
-    SELECT 'x4' as var, (ols_fit_agg(y, x4)).r2 as r2 FROM model_comparison_data
+    SELECT 'x4' as var, (anofox_statistics_ols_fit_agg(y, x4)).r_squared as r2 FROM model_comparison_data
 ),
 complex_summary AS (
     SELECT

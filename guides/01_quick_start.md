@@ -42,7 +42,7 @@ SELECT result.* FROM input,
 LATERAL anofox_statistics_ridge_fit(
     input.y,
     input.X,
-    MAP(['lambda', 'intercept'], [0.0::DOUBLE, 1.0::DOUBLE])
+    {'lambda': 0.0, 'intercept': true}
 ) as result;
 ```
 
@@ -68,23 +68,32 @@ LATERAL anofox_statistics_ridge_fit(
 
 **When to use**: When you need to validate that a relationship is statistically significant before making business decisions or reporting findings. Essential for scientific research and evidence-based decision making.
 
-**How it works**: The `ols_inference` function computes test statistics and p-values using the t-distribution. It tests the null hypothesis that each coefficient equals zero (no effect). Lower p-values provide stronger evidence against the null hypothesis.
+**How it works**: Using `full_output=true` with fit functions computes test statistics and p-values using the t-distribution. It tests the null hypothesis that each coefficient equals zero (no effect). Lower p-values provide stronger evidence against the null hypothesis.
 
 
 ```sql
 
--- Inference with confidence intervals (use positional parameters)
+-- Get statistical inference using fit with full_output
+WITH model AS (
+    SELECT * FROM anofox_statistics_ols_fit(
+        [2.1, 4.0, 6.1, 7.9, 10.2]::DOUBLE[],
+        [[1.0], [2.0], [3.0], [4.0], [5.0]]::DOUBLE[][],
+        {'intercept': true, 'full_output': true, 'confidence_level': 0.95::DOUBLE}
+    )
+)
 SELECT
-    variable,
-    ROUND(estimate, 4) as coefficient,
-    ROUND(p_value, 4) as p_value,
-    significant
-FROM ols_inference(
-    [2.1, 4.0, 6.1, 7.9, 10.2]::DOUBLE[],          -- y
-    [[1.0], [2.0], [3.0], [4.0], [5.0]]::DOUBLE[][], -- x (matrix)
-    0.95,                                            -- confidence_level
-    true                                             -- add_intercept
-);
+    'x1' as variable,
+    ROUND(coefficients[1], 4) as coefficient,
+    ROUND(coefficient_p_values[1], 4) as p_value,
+    coefficient_p_values[1] < 0.05 as significant
+FROM model
+UNION ALL
+SELECT
+    'intercept' as variable,
+    ROUND(intercept, 4) as coefficient,
+    ROUND(intercept_p_value, 4) as p_value,
+    intercept_p_value < 0.05 as significant
+FROM model;
 ```
 
 **Output:**
@@ -128,8 +137,8 @@ FROM range(1, 21) t(i);
 -- Regression per product
 SELECT
     product,
-    (ols_fit_agg(quantity, price)).coefficient as price_elasticity,
-    (ols_fit_agg(quantity, price)).r2 as fit_quality
+    (anofox_statistics_ols_fit_agg(quantity, price)).coefficients[1] as price_elasticity,
+    (anofox_statistics_ols_fit_agg(quantity, price)).r_squared as fit_quality
 FROM sales
 GROUP BY product;
 ```
@@ -175,10 +184,10 @@ FROM range(1, 51) t(i);
 SELECT
     time_idx,
     value,
-    ols_coeff_agg(value, time_idx) OVER (
+    (anofox_statistics_ols_fit_agg(value, [time_idx], {'intercept': true}) OVER (
         ORDER BY time_idx
         ROWS BETWEEN 9 PRECEDING AND CURRENT ROW
-    ) as rolling_trend
+    )).coefficients[1] as rolling_trend
 FROM time_series
 WHERE time_idx >= 10;
 ```
@@ -208,19 +217,19 @@ WHERE time_idx >= 10;
 
 **When to use**: For forecasting, scenario planning, or any situation where you need point estimates plus a sense of how confident you should be in those estimates.
 
-**How it works**: The `ols_predict_interval` function takes your fitted model and new predictor values, computing both the predicted value and the standard error. Confidence intervals are constructed using the t-distribution, accounting for both model uncertainty and inherent data variability.
+**How it works**: The `anofox_statistics_predict_*` functions take your training data and new predictor values, computing both the predicted value and the standard error. Confidence intervals are constructed using the t-distribution, accounting for both model uncertainty and inherent data variability.
 
 
 ```sql
 
--- Predict for new values (use positional parameters and literal arrays)
-SELECT * FROM ols_predict_interval(
+-- Predict for new values using the predict function
+SELECT * FROM anofox_statistics_predict_ols(
     [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],          -- y_train
     [[1.0], [2.0], [3.0], [4.0], [5.0]]::DOUBLE[][], -- x_train
     [[6.0], [7.0], [8.0]]::DOUBLE[][],             -- x_new: values to predict
     0.95,                                           -- confidence_level
     'prediction',                                   -- interval_type
-    true                                            -- add_intercept
+    true                                            -- intercept
 );
 ```
 
@@ -369,7 +378,7 @@ SELECT
     category,
     result.coefficients[1] as price_elasticity,
     result.intercept,
-    result.r2,
+    result.r_squared,
     result.n_obs
 FROM (
     SELECT
@@ -427,7 +436,7 @@ SELECT
     segment,
     result.coefficients[1] as income_sensitivity,
     result.intercept,
-    result.r2,
+    result.r_squared,
     result.weighted_mse
 FROM (
     SELECT
@@ -490,7 +499,7 @@ SELECT
     result.coefficients[1] as market_beta,
     result.coefficients[2] as sector_beta,
     result.coefficients[3] as momentum_factor,
-    result.r2,
+    result.r_squared,
     result.lambda
 FROM (
     SELECT
@@ -551,7 +560,7 @@ SELECT
     sensor_id,
     result.coefficients[1] as calibration_slope,
     result.intercept as calibration_offset,
-    result.r2,
+    result.r_squared,
     result.forgetting_factor,
     result.n_obs
 FROM (
@@ -593,7 +602,7 @@ SELECT
     (i * 2.5 + 10)::DOUBLE as x
 FROM generate_series(1, 20) t(i);
 
-SELECT ols_coeff_agg(y, x) as slope FROM data;
+SELECT (anofox_statistics_ols_fit_agg(y, [x], {'intercept': true})).coefficients[1] as slope FROM data;
 ```
 
 ### Pattern 2: Per-group with GROUP BY
@@ -615,7 +624,7 @@ SELECT
     (i * 1.5 + 5)::DOUBLE as x
 FROM generate_series(1, 30) t(i);
 
-SELECT category, ols_fit_agg(y, x) as model
+SELECT category, anofox_statistics_ols_fit_agg(y, x) as model
 FROM data GROUP BY category;
 ```
 
@@ -634,9 +643,9 @@ SELECT
     (5 + i * 0.3)::DOUBLE as x
 FROM generate_series(1, 100) t(i);
 
-SELECT *, ols_coeff_agg(y, x) OVER (
+SELECT *, (anofox_statistics_ols_fit_agg(y, [x], {'intercept': true}) OVER (
     ORDER BY time ROWS BETWEEN 30 PRECEDING AND CURRENT ROW
-) as rolling_coef FROM data;
+)).coefficients[1] as rolling_coef FROM data;
 ```
 
 ### Pattern 4: Full statistical workflow
@@ -662,9 +671,9 @@ WITH
 -- Step 1: Fit model and compute statistics
 model_fit AS (
     SELECT
-        (ols_fit_agg(y, x)).coefficient as slope,
-        (ols_fit_agg(y, x)).r2 as r_squared,
-        (ols_fit_agg(y, x)).std_error as std_error,
+        (anofox_statistics_ols_fit_agg(y, x)).coefficients[1] as slope,
+        (anofox_statistics_ols_fit_agg(y, x)).r_squared as r_squared,
+        (anofox_statistics_ols_fit_agg(y, x)).std_error as std_error,
         COUNT(*) as n_obs
     FROM workflow_sample
 ),
@@ -744,7 +753,7 @@ SELECT 'guide01_issue_extension_wont_load.sql - DISABLED - documentation example
 SELECT * FROM anofox_statistics_ols_fit(
     [1.0, 2.0, 3.0]::DOUBLE[],         -- y: Cast to DOUBLE[]
     [[1.0, 2.0, 3.0]]::DOUBLE[][],     -- X: 2D array (one feature)
-    MAP{'intercept': true}              -- options in MAP
+    {'intercept': true}              -- options in MAP
 );
 ```
 

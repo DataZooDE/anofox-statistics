@@ -59,12 +59,12 @@ FROM generate_series(1, 45) t(i);
 -- Simple OLS with aggregate function (works directly with table data)
 SELECT
     category,
-    (ols_fit_agg(sales, price)).coefficient as price_effect,
-    (ols_fit_agg(sales, price)).r2 as r_squared
+    (anofox_statistics_ols_fit_agg(sales, [price], {'intercept': true})).coefficients[1] as price_effect,
+    (anofox_statistics_ols_fit_agg(sales, [price], {'intercept': true})).r_squared as r_squared
 FROM products
 GROUP BY category;
 
--- Note: ols_fit_agg works directly with table columns.
+-- Note: anofox_statistics_ols_fit_agg works directly with table columns.
 -- For table functions with multiple predictors, use literal arrays (see Quick Start Guide).
 ```
 
@@ -103,15 +103,15 @@ SELECT
     result.coefficients[2] as digital_roi,
     result.intercept as baseline_sales,
     -- Model fit
-    result.r2 as r_squared,
-    result.adj_r2 as adjusted_r_squared,
+    result.r_squared as r_squared,
+    result.adj_r_squared as adjusted_r_squared,
     result.n_obs as sample_size,
     array_length(result.coefficients) as num_predictors,
     -- Interpretation flags
     CASE
-        WHEN result.r2 > 0.8 THEN 'Excellent fit'
-        WHEN result.r2 > 0.6 THEN 'Good fit'
-        WHEN result.r2 > 0.4 THEN 'Moderate fit'
+        WHEN result.r_squared > 0.8 THEN 'Excellent fit'
+        WHEN result.r_squared > 0.6 THEN 'Good fit'
+        WHEN result.r_squared > 0.4 THEN 'Moderate fit'
         ELSE 'Poor fit'
     END as model_quality,
     CASE
@@ -161,7 +161,7 @@ SELECT
     'Physics: With intercept' as model_type,
     result.intercept,
     result.coefficients[1] as acceleration_estimate,
-    result.r2
+    result.r_squared
 FROM (
     SELECT anofox_statistics_ols_fit_agg(force_newtons, [mass_kg], {'intercept': true}) as result
     FROM physics_data
@@ -171,7 +171,7 @@ SELECT
     'Physics: Without intercept (correct)' as model_type,
     result.intercept,
     result.coefficients[1] as acceleration_estimate,
-    result.r2
+    result.r_squared
 FROM (
     SELECT anofox_statistics_ols_fit_agg(force_newtons, [mass_kg], {'intercept': false}) as result
     FROM physics_data
@@ -189,7 +189,7 @@ SELECT
     'Business: With intercept (correct)' as model_type,
     result.intercept as fixed_costs,
     result.coefficients[1] as revenue_per_employee,
-    result.r2
+    result.r_squared
 FROM (
     SELECT anofox_statistics_ols_fit_agg(revenue, [employees], {'intercept': true}) as result
     FROM business_data
@@ -199,7 +199,7 @@ SELECT
     'Business: Without intercept (wrong)' as model_type,
     result.intercept,
     result.coefficients[1] as biased_estimate,
-    result.r2
+    result.r_squared
 FROM (
     SELECT anofox_statistics_ols_fit_agg(revenue, [employees], {'intercept': false}) as result
     FROM business_data
@@ -262,7 +262,7 @@ SELECT result.* FROM data,
 LATERAL anofox_statistics_ridge_fit(
     data.y,
     data.X,
-    MAP(['lambda', 'intercept'], [0.1::DOUBLE, 1.0::DOUBLE])
+    {'lambda': 0.1, 'intercept': true}
 ) as result;
 ```
 
@@ -303,8 +303,8 @@ SELECT
     result.coefficients[1] as adv_coef,
     result.coefficients[2] as social_coef,
     result.coefficients[3] as influencer_coef,
-    result.r2,
-    result.adj_r2
+    result.r_squared,
+    result.adj_r_squared
 FROM (
     SELECT
         product,
@@ -324,8 +324,8 @@ SELECT
     result.coefficients[1],
     result.coefficients[2],
     result.coefficients[3],
-    result.r2,
-    result.adj_r2
+    result.r_squared,
+    result.adj_r_squared
 FROM (
     SELECT
         product,
@@ -345,8 +345,8 @@ SELECT
     result.coefficients[1],
     result.coefficients[2],
     result.coefficients[3],
-    result.r2,
-    result.adj_r2
+    result.r_squared,
+    result.adj_r_squared
 FROM (
     SELECT
         product,
@@ -403,7 +403,7 @@ SELECT * FROM anofox_statistics_wls_fit(
     [50.0, 100.0, 150.0, 200.0, 250.0]::DOUBLE[],  -- y: sales
     [[10.0, 20.0, 30.0, 40.0, 50.0]]::DOUBLE[][],  -- X: 2D array (one feature)
     [10.0, 20.0, 30.0, 40.0, 50.0]::DOUBLE[],      -- weights: proportional to size
-    MAP{'intercept': true}                          -- options in MAP
+    {'intercept': true}                          -- options in MAP
 );
 ```
 
@@ -452,7 +452,7 @@ SELECT
     'OLS (unweighted)' as method,
     result.coefficients[1] as income_propensity,
     result.intercept as base_spending,
-    result.r2,
+    result.r_squared,
     NULL as weighted_mse
 FROM (
     SELECT
@@ -471,7 +471,7 @@ SELECT
     'WLS (precision weighted)' as method,
     result.coefficients[1] as income_propensity,
     result.intercept as base_spending,
-    result.r2,
+    result.r_squared,
     result.weighted_mse
 FROM (
     SELECT
@@ -532,19 +532,40 @@ This query performs hypothesis tests for each coefficient, testing whether each 
 
 ```sql
 
+-- Get coefficient statistics using fit with full_output
+WITH model AS (
+    SELECT * FROM anofox_statistics_ols_fit(
+        [65.0, 72.0, 78.0, 85.0, 92.0, 88.0]::DOUBLE[],                          -- y: exam_score
+        [[3.0, 7.0], [4.0, 8.0], [5.0, 7.0], [6.0, 8.0], [7.0, 9.0], [6.5, 7.5]]::DOUBLE[][], -- x: study_hours, sleep_hours
+        {'intercept': true, 'full_output': true, 'confidence_level': 0.95}
+    )
+)
 SELECT
-    variable,
-    estimate,
-    std_error,
-    t_statistic,
-    p_value,
-    significant  -- TRUE if p < 0.05
-FROM ols_inference(
-    [65.0, 72.0, 78.0, 85.0, 92.0, 88.0]::DOUBLE[],                          -- y: exam_score
-    [[3.0, 7.0], [4.0, 8.0], [5.0, 7.0], [6.0, 8.0], [7.0, 9.0], [6.5, 7.5]]::DOUBLE[][], -- x: study_hours, sleep_hours
-    0.95,                                                                      -- confidence_level
-    true                                                                       -- add_intercept
-);
+    'x1' as variable,
+    coefficients[1] as estimate,
+    coefficient_std_errors[1] as std_error,
+    coefficient_t_statistics[1] as t_statistic,
+    coefficient_p_values[1] as p_value,
+    coefficient_p_values[1] < 0.05 as significant
+FROM model
+UNION ALL
+SELECT
+    'x2' as variable,
+    coefficients[2] as estimate,
+    coefficient_std_errors[2] as std_error,
+    coefficient_t_statistics[2] as t_statistic,
+    coefficient_p_values[2] as p_value,
+    coefficient_p_values[2] < 0.05 as significant
+FROM model
+UNION ALL
+SELECT
+    'intercept' as variable,
+    intercept as estimate,
+    intercept_std_error as std_error,
+    intercept_t_statistic as t_statistic,
+    intercept_p_value as p_value,
+    intercept_p_value < 0.05 as significant
+FROM model;
 ```
 
 **Interpretation**:
@@ -613,18 +634,19 @@ This example demonstrates both confidence intervals (for the mean) and predictio
 
 ```sql
 
+-- Use the predict function for prediction intervals
 SELECT
     predicted,
     ci_lower,
     ci_upper,
     ci_upper - ci_lower as interval_width
-FROM ols_predict_interval(
+FROM anofox_statistics_predict_ols(
     [50.0, 55.0, 60.0, 65.0, 70.0]::DOUBLE[],           -- y_train: historical_sales
     [[1.0], [2.0], [3.0], [4.0], [5.0]]::DOUBLE[][],    -- x_train: historical_features
     [[6.0], [7.0], [8.0]]::DOUBLE[][],                  -- x_new: future_features
     0.95,                                                 -- confidence_level
-    'prediction',                                         -- interval_type (or 'confidence')
-    true                                                  -- add_intercept
+    'prediction',                                         -- interval_type
+    true                                                  -- intercept
 );
 ```
 
@@ -1021,7 +1043,7 @@ SELECT result.* FROM data,
 LATERAL anofox_statistics_rls_fit(
     data.y,
     data.X,
-    MAP(['lambda', 'intercept'], [0.99::DOUBLE, 1.0::DOUBLE])
+    {'lambda': 0.99, 'intercept': true}
 ) as result;
 ```
 
@@ -1064,7 +1086,7 @@ SELECT
     'Forgetting Factor: 1.0 (OLS equivalent)' as model,
     result.forgetting_factor,
     result.coefficients[1] as estimated_beta,
-    result.r2,
+    result.r_squared,
     'Averages all data equally - slow to adapt' as interpretation
 FROM (
     SELECT anofox_statistics_rls_fit_agg(
@@ -1079,7 +1101,7 @@ SELECT
     'Forgetting Factor: 0.98 (slow adaptation)' as model,
     result.forgetting_factor,
     result.coefficients[1] as estimated_beta,
-    result.r2,
+    result.r_squared,
     'Gradual weight decay - moderate adaptation' as interpretation
 FROM (
     SELECT anofox_statistics_rls_fit_agg(
@@ -1094,7 +1116,7 @@ SELECT
     'Forgetting Factor: 0.95 (moderate adaptation)' as model,
     result.forgetting_factor,
     result.coefficients[1] as estimated_beta,
-    result.r2,
+    result.r_squared,
     'Balanced - good for detecting regime changes' as interpretation
 FROM (
     SELECT anofox_statistics_rls_fit_agg(
@@ -1109,7 +1131,7 @@ SELECT
     'Forgetting Factor: 0.90 (fast adaptation)' as model,
     result.forgetting_factor,
     result.coefficients[1] as estimated_beta,
-    result.r2,
+    result.r_squared,
     'Heavy decay - very responsive to recent changes' as interpretation
 FROM (
     SELECT anofox_statistics_rls_fit_agg(
@@ -1125,7 +1147,7 @@ SELECT
     market_regime,
     result.coefficients[1] as regime_beta,
     result.forgetting_factor,
-    result.r2,
+    result.r_squared,
     result.n_obs
 FROM (
     SELECT
@@ -1177,10 +1199,10 @@ FROM generate_series(1, 100) t(i);
 
 SELECT
     date,
-    ols_coeff_agg(sales, price) OVER (
+    (anofox_statistics_ols_fit_agg(sales, [price], {'intercept': true}) OVER (
         ORDER BY date
         ROWS BETWEEN 30 PRECEDING AND CURRENT ROW
-    ) as rolling_elasticity
+    )).coefficients[1] as rolling_elasticity
 FROM time_series;
 ```
 
@@ -1198,10 +1220,10 @@ FROM generate_series(1, 100) t(i);
 
 SELECT
     date,
-    ols_coeff_agg(sales, price) OVER (
+    (anofox_statistics_ols_fit_agg(sales, [price], {'intercept': true}) OVER (
         ORDER BY date
         ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-    ) as cumulative_elasticity
+    )).coefficients[1] as cumulative_elasticity
 FROM time_series;
 ```
 
@@ -1233,23 +1255,24 @@ FROM time_series;
 -- H₀: β_advertising = 0
 -- H₁: β_advertising ≠ 0
 
+WITH model AS (
+    SELECT * FROM anofox_statistics_ols_fit(
+        [100.0, 95.0, 92.0, 88.0, 85.0]::DOUBLE[],           -- y: sales
+        [[10.0, 5.0], [11.0, 6.0], [12.0, 7.0], [13.0, 8.0], [14.0, 9.0]]::DOUBLE[][],  -- x: price, advertising
+        {'intercept': true, 'full_output': true, 'confidence_level': 0.95}
+    )
+)
 SELECT
-    variable,
-    estimate as effect,
-    p_value,
+    'advertising' as variable,
+    coefficients[2] as effect,
+    coefficient_p_values[2] as p_value,
     CASE
-        WHEN p_value < 0.001 THEN 'Highly significant ***'
-        WHEN p_value < 0.01 THEN 'Very significant **'
-        WHEN p_value < 0.05 THEN 'Significant *'
+        WHEN coefficient_p_values[2] < 0.001 THEN 'Highly significant ***'
+        WHEN coefficient_p_values[2] < 0.01 THEN 'Very significant **'
+        WHEN coefficient_p_values[2] < 0.05 THEN 'Significant *'
         ELSE 'Not significant'
     END as significance_level
-FROM ols_inference(
-    [100.0, 95.0, 92.0, 88.0, 85.0]::DOUBLE[],           -- y: sales
-    [[10.0, 5.0], [11.0, 6.0], [12.0, 7.0], [13.0, 8.0], [14.0, 9.0]]::DOUBLE[][],  -- x: price, advertising
-    0.95,                                                  -- confidence_level
-    true                                                   -- add_intercept
-)
-WHERE variable = 'advertising';
+FROM model;
 ```
 
 ## Best Practices

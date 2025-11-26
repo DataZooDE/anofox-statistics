@@ -836,22 +836,30 @@ static OperatorResultType WlsFitInOut(ExecutionContext &context, TableFunctionIn
 void WlsFitFunction::Register(ExtensionLoader &loader) {
 	ANOFOX_DEBUG("Registering anofox_statistics_wls (dual mode: literals + lateral joins)");
 
-	// Register single function with BOTH literal and lateral join support
-	vector<LogicalType> arguments = {
+	// Register 3-argument overload: (y DOUBLE[], x DOUBLE[][], weights DOUBLE[])
+	vector<LogicalType> args_3 = {
 	    LogicalType::LIST(LogicalType::DOUBLE),                    // y: DOUBLE[]
 	    LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)), // x: DOUBLE[][]
 	    LogicalType::LIST(LogicalType::DOUBLE)                     // weights: DOUBLE[]
 	};
 
-	// Register with literal mode (bind + execute)
-	TableFunction function("anofox_statistics_wls_fit", arguments, WlsFitExecute, WlsFitBind, nullptr,
-	                       WlsFitInOutLocalInit);
+	TableFunction func_3("anofox_statistics_wls_fit", args_3, WlsFitExecute, WlsFitBind, nullptr,
+	                     WlsFitInOutLocalInit);
+	func_3.in_out_function = WlsFitInOut;
+	loader.RegisterFunction(func_3);
 
-	// Add lateral join support (in_out_function)
-	function.in_out_function = WlsFitInOut;
-	function.varargs = LogicalType::ANY;
+	// Register 4-argument overload: (y DOUBLE[], x DOUBLE[][], weights DOUBLE[], options MAP/STRUCT)
+	vector<LogicalType> args_4 = {
+	    LogicalType::LIST(LogicalType::DOUBLE),                    // y: DOUBLE[]
+	    LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)), // x: DOUBLE[][]
+	    LogicalType::LIST(LogicalType::DOUBLE),                    // weights: DOUBLE[]
+	    LogicalType::ANY                                           // options: MAP or STRUCT
+	};
 
-	loader.RegisterFunction(function);
+	TableFunction func_4("anofox_statistics_wls_fit", args_4, WlsFitExecute, WlsFitBind, nullptr,
+	                     WlsFitInOutLocalInit);
+	func_4.in_out_function = WlsFitInOut;
+	loader.RegisterFunction(func_4);
 
 	ANOFOX_DEBUG("anofox_statistics_wls registered successfully (both modes)");
 }
