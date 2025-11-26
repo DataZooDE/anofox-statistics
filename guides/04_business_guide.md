@@ -266,12 +266,12 @@ SELECT
 FROM (
     SELECT
         segment,
-        anofox_statistics_ols_agg(
+        anofox_statistics_ols_fit_agg(
             lifetime_revenue,
             [acquisition_cost, tenure_months],
             {'intercept': true}
         ) as ols,
-        anofox_statistics_wls_agg(
+        anofox_statistics_wls_fit_agg(
             lifetime_revenue,
             [acquisition_cost, tenure_months],
             customer_value_weight,
@@ -293,7 +293,7 @@ WITH ltv_analysis AS (
     FROM (
         SELECT
             segment,
-            anofox_statistics_wls_agg(
+            anofox_statistics_wls_fit_agg(
                 lifetime_revenue,
                 [acquisition_cost, tenure_months],
                 customer_value_weight,
@@ -481,12 +481,12 @@ SELECT
 FROM (
     SELECT
         ticker,
-        anofox_statistics_ols_agg(
+        anofox_statistics_ols_fit_agg(
             return,
             [market_return, tech_sector_return, value_factor, momentum_factor],
             {'intercept': true}
         ) as ols,
-        anofox_statistics_ridge_agg(
+        anofox_statistics_ridge_fit_agg(
             return,
             [market_return, tech_sector_return, value_factor, momentum_factor],
             {'lambda': 1.0, 'intercept': true}
@@ -506,7 +506,7 @@ WITH stock_betas AS (
     FROM (
         SELECT
             ticker,
-            anofox_statistics_ridge_agg(
+            anofox_statistics_ridge_fit_agg(
                 return,
                 [market_return, tech_sector_return],
                 {'lambda': 1.0, 'intercept': true}
@@ -841,17 +841,17 @@ SELECT
 FROM (
     SELECT
         product_id,
-        anofox_statistics_ols_agg(
+        anofox_statistics_ols_fit_agg(
             actual_demand,
             [lagged_demand, time_trend],
             {'intercept': true}
         ) as ols,
-        anofox_statistics_rls_agg(
+        anofox_statistics_rls_fit_agg(
             actual_demand,
             [lagged_demand, time_trend],
             {'forgetting_factor': 0.98, 'intercept': true}
         ) as rls_slow,
-        anofox_statistics_rls_agg(
+        anofox_statistics_rls_fit_agg(
             actual_demand,
             [lagged_demand, time_trend],
             {'forgetting_factor': 0.92, 'intercept': true}
@@ -867,7 +867,7 @@ WITH recent_performance AS (
         product_id,
         week,
         actual_demand,
-        anofox_statistics_rls_agg(
+        anofox_statistics_rls_fit_agg(
             actual_demand,
             [lagged_demand, time_trend],
             {'forgetting_factor': 0.95, 'intercept': true}
@@ -1238,7 +1238,7 @@ SELECT
 FROM (
     SELECT
         region,
-        anofox_statistics_ols_agg(
+        anofox_statistics_ols_fit_agg(
             units_sold,
             [price, promo_spend],
             {'intercept': true}
@@ -1261,7 +1261,7 @@ SELECT
 FROM (
     SELECT
         region,
-        anofox_statistics_ols_agg(units_sold, [price], {'intercept': true}) as result
+        anofox_statistics_ols_fit_agg(units_sold, [price], {'intercept': true}) as result
     FROM regional_sales
     GROUP BY region
 ) sub

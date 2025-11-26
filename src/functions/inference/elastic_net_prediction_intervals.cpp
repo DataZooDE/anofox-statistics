@@ -262,7 +262,7 @@ static void ElasticNetPredictIntervalTableFunc(ClientContext &context, TableFunc
 void ElasticNetPredictIntervalFunction::Register(ExtensionLoader &loader) {
 	ANOFOX_DEBUG("Registering Elastic Net predict_interval function");
 
-	TableFunction func("anofox_statistics_elastic_net_predict_interval",
+	TableFunction func("anofox_statistics_predict_elastic_net",
 	                   {LogicalType::LIST(LogicalType::DOUBLE),                    // y_train
 	                    LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)), // x_train
 	                    LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE))}, // x_new

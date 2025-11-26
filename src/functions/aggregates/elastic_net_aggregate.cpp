@@ -625,14 +625,14 @@ void ElasticNetAggregateFunction::Register(ExtensionLoader &loader) {
 	elastic_net_struct_fields.push_back(make_pair("intercept_ci_lower", LogicalType::DOUBLE));
 	elastic_net_struct_fields.push_back(make_pair("intercept_ci_upper", LogicalType::DOUBLE));
 
-	AggregateFunction anofox_statistics_elastic_net_agg(
-	    "anofox_statistics_elastic_net_agg",
+	AggregateFunction anofox_statistics_elastic_net_fit_agg(
+	    "anofox_statistics_elastic_net_fit_agg",
 	    {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
 	    LogicalType::STRUCT(elastic_net_struct_fields), AggregateFunction::StateSize<ElasticNetAggregateState>,
 	    ElasticNetInitialize, ElasticNetUpdate, ElasticNetCombine, ElasticNetFinalize,
 	    FunctionNullHandling::DEFAULT_NULL_HANDLING, nullptr, nullptr, nullptr, nullptr, ElasticNetWindow, nullptr,
 	    nullptr);
-	loader.RegisterFunction(anofox_statistics_elastic_net_agg);
+	loader.RegisterFunction(anofox_statistics_elastic_net_fit_agg);
 
 	ANOFOX_DEBUG("Elastic Net aggregate function registered successfully");
 }

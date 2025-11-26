@@ -259,7 +259,7 @@ static void RidgePredictIntervalTableFunc(ClientContext &context, TableFunctionI
 void RidgePredictIntervalFunction::Register(ExtensionLoader &loader) {
 	ANOFOX_DEBUG("Registering Ridge predict_interval function");
 
-	TableFunction func("anofox_statistics_ridge_predict_interval",
+	TableFunction func("anofox_statistics_predict_ridge",
 	                   {LogicalType::LIST(LogicalType::DOUBLE),                    // y_train
 	                    LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)), // x_train
 	                    LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE))}, // x_new

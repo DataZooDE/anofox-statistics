@@ -807,7 +807,7 @@ void RlsFitFunction::Register(ExtensionLoader &loader) {
 	};
 
 	// Register with literal mode (bind + execute)
-	TableFunction function("anofox_statistics_rls", arguments, RlsFitExecute, RlsFitBind, nullptr,
+	TableFunction function("anofox_statistics_rls_fit", arguments, RlsFitExecute, RlsFitBind, nullptr,
 	                       RlsFitInOutLocalInit);
 
 	// Add lateral join support (in_out_function)

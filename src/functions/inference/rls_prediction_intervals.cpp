@@ -255,7 +255,7 @@ static void RlsPredictIntervalTableFunc(ClientContext &context, TableFunctionInp
 void RLSPredictIntervalFunction::Register(ExtensionLoader &loader) {
 	ANOFOX_DEBUG("Registering RLS predict_interval function");
 
-	TableFunction func("anofox_statistics_rls_predict_interval",
+	TableFunction func("anofox_statistics_predict_rls",
 	                   {LogicalType::LIST(LogicalType::DOUBLE),                    // y_train
 	                    LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)), // x_train
 	                    LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE))}, // x_new

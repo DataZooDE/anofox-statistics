@@ -322,7 +322,7 @@ static void OlsPredictIntervalTableFunc(ClientContext &context, TableFunctionInp
 void OlsPredictIntervalFunction::Register(ExtensionLoader &loader) {
 	ANOFOX_DEBUG("Registering OLS predict interval function");
 
-	TableFunction ols_predict_interval_func("ols_predict_interval",
+	TableFunction ols_predict_interval_func("anofox_statistics_predict_ols",
 	                                        {LogicalType::LIST(LogicalType::DOUBLE),                    // y_train
 	                                         LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)), // X_train
 	                                         LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)), // X_new

@@ -1181,7 +1181,7 @@ void OlsFitFunction::Register(ExtensionLoader &loader) {
 	};
 
 	// Register with literal mode (bind + execute)
-	TableFunction function("anofox_statistics_ols", arguments, OlsFitExecute, OlsFitBind, nullptr,
+	TableFunction function("anofox_statistics_ols_fit", arguments, OlsFitExecute, OlsFitBind, nullptr,
 	                       OlsFitInOutLocalInit);
 
 	// Add lateral join support (in_out_function)

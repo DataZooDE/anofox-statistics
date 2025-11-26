@@ -31,7 +31,7 @@ SELECT
     result.r2,
     'Averages all data equally - slow to adapt' as interpretation
 FROM (
-    SELECT anofox_statistics_rls_agg(
+    SELECT anofox_statistics_rls_fit_agg(
         stock_return,
         [market_return],
         {'forgetting_factor': 1.0, 'intercept': true}
@@ -46,7 +46,7 @@ SELECT
     result.r2,
     'Gradual weight decay - moderate adaptation' as interpretation
 FROM (
-    SELECT anofox_statistics_rls_agg(
+    SELECT anofox_statistics_rls_fit_agg(
         stock_return,
         [market_return],
         {'forgetting_factor': 0.98, 'intercept': true}
@@ -61,7 +61,7 @@ SELECT
     result.r2,
     'Balanced - good for detecting regime changes' as interpretation
 FROM (
-    SELECT anofox_statistics_rls_agg(
+    SELECT anofox_statistics_rls_fit_agg(
         stock_return,
         [market_return],
         {'forgetting_factor': 0.95, 'intercept': true}
@@ -76,7 +76,7 @@ SELECT
     result.r2,
     'Heavy decay - very responsive to recent changes' as interpretation
 FROM (
-    SELECT anofox_statistics_rls_agg(
+    SELECT anofox_statistics_rls_fit_agg(
         stock_return,
         [market_return],
         {'forgetting_factor': 0.90, 'intercept': true}
@@ -94,7 +94,7 @@ SELECT
 FROM (
     SELECT
         market_regime,
-        anofox_statistics_rls_agg(
+        anofox_statistics_rls_fit_agg(
             stock_return,
             [market_return],
             {'forgetting_factor': 0.95, 'intercept': true}

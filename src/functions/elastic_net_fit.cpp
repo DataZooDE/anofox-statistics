@@ -650,7 +650,7 @@ void ElasticNetFitFunction::Register(ExtensionLoader &loader) {
 	    LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)) // x: DOUBLE[][]
 	};
 
-	TableFunction function("anofox_statistics_elastic_net", arguments, ElasticNetFitExecute, ElasticNetFitBind);
+	TableFunction function("anofox_statistics_elastic_net_fit", arguments, ElasticNetFitExecute, ElasticNetFitBind);
 	function.varargs = LogicalType::ANY;
 
 	loader.RegisterFunction(function);

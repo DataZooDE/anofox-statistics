@@ -44,9 +44,6 @@ set(EXTENSION_SOURCES
     # src/bridge/type_converter.cpp  # TODO: Update for v1.4.1 if needed
     # src/bridge/memory_manager.cpp  # TODO: Update for v1.4.1 if needed
 
-    # Functions - Metrics
-    src/functions/ols_metrics.cpp
-
     # Functions - Fit (Phase 2 - Array-based implementation for v1.4.1)
     src/functions/ols_fit.cpp         # Ordinary Least Squares regression
     src/functions/ridge_fit.cpp       # Ridge regression with L2 regularization

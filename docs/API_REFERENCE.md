@@ -59,13 +59,10 @@ All functions follow the pattern: `anofox_statistics_{method}[_operation][_agg]`
 1. [Regression Table Functions](#regression-table-functions)
 2. [Regression Aggregate Functions](#regression-aggregate-functions)
 3. [Fit-Predict Window Aggregates](#fit-predict-window-aggregates)
-4. [Statistical Inference (Integrated)](#statistical-inference-integrated)
-5. [Prediction Interval Functions](#prediction-interval-functions)
-6. [Model Selection Workflows](#model-selection-workflows)
-7. [Diagnostic Functions](#diagnostic-functions)
-8. [Model-Based Prediction](#model-based-prediction)
-9. [Scalar Functions](#scalar-functions)
-10. [Function Coverage Matrix](#function-coverage-matrix)
+4. [Prediction Interval Functions](#prediction-interval-functions)
+5. [Diagnostic Functions](#diagnostic-functions)
+6. [Model-Based Prediction](#model-based-prediction)
+7. [Function Coverage Matrix](#function-coverage-matrix)
 
 ---
 
@@ -140,7 +137,7 @@ Fits a linear model by minimizing the sum of squared residuals.
 
 **Signature:**
 ```sql
-anofox_statistics_ols(
+anofox_statistics_ols_fit(
     y       DOUBLE[],
     x       DOUBLE[][],
     options MAP
@@ -158,7 +155,7 @@ anofox_statistics_ols(
 
 **Example (Basic):**
 ```sql
-SELECT * FROM anofox_statistics_ols(
+SELECT * FROM anofox_statistics_ols_fit(
     [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],
     [[1.0], [2.0], [3.0], [4.0], [5.0]]::DOUBLE[][],
     MAP{'intercept': true}
@@ -177,7 +174,7 @@ SELECT
     bic,
     coefficient_p_values,
     intercept_p_value
-FROM anofox_statistics_ols(
+FROM anofox_statistics_ols_fit(
     [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],
     [[1.0], [2.0], [3.0], [4.0], [5.0]]::DOUBLE[][],
     MAP{'intercept': true, 'full_output': true, 'confidence_level': 0.95}
@@ -196,7 +193,7 @@ Fits a linear model with L2 penalty to reduce multicollinearity effects.
 
 **Signature:**
 ```sql
-anofox_statistics_ridge(
+anofox_statistics_ridge_fit(
     y       DOUBLE[],
     x       DOUBLE[][],
     options MAP
@@ -215,7 +212,7 @@ anofox_statistics_ridge(
 
 **Example:**
 ```sql
-SELECT * FROM anofox_statistics_ridge(
+SELECT * FROM anofox_statistics_ridge_fit(
     y_array,
     x_matrix,
     MAP{'intercept': true, 'lambda': 1.0}
@@ -234,7 +231,7 @@ Fits a linear model with observation-specific weights for heteroscedasticity.
 
 **Signature:**
 ```sql
-anofox_statistics_wls(
+anofox_statistics_wls_fit(
     y       DOUBLE[],
     x       DOUBLE[][],
     weights DOUBLE[],
@@ -254,7 +251,7 @@ anofox_statistics_wls(
 
 **Example:**
 ```sql
-SELECT * FROM anofox_statistics_wls(
+SELECT * FROM anofox_statistics_wls_fit(
     y_array,
     x_matrix,
     [1.0, 2.0, 1.5, 3.0, 2.0]::DOUBLE[],
@@ -274,7 +271,7 @@ Fits a linear model with combined L1 and L2 penalties for feature selection and 
 
 **Signature:**
 ```sql
-anofox_statistics_elastic_net(
+anofox_statistics_elastic_net_fit(
     y       DOUBLE[],
     x       DOUBLE[][],
     options MAP
@@ -301,7 +298,7 @@ anofox_statistics_elastic_net(
 
 **Example:**
 ```sql
-SELECT * FROM anofox_statistics_elastic_net(
+SELECT * FROM anofox_statistics_elastic_net_fit(
     y_array,
     x_matrix,
     MAP{
@@ -324,7 +321,7 @@ Fits a linear model sequentially with optional exponential forgetting.
 
 **Signature:**
 ```sql
-anofox_statistics_rls(
+anofox_statistics_rls_fit(
     y       DOUBLE[],
     x       DOUBLE[][],
     options MAP
@@ -345,7 +342,7 @@ anofox_statistics_rls(
 
 **Example:**
 ```sql
-SELECT * FROM anofox_statistics_rls(
+SELECT * FROM anofox_statistics_rls_fit(
     y_array,
     x_matrix,
     MAP{'intercept': true, 'forgetting_factor': 0.99}
@@ -381,13 +378,13 @@ Same as table functions, but computed per group/window.
 
 ---
 
-### anofox_statistics_ols_agg
+### anofox_statistics_ols_fit_agg
 
 **OLS Aggregate Function**
 
 **Signature:**
 ```sql
-anofox_statistics_ols_agg(
+anofox_statistics_ols_fit_agg(
     y       DOUBLE,
     x       DOUBLE[],
     options MAP
@@ -402,7 +399,7 @@ anofox_statistics_ols_agg(
 ```sql
 SELECT
     category,
-    anofox_statistics_ols_agg(sales, [price, advertising], MAP{'intercept': true}) as model
+    anofox_statistics_ols_fit_agg(sales, [price, advertising], MAP{'intercept': true}) as model
 FROM sales_data
 GROUP BY category;
 ```
@@ -411,20 +408,20 @@ GROUP BY category;
 ```sql
 SELECT
     date,
-    anofox_statistics_ols_agg(value, [time_index], MAP{'intercept': true})
+    anofox_statistics_ols_fit_agg(value, [time_index], MAP{'intercept': true})
         OVER (ORDER BY date ROWS BETWEEN 29 PRECEDING AND CURRENT ROW) as model
 FROM time_series;
 ```
 
 ---
 
-### anofox_statistics_wls_agg
+### anofox_statistics_wls_fit_agg
 
 **WLS Aggregate Function**
 
 **Signature:**
 ```sql
-anofox_statistics_wls_agg(
+anofox_statistics_wls_fit_agg(
     y       DOUBLE,
     x       DOUBLE[],
     weights DOUBLE,
@@ -440,7 +437,7 @@ anofox_statistics_wls_agg(
 ```sql
 SELECT
     region,
-    anofox_statistics_wls_agg(
+    anofox_statistics_wls_fit_agg(
         outcome,
         [predictor1, predictor2],
         weight_column,
@@ -452,13 +449,13 @@ GROUP BY region;
 
 ---
 
-### anofox_statistics_ridge_agg
+### anofox_statistics_ridge_fit_agg
 
 **Ridge Aggregate Function**
 
 **Signature:**
 ```sql
-anofox_statistics_ridge_agg(
+anofox_statistics_ridge_fit_agg(
     y       DOUBLE,
     x       DOUBLE[],
     options MAP
@@ -475,7 +472,7 @@ anofox_statistics_ridge_agg(
 ```sql
 SELECT
     date,
-    anofox_statistics_ridge_agg(
+    anofox_statistics_ridge_fit_agg(
         returns,
         [factor1, factor2, factor3],
         MAP{'intercept': true, 'lambda': 1.0}
@@ -485,13 +482,13 @@ FROM daily_returns;
 
 ---
 
-### anofox_statistics_rls_agg
+### anofox_statistics_rls_fit_agg
 
 **RLS Aggregate Function**
 
 **Signature:**
 ```sql
-anofox_statistics_rls_agg(
+anofox_statistics_rls_fit_agg(
     y       DOUBLE,
     x       DOUBLE[],
     options MAP
@@ -506,7 +503,7 @@ anofox_statistics_rls_agg(
 ```sql
 SELECT
     timestamp,
-    anofox_statistics_rls_agg(
+    anofox_statistics_rls_fit_agg(
         sensor_reading,
         [temperature, humidity],
         MAP{'forgetting_factor': 0.98}
@@ -516,13 +513,13 @@ FROM sensor_data;
 
 ---
 
-### anofox_statistics_elastic_net_agg
+### anofox_statistics_elastic_net_fit_agg
 
 **Elastic Net Aggregate Function**
 
 **Signature:**
 ```sql
-anofox_statistics_elastic_net_agg(
+anofox_statistics_elastic_net_fit_agg(
     y       DOUBLE,
     x       DOUBLE[],
     options MAP
@@ -539,7 +536,7 @@ anofox_statistics_elastic_net_agg(
 ```sql
 SELECT
     category,
-    anofox_statistics_elastic_net_agg(
+    anofox_statistics_elastic_net_fit_agg(
         y_value,
         [x1, x2, x3, x4, x5],
         MAP{'alpha': 0.7, 'lambda': 0.1, 'intercept': true}
@@ -688,124 +685,6 @@ anofox_statistics_fit_predict_rls(
 
 ---
 
-## Statistical Inference (Integrated)
-
-**As of v0.2.0**, all regression functions include comprehensive statistical inference when called with `full_output=true`. This replaces the standalone `*_inference` functions from v0.1.0.
-
-### Overview
-
-Statistical inference is now fully integrated into all regression table and aggregate functions. Simply set `full_output=true` in the options MAP to receive:
-
-- **Model-level inference**: F-statistic, AIC, BIC, residual standard error
-- **Coefficient-level inference**: t-statistics, p-values, confidence intervals (one per feature)
-- **Intercept-level inference**: t-statistic, p-value, confidence intervals
-
-### Model-Level Inference
-
-Test overall model significance with the F-statistic:
-
-**F-statistic**: Tests H₀: all coefficients are zero
-- Formula: F = (ESS/df_model) / (RSS/df_residual)
-- Distribution: F(df_model, df_residual)
-- Reject H₀ if p-value < α (typically 0.05)
-
-**Information Criteria**: Compare models (lower is better)
-- **AIC** = n×log(RSS/n) + 2×k
-- **AICc** = AIC + 2×k×(k+1)/(n-k-1) (corrected for small samples)
-- **BIC** = n×log(RSS/n) + k×log(n)
-
-**Example:**
-```sql
-SELECT
-    f_statistic,
-    f_statistic_pvalue,
-    f_statistic_pvalue < 0.05 as model_significant,
-    aic,
-    bic
-FROM anofox_statistics_ols(
-    y_array,
-    x_matrix,
-    MAP{'intercept': true, 'full_output': true}
-);
-```
-
-### Coefficient-Level Inference
-
-Test individual coefficients for significance:
-
-**t-statistics**: coefficient / std_error
-**p-values**: Two-tailed test for H₀: coefficient = 0
-**Confidence intervals**: [ci_lower, ci_upper] at specified confidence level
-
-**Example:**
-```sql
-WITH model AS (
-    SELECT * FROM anofox_statistics_ols(
-        [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],
-        [[1.0], [2.0], [3.0], [4.0], [5.0]]::DOUBLE[][],
-        MAP{'intercept': true, 'full_output': true, 'confidence_level': 0.95}
-    )
-)
-SELECT
-    unnest(coefficients) as coefficient,
-    unnest(coefficient_t_statistics) as t_stat,
-    unnest(coefficient_p_values) as p_value,
-    unnest(coefficient_p_values) < 0.05 as significant,
-    unnest(coefficient_ci_lower) as ci_lower,
-    unnest(coefficient_ci_upper) as ci_upper
-FROM model;
-```
-
-### Intercept Inference
-
-The intercept has its own dedicated inference fields (not in arrays):
-
-```sql
-SELECT
-    intercept,
-    intercept_t_statistic,
-    intercept_p_value,
-    intercept_ci_lower,
-    intercept_ci_upper
-FROM anofox_statistics_ols(
-    y_array,
-    x_matrix,
-    MAP{'intercept': true, 'full_output': true}
-);
-```
-
-### Migration from v0.1.0
-
-**OLD (v0.1.0)** - Separate inference call:
-```sql
-SELECT * FROM anofox_statistics_ols_inference(
-    y_array, x_matrix, MAP{'confidence_level': 0.95}
-);
-```
-
-**NEW (v0.2.0)** - Integrated with fit:
-```sql
-SELECT
-    coefficient_t_statistics,
-    coefficient_p_values,
-    coefficient_ci_lower,
-    coefficient_ci_upper,
-    intercept_t_statistic,
-    intercept_p_value
-FROM anofox_statistics_ols(
-    y_array, x_matrix,
-    MAP{'full_output': true, 'confidence_level': 0.95}
-);
-```
-
-**Benefits:**
-- Single function call (more efficient)
-- Consistent API across all regression methods
-- Works with both table functions and aggregates
-- Supports window functions with full inference
-
----
-
 ## Prediction Interval Functions
 
 Make predictions on new observations with confidence/prediction intervals. Returns one row per new observation.
@@ -824,13 +703,13 @@ TABLE(
 
 ---
 
-### anofox_statistics_ols_predict_interval
+### anofox_statistics_predict_ols
 
 **OLS Prediction with Intervals**
 
 **Signature:**
 ```sql
-anofox_statistics_ols_predict_interval(
+anofox_statistics_predict_ols(
     y_train DOUBLE[],
     x_train DOUBLE[][],
     x_new   DOUBLE[][],
@@ -856,7 +735,7 @@ anofox_statistics_ols_predict_interval(
 
 **Example:**
 ```sql
-SELECT * FROM anofox_statistics_ols_predict_interval(
+SELECT * FROM anofox_statistics_predict_ols(
     [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],
     [[1.0], [2.0], [3.0], [4.0], [5.0]]::DOUBLE[][],
     [[6.0], [7.0]]::DOUBLE[][],
@@ -871,7 +750,7 @@ SELECT * FROM anofox_statistics_ols_predict_interval(
 
 ---
 
-### anofox_statistics_ridge_predict_interval
+### anofox_statistics_predict_ridge
 
 **Ridge Prediction with Intervals**
 
@@ -879,7 +758,7 @@ SELECT * FROM anofox_statistics_ols_predict_interval(
 
 **Signature:**
 ```sql
-anofox_statistics_ridge_predict_interval(
+anofox_statistics_predict_ridge(
     y_train DOUBLE[],
     x_train DOUBLE[][],
     x_new   DOUBLE[][],
@@ -891,7 +770,7 @@ anofox_statistics_ridge_predict_interval(
 
 **Example:**
 ```sql
-SELECT * FROM anofox_statistics_ridge_predict_interval(
+SELECT * FROM anofox_statistics_predict_ridge(
     [2.0, 5.0, 8.0, 11.0, 14.0],
     [[1.0], [2.0], [3.0], [4.0], [5.0]],
     [[6.0], [7.0]],
@@ -901,7 +780,7 @@ SELECT * FROM anofox_statistics_ridge_predict_interval(
 
 ---
 
-### anofox_statistics_wls_predict_interval
+### anofox_statistics_predict_wls
 
 **WLS Prediction with Intervals**
 
@@ -909,7 +788,7 @@ SELECT * FROM anofox_statistics_ridge_predict_interval(
 
 **Signature:**
 ```sql
-anofox_statistics_wls_predict_interval(
+anofox_statistics_predict_wls(
     y_train DOUBLE[],
     x_train DOUBLE[][],
     weights DOUBLE[],
@@ -920,7 +799,7 @@ anofox_statistics_wls_predict_interval(
 
 **Example:**
 ```sql
-SELECT * FROM anofox_statistics_wls_predict_interval(
+SELECT * FROM anofox_statistics_predict_wls(
     [2.0, 5.0, 8.0, 11.0, 14.0],
     [[1.0], [2.0], [3.0], [4.0], [5.0]],
     [1.0, 1.0, 1.0, 1.0, 1.0],
@@ -931,7 +810,7 @@ SELECT * FROM anofox_statistics_wls_predict_interval(
 
 ---
 
-### anofox_statistics_rls_predict_interval
+### anofox_statistics_predict_rls
 
 **RLS Prediction with Intervals**
 
@@ -939,7 +818,7 @@ SELECT * FROM anofox_statistics_wls_predict_interval(
 
 **Signature:**
 ```sql
-anofox_statistics_rls_predict_interval(
+anofox_statistics_predict_rls(
     y_train DOUBLE[],
     x_train DOUBLE[][],
     x_new   DOUBLE[][],
@@ -949,7 +828,7 @@ anofox_statistics_rls_predict_interval(
 
 **Example:**
 ```sql
-SELECT * FROM anofox_statistics_rls_predict_interval(
+SELECT * FROM anofox_statistics_predict_rls(
     [2.0, 5.0, 8.0, 11.0, 14.0],
     [[1.0], [2.0], [3.0], [4.0], [5.0]],
     [[6.0], [7.0]],
@@ -959,7 +838,7 @@ SELECT * FROM anofox_statistics_rls_predict_interval(
 
 ---
 
-### anofox_statistics_elastic_net_predict_interval
+### anofox_statistics_predict_elastic_net
 
 **Elastic Net Prediction with Intervals**
 
@@ -967,7 +846,7 @@ SELECT * FROM anofox_statistics_rls_predict_interval(
 
 **Signature:**
 ```sql
-anofox_statistics_elastic_net_predict_interval(
+anofox_statistics_predict_elastic_net(
     y_train DOUBLE[],
     x_train DOUBLE[][],
     x_new   DOUBLE[][],
@@ -979,7 +858,7 @@ anofox_statistics_elastic_net_predict_interval(
 
 **Example:**
 ```sql
-SELECT * FROM anofox_statistics_elastic_net_predict_interval(
+SELECT * FROM anofox_statistics_predict_elastic_net(
     [2.0, 5.0, 8.0, 11.0, 14.0],
     [[1.0], [2.0], [3.0], [4.0], [5.0]],
     [[6.0], [7.0]],
@@ -1224,129 +1103,6 @@ GROUP BY model_id;
 
 ---
 
-## Model Selection Workflows
-
-**As of v0.2.0**, information criteria (AIC, AICc, BIC) are automatically included in all regression function outputs when `full_output=true`. This replaces the standalone `anofox_statistics_information_criteria` function from v0.1.0.
-
-### Information Criteria
-
-Use AIC, AICc, and BIC to compare models and select the best fit:
-
-**Formulas:**
-- **AIC** = n×log(RSS/n) + 2×k (Akaike Information Criterion)
-- **AICc** = AIC + 2×k×(k+1)/(n-k-1) (Corrected AIC for small samples)
-- **BIC** = n×log(RSS/n) + k×log(n) (Bayesian Information Criterion)
-
-Where: k = number of parameters (rank), n = number of observations
-
-**Selection Rule:** Lower is better - choose the model with minimum AIC/BIC
-
-**When to use:**
-- **AIC**: General model selection, balances fit vs. complexity
-- **AICc**: Small sample sizes (n/k < 40)
-- **BIC**: Stronger penalty for complexity, favors simpler models
-
-### Comparing Multiple Models
-
-**Example: Simple Model Comparison**
-```sql
--- Compare 2-feature vs 5-feature model
-WITH model_2feat AS (
-    SELECT
-        'Model 2 features' as model_name,
-        aic, aicc, bic, r_squared
-    FROM anofox_statistics_ols(
-        y_array,
-        x_matrix_2features,
-        MAP{'full_output': true}
-    )
-),
-model_5feat AS (
-    SELECT
-        'Model 5 features' as model_name,
-        aic, aicc, bic, r_squared
-    FROM anofox_statistics_ols(
-        y_array,
-        x_matrix_5features,
-        MAP{'full_output': true}
-    )
-)
-SELECT * FROM model_2feat
-UNION ALL
-SELECT * FROM model_5feat
-ORDER BY aic;  -- Best model first
-```
-
-### Group-wise Model Selection
-
-Select the best regularization strength per category:
-
-```sql
--- Find best lambda per category
-WITH models AS (
-    SELECT
-        category,
-        lambda,
-        aic,
-        ROW_NUMBER() OVER (PARTITION BY category ORDER BY aic) as rank
-    FROM (
-        SELECT category, 0.1 as lambda, aic
-        FROM (SELECT category, anofox_statistics_ridge_agg(y, [x1, x2], MAP{'lambda': 0.1, 'full_output': true}) as m FROM data GROUP BY category) t1, LATERAL (SELECT m.aic) t2
-        UNION ALL
-        SELECT category, 1.0 as lambda, aic
-        FROM (SELECT category, anofox_statistics_ridge_agg(y, [x1, x2], MAP{'lambda': 1.0, 'full_output': true}) as m FROM data GROUP BY category) t1, LATERAL (SELECT m.aic) t2
-        UNION ALL
-        SELECT category, 10.0 as lambda, aic
-        FROM (SELECT category, anofox_statistics_ridge_agg(y, [x1, x2], MAP{'lambda': 10.0, 'full_output': true}) as m FROM data GROUP BY category) t1, LATERAL (SELECT m.aic) t2
-    )
-)
-SELECT category, lambda, aic
-FROM models
-WHERE rank = 1;  -- Best lambda per category
-```
-
-### Cross-Method Comparison
-
-Compare OLS, Ridge, and Elastic Net:
-
-```sql
-WITH ols_model AS (
-    SELECT 'OLS' as method, aic, bic, r_squared
-    FROM anofox_statistics_ols(y_array, x_matrix, MAP{'full_output': true})
-),
-ridge_model AS (
-    SELECT 'Ridge' as method, aic, bic, r_squared
-    FROM anofox_statistics_ridge(y_array, x_matrix, MAP{'lambda': 1.0, 'full_output': true})
-),
-en_model AS (
-    SELECT 'Elastic Net' as method, aic, bic, r_squared
-    FROM anofox_statistics_elastic_net(y_array, x_matrix, MAP{'lambda': 0.1, 'alpha': 0.5, 'full_output': true})
-)
-SELECT * FROM ols_model
-UNION ALL SELECT * FROM ridge_model
-UNION ALL SELECT * FROM en_model
-ORDER BY aic;
-```
-
-### Migration from v0.1.0
-
-**OLD (v0.1.0)** - Separate function:
-```sql
-SELECT * FROM anofox_statistics_information_criteria(
-    y_array, x_matrix, MAP{'intercept': true}
-);
-```
-
-**NEW (v0.2.0)** - Integrated with fit:
-```sql
-SELECT aic, aicc, bic, log_likelihood
-FROM anofox_statistics_ols(
-    y_array, x_matrix,
-    MAP{'intercept': true, 'full_output': true}
-);
-```
-
----
 
 ## Model-Based Prediction
 
@@ -1395,7 +1151,7 @@ TABLE(
 ```sql
 -- Step 1: Fit model with full_output
 CREATE TABLE model AS
-SELECT * FROM anofox_statistics_ols(
+SELECT * FROM anofox_statistics_ols_fit(
     y_array,
     x_matrix,
     MAP{'intercept': true, 'full_output': true}
@@ -1471,132 +1227,6 @@ anofox_statistics_ols_mse(
 **Signature:**
 ```sql
 anofox_statistics_ols_rmse(
-    actual     DOUBLE,
-    predicted  DOUBLE
-) → DOUBLE
-```
-
-**Formula:** RMSE = √(MSE)
-
----
-
-#### anofox_statistics_ols_mae
-
-**Mean Absolute Error**
-
-**Signature:**
-```sql
-anofox_statistics_ols_mae(
-    actual     DOUBLE,
-    predicted  DOUBLE
-) → DOUBLE
-```
-
-**Formula:** MAE = Σ|y - ŷ| / n
-
----
-
-### Prediction Functions
-
-#### anofox_statistics_predict
-
-**Full Prediction with Intervals (Scalar)**
-
-**Signature:**
-```sql
-anofox_statistics_predict(
-    intercept                DOUBLE,
-    coefficients             DOUBLE[],
-    x_new                    DOUBLE[],
-    x_train_means            DOUBLE[],
-    coefficient_std_errors   DOUBLE[],
-    intercept_std_error      DOUBLE,
-    mse                      DOUBLE,
-    df_residual              BIGINT,
-    confidence_level         DOUBLE,
-    interval_type            VARCHAR
-) → STRUCT
-```
-
-**Returns:**
-```sql
-STRUCT(
-    predicted   DOUBLE,
-    ci_lower    DOUBLE,
-    ci_upper    DOUBLE,
-    std_error   DOUBLE
-)
-```
-
-**Example:**
-```sql
-SELECT
-    observation_id,
-    anofox_statistics_predict(
-        m.intercept,
-        m.coefficients,
-        [t.x1, t.x2],
-        m.x_train_means,
-        m.coefficient_std_errors,
-        m.intercept_std_error,
-        m.mse,
-        m.df_residual,
-        0.95,
-        'prediction'
-    ) as pred
-FROM test_data t, model m;
-```
-
----
-
-## Function Coverage Matrix
-
-This matrix shows which capabilities are currently **implemented** (✅) for each regression method.
-
-| Capability | OLS | Ridge | WLS | RLS | Elastic Net |
-|------------|-----|-------|-----|-----|-------------|
-| **Fit Table Function** | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **Fit Aggregate (GROUP BY)** | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **Fit-Predict (Window)** | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **Full Statistical Inference** | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **Prediction Intervals** | ✅ | ✅ | ✅ | ✅ | ✅ |
-
-**Note:** "Full Statistical Inference" includes F-statistic, AIC/BIC, coefficient t-stats/p-values/CIs, and intercept inference - available with `full_output=true`.
-
-### Summary Statistics
-
-- **Total Functions:** 32 (fully implemented)
-- **Removed (v0.2.0):** 9 functions (6 inference + 3 legacy)
-- **Integration:** Inference and model selection now built into fit functions
-
-### Function Categories
-
-| Category | Count |
-|----------|-------|
-| Regression Table Functions | 5 |
-| Regression Aggregates | 5 |
-| Fit-Predict Window Aggregates | 5 |
-| Prediction Interval Functions | 5 |
-| Diagnostic Functions | 6 (3 table + 3 aggregate) |
-| Model-Based Prediction | 1 |
-| Scalar Metrics | 4 |
-| Scalar Prediction | 1 |
-| **Total** | **32** |
-
-### v0.2.0 Changes
-
-**Removed (integrated into fit functions):**
-- 5 standalone inference functions → now `full_output=true`
-- 1 information_criteria function → now AIC/BIC/AICc in fit output
-
-**Benefits:**
-- More efficient (single function call)
-- Consistent API across all methods
-- Works with aggregates and window functions
-
----
-
-## Version History
 
 ### v0.2.0 (Current)
 
@@ -1636,7 +1266,7 @@ This matrix shows which capabilities are currently **implemented** (✅) for eac
        intercept_p_value,
        coefficient_ci_lower,
        coefficient_ci_upper
-   FROM anofox_statistics_ols(y, x, MAP{'full_output': true, 'confidence_level': 0.95});
+   FROM anofox_statistics_ols_fit(y, x, MAP{'full_output': true, 'confidence_level': 0.95});
    ```
 
 2. **Information criteria** → Use `full_output=true`:
@@ -1646,7 +1276,7 @@ This matrix shows which capabilities are currently **implemented** (✅) for eac
 
    -- NEW:
    SELECT aic, aicc, bic, log_likelihood
-   FROM anofox_statistics_ols(y, x, MAP{'full_output': true});
+   FROM anofox_statistics_ols_fit(y, x, MAP{'full_output': true});
    ```
 
 3. **Legacy predict functions** → Use new functions:

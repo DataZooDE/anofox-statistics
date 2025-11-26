@@ -671,7 +671,7 @@ WITH rolling_models AS (
         week_start,
         price,
         units_sold,
-        anofox_statistics_ols_agg(units_sold, [price], {'intercept': true}) OVER (
+        anofox_statistics_ols_fit_agg(units_sold, [price], {'intercept': true}) OVER (
             PARTITION BY product_id
             ORDER BY week
             ROWS BETWEEN 8 PRECEDING AND CURRENT ROW
@@ -701,14 +701,14 @@ LIMIT 20;
 WITH static_models AS (
     SELECT
         product_id,
-        anofox_statistics_ols_agg(units_sold, [price], {'intercept': true}) as full_period_model
+        anofox_statistics_ols_fit_agg(units_sold, [price], {'intercept': true}) as full_period_model
     FROM product_time_series
     GROUP BY product_id
 ),
 adaptive_models AS (
     SELECT
         product_id,
-        anofox_statistics_rls_agg(units_sold, [price], {'forgetting_factor': 0.92, 'intercept': true}) as adaptive_model
+        anofox_statistics_rls_fit_agg(units_sold, [price], {'forgetting_factor': 0.92, 'intercept': true}) as adaptive_model
     FROM product_time_series
     GROUP BY product_id
 )
@@ -737,7 +737,7 @@ WITH weekly_summary AS (
     SELECT
         week,
         week_start,
-        anofox_statistics_ols_agg(units_sold, [price], {'intercept': true}) as weekly_model
+        anofox_statistics_ols_fit_agg(units_sold, [price], {'intercept': true}) as weekly_model
     FROM product_time_series
     GROUP BY week, week_start
 )
@@ -777,7 +777,7 @@ WITH monthly_by_product AS (
     SELECT
         product_id,
         (week / 4)::INT as month,
-        anofox_statistics_ols_agg(units_sold, [price], {'intercept': true}) as monthly_model
+        anofox_statistics_ols_fit_agg(units_sold, [price], {'intercept': true}) as monthly_model
     FROM product_time_series
     GROUP BY product_id, month
 )
@@ -1024,7 +1024,7 @@ WITH product_models AS (
     SELECT
         category,
         subcategory,
-        anofox_statistics_ols_agg(
+        anofox_statistics_ols_fit_agg(
             units,
             [price, marketing_cost],
             {'intercept': true}
@@ -1050,7 +1050,7 @@ regional_product AS (
     SELECT
         region,
         subcategory,
-        anofox_statistics_ols_agg(
+        anofox_statistics_ols_fit_agg(
             units,
             [price],
             {'intercept': true}
@@ -1153,26 +1153,26 @@ CREATE TEMP TABLE all_methods AS
 SELECT
     market,
     -- OLS: Standard baseline
-    anofox_statistics_ols_agg(
+    anofox_statistics_ols_fit_agg(
         y,
         [x1_correlated, x2_correlated, x3_independent],
         {'intercept': true}
     ) as ols_model,
     -- WLS: Addresses heteroscedasticity
-    anofox_statistics_wls_agg(
+    anofox_statistics_wls_fit_agg(
         y,
         [x1_correlated, x2_correlated, x3_independent],
         observation_weight,
         {'intercept': true}
     ) as wls_model,
     -- Ridge: Handles multicollinearity
-    anofox_statistics_ridge_agg(
+    anofox_statistics_ridge_fit_agg(
         y,
         [x1_correlated, x2_correlated, x3_independent],
         {'lambda': 1.0, 'intercept': true}
     ) as ridge_model,
     -- RLS: Adaptive to changes
-    anofox_statistics_rls_agg(
+    anofox_statistics_rls_fit_agg(
         y,
         [x1_correlated, x2_correlated, x3_independent],
         {'forgetting_factor': 0.95, 'intercept': true}

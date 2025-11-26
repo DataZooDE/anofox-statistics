@@ -85,14 +85,14 @@ See the [Migration Guide](guides/01_quick_start.md#migration-from-v010) for upgr
 LOAD 'anofox_statistics';
 
 -- Simple OLS regression
-SELECT * FROM anofox_statistics_ols(
+SELECT * FROM anofox_statistics_ols_fit(
     [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],  -- y: response variable
     [[1.1], [2.1], [2.9], [4.2], [4.8]]::DOUBLE[][],  -- x: feature matrix
     MAP{'intercept': true}                 -- options
 );
 
 -- Multiple regression with 3 predictors
-SELECT * FROM anofox_statistics_ols(
+SELECT * FROM anofox_statistics_ols_fit(
     [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],  -- y: response variable
     [[1.1, 2.0, 3.0], [2.1, 3.0, 4.0], [2.9, 4.0, 5.0],
      [4.2, 5.0, 6.0], [4.8, 6.0, 7.0]]::DOUBLE[][],  -- x: feature matrix
@@ -115,7 +115,7 @@ SELECT
 FROM (
     SELECT
         category,
-        anofox_statistics_ols_agg(
+        anofox_statistics_ols_fit_agg(
             sales,
             [price],
             MAP{'intercept': true}
@@ -166,13 +166,13 @@ Comprehensive guides are available in the [`guides/`](guides/) directory:
 - `ols_mse(y, x)` - Mean Squared Error
 
 ### Phase 2: Regression Fitting
-- `anofox_statistics_ols(y DOUBLE[], x DOUBLE[][], options MAP)` - Multi-variable OLS
-- `anofox_statistics_ridge(y DOUBLE[], x DOUBLE[][], options MAP)` - Ridge regression
-- `anofox_statistics_wls(y DOUBLE[], x DOUBLE[][], weights DOUBLE[], options MAP)` - Weighted Least Squares
-- `anofox_statistics_elastic_net(y DOUBLE[], x DOUBLE[][], options MAP)` - Elastic Net (L1+L2 regularization)
+- `anofox_statistics_ols_fit(y DOUBLE[], x DOUBLE[][], options MAP)` - Multi-variable OLS
+- `anofox_statistics_ridge_fit(y DOUBLE[], x DOUBLE[][], options MAP)` - Ridge regression
+- `anofox_statistics_wls_fit(y DOUBLE[], x DOUBLE[][], weights DOUBLE[], options MAP)` - Weighted Least Squares
+- `anofox_statistics_elastic_net_fit(y DOUBLE[], x DOUBLE[][], options MAP)` - Elastic Net (L1+L2 regularization)
 
 ### Phase 3: Sequential/Time-Series
-- `anofox_statistics_rls(y DOUBLE[], x DOUBLE[][], options MAP)` - Recursive Least Squares
+- `anofox_statistics_rls_fit(y DOUBLE[], x DOUBLE[][], options MAP)` - Recursive Least Squares
 
 Note: Rolling and expanding window regressions are available through aggregate window functions (see Phase 4 below).
 
@@ -180,11 +180,11 @@ Note: Rolling and expanding window regressions are available through aggregate w
 All aggregate functions support both `GROUP BY` and `OVER` (window functions):
 
 **Regression Aggregates:**
-- `anofox_statistics_ols_agg(y DOUBLE, x DOUBLE[], options MAP)` - OLS regression per group/window
-- `anofox_statistics_wls_agg(y DOUBLE, x DOUBLE[], weights DOUBLE, options MAP)` - Weighted LS per group/window
-- `anofox_statistics_ridge_agg(y DOUBLE, x DOUBLE[], options MAP)` - Ridge regression per group/window
-- `anofox_statistics_rls_agg(y DOUBLE, x DOUBLE[], options MAP)` - Recursive LS per group/window
-- `anofox_statistics_elastic_net_agg(y DOUBLE, x DOUBLE[], options MAP)` - Elastic Net per group/window
+- `anofox_statistics_ols_fit_agg(y DOUBLE, x DOUBLE[], options MAP)` - OLS regression per group/window
+- `anofox_statistics_wls_fit_agg(y DOUBLE, x DOUBLE[], weights DOUBLE, options MAP)` - Weighted LS per group/window
+- `anofox_statistics_ridge_fit_agg(y DOUBLE, x DOUBLE[], options MAP)` - Ridge regression per group/window
+- `anofox_statistics_rls_fit_agg(y DOUBLE, x DOUBLE[], options MAP)` - Recursive LS per group/window
+- `anofox_statistics_elastic_net_fit_agg(y DOUBLE, x DOUBLE[], options MAP)` - Elastic Net per group/window
 
 **Diagnostic Aggregates (GROUP BY only, no window functions):**
 - `anofox_statistics_residual_diagnostics_agg(y_actual DOUBLE, y_predicted DOUBLE, options MAP)` - Residual analysis per group
@@ -192,8 +192,8 @@ All aggregate functions support both `GROUP BY` and `OVER` (window functions):
 - `anofox_statistics_normality_test_agg(residual DOUBLE, options MAP)` - Jarque-Bera test per group
 
 **Usage:**
-- **GROUP BY**: `SELECT category, anofox_statistics_ols_agg(...) FROM data GROUP BY category`
-- **Window Functions**: `SELECT anofox_statistics_ols_agg(...) OVER (ORDER BY date ROWS BETWEEN 9 PRECEDING AND CURRENT ROW) FROM data`
+- **GROUP BY**: `SELECT category, anofox_statistics_ols_fit_agg(...) FROM data GROUP BY category`
+- **Window Functions**: `SELECT anofox_statistics_ols_fit_agg(...) OVER (ORDER BY date ROWS BETWEEN 9 PRECEDING AND CURRENT ROW) FROM data`
 
 **Options MAP keys**:
 - `intercept` (BOOLEAN): Include intercept term (default: true)
@@ -202,7 +202,7 @@ All aggregate functions support both `GROUP BY` and `OVER` (window functions):
 
 ### Phase 5: Inference & Diagnostics
 - `anofox_statistics_ols_inference(y, x, options MAP)` - Coefficient inference with tests
-- `anofox_statistics_ols_predict_interval(y, x, options MAP)` - Predictions with intervals
+- `anofox_statistics_predict_ols(y, x, options MAP)` - Predictions with intervals
 - `anofox_statistics_model_predict(...)` - Efficient prediction using pre-fitted models (with confidence/prediction intervals)
 - `anofox_statistics_information_criteria(y, x, options MAP)` - AIC, BIC, model selection
 - `anofox_statistics_residual_diagnostics(y_actual, y_predicted, outlier_threshold)` - Outlier detection
@@ -223,7 +223,7 @@ SELECT
 FROM (
     SELECT
         week,
-        anofox_statistics_ols_agg(
+        anofox_statistics_ols_fit_agg(
             revenue,
             [tv_spend, digital_spend, print_spend],
             MAP{'intercept': true}
@@ -244,7 +244,7 @@ SELECT
 FROM (
     SELECT
         stock_id,
-        anofox_statistics_ols_agg(
+        anofox_statistics_ols_fit_agg(
             stock_return,
             [market_return],
             MAP{'intercept': true}
@@ -259,7 +259,7 @@ FROM (
 ```sql
 -- Elastic Net with both L1 and L2 regularization
 SELECT *
-FROM anofox_statistics_elastic_net(
+FROM anofox_statistics_elastic_net_fit(
     [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]::DOUBLE[],  -- y
     [[1.0, 2.0, 1.5], [2.0, 4.0, 3.0], [3.0, 6.0, 4.5],
      [4.0, 8.0, 6.0], [5.0, 10.0, 7.5], [6.0, 12.0, 9.0],
@@ -291,7 +291,7 @@ FROM (
     SELECT
         date,
         value,
-        anofox_statistics_ols_agg(
+        anofox_statistics_ols_fit_agg(
             value,
             [time_index],
             MAP{'intercept': true}
@@ -305,7 +305,7 @@ FROM (
 -- Expanding window (cumulative regression)
 SELECT
     date,
-    anofox_statistics_ols_agg(
+    anofox_statistics_ols_fit_agg(
         sales,
         [price, advertising],
         MAP{'intercept': true}
@@ -319,7 +319,7 @@ FROM sales_history;
 SELECT
     category,
     date,
-    anofox_statistics_wls_agg(
+    anofox_statistics_wls_fit_agg(
         outcome,
         [predictor1, predictor2],
         weight,
@@ -334,7 +334,7 @@ FROM panel_data;
 -- Ridge regression with rolling window (addresses multicollinearity)
 SELECT
     date,
-    anofox_statistics_ridge_agg(
+    anofox_statistics_ridge_fit_agg(
         returns,
         [market_factor, size_factor, value_factor],
         MAP{'intercept': true, 'lambda': 1.0}
@@ -347,7 +347,7 @@ FROM daily_returns;
 -- RLS for adaptive online learning
 SELECT
     timestamp,
-    anofox_statistics_rls_agg(
+    anofox_statistics_rls_fit_agg(
         sensor_reading,
         [temperature, humidity, pressure],
         MAP{'intercept': true, 'forgetting_factor': 0.99}
@@ -397,7 +397,7 @@ Store a fitted model once, then make predictions on new data without refitting:
 ```sql
 -- 1. Fit model with full_output to store all metadata
 CREATE TABLE sales_model AS
-SELECT * FROM anofox_statistics_ols(
+SELECT * FROM anofox_statistics_ols_fit(
     sales_array,
     [[price], [advertising], [seasonality]]::DOUBLE[][],
     MAP{'intercept': true, 'full_output': true}

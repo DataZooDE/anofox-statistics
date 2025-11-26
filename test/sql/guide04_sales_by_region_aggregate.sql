@@ -49,7 +49,7 @@ SELECT
 FROM (
     SELECT
         region,
-        anofox_statistics_ols_agg(
+        anofox_statistics_ols_fit_agg(
             units_sold,
             [price, promo_spend],
             {'intercept': true}
@@ -72,7 +72,7 @@ SELECT
 FROM (
     SELECT
         region,
-        anofox_statistics_ols_agg(units_sold, [price], {'intercept': true}) as result
+        anofox_statistics_ols_fit_agg(units_sold, [price], {'intercept': true}) as result
     FROM regional_sales
     GROUP BY region
 ) sub

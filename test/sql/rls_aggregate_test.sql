@@ -1,4 +1,4 @@
--- Test suite for anofox_statistics_rls_agg aggregate function (Recursive Least Squares)
+-- Test suite for anofox_statistics_rls_fit_agg aggregate function (Recursive Least Squares)
 
 LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
 
@@ -41,7 +41,7 @@ SELECT
 FROM (
     SELECT
         market_regime,
-        anofox_statistics_rls_agg(
+        anofox_statistics_rls_fit_agg(
             sales,
             [price, demand],
             {'forgetting_factor': 1.0, 'intercept': true}
@@ -63,8 +63,8 @@ SELECT
 FROM (
     SELECT
         market_regime,
-        anofox_statistics_rls_agg(sales, [price], {'forgetting_factor': 1.0, 'intercept': true}) as rls,
-        anofox_statistics_ols_agg(sales, [price], {'intercept': true}) as ols
+        anofox_statistics_rls_fit_agg(sales, [price], {'forgetting_factor': 1.0, 'intercept': true}) as rls,
+        anofox_statistics_ols_fit_agg(sales, [price], {'intercept': true}) as ols
     FROM rls_agg_data
     GROUP BY market_regime
 ) sub
@@ -83,9 +83,9 @@ SELECT
 FROM (
     SELECT
         market_regime,
-        anofox_statistics_rls_agg(sales, [price], {'forgetting_factor': 1.0, 'intercept': true}) as ff_1_0,
-        anofox_statistics_rls_agg(sales, [price], {'forgetting_factor': 0.95, 'intercept': true}) as ff_0_95,
-        anofox_statistics_rls_agg(sales, [price], {'forgetting_factor': 0.90, 'intercept': true}) as ff_0_90
+        anofox_statistics_rls_fit_agg(sales, [price], {'forgetting_factor': 1.0, 'intercept': true}) as ff_1_0,
+        anofox_statistics_rls_fit_agg(sales, [price], {'forgetting_factor': 0.95, 'intercept': true}) as ff_0_95,
+        anofox_statistics_rls_fit_agg(sales, [price], {'forgetting_factor': 0.90, 'intercept': true}) as ff_0_90
     FROM rls_agg_data
     GROUP BY market_regime
 ) sub
@@ -101,7 +101,7 @@ SELECT
 FROM (
     SELECT
         market_regime,
-        anofox_statistics_rls_agg(
+        anofox_statistics_rls_fit_agg(
             sales,
             [price, demand],
             {'forgetting_factor': 0.98, 'intercept': false}
@@ -136,7 +136,7 @@ SELECT
 FROM (
     SELECT
         source,
-        anofox_statistics_rls_agg(y, [x], {'forgetting_factor': 0.85, 'intercept': true}) as result
+        anofox_statistics_rls_fit_agg(y, [x], {'forgetting_factor': 0.85, 'intercept': true}) as result
     FROM adaptive_data
     GROUP BY source
 ) sub;
@@ -161,7 +161,7 @@ SELECT
 FROM (
     SELECT
         grp,
-        anofox_statistics_rls_agg(y, [x1, x2, x3], {'forgetting_factor': 0.97, 'intercept': true}) as result
+        anofox_statistics_rls_fit_agg(y, [x1, x2, x3], {'forgetting_factor': 0.97, 'intercept': true}) as result
     FROM rls_multi_data
     GROUP BY grp
 ) sub;
@@ -175,7 +175,7 @@ SELECT
     result.n_obs
 FROM (
     SELECT
-        anofox_statistics_rls_agg(sales, [price, demand], {'forgetting_factor': 0.96, 'intercept': true}) as result
+        anofox_statistics_rls_fit_agg(sales, [price, demand], {'forgetting_factor': 0.96, 'intercept': true}) as result
     FROM rls_agg_data
 ) sub;
 
@@ -192,7 +192,7 @@ SELECT
     result.coefficients[1] as coefficient,
     result.r2
 FROM (
-    SELECT anofox_statistics_rls_agg(y, [x], {'forgetting_factor': 1.00, 'intercept': true}) as result
+    SELECT anofox_statistics_rls_fit_agg(y, [x], {'forgetting_factor': 1.00, 'intercept': true}) as result
     FROM sensitivity_data
 ) sub
 UNION ALL
@@ -201,7 +201,7 @@ SELECT
     result.coefficients[1] as coefficient,
     result.r2
 FROM (
-    SELECT anofox_statistics_rls_agg(y, [x], {'forgetting_factor': 0.98, 'intercept': true}) as result
+    SELECT anofox_statistics_rls_fit_agg(y, [x], {'forgetting_factor': 0.98, 'intercept': true}) as result
     FROM sensitivity_data
 ) sub
 UNION ALL
@@ -210,7 +210,7 @@ SELECT
     result.coefficients[1] as coefficient,
     result.r2
 FROM (
-    SELECT anofox_statistics_rls_agg(y, [x], {'forgetting_factor': 0.95, 'intercept': true}) as result
+    SELECT anofox_statistics_rls_fit_agg(y, [x], {'forgetting_factor': 0.95, 'intercept': true}) as result
     FROM sensitivity_data
 ) sub
 UNION ALL
@@ -219,7 +219,7 @@ SELECT
     result.coefficients[1] as coefficient,
     result.r2
 FROM (
-    SELECT anofox_statistics_rls_agg(y, [x], {'forgetting_factor': 0.90, 'intercept': true}) as result
+    SELECT anofox_statistics_rls_fit_agg(y, [x], {'forgetting_factor': 0.90, 'intercept': true}) as result
     FROM sensitivity_data
 ) sub;
 

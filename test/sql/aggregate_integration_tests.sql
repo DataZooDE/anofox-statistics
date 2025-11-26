@@ -38,7 +38,7 @@ FROM (
         date,
         product,
         revenue,
-        anofox_statistics_ols_agg(revenue, [marketing_spend], {'intercept': true}) OVER (
+        anofox_statistics_ols_fit_agg(revenue, [marketing_spend], {'intercept': true}) OVER (
             PARTITION BY product
             ORDER BY date
             ROWS BETWEEN 15 PRECEDING AND CURRENT ROW
@@ -54,9 +54,9 @@ WITH base_models AS (
     SELECT
         product,
         region,
-        anofox_statistics_ols_agg(revenue, [marketing_spend, product_cost], {'intercept': true}) as ols_model,
-        anofox_statistics_wls_agg(revenue, [marketing_spend, product_cost], weight, {'intercept': true}) as wls_model,
-        anofox_statistics_ridge_agg(revenue, [marketing_spend, product_cost], {'lambda': 1.0, 'intercept': true}) as ridge_model
+        anofox_statistics_ols_fit_agg(revenue, [marketing_spend, product_cost], {'intercept': true}) as ols_model,
+        anofox_statistics_wls_fit_agg(revenue, [marketing_spend, product_cost], weight, {'intercept': true}) as wls_model,
+        anofox_statistics_ridge_fit_agg(revenue, [marketing_spend, product_cost], {'lambda': 1.0, 'intercept': true}) as ridge_model
     FROM sales_data
     GROUP BY product, region
 ),
@@ -103,7 +103,7 @@ FROM (
 JOIN (
     SELECT
         product,
-        anofox_statistics_ols_agg(revenue, [product_cost], {'intercept': true}) as model
+        anofox_statistics_ols_fit_agg(revenue, [product_cost], {'intercept': true}) as model
     FROM sales_data
     GROUP BY product
 ) model ON main.product = model.product
@@ -114,7 +114,7 @@ WITH daily_models AS (
     SELECT
         date,
         product,
-        anofox_statistics_ols_agg(revenue, [marketing_spend], {'intercept': true}) as daily_model
+        anofox_statistics_ols_fit_agg(revenue, [marketing_spend], {'intercept': true}) as daily_model
     FROM sales_data
     GROUP BY date, product
 )
@@ -144,7 +144,7 @@ FROM (
     SELECT
         product,
         region,
-        anofox_statistics_ols_agg(revenue, [marketing_spend, product_cost], {'intercept': true}) as model
+        anofox_statistics_ols_fit_agg(revenue, [marketing_spend, product_cost], {'intercept': true}) as model
     FROM sales_data
     GROUP BY product, region
     HAVING COUNT(*) >= 15
@@ -156,7 +156,7 @@ SELECT '=== Test 6: Nested aggregation ===' as test_name;
 WITH region_models AS (
     SELECT
         region,
-        anofox_statistics_ols_agg(revenue, [marketing_spend], {'intercept': true}) as model,
+        anofox_statistics_ols_fit_agg(revenue, [marketing_spend], {'intercept': true}) as model,
         COUNT(*) as n_observations
     FROM sales_data
     GROUP BY region
@@ -179,7 +179,7 @@ SELECT
 FROM (
     SELECT
         product,
-        anofox_statistics_ols_agg(revenue, [marketing_spend], {'intercept': true}) as model
+        anofox_statistics_ols_fit_agg(revenue, [marketing_spend], {'intercept': true}) as model
     FROM sales_data
     GROUP BY product
 ) sub
@@ -192,7 +192,7 @@ SELECT
 FROM (
     SELECT
         product,
-        anofox_statistics_ridge_agg(revenue, [marketing_spend], {'lambda': 1.0, 'intercept': true}) as model
+        anofox_statistics_ridge_fit_agg(revenue, [marketing_spend], {'lambda': 1.0, 'intercept': true}) as model
     FROM sales_data
     GROUP BY product
 ) sub
@@ -205,7 +205,7 @@ SELECT
 FROM (
     SELECT
         product,
-        anofox_statistics_rls_agg(revenue, [marketing_spend], {'forgetting_factor': 0.95, 'intercept': true}) as model
+        anofox_statistics_rls_fit_agg(revenue, [marketing_spend], {'forgetting_factor': 0.95, 'intercept': true}) as model
     FROM sales_data
     GROUP BY product
 ) sub
@@ -215,7 +215,7 @@ SELECT '=== Test 8: Self-join with aggregates ===' as test_name;
 WITH product_models AS (
     SELECT
         product,
-        anofox_statistics_ols_agg(revenue, [marketing_spend], {'intercept': true}) as model
+        anofox_statistics_ols_fit_agg(revenue, [marketing_spend], {'intercept': true}) as model
     FROM sales_data
     GROUP BY product
 )
@@ -245,7 +245,7 @@ SELECT
 FROM (
     SELECT
         product,
-        anofox_statistics_ols_agg(revenue, [marketing_spend, product_cost], {'intercept': true}) as model
+        anofox_statistics_ols_fit_agg(revenue, [marketing_spend, product_cost], {'intercept': true}) as model
     FROM sales_data
     GROUP BY product
 ) sub
@@ -256,7 +256,7 @@ WITH initial_models AS (
     SELECT
         product,
         region,
-        anofox_statistics_ols_agg(revenue, [marketing_spend], {'intercept': true}) as model,
+        anofox_statistics_ols_fit_agg(revenue, [marketing_spend], {'intercept': true}) as model,
         AVG(revenue) as avg_revenue
     FROM sales_data
     WHERE revenue > 100
@@ -285,7 +285,7 @@ SELECT
 FROM (
     SELECT
         product,
-        anofox_statistics_ols_agg(revenue, [marketing_spend], {'intercept': true}) as model
+        anofox_statistics_ols_fit_agg(revenue, [marketing_spend], {'intercept': true}) as model
     FROM sales_data
     GROUP BY product
 ) sub;
@@ -295,7 +295,7 @@ WITH daily_coefficients AS (
     SELECT
         date,
         product,
-        anofox_statistics_ols_agg(revenue, [marketing_spend], {'intercept': true}) as model
+        anofox_statistics_ols_fit_agg(revenue, [marketing_spend], {'intercept': true}) as model
     FROM sales_data
     GROUP BY date, product
 )
@@ -314,7 +314,7 @@ WITH product_level AS (
     SELECT
         product,
         region,
-        anofox_statistics_ols_agg(revenue, [marketing_spend], {'intercept': true}) as model
+        anofox_statistics_ols_fit_agg(revenue, [marketing_spend], {'intercept': true}) as model
     FROM sales_data
     GROUP BY product, region
 ),

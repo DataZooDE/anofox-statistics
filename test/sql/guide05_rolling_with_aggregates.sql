@@ -25,7 +25,7 @@ WITH rolling_models AS (
         week_start,
         price,
         units_sold,
-        anofox_statistics_ols_agg(units_sold, [price], {'intercept': true}) OVER (
+        anofox_statistics_ols_fit_agg(units_sold, [price], {'intercept': true}) OVER (
             PARTITION BY product_id
             ORDER BY week
             ROWS BETWEEN 8 PRECEDING AND CURRENT ROW
@@ -55,14 +55,14 @@ LIMIT 20;
 WITH static_models AS (
     SELECT
         product_id,
-        anofox_statistics_ols_agg(units_sold, [price], {'intercept': true}) as full_period_model
+        anofox_statistics_ols_fit_agg(units_sold, [price], {'intercept': true}) as full_period_model
     FROM product_time_series
     GROUP BY product_id
 ),
 adaptive_models AS (
     SELECT
         product_id,
-        anofox_statistics_rls_agg(units_sold, [price], {'forgetting_factor': 0.92, 'intercept': true}) as adaptive_model
+        anofox_statistics_rls_fit_agg(units_sold, [price], {'forgetting_factor': 0.92, 'intercept': true}) as adaptive_model
     FROM product_time_series
     GROUP BY product_id
 )
@@ -91,7 +91,7 @@ WITH weekly_summary AS (
     SELECT
         week,
         week_start,
-        anofox_statistics_ols_agg(units_sold, [price], {'intercept': true}) as weekly_model
+        anofox_statistics_ols_fit_agg(units_sold, [price], {'intercept': true}) as weekly_model
     FROM product_time_series
     GROUP BY week, week_start
 )
@@ -131,7 +131,7 @@ WITH monthly_by_product AS (
     SELECT
         product_id,
         (week / 4)::INT as month,
-        anofox_statistics_ols_agg(units_sold, [price], {'intercept': true}) as monthly_model
+        anofox_statistics_ols_fit_agg(units_sold, [price], {'intercept': true}) as monthly_model
     FROM product_time_series
     GROUP BY product_id, month
 )

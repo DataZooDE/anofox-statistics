@@ -844,7 +844,7 @@ void WlsFitFunction::Register(ExtensionLoader &loader) {
 	};
 
 	// Register with literal mode (bind + execute)
-	TableFunction function("anofox_statistics_wls", arguments, WlsFitExecute, WlsFitBind, nullptr,
+	TableFunction function("anofox_statistics_wls_fit", arguments, WlsFitExecute, WlsFitBind, nullptr,
 	                       WlsFitInOutLocalInit);
 
 	// Add lateral join support (in_out_function)

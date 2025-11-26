@@ -1,7 +1,6 @@
 #define DUCKDB_EXTENSION_MAIN
 
 #include "anofox_statistics_extension.hpp"
-#include "functions/ols_metrics.hpp"
 #include "functions/ols_fit.hpp"                                   // Phase 2 - OLS regression
 #include "functions/ridge_fit.hpp"                                 // Phase 2 - Ridge regression
 #include "functions/wls_fit.hpp"                                   // Phase 2 - Weighted LS
@@ -41,9 +40,6 @@
 namespace duckdb {
 
 void AnofoxStatisticsExtension::Load(ExtensionLoader &loader) {
-	// Phase 1: OLS regression - metrics functions (✅ completed)
-	anofox_statistics::OlsMetricsFunction::Register(loader);
-
 	// Phase 2: Regression fit functions (✅ completed)
 	anofox_statistics::OlsFitFunction::Register(loader);        // Ordinary Least Squares
 	anofox_statistics::RidgeFitFunction::Register(loader);      // Ridge regression (L2)
@@ -106,7 +102,7 @@ std::string AnofoxStatisticsExtension::Version() const {
 #ifdef EXT_VERSION_ANOFOX
 	return EXT_VERSION_ANOFOX;
 #else
-	return "0.1.0";
+	return "0.2.0";
 #endif
 }
 

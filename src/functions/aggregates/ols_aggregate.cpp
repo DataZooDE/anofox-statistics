@@ -943,16 +943,16 @@ void OlsAggregateFunction::Register(ExtensionLoader &loader) {
 	    FunctionNullHandling::DEFAULT_NULL_HANDLING, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
 	loader.RegisterFunction(ols_fit_agg_array);
 
-	// 4. anofox_statistics_ols_agg(y DOUBLE, x DOUBLE[], options MAP) -> STRUCT
+	// 4. anofox_statistics_ols_fit_agg(y DOUBLE, x DOUBLE[], options MAP) -> STRUCT
 	// This is the new unified API that matches table function signatures
 	// Now supports window functions with OVER clause
-	AggregateFunction anofox_statistics_ols_agg(
-	    "anofox_statistics_ols_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
+	AggregateFunction anofox_statistics_ols_fit_agg(
+	    "anofox_statistics_ols_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
 	    LogicalType::STRUCT(array_fit_struct_fields), AggregateFunction::StateSize<OlsArrayAggregateState>,
 	    OlsArrayInitialize, OlsArrayUpdate, OlsArrayCombine, OlsArrayFinalize,
 	    FunctionNullHandling::DEFAULT_NULL_HANDLING, nullptr, nullptr, nullptr, nullptr, OlsArrayWindow, nullptr,
 	    nullptr);
-	loader.RegisterFunction(anofox_statistics_ols_agg);
+	loader.RegisterFunction(anofox_statistics_ols_fit_agg);
 
 	ANOFOX_DEBUG("All OLS aggregate functions registered successfully");
 }

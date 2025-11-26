@@ -273,7 +273,7 @@ static void WlsPredictIntervalTableFunc(ClientContext &context, TableFunctionInp
 void WLSPredictIntervalFunction::Register(ExtensionLoader &loader) {
 	ANOFOX_DEBUG("Registering WLS predict_interval function");
 
-	TableFunction func("anofox_statistics_wls_predict_interval",
+	TableFunction func("anofox_statistics_predict_wls",
 	                   {LogicalType::LIST(LogicalType::DOUBLE),                    // y_train
 	                    LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)), // x_train
 	                    LogicalType::LIST(LogicalType::DOUBLE),                    // weights

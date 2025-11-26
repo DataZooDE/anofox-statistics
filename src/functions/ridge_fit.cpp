@@ -914,7 +914,7 @@ void RidgeFitFunction::Register(ExtensionLoader &loader) {
 	};
 
 	// Register with literal mode (bind + execute)
-	TableFunction function("anofox_statistics_ridge", arguments, RidgeFitExecute, RidgeFitBind, nullptr,
+	TableFunction function("anofox_statistics_ridge_fit", arguments, RidgeFitExecute, RidgeFitBind, nullptr,
 	                       RidgeFitInOutLocalInit);
 
 	// Add lateral join support (in_out_function)

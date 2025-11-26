@@ -29,7 +29,7 @@ SELECT
 FROM (
     SELECT
         segment,
-        anofox_statistics_wls_agg(
+        anofox_statistics_wls_fit_agg(
             spend,
             [income],
             reliability_weight,

@@ -30,7 +30,7 @@ SELECT
 FROM (
     SELECT
         category,
-        anofox_statistics_ols_agg(
+        anofox_statistics_ols_fit_agg(
             sales, [price, advertising],
             {'intercept': true}
         ) as model
@@ -51,7 +51,7 @@ SELECT
 FROM (
     SELECT
         category,
-        anofox_statistics_ols_agg(
+        anofox_statistics_ols_fit_agg(
             sales, [price, advertising],
             {'intercept': true}
         ) as model
@@ -83,7 +83,7 @@ SELECT
 FROM (
     SELECT
         category,
-        anofox_statistics_ols_agg(
+        anofox_statistics_ols_fit_agg(
             sales, [price],
             {'intercept': true}
         ) as model
@@ -103,7 +103,7 @@ SELECT
 FROM (
     SELECT
         category,
-        anofox_statistics_ols_agg(
+        anofox_statistics_ols_fit_agg(
             sales, [price],
             {'intercept': true}
         ) as model

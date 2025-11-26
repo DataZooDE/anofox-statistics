@@ -674,12 +674,12 @@ void RlsAggregateFunction::Register(ExtensionLoader &loader) {
 	rls_struct_fields.push_back(make_pair("intercept_ci_lower", LogicalType::DOUBLE));
 	rls_struct_fields.push_back(make_pair("intercept_ci_upper", LogicalType::DOUBLE));
 
-	AggregateFunction anofox_statistics_rls_agg(
-	    "anofox_statistics_rls_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
+	AggregateFunction anofox_statistics_rls_fit_agg(
+	    "anofox_statistics_rls_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
 	    LogicalType::STRUCT(rls_struct_fields), AggregateFunction::StateSize<RlsAggregateState>, RlsInitialize,
 	    RlsUpdate, RlsCombine, RlsFinalize, FunctionNullHandling::DEFAULT_NULL_HANDLING, nullptr, nullptr, nullptr,
 	    nullptr, RlsWindow, nullptr, nullptr);
-	loader.RegisterFunction(anofox_statistics_rls_agg);
+	loader.RegisterFunction(anofox_statistics_rls_fit_agg);
 
 	ANOFOX_DEBUG("RLS aggregate function registered successfully");
 }

@@ -28,10 +28,10 @@ anofox_statistics_rls_fit(...)
 **New (Current):**
 
 ```sql
-anofox_statistics_ols(...)
-anofox_statistics_ridge(...)
-anofox_statistics_wls(...)
-anofox_statistics_rls(...)
+anofox_statistics_ols_fit(...)
+anofox_statistics_ridge_fit(...)
+anofox_statistics_wls_fit(...)
+anofox_statistics_rls_fit(...)
 ```
 
 **Impact:** All existing queries must update function names by removing the `_fit` suffix.
@@ -57,7 +57,7 @@ SELECT * FROM anofox_statistics_ols_fit(
 
 ```sql
 -- Single 2D matrix for all features
-SELECT * FROM anofox_statistics_ols(
+SELECT * FROM anofox_statistics_ols_fit(
     [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],  -- y
     [[1.1, 2.0, 3.0],                      -- x matrix (n_obs x n_features)
      [2.1, 3.0, 4.0],
@@ -86,9 +86,9 @@ anofox_statistics_ridge_fit(y, x1, x2, 1.0) -- lambda as double
 
 ```sql
 -- MAP-based options
-anofox_statistics_ols(y, x, MAP{'intercept': true})
-anofox_statistics_ridge(y, x, MAP{'intercept': true, 'lambda': 1.0})
-anofox_statistics_elastic_net(y, x, MAP{
+anofox_statistics_ols_fit(y, x, MAP{'intercept': true})
+anofox_statistics_ridge_fit(y, x, MAP{'intercept': true, 'lambda': 1.0})
+anofox_statistics_elastic_net_fit(y, x, MAP{
     'intercept': true,
     'alpha': 0.5,
     'lambda': 0.1,
@@ -128,7 +128,7 @@ FROM data GROUP BY category;
 -- Unified aggregate with structured output
 SELECT
     category,
-    anofox_statistics_ols_agg(
+    anofox_statistics_ols_fit_agg(
         sales,
         [price],
         MAP{'intercept': true}
@@ -142,7 +142,7 @@ SELECT
     result.intercept,
     result.r2
 FROM (
-    SELECT category, anofox_statistics_ols_agg(sales, [price], MAP{'intercept': true}) as result
+    SELECT category, anofox_statistics_ols_fit_agg(sales, [price], MAP{'intercept': true}) as result
     FROM data GROUP BY category
 ) sub;
 ```
@@ -164,7 +164,7 @@ ols_coeff_agg(y, x) → DOUBLE
 
 ```sql
 -- Rich structured output
-anofox_statistics_ols_agg(y, [x], options) → STRUCT(
+anofox_statistics_ols_fit_agg(y, [x], options) → STRUCT(
     coefficients DOUBLE[],
     intercept DOUBLE,
     r2 DOUBLE,
@@ -188,7 +188,7 @@ Combined L1 + L2 regularization for feature selection and stability.
 
 ```sql
 -- Table function
-SELECT * FROM anofox_statistics_elastic_net(
+SELECT * FROM anofox_statistics_elastic_net_fit(
     y_array,
     x_matrix,
     MAP{
@@ -202,7 +202,7 @@ SELECT * FROM anofox_statistics_elastic_net(
 
 -- Aggregate function (per group or window)
 SELECT category,
-       anofox_statistics_elastic_net_agg(y, [x1, x2], MAP{'alpha': 0.5, 'lambda': 0.1})
+       anofox_statistics_elastic_net_fit_agg(y, [x1, x2], MAP{'alpha': 0.5, 'lambda': 0.1})
 FROM data GROUP BY category;
 ```
 
@@ -215,7 +215,7 @@ Efficient prediction on new data using pre-fitted models, with confidence/predic
 ```sql
 -- 1. Fit model with full_output to get all metadata
 CREATE TABLE model AS
-SELECT * FROM anofox_statistics_ols(
+SELECT * FROM anofox_statistics_ols_fit(
     y_array,
     x_matrix,
     MAP{'intercept': true, 'full_output': true}
@@ -274,32 +274,32 @@ All five regression aggregates now support SQL window functions with `OVER` clau
 -- Rolling window (30-period)
 SELECT
     date,
-    anofox_statistics_ols_agg(value, [x1, x2], MAP{'intercept': true})
+    anofox_statistics_ols_fit_agg(value, [x1, x2], MAP{'intercept': true})
         OVER (ORDER BY date ROWS BETWEEN 29 PRECEDING AND CURRENT ROW) as model
 FROM data;
 
 -- Expanding window (cumulative)
 SELECT
     date,
-    anofox_statistics_ridge_agg(value, [x1], MAP{'lambda': 1.0})
+    anofox_statistics_ridge_fit_agg(value, [x1], MAP{'lambda': 1.0})
         OVER (ORDER BY date ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as model
 FROM data;
 
 -- Partitioned rolling (per category)
 SELECT
     category, date,
-    anofox_statistics_wls_agg(outcome, [pred1, pred2], weight, MAP{'intercept': true})
+    anofox_statistics_wls_fit_agg(outcome, [pred1, pred2], weight, MAP{'intercept': true})
         OVER (PARTITION BY category ORDER BY date ROWS BETWEEN 59 PRECEDING AND CURRENT ROW)
 FROM data;
 ```
 
 **Supported Aggregates with Window Functions:**
 
-- `anofox_statistics_ols_agg`
-- `anofox_statistics_wls_agg`
-- `anofox_statistics_ridge_agg`
-- `anofox_statistics_rls_agg`
-- `anofox_statistics_elastic_net_agg`
+- `anofox_statistics_ols_fit_agg`
+- `anofox_statistics_wls_fit_agg`
+- `anofox_statistics_ridge_fit_agg`
+- `anofox_statistics_rls_fit_agg`
+- `anofox_statistics_elastic_net_fit_agg`
 
 **Impact:** The old `rolling_ols` and `expanding_ols` table functions are removed. Use window functions instead.
 
@@ -309,11 +309,11 @@ Expanded from 1 aggregate function to 8 total aggregates.
 
 **Regression Aggregates (support both GROUP BY and OVER):**
 
-- `anofox_statistics_ols_agg(y, x[], options)` - OLS per group/window
-- `anofox_statistics_wls_agg(y, x[], weights, options)` - WLS per group/window
-- `anofox_statistics_ridge_agg(y, x[], options)` - Ridge per group/window
-- `anofox_statistics_rls_agg(y, x[], options)` - RLS per group/window
-- `anofox_statistics_elastic_net_agg(y, x[], options)` - Elastic Net per group/window
+- `anofox_statistics_ols_fit_agg(y, x[], options)` - OLS per group/window
+- `anofox_statistics_wls_fit_agg(y, x[], weights, options)` - WLS per group/window
+- `anofox_statistics_ridge_fit_agg(y, x[], options)` - Ridge per group/window
+- `anofox_statistics_rls_fit_agg(y, x[], options)` - RLS per group/window
+- `anofox_statistics_elastic_net_fit_agg(y, x[], options)` - Elastic Net per group/window
 
 **Diagnostic Aggregates (GROUP BY only, no window functions):**
 
@@ -377,7 +377,7 @@ SELECT
     d.category,
     r.*
 FROM data d
-LATERAL anofox_statistics_ols(
+LATERAL anofox_statistics_ols_fit(
     d.y,
     [[d.x1, d.x2]],
     MAP{'intercept': true}
@@ -389,7 +389,7 @@ LATERAL anofox_statistics_ols(
 New `full_output` option stores extended metadata for model-based prediction.
 
 ```sql
-SELECT * FROM anofox_statistics_ols(
+SELECT * FROM anofox_statistics_ols_fit(
     y, x,
     MAP{'intercept': true, 'full_output': true}
 );
@@ -410,8 +410,8 @@ These fields enable efficient prediction with `anofox_statistics_model_predict()
 
 The following dedicated table functions were removed in favor of unified window function support:
 
-- `anofox_statistics_rolling_ols()` → Use `anofox_statistics_ols_agg()` with `OVER` clause
-- `anofox_statistics_expanding_ols()` → Use `anofox_statistics_ols_agg()` with `OVER` clause
+- `anofox_statistics_rolling_ols()` → Use `anofox_statistics_ols_fit_agg()` with `OVER` clause
+- `anofox_statistics_expanding_ols()` → Use `anofox_statistics_ols_fit_agg()` with `OVER` clause
 - `anofox_statistics_rolling_ols_fit()` → Same as above
 - `anofox_statistics_expanding_ols_fit()` → Same as above
 
@@ -423,14 +423,14 @@ SELECT * FROM anofox_statistics_rolling_ols(y, x, 30, true);
 
 -- Current: Window function
 SELECT
-    anofox_statistics_ols_agg(y, [x], MAP{'intercept': true})
+    anofox_statistics_ols_fit_agg(y, [x], MAP{'intercept': true})
         OVER (ORDER BY row_number ROWS BETWEEN 29 PRECEDING AND CURRENT ROW)
 FROM data;
 ```
 
 ### 2. Removed Aggregate Functions
 
-- `ols_coeff_agg(y, x)` → Replaced by `anofox_statistics_ols_agg(y, [x], MAP{})`
+- `ols_coeff_agg(y, x)` → Replaced by `anofox_statistics_ols_fit_agg(y, [x], MAP{})`
 - `ols_fit_agg(y, x)` → Same replacement
 - `ols_fit_agg_array(y, x[])` → Same replacement
 
@@ -448,7 +448,7 @@ SELECT
 FROM (
     SELECT
         category,
-        anofox_statistics_ols_agg(sales, [price], MAP{'intercept': true}) as result
+        anofox_statistics_ols_fit_agg(sales, [price], MAP{'intercept': true}) as result
     FROM data GROUP BY category
 ) sub;
 ```
@@ -488,8 +488,8 @@ anofox_statistics_ols_fit(...)
 anofox_statistics_ridge_fit(...)
 
 -- New
-anofox_statistics_ols(...)
-anofox_statistics_ridge(...)
+anofox_statistics_ols_fit(...)
+anofox_statistics_ridge_fit(...)
 ```
 
 #### 2. Restructure Features to Matrix Format
@@ -506,7 +506,7 @@ SELECT * FROM anofox_statistics_ols_fit(
 );
 
 -- New: Single matrix with all features
-SELECT * FROM anofox_statistics_ols(
+SELECT * FROM anofox_statistics_ols_fit(
     [1, 2, 3]::DOUBLE[],
     [[1, 4], [2, 5], [3, 6]]::DOUBLE[][],  -- Each row is [x1, x2]
     MAP{'intercept': true}
@@ -522,7 +522,7 @@ Replace positional parameters with MAP:
 anofox_statistics_ridge_fit(y, x1, x2, 1.0)
 
 -- New
-anofox_statistics_ridge(y, [[x1], [x2]], MAP{'intercept': true, 'lambda': 1.0})
+anofox_statistics_ridge_fit(y, [[x1], [x2]], MAP{'intercept': true, 'lambda': 1.0})
 ```
 
 #### 4. Update Aggregates
@@ -543,7 +543,7 @@ SELECT
 FROM (
     SELECT
         category,
-        anofox_statistics_ols_agg(sales, [price], MAP{'intercept': true}) as result
+        anofox_statistics_ols_fit_agg(sales, [price], MAP{'intercept': true}) as result
     FROM data GROUP BY category
 ) sub;
 ```
@@ -558,7 +558,7 @@ SELECT * FROM anofox_statistics_rolling_ols(y, x, 30, true);
 
 -- New: Window function
 SELECT
-    anofox_statistics_ols_agg(y, [x], MAP{'intercept': true})
+    anofox_statistics_ols_fit_agg(y, [x], MAP{'intercept': true})
         OVER (ORDER BY date ROWS BETWEEN 29 PRECEDING AND CURRENT ROW) as model
 FROM data;
 
@@ -567,7 +567,7 @@ SELECT * FROM anofox_statistics_expanding_ols(y, x, true);
 
 -- New: Window function
 SELECT
-    anofox_statistics_ols_agg(y, [x], MAP{'intercept': true})
+    anofox_statistics_ols_fit_agg(y, [x], MAP{'intercept': true})
         OVER (ORDER BY date ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as model
 FROM data;
 ```
@@ -584,13 +584,13 @@ SELECT
     result.r2,
     result.adj_r2,
     result.mse
-FROM (SELECT anofox_statistics_ols_agg(...) as result FROM data) sub;
+FROM (SELECT anofox_statistics_ols_fit_agg(...) as result FROM data) sub;
 
 -- Access array elements
 SELECT
     result.coefficients[1] as x1_coeff,
     result.coefficients[2] as x2_coeff
-FROM (SELECT anofox_statistics_ols_agg(...) as result FROM data) sub;
+FROM (SELECT anofox_statistics_ols_fit_agg(...) as result FROM data) sub;
 ```
 
 ### Complete Example Migration
@@ -626,7 +626,7 @@ SELECT
 FROM (
     SELECT
         date,
-        anofox_statistics_ols_agg(
+        anofox_statistics_ols_fit_agg(
             sales,
             [price, ad_spend],
             MAP{'intercept': true}

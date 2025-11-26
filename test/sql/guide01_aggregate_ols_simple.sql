@@ -27,7 +27,7 @@ SELECT
 FROM (
     SELECT
         category,
-        anofox_statistics_ols_agg(
+        anofox_statistics_ols_fit_agg(
             units_sold::DOUBLE,
             [price::DOUBLE],
             {'intercept': true}

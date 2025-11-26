@@ -33,7 +33,7 @@ SELECT
 FROM (
     SELECT
         sensor_id,
-        anofox_statistics_rls_agg(
+        anofox_statistics_rls_fit_agg(
             true_value,
             [raw_reading],
             {'forgetting_factor': 0.95, 'intercept': true}

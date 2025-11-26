@@ -11,7 +11,7 @@ LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extensi
 -- ======================================================================
 SELECT '=== Test 1: OLS with Constant Feature ===' as test_name;
 
-SELECT * FROM anofox_statistics_ols(
+SELECT * FROM anofox_statistics_ols_fit(
     [1.0::DOUBLE, 2.0, 3.0, 4.0, 5.0],  -- y
     [1.0::DOUBLE, 2.0, 3.0, 4.0, 5.0],  -- x1
     [5.0::DOUBLE, 5.0, 5.0, 5.0, 5.0],  -- x2 (constant)
@@ -25,7 +25,7 @@ SELECT * FROM anofox_statistics_ols(
 -- ======================================================================
 SELECT '=== Test 2: Ridge with Constant Feature ===' as test_name;
 
-SELECT * FROM anofox_statistics_ridge(
+SELECT * FROM anofox_statistics_ridge_fit(
     [1.0::DOUBLE, 2.0, 3.0, 4.0, 5.0],  -- y
     [1.0::DOUBLE, 2.0, 3.0, 4.0, 5.0],  -- x1
     [5.0::DOUBLE, 5.0, 5.0, 5.0, 5.0],  -- x2 (constant)
@@ -39,7 +39,7 @@ SELECT * FROM anofox_statistics_ridge(
 -- ======================================================================
 SELECT '=== Test 3: WLS with Constant Feature ===' as test_name;
 
-SELECT * FROM anofox_statistics_wls(
+SELECT * FROM anofox_statistics_wls_fit(
     [1.0::DOUBLE, 2.0, 3.0, 4.0, 5.0],  -- y
     [1.0::DOUBLE, 2.0, 3.0, 4.0, 5.0],  -- x1
     [5.0::DOUBLE, 5.0, 5.0, 5.0, 5.0],  -- x2 (constant)
@@ -53,7 +53,7 @@ SELECT * FROM anofox_statistics_wls(
 -- ======================================================================
 SELECT '=== Test 4: RLS with Constant Feature ===' as test_name;
 
-SELECT * FROM anofox_statistics_rls(
+SELECT * FROM anofox_statistics_rls_fit(
     [1.0::DOUBLE, 2.0, 3.0, 4.0, 5.0],  -- y
     [1.0::DOUBLE, 2.0, 3.0, 4.0, 5.0],  -- x1
     [5.0::DOUBLE, 5.0, 5.0, 5.0, 5.0],  -- x2 (constant)
@@ -97,7 +97,7 @@ FROM anofox_statistics_expanding_ols(
 -- ======================================================================
 SELECT '=== Test 7: OLS with Perfect Collinearity ===' as test_name;
 
-SELECT * FROM anofox_statistics_ols(
+SELECT * FROM anofox_statistics_ols_fit(
     [1.0::DOUBLE, 2.0, 3.0, 4.0, 5.0],  -- y
     [1.0::DOUBLE, 2.0, 3.0, 4.0, 5.0],  -- x1
     [2.0::DOUBLE, 4.0, 6.0, 8.0, 10.0],  -- x2 = 2*x1 (perfect collinearity)
