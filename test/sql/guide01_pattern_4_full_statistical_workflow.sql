@@ -16,9 +16,9 @@ WITH
 -- Step 1: Fit model and compute statistics
 model_fit AS (
     SELECT
-        (ols_fit_agg(y, x)).coefficient as slope,
-        (ols_fit_agg(y, x)).r2 as r_squared,
-        (ols_fit_agg(y, x)).std_error as std_error,
+        (anofox_statistics_ols_fit_agg(y, x)).coefficients[1] as slope,
+        (anofox_statistics_ols_fit_agg(y, x)).r_squared as r_squared,
+        (anofox_statistics_ols_fit_agg(y, x)).std_error as std_error,
         COUNT(*) as n_obs
     FROM workflow_sample
 ),

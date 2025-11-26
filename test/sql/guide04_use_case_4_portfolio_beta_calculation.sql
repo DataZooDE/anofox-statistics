@@ -31,16 +31,16 @@ FROM (
 -- Calculate beta (market sensitivity) for each stock
 SELECT
     stock_ticker,
-    ROUND((ols_fit_agg(stock_return, market_return)).coefficient, 3) as beta,
-    ROUND((ols_fit_agg(stock_return, market_return)).r2, 3) as r_squared,
+    ROUND((anofox_statistics_ols_fit_agg(stock_return, market_return)).coefficients[1], 3) as beta,
+    ROUND((anofox_statistics_ols_fit_agg(stock_return, market_return)).r_squared, 3) as r_squared,
     CASE
-        WHEN (ols_fit_agg(stock_return, market_return)).coefficient > 1.2 THEN 'High Risk'
-        WHEN (ols_fit_agg(stock_return, market_return)).coefficient > 0.8 THEN 'Medium Risk'
+        WHEN (anofox_statistics_ols_fit_agg(stock_return, market_return)).coefficients[1] > 1.2 THEN 'High Risk'
+        WHEN (anofox_statistics_ols_fit_agg(stock_return, market_return)).coefficients[1] > 0.8 THEN 'Medium Risk'
         ELSE 'Low Risk'
     END as risk_category,
     CASE
-        WHEN (ols_fit_agg(stock_return, market_return)).coefficient > 1.0 THEN 'Aggressive'
-        WHEN (ols_fit_agg(stock_return, market_return)).coefficient > 0.5 THEN 'Moderate'
+        WHEN (anofox_statistics_ols_fit_agg(stock_return, market_return)).coefficients[1] > 1.0 THEN 'Aggressive'
+        WHEN (anofox_statistics_ols_fit_agg(stock_return, market_return)).coefficients[1] > 0.5 THEN 'Moderate'
         ELSE 'Defensive'
     END as investor_suitability
 FROM daily_stock_returns

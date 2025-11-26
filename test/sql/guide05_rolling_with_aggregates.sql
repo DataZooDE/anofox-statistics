@@ -36,7 +36,7 @@ SELECT
     product_id,
     week,
     rolling_model.coefficients[1] as price_elasticity,
-    rolling_model.r2 as model_quality,
+    rolling_model.r_squared as model_quality,
     rolling_model.n_obs as window_size,
     -- Detect significant elasticity changes
     LAG(rolling_model.coefficients[1]) OVER (PARTITION BY product_id ORDER BY week) as prev_elasticity,
@@ -69,14 +69,14 @@ adaptive_models AS (
 SELECT
     sm.product_id,
     sm.full_period_model.coefficients[1] as static_elasticity,
-    sm.full_period_model.r2 as static_r2,
+    sm.full_period_model.r_squared as static_r2,
     am.adaptive_model.coefficients[1] as adaptive_elasticity,
-    am.adaptive_model.r2 as adaptive_r2,
+    am.adaptive_model.r_squared as adaptive_r2,
     -- Performance comparison
     CASE
-        WHEN am.adaptive_model.r2 > sm.full_period_model.r2 + 0.05
+        WHEN am.adaptive_model.r_squared > sm.full_period_model.r_squared + 0.05
             THEN 'Adaptive model significantly better'
-        WHEN am.adaptive_model.r2 > sm.full_period_model.r2
+        WHEN am.adaptive_model.r_squared > sm.full_period_model.r_squared
             THEN 'Adaptive model slightly better'
         ELSE 'Static model sufficient'
     END as model_comparison,
@@ -97,10 +97,10 @@ WITH weekly_summary AS (
 )
 SELECT
     week,
-    weekly_model.r2 as weekly_r2,
+    weekly_model.r_squared as weekly_r2,
     weekly_model.coefficients[1] as weekly_elasticity,
     -- Rolling average of R² (market-wide model quality trend)
-    AVG(weekly_model.r2) OVER (
+    AVG(weekly_model.r_squared) OVER (
         ORDER BY week
         ROWS BETWEEN 3 PRECEDING AND CURRENT ROW
     ) as rolling_avg_r2,
@@ -137,14 +137,14 @@ WITH monthly_by_product AS (
 )
 SELECT
     month,
-    MAX(monthly_model.r2) FILTER (WHERE product_id = 'product_a') as product_a_r2,
-    MAX(monthly_model.r2) FILTER (WHERE product_id = 'product_b') as product_b_r2,
-    MAX(monthly_model.r2) FILTER (WHERE product_id = 'product_c') as product_c_r2,
-    AVG(monthly_model.r2) as avg_r2_across_products,
+    MAX(monthly_model.r_squared) FILTER (WHERE product_id = 'product_a') as product_a_r2,
+    MAX(monthly_model.r_squared) FILTER (WHERE product_id = 'product_b') as product_b_r2,
+    MAX(monthly_model.r_squared) FILTER (WHERE product_id = 'product_c') as product_c_r2,
+    AVG(monthly_model.r_squared) as avg_r2_across_products,
     -- Detect if one product is diverging from others
-    MAX(monthly_model.r2) - MIN(monthly_model.r2) as r2_spread,
+    MAX(monthly_model.r_squared) - MIN(monthly_model.r_squared) as r2_spread,
     CASE
-        WHEN MAX(monthly_model.r2) - MIN(monthly_model.r2) > 0.2
+        WHEN MAX(monthly_model.r_squared) - MIN(monthly_model.r_squared) > 0.2
             THEN 'High variation across products'
         ELSE 'Similar model quality'
     END as cross_product_assessment

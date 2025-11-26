@@ -11,5 +11,5 @@ SELECT result.* FROM input,
 LATERAL anofox_statistics_ridge_fit(
     input.y,
     input.X,
-    MAP(['lambda', 'intercept'], [0.0::DOUBLE, 1.0::DOUBLE])
+    {'lambda': 0.0, 'intercept': true}
 ) as result;

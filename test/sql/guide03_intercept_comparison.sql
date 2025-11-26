@@ -15,7 +15,7 @@ SELECT
     'Physics: With intercept' as model_type,
     result.intercept,
     result.coefficients[1] as acceleration_estimate,
-    result.r2
+    result.r_squared
 FROM (
     SELECT anofox_statistics_ols_fit_agg(force_newtons, [mass_kg], {'intercept': true}) as result
     FROM physics_data
@@ -25,7 +25,7 @@ SELECT
     'Physics: Without intercept (correct)' as model_type,
     result.intercept,
     result.coefficients[1] as acceleration_estimate,
-    result.r2
+    result.r_squared
 FROM (
     SELECT anofox_statistics_ols_fit_agg(force_newtons, [mass_kg], {'intercept': false}) as result
     FROM physics_data
@@ -43,7 +43,7 @@ SELECT
     'Business: With intercept (correct)' as model_type,
     result.intercept as fixed_costs,
     result.coefficients[1] as revenue_per_employee,
-    result.r2
+    result.r_squared
 FROM (
     SELECT anofox_statistics_ols_fit_agg(revenue, [employees], {'intercept': true}) as result
     FROM business_data
@@ -53,7 +53,7 @@ SELECT
     'Business: Without intercept (wrong)' as model_type,
     result.intercept,
     result.coefficients[1] as biased_estimate,
-    result.r2
+    result.r_squared
 FROM (
     SELECT anofox_statistics_ols_fit_agg(revenue, [employees], {'intercept': false}) as result
     FROM business_data

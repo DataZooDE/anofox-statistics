@@ -28,9 +28,9 @@ WITH source_data AS (
 product_models AS (
     SELECT
         product_id,
-        ols_fit_agg(y, x1) as model_x1,
-        ols_fit_agg(y, x2) as model_x2,
-        ols_fit_agg(y, x3) as model_x3,
+        anofox_statistics_ols_fit_agg(y, x1) as model_x1,
+        anofox_statistics_ols_fit_agg(y, x2) as model_x2,
+        anofox_statistics_ols_fit_agg(y, x3) as model_x3,
         COUNT(*) as data_points,
         MIN(date) as training_start,
         MAX(date) as training_end,
@@ -42,12 +42,12 @@ product_models AS (
 
 SELECT
     product_id,
-    (model_x1).coefficient as price_coefficient,
-    (model_x2).coefficient as advertising_coefficient,
-    (model_x3).coefficient as competition_coefficient,
-    (model_x1).r2 as r2_price,
-    (model_x2).r2 as r2_advertising,
-    (model_x3).r2 as r2_competition,
+    (model_x1).coefficients[1] as price_coefficient,
+    (model_x2).coefficients[1] as advertising_coefficient,
+    (model_x3).coefficients[1] as competition_coefficient,
+    (model_x1).r_squared as r2_price,
+    (model_x2).r_squared as r2_advertising,
+    (model_x3).r_squared as r2_competition,
     data_points,
     training_start,
     training_end,

@@ -46,7 +46,7 @@ make release
 
 **When to use**: When you need to validate that a relationship is statistically significant before making business decisions or reporting findings. Essential for scientific research and evidence-based decision making.
 
-**How it works**: The `ols_inference` function computes test statistics and p-values using the t-distribution. It tests the null hypothesis that each coefficient equals zero (no effect). Lower p-values provide stronger evidence against the null hypothesis.
+**How it works**: Using `full_output=true` with fit functions computes test statistics and p-values using the t-distribution. It tests the null hypothesis that each coefficient equals zero (no effect). Lower p-values provide stronger evidence against the null hypothesis.
 
 <!-- include: test/sql/guide01_example_2_get_p_values_and_significance.sql -->
 
@@ -133,7 +133,7 @@ This analysis completed in a single query across all products - no need for loop
 
 **When to use**: For forecasting, scenario planning, or any situation where you need point estimates plus a sense of how confident you should be in those estimates.
 
-**How it works**: The `ols_predict_interval` function takes your fitted model and new predictor values, computing both the predicted value and the standard error. Confidence intervals are constructed using the t-distribution, accounting for both model uncertainty and inherent data variability.
+**How it works**: The `anofox_statistics_predict_*` functions take your training data and new predictor values, computing both the predicted value and the standard error. Confidence intervals are constructed using the t-distribution, accounting for both model uncertainty and inherent data variability.
 
 <!-- include: test/sql/guide01_example_5_make_predictions.sql -->
 

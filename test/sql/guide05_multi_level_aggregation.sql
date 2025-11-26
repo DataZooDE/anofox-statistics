@@ -37,7 +37,7 @@ WITH product_models AS (
 category_summary AS (
     SELECT
         category,
-        AVG(model.r2) as avg_r2,
+        AVG(model.r_squared) as avg_r2,
         AVG(model.coefficients[1]) as avg_price_sensitivity,
         AVG(model.coefficients[2]) as avg_marketing_effectiveness,
         SUM(n_sales) as total_sales,
@@ -62,12 +62,12 @@ regional_product AS (
 SELECT
     pm.category,
     pm.subcategory,
-    pm.model.r2 as product_fit,
+    pm.model.r_squared as product_fit,
     pm.model.coefficients[1] as price_effect,
     cs.avg_price_sensitivity as category_avg,
     cs.n_subcategories as competing_products,
     rp.region,
-    rp.regional_model.r2 as regional_fit,
+    rp.regional_model.r_squared as regional_fit,
     -- Multi-level insights
     CASE
         WHEN ABS(pm.model.coefficients[1] - cs.avg_price_sensitivity) > 5
@@ -75,9 +75,9 @@ SELECT
         ELSE 'Typical for category'
     END as category_comparison,
     CASE
-        WHEN pm.model.r2 > 0.7 AND rp.regional_model.r2 > 0.7
+        WHEN pm.model.r_squared > 0.7 AND rp.regional_model.r_squared > 0.7
             THEN 'Strong predictability at all levels'
-        WHEN pm.model.r2 < 0.5 OR rp.regional_model.r2 < 0.5
+        WHEN pm.model.r_squared < 0.5 OR rp.regional_model.r_squared < 0.5
             THEN 'Weak model - investigate other factors'
         ELSE 'Moderate predictability'
     END as model_assessment

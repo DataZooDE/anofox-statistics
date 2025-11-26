@@ -46,15 +46,15 @@ FROM (
 SELECT
     product_id,
     season,
-    ROUND((ols_fit_agg(units_sold, price)).coefficient, 2) as price_sensitivity,
-    ROUND((ols_fit_agg(units_sold, price)).r2, 3) as forecast_accuracy,
+    ROUND((anofox_statistics_ols_fit_agg(units_sold, price)).coefficients[1], 2) as price_sensitivity,
+    ROUND((anofox_statistics_ols_fit_agg(units_sold, price)).r_squared, 3) as forecast_accuracy,
     CASE
-        WHEN (ols_fit_agg(units_sold, price)).r2 > 0.8 THEN 'High Confidence'
-        WHEN (ols_fit_agg(units_sold, price)).r2 > 0.5 THEN 'Medium Confidence'
+        WHEN (anofox_statistics_ols_fit_agg(units_sold, price)).r_squared > 0.8 THEN 'High Confidence'
+        WHEN (anofox_statistics_ols_fit_agg(units_sold, price)).r_squared > 0.5 THEN 'Medium Confidence'
         ELSE 'Low Confidence'
     END as forecast_reliability,
     CASE
-        WHEN (ols_fit_agg(units_sold, price)).r2 > 0.7 THEN 'Auto-Replenish'
+        WHEN (anofox_statistics_ols_fit_agg(units_sold, price)).r_squared > 0.7 THEN 'Auto-Replenish'
         ELSE 'Manual Review'
     END as inventory_strategy,
     COUNT(*) as sample_size

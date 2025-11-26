@@ -8,9 +8,10 @@ Real-world business applications of the Anofox Statistics extension, demonstrati
 
 **Working Patterns**:
 
-- **Aggregate functions** (`anofox_statistics_ols_agg`, `anofox_statistics_ols_agg`) work directly with table data - use these for GROUP BY analysis
-- **Table functions** (`ols_inference`, `ols_predict_interval`) require literal arrays - examples show small datasets with explicit arrays
-- All functions use positional parameters only (no `:=` syntax)
+- **Aggregate functions** (`anofox_statistics_ols_fit_agg`, etc.) work directly with table data - use these for GROUP BY analysis
+- **Table functions** (`anofox_statistics_ols_fit`, `anofox_statistics_predict_ols`) require literal arrays - examples show small datasets with explicit arrays
+- **Inference** is integrated into fit functions using `full_output=true` option
+- All functions use positional parameters with MAP options (no `:=` syntax)
 
 **To adapt for your tables**: Replace sample data creation with your actual tables. For table functions with large datasets, use the two-step approach: run `SELECT LIST(column) FROM table`, copy result, paste as literal array.
 

@@ -27,7 +27,7 @@ SELECT
     sensor_id,
     result.coefficients[1] as calibration_slope,
     result.intercept as calibration_offset,
-    result.r2,
+    result.r_squared,
     result.forgetting_factor,
     result.n_obs
 FROM (

@@ -23,24 +23,24 @@ FROM (
 -- Build CLV model using aggregate functions (works directly with table data)
 SELECT
     'Model Coefficient: Tenure' as metric,
-    ROUND((ols_fit_agg(total_purchases, tenure)).coefficient, 2) as value
+    ROUND((anofox_statistics_ols_fit_agg(total_purchases, tenure)).coefficients[1], 2) as value
 FROM customer_summary
 WHERE cohort_month <= CURRENT_DATE - INTERVAL '12 months'
 UNION ALL
 SELECT
     'Model Coefficient: AOV' as metric,
-    ROUND((ols_fit_agg(total_purchases, aov)).coefficient, 2) as value
+    ROUND((anofox_statistics_ols_fit_agg(total_purchases, aov)).coefficients[1], 2) as value
 FROM customer_summary
 WHERE cohort_month <= CURRENT_DATE - INTERVAL '12 months'
 UNION ALL
 SELECT
     'Model Coefficient: Frequency' as metric,
-    ROUND((ols_fit_agg(total_purchases, freq)).coefficient, 2) as value
+    ROUND((anofox_statistics_ols_fit_agg(total_purchases, freq)).coefficients[1], 2) as value
 FROM customer_summary
 WHERE cohort_month <= CURRENT_DATE - INTERVAL '12 months'
 UNION ALL
 SELECT
     'Model Quality (R²)' as metric,
-    ROUND((ols_fit_agg(total_purchases, tenure)).r2, 3) as value
+    ROUND((anofox_statistics_ols_fit_agg(total_purchases, tenure)).r_squared, 3) as value
 FROM customer_summary
 WHERE cohort_month <= CURRENT_DATE - INTERVAL '12 months';

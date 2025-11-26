@@ -25,7 +25,7 @@ SELECT
     result.coefficients[1] as price_elasticity,
     result.coefficients[2] as promo_roi,
     result.intercept as baseline_demand,
-    result.r2,
+    result.r_squared,
     result.n_obs as weeks_analyzed,
     -- Business interpretation
     CASE
@@ -57,7 +57,7 @@ FROM (
     FROM regional_sales
     GROUP BY region
 ) sub
-ORDER BY result.r2 DESC;
+ORDER BY result.r_squared DESC;
 
 -- Calculate revenue impact of $1 price change
 SELECT

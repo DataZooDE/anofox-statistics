@@ -99,11 +99,18 @@ SELECT * FROM anofox_statistics_ols_fit(
     MAP{'intercept': true}                 -- options
 );
 
--- Coefficient inference with p-values (also uses positional parameters)
-SELECT * FROM anofox_statistics_ols_inference(
+-- Get coefficient inference using fit with full_output
+SELECT
+    coefficients,
+    intercept,
+    coefficient_p_values,
+    intercept_p_value,
+    f_statistic,
+    f_statistic_pvalue
+FROM anofox_statistics_ols_fit(
     [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],                  -- y
     [[1.0], [2.0], [3.0], [4.0], [5.0]]::DOUBLE[][],      -- x (matrix format)
-    MAP{'confidence_level': 0.95, 'intercept': true}      -- options
+    {'intercept': true, 'full_output': true, 'confidence_level': 0.95}  -- options
 );
 
 -- Per-group regression with aggregate functions
@@ -160,12 +167,7 @@ Comprehensive guides are available in the [`guides/`](guides/) directory:
 
 ## Function Reference
 
-### Phase 1: Basic Metrics
-- `ols_r2(y, x)` - R-squared
-- `ols_rmse(y, x)` - Root Mean Squared Error
-- `ols_mse(y, x)` - Mean Squared Error
-
-### Phase 2: Regression Fitting
+### Regression Fitting Functions
 - `anofox_statistics_ols_fit(y DOUBLE[], x DOUBLE[][], options MAP)` - Multi-variable OLS
 - `anofox_statistics_ridge_fit(y DOUBLE[], x DOUBLE[][], options MAP)` - Ridge regression
 - `anofox_statistics_wls_fit(y DOUBLE[], x DOUBLE[][], weights DOUBLE[], options MAP)` - Weighted Least Squares
@@ -200,9 +202,9 @@ All aggregate functions support both `GROUP BY` and `OVER` (window functions):
 - `lambda` (DOUBLE): Ridge regularization parameter (Ridge only)
 - `forgetting_factor` (DOUBLE): Exponential weighting for RLS (RLS only, default: 1.0)
 
-### Phase 5: Inference & Diagnostics
-- `anofox_statistics_ols_inference(y, x, options MAP)` - Coefficient inference with tests
-- `anofox_statistics_predict_ols(y, x, options MAP)` - Predictions with intervals
+### Inference & Diagnostics
+- Statistical inference is integrated into fit functions with `full_output=true` option
+- `anofox_statistics_predict_ols(y_train, x_train, x_new, options MAP)` - Predictions with intervals
 - `anofox_statistics_model_predict(...)` - Efficient prediction using pre-fitted models (with confidence/prediction intervals)
 - `anofox_statistics_information_criteria(y, x, options MAP)` - AIC, BIC, model selection
 - `anofox_statistics_residual_diagnostics(y_actual, y_predicted, outlier_threshold)` - Outlier detection
@@ -370,13 +372,18 @@ FROM sensor_data;
 ```sql
 -- Complete statistical workflow
 WITH fit AS (
-    SELECT * FROM ols_inference(y_data, x_data, 0.95, true)
+    SELECT * FROM anofox_statistics_ols_fit(
+        y_data, x_data,
+        {'intercept': true, 'full_output': true, 'confidence_level': 0.95}
+    )
 ),
 diagnostics AS (
-    SELECT * FROM residual_diagnostics(y_data, x_data, true, 2.5, 0.5)
+    SELECT * FROM anofox_statistics_residual_diagnostics(
+        y_actual, y_predicted, 2.5
+    )
 ),
 quality AS (
-    SELECT * FROM information_criteria(y_data, x_data, true)
+    SELECT aic, bic FROM fit  -- AIC/BIC included in fit output with full_output=true
 )
 SELECT
     fit.variable,

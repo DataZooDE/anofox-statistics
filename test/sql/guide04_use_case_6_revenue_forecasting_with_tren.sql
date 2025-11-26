@@ -11,13 +11,13 @@ FROM range(1, 21) t(i);
 -- For real tables: Run `SELECT LIST(revenue) FROM quarterly_financials` first,
 -- then paste the result as a literal array below
 WITH forecast AS (
-    SELECT * FROM ols_predict_interval(
+    SELECT * FROM anofox_statistics_predict_ols(
         [40572849.0, 41233491.0, 42455123.0, 42789456.0, 43891234.0, 43234567.0, 44567890.0, 44123456.0, 45678901.0, 45234567.0, 46789012.0, 46345678.0, 47890123.0, 47456789.0, 48901234.0, 48567890.0, 49912345.0, 49678901.0, 50923456.0, 50789012.0]::DOUBLE[],
         [[1.0], [2.0], [3.0], [4.0], [5.0], [6.0], [7.0], [8.0], [9.0], [10.0], [11.0], [12.0], [13.0], [14.0], [15.0], [16.0], [17.0], [18.0], [19.0], [20.0]]::DOUBLE[][],
         [[21.0], [22.0], [23.0], [24.0]]::DOUBLE[][],  -- Next 4 quarters
-        0.90,
-        'prediction',
-        true
+        0.90,                                           -- confidence_level
+        'prediction',                                   -- interval_type
+        true                                            -- intercept
     )
 )
 SELECT

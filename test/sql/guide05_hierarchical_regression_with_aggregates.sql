@@ -22,8 +22,8 @@ WITH store_level AS (
         region_id,
         territory_id,
         store_id,
-        (ols_fit_agg(sales::DOUBLE, marketing::DOUBLE)).coefficient as store_roi,
-        (ols_fit_agg(sales::DOUBLE, marketing::DOUBLE)).r2 as store_r2,
+        (anofox_statistics_ols_fit_agg(sales::DOUBLE, marketing::DOUBLE)).coefficients[1] as store_roi,
+        (anofox_statistics_ols_fit_agg(sales::DOUBLE, marketing::DOUBLE)).r_squared as store_r2,
         COUNT(*) as store_observations
     FROM daily_store_data
     WHERE date >= CURRENT_DATE - INTERVAL '90 days'
@@ -39,7 +39,7 @@ territory_level AS (
         COUNT(*) as num_stores,
         AVG(store_r2) as avg_r2,
         STDDEV(store_roi) as roi_variability,
-        (ols_fit_agg(store_roi, store_r2)).coefficient as roi_predictability
+        (anofox_statistics_ols_fit_agg(store_roi, store_r2)).coefficients[1] as roi_predictability
     FROM store_level
     GROUP BY region_id, territory_id
 ),

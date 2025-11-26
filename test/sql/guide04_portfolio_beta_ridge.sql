@@ -27,13 +27,13 @@ SELECT
     ols.coefficients[2] as ols_sector_beta,
     ols.coefficients[3] as ols_value_beta,
     ols.coefficients[4] as ols_momentum_beta,
-    ols.r2 as ols_r2,
+    ols.r_squared as ols_r2,
     -- Ridge (stabilized coefficients)
     ridge.coefficients[1] as ridge_market_beta,
     ridge.coefficients[2] as ridge_sector_beta,
     ridge.coefficients[3] as ridge_value_beta,
     ridge.coefficients[4] as ridge_momentum_beta,
-    ridge.r2 as ridge_r2,
+    ridge.r_squared as ridge_r2,
     ridge.lambda,
     -- Risk assessment
     CASE
@@ -65,7 +65,7 @@ WITH stock_betas AS (
         ticker,
         result.coefficients[1] as market_beta,
         result.coefficients[2] as sector_beta,
-        result.r2
+        result.r_squared
     FROM (
         SELECT
             ticker,

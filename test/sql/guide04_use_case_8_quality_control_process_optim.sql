@@ -29,26 +29,26 @@ WITH recent_batches AS (
 parameter_impacts AS (
     SELECT
         'Temperature' as variable,
-        ROUND((ols_fit_agg(defect_rate, temperature)).coefficient, 4) as impact_on_defects,
-        ROUND((ols_fit_agg(defect_rate, temperature)).r2, 3) as model_fit
+        ROUND((anofox_statistics_ols_fit_agg(defect_rate, [temperature], {'intercept': true})).coefficients[1], 4) as impact_on_defects,
+        ROUND((anofox_statistics_ols_fit_agg(defect_rate, [temperature], {'intercept': true})).r_squared, 3) as model_fit
     FROM recent_batches
     UNION ALL
     SELECT
         'Pressure' as variable,
-        ROUND((ols_fit_agg(defect_rate, pressure)).coefficient, 4) as impact_on_defects,
-        ROUND((ols_fit_agg(defect_rate, pressure)).r2, 3) as model_fit
+        ROUND((anofox_statistics_ols_fit_agg(defect_rate, [pressure], {'intercept': true})).coefficients[1], 4) as impact_on_defects,
+        ROUND((anofox_statistics_ols_fit_agg(defect_rate, [pressure], {'intercept': true})).r_squared, 3) as model_fit
     FROM recent_batches
     UNION ALL
     SELECT
         'Humidity' as variable,
-        ROUND((ols_fit_agg(defect_rate, humidity)).coefficient, 4) as impact_on_defects,
-        ROUND((ols_fit_agg(defect_rate, humidity)).r2, 3) as model_fit
+        ROUND((anofox_statistics_ols_fit_agg(defect_rate, [humidity], {'intercept': true})).coefficients[1], 4) as impact_on_defects,
+        ROUND((anofox_statistics_ols_fit_agg(defect_rate, [humidity], {'intercept': true})).r_squared, 3) as model_fit
     FROM recent_batches
     UNION ALL
     SELECT
         'Line Speed' as variable,
-        ROUND((ols_fit_agg(defect_rate, line_speed)).coefficient, 4) as impact_on_defects,
-        ROUND((ols_fit_agg(defect_rate, line_speed)).r2, 3) as model_fit
+        ROUND((anofox_statistics_ols_fit_agg(defect_rate, [line_speed], {'intercept': true})).coefficients[1], 4) as impact_on_defects,
+        ROUND((anofox_statistics_ols_fit_agg(defect_rate, [line_speed], {'intercept': true})).r_squared, 3) as model_fit
     FROM recent_batches
 ),
 impacts_materialized AS (

@@ -13,7 +13,7 @@ SELECT 'Test 1: OLS with literal parameters' as test_name;
 SELECT * FROM anofox_statistics_ols_fit(
     [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],
     [[1.1, 2.1, 2.9, 4.2, 4.8]]::DOUBLE[][],
-    MAP{'intercept': true}
+    {'intercept': true}
 );
 
 -- Test 2: OLS with lateral join
@@ -28,7 +28,7 @@ SELECT result.* FROM input,
 LATERAL anofox_statistics_ols_fit(
     input.y,
     input.X,
-    MAP{'intercept': true}
+    {'intercept': true}
 ) as result;
 
 -- Test 3: Ridge with literal parameters (backward compatibility)
@@ -36,7 +36,7 @@ SELECT 'Test 3: Ridge with literal parameters' as test_name;
 SELECT * FROM anofox_statistics_ridge_fit(
     [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],
     [[1.1, 2.1, 2.9, 4.2, 4.8]]::DOUBLE[][],
-    MAP(['lambda', 'intercept'], [0.1::DOUBLE, 1.0::DOUBLE])
+    {'lambda': 0.1, 'intercept': true}
 );
 
 -- Test 4: Ridge with lateral join
@@ -50,7 +50,7 @@ SELECT result.* FROM input,
 LATERAL anofox_statistics_ridge_fit(
     input.y,
     input.X,
-    MAP(['lambda', 'intercept'], [0.1::DOUBLE, 1.0::DOUBLE])
+    {'lambda': 0.1, 'intercept': true}
 ) as result;
 
 -- Test 5: RLS with literal parameters (backward compatibility)
@@ -58,7 +58,7 @@ SELECT 'Test 5: RLS with literal parameters' as test_name;
 SELECT * FROM anofox_statistics_rls_fit(
     [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],
     [[1.1, 2.1, 2.9, 4.2, 4.8]]::DOUBLE[][],
-    MAP(['forgetting_factor', 'intercept'], [0.95::DOUBLE, 1.0::DOUBLE])
+    {'forgetting_factor': 0.95, 'intercept': true}
 );
 
 -- Test 6: RLS with lateral join
@@ -72,7 +72,7 @@ SELECT result.* FROM input,
 LATERAL anofox_statistics_rls_fit(
     input.y,
     input.X,
-    MAP(['forgetting_factor', 'intercept'], [0.95::DOUBLE, 1.0::DOUBLE])
+    {'forgetting_factor': 0.95, 'intercept': true}
 ) as result;
 
 -- Test 7: WLS with literal parameters (backward compatibility)
@@ -81,7 +81,7 @@ SELECT * FROM anofox_statistics_wls_fit(
     [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],
     [[1.1, 2.1, 2.9, 4.2, 4.8]]::DOUBLE[][],
     [1.0, 1.0, 1.0, 1.0, 1.0]::DOUBLE[],
-    MAP{'intercept': true}
+    {'intercept': true}
 );
 
 -- Test 8: WLS with lateral join
@@ -97,7 +97,7 @@ LATERAL anofox_statistics_wls_fit(
     input.y,
     input.X,
     input.weights,
-    MAP{'intercept': true}
+    {'intercept': true}
 ) as result;
 
 -- Test 9: Multiple rows with lateral join (OLS)
@@ -118,7 +118,7 @@ SELECT input.name, result.* FROM input,
 LATERAL anofox_statistics_ols_fit(
     input.y,
     input.X,
-    MAP{'intercept': true}
+    {'intercept': true}
 ) as result
 ORDER BY input.name;
 
@@ -139,7 +139,7 @@ SELECT input.name, result.* FROM input,
 LATERAL anofox_statistics_ridge_fit(
     input.y,
     input.X,
-    MAP(['lambda', 'intercept'], [0.1::DOUBLE, 1.0::DOUBLE])
+    {'lambda': 0.1, 'intercept': true}
 ) as result
 ORDER BY input.name;
 
@@ -150,7 +150,7 @@ WITH literal_result AS (
     SELECT * FROM anofox_statistics_ols_fit(
         [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],
         [[1.1, 2.1, 2.9, 4.2, 4.8]]::DOUBLE[][],
-        MAP{'intercept': true}
+        {'intercept': true}
     )
 ),
 lateral_result AS (
@@ -162,7 +162,7 @@ lateral_result AS (
     LATERAL anofox_statistics_ols_fit(
         input.y,
         input.X,
-        MAP{'intercept': true}
+        {'intercept': true}
     ) as result
 )
 SELECT
@@ -195,7 +195,7 @@ WITH literal_result AS (
     SELECT * FROM anofox_statistics_ridge_fit(
         [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],
         [[1.1, 2.1, 2.9, 4.2, 4.8]]::DOUBLE[][],
-        MAP(['lambda', 'intercept'], [0.5::DOUBLE, 1.0::DOUBLE])
+        {'lambda': 0.5, 'intercept': true}
     )
 ),
 lateral_result AS (
@@ -207,7 +207,7 @@ lateral_result AS (
     LATERAL anofox_statistics_ridge_fit(
         input.y,
         input.X,
-        MAP(['lambda', 'intercept'], [0.5::DOUBLE, 1.0::DOUBLE])
+        {'lambda': 0.5, 'intercept': true}
     ) as result
 )
 SELECT
@@ -251,7 +251,7 @@ SELECT input.name, result.* FROM input,
 LATERAL anofox_statistics_rls_fit(
     input.y,
     input.X,
-    MAP(['forgetting_factor', 'intercept'], [0.95::DOUBLE, 1.0::DOUBLE])
+    {'forgetting_factor': 0.95, 'intercept': true}
 ) as result
 ORDER BY input.name;
 
@@ -275,7 +275,7 @@ LATERAL anofox_statistics_wls_fit(
     input.y,
     input.X,
     input.weights,
-    MAP{'intercept': true}
+    {'intercept': true}
 ) as result
 ORDER BY input.name;
 
@@ -285,7 +285,7 @@ WITH literal_result AS (
     SELECT * FROM anofox_statistics_rls_fit(
         [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],
         [[1.1, 2.1, 2.9, 4.2, 4.8]]::DOUBLE[][],
-        MAP(['forgetting_factor', 'intercept'], [0.98::DOUBLE, 1.0::DOUBLE])
+        {'forgetting_factor': 0.98, 'intercept': true}
     )
 ),
 lateral_result AS (
@@ -297,7 +297,7 @@ lateral_result AS (
     LATERAL anofox_statistics_rls_fit(
         input.y,
         input.X,
-        MAP(['forgetting_factor', 'intercept'], [0.98::DOUBLE, 1.0::DOUBLE])
+        {'forgetting_factor': 0.98, 'intercept': true}
     ) as result
 )
 SELECT
@@ -331,7 +331,7 @@ WITH literal_result AS (
         [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],
         [[1.1, 2.1, 2.9, 4.2, 4.8]]::DOUBLE[][],
         [1.0, 1.0, 1.0, 1.0, 1.0]::DOUBLE[],
-        MAP{'intercept': true}
+        {'intercept': true}
     )
 ),
 lateral_result AS (
@@ -345,7 +345,7 @@ lateral_result AS (
         input.y,
         input.X,
         input.weights,
-        MAP{'intercept': true}
+        {'intercept': true}
     ) as result
 )
 SELECT
@@ -398,7 +398,7 @@ FROM sales_data,
 LATERAL anofox_statistics_ols_fit(
     sales_data.sales,
     sales_data.time_periods,
-    MAP{'intercept': true}
+    {'intercept': true}
 ) as result
 ORDER BY sales_data.product;
 

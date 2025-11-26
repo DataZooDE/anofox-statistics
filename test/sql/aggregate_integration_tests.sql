@@ -32,7 +32,7 @@ SELECT
     product,
     revenue,
     model.coefficients[1] as marketing_roi,
-    model.r2
+    model.r_squared
 FROM (
     SELECT
         date,
@@ -64,9 +64,9 @@ model_comparison AS (
     SELECT
         product,
         region,
-        ols_model.r2 as ols_r2,
-        wls_model.r2 as wls_r2,
-        ridge_model.r2 as ridge_r2,
+        ols_model.r_squared as ols_r2,
+        wls_model.r_squared as wls_r2,
+        ridge_model.r_squared as ridge_r2,
         ols_model.coefficients[1] as ols_marketing_coef,
         wls_model.coefficients[1] as wls_marketing_coef,
         ridge_model.coefficients[1] as ridge_marketing_coef
@@ -91,7 +91,7 @@ SELECT
     main.product,
     main.avg_revenue,
     model.coefficients[1] as cost_sensitivity,
-    model.r2,
+    model.r_squared,
     model.n_obs
 FROM (
     SELECT
@@ -121,8 +121,8 @@ WITH daily_models AS (
 SELECT
     date,
     product,
-    daily_model.r2 as daily_r2,
-    AVG(daily_model.r2) OVER (
+    daily_model.r_squared as daily_r2,
+    AVG(daily_model.r_squared) OVER (
         PARTITION BY product
         ORDER BY date
         ROWS BETWEEN 7 PRECEDING AND CURRENT ROW
@@ -137,7 +137,7 @@ SELECT '=== Test 5: HAVING with aggregate conditions ===' as test_name;
 SELECT
     product,
     region,
-    model.r2,
+    model.r_squared,
     model.coefficients,
     model.n_obs
 FROM (
@@ -149,8 +149,8 @@ FROM (
     GROUP BY product, region
     HAVING COUNT(*) >= 15
 ) sub
-WHERE sub.model.r2 > 0.5
-ORDER BY sub.model.r2 DESC;
+WHERE sub.model.r_squared > 0.5
+ORDER BY sub.model.r_squared DESC;
 
 SELECT '=== Test 6: Nested aggregation ===' as test_name;
 WITH region_models AS (
@@ -163,10 +163,10 @@ WITH region_models AS (
 )
 SELECT
     region,
-    model.r2,
+    model.r_squared,
     model.coefficients[1] as marketing_effectiveness,
     n_observations,
-    RANK() OVER (ORDER BY model.r2 DESC) as performance_rank
+    RANK() OVER (ORDER BY model.r_squared DESC) as performance_rank
 FROM region_models
 ORDER BY performance_rank;
 
@@ -174,7 +174,7 @@ SELECT '=== Test 7: UNION of aggregate results ===' as test_name;
 SELECT
     'OLS' as method,
     product,
-    model.r2,
+    model.r_squared,
     model.coefficients[1] as coef1
 FROM (
     SELECT
@@ -187,7 +187,7 @@ UNION ALL
 SELECT
     'Ridge (lambda=1)' as method,
     product,
-    model.r2,
+    model.r_squared,
     model.coefficients[1] as coef1
 FROM (
     SELECT
@@ -200,7 +200,7 @@ UNION ALL
 SELECT
     'RLS (ff=0.95)' as method,
     product,
-    model.r2,
+    model.r_squared,
     model.coefficients[1] as coef1
 FROM (
     SELECT
@@ -222,8 +222,8 @@ WITH product_models AS (
 SELECT
     a.product as product_a,
     b.product as product_b,
-    a.model.r2 as r2_a,
-    b.model.r2 as r2_b,
+    a.model.r_squared as r2_a,
+    b.model.r_squared as r2_b,
     ABS(a.model.coefficients[1] - b.model.coefficients[1]) as coef_difference
 FROM product_models a
 CROSS JOIN product_models b
@@ -234,12 +234,12 @@ SELECT '=== Test 9: Aggregate with CASE expressions ===' as test_name;
 SELECT
     product,
     CASE
-        WHEN model.r2 > 0.8 THEN 'Excellent fit'
-        WHEN model.r2 > 0.6 THEN 'Good fit'
-        WHEN model.r2 > 0.4 THEN 'Moderate fit'
+        WHEN model.r_squared > 0.8 THEN 'Excellent fit'
+        WHEN model.r_squared > 0.6 THEN 'Good fit'
+        WHEN model.r_squared > 0.4 THEN 'Moderate fit'
         ELSE 'Poor fit'
     END as model_quality,
-    model.r2,
+    model.r_squared,
     model.coefficients,
     model.n_obs
 FROM (
@@ -249,7 +249,7 @@ FROM (
     FROM sales_data
     GROUP BY product
 ) sub
-ORDER BY model.r2 DESC;
+ORDER BY model.r_squared DESC;
 
 SELECT '=== Test 10: Complex filtering with aggregates ===' as test_name;
 WITH initial_models AS (
@@ -266,22 +266,22 @@ WITH initial_models AS (
 SELECT
     product,
     region,
-    model.r2,
+    model.r_squared,
     model.coefficients[1] as marketing_roi,
     avg_revenue
 FROM initial_models
-WHERE model.r2 > 0.3
-ORDER BY model.r2 DESC
+WHERE model.r_squared > 0.3
+ORDER BY model.r_squared DESC
 LIMIT 15;
 
 SELECT '=== Test 11: Aggregate results in calculated columns ===' as test_name;
 SELECT
     product,
-    model.r2,
+    model.r_squared,
     model.coefficients[1] * 100 as roi_percentage,
     model.intercept,
-    model.r2 * model.n_obs as weighted_quality_score,
-    ROUND(model.r2, 3) as r2_rounded
+    model.r_squared * model.n_obs as weighted_quality_score,
+    ROUND(model.r_squared, 3) as r2_rounded
 FROM (
     SELECT
         product,
@@ -321,9 +321,9 @@ WITH product_level AS (
 summary AS (
     SELECT
         product,
-        AVG(model.r2) as avg_r2_across_regions,
-        MAX(model.r2) as max_r2,
-        MIN(model.r2) as min_r2,
+        AVG(model.r_squared) as avg_r2_across_regions,
+        MAX(model.r_squared) as max_r2,
+        MIN(model.r_squared) as min_r2,
         COUNT(*) as num_regions
     FROM product_level
     GROUP BY product

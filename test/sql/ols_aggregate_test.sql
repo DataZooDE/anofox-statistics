@@ -27,8 +27,8 @@ SELECT
     result.coefficients[1] as price_effect,
     result.coefficients[2] as marketing_effect,
     result.intercept,
-    result.r2,
-    result.adj_r2,
+    result.r_squared,
+    result.adj_r_squared,
     result.n_obs
 FROM (
     SELECT
@@ -44,7 +44,7 @@ SELECT
     region,
     result.coefficients,
     result.intercept,
-    result.r2
+    result.r_squared
 FROM (
     SELECT
         region,
@@ -59,7 +59,7 @@ SELECT
     product,
     result.intercept as should_be_zero,
     result.coefficients,
-    result.r2
+    result.r_squared
 FROM (
     SELECT
         product,
@@ -74,7 +74,7 @@ SELECT
     product,
     region,
     result.n_obs,
-    result.r2
+    result.r_squared
 FROM (
     SELECT
         product,
@@ -90,7 +90,7 @@ SELECT
     product,
     result.coefficients[1] as price_coef,
     result.intercept,
-    result.r2
+    result.r_squared
 FROM (
     SELECT
         product,
@@ -105,7 +105,7 @@ SELECT
     product,
     result.coefficients,
     len(result.coefficients) as n_features,
-    result.r2
+    result.r_squared
 FROM (
     SELECT
         product,
@@ -118,9 +118,9 @@ ORDER BY product;
 SELECT '=== Test 7: Compare intercept vs no-intercept R² ===' as test_name;
 SELECT
     product,
-    with_intercept.r2 as r2_with_intercept,
-    without_intercept.r2 as r2_without_intercept,
-    (with_intercept.r2 - without_intercept.r2) as r2_difference
+    with_intercept.r_squared as r2_with_intercept,
+    without_intercept.r_squared as r2_without_intercept,
+    (with_intercept.r_squared - without_intercept.r_squared) as r2_difference
 FROM (
     SELECT
         product,
@@ -135,8 +135,8 @@ SELECT '=== Test 8: Aggregate entire dataset (no grouping) ===' as test_name;
 SELECT
     result.coefficients,
     result.intercept,
-    result.r2,
-    result.adj_r2,
+    result.r_squared,
+    result.adj_r_squared,
     result.n_obs,
     len(result.coefficients) as n_features
 FROM (
@@ -148,7 +148,7 @@ FROM (
 SELECT '=== Test 9: HAVING clause with aggregate ===' as test_name;
 SELECT
     product,
-    result.r2,
+    result.r_squared,
     result.n_obs
 FROM (
     SELECT
@@ -158,7 +158,7 @@ FROM (
     GROUP BY product
     HAVING COUNT(*) >= 10
 ) sub
-ORDER BY result.r2 DESC;
+ORDER BY result.r_squared DESC;
 
 SELECT '=== Test 10: Coefficient extraction ===' as test_name;
 SELECT

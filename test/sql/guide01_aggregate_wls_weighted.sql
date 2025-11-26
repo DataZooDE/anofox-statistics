@@ -24,7 +24,7 @@ SELECT
     segment,
     result.coefficients[1] as income_sensitivity,
     result.intercept,
-    result.r2,
+    result.r_squared,
     result.weighted_mse
 FROM (
     SELECT

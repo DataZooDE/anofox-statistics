@@ -16,14 +16,14 @@ FROM (
 -- Calculate marketing ROI with statistical confidence using aggregate functions
 SELECT
     'Marketing ROI' as metric,
-    ROUND((ols_fit_agg(revenue, spend)).coefficient - 1, 2) as roi_multiplier,
-    ROUND(((ols_fit_agg(revenue, spend)).coefficient - 1) * 100, 1) || '%' as roi_percentage,
+    ROUND((anofox_statistics_ols_fit_agg(revenue, spend)).coefficients[1] - 1, 2) as roi_multiplier,
+    ROUND(((anofox_statistics_ols_fit_agg(revenue, spend)).coefficients[1] - 1) * 100, 1) || '%' as roi_percentage,
     CASE
-        WHEN (ols_fit_agg(revenue, spend)).coefficient > 1.5 THEN 'Strong - Scale Up'
-        WHEN (ols_fit_agg(revenue, spend)).coefficient > 1.0 THEN 'Positive - Continue'
-        WHEN (ols_fit_agg(revenue, spend)).coefficient < 1.0 THEN 'Negative - Stop Campaign'
+        WHEN (anofox_statistics_ols_fit_agg(revenue, spend)).coefficients[1] > 1.5 THEN 'Strong - Scale Up'
+        WHEN (anofox_statistics_ols_fit_agg(revenue, spend)).coefficients[1] > 1.0 THEN 'Positive - Continue'
+        WHEN (anofox_statistics_ols_fit_agg(revenue, spend)).coefficients[1] < 1.0 THEN 'Negative - Stop Campaign'
         ELSE 'Inconclusive - Gather More Data'
     END as recommendation,
-    ROUND((ols_fit_agg(revenue, spend)).std_error, 4) as std_error,
-    ROUND((ols_fit_agg(revenue, spend)).r2, 3) as model_quality
+    ROUND((anofox_statistics_ols_fit_agg(revenue, spend)).std_error, 4) as std_error,
+    ROUND((anofox_statistics_ols_fit_agg(revenue, spend)).r_squared, 3) as model_quality
 FROM campaigns;

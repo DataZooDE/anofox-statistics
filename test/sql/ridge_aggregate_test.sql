@@ -22,7 +22,7 @@ SELECT
     sector,
     result.coefficients,
     result.intercept,
-    result.r2,
+    result.r_squared,
     result.lambda,
     result.n_obs
 FROM (
@@ -45,8 +45,8 @@ SELECT
     ols.coefficients[1] as ols_price_coef,
     ridge.coefficients[2] as ridge_correlated_coef,
     ols.coefficients[2] as ols_correlated_coef,
-    ridge.r2 as ridge_r2,
-    ols.r2 as ols_r2
+    ridge.r_squared as ridge_r2,
+    ols.r_squared as ols_r2
 FROM (
     SELECT
         sector,
@@ -61,9 +61,9 @@ SELECT '=== Test 3: Different lambda values ===' as test_name;
 SELECT
     sector,
     lambda_0.lambda as lambda_value,
-    lambda_0.r2 as r2_lambda_0,
-    lambda_1.r2 as r2_lambda_1,
-    lambda_10.r2 as r2_lambda_10,
+    lambda_0.r_squared as r2_lambda_0,
+    lambda_1.r_squared as r2_lambda_1,
+    lambda_10.r_squared as r2_lambda_10,
     lambda_0.coefficients[1] as coef_lambda_0,
     lambda_1.coefficients[1] as coef_lambda_1,
     lambda_10.coefficients[1] as coef_lambda_10
@@ -83,7 +83,7 @@ SELECT
     sector,
     result.intercept as should_be_zero,
     result.coefficients,
-    result.r2,
+    result.r_squared,
     result.lambda
 FROM (
     SELECT
@@ -111,8 +111,8 @@ FROM generate_series(1, 25) as t(i);
 SELECT
     grp,
     result.coefficients,
-    result.r2,
-    result.adj_r2,
+    result.r_squared,
+    result.adj_r_squared,
     result.lambda
 FROM (
     SELECT
@@ -158,8 +158,8 @@ SELECT '=== Test 7: Entire dataset aggregation ===' as test_name;
 SELECT
     result.coefficients,
     result.intercept,
-    result.r2,
-    result.adj_r2,
+    result.r_squared,
+    result.adj_r_squared,
     result.lambda,
     result.n_obs
 FROM (
@@ -172,9 +172,9 @@ SELECT '=== Test 8: Compare adjusted R² with regularization ===' as test_name;
 SELECT
     sector,
     result.lambda,
-    result.r2,
-    result.adj_r2,
-    (result.r2 - result.adj_r2) as r2_penalty
+    result.r_squared,
+    result.adj_r_squared,
+    (result.r_squared - result.adj_r_squared) as r2_penalty
 FROM (
     SELECT
         sector,

@@ -56,7 +56,7 @@ SELECT
     'With intercept' as mode,
     result.intercept,
     result.coefficients,
-    result.r2
+    result.r_squared
 FROM (
     SELECT anofox_statistics_ols_fit_agg(y, [x1, x2], {'intercept': true}) as result
     FROM intercept_test_data
@@ -66,7 +66,7 @@ SELECT
     'Without intercept' as mode,
     result.intercept as should_be_zero,
     result.coefficients,
-    result.r2
+    result.r_squared
 FROM (
     SELECT anofox_statistics_ols_fit_agg(y, [x1, x2], {'intercept': false}) as result
     FROM intercept_test_data
@@ -89,11 +89,11 @@ FROM (
 -- Tolerance: R² difference should be positive for this data (intercept ≈10)
 SELECT '=== Test 2: Verify R² calculation difference ===' as test_name;
 SELECT
-    with_int.r2 as r2_with_intercept,
-    without_int.r2 as r2_without_intercept,
-    (with_int.r2 - without_int.r2) as r2_difference,
+    with_int.r_squared as r2_with_intercept,
+    without_int.r_squared as r2_without_intercept,
+    (with_int.r_squared - without_int.r_squared) as r2_difference,
     CASE
-        WHEN with_int.r2 > without_int.r2 THEN 'With intercept has higher R² (expected)'
+        WHEN with_int.r_squared > without_int.r_squared THEN 'With intercept has higher R² (expected)'
         ELSE 'Unexpected: Without intercept has higher R²'
     END as interpretation
 FROM (
@@ -122,7 +122,7 @@ SELECT '=== Test 3: WLS intercept validation ===' as test_name;
 SELECT
     'WLS with intercept' as mode,
     result.intercept,
-    result.r2,
+    result.r_squared,
     result.weighted_mse
 FROM (
     SELECT anofox_statistics_wls_fit_agg(y, [x1, x2], weight, {'intercept': true}) as result
@@ -132,7 +132,7 @@ UNION ALL
 SELECT
     'WLS without intercept' as mode,
     result.intercept,
-    result.r2,
+    result.r_squared,
     result.weighted_mse
 FROM (
     SELECT anofox_statistics_wls_fit_agg(y, [x1, x2], weight, {'intercept': false}) as result
@@ -161,7 +161,7 @@ SELECT
     'Ridge with intercept' as mode,
     result.intercept,
     result.coefficients,
-    result.r2,
+    result.r_squared,
     result.lambda
 FROM (
     SELECT anofox_statistics_ridge_fit_agg(y, [x1, x2], {'lambda': 1.0, 'intercept': true}) as result
@@ -172,7 +172,7 @@ SELECT
     'Ridge without intercept' as mode,
     result.intercept,
     result.coefficients,
-    result.r2,
+    result.r_squared,
     result.lambda
 FROM (
     SELECT anofox_statistics_ridge_fit_agg(y, [x1, x2], {'lambda': 1.0, 'intercept': false}) as result
@@ -208,7 +208,7 @@ SELECT
     'RLS with intercept' as mode,
     result.intercept,
     result.coefficients,
-    result.r2,
+    result.r_squared,
     result.forgetting_factor
 FROM (
     SELECT anofox_statistics_rls_fit_agg(y, [x1, x2], {'forgetting_factor': 1.0, 'intercept': true}) as result
@@ -219,7 +219,7 @@ SELECT
     'RLS without intercept' as mode,
     result.intercept,
     result.coefficients,
-    result.r2,
+    result.r_squared,
     result.forgetting_factor
 FROM (
     SELECT anofox_statistics_rls_fit_agg(y, [x1, x2], {'forgetting_factor': 1.0, 'intercept': false}) as result
@@ -283,7 +283,7 @@ FROM generate_series(1, 20) as t(i);
 SELECT
     result.intercept,
     result.coefficients[1] as slope,
-    result.r2,
+    result.r_squared,
     CASE
         WHEN result.intercept BETWEEN 45.0 AND 55.0 THEN 'Intercept estimate looks reasonable'
         ELSE 'Unexpected intercept value'
@@ -433,8 +433,8 @@ SELECT
     grp,
     with_int.intercept as intercept_with,
     without_int.intercept as intercept_without,
-    with_int.r2 as r2_with,
-    without_int.r2 as r2_without
+    with_int.r_squared as r2_with,
+    without_int.r_squared as r2_without
 FROM (
     SELECT
         grp,

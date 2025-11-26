@@ -3,24 +3,38 @@ LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extensi
 -- Export model coefficients for external scoring (using literal array sample)
 COPY (
     WITH model AS (
-        SELECT * FROM ols_inference(
+        SELECT * FROM anofox_statistics_ols_fit(
             [100.0, 110.0, 120.0, 130.0, 140.0, 150.0, 160.0, 170.0, 180.0, 190.0],
             [[1.0, 2.0, 3.0, 4.0], [1.1, 2.1, 3.1, 4.1], [1.2, 2.2, 3.2, 4.2],
              [1.3, 2.3, 3.3, 4.3], [1.4, 2.4, 3.4, 4.4], [1.5, 2.5, 3.5, 4.5],
              [1.6, 2.6, 3.6, 4.6], [1.7, 2.7, 3.7, 4.7], [1.8, 2.8, 3.8, 4.8],
              [1.9, 2.9, 3.9, 4.9]],
-            0.95,
-            true
+            {'intercept': true, 'full_output': true, 'confidence_level': 0.95}
         )
+    ),
+    coeffs AS (
+        SELECT
+            'x' || (ROW_NUMBER() OVER ()) as variable,
+            UNNEST(m.coefficients) as coefficient,
+            UNNEST(m.coefficient_std_errors) as std_error,
+            UNNEST(m.coefficient_p_values) as p_value
+        FROM model m
+        UNION ALL
+        SELECT
+            'intercept' as variable,
+            m.intercept as coefficient,
+            m.intercept_std_error as std_error,
+            m.intercept_p_value as p_value
+        FROM model m
     )
     SELECT
         variable,
-        estimate as coefficient,
+        coefficient,
         std_error,
         p_value,
         CURRENT_TIMESTAMP as model_trained_at,
         10 as training_observations
-    FROM model
+    FROM coeffs
 ) TO 'model_coefficients.csv' (HEADER, DELIMITER ',');
 
 -- Create sample prediction results for export

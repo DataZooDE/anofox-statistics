@@ -21,15 +21,15 @@ SELECT
     result.coefficients[2] as digital_roi,
     result.intercept as baseline_sales,
     -- Model fit
-    result.r2 as r_squared,
-    result.adj_r2 as adjusted_r_squared,
+    result.r_squared as r_squared,
+    result.adj_r_squared as adjusted_r_squared,
     result.n_obs as sample_size,
     array_length(result.coefficients) as num_predictors,
     -- Interpretation flags
     CASE
-        WHEN result.r2 > 0.8 THEN 'Excellent fit'
-        WHEN result.r2 > 0.6 THEN 'Good fit'
-        WHEN result.r2 > 0.4 THEN 'Moderate fit'
+        WHEN result.r_squared > 0.8 THEN 'Excellent fit'
+        WHEN result.r_squared > 0.6 THEN 'Good fit'
+        WHEN result.r_squared > 0.4 THEN 'Moderate fit'
         ELSE 'Poor fit'
     END as model_quality,
     CASE

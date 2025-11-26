@@ -52,8 +52,8 @@ SELECT
     category,
     result.coefficients,
     result.intercept,
-    result.r2,
-    result.adj_r2,
+    result.r_squared,
+    result.adj_r_squared,
     result.n_obs
 FROM (
     SELECT
@@ -84,7 +84,7 @@ SELECT
     category,
     result.coefficients,
     result.intercept,
-    result.r2,
+    result.r_squared,
     result.n_obs
 FROM (
     SELECT
@@ -115,7 +115,7 @@ SELECT
     category,
     result.coefficients,
     result.intercept,
-    result.r2,
+    result.r_squared,
     result.weighted_mse,
     result.n_obs
 FROM (
@@ -144,7 +144,7 @@ SELECT '=== Test 4: WLS Aggregate without intercept ===' as test_name;
 SELECT
     category,
     result.intercept,
-    result.r2
+    result.r_squared
 FROM (
     SELECT
         category,
@@ -178,7 +178,7 @@ SELECT
     category,
     result.coefficients,
     result.intercept,
-    result.r2,
+    result.r_squared,
     result.lambda,
     result.n_obs
 FROM (
@@ -245,7 +245,7 @@ SELECT
     category,
     result.coefficients,
     result.intercept,
-    result.r2,
+    result.r_squared,
     result.forgetting_factor,
     result.n_obs
 FROM (
@@ -307,10 +307,10 @@ FROM (
 SELECT '=== Test 9: All aggregates in single query ===' as test_name;
 SELECT
     category,
-    ols.r2 as ols_r2,
-    wls.r2 as wls_r2,
-    ridge.r2 as ridge_r2,
-    rls.r2 as rls_r2
+    ols.r_squared as ols_r2,
+    wls.r_squared as wls_r2,
+    ridge.r_squared as ridge_r2,
+    rls.r_squared as rls_r2
 FROM (
     SELECT
         category,
@@ -382,7 +382,7 @@ SELECT '=== Test 11: Single feature ===' as test_name;
 SELECT
     result.coefficients,
     result.intercept,
-    result.r2
+    result.r_squared
 FROM (
     SELECT
         anofox_statistics_ols_fit_agg(y, [x1], {'intercept': true}) as result

@@ -44,9 +44,9 @@ variant_summary AS (
 -- Coefficient = treatment effect (B - A)
 conversion_test AS (
     SELECT
-        (ols_fit_agg(conversion, treatment)).coefficient as treatment_effect,
-        (ols_fit_agg(conversion, treatment)).std_error as std_error,
-        (ols_fit_agg(conversion, treatment)).r2 as r_squared,
+        (anofox_statistics_ols_fit_agg(conversion, treatment)).coefficients[1] as treatment_effect,
+        (anofox_statistics_ols_fit_agg(conversion, treatment)).std_error as std_error,
+        (anofox_statistics_ols_fit_agg(conversion, treatment)).r_squared as r_squared,
         COUNT(*) as n_obs
     FROM experiment_data
 ),
@@ -54,9 +54,9 @@ conversion_test AS (
 -- Statistical significance test for revenue using actual data
 revenue_test AS (
     SELECT
-        (ols_fit_agg(revenue, treatment)).coefficient as treatment_effect,
-        (ols_fit_agg(revenue, treatment)).std_error as std_error,
-        (ols_fit_agg(revenue, treatment)).r2 as r_squared,
+        (anofox_statistics_ols_fit_agg(revenue, treatment)).coefficients[1] as treatment_effect,
+        (anofox_statistics_ols_fit_agg(revenue, treatment)).std_error as std_error,
+        (anofox_statistics_ols_fit_agg(revenue, treatment)).r_squared as r_squared,
         COUNT(*) as n_obs
     FROM experiment_data
 ),
