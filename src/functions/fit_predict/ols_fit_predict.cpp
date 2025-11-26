@@ -390,8 +390,8 @@ void OlsFitPredictFunction::Register(ExtensionLoader &loader) {
 	fit_predict_struct_fields.push_back(make_pair("_dummy", LogicalType::LIST(LogicalType::DOUBLE)));
 
 	// Use real callback functions (not lambdas) like the working function does
-	AggregateFunction anofox_statistics_fit_predict_ols(
-	    "anofox_statistics_fit_predict_ols",
+	AggregateFunction anofox_statistics_ols_fit_predict(
+	    "anofox_statistics_ols_fit_predict",
 	    {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
 	    LogicalType::STRUCT(fit_predict_struct_fields), AggregateFunction::StateSize<OlsFitPredictState>,
 	    OlsFitPredictInitialize,                     // initialize
@@ -408,9 +408,9 @@ void OlsFitPredictFunction::Register(ExtensionLoader &loader) {
 	    nullptr);                                    // deserialize
 
 	// Mark as order-dependent to ensure window processing is used
-	anofox_statistics_fit_predict_ols.order_dependent = AggregateOrderDependent::ORDER_DEPENDENT;
+	anofox_statistics_ols_fit_predict.order_dependent = AggregateOrderDependent::ORDER_DEPENDENT;
 
-	loader.RegisterFunction(anofox_statistics_fit_predict_ols);
+	loader.RegisterFunction(anofox_statistics_ols_fit_predict);
 
 	ANOFOX_DEBUG("OLS fit-predict function registered successfully");
 }

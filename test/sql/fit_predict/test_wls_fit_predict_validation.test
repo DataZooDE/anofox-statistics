@@ -17,7 +17,7 @@ FROM range(1, 16) t(i);
 query I
 SELECT COUNT(*) FROM (
     SELECT (pred).yhat as y, (pred).yhat_lower as lo, (pred).yhat_upper as up
-    FROM (SELECT anofox_statistics_fit_predict_wls(y, [x], w, MAP{'intercept': 1}) OVER (ORDER BY id) as pred FROM wls_val)
+    FROM (SELECT anofox_statistics_wls_fit_predict(y, [x], w, MAP{'intercept': 1}) OVER (ORDER BY id) as pred FROM wls_val)
 ) WHERE lo <= y AND y <= up;
 ----
 1
@@ -26,7 +26,7 @@ SELECT COUNT(*) FROM (
 query I
 SELECT COUNT(*) FROM (
     SELECT (pred).yhat_upper - (pred).yhat_lower as width
-    FROM (SELECT anofox_statistics_fit_predict_wls(y, [x], w, MAP{'intercept': 1}) OVER (ORDER BY id) as pred FROM wls_val)
+    FROM (SELECT anofox_statistics_wls_fit_predict(y, [x], w, MAP{'intercept': 1}) OVER (ORDER BY id) as pred FROM wls_val)
 ) WHERE width > 0;
 ----
 1
@@ -35,7 +35,7 @@ SELECT COUNT(*) FROM (
 query I
 SELECT COUNT(*) FROM (
     SELECT (pred).std_error as err
-    FROM (SELECT anofox_statistics_fit_predict_wls(y, [x], w, MAP{'intercept': 1}) OVER (ORDER BY id) as pred FROM wls_val)
+    FROM (SELECT anofox_statistics_wls_fit_predict(y, [x], w, MAP{'intercept': 1}) OVER (ORDER BY id) as pred FROM wls_val)
 ) WHERE err > 0;
 ----
 1

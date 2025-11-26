@@ -56,17 +56,17 @@ All functions follow the pattern: `anofox_statistics_{method}[_operation][_agg]`
 
 ## Table of Contents
 
-1. [Regression Table Functions](#regression-table-functions)
-2. [Regression Aggregate Functions](#regression-aggregate-functions)
-3. [Fit-Predict Window Aggregates](#fit-predict-window-aggregates)
-4. [Prediction Interval Functions](#prediction-interval-functions)
+1. [Fit Functions](#fit-functions)
+2. [Aggregate Fit Functions](#aggregate-fit-functions)
+3. [Window Aggregate Fit-Predict Functions](#window-aggregate-fit-predict-functions)
+4. [Predict Functions](#predict-functions)
 5. [Diagnostic Functions](#diagnostic-functions)
 6. [Model-Based Prediction](#model-based-prediction)
 7. [Function Coverage Matrix](#function-coverage-matrix)
 
 ---
 
-## Regression Table Functions
+## Fit Functions
 
 These functions fit regression models on array inputs and return comprehensive statistics.
 
@@ -353,7 +353,7 @@ SELECT * FROM anofox_statistics_rls_fit(
 
 ---
 
-## Regression Aggregate Functions
+## Aggregate Fit Functions
 
 These functions compute regression per group (GROUP BY) or window (OVER clause).
 
@@ -547,14 +547,14 @@ GROUP BY category;
 
 ---
 
-## Fit-Predict Window Aggregates
+## Window Aggregate Fit-Predict Functions
 
 These functions fit a model on training rows (WHERE y IS NOT NULL) and predict for ALL rows in the window.
 
 ### Common Signature Pattern
 
 ```sql
-anofox_statistics_fit_predict_{method}(
+anofox_statistics_{method}_fit_predict(
     y       DOUBLE,
     x       DOUBLE[],
     options MAP
@@ -576,13 +576,13 @@ STRUCT(
 
 ---
 
-### anofox_statistics_fit_predict_ols
+### anofox_statistics_ols_fit_predict
 
 **OLS Fit-Predict Window Function**
 
 **Signature:**
 ```sql
-anofox_statistics_fit_predict_ols(
+anofox_statistics_ols_fit_predict(
     y       DOUBLE,
     x       DOUBLE[],
     options MAP
@@ -606,7 +606,7 @@ FROM (
     SELECT
         date,
         actual_value,
-        anofox_statistics_fit_predict_ols(
+        anofox_statistics_ols_fit_predict(
             actual_value,
             [feature1, feature2],
             MAP{'intercept': true, 'interval_type': 'prediction'}
@@ -620,13 +620,13 @@ FROM (
 
 ---
 
-### anofox_statistics_fit_predict_ridge
+### anofox_statistics_ridge_fit_predict
 
 **Ridge Fit-Predict Window Function**
 
 **Signature:**
 ```sql
-anofox_statistics_fit_predict_ridge(
+anofox_statistics_ridge_fit_predict(
     y       DOUBLE,
     x       DOUBLE[],
     options MAP
@@ -637,13 +637,13 @@ anofox_statistics_fit_predict_ridge(
 
 ---
 
-### anofox_statistics_fit_predict_wls
+### anofox_statistics_wls_fit_predict
 
 **WLS Fit-Predict Window Function**
 
 **Signature:**
 ```sql
-anofox_statistics_fit_predict_wls(
+anofox_statistics_wls_fit_predict(
     y       DOUBLE,
     x       DOUBLE[],
     weights DOUBLE,
@@ -653,13 +653,13 @@ anofox_statistics_fit_predict_wls(
 
 ---
 
-### anofox_statistics_fit_predict_elastic_net
+### anofox_statistics_elastic_net_fit_predict
 
 **Elastic Net Fit-Predict Window Function**
 
 **Signature:**
 ```sql
-anofox_statistics_fit_predict_elastic_net(
+anofox_statistics_elastic_net_fit_predict(
     y       DOUBLE,
     x       DOUBLE[],
     options MAP
@@ -670,13 +670,13 @@ anofox_statistics_fit_predict_elastic_net(
 
 ---
 
-### anofox_statistics_fit_predict_rls
+### anofox_statistics_rls_fit_predict
 
 **RLS Fit-Predict Window Function**
 
 **Signature:**
 ```sql
-anofox_statistics_fit_predict_rls(
+anofox_statistics_rls_fit_predict(
     y       DOUBLE,
     x       DOUBLE[],
     options MAP
@@ -685,7 +685,7 @@ anofox_statistics_fit_predict_rls(
 
 ---
 
-## Prediction Interval Functions
+## Predict Functions
 
 Make predictions on new observations with confidence/prediction intervals. Returns one row per new observation.
 
@@ -1177,56 +1177,6 @@ LATERAL anofox_statistics_model_predict(
 **Works with:** All regression methods (OLS, Ridge, WLS, RLS, Elastic Net) when fitted with `full_output=true`.
 
 ---
-
-## Scalar Functions
-
-### Metrics Functions
-
-#### anofox_statistics_ols_r_squared
-
-**R² (Coefficient of Determination)**
-
-**Signature:**
-```sql
-anofox_statistics_ols_r_squared(
-    actual     DOUBLE,
-    predicted  DOUBLE
-) → DOUBLE
-```
-
-**Formula:** R² = 1 - (SS_res / SS_tot)
-
-**Example:**
-```sql
-SELECT anofox_statistics_ols_r_squared(actual, predicted) as r2
-FROM predictions;
-```
-
----
-
-#### anofox_statistics_ols_mse
-
-**Mean Squared Error**
-
-**Signature:**
-```sql
-anofox_statistics_ols_mse(
-    actual     DOUBLE,
-    predicted  DOUBLE
-) → DOUBLE
-```
-
-**Formula:** MSE = Σ(y - ŷ)² / n
-
----
-
-#### anofox_statistics_ols_rmse
-
-**Root Mean Squared Error**
-
-**Signature:**
-```sql
-anofox_statistics_ols_rmse(
 
 ### v0.2.0 (Current)
 

@@ -237,8 +237,8 @@ void RlsFitPredictFunction::Register(ExtensionLoader &loader) {
 
 	// Use ONLY window callback to force WindowCustomAggregator path
 	// This prevents WindowConstantAggregator from broadcasting a single result to all rows
-	AggregateFunction anofox_statistics_fit_predict_rls(
-	    "anofox_statistics_fit_predict_rls",
+	AggregateFunction anofox_statistics_rls_fit_predict(
+	    "anofox_statistics_rls_fit_predict",
 	    {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
 	    LogicalType::STRUCT(fit_predict_struct_fields), AggregateFunction::StateSize<RlsFitPredictState>,
 	    RlsFitPredictInitialize,
@@ -249,7 +249,7 @@ void RlsFitPredictFunction::Register(ExtensionLoader &loader) {
 	    RlsFitPredictWindow, // RLS-specific window callback - called per row
 	    nullptr, nullptr);
 
-	loader.RegisterFunction(anofox_statistics_fit_predict_rls);
+	loader.RegisterFunction(anofox_statistics_rls_fit_predict);
 
 	ANOFOX_DEBUG("RLS fit-predict function registered successfully");
 }
