@@ -2,6 +2,24 @@
 
 Complex analytical workflows demonstrating sophisticated applications of the Anofox Statistics extension.
 
+## Introduction
+
+This guide demonstrates complex analytical workflows using the Anofox Statistics extension for DuckDB. Each section presents advanced SQL implementations combining multiple statistical techniques for sophisticated business and research applications: multi-stage pipelines, time-series forecasting, hierarchical modeling, causal inference, and production deployment patterns.
+
+The guide covers five regression methods available in the extension:
+
+- **OLS (Ordinary Least Squares)**: Standard linear regression for baseline models and stable relationships
+- **WLS (Weighted Least Squares)**: Addresses heteroscedasticity by applying observation-specific weights
+- **Ridge Regression**: Applies L2 regularization to stabilize estimates with correlated predictors
+- **RLS (Recursive Least Squares)**: Adapts coefficients sequentially for non-stationary time series and online learning
+- **Elastic Net**: Combines L1 and L2 penalties for sparse models with variable selection
+
+Each use case demonstrates advanced patterns: common table expressions (CTEs) for multi-stage workflows, window functions for rolling analysis, GROUP BY hierarchies for multi-level aggregation, and combinations of methods for comparative analysis. The examples show how to structure production-ready analytical pipelines using aggregate functions (`_fit_agg`) for GROUP BY and window operations, and table functions (`_fit`) for batch processing.
+
+All code examples execute directly in DuckDB after loading the extension. The SQL patterns demonstrate integration of advanced regression analysis into data pipelines without requiring external statistical software or specialized tools.
+
+**⚠️ Important Notice**: All examples in this guide are illustrative and for educational purposes. Complex analytical workflows should be validated and tested for your specific use case before deployment to production systems.
+
 ## Important Note About Examples
 
 **All examples below are copy-paste runnable!** Each example includes sample data creation.
@@ -13,6 +31,39 @@ Complex analytical workflows demonstrating sophisticated applications of the Ano
 - All functions use positional parameters only (no `:=` syntax)
 
 **To adapt for your tables**: Replace sample data creation with your actual tables. Aggregate functions work directly with any table size.
+
+## Table of Contents
+
+- [Important Note About Examples](#important-note-about-examples)
+- [Multi-Stage Model Building Workflow](#multi-stage-model-building-workflow)
+  - [Complete Statistical Pipeline](#complete-statistical-pipeline)
+  - [Automated Model Selection](#automated-model-selection)
+- [Time-Series Analysis](#time-series-analysis)
+  - [Adaptive Rolling Regression](#adaptive-rolling-regression)
+  - [Seasonality-Adjusted Forecasting](#seasonality-adjusted-forecasting)
+  - [Window Functions + GROUP BY: Rolling Analysis Per Group](#window-functions--group-by-rolling-analysis-per-group)
+- [Multi-Level Group Analysis](#multi-level-group-analysis)
+  - [Hierarchical Regression with Aggregates](#hierarchical-regression-with-aggregates)
+  - [Multi-Level Aggregation with All Methods](#multi-level-aggregation-with-all-methods)
+  - [Combining Methods in Unified Pipeline](#combining-methods-in-unified-pipeline)
+- [Cohort Analysis with Regression](#cohort-analysis-with-regression)
+  - [Customer Cohort LTV Modeling](#customer-cohort-ltv-modeling)
+- [A/B Test Analysis](#ab-test-analysis)
+  - [Comprehensive A/B Test Evaluation](#comprehensive-ab-test-evaluation)
+- [Causal Analysis](#causal-analysis)
+  - [Difference-in-Differences Estimation](#difference-in-differences-estimation)
+- [Production Deployment Patterns](#production-deployment-patterns)
+  - [Materialized Model Results](#materialized-model-results)
+  - [Automated Model Refresh](#automated-model-refresh)
+- [Performance Optimization](#performance-optimization)
+  - [Large Dataset Processing](#large-dataset-processing)
+- [Integration Patterns](#integration-patterns)
+  - [Export for External Tools](#export-for-external-tools)
+- [Best Practices Summary](#best-practices-summary)
+  - [1. Always Validate Assumptions](#1-always-validate-assumptions)
+  - [2. Monitor Model Drift](#2-monitor-model-drift)
+  - [3. Document Everything](#3-document-everything)
+- [Conclusion](#conclusion)
 
 ## Multi-Stage Model Building Workflow
 
@@ -354,6 +405,8 @@ FROM all_models
 ORDER BY r_squared DESC;
 ```
 
+[↑ Go to Top](#advanced-use-cases)
+
 ## Time-Series Analysis
 
 ### Adaptive Rolling Regression
@@ -593,6 +646,8 @@ SELECT
 FROM forecasts
 ORDER BY month_ahead;
 ```
+
+[↑ Go to Top](#advanced-use-cases)
 
 ### Window Functions + GROUP BY: Rolling Analysis Per Group
 
@@ -839,6 +894,8 @@ ORDER BY month;
 - Forgetting factor tuning: Lower for fast-changing products, higher for stable ones
 - Computational cost: PARTITION BY + window functions can be expensive on large datasets
 - Statistical validity: Ensure sufficient observations per window for reliable estimates
+
+[↑ Go to Top](#advanced-use-cases)
 
 ## Multi-Level Group Analysis
 
@@ -1284,6 +1341,8 @@ Elif RLS R² > OLS R² + 0.1: Use RLS (patterns changing)
 - RLS when you detect non-stationarity
 - Log method used for each product for reproducibility
 
+[↑ Go to Top](#advanced-use-cases)
+
 ## Cohort Analysis with Regression
 
 ### Customer Cohort LTV Modeling
@@ -1404,6 +1463,8 @@ FROM cohort_projections
 WHERE cohort_month >= '2023-01-01'
 ORDER BY cohort_month DESC;
 ```
+
+[↑ Go to Top](#advanced-use-cases)
 
 ## A/B Test Analysis
 
@@ -1592,6 +1653,8 @@ FROM impact_analysis ia
 CROSS JOIN power_analysis pa;
 ```
 
+[↑ Go to Top](#advanced-use-cases)
+
 ## Causal Analysis
 
 ### Difference-in-Differences Estimation
@@ -1776,6 +1839,8 @@ FROM manual_did md
 
 ORDER BY analysis_type DESC, metric;
 ```
+
+[↑ Go to Top](#advanced-use-cases)
 
 ## Production Deployment Patterns
 
@@ -2043,6 +2108,8 @@ SELECT COUNT(*) as models_in_cache FROM model_results_cache;
 -- and execute this script with: duckdb < guide05_automated_model_refresh.sql
 ```
 
+[↑ Go to Top](#advanced-use-cases)
+
 ## Performance Optimization
 
 ### Large Dataset Processing
@@ -2163,6 +2230,8 @@ sample_model AS (
 SELECT * FROM sample_model;
 ```
 
+[↑ Go to Top](#advanced-use-cases)
+
 ## Integration Patterns
 
 ### Export for External Tools
@@ -2251,6 +2320,8 @@ COPY (
     FROM prediction_results
 ) TO 'customer_predictions.parquet' (FORMAT PARQUET);
 ```
+
+[↑ Go to Top](#advanced-use-cases)
 
 ## Best Practices Summary
 
@@ -2444,6 +2515,8 @@ CREATE TABLE model_registry (
     validation_checks TEXT
 );
 ```
+
+[↑ Go to Top](#advanced-use-cases)
 
 ## Conclusion
 
