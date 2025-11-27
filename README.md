@@ -22,7 +22,7 @@ A statistical analysis extension for DuckDB, providing regression analysis, diag
 ### 📊 Statistical Inference
 - **Coefficient Tests**: t-statistics, p-values, confidence intervals
 - **Prediction Intervals**: Confidence and prediction intervals for forecasts
-- **Model-Based Prediction**: Efficient prediction using pre-fitted models (no refitting required)
+- **Model-Based Prediction**: Prediction using pre-fitted models (no refitting required)
 - **Model Selection**: AIC, BIC, adjusted R² for model comparison
 
 ### 🔍 Diagnostics & Validation
@@ -41,7 +41,7 @@ A statistical analysis extension for DuckDB, providing regression analysis, diag
   - Partitioned analysis: `PARTITION BY` for group-specific time series
 - **Diagnostic Aggregates**: Group-wise diagnostic analysis with `GROUP BY` only (Residuals, VIF, Normality) - does not support window functions
 - **Array Operations**: Multi-variable regression with array inputs
-- **Full Statistics**: Comprehensive fit statistics in structured output (coefficients, R², adj. R², intercepts, etc.)
+- **Full Statistics**: Complete fit statistics in structured output (coefficients, R², adj. R², intercepts, etc.)
 
 ## Quick Start
 
@@ -126,9 +126,9 @@ make release
 
 - **[API Reference](docs/API_REFERENCE.md)**: Complete function reference and specifications
 
-Comprehensive guides are available in the [`guides/`](guides/) directory:
+Guides are available in the [`guides/`](guides/) directory:
 
-- **[Quick Start Guide](guides/01_quick_start.md)**: Get started in 5 minutes
+- **[Quick Start Guide](guides/01_quick_start.md)**: Getting started
 - **[Technical Guide](guides/02_technical_guide.md)**: Architecture and implementation details
 - **[Business Guide](guides/03_business_guide.md)**: Real-world business use cases
 - **[Advanced Use Cases](guides/04_advanced_use_cases.md)**: Complex analytical workflows
@@ -155,21 +155,21 @@ See [LICENSE](LICENSE) for full terms.
 ### Why BSL?
 
 The BSL allows:
-- ✅ Free use for development, testing, and research
-- ✅ Open source collaboration and contributions
-- ✅ Academic and educational use
-- ✅ Small-scale production use
+- Free use for development, testing, and research
+- Open source collaboration and contributions
+- Academic and educational use
+- Small-scale production use
 
 While ensuring:
-- 💼 Sustainable development funding
-- 🔒 Protection for the project's long-term viability
-- 🎯 Future conversion to fully open source (Apache 2.0)
+- Sustainable development funding
+- Protection for the project's long-term viability
+- Future conversion to fully open source (Apache 2.0)
 
 For commercial production use before the Change Date, please contact: [contact@datazoo.de]
 
 ## Contributing
 
-We welcome contributions! To get started:
+Contributions are welcome. To get started:
 1. Fork the repository
 2. Create a feature branch
 3. Make your changes with tests
@@ -196,12 +196,12 @@ make format
 
 ### Areas for Contribution
 
-- 📊 Additional statistical tests (Durbin-Watson, Breusch-Pagan, etc.)
-- 🎨 Visualization helpers for diagnostics
-- 📚 Documentation and examples
-- 🐛 Bug reports and fixes
-- ⚡ Performance optimizations
-- 🌍 Internationalization
+- Additional statistical tests (Durbin-Watson, Breusch-Pagan, etc.)
+- Visualization helpers for diagnostics
+- Documentation and examples
+- Bug reports and fixes
+- Performance optimizations
+- Internationalization
 
 ## Support
 
@@ -226,10 +226,7 @@ If you use this extension in research, please cite:
 
 ## Acknowledgments
 
-- **DuckDB Team**: For the excellent database and extension framework
+- **DuckDB Team**: For the database and extension framework
 - **Eigen Project**: For high-performance linear algebra
 - **Open Source Community**: For contributions and feedback
 
----
-
-**Made with ❤️ for the data community**
