@@ -27,10 +27,10 @@
 
 -- Load both results
 CREATE OR REPLACE TABLE sql_pred_exp AS
-  SELECT * FROM 'examples/results/sql_predictions_expanding_single.parquet';
+  SELECT * FROM 'examples/performance_test/results/sql_predictions_expanding_single.parquet';
 
 CREATE OR REPLACE TABLE r_pred_exp AS
-  SELECT * FROM 'examples/results/r_predictions_expanding_single.parquet';
+  SELECT * FROM 'examples/performance_test/results/r_predictions_expanding_single.parquet';
 
 -- Compare predictions
 .print ''
@@ -78,10 +78,10 @@ LIMIT 10;
 
 -- Load both results
 CREATE OR REPLACE TABLE sql_pred_fix AS
-  SELECT * FROM 'examples/results/sql_predictions_fixed_single.parquet';
+  SELECT * FROM 'examples/performance_test/results/sql_predictions_fixed_single.parquet';
 
 CREATE OR REPLACE TABLE r_pred_fix AS
-  SELECT * FROM 'examples/results/r_predictions_fixed_single.parquet';
+  SELECT * FROM 'examples/performance_test/results/r_predictions_fixed_single.parquet';
 
 -- Compare predictions
 .print ''
@@ -110,10 +110,10 @@ WHERE s.yhat IS NOT NULL AND r.yhat IS NOT NULL;
 
 -- Load both results
 CREATE OR REPLACE TABLE sql_models AS
-  SELECT * FROM 'examples/results/sql_group_models.parquet';
+  SELECT * FROM 'examples/performance_test/results/sql_group_models.parquet';
 
 CREATE OR REPLACE TABLE r_models AS
-  SELECT * FROM 'examples/results/r_group_models.parquet';
+  SELECT * FROM 'examples/performance_test/results/r_group_models.parquet';
 
 -- Compare model statistics
 .print ''
@@ -210,10 +210,10 @@ WHERE s.group_id = 1;
 
 -- Load full output results
 CREATE OR REPLACE TABLE sql_models_full AS
-  SELECT * FROM 'examples/results/sql_group_models_full.parquet';
+  SELECT * FROM 'examples/performance_test/results/sql_group_models_full.parquet';
 
 CREATE OR REPLACE TABLE r_models_full AS
-  SELECT * FROM 'examples/results/r_group_models_full.parquet';
+  SELECT * FROM 'examples/performance_test/results/r_group_models_full.parquet';
 
 .print ''
 .print 'Comparison of advanced statistics (group 1):'

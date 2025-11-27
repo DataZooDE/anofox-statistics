@@ -179,12 +179,12 @@ FROM performance_data_aggregate;
 .print 'Saving datasets as parquet files...'
 
 -- Save fit-predict dataset
-COPY performance_data_fit_predict TO 'examples/data/performance_data_fit_predict.parquet' (FORMAT PARQUET);
-.print '  - Saved: examples/data/performance_data_fit_predict.parquet'
+COPY performance_data_fit_predict TO 'examples/performance_test/data/performance_data_fit_predict.parquet' (FORMAT PARQUET);
+.print '  - Saved: examples/performance_test/data/performance_data_fit_predict.parquet'
 
 -- Save aggregate dataset
-COPY performance_data_aggregate TO 'examples/data/performance_data_aggregate.parquet' (FORMAT PARQUET);
-.print '  - Saved: examples/data/performance_data_aggregate.parquet'
+COPY performance_data_aggregate TO 'examples/performance_test/data/performance_data_aggregate.parquet' (FORMAT PARQUET);
+.print '  - Saved: examples/performance_test/data/performance_data_aggregate.parquet'
 
 .print ''
 
@@ -195,12 +195,12 @@ COPY performance_data_aggregate TO 'examples/data/performance_data_aggregate.par
 .print 'DATA GENERATION COMPLETE'
 .print '============================================================================'
 .print 'Files created:'
-.print '  1. examples/data/performance_data_fit_predict.parquet'
+.print '  1. examples/performance_test/data/performance_data_fit_predict.parquet'
 .print '     - For window function (fit-predict) tests'
 .print '     - Contains NULL y values for prediction demonstration'
 .print '     - Includes y_true for validation'
 .print ''
-.print '  2. examples/data/performance_data_aggregate.parquet'
+.print '  2. examples/performance_test/data/performance_data_aggregate.parquet'
 .print '     - For GROUP BY aggregate tests'
 .print '     - No NULL values (required for aggregates)'
 .print ''

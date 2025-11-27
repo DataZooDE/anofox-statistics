@@ -49,7 +49,7 @@ examples/
 
 ```bash
 # From project root
-./examples/run_all_tests.sh
+./examples/performance_test/run_all_tests.sh
 ```
 
 This will:
@@ -65,18 +65,18 @@ This will:
 
 ```bash
 # 1. Generate test data
-duckdb < examples/generate_test_data.sql
+duckdb < examples/performance_test/generate_test_data.sql
 
 # 2. Run SQL tests
-duckdb < examples/performance_test_ols_fit_predict.sql
-duckdb < examples/performance_test_ols_aggregate.sql
+duckdb < examples/performance_test/performance_test_ols_fit_predict.sql
+duckdb < examples/performance_test/performance_test_ols_aggregate.sql
 
 # 3. Run R tests (optional)
-Rscript examples/performance_test_ols_fit_predict.R
-Rscript examples/performance_test_ols_aggregate.R
+Rscript examples/performance_test/performance_test_ols_fit_predict.R
+Rscript examples/performance_test/performance_test_ols_aggregate.R
 
 # 4. Compare results
-duckdb < examples/compare_sql_vs_r.sql
+duckdb < examples/performance_test/compare_sql_vs_r.sql
 ```
 
 ## Test Configuration
@@ -121,14 +121,14 @@ Tests `anofox_statistics_ols_fit_agg` with:
 
 ## Output Files
 
-### Data Files (examples/data/)
+### Data Files (examples/performance_test/data/)
 
 | File | Description | Rows | Contains NULL |
 |------|-------------|------|---------------|
 | performance_data_fit_predict.parquet | Window function test data | 1,000,000 | Yes (~10%) |
 | performance_data_aggregate.parquet | Aggregate test data | 1,000,000 | No |
 
-### Result Files (examples/results/)
+### Result Files (examples/performance_test/results/)
 
 **SQL Results:**
 - `sql_predictions_expanding_single.parquet` - Expanding window (group 1)
@@ -151,7 +151,7 @@ Tests `anofox_statistics_ols_fit_agg` with:
 The `compare_sql_vs_r.sql` script validates that SQL and R produce equivalent results:
 
 ```bash
-duckdb < examples/compare_sql_vs_r.sql
+duckdb < examples/performance_test/compare_sql_vs_r.sql
 ```
 
 This compares:
@@ -204,25 +204,25 @@ Both test suites include validation:
 ```bash
 # Quick test during development (100 groups)
 # Edit generate_test_data.sql: SET VARIABLE n_groups = 100
-./examples/run_all_tests.sh
+./examples/performance_test/run_all_tests.sh
 ```
 
 ### 2. Regression Testing
 ```bash
 # Run full test suite before releases
-./examples/run_all_tests.sh
+./examples/performance_test/run_all_tests.sh
 
 # Verify SQL vs R match
-duckdb < examples/compare_sql_vs_r.sql
+duckdb < examples/performance_test/compare_sql_vs_r.sql
 ```
 
 ### 3. Performance Benchmarking
 ```bash
 # Measure performance improvements
-./examples/run_all_tests.sh > benchmark_v1.log
+./examples/performance_test/run_all_tests.sh > benchmark_v1.log
 
 # After optimization...
-./examples/run_all_tests.sh > benchmark_v2.log
+./examples/performance_test/run_all_tests.sh > benchmark_v2.log
 
 # Compare logs
 diff benchmark_v1.log benchmark_v2.log
@@ -231,14 +231,14 @@ diff benchmark_v1.log benchmark_v2.log
 ### 4. Cross-validation
 ```bash
 # Generate data
-duckdb < examples/generate_test_data.sql
+duckdb < examples/performance_test/generate_test_data.sql
 
 # Run both implementations
-duckdb < examples/performance_test_ols_aggregate.sql
-Rscript examples/performance_test_ols_aggregate.R
+duckdb < examples/performance_test/performance_test_ols_aggregate.sql
+Rscript examples/performance_test/performance_test_ols_aggregate.R
 
 # Compare results
-duckdb < examples/compare_sql_vs_r.sql
+duckdb < examples/performance_test/compare_sql_vs_r.sql
 ```
 
 ## Troubleshooting
@@ -296,7 +296,7 @@ SET VARIABLE noise_std = 10.0;
 ```sql
 -- Load and analyze specific results
 CREATE TABLE my_results AS
-  SELECT * FROM 'examples/results/sql_group_models.parquet'
+  SELECT * FROM 'examples/performance_test/results/sql_group_models.parquet'
   WHERE r2 > 0.95;  -- Only high R² models
 
 -- Export to CSV
@@ -309,18 +309,18 @@ COPY my_results TO 'high_r2_models.csv' (HEADER, DELIMITER ',');
 # Example GitHub Actions workflow
 - name: Run performance tests
   run: |
-    ./examples/run_all_tests.sh
-    duckdb < examples/compare_sql_vs_r.sql
+    ./examples/performance_test/run_all_tests.sh
+    duckdb < examples/performance_test/compare_sql_vs_r.sql
 
 - name: Upload results
   uses: actions/upload-artifact@v3
   with:
     name: test-results
-    path: examples/results/*.parquet
+    path: examples/performance_test/results/*.parquet
 ```
 
 ## Further Reading
 
-- [README_performance_tests.md](examples/README_performance_tests.md) - Detailed documentation
+- [README_performance_tests.md](examples/performance_test/README.md) - Detailed documentation
 - [examples/README.md](examples/README.md) - All example scripts
 - [Function Reference](guides/function_reference.md) - Complete function documentation

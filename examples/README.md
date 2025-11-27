@@ -99,15 +99,15 @@ A comprehensive performance testing suite that compares DuckDB extension functio
 
 ```bash
 # Run all tests (generates data, runs SQL & R tests, saves results)
-./examples/run_all_tests.sh
+./examples/performance_test/run_all_tests.sh
 
 # Or run individual steps:
-duckdb < examples/generate_test_data.sql              # 1. Generate test data
-duckdb < examples/performance_test_ols_fit_predict.sql  # 2. SQL fit-predict tests
-duckdb < examples/performance_test_ols_aggregate.sql    # 3. SQL aggregate tests
-Rscript examples/performance_test_ols_fit_predict.R     # 4. R fit-predict tests
-Rscript examples/performance_test_ols_aggregate.R       # 5. R aggregate tests
-duckdb < examples/compare_sql_vs_r.sql                  # 6. Compare results
+duckdb < examples/performance_test/generate_test_data.sql              # 1. Generate test data
+duckdb < examples/performance_test/performance_test_ols_fit_predict.sql  # 2. SQL fit-predict tests
+duckdb < examples/performance_test/performance_test_ols_aggregate.sql    # 3. SQL aggregate tests
+Rscript examples/performance_test/performance_test_ols_fit_predict.R     # 4. R fit-predict tests
+Rscript examples/performance_test/performance_test_ols_aggregate.R       # 5. R aggregate tests
+duckdb < examples/performance_test/compare_sql_vs_r.sql                  # 6. Compare results
 ```
 
 ### Files

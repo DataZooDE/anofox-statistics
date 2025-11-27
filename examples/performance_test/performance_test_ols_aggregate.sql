@@ -16,8 +16,10 @@
 -- Usage:
 -- 1. Run the entire script in DuckDB
 -- 2. Observe timing output for performance analysis
--- 3. Results are saved to examples/results/
+-- 3. Results are saved to examples/performance_test/results/
 -- ============================================================================
+
+LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
 
 -- ============================================================================
 -- STEP 1: Load Performance Data from Parquet File
@@ -28,7 +30,7 @@
 .print '============================================================================'
 
 CREATE OR REPLACE TABLE performance_data AS
-SELECT * FROM 'examples/data/performance_data_aggregate.parquet';
+SELECT * FROM 'examples/performance_test/data/performance_data_aggregate.parquet';
 
 -- Report dataset size
 .print ''
@@ -278,7 +280,7 @@ COPY (
         model.df_model,
         model.df_residual
     FROM group_models
-) TO 'examples/results/sql_group_models.parquet' (FORMAT PARQUET);
+) TO 'examples/performance_test/results/sql_group_models.parquet' (FORMAT PARQUET);
 
 -- Save full model results (all groups)
 COPY (
@@ -299,9 +301,9 @@ COPY (
         model.df_model,
         model.df_residual
     FROM group_models_full
-) TO 'examples/results/sql_group_models_full.parquet' (FORMAT PARQUET);
+) TO 'examples/performance_test/results/sql_group_models_full.parquet' (FORMAT PARQUET);
 
-.print 'Results saved to examples/results/'
+.print 'Results saved to examples/performance_test/results/'
 .print ''
 
 -- ============================================================================
@@ -322,6 +324,6 @@ COPY (
 .print '  - subset_models: Fitted models for subset'
 .print ''
 .print 'Results saved to:'
-.print '  - examples/results/sql_group_models.parquet'
-.print '  - examples/results/sql_group_models_full.parquet'
+.print '  - examples/performance_test/results/sql_group_models.parquet'
+.print '  - examples/performance_test/results/sql_group_models_full.parquet'
 .print '============================================================================'

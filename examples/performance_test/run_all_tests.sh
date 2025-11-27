@@ -13,16 +13,16 @@
 # - R with arrow, dplyr, broom packages installed
 #
 # Usage:
-#   ./examples/run_all_tests.sh
+#   ./examples/performance_test/run_all_tests.sh
 # ============================================================================
 
 set -e  # Exit on error
 
 # Configuration
 DUCKDB_CLI=${DUCKDB_CLI:-duckdb}
-EXAMPLES_DIR="examples"
-DATA_DIR="${EXAMPLES_DIR}/data"
-RESULTS_DIR="${EXAMPLES_DIR}/results"
+PERF_TEST_DIR="examples/performance_test"
+DATA_DIR="${PERF_TEST_DIR}/data"
+RESULTS_DIR="${PERF_TEST_DIR}/results"
 
 # Colors for output
 GREEN='\033[0;32m'
@@ -51,8 +51,8 @@ echo ""
 # ============================================================================
 
 echo -e "${BLUE}Step 2: Generating test data...${NC}"
-echo "Running: ${DUCKDB_CLI} < ${EXAMPLES_DIR}/generate_test_data.sql"
-${DUCKDB_CLI} < "${EXAMPLES_DIR}/generate_test_data.sql"
+echo "Running: ${DUCKDB_CLI} < ${PERF_TEST_DIR}/generate_test_data.sql"
+${DUCKDB_CLI} < "${PERF_TEST_DIR}/generate_test_data.sql"
 echo -e "${GREEN}  ✓ Test data generated${NC}"
 echo ""
 
@@ -61,8 +61,8 @@ echo ""
 # ============================================================================
 
 echo -e "${BLUE}Step 3: Running SQL fit-predict tests...${NC}"
-echo "Running: ${DUCKDB_CLI} < ${EXAMPLES_DIR}/performance_test_ols_fit_predict.sql"
-${DUCKDB_CLI} < "${EXAMPLES_DIR}/performance_test_ols_fit_predict.sql"
+echo "Running: ${DUCKDB_CLI} < ${PERF_TEST_DIR}/performance_test_ols_fit_predict.sql"
+${DUCKDB_CLI} < "${PERF_TEST_DIR}/performance_test_ols_fit_predict.sql"
 echo -e "${GREEN}  ✓ SQL fit-predict tests completed${NC}"
 echo ""
 
@@ -71,8 +71,8 @@ echo ""
 # ============================================================================
 
 echo -e "${BLUE}Step 4: Running SQL aggregate tests...${NC}"
-echo "Running: ${DUCKDB_CLI} < ${EXAMPLES_DIR}/performance_test_ols_aggregate.sql"
-${DUCKDB_CLI} < "${EXAMPLES_DIR}/performance_test_ols_aggregate.sql"
+echo "Running: ${DUCKDB_CLI} < ${PERF_TEST_DIR}/performance_test_ols_aggregate.sql"
+${DUCKDB_CLI} < "${PERF_TEST_DIR}/performance_test_ols_aggregate.sql"
 echo -e "${GREEN}  ✓ SQL aggregate tests completed${NC}"
 echo ""
 
@@ -82,8 +82,8 @@ echo ""
 
 echo -e "${BLUE}Step 5: Running R fit-predict tests...${NC}"
 if command -v Rscript &> /dev/null; then
-    echo "Running: Rscript ${EXAMPLES_DIR}/performance_test_ols_fit_predict.R"
-    Rscript "${EXAMPLES_DIR}/performance_test_ols_fit_predict.R"
+    echo "Running: Rscript ${PERF_TEST_DIR}/performance_test_ols_fit_predict.R"
+    Rscript "${PERF_TEST_DIR}/performance_test_ols_fit_predict.R"
     echo -e "${GREEN}  ✓ R fit-predict tests completed${NC}"
 else
     echo -e "${YELLOW}  ⚠ Rscript not found, skipping R tests${NC}"
@@ -96,8 +96,8 @@ echo ""
 
 echo -e "${BLUE}Step 6: Running R aggregate tests...${NC}"
 if command -v Rscript &> /dev/null; then
-    echo "Running: Rscript ${EXAMPLES_DIR}/performance_test_ols_aggregate.R"
-    Rscript "${EXAMPLES_DIR}/performance_test_ols_aggregate.R"
+    echo "Running: Rscript ${PERF_TEST_DIR}/performance_test_ols_aggregate.R"
+    Rscript "${PERF_TEST_DIR}/performance_test_ols_aggregate.R"
     echo -e "${GREEN}  ✓ R aggregate tests completed${NC}"
 else
     echo -e "${YELLOW}  ⚠ Rscript not found, skipping R tests${NC}"
@@ -120,5 +120,5 @@ ls -lh "${RESULTS_DIR}"/*.parquet 2>/dev/null || echo "  (no files found)"
 echo ""
 echo "Next steps:"
 echo "  1. Compare SQL vs R results using DuckDB"
-echo "  2. See ${EXAMPLES_DIR}/README_performance_tests.md for analysis examples"
+echo "  2. See ${PERF_TEST_DIR}/README_performance_tests.md for analysis examples"
 echo "============================================================================"

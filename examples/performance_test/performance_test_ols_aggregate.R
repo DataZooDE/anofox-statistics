@@ -28,7 +28,7 @@ cat("===========================================================================
 # ============================================================================
 
 cat("Loading performance data from parquet file...\n")
-performance_data <- read_parquet("examples/data/performance_data_aggregate.parquet")
+performance_data <- read_parquet("examples/performance_test/data/performance_data_aggregate.parquet")
 
 cat(sprintf("  - Total rows: %d\n", nrow(performance_data)))
 cat(sprintf("  - Number of groups: %d\n", length(unique(performance_data$group_id))))
@@ -247,7 +247,7 @@ group_models_save <- group_models %>%
 # Save basic model results
 write_parquet(
   group_models_save,
-  "examples/results/r_group_models.parquet"
+  "examples/performance_test/results/r_group_models.parquet"
 )
 
 # Prepare full model results for saving
@@ -293,10 +293,10 @@ group_models_full_save <- group_models_full %>%
 # Save full model results
 write_parquet(
   group_models_full_save,
-  "examples/results/r_group_models_full.parquet"
+  "examples/performance_test/results/r_group_models_full.parquet"
 )
 
-cat("Results saved to examples/results/\n\n")
+cat("Results saved to examples/performance_test/results/\n\n")
 
 # ============================================================================
 # SUMMARY
@@ -311,6 +311,6 @@ cat("  2. GROUP BY aggregation on all groups (full output)\n")
 cat("  3. GROUP BY aggregation on subset (100 groups)\n")
 cat("\n")
 cat("Results saved to:\n")
-cat("  - examples/results/r_group_models.parquet\n")
-cat("  - examples/results/r_group_models_full.parquet\n")
+cat("  - examples/performance_test/results/r_group_models.parquet\n")
+cat("  - examples/performance_test/results/r_group_models_full.parquet\n")
 cat("============================================================================\n")
