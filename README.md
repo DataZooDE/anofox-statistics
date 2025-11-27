@@ -3,7 +3,7 @@
 A statistical analysis extension for DuckDB, providing regression analysis, diagnostics, and inference capabilities directly within your database.
 
 [![License: BSL 1.1](https://img.shields.io/badge/License-BSL%201.1-blue.svg)](LICENSE)
-[![DuckDB Version](https://img.shields.io/badge/DuckDB-v1.4.1-brightgreen.svg)](https://duckdb.org)
+[![DuckDB Version](https://img.shields.io/badge/DuckDB-v1.4.2-brightgreen.svg)](https://duckdb.org)
 
 > [!IMPORTANT]
 > This extension is in early development, so bugs and breaking changes are expected.
@@ -484,7 +484,7 @@ Benchmark (approximate):
 
 ## Dependencies
 
-- **DuckDB**: v1.4.1 or higher
+- **DuckDB**: v1.4.2 or higher
 - **Eigen3**: Linear algebra library (included as header-only)
 - **C++17 compiler**: GCC 7+, Clang 9+, MSVC 2019+
 

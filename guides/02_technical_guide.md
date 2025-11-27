@@ -45,7 +45,7 @@ anofox-statistics-duckdb-extension/
 
 - **Language**: C++17
 - **Linear Algebra**: Eigen 3.x (header-only)
-- **Database API**: DuckDB Extension API v1.4.1
+- **Database API**: DuckDB Extension API v1.4.2
 - **Build System**: CMake 3.20+
 - **Compiler**: GCC 7+, Clang 9+, MSVC 2019+
 
@@ -466,7 +466,7 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g3")           # Debug symbols
 
 ## Extension API Compatibility
 
-### DuckDB v1.4.1 Changes
+### DuckDB v1.4.2 Changes
 
 - `aggregate_update_t`: State parameter changed to `Vector&`
 - `aggregate_finalize_t`: Parameter order changed
@@ -477,7 +477,7 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g3")           # Debug symbols
 auto& bind_data = data_p.bind_data->Cast<BindData>();
 bind_data.counter++;  // Error: const
 
-// New (v1.4.1)
+// New (v1.4.2)
 auto& bind_data = data_p.bind_data->CastNoConst<BindData>();
 bind_data.counter++;  // OK
 ```

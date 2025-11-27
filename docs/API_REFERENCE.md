@@ -1,7 +1,7 @@
 # Anofox Statistics Extension - API Reference
 
 **Version:** 0.2.0
-**DuckDB Version:** ≥ v1.4.1
+**DuckDB Version:** ≥ v1.4.2
 **Statistical Engine:** libanostat
 
 ---

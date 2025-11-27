@@ -15,7 +15,7 @@ namespace duckdb {
 namespace anofox_statistics {
 
 /**
- * @brief Elastic Net fit using array inputs with MAP-based options (v1.4.1 compatible)
+ * @brief Elastic Net fit using array inputs with MAP-based options
  *
  * Signature:
  *   SELECT * FROM anofox_statistics_elastic_net(
@@ -642,7 +642,7 @@ static void ElasticNetFitExecute(ClientContext &context, TableFunctionInput &dat
 }
 
 void ElasticNetFitFunction::Register(ExtensionLoader &loader) {
-	ANOFOX_DEBUG("Registering anofox_statistics_elastic_net (array-based v1.4.1 with MAP options)");
+	ANOFOX_DEBUG("Registering anofox_statistics_elastic_net (array-based with MAP options)");
 
 	// Register 2-argument overload: (y DOUBLE[], x DOUBLE[][])
 	vector<LogicalType> args_2 = {
