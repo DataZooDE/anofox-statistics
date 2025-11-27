@@ -2,6 +2,22 @@
 
 Practical business applications of regression analysis using the Anofox Statistics extension with SQL examples for common use cases.
 
+## Introduction
+
+This guide demonstrates regression analysis techniques for business use cases using the Anofox Statistics extension for DuckDB. Each section presents SQL implementations of statistical methods applied to specific business domains: marketing, finance, operations, and sales.
+
+The guide covers five regression methods available in the extension:
+
+- **OLS (Ordinary Least Squares)**: Standard linear regression for estimating relationships between variables
+- **WLS (Weighted Least Squares)**: Accounts for heteroscedasticity by weighting observations differently
+- **Ridge Regression**: Applies L2 regularization to handle multicollinearity in correlated predictors
+- **RLS (Recursive Least Squares)**: Adapts coefficients sequentially for non-stationary time series data
+- **Elastic Net**: Combines L1 and L2 penalties for variable selection and regularization
+
+Each use case includes executable SQL code with sample data generation, statistical interpretation of results, and decision frameworks based on regression outputs. The examples use aggregate functions (`_fit_agg`) for GROUP BY and window operations, and table functions (`_fit`) for batch processing with array inputs.
+
+All code examples execute directly in DuckDB after loading the extension. The SQL patterns demonstrate integration of regression analysis into data pipelines without requiring external statistical software.
+
 **⚠️ Important Notice**: All examples in this guide are illustrative and for educational purposes. Results and recommendations must be validated and tested case-by-case for your specific business context before making decisions.
 
 ## Table of Contents
