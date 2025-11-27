@@ -33,11 +33,11 @@ SELECT
     -- Standard OLS (treats all customers equally)
     ols.coefficients[1] as ols_acq_cost_roi,
     ols.coefficients[2] as ols_tenure_value,
-    ols.r_squared as ols_r2,
+    ols.r2 as ols_r2,
     -- Weighted LS (emphasizes high-value customers)
     wls.coefficients[1] as wls_acq_cost_roi,
     wls.coefficients[2] as wls_tenure_value,
-    wls.r_squared as wls_r2,
+    wls.r2 as wls_r2,
     -- Business insights
     CASE
         WHEN wls.coefficients[1] > 1.0 THEN 'Positive ROI on acquisition'

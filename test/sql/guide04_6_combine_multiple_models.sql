@@ -25,20 +25,20 @@ FROM raw_data;
 WITH simple_model AS (
     SELECT
         'Simple Model (x1 only)' as model_type,
-        ROUND((anofox_statistics_ols_fit_agg(y, x1)).r_squared, 4) as r_squared,
+        ROUND((anofox_statistics_ols_fit_agg(y, x1)).r2, 4) as r_squared,
         COUNT(*) as n_obs,
         1 as n_predictors
     FROM model_comparison_data
 ),
 -- Complex model: analyze multiple predictors individually
 complex_predictors AS (
-    SELECT 'x1' as var, (anofox_statistics_ols_fit_agg(y, x1)).r_squared as r2 FROM model_comparison_data
+    SELECT 'x1' as var, (anofox_statistics_ols_fit_agg(y, x1)).r2 as r2 FROM model_comparison_data
     UNION ALL
-    SELECT 'x2' as var, (anofox_statistics_ols_fit_agg(y, x2)).r_squared as r2 FROM model_comparison_data
+    SELECT 'x2' as var, (anofox_statistics_ols_fit_agg(y, x2)).r2 as r2 FROM model_comparison_data
     UNION ALL
-    SELECT 'x3' as var, (anofox_statistics_ols_fit_agg(y, x3)).r_squared as r2 FROM model_comparison_data
+    SELECT 'x3' as var, (anofox_statistics_ols_fit_agg(y, x3)).r2 as r2 FROM model_comparison_data
     UNION ALL
-    SELECT 'x4' as var, (anofox_statistics_ols_fit_agg(y, x4)).r_squared as r2 FROM model_comparison_data
+    SELECT 'x4' as var, (anofox_statistics_ols_fit_agg(y, x4)).r2 as r2 FROM model_comparison_data
 ),
 complex_summary AS (
     SELECT

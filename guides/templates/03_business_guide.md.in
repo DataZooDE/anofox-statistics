@@ -1,6 +1,6 @@
 # Business Guide
 
-Real-world business applications of the Anofox Statistics extension, demonstrating how to turn data into actionable business insights.
+Practical business applications of regression analysis using the Anofox Statistics extension with SQL examples for common use cases.
 
 ## Important Note About Examples
 
@@ -166,7 +166,7 @@ UTIL: market_beta = 0.5, sector_beta = 0.3, value = 0.2 → Defensive stock, val
 
 ### Use Case 5: Credit Risk Modeling
 
-**Business Question**: Predict loan default risk to optimize lending decisions.
+**Business Question**: Predict loan default risk to inform lending decisions.
 
 <!-- include: test/sql/guide04_use_case_5_credit_risk_modeling.sql -->
 
@@ -203,7 +203,7 @@ UTIL: market_beta = 0.5, sector_beta = 0.3, value = 0.2 → Defensive stock, val
 
 ### Use Case 7: Demand Forecasting for Inventory
 
-**Business Question**: Optimize inventory levels by predicting product demand.
+**Business Question**: Set inventory levels based on product demand predictions.
 
 <!-- include: test/sql/guide04_use_case_7_demand_forecasting_for_invent.sql -->
 
@@ -266,7 +266,7 @@ Product C: coef = 1.0, λ = 0.98 → Stable demand, predictable pattern
 
 <!-- include: test/sql/guide04_use_case_8_quality_control_process_optim.sql -->
 
-**Business Decision**: Optimize process parameters that significantly affect defect rates.
+**Business Decision**: Adjust process parameters that significantly affect defect rates.
 
 ### Use Case 9: Employee Productivity Analysis
 
@@ -442,7 +442,7 @@ Don't rely on single model - triangulate with multiple approaches:
 
 ## Conclusion
 
-The Anofox Statistics extension transforms DuckDB into a powerful business analytics platform. Key takeaways:
+The Anofox Statistics extension provides regression analysis capabilities for DuckDB. Key takeaways:
 
 1. **Test Everything**: Use p-values to validate relationships
 2. **Quantify Impact**: Use coefficients for ROI calculations
@@ -454,5 +454,4 @@ For more examples:
 
 - [Quick Start Guide](01_quick_start.md) - Basic usage
 - [Technical Guide](02_technical_guide.md) - Implementation details
-- [Statistics Guide](03_statistics_guide.md) - Statistical theory
-- [Advanced Use Cases](05_advanced_use_cases.md) - Complex workflows
+- [Advanced Use Cases](04_advanced_use_cases.md) - Complex workflows

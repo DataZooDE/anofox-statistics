@@ -23,7 +23,7 @@ SELECT
     ROUND((anofox_statistics_ols_fit_agg(sales, marketing) OVER (
         ORDER BY month
         ROWS BETWEEN 11 PRECEDING AND CURRENT ROW
-    )).r_squared, 3) as rolling_model_quality
+    )).r2, 3) as rolling_model_quality
 FROM monthly_data
 ORDER BY month DESC
 LIMIT 12;  -- Show last 12 months

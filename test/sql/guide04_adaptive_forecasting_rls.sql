@@ -32,21 +32,21 @@ SELECT
     -- Static OLS model (fixed coefficients)
     ols.coefficients[1] as ols_lag_coef,
     ols.coefficients[2] as ols_trend_coef,
-    ols.r_squared as ols_r2,
+    ols.r2 as ols_r2,
     -- Adaptive RLS model (adjusts to changes)
     rls_slow.coefficients[1] as rls_slow_lag_coef,
     rls_slow.coefficients[2] as rls_slow_trend_coef,
-    rls_slow.r_squared as rls_slow_r2,
-    rls_slow.forgetting_factor as ff_slow,
+    rls_slow.r2 as rls_slow_r2,
+    0.98 as ff_slow,
     -- Fast-adapting RLS
     rls_fast.coefficients[1] as rls_fast_lag_coef,
     rls_fast.coefficients[2] as rls_fast_trend_coef,
-    rls_fast.r_squared as rls_fast_r2,
-    rls_fast.forgetting_factor as ff_fast,
+    rls_fast.r2 as rls_fast_r2,
+    0.92 as ff_fast,
     -- Business insight
     CASE
-        WHEN rls_fast.r_squared > ols.r_squared + 0.05 THEN 'RLS significantly better - demand pattern changing'
-        WHEN rls_fast.r_squared > ols.r_squared THEN 'RLS slightly better - moderate changes'
+        WHEN rls_fast.r2 > ols.r2 + 0.05 THEN 'RLS significantly better - demand pattern changing'
+        WHEN rls_fast.r2 > ols.r2 THEN 'RLS slightly better - moderate changes'
         ELSE 'OLS sufficient - stable demand pattern'
     END as model_recommendation
 FROM (
@@ -94,10 +94,10 @@ SELECT
     product_id,
     week,
     rolling_model.coefficients[1] as adaptive_lag_coefficient,
-    rolling_model.r_squared as rolling_r2,
+    rolling_model.r2 as rolling_r2,
     CASE
-        WHEN rolling_model.r_squared > 0.8 THEN 'High forecast confidence'
-        WHEN rolling_model.r_squared > 0.6 THEN 'Moderate forecast confidence'
+        WHEN rolling_model.r2 > 0.8 THEN 'High forecast confidence'
+        WHEN rolling_model.r2 > 0.6 THEN 'Moderate forecast confidence'
         ELSE 'Low confidence - model recalibration needed'
     END as forecast_confidence
 FROM recent_performance

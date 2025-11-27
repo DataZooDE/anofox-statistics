@@ -32,7 +32,7 @@ FROM (
 SELECT
     stock_ticker,
     ROUND((anofox_statistics_ols_fit_agg(stock_return, market_return)).coefficients[1], 3) as beta,
-    ROUND((anofox_statistics_ols_fit_agg(stock_return, market_return)).r_squared, 3) as r_squared,
+    ROUND((anofox_statistics_ols_fit_agg(stock_return, market_return)).r2, 3) as r_squared,
     CASE
         WHEN (anofox_statistics_ols_fit_agg(stock_return, market_return)).coefficients[1] > 1.2 THEN 'High Risk'
         WHEN (anofox_statistics_ols_fit_agg(stock_return, market_return)).coefficients[1] > 0.8 THEN 'Medium Risk'

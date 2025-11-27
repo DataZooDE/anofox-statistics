@@ -41,6 +41,6 @@ WHERE cohort_month <= CURRENT_DATE - INTERVAL '12 months'
 UNION ALL
 SELECT
     'Model Quality (R²)' as metric,
-    ROUND((anofox_statistics_ols_fit_agg(total_purchases, tenure)).r_squared, 3) as value
+    ROUND((anofox_statistics_ols_fit_agg(total_purchases, tenure)).r2, 3) as value
 FROM customer_summary
 WHERE cohort_month <= CURRENT_DATE - INTERVAL '12 months';

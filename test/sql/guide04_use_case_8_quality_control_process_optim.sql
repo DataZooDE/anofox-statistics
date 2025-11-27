@@ -30,25 +30,25 @@ parameter_impacts AS (
     SELECT
         'Temperature' as variable,
         ROUND((anofox_statistics_ols_fit_agg(defect_rate, [temperature], {'intercept': true})).coefficients[1], 4) as impact_on_defects,
-        ROUND((anofox_statistics_ols_fit_agg(defect_rate, [temperature], {'intercept': true})).r_squared, 3) as model_fit
+        ROUND((anofox_statistics_ols_fit_agg(defect_rate, [temperature], {'intercept': true})).r2, 3) as model_fit
     FROM recent_batches
     UNION ALL
     SELECT
         'Pressure' as variable,
         ROUND((anofox_statistics_ols_fit_agg(defect_rate, [pressure], {'intercept': true})).coefficients[1], 4) as impact_on_defects,
-        ROUND((anofox_statistics_ols_fit_agg(defect_rate, [pressure], {'intercept': true})).r_squared, 3) as model_fit
+        ROUND((anofox_statistics_ols_fit_agg(defect_rate, [pressure], {'intercept': true})).r2, 3) as model_fit
     FROM recent_batches
     UNION ALL
     SELECT
         'Humidity' as variable,
         ROUND((anofox_statistics_ols_fit_agg(defect_rate, [humidity], {'intercept': true})).coefficients[1], 4) as impact_on_defects,
-        ROUND((anofox_statistics_ols_fit_agg(defect_rate, [humidity], {'intercept': true})).r_squared, 3) as model_fit
+        ROUND((anofox_statistics_ols_fit_agg(defect_rate, [humidity], {'intercept': true})).r2, 3) as model_fit
     FROM recent_batches
     UNION ALL
     SELECT
         'Line Speed' as variable,
         ROUND((anofox_statistics_ols_fit_agg(defect_rate, [line_speed], {'intercept': true})).coefficients[1], 4) as impact_on_defects,
-        ROUND((anofox_statistics_ols_fit_agg(defect_rate, [line_speed], {'intercept': true})).r_squared, 3) as model_fit
+        ROUND((anofox_statistics_ols_fit_agg(defect_rate, [line_speed], {'intercept': true})).r2, 3) as model_fit
     FROM recent_batches
 ),
 impacts_materialized AS (

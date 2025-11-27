@@ -24,6 +24,6 @@ SELECT
         WHEN (anofox_statistics_ols_fit_agg(revenue, spend)).coefficients[1] < 1.0 THEN 'Negative - Stop Campaign'
         ELSE 'Inconclusive - Gather More Data'
     END as recommendation,
-    ROUND((anofox_statistics_ols_fit_agg(revenue, spend)).std_error, 4) as std_error,
-    ROUND((anofox_statistics_ols_fit_agg(revenue, spend)).r_squared, 3) as model_quality
+    ROUND((anofox_statistics_ols_fit_agg(revenue, spend)).residual_standard_error, 4) as std_error,
+    ROUND((anofox_statistics_ols_fit_agg(revenue, spend)).r2, 3) as model_quality
 FROM campaigns;

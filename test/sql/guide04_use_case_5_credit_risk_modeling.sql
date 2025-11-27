@@ -17,52 +17,52 @@ WITH risk_factors AS (
     SELECT
         'Credit Score' as variable,
         ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, credit_score)).coefficients[1], 5) as coefficient,
-        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, credit_score)).std_error, 4) as std_error,
+        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, credit_score)).residual_standard_error, 4) as std_error,
         CASE
             WHEN (anofox_statistics_ols_fit_agg(default_flag::DOUBLE, credit_score)).coefficients[1] > 0 THEN 'Increases Risk'
             WHEN (anofox_statistics_ols_fit_agg(default_flag::DOUBLE, credit_score)).coefficients[1] < 0 THEN 'Decreases Risk'
             ELSE 'No Effect'
         END as risk_impact,
-        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, credit_score)).r_squared, 3) as model_quality
+        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, credit_score)).r2, 3) as model_quality
     FROM loans
     WHERE origination_date >= '2022-01-01'
     UNION ALL
     SELECT
         'Debt-to-Income' as variable,
         ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, debt_to_income)).coefficients[1], 5) as coefficient,
-        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, debt_to_income)).std_error, 4) as std_error,
+        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, debt_to_income)).residual_standard_error, 4) as std_error,
         CASE
             WHEN (anofox_statistics_ols_fit_agg(default_flag::DOUBLE, debt_to_income)).coefficients[1] > 0 THEN 'Increases Risk'
             WHEN (anofox_statistics_ols_fit_agg(default_flag::DOUBLE, debt_to_income)).coefficients[1] < 0 THEN 'Decreases Risk'
             ELSE 'No Effect'
         END as risk_impact,
-        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, debt_to_income)).r_squared, 3) as model_quality
+        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, debt_to_income)).r2, 3) as model_quality
     FROM loans
     WHERE origination_date >= '2022-01-01'
     UNION ALL
     SELECT
         'Loan-to-Value' as variable,
         ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, loan_to_value)).coefficients[1], 5) as coefficient,
-        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, loan_to_value)).std_error, 4) as std_error,
+        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, loan_to_value)).residual_standard_error, 4) as std_error,
         CASE
             WHEN (anofox_statistics_ols_fit_agg(default_flag::DOUBLE, loan_to_value)).coefficients[1] > 0 THEN 'Increases Risk'
             WHEN (anofox_statistics_ols_fit_agg(default_flag::DOUBLE, loan_to_value)).coefficients[1] < 0 THEN 'Decreases Risk'
             ELSE 'No Effect'
         END as risk_impact,
-        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, loan_to_value)).r_squared, 3) as model_quality
+        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, loan_to_value)).r2, 3) as model_quality
     FROM loans
     WHERE origination_date >= '2022-01-01'
     UNION ALL
     SELECT
         'Employment Years' as variable,
         ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, employment_years)).coefficients[1], 5) as coefficient,
-        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, employment_years)).std_error, 4) as std_error,
+        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, employment_years)).residual_standard_error, 4) as std_error,
         CASE
             WHEN (anofox_statistics_ols_fit_agg(default_flag::DOUBLE, employment_years)).coefficients[1] > 0 THEN 'Increases Risk'
             WHEN (anofox_statistics_ols_fit_agg(default_flag::DOUBLE, employment_years)).coefficients[1] < 0 THEN 'Decreases Risk'
             ELSE 'No Effect'
         END as risk_impact,
-        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, employment_years)).r_squared, 3) as model_quality
+        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, employment_years)).r2, 3) as model_quality
     FROM loans
     WHERE origination_date >= '2022-01-01'
 )

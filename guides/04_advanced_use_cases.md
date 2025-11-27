@@ -2461,5 +2461,4 @@ For more information:
 
 - [Quick Start Guide](01_quick_start.md) - Getting started
 - [Technical Guide](02_technical_guide.md) - Implementation details
-- [Statistics Guide](03_statistics_guide.md) - Statistical theory
-- [Business Guide](04_business_guide.md) - Business applications
+- [Business Guide](03_business_guide.md) - Business applications

@@ -44,7 +44,7 @@ FROM (
 SELECT
     department,
     ROUND((anofox_statistics_ols_fit_agg(output_per_hour, training_hours)).coefficients[1], 2) as training_impact,
-    ROUND((anofox_statistics_ols_fit_agg(output_per_hour, training_hours)).r_squared, 3) as model_fit,
+    ROUND((anofox_statistics_ols_fit_agg(output_per_hour, training_hours)).r2, 3) as model_fit,
     CASE
         WHEN (anofox_statistics_ols_fit_agg(output_per_hour, training_hours)).coefficients[1] > 5.0 THEN 'High Training ROI'
         WHEN (anofox_statistics_ols_fit_agg(output_per_hour, training_hours)).coefficients[1] > 2.0 THEN 'Medium Training ROI'

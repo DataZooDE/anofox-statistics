@@ -27,14 +27,14 @@ SELECT
     ols.coefficients[2] as ols_sector_beta,
     ols.coefficients[3] as ols_value_beta,
     ols.coefficients[4] as ols_momentum_beta,
-    ols.r_squared as ols_r2,
+    ols.r2 as ols_r2,
     -- Ridge (stabilized coefficients)
     ridge.coefficients[1] as ridge_market_beta,
     ridge.coefficients[2] as ridge_sector_beta,
     ridge.coefficients[3] as ridge_value_beta,
     ridge.coefficients[4] as ridge_momentum_beta,
-    ridge.r_squared as ridge_r2,
-    ridge.lambda,
+    ridge.r2 as ridge_r2,
+    1.0 as lambda,
     -- Risk assessment
     CASE
         WHEN ridge.coefficients[1] > 1.2 THEN 'High systematic risk'
@@ -65,7 +65,7 @@ WITH stock_betas AS (
         ticker,
         result.coefficients[1] as market_beta,
         result.coefficients[2] as sector_beta,
-        result.r_squared
+        result.r2
     FROM (
         SELECT
             ticker,
