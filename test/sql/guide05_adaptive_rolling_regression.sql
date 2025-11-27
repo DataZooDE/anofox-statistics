@@ -33,7 +33,7 @@ rolling_30 AS (
         (anofox_statistics_ols_fit_agg(y, [time_idx::DOUBLE], {'intercept': true}) OVER (
             ORDER BY time_idx
             ROWS BETWEEN 29 PRECEDING AND CURRENT ROW
-        )).r_squared as r2_30d
+        )).r2 as r2_30d
     FROM time_series
 ),
 
@@ -48,7 +48,7 @@ rolling_90 AS (
         (anofox_statistics_ols_fit_agg(y, [time_idx::DOUBLE], {'intercept': true}) OVER (
             ORDER BY time_idx
             ROWS BETWEEN 89 PRECEDING AND CURRENT ROW
-        )).r_squared as r2_90d
+        )).r2 as r2_90d
     FROM time_series
 ),
 
@@ -63,7 +63,7 @@ expanding AS (
         (anofox_statistics_ols_fit_agg(y, [time_idx::DOUBLE], {'intercept': true}) OVER (
             ORDER BY time_idx
             ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-        )).r_squared as r2_expanding
+        )).r2 as r2_expanding
     FROM time_series
 )
 

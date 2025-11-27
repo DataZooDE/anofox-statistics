@@ -54,10 +54,10 @@ GROUP BY market;
 SELECT
     market,
     -- Compare R² across methods
-    ols_model.r_squared as ols_r2,
-    wls_model.r_squared as wls_r2,
-    ridge_model.r_squared as ridge_r2,
-    rls_model.r_squared as rls_r2,
+    ols_model.r2 as ols_r2,
+    wls_model.r2 as wls_r2,
+    ridge_model.r2 as ridge_r2,
+    rls_model.r2 as rls_r2,
     -- Compare first coefficient (highly correlated x1)
     ols_model.coefficients[1] as ols_x1_coef,
     wls_model.coefficients[1] as wls_x1_coef,
@@ -70,7 +70,7 @@ SELECT
     rls_model.coefficients[2] as rls_x2_coef,
     -- Diagnostic insights
     CASE
-        WHEN wls_model.r_squared > ols_model.r_squared + 0.05 THEN 'WLS improves fit (heteroscedasticity present)'
+        WHEN wls_model.r2 > ols_model.r2 + 0.05 THEN 'WLS improves fit (heteroscedasticity present)'
         ELSE 'Constant variance - OLS sufficient'
     END as heteroscedasticity_check,
     CASE
@@ -81,11 +81,11 @@ SELECT
     END as multicollinearity_check,
     -- Method recommendation
     CASE
-        WHEN wls_model.r_squared = (SELECT MAX(r2) FROM (VALUES (ols_model.r_squared), (wls_model.r_squared), (ridge_model.r_squared), (rls_model.r_squared)) AS t(r2))
+        WHEN wls_model.r2 = (SELECT MAX(r2) FROM (VALUES (ols_model.r2), (wls_model.r2), (ridge_model.r2), (rls_model.r2)) AS t(r2))
             THEN 'Recommend WLS'
-        WHEN ridge_model.r_squared = (SELECT MAX(r2) FROM (VALUES (ols_model.r_squared), (wls_model.r_squared), (ridge_model.r_squared), (rls_model.r_squared)) AS t(r2))
+        WHEN ridge_model.r2 = (SELECT MAX(r2) FROM (VALUES (ols_model.r2), (wls_model.r2), (ridge_model.r2), (rls_model.r2)) AS t(r2))
             THEN 'Recommend Ridge'
-        WHEN rls_model.r_squared = (SELECT MAX(r2) FROM (VALUES (ols_model.r_squared), (wls_model.r_squared), (ridge_model.r_squared), (rls_model.r_squared)) AS t(r2))
+        WHEN rls_model.r2 = (SELECT MAX(r2) FROM (VALUES (ols_model.r2), (wls_model.r2), (ridge_model.r2), (rls_model.r2)) AS t(r2))
             THEN 'Recommend RLS (time-varying)'
         ELSE 'OLS sufficient'
     END as best_method

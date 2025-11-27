@@ -44,7 +44,7 @@ cohort_models AS (
             avg_order_value::DOUBLE,
             [months_since_first::DOUBLE],
             {'intercept': true}
-        )).r_squared as ltv_predictability,
+        )).r2 as ltv_predictability,
         SUM(total_revenue) as cohort_total_revenue,
         AVG(active_customers) as avg_cohort_size
     FROM cohort_models_data

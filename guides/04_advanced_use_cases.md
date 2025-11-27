@@ -80,16 +80,16 @@ full_model AS (
         AVG(y) as mean_sales,
         AVG(x1) as mean_advertising,
         -- Primary model: advertising spend predicts sales
-        (anofox_statistics_ols_fit_agg(y, x1)).coefficients[1] as beta_advertising,
-        (anofox_statistics_ols_fit_agg(y, x1)).r_squared as model_r2,
-        (anofox_statistics_ols_fit_agg(y, x1)).std_error as model_std_error,
+        (anofox_statistics_ols_fit_agg(y, [x1], {'intercept': true})).coefficients[1] as beta_advertising,
+        (anofox_statistics_ols_fit_agg(y, [x1], {'intercept': true})).r2 as model_r2,
+        (anofox_statistics_ols_fit_agg(y, [x1], {'intercept': true})).residual_standard_error as model_std_error,
         -- Additional univariate models for comparison
-        (anofox_statistics_ols_fit_agg(y, x2)).coefficients[1] as beta_store_size,
-        (anofox_statistics_ols_fit_agg(y, x2)).r_squared as r2_store_size,
-        (anofox_statistics_ols_fit_agg(y, x3)).coefficients[1] as beta_competitor,
-        (anofox_statistics_ols_fit_agg(y, x3)).r_squared as r2_competitor,
-        (anofox_statistics_ols_fit_agg(y, x4)).coefficients[1] as beta_income,
-        (anofox_statistics_ols_fit_agg(y, x4)).r_squared as r2_income
+        (anofox_statistics_ols_fit_agg(y, [x2], {'intercept': true})).coefficients[1] as beta_store_size,
+        (anofox_statistics_ols_fit_agg(y, [x2], {'intercept': true})).r2 as r2_store_size,
+        (anofox_statistics_ols_fit_agg(y, [x3], {'intercept': true})).coefficients[1] as beta_competitor,
+        (anofox_statistics_ols_fit_agg(y, [x3], {'intercept': true})).r2 as r2_competitor,
+        (anofox_statistics_ols_fit_agg(y, [x4], {'intercept': true})).coefficients[1] as beta_income,
+        (anofox_statistics_ols_fit_agg(y, [x4], {'intercept': true})).r2 as r2_income
     FROM training_data
 ),
 
@@ -301,7 +301,7 @@ model1 AS (
     SELECT
         1 as model_id,
         'Marketing Only' as model_name,
-        (anofox_statistics_ols_fit_agg(y, x1)).r_squared as r_squared,
+        (anofox_statistics_ols_fit_agg(y, [x1], {'intercept': true})).r2 as r_squared,
         COUNT(*) as n_obs,
         2 as n_params
     FROM data
@@ -313,7 +313,7 @@ model2 AS (
         2 as model_id,
         'Marketing + Seasonality' as model_name,
         -- For multiple predictors, show R² from individual models
-        (anofox_statistics_ols_fit_agg(y, x1)).r_squared as r_squared,
+        (anofox_statistics_ols_fit_agg(y, [x1], {'intercept': true})).r2 as r_squared,
         COUNT(*) as n_obs,
         3 as n_params
     FROM data
@@ -324,7 +324,7 @@ model3 AS (
     SELECT
         3 as model_id,
         'Full Model' as model_name,
-        (anofox_statistics_ols_fit_agg(y, x1)).r_squared as r_squared,
+        (anofox_statistics_ols_fit_agg(y, [x1], {'intercept': true})).r2 as r_squared,
         COUNT(*) as n_obs,
         5 as n_params
     FROM data
@@ -417,7 +417,7 @@ rolling_30 AS (
         (anofox_statistics_ols_fit_agg(y, [time_idx::DOUBLE], {'intercept': true}) OVER (
             ORDER BY time_idx
             ROWS BETWEEN 29 PRECEDING AND CURRENT ROW
-        )).r_squared as r2_30d
+        )).r2 as r2_30d
     FROM time_series
 ),
 
@@ -432,7 +432,7 @@ rolling_90 AS (
         (anofox_statistics_ols_fit_agg(y, [time_idx::DOUBLE], {'intercept': true}) OVER (
             ORDER BY time_idx
             ROWS BETWEEN 89 PRECEDING AND CURRENT ROW
-        )).r_squared as r2_90d
+        )).r2 as r2_90d
     FROM time_series
 ),
 
@@ -447,7 +447,7 @@ expanding AS (
         (anofox_statistics_ols_fit_agg(y, [time_idx::DOUBLE], {'intercept': true}) OVER (
             ORDER BY time_idx
             ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-        )).r_squared as r2_expanding
+        )).r2 as r2_expanding
     FROM time_series
 )
 
@@ -536,7 +536,7 @@ WITH monthly_data AS (
 -- Fit overall trend using aggregate function
 trend_model AS (
     SELECT
-        anofox_statistics_ols_fit_agg(revenue, time_idx::DOUBLE) as model
+        anofox_statistics_ols_fit_agg(revenue, [time_idx::DOUBLE], {'intercept': true}) as model
     FROM monthly_data
 ),
 
@@ -682,7 +682,7 @@ SELECT
     product_id,
     week,
     rolling_model.coefficients[1] as price_elasticity,
-    rolling_model.r_squared as model_quality,
+    rolling_model.r2 as model_quality,
     rolling_model.n_obs as window_size,
     -- Detect significant elasticity changes
     LAG(rolling_model.coefficients[1]) OVER (PARTITION BY product_id ORDER BY week) as prev_elasticity,
@@ -715,14 +715,14 @@ adaptive_models AS (
 SELECT
     sm.product_id,
     sm.full_period_model.coefficients[1] as static_elasticity,
-    sm.full_period_model.r_squared as static_r2,
+    sm.full_period_model.r2 as static_r2,
     am.adaptive_model.coefficients[1] as adaptive_elasticity,
-    am.adaptive_model.r_squared as adaptive_r2,
+    am.adaptive_model.r2 as adaptive_r2,
     -- Performance comparison
     CASE
-        WHEN am.adaptive_model.r_squared > sm.full_period_model.r_squared + 0.05
+        WHEN am.adaptive_model.r2 > sm.full_period_model.r2 + 0.05
             THEN 'Adaptive model significantly better'
-        WHEN am.adaptive_model.r_squared > sm.full_period_model.r_squared
+        WHEN am.adaptive_model.r2 > sm.full_period_model.r2
             THEN 'Adaptive model slightly better'
         ELSE 'Static model sufficient'
     END as model_comparison,
@@ -743,10 +743,10 @@ WITH weekly_summary AS (
 )
 SELECT
     week,
-    weekly_model.r_squared as weekly_r2,
+    weekly_model.r2 as weekly_r2,
     weekly_model.coefficients[1] as weekly_elasticity,
     -- Rolling average of R² (market-wide model quality trend)
-    AVG(weekly_model.r_squared) OVER (
+    AVG(weekly_model.r2) OVER (
         ORDER BY week
         ROWS BETWEEN 3 PRECEDING AND CURRENT ROW
     ) as rolling_avg_r2,
@@ -783,14 +783,14 @@ WITH monthly_by_product AS (
 )
 SELECT
     month,
-    MAX(monthly_model.r_squared) FILTER (WHERE product_id = 'product_a') as product_a_r2,
-    MAX(monthly_model.r_squared) FILTER (WHERE product_id = 'product_b') as product_b_r2,
-    MAX(monthly_model.r_squared) FILTER (WHERE product_id = 'product_c') as product_c_r2,
-    AVG(monthly_model.r_squared) as avg_r2_across_products,
+    MAX(monthly_model.r2) FILTER (WHERE product_id = 'product_a') as product_a_r2,
+    MAX(monthly_model.r2) FILTER (WHERE product_id = 'product_b') as product_b_r2,
+    MAX(monthly_model.r2) FILTER (WHERE product_id = 'product_c') as product_c_r2,
+    AVG(monthly_model.r2) as avg_r2_across_products,
     -- Detect if one product is diverging from others
-    MAX(monthly_model.r_squared) - MIN(monthly_model.r_squared) as r2_spread,
+    MAX(monthly_model.r2) - MIN(monthly_model.r2) as r2_spread,
     CASE
-        WHEN MAX(monthly_model.r_squared) - MIN(monthly_model.r_squared) > 0.2
+        WHEN MAX(monthly_model.r2) - MIN(monthly_model.r2) > 0.2
             THEN 'High variation across products'
         ELSE 'Similar model quality'
     END as cross_product_assessment
@@ -896,8 +896,8 @@ WITH store_level AS (
         region_id,
         territory_id,
         store_id,
-        (anofox_statistics_ols_fit_agg(sales::DOUBLE, marketing::DOUBLE)).coefficients[1] as store_roi,
-        (anofox_statistics_ols_fit_agg(sales::DOUBLE, marketing::DOUBLE)).r_squared as store_r2,
+        (anofox_statistics_ols_fit_agg(sales::DOUBLE, [marketing::DOUBLE], {'intercept': true})).coefficients[1] as store_roi,
+        (anofox_statistics_ols_fit_agg(sales::DOUBLE, [marketing::DOUBLE], {'intercept': true})).r2 as store_r2,
         COUNT(*) as store_observations
     FROM daily_store_data
     WHERE date >= CURRENT_DATE - INTERVAL '90 days'
@@ -912,8 +912,7 @@ territory_level AS (
         AVG(store_roi) as avg_store_roi,
         COUNT(*) as num_stores,
         AVG(store_r2) as avg_r2,
-        STDDEV(store_roi) as roi_variability,
-        (anofox_statistics_ols_fit_agg(store_roi, store_r2)).coefficients[1] as roi_predictability
+        STDDEV(store_roi) as roi_variability
     FROM store_level
     GROUP BY region_id, territory_id
 ),
@@ -1037,7 +1036,7 @@ WITH product_models AS (
 category_summary AS (
     SELECT
         category,
-        AVG(model.r_squared) as avg_r2,
+        AVG(model.r2) as avg_r2,
         AVG(model.coefficients[1]) as avg_price_sensitivity,
         AVG(model.coefficients[2]) as avg_marketing_effectiveness,
         SUM(n_sales) as total_sales,
@@ -1062,12 +1061,12 @@ regional_product AS (
 SELECT
     pm.category,
     pm.subcategory,
-    pm.model.r_squared as product_fit,
+    pm.model.r2 as product_fit,
     pm.model.coefficients[1] as price_effect,
     cs.avg_price_sensitivity as category_avg,
     cs.n_subcategories as competing_products,
     rp.region,
-    rp.regional_model.r_squared as regional_fit,
+    rp.regional_model.r2 as regional_fit,
     -- Multi-level insights
     CASE
         WHEN ABS(pm.model.coefficients[1] - cs.avg_price_sensitivity) > 5
@@ -1075,9 +1074,9 @@ SELECT
         ELSE 'Typical for category'
     END as category_comparison,
     CASE
-        WHEN pm.model.r_squared > 0.7 AND rp.regional_model.r_squared > 0.7
+        WHEN pm.model.r2 > 0.7 AND rp.regional_model.r2 > 0.7
             THEN 'Strong predictability at all levels'
-        WHEN pm.model.r_squared < 0.5 OR rp.regional_model.r_squared < 0.5
+        WHEN pm.model.r2 < 0.5 OR rp.regional_model.r2 < 0.5
             THEN 'Weak model - investigate other factors'
         ELSE 'Moderate predictability'
     END as model_assessment
@@ -1184,10 +1183,10 @@ GROUP BY market;
 SELECT
     market,
     -- Compare R² across methods
-    ols_model.r_squared as ols_r2,
-    wls_model.r_squared as wls_r2,
-    ridge_model.r_squared as ridge_r2,
-    rls_model.r_squared as rls_r2,
+    ols_model.r2 as ols_r2,
+    wls_model.r2 as wls_r2,
+    ridge_model.r2 as ridge_r2,
+    rls_model.r2 as rls_r2,
     -- Compare first coefficient (highly correlated x1)
     ols_model.coefficients[1] as ols_x1_coef,
     wls_model.coefficients[1] as wls_x1_coef,
@@ -1200,7 +1199,7 @@ SELECT
     rls_model.coefficients[2] as rls_x2_coef,
     -- Diagnostic insights
     CASE
-        WHEN wls_model.r_squared > ols_model.r_squared + 0.05 THEN 'WLS improves fit (heteroscedasticity present)'
+        WHEN wls_model.r2 > ols_model.r2 + 0.05 THEN 'WLS improves fit (heteroscedasticity present)'
         ELSE 'Constant variance - OLS sufficient'
     END as heteroscedasticity_check,
     CASE
@@ -1211,11 +1210,11 @@ SELECT
     END as multicollinearity_check,
     -- Method recommendation
     CASE
-        WHEN wls_model.r_squared = (SELECT MAX(r2) FROM (VALUES (ols_model.r_squared), (wls_model.r_squared), (ridge_model.r_squared), (rls_model.r_squared)) AS t(r2))
+        WHEN wls_model.r2 = (SELECT MAX(r2) FROM (VALUES (ols_model.r2), (wls_model.r2), (ridge_model.r2), (rls_model.r2)) AS t(r2))
             THEN 'Recommend WLS'
-        WHEN ridge_model.r_squared = (SELECT MAX(r2) FROM (VALUES (ols_model.r_squared), (wls_model.r_squared), (ridge_model.r_squared), (rls_model.r_squared)) AS t(r2))
+        WHEN ridge_model.r2 = (SELECT MAX(r2) FROM (VALUES (ols_model.r2), (wls_model.r2), (ridge_model.r2), (rls_model.r2)) AS t(r2))
             THEN 'Recommend Ridge'
-        WHEN rls_model.r_squared = (SELECT MAX(r2) FROM (VALUES (ols_model.r_squared), (wls_model.r_squared), (ridge_model.r_squared), (rls_model.r_squared)) AS t(r2))
+        WHEN rls_model.r2 = (SELECT MAX(r2) FROM (VALUES (ols_model.r2), (wls_model.r2), (ridge_model.r2), (rls_model.r2)) AS t(r2))
             THEN 'Recommend RLS (time-varying)'
         ELSE 'OLS sufficient'
     END as best_method
@@ -1364,7 +1363,7 @@ cohort_models AS (
             avg_order_value::DOUBLE,
             [months_since_first::DOUBLE],
             {'intercept': true}
-        )).r_squared as ltv_predictability,
+        )).r2 as ltv_predictability,
         SUM(total_revenue) as cohort_total_revenue,
         AVG(active_customers) as avg_cohort_size
     FROM cohort_models_data
@@ -1488,9 +1487,9 @@ variant_summary AS (
 -- Coefficient = treatment effect (B - A)
 conversion_test AS (
     SELECT
-        (anofox_statistics_ols_fit_agg(conversion, treatment)).coefficients[1] as treatment_effect,
-        (anofox_statistics_ols_fit_agg(conversion, treatment)).std_error as std_error,
-        (anofox_statistics_ols_fit_agg(conversion, treatment)).r_squared as r_squared,
+        (anofox_statistics_ols_fit_agg(conversion, [treatment], {'intercept': true})).coefficients[1] as treatment_effect,
+        (anofox_statistics_ols_fit_agg(conversion, [treatment], {'intercept': true})).residual_standard_error as std_error,
+        (anofox_statistics_ols_fit_agg(conversion, [treatment], {'intercept': true})).r2 as r_squared,
         COUNT(*) as n_obs
     FROM experiment_data
 ),
@@ -1498,9 +1497,9 @@ conversion_test AS (
 -- Statistical significance test for revenue using actual data
 revenue_test AS (
     SELECT
-        (anofox_statistics_ols_fit_agg(revenue, treatment)).coefficients[1] as treatment_effect,
-        (anofox_statistics_ols_fit_agg(revenue, treatment)).std_error as std_error,
-        (anofox_statistics_ols_fit_agg(revenue, treatment)).r_squared as r_squared,
+        (anofox_statistics_ols_fit_agg(revenue, [treatment], {'intercept': true})).coefficients[1] as treatment_effect,
+        (anofox_statistics_ols_fit_agg(revenue, [treatment], {'intercept': true})).residual_standard_error as std_error,
+        (anofox_statistics_ols_fit_agg(revenue, [treatment], {'intercept': true})).r2 as r_squared,
         COUNT(*) as n_obs
     FROM experiment_data
 ),
@@ -1673,9 +1672,9 @@ WITH store_data AS (
 -- Coefficient on treatment_post = causal effect estimate
 did_estimate AS (
     SELECT
-        (anofox_statistics_ols_fit_agg(sales, treatment_post)).coefficients[1] as did_coefficient,
-        (anofox_statistics_ols_fit_agg(sales, treatment_post)).std_error as std_error,
-        (anofox_statistics_ols_fit_agg(sales, treatment_post)).r_squared as r_squared,
+        (anofox_statistics_ols_fit_agg(sales, [treatment_post], {'intercept': true})).coefficients[1] as did_coefficient,
+        (anofox_statistics_ols_fit_agg(sales, [treatment_post], {'intercept': true})).residual_standard_error as std_error,
+        (anofox_statistics_ols_fit_agg(sales, [treatment_post], {'intercept': true})).r2 as r_squared,
         COUNT(*) as n_obs
     FROM store_data
 ),
@@ -1841,9 +1840,9 @@ WITH source_data AS (
 product_models AS (
     SELECT
         product_id,
-        anofox_statistics_ols_fit_agg(y, x1) as model_x1,
-        anofox_statistics_ols_fit_agg(y, x2) as model_x2,
-        anofox_statistics_ols_fit_agg(y, x3) as model_x3,
+        anofox_statistics_ols_fit_agg(y, [x1], {'intercept': true}) as model_x1,
+        anofox_statistics_ols_fit_agg(y, [x2], {'intercept': true}) as model_x2,
+        anofox_statistics_ols_fit_agg(y, [x3], {'intercept': true}) as model_x3,
         COUNT(*) as data_points,
         MIN(date) as training_start,
         MAX(date) as training_end,
@@ -1858,9 +1857,9 @@ SELECT
     (model_x1).coefficients[1] as price_coefficient,
     (model_x2).coefficients[1] as advertising_coefficient,
     (model_x3).coefficients[1] as competition_coefficient,
-    (model_x1).r_squared as r2_price,
-    (model_x2).r_squared as r2_advertising,
-    (model_x3).r_squared as r2_competition,
+    (model_x1).r2 as r2_price,
+    (model_x2).r2 as r2_advertising,
+    (model_x3).r2 as r2_competition,
     data_points,
     training_start,
     training_end,
@@ -2002,9 +2001,9 @@ source_data AS (
 product_models AS (
     SELECT
         product_id,
-        anofox_statistics_ols_fit_agg(y, x1) as model_x1,
-        anofox_statistics_ols_fit_agg(y, x2) as model_x2,
-        anofox_statistics_ols_fit_agg(y, x3) as model_x3,
+        anofox_statistics_ols_fit_agg(y, [x1], {'intercept': true}) as model_x1,
+        anofox_statistics_ols_fit_agg(y, [x2], {'intercept': true}) as model_x2,
+        anofox_statistics_ols_fit_agg(y, [x3], {'intercept': true}) as model_x3,
         COUNT(*) as data_points,
         CURRENT_DATE - (MAX(lookback) || ' DAYS')::INTERVAL as training_start,
         CURRENT_DATE as training_end,
@@ -2018,9 +2017,9 @@ SELECT
     (model_x1).coefficients[1] as price_coefficient,
     (model_x2).coefficients[1] as advertising_coefficient,
     (model_x3).coefficients[1] as competition_coefficient,
-    (model_x1).r_squared as r2_price,
-    (model_x2).r_squared as r2_advertising,
-    (model_x3).r_squared as r2_competition,
+    (model_x1).r2 as r2_price,
+    (model_x2).r2 as r2_advertising,
+    (model_x3).r2 as r2_competition,
     data_points,
     training_start,
     training_end,
@@ -2130,7 +2129,7 @@ monthly_models AS (
         (SELECT (anofox_statistics_ols_fit_agg(y, [x], {'intercept': true})).coefficients[1] FROM (
             SELECT UNNEST(y_values) as y, UNNEST(x_values) as x
         )) as coefficient,
-        (SELECT (anofox_statistics_ols_fit_agg(y, [x], {'intercept': true})).r_squared FROM (
+        (SELECT (anofox_statistics_ols_fit_agg(y, [x], {'intercept': true})).r2 FROM (
             SELECT UNNEST(y_values) as y, UNNEST(x_values) as x
         )) as r2
     FROM monthly_partitions
@@ -2156,8 +2155,8 @@ sample_model AS (
     SELECT
         (anofox_statistics_ols_fit_agg(y, [x1], {'intercept': true})).coefficients[1] as coeff_x1,
         (anofox_statistics_ols_fit_agg(y, [x2], {'intercept': true})).coefficients[1] as coeff_x2,
-        (anofox_statistics_ols_fit_agg(y, [x1], {'intercept': true})).r_squared as r2_x1,
-        (anofox_statistics_ols_fit_agg(y, [x2], {'intercept': true})).r_squared as r2_x2
+        (anofox_statistics_ols_fit_agg(y, [x1], {'intercept': true})).r2 as r2_x1,
+        (anofox_statistics_ols_fit_agg(y, [x2], {'intercept': true})).r2 as r2_x2
     FROM sample_data
 )
 -- Validate on sample, then run on full data if promising

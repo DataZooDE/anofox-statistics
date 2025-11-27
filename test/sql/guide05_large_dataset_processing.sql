@@ -43,7 +43,7 @@ monthly_models AS (
         (SELECT (anofox_statistics_ols_fit_agg(y, [x], {'intercept': true})).coefficients[1] FROM (
             SELECT UNNEST(y_values) as y, UNNEST(x_values) as x
         )) as coefficient,
-        (SELECT (anofox_statistics_ols_fit_agg(y, [x], {'intercept': true})).r_squared FROM (
+        (SELECT (anofox_statistics_ols_fit_agg(y, [x], {'intercept': true})).r2 FROM (
             SELECT UNNEST(y_values) as y, UNNEST(x_values) as x
         )) as r2
     FROM monthly_partitions
@@ -69,8 +69,8 @@ sample_model AS (
     SELECT
         (anofox_statistics_ols_fit_agg(y, [x1], {'intercept': true})).coefficients[1] as coeff_x1,
         (anofox_statistics_ols_fit_agg(y, [x2], {'intercept': true})).coefficients[1] as coeff_x2,
-        (anofox_statistics_ols_fit_agg(y, [x1], {'intercept': true})).r_squared as r2_x1,
-        (anofox_statistics_ols_fit_agg(y, [x2], {'intercept': true})).r_squared as r2_x2
+        (anofox_statistics_ols_fit_agg(y, [x1], {'intercept': true})).r2 as r2_x1,
+        (anofox_statistics_ols_fit_agg(y, [x2], {'intercept': true})).r2 as r2_x2
     FROM sample_data
 )
 -- Validate on sample, then run on full data if promising
