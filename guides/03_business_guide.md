@@ -2,6 +2,46 @@
 
 Practical business applications of regression analysis using the Anofox Statistics extension with SQL examples for common use cases.
 
+**⚠️ Important Notice**: All examples in this guide are illustrative and for educational purposes. Results and recommendations must be validated and tested case-by-case for your specific business context before making decisions.
+
+## Table of Contents
+
+- [Important Note About Examples](#important-note-about-examples)
+- [Marketing Analytics](#marketing-analytics)
+  - [Use Case 1: Marketing Mix Modeling](#use-case-1-marketing-mix-modeling)
+  - [Use Case 2: Price Elasticity Analysis](#use-case-2-price-elasticity-analysis)
+  - [Use Case 3: Customer Lifetime Value Prediction](#use-case-3-customer-lifetime-value-prediction)
+  - [Use Case 3b: Customer Segment Analysis with WLS Aggregate](#use-case-3b-customer-segment-analysis-with-wls-aggregate)
+- [Financial Analytics](#financial-analytics)
+  - [Use Case 4: Portfolio Beta Calculation](#use-case-4-portfolio-beta-calculation)
+  - [Use Case 4b: Multi-Factor Portfolio Analysis with Ridge Aggregate](#use-case-4b-multi-factor-portfolio-analysis-with-ridge-aggregate)
+  - [Use Case 5: Credit Risk Modeling](#use-case-5-credit-risk-modeling)
+  - [Use Case 6: Revenue Forecasting with Trend Analysis](#use-case-6-revenue-forecasting-with-trend-analysis)
+- [Operational Analytics](#operational-analytics)
+  - [Use Case 7: Demand Forecasting for Inventory](#use-case-7-demand-forecasting-for-inventory)
+  - [Use Case 7b: Adaptive Demand Forecasting with RLS Aggregate](#use-case-7b-adaptive-demand-forecasting-with-rls-aggregate)
+  - [Use Case 8: Quality Control Process Optimization](#use-case-8-quality-control-process-optimization)
+  - [Use Case 9: Employee Productivity Analysis](#use-case-9-employee-productivity-analysis)
+- [Sales Analytics](#sales-analytics)
+  - [Use Case 10: Territory Performance Analysis](#use-case-10-territory-performance-analysis)
+  - [Use Case 11: Regional Sales Analysis with OLS Aggregate](#use-case-11-regional-sales-analysis-with-ols-aggregate)
+- [Key Business Metrics & Interpretation](#key-business-metrics--interpretation)
+  - [Understanding R² (R-Squared)](#understanding-r²-r-squared)
+  - [Understanding P-Values](#understanding-p-values)
+  - [Understanding Coefficients](#understanding-coefficients)
+  - [Understanding Confidence Intervals](#understanding-confidence-intervals)
+  - [Understanding Outliers & Influence](#understanding-outliers--influence)
+- [ROI Analysis Framework](#roi-analysis-framework)
+  - [Marketing Campaign ROI](#marketing-campaign-roi)
+  - [Process Improvement ROI](#process-improvement-roi)
+- [Best Practices for Business Users](#best-practices-for-business-users)
+  - [1. Always Check Statistical Significance](#1-always-check-statistical-significance)
+  - [2. Validate Model Quality](#2-validate-model-quality)
+  - [3. Use Confidence Intervals for Risk Management](#3-use-confidence-intervals-for-risk-management)
+  - [4. Consider Business Context](#4-consider-business-context)
+  - [5. Monitor Model Performance Over Time](#5-monitor-model-performance-over-time)
+  - [6. Combine Multiple Models](#6-combine-multiple-models)
+
 ## Important Note About Examples
 
 **All examples below are copy-paste runnable!** Each example includes sample data creation.
@@ -14,6 +54,8 @@ Practical business applications of regression analysis using the Anofox Statisti
 - All functions use positional parameters with MAP options (no `:=` syntax)
 
 **To adapt for your tables**: Replace sample data creation with your actual tables. For table functions with large datasets, use the two-step approach: run `SELECT LIST(column) FROM table`, copy result, paste as literal array.
+
+[↑ Go to Top](#business-guide)
 
 ## Marketing Analytics
 
@@ -348,6 +390,8 @@ ORDER BY ltv_cac_ratio DESC;
 Premium segment: income_coef = 0.15, weighted_mse = 250 → Strong income effect, reliable estimate
 Budget segment: income_coef = 0.08, weighted_mse = 180 → Weaker income effect, tighter variance
 ```
+
+[↑ Go to Top](#business-guide)
 
 ## Financial Analytics
 
@@ -705,6 +749,8 @@ FROM forecast;
 ```
 
 **Business Decision**: Plan for $52.3M revenue in Q21, with contingency plans for $48-56M range.
+
+[↑ Go to Top](#business-guide)
 
 ## Operational Analytics
 
@@ -1097,6 +1143,8 @@ ORDER BY training_impact DESC;
 
 **Business Decision**: Allocate training budget to departments with highest ROI.
 
+[↑ Go to Top](#business-guide)
+
 ## Sales Analytics
 
 ### Use Case 10: Territory Performance Analysis
@@ -1293,6 +1341,8 @@ North region: elasticity = -1.2, R² = 0.85 → Price-sensitive, good fit
 South region: elasticity = -0.4, R² = 0.72 → Less price-sensitive, moderate fit
 ```
 
+[↑ Go to Top](#business-guide)
+
 ## Key Business Metrics & Interpretation
 
 ### Understanding R² (R-Squared)
@@ -1368,6 +1418,8 @@ South region: elasticity = -0.4, R² = 0.72 → Less price-sensitive, moderate f
 - Q4 sales spike (outlier) due to holiday season → Keep (real pattern)
 - Data entry error showing $10M sale → Remove (data quality issue)
 
+[↑ Go to Top](#business-guide)
+
 ## ROI Analysis Framework
 
 ### Marketing Campaign ROI
@@ -1409,6 +1461,8 @@ FROM campaigns;
 **Formula**: (Defect Reduction × Cost per Defect) - Implementation Cost
 
 Use regression to quantify defect reduction from process changes.
+
+[↑ Go to Top](#business-guide)
 
 ## Best Practices for Business Users
 
@@ -1551,18 +1605,4 @@ FROM complex_summary
 ORDER BY r_squared DESC;  -- Higher R² is better for comparison
 ```
 
-## Conclusion
-
-The Anofox Statistics extension provides regression analysis capabilities for DuckDB. Key takeaways:
-
-1. **Test Everything**: Use p-values to validate relationships
-2. **Quantify Impact**: Use coefficients for ROI calculations
-3. **Measure Uncertainty**: Use confidence intervals for risk management
-4. **Monitor Quality**: Use diagnostics to ensure model validity
-5. **Act with Confidence**: Statistical evidence → Better business decisions
-
-For more examples:
-
-- [Quick Start Guide](01_quick_start.md) - Basic usage
-- [Technical Guide](02_technical_guide.md) - Implementation details
-- [Advanced Use Cases](04_advanced_use_cases.md) - Complex workflows
+[↑ Go to Top](#business-guide)
