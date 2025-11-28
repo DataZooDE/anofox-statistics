@@ -476,8 +476,7 @@ static unique_ptr<FunctionData> RidgeFitBind(ClientContext &context, TableFuncti
 	}
 
 	// Set return schema (basic columns)
-	names = {"coefficients", "intercept", "r2",  "adj_r2", "mse",
-	         "rmse",         "n_obs",     "n_features", "lambda"};
+	names = {"coefficients", "intercept", "r2", "adj_r2", "mse", "rmse", "n_obs", "n_features", "lambda"};
 	return_types = {
 	    LogicalType::LIST(LogicalType::DOUBLE), // coefficients
 	    LogicalType::DOUBLE,                    // intercept

@@ -383,8 +383,8 @@ static unique_ptr<FunctionData> ElasticNetFitBind(ClientContext &context, TableF
 	ANOFOX_INFO("Elastic Net fit completed: R² = " << result->r_squared << ", nonzero=" << result->n_nonzero);
 
 	// Set return schema (basic columns)
-	names = {"coefficients", "intercept",  "r2", "adj_r2", "mse",      "rmse",
-	         "n_obs",        "n_features", "alpha",     "lambda",    "n_nonzero"};
+	names = {"coefficients", "intercept",  "r2",    "adj_r2", "mse",      "rmse",
+	         "n_obs",        "n_features", "alpha", "lambda", "n_nonzero"};
 
 	return_types = {LogicalType::LIST(LogicalType::DOUBLE),
 	                LogicalType::DOUBLE,
