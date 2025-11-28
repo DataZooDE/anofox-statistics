@@ -920,9 +920,9 @@ void RidgeFitFunction::Register(ExtensionLoader &loader) {
 
 	// Register 3-argument overload: (y DOUBLE[], x DOUBLE[][], options MAP/STRUCT)
 	vector<LogicalType> args_3 = {
-	    LogicalType::LIST(LogicalType::DOUBLE),                   // y: DOUBLE[]
+	    LogicalType::LIST(LogicalType::DOUBLE),                    // y: DOUBLE[]
 	    LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)), // x: DOUBLE[][]
-	    LogicalType::ANY                                          // options: MAP or STRUCT
+	    LogicalType::ANY                                           // options: MAP or STRUCT
 	};
 
 	TableFunction func_3("anofox_statistics_ridge_fit", args_3, RidgeFitExecute, RidgeFitBind, nullptr,

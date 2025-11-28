@@ -843,8 +843,7 @@ void WlsFitFunction::Register(ExtensionLoader &loader) {
 	    LogicalType::LIST(LogicalType::DOUBLE)                     // weights: DOUBLE[]
 	};
 
-	TableFunction func_3("anofox_statistics_wls_fit", args_3, WlsFitExecute, WlsFitBind, nullptr,
-	                     WlsFitInOutLocalInit);
+	TableFunction func_3("anofox_statistics_wls_fit", args_3, WlsFitExecute, WlsFitBind, nullptr, WlsFitInOutLocalInit);
 	func_3.in_out_function = WlsFitInOut;
 	loader.RegisterFunction(func_3);
 
@@ -856,8 +855,7 @@ void WlsFitFunction::Register(ExtensionLoader &loader) {
 	    LogicalType::ANY                                           // options: MAP or STRUCT
 	};
 
-	TableFunction func_4("anofox_statistics_wls_fit", args_4, WlsFitExecute, WlsFitBind, nullptr,
-	                     WlsFitInOutLocalInit);
+	TableFunction func_4("anofox_statistics_wls_fit", args_4, WlsFitExecute, WlsFitBind, nullptr, WlsFitInOutLocalInit);
 	func_4.in_out_function = WlsFitInOut;
 	loader.RegisterFunction(func_4);
 
