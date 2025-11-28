@@ -16,11 +16,11 @@ FROM (
 -- Track rolling 12-month ROI to detect relationship changes over time
 SELECT
     month,
-    ROUND((anofox_statistics_ols_fit_agg(sales, marketing) OVER (
+    ROUND((anofox_statistics_ols_fit_agg(sales, [marketing], {'intercept': true}) OVER (
         ORDER BY month
         ROWS BETWEEN 11 PRECEDING AND CURRENT ROW
     )).coefficients[1], 2) as rolling_12mo_roi,
-    ROUND((anofox_statistics_ols_fit_agg(sales, marketing) OVER (
+    ROUND((anofox_statistics_ols_fit_agg(sales, [marketing], {'intercept': true}) OVER (
         ORDER BY month
         ROWS BETWEEN 11 PRECEDING AND CURRENT ROW
     )).r2, 3) as rolling_model_quality

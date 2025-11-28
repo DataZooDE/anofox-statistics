@@ -34,14 +34,14 @@ FROM (
 -- Calculate price elasticity by product category
 SELECT
     category,
-    ROUND((anofox_statistics_ols_fit_agg(quantity, price)).coefficients[1], 3) as elasticity,
-    ROUND((anofox_statistics_ols_fit_agg(quantity, price)).r2, 3) as predictability,
+    ROUND((anofox_statistics_ols_fit_agg(quantity, [price], {'intercept': true})).coefficients[1], 3) as elasticity,
+    ROUND((anofox_statistics_ols_fit_agg(quantity, [price], {'intercept': true})).r2, 3) as predictability,
     CASE
-        WHEN ABS((anofox_statistics_ols_fit_agg(quantity, price)).coefficients[1]) > 0.5 THEN 'Elastic'
+        WHEN ABS((anofox_statistics_ols_fit_agg(quantity, [price], {'intercept': true})).coefficients[1]) > 0.5 THEN 'Elastic'
         ELSE 'Inelastic'
     END as elasticity_type,
     CASE
-        WHEN ABS((anofox_statistics_ols_fit_agg(quantity, price)).coefficients[1]) > 0.5 THEN 'Discount Strategy'
+        WHEN ABS((anofox_statistics_ols_fit_agg(quantity, [price], {'intercept': true})).coefficients[1]) > 0.5 THEN 'Discount Strategy'
         ELSE 'Premium Pricing'
     END as pricing_recommendation
 FROM sales_transactions

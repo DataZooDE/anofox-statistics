@@ -106,28 +106,28 @@ FROM (
 SELECT
     'tv' as channel,
     ROUND((anofox_statistics_ols_fit_agg(revenue, [tv_spend], {'intercept': true})).coefficients[1], 2) as roi,
-    ROUND((anofox_statistics_ols_fit_agg(revenue, [tv_spend], {'intercept': true})).r2, 3) as r_squared,
+    ROUND((anofox_statistics_ols_fit_agg(revenue, [tv_spend], {'intercept': true})).r2, 3) as r2,
     'High Impact' as business_impact
 FROM weekly_campaigns WHERE year = 2024
 UNION ALL
 SELECT
     'digital' as channel,
     ROUND((anofox_statistics_ols_fit_agg(revenue, [digital_spend], {'intercept': true})).coefficients[1], 2) as roi,
-    ROUND((anofox_statistics_ols_fit_agg(revenue, [digital_spend], {'intercept': true})).r2, 3) as r_squared,
+    ROUND((anofox_statistics_ols_fit_agg(revenue, [digital_spend], {'intercept': true})).r2, 3) as r2,
     'High Impact' as business_impact
 FROM weekly_campaigns WHERE year = 2024
 UNION ALL
 SELECT
     'print' as channel,
     ROUND((anofox_statistics_ols_fit_agg(revenue, [print_spend], {'intercept': true})).coefficients[1], 2) as roi,
-    ROUND((anofox_statistics_ols_fit_agg(revenue, [print_spend], {'intercept': true})).r2, 3) as r_squared,
+    ROUND((anofox_statistics_ols_fit_agg(revenue, [print_spend], {'intercept': true})).r2, 3) as r2,
     'Low Impact' as business_impact
 FROM weekly_campaigns WHERE year = 2024
 UNION ALL
 SELECT
     'radio' as channel,
     ROUND((anofox_statistics_ols_fit_agg(revenue, [radio_spend], {'intercept': true})).coefficients[1], 2) as roi,
-    ROUND((anofox_statistics_ols_fit_agg(revenue, [radio_spend], {'intercept': true})).r2, 3) as r_squared,
+    ROUND((anofox_statistics_ols_fit_agg(revenue, [radio_spend], {'intercept': true})).r2, 3) as r2,
     'High Impact' as business_impact
 FROM weekly_campaigns WHERE year = 2024
 ORDER BY roi DESC;
@@ -182,14 +182,14 @@ FROM (
 -- Calculate price elasticity by product category
 SELECT
     category,
-    ROUND((anofox_statistics_ols_fit_agg(quantity, price)).coefficients[1], 3) as elasticity,
-    ROUND((anofox_statistics_ols_fit_agg(quantity, price)).r2, 3) as predictability,
+    ROUND((anofox_statistics_ols_fit_agg(quantity, [price], {'intercept': true})).coefficients[1], 3) as elasticity,
+    ROUND((anofox_statistics_ols_fit_agg(quantity, [price], {'intercept': true})).r2, 3) as predictability,
     CASE
-        WHEN ABS((anofox_statistics_ols_fit_agg(quantity, price)).coefficients[1]) > 0.5 THEN 'Elastic'
+        WHEN ABS((anofox_statistics_ols_fit_agg(quantity, [price], {'intercept': true})).coefficients[1]) > 0.5 THEN 'Elastic'
         ELSE 'Inelastic'
     END as elasticity_type,
     CASE
-        WHEN ABS((anofox_statistics_ols_fit_agg(quantity, price)).coefficients[1]) > 0.5 THEN 'Discount Strategy'
+        WHEN ABS((anofox_statistics_ols_fit_agg(quantity, [price], {'intercept': true})).coefficients[1]) > 0.5 THEN 'Discount Strategy'
         ELSE 'Premium Pricing'
     END as pricing_recommendation
 FROM sales_transactions
@@ -236,25 +236,25 @@ FROM (
 -- Build CLV model using aggregate functions (works directly with table data)
 SELECT
     'Model Coefficient: Tenure' as metric,
-    ROUND((anofox_statistics_ols_fit_agg(total_purchases, tenure)).coefficients[1], 2) as value
+    ROUND((anofox_statistics_ols_fit_agg(total_purchases, [tenure], {'intercept': true})).coefficients[1], 2) as value
 FROM customer_summary
 WHERE cohort_month <= CURRENT_DATE - INTERVAL '12 months'
 UNION ALL
 SELECT
     'Model Coefficient: AOV' as metric,
-    ROUND((anofox_statistics_ols_fit_agg(total_purchases, aov)).coefficients[1], 2) as value
+    ROUND((anofox_statistics_ols_fit_agg(total_purchases, [aov], {'intercept': true})).coefficients[1], 2) as value
 FROM customer_summary
 WHERE cohort_month <= CURRENT_DATE - INTERVAL '12 months'
 UNION ALL
 SELECT
     'Model Coefficient: Frequency' as metric,
-    ROUND((anofox_statistics_ols_fit_agg(total_purchases, freq)).coefficients[1], 2) as value
+    ROUND((anofox_statistics_ols_fit_agg(total_purchases, [freq], {'intercept': true})).coefficients[1], 2) as value
 FROM customer_summary
 WHERE cohort_month <= CURRENT_DATE - INTERVAL '12 months'
 UNION ALL
 SELECT
     'Model Quality (R²)' as metric,
-    ROUND((anofox_statistics_ols_fit_agg(total_purchases, tenure)).r2, 3) as value
+    ROUND((anofox_statistics_ols_fit_agg(total_purchases, [tenure], {'intercept': true})).r2, 3) as value
 FROM customer_summary
 WHERE cohort_month <= CURRENT_DATE - INTERVAL '12 months';
 ```
@@ -449,16 +449,16 @@ FROM (
 -- Calculate beta (market sensitivity) for each stock
 SELECT
     stock_ticker,
-    ROUND((anofox_statistics_ols_fit_agg(stock_return, market_return)).coefficients[1], 3) as beta,
-    ROUND((anofox_statistics_ols_fit_agg(stock_return, market_return)).r2, 3) as r_squared,
+    ROUND((anofox_statistics_ols_fit_agg(stock_return, [market_return], {'intercept': true})).coefficients[1], 3) as beta,
+    ROUND((anofox_statistics_ols_fit_agg(stock_return, [market_return], {'intercept': true})).r2, 3) as r2,
     CASE
-        WHEN (anofox_statistics_ols_fit_agg(stock_return, market_return)).coefficients[1] > 1.2 THEN 'High Risk'
-        WHEN (anofox_statistics_ols_fit_agg(stock_return, market_return)).coefficients[1] > 0.8 THEN 'Medium Risk'
+        WHEN (anofox_statistics_ols_fit_agg(stock_return, [market_return], {'intercept': true})).coefficients[1] > 1.2 THEN 'High Risk'
+        WHEN (anofox_statistics_ols_fit_agg(stock_return, [market_return], {'intercept': true})).coefficients[1] > 0.8 THEN 'Medium Risk'
         ELSE 'Low Risk'
     END as risk_category,
     CASE
-        WHEN (anofox_statistics_ols_fit_agg(stock_return, market_return)).coefficients[1] > 1.0 THEN 'Aggressive'
-        WHEN (anofox_statistics_ols_fit_agg(stock_return, market_return)).coefficients[1] > 0.5 THEN 'Moderate'
+        WHEN (anofox_statistics_ols_fit_agg(stock_return, [market_return], {'intercept': true})).coefficients[1] > 1.0 THEN 'Aggressive'
+        WHEN (anofox_statistics_ols_fit_agg(stock_return, [market_return], {'intercept': true})).coefficients[1] > 0.5 THEN 'Moderate'
         ELSE 'Defensive'
     END as investor_suitability
 FROM daily_stock_returns
@@ -651,53 +651,53 @@ FROM range(1, 101) t(i);
 WITH risk_factors AS (
     SELECT
         'Credit Score' as variable,
-        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, credit_score)).coefficients[1], 5) as coefficient,
-        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, credit_score)).residual_standard_error, 4) as std_error,
+        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, [credit_score], {'intercept': true})).coefficients[1], 5) as coefficient,
+        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, [credit_score], {'intercept': true})).residual_standard_error, 4) as std_error,
         CASE
-            WHEN (anofox_statistics_ols_fit_agg(default_flag::DOUBLE, credit_score)).coefficients[1] > 0 THEN 'Increases Risk'
-            WHEN (anofox_statistics_ols_fit_agg(default_flag::DOUBLE, credit_score)).coefficients[1] < 0 THEN 'Decreases Risk'
+            WHEN (anofox_statistics_ols_fit_agg(default_flag::DOUBLE, [credit_score], {'intercept': true})).coefficients[1] > 0 THEN 'Increases Risk'
+            WHEN (anofox_statistics_ols_fit_agg(default_flag::DOUBLE, [credit_score], {'intercept': true})).coefficients[1] < 0 THEN 'Decreases Risk'
             ELSE 'No Effect'
         END as risk_impact,
-        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, credit_score)).r2, 3) as model_quality
+        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, [credit_score], {'intercept': true})).r2, 3) as model_quality
     FROM loans
     WHERE origination_date >= '2022-01-01'
     UNION ALL
     SELECT
         'Debt-to-Income' as variable,
-        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, debt_to_income)).coefficients[1], 5) as coefficient,
-        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, debt_to_income)).residual_standard_error, 4) as std_error,
+        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, [debt_to_income], {'intercept': true})).coefficients[1], 5) as coefficient,
+        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, [debt_to_income], {'intercept': true})).residual_standard_error, 4) as std_error,
         CASE
-            WHEN (anofox_statistics_ols_fit_agg(default_flag::DOUBLE, debt_to_income)).coefficients[1] > 0 THEN 'Increases Risk'
-            WHEN (anofox_statistics_ols_fit_agg(default_flag::DOUBLE, debt_to_income)).coefficients[1] < 0 THEN 'Decreases Risk'
+            WHEN (anofox_statistics_ols_fit_agg(default_flag::DOUBLE, [debt_to_income], {'intercept': true})).coefficients[1] > 0 THEN 'Increases Risk'
+            WHEN (anofox_statistics_ols_fit_agg(default_flag::DOUBLE, [debt_to_income], {'intercept': true})).coefficients[1] < 0 THEN 'Decreases Risk'
             ELSE 'No Effect'
         END as risk_impact,
-        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, debt_to_income)).r2, 3) as model_quality
+        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, [debt_to_income], {'intercept': true})).r2, 3) as model_quality
     FROM loans
     WHERE origination_date >= '2022-01-01'
     UNION ALL
     SELECT
         'Loan-to-Value' as variable,
-        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, loan_to_value)).coefficients[1], 5) as coefficient,
-        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, loan_to_value)).residual_standard_error, 4) as std_error,
+        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, [loan_to_value], {'intercept': true})).coefficients[1], 5) as coefficient,
+        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, [loan_to_value], {'intercept': true})).residual_standard_error, 4) as std_error,
         CASE
-            WHEN (anofox_statistics_ols_fit_agg(default_flag::DOUBLE, loan_to_value)).coefficients[1] > 0 THEN 'Increases Risk'
-            WHEN (anofox_statistics_ols_fit_agg(default_flag::DOUBLE, loan_to_value)).coefficients[1] < 0 THEN 'Decreases Risk'
+            WHEN (anofox_statistics_ols_fit_agg(default_flag::DOUBLE, [loan_to_value], {'intercept': true})).coefficients[1] > 0 THEN 'Increases Risk'
+            WHEN (anofox_statistics_ols_fit_agg(default_flag::DOUBLE, [loan_to_value], {'intercept': true})).coefficients[1] < 0 THEN 'Decreases Risk'
             ELSE 'No Effect'
         END as risk_impact,
-        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, loan_to_value)).r2, 3) as model_quality
+        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, [loan_to_value], {'intercept': true})).r2, 3) as model_quality
     FROM loans
     WHERE origination_date >= '2022-01-01'
     UNION ALL
     SELECT
         'Employment Years' as variable,
-        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, employment_years)).coefficients[1], 5) as coefficient,
-        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, employment_years)).residual_standard_error, 4) as std_error,
+        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, [employment_years], {'intercept': true})).coefficients[1], 5) as coefficient,
+        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, [employment_years], {'intercept': true})).residual_standard_error, 4) as std_error,
         CASE
-            WHEN (anofox_statistics_ols_fit_agg(default_flag::DOUBLE, employment_years)).coefficients[1] > 0 THEN 'Increases Risk'
-            WHEN (anofox_statistics_ols_fit_agg(default_flag::DOUBLE, employment_years)).coefficients[1] < 0 THEN 'Decreases Risk'
+            WHEN (anofox_statistics_ols_fit_agg(default_flag::DOUBLE, [employment_years], {'intercept': true})).coefficients[1] > 0 THEN 'Increases Risk'
+            WHEN (anofox_statistics_ols_fit_agg(default_flag::DOUBLE, [employment_years], {'intercept': true})).coefficients[1] < 0 THEN 'Decreases Risk'
             ELSE 'No Effect'
         END as risk_impact,
-        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, employment_years)).r2, 3) as model_quality
+        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, [employment_years], {'intercept': true})).r2, 3) as model_quality
     FROM loans
     WHERE origination_date >= '2022-01-01'
 )
@@ -823,15 +823,15 @@ FROM (
 SELECT
     product_id,
     season,
-    ROUND((anofox_statistics_ols_fit_agg(units_sold, price)).coefficients[1], 2) as price_sensitivity,
-    ROUND((anofox_statistics_ols_fit_agg(units_sold, price)).r2, 3) as forecast_accuracy,
+    ROUND((anofox_statistics_ols_fit_agg(units_sold, [price], {'intercept': true})).coefficients[1], 2) as price_sensitivity,
+    ROUND((anofox_statistics_ols_fit_agg(units_sold, [price], {'intercept': true})).r2, 3) as forecast_accuracy,
     CASE
-        WHEN (anofox_statistics_ols_fit_agg(units_sold, price)).r2 > 0.8 THEN 'High Confidence'
-        WHEN (anofox_statistics_ols_fit_agg(units_sold, price)).r2 > 0.5 THEN 'Medium Confidence'
+        WHEN (anofox_statistics_ols_fit_agg(units_sold, [price], {'intercept': true})).r2 > 0.8 THEN 'High Confidence'
+        WHEN (anofox_statistics_ols_fit_agg(units_sold, [price], {'intercept': true})).r2 > 0.5 THEN 'Medium Confidence'
         ELSE 'Low Confidence'
     END as forecast_reliability,
     CASE
-        WHEN (anofox_statistics_ols_fit_agg(units_sold, price)).r2 > 0.7 THEN 'Auto-Replenish'
+        WHEN (anofox_statistics_ols_fit_agg(units_sold, [price], {'intercept': true})).r2 > 0.7 THEN 'Auto-Replenish'
         ELSE 'Manual Review'
     END as inventory_strategy,
     COUNT(*) as sample_size
@@ -1140,15 +1140,15 @@ FROM (
 -- Analyze productivity drivers by department - focus on training impact
 SELECT
     department,
-    ROUND((anofox_statistics_ols_fit_agg(output_per_hour, training_hours)).coefficients[1], 2) as training_impact,
-    ROUND((anofox_statistics_ols_fit_agg(output_per_hour, training_hours)).r2, 3) as model_fit,
+    ROUND((anofox_statistics_ols_fit_agg(output_per_hour, [training_hours], {'intercept': true})).coefficients[1], 2) as training_impact,
+    ROUND((anofox_statistics_ols_fit_agg(output_per_hour, [training_hours], {'intercept': true})).r2, 3) as model_fit,
     CASE
-        WHEN (anofox_statistics_ols_fit_agg(output_per_hour, training_hours)).coefficients[1] > 5.0 THEN 'High Training ROI'
-        WHEN (anofox_statistics_ols_fit_agg(output_per_hour, training_hours)).coefficients[1] > 2.0 THEN 'Medium Training ROI'
+        WHEN (anofox_statistics_ols_fit_agg(output_per_hour, [training_hours], {'intercept': true})).coefficients[1] > 5.0 THEN 'High Training ROI'
+        WHEN (anofox_statistics_ols_fit_agg(output_per_hour, [training_hours], {'intercept': true})).coefficients[1] > 2.0 THEN 'Medium Training ROI'
         ELSE 'Low Training ROI'
     END as training_effectiveness,
     CASE
-        WHEN (anofox_statistics_ols_fit_agg(output_per_hour, training_hours)).coefficients[1] > 3.0 THEN 'Increase Training Budget'
+        WHEN (anofox_statistics_ols_fit_agg(output_per_hour, [training_hours], {'intercept': true})).coefficients[1] > 3.0 THEN 'Increase Training Budget'
         ELSE 'Maintain Current Level'
     END as budget_recommendation,
     COUNT(*) as sample_size
@@ -1200,7 +1200,7 @@ WITH territory_trends AS (
         territory_id,
         month_date,
         sales_amount,
-        (anofox_statistics_ols_fit_agg(sales_amount::DOUBLE, month_index::DOUBLE) OVER (
+        (anofox_statistics_ols_fit_agg(sales_amount::DOUBLE, [month_index::DOUBLE], {'intercept': true}) OVER (
             PARTITION BY territory_id
             ORDER BY month_date
             ROWS BETWEEN 5 PRECEDING AND CURRENT ROW
@@ -1459,16 +1459,16 @@ FROM (
 -- Calculate marketing ROI with statistical confidence using aggregate functions
 SELECT
     'Marketing ROI' as metric,
-    ROUND((anofox_statistics_ols_fit_agg(revenue, spend)).coefficients[1] - 1, 2) as roi_multiplier,
-    ROUND(((anofox_statistics_ols_fit_agg(revenue, spend)).coefficients[1] - 1) * 100, 1) || '%' as roi_percentage,
+    ROUND((anofox_statistics_ols_fit_agg(revenue, [spend], {'intercept': true})).coefficients[1] - 1, 2) as roi_multiplier,
+    ROUND(((anofox_statistics_ols_fit_agg(revenue, [spend], {'intercept': true})).coefficients[1] - 1) * 100, 1) || '%' as roi_percentage,
     CASE
-        WHEN (anofox_statistics_ols_fit_agg(revenue, spend)).coefficients[1] > 1.5 THEN 'Strong - Scale Up'
-        WHEN (anofox_statistics_ols_fit_agg(revenue, spend)).coefficients[1] > 1.0 THEN 'Positive - Continue'
-        WHEN (anofox_statistics_ols_fit_agg(revenue, spend)).coefficients[1] < 1.0 THEN 'Negative - Stop Campaign'
+        WHEN (anofox_statistics_ols_fit_agg(revenue, [spend], {'intercept': true})).coefficients[1] > 1.5 THEN 'Strong - Scale Up'
+        WHEN (anofox_statistics_ols_fit_agg(revenue, [spend], {'intercept': true})).coefficients[1] > 1.0 THEN 'Positive - Continue'
+        WHEN (anofox_statistics_ols_fit_agg(revenue, [spend], {'intercept': true})).coefficients[1] < 1.0 THEN 'Negative - Stop Campaign'
         ELSE 'Inconclusive - Gather More Data'
     END as recommendation,
-    ROUND((anofox_statistics_ols_fit_agg(revenue, spend)).residual_standard_error, 4) as std_error,
-    ROUND((anofox_statistics_ols_fit_agg(revenue, spend)).r2, 3) as model_quality
+    ROUND((anofox_statistics_ols_fit_agg(revenue, [spend], {'intercept': true})).residual_standard_error, 4) as std_error,
+    ROUND((anofox_statistics_ols_fit_agg(revenue, [spend], {'intercept': true})).r2, 3) as model_quality
 FROM campaigns;
 ```
 
@@ -1530,11 +1530,11 @@ FROM (
 -- Track rolling 12-month ROI to detect relationship changes over time
 SELECT
     month,
-    ROUND((anofox_statistics_ols_fit_agg(sales, marketing) OVER (
+    ROUND((anofox_statistics_ols_fit_agg(sales, [marketing], {'intercept': true}) OVER (
         ORDER BY month
         ROWS BETWEEN 11 PRECEDING AND CURRENT ROW
     )).coefficients[1], 2) as rolling_12mo_roi,
-    ROUND((anofox_statistics_ols_fit_agg(sales, marketing) OVER (
+    ROUND((anofox_statistics_ols_fit_agg(sales, [marketing], {'intercept': true}) OVER (
         ORDER BY month
         ROWS BETWEEN 11 PRECEDING AND CURRENT ROW
     )).r2, 3) as rolling_model_quality
@@ -1575,50 +1575,50 @@ FROM raw_data;
 WITH simple_model AS (
     SELECT
         'Simple Model (x1 only)' as model_type,
-        ROUND((anofox_statistics_ols_fit_agg(y, x1)).r2, 4) as r_squared,
+        ROUND((anofox_statistics_ols_fit_agg(y, [x1], {'intercept': true})).r2, 4) as r2,
         COUNT(*) as n_obs,
         1 as n_predictors
     FROM model_comparison_data
 ),
 -- Complex model: analyze multiple predictors individually
 complex_predictors AS (
-    SELECT 'x1' as var, (anofox_statistics_ols_fit_agg(y, x1)).r2 as r2 FROM model_comparison_data
+    SELECT 'x1' as var, (anofox_statistics_ols_fit_agg(y, [x1], {'intercept': true})).r2 as r2 FROM model_comparison_data
     UNION ALL
-    SELECT 'x2' as var, (anofox_statistics_ols_fit_agg(y, x2)).r2 as r2 FROM model_comparison_data
+    SELECT 'x2' as var, (anofox_statistics_ols_fit_agg(y, [x2], {'intercept': true})).r2 as r2 FROM model_comparison_data
     UNION ALL
-    SELECT 'x3' as var, (anofox_statistics_ols_fit_agg(y, x3)).r2 as r2 FROM model_comparison_data
+    SELECT 'x3' as var, (anofox_statistics_ols_fit_agg(y, [x3], {'intercept': true})).r2 as r2 FROM model_comparison_data
     UNION ALL
-    SELECT 'x4' as var, (anofox_statistics_ols_fit_agg(y, x4)).r2 as r2 FROM model_comparison_data
+    SELECT 'x4' as var, (anofox_statistics_ols_fit_agg(y, [x4], {'intercept': true})).r2 as r2 FROM model_comparison_data
 ),
 complex_summary AS (
     SELECT
         'Complex Model (all vars)' as model_type,
-        ROUND(MAX(r2), 4) as r_squared,  -- Best predictor's R²
+        ROUND(MAX(r2), 4) as r2,  -- Best predictor's R²
         (SELECT COUNT(*) FROM model_comparison_data) as n_obs,
         4 as n_predictors
     FROM complex_predictors
 )
 SELECT
     model_type,
-    r_squared,
+    r2,
     n_predictors,
     CASE
-        WHEN r_squared > 0.8 THEN 'Excellent'
-        WHEN r_squared > 0.6 THEN 'Good'
-        WHEN r_squared > 0.4 THEN 'Fair'
+        WHEN r2 > 0.8 THEN 'Excellent'
+        WHEN r2 > 0.6 THEN 'Good'
+        WHEN r2 > 0.4 THEN 'Fair'
         ELSE 'Poor'
     END as model_quality
 FROM simple_model
 UNION ALL
-SELECT model_type, r_squared, n_predictors,
+SELECT model_type, r2, n_predictors,
     CASE
-        WHEN r_squared > 0.8 THEN 'Excellent'
-        WHEN r_squared > 0.6 THEN 'Good'
-        WHEN r_squared > 0.4 THEN 'Fair'
+        WHEN r2 > 0.8 THEN 'Excellent'
+        WHEN r2 > 0.6 THEN 'Good'
+        WHEN r2 > 0.4 THEN 'Fair'
         ELSE 'Poor'
     END as model_quality
 FROM complex_summary
-ORDER BY r_squared DESC;  -- Higher R² is better for comparison
+ORDER BY r2 DESC;  -- Higher R² is better for comparison
 ```
 
 [↑ Go to Top](#business-guide)

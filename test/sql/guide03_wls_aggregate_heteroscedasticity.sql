@@ -26,7 +26,7 @@ SELECT
     'OLS (unweighted)' as method,
     result.coefficients[1] as income_propensity,
     result.intercept as base_spending,
-    result.r_squared,
+    result.r2,
     NULL as weighted_mse
 FROM (
     SELECT
@@ -45,7 +45,7 @@ SELECT
     'WLS (precision weighted)' as method,
     result.coefficients[1] as income_propensity,
     result.intercept as base_spending,
-    result.r_squared,
+    result.r2,
     result.weighted_mse
 FROM (
     SELECT

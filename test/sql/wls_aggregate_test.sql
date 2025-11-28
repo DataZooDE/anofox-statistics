@@ -2,6 +2,9 @@
 
 LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
 
+-- Set random seed for reproducible test results
+SELECT setseed(0.42);
+
 -- Create test data with varying weights (heteroscedasticity scenario)
 CREATE TABLE wls_agg_data AS
 SELECT
@@ -22,7 +25,7 @@ SELECT
     customer_segment,
     result.coefficients[1] as tenure_effect,
     result.intercept,
-    result.r_squared,
+    result.r2,
     result.weighted_mse,
     result.n_obs
 FROM (
@@ -42,11 +45,11 @@ ORDER BY customer_segment;
 SELECT '=== Test 2: WLS vs OLS comparison ===' as test_name;
 SELECT
     customer_segment,
-    wls.r_squared as wls_r2,
-    ols.r_squared as ols_r2,
+    wls.r2 as wls_r2,
+    ols.r2 as ols_r2,
     wls.coefficients[1] as wls_coef,
     ols.coefficients[1] as ols_coef,
-    (wls.r_squared - ols.r_squared) as r2_improvement
+    (wls.r2 - ols.r2) as r2_improvement
 FROM (
     SELECT
         customer_segment,
@@ -92,8 +95,8 @@ SELECT
     grp,
     result.coefficients,
     result.intercept,
-    result.r_squared,
-    result.adj_r_squared
+    result.r2,
+    result.adj_r2
 FROM (
     SELECT
         grp,
@@ -115,7 +118,7 @@ SELECT
     'WLS with uniform weights' as method,
     result.coefficients[1] as slope,
     result.intercept,
-    result.r_squared
+    result.r2
 FROM (
     SELECT anofox_statistics_wls_fit_agg(y, [x], weight, {'intercept': true}) as result
     FROM uniform_weight_data
@@ -125,7 +128,7 @@ SELECT
     'OLS for comparison' as method,
     result.coefficients[1] as slope,
     result.intercept,
-    result.r_squared
+    result.r2
 FROM (
     SELECT anofox_statistics_ols_fit_agg(y, [x], {'intercept': true}) as result
     FROM uniform_weight_data
@@ -182,7 +185,7 @@ SELECT '=== Test 8: Entire dataset aggregation ===' as test_name;
 SELECT
     result.coefficients,
     result.intercept,
-    result.r_squared,
+    result.r2,
     result.weighted_mse,
     result.n_obs
 FROM (

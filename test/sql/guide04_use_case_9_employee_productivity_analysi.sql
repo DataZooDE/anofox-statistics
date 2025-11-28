@@ -43,15 +43,15 @@ FROM (
 -- Analyze productivity drivers by department - focus on training impact
 SELECT
     department,
-    ROUND((anofox_statistics_ols_fit_agg(output_per_hour, training_hours)).coefficients[1], 2) as training_impact,
-    ROUND((anofox_statistics_ols_fit_agg(output_per_hour, training_hours)).r2, 3) as model_fit,
+    ROUND((anofox_statistics_ols_fit_agg(output_per_hour, [training_hours], {'intercept': true})).coefficients[1], 2) as training_impact,
+    ROUND((anofox_statistics_ols_fit_agg(output_per_hour, [training_hours], {'intercept': true})).r2, 3) as model_fit,
     CASE
-        WHEN (anofox_statistics_ols_fit_agg(output_per_hour, training_hours)).coefficients[1] > 5.0 THEN 'High Training ROI'
-        WHEN (anofox_statistics_ols_fit_agg(output_per_hour, training_hours)).coefficients[1] > 2.0 THEN 'Medium Training ROI'
+        WHEN (anofox_statistics_ols_fit_agg(output_per_hour, [training_hours], {'intercept': true})).coefficients[1] > 5.0 THEN 'High Training ROI'
+        WHEN (anofox_statistics_ols_fit_agg(output_per_hour, [training_hours], {'intercept': true})).coefficients[1] > 2.0 THEN 'Medium Training ROI'
         ELSE 'Low Training ROI'
     END as training_effectiveness,
     CASE
-        WHEN (anofox_statistics_ols_fit_agg(output_per_hour, training_hours)).coefficients[1] > 3.0 THEN 'Increase Training Budget'
+        WHEN (anofox_statistics_ols_fit_agg(output_per_hour, [training_hours], {'intercept': true})).coefficients[1] > 3.0 THEN 'Increase Training Budget'
         ELSE 'Maintain Current Level'
     END as budget_recommendation,
     COUNT(*) as sample_size

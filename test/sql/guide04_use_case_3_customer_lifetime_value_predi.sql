@@ -23,24 +23,24 @@ FROM (
 -- Build CLV model using aggregate functions (works directly with table data)
 SELECT
     'Model Coefficient: Tenure' as metric,
-    ROUND((anofox_statistics_ols_fit_agg(total_purchases, tenure)).coefficients[1], 2) as value
+    ROUND((anofox_statistics_ols_fit_agg(total_purchases, [tenure], {'intercept': true})).coefficients[1], 2) as value
 FROM customer_summary
 WHERE cohort_month <= CURRENT_DATE - INTERVAL '12 months'
 UNION ALL
 SELECT
     'Model Coefficient: AOV' as metric,
-    ROUND((anofox_statistics_ols_fit_agg(total_purchases, aov)).coefficients[1], 2) as value
+    ROUND((anofox_statistics_ols_fit_agg(total_purchases, [aov], {'intercept': true})).coefficients[1], 2) as value
 FROM customer_summary
 WHERE cohort_month <= CURRENT_DATE - INTERVAL '12 months'
 UNION ALL
 SELECT
     'Model Coefficient: Frequency' as metric,
-    ROUND((anofox_statistics_ols_fit_agg(total_purchases, freq)).coefficients[1], 2) as value
+    ROUND((anofox_statistics_ols_fit_agg(total_purchases, [freq], {'intercept': true})).coefficients[1], 2) as value
 FROM customer_summary
 WHERE cohort_month <= CURRENT_DATE - INTERVAL '12 months'
 UNION ALL
 SELECT
     'Model Quality (R²)' as metric,
-    ROUND((anofox_statistics_ols_fit_agg(total_purchases, tenure)).r2, 3) as value
+    ROUND((anofox_statistics_ols_fit_agg(total_purchases, [tenure], {'intercept': true})).r2, 3) as value
 FROM customer_summary
 WHERE cohort_month <= CURRENT_DATE - INTERVAL '12 months';

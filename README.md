@@ -138,6 +138,11 @@ Guides are available in the [`guides/`](guides/) directory:
 - **DuckDB**: v1.4.2 or higher
 - **Eigen3**: Linear algebra library (included as header-only)
 - **C++17 compiler**: GCC 7+, Clang 9+, MSVC 2019+
+- **ICU Extension** (Optional): Required for date/time operations in documentation examples
+  ```sql
+  INSTALL icu;
+  LOAD icu;
+  ```
 
 ## License
 

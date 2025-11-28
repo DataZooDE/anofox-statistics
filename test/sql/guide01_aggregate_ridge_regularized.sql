@@ -28,7 +28,7 @@ SELECT
     result.coefficients[1] as market_beta,
     result.coefficients[2] as sector_beta,
     result.coefficients[3] as momentum_factor,
-    result.r_squared,
+    result.r2,
     result.lambda
 FROM (
     SELECT

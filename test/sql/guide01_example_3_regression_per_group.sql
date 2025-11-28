@@ -11,7 +11,7 @@ FROM range(1, 21) t(i);
 -- Regression per product
 SELECT
     product,
-    (anofox_statistics_ols_fit_agg(quantity, price)).coefficients[1] as price_elasticity,
-    (anofox_statistics_ols_fit_agg(quantity, price)).r_squared as fit_quality
+    (anofox_statistics_ols_fit_agg(quantity, [price], {'intercept': true})).coefficients[1] as price_elasticity,
+    (anofox_statistics_ols_fit_agg(quantity, [price], {'intercept': true})).r2 as fit_quality
 FROM sales
 GROUP BY product;

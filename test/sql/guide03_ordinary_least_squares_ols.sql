@@ -16,7 +16,7 @@ FROM generate_series(1, 45) t(i);
 SELECT
     category,
     (anofox_statistics_ols_fit_agg(sales, [price], {'intercept': true})).coefficients[1] as price_effect,
-    (anofox_statistics_ols_fit_agg(sales, [price], {'intercept': true})).r_squared as r_squared
+    (anofox_statistics_ols_fit_agg(sales, [price], {'intercept': true})).r2 as r2
 FROM products
 GROUP BY category;
 

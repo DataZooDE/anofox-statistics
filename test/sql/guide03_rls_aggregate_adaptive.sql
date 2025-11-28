@@ -28,7 +28,7 @@ SELECT
     'Forgetting Factor: 1.0 (OLS equivalent)' as model,
     result.forgetting_factor,
     result.coefficients[1] as estimated_beta,
-    result.r_squared,
+    result.r2,
     'Averages all data equally - slow to adapt' as interpretation
 FROM (
     SELECT anofox_statistics_rls_fit_agg(
@@ -43,7 +43,7 @@ SELECT
     'Forgetting Factor: 0.98 (slow adaptation)' as model,
     result.forgetting_factor,
     result.coefficients[1] as estimated_beta,
-    result.r_squared,
+    result.r2,
     'Gradual weight decay - moderate adaptation' as interpretation
 FROM (
     SELECT anofox_statistics_rls_fit_agg(
@@ -58,7 +58,7 @@ SELECT
     'Forgetting Factor: 0.95 (moderate adaptation)' as model,
     result.forgetting_factor,
     result.coefficients[1] as estimated_beta,
-    result.r_squared,
+    result.r2,
     'Balanced - good for detecting regime changes' as interpretation
 FROM (
     SELECT anofox_statistics_rls_fit_agg(
@@ -73,7 +73,7 @@ SELECT
     'Forgetting Factor: 0.90 (fast adaptation)' as model,
     result.forgetting_factor,
     result.coefficients[1] as estimated_beta,
-    result.r_squared,
+    result.r2,
     'Heavy decay - very responsive to recent changes' as interpretation
 FROM (
     SELECT anofox_statistics_rls_fit_agg(
@@ -89,7 +89,7 @@ SELECT
     market_regime,
     result.coefficients[1] as regime_beta,
     result.forgetting_factor,
-    result.r_squared,
+    result.r2,
     result.n_obs
 FROM (
     SELECT

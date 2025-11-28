@@ -32,7 +32,7 @@ model1 AS (
     SELECT
         1 as model_id,
         'Marketing Only' as model_name,
-        (anofox_statistics_ols_fit_agg(y, [x1], {'intercept': true})).r2 as r_squared,
+        (anofox_statistics_ols_fit_agg(y, [x1], {'intercept': true})).r2 as r2,
         COUNT(*) as n_obs,
         2 as n_params
     FROM data
@@ -44,7 +44,7 @@ model2 AS (
         2 as model_id,
         'Marketing + Seasonality' as model_name,
         -- For multiple predictors, show R² from individual models
-        (anofox_statistics_ols_fit_agg(y, [x1], {'intercept': true})).r2 as r_squared,
+        (anofox_statistics_ols_fit_agg(y, [x1], {'intercept': true})).r2 as r2,
         COUNT(*) as n_obs,
         3 as n_params
     FROM data
@@ -55,7 +55,7 @@ model3 AS (
     SELECT
         3 as model_id,
         'Full Model' as model_name,
-        (anofox_statistics_ols_fit_agg(y, [x1], {'intercept': true})).r2 as r_squared,
+        (anofox_statistics_ols_fit_agg(y, [x1], {'intercept': true})).r2 as r2,
         COUNT(*) as n_obs,
         5 as n_params
     FROM data
@@ -74,12 +74,12 @@ SELECT
     model_id,
     model_name,
     n_params,
-    ROUND(r_squared, 4) as r2,
+    ROUND(r2, 4) as r2,
     n_obs,
-    RANK() OVER (ORDER BY r_squared DESC) as r2_rank,
+    RANK() OVER (ORDER BY r2 DESC) as r2_rank,
     CASE
-        WHEN RANK() OVER (ORDER BY r_squared DESC) = 1 THEN 'Best by R²'
+        WHEN RANK() OVER (ORDER BY r2 DESC) = 1 THEN 'Best by R²'
         ELSE ''
     END as recommendation
 FROM all_models
-ORDER BY r_squared DESC;
+ORDER BY r2 DESC;

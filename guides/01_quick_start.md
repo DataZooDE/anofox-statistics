@@ -127,8 +127,8 @@ FROM range(1, 21) t(i);
 -- Regression per product
 SELECT
     product,
-    (anofox_statistics_ols_fit_agg(quantity, price)).coefficients[1] as price_elasticity,
-    (anofox_statistics_ols_fit_agg(quantity, price)).r_squared as fit_quality
+    (anofox_statistics_ols_fit_agg(quantity, [price], {'intercept': true})).coefficients[1] as price_elasticity,
+    (anofox_statistics_ols_fit_agg(quantity, [price], {'intercept': true})).r2 as fit_quality
 FROM sales
 GROUP BY product;
 ```
@@ -293,7 +293,7 @@ SELECT
     category,
     result.coefficients[1] as price_elasticity,
     result.intercept,
-    result.r_squared,
+    result.r2,
     result.n_obs
 FROM (
     SELECT
@@ -346,7 +346,7 @@ SELECT
     segment,
     result.coefficients[1] as income_sensitivity,
     result.intercept,
-    result.r_squared,
+    result.r2,
     result.weighted_mse
 FROM (
     SELECT
@@ -404,7 +404,7 @@ SELECT
     result.coefficients[1] as market_beta,
     result.coefficients[2] as sector_beta,
     result.coefficients[3] as momentum_factor,
-    result.r_squared,
+    result.r2,
     result.lambda
 FROM (
     SELECT
@@ -460,7 +460,7 @@ SELECT
     sensor_id,
     result.coefficients[1] as calibration_slope,
     result.intercept as calibration_offset,
-    result.r_squared,
+    result.r2,
     result.forgetting_factor,
     result.n_obs
 FROM (

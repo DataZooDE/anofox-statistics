@@ -46,7 +46,7 @@ conversion_test AS (
     SELECT
         (anofox_statistics_ols_fit_agg(conversion, [treatment], {'intercept': true})).coefficients[1] as treatment_effect,
         (anofox_statistics_ols_fit_agg(conversion, [treatment], {'intercept': true})).residual_standard_error as std_error,
-        (anofox_statistics_ols_fit_agg(conversion, [treatment], {'intercept': true})).r2 as r_squared,
+        (anofox_statistics_ols_fit_agg(conversion, [treatment], {'intercept': true})).r2 as r2,
         COUNT(*) as n_obs
     FROM experiment_data
 ),
@@ -56,7 +56,7 @@ revenue_test AS (
     SELECT
         (anofox_statistics_ols_fit_agg(revenue, [treatment], {'intercept': true})).coefficients[1] as treatment_effect,
         (anofox_statistics_ols_fit_agg(revenue, [treatment], {'intercept': true})).residual_standard_error as std_error,
-        (anofox_statistics_ols_fit_agg(revenue, [treatment], {'intercept': true})).r2 as r_squared,
+        (anofox_statistics_ols_fit_agg(revenue, [treatment], {'intercept': true})).r2 as r2,
         COUNT(*) as n_obs
     FROM experiment_data
 ),
@@ -68,7 +68,7 @@ conversion_significance AS (
     SELECT
         treatment_effect,
         std_error,
-        r_squared,
+        r2,
         treatment_effect / std_error as t_stat,
         ABS(treatment_effect / std_error) > 1.96 as is_significant,
         -- 95% confidence interval
@@ -81,7 +81,7 @@ revenue_significance AS (
     SELECT
         treatment_effect,
         std_error,
-        r_squared,
+        r2,
         treatment_effect / std_error as t_stat,
         ABS(treatment_effect / std_error) > 1.96 as is_significant,
         treatment_effect - 1.96 * std_error as ci_lower,

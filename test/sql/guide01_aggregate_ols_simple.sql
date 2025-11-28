@@ -22,7 +22,7 @@ SELECT
     category,
     result.coefficients[1] as price_elasticity,
     result.intercept,
-    result.r_squared,
+    result.r2,
     result.n_obs
 FROM (
     SELECT

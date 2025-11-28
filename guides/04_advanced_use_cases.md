@@ -214,7 +214,7 @@ performance_summary AS (
     SELECT
         'Training' as dataset,
         n_train as n_obs,
-        ROUND(model_r2, 4) as r_squared,
+        ROUND(model_r2, 4) as r2,
         ROUND(model_std_error, 4) as std_error,
         (SELECT COUNT(*) FROM outlier_detection WHERE is_outlier) as n_outliers
     FROM model_params
@@ -222,7 +222,7 @@ performance_summary AS (
     SELECT
         'Prediction' as dataset,
         COUNT(*) as n_obs,
-        NULL as r_squared,
+        NULL as r2,
         NULL as std_error,
         NULL as n_outliers
     FROM predictions
@@ -268,7 +268,7 @@ UNION ALL
 SELECT 'Dataset', CAST(dataset AS VARCHAR), CAST(n_obs AS VARCHAR)
 FROM performance_summary
 UNION ALL
-SELECT 'R-Squared', NULL, CAST(r_squared AS VARCHAR)
+SELECT 'R-Squared', NULL, CAST(r2 AS VARCHAR)
 FROM performance_summary WHERE dataset = 'Training'
 UNION ALL
 SELECT 'Std Error', NULL, CAST(std_error AS VARCHAR)
@@ -352,7 +352,7 @@ model1 AS (
     SELECT
         1 as model_id,
         'Marketing Only' as model_name,
-        (anofox_statistics_ols_fit_agg(y, [x1], {'intercept': true})).r2 as r_squared,
+        (anofox_statistics_ols_fit_agg(y, [x1], {'intercept': true})).r2 as r2,
         COUNT(*) as n_obs,
         2 as n_params
     FROM data
@@ -364,7 +364,7 @@ model2 AS (
         2 as model_id,
         'Marketing + Seasonality' as model_name,
         -- For multiple predictors, show R² from individual models
-        (anofox_statistics_ols_fit_agg(y, [x1], {'intercept': true})).r2 as r_squared,
+        (anofox_statistics_ols_fit_agg(y, [x1], {'intercept': true})).r2 as r2,
         COUNT(*) as n_obs,
         3 as n_params
     FROM data
@@ -375,7 +375,7 @@ model3 AS (
     SELECT
         3 as model_id,
         'Full Model' as model_name,
-        (anofox_statistics_ols_fit_agg(y, [x1], {'intercept': true})).r2 as r_squared,
+        (anofox_statistics_ols_fit_agg(y, [x1], {'intercept': true})).r2 as r2,
         COUNT(*) as n_obs,
         5 as n_params
     FROM data
@@ -394,15 +394,15 @@ SELECT
     model_id,
     model_name,
     n_params,
-    ROUND(r_squared, 4) as r2,
+    ROUND(r2, 4) as r2,
     n_obs,
-    RANK() OVER (ORDER BY r_squared DESC) as r2_rank,
+    RANK() OVER (ORDER BY r2 DESC) as r2_rank,
     CASE
-        WHEN RANK() OVER (ORDER BY r_squared DESC) = 1 THEN 'Best by R²'
+        WHEN RANK() OVER (ORDER BY r2 DESC) = 1 THEN 'Best by R²'
         ELSE ''
     END as recommendation
 FROM all_models
-ORDER BY r_squared DESC;
+ORDER BY r2 DESC;
 ```
 
 [↑ Go to Top](#advanced-use-cases)
@@ -1550,7 +1550,7 @@ conversion_test AS (
     SELECT
         (anofox_statistics_ols_fit_agg(conversion, [treatment], {'intercept': true})).coefficients[1] as treatment_effect,
         (anofox_statistics_ols_fit_agg(conversion, [treatment], {'intercept': true})).residual_standard_error as std_error,
-        (anofox_statistics_ols_fit_agg(conversion, [treatment], {'intercept': true})).r2 as r_squared,
+        (anofox_statistics_ols_fit_agg(conversion, [treatment], {'intercept': true})).r2 as r2,
         COUNT(*) as n_obs
     FROM experiment_data
 ),
@@ -1560,7 +1560,7 @@ revenue_test AS (
     SELECT
         (anofox_statistics_ols_fit_agg(revenue, [treatment], {'intercept': true})).coefficients[1] as treatment_effect,
         (anofox_statistics_ols_fit_agg(revenue, [treatment], {'intercept': true})).residual_standard_error as std_error,
-        (anofox_statistics_ols_fit_agg(revenue, [treatment], {'intercept': true})).r2 as r_squared,
+        (anofox_statistics_ols_fit_agg(revenue, [treatment], {'intercept': true})).r2 as r2,
         COUNT(*) as n_obs
     FROM experiment_data
 ),
@@ -1572,7 +1572,7 @@ conversion_significance AS (
     SELECT
         treatment_effect,
         std_error,
-        r_squared,
+        r2,
         treatment_effect / std_error as t_stat,
         ABS(treatment_effect / std_error) > 1.96 as is_significant,
         -- 95% confidence interval
@@ -1585,7 +1585,7 @@ revenue_significance AS (
     SELECT
         treatment_effect,
         std_error,
-        r_squared,
+        r2,
         treatment_effect / std_error as t_stat,
         ABS(treatment_effect / std_error) > 1.96 as is_significant,
         treatment_effect - 1.96 * std_error as ci_lower,
@@ -1737,7 +1737,7 @@ did_estimate AS (
     SELECT
         (anofox_statistics_ols_fit_agg(sales, [treatment_post], {'intercept': true})).coefficients[1] as did_coefficient,
         (anofox_statistics_ols_fit_agg(sales, [treatment_post], {'intercept': true})).residual_standard_error as std_error,
-        (anofox_statistics_ols_fit_agg(sales, [treatment_post], {'intercept': true})).r2 as r_squared,
+        (anofox_statistics_ols_fit_agg(sales, [treatment_post], {'intercept': true})).r2 as r2,
         COUNT(*) as n_obs
     FROM store_data
 ),
@@ -1747,7 +1747,7 @@ did_significance AS (
     SELECT
         did_coefficient as causal_effect,
         std_error,
-        r_squared,
+        r2,
         did_coefficient / std_error as t_statistic,
         ABS(did_coefficient / std_error) > 1.96 as is_significant,
         did_coefficient - 1.96 * std_error as ci_lower,
@@ -2387,7 +2387,7 @@ WITH validation AS (
     FROM anofox_statistics_residual_diagnostics(
         [100.0::DOUBLE, 110.0, 120.0, 130.0, 140.0],
         [102.0::DOUBLE, 108.0, 118.0, 132.0, 138.0],
-        outlier_threshold := 2.5
+        2.5
     ) WHERE is_outlier
 )
 SELECT * FROM validation;
@@ -2427,20 +2427,20 @@ SELECT * FROM validation;
 CREATE TEMP TABLE model_results_archive AS
 SELECT
     'product_sales_model' as model_name,
-    0.85 as r_squared,
+    0.85 as r2,
     (DATE '2024-01-01' + i * INTERVAL '1' DAY) as archived_at
 FROM generate_series(1, 30) t(i);
 
 -- Create current model results
 CREATE TEMP TABLE current_model AS
 SELECT
-    0.82 as r_squared,
-    0.81 as adj_r_squared;
+    0.82 as r2,
+    0.81 as adj_r2;
 
 -- Track model performance over time
 CREATE TEMP TABLE model_performance_log AS
 WITH previous_performance AS (
-    SELECT r_squared as previous_r2
+    SELECT r2 as previous_r2
     FROM model_results_archive
     WHERE model_name = 'product_sales_model'
     ORDER BY archived_at DESC LIMIT 1 OFFSET 1
@@ -2449,7 +2449,7 @@ performance_with_previous AS (
     SELECT
         CURRENT_DATE as check_date,
         'product_sales_model' as model_name,
-        r_squared as current_r2,
+        r2 as current_r2,
         (SELECT previous_r2 FROM previous_performance) as previous_r2
     FROM current_model
 )
@@ -2507,7 +2507,7 @@ CREATE TABLE model_registry (
     independent_variables VARCHAR[],
     training_date TIMESTAMP,
     training_observations BIGINT,
-    r_squared DOUBLE,
+    r2 DOUBLE,
     coefficients DOUBLE[],
     business_owner VARCHAR,
     use_case TEXT,

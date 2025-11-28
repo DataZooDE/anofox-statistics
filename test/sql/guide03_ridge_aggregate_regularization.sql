@@ -21,8 +21,8 @@ SELECT
     result.coefficients[1] as adv_coef,
     result.coefficients[2] as social_coef,
     result.coefficients[3] as influencer_coef,
-    result.r_squared,
-    result.adj_r_squared
+    result.r2,
+    result.adj_r2
 FROM (
     SELECT
         product,
@@ -42,8 +42,8 @@ SELECT
     result.coefficients[1],
     result.coefficients[2],
     result.coefficients[3],
-    result.r_squared,
-    result.adj_r_squared
+    result.r2,
+    result.adj_r2
 FROM (
     SELECT
         product,
@@ -63,8 +63,8 @@ SELECT
     result.coefficients[1],
     result.coefficients[2],
     result.coefficients[3],
-    result.r_squared,
-    result.adj_r_squared
+    result.r2,
+    result.adj_r2
 FROM (
     SELECT
         product,

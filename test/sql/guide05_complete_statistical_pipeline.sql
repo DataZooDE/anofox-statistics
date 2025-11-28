@@ -131,7 +131,7 @@ performance_summary AS (
     SELECT
         'Training' as dataset,
         n_train as n_obs,
-        ROUND(model_r2, 4) as r_squared,
+        ROUND(model_r2, 4) as r2,
         ROUND(model_std_error, 4) as std_error,
         (SELECT COUNT(*) FROM outlier_detection WHERE is_outlier) as n_outliers
     FROM model_params
@@ -139,7 +139,7 @@ performance_summary AS (
     SELECT
         'Prediction' as dataset,
         COUNT(*) as n_obs,
-        NULL as r_squared,
+        NULL as r2,
         NULL as std_error,
         NULL as n_outliers
     FROM predictions
@@ -185,7 +185,7 @@ UNION ALL
 SELECT 'Dataset', CAST(dataset AS VARCHAR), CAST(n_obs AS VARCHAR)
 FROM performance_summary
 UNION ALL
-SELECT 'R-Squared', NULL, CAST(r_squared AS VARCHAR)
+SELECT 'R-Squared', NULL, CAST(r2 AS VARCHAR)
 FROM performance_summary WHERE dataset = 'Training'
 UNION ALL
 SELECT 'Std Error', NULL, CAST(std_error AS VARCHAR)
