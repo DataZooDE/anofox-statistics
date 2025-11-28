@@ -30,8 +30,8 @@ namespace anofox_statistics {
  * Returns:
  *   - coefficients: DOUBLE[] - Ridge regression coefficients
  *   - intercept: DOUBLE - Model intercept
- *   - r_squared: DOUBLE - R² on training data
- *   - adj_r_squared: DOUBLE - Adjusted R²
+ *   - r2: DOUBLE - R² on training data
+ *   - adj_r2: DOUBLE - Adjusted R²
  *   - mse: DOUBLE - Mean Squared Error
  *   - rmse: DOUBLE - Root Mean Squared Error
  *   - n_obs: BIGINT - Number of observations

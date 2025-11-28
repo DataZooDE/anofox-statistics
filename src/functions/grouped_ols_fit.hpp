@@ -33,8 +33,8 @@ namespace anofox_statistics {
  *   - group_key: VARCHAR[] - Values of grouping columns
  *   - coefficients: DOUBLE[] - OLS coefficient estimates
  *   - intercept: DOUBLE - OLS intercept estimate
- *   - r_squared: DOUBLE - R² (coefficient of determination)
- *   - adj_r_squared: DOUBLE - Adjusted R²
+ *   - r2: DOUBLE - R² (coefficient of determination)
+ *   - adj_r2: DOUBLE - Adjusted R²
  *   - mse: DOUBLE - Mean squared error
  *   - rmse: DOUBLE - Root mean squared error
  *   - n_obs: BIGINT - Observations in group
@@ -42,7 +42,7 @@ namespace anofox_statistics {
  *
  * Examples:
  *   -- Fit OLS for each customer
- *   SELECT group_id, group_key, coefficients, r_squared
+ *   SELECT group_id, group_key, coefficients, r2
  *   FROM anofox_grouped_ols_fit(
  *       (SELECT customer_id, x1, x2, y FROM sales_data),
  *       ['customer_id'],

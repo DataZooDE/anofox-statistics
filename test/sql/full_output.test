@@ -184,7 +184,7 @@ SELECT
     n_obs IS NOT NULL as has_n_obs,
     n_features IS NOT NULL as has_n_features,
     alpha IS NOT NULL as has_alpha,
-    reg_lambda IS NOT NULL as has_lambda,
+    "lambda" IS NOT NULL as has_lambda,
     n_nonzero IS NOT NULL as has_n_nonzero,
     coefficient_std_errors IS NOT NULL as has_coef_se,
     intercept_std_error IS NOT NULL as has_intercept_se,

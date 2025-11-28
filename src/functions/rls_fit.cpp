@@ -321,13 +321,13 @@ static unique_ptr<FunctionData> RlsFitBind(ClientContext &context, TableFunction
 	}
 
 	// Set return schema (basic columns)
-	names = {"coefficients", "intercept",         "r_squared", "adj_r_squared", "mse",
+	names = {"coefficients", "intercept",         "r2", "adj_r2", "mse",
 	         "rmse",         "forgetting_factor", "n_obs",     "n_features"};
 	return_types = {
 	    LogicalType::LIST(LogicalType::DOUBLE), // coefficients
 	    LogicalType::DOUBLE,                    // intercept
-	    LogicalType::DOUBLE,                    // r_squared
-	    LogicalType::DOUBLE,                    // adj_r_squared
+	    LogicalType::DOUBLE,                    // r2
+	    LogicalType::DOUBLE,                    // adj_r2
 	    LogicalType::DOUBLE,                    // mse
 	    LogicalType::DOUBLE,                    // rmse
 	    LogicalType::DOUBLE,                    // forgetting_factor

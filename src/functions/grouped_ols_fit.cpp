@@ -38,8 +38,8 @@ struct GroupedOlsFitBindData : public FunctionData {
 		std::vector<std::string> group_key;
 		Eigen::VectorXd coefficients;
 		double intercept;
-		double r_squared;
-		double adj_r_squared;
+		double r2;
+		double adj_r2;
 		double mse;
 		double rmse;
 		idx_t n_obs;
@@ -192,15 +192,15 @@ void GroupedOlsFitFunction::GroupedOlsFitExecute(ClientContext &context, TableFu
 		intercept_vec.SetVectorType(VectorType::FLAT_VECTOR);
 		FlatVector::GetData<double>(intercept_vec)[output_idx] = group_result.intercept;
 
-		// Column 4: r_squared
+		// Column 4: r2
 		auto &r2_vec = output.data[4];
 		r2_vec.SetVectorType(VectorType::FLAT_VECTOR);
-		FlatVector::GetData<double>(r2_vec)[output_idx] = group_result.r_squared;
+		FlatVector::GetData<double>(r2_vec)[output_idx] = group_result.r2;
 
-		// Column 5: adj_r_squared
+		// Column 5: adj_r2
 		auto &adj_r2_vec = output.data[5];
 		adj_r2_vec.SetVectorType(VectorType::FLAT_VECTOR);
-		FlatVector::GetData<double>(adj_r2_vec)[output_idx] = group_result.adj_r_squared;
+		FlatVector::GetData<double>(adj_r2_vec)[output_idx] = group_result.adj_r2;
 
 		// Column 6: mse
 		auto &mse_vec = output.data[6];

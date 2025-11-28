@@ -29,8 +29,8 @@ namespace anofox_statistics {
  * Returns:
  *   - coefficients: DOUBLE[] - WLS regression coefficients
  *   - intercept: DOUBLE - Model intercept
- *   - r_squared: DOUBLE - Weighted R²
- *   - adj_r_squared: DOUBLE - Adjusted weighted R²
+ *   - r2: DOUBLE - Weighted R²
+ *   - adj_r2: DOUBLE - Adjusted weighted R²
  *   - mse: DOUBLE - Weighted Mean Squared Error
  *   - rmse: DOUBLE - Weighted Root Mean Squared Error
  *   - n_obs: BIGINT - Number of observations
