@@ -2,6 +2,9 @@
 
 LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
 
+-- Set random seed for reproducible test results
+SELECT setseed(0.42);
+
 -- Create test data with varying weights (heteroscedasticity scenario)
 CREATE TABLE wls_agg_data AS
 SELECT

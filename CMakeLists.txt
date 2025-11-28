@@ -36,15 +36,15 @@ set(EXTENSION_SOURCES
 
     # Utils
     src/utils/tracing.cpp
-    src/utils/validation.cpp  # Updated for DuckDB v1.4.1 API
+    src/utils/validation.cpp  # Updated for DuckDB API
     src/utils/options_parser.cpp  # MAP-based options parsing for regression functions
     src/utils/elastic_net_solver.cpp  # Elastic Net coordinate descent solver
 
     # Bridge layer (for Eigen integration)
-    # src/bridge/type_converter.cpp  # TODO: Update for v1.4.1 if needed
-    # src/bridge/memory_manager.cpp  # TODO: Update for v1.4.1 if needed
+    # src/bridge/type_converter.cpp  # TODO: Update if needed
+    # src/bridge/memory_manager.cpp  # TODO: Update if needed
 
-    # Functions - Fit (Phase 2 - Array-based implementation for v1.4.1)
+    # Functions - Fit (Phase 2 - Array-based implementation)
     src/functions/ols_fit.cpp         # Ordinary Least Squares regression
     src/functions/ridge_fit.cpp       # Ridge regression with L2 regularization
     src/functions/wls_fit.cpp         # Weighted Least Squares

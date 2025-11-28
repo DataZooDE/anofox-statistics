@@ -33,7 +33,7 @@ WITH validation AS (
     FROM anofox_statistics_residual_diagnostics(
         [100.0::DOUBLE, 110.0, 120.0, 130.0, 140.0],
         [102.0::DOUBLE, 108.0, 118.0, 132.0, 138.0],
-        outlier_threshold := 2.5
+        2.5
     ) WHERE is_outlier
 )
 SELECT * FROM validation;

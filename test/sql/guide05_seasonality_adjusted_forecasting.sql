@@ -24,7 +24,7 @@ WITH monthly_data AS (
 -- Fit overall trend using aggregate function
 trend_model AS (
     SELECT
-        ols_fit_agg(revenue, time_idx::DOUBLE) as model
+        anofox_statistics_ols_fit_agg(revenue, [time_idx::DOUBLE], {'intercept': true}) as model
     FROM monthly_data
 ),
 
@@ -35,7 +35,7 @@ detrended AS (
         md.revenue,
         md.month_num,
         md.time_idx,
-        md.revenue - ((tm.model).intercept + (tm.model).coefficient * md.time_idx) as detrended_revenue
+        md.revenue - ((tm.model).intercept + (tm.model).coefficients[1] * md.time_idx) as detrended_revenue
     FROM monthly_data md
     CROSS JOIN trend_model tm
 ),
@@ -62,11 +62,11 @@ forecasts AS (
         fm.future_idx as month_ahead,
         fm.month_num,
         -- Trend component
-        (tm.model).intercept + (tm.model).coefficient * fm.future_idx as trend_component,
+        (tm.model).intercept + (tm.model).coefficients[1] * fm.future_idx as trend_component,
         -- Seasonal component
         sf.seasonal_component,
         -- Combined forecast
-        ((tm.model).intercept + (tm.model).coefficient * fm.future_idx) + sf.seasonal_component as forecast
+        ((tm.model).intercept + (tm.model).coefficients[1] * fm.future_idx) + sf.seasonal_component as forecast
     FROM future_months fm
     CROSS JOIN trend_model tm
     LEFT JOIN seasonal_factors sf ON fm.month_num = sf.month_num

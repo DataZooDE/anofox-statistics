@@ -9,7 +9,7 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 EXTENSION_NAME="${EXTENSION_NAME:-anofox_statistics}"
 BUILD_DIR="${BUILD_DIR:-${PROJECT_ROOT}/build/release}"
 SQL_DIR="${PROJECT_ROOT}/test/sql"
-DUCKDB_CLI="${DUCKDB_CLI:-/tmp/duckdb}"
+DUCKDB_CLI="${DUCKDB_CLI:-$HOME/.local/bin/duckdb}"
 
 # Test a SQL file
 test_sql_file() {

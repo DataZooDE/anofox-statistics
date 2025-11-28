@@ -25,47 +25,47 @@ FROM raw_data;
 WITH simple_model AS (
     SELECT
         'Simple Model (x1 only)' as model_type,
-        ROUND((ols_fit_agg(y, x1)).r2, 4) as r_squared,
+        ROUND((anofox_statistics_ols_fit_agg(y, [x1], {'intercept': true})).r2, 4) as r2,
         COUNT(*) as n_obs,
         1 as n_predictors
     FROM model_comparison_data
 ),
 -- Complex model: analyze multiple predictors individually
 complex_predictors AS (
-    SELECT 'x1' as var, (ols_fit_agg(y, x1)).r2 as r2 FROM model_comparison_data
+    SELECT 'x1' as var, (anofox_statistics_ols_fit_agg(y, [x1], {'intercept': true})).r2 as r2 FROM model_comparison_data
     UNION ALL
-    SELECT 'x2' as var, (ols_fit_agg(y, x2)).r2 as r2 FROM model_comparison_data
+    SELECT 'x2' as var, (anofox_statistics_ols_fit_agg(y, [x2], {'intercept': true})).r2 as r2 FROM model_comparison_data
     UNION ALL
-    SELECT 'x3' as var, (ols_fit_agg(y, x3)).r2 as r2 FROM model_comparison_data
+    SELECT 'x3' as var, (anofox_statistics_ols_fit_agg(y, [x3], {'intercept': true})).r2 as r2 FROM model_comparison_data
     UNION ALL
-    SELECT 'x4' as var, (ols_fit_agg(y, x4)).r2 as r2 FROM model_comparison_data
+    SELECT 'x4' as var, (anofox_statistics_ols_fit_agg(y, [x4], {'intercept': true})).r2 as r2 FROM model_comparison_data
 ),
 complex_summary AS (
     SELECT
         'Complex Model (all vars)' as model_type,
-        ROUND(MAX(r2), 4) as r_squared,  -- Best predictor's R²
+        ROUND(MAX(r2), 4) as r2,  -- Best predictor's R²
         (SELECT COUNT(*) FROM model_comparison_data) as n_obs,
         4 as n_predictors
     FROM complex_predictors
 )
 SELECT
     model_type,
-    r_squared,
+    r2,
     n_predictors,
     CASE
-        WHEN r_squared > 0.8 THEN 'Excellent'
-        WHEN r_squared > 0.6 THEN 'Good'
-        WHEN r_squared > 0.4 THEN 'Fair'
+        WHEN r2 > 0.8 THEN 'Excellent'
+        WHEN r2 > 0.6 THEN 'Good'
+        WHEN r2 > 0.4 THEN 'Fair'
         ELSE 'Poor'
     END as model_quality
 FROM simple_model
 UNION ALL
-SELECT model_type, r_squared, n_predictors,
+SELECT model_type, r2, n_predictors,
     CASE
-        WHEN r_squared > 0.8 THEN 'Excellent'
-        WHEN r_squared > 0.6 THEN 'Good'
-        WHEN r_squared > 0.4 THEN 'Fair'
+        WHEN r2 > 0.8 THEN 'Excellent'
+        WHEN r2 > 0.6 THEN 'Good'
+        WHEN r2 > 0.4 THEN 'Fair'
         ELSE 'Poor'
     END as model_quality
 FROM complex_summary
-ORDER BY r_squared DESC;  -- Higher R² is better for comparison
+ORDER BY r2 DESC;  -- Higher R² is better for comparison

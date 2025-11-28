@@ -1,14 +1,23 @@
 LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
 
--- Inference with confidence intervals (use positional parameters)
+-- Get statistical inference using fit with full_output
+WITH model AS (
+    SELECT * FROM anofox_statistics_ols_fit(
+        [2.1, 4.0, 6.1, 7.9, 10.2]::DOUBLE[],
+        [[1.0], [2.0], [3.0], [4.0], [5.0]]::DOUBLE[][],
+        {'intercept': true, 'full_output': true, 'confidence_level': 0.95::DOUBLE}
+    )
+)
 SELECT
-    variable,
-    ROUND(estimate, 4) as coefficient,
-    ROUND(p_value, 4) as p_value,
-    significant
-FROM ols_inference(
-    [2.1, 4.0, 6.1, 7.9, 10.2]::DOUBLE[],          -- y
-    [[1.0], [2.0], [3.0], [4.0], [5.0]]::DOUBLE[][], -- x (matrix)
-    0.95,                                            -- confidence_level
-    true                                             -- add_intercept
-);
+    'x1' as variable,
+    ROUND(coefficients[1], 4) as coefficient,
+    ROUND(coefficient_p_values[1], 4) as p_value,
+    coefficient_p_values[1] < 0.05 as significant
+FROM model
+UNION ALL
+SELECT
+    'intercept' as variable,
+    ROUND(intercept, 4) as coefficient,
+    ROUND(intercept_p_value, 4) as p_value,
+    intercept_p_value < 0.05 as significant
+FROM model;

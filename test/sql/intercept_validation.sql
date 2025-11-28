@@ -329,7 +329,7 @@ FROM (
 -- SELECT
 --     'Rolling OLS with intercept' as mode,
 --     result.intercept[1] as first_window_intercept,
---     result.r_squared[1] as first_window_r2
+--     result.r2[1] as first_window_r2
 -- FROM (
 --     SELECT * FROM anofox_statistics_rolling_ols(
 --         (SELECT y_array FROM rolling_test_array),
@@ -342,7 +342,7 @@ FROM (
 -- SELECT
 --     'Rolling OLS without intercept' as mode,
 --     result.intercept[1] as should_be_zero,
---     result.r_squared[1] as first_window_r2
+--     result.r2[1] as first_window_r2
 -- FROM (
 --     SELECT * FROM anofox_statistics_rolling_ols(
 --         (SELECT y_array FROM rolling_test_array),
@@ -375,7 +375,7 @@ FROM (
 -- SELECT
 --     'Expanding OLS with intercept' as mode,
 --     result.intercept[1] as first_window_intercept,
---     result.r_squared[1] as first_window_r2
+--     result.r2[1] as first_window_r2
 -- FROM (
 --     SELECT * FROM anofox_statistics_expanding_ols(
 --         (SELECT y_array FROM rolling_test_array),
@@ -388,7 +388,7 @@ FROM (
 -- SELECT
 --     'Expanding OLS without intercept' as mode,
 --     result.intercept[1] as should_be_zero,
---     result.r_squared[1] as first_window_r2
+--     result.r2[1] as first_window_r2
 -- FROM (
 --     SELECT * FROM anofox_statistics_expanding_ols(
 --         (SELECT y_array FROM rolling_test_array),

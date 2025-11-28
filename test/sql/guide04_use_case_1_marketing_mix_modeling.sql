@@ -23,29 +23,29 @@ FROM (
 -- Analyze relationship between marketing spend and revenue using aggregate function
 SELECT
     'tv' as channel,
-    ROUND(ols_coeff_agg(revenue, tv_spend), 2) as roi,
-    ROUND((ols_fit_agg(revenue, tv_spend)).r2, 3) as r_squared,
+    ROUND((anofox_statistics_ols_fit_agg(revenue, [tv_spend], {'intercept': true})).coefficients[1], 2) as roi,
+    ROUND((anofox_statistics_ols_fit_agg(revenue, [tv_spend], {'intercept': true})).r2, 3) as r2,
     'High Impact' as business_impact
 FROM weekly_campaigns WHERE year = 2024
 UNION ALL
 SELECT
     'digital' as channel,
-    ROUND(ols_coeff_agg(revenue, digital_spend), 2) as roi,
-    ROUND((ols_fit_agg(revenue, digital_spend)).r2, 3) as r_squared,
+    ROUND((anofox_statistics_ols_fit_agg(revenue, [digital_spend], {'intercept': true})).coefficients[1], 2) as roi,
+    ROUND((anofox_statistics_ols_fit_agg(revenue, [digital_spend], {'intercept': true})).r2, 3) as r2,
     'High Impact' as business_impact
 FROM weekly_campaigns WHERE year = 2024
 UNION ALL
 SELECT
     'print' as channel,
-    ROUND(ols_coeff_agg(revenue, print_spend), 2) as roi,
-    ROUND((ols_fit_agg(revenue, print_spend)).r2, 3) as r_squared,
+    ROUND((anofox_statistics_ols_fit_agg(revenue, [print_spend], {'intercept': true})).coefficients[1], 2) as roi,
+    ROUND((anofox_statistics_ols_fit_agg(revenue, [print_spend], {'intercept': true})).r2, 3) as r2,
     'Low Impact' as business_impact
 FROM weekly_campaigns WHERE year = 2024
 UNION ALL
 SELECT
     'radio' as channel,
-    ROUND(ols_coeff_agg(revenue, radio_spend), 2) as roi,
-    ROUND((ols_fit_agg(revenue, radio_spend)).r2, 3) as r_squared,
+    ROUND((anofox_statistics_ols_fit_agg(revenue, [radio_spend], {'intercept': true})).coefficients[1], 2) as roi,
+    ROUND((anofox_statistics_ols_fit_agg(revenue, [radio_spend], {'intercept': true})).r2, 3) as r2,
     'High Impact' as business_impact
 FROM weekly_campaigns WHERE year = 2024
 ORDER BY roi DESC;

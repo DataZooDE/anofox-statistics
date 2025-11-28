@@ -1,6 +1,29 @@
 # Quick Start Guide
 
-Get up and running with Anofox Statistics in 5 minutes.
+This guide demonstrates the core regression analysis capabilities of the Anofox Statistics extension for DuckDB.
+
+## Table of Contents
+
+- [Installation](#installation)
+- [Load Extension](#load-extension)
+- [Example 1: Simple Linear Regression](#example-1-simple-linear-regression)
+- [Example 2: Get p-values and Significance](#example-2-get-p-values-and-significance)
+- [Example 3: Regression Per Group](#example-3-regression-per-group)
+- [Example 4: Time-Series Rolling Regression](#example-4-time-series-rolling-regression)
+- [Example 5: Make Predictions](#example-5-make-predictions)
+- [Example 6: Check Model Quality](#example-6-check-model-quality)
+- [Example 7: Detect Outliers](#example-7-detect-outliers)
+- [Aggregate Functions for GROUP BY](#aggregate-functions-for-group-by)
+  - [OLS Aggregate](#ols-aggregate-basic-per-group-regression)
+  - [WLS Aggregate](#wls-aggregate-weighted-analysis)
+  - [Ridge Aggregate](#ridge-aggregate-handling-multicollinearity)
+  - [RLS Aggregate](#rls-aggregate-adaptive-online-learning)
+- [Common Patterns](#common-patterns)
+  - [Pattern 1: Quick coefficient check](#pattern-1-quick-coefficient-check)
+  - [Pattern 2: Per-group with GROUP BY](#pattern-2-per-group-with-group-by)
+  - [Pattern 3: Rolling window with OVER](#pattern-3-rolling-window-with-over)
+  - [Pattern 4: Full statistical workflow](#pattern-4-full-statistical-workflow)
+- [Common Issues](#common-issues)
 
 ## Installation
 
@@ -22,97 +45,73 @@ SELECT 'guide01_load_extension.sql - DISABLED - documentation example only' as s
 
 ## Example 1: Simple Linear Regression
 
-**What it does**: Performs ordinary least squares (OLS) regression to find the best-fit line for your data. This is the foundation of regression analysis.
-
-**When to use**: When you want to understand the relationship between two continuous variables (e.g., how sales change with price, or how performance correlates with training hours).
-
-**How it works**: The `anofox_statistics_ols_agg` function analyzes your y and x columns, calculating the slope (coefficient) and quality metrics. It automatically handles missing values and computes goodness-of-fit statistics.
+**How it works**: The `anofox_statistics_ols_fit` table function fits an OLS regression model using QR decomposition from libanostat. It takes array inputs for y (response) and X (feature matrix), along with configuration options in a MAP.
 
 
 ```sql
 
--- Simple linear regression using ridge with lambda=0 (equivalent to OLS)
--- Rewritten to avoid lateral join by using literal values in SELECT
+-- Simple linear regression using OLS
 WITH input AS (
     SELECT
         LIST_VALUE(1.0::DOUBLE, 2.0, 3.0, 4.0, 5.0) as y,
         LIST_VALUE(LIST_VALUE(1.1::DOUBLE, 2.1, 2.9, 4.2, 4.8)) as X
 )
 SELECT result.* FROM input,
-LATERAL anofox_statistics_ridge_fit(
+LATERAL anofox_statistics_ols_fit(
     input.y,
     input.X,
-    MAP(['lambda', 'intercept'], [0.0::DOUBLE, 1.0::DOUBLE])
+    {'intercept': true}
 ) as result;
 ```
 
-**Output:**
+**Technical interpretation**:
 
-```
-┌──────────────┬───────────┬──────────┬───────────────┬──────┬───────┐
-│ variable     │ coef      │ r²       │ adj_r²        │ rmse │ n_obs │
-├──────────────┼───────────┼──────────┼───────────────┼──────┼───────┤
-│ x1           │ 1.02      │ 0.998    │ 0.997         │ 0.05 │ 5     │
-└──────────────┴───────────┴──────────┴───────────────┴──────┴───────┘
-```
-
-**What the results mean**:
-
-- **coef (1.02)**: For every 1-unit increase in x1, y increases by 1.02 units
-- **R² (0.998)**: The model explains 99.8% of the variation in y - an excellent fit
-- **RMSE (0.05)**: The typical prediction error is only 0.05 units
+- **coefficients[1]**: Estimated slope parameter (β₁)
+- **r_squared**: Coefficient of determination (proportion of variance explained)
+- **adj_r_squared**: Adjusted R² penalizing additional predictors
+- **mse**: Mean squared error (residual variance)
+- **n_obs**: Sample size used in estimation
 
 ## Example 2: Get p-values and Significance
 
-**What it does**: Performs statistical hypothesis testing to determine if your predictors have a real effect or if the observed relationship could be due to chance.
-
-**When to use**: When you need to validate that a relationship is statistically significant before making business decisions or reporting findings. Essential for scientific research and evidence-based decision making.
-
-**How it works**: The `ols_inference` function computes test statistics and p-values using the t-distribution. It tests the null hypothesis that each coefficient equals zero (no effect). Lower p-values provide stronger evidence against the null hypothesis.
+**How it works**: The aggregate fit functions compute t-statistics and p-values for hypothesis testing. Each coefficient is tested against H₀: β = 0 using the t-distribution with df_residual degrees of freedom.
 
 
 ```sql
 
--- Inference with confidence intervals (use positional parameters)
+-- Get statistical inference using fit with full_output
+WITH model AS (
+    SELECT * FROM anofox_statistics_ols_fit(
+        [2.1, 4.0, 6.1, 7.9, 10.2]::DOUBLE[],
+        [[1.0], [2.0], [3.0], [4.0], [5.0]]::DOUBLE[][],
+        {'intercept': true, 'full_output': true, 'confidence_level': 0.95::DOUBLE}
+    )
+)
 SELECT
-    variable,
-    ROUND(estimate, 4) as coefficient,
-    ROUND(p_value, 4) as p_value,
-    significant
-FROM ols_inference(
-    [2.1, 4.0, 6.1, 7.9, 10.2]::DOUBLE[],          -- y
-    [[1.0], [2.0], [3.0], [4.0], [5.0]]::DOUBLE[][], -- x (matrix)
-    0.95,                                            -- confidence_level
-    true                                             -- add_intercept
-);
+    'x1' as variable,
+    ROUND(coefficients[1], 4) as coefficient,
+    ROUND(coefficient_p_values[1], 4) as p_value,
+    coefficient_p_values[1] < 0.05 as significant
+FROM model
+UNION ALL
+SELECT
+    'intercept' as variable,
+    ROUND(intercept, 4) as coefficient,
+    ROUND(intercept_p_value, 4) as p_value,
+    intercept_p_value < 0.05 as significant
+FROM model;
 ```
 
-**Output:**
+**Technical interpretation**:
 
-```
-┌───────────┬─────────────┬─────────┬─────────────┐
-│ variable  │ coefficient │ p_value │ significant │
-├───────────┼─────────────┼─────────┼─────────────┤
-│ intercept │ 0.03        │ 0.9766  │ false       │
-│ x1        │ 2.01        │ 0.0000  │ true        │
-└───────────┴─────────────┴─────────┴─────────────┘
-```
-
-**What the results mean**:
-
-- **intercept (0.03, p=0.98)**: Not statistically significant - could be zero
-- **x1 (2.01, p<0.0001)**: Highly significant - very strong evidence of a real effect
-- **significant flag**: Automatically marks coefficients with p < 0.05
-
-The coefficient x1 = 2.01 is highly significant (p < 0.0001), meaning we can confidently say there's a real relationship between x1 and y.
+- **coefficient_p_values**: Two-tailed p-values for testing H₀: β_i = 0
+- **intercept_p_value**: Two-tailed p-value for testing H₀: intercept = 0
+- **Interpretation**: p < α (e.g., 0.05) provides evidence to reject the null hypothesis
+- **coefficient_t_statistics**: Test statistics computed as β̂ / SE(β̂)
 
 ## Example 3: Regression Per Group
 
-**What it does**: Runs separate regressions for each group in your data using SQL's GROUP BY clause. This reveals whether relationships differ across segments.
-
-**When to use**: When analyzing multiple products, regions, customers, or time periods simultaneously. Common for A/B testing, market segmentation, and comparative analysis.
-
-**How it works**: The `anofox_statistics_ols_agg` function works like any SQL aggregate (SUM, AVG, etc.). Combined with GROUP BY, it computes separate regression models for each group. The extension automatically parallelizes these calculations for performance.
+**How it works**: The `anofox_statistics_ols_fit_agg` aggregate function supports GROUP BY to fit separate models per group. Each group accumulates observations independently and computes a complete regression result struct.
 
 
 ```sql
@@ -128,38 +127,22 @@ FROM range(1, 21) t(i);
 -- Regression per product
 SELECT
     product,
-    (ols_fit_agg(quantity, price)).coefficient as price_elasticity,
-    (ols_fit_agg(quantity, price)).r2 as fit_quality
+    (anofox_statistics_ols_fit_agg(quantity, [price], {'intercept': true})).coefficients[1] as price_elasticity,
+    (anofox_statistics_ols_fit_agg(quantity, [price], {'intercept': true})).r2 as fit_quality
 FROM sales
 GROUP BY product;
 ```
 
-**Output:**
+**Technical interpretation**:
 
-```
-┌───────────┬──────────────────┬──────────────┐
-│ product   │ price_elasticity │ fit_quality  │
-├───────────┼──────────────────┼──────────────┤
-│ Product A │ 1.98             │ 0.996        │
-│ Product B │ 2.02             │ 0.997        │
-└───────────┴──────────────────┴──────────────┘
-```
-
-**What the results mean**:
-
-- **Product A**: Price elasticity of 1.98 means a 1% price increase leads to ~2% decrease in quantity
-- **Product B**: Similar elasticity (2.02), suggesting both products are price-sensitive
-- **Fit quality**: R² > 0.99 indicates price strongly predicts demand for both products
-
-This analysis completed in a single query across all products - no need for loops or separate analyses.
+- **GROUP BY semantics**: Each group receives a separate OLS estimation
+- **coefficients[1]**: Slope estimate per group
+- **r2**: Within-group coefficient of determination
+- **n_obs**: Sample size per group used in estimation
 
 ## Example 4: Time-Series Rolling Regression
 
-**What it does**: Computes regression coefficients over a moving window of data points. This captures how relationships change over time.
-
-**When to use**: For trend analysis with time-series data where you expect the relationship to evolve (e.g., seasonal patterns, market dynamics changing, or detecting regime shifts).
-
-**How it works**: Uses SQL window functions with `ROWS BETWEEN ... PRECEDING AND CURRENT ROW` to define the rolling window. The `anofox_statistics_ols_agg` function then runs on each window. Perfect for detecting when trends accelerate or reverse.
+**How it works**: Aggregate functions support OVER clauses for window-based computation. The `ROWS BETWEEN n PRECEDING AND CURRENT ROW` frame defines a sliding window, with regression re-computed at each row.
 
 
 ```sql
@@ -175,121 +158,79 @@ FROM range(1, 51) t(i);
 SELECT
     time_idx,
     value,
-    ols_coeff_agg(value, time_idx) OVER (
+    (anofox_statistics_ols_fit_agg(value, [time_idx], {'intercept': true}) OVER (
         ORDER BY time_idx
         ROWS BETWEEN 9 PRECEDING AND CURRENT ROW
-    ) as rolling_trend
+    )).coefficients[1] as rolling_trend
 FROM time_series
 WHERE time_idx >= 10;
 ```
 
-**Output:**
+**Technical interpretation**:
 
-```
-┌───────────┬───────┬───────────────┐
-│ time_idx  │ value │ rolling_trend │
-├───────────┼───────┼───────────────┤
-│ 10        │ 15.2  │ 1.51          │
-│ 11        │ 16.7  │ 1.49          │
-│ 12        │ 18.1  │ 1.52          │
-│ ...       │ ...   │ ...           │
-└───────────┴───────┴───────────────┘
-```
-
-**What the results mean**:
-
-- **rolling_trend (1.51)**: Based on the last 10 observations, the value increases by 1.51 per time unit
-- **Changing values**: If rolling_trend was 1.49 earlier and now 1.52, the growth rate is accelerating
-- **Applications**: Detect market momentum, identify inflection points, or adapt forecasts to recent patterns
+- **OVER (ORDER BY ... ROWS BETWEEN ...)**: Window frame specification
+- **coefficients[1]**: Slope estimate using observations in the current window
+- **Window size**: Number of preceding rows + current row determines sample size
+- **Computation**: Each row gets a new regression using only the windowed data
 
 ## Example 5: Make Predictions
 
-**What it does**: Generates predictions for new data points along with confidence intervals that quantify uncertainty.
-
-**When to use**: For forecasting, scenario planning, or any situation where you need point estimates plus a sense of how confident you should be in those estimates.
-
-**How it works**: The `ols_predict_interval` function takes your fitted model and new predictor values, computing both the predicted value and the standard error. Confidence intervals are constructed using the t-distribution, accounting for both model uncertainty and inherent data variability.
+**How it works**: The `anofox_statistics_predict_ols` table function fits a model on training data (y_train, x_train) and generates predictions for new observations (x_new) with confidence or prediction intervals using the t-distribution.
 
 
 ```sql
 
--- Predict for new values (use positional parameters and literal arrays)
-SELECT * FROM ols_predict_interval(
+-- Predict for new values using the predict function
+SELECT * FROM anofox_statistics_predict_ols(
     [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],          -- y_train
     [[1.0], [2.0], [3.0], [4.0], [5.0]]::DOUBLE[][], -- x_train
-    [[6.0], [7.0], [8.0]]::DOUBLE[][],             -- x_new: values to predict
+    [[6.0], [7.0], [8.0]]::DOUBLE[][],             -- x_new
     0.95,                                           -- confidence_level
     'prediction',                                   -- interval_type
     true                                            -- add_intercept
 );
 ```
 
-**Output:**
+**Technical interpretation**:
 
-```
-┌────────────────┬───────────┬──────────┬───────────┬─────┐
-│ observation_id │ predicted │ ci_lower │ ci_upper  │ se  │
-├────────────────┼───────────┼──────────┼───────────┼─────┤
-│ 1              │ 6.0       │ 5.2      │ 6.8       │ 0.4 │
-│ 2              │ 7.0       │ 6.1      │ 7.9       │ 0.45│
-│ 3              │ 8.0       │ 7.0      │ 9.0       │ 0.5 │
-└────────────────┴───────────┴──────────┴───────────┴─────┘
-```
-
-**What the results mean**:
-
-- **predicted (6.0)**: Best estimate for observation 1
-- **ci_lower/ci_upper (5.2 to 6.8)**: 95% confidence interval - the true mean is very likely in this range
-- **se (0.4)**: Standard error increases for predictions farther from the training data
-- **Narrower intervals = more confident**, wider intervals = more uncertainty
-
-Use these intervals for risk assessment: plan for the midpoint, but prepare for the range.
+- **predicted**: Point prediction ŷ = X_new × β̂
+- **ci_lower/ci_upper**: Interval bounds using t-critical values at specified confidence level
+- **se**: Standard error of prediction SE(ŷ) = √(MSE × x'(X'X)⁻¹x)
+- **interval_type='prediction'**: Includes residual variance; 'confidence' for mean prediction only
 
 ## Example 6: Check Model Quality
 
-**What it does**: Computes information criteria (AIC, BIC) to help you choose between competing models. These metrics balance goodness-of-fit against model complexity.
-
-**When to use**: When deciding whether to add more predictors, comparing different model specifications, or preventing overfitting by penalizing complexity.
-
-**How it works**: The `information_criteria` function calculates AIC and BIC, which combine the residual sum of squares (fit quality) with a penalty for the number of parameters. Lower values indicate better models that balance fit and parsimony.
+**How it works**: Aggregate fit functions return information criteria (AIC, BIC, AICc) computed from the log-likelihood and number of parameters. These metrics penalize model complexity to prevent overfitting.
 
 
 ```sql
 
--- Compare models (use positional parameters)
-SELECT * FROM information_criteria(
-    [2.1, 4.0, 6.1, 7.9, 10.2, 11.8, 14.1, 15.9]::DOUBLE[],
-    [[1.0], [2.0], [3.0], [4.0], [5.0], [6.0], [7.0], [8.0]]::DOUBLE[][],
-    true  -- add_intercept
-);
+-- Extract model quality metrics using aggregate fit function
+WITH data AS (
+    SELECT UNNEST([2.1, 4.0, 6.1, 7.9, 10.2, 11.8, 14.1, 15.9]::DOUBLE[]) as y,
+           UNNEST([[1.0], [2.0], [3.0], [4.0], [5.0], [6.0], [7.0], [8.0]]::DOUBLE[][]) as x
+)
+SELECT
+    (anofox_statistics_ols_fit_agg(y, x, {'intercept': true})).n_obs as n_obs,
+    (anofox_statistics_ols_fit_agg(y, x, {'intercept': true})).r2 as r2,
+    (anofox_statistics_ols_fit_agg(y, x, {'intercept': true})).adj_r2 as adj_r2,
+    (anofox_statistics_ols_fit_agg(y, x, {'intercept': true})).aic as aic,
+    (anofox_statistics_ols_fit_agg(y, x, {'intercept': true})).aicc as aicc,
+    (anofox_statistics_ols_fit_agg(y, x, {'intercept': true})).bic as bic,
+    (anofox_statistics_ols_fit_agg(y, x, {'intercept': true})).log_likelihood as log_likelihood
+FROM data;
 ```
 
-**Output:**
+**Technical interpretation**:
 
-```
-┌───────┬──────────┬──────┬───────────┬────────┬────────┐
-│ n_obs │ n_params │ rss  │ r_squared │ aic    │ bic    │
-├───────┼──────────┼──────┼───────────┼────────┼────────┤
-│ 8     │ 2        │ 0.13 │ 0.9994    │ -40.23 │ -39.81 │
-└───────┴──────────┴──────┴───────────┴────────┴────────┘
-```
-
-**What the results mean**:
-
-- **R² (0.9994)**: Excellent fit - model explains 99.94% of variation
-- **AIC (-40.23), BIC (-39.81)**: Lower is better - use to compare against alternative models
-- **Rule of thumb**: If adding a predictor decreases AIC/BIC by >2, the extra complexity is justified
-- **BIC penalty**: Stronger than AIC, so BIC favors simpler models more aggressively
-
-When comparing models, choose the one with the lowest AIC (prediction focus) or BIC (simplicity focus).
+- **aic**: Akaike Information Criterion = -2×log(L) + 2k
+- **bic**: Bayesian Information Criterion = -2×log(L) + k×log(n)
+- **aicc**: Corrected AIC for small samples = AIC + 2k(k+1)/(n-k-1)
+- **Model comparison**: Lower values indicate better trade-off between fit and complexity
 
 ## Example 7: Detect Outliers
 
-**What it does**: Identifies observations that don't fit the model well (outliers) and those that heavily influence the regression results (influential points).
-
-**When to use**: For data quality checks, identifying data entry errors, finding special cases that need investigation, or assessing model robustness.
-
-**How it works**: The `residual_diagnostics` function computes leverage (how unusual x values are), Cook's distance (combined measure of influence), and studentized residuals (standardized prediction errors). It flags observations exceeding statistical thresholds.
+**How it works**: The `anofox_statistics_residual_diagnostics` table function computes standardized residuals and flags outliers based on a threshold. It returns per-observation diagnostics for assessing model fit and data quality.
 
 
 ```sql
@@ -311,38 +252,21 @@ ORDER BY ABS(result.std_residual) DESC
 LIMIT 3;
 ```
 
-**Output:**
+**Technical interpretation**:
 
-```
-┌────────┬──────────┬──────────┬─────────┬────────────┬────────────────┐
-│ obs_id │ residual │ leverage │ cooks_d │ is_outlier │ is_influential │
-├────────┼──────────┼──────────┼─────────┼────────────┼────────────────┤
-│ 8      │ 8.95     │ 0.417    │ 49.23   │ true       │ true           │
-│ 1      │ 0.12     │ 0.417    │ 0.09    │ false      │ false          │
-│ 7      │ -0.18    │ 0.274    │ 0.08    │ false      │ false          │
-└────────┴──────────┴──────────┴─────────┴────────────┴────────────────┘
-```
-
-**What the results mean**:
-
-- **Observation 8**: Large residual (8.95) + high leverage (0.417) + high Cook's D (49.23) = problematic point
-- **is_outlier (true)**: Prediction error is extreme (> 2.5 standard deviations)
-- **is_influential (true)**: Removing this point would significantly change the regression line
-- **Action**: Investigate observation 8 - could be data error, special case, or genuine extreme value
-
-Most observations (like 1 and 7) fit well and have minimal influence on the results.
+- **observation_id**: Row index (1-indexed)
+- **residual**: Raw residual e_i = y_i - ŷ_i
+- **standardized_residual**: Residual divided by standard deviation
+- **is_outlier**: Boolean flag where |standardized_residual| > threshold
+- **is_influential**: Boolean flag for high-influence observations
 
 ## Aggregate Functions for GROUP BY
 
-The extension provides four specialized aggregate functions that work seamlessly with SQL GROUP BY clauses for per-group regression analysis.
+The extension provides aggregate functions that support GROUP BY and OVER clauses for per-group and windowed regression analysis.
 
 ### OLS Aggregate: Basic Per-Group Regression
 
-**What it does**: Performs ordinary least squares regression for each group in your data using `GROUP BY`. Perfect for analyzing multiple segments simultaneously.
-
-**When to use**: When you need to fit separate models for different categories (products, regions, time periods) in a single query.
-
-**How it works**: The `anofox_statistics_ols_agg` function accumulates data per group, then computes full OLS regression with all statistics.
+**How it works**: `anofox_statistics_ols_fit_agg` is a DuckDB aggregate that accumulates observations per group and computes OLS regression coefficients using QR decomposition. Returns a complete statistics struct per group.
 
 
 ```sql
@@ -384,21 +308,16 @@ FROM (
 ) sub;
 ```
 
-**What the results mean**:
+**Technical interpretation**:
 
-- **price_elasticity**: Coefficient showing demand response to price changes per category
-- **r2**: Model quality for each category separately
-- **n_obs**: Number of observations in each group
-
-This runs multiple regressions in parallel across all groups efficiently.
+- **Per-group estimation**: Each GROUP BY group gets independent coefficient estimates
+- **coefficients[1]**: Slope β₁ estimated from group observations only
+- **r2**: Proportion of within-group variance explained
+- **n_obs**: Sample size used for group's estimation
 
 ### WLS Aggregate: Weighted Analysis
 
-**What it does**: Weighted Least Squares for each group, accounting for observation reliability or importance through weights.
-
-**When to use**: When observations have different precision (heteroscedasticity) or when some data points are more reliable/important than others.
-
-**How it works**: The `anofox_statistics_wls_agg` function applies observation weights during regression, giving more influence to high-weight observations.
+**How it works**: `anofox_statistics_wls_fit_agg` implements weighted least squares by transforming inputs with √W before applying OLS. Each observation i receives weight w_i, modifying its contribution to the objective function.
 
 
 ```sql
@@ -443,21 +362,16 @@ FROM (
 ) sub;
 ```
 
-**What the results mean**:
+**Technical interpretation**:
 
-- **income_sensitivity**: How spending responds to income per segment, weighted by reliability
-- **weighted_mse**: Error metric accounting for observation weights
-- Premium segment weights (1.0) = most reliable, Budget weights (0.5) = less reliable
-
-Weighting ensures high-value or high-quality observations have appropriate influence.
+- **Weighted estimation**: Minimizes Σ w_i(y_i - ŷ_i)²
+- **coefficients**: β̂_WLS = (X'WX)⁻¹X'Wy
+- **mse**: Weighted mean squared error
+- **Heteroscedasticity**: Weights inversely proportional to variance (w_i = 1/σ²_i) yield efficient estimates
 
 ### Ridge Aggregate: Handling Multicollinearity
 
-**What it does**: Ridge regression with L2 regularization per group. Stabilizes coefficients when predictors are highly correlated.
-
-**When to use**: When you have correlated predictors (multicollinearity) or want to prevent overfitting with many features.
-
-**How it works**: The `anofox_statistics_ridge_agg` function adds a penalty term (lambda × sum of squared coefficients) to shrink coefficient estimates toward zero.
+**How it works**: `anofox_statistics_ridge_fit_agg` adds L2 regularization to the OLS objective function. The penalty term λ||β||² shrinks coefficient estimates, reducing variance at the cost of bias.
 
 
 ```sql
@@ -505,21 +419,16 @@ FROM (
 ) sub;
 ```
 
-**What the results mean**:
+**Technical interpretation**:
 
-- **market_beta**, **sector_beta**: Factor exposures stabilized by regularization
-- **lambda**: Penalty parameter (higher = more shrinkage)
-- Ridge coefficients are smaller but more stable than OLS when predictors correlate
-
-Use lambda=1.0 as starting point; increase if coefficients seem unstable.
+- **Regularized estimation**: Minimizes ||y - Xβ||² + λ||β||²
+- **coefficients**: β̂_ridge = (X'X + λI)⁻¹X'y
+- **lambda**: Regularization parameter controlling shrinkage strength
+- **Bias-variance trade-off**: Larger λ increases bias but reduces variance
 
 ### RLS Aggregate: Adaptive Online Learning
 
-**What it does**: Recursive Least Squares per group with exponential weighting. Adapts to changing relationships over time.
-
-**When to use**: For time-series data where relationships evolve, real-time forecasting, or when recent observations are more relevant.
-
-**How it works**: The `anofox_statistics_rls_agg` function sequentially updates coefficients as it processes rows, with forgetting_factor controlling how quickly old data is down-weighted.
+**How it works**: `anofox_statistics_rls_fit_agg` implements recursive least squares with exponential forgetting. Observations are weighted by λ^(n-i) where λ is the forgetting factor and i is the observation index.
 
 
 ```sql
@@ -567,21 +476,18 @@ FROM (
 ) sub;
 ```
 
-**What the results mean**:
+**Technical interpretation**:
 
-- **calibration_slope**: Adaptive coefficient emphasizing recent patterns
-- **forgetting_factor** (0.95): 95% weight retention per step (5% decay)
-- Lower forgetting_factor = faster adaptation to changes
-
-Use forgetting_factor=1.0 for no adaptation (equivalent to OLS), or 0.90-0.95 for moderate adaptation.
+- **Sequential update**: Coefficients updated recursively as new observations arrive
+- **lambda** (forgetting_factor): Exponential decay parameter (0 < λ ≤ 1)
+- **Effective window**: Approximately 1/(1-λ) observations contribute significantly
+- **Adaptation**: Lower λ values (e.g., 0.90-0.95) track non-stationary relationships
 
 ## Common Patterns
 
-These patterns demonstrate best practices for different analytical scenarios.
-
 ### Pattern 1: Quick coefficient check
 
-**Use case**: Get a fast coefficient estimate without full model details. Ideal for exploratory analysis or when you only care about the slope.
+Extract a single coefficient from the aggregate result struct by accessing the coefficients array directly.
 
 
 ```sql
@@ -593,12 +499,12 @@ SELECT
     (i * 2.5 + 10)::DOUBLE as x
 FROM generate_series(1, 20) t(i);
 
-SELECT ols_coeff_agg(y, x) as slope FROM data;
+SELECT (anofox_statistics_ols_fit_agg(y, [x], {'intercept': true})).coefficients[1] as slope FROM data;
 ```
 
 ### Pattern 2: Per-group with GROUP BY
 
-**Use case**: Compare relationships across multiple segments simultaneously. More efficient than running separate analyses for each group.
+Fit independent regression models for each category using GROUP BY semantics.
 
 
 ```sql
@@ -615,13 +521,13 @@ SELECT
     (i * 1.5 + 5)::DOUBLE as x
 FROM generate_series(1, 30) t(i);
 
-SELECT category, ols_fit_agg(y, x) as model
+SELECT category, anofox_statistics_ols_fit_agg(y, [x], {'intercept': true}) as model
 FROM data GROUP BY category;
 ```
 
 ### Pattern 3: Rolling window with OVER
 
-**Use case**: Track how relationships evolve over time or across ordered data. Essential for time-series analysis and detecting trend changes.
+Apply regression over a sliding window using OVER clause with ROWS BETWEEN frame specification.
 
 
 ```sql
@@ -634,14 +540,14 @@ SELECT
     (5 + i * 0.3)::DOUBLE as x
 FROM generate_series(1, 100) t(i);
 
-SELECT *, ols_coeff_agg(y, x) OVER (
+SELECT *, (anofox_statistics_ols_fit_agg(y, [x], {'intercept': true}) OVER (
     ORDER BY time ROWS BETWEEN 30 PRECEDING AND CURRENT ROW
-) as rolling_coef FROM data;
+)).coefficients[1] as rolling_coef FROM data;
 ```
 
 ### Pattern 4: Full statistical workflow
 
-**Use case**: Complete regression analysis from model fitting through diagnostics. This is the comprehensive approach for rigorous statistical work.
+Combine model fitting, residual computation, and diagnostic checks in a single CTE chain.
 
 
 ```sql
@@ -662,9 +568,9 @@ WITH
 -- Step 1: Fit model and compute statistics
 model_fit AS (
     SELECT
-        (ols_fit_agg(y, x)).coefficient as slope,
-        (ols_fit_agg(y, x)).r2 as r_squared,
-        (ols_fit_agg(y, x)).std_error as std_error,
+        (anofox_statistics_ols_fit_agg(y, [x], {'intercept': true})).coefficients[1] as slope,
+        (anofox_statistics_ols_fit_agg(y, [x], {'intercept': true})).r2 as r2,
+        (anofox_statistics_ols_fit_agg(y, [x], {'intercept': true})).residual_standard_error as std_error,
         COUNT(*) as n_obs
     FROM workflow_sample
 ),
@@ -694,7 +600,7 @@ outlier_check AS (
 SELECT
     'Model Summary' as section,
     'R²' as metric,
-    ROUND(r_squared, 4)::VARCHAR as value
+    ROUND(r2, 4)::VARCHAR as value
 FROM model_fit
 UNION ALL
 SELECT 'Model Summary', 'Slope', ROUND(slope, 4)::VARCHAR FROM model_fit
@@ -718,13 +624,6 @@ FROM outlier_check
 ORDER BY section, metric;
 ```
 
-## Next Steps
-
-- **[Technical Guide](02_technical_guide.md)**: Learn about architecture and implementation
-- **[Statistics Guide](03_statistics_guide.md)**: Understand the statistical methodology
-- **[Business Guide](04_business_guide.md)**: See real-world business applications
-- **[Advanced Use Cases](05_advanced_use_cases.md)**: Complex analytical workflows
-
 ## Common Issues
 
 ### Issue: Extension won't load
@@ -744,7 +643,7 @@ SELECT 'guide01_issue_extension_wont_load.sql - DISABLED - documentation example
 SELECT * FROM anofox_statistics_ols_fit(
     [1.0, 2.0, 3.0]::DOUBLE[],         -- y: Cast to DOUBLE[]
     [[1.0, 2.0, 3.0]]::DOUBLE[][],     -- X: 2D array (one feature)
-    MAP{'intercept': true}              -- options in MAP
+    {'intercept': true}              -- options in MAP
 );
 ```
 
@@ -755,9 +654,3 @@ Error: Need at least n+1 observations for n parameters
 ```
 
 Solution: Ensure you have more observations than predictors.
-
-## Getting Help
-
-- Check function signatures: See [README.md](../README.md)
-- Report bugs: [GitHub Issues](https://github.com/yourusername/anofox-statistics-duckdb-extension/issues)
-- Ask questions: [GitHub Discussions](https://github.com/yourusername/anofox-statistics-duckdb-extension/discussions)

@@ -16,9 +16,9 @@ WITH
 -- Step 1: Fit model and compute statistics
 model_fit AS (
     SELECT
-        (ols_fit_agg(y, x)).coefficient as slope,
-        (ols_fit_agg(y, x)).r2 as r_squared,
-        (ols_fit_agg(y, x)).std_error as std_error,
+        (anofox_statistics_ols_fit_agg(y, [x], {'intercept': true})).coefficients[1] as slope,
+        (anofox_statistics_ols_fit_agg(y, [x], {'intercept': true})).r2 as r2,
+        (anofox_statistics_ols_fit_agg(y, [x], {'intercept': true})).residual_standard_error as std_error,
         COUNT(*) as n_obs
     FROM workflow_sample
 ),
@@ -48,7 +48,7 @@ outlier_check AS (
 SELECT
     'Model Summary' as section,
     'R²' as metric,
-    ROUND(r_squared, 4)::VARCHAR as value
+    ROUND(r2, 4)::VARCHAR as value
 FROM model_fit
 UNION ALL
 SELECT 'Model Summary', 'Slope', ROUND(slope, 4)::VARCHAR FROM model_fit

@@ -321,13 +321,12 @@ static unique_ptr<FunctionData> RlsFitBind(ClientContext &context, TableFunction
 	}
 
 	// Set return schema (basic columns)
-	names = {"coefficients", "intercept",         "r_squared", "adj_r_squared", "mse",
-	         "rmse",         "forgetting_factor", "n_obs",     "n_features"};
+	names = {"coefficients", "intercept", "r2", "adj_r2", "mse", "rmse", "forgetting_factor", "n_obs", "n_features"};
 	return_types = {
 	    LogicalType::LIST(LogicalType::DOUBLE), // coefficients
 	    LogicalType::DOUBLE,                    // intercept
-	    LogicalType::DOUBLE,                    // r_squared
-	    LogicalType::DOUBLE,                    // adj_r_squared
+	    LogicalType::DOUBLE,                    // r2
+	    LogicalType::DOUBLE,                    // adj_r2
 	    LogicalType::DOUBLE,                    // mse
 	    LogicalType::DOUBLE,                    // rmse
 	    LogicalType::DOUBLE,                    // forgetting_factor
@@ -800,21 +799,26 @@ static OperatorResultType RlsFitInOut(ExecutionContext &context, TableFunctionIn
 void RlsFitFunction::Register(ExtensionLoader &loader) {
 	ANOFOX_DEBUG("Registering anofox_statistics_rls (dual mode: literals + lateral joins)");
 
-	// Register single function with BOTH literal and lateral join support
-	vector<LogicalType> arguments = {
+	// Register 2-argument overload: (y DOUBLE[], x DOUBLE[][])
+	vector<LogicalType> args_2 = {
 	    LogicalType::LIST(LogicalType::DOUBLE),                   // y: DOUBLE[]
 	    LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)) // x: DOUBLE[][]
 	};
 
-	// Register with literal mode (bind + execute)
-	TableFunction function("anofox_statistics_rls_fit", arguments, RlsFitExecute, RlsFitBind, nullptr,
-	                       RlsFitInOutLocalInit);
+	TableFunction func_2("anofox_statistics_rls_fit", args_2, RlsFitExecute, RlsFitBind, nullptr, RlsFitInOutLocalInit);
+	func_2.in_out_function = RlsFitInOut;
+	loader.RegisterFunction(func_2);
 
-	// Add lateral join support (in_out_function)
-	function.in_out_function = RlsFitInOut;
-	function.varargs = LogicalType::ANY;
+	// Register 3-argument overload: (y DOUBLE[], x DOUBLE[][], options MAP/STRUCT)
+	vector<LogicalType> args_3 = {
+	    LogicalType::LIST(LogicalType::DOUBLE),                    // y: DOUBLE[]
+	    LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)), // x: DOUBLE[][]
+	    LogicalType::ANY                                           // options: MAP or STRUCT
+	};
 
-	loader.RegisterFunction(function);
+	TableFunction func_3("anofox_statistics_rls_fit", args_3, RlsFitExecute, RlsFitBind, nullptr, RlsFitInOutLocalInit);
+	func_3.in_out_function = RlsFitInOut;
+	loader.RegisterFunction(func_3);
 
 	ANOFOX_DEBUG("anofox_statistics_rls registered successfully (both modes)");
 }

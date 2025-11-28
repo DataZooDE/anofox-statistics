@@ -29,8 +29,8 @@ namespace anofox_statistics {
  *   - group_key: VARCHAR[] - Values of grouping columns
  *   - coefficients: DOUBLE[] - Ridge coefficient estimates
  *   - intercept: DOUBLE - Ridge intercept estimate
- *   - r_squared: DOUBLE - R² (coefficient of determination)
- *   - adj_r_squared: DOUBLE - Adjusted R²
+ *   - r2: DOUBLE - R² (coefficient of determination)
+ *   - adj_r2: DOUBLE - Adjusted R²
  *   - mse: DOUBLE - Mean squared error
  *   - rmse: DOUBLE - Root mean squared error
  *   - lambda: DOUBLE - Regularization parameter used
@@ -46,7 +46,7 @@ namespace anofox_statistics {
  *
  * Examples:
  *   -- Ridge regression for each customer with λ=1.0
- *   SELECT group_id, group_key, coefficients, r_squared
+ *   SELECT group_id, group_key, coefficients, r2
  *   FROM anofox_grouped_ridge_fit(
  *       (SELECT customer_id, x1, x2, y FROM sales_data),
  *       ['customer_id'],

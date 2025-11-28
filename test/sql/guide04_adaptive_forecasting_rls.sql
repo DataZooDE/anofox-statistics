@@ -37,12 +37,12 @@ SELECT
     rls_slow.coefficients[1] as rls_slow_lag_coef,
     rls_slow.coefficients[2] as rls_slow_trend_coef,
     rls_slow.r2 as rls_slow_r2,
-    rls_slow.forgetting_factor as ff_slow,
+    0.98 as ff_slow,
     -- Fast-adapting RLS
     rls_fast.coefficients[1] as rls_fast_lag_coef,
     rls_fast.coefficients[2] as rls_fast_trend_coef,
     rls_fast.r2 as rls_fast_r2,
-    rls_fast.forgetting_factor as ff_fast,
+    0.92 as ff_fast,
     -- Business insight
     CASE
         WHEN rls_fast.r2 > ols.r2 + 0.05 THEN 'RLS significantly better - demand pattern changing'

@@ -45,7 +45,7 @@ anofox-statistics-duckdb-extension/
 
 - **Language**: C++17
 - **Linear Algebra**: Eigen 3.x (header-only)
-- **Database API**: DuckDB Extension API v1.4.1
+- **Database API**: DuckDB Extension API v1.4.2
 - **Build System**: CMake 3.20+
 - **Compiler**: GCC 7+, Clang 9+, MSVC 2019+
 
@@ -432,8 +432,8 @@ FROM range(1, 1000001) t(i);
 -- Time execution with aggregate function (supports table inputs)
 .timer on
 SELECT
-    (ols_fit_agg(y, x)).coefficient as coef,
-    (ols_fit_agg(y, x)).r2 as r_squared
+    (anofox_statistics_ols_fit_agg(y, [x], {'intercept': true})).coefficients[1] as coef,
+    (anofox_statistics_ols_fit_agg(y, [x], {'intercept': true})).r2 as r2
 FROM large_data;
 
 -- Note: Table functions require literal array parameters, not subqueries.
@@ -466,7 +466,7 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g3")           # Debug symbols
 
 ## Extension API Compatibility
 
-### DuckDB v1.4.1 Changes
+### DuckDB v1.4.2 Changes
 
 - `aggregate_update_t`: State parameter changed to `Vector&`
 - `aggregate_finalize_t`: Parameter order changed
@@ -477,7 +477,7 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g3")           # Debug symbols
 auto& bind_data = data_p.bind_data->Cast<BindData>();
 bind_data.counter++;  // Error: const
 
-// New (v1.4.1)
+// New (v1.4.2)
 auto& bind_data = data_p.bind_data->CastNoConst<BindData>();
 bind_data.counter++;  // OK
 ```

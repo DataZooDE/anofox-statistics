@@ -40,10 +40,10 @@ monthly_models AS (
         category,
         n_obs,
         -- Use aggregate functions with UNNEST in subquery
-        (SELECT ols_coeff_agg(y, x) FROM (
+        (SELECT (anofox_statistics_ols_fit_agg(y, [x], {'intercept': true})).coefficients[1] FROM (
             SELECT UNNEST(y_values) as y, UNNEST(x_values) as x
         )) as coefficient,
-        (SELECT (ols_fit_agg(y, x)).r2 FROM (
+        (SELECT (anofox_statistics_ols_fit_agg(y, [x], {'intercept': true})).r2 FROM (
             SELECT UNNEST(y_values) as y, UNNEST(x_values) as x
         )) as r2
     FROM monthly_partitions
@@ -67,10 +67,10 @@ WITH sample_data AS (
 ),
 sample_model AS (
     SELECT
-        ols_coeff_agg(y, x1) as coeff_x1,
-        ols_coeff_agg(y, x2) as coeff_x2,
-        (ols_fit_agg(y, x1)).r2 as r2_x1,
-        (ols_fit_agg(y, x2)).r2 as r2_x2
+        (anofox_statistics_ols_fit_agg(y, [x1], {'intercept': true})).coefficients[1] as coeff_x1,
+        (anofox_statistics_ols_fit_agg(y, [x2], {'intercept': true})).coefficients[1] as coeff_x2,
+        (anofox_statistics_ols_fit_agg(y, [x1], {'intercept': true})).r2 as r2_x1,
+        (anofox_statistics_ols_fit_agg(y, [x2], {'intercept': true})).r2 as r2_x2
     FROM sample_data
 )
 -- Validate on sample, then run on full data if promising

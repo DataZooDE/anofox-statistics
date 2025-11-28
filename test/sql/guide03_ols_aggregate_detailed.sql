@@ -21,8 +21,8 @@ SELECT
     result.coefficients[2] as digital_roi,
     result.intercept as baseline_sales,
     -- Model fit
-    result.r2 as r_squared,
-    result.adj_r2 as adjusted_r_squared,
+    result.r2 as r2,
+    result.adj_r2 as adjusted_r2,
     result.n_obs as sample_size,
     array_length(result.coefficients) as num_predictors,
     -- Interpretation flags

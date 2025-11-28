@@ -476,13 +476,12 @@ static unique_ptr<FunctionData> RidgeFitBind(ClientContext &context, TableFuncti
 	}
 
 	// Set return schema (basic columns)
-	names = {"coefficients", "intercept", "r_squared",  "adj_r_squared", "mse",
-	         "rmse",         "n_obs",     "n_features", "reg_lambda"};
+	names = {"coefficients", "intercept", "r2", "adj_r2", "mse", "rmse", "n_obs", "n_features", "lambda"};
 	return_types = {
 	    LogicalType::LIST(LogicalType::DOUBLE), // coefficients
 	    LogicalType::DOUBLE,                    // intercept
-	    LogicalType::DOUBLE,                    // r_squared
-	    LogicalType::DOUBLE,                    // adj_r_squared
+	    LogicalType::DOUBLE,                    // r2
+	    LogicalType::DOUBLE,                    // adj_r2
 	    LogicalType::DOUBLE,                    // mse
 	    LogicalType::DOUBLE,                    // rmse
 	    LogicalType::BIGINT,                    // n_obs
@@ -907,21 +906,28 @@ static OperatorResultType RidgeFitInOut(ExecutionContext &context, TableFunction
 void RidgeFitFunction::Register(ExtensionLoader &loader) {
 	ANOFOX_DEBUG("Registering anofox_statistics_ridge (dual mode: literals + lateral joins)");
 
-	// Register single function with BOTH literal and lateral join support
-	vector<LogicalType> arguments = {
+	// Register 2-argument overload: (y DOUBLE[], x DOUBLE[][])
+	vector<LogicalType> args_2 = {
 	    LogicalType::LIST(LogicalType::DOUBLE),                   // y: DOUBLE[]
 	    LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)) // x: DOUBLE[][]
 	};
 
-	// Register with literal mode (bind + execute)
-	TableFunction function("anofox_statistics_ridge_fit", arguments, RidgeFitExecute, RidgeFitBind, nullptr,
-	                       RidgeFitInOutLocalInit);
+	TableFunction func_2("anofox_statistics_ridge_fit", args_2, RidgeFitExecute, RidgeFitBind, nullptr,
+	                     RidgeFitInOutLocalInit);
+	func_2.in_out_function = RidgeFitInOut;
+	loader.RegisterFunction(func_2);
 
-	// Add lateral join support (in_out_function)
-	function.in_out_function = RidgeFitInOut;
-	function.varargs = LogicalType::ANY;
+	// Register 3-argument overload: (y DOUBLE[], x DOUBLE[][], options MAP/STRUCT)
+	vector<LogicalType> args_3 = {
+	    LogicalType::LIST(LogicalType::DOUBLE),                    // y: DOUBLE[]
+	    LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)), // x: DOUBLE[][]
+	    LogicalType::ANY                                           // options: MAP or STRUCT
+	};
 
-	loader.RegisterFunction(function);
+	TableFunction func_3("anofox_statistics_ridge_fit", args_3, RidgeFitExecute, RidgeFitBind, nullptr,
+	                     RidgeFitInOutLocalInit);
+	func_3.in_out_function = RidgeFitInOut;
+	loader.RegisterFunction(func_3);
 
 	ANOFOX_DEBUG("anofox_statistics_ridge registered successfully (both modes)");
 }

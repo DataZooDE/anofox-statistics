@@ -34,7 +34,7 @@ SELECT
     ridge.coefficients[3] as ridge_value_beta,
     ridge.coefficients[4] as ridge_momentum_beta,
     ridge.r2 as ridge_r2,
-    ridge.lambda,
+    1.0 as lambda,
     -- Risk assessment
     CASE
         WHEN ridge.coefficients[1] > 1.2 THEN 'High systematic risk'

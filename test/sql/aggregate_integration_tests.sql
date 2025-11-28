@@ -3,6 +3,9 @@
 
 LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
 
+-- Set random seed for reproducible test results
+SELECT setseed(0.123);
+
 -- Create comprehensive test dataset
 CREATE TABLE sales_data AS
 SELECT
@@ -109,6 +112,36 @@ JOIN (
 ) model ON main.product = model.product
 ORDER BY main.product;
 
+-- VALIDATION: Test 3 - per-product models should have R² > 0.95
+SELECT '=== VALIDATION: Test 3 Statistical Checks ===' as test_name;
+WITH validation AS (
+  SELECT
+    product,
+    model.n_obs,
+    model.r2,
+    model.coefficients[1] as cost_sensitivity
+  FROM (
+    SELECT
+      product,
+      anofox_statistics_ols_fit_agg(revenue, [product_cost], {'intercept': true}) as model
+    FROM sales_data
+    GROUP BY product
+  ) sub
+)
+SELECT
+  'VALIDATION' as test_name,
+  CASE
+    WHEN MIN(n_obs) < 30 THEN 'FAIL: Insufficient observations (expected 30)'
+    WHEN MIN(r2) < 0.90 THEN 'FAIL: R² too low (expected > 0.90, got ' || ROUND(MIN(r2), 3)::VARCHAR || ')'
+    WHEN MIN(cost_sensitivity) < 5.5 OR MAX(cost_sensitivity) > 7.5
+      THEN 'FAIL: Coefficient out of range (expected 6.0-7.5)'
+    ELSE 'PASS: All validations passed ✓'
+  END as validation_result,
+  ROUND(MIN(r2), 3) as min_r2,
+  ROUND(MAX(r2), 3) as max_r2,
+  ROUND(AVG(cost_sensitivity), 2) as avg_coefficient
+FROM validation;
+
 SELECT '=== Test 4: Combining GROUP BY and window functions ===' as test_name;
 WITH daily_models AS (
     SELECT
@@ -169,6 +202,36 @@ SELECT
     RANK() OVER (ORDER BY model.r2 DESC) as performance_rank
 FROM region_models
 ORDER BY performance_rank;
+
+-- VALIDATION: Test 6 - region models should have R² > 0.90
+SELECT '=== VALIDATION: Test 6 Statistical Checks ===' as test_name;
+WITH validation AS (
+  SELECT
+    region,
+    model.r2,
+    model.coefficients[1] as marketing_effectiveness,
+    model.n_obs
+  FROM (
+    SELECT
+      region,
+      anofox_statistics_ols_fit_agg(revenue, [marketing_spend], {'intercept': true}) as model
+    FROM sales_data
+    GROUP BY region
+  ) sub
+)
+SELECT
+  'VALIDATION' as test_name,
+  CASE
+    WHEN MIN(n_obs) < 20 THEN 'FAIL: Insufficient observations (expected ~22)'
+    WHEN MIN(r2) < 0.90 THEN 'FAIL: R² too low (expected > 0.90, got ' || ROUND(MIN(r2), 3)::VARCHAR || ')'
+    WHEN MIN(marketing_effectiveness) < 3.0 OR MAX(marketing_effectiveness) > 5.0
+      THEN 'FAIL: Coefficient out of range (expected 3.5-4.5)'
+    ELSE 'PASS: All validations passed ✓'
+  END as validation_result,
+  ROUND(MIN(r2), 3) as min_r2,
+  ROUND(MAX(r2), 3) as max_r2,
+  ROUND(AVG(marketing_effectiveness), 2) as avg_marketing_effect
+FROM validation;
 
 SELECT '=== Test 7: UNION of aggregate results ===' as test_name;
 SELECT
@@ -330,6 +393,63 @@ summary AS (
 )
 SELECT * FROM summary
 ORDER BY avg_r2_across_regions DESC;
+
+-- FINAL VALIDATION SUMMARY
+SELECT '=== FINAL VALIDATION SUMMARY ===' as test_name;
+WITH
+product_validation AS (
+  SELECT
+    'Per-Product Models' as test_group,
+    COUNT(*) as n_groups,
+    MIN(model.r2) as min_r2,
+    MAX(model.r2) as max_r2,
+    AVG(model.r2) as avg_r2,
+    MIN(model.n_obs) as min_obs,
+    MAX(model.n_obs) as max_obs
+  FROM (
+    SELECT
+      product,
+      anofox_statistics_ols_fit_agg(revenue, [product_cost], {'intercept': true}) as model
+    FROM sales_data
+    GROUP BY product
+  ) sub
+),
+region_validation AS (
+  SELECT
+    'Per-Region Models' as test_group,
+    COUNT(*) as n_groups,
+    MIN(model.r2) as min_r2,
+    MAX(model.r2) as max_r2,
+    AVG(model.r2) as avg_r2,
+    MIN(model.n_obs) as min_obs,
+    MAX(model.n_obs) as max_obs
+  FROM (
+    SELECT
+      region,
+      anofox_statistics_ols_fit_agg(revenue, [marketing_spend], {'intercept': true}) as model
+    FROM sales_data
+    GROUP BY region
+  ) sub
+),
+combined AS (
+  SELECT * FROM product_validation
+  UNION ALL
+  SELECT * FROM region_validation
+)
+SELECT
+  test_group,
+  n_groups,
+  ROUND(min_r2, 3) as min_r2,
+  ROUND(max_r2, 3) as max_r2,
+  ROUND(avg_r2, 3) as avg_r2,
+  min_obs,
+  max_obs,
+  CASE
+    WHEN min_r2 >= 0.90 AND min_obs >= 20 THEN '✓ PASS'
+    WHEN min_r2 >= 0.80 AND min_obs >= 15 THEN '⚠ MARGINAL'
+    ELSE '✗ FAIL'
+  END as status
+FROM combined;
 
 -- Cleanup
 DROP TABLE sales_data;

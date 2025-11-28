@@ -86,9 +86,9 @@ source_data AS (
 product_models AS (
     SELECT
         product_id,
-        ols_fit_agg(y, x1) as model_x1,
-        ols_fit_agg(y, x2) as model_x2,
-        ols_fit_agg(y, x3) as model_x3,
+        anofox_statistics_ols_fit_agg(y, [x1], {'intercept': true}) as model_x1,
+        anofox_statistics_ols_fit_agg(y, [x2], {'intercept': true}) as model_x2,
+        anofox_statistics_ols_fit_agg(y, [x3], {'intercept': true}) as model_x3,
         COUNT(*) as data_points,
         CURRENT_DATE - (MAX(lookback) || ' DAYS')::INTERVAL as training_start,
         CURRENT_DATE as training_end,
@@ -99,9 +99,9 @@ product_models AS (
 )
 SELECT
     product_id,
-    (model_x1).coefficient as price_coefficient,
-    (model_x2).coefficient as advertising_coefficient,
-    (model_x3).coefficient as competition_coefficient,
+    (model_x1).coefficients[1] as price_coefficient,
+    (model_x2).coefficients[1] as advertising_coefficient,
+    (model_x3).coefficients[1] as competition_coefficient,
     (model_x1).r2 as r2_price,
     (model_x2).r2 as r2_advertising,
     (model_x3).r2 as r2_competition,

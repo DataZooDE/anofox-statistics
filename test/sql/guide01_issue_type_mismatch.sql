@@ -4,5 +4,5 @@ LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extensi
 SELECT * FROM anofox_statistics_ols_fit(
     [1.0, 2.0, 3.0]::DOUBLE[],         -- y: Cast to DOUBLE[]
     [[1.0, 2.0, 3.0]]::DOUBLE[][],     -- X: 2D array (one feature)
-    MAP{'intercept': true}              -- options in MAP
+    {'intercept': true}              -- options in MAP
 );

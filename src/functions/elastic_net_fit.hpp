@@ -9,7 +9,7 @@ namespace anofox_statistics {
 /**
  * @brief Elastic Net regression table function (combined L1 + L2 regularization)
  *
- * Array-based v1.4.1 API with MAP options.
+ * Array-based API with MAP options.
  * Performs linear regression with both L1 (Lasso) and L2 (Ridge) penalties using coordinate descent.
  *
  * Signature:
@@ -32,8 +32,8 @@ namespace anofox_statistics {
  * Returns:
  *   - coefficients: DOUBLE[] - Fitted coefficients
  *   - intercept: DOUBLE - Model intercept
- *   - r_squared: DOUBLE - R² statistic
- *   - adj_r_squared: DOUBLE - Adjusted R²
+ *   - r2: DOUBLE - R² statistic
+ *   - adj_r2: DOUBLE - Adjusted R²
  *   - mse: DOUBLE - Mean Squared Error
  *   - rmse: DOUBLE - Root Mean Squared Error
  *   - n_obs: BIGINT - Number of observations

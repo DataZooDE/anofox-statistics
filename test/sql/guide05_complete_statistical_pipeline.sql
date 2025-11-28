@@ -48,16 +48,16 @@ full_model AS (
         AVG(y) as mean_sales,
         AVG(x1) as mean_advertising,
         -- Primary model: advertising spend predicts sales
-        (ols_fit_agg(y, x1)).coefficient as beta_advertising,
-        (ols_fit_agg(y, x1)).r2 as model_r2,
-        (ols_fit_agg(y, x1)).std_error as model_std_error,
+        (anofox_statistics_ols_fit_agg(y, [x1], {'intercept': true})).coefficients[1] as beta_advertising,
+        (anofox_statistics_ols_fit_agg(y, [x1], {'intercept': true})).r2 as model_r2,
+        (anofox_statistics_ols_fit_agg(y, [x1], {'intercept': true})).residual_standard_error as model_std_error,
         -- Additional univariate models for comparison
-        (ols_fit_agg(y, x2)).coefficient as beta_store_size,
-        (ols_fit_agg(y, x2)).r2 as r2_store_size,
-        (ols_fit_agg(y, x3)).coefficient as beta_competitor,
-        (ols_fit_agg(y, x3)).r2 as r2_competitor,
-        (ols_fit_agg(y, x4)).coefficient as beta_income,
-        (ols_fit_agg(y, x4)).r2 as r2_income
+        (anofox_statistics_ols_fit_agg(y, [x2], {'intercept': true})).coefficients[1] as beta_store_size,
+        (anofox_statistics_ols_fit_agg(y, [x2], {'intercept': true})).r2 as r2_store_size,
+        (anofox_statistics_ols_fit_agg(y, [x3], {'intercept': true})).coefficients[1] as beta_competitor,
+        (anofox_statistics_ols_fit_agg(y, [x3], {'intercept': true})).r2 as r2_competitor,
+        (anofox_statistics_ols_fit_agg(y, [x4], {'intercept': true})).coefficients[1] as beta_income,
+        (anofox_statistics_ols_fit_agg(y, [x4], {'intercept': true})).r2 as r2_income
     FROM training_data
 ),
 
@@ -131,7 +131,7 @@ performance_summary AS (
     SELECT
         'Training' as dataset,
         n_train as n_obs,
-        ROUND(model_r2, 4) as r_squared,
+        ROUND(model_r2, 4) as r2,
         ROUND(model_std_error, 4) as std_error,
         (SELECT COUNT(*) FROM outlier_detection WHERE is_outlier) as n_outliers
     FROM model_params
@@ -139,7 +139,7 @@ performance_summary AS (
     SELECT
         'Prediction' as dataset,
         COUNT(*) as n_obs,
-        NULL as r_squared,
+        NULL as r2,
         NULL as std_error,
         NULL as n_outliers
     FROM predictions
@@ -185,7 +185,7 @@ UNION ALL
 SELECT 'Dataset', CAST(dataset AS VARCHAR), CAST(n_obs AS VARCHAR)
 FROM performance_summary
 UNION ALL
-SELECT 'R-Squared', NULL, CAST(r_squared AS VARCHAR)
+SELECT 'R-Squared', NULL, CAST(r2 AS VARCHAR)
 FROM performance_summary WHERE dataset = 'Training'
 UNION ALL
 SELECT 'Std Error', NULL, CAST(std_error AS VARCHAR)

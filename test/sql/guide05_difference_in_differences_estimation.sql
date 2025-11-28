@@ -36,9 +36,9 @@ WITH store_data AS (
 -- Coefficient on treatment_post = causal effect estimate
 did_estimate AS (
     SELECT
-        (ols_fit_agg(sales, treatment_post)).coefficient as did_coefficient,
-        (ols_fit_agg(sales, treatment_post)).std_error as std_error,
-        (ols_fit_agg(sales, treatment_post)).r2 as r_squared,
+        (anofox_statistics_ols_fit_agg(sales, [treatment_post], {'intercept': true})).coefficients[1] as did_coefficient,
+        (anofox_statistics_ols_fit_agg(sales, [treatment_post], {'intercept': true})).residual_standard_error as std_error,
+        (anofox_statistics_ols_fit_agg(sales, [treatment_post], {'intercept': true})).r2 as r2,
         COUNT(*) as n_obs
     FROM store_data
 ),
@@ -48,7 +48,7 @@ did_significance AS (
     SELECT
         did_coefficient as causal_effect,
         std_error,
-        r_squared,
+        r2,
         did_coefficient / std_error as t_statistic,
         ABS(did_coefficient / std_error) > 1.96 as is_significant,
         did_coefficient - 1.96 * std_error as ci_lower,

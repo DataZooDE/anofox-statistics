@@ -10,8 +10,8 @@ FROM range(1, 1000001) t(i);
 -- Time execution with aggregate function (supports table inputs)
 .timer on
 SELECT
-    (ols_fit_agg(y, x)).coefficient as coef,
-    (ols_fit_agg(y, x)).r2 as r_squared
+    (anofox_statistics_ols_fit_agg(y, [x], {'intercept': true})).coefficients[1] as coef,
+    (anofox_statistics_ols_fit_agg(y, [x], {'intercept': true})).r2 as r2
 FROM large_data;
 
 -- Note: Table functions require literal array parameters, not subqueries.

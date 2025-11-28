@@ -10,5 +10,5 @@ SELECT result.* FROM data,
 LATERAL anofox_statistics_rls_fit(
     data.y,
     data.X,
-    MAP(['lambda', 'intercept'], [0.99::DOUBLE, 1.0::DOUBLE])
+    {'lambda': 0.99, 'intercept': true}
 ) as result;

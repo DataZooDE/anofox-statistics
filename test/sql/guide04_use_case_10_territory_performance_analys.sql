@@ -30,11 +30,11 @@ WITH territory_trends AS (
         territory_id,
         month_date,
         sales_amount,
-        (ols_fit_agg(sales_amount::DOUBLE, month_index::DOUBLE) OVER (
+        (anofox_statistics_ols_fit_agg(sales_amount::DOUBLE, [month_index::DOUBLE], {'intercept': true}) OVER (
             PARTITION BY territory_id
             ORDER BY month_date
             ROWS BETWEEN 5 PRECEDING AND CURRENT ROW
-        )).coefficient as trend_coefficient
+        )).coefficients[1] as trend_coefficient
     FROM monthly_sales
     WHERE month_date >= CURRENT_DATE - INTERVAL '12 months'
 ),

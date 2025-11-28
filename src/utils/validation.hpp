@@ -43,8 +43,7 @@ public:
 	                                  const std::string &operation_name = "matrix extraction");
 
 	/**
-	 * @brief Validate that column exists by name (v1.4.1 API)
-	 *
+	 * @brief Validate that column exists by name	 *
 	 * @param column_names Vector of column names to search
 	 * @param col_name Column name to find
 	 * @return Column index if found
@@ -53,8 +52,7 @@ public:
 	static idx_t FindColumnByName(const std::vector<std::string> &column_names, const std::string &col_name);
 
 	/**
-	 * @brief Validate that all named columns exist (v1.4.1 API)
-	 *
+	 * @brief Validate that all named columns exist	 *
 	 * @param column_names Vector of column names to search
 	 * @param col_names Vector of column names to find
 	 * @return Vector of column indices in same order
@@ -73,8 +71,7 @@ public:
 	static void ValidateNumericType(const Vector &vector, const std::string &col_name = "");
 
 	/**
-	 * @brief Validate that column does not contain NULLs (v1.4.1 API)
-	 *
+	 * @brief Validate that column does not contain NULLs	 *
 	 * @param vector Vector to check
 	 * @param size Number of rows to check
 	 * @param col_name Optional column name for error message
@@ -83,8 +80,7 @@ public:
 	static void ValidateNoNulls(const Vector &vector, idx_t size, const std::string &col_name = "");
 
 	/**
-	 * @brief Validate that all rows have valid values (v1.4.1 API)
-	 *
+	 * @brief Validate that all rows have valid values	 *
 	 * Checks that:
 	 * - All values are numeric
 	 * - No NULLs present
@@ -117,8 +113,7 @@ public:
 	static void ValidateDimensions(idx_t rows, idx_t cols, idx_t actual_rows, idx_t actual_cols);
 
 	/**
-	 * @brief Check if column contains any non-finite values (v1.4.1 API)
-	 *
+	 * @brief Check if column contains any non-finite values	 *
 	 * @param vector Vector to check
 	 * @param size Number of rows to check
 	 * @param col_name Optional column name for error message
@@ -127,8 +122,7 @@ public:
 	static bool HasNonFiniteValues(const Vector &vector, idx_t size, const std::string &col_name = "");
 
 	/**
-	 * @brief Count number of NULL values in column (v1.4.1 API)
-	 *
+	 * @brief Count number of NULL values in column	 *
 	 * @param vector Vector to check
 	 * @param size Number of rows to check
 	 * @return Number of NULL values
@@ -154,8 +148,7 @@ public:
 	                                       const std::string &operation_name = "operation");
 
 	/**
-	 * @brief Validate that all required columns exist (v1.4.1 API)
-	 *
+	 * @brief Validate that all required columns exist	 *
 	 * @param column_names Vector of available column names
 	 * @param required_cols Vector of required column names
 	 * @throws DuckDBException if any required column missing

@@ -15,7 +15,7 @@ namespace duckdb {
 namespace anofox_statistics {
 
 /**
- * @brief Elastic Net fit using array inputs with MAP-based options (v1.4.1 compatible)
+ * @brief Elastic Net fit using array inputs with MAP-based options
  *
  * Signature:
  *   SELECT * FROM anofox_statistics_elastic_net(
@@ -383,8 +383,8 @@ static unique_ptr<FunctionData> ElasticNetFitBind(ClientContext &context, TableF
 	ANOFOX_INFO("Elastic Net fit completed: R² = " << result->r_squared << ", nonzero=" << result->n_nonzero);
 
 	// Set return schema (basic columns)
-	names = {"coefficients", "intercept",  "r_squared", "adj_r_squared", "mse",      "rmse",
-	         "n_obs",        "n_features", "alpha",     "reg_lambda",    "n_nonzero"};
+	names = {"coefficients", "intercept",  "r2",    "adj_r2", "mse",      "rmse",
+	         "n_obs",        "n_features", "alpha", "lambda", "n_nonzero"};
 
 	return_types = {LogicalType::LIST(LogicalType::DOUBLE),
 	                LogicalType::DOUBLE,
@@ -642,18 +642,26 @@ static void ElasticNetFitExecute(ClientContext &context, TableFunctionInput &dat
 }
 
 void ElasticNetFitFunction::Register(ExtensionLoader &loader) {
-	ANOFOX_DEBUG("Registering anofox_statistics_elastic_net (array-based v1.4.1 with MAP options)");
+	ANOFOX_DEBUG("Registering anofox_statistics_elastic_net (array-based with MAP options)");
 
-	// Signature: anofox_statistics_elastic_net(y DOUBLE[], x DOUBLE[][], [options MAP])
-	vector<LogicalType> arguments = {
+	// Register 2-argument overload: (y DOUBLE[], x DOUBLE[][])
+	vector<LogicalType> args_2 = {
 	    LogicalType::LIST(LogicalType::DOUBLE),                   // y: DOUBLE[]
 	    LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)) // x: DOUBLE[][]
 	};
 
-	TableFunction function("anofox_statistics_elastic_net_fit", arguments, ElasticNetFitExecute, ElasticNetFitBind);
-	function.varargs = LogicalType::ANY;
+	TableFunction func_2("anofox_statistics_elastic_net_fit", args_2, ElasticNetFitExecute, ElasticNetFitBind);
+	loader.RegisterFunction(func_2);
 
-	loader.RegisterFunction(function);
+	// Register 3-argument overload: (y DOUBLE[], x DOUBLE[][], options MAP/STRUCT)
+	vector<LogicalType> args_3 = {
+	    LogicalType::LIST(LogicalType::DOUBLE),                    // y: DOUBLE[]
+	    LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)), // x: DOUBLE[][]
+	    LogicalType::ANY                                           // options: MAP or STRUCT
+	};
+
+	TableFunction func_3("anofox_statistics_elastic_net_fit", args_3, ElasticNetFitExecute, ElasticNetFitBind);
+	loader.RegisterFunction(func_3);
 
 	ANOFOX_INFO("anofox_statistics_elastic_net registered successfully");
 }

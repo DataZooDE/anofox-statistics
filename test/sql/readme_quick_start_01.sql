@@ -4,7 +4,7 @@
 --   anofox_statistics_ols_fit(y, x1, x2, x3, true)  -- Multiple individual arrays
 --
 -- The NEW API uses:
---   anofox_statistics_ols_fit(y, [[x1, x2, x3]], MAP{'intercept': true})  -- 2D array + MAP options
+--   anofox_statistics_ols_fit(y, [[x1, x2, x3]], {'intercept': true})  -- 2D array + MAP options
 --
 -- Also references deprecated functions like ols_inference and uses non-existent sales_data table
 

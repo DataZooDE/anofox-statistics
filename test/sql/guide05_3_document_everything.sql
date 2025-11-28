@@ -10,7 +10,7 @@ CREATE TABLE model_registry (
     independent_variables VARCHAR[],
     training_date TIMESTAMP,
     training_observations BIGINT,
-    r_squared DOUBLE,
+    r2 DOUBLE,
     coefficients DOUBLE[],
     business_owner VARCHAR,
     use_case TEXT,

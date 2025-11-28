@@ -1,7 +1,7 @@
 -- ============================================================================
 -- Performance Test: OLS Fit-Predict Window Functions
 -- ============================================================================
--- This script generates a large dataset for performance testing of
+-- This script loads a pre-generated dataset and tests the performance of
 -- anofox_statistics_ols_fit_predict window functions.
 --
 -- Dataset characteristics:
@@ -10,120 +10,27 @@
 -- - Includes NULL values in y for prediction demonstration
 -- - Sequential obs_id for proper window function ordering
 --
+-- Prerequisites:
+-- 1. Run generate_test_data.sql first to create the parquet file
+--
 -- Usage:
--- 1. Adjust configuration parameters below
--- 2. Run the entire script in DuckDB
--- 3. Observe timing output for performance analysis
+-- 1. Run the entire script in DuckDB
+-- 2. Observe timing output for performance analysis
+-- 3. Results are saved to examples/performance_test/results/
 -- ============================================================================
 
--- ============================================================================
--- CONFIGURATION PARAMETERS (easily changeable)
--- ============================================================================
-SET VARIABLE n_groups = 10000;          -- Number of groups
-SET VARIABLE n_obs_per_group = 100;     -- Observations per group
-SET VARIABLE n_features = 8;            -- Number of features (x1, x2, ..., x8)
-SET VARIABLE noise_std = 2.0;           -- Standard deviation of Gaussian noise
-SET VARIABLE null_fraction = 0.1;       -- Fraction of y values to set as NULL (for prediction)
+LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
 
 -- ============================================================================
--- STEP 1: Generate Random Coefficients for Each Group
+-- STEP 1: Load Performance Data from Parquet File
 -- ============================================================================
--- Each group gets its own "true" linear relationship with randomly sampled
--- coefficients. This creates heterogeneous data across groups.
 
 .print '============================================================================'
-.print 'Generating group-specific coefficients...'
-.print '============================================================================'
-
-CREATE OR REPLACE TABLE group_coefficients AS
-SELECT
-    group_id,
-    -- Intercept: random value between -10 and 10
-    (random() * 20.0 - 10.0) as beta_0,
-    -- Coefficients for x1-x8: random values between -5 and 5
-    (random() * 10.0 - 5.0) as beta_1,
-    (random() * 10.0 - 5.0) as beta_2,
-    (random() * 10.0 - 5.0) as beta_3,
-    (random() * 10.0 - 5.0) as beta_4,
-    (random() * 10.0 - 5.0) as beta_5,
-    (random() * 10.0 - 5.0) as beta_6,
-    (random() * 10.0 - 5.0) as beta_7,
-    (random() * 10.0 - 5.0) as beta_8
-FROM range(1, getvariable('n_groups') + 1) t(group_id);
-
-.print 'Generated coefficients for ' || getvariable('n_groups') || ' groups'
-.print ''
-
--- ============================================================================
--- STEP 2: Generate Sequential Observations for Each Group
--- ============================================================================
--- For each group, generate n_obs_per_group observations with:
--- - Sequential obs_id (important for window functions)
--- - Features x1-x8: random uniform values
--- - Response y: calculated from true linear relationship + noise
--- - Some y values set to NULL for prediction testing
-
-.print '============================================================================'
-.print 'Generating sequential observations...'
+.print 'Loading performance data from parquet file...'
 .print '============================================================================'
 
 CREATE OR REPLACE TABLE performance_data AS
-SELECT
-    gc.group_id,
-    obs.obs_id,
-    -- Generate features x1 through x8 (uniform random between -10 and 10)
-    (random() * 20.0 - 10.0)::DOUBLE as x1,
-    (random() * 20.0 - 10.0)::DOUBLE as x2,
-    (random() * 20.0 - 10.0)::DOUBLE as x3,
-    (random() * 20.0 - 10.0)::DOUBLE as x4,
-    (random() * 20.0 - 10.0)::DOUBLE as x5,
-    (random() * 20.0 - 10.0)::DOUBLE as x6,
-    (random() * 20.0 - 10.0)::DOUBLE as x7,
-    (random() * 20.0 - 10.0)::DOUBLE as x8,
-    -- Store coefficients for y calculation
-    gc.beta_0, gc.beta_1, gc.beta_2, gc.beta_3, gc.beta_4,
-    gc.beta_5, gc.beta_6, gc.beta_7, gc.beta_8
-FROM
-    group_coefficients gc
-    CROSS JOIN range(1, getvariable('n_obs_per_group') + 1) obs(obs_id);
-
--- Add response variable y with true linear relationship + noise
--- Set some y values to NULL for prediction demonstration
-CREATE OR REPLACE TABLE performance_data AS
-SELECT
-    group_id,
-    obs_id,
-    x1, x2, x3, x4, x5, x6, x7, x8,
-    -- y = beta_0 + sum(beta_i * x_i) + noise, or NULL for prediction
-    CASE
-        WHEN random() < getvariable('null_fraction') THEN NULL
-        ELSE (
-            beta_0 +
-            beta_1 * x1 +
-            beta_2 * x2 +
-            beta_3 * x3 +
-            beta_4 * x4 +
-            beta_5 * x5 +
-            beta_6 * x6 +
-            beta_7 * x7 +
-            beta_8 * x8 +
-            -- Gaussian noise using Box-Muller transform
-            sqrt(-2.0 * ln(random())) * cos(2.0 * pi() * random()) * getvariable('noise_std')
-        )::DOUBLE
-    END as y,
-    -- Store true y (without NULL) for validation
-    (beta_0 +
-     beta_1 * x1 +
-     beta_2 * x2 +
-     beta_3 * x3 +
-     beta_4 * x4 +
-     beta_5 * x5 +
-     beta_6 * x6 +
-     beta_7 * x7 +
-     beta_8 * x8 +
-     sqrt(-2.0 * ln(random())) * cos(2.0 * pi() * random()) * getvariable('noise_std')
-    )::DOUBLE as y_true
-FROM performance_data;
+SELECT * FROM 'examples/performance_test/data/performance_data_fit_predict.parquet';
 
 -- Report dataset size and NULL statistics
 .print ''
@@ -136,7 +43,7 @@ SELECT
 FROM performance_data;
 
 .print ''
-.print 'Dataset generated successfully!'
+.print 'Dataset loaded successfully!'
 .print ''
 
 -- ============================================================================
@@ -450,19 +357,70 @@ ORDER BY pf.obs_id;
 .print ''
 
 -- ============================================================================
+-- STEP 11: Save Results to Parquet Files
+-- ============================================================================
+
+.print '============================================================================'
+.print 'Saving results to parquet files...'
+.print '============================================================================'
+
+-- Save expanding window predictions (group 1)
+COPY (
+    SELECT
+        group_id,
+        obs_id,
+        y,
+        pred.yhat as yhat,
+        pred.yhat_lower,
+        pred.yhat_upper
+    FROM predictions_expanding_single
+) TO 'examples/performance_test/results/sql_predictions_expanding_single.parquet' (FORMAT PARQUET);
+
+-- Save fixed window predictions (group 1)
+COPY (
+    SELECT
+        group_id,
+        obs_id,
+        y,
+        pred.yhat as yhat,
+        pred.yhat_lower,
+        pred.yhat_upper
+    FROM predictions_fixed_single
+) TO 'examples/performance_test/results/sql_predictions_fixed_single.parquet' (FORMAT PARQUET);
+
+-- Save expanding window predictions (100 groups)
+COPY (
+    SELECT
+        group_id,
+        obs_id,
+        y,
+        pred.yhat as yhat,
+        pred.yhat_lower,
+        pred.yhat_upper
+    FROM predictions_expanding_multi
+) TO 'examples/performance_test/results/sql_predictions_expanding_multi.parquet' (FORMAT PARQUET);
+
+-- Save fixed window predictions (100 groups)
+COPY (
+    SELECT
+        group_id,
+        obs_id,
+        y,
+        pred.yhat as yhat,
+        pred.yhat_lower,
+        pred.yhat_upper
+    FROM predictions_fixed_multi
+) TO 'examples/performance_test/results/sql_predictions_fixed_multi.parquet' (FORMAT PARQUET);
+
+.print 'Results saved to examples/performance_test/results/'
+.print ''
+
+-- ============================================================================
 -- SUMMARY
 -- ============================================================================
 .print '============================================================================'
 .print 'PERFORMANCE TEST SUMMARY'
 .print '============================================================================'
-.print 'Configuration:'
-.print '  - Groups: ' || getvariable('n_groups')
-.print '  - Observations per group: ' || getvariable('n_obs_per_group')
-.print '  - Total rows: ' || (getvariable('n_groups') * getvariable('n_obs_per_group'))
-.print '  - Features: ' || getvariable('n_features')
-.print '  - Noise std dev: ' || getvariable('noise_std')
-.print '  - NULL fraction: ' || getvariable('null_fraction')
-.print ''
 .print 'Tests completed:'
 .print '  1. Expanding window - single group'
 .print '  2. Fixed window - single group'
@@ -472,7 +430,6 @@ ORDER BY pf.obs_id;
 .print '  6. Fixed window - all groups'
 .print ''
 .print 'Tables created:'
-.print '  - group_coefficients: True coefficients for each group'
 .print '  - performance_data: Sequential observations with NULL y values'
 .print '  - predictions_expanding_single: Expanding window predictions (1 group)'
 .print '  - predictions_fixed_single: Fixed window predictions (1 group)'
@@ -480,4 +437,10 @@ ORDER BY pf.obs_id;
 .print '  - predictions_fixed_multi: Fixed window predictions (100 groups)'
 .print '  - predictions_expanding_all: Expanding window predictions (all groups)'
 .print '  - predictions_fixed_all: Fixed window predictions (all groups)'
+.print ''
+.print 'Results saved to:'
+.print '  - examples/performance_test/results/sql_predictions_expanding_single.parquet'
+.print '  - examples/performance_test/results/sql_predictions_fixed_single.parquet'
+.print '  - examples/performance_test/results/sql_predictions_expanding_multi.parquet'
+.print '  - examples/performance_test/results/sql_predictions_fixed_multi.parquet'
 .print '============================================================================'
