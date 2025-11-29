@@ -177,8 +177,7 @@ static void VifTableFunc(ClientContext &context, TableFunctionInput &data_p, Dat
 void VifFunction::Register(ExtensionLoader &loader) {
 	ANOFOX_DEBUG("Registering anofox_stats_vif (with alias vif)");
 
-	TableFunction vif_func("anofox_stats_vif",
-	                       {LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE))}, // X matrix
+	TableFunction vif_func("anofox_stats_vif", {LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE))}, // X matrix
 	                       VifTableFunc, VifBind);
 
 	// Set named parameters
@@ -187,8 +186,7 @@ void VifFunction::Register(ExtensionLoader &loader) {
 	loader.RegisterFunction(vif_func);
 
 	// Register alias
-	TableFunction vif_alias("vif",
-	                        {LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE))}, // X matrix
+	TableFunction vif_alias("vif", {LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE))}, // X matrix
 	                        VifTableFunc, VifBind);
 
 	// Set named parameters

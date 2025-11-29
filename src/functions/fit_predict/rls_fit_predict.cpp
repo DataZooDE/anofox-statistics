@@ -238,8 +238,7 @@ void RlsFitPredictFunction::Register(ExtensionLoader &loader) {
 	// Use ONLY window callback to force WindowCustomAggregator path
 	// This prevents WindowConstantAggregator from broadcasting a single result to all rows
 	AggregateFunction anofox_stats_rls_fit_predict(
-	    "anofox_stats_rls_fit_predict",
-	    {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
+	    "anofox_stats_rls_fit_predict", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
 	    LogicalType::STRUCT(fit_predict_struct_fields), AggregateFunction::StateSize<RlsFitPredictState>,
 	    RlsFitPredictInitialize,
 	    nullptr, // No update - force WindowCustomAggregator
@@ -252,17 +251,16 @@ void RlsFitPredictFunction::Register(ExtensionLoader &loader) {
 	loader.RegisterFunction(anofox_stats_rls_fit_predict);
 
 	// Register alias
-	AggregateFunction rls_fit_predict(
-	    "rls_fit_predict",
-	    {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
-	    LogicalType::STRUCT(fit_predict_struct_fields), AggregateFunction::StateSize<RlsFitPredictState>,
-	    RlsFitPredictInitialize,
-	    nullptr, // No update - force WindowCustomAggregator
-	    nullptr, // No combine - force WindowCustomAggregator
-	    nullptr, // No finalize - force WindowCustomAggregator
-	    FunctionNullHandling::DEFAULT_NULL_HANDLING, nullptr, nullptr, nullptr, nullptr,
-	    RlsFitPredictWindow, // RLS-specific window callback - called per row
-	    nullptr, nullptr);
+	AggregateFunction rls_fit_predict("rls_fit_predict",
+	                                  {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
+	                                  LogicalType::STRUCT(fit_predict_struct_fields),
+	                                  AggregateFunction::StateSize<RlsFitPredictState>, RlsFitPredictInitialize,
+	                                  nullptr, // No update - force WindowCustomAggregator
+	                                  nullptr, // No combine - force WindowCustomAggregator
+	                                  nullptr, // No finalize - force WindowCustomAggregator
+	                                  FunctionNullHandling::DEFAULT_NULL_HANDLING, nullptr, nullptr, nullptr, nullptr,
+	                                  RlsFitPredictWindow, // RLS-specific window callback - called per row
+	                                  nullptr, nullptr);
 
 	loader.RegisterFunction(rls_fit_predict);
 

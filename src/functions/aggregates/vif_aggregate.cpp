@@ -265,10 +265,10 @@ void VifAggregateFunction::Register(ExtensionLoader &loader) {
 	loader.RegisterFunction(anofox_stats_vif_agg);
 
 	// Register alias
-	AggregateFunction vif_agg_alias(
-	    "vif_agg", {LogicalType::LIST(LogicalType::DOUBLE)}, // x features
-	    LogicalType::STRUCT(vif_struct_fields), AggregateFunction::StateSize<VifAggregateState>, VifInitialize,
-	    VifUpdate, VifCombine, VifFinalize, FunctionNullHandling::DEFAULT_NULL_HANDLING);
+	AggregateFunction vif_agg_alias("vif_agg", {LogicalType::LIST(LogicalType::DOUBLE)}, // x features
+	                                LogicalType::STRUCT(vif_struct_fields),
+	                                AggregateFunction::StateSize<VifAggregateState>, VifInitialize, VifUpdate,
+	                                VifCombine, VifFinalize, FunctionNullHandling::DEFAULT_NULL_HANDLING);
 
 	loader.RegisterFunction(vif_agg_alias);
 

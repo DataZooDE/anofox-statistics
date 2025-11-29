@@ -212,8 +212,7 @@ void ElasticNetFitPredictFunction::Register(ExtensionLoader &loader) {
 
 	// Register alias
 	AggregateFunction elastic_net_fit_predict(
-	    "elastic_net_fit_predict",
-	    {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
+	    "elastic_net_fit_predict", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
 	    LogicalType::STRUCT(fit_predict_struct_fields), AggregateFunction::StateSize<ElasticNetFitPredictState>,
 	    ElasticNetFitPredictInitialize,
 	    nullptr, // No update - force WindowCustomAggregator

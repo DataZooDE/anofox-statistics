@@ -881,10 +881,10 @@ void OlsAggregateFunction::Register(ExtensionLoader &loader) {
 	ANOFOX_DEBUG("Registering OLS aggregate functions");
 
 	// 1. anofox_stats_ols_coeff_agg(y DOUBLE, x DOUBLE) -> DOUBLE
-	AggregateFunction anofox_stats_ols_coeff_agg("anofox_stats_ols_coeff_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE}, LogicalType::DOUBLE,
-	                                AggregateFunction::StateSize<OlsAggregateState>, OlsInitialize, OlsUpdate,
-	                                OlsCombine, OlsFinalize, FunctionNullHandling::DEFAULT_NULL_HANDLING, nullptr,
-	                                nullptr, OlsDestroy, nullptr, nullptr, nullptr, nullptr);
+	AggregateFunction anofox_stats_ols_coeff_agg(
+	    "anofox_stats_ols_coeff_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE}, LogicalType::DOUBLE,
+	    AggregateFunction::StateSize<OlsAggregateState>, OlsInitialize, OlsUpdate, OlsCombine, OlsFinalize,
+	    FunctionNullHandling::DEFAULT_NULL_HANDLING, nullptr, nullptr, OlsDestroy, nullptr, nullptr, nullptr, nullptr);
 	loader.RegisterFunction(anofox_stats_ols_coeff_agg);
 
 	// Register legacy alias
@@ -894,8 +894,8 @@ void OlsAggregateFunction::Register(ExtensionLoader &loader) {
 	                                nullptr, OlsDestroy, nullptr, nullptr, nullptr, nullptr);
 	loader.RegisterFunction(ols_coeff_agg);
 
-	// 2. anofox_stats_ols_fit_agg_single(y DOUBLE, x DOUBLE) -> STRUCT(coefficient DOUBLE, intercept DOUBLE, r2 DOUBLE, n_obs BIGINT,
-	// std_error DOUBLE)
+	// 2. anofox_stats_ols_fit_agg_single(y DOUBLE, x DOUBLE) -> STRUCT(coefficient DOUBLE, intercept DOUBLE, r2 DOUBLE,
+	// n_obs BIGINT, std_error DOUBLE)
 	child_list_t<LogicalType> fit_struct_fields;
 	fit_struct_fields.push_back(make_pair("coefficient", LogicalType::DOUBLE));
 	fit_struct_fields.push_back(make_pair("intercept", LogicalType::DOUBLE));
@@ -904,9 +904,10 @@ void OlsAggregateFunction::Register(ExtensionLoader &loader) {
 	fit_struct_fields.push_back(make_pair("std_error", LogicalType::DOUBLE));
 
 	AggregateFunction anofox_stats_ols_fit_agg_single(
-	    "anofox_stats_ols_fit_agg_single", {LogicalType::DOUBLE, LogicalType::DOUBLE}, LogicalType::STRUCT(fit_struct_fields),
-	    AggregateFunction::StateSize<OlsAggregateState>, OlsInitialize, OlsUpdate, OlsCombine, OlsFitFinalize,
-	    FunctionNullHandling::DEFAULT_NULL_HANDLING, nullptr, nullptr, OlsDestroy, nullptr, nullptr, nullptr, nullptr);
+	    "anofox_stats_ols_fit_agg_single", {LogicalType::DOUBLE, LogicalType::DOUBLE},
+	    LogicalType::STRUCT(fit_struct_fields), AggregateFunction::StateSize<OlsAggregateState>, OlsInitialize,
+	    OlsUpdate, OlsCombine, OlsFitFinalize, FunctionNullHandling::DEFAULT_NULL_HANDLING, nullptr, nullptr,
+	    OlsDestroy, nullptr, nullptr, nullptr, nullptr);
 	loader.RegisterFunction(anofox_stats_ols_fit_agg_single);
 
 	// Register legacy alias (overloaded)
@@ -970,8 +971,7 @@ void OlsAggregateFunction::Register(ExtensionLoader &loader) {
 	// This is the new unified API that matches table function signatures
 	// Now supports window functions with OVER clause
 	AggregateFunction anofox_stats_ols_fit_agg(
-	    "anofox_stats_ols_fit_agg",
-	    {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
+	    "anofox_stats_ols_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
 	    LogicalType::STRUCT(array_fit_struct_fields), AggregateFunction::StateSize<OlsArrayAggregateState>,
 	    OlsArrayInitialize, OlsArrayUpdate, OlsArrayCombine, OlsArrayFinalize,
 	    FunctionNullHandling::DEFAULT_NULL_HANDLING, nullptr, nullptr, nullptr, nullptr, OlsArrayWindow, nullptr,
@@ -980,8 +980,7 @@ void OlsAggregateFunction::Register(ExtensionLoader &loader) {
 
 	// Register alias without prefix
 	AggregateFunction ols_fit_agg_alias(
-	    "ols_fit_agg",
-	    {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
+	    "ols_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
 	    LogicalType::STRUCT(array_fit_struct_fields), AggregateFunction::StateSize<OlsArrayAggregateState>,
 	    OlsArrayInitialize, OlsArrayUpdate, OlsArrayCombine, OlsArrayFinalize,
 	    FunctionNullHandling::DEFAULT_NULL_HANDLING, nullptr, nullptr, nullptr, nullptr, OlsArrayWindow, nullptr,

@@ -277,10 +277,10 @@ void ElasticNetPredictIntervalFunction::Register(ExtensionLoader &loader) {
 
 	// Register alias
 	TableFunction func_alias("predict_elastic_net",
-	                          {LogicalType::LIST(LogicalType::DOUBLE),                     // y_train
-	                           LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)),  // x_train
-	                           LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE))}, // x_new
-	                          ElasticNetPredictIntervalTableFunc, ElasticNetPredictIntervalBind);
+	                         {LogicalType::LIST(LogicalType::DOUBLE),                     // y_train
+	                          LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)),  // x_train
+	                          LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE))}, // x_new
+	                         ElasticNetPredictIntervalTableFunc, ElasticNetPredictIntervalBind);
 
 	// Add support for optional MAP parameter via varargs
 	func_alias.varargs = LogicalType::ANY;

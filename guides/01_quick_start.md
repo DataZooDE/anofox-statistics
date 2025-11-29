@@ -45,7 +45,7 @@ SELECT 'guide01_load_extension.sql - DISABLED - documentation example only' as s
 
 ## Example 1: Simple Linear Regression
 
-**How it works**: The `anofox_stats_ols_fit` table function fits an OLS regression model using QR decomposition from libanostat. It takes array inputs for y (response) and X (feature matrix), along with configuration options in a MAP.
+**How it works**: The `anofox_statistics_ols_fit` table function fits an OLS regression model using QR decomposition from libanostat. It takes array inputs for y (response) and X (feature matrix), along with configuration options in a MAP.
 
 
 ```sql
@@ -57,7 +57,7 @@ WITH input AS (
         LIST_VALUE(LIST_VALUE(1.1::DOUBLE, 2.1, 2.9, 4.2, 4.8)) as X
 )
 SELECT result.* FROM input,
-LATERAL anofox_stats_ols_fit(
+LATERAL anofox_statistics_ols_fit(
     input.y,
     input.X,
     {'intercept': true}
@@ -81,7 +81,7 @@ LATERAL anofox_stats_ols_fit(
 
 -- Get statistical inference using fit with full_output
 WITH model AS (
-    SELECT * FROM anofox_stats_ols_fit(
+    SELECT * FROM anofox_statistics_ols_fit(
         [2.1, 4.0, 6.1, 7.9, 10.2]::DOUBLE[],
         [[1.0], [2.0], [3.0], [4.0], [5.0]]::DOUBLE[][],
         {'intercept': true, 'full_output': true, 'confidence_level': 0.95::DOUBLE}
@@ -111,7 +111,7 @@ FROM model;
 
 ## Example 3: Regression Per Group
 
-**How it works**: The `anofox_stats_ols_fit_agg` aggregate function supports GROUP BY to fit separate models per group. Each group accumulates observations independently and computes a complete regression result struct.
+**How it works**: The `anofox_statistics_ols_fit_agg` aggregate function supports GROUP BY to fit separate models per group. Each group accumulates observations independently and computes a complete regression result struct.
 
 
 ```sql
@@ -127,8 +127,8 @@ FROM range(1, 21) t(i);
 -- Regression per product
 SELECT
     product,
-    (anofox_stats_ols_fit_agg(quantity, [price], {'intercept': true})).coefficients[1] as price_elasticity,
-    (anofox_stats_ols_fit_agg(quantity, [price], {'intercept': true})).r2 as fit_quality
+    (anofox_statistics_ols_fit_agg(quantity, [price], {'intercept': true})).coefficients[1] as price_elasticity,
+    (anofox_statistics_ols_fit_agg(quantity, [price], {'intercept': true})).r2 as fit_quality
 FROM sales
 GROUP BY product;
 ```
@@ -158,7 +158,7 @@ FROM range(1, 51) t(i);
 SELECT
     time_idx,
     value,
-    (anofox_stats_ols_fit_agg(value, [time_idx], {'intercept': true}) OVER (
+    (anofox_statistics_ols_fit_agg(value, [time_idx], {'intercept': true}) OVER (
         ORDER BY time_idx
         ROWS BETWEEN 9 PRECEDING AND CURRENT ROW
     )).coefficients[1] as rolling_trend
@@ -175,13 +175,13 @@ WHERE time_idx >= 10;
 
 ## Example 5: Make Predictions
 
-**How it works**: The `anofox_stats_predict_ols` table function fits a model on training data (y_train, x_train) and generates predictions for new observations (x_new) with confidence or prediction intervals using the t-distribution.
+**How it works**: The `anofox_statistics_predict_ols` table function fits a model on training data (y_train, x_train) and generates predictions for new observations (x_new) with confidence or prediction intervals using the t-distribution.
 
 
 ```sql
 
 -- Predict for new values using the predict function
-SELECT * FROM anofox_stats_predict_ols(
+SELECT * FROM anofox_statistics_predict_ols(
     [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],          -- y_train
     [[1.0], [2.0], [3.0], [4.0], [5.0]]::DOUBLE[][], -- x_train
     [[6.0], [7.0], [8.0]]::DOUBLE[][],             -- x_new
@@ -211,13 +211,13 @@ WITH data AS (
            UNNEST([[1.0], [2.0], [3.0], [4.0], [5.0], [6.0], [7.0], [8.0]]::DOUBLE[][]) as x
 )
 SELECT
-    (anofox_stats_ols_fit_agg(y, x, {'intercept': true})).n_obs as n_obs,
-    (anofox_stats_ols_fit_agg(y, x, {'intercept': true})).r2 as r2,
-    (anofox_stats_ols_fit_agg(y, x, {'intercept': true})).adj_r2 as adj_r2,
-    (anofox_stats_ols_fit_agg(y, x, {'intercept': true})).aic as aic,
-    (anofox_stats_ols_fit_agg(y, x, {'intercept': true})).aicc as aicc,
-    (anofox_stats_ols_fit_agg(y, x, {'intercept': true})).bic as bic,
-    (anofox_stats_ols_fit_agg(y, x, {'intercept': true})).log_likelihood as log_likelihood
+    (anofox_statistics_ols_fit_agg(y, x, {'intercept': true})).n_obs as n_obs,
+    (anofox_statistics_ols_fit_agg(y, x, {'intercept': true})).r2 as r2,
+    (anofox_statistics_ols_fit_agg(y, x, {'intercept': true})).adj_r2 as adj_r2,
+    (anofox_statistics_ols_fit_agg(y, x, {'intercept': true})).aic as aic,
+    (anofox_statistics_ols_fit_agg(y, x, {'intercept': true})).aicc as aicc,
+    (anofox_statistics_ols_fit_agg(y, x, {'intercept': true})).bic as bic,
+    (anofox_statistics_ols_fit_agg(y, x, {'intercept': true})).log_likelihood as log_likelihood
 FROM data;
 ```
 
@@ -230,7 +230,7 @@ FROM data;
 
 ## Example 7: Detect Outliers
 
-**How it works**: The `anofox_stats_residual_diagnostics` table function computes standardized residuals and flags outliers based on a threshold. It returns per-observation diagnostics for assessing model fit and data quality.
+**How it works**: The `anofox_statistics_residual_diagnostics` table function computes standardized residuals and flags outliers based on a threshold. It returns per-observation diagnostics for assessing model fit and data quality.
 
 
 ```sql
@@ -247,7 +247,7 @@ SELECT
     ROUND(result.std_residual, 3) as std_residual,
     result.is_outlier
 FROM data,
-LATERAL anofox_stats_residual_diagnostics(data.y_actual, data.y_predicted, 2.5) as result
+LATERAL anofox_statistics_residual_diagnostics(data.y_actual, data.y_predicted, 2.5) as result
 ORDER BY ABS(result.std_residual) DESC
 LIMIT 3;
 ```
@@ -266,7 +266,7 @@ The extension provides aggregate functions that support GROUP BY and OVER clause
 
 ### OLS Aggregate: Basic Per-Group Regression
 
-**How it works**: `anofox_stats_ols_fit_agg` is a DuckDB aggregate that accumulates observations per group and computes OLS regression coefficients using QR decomposition. Returns a complete statistics struct per group.
+**How it works**: `anofox_statistics_ols_fit_agg` is a DuckDB aggregate that accumulates observations per group and computes OLS regression coefficients using QR decomposition. Returns a complete statistics struct per group.
 
 
 ```sql
@@ -298,7 +298,7 @@ SELECT
 FROM (
     SELECT
         category,
-        anofox_stats_ols_fit_agg(
+        anofox_statistics_ols_fit_agg(
             units_sold::DOUBLE,
             [price::DOUBLE],
             {'intercept': true}
@@ -317,7 +317,7 @@ FROM (
 
 ### WLS Aggregate: Weighted Analysis
 
-**How it works**: `anofox_stats_wls_fit_agg` implements weighted least squares by transforming inputs with √W before applying OLS. Each observation i receives weight w_i, modifying its contribution to the objective function.
+**How it works**: `anofox_statistics_wls_fit_agg` implements weighted least squares by transforming inputs with √W before applying OLS. Each observation i receives weight w_i, modifying its contribution to the objective function.
 
 
 ```sql
@@ -351,7 +351,7 @@ SELECT
 FROM (
     SELECT
         segment,
-        anofox_stats_wls_fit_agg(
+        anofox_statistics_wls_fit_agg(
             spend,
             [income],
             reliability_weight,
@@ -371,7 +371,7 @@ FROM (
 
 ### Ridge Aggregate: Handling Multicollinearity
 
-**How it works**: `anofox_stats_ridge_fit_agg` adds L2 regularization to the OLS objective function. The penalty term λ||β||² shrinks coefficient estimates, reducing variance at the cost of bias.
+**How it works**: `anofox_statistics_ridge_fit_agg` adds L2 regularization to the OLS objective function. The penalty term λ||β||² shrinks coefficient estimates, reducing variance at the cost of bias.
 
 
 ```sql
@@ -409,7 +409,7 @@ SELECT
 FROM (
     SELECT
         ticker,
-        anofox_stats_ridge_fit_agg(
+        anofox_statistics_ridge_fit_agg(
             return,
             [market_return, sector_return, momentum],
             {'lambda': 1.0, 'intercept': true}
@@ -428,7 +428,7 @@ FROM (
 
 ### RLS Aggregate: Adaptive Online Learning
 
-**How it works**: `anofox_stats_rls_fit_agg` implements recursive least squares with exponential forgetting. Observations are weighted by λ^(n-i) where λ is the forgetting factor and i is the observation index.
+**How it works**: `anofox_statistics_rls_fit_agg` implements recursive least squares with exponential forgetting. Observations are weighted by λ^(n-i) where λ is the forgetting factor and i is the observation index.
 
 
 ```sql
@@ -466,7 +466,7 @@ SELECT
 FROM (
     SELECT
         sensor_id,
-        anofox_stats_rls_fit_agg(
+        anofox_statistics_rls_fit_agg(
             true_value,
             [raw_reading],
             {'forgetting_factor': 0.95, 'intercept': true}
@@ -499,7 +499,7 @@ SELECT
     (i * 2.5 + 10)::DOUBLE as x
 FROM generate_series(1, 20) t(i);
 
-SELECT (anofox_stats_ols_fit_agg(y, [x], {'intercept': true})).coefficients[1] as slope FROM data;
+SELECT (anofox_statistics_ols_fit_agg(y, [x], {'intercept': true})).coefficients[1] as slope FROM data;
 ```
 
 ### Pattern 2: Per-group with GROUP BY
@@ -521,7 +521,7 @@ SELECT
     (i * 1.5 + 5)::DOUBLE as x
 FROM generate_series(1, 30) t(i);
 
-SELECT category, anofox_stats_ols_fit_agg(y, [x], {'intercept': true}) as model
+SELECT category, anofox_statistics_ols_fit_agg(y, [x], {'intercept': true}) as model
 FROM data GROUP BY category;
 ```
 
@@ -540,7 +540,7 @@ SELECT
     (5 + i * 0.3)::DOUBLE as x
 FROM generate_series(1, 100) t(i);
 
-SELECT *, (anofox_stats_ols_fit_agg(y, [x], {'intercept': true}) OVER (
+SELECT *, (anofox_statistics_ols_fit_agg(y, [x], {'intercept': true}) OVER (
     ORDER BY time ROWS BETWEEN 30 PRECEDING AND CURRENT ROW
 )).coefficients[1] as rolling_coef FROM data;
 ```
@@ -568,9 +568,9 @@ WITH
 -- Step 1: Fit model and compute statistics
 model_fit AS (
     SELECT
-        (anofox_stats_ols_fit_agg(y, [x], {'intercept': true})).coefficients[1] as slope,
-        (anofox_stats_ols_fit_agg(y, [x], {'intercept': true})).r2 as r2,
-        (anofox_stats_ols_fit_agg(y, [x], {'intercept': true})).residual_standard_error as std_error,
+        (anofox_statistics_ols_fit_agg(y, [x], {'intercept': true})).coefficients[1] as slope,
+        (anofox_statistics_ols_fit_agg(y, [x], {'intercept': true})).r2 as r2,
+        (anofox_statistics_ols_fit_agg(y, [x], {'intercept': true})).residual_standard_error as std_error,
         COUNT(*) as n_obs
     FROM workflow_sample
 ),
@@ -640,7 +640,7 @@ SELECT 'guide01_issue_extension_wont_load.sql - DISABLED - documentation example
 ```sql
 
 -- Ensure arrays are DOUBLE[] and use new API with 2D array + MAP
-SELECT * FROM anofox_stats_ols_fit(
+SELECT * FROM anofox_statistics_ols_fit(
     [1.0, 2.0, 3.0]::DOUBLE[],         -- y: Cast to DOUBLE[]
     [[1.0, 2.0, 3.0]]::DOUBLE[][],     -- X: 2D array (one feature)
     {'intercept': true}              -- options in MAP

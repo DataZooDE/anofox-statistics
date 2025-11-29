@@ -339,8 +339,7 @@ void RidgeFitPredictFunction::Register(ExtensionLoader &loader) {
 
 	// Register alias without prefix
 	AggregateFunction ridge_fit_predict_alias(
-	    "ridge_fit_predict",
-	    {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
+	    "ridge_fit_predict", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
 	    LogicalType::STRUCT(fit_predict_struct_fields), AggregateFunction::StateSize<RidgeFitPredictState>,
 	    RidgeFitPredictInitialize, RidgeFitPredictUpdate, RidgeFitPredictCombine, RidgeFitPredictFinalize,
 	    FunctionNullHandling::DEFAULT_NULL_HANDLING, nullptr, nullptr,

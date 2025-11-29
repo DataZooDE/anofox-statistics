@@ -391,8 +391,7 @@ void OlsFitPredictFunction::Register(ExtensionLoader &loader) {
 
 	// Use real callback functions (not lambdas) like the working function does
 	AggregateFunction anofox_stats_ols_fit_predict(
-	    "anofox_stats_ols_fit_predict",
-	    {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
+	    "anofox_stats_ols_fit_predict", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
 	    LogicalType::STRUCT(fit_predict_struct_fields), AggregateFunction::StateSize<OlsFitPredictState>,
 	    OlsFitPredictInitialize,                     // initialize
 	    OlsFitPredictUpdate,                         // update
@@ -414,8 +413,7 @@ void OlsFitPredictFunction::Register(ExtensionLoader &loader) {
 
 	// Register alias without prefix
 	AggregateFunction ols_fit_predict_alias(
-	    "ols_fit_predict",
-	    {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
+	    "ols_fit_predict", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
 	    LogicalType::STRUCT(fit_predict_struct_fields), AggregateFunction::StateSize<OlsFitPredictState>,
 	    OlsFitPredictInitialize,                     // initialize
 	    OlsFitPredictUpdate,                         // update

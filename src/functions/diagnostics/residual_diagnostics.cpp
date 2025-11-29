@@ -332,7 +332,8 @@ static OperatorResultType ResidualDiagnosticsInOut(ExecutionContext &context, Ta
 }
 
 void ResidualDiagnosticsFunction::Register(ExtensionLoader &loader) {
-	ANOFOX_DEBUG("Registering anofox_stats_residual_diagnostics (with alias residual_diagnostics, dual mode: literals + lateral joins)");
+	ANOFOX_DEBUG("Registering anofox_stats_residual_diagnostics (with alias residual_diagnostics, dual mode: literals "
+	             "+ lateral joins)");
 
 	vector<LogicalType> arguments = {
 	    LogicalType::LIST(LogicalType::DOUBLE), // y_actual
@@ -356,9 +357,8 @@ void ResidualDiagnosticsFunction::Register(ExtensionLoader &loader) {
 	loader.RegisterFunction(residual_diagnostics_func);
 
 	// Register alias
-	TableFunction residual_diagnostics_alias("residual_diagnostics", arguments,
-	                                         ResidualDiagnosticsTableFunc, ResidualDiagnosticsBind, nullptr,
-	                                         ResidualDiagnosticsInOutLocalInit);
+	TableFunction residual_diagnostics_alias("residual_diagnostics", arguments, ResidualDiagnosticsTableFunc,
+	                                         ResidualDiagnosticsBind, nullptr, ResidualDiagnosticsInOutLocalInit);
 
 	// Add lateral join support (in_out_function)
 	residual_diagnostics_alias.in_out_function = ResidualDiagnosticsInOut;
@@ -371,7 +371,8 @@ void ResidualDiagnosticsFunction::Register(ExtensionLoader &loader) {
 
 	loader.RegisterFunction(residual_diagnostics_alias);
 
-	ANOFOX_DEBUG("anofox_stats_residual_diagnostics registered successfully with alias residual_diagnostics (both modes)");
+	ANOFOX_DEBUG(
+	    "anofox_stats_residual_diagnostics registered successfully with alias residual_diagnostics (both modes)");
 }
 
 } // namespace anofox_statistics

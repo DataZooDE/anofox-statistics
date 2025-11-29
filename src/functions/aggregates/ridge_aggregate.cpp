@@ -600,8 +600,7 @@ void RidgeAggregateFunction::Register(ExtensionLoader &loader) {
 	ridge_struct_fields.push_back(make_pair("intercept_ci_upper", LogicalType::DOUBLE));
 
 	AggregateFunction anofox_stats_ridge_fit_agg(
-	    "anofox_stats_ridge_fit_agg",
-	    {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
+	    "anofox_stats_ridge_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
 	    LogicalType::STRUCT(ridge_struct_fields), AggregateFunction::StateSize<RidgeAggregateState>, RidgeInitialize,
 	    RidgeUpdate, RidgeCombine, RidgeFinalize, FunctionNullHandling::DEFAULT_NULL_HANDLING, nullptr, nullptr,
 	    nullptr, nullptr, RidgeWindow, nullptr, nullptr);
@@ -609,8 +608,7 @@ void RidgeAggregateFunction::Register(ExtensionLoader &loader) {
 
 	// Register alias without prefix
 	AggregateFunction ridge_fit_agg_alias(
-	    "ridge_fit_agg",
-	    {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
+	    "ridge_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
 	    LogicalType::STRUCT(ridge_struct_fields), AggregateFunction::StateSize<RidgeAggregateState>, RidgeInitialize,
 	    RidgeUpdate, RidgeCombine, RidgeFinalize, FunctionNullHandling::DEFAULT_NULL_HANDLING, nullptr, nullptr,
 	    nullptr, nullptr, RidgeWindow, nullptr, nullptr);

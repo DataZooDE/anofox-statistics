@@ -346,9 +346,9 @@ void OlsPredictIntervalFunction::Register(ExtensionLoader &loader) {
 	                                {LogicalType::LIST(LogicalType::DOUBLE),                    // y_train
 	                                 LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)), // X_train
 	                                 LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)), // X_new
-	                                 LogicalType::DOUBLE,   // confidence_level
-	                                 LogicalType::VARCHAR,  // interval_type
-	                                 LogicalType::BOOLEAN}, // add_intercept
+	                                 LogicalType::DOUBLE,                                       // confidence_level
+	                                 LogicalType::VARCHAR,                                      // interval_type
+	                                 LogicalType::BOOLEAN},                                     // add_intercept
 	                                OlsPredictIntervalTableFunc, OlsPredictIntervalBind);
 
 	// Set named parameters for alias

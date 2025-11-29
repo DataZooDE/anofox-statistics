@@ -636,8 +636,7 @@ void ElasticNetAggregateFunction::Register(ExtensionLoader &loader) {
 
 	// Register alias
 	AggregateFunction elastic_net_fit_agg(
-	    "elastic_net_fit_agg",
-	    {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
+	    "elastic_net_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
 	    LogicalType::STRUCT(elastic_net_struct_fields), AggregateFunction::StateSize<ElasticNetAggregateState>,
 	    ElasticNetInitialize, ElasticNetUpdate, ElasticNetCombine, ElasticNetFinalize,
 	    FunctionNullHandling::DEFAULT_NULL_HANDLING, nullptr, nullptr, nullptr, nullptr, ElasticNetWindow, nullptr,

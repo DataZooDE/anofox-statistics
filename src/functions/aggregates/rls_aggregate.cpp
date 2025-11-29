@@ -675,8 +675,7 @@ void RlsAggregateFunction::Register(ExtensionLoader &loader) {
 	rls_struct_fields.push_back(make_pair("intercept_ci_upper", LogicalType::DOUBLE));
 
 	AggregateFunction anofox_stats_rls_fit_agg(
-	    "anofox_stats_rls_fit_agg",
-	    {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
+	    "anofox_stats_rls_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
 	    LogicalType::STRUCT(rls_struct_fields), AggregateFunction::StateSize<RlsAggregateState>, RlsInitialize,
 	    RlsUpdate, RlsCombine, RlsFinalize, FunctionNullHandling::DEFAULT_NULL_HANDLING, nullptr, nullptr, nullptr,
 	    nullptr, RlsWindow, nullptr, nullptr);
@@ -684,8 +683,7 @@ void RlsAggregateFunction::Register(ExtensionLoader &loader) {
 
 	// Register alias
 	AggregateFunction rls_fit_agg(
-	    "rls_fit_agg",
-	    {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
+	    "rls_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
 	    LogicalType::STRUCT(rls_struct_fields), AggregateFunction::StateSize<RlsAggregateState>, RlsInitialize,
 	    RlsUpdate, RlsCombine, RlsFinalize, FunctionNullHandling::DEFAULT_NULL_HANDLING, nullptr, nullptr, nullptr,
 	    nullptr, RlsWindow, nullptr, nullptr);

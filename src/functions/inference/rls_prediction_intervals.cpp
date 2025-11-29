@@ -269,10 +269,10 @@ void RLSPredictIntervalFunction::Register(ExtensionLoader &loader) {
 
 	// Register alias
 	TableFunction func_alias("predict_rls",
-	                          {LogicalType::LIST(LogicalType::DOUBLE),                     // y_train
-	                           LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)),  // x_train
-	                           LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE))}, // x_new
-	                          RlsPredictIntervalTableFunc, RlsPredictIntervalBind);
+	                         {LogicalType::LIST(LogicalType::DOUBLE),                     // y_train
+	                          LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)),  // x_train
+	                          LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE))}, // x_new
+	                         RlsPredictIntervalTableFunc, RlsPredictIntervalBind);
 
 	// Add support for optional MAP parameter via varargs
 	func_alias.varargs = LogicalType::ANY;

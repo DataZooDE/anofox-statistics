@@ -613,7 +613,8 @@ void AnofoxStatisticsModelPredictFunction::Register(ExtensionLoader &loader) {
 
 	loader.RegisterFunction(func_alias);
 
-	ANOFOX_DEBUG("anofox_stats_model_predict registered successfully with alias model_predict (both literal and LATERAL modes)");
+	ANOFOX_DEBUG(
+	    "anofox_stats_model_predict registered successfully with alias model_predict (both literal and LATERAL modes)");
 }
 
 } // namespace anofox_statistics

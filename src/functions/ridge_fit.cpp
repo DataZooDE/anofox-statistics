@@ -919,8 +919,7 @@ void RidgeFitFunction::Register(ExtensionLoader &loader) {
 	loader.RegisterFunction(func_2);
 
 	// Register alias without prefix
-	TableFunction func_2_alias("ridge_fit", args_2, RidgeFitExecute, RidgeFitBind, nullptr,
-	                           RidgeFitInOutLocalInit);
+	TableFunction func_2_alias("ridge_fit", args_2, RidgeFitExecute, RidgeFitBind, nullptr, RidgeFitInOutLocalInit);
 	func_2_alias.in_out_function = RidgeFitInOut;
 	loader.RegisterFunction(func_2_alias);
 
@@ -937,8 +936,7 @@ void RidgeFitFunction::Register(ExtensionLoader &loader) {
 	loader.RegisterFunction(func_3);
 
 	// Register alias without prefix
-	TableFunction func_3_alias("ridge_fit", args_3, RidgeFitExecute, RidgeFitBind, nullptr,
-	                           RidgeFitInOutLocalInit);
+	TableFunction func_3_alias("ridge_fit", args_3, RidgeFitExecute, RidgeFitBind, nullptr, RidgeFitInOutLocalInit);
 	func_3_alias.in_out_function = RidgeFitInOut;
 	loader.RegisterFunction(func_3_alias);
 
