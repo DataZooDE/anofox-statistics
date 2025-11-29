@@ -5,6 +5,9 @@ A statistical analysis extension for DuckDB, providing regression analysis, diag
 [![License: BSL 1.1](https://img.shields.io/badge/License-BSL%201.1-blue.svg)](LICENSE)
 [![DuckDB Version](https://img.shields.io/badge/DuckDB-v1.4.2-brightgreen.svg)](https://duckdb.org)
 
+> [!WARNING]
+> **BREAKING CHANGE**: Function names have changed from `anofox_statistics_*` to `anofox_stats_*` to align with the unified naming convention across Anofox extensions. Aliases without the prefix (e.g., `ols_fit`) are also available for convenience. Update your code accordingly.
+
 > [!IMPORTANT]
 > This extension is in early development, so bugs and breaking changes are expected.
 > Please use the [issues page](https://github.com/DataZooDE/anofox-statistics/issues) to report bugs or request features.
@@ -47,19 +50,35 @@ A statistical analysis extension for DuckDB, providing regression analysis, diag
 
 **Important**: All functions in this extension use **positional parameters**, not named parameters (`:=` syntax). Parameters must be provided in the order shown in the examples below.
 
+### Naming Convention
+
+All functions follow the `anofox_stats_*` naming convention, with convenient aliases without the prefix:
+
+- **Primary**: `anofox_stats_ols_fit(...)`
+- **Alias**: `ols_fit(...)` ✨ Shorter and more convenient!
+
+Both work identically - use whichever you prefer!
+
 ```sql
 -- Load the extension
 LOAD 'anofox_statistics';
 
--- Simple OLS regression
-SELECT * FROM anofox_statistics_ols_fit(
+-- Simple OLS regression (using alias - recommended)
+SELECT * FROM ols_fit(
+    [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],  -- y: response variable
+    [[1.1], [2.1], [2.9], [4.2], [4.8]]::DOUBLE[][],  -- x: feature matrix
+    MAP{'intercept': true}                 -- options
+);
+
+-- Or use the full name if you prefer
+SELECT * FROM anofox_stats_ols_fit(
     [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],  -- y: response variable
     [[1.1], [2.1], [2.9], [4.2], [4.8]]::DOUBLE[][],  -- x: feature matrix
     MAP{'intercept': true}                 -- options
 );
 
 -- Multiple regression with 3 predictors
-SELECT * FROM anofox_statistics_ols_fit(
+SELECT * FROM ols_fit(
     [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],  -- y: response variable
     [[1.1, 2.0, 3.0], [2.1, 3.0, 4.0], [2.9, 4.0, 5.0],
      [4.2, 5.0, 6.0], [4.8, 6.0, 7.0]]::DOUBLE[][],  -- x: feature matrix
@@ -74,7 +93,7 @@ SELECT
     intercept_p_value,
     f_statistic,
     f_statistic_pvalue
-FROM anofox_statistics_ols_fit(
+FROM ols_fit(
     [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],                  -- y
     [[1.0], [2.0], [3.0], [4.0], [5.0]]::DOUBLE[][],      -- x (matrix format)
     {'intercept': true, 'full_output': true, 'confidence_level': 0.95}  -- options
@@ -89,7 +108,7 @@ SELECT
 FROM (
     SELECT
         category,
-        anofox_statistics_ols_fit_agg(
+        ols_fit_agg(
             sales,
             [price],
             MAP{'intercept': true}
