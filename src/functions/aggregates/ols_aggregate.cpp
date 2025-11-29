@@ -910,13 +910,6 @@ void OlsAggregateFunction::Register(ExtensionLoader &loader) {
 	    OlsDestroy, nullptr, nullptr, nullptr, nullptr);
 	loader.RegisterFunction(anofox_stats_ols_fit_agg_single);
 
-	// Register legacy alias (overloaded)
-	AggregateFunction ols_fit_agg_legacy(
-	    "ols_fit_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE}, LogicalType::STRUCT(fit_struct_fields),
-	    AggregateFunction::StateSize<OlsAggregateState>, OlsInitialize, OlsUpdate, OlsCombine, OlsFitFinalize,
-	    FunctionNullHandling::DEFAULT_NULL_HANDLING, nullptr, nullptr, OlsDestroy, nullptr, nullptr, nullptr, nullptr);
-	loader.RegisterFunction(ols_fit_agg_legacy);
-
 	// 3. ols_fit_agg_array(y DOUBLE, x DOUBLE[]) -> STRUCT(coefficients DOUBLE[], intercept DOUBLE, r2 DOUBLE, adj_r2
 	// DOUBLE, n_obs BIGINT, mse, x_train_means, coefficient_std_errors, intercept_std_error, df_residual)
 	// Extended to always include metadata needed for model_predict
