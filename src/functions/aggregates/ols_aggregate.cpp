@@ -880,14 +880,21 @@ static void OlsArrayWindow(AggregateInputData &aggr_input_data, const WindowPart
 void OlsAggregateFunction::Register(ExtensionLoader &loader) {
 	ANOFOX_DEBUG("Registering OLS aggregate functions");
 
-	// 1. ols_coeff_agg(y DOUBLE, x DOUBLE) -> DOUBLE
+	// 1. anofox_stats_ols_coeff_agg(y DOUBLE, x DOUBLE) -> DOUBLE
+	AggregateFunction anofox_stats_ols_coeff_agg("anofox_stats_ols_coeff_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE}, LogicalType::DOUBLE,
+	                                AggregateFunction::StateSize<OlsAggregateState>, OlsInitialize, OlsUpdate,
+	                                OlsCombine, OlsFinalize, FunctionNullHandling::DEFAULT_NULL_HANDLING, nullptr,
+	                                nullptr, OlsDestroy, nullptr, nullptr, nullptr, nullptr);
+	loader.RegisterFunction(anofox_stats_ols_coeff_agg);
+
+	// Register legacy alias
 	AggregateFunction ols_coeff_agg("ols_coeff_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE}, LogicalType::DOUBLE,
 	                                AggregateFunction::StateSize<OlsAggregateState>, OlsInitialize, OlsUpdate,
 	                                OlsCombine, OlsFinalize, FunctionNullHandling::DEFAULT_NULL_HANDLING, nullptr,
 	                                nullptr, OlsDestroy, nullptr, nullptr, nullptr, nullptr);
 	loader.RegisterFunction(ols_coeff_agg);
 
-	// 2. ols_fit_agg(y DOUBLE, x DOUBLE) -> STRUCT(coefficient DOUBLE, intercept DOUBLE, r2 DOUBLE, n_obs BIGINT,
+	// 2. anofox_stats_ols_fit_agg_single(y DOUBLE, x DOUBLE) -> STRUCT(coefficient DOUBLE, intercept DOUBLE, r2 DOUBLE, n_obs BIGINT,
 	// std_error DOUBLE)
 	child_list_t<LogicalType> fit_struct_fields;
 	fit_struct_fields.push_back(make_pair("coefficient", LogicalType::DOUBLE));
@@ -896,11 +903,18 @@ void OlsAggregateFunction::Register(ExtensionLoader &loader) {
 	fit_struct_fields.push_back(make_pair("n_obs", LogicalType::BIGINT));
 	fit_struct_fields.push_back(make_pair("std_error", LogicalType::DOUBLE));
 
-	AggregateFunction ols_fit_agg(
+	AggregateFunction anofox_stats_ols_fit_agg_single(
+	    "anofox_stats_ols_fit_agg_single", {LogicalType::DOUBLE, LogicalType::DOUBLE}, LogicalType::STRUCT(fit_struct_fields),
+	    AggregateFunction::StateSize<OlsAggregateState>, OlsInitialize, OlsUpdate, OlsCombine, OlsFitFinalize,
+	    FunctionNullHandling::DEFAULT_NULL_HANDLING, nullptr, nullptr, OlsDestroy, nullptr, nullptr, nullptr, nullptr);
+	loader.RegisterFunction(anofox_stats_ols_fit_agg_single);
+
+	// Register legacy alias (overloaded)
+	AggregateFunction ols_fit_agg_legacy(
 	    "ols_fit_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE}, LogicalType::STRUCT(fit_struct_fields),
 	    AggregateFunction::StateSize<OlsAggregateState>, OlsInitialize, OlsUpdate, OlsCombine, OlsFitFinalize,
 	    FunctionNullHandling::DEFAULT_NULL_HANDLING, nullptr, nullptr, OlsDestroy, nullptr, nullptr, nullptr, nullptr);
-	loader.RegisterFunction(ols_fit_agg);
+	loader.RegisterFunction(ols_fit_agg_legacy);
 
 	// 3. ols_fit_agg_array(y DOUBLE, x DOUBLE[]) -> STRUCT(coefficients DOUBLE[], intercept DOUBLE, r2 DOUBLE, adj_r2
 	// DOUBLE, n_obs BIGINT, mse, x_train_means, coefficient_std_errors, intercept_std_error, df_residual)
@@ -936,6 +950,15 @@ void OlsAggregateFunction::Register(ExtensionLoader &loader) {
 	array_fit_struct_fields.push_back(make_pair("intercept_ci_lower", LogicalType::DOUBLE));
 	array_fit_struct_fields.push_back(make_pair("intercept_ci_upper", LogicalType::DOUBLE));
 
+	// Primary function with new naming convention
+	AggregateFunction anofox_stats_ols_fit_agg_array(
+	    "anofox_stats_ols_fit_agg_array", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
+	    LogicalType::STRUCT(array_fit_struct_fields), AggregateFunction::StateSize<OlsArrayAggregateState>,
+	    OlsArrayInitialize, OlsArrayUpdate, OlsArrayCombine, OlsArrayFinalize,
+	    FunctionNullHandling::DEFAULT_NULL_HANDLING, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+	loader.RegisterFunction(anofox_stats_ols_fit_agg_array);
+
+	// Register legacy alias
 	AggregateFunction ols_fit_agg_array(
 	    "ols_fit_agg_array", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
 	    LogicalType::STRUCT(array_fit_struct_fields), AggregateFunction::StateSize<OlsArrayAggregateState>,
@@ -943,17 +966,27 @@ void OlsAggregateFunction::Register(ExtensionLoader &loader) {
 	    FunctionNullHandling::DEFAULT_NULL_HANDLING, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
 	loader.RegisterFunction(ols_fit_agg_array);
 
-	// 4. anofox_statistics_ols_fit_agg(y DOUBLE, x DOUBLE[], options MAP) -> STRUCT
+	// 4. anofox_stats_ols_fit_agg(y DOUBLE, x DOUBLE[], options MAP) -> STRUCT
 	// This is the new unified API that matches table function signatures
 	// Now supports window functions with OVER clause
-	AggregateFunction anofox_statistics_ols_fit_agg(
-	    "anofox_statistics_ols_fit_agg",
+	AggregateFunction anofox_stats_ols_fit_agg(
+	    "anofox_stats_ols_fit_agg",
 	    {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
 	    LogicalType::STRUCT(array_fit_struct_fields), AggregateFunction::StateSize<OlsArrayAggregateState>,
 	    OlsArrayInitialize, OlsArrayUpdate, OlsArrayCombine, OlsArrayFinalize,
 	    FunctionNullHandling::DEFAULT_NULL_HANDLING, nullptr, nullptr, nullptr, nullptr, OlsArrayWindow, nullptr,
 	    nullptr);
-	loader.RegisterFunction(anofox_statistics_ols_fit_agg);
+	loader.RegisterFunction(anofox_stats_ols_fit_agg);
+
+	// Register alias without prefix
+	AggregateFunction ols_fit_agg_alias(
+	    "ols_fit_agg",
+	    {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
+	    LogicalType::STRUCT(array_fit_struct_fields), AggregateFunction::StateSize<OlsArrayAggregateState>,
+	    OlsArrayInitialize, OlsArrayUpdate, OlsArrayCombine, OlsArrayFinalize,
+	    FunctionNullHandling::DEFAULT_NULL_HANDLING, nullptr, nullptr, nullptr, nullptr, OlsArrayWindow, nullptr,
+	    nullptr);
+	loader.RegisterFunction(ols_fit_agg_alias);
 
 	ANOFOX_DEBUG("All OLS aggregate functions registered successfully");
 }

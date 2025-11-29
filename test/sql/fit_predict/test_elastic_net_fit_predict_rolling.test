@@ -19,7 +19,7 @@ SELECT
 FROM (
     SELECT
         time_id,
-        anofox_statistics_elastic_net_fit_predict(
+        anofox_stats_elastic_net_fit_predict(
             y, [x], MAP{'intercept': 1, 'alpha': 0.5, 'lambda': 1.0}
         ) OVER (ORDER BY time_id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred
     FROM elastic_net_ts
@@ -35,7 +35,7 @@ SELECT
 FROM (
     SELECT
         time_id,
-        anofox_statistics_elastic_net_fit_predict(
+        anofox_stats_elastic_net_fit_predict(
             y, [x], MAP{'intercept': 1, 'alpha': 0.5, 'lambda': 1.0}
         ) OVER (ORDER BY time_id ROWS BETWEEN 4 PRECEDING AND CURRENT ROW) as pred
     FROM elastic_net_ts
@@ -63,7 +63,7 @@ FROM (
     SELECT
         series_id,
         time_id,
-        anofox_statistics_elastic_net_fit_predict(
+        anofox_stats_elastic_net_fit_predict(
             y, [x], MAP{'intercept': 1, 'alpha': 0.5, 'lambda': 0.5}
         ) OVER (PARTITION BY series_id ORDER BY time_id ROWS BETWEEN 3 PRECEDING AND CURRENT ROW) as pred
     FROM elastic_net_multi_series

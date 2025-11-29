@@ -324,8 +324,8 @@ void RidgeFitPredictFunction::Register(ExtensionLoader &loader) {
 	fit_predict_struct_fields.push_back(make_pair("_dummy", LogicalType::LIST(LogicalType::DOUBLE)));
 
 	// Use real callback functions (not lambdas)
-	AggregateFunction anofox_statistics_ridge_fit_predict(
-	    "anofox_statistics_ridge_fit_predict",
+	AggregateFunction anofox_stats_ridge_fit_predict(
+	    "anofox_stats_ridge_fit_predict",
 	    {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
 	    LogicalType::STRUCT(fit_predict_struct_fields), AggregateFunction::StateSize<RidgeFitPredictState>,
 	    RidgeFitPredictInitialize, RidgeFitPredictUpdate, RidgeFitPredictCombine, RidgeFitPredictFinalize,
@@ -335,9 +335,23 @@ void RidgeFitPredictFunction::Register(ExtensionLoader &loader) {
 	    RidgeFitPredictWindow, // Ridge-specific window callback
 	    nullptr, nullptr);
 
-	loader.RegisterFunction(anofox_statistics_ridge_fit_predict);
+	loader.RegisterFunction(anofox_stats_ridge_fit_predict);
 
-	ANOFOX_DEBUG("Ridge fit-predict function registered successfully");
+	// Register alias without prefix
+	AggregateFunction ridge_fit_predict_alias(
+	    "ridge_fit_predict",
+	    {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
+	    LogicalType::STRUCT(fit_predict_struct_fields), AggregateFunction::StateSize<RidgeFitPredictState>,
+	    RidgeFitPredictInitialize, RidgeFitPredictUpdate, RidgeFitPredictCombine, RidgeFitPredictFinalize,
+	    FunctionNullHandling::DEFAULT_NULL_HANDLING, nullptr, nullptr,
+	    nullptr, // destroy - use nullptr like the working function
+	    nullptr,
+	    RidgeFitPredictWindow, // Ridge-specific window callback
+	    nullptr, nullptr);
+
+	loader.RegisterFunction(ridge_fit_predict_alias);
+
+	ANOFOX_DEBUG("Ridge fit-predict function registered successfully with alias ridge_fit_predict");
 }
 
 } // namespace anofox_statistics

@@ -264,7 +264,7 @@ static void ElasticNetPredictIntervalTableFunc(ClientContext &context, TableFunc
 void ElasticNetPredictIntervalFunction::Register(ExtensionLoader &loader) {
 	ANOFOX_DEBUG("Registering Elastic Net predict_interval function");
 
-	TableFunction func("anofox_statistics_predict_elastic_net",
+	TableFunction func("anofox_stats_predict_elastic_net",
 	                   {LogicalType::LIST(LogicalType::DOUBLE),                     // y_train
 	                    LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)),  // x_train
 	                    LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE))}, // x_new
@@ -275,7 +275,19 @@ void ElasticNetPredictIntervalFunction::Register(ExtensionLoader &loader) {
 
 	loader.RegisterFunction(func);
 
-	ANOFOX_DEBUG("Elastic Net predict_interval function registered successfully");
+	// Register alias
+	TableFunction func_alias("predict_elastic_net",
+	                          {LogicalType::LIST(LogicalType::DOUBLE),                     // y_train
+	                           LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)),  // x_train
+	                           LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE))}, // x_new
+	                          ElasticNetPredictIntervalTableFunc, ElasticNetPredictIntervalBind);
+
+	// Add support for optional MAP parameter via varargs
+	func_alias.varargs = LogicalType::ANY;
+
+	loader.RegisterFunction(func_alias);
+
+	ANOFOX_DEBUG("Elastic Net predict_interval function registered successfully (including alias predict_elastic_net)");
 }
 
 } // namespace anofox_statistics

@@ -37,7 +37,7 @@ FROM (
         id,
         x,
         y,
-        anofox_statistics_ols_fit_predict(
+        anofox_stats_ols_fit_predict(
             y,                              -- Dependent variable
             [x],                            -- Independent variables (array)
             MAP{'intercept': true}          -- Options: include intercept
@@ -97,7 +97,7 @@ FROM (
         id,
         x,
         y,
-        anofox_statistics_ols_fit_predict(
+        anofox_stats_ols_fit_predict(
             y,
             [x],
             {'fit_predict_mode': 'fixed', 'intercept': true}
@@ -146,13 +146,13 @@ FROM (
         x,
         y,
         -- Expanding mode: model grows/adapts as it moves through data
-        anofox_statistics_ols_fit_predict(
+        anofox_stats_ols_fit_predict(
             y,
             [x],
             {'fit_predict_mode': 'expanding', 'intercept': true}
         ) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred_expanding,
         -- Fixed mode: one model fit on ALL training data (rows 1-18)
-        anofox_statistics_ols_fit_predict(
+        anofox_stats_ols_fit_predict(
             y,
             [x],
             {'fit_predict_mode': 'fixed', 'intercept': true}
@@ -189,7 +189,7 @@ FROM (
     SELECT
         id,
         y,
-        anofox_statistics_ols_fit_predict(
+        anofox_stats_ols_fit_predict(
             y,
             [x1, x2],                       -- Multiple features
             MAP{'intercept': true}
@@ -223,12 +223,12 @@ FROM (
         time_id,
         x,
         y,
-        anofox_statistics_ols_fit_predict(
+        anofox_stats_ols_fit_predict(
             y,
             [x],
             MAP{'intercept': true}
         ) OVER (ORDER BY time_id) as pred_expanding,
-        anofox_statistics_ols_fit_predict(
+        anofox_stats_ols_fit_predict(
             y,
             [x],
             MAP{'intercept': true}
@@ -271,7 +271,7 @@ FROM (
         group_name,
         id,
         y,
-        anofox_statistics_ols_fit_predict(
+        anofox_stats_ols_fit_predict(
             y,
             [x],
             MAP{'intercept': true}
@@ -302,12 +302,12 @@ FROM (
     SELECT
         id,
         y,
-        anofox_statistics_ols_fit_predict(
+        anofox_stats_ols_fit_predict(
             y,
             [x],
             MAP{'intercept': true}
         ) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred_with_intercept,
-        anofox_statistics_ols_fit_predict(
+        anofox_stats_ols_fit_predict(
             y,
             [x],
             MAP{'intercept': false}
@@ -339,12 +339,12 @@ SELECT
 FROM (
     SELECT
         id,
-        anofox_statistics_ols_fit_predict(
+        anofox_stats_ols_fit_predict(
             y,
             [x],
             MAP{'intercept': 1, 'alpha': 0.05}  -- 95% confidence (default)
         ) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred_95,
-        anofox_statistics_ols_fit_predict(
+        anofox_stats_ols_fit_predict(
             y,
             [x],
             MAP{'intercept': 1, 'alpha': 0.01}  -- 99% confidence
@@ -400,7 +400,7 @@ FROM (
         season,
         marketing_spend,
         sales,
-        anofox_statistics_ols_fit_predict(
+        anofox_stats_ols_fit_predict(
             sales,
             [marketing_spend],
             MAP{'intercept': 1, 'alpha': 0.05}
@@ -430,7 +430,7 @@ WITH predictions AS (
     FROM (
         SELECT
             y,
-            anofox_statistics_ols_fit_predict(
+            anofox_stats_ols_fit_predict(
                 y,
                 [x1, x2],
                 MAP{'intercept': true}
@@ -457,7 +457,7 @@ FROM stats;
 -- ============================================================================
 -- Example 10: Extracting Model Coefficients
 -- ============================================================================
--- Use anofox_statistics_ols_agg to fit a model and extract coefficients,
+-- Use anofox_stats_ols_agg to fit a model and extract coefficients,
 -- intercept, R-squared, and other statistics
 
 CREATE OR REPLACE TABLE coef_demo AS
@@ -479,7 +479,7 @@ SELECT
     (fit).n_obs as n_observations,
     (fit).df_residual as degrees_of_freedom
 FROM (
-    SELECT anofox_statistics_ols_agg(y, [x1, x2], MAP{'intercept': 1}) as fit
+    SELECT anofox_stats_ols_agg(y, [x1, x2], MAP{'intercept': 1}) as fit
     FROM coef_demo
 );
 
@@ -493,7 +493,7 @@ SELECT
     ' + ' || ROUND((fit).coefficients[1], 2)::VARCHAR || '*x1' ||
     ' + ' || ROUND((fit).coefficients[2], 2)::VARCHAR || '*x2' as equation
 FROM (
-    SELECT anofox_statistics_ols_agg(y, [x1, x2], MAP{'intercept': 1}) as fit
+    SELECT anofox_stats_ols_agg(y, [x1, x2], MAP{'intercept': 1}) as fit
     FROM coef_demo
 );
 
@@ -507,7 +507,7 @@ SELECT
     ROUND((fit).coefficient_std_errors[2], 4) as se_x2,
     ROUND((fit).coefficients[2] / (fit).coefficient_std_errors[2], 4) as t_stat_x2
 FROM (
-    SELECT anofox_statistics_ols_agg(y, [x1, x2], MAP{'intercept': 1}) as fit
+    SELECT anofox_stats_ols_agg(y, [x1, x2], MAP{'intercept': 1}) as fit
     FROM coef_demo
 );
 
@@ -530,7 +530,7 @@ SELECT
 FROM (
     SELECT
         group_name,
-        anofox_statistics_ols_agg(y, [x], MAP{'intercept': 1}) as fit
+        anofox_stats_ols_agg(y, [x], MAP{'intercept': 1}) as fit
     FROM grouped_coef
     GROUP BY group_name
 )

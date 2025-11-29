@@ -16,7 +16,7 @@ namespace duckdb {
 namespace anofox_statistics {
 
 /**
- * RLS Aggregate: anofox_statistics_rls_agg(y DOUBLE, x DOUBLE[], forgetting_factor DOUBLE) -> STRUCT
+ * RLS Aggregate: anofox_stats_rls_agg(y DOUBLE, x DOUBLE[], forgetting_factor DOUBLE) -> STRUCT
  *
  * Accumulates (y, x[], forgetting_factor) tuples across rows in a GROUP BY,
  * then computes Recursive Least Squares on finalize.
@@ -674,15 +674,24 @@ void RlsAggregateFunction::Register(ExtensionLoader &loader) {
 	rls_struct_fields.push_back(make_pair("intercept_ci_lower", LogicalType::DOUBLE));
 	rls_struct_fields.push_back(make_pair("intercept_ci_upper", LogicalType::DOUBLE));
 
-	AggregateFunction anofox_statistics_rls_fit_agg(
-	    "anofox_statistics_rls_fit_agg",
+	AggregateFunction anofox_stats_rls_fit_agg(
+	    "anofox_stats_rls_fit_agg",
 	    {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
 	    LogicalType::STRUCT(rls_struct_fields), AggregateFunction::StateSize<RlsAggregateState>, RlsInitialize,
 	    RlsUpdate, RlsCombine, RlsFinalize, FunctionNullHandling::DEFAULT_NULL_HANDLING, nullptr, nullptr, nullptr,
 	    nullptr, RlsWindow, nullptr, nullptr);
-	loader.RegisterFunction(anofox_statistics_rls_fit_agg);
+	loader.RegisterFunction(anofox_stats_rls_fit_agg);
 
-	ANOFOX_DEBUG("RLS aggregate function registered successfully");
+	// Register alias
+	AggregateFunction rls_fit_agg(
+	    "rls_fit_agg",
+	    {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
+	    LogicalType::STRUCT(rls_struct_fields), AggregateFunction::StateSize<RlsAggregateState>, RlsInitialize,
+	    RlsUpdate, RlsCombine, RlsFinalize, FunctionNullHandling::DEFAULT_NULL_HANDLING, nullptr, nullptr, nullptr,
+	    nullptr, RlsWindow, nullptr, nullptr);
+	loader.RegisterFunction(rls_fit_agg);
+
+	ANOFOX_DEBUG("RLS aggregate function registered successfully (including alias rls_fit_agg)");
 }
 
 } // namespace anofox_statistics

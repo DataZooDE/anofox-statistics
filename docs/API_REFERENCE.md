@@ -21,7 +21,7 @@ The Anofox Statistics extension provides comprehensive statistical regression an
 
 ### Function Naming Conventions
 
-All functions follow the pattern: `anofox_statistics_{method}[_operation][_agg]`
+All functions follow the pattern: `anofox_stats_{method}[_operation][_agg]`
 
 - `{method}`: Regression method (ols, ridge, wls, rls, elastic_net)
 - `_operation`: Optional operation (fit, fit_predict, predict, etc.)
@@ -60,11 +60,11 @@ This table shows which function types are available for each regression method:
 
 | Method | Table Fit | Aggregate Fit | Fit-Predict Window | Predict | Aggregate Predict | Notes |
 |--------|-----------|---------------|-------------------|---------|-------------------|-------|
-| **OLS** | ✅ `anofox_statistics_ols_fit` | ✅ `anofox_statistics_ols_fit_agg` | ✅ `anofox_statistics_ols_fit_predict` | ✅ `anofox_statistics_predict_ols` | ❌ Not implemented | Full support |
-| **Ridge** | ✅ `anofox_statistics_ridge_fit` | ✅ `anofox_statistics_ridge_fit_agg` | ✅ `anofox_statistics_ridge_fit_predict` | ✅ `anofox_statistics_predict_ridge` | ❌ Not implemented | Requires `lambda` |
-| **WLS** | ✅ `anofox_statistics_wls_fit` | ✅ `anofox_statistics_wls_fit_agg` | ✅ `anofox_statistics_wls_fit_predict` | ✅ `anofox_statistics_predict_wls` | ❌ Not implemented | Requires `weights` |
-| **RLS** | ✅ `anofox_statistics_rls_fit` | ✅ `anofox_statistics_rls_fit_agg` | ✅ `anofox_statistics_rls_fit_predict` | ✅ `anofox_statistics_predict_rls` | ❌ Not implemented | Optional `forgetting_factor` |
-| **Elastic Net** | ✅ `anofox_statistics_elastic_net_fit` | ✅ `anofox_statistics_elastic_net_fit_agg` | ✅ `anofox_statistics_elastic_net_fit_predict` | ✅ `anofox_statistics_predict_elastic_net` | ❌ Not implemented | Requires `alpha`, `lambda` |
+| **OLS** | ✅ `anofox_stats_ols_fit` | ✅ `anofox_stats_ols_fit_agg` | ✅ `anofox_stats_ols_fit_predict` | ✅ `anofox_stats_predict_ols` | ❌ Not implemented | Full support |
+| **Ridge** | ✅ `anofox_stats_ridge_fit` | ✅ `anofox_stats_ridge_fit_agg` | ✅ `anofox_stats_ridge_fit_predict` | ✅ `anofox_stats_predict_ridge` | ❌ Not implemented | Requires `lambda` |
+| **WLS** | ✅ `anofox_stats_wls_fit` | ✅ `anofox_stats_wls_fit_agg` | ✅ `anofox_stats_wls_fit_predict` | ✅ `anofox_stats_predict_wls` | ❌ Not implemented | Requires `weights` |
+| **RLS** | ✅ `anofox_stats_rls_fit` | ✅ `anofox_stats_rls_fit_agg` | ✅ `anofox_stats_rls_fit_predict` | ✅ `anofox_stats_predict_rls` | ❌ Not implemented | Optional `forgetting_factor` |
+| **Elastic Net** | ✅ `anofox_stats_elastic_net_fit` | ✅ `anofox_stats_elastic_net_fit_agg` | ✅ `anofox_stats_elastic_net_fit_predict` | ✅ `anofox_stats_predict_elastic_net` | ❌ Not implemented | Requires `alpha`, `lambda` |
 
 **Function Types:**
 - **Table Fit**: Fit on array inputs `y[]`, `x[][]` → STRUCT with model statistics
@@ -74,7 +74,7 @@ This table shows which function types are available for each regression method:
 - **Aggregate Predict**: Predict per group with `GROUP BY` using pre-fitted model → STRUCT (not yet implemented)
 
 **Additional Functions:**
-- **Model-Based Prediction**: `anofox_statistics_model_predict` - Predict from pre-fitted models (any method with `full_output=true`)
+- **Model-Based Prediction**: `anofox_stats_model_predict` - Predict from pre-fitted models (any method with `full_output=true`)
 - **Diagnostics**: VIF (table + aggregate), Residual diagnostics (table + aggregate), Normality tests (table + aggregate)
 
 ---
@@ -97,7 +97,7 @@ These functions fit regression models on array inputs and return comprehensive s
 ### Common Signature Pattern
 
 ```sql
-anofox_statistics_{method}(
+anofox_stats_{method}(
     y       DOUBLE[],
     x       DOUBLE[][],
     options MAP
@@ -149,7 +149,7 @@ STRUCT(
 
 ---
 
-### anofox_statistics_ols
+### anofox_stats_ols
 
 **Ordinary Least Squares Regression**
 
@@ -157,7 +157,7 @@ Fits a linear model by minimizing the sum of squared residuals.
 
 **Signature:**
 ```sql
-anofox_statistics_ols_fit(
+anofox_stats_ols_fit(
     y       DOUBLE[],
     x       DOUBLE[][],
     options MAP
@@ -175,7 +175,7 @@ anofox_statistics_ols_fit(
 
 **Example (Basic):**
 ```sql
-SELECT * FROM anofox_statistics_ols_fit(
+SELECT * FROM anofox_stats_ols_fit(
     [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],
     [[1.0], [2.0], [3.0], [4.0], [5.0]]::DOUBLE[][],
     {'intercept': true}
@@ -194,7 +194,7 @@ SELECT
     bic,
     coefficient_p_values,
     intercept_p_value
-FROM anofox_statistics_ols_fit(
+FROM anofox_stats_ols_fit(
     [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],
     [[1.0], [2.0], [3.0], [4.0], [5.0]]::DOUBLE[][],
     {'intercept': true, 'full_output': true, 'confidence_level': 0.95}
@@ -205,7 +205,7 @@ FROM anofox_statistics_ols_fit(
 
 ---
 
-### anofox_statistics_ridge
+### anofox_stats_ridge
 
 **Ridge Regression (L2 Regularization)**
 
@@ -213,7 +213,7 @@ Fits a linear model with L2 penalty to reduce multicollinearity effects.
 
 **Signature:**
 ```sql
-anofox_statistics_ridge_fit(
+anofox_stats_ridge_fit(
     y       DOUBLE[],
     x       DOUBLE[][],
     options MAP
@@ -232,7 +232,7 @@ anofox_statistics_ridge_fit(
 
 **Example:**
 ```sql
-SELECT * FROM anofox_statistics_ridge_fit(
+SELECT * FROM anofox_stats_ridge_fit(
     y_array,
     x_matrix,
     {'intercept': true, 'lambda': 1.0}
@@ -243,7 +243,7 @@ SELECT * FROM anofox_statistics_ridge_fit(
 
 ---
 
-### anofox_statistics_wls
+### anofox_stats_wls
 
 **Weighted Least Squares**
 
@@ -251,7 +251,7 @@ Fits a linear model with observation-specific weights for heteroscedasticity.
 
 **Signature:**
 ```sql
-anofox_statistics_wls_fit(
+anofox_stats_wls_fit(
     y       DOUBLE[],
     x       DOUBLE[][],
     weights DOUBLE[],
@@ -271,7 +271,7 @@ anofox_statistics_wls_fit(
 
 **Example:**
 ```sql
-SELECT * FROM anofox_statistics_wls_fit(
+SELECT * FROM anofox_stats_wls_fit(
     y_array,
     x_matrix,
     [1.0, 2.0, 1.5, 3.0, 2.0]::DOUBLE[],
@@ -283,7 +283,7 @@ SELECT * FROM anofox_statistics_wls_fit(
 
 ---
 
-### anofox_statistics_elastic_net
+### anofox_stats_elastic_net
 
 **Elastic Net (L1 + L2 Regularization)**
 
@@ -291,7 +291,7 @@ Fits a linear model with combined L1 and L2 penalties for feature selection and 
 
 **Signature:**
 ```sql
-anofox_statistics_elastic_net_fit(
+anofox_stats_elastic_net_fit(
     y       DOUBLE[],
     x       DOUBLE[][],
     options MAP
@@ -318,7 +318,7 @@ anofox_statistics_elastic_net_fit(
 
 **Example:**
 ```sql
-SELECT * FROM anofox_statistics_elastic_net_fit(
+SELECT * FROM anofox_stats_elastic_net_fit(
     y_array,
     x_matrix,
     {
@@ -333,7 +333,7 @@ SELECT * FROM anofox_statistics_elastic_net_fit(
 
 ---
 
-### anofox_statistics_rls
+### anofox_stats_rls
 
 **Recursive Least Squares (Online Learning)**
 
@@ -341,7 +341,7 @@ Fits a linear model sequentially with optional exponential forgetting.
 
 **Signature:**
 ```sql
-anofox_statistics_rls_fit(
+anofox_stats_rls_fit(
     y       DOUBLE[],
     x       DOUBLE[][],
     options MAP
@@ -362,7 +362,7 @@ anofox_statistics_rls_fit(
 
 **Example:**
 ```sql
-SELECT * FROM anofox_statistics_rls_fit(
+SELECT * FROM anofox_stats_rls_fit(
     y_array,
     x_matrix,
     {'intercept': true, 'forgetting_factor': 0.99}
@@ -380,7 +380,7 @@ These functions compute regression per group (GROUP BY) or window (OVER clause).
 ### Common Signature Pattern
 
 ```sql
-anofox_statistics_{method}_agg(
+anofox_stats_{method}_agg(
     y       DOUBLE,
     x       DOUBLE[],
     options MAP
@@ -398,13 +398,13 @@ Same as table functions, but computed per group/window.
 
 ---
 
-### anofox_statistics_ols_fit_agg
+### anofox_stats_ols_fit_agg
 
 **OLS Aggregate Function**
 
 **Signature:**
 ```sql
-anofox_statistics_ols_fit_agg(
+anofox_stats_ols_fit_agg(
     y       DOUBLE,
     x       DOUBLE[],
     options MAP
@@ -419,7 +419,7 @@ anofox_statistics_ols_fit_agg(
 ```sql
 SELECT
     category,
-    anofox_statistics_ols_fit_agg(sales, [price, advertising], {'intercept': true}) as model
+    anofox_stats_ols_fit_agg(sales, [price, advertising], {'intercept': true}) as model
 FROM sales_data
 GROUP BY category;
 ```
@@ -428,20 +428,20 @@ GROUP BY category;
 ```sql
 SELECT
     date,
-    anofox_statistics_ols_fit_agg(value, [time_index], {'intercept': true})
+    anofox_stats_ols_fit_agg(value, [time_index], {'intercept': true})
         OVER (ORDER BY date ROWS BETWEEN 29 PRECEDING AND CURRENT ROW) as model
 FROM time_series;
 ```
 
 ---
 
-### anofox_statistics_wls_fit_agg
+### anofox_stats_wls_fit_agg
 
 **WLS Aggregate Function**
 
 **Signature:**
 ```sql
-anofox_statistics_wls_fit_agg(
+anofox_stats_wls_fit_agg(
     y       DOUBLE,
     x       DOUBLE[],
     weights DOUBLE,
@@ -457,7 +457,7 @@ anofox_statistics_wls_fit_agg(
 ```sql
 SELECT
     region,
-    anofox_statistics_wls_fit_agg(
+    anofox_stats_wls_fit_agg(
         outcome,
         [predictor1, predictor2],
         weight_column,
@@ -469,13 +469,13 @@ GROUP BY region;
 
 ---
 
-### anofox_statistics_ridge_fit_agg
+### anofox_stats_ridge_fit_agg
 
 **Ridge Aggregate Function**
 
 **Signature:**
 ```sql
-anofox_statistics_ridge_fit_agg(
+anofox_stats_ridge_fit_agg(
     y       DOUBLE,
     x       DOUBLE[],
     options MAP
@@ -492,7 +492,7 @@ anofox_statistics_ridge_fit_agg(
 ```sql
 SELECT
     date,
-    anofox_statistics_ridge_fit_agg(
+    anofox_stats_ridge_fit_agg(
         returns,
         [factor1, factor2, factor3],
         {'intercept': true, 'lambda': 1.0}
@@ -502,13 +502,13 @@ FROM daily_returns;
 
 ---
 
-### anofox_statistics_rls_fit_agg
+### anofox_stats_rls_fit_agg
 
 **RLS Aggregate Function**
 
 **Signature:**
 ```sql
-anofox_statistics_rls_fit_agg(
+anofox_stats_rls_fit_agg(
     y       DOUBLE,
     x       DOUBLE[],
     options MAP
@@ -523,7 +523,7 @@ anofox_statistics_rls_fit_agg(
 ```sql
 SELECT
     timestamp,
-    anofox_statistics_rls_fit_agg(
+    anofox_stats_rls_fit_agg(
         sensor_reading,
         [temperature, humidity],
         {'forgetting_factor': 0.98}
@@ -533,13 +533,13 @@ FROM sensor_data;
 
 ---
 
-### anofox_statistics_elastic_net_fit_agg
+### anofox_stats_elastic_net_fit_agg
 
 **Elastic Net Aggregate Function**
 
 **Signature:**
 ```sql
-anofox_statistics_elastic_net_fit_agg(
+anofox_stats_elastic_net_fit_agg(
     y       DOUBLE,
     x       DOUBLE[],
     options MAP
@@ -556,7 +556,7 @@ anofox_statistics_elastic_net_fit_agg(
 ```sql
 SELECT
     category,
-    anofox_statistics_elastic_net_fit_agg(
+    anofox_stats_elastic_net_fit_agg(
         y_value,
         [x1, x2, x3, x4, x5],
         {'alpha': 0.7, 'lambda': 0.1, 'intercept': true}
@@ -574,7 +574,7 @@ These functions fit a model on training rows (WHERE y IS NOT NULL) and predict f
 ### Common Signature Pattern
 
 ```sql
-anofox_statistics_{method}_fit_predict(
+anofox_stats_{method}_fit_predict(
     y       DOUBLE,
     x       DOUBLE[],
     options MAP
@@ -596,13 +596,13 @@ STRUCT(
 
 ---
 
-### anofox_statistics_ols_fit_predict
+### anofox_stats_ols_fit_predict
 
 **OLS Fit-Predict Window Function**
 
 **Signature:**
 ```sql
-anofox_statistics_ols_fit_predict(
+anofox_stats_ols_fit_predict(
     y       DOUBLE,
     x       DOUBLE[],
     options MAP
@@ -626,7 +626,7 @@ FROM (
     SELECT
         date,
         actual_value,
-        anofox_statistics_ols_fit_predict(
+        anofox_stats_ols_fit_predict(
             actual_value,
             [feature1, feature2],
             {'intercept': true, 'interval_type': 'prediction'}
@@ -640,13 +640,13 @@ FROM (
 
 ---
 
-### anofox_statistics_ridge_fit_predict
+### anofox_stats_ridge_fit_predict
 
 **Ridge Fit-Predict Window Function**
 
 **Signature:**
 ```sql
-anofox_statistics_ridge_fit_predict(
+anofox_stats_ridge_fit_predict(
     y       DOUBLE,
     x       DOUBLE[],
     options MAP
@@ -657,13 +657,13 @@ anofox_statistics_ridge_fit_predict(
 
 ---
 
-### anofox_statistics_wls_fit_predict
+### anofox_stats_wls_fit_predict
 
 **WLS Fit-Predict Window Function**
 
 **Signature:**
 ```sql
-anofox_statistics_wls_fit_predict(
+anofox_stats_wls_fit_predict(
     y       DOUBLE,
     x       DOUBLE[],
     weights DOUBLE,
@@ -673,13 +673,13 @@ anofox_statistics_wls_fit_predict(
 
 ---
 
-### anofox_statistics_elastic_net_fit_predict
+### anofox_stats_elastic_net_fit_predict
 
 **Elastic Net Fit-Predict Window Function**
 
 **Signature:**
 ```sql
-anofox_statistics_elastic_net_fit_predict(
+anofox_stats_elastic_net_fit_predict(
     y       DOUBLE,
     x       DOUBLE[],
     options MAP
@@ -690,13 +690,13 @@ anofox_statistics_elastic_net_fit_predict(
 
 ---
 
-### anofox_statistics_rls_fit_predict
+### anofox_stats_rls_fit_predict
 
 **RLS Fit-Predict Window Function**
 
 **Signature:**
 ```sql
-anofox_statistics_rls_fit_predict(
+anofox_stats_rls_fit_predict(
     y       DOUBLE,
     x       DOUBLE[],
     options MAP
@@ -723,13 +723,13 @@ TABLE(
 
 ---
 
-### anofox_statistics_predict_ols
+### anofox_stats_predict_ols
 
 **OLS Prediction with Intervals**
 
 **Signature:**
 ```sql
-anofox_statistics_predict_ols(
+anofox_stats_predict_ols(
     y_train DOUBLE[],
     x_train DOUBLE[][],
     x_new   DOUBLE[][],
@@ -755,7 +755,7 @@ anofox_statistics_predict_ols(
 
 **Example:**
 ```sql
-SELECT * FROM anofox_statistics_predict_ols(
+SELECT * FROM anofox_stats_predict_ols(
     [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],
     [[1.0], [2.0], [3.0], [4.0], [5.0]]::DOUBLE[][],
     [[6.0], [7.0]]::DOUBLE[][],
@@ -770,13 +770,13 @@ SELECT * FROM anofox_statistics_predict_ols(
 
 ---
 
-### anofox_statistics_predict_ridge
+### anofox_stats_predict_ridge
 
 **Ridge Prediction with Intervals**
 
 **Signature:**
 ```sql
-anofox_statistics_predict_ridge(
+anofox_stats_predict_ridge(
     y_train DOUBLE[],
     x_train DOUBLE[][],
     x_new   DOUBLE[][],
@@ -788,7 +788,7 @@ anofox_statistics_predict_ridge(
 
 **Example:**
 ```sql
-SELECT * FROM anofox_statistics_predict_ridge(
+SELECT * FROM anofox_stats_predict_ridge(
     [2.0, 5.0, 8.0, 11.0, 14.0],
     [[1.0], [2.0], [3.0], [4.0], [5.0]],
     [[6.0], [7.0]],
@@ -798,13 +798,13 @@ SELECT * FROM anofox_statistics_predict_ridge(
 
 ---
 
-### anofox_statistics_predict_wls
+### anofox_stats_predict_wls
 
 **WLS Prediction with Intervals**
 
 **Signature:**
 ```sql
-anofox_statistics_predict_wls(
+anofox_stats_predict_wls(
     y_train DOUBLE[],
     x_train DOUBLE[][],
     weights DOUBLE[],
@@ -815,7 +815,7 @@ anofox_statistics_predict_wls(
 
 **Example:**
 ```sql
-SELECT * FROM anofox_statistics_predict_wls(
+SELECT * FROM anofox_stats_predict_wls(
     [2.0, 5.0, 8.0, 11.0, 14.0],
     [[1.0], [2.0], [3.0], [4.0], [5.0]],
     [1.0, 1.0, 1.0, 1.0, 1.0],
@@ -826,13 +826,13 @@ SELECT * FROM anofox_statistics_predict_wls(
 
 ---
 
-### anofox_statistics_predict_rls
+### anofox_stats_predict_rls
 
 **RLS Prediction with Intervals**
 
 **Signature:**
 ```sql
-anofox_statistics_predict_rls(
+anofox_stats_predict_rls(
     y_train DOUBLE[],
     x_train DOUBLE[][],
     x_new   DOUBLE[][],
@@ -842,7 +842,7 @@ anofox_statistics_predict_rls(
 
 **Example:**
 ```sql
-SELECT * FROM anofox_statistics_predict_rls(
+SELECT * FROM anofox_stats_predict_rls(
     [2.0, 5.0, 8.0, 11.0, 14.0],
     [[1.0], [2.0], [3.0], [4.0], [5.0]],
     [[6.0], [7.0]],
@@ -852,13 +852,13 @@ SELECT * FROM anofox_statistics_predict_rls(
 
 ---
 
-### anofox_statistics_predict_elastic_net
+### anofox_stats_predict_elastic_net
 
 **Elastic Net Prediction with Intervals**
 
 **Signature:**
 ```sql
-anofox_statistics_predict_elastic_net(
+anofox_stats_predict_elastic_net(
     y_train DOUBLE[],
     x_train DOUBLE[][],
     x_new   DOUBLE[][],
@@ -870,7 +870,7 @@ anofox_statistics_predict_elastic_net(
 
 **Example:**
 ```sql
-SELECT * FROM anofox_statistics_predict_elastic_net(
+SELECT * FROM anofox_stats_predict_elastic_net(
     [2.0, 5.0, 8.0, 11.0, 14.0],
     [[1.0], [2.0], [3.0], [4.0], [5.0]],
     [[6.0], [7.0]],
@@ -884,13 +884,13 @@ SELECT * FROM anofox_statistics_predict_elastic_net(
 
 ### Residual Diagnostics
 
-#### anofox_statistics_residual_diagnostics
+#### anofox_stats_residual_diagnostics
 
 **Table Function - Observation-Level Diagnostics**
 
 **Signature:**
 ```sql
-anofox_statistics_residual_diagnostics(
+anofox_stats_residual_diagnostics(
     y_actual        DOUBLE[],
     y_predicted     DOUBLE[],
     outlier_threshold DOUBLE
@@ -910,7 +910,7 @@ TABLE(
 
 **Example:**
 ```sql
-SELECT * FROM anofox_statistics_residual_diagnostics(
+SELECT * FROM anofox_stats_residual_diagnostics(
     [1.0, 2.1, 2.9, 4.2, 10.0]::DOUBLE[],
     [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],
     2.5  -- outlier_threshold
@@ -919,13 +919,13 @@ SELECT * FROM anofox_statistics_residual_diagnostics(
 
 ---
 
-#### anofox_statistics_residual_diagnostics_agg
+#### anofox_stats_residual_diagnostics_agg
 
 **Aggregate Function - Group-Level Diagnostics**
 
 **Signature:**
 ```sql
-anofox_statistics_residual_diagnostics_agg(
+anofox_stats_residual_diagnostics_agg(
     y_actual    DOUBLE,
     y_predicted DOUBLE,
     options     MAP
@@ -960,7 +960,7 @@ STRUCT(
 ```sql
 SELECT
     category,
-    anofox_statistics_residual_diagnostics_agg(
+    anofox_stats_residual_diagnostics_agg(
         actual,
         predicted,
         {'outlier_threshold': 3.0, 'detailed': false}
@@ -975,13 +975,13 @@ GROUP BY category;
 
 ### Multicollinearity Detection (VIF)
 
-#### anofox_statistics_vif
+#### anofox_stats_vif
 
 **Table Function - Feature-Level VIF**
 
 **Signature:**
 ```sql
-anofox_statistics_vif(
+anofox_stats_vif(
     x  DOUBLE[][]
 ) → TABLE
 ```
@@ -1004,20 +1004,20 @@ TABLE(
 
 **Example:**
 ```sql
-SELECT * FROM anofox_statistics_vif(
+SELECT * FROM anofox_stats_vif(
     [[1.0, 2.0], [2.0, 4.0], [3.0, 6.0], [4.0, 8.0]]::DOUBLE[][]
 );
 ```
 
 ---
 
-#### anofox_statistics_vif_agg
+#### anofox_stats_vif_agg
 
 **Aggregate Function - Group-Level VIF**
 
 **Signature:**
 ```sql
-anofox_statistics_vif_agg(
+anofox_stats_vif_agg(
     x  DOUBLE[]
 ) GROUP BY ... → STRUCT
 ```
@@ -1035,7 +1035,7 @@ STRUCT(
 ```sql
 SELECT
     dataset_id,
-    anofox_statistics_vif_agg([x1, x2, x3]) as vif_results
+    anofox_stats_vif_agg([x1, x2, x3]) as vif_results
 FROM panel_data
 GROUP BY dataset_id;
 ```
@@ -1046,13 +1046,13 @@ GROUP BY dataset_id;
 
 ### Normality Tests
 
-#### anofox_statistics_normality_test
+#### anofox_stats_normality_test
 
 **Table Function - Jarque-Bera Test**
 
 **Signature:**
 ```sql
-anofox_statistics_normality_test(
+anofox_stats_normality_test(
     residuals  DOUBLE[],
     alpha      DOUBLE
 ) → STRUCT
@@ -1074,7 +1074,7 @@ STRUCT(
 
 **Example:**
 ```sql
-SELECT * FROM anofox_statistics_normality_test(
+SELECT * FROM anofox_stats_normality_test(
     [0.1, -0.2, 0.15, -0.1, 0.05]::DOUBLE[],
     0.05  -- significance level
 );
@@ -1082,13 +1082,13 @@ SELECT * FROM anofox_statistics_normality_test(
 
 ---
 
-#### anofox_statistics_normality_test_agg
+#### anofox_stats_normality_test_agg
 
 **Aggregate Function - Group-Level Normality Test**
 
 **Signature:**
 ```sql
-anofox_statistics_normality_test_agg(
+anofox_stats_normality_test_agg(
     residual  DOUBLE,
     options   MAP
 ) GROUP BY ... → STRUCT
@@ -1103,7 +1103,7 @@ anofox_statistics_normality_test_agg(
 ```sql
 SELECT
     model_id,
-    anofox_statistics_normality_test_agg(
+    anofox_stats_normality_test_agg(
         residual,
         {'alpha': 0.05}
     ) as normality_test
@@ -1118,7 +1118,7 @@ GROUP BY model_id;
 
 ## Model-Based Prediction
 
-### anofox_statistics_model_predict
+### anofox_stats_model_predict
 
 **Efficient Prediction from Pre-Fitted Models**
 
@@ -1126,7 +1126,7 @@ This is the **model-agnostic** prediction function that works with models fitted
 
 **Signature:**
 ```sql
-anofox_statistics_model_predict(
+anofox_stats_model_predict(
     intercept                DOUBLE,
     coefficients             DOUBLE[],
     mse                      DOUBLE,
@@ -1163,7 +1163,7 @@ TABLE(
 ```sql
 -- Step 1: Fit model with full_output
 CREATE TABLE model AS
-SELECT * FROM anofox_statistics_ols_fit(
+SELECT * FROM anofox_stats_ols_fit(
     y_array,
     x_matrix,
     {'intercept': true, 'full_output': true}
@@ -1172,7 +1172,7 @@ SELECT * FROM anofox_statistics_ols_fit(
 -- Step 2: Predict on new data (no refitting!)
 SELECT p.*
 FROM model m,
-LATERAL anofox_statistics_model_predict(
+LATERAL anofox_stats_model_predict(
     m.intercept,
     m.coefficients,
     m.mse,

@@ -23,7 +23,7 @@ SELECT
 FROM (
     SELECT
         time_id,
-        anofox_statistics_ridge_fit_predict(
+        anofox_stats_ridge_fit_predict(
             y,
             [x],
             MAP{'intercept': 1, 'lambda': 1.0}
@@ -46,7 +46,7 @@ SELECT
 FROM (
     SELECT
         time_id,
-        anofox_statistics_ridge_fit_predict(
+        anofox_stats_ridge_fit_predict(
             y,
             [x],
             MAP{'intercept': 1, 'lambda': 1.0}
@@ -64,7 +64,7 @@ SELECT
 FROM (
     SELECT
         time_id,
-        anofox_statistics_ridge_fit_predict(
+        anofox_stats_ridge_fit_predict(
             y,
             [x],
             MAP{'intercept': 1, 'lambda': 1.0}
@@ -95,7 +95,7 @@ FROM (
     SELECT
         series_id,
         time_id,
-        anofox_statistics_ridge_fit_predict(
+        anofox_stats_ridge_fit_predict(
             y,
             [x],
             MAP{'intercept': 1, 'lambda': 0.5}
@@ -123,7 +123,7 @@ SELECT
 FROM (
     SELECT
         time_id,
-        anofox_statistics_ridge_fit_predict(
+        anofox_stats_ridge_fit_predict(
             y,
             [x],
             MAP{'intercept': 1, 'lambda': 1.0}

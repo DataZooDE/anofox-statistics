@@ -179,9 +179,9 @@ static void NormalityTestTableFunc(ClientContext &context, TableFunctionInput &d
 }
 
 void NormalityTestFunction::Register(ExtensionLoader &loader) {
-	ANOFOX_DEBUG("Registering normality test function");
+	ANOFOX_DEBUG("Registering anofox_stats_normality_test (with alias normality_test)");
 
-	TableFunction normality_test_func("anofox_statistics_normality_test",
+	TableFunction normality_test_func("anofox_stats_normality_test",
 	                                  {LogicalType::LIST(LogicalType::DOUBLE), // residuals
 	                                   LogicalType::DOUBLE},                   // alpha
 	                                  NormalityTestTableFunc, NormalityTestBind);
@@ -192,7 +192,19 @@ void NormalityTestFunction::Register(ExtensionLoader &loader) {
 
 	loader.RegisterFunction(normality_test_func);
 
-	ANOFOX_DEBUG("Normality test function registered successfully");
+	// Register alias
+	TableFunction normality_test_alias("normality_test",
+	                                   {LogicalType::LIST(LogicalType::DOUBLE), // residuals
+	                                    LogicalType::DOUBLE},                   // alpha
+	                                   NormalityTestTableFunc, NormalityTestBind);
+
+	// Set named parameters
+	normality_test_alias.named_parameters["residuals"] = LogicalType::LIST(LogicalType::DOUBLE);
+	normality_test_alias.named_parameters["alpha"] = LogicalType::DOUBLE;
+
+	loader.RegisterFunction(normality_test_alias);
+
+	ANOFOX_DEBUG("anofox_stats_normality_test registered successfully with alias normality_test");
 }
 
 } // namespace anofox_statistics

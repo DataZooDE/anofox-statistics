@@ -26,7 +26,7 @@ All code examples execute directly in DuckDB after loading the extension. The SQ
 
 **Working Patterns**:
 
-- **Aggregate functions** (`anofox_statistics_ols_agg`, `anofox_statistics_ols_agg`) work directly with table data - use these for GROUP BY and window function analysis
+- **Aggregate functions** (`anofox_stats_ols_agg`, `anofox_stats_ols_agg`) work directly with table data - use these for GROUP BY and window function analysis
 - **Table functions** require literal arrays for small examples, shown where needed
 - All functions use positional parameters only (no `:=` syntax)
 
@@ -131,16 +131,16 @@ full_model AS (
         AVG(y) as mean_sales,
         AVG(x1) as mean_advertising,
         -- Primary model: advertising spend predicts sales
-        (anofox_statistics_ols_fit_agg(y, [x1], {'intercept': true})).coefficients[1] as beta_advertising,
-        (anofox_statistics_ols_fit_agg(y, [x1], {'intercept': true})).r2 as model_r2,
-        (anofox_statistics_ols_fit_agg(y, [x1], {'intercept': true})).residual_standard_error as model_std_error,
+        (anofox_stats_ols_fit_agg(y, [x1], {'intercept': true})).coefficients[1] as beta_advertising,
+        (anofox_stats_ols_fit_agg(y, [x1], {'intercept': true})).r2 as model_r2,
+        (anofox_stats_ols_fit_agg(y, [x1], {'intercept': true})).residual_standard_error as model_std_error,
         -- Additional univariate models for comparison
-        (anofox_statistics_ols_fit_agg(y, [x2], {'intercept': true})).coefficients[1] as beta_store_size,
-        (anofox_statistics_ols_fit_agg(y, [x2], {'intercept': true})).r2 as r2_store_size,
-        (anofox_statistics_ols_fit_agg(y, [x3], {'intercept': true})).coefficients[1] as beta_competitor,
-        (anofox_statistics_ols_fit_agg(y, [x3], {'intercept': true})).r2 as r2_competitor,
-        (anofox_statistics_ols_fit_agg(y, [x4], {'intercept': true})).coefficients[1] as beta_income,
-        (anofox_statistics_ols_fit_agg(y, [x4], {'intercept': true})).r2 as r2_income
+        (anofox_stats_ols_fit_agg(y, [x2], {'intercept': true})).coefficients[1] as beta_store_size,
+        (anofox_stats_ols_fit_agg(y, [x2], {'intercept': true})).r2 as r2_store_size,
+        (anofox_stats_ols_fit_agg(y, [x3], {'intercept': true})).coefficients[1] as beta_competitor,
+        (anofox_stats_ols_fit_agg(y, [x3], {'intercept': true})).r2 as r2_competitor,
+        (anofox_stats_ols_fit_agg(y, [x4], {'intercept': true})).coefficients[1] as beta_income,
+        (anofox_stats_ols_fit_agg(y, [x4], {'intercept': true})).r2 as r2_income
     FROM training_data
 ),
 
@@ -352,7 +352,7 @@ model1 AS (
     SELECT
         1 as model_id,
         'Marketing Only' as model_name,
-        (anofox_statistics_ols_fit_agg(y, [x1], {'intercept': true})).r2 as r2,
+        (anofox_stats_ols_fit_agg(y, [x1], {'intercept': true})).r2 as r2,
         COUNT(*) as n_obs,
         2 as n_params
     FROM data
@@ -364,7 +364,7 @@ model2 AS (
         2 as model_id,
         'Marketing + Seasonality' as model_name,
         -- For multiple predictors, show R² from individual models
-        (anofox_statistics_ols_fit_agg(y, [x1], {'intercept': true})).r2 as r2,
+        (anofox_stats_ols_fit_agg(y, [x1], {'intercept': true})).r2 as r2,
         COUNT(*) as n_obs,
         3 as n_params
     FROM data
@@ -375,7 +375,7 @@ model3 AS (
     SELECT
         3 as model_id,
         'Full Model' as model_name,
-        (anofox_statistics_ols_fit_agg(y, [x1], {'intercept': true})).r2 as r2,
+        (anofox_stats_ols_fit_agg(y, [x1], {'intercept': true})).r2 as r2,
         COUNT(*) as n_obs,
         5 as n_params
     FROM data
@@ -428,7 +428,7 @@ ORDER BY r2 DESC;
 **Key techniques**:
 
 - Uses window functions with different frame specifications (30 PRECEDING, 90 PRECEDING, UNBOUNDED PRECEDING)
-- Computes `anofox_statistics_ols_agg` over each window to get time-varying slopes
+- Computes `anofox_stats_ols_agg` over each window to get time-varying slopes
 - Flags "Regime Change" when short-term trend diverges significantly from long-term trend
 - Provides confidence assessment based on model fit quality
 
@@ -463,11 +463,11 @@ rolling_30 AS (
     SELECT
         date_id,
         y,
-        (anofox_statistics_ols_fit_agg(y, [time_idx::DOUBLE], {'intercept': true}) OVER (
+        (anofox_stats_ols_fit_agg(y, [time_idx::DOUBLE], {'intercept': true}) OVER (
             ORDER BY time_idx
             ROWS BETWEEN 29 PRECEDING AND CURRENT ROW
         )).coefficients[1] as trend_30d,
-        (anofox_statistics_ols_fit_agg(y, [time_idx::DOUBLE], {'intercept': true}) OVER (
+        (anofox_stats_ols_fit_agg(y, [time_idx::DOUBLE], {'intercept': true}) OVER (
             ORDER BY time_idx
             ROWS BETWEEN 29 PRECEDING AND CURRENT ROW
         )).r2 as r2_30d
@@ -478,11 +478,11 @@ rolling_30 AS (
 rolling_90 AS (
     SELECT
         date_id,
-        (anofox_statistics_ols_fit_agg(y, [time_idx::DOUBLE], {'intercept': true}) OVER (
+        (anofox_stats_ols_fit_agg(y, [time_idx::DOUBLE], {'intercept': true}) OVER (
             ORDER BY time_idx
             ROWS BETWEEN 89 PRECEDING AND CURRENT ROW
         )).coefficients[1] as trend_90d,
-        (anofox_statistics_ols_fit_agg(y, [time_idx::DOUBLE], {'intercept': true}) OVER (
+        (anofox_stats_ols_fit_agg(y, [time_idx::DOUBLE], {'intercept': true}) OVER (
             ORDER BY time_idx
             ROWS BETWEEN 89 PRECEDING AND CURRENT ROW
         )).r2 as r2_90d
@@ -493,11 +493,11 @@ rolling_90 AS (
 expanding AS (
     SELECT
         date_id,
-        (anofox_statistics_ols_fit_agg(y, [time_idx::DOUBLE], {'intercept': true}) OVER (
+        (anofox_stats_ols_fit_agg(y, [time_idx::DOUBLE], {'intercept': true}) OVER (
             ORDER BY time_idx
             ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
         )).coefficients[1] as trend_expanding,
-        (anofox_statistics_ols_fit_agg(y, [time_idx::DOUBLE], {'intercept': true}) OVER (
+        (anofox_stats_ols_fit_agg(y, [time_idx::DOUBLE], {'intercept': true}) OVER (
             ORDER BY time_idx
             ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
         )).r2 as r2_expanding
@@ -557,7 +557,7 @@ LIMIT 30;
 **Key techniques**:
 
 - Classical decomposition approach (additive model: Y = Trend + Seasonal + Random)
-- Uses `anofox_statistics_ols_agg` to estimate trend, then manual calculation for seasonality
+- Uses `anofox_stats_ols_agg` to estimate trend, then manual calculation for seasonality
 - Demonstrates how to structure multi-stage forecasting pipelines
 
 **When to use**: Any business with monthly/quarterly patterns (retail, tourism, subscriptions) where you need forecasts that respect both growth trends and recurring seasonal cycles.
@@ -589,7 +589,7 @@ WITH monthly_data AS (
 -- Fit overall trend using aggregate function
 trend_model AS (
     SELECT
-        anofox_statistics_ols_fit_agg(revenue, [time_idx::DOUBLE], {'intercept': true}) as model
+        anofox_stats_ols_fit_agg(revenue, [time_idx::DOUBLE], {'intercept': true}) as model
     FROM monthly_data
 ),
 
@@ -659,7 +659,7 @@ ORDER BY month_ahead;
 
 1. **Technique 1: Rolling window within each product**
    - Use `PARTITION BY product_id ORDER BY week` with `ROWS BETWEEN 8 PRECEDING AND CURRENT ROW`
-   - Compute `anofox_statistics_ols_agg` over each 9-week window per product
+   - Compute `anofox_stats_ols_agg` over each 9-week window per product
    - Track coefficient evolution to detect elasticity changes
    - Flag significant changes when coefficient shifts dramatically
 
@@ -726,7 +726,7 @@ WITH rolling_models AS (
         week_start,
         price,
         units_sold,
-        anofox_statistics_ols_fit_agg(units_sold, [price], {'intercept': true}) OVER (
+        anofox_stats_ols_fit_agg(units_sold, [price], {'intercept': true}) OVER (
             PARTITION BY product_id
             ORDER BY week
             ROWS BETWEEN 8 PRECEDING AND CURRENT ROW
@@ -756,14 +756,14 @@ LIMIT 20;
 WITH static_models AS (
     SELECT
         product_id,
-        anofox_statistics_ols_fit_agg(units_sold, [price], {'intercept': true}) as full_period_model
+        anofox_stats_ols_fit_agg(units_sold, [price], {'intercept': true}) as full_period_model
     FROM product_time_series
     GROUP BY product_id
 ),
 adaptive_models AS (
     SELECT
         product_id,
-        anofox_statistics_rls_fit_agg(units_sold, [price], {'forgetting_factor': 0.92, 'intercept': true}) as adaptive_model
+        anofox_stats_rls_fit_agg(units_sold, [price], {'forgetting_factor': 0.92, 'intercept': true}) as adaptive_model
     FROM product_time_series
     GROUP BY product_id
 )
@@ -792,7 +792,7 @@ WITH weekly_summary AS (
     SELECT
         week,
         week_start,
-        anofox_statistics_ols_fit_agg(units_sold, [price], {'intercept': true}) as weekly_model
+        anofox_stats_ols_fit_agg(units_sold, [price], {'intercept': true}) as weekly_model
     FROM product_time_series
     GROUP BY week, week_start
 )
@@ -832,7 +832,7 @@ WITH monthly_by_product AS (
     SELECT
         product_id,
         (week / 4)::INT as month,
-        anofox_statistics_ols_fit_agg(units_sold, [price], {'intercept': true}) as monthly_model
+        anofox_stats_ols_fit_agg(units_sold, [price], {'intercept': true}) as monthly_model
     FROM product_time_series
     GROUP BY product_id, month
 )
@@ -914,7 +914,7 @@ ORDER BY month;
 
 **Steps in the query**:
 
-- **store_level**: Uses `anofox_statistics_ols_agg` with GROUP BY (region, territory, store) to get 60 individual models
+- **store_level**: Uses `anofox_stats_ols_agg` with GROUP BY (region, territory, store) to get 60 individual models
 - **territory_level**: Aggregates store results, computes territory averages and variability
 - **region_level**: Further rolls up to regional benchmarks
 - **store_classification**: Joins all levels, classifies performance, recommends actions
@@ -953,8 +953,8 @@ WITH store_level AS (
         region_id,
         territory_id,
         store_id,
-        (anofox_statistics_ols_fit_agg(sales::DOUBLE, [marketing::DOUBLE], {'intercept': true})).coefficients[1] as store_roi,
-        (anofox_statistics_ols_fit_agg(sales::DOUBLE, [marketing::DOUBLE], {'intercept': true})).r2 as store_r2,
+        (anofox_stats_ols_fit_agg(sales::DOUBLE, [marketing::DOUBLE], {'intercept': true})).coefficients[1] as store_roi,
+        (anofox_stats_ols_fit_agg(sales::DOUBLE, [marketing::DOUBLE], {'intercept': true})).r2 as store_r2,
         COUNT(*) as store_observations
     FROM daily_store_data
     WHERE date >= CURRENT_DATE - INTERVAL '90 days'
@@ -1080,7 +1080,7 @@ WITH product_models AS (
     SELECT
         category,
         subcategory,
-        anofox_statistics_ols_fit_agg(
+        anofox_stats_ols_fit_agg(
             units,
             [price, marketing_cost],
             {'intercept': true}
@@ -1106,7 +1106,7 @@ regional_product AS (
     SELECT
         region,
         subcategory,
-        anofox_statistics_ols_fit_agg(
+        anofox_stats_ols_fit_agg(
             units,
             [price],
             {'intercept': true}
@@ -1209,26 +1209,26 @@ CREATE TEMP TABLE all_methods AS
 SELECT
     market,
     -- OLS: Standard baseline
-    anofox_statistics_ols_fit_agg(
+    anofox_stats_ols_fit_agg(
         y,
         [x1_correlated, x2_correlated, x3_independent],
         {'intercept': true}
     ) as ols_model,
     -- WLS: Addresses heteroscedasticity
-    anofox_statistics_wls_fit_agg(
+    anofox_stats_wls_fit_agg(
         y,
         [x1_correlated, x2_correlated, x3_independent],
         observation_weight,
         {'intercept': true}
     ) as wls_model,
     -- Ridge: Handles multicollinearity
-    anofox_statistics_ridge_fit_agg(
+    anofox_stats_ridge_fit_agg(
         y,
         [x1_correlated, x2_correlated, x3_independent],
         {'lambda': 1.0, 'intercept': true}
     ) as ridge_model,
     -- RLS: Adaptive to changes
-    anofox_statistics_rls_fit_agg(
+    anofox_stats_rls_fit_agg(
         y,
         [x1_correlated, x2_correlated, x3_independent],
         {'forgetting_factor': 0.95, 'intercept': true}
@@ -1361,7 +1361,7 @@ Elif RLS R² > OLS R² + 0.1: Use RLS (patterns changing)
 
 **Steps in the query**:
 
-- **cohort_models**: Fits individual growth curves for each acquisition cohort using `anofox_statistics_ols_agg`
+- **cohort_models**: Fits individual growth curves for each acquisition cohort using `anofox_stats_ols_agg`
 - **cohort_projections**: Uses fitted `intercept + slope * 36` to project month-36 LTV
 - **Classification**: Tags cohorts as Growing/Declining/Unstable based on slope and model quality
 - **Strategic actions**: Recommends whether to replicate acquisition strategy or improve retention
@@ -1408,17 +1408,17 @@ WITH cohort_models_data AS (
 cohort_models AS (
     SELECT
         cohort_month,
-        (anofox_statistics_ols_fit_agg(
+        (anofox_stats_ols_fit_agg(
             avg_order_value::DOUBLE,
             [months_since_first::DOUBLE],
             {'intercept': true}
         )).coefficients[1] as ltv_slope,
-        (anofox_statistics_ols_fit_agg(
+        (anofox_stats_ols_fit_agg(
             avg_order_value::DOUBLE,
             [months_since_first::DOUBLE],
             {'intercept': true}
         )).intercept as ltv_intercept,
-        (anofox_statistics_ols_fit_agg(
+        (anofox_stats_ols_fit_agg(
             avg_order_value::DOUBLE,
             [months_since_first::DOUBLE],
             {'intercept': true}
@@ -1548,9 +1548,9 @@ variant_summary AS (
 -- Coefficient = treatment effect (B - A)
 conversion_test AS (
     SELECT
-        (anofox_statistics_ols_fit_agg(conversion, [treatment], {'intercept': true})).coefficients[1] as treatment_effect,
-        (anofox_statistics_ols_fit_agg(conversion, [treatment], {'intercept': true})).residual_standard_error as std_error,
-        (anofox_statistics_ols_fit_agg(conversion, [treatment], {'intercept': true})).r2 as r2,
+        (anofox_stats_ols_fit_agg(conversion, [treatment], {'intercept': true})).coefficients[1] as treatment_effect,
+        (anofox_stats_ols_fit_agg(conversion, [treatment], {'intercept': true})).residual_standard_error as std_error,
+        (anofox_stats_ols_fit_agg(conversion, [treatment], {'intercept': true})).r2 as r2,
         COUNT(*) as n_obs
     FROM experiment_data
 ),
@@ -1558,9 +1558,9 @@ conversion_test AS (
 -- Statistical significance test for revenue using actual data
 revenue_test AS (
     SELECT
-        (anofox_statistics_ols_fit_agg(revenue, [treatment], {'intercept': true})).coefficients[1] as treatment_effect,
-        (anofox_statistics_ols_fit_agg(revenue, [treatment], {'intercept': true})).residual_standard_error as std_error,
-        (anofox_statistics_ols_fit_agg(revenue, [treatment], {'intercept': true})).r2 as r2,
+        (anofox_stats_ols_fit_agg(revenue, [treatment], {'intercept': true})).coefficients[1] as treatment_effect,
+        (anofox_stats_ols_fit_agg(revenue, [treatment], {'intercept': true})).residual_standard_error as std_error,
+        (anofox_stats_ols_fit_agg(revenue, [treatment], {'intercept': true})).r2 as r2,
         COUNT(*) as n_obs
     FROM experiment_data
 ),
@@ -1735,9 +1735,9 @@ WITH store_data AS (
 -- Coefficient on treatment_post = causal effect estimate
 did_estimate AS (
     SELECT
-        (anofox_statistics_ols_fit_agg(sales, [treatment_post], {'intercept': true})).coefficients[1] as did_coefficient,
-        (anofox_statistics_ols_fit_agg(sales, [treatment_post], {'intercept': true})).residual_standard_error as std_error,
-        (anofox_statistics_ols_fit_agg(sales, [treatment_post], {'intercept': true})).r2 as r2,
+        (anofox_stats_ols_fit_agg(sales, [treatment_post], {'intercept': true})).coefficients[1] as did_coefficient,
+        (anofox_stats_ols_fit_agg(sales, [treatment_post], {'intercept': true})).residual_standard_error as std_error,
+        (anofox_stats_ols_fit_agg(sales, [treatment_post], {'intercept': true})).r2 as r2,
         COUNT(*) as n_obs
     FROM store_data
 ),
@@ -1852,7 +1852,7 @@ ORDER BY analysis_type DESC, metric;
 
 **How it works**:
 
-1. **Fit models once**: Run `anofox_statistics_ols_agg` grouped by product on last 365 days of data
+1. **Fit models once**: Run `anofox_stats_ols_agg` grouped by product on last 365 days of data
 2. **Extract key metrics**: Store coefficients, R² values, training period, timestamp
 3. **Materialize to table**: Save results to `model_results_cache` table
 4. **Fast retrieval**: Applications query the cache table instead of refitting models
@@ -1868,7 +1868,7 @@ ORDER BY analysis_type DESC, metric;
 **Steps in the query**:
 
 - **source_data**: Filters to last 365 days for training window
-- **product_models**: Fits separate models for each product using `anofox_statistics_ols_agg`
+- **product_models**: Fits separate models for each product using `anofox_stats_ols_agg`
 - **CREATE TABLE**: Materializes results with metadata (training dates, update time)
 - **Query cached models**: Fast retrieval without recalculation
 
@@ -1905,9 +1905,9 @@ WITH source_data AS (
 product_models AS (
     SELECT
         product_id,
-        anofox_statistics_ols_fit_agg(y, [x1], {'intercept': true}) as model_x1,
-        anofox_statistics_ols_fit_agg(y, [x2], {'intercept': true}) as model_x2,
-        anofox_statistics_ols_fit_agg(y, [x3], {'intercept': true}) as model_x3,
+        anofox_stats_ols_fit_agg(y, [x1], {'intercept': true}) as model_x1,
+        anofox_stats_ols_fit_agg(y, [x2], {'intercept': true}) as model_x2,
+        anofox_stats_ols_fit_agg(y, [x3], {'intercept': true}) as model_x3,
         COUNT(*) as data_points,
         MIN(date) as training_start,
         MAX(date) as training_end,
@@ -2066,9 +2066,9 @@ source_data AS (
 product_models AS (
     SELECT
         product_id,
-        anofox_statistics_ols_fit_agg(y, [x1], {'intercept': true}) as model_x1,
-        anofox_statistics_ols_fit_agg(y, [x2], {'intercept': true}) as model_x2,
-        anofox_statistics_ols_fit_agg(y, [x3], {'intercept': true}) as model_x3,
+        anofox_stats_ols_fit_agg(y, [x1], {'intercept': true}) as model_x1,
+        anofox_stats_ols_fit_agg(y, [x2], {'intercept': true}) as model_x2,
+        anofox_stats_ols_fit_agg(y, [x3], {'intercept': true}) as model_x3,
         COUNT(*) as data_points,
         CURRENT_DATE - (MAX(lookback) || ' DAYS')::INTERVAL as training_start,
         CURRENT_DATE as training_end,
@@ -2122,7 +2122,7 @@ SELECT COUNT(*) as models_in_cache FROM model_results_cache;
 
 1. **Pre-aggregate to partitions**: Group data into monthly × category buckets
 2. **Use LIST aggregation**: Collect values within each partition as arrays
-3. **Fit models per partition**: Use `anofox_statistics_ols_agg` on each partition separately
+3. **Fit models per partition**: Use `anofox_stats_ols_agg` on each partition separately
 4. **Parallel processing**: DuckDB parallelizes across partitions automatically
 
 **Benefits**:
@@ -2146,7 +2146,7 @@ SELECT COUNT(*) as models_in_cache FROM model_results_cache;
 **Performance tips**:
 
 - Partition by dimensions you'll GROUP BY (month, category, region)
-- Use aggregate functions (`anofox_statistics_ols_agg`) over table functions when possible
+- Use aggregate functions (`anofox_stats_ols_agg`) over table functions when possible
 - Filter early to reduce data scanned (WHERE date >= '2023-01-01')
 - Create indexes on partition columns for faster grouping
 
@@ -2193,10 +2193,10 @@ monthly_models AS (
         category,
         n_obs,
         -- Use aggregate functions with UNNEST in subquery
-        (SELECT (anofox_statistics_ols_fit_agg(y, [x], {'intercept': true})).coefficients[1] FROM (
+        (SELECT (anofox_stats_ols_fit_agg(y, [x], {'intercept': true})).coefficients[1] FROM (
             SELECT UNNEST(y_values) as y, UNNEST(x_values) as x
         )) as coefficient,
-        (SELECT (anofox_statistics_ols_fit_agg(y, [x], {'intercept': true})).r2 FROM (
+        (SELECT (anofox_stats_ols_fit_agg(y, [x], {'intercept': true})).r2 FROM (
             SELECT UNNEST(y_values) as y, UNNEST(x_values) as x
         )) as r2
     FROM monthly_partitions
@@ -2220,10 +2220,10 @@ WITH sample_data AS (
 ),
 sample_model AS (
     SELECT
-        (anofox_statistics_ols_fit_agg(y, [x1], {'intercept': true})).coefficients[1] as coeff_x1,
-        (anofox_statistics_ols_fit_agg(y, [x2], {'intercept': true})).coefficients[1] as coeff_x2,
-        (anofox_statistics_ols_fit_agg(y, [x1], {'intercept': true})).r2 as r2_x1,
-        (anofox_statistics_ols_fit_agg(y, [x2], {'intercept': true})).r2 as r2_x2
+        (anofox_stats_ols_fit_agg(y, [x1], {'intercept': true})).coefficients[1] as coeff_x1,
+        (anofox_stats_ols_fit_agg(y, [x2], {'intercept': true})).coefficients[1] as coeff_x2,
+        (anofox_stats_ols_fit_agg(y, [x1], {'intercept': true})).r2 as r2_x1,
+        (anofox_stats_ols_fit_agg(y, [x2], {'intercept': true})).r2 as r2_x2
     FROM sample_data
 )
 -- Validate on sample, then run on full data if promising
@@ -2267,7 +2267,7 @@ SELECT * FROM sample_model;
 -- Export model coefficients for external scoring (using literal array sample)
 COPY (
     WITH model AS (
-        SELECT * FROM anofox_statistics_ols_fit(
+        SELECT * FROM anofox_stats_ols_fit(
             [100.0, 110.0, 120.0, 130.0, 140.0, 150.0, 160.0, 170.0, 180.0, 190.0],
             [[1.0, 2.0, 3.0, 4.0], [1.1, 2.1, 3.1, 4.1], [1.2, 2.2, 3.2, 4.2],
              [1.3, 2.3, 3.3, 4.3], [1.4, 2.4, 3.4, 4.4], [1.5, 2.5, 3.5, 4.5],
@@ -2372,19 +2372,19 @@ WITH validation AS (
         'Multicollinearity',
         CAST(MAX(vif) AS VARCHAR),
         CASE WHEN MAX(vif) < 10 THEN 'PASS' ELSE 'FAIL' END
-    FROM anofox_statistics_vif([[1.0::DOUBLE, 2.0, 3.0], [1.1::DOUBLE, 2.1, 3.1], [1.2::DOUBLE, 2.2, 3.2], [1.3::DOUBLE, 2.3, 3.3], [1.4::DOUBLE, 2.4, 3.4]])
+    FROM anofox_stats_vif([[1.0::DOUBLE, 2.0, 3.0], [1.1::DOUBLE, 2.1, 3.1], [1.2::DOUBLE, 2.2, 3.2], [1.3::DOUBLE, 2.3, 3.3], [1.4::DOUBLE, 2.4, 3.4]])
     UNION ALL
     SELECT
         'Normality',
         CAST(p_value AS VARCHAR),
         CASE WHEN p_value > 0.05 THEN 'PASS' ELSE 'FAIL' END
-    FROM anofox_statistics_normality_test([0.1::DOUBLE, -0.2, 0.3, -0.1, 0.2, -0.3, 0.15, -0.25], 0.05)
+    FROM anofox_stats_normality_test([0.1::DOUBLE, -0.2, 0.3, -0.1, 0.2, -0.3, 0.15, -0.25], 0.05)
     UNION ALL
     SELECT
         'Outliers',
         CAST(COUNT(*) AS VARCHAR),
         CASE WHEN COUNT(*) < 0.05 * (SELECT COUNT(*) FROM data) THEN 'PASS' ELSE 'WARN' END
-    FROM anofox_statistics_residual_diagnostics(
+    FROM anofox_stats_residual_diagnostics(
         [100.0::DOUBLE, 110.0, 120.0, 130.0, 140.0],
         [102.0::DOUBLE, 108.0, 118.0, 132.0, 138.0],
         2.5

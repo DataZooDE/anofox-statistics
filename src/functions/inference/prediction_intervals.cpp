@@ -322,7 +322,7 @@ static void OlsPredictIntervalTableFunc(ClientContext &context, TableFunctionInp
 void OlsPredictIntervalFunction::Register(ExtensionLoader &loader) {
 	ANOFOX_DEBUG("Registering OLS predict interval function");
 
-	TableFunction ols_predict_interval_func("anofox_statistics_predict_ols",
+	TableFunction ols_predict_interval_func("anofox_stats_predict_ols",
 	                                        {LogicalType::LIST(LogicalType::DOUBLE),                    // y_train
 	                                         LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)), // X_train
 	                                         LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)), // X_new
@@ -341,7 +341,27 @@ void OlsPredictIntervalFunction::Register(ExtensionLoader &loader) {
 
 	loader.RegisterFunction(ols_predict_interval_func);
 
-	ANOFOX_DEBUG("OLS predict interval function registered successfully");
+	// Register alias without prefix
+	TableFunction predict_ols_alias("predict_ols",
+	                                {LogicalType::LIST(LogicalType::DOUBLE),                    // y_train
+	                                 LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)), // X_train
+	                                 LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)), // X_new
+	                                 LogicalType::DOUBLE,   // confidence_level
+	                                 LogicalType::VARCHAR,  // interval_type
+	                                 LogicalType::BOOLEAN}, // add_intercept
+	                                OlsPredictIntervalTableFunc, OlsPredictIntervalBind);
+
+	// Set named parameters for alias
+	predict_ols_alias.named_parameters["y_train"] = LogicalType::LIST(LogicalType::DOUBLE);
+	predict_ols_alias.named_parameters["x_train"] = LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE));
+	predict_ols_alias.named_parameters["x_new"] = LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE));
+	predict_ols_alias.named_parameters["confidence_level"] = LogicalType::DOUBLE;
+	predict_ols_alias.named_parameters["interval_type"] = LogicalType::VARCHAR;
+	predict_ols_alias.named_parameters["add_intercept"] = LogicalType::BOOLEAN;
+
+	loader.RegisterFunction(predict_ols_alias);
+
+	ANOFOX_DEBUG("OLS predict interval function registered successfully with alias predict_ols");
 }
 
 } // namespace anofox_statistics

@@ -18,7 +18,7 @@ namespace anofox_statistics {
  * Recursive Least Squares (RLS) with MAP-based options
  *
  * Signature:
- *   SELECT * FROM anofox_statistics_rls(
+ *   SELECT * FROM anofox_stats_rls(
  *       y := [1.0, 2.0, 3.0, 4.0],
  *       x := [[1.1, 2.1, 2.9, 4.2], [0.5, 1.5, 2.5, 3.5]],
  *       options := MAP{'intercept': true, 'forgetting_factor': 1.0}
@@ -797,7 +797,7 @@ static OperatorResultType RlsFitInOut(ExecutionContext &context, TableFunctionIn
 //===--------------------------------------------------------------------===//
 
 void RlsFitFunction::Register(ExtensionLoader &loader) {
-	ANOFOX_DEBUG("Registering anofox_statistics_rls (dual mode: literals + lateral joins)");
+	ANOFOX_DEBUG("Registering anofox_stats_rls (dual mode: literals + lateral joins)");
 
 	// Register 2-argument overload: (y DOUBLE[], x DOUBLE[][])
 	vector<LogicalType> args_2 = {
@@ -805,9 +805,15 @@ void RlsFitFunction::Register(ExtensionLoader &loader) {
 	    LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)) // x: DOUBLE[][]
 	};
 
-	TableFunction func_2("anofox_statistics_rls_fit", args_2, RlsFitExecute, RlsFitBind, nullptr, RlsFitInOutLocalInit);
+	// Register primary function with new naming convention
+	TableFunction func_2("anofox_stats_rls_fit", args_2, RlsFitExecute, RlsFitBind, nullptr, RlsFitInOutLocalInit);
 	func_2.in_out_function = RlsFitInOut;
 	loader.RegisterFunction(func_2);
+
+	// Register alias without prefix
+	TableFunction func_2_alias("rls_fit", args_2, RlsFitExecute, RlsFitBind, nullptr, RlsFitInOutLocalInit);
+	func_2_alias.in_out_function = RlsFitInOut;
+	loader.RegisterFunction(func_2_alias);
 
 	// Register 3-argument overload: (y DOUBLE[], x DOUBLE[][], options MAP/STRUCT)
 	vector<LogicalType> args_3 = {
@@ -816,11 +822,16 @@ void RlsFitFunction::Register(ExtensionLoader &loader) {
 	    LogicalType::ANY                                           // options: MAP or STRUCT
 	};
 
-	TableFunction func_3("anofox_statistics_rls_fit", args_3, RlsFitExecute, RlsFitBind, nullptr, RlsFitInOutLocalInit);
+	TableFunction func_3("anofox_stats_rls_fit", args_3, RlsFitExecute, RlsFitBind, nullptr, RlsFitInOutLocalInit);
 	func_3.in_out_function = RlsFitInOut;
 	loader.RegisterFunction(func_3);
 
-	ANOFOX_DEBUG("anofox_statistics_rls registered successfully (both modes)");
+	// Register alias without prefix
+	TableFunction func_3_alias("rls_fit", args_3, RlsFitExecute, RlsFitBind, nullptr, RlsFitInOutLocalInit);
+	func_3_alias.in_out_function = RlsFitInOut;
+	loader.RegisterFunction(func_3_alias);
+
+	ANOFOX_DEBUG("anofox_stats_rls_fit registered successfully with alias rls_fit (both modes)");
 }
 
 } // namespace anofox_statistics

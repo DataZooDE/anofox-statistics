@@ -332,7 +332,7 @@ static OperatorResultType ResidualDiagnosticsInOut(ExecutionContext &context, Ta
 }
 
 void ResidualDiagnosticsFunction::Register(ExtensionLoader &loader) {
-	ANOFOX_DEBUG("Registering residual diagnostics function (dual mode: literals + lateral joins)");
+	ANOFOX_DEBUG("Registering anofox_stats_residual_diagnostics (with alias residual_diagnostics, dual mode: literals + lateral joins)");
 
 	vector<LogicalType> arguments = {
 	    LogicalType::LIST(LogicalType::DOUBLE), // y_actual
@@ -340,7 +340,7 @@ void ResidualDiagnosticsFunction::Register(ExtensionLoader &loader) {
 	};
 
 	// Register with literal mode (bind + execute)
-	TableFunction residual_diagnostics_func("anofox_statistics_residual_diagnostics", arguments,
+	TableFunction residual_diagnostics_func("anofox_stats_residual_diagnostics", arguments,
 	                                        ResidualDiagnosticsTableFunc, ResidualDiagnosticsBind, nullptr,
 	                                        ResidualDiagnosticsInOutLocalInit);
 
@@ -355,7 +355,23 @@ void ResidualDiagnosticsFunction::Register(ExtensionLoader &loader) {
 
 	loader.RegisterFunction(residual_diagnostics_func);
 
-	ANOFOX_DEBUG("Residual diagnostics function registered successfully (both modes)");
+	// Register alias
+	TableFunction residual_diagnostics_alias("residual_diagnostics", arguments,
+	                                         ResidualDiagnosticsTableFunc, ResidualDiagnosticsBind, nullptr,
+	                                         ResidualDiagnosticsInOutLocalInit);
+
+	// Add lateral join support (in_out_function)
+	residual_diagnostics_alias.in_out_function = ResidualDiagnosticsInOut;
+	residual_diagnostics_alias.varargs = LogicalType::ANY;
+
+	// Set named parameters
+	residual_diagnostics_alias.named_parameters["y_actual"] = LogicalType::LIST(LogicalType::DOUBLE);
+	residual_diagnostics_alias.named_parameters["y_predicted"] = LogicalType::LIST(LogicalType::DOUBLE);
+	residual_diagnostics_alias.named_parameters["outlier_threshold"] = LogicalType::DOUBLE;
+
+	loader.RegisterFunction(residual_diagnostics_alias);
+
+	ANOFOX_DEBUG("anofox_stats_residual_diagnostics registered successfully with alias residual_diagnostics (both modes)");
 }
 
 } // namespace anofox_statistics

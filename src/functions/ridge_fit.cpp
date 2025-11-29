@@ -912,10 +912,17 @@ void RidgeFitFunction::Register(ExtensionLoader &loader) {
 	    LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)) // x: DOUBLE[][]
 	};
 
-	TableFunction func_2("anofox_statistics_ridge_fit", args_2, RidgeFitExecute, RidgeFitBind, nullptr,
+	// Register primary function with new naming convention
+	TableFunction func_2("anofox_stats_ridge_fit", args_2, RidgeFitExecute, RidgeFitBind, nullptr,
 	                     RidgeFitInOutLocalInit);
 	func_2.in_out_function = RidgeFitInOut;
 	loader.RegisterFunction(func_2);
+
+	// Register alias without prefix
+	TableFunction func_2_alias("ridge_fit", args_2, RidgeFitExecute, RidgeFitBind, nullptr,
+	                           RidgeFitInOutLocalInit);
+	func_2_alias.in_out_function = RidgeFitInOut;
+	loader.RegisterFunction(func_2_alias);
 
 	// Register 3-argument overload: (y DOUBLE[], x DOUBLE[][], options MAP/STRUCT)
 	vector<LogicalType> args_3 = {
@@ -924,12 +931,18 @@ void RidgeFitFunction::Register(ExtensionLoader &loader) {
 	    LogicalType::ANY                                           // options: MAP or STRUCT
 	};
 
-	TableFunction func_3("anofox_statistics_ridge_fit", args_3, RidgeFitExecute, RidgeFitBind, nullptr,
+	TableFunction func_3("anofox_stats_ridge_fit", args_3, RidgeFitExecute, RidgeFitBind, nullptr,
 	                     RidgeFitInOutLocalInit);
 	func_3.in_out_function = RidgeFitInOut;
 	loader.RegisterFunction(func_3);
 
-	ANOFOX_DEBUG("anofox_statistics_ridge registered successfully (both modes)");
+	// Register alias without prefix
+	TableFunction func_3_alias("ridge_fit", args_3, RidgeFitExecute, RidgeFitBind, nullptr,
+	                           RidgeFitInOutLocalInit);
+	func_3_alias.in_out_function = RidgeFitInOut;
+	loader.RegisterFunction(func_3_alias);
+
+	ANOFOX_DEBUG("anofox_stats_ridge_fit registered successfully with alias ridge_fit (both modes)");
 }
 
 } // namespace anofox_statistics

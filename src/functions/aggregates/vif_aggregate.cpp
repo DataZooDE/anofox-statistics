@@ -14,7 +14,7 @@ namespace duckdb {
 namespace anofox_statistics {
 
 /**
- * VIF Aggregate: anofox_statistics_vif_agg(x DOUBLE[]) -> STRUCT
+ * VIF Aggregate: anofox_stats_vif_agg(x DOUBLE[]) -> STRUCT
  *
  * Accumulates feature vectors across rows in a GROUP BY,
  * then computes Variance Inflation Factor for each feature to detect multicollinearity.
@@ -249,7 +249,7 @@ static void VifFinalize(Vector &state_vector, AggregateInputData &aggr_input_dat
 }
 
 void VifAggregateFunction::Register(ExtensionLoader &loader) {
-	ANOFOX_DEBUG("Registering VIF aggregate function");
+	ANOFOX_DEBUG("Registering anofox_stats_vif_agg (with alias vif_agg)");
 
 	child_list_t<LogicalType> vif_struct_fields;
 	vif_struct_fields.push_back(make_pair("variable_id", LogicalType::LIST(LogicalType::BIGINT)));
@@ -257,14 +257,22 @@ void VifAggregateFunction::Register(ExtensionLoader &loader) {
 	vif_struct_fields.push_back(make_pair("vif", LogicalType::LIST(LogicalType::DOUBLE)));
 	vif_struct_fields.push_back(make_pair("severity", LogicalType::LIST(LogicalType::VARCHAR)));
 
-	AggregateFunction anofox_statistics_vif_agg(
-	    "anofox_statistics_vif_agg", {LogicalType::LIST(LogicalType::DOUBLE)}, // x features
+	AggregateFunction anofox_stats_vif_agg(
+	    "anofox_stats_vif_agg", {LogicalType::LIST(LogicalType::DOUBLE)}, // x features
 	    LogicalType::STRUCT(vif_struct_fields), AggregateFunction::StateSize<VifAggregateState>, VifInitialize,
 	    VifUpdate, VifCombine, VifFinalize, FunctionNullHandling::DEFAULT_NULL_HANDLING);
 
-	loader.RegisterFunction(anofox_statistics_vif_agg);
+	loader.RegisterFunction(anofox_stats_vif_agg);
 
-	ANOFOX_DEBUG("VIF aggregate function registered successfully");
+	// Register alias
+	AggregateFunction vif_agg_alias(
+	    "vif_agg", {LogicalType::LIST(LogicalType::DOUBLE)}, // x features
+	    LogicalType::STRUCT(vif_struct_fields), AggregateFunction::StateSize<VifAggregateState>, VifInitialize,
+	    VifUpdate, VifCombine, VifFinalize, FunctionNullHandling::DEFAULT_NULL_HANDLING);
+
+	loader.RegisterFunction(vif_agg_alias);
+
+	ANOFOX_DEBUG("anofox_stats_vif_agg registered successfully with alias vif_agg");
 }
 
 } // namespace anofox_statistics

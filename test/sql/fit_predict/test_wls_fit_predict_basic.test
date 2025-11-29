@@ -33,7 +33,7 @@ SELECT
 FROM (
     SELECT
         id,
-        anofox_statistics_wls_fit_predict(
+        anofox_stats_wls_fit_predict(
             y,
             [x],
             w,
@@ -71,7 +71,7 @@ SELECT
 FROM (
     SELECT
         id,
-        anofox_statistics_wls_fit_predict(
+        anofox_stats_wls_fit_predict(
             y,
             [x],
             w,
@@ -104,7 +104,7 @@ FROM (
     SELECT
         group_id,
         row_id,
-        anofox_statistics_wls_fit_predict(
+        anofox_stats_wls_fit_predict(
             y,
             [x],
             w,
@@ -144,7 +144,7 @@ SELECT
 FROM (
     SELECT
         id,
-        anofox_statistics_wls_fit_predict(
+        anofox_stats_wls_fit_predict(
             y,
             [x1, x2],
             w,
@@ -166,7 +166,7 @@ SELECT
 FROM (
     SELECT
         id,
-        anofox_statistics_wls_fit_predict(
+        anofox_stats_wls_fit_predict(
             y,
             [x],
             w,
@@ -189,7 +189,7 @@ SELECT
 FROM (
     SELECT
         id,
-        anofox_statistics_wls_fit_predict(
+        anofox_stats_wls_fit_predict(
             y,
             [x],
             w,
@@ -219,8 +219,8 @@ SELECT
 FROM (
     SELECT
         id,
-        anofox_statistics_wls_fit_predict(y, [x], 1.0, MAP{'intercept': 1}) OVER (ORDER BY id) as pred_uniform,
-        anofox_statistics_wls_fit_predict(y, [x], CASE WHEN id <= 2 THEN 10.0 ELSE 1.0 END, MAP{'intercept': 1}) OVER (ORDER BY id) as pred_weighted
+        anofox_stats_wls_fit_predict(y, [x], 1.0, MAP{'intercept': 1}) OVER (ORDER BY id) as pred_uniform,
+        anofox_stats_wls_fit_predict(y, [x], CASE WHEN id <= 2 THEN 10.0 ELSE 1.0 END, MAP{'intercept': 1}) OVER (ORDER BY id) as pred_weighted
     FROM wls_weight_comparison
 )
 WHERE (pred_uniform).yhat IS NOT NULL AND (pred_weighted).yhat IS NOT NULL;

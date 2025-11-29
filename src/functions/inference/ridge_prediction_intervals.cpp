@@ -260,7 +260,7 @@ static void RidgePredictIntervalTableFunc(ClientContext &context, TableFunctionI
 void RidgePredictIntervalFunction::Register(ExtensionLoader &loader) {
 	ANOFOX_DEBUG("Registering Ridge predict_interval function");
 
-	TableFunction func("anofox_statistics_predict_ridge",
+	TableFunction func("anofox_stats_predict_ridge",
 	                   {LogicalType::LIST(LogicalType::DOUBLE),                     // y_train
 	                    LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)),  // x_train
 	                    LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE))}, // x_new
@@ -271,7 +271,18 @@ void RidgePredictIntervalFunction::Register(ExtensionLoader &loader) {
 
 	loader.RegisterFunction(func);
 
-	ANOFOX_DEBUG("Ridge predict_interval function registered successfully");
+	// Register alias without prefix
+	TableFunction func_alias("predict_ridge",
+	                         {LogicalType::LIST(LogicalType::DOUBLE),                     // y_train
+	                          LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)),  // x_train
+	                          LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE))}, // x_new
+	                         RidgePredictIntervalTableFunc, RidgePredictIntervalBind);
+
+	func_alias.varargs = LogicalType::ANY;
+
+	loader.RegisterFunction(func_alias);
+
+	ANOFOX_DEBUG("Ridge predict_interval function registered successfully with alias predict_ridge");
 }
 
 } // namespace anofox_statistics

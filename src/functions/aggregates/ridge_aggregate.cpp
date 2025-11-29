@@ -599,15 +599,24 @@ void RidgeAggregateFunction::Register(ExtensionLoader &loader) {
 	ridge_struct_fields.push_back(make_pair("intercept_ci_lower", LogicalType::DOUBLE));
 	ridge_struct_fields.push_back(make_pair("intercept_ci_upper", LogicalType::DOUBLE));
 
-	AggregateFunction anofox_statistics_ridge_fit_agg(
-	    "anofox_statistics_ridge_fit_agg",
+	AggregateFunction anofox_stats_ridge_fit_agg(
+	    "anofox_stats_ridge_fit_agg",
 	    {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
 	    LogicalType::STRUCT(ridge_struct_fields), AggregateFunction::StateSize<RidgeAggregateState>, RidgeInitialize,
 	    RidgeUpdate, RidgeCombine, RidgeFinalize, FunctionNullHandling::DEFAULT_NULL_HANDLING, nullptr, nullptr,
 	    nullptr, nullptr, RidgeWindow, nullptr, nullptr);
-	loader.RegisterFunction(anofox_statistics_ridge_fit_agg);
+	loader.RegisterFunction(anofox_stats_ridge_fit_agg);
 
-	ANOFOX_DEBUG("Ridge aggregate function registered successfully");
+	// Register alias without prefix
+	AggregateFunction ridge_fit_agg_alias(
+	    "ridge_fit_agg",
+	    {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
+	    LogicalType::STRUCT(ridge_struct_fields), AggregateFunction::StateSize<RidgeAggregateState>, RidgeInitialize,
+	    RidgeUpdate, RidgeCombine, RidgeFinalize, FunctionNullHandling::DEFAULT_NULL_HANDLING, nullptr, nullptr,
+	    nullptr, nullptr, RidgeWindow, nullptr, nullptr);
+	loader.RegisterFunction(ridge_fit_agg_alias);
+
+	ANOFOX_DEBUG("Ridge aggregate function registered successfully with alias ridge_fit_agg");
 }
 
 } // namespace anofox_statistics
