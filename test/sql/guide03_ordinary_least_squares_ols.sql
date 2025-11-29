@@ -15,10 +15,10 @@ FROM generate_series(1, 45) t(i);
 -- Simple OLS with aggregate function (works directly with table data)
 SELECT
     category,
-    (anofox_statistics_ols_fit_agg(sales, [price], {'intercept': true})).coefficients[1] as price_effect,
-    (anofox_statistics_ols_fit_agg(sales, [price], {'intercept': true})).r2 as r2
+    (anofox_stats_ols_fit_agg(sales, [price], {'intercept': true})).coefficients[1] as price_effect,
+    (anofox_stats_ols_fit_agg(sales, [price], {'intercept': true})).r2 as r2
 FROM products
 GROUP BY category;
 
--- Note: anofox_statistics_ols_fit_agg works directly with table columns.
+-- Note: anofox_stats_ols_fit_agg works directly with table columns.
 -- For table functions with multiple predictors, use literal arrays (see Quick Start Guide).

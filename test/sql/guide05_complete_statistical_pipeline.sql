@@ -48,16 +48,16 @@ full_model AS (
         AVG(y) as mean_sales,
         AVG(x1) as mean_advertising,
         -- Primary model: advertising spend predicts sales
-        (anofox_statistics_ols_fit_agg(y, [x1], {'intercept': true})).coefficients[1] as beta_advertising,
-        (anofox_statistics_ols_fit_agg(y, [x1], {'intercept': true})).r2 as model_r2,
-        (anofox_statistics_ols_fit_agg(y, [x1], {'intercept': true})).residual_standard_error as model_std_error,
+        (anofox_stats_ols_fit_agg(y, [x1], {'intercept': true})).coefficients[1] as beta_advertising,
+        (anofox_stats_ols_fit_agg(y, [x1], {'intercept': true})).r2 as model_r2,
+        (anofox_stats_ols_fit_agg(y, [x1], {'intercept': true})).residual_standard_error as model_std_error,
         -- Additional univariate models for comparison
-        (anofox_statistics_ols_fit_agg(y, [x2], {'intercept': true})).coefficients[1] as beta_store_size,
-        (anofox_statistics_ols_fit_agg(y, [x2], {'intercept': true})).r2 as r2_store_size,
-        (anofox_statistics_ols_fit_agg(y, [x3], {'intercept': true})).coefficients[1] as beta_competitor,
-        (anofox_statistics_ols_fit_agg(y, [x3], {'intercept': true})).r2 as r2_competitor,
-        (anofox_statistics_ols_fit_agg(y, [x4], {'intercept': true})).coefficients[1] as beta_income,
-        (anofox_statistics_ols_fit_agg(y, [x4], {'intercept': true})).r2 as r2_income
+        (anofox_stats_ols_fit_agg(y, [x2], {'intercept': true})).coefficients[1] as beta_store_size,
+        (anofox_stats_ols_fit_agg(y, [x2], {'intercept': true})).r2 as r2_store_size,
+        (anofox_stats_ols_fit_agg(y, [x3], {'intercept': true})).coefficients[1] as beta_competitor,
+        (anofox_stats_ols_fit_agg(y, [x3], {'intercept': true})).r2 as r2_competitor,
+        (anofox_stats_ols_fit_agg(y, [x4], {'intercept': true})).coefficients[1] as beta_income,
+        (anofox_stats_ols_fit_agg(y, [x4], {'intercept': true})).r2 as r2_income
     FROM training_data
 ),
 

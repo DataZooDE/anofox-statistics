@@ -1,4 +1,4 @@
--- Test suite for anofox_statistics_ols_fit_agg aggregate function
+-- Test suite for anofox_stats_ols_fit_agg aggregate function
 
 LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
 
@@ -33,7 +33,7 @@ SELECT
 FROM (
     SELECT
         product,
-        anofox_statistics_ols_fit_agg(sales, [price, marketing_spend], {'intercept': true}) as result
+        anofox_stats_ols_fit_agg(sales, [price, marketing_spend], {'intercept': true}) as result
     FROM ols_agg_data
     GROUP BY product
 ) sub
@@ -48,7 +48,7 @@ SELECT
 FROM (
     SELECT
         region,
-        anofox_statistics_ols_fit_agg(sales, [price, marketing_spend], {'intercept': true}) as result
+        anofox_stats_ols_fit_agg(sales, [price, marketing_spend], {'intercept': true}) as result
     FROM ols_agg_data
     GROUP BY region
 ) sub
@@ -63,7 +63,7 @@ SELECT
 FROM (
     SELECT
         product,
-        anofox_statistics_ols_fit_agg(sales, [price, marketing_spend], {'intercept': false}) as result
+        anofox_stats_ols_fit_agg(sales, [price, marketing_spend], {'intercept': false}) as result
     FROM ols_agg_data
     GROUP BY product
 ) sub
@@ -79,7 +79,7 @@ FROM (
     SELECT
         product,
         region,
-        anofox_statistics_ols_fit_agg(sales, [price, marketing_spend], {'intercept': true}) as result
+        anofox_stats_ols_fit_agg(sales, [price, marketing_spend], {'intercept': true}) as result
     FROM ols_agg_data
     GROUP BY product, region
 ) sub
@@ -94,7 +94,7 @@ SELECT
 FROM (
     SELECT
         product,
-        anofox_statistics_ols_fit_agg(sales, [price], {'intercept': true}) as result
+        anofox_stats_ols_fit_agg(sales, [price], {'intercept': true}) as result
     FROM ols_agg_data
     GROUP BY product
 ) sub
@@ -109,7 +109,7 @@ SELECT
 FROM (
     SELECT
         product,
-        anofox_statistics_ols_fit_agg(sales, [price, marketing_spend, time], {'intercept': true}) as result
+        anofox_stats_ols_fit_agg(sales, [price, marketing_spend, time], {'intercept': true}) as result
     FROM ols_agg_data
     GROUP BY product
 ) sub
@@ -124,8 +124,8 @@ SELECT
 FROM (
     SELECT
         product,
-        anofox_statistics_ols_fit_agg(sales, [price], {'intercept': true}) as with_intercept,
-        anofox_statistics_ols_fit_agg(sales, [price], {'intercept': false}) as without_intercept
+        anofox_stats_ols_fit_agg(sales, [price], {'intercept': true}) as with_intercept,
+        anofox_stats_ols_fit_agg(sales, [price], {'intercept': false}) as without_intercept
     FROM ols_agg_data
     GROUP BY product
 ) sub
@@ -141,7 +141,7 @@ SELECT
     len(result.coefficients) as n_features
 FROM (
     SELECT
-        anofox_statistics_ols_fit_agg(sales, [price, marketing_spend, time], {'intercept': true}) as result
+        anofox_stats_ols_fit_agg(sales, [price, marketing_spend, time], {'intercept': true}) as result
     FROM ols_agg_data
 ) sub;
 
@@ -153,7 +153,7 @@ SELECT
 FROM (
     SELECT
         product,
-        anofox_statistics_ols_fit_agg(sales, [price, marketing_spend], {'intercept': true}) as result
+        anofox_stats_ols_fit_agg(sales, [price, marketing_spend], {'intercept': true}) as result
     FROM ols_agg_data
     GROUP BY product
     HAVING COUNT(*) >= 10
@@ -169,7 +169,7 @@ SELECT
 FROM (
     SELECT
         product,
-        anofox_statistics_ols_fit_agg(sales, [price, marketing_spend], {'intercept': true}) as result
+        anofox_stats_ols_fit_agg(sales, [price, marketing_spend], {'intercept': true}) as result
     FROM ols_agg_data
     GROUP BY product
 ) sub

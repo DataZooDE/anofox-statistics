@@ -2,7 +2,7 @@ LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extensi
 
 -- Get statistical inference using fit with full_output
 WITH model AS (
-    SELECT * FROM anofox_statistics_ols_fit(
+    SELECT * FROM anofox_stats_ols_fit(
         [2.1, 4.0, 6.1, 7.9, 10.2]::DOUBLE[],
         [[1.0], [2.0], [3.0], [4.0], [5.0]]::DOUBLE[][],
         {'intercept': true, 'full_output': true, 'confidence_level': 0.95::DOUBLE}

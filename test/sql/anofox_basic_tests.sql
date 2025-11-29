@@ -6,9 +6,9 @@
 --   - anofox_rolling_ols_fit(table, ['x1'], 'y', window_size)
 --
 -- The NEW API uses:
---   - Table functions with arrays: anofox_statistics_ols_fit([y_values], [[x_values]])
---   - Aggregates for grouping: SELECT anofox_statistics_ols_fit_agg(y, x) FROM table GROUP BY group_col
---   - Window functions for rolling: SELECT anofox_statistics_ols_fit_agg(y, x) OVER (ROWS BETWEEN 2 PRECEDING AND CURRENT ROW)
+--   - Table functions with arrays: anofox_stats_ols_fit([y_values], [[x_values]])
+--   - Aggregates for grouping: SELECT anofox_stats_ols_fit_agg(y, x) FROM table GROUP BY group_col
+--   - Window functions for rolling: SELECT anofox_stats_ols_fit_agg(y, x) OVER (ROWS BETWEEN 2 PRECEDING AND CURRENT ROW)
 --
 -- This file needs to be completely rewritten for the new API.
 -- See test files like aggregate_basic_tests.sql for examples of the new API.

@@ -16,9 +16,9 @@ WITH
 -- Step 1: Fit model and compute statistics
 model_fit AS (
     SELECT
-        (anofox_statistics_ols_fit_agg(y, [x], {'intercept': true})).coefficients[1] as slope,
-        (anofox_statistics_ols_fit_agg(y, [x], {'intercept': true})).r2 as r2,
-        (anofox_statistics_ols_fit_agg(y, [x], {'intercept': true})).residual_standard_error as std_error,
+        (anofox_stats_ols_fit_agg(y, [x], {'intercept': true})).coefficients[1] as slope,
+        (anofox_stats_ols_fit_agg(y, [x], {'intercept': true})).r2 as r2,
+        (anofox_stats_ols_fit_agg(y, [x], {'intercept': true})).residual_standard_error as std_error,
         COUNT(*) as n_obs
     FROM workflow_sample
 ),

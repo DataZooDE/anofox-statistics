@@ -39,7 +39,7 @@ SELECT
 FROM (
     SELECT
         campaign,
-        anofox_statistics_ols_fit_agg(
+        anofox_stats_ols_fit_agg(
             sales,
             [tv_spend, digital_spend],
             {'intercept': true}

@@ -31,7 +31,7 @@ SELECT
 FROM (
     SELECT
         segment,
-        anofox_statistics_ols_fit_agg(
+        anofox_stats_ols_fit_agg(
             annual_spending,
             [annual_income],
             {'intercept': true}
@@ -50,7 +50,7 @@ SELECT
 FROM (
     SELECT
         segment,
-        anofox_statistics_wls_fit_agg(
+        anofox_stats_wls_fit_agg(
             annual_spending,
             [annual_income],
             precision_weight,

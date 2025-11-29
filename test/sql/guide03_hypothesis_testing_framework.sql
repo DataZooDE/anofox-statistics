@@ -5,7 +5,7 @@ LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extensi
 -- H₁: β_advertising ≠ 0
 
 WITH model AS (
-    SELECT * FROM anofox_statistics_ols_fit(
+    SELECT * FROM anofox_stats_ols_fit(
         [100.0, 95.0, 92.0, 88.0, 85.0]::DOUBLE[],           -- y: sales
         [[10.0, 5.0], [11.0, 6.0], [12.0, 7.0], [13.0, 8.0], [14.0, 9.0]]::DOUBLE[][],  -- x: price, advertising
         {'intercept': true, 'full_output': true, 'confidence_level': 0.95}

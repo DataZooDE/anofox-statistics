@@ -7,4 +7,4 @@ SELECT
     (i * 2.5 + 10)::DOUBLE as x
 FROM generate_series(1, 20) t(i);
 
-SELECT (anofox_statistics_ols_fit_agg(y, [x], {'intercept': true})).coefficients[1] as slope FROM data;
+SELECT (anofox_stats_ols_fit_agg(y, [x], {'intercept': true})).coefficients[1] as slope FROM data;

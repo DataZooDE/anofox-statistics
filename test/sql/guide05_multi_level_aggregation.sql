@@ -24,7 +24,7 @@ WITH product_models AS (
     SELECT
         category,
         subcategory,
-        anofox_statistics_ols_fit_agg(
+        anofox_stats_ols_fit_agg(
             units,
             [price, marketing_cost],
             {'intercept': true}
@@ -50,7 +50,7 @@ regional_product AS (
     SELECT
         region,
         subcategory,
-        anofox_statistics_ols_fit_agg(
+        anofox_stats_ols_fit_agg(
             units,
             [price],
             {'intercept': true}

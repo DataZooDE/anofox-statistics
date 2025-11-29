@@ -30,17 +30,17 @@ WITH cohort_models_data AS (
 cohort_models AS (
     SELECT
         cohort_month,
-        (anofox_statistics_ols_fit_agg(
+        (anofox_stats_ols_fit_agg(
             avg_order_value::DOUBLE,
             [months_since_first::DOUBLE],
             {'intercept': true}
         )).coefficients[1] as ltv_slope,
-        (anofox_statistics_ols_fit_agg(
+        (anofox_stats_ols_fit_agg(
             avg_order_value::DOUBLE,
             [months_since_first::DOUBLE],
             {'intercept': true}
         )).intercept as ltv_intercept,
-        (anofox_statistics_ols_fit_agg(
+        (anofox_stats_ols_fit_agg(
             avg_order_value::DOUBLE,
             [months_since_first::DOUBLE],
             {'intercept': true}

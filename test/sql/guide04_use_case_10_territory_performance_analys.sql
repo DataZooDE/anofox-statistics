@@ -30,7 +30,7 @@ WITH territory_trends AS (
         territory_id,
         month_date,
         sales_amount,
-        (anofox_statistics_ols_fit_agg(sales_amount::DOUBLE, [month_index::DOUBLE], {'intercept': true}) OVER (
+        (anofox_stats_ols_fit_agg(sales_amount::DOUBLE, [month_index::DOUBLE], {'intercept': true}) OVER (
             PARTITION BY territory_id
             ORDER BY month_date
             ROWS BETWEEN 5 PRECEDING AND CURRENT ROW
