@@ -8,6 +8,6 @@ SELECT
     (5 + i * 0.3)::DOUBLE as x
 FROM generate_series(1, 100) t(i);
 
-SELECT *, (anofox_statistics_ols_fit_agg(y, [x], {'intercept': true}) OVER (
+SELECT *, (anofox_stats_ols_fit_agg(y, [x], {'intercept': true}) OVER (
     ORDER BY time ROWS BETWEEN 30 PRECEDING AND CURRENT ROW
 )).coefficients[1] as rolling_coef FROM data;

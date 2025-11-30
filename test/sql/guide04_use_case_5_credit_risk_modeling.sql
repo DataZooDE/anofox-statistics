@@ -16,53 +16,53 @@ FROM range(1, 101) t(i);
 WITH risk_factors AS (
     SELECT
         'Credit Score' as variable,
-        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, [credit_score], {'intercept': true})).coefficients[1], 5) as coefficient,
-        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, [credit_score], {'intercept': true})).residual_standard_error, 4) as std_error,
+        ROUND((anofox_stats_ols_fit_agg(default_flag::DOUBLE, [credit_score], {'intercept': true})).coefficients[1], 5) as coefficient,
+        ROUND((anofox_stats_ols_fit_agg(default_flag::DOUBLE, [credit_score], {'intercept': true})).residual_standard_error, 4) as std_error,
         CASE
-            WHEN (anofox_statistics_ols_fit_agg(default_flag::DOUBLE, [credit_score], {'intercept': true})).coefficients[1] > 0 THEN 'Increases Risk'
-            WHEN (anofox_statistics_ols_fit_agg(default_flag::DOUBLE, [credit_score], {'intercept': true})).coefficients[1] < 0 THEN 'Decreases Risk'
+            WHEN (anofox_stats_ols_fit_agg(default_flag::DOUBLE, [credit_score], {'intercept': true})).coefficients[1] > 0 THEN 'Increases Risk'
+            WHEN (anofox_stats_ols_fit_agg(default_flag::DOUBLE, [credit_score], {'intercept': true})).coefficients[1] < 0 THEN 'Decreases Risk'
             ELSE 'No Effect'
         END as risk_impact,
-        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, [credit_score], {'intercept': true})).r2, 3) as model_quality
+        ROUND((anofox_stats_ols_fit_agg(default_flag::DOUBLE, [credit_score], {'intercept': true})).r2, 3) as model_quality
     FROM loans
     WHERE origination_date >= '2022-01-01'
     UNION ALL
     SELECT
         'Debt-to-Income' as variable,
-        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, [debt_to_income], {'intercept': true})).coefficients[1], 5) as coefficient,
-        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, [debt_to_income], {'intercept': true})).residual_standard_error, 4) as std_error,
+        ROUND((anofox_stats_ols_fit_agg(default_flag::DOUBLE, [debt_to_income], {'intercept': true})).coefficients[1], 5) as coefficient,
+        ROUND((anofox_stats_ols_fit_agg(default_flag::DOUBLE, [debt_to_income], {'intercept': true})).residual_standard_error, 4) as std_error,
         CASE
-            WHEN (anofox_statistics_ols_fit_agg(default_flag::DOUBLE, [debt_to_income], {'intercept': true})).coefficients[1] > 0 THEN 'Increases Risk'
-            WHEN (anofox_statistics_ols_fit_agg(default_flag::DOUBLE, [debt_to_income], {'intercept': true})).coefficients[1] < 0 THEN 'Decreases Risk'
+            WHEN (anofox_stats_ols_fit_agg(default_flag::DOUBLE, [debt_to_income], {'intercept': true})).coefficients[1] > 0 THEN 'Increases Risk'
+            WHEN (anofox_stats_ols_fit_agg(default_flag::DOUBLE, [debt_to_income], {'intercept': true})).coefficients[1] < 0 THEN 'Decreases Risk'
             ELSE 'No Effect'
         END as risk_impact,
-        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, [debt_to_income], {'intercept': true})).r2, 3) as model_quality
+        ROUND((anofox_stats_ols_fit_agg(default_flag::DOUBLE, [debt_to_income], {'intercept': true})).r2, 3) as model_quality
     FROM loans
     WHERE origination_date >= '2022-01-01'
     UNION ALL
     SELECT
         'Loan-to-Value' as variable,
-        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, [loan_to_value], {'intercept': true})).coefficients[1], 5) as coefficient,
-        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, [loan_to_value], {'intercept': true})).residual_standard_error, 4) as std_error,
+        ROUND((anofox_stats_ols_fit_agg(default_flag::DOUBLE, [loan_to_value], {'intercept': true})).coefficients[1], 5) as coefficient,
+        ROUND((anofox_stats_ols_fit_agg(default_flag::DOUBLE, [loan_to_value], {'intercept': true})).residual_standard_error, 4) as std_error,
         CASE
-            WHEN (anofox_statistics_ols_fit_agg(default_flag::DOUBLE, [loan_to_value], {'intercept': true})).coefficients[1] > 0 THEN 'Increases Risk'
-            WHEN (anofox_statistics_ols_fit_agg(default_flag::DOUBLE, [loan_to_value], {'intercept': true})).coefficients[1] < 0 THEN 'Decreases Risk'
+            WHEN (anofox_stats_ols_fit_agg(default_flag::DOUBLE, [loan_to_value], {'intercept': true})).coefficients[1] > 0 THEN 'Increases Risk'
+            WHEN (anofox_stats_ols_fit_agg(default_flag::DOUBLE, [loan_to_value], {'intercept': true})).coefficients[1] < 0 THEN 'Decreases Risk'
             ELSE 'No Effect'
         END as risk_impact,
-        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, [loan_to_value], {'intercept': true})).r2, 3) as model_quality
+        ROUND((anofox_stats_ols_fit_agg(default_flag::DOUBLE, [loan_to_value], {'intercept': true})).r2, 3) as model_quality
     FROM loans
     WHERE origination_date >= '2022-01-01'
     UNION ALL
     SELECT
         'Employment Years' as variable,
-        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, [employment_years], {'intercept': true})).coefficients[1], 5) as coefficient,
-        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, [employment_years], {'intercept': true})).residual_standard_error, 4) as std_error,
+        ROUND((anofox_stats_ols_fit_agg(default_flag::DOUBLE, [employment_years], {'intercept': true})).coefficients[1], 5) as coefficient,
+        ROUND((anofox_stats_ols_fit_agg(default_flag::DOUBLE, [employment_years], {'intercept': true})).residual_standard_error, 4) as std_error,
         CASE
-            WHEN (anofox_statistics_ols_fit_agg(default_flag::DOUBLE, [employment_years], {'intercept': true})).coefficients[1] > 0 THEN 'Increases Risk'
-            WHEN (anofox_statistics_ols_fit_agg(default_flag::DOUBLE, [employment_years], {'intercept': true})).coefficients[1] < 0 THEN 'Decreases Risk'
+            WHEN (anofox_stats_ols_fit_agg(default_flag::DOUBLE, [employment_years], {'intercept': true})).coefficients[1] > 0 THEN 'Increases Risk'
+            WHEN (anofox_stats_ols_fit_agg(default_flag::DOUBLE, [employment_years], {'intercept': true})).coefficients[1] < 0 THEN 'Decreases Risk'
             ELSE 'No Effect'
         END as risk_impact,
-        ROUND((anofox_statistics_ols_fit_agg(default_flag::DOUBLE, [employment_years], {'intercept': true})).r2, 3) as model_quality
+        ROUND((anofox_stats_ols_fit_agg(default_flag::DOUBLE, [employment_years], {'intercept': true})).r2, 3) as model_quality
     FROM loans
     WHERE origination_date >= '2022-01-01'
 )

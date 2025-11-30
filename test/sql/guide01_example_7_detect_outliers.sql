@@ -12,6 +12,6 @@ SELECT
     ROUND(result.std_residual, 3) as std_residual,
     result.is_outlier
 FROM data,
-LATERAL anofox_statistics_residual_diagnostics(data.y_actual, data.y_predicted, 2.5) as result
+LATERAL anofox_stats_residual_diagnostics(data.y_actual, data.y_predicted, 2.5) as result
 ORDER BY ABS(result.std_residual) DESC
 LIMIT 3;

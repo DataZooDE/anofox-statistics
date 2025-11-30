@@ -30,7 +30,7 @@ SELECT
 FROM (
     SELECT
         category,
-        anofox_statistics_ols_fit_agg(
+        anofox_stats_ols_fit_agg(
             sales, [price, advertising],
             {'intercept': true}
         ) as model
@@ -51,14 +51,14 @@ SELECT
 FROM (
     SELECT
         category,
-        anofox_statistics_ols_fit_agg(
+        anofox_stats_ols_fit_agg(
             sales, [price, advertising],
             {'intercept': true}
         ) as model
     FROM sales_data
     GROUP BY category
 ) cm
-CROSS JOIN LATERAL anofox_statistics_model_predict(
+CROSS JOIN LATERAL anofox_stats_model_predict(
     cm.model.intercept,
     cm.model.coefficients,
     cm.model.mse,
@@ -83,7 +83,7 @@ SELECT
 FROM (
     SELECT
         category,
-        anofox_statistics_ols_fit_agg(
+        anofox_stats_ols_fit_agg(
             sales, [price],
             {'intercept': true}
         ) as model
@@ -103,7 +103,7 @@ SELECT
 FROM (
     SELECT
         category,
-        anofox_statistics_ols_fit_agg(
+        anofox_stats_ols_fit_agg(
             sales, [price],
             {'intercept': true}
         ) as model

@@ -13,7 +13,7 @@ namespace duckdb {
 namespace anofox_statistics {
 
 /**
- * Normality Test Aggregate: anofox_statistics_normality_test_agg(residual DOUBLE, options MAP) -> STRUCT
+ * Normality Test Aggregate: anofox_stats_normality_test_agg(residual DOUBLE, options MAP) -> STRUCT
  *
  * Accumulates residuals across rows in a GROUP BY,
  * then performs Jarque-Bera normality test on finalize.
@@ -201,7 +201,7 @@ static void NormalityTestFinalize(Vector &state_vector, AggregateInputData &aggr
 }
 
 void NormalityTestAggregateFunction::Register(ExtensionLoader &loader) {
-	ANOFOX_DEBUG("Registering Normality Test aggregate function");
+	ANOFOX_DEBUG("Registering anofox_stats_normality_test_agg (with alias normality_test_agg)");
 
 	child_list_t<LogicalType> normality_struct_fields;
 	normality_struct_fields.push_back(make_pair("n_obs", LogicalType::BIGINT));
@@ -212,15 +212,24 @@ void NormalityTestAggregateFunction::Register(ExtensionLoader &loader) {
 	normality_struct_fields.push_back(make_pair("is_normal", LogicalType::BOOLEAN));
 	normality_struct_fields.push_back(make_pair("conclusion", LogicalType::VARCHAR));
 
-	AggregateFunction anofox_statistics_normality_test_agg(
-	    "anofox_statistics_normality_test_agg", {LogicalType::DOUBLE, LogicalType::ANY}, // residual, options
+	AggregateFunction anofox_stats_normality_test_agg(
+	    "anofox_stats_normality_test_agg", {LogicalType::DOUBLE, LogicalType::ANY}, // residual, options
 	    LogicalType::STRUCT(normality_struct_fields), AggregateFunction::StateSize<NormalityTestAggregateState>,
 	    NormalityTestInitialize, NormalityTestUpdate, NormalityTestCombine, NormalityTestFinalize,
 	    FunctionNullHandling::DEFAULT_NULL_HANDLING);
 
-	loader.RegisterFunction(anofox_statistics_normality_test_agg);
+	loader.RegisterFunction(anofox_stats_normality_test_agg);
 
-	ANOFOX_DEBUG("Normality Test aggregate function registered successfully");
+	// Register alias
+	AggregateFunction normality_test_agg_alias(
+	    "normality_test_agg", {LogicalType::DOUBLE, LogicalType::ANY}, // residual, options
+	    LogicalType::STRUCT(normality_struct_fields), AggregateFunction::StateSize<NormalityTestAggregateState>,
+	    NormalityTestInitialize, NormalityTestUpdate, NormalityTestCombine, NormalityTestFinalize,
+	    FunctionNullHandling::DEFAULT_NULL_HANDLING);
+
+	loader.RegisterFunction(normality_test_agg_alias);
+
+	ANOFOX_DEBUG("anofox_stats_normality_test_agg registered successfully with alias normality_test_agg");
 }
 
 } // namespace anofox_statistics

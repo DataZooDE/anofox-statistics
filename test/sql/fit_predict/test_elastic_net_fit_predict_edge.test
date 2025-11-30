@@ -20,7 +20,7 @@ SELECT
 FROM (
     SELECT
         id,
-        anofox_statistics_elastic_net_fit_predict(
+        anofox_stats_elastic_net_fit_predict(
             y,
             [x1, x2],
             MAP{'intercept': 1, 'alpha': 0.5, 'lambda': 1.0}
@@ -46,7 +46,7 @@ SELECT
 FROM (
     SELECT
         id,
-        anofox_statistics_elastic_net_fit_predict(
+        anofox_stats_elastic_net_fit_predict(
             y,
             [x],
             MAP{'intercept': 1, 'alpha': 0.5, 'lambda': 1.0}
@@ -72,7 +72,7 @@ SELECT
 FROM (
     SELECT
         id,
-        anofox_statistics_elastic_net_fit_predict(
+        anofox_stats_elastic_net_fit_predict(
             y,
             x_empty,
             MAP{'intercept': 1, 'alpha': 0.5, 'lambda': 1.0}
@@ -98,7 +98,7 @@ SELECT
 FROM (
     SELECT
         id,
-        anofox_statistics_elastic_net_fit_predict(
+        anofox_stats_elastic_net_fit_predict(
             y,
             [x],
             MAP{'intercept': 1, 'alpha': 0.0, 'lambda': 1.0}
@@ -116,7 +116,7 @@ SELECT
 FROM (
     SELECT
         id,
-        anofox_statistics_elastic_net_fit_predict(
+        anofox_stats_elastic_net_fit_predict(
             y,
             [x],
             MAP{'intercept': 1, 'alpha': 1.0, 'lambda': 1.0}
@@ -138,7 +138,7 @@ FROM (
     FROM (
         SELECT
             id,
-            anofox_statistics_elastic_net_fit_predict(
+            anofox_stats_elastic_net_fit_predict(
                 y,
                 [x],
                 MAP{'intercept': 1, 'alpha': 0.5, 'lambda': 100000.0}
@@ -165,7 +165,7 @@ SELECT
 FROM (
     SELECT
         id,
-        anofox_statistics_elastic_net_fit_predict(
+        anofox_stats_elastic_net_fit_predict(
             y,
             x,
             MAP{'intercept': 1, 'alpha': 0.5, 'lambda': 1.0}
@@ -191,7 +191,7 @@ SELECT
 FROM (
     SELECT
         id,
-        anofox_statistics_elastic_net_fit_predict(
+        anofox_stats_elastic_net_fit_predict(
             y,
             [x],
             MAP{'intercept': 1, 'alpha': 0.5, 'lambda': 1.0}
@@ -225,7 +225,7 @@ FROM (
     SELECT
         group_id,
         id,
-        anofox_statistics_elastic_net_fit_predict(
+        anofox_stats_elastic_net_fit_predict(
             y,
             [x],
             MAP{'intercept': 1, 'alpha': 0.5, 'lambda': 1.0}
@@ -254,7 +254,7 @@ SELECT
 FROM (
     SELECT
         id,
-        anofox_statistics_elastic_net_fit_predict(
+        anofox_stats_elastic_net_fit_predict(
             y,
             [x_large],
             MAP{'intercept': 1, 'alpha': 0.5, 'lambda': 1.0}

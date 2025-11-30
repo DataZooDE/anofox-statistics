@@ -486,22 +486,22 @@ bind_data.counter++;  // OK
 
 ### Micro-Benchmarks
 
-| Operation | n=1K | n=10K | n=100K | n=1M |
-|-----------|------|-------|--------|------|
-| OLS fit (p=1) | 0.1ms | 0.8ms | 8ms | 85ms |
-| OLS fit (p=10) | 0.3ms | 2.5ms | 25ms | 260ms |
-| Ridge fit (p=10) | 0.3ms | 2.6ms | 26ms | 270ms |
+| Operation           | n=1K  | n=10K | n=100K | n=1M  |
+| ------------------- | ----- | ----- | ------ | ----- |
+| OLS fit (p=1)       | 0.1ms | 0.8ms | 8ms    | 85ms  |
+| OLS fit (p=10)      | 0.3ms | 2.5ms | 25ms   | 260ms |
+| Ridge fit (p=10)    | 0.3ms | 2.6ms | 26ms   | 270ms |
 | Aggregate (100 groups) | 5ms | 45ms | 450ms | 4.5s |
-| Rolling (window=30) | 3ms | 28ms | 280ms | 2.8s |
+| Rolling (window=30) | 3ms   | 28ms  | 280ms  | 2.8s  |
 
 ### Memory Usage
 
-| Operation | Peak Memory (n=1M, p=10) |
-|-----------|-------------------------|
-| OLS fit | ~80 MB |
-| Ridge fit | ~80 MB |
-| Aggregate | ~120 MB (depends on # groups) |
-| Diagnostics | ~160 MB (stores leverage, Cook's D) |
+| Operation    | Peak Memory (n=1M, p=10)           |
+| ------------ | ---------------------------------- |
+| OLS fit      | ~80 MB                             |
+| Ridge fit    | ~80 MB                             |
+| Aggregate    | ~120 MB (depends on # groups)      |
+| Diagnostics  | ~160 MB (stores leverage, Cook's D) |
 
 ## Future Optimizations
 

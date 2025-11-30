@@ -552,9 +552,9 @@ static OperatorResultType ModelPredictInOut(ExecutionContext &context, TableFunc
  * Register the function
  */
 void AnofoxStatisticsModelPredictFunction::Register(ExtensionLoader &loader) {
-	ANOFOX_DEBUG("Registering anofox_statistics_model_predict function (with LATERAL join support)");
+	ANOFOX_DEBUG("Registering anofox_stats_model_predict (with alias model_predict, with LATERAL join support)");
 
-	TableFunction func("anofox_statistics_model_predict",
+	TableFunction func("anofox_stats_model_predict",
 	                   {LogicalType::DOUBLE,                    // intercept
 	                    LogicalType::LIST(LogicalType::DOUBLE), // coefficients
 	                    LogicalType::DOUBLE,                    // mse
@@ -583,7 +583,38 @@ void AnofoxStatisticsModelPredictFunction::Register(ExtensionLoader &loader) {
 
 	loader.RegisterFunction(func);
 
-	ANOFOX_DEBUG("anofox_statistics_model_predict function registered successfully (both literal and LATERAL modes)");
+	// Register alias
+	TableFunction func_alias("model_predict",
+	                         {LogicalType::DOUBLE,                    // intercept
+	                          LogicalType::LIST(LogicalType::DOUBLE), // coefficients
+	                          LogicalType::DOUBLE,                    // mse
+	                          LogicalType::LIST(LogicalType::DOUBLE), // x_train_means
+	                          LogicalType::LIST(LogicalType::DOUBLE), // coefficient_std_errors
+	                          LogicalType::DOUBLE,                    // intercept_std_error
+	                          LogicalType::BIGINT,                    // df_residual
+	                          LogicalType::ANY,                       // x_new (DOUBLE[] or DOUBLE[][])
+	                          LogicalType::DOUBLE,                    // confidence_level (optional)
+	                          LogicalType::VARCHAR},                  // interval_type (optional)
+	                         ModelPredictExecute, ModelPredictBind, nullptr, ModelPredictInOutLocalInit);
+
+	// Add LATERAL join support (in_out_function)
+	func_alias.in_out_function = ModelPredictInOut;
+
+	func_alias.named_parameters["intercept"] = LogicalType::DOUBLE;
+	func_alias.named_parameters["coefficients"] = LogicalType::LIST(LogicalType::DOUBLE);
+	func_alias.named_parameters["mse"] = LogicalType::DOUBLE;
+	func_alias.named_parameters["x_train_means"] = LogicalType::LIST(LogicalType::DOUBLE);
+	func_alias.named_parameters["coefficient_std_errors"] = LogicalType::LIST(LogicalType::DOUBLE);
+	func_alias.named_parameters["intercept_std_error"] = LogicalType::DOUBLE;
+	func_alias.named_parameters["df_residual"] = LogicalType::BIGINT;
+	func_alias.named_parameters["x_new"] = LogicalType::ANY;
+	func_alias.named_parameters["confidence_level"] = LogicalType::DOUBLE;
+	func_alias.named_parameters["interval_type"] = LogicalType::VARCHAR;
+
+	loader.RegisterFunction(func_alias);
+
+	ANOFOX_DEBUG(
+	    "anofox_stats_model_predict registered successfully with alias model_predict (both literal and LATERAL modes)");
 }
 
 } // namespace anofox_statistics

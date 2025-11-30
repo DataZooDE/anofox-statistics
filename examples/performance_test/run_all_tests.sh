@@ -51,7 +51,7 @@ echo ""
 # ============================================================================
 
 echo -e "${BLUE}Step 2: Generating test data...${NC}"
-echo "Running: ${DUCKDB_CLI} < ${PERF_TEST_DIR}/generate_test_data.sql"
+echo "Running: ${DUCKDB_CLI} --unsigned  < ${PERF_TEST_DIR}/generate_test_data.sql"
 ${DUCKDB_CLI} < "${PERF_TEST_DIR}/generate_test_data.sql"
 echo -e "${GREEN}  ✓ Test data generated${NC}"
 echo ""
@@ -62,7 +62,7 @@ echo ""
 
 echo -e "${BLUE}Step 3: Running SQL fit-predict tests...${NC}"
 echo "Running: ${DUCKDB_CLI} < ${PERF_TEST_DIR}/performance_test_ols_fit_predict.sql"
-${DUCKDB_CLI} < "${PERF_TEST_DIR}/performance_test_ols_fit_predict.sql"
+${DUCKDB_CLI} --unsigned < "${PERF_TEST_DIR}/performance_test_ols_fit_predict.sql"
 echo -e "${GREEN}  ✓ SQL fit-predict tests completed${NC}"
 echo ""
 

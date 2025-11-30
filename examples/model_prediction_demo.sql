@@ -1,6 +1,6 @@
 -- ============================================================================
 -- EFFICIENT MODEL-BASED PREDICTION DEMONSTRATION
--- Using anofox_statistics_model_predict with pre-fitted models
+-- Using anofox_stats_model_predict with pre-fitted models
 --
 -- Run with: duckdb -unsigned -init examples/model_prediction_demo.sql
 -- ============================================================================
@@ -34,7 +34,7 @@ SELECT * FROM training_data;
 
 -- Fit model and store all metadata
 CREATE TABLE sales_model AS
-SELECT * FROM anofox_statistics_ols(
+SELECT * FROM anofox_stats_ols(
     (SELECT list(sales) FROM training_data)::DOUBLE[],
     (SELECT list([price, advertising]) FROM training_data)::DOUBLE[][],
     MAP{'intercept': true, 'full_output': true}
@@ -74,7 +74,7 @@ SELECT
     round(p.se, 4) as std_error,
     round(p.ci_upper - p.ci_lower, 2) as interval_width
 FROM sales_model m,
-LATERAL anofox_statistics_model_predict(
+LATERAL anofox_stats_model_predict(
     m.intercept,
     m.coefficients,
     m.mse,
@@ -97,7 +97,7 @@ SELECT
     round(p.ci_upper, 2) as pi_upper,
     round(p.ci_upper - p.ci_lower, 2) as interval_width
 FROM sales_model m,
-LATERAL anofox_statistics_model_predict(
+LATERAL anofox_stats_model_predict(
     m.intercept, m.coefficients, m.mse, m.x_train_means,
     m.coefficient_std_errors, m.intercept_std_error, m.df_residual,
     [[25.0, 13.0], [26.0, 14.0], [27.0, 15.0]]::DOUBLE[][],
@@ -117,7 +117,7 @@ SELECT
     round(p.predicted, 2) as forecast,
     round(p.ci_upper - p.ci_lower, 2) as width
 FROM sales_model m,
-LATERAL anofox_statistics_model_predict(
+LATERAL anofox_stats_model_predict(
     m.intercept, m.coefficients, m.mse, m.x_train_means,
     m.coefficient_std_errors, m.intercept_std_error, m.df_residual,
     [[25.0, 13.0]]::DOUBLE[][],
@@ -131,7 +131,7 @@ SELECT
     round(p.predicted, 2) as forecast,
     round(p.ci_upper - p.ci_lower, 2) as width
 FROM sales_model m,
-LATERAL anofox_statistics_model_predict(
+LATERAL anofox_stats_model_predict(
     m.intercept, m.coefficients, m.mse, m.x_train_means,
     m.coefficient_std_errors, m.intercept_std_error, m.df_residual,
     [[25.0, 13.0]]::DOUBLE[][],
@@ -145,7 +145,7 @@ SELECT
     round(p.predicted, 2) as forecast,
     round(p.ci_upper - p.ci_lower, 2) as width
 FROM sales_model m,
-LATERAL anofox_statistics_model_predict(
+LATERAL anofox_stats_model_predict(
     m.intercept, m.coefficients, m.mse, m.x_train_means,
     m.coefficient_std_errors, m.intercept_std_error, m.df_residual,
     [[25.0, 13.0]]::DOUBLE[][],

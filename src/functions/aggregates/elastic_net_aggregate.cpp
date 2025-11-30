@@ -16,7 +16,7 @@ namespace duckdb {
 namespace anofox_statistics {
 
 /**
- * Elastic Net Aggregate: anofox_statistics_elastic_net_agg(y DOUBLE, x DOUBLE[], options MAP) -> STRUCT
+ * Elastic Net Aggregate: anofox_stats_elastic_net_agg(y DOUBLE, x DOUBLE[], options MAP) -> STRUCT
  *
  * Accumulates (y, x[]) tuples across rows in a GROUP BY,
  * then computes Elastic Net regression with L1+L2 regularization on finalize.
@@ -625,16 +625,25 @@ void ElasticNetAggregateFunction::Register(ExtensionLoader &loader) {
 	elastic_net_struct_fields.push_back(make_pair("intercept_ci_lower", LogicalType::DOUBLE));
 	elastic_net_struct_fields.push_back(make_pair("intercept_ci_upper", LogicalType::DOUBLE));
 
-	AggregateFunction anofox_statistics_elastic_net_fit_agg(
-	    "anofox_statistics_elastic_net_fit_agg",
+	AggregateFunction anofox_stats_elastic_net_fit_agg(
+	    "anofox_stats_elastic_net_fit_agg",
 	    {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
 	    LogicalType::STRUCT(elastic_net_struct_fields), AggregateFunction::StateSize<ElasticNetAggregateState>,
 	    ElasticNetInitialize, ElasticNetUpdate, ElasticNetCombine, ElasticNetFinalize,
 	    FunctionNullHandling::DEFAULT_NULL_HANDLING, nullptr, nullptr, nullptr, nullptr, ElasticNetWindow, nullptr,
 	    nullptr);
-	loader.RegisterFunction(anofox_statistics_elastic_net_fit_agg);
+	loader.RegisterFunction(anofox_stats_elastic_net_fit_agg);
 
-	ANOFOX_DEBUG("Elastic Net aggregate function registered successfully");
+	// Register alias
+	AggregateFunction elastic_net_fit_agg(
+	    "elastic_net_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
+	    LogicalType::STRUCT(elastic_net_struct_fields), AggregateFunction::StateSize<ElasticNetAggregateState>,
+	    ElasticNetInitialize, ElasticNetUpdate, ElasticNetCombine, ElasticNetFinalize,
+	    FunctionNullHandling::DEFAULT_NULL_HANDLING, nullptr, nullptr, nullptr, nullptr, ElasticNetWindow, nullptr,
+	    nullptr);
+	loader.RegisterFunction(elastic_net_fit_agg);
+
+	ANOFOX_DEBUG("Elastic Net aggregate function registered successfully (including alias elastic_net_fit_agg)");
 }
 
 } // namespace anofox_statistics

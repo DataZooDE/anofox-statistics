@@ -258,7 +258,7 @@ static void ResidualDiagnosticsFinalize(Vector &state_vector, AggregateInputData
 }
 
 void ResidualDiagnosticsAggregateFunction::Register(ExtensionLoader &loader) {
-	ANOFOX_DEBUG("Registering Residual Diagnostics aggregate function");
+	ANOFOX_DEBUG("Registering anofox_stats_residual_diagnostics_agg (with alias residual_diagnostics_agg)");
 
 	// Summary version (default)
 	child_list_t<LogicalType> summary_struct_fields;
@@ -277,16 +277,26 @@ void ResidualDiagnosticsAggregateFunction::Register(ExtensionLoader &loader) {
 	detailed_struct_fields.push_back(make_pair("n_outliers", LogicalType::BIGINT));
 
 	// Register with summary output type (user needs to use MAP{'detailed': true} for detailed)
-	AggregateFunction anofox_statistics_residual_diagnostics_agg(
-	    "anofox_statistics_residual_diagnostics_agg",
+	AggregateFunction anofox_stats_residual_diagnostics_agg(
+	    "anofox_stats_residual_diagnostics_agg",
 	    {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::ANY}, // y_actual, y_predicted, options
 	    LogicalType::STRUCT(summary_struct_fields), AggregateFunction::StateSize<ResidualDiagnosticsAggregateState>,
 	    ResidualDiagnosticsInitialize, ResidualDiagnosticsUpdate, ResidualDiagnosticsCombine,
 	    ResidualDiagnosticsFinalize, FunctionNullHandling::DEFAULT_NULL_HANDLING);
 
-	loader.RegisterFunction(anofox_statistics_residual_diagnostics_agg);
+	loader.RegisterFunction(anofox_stats_residual_diagnostics_agg);
 
-	ANOFOX_DEBUG("Residual Diagnostics aggregate function registered successfully");
+	// Register alias
+	AggregateFunction residual_diagnostics_agg_alias(
+	    "residual_diagnostics_agg",
+	    {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::ANY}, // y_actual, y_predicted, options
+	    LogicalType::STRUCT(summary_struct_fields), AggregateFunction::StateSize<ResidualDiagnosticsAggregateState>,
+	    ResidualDiagnosticsInitialize, ResidualDiagnosticsUpdate, ResidualDiagnosticsCombine,
+	    ResidualDiagnosticsFinalize, FunctionNullHandling::DEFAULT_NULL_HANDLING);
+
+	loader.RegisterFunction(residual_diagnostics_agg_alias);
+
+	ANOFOX_DEBUG("anofox_stats_residual_diagnostics_agg registered successfully with alias residual_diagnostics_agg");
 }
 
 } // namespace anofox_statistics

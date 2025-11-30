@@ -44,9 +44,9 @@ variant_summary AS (
 -- Coefficient = treatment effect (B - A)
 conversion_test AS (
     SELECT
-        (anofox_statistics_ols_fit_agg(conversion, [treatment], {'intercept': true})).coefficients[1] as treatment_effect,
-        (anofox_statistics_ols_fit_agg(conversion, [treatment], {'intercept': true})).residual_standard_error as std_error,
-        (anofox_statistics_ols_fit_agg(conversion, [treatment], {'intercept': true})).r2 as r2,
+        (anofox_stats_ols_fit_agg(conversion, [treatment], {'intercept': true})).coefficients[1] as treatment_effect,
+        (anofox_stats_ols_fit_agg(conversion, [treatment], {'intercept': true})).residual_standard_error as std_error,
+        (anofox_stats_ols_fit_agg(conversion, [treatment], {'intercept': true})).r2 as r2,
         COUNT(*) as n_obs
     FROM experiment_data
 ),
@@ -54,9 +54,9 @@ conversion_test AS (
 -- Statistical significance test for revenue using actual data
 revenue_test AS (
     SELECT
-        (anofox_statistics_ols_fit_agg(revenue, [treatment], {'intercept': true})).coefficients[1] as treatment_effect,
-        (anofox_statistics_ols_fit_agg(revenue, [treatment], {'intercept': true})).residual_standard_error as std_error,
-        (anofox_statistics_ols_fit_agg(revenue, [treatment], {'intercept': true})).r2 as r2,
+        (anofox_stats_ols_fit_agg(revenue, [treatment], {'intercept': true})).coefficients[1] as treatment_effect,
+        (anofox_stats_ols_fit_agg(revenue, [treatment], {'intercept': true})).residual_standard_error as std_error,
+        (anofox_stats_ols_fit_agg(revenue, [treatment], {'intercept': true})).r2 as r2,
         COUNT(*) as n_obs
     FROM experiment_data
 ),

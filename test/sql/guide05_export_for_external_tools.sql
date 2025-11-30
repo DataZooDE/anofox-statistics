@@ -3,7 +3,7 @@ LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extensi
 -- Export model coefficients for external scoring (using literal array sample)
 COPY (
     WITH model AS (
-        SELECT * FROM anofox_statistics_ols_fit(
+        SELECT * FROM anofox_stats_ols_fit(
             [100.0, 110.0, 120.0, 130.0, 140.0, 150.0, 160.0, 170.0, 180.0, 190.0],
             [[1.0, 2.0, 3.0, 4.0], [1.1, 2.1, 3.1, 4.1], [1.2, 2.2, 3.2, 4.2],
              [1.3, 2.3, 3.3, 4.3], [1.4, 2.4, 3.4, 4.4], [1.5, 2.5, 3.5, 4.5],

@@ -44,12 +44,12 @@ SELECT
 FROM (
     SELECT
         ticker,
-        anofox_statistics_ols_fit_agg(
+        anofox_stats_ols_fit_agg(
             return,
             [market_return, tech_sector_return, value_factor, momentum_factor],
             {'intercept': true}
         ) as ols,
-        anofox_statistics_ridge_fit_agg(
+        anofox_stats_ridge_fit_agg(
             return,
             [market_return, tech_sector_return, value_factor, momentum_factor],
             {'lambda': 1.0, 'intercept': true}
@@ -69,7 +69,7 @@ WITH stock_betas AS (
     FROM (
         SELECT
             ticker,
-            anofox_statistics_ridge_fit_agg(
+            anofox_stats_ridge_fit_agg(
                 return,
                 [market_return, tech_sector_return],
                 {'lambda': 1.0, 'intercept': true}

@@ -16,7 +16,7 @@ namespace duckdb {
 namespace anofox_statistics {
 
 /**
- * WLS Aggregate: anofox_statistics_wls_agg(y DOUBLE, x DOUBLE[], weights DOUBLE) -> STRUCT
+ * WLS Aggregate: anofox_stats_wls_agg(y DOUBLE, x DOUBLE[], weights DOUBLE) -> STRUCT
  *
  * Accumulates (y, x[], weight) tuples across rows in a GROUP BY,
  * then computes weighted least squares regression on finalize.
@@ -742,15 +742,24 @@ void WlsAggregateFunction::Register(ExtensionLoader &loader) {
 	wls_struct_fields.push_back(make_pair("intercept_ci_lower", LogicalType::DOUBLE));
 	wls_struct_fields.push_back(make_pair("intercept_ci_upper", LogicalType::DOUBLE));
 
-	AggregateFunction anofox_statistics_wls_fit_agg(
-	    "anofox_statistics_wls_fit_agg",
+	AggregateFunction anofox_stats_wls_fit_agg(
+	    "anofox_stats_wls_fit_agg",
 	    {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE, LogicalType::ANY},
 	    LogicalType::STRUCT(wls_struct_fields), AggregateFunction::StateSize<WlsAggregateState>, WlsInitialize,
 	    WlsUpdate, WlsCombine, WlsFinalize, FunctionNullHandling::DEFAULT_NULL_HANDLING, nullptr, nullptr, nullptr,
 	    nullptr, WlsWindow, nullptr, nullptr);
-	loader.RegisterFunction(anofox_statistics_wls_fit_agg);
+	loader.RegisterFunction(anofox_stats_wls_fit_agg);
 
-	ANOFOX_DEBUG("WLS aggregate function registered successfully");
+	// Register alias without prefix
+	AggregateFunction wls_fit_agg_alias(
+	    "wls_fit_agg",
+	    {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE, LogicalType::ANY},
+	    LogicalType::STRUCT(wls_struct_fields), AggregateFunction::StateSize<WlsAggregateState>, WlsInitialize,
+	    WlsUpdate, WlsCombine, WlsFinalize, FunctionNullHandling::DEFAULT_NULL_HANDLING, nullptr, nullptr, nullptr,
+	    nullptr, WlsWindow, nullptr, nullptr);
+	loader.RegisterFunction(wls_fit_agg_alias);
+
+	ANOFOX_DEBUG("WLS aggregate function registered successfully with alias wls_fit_agg");
 }
 
 } // namespace anofox_statistics

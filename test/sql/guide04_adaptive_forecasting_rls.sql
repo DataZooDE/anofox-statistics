@@ -52,17 +52,17 @@ SELECT
 FROM (
     SELECT
         product_id,
-        anofox_statistics_ols_fit_agg(
+        anofox_stats_ols_fit_agg(
             actual_demand,
             [lagged_demand, time_trend],
             {'intercept': true}
         ) as ols,
-        anofox_statistics_rls_fit_agg(
+        anofox_stats_rls_fit_agg(
             actual_demand,
             [lagged_demand, time_trend],
             {'forgetting_factor': 0.98, 'intercept': true}
         ) as rls_slow,
-        anofox_statistics_rls_fit_agg(
+        anofox_stats_rls_fit_agg(
             actual_demand,
             [lagged_demand, time_trend],
             {'forgetting_factor': 0.92, 'intercept': true}
@@ -78,7 +78,7 @@ WITH recent_performance AS (
         product_id,
         week,
         actual_demand,
-        anofox_statistics_rls_fit_agg(
+        anofox_stats_rls_fit_agg(
             actual_demand,
             [lagged_demand, time_trend],
             {'forgetting_factor': 0.95, 'intercept': true}

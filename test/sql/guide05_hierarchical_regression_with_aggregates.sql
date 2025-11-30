@@ -22,8 +22,8 @@ WITH store_level AS (
         region_id,
         territory_id,
         store_id,
-        (anofox_statistics_ols_fit_agg(sales::DOUBLE, [marketing::DOUBLE], {'intercept': true})).coefficients[1] as store_roi,
-        (anofox_statistics_ols_fit_agg(sales::DOUBLE, [marketing::DOUBLE], {'intercept': true})).r2 as store_r2,
+        (anofox_stats_ols_fit_agg(sales::DOUBLE, [marketing::DOUBLE], {'intercept': true})).coefficients[1] as store_roi,
+        (anofox_stats_ols_fit_agg(sales::DOUBLE, [marketing::DOUBLE], {'intercept': true})).r2 as store_r2,
         COUNT(*) as store_observations
     FROM daily_store_data
     WHERE date >= CURRENT_DATE - INTERVAL '90 days'

@@ -11,17 +11,17 @@ WITH data AS (
 model1 AS (
     SELECT
         'Model 1 (price only)' as model,
-        (anofox_statistics_ols_fit_agg(sales, [price], {'intercept': true})).aic as aic,
-        (anofox_statistics_ols_fit_agg(sales, [price], {'intercept': true})).bic as bic,
-        (anofox_statistics_ols_fit_agg(sales, [price], {'intercept': true})).r2 as r2
+        (anofox_stats_ols_fit_agg(sales, [price], {'intercept': true})).aic as aic,
+        (anofox_stats_ols_fit_agg(sales, [price], {'intercept': true})).bic as bic,
+        (anofox_stats_ols_fit_agg(sales, [price], {'intercept': true})).r2 as r2
     FROM data
 ),
 model2 AS (
     SELECT
         'Model 2 (price + ads)' as model,
-        (anofox_statistics_ols_fit_agg(sales, [price, advertising], {'intercept': true})).aic as aic,
-        (anofox_statistics_ols_fit_agg(sales, [price, advertising], {'intercept': true})).bic as bic,
-        (anofox_statistics_ols_fit_agg(sales, [price, advertising], {'intercept': true})).r2 as r2
+        (anofox_stats_ols_fit_agg(sales, [price, advertising], {'intercept': true})).aic as aic,
+        (anofox_stats_ols_fit_agg(sales, [price, advertising], {'intercept': true})).bic as bic,
+        (anofox_stats_ols_fit_agg(sales, [price, advertising], {'intercept': true})).r2 as r2
     FROM data
 )
 SELECT * FROM model1

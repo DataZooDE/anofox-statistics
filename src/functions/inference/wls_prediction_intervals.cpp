@@ -275,7 +275,7 @@ static void WlsPredictIntervalTableFunc(ClientContext &context, TableFunctionInp
 void WLSPredictIntervalFunction::Register(ExtensionLoader &loader) {
 	ANOFOX_DEBUG("Registering WLS predict_interval function");
 
-	TableFunction func("anofox_statistics_predict_wls",
+	TableFunction func("anofox_stats_predict_wls",
 	                   {LogicalType::LIST(LogicalType::DOUBLE),                     // y_train
 	                    LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)),  // x_train
 	                    LogicalType::LIST(LogicalType::DOUBLE),                     // weights
@@ -287,7 +287,20 @@ void WLSPredictIntervalFunction::Register(ExtensionLoader &loader) {
 
 	loader.RegisterFunction(func);
 
-	ANOFOX_DEBUG("WLS predict_interval function registered successfully");
+	// Register alias
+	TableFunction func_alias("predict_wls",
+	                         {LogicalType::LIST(LogicalType::DOUBLE),                     // y_train
+	                          LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)),  // x_train
+	                          LogicalType::LIST(LogicalType::DOUBLE),                     // weights
+	                          LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE))}, // x_new
+	                         WlsPredictIntervalTableFunc, WlsPredictIntervalBind);
+
+	// Add support for optional MAP parameter via varargs
+	func_alias.varargs = LogicalType::ANY;
+
+	loader.RegisterFunction(func_alias);
+
+	ANOFOX_DEBUG("WLS predict_interval function registered successfully (including alias predict_wls)");
 }
 
 } // namespace anofox_statistics

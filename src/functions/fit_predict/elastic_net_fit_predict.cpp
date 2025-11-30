@@ -196,8 +196,8 @@ void ElasticNetFitPredictFunction::Register(ExtensionLoader &loader) {
 
 	// Use ONLY window callback to force WindowCustomAggregator path
 	// This prevents WindowConstantAggregator from broadcasting a single result to all rows
-	AggregateFunction anofox_statistics_elastic_net_fit_predict(
-	    "anofox_statistics_elastic_net_fit_predict",
+	AggregateFunction anofox_stats_elastic_net_fit_predict(
+	    "anofox_stats_elastic_net_fit_predict",
 	    {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
 	    LogicalType::STRUCT(fit_predict_struct_fields), AggregateFunction::StateSize<ElasticNetFitPredictState>,
 	    ElasticNetFitPredictInitialize,
@@ -208,9 +208,23 @@ void ElasticNetFitPredictFunction::Register(ExtensionLoader &loader) {
 	    ElasticNetFitPredictWindow, // Elastic Net-specific window callback - called per row
 	    nullptr, nullptr);
 
-	loader.RegisterFunction(anofox_statistics_elastic_net_fit_predict);
+	loader.RegisterFunction(anofox_stats_elastic_net_fit_predict);
 
-	ANOFOX_DEBUG("Elastic Net fit-predict function registered successfully");
+	// Register alias
+	AggregateFunction elastic_net_fit_predict(
+	    "elastic_net_fit_predict", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
+	    LogicalType::STRUCT(fit_predict_struct_fields), AggregateFunction::StateSize<ElasticNetFitPredictState>,
+	    ElasticNetFitPredictInitialize,
+	    nullptr, // No update - force WindowCustomAggregator
+	    nullptr, // No combine - force WindowCustomAggregator
+	    nullptr, // No finalize - force WindowCustomAggregator
+	    FunctionNullHandling::DEFAULT_NULL_HANDLING, nullptr, nullptr, nullptr, nullptr,
+	    ElasticNetFitPredictWindow, // Elastic Net-specific window callback - called per row
+	    nullptr, nullptr);
+
+	loader.RegisterFunction(elastic_net_fit_predict);
+
+	ANOFOX_DEBUG("Elastic Net fit-predict function registered successfully (including alias elastic_net_fit_predict)");
 }
 
 } // namespace anofox_statistics

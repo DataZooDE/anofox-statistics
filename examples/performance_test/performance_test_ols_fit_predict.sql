@@ -2,7 +2,7 @@
 -- Performance Test: OLS Fit-Predict Window Functions
 -- ============================================================================
 -- This script loads a pre-generated dataset and tests the performance of
--- anofox_statistics_ols_fit_predict window functions.
+-- anofox_stats_ols_fit_predict window functions.
 --
 -- Dataset characteristics:
 -- - Multiple groups with time-series style sequential data
@@ -63,10 +63,10 @@ SELECT
     obs_id,
     y,
     x1, x2, x3, x4, x5, x6, x7, x8,
-    anofox_statistics_ols_fit_predict(
+    anofox_stats_ols_fit_predict(
         y,
         [x1, x2, x3, x4, x5, x6, x7, x8],
-        MAP{'intercept': true, 'fit_predict_mode': 'expanding'}
+        {'intercept': true, 'fit_predict_mode': 'expanding'}
     ) OVER (
         PARTITION BY group_id
         ORDER BY obs_id
@@ -110,10 +110,10 @@ SELECT
     obs_id,
     y,
     x1, x2, x3, x4, x5, x6, x7, x8,
-    anofox_statistics_ols_fit_predict(
+    anofox_stats_ols_fit_predict(
         y,
         [x1, x2, x3, x4, x5, x6, x7, x8],
-        MAP{'intercept': true, 'fit_predict_mode': 'fixed'}
+        {'intercept': true, 'fit_predict_mode': 'fixed'}
     ) OVER (
         PARTITION BY group_id
         ORDER BY obs_id
@@ -153,10 +153,10 @@ SELECT
     group_id,
     obs_id,
     y,
-    anofox_statistics_ols_fit_predict(
+    anofox_stats_ols_fit_predict(
         y,
         [x1, x2, x3, x4, x5, x6, x7, x8],
-        MAP{'intercept': true, 'fit_predict_mode': 'expanding'}
+        {'intercept': true, 'fit_predict_mode': 'expanding'}
     ) OVER (
         PARTITION BY group_id
         ORDER BY obs_id
@@ -191,10 +191,10 @@ SELECT
     group_id,
     obs_id,
     y,
-    anofox_statistics_ols_fit_predict(
+    anofox_stats_ols_fit_predict(
         y,
         [x1, x2, x3, x4, x5, x6, x7, x8],
-        MAP{'intercept': true, 'fit_predict_mode': 'fixed'}
+        {'intercept': true, 'fit_predict_mode': 'fixed'}
     ) OVER (
         PARTITION BY group_id
         ORDER BY obs_id
@@ -229,10 +229,10 @@ SELECT
     group_id,
     obs_id,
     y,
-    anofox_statistics_ols_fit_predict(
+    anofox_stats_ols_fit_predict(
         y,
         [x1, x2, x3, x4, x5, x6, x7, x8],
-        MAP{'intercept': true, 'fit_predict_mode': 'expanding'}
+        {'intercept': true, 'fit_predict_mode': 'expanding'}
     ) OVER (
         PARTITION BY group_id
         ORDER BY obs_id
@@ -268,10 +268,10 @@ SELECT
     group_id,
     obs_id,
     y,
-    anofox_statistics_ols_fit_predict(
+    anofox_stats_ols_fit_predict(
         y,
         [x1, x2, x3, x4, x5, x6, x7, x8],
-        MAP{'intercept': true, 'fit_predict_mode': 'fixed'}
+        {'intercept': true, 'fit_predict_mode': 'fixed'}
     ) OVER (
         PARTITION BY group_id
         ORDER BY obs_id

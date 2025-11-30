@@ -25,7 +25,7 @@ FROM (
     FROM (
         SELECT
             id,
-            anofox_statistics_ridge_fit_predict(
+            anofox_stats_ridge_fit_predict(
                 y, [x], MAP{'intercept': 1, 'lambda': 1.0}
             ) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred
         FROM ridge_val
@@ -44,7 +44,7 @@ FROM (
         (pred).yhat_upper - (pred).yhat_lower as width
     FROM (
         SELECT
-            anofox_statistics_ridge_fit_predict(
+            anofox_stats_ridge_fit_predict(
                 y, [x], MAP{'intercept': 1, 'lambda': 1.0}
             ) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred
         FROM ridge_val
@@ -63,7 +63,7 @@ FROM (
         (pred).std_error as std_err
     FROM (
         SELECT
-            anofox_statistics_ridge_fit_predict(
+            anofox_stats_ridge_fit_predict(
                 y, [x], MAP{'intercept': 1, 'lambda': 1.0}
             ) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred
         FROM ridge_val
@@ -92,8 +92,8 @@ FROM (
     FROM (
         SELECT
             id,
-            anofox_statistics_ridge_fit_predict(y, [x], MAP{'intercept': 1, 'lambda': 0.1}) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred_low,
-            anofox_statistics_ridge_fit_predict(y, [x], MAP{'intercept': 1, 'lambda': 10.0}) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred_high
+            anofox_stats_ridge_fit_predict(y, [x], MAP{'intercept': 1, 'lambda': 0.1}) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred_low,
+            anofox_stats_ridge_fit_predict(y, [x], MAP{'intercept': 1, 'lambda': 10.0}) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred_high
         FROM ridge_lambda_val
     )
 )
@@ -113,7 +113,7 @@ FROM (
     FROM (
         SELECT
             id,
-            anofox_statistics_ridge_fit_predict(
+            anofox_stats_ridge_fit_predict(
                 y, [x], MAP{'intercept': 1, 'lambda': 1.0}
             ) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred
         FROM ridge_val

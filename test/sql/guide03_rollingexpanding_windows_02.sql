@@ -10,7 +10,7 @@ FROM generate_series(1, 100) t(i);
 
 SELECT
     date,
-    (anofox_statistics_ols_fit_agg(sales, [price], {'intercept': true}) OVER (
+    (anofox_stats_ols_fit_agg(sales, [price], {'intercept': true}) OVER (
         ORDER BY date
         ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
     )).coefficients[1] as cumulative_elasticity

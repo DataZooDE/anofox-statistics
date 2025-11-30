@@ -12,5 +12,5 @@ SELECT
     (i * 1.5 + 5)::DOUBLE as x
 FROM generate_series(1, 30) t(i);
 
-SELECT category, anofox_statistics_ols_fit_agg(y, [x], {'intercept': true}) as model
+SELECT category, anofox_stats_ols_fit_agg(y, [x], {'intercept': true}) as model
 FROM data GROUP BY category;

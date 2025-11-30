@@ -11,7 +11,7 @@ SELECT
     residual,
     std_residual,
     is_outlier  -- TRUE if |std_residual| > 2.5
-FROM predictions, anofox_statistics_residual_diagnostics(
+FROM predictions, anofox_stats_residual_diagnostics(
     y_actual,
     y_predicted,
     2.5  -- outlier_threshold

@@ -842,9 +842,15 @@ void WlsFitFunction::Register(ExtensionLoader &loader) {
 	    LogicalType::LIST(LogicalType::DOUBLE)                     // weights: DOUBLE[]
 	};
 
-	TableFunction func_3("anofox_statistics_wls_fit", args_3, WlsFitExecute, WlsFitBind, nullptr, WlsFitInOutLocalInit);
+	// Register primary function with new naming convention
+	TableFunction func_3("anofox_stats_wls_fit", args_3, WlsFitExecute, WlsFitBind, nullptr, WlsFitInOutLocalInit);
 	func_3.in_out_function = WlsFitInOut;
 	loader.RegisterFunction(func_3);
+
+	// Register alias without prefix
+	TableFunction func_3_alias("wls_fit", args_3, WlsFitExecute, WlsFitBind, nullptr, WlsFitInOutLocalInit);
+	func_3_alias.in_out_function = WlsFitInOut;
+	loader.RegisterFunction(func_3_alias);
 
 	// Register 4-argument overload: (y DOUBLE[], x DOUBLE[][], weights DOUBLE[], options MAP/STRUCT)
 	vector<LogicalType> args_4 = {
@@ -854,11 +860,16 @@ void WlsFitFunction::Register(ExtensionLoader &loader) {
 	    LogicalType::ANY                                           // options: MAP or STRUCT
 	};
 
-	TableFunction func_4("anofox_statistics_wls_fit", args_4, WlsFitExecute, WlsFitBind, nullptr, WlsFitInOutLocalInit);
+	TableFunction func_4("anofox_stats_wls_fit", args_4, WlsFitExecute, WlsFitBind, nullptr, WlsFitInOutLocalInit);
 	func_4.in_out_function = WlsFitInOut;
 	loader.RegisterFunction(func_4);
 
-	ANOFOX_DEBUG("anofox_statistics_wls registered successfully (both modes)");
+	// Register alias without prefix
+	TableFunction func_4_alias("wls_fit", args_4, WlsFitExecute, WlsFitBind, nullptr, WlsFitInOutLocalInit);
+	func_4_alias.in_out_function = WlsFitInOut;
+	loader.RegisterFunction(func_4_alias);
+
+	ANOFOX_DEBUG("anofox_stats_wls_fit registered successfully with alias wls_fit (both modes)");
 }
 
 } // namespace anofox_statistics

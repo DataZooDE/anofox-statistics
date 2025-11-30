@@ -26,11 +26,11 @@ rolling_30 AS (
     SELECT
         date_id,
         y,
-        (anofox_statistics_ols_fit_agg(y, [time_idx::DOUBLE], {'intercept': true}) OVER (
+        (anofox_stats_ols_fit_agg(y, [time_idx::DOUBLE], {'intercept': true}) OVER (
             ORDER BY time_idx
             ROWS BETWEEN 29 PRECEDING AND CURRENT ROW
         )).coefficients[1] as trend_30d,
-        (anofox_statistics_ols_fit_agg(y, [time_idx::DOUBLE], {'intercept': true}) OVER (
+        (anofox_stats_ols_fit_agg(y, [time_idx::DOUBLE], {'intercept': true}) OVER (
             ORDER BY time_idx
             ROWS BETWEEN 29 PRECEDING AND CURRENT ROW
         )).r2 as r2_30d
@@ -41,11 +41,11 @@ rolling_30 AS (
 rolling_90 AS (
     SELECT
         date_id,
-        (anofox_statistics_ols_fit_agg(y, [time_idx::DOUBLE], {'intercept': true}) OVER (
+        (anofox_stats_ols_fit_agg(y, [time_idx::DOUBLE], {'intercept': true}) OVER (
             ORDER BY time_idx
             ROWS BETWEEN 89 PRECEDING AND CURRENT ROW
         )).coefficients[1] as trend_90d,
-        (anofox_statistics_ols_fit_agg(y, [time_idx::DOUBLE], {'intercept': true}) OVER (
+        (anofox_stats_ols_fit_agg(y, [time_idx::DOUBLE], {'intercept': true}) OVER (
             ORDER BY time_idx
             ROWS BETWEEN 89 PRECEDING AND CURRENT ROW
         )).r2 as r2_90d
@@ -56,11 +56,11 @@ rolling_90 AS (
 expanding AS (
     SELECT
         date_id,
-        (anofox_statistics_ols_fit_agg(y, [time_idx::DOUBLE], {'intercept': true}) OVER (
+        (anofox_stats_ols_fit_agg(y, [time_idx::DOUBLE], {'intercept': true}) OVER (
             ORDER BY time_idx
             ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
         )).coefficients[1] as trend_expanding,
-        (anofox_statistics_ols_fit_agg(y, [time_idx::DOUBLE], {'intercept': true}) OVER (
+        (anofox_stats_ols_fit_agg(y, [time_idx::DOUBLE], {'intercept': true}) OVER (
             ORDER BY time_idx
             ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
         )).r2 as r2_expanding

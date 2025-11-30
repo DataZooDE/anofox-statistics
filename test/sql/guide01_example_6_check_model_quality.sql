@@ -6,11 +6,11 @@ WITH data AS (
            UNNEST([[1.0], [2.0], [3.0], [4.0], [5.0], [6.0], [7.0], [8.0]]::DOUBLE[][]) as x
 )
 SELECT
-    (anofox_statistics_ols_fit_agg(y, x, {'intercept': true})).n_obs as n_obs,
-    (anofox_statistics_ols_fit_agg(y, x, {'intercept': true})).r2 as r2,
-    (anofox_statistics_ols_fit_agg(y, x, {'intercept': true})).adj_r2 as adj_r2,
-    (anofox_statistics_ols_fit_agg(y, x, {'intercept': true})).aic as aic,
-    (anofox_statistics_ols_fit_agg(y, x, {'intercept': true})).aicc as aicc,
-    (anofox_statistics_ols_fit_agg(y, x, {'intercept': true})).bic as bic,
-    (anofox_statistics_ols_fit_agg(y, x, {'intercept': true})).log_likelihood as log_likelihood
+    (anofox_stats_ols_fit_agg(y, x, {'intercept': true})).n_obs as n_obs,
+    (anofox_stats_ols_fit_agg(y, x, {'intercept': true})).r2 as r2,
+    (anofox_stats_ols_fit_agg(y, x, {'intercept': true})).adj_r2 as adj_r2,
+    (anofox_stats_ols_fit_agg(y, x, {'intercept': true})).aic as aic,
+    (anofox_stats_ols_fit_agg(y, x, {'intercept': true})).aicc as aicc,
+    (anofox_stats_ols_fit_agg(y, x, {'intercept': true})).bic as bic,
+    (anofox_stats_ols_fit_agg(y, x, {'intercept': true})).log_likelihood as log_likelihood
 FROM data;

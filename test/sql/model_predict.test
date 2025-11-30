@@ -7,7 +7,7 @@ require anofox_statistics
 # Test 1: Simple linear regression - fit model with full_output
 statement ok
 CREATE TEMP TABLE model AS
-SELECT * FROM anofox_statistics_ols_fit(
+SELECT * FROM anofox_stats_ols_fit(
     [2.1, 4.2, 5.9, 8.1, 10.0]::DOUBLE[],
     [[1.0], [2.0], [3.0], [4.0], [5.0]]::DOUBLE[][],
     {'intercept': true, 'full_output': true}
@@ -29,7 +29,7 @@ SELECT observation_id,
        round(ci_lower::DOUBLE, 4) as ci_low,
        round(ci_upper::DOUBLE, 4) as ci_high
 FROM model m,
-LATERAL anofox_statistics_model_predict(
+LATERAL anofox_stats_model_predict(
     m.intercept, m.coefficients, m.mse, m.x_train_means,
     m.coefficient_std_errors, m.intercept_std_error, m.df_residual,
     [6.0, 7.0, 8.0]::DOUBLE[],
@@ -48,7 +48,7 @@ SELECT observation_id,
        round(predicted::DOUBLE, 4) as pred,
        round(ci_lower::DOUBLE, 4) as ci_low,
        round(ci_upper::DOUBLE, 4) as ci_high
-FROM anofox_statistics_model_predict(
+FROM anofox_stats_model_predict(
     (SELECT intercept FROM model),
     (SELECT coefficients FROM model),
     (SELECT mse FROM model),
@@ -69,13 +69,13 @@ SELECT
     ci_pred_width > ci_conf_width as prediction_wider_than_confidence
 FROM (
     SELECT
-        (SELECT ci_upper - ci_lower FROM anofox_statistics_model_predict(
+        (SELECT ci_upper - ci_lower FROM anofox_stats_model_predict(
              (SELECT intercept FROM model), (SELECT coefficients FROM model),
              (SELECT mse FROM model), (SELECT x_train_means FROM model),
              (SELECT coefficient_std_errors FROM model), (SELECT intercept_std_error FROM model),
              (SELECT df_residual FROM model),
              [6.0]::DOUBLE[], 0.95, 'prediction') p) as ci_pred_width,
-        (SELECT ci_upper - ci_lower FROM anofox_statistics_model_predict(
+        (SELECT ci_upper - ci_lower FROM anofox_stats_model_predict(
              (SELECT intercept FROM model), (SELECT coefficients FROM model),
              (SELECT mse FROM model), (SELECT x_train_means FROM model),
              (SELECT coefficient_std_errors FROM model), (SELECT intercept_std_error FROM model),
@@ -91,7 +91,7 @@ SELECT observation_id,
        round(predicted::DOUBLE, 4) as pred,
        ci_lower IS NULL as no_lower,
        ci_upper IS NULL as no_upper
-FROM anofox_statistics_model_predict(
+FROM anofox_stats_model_predict(
     (SELECT intercept FROM model),
     (SELECT coefficients FROM model),
     (SELECT mse FROM model),
@@ -110,7 +110,7 @@ FROM anofox_statistics_model_predict(
 # Test 7: Multiple features - fit 2-feature model
 statement ok
 CREATE TEMP TABLE model2 AS
-SELECT * FROM anofox_statistics_ols_fit(
+SELECT * FROM anofox_stats_ols_fit(
     [10.0, 20.0, 30.0, 40.0, 50.0]::DOUBLE[],
     [[1.0, 2.0], [2.0, 4.0], [3.0, 6.0], [4.0, 8.0], [5.0, 10.0]]::DOUBLE[][],
     {'intercept': true, 'full_output': true}
@@ -120,7 +120,7 @@ SELECT * FROM anofox_statistics_ols_fit(
 query IR
 SELECT observation_id,
        round(predicted::DOUBLE, 4) as pred
-FROM anofox_statistics_model_predict(
+FROM anofox_stats_model_predict(
     (SELECT intercept FROM model2),
     (SELECT coefficients FROM model2),
     (SELECT mse FROM model2),
@@ -140,13 +140,13 @@ FROM anofox_statistics_model_predict(
 query RR
 SELECT
     round((ci_upper - ci_lower)::DOUBLE, 4) as width_90,
-    round((SELECT ci_upper - ci_lower FROM anofox_statistics_model_predict(
+    round((SELECT ci_upper - ci_lower FROM anofox_stats_model_predict(
          (SELECT intercept FROM model), (SELECT coefficients FROM model),
          (SELECT mse FROM model), (SELECT x_train_means FROM model),
          (SELECT coefficient_std_errors FROM model), (SELECT intercept_std_error FROM model),
          (SELECT df_residual FROM model),
          [6.0]::DOUBLE[], 0.99, 'prediction') p)::DOUBLE, 4) as width_99
-FROM anofox_statistics_model_predict(
+FROM anofox_stats_model_predict(
     (SELECT intercept FROM model),
     (SELECT coefficients FROM model),
     (SELECT mse FROM model),
@@ -166,13 +166,13 @@ query T
 SELECT width_99 > width_90 as wider_interval_for_higher_confidence
 FROM (
     SELECT
-        (SELECT ci_upper - ci_lower FROM anofox_statistics_model_predict(
+        (SELECT ci_upper - ci_lower FROM anofox_stats_model_predict(
              (SELECT intercept FROM model), (SELECT coefficients FROM model),
              (SELECT mse FROM model), (SELECT x_train_means FROM model),
              (SELECT coefficient_std_errors FROM model), (SELECT intercept_std_error FROM model),
              (SELECT df_residual FROM model),
              [6.0]::DOUBLE[], 0.90, 'prediction') p) as width_90,
-        (SELECT ci_upper - ci_lower FROM anofox_statistics_model_predict(
+        (SELECT ci_upper - ci_lower FROM anofox_stats_model_predict(
              (SELECT intercept FROM model), (SELECT coefficients FROM model),
              (SELECT mse FROM model), (SELECT x_train_means FROM model),
              (SELECT coefficient_std_errors FROM model), (SELECT intercept_std_error FROM model),
@@ -185,7 +185,7 @@ true
 # Test 11: Standard errors should be positive
 query T
 SELECT se::DOUBLE > 0 as se_positive
-FROM anofox_statistics_model_predict(
+FROM anofox_stats_model_predict(
     (SELECT intercept FROM model),
     (SELECT coefficients FROM model),
     (SELECT mse FROM model),
@@ -205,13 +205,13 @@ query T
 SELECT se_train < se_new as training_point_more_certain
 FROM (
     SELECT
-        (SELECT se FROM anofox_statistics_model_predict(
+        (SELECT se FROM anofox_stats_model_predict(
              (SELECT intercept FROM model), (SELECT coefficients FROM model),
              (SELECT mse FROM model), (SELECT x_train_means FROM model),
              (SELECT coefficient_std_errors FROM model), (SELECT intercept_std_error FROM model),
              (SELECT df_residual FROM model),
              [3.0]::DOUBLE[], 0.95, 'prediction') p) as se_train,
-        (SELECT se FROM anofox_statistics_model_predict(
+        (SELECT se FROM anofox_stats_model_predict(
              (SELECT intercept FROM model), (SELECT coefficients FROM model),
              (SELECT mse FROM model), (SELECT x_train_means FROM model),
              (SELECT coefficient_std_errors FROM model), (SELECT intercept_std_error FROM model),
@@ -224,7 +224,7 @@ true
 # Test 13: Batch predictions - multiple observations at once
 query I
 SELECT COUNT(*) as prediction_count
-FROM anofox_statistics_model_predict(
+FROM anofox_stats_model_predict(
     (SELECT intercept FROM model),
     (SELECT coefficients FROM model),
     (SELECT mse FROM model),
@@ -242,7 +242,7 @@ FROM anofox_statistics_model_predict(
 # Test 14: Verify observation_id is 1-indexed
 query I
 SELECT MIN(observation_id)::BIGINT as min_id
-FROM anofox_statistics_model_predict(
+FROM anofox_stats_model_predict(
     (SELECT intercept FROM model),
     (SELECT coefficients FROM model),
     (SELECT mse FROM model),
@@ -260,7 +260,7 @@ FROM anofox_statistics_model_predict(
 # Test 15: Model with Ridge regression
 statement ok
 CREATE TEMP TABLE ridge_model AS
-SELECT * FROM anofox_statistics_ridge_fit(
+SELECT * FROM anofox_stats_ridge_fit(
     [2.1, 4.2, 5.9, 8.1, 10.0]::DOUBLE[],
     [[1.0], [2.0], [3.0], [4.0], [5.0]]::DOUBLE[][],
     {'intercept': true, 'lambda': 0.1, 'full_output': true}
@@ -269,7 +269,7 @@ SELECT * FROM anofox_statistics_ridge_fit(
 # Test 16: Predict using Ridge model
 query R
 SELECT round(predicted::DOUBLE, 4) as pred
-FROM anofox_statistics_model_predict(
+FROM anofox_stats_model_predict(
     (SELECT intercept FROM ridge_model),
     (SELECT coefficients FROM ridge_model),
     (SELECT mse FROM ridge_model),

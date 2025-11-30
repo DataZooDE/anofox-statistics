@@ -28,9 +28,9 @@ WITH source_data AS (
 product_models AS (
     SELECT
         product_id,
-        anofox_statistics_ols_fit_agg(y, [x1], {'intercept': true}) as model_x1,
-        anofox_statistics_ols_fit_agg(y, [x2], {'intercept': true}) as model_x2,
-        anofox_statistics_ols_fit_agg(y, [x3], {'intercept': true}) as model_x3,
+        anofox_stats_ols_fit_agg(y, [x1], {'intercept': true}) as model_x1,
+        anofox_stats_ols_fit_agg(y, [x2], {'intercept': true}) as model_x2,
+        anofox_stats_ols_fit_agg(y, [x3], {'intercept': true}) as model_x3,
         COUNT(*) as data_points,
         MIN(date) as training_start,
         MAX(date) as training_end,

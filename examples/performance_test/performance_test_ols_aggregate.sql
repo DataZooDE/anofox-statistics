@@ -2,7 +2,7 @@
 -- Performance Test: OLS Aggregate Functions with GROUP BY
 -- ============================================================================
 -- This script loads a pre-generated dataset and tests the performance of
--- anofox_statistics_ols_fit_agg with GROUP BY functionality.
+-- anofox_stats_ols_fit_agg with GROUP BY functionality.
 --
 -- Dataset characteristics:
 -- - Multiple groups with heterogeneous linear relationships
@@ -47,7 +47,7 @@ FROM performance_data;
 -- ============================================================================
 -- STEP 3: Performance Test - GROUP BY with All Groups
 -- ============================================================================
--- Fit OLS model for each group using anofox_statistics_ols_fit_agg
+-- Fit OLS model for each group using anofox_stats_ols_fit_agg
 
 .print '============================================================================'
 .print 'PERFORMANCE TEST 1: GROUP BY Aggregation (All Groups)'
@@ -57,7 +57,7 @@ FROM performance_data;
 CREATE OR REPLACE TABLE group_models AS
 SELECT
     group_id,
-    anofox_statistics_ols_fit_agg(
+    anofox_stats_ols_fit_agg(
         y,
         [x1, x2, x3, x4, x5, x6, x7, x8],
         {'intercept': true, 'confidence_level': 0.95}
@@ -95,7 +95,7 @@ ORDER BY group_id;
 CREATE OR REPLACE TABLE group_models_full AS
 SELECT
     group_id,
-    anofox_statistics_ols_fit_agg(
+    anofox_stats_ols_fit_agg(
         y,
         [x1, x2, x3, x4, x5, x6, x7, x8],
         {'intercept': true, 'confidence_level': 0.95, 'full_output': true}
@@ -136,7 +136,7 @@ WHERE group_id = 1;
 CREATE OR REPLACE TABLE subset_models AS
 SELECT
     group_id,
-    anofox_statistics_ols_fit_agg(
+    anofox_stats_ols_fit_agg(
         y,
         [x1, x2, x3, x4, x5, x6, x7, x8],
         {'intercept': true}

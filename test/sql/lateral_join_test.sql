@@ -10,7 +10,7 @@ LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extensi
 -- Test 1: OLS with literal parameters (backward compatibility)
 -- This should work exactly as before
 SELECT 'Test 1: OLS with literal parameters' as test_name;
-SELECT * FROM anofox_statistics_ols_fit(
+SELECT * FROM anofox_stats_ols_fit(
     [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],
     [[1.1], [2.1], [2.9], [4.2], [4.8]]::DOUBLE[][],
     {'intercept': true}
@@ -25,7 +25,7 @@ WITH input AS (
         [[1.1], [2.1], [2.9], [4.2], [4.8]]::DOUBLE[][] as X
 )
 SELECT result.* FROM input,
-LATERAL anofox_statistics_ols_fit(
+LATERAL anofox_stats_ols_fit(
     input.y,
     input.X,
     {'intercept': true}
@@ -33,7 +33,7 @@ LATERAL anofox_statistics_ols_fit(
 
 -- Test 3: Ridge with literal parameters (backward compatibility)
 SELECT 'Test 3: Ridge with literal parameters' as test_name;
-SELECT * FROM anofox_statistics_ridge_fit(
+SELECT * FROM anofox_stats_ridge_fit(
     [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],
     [[1.1], [2.1], [2.9], [4.2], [4.8]]::DOUBLE[][],
     {'lambda': 0.1, 'intercept': true}
@@ -47,7 +47,7 @@ WITH input AS (
         [[1.1], [2.1], [2.9], [4.2], [4.8]]::DOUBLE[][] as X
 )
 SELECT result.* FROM input,
-LATERAL anofox_statistics_ridge_fit(
+LATERAL anofox_stats_ridge_fit(
     input.y,
     input.X,
     {'lambda': 0.1, 'intercept': true}
@@ -55,7 +55,7 @@ LATERAL anofox_statistics_ridge_fit(
 
 -- Test 5: RLS with literal parameters (backward compatibility)
 SELECT 'Test 5: RLS with literal parameters' as test_name;
-SELECT * FROM anofox_statistics_rls_fit(
+SELECT * FROM anofox_stats_rls_fit(
     [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],
     [[1.1], [2.1], [2.9], [4.2], [4.8]]::DOUBLE[][],
     {'forgetting_factor': 0.95, 'intercept': true}
@@ -69,7 +69,7 @@ WITH input AS (
         [[1.1], [2.1], [2.9], [4.2], [4.8]]::DOUBLE[][] as X
 )
 SELECT result.* FROM input,
-LATERAL anofox_statistics_rls_fit(
+LATERAL anofox_stats_rls_fit(
     input.y,
     input.X,
     {'forgetting_factor': 0.95, 'intercept': true}
@@ -77,7 +77,7 @@ LATERAL anofox_statistics_rls_fit(
 
 -- Test 7: WLS with literal parameters (backward compatibility)
 SELECT 'Test 7: WLS with literal parameters' as test_name;
-SELECT * FROM anofox_statistics_wls_fit(
+SELECT * FROM anofox_stats_wls_fit(
     [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],
     [[1.1], [2.1], [2.9], [4.2], [4.8]]::DOUBLE[][],
     [1.0, 1.0, 1.0, 1.0, 1.0]::DOUBLE[],
@@ -93,7 +93,7 @@ WITH input AS (
         [1.0, 1.0, 1.0, 1.0, 1.0]::DOUBLE[] as weights
 )
 SELECT result.* FROM input,
-LATERAL anofox_statistics_wls_fit(
+LATERAL anofox_stats_wls_fit(
     input.y,
     input.X,
     input.weights,
@@ -115,7 +115,7 @@ WITH input AS (
         'dataset2' as name
 )
 SELECT input.name, result.* FROM input,
-LATERAL anofox_statistics_ols_fit(
+LATERAL anofox_stats_ols_fit(
     input.y,
     input.X,
     {'intercept': true}
@@ -136,7 +136,7 @@ WITH input AS (
         'dataset2' as name
 )
 SELECT input.name, result.* FROM input,
-LATERAL anofox_statistics_ridge_fit(
+LATERAL anofox_stats_ridge_fit(
     input.y,
     input.X,
     {'lambda': 0.1, 'intercept': true}
@@ -147,7 +147,7 @@ ORDER BY input.name;
 -- Both queries should produce identical results
 SELECT 'Test 11: Verify OLS literal vs lateral results match' as test_name;
 WITH literal_result AS (
-    SELECT * FROM anofox_statistics_ols_fit(
+    SELECT * FROM anofox_stats_ols_fit(
         [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],
         [[1.1], [2.1], [2.9], [4.2], [4.8]]::DOUBLE[][],
         {'intercept': true}
@@ -159,7 +159,7 @@ lateral_result AS (
             [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[] as y,
             [[1.1], [2.1], [2.9], [4.2], [4.8]]::DOUBLE[][] as X
     ) as input,
-    LATERAL anofox_statistics_ols_fit(
+    LATERAL anofox_stats_ols_fit(
         input.y,
         input.X,
         {'intercept': true}
@@ -192,7 +192,7 @@ FROM lateral_result;
 -- Test 12: Verify results match between literal and lateral join modes (Ridge)
 SELECT 'Test 12: Verify Ridge literal vs lateral results match' as test_name;
 WITH literal_result AS (
-    SELECT * FROM anofox_statistics_ridge_fit(
+    SELECT * FROM anofox_stats_ridge_fit(
         [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],
         [[1.1], [2.1], [2.9], [4.2], [4.8]]::DOUBLE[][],
         {'lambda': 0.5, 'intercept': true}
@@ -204,7 +204,7 @@ lateral_result AS (
             [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[] as y,
             [[1.1], [2.1], [2.9], [4.2], [4.8]]::DOUBLE[][] as X
     ) as input,
-    LATERAL anofox_statistics_ridge_fit(
+    LATERAL anofox_stats_ridge_fit(
         input.y,
         input.X,
         {'lambda': 0.5, 'intercept': true}
@@ -248,7 +248,7 @@ WITH input AS (
         'dataset2' as name
 )
 SELECT input.name, result.* FROM input,
-LATERAL anofox_statistics_rls_fit(
+LATERAL anofox_stats_rls_fit(
     input.y,
     input.X,
     {'forgetting_factor': 0.95, 'intercept': true}
@@ -271,7 +271,7 @@ WITH input AS (
         'dataset2' as name
 )
 SELECT input.name, result.* FROM input,
-LATERAL anofox_statistics_wls_fit(
+LATERAL anofox_stats_wls_fit(
     input.y,
     input.X,
     input.weights,
@@ -282,7 +282,7 @@ ORDER BY input.name;
 -- Test 15: Verify RLS literal vs lateral results match
 SELECT 'Test 15: Verify RLS literal vs lateral results match' as test_name;
 WITH literal_result AS (
-    SELECT * FROM anofox_statistics_rls_fit(
+    SELECT * FROM anofox_stats_rls_fit(
         [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],
         [[1.1], [2.1], [2.9], [4.2], [4.8]]::DOUBLE[][],
         {'forgetting_factor': 0.98, 'intercept': true}
@@ -294,7 +294,7 @@ lateral_result AS (
             [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[] as y,
             [[1.1], [2.1], [2.9], [4.2], [4.8]]::DOUBLE[][] as X
     ) as input,
-    LATERAL anofox_statistics_rls_fit(
+    LATERAL anofox_stats_rls_fit(
         input.y,
         input.X,
         {'forgetting_factor': 0.98, 'intercept': true}
@@ -327,7 +327,7 @@ FROM lateral_result;
 -- Test 16: Verify WLS literal vs lateral results match
 SELECT 'Test 16: Verify WLS literal vs lateral results match' as test_name;
 WITH literal_result AS (
-    SELECT * FROM anofox_statistics_wls_fit(
+    SELECT * FROM anofox_stats_wls_fit(
         [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],
         [[1.1], [2.1], [2.9], [4.2], [4.8]]::DOUBLE[][],
         [1.0, 1.0, 1.0, 1.0, 1.0]::DOUBLE[],
@@ -341,7 +341,7 @@ lateral_result AS (
             [[1.1], [2.1], [2.9], [4.2], [4.8]]::DOUBLE[][] as X,
             [1.0, 1.0, 1.0, 1.0, 1.0]::DOUBLE[] as weights
     ) as input,
-    LATERAL anofox_statistics_wls_fit(
+    LATERAL anofox_stats_wls_fit(
         input.y,
         input.X,
         input.weights,
@@ -395,7 +395,7 @@ SELECT
     result.r_squared,
     result.n_obs
 FROM sales_data,
-LATERAL anofox_statistics_ols_fit(
+LATERAL anofox_stats_ols_fit(
     sales_data.sales,
     sales_data.time_periods,
     {'intercept': true}

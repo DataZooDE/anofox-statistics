@@ -26,7 +26,7 @@ SELECT
 FROM (
     SELECT
         product,
-        anofox_statistics_ridge_fit_agg(
+        anofox_stats_ridge_fit_agg(
             sales,
             [advertising, social_media, influencer],
             {'lambda': 0.0, 'intercept': true}
@@ -47,7 +47,7 @@ SELECT
 FROM (
     SELECT
         product,
-        anofox_statistics_ridge_fit_agg(
+        anofox_stats_ridge_fit_agg(
             sales,
             [advertising, social_media, influencer],
             {'lambda': 1.0, 'intercept': true}
@@ -68,7 +68,7 @@ SELECT
 FROM (
     SELECT
         product,
-        anofox_statistics_ridge_fit_agg(
+        anofox_stats_ridge_fit_agg(
             sales,
             [advertising, social_media, influencer],
             {'lambda': 10.0, 'intercept': true}

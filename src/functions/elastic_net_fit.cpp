@@ -18,7 +18,7 @@ namespace anofox_statistics {
  * @brief Elastic Net fit using array inputs with MAP-based options
  *
  * Signature:
- *   SELECT * FROM anofox_statistics_elastic_net(
+ *   SELECT * FROM anofox_stats_elastic_net(
  *       y := [1.0, 2.0, 3.0, 4.0],
  *       x := [[1.1, 2.1, 2.9, 4.2], [0.5, 1.5, 2.5, 3.5]],
  *       options := MAP{'intercept': true, 'alpha': 0.5, 'lambda': 0.01}
@@ -299,7 +299,7 @@ static unique_ptr<FunctionData> ElasticNetFitBind(ClientContext &context, TableF
 	// Expected parameters: y (DOUBLE[]), x (DOUBLE[][]), [options (MAP)]
 
 	if (input.inputs.size() < 2) {
-		throw InvalidInputException("anofox_statistics_elastic_net requires at least 2 parameters: "
+		throw InvalidInputException("anofox_stats_elastic_net requires at least 2 parameters: "
 		                            "y (DOUBLE[]), x (DOUBLE[][]), [options (MAP)]");
 	}
 
@@ -642,7 +642,7 @@ static void ElasticNetFitExecute(ClientContext &context, TableFunctionInput &dat
 }
 
 void ElasticNetFitFunction::Register(ExtensionLoader &loader) {
-	ANOFOX_DEBUG("Registering anofox_statistics_elastic_net (array-based with MAP options)");
+	ANOFOX_DEBUG("Registering anofox_stats_elastic_net (array-based with MAP options)");
 
 	// Register 2-argument overload: (y DOUBLE[], x DOUBLE[][])
 	vector<LogicalType> args_2 = {
@@ -650,8 +650,13 @@ void ElasticNetFitFunction::Register(ExtensionLoader &loader) {
 	    LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)) // x: DOUBLE[][]
 	};
 
-	TableFunction func_2("anofox_statistics_elastic_net_fit", args_2, ElasticNetFitExecute, ElasticNetFitBind);
+	// Register primary function with new naming convention
+	TableFunction func_2("anofox_stats_elastic_net_fit", args_2, ElasticNetFitExecute, ElasticNetFitBind);
 	loader.RegisterFunction(func_2);
+
+	// Register alias without prefix
+	TableFunction func_2_alias("elastic_net_fit", args_2, ElasticNetFitExecute, ElasticNetFitBind);
+	loader.RegisterFunction(func_2_alias);
 
 	// Register 3-argument overload: (y DOUBLE[], x DOUBLE[][], options MAP/STRUCT)
 	vector<LogicalType> args_3 = {
@@ -660,10 +665,14 @@ void ElasticNetFitFunction::Register(ExtensionLoader &loader) {
 	    LogicalType::ANY                                           // options: MAP or STRUCT
 	};
 
-	TableFunction func_3("anofox_statistics_elastic_net_fit", args_3, ElasticNetFitExecute, ElasticNetFitBind);
+	TableFunction func_3("anofox_stats_elastic_net_fit", args_3, ElasticNetFitExecute, ElasticNetFitBind);
 	loader.RegisterFunction(func_3);
 
-	ANOFOX_INFO("anofox_statistics_elastic_net registered successfully");
+	// Register alias without prefix
+	TableFunction func_3_alias("elastic_net_fit", args_3, ElasticNetFitExecute, ElasticNetFitBind);
+	loader.RegisterFunction(func_3_alias);
+
+	ANOFOX_INFO("anofox_stats_elastic_net_fit registered successfully with alias elastic_net_fit");
 }
 
 } // namespace anofox_statistics

@@ -20,7 +20,7 @@ SELECT
 FROM (
     SELECT
         id,
-        anofox_statistics_rls_fit_predict(
+        anofox_stats_rls_fit_predict(
             y,
             [x1, x2],
             MAP{'intercept': 1, 'forgetting_factor': 1.0}
@@ -46,7 +46,7 @@ SELECT
 FROM (
     SELECT
         id,
-        anofox_statistics_rls_fit_predict(
+        anofox_stats_rls_fit_predict(
             y,
             [x],
             MAP{'intercept': 1, 'forgetting_factor': 1.0}
@@ -72,7 +72,7 @@ SELECT
 FROM (
     SELECT
         id,
-        anofox_statistics_rls_fit_predict(
+        anofox_stats_rls_fit_predict(
             y,
             [x],
             MAP{'intercept': 1, 'forgetting_factor': 1.5}
@@ -90,7 +90,7 @@ SELECT
 FROM (
     SELECT
         id,
-        anofox_statistics_rls_fit_predict(
+        anofox_stats_rls_fit_predict(
             y,
             [x],
             MAP{'intercept': 1, 'forgetting_factor': 0.0}
@@ -108,7 +108,7 @@ SELECT
 FROM (
     SELECT
         id,
-        anofox_statistics_rls_fit_predict(
+        anofox_stats_rls_fit_predict(
             y,
             [x],
             MAP{'intercept': 1, 'forgetting_factor': 1.0}
@@ -126,7 +126,7 @@ SELECT
 FROM (
     SELECT
         id,
-        anofox_statistics_rls_fit_predict(
+        anofox_stats_rls_fit_predict(
             y,
             [x],
             MAP{'intercept': 1, 'forgetting_factor': 0.01}
@@ -152,7 +152,7 @@ SELECT
 FROM (
     SELECT
         id,
-        anofox_statistics_rls_fit_predict(
+        anofox_stats_rls_fit_predict(
             y,
             x_empty,
             MAP{'intercept': 1, 'forgetting_factor': 1.0}
@@ -178,7 +178,7 @@ SELECT
 FROM (
     SELECT
         id,
-        anofox_statistics_rls_fit_predict(
+        anofox_stats_rls_fit_predict(
             y,
             x,
             MAP{'intercept': 1, 'forgetting_factor': 1.0}
@@ -204,7 +204,7 @@ SELECT
 FROM (
     SELECT
         id,
-        anofox_statistics_rls_fit_predict(
+        anofox_stats_rls_fit_predict(
             y,
             [x],
             MAP{'intercept': 1, 'forgetting_factor': 1.0}
@@ -238,7 +238,7 @@ FROM (
     SELECT
         group_id,
         id,
-        anofox_statistics_rls_fit_predict(
+        anofox_stats_rls_fit_predict(
             y,
             [x],
             MAP{'intercept': 1, 'forgetting_factor': 0.99}
@@ -267,7 +267,7 @@ SELECT
 FROM (
     SELECT
         id,
-        anofox_statistics_rls_fit_predict(
+        anofox_stats_rls_fit_predict(
             y,
             [x_large],
             MAP{'intercept': 1, 'forgetting_factor': 1.0}

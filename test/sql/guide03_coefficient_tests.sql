@@ -2,7 +2,7 @@ LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extensi
 
 -- Get coefficient statistics using fit with full_output
 WITH model AS (
-    SELECT * FROM anofox_statistics_ols_fit(
+    SELECT * FROM anofox_stats_ols_fit(
         [65.0, 72.0, 78.0, 85.0, 92.0, 88.0]::DOUBLE[],                          -- y: exam_score
         [[3.0, 7.0], [4.0, 8.0], [5.0, 7.0], [6.0, 8.0], [7.0, 9.0], [6.5, 7.5]]::DOUBLE[][], -- x: study_hours, sleep_hours
         {'intercept': true, 'full_output': true, 'confidence_level': 0.95}

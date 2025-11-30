@@ -7,7 +7,7 @@ WITH input AS (
         LIST_VALUE(LIST_VALUE(1.1::DOUBLE, 2.1, 2.9, 4.2, 4.8)) as X
 )
 SELECT result.* FROM input,
-LATERAL anofox_statistics_ols_fit(
+LATERAL anofox_stats_ols_fit(
     input.y,
     input.X,
     {'intercept': true}

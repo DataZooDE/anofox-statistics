@@ -11,7 +11,7 @@ FROM range(1, 51) t(i);
 SELECT
     time_idx,
     value,
-    (anofox_statistics_ols_fit_agg(value, [time_idx], {'intercept': true}) OVER (
+    (anofox_stats_ols_fit_agg(value, [time_idx], {'intercept': true}) OVER (
         ORDER BY time_idx
         ROWS BETWEEN 9 PRECEDING AND CURRENT ROW
     )).coefficients[1] as rolling_trend
