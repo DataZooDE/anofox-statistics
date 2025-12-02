@@ -43,3 +43,4 @@ libanostat/build/coverage/
 libanostat/vcpkg_installed/
 *.pyc
 **/__pycache__/
+.Rproj.user
