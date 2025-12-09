@@ -22,6 +22,15 @@ pub enum StatsError {
     #[error("Empty input: {field} cannot be empty")]
     EmptyInput { field: &'static str },
 
+    #[error("Invalid input: {0}")]
+    InvalidInput(String),
+
+    #[error("Dimension mismatch: {0}")]
+    DimensionMismatchMsg(String),
+
+    #[error("Insufficient data: {0}")]
+    InsufficientDataMsg(String),
+
     // Numerical errors
     #[error("Matrix is singular or near-singular")]
     SingularMatrix,

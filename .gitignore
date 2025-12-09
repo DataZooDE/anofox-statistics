@@ -1,14 +1,35 @@
 # Rust
 /target/
-Cargo.lock
 
 # Build artifacts
 /build/
+*.duckdb
+*.duckdb.wal
+
+# DuckDB test directories
+duckdb_unittest_tempdir/
+
+# Test binaries
+test_ridge
+test_ridge.c
 
 # IDE
 .idea/
 .vscode/
 *.swp
+*.swo
+*~
 
 # OS
 .DS_Store
+Thumbs.db
+
+# Compiled objects
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+
+# Debug files
+*.dSYM/

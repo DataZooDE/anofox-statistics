@@ -12,8 +12,8 @@
 
 namespace duckdb {
 
-// Result struct type for OLS
-static LogicalType GetOlsResultType(bool compute_inference) {
+// Result struct type for WLS
+static LogicalType GetWlsResultType(bool compute_inference) {
     child_list_t<LogicalType> children;
 
     children.push_back(make_pair("coefficients", LogicalType::LIST(LogicalType::DOUBLE)));
@@ -37,14 +37,14 @@ static LogicalType GetOlsResultType(bool compute_inference) {
     return LogicalType::STRUCT(std::move(children));
 }
 
-// Bind data for OLS function
-struct OlsFitBindData : public FunctionData {
+// Bind data for WLS function
+struct WlsFitBindData : public FunctionData {
     bool fit_intercept = true;
     bool compute_inference = false;
     double confidence_level = 0.95;
 
     unique_ptr<FunctionData> Copy() const override {
-        auto result = make_uniq<OlsFitBindData>();
+        auto result = make_uniq<WlsFitBindData>();
         result->fit_intercept = fit_intercept;
         result->compute_inference = compute_inference;
         result->confidence_level = confidence_level;
@@ -52,7 +52,7 @@ struct OlsFitBindData : public FunctionData {
     }
 
     bool Equals(const FunctionData &other_p) const override {
-        auto &other = other_p.Cast<OlsFitBindData>();
+        auto &other = other_p.Cast<WlsFitBindData>();
         return fit_intercept == other.fit_intercept &&
                compute_inference == other.compute_inference &&
                confidence_level == other.confidence_level;
@@ -60,23 +60,23 @@ struct OlsFitBindData : public FunctionData {
 };
 
 // Bind function
-static unique_ptr<FunctionData> OlsFitBind(ClientContext &context, ScalarFunction &bound_function,
+static unique_ptr<FunctionData> WlsFitBind(ClientContext &context, ScalarFunction &bound_function,
                                            vector<unique_ptr<Expression>> &arguments) {
-    auto result = make_uniq<OlsFitBindData>();
+    auto result = make_uniq<WlsFitBindData>();
 
-    // Check for constant arguments for options (if provided as 3rd, 4th, 5th args)
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        result->fit_intercept = BooleanValue::Get(ExpressionExecutor::EvaluateScalar(context, *arguments[2]));
-    }
+    // Check for constant arguments for options (if provided as 4th, 5th, 6th args)
     if (arguments.size() >= 4 && arguments[3]->IsFoldable()) {
-        result->compute_inference = BooleanValue::Get(ExpressionExecutor::EvaluateScalar(context, *arguments[3]));
+        result->fit_intercept = BooleanValue::Get(ExpressionExecutor::EvaluateScalar(context, *arguments[3]));
     }
     if (arguments.size() >= 5 && arguments[4]->IsFoldable()) {
-        result->confidence_level = DoubleValue::Get(ExpressionExecutor::EvaluateScalar(context, *arguments[4]));
+        result->compute_inference = BooleanValue::Get(ExpressionExecutor::EvaluateScalar(context, *arguments[4]));
+    }
+    if (arguments.size() >= 6 && arguments[5]->IsFoldable()) {
+        result->confidence_level = DoubleValue::Get(ExpressionExecutor::EvaluateScalar(context, *arguments[5]));
     }
 
     // Set return type
-    bound_function.return_type = GetOlsResultType(result->compute_inference);
+    bound_function.return_type = GetWlsResultType(result->compute_inference);
 
     return std::move(result);
 }
@@ -98,12 +98,13 @@ static vector<double> ExtractDoubleList(Vector &vec, idx_t row_idx) {
     return result;
 }
 
-// Main OLS fit function
-static void OlsFitFunction(DataChunk &args, ExpressionState &state, Vector &result) {
-    auto &bind_data = state.expr.Cast<BoundFunctionExpression>().bind_info->Cast<OlsFitBindData>();
+// Main WLS fit function
+static void WlsFitFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+    auto &bind_data = state.expr.Cast<BoundFunctionExpression>().bind_info->Cast<WlsFitBindData>();
 
-    auto &y_vec = args.data[0];  // LIST(DOUBLE)
-    auto &x_vec = args.data[1];  // LIST(LIST(DOUBLE)) - list of feature columns
+    auto &y_vec = args.data[0];       // LIST(DOUBLE)
+    auto &x_vec = args.data[1];       // LIST(LIST(DOUBLE)) - list of feature columns
+    auto &weights_vec = args.data[2]; // LIST(DOUBLE) - weights
 
     idx_t count = args.size();
 
@@ -111,6 +112,9 @@ static void OlsFitFunction(DataChunk &args, ExpressionState &state, Vector &resu
     for (idx_t row = 0; row < count; row++) {
         // Extract y values
         vector<double> y_data = ExtractDoubleList(y_vec, row);
+
+        // Extract weights
+        vector<double> weights_data = ExtractDoubleList(weights_vec, row);
 
         // Extract x values (list of columns)
         auto x_list_data = ListVector::GetData(x_vec);
@@ -130,6 +134,11 @@ static void OlsFitFunction(DataChunk &args, ExpressionState &state, Vector &resu
         y_array.validity = nullptr;
         y_array.len = y_data.size();
 
+        AnofoxDataArray weights_array;
+        weights_array.data = weights_data.data();
+        weights_array.validity = nullptr;
+        weights_array.len = weights_data.size();
+
         vector<AnofoxDataArray> x_arrays;
         for (auto &col : x_cols) {
             AnofoxDataArray arr;
@@ -140,7 +149,7 @@ static void OlsFitFunction(DataChunk &args, ExpressionState &state, Vector &resu
         }
 
         // Set options
-        AnofoxOlsOptions options;
+        AnofoxWlsOptions options;
         options.fit_intercept = bind_data.fit_intercept;
         options.compute_inference = bind_data.compute_inference;
         options.confidence_level = bind_data.confidence_level;
@@ -150,10 +159,11 @@ static void OlsFitFunction(DataChunk &args, ExpressionState &state, Vector &resu
         AnofoxFitResultInference inference_result;
         AnofoxError error;
 
-        bool success = anofox_ols_fit(
+        bool success = anofox_wls_fit(
             y_array,
             x_arrays.data(),
             x_arrays.size(),
+            weights_array,
             options,
             &core_result,
             bind_data.compute_inference ? &inference_result : nullptr,
@@ -161,7 +171,7 @@ static void OlsFitFunction(DataChunk &args, ExpressionState &state, Vector &resu
         );
 
         if (!success) {
-            throw InvalidInputException("OLS fit failed: %s", error.message);
+            throw InvalidInputException("WLS fit failed: %s", error.message);
         }
 
         // Build result struct
@@ -220,39 +230,36 @@ static void OlsFitFunction(DataChunk &args, ExpressionState &state, Vector &resu
 }
 
 // Register the function
-void RegisterOlsFitFunction(ExtensionLoader &loader) {
-    // Basic version: anofox_stats_ols_fit(y, x)
-    ScalarFunctionSet func_set("anofox_stats_ols_fit");
+void RegisterWlsFitFunction(ExtensionLoader &loader) {
+    // Basic version: anofox_stats_wls_fit(y, x, weights)
+    ScalarFunctionSet func_set("anofox_stats_wls_fit");
 
-    // Version with just y and x
+    // Version with just y, x, and weights
     ScalarFunction basic_func(
-        {LogicalType::LIST(LogicalType::DOUBLE), LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE))},
+        {LogicalType::LIST(LogicalType::DOUBLE),
+         LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)),
+         LogicalType::LIST(LogicalType::DOUBLE)},
         LogicalType::ANY,  // Will be set in bind
-        OlsFitFunction,
-        OlsFitBind
+        WlsFitFunction,
+        WlsFitBind
     );
     func_set.AddFunction(basic_func);
 
-    // Version with options: anofox_stats_ols_fit(y, x, fit_intercept, compute_inference, confidence_level)
+    // Version with options: anofox_stats_wls_fit(y, x, weights, fit_intercept, compute_inference, confidence_level)
     ScalarFunction full_func(
         {LogicalType::LIST(LogicalType::DOUBLE),
          LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)),
+         LogicalType::LIST(LogicalType::DOUBLE),
          LogicalType::BOOLEAN,  // fit_intercept
          LogicalType::BOOLEAN,  // compute_inference
          LogicalType::DOUBLE},  // confidence_level
         LogicalType::ANY,
-        OlsFitFunction,
-        OlsFitBind
+        WlsFitFunction,
+        WlsFitBind
     );
     func_set.AddFunction(full_func);
 
     loader.RegisterFunction(func_set);
-
-    // Register short alias
-    ScalarFunctionSet alias_set("ols_fit");
-    alias_set.AddFunction(basic_func);
-    alias_set.AddFunction(full_func);
-    loader.RegisterFunction(alias_set);
 }
 
 } // namespace duckdb

@@ -52,7 +52,10 @@ pub fn fit_ols(y: &[f64], x: &[Vec<f64>], options: &OlsOptions) -> StatsResult<F
     // Filter out rows with NaN values
     let valid_indices: Vec<usize> = (0..n_obs)
         .filter(|&i| {
-            !y[i].is_nan() && !y[i].is_infinite() && x.iter().all(|col| !col[i].is_nan() && !col[i].is_infinite())
+            !y[i].is_nan()
+                && !y[i].is_infinite()
+                && x.iter()
+                    .all(|col| !col[i].is_nan() && !col[i].is_infinite())
         })
         .collect();
 

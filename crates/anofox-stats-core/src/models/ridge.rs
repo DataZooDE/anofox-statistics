@@ -59,7 +59,8 @@ pub fn fit_ridge(y: &[f64], x: &[Vec<f64>], options: &RidgeOptions) -> StatsResu
         .filter(|&i| {
             !y[i].is_nan()
                 && !y[i].is_infinite()
-                && x.iter().all(|col| !col[i].is_nan() && !col[i].is_infinite())
+                && x.iter()
+                    .all(|col| !col[i].is_nan() && !col[i].is_infinite())
         })
         .collect();
 
@@ -197,6 +198,44 @@ mod tests {
 
         let result = fit_ridge(&y, &x, &options);
         assert!(matches!(result, Err(StatsError::InvalidAlpha(_))));
+    }
+
+    #[test]
+    fn test_ridge_perfect_fit() {
+        // Test with perfect fit data (y = 2*x exactly)
+        // This is a regression test for the panic in statrs beta function
+        let x = vec![vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]];
+        let y = vec![2.0, 4.0, 6.0, 8.0, 10.0, 12.0];
+
+        let options = RidgeOptions {
+            alpha: 0.1,
+            fit_intercept: true,
+            compute_inference: false,
+            confidence_level: 0.95,
+        };
+
+        let result = fit_ridge(&y, &x, &options).unwrap();
+
+        // Should work without panicking even with perfect fit
+        assert!(result.core.r_squared > 0.99);
+    }
+
+    #[test]
+    fn test_ridge_perfect_fit_minimal() {
+        // Test with exact minimal data (same as DuckDB failing query)
+        let x = vec![vec![1.0, 2.0, 3.0, 4.0, 5.0]];
+        let y = vec![2.0, 4.0, 6.0, 8.0, 10.0];
+
+        let options = RidgeOptions {
+            alpha: 0.1,
+            fit_intercept: true,
+            compute_inference: false,
+            confidence_level: 0.95,
+        };
+
+        // Should not panic even with minimal data
+        let result = fit_ridge(&y, &x, &options).unwrap();
+        assert!(result.core.r_squared > 0.99);
     }
 
     #[test]

@@ -1,0 +1,175 @@
+# name: test/sql/error_handling.test
+# description: Test error handling for anofox_stats extension
+# group: [anofox_stats]
+
+require anofox_stats
+
+# =============================================================================
+# INSUFFICIENT DATA ERRORS
+# =============================================================================
+
+# OLS requires at least n_features + 2 observations (for intercept + 1 df)
+statement error
+SELECT anofox_stats_ols_fit([1.0, 2.0], [[1.0, 2.0]]);
+----
+Insufficient data
+
+# Ridge requires minimum observations
+statement error
+SELECT anofox_stats_ridge_fit([1.0, 2.0], [[1.0, 2.0]], 0.1);
+----
+Insufficient data
+
+# Elastic Net requires minimum observations
+statement error
+SELECT anofox_stats_elasticnet_fit([1.0, 2.0], [[1.0, 2.0]], 0.1, 0.5);
+----
+Insufficient data
+
+# WLS requires minimum observations
+statement error
+SELECT anofox_stats_wls_fit([1.0, 2.0], [[1.0, 2.0]], [1.0, 1.0]);
+----
+Insufficient data
+
+# Note: RLS does not require minimum observations like OLS
+# It can start with even 1 observation since it uses online learning
+
+# =============================================================================
+# DIMENSION MISMATCH ERRORS
+# =============================================================================
+
+# Y and X must have matching lengths
+statement error
+SELECT anofox_stats_ols_fit([1.0, 2.0, 3.0, 4.0], [[1.0, 2.0, 3.0]]);
+----
+Dimension mismatch
+
+# All X columns must have same length
+statement error
+SELECT anofox_stats_ols_fit(
+    [1.0, 2.0, 3.0, 4.0],
+    [[1.0, 2.0, 3.0, 4.0], [1.0, 2.0, 3.0]]
+);
+----
+Dimension mismatch
+
+# WLS weights must match Y length
+statement error
+SELECT anofox_stats_wls_fit(
+    [1.0, 2.0, 3.0, 4.0],
+    [[1.0, 2.0, 3.0, 4.0]],
+    [1.0, 1.0, 1.0]
+);
+----
+Dimension mismatch
+
+# =============================================================================
+# INVALID PARAMETER ERRORS
+# =============================================================================
+
+# Note: Ridge regression and Elastic Net currently accept out-of-range parameter values
+# (which mathematically doesn't make sense but doesn't crash)
+# This is a known behavior - parameter validation could be added in future versions
+
+# =============================================================================
+# EMPTY INPUT ERRORS
+# =============================================================================
+
+# Empty Y array
+statement error
+SELECT anofox_stats_ols_fit([]::DOUBLE[], [[1.0, 2.0, 3.0]]);
+----
+
+# Empty X array
+statement error
+SELECT anofox_stats_ols_fit([1.0, 2.0, 3.0], []::LIST(DOUBLE)[]);
+----
+
+# =============================================================================
+# SINGULAR MATRIX / COLLINEARITY
+# =============================================================================
+
+# Perfectly collinear features should produce very high VIF
+query I
+SELECT (anofox_stats_vif([[1.0, 2.0, 3.0, 4.0, 5.0], [2.0, 4.0, 6.0, 8.0, 10.0]]))[1] > 1000;
+----
+true
+
+# =============================================================================
+# AGGREGATE FUNCTION ERROR HANDLING
+# =============================================================================
+
+# Aggregate with insufficient data in group should handle gracefully
+query TT
+WITH data AS (
+    SELECT 'A' as grp, 1.0 as y, 1.0 as x
+    UNION ALL
+    SELECT 'A', 2.0, 2.0
+    UNION ALL
+    SELECT 'B', 1.0, 1.0
+    UNION ALL
+    SELECT 'B', 2.0, 2.0
+    UNION ALL
+    SELECT 'B', 3.0, 3.0
+    UNION ALL
+    SELECT 'B', 4.0, 4.0
+)
+SELECT
+    grp,
+    CASE WHEN (anofox_stats_ols_fit_agg(y, [x])).r_squared IS NULL THEN 'NULL' ELSE 'OK' END as result
+FROM data
+GROUP BY grp
+ORDER BY grp;
+----
+A	NULL
+B	OK
+
+# =============================================================================
+# PREDICT FUNCTION ERRORS
+# =============================================================================
+
+# Predict with mismatched coefficient count
+statement error
+SELECT anofox_stats_predict(
+    [[1.0, 2.0, 3.0]],
+    [1.0, 2.0, 3.0],
+    0.0
+);
+----
+
+# =============================================================================
+# VIF SINGLE FEATURE
+# =============================================================================
+
+# VIF with single feature returns 1.0 (no collinearity possible)
+query I
+SELECT ROUND(anofox_stats_vif([[1.0, 2.0, 3.0, 4.0, 5.0]])[1], 2);
+----
+1.0
+
+# =============================================================================
+# INFORMATION CRITERIA EDGE CASES
+# =============================================================================
+
+# AIC with RSS = 0 (perfect fit) should return -infinity or very negative
+query I
+SELECT anofox_stats_aic(0.0, 10, 2) < -1000000;
+----
+1
+
+# BIC with RSS = 0 (perfect fit) should return -infinity or very negative
+query I
+SELECT anofox_stats_bic(0.0, 10, 2) < -1000000;
+----
+1
+
+# =============================================================================
+# JARQUE-BERA MINIMUM SAMPLE SIZE
+# =============================================================================
+
+# Jarque-Bera with very small sample returns NULL (not enough data for meaningful test)
+query I
+SELECT anofox_stats_jarque_bera([1.0, 2.0]) IS NULL;
+----
+1

@@ -18,7 +18,11 @@ use regress_rs::prelude::*;
 ///
 /// # Returns
 /// * `FitResult` containing coefficients, R-squared, and convergence info
-pub fn fit_elasticnet(y: &[f64], x: &[Vec<f64>], options: &ElasticNetOptions) -> StatsResult<FitResult> {
+pub fn fit_elasticnet(
+    y: &[f64],
+    x: &[Vec<f64>],
+    options: &ElasticNetOptions,
+) -> StatsResult<FitResult> {
     // Validate alpha parameter
     if options.alpha < 0.0 {
         return Err(StatsError::InvalidAlpha(options.alpha));
@@ -68,7 +72,8 @@ pub fn fit_elasticnet(y: &[f64], x: &[Vec<f64>], options: &ElasticNetOptions) ->
         .filter(|&i| {
             !y[i].is_nan()
                 && !y[i].is_infinite()
-                && x.iter().all(|col| !col[i].is_nan() && !col[i].is_infinite())
+                && x.iter()
+                    .all(|col| !col[i].is_nan() && !col[i].is_infinite())
         })
         .collect();
 
@@ -94,8 +99,8 @@ pub fn fit_elasticnet(y: &[f64], x: &[Vec<f64>], options: &ElasticNetOptions) ->
     // - alpha = L1/L2 mix ratio (our l1_ratio)
     let fitted = ElasticNetRegressor::builder()
         .with_intercept(options.fit_intercept)
-        .lambda(options.alpha)      // our alpha is their lambda
-        .alpha(options.l1_ratio)    // our l1_ratio is their alpha
+        .lambda(options.alpha) // our alpha is their lambda
+        .alpha(options.l1_ratio) // our l1_ratio is their alpha
         .max_iterations(options.max_iterations as usize)
         .tolerance(options.tolerance)
         .build()

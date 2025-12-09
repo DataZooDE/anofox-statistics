@@ -235,3 +235,24 @@ impl Default for ElasticNetOptionsFFI {
         }
     }
 }
+
+/// WLS (Weighted Least Squares) options for FFI
+#[repr(C)]
+pub struct WlsOptionsFFI {
+    /// Whether to fit intercept
+    pub fit_intercept: bool,
+    /// Whether to compute inference statistics
+    pub compute_inference: bool,
+    /// Confidence level for CIs
+    pub confidence_level: f64,
+}
+
+impl Default for WlsOptionsFFI {
+    fn default() -> Self {
+        Self {
+            fit_intercept: true,
+            compute_inference: false,
+            confidence_level: 0.95,
+        }
+    }
+}
