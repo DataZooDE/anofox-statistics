@@ -1,13 +1,13 @@
+#include <cmath>
+#include <vector>
+
 #include "duckdb.hpp"
-#include "duckdb/main/extension/extension_loader.hpp"
-#include "duckdb/function/scalar_function.hpp"
 #include "duckdb/common/types/data_chunk.hpp"
+#include "duckdb/function/scalar_function.hpp"
+#include "duckdb/main/extension/extension_loader.hpp"
 #include "duckdb/planner/expression/bound_function_expression.hpp"
 
 #include "../include/anofox_stats_ffi.h"
-
-#include <cmath>
-#include <vector>
 
 namespace duckdb {
 
@@ -30,9 +30,9 @@ static vector<double> ExtractDoubleList(Vector &vec, idx_t row_idx) {
 
 // Predict function: anofox_stats_predict(x, coefficients, intercept) -> LIST(DOUBLE)
 static void PredictFunction(DataChunk &args, ExpressionState &state, Vector &result) {
-    auto &x_vec = args.data[0];          // LIST(LIST(DOUBLE)) - new feature data
-    auto &coef_vec = args.data[1];       // LIST(DOUBLE) - coefficients
-    auto &intercept_vec = args.data[2];  // DOUBLE - intercept (can be NULL)
+    auto &x_vec = args.data[0];         // LIST(LIST(DOUBLE)) - new feature data
+    auto &coef_vec = args.data[1];      // LIST(DOUBLE) - coefficients
+    auto &intercept_vec = args.data[2]; // DOUBLE - intercept (can be NULL)
 
     idx_t count = args.size();
 
@@ -48,9 +48,8 @@ static void PredictFunction(DataChunk &args, ExpressionState &state, Vector &res
 
         // Extract intercept (use NaN if NULL)
         auto intercept_idx = intercept_data.sel->get_index(row);
-        double intercept = intercept_data.validity.RowIsValid(intercept_idx)
-                               ? intercept_values[intercept_idx]
-                               : std::nan("");
+        double intercept =
+            intercept_data.validity.RowIsValid(intercept_idx) ? intercept_values[intercept_idx] : std::nan("");
 
         // Extract x values (list of columns)
         auto x_list_data = ListVector::GetData(x_vec);
@@ -79,16 +78,8 @@ static void PredictFunction(DataChunk &args, ExpressionState &state, Vector &res
         size_t predictions_len = 0;
         AnofoxError error;
 
-        bool success = anofox_predict(
-            x_arrays.data(),
-            x_arrays.size(),
-            coefficients.data(),
-            coefficients.size(),
-            intercept,
-            &predictions,
-            &predictions_len,
-            &error
-        );
+        bool success = anofox_predict(x_arrays.data(), x_arrays.size(), coefficients.data(), coefficients.size(),
+                                      intercept, &predictions, &predictions_len, &error);
 
         if (!success) {
             throw InvalidInputException("Predict failed: %s", error.message);
@@ -120,13 +111,9 @@ void RegisterPredictFunction(ExtensionLoader &loader) {
     // x: LIST(LIST(DOUBLE)) - feature data (list of feature columns, each a list of values)
     // coefficients: LIST(DOUBLE) - fitted coefficients
     // intercept: DOUBLE - intercept value (can be NULL)
-    ScalarFunction func(
-        {LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)),
-         LogicalType::LIST(LogicalType::DOUBLE),
-         LogicalType::DOUBLE},
-        LogicalType::LIST(LogicalType::DOUBLE),
-        PredictFunction
-    );
+    ScalarFunction func({LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)),
+                         LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE},
+                        LogicalType::LIST(LogicalType::DOUBLE), PredictFunction);
     func_set.AddFunction(func);
 
     loader.RegisterFunction(func_set);

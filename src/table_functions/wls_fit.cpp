@@ -1,14 +1,14 @@
+#include <cmath>
+#include <vector>
+
 #include "duckdb.hpp"
-#include "duckdb/main/extension/extension_loader.hpp"
-#include "duckdb/function/scalar_function.hpp"
 #include "duckdb/common/types/data_chunk.hpp"
 #include "duckdb/common/vector_operations/generic_executor.hpp"
+#include "duckdb/function/scalar_function.hpp"
+#include "duckdb/main/extension/extension_loader.hpp"
 #include "duckdb/planner/expression/bound_function_expression.hpp"
 
 #include "../include/anofox_stats_ffi.h"
-
-#include <cmath>
-#include <vector>
 
 namespace duckdb {
 
@@ -53,8 +53,7 @@ struct WlsFitBindData : public FunctionData {
 
     bool Equals(const FunctionData &other_p) const override {
         auto &other = other_p.Cast<WlsFitBindData>();
-        return fit_intercept == other.fit_intercept &&
-               compute_inference == other.compute_inference &&
+        return fit_intercept == other.fit_intercept && compute_inference == other.compute_inference &&
                confidence_level == other.confidence_level;
     }
 };
@@ -159,16 +158,8 @@ static void WlsFitFunction(DataChunk &args, ExpressionState &state, Vector &resu
         AnofoxFitResultInference inference_result;
         AnofoxError error;
 
-        bool success = anofox_wls_fit(
-            y_array,
-            x_arrays.data(),
-            x_arrays.size(),
-            weights_array,
-            options,
-            &core_result,
-            bind_data.compute_inference ? &inference_result : nullptr,
-            &error
-        );
+        bool success = anofox_wls_fit(y_array, x_arrays.data(), x_arrays.size(), weights_array, options, &core_result,
+                                      bind_data.compute_inference ? &inference_result : nullptr, &error);
 
         if (!success) {
             throw InvalidInputException("WLS fit failed: %s", error.message);
@@ -235,28 +226,21 @@ void RegisterWlsFitFunction(ExtensionLoader &loader) {
     ScalarFunctionSet func_set("anofox_stats_wls_fit");
 
     // Version with just y, x, and weights
-    ScalarFunction basic_func(
-        {LogicalType::LIST(LogicalType::DOUBLE),
-         LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)),
-         LogicalType::LIST(LogicalType::DOUBLE)},
-        LogicalType::ANY,  // Will be set in bind
-        WlsFitFunction,
-        WlsFitBind
-    );
+    ScalarFunction basic_func({LogicalType::LIST(LogicalType::DOUBLE),
+                               LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)),
+                               LogicalType::LIST(LogicalType::DOUBLE)},
+                              LogicalType::ANY, // Will be set in bind
+                              WlsFitFunction, WlsFitBind);
     func_set.AddFunction(basic_func);
 
     // Version with options: anofox_stats_wls_fit(y, x, weights, fit_intercept, compute_inference, confidence_level)
-    ScalarFunction full_func(
-        {LogicalType::LIST(LogicalType::DOUBLE),
-         LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)),
-         LogicalType::LIST(LogicalType::DOUBLE),
-         LogicalType::BOOLEAN,  // fit_intercept
-         LogicalType::BOOLEAN,  // compute_inference
-         LogicalType::DOUBLE},  // confidence_level
-        LogicalType::ANY,
-        WlsFitFunction,
-        WlsFitBind
-    );
+    ScalarFunction full_func({LogicalType::LIST(LogicalType::DOUBLE),
+                              LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)),
+                              LogicalType::LIST(LogicalType::DOUBLE),
+                              LogicalType::BOOLEAN, // fit_intercept
+                              LogicalType::BOOLEAN, // compute_inference
+                              LogicalType::DOUBLE}, // confidence_level
+                             LogicalType::ANY, WlsFitFunction, WlsFitBind);
     func_set.AddFunction(full_func);
 
     loader.RegisterFunction(func_set);

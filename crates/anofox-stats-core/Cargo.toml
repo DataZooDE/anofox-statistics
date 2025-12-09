@@ -7,7 +7,7 @@ authors.workspace = true
 description = "Core statistics library for anofox-statistics DuckDB extension"
 
 [dependencies]
-regress-rs.workspace = true
+anofox-regression.workspace = true
 faer.workspace = true
 thiserror.workspace = true
 

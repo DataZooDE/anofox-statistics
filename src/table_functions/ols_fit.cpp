@@ -1,14 +1,14 @@
+#include <cmath>
+#include <vector>
+
 #include "duckdb.hpp"
-#include "duckdb/main/extension/extension_loader.hpp"
-#include "duckdb/function/scalar_function.hpp"
 #include "duckdb/common/types/data_chunk.hpp"
 #include "duckdb/common/vector_operations/generic_executor.hpp"
+#include "duckdb/function/scalar_function.hpp"
+#include "duckdb/main/extension/extension_loader.hpp"
 #include "duckdb/planner/expression/bound_function_expression.hpp"
 
 #include "../include/anofox_stats_ffi.h"
-
-#include <cmath>
-#include <vector>
 
 namespace duckdb {
 
@@ -53,8 +53,7 @@ struct OlsFitBindData : public FunctionData {
 
     bool Equals(const FunctionData &other_p) const override {
         auto &other = other_p.Cast<OlsFitBindData>();
-        return fit_intercept == other.fit_intercept &&
-               compute_inference == other.compute_inference &&
+        return fit_intercept == other.fit_intercept && compute_inference == other.compute_inference &&
                confidence_level == other.confidence_level;
     }
 };
@@ -102,8 +101,8 @@ static vector<double> ExtractDoubleList(Vector &vec, idx_t row_idx) {
 static void OlsFitFunction(DataChunk &args, ExpressionState &state, Vector &result) {
     auto &bind_data = state.expr.Cast<BoundFunctionExpression>().bind_info->Cast<OlsFitBindData>();
 
-    auto &y_vec = args.data[0];  // LIST(DOUBLE)
-    auto &x_vec = args.data[1];  // LIST(LIST(DOUBLE)) - list of feature columns
+    auto &y_vec = args.data[0]; // LIST(DOUBLE)
+    auto &x_vec = args.data[1]; // LIST(LIST(DOUBLE)) - list of feature columns
 
     idx_t count = args.size();
 
@@ -150,15 +149,8 @@ static void OlsFitFunction(DataChunk &args, ExpressionState &state, Vector &resu
         AnofoxFitResultInference inference_result;
         AnofoxError error;
 
-        bool success = anofox_ols_fit(
-            y_array,
-            x_arrays.data(),
-            x_arrays.size(),
-            options,
-            &core_result,
-            bind_data.compute_inference ? &inference_result : nullptr,
-            &error
-        );
+        bool success = anofox_ols_fit(y_array, x_arrays.data(), x_arrays.size(), options, &core_result,
+                                      bind_data.compute_inference ? &inference_result : nullptr, &error);
 
         if (!success) {
             throw InvalidInputException("OLS fit failed: %s", error.message);
@@ -227,23 +219,17 @@ void RegisterOlsFitFunction(ExtensionLoader &loader) {
     // Version with just y and x
     ScalarFunction basic_func(
         {LogicalType::LIST(LogicalType::DOUBLE), LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE))},
-        LogicalType::ANY,  // Will be set in bind
-        OlsFitFunction,
-        OlsFitBind
-    );
+        LogicalType::ANY, // Will be set in bind
+        OlsFitFunction, OlsFitBind);
     func_set.AddFunction(basic_func);
 
     // Version with options: anofox_stats_ols_fit(y, x, fit_intercept, compute_inference, confidence_level)
-    ScalarFunction full_func(
-        {LogicalType::LIST(LogicalType::DOUBLE),
-         LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)),
-         LogicalType::BOOLEAN,  // fit_intercept
-         LogicalType::BOOLEAN,  // compute_inference
-         LogicalType::DOUBLE},  // confidence_level
-        LogicalType::ANY,
-        OlsFitFunction,
-        OlsFitBind
-    );
+    ScalarFunction full_func({LogicalType::LIST(LogicalType::DOUBLE),
+                              LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)),
+                              LogicalType::BOOLEAN, // fit_intercept
+                              LogicalType::BOOLEAN, // compute_inference
+                              LogicalType::DOUBLE}, // confidence_level
+                             LogicalType::ANY, OlsFitFunction, OlsFitBind);
     func_set.AddFunction(full_func);
 
     loader.RegisterFunction(func_set);

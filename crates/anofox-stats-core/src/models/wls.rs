@@ -5,8 +5,8 @@
 
 use crate::errors::{StatsError, StatsResult};
 use crate::types::{FitResult, FitResultCore, FitResultInference, WlsOptions};
+use anofox_regression::prelude::*;
 use faer::{Col, Mat};
-use regress_rs::prelude::*;
 
 /// Fit a Weighted Least Squares regression model
 ///

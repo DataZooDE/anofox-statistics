@@ -1,6 +1,7 @@
-#include <stdio.h>
-#include <stdbool.h>
 #include <math.h>
+#include <stdbool.h>
+#include <stdio.h>
+
 #include "src/include/anofox_stats_ffi.h"
 
 int main() {
@@ -51,7 +52,7 @@ int main() {
             printf("  [WARN] Coefficient shrinkage not as expected\n");
         }
         anofox_free_result_core(&core_high);
-        anofox_free_result_core(&core_low);  // Now safe to free
+        anofox_free_result_core(&core_low); // Now safe to free
     } else {
         printf("  FAILED: %s\n", error.message);
         return 1;

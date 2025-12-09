@@ -1,11 +1,11 @@
+#include <vector>
+
 #include "duckdb.hpp"
+#include "duckdb/common/types/data_chunk.hpp"
 #include "duckdb/function/aggregate_function.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
-#include "duckdb/common/types/data_chunk.hpp"
 
 #include "../include/anofox_stats_ffi.h"
-
-#include <vector>
 
 namespace duckdb {
 
@@ -45,10 +45,10 @@ static void VifAggDestroy(Vector &state_vector, AggregateInputData &, idx_t coun
     }
 }
 
-static void VifAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data, idx_t input_count,
-                          Vector &state_vector, idx_t count) {
+static void VifAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data, idx_t input_count, Vector &state_vector,
+                         idx_t count) {
     UnifiedVectorFormat x_data;
-    inputs[0].ToUnifiedFormat(count, x_data);  // x: LIST(DOUBLE)
+    inputs[0].ToUnifiedFormat(count, x_data); // x: LIST(DOUBLE)
 
     auto x_list_data = ListVector::GetData(inputs[0]);
     auto &x_child = ListVector::GetEntry(inputs[0]);
@@ -63,7 +63,7 @@ static void VifAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data, i
 
         auto x_idx = x_data.sel->get_index(i);
         if (!x_data.validity.RowIsValid(x_idx)) {
-            continue;  // Skip NULL x values
+            continue; // Skip NULL x values
         }
 
         auto list_entry = x_list_data[x_idx];
@@ -78,9 +78,8 @@ static void VifAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data, i
 
         // Validate consistent feature count
         if (n_features != state.n_features) {
-            throw InvalidInputException(
-                "Inconsistent feature count: expected %lu, got %lu",
-                state.n_features, n_features);
+            throw InvalidInputException("Inconsistent feature count: expected %lu, got %lu", state.n_features,
+                                        n_features);
         }
 
         // Accumulate x values
@@ -93,8 +92,7 @@ static void VifAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data, i
     }
 }
 
-static void VifAggCombine(Vector &source_vector, Vector &target_vector,
-                           AggregateInputData &, idx_t count) {
+static void VifAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &, idx_t count) {
     UnifiedVectorFormat source_data, target_data;
     source_vector.ToUnifiedFormat(count, source_data);
     target_vector.ToUnifiedFormat(count, target_data);
@@ -118,15 +116,13 @@ static void VifAggCombine(Vector &source_vector, Vector &target_vector,
         }
 
         if (source.n_features != target.n_features) {
-            throw InvalidInputException(
-                "Cannot combine states with different feature counts: %lu vs %lu",
-                source.n_features, target.n_features);
+            throw InvalidInputException("Cannot combine states with different feature counts: %lu vs %lu",
+                                        source.n_features, target.n_features);
         }
 
         for (idx_t j = 0; j < target.n_features; j++) {
-            target.x_columns[j].insert(target.x_columns[j].end(),
-                                        source.x_columns[j].begin(),
-                                        source.x_columns[j].end());
+            target.x_columns[j].insert(target.x_columns[j].end(), source.x_columns[j].begin(),
+                                       source.x_columns[j].end());
         }
     }
 }
@@ -143,8 +139,8 @@ static void SetListInResult(Vector &list_vec, idx_t row, double *data, size_t le
     ListVector::GetData(list_vec)[row] = {offset, (idx_t)len};
 }
 
-static void VifAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_data,
-                            Vector &result, idx_t count, idx_t offset) {
+static void VifAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_data, Vector &result, idx_t count,
+                           idx_t offset) {
     UnifiedVectorFormat sdata;
     state_vector.ToUnifiedFormat(count, sdata);
     auto states = (VifAggregateState **)sdata.data;
@@ -172,13 +168,7 @@ static void VifAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
         size_t vif_len = 0;
         AnofoxError error;
 
-        bool success = anofox_compute_vif(
-            x_arrays.data(),
-            x_arrays.size(),
-            &vif_values,
-            &vif_len,
-            &error
-        );
+        bool success = anofox_compute_vif(x_arrays.data(), x_arrays.size(), &vif_values, &vif_len, &error);
 
         if (!success || vif_values == nullptr) {
             FlatVector::SetNull(result, result_idx, true);
@@ -197,7 +187,7 @@ static void VifAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
 // Bind function
 //===--------------------------------------------------------------------===//
 static unique_ptr<FunctionData> VifAggBind(ClientContext &context, AggregateFunction &function,
-                                            vector<unique_ptr<Expression>> &arguments) {
+                                           vector<unique_ptr<Expression>> &arguments) {
     function.return_type = LogicalType::LIST(LogicalType::DOUBLE);
     return nullptr;
 }
@@ -208,19 +198,12 @@ static unique_ptr<FunctionData> VifAggBind(ClientContext &context, AggregateFunc
 void RegisterVifAggregateFunction(ExtensionLoader &loader) {
     AggregateFunctionSet func_set("anofox_stats_vif_agg");
 
-    auto func = AggregateFunction(
-        "anofox_stats_vif_agg",
-        {LogicalType::LIST(LogicalType::DOUBLE)},
-        LogicalType::ANY,  // Set in bind
-        AggregateFunction::StateSize<VifAggregateState>,
-        VifAggInitialize,
-        VifAggUpdate,
-        VifAggCombine,
-        VifAggFinalize,
-        nullptr,  // simple_update
-        VifAggBind,
-        VifAggDestroy
-    );
+    auto func = AggregateFunction("anofox_stats_vif_agg", {LogicalType::LIST(LogicalType::DOUBLE)},
+                                  LogicalType::ANY, // Set in bind
+                                  AggregateFunction::StateSize<VifAggregateState>, VifAggInitialize, VifAggUpdate,
+                                  VifAggCombine, VifAggFinalize,
+                                  nullptr, // simple_update
+                                  VifAggBind, VifAggDestroy);
     func_set.AddFunction(func);
 
     loader.RegisterFunction(func_set);

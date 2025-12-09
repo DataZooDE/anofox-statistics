@@ -1,11 +1,11 @@
+#include <vector>
+
 #include "duckdb.hpp"
+#include "duckdb/common/types/data_chunk.hpp"
 #include "duckdb/function/aggregate_function.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
-#include "duckdb/common/types/data_chunk.hpp"
 
 #include "../include/anofox_stats_ffi.h"
-
-#include <vector>
 
 namespace duckdb {
 
@@ -24,8 +24,7 @@ struct OlsAggregateState {
     double confidence_level;
 
     OlsAggregateState()
-        : n_features(0), initialized(false), fit_intercept(true),
-          compute_inference(false), confidence_level(0.95) {}
+        : n_features(0), initialized(false), fit_intercept(true), compute_inference(false), confidence_level(0.95) {}
 
     void Reset() {
         y_values.clear();
@@ -53,8 +52,7 @@ struct OlsAggregateBindData : public FunctionData {
 
     bool Equals(const FunctionData &other_p) const override {
         auto &other = other_p.Cast<OlsAggregateBindData>();
-        return fit_intercept == other.fit_intercept &&
-               compute_inference == other.compute_inference &&
+        return fit_intercept == other.fit_intercept && compute_inference == other.compute_inference &&
                confidence_level == other.confidence_level;
     }
 };
@@ -108,14 +106,14 @@ static void OlsAggDestroy(Vector &state_vector, AggregateInputData &, idx_t coun
 }
 
 // Update: accumulate values from input rows
-static void OlsAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data, idx_t input_count,
-                         Vector &state_vector, idx_t count) {
+static void OlsAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data, idx_t input_count, Vector &state_vector,
+                         idx_t count) {
     auto &bind_data = aggr_input_data.bind_data->Cast<OlsAggregateBindData>();
 
     UnifiedVectorFormat y_data;
     UnifiedVectorFormat x_data;
-    inputs[0].ToUnifiedFormat(count, y_data);  // y: DOUBLE
-    inputs[1].ToUnifiedFormat(count, x_data);  // x: LIST(DOUBLE)
+    inputs[0].ToUnifiedFormat(count, y_data); // y: DOUBLE
+    inputs[1].ToUnifiedFormat(count, x_data); // x: LIST(DOUBLE)
 
     auto y_values = UnifiedVectorFormat::GetData<double>(y_data);
     auto x_list_data = ListVector::GetData(inputs[1]);
@@ -137,14 +135,14 @@ static void OlsAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data, i
         // Get y value
         auto y_idx = y_data.sel->get_index(i);
         if (!y_data.validity.RowIsValid(y_idx)) {
-            continue;  // Skip NULL y values
+            continue; // Skip NULL y values
         }
         double y_val = y_values[y_idx];
 
         // Get x values (LIST(DOUBLE))
         auto x_idx = x_data.sel->get_index(i);
         if (!x_data.validity.RowIsValid(x_idx)) {
-            continue;  // Skip NULL x values
+            continue; // Skip NULL x values
         }
 
         auto list_entry = x_list_data[x_idx];
@@ -159,9 +157,8 @@ static void OlsAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data, i
 
         // Validate consistent feature count
         if (n_features != state.n_features) {
-            throw InvalidInputException(
-                "Inconsistent feature count: expected %lu, got %lu",
-                state.n_features, n_features);
+            throw InvalidInputException("Inconsistent feature count: expected %lu, got %lu", state.n_features,
+                                        n_features);
         }
 
         // Accumulate y value
@@ -176,8 +173,7 @@ static void OlsAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data, i
 }
 
 // Combine: merge two states (vectorized version for new API)
-static void OlsAggCombine(Vector &source_vector, Vector &target_vector,
-                          AggregateInputData &, idx_t count) {
+static void OlsAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &, idx_t count) {
     UnifiedVectorFormat source_data, target_data;
     source_vector.ToUnifiedFormat(count, source_data);
     target_vector.ToUnifiedFormat(count, target_data);
@@ -190,7 +186,7 @@ static void OlsAggCombine(Vector &source_vector, Vector &target_vector,
         auto &target = *targets[target_data.sel->get_index(i)];
 
         if (!source.initialized) {
-            continue;  // Nothing to combine
+            continue; // Nothing to combine
         }
 
         if (!target.initialized) {
@@ -207,9 +203,8 @@ static void OlsAggCombine(Vector &source_vector, Vector &target_vector,
 
         // Validate same feature count
         if (source.n_features != target.n_features) {
-            throw InvalidInputException(
-                "Cannot combine states with different feature counts: %lu vs %lu",
-                source.n_features, target.n_features);
+            throw InvalidInputException("Cannot combine states with different feature counts: %lu vs %lu",
+                                        source.n_features, target.n_features);
         }
 
         // Merge y values
@@ -217,9 +212,8 @@ static void OlsAggCombine(Vector &source_vector, Vector &target_vector,
 
         // Merge x columns
         for (idx_t j = 0; j < target.n_features; j++) {
-            target.x_columns[j].insert(target.x_columns[j].end(),
-                                        source.x_columns[j].begin(),
-                                        source.x_columns[j].end());
+            target.x_columns[j].insert(target.x_columns[j].end(), source.x_columns[j].begin(),
+                                       source.x_columns[j].end());
         }
     }
 }
@@ -237,8 +231,8 @@ static void SetListInResult(Vector &list_vec, idx_t row, double *data, size_t le
 }
 
 // Finalize: compute OLS for accumulated data
-static void OlsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_data,
-                           Vector &result, idx_t count, idx_t offset) {
+static void OlsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_data, Vector &result, idx_t count,
+                           idx_t offset) {
     UnifiedVectorFormat sdata;
     state_vector.ToUnifiedFormat(count, sdata);
     auto states = (OlsAggregateState **)sdata.data;
@@ -287,15 +281,8 @@ static void OlsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
         AnofoxFitResultInference inference_result;
         AnofoxError error;
 
-        bool success = anofox_ols_fit(
-            y_array,
-            x_arrays.data(),
-            x_arrays.size(),
-            options,
-            &core_result,
-            state.compute_inference ? &inference_result : nullptr,
-            &error
-        );
+        bool success = anofox_ols_fit(y_array, x_arrays.data(), x_arrays.size(), options, &core_result,
+                                      state.compute_inference ? &inference_result : nullptr, &error);
 
         if (!success) {
             FlatVector::SetNull(result, result_idx, true);
@@ -306,8 +293,8 @@ static void OlsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
         idx_t struct_idx = 0;
 
         // Coefficients
-        SetListInResult(*struct_entries[struct_idx++], result_idx,
-                       core_result.coefficients, core_result.coefficients_len);
+        SetListInResult(*struct_entries[struct_idx++], result_idx, core_result.coefficients,
+                        core_result.coefficients_len);
 
         // Scalars
         FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = core_result.intercept;
@@ -319,16 +306,12 @@ static void OlsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
 
         // Inference results
         if (state.compute_inference) {
-            SetListInResult(*struct_entries[struct_idx++], result_idx,
-                           inference_result.std_errors, inference_result.len);
-            SetListInResult(*struct_entries[struct_idx++], result_idx,
-                           inference_result.t_values, inference_result.len);
-            SetListInResult(*struct_entries[struct_idx++], result_idx,
-                           inference_result.p_values, inference_result.len);
-            SetListInResult(*struct_entries[struct_idx++], result_idx,
-                           inference_result.ci_lower, inference_result.len);
-            SetListInResult(*struct_entries[struct_idx++], result_idx,
-                           inference_result.ci_upper, inference_result.len);
+            SetListInResult(*struct_entries[struct_idx++], result_idx, inference_result.std_errors,
+                            inference_result.len);
+            SetListInResult(*struct_entries[struct_idx++], result_idx, inference_result.t_values, inference_result.len);
+            SetListInResult(*struct_entries[struct_idx++], result_idx, inference_result.p_values, inference_result.len);
+            SetListInResult(*struct_entries[struct_idx++], result_idx, inference_result.ci_lower, inference_result.len);
+            SetListInResult(*struct_entries[struct_idx++], result_idx, inference_result.ci_upper, inference_result.len);
 
             FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = inference_result.f_statistic;
             FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = inference_result.f_pvalue;
@@ -375,38 +358,20 @@ void RegisterOlsAggregateFunction(ExtensionLoader &loader) {
 
     // Basic version: anofox_stats_ols_fit_agg(y, x)
     auto basic_func = AggregateFunction(
-        "anofox_stats_ols_fit_agg",
-        {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
-        LogicalType::ANY,  // Set in bind
-        AggregateFunction::StateSize<OlsAggregateState>,
-        OlsAggInitialize,
-        OlsAggUpdate,
-        OlsAggCombine,
-        OlsAggFinalize,
-        nullptr,  // simple_update
-        OlsAggBind,
-        OlsAggDestroy
-    );
+        "anofox_stats_ols_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
+        LogicalType::ANY, // Set in bind
+        AggregateFunction::StateSize<OlsAggregateState>, OlsAggInitialize, OlsAggUpdate, OlsAggCombine, OlsAggFinalize,
+        nullptr, // simple_update
+        OlsAggBind, OlsAggDestroy);
     func_set.AddFunction(basic_func);
 
     // Version with options: anofox_stats_ols_fit_agg(y, x, fit_intercept, compute_inference, confidence_level)
-    auto full_func = AggregateFunction(
-        "anofox_stats_ols_fit_agg",
-        {LogicalType::DOUBLE,
-         LogicalType::LIST(LogicalType::DOUBLE),
-         LogicalType::BOOLEAN,
-         LogicalType::BOOLEAN,
-         LogicalType::DOUBLE},
-        LogicalType::ANY,
-        AggregateFunction::StateSize<OlsAggregateState>,
-        OlsAggInitialize,
-        OlsAggUpdate,
-        OlsAggCombine,
-        OlsAggFinalize,
-        nullptr,
-        OlsAggBind,
-        OlsAggDestroy
-    );
+    auto full_func =
+        AggregateFunction("anofox_stats_ols_fit_agg",
+                          {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::BOOLEAN,
+                           LogicalType::BOOLEAN, LogicalType::DOUBLE},
+                          LogicalType::ANY, AggregateFunction::StateSize<OlsAggregateState>, OlsAggInitialize,
+                          OlsAggUpdate, OlsAggCombine, OlsAggFinalize, nullptr, OlsAggBind, OlsAggDestroy);
     func_set.AddFunction(full_func);
 
     loader.RegisterFunction(func_set);

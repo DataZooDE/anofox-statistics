@@ -1,11 +1,11 @@
+#include <vector>
+
 #include "duckdb.hpp"
+#include "duckdb/common/types/data_chunk.hpp"
 #include "duckdb/function/aggregate_function.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
-#include "duckdb/common/types/data_chunk.hpp"
 
 #include "../include/anofox_stats_ffi.h"
-
-#include <vector>
 
 namespace duckdb {
 
@@ -26,8 +26,8 @@ struct ElasticNetAggregateState {
     double tolerance;
 
     ElasticNetAggregateState()
-        : n_features(0), initialized(false), alpha(1.0), l1_ratio(0.5),
-          fit_intercept(true), max_iterations(1000), tolerance(1e-6) {}
+        : n_features(0), initialized(false), alpha(1.0), l1_ratio(0.5), fit_intercept(true), max_iterations(1000),
+          tolerance(1e-6) {}
 
     void Reset() {
         y_values.clear();
@@ -59,11 +59,8 @@ struct ElasticNetAggregateBindData : public FunctionData {
 
     bool Equals(const FunctionData &other_p) const override {
         auto &other = other_p.Cast<ElasticNetAggregateBindData>();
-        return alpha == other.alpha &&
-               l1_ratio == other.l1_ratio &&
-               fit_intercept == other.fit_intercept &&
-               max_iterations == other.max_iterations &&
-               tolerance == other.tolerance;
+        return alpha == other.alpha && l1_ratio == other.l1_ratio && fit_intercept == other.fit_intercept &&
+               max_iterations == other.max_iterations && tolerance == other.tolerance;
     }
 };
 
@@ -107,13 +104,13 @@ static void ElasticNetAggDestroy(Vector &state_vector, AggregateInputData &, idx
 
 // Update: accumulate values from input rows
 static void ElasticNetAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data, idx_t input_count,
-                                 Vector &state_vector, idx_t count) {
+                                Vector &state_vector, idx_t count) {
     auto &bind_data = aggr_input_data.bind_data->Cast<ElasticNetAggregateBindData>();
 
     UnifiedVectorFormat y_data;
     UnifiedVectorFormat x_data;
-    inputs[0].ToUnifiedFormat(count, y_data);  // y: DOUBLE
-    inputs[1].ToUnifiedFormat(count, x_data);  // x: LIST(DOUBLE)
+    inputs[0].ToUnifiedFormat(count, y_data); // y: DOUBLE
+    inputs[1].ToUnifiedFormat(count, x_data); // x: LIST(DOUBLE)
 
     auto y_values = UnifiedVectorFormat::GetData<double>(y_data);
     auto x_list_data = ListVector::GetData(inputs[1]);
@@ -137,14 +134,14 @@ static void ElasticNetAggUpdate(Vector inputs[], AggregateInputData &aggr_input_
         // Get y value
         auto y_idx = y_data.sel->get_index(i);
         if (!y_data.validity.RowIsValid(y_idx)) {
-            continue;  // Skip NULL y values
+            continue; // Skip NULL y values
         }
         double y_val = y_values[y_idx];
 
         // Get x values (LIST(DOUBLE))
         auto x_idx = x_data.sel->get_index(i);
         if (!x_data.validity.RowIsValid(x_idx)) {
-            continue;  // Skip NULL x values
+            continue; // Skip NULL x values
         }
 
         auto list_entry = x_list_data[x_idx];
@@ -159,9 +156,8 @@ static void ElasticNetAggUpdate(Vector inputs[], AggregateInputData &aggr_input_
 
         // Validate consistent feature count
         if (n_features != state.n_features) {
-            throw InvalidInputException(
-                "Inconsistent feature count: expected %lu, got %lu",
-                state.n_features, n_features);
+            throw InvalidInputException("Inconsistent feature count: expected %lu, got %lu", state.n_features,
+                                        n_features);
         }
 
         // Accumulate y value
@@ -176,8 +172,7 @@ static void ElasticNetAggUpdate(Vector inputs[], AggregateInputData &aggr_input_
 }
 
 // Combine: merge two states
-static void ElasticNetAggCombine(Vector &source_vector, Vector &target_vector,
-                                  AggregateInputData &, idx_t count) {
+static void ElasticNetAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &, idx_t count) {
     UnifiedVectorFormat source_data, target_data;
     source_vector.ToUnifiedFormat(count, source_data);
     target_vector.ToUnifiedFormat(count, target_data);
@@ -190,7 +185,7 @@ static void ElasticNetAggCombine(Vector &source_vector, Vector &target_vector,
         auto &target = *targets[target_data.sel->get_index(i)];
 
         if (!source.initialized) {
-            continue;  // Nothing to combine
+            continue; // Nothing to combine
         }
 
         if (!target.initialized) {
@@ -209,9 +204,8 @@ static void ElasticNetAggCombine(Vector &source_vector, Vector &target_vector,
 
         // Validate same feature count
         if (source.n_features != target.n_features) {
-            throw InvalidInputException(
-                "Cannot combine states with different feature counts: %lu vs %lu",
-                source.n_features, target.n_features);
+            throw InvalidInputException("Cannot combine states with different feature counts: %lu vs %lu",
+                                        source.n_features, target.n_features);
         }
 
         // Merge y values
@@ -219,9 +213,8 @@ static void ElasticNetAggCombine(Vector &source_vector, Vector &target_vector,
 
         // Merge x columns
         for (idx_t j = 0; j < target.n_features; j++) {
-            target.x_columns[j].insert(target.x_columns[j].end(),
-                                        source.x_columns[j].begin(),
-                                        source.x_columns[j].end());
+            target.x_columns[j].insert(target.x_columns[j].end(), source.x_columns[j].begin(),
+                                       source.x_columns[j].end());
         }
     }
 }
@@ -239,8 +232,8 @@ static void SetListInResult(Vector &list_vec, idx_t row, double *data, size_t le
 }
 
 // Finalize: compute Elastic Net for accumulated data
-static void ElasticNetAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_data,
-                                   Vector &result, idx_t count, idx_t offset) {
+static void ElasticNetAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_data, Vector &result,
+                                  idx_t count, idx_t offset) {
     UnifiedVectorFormat sdata;
     state_vector.ToUnifiedFormat(count, sdata);
     auto states = (ElasticNetAggregateState **)sdata.data;
@@ -290,14 +283,7 @@ static void ElasticNetAggFinalize(Vector &state_vector, AggregateInputData &aggr
         AnofoxFitResultCore core_result;
         AnofoxError error;
 
-        bool success = anofox_elasticnet_fit(
-            y_array,
-            x_arrays.data(),
-            x_arrays.size(),
-            options,
-            &core_result,
-            &error
-        );
+        bool success = anofox_elasticnet_fit(y_array, x_arrays.data(), x_arrays.size(), options, &core_result, &error);
 
         if (!success) {
             FlatVector::SetNull(result, result_idx, true);
@@ -308,8 +294,8 @@ static void ElasticNetAggFinalize(Vector &state_vector, AggregateInputData &aggr
         idx_t struct_idx = 0;
 
         // Coefficients
-        SetListInResult(*struct_entries[struct_idx++], result_idx,
-                       core_result.coefficients, core_result.coefficients_len);
+        SetListInResult(*struct_entries[struct_idx++], result_idx, core_result.coefficients,
+                        core_result.coefficients_len);
 
         // Scalars
         FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = core_result.intercept;
@@ -330,7 +316,7 @@ static void ElasticNetAggFinalize(Vector &state_vector, AggregateInputData &aggr
 // Bind function
 //===--------------------------------------------------------------------===//
 static unique_ptr<FunctionData> ElasticNetAggBind(ClientContext &context, AggregateFunction &function,
-                                                   vector<unique_ptr<Expression>> &arguments) {
+                                                  vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<ElasticNetAggregateBindData>();
 
     // Extract alpha (3rd argument), l1_ratio (4th), and other options
@@ -344,7 +330,8 @@ static unique_ptr<FunctionData> ElasticNetAggBind(ClientContext &context, Aggreg
         result->fit_intercept = BooleanValue::Get(ExpressionExecutor::EvaluateScalar(context, *arguments[4]));
     }
     if (arguments.size() >= 6 && arguments[5]->IsFoldable()) {
-        result->max_iterations = static_cast<uint32_t>(IntegerValue::Get(ExpressionExecutor::EvaluateScalar(context, *arguments[5])));
+        result->max_iterations =
+            static_cast<uint32_t>(IntegerValue::Get(ExpressionExecutor::EvaluateScalar(context, *arguments[5])));
     }
     if (arguments.size() >= 7 && arguments[6]->IsFoldable()) {
         result->tolerance = DoubleValue::Get(ExpressionExecutor::EvaluateScalar(context, *arguments[6]));
@@ -366,38 +353,24 @@ void RegisterElasticNetAggregateFunction(ExtensionLoader &loader) {
     auto basic_func = AggregateFunction(
         "anofox_stats_elasticnet_fit_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE, LogicalType::DOUBLE},
-        LogicalType::ANY,  // Set in bind
-        AggregateFunction::StateSize<ElasticNetAggregateState>,
-        ElasticNetAggInitialize,
-        ElasticNetAggUpdate,
-        ElasticNetAggCombine,
-        ElasticNetAggFinalize,
-        nullptr,  // simple_update
-        ElasticNetAggBind,
-        ElasticNetAggDestroy
-    );
+        LogicalType::ANY, // Set in bind
+        AggregateFunction::StateSize<ElasticNetAggregateState>, ElasticNetAggInitialize, ElasticNetAggUpdate,
+        ElasticNetAggCombine, ElasticNetAggFinalize,
+        nullptr, // simple_update
+        ElasticNetAggBind, ElasticNetAggDestroy);
     func_set.AddFunction(basic_func);
 
     // Full version: anofox_stats_elasticnet_fit_agg(y, x, alpha, l1_ratio, fit_intercept, max_iterations, tolerance)
-    auto full_func = AggregateFunction(
-        "anofox_stats_elasticnet_fit_agg",
-        {LogicalType::DOUBLE,
-         LogicalType::LIST(LogicalType::DOUBLE),
-         LogicalType::DOUBLE,   // alpha
-         LogicalType::DOUBLE,   // l1_ratio
-         LogicalType::BOOLEAN,  // fit_intercept
-         LogicalType::INTEGER,  // max_iterations
-         LogicalType::DOUBLE},  // tolerance
-        LogicalType::ANY,
-        AggregateFunction::StateSize<ElasticNetAggregateState>,
-        ElasticNetAggInitialize,
-        ElasticNetAggUpdate,
-        ElasticNetAggCombine,
-        ElasticNetAggFinalize,
-        nullptr,
-        ElasticNetAggBind,
-        ElasticNetAggDestroy
-    );
+    auto full_func = AggregateFunction("anofox_stats_elasticnet_fit_agg",
+                                       {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE),
+                                        LogicalType::DOUBLE,  // alpha
+                                        LogicalType::DOUBLE,  // l1_ratio
+                                        LogicalType::BOOLEAN, // fit_intercept
+                                        LogicalType::INTEGER, // max_iterations
+                                        LogicalType::DOUBLE}, // tolerance
+                                       LogicalType::ANY, AggregateFunction::StateSize<ElasticNetAggregateState>,
+                                       ElasticNetAggInitialize, ElasticNetAggUpdate, ElasticNetAggCombine,
+                                       ElasticNetAggFinalize, nullptr, ElasticNetAggBind, ElasticNetAggDestroy);
     func_set.AddFunction(full_func);
 
     loader.RegisterFunction(func_set);

@@ -1,14 +1,14 @@
+#include <cmath>
+#include <vector>
+
 #include "duckdb.hpp"
-#include "duckdb/main/extension/extension_loader.hpp"
-#include "duckdb/function/scalar_function.hpp"
 #include "duckdb/common/types/data_chunk.hpp"
 #include "duckdb/common/vector_operations/generic_executor.hpp"
+#include "duckdb/function/scalar_function.hpp"
+#include "duckdb/main/extension/extension_loader.hpp"
 #include "duckdb/planner/expression/bound_function_expression.hpp"
 
 #include "../include/anofox_stats_ffi.h"
-
-#include <cmath>
-#include <vector>
 
 namespace duckdb {
 
@@ -55,16 +55,14 @@ struct RidgeFitBindData : public FunctionData {
 
     bool Equals(const FunctionData &other_p) const override {
         auto &other = other_p.Cast<RidgeFitBindData>();
-        return alpha == other.alpha &&
-               fit_intercept == other.fit_intercept &&
-               compute_inference == other.compute_inference &&
-               confidence_level == other.confidence_level;
+        return alpha == other.alpha && fit_intercept == other.fit_intercept &&
+               compute_inference == other.compute_inference && confidence_level == other.confidence_level;
     }
 };
 
 // Bind function
 static unique_ptr<FunctionData> RidgeFitBind(ClientContext &context, ScalarFunction &bound_function,
-                                              vector<unique_ptr<Expression>> &arguments) {
+                                             vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<RidgeFitBindData>();
 
     // Check for constant arguments for options (if provided as 3rd, 4th, 5th, 6th args)
@@ -109,8 +107,8 @@ static vector<double> ExtractDoubleList(Vector &vec, idx_t row_idx) {
 static void RidgeFitFunction(DataChunk &args, ExpressionState &state, Vector &result) {
     auto &bind_data = state.expr.Cast<BoundFunctionExpression>().bind_info->Cast<RidgeFitBindData>();
 
-    auto &y_vec = args.data[0];  // LIST(DOUBLE)
-    auto &x_vec = args.data[1];  // LIST(LIST(DOUBLE)) - list of feature columns
+    auto &y_vec = args.data[0]; // LIST(DOUBLE)
+    auto &x_vec = args.data[1]; // LIST(LIST(DOUBLE)) - list of feature columns
 
     idx_t count = args.size();
 
@@ -158,15 +156,8 @@ static void RidgeFitFunction(DataChunk &args, ExpressionState &state, Vector &re
         AnofoxFitResultInference inference_result;
         AnofoxError error;
 
-        bool success = anofox_ridge_fit(
-            y_array,
-            x_arrays.data(),
-            x_arrays.size(),
-            options,
-            &core_result,
-            bind_data.compute_inference ? &inference_result : nullptr,
-            &error
-        );
+        bool success = anofox_ridge_fit(y_array, x_arrays.data(), x_arrays.size(), options, &core_result,
+                                        bind_data.compute_inference ? &inference_result : nullptr, &error);
 
         if (!success) {
             throw InvalidInputException("Ridge fit failed: %s", error.message);
@@ -232,28 +223,20 @@ void RegisterRidgeFitFunction(ExtensionLoader &loader) {
     ScalarFunctionSet func_set("anofox_stats_ridge_fit");
 
     // Version with y, x, and alpha only
-    ScalarFunction basic_func(
-        {LogicalType::LIST(LogicalType::DOUBLE),
-         LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)),
-         LogicalType::DOUBLE},  // alpha
-        LogicalType::ANY,  // Will be set in bind
-        RidgeFitFunction,
-        RidgeFitBind
-    );
+    ScalarFunction basic_func({LogicalType::LIST(LogicalType::DOUBLE),
+                               LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)), LogicalType::DOUBLE}, // alpha
+                              LogicalType::ANY, // Will be set in bind
+                              RidgeFitFunction, RidgeFitBind);
     func_set.AddFunction(basic_func);
 
     // Full version: anofox_stats_ridge_fit(y, x, alpha, fit_intercept, compute_inference, confidence_level)
-    ScalarFunction full_func(
-        {LogicalType::LIST(LogicalType::DOUBLE),
-         LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)),
-         LogicalType::DOUBLE,   // alpha
-         LogicalType::BOOLEAN,  // fit_intercept
-         LogicalType::BOOLEAN,  // compute_inference
-         LogicalType::DOUBLE},  // confidence_level
-        LogicalType::ANY,
-        RidgeFitFunction,
-        RidgeFitBind
-    );
+    ScalarFunction full_func({LogicalType::LIST(LogicalType::DOUBLE),
+                              LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)),
+                              LogicalType::DOUBLE,  // alpha
+                              LogicalType::BOOLEAN, // fit_intercept
+                              LogicalType::BOOLEAN, // compute_inference
+                              LogicalType::DOUBLE}, // confidence_level
+                             LogicalType::ANY, RidgeFitFunction, RidgeFitBind);
     func_set.AddFunction(full_func);
 
     loader.RegisterFunction(func_set);

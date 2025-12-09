@@ -2,8 +2,8 @@
 
 use crate::errors::{StatsError, StatsResult};
 use crate::types::{FitResult, FitResultCore, FitResultInference, RidgeOptions};
+use anofox_regression::prelude::*;
 use faer::{Col, Mat};
-use regress_rs::prelude::*;
 
 /// Fit a Ridge regression model
 ///

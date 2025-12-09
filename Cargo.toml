@@ -1,5 +1,8 @@
 [workspace]
-members = ["crates/anofox-stats-core", "crates/anofox-stats-ffi"]
+members = [
+    "crates/anofox-stats-core",
+    "crates/anofox-stats-ffi"
+]
 resolver = "2"
 
 [workspace.package]
@@ -10,8 +13,8 @@ authors = ["Simon M"]
 repository = "https://github.com/DataZooDE/anofox-statistics"
 
 [workspace.dependencies]
-regress-rs = "0.1"
-faer = "0.20"
+anofox-regression = "0.3"
+faer = "0.23"
 thiserror = "2.0"
 libc = "0.2"
 

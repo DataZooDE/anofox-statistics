@@ -120,13 +120,8 @@ typedef struct {
  * @param out_error Output: error information (required)
  * @return true on success, false on error
  */
-bool anofox_ols_fit(AnofoxDataArray y,
-                    const AnofoxDataArray *x,
-                    size_t x_count,
-                    AnofoxOlsOptions options,
-                    AnofoxFitResultCore *out_core,
-                    AnofoxFitResultInference *out_inference,
-                    AnofoxError *out_error);
+bool anofox_ols_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, AnofoxOlsOptions options,
+                    AnofoxFitResultCore *out_core, AnofoxFitResultInference *out_inference, AnofoxError *out_error);
 
 /**
  * Free memory allocated by anofox_ols_fit for core results
@@ -164,13 +159,8 @@ typedef struct {
  * @param out_error Output: error information (required)
  * @return true on success, false on error
  */
-bool anofox_ridge_fit(AnofoxDataArray y,
-                      const AnofoxDataArray *x,
-                      size_t x_count,
-                      AnofoxRidgeOptions options,
-                      AnofoxFitResultCore *out_core,
-                      AnofoxFitResultInference *out_inference,
-                      AnofoxError *out_error);
+bool anofox_ridge_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, AnofoxRidgeOptions options,
+                      AnofoxFitResultCore *out_core, AnofoxFitResultInference *out_inference, AnofoxError *out_error);
 
 /**
  * Elastic Net regression options for FFI
@@ -199,12 +189,8 @@ typedef struct {
  * @param out_error Output: error information (required)
  * @return true on success, false on error
  */
-bool anofox_elasticnet_fit(AnofoxDataArray y,
-                           const AnofoxDataArray *x,
-                           size_t x_count,
-                           AnofoxElasticNetOptions options,
-                           AnofoxFitResultCore *out_core,
-                           AnofoxError *out_error);
+bool anofox_elasticnet_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, AnofoxElasticNetOptions options,
+                           AnofoxFitResultCore *out_core, AnofoxError *out_error);
 
 /**
  * WLS (Weighted Least Squares) options for FFI
@@ -231,13 +217,8 @@ typedef struct {
  * @param out_error Output: error information (required)
  * @return true on success, false on error
  */
-bool anofox_wls_fit(AnofoxDataArray y,
-                    const AnofoxDataArray *x,
-                    size_t x_count,
-                    AnofoxDataArray weights,
-                    AnofoxWlsOptions options,
-                    AnofoxFitResultCore *out_core,
-                    AnofoxFitResultInference *out_inference,
+bool anofox_wls_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, AnofoxDataArray weights,
+                    AnofoxWlsOptions options, AnofoxFitResultCore *out_core, AnofoxFitResultInference *out_inference,
                     AnofoxError *out_error);
 
 /**
@@ -253,14 +234,8 @@ bool anofox_wls_fit(AnofoxDataArray y,
  * @param out_error Output: error information (required)
  * @return true on success, false on error
  */
-bool anofox_predict(const AnofoxDataArray *x,
-                    size_t x_count,
-                    const double *coefficients,
-                    size_t coefficients_len,
-                    double intercept,
-                    double **out_predictions,
-                    size_t *out_predictions_len,
-                    AnofoxError *out_error);
+bool anofox_predict(const AnofoxDataArray *x, size_t x_count, const double *coefficients, size_t coefficients_len,
+                    double intercept, double **out_predictions, size_t *out_predictions_len, AnofoxError *out_error);
 
 /**
  * Free memory allocated by anofox_predict
@@ -286,10 +261,7 @@ const char *anofox_version(void);
  * @param out_error Output: error information (required)
  * @return true on success, false on error
  */
-bool anofox_compute_vif(const AnofoxDataArray *x,
-                        size_t x_count,
-                        double **out_vif,
-                        size_t *out_vif_len,
+bool anofox_compute_vif(const AnofoxDataArray *x, size_t x_count, double **out_vif, size_t *out_vif_len,
                         AnofoxError *out_error);
 
 /**
@@ -324,13 +296,8 @@ typedef struct {
  * @param out_error Output: error information (required)
  * @return true on success, false on error
  */
-bool anofox_compute_residuals(AnofoxDataArray y,
-                              AnofoxDataArray y_hat,
-                              const AnofoxDataArray *x,
-                              size_t x_count,
-                              double residual_std_error,
-                              bool include_studentized,
-                              AnofoxResidualsResult *out_result,
+bool anofox_compute_residuals(AnofoxDataArray y, AnofoxDataArray y_hat, const AnofoxDataArray *x, size_t x_count,
+                              double residual_std_error, bool include_studentized, AnofoxResidualsResult *out_result,
                               AnofoxError *out_error);
 
 /**
@@ -348,11 +315,7 @@ void anofox_free_residuals(AnofoxResidualsResult *result);
  * @param out_error Output: error information (required)
  * @return true on success, false on error
  */
-bool anofox_compute_aic(double rss,
-                        size_t n,
-                        size_t k,
-                        double *out_aic,
-                        AnofoxError *out_error);
+bool anofox_compute_aic(double rss, size_t n, size_t k, double *out_aic, AnofoxError *out_error);
 
 /**
  * Compute BIC (Bayesian Information Criterion)
@@ -364,11 +327,7 @@ bool anofox_compute_aic(double rss,
  * @param out_error Output: error information (required)
  * @return true on success, false on error
  */
-bool anofox_compute_bic(double rss,
-                        size_t n,
-                        size_t k,
-                        double *out_bic,
-                        AnofoxError *out_error);
+bool anofox_compute_bic(double rss, size_t n, size_t k, double *out_bic, AnofoxError *out_error);
 
 /* ============================================================================
  * RLS (Recursive Least Squares) Functions
@@ -397,12 +356,8 @@ typedef struct {
  * @param out_error Output: error information (required)
  * @return true on success, false on error
  */
-bool anofox_rls_fit(AnofoxDataArray y,
-                    const AnofoxDataArray *x,
-                    size_t x_count,
-                    AnofoxRlsOptions options,
-                    AnofoxFitResultCore *out_core,
-                    AnofoxError *out_error);
+bool anofox_rls_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, AnofoxRlsOptions options,
+                    AnofoxFitResultCore *out_core, AnofoxError *out_error);
 
 /* ============================================================================
  * Jarque-Bera Test Functions
@@ -432,9 +387,7 @@ typedef struct {
  * @param out_error Output: error information (required)
  * @return true on success, false on error
  */
-bool anofox_jarque_bera(AnofoxDataArray data,
-                        AnofoxJarqueBeraResult *out_result,
-                        AnofoxError *out_error);
+bool anofox_jarque_bera(AnofoxDataArray data, AnofoxJarqueBeraResult *out_result, AnofoxError *out_error);
 
 #ifdef __cplusplus
 }

@@ -1,14 +1,14 @@
+#include <cmath>
+#include <vector>
+
 #include "duckdb.hpp"
-#include "duckdb/main/extension/extension_loader.hpp"
-#include "duckdb/function/scalar_function.hpp"
 #include "duckdb/common/types/data_chunk.hpp"
 #include "duckdb/common/vector_operations/generic_executor.hpp"
+#include "duckdb/function/scalar_function.hpp"
+#include "duckdb/main/extension/extension_loader.hpp"
 #include "duckdb/planner/expression/bound_function_expression.hpp"
 
 #include "../include/anofox_stats_ffi.h"
-
-#include <cmath>
-#include <vector>
 
 namespace duckdb {
 
@@ -47,17 +47,14 @@ struct ElasticNetFitBindData : public FunctionData {
 
     bool Equals(const FunctionData &other_p) const override {
         auto &other = other_p.Cast<ElasticNetFitBindData>();
-        return alpha == other.alpha &&
-               l1_ratio == other.l1_ratio &&
-               fit_intercept == other.fit_intercept &&
-               max_iterations == other.max_iterations &&
-               tolerance == other.tolerance;
+        return alpha == other.alpha && l1_ratio == other.l1_ratio && fit_intercept == other.fit_intercept &&
+               max_iterations == other.max_iterations && tolerance == other.tolerance;
     }
 };
 
 // Bind function
 static unique_ptr<FunctionData> ElasticNetFitBind(ClientContext &context, ScalarFunction &bound_function,
-                                                   vector<unique_ptr<Expression>> &arguments) {
+                                                  vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<ElasticNetFitBindData>();
 
     // Arguments: y, x, alpha, l1_ratio, fit_intercept, max_iterations, tolerance
@@ -71,7 +68,8 @@ static unique_ptr<FunctionData> ElasticNetFitBind(ClientContext &context, Scalar
         result->fit_intercept = BooleanValue::Get(ExpressionExecutor::EvaluateScalar(context, *arguments[4]));
     }
     if (arguments.size() >= 6 && arguments[5]->IsFoldable()) {
-        result->max_iterations = static_cast<uint32_t>(IntegerValue::Get(ExpressionExecutor::EvaluateScalar(context, *arguments[5])));
+        result->max_iterations =
+            static_cast<uint32_t>(IntegerValue::Get(ExpressionExecutor::EvaluateScalar(context, *arguments[5])));
     }
     if (arguments.size() >= 7 && arguments[6]->IsFoldable()) {
         result->tolerance = DoubleValue::Get(ExpressionExecutor::EvaluateScalar(context, *arguments[6]));
@@ -104,8 +102,8 @@ static vector<double> ExtractDoubleList(Vector &vec, idx_t row_idx) {
 static void ElasticNetFitFunction(DataChunk &args, ExpressionState &state, Vector &result) {
     auto &bind_data = state.expr.Cast<BoundFunctionExpression>().bind_info->Cast<ElasticNetFitBindData>();
 
-    auto &y_vec = args.data[0];  // LIST(DOUBLE)
-    auto &x_vec = args.data[1];  // LIST(LIST(DOUBLE)) - list of feature columns
+    auto &y_vec = args.data[0]; // LIST(DOUBLE)
+    auto &x_vec = args.data[1]; // LIST(LIST(DOUBLE)) - list of feature columns
 
     idx_t count = args.size();
 
@@ -153,14 +151,7 @@ static void ElasticNetFitFunction(DataChunk &args, ExpressionState &state, Vecto
         AnofoxFitResultCore core_result;
         AnofoxError error;
 
-        bool success = anofox_elasticnet_fit(
-            y_array,
-            x_arrays.data(),
-            x_arrays.size(),
-            options,
-            &core_result,
-            &error
-        );
+        bool success = anofox_elasticnet_fit(y_array, x_arrays.data(), x_arrays.size(), options, &core_result, &error);
 
         if (!success) {
             throw InvalidInputException("Elastic Net fit failed: %s", error.message);
@@ -201,30 +192,23 @@ void RegisterElasticNetFitFunction(ExtensionLoader &loader) {
     ScalarFunctionSet func_set("anofox_stats_elasticnet_fit");
 
     // Basic version: anofox_stats_elasticnet_fit(y, x, alpha, l1_ratio)
-    ScalarFunction basic_func(
-        {LogicalType::LIST(LogicalType::DOUBLE),
-         LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)),
-         LogicalType::DOUBLE,  // alpha (regularization strength)
-         LogicalType::DOUBLE}, // l1_ratio
-        LogicalType::ANY,  // Will be set in bind
-        ElasticNetFitFunction,
-        ElasticNetFitBind
-    );
+    ScalarFunction basic_func({LogicalType::LIST(LogicalType::DOUBLE),
+                               LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)),
+                               LogicalType::DOUBLE,  // alpha (regularization strength)
+                               LogicalType::DOUBLE}, // l1_ratio
+                              LogicalType::ANY,      // Will be set in bind
+                              ElasticNetFitFunction, ElasticNetFitBind);
     func_set.AddFunction(basic_func);
 
     // Full version: anofox_stats_elasticnet_fit(y, x, alpha, l1_ratio, fit_intercept, max_iterations, tolerance)
-    ScalarFunction full_func(
-        {LogicalType::LIST(LogicalType::DOUBLE),
-         LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)),
-         LogicalType::DOUBLE,   // alpha
-         LogicalType::DOUBLE,   // l1_ratio
-         LogicalType::BOOLEAN,  // fit_intercept
-         LogicalType::INTEGER,  // max_iterations
-         LogicalType::DOUBLE},  // tolerance
-        LogicalType::ANY,
-        ElasticNetFitFunction,
-        ElasticNetFitBind
-    );
+    ScalarFunction full_func({LogicalType::LIST(LogicalType::DOUBLE),
+                              LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)),
+                              LogicalType::DOUBLE,  // alpha
+                              LogicalType::DOUBLE,  // l1_ratio
+                              LogicalType::BOOLEAN, // fit_intercept
+                              LogicalType::INTEGER, // max_iterations
+                              LogicalType::DOUBLE}, // tolerance
+                             LogicalType::ANY, ElasticNetFitFunction, ElasticNetFitBind);
     func_set.AddFunction(full_func);
 
     loader.RegisterFunction(func_set);

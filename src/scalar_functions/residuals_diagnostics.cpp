@@ -1,12 +1,12 @@
+#include <vector>
+
 #include "duckdb.hpp"
-#include "duckdb/main/extension/extension_loader.hpp"
-#include "duckdb/function/scalar_function.hpp"
 #include "duckdb/common/types/data_chunk.hpp"
 #include "duckdb/common/vector_operations/generic_executor.hpp"
+#include "duckdb/function/scalar_function.hpp"
+#include "duckdb/main/extension/extension_loader.hpp"
 
 #include "../include/anofox_stats_ffi.h"
-
-#include <vector>
 
 namespace duckdb {
 
@@ -24,7 +24,7 @@ static LogicalType GetResidualsDiagnosticsResultType() {
 
 // Bind function
 static unique_ptr<FunctionData> ResidualsDiagnosticsBind(ClientContext &context, ScalarFunction &bound_function,
-                                                          vector<unique_ptr<Expression>> &arguments) {
+                                                         vector<unique_ptr<Expression>> &arguments) {
     bound_function.return_type = GetResidualsDiagnosticsResultType();
     return nullptr;
 }
@@ -65,8 +65,8 @@ static void SetListInResult(Vector &list_vec, idx_t row, double *data, size_t le
 // Main residuals diagnostics function
 // Arguments: y, y_hat, [x, residual_std_error, include_studentized]
 static void ResidualsDiagnosticsFunction(DataChunk &args, ExpressionState &state, Vector &result) {
-    auto &y_vec = args.data[0];      // LIST(DOUBLE)
-    auto &y_hat_vec = args.data[1];  // LIST(DOUBLE)
+    auto &y_vec = args.data[0];     // LIST(DOUBLE)
+    auto &y_hat_vec = args.data[1]; // LIST(DOUBLE)
 
     idx_t count = args.size();
     auto &struct_entries = StructVector::GetEntries(result);
@@ -100,11 +100,11 @@ static void ResidualsDiagnosticsFunction(DataChunk &args, ExpressionState &state
         // Handle optional x parameter
         vector<vector<double>> x_cols;
         vector<AnofoxDataArray> x_arrays;
-        const AnofoxDataArray* x_ptr = nullptr;
+        const AnofoxDataArray *x_ptr = nullptr;
         size_t x_count = 0;
 
         if (has_x) {
-            auto &x_vec = args.data[2];  // LIST(LIST(DOUBLE))
+            auto &x_vec = args.data[2]; // LIST(LIST(DOUBLE))
             auto x_list_data = ListVector::GetData(x_vec);
             auto &x_child = ListVector::GetEntry(x_vec);
 
@@ -149,16 +149,8 @@ static void ResidualsDiagnosticsFunction(DataChunk &args, ExpressionState &state
         AnofoxResidualsResult resid_result;
         AnofoxError error;
 
-        bool success = anofox_compute_residuals(
-            y_array,
-            y_hat_array,
-            x_ptr,
-            x_count,
-            rse,
-            include_studentized,
-            &resid_result,
-            &error
-        );
+        bool success = anofox_compute_residuals(y_array, y_hat_array, x_ptr, x_count, rse, include_studentized,
+                                                &resid_result, &error);
 
         if (!success) {
             FlatVector::SetNull(result, row, true);
@@ -201,25 +193,16 @@ void RegisterResidualsDiagnosticsFunction(ExtensionLoader &loader) {
     ScalarFunctionSet func_set("anofox_stats_residuals_diagnostics");
 
     // Basic version: anofox_stats_residuals_diagnostics(y, y_hat)
-    auto basic_func = ScalarFunction(
-        {LogicalType::LIST(LogicalType::DOUBLE), LogicalType::LIST(LogicalType::DOUBLE)},
-        LogicalType::ANY,  // Set in bind
-        ResidualsDiagnosticsFunction,
-        ResidualsDiagnosticsBind
-    );
+    auto basic_func = ScalarFunction({LogicalType::LIST(LogicalType::DOUBLE), LogicalType::LIST(LogicalType::DOUBLE)},
+                                     LogicalType::ANY, // Set in bind
+                                     ResidualsDiagnosticsFunction, ResidualsDiagnosticsBind);
     func_set.AddFunction(basic_func);
 
     // Full version: anofox_stats_residuals_diagnostics(y, y_hat, x, residual_std_error, include_studentized)
-    auto full_func = ScalarFunction(
-        {LogicalType::LIST(LogicalType::DOUBLE),
-         LogicalType::LIST(LogicalType::DOUBLE),
-         LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)),
-         LogicalType::DOUBLE,
-         LogicalType::BOOLEAN},
-        LogicalType::ANY,
-        ResidualsDiagnosticsFunction,
-        ResidualsDiagnosticsBind
-    );
+    auto full_func = ScalarFunction({LogicalType::LIST(LogicalType::DOUBLE), LogicalType::LIST(LogicalType::DOUBLE),
+                                     LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)), LogicalType::DOUBLE,
+                                     LogicalType::BOOLEAN},
+                                    LogicalType::ANY, ResidualsDiagnosticsFunction, ResidualsDiagnosticsBind);
     func_set.AddFunction(full_func);
 
     loader.RegisterFunction(func_set);

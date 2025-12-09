@@ -2,8 +2,8 @@
 
 use crate::errors::{StatsError, StatsResult};
 use crate::types::{ElasticNetOptions, FitResult, FitResultCore};
+use anofox_regression::prelude::*;
 use faer::{Col, Mat};
-use regress_rs::prelude::*;
 
 /// Fit an Elastic Net regression model
 ///

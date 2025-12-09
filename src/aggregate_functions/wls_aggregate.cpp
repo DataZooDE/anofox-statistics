@@ -1,11 +1,11 @@
+#include <vector>
+
 #include "duckdb.hpp"
+#include "duckdb/common/types/data_chunk.hpp"
 #include "duckdb/function/aggregate_function.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
-#include "duckdb/common/types/data_chunk.hpp"
 
 #include "../include/anofox_stats_ffi.h"
-
-#include <vector>
 
 namespace duckdb {
 
@@ -25,8 +25,7 @@ struct WlsAggregateState {
     double confidence_level;
 
     WlsAggregateState()
-        : n_features(0), initialized(false), fit_intercept(true),
-          compute_inference(false), confidence_level(0.95) {}
+        : n_features(0), initialized(false), fit_intercept(true), compute_inference(false), confidence_level(0.95) {}
 
     void Reset() {
         y_values.clear();
@@ -55,8 +54,7 @@ struct WlsAggregateBindData : public FunctionData {
 
     bool Equals(const FunctionData &other_p) const override {
         auto &other = other_p.Cast<WlsAggregateBindData>();
-        return fit_intercept == other.fit_intercept &&
-               compute_inference == other.compute_inference &&
+        return fit_intercept == other.fit_intercept && compute_inference == other.compute_inference &&
                confidence_level == other.confidence_level;
     }
 };
@@ -110,16 +108,16 @@ static void WlsAggDestroy(Vector &state_vector, AggregateInputData &, idx_t coun
 }
 
 // Update: accumulate values from input rows
-static void WlsAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data, idx_t input_count,
-                         Vector &state_vector, idx_t count) {
+static void WlsAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data, idx_t input_count, Vector &state_vector,
+                         idx_t count) {
     auto &bind_data = aggr_input_data.bind_data->Cast<WlsAggregateBindData>();
 
     UnifiedVectorFormat y_data;
     UnifiedVectorFormat x_data;
     UnifiedVectorFormat w_data;
-    inputs[0].ToUnifiedFormat(count, y_data);  // y: DOUBLE
-    inputs[1].ToUnifiedFormat(count, x_data);  // x: LIST(DOUBLE)
-    inputs[2].ToUnifiedFormat(count, w_data);  // weight: DOUBLE
+    inputs[0].ToUnifiedFormat(count, y_data); // y: DOUBLE
+    inputs[1].ToUnifiedFormat(count, x_data); // x: LIST(DOUBLE)
+    inputs[2].ToUnifiedFormat(count, w_data); // weight: DOUBLE
 
     auto y_values = UnifiedVectorFormat::GetData<double>(y_data);
     auto w_values = UnifiedVectorFormat::GetData<double>(w_data);
@@ -142,21 +140,21 @@ static void WlsAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data, i
         // Get y value
         auto y_idx = y_data.sel->get_index(i);
         if (!y_data.validity.RowIsValid(y_idx)) {
-            continue;  // Skip NULL y values
+            continue; // Skip NULL y values
         }
         double y_val = y_values[y_idx];
 
         // Get weight value
         auto w_idx = w_data.sel->get_index(i);
         if (!w_data.validity.RowIsValid(w_idx)) {
-            continue;  // Skip NULL weight values
+            continue; // Skip NULL weight values
         }
         double w_val = w_values[w_idx];
 
         // Get x values (LIST(DOUBLE))
         auto x_idx = x_data.sel->get_index(i);
         if (!x_data.validity.RowIsValid(x_idx)) {
-            continue;  // Skip NULL x values
+            continue; // Skip NULL x values
         }
 
         auto list_entry = x_list_data[x_idx];
@@ -171,9 +169,8 @@ static void WlsAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data, i
 
         // Validate consistent feature count
         if (n_features != state.n_features) {
-            throw InvalidInputException(
-                "Inconsistent feature count: expected %lu, got %lu",
-                state.n_features, n_features);
+            throw InvalidInputException("Inconsistent feature count: expected %lu, got %lu", state.n_features,
+                                        n_features);
         }
 
         // Accumulate y value
@@ -191,8 +188,7 @@ static void WlsAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data, i
 }
 
 // Combine: merge two states
-static void WlsAggCombine(Vector &source_vector, Vector &target_vector,
-                          AggregateInputData &, idx_t count) {
+static void WlsAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &, idx_t count) {
     UnifiedVectorFormat source_data, target_data;
     source_vector.ToUnifiedFormat(count, source_data);
     target_vector.ToUnifiedFormat(count, target_data);
@@ -205,7 +201,7 @@ static void WlsAggCombine(Vector &source_vector, Vector &target_vector,
         auto &target = *targets[target_data.sel->get_index(i)];
 
         if (!source.initialized) {
-            continue;  // Nothing to combine
+            continue; // Nothing to combine
         }
 
         if (!target.initialized) {
@@ -223,9 +219,8 @@ static void WlsAggCombine(Vector &source_vector, Vector &target_vector,
 
         // Validate same feature count
         if (source.n_features != target.n_features) {
-            throw InvalidInputException(
-                "Cannot combine states with different feature counts: %lu vs %lu",
-                source.n_features, target.n_features);
+            throw InvalidInputException("Cannot combine states with different feature counts: %lu vs %lu",
+                                        source.n_features, target.n_features);
         }
 
         // Merge y values
@@ -236,9 +231,8 @@ static void WlsAggCombine(Vector &source_vector, Vector &target_vector,
 
         // Merge x columns
         for (idx_t j = 0; j < target.n_features; j++) {
-            target.x_columns[j].insert(target.x_columns[j].end(),
-                                        source.x_columns[j].begin(),
-                                        source.x_columns[j].end());
+            target.x_columns[j].insert(target.x_columns[j].end(), source.x_columns[j].begin(),
+                                       source.x_columns[j].end());
         }
     }
 }
@@ -256,8 +250,8 @@ static void SetListInResult(Vector &list_vec, idx_t row, double *data, size_t le
 }
 
 // Finalize: compute WLS for accumulated data
-static void WlsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_data,
-                           Vector &result, idx_t count, idx_t offset) {
+static void WlsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_data, Vector &result, idx_t count,
+                           idx_t offset) {
     UnifiedVectorFormat sdata;
     state_vector.ToUnifiedFormat(count, sdata);
     auto states = (WlsAggregateState **)sdata.data;
@@ -311,16 +305,8 @@ static void WlsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
         AnofoxFitResultInference inference_result;
         AnofoxError error;
 
-        bool success = anofox_wls_fit(
-            y_array,
-            x_arrays.data(),
-            x_arrays.size(),
-            weights_array,
-            options,
-            &core_result,
-            state.compute_inference ? &inference_result : nullptr,
-            &error
-        );
+        bool success = anofox_wls_fit(y_array, x_arrays.data(), x_arrays.size(), weights_array, options, &core_result,
+                                      state.compute_inference ? &inference_result : nullptr, &error);
 
         if (!success) {
             FlatVector::SetNull(result, result_idx, true);
@@ -331,8 +317,8 @@ static void WlsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
         idx_t struct_idx = 0;
 
         // Coefficients
-        SetListInResult(*struct_entries[struct_idx++], result_idx,
-                       core_result.coefficients, core_result.coefficients_len);
+        SetListInResult(*struct_entries[struct_idx++], result_idx, core_result.coefficients,
+                        core_result.coefficients_len);
 
         // Scalars
         FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = core_result.intercept;
@@ -344,16 +330,12 @@ static void WlsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
 
         // Inference results
         if (state.compute_inference) {
-            SetListInResult(*struct_entries[struct_idx++], result_idx,
-                           inference_result.std_errors, inference_result.len);
-            SetListInResult(*struct_entries[struct_idx++], result_idx,
-                           inference_result.t_values, inference_result.len);
-            SetListInResult(*struct_entries[struct_idx++], result_idx,
-                           inference_result.p_values, inference_result.len);
-            SetListInResult(*struct_entries[struct_idx++], result_idx,
-                           inference_result.ci_lower, inference_result.len);
-            SetListInResult(*struct_entries[struct_idx++], result_idx,
-                           inference_result.ci_upper, inference_result.len);
+            SetListInResult(*struct_entries[struct_idx++], result_idx, inference_result.std_errors,
+                            inference_result.len);
+            SetListInResult(*struct_entries[struct_idx++], result_idx, inference_result.t_values, inference_result.len);
+            SetListInResult(*struct_entries[struct_idx++], result_idx, inference_result.p_values, inference_result.len);
+            SetListInResult(*struct_entries[struct_idx++], result_idx, inference_result.ci_lower, inference_result.len);
+            SetListInResult(*struct_entries[struct_idx++], result_idx, inference_result.ci_upper, inference_result.len);
 
             FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = inference_result.f_statistic;
             FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = inference_result.f_pvalue;
@@ -400,39 +382,20 @@ void RegisterWlsAggregateFunction(ExtensionLoader &loader) {
 
     // Basic version: anofox_stats_wls_fit_agg(y, x, weight)
     auto basic_func = AggregateFunction(
-        "anofox_stats_wls_fit_agg",
-        {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE},
-        LogicalType::ANY,  // Set in bind
-        AggregateFunction::StateSize<WlsAggregateState>,
-        WlsAggInitialize,
-        WlsAggUpdate,
-        WlsAggCombine,
-        WlsAggFinalize,
-        nullptr,  // simple_update
-        WlsAggBind,
-        WlsAggDestroy
-    );
+        "anofox_stats_wls_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE},
+        LogicalType::ANY, // Set in bind
+        AggregateFunction::StateSize<WlsAggregateState>, WlsAggInitialize, WlsAggUpdate, WlsAggCombine, WlsAggFinalize,
+        nullptr, // simple_update
+        WlsAggBind, WlsAggDestroy);
     func_set.AddFunction(basic_func);
 
     // Version with options: anofox_stats_wls_fit_agg(y, x, weight, fit_intercept, compute_inference, confidence_level)
-    auto full_func = AggregateFunction(
-        "anofox_stats_wls_fit_agg",
-        {LogicalType::DOUBLE,
-         LogicalType::LIST(LogicalType::DOUBLE),
-         LogicalType::DOUBLE,
-         LogicalType::BOOLEAN,
-         LogicalType::BOOLEAN,
-         LogicalType::DOUBLE},
-        LogicalType::ANY,
-        AggregateFunction::StateSize<WlsAggregateState>,
-        WlsAggInitialize,
-        WlsAggUpdate,
-        WlsAggCombine,
-        WlsAggFinalize,
-        nullptr,
-        WlsAggBind,
-        WlsAggDestroy
-    );
+    auto full_func =
+        AggregateFunction("anofox_stats_wls_fit_agg",
+                          {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE,
+                           LogicalType::BOOLEAN, LogicalType::BOOLEAN, LogicalType::DOUBLE},
+                          LogicalType::ANY, AggregateFunction::StateSize<WlsAggregateState>, WlsAggInitialize,
+                          WlsAggUpdate, WlsAggCombine, WlsAggFinalize, nullptr, WlsAggBind, WlsAggDestroy);
     func_set.AddFunction(full_func);
 
     loader.RegisterFunction(func_set);

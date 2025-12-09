@@ -1,12 +1,12 @@
+#include <vector>
+
 #include "duckdb.hpp"
-#include "duckdb/main/extension/extension_loader.hpp"
-#include "duckdb/function/scalar_function.hpp"
 #include "duckdb/common/types/data_chunk.hpp"
 #include "duckdb/common/vector_operations/generic_executor.hpp"
+#include "duckdb/function/scalar_function.hpp"
+#include "duckdb/main/extension/extension_loader.hpp"
 
 #include "../include/anofox_stats_ffi.h"
-
-#include <vector>
 
 namespace duckdb {
 
@@ -25,7 +25,7 @@ static LogicalType GetJarqueBeraResultType() {
 
 // Bind function
 static unique_ptr<FunctionData> JarqueBeraBind(ClientContext &context, ScalarFunction &bound_function,
-                                                vector<unique_ptr<Expression>> &arguments) {
+                                               vector<unique_ptr<Expression>> &arguments) {
     bound_function.return_type = GetJarqueBeraResultType();
     return nullptr;
 }
@@ -49,7 +49,7 @@ static vector<double> ExtractDoubleList(Vector &vec, idx_t row_idx) {
 
 // Main Jarque-Bera function
 static void JarqueBeraFunction(DataChunk &args, ExpressionState &state, Vector &result) {
-    auto &data_vec = args.data[0];  // LIST(DOUBLE)
+    auto &data_vec = args.data[0]; // LIST(DOUBLE)
 
     idx_t count = args.size();
     auto &struct_entries = StructVector::GetEntries(result);
@@ -95,12 +95,9 @@ static void JarqueBeraFunction(DataChunk &args, ExpressionState &state, Vector &
 void RegisterJarqueBeraFunction(ExtensionLoader &loader) {
     ScalarFunctionSet func_set("anofox_stats_jarque_bera");
 
-    auto func = ScalarFunction(
-        {LogicalType::LIST(LogicalType::DOUBLE)},
-        LogicalType::ANY,  // Set in bind
-        JarqueBeraFunction,
-        JarqueBeraBind
-    );
+    auto func = ScalarFunction({LogicalType::LIST(LogicalType::DOUBLE)},
+                               LogicalType::ANY, // Set in bind
+                               JarqueBeraFunction, JarqueBeraBind);
     func_set.AddFunction(func);
 
     loader.RegisterFunction(func_set);

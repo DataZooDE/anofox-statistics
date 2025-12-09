@@ -1,11 +1,11 @@
+#include <vector>
+
 #include "duckdb.hpp"
+#include "duckdb/common/types/data_chunk.hpp"
 #include "duckdb/function/aggregate_function.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
-#include "duckdb/common/types/data_chunk.hpp"
 
 #include "../include/anofox_stats_ffi.h"
-
-#include <vector>
 
 namespace duckdb {
 
@@ -59,7 +59,7 @@ static void JarqueBeraAggDestroy(Vector &state_vector, AggregateInputData &, idx
 }
 
 static void JarqueBeraAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data, idx_t input_count,
-                                 Vector &state_vector, idx_t count) {
+                                Vector &state_vector, idx_t count) {
     UnifiedVectorFormat input_data;
     inputs[0].ToUnifiedFormat(count, input_data);
     auto input_values = UnifiedVectorFormat::GetData<double>(input_data);
@@ -74,7 +74,7 @@ static void JarqueBeraAggUpdate(Vector inputs[], AggregateInputData &aggr_input_
 
         auto val_idx = input_data.sel->get_index(i);
         if (!input_data.validity.RowIsValid(val_idx)) {
-            continue;  // Skip NULL values
+            continue; // Skip NULL values
         }
 
         double val = input_values[val_idx];
@@ -84,8 +84,7 @@ static void JarqueBeraAggUpdate(Vector inputs[], AggregateInputData &aggr_input_
     }
 }
 
-static void JarqueBeraAggCombine(Vector &source_vector, Vector &target_vector,
-                                  AggregateInputData &, idx_t count) {
+static void JarqueBeraAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &, idx_t count) {
     UnifiedVectorFormat source_data, target_data;
     source_vector.ToUnifiedFormat(count, source_data);
     target_vector.ToUnifiedFormat(count, target_data);
@@ -111,8 +110,8 @@ static void JarqueBeraAggCombine(Vector &source_vector, Vector &target_vector,
     }
 }
 
-static void JarqueBeraAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_data,
-                                   Vector &result, idx_t count, idx_t offset) {
+static void JarqueBeraAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_data, Vector &result,
+                                  idx_t count, idx_t offset) {
     UnifiedVectorFormat sdata;
     state_vector.ToUnifiedFormat(count, sdata);
     auto states = (JarqueBeraAggregateState **)sdata.data;
@@ -160,7 +159,7 @@ static void JarqueBeraAggFinalize(Vector &state_vector, AggregateInputData &aggr
 // Bind function
 //===--------------------------------------------------------------------===//
 static unique_ptr<FunctionData> JarqueBeraAggBind(ClientContext &context, AggregateFunction &function,
-                                                   vector<unique_ptr<Expression>> &arguments) {
+                                                  vector<unique_ptr<Expression>> &arguments) {
     function.return_type = GetJarqueBeraAggResultType();
     return nullptr;
 }
@@ -171,19 +170,12 @@ static unique_ptr<FunctionData> JarqueBeraAggBind(ClientContext &context, Aggreg
 void RegisterJarqueBeraAggregateFunction(ExtensionLoader &loader) {
     AggregateFunctionSet func_set("anofox_stats_jarque_bera_agg");
 
-    auto func = AggregateFunction(
-        "anofox_stats_jarque_bera_agg",
-        {LogicalType::DOUBLE},
-        LogicalType::ANY,  // Set in bind
-        AggregateFunction::StateSize<JarqueBeraAggregateState>,
-        JarqueBeraAggInitialize,
-        JarqueBeraAggUpdate,
-        JarqueBeraAggCombine,
-        JarqueBeraAggFinalize,
-        nullptr,  // simple_update
-        JarqueBeraAggBind,
-        JarqueBeraAggDestroy
-    );
+    auto func = AggregateFunction("anofox_stats_jarque_bera_agg", {LogicalType::DOUBLE},
+                                  LogicalType::ANY, // Set in bind
+                                  AggregateFunction::StateSize<JarqueBeraAggregateState>, JarqueBeraAggInitialize,
+                                  JarqueBeraAggUpdate, JarqueBeraAggCombine, JarqueBeraAggFinalize,
+                                  nullptr, // simple_update
+                                  JarqueBeraAggBind, JarqueBeraAggDestroy);
     func_set.AddFunction(func);
 
     loader.RegisterFunction(func_set);

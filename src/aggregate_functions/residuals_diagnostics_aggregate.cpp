@@ -1,11 +1,11 @@
+#include <vector>
+
 #include "duckdb.hpp"
+#include "duckdb/common/types/data_chunk.hpp"
 #include "duckdb/function/aggregate_function.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
-#include "duckdb/common/types/data_chunk.hpp"
 
 #include "../include/anofox_stats_ffi.h"
-
-#include <vector>
 
 namespace duckdb {
 
@@ -20,8 +20,7 @@ struct ResidualsDiagnosticsAggregateState {
     bool initialized;
     bool has_x;
 
-    ResidualsDiagnosticsAggregateState()
-        : n_features(0), initialized(false), has_x(false) {}
+    ResidualsDiagnosticsAggregateState() : n_features(0), initialized(false), has_x(false) {}
 
     void Reset() {
         y_values.clear();
@@ -68,10 +67,10 @@ static void ResidualsDiagnosticsAggDestroy(Vector &state_vector, AggregateInputD
 
 // Basic update: just y and y_hat
 static void ResidualsDiagnosticsAggUpdateBasic(Vector inputs[], AggregateInputData &aggr_input_data, idx_t input_count,
-                                                Vector &state_vector, idx_t count) {
+                                               Vector &state_vector, idx_t count) {
     UnifiedVectorFormat y_data, y_hat_data;
-    inputs[0].ToUnifiedFormat(count, y_data);      // y: DOUBLE
-    inputs[1].ToUnifiedFormat(count, y_hat_data);  // y_hat: DOUBLE
+    inputs[0].ToUnifiedFormat(count, y_data);     // y: DOUBLE
+    inputs[1].ToUnifiedFormat(count, y_hat_data); // y_hat: DOUBLE
 
     auto y_values = UnifiedVectorFormat::GetData<double>(y_data);
     auto y_hat_values = UnifiedVectorFormat::GetData<double>(y_hat_data);
@@ -103,11 +102,11 @@ static void ResidualsDiagnosticsAggUpdateBasic(Vector inputs[], AggregateInputDa
 
 // Full update: y, y_hat, and x
 static void ResidualsDiagnosticsAggUpdateFull(Vector inputs[], AggregateInputData &aggr_input_data, idx_t input_count,
-                                               Vector &state_vector, idx_t count) {
+                                              Vector &state_vector, idx_t count) {
     UnifiedVectorFormat y_data, y_hat_data, x_data;
-    inputs[0].ToUnifiedFormat(count, y_data);      // y: DOUBLE
-    inputs[1].ToUnifiedFormat(count, y_hat_data);  // y_hat: DOUBLE
-    inputs[2].ToUnifiedFormat(count, x_data);      // x: LIST(DOUBLE)
+    inputs[0].ToUnifiedFormat(count, y_data);     // y: DOUBLE
+    inputs[1].ToUnifiedFormat(count, y_hat_data); // y_hat: DOUBLE
+    inputs[2].ToUnifiedFormat(count, x_data);     // x: LIST(DOUBLE)
 
     auto y_values = UnifiedVectorFormat::GetData<double>(y_data);
     auto y_hat_values = UnifiedVectorFormat::GetData<double>(y_hat_data);
@@ -128,8 +127,7 @@ static void ResidualsDiagnosticsAggUpdateFull(Vector inputs[], AggregateInputDat
         auto y_hat_idx = y_hat_data.sel->get_index(i);
         auto x_idx = x_data.sel->get_index(i);
 
-        if (!y_data.validity.RowIsValid(y_idx) ||
-            !y_hat_data.validity.RowIsValid(y_hat_idx) ||
+        if (!y_data.validity.RowIsValid(y_idx) || !y_hat_data.validity.RowIsValid(y_hat_idx) ||
             !x_data.validity.RowIsValid(x_idx)) {
             continue;
         }
@@ -147,9 +145,8 @@ static void ResidualsDiagnosticsAggUpdateFull(Vector inputs[], AggregateInputDat
         }
 
         if (n_features != state.n_features) {
-            throw InvalidInputException(
-                "Inconsistent feature count: expected %lu, got %lu",
-                state.n_features, n_features);
+            throw InvalidInputException("Inconsistent feature count: expected %lu, got %lu", state.n_features,
+                                        n_features);
         }
 
         if (!std::isnan(y_val) && !std::isnan(y_hat_val)) {
@@ -164,8 +161,8 @@ static void ResidualsDiagnosticsAggUpdateFull(Vector inputs[], AggregateInputDat
     }
 }
 
-static void ResidualsDiagnosticsAggCombine(Vector &source_vector, Vector &target_vector,
-                                            AggregateInputData &, idx_t count) {
+static void ResidualsDiagnosticsAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &,
+                                           idx_t count) {
     UnifiedVectorFormat source_data, target_data;
     source_vector.ToUnifiedFormat(count, source_data);
     target_vector.ToUnifiedFormat(count, target_data);
@@ -196,8 +193,7 @@ static void ResidualsDiagnosticsAggCombine(Vector &source_vector, Vector &target
 
         if (source.has_x && target.has_x) {
             for (idx_t j = 0; j < target.n_features; j++) {
-                target.x_columns[j].insert(target.x_columns[j].end(),
-                                           source.x_columns[j].begin(),
+                target.x_columns[j].insert(target.x_columns[j].end(), source.x_columns[j].begin(),
                                            source.x_columns[j].end());
             }
         }
@@ -220,8 +216,8 @@ static void SetListInResult(Vector &list_vec, idx_t row, double *data, size_t le
     ListVector::GetData(list_vec)[row] = {offset, (idx_t)len};
 }
 
-static void ResidualsDiagnosticsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_data,
-                                             Vector &result, idx_t count, idx_t offset) {
+static void ResidualsDiagnosticsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_data, Vector &result,
+                                            idx_t count, idx_t offset) {
     UnifiedVectorFormat sdata;
     state_vector.ToUnifiedFormat(count, sdata);
     auto states = (ResidualsDiagnosticsAggregateState **)sdata.data;
@@ -249,7 +245,7 @@ static void ResidualsDiagnosticsAggFinalize(Vector &state_vector, AggregateInput
         y_hat_array.len = state.y_hat_values.size();
 
         vector<AnofoxDataArray> x_arrays;
-        const AnofoxDataArray* x_ptr = nullptr;
+        const AnofoxDataArray *x_ptr = nullptr;
         size_t x_count = 0;
 
         if (state.has_x && state.n_features > 0) {
@@ -267,16 +263,10 @@ static void ResidualsDiagnosticsAggFinalize(Vector &state_vector, AggregateInput
         AnofoxResidualsResult resid_result;
         AnofoxError error;
 
-        bool success = anofox_compute_residuals(
-            y_array,
-            y_hat_array,
-            x_ptr,
-            x_count,
-            std::nan(""),  // residual_std_error computed internally
-            state.has_x,   // include_studentized only if we have x
-            &resid_result,
-            &error
-        );
+        bool success = anofox_compute_residuals(y_array, y_hat_array, x_ptr, x_count,
+                                                std::nan(""), // residual_std_error computed internally
+                                                state.has_x,  // include_studentized only if we have x
+                                                &resid_result, &error);
 
         if (!success) {
             FlatVector::SetNull(result, result_idx, true);
@@ -315,7 +305,7 @@ static void ResidualsDiagnosticsAggFinalize(Vector &state_vector, AggregateInput
 // Bind function
 //===--------------------------------------------------------------------===//
 static unique_ptr<FunctionData> ResidualsDiagnosticsAggBind(ClientContext &context, AggregateFunction &function,
-                                                             vector<unique_ptr<Expression>> &arguments) {
+                                                            vector<unique_ptr<Expression>> &arguments) {
     function.return_type = GetResidualsDiagnosticsAggResultType();
     return nullptr;
 }
@@ -328,34 +318,21 @@ void RegisterResidualsDiagnosticsAggregateFunction(ExtensionLoader &loader) {
 
     // Basic version: anofox_stats_residuals_diagnostics_agg(y, y_hat)
     auto basic_func = AggregateFunction(
-        "anofox_stats_residuals_diagnostics_agg",
-        {LogicalType::DOUBLE, LogicalType::DOUBLE},
-        LogicalType::ANY,  // Set in bind
-        AggregateFunction::StateSize<ResidualsDiagnosticsAggregateState>,
-        ResidualsDiagnosticsAggInitialize,
-        ResidualsDiagnosticsAggUpdateBasic,
-        ResidualsDiagnosticsAggCombine,
-        ResidualsDiagnosticsAggFinalize,
-        nullptr,  // simple_update
-        ResidualsDiagnosticsAggBind,
-        ResidualsDiagnosticsAggDestroy
-    );
+        "anofox_stats_residuals_diagnostics_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE},
+        LogicalType::ANY, // Set in bind
+        AggregateFunction::StateSize<ResidualsDiagnosticsAggregateState>, ResidualsDiagnosticsAggInitialize,
+        ResidualsDiagnosticsAggUpdateBasic, ResidualsDiagnosticsAggCombine, ResidualsDiagnosticsAggFinalize,
+        nullptr, // simple_update
+        ResidualsDiagnosticsAggBind, ResidualsDiagnosticsAggDestroy);
     func_set.AddFunction(basic_func);
 
     // Full version: anofox_stats_residuals_diagnostics_agg(y, y_hat, x)
     auto full_func = AggregateFunction(
         "anofox_stats_residuals_diagnostics_agg",
-        {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
-        LogicalType::ANY,
-        AggregateFunction::StateSize<ResidualsDiagnosticsAggregateState>,
-        ResidualsDiagnosticsAggInitialize,
-        ResidualsDiagnosticsAggUpdateFull,
-        ResidualsDiagnosticsAggCombine,
-        ResidualsDiagnosticsAggFinalize,
-        nullptr,
-        ResidualsDiagnosticsAggBind,
-        ResidualsDiagnosticsAggDestroy
-    );
+        {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)}, LogicalType::ANY,
+        AggregateFunction::StateSize<ResidualsDiagnosticsAggregateState>, ResidualsDiagnosticsAggInitialize,
+        ResidualsDiagnosticsAggUpdateFull, ResidualsDiagnosticsAggCombine, ResidualsDiagnosticsAggFinalize, nullptr,
+        ResidualsDiagnosticsAggBind, ResidualsDiagnosticsAggDestroy);
     func_set.AddFunction(full_func);
 
     loader.RegisterFunction(func_set);

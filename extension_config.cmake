@@ -1,5 +1,2 @@
-# This file is included by DuckDB's build system. It specifies which extension to load.
-duckdb_extension_load(anofox_stats
-    SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}
-    LOAD_TESTS
-)
+#This file is included by DuckDB's build system. It specifies which extension to load.
+duckdb_extension_load(anofox_stats SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR} LOAD_TESTS)

@@ -1,9 +1,9 @@
 #define DUCKDB_EXTENSION_MAIN
 
+#include "include/anofox_stats_extension.hpp"
+
 #include "duckdb.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
-
-#include "include/anofox_stats_extension.hpp"
 
 namespace duckdb {
 
@@ -82,7 +82,6 @@ DUCKDB_EXTENSION_API const char *anofox_stats_version() {
     return "0.1.0";
 #endif
 }
-
 }
 
 #ifndef DUCKDB_EXTENSION_MAIN

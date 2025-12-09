@@ -1,14 +1,14 @@
+#include <cmath>
+#include <vector>
+
 #include "duckdb.hpp"
-#include "duckdb/main/extension/extension_loader.hpp"
-#include "duckdb/function/scalar_function.hpp"
 #include "duckdb/common/types/data_chunk.hpp"
 #include "duckdb/common/vector_operations/generic_executor.hpp"
+#include "duckdb/function/scalar_function.hpp"
+#include "duckdb/main/extension/extension_loader.hpp"
 #include "duckdb/planner/expression/bound_function_expression.hpp"
 
 #include "../include/anofox_stats_ffi.h"
-
-#include <cmath>
-#include <vector>
 
 namespace duckdb {
 
@@ -43,8 +43,7 @@ struct RlsFitBindData : public FunctionData {
 
     bool Equals(const FunctionData &other_p) const override {
         auto &other = other_p.Cast<RlsFitBindData>();
-        return forgetting_factor == other.forgetting_factor &&
-               fit_intercept == other.fit_intercept &&
+        return forgetting_factor == other.forgetting_factor && fit_intercept == other.fit_intercept &&
                initial_p_diagonal == other.initial_p_diagonal;
     }
 };
@@ -104,8 +103,8 @@ static void SetListResult(Vector &list_vec, idx_t row, double *data, size_t len)
 static void RlsFitFunction(DataChunk &args, ExpressionState &state, Vector &result) {
     auto &bind_data = state.expr.Cast<BoundFunctionExpression>().bind_info->Cast<RlsFitBindData>();
 
-    auto &y_vec = args.data[0];  // LIST(DOUBLE)
-    auto &x_vec = args.data[1];  // LIST(LIST(DOUBLE)) - list of feature columns
+    auto &y_vec = args.data[0]; // LIST(DOUBLE)
+    auto &x_vec = args.data[1]; // LIST(LIST(DOUBLE)) - list of feature columns
 
     idx_t count = args.size();
     auto &struct_entries = StructVector::GetEntries(result);
@@ -152,14 +151,7 @@ static void RlsFitFunction(DataChunk &args, ExpressionState &state, Vector &resu
         AnofoxFitResultCore core_result;
         AnofoxError error;
 
-        bool success = anofox_rls_fit(
-            y_array,
-            x_arrays.data(),
-            x_arrays.size(),
-            options,
-            &core_result,
-            &error
-        );
+        bool success = anofox_rls_fit(y_array, x_arrays.data(), x_arrays.size(), options, &core_result, &error);
 
         if (!success) {
             FlatVector::SetNull(result, row, true);
@@ -191,23 +183,15 @@ void RegisterRlsFitFunction(ExtensionLoader &loader) {
     // Basic version: anofox_stats_rls_fit(y, x)
     auto basic_func = ScalarFunction(
         {LogicalType::LIST(LogicalType::DOUBLE), LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE))},
-        LogicalType::ANY,  // Set in bind
-        RlsFitFunction,
-        RlsFitBind
-    );
+        LogicalType::ANY, // Set in bind
+        RlsFitFunction, RlsFitBind);
     func_set.AddFunction(basic_func);
 
     // Full version: anofox_stats_rls_fit(y, x, forgetting_factor, fit_intercept, initial_p_diagonal)
-    auto full_func = ScalarFunction(
-        {LogicalType::LIST(LogicalType::DOUBLE),
-         LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)),
-         LogicalType::DOUBLE,
-         LogicalType::BOOLEAN,
-         LogicalType::DOUBLE},
-        LogicalType::ANY,
-        RlsFitFunction,
-        RlsFitBind
-    );
+    auto full_func = ScalarFunction({LogicalType::LIST(LogicalType::DOUBLE),
+                                     LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)), LogicalType::DOUBLE,
+                                     LogicalType::BOOLEAN, LogicalType::DOUBLE},
+                                    LogicalType::ANY, RlsFitFunction, RlsFitBind);
     func_set.AddFunction(full_func);
 
     loader.RegisterFunction(func_set);

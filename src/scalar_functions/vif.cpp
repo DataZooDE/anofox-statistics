@@ -1,11 +1,11 @@
+#include <vector>
+
 #include "duckdb.hpp"
-#include "duckdb/main/extension/extension_loader.hpp"
-#include "duckdb/function/scalar_function.hpp"
 #include "duckdb/common/types/data_chunk.hpp"
+#include "duckdb/function/scalar_function.hpp"
+#include "duckdb/main/extension/extension_loader.hpp"
 
 #include "../include/anofox_stats_ffi.h"
-
-#include <vector>
 
 namespace duckdb {
 
@@ -29,7 +29,7 @@ static vector<double> ExtractDoubleList(Vector &vec, idx_t row_idx) {
 // VIF function: anofox_stats_vif(x) -> LIST(DOUBLE)
 // x: LIST(LIST(DOUBLE)) - feature data (list of feature columns)
 static void VifFunction(DataChunk &args, ExpressionState &state, Vector &result) {
-    auto &x_vec = args.data[0];  // LIST(LIST(DOUBLE))
+    auto &x_vec = args.data[0]; // LIST(LIST(DOUBLE))
 
     idx_t count = args.size();
 
@@ -61,13 +61,7 @@ static void VifFunction(DataChunk &args, ExpressionState &state, Vector &result)
         size_t vif_len = 0;
         AnofoxError error;
 
-        bool success = anofox_compute_vif(
-            x_arrays.data(),
-            x_arrays.size(),
-            &vif_values,
-            &vif_len,
-            &error
-        );
+        bool success = anofox_compute_vif(x_arrays.data(), x_arrays.size(), &vif_values, &vif_len, &error);
 
         if (!success) {
             throw InvalidInputException("VIF computation failed: %s", error.message);
@@ -96,11 +90,8 @@ void RegisterVifFunction(ExtensionLoader &loader) {
     ScalarFunctionSet func_set("anofox_stats_vif");
 
     // anofox_stats_vif(x) -> LIST(DOUBLE)
-    ScalarFunction func(
-        {LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE))},
-        LogicalType::LIST(LogicalType::DOUBLE),
-        VifFunction
-    );
+    ScalarFunction func({LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE))},
+                        LogicalType::LIST(LogicalType::DOUBLE), VifFunction);
     func_set.AddFunction(func);
 
     loader.RegisterFunction(func_set);

@@ -1,7 +1,7 @@
 #include "duckdb.hpp"
-#include "duckdb/main/extension/extension_loader.hpp"
-#include "duckdb/function/scalar_function.hpp"
 #include "duckdb/common/types/data_chunk.hpp"
+#include "duckdb/function/scalar_function.hpp"
+#include "duckdb/main/extension/extension_loader.hpp"
 
 #include "../include/anofox_stats_ffi.h"
 
@@ -31,8 +31,7 @@ static void AicFunction(DataChunk &args, ExpressionState &state, Vector &result)
         auto n_idx = n_data.sel->get_index(row);
         auto k_idx = k_data.sel->get_index(row);
 
-        if (!rss_data.validity.RowIsValid(rss_idx) ||
-            !n_data.validity.RowIsValid(n_idx) ||
+        if (!rss_data.validity.RowIsValid(rss_idx) || !n_data.validity.RowIsValid(n_idx) ||
             !k_data.validity.RowIsValid(k_idx)) {
             FlatVector::SetNull(result, row, true);
             continue;
@@ -81,8 +80,7 @@ static void BicFunction(DataChunk &args, ExpressionState &state, Vector &result)
         auto n_idx = n_data.sel->get_index(row);
         auto k_idx = k_data.sel->get_index(row);
 
-        if (!rss_data.validity.RowIsValid(rss_idx) ||
-            !n_data.validity.RowIsValid(n_idx) ||
+        if (!rss_data.validity.RowIsValid(rss_idx) || !n_data.validity.RowIsValid(n_idx) ||
             !k_data.validity.RowIsValid(k_idx)) {
             FlatVector::SetNull(result, row, true);
             continue;
@@ -111,11 +109,8 @@ static void BicFunction(DataChunk &args, ExpressionState &state, Vector &result)
 void RegisterAicBicFunctions(ExtensionLoader &loader) {
     // AIC function
     ScalarFunctionSet aic_set("anofox_stats_aic");
-    ScalarFunction aic_func(
-        {LogicalType::DOUBLE, LogicalType::BIGINT, LogicalType::BIGINT},
-        LogicalType::DOUBLE,
-        AicFunction
-    );
+    ScalarFunction aic_func({LogicalType::DOUBLE, LogicalType::BIGINT, LogicalType::BIGINT}, LogicalType::DOUBLE,
+                            AicFunction);
     aic_set.AddFunction(aic_func);
     loader.RegisterFunction(aic_set);
 
@@ -126,11 +121,8 @@ void RegisterAicBicFunctions(ExtensionLoader &loader) {
 
     // BIC function
     ScalarFunctionSet bic_set("anofox_stats_bic");
-    ScalarFunction bic_func(
-        {LogicalType::DOUBLE, LogicalType::BIGINT, LogicalType::BIGINT},
-        LogicalType::DOUBLE,
-        BicFunction
-    );
+    ScalarFunction bic_func({LogicalType::DOUBLE, LogicalType::BIGINT, LogicalType::BIGINT}, LogicalType::DOUBLE,
+                            BicFunction);
     bic_set.AddFunction(bic_func);
     loader.RegisterFunction(bic_set);
 
