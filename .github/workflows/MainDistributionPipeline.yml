@@ -19,7 +19,7 @@ jobs:
       duckdb_version: v1.4.2
       ci_tools_version: v1.4.2
       extension_name: anofox_statistics
-      enable_rust: true
+      extra_toolchains: 'rust'
 
   code-quality-check:
     name: Code Quality Check
