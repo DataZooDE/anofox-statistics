@@ -1,0 +1,11 @@
+//! anofox-stats-core: Core statistics library for DuckDB extension
+//!
+//! This crate provides statistical regression models wrapping regress-rs,
+//! designed for use via FFI in a DuckDB extension.
+
+pub mod errors;
+pub mod models;
+pub mod types;
+
+pub use errors::{StatsError, StatsResult};
+pub use types::*;

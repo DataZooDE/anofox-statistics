@@ -1,0 +1,103 @@
+# name: test/sql/anofox_stats.test
+# description: Tests for anofox_stats extension
+# group: [anofox_stats]
+
+require anofox_stats
+
+#######################################
+# OLS Scalar Function Tests
+#######################################
+
+# Basic OLS: y = 2x + 1
+query I
+SELECT (anofox_stats_ols_fit([3.0, 5.0, 7.0, 9.0], [[1.0, 2.0, 3.0, 4.0]])).r_squared;
+----
+1.0
+
+query I
+SELECT (anofox_stats_ols_fit([3.0, 5.0, 7.0, 9.0], [[1.0, 2.0, 3.0, 4.0]])).intercept;
+----
+1.0
+
+query I
+SELECT (anofox_stats_ols_fit([3.0, 5.0, 7.0, 9.0], [[1.0, 2.0, 3.0, 4.0]])).coefficients[1];
+----
+2.0
+
+# OLS with multiple features: y = 1 + 2*x1 + 3*x2
+query I
+SELECT ROUND((anofox_stats_ols_fit([6.0, 11.0, 16.0, 21.0], [[1.0, 2.0, 3.0, 4.0], [1.0, 2.0, 3.0, 4.0]])).intercept, 1);
+----
+1.0
+
+# OLS with inference
+query I
+SELECT (anofox_stats_ols_fit([3.0, 5.0, 7.0, 9.0], [[1.0, 2.0, 3.0, 4.0]], true, true, 0.95)).r_squared;
+----
+1.0
+
+#######################################
+# Ridge Regression Tests
+#######################################
+
+# Basic Ridge with low alpha
+query I
+SELECT (anofox_stats_ridge_fit([3.0, 5.0, 7.0, 9.0], [[1.0, 2.0, 3.0, 4.0]], 0.01)).r_squared;
+----
+1.0
+
+# Ridge with alpha - produces valid model
+query I
+SELECT (anofox_stats_ridge_fit([3.0, 5.0, 7.0, 9.0], [[1.0, 2.0, 3.0, 4.0]], 1.0)).n_features;
+----
+1
+
+#######################################
+# OLS Aggregate Function Tests
+#######################################
+
+# GROUP BY with perfect linear relationship
+query II
+WITH data AS (
+    SELECT * FROM (VALUES
+        ('A', 1.0, 3.0),
+        ('A', 2.0, 5.0),
+        ('A', 3.0, 7.0),
+        ('B', 1.0, 4.0),
+        ('B', 2.0, 6.0),
+        ('B', 3.0, 8.0)
+    ) AS t(grp, x, y)
+)
+SELECT
+    grp,
+    ROUND((anofox_stats_ols_fit_agg(y, [x])).intercept, 1) as intercept
+FROM data
+GROUP BY grp
+ORDER BY grp;
+----
+A	1.0
+B	2.0
+
+# Multiple observations
+query I
+WITH data AS (
+    SELECT
+        CAST(i AS DOUBLE) as x,
+        CAST(2*i + 1 AS DOUBLE) as y
+    FROM generate_series(1, 100) t(i)
+)
+SELECT
+    ROUND((anofox_stats_ols_fit_agg(y, [x])).coefficients[1], 1) as coef
+FROM data;
+----
+2.0
+
+#######################################
+# Edge Cases
+#######################################
+
+# Minimum observations (3 for single feature with intercept)
+query I
+SELECT (anofox_stats_ols_fit([3.0, 5.0, 7.0], [[1.0, 2.0, 3.0]])).r_squared IS NOT NULL;
+----
+true
