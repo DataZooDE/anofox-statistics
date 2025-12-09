@@ -4,15 +4,11 @@ set(CORROSION_VERBOSE_OUTPUT ON)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Detect platform prefix for WASM
-set(prefix_to_check "wasm")
-string(LENGTH "${prefix_to_check}" prefix_length)
-string(SUBSTRING "${DUCKDB_PLATFORM}" 0 ${prefix_length} extracted_platform_prefix)
-
 # Get installed Rust targets
 execute_process(
     COMMAND rustup target list --installed
     OUTPUT_VARIABLE RUST_TARGETS
+    ERROR_QUIET
 )
 
 # Propagate arch to rust build for CI
@@ -56,12 +52,9 @@ if (NOT WASM_TARGET_FOUND EQUAL -1)
     set(Rust_CARGO_TARGET "wasm32-unknown-emscripten")
 endif()
 
-message(STATUS "RUST_TARGETS: ${RUST_TARGETS}")
-message(STATUS "WASM_TARGET_FOUND: ${WASM_TARGET_FOUND}")
-message(STATUS "DUCKDB_PLATFORM: ${DUCKDB_PLATFORM}")
-message(STATUS "OS_ARCH: ${OS_ARCH}")
-message(STATUS "OS_NAME: ${OS_NAME}")
 message(STATUS "Rust_CARGO_TARGET: ${Rust_CARGO_TARGET}")
+message(STATUS "OS_NAME: ${OS_NAME}")
+message(STATUS "OS_ARCH: ${OS_ARCH}")
 
 # Fetch Corrosion for Rust integration
 include(FetchContent)
@@ -75,11 +68,11 @@ FetchContent_MakeAvailable(Corrosion)
 
 # Import the Rust FFI crate
 corrosion_import_crate(
-    MANIFEST_PATH "${CMAKE_SOURCE_DIR}/crates/anofox-stats-ffi/Cargo.toml"
+    MANIFEST_PATH "${CMAKE_CURRENT_SOURCE_DIR}/crates/anofox-stats-ffi/Cargo.toml"
     CRATES "anofox-stats-ffi"
 )
 
-# Set extension name
+# Set extension name here
 set(TARGET_NAME anofox_stats)
 set(EXTENSION_NAME ${TARGET_NAME}_extension)
 set(LOADABLE_EXTENSION_NAME ${TARGET_NAME}_loadable_extension)
