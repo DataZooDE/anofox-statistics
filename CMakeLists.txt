@@ -57,14 +57,27 @@ message(STATUS "OS_NAME: ${OS_NAME}")
 message(STATUS "OS_ARCH: ${OS_ARCH}")
 
 # Fetch Corrosion for Rust integration
+# Disable vcpkg for Corrosion's internal CMake to avoid toolchain conflicts
 include(FetchContent)
+
+set(CORROSION_NO_WARN_PARSE_TARGET_TRIPLE_FAILED ON)
 
 FetchContent_Declare(
     Corrosion
     GIT_REPOSITORY https://github.com/corrosion-rs/corrosion.git
     GIT_TAG v0.5.2
+    OVERRIDE_FIND_PACKAGE
 )
+
+# Temporarily unset toolchain for Corrosion
+set(_SAVED_CMAKE_TOOLCHAIN_FILE "${CMAKE_TOOLCHAIN_FILE}")
+unset(CMAKE_TOOLCHAIN_FILE)
+unset(CMAKE_TOOLCHAIN_FILE CACHE)
+
 FetchContent_MakeAvailable(Corrosion)
+
+# Restore toolchain
+set(CMAKE_TOOLCHAIN_FILE "${_SAVED_CMAKE_TOOLCHAIN_FILE}")
 
 # Import the Rust FFI crate
 corrosion_import_crate(
