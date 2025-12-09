@@ -1,6 +1,6 @@
 # name: test/sql/ols_basic.test
 # description: Basic OLS regression tests
-# group: [anofox_stats]
+# group: [sql]
 
 require anofox_stats
 

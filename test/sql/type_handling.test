@@ -1,6 +1,6 @@
 # name: test/sql/type_handling.test
 # description: Test type handling and edge cases for anofox_stats extension
-# group: [anofox_stats]
+# group: [sql]
 
 require anofox_stats
 

@@ -1,6 +1,6 @@
 # name: test/sql/comprehensive_tests.test
 # description: Comprehensive tests for anofox_stats extension with known values from library unit tests
-# group: [anofox_stats]
+# group: [sql]
 
 require anofox_stats
 

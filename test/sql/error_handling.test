@@ -1,6 +1,6 @@
 # name: test/sql/error_handling.test
 # description: Test error handling for anofox_stats extension
-# group: [anofox_stats]
+# group: [sql]
 
 require anofox_stats
 

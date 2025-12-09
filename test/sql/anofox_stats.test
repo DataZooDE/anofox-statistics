@@ -1,6 +1,6 @@
 # name: test/sql/anofox_stats.test
 # description: Tests for anofox_stats extension
-# group: [anofox_stats]
+# group: [sql]
 
 require anofox_stats
 
