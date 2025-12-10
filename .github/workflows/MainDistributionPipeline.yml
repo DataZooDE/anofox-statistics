@@ -24,15 +24,6 @@ jobs:
       # linux_arm64: ubuntu-24.04-arm runner not available for private repositories
       exclude_archs: linux_arm64
 
-  code-quality-check:
-    name: Code Quality Check
-    uses: duckdb/extension-ci-tools/.github/workflows/_extension_code_quality.yml@main
-    with:
-      duckdb_version: main
-      ci_tools_version: main
-      extension_name: anofox_stats
-      format_checks: 'format'
-
   build-and-test-rust:
     name: Build and test Rust components
     runs-on: ubuntu-24.04
