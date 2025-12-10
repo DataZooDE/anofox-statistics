@@ -112,9 +112,9 @@ build_static_extension(${TARGET_NAME} ${EXTENSION_SOURCES})
 # Build loadable extension
 build_loadable_extension(${TARGET_NAME} " " ${EXTENSION_SOURCES})
 
-# Link to Rust library
+# Link to Rust library (use static for both)
 target_link_libraries(${EXTENSION_NAME} anofox-stats-ffi-static)
-target_link_libraries(${LOADABLE_EXTENSION_NAME} anofox-stats-ffi)
+target_link_libraries(${LOADABLE_EXTENSION_NAME} anofox-stats-ffi-static)
 
 # Install
 install(

@@ -8,7 +8,7 @@ description = "C FFI boundary for anofox-statistics DuckDB extension"
 
 [lib]
 name = "anofox_stats_ffi"
-crate-type = ["staticlib", "cdylib"]
+crate-type = ["staticlib"]
 
 [dependencies]
 anofox-stats-core = { path = "../anofox-stats-core" }
