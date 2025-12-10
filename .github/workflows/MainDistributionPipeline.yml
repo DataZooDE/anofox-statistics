@@ -21,8 +21,6 @@ jobs:
       extension_name: anofox_stats
       enable_rust: true
       reduced_ci_mode: disabled
-      # linux_arm64: ubuntu-24.04-arm runner not available for private repositories
-      exclude_archs: linux_arm64
 
   build-and-test-rust:
     name: Build and test Rust components
