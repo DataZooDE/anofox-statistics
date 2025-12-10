@@ -1,0 +1,7 @@
+# Ignore generated data and results
+data/*.parquet
+results/*.parquet
+
+# Keep directory structure
+!data/.gitkeep
+!results/.gitkeep

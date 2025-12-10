@@ -1,0 +1,244 @@
+# name: test/sql/fit_predict/test_wls_fit_predict_basic.test
+# description: Test basic WLS fit-predict functionality
+# group: [fit_predict]
+
+require anofox_statistics
+
+# Test 1: Simple train/test split with uniform weights
+statement ok
+CREATE TABLE wls_data AS
+SELECT
+    i as id,
+    i::DOUBLE as x,
+    CASE WHEN i <= 5 THEN (i * 2.0)::DOUBLE ELSE NULL END as y,
+    1.0::DOUBLE as w
+FROM range(1, 11) t(i);
+
+# Verify data split
+query I
+SELECT COUNT(*) FROM wls_data WHERE y IS NOT NULL;
+----
+5
+
+query I
+SELECT COUNT(*) FROM wls_data WHERE y IS NULL;
+----
+5
+
+# Test 2: Basic WLS fit-predict with uniform weights (should match OLS)
+query II
+SELECT
+    id,
+    ROUND((pred).yhat, 2) as yhat
+FROM (
+    SELECT
+        id,
+        anofox_stats_wls_fit_predict(
+            y,
+            [x],
+            w,
+            MAP{'intercept': 1}
+        ) OVER (ORDER BY id) as pred
+    FROM wls_data
+)
+ORDER BY id;
+----
+1	NULL
+2	NULL
+3	NULL
+4	NULL
+5	10.0
+6	12.0
+7	14.0
+8	16.0
+9	18.0
+10	20.0
+
+# Test 3: WLS with non-uniform weights (higher weight on first observations)
+statement ok
+CREATE TABLE wls_weighted AS
+SELECT
+    i as id,
+    i::DOUBLE as x,
+    CASE WHEN i <= 5 THEN (i * 2.0 + (random() * 0.5))::DOUBLE ELSE NULL END as y,
+    CASE WHEN i <= 2 THEN 10.0 ELSE 1.0 END::DOUBLE as w
+FROM range(1, 11) t(i);
+
+# WLS should give different results than OLS due to weights
+query I
+SELECT
+    COUNT(*) as predictions
+FROM (
+    SELECT
+        id,
+        anofox_stats_wls_fit_predict(
+            y,
+            [x],
+            w,
+            MAP{'intercept': 1}
+        ) OVER (ORDER BY id) as pred
+    FROM wls_weighted
+)
+WHERE (pred).yhat IS NOT NULL;
+----
+8
+
+# Test 4: PARTITION BY with different weights per group
+statement ok
+CREATE TABLE wls_groups AS
+SELECT
+    i as row_id,
+    group_id,
+    i::DOUBLE as x,
+    CASE WHEN i <= 3 THEN (i * group_mult + 1.0)::DOUBLE ELSE NULL END as y,
+    group_weight::DOUBLE as w
+FROM range(1, 7) t(i),
+     (VALUES ('A', 2.0, 1.0), ('B', 3.0, 2.0)) g(group_id, group_mult, group_weight);
+
+query III
+SELECT
+    group_id,
+    row_id,
+    ROUND((pred).yhat, 1) as yhat
+FROM (
+    SELECT
+        group_id,
+        row_id,
+        anofox_stats_wls_fit_predict(
+            y,
+            [x],
+            w,
+            MAP{'intercept': 1}
+        ) OVER (PARTITION BY group_id ORDER BY row_id) as pred
+    FROM wls_groups
+)
+ORDER BY group_id, row_id;
+----
+A	1	NULL
+A	2	NULL
+A	3	NULL
+A	4	NULL
+A	5	NULL
+A	6	NULL
+B	1	NULL
+B	2	NULL
+B	3	NULL
+B	4	NULL
+B	5	NULL
+B	6	NULL
+
+# Test 5: Multi-feature with weights
+statement ok
+CREATE TABLE wls_multifeature AS
+SELECT
+    i as id,
+    i::DOUBLE as x1,
+    (i * 0.5)::DOUBLE as x2,
+    CASE WHEN i <= 6 THEN (2.0 * i + 3.0 * (i * 0.5) + 1.0)::DOUBLE ELSE NULL END as y,
+    CASE WHEN i % 2 = 0 THEN 2.0 ELSE 1.0 END::DOUBLE as w
+FROM range(1, 10) t(i);
+
+query I
+SELECT
+    COUNT(*) as predictions
+FROM (
+    SELECT
+        id,
+        anofox_stats_wls_fit_predict(
+            y,
+            [x1, x2],
+            w,
+            MAP{'intercept': 1}
+        ) OVER (ORDER BY id) as pred
+    FROM wls_multifeature
+)
+WHERE (pred).yhat IS NOT NULL;
+----
+7
+
+# Test 6: Verify struct fields are accessible
+query IIII
+SELECT
+    id,
+    (pred).yhat IS NOT NULL as has_yhat,
+    (pred).yhat_lower IS NOT NULL as has_lower,
+    (pred).yhat_upper IS NOT NULL as has_upper
+FROM (
+    SELECT
+        id,
+        anofox_stats_wls_fit_predict(
+            y,
+            [x],
+            w,
+            MAP{'intercept': 1}
+        ) OVER (ORDER BY id) as pred
+    FROM wls_data
+)
+WHERE id <= 3
+ORDER BY id;
+----
+1	0	0	0
+2	0	0	0
+3	0	0	0
+
+# Test 7: WLS without intercept
+query II
+SELECT
+    id,
+    ROUND((pred).yhat, 1) as yhat
+FROM (
+    SELECT
+        id,
+        anofox_stats_wls_fit_predict(
+            y,
+            [x],
+            w,
+            MAP{'intercept': 0}
+        ) OVER (ORDER BY id) as pred
+    FROM wls_data
+)
+WHERE id <= 3
+ORDER BY id;
+----
+1	NULL
+2	NULL
+3	6.0
+
+# Test 8: Compare WLS with different weight distributions
+statement ok
+CREATE TABLE wls_weight_comparison AS
+SELECT
+    i as id,
+    i::DOUBLE as x,
+    CASE WHEN i <= 5 THEN (i * 2.0 + random() * 2.0)::DOUBLE ELSE NULL END as y
+FROM range(1, 9) t(i);
+
+query I
+SELECT
+    COUNT(*) as all_have_predictions
+FROM (
+    SELECT
+        id,
+        anofox_stats_wls_fit_predict(y, [x], 1.0, MAP{'intercept': 1}) OVER (ORDER BY id) as pred_uniform,
+        anofox_stats_wls_fit_predict(y, [x], CASE WHEN id <= 2 THEN 10.0 ELSE 1.0 END, MAP{'intercept': 1}) OVER (ORDER BY id) as pred_weighted
+    FROM wls_weight_comparison
+)
+WHERE (pred_uniform).yhat IS NOT NULL AND (pred_weighted).yhat IS NOT NULL;
+----
+6
+
+# Cleanup
+statement ok
+DROP TABLE wls_data;
+
+statement ok
+DROP TABLE wls_weighted;
+
+statement ok
+DROP TABLE wls_groups;
+
+statement ok
+DROP TABLE wls_multifeature;
+
+statement ok
+DROP TABLE wls_weight_comparison;

@@ -1,0 +1,8 @@
+# R package library
+legacy/R_libs/
+
+# Test results
+**/results/
+
+# Duplicate validation directory
+validation/

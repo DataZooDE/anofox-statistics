@@ -1,0 +1,18 @@
+{
+  "generated_at": ["2025-10-30 22:30:57 CET"],
+  "r_version": ["R version 4.5.1 (2025-06-13)"],
+  "seed": [42],
+  "description": ["Statistical inference and prediction interval test data"],
+  "test_cases": {
+    "simple_inference": ["Coefficient inference for simple linear regression"],
+    "multiple_inference": ["Coefficient inference for multiple regression"],
+    "prediction_intervals": ["Prediction and confidence intervals for new data"]
+  },
+  "confidence_level": [0.95],
+  "tolerance": {
+    "coefficients": [1e-10],
+    "p_values": [1e-08],
+    "intervals": [1e-08],
+    "note": ["Use strict tolerance for coefficients, relaxed for p-values and intervals"]
+  }
+}

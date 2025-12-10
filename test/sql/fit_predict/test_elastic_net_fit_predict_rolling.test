@@ -1,0 +1,82 @@
+# name: test/sql/fit_predict/test_elastic_net_fit_predict_rolling.test
+# description: Test Elastic Net fit-predict with rolling windows
+# group: [fit_predict]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE elastic_net_ts AS
+SELECT
+    i as time_id,
+    i::DOUBLE as x,
+    (i * 2.0 + random() * 0.5)::DOUBLE as y
+FROM range(1, 16) t(i);
+
+# Test 1: Expanding window
+query I
+SELECT
+    COUNT(*) as predictions
+FROM (
+    SELECT
+        time_id,
+        anofox_stats_elastic_net_fit_predict(
+            y, [x], MAP{'intercept': 1, 'alpha': 0.5, 'lambda': 1.0}
+        ) OVER (ORDER BY time_id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred
+    FROM elastic_net_ts
+)
+WHERE (pred).yhat IS NOT NULL;
+----
+15
+
+# Test 2: Fixed-size rolling window
+query I
+SELECT
+    COUNT(*) as predictions
+FROM (
+    SELECT
+        time_id,
+        anofox_stats_elastic_net_fit_predict(
+            y, [x], MAP{'intercept': 1, 'alpha': 0.5, 'lambda': 1.0}
+        ) OVER (ORDER BY time_id ROWS BETWEEN 4 PRECEDING AND CURRENT ROW) as pred
+    FROM elastic_net_ts
+)
+WHERE (pred).yhat IS NOT NULL;
+----
+15
+
+# Test 3: ORDER BY with PARTITION BY
+statement ok
+CREATE TABLE elastic_net_multi_series AS
+SELECT
+    series_id,
+    t as time_id,
+    t::DOUBLE as x,
+    (t * series_mult + random() * 0.3)::DOUBLE as y
+FROM range(1, 11) r(t),
+     (VALUES ('A', 2.0), ('B', 3.0)) s(series_id, series_mult);
+
+query II
+SELECT
+    series_id,
+    COUNT(*) as predictions
+FROM (
+    SELECT
+        series_id,
+        time_id,
+        anofox_stats_elastic_net_fit_predict(
+            y, [x], MAP{'intercept': 1, 'alpha': 0.5, 'lambda': 0.5}
+        ) OVER (PARTITION BY series_id ORDER BY time_id ROWS BETWEEN 3 PRECEDING AND CURRENT ROW) as pred
+    FROM elastic_net_multi_series
+)
+WHERE (pred).yhat IS NOT NULL
+GROUP BY series_id
+ORDER BY series_id;
+----
+A	10
+B	10
+
+statement ok
+DROP TABLE elastic_net_ts;
+
+statement ok
+DROP TABLE elastic_net_multi_series;

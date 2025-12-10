@@ -1,0 +1,258 @@
+# name: test/sql/fit_predict/test_elastic_net_fit_predict_basic.test
+# description: Test basic Elastic Net fit-predict functionality
+# group: [fit_predict]
+
+require anofox_statistics
+
+# Test 1: Simple train/test split with small lambda
+statement ok
+CREATE TABLE elastic_net_data AS
+SELECT
+    i as id,
+    i::DOUBLE as x,
+    CASE WHEN i <= 5 THEN (i * 2.0)::DOUBLE ELSE NULL END as y
+FROM range(1, 11) t(i);
+
+# Verify data split
+query I
+SELECT COUNT(*) FROM elastic_net_data WHERE y IS NOT NULL;
+----
+5
+
+query I
+SELECT COUNT(*) FROM elastic_net_data WHERE y IS NULL;
+----
+5
+
+# Test 2: Basic Elastic Net fit-predict (alpha=0.5, small lambda)
+# With small lambda, should be close to OLS
+query II
+SELECT
+    id,
+    ROUND((pred).yhat, 1) as yhat
+FROM (
+    SELECT
+        id,
+        anofox_stats_elastic_net_fit_predict(
+            y,
+            [x],
+            MAP{'intercept': 1, 'alpha': 0.5, 'lambda': 0.01}
+        ) OVER (ORDER BY id) as pred
+    FROM elastic_net_data
+)
+ORDER BY id;
+----
+1	2.0
+2	4.0
+3	6.0
+4	8.0
+5	10.0
+6	12.0
+7	14.0
+8	16.0
+9	18.0
+10	19.9
+
+# Test 3: Lasso (alpha=1.0) with higher lambda for feature selection
+statement ok
+CREATE TABLE elastic_net_multi AS
+SELECT
+    i as id,
+    i::DOUBLE as x1,
+    (i * 0.1)::DOUBLE as x2,  -- Weak predictor
+    CASE WHEN i <= 6 THEN (2.0 * i + 0.01 * (i * 0.1))::DOUBLE ELSE NULL END as y
+FROM range(1, 10) t(i);
+
+# Lasso should shrink weak predictor (x2) towards zero
+query I
+SELECT
+    COUNT(*) as predictions
+FROM (
+    SELECT
+        id,
+        anofox_stats_elastic_net_fit_predict(
+            y,
+            [x1, x2],
+            MAP{'intercept': 1, 'alpha': 1.0, 'lambda': 0.5}
+        ) OVER (ORDER BY id) as pred
+    FROM elastic_net_multi
+)
+WHERE (pred).yhat IS NOT NULL;
+----
+9
+
+# Test 4: Ridge (alpha=0.0) is pure L2 regularization
+query I
+SELECT
+    COUNT(*) as predictions
+FROM (
+    SELECT
+        id,
+        anofox_stats_elastic_net_fit_predict(
+            y,
+            [x1, x2],
+            MAP{'intercept': 1, 'alpha': 0.0, 'lambda': 1.0}
+        ) OVER (ORDER BY id) as pred
+    FROM elastic_net_multi
+)
+WHERE (pred).yhat IS NOT NULL;
+----
+9
+
+# Test 5: PARTITION BY with different alpha/lambda per group
+statement ok
+CREATE TABLE elastic_net_groups AS
+SELECT
+    i as row_id,
+    group_id,
+    i::DOUBLE as x,
+    CASE WHEN i <= 3 THEN (i * group_mult + 1.0)::DOUBLE ELSE NULL END as y,
+    group_alpha,
+    group_lambda
+FROM range(1, 7) t(i),
+     (VALUES ('A', 2.0, 0.5, 0.1), ('B', 3.0, 0.8, 0.5)) g(group_id, group_mult, group_alpha, group_lambda);
+
+query III
+SELECT
+    group_id,
+    row_id,
+    (pred).yhat IS NOT NULL as has_prediction
+FROM (
+    SELECT
+        group_id,
+        row_id,
+        anofox_stats_elastic_net_fit_predict(
+            y,
+            [x],
+            MAP{'intercept': 1, 'alpha': group_alpha, 'lambda': group_lambda}
+        ) OVER (PARTITION BY group_id) as pred
+    FROM elastic_net_groups
+)
+ORDER BY group_id, row_id;
+----
+A	1	1
+A	2	1
+A	3	1
+A	4	1
+A	5	1
+A	6	1
+B	1	1
+B	2	1
+B	3	1
+B	4	1
+B	5	1
+B	6	1
+
+# Test 6: Verify struct fields are accessible
+query IIII
+SELECT
+    id,
+    (pred).yhat IS NOT NULL as has_yhat,
+    (pred).yhat_lower IS NOT NULL as has_lower,
+    (pred).yhat_upper IS NOT NULL as has_upper
+FROM (
+    SELECT
+        id,
+        anofox_stats_elastic_net_fit_predict(
+            y,
+            [x],
+            MAP{'intercept': 1, 'alpha': 0.5, 'lambda': 0.1}
+        ) OVER (ORDER BY id) as pred
+    FROM elastic_net_data
+)
+WHERE id <= 3
+ORDER BY id;
+----
+1	1	1	1
+2	1	1	1
+3	1	1	1
+
+# Test 7: Elastic Net without intercept
+query I
+SELECT
+    COUNT(*) as predictions
+FROM (
+    SELECT
+        id,
+        anofox_stats_elastic_net_fit_predict(
+            y,
+            [x],
+            MAP{'intercept': 0, 'alpha': 0.5, 'lambda': 0.1}
+        ) OVER (ORDER BY id) as pred
+    FROM elastic_net_data
+)
+WHERE (pred).yhat IS NOT NULL;
+----
+10
+
+# Test 8: Compare different alpha values (Lasso vs Ridge vs Elastic Net)
+statement ok
+CREATE TABLE alpha_comparison AS
+SELECT
+    i as id,
+    i::DOUBLE as x1,
+    (i + random() * 0.1)::DOUBLE as x2,  -- Highly correlated
+    CASE WHEN i <= 6 THEN (3.0 * i + 0.5)::DOUBLE ELSE NULL END as y
+FROM range(1, 10) t(i);
+
+query I
+SELECT
+    COUNT(DISTINCT alpha_type) as different_methods
+FROM (
+    SELECT
+        id,
+        'lasso' as alpha_type,
+        anofox_stats_elastic_net_fit_predict(y, [x1, x2], MAP{'intercept': 1, 'alpha': 1.0, 'lambda': 0.5}) OVER (ORDER BY id) as pred
+    FROM alpha_comparison
+    UNION ALL
+    SELECT
+        id,
+        'ridge' as alpha_type,
+        anofox_stats_elastic_net_fit_predict(y, [x1, x2], MAP{'intercept': 1, 'alpha': 0.0, 'lambda': 0.5}) OVER (ORDER BY id) as pred
+    FROM alpha_comparison
+    UNION ALL
+    SELECT
+        id,
+        'elastic' as alpha_type,
+        anofox_stats_elastic_net_fit_predict(y, [x1, x2], MAP{'intercept': 1, 'alpha': 0.5, 'lambda': 0.5}) OVER (ORDER BY id) as pred
+    FROM alpha_comparison
+)
+WHERE (pred).yhat IS NOT NULL;
+----
+3
+
+# Test 9: Verify std_error field is populated
+query I
+SELECT
+    COUNT(*) as has_std_error
+FROM (
+    SELECT
+        id,
+        (pred).std_error as std_err
+    FROM (
+        SELECT
+            id,
+            anofox_stats_elastic_net_fit_predict(
+                y,
+                [x],
+                MAP{'intercept': 1, 'alpha': 0.5, 'lambda': 0.1}
+            ) OVER (ORDER BY id) as pred
+        FROM elastic_net_data
+    )
+)
+WHERE std_err IS NOT NULL AND std_err > 0;
+----
+10
+
+# Cleanup
+statement ok
+DROP TABLE elastic_net_data;
+
+statement ok
+DROP TABLE elastic_net_multi;
+
+statement ok
+DROP TABLE elastic_net_groups;
+
+statement ok
+DROP TABLE alpha_comparison;

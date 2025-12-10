@@ -1,0 +1,18 @@
+{
+  "generated_at": ["2025-10-30 22:30:57 CET"],
+  "r_version": ["R version 4.5.1 (2025-06-13)"],
+  "seed": [42],
+  "description": ["OLS regression test data with 5 test cases"],
+  "test_cases": {
+    "simple_linear": ["Simple linear regression with 1 predictor"],
+    "multiple_regression": ["Multiple regression with 3 predictors"],
+    "no_intercept": ["Regression without intercept term"],
+    "rank_deficient": ["Rank-deficient matrix (constant feature)"],
+    "perfect_collinearity": ["Perfect collinearity between predictors"]
+  },
+  "tolerance": {
+    "strict": [1e-10],
+    "relaxed": [1e-08],
+    "note": ["Use strict for coefficients/R², relaxed for p-values"]
+  }
+}

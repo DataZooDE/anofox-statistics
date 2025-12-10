@@ -1,0 +1,43 @@
+# name: test/sql/fit_predict/test_elastic_net_fit_predict_validation.test
+# description: Numerical validation tests for Elastic Net fit-predict
+# group: [fit_predict]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE elastic_net_val AS
+SELECT
+    i as id,
+    i::DOUBLE as x,
+    CASE WHEN i <= 10 THEN (i * 2.0)::DOUBLE ELSE NULL END as y
+FROM range(1, 16) t(i);
+
+# Test 1: Prediction intervals should contain predictions
+query I
+SELECT COUNT(*) FROM (
+    SELECT (pred).yhat as y, (pred).yhat_lower as lo, (pred).yhat_upper as up
+    FROM (SELECT anofox_stats_elastic_net_fit_predict(y, [x], MAP{'intercept': 1, 'alpha': 0.5, 'lambda': 1.0}) OVER (ORDER BY id) as pred FROM elastic_net_val)
+) WHERE lo <= y AND y <= up;
+----
+15
+
+# Test 2: Intervals should have positive width
+query I
+SELECT COUNT(*) FROM (
+    SELECT (pred).yhat_upper - (pred).yhat_lower as width
+    FROM (SELECT anofox_stats_elastic_net_fit_predict(y, [x], MAP{'intercept': 1, 'alpha': 0.5, 'lambda': 1.0}) OVER (ORDER BY id) as pred FROM elastic_net_val)
+) WHERE width > 0;
+----
+14
+
+# Test 3: Standard errors should be positive
+query I
+SELECT COUNT(*) FROM (
+    SELECT (pred).std_error as err
+    FROM (SELECT anofox_stats_elastic_net_fit_predict(y, [x], MAP{'intercept': 1, 'alpha': 0.5, 'lambda': 1.0}) OVER (ORDER BY id) as pred FROM elastic_net_val)
+) WHERE err > 0;
+----
+15
+
+statement ok
+DROP TABLE elastic_net_val;
