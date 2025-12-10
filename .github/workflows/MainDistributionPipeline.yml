@@ -21,6 +21,7 @@ jobs:
       extension_name: anofox_stats
       enable_rust: true
       reduced_ci_mode: disabled
+      exclude_archs: linux_arm64
 
   code-quality-check:
     name: Code Quality Check
