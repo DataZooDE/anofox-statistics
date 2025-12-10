@@ -93,7 +93,7 @@ jobs:
           role-to-assume: arn:aws:iam::331993160594:role/ErplGithubOicdRole
           role-session-name: ErplGithubOicdSession
           aws-region: eu-west-1
-  
+
       - name: Checkout DuckDB to version
         run: |
           cd duckdb

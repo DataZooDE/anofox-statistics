@@ -14,7 +14,7 @@ A statistical analysis extension for DuckDB, providing regression analysis, diag
 
 ## Features
 
-### 🎯 Core Regression Functions
+### Core Regression Functions
 - **OLS Regression**: Ordinary Least Squares with multiple predictors
 - **Ridge Regression**: L2 regularization for multicollinearity
 - **Elastic Net**: Combined L1+L2 regularization for feature selection and stability
@@ -22,13 +22,13 @@ A statistical analysis extension for DuckDB, providing regression analysis, diag
 - **Recursive Least Squares**: Online/streaming estimation
 - **Rolling/Expanding Windows**: Time-series regression
 
-### 📊 Statistical Inference
+### Statistical Inference
 - **Coefficient Tests**: t-statistics, p-values, confidence intervals
 - **Prediction Intervals**: Confidence and prediction intervals for forecasts
 - **Model-Based Prediction**: Prediction using pre-fitted models (no refitting required)
 - **Model Selection**: AIC, BIC, adjusted R² for model comparison
 
-### 🔍 Diagnostics & Validation
+### Diagnostics & Validation
 - **Residual Diagnostics**: Outlier detection with standardized residuals
 - **Residual Diagnostics Aggregate**: Group-wise residual analysis with summary/detailed modes
 - **Multicollinearity**: VIF (Variance Inflation Factor) detection
@@ -36,7 +36,7 @@ A statistical analysis extension for DuckDB, providing regression analysis, diag
 - **Normality Tests**: Jarque-Bera test for residual normality
 - **Normality Test Aggregate**: Per-group normality testing with skewness and kurtosis
 
-### 🚀 Advanced Features
+### Advanced Features
 - **Aggregate Functions**: Regression per group with `GROUP BY` (OLS, WLS, Ridge, RLS, Elastic Net)
 - **Window Functions**: Rolling/expanding regressions with `OVER` clause for all regression methods
   - Rolling windows: `ROWS BETWEEN N PRECEDING AND CURRENT ROW`
@@ -55,7 +55,7 @@ A statistical analysis extension for DuckDB, providing regression analysis, diag
 All functions follow the `anofox_stats_*` naming convention, with convenient aliases without the prefix:
 
 - **Primary**: `anofox_stats_ols_fit(...)`
-- **Alias**: `ols_fit(...)` ✨ Shorter and more convenient!
+- **Alias**: `ols_fit(...)` - Shorter and more convenient!
 
 Both work identically - use whichever you prefer!
 
@@ -127,20 +127,6 @@ INSTALL anofox_statistics FROM community;
 LOAD anofox_statistics;
 ```
 
-### From Source
-
-```bash
-# Clone the repository with submodules
-git clone --recurse-submodules https://github.com/DataZooDE/anofox-statistics.git
-cd anofox-statistics
-
-# Build the extension
-make release
-
-# The extension will be built to:
-# build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension
-```
-
 ## Documentation
 
 - **[API Reference](docs/API_REFERENCE.md)**: Complete function reference and specifications
@@ -201,23 +187,6 @@ Contributions are welcome. To get started:
 
 For questions, open an issue on GitHub.
 
-### Development Setup
-
-```bash
-# Clone repository with submodules
-git clone --recurse-submodules https://github.com/DataZooDE/anofox-statistics.git
-cd anofox-statistics
-
-# Build in debug mode
-make debug
-
-# Run tests
-make test
-
-# Format code
-make format
-```
-
 ### Areas for Contribution
 
 - Additional statistical tests (Durbin-Watson, Breusch-Pagan, etc.)
@@ -253,4 +222,3 @@ If you use this extension in research, please cite:
 - **DuckDB Team**: For the database and extension framework
 - **Eigen Project**: For high-performance linear algebra
 - **Open Source Community**: For contributions and feedback
-

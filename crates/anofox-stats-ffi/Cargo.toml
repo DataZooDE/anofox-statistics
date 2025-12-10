@@ -1,0 +1,18 @@
+[package]
+name = "anofox_stats_ffi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "C FFI boundary for anofox-statistics DuckDB extension"
+
+[lib]
+name = "anofox_stats_ffi"
+crate-type = ["staticlib"]
+
+[dependencies]
+anofox-stats-core = { path = "../anofox-stats-core" }
+libc.workspace = true
+
+[build-dependencies]
+cbindgen = "0.27"

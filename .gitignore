@@ -1,46 +1,35 @@
-build
-.idea
-cmake-build-debug
+# Rust
+/target/
+
+# Build artifacts
+/build/
+*.duckdb
+*.duckdb.wal
+
+# DuckDB test directories
 duckdb_unittest_tempdir/
+
+# Test binaries
+test_ridge
+test_ridge.c
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
 .DS_Store
-testext
-test/python/__pycache__/
-.Rhistory
-build_standalone
-build_standalone/
+Thumbs.db
 
-# Note: Generated .md files in guides/ ARE committed (not ignored)
-# They are built from guides/templates/*.md.in and need to be visible on GitHub
-# The build process is automated via pre-commit hooks
+# Compiled objects
+*.o
+*.a
+*.so
+*.dylib
+*.dll
 
-# Only ignore these documentation-related items if needed:
-# /guides/build/
-# *.md.backup
-
-# Test data IS committed (important for reproducibility!)
-# test/data/
-
-# But ignore temporary files in test/data/
-test/data/**/*.tmp
-test/data/**/*.log
-test/data/**/.DS_Store
-
-# Validation temporary outputs
-validation/**/*.Rout
-validation/**/__pycache__/
-validation/**/*.pyc
-validation/R_libs/
-AGENTS.md
-node_modules/
-
-# Coverage outputs
-libanostat/coverage_html/
-libanostat/*.info
-libanostat/build/coverage/
-*.gcda
-*.gcno
-*.gcov
-libanostat/vcpkg_installed/
-*.pyc
-**/__pycache__/
-.Rproj.user
+# Debug files
+*.dSYM/

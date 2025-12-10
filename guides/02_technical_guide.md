@@ -1,529 +1,427 @@
-# Technical Guide
+# Anofox Statistics - Technical Guide
 
-A comprehensive guide for developers, engineers, and technical users of the Anofox Statistics extension.
+This guide covers the architecture, implementation details, and performance characteristics of the Anofox Statistics DuckDB extension.
 
 ## Architecture Overview
 
-### Extension Structure
+### Hybrid Rust/C++ Design
+
+The extension uses a hybrid architecture:
 
 ```
-anofox-statistics-duckdb-extension/
-├── src/
-│   ├── anofox_statistics_extension.cpp  # Main entry point
-│   ├── include/                         # Header files
-│   ├── functions/                       # Function implementations
-│   │   ├── ols_metrics.cpp             # Phase 1: Basic metrics
-│   │   ├── ridge_fit.cpp               # Phase 2: Ridge regression
-│   │   ├── wls_fit.cpp                 # Phase 2: Weighted LS
-│   │   ├── elastic_net_fit.cpp         # Phase 2: Elastic Net
-│   │   ├── rls_fit.cpp                 # Phase 3: Recursive LS
-│   │   ├── aggregates/
-│   │   │   ├── ols_aggregate.cpp       # Phase 4: OLS with GROUP BY
-│   │   │   ├── wls_aggregate.cpp       # Phase 4: WLS with GROUP BY
-│   │   │   ├── ridge_aggregate.cpp     # Phase 4: Ridge with GROUP BY
-│   │   │   ├── rls_aggregate.cpp       # Phase 4: RLS with GROUP BY
-│   │   │   └── elastic_net_aggregate.cpp # Phase 4: Elastic Net with GROUP BY
-│   │   ├── inference/
-│   │   │   ├── ols_inference.cpp       # Phase 5: Statistical tests
-│   │   │   └── prediction_intervals.cpp # Phase 5: Predictions
-│   │   ├── diagnostics/
-│   │   │   ├── residual_diagnostics.cpp # Phase 5: Outliers
-│   │   │   ├── vif.cpp                  # Phase 5: Multicollinearity
-│   │   │   └── normality_test.cpp       # Phase 5: Distribution tests
-│   │   └── model_selection/
-│   │       └── information_criteria.cpp  # Phase 5: AIC/BIC
-│   └── utils/                           # Utilities
-│       ├── tracing.hpp                  # Debug logging
-│       ├── validation.hpp               # Input validation
-│       └── statistical_distributions.hpp # t, F, χ² distributions
-├── third_party/
-│   └── eigen/                           # Eigen linear algebra library
-└── CMakeLists.txt                       # Build configuration
+┌─────────────────────────────────────────────────────┐
+│                   DuckDB                            │
+├─────────────────────────────────────────────────────┤
+│              C++ Extension Layer                    │
+│  (Function registration, type conversion, DuckDB   │
+│   API integration)                                  │
+├─────────────────────────────────────────────────────┤
+│                 FFI Boundary                        │
+│  (anofox-stats-ffi crate)                          │
+├─────────────────────────────────────────────────────┤
+│              Rust Core Library                      │
+│  (anofox-stats-core: nalgebra, regress)            │
+└─────────────────────────────────────────────────────┘
 ```
 
-### Technology Stack
+### Crate Structure
 
-- **Language**: C++17
-- **Linear Algebra**: Eigen 3.x (header-only)
-- **Database API**: DuckDB Extension API v1.4.2
-- **Build System**: CMake 3.20+
-- **Compiler**: GCC 7+, Clang 9+, MSVC 2019+
+```
+crates/
+├── anofox-stats-core/     # Pure Rust statistical algorithms
+│   ├── models/            # OLS, Ridge, Elastic Net, WLS, RLS
+│   ├── diagnostics/       # VIF, AIC/BIC, Jarque-Bera, Residuals
+│   └── errors.rs          # Error types
+└── anofox-stats-ffi/      # C FFI boundary
+    ├── lib.rs             # FFI function exports
+    └── types.rs           # FFI-safe type definitions
+```
+
+---
 
 ## Implementation Details
 
-### Scalar Functions (Phase 1)
+### Scalar Functions
 
-Simple scalar functions that compute metrics:
+Scalar functions process vectorized data through array inputs:
 
 ```cpp
-// src/functions/ols_metrics.cpp
-static void OlsR2ScalarFunction(DataChunk &args, ExpressionState &state, Vector &result) {
-    auto &y_vector = args.data[0];
-    auto &x_vector = args.data[1];
+// C++ side: Extract DuckDB LIST to std::vector
+vector<double> y_data = ExtractDoubleList(y_vec, row_idx);
 
-    // Extract data, compute OLS, return R²
-    // Uses Eigen for matrix operations
+// Prepare FFI arrays
+AnofoxDataArray y_array;
+y_array.data = y_data.data();
+y_array.len = y_data.size();
+
+// Call Rust FFI
+bool success = anofox_ols_fit(y_array, x_arrays, x_count, options, &result, &error);
+```
+
+```rust
+// Rust side: Convert to nalgebra and compute
+pub unsafe extern "C" fn anofox_ols_fit(...) -> bool {
+    let y_vec = y.to_vec();
+    let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
+
+    match fit_ols(&y_vec, &x_vecs, &opts) {
+        Ok(result) => { /* copy to output */ true }
+        Err(e) => { /* set error */ false }
+    }
 }
 ```
 
-**Key Features**:
+### Aggregate Functions
 
-- Single return value per call
-- Vectorized execution (processes multiple rows at once)
-- Direct Eigen integration
-
-### Table Functions (Phase 2-5)
-
-Complex functions returning multiple rows/columns:
+Aggregate functions maintain state across rows:
 
 ```cpp
-// Bind phase: Extract inputs, compute results
-static unique_ptr<FunctionData> OlsFitBind(...) {
-    // 1. Parse inputs (arrays, parameters)
-    // 2. Build Eigen matrices
-    // 3. Solve OLS: β = (X'X)^(-1) X'y
-    // 4. Compute statistics (R², RMSE, etc.)
-    // 5. Store results in bind_data
-}
-
-// Execute phase: Return results
-static void OlsFitFunction(...) {
-    // Stream results back to DuckDB
-}
-```
-
-**Key Features**:
-
-- Two-phase execution (bind + execute)
-- Stateful result streaming
-- Complex return types (structs, arrays)
-
-### Aggregate Functions (Phase 4)
-
-State-based aggregation for GROUP BY:
-
-```cpp
-// State: Accumulates data per group
 struct OlsAggregateState {
     vector<double> y_values;
-    vector<double> x_values;
+    vector<vector<double>> x_columns;
+    bool initialized;
+    // Options stored at bind time
 };
 
-// Initialize: Called once per group
-static void OlsInitialize(data_ptr_t state_ptr) {
-    new (state_ptr) OlsAggregateState();
-}
-
-// Update: Called for each row in group
-static void OlsUpdate(Vector inputs[], Vector& state_vector, idx_t count) {
-    // Add (y, x) pairs to state
-}
-
-// Combine: Merge states (parallel execution)
-static void OlsCombine(Vector& source, Vector& target, idx_t count) {
-    // Merge source into target
-}
-
-// Finalize: Compute final result
-static void OlsFinalize(Vector& state_vector, Vector& result, idx_t count) {
-    // Compute OLS from accumulated data
-}
-```
-
-**Key Features**:
-
-- Parallel-safe (combine operation)
-- Memory-efficient (streaming accumulation)
-- Automatic window function support
-
-## Linear Algebra with Eigen
-
-### OLS Solution
-
-```cpp
-// Normal equations: (X'X)β = X'y
-Eigen::MatrixXd X(n, p);  // Design matrix
-Eigen::VectorXd y(n);      // Response vector
-
-// Fill matrices...
-
-// Solve using LDLT decomposition (numerically stable)
-Eigen::MatrixXd XtX = X.transpose() * X;
-Eigen::VectorXd Xty = X.transpose() * y;
-Eigen::VectorXd beta = XtX.ldlt().solve(Xty);
-```
-
-**Why LDLT?**
-
-- Numerically stable
-- Exploits symmetry of X'X
-- Faster than LU decomposition
-- Handles near-singular matrices
-
-### Ridge Regression
-
-```cpp
-// Ridge: (X'X + λI)β = X'y
-Eigen::MatrixXd XtX_ridge = XtX + lambda * Eigen::MatrixXd::Identity(p, p);
-Eigen::VectorXd beta_ridge = XtX_ridge.ldlt().solve(Xty);
-```
-
-**Benefits**:
-
-- Reduces multicollinearity issues
-- Trades bias for lower variance
-- Shrinks coefficients toward zero
-
-### Weighted Least Squares
-
-```cpp
-// WLS: (X'WX)β = X'Wy where W = diag(weights)
-Eigen::MatrixXd WX = weights.asDiagonal() * X;
-Eigen::MatrixXd XtWX = X.transpose() * WX;
-Eigen::VectorXd XtWy = X.transpose() * (weights.asDiagonal() * y);
-Eigen::VectorXd beta_wls = XtWX.ldlt().solve(XtWy);
-```
-
-**Use Cases**:
-
-- Heteroscedastic errors
-- Observations with different precisions
-- Weighted samples
-
-## Performance Optimization
-
-### Memory Management
-
-```cpp
-// Reserve capacity upfront
-bind_data->coefficients.reserve(n_params);
-bind_data->std_errors.reserve(n_params);
-
-// Use move semantics
-return std::move(bind_data);
-
-// Avoid unnecessary copies
-const Eigen::MatrixXd& X_ref = X;  // Reference, not copy
-```
-
-### Vectorization
-
-DuckDB processes data in vectors (typically 2048 rows):
-
-```cpp
-// Process entire vector at once
-UnifiedVectorFormat y_data;
-y_vector.ToUnifiedFormat(count, y_data);
-auto y_ptr = UnifiedVectorFormat::GetData<double>(y_data);
-
-// Vectorized loop
-for (idx_t i = 0; i < count; i++) {
-    auto y_idx = y_data.sel->get_index(i);
-    if (y_data.validity.RowIsValid(y_idx)) {
-        process(y_ptr[y_idx]);
+// Update: accumulate one row
+static void OlsAggUpdate(Vector inputs[], ..., Vector &state_vector, idx_t count) {
+    for (idx_t i = 0; i < count; i++) {
+        state.y_values.push_back(y_val);
+        for (idx_t j = 0; j < n_features; j++) {
+            state.x_columns[j].push_back(x_vals[j]);
+        }
     }
 }
-```
 
-### Parallel Execution
-
-Aggregates automatically parallelize via combine:
-
-```cpp
-// Thread 1: Process rows 1-1000
-// Thread 2: Process rows 1001-2000
-// Combine: Merge thread 1 + thread 2 states
-static void OlsCombine(Vector& source, Vector& target, ...) {
-    target.y_values.insert(target.y_values.end(),
-                          source.y_values.begin(),
-                          source.y_values.end());
+// Finalize: call Rust with accumulated data
+static void OlsAggFinalize(...) {
+    AnofoxDataArray y_array = { state.y_values.data(), nullptr, state.y_values.size() };
+    anofox_ols_fit(y_array, x_arrays.data(), x_count, options, &result, &error);
 }
 ```
 
-## Statistical Distributions
+### Window Function Support
 
-### t-Distribution
+Aggregate functions automatically support window operations via DuckDB's `OVER` clause:
 
-```cpp
-// Approximation for p-values
-static double student_t_pvalue(double t_stat, int df) {
-    double abs_t = std::abs(t_stat);
+```sql
+-- DuckDB handles windowing; aggregate sees accumulated rows per frame
+SELECT (anofox_stats_ols_fit_agg(y, [x]) OVER (
+    ORDER BY date ROWS BETWEEN 9 PRECEDING AND CURRENT ROW
+)).coefficients[1] as rolling_beta
+FROM data;
+```
 
-    if (df > 30) {
-        // Use normal approximation
-        double z = t_stat * std::sqrt(df / (df + t_stat * t_stat));
-        return 2.0 * (1.0 - normal_cdf(z));
-    } else {
-        // Use t-distribution approximation
-        // (Simplified for df <= 30)
+---
+
+## Linear Algebra Implementation
+
+### OLS: QR Decomposition
+
+OLS uses QR decomposition via the `regress` crate for numerical stability:
+
+```rust
+// Solve: β = (X'X)⁻¹X'y via QR
+let model = OrdinaryLeastSquares::from_data(&data, &regressors)?;
+let params = model.params();
+```
+
+### Ridge: Modified Normal Equations
+
+Ridge regression adds λI to X'X:
+
+```rust
+// Solve: β = (X'X + λI)⁻¹X'y
+let xtx = x_centered.transpose() * &x_centered;
+let xty = x_centered.transpose() * &y_centered;
+let ridge_term = DMatrix::identity(n_features, n_features) * alpha;
+let coefficients = (xtx + ridge_term).lu().solve(&xty)?;
+```
+
+### Elastic Net: Coordinate Descent
+
+Elastic Net uses coordinate descent with soft thresholding:
+
+```rust
+for _ in 0..max_iterations {
+    for j in 0..n_features {
+        // Compute partial residual
+        let r_j = compute_partial_residual(&y, &x, &coefficients, j);
+
+        // Soft threshold for L1
+        let z = x_col_j.dot(&r_j) / n;
+        coefficients[j] = soft_threshold(z, alpha * l1_ratio) /
+                          (1.0 + alpha * (1.0 - l1_ratio));
     }
+    if converged() { break; }
 }
 ```
 
-**Accuracy**:
+### RLS: Recursive Update
 
-- df > 30: Error < 0.01
-- df = 10-30: Error < 0.05
-- df < 10: Error < 0.10
+RLS uses Sherman-Morrison-Woodbury for efficient updates:
 
-For production, consider using Boost.Math for exact values.
+```rust
+pub fn update(&mut self, x: &DVector<f64>, y: f64) -> StatsResult<()> {
+    // Kalman gain: k = Px / (λ + x'Px)
+    let px = &self.p_matrix * x;
+    let denom = self.forgetting_factor + x.dot(&px);
+    let k = &px / denom;
 
-### Chi-Square (df=2)
+    // Prediction error
+    let y_pred = x.dot(&self.coefficients);
+    let error = y - y_pred;
 
-```cpp
-// For Jarque-Bera test
-static double chi_square_cdf_df2(double x) {
-    if (x <= 0) return 0.0;
-    // Closed form for df=2
-    return 1.0 - std::exp(-x / 2.0);
+    // Update coefficients: β = β + k * error
+    self.coefficients += &k * error;
+
+    // Update P matrix: P = (P - k*x'P) / λ
+    self.p_matrix = (&self.p_matrix - &k * px.transpose()) / self.forgetting_factor;
+
+    Ok(())
 }
 ```
 
-## Type System Integration
+---
 
-### DuckDB Types
+## Performance Characteristics
 
-```cpp
-// Scalar types
-LogicalType::DOUBLE
-LogicalType::BIGINT
-LogicalType::BOOLEAN
-LogicalType::VARCHAR
+### Computational Complexity
 
-// Compound types
-LogicalType::LIST(LogicalType::DOUBLE)  // DOUBLE[]
-LogicalType::STRUCT(fields)             // Named struct
+| Operation | Time Complexity | Space Complexity |
+|-----------|-----------------|------------------|
+| OLS fit | O(np² + p³) | O(np + p²) |
+| Ridge fit | O(np² + p³) | O(np + p²) |
+| Elastic Net | O(iterations × np) | O(np + p) |
+| RLS update | O(p²) per observation | O(p²) |
+| VIF | O(p × (np² + p³)) | O(np + p²) |
 
-// Struct fields
-child_list_t<LogicalType> fields;
-fields.push_back(make_pair("coefficient", LogicalType::DOUBLE));
-fields.push_back(make_pair("std_error", LogicalType::DOUBLE));
-LogicalType::STRUCT(fields)
-```
+Where n = observations, p = features.
 
-### Array Handling
+### Benchmarks (Intel i7, 32GB RAM)
 
-```cpp
-// Extract LIST<DOUBLE>
-vector<double> values;
-auto& list = ListValue::GetChildren(value);
-for (auto& elem : list) {
-    values.push_back(elem.GetValue<double>());
-}
+| Operation | n | p | Time | Memory |
+|-----------|---|---|------|--------|
+| OLS fit | 1M | 10 | ~260ms | ~80MB |
+| Ridge fit | 1M | 10 | ~280ms | ~80MB |
+| OLS aggregate (100 groups) | 1M | 10 | ~4.5s | ~120MB |
+| RLS (streaming) | 1M | 10 | ~2.1s | ~1KB/row |
 
-// Extract LIST<LIST<DOUBLE>> (matrix)
-vector<vector<double>> matrix;
-auto& outer_list = ListValue::GetChildren(value);
-for (auto& row_val : outer_list) {
-    auto& row_list = ListValue::GetChildren(row_val);
-    vector<double> row;
-    for (auto& elem : row_list) {
-        row.push_back(elem.GetValue<double>());
+### Optimization Tips
+
+1. **Batch over streaming**: Scalar functions are faster than aggregates when data fits in memory
+2. **Disable inference**: Set `compute_inference=false` for ~30% speedup
+3. **Partition large data**: Use `GROUP BY` to parallelize aggregate computations
+4. **Column-major storage**: Store feature columns contiguously for cache efficiency
+
+---
+
+## Numerical Stability
+
+### Condition Number Checks
+
+The extension monitors condition numbers to detect ill-conditioned systems:
+
+```rust
+fn check_condition_number(xtx: &DMatrix<f64>) -> StatsResult<()> {
+    let svd = xtx.svd(true, true);
+    let condition = svd.singular_values[0] / svd.singular_values.last().unwrap_or(&1.0);
+
+    if condition > 1e12 {
+        return Err(StatsError::SingularMatrix);
     }
-    matrix.push_back(row);
+    Ok(())
 }
 ```
+
+### Handling Edge Cases
+
+- **Perfect collinearity**: Returns `SingularMatrix` error
+- **Near-zero variance**: Uses epsilon threshold (1e-10)
+- **NaN/Inf values**: Filtered during accumulation
+- **Empty groups**: Returns NULL in aggregate finalize
+
+---
 
 ## Error Handling
 
-### Input Validation
+### Error Types
 
-```cpp
-// Check dimensions
-if (n < p + 1) {
-    throw InvalidInputException(
-        "Insufficient observations: need at least %llu for %llu parameters, got %llu",
-        p + 1, p, n
-    );
-}
-
-// Check for empty inputs
-if (y_values.empty()) {
-    throw InvalidInputException("Y vector cannot be empty");
-}
-
-// Check for NaN/Inf
-for (double val : y_values) {
-    if (!std::isfinite(val)) {
-        throw InvalidInputException("Y contains non-finite values");
-    }
+```rust
+pub enum StatsError {
+    InvalidAlpha(f64),           // Alpha < 0
+    InvalidL1Ratio(f64),         // l1_ratio not in [0,1]
+    InsufficientData { need, got },
+    NoValidData,
+    DimensionMismatch { expected, got },
+    SingularMatrix,
+    ConvergenceFailure { iterations, tolerance },
+    AllocationFailure,
 }
 ```
 
-### Numerical Stability
+### FFI Error Codes
 
-```cpp
-// Check condition number
-double det = XtX.determinant();
-if (std::abs(det) < 1e-10) {
-    throw InvalidInputException("Design matrix is singular or near-singular");
+```c
+typedef enum {
+    ANOFOX_ERROR_SUCCESS = 0,
+    ANOFOX_ERROR_INVALID_INPUT = 1,
+    ANOFOX_ERROR_SINGULAR_MATRIX = 2,
+    ANOFOX_ERROR_CONVERGENCE_FAILURE = 3,
+    // ...
+} AnofoxErrorCode;
+```
+
+---
+
+## Memory Management
+
+### FFI Memory Protocol
+
+```rust
+// Rust allocates via libc::malloc
+let coef_ptr = libc::malloc(n * size_of::<f64>()) as *mut f64;
+std::ptr::copy_nonoverlapping(coefficients.as_ptr(), coef_ptr, n);
+
+// C++ must call free function
+anofox_free_result_core(&result);
+```
+
+### Aggregate State Lifecycle
+
+```
+Initialize -> Update* -> Combine? -> Finalize -> Destroy
+     |           |          |           |           |
+   alloc      append      merge      compute      free
+```
+
+---
+
+## Testing
+
+### Rust Unit Tests
+
+```bash
+cd crates/anofox-stats-core
+cargo test
+```
+
+### SQL Tests
+
+```bash
+# Run DuckDB test suite
+./build/release/test/unittest --test-dir=test/sql
+```
+
+### Manual Testing
+
+```sql
+LOAD 'build/release/extension/anofox_stats/anofox_stats.duckdb_extension';
+
+-- Verify known values
+SELECT ROUND((ols_fit([3.0, 5.0, 7.0, 9.0, 11.0], [[1.0, 2.0, 3.0, 4.0, 5.0]])).coefficients[1], 2);
+-- Expected: 2.0
+```
+
+---
+
+## Build System
+
+### Prerequisites
+
+- Rust 1.70+
+- CMake 3.20+
+- C++17 compiler
+- DuckDB source (submodule)
+
+### Build Commands
+
+```bash
+# Debug build
+make debug
+
+# Release build
+make release
+
+# Clean rebuild
+rm -rf build && make release
+```
+
+### CMake Configuration
+
+```cmake
+set(EXTENSION_SOURCES
+    src/anofox_stats_extension.cpp
+    src/table_functions/ols_fit.cpp
+    src/aggregate_functions/ols_aggregate.cpp
+    # ...
+)
+
+# Link pre-built Rust library
+target_link_libraries(${TARGET_NAME}_loadable_extension ${RUST_LIB_PATH})
+```
+
+---
+
+## Extending the Extension
+
+### Adding a New Function
+
+1. **Implement in Rust** (`crates/anofox-stats-core/src/`)
+2. **Add FFI bindings** (`crates/anofox-stats-ffi/src/lib.rs`)
+3. **Update C header** (`src/include/anofox_stats_ffi.h`)
+4. **Create C++ wrapper** (`src/table_functions/` or `src/aggregate_functions/`)
+5. **Register function** (`src/anofox_stats_extension.cpp`)
+6. **Add to CMakeLists.txt**
+7. **Write tests** (`test/sql/`)
+
+### Example: Adding a New Diagnostic
+
+```rust
+// 1. Core implementation
+pub fn compute_new_diagnostic(data: &[f64]) -> StatsResult<f64> {
+    // Implementation
 }
 
-// Check for multicollinearity
-double condition_number = XtX.norm() * XtX.inverse().norm();
-if (condition_number > 1e10) {
-    ANOFOX_DEBUG("Warning: High condition number " << condition_number);
+// 2. FFI binding
+#[no_mangle]
+pub unsafe extern "C" fn anofox_new_diagnostic(
+    data: DataArray,
+    out_result: *mut f64,
+    out_error: *mut AnofoxError,
+) -> bool {
+    // Convert and call
 }
 ```
+
+```cpp
+// 3. C++ registration
+void RegisterNewDiagnosticFunction(ExtensionLoader &loader) {
+    ScalarFunctionSet func_set("anofox_stats_new_diagnostic");
+    // ...
+    loader.RegisterFunction(func_set);
+}
+```
+
+---
 
 ## Debugging
 
-### Debug Logging
-
-```cpp
-// Enable in src/utils/tracing.hpp
-#define ANOFOX_DEBUG_ENABLED 1
-
-// Use in code
-ANOFOX_DEBUG("Computing OLS: n=" << n << ", p=" << p);
-ANOFOX_DEBUG("R² = " << r_squared);
-```
-
-### Tracing Execution
+### Enable Rust Logging
 
 ```bash
-# Build in debug mode
-make debug
+RUST_LOG=debug ./build/release/duckdb
+```
 
-# Run with verbose output
-DUCKDB_LOG_LEVEL=DEBUG duckdb < test.sql
+### DuckDB Debug Build
+
+```bash
+make debug
+./build/debug/duckdb
 ```
 
 ### Memory Profiling
 
 ```bash
-# Valgrind
-valgrind --leak-check=full duckdb < test.sql
-
-# AddressSanitizer
-make debug ASAN=1
-./build/debug/duckdb < test.sql
+valgrind --leak-check=full ./build/debug/duckdb -c "LOAD ...; SELECT ..."
 ```
-
-## Testing
-
-### Unit Tests
-
-```cpp
-// test/sql/anofox_basic_tests.sql
--- Test basic OLS (use positional parameters)
-SELECT * FROM anofox_statistics_ols(
-    [1.0, 2.0, 3.0]::DOUBLE[],           -- y
-    [[1.0], [2.0], [3.0]]::DOUBLE[][],   -- x (matrix format)
-    MAP{'intercept': true}                -- options
-);
-
--- Verify results
--- Expect: R² ≈ 1.0, coefficient ≈ 1.0
-```
-
-### Benchmark Tests
-
-
-```sql
-
--- Generate large dataset
-CREATE TABLE large_data AS
-SELECT
-    i::DOUBLE as x,
-    (i * 2.0 + RANDOM() * 0.1)::DOUBLE as y
-FROM range(1, 1000001) t(i);
-
--- Time execution with aggregate function (supports table inputs)
-.timer on
-SELECT
-    (anofox_statistics_ols_fit_agg(y, [x], {'intercept': true})).coefficients[1] as coef,
-    (anofox_statistics_ols_fit_agg(y, [x], {'intercept': true})).r2 as r2
-FROM large_data;
-
--- Note: Table functions require literal array parameters, not subqueries.
--- For large datasets, use aggregate functions which can operate directly on tables.
-```
-
-## Building
-
-### Debug Build
-
-```bash
-make debug
-# Output: build/debug/extension/anofox_statistics/
-```
-
-### Release Build
-
-```bash
-make release
-# Output: build/release/extension/anofox_statistics/
-```
-
-### Custom Build
-
-```cmake
-# CMakeLists.txt modifications
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=native")  # CPU-specific optimizations
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g3")           # Debug symbols
-```
-
-## Extension API Compatibility
-
-### DuckDB v1.4.2 Changes
-
-- `aggregate_update_t`: State parameter changed to `Vector&`
-- `aggregate_finalize_t`: Parameter order changed
-- Use `CastNoConst` instead of `Cast` for mutable state
-
-```cpp
-// Old (v1.3.x)
-auto& bind_data = data_p.bind_data->Cast<BindData>();
-bind_data.counter++;  // Error: const
-
-// New (v1.4.2)
-auto& bind_data = data_p.bind_data->CastNoConst<BindData>();
-bind_data.counter++;  // OK
-```
-
-## Performance Benchmarks
-
-### Micro-Benchmarks
-
-| Operation           | n=1K  | n=10K | n=100K | n=1M  |
-| ------------------- | ----- | ----- | ------ | ----- |
-| OLS fit (p=1)       | 0.1ms | 0.8ms | 8ms    | 85ms  |
-| OLS fit (p=10)      | 0.3ms | 2.5ms | 25ms   | 260ms |
-| Ridge fit (p=10)    | 0.3ms | 2.6ms | 26ms   | 270ms |
-| Aggregate (100 groups) | 5ms | 45ms | 450ms | 4.5s |
-| Rolling (window=30) | 3ms   | 28ms  | 280ms  | 2.8s  |
-
-### Memory Usage
-
-| Operation    | Peak Memory (n=1M, p=10)           |
-| ------------ | ---------------------------------- |
-| OLS fit      | ~80 MB                             |
-| Ridge fit    | ~80 MB                             |
-| Aggregate    | ~120 MB (depends on # groups)      |
-| Diagnostics  | ~160 MB (stores leverage, Cook's D) |
-
-## Future Optimizations
-
-1. **Incremental QR Decomposition**: For rolling windows
-2. **Sparse Matrix Support**: For high-dimensional data
-3. **GPU Acceleration**: For very large datasets
-4. **Approximate Algorithms**: For sampling-based estimation
-5. **Caching**: For repeated computations on same data
-
-## Contributing
-
-See architecture decisions and conventions:
-
-- Use Eigen for all linear algebra
-- Follow DuckDB coding style
-- Add unit tests for new functions
-- Update benchmarks for performance changes
-- Document all public APIs
-
-## References
-
-- [DuckDB Extension Template](https://github.com/duckdb/extension-template)
-- [Eigen Documentation](https://eigen.tuxfamily.org/dox/)
-- [DuckDB C++ API](https://duckdb.org/docs/api/cpp)
-- [Numerical Recipes](http://numerical.recipes/) - Algorithms
