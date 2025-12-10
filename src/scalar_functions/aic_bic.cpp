@@ -47,7 +47,7 @@ static void AicFunction(DataChunk &args, ExpressionState &state, Vector &result)
         bool success = anofox_compute_aic(rss, n, k, &aic, &error);
 
         if (!success) {
-            throw InvalidInputException("AIC computation failed: %s", error.message);
+            throw InvalidInputException("AIC computation failed: " + string(error.message));
         }
 
         result_data[row] = aic;
@@ -96,7 +96,7 @@ static void BicFunction(DataChunk &args, ExpressionState &state, Vector &result)
         bool success = anofox_compute_bic(rss, n, k, &bic, &error);
 
         if (!success) {
-            throw InvalidInputException("BIC computation failed: %s", error.message);
+            throw InvalidInputException("BIC computation failed: " + string(error.message));
         }
 
         result_data[row] = bic;

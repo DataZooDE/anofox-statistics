@@ -64,7 +64,7 @@ static void VifFunction(DataChunk &args, ExpressionState &state, Vector &result)
         bool success = anofox_compute_vif(x_arrays.data(), x_arrays.size(), &vif_values, &vif_len, &error);
 
         if (!success) {
-            throw InvalidInputException("VIF computation failed: %s", error.message);
+            throw InvalidInputException("VIF computation failed: " + string(error.message));
         }
 
         // Build result list

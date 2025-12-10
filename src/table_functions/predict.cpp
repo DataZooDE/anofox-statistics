@@ -82,7 +82,7 @@ static void PredictFunction(DataChunk &args, ExpressionState &state, Vector &res
                                       intercept, &predictions, &predictions_len, &error);
 
         if (!success) {
-            throw InvalidInputException("Predict failed: %s", error.message);
+            throw InvalidInputException("Predict failed: " + string(error.message));
         }
 
         // Build result list

@@ -153,7 +153,7 @@ static void OlsFitFunction(DataChunk &args, ExpressionState &state, Vector &resu
                                       bind_data.compute_inference ? &inference_result : nullptr, &error);
 
         if (!success) {
-            throw InvalidInputException("OLS fit failed: %s", error.message);
+            throw InvalidInputException("OLS fit failed: " + string(error.message));
         }
 
         // Build result struct

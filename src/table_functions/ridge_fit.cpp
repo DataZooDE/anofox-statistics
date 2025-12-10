@@ -160,7 +160,7 @@ static void RidgeFitFunction(DataChunk &args, ExpressionState &state, Vector &re
                                         bind_data.compute_inference ? &inference_result : nullptr, &error);
 
         if (!success) {
-            throw InvalidInputException("Ridge fit failed: %s", error.message);
+            throw InvalidInputException("Ridge fit failed: " + string(error.message));
         }
 
         // Build result struct

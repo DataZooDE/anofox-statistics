@@ -154,7 +154,7 @@ static void ElasticNetFitFunction(DataChunk &args, ExpressionState &state, Vecto
         bool success = anofox_elasticnet_fit(y_array, x_arrays.data(), x_arrays.size(), options, &core_result, &error);
 
         if (!success) {
-            throw InvalidInputException("Elastic Net fit failed: %s", error.message);
+            throw InvalidInputException("Elastic Net fit failed: " + string(error.message));
         }
 
         // Build result struct
