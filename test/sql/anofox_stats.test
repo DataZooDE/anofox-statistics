@@ -2,7 +2,7 @@
 # description: Tests for anofox_stats extension
 # group: [sql]
 
-require anofox_stats
+require anofox_statistics
 
 #######################################
 # OLS Scalar Function Tests

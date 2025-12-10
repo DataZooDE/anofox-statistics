@@ -2,7 +2,7 @@
 # description: Test error handling for anofox_stats extension
 # group: [sql]
 
-require anofox_stats
+require anofox_statistics
 
 # =============================================================================
 # INSUFFICIENT DATA ERRORS

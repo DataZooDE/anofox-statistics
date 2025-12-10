@@ -2,7 +2,7 @@
 # description: Comprehensive tests for anofox_stats extension with known values from library unit tests
 # group: [sql]
 
-require anofox_stats
+require anofox_statistics
 
 ###############################################################################
 # SECTION 1: OLS (Ordinary Least Squares) Tests

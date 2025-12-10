@@ -2,7 +2,7 @@
 # description: Test type handling and edge cases for anofox_stats extension
 # group: [sql]
 
-require anofox_stats
+require anofox_statistics
 
 # =============================================================================
 # NULL VALUE HANDLING
