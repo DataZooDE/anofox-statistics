@@ -21,7 +21,9 @@ jobs:
       extension_name: anofox_stats
       enable_rust: true
       reduced_ci_mode: disabled
-      exclude_archs: linux_arm64
+      # linux_arm64: ubuntu-24.04-arm runner not available for this repository
+      # wasm_*: faer library has WASM-incompatible dependencies (atomic-wait)
+      exclude_archs: linux_arm64;wasm_mvp;wasm_eh;wasm_threads
 
   code-quality-check:
     name: Code Quality Check
