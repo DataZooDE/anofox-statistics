@@ -1,5 +1,5 @@
 [package]
-name = "anofox-stats-ffi"
+name = "anofox_stats_ffi"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

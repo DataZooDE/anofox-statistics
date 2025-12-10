@@ -71,7 +71,7 @@ FetchContent_MakeAvailable(Corrosion)
 # Import the Rust FFI crate
 corrosion_import_crate(
     MANIFEST_PATH "${CMAKE_CURRENT_SOURCE_DIR}/crates/anofox-stats-ffi/Cargo.toml"
-    CRATES "anofox-stats-ffi"
+    CRATES "anofox_stats_ffi"
 )
 
 # Set extension name here
@@ -113,8 +113,8 @@ build_static_extension(${TARGET_NAME} ${EXTENSION_SOURCES})
 build_loadable_extension(${TARGET_NAME} " " ${EXTENSION_SOURCES})
 
 # Link to Rust library (use static for both)
-target_link_libraries(${EXTENSION_NAME} anofox-stats-ffi-static)
-target_link_libraries(${LOADABLE_EXTENSION_NAME} anofox-stats-ffi-static)
+target_link_libraries(${EXTENSION_NAME} anofox_stats_ffi-static)
+target_link_libraries(${LOADABLE_EXTENSION_NAME} anofox_stats_ffi-static)
 
 # Install
 install(
