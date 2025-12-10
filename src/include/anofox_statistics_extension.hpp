@@ -29,7 +29,7 @@ void RegisterResidualsDiagnosticsFunction(ExtensionLoader &loader);
 void RegisterResidualsDiagnosticsAggregateFunction(ExtensionLoader &loader);
 
 // Extension class required for static linking
-class AnofoxStatsExtension : public Extension {
+class AnofoxStatisticsExtension : public Extension {
 public:
     void Load(ExtensionLoader &loader) override;
     std::string Name() override;

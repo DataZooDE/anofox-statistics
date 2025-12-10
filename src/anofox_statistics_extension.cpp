@@ -1,13 +1,13 @@
 #define DUCKDB_EXTENSION_MAIN
 
-#include "include/anofox_stats_extension.hpp"
+#include "include/anofox_statistics_extension.hpp"
 
 #include "duckdb.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
 
 namespace duckdb {
 
-void AnofoxStatsExtension::Load(ExtensionLoader &loader) {
+void AnofoxStatisticsExtension::Load(ExtensionLoader &loader) {
     // Register scalar functions
     RegisterOlsFitFunction(loader);
     RegisterRidgeFitFunction(loader);
@@ -33,13 +33,13 @@ void AnofoxStatsExtension::Load(ExtensionLoader &loader) {
     RegisterResidualsDiagnosticsFunction(loader);
 }
 
-std::string AnofoxStatsExtension::Name() {
-    return "anofox_stats";
+std::string AnofoxStatisticsExtension::Name() {
+    return "anofox_statistics";
 }
 
-std::string AnofoxStatsExtension::Version() const {
-#ifdef EXT_VERSION_ANOFOX_STATS
-    return EXT_VERSION_ANOFOX_STATS;
+std::string AnofoxStatisticsExtension::Version() const {
+#ifdef EXT_VERSION_ANOFOX_STATISTICS
+    return EXT_VERSION_ANOFOX_STATISTICS;
 #else
     return "0.1.0";
 #endif
@@ -49,7 +49,7 @@ std::string AnofoxStatsExtension::Version() const {
 
 extern "C" {
 
-DUCKDB_CPP_EXTENSION_ENTRY(anofox_stats, loader) {
+DUCKDB_CPP_EXTENSION_ENTRY(anofox_statistics, loader) {
     // Register scalar functions
     duckdb::RegisterOlsFitFunction(loader);
     duckdb::RegisterRidgeFitFunction(loader);
@@ -75,9 +75,9 @@ DUCKDB_CPP_EXTENSION_ENTRY(anofox_stats, loader) {
     duckdb::RegisterResidualsDiagnosticsFunction(loader);
 }
 
-DUCKDB_EXTENSION_API const char *anofox_stats_version() {
-#ifdef EXT_VERSION_ANOFOX_STATS
-    return EXT_VERSION_ANOFOX_STATS;
+DUCKDB_EXTENSION_API const char *anofox_statistics_version() {
+#ifdef EXT_VERSION_ANOFOX_STATISTICS
+    return EXT_VERSION_ANOFOX_STATISTICS;
 #else
     return "0.1.0";
 #endif
