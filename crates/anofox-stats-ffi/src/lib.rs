@@ -1488,7 +1488,10 @@ pub unsafe extern "C" fn anofox_predict_with_interval(
     (*out_result).yhat = yhat;
 
     // Compute prediction interval if we have valid std error
-    if residual_std_error.is_nan() || residual_std_error <= 0.0 || n_observations <= coefficients_len + 1 {
+    if residual_std_error.is_nan()
+        || residual_std_error <= 0.0
+        || n_observations <= coefficients_len + 1
+    {
         // No valid interval, just return yhat with same bounds
         (*out_result).yhat_lower = yhat;
         (*out_result).yhat_upper = yhat;
