@@ -13,6 +13,7 @@ crate-type = ["staticlib"]
 [dependencies]
 anofox-stats-core = { path = "../anofox-stats-core" }
 libc.workspace = true
+statrs.workspace = true
 
 [build-dependencies]
 cbindgen = "0.27"

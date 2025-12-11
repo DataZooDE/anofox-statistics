@@ -2,7 +2,7 @@
 # description: Basic OLS regression tests
 # group: [sql]
 
-require anofox_stats
+require anofox_statistics
 
 # Basic OLS fit with simple linear relationship y = 2x + 1
 query I

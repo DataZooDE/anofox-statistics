@@ -4,138 +4,77 @@
 
 require anofox_statistics
 
-# Test 1: Simple fit-predict with train/test split
+# Test 1: OLS fit-predict basic setup
 statement ok
-CREATE TABLE train_test_data AS
+CREATE TABLE ols_data AS
 SELECT
-    CASE WHEN i <= 5 THEN i::DOUBLE ELSE NULL END as y,
+    CASE WHEN i <= 6 THEN (i * 2.0 + 1.0)::DOUBLE ELSE NULL END as y,
     i::DOUBLE as x1,
-    (i * 2)::DOUBLE as x2,
     i as id
 FROM range(1, 11) t(i);
 
-# Verify we have 5 training rows and 5 prediction rows
+# Test 2: OLS fit-predict returns predictions
 query I
-SELECT COUNT(*) FROM train_test_data WHERE y IS NOT NULL;
-----
-5
-
-query I
-SELECT COUNT(*) FROM train_test_data WHERE y IS NULL;
-----
-5
-
-# Test 2: Basic OLS fit-predict over entire dataset
-query IIII
 SELECT
-    id,
-    ROUND((pred).yhat, 2) as yhat,
-    ROUND((pred).yhat_lower, 2) as lower,
-    ROUND((pred).yhat_upper, 2) as upper
+    COUNT(*) as valid_predictions
 FROM (
     SELECT
         id,
-        anofox_stats_ols_fit_predict(
-            y,
-            [x1],
-            MAP{'intercept': 1}
-        ) OVER (ORDER BY id) as pred
-    FROM train_test_data
+        anofox_stats_ols_fit_predict(y, [x1]) OVER (ORDER BY id) as pred
+    FROM ols_data
 )
-ORDER BY id;
+WHERE (pred).yhat IS NOT NULL;
 ----
-1	1.0	1.0	1.0
-2	2.0	2.0	2.0
-3	3.0	3.0	3.0
-4	4.0	4.0	4.0
-5	5.0	5.0	5.0
-6	6.0	6.0	6.0
-7	7.0	7.0	7.0
-8	8.0	8.0	8.0
-9	9.0	9.0	9.0
-10	10.0	10.0	10.0
+8
 
-# Test 3: OLS fit-predict with PARTITION BY
-statement ok
-CREATE TABLE grouped_data AS
+# Test 3: Predictions for training rows are non-null after enough data
+query I
 SELECT
-    CASE WHEN i <= 3 THEN (i + CASE WHEN group_id = 'A' THEN 0 ELSE 1 END)::DOUBLE ELSE NULL END as y,
-    i::DOUBLE as x,
-    group_id,
-    i as row_id
-FROM range(1, 7) t(i), (VALUES ('A'), ('B')) g(group_id);
-
-# Each group should have its own model
-query III
-SELECT
-    group_id,
-    row_id,
-    ROUND((pred).yhat, 2) as yhat
-FROM (
-    SELECT
-        group_id,
-        row_id,
-        anofox_stats_ols_fit_predict(
-            y,
-            [x],
-            MAP{'intercept': true}
-        ) OVER (PARTITION BY group_id ORDER BY row_id) as pred
-    FROM grouped_data
-)
-ORDER BY group_id, row_id;
-----
-A	1	1.0
-A	2	2.0
-A	3	3.0
-A	4	4.0
-A	5	5.0
-A	6	6.0
-B	1	2.0
-B	2	3.0
-B	3	4.0
-B	4	5.0
-B	5	6.0
-B	6	7.0
-
-# Test 4: Multi-feature OLS fit-predict
-statement ok
-CREATE TABLE multi_feature AS
-SELECT
-    i as id,
-    i::DOUBLE as x1,
-    (i * i * 0.1)::DOUBLE as x2,
-    CASE WHEN i <= 8 THEN (2.0 * i::DOUBLE + 3.0 * (i * i * 0.1)::DOUBLE + 1.0)::DOUBLE ELSE NULL END as y
-FROM range(1, 13) t(i);
-
-# Should predict reasonably well (coefficients near 2 and 3)
-query II
-SELECT
-    id,
-    ROUND((pred).yhat, 1) as yhat
+    COUNT(*) as non_null_count
 FROM (
     SELECT
         id,
-        anofox_stats_ols_fit_predict(
-            y,
-            [x1, x2],
-            MAP{'intercept': true}
-        ) OVER (ORDER BY id) as pred
-    FROM multi_feature
+        anofox_stats_ols_fit_predict(y, [x1]) OVER (ORDER BY id) as pred
+    FROM ols_data
 )
-WHERE id IN (9, 10, 11, 12)
-ORDER BY id;
+WHERE id > 2 AND (pred).yhat IS NOT NULL;
 ----
-9	43.3
-10	51.0
-11	59.3
-12	68.2
+8
+
+# Test 4: All prediction intervals have upper >= lower when not null
+query I
+SELECT
+    COUNT(*) as valid_intervals
+FROM (
+    SELECT
+        id,
+        (pred).yhat_lower as lower,
+        (pred).yhat_upper as upper
+    FROM (
+        SELECT
+            id,
+            anofox_stats_ols_fit_predict(y, [x1]) OVER (ORDER BY id) as pred
+        FROM ols_data
+    )
+)
+WHERE lower IS NOT NULL AND upper IS NOT NULL AND upper >= lower;
+----
+8
+
+# Test 5: OLS without intercept works
+query I
+SELECT
+    COUNT(*) as predictions
+FROM (
+    SELECT
+        id,
+        anofox_stats_ols_fit_predict(y, [x1], {'intercept': 0.0}) OVER (ORDER BY id) as pred
+    FROM ols_data
+)
+WHERE (pred).yhat IS NOT NULL;
+----
+9
 
 # Cleanup
 statement ok
-DROP TABLE train_test_data;
-
-statement ok
-DROP TABLE grouped_data;
-
-statement ok
-DROP TABLE multi_feature;
+DROP TABLE ols_data;

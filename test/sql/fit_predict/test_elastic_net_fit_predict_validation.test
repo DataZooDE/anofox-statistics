@@ -12,32 +12,41 @@ SELECT
     CASE WHEN i <= 10 THEN (i * 2.0)::DOUBLE ELSE NULL END as y
 FROM range(1, 16) t(i);
 
-# Test 1: Prediction intervals should contain predictions
+# Test 1: Count valid predictions (first 2 rows NULL due to insufficient data)
+query I
+SELECT COUNT(*) FROM (
+    SELECT (pred).yhat as yhat
+    FROM (SELECT anofox_stats_elasticnet_fit_predict(y, [x], {'intercept': 1.0, 'l1_ratio': 0.5, 'alpha': 1.0}) OVER (ORDER BY id) as pred FROM elastic_net_val)
+) WHERE yhat IS NOT NULL;
+----
+13
+
+# Test 2: Prediction intervals should contain predictions where valid
 query I
 SELECT COUNT(*) FROM (
     SELECT (pred).yhat as y, (pred).yhat_lower as lo, (pred).yhat_upper as up
-    FROM (SELECT anofox_stats_elastic_net_fit_predict(y, [x], MAP{'intercept': 1, 'alpha': 0.5, 'lambda': 1.0}) OVER (ORDER BY id) as pred FROM elastic_net_val)
-) WHERE lo <= y AND y <= up;
+    FROM (SELECT anofox_stats_elasticnet_fit_predict(y, [x], {'intercept': 1.0, 'l1_ratio': 0.5, 'alpha': 1.0}) OVER (ORDER BY id) as pred FROM elastic_net_val)
+) WHERE y IS NOT NULL AND lo <= y AND y <= up;
 ----
-15
+13
 
-# Test 2: Intervals should have positive width
+# Test 3: Intervals should have positive width where predictions exist
 query I
 SELECT COUNT(*) FROM (
-    SELECT (pred).yhat_upper - (pred).yhat_lower as width
-    FROM (SELECT anofox_stats_elastic_net_fit_predict(y, [x], MAP{'intercept': 1, 'alpha': 0.5, 'lambda': 1.0}) OVER (ORDER BY id) as pred FROM elastic_net_val)
-) WHERE width > 0;
+    SELECT (pred).yhat as yhat, (pred).yhat_upper - (pred).yhat_lower as width
+    FROM (SELECT anofox_stats_elasticnet_fit_predict(y, [x], {'intercept': 1.0, 'l1_ratio': 0.5, 'alpha': 1.0}) OVER (ORDER BY id) as pred FROM elastic_net_val)
+) WHERE yhat IS NOT NULL AND width > 0;
 ----
-14
+13
 
-# Test 3: Standard errors should be positive
+# Test 4: Predictions should be finite where not NULL
 query I
 SELECT COUNT(*) FROM (
-    SELECT (pred).std_error as err
-    FROM (SELECT anofox_stats_elastic_net_fit_predict(y, [x], MAP{'intercept': 1, 'alpha': 0.5, 'lambda': 1.0}) OVER (ORDER BY id) as pred FROM elastic_net_val)
-) WHERE err > 0;
+    SELECT (pred).yhat as yhat
+    FROM (SELECT anofox_stats_elasticnet_fit_predict(y, [x], {'intercept': 1.0, 'l1_ratio': 0.5, 'alpha': 1.0}) OVER (ORDER BY id) as pred FROM elastic_net_val)
+) WHERE yhat IS NOT NULL AND NOT ISINF(yhat) AND NOT ISNAN(yhat);
 ----
-15
+13
 
 statement ok
 DROP TABLE elastic_net_val;

@@ -2,7 +2,7 @@
 # description: Test type handling and edge cases for anofox_stats extension
 # group: [sql]
 
-require anofox_stats
+require anofox_statistics
 
 # =============================================================================
 # NULL VALUE HANDLING
@@ -33,12 +33,12 @@ SELECT (anofox_stats_ols_fit(
 ----
 1
 
-# Ridge with large numbers and noisy data to avoid perfect fit
+# Ridge with large numbers and noisy data to avoid perfect fit using MAP syntax
 query I
 SELECT (anofox_stats_ridge_fit(
     [1.0e6, 2.1e6, 2.9e6, 4.1e6, 4.9e6, 6.0e6, 7.1e6, 7.9e6, 9.1e6, 9.9e6],
     [[1e4, 2e4, 3e4, 4e4, 5e4, 6e4, 7e4, 8e4, 9e4, 10e4]],
-    0.1
+    {'alpha': 0.1}
 )).r_squared > 0.90;
 ----
 1
@@ -131,7 +131,7 @@ query I
 SELECT (anofox_stats_ridge_fit(
     [-5.0, -3.0, -1.0, 1.0, 3.0, 5.0, 7.0, 9.0, 11.0, 13.0],
     [[-5.0, -4.0, -3.0, -2.0, -1.0, 0.0, 1.0, 2.0, 3.0, 4.0]],
-    0.1
+    {'alpha': 0.1}
 )).r_squared > 0.95;
 ----
 true

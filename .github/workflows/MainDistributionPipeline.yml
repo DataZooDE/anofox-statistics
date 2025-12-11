@@ -18,7 +18,7 @@ jobs:
     with:
       duckdb_version: v1.4.3
       ci_tools_version: v1.4.3
-      extension_name: anofox_stats
+      extension_name: anofox_statistics
       enable_rust: true
       reduced_ci_mode: disabled
 

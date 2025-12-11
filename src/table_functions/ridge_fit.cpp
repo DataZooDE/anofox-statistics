@@ -9,6 +9,7 @@
 #include "duckdb/planner/expression/bound_function_expression.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/map_options_parser.hpp"
 
 namespace duckdb {
 
@@ -65,19 +66,23 @@ static unique_ptr<FunctionData> RidgeFitBind(ClientContext &context, ScalarFunct
                                              vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<RidgeFitBindData>();
 
-    // Check for constant arguments for options (if provided as 3rd, 4th, 5th, 6th args)
-    // Arguments: y, x, alpha, fit_intercept, compute_inference, confidence_level
+    // Parse MAP options if provided as 3rd argument
     if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        result->alpha = DoubleValue::Get(ExpressionExecutor::EvaluateScalar(context, *arguments[2]));
-    }
-    if (arguments.size() >= 4 && arguments[3]->IsFoldable()) {
-        result->fit_intercept = BooleanValue::Get(ExpressionExecutor::EvaluateScalar(context, *arguments[3]));
-    }
-    if (arguments.size() >= 5 && arguments[4]->IsFoldable()) {
-        result->compute_inference = BooleanValue::Get(ExpressionExecutor::EvaluateScalar(context, *arguments[4]));
-    }
-    if (arguments.size() >= 6 && arguments[5]->IsFoldable()) {
-        result->confidence_level = DoubleValue::Get(ExpressionExecutor::EvaluateScalar(context, *arguments[5]));
+        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[2]);
+        if (opts.fit_intercept.has_value()) {
+            result->fit_intercept = opts.fit_intercept.value();
+        }
+        if (opts.compute_inference.has_value()) {
+            result->compute_inference = opts.compute_inference.value();
+        }
+        if (opts.confidence_level.has_value()) {
+            result->confidence_level = opts.confidence_level.value();
+        }
+        // alpha can be specified as 'alpha' or 'lambda' in the MAP
+        auto reg_strength = opts.GetRegularizationStrength();
+        if (reg_strength.has_value()) {
+            result->alpha = reg_strength.value();
+        }
     }
 
     // Set return type
@@ -222,24 +227,27 @@ static void RidgeFitFunction(DataChunk &args, ExpressionState &state, Vector &re
 void RegisterRidgeFitFunction(ExtensionLoader &loader) {
     ScalarFunctionSet func_set("anofox_stats_ridge_fit");
 
-    // Version with y, x, and alpha only
-    ScalarFunction basic_func({LogicalType::LIST(LogicalType::DOUBLE),
-                               LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)), LogicalType::DOUBLE}, // alpha
-                              LogicalType::ANY, // Will be set in bind
-                              RidgeFitFunction, RidgeFitBind);
+    // Basic version: anofox_stats_ridge_fit(y, x) - uses default alpha=1.0
+    ScalarFunction basic_func(
+        {LogicalType::LIST(LogicalType::DOUBLE), LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE))},
+        LogicalType::ANY, // Will be set in bind
+        RidgeFitFunction, RidgeFitBind);
     func_set.AddFunction(basic_func);
 
-    // Full version: anofox_stats_ridge_fit(y, x, alpha, fit_intercept, compute_inference, confidence_level)
-    ScalarFunction full_func({LogicalType::LIST(LogicalType::DOUBLE),
-                              LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)),
-                              LogicalType::DOUBLE,  // alpha
-                              LogicalType::BOOLEAN, // fit_intercept
-                              LogicalType::BOOLEAN, // compute_inference
-                              LogicalType::DOUBLE}, // confidence_level
-                             LogicalType::ANY, RidgeFitFunction, RidgeFitBind);
-    func_set.AddFunction(full_func);
+    // Version with MAP options: anofox_stats_ridge_fit(y, x, {'alpha': 1.0, 'intercept': true, ...})
+    ScalarFunction map_func({LogicalType::LIST(LogicalType::DOUBLE),
+                             LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)),
+                             LogicalType::ANY}, // MAP or STRUCT for options
+                            LogicalType::ANY, RidgeFitFunction, RidgeFitBind);
+    func_set.AddFunction(map_func);
 
     loader.RegisterFunction(func_set);
+
+    // Register short alias
+    ScalarFunctionSet alias_set("ridge_fit");
+    alias_set.AddFunction(basic_func);
+    alias_set.AddFunction(map_func);
+    loader.RegisterFunction(alias_set);
 }
 
 } // namespace duckdb

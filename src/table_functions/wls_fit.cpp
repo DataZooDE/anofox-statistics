@@ -9,6 +9,7 @@
 #include "duckdb/planner/expression/bound_function_expression.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/map_options_parser.hpp"
 
 namespace duckdb {
 
@@ -63,15 +64,18 @@ static unique_ptr<FunctionData> WlsFitBind(ClientContext &context, ScalarFunctio
                                            vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<WlsFitBindData>();
 
-    // Check for constant arguments for options (if provided as 4th, 5th, 6th args)
+    // Parse MAP options if provided as 4th argument (after y, x, weights)
     if (arguments.size() >= 4 && arguments[3]->IsFoldable()) {
-        result->fit_intercept = BooleanValue::Get(ExpressionExecutor::EvaluateScalar(context, *arguments[3]));
-    }
-    if (arguments.size() >= 5 && arguments[4]->IsFoldable()) {
-        result->compute_inference = BooleanValue::Get(ExpressionExecutor::EvaluateScalar(context, *arguments[4]));
-    }
-    if (arguments.size() >= 6 && arguments[5]->IsFoldable()) {
-        result->confidence_level = DoubleValue::Get(ExpressionExecutor::EvaluateScalar(context, *arguments[5]));
+        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[3]);
+        if (opts.fit_intercept.has_value()) {
+            result->fit_intercept = opts.fit_intercept.value();
+        }
+        if (opts.compute_inference.has_value()) {
+            result->compute_inference = opts.compute_inference.value();
+        }
+        if (opts.confidence_level.has_value()) {
+            result->confidence_level = opts.confidence_level.value();
+        }
     }
 
     // Set return type
@@ -222,10 +226,9 @@ static void WlsFitFunction(DataChunk &args, ExpressionState &state, Vector &resu
 
 // Register the function
 void RegisterWlsFitFunction(ExtensionLoader &loader) {
-    // Basic version: anofox_stats_wls_fit(y, x, weights)
     ScalarFunctionSet func_set("anofox_stats_wls_fit");
 
-    // Version with just y, x, and weights
+    // Basic version: anofox_stats_wls_fit(y, x, weights) - uses defaults
     ScalarFunction basic_func({LogicalType::LIST(LogicalType::DOUBLE),
                                LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)),
                                LogicalType::LIST(LogicalType::DOUBLE)},
@@ -233,17 +236,21 @@ void RegisterWlsFitFunction(ExtensionLoader &loader) {
                               WlsFitFunction, WlsFitBind);
     func_set.AddFunction(basic_func);
 
-    // Version with options: anofox_stats_wls_fit(y, x, weights, fit_intercept, compute_inference, confidence_level)
-    ScalarFunction full_func({LogicalType::LIST(LogicalType::DOUBLE),
-                              LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)),
-                              LogicalType::LIST(LogicalType::DOUBLE),
-                              LogicalType::BOOLEAN, // fit_intercept
-                              LogicalType::BOOLEAN, // compute_inference
-                              LogicalType::DOUBLE}, // confidence_level
-                             LogicalType::ANY, WlsFitFunction, WlsFitBind);
-    func_set.AddFunction(full_func);
+    // Version with MAP options: anofox_stats_wls_fit(y, x, weights, {'intercept': true, ...})
+    ScalarFunction map_func({LogicalType::LIST(LogicalType::DOUBLE),
+                             LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)),
+                             LogicalType::LIST(LogicalType::DOUBLE),
+                             LogicalType::ANY}, // MAP or STRUCT for options
+                            LogicalType::ANY, WlsFitFunction, WlsFitBind);
+    func_set.AddFunction(map_func);
 
     loader.RegisterFunction(func_set);
+
+    // Register short alias
+    ScalarFunctionSet alias_set("wls_fit");
+    alias_set.AddFunction(basic_func);
+    alias_set.AddFunction(map_func);
+    loader.RegisterFunction(alias_set);
 }
 
 } // namespace duckdb

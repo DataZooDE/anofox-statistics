@@ -9,6 +9,7 @@
 #include "duckdb/planner/expression/bound_function_expression.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/map_options_parser.hpp"
 
 namespace duckdb {
 
@@ -57,22 +58,25 @@ static unique_ptr<FunctionData> ElasticNetFitBind(ClientContext &context, Scalar
                                                   vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<ElasticNetFitBindData>();
 
-    // Arguments: y, x, alpha, l1_ratio, fit_intercept, max_iterations, tolerance
+    // Parse MAP options if provided as 3rd argument
     if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        result->alpha = DoubleValue::Get(ExpressionExecutor::EvaluateScalar(context, *arguments[2]));
-    }
-    if (arguments.size() >= 4 && arguments[3]->IsFoldable()) {
-        result->l1_ratio = DoubleValue::Get(ExpressionExecutor::EvaluateScalar(context, *arguments[3]));
-    }
-    if (arguments.size() >= 5 && arguments[4]->IsFoldable()) {
-        result->fit_intercept = BooleanValue::Get(ExpressionExecutor::EvaluateScalar(context, *arguments[4]));
-    }
-    if (arguments.size() >= 6 && arguments[5]->IsFoldable()) {
-        result->max_iterations =
-            static_cast<uint32_t>(IntegerValue::Get(ExpressionExecutor::EvaluateScalar(context, *arguments[5])));
-    }
-    if (arguments.size() >= 7 && arguments[6]->IsFoldable()) {
-        result->tolerance = DoubleValue::Get(ExpressionExecutor::EvaluateScalar(context, *arguments[6]));
+        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[2]);
+        if (opts.fit_intercept.has_value()) {
+            result->fit_intercept = opts.fit_intercept.value();
+        }
+        auto reg_strength = opts.GetRegularizationStrength();
+        if (reg_strength.has_value()) {
+            result->alpha = reg_strength.value();
+        }
+        if (opts.l1_ratio.has_value()) {
+            result->l1_ratio = opts.l1_ratio.value();
+        }
+        if (opts.max_iterations.has_value()) {
+            result->max_iterations = opts.max_iterations.value();
+        }
+        if (opts.tolerance.has_value()) {
+            result->tolerance = opts.tolerance.value();
+        }
     }
 
     // Set return type
@@ -191,27 +195,27 @@ static void ElasticNetFitFunction(DataChunk &args, ExpressionState &state, Vecto
 void RegisterElasticNetFitFunction(ExtensionLoader &loader) {
     ScalarFunctionSet func_set("anofox_stats_elasticnet_fit");
 
-    // Basic version: anofox_stats_elasticnet_fit(y, x, alpha, l1_ratio)
-    ScalarFunction basic_func({LogicalType::LIST(LogicalType::DOUBLE),
-                               LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)),
-                               LogicalType::DOUBLE,  // alpha (regularization strength)
-                               LogicalType::DOUBLE}, // l1_ratio
-                              LogicalType::ANY,      // Will be set in bind
-                              ElasticNetFitFunction, ElasticNetFitBind);
+    // Basic version: anofox_stats_elasticnet_fit(y, x) - uses default alpha=1.0, l1_ratio=0.5
+    ScalarFunction basic_func(
+        {LogicalType::LIST(LogicalType::DOUBLE), LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE))},
+        LogicalType::ANY, // Will be set in bind
+        ElasticNetFitFunction, ElasticNetFitBind);
     func_set.AddFunction(basic_func);
 
-    // Full version: anofox_stats_elasticnet_fit(y, x, alpha, l1_ratio, fit_intercept, max_iterations, tolerance)
-    ScalarFunction full_func({LogicalType::LIST(LogicalType::DOUBLE),
-                              LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)),
-                              LogicalType::DOUBLE,  // alpha
-                              LogicalType::DOUBLE,  // l1_ratio
-                              LogicalType::BOOLEAN, // fit_intercept
-                              LogicalType::INTEGER, // max_iterations
-                              LogicalType::DOUBLE}, // tolerance
-                             LogicalType::ANY, ElasticNetFitFunction, ElasticNetFitBind);
-    func_set.AddFunction(full_func);
+    // Version with MAP options: anofox_stats_elasticnet_fit(y, x, {'alpha': 1.0, 'l1_ratio': 0.5, ...})
+    ScalarFunction map_func({LogicalType::LIST(LogicalType::DOUBLE),
+                             LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)),
+                             LogicalType::ANY}, // MAP or STRUCT for options
+                            LogicalType::ANY, ElasticNetFitFunction, ElasticNetFitBind);
+    func_set.AddFunction(map_func);
 
     loader.RegisterFunction(func_set);
+
+    // Register short alias
+    ScalarFunctionSet alias_set("elasticnet_fit");
+    alias_set.AddFunction(basic_func);
+    alias_set.AddFunction(map_func);
+    loader.RegisterFunction(alias_set);
 }
 
 } // namespace duckdb

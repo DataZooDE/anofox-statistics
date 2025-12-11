@@ -75,7 +75,7 @@ corrosion_import_crate(
 )
 
 # Set extension name here
-set(TARGET_NAME anofox_stats)
+set(TARGET_NAME anofox_statistics)
 set(EXTENSION_NAME ${TARGET_NAME}_extension)
 set(LOADABLE_EXTENSION_NAME ${TARGET_NAME}_loadable_extension)
 
@@ -85,7 +85,8 @@ include_directories(src/include)
 
 # Extension source files
 set(EXTENSION_SOURCES
-    src/anofox_stats_extension.cpp
+    src/anofox_statistics_extension.cpp
+    src/include/map_options_parser.cpp
     src/table_functions/ols_fit.cpp
     src/table_functions/ridge_fit.cpp
     src/table_functions/elasticnet_fit.cpp
@@ -104,6 +105,11 @@ set(EXTENSION_SOURCES
     src/scalar_functions/aic_bic.cpp
     src/scalar_functions/jarque_bera.cpp
     src/scalar_functions/residuals_diagnostics.cpp
+    src/window_functions/ols_fit_predict.cpp
+    src/window_functions/ridge_fit_predict.cpp
+    src/window_functions/wls_fit_predict.cpp
+    src/window_functions/rls_fit_predict.cpp
+    src/window_functions/elasticnet_fit_predict.cpp
 )
 
 # Build static extension

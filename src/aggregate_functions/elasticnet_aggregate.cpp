@@ -6,6 +6,7 @@
 #include "duckdb/main/extension/extension_loader.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/map_options_parser.hpp"
 
 namespace duckdb {
 
@@ -319,22 +320,25 @@ static unique_ptr<FunctionData> ElasticNetAggBind(ClientContext &context, Aggreg
                                                   vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<ElasticNetAggregateBindData>();
 
-    // Extract alpha (3rd argument), l1_ratio (4th), and other options
+    // Parse MAP options if provided as 3rd argument
     if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        result->alpha = DoubleValue::Get(ExpressionExecutor::EvaluateScalar(context, *arguments[2]));
-    }
-    if (arguments.size() >= 4 && arguments[3]->IsFoldable()) {
-        result->l1_ratio = DoubleValue::Get(ExpressionExecutor::EvaluateScalar(context, *arguments[3]));
-    }
-    if (arguments.size() >= 5 && arguments[4]->IsFoldable()) {
-        result->fit_intercept = BooleanValue::Get(ExpressionExecutor::EvaluateScalar(context, *arguments[4]));
-    }
-    if (arguments.size() >= 6 && arguments[5]->IsFoldable()) {
-        result->max_iterations =
-            static_cast<uint32_t>(IntegerValue::Get(ExpressionExecutor::EvaluateScalar(context, *arguments[5])));
-    }
-    if (arguments.size() >= 7 && arguments[6]->IsFoldable()) {
-        result->tolerance = DoubleValue::Get(ExpressionExecutor::EvaluateScalar(context, *arguments[6]));
+        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[2]);
+        if (opts.fit_intercept.has_value()) {
+            result->fit_intercept = opts.fit_intercept.value();
+        }
+        auto reg_strength = opts.GetRegularizationStrength();
+        if (reg_strength.has_value()) {
+            result->alpha = reg_strength.value();
+        }
+        if (opts.l1_ratio.has_value()) {
+            result->l1_ratio = opts.l1_ratio.value();
+        }
+        if (opts.max_iterations.has_value()) {
+            result->max_iterations = opts.max_iterations.value();
+        }
+        if (opts.tolerance.has_value()) {
+            result->tolerance = opts.tolerance.value();
+        }
     }
 
     // Set return type
@@ -349,10 +353,9 @@ static unique_ptr<FunctionData> ElasticNetAggBind(ClientContext &context, Aggreg
 void RegisterElasticNetAggregateFunction(ExtensionLoader &loader) {
     AggregateFunctionSet func_set("anofox_stats_elasticnet_fit_agg");
 
-    // Basic version: anofox_stats_elasticnet_fit_agg(y, x, alpha, l1_ratio)
+    // Basic version: anofox_stats_elasticnet_fit_agg(y, x) - uses default alpha=1.0, l1_ratio=0.5
     auto basic_func = AggregateFunction(
-        "anofox_stats_elasticnet_fit_agg",
-        {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE, LogicalType::DOUBLE},
+        "anofox_stats_elasticnet_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
         LogicalType::ANY, // Set in bind
         AggregateFunction::StateSize<ElasticNetAggregateState>, ElasticNetAggInitialize, ElasticNetAggUpdate,
         ElasticNetAggCombine, ElasticNetAggFinalize,
@@ -360,20 +363,22 @@ void RegisterElasticNetAggregateFunction(ExtensionLoader &loader) {
         ElasticNetAggBind, ElasticNetAggDestroy);
     func_set.AddFunction(basic_func);
 
-    // Full version: anofox_stats_elasticnet_fit_agg(y, x, alpha, l1_ratio, fit_intercept, max_iterations, tolerance)
-    auto full_func = AggregateFunction("anofox_stats_elasticnet_fit_agg",
-                                       {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE),
-                                        LogicalType::DOUBLE,  // alpha
-                                        LogicalType::DOUBLE,  // l1_ratio
-                                        LogicalType::BOOLEAN, // fit_intercept
-                                        LogicalType::INTEGER, // max_iterations
-                                        LogicalType::DOUBLE}, // tolerance
-                                       LogicalType::ANY, AggregateFunction::StateSize<ElasticNetAggregateState>,
-                                       ElasticNetAggInitialize, ElasticNetAggUpdate, ElasticNetAggCombine,
-                                       ElasticNetAggFinalize, nullptr, ElasticNetAggBind, ElasticNetAggDestroy);
-    func_set.AddFunction(full_func);
+    // Version with MAP options: anofox_stats_elasticnet_fit_agg(y, x, {'alpha': 1.0, 'l1_ratio': 0.5, ...})
+    auto map_func = AggregateFunction("anofox_stats_elasticnet_fit_agg",
+                                      {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE),
+                                       LogicalType::ANY}, // MAP or STRUCT for options
+                                      LogicalType::ANY, AggregateFunction::StateSize<ElasticNetAggregateState>,
+                                      ElasticNetAggInitialize, ElasticNetAggUpdate, ElasticNetAggCombine,
+                                      ElasticNetAggFinalize, nullptr, ElasticNetAggBind, ElasticNetAggDestroy);
+    func_set.AddFunction(map_func);
 
     loader.RegisterFunction(func_set);
+
+    // Register short alias
+    AggregateFunctionSet alias_set("elasticnet_fit_agg");
+    alias_set.AddFunction(basic_func);
+    alias_set.AddFunction(map_func);
+    loader.RegisterFunction(alias_set);
 }
 
 } // namespace duckdb

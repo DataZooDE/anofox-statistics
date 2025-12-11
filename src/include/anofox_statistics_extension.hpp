@@ -19,6 +19,13 @@ void RegisterWlsAggregateFunction(ExtensionLoader &loader);
 void RegisterRlsAggregateFunction(ExtensionLoader &loader);
 void RegisterRlsFitFunction(ExtensionLoader &loader);
 
+// Window aggregate functions (fit_predict)
+void RegisterOlsFitPredictFunction(ExtensionLoader &loader);
+void RegisterRidgeFitPredictFunction(ExtensionLoader &loader);
+void RegisterWlsFitPredictFunction(ExtensionLoader &loader);
+void RegisterRlsFitPredictFunction(ExtensionLoader &loader);
+void RegisterElasticNetFitPredictFunction(ExtensionLoader &loader);
+
 // Diagnostic functions
 void RegisterVifFunction(ExtensionLoader &loader);
 void RegisterVifAggregateFunction(ExtensionLoader &loader);
@@ -29,7 +36,7 @@ void RegisterResidualsDiagnosticsFunction(ExtensionLoader &loader);
 void RegisterResidualsDiagnosticsAggregateFunction(ExtensionLoader &loader);
 
 // Extension class required for static linking
-class AnofoxStatsExtension : public Extension {
+class AnofoxStatisticsExtension : public Extension {
 public:
     void Load(ExtensionLoader &loader) override;
     std::string Name() override;
