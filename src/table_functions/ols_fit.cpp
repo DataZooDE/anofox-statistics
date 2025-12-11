@@ -9,6 +9,7 @@
 #include "duckdb/planner/expression/bound_function_expression.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/map_options_parser.hpp"
 
 namespace duckdb {
 
@@ -63,15 +64,18 @@ static unique_ptr<FunctionData> OlsFitBind(ClientContext &context, ScalarFunctio
                                            vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<OlsFitBindData>();
 
-    // Check for constant arguments for options (if provided as 3rd, 4th, 5th args)
+    // Parse MAP options if provided as 3rd argument
     if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        result->fit_intercept = BooleanValue::Get(ExpressionExecutor::EvaluateScalar(context, *arguments[2]));
-    }
-    if (arguments.size() >= 4 && arguments[3]->IsFoldable()) {
-        result->compute_inference = BooleanValue::Get(ExpressionExecutor::EvaluateScalar(context, *arguments[3]));
-    }
-    if (arguments.size() >= 5 && arguments[4]->IsFoldable()) {
-        result->confidence_level = DoubleValue::Get(ExpressionExecutor::EvaluateScalar(context, *arguments[4]));
+        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[2]);
+        if (opts.fit_intercept.has_value()) {
+            result->fit_intercept = opts.fit_intercept.value();
+        }
+        if (opts.compute_inference.has_value()) {
+            result->compute_inference = opts.compute_inference.value();
+        }
+        if (opts.confidence_level.has_value()) {
+            result->confidence_level = opts.confidence_level.value();
+        }
     }
 
     // Set return type
@@ -213,31 +217,28 @@ static void OlsFitFunction(DataChunk &args, ExpressionState &state, Vector &resu
 
 // Register the function
 void RegisterOlsFitFunction(ExtensionLoader &loader) {
-    // Basic version: anofox_stats_ols_fit(y, x)
     ScalarFunctionSet func_set("anofox_stats_ols_fit");
 
-    // Version with just y and x
+    // Basic version: anofox_stats_ols_fit(y, x) - uses defaults
     ScalarFunction basic_func(
         {LogicalType::LIST(LogicalType::DOUBLE), LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE))},
         LogicalType::ANY, // Will be set in bind
         OlsFitFunction, OlsFitBind);
     func_set.AddFunction(basic_func);
 
-    // Version with options: anofox_stats_ols_fit(y, x, fit_intercept, compute_inference, confidence_level)
-    ScalarFunction full_func({LogicalType::LIST(LogicalType::DOUBLE),
-                              LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)),
-                              LogicalType::BOOLEAN, // fit_intercept
-                              LogicalType::BOOLEAN, // compute_inference
-                              LogicalType::DOUBLE}, // confidence_level
-                             LogicalType::ANY, OlsFitFunction, OlsFitBind);
-    func_set.AddFunction(full_func);
+    // Version with MAP options: anofox_stats_ols_fit(y, x, {'intercept': true, ...})
+    ScalarFunction map_func({LogicalType::LIST(LogicalType::DOUBLE),
+                             LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)),
+                             LogicalType::ANY}, // MAP or STRUCT for options
+                            LogicalType::ANY, OlsFitFunction, OlsFitBind);
+    func_set.AddFunction(map_func);
 
     loader.RegisterFunction(func_set);
 
     // Register short alias
     ScalarFunctionSet alias_set("ols_fit");
     alias_set.AddFunction(basic_func);
-    alias_set.AddFunction(full_func);
+    alias_set.AddFunction(map_func);
     loader.RegisterFunction(alias_set);
 }
 

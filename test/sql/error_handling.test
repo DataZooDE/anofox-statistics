@@ -14,15 +14,15 @@ SELECT anofox_stats_ols_fit([1.0, 2.0], [[1.0, 2.0]]);
 ----
 Insufficient data
 
-# Ridge requires minimum observations
+# Ridge requires minimum observations (using MAP syntax)
 statement error
-SELECT anofox_stats_ridge_fit([1.0, 2.0], [[1.0, 2.0]], 0.1);
+SELECT anofox_stats_ridge_fit([1.0, 2.0], [[1.0, 2.0]], {'alpha': 0.1});
 ----
 Insufficient data
 
-# Elastic Net requires minimum observations
+# Elastic Net requires minimum observations (using MAP syntax)
 statement error
-SELECT anofox_stats_elasticnet_fit([1.0, 2.0], [[1.0, 2.0]], 0.1, 0.5);
+SELECT anofox_stats_elasticnet_fit([1.0, 2.0], [[1.0, 2.0]], {'alpha': 0.1, 'l1_ratio': 0.5});
 ----
 Insufficient data
 

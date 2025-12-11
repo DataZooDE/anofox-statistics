@@ -389,6 +389,52 @@ typedef struct {
  */
 bool anofox_jarque_bera(AnofoxDataArray data, AnofoxJarqueBeraResult *out_result, AnofoxError *out_error);
 
+/* ============================================================================
+ * Prediction Interval Functions
+ * ============================================================================ */
+
+/**
+ * Get the critical value from the t-distribution for a given confidence level and degrees of freedom
+ *
+ * @param confidence_level Confidence level (e.g., 0.95 for 95% CI)
+ * @param df Degrees of freedom (n - p - 1 for regression)
+ * @return The t-critical value, or NaN if invalid inputs
+ */
+double anofox_t_critical(double confidence_level, size_t df);
+
+/**
+ * Prediction result with confidence interval
+ */
+typedef struct {
+    /** Predicted value */
+    double yhat;
+    /** Lower bound of prediction interval */
+    double yhat_lower;
+    /** Upper bound of prediction interval */
+    double yhat_upper;
+} AnofoxPredictionResult;
+
+/**
+ * Compute prediction with confidence interval for a single new observation
+ *
+ * For OLS, the prediction interval is: yhat ± t_critical * se_pred
+ * Uses a simplified formula assuming average leverage.
+ *
+ * @param coefficients Fitted coefficients array
+ * @param coefficients_len Number of coefficients
+ * @param intercept Intercept value (NaN if no intercept)
+ * @param x_new New observation feature values
+ * @param x_len Number of features (must equal coefficients_len)
+ * @param residual_std_error Residual standard error from fit
+ * @param n_observations Number of training observations
+ * @param confidence_level Confidence level for interval (e.g., 0.95)
+ * @param out_result Output: prediction result with interval
+ * @return true on success, false on error
+ */
+bool anofox_predict_with_interval(const double *coefficients, size_t coefficients_len, double intercept,
+                                   const double *x_new, size_t x_len, double residual_std_error, size_t n_observations,
+                                   double confidence_level, AnofoxPredictionResult *out_result);
+
 #ifdef __cplusplus
 }
 #endif

@@ -6,6 +6,7 @@
 #include "duckdb/main/extension/extension_loader.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/map_options_parser.hpp"
 
 namespace duckdb {
 
@@ -340,18 +341,22 @@ static unique_ptr<FunctionData> RidgeAggBind(ClientContext &context, AggregateFu
                                              vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<RidgeAggregateBindData>();
 
-    // Extract alpha (3rd argument) and options (4th, 5th, 6th arguments)
+    // Parse MAP options if provided as 3rd argument
     if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        result->alpha = DoubleValue::Get(ExpressionExecutor::EvaluateScalar(context, *arguments[2]));
-    }
-    if (arguments.size() >= 4 && arguments[3]->IsFoldable()) {
-        result->fit_intercept = BooleanValue::Get(ExpressionExecutor::EvaluateScalar(context, *arguments[3]));
-    }
-    if (arguments.size() >= 5 && arguments[4]->IsFoldable()) {
-        result->compute_inference = BooleanValue::Get(ExpressionExecutor::EvaluateScalar(context, *arguments[4]));
-    }
-    if (arguments.size() >= 6 && arguments[5]->IsFoldable()) {
-        result->confidence_level = DoubleValue::Get(ExpressionExecutor::EvaluateScalar(context, *arguments[5]));
+        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[2]);
+        if (opts.fit_intercept.has_value()) {
+            result->fit_intercept = opts.fit_intercept.value();
+        }
+        if (opts.compute_inference.has_value()) {
+            result->compute_inference = opts.compute_inference.value();
+        }
+        if (opts.confidence_level.has_value()) {
+            result->confidence_level = opts.confidence_level.value();
+        }
+        auto reg_strength = opts.GetRegularizationStrength();
+        if (reg_strength.has_value()) {
+            result->alpha = reg_strength.value();
+        }
     }
 
     // Set return type based on options
@@ -366,30 +371,32 @@ static unique_ptr<FunctionData> RidgeAggBind(ClientContext &context, AggregateFu
 void RegisterRidgeAggregateFunction(ExtensionLoader &loader) {
     AggregateFunctionSet func_set("anofox_stats_ridge_fit_agg");
 
-    // Basic version: anofox_stats_ridge_fit_agg(y, x, alpha)
-    auto basic_func =
-        AggregateFunction("anofox_stats_ridge_fit_agg",
-                          {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE},
-                          LogicalType::ANY, // Set in bind
-                          AggregateFunction::StateSize<RidgeAggregateState>, RidgeAggInitialize, RidgeAggUpdate,
-                          RidgeAggCombine, RidgeAggFinalize,
-                          nullptr, // simple_update
-                          RidgeAggBind, RidgeAggDestroy);
+    // Basic version: anofox_stats_ridge_fit_agg(y, x) - uses default alpha=1.0
+    auto basic_func = AggregateFunction(
+        "anofox_stats_ridge_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
+        LogicalType::ANY, // Set in bind
+        AggregateFunction::StateSize<RidgeAggregateState>, RidgeAggInitialize, RidgeAggUpdate, RidgeAggCombine,
+        RidgeAggFinalize,
+        nullptr, // simple_update
+        RidgeAggBind, RidgeAggDestroy);
     func_set.AddFunction(basic_func);
 
-    // Full version: anofox_stats_ridge_fit_agg(y, x, alpha, fit_intercept, compute_inference, confidence_level)
-    auto full_func =
-        AggregateFunction("anofox_stats_ridge_fit_agg",
-                          {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE),
-                           LogicalType::DOUBLE,  // alpha
-                           LogicalType::BOOLEAN, // fit_intercept
-                           LogicalType::BOOLEAN, // compute_inference
-                           LogicalType::DOUBLE}, // confidence_level
-                          LogicalType::ANY, AggregateFunction::StateSize<RidgeAggregateState>, RidgeAggInitialize,
-                          RidgeAggUpdate, RidgeAggCombine, RidgeAggFinalize, nullptr, RidgeAggBind, RidgeAggDestroy);
-    func_set.AddFunction(full_func);
+    // Version with MAP options: anofox_stats_ridge_fit_agg(y, x, {'alpha': 1.0, ...})
+    auto map_func = AggregateFunction("anofox_stats_ridge_fit_agg",
+                                      {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE),
+                                       LogicalType::ANY}, // MAP or STRUCT for options
+                                      LogicalType::ANY, AggregateFunction::StateSize<RidgeAggregateState>,
+                                      RidgeAggInitialize, RidgeAggUpdate, RidgeAggCombine, RidgeAggFinalize, nullptr,
+                                      RidgeAggBind, RidgeAggDestroy);
+    func_set.AddFunction(map_func);
 
     loader.RegisterFunction(func_set);
+
+    // Register short alias
+    AggregateFunctionSet alias_set("ridge_fit_agg");
+    alias_set.AddFunction(basic_func);
+    alias_set.AddFunction(map_func);
+    loader.RegisterFunction(alias_set);
 }
 
 } // namespace duckdb

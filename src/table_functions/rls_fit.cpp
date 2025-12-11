@@ -9,6 +9,7 @@
 #include "duckdb/planner/expression/bound_function_expression.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/map_options_parser.hpp"
 
 namespace duckdb {
 
@@ -53,15 +54,18 @@ static unique_ptr<FunctionData> RlsFitBind(ClientContext &context, ScalarFunctio
                                            vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<RlsFitBindData>();
 
-    // Check for constant arguments for options
+    // Parse MAP options if provided as 3rd argument
     if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        result->forgetting_factor = DoubleValue::Get(ExpressionExecutor::EvaluateScalar(context, *arguments[2]));
-    }
-    if (arguments.size() >= 4 && arguments[3]->IsFoldable()) {
-        result->fit_intercept = BooleanValue::Get(ExpressionExecutor::EvaluateScalar(context, *arguments[3]));
-    }
-    if (arguments.size() >= 5 && arguments[4]->IsFoldable()) {
-        result->initial_p_diagonal = DoubleValue::Get(ExpressionExecutor::EvaluateScalar(context, *arguments[4]));
+        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[2]);
+        if (opts.fit_intercept.has_value()) {
+            result->fit_intercept = opts.fit_intercept.value();
+        }
+        if (opts.forgetting_factor.has_value()) {
+            result->forgetting_factor = opts.forgetting_factor.value();
+        }
+        if (opts.initial_p_diagonal.has_value()) {
+            result->initial_p_diagonal = opts.initial_p_diagonal.value();
+        }
     }
 
     // Set return type
@@ -180,21 +184,27 @@ static void RlsFitFunction(DataChunk &args, ExpressionState &state, Vector &resu
 void RegisterRlsFitFunction(ExtensionLoader &loader) {
     ScalarFunctionSet func_set("anofox_stats_rls_fit");
 
-    // Basic version: anofox_stats_rls_fit(y, x)
-    auto basic_func = ScalarFunction(
+    // Basic version: anofox_stats_rls_fit(y, x) - uses defaults
+    ScalarFunction basic_func(
         {LogicalType::LIST(LogicalType::DOUBLE), LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE))},
         LogicalType::ANY, // Set in bind
         RlsFitFunction, RlsFitBind);
     func_set.AddFunction(basic_func);
 
-    // Full version: anofox_stats_rls_fit(y, x, forgetting_factor, fit_intercept, initial_p_diagonal)
-    auto full_func = ScalarFunction({LogicalType::LIST(LogicalType::DOUBLE),
-                                     LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)), LogicalType::DOUBLE,
-                                     LogicalType::BOOLEAN, LogicalType::DOUBLE},
-                                    LogicalType::ANY, RlsFitFunction, RlsFitBind);
-    func_set.AddFunction(full_func);
+    // Version with MAP options: anofox_stats_rls_fit(y, x, {'forgetting_factor': 0.99, ...})
+    ScalarFunction map_func({LogicalType::LIST(LogicalType::DOUBLE),
+                             LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)),
+                             LogicalType::ANY}, // MAP or STRUCT for options
+                            LogicalType::ANY, RlsFitFunction, RlsFitBind);
+    func_set.AddFunction(map_func);
 
     loader.RegisterFunction(func_set);
+
+    // Register short alias
+    ScalarFunctionSet alias_set("rls_fit");
+    alias_set.AddFunction(basic_func);
+    alias_set.AddFunction(map_func);
+    loader.RegisterFunction(alias_set);
 }
 
 } // namespace duckdb

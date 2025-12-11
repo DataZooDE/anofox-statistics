@@ -18,6 +18,7 @@ anofox-regression = "0.3.1"
 faer = { version = "0.23", default-features = false, features = ["std", "linalg"] }
 thiserror = "2.0"
 libc = "0.2"
+statrs = "0.18"
 
 [profile.release]
 lto = true

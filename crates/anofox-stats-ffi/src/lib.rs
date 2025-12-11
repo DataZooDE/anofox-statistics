@@ -11,6 +11,7 @@ use anofox_stats_core::{
     models::{fit_elasticnet, fit_ols, fit_ridge, fit_rls, fit_wls, predict, RlsOptions},
     ElasticNetOptions, OlsOptions, RidgeOptions, StatsError, WlsOptions,
 };
+use statrs::distribution::{ContinuousCDF, StudentsT};
 use std::slice;
 
 /// Convert StatsError to ErrorCode
@@ -1384,4 +1385,146 @@ pub unsafe extern "C" fn anofox_jarque_bera(
             false
         }
     }
+}
+
+// ============================================================================
+// Prediction Interval FFI Functions
+// ============================================================================
+
+/// Get the critical value from the t-distribution for a given confidence level and degrees of freedom
+///
+/// # Arguments
+/// * `confidence_level` - Confidence level (e.g., 0.95 for 95% CI)
+/// * `df` - Degrees of freedom (n - p - 1 for regression)
+///
+/// # Returns
+/// The t-critical value, or NaN if invalid inputs
+#[no_mangle]
+pub extern "C" fn anofox_t_critical(confidence_level: f64, df: usize) -> f64 {
+    if df == 0 || confidence_level <= 0.0 || confidence_level >= 1.0 {
+        return f64::NAN;
+    }
+
+    // Create t-distribution with given degrees of freedom
+    let t_dist = match StudentsT::new(0.0, 1.0, df as f64) {
+        Ok(dist) => dist,
+        Err(_) => return f64::NAN,
+    };
+
+    // Two-tailed critical value: need quantile at (1 + confidence_level) / 2
+    let alpha = (1.0 + confidence_level) / 2.0;
+    t_dist.inverse_cdf(alpha)
+}
+
+/// Prediction result with confidence interval
+#[repr(C)]
+pub struct PredictionResult {
+    /// Predicted value
+    pub yhat: f64,
+    /// Lower bound of prediction interval
+    pub yhat_lower: f64,
+    /// Upper bound of prediction interval
+    pub yhat_upper: f64,
+}
+
+impl Default for PredictionResult {
+    fn default() -> Self {
+        Self {
+            yhat: f64::NAN,
+            yhat_lower: f64::NAN,
+            yhat_upper: f64::NAN,
+        }
+    }
+}
+
+/// Compute prediction with confidence interval for a single new observation
+///
+/// For OLS, the prediction interval is: yhat ± t_critical * se_pred
+/// where se_pred = residual_std_error * sqrt(1 + 1/n + distance_from_mean)
+///
+/// For simplicity, this function uses a simplified formula assuming average leverage.
+///
+/// # Safety
+/// - `coefficients` must point to `coefficients_len` valid doubles
+/// - `x_new` must point to `x_len` valid doubles (same length as coefficients)
+/// - `out_result` must be a valid pointer
+#[no_mangle]
+pub unsafe extern "C" fn anofox_predict_with_interval(
+    coefficients: *const f64,
+    coefficients_len: usize,
+    intercept: f64, // NaN if no intercept
+    x_new: *const f64,
+    x_len: usize,
+    residual_std_error: f64,
+    n_observations: usize,
+    confidence_level: f64,
+    out_result: *mut PredictionResult,
+) -> bool {
+    if out_result.is_null() {
+        return false;
+    }
+
+    // Initialize with NaN
+    *out_result = PredictionResult::default();
+
+    // Validate inputs
+    if coefficients.is_null() || coefficients_len == 0 {
+        return false;
+    }
+    if x_new.is_null() || x_len != coefficients_len {
+        return false;
+    }
+
+    // Compute prediction: yhat = intercept + sum(coefficients[i] * x_new[i])
+    let coef_slice = slice::from_raw_parts(coefficients, coefficients_len);
+    let x_slice = slice::from_raw_parts(x_new, x_len);
+
+    let intercept_val = if intercept.is_nan() { 0.0 } else { intercept };
+    let mut yhat = intercept_val;
+    for (coef, x_val) in coef_slice.iter().zip(x_slice.iter()) {
+        yhat += coef * x_val;
+    }
+
+    (*out_result).yhat = yhat;
+
+    // Compute prediction interval if we have valid std error
+    if residual_std_error.is_nan() || residual_std_error <= 0.0 || n_observations <= coefficients_len + 1 {
+        // No valid interval, just return yhat with same bounds
+        (*out_result).yhat_lower = yhat;
+        (*out_result).yhat_upper = yhat;
+        return true;
+    }
+
+    // Degrees of freedom
+    let has_intercept = !intercept.is_nan();
+    let df = if has_intercept {
+        n_observations.saturating_sub(coefficients_len + 1)
+    } else {
+        n_observations.saturating_sub(coefficients_len)
+    };
+
+    if df == 0 {
+        (*out_result).yhat_lower = yhat;
+        (*out_result).yhat_upper = yhat;
+        return true;
+    }
+
+    // Get t-critical value
+    let t_crit = anofox_t_critical(confidence_level, df);
+    if t_crit.is_nan() {
+        (*out_result).yhat_lower = yhat;
+        (*out_result).yhat_upper = yhat;
+        return true;
+    }
+
+    // Simplified prediction interval formula: yhat ± t * se * sqrt(1 + 1/n)
+    // This ignores the leverage term for simplicity (assumes average leverage)
+    let n = n_observations as f64;
+    let se_pred = residual_std_error * (1.0 + 1.0 / n).sqrt();
+    let margin = t_crit * se_pred;
+
+    (*out_result).yhat_lower = yhat - margin;
+    (*out_result).yhat_upper = yhat + margin;
+
+    true
 }
