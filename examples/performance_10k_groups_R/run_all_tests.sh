@@ -20,7 +20,7 @@ set -e  # Exit on error
 
 # Configuration
 DUCKDB_CLI=${DUCKDB_CLI:-duckdb}
-PERF_TEST_DIR="examples/performance_test"
+PERF_TEST_DIR="examples/performance_10k_groups_R"
 DATA_DIR="${PERF_TEST_DIR}/data"
 RESULTS_DIR="${PERF_TEST_DIR}/results"
 

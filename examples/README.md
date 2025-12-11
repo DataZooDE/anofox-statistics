@@ -1,139 +1,301 @@
-# Examples
+# anofox_stats Examples
 
-This directory contains practical examples demonstrating the anofox-statistics extension features.
+This directory contains SQL and Python examples demonstrating the `anofox_stats` DuckDB extension for statistical modeling.
 
-## Model-Based Prediction
+## Directory Structure
 
-### Overview
-
-The model-based prediction workflow allows you to:
-1. **Fit a model once** with `full_output=true` to store all metadata
-2. **Make predictions many times** without refitting the model
-3. **Choose interval types**: confidence, prediction, or none
-
-This is much more efficient than refitting the model for each prediction.
-
-### Files
-
-- **`model_prediction_demo.sql`**: SQL demonstration showing the complete workflow
-- **`model_prediction_demo.py`**: Python demonstration (requires duckdb-python)
-
-### Running the SQL Demo
-
-```bash
-# From the project root
-duckdb -unsigned -init examples/model_prediction_demo.sql
+```
+examples/
+├── README.md                          # This file
+├── pyproject.toml                     # Python dependencies for uv
+├── model_prediction_demo.sql          # SQL demo: fit, predict, window functions
+├── model_prediction_demo.py           # Python demo: equivalent to SQL demo
+├── example-fit-predict-ols.sql        # Extended OLS window function examples
+├── performance_10k_groups_R/          # DuckDB vs R comparison (10K groups)
+│   ├── README.md
+│   ├── generate_test_data.sql
+│   ├── performance_test_ols_fit_predict.sql
+│   ├── performance_test_ols_fit_predict.R
+│   ├── performance_test_ols_aggregate.sql
+│   ├── performance_test_ols_aggregate.R
+│   ├── compare_sql_vs_r.sql
+│   └── run_all_tests.sh
+└── performance_1m_groups/             # Scale benchmarks (1M groups)
+    ├── README.md
+    ├── benchmark_ols.sql
+    ├── benchmark_ridge.sql
+    ├── benchmark_wls.sql
+    ├── benchmark_rls.sql
+    ├── benchmark_elasticnet.sql
+    └── run_all_benchmarks.sh
 ```
 
-### Running the Python Demo
+## Prerequisites
+
+### DuckDB Extension
+
+Build and install the extension from the project root:
 
 ```bash
-# Install dependencies
-pip install duckdb numpy
-
-# Run the demo
-python3 examples/model_prediction_demo.py
+make release
 ```
 
-## Key Concepts
+The extension binary is located at `build/release/extension/anofox_stats/anofox_stats.duckdb_extension`.
 
-### Workflow Comparison
+### Python Environment (Optional)
 
-**Traditional approach (refitting each time):**
+For Python examples, use `uv` to create a virtual environment:
+
+```bash
+cd examples
+uv venv
+uv pip install -e .
+```
+
+Or install dependencies directly:
+
+```bash
+uv pip install duckdb pandas
+```
+
+## Quick Start Demos
+
+### SQL Demo: model_prediction_demo.sql
+
+Demonstrates the core workflow: fitting an OLS model via aggregation, making predictions, and using window functions.
+
+**Functions demonstrated:**
+- `anofox_stats_ols_fit_agg`: Aggregate function for GROUP BY model fitting
+- `anofox_stats_ols_fit_predict`: Window function for expanding/rolling predictions
+- Manual prediction using stored coefficients: `intercept + coef[1]*x1 + coef[2]*x2 + ...`
+
+**Run:**
+
+```bash
+./build/release/duckdb < examples/model_prediction_demo.sql
+```
+
+**Output:** Model coefficients, R-squared, predictions for new scenarios, and expanding window predictions.
+
+### Python Demo: model_prediction_demo.py
+
+Equivalent functionality in Python using the `duckdb` package.
+
+**Run:**
+
+```bash
+cd examples
+uv run model_prediction_demo.py
+```
+
+Or with system Python:
+
+```bash
+python examples/model_prediction_demo.py
+```
+
+**Note:** The extension must be loadable from the DuckDB search path or the working directory.
+
+### Extended Demo: example-fit-predict-ols.sql
+
+Comprehensive examples of OLS window function usage including:
+- Expanding window predictions
+- Fixed-size rolling window predictions
+- Handling NULL values
+- Extracting model diagnostics (R-squared, MSE, standard errors)
+
+**Run:**
+
+```bash
+./build/release/duckdb < examples/example-fit-predict-ols.sql
+```
+
+## Performance Benchmarks
+
+### DuckDB vs R Comparison (10K Groups)
+
+**Location:** `examples/performance_10k_groups_R/`
+
+Compares `anofox_stats_ols_fit_predict` window function against R's `lm()` function with equivalent semantics.
+
+**Dataset:**
+- 10,000 groups
+- 100 observations per group
+- 8 features (x1-x8)
+- 1,000,000 total rows
+
+**Run DuckDB tests:**
+
+```bash
+# Generate test data
+./build/release/duckdb < examples/performance_10k_groups_R/generate_test_data.sql
+
+# Run window function tests
+./build/release/duckdb < examples/performance_10k_groups_R/performance_test_ols_fit_predict.sql
+
+# Run aggregate tests
+./build/release/duckdb < examples/performance_10k_groups_R/performance_test_ols_aggregate.sql
+```
+
+**Run R tests:**
+
+```bash
+# Prerequisites: install.packages(c("arrow", "dplyr", "broom"))
+
+Rscript examples/performance_10k_groups_R/performance_test_ols_fit_predict.R
+Rscript examples/performance_10k_groups_R/performance_test_ols_aggregate.R
+```
+
+**Run all tests:**
+
+```bash
+cd examples/performance_10k_groups_R
+chmod +x run_all_tests.sh
+./run_all_tests.sh
+```
+
+**Compare results:**
+
+```bash
+./build/release/duckdb < examples/performance_10k_groups_R/compare_sql_vs_r.sql
+```
+
+**Benchmark Results (Intel i7-6800K, 64GB RAM):**
+
+| Test | Rows | Groups | DuckDB | R (lm) | Speedup |
+|------|------|--------|--------|--------|---------|
+| Expanding Window | 10,000 | 100 | 0.075s | 19.7s | 263x |
+| Expanding Window | 1,000,000 | 10,000 | 2.5s | ~1,970s | ~788x |
+
+See `examples/performance_10k_groups_R/README.md` for detailed methodology and result comparison.
+
+### Scale Benchmarks (1M Groups)
+
+**Location:** `examples/performance_1m_groups/`
+
+Stress tests for all regression methods with 1 million groups (100 million rows).
+
+**Methods tested:**
+- OLS (`anofox_stats_ols_fit_predict`)
+- Ridge (`anofox_stats_ridge_fit_predict`)
+- WLS (`anofox_stats_wls_fit_predict`)
+- RLS (`anofox_stats_rls_fit_predict`)
+- Elastic Net (`anofox_stats_elasticnet_fit_predict`)
+
+**Run individual benchmark:**
+
+```bash
+./build/release/duckdb < examples/performance_1m_groups/benchmark_ols.sql
+```
+
+**Run all benchmarks:**
+
+```bash
+cd examples/performance_1m_groups
+chmod +x run_all_benchmarks.sh
+./run_all_benchmarks.sh
+```
+
+**Benchmark Results (Intel i7-6800K, 64GB RAM):**
+
+| Method | Groups | Rows | Time | Memory |
+|--------|--------|------|------|--------|
+| OLS | 1,000,000 | 100,000,000 | 178.6s | 8,275 MB |
+| Ridge | 1,000,000 | 100,000,000 | 174.6s | 7,922 MB |
+| WLS | 1,000,000 | 100,000,000 | 176.5s | 8,757 MB |
+| RLS | 1,000,000 | 100,000,000 | 158.1s | 8,571 MB |
+| Elastic Net | 1,000,000 | 100,000,000 | 166.8s | 8,146 MB |
+
+See `examples/performance_1m_groups/README.md` for detailed methodology.
+
+## Function Reference
+
+### Aggregate Functions
+
 ```sql
--- Inefficient: refits model for each prediction
-SELECT * FROM anofox_statistics_predict_ols(
-    y_train, x_train, x_new, 0.95, 'prediction', true
-);
+-- Fit OLS model via GROUP BY
+SELECT anofox_stats_ols_fit_agg(y, [x1, x2, ...]) AS model
+FROM data
+GROUP BY group_id;
+
+-- Returns STRUCT with: intercept, coefficients[], r2, mse, n_obs
 ```
 
-**Model-based approach (fit once, predict many times):**
+### Prediction from Stored Coefficients
+
 ```sql
--- 1. Fit once with full_output
-CREATE TABLE model AS
-SELECT * FROM anofox_statistics_ols_fit(
-    y_train, x_train, MAP{'intercept': true, 'full_output': true}
-);
-
--- 2. Predict many times (no refitting!)
-SELECT p.* FROM model m,
-LATERAL anofox_statistics_model_predict(
-    m.intercept, m.coefficients, m.mse, m.x_train_means,
-    m.coefficient_std_errors, m.intercept_std_error, m.df_residual,
-    x_new, 0.95, 'prediction'
-) p;
+-- Predict using the linear formula: y = intercept + b1*x1 + b2*x2 + ...
+SELECT intercept + coefficients[1] * x1 + coefficients[2] * x2 AS yhat;
 ```
 
-### Interval Types
+### Window Functions
 
-1. **Confidence Intervals** (`'confidence'`):
-   - Narrower intervals
-   - Represent uncertainty about the mean prediction
-   - Use when predicting average behavior
+```sql
+-- Expanding window (train on all preceding rows)
+SELECT anofox_stats_ols_fit_predict(
+    y,
+    [x1, x2, ...],
+    {'fit_intercept': true}
+) OVER (
+    PARTITION BY group_id
+    ORDER BY time
+    ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+) AS pred
+FROM data;
 
-2. **Prediction Intervals** (`'prediction'`):
-   - Wider intervals
-   - Represent uncertainty about individual predictions
-   - Include both model uncertainty and individual variation
-   - Use when predicting specific future observations
+-- Fixed window (train on last N rows)
+SELECT anofox_stats_ols_fit_predict(
+    y,
+    [x1, x2, ...],
+    {'fit_intercept': true}
+) OVER (
+    PARTITION BY group_id
+    ORDER BY time
+    ROWS BETWEEN 50 PRECEDING AND 1 PRECEDING
+) AS pred
+FROM data;
 
-3. **No Intervals** (`'none'`):
-   - Fastest option
-   - Only returns point predictions
-   - Use for high-speed batch scoring
+-- Returns STRUCT with: yhat, std_error, r2, mse, n_obs
+```
 
-### Performance Benefits
+### Available Window Functions
 
-- ✅ **10x-100x faster** for batch predictions
-- ✅ **Scalable**: Score millions of observations efficiently
-- ✅ **Memory efficient**: Model stored once, reused many times
-- ✅ **Production-ready**: Perfect for prediction pipelines
+| Function | Description |
+|----------|-------------|
+| `anofox_stats_ols_fit_predict` | Ordinary Least Squares |
+| `anofox_stats_ridge_fit_predict` | Ridge regression (L2 penalty) |
+| `anofox_stats_wls_fit_predict` | Weighted Least Squares |
+| `anofox_stats_rls_fit_predict` | Recursive Least Squares (exponential weighting) |
+| `anofox_stats_elasticnet_fit_predict` | Elastic Net (L1 + L2 penalty) |
 
-## Performance Testing
+## Troubleshooting
 
-### Overview
+### Extension Not Found
 
-A comprehensive performance testing suite that compares DuckDB extension functions against R's `lm()` implementation using identical datasets.
-
-### Quick Start
+Ensure the extension is built and in the search path:
 
 ```bash
-# Run all tests (generates data, runs SQL & R tests, saves results)
-./examples/performance_test/run_all_tests.sh
+# Build
+make release
 
-# Or run individual steps:
-duckdb < examples/performance_test/generate_test_data.sql              # 1. Generate test data
-duckdb < examples/performance_test/performance_test_ols_fit_predict.sql  # 2. SQL fit-predict tests
-duckdb < examples/performance_test/performance_test_ols_aggregate.sql    # 3. SQL aggregate tests
-Rscript examples/performance_test/performance_test_ols_fit_predict.R     # 4. R fit-predict tests
-Rscript examples/performance_test/performance_test_ols_aggregate.R       # 5. R aggregate tests
-duckdb < examples/performance_test/compare_sql_vs_r.sql                  # 6. Compare results
+# Or load explicitly in DuckDB
+LOAD 'build/release/extension/anofox_stats/anofox_stats.duckdb_extension';
 ```
 
-### Files
+### Python Import Errors
 
-- **`generate_test_data.sql`**: Generates test datasets as parquet files
-- **`performance_test_ols_fit_predict.sql`**: SQL window function tests
-- **`performance_test_ols_fit_predict.R`**: R equivalent tests
-- **`performance_test_ols_aggregate.sql`**: SQL aggregate function tests
-- **`performance_test_ols_aggregate.R`**: R equivalent tests
-- **`compare_sql_vs_r.sql`**: Compares SQL vs R results
-- **`run_all_tests.sh`**: Master script to run all tests
-- **`README_performance_tests.md`**: Detailed documentation
+Install dependencies with uv:
 
-### Default Configuration
+```bash
+cd examples
+uv pip install duckdb pandas
+```
 
-- **Groups**: 10,000
-- **Observations per group**: 100
-- **Total rows**: 1,000,000
-- **Features**: 8 (x1-x8)
-- **Tests**: Window functions (expanding/fixed) & GROUP BY aggregates
+### Memory Errors on Large Benchmarks
 
-See [README_performance_tests.md](README_performance_tests.md) for complete documentation.
+The 1M group benchmarks require ~10GB RAM. Reduce dataset size by editing the SQL files:
 
-## More Examples
-
-For more comprehensive examples, see:
-- [Quick Start Guide](../guides/01_quick_start.md)
-- [Function Reference](../guides/function_reference.md)
-- [Advanced Use Cases](../guides/05_advanced_use_cases.md)
+```sql
+-- Change from 100M to 10M rows
+FROM generate_series(1, 10000000) t(i)
+```

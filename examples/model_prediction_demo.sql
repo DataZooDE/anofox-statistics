@@ -1,165 +1,137 @@
 -- ============================================================================
--- EFFICIENT MODEL-BASED PREDICTION DEMONSTRATION
--- Using anofox_stats_model_predict with pre-fitted models
+-- MODEL FIT AND PREDICT DEMONSTRATION
+-- Using anofox_stats_ols_fit_agg and anofox_stats_predict
 --
--- Run with: duckdb -unsigned -init examples/model_prediction_demo.sql
+-- Run with: ./build/release/duckdb < examples/model_prediction_demo.sql
 -- ============================================================================
 
-.print ''
-.print '================================================================================'
-.print 'EFFICIENT MODEL-BASED PREDICTION DEMONSTRATION'
-.print '================================================================================'
-
--- Load the extension
-LOAD 'build/debug/extension/anofox_statistics/anofox_statistics.duckdb_extension';
+.timer on
 
 .print ''
-.print '📊 STEP 1: Fit model ONCE with full_output=true'
+.print '================================================================================'
+.print 'MODEL FIT AND PREDICT DEMONSTRATION'
+.print '================================================================================'
+
+.print ''
+.print 'STEP 1: Create training data'
 .print '--------------------------------------------------------------------------------'
 
--- Sample data: Sales vs Price and Advertising Budget
-CREATE TEMP TABLE training_data (sales DOUBLE, price DOUBLE, advertising DOUBLE);
-INSERT INTO training_data VALUES
-    (100, 10, 5),
-    (120, 12, 6),
-    (140, 14, 7),
-    (160, 16, 8),
-    (180, 18, 9),
-    (200, 20, 10),
-    (220, 22, 11),
-    (240, 24, 12);
+CREATE TEMP TABLE training_data AS
+SELECT
+    (100 + 10 * id + 5 * (id + random() * 2) + (random() * 10 - 5))::DOUBLE as sales,
+    id::DOUBLE as price,
+    (id + random() * 2)::DOUBLE as advertising
+FROM range(1, 21) t(id);
 
-.print 'Training data loaded:'
-SELECT * FROM training_data;
-
--- Fit model and store all metadata
-CREATE TABLE sales_model AS
-SELECT * FROM anofox_stats_ols(
-    (SELECT list(sales) FROM training_data)::DOUBLE[],
-    (SELECT list([price, advertising]) FROM training_data)::DOUBLE[][],
-    MAP{'intercept': true, 'full_output': true}
-);
+SELECT * FROM training_data LIMIT 10;
 
 .print ''
-.print '✅ Model fitted successfully!'
-.print 'Model summary:'
+.print 'STEP 2: Fit OLS model using aggregate function'
+.print '--------------------------------------------------------------------------------'
+
+CREATE TEMP TABLE sales_model AS
+SELECT
+    (fit).intercept as intercept,
+    (fit).coefficients as coefficients,
+    (fit).r_squared as r_squared,
+    (fit).residual_std_error as residual_std_error,
+    (fit).n_observations as n_obs
+FROM (
+    SELECT anofox_stats_ols_fit_agg(sales, [price, advertising]) as fit
+    FROM training_data
+);
+
 SELECT
     round(intercept, 4) as intercept,
     list_transform(coefficients, x -> round(x, 4)) as coefficients,
-    round(r_squared, 4) as r2,
-    round(mse, 4) as mse,
-    n_obs,
-    df_residual
+    round(r_squared, 4) as r_squared,
+    round(residual_std_error, 4) as std_error,
+    n_obs
 FROM sales_model;
 
 .print ''
-.print '================================================================================'
-.print '🎯 STEP 2: Make predictions on new data (NO REFITTING!)'
-.print '================================================================================'
-
-.print ''
-.print 'New scenarios to predict:'
-.print '  1. Price=$25, Advertising=$13k'
-.print '  2. Price=$26, Advertising=$14k'
-.print '  3. Price=$27, Advertising=$15k'
-
-.print ''
-.print '📈 Predictions with CONFIDENCE intervals (95%):'
-.print '--------------------------------------------------------------------------------'
-SELECT
-    p.observation_id as obs,
-    round(p.predicted, 2) as forecast,
-    round(p.ci_lower, 2) as ci_lower,
-    round(p.ci_upper, 2) as ci_upper,
-    round(p.se, 4) as std_error,
-    round(p.ci_upper - p.ci_lower, 2) as interval_width
-FROM sales_model m,
-LATERAL anofox_stats_model_predict(
-    m.intercept,
-    m.coefficients,
-    m.mse,
-    m.x_train_means,
-    m.coefficient_std_errors,
-    m.intercept_std_error,
-    m.df_residual,
-    [[25.0, 13.0], [26.0, 14.0], [27.0, 15.0]]::DOUBLE[][],
-    0.95,
-    'confidence'
-) p;
-
-.print ''
-.print '🎲 Predictions with PREDICTION intervals (95% - wider than confidence):'
-.print '--------------------------------------------------------------------------------'
-SELECT
-    p.observation_id as obs,
-    round(p.predicted, 2) as forecast,
-    round(p.ci_lower, 2) as pi_lower,
-    round(p.ci_upper, 2) as pi_upper,
-    round(p.ci_upper - p.ci_lower, 2) as interval_width
-FROM sales_model m,
-LATERAL anofox_stats_model_predict(
-    m.intercept, m.coefficients, m.mse, m.x_train_means,
-    m.coefficient_std_errors, m.intercept_std_error, m.df_residual,
-    [[25.0, 13.0], [26.0, 14.0], [27.0, 15.0]]::DOUBLE[][],
-    0.95,
-    'prediction'
-) p;
-
-.print ''
-.print '⚡ STEP 3: High-speed batch predictions (no intervals = fastest)'
+.print 'STEP 3: Make predictions from stored model coefficients'
 .print '--------------------------------------------------------------------------------'
 
--- Predictions at different confidence levels
+-- New scenarios to predict
+CREATE TEMP TABLE new_scenarios AS
+SELECT
+    25.0::DOUBLE as price,
+    13.0::DOUBLE as advertising,
+    1 as scenario_id
+UNION ALL SELECT 26.0, 14.0, 2
+UNION ALL SELECT 27.0, 15.0, 3
+UNION ALL SELECT 30.0, 18.0, 4;
+
+-- Predict using: intercept + coef[1]*x1 + coef[2]*x2
+SELECT
+    n.scenario_id,
+    n.price,
+    n.advertising,
+    round(m.intercept + m.coefficients[1] * n.price + m.coefficients[2] * n.advertising, 2) as predicted_sales
+FROM new_scenarios n
+CROSS JOIN sales_model m
+ORDER BY n.scenario_id;
+
 .print ''
-.print 'Same prediction at different confidence levels (prediction intervals):'
+.print 'STEP 4: Verify predictions match the data pattern'
+.print '--------------------------------------------------------------------------------'
+
+-- Show that predictions follow the linear relationship: y = intercept + b1*price + b2*advertising
 SELECT
-    'CI 90%' as level,
-    round(p.predicted, 2) as forecast,
-    round(p.ci_upper - p.ci_lower, 2) as width
-FROM sales_model m,
-LATERAL anofox_stats_model_predict(
-    m.intercept, m.coefficients, m.mse, m.x_train_means,
-    m.coefficient_std_errors, m.intercept_std_error, m.df_residual,
-    [[25.0, 13.0]]::DOUBLE[][],
-    0.90, 'prediction'
-) p
+    n.scenario_id,
+    n.price as price_x1,
+    n.advertising as ad_x2,
+    round(m.intercept, 2) as intercept,
+    round(m.coefficients[1], 2) as b1_price,
+    round(m.coefficients[2], 2) as b2_ad,
+    round(m.intercept + m.coefficients[1] * n.price + m.coefficients[2] * n.advertising, 2) as predicted
+FROM new_scenarios n
+CROSS JOIN sales_model m
+ORDER BY n.scenario_id;
 
-UNION ALL
+.print ''
+.print 'STEP 5: Compare with window function fit_predict'
+.print '--------------------------------------------------------------------------------'
 
+-- Use fit_predict for expanding window predictions
 SELECT
-    'CI 95%' as level,
-    round(p.predicted, 2) as forecast,
-    round(p.ci_upper - p.ci_lower, 2) as width
-FROM sales_model m,
-LATERAL anofox_stats_model_predict(
-    m.intercept, m.coefficients, m.mse, m.x_train_means,
-    m.coefficient_std_errors, m.intercept_std_error, m.df_residual,
-    [[25.0, 13.0]]::DOUBLE[][],
-    0.95, 'prediction'
-) p
-
-UNION ALL
-
-SELECT
-    'CI 99%' as level,
-    round(p.predicted, 2) as forecast,
-    round(p.ci_upper - p.ci_lower, 2) as width
-FROM sales_model m,
-LATERAL anofox_stats_model_predict(
-    m.intercept, m.coefficients, m.mse, m.x_train_means,
-    m.coefficient_std_errors, m.intercept_std_error, m.df_residual,
-    [[25.0, 13.0]]::DOUBLE[][],
-    0.99, 'prediction'
-) p;
+    id,
+    round(price, 1) as price,
+    round(advertising, 1) as ad_spend,
+    round(sales, 1) as actual,
+    round((pred).yhat, 1) as predicted,
+    round((pred).std_error, 3) as std_error
+FROM (
+    SELECT
+        row_number() OVER () as id,
+        price,
+        advertising,
+        sales,
+        anofox_stats_ols_fit_predict(
+            sales,
+            [price, advertising],
+            {'fit_intercept': true}
+        ) OVER (ORDER BY price ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) as pred
+    FROM training_data
+)
+WHERE pred IS NOT NULL
+ORDER BY id
+LIMIT 10;
 
 .print ''
 .print '================================================================================'
-.print '✅ KEY BENEFITS OF MODEL-BASED PREDICTION'
+.print 'SUMMARY'
 .print '================================================================================'
-.print '  ✓ Model fitted ONCE, reused MANY times'
-.print '  ✓ No refitting overhead for predictions'
-.print '  ✓ Flexible intervals: confidence, prediction, or none'
-.print '  ✓ Perfect for production pipelines and batch scoring'
-.print '  ✓ Works with all regression types: OLS, Ridge, WLS, Elastic Net, RLS'
+.print 'Functions demonstrated:'
+.print '  - anofox_stats_ols_fit_agg: Fit OLS model via GROUP BY aggregation'
+.print '  - anofox_stats_ols_fit_predict: Window function for expanding/rolling fit'
+.print ''
+.print 'Prediction from stored coefficients: intercept + coef[1]*x1 + coef[2]*x2 + ...'
 .print '================================================================================'
 .print ''
+
+-- Cleanup
+DROP TABLE training_data;
+DROP TABLE sales_model;
+DROP TABLE new_scenarios;

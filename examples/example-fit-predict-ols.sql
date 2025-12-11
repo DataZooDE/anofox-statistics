@@ -5,7 +5,8 @@
 -- capabilities using artificial datasets.
 
 -- Load the extension
-LOAD anofox_statistics;
+-- When running from project root with built extension, it auto-loads
+-- Otherwise use: LOAD 'path/to/anofox_stats.duckdb_extension';
 
 -- ============================================================================
 -- Example 1: Simple Linear Regression with Train/Test Split
@@ -457,7 +458,7 @@ FROM stats;
 -- ============================================================================
 -- Example 10: Extracting Model Coefficients
 -- ============================================================================
--- Use anofox_stats_ols_agg to fit a model and extract coefficients,
+-- Use anofox_stats_ols_fit_agg to fit a model and extract coefficients,
 -- intercept, R-squared, and other statistics
 
 CREATE OR REPLACE TABLE coef_demo AS
@@ -479,7 +480,7 @@ SELECT
     (fit).n_obs as n_observations,
     (fit).df_residual as degrees_of_freedom
 FROM (
-    SELECT anofox_stats_ols_agg(y, [x1, x2], MAP{'intercept': 1}) as fit
+    SELECT anofox_stats_ols_fit_agg(y, [x1, x2], MAP{'intercept': 1}) as fit
     FROM coef_demo
 );
 
@@ -493,7 +494,7 @@ SELECT
     ' + ' || ROUND((fit).coefficients[1], 2)::VARCHAR || '*x1' ||
     ' + ' || ROUND((fit).coefficients[2], 2)::VARCHAR || '*x2' as equation
 FROM (
-    SELECT anofox_stats_ols_agg(y, [x1, x2], MAP{'intercept': 1}) as fit
+    SELECT anofox_stats_ols_fit_agg(y, [x1, x2], MAP{'intercept': 1}) as fit
     FROM coef_demo
 );
 
@@ -507,7 +508,7 @@ SELECT
     ROUND((fit).coefficient_std_errors[2], 4) as se_x2,
     ROUND((fit).coefficients[2] / (fit).coefficient_std_errors[2], 4) as t_stat_x2
 FROM (
-    SELECT anofox_stats_ols_agg(y, [x1, x2], MAP{'intercept': 1}) as fit
+    SELECT anofox_stats_ols_fit_agg(y, [x1, x2], MAP{'intercept': 1}) as fit
     FROM coef_demo
 );
 
@@ -530,7 +531,7 @@ SELECT
 FROM (
     SELECT
         group_name,
-        anofox_stats_ols_agg(y, [x], MAP{'intercept': 1}) as fit
+        anofox_stats_ols_fit_agg(y, [x], MAP{'intercept': 1}) as fit
     FROM grouped_coef
     GROUP BY group_name
 )
