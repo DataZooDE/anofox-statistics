@@ -26,12 +26,31 @@ void AnofoxStatisticsExtension::Load(ExtensionLoader &loader) {
     RegisterJarqueBeraAggregateFunction(loader);
     RegisterResidualsDiagnosticsAggregateFunction(loader);
 
+    // Register GLM aggregate functions
+    RegisterPoissonAggregateFunction(loader);
+
+    // Register ALM aggregate functions
+    RegisterAlmAggregateFunction(loader);
+
+    // Register BLS aggregate functions (includes NNLS)
+    RegisterBlsAggregateFunction(loader);
+
+    // Register AID aggregate functions (Automatic Identification of Demand)
+    RegisterAidAggregateFunction(loader);
+
     // Register window aggregate functions (fit_predict)
     RegisterOlsFitPredictFunction(loader);
     RegisterRidgeFitPredictFunction(loader);
     RegisterWlsFitPredictFunction(loader);
     RegisterRlsFitPredictFunction(loader);
     RegisterElasticNetFitPredictFunction(loader);
+
+    // Register predict aggregate functions (non-rolling)
+    RegisterOlsPredictAggregateFunction(loader);
+    RegisterRidgePredictAggregateFunction(loader);
+    RegisterWlsPredictAggregateFunction(loader);
+    RegisterRlsPredictAggregateFunction(loader);
+    RegisterElasticNetPredictAggregateFunction(loader);
 
     // Register diagnostic functions
     RegisterVifFunction(loader);
@@ -75,12 +94,27 @@ DUCKDB_CPP_EXTENSION_ENTRY(anofox_statistics, loader) {
     duckdb::RegisterJarqueBeraAggregateFunction(loader);
     duckdb::RegisterResidualsDiagnosticsAggregateFunction(loader);
 
+    // Register GLM aggregate functions
+    duckdb::RegisterPoissonAggregateFunction(loader);
+
+    // Register ALM aggregate functions
+    duckdb::RegisterAlmAggregateFunction(loader);
+
+    // Register BLS aggregate functions (includes NNLS)
+    duckdb::RegisterBlsAggregateFunction(loader);
+
+    // Register AID aggregate functions (Automatic Identification of Demand)
+    duckdb::RegisterAidAggregateFunction(loader);
+
     // Register window aggregate functions (fit_predict)
     duckdb::RegisterOlsFitPredictFunction(loader);
     duckdb::RegisterRidgeFitPredictFunction(loader);
     duckdb::RegisterWlsFitPredictFunction(loader);
     duckdb::RegisterRlsFitPredictFunction(loader);
     duckdb::RegisterElasticNetFitPredictFunction(loader);
+
+    // Register predict aggregate functions (non-rolling)
+    duckdb::RegisterOlsPredictAggregateFunction(loader);
 
     // Register diagnostic functions
     duckdb::RegisterVifFunction(loader);

@@ -218,8 +218,12 @@ If you use this extension in research, please cite:
 }
 ```
 
+## Validation
+
+The regression algorithms in this extension are powered by the [anofox-regression](https://github.com/DataZooDE/anofox-regression) Rust crate, which is validated against R's statistical functions. The test suite compares results with R's `lm()`, `glmnet`, and other standard statistical packages to ensure numerical accuracy.
+
 ## Acknowledgments
 
 - **DuckDB Team**: For the database and extension framework
-- **Eigen Project**: For high-performance linear algebra
+- **anofox-regression**: Rust regression library with R-validated implementations
 - **Open Source Community**: For contributions and feedback

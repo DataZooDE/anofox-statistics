@@ -1,0 +1,111 @@
+# name: test/sql/predict_agg/test_ols_predict_agg.test
+# description: Test OLS predict aggregate functionality
+# group: [predict_agg]
+
+require anofox_statistics
+
+# Test 1: Basic setup with NULL y for prediction rows
+statement ok
+CREATE TABLE test_data AS
+SELECT
+    CASE WHEN i <= 7 THEN (i * 2.0 + 1.0)::DOUBLE ELSE NULL END as y,
+    i::DOUBLE as x1,
+    i as id
+FROM range(1, 11) t(i);
+
+# Test 2: Returns correct number of rows
+query I
+SELECT COUNT(*) FROM (
+    SELECT UNNEST(anofox_stats_ols_predict_agg(y, [x1])) AS p FROM test_data
+);
+----
+10
+
+# Test 3: Training rows have is_training = true
+query I
+SELECT COUNT(*) FROM (
+    SELECT UNNEST(anofox_stats_ols_predict_agg(y, [x1])) AS p FROM test_data
+) WHERE (p).is_training = true;
+----
+7
+
+# Test 4: Prediction rows have is_training = false
+query I
+SELECT COUNT(*) FROM (
+    SELECT UNNEST(anofox_stats_ols_predict_agg(y, [x1])) AS p FROM test_data
+) WHERE (p).is_training = false;
+----
+3
+
+# Test 5: All rows have predictions (yhat is not null)
+query I
+SELECT COUNT(*) FROM (
+    SELECT UNNEST(anofox_stats_ols_predict_agg(y, [x1])) AS p FROM test_data
+) WHERE (p).yhat IS NOT NULL;
+----
+10
+
+# Test 6: Prediction intervals are valid (upper >= lower)
+query I
+SELECT COUNT(*) FROM (
+    SELECT UNNEST(anofox_stats_ols_predict_agg(y, [x1])) AS p FROM test_data
+) WHERE (p).yhat_upper >= (p).yhat_lower;
+----
+10
+
+# Test 7: Training rows have non-NULL y
+query I
+SELECT COUNT(*) FROM (
+    SELECT UNNEST(anofox_stats_ols_predict_agg(y, [x1])) AS p FROM test_data
+) WHERE (p).is_training = true AND (p).y IS NOT NULL;
+----
+7
+
+# Test 8: Prediction rows have NULL y
+query I
+SELECT COUNT(*) FROM (
+    SELECT UNNEST(anofox_stats_ols_predict_agg(y, [x1])) AS p FROM test_data
+) WHERE (p).is_training = false AND (p).y IS NULL;
+----
+3
+
+# Test 9: Predictions are accurate for known relationship y = 2x + 1
+query I
+SELECT COUNT(*) FROM (
+    SELECT UNNEST(anofox_stats_ols_predict_agg(y, [x1])) AS p FROM test_data
+) WHERE abs((p).yhat - 2.0 * (p).x[1] - 1.0) < 0.001;
+----
+10
+
+# Test 10: Test with drop_y_zero_x null_policy
+statement ok
+CREATE TABLE zero_data AS
+SELECT
+    CASE WHEN i <= 7 THEN (i * 2.0 + 1.0)::DOUBLE ELSE NULL END as y,
+    i::DOUBLE as x1,
+    CASE WHEN i = 3 THEN 0.0 ELSE i::DOUBLE END as x2,
+    i as id
+FROM range(1, 11) t(i);
+
+# Test 11: drop_y_zero_x excludes rows with zero x from training
+query I
+SELECT COUNT(*) FROM (
+    SELECT UNNEST(anofox_stats_ols_predict_agg(y, [x1, x2], {'null_policy': 'drop_y_zero_x'})) AS p FROM zero_data
+) WHERE (p).is_training = true;
+----
+6
+
+# Test 12: Short alias works
+query I
+SELECT COUNT(*) FROM (
+    SELECT UNNEST(ols_predict_agg(y, [x1])) AS p FROM test_data
+);
+----
+10
+
+# Clean up
+statement ok
+DROP TABLE test_data;
+
+statement ok
+DROP TABLE zero_data;

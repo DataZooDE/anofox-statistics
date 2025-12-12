@@ -23,9 +23,11 @@ struct WlsFitPredictState {
 
     bool fit_intercept;
     double confidence_level;
+    NullPolicy null_policy;
 
     WlsFitPredictState()
-        : n_features(0), initialized(false), has_current_x(false), fit_intercept(true), confidence_level(0.95) {}
+        : n_features(0), initialized(false), has_current_x(false), fit_intercept(true), confidence_level(0.95),
+          null_policy(NullPolicy::DROP) {}
 
     void Reset() {
         y_values.clear();
@@ -41,17 +43,20 @@ struct WlsFitPredictState {
 struct WlsFitPredictBindData : public FunctionData {
     bool fit_intercept = true;
     double confidence_level = 0.95;
+    NullPolicy null_policy = NullPolicy::DROP;
 
     unique_ptr<FunctionData> Copy() const override {
         auto result = make_uniq<WlsFitPredictBindData>();
         result->fit_intercept = fit_intercept;
         result->confidence_level = confidence_level;
+        result->null_policy = null_policy;
         return std::move(result);
     }
 
     bool Equals(const FunctionData &other_p) const override {
         auto &other = other_p.Cast<WlsFitPredictBindData>();
-        return fit_intercept == other.fit_intercept && confidence_level == other.confidence_level;
+        return fit_intercept == other.fit_intercept && confidence_level == other.confidence_level &&
+               null_policy == other.null_policy;
     }
 };
 
@@ -102,6 +107,7 @@ static void WlsFitPredictUpdate(Vector inputs[], AggregateInputData &aggr_input_
 
         state.fit_intercept = bind_data.fit_intercept;
         state.confidence_level = bind_data.confidence_level;
+        state.null_policy = bind_data.null_policy;
 
         auto x_idx = x_data.sel->get_index(i);
         if (!x_data.validity.RowIsValid(x_idx)) {
@@ -131,7 +137,20 @@ static void WlsFitPredictUpdate(Vector inputs[], AggregateInputData &aggr_input_
         // Add to training if y and w are valid
         auto y_idx = y_data.sel->get_index(i);
         auto w_idx = w_data.sel->get_index(i);
-        if (y_data.validity.RowIsValid(y_idx) && w_data.validity.RowIsValid(w_idx)) {
+        bool y_valid = y_data.validity.RowIsValid(y_idx);
+        bool w_valid = w_data.validity.RowIsValid(w_idx);
+        bool use_for_training = y_valid && w_valid;
+
+        if (use_for_training && state.null_policy == NullPolicy::DROP_Y_ZERO_X) {
+            for (idx_t j = 0; j < n_features; j++) {
+                if (state.current_x[j] == 0.0) {
+                    use_for_training = false;
+                    break;
+                }
+            }
+        }
+
+        if (use_for_training) {
             state.y_values.push_back(y_values[y_idx]);
             state.weights.push_back(w_values[w_idx]);
             for (idx_t j = 0; j < n_features; j++) {
@@ -166,6 +185,7 @@ static void WlsFitPredictCombine(Vector &source_vector, Vector &target_vector, A
             target.has_current_x = source.has_current_x;
             target.fit_intercept = source.fit_intercept;
             target.confidence_level = source.confidence_level;
+            target.null_policy = source.null_policy;
             continue;
         }
 
@@ -259,6 +279,8 @@ static unique_ptr<FunctionData> WlsFitPredictBind(ClientContext &context, Aggreg
             result->fit_intercept = opts.fit_intercept.value();
         if (opts.confidence_level.has_value())
             result->confidence_level = opts.confidence_level.value();
+        if (opts.null_policy.has_value())
+            result->null_policy = opts.null_policy.value();
     }
 
     function.return_type = GetWlsFitPredictResultType();

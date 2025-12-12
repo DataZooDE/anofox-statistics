@@ -46,10 +46,10 @@ First, generate the test datasets that will be used by both SQL and R scripts:
 
 ```bash
 # Using DuckDB CLI
-duckdb < examples/performance_test/generate_test_data.sql
+duckdb < examples/performance_10k_groups_R/generate_test_data.sql
 ```
 
-This creates two parquet files in `examples/performance_test/data/`:
+This creates two parquet files in `examples/performance_10k_groups_R/data/`:
 - `performance_data_fit_predict.parquet` - For window function tests (includes NULL values)
 - `performance_data_aggregate.parquet` - For GROUP BY aggregate tests (no NULL values)
 
@@ -67,7 +67,7 @@ This creates two parquet files in `examples/performance_test/data/`:
 Tests `anofox_statistics_ols_fit_predict` with both expanding and fixed windows:
 
 ```bash
-duckdb < examples/performance_test/performance_test_ols_fit_predict.sql
+duckdb < examples/performance_10k_groups_R/performance_test_ols_fit_predict.sql
 ```
 
 **Tests performed**:
@@ -78,7 +78,7 @@ duckdb < examples/performance_test/performance_test_ols_fit_predict.sql
 5. Expanding window - all groups (10,000)
 6. Fixed window - all groups (10,000)
 
-**Results saved to** `examples/performance_test/results/`:
+**Results saved to** `examples/performance_10k_groups_R/results/`:
 - `sql_predictions_expanding_single.parquet`
 - `sql_predictions_fixed_single.parquet`
 - `sql_predictions_expanding_multi.parquet`
@@ -89,7 +89,7 @@ duckdb < examples/performance_test/performance_test_ols_fit_predict.sql
 Tests `anofox_statistics_ols_fit_agg` with GROUP BY:
 
 ```bash
-duckdb < examples/performance_test/performance_test_ols_aggregate.sql
+duckdb < examples/performance_10k_groups_R/performance_test_ols_aggregate.sql
 ```
 
 **Tests performed**:
@@ -97,7 +97,7 @@ duckdb < examples/performance_test/performance_test_ols_aggregate.sql
 2. GROUP BY on all groups (full statistical output)
 3. GROUP BY on subset (100 groups)
 
-**Results saved to** `examples/performance_test/results/`:
+**Results saved to** `examples/performance_10k_groups_R/results/`:
 - `sql_group_models.parquet`
 - `sql_group_models_full.parquet`
 
@@ -114,10 +114,10 @@ install.packages(c("arrow", "dplyr", "broom"))
 Run equivalent fit-predict analysis using R's `lm()`:
 
 ```bash
-Rscript examples/performance_test/performance_test_ols_fit_predict.R
+Rscript examples/performance_10k_groups_R/performance_test_ols_fit_predict.R
 ```
 
-**Results saved to** `examples/performance_test/results/`:
+**Results saved to** `examples/performance_10k_groups_R/results/`:
 - `r_predictions_expanding_single.parquet`
 - `r_predictions_fixed_single.parquet`
 - `r_predictions_expanding_multi.parquet`
@@ -128,10 +128,10 @@ Rscript examples/performance_test/performance_test_ols_fit_predict.R
 Run equivalent GROUP BY analysis using R's `lm()`:
 
 ```bash
-Rscript examples/performance_test/performance_test_ols_aggregate.R
+Rscript examples/performance_10k_groups_R/performance_test_ols_aggregate.R
 ```
 
-**Results saved to** `examples/performance_test/results/`:
+**Results saved to** `examples/performance_10k_groups_R/results/`:
 - `r_group_models.parquet`
 - `r_group_models_full.parquet`
 
@@ -144,10 +144,10 @@ All results are saved as parquet files, making it easy to compare SQL and R impl
 ```sql
 -- Load both SQL and R predictions
 CREATE TABLE sql_pred AS
-  SELECT * FROM 'examples/performance_test/results/sql_predictions_expanding_single.parquet';
+  SELECT * FROM 'examples/performance_10k_groups_R/results/sql_predictions_expanding_single.parquet';
 
 CREATE TABLE r_pred AS
-  SELECT * FROM 'examples/performance_test/results/r_predictions_expanding_single.parquet';
+  SELECT * FROM 'examples/performance_10k_groups_R/results/r_predictions_expanding_single.parquet';
 
 -- Compare predictions
 SELECT
@@ -169,10 +169,10 @@ ORDER BY obs_id;
 ```sql
 -- Load both SQL and R models
 CREATE TABLE sql_models AS
-  SELECT * FROM 'examples/performance_test/results/sql_group_models.parquet';
+  SELECT * FROM 'examples/performance_10k_groups_R/results/sql_group_models.parquet';
 
 CREATE TABLE r_models AS
-  SELECT * FROM 'examples/performance_test/results/r_group_models.parquet';
+  SELECT * FROM 'examples/performance_10k_groups_R/results/r_group_models.parquet';
 
 -- Compare coefficients for group 1
 SELECT
@@ -242,6 +242,37 @@ The test data simulates realistic scenarios:
    - Approximately 10% of y values set to NULL
    - Used to test prediction functionality
 
+## Benchmark Results (2024-12-11)
+
+### Test Machine
+
+| Parameter | Value |
+|-----------|-------|
+| CPU | Intel Core i7-6800K @ 3.40GHz |
+| Cores | 6 (12 threads) |
+| RAM | 64 GB |
+| OS | Manjaro Linux |
+
+### Expanding Window OLS: DuckDB vs R
+
+| Test | Rows | Groups | DuckDB | R (lm) | Speedup |
+|------|------|--------|--------|--------|---------|
+| 100 Groups | 10,000 | 100 | 0.075s | 19.7s | **263x** |
+| 10K Groups | 1,000,000 | 10,000 | 2.5s | ~1,970s (est.) | **~788x** |
+
+### Notes on Comparison
+
+- **Algorithm**: Both implementations use expanding window OLS with identical semantics
+- **Prediction count difference**: DuckDB produces more predictions because it starts predicting once n >= p (number of parameters), while R explicitly requires n >= 10
+- **Numerical differences**: Predictions match within floating-point precision once models stabilize (~1e-14 difference on NULL rows where both use identical training data)
+
+### Why DuckDB is Faster
+
+1. **Incremental sufficient statistics**: O(p²) update per row instead of O(np²) matrix recomputation
+2. **No R interpreter overhead**: Native C++ execution
+3. **Vectorized operations**: DuckDB's columnar engine
+4. **Zero-copy window access**: No data copying between rows
+
 ## Performance Metrics
 
 Both SQL and R scripts output timing information:
@@ -274,7 +305,7 @@ Both test suites include validation:
 
 **Issue**: File not found errors
 - **Solution**: Ensure you run `generate_test_data.sql` first
-- **Solution**: Check that `examples/performance_test/data/` and `examples/performance_test/results/` directories exist
+- **Solution**: Check that `examples/performance_10k_groups_R/data/` and `examples/performance_10k_groups_R/results/` directories exist
 
 **Issue**: R package errors
 - **Solution**: Install required packages: `install.packages(c("arrow", "dplyr", "broom"))`
@@ -283,4 +314,4 @@ Both test suites include validation:
 - **Solution**: Reduce `n_groups` or `n_obs_per_group` in `generate_test_data.sql`
 
 **Issue**: Parquet write errors
-- **Solution**: Ensure write permissions in `examples/performance_test/data/` and `examples/performance_test/results/`
+- **Solution**: Ensure write permissions in `examples/performance_10k_groups_R/data/` and `examples/performance_10k_groups_R/results/`

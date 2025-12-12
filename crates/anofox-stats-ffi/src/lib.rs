@@ -8,8 +8,14 @@ pub use types::*;
 
 use anofox_stats_core::{
     diagnostics::{compute_aic, compute_bic, compute_residuals, compute_vif, jarque_bera},
-    models::{fit_elasticnet, fit_ols, fit_ridge, fit_rls, fit_wls, predict, RlsOptions},
-    ElasticNetOptions, OlsOptions, RidgeOptions, StatsError, WlsOptions,
+    models::{
+        compute_aid, compute_aid_anomalies, fit_alm, fit_binomial, fit_bls, fit_elasticnet,
+        fit_negbinomial, fit_ols, fit_poisson, fit_ridge, fit_rls, fit_tweedie, fit_wls, predict,
+        RlsOptions,
+    },
+    AidOptions, AlmDistribution, AlmLoss, AlmOptions, BinomialLink, BinomialOptions, BlsOptions,
+    ElasticNetOptions, NegBinomialOptions, OlsOptions, OutlierMethod, PoissonLink, PoissonOptions,
+    RidgeOptions, StatsError, TweedieOptions, WlsOptions,
 };
 use statrs::distribution::{ContinuousCDF, StudentsT};
 use std::slice;
@@ -26,6 +32,7 @@ fn error_to_code(err: &StatsError) -> ErrorCode {
         StatsError::DimensionMismatchMsg(_) => ErrorCode::DimensionMismatch,
         StatsError::EmptyInput { .. } => ErrorCode::InvalidInput,
         StatsError::InvalidInput(_) => ErrorCode::InvalidInput,
+        StatsError::InvalidValue { .. } => ErrorCode::InvalidInput,
         StatsError::SingularMatrix => ErrorCode::SingularMatrix,
         StatsError::CholeskyFailed | StatsError::QrFailed => ErrorCode::SingularMatrix,
         StatsError::ConvergenceFailure { .. } => ErrorCode::ConvergenceFailure,
@@ -1530,4 +1537,1226 @@ pub unsafe extern "C" fn anofox_predict_with_interval(
     (*out_result).yhat_upper = yhat + margin;
 
     true
+}
+
+// =============================================================================
+// GLM (Generalized Linear Models) FFI Functions
+// =============================================================================
+
+/// Fit a Poisson regression model
+///
+/// # Safety
+/// - `y` must be a valid DataArray
+/// - `x` must point to `x_count` valid DataArray structs
+/// - `out_result` must be a valid pointer
+/// - `out_error` must be a valid pointer
+#[no_mangle]
+pub unsafe extern "C" fn anofox_poisson_fit(
+    y: DataArray,
+    x: *const DataArray,
+    x_count: usize,
+    options: PoissonOptionsFFI,
+    out_result: *mut GlmFitResultCore,
+    out_inference: *mut FitResultInference,
+    out_error: *mut AnofoxError,
+) -> bool {
+    if !out_error.is_null() {
+        *out_error = AnofoxError::success();
+    }
+
+    if out_result.is_null() {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+        }
+        return false;
+    }
+
+    if x.is_null() || x_count == 0 {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
+        }
+        return false;
+    }
+
+    let y_vec = y.to_vec();
+    let x_arrays = slice::from_raw_parts(x, x_count);
+    let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
+
+    // Convert FFI options to core options
+    let link = match options.link {
+        PoissonLinkFFI::Log => PoissonLink::Log,
+        PoissonLinkFFI::Identity => PoissonLink::Identity,
+        PoissonLinkFFI::Sqrt => PoissonLink::Sqrt,
+    };
+
+    let opts = PoissonOptions {
+        fit_intercept: options.fit_intercept,
+        link,
+        max_iterations: options.max_iterations,
+        tolerance: options.tolerance,
+        compute_inference: options.compute_inference,
+        confidence_level: options.confidence_level,
+    };
+
+    let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        fit_poisson(&y_vec, &x_vecs, &opts)
+    }));
+
+    let fit_result = match fit_result {
+        Ok(r) => r,
+        Err(_) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InternalError, "Internal panic in Poisson fit");
+            }
+            return false;
+        }
+    };
+
+    match fit_result {
+        Ok(result) => {
+            let n_coef = result.core.coefficients.len();
+            let coef_ptr = libc::malloc(n_coef * std::mem::size_of::<f64>()) as *mut f64;
+            if coef_ptr.is_null() && n_coef > 0 {
+                if !out_error.is_null() {
+                    (*out_error).set(
+                        ErrorCode::AllocationFailure,
+                        "Failed to allocate coefficients",
+                    );
+                }
+                return false;
+            }
+            std::ptr::copy_nonoverlapping(result.core.coefficients.as_ptr(), coef_ptr, n_coef);
+
+            (*out_result) = GlmFitResultCore {
+                coefficients: coef_ptr,
+                coefficients_len: n_coef,
+                intercept: result.core.intercept.unwrap_or(f64::NAN),
+                deviance: result.core.residual_deviance,
+                null_deviance: result.core.null_deviance,
+                pseudo_r_squared: result.core.pseudo_r_squared,
+                aic: result.core.aic,
+                dispersion: result.core.dispersion.unwrap_or(f64::NAN),
+                n_observations: result.core.n_observations,
+                n_features: result.core.n_features,
+                iterations: result.core.iterations,
+            };
+
+            // Fill inference if available
+            if !out_inference.is_null() {
+                if let Some(inf) = result.inference {
+                    let n = inf.std_errors.len();
+                    let std_err_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                    let t_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                    let p_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                    let ci_lo_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                    let ci_hi_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+
+                    if n > 0 && !std_err_ptr.is_null() {
+                        std::ptr::copy_nonoverlapping(inf.std_errors.as_ptr(), std_err_ptr, n);
+                        std::ptr::copy_nonoverlapping(inf.z_values.as_ptr(), t_val_ptr, n);
+                        std::ptr::copy_nonoverlapping(inf.p_values.as_ptr(), p_val_ptr, n);
+                        std::ptr::copy_nonoverlapping(inf.ci_lower.as_ptr(), ci_lo_ptr, n);
+                        std::ptr::copy_nonoverlapping(inf.ci_upper.as_ptr(), ci_hi_ptr, n);
+                    }
+
+                    (*out_inference) = FitResultInference {
+                        std_errors: std_err_ptr,
+                        t_values: t_val_ptr,
+                        p_values: p_val_ptr,
+                        ci_lower: ci_lo_ptr,
+                        ci_upper: ci_hi_ptr,
+                        len: n,
+                        confidence_level: inf.confidence_level,
+                        f_statistic: f64::NAN,
+                        f_pvalue: f64::NAN,
+                    };
+                } else {
+                    (*out_inference) = FitResultInference::default();
+                }
+            }
+
+            true
+        }
+        Err(e) => {
+            if !out_error.is_null() {
+                (*out_error).set(error_to_code(&e), &e.to_string());
+            }
+            false
+        }
+    }
+}
+
+/// Fit a Binomial (logistic) regression model
+///
+/// # Safety
+/// - `y` must be a valid DataArray with binary (0/1) values
+/// - `x` must point to `x_count` valid DataArray structs
+/// - `out_result` must be a valid pointer
+/// - `out_inference` can be NULL if not needed
+/// - `out_error` must be a valid pointer
+#[no_mangle]
+pub unsafe extern "C" fn anofox_binomial_fit(
+    y: DataArray,
+    x: *const DataArray,
+    x_count: usize,
+    options: BinomialOptionsFFI,
+    out_result: *mut GlmFitResultCore,
+    out_inference: *mut FitResultInference,
+    out_error: *mut AnofoxError,
+) -> bool {
+    if !out_error.is_null() {
+        *out_error = AnofoxError::success();
+    }
+
+    if out_result.is_null() {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+        }
+        return false;
+    }
+
+    if x.is_null() || x_count == 0 {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
+        }
+        return false;
+    }
+
+    let y_vec = y.to_vec();
+    let x_arrays = slice::from_raw_parts(x, x_count);
+    let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
+
+    let link = match options.link {
+        BinomialLinkFFI::Logit => BinomialLink::Logit,
+        BinomialLinkFFI::Probit => BinomialLink::Probit,
+        BinomialLinkFFI::Cloglog => BinomialLink::Cloglog,
+    };
+
+    let opts = BinomialOptions {
+        fit_intercept: options.fit_intercept,
+        link,
+        max_iterations: options.max_iterations,
+        tolerance: options.tolerance,
+        compute_inference: options.compute_inference,
+        confidence_level: options.confidence_level,
+    };
+
+    let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        fit_binomial(&y_vec, &x_vecs, &opts)
+    }));
+
+    let fit_result = match fit_result {
+        Ok(r) => r,
+        Err(_) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InternalError, "Internal panic in Binomial fit");
+            }
+            return false;
+        }
+    };
+
+    match fit_result {
+        Ok(result) => {
+            let n_coef = result.core.coefficients.len();
+            let coef_ptr = libc::malloc(n_coef * std::mem::size_of::<f64>()) as *mut f64;
+            if coef_ptr.is_null() && n_coef > 0 {
+                if !out_error.is_null() {
+                    (*out_error).set(
+                        ErrorCode::AllocationFailure,
+                        "Failed to allocate coefficients",
+                    );
+                }
+                return false;
+            }
+            std::ptr::copy_nonoverlapping(result.core.coefficients.as_ptr(), coef_ptr, n_coef);
+
+            (*out_result) = GlmFitResultCore {
+                coefficients: coef_ptr,
+                coefficients_len: n_coef,
+                intercept: result.core.intercept.unwrap_or(f64::NAN),
+                deviance: result.core.residual_deviance,
+                null_deviance: result.core.null_deviance,
+                pseudo_r_squared: result.core.pseudo_r_squared,
+                aic: result.core.aic,
+                dispersion: result.core.dispersion.unwrap_or(f64::NAN),
+                n_observations: result.core.n_observations,
+                n_features: result.core.n_features,
+                iterations: result.core.iterations,
+            };
+
+            if !out_inference.is_null() {
+                if let Some(inf) = result.inference {
+                    let n = inf.std_errors.len();
+                    let std_err_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                    let t_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                    let p_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                    let ci_lo_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                    let ci_hi_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+
+                    if n > 0 && !std_err_ptr.is_null() {
+                        std::ptr::copy_nonoverlapping(inf.std_errors.as_ptr(), std_err_ptr, n);
+                        std::ptr::copy_nonoverlapping(inf.z_values.as_ptr(), t_val_ptr, n);
+                        std::ptr::copy_nonoverlapping(inf.p_values.as_ptr(), p_val_ptr, n);
+                        std::ptr::copy_nonoverlapping(inf.ci_lower.as_ptr(), ci_lo_ptr, n);
+                        std::ptr::copy_nonoverlapping(inf.ci_upper.as_ptr(), ci_hi_ptr, n);
+                    }
+
+                    (*out_inference) = FitResultInference {
+                        std_errors: std_err_ptr,
+                        t_values: t_val_ptr,
+                        p_values: p_val_ptr,
+                        ci_lower: ci_lo_ptr,
+                        ci_upper: ci_hi_ptr,
+                        len: n,
+                        confidence_level: inf.confidence_level,
+                        f_statistic: f64::NAN,
+                        f_pvalue: f64::NAN,
+                    };
+                } else {
+                    (*out_inference) = FitResultInference::default();
+                }
+            }
+
+            true
+        }
+        Err(e) => {
+            if !out_error.is_null() {
+                (*out_error).set(error_to_code(&e), &e.to_string());
+            }
+            false
+        }
+    }
+}
+
+/// Fit a Negative Binomial regression model
+///
+/// # Safety
+/// - `y` must be a valid DataArray with count values
+/// - `x` must point to `x_count` valid DataArray structs
+/// - `out_result` must be a valid pointer
+/// - `out_inference` can be NULL if not needed
+/// - `out_error` must be a valid pointer
+#[no_mangle]
+pub unsafe extern "C" fn anofox_negbinomial_fit(
+    y: DataArray,
+    x: *const DataArray,
+    x_count: usize,
+    options: NegBinomialOptionsFFI,
+    out_result: *mut GlmFitResultCore,
+    out_inference: *mut FitResultInference,
+    out_error: *mut AnofoxError,
+) -> bool {
+    if !out_error.is_null() {
+        *out_error = AnofoxError::success();
+    }
+
+    if out_result.is_null() {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+        }
+        return false;
+    }
+
+    if x.is_null() || x_count == 0 {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
+        }
+        return false;
+    }
+
+    let y_vec = y.to_vec();
+    let x_arrays = slice::from_raw_parts(x, x_count);
+    let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
+
+    let opts = NegBinomialOptions {
+        fit_intercept: options.fit_intercept,
+        alpha: None, // Let the algorithm estimate alpha
+        max_iterations: options.max_iterations,
+        tolerance: options.tolerance,
+        compute_inference: options.compute_inference,
+        confidence_level: options.confidence_level,
+    };
+
+    let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        fit_negbinomial(&y_vec, &x_vecs, &opts)
+    }));
+
+    let fit_result = match fit_result {
+        Ok(r) => r,
+        Err(_) => {
+            if !out_error.is_null() {
+                (*out_error).set(
+                    ErrorCode::InternalError,
+                    "Internal panic in NegBinomial fit",
+                );
+            }
+            return false;
+        }
+    };
+
+    match fit_result {
+        Ok(result) => {
+            let n_coef = result.core.coefficients.len();
+            let coef_ptr = libc::malloc(n_coef * std::mem::size_of::<f64>()) as *mut f64;
+            if coef_ptr.is_null() && n_coef > 0 {
+                if !out_error.is_null() {
+                    (*out_error).set(
+                        ErrorCode::AllocationFailure,
+                        "Failed to allocate coefficients",
+                    );
+                }
+                return false;
+            }
+            std::ptr::copy_nonoverlapping(result.core.coefficients.as_ptr(), coef_ptr, n_coef);
+
+            (*out_result) = GlmFitResultCore {
+                coefficients: coef_ptr,
+                coefficients_len: n_coef,
+                intercept: result.core.intercept.unwrap_or(f64::NAN),
+                deviance: result.core.residual_deviance,
+                null_deviance: result.core.null_deviance,
+                pseudo_r_squared: result.core.pseudo_r_squared,
+                aic: result.core.aic,
+                dispersion: result.core.dispersion.unwrap_or(f64::NAN),
+                n_observations: result.core.n_observations,
+                n_features: result.core.n_features,
+                iterations: result.core.iterations,
+            };
+
+            if !out_inference.is_null() {
+                if let Some(inf) = result.inference {
+                    let n = inf.std_errors.len();
+                    let std_err_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                    let t_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                    let p_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                    let ci_lo_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                    let ci_hi_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+
+                    if n > 0 && !std_err_ptr.is_null() {
+                        std::ptr::copy_nonoverlapping(inf.std_errors.as_ptr(), std_err_ptr, n);
+                        std::ptr::copy_nonoverlapping(inf.z_values.as_ptr(), t_val_ptr, n);
+                        std::ptr::copy_nonoverlapping(inf.p_values.as_ptr(), p_val_ptr, n);
+                        std::ptr::copy_nonoverlapping(inf.ci_lower.as_ptr(), ci_lo_ptr, n);
+                        std::ptr::copy_nonoverlapping(inf.ci_upper.as_ptr(), ci_hi_ptr, n);
+                    }
+
+                    (*out_inference) = FitResultInference {
+                        std_errors: std_err_ptr,
+                        t_values: t_val_ptr,
+                        p_values: p_val_ptr,
+                        ci_lower: ci_lo_ptr,
+                        ci_upper: ci_hi_ptr,
+                        len: n,
+                        confidence_level: inf.confidence_level,
+                        f_statistic: f64::NAN,
+                        f_pvalue: f64::NAN,
+                    };
+                } else {
+                    (*out_inference) = FitResultInference::default();
+                }
+            }
+
+            true
+        }
+        Err(e) => {
+            if !out_error.is_null() {
+                (*out_error).set(error_to_code(&e), &e.to_string());
+            }
+            false
+        }
+    }
+}
+
+/// Fit a Tweedie regression model
+///
+/// # Safety
+/// - `y` must be a valid DataArray with non-negative values
+/// - `x` must point to `x_count` valid DataArray structs
+/// - `out_result` must be a valid pointer
+/// - `out_inference` can be NULL if not needed
+/// - `out_error` must be a valid pointer
+#[no_mangle]
+pub unsafe extern "C" fn anofox_tweedie_fit(
+    y: DataArray,
+    x: *const DataArray,
+    x_count: usize,
+    options: TweedieOptionsFFI,
+    out_result: *mut GlmFitResultCore,
+    out_inference: *mut FitResultInference,
+    out_error: *mut AnofoxError,
+) -> bool {
+    if !out_error.is_null() {
+        *out_error = AnofoxError::success();
+    }
+
+    if out_result.is_null() {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+        }
+        return false;
+    }
+
+    if x.is_null() || x_count == 0 {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
+        }
+        return false;
+    }
+
+    let y_vec = y.to_vec();
+    let x_arrays = slice::from_raw_parts(x, x_count);
+    let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
+
+    let opts = TweedieOptions {
+        fit_intercept: options.fit_intercept,
+        power: options.power,
+        max_iterations: options.max_iterations,
+        tolerance: options.tolerance,
+        compute_inference: options.compute_inference,
+        confidence_level: options.confidence_level,
+    };
+
+    let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        fit_tweedie(&y_vec, &x_vecs, &opts)
+    }));
+
+    let fit_result = match fit_result {
+        Ok(r) => r,
+        Err(_) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InternalError, "Internal panic in Tweedie fit");
+            }
+            return false;
+        }
+    };
+
+    match fit_result {
+        Ok(result) => {
+            let n_coef = result.core.coefficients.len();
+            let coef_ptr = libc::malloc(n_coef * std::mem::size_of::<f64>()) as *mut f64;
+            if coef_ptr.is_null() && n_coef > 0 {
+                if !out_error.is_null() {
+                    (*out_error).set(
+                        ErrorCode::AllocationFailure,
+                        "Failed to allocate coefficients",
+                    );
+                }
+                return false;
+            }
+            std::ptr::copy_nonoverlapping(result.core.coefficients.as_ptr(), coef_ptr, n_coef);
+
+            (*out_result) = GlmFitResultCore {
+                coefficients: coef_ptr,
+                coefficients_len: n_coef,
+                intercept: result.core.intercept.unwrap_or(f64::NAN),
+                deviance: result.core.residual_deviance,
+                null_deviance: result.core.null_deviance,
+                pseudo_r_squared: result.core.pseudo_r_squared,
+                aic: result.core.aic,
+                dispersion: result.core.dispersion.unwrap_or(f64::NAN),
+                n_observations: result.core.n_observations,
+                n_features: result.core.n_features,
+                iterations: result.core.iterations,
+            };
+
+            if !out_inference.is_null() {
+                if let Some(inf) = result.inference {
+                    let n = inf.std_errors.len();
+                    let std_err_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                    let t_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                    let p_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                    let ci_lo_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                    let ci_hi_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+
+                    if n > 0 && !std_err_ptr.is_null() {
+                        std::ptr::copy_nonoverlapping(inf.std_errors.as_ptr(), std_err_ptr, n);
+                        std::ptr::copy_nonoverlapping(inf.z_values.as_ptr(), t_val_ptr, n);
+                        std::ptr::copy_nonoverlapping(inf.p_values.as_ptr(), p_val_ptr, n);
+                        std::ptr::copy_nonoverlapping(inf.ci_lower.as_ptr(), ci_lo_ptr, n);
+                        std::ptr::copy_nonoverlapping(inf.ci_upper.as_ptr(), ci_hi_ptr, n);
+                    }
+
+                    (*out_inference) = FitResultInference {
+                        std_errors: std_err_ptr,
+                        t_values: t_val_ptr,
+                        p_values: p_val_ptr,
+                        ci_lower: ci_lo_ptr,
+                        ci_upper: ci_hi_ptr,
+                        len: n,
+                        confidence_level: inf.confidence_level,
+                        f_statistic: f64::NAN,
+                        f_pvalue: f64::NAN,
+                    };
+                } else {
+                    (*out_inference) = FitResultInference::default();
+                }
+            }
+
+            true
+        }
+        Err(e) => {
+            if !out_error.is_null() {
+                (*out_error).set(error_to_code(&e), &e.to_string());
+            }
+            false
+        }
+    }
+}
+
+/// Free memory allocated by GLM fit functions
+///
+/// # Safety
+/// - `result` must be NULL or a valid pointer to a GlmFitResultCore
+/// - Must only be called once per result (double-free is undefined behavior)
+#[no_mangle]
+pub unsafe extern "C" fn anofox_free_glm_result(result: *mut GlmFitResultCore) {
+    if result.is_null() {
+        return;
+    }
+    if !(*result).coefficients.is_null() {
+        libc::free((*result).coefficients as *mut libc::c_void);
+        (*result).coefficients = std::ptr::null_mut();
+    }
+}
+
+// =============================================================================
+// ALM (Augmented Linear Models) FFI Functions
+// =============================================================================
+
+/// Convert FFI distribution code to core AlmDistribution
+fn convert_alm_distribution(dist: AlmDistributionFFI) -> AlmDistribution {
+    match dist {
+        AlmDistributionFFI::Normal => AlmDistribution::Normal,
+        AlmDistributionFFI::Laplace => AlmDistribution::Laplace,
+        AlmDistributionFFI::StudentT => AlmDistribution::StudentT,
+        AlmDistributionFFI::Logistic => AlmDistribution::Logistic,
+        AlmDistributionFFI::AsymmetricLaplace => AlmDistribution::AsymmetricLaplace,
+        AlmDistributionFFI::GeneralisedNormal => AlmDistribution::GeneralisedNormal,
+        AlmDistributionFFI::S => AlmDistribution::S,
+        AlmDistributionFFI::LogNormal => AlmDistribution::LogNormal,
+        AlmDistributionFFI::LogLaplace => AlmDistribution::LogLaplace,
+        AlmDistributionFFI::LogS => AlmDistribution::LogS,
+        AlmDistributionFFI::LogGeneralisedNormal => AlmDistribution::LogGeneralisedNormal,
+        AlmDistributionFFI::FoldedNormal => AlmDistribution::FoldedNormal,
+        AlmDistributionFFI::RectifiedNormal => AlmDistribution::RectifiedNormal,
+        AlmDistributionFFI::BoxCoxNormal => AlmDistribution::BoxCoxNormal,
+        AlmDistributionFFI::Gamma => AlmDistribution::Gamma,
+        AlmDistributionFFI::InverseGaussian => AlmDistribution::InverseGaussian,
+        AlmDistributionFFI::Exponential => AlmDistribution::Exponential,
+        AlmDistributionFFI::Beta => AlmDistribution::Beta,
+        AlmDistributionFFI::LogitNormal => AlmDistribution::LogitNormal,
+        AlmDistributionFFI::Poisson => AlmDistribution::Poisson,
+        AlmDistributionFFI::NegativeBinomial => AlmDistribution::NegativeBinomial,
+        AlmDistributionFFI::Binomial => AlmDistribution::Binomial,
+        AlmDistributionFFI::Geometric => AlmDistribution::Geometric,
+        AlmDistributionFFI::CumulativeLogistic => AlmDistribution::CumulativeLogistic,
+        AlmDistributionFFI::CumulativeNormal => AlmDistribution::CumulativeNormal,
+    }
+}
+
+/// Convert FFI loss code to core AlmLoss
+fn convert_alm_loss(loss: AlmLossFFI) -> AlmLoss {
+    match loss {
+        AlmLossFFI::Likelihood => AlmLoss::Likelihood,
+        AlmLossFFI::MSE => AlmLoss::MSE,
+        AlmLossFFI::MAE => AlmLoss::MAE,
+        AlmLossFFI::HAM => AlmLoss::HAM,
+        AlmLossFFI::ROLE => AlmLoss::ROLE,
+    }
+}
+
+/// Fit an Augmented Linear Model (ALM)
+///
+/// # Safety
+/// - `y` must be a valid DataArray
+/// - `x` must point to `x_count` valid DataArray structs
+/// - `out_result` must be a valid pointer
+/// - `out_inference` can be NULL if not needed
+/// - `out_error` must be a valid pointer
+#[no_mangle]
+pub unsafe extern "C" fn anofox_alm_fit(
+    y: DataArray,
+    x: *const DataArray,
+    x_count: usize,
+    options: AlmOptionsFFI,
+    out_result: *mut AlmFitResultCore,
+    out_inference: *mut FitResultInference,
+    out_error: *mut AnofoxError,
+) -> bool {
+    if !out_error.is_null() {
+        *out_error = AnofoxError::success();
+    }
+
+    if out_result.is_null() {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+        }
+        return false;
+    }
+
+    if x.is_null() || x_count == 0 {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
+        }
+        return false;
+    }
+
+    let y_vec = y.to_vec();
+    let x_arrays = slice::from_raw_parts(x, x_count);
+    let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
+
+    let opts = AlmOptions {
+        fit_intercept: options.fit_intercept,
+        distribution: convert_alm_distribution(options.distribution),
+        loss: convert_alm_loss(options.loss),
+        max_iterations: options.max_iterations,
+        tolerance: options.tolerance,
+        quantile: options.quantile,
+        role_trim: options.role_trim,
+        compute_inference: options.compute_inference,
+        confidence_level: options.confidence_level,
+    };
+
+    let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        fit_alm(&y_vec, &x_vecs, &opts)
+    }));
+
+    let fit_result = match fit_result {
+        Ok(r) => r,
+        Err(_) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InternalError, "Internal panic in ALM fit");
+            }
+            return false;
+        }
+    };
+
+    match fit_result {
+        Ok(result) => {
+            let n_coef = result.core.coefficients.len();
+            let coef_ptr = libc::malloc(n_coef * std::mem::size_of::<f64>()) as *mut f64;
+            if coef_ptr.is_null() && n_coef > 0 {
+                if !out_error.is_null() {
+                    (*out_error).set(
+                        ErrorCode::AllocationFailure,
+                        "Failed to allocate coefficients",
+                    );
+                }
+                return false;
+            }
+            std::ptr::copy_nonoverlapping(result.core.coefficients.as_ptr(), coef_ptr, n_coef);
+
+            (*out_result) = AlmFitResultCore {
+                coefficients: coef_ptr,
+                coefficients_len: n_coef,
+                intercept: result.core.intercept.unwrap_or(f64::NAN),
+                log_likelihood: result.core.log_likelihood,
+                aic: result.core.aic,
+                bic: result.core.bic,
+                scale: result.core.scale,
+                n_observations: result.core.n_observations,
+                n_features: result.core.n_features,
+                iterations: result.core.iterations,
+            };
+
+            if !out_inference.is_null() {
+                if let Some(inf) = result.inference {
+                    let n = inf.standard_errors.len();
+                    let std_err_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                    let t_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                    let p_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                    let ci_lo_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                    let ci_hi_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+
+                    if n > 0 && !std_err_ptr.is_null() {
+                        std::ptr::copy_nonoverlapping(inf.standard_errors.as_ptr(), std_err_ptr, n);
+                        std::ptr::copy_nonoverlapping(inf.t_values.as_ptr(), t_val_ptr, n);
+                        std::ptr::copy_nonoverlapping(inf.p_values.as_ptr(), p_val_ptr, n);
+                        std::ptr::copy_nonoverlapping(inf.conf_int_lower.as_ptr(), ci_lo_ptr, n);
+                        std::ptr::copy_nonoverlapping(inf.conf_int_upper.as_ptr(), ci_hi_ptr, n);
+                    }
+
+                    (*out_inference) = FitResultInference {
+                        std_errors: std_err_ptr,
+                        t_values: t_val_ptr,
+                        p_values: p_val_ptr,
+                        ci_lower: ci_lo_ptr,
+                        ci_upper: ci_hi_ptr,
+                        len: n,
+                        confidence_level: opts.confidence_level,
+                        f_statistic: f64::NAN,
+                        f_pvalue: f64::NAN,
+                    };
+                } else {
+                    (*out_inference) = FitResultInference::default();
+                }
+            }
+
+            true
+        }
+        Err(e) => {
+            if !out_error.is_null() {
+                (*out_error).set(error_to_code(&e), &e.to_string());
+            }
+            false
+        }
+    }
+}
+
+/// Free memory allocated by ALM fit function
+///
+/// # Safety
+/// - `result` must be NULL or a valid pointer to an AlmFitResultCore
+/// - Must only be called once per result (double-free is undefined behavior)
+#[no_mangle]
+pub unsafe extern "C" fn anofox_free_alm_result(result: *mut AlmFitResultCore) {
+    if result.is_null() {
+        return;
+    }
+    if !(*result).coefficients.is_null() {
+        libc::free((*result).coefficients as *mut libc::c_void);
+        (*result).coefficients = std::ptr::null_mut();
+    }
+}
+
+// =============================================================================
+// BLS (Bounded Least Squares) FFI Functions
+// =============================================================================
+
+/// Fit a Bounded Least Squares / NNLS model
+///
+/// # Safety
+/// - `y` must be a valid DataArray
+/// - `x` must point to `x_count` valid DataArray structs
+/// - `options.lower_bounds` must be NULL or point to `options.lower_bounds_len` valid f64 values
+/// - `options.upper_bounds` must be NULL or point to `options.upper_bounds_len` valid f64 values
+/// - `out_result` must be a valid pointer
+/// - `out_error` must be a valid pointer
+#[no_mangle]
+pub unsafe extern "C" fn anofox_bls_fit(
+    y: DataArray,
+    x: *const DataArray,
+    x_count: usize,
+    options: BlsOptionsFFI,
+    out_result: *mut BlsFitResultCore,
+    out_error: *mut AnofoxError,
+) -> bool {
+    if !out_error.is_null() {
+        *out_error = AnofoxError::success();
+    }
+
+    if out_result.is_null() {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+        }
+        return false;
+    }
+
+    if x.is_null() || x_count == 0 {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
+        }
+        return false;
+    }
+
+    let y_vec = y.to_vec();
+    let x_arrays = slice::from_raw_parts(x, x_count);
+    let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
+
+    // Convert bounds
+    let lower_bounds = if options.lower_bounds.is_null() || options.lower_bounds_len == 0 {
+        None
+    } else {
+        Some(slice::from_raw_parts(options.lower_bounds, options.lower_bounds_len).to_vec())
+    };
+
+    let upper_bounds = if options.upper_bounds.is_null() || options.upper_bounds_len == 0 {
+        None
+    } else {
+        Some(slice::from_raw_parts(options.upper_bounds, options.upper_bounds_len).to_vec())
+    };
+
+    let opts = BlsOptions {
+        fit_intercept: options.fit_intercept,
+        lower_bounds,
+        upper_bounds,
+        max_iterations: options.max_iterations,
+        tolerance: options.tolerance,
+    };
+
+    let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        fit_bls(&y_vec, &x_vecs, &opts)
+    }));
+
+    let fit_result = match fit_result {
+        Ok(r) => r,
+        Err(_) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InternalError, "Internal panic in BLS fit");
+            }
+            return false;
+        }
+    };
+
+    match fit_result {
+        Ok(result) => {
+            let n_coef = result.coefficients.len();
+
+            // Allocate coefficients
+            let coef_ptr = libc::malloc(n_coef * std::mem::size_of::<f64>()) as *mut f64;
+            if coef_ptr.is_null() && n_coef > 0 {
+                if !out_error.is_null() {
+                    (*out_error).set(
+                        ErrorCode::AllocationFailure,
+                        "Failed to allocate coefficients",
+                    );
+                }
+                return false;
+            }
+            std::ptr::copy_nonoverlapping(result.coefficients.as_ptr(), coef_ptr, n_coef);
+
+            // Allocate bound flags
+            let lower_ptr = libc::malloc(n_coef * std::mem::size_of::<bool>()) as *mut bool;
+            let upper_ptr = libc::malloc(n_coef * std::mem::size_of::<bool>()) as *mut bool;
+
+            if n_coef > 0 && !lower_ptr.is_null() && !upper_ptr.is_null() {
+                std::ptr::copy_nonoverlapping(result.at_lower_bound.as_ptr(), lower_ptr, n_coef);
+                std::ptr::copy_nonoverlapping(result.at_upper_bound.as_ptr(), upper_ptr, n_coef);
+            }
+
+            (*out_result) = BlsFitResultCore {
+                coefficients: coef_ptr,
+                coefficients_len: n_coef,
+                intercept: result.intercept.unwrap_or(f64::NAN),
+                ssr: result.ssr,
+                r_squared: result.r_squared,
+                n_observations: result.n_observations,
+                n_features: result.n_features,
+                n_active_constraints: result.n_active_constraints,
+                at_lower_bound: lower_ptr,
+                at_upper_bound: upper_ptr,
+            };
+
+            true
+        }
+        Err(e) => {
+            if !out_error.is_null() {
+                (*out_error).set(error_to_code(&e), &e.to_string());
+            }
+            false
+        }
+    }
+}
+
+/// Fit NNLS (Non-Negative Least Squares) - convenience function
+///
+/// # Safety
+/// - `y` must be a valid DataArray
+/// - `x` must point to `x_count` valid DataArray structs
+/// - `out_result` must be a valid pointer
+/// - `out_error` must be a valid pointer
+#[no_mangle]
+pub unsafe extern "C" fn anofox_nnls_fit(
+    y: DataArray,
+    x: *const DataArray,
+    x_count: usize,
+    out_result: *mut BlsFitResultCore,
+    out_error: *mut AnofoxError,
+) -> bool {
+    // Use BLS with default NNLS options (all lower bounds = 0)
+    let options = BlsOptionsFFI {
+        fit_intercept: false,
+        lower_bounds: std::ptr::null(),
+        lower_bounds_len: 0,
+        upper_bounds: std::ptr::null(),
+        upper_bounds_len: 0,
+        max_iterations: 1000,
+        tolerance: 1e-10,
+    };
+    anofox_bls_fit(y, x, x_count, options, out_result, out_error)
+}
+
+/// Free memory allocated by BLS fit function
+///
+/// # Safety
+/// - `result` must be NULL or a valid pointer to a BlsFitResultCore
+/// - Must only be called once per result (double-free is undefined behavior)
+#[no_mangle]
+pub unsafe extern "C" fn anofox_free_bls_result(result: *mut BlsFitResultCore) {
+    if result.is_null() {
+        return;
+    }
+    if !(*result).coefficients.is_null() {
+        libc::free((*result).coefficients as *mut libc::c_void);
+        (*result).coefficients = std::ptr::null_mut();
+    }
+    if !(*result).at_lower_bound.is_null() {
+        libc::free((*result).at_lower_bound as *mut libc::c_void);
+        (*result).at_lower_bound = std::ptr::null_mut();
+    }
+    if !(*result).at_upper_bound.is_null() {
+        libc::free((*result).at_upper_bound as *mut libc::c_void);
+        (*result).at_upper_bound = std::ptr::null_mut();
+    }
+}
+
+// =============================================================================
+// AID (Automatic Identification of Demand) Functions
+// =============================================================================
+
+/// Compute AID (Automatic Identification of Demand) classification
+///
+/// # Safety
+/// - `y` must be a valid DataArray
+/// - `out_result` must be a valid pointer
+/// - `out_error` must be a valid pointer
+///
+/// # Returns
+/// `true` on success, `false` on error (check `out_error` for details)
+#[no_mangle]
+pub unsafe extern "C" fn anofox_aid(
+    y: DataArray,
+    options: AidOptionsFFI,
+    out_result: *mut AidResultFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    if !out_error.is_null() {
+        *out_error = AnofoxError::success();
+    }
+
+    if out_result.is_null() {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+        }
+        return false;
+    }
+
+    // Convert y to Vec
+    let y_vec = y.to_vec();
+
+    // Convert options
+    let opts = AidOptions {
+        intermittent_threshold: options.intermittent_threshold,
+        outlier_method: match options.outlier_method {
+            OutlierMethodFFI::ZScore => OutlierMethod::ZScore,
+            OutlierMethodFFI::Iqr => OutlierMethod::Iqr,
+        },
+    };
+
+    // Call the core function with panic catching
+    let result =
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| compute_aid(&y_vec, &opts)));
+
+    let result = match result {
+        Ok(r) => r,
+        Err(_) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InternalError, "Internal panic in AID");
+            }
+            return false;
+        }
+    };
+
+    match result {
+        Ok(aid_result) => {
+            // Allocate and copy demand_type string
+            let demand_type_bytes = aid_result.demand_type.as_bytes();
+            let demand_type_ptr = libc::malloc(demand_type_bytes.len() + 1) as *mut libc::c_char;
+            if demand_type_ptr.is_null() {
+                if !out_error.is_null() {
+                    (*out_error).set(
+                        ErrorCode::AllocationFailure,
+                        "Failed to allocate demand_type",
+                    );
+                }
+                return false;
+            }
+            std::ptr::copy_nonoverlapping(
+                demand_type_bytes.as_ptr(),
+                demand_type_ptr as *mut u8,
+                demand_type_bytes.len(),
+            );
+            *demand_type_ptr.add(demand_type_bytes.len()) = 0;
+
+            // Allocate and copy distribution string
+            let distribution_bytes = aid_result.distribution.as_bytes();
+            let distribution_ptr = libc::malloc(distribution_bytes.len() + 1) as *mut libc::c_char;
+            if distribution_ptr.is_null() {
+                libc::free(demand_type_ptr as *mut libc::c_void);
+                if !out_error.is_null() {
+                    (*out_error).set(
+                        ErrorCode::AllocationFailure,
+                        "Failed to allocate distribution",
+                    );
+                }
+                return false;
+            }
+            std::ptr::copy_nonoverlapping(
+                distribution_bytes.as_ptr(),
+                distribution_ptr as *mut u8,
+                distribution_bytes.len(),
+            );
+            *distribution_ptr.add(distribution_bytes.len()) = 0;
+
+            (*out_result) = AidResultFFI {
+                demand_type: demand_type_ptr,
+                is_intermittent: aid_result.is_intermittent,
+                distribution: distribution_ptr,
+                mean: aid_result.mean,
+                variance: aid_result.variance,
+                zero_proportion: aid_result.zero_proportion,
+                n_observations: aid_result.n_observations,
+                has_stockouts: aid_result.has_stockouts,
+                is_new_product: aid_result.is_new_product,
+                is_obsolete_product: aid_result.is_obsolete_product,
+                stockout_count: aid_result.stockout_count,
+                new_product_count: aid_result.new_product_count,
+                obsolete_product_count: aid_result.obsolete_product_count,
+                high_outlier_count: aid_result.high_outlier_count,
+                low_outlier_count: aid_result.low_outlier_count,
+            };
+
+            true
+        }
+        Err(e) => {
+            if !out_error.is_null() {
+                (*out_error).set(error_to_code(&e), &e.to_string());
+            }
+            false
+        }
+    }
+}
+
+/// Compute AID per-observation anomaly flags
+///
+/// # Safety
+/// - `y` must be a valid DataArray
+/// - `out_result` must be a valid pointer
+/// - `out_error` must be a valid pointer
+///
+/// # Returns
+/// `true` on success, `false` on error (check `out_error` for details)
+#[no_mangle]
+pub unsafe extern "C" fn anofox_aid_anomaly(
+    y: DataArray,
+    options: AidOptionsFFI,
+    out_result: *mut AidAnomalyResultFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    if !out_error.is_null() {
+        *out_error = AnofoxError::success();
+    }
+
+    if out_result.is_null() {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+        }
+        return false;
+    }
+
+    // Convert y to Vec
+    let y_vec = y.to_vec();
+
+    // Convert options
+    let opts = AidOptions {
+        intermittent_threshold: options.intermittent_threshold,
+        outlier_method: match options.outlier_method {
+            OutlierMethodFFI::ZScore => OutlierMethod::ZScore,
+            OutlierMethodFFI::Iqr => OutlierMethod::Iqr,
+        },
+    };
+
+    // Call the core function with panic catching
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        compute_aid_anomalies(&y_vec, &opts)
+    }));
+
+    let result = match result {
+        Ok(r) => r,
+        Err(_) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InternalError, "Internal panic in AID anomaly");
+            }
+            return false;
+        }
+    };
+
+    match result {
+        Ok(flags) => {
+            let n = flags.len();
+
+            // Allocate array for anomaly flags
+            let flags_ptr = libc::malloc(n * std::mem::size_of::<AidAnomalyFlagsFFI>())
+                as *mut AidAnomalyFlagsFFI;
+            if flags_ptr.is_null() && n > 0 {
+                if !out_error.is_null() {
+                    (*out_error).set(
+                        ErrorCode::AllocationFailure,
+                        "Failed to allocate anomaly flags",
+                    );
+                }
+                return false;
+            }
+
+            // Copy flags
+            for (i, flag) in flags.iter().enumerate() {
+                *flags_ptr.add(i) = AidAnomalyFlagsFFI {
+                    stockout: flag.stockout,
+                    new_product: flag.new_product,
+                    obsolete_product: flag.obsolete_product,
+                    high_outlier: flag.high_outlier,
+                    low_outlier: flag.low_outlier,
+                };
+            }
+
+            (*out_result) = AidAnomalyResultFFI {
+                flags: flags_ptr,
+                len: n,
+            };
+
+            true
+        }
+        Err(e) => {
+            if !out_error.is_null() {
+                (*out_error).set(error_to_code(&e), &e.to_string());
+            }
+            false
+        }
+    }
+}
+
+/// Free memory allocated by AID function
+///
+/// # Safety
+/// - `result` must be NULL or a valid pointer to an AidResultFFI
+/// - Must only be called once per result (double-free is undefined behavior)
+#[no_mangle]
+pub unsafe extern "C" fn anofox_free_aid_result(result: *mut AidResultFFI) {
+    if result.is_null() {
+        return;
+    }
+    if !(*result).demand_type.is_null() {
+        libc::free((*result).demand_type as *mut libc::c_void);
+        (*result).demand_type = std::ptr::null_mut();
+    }
+    if !(*result).distribution.is_null() {
+        libc::free((*result).distribution as *mut libc::c_void);
+        (*result).distribution = std::ptr::null_mut();
+    }
+}
+
+/// Free memory allocated by AID anomaly function
+///
+/// # Safety
+/// - `result` must be NULL or a valid pointer to an AidAnomalyResultFFI
+/// - Must only be called once per result (double-free is undefined behavior)
+#[no_mangle]
+pub unsafe extern "C" fn anofox_free_aid_anomaly_result(result: *mut AidAnomalyResultFFI) {
+    if result.is_null() {
+        return;
+    }
+    if !(*result).flags.is_null() {
+        libc::free((*result).flags as *mut libc::c_void);
+        (*result).flags = std::ptr::null_mut();
+    }
 }

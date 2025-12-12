@@ -101,6 +101,15 @@ set(EXTENSION_SOURCES
     src/aggregate_functions/vif_aggregate.cpp
     src/aggregate_functions/jarque_bera_aggregate.cpp
     src/aggregate_functions/residuals_diagnostics_aggregate.cpp
+    src/aggregate_functions/ols_predict_aggregate.cpp
+    src/aggregate_functions/ridge_predict_aggregate.cpp
+    src/aggregate_functions/wls_predict_aggregate.cpp
+    src/aggregate_functions/rls_predict_aggregate.cpp
+    src/aggregate_functions/elasticnet_predict_aggregate.cpp
+    src/aggregate_functions/poisson_aggregate.cpp
+    src/aggregate_functions/alm_aggregate.cpp
+    src/aggregate_functions/bls_aggregate.cpp
+    src/aggregate_functions/aid_aggregate.cpp
     src/scalar_functions/vif.cpp
     src/scalar_functions/aic_bic.cpp
     src/scalar_functions/jarque_bera.cpp

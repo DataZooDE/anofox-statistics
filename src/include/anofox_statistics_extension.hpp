@@ -26,6 +26,25 @@ void RegisterWlsFitPredictFunction(ExtensionLoader &loader);
 void RegisterRlsFitPredictFunction(ExtensionLoader &loader);
 void RegisterElasticNetFitPredictFunction(ExtensionLoader &loader);
 
+// Predict aggregate functions (non-rolling fit + predict all rows)
+void RegisterOlsPredictAggregateFunction(ExtensionLoader &loader);
+void RegisterRidgePredictAggregateFunction(ExtensionLoader &loader);
+void RegisterWlsPredictAggregateFunction(ExtensionLoader &loader);
+void RegisterRlsPredictAggregateFunction(ExtensionLoader &loader);
+void RegisterElasticNetPredictAggregateFunction(ExtensionLoader &loader);
+
+// GLM aggregate functions
+void RegisterPoissonAggregateFunction(ExtensionLoader &loader);
+
+// ALM aggregate functions
+void RegisterAlmAggregateFunction(ExtensionLoader &loader);
+
+// BLS aggregate functions (includes NNLS)
+void RegisterBlsAggregateFunction(ExtensionLoader &loader);
+
+// AID aggregate functions (Automatic Identification of Demand)
+void RegisterAidAggregateFunction(ExtensionLoader &loader);
+
 // Diagnostic functions
 void RegisterVifFunction(ExtensionLoader &loader);
 void RegisterVifAggregateFunction(ExtensionLoader &loader);

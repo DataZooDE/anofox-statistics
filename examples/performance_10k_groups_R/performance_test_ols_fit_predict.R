@@ -12,7 +12,7 @@
 # 2. Install required R packages: arrow, dplyr
 #
 # Usage:
-# Rscript examples/performance_test_ols_fit_predict.R
+# Rscript examples/performance_10k_groups_R_ols_fit_predict.R
 # ============================================================================
 
 library(arrow)
@@ -27,7 +27,7 @@ cat("===========================================================================
 # ============================================================================
 
 cat("Loading performance data from parquet file...\n")
-performance_data <- read_parquet("examples/performance_test/data/performance_data_fit_predict.parquet")
+performance_data <- read_parquet("examples/performance_10k_groups_R/data/performance_data_fit_predict.parquet")
 
 cat(sprintf("  - Total rows: %d\n", nrow(performance_data)))
 cat(sprintf("  - Number of groups: %d\n", length(unique(performance_data$group_id))))
@@ -277,28 +277,28 @@ dir.create("examples/results", showWarnings = FALSE, recursive = TRUE)
 # Save expanding window predictions (group 1)
 write_parquet(
   predictions_expanding_single %>% select(group_id, obs_id, y, yhat, yhat_lower, yhat_upper),
-  "examples/performance_test/results/r_predictions_expanding_single.parquet"
+  "examples/performance_10k_groups_R/results/r_predictions_expanding_single.parquet"
 )
 
 # Save fixed window predictions (group 1)
 write_parquet(
   predictions_fixed_single %>% select(group_id, obs_id, y, yhat, yhat_lower, yhat_upper),
-  "examples/performance_test/results/r_predictions_fixed_single.parquet"
+  "examples/performance_10k_groups_R/results/r_predictions_fixed_single.parquet"
 )
 
 # Save expanding window predictions (100 groups)
 write_parquet(
   predictions_expanding_multi %>% select(group_id, obs_id, y, yhat, yhat_lower, yhat_upper),
-  "examples/performance_test/results/r_predictions_expanding_multi.parquet"
+  "examples/performance_10k_groups_R/results/r_predictions_expanding_multi.parquet"
 )
 
 # Save fixed window predictions (100 groups)
 write_parquet(
   predictions_fixed_multi %>% select(group_id, obs_id, y, yhat, yhat_lower, yhat_upper),
-  "examples/performance_test/results/r_predictions_fixed_multi.parquet"
+  "examples/performance_10k_groups_R/results/r_predictions_fixed_multi.parquet"
 )
 
-cat("Results saved to examples/performance_test/results/\n\n")
+cat("Results saved to examples/performance_10k_groups_R/results/\n\n")
 
 # ============================================================================
 # SUMMARY
@@ -314,8 +314,8 @@ cat("  3. Expanding window - 100 groups\n")
 cat("  4. Fixed window - 100 groups\n")
 cat("\n")
 cat("Results saved to:\n")
-cat("  - examples/performance_test/results/r_predictions_expanding_single.parquet\n")
-cat("  - examples/performance_test/results/r_predictions_fixed_single.parquet\n")
-cat("  - examples/performance_test/results/r_predictions_expanding_multi.parquet\n")
-cat("  - examples/performance_test/results/r_predictions_fixed_multi.parquet\n")
+cat("  - examples/performance_10k_groups_R/results/r_predictions_expanding_single.parquet\n")
+cat("  - examples/performance_10k_groups_R/results/r_predictions_fixed_single.parquet\n")
+cat("  - examples/performance_10k_groups_R/results/r_predictions_expanding_multi.parquet\n")
+cat("  - examples/performance_10k_groups_R/results/r_predictions_fixed_multi.parquet\n")
 cat("============================================================================\n")

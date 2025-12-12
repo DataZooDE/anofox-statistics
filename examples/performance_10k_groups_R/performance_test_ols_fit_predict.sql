@@ -16,10 +16,10 @@
 -- Usage:
 -- 1. Run the entire script in DuckDB
 -- 2. Observe timing output for performance analysis
--- 3. Results are saved to examples/performance_test/results/
+-- 3. Results are saved to examples/performance_10k_groups_R/results/
 -- ============================================================================
 
-LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
+LOAD 'build/release/extension/anofox_stats/anofox_stats.duckdb_extension';
 
 -- ============================================================================
 -- STEP 1: Load Performance Data from Parquet File
@@ -30,7 +30,7 @@ LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extensi
 .print '============================================================================'
 
 CREATE OR REPLACE TABLE performance_data AS
-SELECT * FROM 'examples/performance_test/data/performance_data_fit_predict.parquet';
+SELECT * FROM 'examples/performance_10k_groups_R/data/performance_data_fit_predict.parquet';
 
 -- Report dataset size and NULL statistics
 .print ''
@@ -374,7 +374,7 @@ COPY (
         pred.yhat_lower,
         pred.yhat_upper
     FROM predictions_expanding_single
-) TO 'examples/performance_test/results/sql_predictions_expanding_single.parquet' (FORMAT PARQUET);
+) TO 'examples/performance_10k_groups_R/results/sql_predictions_expanding_single.parquet' (FORMAT PARQUET);
 
 -- Save fixed window predictions (group 1)
 COPY (
@@ -386,7 +386,7 @@ COPY (
         pred.yhat_lower,
         pred.yhat_upper
     FROM predictions_fixed_single
-) TO 'examples/performance_test/results/sql_predictions_fixed_single.parquet' (FORMAT PARQUET);
+) TO 'examples/performance_10k_groups_R/results/sql_predictions_fixed_single.parquet' (FORMAT PARQUET);
 
 -- Save expanding window predictions (100 groups)
 COPY (
@@ -398,7 +398,7 @@ COPY (
         pred.yhat_lower,
         pred.yhat_upper
     FROM predictions_expanding_multi
-) TO 'examples/performance_test/results/sql_predictions_expanding_multi.parquet' (FORMAT PARQUET);
+) TO 'examples/performance_10k_groups_R/results/sql_predictions_expanding_multi.parquet' (FORMAT PARQUET);
 
 -- Save fixed window predictions (100 groups)
 COPY (
@@ -410,9 +410,9 @@ COPY (
         pred.yhat_lower,
         pred.yhat_upper
     FROM predictions_fixed_multi
-) TO 'examples/performance_test/results/sql_predictions_fixed_multi.parquet' (FORMAT PARQUET);
+) TO 'examples/performance_10k_groups_R/results/sql_predictions_fixed_multi.parquet' (FORMAT PARQUET);
 
-.print 'Results saved to examples/performance_test/results/'
+.print 'Results saved to examples/performance_10k_groups_R/results/'
 .print ''
 
 -- ============================================================================
@@ -439,8 +439,8 @@ COPY (
 .print '  - predictions_fixed_all: Fixed window predictions (all groups)'
 .print ''
 .print 'Results saved to:'
-.print '  - examples/performance_test/results/sql_predictions_expanding_single.parquet'
-.print '  - examples/performance_test/results/sql_predictions_fixed_single.parquet'
-.print '  - examples/performance_test/results/sql_predictions_expanding_multi.parquet'
-.print '  - examples/performance_test/results/sql_predictions_fixed_multi.parquet'
+.print '  - examples/performance_10k_groups_R/results/sql_predictions_expanding_single.parquet'
+.print '  - examples/performance_10k_groups_R/results/sql_predictions_fixed_single.parquet'
+.print '  - examples/performance_10k_groups_R/results/sql_predictions_expanding_multi.parquet'
+.print '  - examples/performance_10k_groups_R/results/sql_predictions_fixed_multi.parquet'
 .print '============================================================================'
