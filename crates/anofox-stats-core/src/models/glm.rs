@@ -455,7 +455,10 @@ fn get_valid_indices(y: &[f64], x: &[Vec<f64>]) -> Vec<usize> {
         .collect()
 }
 
-fn extract_inference(result: &RegressionResult, confidence_level: f64) -> Option<GlmInferenceResult> {
+fn extract_inference(
+    result: &RegressionResult,
+    confidence_level: f64,
+) -> Option<GlmInferenceResult> {
     let std_errors: Vec<f64> = result
         .std_errors
         .as_ref()

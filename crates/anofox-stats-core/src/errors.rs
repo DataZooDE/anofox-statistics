@@ -26,7 +26,10 @@ pub enum StatsError {
     InvalidInput(String),
 
     #[error("Invalid value for {field}: {message}")]
-    InvalidValue { field: &'static str, message: String },
+    InvalidValue {
+        field: &'static str,
+        message: String,
+    },
 
     #[error("Dimension mismatch: {0}")]
     DimensionMismatchMsg(String),

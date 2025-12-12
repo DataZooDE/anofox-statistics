@@ -130,7 +130,9 @@ pub fn fit_alm(y: &[f64], x: &[Vec<f64>], options: &AlmOptions) -> StatsResult<A
     // Filter out rows with NaN/NULL values
     let valid_indices: Vec<usize> = (0..n_obs)
         .filter(|&i| {
-            !y[i].is_nan() && y[i].is_finite() && x.iter().all(|col| !col[i].is_nan() && col[i].is_finite())
+            !y[i].is_nan()
+                && y[i].is_finite()
+                && x.iter().all(|col| !col[i].is_nan() && col[i].is_finite())
         })
         .collect();
 
@@ -210,9 +212,7 @@ fn extract_inference(
     _confidence_level: f64,
 ) -> Option<AlmInferenceResult> {
     // Check if inference data is available
-    if result.std_errors.is_none() {
-        return None;
-    }
+    result.std_errors.as_ref()?;
 
     let se = result.std_errors.as_ref()?;
     let t_vals = result.t_statistics.as_ref()?;
@@ -273,7 +273,7 @@ mod tests {
     fn test_alm_gamma() {
         // Gamma for positive data
         let x = vec![vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]];
-        let y: Vec<f64> = x[0].iter().map(|&xi| (1.0 + 0.5 * xi).exp()).collect();
+        let y: Vec<f64> = x[0].iter().map(|&xi| (1.0_f64 + 0.5 * xi).exp()).collect();
 
         let options = AlmOptions {
             distribution: AlmDistribution::Gamma,
@@ -290,7 +290,10 @@ mod tests {
     fn test_alm_poisson() {
         // Poisson for count data
         let x = vec![vec![0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0]];
-        let y: Vec<f64> = x[0].iter().map(|&xi| (0.5 + 0.2 * xi).exp().round()).collect();
+        let y: Vec<f64> = x[0]
+            .iter()
+            .map(|&xi| (0.5_f64 + 0.2 * xi).exp().round())
+            .collect();
 
         let options = AlmOptions {
             distribution: AlmDistribution::Poisson,

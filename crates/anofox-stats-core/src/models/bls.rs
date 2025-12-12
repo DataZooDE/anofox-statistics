@@ -267,7 +267,8 @@ mod tests {
 
         // With negative true coefficient, NNLS should hit the lower bound
         assert!(result.at_lower_bound[0] || result.coefficients[0] < 0.1);
-        assert!(result.n_active_constraints >= 0);
+        // n_active_constraints should be valid (usize is always >= 0)
+        assert!(result.n_active_constraints <= result.coefficients.len());
     }
 
     #[test]

@@ -9,8 +9,8 @@ pub use types::*;
 use anofox_stats_core::{
     diagnostics::{compute_aic, compute_bic, compute_residuals, compute_vif, jarque_bera},
     models::{
-        fit_alm, fit_binomial, fit_bls, fit_elasticnet, fit_negbinomial, fit_nnls, fit_ols,
-        fit_poisson, fit_ridge, fit_rls, fit_tweedie, fit_wls, predict, RlsOptions,
+        fit_alm, fit_binomial, fit_bls, fit_elasticnet, fit_negbinomial, fit_ols, fit_poisson,
+        fit_ridge, fit_rls, fit_tweedie, fit_wls, predict, RlsOptions,
     },
     AlmDistribution, AlmLoss, AlmOptions, BinomialLink, BinomialOptions, BlsOptions,
     ElasticNetOptions, NegBinomialOptions, OlsOptions, PoissonLink, PoissonOptions, RidgeOptions,
@@ -1617,7 +1617,10 @@ pub unsafe extern "C" fn anofox_poisson_fit(
             let coef_ptr = libc::malloc(n_coef * std::mem::size_of::<f64>()) as *mut f64;
             if coef_ptr.is_null() && n_coef > 0 {
                 if !out_error.is_null() {
-                    (*out_error).set(ErrorCode::AllocationFailure, "Failed to allocate coefficients");
+                    (*out_error).set(
+                        ErrorCode::AllocationFailure,
+                        "Failed to allocate coefficients",
+                    );
                 }
                 return false;
             }
@@ -1750,7 +1753,10 @@ pub unsafe extern "C" fn anofox_binomial_fit(
             let coef_ptr = libc::malloc(n_coef * std::mem::size_of::<f64>()) as *mut f64;
             if coef_ptr.is_null() && n_coef > 0 {
                 if !out_error.is_null() {
-                    (*out_error).set(ErrorCode::AllocationFailure, "Failed to allocate coefficients");
+                    (*out_error).set(
+                        ErrorCode::AllocationFailure,
+                        "Failed to allocate coefficients",
+                    );
                 }
                 return false;
             }
@@ -1864,7 +1870,10 @@ pub unsafe extern "C" fn anofox_negbinomial_fit(
         Ok(r) => r,
         Err(_) => {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InternalError, "Internal panic in NegBinomial fit");
+                (*out_error).set(
+                    ErrorCode::InternalError,
+                    "Internal panic in NegBinomial fit",
+                );
             }
             return false;
         }
@@ -1876,7 +1885,10 @@ pub unsafe extern "C" fn anofox_negbinomial_fit(
             let coef_ptr = libc::malloc(n_coef * std::mem::size_of::<f64>()) as *mut f64;
             if coef_ptr.is_null() && n_coef > 0 {
                 if !out_error.is_null() {
-                    (*out_error).set(ErrorCode::AllocationFailure, "Failed to allocate coefficients");
+                    (*out_error).set(
+                        ErrorCode::AllocationFailure,
+                        "Failed to allocate coefficients",
+                    );
                 }
                 return false;
             }
@@ -2002,7 +2014,10 @@ pub unsafe extern "C" fn anofox_tweedie_fit(
             let coef_ptr = libc::malloc(n_coef * std::mem::size_of::<f64>()) as *mut f64;
             if coef_ptr.is_null() && n_coef > 0 {
                 if !out_error.is_null() {
-                    (*out_error).set(ErrorCode::AllocationFailure, "Failed to allocate coefficients");
+                    (*out_error).set(
+                        ErrorCode::AllocationFailure,
+                        "Failed to allocate coefficients",
+                    );
                 }
                 return false;
             }
@@ -2189,7 +2204,10 @@ pub unsafe extern "C" fn anofox_alm_fit(
             let coef_ptr = libc::malloc(n_coef * std::mem::size_of::<f64>()) as *mut f64;
             if coef_ptr.is_null() && n_coef > 0 {
                 if !out_error.is_null() {
-                    (*out_error).set(ErrorCode::AllocationFailure, "Failed to allocate coefficients");
+                    (*out_error).set(
+                        ErrorCode::AllocationFailure,
+                        "Failed to allocate coefficients",
+                    );
                 }
                 return false;
             }
@@ -2343,7 +2361,10 @@ pub unsafe extern "C" fn anofox_bls_fit(
             let coef_ptr = libc::malloc(n_coef * std::mem::size_of::<f64>()) as *mut f64;
             if coef_ptr.is_null() && n_coef > 0 {
                 if !out_error.is_null() {
-                    (*out_error).set(ErrorCode::AllocationFailure, "Failed to allocate coefficients");
+                    (*out_error).set(
+                        ErrorCode::AllocationFailure,
+                        "Failed to allocate coefficients",
+                    );
                 }
                 return false;
             }
