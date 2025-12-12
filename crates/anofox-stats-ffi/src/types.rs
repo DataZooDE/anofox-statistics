@@ -256,3 +256,403 @@ impl Default for WlsOptionsFFI {
         }
     }
 }
+
+// =============================================================================
+// GLM (Generalized Linear Models) FFI Types
+// =============================================================================
+
+/// GLM family codes for FFI
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GlmFamilyFFI {
+    Poisson = 0,
+    Binomial = 1,
+    NegBinomial = 2,
+    Tweedie = 3,
+}
+
+/// Poisson link function codes
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PoissonLinkFFI {
+    Log = 0,
+    Identity = 1,
+    Sqrt = 2,
+}
+
+/// Binomial link function codes
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BinomialLinkFFI {
+    Logit = 0,
+    Probit = 1,
+    Cloglog = 2,
+}
+
+/// GLM options for Poisson regression
+#[repr(C)]
+pub struct PoissonOptionsFFI {
+    /// Whether to fit intercept
+    pub fit_intercept: bool,
+    /// Link function
+    pub link: PoissonLinkFFI,
+    /// Maximum iterations for IRLS
+    pub max_iterations: u32,
+    /// Convergence tolerance
+    pub tolerance: f64,
+    /// Whether to compute inference statistics
+    pub compute_inference: bool,
+    /// Confidence level for CIs
+    pub confidence_level: f64,
+}
+
+impl Default for PoissonOptionsFFI {
+    fn default() -> Self {
+        Self {
+            fit_intercept: true,
+            link: PoissonLinkFFI::Log,
+            max_iterations: 100,
+            tolerance: 1e-8,
+            compute_inference: false,
+            confidence_level: 0.95,
+        }
+    }
+}
+
+/// GLM options for Binomial regression
+#[repr(C)]
+pub struct BinomialOptionsFFI {
+    /// Whether to fit intercept
+    pub fit_intercept: bool,
+    /// Link function
+    pub link: BinomialLinkFFI,
+    /// Maximum iterations for IRLS
+    pub max_iterations: u32,
+    /// Convergence tolerance
+    pub tolerance: f64,
+    /// Whether to compute inference statistics
+    pub compute_inference: bool,
+    /// Confidence level for CIs
+    pub confidence_level: f64,
+}
+
+impl Default for BinomialOptionsFFI {
+    fn default() -> Self {
+        Self {
+            fit_intercept: true,
+            link: BinomialLinkFFI::Logit,
+            max_iterations: 100,
+            tolerance: 1e-8,
+            compute_inference: false,
+            confidence_level: 0.95,
+        }
+    }
+}
+
+/// GLM options for Negative Binomial regression
+#[repr(C)]
+pub struct NegBinomialOptionsFFI {
+    /// Whether to fit intercept
+    pub fit_intercept: bool,
+    /// Maximum iterations for IRLS
+    pub max_iterations: u32,
+    /// Convergence tolerance
+    pub tolerance: f64,
+    /// Whether to compute inference statistics
+    pub compute_inference: bool,
+    /// Confidence level for CIs
+    pub confidence_level: f64,
+}
+
+impl Default for NegBinomialOptionsFFI {
+    fn default() -> Self {
+        Self {
+            fit_intercept: true,
+            max_iterations: 100,
+            tolerance: 1e-8,
+            compute_inference: false,
+            confidence_level: 0.95,
+        }
+    }
+}
+
+/// GLM options for Tweedie regression
+#[repr(C)]
+pub struct TweedieOptionsFFI {
+    /// Whether to fit intercept
+    pub fit_intercept: bool,
+    /// Tweedie power parameter (1 < p < 2 for compound Poisson-Gamma)
+    pub power: f64,
+    /// Maximum iterations for IRLS
+    pub max_iterations: u32,
+    /// Convergence tolerance
+    pub tolerance: f64,
+    /// Whether to compute inference statistics
+    pub compute_inference: bool,
+    /// Confidence level for CIs
+    pub confidence_level: f64,
+}
+
+impl Default for TweedieOptionsFFI {
+    fn default() -> Self {
+        Self {
+            fit_intercept: true,
+            power: 1.5,
+            max_iterations: 100,
+            tolerance: 1e-8,
+            compute_inference: false,
+            confidence_level: 0.95,
+        }
+    }
+}
+
+/// GLM fit result (different from standard regression - uses deviance)
+#[repr(C)]
+pub struct GlmFitResultCore {
+    /// Pointer to coefficients array
+    pub coefficients: *mut f64,
+    /// Number of coefficients
+    pub coefficients_len: usize,
+    /// Intercept value (NaN if no intercept)
+    pub intercept: f64,
+    /// Model deviance
+    pub deviance: f64,
+    /// Null deviance
+    pub null_deviance: f64,
+    /// Pseudo R-squared (1 - deviance/null_deviance)
+    pub pseudo_r_squared: f64,
+    /// AIC
+    pub aic: f64,
+    /// Dispersion parameter (if applicable)
+    pub dispersion: f64,
+    /// Number of observations
+    pub n_observations: usize,
+    /// Number of features
+    pub n_features: usize,
+    /// Number of iterations to converge
+    pub iterations: u32,
+}
+
+impl Default for GlmFitResultCore {
+    fn default() -> Self {
+        Self {
+            coefficients: std::ptr::null_mut(),
+            coefficients_len: 0,
+            intercept: f64::NAN,
+            deviance: f64::NAN,
+            null_deviance: f64::NAN,
+            pseudo_r_squared: f64::NAN,
+            aic: f64::NAN,
+            dispersion: f64::NAN,
+            n_observations: 0,
+            n_features: 0,
+            iterations: 0,
+        }
+    }
+}
+
+// =============================================================================
+// ALM (Augmented Linear Models) FFI Types
+// =============================================================================
+
+/// ALM distribution codes for FFI
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AlmDistributionFFI {
+    Normal = 0,
+    Laplace = 1,
+    StudentT = 2,
+    Logistic = 3,
+    AsymmetricLaplace = 4,
+    GeneralisedNormal = 5,
+    S = 6,
+    LogNormal = 7,
+    LogLaplace = 8,
+    LogS = 9,
+    LogGeneralisedNormal = 10,
+    FoldedNormal = 11,
+    RectifiedNormal = 12,
+    BoxCoxNormal = 13,
+    Gamma = 14,
+    InverseGaussian = 15,
+    Exponential = 16,
+    Beta = 17,
+    LogitNormal = 18,
+    Poisson = 19,
+    NegativeBinomial = 20,
+    Binomial = 21,
+    Geometric = 22,
+    CumulativeLogistic = 23,
+    CumulativeNormal = 24,
+}
+
+/// ALM loss function codes for FFI
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AlmLossFFI {
+    Likelihood = 0,
+    MSE = 1,
+    MAE = 2,
+    HAM = 3,
+    ROLE = 4,
+}
+
+/// ALM options for FFI
+#[repr(C)]
+pub struct AlmOptionsFFI {
+    /// Whether to fit intercept
+    pub fit_intercept: bool,
+    /// Distribution family
+    pub distribution: AlmDistributionFFI,
+    /// Loss function
+    pub loss: AlmLossFFI,
+    /// Maximum iterations
+    pub max_iterations: u32,
+    /// Convergence tolerance
+    pub tolerance: f64,
+    /// Quantile for AsymmetricLaplace (0-1)
+    pub quantile: f64,
+    /// ROLE trim fraction
+    pub role_trim: f64,
+    /// Whether to compute inference statistics
+    pub compute_inference: bool,
+    /// Confidence level for CIs
+    pub confidence_level: f64,
+}
+
+impl Default for AlmOptionsFFI {
+    fn default() -> Self {
+        Self {
+            fit_intercept: true,
+            distribution: AlmDistributionFFI::Normal,
+            loss: AlmLossFFI::Likelihood,
+            max_iterations: 100,
+            tolerance: 1e-8,
+            quantile: 0.5,
+            role_trim: 0.05,
+            compute_inference: false,
+            confidence_level: 0.95,
+        }
+    }
+}
+
+/// ALM fit result
+#[repr(C)]
+pub struct AlmFitResultCore {
+    /// Pointer to coefficients array
+    pub coefficients: *mut f64,
+    /// Number of coefficients
+    pub coefficients_len: usize,
+    /// Intercept value (NaN if no intercept)
+    pub intercept: f64,
+    /// Log-likelihood
+    pub log_likelihood: f64,
+    /// AIC
+    pub aic: f64,
+    /// BIC
+    pub bic: f64,
+    /// Scale parameter
+    pub scale: f64,
+    /// Number of observations
+    pub n_observations: usize,
+    /// Number of features
+    pub n_features: usize,
+    /// Number of iterations to converge
+    pub iterations: u32,
+}
+
+impl Default for AlmFitResultCore {
+    fn default() -> Self {
+        Self {
+            coefficients: std::ptr::null_mut(),
+            coefficients_len: 0,
+            intercept: f64::NAN,
+            log_likelihood: f64::NAN,
+            aic: f64::NAN,
+            bic: f64::NAN,
+            scale: f64::NAN,
+            n_observations: 0,
+            n_features: 0,
+            iterations: 0,
+        }
+    }
+}
+
+// =============================================================================
+// BLS (Bounded Least Squares) FFI Types
+// =============================================================================
+
+/// BLS options for FFI
+#[repr(C)]
+pub struct BlsOptionsFFI {
+    /// Whether to fit intercept
+    pub fit_intercept: bool,
+    /// Pointer to lower bounds (NULL = no lower bounds, single value = apply to all)
+    pub lower_bounds: *const f64,
+    /// Number of lower bounds (0 = no bounds, 1 = single value for all)
+    pub lower_bounds_len: usize,
+    /// Pointer to upper bounds (NULL = no upper bounds, single value = apply to all)
+    pub upper_bounds: *const f64,
+    /// Number of upper bounds (0 = no bounds, 1 = single value for all)
+    pub upper_bounds_len: usize,
+    /// Maximum iterations
+    pub max_iterations: u32,
+    /// Convergence tolerance
+    pub tolerance: f64,
+}
+
+impl Default for BlsOptionsFFI {
+    fn default() -> Self {
+        Self {
+            fit_intercept: false,
+            lower_bounds: std::ptr::null(),
+            lower_bounds_len: 0,
+            upper_bounds: std::ptr::null(),
+            upper_bounds_len: 0,
+            max_iterations: 1000,
+            tolerance: 1e-10,
+        }
+    }
+}
+
+/// BLS fit result
+#[repr(C)]
+pub struct BlsFitResultCore {
+    /// Pointer to coefficients array
+    pub coefficients: *mut f64,
+    /// Number of coefficients
+    pub coefficients_len: usize,
+    /// Intercept value (NaN if no intercept)
+    pub intercept: f64,
+    /// Sum of squared residuals
+    pub ssr: f64,
+    /// R-squared
+    pub r_squared: f64,
+    /// Number of observations
+    pub n_observations: usize,
+    /// Number of features
+    pub n_features: usize,
+    /// Number of active constraints
+    pub n_active_constraints: usize,
+    /// Pointer to at_lower_bound flags
+    pub at_lower_bound: *mut bool,
+    /// Pointer to at_upper_bound flags
+    pub at_upper_bound: *mut bool,
+}
+
+impl Default for BlsFitResultCore {
+    fn default() -> Self {
+        Self {
+            coefficients: std::ptr::null_mut(),
+            coefficients_len: 0,
+            intercept: f64::NAN,
+            ssr: f64::NAN,
+            r_squared: f64::NAN,
+            n_observations: 0,
+            n_features: 0,
+            n_active_constraints: 0,
+            at_lower_bound: std::ptr::null_mut(),
+            at_upper_bound: std::ptr::null_mut(),
+        }
+    }
+}

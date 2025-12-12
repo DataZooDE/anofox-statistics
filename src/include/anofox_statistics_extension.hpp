@@ -33,6 +33,15 @@ void RegisterWlsPredictAggregateFunction(ExtensionLoader &loader);
 void RegisterRlsPredictAggregateFunction(ExtensionLoader &loader);
 void RegisterElasticNetPredictAggregateFunction(ExtensionLoader &loader);
 
+// GLM aggregate functions
+void RegisterPoissonAggregateFunction(ExtensionLoader &loader);
+
+// ALM aggregate functions
+void RegisterAlmAggregateFunction(ExtensionLoader &loader);
+
+// BLS aggregate functions (includes NNLS)
+void RegisterBlsAggregateFunction(ExtensionLoader &loader);
+
 // Diagnostic functions
 void RegisterVifFunction(ExtensionLoader &loader);
 void RegisterVifAggregateFunction(ExtensionLoader &loader);

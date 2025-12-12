@@ -435,6 +435,400 @@ bool anofox_predict_with_interval(const double *coefficients, size_t coefficient
                                    const double *x_new, size_t x_len, double residual_std_error, size_t n_observations,
                                    double confidence_level, AnofoxPredictionResult *out_result);
 
+/* ============================================================================
+ * GLM (Generalized Linear Models) Functions
+ * ============================================================================ */
+
+/**
+ * Poisson link function codes
+ */
+typedef enum {
+    ANOFOX_POISSON_LINK_LOG = 0,
+    ANOFOX_POISSON_LINK_IDENTITY = 1,
+    ANOFOX_POISSON_LINK_SQRT = 2,
+} AnofoxPoissonLink;
+
+/**
+ * Binomial link function codes
+ */
+typedef enum {
+    ANOFOX_BINOMIAL_LINK_LOGIT = 0,
+    ANOFOX_BINOMIAL_LINK_PROBIT = 1,
+    ANOFOX_BINOMIAL_LINK_CLOGLOG = 2,
+} AnofoxBinomialLink;
+
+/**
+ * GLM fit result (uses deviance instead of R-squared)
+ */
+typedef struct {
+    /** Pointer to coefficients array */
+    double *coefficients;
+    /** Number of coefficients */
+    size_t coefficients_len;
+    /** Intercept value (NaN if no intercept) */
+    double intercept;
+    /** Model deviance (residual deviance) */
+    double deviance;
+    /** Null deviance */
+    double null_deviance;
+    /** Pseudo R-squared (1 - deviance/null_deviance) */
+    double pseudo_r_squared;
+    /** AIC */
+    double aic;
+    /** Dispersion parameter (if applicable) */
+    double dispersion;
+    /** Number of observations */
+    size_t n_observations;
+    /** Number of features */
+    size_t n_features;
+    /** Number of iterations to converge */
+    uint32_t iterations;
+} AnofoxGlmFitResultCore;
+
+/**
+ * Poisson regression options
+ */
+typedef struct {
+    /** Whether to fit intercept */
+    bool fit_intercept;
+    /** Link function */
+    AnofoxPoissonLink link;
+    /** Maximum iterations for IRLS */
+    uint32_t max_iterations;
+    /** Convergence tolerance */
+    double tolerance;
+    /** Whether to compute inference statistics */
+    bool compute_inference;
+    /** Confidence level for CIs */
+    double confidence_level;
+} AnofoxPoissonOptions;
+
+/**
+ * Binomial (logistic) regression options
+ */
+typedef struct {
+    /** Whether to fit intercept */
+    bool fit_intercept;
+    /** Link function */
+    AnofoxBinomialLink link;
+    /** Maximum iterations for IRLS */
+    uint32_t max_iterations;
+    /** Convergence tolerance */
+    double tolerance;
+    /** Whether to compute inference statistics */
+    bool compute_inference;
+    /** Confidence level for CIs */
+    double confidence_level;
+} AnofoxBinomialOptions;
+
+/**
+ * Negative Binomial regression options
+ */
+typedef struct {
+    /** Whether to fit intercept */
+    bool fit_intercept;
+    /** Maximum iterations for IRLS */
+    uint32_t max_iterations;
+    /** Convergence tolerance */
+    double tolerance;
+    /** Whether to compute inference statistics */
+    bool compute_inference;
+    /** Confidence level for CIs */
+    double confidence_level;
+} AnofoxNegBinomialOptions;
+
+/**
+ * Tweedie regression options
+ */
+typedef struct {
+    /** Whether to fit intercept */
+    bool fit_intercept;
+    /** Tweedie power parameter (1 < p < 2 for compound Poisson-Gamma) */
+    double power;
+    /** Maximum iterations for IRLS */
+    uint32_t max_iterations;
+    /** Convergence tolerance */
+    double tolerance;
+    /** Whether to compute inference statistics */
+    bool compute_inference;
+    /** Confidence level for CIs */
+    double confidence_level;
+} AnofoxTweedieOptions;
+
+/**
+ * Fit a Poisson regression model
+ *
+ * @param y Response variable array (counts)
+ * @param x Pointer to array of feature arrays
+ * @param x_count Number of feature arrays
+ * @param options Poisson fitting options
+ * @param out_core Output: core fit results (required)
+ * @param out_inference Output: inference results (can be NULL if not needed)
+ * @param out_error Output: error information (required)
+ * @return true on success, false on error
+ */
+bool anofox_poisson_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, AnofoxPoissonOptions options,
+                        AnofoxGlmFitResultCore *out_core, AnofoxFitResultInference *out_inference,
+                        AnofoxError *out_error);
+
+/**
+ * Fit a Binomial (logistic) regression model
+ *
+ * @param y Response variable array (0/1 binary outcomes)
+ * @param x Pointer to array of feature arrays
+ * @param x_count Number of feature arrays
+ * @param options Binomial fitting options
+ * @param out_core Output: core fit results (required)
+ * @param out_inference Output: inference results (can be NULL if not needed)
+ * @param out_error Output: error information (required)
+ * @return true on success, false on error
+ */
+bool anofox_binomial_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, AnofoxBinomialOptions options,
+                         AnofoxGlmFitResultCore *out_core, AnofoxFitResultInference *out_inference,
+                         AnofoxError *out_error);
+
+/**
+ * Fit a Negative Binomial regression model
+ *
+ * @param y Response variable array (overdispersed counts)
+ * @param x Pointer to array of feature arrays
+ * @param x_count Number of feature arrays
+ * @param options Negative Binomial fitting options
+ * @param out_core Output: core fit results (required)
+ * @param out_inference Output: inference results (can be NULL if not needed)
+ * @param out_error Output: error information (required)
+ * @return true on success, false on error
+ */
+bool anofox_negbinomial_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, AnofoxNegBinomialOptions options,
+                            AnofoxGlmFitResultCore *out_core, AnofoxFitResultInference *out_inference,
+                            AnofoxError *out_error);
+
+/**
+ * Fit a Tweedie regression model
+ *
+ * @param y Response variable array (non-negative with zeros)
+ * @param x Pointer to array of feature arrays
+ * @param x_count Number of feature arrays
+ * @param options Tweedie fitting options
+ * @param out_core Output: core fit results (required)
+ * @param out_inference Output: inference results (can be NULL if not needed)
+ * @param out_error Output: error information (required)
+ * @return true on success, false on error
+ */
+bool anofox_tweedie_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, AnofoxTweedieOptions options,
+                        AnofoxGlmFitResultCore *out_core, AnofoxFitResultInference *out_inference,
+                        AnofoxError *out_error);
+
+/**
+ * Free memory allocated for GLM core results
+ */
+void anofox_free_glm_result(AnofoxGlmFitResultCore *result);
+
+/* ============================================================================
+ * ALM (Augmented Linear Models) Functions
+ * ============================================================================ */
+
+/**
+ * ALM distribution codes
+ */
+typedef enum {
+    ANOFOX_ALM_DIST_NORMAL = 0,
+    ANOFOX_ALM_DIST_LAPLACE = 1,
+    ANOFOX_ALM_DIST_STUDENT_T = 2,
+    ANOFOX_ALM_DIST_LOGISTIC = 3,
+    ANOFOX_ALM_DIST_ASYMMETRIC_LAPLACE = 4,
+    ANOFOX_ALM_DIST_GENERALISED_NORMAL = 5,
+    ANOFOX_ALM_DIST_S = 6,
+    ANOFOX_ALM_DIST_LOG_NORMAL = 7,
+    ANOFOX_ALM_DIST_LOG_LAPLACE = 8,
+    ANOFOX_ALM_DIST_LOG_S = 9,
+    ANOFOX_ALM_DIST_LOG_GENERALISED_NORMAL = 10,
+    ANOFOX_ALM_DIST_FOLDED_NORMAL = 11,
+    ANOFOX_ALM_DIST_RECTIFIED_NORMAL = 12,
+    ANOFOX_ALM_DIST_BOX_COX_NORMAL = 13,
+    ANOFOX_ALM_DIST_GAMMA = 14,
+    ANOFOX_ALM_DIST_INVERSE_GAUSSIAN = 15,
+    ANOFOX_ALM_DIST_EXPONENTIAL = 16,
+    ANOFOX_ALM_DIST_BETA = 17,
+    ANOFOX_ALM_DIST_LOGIT_NORMAL = 18,
+    ANOFOX_ALM_DIST_POISSON = 19,
+    ANOFOX_ALM_DIST_NEGATIVE_BINOMIAL = 20,
+    ANOFOX_ALM_DIST_BINOMIAL = 21,
+    ANOFOX_ALM_DIST_GEOMETRIC = 22,
+    ANOFOX_ALM_DIST_CUMULATIVE_LOGISTIC = 23,
+    ANOFOX_ALM_DIST_CUMULATIVE_NORMAL = 24,
+} AnofoxAlmDistribution;
+
+/**
+ * ALM loss function codes
+ */
+typedef enum {
+    ANOFOX_ALM_LOSS_LIKELIHOOD = 0,
+    ANOFOX_ALM_LOSS_MSE = 1,
+    ANOFOX_ALM_LOSS_MAE = 2,
+    ANOFOX_ALM_LOSS_HAM = 3,
+    ANOFOX_ALM_LOSS_ROLE = 4,
+} AnofoxAlmLoss;
+
+/**
+ * ALM options
+ */
+typedef struct {
+    /** Whether to fit intercept */
+    bool fit_intercept;
+    /** Distribution family */
+    AnofoxAlmDistribution distribution;
+    /** Loss function */
+    AnofoxAlmLoss loss;
+    /** Maximum iterations */
+    uint32_t max_iterations;
+    /** Convergence tolerance */
+    double tolerance;
+    /** Quantile for AsymmetricLaplace (0-1) */
+    double quantile;
+    /** ROLE trim fraction */
+    double role_trim;
+    /** Whether to compute inference statistics */
+    bool compute_inference;
+    /** Confidence level for CIs */
+    double confidence_level;
+} AnofoxAlmOptions;
+
+/**
+ * ALM fit result
+ */
+typedef struct {
+    /** Pointer to coefficients array */
+    double *coefficients;
+    /** Number of coefficients */
+    size_t coefficients_len;
+    /** Intercept value (NaN if no intercept) */
+    double intercept;
+    /** Log-likelihood */
+    double log_likelihood;
+    /** AIC */
+    double aic;
+    /** BIC */
+    double bic;
+    /** Scale parameter */
+    double scale;
+    /** Number of observations */
+    size_t n_observations;
+    /** Number of features */
+    size_t n_features;
+    /** Number of iterations to converge */
+    uint32_t iterations;
+} AnofoxAlmFitResultCore;
+
+/**
+ * Fit an Augmented Linear Model (ALM)
+ *
+ * ALM supports 24 error distribution families and multiple loss functions.
+ *
+ * @param y Response variable array
+ * @param x Pointer to array of feature arrays
+ * @param x_count Number of feature arrays
+ * @param options ALM fitting options
+ * @param out_core Output: core fit results (required)
+ * @param out_inference Output: inference results (can be NULL if not needed)
+ * @param out_error Output: error information (required)
+ * @return true on success, false on error
+ */
+bool anofox_alm_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, AnofoxAlmOptions options,
+                    AnofoxAlmFitResultCore *out_core, AnofoxFitResultInference *out_inference,
+                    AnofoxError *out_error);
+
+/**
+ * Free memory allocated for ALM core results
+ */
+void anofox_free_alm_result(AnofoxAlmFitResultCore *result);
+
+/* ============================================================================
+ * BLS (Bounded Least Squares) Functions
+ * ============================================================================ */
+
+/**
+ * BLS options
+ */
+typedef struct {
+    /** Whether to fit intercept */
+    bool fit_intercept;
+    /** Pointer to lower bounds (NULL = no lower bounds, single value = apply to all) */
+    const double *lower_bounds;
+    /** Number of lower bounds (0 = no bounds, 1 = single value for all) */
+    size_t lower_bounds_len;
+    /** Pointer to upper bounds (NULL = no upper bounds, single value = apply to all) */
+    const double *upper_bounds;
+    /** Number of upper bounds (0 = no bounds, 1 = single value for all) */
+    size_t upper_bounds_len;
+    /** Maximum iterations */
+    uint32_t max_iterations;
+    /** Convergence tolerance */
+    double tolerance;
+} AnofoxBlsOptions;
+
+/**
+ * BLS fit result
+ */
+typedef struct {
+    /** Pointer to coefficients array */
+    double *coefficients;
+    /** Number of coefficients */
+    size_t coefficients_len;
+    /** Intercept value (NaN if no intercept) */
+    double intercept;
+    /** Sum of squared residuals */
+    double ssr;
+    /** R-squared */
+    double r_squared;
+    /** Number of observations */
+    size_t n_observations;
+    /** Number of features */
+    size_t n_features;
+    /** Number of active constraints */
+    size_t n_active_constraints;
+    /** Pointer to at_lower_bound flags */
+    bool *at_lower_bound;
+    /** Pointer to at_upper_bound flags */
+    bool *at_upper_bound;
+} AnofoxBlsFitResultCore;
+
+/**
+ * Fit a Bounded Least Squares (BLS) model
+ *
+ * Solves: minimize ||Xβ - y||² subject to lower ≤ β ≤ upper
+ *
+ * @param y Response variable array
+ * @param x Pointer to array of feature arrays
+ * @param x_count Number of feature arrays
+ * @param options BLS fitting options (use lower_bounds=0, lower_bounds_len=0, etc. for NNLS)
+ * @param out_core Output: core fit results (required)
+ * @param out_error Output: error information (required)
+ * @return true on success, false on error
+ */
+bool anofox_bls_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, AnofoxBlsOptions options,
+                    AnofoxBlsFitResultCore *out_core, AnofoxError *out_error);
+
+/**
+ * Fit a Non-Negative Least Squares (NNLS) model
+ *
+ * Convenience function for BLS with lower bounds of 0 for all coefficients.
+ *
+ * @param y Response variable array
+ * @param x Pointer to array of feature arrays
+ * @param x_count Number of feature arrays
+ * @param out_core Output: core fit results (required)
+ * @param out_error Output: error information (required)
+ * @return true on success, false on error
+ */
+bool anofox_nnls_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, AnofoxBlsFitResultCore *out_core,
+                     AnofoxError *out_error);
+
+/**
+ * Free memory allocated for BLS core results
+ */
+void anofox_free_bls_result(AnofoxBlsFitResultCore *result);
+
 #ifdef __cplusplus
 }
 #endif

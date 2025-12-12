@@ -26,6 +26,15 @@ void AnofoxStatisticsExtension::Load(ExtensionLoader &loader) {
     RegisterJarqueBeraAggregateFunction(loader);
     RegisterResidualsDiagnosticsAggregateFunction(loader);
 
+    // Register GLM aggregate functions
+    RegisterPoissonAggregateFunction(loader);
+
+    // Register ALM aggregate functions
+    RegisterAlmAggregateFunction(loader);
+
+    // Register BLS aggregate functions (includes NNLS)
+    RegisterBlsAggregateFunction(loader);
+
     // Register window aggregate functions (fit_predict)
     RegisterOlsFitPredictFunction(loader);
     RegisterRidgeFitPredictFunction(loader);
@@ -81,6 +90,15 @@ DUCKDB_CPP_EXTENSION_ENTRY(anofox_statistics, loader) {
     duckdb::RegisterVifAggregateFunction(loader);
     duckdb::RegisterJarqueBeraAggregateFunction(loader);
     duckdb::RegisterResidualsDiagnosticsAggregateFunction(loader);
+
+    // Register GLM aggregate functions
+    duckdb::RegisterPoissonAggregateFunction(loader);
+
+    // Register ALM aggregate functions
+    duckdb::RegisterAlmAggregateFunction(loader);
+
+    // Register BLS aggregate functions (includes NNLS)
+    duckdb::RegisterBlsAggregateFunction(loader);
 
     // Register window aggregate functions (fit_predict)
     duckdb::RegisterOlsFitPredictFunction(loader);
