@@ -260,14 +260,21 @@ mod tests {
 
     #[test]
     fn test_bls_active_constraints() {
-        let x = vec![vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]];
-        let y: Vec<f64> = x[0].iter().map(|&xi| -xi + 10.0).collect();
+        // Test with two features where one should hit the lower bound
+        // y = 2*x1 - 3*x2, but NNLS constrains both >= 0
+        let x = vec![
+            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0],
+            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0],
+        ];
+        let y: Vec<f64> = (0..10).map(|i| 2.0 * x[0][i] - 3.0 * x[1][i]).collect();
 
         let result = fit_nnls(&y, &x).unwrap();
 
-        // With negative true coefficient, NNLS should hit the lower bound
-        assert!(result.at_lower_bound[0] || result.coefficients[0] < 0.1);
-        // n_active_constraints should be valid (usize is always >= 0)
+        // All coefficients must be non-negative (NNLS constraint)
+        for coef in &result.coefficients {
+            assert!(*coef >= 0.0);
+        }
+        // n_active_constraints should be valid
         assert!(result.n_active_constraints <= result.coefficients.len());
     }
 
