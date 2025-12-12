@@ -1,6 +1,6 @@
 # Anofox Statistics Extension - API Reference
 
-**Version:** 0.2.0
+**Version:** 0.3.0
 **DuckDB Version:** 1.4.3+
 **Backend:** Rust (anofox-regression, faer)
 
@@ -16,10 +16,13 @@ The Anofox Statistics Extension provides comprehensive regression analysis capab
 4. [Elastic Net Functions](#elastic-net-functions)
 5. [WLS Functions](#wls-functions)
 6. [RLS Functions](#rls-functions)
-7. [Predict Function](#predict-function)
-8. [Diagnostic Functions](#diagnostic-functions)
-9. [Return Types](#return-types)
-10. [Short Aliases](#short-aliases)
+7. [Fit-Predict Window Functions](#fit-predict-window-functions)
+8. [Predict Aggregate Functions](#predict-aggregate-functions)
+9. [Predict Function](#predict-function)
+10. [Diagnostic Functions](#diagnostic-functions)
+11. [Common Options](#common-options)
+12. [Return Types](#return-types)
+13. [Short Aliases](#short-aliases)
 
 ---
 
@@ -282,6 +285,249 @@ SELECT anofox_stats_rls_fit_agg(y, [x], 0.95) FROM streaming_data;
 
 ---
 
+## Fit-Predict Window Functions
+
+Window-based aggregate functions that fit a model incrementally and predict for each row. Use with `OVER` clause for rolling/expanding window regression.
+
+### anofox_stats_ols_fit_predict / ols_fit_predict
+OLS regression with per-row predictions using window semantics.
+
+**Signature:**
+```sql
+anofox_stats_ols_fit_predict(
+    y DOUBLE,
+    x LIST(DOUBLE),
+    [options MAP]
+) OVER (window_spec) -> STRUCT
+```
+
+**Options MAP:**
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| fit_intercept | BOOLEAN | true | Include intercept term |
+| confidence_level | DOUBLE | 0.95 | Prediction interval confidence |
+| null_policy | VARCHAR | 'drop' | NULL handling: 'drop' or 'drop_y_zero_x' |
+
+**Returns:**
+```
+STRUCT(
+    yhat DOUBLE,        -- Predicted value
+    yhat_lower DOUBLE,  -- Lower prediction interval bound
+    yhat_upper DOUBLE   -- Upper prediction interval bound
+)
+```
+
+**Example:**
+```sql
+-- Expanding window: train on all previous rows, predict current
+SELECT
+    date,
+    y,
+    pred.yhat,
+    pred.yhat_lower,
+    pred.yhat_upper
+FROM (
+    SELECT
+        date, y,
+        ols_fit_predict(y, [x1, x2]) OVER (
+            ORDER BY date
+            ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+        ) as pred
+    FROM time_series
+);
+
+-- Rolling 30-day window
+SELECT
+    date,
+    ols_fit_predict(y, [x]) OVER (
+        ORDER BY date
+        ROWS BETWEEN 29 PRECEDING AND CURRENT ROW
+    ) as pred
+FROM daily_data;
+
+-- Per-group expanding regression
+SELECT
+    category,
+    date,
+    ols_fit_predict(y, [x], {'confidence_level': 0.99}) OVER (
+        PARTITION BY category
+        ORDER BY date
+    ) as pred
+FROM grouped_data;
+```
+
+### anofox_stats_ridge_fit_predict / ridge_fit_predict
+Ridge regression with per-row predictions.
+
+**Additional Options:**
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| alpha | DOUBLE | 1.0 | L2 regularization strength |
+
+```sql
+SELECT ridge_fit_predict(y, [x], {'alpha': 0.5}) OVER (ORDER BY date) FROM data;
+```
+
+### anofox_stats_wls_fit_predict / wls_fit_predict
+Weighted Least Squares with per-row predictions.
+
+**Signature:**
+```sql
+wls_fit_predict(y DOUBLE, x LIST(DOUBLE), weight DOUBLE, [options MAP]) OVER (...)
+```
+
+```sql
+SELECT wls_fit_predict(y, [x], weight) OVER (ORDER BY date) FROM data;
+```
+
+### anofox_stats_rls_fit_predict / rls_fit_predict
+Recursive Least Squares with per-row predictions.
+
+**Additional Options:**
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| forgetting_factor | DOUBLE | 1.0 | Exponential forgetting (0.95-1.0) |
+| initial_p_diagonal | DOUBLE | 100.0 | Initial covariance diagonal |
+
+```sql
+SELECT rls_fit_predict(y, [x], {'forgetting_factor': 0.99}) OVER (ORDER BY date) FROM data;
+```
+
+### anofox_stats_elasticnet_fit_predict / elasticnet_fit_predict
+Elastic Net with per-row predictions.
+
+**Additional Options:**
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| alpha | DOUBLE | 1.0 | Regularization strength |
+| l1_ratio | DOUBLE | 0.5 | L1 ratio (0=Ridge, 1=Lasso) |
+| max_iterations | INTEGER | 1000 | Max iterations |
+| tolerance | DOUBLE | 1e-6 | Convergence tolerance |
+
+```sql
+SELECT elasticnet_fit_predict(y, [x], {'alpha': 0.1, 'l1_ratio': 0.7}) OVER (ORDER BY date) FROM data;
+```
+
+---
+
+## Predict Aggregate Functions
+
+Non-rolling aggregate functions that fit a model once on training data (rows where y IS NOT NULL) and return predictions for ALL rows including out-of-sample predictions.
+
+### anofox_stats_ols_predict_agg / ols_predict_agg
+Fit OLS on training rows, predict all rows.
+
+**Signature:**
+```sql
+anofox_stats_ols_predict_agg(
+    y DOUBLE,
+    x LIST(DOUBLE),
+    [options MAP]
+) -> LIST(STRUCT)
+```
+
+**Options MAP:**
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| fit_intercept | BOOLEAN | true | Include intercept term |
+| confidence_level | DOUBLE | 0.95 | Prediction interval confidence |
+| null_policy | VARCHAR | 'drop' | NULL handling: 'drop' or 'drop_y_zero_x' |
+
+**Returns:**
+```
+LIST(STRUCT(
+    y DOUBLE,           -- Original y value (NULL for out-of-sample)
+    x LIST(DOUBLE),     -- Original x values
+    yhat DOUBLE,        -- Predicted value
+    yhat_lower DOUBLE,  -- Lower prediction interval bound
+    yhat_upper DOUBLE,  -- Upper prediction interval bound
+    is_training BOOLEAN -- True if row was used for training
+))
+```
+
+**Example:**
+```sql
+-- Basic usage: fit on rows where y IS NOT NULL, predict all
+CREATE TABLE data AS
+SELECT
+    CASE WHEN i <= 80 THEN i * 2.0 ELSE NULL END as y,
+    i::DOUBLE as x,
+    i as id
+FROM range(1, 101) t(i);
+
+-- Get predictions with training indicator
+SELECT
+    (p).y as original_y,
+    (p).x as features,
+    (p).yhat as predicted,
+    (p).is_training
+FROM (
+    SELECT UNNEST(ols_predict_agg(y, [x])) AS p
+    FROM data
+);
+
+-- Per-group predictions
+SELECT
+    segment,
+    UNNEST(ols_predict_agg(y, [x1, x2], {'confidence_level': 0.99})) AS pred
+FROM sales_data
+GROUP BY segment;
+```
+
+### anofox_stats_ridge_predict_agg / ridge_predict_agg
+Ridge regression predict aggregate.
+
+**Additional Options:**
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| alpha | DOUBLE | 1.0 | L2 regularization strength |
+
+```sql
+SELECT UNNEST(ridge_predict_agg(y, [x], {'alpha': 0.5})) FROM data;
+```
+
+### anofox_stats_wls_predict_agg / wls_predict_agg
+Weighted Least Squares predict aggregate.
+
+**Signature:**
+```sql
+wls_predict_agg(y DOUBLE, x LIST(DOUBLE), weight DOUBLE, [options MAP]) -> LIST(STRUCT)
+```
+
+```sql
+SELECT UNNEST(wls_predict_agg(y, [x], weight)) FROM data;
+```
+
+### anofox_stats_rls_predict_agg / rls_predict_agg
+Recursive Least Squares predict aggregate.
+
+**Additional Options:**
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| forgetting_factor | DOUBLE | 1.0 | Exponential forgetting |
+| initial_p_diagonal | DOUBLE | 100.0 | Initial covariance diagonal |
+
+```sql
+SELECT UNNEST(rls_predict_agg(y, [x], {'forgetting_factor': 0.99})) FROM data;
+```
+
+### anofox_stats_elasticnet_predict_agg / elasticnet_predict_agg
+Elastic Net predict aggregate.
+
+**Additional Options:**
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| alpha | DOUBLE | 1.0 | Regularization strength |
+| l1_ratio | DOUBLE | 0.5 | L1 ratio (0=Ridge, 1=Lasso) |
+| max_iterations | INTEGER | 1000 | Max iterations |
+| tolerance | DOUBLE | 1e-6 | Convergence tolerance |
+
+```sql
+SELECT UNNEST(elasticnet_predict_agg(y, [x], {'alpha': 0.1, 'l1_ratio': 0.5})) FROM data;
+```
+
+---
+
 ## Predict Function
 
 ### anofox_stats_predict
@@ -445,6 +691,35 @@ SELECT residuals_diagnostics_agg(y, y_hat, [x]) FROM data;
 
 ---
 
+## Common Options
+
+### null_policy Parameter
+
+The `null_policy` option controls how NULL values and zero x values are handled during model training. Available in all fit_predict window functions and predict_agg functions.
+
+| Value | Training Set | Predictions |
+|-------|--------------|-------------|
+| `'drop'` (default) | Rows where y IS NOT NULL | All rows get predictions |
+| `'drop_y_zero_x'` | Rows where y IS NOT NULL AND all x != 0 | All rows get predictions |
+
+**Use Cases:**
+- `'drop'`: Standard approach - use all valid observations for training
+- `'drop_y_zero_x'`: Exclude zero values which may represent missing data or invalid measurements
+
+**Example:**
+```sql
+-- Default: only exclude NULL y from training
+SELECT ols_fit_predict(y, [x]) OVER (ORDER BY date) FROM data;
+
+-- Exclude both NULL y and rows where any x is 0
+SELECT ols_fit_predict(y, [x], {'null_policy': 'drop_y_zero_x'}) OVER (ORDER BY date) FROM data;
+
+-- With predict_agg
+SELECT UNNEST(ols_predict_agg(y, [x], {'null_policy': 'drop_y_zero_x'})) FROM data;
+```
+
+---
+
 ## Return Types
 
 ### FitResult Structure
@@ -497,6 +772,20 @@ For convenience, the following short aliases are available:
 | Full Name | Short Alias |
 |-----------|-------------|
 | anofox_stats_ols_fit | ols_fit |
+| anofox_stats_ridge_fit | ridge_fit |
+| anofox_stats_elasticnet_fit | elasticnet_fit |
+| anofox_stats_wls_fit | wls_fit |
+| anofox_stats_rls_fit | rls_fit |
+| anofox_stats_ols_fit_predict | ols_fit_predict |
+| anofox_stats_ridge_fit_predict | ridge_fit_predict |
+| anofox_stats_wls_fit_predict | wls_fit_predict |
+| anofox_stats_rls_fit_predict | rls_fit_predict |
+| anofox_stats_elasticnet_fit_predict | elasticnet_fit_predict |
+| anofox_stats_ols_predict_agg | ols_predict_agg |
+| anofox_stats_ridge_predict_agg | ridge_predict_agg |
+| anofox_stats_wls_predict_agg | wls_predict_agg |
+| anofox_stats_rls_predict_agg | rls_predict_agg |
+| anofox_stats_elasticnet_predict_agg | elasticnet_predict_agg |
 | anofox_stats_vif | vif |
 | anofox_stats_vif_agg | vif_agg |
 | anofox_stats_aic | aic |
@@ -536,5 +825,6 @@ SELECT anofox_stats_ols_fit([1.0, 2.0], [[1.0, 2.0]]);
 
 ## Version History
 
+- **0.3.0**: Added fit_predict window functions, predict_agg aggregate functions, null_policy parameter
 - **0.2.0**: Added RLS, Jarque-Bera, residuals diagnostics, VIF aggregate
 - **0.1.0**: Initial release with OLS, Ridge, Elastic Net, WLS

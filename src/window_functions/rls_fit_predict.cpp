@@ -24,10 +24,11 @@ struct RlsFitPredictState {
     double confidence_level;
     double forgetting_factor;
     double initial_p_diagonal;
+    NullPolicy null_policy;
 
     RlsFitPredictState()
         : n_features(0), initialized(false), has_current_x(false), fit_intercept(true), confidence_level(0.95),
-          forgetting_factor(1.0), initial_p_diagonal(100.0) {}
+          forgetting_factor(1.0), initial_p_diagonal(100.0), null_policy(NullPolicy::DROP) {}
 
     void Reset() {
         y_values.clear();
@@ -44,6 +45,7 @@ struct RlsFitPredictBindData : public FunctionData {
     double confidence_level = 0.95;
     double forgetting_factor = 1.0;
     double initial_p_diagonal = 100.0;
+    NullPolicy null_policy = NullPolicy::DROP;
 
     unique_ptr<FunctionData> Copy() const override {
         auto result = make_uniq<RlsFitPredictBindData>();
@@ -51,13 +53,15 @@ struct RlsFitPredictBindData : public FunctionData {
         result->confidence_level = confidence_level;
         result->forgetting_factor = forgetting_factor;
         result->initial_p_diagonal = initial_p_diagonal;
+        result->null_policy = null_policy;
         return std::move(result);
     }
 
     bool Equals(const FunctionData &other_p) const override {
         auto &other = other_p.Cast<RlsFitPredictBindData>();
         return fit_intercept == other.fit_intercept && confidence_level == other.confidence_level &&
-               forgetting_factor == other.forgetting_factor && initial_p_diagonal == other.initial_p_diagonal;
+               forgetting_factor == other.forgetting_factor && initial_p_diagonal == other.initial_p_diagonal &&
+               null_policy == other.null_policy;
     }
 };
 
@@ -107,6 +111,7 @@ static void RlsFitPredictUpdate(Vector inputs[], AggregateInputData &aggr_input_
         state.confidence_level = bind_data.confidence_level;
         state.forgetting_factor = bind_data.forgetting_factor;
         state.initial_p_diagonal = bind_data.initial_p_diagonal;
+        state.null_policy = bind_data.null_policy;
 
         auto x_idx = x_data.sel->get_index(i);
         if (!x_data.validity.RowIsValid(x_idx)) {
@@ -134,7 +139,19 @@ static void RlsFitPredictUpdate(Vector inputs[], AggregateInputData &aggr_input_
         state.has_current_x = true;
 
         auto y_idx = y_data.sel->get_index(i);
-        if (y_data.validity.RowIsValid(y_idx)) {
+        bool y_valid = y_data.validity.RowIsValid(y_idx);
+        bool use_for_training = y_valid;
+
+        if (use_for_training && state.null_policy == NullPolicy::DROP_Y_ZERO_X) {
+            for (idx_t j = 0; j < n_features; j++) {
+                if (state.current_x[j] == 0.0) {
+                    use_for_training = false;
+                    break;
+                }
+            }
+        }
+
+        if (use_for_training) {
             state.y_values.push_back(y_values[y_idx]);
             for (idx_t j = 0; j < n_features; j++) {
                 state.x_columns[j].push_back(x_child_data[list_entry.offset + j]);
@@ -169,6 +186,7 @@ static void RlsFitPredictCombine(Vector &source_vector, Vector &target_vector, A
             target.confidence_level = source.confidence_level;
             target.forgetting_factor = source.forgetting_factor;
             target.initial_p_diagonal = source.initial_p_diagonal;
+            target.null_policy = source.null_policy;
             continue;
         }
 
@@ -264,6 +282,8 @@ static unique_ptr<FunctionData> RlsFitPredictBind(ClientContext &context, Aggreg
             result->forgetting_factor = opts.forgetting_factor.value();
         if (opts.initial_p_diagonal.has_value())
             result->initial_p_diagonal = opts.initial_p_diagonal.value();
+        if (opts.null_policy.has_value())
+            result->null_policy = opts.null_policy.value();
     }
 
     function.return_type = GetRlsFitPredictResultType();

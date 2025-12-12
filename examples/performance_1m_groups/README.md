@@ -1,6 +1,6 @@
 # Performance Benchmark: 1M Groups
 
-Benchmarks for `fit_predict` window functions with 1 million groups.
+Benchmarks for `fit_predict` window functions and `predict_agg` aggregate functions with 1 million groups.
 
 ## Test Configuration
 
@@ -46,6 +46,8 @@ make
 
 ### Results (2024-12-11)
 
+#### fit_predict Window Functions
+
 | Method | Execution Time | Peak RSS | Parameters |
 |--------|----------------|----------|------------|
 | OLS | 178.6s | 8,275 MB | `fit_intercept: true` |
@@ -53,6 +55,12 @@ make
 | WLS | 176.5s | 8,757 MB | `fit_intercept: true` |
 | RLS | 158.1s | 8,571 MB | `forgetting_factor: 0.99` |
 | Elastic Net | 166.8s | 8,146 MB | `alpha: 1.0, l1_ratio: 0.5` |
+
+#### predict_agg Aggregate Functions (2024-12-12)
+
+| Method | Execution Time | Rows | Parameters |
+|--------|----------------|------|------------|
+| OLS predict_agg | 208.3s | 100M (80M training, 20M prediction) | `fit_intercept: true` |
 
 ### Analysis
 

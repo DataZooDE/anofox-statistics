@@ -26,10 +26,11 @@ struct ElasticNetFitPredictState {
     double l1_ratio;
     uint32_t max_iterations;
     double tolerance;
+    NullPolicy null_policy;
 
     ElasticNetFitPredictState()
         : n_features(0), initialized(false), has_current_x(false), fit_intercept(true), confidence_level(0.95),
-          alpha(1.0), l1_ratio(0.5), max_iterations(1000), tolerance(1e-6) {}
+          alpha(1.0), l1_ratio(0.5), max_iterations(1000), tolerance(1e-6), null_policy(NullPolicy::DROP) {}
 
     void Reset() {
         y_values.clear();
@@ -48,6 +49,7 @@ struct ElasticNetFitPredictBindData : public FunctionData {
     double l1_ratio = 0.5;
     uint32_t max_iterations = 1000;
     double tolerance = 1e-6;
+    NullPolicy null_policy = NullPolicy::DROP;
 
     unique_ptr<FunctionData> Copy() const override {
         auto result = make_uniq<ElasticNetFitPredictBindData>();
@@ -57,6 +59,7 @@ struct ElasticNetFitPredictBindData : public FunctionData {
         result->l1_ratio = l1_ratio;
         result->max_iterations = max_iterations;
         result->tolerance = tolerance;
+        result->null_policy = null_policy;
         return std::move(result);
     }
 
@@ -64,7 +67,7 @@ struct ElasticNetFitPredictBindData : public FunctionData {
         auto &other = other_p.Cast<ElasticNetFitPredictBindData>();
         return fit_intercept == other.fit_intercept && confidence_level == other.confidence_level &&
                alpha == other.alpha && l1_ratio == other.l1_ratio && max_iterations == other.max_iterations &&
-               tolerance == other.tolerance;
+               tolerance == other.tolerance && null_policy == other.null_policy;
     }
 };
 
@@ -116,6 +119,7 @@ static void ElasticNetFitPredictUpdate(Vector inputs[], AggregateInputData &aggr
         state.l1_ratio = bind_data.l1_ratio;
         state.max_iterations = bind_data.max_iterations;
         state.tolerance = bind_data.tolerance;
+        state.null_policy = bind_data.null_policy;
 
         auto x_idx = x_data.sel->get_index(i);
         if (!x_data.validity.RowIsValid(x_idx)) {
@@ -143,7 +147,19 @@ static void ElasticNetFitPredictUpdate(Vector inputs[], AggregateInputData &aggr
         state.has_current_x = true;
 
         auto y_idx = y_data.sel->get_index(i);
-        if (y_data.validity.RowIsValid(y_idx)) {
+        bool y_valid = y_data.validity.RowIsValid(y_idx);
+        bool use_for_training = y_valid;
+
+        if (use_for_training && state.null_policy == NullPolicy::DROP_Y_ZERO_X) {
+            for (idx_t j = 0; j < n_features; j++) {
+                if (state.current_x[j] == 0.0) {
+                    use_for_training = false;
+                    break;
+                }
+            }
+        }
+
+        if (use_for_training) {
             state.y_values.push_back(y_values[y_idx]);
             for (idx_t j = 0; j < n_features; j++) {
                 state.x_columns[j].push_back(x_child_data[list_entry.offset + j]);
@@ -181,6 +197,7 @@ static void ElasticNetFitPredictCombine(Vector &source_vector, Vector &target_ve
             target.l1_ratio = source.l1_ratio;
             target.max_iterations = source.max_iterations;
             target.tolerance = source.tolerance;
+            target.null_policy = source.null_policy;
             continue;
         }
 
@@ -281,6 +298,8 @@ static unique_ptr<FunctionData> ElasticNetFitPredictBind(ClientContext &context,
             result->max_iterations = opts.max_iterations.value();
         if (opts.tolerance.has_value())
             result->tolerance = opts.tolerance.value();
+        if (opts.null_policy.has_value())
+            result->null_policy = opts.null_policy.value();
     }
 
     function.return_type = GetElasticNetFitPredictResultType();

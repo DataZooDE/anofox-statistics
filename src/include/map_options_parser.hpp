@@ -7,6 +7,14 @@
 namespace duckdb {
 
 /**
+ * Null policy for handling NULL values in y (response variable)
+ */
+enum class NullPolicy {
+    DROP,          // Drop rows with NULL y from training, but include in output with predictions
+    DROP_Y_ZERO_X  // Drop rows with NULL y OR zero x values from training
+};
+
+/**
  * Parsed regression options from a MAP parameter.
  * All fields are optional - only set if present in the MAP.
  */
@@ -28,6 +36,9 @@ struct RegressionMapOptions {
     // RLS specific
     std::optional<double> forgetting_factor;   // Forgetting factor (0-1)
     std::optional<double> initial_p_diagonal;  // Initial P matrix diagonal value
+
+    // Null handling
+    std::optional<NullPolicy> null_policy;  // How to handle NULL y values
 
     /**
      * Parse options from a DuckDB MAP Value.

@@ -33,6 +33,13 @@ void AnofoxStatisticsExtension::Load(ExtensionLoader &loader) {
     RegisterRlsFitPredictFunction(loader);
     RegisterElasticNetFitPredictFunction(loader);
 
+    // Register predict aggregate functions (non-rolling)
+    RegisterOlsPredictAggregateFunction(loader);
+    RegisterRidgePredictAggregateFunction(loader);
+    RegisterWlsPredictAggregateFunction(loader);
+    RegisterRlsPredictAggregateFunction(loader);
+    RegisterElasticNetPredictAggregateFunction(loader);
+
     // Register diagnostic functions
     RegisterVifFunction(loader);
     RegisterAicBicFunctions(loader);
@@ -81,6 +88,9 @@ DUCKDB_CPP_EXTENSION_ENTRY(anofox_statistics, loader) {
     duckdb::RegisterWlsFitPredictFunction(loader);
     duckdb::RegisterRlsFitPredictFunction(loader);
     duckdb::RegisterElasticNetFitPredictFunction(loader);
+
+    // Register predict aggregate functions (non-rolling)
+    duckdb::RegisterOlsPredictAggregateFunction(loader);
 
     // Register diagnostic functions
     duckdb::RegisterVifFunction(loader);

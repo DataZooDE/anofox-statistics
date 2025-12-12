@@ -26,6 +26,13 @@ void RegisterWlsFitPredictFunction(ExtensionLoader &loader);
 void RegisterRlsFitPredictFunction(ExtensionLoader &loader);
 void RegisterElasticNetFitPredictFunction(ExtensionLoader &loader);
 
+// Predict aggregate functions (non-rolling fit + predict all rows)
+void RegisterOlsPredictAggregateFunction(ExtensionLoader &loader);
+void RegisterRidgePredictAggregateFunction(ExtensionLoader &loader);
+void RegisterWlsPredictAggregateFunction(ExtensionLoader &loader);
+void RegisterRlsPredictAggregateFunction(ExtensionLoader &loader);
+void RegisterElasticNetPredictAggregateFunction(ExtensionLoader &loader);
+
 // Diagnostic functions
 void RegisterVifFunction(ExtensionLoader &loader);
 void RegisterVifAggregateFunction(ExtensionLoader &loader);

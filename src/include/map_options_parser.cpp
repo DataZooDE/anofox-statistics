@@ -62,6 +62,21 @@ static std::optional<uint32_t> ExtractUInt32(const Value &val) {
     return static_cast<uint32_t>(v);
 }
 
+// Helper to extract NullPolicy from Value
+static std::optional<NullPolicy> ExtractNullPolicy(const Value &val) {
+    if (val.IsNull()) {
+        return std::nullopt;
+    }
+    string str = ToLower(StringValue::Get(val));
+    if (str == "drop") {
+        return NullPolicy::DROP;
+    } else if (str == "drop_y_zero_x") {
+        return NullPolicy::DROP_Y_ZERO_X;
+    } else {
+        throw InvalidInputException("Invalid null_policy: '%s'. Valid values are 'drop', 'drop_y_zero_x'", str);
+    }
+}
+
 RegressionMapOptions RegressionMapOptions::ParseFromValue(const Value &map_value) {
     RegressionMapOptions result;
 
@@ -107,6 +122,8 @@ RegressionMapOptions RegressionMapOptions::ParseFromValue(const Value &map_value
                 result.forgetting_factor = ExtractDouble(val);
             } else if (key == "initial_p_diagonal" || key == "p_diagonal") {
                 result.initial_p_diagonal = ExtractDouble(val);
+            } else if (key == "null_policy") {
+                result.null_policy = ExtractNullPolicy(val);
             }
             // Unknown keys are silently ignored for forward compatibility
         }
@@ -141,6 +158,8 @@ RegressionMapOptions RegressionMapOptions::ParseFromValue(const Value &map_value
                 result.forgetting_factor = ExtractDouble(val);
             } else if (key == "initial_p_diagonal" || key == "p_diagonal") {
                 result.initial_p_diagonal = ExtractDouble(val);
+            } else if (key == "null_policy") {
+                result.null_policy = ExtractNullPolicy(val);
             }
         }
     } else {
