@@ -606,3 +606,85 @@ pub struct BlsFitResult {
     /// Which coefficients are at their upper bound
     pub at_upper_bound: Vec<bool>,
 }
+
+// ============================================================================
+// AID Types (Automatic Identification of Demand)
+// ============================================================================
+
+/// Outlier detection method for AID
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum OutlierMethod {
+    /// Z-score method: outliers beyond mean ± 3*std
+    #[default]
+    ZScore,
+    /// IQR method: outliers beyond Q1 - 1.5*IQR or Q3 + 1.5*IQR
+    Iqr,
+}
+
+/// Options for AID (Automatic Identification of Demand)
+#[derive(Debug, Clone)]
+pub struct AidOptions {
+    /// Zero proportion threshold for intermittent classification (default: 0.3)
+    pub intermittent_threshold: f64,
+    /// Outlier detection method
+    pub outlier_method: OutlierMethod,
+}
+
+impl Default for AidOptions {
+    fn default() -> Self {
+        Self {
+            intermittent_threshold: 0.3,
+            outlier_method: OutlierMethod::ZScore,
+        }
+    }
+}
+
+/// Result from AID classification
+#[derive(Debug, Clone)]
+pub struct AidResult {
+    /// Demand type: "regular" or "intermittent"
+    pub demand_type: String,
+    /// Whether demand is intermittent (zero_proportion >= threshold)
+    pub is_intermittent: bool,
+    /// Best-fit distribution name
+    pub distribution: String,
+    /// Mean of non-zero values
+    pub mean: f64,
+    /// Variance of non-zero values
+    pub variance: f64,
+    /// Proportion of zero values
+    pub zero_proportion: f64,
+    /// Number of observations
+    pub n_observations: usize,
+    /// Whether stockouts were detected
+    pub has_stockouts: bool,
+    /// Whether new product pattern was detected (leading zeros)
+    pub is_new_product: bool,
+    /// Whether obsolete product pattern was detected (trailing zeros)
+    pub is_obsolete_product: bool,
+    /// Number of stockout observations
+    pub stockout_count: usize,
+    /// Number of new product observations (leading zeros)
+    pub new_product_count: usize,
+    /// Number of obsolete product observations (trailing zeros)
+    pub obsolete_product_count: usize,
+    /// Number of high outlier observations
+    pub high_outlier_count: usize,
+    /// Number of low outlier observations
+    pub low_outlier_count: usize,
+}
+
+/// Per-observation anomaly flags from AID
+#[derive(Debug, Clone, Default)]
+pub struct AidAnomalyFlags {
+    /// Unexpected zero in positive demand (stockout)
+    pub stockout: bool,
+    /// Leading zeros pattern (new product)
+    pub new_product: bool,
+    /// Trailing zeros pattern (obsolete product)
+    pub obsolete_product: bool,
+    /// Unusually high value
+    pub high_outlier: bool,
+    /// Unusually low value
+    pub low_outlier: bool,
+}

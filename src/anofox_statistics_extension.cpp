@@ -35,6 +35,9 @@ void AnofoxStatisticsExtension::Load(ExtensionLoader &loader) {
     // Register BLS aggregate functions (includes NNLS)
     RegisterBlsAggregateFunction(loader);
 
+    // Register AID aggregate functions (Automatic Identification of Demand)
+    RegisterAidAggregateFunction(loader);
+
     // Register window aggregate functions (fit_predict)
     RegisterOlsFitPredictFunction(loader);
     RegisterRidgeFitPredictFunction(loader);
@@ -99,6 +102,9 @@ DUCKDB_CPP_EXTENSION_ENTRY(anofox_statistics, loader) {
 
     // Register BLS aggregate functions (includes NNLS)
     duckdb::RegisterBlsAggregateFunction(loader);
+
+    // Register AID aggregate functions (Automatic Identification of Demand)
+    duckdb::RegisterAidAggregateFunction(loader);
 
     // Register window aggregate functions (fit_predict)
     duckdb::RegisterOlsFitPredictFunction(loader);

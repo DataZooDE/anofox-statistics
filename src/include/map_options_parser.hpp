@@ -75,6 +75,14 @@ enum class AlmLoss {
 };
 
 /**
+ * AID outlier detection methods
+ */
+enum class AidOutlierMethod {
+    ZSCORE = 0,
+    IQR = 1
+};
+
+/**
  * Parsed regression options from a MAP parameter.
  * All fields are optional - only set if present in the MAP.
  */
@@ -114,6 +122,10 @@ struct RegressionMapOptions {
     // BLS specific
     std::optional<double> lower_bound;   // Lower bound for all coefficients
     std::optional<double> upper_bound;   // Upper bound for all coefficients
+
+    // AID specific
+    std::optional<double> intermittent_threshold;    // Zero proportion threshold (default: 0.3)
+    std::optional<AidOutlierMethod> outlier_method;  // Outlier detection method
 
     /**
      * Parse options from a DuckDB MAP Value.

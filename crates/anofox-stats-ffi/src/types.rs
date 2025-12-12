@@ -656,3 +656,124 @@ impl Default for BlsFitResultCore {
         }
     }
 }
+
+// =============================================================================
+// AID (Automatic Identification of Demand) FFI Types
+// =============================================================================
+
+/// Outlier detection method codes for AID
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OutlierMethodFFI {
+    ZScore = 0,
+    Iqr = 1,
+}
+
+/// AID options for FFI
+#[repr(C)]
+pub struct AidOptionsFFI {
+    /// Zero proportion threshold for intermittent classification (default: 0.3)
+    pub intermittent_threshold: f64,
+    /// Outlier detection method
+    pub outlier_method: OutlierMethodFFI,
+}
+
+impl Default for AidOptionsFFI {
+    fn default() -> Self {
+        Self {
+            intermittent_threshold: 0.3,
+            outlier_method: OutlierMethodFFI::ZScore,
+        }
+    }
+}
+
+/// AID classification result
+#[repr(C)]
+pub struct AidResultFFI {
+    /// Demand type string pointer ("regular" or "intermittent")
+    pub demand_type: *mut c_char,
+    /// Whether demand is intermittent
+    pub is_intermittent: bool,
+    /// Best-fit distribution name pointer
+    pub distribution: *mut c_char,
+    /// Mean of values
+    pub mean: f64,
+    /// Variance of values
+    pub variance: f64,
+    /// Proportion of zero values
+    pub zero_proportion: f64,
+    /// Number of observations
+    pub n_observations: usize,
+    /// Whether stockouts were detected
+    pub has_stockouts: bool,
+    /// Whether new product pattern was detected
+    pub is_new_product: bool,
+    /// Whether obsolete product pattern was detected
+    pub is_obsolete_product: bool,
+    /// Number of stockout observations
+    pub stockout_count: usize,
+    /// Number of new product observations
+    pub new_product_count: usize,
+    /// Number of obsolete product observations
+    pub obsolete_product_count: usize,
+    /// Number of high outlier observations
+    pub high_outlier_count: usize,
+    /// Number of low outlier observations
+    pub low_outlier_count: usize,
+}
+
+impl Default for AidResultFFI {
+    fn default() -> Self {
+        Self {
+            demand_type: std::ptr::null_mut(),
+            is_intermittent: false,
+            distribution: std::ptr::null_mut(),
+            mean: f64::NAN,
+            variance: f64::NAN,
+            zero_proportion: f64::NAN,
+            n_observations: 0,
+            has_stockouts: false,
+            is_new_product: false,
+            is_obsolete_product: false,
+            stockout_count: 0,
+            new_product_count: 0,
+            obsolete_product_count: 0,
+            high_outlier_count: 0,
+            low_outlier_count: 0,
+        }
+    }
+}
+
+/// Per-observation anomaly flags for AID
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct AidAnomalyFlagsFFI {
+    /// Unexpected zero in positive demand (stockout)
+    pub stockout: bool,
+    /// Leading zeros pattern (new product)
+    pub new_product: bool,
+    /// Trailing zeros pattern (obsolete product)
+    pub obsolete_product: bool,
+    /// Unusually high value
+    pub high_outlier: bool,
+    /// Unusually low value
+    pub low_outlier: bool,
+}
+
+/// AID anomaly result (array of per-observation flags)
+#[repr(C)]
+pub struct AidAnomalyResultFFI {
+    /// Pointer to array of anomaly flags
+    pub flags: *mut AidAnomalyFlagsFFI,
+    /// Number of observations
+    pub len: usize,
+}
+
+impl Default for AidAnomalyResultFFI {
+    fn default() -> Self {
+        Self {
+            flags: std::ptr::null_mut(),
+            len: 0,
+        }
+    }
+}

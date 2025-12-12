@@ -829,6 +829,129 @@ bool anofox_nnls_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count
  */
 void anofox_free_bls_result(AnofoxBlsFitResultCore *result);
 
+/* ============================================================================
+ * AID (Automatic Identification of Demand) Functions
+ * ============================================================================ */
+
+/**
+ * Outlier detection method codes
+ */
+typedef enum {
+    ANOFOX_AID_OUTLIER_ZSCORE = 0,
+    ANOFOX_AID_OUTLIER_IQR = 1,
+} AnofoxAidOutlierMethod;
+
+/**
+ * AID options
+ */
+typedef struct {
+    /** Zero proportion threshold for intermittent classification (default: 0.3) */
+    double intermittent_threshold;
+    /** Outlier detection method */
+    AnofoxAidOutlierMethod outlier_method;
+} AnofoxAidOptions;
+
+/**
+ * AID classification result
+ */
+typedef struct {
+    /** Demand type string ("regular" or "intermittent") - must be freed */
+    char *demand_type;
+    /** Whether demand is intermittent */
+    bool is_intermittent;
+    /** Best-fit distribution name - must be freed */
+    char *distribution;
+    /** Mean of values */
+    double mean;
+    /** Variance of values */
+    double variance;
+    /** Proportion of zero values */
+    double zero_proportion;
+    /** Number of observations */
+    size_t n_observations;
+    /** Whether stockouts were detected */
+    bool has_stockouts;
+    /** Whether new product pattern was detected */
+    bool is_new_product;
+    /** Whether obsolete product pattern was detected */
+    bool is_obsolete_product;
+    /** Number of stockout observations */
+    size_t stockout_count;
+    /** Number of new product observations */
+    size_t new_product_count;
+    /** Number of obsolete product observations */
+    size_t obsolete_product_count;
+    /** Number of high outlier observations */
+    size_t high_outlier_count;
+    /** Number of low outlier observations */
+    size_t low_outlier_count;
+} AnofoxAidResult;
+
+/**
+ * Per-observation anomaly flags for AID
+ */
+typedef struct {
+    /** Unexpected zero in positive demand (stockout) */
+    bool stockout;
+    /** Leading zeros pattern (new product) */
+    bool new_product;
+    /** Trailing zeros pattern (obsolete product) */
+    bool obsolete_product;
+    /** Unusually high value */
+    bool high_outlier;
+    /** Unusually low value */
+    bool low_outlier;
+} AnofoxAidAnomalyFlags;
+
+/**
+ * AID anomaly result (array of per-observation flags)
+ */
+typedef struct {
+    /** Pointer to array of anomaly flags - must be freed */
+    AnofoxAidAnomalyFlags *flags;
+    /** Number of observations */
+    size_t len;
+} AnofoxAidAnomalyResult;
+
+/**
+ * Compute AID (Automatic Identification of Demand) classification
+ *
+ * Classifies demand patterns as regular or intermittent, identifies best-fit
+ * distribution, and counts various anomaly types.
+ *
+ * @param y Time series data (must preserve order)
+ * @param options AID options
+ * @param out_result Output: AID classification result (required)
+ * @param out_error Output: error information (required)
+ * @return true on success, false on error
+ */
+bool anofox_aid(AnofoxDataArray y, AnofoxAidOptions options, AnofoxAidResult *out_result, AnofoxError *out_error);
+
+/**
+ * Compute AID per-observation anomaly flags
+ *
+ * Returns anomaly flags for each observation in the input, maintaining
+ * the same order as the input.
+ *
+ * @param y Time series data (must preserve order)
+ * @param options AID options
+ * @param out_result Output: anomaly flags array (required)
+ * @param out_error Output: error information (required)
+ * @return true on success, false on error
+ */
+bool anofox_aid_anomaly(AnofoxDataArray y, AnofoxAidOptions options, AnofoxAidAnomalyResult *out_result,
+                        AnofoxError *out_error);
+
+/**
+ * Free memory allocated for AID result
+ */
+void anofox_free_aid_result(AnofoxAidResult *result);
+
+/**
+ * Free memory allocated for AID anomaly result
+ */
+void anofox_free_aid_anomaly_result(AnofoxAidAnomalyResult *result);
+
 #ifdef __cplusplus
 }
 #endif

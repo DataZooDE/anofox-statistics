@@ -159,6 +159,17 @@ static std::optional<AlmLoss> ExtractAlmLoss(const Value &val) {
     throw InvalidInputException("Invalid ALM loss: '%s'. Valid values are 'likelihood', 'mse', 'mae', 'ham', 'role'", str);
 }
 
+// Helper to extract AidOutlierMethod from Value
+static std::optional<AidOutlierMethod> ExtractAidOutlierMethod(const Value &val) {
+    if (val.IsNull()) {
+        return std::nullopt;
+    }
+    string str = ToLower(StringValue::Get(val));
+    if (str == "zscore" || str == "z_score" || str == "z-score") return AidOutlierMethod::ZSCORE;
+    if (str == "iqr") return AidOutlierMethod::IQR;
+    throw InvalidInputException("Invalid outlier_method: '%s'. Valid values are 'zscore', 'iqr'", str);
+}
+
 RegressionMapOptions RegressionMapOptions::ParseFromValue(const Value &map_value) {
     RegressionMapOptions result;
 
@@ -231,6 +242,12 @@ RegressionMapOptions RegressionMapOptions::ParseFromValue(const Value &map_value
             } else if (key == "upper_bound" || key == "upper") {
                 result.upper_bound = ExtractDouble(val);
             }
+            // AID options
+            else if (key == "intermittent_threshold") {
+                result.intermittent_threshold = ExtractDouble(val);
+            } else if (key == "outlier_method") {
+                result.outlier_method = ExtractAidOutlierMethod(val);
+            }
             // Unknown keys are silently ignored for forward compatibility
         }
     }
@@ -290,6 +307,12 @@ RegressionMapOptions RegressionMapOptions::ParseFromValue(const Value &map_value
                 result.lower_bound = ExtractDouble(val);
             } else if (key == "upper_bound" || key == "upper") {
                 result.upper_bound = ExtractDouble(val);
+            }
+            // AID options
+            else if (key == "intermittent_threshold") {
+                result.intermittent_threshold = ExtractDouble(val);
+            } else if (key == "outlier_method") {
+                result.outlier_method = ExtractAidOutlierMethod(val);
             }
         }
     } else {

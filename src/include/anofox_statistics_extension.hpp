@@ -42,6 +42,9 @@ void RegisterAlmAggregateFunction(ExtensionLoader &loader);
 // BLS aggregate functions (includes NNLS)
 void RegisterBlsAggregateFunction(ExtensionLoader &loader);
 
+// AID aggregate functions (Automatic Identification of Demand)
+void RegisterAidAggregateFunction(ExtensionLoader &loader);
+
 // Diagnostic functions
 void RegisterVifFunction(ExtensionLoader &loader);
 void RegisterVifAggregateFunction(ExtensionLoader &loader);

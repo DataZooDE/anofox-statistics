@@ -9,12 +9,13 @@ pub use types::*;
 use anofox_stats_core::{
     diagnostics::{compute_aic, compute_bic, compute_residuals, compute_vif, jarque_bera},
     models::{
-        fit_alm, fit_binomial, fit_bls, fit_elasticnet, fit_negbinomial, fit_ols, fit_poisson,
-        fit_ridge, fit_rls, fit_tweedie, fit_wls, predict, RlsOptions,
+        compute_aid, compute_aid_anomalies, fit_alm, fit_binomial, fit_bls, fit_elasticnet,
+        fit_negbinomial, fit_ols, fit_poisson, fit_ridge, fit_rls, fit_tweedie, fit_wls, predict,
+        RlsOptions,
     },
-    AlmDistribution, AlmLoss, AlmOptions, BinomialLink, BinomialOptions, BlsOptions,
-    ElasticNetOptions, NegBinomialOptions, OlsOptions, PoissonLink, PoissonOptions, RidgeOptions,
-    StatsError, TweedieOptions, WlsOptions,
+    AidOptions, AlmDistribution, AlmLoss, AlmOptions, BinomialLink, BinomialOptions, BlsOptions,
+    ElasticNetOptions, NegBinomialOptions, OlsOptions, OutlierMethod, PoissonLink, PoissonOptions,
+    RidgeOptions, StatsError, TweedieOptions, WlsOptions,
 };
 use statrs::distribution::{ContinuousCDF, StudentsT};
 use std::slice;
@@ -2496,5 +2497,269 @@ pub unsafe extern "C" fn anofox_free_bls_result(result: *mut BlsFitResultCore) {
     if !(*result).at_upper_bound.is_null() {
         libc::free((*result).at_upper_bound as *mut libc::c_void);
         (*result).at_upper_bound = std::ptr::null_mut();
+    }
+}
+
+// =============================================================================
+// AID (Automatic Identification of Demand) Functions
+// =============================================================================
+
+/// Compute AID (Automatic Identification of Demand) classification
+///
+/// # Safety
+/// - `y` must be a valid DataArray
+/// - `out_result` must be a valid pointer
+/// - `out_error` must be a valid pointer
+///
+/// # Returns
+/// `true` on success, `false` on error (check `out_error` for details)
+#[no_mangle]
+pub unsafe extern "C" fn anofox_aid(
+    y: DataArray,
+    options: AidOptionsFFI,
+    out_result: *mut AidResultFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    if !out_error.is_null() {
+        *out_error = AnofoxError::success();
+    }
+
+    if out_result.is_null() {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+        }
+        return false;
+    }
+
+    // Convert y to Vec
+    let y_vec = y.to_vec();
+
+    // Convert options
+    let opts = AidOptions {
+        intermittent_threshold: options.intermittent_threshold,
+        outlier_method: match options.outlier_method {
+            OutlierMethodFFI::ZScore => OutlierMethod::ZScore,
+            OutlierMethodFFI::Iqr => OutlierMethod::Iqr,
+        },
+    };
+
+    // Call the core function with panic catching
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        compute_aid(&y_vec, &opts)
+    }));
+
+    let result = match result {
+        Ok(r) => r,
+        Err(_) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InternalError, "Internal panic in AID");
+            }
+            return false;
+        }
+    };
+
+    match result {
+        Ok(aid_result) => {
+            // Allocate and copy demand_type string
+            let demand_type_bytes = aid_result.demand_type.as_bytes();
+            let demand_type_ptr =
+                libc::malloc(demand_type_bytes.len() + 1) as *mut libc::c_char;
+            if demand_type_ptr.is_null() {
+                if !out_error.is_null() {
+                    (*out_error).set(
+                        ErrorCode::AllocationFailure,
+                        "Failed to allocate demand_type",
+                    );
+                }
+                return false;
+            }
+            std::ptr::copy_nonoverlapping(
+                demand_type_bytes.as_ptr(),
+                demand_type_ptr as *mut u8,
+                demand_type_bytes.len(),
+            );
+            *demand_type_ptr.add(demand_type_bytes.len()) = 0;
+
+            // Allocate and copy distribution string
+            let distribution_bytes = aid_result.distribution.as_bytes();
+            let distribution_ptr =
+                libc::malloc(distribution_bytes.len() + 1) as *mut libc::c_char;
+            if distribution_ptr.is_null() {
+                libc::free(demand_type_ptr as *mut libc::c_void);
+                if !out_error.is_null() {
+                    (*out_error).set(
+                        ErrorCode::AllocationFailure,
+                        "Failed to allocate distribution",
+                    );
+                }
+                return false;
+            }
+            std::ptr::copy_nonoverlapping(
+                distribution_bytes.as_ptr(),
+                distribution_ptr as *mut u8,
+                distribution_bytes.len(),
+            );
+            *distribution_ptr.add(distribution_bytes.len()) = 0;
+
+            (*out_result) = AidResultFFI {
+                demand_type: demand_type_ptr,
+                is_intermittent: aid_result.is_intermittent,
+                distribution: distribution_ptr,
+                mean: aid_result.mean,
+                variance: aid_result.variance,
+                zero_proportion: aid_result.zero_proportion,
+                n_observations: aid_result.n_observations,
+                has_stockouts: aid_result.has_stockouts,
+                is_new_product: aid_result.is_new_product,
+                is_obsolete_product: aid_result.is_obsolete_product,
+                stockout_count: aid_result.stockout_count,
+                new_product_count: aid_result.new_product_count,
+                obsolete_product_count: aid_result.obsolete_product_count,
+                high_outlier_count: aid_result.high_outlier_count,
+                low_outlier_count: aid_result.low_outlier_count,
+            };
+
+            true
+        }
+        Err(e) => {
+            if !out_error.is_null() {
+                (*out_error).set(error_to_code(&e), &e.to_string());
+            }
+            false
+        }
+    }
+}
+
+/// Compute AID per-observation anomaly flags
+///
+/// # Safety
+/// - `y` must be a valid DataArray
+/// - `out_result` must be a valid pointer
+/// - `out_error` must be a valid pointer
+///
+/// # Returns
+/// `true` on success, `false` on error (check `out_error` for details)
+#[no_mangle]
+pub unsafe extern "C" fn anofox_aid_anomaly(
+    y: DataArray,
+    options: AidOptionsFFI,
+    out_result: *mut AidAnomalyResultFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    if !out_error.is_null() {
+        *out_error = AnofoxError::success();
+    }
+
+    if out_result.is_null() {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+        }
+        return false;
+    }
+
+    // Convert y to Vec
+    let y_vec = y.to_vec();
+
+    // Convert options
+    let opts = AidOptions {
+        intermittent_threshold: options.intermittent_threshold,
+        outlier_method: match options.outlier_method {
+            OutlierMethodFFI::ZScore => OutlierMethod::ZScore,
+            OutlierMethodFFI::Iqr => OutlierMethod::Iqr,
+        },
+    };
+
+    // Call the core function with panic catching
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        compute_aid_anomalies(&y_vec, &opts)
+    }));
+
+    let result = match result {
+        Ok(r) => r,
+        Err(_) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InternalError, "Internal panic in AID anomaly");
+            }
+            return false;
+        }
+    };
+
+    match result {
+        Ok(flags) => {
+            let n = flags.len();
+
+            // Allocate array for anomaly flags
+            let flags_ptr =
+                libc::malloc(n * std::mem::size_of::<AidAnomalyFlagsFFI>()) as *mut AidAnomalyFlagsFFI;
+            if flags_ptr.is_null() && n > 0 {
+                if !out_error.is_null() {
+                    (*out_error).set(
+                        ErrorCode::AllocationFailure,
+                        "Failed to allocate anomaly flags",
+                    );
+                }
+                return false;
+            }
+
+            // Copy flags
+            for (i, flag) in flags.iter().enumerate() {
+                *flags_ptr.add(i) = AidAnomalyFlagsFFI {
+                    stockout: flag.stockout,
+                    new_product: flag.new_product,
+                    obsolete_product: flag.obsolete_product,
+                    high_outlier: flag.high_outlier,
+                    low_outlier: flag.low_outlier,
+                };
+            }
+
+            (*out_result) = AidAnomalyResultFFI {
+                flags: flags_ptr,
+                len: n,
+            };
+
+            true
+        }
+        Err(e) => {
+            if !out_error.is_null() {
+                (*out_error).set(error_to_code(&e), &e.to_string());
+            }
+            false
+        }
+    }
+}
+
+/// Free memory allocated by AID function
+///
+/// # Safety
+/// - `result` must be NULL or a valid pointer to an AidResultFFI
+/// - Must only be called once per result (double-free is undefined behavior)
+#[no_mangle]
+pub unsafe extern "C" fn anofox_free_aid_result(result: *mut AidResultFFI) {
+    if result.is_null() {
+        return;
+    }
+    if !(*result).demand_type.is_null() {
+        libc::free((*result).demand_type as *mut libc::c_void);
+        (*result).demand_type = std::ptr::null_mut();
+    }
+    if !(*result).distribution.is_null() {
+        libc::free((*result).distribution as *mut libc::c_void);
+        (*result).distribution = std::ptr::null_mut();
+    }
+}
+
+/// Free memory allocated by AID anomaly function
+///
+/// # Safety
+/// - `result` must be NULL or a valid pointer to an AidAnomalyResultFFI
+/// - Must only be called once per result (double-free is undefined behavior)
+#[no_mangle]
+pub unsafe extern "C" fn anofox_free_aid_anomaly_result(result: *mut AidAnomalyResultFFI) {
+    if result.is_null() {
+        return;
+    }
+    if !(*result).flags.is_null() {
+        libc::free((*result).flags as *mut libc::c_void);
+        (*result).flags = std::ptr::null_mut();
     }
 }

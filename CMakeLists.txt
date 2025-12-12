@@ -109,6 +109,7 @@ set(EXTENSION_SOURCES
     src/aggregate_functions/poisson_aggregate.cpp
     src/aggregate_functions/alm_aggregate.cpp
     src/aggregate_functions/bls_aggregate.cpp
+    src/aggregate_functions/aid_aggregate.cpp
     src/scalar_functions/vif.cpp
     src/scalar_functions/aic_bic.cpp
     src/scalar_functions/jarque_bera.cpp

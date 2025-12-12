@@ -1,6 +1,6 @@
 # Anofox Statistics Extension - API Reference
 
-**Version:** 0.4.0
+**Version:** 0.5.0
 **DuckDB Version:** 1.4.3+
 **Backend:** Rust (anofox-regression 0.4.0, faer)
 
@@ -16,16 +16,17 @@ The Anofox Statistics Extension provides comprehensive regression analysis capab
 4. [Elastic Net Functions](#elastic-net-functions)
 5. [WLS Functions](#wls-functions)
 6. [RLS Functions](#rls-functions)
-7. [GLM Functions](#glm-functions) *(NEW)*
-8. [ALM Functions](#alm-functions) *(NEW)*
-9. [BLS/NNLS Functions](#blsnnls-functions) *(NEW)*
-10. [Fit-Predict Window Functions](#fit-predict-window-functions)
-11. [Predict Aggregate Functions](#predict-aggregate-functions)
-12. [Predict Function](#predict-function)
-13. [Diagnostic Functions](#diagnostic-functions)
-14. [Common Options](#common-options)
-15. [Return Types](#return-types)
-16. [Short Aliases](#short-aliases)
+7. [GLM Functions](#glm-functions)
+8. [ALM Functions](#alm-functions)
+9. [BLS/NNLS Functions](#blsnnls-functions)
+10. [AID Functions](#aid-functions) *(NEW)*
+11. [Fit-Predict Window Functions](#fit-predict-window-functions)
+12. [Predict Aggregate Functions](#predict-aggregate-functions)
+13. [Predict Function](#predict-function)
+14. [Diagnostic Functions](#diagnostic-functions)
+15. [Common Options](#common-options)
+16. [Return Types](#return-types)
+17. [Short Aliases](#short-aliases)
 
 ---
 
@@ -515,6 +516,144 @@ GROUP BY category;
 - Portfolio optimization without short selling
 - Physical constraints (concentrations, weights must be positive)
 - Image processing (non-negative matrix factorization)
+
+---
+
+## AID Functions
+
+AID (Automatic Identification of Demand) provides demand pattern classification and anomaly detection for time series data. Useful for inventory management, supply chain analysis, and demand forecasting.
+
+### anofox_stats_aid_agg / aid_agg
+
+Classifies demand patterns as regular or intermittent, identifies best-fit distribution, and detects various anomaly patterns.
+
+**Signature:**
+```sql
+anofox_stats_aid_agg(
+    y DOUBLE,
+    [options MAP]
+) -> STRUCT
+```
+
+**Options MAP:**
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| intermittent_threshold | DOUBLE | 0.3 | Zero proportion cutoff for intermittent classification |
+| outlier_method | VARCHAR | 'zscore' | Outlier detection: 'zscore' (mean±3σ) or 'iqr' (1.5×IQR) |
+
+**Returns:**
+```
+STRUCT(
+    demand_type VARCHAR,           -- 'regular' or 'intermittent'
+    is_intermittent BOOLEAN,       -- True if zero_proportion >= threshold
+    distribution VARCHAR,          -- Best-fit distribution name
+    mean DOUBLE,                   -- Mean of values
+    variance DOUBLE,               -- Variance of values
+    zero_proportion DOUBLE,        -- Proportion of zero values
+    n_observations BIGINT,         -- Number of observations
+    has_stockouts BOOLEAN,         -- True if stockouts detected
+    is_new_product BOOLEAN,        -- True if new product pattern (leading zeros)
+    is_obsolete_product BOOLEAN,   -- True if obsolete pattern (trailing zeros)
+    stockout_count BIGINT,         -- Number of stockout observations
+    new_product_count BIGINT,      -- Number of leading zero observations
+    obsolete_product_count BIGINT, -- Number of trailing zero observations
+    high_outlier_count BIGINT,     -- Number of unusually high values
+    low_outlier_count BIGINT       -- Number of unusually low values
+)
+```
+
+**Distribution Selection:**
+- Count-like data: `poisson`, `negative_binomial`, `geometric`
+- Continuous data: `normal`, `gamma`, `lognormal`, `rectified_normal`
+
+**Example:**
+```sql
+-- Classify demand pattern for each SKU
+SELECT
+    sku,
+    (aid_agg(demand)).*
+FROM sales
+GROUP BY sku;
+
+-- With custom threshold
+SELECT aid_agg(demand, {'intermittent_threshold': 0.4})
+FROM sales
+WHERE sku = 'WIDGET001';
+
+-- Using IQR-based outlier detection
+SELECT aid_agg(demand, {'outlier_method': 'iqr'})
+FROM inventory_data;
+```
+
+### anofox_stats_aid_anomaly_agg / aid_anomaly_agg
+
+Returns per-observation anomaly flags for demand analysis. Maintains input order.
+
+**Signature:**
+```sql
+anofox_stats_aid_anomaly_agg(
+    y DOUBLE,
+    [options MAP]
+) -> LIST(STRUCT)
+```
+
+**Options MAP:**
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| intermittent_threshold | DOUBLE | 0.3 | Zero proportion cutoff |
+| outlier_method | VARCHAR | 'zscore' | Outlier detection: 'zscore' or 'iqr' |
+
+**Returns:**
+```
+LIST(STRUCT(
+    stockout BOOLEAN,              -- Unexpected zero in positive demand
+    new_product BOOLEAN,           -- Leading zeros pattern
+    obsolete_product BOOLEAN,      -- Trailing zeros pattern
+    high_outlier BOOLEAN,          -- Unusually high value
+    low_outlier BOOLEAN            -- Unusually low value
+))
+```
+
+**Anomaly Definitions:**
+- **Stockout**: Zero value occurring between non-zero values (not at start or end)
+- **New Product**: Leading sequence of zeros (before first non-zero)
+- **Obsolete Product**: Trailing sequence of zeros (after last non-zero)
+- **High Outlier**: Value > mean + 3*std (zscore) or > Q3 + 1.5*IQR (iqr)
+- **Low Outlier**: Non-zero value < mean - 3*std (zscore) or < Q1 - 1.5*IQR (iqr)
+
+**Example:**
+```sql
+-- Get anomaly flags for demand series
+SELECT aid_anomaly_agg(demand)
+FROM (VALUES (0), (0), (5), (0), (8), (0), (0)) AS t(demand);
+-- Returns: [
+--   {stockout: false, new_product: true, ...},   -- Leading zero
+--   {stockout: false, new_product: true, ...},   -- Leading zero
+--   {stockout: false, new_product: false, ...},  -- First non-zero
+--   {stockout: true, new_product: false, ...},   -- Stockout (zero between)
+--   {stockout: false, new_product: false, ...},  -- Normal
+--   {stockout: false, obsolete_product: true,...}, -- Trailing zero
+--   {stockout: false, obsolete_product: true,...}  -- Trailing zero
+-- ]
+
+-- Identify problematic SKUs with stockouts
+WITH anomalies AS (
+    SELECT sku, aid_agg(demand) as result
+    FROM sales
+    GROUP BY sku
+)
+SELECT sku, result.stockout_count
+FROM anomalies
+WHERE result.has_stockouts
+ORDER BY result.stockout_count DESC;
+```
+
+**Use Cases:**
+- Inventory management: Identify stockout patterns
+- Product lifecycle: Detect new/obsolete products
+- Demand forecasting: Choose appropriate models based on pattern type
+- Data quality: Find outliers in demand data
+- Supply chain: Monitor for demand anomalies
 
 ---
 
@@ -1090,6 +1229,8 @@ For convenience, the following short aliases are available:
 | anofox_stats_alm_fit_agg | alm_fit_agg |
 | anofox_stats_bls_fit_agg | bls_fit_agg |
 | anofox_stats_nnls_fit_agg | nnls_fit_agg |
+| anofox_stats_aid_agg | aid_agg |
+| anofox_stats_aid_anomaly_agg | aid_anomaly_agg |
 | anofox_stats_vif | vif |
 | anofox_stats_vif_agg | vif_agg |
 | anofox_stats_aic | aic |
@@ -1129,6 +1270,7 @@ SELECT anofox_stats_ols_fit([1.0, 2.0], [[1.0, 2.0]]);
 
 ## Version History
 
+- **0.5.0**: Added AID (Automatic Identification of Demand) for demand classification and anomaly detection
 - **0.4.0**: Added GLM (Poisson), ALM (24 distributions), BLS/NNLS constrained optimization
 - **0.3.0**: Added fit_predict window functions, predict_agg aggregate functions, null_policy parameter
 - **0.2.0**: Added RLS, Jarque-Bera, residuals diagnostics, VIF aggregate
