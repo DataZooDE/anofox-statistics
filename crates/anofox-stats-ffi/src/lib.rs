@@ -2544,9 +2544,8 @@ pub unsafe extern "C" fn anofox_aid(
     };
 
     // Call the core function with panic catching
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        compute_aid(&y_vec, &opts)
-    }));
+    let result =
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| compute_aid(&y_vec, &opts)));
 
     let result = match result {
         Ok(r) => r,
@@ -2562,8 +2561,7 @@ pub unsafe extern "C" fn anofox_aid(
         Ok(aid_result) => {
             // Allocate and copy demand_type string
             let demand_type_bytes = aid_result.demand_type.as_bytes();
-            let demand_type_ptr =
-                libc::malloc(demand_type_bytes.len() + 1) as *mut libc::c_char;
+            let demand_type_ptr = libc::malloc(demand_type_bytes.len() + 1) as *mut libc::c_char;
             if demand_type_ptr.is_null() {
                 if !out_error.is_null() {
                     (*out_error).set(
@@ -2582,8 +2580,7 @@ pub unsafe extern "C" fn anofox_aid(
 
             // Allocate and copy distribution string
             let distribution_bytes = aid_result.distribution.as_bytes();
-            let distribution_ptr =
-                libc::malloc(distribution_bytes.len() + 1) as *mut libc::c_char;
+            let distribution_ptr = libc::malloc(distribution_bytes.len() + 1) as *mut libc::c_char;
             if distribution_ptr.is_null() {
                 libc::free(demand_type_ptr as *mut libc::c_void);
                 if !out_error.is_null() {
@@ -2689,8 +2686,8 @@ pub unsafe extern "C" fn anofox_aid_anomaly(
             let n = flags.len();
 
             // Allocate array for anomaly flags
-            let flags_ptr =
-                libc::malloc(n * std::mem::size_of::<AidAnomalyFlagsFFI>()) as *mut AidAnomalyFlagsFFI;
+            let flags_ptr = libc::malloc(n * std::mem::size_of::<AidAnomalyFlagsFFI>())
+                as *mut AidAnomalyFlagsFFI;
             if flags_ptr.is_null() && n > 0 {
                 if !out_error.is_null() {
                     (*out_error).set(

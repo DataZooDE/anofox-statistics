@@ -137,18 +137,12 @@ fn compute_anomaly_flags(y: &[f64], options: &AidOptions) -> Vec<AidAnomalyFlags
     // Compute statistics for outlier detection (excluding NaN)
     let valid_values: Vec<f64> = y.iter().copied().filter(|v| v.is_finite()).collect();
     if valid_values.is_empty() {
-        return y
-            .iter()
-            .map(|_| AidAnomalyFlags::default())
-            .collect();
+        return y.iter().map(|_| AidAnomalyFlags::default()).collect();
     }
 
     let mean: f64 = valid_values.iter().sum::<f64>() / valid_values.len() as f64;
     let std_dev = if valid_values.len() > 1 {
-        let variance: f64 = valid_values
-            .iter()
-            .map(|v| (v - mean).powi(2))
-            .sum::<f64>()
+        let variance: f64 = valid_values.iter().map(|v| (v - mean).powi(2)).sum::<f64>()
             / (valid_values.len() - 1) as f64;
         variance.sqrt()
     } else {
@@ -220,9 +214,7 @@ fn compute_anomaly_flags(y: &[f64], options: &AidOptions) -> Vec<AidAnomalyFlags
 
             // Stockout: zero occurring between non-zeros (not leading or trailing)
             let stockout = match (first_nonzero_idx, last_nonzero_idx) {
-                (Some(first_idx), Some(last_idx)) => {
-                    is_zero && i > first_idx && i < last_idx
-                }
+                (Some(first_idx), Some(last_idx)) => is_zero && i > first_idx && i < last_idx,
                 _ => false,
             };
 
@@ -433,9 +425,7 @@ mod tests {
         let result = compute_aid(&y, &options).unwrap();
 
         // Should select a count distribution
-        assert!(
-            result.distribution == "poisson" || result.distribution == "negative_binomial"
-        );
+        assert!(result.distribution == "poisson" || result.distribution == "negative_binomial");
     }
 
     #[test]
