@@ -303,7 +303,7 @@ static void OlsPredictAggFinalize(Vector &state_vector, AggregateInputData &aggr
 
         // Build LIST result with predictions for ALL rows
         idx_t n_rows = state.y_all.size();
-        auto list_data = ListVector::GetData(result);
+        auto *list_data = ListVector::GetData(result);
         auto list_offset = ListVector::GetListSize(result);
 
         list_data[result_idx].offset = list_offset;
@@ -334,7 +334,7 @@ static void OlsPredictAggFinalize(Vector &state_vector, AggregateInputData &aggr
             }
 
             // Set x as LIST
-            auto x_list_data = ListVector::GetData(x_vec);
+            auto *x_list_data = ListVector::GetData(x_vec);
             auto x_list_offset = ListVector::GetListSize(x_vec);
             x_list_data[child_idx].offset = x_list_offset;
             x_list_data[child_idx].length = state.n_features;

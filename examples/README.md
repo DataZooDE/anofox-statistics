@@ -11,6 +11,14 @@ examples/
 ├── model_prediction_demo.sql          # SQL demo: fit, predict, window functions
 ├── model_prediction_demo.py           # Python demo: equivalent to SQL demo
 ├── example-fit-predict-ols.sql        # Extended OLS window function examples
+│
+├── ols_single_series.sql              # Single series OLS: fit, inference, prediction
+├── ols_multiple_series.sql            # GROUP BY regression: per-group models
+├── ols_window_functions.sql           # Window functions: expanding, rolling, partitioned
+├── ols_predict_agg.sql                # Predict aggregate: fit once, predict all
+├── ols_inference.sql                  # Statistical inference: t-tests, p-values, CIs
+├── ols_diagnostics.sql                # Diagnostics: VIF, Jarque-Bera, AIC/BIC
+│
 ├── performance_10k_groups_R/          # DuckDB vs R comparison (10K groups)
 │   ├── README.md
 │   ├── generate_test_data.sql
@@ -27,6 +35,7 @@ examples/
     ├── benchmark_wls.sql
     ├── benchmark_rls.sql
     ├── benchmark_elasticnet.sql
+    ├── benchmark_ols_predict_agg.sql
     └── run_all_benchmarks.sh
 ```
 
@@ -108,6 +117,110 @@ Comprehensive examples of OLS window function usage including:
 
 ```bash
 ./build/release/duckdb < examples/example-fit-predict-ols.sql
+```
+
+## OLS Examples by Use Case
+
+Complete runnable examples covering all OLS API functionality. Each file demonstrates a specific use case with numbered examples and clear comments.
+
+| File | Use Case | Key Topics |
+|------|----------|------------|
+| `ols_single_series.sql` | Single dataset regression | Basic fit, inference, prediction, diagnostics |
+| `ols_multiple_series.sql` | Per-group regression (GROUP BY) | `ols_fit_agg`, coefficient comparison, hierarchical groups |
+| `ols_window_functions.sql` | Time series / rolling regression | Expanding, rolling, partitioned windows, `ols_fit_predict` |
+| `ols_predict_agg.sql` | Train once, predict all | `ols_predict_agg`, `null_policy`, training vs prediction rows |
+| `ols_inference.sql` | Statistical inference | t-tests, p-values, confidence intervals, F-statistic |
+| `ols_diagnostics.sql` | Model diagnostics | VIF, Jarque-Bera normality, AIC/BIC, residual analysis |
+
+### Run Examples
+
+```bash
+# Single series examples
+./build/release/duckdb < examples/ols_single_series.sql
+
+# Per-group regression
+./build/release/duckdb < examples/ols_multiple_series.sql
+
+# Window functions (expanding/rolling)
+./build/release/duckdb < examples/ols_window_functions.sql
+
+# Predict aggregate (train once, predict all)
+./build/release/duckdb < examples/ols_predict_agg.sql
+
+# Statistical inference (t-tests, p-values)
+./build/release/duckdb < examples/ols_inference.sql
+
+# Model diagnostics (VIF, normality tests)
+./build/release/duckdb < examples/ols_diagnostics.sql
+```
+
+### Example Highlights
+
+**Single Series** (`ols_single_series.sql`):
+```sql
+-- Basic OLS fit with array inputs
+SELECT * FROM ols_fit(
+    [10.0, 15.0, 20.0, 25.0, 30.0]::DOUBLE[],
+    [[1.0], [2.0], [3.0], [4.0], [5.0]]::DOUBLE[][],
+    {'intercept': true}
+);
+```
+
+**Per-Group Regression** (`ols_multiple_series.sql`):
+```sql
+-- Fit separate model per category
+SELECT category, (result).coefficients[1] AS price_effect, (result).r2
+FROM (
+    SELECT category, ols_fit_agg(sales, [price], {'intercept': true}) AS result
+    FROM sales_data
+    GROUP BY category
+) sub;
+```
+
+**Window Functions** (`ols_window_functions.sql`):
+```sql
+-- Expanding window: train on all preceding rows
+SELECT ols_fit_predict(y, [x], {'intercept': true})
+    OVER (ORDER BY time ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)
+FROM data;
+
+-- Rolling window: train on last 10 rows
+SELECT ols_fit_predict(y, [x], {'intercept': true})
+    OVER (ORDER BY time ROWS BETWEEN 9 PRECEDING AND 1 PRECEDING)
+FROM data;
+```
+
+**Predict Aggregate** (`ols_predict_agg.sql`):
+```sql
+-- Fit once per group, predict all rows (including future)
+SELECT store_id, UNNEST(ols_predict_agg(sales, [marketing_spend])) AS pred
+FROM data
+GROUP BY store_id;
+-- Returns: y, x, yhat, yhat_lower, yhat_upper, is_training
+```
+
+**Statistical Inference** (`ols_inference.sql`):
+```sql
+-- Full inference with significance stars
+SELECT
+    coefficients[1] AS estimate,
+    coefficient_p_values[1] AS p_value,
+    CASE WHEN coefficient_p_values[1] < 0.001 THEN '***'
+         WHEN coefficient_p_values[1] < 0.01 THEN '**'
+         WHEN coefficient_p_values[1] < 0.05 THEN '*' ELSE '' END AS sig
+FROM ols_fit(y_arr, x_arr, {'intercept': true, 'full_output': true});
+```
+
+**Diagnostics** (`ols_diagnostics.sql`):
+```sql
+-- VIF for multicollinearity
+SELECT vif_agg([x1, x2, x3]) AS vif_values FROM data;
+
+-- Jarque-Bera normality test
+SELECT (jarque_bera(residuals)).p_value AS normality_p FROM fitted;
+
+-- AIC/BIC for model comparison
+SELECT aic(rss, n, k), bic(rss, n, k) FROM model_stats;
 ```
 
 ## Performance Benchmarks
