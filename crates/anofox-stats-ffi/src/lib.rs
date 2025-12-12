@@ -1686,6 +1686,13 @@ pub unsafe extern "C" fn anofox_poisson_fit(
 }
 
 /// Fit a Binomial (logistic) regression model
+///
+/// # Safety
+/// - `y` must be a valid DataArray with binary (0/1) values
+/// - `x` must point to `x_count` valid DataArray structs
+/// - `out_result` must be a valid pointer
+/// - `out_inference` can be NULL if not needed
+/// - `out_error` must be a valid pointer
 #[no_mangle]
 pub unsafe extern "C" fn anofox_binomial_fit(
     y: DataArray,
@@ -1821,6 +1828,13 @@ pub unsafe extern "C" fn anofox_binomial_fit(
 }
 
 /// Fit a Negative Binomial regression model
+///
+/// # Safety
+/// - `y` must be a valid DataArray with count values
+/// - `x` must point to `x_count` valid DataArray structs
+/// - `out_result` must be a valid pointer
+/// - `out_inference` can be NULL if not needed
+/// - `out_error` must be a valid pointer
 #[no_mangle]
 pub unsafe extern "C" fn anofox_negbinomial_fit(
     y: DataArray,
@@ -1953,6 +1967,13 @@ pub unsafe extern "C" fn anofox_negbinomial_fit(
 }
 
 /// Fit a Tweedie regression model
+///
+/// # Safety
+/// - `y` must be a valid DataArray with non-negative values
+/// - `x` must point to `x_count` valid DataArray structs
+/// - `out_result` must be a valid pointer
+/// - `out_inference` can be NULL if not needed
+/// - `out_error` must be a valid pointer
 #[no_mangle]
 pub unsafe extern "C" fn anofox_tweedie_fit(
     y: DataArray,
@@ -2082,6 +2103,10 @@ pub unsafe extern "C" fn anofox_tweedie_fit(
 }
 
 /// Free memory allocated by GLM fit functions
+///
+/// # Safety
+/// - `result` must be NULL or a valid pointer to a GlmFitResultCore
+/// - Must only be called once per result (double-free is undefined behavior)
 #[no_mangle]
 pub unsafe extern "C" fn anofox_free_glm_result(result: *mut GlmFitResultCore) {
     if result.is_null() {
@@ -2140,6 +2165,13 @@ fn convert_alm_loss(loss: AlmLossFFI) -> AlmLoss {
 }
 
 /// Fit an Augmented Linear Model (ALM)
+///
+/// # Safety
+/// - `y` must be a valid DataArray
+/// - `x` must point to `x_count` valid DataArray structs
+/// - `out_result` must be a valid pointer
+/// - `out_inference` can be NULL if not needed
+/// - `out_error` must be a valid pointer
 #[no_mangle]
 pub unsafe extern "C" fn anofox_alm_fit(
     y: DataArray,
@@ -2271,6 +2303,10 @@ pub unsafe extern "C" fn anofox_alm_fit(
 }
 
 /// Free memory allocated by ALM fit function
+///
+/// # Safety
+/// - `result` must be NULL or a valid pointer to an AlmFitResultCore
+/// - Must only be called once per result (double-free is undefined behavior)
 #[no_mangle]
 pub unsafe extern "C" fn anofox_free_alm_result(result: *mut AlmFitResultCore) {
     if result.is_null() {
@@ -2287,6 +2323,14 @@ pub unsafe extern "C" fn anofox_free_alm_result(result: *mut AlmFitResultCore) {
 // =============================================================================
 
 /// Fit a Bounded Least Squares / NNLS model
+///
+/// # Safety
+/// - `y` must be a valid DataArray
+/// - `x` must point to `x_count` valid DataArray structs
+/// - `options.lower_bounds` must be NULL or point to `options.lower_bounds_len` valid f64 values
+/// - `options.upper_bounds` must be NULL or point to `options.upper_bounds_len` valid f64 values
+/// - `out_result` must be a valid pointer
+/// - `out_error` must be a valid pointer
 #[no_mangle]
 pub unsafe extern "C" fn anofox_bls_fit(
     y: DataArray,
@@ -2404,6 +2448,12 @@ pub unsafe extern "C" fn anofox_bls_fit(
 }
 
 /// Fit NNLS (Non-Negative Least Squares) - convenience function
+///
+/// # Safety
+/// - `y` must be a valid DataArray
+/// - `x` must point to `x_count` valid DataArray structs
+/// - `out_result` must be a valid pointer
+/// - `out_error` must be a valid pointer
 #[no_mangle]
 pub unsafe extern "C" fn anofox_nnls_fit(
     y: DataArray,
@@ -2426,6 +2476,10 @@ pub unsafe extern "C" fn anofox_nnls_fit(
 }
 
 /// Free memory allocated by BLS fit function
+///
+/// # Safety
+/// - `result` must be NULL or a valid pointer to a BlsFitResultCore
+/// - Must only be called once per result (double-free is undefined behavior)
 #[no_mangle]
 pub unsafe extern "C" fn anofox_free_bls_result(result: *mut BlsFitResultCore) {
     if result.is_null() {
