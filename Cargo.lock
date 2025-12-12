@@ -104,8 +104,7 @@ dependencies = [
 [[package]]
 name = "argmin"
 version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e7ab7ca97779074715a402e5e8045fae27e7191acaec9b4c5653276316e9e404"
+source = "git+https://github.com/DataZooDE/argmin.git?branch=fix%2Fstable-rust-compat#1b6618ef5ded2683a287875eed20ef569be86dad"
 dependencies = [
  "anyhow",
  "argmin-math",
@@ -119,8 +118,7 @@ dependencies = [
 [[package]]
 name = "argmin-math"
 version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ba6958a87117ff5e1d0d7716856a4303752518012ec4a67a68446b6631a1a54d"
+source = "git+https://github.com/DataZooDE/argmin.git?branch=fix%2Fstable-rust-compat#1b6618ef5ded2683a287875eed20ef569be86dad"
 dependencies = [
  "anyhow",
  "cfg-if",
