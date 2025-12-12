@@ -251,18 +251,18 @@ fn select_distribution(values: &[f64], mean: f64, variance: f64, is_intermittent
             // High zero proportion suggests Negative Binomial or Geometric
             // Check for overdispersion (variance > mean)
             if variance > mean * 1.5 {
-                return "negative_binomial".to_string();
+                "negative_binomial".to_string()
             } else {
-                return "geometric".to_string();
+                "geometric".to_string()
             }
         } else {
             // Regular count data
             // Poisson if variance ≈ mean, otherwise Negative Binomial
             let dispersion_ratio = if mean > 0.0 { variance / mean } else { 1.0 };
             if dispersion_ratio < 1.5 {
-                return "poisson".to_string();
+                "poisson".to_string()
             } else {
-                return "negative_binomial".to_string();
+                "negative_binomial".to_string()
             }
         }
     } else {
@@ -280,19 +280,19 @@ fn select_distribution(values: &[f64], mean: f64, variance: f64, is_intermittent
 
             if skewness > 1.0 {
                 // Highly right-skewed -> lognormal
-                return "lognormal".to_string();
+                "lognormal".to_string()
             } else if skewness > 0.5 {
                 // Moderately skewed -> gamma
-                return "gamma".to_string();
+                "gamma".to_string()
             } else if is_intermittent {
                 // Low skew but intermittent -> rectified_normal
-                return "rectified_normal".to_string();
+                "rectified_normal".to_string()
             } else {
-                return "normal".to_string();
+                "normal".to_string()
             }
         } else {
             // Can have negative values -> normal
-            return "normal".to_string();
+            "normal".to_string()
         }
     }
 }
@@ -307,8 +307,7 @@ fn compute_skewness(values: &[f64], mean: f64, std_dev: f64) -> f64 {
     let m3: f64 = values.iter().map(|&v| ((v - mean) / std_dev).powi(3)).sum();
 
     // Sample skewness with bias correction
-    let skewness = (m3 / n) * (n * (n - 1.0)).sqrt() / (n - 2.0);
-    skewness
+    (m3 / n) * (n * (n - 1.0)).sqrt() / (n - 2.0)
 }
 
 #[cfg(test)]
