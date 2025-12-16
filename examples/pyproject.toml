@@ -1,13 +1,12 @@
 [project]
-name = "anofox-stats-examples"
+name = "examples"
 version = "0.1.0"
 description = "Python examples for anofox_stats DuckDB extension"
 requires-python = ">=3.10"
 dependencies = [
     "duckdb>=1.0.0",
+    "marimo>=0.18.4",
+    "nbformat>=5.10.4",
     "pandas>=2.0.0",
+    "sqlglot>=28.3.0",
 ]
-
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
