@@ -64,6 +64,35 @@ void RegisterAnovaAggregateFunction(ExtensionLoader &loader);
 void RegisterKruskalWallisAggregateFunction(ExtensionLoader &loader);
 void RegisterChiSquareAggregateFunction(ExtensionLoader &loader);
 
+// Phase 1: Aggregates for existing FFI
+void RegisterKendallAggregateFunction(ExtensionLoader &loader);
+void RegisterFisherExactAggregateFunction(ExtensionLoader &loader);
+void RegisterBrunnerMunzelAggregateFunction(ExtensionLoader &loader);
+void RegisterDAgostinoK2AggregateFunction(ExtensionLoader &loader);
+void RegisterEnergyDistanceAggregateFunction(ExtensionLoader &loader);
+void RegisterMmdAggregateFunction(ExtensionLoader &loader);
+void RegisterTostTTestAggregateFunction(ExtensionLoader &loader);
+void RegisterWilcoxonSignedRankAggregateFunction(ExtensionLoader &loader);
+void RegisterDistanceCorAggregateFunction(ExtensionLoader &loader);
+void RegisterYuenAggregateFunction(ExtensionLoader &loader);
+void RegisterBrownForsytheAggregateFunction(ExtensionLoader &loader);
+void RegisterDieboldMarianoAggregateFunction(ExtensionLoader &loader);
+void RegisterClarkWestAggregateFunction(ExtensionLoader &loader);
+void RegisterPermutationTTestAggregateFunction(ExtensionLoader &loader);
+void RegisterTostPairedAggregateFunction(ExtensionLoader &loader);
+void RegisterTostCorrelationAggregateFunction(ExtensionLoader &loader);
+void RegisterChisqGofAggregateFunction(ExtensionLoader &loader);
+void RegisterPropTestOneAggregateFunction(ExtensionLoader &loader);
+void RegisterPropTestTwoAggregateFunction(ExtensionLoader &loader);
+void RegisterBinomTestAggregateFunction(ExtensionLoader &loader);
+void RegisterCramersVAggregateFunction(ExtensionLoader &loader);
+void RegisterCohenKappaAggregateFunction(ExtensionLoader &loader);
+void RegisterIccAggregateFunction(ExtensionLoader &loader);
+void RegisterGTestAggregateFunction(ExtensionLoader &loader);
+void RegisterMcNemarAggregateFunction(ExtensionLoader &loader);
+void RegisterPhiCoefficientAggregateFunction(ExtensionLoader &loader);
+void RegisterContingencyCoefAggregateFunction(ExtensionLoader &loader);
+
 // Extension class required for static linking
 class AnofoxStatisticsExtension : public Extension {
 public:

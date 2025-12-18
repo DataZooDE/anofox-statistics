@@ -2766,13 +2766,20 @@ pub unsafe extern "C" fn anofox_free_aid_anomaly_result(result: *mut AidAnomalyR
 // =============================================================================
 
 use anofox_stats_core::tests::{
-    parametric::{t_test, TTestOptions, one_way_anova, AnovaOptions},
-    nonparametric::{mann_whitney_u, MannWhitneyOptions, kruskal_wallis, brunner_munzel, BrunnerMunzelOptions},
+    parametric::{t_test, TTestOptions, one_way_anova, AnovaOptions, yuen_test, YuenOptions, brown_forsythe},
+    nonparametric::{mann_whitney_u, MannWhitneyOptions, kruskal_wallis, brunner_munzel, BrunnerMunzelOptions, wilcoxon_signed_rank, WilcoxonOptions},
     distributional::{shapiro_wilk, dagostino_k_squared},
-    correlation::{pearson, spearman, kendall, PearsonOptions, SpearmanOptions, KendallOptions},
-    categorical::{chisq_test, fisher_exact, ChiSquareOptions, FisherExactOptions},
+    correlation::{pearson, spearman, kendall, distance_cor, distance_cor_test, icc, PearsonOptions, SpearmanOptions, KendallOptions, DistanceCorTestOptions, ICCResult},
+    categorical::{
+        chisq_test, chisq_goodness_of_fit, g_test, fisher_exact, mcnemar_test,
+        cramers_v, phi_coefficient, contingency_coef, cohen_kappa,
+        prop_test_one, prop_test_two, binom_test,
+        ChiSquareOptions, FisherExactOptions, McNemarOptions, PropTestOptions,
+    },
     modern::{energy_distance_test, mmd_test, EnergyDistanceOptions, MmdOptions},
-    equivalence::{tost_t_test_two_sample, TostTTestOptions, TostBounds},
+    equivalence::{tost_t_test_two_sample, tost_t_test_paired, tost_correlation, TostTTestOptions, TostCorrelationOptions, TostCorrelationMethod, TostBounds},
+    forecast::{diebold_mariano, clark_west, DieboldMarianoOptions, ForecastLoss, ForecastVarEstimator},
+    resampling::{permutation_t_test, PermutationTTestOptions},
 };
 use anofox_tests::{KendallVariant, TTestKind};
 use libc::c_char;
@@ -3912,6 +3919,1624 @@ pub unsafe extern "C" fn anofox_tost_t_test(
     }
 }
 
+/// TOST paired t-test for equivalence
+///
+/// # Safety
+/// - `x` and `y` must be valid DataArrays of equal length
+/// - `out_result` must be a valid pointer
+/// - `out_error` must be a valid pointer
+#[no_mangle]
+pub unsafe extern "C" fn anofox_tost_t_test_paired(
+    x: DataArray,
+    y: DataArray,
+    options: TostOptionsFFI,
+    out_result: *mut TostResultFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    if !out_error.is_null() {
+        *out_error = AnofoxError::success();
+    }
+
+    if out_result.is_null() {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+        }
+        return false;
+    }
+
+    let x_vec = x.to_vec();
+    let y_vec = y.to_vec();
+
+    let opts = TostTTestOptions {
+        bounds: TostBounds::Raw {
+            lower: options.bound_lower,
+            upper: options.bound_upper,
+        },
+        alpha: options.alpha,
+        pooled: options.pooled,
+    };
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        tost_t_test_paired(&x_vec, &y_vec, &opts)
+    }));
+
+    let result = match result {
+        Ok(r) => r,
+        Err(_) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InternalError, "Internal panic in TOST paired");
+            }
+            return false;
+        }
+    };
+
+    match result {
+        Ok(r) => {
+            (*out_result) = TostResultFFI {
+                t_lower: r.statistic_lower,
+                t_upper: r.statistic_upper,
+                p_lower: r.p_value_lower,
+                p_upper: r.p_value_upper,
+                p_value: r.p_value,
+                df: r.df,
+                estimate: r.estimate,
+                ci_lower: r.ci_lower,
+                ci_upper: r.ci_upper,
+                bound_lower: r.bounds_lower,
+                bound_upper: r.bounds_upper,
+                equivalent: r.equivalent,
+                n: r.n,
+                method: alloc_string(&r.method),
+            };
+            true
+        }
+        Err(e) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+            }
+            false
+        }
+    }
+}
+
+/// Correlation method for TOST
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub enum TostCorrelationMethodFFI {
+    Pearson = 0,
+    Spearman = 1,
+}
+
+impl From<TostCorrelationMethodFFI> for TostCorrelationMethod {
+    fn from(m: TostCorrelationMethodFFI) -> Self {
+        match m {
+            TostCorrelationMethodFFI::Pearson => TostCorrelationMethod::Pearson,
+            TostCorrelationMethodFFI::Spearman => TostCorrelationMethod::Spearman,
+        }
+    }
+}
+
+/// TOST correlation test for equivalence to zero
+///
+/// # Safety
+/// - `x` and `y` must be valid DataArrays of equal length
+/// - `out_result` must be a valid pointer
+/// - `out_error` must be a valid pointer
+#[no_mangle]
+pub unsafe extern "C" fn anofox_tost_correlation(
+    x: DataArray,
+    y: DataArray,
+    rho_null: f64,
+    bound_lower: f64,
+    bound_upper: f64,
+    alpha: f64,
+    method: TostCorrelationMethodFFI,
+    out_result: *mut TostResultFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    if !out_error.is_null() {
+        *out_error = AnofoxError::success();
+    }
+
+    if out_result.is_null() {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+        }
+        return false;
+    }
+
+    let x_vec = x.to_vec();
+    let y_vec = y.to_vec();
+
+    let opts = TostCorrelationOptions {
+        rho_null,
+        bounds: TostBounds::Raw {
+            lower: bound_lower,
+            upper: bound_upper,
+        },
+        method: method.into(),
+        alpha,
+    };
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        tost_correlation(&x_vec, &y_vec, &opts)
+    }));
+
+    let result = match result {
+        Ok(r) => r,
+        Err(_) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InternalError, "Internal panic in TOST correlation");
+            }
+            return false;
+        }
+    };
+
+    match result {
+        Ok(r) => {
+            (*out_result) = TostResultFFI {
+                t_lower: r.statistic_lower,
+                t_upper: r.statistic_upper,
+                p_lower: r.p_value_lower,
+                p_upper: r.p_value_upper,
+                p_value: r.p_value,
+                df: r.df,
+                estimate: r.estimate,
+                ci_lower: r.ci_lower,
+                ci_upper: r.ci_upper,
+                bound_lower: r.bounds_lower,
+                bound_upper: r.bounds_upper,
+                equivalent: r.equivalent,
+                n: r.n,
+                method: alloc_string(&r.method),
+            };
+            true
+        }
+        Err(e) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+            }
+            false
+        }
+    }
+}
+
+/// Wilcoxon signed-rank test for paired samples
+///
+/// # Safety
+/// - `x` and `y` must be valid DataArrays of equal length
+/// - `out_result` must be a valid pointer
+/// - `out_error` must be a valid pointer
+#[no_mangle]
+pub unsafe extern "C" fn anofox_wilcoxon_signed_rank(
+    x: DataArray,
+    y: DataArray,
+    options: WilcoxonOptionsFFI,
+    out_result: *mut TestResultFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    if !out_error.is_null() {
+        *out_error = AnofoxError::success();
+    }
+
+    if out_result.is_null() {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+        }
+        return false;
+    }
+
+    let x_vec = x.to_vec();
+    let y_vec = y.to_vec();
+
+    let opts = WilcoxonOptions {
+        alternative: options.alternative.into(),
+        exact: options.exact,
+        continuity_correction: options.continuity_correction,
+        confidence_level: if options.confidence_level > 0.0 { Some(options.confidence_level) } else { None },
+        mu: if options.mu != 0.0 { Some(options.mu) } else { None },
+    };
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        wilcoxon_signed_rank(&x_vec, &y_vec, &opts)
+    }));
+
+    let result = match result {
+        Ok(r) => r,
+        Err(_) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InternalError, "Internal panic in Wilcoxon signed-rank");
+            }
+            return false;
+        }
+    };
+
+    match result {
+        Ok(r) => {
+            (*out_result) = TestResultFFI {
+                statistic: r.statistic,
+                p_value: r.p_value,
+                df: r.df,
+                effect_size: r.effect_size,
+                ci_lower: r.ci_lower,
+                ci_upper: r.ci_upper,
+                confidence_level: r.confidence_level,
+                n: r.n,
+                n1: r.n1,
+                n2: r.n2,
+                alternative: r.alternative.into(),
+                method: alloc_string(&r.method),
+            };
+            true
+        }
+        Err(e) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+            }
+            false
+        }
+    }
+}
+
+// =============================================================================
+// Categorical Tests FFI Functions
+// =============================================================================
+
+/// Chi-square goodness-of-fit test
+///
+/// # Safety
+/// - `observed` and `expected` must be valid DataArrays of equal length
+/// - `out_result` must be a valid pointer
+/// - `out_error` must be a valid pointer
+#[no_mangle]
+pub unsafe extern "C" fn anofox_chisq_goodness_of_fit(
+    observed: *const usize,
+    observed_len: usize,
+    expected: *const f64,
+    expected_len: usize,
+    out_result: *mut ChiSquareResultFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    if !out_error.is_null() {
+        *out_error = AnofoxError::success();
+    }
+
+    if out_result.is_null() {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+        }
+        return false;
+    }
+
+    if observed.is_null() || observed_len == 0 {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "observed is NULL or empty");
+        }
+        return false;
+    }
+
+    if expected.is_null() || expected_len != observed_len {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::DimensionMismatch, "expected must have same length as observed");
+        }
+        return false;
+    }
+
+    let obs = std::slice::from_raw_parts(observed, observed_len).to_vec();
+    let exp = std::slice::from_raw_parts(expected, expected_len).to_vec();
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        chisq_goodness_of_fit(&obs, &exp)
+    }));
+
+    let result = match result {
+        Ok(r) => r,
+        Err(_) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InternalError, "Internal panic in chi-square GOF");
+            }
+            return false;
+        }
+    };
+
+    match result {
+        Ok(r) => {
+            (*out_result) = ChiSquareResultFFI {
+                statistic: r.statistic,
+                p_value: r.p_value,
+                df: r.df,
+                method: alloc_string(&r.method),
+            };
+            true
+        }
+        Err(e) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+            }
+            false
+        }
+    }
+}
+
+/// One-sample proportion z-test
+///
+/// # Safety
+/// - `out_result` must be a valid pointer
+/// - `out_error` must be a valid pointer
+#[no_mangle]
+pub unsafe extern "C" fn anofox_prop_test_one(
+    successes: usize,
+    trials: usize,
+    p0: f64,
+    alternative: AlternativeFFI,
+    out_result: *mut PropTestResultFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    if !out_error.is_null() {
+        *out_error = AnofoxError::success();
+    }
+
+    if out_result.is_null() {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+        }
+        return false;
+    }
+
+    let opts = PropTestOptions {
+        alternative: alternative.into(),
+        correction: true,
+    };
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        prop_test_one(successes, trials, p0, &opts)
+    }));
+
+    let result = match result {
+        Ok(r) => r,
+        Err(_) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InternalError, "Internal panic in prop_test_one");
+            }
+            return false;
+        }
+    };
+
+    match result {
+        Ok(r) => {
+            (*out_result) = PropTestResultFFI {
+                statistic: r.statistic,
+                p_value: r.p_value,
+                estimate: r.estimate.get(0).copied().unwrap_or(f64::NAN),
+                ci_lower: r.ci_lower,
+                ci_upper: r.ci_upper,
+                n: trials,
+                alternative: r.alternative.into(),
+                method: alloc_string("One-sample proportion z-test"),
+            };
+            true
+        }
+        Err(e) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+            }
+            false
+        }
+    }
+}
+
+/// Two-sample proportion z-test
+///
+/// # Safety
+/// - `out_result` must be a valid pointer
+/// - `out_error` must be a valid pointer
+#[no_mangle]
+pub unsafe extern "C" fn anofox_prop_test_two(
+    successes1: usize,
+    trials1: usize,
+    successes2: usize,
+    trials2: usize,
+    alternative: AlternativeFFI,
+    correction: bool,
+    out_result: *mut PropTestResultFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    if !out_error.is_null() {
+        *out_error = AnofoxError::success();
+    }
+
+    if out_result.is_null() {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+        }
+        return false;
+    }
+
+    let opts = PropTestOptions {
+        alternative: alternative.into(),
+        correction,
+    };
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        prop_test_two(successes1, trials1, successes2, trials2, &opts)
+    }));
+
+    let result = match result {
+        Ok(r) => r,
+        Err(_) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InternalError, "Internal panic in prop_test_two");
+            }
+            return false;
+        }
+    };
+
+    match result {
+        Ok(r) => {
+            (*out_result) = PropTestResultFFI {
+                statistic: r.statistic,
+                p_value: r.p_value,
+                estimate: r.estimate.get(0).copied().unwrap_or(f64::NAN),
+                ci_lower: r.ci_lower,
+                ci_upper: r.ci_upper,
+                n: trials1 + trials2,
+                alternative: r.alternative.into(),
+                method: alloc_string("Two-sample proportion z-test"),
+            };
+            true
+        }
+        Err(e) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+            }
+            false
+        }
+    }
+}
+
+/// Exact binomial test
+///
+/// # Safety
+/// - `out_result` must be a valid pointer
+/// - `out_error` must be a valid pointer
+#[no_mangle]
+pub unsafe extern "C" fn anofox_binom_test(
+    successes: usize,
+    trials: usize,
+    p0: f64,
+    alternative: AlternativeFFI,
+    out_result: *mut PropTestResultFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    if !out_error.is_null() {
+        *out_error = AnofoxError::success();
+    }
+
+    if out_result.is_null() {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+        }
+        return false;
+    }
+
+    let opts = PropTestOptions {
+        alternative: alternative.into(),
+        correction: false,
+    };
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        binom_test(successes, trials, p0, &opts)
+    }));
+
+    let result = match result {
+        Ok(r) => r,
+        Err(_) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InternalError, "Internal panic in binom_test");
+            }
+            return false;
+        }
+    };
+
+    match result {
+        Ok(r) => {
+            (*out_result) = PropTestResultFFI {
+                statistic: r.statistic,
+                p_value: r.p_value,
+                estimate: r.estimate.get(0).copied().unwrap_or(f64::NAN),
+                ci_lower: r.ci_lower,
+                ci_upper: r.ci_upper,
+                n: trials,
+                alternative: r.alternative.into(),
+                method: alloc_string("Exact binomial test"),
+            };
+            true
+        }
+        Err(e) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+            }
+            false
+        }
+    }
+}
+
+/// Cramer's V effect size for contingency tables
+///
+/// # Safety
+/// - `table` and `row_lengths` must be valid pointers
+/// - `out_result` and `out_error` must be valid pointers
+#[no_mangle]
+pub unsafe extern "C" fn anofox_cramers_v(
+    table: *const usize,
+    row_lengths: *const usize,
+    n_rows: usize,
+    out_result: *mut f64,
+    out_error: *mut AnofoxError,
+) -> bool {
+    if !out_error.is_null() {
+        *out_error = AnofoxError::success();
+    }
+
+    if out_result.is_null() {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+        }
+        return false;
+    }
+
+    if table.is_null() || row_lengths.is_null() || n_rows == 0 {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "Invalid table data");
+        }
+        return false;
+    }
+
+    // Reconstruct the 2D table from flat array
+    let lengths = std::slice::from_raw_parts(row_lengths, n_rows);
+    let mut table_vec: Vec<Vec<usize>> = Vec::with_capacity(n_rows);
+    let mut offset = 0;
+    for &len in lengths {
+        let row = std::slice::from_raw_parts(table.add(offset), len).to_vec();
+        table_vec.push(row);
+        offset += len;
+    }
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        cramers_v(&table_vec)
+    }));
+
+    let result = match result {
+        Ok(r) => r,
+        Err(_) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InternalError, "Internal panic in cramers_v");
+            }
+            return false;
+        }
+    };
+
+    match result {
+        Ok(v) => {
+            *out_result = v;
+            true
+        }
+        Err(e) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+            }
+            false
+        }
+    }
+}
+
+/// Cohen's kappa for inter-rater agreement
+///
+/// # Safety
+/// - `table` and `row_lengths` must be valid pointers
+/// - `out_result` and `out_error` must be valid pointers
+#[no_mangle]
+pub unsafe extern "C" fn anofox_cohen_kappa(
+    table: *const usize,
+    row_lengths: *const usize,
+    n_rows: usize,
+    weighted: bool,
+    out_result: *mut KappaResultFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    if !out_error.is_null() {
+        *out_error = AnofoxError::success();
+    }
+
+    if out_result.is_null() {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+        }
+        return false;
+    }
+
+    if table.is_null() || row_lengths.is_null() || n_rows == 0 {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "Invalid table data");
+        }
+        return false;
+    }
+
+    // Reconstruct the 2D table from flat array
+    let lengths = std::slice::from_raw_parts(row_lengths, n_rows);
+    let mut table_vec: Vec<Vec<usize>> = Vec::with_capacity(n_rows);
+    let mut offset = 0;
+    for &len in lengths {
+        let row = std::slice::from_raw_parts(table.add(offset), len).to_vec();
+        table_vec.push(row);
+        offset += len;
+    }
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        cohen_kappa(&table_vec, weighted)
+    }));
+
+    let result = match result {
+        Ok(r) => r,
+        Err(_) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InternalError, "Internal panic in cohen_kappa");
+            }
+            return false;
+        }
+    };
+
+    match result {
+        Ok(r) => {
+            (*out_result) = KappaResultFFI {
+                kappa: r.kappa,
+                se: r.se,
+                ci_lower: r.ci_lower,
+                ci_upper: r.ci_upper,
+                z: r.z,
+                p_value: r.p_value,
+            };
+            true
+        }
+        Err(e) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+            }
+            false
+        }
+    }
+}
+
+/// G-test (log-likelihood ratio test) for contingency tables
+///
+/// Takes a flattened contingency table (row-major order)
+///
+/// # Safety
+/// - `table` and `row_lengths` must be valid pointers
+/// - `out_result` and `out_error` must be valid pointers
+#[no_mangle]
+pub unsafe extern "C" fn anofox_g_test(
+    table: *const usize,
+    row_lengths: *const usize,
+    n_rows: usize,
+    out_result: *mut ChiSquareResultFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    if !out_error.is_null() {
+        *out_error = AnofoxError::success();
+    }
+
+    if out_result.is_null() {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+        }
+        return false;
+    }
+
+    if table.is_null() || row_lengths.is_null() || n_rows == 0 {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "Invalid table data");
+        }
+        return false;
+    }
+
+    // Reconstruct the 2D table from flat array
+    let lengths = std::slice::from_raw_parts(row_lengths, n_rows);
+    let mut table_vec: Vec<Vec<usize>> = Vec::with_capacity(n_rows);
+    let mut offset = 0;
+    for &len in lengths {
+        let row = std::slice::from_raw_parts(table.add(offset), len).to_vec();
+        table_vec.push(row);
+        offset += len;
+    }
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        g_test(&table_vec)
+    }));
+
+    let result = match result {
+        Ok(r) => r,
+        Err(_) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InternalError, "Internal panic in g_test");
+            }
+            return false;
+        }
+    };
+
+    match result {
+        Ok(r) => {
+            (*out_result) = ChiSquareResultFFI {
+                statistic: r.statistic,
+                p_value: r.p_value,
+                df: r.df,
+                method: alloc_string(&r.method),
+            };
+            true
+        }
+        Err(e) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+            }
+            false
+        }
+    }
+}
+
+/// McNemar's test for paired categorical data
+///
+/// Takes a 2x2 contingency table as 4 cell counts: a, b, c, d
+/// where the table is [[a, b], [c, d]]
+///
+/// # Safety
+/// - `out_result` and `out_error` must be valid pointers
+#[no_mangle]
+pub unsafe extern "C" fn anofox_mcnemar_test(
+    a: usize,
+    b: usize,
+    c: usize,
+    d: usize,
+    correction: bool,
+    exact: bool,
+    out_result: *mut ChiSquareResultFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    if !out_error.is_null() {
+        *out_error = AnofoxError::success();
+    }
+
+    if out_result.is_null() {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+        }
+        return false;
+    }
+
+    let table: [[usize; 2]; 2] = [[a, b], [c, d]];
+    let opts = McNemarOptions { correction, exact };
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        mcnemar_test(&table, &opts)
+    }));
+
+    let result = match result {
+        Ok(r) => r,
+        Err(_) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InternalError, "Internal panic in mcnemar_test");
+            }
+            return false;
+        }
+    };
+
+    match result {
+        Ok(r) => {
+            (*out_result) = ChiSquareResultFFI {
+                statistic: r.statistic,
+                p_value: r.p_value,
+                df: r.df,
+                method: alloc_string(&r.method),
+            };
+            true
+        }
+        Err(e) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+            }
+            false
+        }
+    }
+}
+
+/// Phi coefficient for 2x2 contingency tables
+///
+/// Takes a 2x2 contingency table as 4 cell counts: a, b, c, d
+/// where the table is [[a, b], [c, d]]
+///
+/// # Safety
+/// - `out_result` and `out_error` must be valid pointers
+#[no_mangle]
+pub unsafe extern "C" fn anofox_phi_coefficient(
+    a: usize,
+    b: usize,
+    c: usize,
+    d: usize,
+    out_result: *mut f64,
+    out_error: *mut AnofoxError,
+) -> bool {
+    if !out_error.is_null() {
+        *out_error = AnofoxError::success();
+    }
+
+    if out_result.is_null() {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+        }
+        return false;
+    }
+
+    let table: [[usize; 2]; 2] = [[a, b], [c, d]];
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        phi_coefficient(&table)
+    }));
+
+    let result = match result {
+        Ok(r) => r,
+        Err(_) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InternalError, "Internal panic in phi_coefficient");
+            }
+            return false;
+        }
+    };
+
+    match result {
+        Ok(r) => {
+            *out_result = r;
+            true
+        }
+        Err(e) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+            }
+            false
+        }
+    }
+}
+
+/// Contingency coefficient (Pearson's C)
+///
+/// # Safety
+/// - `table` and `row_lengths` must be valid pointers
+/// - `out_result` and `out_error` must be valid pointers
+#[no_mangle]
+pub unsafe extern "C" fn anofox_contingency_coef(
+    table: *const usize,
+    row_lengths: *const usize,
+    n_rows: usize,
+    out_result: *mut f64,
+    out_error: *mut AnofoxError,
+) -> bool {
+    if !out_error.is_null() {
+        *out_error = AnofoxError::success();
+    }
+
+    if out_result.is_null() {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+        }
+        return false;
+    }
+
+    if table.is_null() || row_lengths.is_null() || n_rows == 0 {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "Invalid table data");
+        }
+        return false;
+    }
+
+    // Reconstruct the 2D table from flat array
+    let lengths = std::slice::from_raw_parts(row_lengths, n_rows);
+    let mut table_vec: Vec<Vec<usize>> = Vec::with_capacity(n_rows);
+    let mut offset = 0;
+    for &len in lengths {
+        let row = std::slice::from_raw_parts(table.add(offset), len).to_vec();
+        table_vec.push(row);
+        offset += len;
+    }
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        contingency_coef(&table_vec)
+    }));
+
+    let result = match result {
+        Ok(r) => r,
+        Err(_) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InternalError, "Internal panic in contingency_coef");
+            }
+            return false;
+        }
+    };
+
+    match result {
+        Ok(r) => {
+            *out_result = r;
+            true
+        }
+        Err(e) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+            }
+            false
+        }
+    }
+}
+
+// =============================================================================
+// Parametric Tests FFI Functions
+// =============================================================================
+
+/// Yuen's trimmed mean test
+///
+/// # Safety
+/// - `group1` and `group2` must be valid DataArrays
+/// - `out_result` must be a valid pointer
+/// - `out_error` must be a valid pointer
+#[no_mangle]
+pub unsafe extern "C" fn anofox_yuen_test(
+    group1: DataArray,
+    group2: DataArray,
+    trim: f64,
+    alternative: AlternativeFFI,
+    confidence_level: f64,
+    out_result: *mut TestResultFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    if !out_error.is_null() {
+        *out_error = AnofoxError::success();
+    }
+
+    if out_result.is_null() {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+        }
+        return false;
+    }
+
+    let g1 = group1.to_vec();
+    let g2 = group2.to_vec();
+
+    let opts = YuenOptions {
+        alternative: alternative.into(),
+        trim,
+        confidence_level: Some(confidence_level),
+    };
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        yuen_test(&g1, &g2, &opts)
+    }));
+
+    let result = match result {
+        Ok(r) => r,
+        Err(_) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InternalError, "Internal panic in Yuen test");
+            }
+            return false;
+        }
+    };
+
+    match result {
+        Ok(r) => {
+            (*out_result) = TestResultFFI {
+                statistic: r.statistic,
+                p_value: r.p_value,
+                df: r.df,
+                effect_size: r.effect_size,
+                ci_lower: r.ci_lower,
+                ci_upper: r.ci_upper,
+                confidence_level: r.confidence_level,
+                n: r.n,
+                n1: r.n1,
+                n2: r.n2,
+                alternative: r.alternative.into(),
+                method: alloc_string(&r.method),
+            };
+            true
+        }
+        Err(e) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+            }
+            false
+        }
+    }
+}
+
+/// Brown-Forsythe test for homogeneity of variances
+///
+/// # Safety
+/// - `values` and `groups` must be valid DataArrays of equal length
+/// - `out_result` must be a valid pointer
+/// - `out_error` must be a valid pointer
+#[no_mangle]
+pub unsafe extern "C" fn anofox_brown_forsythe(
+    values: DataArray,
+    groups: DataArray,
+    out_result: *mut TestResultFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    if !out_error.is_null() {
+        *out_error = AnofoxError::success();
+    }
+
+    if out_result.is_null() {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+        }
+        return false;
+    }
+
+    let vals = values.to_vec();
+    let grps = groups.to_vec();
+
+    if vals.len() != grps.len() {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::DimensionMismatch, "values and groups must have same length");
+        }
+        return false;
+    }
+
+    // Group values by their group ID
+    let mut grouped: std::collections::HashMap<i64, Vec<f64>> = std::collections::HashMap::new();
+    for (val, grp) in vals.iter().zip(grps.iter()) {
+        if val.is_nan() || grp.is_nan() {
+            continue;
+        }
+        let group_id = *grp as i64;
+        grouped.entry(group_id).or_default().push(*val);
+    }
+
+    let mut groups_vec: Vec<Vec<f64>> = grouped.into_values().collect();
+    groups_vec.sort_by_key(|g| g.len()); // Sort by size for determinism
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        brown_forsythe(&groups_vec)
+    }));
+
+    let result = match result {
+        Ok(r) => r,
+        Err(_) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InternalError, "Internal panic in Brown-Forsythe");
+            }
+            return false;
+        }
+    };
+
+    match result {
+        Ok(r) => {
+            (*out_result) = TestResultFFI {
+                statistic: r.statistic,
+                p_value: r.p_value,
+                df: r.df,
+                effect_size: r.effect_size,
+                ci_lower: r.ci_lower,
+                ci_upper: r.ci_upper,
+                confidence_level: r.confidence_level,
+                n: r.n,
+                n1: r.n1,
+                n2: r.n2,
+                alternative: r.alternative.into(),
+                method: alloc_string(&r.method),
+            };
+            true
+        }
+        Err(e) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+            }
+            false
+        }
+    }
+}
+
+// =============================================================================
+// Correlation Tests FFI Functions
+// =============================================================================
+
+/// Distance correlation
+///
+/// # Safety
+/// - `x` and `y` must be valid DataArrays of equal length
+/// - `out_result` must be a valid pointer
+/// - `out_error` must be a valid pointer
+#[no_mangle]
+pub unsafe extern "C" fn anofox_distance_cor(
+    x: DataArray,
+    y: DataArray,
+    out_result: *mut DistanceCorResultFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    if !out_error.is_null() {
+        *out_error = AnofoxError::success();
+    }
+
+    if out_result.is_null() {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+        }
+        return false;
+    }
+
+    let x_vec = x.to_vec();
+    let y_vec = y.to_vec();
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        distance_cor(&x_vec, &y_vec)
+    }));
+
+    let result = match result {
+        Ok(r) => r,
+        Err(_) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InternalError, "Internal panic in distance_cor");
+            }
+            return false;
+        }
+    };
+
+    match result {
+        Ok(r) => {
+            (*out_result) = DistanceCorResultFFI {
+                dcor: r.dcor,
+                dcov: r.dcov,
+                dvar_x: r.dvar_x,
+                dvar_y: r.dvar_y,
+                n: r.n,
+            };
+            true
+        }
+        Err(e) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+            }
+            false
+        }
+    }
+}
+
+/// Distance correlation test with permutations
+///
+/// # Safety
+/// - `x` and `y` must be valid DataArrays of equal length
+/// - `out_result` must be a valid pointer
+/// - `out_error` must be a valid pointer
+#[no_mangle]
+pub unsafe extern "C" fn anofox_distance_cor_test(
+    x: DataArray,
+    y: DataArray,
+    n_permutations: usize,
+    out_result: *mut TestResultFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    if !out_error.is_null() {
+        *out_error = AnofoxError::success();
+    }
+
+    if out_result.is_null() {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+        }
+        return false;
+    }
+
+    let x_vec = x.to_vec();
+    let y_vec = y.to_vec();
+
+    let opts = DistanceCorTestOptions {
+        n_permutations,
+        seed: None,
+    };
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        distance_cor_test(&x_vec, &y_vec, &opts)
+    }));
+
+    let result = match result {
+        Ok(r) => r,
+        Err(_) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InternalError, "Internal panic in distance_cor_test");
+            }
+            return false;
+        }
+    };
+
+    match result {
+        Ok(r) => {
+            (*out_result) = TestResultFFI {
+                statistic: r.statistic,
+                p_value: r.p_value,
+                df: r.df,
+                effect_size: r.effect_size,
+                ci_lower: r.ci_lower,
+                ci_upper: r.ci_upper,
+                confidence_level: r.confidence_level,
+                n: r.n,
+                n1: r.n1,
+                n2: r.n2,
+                alternative: r.alternative.into(),
+                method: alloc_string(&r.method),
+            };
+            true
+        }
+        Err(e) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+            }
+            false
+        }
+    }
+}
+
+/// Intraclass correlation coefficient (ICC)
+///
+/// # Safety
+/// - `data` must point to `n_subjects * n_raters` valid f64 values in row-major order
+/// - `out_result` must be a valid pointer
+/// - `out_error` must be a valid pointer
+#[no_mangle]
+pub unsafe extern "C" fn anofox_icc(
+    data: *const f64,
+    n_subjects: usize,
+    n_raters: usize,
+    icc_type: IccTypeFFI,
+    out_result: *mut IccResultFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    if !out_error.is_null() {
+        *out_error = AnofoxError::success();
+    }
+
+    if out_result.is_null() {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+        }
+        return false;
+    }
+
+    if data.is_null() || n_subjects == 0 || n_raters < 2 {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "Invalid data dimensions");
+        }
+        return false;
+    }
+
+    // Convert flat array to Vec<Vec<f64>> (subjects x raters)
+    let data_slice = std::slice::from_raw_parts(data, n_subjects * n_raters);
+    let data_vec: Vec<Vec<f64>> = (0..n_subjects)
+        .map(|i| data_slice[i * n_raters..(i + 1) * n_raters].to_vec())
+        .collect();
+
+    let icc_type_rust = match icc_type {
+        IccTypeFFI::Single => anofox_tests::ICCType::ICC1,
+        IccTypeFFI::Average => anofox_tests::ICCType::ICC1k,
+    };
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        icc(&data_vec, icc_type_rust)
+    }));
+
+    let result = match result {
+        Ok(r) => r,
+        Err(_) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InternalError, "Internal panic in icc");
+            }
+            return false;
+        }
+    };
+
+    match result {
+        Ok(r) => {
+            (*out_result) = IccResultFFI {
+                icc: r.icc,
+                f_statistic: r.f_statistic,
+                ci_lower: r.ci_lower,
+                ci_upper: r.ci_upper,
+                confidence_level: 0.95,
+                n_subjects,
+                n_raters,
+                method: alloc_string(&r.icc_type),
+            };
+            true
+        }
+        Err(e) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+            }
+            false
+        }
+    }
+}
+
+// =============================================================================
+// Forecast Tests FFI Functions
+// =============================================================================
+
+/// Loss function for forecast comparison
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub enum ForecastLossFFI {
+    SquaredError = 0,
+    AbsoluteError = 1,
+}
+
+impl From<ForecastLossFFI> for ForecastLoss {
+    fn from(loss: ForecastLossFFI) -> Self {
+        match loss {
+            ForecastLossFFI::SquaredError => ForecastLoss::SquaredError,
+            ForecastLossFFI::AbsoluteError => ForecastLoss::AbsoluteError,
+        }
+    }
+}
+
+/// Variance estimator for forecast tests
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub enum ForecastVarEstimatorFFI {
+    Acf = 0,
+    Bartlett = 1,
+}
+
+impl From<ForecastVarEstimatorFFI> for ForecastVarEstimator {
+    fn from(est: ForecastVarEstimatorFFI) -> Self {
+        match est {
+            ForecastVarEstimatorFFI::Acf => ForecastVarEstimator::Acf,
+            ForecastVarEstimatorFFI::Bartlett => ForecastVarEstimator::Bartlett,
+        }
+    }
+}
+
+/// Diebold-Mariano test for equal predictive accuracy
+///
+/// # Safety
+/// - `actual`, `forecast1`, `forecast2` must be valid DataArrays of equal length
+/// - `out_result` must be a valid pointer
+/// - `out_error` must be a valid pointer
+#[no_mangle]
+pub unsafe extern "C" fn anofox_diebold_mariano(
+    actual: DataArray,
+    forecast1: DataArray,
+    forecast2: DataArray,
+    loss: ForecastLossFFI,
+    var_estimator: ForecastVarEstimatorFFI,
+    horizon: usize,
+    alternative: AlternativeFFI,
+    out_result: *mut TestResultFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    if !out_error.is_null() {
+        *out_error = AnofoxError::success();
+    }
+
+    if out_result.is_null() {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+        }
+        return false;
+    }
+
+    let actual_vec = actual.to_vec();
+    let f1_vec = forecast1.to_vec();
+    let f2_vec = forecast2.to_vec();
+
+    let opts = DieboldMarianoOptions {
+        alternative: alternative.into(),
+        loss: loss.into(),
+        var_estimator: var_estimator.into(),
+        horizon,
+    };
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        diebold_mariano(&actual_vec, &f1_vec, &f2_vec, &opts)
+    }));
+
+    let result = match result {
+        Ok(r) => r,
+        Err(_) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InternalError, "Internal panic in Diebold-Mariano");
+            }
+            return false;
+        }
+    };
+
+    match result {
+        Ok(r) => {
+            (*out_result) = TestResultFFI {
+                statistic: r.statistic,
+                p_value: r.p_value,
+                df: r.df,
+                effect_size: r.effect_size,
+                ci_lower: r.ci_lower,
+                ci_upper: r.ci_upper,
+                confidence_level: r.confidence_level,
+                n: r.n,
+                n1: r.n1,
+                n2: r.n2,
+                alternative: r.alternative.into(),
+                method: alloc_string(&r.method),
+            };
+            true
+        }
+        Err(e) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+            }
+            false
+        }
+    }
+}
+
+/// Clark-West test for nested model comparison
+///
+/// # Safety
+/// - `actual`, `forecast_restricted`, `forecast_unrestricted` must be valid DataArrays of equal length
+/// - `out_result` must be a valid pointer
+/// - `out_error` must be a valid pointer
+#[no_mangle]
+pub unsafe extern "C" fn anofox_clark_west(
+    actual: DataArray,
+    forecast_restricted: DataArray,
+    forecast_unrestricted: DataArray,
+    horizon: usize,
+    out_result: *mut TestResultFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    if !out_error.is_null() {
+        *out_error = AnofoxError::success();
+    }
+
+    if out_result.is_null() {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+        }
+        return false;
+    }
+
+    let actual_vec = actual.to_vec();
+    let f_r_vec = forecast_restricted.to_vec();
+    let f_u_vec = forecast_unrestricted.to_vec();
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        clark_west(&actual_vec, &f_r_vec, &f_u_vec, horizon)
+    }));
+
+    let result = match result {
+        Ok(r) => r,
+        Err(_) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InternalError, "Internal panic in Clark-West");
+            }
+            return false;
+        }
+    };
+
+    match result {
+        Ok(r) => {
+            (*out_result) = TestResultFFI {
+                statistic: r.statistic,
+                p_value: r.p_value,
+                df: r.df,
+                effect_size: r.effect_size,
+                ci_lower: r.ci_lower,
+                ci_upper: r.ci_upper,
+                confidence_level: r.confidence_level,
+                n: r.n,
+                n1: r.n1,
+                n2: r.n2,
+                alternative: r.alternative.into(),
+                method: alloc_string(&r.method),
+            };
+            true
+        }
+        Err(e) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+            }
+            false
+        }
+    }
+}
+
+// =============================================================================
+// Resampling Tests FFI Functions
+// =============================================================================
+
+/// Permutation t-test
+///
+/// Distribution-free alternative to the t-test using permutation.
+///
+/// # Safety
+/// - `group1` and `group2` must be valid DataArrays
+/// - `out_result` must be a valid pointer
+/// - `out_error` must be a valid pointer
+#[no_mangle]
+pub unsafe extern "C" fn anofox_permutation_t_test(
+    group1: DataArray,
+    group2: DataArray,
+    alternative: AlternativeFFI,
+    n_permutations: usize,
+    seed: u64,
+    has_seed: bool,
+    out_result: *mut TestResultFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    if !out_error.is_null() {
+        *out_error = AnofoxError::success();
+    }
+
+    if out_result.is_null() {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+        }
+        return false;
+    }
+
+    let g1 = group1.to_vec();
+    let g2 = group2.to_vec();
+
+    let opts = PermutationTTestOptions {
+        alternative: alternative.into(),
+        n_permutations,
+        seed: if has_seed { Some(seed) } else { None },
+    };
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        permutation_t_test(&g1, &g2, &opts)
+    }));
+
+    let result = match result {
+        Ok(r) => r,
+        Err(_) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InternalError, "Internal panic in permutation t-test");
+            }
+            return false;
+        }
+    };
+
+    match result {
+        Ok(r) => {
+            (*out_result) = TestResultFFI {
+                statistic: r.statistic,
+                p_value: r.p_value,
+                df: r.df,
+                effect_size: r.effect_size,
+                ci_lower: r.ci_lower,
+                ci_upper: r.ci_upper,
+                confidence_level: r.confidence_level,
+                n: r.n,
+                n1: r.n1,
+                n2: r.n2,
+                alternative: r.alternative.into(),
+                method: alloc_string(&r.method),
+            };
+            true
+        }
+        Err(e) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+            }
+            false
+        }
+    }
+}
+
 /// Free memory allocated by test result functions
 ///
 /// # Safety
@@ -3963,6 +5588,21 @@ pub unsafe extern "C" fn anofox_free_correlation_result(result: *mut Correlation
 /// - `result` must be NULL or a valid pointer to a ChiSquareResultFFI
 #[no_mangle]
 pub unsafe extern "C" fn anofox_free_chisq_result(result: *mut ChiSquareResultFFI) {
+    if result.is_null() {
+        return;
+    }
+    if !(*result).method.is_null() {
+        libc::free((*result).method as *mut libc::c_void);
+        (*result).method = std::ptr::null_mut();
+    }
+}
+
+/// Free memory allocated by proportion test result functions
+///
+/// # Safety
+/// - `result` must be NULL or a valid pointer to a PropTestResultFFI
+#[no_mangle]
+pub unsafe extern "C" fn anofox_free_prop_test_result(result: *mut PropTestResultFFI) {
     if result.is_null() {
         return;
     }

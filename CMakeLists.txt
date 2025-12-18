@@ -118,6 +118,33 @@ set(EXTENSION_SOURCES
     src/aggregate_functions/anova_aggregate.cpp
     src/aggregate_functions/kruskal_wallis_aggregate.cpp
     src/aggregate_functions/chisq_aggregate.cpp
+    src/aggregate_functions/kendall_aggregate.cpp
+    src/aggregate_functions/fisher_exact_aggregate.cpp
+    src/aggregate_functions/brunner_munzel_aggregate.cpp
+    src/aggregate_functions/dagostino_k2_aggregate.cpp
+    src/aggregate_functions/energy_distance_aggregate.cpp
+    src/aggregate_functions/mmd_aggregate.cpp
+    src/aggregate_functions/tost_t_test_aggregate.cpp
+    src/aggregate_functions/wilcoxon_signed_rank_aggregate.cpp
+    src/aggregate_functions/distance_cor_aggregate.cpp
+    src/aggregate_functions/yuen_aggregate.cpp
+    src/aggregate_functions/brown_forsythe_aggregate.cpp
+    src/aggregate_functions/diebold_mariano_aggregate.cpp
+    src/aggregate_functions/clark_west_aggregate.cpp
+    src/aggregate_functions/permutation_t_test_aggregate.cpp
+    src/aggregate_functions/tost_paired_aggregate.cpp
+    src/aggregate_functions/tost_correlation_aggregate.cpp
+    src/aggregate_functions/chisq_gof_aggregate.cpp
+    src/aggregate_functions/prop_test_one_aggregate.cpp
+    src/aggregate_functions/prop_test_two_aggregate.cpp
+    src/aggregate_functions/binom_test_aggregate.cpp
+    src/aggregate_functions/cramers_v_aggregate.cpp
+    src/aggregate_functions/cohen_kappa_aggregate.cpp
+    src/aggregate_functions/icc_aggregate.cpp
+    src/aggregate_functions/g_test_aggregate.cpp
+    src/aggregate_functions/mcnemar_aggregate.cpp
+    src/aggregate_functions/phi_coefficient_aggregate.cpp
+    src/aggregate_functions/contingency_coef_aggregate.cpp
     src/scalar_functions/vif.cpp
     src/scalar_functions/aic_bic.cpp
     src/scalar_functions/jarque_bera.cpp

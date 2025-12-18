@@ -1398,3 +1398,104 @@ impl Default for IccResultFFI {
         }
     }
 }
+
+// =============================================================================
+// Categorical Tests Result Types
+// =============================================================================
+
+/// Proportion test result for FFI
+#[repr(C)]
+pub struct PropTestResultFFI {
+    /// Test statistic (z)
+    pub statistic: f64,
+    /// p-value
+    pub p_value: f64,
+    /// Estimated proportion
+    pub estimate: f64,
+    /// Confidence interval lower bound
+    pub ci_lower: f64,
+    /// Confidence interval upper bound
+    pub ci_upper: f64,
+    /// Sample size
+    pub n: usize,
+    /// Alternative hypothesis
+    pub alternative: AlternativeFFI,
+    /// Method name (must be freed)
+    pub method: *mut c_char,
+}
+
+impl Default for PropTestResultFFI {
+    fn default() -> Self {
+        Self {
+            statistic: f64::NAN,
+            p_value: f64::NAN,
+            estimate: f64::NAN,
+            ci_lower: f64::NAN,
+            ci_upper: f64::NAN,
+            n: 0,
+            alternative: AlternativeFFI::TwoSided,
+            method: std::ptr::null_mut(),
+        }
+    }
+}
+
+/// Cohen's kappa result for FFI
+#[repr(C)]
+pub struct KappaResultFFI {
+    /// Kappa coefficient
+    pub kappa: f64,
+    /// Standard error
+    pub se: f64,
+    /// Confidence interval lower bound
+    pub ci_lower: f64,
+    /// Confidence interval upper bound
+    pub ci_upper: f64,
+    /// z-statistic
+    pub z: f64,
+    /// p-value
+    pub p_value: f64,
+}
+
+impl Default for KappaResultFFI {
+    fn default() -> Self {
+        Self {
+            kappa: f64::NAN,
+            se: f64::NAN,
+            ci_lower: f64::NAN,
+            ci_upper: f64::NAN,
+            z: f64::NAN,
+            p_value: f64::NAN,
+        }
+    }
+}
+
+// =============================================================================
+// Correlation Result Types
+// =============================================================================
+
+/// Distance correlation result for FFI
+#[repr(C)]
+pub struct DistanceCorResultFFI {
+    /// Distance correlation coefficient
+    pub dcor: f64,
+    /// Distance covariance
+    pub dcov: f64,
+    /// Distance variance of x
+    pub dvar_x: f64,
+    /// Distance variance of y
+    pub dvar_y: f64,
+    /// Sample size
+    pub n: usize,
+}
+
+impl Default for DistanceCorResultFFI {
+    fn default() -> Self {
+        Self {
+            dcor: f64::NAN,
+            dcov: f64::NAN,
+            dvar_x: f64::NAN,
+            dvar_y: f64::NAN,
+            n: 0,
+        }
+    }
+}

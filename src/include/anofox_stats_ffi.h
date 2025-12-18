@@ -1306,6 +1306,303 @@ bool anofox_mmd(AnofoxDataArray group1, AnofoxDataArray group2, AnofoxMmdOptions
 bool anofox_tost_t_test(AnofoxDataArray group1, AnofoxDataArray group2, AnofoxTostOptions options,
                         AnofoxTostResult *out_result, AnofoxError *out_error);
 
+/**
+ * TOST paired t-test for equivalence
+ */
+bool anofox_tost_t_test_paired(AnofoxDataArray x, AnofoxDataArray y, AnofoxTostOptions options,
+                                AnofoxTostResult *out_result, AnofoxError *out_error);
+
+/**
+ * TOST correlation method codes
+ */
+typedef enum {
+    ANOFOX_TOST_COR_PEARSON = 0,
+    ANOFOX_TOST_COR_SPEARMAN = 1,
+} AnofoxTostCorrelationMethod;
+
+/**
+ * TOST correlation test for equivalence to zero
+ */
+bool anofox_tost_correlation(AnofoxDataArray x, AnofoxDataArray y, double rho_null,
+                              double bound_lower, double bound_upper, double alpha,
+                              AnofoxTostCorrelationMethod method,
+                              AnofoxTostResult *out_result, AnofoxError *out_error);
+
+/**
+ * Wilcoxon signed-rank test options
+ */
+typedef struct {
+    /** Alternative hypothesis */
+    AnofoxAlternative alternative;
+    /** Use exact distribution */
+    bool exact;
+    /** Apply continuity correction */
+    bool continuity_correction;
+    /** Confidence level for CI */
+    double confidence_level;
+    /** Hypothesized median */
+    double mu;
+} AnofoxWilcoxonOptions;
+
+/**
+ * Wilcoxon signed-rank test for paired samples
+ */
+bool anofox_wilcoxon_signed_rank(AnofoxDataArray x, AnofoxDataArray y, AnofoxWilcoxonOptions options,
+                                  AnofoxTestResult *out_result, AnofoxError *out_error);
+
+/* --- Categorical Tests --- */
+
+/**
+ * Proportion test result
+ */
+typedef struct {
+    /** Test statistic (z) */
+    double statistic;
+    /** p-value */
+    double p_value;
+    /** Estimated proportion */
+    double estimate;
+    /** Confidence interval lower bound */
+    double ci_lower;
+    /** Confidence interval upper bound */
+    double ci_upper;
+    /** Sample size */
+    size_t n;
+    /** Alternative hypothesis */
+    AnofoxAlternative alternative;
+    /** Method name (must be freed) */
+    char *method;
+} AnofoxPropTestResult;
+
+/**
+ * Cohen's kappa result
+ */
+typedef struct {
+    /** Kappa coefficient */
+    double kappa;
+    /** Standard error */
+    double se;
+    /** Confidence interval lower bound */
+    double ci_lower;
+    /** Confidence interval upper bound */
+    double ci_upper;
+    /** z-statistic */
+    double z;
+    /** p-value */
+    double p_value;
+} AnofoxKappaResult;
+
+/**
+ * Chi-square goodness-of-fit test
+ */
+bool anofox_chisq_goodness_of_fit(const size_t *observed, size_t observed_len,
+                                   const double *expected, size_t expected_len,
+                                   AnofoxChiSquareResult *out_result, AnofoxError *out_error);
+
+/**
+ * One-sample proportion z-test
+ */
+bool anofox_prop_test_one(size_t successes, size_t trials, double p0,
+                          AnofoxAlternative alternative,
+                          AnofoxPropTestResult *out_result, AnofoxError *out_error);
+
+/**
+ * Two-sample proportion z-test
+ */
+bool anofox_prop_test_two(size_t successes1, size_t trials1,
+                          size_t successes2, size_t trials2,
+                          AnofoxAlternative alternative, bool correction,
+                          AnofoxPropTestResult *out_result, AnofoxError *out_error);
+
+/**
+ * Exact binomial test
+ */
+bool anofox_binom_test(size_t successes, size_t trials, double p0,
+                       AnofoxAlternative alternative,
+                       AnofoxPropTestResult *out_result, AnofoxError *out_error);
+
+/**
+ * Cramer's V effect size for contingency tables
+ */
+bool anofox_cramers_v(const size_t *table, const size_t *row_lengths, size_t n_rows,
+                      double *out_result, AnofoxError *out_error);
+
+/**
+ * Cohen's kappa for inter-rater agreement
+ */
+bool anofox_cohen_kappa(const size_t *table, const size_t *row_lengths, size_t n_rows,
+                        bool weighted, AnofoxKappaResult *out_result, AnofoxError *out_error);
+
+/**
+ * G-test (log-likelihood ratio test) for contingency tables
+ * Takes a flattened contingency table (row-major order)
+ */
+bool anofox_g_test(const size_t *table, const size_t *row_lengths, size_t n_rows,
+                   AnofoxChiSquareResult *out_result, AnofoxError *out_error);
+
+/**
+ * McNemar's test for paired categorical data
+ * Takes a 2x2 contingency table as 4 cell counts: a, b, c, d
+ */
+bool anofox_mcnemar_test(size_t a, size_t b, size_t c, size_t d,
+                         bool correction, bool exact,
+                         AnofoxChiSquareResult *out_result, AnofoxError *out_error);
+
+/**
+ * Phi coefficient for 2x2 contingency tables
+ * Takes a 2x2 contingency table as 4 cell counts: a, b, c, d
+ */
+bool anofox_phi_coefficient(size_t a, size_t b, size_t c, size_t d,
+                            double *out_result, AnofoxError *out_error);
+
+/**
+ * Contingency coefficient (Pearson's C)
+ */
+bool anofox_contingency_coef(const size_t *table, const size_t *row_lengths, size_t n_rows,
+                             double *out_result, AnofoxError *out_error);
+
+/**
+ * Free memory allocated by proportion test result functions
+ */
+void anofox_free_prop_test_result(AnofoxPropTestResult *result);
+
+/* --- Correlation Tests --- */
+
+/**
+ * Distance correlation result
+ */
+typedef struct {
+    /** Distance correlation coefficient */
+    double dcor;
+    /** Distance covariance */
+    double dcov;
+    /** Distance variance of x */
+    double dvar_x;
+    /** Distance variance of y */
+    double dvar_y;
+    /** Sample size */
+    size_t n;
+} AnofoxDistanceCorResult;
+
+/**
+ * Distance correlation
+ */
+bool anofox_distance_cor(AnofoxDataArray x, AnofoxDataArray y,
+                         AnofoxDistanceCorResult *out_result, AnofoxError *out_error);
+
+/**
+ * Distance correlation test with permutations
+ */
+bool anofox_distance_cor_test(AnofoxDataArray x, AnofoxDataArray y, size_t n_permutations,
+                              AnofoxTestResult *out_result, AnofoxError *out_error);
+
+/**
+ * ICC type codes
+ */
+typedef enum {
+    ANOFOX_ICC_SINGLE = 0,
+    ANOFOX_ICC_AVERAGE = 1,
+} AnofoxIccType;
+
+/**
+ * ICC result
+ */
+typedef struct {
+    /** ICC value */
+    double icc;
+    /** F-statistic */
+    double f_statistic;
+    /** Lower CI bound */
+    double ci_lower;
+    /** Upper CI bound */
+    double ci_upper;
+    /** Confidence level */
+    double confidence_level;
+    /** Number of subjects */
+    size_t n_subjects;
+    /** Number of raters */
+    size_t n_raters;
+    /** Method name (must be freed) */
+    char *method;
+} AnofoxIccResult;
+
+/**
+ * Intraclass correlation coefficient (ICC)
+ *
+ * @param data Data matrix in row-major order (n_subjects x n_raters)
+ * @param n_subjects Number of subjects
+ * @param n_raters Number of raters/measurements per subject
+ * @param icc_type ICC type (single or average)
+ * @param out_result Output: ICC result
+ * @param out_error Output: error information
+ * @return true on success, false on error
+ */
+bool anofox_icc(const double *data, size_t n_subjects, size_t n_raters,
+                AnofoxIccType icc_type, AnofoxIccResult *out_result, AnofoxError *out_error);
+
+/**
+ * Free memory allocated by ICC result functions
+ */
+void anofox_free_icc_result(AnofoxIccResult *result);
+
+/* --- Parametric Tests --- */
+
+/**
+ * Yuen's trimmed mean test
+ */
+bool anofox_yuen_test(AnofoxDataArray group1, AnofoxDataArray group2, double trim,
+                      AnofoxAlternative alternative, double confidence_level,
+                      AnofoxTestResult *out_result, AnofoxError *out_error);
+
+/**
+ * Brown-Forsythe test for homogeneity of variances
+ */
+bool anofox_brown_forsythe(AnofoxDataArray values, AnofoxDataArray groups,
+                           AnofoxTestResult *out_result, AnofoxError *out_error);
+
+/* --- Forecast Tests --- */
+
+/**
+ * Loss function for forecast comparison
+ */
+typedef enum {
+    ANOFOX_FORECAST_LOSS_SQUARED = 0,
+    ANOFOX_FORECAST_LOSS_ABSOLUTE = 1,
+} AnofoxForecastLoss;
+
+/**
+ * Variance estimator for forecast tests
+ */
+typedef enum {
+    ANOFOX_FORECAST_VAR_ACF = 0,
+    ANOFOX_FORECAST_VAR_BARTLETT = 1,
+} AnofoxForecastVarEstimator;
+
+/**
+ * Diebold-Mariano test for equal predictive accuracy
+ */
+bool anofox_diebold_mariano(AnofoxDataArray actual, AnofoxDataArray forecast1, AnofoxDataArray forecast2,
+                            AnofoxForecastLoss loss, AnofoxForecastVarEstimator var_estimator,
+                            size_t horizon, AnofoxAlternative alternative,
+                            AnofoxTestResult *out_result, AnofoxError *out_error);
+
+/**
+ * Clark-West test for nested model comparison
+ */
+bool anofox_clark_west(AnofoxDataArray actual, AnofoxDataArray forecast_restricted,
+                       AnofoxDataArray forecast_unrestricted, size_t horizon,
+                       AnofoxTestResult *out_result, AnofoxError *out_error);
+
+/* --- Resampling Tests --- */
+
+/**
+ * Permutation t-test (distribution-free alternative to t-test)
+ */
+bool anofox_permutation_t_test(AnofoxDataArray group1, AnofoxDataArray group2,
+                                AnofoxAlternative alternative, size_t n_permutations,
+                                uint64_t seed, bool has_seed,
+                                AnofoxTestResult *out_result, AnofoxError *out_error);
+
 /* --- Free Functions --- */
 
 /**
