@@ -166,6 +166,12 @@ build_loadable_extension(${TARGET_NAME} " " ${EXTENSION_SOURCES})
 target_link_libraries(${EXTENSION_NAME} anofox_stats_ffi-static)
 target_link_libraries(${LOADABLE_EXTENSION_NAME} anofox_stats_ffi-static)
 
+# Link bcrypt on Windows (required by Rust's getrandom crate)
+if(WIN32)
+    target_link_libraries(${EXTENSION_NAME} bcrypt)
+    target_link_libraries(${LOADABLE_EXTENSION_NAME} bcrypt)
+endif()
+
 # Install
 install(
     TARGETS ${EXTENSION_NAME}
