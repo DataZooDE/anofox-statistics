@@ -8,6 +8,10 @@
 #include "../include/anofox_stats_ffi.h"
 #include "../include/map_options_parser.hpp"
 
+#ifdef _WIN32
+#define strcasecmp _stricmp
+#endif
+
 namespace duckdb {
 
 //===--------------------------------------------------------------------===//
