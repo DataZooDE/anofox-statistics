@@ -2766,19 +2766,31 @@ pub unsafe extern "C" fn anofox_free_aid_anomaly_result(result: *mut AidAnomalyR
 // =============================================================================
 
 use anofox_stats_core::tests::{
-    parametric::{t_test, TTestOptions, one_way_anova, AnovaOptions, yuen_test, YuenOptions, brown_forsythe},
-    nonparametric::{mann_whitney_u, MannWhitneyOptions, kruskal_wallis, brunner_munzel, BrunnerMunzelOptions, wilcoxon_signed_rank, WilcoxonOptions},
-    distributional::{shapiro_wilk, dagostino_k_squared},
-    correlation::{pearson, spearman, kendall, distance_cor, distance_cor_test, icc, PearsonOptions, SpearmanOptions, KendallOptions, DistanceCorTestOptions, ICCResult},
     categorical::{
-        chisq_test, chisq_goodness_of_fit, g_test, fisher_exact, mcnemar_test,
-        cramers_v, phi_coefficient, contingency_coef, cohen_kappa,
-        prop_test_one, prop_test_two, binom_test,
+        binom_test, chisq_goodness_of_fit, chisq_test, cohen_kappa, contingency_coef, cramers_v,
+        fisher_exact, g_test, mcnemar_test, phi_coefficient, prop_test_one, prop_test_two,
         ChiSquareOptions, FisherExactOptions, McNemarOptions, PropTestOptions,
     },
+    correlation::{
+        distance_cor, distance_cor_test, icc, kendall, pearson, spearman, DistanceCorTestOptions,
+        KendallOptions, PearsonOptions, SpearmanOptions,
+    },
+    distributional::{dagostino_k_squared, shapiro_wilk},
+    equivalence::{
+        tost_correlation, tost_t_test_paired, tost_t_test_two_sample, TostBounds,
+        TostCorrelationMethod, TostCorrelationOptions, TostTTestOptions,
+    },
+    forecast::{
+        clark_west, diebold_mariano, DieboldMarianoOptions, ForecastLoss, ForecastVarEstimator,
+    },
     modern::{energy_distance_test, mmd_test, EnergyDistanceOptions, MmdOptions},
-    equivalence::{tost_t_test_two_sample, tost_t_test_paired, tost_correlation, TostTTestOptions, TostCorrelationOptions, TostCorrelationMethod, TostBounds},
-    forecast::{diebold_mariano, clark_west, DieboldMarianoOptions, ForecastLoss, ForecastVarEstimator},
+    nonparametric::{
+        brunner_munzel, kruskal_wallis, mann_whitney_u, wilcoxon_signed_rank, BrunnerMunzelOptions,
+        MannWhitneyOptions, WilcoxonOptions,
+    },
+    parametric::{
+        brown_forsythe, one_way_anova, t_test, yuen_test, AnovaOptions, TTestOptions, YuenOptions,
+    },
     resampling::{permutation_t_test, PermutationTTestOptions},
 };
 use anofox_tests::{KendallVariant, TTestKind};
@@ -2837,9 +2849,7 @@ pub unsafe extern "C" fn anofox_t_test(
         mu: options.mu,
     };
 
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        t_test(&g1, &g2, &opts)
-    }));
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| t_test(&g1, &g2, &opts)));
 
     let result = match result {
         Ok(r) => r,
@@ -2903,9 +2913,7 @@ pub unsafe extern "C" fn anofox_shapiro_wilk(
 
     let data_vec = data.to_vec();
 
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        shapiro_wilk(&data_vec)
-    }));
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| shapiro_wilk(&data_vec)));
 
     let result = match result {
         Ok(r) => r,
@@ -3182,9 +3190,7 @@ pub unsafe extern "C" fn anofox_kendall_cor(
         KendallTypeFFI::TauC => KendallVariant::TauC,
     };
 
-    let opts = KendallOptions {
-        variant,
-    };
+    let opts = KendallOptions { variant };
 
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         kendall(&x_vec, &y_vec, &opts)
@@ -3255,8 +3261,16 @@ pub unsafe extern "C" fn anofox_mann_whitney_u(
         alternative: options.alternative.into(),
         exact: options.exact,
         continuity_correction: options.continuity_correction,
-        confidence_level: if options.confidence_level > 0.0 { Some(options.confidence_level) } else { None },
-        mu: if options.mu.is_nan() || options.mu == 0.0 { None } else { Some(options.mu) },
+        confidence_level: if options.confidence_level > 0.0 {
+            Some(options.confidence_level)
+        } else {
+            None
+        },
+        mu: if options.mu.is_nan() || options.mu == 0.0 {
+            None
+        } else {
+            Some(options.mu)
+        },
     };
 
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -3406,7 +3420,7 @@ pub unsafe extern "C" fn anofox_one_way_anova(
     for (v, g) in values_vec.iter().zip(groups_vec.iter()) {
         if !v.is_nan() && !g.is_nan() {
             let group_id = *g as i64;
-            group_data.entry(group_id).or_insert_with(Vec::new).push(*v);
+            group_data.entry(group_id).or_default().push(*v);
         }
     }
 
@@ -3483,7 +3497,7 @@ pub unsafe extern "C" fn anofox_kruskal_wallis(
     for (v, g) in values_vec.iter().zip(groups_vec.iter()) {
         if !v.is_nan() && !g.is_nan() {
             let group_id = *g as i64;
-            group_data.entry(group_id).or_insert_with(Vec::new).push(*v);
+            group_data.entry(group_id).or_default().push(*v);
         }
     }
 
@@ -3559,7 +3573,8 @@ pub unsafe extern "C" fn anofox_chisq_test(
     let col_vec = col_var.to_vec();
 
     // Filter valid pairs and convert to usize
-    let pairs: Vec<(usize, usize)> = row_vec.iter()
+    let pairs: Vec<(usize, usize)> = row_vec
+        .iter()
         .zip(col_vec.iter())
         .filter(|(r, c)| !r.is_nan() && !c.is_nan())
         .map(|(r, c)| (*r as usize, *c as usize))
@@ -3585,9 +3600,8 @@ pub unsafe extern "C" fn anofox_chisq_test(
         correction: options.correction,
     };
 
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        chisq_test(&table, &opts)
-    }));
+    let result =
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| chisq_test(&table, &opts)));
 
     let result = match result {
         Ok(r) => r,
@@ -3650,9 +3664,8 @@ pub unsafe extern "C" fn anofox_fisher_exact(
     };
     let table = [[a, b], [c, d]];
 
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        fisher_exact(&table, &opts)
-    }));
+    let result =
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| fisher_exact(&table, &opts)));
 
     let result = match result {
         Ok(r) => r,
@@ -3721,7 +3734,11 @@ pub unsafe extern "C" fn anofox_energy_distance(
 
     let opts = EnergyDistanceOptions {
         n_permutations: options.n_permutations,
-        seed: if options.has_seed { Some(options.seed) } else { None },
+        seed: if options.has_seed {
+            Some(options.seed)
+        } else {
+            None
+        },
     };
 
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -3732,7 +3749,10 @@ pub unsafe extern "C" fn anofox_energy_distance(
         Ok(r) => r,
         Err(_) => {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InternalError, "Internal panic in energy distance");
+                (*out_error).set(
+                    ErrorCode::InternalError,
+                    "Internal panic in energy distance",
+                );
             }
             return false;
         }
@@ -3795,12 +3815,15 @@ pub unsafe extern "C" fn anofox_mmd(
 
     let opts = MmdOptions {
         n_permutations: options.n_permutations,
-        seed: if options.has_seed { Some(options.seed) } else { None },
+        seed: if options.has_seed {
+            Some(options.seed)
+        } else {
+            None
+        },
     };
 
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        mmd_test(&g1, &g2, &opts)
-    }));
+    let result =
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| mmd_test(&g1, &g2, &opts)));
 
     let result = match result {
         Ok(r) => r,
@@ -4066,7 +4089,10 @@ pub unsafe extern "C" fn anofox_tost_correlation(
         Ok(r) => r,
         Err(_) => {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InternalError, "Internal panic in TOST correlation");
+                (*out_error).set(
+                    ErrorCode::InternalError,
+                    "Internal panic in TOST correlation",
+                );
             }
             return false;
         }
@@ -4133,8 +4159,16 @@ pub unsafe extern "C" fn anofox_wilcoxon_signed_rank(
         alternative: options.alternative.into(),
         exact: options.exact,
         continuity_correction: options.continuity_correction,
-        confidence_level: if options.confidence_level > 0.0 { Some(options.confidence_level) } else { None },
-        mu: if options.mu != 0.0 { Some(options.mu) } else { None },
+        confidence_level: if options.confidence_level > 0.0 {
+            Some(options.confidence_level)
+        } else {
+            None
+        },
+        mu: if options.mu != 0.0 {
+            Some(options.mu)
+        } else {
+            None
+        },
     };
 
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -4145,7 +4179,10 @@ pub unsafe extern "C" fn anofox_wilcoxon_signed_rank(
         Ok(r) => r,
         Err(_) => {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InternalError, "Internal panic in Wilcoxon signed-rank");
+                (*out_error).set(
+                    ErrorCode::InternalError,
+                    "Internal panic in Wilcoxon signed-rank",
+                );
             }
             return false;
         }
@@ -4217,7 +4254,10 @@ pub unsafe extern "C" fn anofox_chisq_goodness_of_fit(
 
     if expected.is_null() || expected_len != observed_len {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::DimensionMismatch, "expected must have same length as observed");
+            (*out_error).set(
+                ErrorCode::DimensionMismatch,
+                "expected must have same length as observed",
+            );
         }
         return false;
     }
@@ -4307,7 +4347,7 @@ pub unsafe extern "C" fn anofox_prop_test_one(
             (*out_result) = PropTestResultFFI {
                 statistic: r.statistic,
                 p_value: r.p_value,
-                estimate: r.estimate.get(0).copied().unwrap_or(f64::NAN),
+                estimate: r.estimate.first().copied().unwrap_or(f64::NAN),
                 ci_lower: r.ci_lower,
                 ci_upper: r.ci_upper,
                 n: trials,
@@ -4376,7 +4416,7 @@ pub unsafe extern "C" fn anofox_prop_test_two(
             (*out_result) = PropTestResultFFI {
                 statistic: r.statistic,
                 p_value: r.p_value,
-                estimate: r.estimate.get(0).copied().unwrap_or(f64::NAN),
+                estimate: r.estimate.first().copied().unwrap_or(f64::NAN),
                 ci_lower: r.ci_lower,
                 ci_upper: r.ci_upper,
                 n: trials1 + trials2,
@@ -4443,7 +4483,7 @@ pub unsafe extern "C" fn anofox_binom_test(
             (*out_result) = PropTestResultFFI {
                 statistic: r.statistic,
                 p_value: r.p_value,
-                estimate: r.estimate.get(0).copied().unwrap_or(f64::NAN),
+                estimate: r.estimate.first().copied().unwrap_or(f64::NAN),
                 ci_lower: r.ci_lower,
                 ci_upper: r.ci_upper,
                 n: trials,
@@ -4502,9 +4542,7 @@ pub unsafe extern "C" fn anofox_cramers_v(
         offset += len;
     }
 
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        cramers_v(&table_vec)
-    }));
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| cramers_v(&table_vec)));
 
     let result = match result {
         Ok(r) => r,
@@ -4650,9 +4688,7 @@ pub unsafe extern "C" fn anofox_g_test(
         offset += len;
     }
 
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        g_test(&table_vec)
-    }));
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| g_test(&table_vec)));
 
     let result = match result {
         Ok(r) => r,
@@ -4715,9 +4751,8 @@ pub unsafe extern "C" fn anofox_mcnemar_test(
     let table: [[usize; 2]; 2] = [[a, b], [c, d]];
     let opts = McNemarOptions { correction, exact };
 
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        mcnemar_test(&table, &opts)
-    }));
+    let result =
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| mcnemar_test(&table, &opts)));
 
     let result = match result {
         Ok(r) => r,
@@ -4777,15 +4812,16 @@ pub unsafe extern "C" fn anofox_phi_coefficient(
 
     let table: [[usize; 2]; 2] = [[a, b], [c, d]];
 
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        phi_coefficient(&table)
-    }));
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| phi_coefficient(&table)));
 
     let result = match result {
         Ok(r) => r,
         Err(_) => {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InternalError, "Internal panic in phi_coefficient");
+                (*out_error).set(
+                    ErrorCode::InternalError,
+                    "Internal panic in phi_coefficient",
+                );
             }
             return false;
         }
@@ -4854,7 +4890,10 @@ pub unsafe extern "C" fn anofox_contingency_coef(
         Ok(r) => r,
         Err(_) => {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InternalError, "Internal panic in contingency_coef");
+                (*out_error).set(
+                    ErrorCode::InternalError,
+                    "Internal panic in contingency_coef",
+                );
             }
             return false;
         }
@@ -4914,9 +4953,8 @@ pub unsafe extern "C" fn anofox_yuen_test(
         confidence_level: Some(confidence_level),
     };
 
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        yuen_test(&g1, &g2, &opts)
-    }));
+    let result =
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| yuen_test(&g1, &g2, &opts)));
 
     let result = match result {
         Ok(r) => r,
@@ -4984,7 +5022,10 @@ pub unsafe extern "C" fn anofox_brown_forsythe(
 
     if vals.len() != grps.len() {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::DimensionMismatch, "values and groups must have same length");
+            (*out_error).set(
+                ErrorCode::DimensionMismatch,
+                "values and groups must have same length",
+            );
         }
         return false;
     }
@@ -5002,9 +5043,8 @@ pub unsafe extern "C" fn anofox_brown_forsythe(
     let mut groups_vec: Vec<Vec<f64>> = grouped.into_values().collect();
     groups_vec.sort_by_key(|g| g.len()); // Sort by size for determinism
 
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        brown_forsythe(&groups_vec)
-    }));
+    let result =
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| brown_forsythe(&groups_vec)));
 
     let result = match result {
         Ok(r) => r,
@@ -5149,7 +5189,10 @@ pub unsafe extern "C" fn anofox_distance_cor_test(
         Ok(r) => r,
         Err(_) => {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InternalError, "Internal panic in distance_cor_test");
+                (*out_error).set(
+                    ErrorCode::InternalError,
+                    "Internal panic in distance_cor_test",
+                );
             }
             return false;
         }
@@ -5349,7 +5392,10 @@ pub unsafe extern "C" fn anofox_diebold_mariano(
         Ok(r) => r,
         Err(_) => {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InternalError, "Internal panic in Diebold-Mariano");
+                (*out_error).set(
+                    ErrorCode::InternalError,
+                    "Internal panic in Diebold-Mariano",
+                );
             }
             return false;
         }
@@ -5504,7 +5550,10 @@ pub unsafe extern "C" fn anofox_permutation_t_test(
         Ok(r) => r,
         Err(_) => {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InternalError, "Internal panic in permutation t-test");
+                (*out_error).set(
+                    ErrorCode::InternalError,
+                    "Internal panic in permutation t-test",
+                );
             }
             return false;
         }

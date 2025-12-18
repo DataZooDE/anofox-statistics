@@ -1143,16 +1143,11 @@ impl Default for KendallOptionsFFI {
 }
 
 /// Chi-square test options for FFI
+#[derive(Default)]
 #[repr(C)]
 pub struct ChiSquareOptionsFFI {
     /// Apply Yates continuity correction (for 2x2 tables)
     pub correction: bool,
-}
-
-impl Default for ChiSquareOptionsFFI {
-    fn default() -> Self {
-        Self { correction: false }
-    }
 }
 
 /// Fisher's exact test options for FFI

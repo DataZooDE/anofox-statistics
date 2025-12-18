@@ -31,15 +31,16 @@ A statistical analysis extension for DuckDB, providing regression analysis, diag
 
 | Category | Function | Description |
 |----------|----------|-------------|
-| Normality | `shapiro_wilk_agg` | Shapiro-Wilk test |
-| Normality | `jarque_bera_agg` | Jarque-Bera test |
-| Parametric | `t_test_agg` | Two-sample t-test (Welch/Student) |
-| Parametric | `one_way_anova_agg` | One-way ANOVA |
-| Nonparametric | `mann_whitney_u_agg` | Mann-Whitney U test |
-| Nonparametric | `kruskal_wallis_agg` | Kruskal-Wallis H test |
-| Correlation | `pearson_agg` | Pearson correlation |
-| Correlation | `spearman_agg` | Spearman rank correlation |
-| Categorical | `chisq_test_agg` | Chi-square independence test |
+| Normality | `shapiro_wilk_agg`, `jarque_bera_agg`, `dagostino_k2_agg` | Normality tests |
+| Parametric | `t_test_agg`, `one_way_anova_agg`, `yuen_agg`, `brown_forsythe_agg` | Parametric tests |
+| Nonparametric | `mann_whitney_u_agg`, `kruskal_wallis_agg`, `wilcoxon_signed_rank_agg`, `brunner_munzel_agg`, `permutation_t_test_agg` | Nonparametric tests |
+| Correlation | `pearson_agg`, `spearman_agg`, `kendall_agg`, `distance_cor_agg`, `icc_agg` | Correlation tests |
+| Categorical | `chisq_test_agg`, `chisq_gof_agg`, `g_test_agg`, `fisher_exact_agg`, `mcnemar_agg` | Contingency table tests |
+| Effect Size | `cramers_v_agg`, `phi_coefficient_agg`, `contingency_coef_agg`, `cohen_kappa_agg` | Association measures |
+| Proportion | `prop_test_one_agg`, `prop_test_two_agg`, `binom_test_agg` | Proportion tests |
+| Equivalence | `tost_t_test_agg`, `tost_paired_agg`, `tost_correlation_agg` | TOST equivalence tests |
+| Distribution | `energy_distance_agg`, `mmd_agg` | Distribution comparison |
+| Forecast | `diebold_mariano_agg`, `clark_west_agg` | Forecast evaluation |
 
 ### Diagnostics & Utilities
 

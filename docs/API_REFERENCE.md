@@ -30,13 +30,40 @@ The Anofox Statistics Extension provides comprehensive regression analysis capab
 |----------|----------|-------------|
 | Normality | `shapiro_wilk_agg` | Shapiro-Wilk test |
 | Normality | `jarque_bera_agg` | Jarque-Bera test |
+| Normality | `dagostino_k2_agg` | D'Agostino K² test |
 | Parametric | `t_test_agg` | Two-sample t-test (Welch/Student) |
 | Parametric | `one_way_anova_agg` | One-way ANOVA |
+| Parametric | `yuen_agg` | Yuen's trimmed mean test |
+| Parametric | `brown_forsythe_agg` | Brown-Forsythe variance test |
 | Nonparametric | `mann_whitney_u_agg` | Mann-Whitney U test |
 | Nonparametric | `kruskal_wallis_agg` | Kruskal-Wallis H test |
+| Nonparametric | `wilcoxon_signed_rank_agg` | Wilcoxon signed-rank test |
+| Nonparametric | `brunner_munzel_agg` | Brunner-Munzel test |
+| Nonparametric | `permutation_t_test_agg` | Permutation t-test |
 | Correlation | `pearson_agg` | Pearson correlation |
 | Correlation | `spearman_agg` | Spearman rank correlation |
+| Correlation | `kendall_agg` | Kendall tau correlation |
+| Correlation | `distance_cor_agg` | Distance correlation |
+| Correlation | `icc_agg` | Intraclass correlation |
 | Categorical | `chisq_test_agg` | Chi-square independence test |
+| Categorical | `chisq_gof_agg` | Chi-square goodness of fit |
+| Categorical | `g_test_agg` | G-test (log-likelihood ratio) |
+| Categorical | `fisher_exact_agg` | Fisher's exact test |
+| Categorical | `mcnemar_agg` | McNemar's test |
+| Effect Size | `cramers_v_agg` | Cramér's V |
+| Effect Size | `phi_coefficient_agg` | Phi coefficient |
+| Effect Size | `contingency_coef_agg` | Contingency coefficient |
+| Effect Size | `cohen_kappa_agg` | Cohen's kappa |
+| Proportion | `prop_test_one_agg` | One-sample proportion test |
+| Proportion | `prop_test_two_agg` | Two-sample proportion test |
+| Proportion | `binom_test_agg` | Exact binomial test |
+| Equivalence | `tost_t_test_agg` | TOST two-sample t-test |
+| Equivalence | `tost_paired_agg` | TOST paired t-test |
+| Equivalence | `tost_correlation_agg` | TOST correlation equivalence |
+| Distribution | `energy_distance_agg` | Energy distance |
+| Distribution | `mmd_agg` | Maximum Mean Discrepancy |
+| Forecast | `diebold_mariano_agg` | Diebold-Mariano test |
+| Forecast | `clark_west_agg` | Clark-West test |
 
 ### Diagnostics & Utilities
 
@@ -1009,18 +1036,822 @@ SELECT chisq_test_agg(group, outcome, {'correction': true})
 FROM clinical_data;
 ```
 
-### Short Aliases
+#### chisq_gof_agg / anofox_stats_chisq_gof_agg
+
+Chi-square goodness of fit test. Tests whether observed frequencies match expected frequencies.
+
+**Signature:**
+```sql
+chisq_gof_agg(observed INTEGER, expected DOUBLE) -> STRUCT
+```
+
+**Returns:**
+```
+STRUCT(
+    statistic DOUBLE,    -- Chi-square statistic
+    p_value DOUBLE,      -- p-value
+    df BIGINT,           -- Degrees of freedom
+    method VARCHAR       -- "Chi-Square Goodness of Fit"
+)
+```
+
+**Example:**
+```sql
+-- Test if observed frequencies match expected
+SELECT (chisq_gof_agg(observed_count, expected_count)).*
+FROM frequency_data;
+```
+
+#### g_test_agg / anofox_stats_g_test_agg
+
+G-test (log-likelihood ratio test) for contingency tables.
+
+**Signature:**
+```sql
+g_test_agg(row_var INTEGER, col_var INTEGER) -> STRUCT
+```
+
+**Returns:**
+```
+STRUCT(
+    statistic DOUBLE,    -- G statistic
+    p_value DOUBLE,      -- p-value
+    df BIGINT,           -- Degrees of freedom
+    method VARCHAR       -- "G-test"
+)
+```
+
+**Example:**
+```sql
+-- G-test for independence
+SELECT (g_test_agg(category_a, category_b)).*
+FROM contingency_data;
+```
+
+#### fisher_exact_agg / anofox_stats_fisher_exact_agg
+
+Fisher's exact test for 2x2 contingency tables.
+
+**Signature:**
+```sql
+fisher_exact_agg(row_var INTEGER, col_var INTEGER, [options MAP]) -> STRUCT
+```
+
+**Options MAP:**
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| alternative | VARCHAR | 'two_sided' | 'two_sided', 'less', 'greater' |
+
+**Returns:**
+```
+STRUCT(
+    odds_ratio DOUBLE,   -- Odds ratio
+    p_value DOUBLE,      -- p-value
+    ci_lower DOUBLE,     -- CI lower bound
+    ci_upper DOUBLE,     -- CI upper bound
+    method VARCHAR       -- "Fisher's Exact Test"
+)
+```
+
+**Example:**
+```sql
+-- Fisher's exact test for small samples
+SELECT (fisher_exact_agg(treatment, outcome)).*
+FROM small_study;
+```
+
+#### mcnemar_agg / anofox_stats_mcnemar_agg
+
+McNemar's test for paired nominal data.
+
+**Signature:**
+```sql
+mcnemar_agg(var1 INTEGER, var2 INTEGER, [options MAP]) -> STRUCT
+```
+
+**Options MAP:**
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| correction | BOOLEAN | true | Apply continuity correction |
+
+**Returns:**
+```
+STRUCT(
+    statistic DOUBLE,    -- Chi-square statistic
+    p_value DOUBLE,      -- p-value
+    df BIGINT,           -- Degrees of freedom
+    method VARCHAR       -- "McNemar's test"
+)
+```
+
+**Example:**
+```sql
+-- Compare paired binary outcomes (before/after)
+SELECT (mcnemar_agg(before_treatment, after_treatment)).*
+FROM paired_study;
+```
+
+### Effect Size Measures
+
+#### cramers_v_agg / anofox_stats_cramers_v_agg
+
+Cramér's V effect size for categorical association.
+
+**Signature:**
+```sql
+cramers_v_agg(row_var INTEGER, col_var INTEGER) -> DOUBLE
+```
+
+**Returns:** Cramér's V coefficient (0 to 1)
+
+**Example:**
+```sql
+-- Measure association strength
+SELECT cramers_v_agg(category_a, category_b) as effect_size
+FROM survey_data;
+```
+
+#### phi_coefficient_agg / anofox_stats_phi_coefficient_agg
+
+Phi coefficient for 2x2 contingency tables.
+
+**Signature:**
+```sql
+phi_coefficient_agg(row_var INTEGER, col_var INTEGER) -> DOUBLE
+```
+
+**Returns:** Phi coefficient (-1 to 1)
+
+**Example:**
+```sql
+-- Phi coefficient for binary variables
+SELECT phi_coefficient_agg(gender, preference) as phi
+FROM binary_data;
+```
+
+#### contingency_coef_agg / anofox_stats_contingency_coef_agg
+
+Pearson's contingency coefficient.
+
+**Signature:**
+```sql
+contingency_coef_agg(row_var INTEGER, col_var INTEGER) -> DOUBLE
+```
+
+**Returns:** Contingency coefficient (0 to 1)
+
+**Example:**
+```sql
+SELECT contingency_coef_agg(row_category, col_category) as c_coef
+FROM categorical_data;
+```
+
+#### cohen_kappa_agg / anofox_stats_cohen_kappa_agg
+
+Cohen's kappa for inter-rater agreement.
+
+**Signature:**
+```sql
+cohen_kappa_agg(rater1 INTEGER, rater2 INTEGER) -> STRUCT
+```
+
+**Returns:**
+```
+STRUCT(
+    kappa DOUBLE,        -- Kappa coefficient
+    std_error DOUBLE,    -- Standard error
+    z_value DOUBLE,      -- Z statistic
+    p_value DOUBLE,      -- p-value
+    ci_lower DOUBLE,     -- CI lower bound
+    ci_upper DOUBLE,     -- CI upper bound
+    method VARCHAR       -- "Cohen's Kappa"
+)
+```
+
+**Example:**
+```sql
+-- Measure agreement between two raters
+SELECT (cohen_kappa_agg(rater1_score, rater2_score)).*
+FROM ratings;
+```
+
+### Proportion Tests
+
+#### prop_test_one_agg / anofox_stats_prop_test_one_agg
+
+One-sample proportion test.
+
+**Signature:**
+```sql
+prop_test_one_agg(successes INTEGER, trials INTEGER, p0 DOUBLE, [options MAP]) -> STRUCT
+```
+
+**Options MAP:**
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| alternative | VARCHAR | 'two_sided' | 'two_sided', 'less', 'greater' |
+| confidence_level | DOUBLE | 0.95 | Confidence level for CI |
+
+**Returns:**
+```
+STRUCT(
+    statistic DOUBLE,    -- Z statistic
+    p_value DOUBLE,      -- p-value
+    estimate DOUBLE,     -- Sample proportion
+    ci_lower DOUBLE,     -- CI lower bound
+    ci_upper DOUBLE,     -- CI upper bound
+    method VARCHAR       -- "One-sample proportion test"
+)
+```
+
+**Example:**
+```sql
+-- Test if success rate differs from 50%
+SELECT (prop_test_one_agg(successes, total, 0.5)).*
+FROM experiment_results;
+```
+
+#### prop_test_two_agg / anofox_stats_prop_test_two_agg
+
+Two-sample proportion test.
+
+**Signature:**
+```sql
+prop_test_two_agg(successes INTEGER, trials INTEGER, group_id INTEGER, [options MAP]) -> STRUCT
+```
+
+**Returns:**
+```
+STRUCT(
+    statistic DOUBLE,    -- Z statistic
+    p_value DOUBLE,      -- p-value
+    estimate1 DOUBLE,    -- Group 1 proportion
+    estimate2 DOUBLE,    -- Group 2 proportion
+    ci_lower DOUBLE,     -- CI lower bound for difference
+    ci_upper DOUBLE,     -- CI upper bound for difference
+    method VARCHAR       -- "Two-sample proportion test"
+)
+```
+
+**Example:**
+```sql
+-- Compare conversion rates between groups
+SELECT (prop_test_two_agg(conversions, visitors, ab_group)).*
+FROM ab_test;
+```
+
+#### binom_test_agg / anofox_stats_binom_test_agg
+
+Exact binomial test.
+
+**Signature:**
+```sql
+binom_test_agg(successes INTEGER, trials INTEGER, p0 DOUBLE, [options MAP]) -> STRUCT
+```
+
+**Returns:**
+```
+STRUCT(
+    p_value DOUBLE,      -- Exact p-value
+    estimate DOUBLE,     -- Sample proportion
+    ci_lower DOUBLE,     -- CI lower bound (Clopper-Pearson)
+    ci_upper DOUBLE,     -- CI upper bound
+    method VARCHAR       -- "Exact Binomial Test"
+)
+```
+
+**Example:**
+```sql
+-- Exact test for small samples
+SELECT (binom_test_agg(heads, flips, 0.5)).*
+FROM coin_flip_data;
+```
+
+### Additional Correlation Tests
+
+#### kendall_agg / anofox_stats_kendall_agg
+
+Kendall's tau rank correlation with significance test.
+
+**Signature:**
+```sql
+kendall_agg(x DOUBLE, y DOUBLE, [options MAP]) -> STRUCT
+```
+
+**Options MAP:**
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| confidence_level | DOUBLE | 0.95 | Confidence level for CI |
+
+**Returns:**
+```
+STRUCT(
+    tau DOUBLE,          -- Kendall's tau coefficient
+    statistic DOUBLE,    -- Z statistic
+    p_value DOUBLE,      -- p-value
+    n BIGINT,            -- Sample size
+    method VARCHAR       -- "Kendall"
+)
+```
+
+**Example:**
+```sql
+-- Kendall correlation for ordinal data
+SELECT (kendall_agg(rank_x, rank_y)).*
+FROM ranked_data;
+```
+
+#### distance_cor_agg / anofox_stats_distance_cor_agg
+
+Distance correlation for detecting nonlinear dependencies.
+
+**Signature:**
+```sql
+distance_cor_agg(x DOUBLE, y DOUBLE) -> STRUCT
+```
+
+**Returns:**
+```
+STRUCT(
+    dcor DOUBLE,         -- Distance correlation (0 to 1)
+    dcov DOUBLE,         -- Distance covariance
+    dvar_x DOUBLE,       -- Distance variance of x
+    dvar_y DOUBLE,       -- Distance variance of y
+    n BIGINT,            -- Sample size
+    method VARCHAR       -- "Distance Correlation"
+)
+```
+
+**Example:**
+```sql
+-- Detect nonlinear relationships
+SELECT (distance_cor_agg(x, y)).*
+FROM complex_relationships;
+```
+
+#### icc_agg / anofox_stats_icc_agg
+
+Intraclass correlation coefficient.
+
+**Signature:**
+```sql
+icc_agg(value DOUBLE, rater_id INTEGER, subject_id INTEGER, [options MAP]) -> STRUCT
+```
+
+**Returns:**
+```
+STRUCT(
+    icc DOUBLE,          -- ICC value
+    f_value DOUBLE,      -- F statistic
+    df1 BIGINT,          -- Numerator df
+    df2 BIGINT,          -- Denominator df
+    p_value DOUBLE,      -- p-value
+    ci_lower DOUBLE,     -- CI lower bound
+    ci_upper DOUBLE,     -- CI upper bound
+    method VARCHAR       -- "ICC"
+)
+```
+
+**Example:**
+```sql
+-- Measure reliability across raters
+SELECT (icc_agg(score, rater_id, subject_id)).*
+FROM reliability_study;
+```
+
+### Additional Parametric Tests
+
+#### yuen_agg / anofox_stats_yuen_agg
+
+Yuen's trimmed mean test (robust alternative to t-test).
+
+**Signature:**
+```sql
+yuen_agg(value DOUBLE, group_id INTEGER, [options MAP]) -> STRUCT
+```
+
+**Options MAP:**
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| trim | DOUBLE | 0.2 | Proportion to trim from each tail |
+| alternative | VARCHAR | 'two_sided' | 'two_sided', 'less', 'greater' |
+
+**Returns:**
+```
+STRUCT(
+    statistic DOUBLE,    -- Test statistic
+    p_value DOUBLE,      -- p-value
+    df DOUBLE,           -- Degrees of freedom
+    trimmed_mean1 DOUBLE,-- Group 1 trimmed mean
+    trimmed_mean2 DOUBLE,-- Group 2 trimmed mean
+    method VARCHAR       -- "Yuen's Trimmed Mean Test"
+)
+```
+
+**Example:**
+```sql
+-- Robust comparison with outliers
+SELECT (yuen_agg(score, treatment_group, {'trim': 0.1})).*
+FROM data_with_outliers;
+```
+
+#### brown_forsythe_agg / anofox_stats_brown_forsythe_agg
+
+Brown-Forsythe test for equality of variances.
+
+**Signature:**
+```sql
+brown_forsythe_agg(value DOUBLE, group_id INTEGER) -> STRUCT
+```
+
+**Returns:**
+```
+STRUCT(
+    statistic DOUBLE,    -- F statistic
+    p_value DOUBLE,      -- p-value
+    df1 BIGINT,          -- Numerator df
+    df2 BIGINT,          -- Denominator df
+    method VARCHAR       -- "Brown-Forsythe Test"
+)
+```
+
+**Example:**
+```sql
+-- Test homogeneity of variances
+SELECT (brown_forsythe_agg(measurement, group)).*
+FROM multi_group_data;
+```
+
+### Additional Nonparametric Tests
+
+#### wilcoxon_signed_rank_agg / anofox_stats_wilcoxon_signed_rank_agg
+
+Wilcoxon signed-rank test for paired samples.
+
+**Signature:**
+```sql
+wilcoxon_signed_rank_agg(value1 DOUBLE, value2 DOUBLE, [options MAP]) -> STRUCT
+```
+
+**Options MAP:**
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| alternative | VARCHAR | 'two_sided' | 'two_sided', 'less', 'greater' |
+| correction | BOOLEAN | true | Apply continuity correction |
+
+**Returns:**
+```
+STRUCT(
+    statistic DOUBLE,    -- W statistic
+    p_value DOUBLE,      -- p-value
+    n BIGINT,            -- Number of pairs
+    method VARCHAR       -- "Wilcoxon Signed-Rank"
+)
+```
+
+**Example:**
+```sql
+-- Paired nonparametric test (before/after)
+SELECT (wilcoxon_signed_rank_agg(before, after)).*
+FROM paired_measurements;
+```
+
+#### brunner_munzel_agg / anofox_stats_brunner_munzel_agg
+
+Brunner-Munzel test (generalized Wilcoxon test).
+
+**Signature:**
+```sql
+brunner_munzel_agg(value DOUBLE, group_id INTEGER, [options MAP]) -> STRUCT
+```
+
+**Returns:**
+```
+STRUCT(
+    statistic DOUBLE,    -- Test statistic
+    p_value DOUBLE,      -- p-value
+    df DOUBLE,           -- Degrees of freedom
+    estimate DOUBLE,     -- Probability estimate P(X < Y)
+    method VARCHAR       -- "Brunner-Munzel"
+)
+```
+
+**Example:**
+```sql
+-- Robust rank test
+SELECT (brunner_munzel_agg(outcome, treatment_group)).*
+FROM clinical_trial;
+```
+
+#### permutation_t_test_agg / anofox_stats_permutation_t_test_agg
+
+Permutation t-test (resampling-based).
+
+**Signature:**
+```sql
+permutation_t_test_agg(value DOUBLE, group_id INTEGER, [options MAP]) -> STRUCT
+```
+
+**Options MAP:**
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| n_permutations | INTEGER | 10000 | Number of permutations |
+| alternative | VARCHAR | 'two_sided' | 'two_sided', 'less', 'greater' |
+
+**Returns:**
+```
+STRUCT(
+    statistic DOUBLE,    -- t statistic
+    p_value DOUBLE,      -- Permutation p-value
+    n_permutations BIGINT,
+    method VARCHAR       -- "Permutation t-test"
+)
+```
+
+**Example:**
+```sql
+-- Exact test via permutation
+SELECT (permutation_t_test_agg(score, group, {'n_permutations': 5000})).*
+FROM small_sample_data;
+```
+
+### Normality Tests
+
+#### dagostino_k2_agg / anofox_stats_dagostino_k2_agg
+
+D'Agostino K² test for normality (based on skewness and kurtosis).
+
+**Signature:**
+```sql
+dagostino_k2_agg(value DOUBLE) -> STRUCT
+```
+
+**Returns:**
+```
+STRUCT(
+    statistic DOUBLE,    -- K² statistic
+    p_value DOUBLE,      -- p-value
+    skewness DOUBLE,     -- Sample skewness
+    kurtosis DOUBLE,     -- Sample kurtosis
+    n BIGINT,            -- Sample size
+    method VARCHAR       -- "D'Agostino K²"
+)
+```
+
+**Example:**
+```sql
+-- Test normality using skewness/kurtosis
+SELECT (dagostino_k2_agg(residual)).*
+FROM model_diagnostics;
+```
+
+### Distribution Comparison
+
+#### energy_distance_agg / anofox_stats_energy_distance_agg
+
+Energy distance for comparing distributions.
+
+**Signature:**
+```sql
+energy_distance_agg(value DOUBLE, group_id INTEGER) -> STRUCT
+```
+
+**Returns:**
+```
+STRUCT(
+    distance DOUBLE,     -- Energy distance
+    statistic DOUBLE,    -- Test statistic
+    p_value DOUBLE,      -- p-value (permutation-based)
+    method VARCHAR       -- "Energy Distance"
+)
+```
+
+**Example:**
+```sql
+-- Compare two distributions
+SELECT (energy_distance_agg(measurement, group)).*
+FROM two_sample_data;
+```
+
+#### mmd_agg / anofox_stats_mmd_agg
+
+Maximum Mean Discrepancy for distribution comparison.
+
+**Signature:**
+```sql
+mmd_agg(value DOUBLE, group_id INTEGER, [options MAP]) -> STRUCT
+```
+
+**Options MAP:**
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| kernel | VARCHAR | 'rbf' | Kernel type: 'rbf', 'linear' |
+| bandwidth | DOUBLE | auto | RBF kernel bandwidth |
+
+**Returns:**
+```
+STRUCT(
+    mmd DOUBLE,          -- MMD value
+    mmd_squared DOUBLE,  -- MMD²
+    p_value DOUBLE,      -- p-value
+    method VARCHAR       -- "MMD"
+)
+```
+
+**Example:**
+```sql
+-- Two-sample test using kernel methods
+SELECT (mmd_agg(feature, sample_group)).*
+FROM kernel_comparison;
+```
+
+### Equivalence Tests (TOST)
+
+#### tost_t_test_agg / anofox_stats_tost_t_test_agg
+
+Two One-Sided Tests (TOST) for equivalence.
+
+**Signature:**
+```sql
+tost_t_test_agg(value DOUBLE, group_id INTEGER, delta DOUBLE, [options MAP]) -> STRUCT
+```
+
+**Parameters:**
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| delta | DOUBLE | Equivalence margin (symmetric bounds) |
+
+**Returns:**
+```
+STRUCT(
+    p_value DOUBLE,      -- TOST p-value (max of two one-sided)
+    ci_lower DOUBLE,     -- 90% CI lower bound
+    ci_upper DOUBLE,     -- 90% CI upper bound
+    equivalent BOOLEAN,  -- True if equivalence established
+    method VARCHAR       -- "TOST t-test"
+)
+```
+
+**Example:**
+```sql
+-- Test equivalence within ±0.5
+SELECT (tost_t_test_agg(outcome, treatment_group, 0.5)).*
+FROM bioequivalence_study;
+```
+
+#### tost_paired_agg / anofox_stats_tost_paired_agg
+
+TOST for paired samples.
+
+**Signature:**
+```sql
+tost_paired_agg(value1 DOUBLE, value2 DOUBLE, delta DOUBLE, [options MAP]) -> STRUCT
+```
+
+**Returns:** Same structure as tost_t_test_agg
+
+**Example:**
+```sql
+-- Paired equivalence test
+SELECT (tost_paired_agg(method_a, method_b, 0.1)).*
+FROM method_comparison;
+```
+
+#### tost_correlation_agg / anofox_stats_tost_correlation_agg
+
+TOST for testing correlation equivalence to a reference value.
+
+**Signature:**
+```sql
+tost_correlation_agg(x DOUBLE, y DOUBLE, rho0 DOUBLE, delta DOUBLE) -> STRUCT
+```
+
+**Parameters:**
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| rho0 | DOUBLE | Reference correlation (typically 0) |
+| delta | DOUBLE | Equivalence margin around rho0 |
+
+**Returns:**
+```
+STRUCT(
+    r DOUBLE,            -- Sample correlation
+    p_value DOUBLE,      -- TOST p-value
+    ci_lower DOUBLE,     -- CI lower bound
+    ci_upper DOUBLE,     -- CI upper bound
+    equivalent BOOLEAN,  -- True if equivalence established
+    method VARCHAR       -- "TOST Correlation"
+)
+```
+
+**Example:**
+```sql
+-- Test if correlation is equivalent to zero (negligible relationship)
+SELECT (tost_correlation_agg(x, y, 0.0, 0.1)).*
+FROM correlation_study;
+```
+
+### Forecast Evaluation
+
+#### diebold_mariano_agg / anofox_stats_diebold_mariano_agg
+
+Diebold-Mariano test for comparing forecast accuracy.
+
+**Signature:**
+```sql
+diebold_mariano_agg(actual DOUBLE, forecast1 DOUBLE, forecast2 DOUBLE, [options MAP]) -> STRUCT
+```
+
+**Options MAP:**
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| loss | VARCHAR | 'mse' | Loss function: 'mse', 'mae', 'mape' |
+| alternative | VARCHAR | 'two_sided' | 'two_sided', 'less', 'greater' |
+
+**Returns:**
+```
+STRUCT(
+    statistic DOUBLE,    -- DM statistic
+    p_value DOUBLE,      -- p-value
+    loss1 DOUBLE,        -- Mean loss for forecast 1
+    loss2 DOUBLE,        -- Mean loss for forecast 2
+    method VARCHAR       -- "Diebold-Mariano"
+)
+```
+
+**Example:**
+```sql
+-- Compare two forecasting models
+SELECT (diebold_mariano_agg(actual, model1_pred, model2_pred)).*
+FROM forecast_comparison;
+```
+
+#### clark_west_agg / anofox_stats_clark_west_agg
+
+Clark-West test for nested model comparison.
+
+**Signature:**
+```sql
+clark_west_agg(actual DOUBLE, forecast1 DOUBLE, forecast2 DOUBLE) -> STRUCT
+```
+
+**Returns:**
+```
+STRUCT(
+    statistic DOUBLE,    -- CW statistic
+    p_value DOUBLE,      -- p-value
+    mspe_adj DOUBLE,     -- Adjusted MSPE difference
+    method VARCHAR       -- "Clark-West"
+)
+```
+
+**Example:**
+```sql
+-- Compare nested forecasting models
+SELECT (clark_west_agg(actual, restricted_model, unrestricted_model)).*
+FROM nested_model_comparison;
+```
+
+### Statistical Test Aliases
 
 | Full Name | Short Alias |
 |-----------|-------------|
 | anofox_stats_shapiro_wilk_agg | shapiro_wilk_agg |
+| anofox_stats_jarque_bera_agg | jarque_bera_agg |
+| anofox_stats_dagostino_k2_agg | dagostino_k2_agg |
 | anofox_stats_t_test_agg | t_test_agg |
 | anofox_stats_one_way_anova_agg | one_way_anova_agg |
+| anofox_stats_yuen_agg | yuen_agg |
+| anofox_stats_brown_forsythe_agg | brown_forsythe_agg |
 | anofox_stats_mann_whitney_u_agg | mann_whitney_u_agg |
 | anofox_stats_kruskal_wallis_agg | kruskal_wallis_agg |
+| anofox_stats_wilcoxon_signed_rank_agg | wilcoxon_signed_rank_agg |
+| anofox_stats_brunner_munzel_agg | brunner_munzel_agg |
+| anofox_stats_permutation_t_test_agg | permutation_t_test_agg |
 | anofox_stats_pearson_agg | pearson_agg |
 | anofox_stats_spearman_agg | spearman_agg |
+| anofox_stats_kendall_agg | kendall_agg |
+| anofox_stats_distance_cor_agg | distance_cor_agg |
+| anofox_stats_icc_agg | icc_agg |
 | anofox_stats_chisq_test_agg | chisq_test_agg |
+| anofox_stats_chisq_gof_agg | chisq_gof_agg |
+| anofox_stats_g_test_agg | g_test_agg |
+| anofox_stats_fisher_exact_agg | fisher_exact_agg |
+| anofox_stats_mcnemar_agg | mcnemar_agg |
+| anofox_stats_cramers_v_agg | cramers_v_agg |
+| anofox_stats_phi_coefficient_agg | phi_coefficient_agg |
+| anofox_stats_contingency_coef_agg | contingency_coef_agg |
+| anofox_stats_cohen_kappa_agg | cohen_kappa_agg |
+| anofox_stats_prop_test_one_agg | prop_test_one_agg |
+| anofox_stats_prop_test_two_agg | prop_test_two_agg |
+| anofox_stats_binom_test_agg | binom_test_agg |
+| anofox_stats_tost_t_test_agg | tost_t_test_agg |
+| anofox_stats_tost_paired_agg | tost_paired_agg |
+| anofox_stats_tost_correlation_agg | tost_correlation_agg |
+| anofox_stats_energy_distance_agg | energy_distance_agg |
+| anofox_stats_mmd_agg | mmd_agg |
+| anofox_stats_diebold_mariano_agg | diebold_mariano_agg |
+| anofox_stats_clark_west_agg | clark_west_agg |
 
 ---
 
