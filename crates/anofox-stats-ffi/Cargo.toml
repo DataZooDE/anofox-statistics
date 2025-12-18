@@ -12,6 +12,7 @@ crate-type = ["staticlib"]
 
 [dependencies]
 anofox-stats-core = { path = "../anofox-stats-core" }
+anofox-tests.workspace = true
 libc.workspace = true
 statrs.workspace = true
 

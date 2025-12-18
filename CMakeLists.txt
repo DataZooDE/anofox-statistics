@@ -110,6 +110,14 @@ set(EXTENSION_SOURCES
     src/aggregate_functions/alm_aggregate.cpp
     src/aggregate_functions/bls_aggregate.cpp
     src/aggregate_functions/aid_aggregate.cpp
+    src/aggregate_functions/shapiro_wilk_aggregate.cpp
+    src/aggregate_functions/t_test_aggregate.cpp
+    src/aggregate_functions/pearson_aggregate.cpp
+    src/aggregate_functions/spearman_aggregate.cpp
+    src/aggregate_functions/mann_whitney_aggregate.cpp
+    src/aggregate_functions/anova_aggregate.cpp
+    src/aggregate_functions/kruskal_wallis_aggregate.cpp
+    src/aggregate_functions/chisq_aggregate.cpp
     src/scalar_functions/vif.cpp
     src/scalar_functions/aic_bic.cpp
     src/scalar_functions/jarque_bera.cpp

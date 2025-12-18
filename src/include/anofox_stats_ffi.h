@@ -952,6 +952,387 @@ void anofox_free_aid_result(AnofoxAidResult *result);
  */
 void anofox_free_aid_anomaly_result(AnofoxAidAnomalyResult *result);
 
+/* ============================================================================
+ * Statistical Hypothesis Testing Functions
+ * ============================================================================ */
+
+/**
+ * Alternative hypothesis codes
+ */
+typedef enum {
+    ANOFOX_ALTERNATIVE_TWO_SIDED = 0,
+    ANOFOX_ALTERNATIVE_LESS = 1,
+    ANOFOX_ALTERNATIVE_GREATER = 2,
+} AnofoxAlternative;
+
+/**
+ * Generic test result structure
+ */
+typedef struct {
+    /** Test statistic */
+    double statistic;
+    /** p-value */
+    double p_value;
+    /** Degrees of freedom (NaN if N/A) */
+    double df;
+    /** Effect size (NaN if N/A) */
+    double effect_size;
+    /** Confidence interval lower bound */
+    double ci_lower;
+    /** Confidence interval upper bound */
+    double ci_upper;
+    /** Confidence level */
+    double confidence_level;
+    /** Total sample size */
+    size_t n;
+    /** Group 1 sample size */
+    size_t n1;
+    /** Group 2 sample size */
+    size_t n2;
+    /** Alternative hypothesis */
+    AnofoxAlternative alternative;
+    /** Method name - must be freed */
+    char *method;
+} AnofoxTestResult;
+
+/**
+ * ANOVA result structure
+ */
+typedef struct {
+    /** F statistic */
+    double f_statistic;
+    /** p-value */
+    double p_value;
+    /** Between-groups df */
+    size_t df_between;
+    /** Within-groups df */
+    size_t df_within;
+    /** Between-groups SS */
+    double ss_between;
+    /** Within-groups SS */
+    double ss_within;
+    /** Number of groups */
+    size_t n_groups;
+    /** Total sample size */
+    size_t n;
+    /** Method name - must be freed */
+    char *method;
+} AnofoxAnovaResult;
+
+/**
+ * Correlation result structure
+ */
+typedef struct {
+    /** Correlation coefficient */
+    double r;
+    /** Test statistic */
+    double statistic;
+    /** p-value */
+    double p_value;
+    /** CI lower bound */
+    double ci_lower;
+    /** CI upper bound */
+    double ci_upper;
+    /** Confidence level */
+    double confidence_level;
+    /** Sample size */
+    size_t n;
+    /** Method name - must be freed */
+    char *method;
+} AnofoxCorrelationResult;
+
+/**
+ * Chi-square result structure
+ */
+typedef struct {
+    /** Chi-square statistic */
+    double statistic;
+    /** p-value */
+    double p_value;
+    /** Degrees of freedom */
+    size_t df;
+    /** Method name - must be freed */
+    char *method;
+} AnofoxChiSquareResult;
+
+/**
+ * TOST (equivalence) result structure
+ */
+typedef struct {
+    /** Lower bound test statistic */
+    double t_lower;
+    /** Upper bound test statistic */
+    double t_upper;
+    /** p-value for lower test */
+    double p_lower;
+    /** p-value for upper test */
+    double p_upper;
+    /** Overall p-value */
+    double p_value;
+    /** Degrees of freedom */
+    double df;
+    /** Point estimate */
+    double estimate;
+    /** CI lower bound */
+    double ci_lower;
+    /** CI upper bound */
+    double ci_upper;
+    /** Equivalence bound lower */
+    double bound_lower;
+    /** Equivalence bound upper */
+    double bound_upper;
+    /** Whether equivalence was established */
+    bool equivalent;
+    /** Sample size */
+    size_t n;
+    /** Method name - must be freed */
+    char *method;
+} AnofoxTostResult;
+
+/**
+ * T-test options
+ */
+typedef struct {
+    /** Alternative hypothesis */
+    AnofoxAlternative alternative;
+    /** Confidence level */
+    double confidence_level;
+    /** Use equal variance (Student's t) vs Welch */
+    bool var_equal;
+    /** Hypothesized mean difference */
+    double mu;
+} AnofoxTTestOptions;
+
+/**
+ * Mann-Whitney U test options
+ */
+typedef struct {
+    /** Alternative hypothesis */
+    AnofoxAlternative alternative;
+    /** Use exact distribution */
+    bool exact;
+    /** Apply continuity correction */
+    bool continuity_correction;
+    /** Confidence level */
+    double confidence_level;
+    /** Hypothesized location shift */
+    double mu;
+} AnofoxMannWhitneyOptions;
+
+/**
+ * Correlation test options
+ */
+typedef struct {
+    /** Alternative hypothesis */
+    AnofoxAlternative alternative;
+    /** Confidence level */
+    double confidence_level;
+} AnofoxCorrelationOptions;
+
+/**
+ * Kendall tau type codes
+ */
+typedef enum {
+    ANOFOX_KENDALL_TAU_A = 0,
+    ANOFOX_KENDALL_TAU_B = 1,
+    ANOFOX_KENDALL_TAU_C = 2,
+} AnofoxKendallType;
+
+/**
+ * Kendall correlation options
+ */
+typedef struct {
+    /** Alternative hypothesis */
+    AnofoxAlternative alternative;
+    /** Tau type */
+    AnofoxKendallType tau_type;
+    /** Confidence level */
+    double confidence_level;
+} AnofoxKendallOptions;
+
+/**
+ * Chi-square test options
+ */
+typedef struct {
+    /** Apply Yates correction */
+    bool correction;
+} AnofoxChiSquareOptions;
+
+/**
+ * Fisher's exact test options
+ */
+typedef struct {
+    /** Alternative hypothesis */
+    AnofoxAlternative alternative;
+    /** Confidence level */
+    double confidence_level;
+} AnofoxFisherExactOptions;
+
+/**
+ * Energy distance test options
+ */
+typedef struct {
+    /** Number of permutations */
+    size_t n_permutations;
+    /** Random seed (0 = random) */
+    uint64_t seed;
+    /** Whether seed is set */
+    bool has_seed;
+} AnofoxEnergyDistanceOptions;
+
+/**
+ * MMD test options
+ */
+typedef struct {
+    /** Number of permutations */
+    size_t n_permutations;
+    /** Random seed (0 = random) */
+    uint64_t seed;
+    /** Whether seed is set */
+    bool has_seed;
+} AnofoxMmdOptions;
+
+/**
+ * TOST options
+ */
+typedef struct {
+    /** Lower equivalence bound */
+    double bound_lower;
+    /** Upper equivalence bound */
+    double bound_upper;
+    /** Significance level */
+    double alpha;
+    /** Use pooled variance (for two-sample t-test) */
+    bool pooled;
+} AnofoxTostOptions;
+
+/**
+ * Brunner-Munzel test options
+ */
+typedef struct {
+    /** Alternative hypothesis */
+    AnofoxAlternative alternative;
+    /** Confidence level */
+    double confidence_level;
+} AnofoxBrunnerMunzelOptions;
+
+/* --- Test Functions --- */
+
+/**
+ * Two-sample t-test
+ */
+bool anofox_t_test(AnofoxDataArray group1, AnofoxDataArray group2, AnofoxTTestOptions options,
+                   AnofoxTestResult *out_result, AnofoxError *out_error);
+
+/**
+ * Shapiro-Wilk normality test
+ */
+bool anofox_shapiro_wilk(AnofoxDataArray data, AnofoxTestResult *out_result, AnofoxError *out_error);
+
+/**
+ * D'Agostino K-squared normality test
+ */
+bool anofox_dagostino_k2(AnofoxDataArray data, AnofoxTestResult *out_result, AnofoxError *out_error);
+
+/**
+ * Pearson correlation test
+ */
+bool anofox_pearson_cor(AnofoxDataArray x, AnofoxDataArray y, AnofoxCorrelationOptions options,
+                        AnofoxCorrelationResult *out_result, AnofoxError *out_error);
+
+/**
+ * Spearman correlation test
+ */
+bool anofox_spearman_cor(AnofoxDataArray x, AnofoxDataArray y, AnofoxCorrelationOptions options,
+                         AnofoxCorrelationResult *out_result, AnofoxError *out_error);
+
+/**
+ * Kendall correlation test
+ */
+bool anofox_kendall_cor(AnofoxDataArray x, AnofoxDataArray y, AnofoxKendallOptions options,
+                        AnofoxCorrelationResult *out_result, AnofoxError *out_error);
+
+/**
+ * Mann-Whitney U test
+ */
+bool anofox_mann_whitney_u(AnofoxDataArray group1, AnofoxDataArray group2, AnofoxMannWhitneyOptions options,
+                           AnofoxTestResult *out_result, AnofoxError *out_error);
+
+/**
+ * Brunner-Munzel test
+ */
+bool anofox_brunner_munzel(AnofoxDataArray group1, AnofoxDataArray group2, AnofoxBrunnerMunzelOptions options,
+                           AnofoxTestResult *out_result, AnofoxError *out_error);
+
+/**
+ * One-way ANOVA
+ */
+bool anofox_one_way_anova(AnofoxDataArray values, AnofoxDataArray groups, AnofoxAnovaResult *out_result,
+                          AnofoxError *out_error);
+
+/**
+ * Kruskal-Wallis H test
+ */
+bool anofox_kruskal_wallis(AnofoxDataArray values, AnofoxDataArray groups, AnofoxTestResult *out_result,
+                           AnofoxError *out_error);
+
+/**
+ * Chi-square test for independence
+ */
+bool anofox_chisq_test(AnofoxDataArray row_var, AnofoxDataArray col_var, AnofoxChiSquareOptions options,
+                       AnofoxChiSquareResult *out_result, AnofoxError *out_error);
+
+/**
+ * Fisher's exact test (2x2 tables)
+ */
+bool anofox_fisher_exact(size_t a, size_t b, size_t c, size_t d, AnofoxFisherExactOptions options,
+                         AnofoxTestResult *out_result, AnofoxError *out_error);
+
+/**
+ * Energy distance test
+ */
+bool anofox_energy_distance(AnofoxDataArray group1, AnofoxDataArray group2, AnofoxEnergyDistanceOptions options,
+                            AnofoxTestResult *out_result, AnofoxError *out_error);
+
+/**
+ * Maximum Mean Discrepancy (MMD) test
+ */
+bool anofox_mmd(AnofoxDataArray group1, AnofoxDataArray group2, AnofoxMmdOptions options,
+                AnofoxTestResult *out_result, AnofoxError *out_error);
+
+/**
+ * TOST two-sample t-test for equivalence
+ */
+bool anofox_tost_t_test(AnofoxDataArray group1, AnofoxDataArray group2, AnofoxTostOptions options,
+                        AnofoxTostResult *out_result, AnofoxError *out_error);
+
+/* --- Free Functions --- */
+
+/**
+ * Free memory allocated by test functions
+ */
+void anofox_free_test_result(AnofoxTestResult *result);
+
+/**
+ * Free memory allocated by ANOVA functions
+ */
+void anofox_free_anova_result(AnofoxAnovaResult *result);
+
+/**
+ * Free memory allocated by correlation functions
+ */
+void anofox_free_correlation_result(AnofoxCorrelationResult *result);
+
+/**
+ * Free memory allocated by chi-square functions
+ */
+void anofox_free_chisq_result(AnofoxChiSquareResult *result);
+
+/**
+ * Free memory allocated by TOST functions
+ */
+void anofox_free_tost_result(AnofoxTostResult *result);
+
 #ifdef __cplusplus
 }
 #endif

@@ -17,12 +17,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "anofox-statistics"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e7967f475f90e2d1d2090d9229fc8f1ed191fd53d20c4301705dc2b4ca14697b"
+dependencies = [
+ "rand 0.8.5",
+ "rand_chacha 0.3.1",
+ "statrs",
+ "thiserror 2.0.17",
+]
+
+[[package]]
 name = "anofox-stats-core"
 version = "0.1.0"
 dependencies = [
  "anofox-regression",
+ "anofox-statistics",
  "approx",
  "faer",
+ "rand 0.8.5",
  "thiserror 2.0.17",
 ]
 
@@ -30,6 +44,7 @@ dependencies = [
 name = "anofox_stats_ffi"
 version = "0.1.0"
 dependencies = [
+ "anofox-statistics",
  "anofox-stats-core",
  "cbindgen",
  "libc",

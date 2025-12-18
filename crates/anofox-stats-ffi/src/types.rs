@@ -777,3 +777,624 @@ impl Default for AidAnomalyResultFFI {
         }
     }
 }
+
+// =============================================================================
+// Statistical Hypothesis Testing FFI Types
+// =============================================================================
+
+/// Alternative hypothesis codes for FFI
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AlternativeFFI {
+    TwoSided = 0,
+    Less = 1,
+    Greater = 2,
+}
+
+impl From<AlternativeFFI> for anofox_stats_core::tests::Alternative {
+    fn from(alt: AlternativeFFI) -> Self {
+        match alt {
+            AlternativeFFI::TwoSided => anofox_stats_core::tests::Alternative::TwoSided,
+            AlternativeFFI::Less => anofox_stats_core::tests::Alternative::Less,
+            AlternativeFFI::Greater => anofox_stats_core::tests::Alternative::Greater,
+        }
+    }
+}
+
+impl From<anofox_stats_core::tests::Alternative> for AlternativeFFI {
+    fn from(alt: anofox_stats_core::tests::Alternative) -> Self {
+        match alt {
+            anofox_stats_core::tests::Alternative::TwoSided => AlternativeFFI::TwoSided,
+            anofox_stats_core::tests::Alternative::Less => AlternativeFFI::Less,
+            anofox_stats_core::tests::Alternative::Greater => AlternativeFFI::Greater,
+        }
+    }
+}
+
+/// Generic test result for FFI
+#[repr(C)]
+pub struct TestResultFFI {
+    /// Test statistic (t, U, chi2, F, etc.)
+    pub statistic: f64,
+    /// p-value
+    pub p_value: f64,
+    /// Degrees of freedom (NaN if not applicable)
+    pub df: f64,
+    /// Effect size (Cohen's d, r, etc.) (NaN if not applicable)
+    pub effect_size: f64,
+    /// Confidence interval lower bound
+    pub ci_lower: f64,
+    /// Confidence interval upper bound
+    pub ci_upper: f64,
+    /// Confidence level used
+    pub confidence_level: f64,
+    /// Total sample size
+    pub n: usize,
+    /// Group 1 sample size (for two-sample tests)
+    pub n1: usize,
+    /// Group 2 sample size (for two-sample tests)
+    pub n2: usize,
+    /// Alternative hypothesis
+    pub alternative: AlternativeFFI,
+    /// Test method/name (must be freed)
+    pub method: *mut c_char,
+}
+
+impl Default for TestResultFFI {
+    fn default() -> Self {
+        Self {
+            statistic: f64::NAN,
+            p_value: f64::NAN,
+            df: f64::NAN,
+            effect_size: f64::NAN,
+            ci_lower: f64::NAN,
+            ci_upper: f64::NAN,
+            confidence_level: 0.95,
+            n: 0,
+            n1: 0,
+            n2: 0,
+            alternative: AlternativeFFI::TwoSided,
+            method: std::ptr::null_mut(),
+        }
+    }
+}
+
+/// ANOVA result for FFI
+#[repr(C)]
+pub struct AnovaResultFFI {
+    /// F statistic
+    pub f_statistic: f64,
+    /// p-value
+    pub p_value: f64,
+    /// Between-groups degrees of freedom
+    pub df_between: usize,
+    /// Within-groups degrees of freedom
+    pub df_within: usize,
+    /// Between-groups sum of squares
+    pub ss_between: f64,
+    /// Within-groups sum of squares
+    pub ss_within: f64,
+    /// Number of groups
+    pub n_groups: usize,
+    /// Total sample size
+    pub n: usize,
+    /// Test method (must be freed)
+    pub method: *mut c_char,
+}
+
+impl Default for AnovaResultFFI {
+    fn default() -> Self {
+        Self {
+            f_statistic: f64::NAN,
+            p_value: f64::NAN,
+            df_between: 0,
+            df_within: 0,
+            ss_between: f64::NAN,
+            ss_within: f64::NAN,
+            n_groups: 0,
+            n: 0,
+            method: std::ptr::null_mut(),
+        }
+    }
+}
+
+/// Correlation result for FFI
+#[repr(C)]
+pub struct CorrelationResultFFI {
+    /// Correlation coefficient
+    pub r: f64,
+    /// Test statistic
+    pub statistic: f64,
+    /// p-value
+    pub p_value: f64,
+    /// Confidence interval lower bound
+    pub ci_lower: f64,
+    /// Confidence interval upper bound
+    pub ci_upper: f64,
+    /// Confidence level
+    pub confidence_level: f64,
+    /// Sample size
+    pub n: usize,
+    /// Method name (must be freed)
+    pub method: *mut c_char,
+}
+
+impl Default for CorrelationResultFFI {
+    fn default() -> Self {
+        Self {
+            r: f64::NAN,
+            statistic: f64::NAN,
+            p_value: f64::NAN,
+            ci_lower: f64::NAN,
+            ci_upper: f64::NAN,
+            confidence_level: 0.95,
+            n: 0,
+            method: std::ptr::null_mut(),
+        }
+    }
+}
+
+/// Chi-square test result for FFI
+#[repr(C)]
+pub struct ChiSquareResultFFI {
+    /// Chi-square statistic
+    pub statistic: f64,
+    /// p-value
+    pub p_value: f64,
+    /// Degrees of freedom
+    pub df: usize,
+    /// Method name (must be freed)
+    pub method: *mut c_char,
+}
+
+impl Default for ChiSquareResultFFI {
+    fn default() -> Self {
+        Self {
+            statistic: f64::NAN,
+            p_value: f64::NAN,
+            df: 0,
+            method: std::ptr::null_mut(),
+        }
+    }
+}
+
+/// TOST (equivalence) result for FFI
+#[repr(C)]
+pub struct TostResultFFI {
+    /// Lower bound test statistic
+    pub t_lower: f64,
+    /// Upper bound test statistic
+    pub t_upper: f64,
+    /// p-value for lower test
+    pub p_lower: f64,
+    /// p-value for upper test
+    pub p_upper: f64,
+    /// Overall p-value (max of p_lower, p_upper)
+    pub p_value: f64,
+    /// Degrees of freedom
+    pub df: f64,
+    /// Point estimate (mean difference, correlation, etc.)
+    pub estimate: f64,
+    /// Confidence interval lower bound (for 1-2*alpha CI)
+    pub ci_lower: f64,
+    /// Confidence interval upper bound
+    pub ci_upper: f64,
+    /// Equivalence bound (lower)
+    pub bound_lower: f64,
+    /// Equivalence bound (upper)
+    pub bound_upper: f64,
+    /// Whether equivalence was established
+    pub equivalent: bool,
+    /// Sample size
+    pub n: usize,
+    /// Method name (must be freed)
+    pub method: *mut c_char,
+}
+
+impl Default for TostResultFFI {
+    fn default() -> Self {
+        Self {
+            t_lower: f64::NAN,
+            t_upper: f64::NAN,
+            p_lower: f64::NAN,
+            p_upper: f64::NAN,
+            p_value: f64::NAN,
+            df: f64::NAN,
+            estimate: f64::NAN,
+            ci_lower: f64::NAN,
+            ci_upper: f64::NAN,
+            bound_lower: f64::NAN,
+            bound_upper: f64::NAN,
+            equivalent: false,
+            n: 0,
+            method: std::ptr::null_mut(),
+        }
+    }
+}
+
+// =============================================================================
+// Test Options FFI Types
+// =============================================================================
+
+/// T-test options for FFI
+#[repr(C)]
+pub struct TTestOptionsFFI {
+    /// Alternative hypothesis
+    pub alternative: AlternativeFFI,
+    /// Confidence level for CI
+    pub confidence_level: f64,
+    /// Assumed equal variance (Student's t) vs Welch
+    pub var_equal: bool,
+    /// Hypothesized mean difference
+    pub mu: f64,
+}
+
+impl Default for TTestOptionsFFI {
+    fn default() -> Self {
+        Self {
+            alternative: AlternativeFFI::TwoSided,
+            confidence_level: 0.95,
+            var_equal: false,
+            mu: 0.0,
+        }
+    }
+}
+
+/// Mann-Whitney U test options for FFI
+#[repr(C)]
+pub struct MannWhitneyOptionsFFI {
+    /// Alternative hypothesis
+    pub alternative: AlternativeFFI,
+    /// Use exact distribution
+    pub exact: bool,
+    /// Apply continuity correction
+    pub continuity_correction: bool,
+    /// Confidence level for CI
+    pub confidence_level: f64,
+    /// Hypothesized location shift
+    pub mu: f64,
+}
+
+impl Default for MannWhitneyOptionsFFI {
+    fn default() -> Self {
+        Self {
+            alternative: AlternativeFFI::TwoSided,
+            exact: false,
+            continuity_correction: true,
+            confidence_level: 0.95,
+            mu: 0.0,
+        }
+    }
+}
+
+/// Wilcoxon signed-rank test options for FFI
+#[repr(C)]
+pub struct WilcoxonOptionsFFI {
+    /// Alternative hypothesis
+    pub alternative: AlternativeFFI,
+    /// Use exact distribution
+    pub exact: bool,
+    /// Apply continuity correction
+    pub continuity_correction: bool,
+    /// Confidence level for CI
+    pub confidence_level: f64,
+    /// Hypothesized median
+    pub mu: f64,
+}
+
+impl Default for WilcoxonOptionsFFI {
+    fn default() -> Self {
+        Self {
+            alternative: AlternativeFFI::TwoSided,
+            exact: false,
+            continuity_correction: true,
+            confidence_level: 0.95,
+            mu: 0.0,
+        }
+    }
+}
+
+/// Correlation options for FFI
+#[repr(C)]
+pub struct CorrelationOptionsFFI {
+    /// Alternative hypothesis
+    pub alternative: AlternativeFFI,
+    /// Confidence level for CI
+    pub confidence_level: f64,
+}
+
+impl Default for CorrelationOptionsFFI {
+    fn default() -> Self {
+        Self {
+            alternative: AlternativeFFI::TwoSided,
+            confidence_level: 0.95,
+        }
+    }
+}
+
+/// Kendall tau type for FFI
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KendallTypeFFI {
+    TauA = 0,
+    TauB = 1,
+    TauC = 2,
+}
+
+/// Kendall correlation options for FFI
+#[repr(C)]
+pub struct KendallOptionsFFI {
+    /// Alternative hypothesis
+    pub alternative: AlternativeFFI,
+    /// Tau type (a, b, or c)
+    pub tau_type: KendallTypeFFI,
+    /// Confidence level for CI
+    pub confidence_level: f64,
+}
+
+impl Default for KendallOptionsFFI {
+    fn default() -> Self {
+        Self {
+            alternative: AlternativeFFI::TwoSided,
+            tau_type: KendallTypeFFI::TauB,
+            confidence_level: 0.95,
+        }
+    }
+}
+
+/// Chi-square test options for FFI
+#[repr(C)]
+pub struct ChiSquareOptionsFFI {
+    /// Apply Yates continuity correction (for 2x2 tables)
+    pub correction: bool,
+}
+
+impl Default for ChiSquareOptionsFFI {
+    fn default() -> Self {
+        Self { correction: false }
+    }
+}
+
+/// Fisher's exact test options for FFI
+#[repr(C)]
+pub struct FisherExactOptionsFFI {
+    /// Alternative hypothesis
+    pub alternative: AlternativeFFI,
+    /// Confidence level for odds ratio CI
+    pub confidence_level: f64,
+}
+
+impl Default for FisherExactOptionsFFI {
+    fn default() -> Self {
+        Self {
+            alternative: AlternativeFFI::TwoSided,
+            confidence_level: 0.95,
+        }
+    }
+}
+
+/// Energy distance test options for FFI
+#[repr(C)]
+pub struct EnergyDistanceOptionsFFI {
+    /// Number of permutations
+    pub n_permutations: usize,
+    /// Seed for reproducibility (0 = random)
+    pub seed: u64,
+    /// Whether seed is set
+    pub has_seed: bool,
+}
+
+impl Default for EnergyDistanceOptionsFFI {
+    fn default() -> Self {
+        Self {
+            n_permutations: 1000,
+            seed: 0,
+            has_seed: false,
+        }
+    }
+}
+
+/// MMD test options for FFI
+#[repr(C)]
+pub struct MmdOptionsFFI {
+    /// Number of permutations
+    pub n_permutations: usize,
+    /// Seed for reproducibility (0 = random)
+    pub seed: u64,
+    /// Whether seed is set
+    pub has_seed: bool,
+}
+
+impl Default for MmdOptionsFFI {
+    fn default() -> Self {
+        Self {
+            n_permutations: 1000,
+            seed: 0,
+            has_seed: false,
+        }
+    }
+}
+
+/// TOST options for FFI
+#[repr(C)]
+pub struct TostOptionsFFI {
+    /// Lower equivalence bound
+    pub bound_lower: f64,
+    /// Upper equivalence bound
+    pub bound_upper: f64,
+    /// Alpha level
+    pub alpha: f64,
+    /// Use pooled variance (only for two-sample t-test)
+    pub pooled: bool,
+}
+
+impl Default for TostOptionsFFI {
+    fn default() -> Self {
+        Self {
+            bound_lower: -0.5,
+            bound_upper: 0.5,
+            alpha: 0.05,
+            pooled: false,
+        }
+    }
+}
+
+/// Brunner-Munzel test options for FFI
+#[repr(C)]
+pub struct BrunnerMunzelOptionsFFI {
+    /// Alternative hypothesis
+    pub alternative: AlternativeFFI,
+    /// Confidence level
+    pub confidence_level: f64,
+}
+
+impl Default for BrunnerMunzelOptionsFFI {
+    fn default() -> Self {
+        Self {
+            alternative: AlternativeFFI::TwoSided,
+            confidence_level: 0.95,
+        }
+    }
+}
+
+/// Yuen test options for FFI
+#[repr(C)]
+pub struct YuenOptionsFFI {
+    /// Alternative hypothesis
+    pub alternative: AlternativeFFI,
+    /// Trim proportion (0.0-0.5)
+    pub trim: f64,
+    /// Confidence level for CI
+    pub confidence_level: f64,
+}
+
+impl Default for YuenOptionsFFI {
+    fn default() -> Self {
+        Self {
+            alternative: AlternativeFFI::TwoSided,
+            trim: 0.2,
+            confidence_level: 0.95,
+        }
+    }
+}
+
+/// Forecast loss function for FFI
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ForecastLossFFI {
+    SquaredError = 0,
+    AbsoluteError = 1,
+}
+
+/// Diebold-Mariano test options for FFI
+#[repr(C)]
+pub struct DieboldMarianoOptionsFFI {
+    /// Alternative hypothesis
+    pub alternative: AlternativeFFI,
+    /// Loss function
+    pub loss: ForecastLossFFI,
+    /// Forecast horizon
+    pub horizon: usize,
+}
+
+impl Default for DieboldMarianoOptionsFFI {
+    fn default() -> Self {
+        Self {
+            alternative: AlternativeFFI::TwoSided,
+            loss: ForecastLossFFI::SquaredError,
+            horizon: 1,
+        }
+    }
+}
+
+/// Proportion test options for FFI
+#[repr(C)]
+pub struct PropTestOptionsFFI {
+    /// Alternative hypothesis
+    pub alternative: AlternativeFFI,
+    /// Apply continuity correction
+    pub correction: bool,
+}
+
+impl Default for PropTestOptionsFFI {
+    fn default() -> Self {
+        Self {
+            alternative: AlternativeFFI::TwoSided,
+            correction: true,
+        }
+    }
+}
+
+/// ICC (Intraclass Correlation Coefficient) model type for FFI
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IccModelFFI {
+    OnewayRandom = 0,
+    TwowayRandom = 1,
+    TwowayMixed = 2,
+}
+
+/// ICC type for FFI
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IccTypeFFI {
+    Single = 0,
+    Average = 1,
+}
+
+/// ICC options for FFI
+#[repr(C)]
+pub struct IccOptionsFFI {
+    /// ICC model
+    pub model: IccModelFFI,
+    /// ICC type (single or average)
+    pub icc_type: IccTypeFFI,
+    /// Confidence level
+    pub confidence_level: f64,
+}
+
+impl Default for IccOptionsFFI {
+    fn default() -> Self {
+        Self {
+            model: IccModelFFI::TwowayRandom,
+            icc_type: IccTypeFFI::Single,
+            confidence_level: 0.95,
+        }
+    }
+}
+
+/// ICC result for FFI
+#[repr(C)]
+pub struct IccResultFFI {
+    /// ICC value
+    pub icc: f64,
+    /// F-statistic
+    pub f_statistic: f64,
+    /// Lower CI bound
+    pub ci_lower: f64,
+    /// Upper CI bound
+    pub ci_upper: f64,
+    /// Confidence level
+    pub confidence_level: f64,
+    /// Number of subjects
+    pub n_subjects: usize,
+    /// Number of raters
+    pub n_raters: usize,
+    /// Method name (must be freed)
+    pub method: *mut c_char,
+}
+
+impl Default for IccResultFFI {
+    fn default() -> Self {
+        Self {
+            icc: f64::NAN,
+            f_statistic: f64::NAN,
+            ci_lower: f64::NAN,
+            ci_upper: f64::NAN,
+            confidence_level: 0.95,
+            n_subjects: 0,
+            n_raters: 0,
+            method: std::ptr::null_mut(),
+        }
+    }
+}

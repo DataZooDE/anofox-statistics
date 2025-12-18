@@ -8,8 +8,10 @@ description = "Core statistics library for anofox-statistics DuckDB extension"
 
 [dependencies]
 anofox-regression.workspace = true
+anofox-tests.workspace = true
 faer.workspace = true
 thiserror.workspace = true
+rand = "0.8"
 
 [dev-dependencies]
 approx = "0.5"

@@ -54,6 +54,16 @@ void RegisterJarqueBeraAggregateFunction(ExtensionLoader &loader);
 void RegisterResidualsDiagnosticsFunction(ExtensionLoader &loader);
 void RegisterResidualsDiagnosticsAggregateFunction(ExtensionLoader &loader);
 
+// Statistical hypothesis testing aggregate functions
+void RegisterShapiroWilkAggregateFunction(ExtensionLoader &loader);
+void RegisterTTestAggregateFunction(ExtensionLoader &loader);
+void RegisterPearsonAggregateFunction(ExtensionLoader &loader);
+void RegisterSpearmanAggregateFunction(ExtensionLoader &loader);
+void RegisterMannWhitneyAggregateFunction(ExtensionLoader &loader);
+void RegisterAnovaAggregateFunction(ExtensionLoader &loader);
+void RegisterKruskalWallisAggregateFunction(ExtensionLoader &loader);
+void RegisterChiSquareAggregateFunction(ExtensionLoader &loader);
+
 // Extension class required for static linking
 class AnofoxStatisticsExtension : public Extension {
 public:

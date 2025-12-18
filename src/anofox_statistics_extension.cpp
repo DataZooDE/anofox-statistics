@@ -38,6 +38,16 @@ void AnofoxStatisticsExtension::Load(ExtensionLoader &loader) {
     // Register AID aggregate functions (Automatic Identification of Demand)
     RegisterAidAggregateFunction(loader);
 
+    // Register statistical hypothesis testing aggregate functions
+    RegisterShapiroWilkAggregateFunction(loader);
+    RegisterTTestAggregateFunction(loader);
+    RegisterPearsonAggregateFunction(loader);
+    RegisterSpearmanAggregateFunction(loader);
+    RegisterMannWhitneyAggregateFunction(loader);
+    RegisterAnovaAggregateFunction(loader);
+    RegisterKruskalWallisAggregateFunction(loader);
+    RegisterChiSquareAggregateFunction(loader);
+
     // Register window aggregate functions (fit_predict)
     RegisterOlsFitPredictFunction(loader);
     RegisterRidgeFitPredictFunction(loader);
@@ -105,6 +115,16 @@ DUCKDB_CPP_EXTENSION_ENTRY(anofox_statistics, loader) {
 
     // Register AID aggregate functions (Automatic Identification of Demand)
     duckdb::RegisterAidAggregateFunction(loader);
+
+    // Register statistical hypothesis testing aggregate functions
+    duckdb::RegisterShapiroWilkAggregateFunction(loader);
+    duckdb::RegisterTTestAggregateFunction(loader);
+    duckdb::RegisterPearsonAggregateFunction(loader);
+    duckdb::RegisterSpearmanAggregateFunction(loader);
+    duckdb::RegisterMannWhitneyAggregateFunction(loader);
+    duckdb::RegisterAnovaAggregateFunction(loader);
+    duckdb::RegisterKruskalWallisAggregateFunction(loader);
+    duckdb::RegisterChiSquareAggregateFunction(loader);
 
     // Register window aggregate functions (fit_predict)
     duckdb::RegisterOlsFitPredictFunction(loader);

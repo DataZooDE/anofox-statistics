@@ -1,8 +1,8 @@
 # Anofox Statistics Extension - API Reference
 
-**Version:** 0.5.0
+**Version:** 0.6.0
 **DuckDB Version:** 1.4.3+
-**Backend:** Rust (anofox-regression 0.4.0, faer)
+**Backend:** Rust (anofox-regression 0.4.0, anofox-statistics 0.4.0, faer)
 
 ## Overview
 
@@ -19,8 +19,9 @@ The Anofox Statistics Extension provides comprehensive regression analysis capab
 7. [GLM Functions](#glm-functions)
 8. [ALM Functions](#alm-functions)
 9. [BLS/NNLS Functions](#blsnnls-functions)
-10. [AID Functions](#aid-functions) *(NEW)*
-11. [Fit-Predict Window Functions](#fit-predict-window-functions)
+10. [AID Functions](#aid-functions)
+11. [Statistical Hypothesis Testing Functions](#statistical-hypothesis-testing-functions) *(NEW)*
+12. [Fit-Predict Window Functions](#fit-predict-window-functions)
 12. [Predict Aggregate Functions](#predict-aggregate-functions)
 13. [Predict Function](#predict-function)
 14. [Diagnostic Functions](#diagnostic-functions)
@@ -657,6 +658,320 @@ ORDER BY result.stockout_count DESC;
 
 ---
 
+## Statistical Hypothesis Testing Functions
+
+Comprehensive statistical hypothesis testing powered by the `anofox-statistics` crate. All tests are implemented as aggregate functions that collect data and compute test results.
+
+### Distributional Tests
+
+#### shapiro_wilk_agg / anofox_stats_shapiro_wilk_agg
+
+Shapiro-Wilk test for normality. Tests whether a sample comes from a normal distribution.
+
+**Signature:**
+```sql
+shapiro_wilk_agg(value DOUBLE) -> STRUCT
+```
+
+**Returns:**
+```
+STRUCT(
+    statistic DOUBLE,    -- W statistic (closer to 1 = more normal)
+    p_value DOUBLE,      -- p-value (low = reject normality)
+    n BIGINT,            -- Sample size
+    method VARCHAR       -- "Shapiro-Wilk"
+)
+```
+
+**Example:**
+```sql
+-- Test normality of residuals
+SELECT (shapiro_wilk_agg(residual)).p_value as normality_p
+FROM model_diagnostics;
+
+-- Per-group normality test
+SELECT
+    category,
+    (shapiro_wilk_agg(value)).*
+FROM data
+GROUP BY category;
+```
+
+### Parametric Tests
+
+#### t_test_agg / anofox_stats_t_test_agg
+
+Two-sample t-test comparing means of two groups. Supports both Student's t-test (equal variances) and Welch's t-test (unequal variances).
+
+**Signature:**
+```sql
+t_test_agg(value DOUBLE, group_id INTEGER, [options MAP]) -> STRUCT
+```
+
+**Options MAP:**
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| alternative | VARCHAR | 'two_sided' | 'two_sided', 'less', 'greater' |
+| confidence_level | DOUBLE | 0.95 | Confidence level for CI |
+| kind | VARCHAR | 'welch' | 'welch' (default) or 'student' (var_equal=true) |
+| mu | DOUBLE | 0.0 | Hypothesized mean difference |
+
+**Returns:**
+```
+STRUCT(
+    statistic DOUBLE,     -- t-statistic
+    p_value DOUBLE,       -- p-value
+    df DOUBLE,            -- Degrees of freedom
+    effect_size DOUBLE,   -- Cohen's d
+    ci_lower DOUBLE,      -- CI lower bound
+    ci_upper DOUBLE,      -- CI upper bound
+    n1 BIGINT,            -- Group 1 sample size
+    n2 BIGINT,            -- Group 2 sample size
+    method VARCHAR        -- "Welch's t-test" or "Student's t-test"
+)
+```
+
+**Example:**
+```sql
+-- Compare treatment vs control (group_id: 0 = control, 1 = treatment)
+SELECT (t_test_agg(outcome, treatment_group)).*
+FROM experiment;
+
+-- One-sided test (treatment > control)
+SELECT t_test_agg(score, group, {'alternative': 'greater'})
+FROM test_results;
+
+-- Student's t-test (assuming equal variances)
+SELECT t_test_agg(value, group, {'kind': 'student'})
+FROM data;
+```
+
+#### one_way_anova_agg / anofox_stats_one_way_anova_agg
+
+One-way Analysis of Variance for comparing means across multiple groups.
+
+**Signature:**
+```sql
+one_way_anova_agg(value DOUBLE, group_id INTEGER) -> STRUCT
+```
+
+**Returns:**
+```
+STRUCT(
+    f_statistic DOUBLE,   -- F-statistic
+    p_value DOUBLE,       -- p-value
+    df_between BIGINT,    -- Between-groups degrees of freedom
+    df_within BIGINT,     -- Within-groups degrees of freedom
+    ss_between DOUBLE,    -- Between-groups sum of squares
+    ss_within DOUBLE,     -- Within-groups sum of squares
+    n_groups BIGINT,      -- Number of groups
+    n BIGINT,             -- Total sample size
+    method VARCHAR        -- "One-Way ANOVA"
+)
+```
+
+**Example:**
+```sql
+-- Compare means across multiple treatment groups
+SELECT (one_way_anova_agg(response, treatment_group)).*
+FROM clinical_trial;
+
+-- Per-study ANOVA
+SELECT
+    study_id,
+    (one_way_anova_agg(value, condition)).p_value as anova_p
+FROM multi_study_data
+GROUP BY study_id;
+```
+
+### Nonparametric Tests
+
+#### mann_whitney_u_agg / anofox_stats_mann_whitney_u_agg
+
+Mann-Whitney U test (Wilcoxon rank-sum test). Non-parametric alternative to independent t-test.
+
+**Signature:**
+```sql
+mann_whitney_u_agg(value DOUBLE, group_id INTEGER, [options MAP]) -> STRUCT
+```
+
+**Options MAP:**
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| alternative | VARCHAR | 'two_sided' | 'two_sided', 'less', 'greater' |
+| confidence_level | DOUBLE | 0.95 | Confidence level for CI |
+| correction | BOOLEAN | true | Apply continuity correction |
+
+**Returns:**
+```
+STRUCT(
+    statistic DOUBLE,     -- U statistic
+    p_value DOUBLE,       -- p-value
+    effect_size DOUBLE,   -- Rank-biserial correlation
+    ci_lower DOUBLE,      -- CI lower bound
+    ci_upper DOUBLE,      -- CI upper bound
+    n1 BIGINT,            -- Group 1 sample size
+    n2 BIGINT,            -- Group 2 sample size
+    method VARCHAR        -- "Mann-Whitney U"
+)
+```
+
+**Example:**
+```sql
+-- Non-parametric comparison of two groups
+SELECT (mann_whitney_u_agg(score, group)).*
+FROM non_normal_data;
+
+-- One-sided test
+SELECT mann_whitney_u_agg(rating, condition, {'alternative': 'greater'})
+FROM survey_results;
+```
+
+#### kruskal_wallis_agg / anofox_stats_kruskal_wallis_agg
+
+Kruskal-Wallis H test. Non-parametric alternative to one-way ANOVA.
+
+**Signature:**
+```sql
+kruskal_wallis_agg(value DOUBLE, group_id INTEGER) -> STRUCT
+```
+
+**Returns:**
+```
+STRUCT(
+    statistic DOUBLE,    -- H statistic
+    p_value DOUBLE,      -- p-value
+    df DOUBLE,           -- Degrees of freedom (k-1)
+    n BIGINT,            -- Total sample size
+    method VARCHAR       -- "Kruskal-Wallis"
+)
+```
+
+**Example:**
+```sql
+-- Non-parametric comparison of multiple groups
+SELECT (kruskal_wallis_agg(satisfaction, department)).*
+FROM employee_survey;
+```
+
+### Correlation Tests
+
+#### pearson_agg / anofox_stats_pearson_agg
+
+Pearson product-moment correlation with significance test.
+
+**Signature:**
+```sql
+pearson_agg(x DOUBLE, y DOUBLE, [options MAP]) -> STRUCT
+```
+
+**Options MAP:**
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| confidence_level | DOUBLE | 0.95 | Confidence level for CI |
+
+**Returns:**
+```
+STRUCT(
+    r DOUBLE,             -- Correlation coefficient (-1 to 1)
+    statistic DOUBLE,     -- t-statistic
+    p_value DOUBLE,       -- p-value (test r ≠ 0)
+    ci_lower DOUBLE,      -- CI lower bound (Fisher z-transformed)
+    ci_upper DOUBLE,      -- CI upper bound
+    n BIGINT,             -- Sample size
+    method VARCHAR        -- "Pearson"
+)
+```
+
+**Example:**
+```sql
+-- Test correlation between two variables
+SELECT (pearson_agg(height, weight)).*
+FROM measurements;
+
+-- Per-group correlation with 99% CI
+SELECT
+    region,
+    (pearson_agg(income, spending, {'confidence_level': 0.99})).*
+FROM economic_data
+GROUP BY region;
+```
+
+#### spearman_agg / anofox_stats_spearman_agg
+
+Spearman rank correlation with significance test. Robust to outliers and non-linear relationships.
+
+**Signature:**
+```sql
+spearman_agg(x DOUBLE, y DOUBLE, [options MAP]) -> STRUCT
+```
+
+**Options MAP:**
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| confidence_level | DOUBLE | 0.95 | Confidence level for CI |
+
+**Returns:** Same structure as pearson_agg with method "Spearman"
+
+**Example:**
+```sql
+-- Rank correlation for ordinal data
+SELECT (spearman_agg(rank_x, rank_y)).*
+FROM ranked_data;
+```
+
+### Categorical Tests
+
+#### chisq_test_agg / anofox_stats_chisq_test_agg
+
+Chi-square test of independence for categorical variables.
+
+**Signature:**
+```sql
+chisq_test_agg(row_var INTEGER, col_var INTEGER, [options MAP]) -> STRUCT
+```
+
+**Options MAP:**
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| correction | BOOLEAN | false | Apply Yates' continuity correction |
+
+**Returns:**
+```
+STRUCT(
+    statistic DOUBLE,    -- Chi-square statistic
+    p_value DOUBLE,      -- p-value
+    df BIGINT,           -- Degrees of freedom
+    method VARCHAR       -- "Chi-Square"
+)
+```
+
+**Example:**
+```sql
+-- Test independence of two categorical variables
+SELECT (chisq_test_agg(gender, preference)).*
+FROM survey;
+
+-- With Yates correction for 2x2 tables
+SELECT chisq_test_agg(group, outcome, {'correction': true})
+FROM clinical_data;
+```
+
+### Short Aliases
+
+| Full Name | Short Alias |
+|-----------|-------------|
+| anofox_stats_shapiro_wilk_agg | shapiro_wilk_agg |
+| anofox_stats_t_test_agg | t_test_agg |
+| anofox_stats_one_way_anova_agg | one_way_anova_agg |
+| anofox_stats_mann_whitney_u_agg | mann_whitney_u_agg |
+| anofox_stats_kruskal_wallis_agg | kruskal_wallis_agg |
+| anofox_stats_pearson_agg | pearson_agg |
+| anofox_stats_spearman_agg | spearman_agg |
+| anofox_stats_chisq_test_agg | chisq_test_agg |
+
+---
+
 ## Fit-Predict Window Functions
 
 Window-based aggregate functions that fit a model incrementally and predict for each row. Use with `OVER` clause for rolling/expanding window regression.
@@ -1270,6 +1585,7 @@ SELECT anofox_stats_ols_fit([1.0, 2.0], [[1.0, 2.0]]);
 
 ## Version History
 
+- **0.6.0**: Added Statistical Hypothesis Testing functions (t-test, ANOVA, Mann-Whitney U, Kruskal-Wallis, Shapiro-Wilk, Pearson, Spearman, Chi-square)
 - **0.5.0**: Added AID (Automatic Identification of Demand) for demand classification and anomaly detection
 - **0.4.0**: Added GLM (Poisson), ALM (24 distributions), BLS/NNLS constrained optimization
 - **0.3.0**: Added fit_predict window functions, predict_agg aggregate functions, null_policy parameter
