@@ -2,20 +2,16 @@
 //!
 //! Two One-Sided Tests (TOST) for equivalence testing
 
-use crate::{StatsError, StatsResult};
 use super::{convert_error, filter_nan};
+use crate::{StatsError, StatsResult};
 use anofox_tests::{
-    tost_t_test_one_sample as lib_tost_one_sample,
+    tost_bootstrap as lib_tost_bootstrap, tost_correlation as lib_tost_correlation,
+    tost_prop_one as lib_tost_prop_one, tost_prop_two as lib_tost_prop_two,
+    tost_t_test_one_sample as lib_tost_one_sample, tost_t_test_paired as lib_tost_paired,
     tost_t_test_two_sample as lib_tost_two_sample,
-    tost_t_test_paired as lib_tost_paired,
-    tost_correlation as lib_tost_correlation,
-    tost_prop_one as lib_tost_prop_one,
-    tost_prop_two as lib_tost_prop_two,
     tost_wilcoxon_paired as lib_tost_wilcoxon_paired,
-    tost_wilcoxon_two_sample as lib_tost_wilcoxon_two_sample,
-    tost_bootstrap as lib_tost_bootstrap,
-    tost_yuen as lib_tost_yuen,
-    EquivalenceBounds, CorrelationTostMethod,
+    tost_wilcoxon_two_sample as lib_tost_wilcoxon_two_sample, tost_yuen as lib_tost_yuen,
+    CorrelationTostMethod, EquivalenceBounds,
 };
 
 /// TOST result
@@ -89,8 +85,9 @@ impl TostBounds {
                 .map_err(|e| StatsError::InvalidInput(e.to_string())),
             TostBounds::Symmetric { delta } => EquivalenceBounds::symmetric(*delta)
                 .map_err(|e| StatsError::InvalidInput(e.to_string())),
-            TostBounds::CohenD { d } => EquivalenceBounds::cohen_d(*d)
-                .map_err(|e| StatsError::InvalidInput(e.to_string())),
+            TostBounds::CohenD { d } => {
+                EquivalenceBounds::cohen_d(*d).map_err(|e| StatsError::InvalidInput(e.to_string()))
+            }
         }
     }
 }
@@ -138,8 +135,8 @@ pub fn tost_t_test_one_sample(
     }
 
     let bounds = options.bounds.to_lib_bounds()?;
-    let result = lib_tost_one_sample(&filtered, mu, &bounds, options.alpha)
-        .map_err(convert_error)?;
+    let result =
+        lib_tost_one_sample(&filtered, mu, &bounds, options.alpha).map_err(convert_error)?;
 
     Ok(convert_tost_result(result))
 }
@@ -208,8 +205,7 @@ pub fn tost_t_test_paired(
     let (x_f, y_f): (Vec<f64>, Vec<f64>) = pairs.into_iter().unzip();
 
     let bounds = options.bounds.to_lib_bounds()?;
-    let result = lib_tost_paired(&x_f, &y_f, &bounds, options.alpha)
-        .map_err(convert_error)?;
+    let result = lib_tost_paired(&x_f, &y_f, &bounds, options.alpha).map_err(convert_error)?;
 
     Ok(convert_tost_result(result))
 }
@@ -296,7 +292,8 @@ pub fn tost_correlation(
         &bounds,
         options.alpha,
         options.method.into(),
-    ).map_err(convert_error)?;
+    )
+    .map_err(convert_error)?;
 
     Ok(convert_tost_result(result))
 }
@@ -335,17 +332,14 @@ pub fn tost_prop_one(
     options: &TostPropOptions,
 ) -> StatsResult<TostResult> {
     if trials == 0 {
-        return Err(StatsError::InvalidInput("Number of trials must be > 0".into()));
+        return Err(StatsError::InvalidInput(
+            "Number of trials must be > 0".into(),
+        ));
     }
 
     let bounds = options.bounds.to_lib_bounds()?;
-    let result = lib_tost_prop_one(
-        successes,
-        trials,
-        p0,
-        &bounds,
-        options.alpha,
-    ).map_err(convert_error)?;
+    let result =
+        lib_tost_prop_one(successes, trials, p0, &bounds, options.alpha).map_err(convert_error)?;
 
     Ok(convert_tost_result(result))
 }
@@ -361,15 +355,21 @@ pub fn tost_prop_two(
     options: &TostPropOptions,
 ) -> StatsResult<TostResult> {
     if trials1 == 0 || trials2 == 0 {
-        return Err(StatsError::InvalidInput("Number of trials must be > 0".into()));
+        return Err(StatsError::InvalidInput(
+            "Number of trials must be > 0".into(),
+        ));
     }
 
     let bounds = options.bounds.to_lib_bounds()?;
     let result = lib_tost_prop_two(
-        successes1, trials1, successes2, trials2,
+        successes1,
+        trials1,
+        successes2,
+        trials2,
         &bounds,
         options.alpha,
-    ).map_err(convert_error)?;
+    )
+    .map_err(convert_error)?;
 
     Ok(convert_tost_result(result))
 }
@@ -422,8 +422,8 @@ pub fn tost_wilcoxon_paired(
     let (x_f, y_f): (Vec<f64>, Vec<f64>) = pairs.into_iter().unzip();
 
     let bounds = options.bounds.to_lib_bounds()?;
-    let result = lib_tost_wilcoxon_paired(&x_f, &y_f, &bounds, options.alpha)
-        .map_err(convert_error)?;
+    let result =
+        lib_tost_wilcoxon_paired(&x_f, &y_f, &bounds, options.alpha).map_err(convert_error)?;
 
     Ok(convert_tost_result(result))
 }
@@ -446,8 +446,8 @@ pub fn tost_wilcoxon_two_sample(
     }
 
     let bounds = options.bounds.to_lib_bounds()?;
-    let result = lib_tost_wilcoxon_two_sample(&g1, &g2, &bounds, options.alpha)
-        .map_err(convert_error)?;
+    let result =
+        lib_tost_wilcoxon_two_sample(&g1, &g2, &bounds, options.alpha).map_err(convert_error)?;
 
     Ok(convert_tost_result(result))
 }
@@ -501,7 +501,8 @@ pub fn tost_bootstrap(
         options.alpha,
         options.n_bootstrap,
         options.seed,
-    ).map_err(convert_error)?;
+    )
+    .map_err(convert_error)?;
 
     Ok(convert_tost_result(result))
 }
@@ -545,8 +546,8 @@ pub fn tost_yuen(
     }
 
     let bounds = options.bounds.to_lib_bounds()?;
-    let result = lib_tost_yuen(&g1, &g2, &bounds, options.trim, options.alpha)
-        .map_err(convert_error)?;
+    let result =
+        lib_tost_yuen(&g1, &g2, &bounds, options.trim, options.alpha).map_err(convert_error)?;
 
     Ok(convert_tost_result(result))
 }

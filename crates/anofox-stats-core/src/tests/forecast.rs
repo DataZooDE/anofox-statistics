@@ -5,15 +5,12 @@
 //! - Superior Predictive Ability (SPA) test
 //! - Model Confidence Set
 
-use crate::{StatsError, StatsResult};
 use super::{convert_error, TestResult};
+use crate::{StatsError, StatsResult};
 use anofox_tests::{
-    diebold_mariano as lib_diebold_mariano,
-    clark_west as lib_clark_west,
-    spa_test as lib_spa_test,
-    model_confidence_set as lib_model_confidence_set,
-    LossFunction, VarEstimator, MCSStatistic,
-    Alternative,
+    clark_west as lib_clark_west, diebold_mariano as lib_diebold_mariano,
+    model_confidence_set as lib_model_confidence_set, spa_test as lib_spa_test, Alternative,
+    LossFunction, MCSStatistic, VarEstimator,
 };
 
 /// Loss functions for forecast comparison
@@ -124,7 +121,8 @@ pub fn diebold_mariano(
         options.horizon,
         options.alternative,
         options.var_estimator.into(),
-    ).map_err(convert_error)?;
+    )
+    .map_err(convert_error)?;
 
     Ok(TestResult {
         statistic: result.statistic,
@@ -256,9 +254,10 @@ pub fn spa_test(
 
     for (i, model) in model_losses.iter().enumerate() {
         if model.len() != benchmark_losses.len() {
-            return Err(StatsError::DimensionMismatchMsg(
-                format!("Model {} has different length than benchmark", i),
-            ));
+            return Err(StatsError::DimensionMismatchMsg(format!(
+                "Model {} has different length than benchmark",
+                i
+            )));
         }
     }
 
@@ -268,7 +267,8 @@ pub fn spa_test(
         options.n_bootstrap,
         options.block_length,
         options.seed,
-    ).map_err(convert_error)?;
+    )
+    .map_err(convert_error)?;
 
     Ok(SpaResult {
         statistic: result.statistic,
@@ -344,10 +344,7 @@ pub struct McsResult {
 /// # Arguments
 /// * `losses` - Loss values for each model (each inner Vec is one model)
 /// * `options` - MCS options
-pub fn model_confidence_set(
-    losses: &[Vec<f64>],
-    options: &McsOptions,
-) -> StatsResult<McsResult> {
+pub fn model_confidence_set(losses: &[Vec<f64>], options: &McsOptions) -> StatsResult<McsResult> {
     if losses.len() < 2 {
         return Err(StatsError::InvalidInput(
             "MCS requires at least 2 models".into(),
@@ -357,9 +354,10 @@ pub fn model_confidence_set(
     let t = losses[0].len();
     for (i, model) in losses.iter().enumerate() {
         if model.len() != t {
-            return Err(StatsError::DimensionMismatchMsg(
-                format!("Model {} has different length", i),
-            ));
+            return Err(StatsError::DimensionMismatchMsg(format!(
+                "Model {} has different length",
+                i
+            )));
         }
     }
 
@@ -370,13 +368,18 @@ pub fn model_confidence_set(
         options.n_bootstrap,
         options.block_length,
         options.seed,
-    ).map_err(convert_error)?;
+    )
+    .map_err(convert_error)?;
 
     Ok(McsResult {
         included_models: result.included_models,
         eliminated_models: result.eliminated_models,
         mcs_p_value: result.mcs_p_value,
-        elimination_sequence: result.elimination_sequence.iter().map(|s| s.model_idx).collect(),
+        elimination_sequence: result
+            .elimination_sequence
+            .iter()
+            .map(|s| s.model_idx)
+            .collect(),
     })
 }
 

@@ -8,18 +8,13 @@
 //! - Distance correlation
 //! - Intraclass correlation (ICC)
 
-use crate::{StatsError, StatsResult};
 use super::{convert_error, CorrelationResult, TestResult};
+use crate::{StatsError, StatsResult};
 use anofox_tests::{
-    pearson as lib_pearson,
-    spearman as lib_spearman,
-    kendall as lib_kendall,
-    partial_cor as lib_partial_cor,
-    semi_partial_cor as lib_semi_partial_cor,
-    distance_cor as lib_distance_cor,
-    distance_cor_test as lib_distance_cor_test,
-    icc as lib_icc,
-    Alternative, KendallVariant, ICCType,
+    distance_cor as lib_distance_cor, distance_cor_test as lib_distance_cor_test, icc as lib_icc,
+    kendall as lib_kendall, partial_cor as lib_partial_cor, pearson as lib_pearson,
+    semi_partial_cor as lib_semi_partial_cor, spearman as lib_spearman, Alternative, ICCType,
+    KendallVariant,
 };
 
 /// Options for Pearson correlation
@@ -61,15 +56,23 @@ pub fn pearson(x: &[f64], y: &[f64], options: &PearsonOptions) -> StatsResult<Co
 
     let (x_filtered, y_filtered): (Vec<f64>, Vec<f64>) = pairs.into_iter().unzip();
 
-    let result = lib_pearson(&x_filtered, &y_filtered, options.confidence_level)
-        .map_err(convert_error)?;
+    let result =
+        lib_pearson(&x_filtered, &y_filtered, options.confidence_level).map_err(convert_error)?;
 
     Ok(CorrelationResult {
         r: result.estimate,
         statistic: result.statistic,
         p_value: result.p_value,
-        ci_lower: result.conf_int.as_ref().map(|ci| ci.lower).unwrap_or(f64::NAN),
-        ci_upper: result.conf_int.as_ref().map(|ci| ci.upper).unwrap_or(f64::NAN),
+        ci_lower: result
+            .conf_int
+            .as_ref()
+            .map(|ci| ci.lower)
+            .unwrap_or(f64::NAN),
+        ci_upper: result
+            .conf_int
+            .as_ref()
+            .map(|ci| ci.upper)
+            .unwrap_or(f64::NAN),
         confidence_level: options.confidence_level.unwrap_or(0.95),
         n: x_filtered.len(),
         method: "Pearson correlation".into(),
@@ -114,15 +117,23 @@ pub fn spearman(x: &[f64], y: &[f64], options: &SpearmanOptions) -> StatsResult<
 
     let (x_filtered, y_filtered): (Vec<f64>, Vec<f64>) = pairs.into_iter().unzip();
 
-    let result = lib_spearman(&x_filtered, &y_filtered, options.confidence_level)
-        .map_err(convert_error)?;
+    let result =
+        lib_spearman(&x_filtered, &y_filtered, options.confidence_level).map_err(convert_error)?;
 
     Ok(CorrelationResult {
         r: result.estimate,
         statistic: result.statistic,
         p_value: result.p_value,
-        ci_lower: result.conf_int.as_ref().map(|ci| ci.lower).unwrap_or(f64::NAN),
-        ci_upper: result.conf_int.as_ref().map(|ci| ci.upper).unwrap_or(f64::NAN),
+        ci_lower: result
+            .conf_int
+            .as_ref()
+            .map(|ci| ci.lower)
+            .unwrap_or(f64::NAN),
+        ci_upper: result
+            .conf_int
+            .as_ref()
+            .map(|ci| ci.upper)
+            .unwrap_or(f64::NAN),
         confidence_level: options.confidence_level.unwrap_or(0.95),
         n: x_filtered.len(),
         method: "Spearman rank correlation".into(),
@@ -167,15 +178,22 @@ pub fn kendall(x: &[f64], y: &[f64], options: &KendallOptions) -> StatsResult<Co
 
     let (x_filtered, y_filtered): (Vec<f64>, Vec<f64>) = pairs.into_iter().unzip();
 
-    let result = lib_kendall(&x_filtered, &y_filtered, options.variant)
-        .map_err(convert_error)?;
+    let result = lib_kendall(&x_filtered, &y_filtered, options.variant).map_err(convert_error)?;
 
     Ok(CorrelationResult {
         r: result.estimate,
         statistic: result.statistic,
         p_value: result.p_value,
-        ci_lower: result.conf_int.as_ref().map(|ci| ci.lower).unwrap_or(f64::NAN),
-        ci_upper: result.conf_int.as_ref().map(|ci| ci.upper).unwrap_or(f64::NAN),
+        ci_lower: result
+            .conf_int
+            .as_ref()
+            .map(|ci| ci.lower)
+            .unwrap_or(f64::NAN),
+        ci_upper: result
+            .conf_int
+            .as_ref()
+            .map(|ci| ci.upper)
+            .unwrap_or(f64::NAN),
         confidence_level: f64::NAN,
         n: x_filtered.len(),
         method: format!("Kendall's {:?}", options.variant),
@@ -194,9 +212,10 @@ pub fn partial_cor(x: &[f64], y: &[f64], z: &[Vec<f64>]) -> StatsResult<Correlat
 
     for (i, zi) in z.iter().enumerate() {
         if zi.len() != x.len() {
-            return Err(StatsError::DimensionMismatchMsg(
-                format!("Control variable {} has different length", i),
-            ));
+            return Err(StatsError::DimensionMismatchMsg(format!(
+                "Control variable {} has different length",
+                i
+            )));
         }
     }
 
@@ -220,14 +239,14 @@ pub fn partial_cor(x: &[f64], y: &[f64], z: &[Vec<f64>]) -> StatsResult<Correlat
 
     let x_filtered: Vec<f64> = valid_indices.iter().map(|&i| x[i]).collect();
     let y_filtered: Vec<f64> = valid_indices.iter().map(|&i| y[i]).collect();
-    let z_filtered: Vec<Vec<f64>> = z.iter()
+    let z_filtered: Vec<Vec<f64>> = z
+        .iter()
         .map(|zi| valid_indices.iter().map(|&i| zi[i]).collect())
         .collect();
 
     let z_refs: Vec<&[f64]> = z_filtered.iter().map(|v| v.as_slice()).collect();
 
-    let result = lib_partial_cor(&x_filtered, &y_filtered, &z_refs)
-        .map_err(convert_error)?;
+    let result = lib_partial_cor(&x_filtered, &y_filtered, &z_refs).map_err(convert_error)?;
 
     Ok(CorrelationResult {
         r: result.estimate,
@@ -237,7 +256,10 @@ pub fn partial_cor(x: &[f64], y: &[f64], z: &[Vec<f64>]) -> StatsResult<Correlat
         ci_upper: f64::NAN,
         confidence_level: f64::NAN,
         n: x_filtered.len(),
-        method: format!("Partial correlation (controlling for {} variables)", z.len()),
+        method: format!(
+            "Partial correlation (controlling for {} variables)",
+            z.len()
+        ),
     })
 }
 
@@ -251,9 +273,10 @@ pub fn semi_partial_cor(x: &[f64], y: &[f64], z: &[Vec<f64>]) -> StatsResult<Cor
 
     for (i, zi) in z.iter().enumerate() {
         if zi.len() != x.len() {
-            return Err(StatsError::DimensionMismatchMsg(
-                format!("Control variable {} has different length", i),
-            ));
+            return Err(StatsError::DimensionMismatchMsg(format!(
+                "Control variable {} has different length",
+                i
+            )));
         }
     }
 
@@ -270,14 +293,14 @@ pub fn semi_partial_cor(x: &[f64], y: &[f64], z: &[Vec<f64>]) -> StatsResult<Cor
 
     let x_filtered: Vec<f64> = valid_indices.iter().map(|&i| x[i]).collect();
     let y_filtered: Vec<f64> = valid_indices.iter().map(|&i| y[i]).collect();
-    let z_filtered: Vec<Vec<f64>> = z.iter()
+    let z_filtered: Vec<Vec<f64>> = z
+        .iter()
         .map(|zi| valid_indices.iter().map(|&i| zi[i]).collect())
         .collect();
 
     let z_refs: Vec<&[f64]> = z_filtered.iter().map(|v| v.as_slice()).collect();
 
-    let result = lib_semi_partial_cor(&x_filtered, &y_filtered, &z_refs)
-        .map_err(convert_error)?;
+    let result = lib_semi_partial_cor(&x_filtered, &y_filtered, &z_refs).map_err(convert_error)?;
 
     Ok(CorrelationResult {
         r: result.estimate,
@@ -287,7 +310,10 @@ pub fn semi_partial_cor(x: &[f64], y: &[f64], z: &[Vec<f64>]) -> StatsResult<Cor
         ci_upper: f64::NAN,
         confidence_level: f64::NAN,
         n: x_filtered.len(),
-        method: format!("Semi-partial correlation (controlling for {} variables on y)", z.len()),
+        method: format!(
+            "Semi-partial correlation (controlling for {} variables on y)",
+            z.len()
+        ),
     })
 }
 
@@ -329,8 +355,7 @@ pub fn distance_cor(x: &[f64], y: &[f64]) -> StatsResult<DistanceCorResult> {
 
     let (x_filtered, y_filtered): (Vec<f64>, Vec<f64>) = pairs.into_iter().unzip();
 
-    let result = lib_distance_cor(&x_filtered, &y_filtered)
-        .map_err(convert_error)?;
+    let result = lib_distance_cor(&x_filtered, &y_filtered).map_err(convert_error)?;
 
     Ok(DistanceCorResult {
         dcor: result.dcor,
@@ -360,7 +385,11 @@ impl Default for DistanceCorTestOptions {
 }
 
 /// Distance correlation significance test
-pub fn distance_cor_test(x: &[f64], y: &[f64], options: &DistanceCorTestOptions) -> StatsResult<TestResult> {
+pub fn distance_cor_test(
+    x: &[f64],
+    y: &[f64],
+    options: &DistanceCorTestOptions,
+) -> StatsResult<TestResult> {
     if x.len() != y.len() {
         return Err(StatsError::DimensionMismatchMsg(
             "Distance correlation test requires equal length vectors".into(),
@@ -382,8 +411,13 @@ pub fn distance_cor_test(x: &[f64], y: &[f64], options: &DistanceCorTestOptions)
 
     let (x_filtered, y_filtered): (Vec<f64>, Vec<f64>) = pairs.into_iter().unzip();
 
-    let result = lib_distance_cor_test(&x_filtered, &y_filtered, options.n_permutations, options.seed)
-        .map_err(convert_error)?;
+    let result = lib_distance_cor_test(
+        &x_filtered,
+        &y_filtered,
+        options.n_permutations,
+        options.seed,
+    )
+    .map_err(convert_error)?;
 
     Ok(TestResult {
         statistic: result.dcor,
@@ -397,7 +431,10 @@ pub fn distance_cor_test(x: &[f64], y: &[f64], options: &DistanceCorTestOptions)
         n1: 0,
         n2: 0,
         alternative: Alternative::TwoSided,
-        method: format!("Distance correlation test ({} permutations)", options.n_permutations),
+        method: format!(
+            "Distance correlation test ({} permutations)",
+            options.n_permutations
+        ),
     })
 }
 
@@ -435,9 +472,10 @@ pub fn icc(data: &[Vec<f64>], icc_type: ICCType) -> StatsResult<ICCResult> {
 
     for (i, row) in data.iter().enumerate() {
         if row.len() != n_raters {
-            return Err(StatsError::DimensionMismatchMsg(
-                format!("Subject {} has different number of measurements", i),
-            ));
+            return Err(StatsError::DimensionMismatchMsg(format!(
+                "Subject {} has different number of measurements",
+                i
+            )));
         }
     }
 

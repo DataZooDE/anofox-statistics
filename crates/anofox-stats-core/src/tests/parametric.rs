@@ -5,14 +5,11 @@
 //! - One-way ANOVA (Fisher, Welch)
 //! - Brown-Forsythe test
 
-use crate::{StatsError, StatsResult};
 use super::{convert_error, filter_nan, AnovaResult, TestResult};
+use crate::{StatsError, StatsResult};
 use anofox_tests::{
-    t_test as lib_t_test,
-    yuen_test as lib_yuen_test,
-    brown_forsythe as lib_brown_forsythe,
-    one_way_anova as lib_one_way_anova,
-    Alternative, TTestKind, AnovaKind,
+    brown_forsythe as lib_brown_forsythe, one_way_anova as lib_one_way_anova, t_test as lib_t_test,
+    yuen_test as lib_yuen_test, Alternative, AnovaKind, TTestKind,
 };
 
 /// Options for t-test
@@ -72,15 +69,24 @@ pub fn t_test(group1: &[f64], group2: &[f64], options: &TTestOptions) -> StatsRe
         options.alternative,
         options.mu,
         options.confidence_level,
-    ).map_err(convert_error)?;
+    )
+    .map_err(convert_error)?;
 
     Ok(TestResult {
         statistic: result.statistic,
         p_value: result.p_value,
         df: result.df,
         effect_size: f64::NAN, // TTestResult doesn't include effect size
-        ci_lower: result.conf_int.as_ref().map(|ci| ci.lower).unwrap_or(f64::NAN),
-        ci_upper: result.conf_int.as_ref().map(|ci| ci.upper).unwrap_or(f64::NAN),
+        ci_lower: result
+            .conf_int
+            .as_ref()
+            .map(|ci| ci.lower)
+            .unwrap_or(f64::NAN),
+        ci_upper: result
+            .conf_int
+            .as_ref()
+            .map(|ci| ci.upper)
+            .unwrap_or(f64::NAN),
         confidence_level: options.confidence_level.unwrap_or(0.95),
         n: g1.len() + g2.len(),
         n1: g1.len(),
@@ -134,16 +140,30 @@ pub fn yuen_test(group1: &[f64], group2: &[f64], options: &YuenOptions) -> Stats
         ));
     }
 
-    let result = lib_yuen_test(&g1, &g2, options.trim, options.alternative, options.confidence_level)
-        .map_err(convert_error)?;
+    let result = lib_yuen_test(
+        &g1,
+        &g2,
+        options.trim,
+        options.alternative,
+        options.confidence_level,
+    )
+    .map_err(convert_error)?;
 
     Ok(TestResult {
         statistic: result.statistic,
         p_value: result.p_value,
         df: result.df,
         effect_size: f64::NAN,
-        ci_lower: result.conf_int.as_ref().map(|ci| ci.lower).unwrap_or(f64::NAN),
-        ci_upper: result.conf_int.as_ref().map(|ci| ci.upper).unwrap_or(f64::NAN),
+        ci_lower: result
+            .conf_int
+            .as_ref()
+            .map(|ci| ci.lower)
+            .unwrap_or(f64::NAN),
+        ci_upper: result
+            .conf_int
+            .as_ref()
+            .map(|ci| ci.upper)
+            .unwrap_or(f64::NAN),
         confidence_level: options.confidence_level.unwrap_or(0.95),
         n: g1.len() + g2.len(),
         n1: g1.len(),
@@ -186,9 +206,11 @@ pub fn one_way_anova(groups: &[Vec<f64>], options: &AnovaOptions) -> StatsResult
 
     for (i, g) in filtered.iter().enumerate() {
         if g.len() < 2 {
-            return Err(StatsError::InsufficientDataMsg(
-                format!("ANOVA requires at least 2 observations per group (group {} has {})", i, g.len()),
-            ));
+            return Err(StatsError::InsufficientDataMsg(format!(
+                "ANOVA requires at least 2 observations per group (group {} has {})",
+                i,
+                g.len()
+            )));
         }
     }
 
@@ -227,9 +249,11 @@ pub fn brown_forsythe(groups: &[Vec<f64>]) -> StatsResult<TestResult> {
 
     for (i, g) in filtered.iter().enumerate() {
         if g.len() < 2 {
-            return Err(StatsError::InsufficientDataMsg(
-                format!("Brown-Forsythe test requires at least 2 observations per group (group {} has {})", i, g.len()),
-            ));
+            return Err(StatsError::InsufficientDataMsg(format!(
+                "Brown-Forsythe test requires at least 2 observations per group (group {} has {})",
+                i,
+                g.len()
+            )));
         }
     }
 

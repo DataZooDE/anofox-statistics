@@ -3,12 +3,10 @@
 //! - Energy distance test
 //! - Maximum Mean Discrepancy (MMD) test
 
-use crate::{StatsError, StatsResult};
 use super::{convert_error, filter_nan, TestResult};
+use crate::{StatsError, StatsResult};
 use anofox_tests::{
-    energy_distance_test_1d as lib_energy_distance_test,
-    mmd_test_1d as lib_mmd_test,
-    Alternative,
+    energy_distance_test_1d as lib_energy_distance_test, mmd_test_1d as lib_mmd_test, Alternative,
 };
 
 /// Options for energy distance test
@@ -72,7 +70,10 @@ pub fn energy_distance_test(
         n1: g1.len(),
         n2: g2.len(),
         alternative: Alternative::TwoSided,
-        method: format!("Energy distance test ({} permutations)", options.n_permutations),
+        method: format!(
+            "Energy distance test ({} permutations)",
+            options.n_permutations
+        ),
     })
 }
 
@@ -103,11 +104,7 @@ impl Default for MmdOptions {
 /// * `group1` - First sample data
 /// * `group2` - Second sample data
 /// * `options` - Test options
-pub fn mmd_test(
-    group1: &[f64],
-    group2: &[f64],
-    options: &MmdOptions,
-) -> StatsResult<TestResult> {
+pub fn mmd_test(group1: &[f64], group2: &[f64], options: &MmdOptions) -> StatsResult<TestResult> {
     let g1 = filter_nan(group1);
     let g2 = filter_nan(group2);
 
@@ -122,8 +119,8 @@ pub fn mmd_test(
         ));
     }
 
-    let result = lib_mmd_test(&g1, &g2, options.n_permutations, options.seed)
-        .map_err(convert_error)?;
+    let result =
+        lib_mmd_test(&g1, &g2, options.n_permutations, options.seed).map_err(convert_error)?;
 
     Ok(TestResult {
         statistic: result.statistic,
@@ -137,7 +134,10 @@ pub fn mmd_test(
         n1: g1.len(),
         n2: g2.len(),
         alternative: Alternative::TwoSided,
-        method: format!("MMD test (Gaussian kernel, {} permutations)", options.n_permutations),
+        method: format!(
+            "MMD test (Gaussian kernel, {} permutations)",
+            options.n_permutations
+        ),
     })
 }
 

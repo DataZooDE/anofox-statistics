@@ -5,13 +5,11 @@
 //! - Kruskal-Wallis test
 //! - Brunner-Munzel test
 
-use crate::{StatsError, StatsResult};
 use super::{convert_error, filter_nan, TestResult};
+use crate::{StatsError, StatsResult};
 use anofox_tests::{
-    mann_whitney_u as lib_mann_whitney_u,
-    wilcoxon_signed_rank as lib_wilcoxon_signed_rank,
-    kruskal_wallis as lib_kruskal_wallis,
-    brunner_munzel as lib_brunner_munzel,
+    brunner_munzel as lib_brunner_munzel, kruskal_wallis as lib_kruskal_wallis,
+    mann_whitney_u as lib_mann_whitney_u, wilcoxon_signed_rank as lib_wilcoxon_signed_rank,
     Alternative,
 };
 
@@ -67,15 +65,24 @@ pub fn mann_whitney_u(
         options.exact,
         options.confidence_level,
         options.mu,
-    ).map_err(convert_error)?;
+    )
+    .map_err(convert_error)?;
 
     Ok(TestResult {
         statistic: result.statistic,
         p_value: result.p_value,
         df: f64::NAN,
         effect_size: f64::NAN, // Not provided by library
-        ci_lower: result.conf_int.as_ref().map(|ci| ci.lower).unwrap_or(f64::NAN),
-        ci_upper: result.conf_int.as_ref().map(|ci| ci.upper).unwrap_or(f64::NAN),
+        ci_lower: result
+            .conf_int
+            .as_ref()
+            .map(|ci| ci.lower)
+            .unwrap_or(f64::NAN),
+        ci_upper: result
+            .conf_int
+            .as_ref()
+            .map(|ci| ci.upper)
+            .unwrap_or(f64::NAN),
         confidence_level: options.confidence_level.unwrap_or(0.95),
         n: g1.len() + g2.len(),
         n1: g1.len(),
@@ -150,15 +157,24 @@ pub fn wilcoxon_signed_rank(
         options.exact,
         options.confidence_level,
         options.mu,
-    ).map_err(convert_error)?;
+    )
+    .map_err(convert_error)?;
 
     Ok(TestResult {
         statistic: result.statistic,
         p_value: result.p_value,
         df: f64::NAN,
         effect_size: f64::NAN, // Not provided by library
-        ci_lower: result.conf_int.as_ref().map(|ci| ci.lower).unwrap_or(f64::NAN),
-        ci_upper: result.conf_int.as_ref().map(|ci| ci.upper).unwrap_or(f64::NAN),
+        ci_lower: result
+            .conf_int
+            .as_ref()
+            .map(|ci| ci.lower)
+            .unwrap_or(f64::NAN),
+        ci_upper: result
+            .conf_int
+            .as_ref()
+            .map(|ci| ci.upper)
+            .unwrap_or(f64::NAN),
         confidence_level: options.confidence_level.unwrap_or(0.95),
         n: x_filtered.len(),
         n1: x_filtered.len(),
@@ -182,9 +198,10 @@ pub fn kruskal_wallis(groups: &[Vec<f64>]) -> StatsResult<TestResult> {
 
     for (i, g) in filtered.iter().enumerate() {
         if g.is_empty() {
-            return Err(StatsError::InsufficientDataMsg(
-                format!("Kruskal-Wallis test requires at least 1 observation per group (group {} is empty)", i),
-            ));
+            return Err(StatsError::InsufficientDataMsg(format!(
+                "Kruskal-Wallis test requires at least 1 observation per group (group {} is empty)",
+                i
+            )));
         }
     }
 
@@ -249,16 +266,29 @@ pub fn brunner_munzel(
         ));
     }
 
-    let result = lib_brunner_munzel(&g1, &g2, options.alternative, Some(options.confidence_level))
-        .map_err(convert_error)?;
+    let result = lib_brunner_munzel(
+        &g1,
+        &g2,
+        options.alternative,
+        Some(options.confidence_level),
+    )
+    .map_err(convert_error)?;
 
     Ok(TestResult {
         statistic: result.statistic,
         p_value: result.p_value,
         df: result.df,
         effect_size: result.estimate, // Probability estimate
-        ci_lower: result.conf_int.as_ref().map(|ci| ci.lower).unwrap_or(f64::NAN),
-        ci_upper: result.conf_int.as_ref().map(|ci| ci.upper).unwrap_or(f64::NAN),
+        ci_lower: result
+            .conf_int
+            .as_ref()
+            .map(|ci| ci.lower)
+            .unwrap_or(f64::NAN),
+        ci_upper: result
+            .conf_int
+            .as_ref()
+            .map(|ci| ci.upper)
+            .unwrap_or(f64::NAN),
         confidence_level: options.confidence_level,
         n: g1.len() + g2.len(),
         n1: g1.len(),

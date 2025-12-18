@@ -3,12 +3,10 @@
 //! - Shapiro-Wilk test (normality)
 //! - D'Agostino K-squared test (normality)
 
-use crate::{StatsError, StatsResult};
 use super::{convert_error, filter_nan, TestResult};
+use crate::{StatsError, StatsResult};
 use anofox_tests::{
-    shapiro_wilk as lib_shapiro_wilk,
-    dagostino_k_squared as lib_dagostino_k_squared,
-    Alternative,
+    dagostino_k_squared as lib_dagostino_k_squared, shapiro_wilk as lib_shapiro_wilk, Alternative,
 };
 
 /// Shapiro-Wilk test for normality
@@ -120,8 +118,8 @@ mod tests {
     #[test]
     fn test_shapiro_wilk_normal() {
         let data = vec![
-            -0.5, 0.1, -0.3, 0.8, 0.2, -0.1, 0.4, -0.2, 0.3, 0.0,
-            -0.4, 0.5, 0.1, -0.6, 0.2, -0.1, 0.3, -0.3, 0.4, 0.0,
+            -0.5, 0.1, -0.3, 0.8, 0.2, -0.1, 0.4, -0.2, 0.3, 0.0, -0.4, 0.5, 0.1, -0.6, 0.2, -0.1,
+            0.3, -0.3, 0.4, 0.0,
         ];
         let result = shapiro_wilk(&data).unwrap();
 
@@ -132,8 +130,8 @@ mod tests {
     #[test]
     fn test_dagostino_k_squared() {
         let data = vec![
-            -0.5, 0.1, -0.3, 0.8, 0.2, -0.1, 0.4, -0.2, 0.3, 0.0,
-            -0.4, 0.5, 0.1, -0.6, 0.2, -0.1, 0.3, -0.3, 0.4, 0.0,
+            -0.5, 0.1, -0.3, 0.8, 0.2, -0.1, 0.4, -0.2, 0.3, 0.0, -0.4, 0.5, 0.1, -0.6, 0.2, -0.1,
+            0.3, -0.3, 0.4, 0.0,
         ];
         let result = dagostino_k_squared(&data).unwrap();
 

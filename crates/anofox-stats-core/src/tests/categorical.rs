@@ -10,23 +10,15 @@
 //! - Proportion tests
 //! - Binomial test
 
-use crate::{StatsError, StatsResult};
 use super::{convert_error, ChiSquareResult};
+use crate::{StatsError, StatsResult};
 use anofox_tests::{
-    chisq_test as lib_chisq_test,
-    chisq_goodness_of_fit as lib_chisq_gof,
-    g_test as lib_g_test,
-    fisher_exact as lib_fisher_exact,
-    mcnemar_test as lib_mcnemar_test,
-    mcnemar_exact as lib_mcnemar_exact,
-    cramers_v as lib_cramers_v,
-    phi_coefficient as lib_phi_coefficient,
-    contingency_coef as lib_contingency_coef,
-    cohen_kappa as lib_cohen_kappa,
-    prop_test_one as lib_prop_test_one,
-    prop_test_two as lib_prop_test_two,
-    binom_test as lib_binom_test,
-    Alternative,
+    binom_test as lib_binom_test, chisq_goodness_of_fit as lib_chisq_gof,
+    chisq_test as lib_chisq_test, cohen_kappa as lib_cohen_kappa,
+    contingency_coef as lib_contingency_coef, cramers_v as lib_cramers_v,
+    fisher_exact as lib_fisher_exact, g_test as lib_g_test, mcnemar_exact as lib_mcnemar_exact,
+    mcnemar_test as lib_mcnemar_test, phi_coefficient as lib_phi_coefficient,
+    prop_test_one as lib_prop_test_one, prop_test_two as lib_prop_test_two, Alternative,
 };
 
 /// Options for chi-square test
@@ -49,7 +41,10 @@ impl Default for ChiSquareOptions {
 /// # Arguments
 /// * `table` - Contingency table (2D array of counts)
 /// * `options` - Test options
-pub fn chisq_test(table: &[Vec<usize>], options: &ChiSquareOptions) -> StatsResult<ChiSquareResult> {
+pub fn chisq_test(
+    table: &[Vec<usize>],
+    options: &ChiSquareOptions,
+) -> StatsResult<ChiSquareResult> {
     if table.is_empty() {
         return Err(StatsError::InvalidInput("Empty contingency table".into()));
     }
@@ -57,9 +52,10 @@ pub fn chisq_test(table: &[Vec<usize>], options: &ChiSquareOptions) -> StatsResu
     let n_cols = table[0].len();
     for (i, row) in table.iter().enumerate() {
         if row.len() != n_cols {
-            return Err(StatsError::DimensionMismatchMsg(
-                format!("Row {} has different number of columns", i),
-            ));
+            return Err(StatsError::DimensionMismatchMsg(format!(
+                "Row {} has different number of columns",
+                i
+            )));
         }
     }
 
@@ -135,9 +131,10 @@ pub fn g_test(table: &[Vec<usize>]) -> StatsResult<ChiSquareResult> {
     let n_cols = table[0].len();
     for (i, row) in table.iter().enumerate() {
         if row.len() != n_cols {
-            return Err(StatsError::DimensionMismatchMsg(
-                format!("Row {} has different number of columns", i),
-            ));
+            return Err(StatsError::DimensionMismatchMsg(format!(
+                "Row {} has different number of columns",
+                i
+            )));
         }
     }
 
@@ -186,9 +183,11 @@ impl Default for FisherExactOptions {
 /// # Arguments
 /// * `table` - 2x2 contingency table [[a, b], [c, d]]
 /// * `options` - Test options
-pub fn fisher_exact(table: &[[usize; 2]; 2], options: &FisherExactOptions) -> StatsResult<FisherExactResult> {
-    let result = lib_fisher_exact(table, options.alternative)
-        .map_err(convert_error)?;
+pub fn fisher_exact(
+    table: &[[usize; 2]; 2],
+    options: &FisherExactOptions,
+) -> StatsResult<FisherExactResult> {
+    let result = lib_fisher_exact(table, options.alternative).map_err(convert_error)?;
 
     Ok(FisherExactResult {
         p_value: result.p_value,
@@ -225,7 +224,10 @@ impl Default for McNemarOptions {
 /// # Arguments
 /// * `table` - 2x2 contingency table
 /// * `options` - Test options
-pub fn mcnemar_test(table: &[[usize; 2]; 2], options: &McNemarOptions) -> StatsResult<ChiSquareResult> {
+pub fn mcnemar_test(
+    table: &[[usize; 2]; 2],
+    options: &McNemarOptions,
+) -> StatsResult<ChiSquareResult> {
     if options.exact {
         let result = lib_mcnemar_exact(table).map_err(convert_error)?;
         Ok(ChiSquareResult {
@@ -367,14 +369,18 @@ pub fn prop_test_one(
     options: &PropTestOptions,
 ) -> StatsResult<PropTestResult> {
     if trials == 0 {
-        return Err(StatsError::InvalidInput("Number of trials must be > 0".into()));
+        return Err(StatsError::InvalidInput(
+            "Number of trials must be > 0".into(),
+        ));
     }
     if !(0.0..=1.0).contains(&p0) {
-        return Err(StatsError::InvalidInput("p0 must be between 0 and 1".into()));
+        return Err(StatsError::InvalidInput(
+            "p0 must be between 0 and 1".into(),
+        ));
     }
 
-    let result = lib_prop_test_one(successes, trials, p0, options.alternative)
-        .map_err(convert_error)?;
+    let result =
+        lib_prop_test_one(successes, trials, p0, options.alternative).map_err(convert_error)?;
 
     Ok(PropTestResult {
         statistic: result.statistic,
@@ -402,7 +408,9 @@ pub fn prop_test_two(
     options: &PropTestOptions,
 ) -> StatsResult<PropTestResult> {
     if trials1 == 0 || trials2 == 0 {
-        return Err(StatsError::InvalidInput("Number of trials must be > 0".into()));
+        return Err(StatsError::InvalidInput(
+            "Number of trials must be > 0".into(),
+        ));
     }
 
     let result = lib_prop_test_two(
@@ -410,7 +418,8 @@ pub fn prop_test_two(
         [trials1, trials2],
         options.alternative,
         options.correction,
-    ).map_err(convert_error)?;
+    )
+    .map_err(convert_error)?;
 
     Ok(PropTestResult {
         statistic: result.statistic,
@@ -436,14 +445,18 @@ pub fn binom_test(
     options: &PropTestOptions,
 ) -> StatsResult<PropTestResult> {
     if trials == 0 {
-        return Err(StatsError::InvalidInput("Number of trials must be > 0".into()));
+        return Err(StatsError::InvalidInput(
+            "Number of trials must be > 0".into(),
+        ));
     }
     if !(0.0..=1.0).contains(&p0) {
-        return Err(StatsError::InvalidInput("p0 must be between 0 and 1".into()));
+        return Err(StatsError::InvalidInput(
+            "p0 must be between 0 and 1".into(),
+        ));
     }
 
-    let result = lib_binom_test(successes, trials, p0, options.alternative)
-        .map_err(convert_error)?;
+    let result =
+        lib_binom_test(successes, trials, p0, options.alternative).map_err(convert_error)?;
 
     Ok(PropTestResult {
         statistic: f64::NAN, // Binomial test doesn't have a test statistic

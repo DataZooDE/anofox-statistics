@@ -3,12 +3,9 @@
 //! - Permutation t-test
 //! - Bootstrap methods (stationary, circular block)
 
-use crate::{StatsError, StatsResult};
 use super::{convert_error, filter_nan, TestResult};
-use anofox_tests::{
-    permutation_t_test as lib_permutation_t_test,
-    Alternative,
-};
+use crate::{StatsError, StatsResult};
+use anofox_tests::{permutation_t_test as lib_permutation_t_test, Alternative};
 
 /// Options for permutation t-test
 #[derive(Debug, Clone)]
@@ -64,7 +61,8 @@ pub fn permutation_t_test(
         options.alternative,
         options.n_permutations,
         options.seed,
-    ).map_err(convert_error)?;
+    )
+    .map_err(convert_error)?;
 
     Ok(TestResult {
         statistic: result.statistic,
@@ -78,7 +76,10 @@ pub fn permutation_t_test(
         n1: g1.len(),
         n2: g2.len(),
         alternative: options.alternative,
-        method: format!("Permutation t-test ({} permutations)", options.n_permutations),
+        method: format!(
+            "Permutation t-test ({} permutations)",
+            options.n_permutations
+        ),
     })
 }
 
@@ -129,7 +130,7 @@ impl Default for BootstrapOptions {
 /// * `data` - Sample data
 /// * `options` - Bootstrap options
 pub fn bootstrap_mean(data: &[f64], options: &BootstrapOptions) -> StatsResult<BootstrapResult> {
-    use anofox_tests::{StationaryBootstrap, CircularBlockBootstrap};
+    use anofox_tests::{CircularBlockBootstrap, StationaryBootstrap};
 
     let filtered = filter_nan(data);
 
@@ -187,9 +188,11 @@ pub fn bootstrap_mean(data: &[f64], options: &BootstrapOptions) -> StatsResult<B
 
     let se = {
         let mean_of_means = bootstrap_means.iter().sum::<f64>() / options.n_bootstrap as f64;
-        let variance = bootstrap_means.iter()
+        let variance = bootstrap_means
+            .iter()
             .map(|x| (x - mean_of_means).powi(2))
-            .sum::<f64>() / (options.n_bootstrap - 1) as f64;
+            .sum::<f64>()
+            / (options.n_bootstrap - 1) as f64;
         variance.sqrt()
     };
 
