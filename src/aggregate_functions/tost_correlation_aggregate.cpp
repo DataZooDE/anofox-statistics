@@ -55,7 +55,7 @@ struct TostCorrelationBindData : public FunctionData {
     AnofoxTostCorrelationMethod method;
 
     TostCorrelationBindData() : rho_null(0.0), bound_lower(-0.1), bound_upper(0.1),
-                                 alpha(0.05), method(AnofoxTostCorrelationMethod::Pearson) {}
+                                 alpha(0.05), method(ANOFOX_TOST_COR_PEARSON) {}
 
     unique_ptr<FunctionData> Copy() const override {
         auto copy = make_uniq<TostCorrelationBindData>();
@@ -246,9 +246,9 @@ static unique_ptr<FunctionData> TostCorrelationAggBind(ClientContext &context, A
                     } else if (strcasecmp(key, "method") == 0) {
                         auto method_str = StringValue::Get(key_list[1]);
                         if (strcasecmp(method_str.c_str(), "spearman") == 0) {
-                            bind_data->method = AnofoxTostCorrelationMethod::Spearman;
+                            bind_data->method = ANOFOX_TOST_COR_SPEARMAN;
                         } else {
-                            bind_data->method = AnofoxTostCorrelationMethod::Pearson;
+                            bind_data->method = ANOFOX_TOST_COR_PEARSON;
                         }
                     }
                 }
