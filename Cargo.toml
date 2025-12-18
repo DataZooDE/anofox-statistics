@@ -26,7 +26,8 @@ lto = true
 codegen-units = 1
 opt-level = 3
 
-# Patch argmin to use stable Rust (is_multiple_of was unstable until 1.87)
+# Patch dependencies to use stable Rust (is_multiple_of was unstable until 1.87)
 [patch.crates-io]
 argmin = { git = "https://github.com/DataZooDE/argmin.git", branch = "fix/stable-rust-compat" }
 argmin-math = { git = "https://github.com/DataZooDE/argmin.git", branch = "fix/stable-rust-compat" }
+anofox-statistics = { path = "patches/anofox-statistics" }
