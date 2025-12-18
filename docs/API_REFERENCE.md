@@ -8,26 +8,78 @@
 
 The Anofox Statistics Extension provides comprehensive regression analysis capabilities for DuckDB. Built with Rust for performance and reliability, it supports multiple regression methods including linear models, generalized linear models (GLM), augmented linear models (ALM), and constrained optimization (BLS/NNLS).
 
+## Quick Reference
+
+### Regression Methods
+
+| Method | Scalar Function | Aggregate Function | Description |
+|--------|-----------------|-------------------|-------------|
+| OLS | `ols_fit` | `ols_fit_agg` | Ordinary Least Squares |
+| Ridge | `ridge_fit` | `ridge_fit_agg` | L2 regularization |
+| Elastic Net | `elasticnet_fit` | `elasticnet_fit_agg` | Combined L1+L2 regularization |
+| WLS | `wls_fit` | `wls_fit_agg` | Weighted Least Squares |
+| RLS | `rls_fit` | `rls_fit_agg` | Recursive Least Squares (online) |
+| Poisson | - | `poisson_fit_agg` | GLM for count data |
+| ALM | - | `alm_fit_agg` | 24 error distributions |
+| BLS | - | `bls_fit_agg` | Bounded Least Squares |
+| NNLS | - | `nnls_fit_agg` | Non-negative Least Squares |
+
+### Statistical Hypothesis Tests
+
+| Category | Function | Description |
+|----------|----------|-------------|
+| Normality | `shapiro_wilk_agg` | Shapiro-Wilk test |
+| Normality | `jarque_bera_agg` | Jarque-Bera test |
+| Parametric | `t_test_agg` | Two-sample t-test (Welch/Student) |
+| Parametric | `one_way_anova_agg` | One-way ANOVA |
+| Nonparametric | `mann_whitney_u_agg` | Mann-Whitney U test |
+| Nonparametric | `kruskal_wallis_agg` | Kruskal-Wallis H test |
+| Correlation | `pearson_agg` | Pearson correlation |
+| Correlation | `spearman_agg` | Spearman rank correlation |
+| Categorical | `chisq_test_agg` | Chi-square independence test |
+
+### Diagnostics & Utilities
+
+| Function | Description |
+|----------|-------------|
+| `vif`, `vif_agg` | Variance Inflation Factor |
+| `aic`, `bic` | Model selection criteria |
+| `residuals_diagnostics_agg` | Residual analysis |
+| `aid_agg`, `aid_anomaly_agg` | Demand pattern classification |
+
+### Window & Prediction Functions
+
+| Method | Window Function | Predict Aggregate |
+|--------|-----------------|-------------------|
+| OLS | `ols_fit_predict` | `ols_predict_agg` |
+| Ridge | `ridge_fit_predict` | `ridge_predict_agg` |
+| Elastic Net | `elasticnet_fit_predict` | `elasticnet_predict_agg` |
+| WLS | `wls_fit_predict` | `wls_predict_agg` |
+| RLS | `rls_fit_predict` | `rls_predict_agg` |
+
+---
+
 ## Table of Contents
 
-1. [Function Types](#function-types)
-2. [OLS Functions](#ols-functions)
-3. [Ridge Functions](#ridge-functions)
-4. [Elastic Net Functions](#elastic-net-functions)
-5. [WLS Functions](#wls-functions)
-6. [RLS Functions](#rls-functions)
-7. [GLM Functions](#glm-functions)
-8. [ALM Functions](#alm-functions)
-9. [BLS/NNLS Functions](#blsnnls-functions)
-10. [AID Functions](#aid-functions)
-11. [Statistical Hypothesis Testing Functions](#statistical-hypothesis-testing-functions) *(NEW)*
-12. [Fit-Predict Window Functions](#fit-predict-window-functions)
-12. [Predict Aggregate Functions](#predict-aggregate-functions)
-13. [Predict Function](#predict-function)
-14. [Diagnostic Functions](#diagnostic-functions)
-15. [Common Options](#common-options)
-16. [Return Types](#return-types)
-17. [Short Aliases](#short-aliases)
+1. [Quick Reference](#quick-reference)
+2. [Function Types](#function-types)
+3. [OLS Functions](#ols-functions)
+4. [Ridge Functions](#ridge-functions)
+5. [Elastic Net Functions](#elastic-net-functions)
+6. [WLS Functions](#wls-functions)
+7. [RLS Functions](#rls-functions)
+8. [GLM Functions](#glm-functions)
+9. [ALM Functions](#alm-functions)
+10. [BLS/NNLS Functions](#blsnnls-functions)
+11. [AID Functions](#aid-functions)
+12. [Statistical Hypothesis Testing Functions](#statistical-hypothesis-testing-functions)
+13. [Fit-Predict Window Functions](#fit-predict-window-functions)
+14. [Predict Aggregate Functions](#predict-aggregate-functions)
+15. [Predict Function](#predict-function)
+16. [Diagnostic Functions](#diagnostic-functions)
+17. [Common Options](#common-options)
+18. [Return Types](#return-types)
+19. [Short Aliases](#short-aliases)
 
 ---
 
