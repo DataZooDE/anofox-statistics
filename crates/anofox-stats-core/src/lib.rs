@@ -6,6 +6,7 @@
 pub mod diagnostics;
 pub mod errors;
 pub mod models;
+pub mod tests;
 pub mod types;
 
 pub use errors::{StatsError, StatsResult};

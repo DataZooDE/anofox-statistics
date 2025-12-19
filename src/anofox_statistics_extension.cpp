@@ -38,6 +38,59 @@ void AnofoxStatisticsExtension::Load(ExtensionLoader &loader) {
     // Register AID aggregate functions (Automatic Identification of Demand)
     RegisterAidAggregateFunction(loader);
 
+    // Register statistical hypothesis testing aggregate functions
+    RegisterShapiroWilkAggregateFunction(loader);
+    RegisterTTestAggregateFunction(loader);
+    RegisterPearsonAggregateFunction(loader);
+    RegisterSpearmanAggregateFunction(loader);
+    RegisterMannWhitneyAggregateFunction(loader);
+    RegisterAnovaAggregateFunction(loader);
+    RegisterKruskalWallisAggregateFunction(loader);
+    RegisterChiSquareAggregateFunction(loader);
+
+    // Phase 1: Aggregates for existing FFI
+    RegisterKendallAggregateFunction(loader);
+    RegisterFisherExactAggregateFunction(loader);
+    RegisterBrunnerMunzelAggregateFunction(loader);
+    RegisterDAgostinoK2AggregateFunction(loader);
+    RegisterEnergyDistanceAggregateFunction(loader);
+    RegisterMmdAggregateFunction(loader);
+    RegisterTostTTestAggregateFunction(loader);
+
+    // Phase 2: Wilcoxon signed-rank test
+    RegisterWilcoxonSignedRankAggregateFunction(loader);
+
+    // Phase 4: Distance correlation test
+    RegisterDistanceCorAggregateFunction(loader);
+
+    // Phase 5: Parametric tests
+    RegisterYuenAggregateFunction(loader);
+    RegisterBrownForsytheAggregateFunction(loader);
+
+    // Phase 6: Forecast tests
+    RegisterDieboldMarianoAggregateFunction(loader);
+    RegisterClarkWestAggregateFunction(loader);
+
+    // Phase 7: Resampling tests
+    RegisterPermutationTTestAggregateFunction(loader);
+
+    // Phase 8: TOST equivalence test variants
+    RegisterTostPairedAggregateFunction(loader);
+    RegisterTostCorrelationAggregateFunction(loader);
+
+    // Phase 9: Categorical tests
+    RegisterChisqGofAggregateFunction(loader);
+    RegisterPropTestOneAggregateFunction(loader);
+    RegisterPropTestTwoAggregateFunction(loader);
+    RegisterBinomTestAggregateFunction(loader);
+    RegisterCramersVAggregateFunction(loader);
+    RegisterCohenKappaAggregateFunction(loader);
+    RegisterIccAggregateFunction(loader);
+    RegisterGTestAggregateFunction(loader);
+    RegisterMcNemarAggregateFunction(loader);
+    RegisterPhiCoefficientAggregateFunction(loader);
+    RegisterContingencyCoefAggregateFunction(loader);
+
     // Register window aggregate functions (fit_predict)
     RegisterOlsFitPredictFunction(loader);
     RegisterRidgeFitPredictFunction(loader);
@@ -105,6 +158,59 @@ DUCKDB_CPP_EXTENSION_ENTRY(anofox_statistics, loader) {
 
     // Register AID aggregate functions (Automatic Identification of Demand)
     duckdb::RegisterAidAggregateFunction(loader);
+
+    // Register statistical hypothesis testing aggregate functions
+    duckdb::RegisterShapiroWilkAggregateFunction(loader);
+    duckdb::RegisterTTestAggregateFunction(loader);
+    duckdb::RegisterPearsonAggregateFunction(loader);
+    duckdb::RegisterSpearmanAggregateFunction(loader);
+    duckdb::RegisterMannWhitneyAggregateFunction(loader);
+    duckdb::RegisterAnovaAggregateFunction(loader);
+    duckdb::RegisterKruskalWallisAggregateFunction(loader);
+    duckdb::RegisterChiSquareAggregateFunction(loader);
+
+    // Phase 1: Aggregates for existing FFI
+    duckdb::RegisterKendallAggregateFunction(loader);
+    duckdb::RegisterFisherExactAggregateFunction(loader);
+    duckdb::RegisterBrunnerMunzelAggregateFunction(loader);
+    duckdb::RegisterDAgostinoK2AggregateFunction(loader);
+    duckdb::RegisterEnergyDistanceAggregateFunction(loader);
+    duckdb::RegisterMmdAggregateFunction(loader);
+    duckdb::RegisterTostTTestAggregateFunction(loader);
+
+    // Phase 2: Wilcoxon signed-rank test
+    duckdb::RegisterWilcoxonSignedRankAggregateFunction(loader);
+
+    // Phase 4: Distance correlation test
+    duckdb::RegisterDistanceCorAggregateFunction(loader);
+
+    // Phase 5: Parametric tests
+    duckdb::RegisterYuenAggregateFunction(loader);
+    duckdb::RegisterBrownForsytheAggregateFunction(loader);
+
+    // Phase 6: Forecast tests
+    duckdb::RegisterDieboldMarianoAggregateFunction(loader);
+    duckdb::RegisterClarkWestAggregateFunction(loader);
+
+    // Phase 7: Resampling tests
+    duckdb::RegisterPermutationTTestAggregateFunction(loader);
+
+    // Phase 8: TOST equivalence test variants
+    duckdb::RegisterTostPairedAggregateFunction(loader);
+    duckdb::RegisterTostCorrelationAggregateFunction(loader);
+
+    // Phase 9: Categorical tests
+    duckdb::RegisterChisqGofAggregateFunction(loader);
+    duckdb::RegisterPropTestOneAggregateFunction(loader);
+    duckdb::RegisterPropTestTwoAggregateFunction(loader);
+    duckdb::RegisterBinomTestAggregateFunction(loader);
+    duckdb::RegisterCramersVAggregateFunction(loader);
+    duckdb::RegisterCohenKappaAggregateFunction(loader);
+    duckdb::RegisterIccAggregateFunction(loader);
+    duckdb::RegisterGTestAggregateFunction(loader);
+    duckdb::RegisterMcNemarAggregateFunction(loader);
+    duckdb::RegisterPhiCoefficientAggregateFunction(loader);
+    duckdb::RegisterContingencyCoefAggregateFunction(loader);
 
     // Register window aggregate functions (fit_predict)
     duckdb::RegisterOlsFitPredictFunction(loader);

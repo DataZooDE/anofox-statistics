@@ -17,12 +17,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "anofox-statistics"
+version = "0.4.0"
+dependencies = [
+ "rand 0.8.5",
+ "rand_chacha 0.3.1",
+ "statrs",
+ "thiserror 2.0.17",
+]
+
+[[package]]
 name = "anofox-stats-core"
 version = "0.1.0"
 dependencies = [
  "anofox-regression",
+ "anofox-statistics",
  "approx",
  "faer",
+ "rand 0.8.5",
  "thiserror 2.0.17",
 ]
 
@@ -30,6 +42,7 @@ dependencies = [
 name = "anofox_stats_ffi"
 version = "0.1.0"
 dependencies = [
+ "anofox-statistics",
  "anofox-stats-core",
  "cbindgen",
  "libc",

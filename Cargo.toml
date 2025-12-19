@@ -14,6 +14,7 @@ repository = "https://github.com/DataZooDE/anofox-statistics"
 
 [workspace.dependencies]
 anofox-regression = "0.4.0"
+anofox-tests = { package = "anofox-statistics", version = "0.4.0" }
 # faer: disable default features (which include rayon) - DuckDB handles parallelization
 faer = { version = "0.23", default-features = false, features = ["std", "linalg"] }
 thiserror = "2.0"
@@ -25,7 +26,8 @@ lto = true
 codegen-units = 1
 opt-level = 3
 
-# Patch argmin to use stable Rust (is_multiple_of was unstable until 1.87)
+# Patch dependencies to use stable Rust (is_multiple_of was unstable until 1.87)
 [patch.crates-io]
 argmin = { git = "https://github.com/DataZooDE/argmin.git", branch = "fix/stable-rust-compat" }
 argmin-math = { git = "https://github.com/DataZooDE/argmin.git", branch = "fix/stable-rust-compat" }
+anofox-statistics = { path = "patches/anofox-statistics" }

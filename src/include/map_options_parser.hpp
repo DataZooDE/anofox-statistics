@@ -82,6 +82,36 @@ enum class AidOutlierMethod {
     IQR = 1
 };
 
+// ============================================================================
+// Statistical Hypothesis Test Options
+// ============================================================================
+
+/**
+ * Alternative hypothesis for statistical tests
+ */
+enum class Alternative {
+    TWO_SIDED = 0,
+    LESS = 1,
+    GREATER = 2
+};
+
+/**
+ * Kendall tau variant
+ */
+enum class KendallType {
+    TAU_A = 0,
+    TAU_B = 1,
+    TAU_C = 2
+};
+
+/**
+ * T-test kind
+ */
+enum class TTestKind {
+    STUDENT = 0,    // Equal variances assumed
+    WELCH = 1       // Unequal variances (default)
+};
+
 /**
  * Parsed regression options from a MAP parameter.
  * All fields are optional - only set if present in the MAP.
@@ -146,6 +176,148 @@ struct RegressionMapOptions {
         }
         return lambda;
     }
+};
+
+// ============================================================================
+// Statistical Test Option Structs
+// ============================================================================
+
+/**
+ * Options for t-test
+ */
+struct TTestMapOptions {
+    std::optional<Alternative> alternative;
+    std::optional<double> confidence_level;
+    std::optional<TTestKind> kind;          // Student (var_equal=true) vs Welch (default)
+    std::optional<bool> paired;
+    std::optional<double> mu;               // Population mean for one-sample test
+
+    static TTestMapOptions ParseFromValue(const Value &map_value);
+};
+
+/**
+ * Options for Mann-Whitney U test
+ */
+struct MannWhitneyMapOptions {
+    std::optional<Alternative> alternative;
+    std::optional<double> confidence_level;
+    std::optional<bool> continuity_correction;
+
+    static MannWhitneyMapOptions ParseFromValue(const Value &map_value);
+};
+
+/**
+ * Options for Wilcoxon signed-rank test
+ */
+struct WilcoxonMapOptions {
+    std::optional<Alternative> alternative;
+    std::optional<double> confidence_level;
+    std::optional<bool> continuity_correction;
+
+    static WilcoxonMapOptions ParseFromValue(const Value &map_value);
+};
+
+/**
+ * Options for Brunner-Munzel test
+ */
+struct BrunnerMunzelMapOptions {
+    std::optional<Alternative> alternative;
+    std::optional<double> confidence_level;
+
+    static BrunnerMunzelMapOptions ParseFromValue(const Value &map_value);
+};
+
+/**
+ * Options for Pearson/Spearman correlation
+ */
+struct CorrelationMapOptions {
+    std::optional<double> confidence_level;
+
+    static CorrelationMapOptions ParseFromValue(const Value &map_value);
+};
+
+/**
+ * Options for Kendall correlation
+ */
+struct KendallMapOptions {
+    std::optional<double> confidence_level;
+    std::optional<KendallType> variant;
+
+    static KendallMapOptions ParseFromValue(const Value &map_value);
+};
+
+/**
+ * Options for Chi-square test
+ */
+struct ChiSquareMapOptions {
+    std::optional<bool> continuity_correction;
+
+    static ChiSquareMapOptions ParseFromValue(const Value &map_value);
+};
+
+/**
+ * Options for Fisher exact test
+ */
+struct FisherExactMapOptions {
+    std::optional<Alternative> alternative;
+
+    static FisherExactMapOptions ParseFromValue(const Value &map_value);
+};
+
+/**
+ * Options for Energy distance test
+ */
+struct EnergyDistanceMapOptions {
+    std::optional<uint32_t> n_permutations;
+
+    static EnergyDistanceMapOptions ParseFromValue(const Value &map_value);
+};
+
+/**
+ * Options for MMD test
+ */
+struct MmdMapOptions {
+    std::optional<double> bandwidth;
+    std::optional<uint32_t> n_permutations;
+
+    static MmdMapOptions ParseFromValue(const Value &map_value);
+};
+
+/**
+ * Options for TOST equivalence tests
+ */
+struct TostMapOptions {
+    std::optional<Alternative> alternative;
+    std::optional<double> confidence_level;
+    std::optional<TTestKind> kind;
+    std::optional<bool> paired;
+    std::optional<double> mu;
+    std::optional<double> delta;            // Equivalence bound (symmetric)
+    std::optional<double> bound_lower;      // Asymmetric lower bound
+    std::optional<double> bound_upper;      // Asymmetric upper bound
+
+    static TostMapOptions ParseFromValue(const Value &map_value);
+};
+
+/**
+ * Options for Yuen trimmed-mean test
+ */
+struct YuenMapOptions {
+    std::optional<Alternative> alternative;
+    std::optional<double> confidence_level;
+    std::optional<double> trim;             // Trim proportion (default 0.2)
+
+    static YuenMapOptions ParseFromValue(const Value &map_value);
+};
+
+/**
+ * Options for permutation t-test
+ */
+struct PermutationMapOptions {
+    std::optional<Alternative> alternative;
+    std::optional<uint32_t> n_permutations;
+
+    static PermutationMapOptions ParseFromValue(const Value &map_value);
 };
 
 } // namespace duckdb

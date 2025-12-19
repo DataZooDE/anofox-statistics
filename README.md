@@ -14,37 +14,48 @@ A statistical analysis extension for DuckDB, providing regression analysis, diag
 
 ## Features
 
-### Core Regression Functions
-- **OLS Regression**: Ordinary Least Squares with multiple predictors
-- **Ridge Regression**: L2 regularization for multicollinearity
-- **Elastic Net**: Combined L1+L2 regularization for feature selection and stability
-- **Weighted Least Squares**: Handle heteroscedasticity
-- **Recursive Least Squares**: Online/streaming estimation
-- **Rolling/Expanding Windows**: Time-series regression
+### Regression Methods
 
-### Statistical Inference
-- **Coefficient Tests**: t-statistics, p-values, confidence intervals
+| Method | Function | Description |
+|--------|----------|-------------|
+| OLS | `ols_fit`, `ols_fit_agg` | Ordinary Least Squares |
+| Ridge | `ridge_fit`, `ridge_fit_agg` | L2 regularization |
+| Elastic Net | `elasticnet_fit`, `elasticnet_fit_agg` | Combined L1+L2 regularization |
+| WLS | `wls_fit`, `wls_fit_agg` | Weighted Least Squares |
+| RLS | `rls_fit`, `rls_fit_agg` | Recursive Least Squares (online) |
+| Poisson | `poisson_fit_agg` | GLM for count data |
+| ALM | `alm_fit_agg` | 24 error distributions |
+| BLS/NNLS | `bls_fit_agg`, `nnls_fit_agg` | Bounded/Non-negative LS |
+
+### Statistical Hypothesis Tests
+
+| Category | Function | Description |
+|----------|----------|-------------|
+| Normality | `shapiro_wilk_agg`, `jarque_bera_agg`, `dagostino_k2_agg` | Normality tests |
+| Parametric | `t_test_agg`, `one_way_anova_agg`, `yuen_agg`, `brown_forsythe_agg` | Parametric tests |
+| Nonparametric | `mann_whitney_u_agg`, `kruskal_wallis_agg`, `wilcoxon_signed_rank_agg`, `brunner_munzel_agg`, `permutation_t_test_agg` | Nonparametric tests |
+| Correlation | `pearson_agg`, `spearman_agg`, `kendall_agg`, `distance_cor_agg`, `icc_agg` | Correlation tests |
+| Categorical | `chisq_test_agg`, `chisq_gof_agg`, `g_test_agg`, `fisher_exact_agg`, `mcnemar_agg` | Contingency table tests |
+| Effect Size | `cramers_v_agg`, `phi_coefficient_agg`, `contingency_coef_agg`, `cohen_kappa_agg` | Association measures |
+| Proportion | `prop_test_one_agg`, `prop_test_two_agg`, `binom_test_agg` | Proportion tests |
+| Equivalence | `tost_t_test_agg`, `tost_paired_agg`, `tost_correlation_agg` | TOST equivalence tests |
+| Distribution | `energy_distance_agg`, `mmd_agg` | Distribution comparison |
+| Forecast | `diebold_mariano_agg`, `clark_west_agg` | Forecast evaluation |
+
+### Diagnostics & Utilities
+
+| Function | Description |
+|----------|-------------|
+| `vif`, `vif_agg` | Variance Inflation Factor |
+| `aic`, `bic` | Model selection criteria |
+| `residuals_diagnostics_agg` | Residual analysis |
+| `aid_agg`, `aid_anomaly_agg` | Demand pattern classification |
+
+### Key Capabilities
+- **Aggregate Functions**: All methods support `GROUP BY` for per-group analysis
+- **Window Functions**: Regression methods support `OVER` clause for rolling/expanding windows
 - **Prediction Intervals**: Confidence and prediction intervals for forecasts
-- **Model-Based Prediction**: Prediction using pre-fitted models (no refitting required)
-- **Model Selection**: AIC, BIC, adjusted R² for model comparison
-
-### Diagnostics & Validation
-- **Residual Diagnostics**: Outlier detection with standardized residuals
-- **Residual Diagnostics Aggregate**: Group-wise residual analysis with summary/detailed modes
-- **Multicollinearity**: VIF (Variance Inflation Factor) detection
-- **VIF Aggregate**: Per-group multicollinearity detection with severity classification
-- **Normality Tests**: Jarque-Bera test for residual normality
-- **Normality Test Aggregate**: Per-group normality testing with skewness and kurtosis
-
-### Advanced Features
-- **Aggregate Functions**: Regression per group with `GROUP BY` (OLS, WLS, Ridge, RLS, Elastic Net)
-- **Window Functions**: Rolling/expanding regressions with `OVER` clause for all regression methods
-  - Rolling windows: `ROWS BETWEEN N PRECEDING AND CURRENT ROW`
-  - Expanding windows: `ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW`
-  - Partitioned analysis: `PARTITION BY` for group-specific time series
-- **Diagnostic Aggregates**: Group-wise diagnostic analysis with `GROUP BY` only (Residuals, VIF, Normality) - does not support window functions
-- **Array Operations**: Multi-variable regression with array inputs
-- **Full Statistics**: Complete fit statistics in structured output (coefficients, R², adj. R², intercepts, etc.)
+- **Full Inference**: t-statistics, p-values, confidence intervals for coefficients
 
 ## Quick Start
 

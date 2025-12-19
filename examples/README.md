@@ -19,6 +19,11 @@ examples/
 ├── ols_inference.sql                  # Statistical inference: t-tests, p-values, CIs
 ├── ols_diagnostics.sql                # Diagnostics: VIF, Jarque-Bera, AIC/BIC
 │
+├── aid_demand_classification/         # AID demand classification examples
+│   ├── aid_demand_classification.sql  # SQL examples for AID functions
+│   ├── demand_classification_example.py    # Marimo notebook (Python)
+│   └── demand_classification_example.ipynb # Jupyter notebook
+│
 ├── performance_10k_groups_R/          # DuckDB vs R comparison (10K groups)
 │   ├── README.md
 │   ├── generate_test_data.sql
@@ -28,6 +33,7 @@ examples/
 │   ├── performance_test_ols_aggregate.R
 │   ├── compare_sql_vs_r.sql
 │   └── run_all_tests.sh
+│
 └── performance_1m_groups/             # Scale benchmarks (1M groups)
     ├── README.md
     ├── benchmark_ols.sql
@@ -221,6 +227,57 @@ SELECT (jarque_bera(residuals)).p_value AS normality_p FROM fitted;
 
 -- AIC/BIC for model comparison
 SELECT aic(rss, n, k), bic(rss, n, k) FROM model_stats;
+```
+
+## AID Demand Classification Examples
+
+**Location:** `examples/aid_demand_classification/`
+
+Demonstrates the Automatic Intermittent Demand (AID) classification functions for analyzing demand patterns in time series data.
+
+**Functions demonstrated:**
+- `aid_agg`: Aggregate function that classifies demand as regular or intermittent
+- `aid_anomaly_agg`: Per-observation anomaly detection (stockouts, new products, obsolete products, outliers)
+
+**Features:**
+- Demand type classification (regular vs intermittent)
+- Distribution identification (Poisson vs Negative Binomial)
+- Zero proportion analysis
+- Stockout detection
+- New/obsolete product identification
+- Outlier detection (Z-Score and IQR methods)
+- Configurable intermittent threshold
+
+**Run SQL examples:**
+
+```bash
+./build/release/duckdb < examples/aid_demand_classification/aid_demand_classification.sql
+```
+
+**Run Marimo notebook:**
+
+```bash
+cd examples
+uv run marimo edit aid_demand_classification/demand_classification_example.py
+```
+
+**Example usage:**
+
+```sql
+-- Basic demand classification
+SELECT aid_agg(demand) AS classification FROM sales_data;
+
+-- With custom intermittent threshold (50% zeros instead of default 30%)
+SELECT aid_agg(demand, {'intermittent_threshold': 0.5}) FROM sales_data;
+
+-- Per-group classification
+SELECT sku, (aid_agg(demand)).demand_type, (aid_agg(demand)).distribution
+FROM sales_data
+GROUP BY sku;
+
+-- Per-observation anomaly flags
+SELECT period, demand, UNNEST(aid_anomaly_agg(demand) OVER (ORDER BY period))
+FROM sales_data;
 ```
 
 ## Performance Benchmarks
