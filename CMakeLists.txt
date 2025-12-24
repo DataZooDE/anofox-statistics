@@ -191,10 +191,12 @@ target_include_directories(${LOADABLE_EXTENSION_NAME} PRIVATE ${CMAKE_CURRENT_SO
 target_link_libraries(${EXTENSION_NAME} anofox_stats_ffi-static OpenSSL::SSL OpenSSL::Crypto)
 target_link_libraries(${LOADABLE_EXTENSION_NAME} anofox_stats_ffi-static OpenSSL::SSL OpenSSL::Crypto)
 
-# Link bcrypt on Windows (required by Rust's getrandom crate)
+# Link Windows system libraries
 if(WIN32)
-    target_link_libraries(${EXTENSION_NAME} bcrypt)
-    target_link_libraries(${LOADABLE_EXTENSION_NAME} bcrypt)
+    # bcrypt: required by Rust's getrandom crate
+    # iphlpapi: required by telemetry GetAdaptersInfo
+    target_link_libraries(${EXTENSION_NAME} bcrypt iphlpapi)
+    target_link_libraries(${LOADABLE_EXTENSION_NAME} bcrypt iphlpapi)
 endif()
 
 # Install
