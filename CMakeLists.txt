@@ -187,9 +187,9 @@ target_sources(${LOADABLE_EXTENSION_NAME} PRIVATE $<TARGET_OBJECTS:posthog_telem
 target_include_directories(${EXTENSION_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/posthog-telemetry/include)
 target_include_directories(${LOADABLE_EXTENSION_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/posthog-telemetry/include)
 
-# Link to Rust library (use static for both)
-target_link_libraries(${EXTENSION_NAME} anofox_stats_ffi-static)
-target_link_libraries(${LOADABLE_EXTENSION_NAME} anofox_stats_ffi-static)
+# Link to Rust library and OpenSSL (for telemetry)
+target_link_libraries(${EXTENSION_NAME} anofox_stats_ffi-static OpenSSL::SSL OpenSSL::Crypto)
+target_link_libraries(${LOADABLE_EXTENSION_NAME} anofox_stats_ffi-static OpenSSL::SSL OpenSSL::Crypto)
 
 # Link bcrypt on Windows (required by Rust's getrandom crate)
 if(WIN32)

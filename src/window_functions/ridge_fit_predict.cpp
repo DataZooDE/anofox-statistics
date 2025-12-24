@@ -8,6 +8,7 @@
 
 #include "../include/anofox_stats_ffi.h"
 #include "../include/map_options_parser.hpp"
+#include "telemetry.hpp"
 
 namespace duckdb {
 
@@ -280,6 +281,7 @@ static unique_ptr<FunctionData> RidgeFitPredictBind(ClientContext &context, Aggr
     }
 
     function.return_type = GetRidgeFitPredictResultType();
+    PostHogTelemetry::Instance().CaptureFunctionExecution("ridge_fit_predict");
     return std::move(result);
 }
 

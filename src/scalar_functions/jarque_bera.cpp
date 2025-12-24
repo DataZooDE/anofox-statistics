@@ -7,6 +7,7 @@
 #include "duckdb/main/extension/extension_loader.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "telemetry.hpp"
 
 namespace duckdb {
 
@@ -27,6 +28,7 @@ static LogicalType GetJarqueBeraResultType() {
 static unique_ptr<FunctionData> JarqueBeraBind(ClientContext &context, ScalarFunction &bound_function,
                                                vector<unique_ptr<Expression>> &arguments) {
     bound_function.return_type = GetJarqueBeraResultType();
+    PostHogTelemetry::Instance().CaptureFunctionExecution("jarque_bera");
     return nullptr;
 }
 

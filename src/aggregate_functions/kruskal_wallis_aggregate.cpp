@@ -6,6 +6,7 @@
 #include "duckdb/main/extension/extension_loader.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "telemetry.hpp"
 
 namespace duckdb {
 
@@ -176,6 +177,7 @@ static void KruskalWallisAggFinalize(Vector &state_vector, AggregateInputData &a
 static unique_ptr<FunctionData> KruskalWallisAggBind(ClientContext &context, AggregateFunction &function,
                                                       vector<unique_ptr<Expression>> &arguments) {
     function.return_type = GetKruskalWallisAggResultType();
+    PostHogTelemetry::Instance().CaptureFunctionExecution("kruskal_wallis_agg");
     return nullptr;
 }
 

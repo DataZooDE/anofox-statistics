@@ -10,6 +10,7 @@
 
 #include "../include/anofox_stats_ffi.h"
 #include "../include/map_options_parser.hpp"
+#include "telemetry.hpp"
 
 namespace duckdb {
 
@@ -81,6 +82,7 @@ static unique_ptr<FunctionData> WlsFitBind(ClientContext &context, ScalarFunctio
     // Set return type
     bound_function.return_type = GetWlsResultType(result->compute_inference);
 
+    PostHogTelemetry::Instance().CaptureFunctionExecution("wls_fit");
     return std::move(result);
 }
 

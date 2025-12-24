@@ -7,6 +7,7 @@
 #include "duckdb/main/extension/extension_loader.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "telemetry.hpp"
 
 namespace duckdb {
 
@@ -173,6 +174,7 @@ static void ContingencyCoefAggFinalize(Vector &state_vector, AggregateInputData 
 static unique_ptr<FunctionData> ContingencyCoefAggBind(ClientContext &context, AggregateFunction &function,
                                                         vector<unique_ptr<Expression>> &arguments) {
     function.return_type = LogicalType::DOUBLE;
+    PostHogTelemetry::Instance().CaptureFunctionExecution("contingency_coef_agg");
     return nullptr;
 }
 

@@ -7,6 +7,7 @@
 
 #include "../include/anofox_stats_ffi.h"
 #include "../include/map_options_parser.hpp"
+#include "telemetry.hpp"
 
 namespace duckdb {
 
@@ -226,6 +227,7 @@ static unique_ptr<FunctionData> MannWhitneyAggBind(ClientContext &context, Aggre
         bind_data->options = MannWhitneyMapOptions::ParseFromValue(options_val);
     }
 
+    PostHogTelemetry::Instance().CaptureFunctionExecution("mann_whitney_u_agg");
     return bind_data;
 }
 

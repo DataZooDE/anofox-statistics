@@ -7,6 +7,7 @@
 
 #include "../include/anofox_stats_ffi.h"
 #include "../include/map_options_parser.hpp"
+#include "telemetry.hpp"
 
 namespace duckdb {
 
@@ -370,6 +371,7 @@ static unique_ptr<FunctionData> PoissonAggBind(ClientContext &context, Aggregate
 
     function.return_type = GetPoissonAggResultType(result->compute_inference);
 
+    PostHogTelemetry::Instance().CaptureFunctionExecution("poisson_fit_agg");
     return std::move(result);
 }
 

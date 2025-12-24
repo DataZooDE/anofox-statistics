@@ -10,6 +10,7 @@
 
 #include "../include/anofox_stats_ffi.h"
 #include "../include/map_options_parser.hpp"
+#include "telemetry.hpp"
 
 namespace duckdb {
 
@@ -71,6 +72,7 @@ static unique_ptr<FunctionData> RlsFitBind(ClientContext &context, ScalarFunctio
     // Set return type
     bound_function.return_type = GetRlsResultType();
 
+    PostHogTelemetry::Instance().CaptureFunctionExecution("rls_fit");
     return std::move(result);
 }
 

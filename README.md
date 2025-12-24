@@ -166,6 +166,7 @@ Guides are available in the [`guides/`](guides/) directory:
 This extension collects anonymous usage telemetry to help improve the product. Telemetry is **enabled by default** and includes:
 
 - Extension load events (extension name, version, platform)
+- Function execution events (which functions are used)
 - No personal data or query contents are collected
 
 ### Disabling Telemetry

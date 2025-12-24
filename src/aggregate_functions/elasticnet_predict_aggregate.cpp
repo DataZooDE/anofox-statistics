@@ -8,6 +8,7 @@
 
 #include "../include/anofox_stats_ffi.h"
 #include "../include/map_options_parser.hpp"
+#include "telemetry.hpp"
 
 namespace duckdb {
 
@@ -399,6 +400,7 @@ static unique_ptr<FunctionData> ElasticNetPredictAggBind(ClientContext &context,
     }
 
     function.return_type = GetElasticNetPredictAggResultType();
+    PostHogTelemetry::Instance().CaptureFunctionExecution("elasticnet_predict_agg");
     return std::move(result);
 }
 

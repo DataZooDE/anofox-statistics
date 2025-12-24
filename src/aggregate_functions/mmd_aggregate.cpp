@@ -7,6 +7,7 @@
 
 #include "../include/anofox_stats_ffi.h"
 #include "../include/map_options_parser.hpp"
+#include "telemetry.hpp"
 
 namespace duckdb {
 
@@ -219,6 +220,7 @@ static unique_ptr<FunctionData> MmdAggBind(ClientContext &context, AggregateFunc
         bind_data->options = MmdMapOptions::ParseFromValue(options_val);
     }
 
+    PostHogTelemetry::Instance().CaptureFunctionExecution("mmd_agg");
     return bind_data;
 }
 

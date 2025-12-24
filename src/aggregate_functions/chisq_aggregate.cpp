@@ -8,6 +8,7 @@
 
 #include "../include/anofox_stats_ffi.h"
 #include "../include/map_options_parser.hpp"
+#include "telemetry.hpp"
 
 namespace duckdb {
 
@@ -203,6 +204,7 @@ static unique_ptr<FunctionData> ChiSquareAggBind(ClientContext &context, Aggrega
         bind_data->options = ChiSquareMapOptions::ParseFromValue(options_val);
     }
 
+    PostHogTelemetry::Instance().CaptureFunctionExecution("chisq_test_agg");
     return bind_data;
 }
 

@@ -7,6 +7,7 @@
 
 #include "../include/anofox_stats_ffi.h"
 #include "../include/map_options_parser.hpp"
+#include "telemetry.hpp"
 
 namespace duckdb {
 
@@ -365,6 +366,7 @@ static unique_ptr<FunctionData> BlsAggBind(ClientContext &context, AggregateFunc
 
     function.return_type = GetBlsAggResultType();
 
+    PostHogTelemetry::Instance().CaptureFunctionExecution("bls_fit_agg");
     return std::move(result);
 }
 
@@ -393,6 +395,7 @@ static unique_ptr<FunctionData> NnlsAggBind(ClientContext &context, AggregateFun
 
     function.return_type = GetBlsAggResultType();
 
+    PostHogTelemetry::Instance().CaptureFunctionExecution("nnls_fit_agg");
     return std::move(result);
 }
 

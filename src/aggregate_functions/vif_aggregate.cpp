@@ -6,6 +6,7 @@
 #include "duckdb/main/extension/extension_loader.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "telemetry.hpp"
 
 namespace duckdb {
 
@@ -189,6 +190,7 @@ static void VifAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
 static unique_ptr<FunctionData> VifAggBind(ClientContext &context, AggregateFunction &function,
                                            vector<unique_ptr<Expression>> &arguments) {
     function.return_type = LogicalType::LIST(LogicalType::DOUBLE);
+    PostHogTelemetry::Instance().CaptureFunctionExecution("vif_agg");
     return nullptr;
 }
 
