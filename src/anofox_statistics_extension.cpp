@@ -4,10 +4,60 @@
 
 #include "duckdb.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
+#include "telemetry.hpp"
 
 namespace duckdb {
 
-void AnofoxStatisticsExtension::Load(ExtensionLoader &loader) {
+namespace {
+
+void OnTelemetryEnabled(ClientContext &context, SetScope scope, Value &parameter) {
+    if (parameter.IsNull()) {
+        throw InvalidInputException("anofox_telemetry_enabled cannot be NULL");
+    }
+    auto &telemetry = PostHogTelemetry::Instance();
+    telemetry.SetEnabled(BooleanValue::Get(parameter));
+}
+
+void OnTelemetryKey(ClientContext &context, SetScope scope, Value &parameter) {
+    if (parameter.IsNull()) {
+        throw InvalidInputException("anofox_telemetry_key cannot be NULL");
+    }
+    auto &telemetry = PostHogTelemetry::Instance();
+    telemetry.SetAPIKey(StringValue::Get(parameter));
+}
+
+} // anonymous namespace
+
+static void RegisterTelemetryOptions(ExtensionLoader &loader) {
+    auto &config = DBConfig::GetConfig(loader.GetDatabaseInstance());
+
+    config.AddExtensionOption("anofox_telemetry_enabled",
+                              "Enable or disable anonymous usage telemetry",
+                              LogicalType::BOOLEAN, Value::BOOLEAN(true), OnTelemetryEnabled);
+
+    config.AddExtensionOption("anofox_telemetry_key",
+                              "PostHog API key for telemetry",
+                              LogicalType::VARCHAR,
+                              Value("phc_t3wwRLtpyEmLHYaZCSszG0MqVr74J6wnCrj9D41zk2t"),
+                              OnTelemetryKey);
+}
+
+void LoadInternal(ExtensionLoader &loader) {
+    // Register telemetry options
+    RegisterTelemetryOptions(loader);
+
+    // Initialize and capture extension load event
+    auto &telemetry = PostHogTelemetry::Instance();
+    telemetry.SetAPIKey("phc_t3wwRLtpyEmLHYaZCSszG0MqVr74J6wnCrj9D41zk2t");
+
+    std::string version;
+#ifdef EXT_VERSION_ANOFOX_STATISTICS
+    version = EXT_VERSION_ANOFOX_STATISTICS;
+#else
+    version = "0.1.0";
+#endif
+    telemetry.CaptureExtensionLoad("anofox_statistics", version);
+
     // Register scalar functions
     RegisterOlsFitFunction(loader);
     RegisterRidgeFitFunction(loader);
@@ -112,6 +162,10 @@ void AnofoxStatisticsExtension::Load(ExtensionLoader &loader) {
     RegisterResidualsDiagnosticsFunction(loader);
 }
 
+void AnofoxStatisticsExtension::Load(ExtensionLoader &loader) {
+    LoadInternal(loader);
+}
+
 std::string AnofoxStatisticsExtension::Name() {
     return "anofox_statistics";
 }
@@ -129,104 +183,7 @@ std::string AnofoxStatisticsExtension::Version() const {
 extern "C" {
 
 DUCKDB_CPP_EXTENSION_ENTRY(anofox_statistics, loader) {
-    // Register scalar functions
-    duckdb::RegisterOlsFitFunction(loader);
-    duckdb::RegisterRidgeFitFunction(loader);
-    duckdb::RegisterElasticNetFitFunction(loader);
-    duckdb::RegisterWlsFitFunction(loader);
-    duckdb::RegisterPredictFunction(loader);
-    duckdb::RegisterRlsFitFunction(loader);
-
-    // Register aggregate functions
-    duckdb::RegisterOlsAggregateFunction(loader);
-    duckdb::RegisterRidgeAggregateFunction(loader);
-    duckdb::RegisterElasticNetAggregateFunction(loader);
-    duckdb::RegisterWlsAggregateFunction(loader);
-    duckdb::RegisterRlsAggregateFunction(loader);
-    duckdb::RegisterVifAggregateFunction(loader);
-    duckdb::RegisterJarqueBeraAggregateFunction(loader);
-    duckdb::RegisterResidualsDiagnosticsAggregateFunction(loader);
-
-    // Register GLM aggregate functions
-    duckdb::RegisterPoissonAggregateFunction(loader);
-
-    // Register ALM aggregate functions
-    duckdb::RegisterAlmAggregateFunction(loader);
-
-    // Register BLS aggregate functions (includes NNLS)
-    duckdb::RegisterBlsAggregateFunction(loader);
-
-    // Register AID aggregate functions (Automatic Identification of Demand)
-    duckdb::RegisterAidAggregateFunction(loader);
-
-    // Register statistical hypothesis testing aggregate functions
-    duckdb::RegisterShapiroWilkAggregateFunction(loader);
-    duckdb::RegisterTTestAggregateFunction(loader);
-    duckdb::RegisterPearsonAggregateFunction(loader);
-    duckdb::RegisterSpearmanAggregateFunction(loader);
-    duckdb::RegisterMannWhitneyAggregateFunction(loader);
-    duckdb::RegisterAnovaAggregateFunction(loader);
-    duckdb::RegisterKruskalWallisAggregateFunction(loader);
-    duckdb::RegisterChiSquareAggregateFunction(loader);
-
-    // Phase 1: Aggregates for existing FFI
-    duckdb::RegisterKendallAggregateFunction(loader);
-    duckdb::RegisterFisherExactAggregateFunction(loader);
-    duckdb::RegisterBrunnerMunzelAggregateFunction(loader);
-    duckdb::RegisterDAgostinoK2AggregateFunction(loader);
-    duckdb::RegisterEnergyDistanceAggregateFunction(loader);
-    duckdb::RegisterMmdAggregateFunction(loader);
-    duckdb::RegisterTostTTestAggregateFunction(loader);
-
-    // Phase 2: Wilcoxon signed-rank test
-    duckdb::RegisterWilcoxonSignedRankAggregateFunction(loader);
-
-    // Phase 4: Distance correlation test
-    duckdb::RegisterDistanceCorAggregateFunction(loader);
-
-    // Phase 5: Parametric tests
-    duckdb::RegisterYuenAggregateFunction(loader);
-    duckdb::RegisterBrownForsytheAggregateFunction(loader);
-
-    // Phase 6: Forecast tests
-    duckdb::RegisterDieboldMarianoAggregateFunction(loader);
-    duckdb::RegisterClarkWestAggregateFunction(loader);
-
-    // Phase 7: Resampling tests
-    duckdb::RegisterPermutationTTestAggregateFunction(loader);
-
-    // Phase 8: TOST equivalence test variants
-    duckdb::RegisterTostPairedAggregateFunction(loader);
-    duckdb::RegisterTostCorrelationAggregateFunction(loader);
-
-    // Phase 9: Categorical tests
-    duckdb::RegisterChisqGofAggregateFunction(loader);
-    duckdb::RegisterPropTestOneAggregateFunction(loader);
-    duckdb::RegisterPropTestTwoAggregateFunction(loader);
-    duckdb::RegisterBinomTestAggregateFunction(loader);
-    duckdb::RegisterCramersVAggregateFunction(loader);
-    duckdb::RegisterCohenKappaAggregateFunction(loader);
-    duckdb::RegisterIccAggregateFunction(loader);
-    duckdb::RegisterGTestAggregateFunction(loader);
-    duckdb::RegisterMcNemarAggregateFunction(loader);
-    duckdb::RegisterPhiCoefficientAggregateFunction(loader);
-    duckdb::RegisterContingencyCoefAggregateFunction(loader);
-
-    // Register window aggregate functions (fit_predict)
-    duckdb::RegisterOlsFitPredictFunction(loader);
-    duckdb::RegisterRidgeFitPredictFunction(loader);
-    duckdb::RegisterWlsFitPredictFunction(loader);
-    duckdb::RegisterRlsFitPredictFunction(loader);
-    duckdb::RegisterElasticNetFitPredictFunction(loader);
-
-    // Register predict aggregate functions (non-rolling)
-    duckdb::RegisterOlsPredictAggregateFunction(loader);
-
-    // Register diagnostic functions
-    duckdb::RegisterVifFunction(loader);
-    duckdb::RegisterAicBicFunctions(loader);
-    duckdb::RegisterJarqueBeraFunction(loader);
-    duckdb::RegisterResidualsDiagnosticsFunction(loader);
+    duckdb::LoadInternal(loader);
 }
 
 DUCKDB_EXTENSION_API const char *anofox_statistics_version() {

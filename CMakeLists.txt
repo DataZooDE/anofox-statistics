@@ -81,6 +81,23 @@ set(LOADABLE_EXTENSION_NAME ${TARGET_NAME}_loadable_extension)
 
 project(${TARGET_NAME})
 
+# --- Telemetry ---
+find_package(OpenSSL REQUIRED)
+
+add_library(posthog_telemetry_obj OBJECT
+    ${CMAKE_CURRENT_SOURCE_DIR}/posthog-telemetry/src/telemetry.cpp
+)
+
+target_include_directories(posthog_telemetry_obj PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/posthog-telemetry/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/duckdb/src/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/duckdb/third_party
+    ${CMAKE_CURRENT_SOURCE_DIR}/duckdb/third_party/httplib
+    ${OPENSSL_INCLUDE_DIR}
+)
+
+target_compile_features(posthog_telemetry_obj PUBLIC cxx_std_17)
+
 include_directories(src/include)
 
 # Extension source files
@@ -161,6 +178,14 @@ build_static_extension(${TARGET_NAME} ${EXTENSION_SOURCES})
 
 # Build loadable extension
 build_loadable_extension(${TARGET_NAME} " " ${EXTENSION_SOURCES})
+
+# Add telemetry objects to both extension targets
+target_sources(${EXTENSION_NAME} PRIVATE $<TARGET_OBJECTS:posthog_telemetry_obj>)
+target_sources(${LOADABLE_EXTENSION_NAME} PRIVATE $<TARGET_OBJECTS:posthog_telemetry_obj>)
+
+# Add telemetry include path
+target_include_directories(${EXTENSION_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/posthog-telemetry/include)
+target_include_directories(${LOADABLE_EXTENSION_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/posthog-telemetry/include)
 
 # Link to Rust library (use static for both)
 target_link_libraries(${EXTENSION_NAME} anofox_stats_ffi-static)

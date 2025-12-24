@@ -161,6 +161,27 @@ Guides are available in the [`guides/`](guides/) directory:
   LOAD icu;
   ```
 
+## Telemetry
+
+This extension collects anonymous usage telemetry to help improve the product. Telemetry is **enabled by default** and includes:
+
+- Extension load events (extension name, version, platform)
+- No personal data or query contents are collected
+
+### Disabling Telemetry
+
+**Environment Variable:**
+```bash
+export DATAZOO_DISABLE_TELEMETRY=1
+```
+
+**DuckDB SQL Setting:**
+```sql
+SET anofox_telemetry_enabled = false;
+```
+
+For more information, see the [posthog-telemetry](https://github.com/DataZooDE/posthog-telemetry) repository.
+
 ## License
 
 This project is licensed under the **Business Source License 1.1** (BSL 1.1).
