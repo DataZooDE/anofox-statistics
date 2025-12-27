@@ -6,6 +6,7 @@
 #include "duckdb/main/extension/extension_loader.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "telemetry.hpp"
 
 namespace duckdb {
 
@@ -307,6 +308,7 @@ static void ResidualsDiagnosticsAggFinalize(Vector &state_vector, AggregateInput
 static unique_ptr<FunctionData> ResidualsDiagnosticsAggBind(ClientContext &context, AggregateFunction &function,
                                                             vector<unique_ptr<Expression>> &arguments) {
     function.return_type = GetResidualsDiagnosticsAggResultType();
+    PostHogTelemetry::Instance().CaptureFunctionExecution("residuals_diagnostics_agg");
     return nullptr;
 }
 

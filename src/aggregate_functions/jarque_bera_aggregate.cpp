@@ -6,6 +6,7 @@
 #include "duckdb/main/extension/extension_loader.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "telemetry.hpp"
 
 namespace duckdb {
 
@@ -161,6 +162,7 @@ static void JarqueBeraAggFinalize(Vector &state_vector, AggregateInputData &aggr
 static unique_ptr<FunctionData> JarqueBeraAggBind(ClientContext &context, AggregateFunction &function,
                                                   vector<unique_ptr<Expression>> &arguments) {
     function.return_type = GetJarqueBeraAggResultType();
+    PostHogTelemetry::Instance().CaptureFunctionExecution("jarque_bera_agg");
     return nullptr;
 }
 

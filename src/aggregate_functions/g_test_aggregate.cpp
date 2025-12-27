@@ -8,6 +8,7 @@
 
 #include "../include/anofox_stats_ffi.h"
 #include "../include/map_options_parser.hpp"
+#include "telemetry.hpp"
 
 namespace duckdb {
 
@@ -196,6 +197,7 @@ static void GTestAggFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
 static unique_ptr<FunctionData> GTestAggBind(ClientContext &context, AggregateFunction &function,
                                               vector<unique_ptr<Expression>> &arguments) {
     function.return_type = GetGTestAggResultType();
+    PostHogTelemetry::Instance().CaptureFunctionExecution("g_test_agg");
     return nullptr;
 }
 

@@ -7,6 +7,7 @@
 
 #include "../include/anofox_stats_ffi.h"
 #include "../include/map_options_parser.hpp"
+#include "telemetry.hpp"
 
 namespace duckdb {
 
@@ -195,6 +196,7 @@ static void BrownForsytheAggFinalize(Vector &state_vector, AggregateInputData &a
 static unique_ptr<FunctionData> BrownForsytheAggBind(ClientContext &context, AggregateFunction &function,
                                                        vector<unique_ptr<Expression>> &arguments) {
     function.return_type = GetBrownForsytheAggResultType();
+    PostHogTelemetry::Instance().CaptureFunctionExecution("brown_forsythe_agg");
     return make_uniq<BrownForsytheBindData>();
 }
 

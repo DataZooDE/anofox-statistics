@@ -7,6 +7,7 @@
 
 #include "../include/anofox_stats_ffi.h"
 #include "../include/map_options_parser.hpp"
+#include "telemetry.hpp"
 
 #ifdef _WIN32
 #define strcasecmp _stricmp
@@ -260,6 +261,7 @@ static unique_ptr<FunctionData> TostCorrelationAggBind(ClientContext &context, A
         }
     }
 
+    PostHogTelemetry::Instance().CaptureFunctionExecution("tost_correlation_agg");
     return bind_data;
 }
 

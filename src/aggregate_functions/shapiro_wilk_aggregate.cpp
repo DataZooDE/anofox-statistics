@@ -6,6 +6,7 @@
 #include "duckdb/main/extension/extension_loader.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "telemetry.hpp"
 
 namespace duckdb {
 
@@ -163,6 +164,7 @@ static void ShapiroWilkAggFinalize(Vector &state_vector, AggregateInputData &agg
 static unique_ptr<FunctionData> ShapiroWilkAggBind(ClientContext &context, AggregateFunction &function,
                                                     vector<unique_ptr<Expression>> &arguments) {
     function.return_type = GetShapiroWilkAggResultType();
+    PostHogTelemetry::Instance().CaptureFunctionExecution("shapiro_wilk_agg");
     return nullptr;
 }
 

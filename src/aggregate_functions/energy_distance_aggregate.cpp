@@ -7,6 +7,7 @@
 
 #include "../include/anofox_stats_ffi.h"
 #include "../include/map_options_parser.hpp"
+#include "telemetry.hpp"
 
 namespace duckdb {
 
@@ -218,6 +219,7 @@ static unique_ptr<FunctionData> EnergyDistanceAggBind(ClientContext &context, Ag
         bind_data->options = EnergyDistanceMapOptions::ParseFromValue(options_val);
     }
 
+    PostHogTelemetry::Instance().CaptureFunctionExecution("energy_distance_agg");
     return bind_data;
 }
 

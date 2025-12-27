@@ -21,6 +21,8 @@ jobs:
       extension_name: anofox_statistics
       enable_rust: true
       reduced_ci_mode: disabled
+      # Exclude MinGW builds - has vcpkg OpenSSL build issues
+      exclude_archs: windows_amd64_mingw
 
   build-and-test-rust:
     name: Build and test Rust components

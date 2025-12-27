@@ -7,6 +7,7 @@
 
 #include "../include/anofox_stats_ffi.h"
 #include "../include/map_options_parser.hpp"
+#include "telemetry.hpp"
 
 namespace duckdb {
 
@@ -351,6 +352,7 @@ static unique_ptr<FunctionData> OlsAggBind(ClientContext &context, AggregateFunc
     // Set return type based on options
     function.return_type = GetOlsAggResultType(result->compute_inference);
 
+    PostHogTelemetry::Instance().CaptureFunctionExecution("ols_fit_agg");
     return std::move(result);
 }
 

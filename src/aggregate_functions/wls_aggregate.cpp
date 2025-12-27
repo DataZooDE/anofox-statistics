@@ -7,6 +7,7 @@
 
 #include "../include/anofox_stats_ffi.h"
 #include "../include/map_options_parser.hpp"
+#include "telemetry.hpp"
 
 namespace duckdb {
 
@@ -375,6 +376,7 @@ static unique_ptr<FunctionData> WlsAggBind(ClientContext &context, AggregateFunc
     // Set return type based on options
     function.return_type = GetWlsAggResultType(result->compute_inference);
 
+    PostHogTelemetry::Instance().CaptureFunctionExecution("wls_fit_agg");
     return std::move(result);
 }
 

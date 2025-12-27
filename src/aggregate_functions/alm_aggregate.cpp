@@ -7,6 +7,7 @@
 
 #include "../include/anofox_stats_ffi.h"
 #include "../include/map_options_parser.hpp"
+#include "telemetry.hpp"
 
 namespace duckdb {
 
@@ -392,6 +393,7 @@ static unique_ptr<FunctionData> AlmAggBind(ClientContext &context, AggregateFunc
 
     function.return_type = GetAlmAggResultType(result->compute_inference);
 
+    PostHogTelemetry::Instance().CaptureFunctionExecution("alm_fit_agg");
     return std::move(result);
 }
 

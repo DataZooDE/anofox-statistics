@@ -6,6 +6,7 @@
 #include "duckdb/main/extension/extension_loader.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "telemetry.hpp"
 
 namespace duckdb {
 
@@ -29,6 +30,7 @@ static vector<double> ExtractDoubleList(Vector &vec, idx_t row_idx) {
 // VIF function: anofox_stats_vif(x) -> LIST(DOUBLE)
 // x: LIST(LIST(DOUBLE)) - feature data (list of feature columns)
 static void VifFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+    PostHogTelemetry::Instance().CaptureFunctionExecution("vif");
     auto &x_vec = args.data[0]; // LIST(LIST(DOUBLE))
 
     idx_t count = args.size();

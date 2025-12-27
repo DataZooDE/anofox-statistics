@@ -7,6 +7,7 @@
 
 #include "../include/anofox_stats_ffi.h"
 #include "../include/map_options_parser.hpp"
+#include "telemetry.hpp"
 
 namespace duckdb {
 
@@ -230,6 +231,7 @@ static unique_ptr<FunctionData> KendallAggBind(ClientContext &context, Aggregate
         bind_data->options = KendallMapOptions::ParseFromValue(options_val);
     }
 
+    PostHogTelemetry::Instance().CaptureFunctionExecution("kendall_agg");
     return bind_data;
 }
 

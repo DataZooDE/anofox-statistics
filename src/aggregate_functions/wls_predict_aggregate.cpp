@@ -8,6 +8,7 @@
 
 #include "../include/anofox_stats_ffi.h"
 #include "../include/map_options_parser.hpp"
+#include "telemetry.hpp"
 
 namespace duckdb {
 
@@ -384,6 +385,7 @@ static unique_ptr<FunctionData> WlsPredictAggBind(ClientContext &context, Aggreg
     }
 
     function.return_type = GetWlsPredictAggResultType();
+    PostHogTelemetry::Instance().CaptureFunctionExecution("wls_predict_agg");
     return std::move(result);
 }
 

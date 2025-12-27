@@ -7,6 +7,7 @@
 #include "duckdb/main/extension/extension_loader.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "telemetry.hpp"
 
 namespace duckdb {
 
@@ -185,6 +186,7 @@ static void AnovaAggFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
 static unique_ptr<FunctionData> AnovaAggBind(ClientContext &context, AggregateFunction &function,
                                               vector<unique_ptr<Expression>> &arguments) {
     function.return_type = GetAnovaAggResultType();
+    PostHogTelemetry::Instance().CaptureFunctionExecution("one_way_anova_agg");
     return nullptr;
 }
 

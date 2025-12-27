@@ -8,6 +8,7 @@
 
 #include "../include/anofox_stats_ffi.h"
 #include "../include/map_options_parser.hpp"
+#include "telemetry.hpp"
 
 namespace duckdb {
 
@@ -329,6 +330,7 @@ static unique_ptr<FunctionData> OlsFitPredictBind(ClientContext &context, Aggreg
     }
 
     function.return_type = GetOlsFitPredictResultType();
+    PostHogTelemetry::Instance().CaptureFunctionExecution("ols_fit_predict");
     return std::move(result);
 }
 
