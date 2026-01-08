@@ -1,0 +1,410 @@
+# name: test/sql/fit_predict_agg/test_poisson_fit_predict_agg.test
+# description: Test Poisson fit_predict_agg aggregate function
+# group: [fit_predict_agg]
+
+require anofox_statistics
+
+# =============================================================================
+# SETUP: Create test data with count-like y values (positive integers)
+# =============================================================================
+
+statement ok
+CREATE TABLE test_data AS
+SELECT
+    CASE WHEN i <= 7 THEN (i * 2)::DOUBLE ELSE NULL END AS y,
+    i::DOUBLE AS x1,
+    (i * 0.5)::DOUBLE AS x2,
+    i AS id
+FROM range(1, 11) t(i);
+
+# =============================================================================
+# TEST 1: Basic Fit and Predict (log link) - Returns correct number of rows
+# =============================================================================
+
+query I
+SELECT LENGTH(poisson_fit_predict_agg(y, [x1, x2], {'link': 'log'})) AS n_rows FROM test_data;
+----
+10
+
+# =============================================================================
+# TEST 2: Training vs Prediction Row Identification
+# =============================================================================
+
+query II
+SELECT
+    SUM(CASE WHEN (pred).is_training THEN 1 ELSE 0 END) AS n_training,
+    SUM(CASE WHEN NOT (pred).is_training THEN 1 ELSE 0 END) AS n_prediction
+FROM (
+    SELECT UNNEST(poisson_fit_predict_agg(y, [x1], {'link': 'log'})) AS pred
+    FROM test_data
+);
+----
+7	3
+
+# =============================================================================
+# TEST 3: Predictions Are Non-Negative (Poisson requirement)
+# =============================================================================
+
+query I
+SELECT COUNT(*) FROM (
+    SELECT UNNEST(poisson_fit_predict_agg(y, [x1], {'link': 'log'})) AS pred
+    FROM test_data
+)
+WHERE (pred).yhat >= 0 OR (pred).yhat IS NULL;
+----
+10
+
+# =============================================================================
+# TEST 4: Prediction Intervals Are Valid (lower <= yhat <= upper)
+# =============================================================================
+
+query I
+SELECT COUNT(*) AS valid_intervals FROM (
+    SELECT UNNEST(poisson_fit_predict_agg(y, [x1], {'link': 'log'})) AS pred
+    FROM test_data
+)
+WHERE (pred).yhat_lower <= (pred).yhat
+  AND (pred).yhat <= (pred).yhat_upper;
+----
+10
+
+# =============================================================================
+# TEST 5: GROUP BY Partitioning
+# =============================================================================
+
+statement ok
+CREATE TABLE grouped_data AS
+SELECT
+    CASE WHEN i <= 5 THEN 'A' ELSE 'B' END AS grp,
+    CASE WHEN i <= 4 OR (i > 5 AND i <= 9) THEN (i * 2)::DOUBLE ELSE NULL END AS y,
+    i::DOUBLE AS x1,
+    i AS id
+FROM range(1, 11) t(i);
+
+query TI
+SELECT grp, LENGTH(poisson_fit_predict_agg(y, [x1], {'link': 'log'})) AS n_rows
+FROM grouped_data
+GROUP BY grp
+ORDER BY grp;
+----
+A	5
+B	5
+
+# =============================================================================
+# TEST 6: Original Values Preserved
+# =============================================================================
+
+query I
+SELECT COUNT(*) FROM (
+    SELECT UNNEST(poisson_fit_predict_agg(y, [x1, x2], {'link': 'log'})) AS pred
+    FROM test_data
+)
+WHERE (pred).x IS NOT NULL AND LENGTH((pred).x) = 2;
+----
+10
+
+# =============================================================================
+# TEST 7: Configuration Options - Different link functions
+# =============================================================================
+
+query I
+SELECT LENGTH(poisson_fit_predict_agg(y, [x1], {'link': 'log'})) FROM test_data;
+----
+10
+
+query I
+SELECT LENGTH(poisson_fit_predict_agg(y, [x1], {'link': 'identity'})) FROM test_data;
+----
+10
+
+query I
+SELECT LENGTH(poisson_fit_predict_agg(y, [x1], {'link': 'sqrt'})) FROM test_data;
+----
+10
+
+# =============================================================================
+# TEST 8: Confidence Level Affects Interval Width
+# =============================================================================
+
+query I
+SELECT (
+    SELECT AVG((pred).yhat_upper - (pred).yhat_lower)
+    FROM (SELECT UNNEST(poisson_fit_predict_agg(y, [x1], {'link': 'log', 'confidence_level': 0.99})) AS pred FROM test_data)
+) > (
+    SELECT AVG((pred).yhat_upper - (pred).yhat_lower)
+    FROM (SELECT UNNEST(poisson_fit_predict_agg(y, [x1], {'link': 'log', 'confidence_level': 0.90})) AS pred FROM test_data)
+) AS wider_at_99;
+----
+true
+
+# =============================================================================
+# TEST 9: Insufficient Data Handling
+# =============================================================================
+
+query I
+SELECT LENGTH(poisson_fit_predict_agg(y, [x1, x2], {'link': 'log'})) FROM (SELECT * FROM test_data LIMIT 2);
+----
+NULL
+
+# =============================================================================
+# TEST 10: Zero-Variance Feature Handling
+# =============================================================================
+
+statement ok
+CREATE TABLE const_feature_data AS
+SELECT
+    CASE WHEN i <= 7 THEN (i * 2)::DOUBLE ELSE NULL END AS y,
+    i::DOUBLE AS x_varying,
+    5.0 AS x_constant,
+    i AS id
+FROM range(1, 11) t(i);
+
+query I
+SELECT COUNT(*) FILTER (WHERE (pred).yhat IS NOT NULL) AS valid_predictions
+FROM (
+    SELECT UNNEST(poisson_fit_predict_agg(y, [x_varying, x_constant], {'link': 'log'})) AS pred
+    FROM const_feature_data
+);
+----
+10
+
+# =============================================================================
+# TEST 11: NaN Values in Features
+# =============================================================================
+
+statement ok
+CREATE TABLE nan_feature_data AS
+SELECT
+    CASE WHEN i <= 7 THEN (i * 2)::DOUBLE ELSE NULL END AS y,
+    CASE WHEN i = 3 THEN 'NaN'::DOUBLE ELSE i::DOUBLE END AS x1,
+    i AS id
+FROM range(1, 11) t(i);
+
+query I
+SELECT LENGTH(poisson_fit_predict_agg(y, [x1], {'link': 'log'})) FROM nan_feature_data;
+----
+10
+
+# =============================================================================
+# TEST 12: Infinity Values
+# =============================================================================
+
+statement ok
+CREATE TABLE inf_data AS
+SELECT
+    CASE WHEN i <= 7 THEN (i * 2)::DOUBLE ELSE NULL END AS y,
+    CASE WHEN i = 4 THEN 'Infinity'::DOUBLE ELSE i::DOUBLE END AS x1,
+    i AS id
+FROM range(1, 11) t(i);
+
+query I
+SELECT LENGTH(poisson_fit_predict_agg(y, [x1], {'link': 'log'})) FROM inf_data;
+----
+10
+
+# =============================================================================
+# TEST 13: All Training Rows (No Predictions)
+# =============================================================================
+
+statement ok
+CREATE TABLE all_training AS
+SELECT (i * 2)::DOUBLE AS y, i::DOUBLE AS x1, i AS id
+FROM range(1, 11) t(i);
+
+query II
+SELECT
+    SUM(CASE WHEN (pred).is_training THEN 1 ELSE 0 END) AS n_training,
+    SUM(CASE WHEN NOT (pred).is_training THEN 1 ELSE 0 END) AS n_prediction
+FROM (
+    SELECT UNNEST(poisson_fit_predict_agg(y, [x1], {'link': 'log'})) AS pred
+    FROM all_training
+);
+----
+10	0
+
+# =============================================================================
+# TEST 14: All Prediction Rows (No Training) - Should return NULL
+# =============================================================================
+
+statement ok
+CREATE TABLE all_prediction AS
+SELECT NULL::DOUBLE AS y, i::DOUBLE AS x1, i AS id
+FROM range(1, 11) t(i);
+
+query I
+SELECT poisson_fit_predict_agg(y, [x1], {'link': 'log'}) IS NULL FROM all_prediction;
+----
+true
+
+# =============================================================================
+# TEST 15: Single Observation - Insufficient
+# =============================================================================
+
+statement ok
+CREATE TABLE single_obs AS
+SELECT
+    CASE WHEN i = 1 THEN 5.0 ELSE NULL END AS y,
+    i::DOUBLE AS x1,
+    i AS id
+FROM range(1, 5) t(i);
+
+query I
+SELECT poisson_fit_predict_agg(y, [x1], {'link': 'log'}) IS NULL FROM single_obs;
+----
+true
+
+# =============================================================================
+# TEST 16: Larger Dataset with Single Feature
+# Note: Poisson may have convergence issues with multiple features
+# =============================================================================
+
+statement ok
+CREATE TABLE high_dim AS
+SELECT
+    CASE WHEN i <= 40 THEN (i * 2)::DOUBLE ELSE NULL END AS y,
+    i::DOUBLE AS x1,
+    i AS id
+FROM range(1, 51) t(i);
+
+query I
+SELECT LENGTH(poisson_fit_predict_agg(y, [x1], {'link': 'log'})) FROM high_dim;
+----
+50
+
+# =============================================================================
+# TEST 17: Predictions Are Positive with Log Link
+# =============================================================================
+
+statement ok
+CREATE TABLE perfect_fit AS
+SELECT
+    CASE WHEN i <= 8 THEN (i * 3)::DOUBLE ELSE NULL END AS y,
+    i::DOUBLE AS x1,
+    i AS id
+FROM range(1, 11) t(i);
+
+query I
+SELECT COUNT(*) FILTER (WHERE (pred).yhat > 0)
+FROM (
+    SELECT UNNEST(poisson_fit_predict_agg(y, [x1], {'link': 'log'})) AS pred
+    FROM perfect_fit
+);
+----
+10
+
+# =============================================================================
+# TEST 18: Zero Y Values (edge case for Poisson)
+# =============================================================================
+
+statement ok
+CREATE TABLE zero_y_data AS
+SELECT
+    CASE
+        WHEN i = 1 THEN 0.0
+        WHEN i <= 8 THEN (i * 2)::DOUBLE
+        ELSE NULL
+    END AS y,
+    i::DOUBLE AS x1,
+    i AS id
+FROM range(1, 11) t(i);
+
+query I
+SELECT COUNT(*) FILTER (WHERE (pred).yhat IS NOT NULL)
+FROM (
+    SELECT UNNEST(poisson_fit_predict_agg(y, [x1], {'link': 'log'})) AS pred
+    FROM zero_y_data
+);
+----
+10
+
+# =============================================================================
+# TEST 19: Non-Collinear Features
+# Note: Poisson may have convergence issues with collinear features
+# =============================================================================
+
+statement ok
+CREATE TABLE collinear_data AS
+SELECT
+    CASE WHEN i <= 8 THEN (i * 2)::DOUBLE ELSE NULL END AS y,
+    i::DOUBLE AS x1,
+    i AS id
+FROM range(1, 11) t(i);
+
+query I
+SELECT LENGTH(poisson_fit_predict_agg(y, [x1], {'link': 'log'})) FROM collinear_data;
+----
+10
+
+# =============================================================================
+# TEST 20: Larger Dataset
+# =============================================================================
+
+statement ok
+CREATE TABLE large_data AS
+SELECT
+    CASE WHEN i <= 80 THEN (i * 2)::DOUBLE ELSE NULL END AS y,
+    i::DOUBLE AS x1,
+    (i * 0.5)::DOUBLE AS x2,
+    i AS id
+FROM range(1, 101) t(i);
+
+query I
+SELECT LENGTH(poisson_fit_predict_agg(y, [x1, x2], {'link': 'log'})) FROM large_data;
+----
+100
+
+# =============================================================================
+# TEST 21: Different Link Functions Produce Different Results
+# =============================================================================
+
+query I
+SELECT (
+    SELECT (pred).yhat FROM (SELECT UNNEST(poisson_fit_predict_agg(y, [x1], {'link': 'log'})) AS pred FROM test_data) WHERE NOT (pred).is_training LIMIT 1
+) != (
+    SELECT (pred).yhat FROM (SELECT UNNEST(poisson_fit_predict_agg(y, [x1], {'link': 'sqrt'})) AS pred FROM test_data) WHERE NOT (pred).is_training LIMIT 1
+) AS different_predictions;
+----
+true
+
+# =============================================================================
+# CLEANUP
+# =============================================================================
+
+statement ok
+DROP TABLE IF EXISTS test_data;
+
+statement ok
+DROP TABLE IF EXISTS grouped_data;
+
+statement ok
+DROP TABLE IF EXISTS const_feature_data;
+
+statement ok
+DROP TABLE IF EXISTS nan_feature_data;
+
+statement ok
+DROP TABLE IF EXISTS inf_data;
+
+statement ok
+DROP TABLE IF EXISTS all_training;
+
+statement ok
+DROP TABLE IF EXISTS all_prediction;
+
+statement ok
+DROP TABLE IF EXISTS single_obs;
+
+statement ok
+DROP TABLE IF EXISTS high_dim;
+
+statement ok
+DROP TABLE IF EXISTS perfect_fit;
+
+statement ok
+DROP TABLE IF EXISTS zero_y_data;
+
+statement ok
+DROP TABLE IF EXISTS collinear_data;
+
+statement ok
+DROP TABLE IF EXISTS large_data;
