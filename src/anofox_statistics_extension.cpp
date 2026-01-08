@@ -163,6 +163,9 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterAicBicFunctions(loader);
     RegisterJarqueBeraFunction(loader);
     RegisterResidualsDiagnosticsFunction(loader);
+
+    // Register table macros for fit_predict_by functions
+    RegisterFitPredictTableMacros(loader);
 }
 
 void AnofoxStatisticsExtension::Load(ExtensionLoader &loader) {

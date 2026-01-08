@@ -96,6 +96,9 @@ void RegisterMcNemarAggregateFunction(ExtensionLoader &loader);
 void RegisterPhiCoefficientAggregateFunction(ExtensionLoader &loader);
 void RegisterContingencyCoefAggregateFunction(ExtensionLoader &loader);
 
+// Table Macros for fit_predict_by functions
+void RegisterFitPredictTableMacros(ExtensionLoader &loader);
+
 // Extension class required for static linking
 class AnofoxStatisticsExtension : public Extension {
 public:
