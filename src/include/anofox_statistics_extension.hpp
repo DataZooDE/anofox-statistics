@@ -26,12 +26,15 @@ void RegisterWlsFitPredictFunction(ExtensionLoader &loader);
 void RegisterRlsFitPredictFunction(ExtensionLoader &loader);
 void RegisterElasticNetFitPredictFunction(ExtensionLoader &loader);
 
-// Predict aggregate functions (non-rolling fit + predict all rows)
-void RegisterOlsPredictAggregateFunction(ExtensionLoader &loader);
-void RegisterRidgePredictAggregateFunction(ExtensionLoader &loader);
-void RegisterWlsPredictAggregateFunction(ExtensionLoader &loader);
-void RegisterRlsPredictAggregateFunction(ExtensionLoader &loader);
-void RegisterElasticNetPredictAggregateFunction(ExtensionLoader &loader);
+// Fit + Predict aggregate functions (fit + predict all rows, with deprecated aliases)
+void RegisterOlsFitPredictAggregateFunction(ExtensionLoader &loader);
+void RegisterRidgeFitPredictAggregateFunction(ExtensionLoader &loader);
+void RegisterWlsFitPredictAggregateFunction(ExtensionLoader &loader);
+void RegisterRlsFitPredictAggregateFunction(ExtensionLoader &loader);
+void RegisterElasticNetFitPredictAggregateFunction(ExtensionLoader &loader);
+void RegisterBlsFitPredictAggregateFunction(ExtensionLoader &loader);
+void RegisterAlmFitPredictAggregateFunction(ExtensionLoader &loader);
+void RegisterPoissonFitPredictAggregateFunction(ExtensionLoader &loader);
 
 // GLM aggregate functions
 void RegisterPoissonAggregateFunction(ExtensionLoader &loader);

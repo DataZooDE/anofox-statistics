@@ -126,6 +126,9 @@ set(EXTENSION_SOURCES
     src/aggregate_functions/poisson_aggregate.cpp
     src/aggregate_functions/alm_aggregate.cpp
     src/aggregate_functions/bls_aggregate.cpp
+    src/aggregate_functions/bls_fit_predict_aggregate.cpp
+    src/aggregate_functions/alm_fit_predict_aggregate.cpp
+    src/aggregate_functions/poisson_fit_predict_aggregate.cpp
     src/aggregate_functions/aid_aggregate.cpp
     src/aggregate_functions/shapiro_wilk_aggregate.cpp
     src/aggregate_functions/t_test_aggregate.cpp
