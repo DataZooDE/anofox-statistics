@@ -54,19 +54,6 @@ pub fn fit_elasticnet(
         }
     }
 
-    // Check we have enough observations
-    let min_obs = if options.fit_intercept {
-        n_features + 1
-    } else {
-        n_features
-    };
-    if n_obs <= min_obs {
-        return Err(StatsError::InsufficientData {
-            rows: n_obs,
-            cols: n_features,
-        });
-    }
-
     // Filter out rows with NaN values
     let valid_indices: Vec<usize> = (0..n_obs)
         .filter(|&i| {
@@ -82,16 +69,82 @@ pub fn fit_elasticnet(
     }
 
     let n_valid = valid_indices.len();
-    if n_valid <= min_obs {
+
+    // Detect zero-variance (constant) columns BEFORE min_obs check
+    let is_constant_column: Vec<bool> = x
+        .iter()
+        .map(|col| {
+            if valid_indices.is_empty() {
+                return true;
+            }
+            let first_val = col[valid_indices[0]];
+            valid_indices
+                .iter()
+                .all(|&i| (col[i] - first_val).abs() < 1e-10)
+        })
+        .collect();
+
+    // Count non-constant features for min_obs calculation
+    let n_effective_features = is_constant_column.iter().filter(|&&c| !c).count();
+
+    // Check we have enough observations for the effective (non-constant) features
+    let min_obs = if options.fit_intercept {
+        n_effective_features + 1
+    } else {
+        n_effective_features
+    };
+
+    // If ALL columns are constant, we can still fit (intercept-only model if fit_intercept=true)
+    if n_effective_features == 0 {
+        if !options.fit_intercept {
+            return Err(StatsError::InsufficientData {
+                rows: n_valid,
+                cols: n_features,
+            });
+        }
+        // Intercept-only model: compute mean of y as intercept
+        let y_mean = valid_indices.iter().map(|&i| y[i]).sum::<f64>() / n_valid as f64;
+        let y_var = valid_indices
+            .iter()
+            .map(|&i| (y[i] - y_mean).powi(2))
+            .sum::<f64>()
+            / (n_valid - 1) as f64;
+        let rmse = y_var.sqrt();
+
+        return Ok(FitResult {
+            core: FitResultCore {
+                coefficients: vec![f64::NAN; n_features],
+                intercept: Some(y_mean),
+                r_squared: 0.0,
+                adj_r_squared: 0.0,
+                residual_std_error: rmse,
+                n_observations: n_valid,
+                n_features,
+            },
+            inference: None,
+            diagnostics: None,
+        });
+    }
+
+    if n_valid < min_obs {
         return Err(StatsError::InsufficientData {
             rows: n_valid,
             cols: n_features,
         });
     }
 
-    // Convert to faer types
+    // Build reduced X matrix (only non-constant columns)
+    let non_constant_indices: Vec<usize> = is_constant_column
+        .iter()
+        .enumerate()
+        .filter_map(|(i, &is_const)| if !is_const { Some(i) } else { None })
+        .collect();
+
+    // Convert to faer types (only non-constant columns)
     let y_col = Col::from_fn(n_valid, |i| y[valid_indices[i]]);
-    let x_mat = Mat::from_fn(n_valid, n_features, |i, j| x[j][valid_indices[i]]);
+    let x_mat = Mat::from_fn(n_valid, n_effective_features, |i, j| {
+        x[non_constant_indices[j]][valid_indices[i]]
+    });
 
     // Build and fit the model
     // Note: regress-rs uses different parameter names:
@@ -110,8 +163,12 @@ pub fn fit_elasticnet(
     // Extract results
     let result = fitted.result();
 
-    // Build core results
-    let coefficients: Vec<f64> = result.coefficients.iter().copied().collect();
+    // Reconstruct full coefficient vector with NaN for constant columns
+    let reduced_coefficients: Vec<f64> = result.coefficients.iter().copied().collect();
+    let mut coefficients = vec![f64::NAN; n_features];
+    for (reduced_idx, &orig_idx) in non_constant_indices.iter().enumerate() {
+        coefficients[orig_idx] = reduced_coefficients[reduced_idx];
+    }
     let intercept = if options.fit_intercept {
         result.intercept
     } else {

@@ -141,22 +141,79 @@ pub fn fit_alm(y: &[f64], x: &[Vec<f64>], options: &AlmOptions) -> StatsResult<A
         return Err(StatsError::NoValidData);
     }
 
-    // Need at least n_features + 1 observations (for intercept)
+    // Detect zero-variance (constant) columns BEFORE min_obs check
+    let is_constant_column: Vec<bool> = x
+        .iter()
+        .map(|col| {
+            if valid_indices.is_empty() {
+                return true;
+            }
+            let first_val = col[valid_indices[0]];
+            valid_indices
+                .iter()
+                .all(|&i| (col[i] - first_val).abs() < 1e-10)
+        })
+        .collect();
+
+    // Count non-constant features for min_obs calculation
+    let n_effective_features = is_constant_column.iter().filter(|&&c| !c).count();
+
+    // Check we have enough observations for the effective (non-constant) features
     let min_obs = if options.fit_intercept {
-        n_features + 1
+        n_effective_features + 1
     } else {
-        n_features
+        n_effective_features
     };
-    if n_valid <= min_obs {
+
+    // If ALL columns are constant, we can still fit (intercept-only model if fit_intercept=true)
+    if n_effective_features == 0 {
+        if !options.fit_intercept {
+            return Err(StatsError::InsufficientData {
+                rows: n_valid,
+                cols: n_features,
+            });
+        }
+        // Intercept-only model: compute mean of y as intercept
+        let y_mean = valid_indices.iter().map(|&i| y[i]).sum::<f64>() / n_valid as f64;
+
+        let core = AlmFitResult {
+            coefficients: vec![f64::NAN; n_features],
+            intercept: Some(y_mean),
+            log_likelihood: f64::NAN,
+            aic: f64::NAN,
+            bic: f64::NAN,
+            scale: f64::NAN,
+            n_observations: n_valid,
+            n_features,
+            iterations: 0,
+            converged: true,
+        };
+
+        return Ok(AlmResult {
+            core,
+            inference: None,
+        });
+    }
+
+    if n_valid < min_obs {
         return Err(StatsError::InsufficientData {
             rows: n_valid,
             cols: n_features,
         });
     }
 
-    // Convert to faer types
+    // Build reduced X matrix (only non-constant columns)
+    let non_constant_indices: Vec<usize> = is_constant_column
+        .iter()
+        .enumerate()
+        .filter_map(|(i, &is_const)| if !is_const { Some(i) } else { None })
+        .collect();
+
+    // Convert to faer types (only non-constant columns)
     let y_col = Col::from_fn(n_valid, |i| y[valid_indices[i]]);
-    let x_mat = Mat::from_fn(n_valid, n_features, |i, j| x[j][valid_indices[i]]);
+    let x_mat = Mat::from_fn(n_valid, n_effective_features, |i, j| {
+        x[non_constant_indices[j]][valid_indices[i]]
+    });
 
     // Build regressor
     let mut builder = AlmRegressor::builder()
@@ -180,7 +237,13 @@ pub fn fit_alm(y: &[f64], x: &[Vec<f64>], options: &AlmOptions) -> StatsResult<A
 
     // Extract results
     let result = fitted.result();
-    let coefficients: Vec<f64> = result.coefficients.iter().copied().collect();
+
+    // Reconstruct full coefficient vector with NaN for constant columns
+    let reduced_coefficients: Vec<f64> = result.coefficients.iter().copied().collect();
+    let mut coefficients = vec![f64::NAN; n_features];
+    for (reduced_idx, &orig_idx) in non_constant_indices.iter().enumerate() {
+        coefficients[orig_idx] = reduced_coefficients[reduced_idx];
+    }
     let intercept = result.intercept;
 
     let core = AlmFitResult {
@@ -198,7 +261,12 @@ pub fn fit_alm(y: &[f64], x: &[Vec<f64>], options: &AlmOptions) -> StatsResult<A
 
     // Extract inference if requested
     let inference = if options.compute_inference {
-        extract_inference(result, options.confidence_level)
+        extract_inference_with_nan(
+            result,
+            &non_constant_indices,
+            n_features,
+            options.confidence_level,
+        )
     } else {
         None
     };
@@ -206,13 +274,24 @@ pub fn fit_alm(y: &[f64], x: &[Vec<f64>], options: &AlmOptions) -> StatsResult<A
     Ok(AlmResult { core, inference })
 }
 
-/// Extract inference statistics from regression result
-fn extract_inference(
+/// Extract inference statistics from regression result with NaN for constant columns
+fn extract_inference_with_nan(
     result: &anofox_regression::core::RegressionResult,
+    non_constant_indices: &[usize],
+    n_features: usize,
     _confidence_level: f64,
 ) -> Option<AlmInferenceResult> {
     // Check if inference data is available
     result.std_errors.as_ref()?;
+
+    // Helper to reconstruct reduced vector to full size with NaN for constant columns
+    let reconstruct = |reduced: &faer::Col<f64>| -> Vec<f64> {
+        let mut full = vec![f64::NAN; n_features];
+        for (reduced_idx, &orig_idx) in non_constant_indices.iter().enumerate() {
+            full[orig_idx] = reduced[reduced_idx];
+        }
+        full
+    };
 
     let se = result.std_errors.as_ref()?;
     let t_vals = result.t_statistics.as_ref()?;
@@ -221,11 +300,11 @@ fn extract_inference(
     let conf_upper = result.conf_interval_upper.as_ref()?;
 
     Some(AlmInferenceResult {
-        standard_errors: se.iter().copied().collect(),
-        t_values: t_vals.iter().copied().collect(),
-        p_values: p_vals.iter().copied().collect(),
-        conf_int_lower: conf_lower.iter().copied().collect(),
-        conf_int_upper: conf_upper.iter().copied().collect(),
+        standard_errors: reconstruct(se),
+        t_values: reconstruct(t_vals),
+        p_values: reconstruct(p_vals),
+        conf_int_lower: reconstruct(conf_lower),
+        conf_int_upper: reconstruct(conf_upper),
     })
 }
 

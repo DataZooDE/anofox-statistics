@@ -244,14 +244,97 @@ pub fn fit_rls(y: &[f64], x: &[Vec<f64>], options: &RlsOptions) -> StatsResult<R
         });
     }
 
-    // Initialize RLS state
-    let mut state = RlsState::new(n_features, options)?;
+    // Filter out rows with NaN values
+    let valid_indices: Vec<usize> = (0..n_obs)
+        .filter(|&i| {
+            !y[i].is_nan()
+                && !y[i].is_infinite()
+                && x.iter()
+                    .all(|col| !col[i].is_nan() && !col[i].is_infinite())
+        })
+        .collect();
 
-    // Process each observation
-    for i in 0..n_obs {
-        let xi: Vec<f64> = x.iter().map(|col| col[i]).collect();
+    if valid_indices.is_empty() {
+        return Err(StatsError::NoValidData);
+    }
+
+    // Detect zero-variance (constant) columns
+    let is_constant_column: Vec<bool> = x
+        .iter()
+        .map(|col| {
+            if valid_indices.is_empty() {
+                return true;
+            }
+            let first_val = col[valid_indices[0]];
+            valid_indices
+                .iter()
+                .all(|&i| (col[i] - first_val).abs() < 1e-10)
+        })
+        .collect();
+
+    // Get non-constant column indices
+    let non_constant_indices: Vec<usize> = is_constant_column
+        .iter()
+        .enumerate()
+        .filter_map(|(i, &is_const)| if !is_const { Some(i) } else { None })
+        .collect();
+
+    let n_effective_features = non_constant_indices.len();
+
+    // If ALL columns are constant, return intercept-only model
+    if n_effective_features == 0 {
+        if !options.fit_intercept {
+            return Err(StatsError::InsufficientData {
+                rows: valid_indices.len(),
+                cols: n_features,
+            });
+        }
+        // Intercept-only model: compute mean of y as intercept
+        let y_mean = valid_indices.iter().map(|&i| y[i]).sum::<f64>() / valid_indices.len() as f64;
+
+        // Create a state with NaN for all feature coefficients
+        let mut state = RlsState {
+            coefficients: vec![y_mean], // Just intercept
+            p_matrix: vec![vec![0.0]],  // Minimal P matrix
+            forgetting_factor: options.forgetting_factor,
+            fit_intercept: true,
+            n_features,
+            n_observations: valid_indices.len(),
+        };
+        // Expand coefficients to include NaN for each feature
+        for _ in 0..n_features {
+            state.coefficients.push(f64::NAN);
+        }
+        return Ok(state);
+    }
+
+    // Initialize RLS state with only effective features
+    let mut state = RlsState::new(n_effective_features, options)?;
+
+    // Process each valid observation using only non-constant features
+    for &i in valid_indices.iter() {
+        let xi: Vec<f64> = non_constant_indices.iter().map(|&j| x[j][i]).collect();
         state.update(y[i], &xi)?;
     }
+
+    // Reconstruct full coefficients with NaN for constant columns
+    let reduced_coefs = state.get_coefficients();
+    let mut full_coefficients = vec![f64::NAN; n_features];
+    for (reduced_idx, &orig_idx) in non_constant_indices.iter().enumerate() {
+        full_coefficients[orig_idx] = reduced_coefs[reduced_idx];
+    }
+
+    // Update state with full coefficient set
+    if options.fit_intercept {
+        let intercept = state.coefficients[0];
+        state.coefficients = std::iter::once(intercept)
+            .chain(full_coefficients)
+            .collect();
+    } else {
+        state.coefficients = full_coefficients;
+    }
+    state.n_features = n_features;
+    state.n_observations = valid_indices.len();
 
     Ok(state)
 }

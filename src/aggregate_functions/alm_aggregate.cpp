@@ -275,12 +275,7 @@ static void AlmAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
             continue;
         }
 
-        idx_t min_obs = state.fit_intercept ? state.n_features + 1 : state.n_features;
-        if (state.y_values.size() <= min_obs) {
-            FlatVector::SetNull(result, result_idx, true);
-            continue;
-        }
-
+        // Note: Detailed min_obs validation including zero-variance column handling is done in Rust
         AnofoxDataArray y_array;
         y_array.data = state.y_values.data();
         y_array.validity = nullptr;

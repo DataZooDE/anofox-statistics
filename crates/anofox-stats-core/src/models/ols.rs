@@ -36,19 +36,6 @@ pub fn fit_ols(y: &[f64], x: &[Vec<f64>], options: &OlsOptions) -> StatsResult<F
         }
     }
 
-    // Check we have enough observations
-    let min_obs = if options.fit_intercept {
-        n_features + 1
-    } else {
-        n_features
-    };
-    if n_obs <= min_obs {
-        return Err(StatsError::InsufficientData {
-            rows: n_obs,
-            cols: n_features,
-        });
-    }
-
     // Filter out rows with NaN values
     let valid_indices: Vec<usize> = (0..n_obs)
         .filter(|&i| {
@@ -64,16 +51,86 @@ pub fn fit_ols(y: &[f64], x: &[Vec<f64>], options: &OlsOptions) -> StatsResult<F
     }
 
     let n_valid = valid_indices.len();
-    if n_valid <= min_obs {
+
+    // Detect zero-variance (constant) columns BEFORE min_obs check
+    // A column is constant if all values in valid rows are the same
+    let is_constant_column: Vec<bool> = x
+        .iter()
+        .map(|col| {
+            if valid_indices.is_empty() {
+                return true;
+            }
+            let first_val = col[valid_indices[0]];
+            valid_indices
+                .iter()
+                .all(|&i| (col[i] - first_val).abs() < 1e-10)
+        })
+        .collect();
+
+    // Count non-constant features for min_obs calculation
+    let n_effective_features = is_constant_column.iter().filter(|&&c| !c).count();
+
+    // Check we have enough observations for the effective (non-constant) features
+    let min_obs = if options.fit_intercept {
+        n_effective_features + 1
+    } else {
+        n_effective_features
+    };
+
+    // If ALL columns are constant, we can still fit (intercept-only model if fit_intercept=true)
+    // or return error if fit_intercept=false and no features
+    if n_effective_features == 0 {
+        if !options.fit_intercept {
+            return Err(StatsError::InsufficientData {
+                rows: n_valid,
+                cols: n_features,
+            });
+        }
+        // Intercept-only model: compute mean of y as intercept
+        let y_mean = valid_indices.iter().map(|&i| y[i]).sum::<f64>() / n_valid as f64;
+        let y_var = valid_indices
+            .iter()
+            .map(|&i| (y[i] - y_mean).powi(2))
+            .sum::<f64>()
+            / (n_valid - 1) as f64;
+        let rmse = y_var.sqrt();
+
+        return Ok(FitResult {
+            core: FitResultCore {
+                coefficients: vec![f64::NAN; n_features], // All NaN for constant columns
+                intercept: Some(y_mean),
+                r_squared: 0.0,
+                adj_r_squared: 0.0,
+                residual_std_error: rmse,
+                n_observations: n_valid,
+                n_features,
+            },
+            inference: None,
+            diagnostics: None,
+        });
+    }
+
+    // Allow n == min_obs (fitting with 0 degrees of freedom for residuals)
+    // This enables exact fits and models with many zero-variance features
+    if n_valid < min_obs {
         return Err(StatsError::InsufficientData {
             rows: n_valid,
             cols: n_features,
         });
     }
 
-    // Convert to faer types
+    // Build reduced X matrix (only non-constant columns)
+    let non_constant_indices: Vec<usize> = is_constant_column
+        .iter()
+        .enumerate()
+        .filter_map(|(i, &is_const)| if !is_const { Some(i) } else { None })
+        .collect();
+
+    // Convert to faer types (only non-constant columns)
     let y_col = Col::from_fn(n_valid, |i| y[valid_indices[i]]);
-    let x_mat = Mat::from_fn(n_valid, n_features, |i, j| x[j][valid_indices[i]]);
+    let x_mat = Mat::from_fn(n_valid, n_effective_features, |i, j| {
+        x[non_constant_indices[j]][valid_indices[i]]
+    });
 
     // Build and fit the model
     let fitted = OlsRegressor::builder()
@@ -86,8 +143,12 @@ pub fn fit_ols(y: &[f64], x: &[Vec<f64>], options: &OlsOptions) -> StatsResult<F
     // Extract results
     let result = fitted.result();
 
-    // Build core results - use field access, not method calls
-    let coefficients: Vec<f64> = result.coefficients.iter().copied().collect();
+    // Reconstruct full coefficient vector with NaN for constant columns
+    let reduced_coefficients: Vec<f64> = result.coefficients.iter().copied().collect();
+    let mut coefficients = vec![f64::NAN; n_features];
+    for (reduced_idx, &orig_idx) in non_constant_indices.iter().enumerate() {
+        coefficients[orig_idx] = reduced_coefficients[reduced_idx];
+    }
     let intercept = if options.fit_intercept {
         result.intercept
     } else {
@@ -106,32 +167,22 @@ pub fn fit_ols(y: &[f64], x: &[Vec<f64>], options: &OlsOptions) -> StatsResult<F
 
     // Build inference results if requested
     let inference = if options.compute_inference {
-        // These fields are Option<Col<f64>>, need to handle None case
-        let std_errors: Vec<f64> = result
-            .std_errors
-            .as_ref()
-            .map(|c| c.iter().copied().collect())
-            .unwrap_or_default();
-        let t_values: Vec<f64> = result
-            .t_statistics
-            .as_ref()
-            .map(|c| c.iter().copied().collect())
-            .unwrap_or_default();
-        let p_values: Vec<f64> = result
-            .p_values
-            .as_ref()
-            .map(|c| c.iter().copied().collect())
-            .unwrap_or_default();
-        let ci_lower: Vec<f64> = result
-            .conf_interval_lower
-            .as_ref()
-            .map(|c| c.iter().copied().collect())
-            .unwrap_or_default();
-        let ci_upper: Vec<f64> = result
-            .conf_interval_upper
-            .as_ref()
-            .map(|c| c.iter().copied().collect())
-            .unwrap_or_default();
+        // Helper to reconstruct reduced vector to full size with NaN for constant columns
+        let reconstruct = |reduced: Option<&faer::Col<f64>>| -> Vec<f64> {
+            let mut full = vec![f64::NAN; n_features];
+            if let Some(col) = reduced {
+                for (reduced_idx, &orig_idx) in non_constant_indices.iter().enumerate() {
+                    full[orig_idx] = col[reduced_idx];
+                }
+            }
+            full
+        };
+
+        let std_errors = reconstruct(result.std_errors.as_ref());
+        let t_values = reconstruct(result.t_statistics.as_ref());
+        let p_values = reconstruct(result.p_values.as_ref());
+        let ci_lower = reconstruct(result.conf_interval_lower.as_ref());
+        let ci_upper = reconstruct(result.conf_interval_upper.as_ref());
 
         Some(FitResultInference {
             std_errors,
@@ -214,15 +265,43 @@ mod tests {
 
     #[test]
     fn test_ols_insufficient_data() {
-        let x = vec![vec![1.0, 2.0]]; // Only 2 observations
+        // With fit_intercept=true and 3 non-constant features, we need n >= 4
+        // (1 intercept + 3 coefficients = 4 parameters)
+        // With n=2, we can't fit 4 parameters
+        let x = vec![
+            vec![1.0, 2.0], // 2 observations, varying - not constant
+            vec![3.0, 4.0], // varying - not constant
+            vec![5.0, 6.0], // varying - not constant
+        ]; // 3 features
         let y = vec![1.0, 2.0];
 
         let options = OlsOptions {
-            fit_intercept: true, // Needs n > p + 1 = 2
+            fit_intercept: true, // Needs n >= p + 1 = 4
             ..Default::default()
         };
         let result = fit_ols(&y, &x, &options);
 
         assert!(matches!(result, Err(StatsError::InsufficientData { .. })));
+    }
+
+    #[test]
+    fn test_ols_exact_fit() {
+        // Test that n == p+1 (exact fit, 0 degrees of freedom) is now allowed
+        let x = vec![vec![1.0, 2.0]]; // 2 observations
+        let y = vec![1.0, 3.0]; // y = 2*x - 1
+
+        let options = OlsOptions {
+            fit_intercept: true, // 2 parameters (intercept + 1 coef)
+            ..Default::default()
+        };
+        let result = fit_ols(&y, &x, &options);
+
+        // Should succeed (exact fit is now allowed)
+        assert!(result.is_ok());
+        let result = result.unwrap();
+        // With 2 points, coefficient should be (3-1)/(2-1) = 2
+        assert!((result.core.coefficients[0] - 2.0).abs() < 0.01);
+        // Intercept should be 1 - 2*1 = -1
+        assert!((result.core.intercept.unwrap() - (-1.0)).abs() < 0.01);
     }
 }

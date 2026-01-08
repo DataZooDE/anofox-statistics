@@ -56,19 +56,6 @@ pub fn fit_wls(
         }
     }
 
-    // Check we have enough observations
-    let min_obs = if options.fit_intercept {
-        n_features + 1
-    } else {
-        n_features
-    };
-    if n_obs <= min_obs {
-        return Err(StatsError::InsufficientData {
-            rows: n_obs,
-            cols: n_features,
-        });
-    }
-
     // Filter out rows with NaN/Inf values or non-positive weights
     let valid_indices: Vec<usize> = (0..n_obs)
         .filter(|&i| {
@@ -87,12 +74,78 @@ pub fn fit_wls(
     }
 
     let n_valid = valid_indices.len();
-    if n_valid <= min_obs {
+
+    // Detect zero-variance (constant) columns BEFORE min_obs check
+    let is_constant_column: Vec<bool> = x
+        .iter()
+        .map(|col| {
+            if valid_indices.is_empty() {
+                return true;
+            }
+            let first_val = col[valid_indices[0]];
+            valid_indices
+                .iter()
+                .all(|&i| (col[i] - first_val).abs() < 1e-10)
+        })
+        .collect();
+
+    // Count non-constant features for min_obs calculation
+    let n_effective_features = is_constant_column.iter().filter(|&&c| !c).count();
+
+    // Check we have enough observations for the effective (non-constant) features
+    let min_obs = if options.fit_intercept {
+        n_effective_features + 1
+    } else {
+        n_effective_features
+    };
+
+    // If ALL columns are constant, we can still fit (intercept-only model if fit_intercept=true)
+    if n_effective_features == 0 {
+        if !options.fit_intercept {
+            return Err(StatsError::InsufficientData {
+                rows: n_valid,
+                cols: n_features,
+            });
+        }
+        // Intercept-only model: compute weighted mean of y as intercept
+        let sum_wy: f64 = valid_indices.iter().map(|&i| weights[i] * y[i]).sum();
+        let sum_w: f64 = valid_indices.iter().map(|&i| weights[i]).sum();
+        let y_mean = sum_wy / sum_w;
+        let y_var = valid_indices
+            .iter()
+            .map(|&i| weights[i] * (y[i] - y_mean).powi(2))
+            .sum::<f64>()
+            / sum_w;
+        let rmse = y_var.sqrt();
+
+        return Ok(FitResult {
+            core: FitResultCore {
+                coefficients: vec![f64::NAN; n_features],
+                intercept: Some(y_mean),
+                r_squared: 0.0,
+                adj_r_squared: 0.0,
+                residual_std_error: rmse,
+                n_observations: n_valid,
+                n_features,
+            },
+            inference: None,
+            diagnostics: None,
+        });
+    }
+
+    if n_valid < min_obs {
         return Err(StatsError::InsufficientData {
             rows: n_valid,
             cols: n_features,
         });
     }
+
+    // Build reduced X matrix (only non-constant columns)
+    let non_constant_indices: Vec<usize> = is_constant_column
+        .iter()
+        .enumerate()
+        .filter_map(|(i, &is_const)| if !is_const { Some(i) } else { None })
+        .collect();
 
     // WLS transformation: multiply X and y by sqrt(weights)
     // This makes OLS on transformed data equivalent to WLS
@@ -101,9 +154,9 @@ pub fn fit_wls(
     // Transform y: y_tilde = sqrt(w) * y
     let y_col = Col::from_fn(n_valid, |i| y[valid_indices[i]] * sqrt_weights[i]);
 
-    // Transform X: X_tilde = diag(sqrt(w)) * X
-    let x_mat = Mat::from_fn(n_valid, n_features, |i, j| {
-        x[j][valid_indices[i]] * sqrt_weights[i]
+    // Transform X: X_tilde = diag(sqrt(w)) * X (only non-constant columns)
+    let x_mat = Mat::from_fn(n_valid, n_effective_features, |i, j| {
+        x[non_constant_indices[j]][valid_indices[i]] * sqrt_weights[i]
     });
 
     // Build and fit the model using OLS on transformed data
@@ -117,8 +170,12 @@ pub fn fit_wls(
     // Extract results
     let result = fitted.result();
 
-    // Build core results
-    let coefficients: Vec<f64> = result.coefficients.iter().copied().collect();
+    // Reconstruct full coefficient vector with NaN for constant columns
+    let reduced_coefficients: Vec<f64> = result.coefficients.iter().copied().collect();
+    let mut coefficients = vec![f64::NAN; n_features];
+    for (reduced_idx, &orig_idx) in non_constant_indices.iter().enumerate() {
+        coefficients[orig_idx] = reduced_coefficients[reduced_idx];
+    }
     let intercept = if options.fit_intercept {
         result.intercept
     } else {
@@ -134,6 +191,7 @@ pub fn fit_wls(
     };
 
     // Compute weighted SS_tot and SS_res
+    // Note: NaN coefficients contribute 0 to predictions (skip them)
     let mut ss_tot = 0.0;
     let mut ss_res = 0.0;
     for &i in valid_indices.iter() {
@@ -142,12 +200,14 @@ pub fn fit_wls(
                 + coefficients
                     .iter()
                     .zip(x.iter())
+                    .filter(|(c, _)| !c.is_nan())
                     .map(|(c, col)| c * col[i])
                     .sum::<f64>()
         } else {
             coefficients
                 .iter()
                 .zip(x.iter())
+                .filter(|(c, _)| !c.is_nan())
                 .map(|(c, col)| c * col[i])
                 .sum::<f64>()
         };
@@ -162,24 +222,24 @@ pub fn fit_wls(
         0.0
     };
 
-    // Adjusted R-squared for weighted regression
+    // Adjusted R-squared for weighted regression (use effective features for df)
     let adj_r_squared = if n_valid > min_obs && ss_tot > 0.0 {
         let p = if options.fit_intercept {
-            n_features + 1
+            n_effective_features + 1
         } else {
-            n_features
+            n_effective_features
         };
         1.0 - (1.0 - r_squared) * ((n_valid - 1) as f64) / ((n_valid - p) as f64)
     } else {
         r_squared
     };
 
-    // Weighted residual standard error
+    // Weighted residual standard error (use effective features for df)
     let df_residual = n_valid
         - if options.fit_intercept {
-            n_features + 1
+            n_effective_features + 1
         } else {
-            n_features
+            n_effective_features
         };
     let residual_std_error = if df_residual > 0 {
         (ss_res / df_residual as f64).sqrt()
@@ -200,31 +260,22 @@ pub fn fit_wls(
     // Build inference results if requested
     // Note: The inference from transformed OLS is approximately correct for WLS
     let inference = if options.compute_inference {
-        let std_errors: Vec<f64> = result
-            .std_errors
-            .as_ref()
-            .map(|c| c.iter().copied().collect())
-            .unwrap_or_default();
-        let t_values: Vec<f64> = result
-            .t_statistics
-            .as_ref()
-            .map(|c| c.iter().copied().collect())
-            .unwrap_or_default();
-        let p_values: Vec<f64> = result
-            .p_values
-            .as_ref()
-            .map(|c| c.iter().copied().collect())
-            .unwrap_or_default();
-        let ci_lower: Vec<f64> = result
-            .conf_interval_lower
-            .as_ref()
-            .map(|c| c.iter().copied().collect())
-            .unwrap_or_default();
-        let ci_upper: Vec<f64> = result
-            .conf_interval_upper
-            .as_ref()
-            .map(|c| c.iter().copied().collect())
-            .unwrap_or_default();
+        // Helper to reconstruct reduced vector to full size with NaN for constant columns
+        let reconstruct = |reduced: Option<&faer::Col<f64>>| -> Vec<f64> {
+            let mut full = vec![f64::NAN; n_features];
+            if let Some(col) = reduced {
+                for (reduced_idx, &orig_idx) in non_constant_indices.iter().enumerate() {
+                    full[orig_idx] = col[reduced_idx];
+                }
+            }
+            full
+        };
+
+        let std_errors = reconstruct(result.std_errors.as_ref());
+        let t_values = reconstruct(result.t_statistics.as_ref());
+        let p_values = reconstruct(result.p_values.as_ref());
+        let ci_lower = reconstruct(result.conf_interval_lower.as_ref());
+        let ci_upper = reconstruct(result.conf_interval_upper.as_ref());
 
         Some(FitResultInference {
             std_errors,
