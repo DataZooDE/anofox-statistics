@@ -188,8 +188,9 @@ static void McNemarAggFinalize(Vector &state_vector, AggregateInputData &aggr_in
         FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = mcnemar_result.statistic;
         FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = mcnemar_result.p_value;
         FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = static_cast<int64_t>(mcnemar_result.df);
-        FlatVector::GetData<string_t>(*struct_entries[struct_idx++])[result_idx] =
-            StringVector::AddString(*struct_entries[struct_idx - 1], mcnemar_result.method ? mcnemar_result.method : "McNemar's test");
+        auto& method_vector = *struct_entries[struct_idx++];
+        FlatVector::GetData<string_t>(method_vector)[result_idx] =
+            StringVector::AddString(method_vector, mcnemar_result.method ? mcnemar_result.method : "McNemar's test");
 
         anofox_free_chisq_result(&mcnemar_result);
         state.Reset();

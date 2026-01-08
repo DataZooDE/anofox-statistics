@@ -1,0 +1,271 @@
+# name: test/sql/hypothesis_tests/test_t_test_agg.test
+# description: Test t_test_agg aggregate function
+# group: [hypothesis_tests]
+
+require anofox_statistics
+
+# =============================================================================
+# SETUP: Create test data
+# =============================================================================
+
+statement ok
+CREATE TABLE two_groups AS
+SELECT * FROM (VALUES
+    (10.0, 0), (11.0, 0), (12.0, 0), (10.5, 0), (11.5, 0), (12.5, 0),
+    (10.2, 0), (11.2, 0), (12.2, 0), (10.8, 0),
+    (20.0, 1), (21.0, 1), (22.0, 1), (20.5, 1), (21.5, 1), (22.5, 1),
+    (20.2, 1), (21.2, 1), (22.2, 1), (20.8, 1)
+) AS t(value, grp);
+
+# =============================================================================
+# TEST 1: Basic t-test returns valid result structure
+# =============================================================================
+
+query I
+SELECT (t_test_agg(value, grp)).statistic IS NOT NULL FROM two_groups;
+----
+true
+
+query I
+SELECT (t_test_agg(value, grp)).p_value IS NOT NULL FROM two_groups;
+----
+true
+
+query I
+SELECT (t_test_agg(value, grp)).df IS NOT NULL FROM two_groups;
+----
+true
+
+query I
+SELECT (t_test_agg(value, grp)).ci_lower IS NOT NULL FROM two_groups;
+----
+true
+
+query I
+SELECT (t_test_agg(value, grp)).ci_upper IS NOT NULL FROM two_groups;
+----
+true
+
+query I
+SELECT (t_test_agg(value, grp)).n1 IS NOT NULL FROM two_groups;
+----
+true
+
+query I
+SELECT (t_test_agg(value, grp)).n2 IS NOT NULL FROM two_groups;
+----
+true
+
+query I
+SELECT (t_test_agg(value, grp)).method IS NOT NULL FROM two_groups;
+----
+true
+
+# =============================================================================
+# TEST 2: Significant difference (means ~11 vs ~21, should have p < 0.001)
+# =============================================================================
+
+query I
+SELECT (t_test_agg(value, grp)).p_value < 0.001 FROM two_groups;
+----
+true
+
+# t-statistic should be large and negative (group 0 < group 1)
+query I
+SELECT (t_test_agg(value, grp)).statistic < -10 FROM two_groups;
+----
+true
+
+# =============================================================================
+# TEST 3: Sample sizes are correct
+# =============================================================================
+
+query II
+SELECT (t_test_agg(value, grp)).n1, (t_test_agg(value, grp)).n2 FROM two_groups;
+----
+10	10
+
+# =============================================================================
+# TEST 4: Confidence interval does NOT contain zero (significant)
+# =============================================================================
+
+query I
+SELECT (t_test_agg(value, grp)).ci_upper < 0 FROM two_groups;
+----
+true
+
+# =============================================================================
+# TEST 5: No significant difference
+# =============================================================================
+
+statement ok
+CREATE TABLE no_diff AS
+SELECT * FROM (VALUES
+    (10.0, 0), (11.0, 0), (12.0, 0), (10.5, 0), (11.5, 0),
+    (10.2, 1), (11.2, 1), (11.8, 1), (10.8, 1), (11.0, 1)
+) AS t(value, grp);
+
+query I
+SELECT (t_test_agg(value, grp)).p_value > 0.05 FROM no_diff;
+----
+true
+
+# Confidence interval should contain zero (non-significant)
+query I
+SELECT (t_test_agg(value, grp)).ci_lower < 0 AND (t_test_agg(value, grp)).ci_upper > 0 FROM no_diff;
+----
+true
+
+# =============================================================================
+# TEST 6: Default is Welch t-test (unequal variances)
+# df is not exactly n1 + n2 - 2 for Welch (Satterthwaite approximation)
+# =============================================================================
+
+query I
+SELECT (t_test_agg(value, grp)).df > 17 AND (t_test_agg(value, grp)).df < 19 FROM two_groups;
+----
+true
+
+# =============================================================================
+# TEST 7: One-sided test (less) - group 0 mean < group 1 mean
+# =============================================================================
+
+query I
+SELECT (t_test_agg(value, grp, {'alternative': 'less'})).p_value < 0.001 FROM two_groups;
+----
+true
+
+# =============================================================================
+# TEST 8: One-sided test (greater) - should be non-significant
+# =============================================================================
+
+query I
+SELECT (t_test_agg(value, grp, {'alternative': 'greater'})).p_value > 0.99 FROM two_groups;
+----
+true
+
+# =============================================================================
+# TEST 9: Confidence level 99% is wider than 95%
+# =============================================================================
+
+query I
+SELECT
+    (t_test_agg(value, grp, {'confidence_level': 0.99})).ci_upper - (t_test_agg(value, grp, {'confidence_level': 0.99})).ci_lower
+    >
+    (t_test_agg(value, grp)).ci_upper - (t_test_agg(value, grp)).ci_lower
+FROM two_groups;
+----
+true
+
+# =============================================================================
+# TEST 10: Confidence level 90% is narrower than 95%
+# =============================================================================
+
+query I
+SELECT
+    (t_test_agg(value, grp, {'confidence_level': 0.90})).ci_upper - (t_test_agg(value, grp, {'confidence_level': 0.90})).ci_lower
+    <
+    (t_test_agg(value, grp)).ci_upper - (t_test_agg(value, grp)).ci_lower
+FROM two_groups;
+----
+true
+
+# =============================================================================
+# TEST 11: GROUP BY partitioning
+# =============================================================================
+
+statement ok
+CREATE TABLE grouped_data AS
+SELECT * FROM (VALUES
+    ('A', 10.0, 0), ('A', 12.0, 0), ('A', 11.0, 0), ('A', 13.0, 0),
+    ('A', 20.0, 1), ('A', 22.0, 1), ('A', 21.0, 1), ('A', 23.0, 1),
+    ('B', 5.0, 0), ('B', 6.0, 0), ('B', 5.5, 0), ('B', 6.5, 0),
+    ('B', 5.1, 1), ('B', 6.1, 1), ('B', 5.6, 1), ('B', 6.6, 1)
+) AS t(category, value, grp);
+
+query TI
+SELECT category, (t_test_agg(value, grp)).p_value < 0.05 AS significant
+FROM grouped_data
+GROUP BY category
+ORDER BY category;
+----
+A	true
+B	false
+
+# =============================================================================
+# TEST 12: Insufficient data (only 1 observation per group)
+# =============================================================================
+
+statement ok
+CREATE TABLE insufficient AS
+SELECT * FROM (VALUES
+    (10.0, 0),
+    (20.0, 1)
+) AS t(value, grp);
+
+query I
+SELECT t_test_agg(value, grp) IS NULL FROM insufficient;
+----
+true
+
+# =============================================================================
+# TEST 13: All same group (only group 0)
+# =============================================================================
+
+statement ok
+CREATE TABLE same_group AS
+SELECT * FROM (VALUES
+    (10.0, 0), (11.0, 0), (12.0, 0), (13.0, 0)
+) AS t(value, grp);
+
+query I
+SELECT t_test_agg(value, grp) IS NULL FROM same_group;
+----
+true
+
+# =============================================================================
+# TEST 14: NaN handling (NaN values should be skipped)
+# =============================================================================
+
+statement ok
+CREATE TABLE nan_data AS
+SELECT * FROM (VALUES
+    (10.0, 0), ('NaN'::DOUBLE, 0), (12.0, 0), (11.0, 0),
+    (20.0, 1), (21.0, 1), ('NaN'::DOUBLE, 1), (22.0, 1)
+) AS t(value, grp);
+
+query II
+SELECT (t_test_agg(value, grp)).n1, (t_test_agg(value, grp)).n2 FROM nan_data;
+----
+3	3
+
+# =============================================================================
+# TEST 15: Alias verification (anofox_stats_t_test_agg)
+# =============================================================================
+
+query I
+SELECT (anofox_stats_t_test_agg(value, grp)).statistic IS NOT NULL FROM two_groups;
+----
+true
+
+# =============================================================================
+# CLEANUP
+# =============================================================================
+
+statement ok
+DROP TABLE IF EXISTS two_groups;
+
+statement ok
+DROP TABLE IF EXISTS no_diff;
+
+statement ok
+DROP TABLE IF EXISTS grouped_data;
+
+statement ok
+DROP TABLE IF EXISTS insufficient;
+
+statement ok
+DROP TABLE IF EXISTS same_group;
+
+statement ok
+DROP TABLE IF EXISTS nan_data;

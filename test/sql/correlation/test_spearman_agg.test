@@ -1,0 +1,204 @@
+# name: test/sql/correlation/test_spearman_agg.test
+# description: Test spearman_agg aggregate function (rank correlation)
+# group: [correlation]
+
+require anofox_statistics
+
+# =============================================================================
+# SETUP: Create test data with monotonic positive relationship
+# =============================================================================
+
+statement ok
+CREATE TABLE positive_cor AS
+SELECT * FROM (VALUES
+    (1.0, 2.0), (2.0, 4.1), (3.0, 5.9), (4.0, 8.2), (5.0, 9.8),
+    (6.0, 12.1), (7.0, 13.9), (8.0, 16.2), (9.0, 18.0), (10.0, 20.1)
+) AS t(x, y);
+
+# =============================================================================
+# TEST 1: Basic Spearman returns valid result structure
+# =============================================================================
+
+query I
+SELECT (spearman_agg(x, y)).r IS NOT NULL FROM positive_cor;
+----
+true
+
+query I
+SELECT (spearman_agg(x, y)).statistic IS NOT NULL FROM positive_cor;
+----
+true
+
+query I
+SELECT (spearman_agg(x, y)).p_value IS NOT NULL FROM positive_cor;
+----
+true
+
+query I
+SELECT (spearman_agg(x, y)).ci_lower IS NOT NULL FROM positive_cor;
+----
+true
+
+query I
+SELECT (spearman_agg(x, y)).ci_upper IS NOT NULL FROM positive_cor;
+----
+true
+
+query I
+SELECT (spearman_agg(x, y)).n IS NOT NULL FROM positive_cor;
+----
+true
+
+query I
+SELECT (spearman_agg(x, y)).method IS NOT NULL FROM positive_cor;
+----
+true
+
+# =============================================================================
+# TEST 2: Perfect monotonic relationship (rho = 1.0)
+# =============================================================================
+
+query I
+SELECT (spearman_agg(x, y)).r = 1.0 FROM positive_cor;
+----
+true
+
+# =============================================================================
+# TEST 3: Significant correlation (p close to 0)
+# =============================================================================
+
+query I
+SELECT (spearman_agg(x, y)).p_value < 0.001 FROM positive_cor;
+----
+true
+
+# =============================================================================
+# TEST 4: Sample size correct
+# =============================================================================
+
+query I
+SELECT (spearman_agg(x, y)).n = 10 FROM positive_cor;
+----
+true
+
+# =============================================================================
+# TEST 5: Negative monotonic relationship (rho = -1.0)
+# =============================================================================
+
+statement ok
+CREATE TABLE negative_cor AS
+SELECT * FROM (VALUES
+    (1.0, 10.0), (2.0, 9.0), (3.0, 8.0), (4.0, 7.0), (5.0, 6.0),
+    (6.0, 5.0), (7.0, 4.0), (8.0, 3.0), (9.0, 2.0), (10.0, 1.0)
+) AS t(x, y);
+
+query I
+SELECT (spearman_agg(x, y)).r = -1.0 FROM negative_cor;
+----
+true
+
+# =============================================================================
+# TEST 6: No correlation (random ranks)
+# =============================================================================
+
+statement ok
+CREATE TABLE no_cor AS
+SELECT * FROM (VALUES
+    (1.0, 5.0), (2.0, 3.0), (3.0, 8.0), (4.0, 1.0), (5.0, 10.0),
+    (6.0, 2.0), (7.0, 7.0), (8.0, 4.0), (9.0, 9.0), (10.0, 6.0)
+) AS t(x, y);
+
+query I
+SELECT ABS((spearman_agg(x, y)).r) < 0.5 FROM no_cor;
+----
+true
+
+# =============================================================================
+# TEST 7: GROUP BY partitioning
+# =============================================================================
+
+statement ok
+CREATE TABLE grouped_cor AS
+SELECT * FROM (VALUES
+    ('A', 1.0, 2.0), ('A', 2.0, 4.0), ('A', 3.0, 6.0), ('A', 4.0, 8.0), ('A', 5.0, 10.0),
+    ('B', 1.0, 5.0), ('B', 2.0, 3.0), ('B', 3.0, 8.0), ('B', 4.0, 1.0), ('B', 5.0, 10.0)
+) AS t(category, x, y);
+
+query TI
+SELECT category, (spearman_agg(x, y)).r > 0.5 AS strong_pos
+FROM grouped_cor
+GROUP BY category
+ORDER BY category;
+----
+A	true
+B	false
+
+# =============================================================================
+# TEST 8: Tied values handling
+# =============================================================================
+
+statement ok
+CREATE TABLE tied_data AS
+SELECT * FROM (VALUES
+    (1.0, 2.0), (2.0, 2.0), (3.0, 4.0), (4.0, 4.0), (5.0, 6.0),
+    (6.0, 6.0), (7.0, 8.0), (8.0, 8.0), (9.0, 10.0), (10.0, 10.0)
+) AS t(x, y);
+
+query I
+SELECT (spearman_agg(x, y)).r IS NOT NULL FROM tied_data;
+----
+true
+
+# Should still be highly correlated despite ties
+query I
+SELECT (spearman_agg(x, y)).r > 0.9 FROM tied_data;
+----
+true
+
+# =============================================================================
+# TEST 9: Non-linear but monotonic relationship
+# Spearman should find perfect correlation even for non-linear monotonic
+# =============================================================================
+
+statement ok
+CREATE TABLE nonlinear AS
+SELECT * FROM (VALUES
+    (1.0, 1.0), (2.0, 4.0), (3.0, 9.0), (4.0, 16.0), (5.0, 25.0),
+    (6.0, 36.0), (7.0, 49.0), (8.0, 64.0), (9.0, 81.0), (10.0, 100.0)
+) AS t(x, y);
+
+query I
+SELECT (spearman_agg(x, y)).r = 1.0 FROM nonlinear;
+----
+true
+
+# =============================================================================
+# TEST 10: Alias verification (anofox_stats_spearman_agg)
+# =============================================================================
+
+query I
+SELECT (anofox_stats_spearman_agg(x, y)).r IS NOT NULL FROM positive_cor;
+----
+true
+
+# =============================================================================
+# CLEANUP
+# =============================================================================
+
+statement ok
+DROP TABLE IF EXISTS positive_cor;
+
+statement ok
+DROP TABLE IF EXISTS negative_cor;
+
+statement ok
+DROP TABLE IF EXISTS no_cor;
+
+statement ok
+DROP TABLE IF EXISTS grouped_cor;
+
+statement ok
+DROP TABLE IF EXISTS tied_data;
+
+statement ok
+DROP TABLE IF EXISTS nonlinear;

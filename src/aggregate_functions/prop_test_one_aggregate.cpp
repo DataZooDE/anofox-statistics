@@ -178,8 +178,9 @@ static void PropTestOneAggFinalize(Vector &state_vector, AggregateInputData &agg
         FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = prop_result.ci_lower;
         FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = prop_result.ci_upper;
         FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = static_cast<int64_t>(prop_result.n);
-        FlatVector::GetData<string_t>(*struct_entries[struct_idx++])[result_idx] =
-            StringVector::AddString(*struct_entries[struct_idx - 1], prop_result.method ? prop_result.method : "One-sample proportion test");
+        auto& method_vector = *struct_entries[struct_idx++];
+        FlatVector::GetData<string_t>(method_vector)[result_idx] =
+            StringVector::AddString(method_vector, prop_result.method ? prop_result.method : "One-sample proportion test");
 
         anofox_free_prop_test_result(&prop_result);
         state.Reset();

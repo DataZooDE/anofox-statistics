@@ -200,8 +200,9 @@ static void FisherExactAggFinalize(Vector &state_vector, AggregateInputData &agg
         FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = test_result.ci_lower;
         FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = test_result.ci_upper;
         FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = static_cast<int64_t>(n);
-        FlatVector::GetData<string_t>(*struct_entries[struct_idx++])[result_idx] =
-            StringVector::AddString(*struct_entries[struct_idx - 1], test_result.method ? test_result.method : "Fisher's Exact Test");
+        auto& method_vector = *struct_entries[struct_idx++];
+        FlatVector::GetData<string_t>(method_vector)[result_idx] =
+            StringVector::AddString(method_vector, test_result.method ? test_result.method : "Fisher's Exact Test");
 
         anofox_free_test_result(&test_result);
         state.Reset();

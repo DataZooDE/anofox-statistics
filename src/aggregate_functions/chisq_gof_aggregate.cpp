@@ -157,8 +157,9 @@ static void ChisqGofAggFinalize(Vector &state_vector, AggregateInputData &aggr_i
         FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = chisq_result.statistic;
         FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = chisq_result.p_value;
         FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = static_cast<int64_t>(chisq_result.df);
-        FlatVector::GetData<string_t>(*struct_entries[struct_idx++])[result_idx] =
-            StringVector::AddString(*struct_entries[struct_idx - 1], chisq_result.method ? chisq_result.method : "Chi-square goodness-of-fit");
+        auto& method_vector = *struct_entries[struct_idx++];
+        FlatVector::GetData<string_t>(method_vector)[result_idx] =
+            StringVector::AddString(method_vector, chisq_result.method ? chisq_result.method : "Chi-square goodness-of-fit");
 
         anofox_free_chisq_result(&chisq_result);
         state.Reset();

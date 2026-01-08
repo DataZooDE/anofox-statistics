@@ -178,8 +178,9 @@ static void BinomTestAggFinalize(Vector &state_vector, AggregateInputData &aggr_
         FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = binom_result.ci_lower;
         FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = binom_result.ci_upper;
         FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = static_cast<int64_t>(binom_result.n);
-        FlatVector::GetData<string_t>(*struct_entries[struct_idx++])[result_idx] =
-            StringVector::AddString(*struct_entries[struct_idx - 1], binom_result.method ? binom_result.method : "Exact binomial test");
+        auto& method_vector = *struct_entries[struct_idx++];
+        FlatVector::GetData<string_t>(method_vector)[result_idx] =
+            StringVector::AddString(method_vector, binom_result.method ? binom_result.method : "Exact binomial test");
 
         anofox_free_prop_test_result(&binom_result);
         state.Reset();

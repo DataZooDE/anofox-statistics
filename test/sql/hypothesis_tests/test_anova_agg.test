@@ -1,0 +1,210 @@
+# name: test/sql/hypothesis_tests/test_anova_agg.test
+# description: Test one_way_anova_agg aggregate function
+# group: [hypothesis_tests]
+
+require anofox_statistics
+
+# =============================================================================
+# SETUP: Create test data with three groups
+# =============================================================================
+
+statement ok
+CREATE TABLE three_groups AS
+SELECT * FROM (VALUES
+    (10.0, 0), (12.0, 0), (11.0, 0), (13.0, 0),
+    (20.0, 1), (22.0, 1), (21.0, 1), (23.0, 1),
+    (15.0, 2), (17.0, 2), (16.0, 2), (18.0, 2)
+) AS t(value, grp);
+
+# =============================================================================
+# TEST 1: Basic ANOVA returns valid result structure
+# =============================================================================
+
+query I
+SELECT (one_way_anova_agg(value, grp)).f_statistic IS NOT NULL FROM three_groups;
+----
+true
+
+query I
+SELECT (one_way_anova_agg(value, grp)).p_value IS NOT NULL FROM three_groups;
+----
+true
+
+query I
+SELECT (one_way_anova_agg(value, grp)).df_between IS NOT NULL FROM three_groups;
+----
+true
+
+query I
+SELECT (one_way_anova_agg(value, grp)).df_within IS NOT NULL FROM three_groups;
+----
+true
+
+query I
+SELECT (one_way_anova_agg(value, grp)).ss_between IS NOT NULL FROM three_groups;
+----
+true
+
+query I
+SELECT (one_way_anova_agg(value, grp)).ss_within IS NOT NULL FROM three_groups;
+----
+true
+
+query I
+SELECT (one_way_anova_agg(value, grp)).n_groups IS NOT NULL FROM three_groups;
+----
+true
+
+query I
+SELECT (one_way_anova_agg(value, grp)).n IS NOT NULL FROM three_groups;
+----
+true
+
+query I
+SELECT (one_way_anova_agg(value, grp)).method IS NOT NULL FROM three_groups;
+----
+true
+
+# =============================================================================
+# TEST 2: Significant difference between groups (p < 0.001)
+# =============================================================================
+
+query I
+SELECT (one_way_anova_agg(value, grp)).p_value < 0.001 FROM three_groups;
+----
+true
+
+# F-statistic should be large for significant effect
+query I
+SELECT (one_way_anova_agg(value, grp)).f_statistic > 10 FROM three_groups;
+----
+true
+
+# =============================================================================
+# TEST 3: Degrees of freedom are correct
+# df_between = k - 1 = 3 - 1 = 2
+# df_within = n - k = 12 - 3 = 9
+# =============================================================================
+
+query II
+SELECT (one_way_anova_agg(value, grp)).df_between, (one_way_anova_agg(value, grp)).df_within FROM three_groups;
+----
+2	9
+
+# =============================================================================
+# TEST 4: Sample size tracking
+# =============================================================================
+
+query II
+SELECT (one_way_anova_agg(value, grp)).n_groups, (one_way_anova_agg(value, grp)).n FROM three_groups;
+----
+3	12
+
+# =============================================================================
+# TEST 5: SS_total = SS_between + SS_within (identity check)
+# =============================================================================
+
+query I
+SELECT
+    ABS((one_way_anova_agg(value, grp)).ss_between + (one_way_anova_agg(value, grp)).ss_within - 215.0) < 1.0
+FROM three_groups;
+----
+true
+
+# =============================================================================
+# TEST 6: No significant difference (similar group means)
+# =============================================================================
+
+statement ok
+CREATE TABLE no_diff AS
+SELECT * FROM (VALUES
+    (10.0, 0), (11.0, 0), (10.5, 0), (10.2, 0),
+    (10.1, 1), (11.1, 1), (10.6, 1), (10.3, 1),
+    (10.0, 2), (10.9, 2), (10.4, 2), (10.1, 2)
+) AS t(value, grp);
+
+query I
+SELECT (one_way_anova_agg(value, grp)).p_value > 0.05 FROM no_diff;
+----
+true
+
+# =============================================================================
+# TEST 7: Two groups (ANOVA reduces to two-sample case)
+# =============================================================================
+
+statement ok
+CREATE TABLE two_groups AS
+SELECT * FROM (VALUES
+    (10.0, 0), (12.0, 0), (11.0, 0), (13.0, 0),
+    (20.0, 1), (22.0, 1), (21.0, 1), (23.0, 1)
+) AS t(value, grp);
+
+query I
+SELECT (one_way_anova_agg(value, grp)).df_between = 1 FROM two_groups;
+----
+true
+
+# =============================================================================
+# TEST 8: GROUP BY partitioning
+# =============================================================================
+
+statement ok
+CREATE TABLE grouped_data AS
+SELECT * FROM (VALUES
+    ('A', 10.0, 0), ('A', 12.0, 0), ('A', 11.0, 0),
+    ('A', 20.0, 1), ('A', 22.0, 1), ('A', 21.0, 1),
+    ('B', 5.0, 0), ('B', 6.0, 0), ('B', 5.5, 0),
+    ('B', 5.1, 1), ('B', 6.1, 1), ('B', 5.6, 1)
+) AS t(category, value, grp);
+
+query TI
+SELECT category, (one_way_anova_agg(value, grp)).p_value < 0.05 AS significant
+FROM grouped_data
+GROUP BY category
+ORDER BY category;
+----
+A	true
+B	false
+
+# =============================================================================
+# TEST 9: Single group returns NULL
+# =============================================================================
+
+statement ok
+CREATE TABLE single_group AS
+SELECT * FROM (VALUES
+    (10.0, 0), (11.0, 0), (12.0, 0), (13.0, 0)
+) AS t(value, grp);
+
+query I
+SELECT one_way_anova_agg(value, grp) IS NULL FROM single_group;
+----
+true
+
+# =============================================================================
+# TEST 10: Alias verification (anofox_stats_one_way_anova_agg)
+# =============================================================================
+
+query I
+SELECT (anofox_stats_one_way_anova_agg(value, grp)).f_statistic IS NOT NULL FROM three_groups;
+----
+true
+
+# =============================================================================
+# CLEANUP
+# =============================================================================
+
+statement ok
+DROP TABLE IF EXISTS three_groups;
+
+statement ok
+DROP TABLE IF EXISTS no_diff;
+
+statement ok
+DROP TABLE IF EXISTS two_groups;
+
+statement ok
+DROP TABLE IF EXISTS grouped_data;
+
+statement ok
+DROP TABLE IF EXISTS single_group;

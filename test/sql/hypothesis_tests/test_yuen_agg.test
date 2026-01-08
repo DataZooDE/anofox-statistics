@@ -1,0 +1,161 @@
+# name: test/sql/hypothesis_tests/test_yuen_agg.test
+# description: Test yuen_agg aggregate function (Yuen's trimmed mean test)
+# group: [hypothesis_tests]
+
+require anofox_statistics
+
+# =============================================================================
+# SETUP: Create test data with clear difference
+# =============================================================================
+
+statement ok
+CREATE TABLE yuen_data AS
+SELECT * FROM (VALUES
+    (10.0, 0), (12.0, 0), (11.0, 0), (13.0, 0), (11.5, 0), (12.5, 0),
+    (20.0, 1), (22.0, 1), (21.0, 1), (23.0, 1), (21.5, 1), (22.5, 1)
+) AS t(value, grp);
+
+# =============================================================================
+# TEST 1: Basic Yuen test returns valid result structure
+# =============================================================================
+
+query I
+SELECT (yuen_agg(value, grp)).statistic IS NOT NULL FROM yuen_data;
+----
+true
+
+query I
+SELECT (yuen_agg(value, grp)).p_value IS NOT NULL FROM yuen_data;
+----
+true
+
+query I
+SELECT (yuen_agg(value, grp)).df IS NOT NULL FROM yuen_data;
+----
+true
+
+query I
+SELECT (yuen_agg(value, grp)).ci_lower IS NOT NULL FROM yuen_data;
+----
+true
+
+query I
+SELECT (yuen_agg(value, grp)).ci_upper IS NOT NULL FROM yuen_data;
+----
+true
+
+query I
+SELECT (yuen_agg(value, grp)).n1 IS NOT NULL FROM yuen_data;
+----
+true
+
+query I
+SELECT (yuen_agg(value, grp)).n2 IS NOT NULL FROM yuen_data;
+----
+true
+
+query I
+SELECT (yuen_agg(value, grp)).method IS NOT NULL FROM yuen_data;
+----
+true
+
+# =============================================================================
+# TEST 2: Significant difference detected (p < 0.001)
+# =============================================================================
+
+query I
+SELECT (yuen_agg(value, grp)).p_value < 0.001 FROM yuen_data;
+----
+true
+
+# =============================================================================
+# TEST 3: Sample sizes correct
+# =============================================================================
+
+query II
+SELECT (yuen_agg(value, grp)).n1, (yuen_agg(value, grp)).n2 FROM yuen_data;
+----
+6	6
+
+# =============================================================================
+# TEST 4: Confidence interval excludes zero (significant)
+# =============================================================================
+
+query I
+SELECT (yuen_agg(value, grp)).ci_upper < 0 FROM yuen_data;
+----
+true
+
+# =============================================================================
+# TEST 5: No significant difference (similar groups)
+# =============================================================================
+
+statement ok
+CREATE TABLE no_diff AS
+SELECT * FROM (VALUES
+    (10.0, 0), (11.0, 0), (10.5, 0), (10.2, 0), (10.8, 0), (11.2, 0),
+    (10.1, 1), (11.1, 1), (10.6, 1), (10.3, 1), (10.9, 1), (11.3, 1)
+) AS t(value, grp);
+
+query I
+SELECT (yuen_agg(value, grp)).p_value > 0.05 FROM no_diff;
+----
+true
+
+# =============================================================================
+# TEST 6: Custom trimming proportion
+# =============================================================================
+
+query I
+SELECT (yuen_agg(value, grp, {'trim': 0.1})).statistic IS NOT NULL FROM yuen_data;
+----
+true
+
+query I
+SELECT (yuen_agg(value, grp, {'trim': 0.25})).statistic IS NOT NULL FROM yuen_data;
+----
+true
+
+# =============================================================================
+# TEST 7: GROUP BY partitioning
+# =============================================================================
+
+statement ok
+CREATE TABLE grouped_data AS
+SELECT * FROM (VALUES
+    ('A', 10.0, 0), ('A', 11.0, 0), ('A', 10.5, 0), ('A', 10.2, 0), ('A', 10.8, 0),
+    ('A', 20.0, 1), ('A', 21.0, 1), ('A', 20.5, 1), ('A', 20.2, 1), ('A', 20.8, 1),
+    ('B', 10.0, 0), ('B', 11.0, 0), ('B', 10.5, 0), ('B', 10.2, 0), ('B', 10.8, 0),
+    ('B', 10.1, 1), ('B', 11.1, 1), ('B', 10.6, 1), ('B', 10.3, 1), ('B', 10.9, 1)
+) AS t(category, value, grp);
+
+query TI
+SELECT category, (yuen_agg(value, grp)).p_value < 0.05 AS significant
+FROM grouped_data
+GROUP BY category
+ORDER BY category;
+----
+A	true
+B	false
+
+# =============================================================================
+# TEST 8: Alias verification (anofox_stats_yuen_agg)
+# =============================================================================
+
+query I
+SELECT (anofox_stats_yuen_agg(value, grp)).statistic IS NOT NULL FROM yuen_data;
+----
+true
+
+# =============================================================================
+# CLEANUP
+# =============================================================================
+
+statement ok
+DROP TABLE IF EXISTS yuen_data;
+
+statement ok
+DROP TABLE IF EXISTS no_diff;
+
+statement ok
+DROP TABLE IF EXISTS grouped_data;

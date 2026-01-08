@@ -1,0 +1,185 @@
+# name: test/sql/categorical/test_fisher_exact_agg.test
+# description: Test fisher_exact_agg aggregate function (Fisher's exact test)
+# group: [categorical]
+
+require anofox_statistics
+
+# =============================================================================
+# SETUP: Create 2x2 table with small counts for Fisher exact test
+# =============================================================================
+
+statement ok
+CREATE TABLE fisher_data AS
+SELECT * FROM (VALUES
+    (0, 0), (0, 0), (0, 0), (0, 0), (0, 0),
+    (0, 1), (0, 1),
+    (1, 0), (1, 0),
+    (1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1)
+) AS t(row_var, col_var);
+
+# =============================================================================
+# TEST 1: Basic Fisher exact returns valid result structure
+# =============================================================================
+
+query I
+SELECT (fisher_exact_agg(row_var, col_var)).statistic IS NOT NULL FROM fisher_data;
+----
+true
+
+query I
+SELECT (fisher_exact_agg(row_var, col_var)).p_value IS NOT NULL FROM fisher_data;
+----
+true
+
+query I
+SELECT (fisher_exact_agg(row_var, col_var)).odds_ratio IS NOT NULL FROM fisher_data;
+----
+true
+
+query I
+SELECT (fisher_exact_agg(row_var, col_var)).ci_lower IS NOT NULL FROM fisher_data;
+----
+true
+
+query I
+SELECT (fisher_exact_agg(row_var, col_var)).ci_upper IS NOT NULL FROM fisher_data;
+----
+true
+
+query I
+SELECT (fisher_exact_agg(row_var, col_var)).n IS NOT NULL FROM fisher_data;
+----
+true
+
+query I
+SELECT (fisher_exact_agg(row_var, col_var)).method IS NOT NULL FROM fisher_data;
+----
+true
+
+# =============================================================================
+# TEST 2: Sample size correct
+# =============================================================================
+
+query I
+SELECT (fisher_exact_agg(row_var, col_var)).n = 17 FROM fisher_data;
+----
+true
+
+# =============================================================================
+# TEST 3: Odds ratio > 1 indicates positive association
+# =============================================================================
+
+query I
+SELECT (fisher_exact_agg(row_var, col_var)).odds_ratio > 1 FROM fisher_data;
+----
+true
+
+# =============================================================================
+# TEST 4: CI bounds for odds ratio
+# =============================================================================
+
+query I
+SELECT (fisher_exact_agg(row_var, col_var)).ci_lower < (fisher_exact_agg(row_var, col_var)).odds_ratio
+   AND (fisher_exact_agg(row_var, col_var)).odds_ratio < (fisher_exact_agg(row_var, col_var)).ci_upper
+FROM fisher_data;
+----
+true
+
+# =============================================================================
+# TEST 5: Strong association (significant)
+# =============================================================================
+
+statement ok
+CREATE TABLE strong_assoc AS
+SELECT * FROM (VALUES
+    (0, 0), (0, 0), (0, 0), (0, 0), (0, 0),
+    (0, 0), (0, 0), (0, 0), (0, 0), (0, 0),
+    (0, 0), (0, 0), (0, 0), (0, 0), (0, 0),
+    (0, 1),
+    (1, 0),
+    (1, 1), (1, 1), (1, 1), (1, 1), (1, 1),
+    (1, 1), (1, 1), (1, 1), (1, 1), (1, 1),
+    (1, 1), (1, 1), (1, 1), (1, 1), (1, 1)
+) AS t(row_var, col_var);
+
+query I
+SELECT (fisher_exact_agg(row_var, col_var)).p_value < 0.001 FROM strong_assoc;
+----
+true
+
+# =============================================================================
+# TEST 6: No association (balanced table)
+# =============================================================================
+
+statement ok
+CREATE TABLE no_assoc AS
+SELECT * FROM (VALUES
+    (0, 0), (0, 0), (0, 0), (0, 0), (0, 0),
+    (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+    (1, 0), (1, 0), (1, 0), (1, 0), (1, 0),
+    (1, 1), (1, 1), (1, 1), (1, 1), (1, 1)
+) AS t(row_var, col_var);
+
+query I
+SELECT (fisher_exact_agg(row_var, col_var)).p_value > 0.5 FROM no_assoc;
+----
+true
+
+# Odds ratio should be close to 1
+query I
+SELECT ABS((fisher_exact_agg(row_var, col_var)).odds_ratio - 1.0) < 0.5 FROM no_assoc;
+----
+true
+
+# =============================================================================
+# TEST 7: GROUP BY partitioning
+# =============================================================================
+
+statement ok
+CREATE TABLE grouped_data AS
+SELECT * FROM (VALUES
+    ('A', 0, 0), ('A', 0, 0), ('A', 0, 0), ('A', 0, 0), ('A', 0, 0),
+    ('A', 0, 0), ('A', 0, 0), ('A', 0, 0), ('A', 0, 0), ('A', 0, 0),
+    ('A', 0, 1),
+    ('A', 1, 0),
+    ('A', 1, 1), ('A', 1, 1), ('A', 1, 1), ('A', 1, 1), ('A', 1, 1),
+    ('A', 1, 1), ('A', 1, 1), ('A', 1, 1), ('A', 1, 1), ('A', 1, 1),
+    ('B', 0, 0), ('B', 0, 0), ('B', 0, 0), ('B', 0, 0), ('B', 0, 0),
+    ('B', 0, 1), ('B', 0, 1), ('B', 0, 1), ('B', 0, 1), ('B', 0, 1),
+    ('B', 1, 0), ('B', 1, 0), ('B', 1, 0), ('B', 1, 0), ('B', 1, 0),
+    ('B', 1, 1), ('B', 1, 1), ('B', 1, 1), ('B', 1, 1), ('B', 1, 1)
+) AS t(category, row_var, col_var);
+
+query TI
+SELECT category, (fisher_exact_agg(row_var, col_var)).p_value < 0.05 AS significant
+FROM grouped_data
+GROUP BY category
+ORDER BY category;
+----
+A	true
+B	false
+
+# =============================================================================
+# TEST 8: Alias verification (anofox_stats_fisher_exact_agg)
+# =============================================================================
+
+query I
+SELECT (anofox_stats_fisher_exact_agg(row_var, col_var)).statistic IS NOT NULL FROM fisher_data;
+----
+true
+
+# =============================================================================
+# CLEANUP
+# =============================================================================
+
+statement ok
+DROP TABLE IF EXISTS fisher_data;
+
+statement ok
+DROP TABLE IF EXISTS strong_assoc;
+
+statement ok
+DROP TABLE IF EXISTS no_assoc;
+
+statement ok
+DROP TABLE IF EXISTS grouped_data;

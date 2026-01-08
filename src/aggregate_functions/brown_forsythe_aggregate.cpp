@@ -182,8 +182,9 @@ static void BrownForsytheAggFinalize(Vector &state_vector, AggregateInputData &a
         FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = test_result.p_value;
         FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = test_result.df;
         FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = static_cast<int64_t>(test_result.n);
-        FlatVector::GetData<string_t>(*struct_entries[struct_idx++])[result_idx] =
-            StringVector::AddString(*struct_entries[struct_idx - 1], test_result.method ? test_result.method : "Brown-Forsythe test");
+        auto& method_vector = *struct_entries[struct_idx++];
+        FlatVector::GetData<string_t>(method_vector)[result_idx] =
+            StringVector::AddString(method_vector, test_result.method ? test_result.method : "Brown-Forsythe test");
 
         anofox_free_test_result(&test_result);
         state.Reset();
