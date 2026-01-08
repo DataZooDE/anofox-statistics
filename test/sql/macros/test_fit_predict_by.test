@@ -1,0 +1,217 @@
+# name: test/sql/macros/test_fit_predict_by.test
+# description: Test fit_predict_by table macros
+# group: [macros]
+
+require anofox_statistics
+
+# =============================================================================
+# SETUP: Create regression data with multiple groups
+# =============================================================================
+
+statement ok
+CREATE TABLE reg_data AS
+SELECT * FROM (VALUES
+    ('A', 1.0, 2.0, 5.1),
+    ('A', 2.0, 4.0, 10.2),
+    ('A', 3.0, 6.0, 15.0),
+    ('A', 4.0, 8.0, 20.1),
+    ('A', 5.0, 10.0, 25.0),
+    ('A', NULL, 12.0, NULL),
+    ('B', 1.0, 3.0, 8.0),
+    ('B', 2.0, 6.0, 16.1),
+    ('B', 3.0, 9.0, 24.0),
+    ('B', 4.0, 12.0, 32.2),
+    ('B', 5.0, 15.0, 40.0),
+    ('B', NULL, 18.0, NULL)
+) AS t(group_id, x1, x2, y);
+
+# =============================================================================
+# OLS_FIT_PREDICT_BY TESTS
+# =============================================================================
+
+# TEST 1: Basic functionality - returns results
+query I
+SELECT COUNT(*) > 0 FROM ols_fit_predict_by('reg_data', group_id, y, [x1, x2]);
+----
+true
+
+# TEST 2: Returns correct number of rows (6 per group = 12 total)
+query I
+SELECT COUNT(*) FROM ols_fit_predict_by('reg_data', group_id, y, [x1, x2]);
+----
+12
+
+# TEST 3: Has both groups
+query I
+SELECT COUNT(DISTINCT group_id) FROM ols_fit_predict_by('reg_data', group_id, y, [x1, x2]);
+----
+2
+
+# TEST 4: Output has correct columns
+query TIIIII
+SELECT
+    group_id IS NOT NULL AS has_group,
+    y IS NOT NULL OR y IS NULL AS has_y,
+    x IS NOT NULL AS has_x,
+    yhat IS NOT NULL AS has_yhat,
+    yhat_lower IS NOT NULL OR yhat_lower IS NULL AS has_lower,
+    yhat_upper IS NOT NULL OR yhat_upper IS NULL AS has_upper
+FROM ols_fit_predict_by('reg_data', group_id, y, [x1, x2])
+LIMIT 1;
+----
+true	true	true	true	true	true
+
+# TEST 5: Training rows have y values, OOS rows have NULL y
+query II
+SELECT
+    SUM(CASE WHEN is_training AND y IS NOT NULL THEN 1 ELSE 0 END) AS training_with_y,
+    SUM(CASE WHEN NOT is_training AND y IS NULL THEN 1 ELSE 0 END) AS oos_null_y
+FROM ols_fit_predict_by('reg_data', group_id, y, [x1, x2]);
+----
+10	2
+
+# TEST 6: All rows have predictions
+query I
+SELECT COUNT(*) FROM ols_fit_predict_by('reg_data', group_id, y, [x1, x2]) WHERE yhat IS NOT NULL;
+----
+12
+
+# TEST 7: Predictions are reasonable (yhat close to y for training data)
+query I
+SELECT COUNT(*) FROM ols_fit_predict_by('reg_data', group_id, y, [x1, x2])
+WHERE is_training AND ABS(yhat - y) < 1.0;
+----
+10
+
+# =============================================================================
+# RIDGE_FIT_PREDICT_BY TESTS
+# =============================================================================
+
+# TEST 8: Ridge returns results
+query I
+SELECT COUNT(*) FROM ridge_fit_predict_by('reg_data', group_id, y, [x1, x2]);
+----
+12
+
+# TEST 9: Ridge predictions are reasonable
+query I
+SELECT COUNT(*) FROM ridge_fit_predict_by('reg_data', group_id, y, [x1, x2])
+WHERE is_training AND ABS(yhat - y) < 2.0;
+----
+10
+
+# =============================================================================
+# ELASTICNET_FIT_PREDICT_BY TESTS
+# =============================================================================
+
+# TEST 10: ElasticNet returns results
+query I
+SELECT COUNT(*) FROM elasticnet_fit_predict_by('reg_data', group_id, y, [x1, x2]);
+----
+12
+
+# TEST 11: ElasticNet returns correct row count per group
+query II
+SELECT group_id, COUNT(*) FROM elasticnet_fit_predict_by('reg_data', group_id, y, [x1, x2])
+GROUP BY group_id ORDER BY group_id;
+----
+A	6
+B	6
+
+# =============================================================================
+# RLS_FIT_PREDICT_BY TESTS
+# =============================================================================
+
+# TEST 12: RLS returns results
+query I
+SELECT COUNT(*) FROM rls_fit_predict_by('reg_data', group_id, y, [x1, x2]);
+----
+12
+
+# =============================================================================
+# BLS_FIT_PREDICT_BY TESTS
+# =============================================================================
+
+# TEST 13: BLS returns results
+query I
+SELECT COUNT(*) FROM bls_fit_predict_by('reg_data', group_id, y, [x1, x2]);
+----
+12
+
+# =============================================================================
+# ALM_FIT_PREDICT_BY TESTS
+# =============================================================================
+
+# TEST 14: ALM returns results
+query I
+SELECT COUNT(*) FROM alm_fit_predict_by('reg_data', group_id, y, [x1, x2]);
+----
+12
+
+# =============================================================================
+# POISSON_FIT_PREDICT_BY TESTS
+# =============================================================================
+
+# Create count data for Poisson (using single feature to avoid collinearity)
+statement ok
+CREATE TABLE count_data AS
+SELECT * FROM (VALUES
+    ('A', 1.0, 5.0),
+    ('A', 2.0, 12.0),
+    ('A', 3.0, 25.0),
+    ('A', 4.0, 45.0),
+    ('A', 5.0, 80.0),
+    ('A', NULL, NULL),
+    ('B', 1.0, 8.0),
+    ('B', 2.0, 20.0),
+    ('B', 3.0, 40.0),
+    ('B', 4.0, 70.0),
+    ('B', 5.0, 120.0),
+    ('B', NULL, NULL)
+) AS t(group_id, x1, count_y);
+
+# TEST 15: Poisson returns results
+query I
+SELECT COUNT(*) FROM poisson_fit_predict_by('count_data', group_id, count_y, [x1]);
+----
+12
+
+# =============================================================================
+# WLS_FIT_PREDICT_BY TESTS (requires weight column)
+# =============================================================================
+
+statement ok
+CREATE TABLE wls_data AS
+SELECT * FROM (VALUES
+    ('A', 1.0, 2.0, 5.1, 1.0),
+    ('A', 2.0, 4.0, 10.2, 1.0),
+    ('A', 3.0, 6.0, 15.0, 2.0),
+    ('A', 4.0, 8.0, 20.1, 2.0),
+    ('A', 5.0, 10.0, 25.0, 3.0),
+    ('A', NULL, 12.0, NULL, 3.0),
+    ('B', 1.0, 3.0, 8.0, 1.0),
+    ('B', 2.0, 6.0, 16.1, 1.0),
+    ('B', 3.0, 9.0, 24.0, 2.0),
+    ('B', 4.0, 12.0, 32.2, 2.0),
+    ('B', 5.0, 15.0, 40.0, 3.0),
+    ('B', NULL, 18.0, NULL, 3.0)
+) AS t(group_id, x1, x2, y, weight);
+
+# TEST 16: WLS returns results
+query I
+SELECT COUNT(*) FROM wls_fit_predict_by('wls_data', group_id, y, [x1, x2], weight);
+----
+12
+
+# =============================================================================
+# CLEANUP
+# =============================================================================
+
+statement ok
+DROP TABLE IF EXISTS reg_data;
+
+statement ok
+DROP TABLE IF EXISTS count_data;
+
+statement ok
+DROP TABLE IF EXISTS wls_data;

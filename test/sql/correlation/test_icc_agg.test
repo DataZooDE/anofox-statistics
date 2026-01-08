@@ -1,0 +1,119 @@
+# name: test/sql/correlation/test_icc_agg.test
+# description: Test icc_agg aggregate function (Intraclass Correlation Coefficient)
+# group: [correlation]
+
+require anofox_statistics
+
+# =============================================================================
+# SETUP: Create test data for inter-rater reliability
+# Subjects rated by multiple raters
+# icc_agg(rating DOUBLE, subject_id BIGINT, rater_id BIGINT)
+# =============================================================================
+
+statement ok
+CREATE TABLE icc_data AS
+SELECT * FROM (VALUES
+    (9.0, CAST(1 AS BIGINT), CAST(1 AS BIGINT)),
+    (8.0, CAST(1 AS BIGINT), CAST(2 AS BIGINT)),
+    (9.0, CAST(1 AS BIGINT), CAST(3 AS BIGINT)),
+    (6.0, CAST(2 AS BIGINT), CAST(1 AS BIGINT)),
+    (7.0, CAST(2 AS BIGINT), CAST(2 AS BIGINT)),
+    (6.0, CAST(2 AS BIGINT), CAST(3 AS BIGINT)),
+    (8.0, CAST(3 AS BIGINT), CAST(1 AS BIGINT)),
+    (8.0, CAST(3 AS BIGINT), CAST(2 AS BIGINT)),
+    (7.0, CAST(3 AS BIGINT), CAST(3 AS BIGINT)),
+    (7.0, CAST(4 AS BIGINT), CAST(1 AS BIGINT)),
+    (6.0, CAST(4 AS BIGINT), CAST(2 AS BIGINT)),
+    (7.0, CAST(4 AS BIGINT), CAST(3 AS BIGINT)),
+    (10.0, CAST(5 AS BIGINT), CAST(1 AS BIGINT)),
+    (9.0, CAST(5 AS BIGINT), CAST(2 AS BIGINT)),
+    (10.0, CAST(5 AS BIGINT), CAST(3 AS BIGINT)),
+    (6.0, CAST(6 AS BIGINT), CAST(1 AS BIGINT)),
+    (5.0, CAST(6 AS BIGINT), CAST(2 AS BIGINT)),
+    (6.0, CAST(6 AS BIGINT), CAST(3 AS BIGINT))
+) AS t(rating, subject, rater);
+
+# =============================================================================
+# TEST 1: Basic ICC returns valid result structure
+# Returns STRUCT with: icc, f_statistic, ci_lower, ci_upper, n_subjects, n_raters, method
+# =============================================================================
+
+query I
+SELECT (icc_agg(rating, subject, rater)).icc IS NOT NULL FROM icc_data;
+----
+true
+
+query I
+SELECT (icc_agg(rating, subject, rater)).f_statistic IS NOT NULL FROM icc_data;
+----
+true
+
+query I
+SELECT (icc_agg(rating, subject, rater)).ci_lower IS NOT NULL FROM icc_data;
+----
+true
+
+query I
+SELECT (icc_agg(rating, subject, rater)).ci_upper IS NOT NULL FROM icc_data;
+----
+true
+
+query I
+SELECT (icc_agg(rating, subject, rater)).n_subjects IS NOT NULL FROM icc_data;
+----
+true
+
+query I
+SELECT (icc_agg(rating, subject, rater)).n_raters IS NOT NULL FROM icc_data;
+----
+true
+
+query I
+SELECT (icc_agg(rating, subject, rater)).method IS NOT NULL FROM icc_data;
+----
+true
+
+# =============================================================================
+# TEST 2: ICC value between -1 and 1
+# =============================================================================
+
+query I
+SELECT (icc_agg(rating, subject, rater)).icc BETWEEN -1 AND 1 FROM icc_data;
+----
+true
+
+# =============================================================================
+# TEST 3: Sample counts correct
+# =============================================================================
+
+query II
+SELECT (icc_agg(rating, subject, rater)).n_subjects, (icc_agg(rating, subject, rater)).n_raters FROM icc_data;
+----
+6	3
+
+# =============================================================================
+# TEST 4: Confidence interval contains ICC
+# =============================================================================
+
+query I
+SELECT (icc_agg(rating, subject, rater)).ci_lower <= (icc_agg(rating, subject, rater)).icc
+   AND (icc_agg(rating, subject, rater)).icc <= (icc_agg(rating, subject, rater)).ci_upper
+FROM icc_data;
+----
+true
+
+# =============================================================================
+# TEST 5: Alias verification (anofox_stats_icc_agg)
+# =============================================================================
+
+query I
+SELECT (anofox_stats_icc_agg(rating, subject, rater)).icc IS NOT NULL FROM icc_data;
+----
+true
+
+# =============================================================================
+# CLEANUP
+# =============================================================================
+
+statement ok
+DROP TABLE IF EXISTS icc_data;

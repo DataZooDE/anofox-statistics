@@ -148,8 +148,9 @@ static void ShapiroWilkAggFinalize(Vector &state_vector, AggregateInputData &agg
         FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = test_result.statistic;
         FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = test_result.p_value;
         FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = static_cast<int64_t>(test_result.n);
-        FlatVector::GetData<string_t>(*struct_entries[struct_idx++])[result_idx] =
-            StringVector::AddString(*struct_entries[struct_idx - 1], test_result.method ? test_result.method : "Shapiro-Wilk");
+        auto& method_vector = *struct_entries[struct_idx++];
+        FlatVector::GetData<string_t>(method_vector)[result_idx] =
+            StringVector::AddString(method_vector, test_result.method ? test_result.method : "Shapiro-Wilk");
 
         // Free the method string
         anofox_free_test_result(&test_result);

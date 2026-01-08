@@ -1,0 +1,193 @@
+# name: test/sql/hypothesis_tests/test_wilcoxon_agg.test
+# description: Test wilcoxon_signed_rank_agg aggregate function
+# group: [hypothesis_tests]
+
+require anofox_statistics
+
+# =============================================================================
+# SETUP: Create paired test data (before/after treatment)
+# =============================================================================
+
+statement ok
+CREATE TABLE paired_data AS
+SELECT * FROM (VALUES
+    (68.5, 70.2), (72.3, 74.5), (69.1, 71.3), (71.8, 73.9),
+    (67.2, 69.4), (73.5, 75.8), (70.2, 72.1), (68.9, 71.2)
+) AS t(before, after);
+
+# =============================================================================
+# TEST 1: Basic Wilcoxon returns valid result structure
+# =============================================================================
+
+query I
+SELECT (wilcoxon_signed_rank_agg(before, after)).statistic IS NOT NULL FROM paired_data;
+----
+true
+
+query I
+SELECT (wilcoxon_signed_rank_agg(before, after)).p_value IS NOT NULL FROM paired_data;
+----
+true
+
+query I
+SELECT (wilcoxon_signed_rank_agg(before, after)).ci_lower IS NOT NULL FROM paired_data;
+----
+true
+
+query I
+SELECT (wilcoxon_signed_rank_agg(before, after)).ci_upper IS NOT NULL FROM paired_data;
+----
+true
+
+query I
+SELECT (wilcoxon_signed_rank_agg(before, after)).n IS NOT NULL FROM paired_data;
+----
+true
+
+query I
+SELECT (wilcoxon_signed_rank_agg(before, after)).method IS NOT NULL FROM paired_data;
+----
+true
+
+# =============================================================================
+# TEST 2: Significant difference (after > before consistently)
+# =============================================================================
+
+query I
+SELECT (wilcoxon_signed_rank_agg(before, after)).p_value < 0.05 FROM paired_data;
+----
+true
+
+# =============================================================================
+# TEST 3: Sample size correct
+# =============================================================================
+
+query I
+SELECT (wilcoxon_signed_rank_agg(before, after)).n = 8 FROM paired_data;
+----
+true
+
+# =============================================================================
+# TEST 4: Confidence interval excludes zero (significant)
+# =============================================================================
+
+query I
+SELECT (wilcoxon_signed_rank_agg(before, after)).ci_upper < 0 FROM paired_data;
+----
+true
+
+# =============================================================================
+# TEST 5: No significant difference (random noise)
+# =============================================================================
+
+statement ok
+CREATE TABLE no_diff AS
+SELECT * FROM (VALUES
+    (10.0, 10.1), (11.0, 10.9), (10.5, 10.6), (10.8, 10.7),
+    (10.2, 10.3), (10.9, 10.8), (10.4, 10.5), (10.6, 10.5)
+) AS t(x1, x2);
+
+query I
+SELECT (wilcoxon_signed_rank_agg(x1, x2)).p_value > 0.05 FROM no_diff;
+----
+true
+
+# =============================================================================
+# TEST 6: One-sided test (less) - before < after
+# =============================================================================
+
+query I
+SELECT (wilcoxon_signed_rank_agg(before, after, {'alternative': 'less'})).p_value < 0.05 FROM paired_data;
+----
+true
+
+# =============================================================================
+# TEST 7: One-sided test (greater) - should not be significant
+# =============================================================================
+
+query I
+SELECT (wilcoxon_signed_rank_agg(before, after, {'alternative': 'greater'})).p_value > 0.9 FROM paired_data;
+----
+true
+
+# =============================================================================
+# TEST 8: GROUP BY partitioning
+# =============================================================================
+
+statement ok
+CREATE TABLE grouped_data AS
+SELECT * FROM (VALUES
+    ('A', 10.0, 15.0), ('A', 11.0, 16.0), ('A', 10.5, 15.5), ('A', 10.8, 15.8),
+    ('A', 12.0, 17.0), ('A', 13.0, 18.0), ('A', 11.5, 16.5), ('A', 11.8, 16.8),
+    ('B', 10.0, 10.1), ('B', 11.0, 10.9), ('B', 10.5, 10.6), ('B', 10.8, 10.7),
+    ('B', 12.0, 12.1), ('B', 13.0, 12.9), ('B', 11.5, 11.6), ('B', 11.8, 11.7)
+) AS t(category, x1, x2);
+
+query TI
+SELECT category, (wilcoxon_signed_rank_agg(x1, x2)).p_value < 0.05 AS significant
+FROM grouped_data
+GROUP BY category
+ORDER BY category;
+----
+A	true
+B	false
+
+# =============================================================================
+# TEST 9: Tied values handling
+# =============================================================================
+
+statement ok
+CREATE TABLE tied_data AS
+SELECT * FROM (VALUES
+    (1.0, 2.0), (1.0, 2.0), (2.0, 3.0), (2.0, 3.0),
+    (3.0, 4.0), (3.0, 4.0), (4.0, 5.0), (4.0, 5.0)
+) AS t(x1, x2);
+
+query I
+SELECT (wilcoxon_signed_rank_agg(x1, x2)).statistic IS NOT NULL FROM tied_data;
+----
+true
+
+# =============================================================================
+# TEST 10: Zero differences (pairs with equal values)
+# =============================================================================
+
+statement ok
+CREATE TABLE zero_diff AS
+SELECT * FROM (VALUES
+    (1.0, 2.0), (2.0, 3.0), (3.0, 3.0), (4.0, 4.0),
+    (5.0, 6.0), (6.0, 7.0), (7.0, 7.0), (8.0, 8.0)
+) AS t(x1, x2);
+
+query I
+SELECT (wilcoxon_signed_rank_agg(x1, x2)).statistic IS NOT NULL FROM zero_diff;
+----
+true
+
+# =============================================================================
+# TEST 11: Alias verification (anofox_stats_wilcoxon_signed_rank_agg)
+# =============================================================================
+
+query I
+SELECT (anofox_stats_wilcoxon_signed_rank_agg(before, after)).statistic IS NOT NULL FROM paired_data;
+----
+true
+
+# =============================================================================
+# CLEANUP
+# =============================================================================
+
+statement ok
+DROP TABLE IF EXISTS paired_data;
+
+statement ok
+DROP TABLE IF EXISTS no_diff;
+
+statement ok
+DROP TABLE IF EXISTS grouped_data;
+
+statement ok
+DROP TABLE IF EXISTS tied_data;
+
+statement ok
+DROP TABLE IF EXISTS zero_diff;

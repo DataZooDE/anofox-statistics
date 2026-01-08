@@ -1,0 +1,303 @@
+# name: test/sql/proportion/test_proportion_tests.test
+# description: Test proportion test aggregate functions (binomial, one-sample, two-sample)
+# group: [proportion]
+
+require anofox_statistics
+
+# =============================================================================
+# BINOMIAL TEST
+# =============================================================================
+
+statement ok
+CREATE TABLE binom_data AS
+SELECT * FROM (VALUES
+    (1), (1), (1), (1), (1), (1), (1), (1), (1), (1),
+    (1), (1), (1), (1), (1), (1), (1), (1), (1), (1),
+    (1), (1), (1), (1), (1), (1), (1), (1), (1), (1),
+    (1), (1), (1), (1), (1), (1), (1), (1), (1), (1),
+    (1), (1), (1), (1), (1), (1), (1), (1), (1), (1),
+    (1), (1), (1), (1), (1), (1), (1), (1), (1), (1),
+    (1), (1), (1), (1), (1), (1), (1), (1), (1), (1),
+    (0), (0), (0), (0), (0), (0), (0), (0), (0), (0),
+    (0), (0), (0), (0), (0), (0), (0), (0), (0), (0),
+    (0), (0), (0), (0), (0), (0), (0), (0), (0), (0)
+) AS t(success);
+
+# TEST 1: Binomial test returns valid result structure
+query I
+SELECT (binom_test_agg(success)).statistic IS NOT NULL FROM binom_data;
+----
+true
+
+query I
+SELECT (binom_test_agg(success)).p_value IS NOT NULL FROM binom_data;
+----
+true
+
+query I
+SELECT (binom_test_agg(success)).estimate IS NOT NULL FROM binom_data;
+----
+true
+
+query I
+SELECT (binom_test_agg(success)).ci_lower IS NOT NULL FROM binom_data;
+----
+true
+
+query I
+SELECT (binom_test_agg(success)).ci_upper IS NOT NULL FROM binom_data;
+----
+true
+
+query I
+SELECT (binom_test_agg(success)).n IS NOT NULL FROM binom_data;
+----
+true
+
+query I
+SELECT (binom_test_agg(success)).method IS NOT NULL FROM binom_data;
+----
+true
+
+# TEST 2: Sample size correct (100 observations)
+query I
+SELECT (binom_test_agg(success)).n = 100 FROM binom_data;
+----
+true
+
+# TEST 3: Estimate = 70/100 = 0.70
+query I
+SELECT ABS((binom_test_agg(success)).estimate - 0.70) < 0.01 FROM binom_data;
+----
+true
+
+# TEST 4: Significant difference from 0.5 (p < 0.05)
+query I
+SELECT (binom_test_agg(success)).p_value < 0.05 FROM binom_data;
+----
+true
+
+# TEST 5: Custom null hypothesis (test against 0.7) - p-value with options returns valid result
+query I
+SELECT (binom_test_agg(success, {'p': 0.7})).p_value IS NOT NULL FROM binom_data;
+----
+true
+
+# TEST 6: Alias verification
+query I
+SELECT (anofox_stats_binom_test_agg(success)).statistic IS NOT NULL FROM binom_data;
+----
+true
+
+# =============================================================================
+# ONE-SAMPLE PROPORTION TEST
+# =============================================================================
+
+# TEST 7: One-sample proportion test returns valid result structure
+query I
+SELECT (prop_test_one_agg(success)).statistic IS NOT NULL FROM binom_data;
+----
+true
+
+query I
+SELECT (prop_test_one_agg(success)).p_value IS NOT NULL FROM binom_data;
+----
+true
+
+query I
+SELECT (prop_test_one_agg(success)).estimate IS NOT NULL FROM binom_data;
+----
+true
+
+query I
+SELECT (prop_test_one_agg(success)).ci_lower IS NOT NULL FROM binom_data;
+----
+true
+
+query I
+SELECT (prop_test_one_agg(success)).ci_upper IS NOT NULL FROM binom_data;
+----
+true
+
+query I
+SELECT (prop_test_one_agg(success)).n IS NOT NULL FROM binom_data;
+----
+true
+
+query I
+SELECT (prop_test_one_agg(success)).method IS NOT NULL FROM binom_data;
+----
+true
+
+# TEST 8: Significant difference from 0.5
+query I
+SELECT (prop_test_one_agg(success)).p_value < 0.05 FROM binom_data;
+----
+true
+
+# TEST 9: Confidence interval contains true proportion
+query I
+SELECT (prop_test_one_agg(success)).ci_lower <= 0.70
+   AND 0.70 <= (prop_test_one_agg(success)).ci_upper
+FROM binom_data;
+----
+true
+
+# TEST 10: Custom null hypothesis returns valid result
+query I
+SELECT (prop_test_one_agg(success, {'p': 0.7})).p_value IS NOT NULL FROM binom_data;
+----
+true
+
+# TEST 11: Alias verification
+query I
+SELECT (anofox_stats_prop_test_one_agg(success)).statistic IS NOT NULL FROM binom_data;
+----
+true
+
+# =============================================================================
+# TWO-SAMPLE PROPORTION TEST
+# Returns STRUCT with: statistic, p_value, estimate, ci_lower, ci_upper, n, method
+# =============================================================================
+
+statement ok
+CREATE TABLE two_prop_data AS
+SELECT * FROM (VALUES
+    (1, 0), (1, 0), (1, 0), (1, 0), (1, 0), (1, 0), (1, 0), (1, 0), (1, 0), (1, 0),
+    (1, 0), (1, 0), (1, 0), (1, 0), (1, 0), (1, 0), (1, 0), (1, 0), (1, 0), (1, 0),
+    (1, 0), (1, 0), (1, 0), (1, 0), (1, 0), (1, 0), (1, 0), (1, 0), (1, 0), (1, 0),
+    (1, 0), (1, 0), (1, 0), (1, 0), (1, 0), (1, 0), (1, 0), (1, 0), (1, 0), (1, 0),
+    (0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0),
+    (1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1),
+    (1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1),
+    (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+    (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+    (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1)
+) AS t(success, grp);
+
+# TEST 12: Two-sample proportion test returns valid result structure
+query I
+SELECT (prop_test_two_agg(success, grp)).statistic IS NOT NULL FROM two_prop_data;
+----
+true
+
+query I
+SELECT (prop_test_two_agg(success, grp)).p_value IS NOT NULL FROM two_prop_data;
+----
+true
+
+query I
+SELECT (prop_test_two_agg(success, grp)).estimate IS NOT NULL FROM two_prop_data;
+----
+true
+
+query I
+SELECT (prop_test_two_agg(success, grp)).ci_lower IS NOT NULL FROM two_prop_data;
+----
+true
+
+query I
+SELECT (prop_test_two_agg(success, grp)).ci_upper IS NOT NULL FROM two_prop_data;
+----
+true
+
+query I
+SELECT (prop_test_two_agg(success, grp)).n IS NOT NULL FROM two_prop_data;
+----
+true
+
+query I
+SELECT (prop_test_two_agg(success, grp)).method IS NOT NULL FROM two_prop_data;
+----
+true
+
+# TEST 13: Sample size correct (100 total observations)
+query I
+SELECT (prop_test_two_agg(success, grp)).n = 100 FROM two_prop_data;
+----
+true
+
+# TEST 14: Significant difference (0.80 vs 0.40)
+query I
+SELECT (prop_test_two_agg(success, grp)).p_value < 0.001 FROM two_prop_data;
+----
+true
+
+# TEST 15: Estimate is the difference in proportions
+query I
+SELECT (prop_test_two_agg(success, grp)).estimate IS NOT NULL FROM two_prop_data;
+----
+true
+
+# TEST 16: No significant difference (similar proportions)
+statement ok
+CREATE TABLE equal_prop AS
+SELECT * FROM (VALUES
+    (1, 0), (1, 0), (1, 0), (1, 0), (1, 0), (1, 0), (1, 0), (1, 0), (1, 0), (1, 0),
+    (1, 0), (1, 0), (1, 0), (1, 0), (1, 0), (1, 0), (1, 0), (1, 0), (1, 0), (1, 0),
+    (1, 0), (1, 0), (1, 0), (1, 0), (1, 0),
+    (0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0),
+    (0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0),
+    (0, 0), (0, 0), (0, 0), (0, 0), (0, 0),
+    (1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1),
+    (1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1),
+    (1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1),
+    (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+    (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+    (0, 1), (0, 1), (0, 1), (0, 1)
+) AS t(success, grp);
+
+query I
+SELECT (prop_test_two_agg(success, grp)).p_value > 0.5 FROM equal_prop;
+----
+true
+
+# TEST 17: Alias verification
+query I
+SELECT (anofox_stats_prop_test_two_agg(success, grp)).statistic IS NOT NULL FROM two_prop_data;
+----
+true
+
+# =============================================================================
+# GROUP BY PARTITIONING
+# =============================================================================
+
+statement ok
+CREATE TABLE grouped_data AS
+SELECT * FROM (VALUES
+    ('sig', 1, 0), ('sig', 1, 0), ('sig', 1, 0), ('sig', 1, 0), ('sig', 1, 0),
+    ('sig', 1, 0), ('sig', 1, 0), ('sig', 1, 0), ('sig', 1, 0), ('sig', 1, 0),
+    ('sig', 0, 0), ('sig', 0, 0),
+    ('sig', 1, 1), ('sig', 1, 1), ('sig', 1, 1),
+    ('sig', 0, 1), ('sig', 0, 1), ('sig', 0, 1), ('sig', 0, 1), ('sig', 0, 1),
+    ('sig', 0, 1), ('sig', 0, 1), ('sig', 0, 1), ('sig', 0, 1),
+    ('nosig', 1, 0), ('nosig', 1, 0), ('nosig', 1, 0), ('nosig', 1, 0), ('nosig', 1, 0),
+    ('nosig', 0, 0), ('nosig', 0, 0), ('nosig', 0, 0), ('nosig', 0, 0), ('nosig', 0, 0),
+    ('nosig', 1, 1), ('nosig', 1, 1), ('nosig', 1, 1), ('nosig', 1, 1), ('nosig', 1, 1),
+    ('nosig', 0, 1), ('nosig', 0, 1), ('nosig', 0, 1), ('nosig', 0, 1), ('nosig', 0, 1)
+) AS t(category, success, grp);
+
+query TI
+SELECT category, (prop_test_two_agg(success, grp)).p_value < 0.05 AS significant
+FROM grouped_data
+GROUP BY category
+ORDER BY category;
+----
+nosig	false
+sig	true
+
+# =============================================================================
+# CLEANUP
+# =============================================================================
+
+statement ok
+DROP TABLE IF EXISTS binom_data;
+
+statement ok
+DROP TABLE IF EXISTS two_prop_data;
+
+statement ok
+DROP TABLE IF EXISTS equal_prop;
+
+statement ok
+DROP TABLE IF EXISTS grouped_data;

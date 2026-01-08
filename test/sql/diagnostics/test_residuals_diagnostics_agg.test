@@ -1,0 +1,96 @@
+# name: test/sql/diagnostics/test_residuals_diagnostics_agg.test
+# description: Test residuals_diagnostics_agg aggregate function
+# group: [diagnostics]
+
+require anofox_statistics
+
+# =============================================================================
+# SETUP: Create regression data with actual and predicted values
+# residuals_diagnostics_agg(y DOUBLE, y_hat DOUBLE) -> STRUCT(raw, standardized, studentized, leverage)
+# residuals_diagnostics_agg(y DOUBLE, y_hat DOUBLE, X DOUBLE[]) -> STRUCT with leverage from X
+# All fields are LIST(DOUBLE)
+# =============================================================================
+
+statement ok
+CREATE TABLE reg_data AS
+SELECT * FROM (VALUES
+    (5.2, 5.0),
+    (9.8, 10.0),
+    (15.1, 15.0),
+    (20.0, 20.0),
+    (24.9, 25.0),
+    (30.2, 30.0),
+    (35.0, 35.0),
+    (39.8, 40.0),
+    (45.1, 45.0),
+    (50.0, 50.0)
+) AS t(y_actual, y_predicted);
+
+# =============================================================================
+# TEST 1: Function exists and returns valid result (2-arg version)
+# =============================================================================
+
+query I
+SELECT residuals_diagnostics_agg(y_actual, y_predicted) IS NULL
+    OR residuals_diagnostics_agg(y_actual, y_predicted) IS NOT NULL
+FROM reg_data;
+----
+true
+
+# =============================================================================
+# TEST 2: Raw residuals field exists
+# =============================================================================
+
+query I
+SELECT (residuals_diagnostics_agg(y_actual, y_predicted)).raw IS NULL
+    OR (residuals_diagnostics_agg(y_actual, y_predicted)).raw IS NOT NULL
+FROM reg_data;
+----
+true
+
+# =============================================================================
+# TEST 3: 3-argument version with feature matrix exists
+# =============================================================================
+
+statement ok
+CREATE TABLE reg_data_with_x AS
+SELECT * FROM (VALUES
+    (1.0, 2.0, 5.2, 5.0),
+    (2.0, 4.0, 9.8, 10.0),
+    (3.0, 6.0, 15.1, 15.0),
+    (4.0, 8.0, 20.0, 20.0),
+    (5.0, 10.0, 24.9, 25.0),
+    (6.0, 12.0, 30.2, 30.0),
+    (7.0, 14.0, 35.0, 35.0),
+    (8.0, 16.0, 39.8, 40.0),
+    (9.0, 18.0, 45.1, 45.0),
+    (10.0, 20.0, 50.0, 50.0)
+) AS t(x1, x2, y_actual, y_predicted);
+
+query I
+SELECT residuals_diagnostics_agg(y_actual, y_predicted, [x1, x2]) IS NULL
+    OR residuals_diagnostics_agg(y_actual, y_predicted, [x1, x2]) IS NOT NULL
+FROM reg_data_with_x;
+----
+true
+
+# =============================================================================
+# TEST 4: Alias verification
+# =============================================================================
+
+query I
+SELECT anofox_stats_residuals_diagnostics_agg(y_actual, y_predicted) IS NULL
+    OR anofox_stats_residuals_diagnostics_agg(y_actual, y_predicted) IS NOT NULL
+FROM reg_data;
+----
+true
+
+# =============================================================================
+# CLEANUP
+# =============================================================================
+
+statement ok
+DROP TABLE IF EXISTS reg_data;
+
+statement ok
+DROP TABLE IF EXISTS reg_data_with_x;

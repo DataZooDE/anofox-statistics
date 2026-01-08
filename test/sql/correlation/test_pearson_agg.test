@@ -1,0 +1,241 @@
+# name: test/sql/correlation/test_pearson_agg.test
+# description: Test pearson_agg aggregate function
+# group: [correlation]
+
+require anofox_statistics
+
+# =============================================================================
+# SETUP: Create test data with strong positive correlation
+# =============================================================================
+
+statement ok
+CREATE TABLE positive_cor AS
+SELECT * FROM (VALUES
+    (1.0, 2.0), (2.0, 4.1), (3.0, 5.9), (4.0, 8.2), (5.0, 9.8),
+    (6.0, 12.1), (7.0, 13.9), (8.0, 16.2), (9.0, 18.0), (10.0, 20.1)
+) AS t(x, y);
+
+# =============================================================================
+# TEST 1: Basic Pearson returns valid result structure
+# =============================================================================
+
+query I
+SELECT (pearson_agg(x, y)).r IS NOT NULL FROM positive_cor;
+----
+true
+
+query I
+SELECT (pearson_agg(x, y)).statistic IS NOT NULL FROM positive_cor;
+----
+true
+
+query I
+SELECT (pearson_agg(x, y)).p_value IS NOT NULL FROM positive_cor;
+----
+true
+
+query I
+SELECT (pearson_agg(x, y)).ci_lower IS NOT NULL FROM positive_cor;
+----
+true
+
+query I
+SELECT (pearson_agg(x, y)).ci_upper IS NOT NULL FROM positive_cor;
+----
+true
+
+query I
+SELECT (pearson_agg(x, y)).n IS NOT NULL FROM positive_cor;
+----
+true
+
+query I
+SELECT (pearson_agg(x, y)).method IS NOT NULL FROM positive_cor;
+----
+true
+
+# =============================================================================
+# TEST 2: Strong positive correlation (r close to 1)
+# =============================================================================
+
+query I
+SELECT (pearson_agg(x, y)).r > 0.99 FROM positive_cor;
+----
+true
+
+# =============================================================================
+# TEST 3: Significant correlation (p < 0.001)
+# =============================================================================
+
+query I
+SELECT (pearson_agg(x, y)).p_value < 0.001 FROM positive_cor;
+----
+true
+
+# =============================================================================
+# TEST 4: Sample size correct
+# =============================================================================
+
+query I
+SELECT (pearson_agg(x, y)).n = 10 FROM positive_cor;
+----
+true
+
+# =============================================================================
+# TEST 5: Confidence interval bounds
+# =============================================================================
+
+query I
+SELECT (pearson_agg(x, y)).ci_lower < (pearson_agg(x, y)).r
+   AND (pearson_agg(x, y)).r < (pearson_agg(x, y)).ci_upper
+FROM positive_cor;
+----
+true
+
+# =============================================================================
+# TEST 6: Negative correlation
+# =============================================================================
+
+statement ok
+CREATE TABLE negative_cor AS
+SELECT * FROM (VALUES
+    (1.0, 10.0), (2.0, 8.1), (3.0, 6.0), (4.0, 4.2), (5.0, 2.1),
+    (6.0, 0.0), (7.0, -1.9), (8.0, -3.9), (9.0, -6.0), (10.0, -8.1)
+) AS t(x, y);
+
+query I
+SELECT (pearson_agg(x, y)).r < -0.99 FROM negative_cor;
+----
+true
+
+# =============================================================================
+# TEST 7: No correlation (random data)
+# =============================================================================
+
+statement ok
+CREATE TABLE no_cor AS
+SELECT * FROM (VALUES
+    (1.0, 5.2), (2.0, 3.1), (3.0, 7.4), (4.0, 2.3), (5.0, 8.9),
+    (6.0, 1.2), (7.0, 6.5), (8.0, 4.8), (9.0, 9.1), (10.0, 0.5)
+) AS t(x, y);
+
+query I
+SELECT ABS((pearson_agg(x, y)).r) < 0.5 FROM no_cor;
+----
+true
+
+# Non-significant correlation
+query I
+SELECT (pearson_agg(x, y)).p_value > 0.05 FROM no_cor;
+----
+true
+
+# =============================================================================
+# TEST 8: Perfect positive correlation (r = 1.0)
+# =============================================================================
+
+statement ok
+CREATE TABLE perfect_pos AS
+SELECT * FROM (VALUES
+    (1.0, 2.0), (2.0, 4.0), (3.0, 6.0), (4.0, 8.0), (5.0, 10.0)
+) AS t(x, y);
+
+query I
+SELECT ABS((pearson_agg(x, y)).r - 1.0) < 0.0001 FROM perfect_pos;
+----
+true
+
+# =============================================================================
+# TEST 9: Perfect negative correlation (r = -1.0)
+# =============================================================================
+
+statement ok
+CREATE TABLE perfect_neg AS
+SELECT * FROM (VALUES
+    (1.0, 10.0), (2.0, 8.0), (3.0, 6.0), (4.0, 4.0), (5.0, 2.0)
+) AS t(x, y);
+
+query I
+SELECT ABS((pearson_agg(x, y)).r + 1.0) < 0.0001 FROM perfect_neg;
+----
+true
+
+# =============================================================================
+# TEST 10: GROUP BY partitioning
+# =============================================================================
+
+statement ok
+CREATE TABLE grouped_cor AS
+SELECT * FROM (VALUES
+    ('A', 1.0, 2.0), ('A', 2.0, 4.0), ('A', 3.0, 6.0), ('A', 4.0, 8.0), ('A', 5.0, 10.0),
+    ('B', 1.0, 5.2), ('B', 2.0, 3.1), ('B', 3.0, 7.4), ('B', 4.0, 2.3), ('B', 5.0, 8.9)
+) AS t(category, x, y);
+
+query TI
+SELECT category, (pearson_agg(x, y)).r > 0.5 AS strong_pos
+FROM grouped_cor
+GROUP BY category
+ORDER BY category;
+----
+A	true
+B	false
+
+# =============================================================================
+# TEST 11: Custom confidence level (99%)
+# =============================================================================
+
+query I
+SELECT (pearson_agg(x, y, {'confidence_level': 0.99})).ci_upper
+     > (pearson_agg(x, y, {'confidence_level': 0.95})).ci_upper
+FROM no_cor;
+----
+true
+
+# =============================================================================
+# TEST 12: Minimum sample size (n = 3)
+# =============================================================================
+
+statement ok
+CREATE TABLE min_sample AS
+SELECT * FROM (VALUES
+    (1.0, 2.0), (2.0, 4.0), (3.0, 6.0)
+) AS t(x, y);
+
+query I
+SELECT (pearson_agg(x, y)).r IS NOT NULL FROM min_sample;
+----
+true
+
+# =============================================================================
+# TEST 13: Alias verification (anofox_stats_pearson_agg)
+# =============================================================================
+
+query I
+SELECT (anofox_stats_pearson_agg(x, y)).r IS NOT NULL FROM positive_cor;
+----
+true
+
+# =============================================================================
+# CLEANUP
+# =============================================================================
+
+statement ok
+DROP TABLE IF EXISTS positive_cor;
+
+statement ok
+DROP TABLE IF EXISTS negative_cor;
+
+statement ok
+DROP TABLE IF EXISTS no_cor;
+
+statement ok
+DROP TABLE IF EXISTS perfect_pos;
+
+statement ok
+DROP TABLE IF EXISTS perfect_neg;
+
+statement ok
+DROP TABLE IF EXISTS grouped_cor;
+
+statement ok
+DROP TABLE IF EXISTS min_sample;

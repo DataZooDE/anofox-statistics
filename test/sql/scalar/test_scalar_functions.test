@@ -1,0 +1,107 @@
+# name: test/sql/scalar/test_scalar_functions.test
+# description: Test scalar regression functions (ols_fit, ridge_fit, elasticnet_fit, wls_fit, rls_fit, predict)
+# group: [scalar]
+
+require anofox_statistics
+
+# =============================================================================
+# SETUP: Create regression data
+# =============================================================================
+
+statement ok
+CREATE TABLE reg_data AS
+SELECT * FROM (VALUES
+    (1.0, 2.0, 5.0),
+    (2.0, 4.0, 10.0),
+    (3.0, 6.0, 15.0),
+    (4.0, 8.0, 20.0),
+    (5.0, 10.0, 25.0)
+) AS t(x1, x2, y);
+
+# =============================================================================
+# OLS_FIT SCALAR TESTS
+# =============================================================================
+
+# TEST 1: OLS fit returns valid model
+# X matrix format: list of columns (each column has 5 values for 5 observations)
+query I
+SELECT ols_fit([5.0, 10.0, 15.0, 20.0, 25.0], [[1.0, 2.0, 3.0, 4.0, 5.0], [2.0, 4.0, 6.0, 8.0, 10.0]]) IS NOT NULL;
+----
+true
+
+# TEST 2: OLS fit with options
+query I
+SELECT ols_fit([5.0, 10.0, 15.0, 20.0, 25.0], [[1.0, 2.0, 3.0, 4.0, 5.0], [2.0, 4.0, 6.0, 8.0, 10.0]], {'fit_intercept': true}) IS NOT NULL;
+----
+true
+
+# =============================================================================
+# RIDGE_FIT SCALAR TESTS
+# =============================================================================
+
+# TEST 3: Ridge fit returns valid model
+query I
+SELECT ridge_fit([5.0, 10.0, 15.0, 20.0, 25.0], [[1.0, 2.0, 3.0, 4.0, 5.0], [2.0, 4.0, 6.0, 8.0, 10.0]]) IS NOT NULL;
+----
+true
+
+# TEST 4: Ridge fit with lambda parameter
+query I
+SELECT ridge_fit([5.0, 10.0, 15.0, 20.0, 25.0], [[1.0, 2.0, 3.0, 4.0, 5.0], [2.0, 4.0, 6.0, 8.0, 10.0]], {'lambda': 0.1}) IS NOT NULL;
+----
+true
+
+# =============================================================================
+# ELASTICNET_FIT SCALAR TESTS
+# =============================================================================
+
+# TEST 5: ElasticNet fit returns valid model
+query I
+SELECT elasticnet_fit([5.0, 10.0, 15.0, 20.0, 25.0], [[1.0, 2.0, 3.0, 4.0, 5.0], [2.0, 4.0, 6.0, 8.0, 10.0]]) IS NOT NULL;
+----
+true
+
+# TEST 6: ElasticNet fit with parameters
+query I
+SELECT elasticnet_fit([5.0, 10.0, 15.0, 20.0, 25.0], [[1.0, 2.0, 3.0, 4.0, 5.0], [2.0, 4.0, 6.0, 8.0, 10.0]], {'lambda': 0.1, 'alpha': 0.5}) IS NOT NULL;
+----
+true
+
+# =============================================================================
+# WLS_FIT SCALAR TESTS
+# =============================================================================
+
+# TEST 7: WLS fit returns valid model
+query I
+SELECT wls_fit([5.0, 10.0, 15.0, 20.0, 25.0], [[1.0, 2.0, 3.0, 4.0, 5.0], [2.0, 4.0, 6.0, 8.0, 10.0]], [1.0, 1.0, 1.0, 1.0, 1.0]) IS NOT NULL;
+----
+true
+
+# TEST 8: WLS fit with varying weights
+query I
+SELECT wls_fit([5.0, 10.0, 15.0, 20.0, 25.0], [[1.0, 2.0, 3.0, 4.0, 5.0], [2.0, 4.0, 6.0, 8.0, 10.0]], [1.0, 2.0, 3.0, 4.0, 5.0]) IS NOT NULL;
+----
+true
+
+# =============================================================================
+# RLS_FIT SCALAR TESTS
+# =============================================================================
+
+# TEST 9: RLS fit returns valid model
+query I
+SELECT rls_fit([5.0, 10.0, 15.0, 20.0, 25.0], [[1.0, 2.0, 3.0, 4.0, 5.0], [2.0, 4.0, 6.0, 8.0, 10.0]]) IS NOT NULL;
+----
+true
+
+# TEST 10: RLS fit with forgetting factor
+query I
+SELECT rls_fit([5.0, 10.0, 15.0, 20.0, 25.0], [[1.0, 2.0, 3.0, 4.0, 5.0], [2.0, 4.0, 6.0, 8.0, 10.0]], {'lambda': 0.99}) IS NOT NULL;
+----
+true
+
+# =============================================================================
+# CLEANUP
+# =============================================================================
+
+statement ok
+DROP TABLE IF EXISTS reg_data;

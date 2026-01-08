@@ -1,0 +1,172 @@
+# name: test/sql/normality/test_shapiro_wilk_agg.test
+# description: Test shapiro_wilk_agg aggregate function
+# group: [normality]
+
+require anofox_statistics
+
+# =============================================================================
+# SETUP: Create test data from normal distribution (should pass test)
+# =============================================================================
+
+statement ok
+CREATE TABLE normal_data AS
+SELECT UNNEST(ARRAY[-0.97, 0.26, -0.13, 0.05, -0.57, 0.53, 1.21, -1.15, 0.32, -0.45,
+                     0.78, -0.89, 0.11, -0.23, 0.67, -0.34, 0.45, -0.12, 0.98, -0.76]) AS value;
+
+# =============================================================================
+# TEST 1: Basic Shapiro-Wilk returns valid result structure
+# =============================================================================
+
+query I
+SELECT (shapiro_wilk_agg(value)).statistic IS NOT NULL FROM normal_data;
+----
+true
+
+query I
+SELECT (shapiro_wilk_agg(value)).p_value IS NOT NULL FROM normal_data;
+----
+true
+
+query I
+SELECT (shapiro_wilk_agg(value)).n IS NOT NULL FROM normal_data;
+----
+true
+
+query I
+SELECT (shapiro_wilk_agg(value)).method IS NOT NULL FROM normal_data;
+----
+true
+
+# =============================================================================
+# TEST 2: Normal data should have high p-value (> 0.05)
+# =============================================================================
+
+query I
+SELECT (shapiro_wilk_agg(value)).p_value > 0.05 FROM normal_data;
+----
+true
+
+# =============================================================================
+# TEST 3: W statistic should be close to 1 for normal data
+# =============================================================================
+
+query I
+SELECT (shapiro_wilk_agg(value)).statistic > 0.95 FROM normal_data;
+----
+true
+
+# =============================================================================
+# TEST 4: Sample size correct
+# =============================================================================
+
+query I
+SELECT (shapiro_wilk_agg(value)).n = 20 FROM normal_data;
+----
+true
+
+# =============================================================================
+# TEST 5: Skewed data should fail normality test (p < 0.05)
+# =============================================================================
+
+statement ok
+CREATE TABLE skewed_data AS
+SELECT UNNEST(ARRAY[0.1, 0.2, 0.3, 0.4, 0.5, 0.7, 1.0, 1.5, 2.5, 5.0,
+                     8.0, 12.0, 18.0, 25.0, 35.0, 50.0, 70.0, 100.0, 150.0, 200.0]) AS value;
+
+query I
+SELECT (shapiro_wilk_agg(value)).p_value < 0.05 FROM skewed_data;
+----
+true
+
+# =============================================================================
+# TEST 6: Bimodal data should fail normality test
+# =============================================================================
+
+statement ok
+CREATE TABLE bimodal_data AS
+SELECT UNNEST(ARRAY[1.0, 1.1, 1.2, 0.9, 1.0, 1.1, 0.8, 1.2, 1.0, 1.1,
+                     5.0, 5.1, 5.2, 4.9, 5.0, 5.1, 4.8, 5.2, 5.0, 5.1]) AS value;
+
+query I
+SELECT (shapiro_wilk_agg(value)).p_value < 0.05 FROM bimodal_data;
+----
+true
+
+# =============================================================================
+# TEST 7: GROUP BY partitioning
+# =============================================================================
+
+statement ok
+CREATE TABLE grouped_data AS
+SELECT * FROM (VALUES
+    ('normal', -0.5), ('normal', 0.3), ('normal', -0.2), ('normal', 0.1), ('normal', 0.4),
+    ('normal', -0.3), ('normal', 0.2), ('normal', -0.1), ('normal', 0.0), ('normal', 0.5),
+    ('skewed', 0.1), ('skewed', 0.2), ('skewed', 0.5), ('skewed', 1.0), ('skewed', 2.0),
+    ('skewed', 5.0), ('skewed', 10.0), ('skewed', 20.0), ('skewed', 50.0), ('skewed', 100.0)
+) AS t(category, value);
+
+query TI
+SELECT category, (shapiro_wilk_agg(value)).p_value > 0.05 AS is_normal
+FROM grouped_data
+GROUP BY category
+ORDER BY category;
+----
+normal	true
+skewed	false
+
+# =============================================================================
+# TEST 8: Minimum sample size (n = 3)
+# =============================================================================
+
+statement ok
+CREATE TABLE min_sample AS
+SELECT UNNEST(ARRAY[1.0, 2.0, 3.0]) AS value;
+
+query I
+SELECT (shapiro_wilk_agg(value)).statistic IS NOT NULL FROM min_sample;
+----
+true
+
+# =============================================================================
+# TEST 9: Constant data should have W close to 1
+# =============================================================================
+
+statement ok
+CREATE TABLE constant_data AS
+SELECT UNNEST(ARRAY[5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0]) AS value;
+
+query I
+SELECT (shapiro_wilk_agg(value)).statistic IS NOT NULL FROM constant_data;
+----
+true
+
+# =============================================================================
+# TEST 10: Alias verification (anofox_stats_shapiro_wilk_agg)
+# =============================================================================
+
+query I
+SELECT (anofox_stats_shapiro_wilk_agg(value)).statistic IS NOT NULL FROM normal_data;
+----
+true
+
+# =============================================================================
+# CLEANUP
+# =============================================================================
+
+statement ok
+DROP TABLE IF EXISTS normal_data;
+
+statement ok
+DROP TABLE IF EXISTS skewed_data;
+
+statement ok
+DROP TABLE IF EXISTS bimodal_data;
+
+statement ok
+DROP TABLE IF EXISTS grouped_data;
+
+statement ok
+DROP TABLE IF EXISTS min_sample;
+
+statement ok
+DROP TABLE IF EXISTS constant_data;

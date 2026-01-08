@@ -74,15 +74,21 @@ The Anofox Statistics Extension provides comprehensive regression analysis capab
 | `residuals_diagnostics_agg` | Residual analysis |
 | `aid_agg`, `aid_anomaly_agg` | Demand pattern classification |
 
-### Window & Prediction Functions
+### Window & Fit-Predict Aggregate Functions
 
-| Method | Window Function | Predict Aggregate |
-|--------|-----------------|-------------------|
-| OLS | `ols_fit_predict` | `ols_predict_agg` |
-| Ridge | `ridge_fit_predict` | `ridge_predict_agg` |
-| Elastic Net | `elasticnet_fit_predict` | `elasticnet_predict_agg` |
-| WLS | `wls_fit_predict` | `wls_predict_agg` |
-| RLS | `rls_fit_predict` | `rls_predict_agg` |
+| Method | Window Function | Fit-Predict Aggregate | Table Macro |
+|--------|-----------------|----------------------|-------------|
+| OLS | `ols_fit_predict` | `ols_fit_predict_agg` | `ols_fit_predict_by` |
+| Ridge | `ridge_fit_predict` | `ridge_fit_predict_agg` | `ridge_fit_predict_by` |
+| Elastic Net | `elasticnet_fit_predict` | `elasticnet_fit_predict_agg` | `elasticnet_fit_predict_by` |
+| WLS | `wls_fit_predict` | `wls_fit_predict_agg` | `wls_fit_predict_by` |
+| RLS | `rls_fit_predict` | `rls_fit_predict_agg` | `rls_fit_predict_by` |
+| BLS | - | `bls_fit_predict_agg` | `bls_fit_predict_by` |
+| ALM | - | `alm_fit_predict_agg` | `alm_fit_predict_by` |
+| Poisson | - | `poisson_fit_predict_agg` | `poisson_fit_predict_by` |
+
+> **Deprecation Notice:** The old `*_predict_agg` names (`ols_predict_agg`, etc.) are deprecated
+> but still work for backwards compatibility. Use `*_fit_predict_agg` instead.
 
 ---
 
@@ -101,12 +107,13 @@ The Anofox Statistics Extension provides comprehensive regression analysis capab
 11. [AID Functions](#aid-functions)
 12. [Statistical Hypothesis Testing Functions](#statistical-hypothesis-testing-functions)
 13. [Fit-Predict Window Functions](#fit-predict-window-functions)
-14. [Predict Aggregate Functions](#predict-aggregate-functions)
-15. [Predict Function](#predict-function)
-16. [Diagnostic Functions](#diagnostic-functions)
-17. [Common Options](#common-options)
-18. [Return Types](#return-types)
-19. [Short Aliases](#short-aliases)
+14. [Fit-Predict Aggregate Functions](#fit-predict-aggregate-functions)
+15. [Fit-Predict Table Macros](#fit-predict-table-macros)
+16. [Predict Function](#predict-function)
+17. [Diagnostic Functions](#diagnostic-functions)
+18. [Common Options](#common-options)
+19. [Return Types](#return-types)
+20. [Short Aliases](#short-aliases)
 
 ---
 
@@ -1980,16 +1987,19 @@ SELECT elasticnet_fit_predict(y, [x], {'alpha': 0.1, 'l1_ratio': 0.7}) OVER (ORD
 
 ---
 
-## Predict Aggregate Functions
+## Fit-Predict Aggregate Functions
 
 Non-rolling aggregate functions that fit a model once on training data (rows where y IS NOT NULL) and return predictions for ALL rows including out-of-sample predictions.
 
-### anofox_stats_ols_predict_agg / ols_predict_agg
+> **Deprecation Notice:** The old `*_predict_agg` names (`ols_predict_agg`, `ridge_predict_agg`, etc.) are deprecated
+> but still work for backwards compatibility. Use `*_fit_predict_agg` instead.
+
+### anofox_stats_ols_fit_predict_agg / ols_fit_predict_agg
 Fit OLS on training rows, predict all rows.
 
 **Signature:**
 ```sql
-anofox_stats_ols_predict_agg(
+anofox_stats_ols_fit_predict_agg(
     y DOUBLE,
     x LIST(DOUBLE),
     [options MAP]
@@ -2032,20 +2042,20 @@ SELECT
     (p).yhat as predicted,
     (p).is_training
 FROM (
-    SELECT UNNEST(ols_predict_agg(y, [x])) AS p
+    SELECT UNNEST(ols_fit_predict_agg(y, [x])) AS p
     FROM data
 );
 
 -- Per-group predictions
 SELECT
     segment,
-    UNNEST(ols_predict_agg(y, [x1, x2], {'confidence_level': 0.99})) AS pred
+    UNNEST(ols_fit_predict_agg(y, [x1, x2], {'confidence_level': 0.99})) AS pred
 FROM sales_data
 GROUP BY segment;
 ```
 
-### anofox_stats_ridge_predict_agg / ridge_predict_agg
-Ridge regression predict aggregate.
+### anofox_stats_ridge_fit_predict_agg / ridge_fit_predict_agg
+Ridge regression fit-predict aggregate.
 
 **Additional Options:**
 | Key | Type | Default | Description |
@@ -2053,23 +2063,23 @@ Ridge regression predict aggregate.
 | alpha | DOUBLE | 1.0 | L2 regularization strength |
 
 ```sql
-SELECT UNNEST(ridge_predict_agg(y, [x], {'alpha': 0.5})) FROM data;
+SELECT UNNEST(ridge_fit_predict_agg(y, [x], {'alpha': 0.5})) FROM data;
 ```
 
-### anofox_stats_wls_predict_agg / wls_predict_agg
-Weighted Least Squares predict aggregate.
+### anofox_stats_wls_fit_predict_agg / wls_fit_predict_agg
+Weighted Least Squares fit-predict aggregate.
 
 **Signature:**
 ```sql
-wls_predict_agg(y DOUBLE, x LIST(DOUBLE), weight DOUBLE, [options MAP]) -> LIST(STRUCT)
+wls_fit_predict_agg(y DOUBLE, x LIST(DOUBLE), weight DOUBLE, [options MAP]) -> LIST(STRUCT)
 ```
 
 ```sql
-SELECT UNNEST(wls_predict_agg(y, [x], weight)) FROM data;
+SELECT UNNEST(wls_fit_predict_agg(y, [x], weight)) FROM data;
 ```
 
-### anofox_stats_rls_predict_agg / rls_predict_agg
-Recursive Least Squares predict aggregate.
+### anofox_stats_rls_fit_predict_agg / rls_fit_predict_agg
+Recursive Least Squares fit-predict aggregate.
 
 **Additional Options:**
 | Key | Type | Default | Description |
@@ -2078,11 +2088,11 @@ Recursive Least Squares predict aggregate.
 | initial_p_diagonal | DOUBLE | 100.0 | Initial covariance diagonal |
 
 ```sql
-SELECT UNNEST(rls_predict_agg(y, [x], {'forgetting_factor': 0.99})) FROM data;
+SELECT UNNEST(rls_fit_predict_agg(y, [x], {'forgetting_factor': 0.99})) FROM data;
 ```
 
-### anofox_stats_elasticnet_predict_agg / elasticnet_predict_agg
-Elastic Net predict aggregate.
+### anofox_stats_elasticnet_fit_predict_agg / elasticnet_fit_predict_agg
+Elastic Net fit-predict aggregate.
 
 **Additional Options:**
 | Key | Type | Default | Description |
@@ -2093,8 +2103,252 @@ Elastic Net predict aggregate.
 | tolerance | DOUBLE | 1e-6 | Convergence tolerance |
 
 ```sql
-SELECT UNNEST(elasticnet_predict_agg(y, [x], {'alpha': 0.1, 'l1_ratio': 0.5})) FROM data;
+SELECT UNNEST(elasticnet_fit_predict_agg(y, [x], {'alpha': 0.1, 'l1_ratio': 0.5})) FROM data;
 ```
+
+### anofox_stats_bls_fit_predict_agg / bls_fit_predict_agg
+Bounded Least Squares (BLS/NNLS) fit-predict aggregate with coefficient constraints.
+
+**Signature:**
+```sql
+bls_fit_predict_agg(y DOUBLE, x LIST(DOUBLE), [options MAP]) -> LIST(STRUCT)
+```
+
+**Options MAP:**
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| lower_bound | DOUBLE | 0.0 | Lower bound for coefficients |
+| upper_bound | DOUBLE | +inf | Upper bound for coefficients |
+| intercept | BOOLEAN | false | Include intercept term |
+| max_iterations | INTEGER | 1000 | Maximum iterations |
+| tolerance | DOUBLE | 1e-6 | Convergence tolerance |
+| confidence_level | DOUBLE | 0.95 | Prediction interval confidence |
+| null_policy | VARCHAR | 'drop' | NULL handling: 'drop' or 'drop_y_zero_x' |
+
+**Example:**
+```sql
+-- NNLS (Non-Negative Least Squares) with out-of-sample predictions
+CREATE TABLE bounded_data AS
+SELECT
+    group_id, week, x,
+    CASE WHEN week <= 10 THEN 5.0 + 2.0*x + RANDOM() ELSE NULL END AS y
+FROM (VALUES (1), (2)) AS g(group_id),
+     generate_series(1, 14) AS w(week),
+     LATERAL (SELECT week * 1.5 AS x);
+
+SELECT
+    group_id,
+    (pred).y AS actual,
+    ROUND((pred).yhat, 2) AS predicted,
+    (pred).is_training
+FROM (
+    SELECT group_id, UNNEST(bls_fit_predict_agg(y, [x], {'lower_bound': 0})) AS pred
+    FROM bounded_data GROUP BY group_id
+) sub;
+```
+
+### anofox_stats_alm_fit_predict_agg / alm_fit_predict_agg
+Augmented Linear Model fit-predict aggregate with robust error distributions.
+
+**Signature:**
+```sql
+alm_fit_predict_agg(y DOUBLE, x LIST(DOUBLE), [options MAP]) -> LIST(STRUCT)
+```
+
+**Options MAP:**
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| distribution | VARCHAR | 'normal' | Error distribution (see below) |
+| intercept | BOOLEAN | true | Include intercept term |
+| max_iterations | INTEGER | 1000 | Maximum iterations |
+| tolerance | DOUBLE | 1e-6 | Convergence tolerance |
+| confidence_level | DOUBLE | 0.95 | Prediction interval confidence |
+| null_policy | VARCHAR | 'drop' | NULL handling: 'drop' or 'drop_y_zero_x' |
+
+**Distributions:**
+`normal`, `laplace`, `studentt`, `cauchy`, `huber`, `tukey`, `quantile`, `expectile`, `trimmed`, `winsorized`
+
+**Example:**
+```sql
+-- Robust regression with Laplace distribution (robust to outliers)
+CREATE TABLE robust_data AS
+SELECT
+    group_id, x,
+    CASE WHEN id <= 10 THEN
+        CASE WHEN id = 5 THEN 100.0  -- Outlier
+             ELSE 10.0 + 3.0*x + RANDOM()
+        END
+    ELSE NULL END AS y
+FROM (VALUES (1), (2)) AS g(group_id),
+     generate_series(1, 14) AS t(id),
+     LATERAL (SELECT id * 2.0 AS x);
+
+SELECT
+    group_id,
+    ROUND((pred).yhat, 2) AS predicted,
+    (pred).is_training
+FROM (
+    SELECT group_id, UNNEST(alm_fit_predict_agg(y, [x], {'distribution': 'laplace'})) AS pred
+    FROM robust_data GROUP BY group_id
+) sub;
+```
+
+### anofox_stats_poisson_fit_predict_agg / poisson_fit_predict_agg
+Poisson GLM fit-predict aggregate for count data.
+
+**Signature:**
+```sql
+poisson_fit_predict_agg(y DOUBLE, x LIST(DOUBLE), [options MAP]) -> LIST(STRUCT)
+```
+
+**Options MAP:**
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| link | VARCHAR | 'log' | Link function: 'log', 'identity', 'sqrt' |
+| intercept | BOOLEAN | true | Include intercept term |
+| max_iterations | INTEGER | 100 | Maximum IRLS iterations |
+| tolerance | DOUBLE | 1e-8 | Convergence tolerance |
+| confidence_level | DOUBLE | 0.95 | Prediction interval confidence |
+| null_policy | VARCHAR | 'drop' | NULL handling: 'drop' or 'drop_y_zero_x' |
+
+**Example:**
+```sql
+-- Poisson regression for visitor count prediction
+CREATE TABLE visitor_data AS
+SELECT
+    store_id, week, marketing_spend,
+    CASE WHEN week <= 10 THEN
+        ROUND(EXP(2.0 + 0.05*marketing_spend) + RANDOM()*5)::INTEGER
+    ELSE NULL END AS visitors
+FROM (VALUES (1), (2), (3)) AS s(store_id),
+     generate_series(1, 14) AS w(week),
+     LATERAL (SELECT 20.0 + week*5.0 AS marketing_spend);
+
+SELECT
+    store_id,
+    (pred).y AS actual_visitors,
+    ROUND((pred).yhat) AS predicted_visitors,
+    (pred).is_training
+FROM (
+    SELECT store_id, UNNEST(poisson_fit_predict_agg(visitors, [marketing_spend], {'link': 'log'})) AS pred
+    FROM visitor_data GROUP BY store_id
+) sub
+WHERE store_id = 1;
+```
+
+---
+
+## Fit-Predict Table Macros
+
+Table macros that wrap `*_fit_predict_agg` functions for easy per-group regression with long-format output. These macros simplify common workflows by handling the GROUP BY, UNNEST, and column extraction automatically.
+
+### ols_fit_predict_by
+OLS regression per group with predictions in long format.
+
+**Signature:**
+```sql
+ols_fit_predict_by(
+    source VARCHAR,           -- Table name (as string)
+    group_col COLUMN,         -- Column to group by
+    y_col COLUMN,             -- Response variable column
+    x_cols LIST(COLUMN)       -- Feature columns as list
+) -> TABLE
+```
+
+**Returns:**
+| Column | Type | Description |
+|--------|------|-------------|
+| group_id | ANY | Group identifier |
+| y | DOUBLE | Original y value (NULL for out-of-sample) |
+| x | LIST(DOUBLE) | Feature values |
+| yhat | DOUBLE | Predicted value |
+| yhat_lower | DOUBLE | Lower prediction interval bound |
+| yhat_upper | DOUBLE | Upper prediction interval bound |
+| is_training | BOOLEAN | True if row was used for training |
+
+**Example:**
+```sql
+-- Per-group OLS regression
+SELECT * FROM ols_fit_predict_by('sales_data', region, revenue, [advertising, price]);
+
+-- Filter to out-of-sample predictions only
+SELECT * FROM ols_fit_predict_by('forecast_data', store_id, sales, [inventory, promotions])
+WHERE NOT is_training;
+```
+
+### ridge_fit_predict_by
+Ridge regression per group with predictions in long format.
+
+```sql
+SELECT * FROM ridge_fit_predict_by('data', category, y, [x1, x2]);
+```
+
+### elasticnet_fit_predict_by
+Elastic Net regression per group with predictions in long format.
+
+```sql
+SELECT * FROM elasticnet_fit_predict_by('data', category, y, [x1, x2]);
+```
+
+### wls_fit_predict_by
+Weighted Least Squares per group with predictions in long format.
+
+**Signature:**
+```sql
+wls_fit_predict_by(
+    source VARCHAR,
+    group_col COLUMN,
+    y_col COLUMN,
+    x_cols LIST(COLUMN),
+    weight_col COLUMN         -- Weight column (additional parameter)
+) -> TABLE
+```
+
+**Example:**
+```sql
+SELECT * FROM wls_fit_predict_by('weighted_data', segment, y, [x1, x2], weight);
+```
+
+### rls_fit_predict_by
+Recursive Least Squares per group with predictions in long format.
+
+```sql
+SELECT * FROM rls_fit_predict_by('streaming_data', sensor_id, reading, [temp, pressure]);
+```
+
+### bls_fit_predict_by
+Bounded Least Squares per group with predictions in long format.
+
+```sql
+SELECT * FROM bls_fit_predict_by('constrained_data', portfolio_id, returns, [factor1, factor2]);
+```
+
+### alm_fit_predict_by
+Augmented Linear Model per group with predictions in long format.
+
+```sql
+SELECT * FROM alm_fit_predict_by('robust_data', group_id, y, [x1, x2]);
+```
+
+### poisson_fit_predict_by
+Poisson GLM per group with predictions in long format.
+
+```sql
+SELECT * FROM poisson_fit_predict_by('count_data', store_id, visitor_count, [marketing_spend]);
+```
+
+### Table Macro Aliases
+
+| Macro | Underlying Aggregate |
+|-------|---------------------|
+| ols_fit_predict_by | ols_fit_predict_agg |
+| ridge_fit_predict_by | ridge_fit_predict_agg |
+| elasticnet_fit_predict_by | elasticnet_fit_predict_agg |
+| wls_fit_predict_by | wls_fit_predict_agg |
+| rls_fit_predict_by | rls_fit_predict_agg |
+| bls_fit_predict_by | bls_fit_predict_agg |
+| alm_fit_predict_by | alm_fit_predict_agg |
+| poisson_fit_predict_by | poisson_fit_predict_agg |
 
 ---
 
@@ -2418,11 +2672,14 @@ For convenience, the following short aliases are available:
 | anofox_stats_wls_fit_predict | wls_fit_predict |
 | anofox_stats_rls_fit_predict | rls_fit_predict |
 | anofox_stats_elasticnet_fit_predict | elasticnet_fit_predict |
-| anofox_stats_ols_predict_agg | ols_predict_agg |
-| anofox_stats_ridge_predict_agg | ridge_predict_agg |
-| anofox_stats_wls_predict_agg | wls_predict_agg |
-| anofox_stats_rls_predict_agg | rls_predict_agg |
-| anofox_stats_elasticnet_predict_agg | elasticnet_predict_agg |
+| anofox_stats_ols_fit_predict_agg | ols_fit_predict_agg |
+| anofox_stats_ridge_fit_predict_agg | ridge_fit_predict_agg |
+| anofox_stats_wls_fit_predict_agg | wls_fit_predict_agg |
+| anofox_stats_rls_fit_predict_agg | rls_fit_predict_agg |
+| anofox_stats_elasticnet_fit_predict_agg | elasticnet_fit_predict_agg |
+| anofox_stats_bls_fit_predict_agg | bls_fit_predict_agg |
+| anofox_stats_alm_fit_predict_agg | alm_fit_predict_agg |
+| anofox_stats_poisson_fit_predict_agg | poisson_fit_predict_agg |
 | anofox_stats_poisson_fit_agg | poisson_fit_agg |
 | anofox_stats_alm_fit_agg | alm_fit_agg |
 | anofox_stats_bls_fit_agg | bls_fit_agg |
@@ -2468,6 +2725,7 @@ SELECT anofox_stats_ols_fit([1.0, 2.0], [[1.0, 2.0]]);
 
 ## Version History
 
+- **0.7.0**: Renamed `*_predict_agg` to `*_fit_predict_agg` for clarity (old names deprecated). Added `bls_fit_predict_agg`, `alm_fit_predict_agg`, `poisson_fit_predict_agg`.
 - **0.6.0**: Added Statistical Hypothesis Testing functions (t-test, ANOVA, Mann-Whitney U, Kruskal-Wallis, Shapiro-Wilk, Pearson, Spearman, Chi-square)
 - **0.5.0**: Added AID (Automatic Identification of Demand) for demand classification and anomaly detection
 - **0.4.0**: Added GLM (Poisson), ALM (24 distributions), BLS/NNLS constrained optimization

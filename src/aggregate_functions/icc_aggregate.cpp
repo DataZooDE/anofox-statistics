@@ -240,8 +240,9 @@ static void IccAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
         FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = icc_result.ci_upper;
         FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = static_cast<int64_t>(icc_result.n_subjects);
         FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = static_cast<int64_t>(icc_result.n_raters);
-        FlatVector::GetData<string_t>(*struct_entries[struct_idx++])[result_idx] =
-            StringVector::AddString(*struct_entries[struct_idx - 1], icc_result.method ? icc_result.method : "ICC");
+        auto& method_vector = *struct_entries[struct_idx++];
+        FlatVector::GetData<string_t>(method_vector)[result_idx] =
+            StringVector::AddString(method_vector, icc_result.method ? icc_result.method : "ICC");
 
         anofox_free_icc_result(&icc_result);
         state.Reset();

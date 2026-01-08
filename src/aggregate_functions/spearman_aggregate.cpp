@@ -196,8 +196,9 @@ static void SpearmanAggFinalize(Vector &state_vector, AggregateInputData &aggr_i
         FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = cor_result.ci_lower;
         FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = cor_result.ci_upper;
         FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = static_cast<int64_t>(cor_result.n);
-        FlatVector::GetData<string_t>(*struct_entries[struct_idx++])[result_idx] =
-            StringVector::AddString(*struct_entries[struct_idx - 1], cor_result.method ? cor_result.method : "Spearman");
+        auto& method_vector = *struct_entries[struct_idx++];
+        FlatVector::GetData<string_t>(method_vector)[result_idx] =
+            StringVector::AddString(method_vector, cor_result.method ? cor_result.method : "Spearman");
 
         anofox_free_correlation_result(&cor_result);
         state.Reset();

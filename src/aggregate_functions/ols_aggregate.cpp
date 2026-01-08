@@ -245,16 +245,10 @@ static void OlsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
         auto &state = *states[sdata.sel->get_index(i)];
         idx_t result_idx = i + offset;
 
-        // Check if we have enough data
+        // Check if we have enough data (basic sanity check only)
+        // Detailed validation including zero-variance column handling is done in Rust
         if (!state.initialized || state.y_values.size() < 2) {
             // Set NULL result
-            FlatVector::SetNull(result, result_idx, true);
-            continue;
-        }
-
-        // Minimum observations check
-        idx_t min_obs = state.fit_intercept ? state.n_features + 1 : state.n_features;
-        if (state.y_values.size() <= min_obs) {
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }

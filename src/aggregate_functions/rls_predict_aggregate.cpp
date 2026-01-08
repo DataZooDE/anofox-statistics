@@ -253,12 +253,7 @@ static void RlsPredictAggFinalize(Vector &state_vector, AggregateInputData &aggr
             continue;
         }
 
-        idx_t min_obs = state.fit_intercept ? state.n_features + 1 : state.n_features;
-        if (state.y_train.size() <= min_obs) {
-            FlatVector::SetNull(result, result_idx, true);
-            continue;
-        }
-
+        // Note: Detailed min_obs validation including zero-variance column handling is done in Rust
         AnofoxDataArray y_array;
         y_array.data = state.y_train.data();
         y_array.validity = nullptr;
@@ -382,25 +377,26 @@ static unique_ptr<FunctionData> RlsPredictAggBind(ClientContext &context, Aggreg
     }
 
     function.return_type = GetRlsPredictAggResultType();
-    PostHogTelemetry::Instance().CaptureFunctionExecution("rls_predict_agg");
+    PostHogTelemetry::Instance().CaptureFunctionExecution("rls_fit_predict_agg");
     return std::move(result);
 }
 
 //===--------------------------------------------------------------------===//
 // Registration
 //===--------------------------------------------------------------------===//
-void RegisterRlsPredictAggregateFunction(ExtensionLoader &loader) {
-    AggregateFunctionSet func_set("anofox_stats_rls_predict_agg");
+void RegisterRlsFitPredictAggregateFunction(ExtensionLoader &loader) {
+    // Primary name (new)
+    AggregateFunctionSet func_set("anofox_stats_rls_fit_predict_agg");
 
     auto basic_func = AggregateFunction(
-        "anofox_stats_rls_predict_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
+        "anofox_stats_rls_fit_predict_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
         LogicalType::ANY, AggregateFunction::StateSize<RlsPredictAggState>, RlsPredictAggInitialize,
         RlsPredictAggUpdate, RlsPredictAggCombine, RlsPredictAggFinalize, nullptr, RlsPredictAggBind,
         RlsPredictAggDestroy);
     func_set.AddFunction(basic_func);
 
     auto map_func = AggregateFunction(
-        "anofox_stats_rls_predict_agg",
+        "anofox_stats_rls_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY}, LogicalType::ANY,
         AggregateFunction::StateSize<RlsPredictAggState>, RlsPredictAggInitialize, RlsPredictAggUpdate,
         RlsPredictAggCombine, RlsPredictAggFinalize, nullptr, RlsPredictAggBind, RlsPredictAggDestroy);
@@ -408,10 +404,22 @@ void RegisterRlsPredictAggregateFunction(ExtensionLoader &loader) {
 
     loader.RegisterFunction(func_set);
 
-    AggregateFunctionSet alias_set("rls_predict_agg");
+    // Short alias (new)
+    AggregateFunctionSet alias_set("rls_fit_predict_agg");
     alias_set.AddFunction(basic_func);
     alias_set.AddFunction(map_func);
     loader.RegisterFunction(alias_set);
+
+    // Deprecated aliases (old names for backwards compatibility)
+    AggregateFunctionSet deprecated_set("rls_predict_agg");
+    deprecated_set.AddFunction(basic_func);
+    deprecated_set.AddFunction(map_func);
+    loader.RegisterFunction(deprecated_set);
+
+    AggregateFunctionSet deprecated_full_set("anofox_stats_rls_predict_agg");
+    deprecated_full_set.AddFunction(basic_func);
+    deprecated_full_set.AddFunction(map_func);
+    loader.RegisterFunction(deprecated_full_set);
 }
 
 } // namespace duckdb

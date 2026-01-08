@@ -1,0 +1,150 @@
+# name: test/sql/correlation/test_distance_cor_agg.test
+# description: Test distance_cor_agg aggregate function (Distance correlation)
+# group: [correlation]
+
+require anofox_statistics
+
+# =============================================================================
+# SETUP: Create test data with nonlinear relationship
+# =============================================================================
+
+statement ok
+CREATE TABLE dcor_data AS
+SELECT * FROM (VALUES
+    (1.0, 1.0), (2.0, 4.0), (3.0, 9.0), (4.0, 16.0), (5.0, 25.0),
+    (6.0, 36.0), (7.0, 49.0), (8.0, 64.0), (9.0, 81.0), (10.0, 100.0)
+) AS t(x, y);
+
+# =============================================================================
+# TEST 1: Basic distance correlation returns valid result structure
+# =============================================================================
+
+query I
+SELECT (distance_cor_agg(x, y)).dcor IS NOT NULL FROM dcor_data;
+----
+true
+
+query I
+SELECT (distance_cor_agg(x, y)).statistic IS NOT NULL FROM dcor_data;
+----
+true
+
+query I
+SELECT (distance_cor_agg(x, y)).p_value IS NOT NULL FROM dcor_data;
+----
+true
+
+query I
+SELECT (distance_cor_agg(x, y)).n IS NOT NULL FROM dcor_data;
+----
+true
+
+query I
+SELECT (distance_cor_agg(x, y)).method IS NOT NULL FROM dcor_data;
+----
+true
+
+# =============================================================================
+# TEST 2: Distance correlation between 0 and 1
+# =============================================================================
+
+query I
+SELECT (distance_cor_agg(x, y)).dcor BETWEEN 0 AND 1 FROM dcor_data;
+----
+true
+
+# =============================================================================
+# TEST 3: Perfect quadratic relationship should have high dcor
+# =============================================================================
+
+query I
+SELECT (distance_cor_agg(x, y)).dcor > 0.9 FROM dcor_data;
+----
+true
+
+# =============================================================================
+# TEST 4: Sample size correct
+# =============================================================================
+
+query I
+SELECT (distance_cor_agg(x, y)).n = 10 FROM dcor_data;
+----
+true
+
+# =============================================================================
+# TEST 5: Linear relationship (compare to Pearson)
+# =============================================================================
+
+statement ok
+CREATE TABLE linear_data AS
+SELECT * FROM (VALUES
+    (1.0, 2.0), (2.0, 4.0), (3.0, 6.0), (4.0, 8.0), (5.0, 10.0),
+    (6.0, 12.0), (7.0, 14.0), (8.0, 16.0), (9.0, 18.0), (10.0, 20.0)
+) AS t(x, y);
+
+# Perfect linear relationship should have dcor close to 1
+query I
+SELECT (distance_cor_agg(x, y)).dcor > 0.99 FROM linear_data;
+----
+true
+
+# =============================================================================
+# TEST 6: Independent variables (low correlation)
+# =============================================================================
+
+statement ok
+CREATE TABLE independent_data AS
+SELECT * FROM (VALUES
+    (1.0, 5.0), (2.0, 3.0), (3.0, 8.0), (4.0, 2.0), (5.0, 7.0),
+    (6.0, 1.0), (7.0, 9.0), (8.0, 4.0), (9.0, 6.0), (10.0, 10.0)
+) AS t(x, y);
+
+query I
+SELECT (distance_cor_agg(x, y)).dcor < 0.5 FROM independent_data;
+----
+true
+
+# =============================================================================
+# TEST 7: GROUP BY partitioning
+# =============================================================================
+
+statement ok
+CREATE TABLE grouped_data AS
+SELECT * FROM (VALUES
+    ('linear', 1.0, 2.0), ('linear', 2.0, 4.0), ('linear', 3.0, 6.0), ('linear', 4.0, 8.0), ('linear', 5.0, 10.0),
+    ('quadratic', 1.0, 1.0), ('quadratic', 2.0, 4.0), ('quadratic', 3.0, 9.0), ('quadratic', 4.0, 16.0), ('quadratic', 5.0, 25.0)
+) AS t(category, x, y);
+
+query TI
+SELECT category, (distance_cor_agg(x, y)).dcor > 0.9 AS high_dcor
+FROM grouped_data
+GROUP BY category
+ORDER BY category;
+----
+linear	true
+quadratic	true
+
+# =============================================================================
+# TEST 8: Alias verification (anofox_stats_distance_cor_agg)
+# =============================================================================
+
+query I
+SELECT (anofox_stats_distance_cor_agg(x, y)).dcor IS NOT NULL FROM dcor_data;
+----
+true
+
+# =============================================================================
+# CLEANUP
+# =============================================================================
+
+statement ok
+DROP TABLE IF EXISTS dcor_data;
+
+statement ok
+DROP TABLE IF EXISTS linear_data;
+
+statement ok
+DROP TABLE IF EXISTS independent_data;
+
+statement ok
+DROP TABLE IF EXISTS grouped_data;

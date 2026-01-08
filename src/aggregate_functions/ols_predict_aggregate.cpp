@@ -260,14 +260,9 @@ static void OlsPredictAggFinalize(Vector &state_vector, AggregateInputData &aggr
         auto &state = *states[sdata.sel->get_index(i)];
         idx_t result_idx = i + offset;
 
-        // Check if we have enough training data
+        // Check if we have enough training data (basic sanity check only)
+        // Detailed validation including zero-variance column handling is done in Rust
         if (!state.initialized || state.y_train.size() < 2) {
-            FlatVector::SetNull(result, result_idx, true);
-            continue;
-        }
-
-        idx_t min_obs = state.fit_intercept ? state.n_features + 1 : state.n_features;
-        if (state.y_train.size() <= min_obs) {
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
@@ -397,27 +392,28 @@ static unique_ptr<FunctionData> OlsPredictAggBind(ClientContext &context, Aggreg
     }
 
     function.return_type = GetOlsPredictAggResultType();
-    PostHogTelemetry::Instance().CaptureFunctionExecution("ols_predict_agg");
+    PostHogTelemetry::Instance().CaptureFunctionExecution("ols_fit_predict_agg");
     return std::move(result);
 }
 
 //===--------------------------------------------------------------------===//
 // Registration
 //===--------------------------------------------------------------------===//
-void RegisterOlsPredictAggregateFunction(ExtensionLoader &loader) {
-    AggregateFunctionSet func_set("anofox_stats_ols_predict_agg");
+void RegisterOlsFitPredictAggregateFunction(ExtensionLoader &loader) {
+    // Primary name (new)
+    AggregateFunctionSet func_set("anofox_stats_ols_fit_predict_agg");
 
-    // Basic version: anofox_stats_ols_predict_agg(y, x)
+    // Basic version: ols_fit_predict_agg(y, x)
     auto basic_func =
-        AggregateFunction("anofox_stats_ols_predict_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
+        AggregateFunction("anofox_stats_ols_fit_predict_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
                           LogicalType::ANY, AggregateFunction::StateSize<OlsPredictAggState>, OlsPredictAggInitialize,
                           OlsPredictAggUpdate, OlsPredictAggCombine, OlsPredictAggFinalize, nullptr, OlsPredictAggBind,
                           OlsPredictAggDestroy);
     func_set.AddFunction(basic_func);
 
-    // Version with MAP options: anofox_stats_ols_predict_agg(y, x, {'null_policy': 'drop', ...})
+    // Version with MAP options: ols_fit_predict_agg(y, x, {'null_policy': 'drop', ...})
     auto map_func = AggregateFunction(
-        "anofox_stats_ols_predict_agg",
+        "anofox_stats_ols_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY}, LogicalType::ANY,
         AggregateFunction::StateSize<OlsPredictAggState>, OlsPredictAggInitialize, OlsPredictAggUpdate,
         OlsPredictAggCombine, OlsPredictAggFinalize, nullptr, OlsPredictAggBind, OlsPredictAggDestroy);
@@ -425,11 +421,22 @@ void RegisterOlsPredictAggregateFunction(ExtensionLoader &loader) {
 
     loader.RegisterFunction(func_set);
 
-    // Register short alias
-    AggregateFunctionSet alias_set("ols_predict_agg");
+    // Short alias (new)
+    AggregateFunctionSet alias_set("ols_fit_predict_agg");
     alias_set.AddFunction(basic_func);
     alias_set.AddFunction(map_func);
     loader.RegisterFunction(alias_set);
+
+    // Deprecated aliases (old names for backwards compatibility)
+    AggregateFunctionSet deprecated_set("ols_predict_agg");
+    deprecated_set.AddFunction(basic_func);
+    deprecated_set.AddFunction(map_func);
+    loader.RegisterFunction(deprecated_set);
+
+    AggregateFunctionSet deprecated_full_set("anofox_stats_ols_predict_agg");
+    deprecated_full_set.AddFunction(basic_func);
+    deprecated_full_set.AddFunction(map_func);
+    loader.RegisterFunction(deprecated_full_set);
 }
 
 } // namespace duckdb

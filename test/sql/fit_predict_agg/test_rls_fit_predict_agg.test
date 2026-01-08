@@ -1,0 +1,410 @@
+# name: test/sql/fit_predict_agg/test_rls_fit_predict_agg.test
+# description: Test RLS fit_predict_agg aggregate function
+# group: [fit_predict_agg]
+
+require anofox_statistics
+
+# =============================================================================
+# SETUP: Create test data
+# =============================================================================
+
+statement ok
+CREATE TABLE test_data AS
+SELECT
+    CASE WHEN i <= 7 THEN (2.0 * i + 1.0) ELSE NULL END AS y,
+    i::DOUBLE AS x1,
+    (i * 0.5)::DOUBLE AS x2,
+    i AS id
+FROM range(1, 11) t(i);
+
+# =============================================================================
+# TEST 1: Basic Fit and Predict - Returns correct number of rows
+# =============================================================================
+
+query I
+SELECT LENGTH(rls_fit_predict_agg(y, [x1, x2])) AS n_rows FROM test_data;
+----
+10
+
+# =============================================================================
+# TEST 2: Training vs Prediction Row Identification
+# =============================================================================
+
+query II
+SELECT
+    SUM(CASE WHEN (pred).is_training THEN 1 ELSE 0 END) AS n_training,
+    SUM(CASE WHEN NOT (pred).is_training THEN 1 ELSE 0 END) AS n_prediction
+FROM (
+    SELECT UNNEST(rls_fit_predict_agg(y, [x1])) AS pred
+    FROM test_data
+);
+----
+7	3
+
+# =============================================================================
+# TEST 3: Prediction Values Are Reasonable
+# =============================================================================
+
+query I
+SELECT COUNT(*) FROM (
+    SELECT UNNEST(rls_fit_predict_agg(y, [x1])) AS pred
+    FROM test_data
+)
+WHERE NOT (pred).is_training
+  AND ABS((pred).yhat - (2.0 * (pred).x[1] + 1.0)) < 2.0;
+----
+3
+
+# =============================================================================
+# TEST 4: Prediction Intervals Are Valid (lower <= yhat <= upper)
+# =============================================================================
+
+query I
+SELECT COUNT(*) AS valid_intervals FROM (
+    SELECT UNNEST(rls_fit_predict_agg(y, [x1])) AS pred
+    FROM test_data
+)
+WHERE (pred).yhat_lower <= (pred).yhat
+  AND (pred).yhat <= (pred).yhat_upper;
+----
+10
+
+# =============================================================================
+# TEST 5: GROUP BY Partitioning
+# =============================================================================
+
+statement ok
+CREATE TABLE grouped_data AS
+SELECT
+    CASE WHEN i <= 5 THEN 'A' ELSE 'B' END AS grp,
+    CASE WHEN i <= 4 OR (i > 5 AND i <= 9) THEN (i::DOUBLE * 2.0) ELSE NULL END AS y,
+    i::DOUBLE AS x1,
+    i AS id
+FROM range(1, 11) t(i);
+
+query TI
+SELECT grp, LENGTH(rls_fit_predict_agg(y, [x1])) AS n_rows
+FROM grouped_data
+GROUP BY grp
+ORDER BY grp;
+----
+A	5
+B	5
+
+# =============================================================================
+# TEST 6: Original Values Preserved
+# =============================================================================
+
+query I
+SELECT COUNT(*) FROM (
+    SELECT UNNEST(rls_fit_predict_agg(y, [x1, x2])) AS pred
+    FROM test_data
+)
+WHERE (pred).x IS NOT NULL AND LENGTH((pred).x) = 2;
+----
+10
+
+# =============================================================================
+# TEST 7: Configuration Options - forgetting_factor
+# =============================================================================
+
+query I
+SELECT LENGTH(rls_fit_predict_agg(y, [x1], {'forgetting_factor': 0.95})) FROM test_data;
+----
+10
+
+query I
+SELECT LENGTH(rls_fit_predict_agg(y, [x1], {'fit_intercept': false})) FROM test_data;
+----
+10
+
+# =============================================================================
+# TEST 8: Predictions Are Valid
+# Note: RLS prediction intervals may not vary with confidence_level in the same way
+# =============================================================================
+
+query I
+SELECT COUNT(*) FILTER (WHERE (pred).yhat IS NOT NULL)
+FROM (
+    SELECT UNNEST(rls_fit_predict_agg(y, [x1])) AS pred
+    FROM test_data
+);
+----
+10
+
+# =============================================================================
+# TEST 9: RLS handles small data better than OLS
+# Note: RLS can process even single observations due to online learning
+# =============================================================================
+
+query I
+SELECT LENGTH(rls_fit_predict_agg(y, [x1])) FROM (SELECT * FROM test_data LIMIT 3);
+----
+3
+
+# =============================================================================
+# TEST 10: Zero-Variance Feature Handling
+# =============================================================================
+
+statement ok
+CREATE TABLE const_feature_data AS
+SELECT
+    CASE WHEN i <= 7 THEN (2.0 * i + 1.0) ELSE NULL END AS y,
+    i::DOUBLE AS x_varying,
+    5.0 AS x_constant,
+    i AS id
+FROM range(1, 11) t(i);
+
+query I
+SELECT COUNT(*) FILTER (WHERE (pred).yhat IS NOT NULL) AS valid_predictions
+FROM (
+    SELECT UNNEST(rls_fit_predict_agg(y, [x_varying, x_constant])) AS pred
+    FROM const_feature_data
+);
+----
+10
+
+# =============================================================================
+# TEST 11: NaN Values in Features
+# =============================================================================
+
+statement ok
+CREATE TABLE nan_feature_data AS
+SELECT
+    CASE WHEN i <= 7 THEN (2.0 * i) ELSE NULL END AS y,
+    CASE WHEN i = 3 THEN 'NaN'::DOUBLE ELSE i::DOUBLE END AS x1,
+    i AS id
+FROM range(1, 11) t(i);
+
+query I
+SELECT LENGTH(rls_fit_predict_agg(y, [x1])) FROM nan_feature_data;
+----
+10
+
+# =============================================================================
+# TEST 12: Infinity Values
+# =============================================================================
+
+statement ok
+CREATE TABLE inf_data AS
+SELECT
+    CASE WHEN i <= 7 THEN (2.0 * i) ELSE NULL END AS y,
+    CASE WHEN i = 4 THEN 'Infinity'::DOUBLE ELSE i::DOUBLE END AS x1,
+    i AS id
+FROM range(1, 11) t(i);
+
+query I
+SELECT LENGTH(rls_fit_predict_agg(y, [x1])) FROM inf_data;
+----
+10
+
+# =============================================================================
+# TEST 13: All Training Rows (No Predictions)
+# =============================================================================
+
+statement ok
+CREATE TABLE all_training AS
+SELECT (2.0 * i + 1.0) AS y, i::DOUBLE AS x1, i AS id
+FROM range(1, 11) t(i);
+
+query II
+SELECT
+    SUM(CASE WHEN (pred).is_training THEN 1 ELSE 0 END) AS n_training,
+    SUM(CASE WHEN NOT (pred).is_training THEN 1 ELSE 0 END) AS n_prediction
+FROM (
+    SELECT UNNEST(rls_fit_predict_agg(y, [x1])) AS pred
+    FROM all_training
+);
+----
+10	0
+
+# =============================================================================
+# TEST 14: All Prediction Rows (No Training) - Should return NULL
+# =============================================================================
+
+statement ok
+CREATE TABLE all_prediction AS
+SELECT NULL::DOUBLE AS y, i::DOUBLE AS x1, i AS id
+FROM range(1, 11) t(i);
+
+query I
+SELECT rls_fit_predict_agg(y, [x1]) IS NULL FROM all_prediction;
+----
+true
+
+# =============================================================================
+# TEST 15: Single Observation - RLS can handle this
+# =============================================================================
+
+statement ok
+CREATE TABLE single_obs AS
+SELECT
+    CASE WHEN i = 1 THEN 5.0 ELSE NULL END AS y,
+    i::DOUBLE AS x1,
+    i AS id
+FROM range(1, 5) t(i);
+
+# Note: RLS fit_predict_agg with single observation returns NULL
+query I
+SELECT rls_fit_predict_agg(y, [x1]) IS NULL FROM single_obs;
+----
+true
+
+# =============================================================================
+# TEST 16: High-Dimensional Data (Many Features)
+# =============================================================================
+
+statement ok
+CREATE TABLE high_dim AS
+SELECT
+    CASE WHEN i <= 20 THEN (i * 1.5) ELSE NULL END AS y,
+    i::DOUBLE AS x1,
+    (i * 2)::DOUBLE AS x2,
+    (i * 3)::DOUBLE AS x3,
+    (i * 4)::DOUBLE AS x4,
+    (i * 5)::DOUBLE AS x5,
+    i AS id
+FROM range(1, 26) t(i);
+
+query I
+SELECT LENGTH(rls_fit_predict_agg(y, [x1, x2, x3, x4, x5])) FROM high_dim;
+----
+25
+
+# =============================================================================
+# TEST 17: Perfect Fit
+# =============================================================================
+
+statement ok
+CREATE TABLE perfect_fit AS
+SELECT
+    CASE WHEN i <= 8 THEN (3.0 * i + 2.0) ELSE NULL END AS y,
+    i::DOUBLE AS x1,
+    i AS id
+FROM range(1, 11) t(i);
+
+query I
+SELECT COUNT(*) FILTER (WHERE (pred).yhat IS NOT NULL)
+FROM (
+    SELECT UNNEST(rls_fit_predict_agg(y, [x1])) AS pred
+    FROM perfect_fit
+);
+----
+10
+
+# =============================================================================
+# TEST 18: Outliers in Training Data
+# =============================================================================
+
+statement ok
+CREATE TABLE outlier_data AS
+SELECT
+    CASE
+        WHEN i = 5 THEN 1000.0
+        WHEN i <= 8 THEN (2.0 * i)
+        ELSE NULL
+    END AS y,
+    i::DOUBLE AS x1,
+    i AS id
+FROM range(1, 11) t(i);
+
+query I
+SELECT COUNT(*) FILTER (WHERE (pred).yhat IS NOT NULL)
+FROM (
+    SELECT UNNEST(rls_fit_predict_agg(y, [x1])) AS pred
+    FROM outlier_data
+);
+----
+10
+
+# =============================================================================
+# TEST 19: Multicollinear Features
+# =============================================================================
+
+statement ok
+CREATE TABLE collinear_data AS
+SELECT
+    CASE WHEN i <= 8 THEN (2.0 * i) ELSE NULL END AS y,
+    i::DOUBLE AS x1,
+    (i * 2.0)::DOUBLE AS x2,
+    i AS id
+FROM range(1, 11) t(i);
+
+query I
+SELECT LENGTH(rls_fit_predict_agg(y, [x1, x2])) FROM collinear_data;
+----
+10
+
+# =============================================================================
+# TEST 20: Larger Dataset
+# =============================================================================
+
+statement ok
+CREATE TABLE large_data AS
+SELECT
+    CASE WHEN i <= 80 THEN (2.0 * i + 1.0) ELSE NULL END AS y,
+    i::DOUBLE AS x1,
+    (i * 0.5)::DOUBLE AS x2,
+    i AS id
+FROM range(1, 101) t(i);
+
+query I
+SELECT LENGTH(rls_fit_predict_agg(y, [x1, x2])) FROM large_data;
+----
+100
+
+# =============================================================================
+# TEST 21: Different Forgetting Factors
+# =============================================================================
+
+query I
+SELECT (
+    SELECT (pred).yhat FROM (SELECT UNNEST(rls_fit_predict_agg(y, [x1], {'forgetting_factor': 1.0})) AS pred FROM test_data) WHERE NOT (pred).is_training LIMIT 1
+) != (
+    SELECT (pred).yhat FROM (SELECT UNNEST(rls_fit_predict_agg(y, [x1], {'forgetting_factor': 0.9})) AS pred FROM test_data) WHERE NOT (pred).is_training LIMIT 1
+) AS different_predictions;
+----
+true
+
+# =============================================================================
+# CLEANUP
+# =============================================================================
+
+statement ok
+DROP TABLE IF EXISTS test_data;
+
+statement ok
+DROP TABLE IF EXISTS grouped_data;
+
+statement ok
+DROP TABLE IF EXISTS const_feature_data;
+
+statement ok
+DROP TABLE IF EXISTS nan_feature_data;
+
+statement ok
+DROP TABLE IF EXISTS inf_data;
+
+statement ok
+DROP TABLE IF EXISTS all_training;
+
+statement ok
+DROP TABLE IF EXISTS all_prediction;
+
+statement ok
+DROP TABLE IF EXISTS single_obs;
+
+statement ok
+DROP TABLE IF EXISTS high_dim;
+
+statement ok
+DROP TABLE IF EXISTS perfect_fit;
+
+statement ok
+DROP TABLE IF EXISTS outlier_data;
+
+statement ok
+DROP TABLE IF EXISTS collinear_data;
+
+statement ok
+DROP TABLE IF EXISTS large_data;

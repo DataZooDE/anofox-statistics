@@ -1483,13 +1483,16 @@ pub unsafe extern "C" fn anofox_predict_with_interval(
     }
 
     // Compute prediction: yhat = intercept + sum(coefficients[i] * x_new[i])
+    // NaN coefficients contribute 0 (skip them to avoid NaN propagation)
     let coef_slice = slice::from_raw_parts(coefficients, coefficients_len);
     let x_slice = slice::from_raw_parts(x_new, x_len);
 
     let intercept_val = if intercept.is_nan() { 0.0 } else { intercept };
     let mut yhat = intercept_val;
     for (coef, x_val) in coef_slice.iter().zip(x_slice.iter()) {
-        yhat += coef * x_val;
+        if !coef.is_nan() {
+            yhat += coef * x_val;
+        }
     }
 
     (*out_result).yhat = yhat;

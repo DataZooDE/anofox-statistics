@@ -126,6 +126,9 @@ set(EXTENSION_SOURCES
     src/aggregate_functions/poisson_aggregate.cpp
     src/aggregate_functions/alm_aggregate.cpp
     src/aggregate_functions/bls_aggregate.cpp
+    src/aggregate_functions/bls_fit_predict_aggregate.cpp
+    src/aggregate_functions/alm_fit_predict_aggregate.cpp
+    src/aggregate_functions/poisson_fit_predict_aggregate.cpp
     src/aggregate_functions/aid_aggregate.cpp
     src/aggregate_functions/shapiro_wilk_aggregate.cpp
     src/aggregate_functions/t_test_aggregate.cpp
@@ -171,6 +174,7 @@ set(EXTENSION_SOURCES
     src/window_functions/wls_fit_predict.cpp
     src/window_functions/rls_fit_predict.cpp
     src/window_functions/elasticnet_fit_predict.cpp
+    src/macros/fit_predict_macros.cpp
 )
 
 # Build static extension

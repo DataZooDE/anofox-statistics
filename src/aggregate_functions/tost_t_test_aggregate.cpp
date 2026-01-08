@@ -227,8 +227,9 @@ static void TostTTestAggFinalize(Vector &state_vector, AggregateInputData &aggr_
         FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = tost_result.bound_upper;
         FlatVector::GetData<bool>(*struct_entries[struct_idx++])[result_idx] = tost_result.equivalent;
         FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = static_cast<int64_t>(tost_result.n);
-        FlatVector::GetData<string_t>(*struct_entries[struct_idx++])[result_idx] =
-            StringVector::AddString(*struct_entries[struct_idx - 1], tost_result.method ? tost_result.method : "TOST Two-Sample t-test");
+        auto& method_vector = *struct_entries[struct_idx++];
+        FlatVector::GetData<string_t>(method_vector)[result_idx] =
+            StringVector::AddString(method_vector, tost_result.method ? tost_result.method : "TOST Two-Sample t-test");
 
         anofox_free_tost_result(&tost_result);
         state.Reset();

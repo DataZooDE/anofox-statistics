@@ -249,12 +249,7 @@ static void RidgePredictAggFinalize(Vector &state_vector, AggregateInputData &ag
             continue;
         }
 
-        idx_t min_obs = state.fit_intercept ? state.n_features + 1 : state.n_features;
-        if (state.y_train.size() <= min_obs) {
-            FlatVector::SetNull(result, result_idx, true);
-            continue;
-        }
-
+        // Note: Detailed min_obs validation including zero-variance column handling is done in Rust
         AnofoxDataArray y_array;
         y_array.data = state.y_train.data();
         y_array.validity = nullptr;
@@ -376,25 +371,26 @@ static unique_ptr<FunctionData> RidgePredictAggBind(ClientContext &context, Aggr
     }
 
     function.return_type = GetRidgePredictAggResultType();
-    PostHogTelemetry::Instance().CaptureFunctionExecution("ridge_predict_agg");
+    PostHogTelemetry::Instance().CaptureFunctionExecution("ridge_fit_predict_agg");
     return std::move(result);
 }
 
 //===--------------------------------------------------------------------===//
 // Registration
 //===--------------------------------------------------------------------===//
-void RegisterRidgePredictAggregateFunction(ExtensionLoader &loader) {
-    AggregateFunctionSet func_set("anofox_stats_ridge_predict_agg");
+void RegisterRidgeFitPredictAggregateFunction(ExtensionLoader &loader) {
+    // Primary name (new)
+    AggregateFunctionSet func_set("anofox_stats_ridge_fit_predict_agg");
 
     auto basic_func = AggregateFunction(
-        "anofox_stats_ridge_predict_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
+        "anofox_stats_ridge_fit_predict_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
         LogicalType::ANY, AggregateFunction::StateSize<RidgePredictAggState>, RidgePredictAggInitialize,
         RidgePredictAggUpdate, RidgePredictAggCombine, RidgePredictAggFinalize, nullptr, RidgePredictAggBind,
         RidgePredictAggDestroy);
     func_set.AddFunction(basic_func);
 
     auto map_func = AggregateFunction(
-        "anofox_stats_ridge_predict_agg",
+        "anofox_stats_ridge_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY}, LogicalType::ANY,
         AggregateFunction::StateSize<RidgePredictAggState>, RidgePredictAggInitialize, RidgePredictAggUpdate,
         RidgePredictAggCombine, RidgePredictAggFinalize, nullptr, RidgePredictAggBind, RidgePredictAggDestroy);
@@ -402,10 +398,22 @@ void RegisterRidgePredictAggregateFunction(ExtensionLoader &loader) {
 
     loader.RegisterFunction(func_set);
 
-    AggregateFunctionSet alias_set("ridge_predict_agg");
+    // Short alias (new)
+    AggregateFunctionSet alias_set("ridge_fit_predict_agg");
     alias_set.AddFunction(basic_func);
     alias_set.AddFunction(map_func);
     loader.RegisterFunction(alias_set);
+
+    // Deprecated aliases (old names for backwards compatibility)
+    AggregateFunctionSet deprecated_set("ridge_predict_agg");
+    deprecated_set.AddFunction(basic_func);
+    deprecated_set.AddFunction(map_func);
+    loader.RegisterFunction(deprecated_set);
+
+    AggregateFunctionSet deprecated_full_set("anofox_stats_ridge_predict_agg");
+    deprecated_full_set.AddFunction(basic_func);
+    deprecated_full_set.AddFunction(map_func);
+    loader.RegisterFunction(deprecated_full_set);
 }
 
 } // namespace duckdb

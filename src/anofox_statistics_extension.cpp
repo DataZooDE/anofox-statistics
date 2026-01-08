@@ -148,18 +148,24 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterRlsFitPredictFunction(loader);
     RegisterElasticNetFitPredictFunction(loader);
 
-    // Register predict aggregate functions (non-rolling)
-    RegisterOlsPredictAggregateFunction(loader);
-    RegisterRidgePredictAggregateFunction(loader);
-    RegisterWlsPredictAggregateFunction(loader);
-    RegisterRlsPredictAggregateFunction(loader);
-    RegisterElasticNetPredictAggregateFunction(loader);
+    // Register fit + predict aggregate functions (with deprecated aliases)
+    RegisterOlsFitPredictAggregateFunction(loader);
+    RegisterRidgeFitPredictAggregateFunction(loader);
+    RegisterWlsFitPredictAggregateFunction(loader);
+    RegisterRlsFitPredictAggregateFunction(loader);
+    RegisterElasticNetFitPredictAggregateFunction(loader);
+    RegisterBlsFitPredictAggregateFunction(loader);
+    RegisterAlmFitPredictAggregateFunction(loader);
+    RegisterPoissonFitPredictAggregateFunction(loader);
 
     // Register diagnostic functions
     RegisterVifFunction(loader);
     RegisterAicBicFunctions(loader);
     RegisterJarqueBeraFunction(loader);
     RegisterResidualsDiagnosticsFunction(loader);
+
+    // Register table macros for fit_predict_by functions
+    RegisterFitPredictTableMacros(loader);
 }
 
 void AnofoxStatisticsExtension::Load(ExtensionLoader &loader) {

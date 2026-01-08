@@ -175,8 +175,9 @@ static void AnovaAggFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
         FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = anova_result.ss_within;
         FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = static_cast<int64_t>(anova_result.n_groups);
         FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = static_cast<int64_t>(anova_result.n);
-        FlatVector::GetData<string_t>(*struct_entries[struct_idx++])[result_idx] =
-            StringVector::AddString(*struct_entries[struct_idx - 1], anova_result.method ? anova_result.method : "One-Way ANOVA");
+        auto& method_vector = *struct_entries[struct_idx++];
+        FlatVector::GetData<string_t>(method_vector)[result_idx] =
+            StringVector::AddString(method_vector, anova_result.method ? anova_result.method : "One-Way ANOVA");
 
         anofox_free_anova_result(&anova_result);
         state.Reset();

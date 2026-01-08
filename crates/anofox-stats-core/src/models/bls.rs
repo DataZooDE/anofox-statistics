@@ -76,22 +76,73 @@ pub fn fit_bls(y: &[f64], x: &[Vec<f64>], options: &BlsOptions) -> StatsResult<B
         return Err(StatsError::NoValidData);
     }
 
-    // Need at least n_features + 1 observations (for intercept)
+    // Detect zero-variance (constant) columns BEFORE min_obs check
+    let is_constant_column: Vec<bool> = x
+        .iter()
+        .map(|col| {
+            if valid_indices.is_empty() {
+                return true;
+            }
+            let first_val = col[valid_indices[0]];
+            valid_indices
+                .iter()
+                .all(|&i| (col[i] - first_val).abs() < 1e-10)
+        })
+        .collect();
+
+    // Count non-constant features for min_obs calculation
+    let n_effective_features = is_constant_column.iter().filter(|&&c| !c).count();
+
+    // Check we have enough observations for the effective (non-constant) features
     let min_obs = if options.fit_intercept {
-        n_features + 1
+        n_effective_features + 1
     } else {
-        n_features
+        n_effective_features
     };
-    if n_valid <= min_obs {
+
+    // If ALL columns are constant, we can still fit (intercept-only model if fit_intercept=true)
+    if n_effective_features == 0 {
+        if !options.fit_intercept {
+            return Err(StatsError::InsufficientData {
+                rows: n_valid,
+                cols: n_features,
+            });
+        }
+        // Intercept-only model: compute mean of y as intercept
+        let y_mean = valid_indices.iter().map(|&i| y[i]).sum::<f64>() / n_valid as f64;
+
+        return Ok(BlsFitResult {
+            coefficients: vec![f64::NAN; n_features],
+            intercept: Some(y_mean),
+            ssr: f64::NAN,
+            r_squared: 0.0,
+            n_observations: n_valid,
+            n_features,
+            n_active_constraints: 0,
+            at_lower_bound: vec![false; n_features],
+            at_upper_bound: vec![false; n_features],
+        });
+    }
+
+    if n_valid < min_obs {
         return Err(StatsError::InsufficientData {
             rows: n_valid,
             cols: n_features,
         });
     }
 
-    // Convert to faer types
+    // Build reduced X matrix (only non-constant columns)
+    let non_constant_indices: Vec<usize> = is_constant_column
+        .iter()
+        .enumerate()
+        .filter_map(|(i, &is_const)| if !is_const { Some(i) } else { None })
+        .collect();
+
+    // Convert to faer types (only non-constant columns)
     let y_col = Col::from_fn(n_valid, |i| y[valid_indices[i]]);
-    let x_mat = Mat::from_fn(n_valid, n_features, |i, j| x[j][valid_indices[i]]);
+    let x_mat = Mat::from_fn(n_valid, n_effective_features, |i, j| {
+        x[non_constant_indices[j]][valid_indices[i]]
+    });
 
     // Build regressor based on options
     let fitted = if options.lower_bounds.is_none() && options.upper_bounds.is_none() {
@@ -136,12 +187,47 @@ pub fn fit_bls(y: &[f64], x: &[Vec<f64>], options: &BlsOptions) -> StatsResult<B
 
     // Extract results
     let result = fitted.result();
-    let coefficients: Vec<f64> = result.coefficients.iter().copied().collect();
+
+    // Reconstruct full coefficient vector with NaN for constant columns
+    let reduced_coefficients: Vec<f64> = result.coefficients.iter().copied().collect();
+    let mut coefficients = vec![f64::NAN; n_features];
+    for (reduced_idx, &orig_idx) in non_constant_indices.iter().enumerate() {
+        coefficients[orig_idx] = reduced_coefficients[reduced_idx];
+    }
     let intercept = result.intercept;
 
-    // Determine which coefficients are at bounds
-    let (at_lower_bound, at_upper_bound, n_active) =
-        compute_active_constraints(&coefficients, options, options.tolerance);
+    // Determine which coefficients are at bounds (only for non-constant columns)
+    // For constant columns, they are neither at lower nor upper bound
+    let mut at_lower_bound = vec![false; n_features];
+    let mut at_upper_bound = vec![false; n_features];
+    let mut n_active = 0;
+
+    for (reduced_idx, &orig_idx) in non_constant_indices.iter().enumerate() {
+        let coef = reduced_coefficients[reduced_idx];
+
+        // Check lower bound
+        let lower = match &options.lower_bounds {
+            Some(bounds) if bounds.len() == 1 => bounds[0],
+            Some(bounds) if orig_idx < bounds.len() => bounds[orig_idx],
+            None => 0.0, // Default for NNLS
+            _ => f64::NEG_INFINITY,
+        };
+
+        // Check upper bound
+        let upper = match &options.upper_bounds {
+            Some(bounds) if bounds.len() == 1 => bounds[0],
+            Some(bounds) if orig_idx < bounds.len() => bounds[orig_idx],
+            _ => f64::INFINITY,
+        };
+
+        if lower.is_finite() && (coef - lower).abs() < options.tolerance {
+            at_lower_bound[orig_idx] = true;
+            n_active += 1;
+        } else if upper.is_finite() && (coef - upper).abs() < options.tolerance {
+            at_upper_bound[orig_idx] = true;
+            n_active += 1;
+        }
+    }
 
     Ok(BlsFitResult {
         coefficients,
@@ -171,6 +257,7 @@ pub fn fit_nnls(y: &[f64], x: &[Vec<f64>]) -> StatsResult<BlsFitResult> {
 }
 
 /// Compute which constraints are active (coefficients at bounds)
+#[allow(dead_code)]
 fn compute_active_constraints(
     coefficients: &[f64],
     options: &BlsOptions,

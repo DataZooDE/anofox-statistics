@@ -1,0 +1,227 @@
+# name: test/sql/hypothesis_tests/test_mann_whitney_agg.test
+# description: Test mann_whitney_u_agg aggregate function
+# group: [hypothesis_tests]
+
+require anofox_statistics
+
+# =============================================================================
+# SETUP: Create test data
+# Treatment group has higher values than control
+# =============================================================================
+
+statement ok
+CREATE TABLE two_groups AS
+SELECT * FROM (VALUES
+    (5.0, 0), (4.0, 0), (5.0, 0), (3.0, 0), (4.0, 0), (5.0, 0), (4.0, 0), (5.0, 0),
+    (3.0, 1), (2.0, 1), (3.0, 1), (4.0, 1), (2.0, 1), (3.0, 1), (2.0, 1), (3.0, 1)
+) AS t(value, grp);
+
+# =============================================================================
+# TEST 1: Basic Mann-Whitney U test returns valid result structure
+# =============================================================================
+
+query I
+SELECT (mann_whitney_u_agg(value, grp)).statistic IS NOT NULL FROM two_groups;
+----
+true
+
+query I
+SELECT (mann_whitney_u_agg(value, grp)).p_value IS NOT NULL FROM two_groups;
+----
+true
+
+query I
+SELECT (mann_whitney_u_agg(value, grp)).effect_size IS NOT NULL FROM two_groups;
+----
+true
+
+query I
+SELECT (mann_whitney_u_agg(value, grp)).ci_lower IS NOT NULL FROM two_groups;
+----
+true
+
+query I
+SELECT (mann_whitney_u_agg(value, grp)).ci_upper IS NOT NULL FROM two_groups;
+----
+true
+
+query I
+SELECT (mann_whitney_u_agg(value, grp)).n1 IS NOT NULL FROM two_groups;
+----
+true
+
+query I
+SELECT (mann_whitney_u_agg(value, grp)).n2 IS NOT NULL FROM two_groups;
+----
+true
+
+query I
+SELECT (mann_whitney_u_agg(value, grp)).method IS NOT NULL FROM two_groups;
+----
+true
+
+# =============================================================================
+# TEST 2: Significant difference (group 0 values > group 1 values)
+# =============================================================================
+
+query I
+SELECT (mann_whitney_u_agg(value, grp)).p_value < 0.05 FROM two_groups;
+----
+true
+
+# =============================================================================
+# TEST 3: Sample sizes are correct
+# =============================================================================
+
+query II
+SELECT (mann_whitney_u_agg(value, grp)).n1, (mann_whitney_u_agg(value, grp)).n2 FROM two_groups;
+----
+8	8
+
+# =============================================================================
+# TEST 4: No significant difference
+# =============================================================================
+
+statement ok
+CREATE TABLE no_diff AS
+SELECT * FROM (VALUES
+    (5.0, 0), (4.0, 0), (5.0, 0), (3.0, 0), (4.0, 0),
+    (5.1, 1), (4.1, 1), (4.9, 1), (3.1, 1), (4.1, 1)
+) AS t(value, grp);
+
+query I
+SELECT (mann_whitney_u_agg(value, grp)).p_value > 0.05 FROM no_diff;
+----
+true
+
+# =============================================================================
+# TEST 5: One-sided test (less) - group 0 should be greater than group 1
+# =============================================================================
+
+query I
+SELECT (mann_whitney_u_agg(value, grp, {'alternative': 'less'})).p_value > 0.9 FROM two_groups;
+----
+true
+
+# =============================================================================
+# TEST 6: One-sided test (greater) - group 0 should be greater than group 1
+# =============================================================================
+
+query I
+SELECT (mann_whitney_u_agg(value, grp, {'alternative': 'greater'})).p_value < 0.05 FROM two_groups;
+----
+true
+
+# =============================================================================
+# TEST 7: Continuity correction
+# =============================================================================
+
+query I
+SELECT (mann_whitney_u_agg(value, grp, {'continuity_correction': true})).p_value IS NOT NULL FROM two_groups;
+----
+true
+
+query I
+SELECT (mann_whitney_u_agg(value, grp, {'continuity_correction': false})).p_value IS NOT NULL FROM two_groups;
+----
+true
+
+# =============================================================================
+# TEST 8: GROUP BY partitioning
+# =============================================================================
+
+statement ok
+CREATE TABLE grouped_data AS
+SELECT * FROM (VALUES
+    ('A', 10.0, 0), ('A', 12.0, 0), ('A', 11.0, 0), ('A', 13.0, 0),
+    ('A', 5.0, 1), ('A', 6.0, 1), ('A', 4.0, 1), ('A', 7.0, 1),
+    ('B', 5.0, 0), ('B', 6.0, 0), ('B', 5.5, 0), ('B', 6.5, 0),
+    ('B', 5.1, 1), ('B', 6.1, 1), ('B', 5.6, 1), ('B', 6.6, 1)
+) AS t(category, value, grp);
+
+query TI
+SELECT category, (mann_whitney_u_agg(value, grp)).p_value < 0.05 AS significant
+FROM grouped_data
+GROUP BY category
+ORDER BY category;
+----
+A	true
+B	false
+
+# =============================================================================
+# TEST 9: Tied values handling
+# =============================================================================
+
+statement ok
+CREATE TABLE tied_data AS
+SELECT * FROM (VALUES
+    (1.0, 0), (2.0, 0), (2.0, 0), (3.0, 0),
+    (3.0, 1), (4.0, 1), (4.0, 1), (5.0, 1)
+) AS t(value, grp);
+
+query I
+SELECT (mann_whitney_u_agg(value, grp)).statistic IS NOT NULL FROM tied_data;
+----
+true
+
+# =============================================================================
+# TEST 10: Minimal data (only 1 observation per group) - still computes result
+# =============================================================================
+
+statement ok
+CREATE TABLE insufficient AS
+SELECT * FROM (VALUES
+    (10.0, 0),
+    (20.0, 1)
+) AS t(value, grp);
+
+query I
+SELECT (mann_whitney_u_agg(value, grp)).statistic IS NOT NULL FROM insufficient;
+----
+true
+
+# =============================================================================
+# TEST 11: All same group
+# =============================================================================
+
+statement ok
+CREATE TABLE same_group AS
+SELECT * FROM (VALUES
+    (10.0, 0), (11.0, 0), (12.0, 0), (13.0, 0)
+) AS t(value, grp);
+
+query I
+SELECT mann_whitney_u_agg(value, grp) IS NULL FROM same_group;
+----
+true
+
+# =============================================================================
+# TEST 12: Alias verification (anofox_stats_mann_whitney_u_agg)
+# =============================================================================
+
+query I
+SELECT (anofox_stats_mann_whitney_u_agg(value, grp)).statistic IS NOT NULL FROM two_groups;
+----
+true
+
+# =============================================================================
+# CLEANUP
+# =============================================================================
+
+statement ok
+DROP TABLE IF EXISTS two_groups;
+
+statement ok
+DROP TABLE IF EXISTS no_diff;
+
+statement ok
+DROP TABLE IF EXISTS grouped_data;
+
+statement ok
+DROP TABLE IF EXISTS tied_data;
+
+statement ok
+DROP TABLE IF EXISTS insufficient;
+
+statement ok
+DROP TABLE IF EXISTS same_group;
