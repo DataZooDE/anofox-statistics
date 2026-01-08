@@ -1,0 +1,196 @@
+# name: test/sql/forecast/test_forecast_tests.test
+# description: Test forecast comparison aggregate functions (Diebold-Mariano, Clark-West)
+# group: [forecast]
+
+require anofox_statistics
+
+# =============================================================================
+# DIEBOLD-MARIANO TEST
+# Signature: diebold_mariano_agg(actual DOUBLE, forecast1 DOUBLE, forecast2 DOUBLE, options MAP)
+# Returns: STRUCT(statistic, p_value, n, method)
+# =============================================================================
+
+# Create forecast data: actual values with two different forecasts
+# Model 1 (forecast1) has smaller errors than Model 2 (forecast2)
+statement ok
+CREATE TABLE dm_data AS
+SELECT * FROM (VALUES
+    (100.0, 100.5, 102.0), (102.0, 102.3, 103.8), (98.0, 97.8, 96.5),
+    (105.0, 105.4, 107.2), (99.0, 98.7, 97.1), (101.0, 101.1, 103.1),
+    (103.0, 102.6, 101.4), (97.0, 97.2, 99.0), (106.0, 106.3, 108.3),
+    (100.0, 99.9, 98.1), (104.0, 104.2, 106.1), (98.0, 97.8, 95.9),
+    (102.0, 102.4, 104.2), (99.0, 98.6, 96.8), (105.0, 105.1, 107.0),
+    (101.0, 101.3, 103.2), (103.0, 102.8, 100.9), (97.0, 96.9, 94.9),
+    (106.0, 106.5, 108.4), (100.0, 100.2, 102.1)
+) AS t(actual, forecast1, forecast2);
+
+# TEST 1: Diebold-Mariano returns valid result structure
+query I
+SELECT (diebold_mariano_agg(actual, forecast1, forecast2)).statistic IS NOT NULL FROM dm_data;
+----
+true
+
+query I
+SELECT (diebold_mariano_agg(actual, forecast1, forecast2)).p_value IS NOT NULL FROM dm_data;
+----
+true
+
+query I
+SELECT (diebold_mariano_agg(actual, forecast1, forecast2)).n IS NOT NULL FROM dm_data;
+----
+true
+
+query I
+SELECT (diebold_mariano_agg(actual, forecast1, forecast2)).method IS NOT NULL FROM dm_data;
+----
+true
+
+# TEST 2: Sample size correct
+query I
+SELECT (diebold_mariano_agg(actual, forecast1, forecast2)).n = 20 FROM dm_data;
+----
+true
+
+# TEST 3: P-value in valid range
+query I
+SELECT (diebold_mariano_agg(actual, forecast1, forecast2)).p_value BETWEEN 0 AND 1 FROM dm_data;
+----
+true
+
+# TEST 4: With options
+query I
+SELECT (diebold_mariano_agg(actual, forecast1, forecast2, {'horizon': 1})).statistic IS NOT NULL FROM dm_data;
+----
+true
+
+# TEST 5: Equal forecast accuracy (similar forecasts)
+statement ok
+CREATE TABLE equal_accuracy AS
+SELECT * FROM (VALUES
+    (100.0, 100.5, 100.6), (102.0, 102.3, 102.2), (98.0, 97.8, 97.9),
+    (105.0, 105.4, 105.3), (99.0, 98.7, 98.8), (101.0, 101.1, 101.0),
+    (103.0, 102.6, 102.7), (97.0, 97.2, 97.1), (106.0, 106.3, 106.2),
+    (100.0, 99.9, 100.0), (104.0, 104.2, 104.1), (98.0, 97.8, 97.9),
+    (102.0, 102.4, 102.3), (99.0, 98.6, 98.7), (105.0, 105.1, 105.0),
+    (101.0, 101.3, 101.2), (103.0, 102.8, 102.9), (97.0, 96.9, 97.0),
+    (106.0, 106.5, 106.4), (100.0, 100.2, 100.1)
+) AS t(actual, forecast1, forecast2);
+
+query I
+SELECT (diebold_mariano_agg(actual, forecast1, forecast2)).p_value IS NOT NULL FROM equal_accuracy;
+----
+true
+
+# TEST 6: Alias verification
+query I
+SELECT (anofox_stats_diebold_mariano_agg(actual, forecast1, forecast2)).statistic IS NOT NULL FROM dm_data;
+----
+true
+
+# =============================================================================
+# CLARK-WEST TEST
+# Signature: clark_west_agg(actual DOUBLE, forecast_restricted DOUBLE, forecast_unrestricted DOUBLE, options MAP)
+# Returns: STRUCT(statistic, p_value, n, method)
+# =============================================================================
+
+# Clark-West test for nested models
+statement ok
+CREATE TABLE cw_data AS
+SELECT * FROM (VALUES
+    (100.0, 100.5, 102.0), (102.0, 102.3, 103.8), (98.0, 97.8, 96.5),
+    (105.0, 105.4, 107.2), (99.0, 98.7, 97.1), (101.0, 101.1, 103.1),
+    (103.0, 102.6, 101.4), (97.0, 97.2, 99.0), (106.0, 106.3, 108.3),
+    (100.0, 99.9, 98.1), (104.0, 104.2, 106.1), (98.0, 97.8, 95.9),
+    (102.0, 102.4, 104.2), (99.0, 98.6, 96.8), (105.0, 105.1, 107.0),
+    (101.0, 101.3, 103.2), (103.0, 102.8, 100.9), (97.0, 96.9, 94.9),
+    (106.0, 106.5, 108.4), (100.0, 100.2, 102.1)
+) AS t(actual, forecast_restricted, forecast_unrestricted);
+
+# TEST 7: Clark-West returns valid result structure
+query I
+SELECT (clark_west_agg(actual, forecast_restricted, forecast_unrestricted)).statistic IS NOT NULL FROM cw_data;
+----
+true
+
+query I
+SELECT (clark_west_agg(actual, forecast_restricted, forecast_unrestricted)).p_value IS NOT NULL FROM cw_data;
+----
+true
+
+query I
+SELECT (clark_west_agg(actual, forecast_restricted, forecast_unrestricted)).n IS NOT NULL FROM cw_data;
+----
+true
+
+query I
+SELECT (clark_west_agg(actual, forecast_restricted, forecast_unrestricted)).method IS NOT NULL FROM cw_data;
+----
+true
+
+# TEST 8: Sample size correct
+query I
+SELECT (clark_west_agg(actual, forecast_restricted, forecast_unrestricted)).n = 20 FROM cw_data;
+----
+true
+
+# TEST 9: P-value in valid range
+query I
+SELECT (clark_west_agg(actual, forecast_restricted, forecast_unrestricted)).p_value BETWEEN 0 AND 1 FROM cw_data;
+----
+true
+
+# TEST 10: With options
+query I
+SELECT (clark_west_agg(actual, forecast_restricted, forecast_unrestricted, {'horizon': 1})).statistic IS NOT NULL FROM cw_data;
+----
+true
+
+# TEST 11: Alias verification
+query I
+SELECT (anofox_stats_clark_west_agg(actual, forecast_restricted, forecast_unrestricted)).statistic IS NOT NULL FROM cw_data;
+----
+true
+
+# =============================================================================
+# GROUP BY PARTITIONING
+# =============================================================================
+
+statement ok
+CREATE TABLE grouped_data AS
+SELECT * FROM (VALUES
+    ('better', 100.0, 100.1, 102.0), ('better', 102.0, 102.2, 104.0),
+    ('better', 98.0, 98.0, 96.0), ('better', 105.0, 105.0, 107.0),
+    ('better', 99.0, 98.9, 97.0), ('better', 101.0, 101.1, 103.1),
+    ('better', 103.0, 103.0, 101.0), ('better', 97.0, 97.2, 99.0),
+    ('better', 106.0, 106.0, 108.0), ('better', 100.0, 100.0, 98.0),
+    ('similar', 100.0, 100.5, 100.6), ('similar', 102.0, 102.3, 102.2),
+    ('similar', 98.0, 97.8, 97.9), ('similar', 105.0, 105.4, 105.3),
+    ('similar', 99.0, 98.7, 98.8), ('similar', 101.0, 101.1, 101.0),
+    ('similar', 103.0, 102.6, 102.7), ('similar', 97.0, 97.2, 97.1),
+    ('similar', 106.0, 106.3, 106.2), ('similar', 100.0, 99.9, 100.0)
+) AS t(category, actual, forecast1, forecast2);
+
+query TI
+SELECT category, (diebold_mariano_agg(actual, forecast1, forecast2)).p_value IS NOT NULL AS has_result
+FROM grouped_data
+GROUP BY category
+ORDER BY category;
+----
+better	true
+similar	true
+
+# =============================================================================
+# CLEANUP
+# =============================================================================
+
+statement ok
+DROP TABLE IF EXISTS dm_data;
+
+statement ok
+DROP TABLE IF EXISTS equal_accuracy;
+
+statement ok
+DROP TABLE IF EXISTS cw_data;
+
+statement ok
+DROP TABLE IF EXISTS grouped_data;

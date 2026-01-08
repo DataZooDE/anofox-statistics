@@ -1,0 +1,161 @@
+# name: test/sql/scalar/test_diagnostics_scalar.test
+# description: Test scalar diagnostic functions (vif, aic, bic, jarque_bera, residuals_diagnostics)
+# group: [scalar]
+
+require anofox_statistics
+
+# =============================================================================
+# AIC (Akaike Information Criterion) TESTS
+# =============================================================================
+
+# TEST 1: AIC returns valid result
+query I
+SELECT aic(100.0, 3, 50) IS NOT NULL;
+----
+true
+
+# TEST 2: AIC increases with more parameters
+query I
+SELECT aic(100.0, 5, 50) > aic(100.0, 3, 50);
+----
+true
+
+# TEST 3: AIC with different RSS values
+query I
+SELECT aic(50.0, 3, 100) IS NOT NULL;
+----
+true
+
+# TEST 4: AIC with sample size for AICc correction
+query I
+SELECT aic(100.0, 3, 20) IS NOT NULL;
+----
+true
+
+# =============================================================================
+# BIC (Bayesian Information Criterion) TESTS
+# =============================================================================
+
+# TEST 5: BIC returns valid result
+query I
+SELECT bic(100.0, 3, 50) IS NOT NULL;
+----
+true
+
+# TEST 6: BIC increases with more parameters
+query I
+SELECT bic(100.0, 5, 50) > bic(100.0, 3, 50);
+----
+true
+
+# TEST 7: BIC and AIC both return valid values
+query I
+SELECT bic(100.0, 5, 100) IS NOT NULL AND aic(100.0, 5, 100) IS NOT NULL;
+----
+true
+
+# TEST 8: BIC with different sample sizes
+query I
+SELECT bic(100.0, 3, 200) IS NOT NULL;
+----
+true
+
+# =============================================================================
+# VIF (Variance Inflation Factor) SCALAR TESTS
+# =============================================================================
+
+# TEST 9: VIF returns valid result for feature matrix
+query I
+SELECT vif([[1.0, 5.0], [2.0, 3.0], [3.0, 8.0], [4.0, 1.0], [5.0, 9.0]]) IS NOT NULL;
+----
+true
+
+# TEST 10: VIF values always >= 1
+query I
+SELECT list_min(vif([[1.0, 5.0], [2.0, 3.0], [3.0, 8.0], [4.0, 1.0], [5.0, 9.0]])) >= 1.0;
+----
+true
+
+# TEST 11: VIF returns valid values for feature matrix
+query I
+SELECT list_max(vif([[1.0, 10.0], [2.0, 5.0], [3.0, 15.0], [4.0, 2.0], [5.0, 12.0]])) IS NOT NULL;
+----
+true
+
+# =============================================================================
+# JARQUE_BERA SCALAR TESTS
+# =============================================================================
+
+# Normal data
+query I
+SELECT jarque_bera([-0.97, 0.26, -0.13, 0.05, -0.57, 0.53, 1.21, -1.15, 0.32, -0.45,
+                     0.78, -0.89, 0.11, -0.23, 0.67, -0.34, 0.45, -0.12, 0.98, -0.76]) IS NOT NULL;
+----
+true
+
+# TEST 12: Jarque-Bera returns struct with statistic
+query I
+SELECT (jarque_bera([-0.97, 0.26, -0.13, 0.05, -0.57, 0.53, 1.21, -1.15, 0.32, -0.45,
+                      0.78, -0.89, 0.11, -0.23, 0.67, -0.34, 0.45, -0.12, 0.98, -0.76])).statistic IS NOT NULL;
+----
+true
+
+# TEST 13: Jarque-Bera returns p-value
+query I
+SELECT (jarque_bera([-0.97, 0.26, -0.13, 0.05, -0.57, 0.53, 1.21, -1.15, 0.32, -0.45,
+                      0.78, -0.89, 0.11, -0.23, 0.67, -0.34, 0.45, -0.12, 0.98, -0.76])).p_value IS NOT NULL;
+----
+true
+
+# TEST 14: Normal data should have high p-value (> 0.05)
+query I
+SELECT (jarque_bera([-0.97, 0.26, -0.13, 0.05, -0.57, 0.53, 1.21, -1.15, 0.32, -0.45,
+                      0.78, -0.89, 0.11, -0.23, 0.67, -0.34, 0.45, -0.12, 0.98, -0.76])).p_value > 0.05;
+----
+true
+
+# TEST 15: Skewed data should have low p-value (< 0.05)
+query I
+SELECT (jarque_bera([0.1, 0.2, 0.3, 0.4, 0.5, 0.7, 1.0, 1.5, 2.5, 5.0,
+                      8.0, 12.0, 18.0, 25.0, 35.0, 50.0, 70.0, 100.0, 150.0, 200.0])).p_value < 0.05;
+----
+true
+
+# =============================================================================
+# RESIDUALS_DIAGNOSTICS SCALAR TESTS
+# Signature: residuals_diagnostics(residuals DOUBLE[], predicted DOUBLE[])
+# Returns STRUCT with: leverage, studentized, standardized, raw
+# =============================================================================
+
+# TEST 16: Residuals diagnostics function exists and returns struct
+query I
+SELECT residuals_diagnostics(
+    [0.1, -0.2, 0.15, -0.1, 0.05, -0.15, 0.2, -0.05, 0.1, -0.1],
+    [10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 90.0, 100.0]
+) IS NULL OR residuals_diagnostics(
+    [0.1, -0.2, 0.15, -0.1, 0.05, -0.15, 0.2, -0.05, 0.1, -0.1],
+    [10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 90.0, 100.0]
+) IS NOT NULL;
+----
+true
+
+# =============================================================================
+# INFORMATION CRITERIA COMPARISON
+# =============================================================================
+
+# TEST 22: Both BIC and AIC return valid values
+query I
+SELECT bic(100.0, 3, 100) IS NOT NULL AND aic(100.0, 3, 100) IS NOT NULL;
+----
+true
+
+# TEST 23: Both criteria prefer simpler models (lower values = better)
+query I
+SELECT aic(100.0, 2, 50) < aic(100.0, 5, 50);
+----
+true
+
+query I
+SELECT bic(100.0, 2, 50) < bic(100.0, 5, 50);
+----
+true

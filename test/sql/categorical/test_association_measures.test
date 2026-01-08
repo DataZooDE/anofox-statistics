@@ -1,0 +1,265 @@
+# name: test/sql/categorical/test_association_measures.test
+# description: Test association measure aggregate functions (Cramér's V, Phi, Contingency Coefficient, Cohen's Kappa)
+# group: [categorical]
+
+require anofox_statistics
+
+# =============================================================================
+# SETUP: Create 2x2 contingency table with strong association
+# =============================================================================
+
+statement ok
+CREATE TABLE assoc_data AS
+SELECT * FROM (VALUES
+    (0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0),
+    (0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0),
+    (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+    (1, 0), (1, 0), (1, 0), (1, 0), (1, 0),
+    (1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1),
+    (1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1)
+) AS t(row_var, col_var);
+
+# =============================================================================
+# CRAMÉR'S V TESTS (Returns DOUBLE, not STRUCT)
+# =============================================================================
+
+# TEST 1: Cramér's V returns valid result
+query I
+SELECT cramers_v_agg(row_var, col_var) IS NOT NULL FROM assoc_data;
+----
+true
+
+# TEST 2: Cramér's V between 0 and 1
+query I
+SELECT cramers_v_agg(row_var, col_var) BETWEEN 0 AND 1 FROM assoc_data;
+----
+true
+
+# TEST 3: Strong association should have high Cramér's V (> 0.3)
+query I
+SELECT cramers_v_agg(row_var, col_var) > 0.3 FROM assoc_data;
+----
+true
+
+# TEST 4: Alias verification
+query I
+SELECT anofox_stats_cramers_v_agg(row_var, col_var) IS NOT NULL FROM assoc_data;
+----
+true
+
+# =============================================================================
+# PHI COEFFICIENT TESTS (Returns DOUBLE, not STRUCT)
+# =============================================================================
+
+# TEST 5: Phi coefficient returns valid result
+query I
+SELECT phi_coefficient_agg(row_var, col_var) IS NOT NULL FROM assoc_data;
+----
+true
+
+# TEST 6: Phi coefficient between -1 and 1
+query I
+SELECT phi_coefficient_agg(row_var, col_var) BETWEEN -1 AND 1 FROM assoc_data;
+----
+true
+
+# TEST 7: Positive association should have positive phi
+query I
+SELECT phi_coefficient_agg(row_var, col_var) > 0 FROM assoc_data;
+----
+true
+
+# TEST 8: Alias verification
+query I
+SELECT anofox_stats_phi_coefficient_agg(row_var, col_var) IS NOT NULL FROM assoc_data;
+----
+true
+
+# =============================================================================
+# CONTINGENCY COEFFICIENT TESTS (Returns DOUBLE, not STRUCT)
+# =============================================================================
+
+# TEST 9: Contingency coefficient returns valid result
+query I
+SELECT contingency_coef_agg(row_var, col_var) IS NOT NULL FROM assoc_data;
+----
+true
+
+# TEST 10: Contingency coefficient between 0 and 1
+query I
+SELECT contingency_coef_agg(row_var, col_var) BETWEEN 0 AND 1 FROM assoc_data;
+----
+true
+
+# TEST 11: Strong association should have high coefficient
+query I
+SELECT contingency_coef_agg(row_var, col_var) > 0.2 FROM assoc_data;
+----
+true
+
+# TEST 12: Alias verification
+query I
+SELECT anofox_stats_contingency_coef_agg(row_var, col_var) IS NOT NULL FROM assoc_data;
+----
+true
+
+# =============================================================================
+# COHEN'S KAPPA TESTS
+# =============================================================================
+
+# Setup data for inter-rater agreement (high agreement: 90% agreement)
+statement ok
+CREATE TABLE kappa_data AS
+SELECT * FROM (VALUES
+    (0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0),
+    (0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0),
+    (0, 0), (0, 0), (0, 0), (0, 0), (0, 0),
+    (0, 1), (0, 1), (0, 1),
+    (1, 0), (1, 0), (1, 0),
+    (1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1),
+    (1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1),
+    (1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1),
+    (1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1)
+) AS t(rater1, rater2);
+
+# TEST 13: Cohen's Kappa returns valid result structure
+# Returns STRUCT with: kappa, se, ci_lower, ci_upper, z, p_value
+query I
+SELECT (cohen_kappa_agg(rater1, rater2)).kappa IS NOT NULL FROM kappa_data;
+----
+true
+
+query I
+SELECT (cohen_kappa_agg(rater1, rater2)).se IS NOT NULL FROM kappa_data;
+----
+true
+
+query I
+SELECT (cohen_kappa_agg(rater1, rater2)).ci_lower IS NOT NULL FROM kappa_data;
+----
+true
+
+query I
+SELECT (cohen_kappa_agg(rater1, rater2)).ci_upper IS NOT NULL FROM kappa_data;
+----
+true
+
+query I
+SELECT (cohen_kappa_agg(rater1, rater2)).z IS NOT NULL FROM kappa_data;
+----
+true
+
+query I
+SELECT (cohen_kappa_agg(rater1, rater2)).p_value IS NOT NULL FROM kappa_data;
+----
+true
+
+# TEST 14: Kappa between -1 and 1
+query I
+SELECT (cohen_kappa_agg(rater1, rater2)).kappa BETWEEN -1 AND 1 FROM kappa_data;
+----
+true
+
+# TEST 15: Good agreement should have kappa > 0.6
+query I
+SELECT (cohen_kappa_agg(rater1, rater2)).kappa > 0.6 FROM kappa_data;
+----
+true
+
+# TEST 16: Perfect agreement
+statement ok
+CREATE TABLE perfect_kappa AS
+SELECT * FROM (VALUES
+    (0, 0), (0, 0), (0, 0), (0, 0), (0, 0),
+    (1, 1), (1, 1), (1, 1), (1, 1), (1, 1),
+    (2, 2), (2, 2), (2, 2), (2, 2), (2, 2)
+) AS t(rater1, rater2);
+
+query I
+SELECT (cohen_kappa_agg(rater1, rater2)).kappa > 0.99 FROM perfect_kappa;
+----
+true
+
+# TEST 17: Alias verification
+query I
+SELECT (anofox_stats_cohen_kappa_agg(rater1, rater2)).kappa IS NOT NULL FROM kappa_data;
+----
+true
+
+query I
+SELECT (anofox_stats_cohen_kappa_agg(rater1, rater2)).p_value IS NOT NULL FROM kappa_data;
+----
+true
+
+# =============================================================================
+# NO ASSOCIATION TESTS
+# =============================================================================
+
+statement ok
+CREATE TABLE no_assoc AS
+SELECT * FROM (VALUES
+    (0, 0), (0, 0), (0, 0), (0, 0), (0, 0),
+    (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+    (1, 0), (1, 0), (1, 0), (1, 0), (1, 0),
+    (1, 1), (1, 1), (1, 1), (1, 1), (1, 1)
+) AS t(row_var, col_var);
+
+# TEST 18: No association should have low Cramér's V
+query I
+SELECT cramers_v_agg(row_var, col_var) < 0.1 FROM no_assoc;
+----
+true
+
+# TEST 19: No association should have phi close to 0
+query I
+SELECT ABS(phi_coefficient_agg(row_var, col_var)) < 0.1 FROM no_assoc;
+----
+true
+
+# =============================================================================
+# GROUP BY PARTITIONING TEST
+# =============================================================================
+
+statement ok
+CREATE TABLE grouped_data AS
+SELECT * FROM (VALUES
+    ('strong', 0, 0), ('strong', 0, 0), ('strong', 0, 0), ('strong', 0, 0), ('strong', 0, 0),
+    ('strong', 0, 0), ('strong', 0, 0), ('strong', 0, 0), ('strong', 0, 0), ('strong', 0, 0),
+    ('strong', 0, 1),
+    ('strong', 1, 0),
+    ('strong', 1, 1), ('strong', 1, 1), ('strong', 1, 1), ('strong', 1, 1), ('strong', 1, 1),
+    ('strong', 1, 1), ('strong', 1, 1), ('strong', 1, 1), ('strong', 1, 1), ('strong', 1, 1),
+    ('weak', 0, 0), ('weak', 0, 0), ('weak', 0, 0), ('weak', 0, 0), ('weak', 0, 0),
+    ('weak', 0, 1), ('weak', 0, 1), ('weak', 0, 1), ('weak', 0, 1), ('weak', 0, 1),
+    ('weak', 1, 0), ('weak', 1, 0), ('weak', 1, 0), ('weak', 1, 0), ('weak', 1, 0),
+    ('weak', 1, 1), ('weak', 1, 1), ('weak', 1, 1), ('weak', 1, 1), ('weak', 1, 1)
+) AS t(category, row_var, col_var);
+
+# TEST 20: GROUP BY with Cramér's V
+query TI
+SELECT category, cramers_v_agg(row_var, col_var) > 0.3 AS strong_assoc
+FROM grouped_data
+GROUP BY category
+ORDER BY category;
+----
+strong	true
+weak	false
+
+# =============================================================================
+# CLEANUP
+# =============================================================================
+
+statement ok
+DROP TABLE IF EXISTS assoc_data;
+
+statement ok
+DROP TABLE IF EXISTS kappa_data;
+
+statement ok
+DROP TABLE IF EXISTS perfect_kappa;
+
+statement ok
+DROP TABLE IF EXISTS no_assoc;
+
+statement ok
+DROP TABLE IF EXISTS grouped_data;

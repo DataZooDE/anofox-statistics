@@ -1,0 +1,141 @@
+# name: test/sql/categorical/test_mcnemar_agg.test
+# description: Test mcnemar_agg aggregate function (McNemar's test for paired nominal data)
+# group: [categorical]
+
+require anofox_statistics
+
+# =============================================================================
+# SETUP: Create paired binary data (before/after treatment)
+# =============================================================================
+
+statement ok
+CREATE TABLE mcnemar_data AS
+SELECT * FROM (VALUES
+    (0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0),
+    (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+    (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+    (1, 0), (1, 0), (1, 0), (1, 0), (1, 0),
+    (1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1),
+    (1, 1), (1, 1), (1, 1), (1, 1), (1, 1)
+) AS t(before, after);
+
+# =============================================================================
+# TEST 1: Basic McNemar returns valid result structure
+# =============================================================================
+
+query I
+SELECT (mcnemar_agg(before, after)).statistic IS NOT NULL FROM mcnemar_data;
+----
+true
+
+query I
+SELECT (mcnemar_agg(before, after)).p_value IS NOT NULL FROM mcnemar_data;
+----
+true
+
+query I
+SELECT (mcnemar_agg(before, after)).df IS NOT NULL FROM mcnemar_data;
+----
+true
+
+query I
+SELECT (mcnemar_agg(before, after)).method IS NOT NULL FROM mcnemar_data;
+----
+true
+
+# =============================================================================
+# TEST 2: Significant change detected (20 improved, 5 worsened)
+# =============================================================================
+
+query I
+SELECT (mcnemar_agg(before, after)).p_value < 0.05 FROM mcnemar_data;
+----
+true
+
+# =============================================================================
+# TEST 3: No significant change (balanced discordant pairs)
+# =============================================================================
+
+statement ok
+CREATE TABLE no_change AS
+SELECT * FROM (VALUES
+    (0, 0), (0, 0), (0, 0), (0, 0), (0, 0),
+    (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+    (1, 0), (1, 0), (1, 0), (1, 0), (1, 0), (1, 0), (1, 0), (1, 0), (1, 0), (1, 0),
+    (1, 1), (1, 1), (1, 1), (1, 1), (1, 1)
+) AS t(before, after);
+
+query I
+SELECT (mcnemar_agg(before, after)).p_value > 0.5 FROM no_change;
+----
+true
+
+# =============================================================================
+# TEST 4: Perfect improvement (all 0->1, no 1->0)
+# =============================================================================
+
+statement ok
+CREATE TABLE perfect_improve AS
+SELECT * FROM (VALUES
+    (0, 0), (0, 0), (0, 0), (0, 0), (0, 0),
+    (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+    (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+    (1, 1), (1, 1), (1, 1), (1, 1), (1, 1)
+) AS t(before, after);
+
+query I
+SELECT (mcnemar_agg(before, after)).p_value < 0.001 FROM perfect_improve;
+----
+true
+
+# =============================================================================
+# TEST 5: GROUP BY partitioning
+# =============================================================================
+
+statement ok
+CREATE TABLE grouped_data AS
+SELECT * FROM (VALUES
+    ('treatment', 0, 0), ('treatment', 0, 0), ('treatment', 0, 0),
+    ('treatment', 0, 1), ('treatment', 0, 1), ('treatment', 0, 1), ('treatment', 0, 1), ('treatment', 0, 1),
+    ('treatment', 0, 1), ('treatment', 0, 1), ('treatment', 0, 1), ('treatment', 0, 1), ('treatment', 0, 1),
+    ('treatment', 1, 0), ('treatment', 1, 0),
+    ('treatment', 1, 1), ('treatment', 1, 1), ('treatment', 1, 1), ('treatment', 1, 1), ('treatment', 1, 1),
+    ('placebo', 0, 0), ('placebo', 0, 0), ('placebo', 0, 0), ('placebo', 0, 0), ('placebo', 0, 0),
+    ('placebo', 0, 1), ('placebo', 0, 1), ('placebo', 0, 1), ('placebo', 0, 1), ('placebo', 0, 1),
+    ('placebo', 1, 0), ('placebo', 1, 0), ('placebo', 1, 0), ('placebo', 1, 0), ('placebo', 1, 0),
+    ('placebo', 1, 1), ('placebo', 1, 1), ('placebo', 1, 1), ('placebo', 1, 1), ('placebo', 1, 1)
+) AS t(group_name, before, after);
+
+query TI
+SELECT group_name, (mcnemar_agg(before, after)).p_value < 0.05 AS significant_change
+FROM grouped_data
+GROUP BY group_name
+ORDER BY group_name;
+----
+placebo	false
+treatment	true
+
+# =============================================================================
+# TEST 6: Alias verification (anofox_stats_mcnemar_agg)
+# =============================================================================
+
+query I
+SELECT (anofox_stats_mcnemar_agg(before, after)).statistic IS NOT NULL FROM mcnemar_data;
+----
+true
+
+# =============================================================================
+# CLEANUP
+# =============================================================================
+
+statement ok
+DROP TABLE IF EXISTS mcnemar_data;
+
+statement ok
+DROP TABLE IF EXISTS no_change;
+
+statement ok
+DROP TABLE IF EXISTS perfect_improve;
+
+statement ok
+DROP TABLE IF EXISTS grouped_data;

@@ -1,0 +1,138 @@
+# name: test/sql/hypothesis_tests/test_brown_forsythe_agg.test
+# description: Test brown_forsythe_agg aggregate function (Brown-Forsythe test for variance homogeneity)
+# group: [hypothesis_tests]
+
+require anofox_statistics
+
+# =============================================================================
+# SETUP: Create test data with very different variances
+# Group 0: low variance (tight cluster)
+# Group 1: medium variance
+# Group 2: very high variance (spread out)
+# =============================================================================
+
+statement ok
+CREATE TABLE variance_data AS
+SELECT * FROM (VALUES
+    (10.0, 0), (10.1, 0), (10.0, 0), (9.9, 0), (10.0, 0), (10.1, 0), (9.9, 0), (10.0, 0),
+    (20.0, 1), (20.5, 1), (19.5, 1), (20.2, 1), (19.8, 1), (20.3, 1), (19.7, 1), (20.1, 1),
+    (30.0, 2), (40.0, 2), (20.0, 2), (35.0, 2), (25.0, 2), (45.0, 2), (15.0, 2), (50.0, 2)
+) AS t(value, grp);
+
+# =============================================================================
+# TEST 1: Basic Brown-Forsythe returns valid result structure
+# =============================================================================
+
+query I
+SELECT (brown_forsythe_agg(value, grp)).statistic IS NOT NULL FROM variance_data;
+----
+true
+
+query I
+SELECT (brown_forsythe_agg(value, grp)).p_value IS NOT NULL FROM variance_data;
+----
+true
+
+query I
+SELECT (brown_forsythe_agg(value, grp)).df IS NOT NULL FROM variance_data;
+----
+true
+
+query I
+SELECT (brown_forsythe_agg(value, grp)).n IS NOT NULL FROM variance_data;
+----
+true
+
+query I
+SELECT (brown_forsythe_agg(value, grp)).method IS NOT NULL FROM variance_data;
+----
+true
+
+# =============================================================================
+# TEST 4: Heterogeneous variances detected (group 2 has very high variance)
+# =============================================================================
+
+query I
+SELECT (brown_forsythe_agg(value, grp)).p_value < 0.05 FROM variance_data;
+----
+true
+
+# =============================================================================
+# TEST 5: Homogeneous variances (equal variance groups)
+# =============================================================================
+
+statement ok
+CREATE TABLE equal_var AS
+SELECT * FROM (VALUES
+    (10.0, 0), (11.0, 0), (10.5, 0), (10.2, 0), (10.8, 0), (10.3, 0),
+    (20.0, 1), (21.0, 1), (20.5, 1), (20.2, 1), (20.8, 1), (20.3, 1),
+    (30.0, 2), (31.0, 2), (30.5, 2), (30.2, 2), (30.8, 2), (30.3, 2)
+) AS t(value, grp);
+
+query I
+SELECT (brown_forsythe_agg(value, grp)).p_value > 0.05 FROM equal_var;
+----
+true
+
+# =============================================================================
+# TEST 6: Two groups (simpler case)
+# =============================================================================
+
+statement ok
+CREATE TABLE two_groups AS
+SELECT * FROM (VALUES
+    (5.0, 0), (5.2, 0), (4.8, 0), (5.1, 0), (4.9, 0), (5.3, 0),
+    (5.0, 1), (7.0, 1), (3.0, 1), (6.0, 1), (4.0, 1), (8.0, 1)
+) AS t(value, grp);
+
+query I
+SELECT (brown_forsythe_agg(value, grp)).df IS NOT NULL FROM two_groups;
+----
+true
+
+# =============================================================================
+# TEST 7: GROUP BY partitioning
+# =============================================================================
+
+statement ok
+CREATE TABLE grouped_data AS
+SELECT * FROM (VALUES
+    ('A', 10.0, 0), ('A', 10.5, 0), ('A', 10.2, 0), ('A', 10.8, 0), ('A', 10.3, 0),
+    ('A', 20.0, 1), ('A', 20.5, 1), ('A', 20.2, 1), ('A', 20.8, 1), ('A', 20.3, 1),
+    ('B', 5.0, 0), ('B', 5.2, 0), ('B', 5.1, 0), ('B', 4.9, 0), ('B', 5.0, 0),
+    ('B', 5.0, 1), ('B', 8.0, 1), ('B', 2.0, 1), ('B', 7.0, 1), ('B', 3.0, 1)
+) AS t(category, value, grp);
+
+query TI
+SELECT category, (brown_forsythe_agg(value, grp)).p_value > 0.05 AS homogeneous
+FROM grouped_data
+GROUP BY category
+ORDER BY category;
+----
+A	true
+B	false
+
+# =============================================================================
+# TEST 8: Alias verification (anofox_stats_brown_forsythe_agg)
+# =============================================================================
+
+query I
+SELECT (anofox_stats_brown_forsythe_agg(value, grp)).statistic IS NOT NULL FROM variance_data;
+----
+true
+
+# =============================================================================
+# CLEANUP
+# =============================================================================
+
+statement ok
+DROP TABLE IF EXISTS variance_data;
+
+statement ok
+DROP TABLE IF EXISTS equal_var;
+
+statement ok
+DROP TABLE IF EXISTS two_groups;
+
+statement ok
+DROP TABLE IF EXISTS grouped_data;

@@ -1,0 +1,281 @@
+# name: test/sql/regression/test_glm_fit_agg.test
+# description: Test GLM fit aggregate functions (Poisson, ALM, BLS, NNLS)
+# group: [regression]
+
+require anofox_statistics
+
+# =============================================================================
+# POISSON FIT AGGREGATE TESTS
+# =============================================================================
+
+statement ok
+CREATE TABLE poisson_data AS
+SELECT * FROM (VALUES
+    (1.0, 0.5, 2),
+    (2.0, 1.0, 5),
+    (3.0, 1.5, 12),
+    (4.0, 2.0, 25),
+    (5.0, 2.5, 45),
+    (6.0, 3.0, 80),
+    (7.0, 3.5, 130),
+    (8.0, 4.0, 200),
+    (9.0, 4.5, 300),
+    (10.0, 5.0, 450)
+) AS t(x1, x2, count_y);
+
+# TEST 1: Poisson fit returns valid result structure
+query I
+SELECT (poisson_fit_agg(count_y, [x1, x2])).coefficients IS NOT NULL FROM poisson_data;
+----
+true
+
+query I
+SELECT (poisson_fit_agg(count_y, [x1, x2])).intercept IS NOT NULL FROM poisson_data;
+----
+true
+
+query I
+SELECT (poisson_fit_agg(count_y, [x1, x2])).deviance IS NOT NULL FROM poisson_data;
+----
+true
+
+query I
+SELECT (poisson_fit_agg(count_y, [x1, x2])).n_observations IS NOT NULL FROM poisson_data;
+----
+true
+
+query I
+SELECT (poisson_fit_agg(count_y, [x1, x2])).aic IS NOT NULL FROM poisson_data;
+----
+true
+
+# TEST 2: Sample size correct
+query I
+SELECT (poisson_fit_agg(count_y, [x1, x2])).n_observations = 10 FROM poisson_data;
+----
+true
+
+# TEST 3: Deviance non-negative
+query I
+SELECT (poisson_fit_agg(count_y, [x1, x2])).deviance >= 0 FROM poisson_data;
+----
+true
+
+# TEST 4: Alias verification
+query I
+SELECT (anofox_stats_poisson_fit_agg(count_y, [x1, x2])).coefficients IS NOT NULL FROM poisson_data;
+----
+true
+
+# =============================================================================
+# ALM FIT AGGREGATE TESTS (Additive Linear Model)
+# =============================================================================
+
+statement ok
+CREATE TABLE alm_data AS
+SELECT * FROM (VALUES
+    (1.0, 2.0, 10.5),
+    (2.0, 3.0, 15.8),
+    (3.0, 4.0, 20.2),
+    (4.0, 5.0, 26.1),
+    (5.0, 6.0, 30.5),
+    (6.0, 7.0, 35.8),
+    (7.0, 8.0, 41.2),
+    (8.0, 9.0, 46.0),
+    (9.0, 10.0, 51.5),
+    (10.0, 11.0, 56.2)
+) AS t(x1, x2, y);
+
+# TEST 5: ALM fit returns valid result structure
+# Fields: coefficients, intercept, log_likelihood, aic, bic, scale, n_observations, n_features, iterations
+query I
+SELECT (alm_fit_agg(y, [x1, x2])).coefficients IS NOT NULL FROM alm_data;
+----
+true
+
+query I
+SELECT (alm_fit_agg(y, [x1, x2])).intercept IS NOT NULL FROM alm_data;
+----
+true
+
+query I
+SELECT (alm_fit_agg(y, [x1, x2])).log_likelihood IS NOT NULL FROM alm_data;
+----
+true
+
+query I
+SELECT (alm_fit_agg(y, [x1, x2])).scale IS NOT NULL FROM alm_data;
+----
+true
+
+query I
+SELECT (alm_fit_agg(y, [x1, x2])).n_observations IS NOT NULL FROM alm_data;
+----
+true
+
+# TEST 6: Sample size correct
+query I
+SELECT (alm_fit_agg(y, [x1, x2])).n_observations = 10 FROM alm_data;
+----
+true
+
+# TEST 7: AIC is valid
+query I
+SELECT (alm_fit_agg(y, [x1, x2])).aic IS NOT NULL FROM alm_data;
+----
+true
+
+# TEST 8: Alias verification
+query I
+SELECT (anofox_stats_alm_fit_agg(y, [x1, x2])).coefficients IS NOT NULL FROM alm_data;
+----
+true
+
+# =============================================================================
+# BLS FIT AGGREGATE TESTS (Bounded Least Squares)
+# =============================================================================
+
+statement ok
+CREATE TABLE bls_data AS
+SELECT * FROM (VALUES
+    (1.0, 2.0, 5.0),
+    (2.0, 4.0, 10.0),
+    (3.0, 6.0, 15.0),
+    (4.0, 8.0, 20.0),
+    (5.0, 10.0, 25.0),
+    (6.0, 12.0, 30.0),
+    (7.0, 14.0, 35.0),
+    (8.0, 16.0, 40.0),
+    (9.0, 18.0, 45.0),
+    (10.0, 20.0, 50.0)
+) AS t(x1, x2, y);
+
+# TEST 9: BLS fit returns valid result structure
+query I
+SELECT (bls_fit_agg(y, [x1, x2])).coefficients IS NOT NULL FROM bls_data;
+----
+true
+
+query I
+SELECT (bls_fit_agg(y, [x1, x2])).intercept IS NOT NULL FROM bls_data;
+----
+true
+
+query I
+SELECT (bls_fit_agg(y, [x1, x2])).r_squared IS NOT NULL FROM bls_data;
+----
+true
+
+query I
+SELECT (bls_fit_agg(y, [x1, x2])).ssr IS NOT NULL FROM bls_data;
+----
+true
+
+query I
+SELECT (bls_fit_agg(y, [x1, x2])).n_observations IS NOT NULL FROM bls_data;
+----
+true
+
+# TEST 10: Good fit (high R-squared)
+query I
+SELECT (bls_fit_agg(y, [x1, x2])).r_squared > 0.99 FROM bls_data;
+----
+true
+
+# TEST 11: Custom bounds
+query I
+SELECT (bls_fit_agg(y, [x1, x2], {'lower_bounds': [0.0, 0.0], 'upper_bounds': [10.0, 10.0]})).coefficients IS NOT NULL FROM bls_data;
+----
+true
+
+# TEST 12: Alias verification
+query I
+SELECT (anofox_stats_bls_fit_agg(y, [x1, x2])).coefficients IS NOT NULL FROM bls_data;
+----
+true
+
+# =============================================================================
+# NNLS FIT AGGREGATE TESTS (Non-Negative Least Squares)
+# =============================================================================
+
+# TEST 13: NNLS fit returns valid result structure
+query I
+SELECT (nnls_fit_agg(y, [x1, x2])).coefficients IS NOT NULL FROM bls_data;
+----
+true
+
+query I
+SELECT (nnls_fit_agg(y, [x1, x2])).intercept IS NOT NULL FROM bls_data;
+----
+true
+
+query I
+SELECT (nnls_fit_agg(y, [x1, x2])).r_squared IS NOT NULL FROM bls_data;
+----
+true
+
+query I
+SELECT (nnls_fit_agg(y, [x1, x2])).ssr IS NOT NULL FROM bls_data;
+----
+true
+
+query I
+SELECT (nnls_fit_agg(y, [x1, x2])).n_observations IS NOT NULL FROM bls_data;
+----
+true
+
+# TEST 14: All coefficients non-negative
+query I
+SELECT list_min((nnls_fit_agg(y, [x1, x2])).coefficients) >= 0 FROM bls_data;
+----
+true
+
+# TEST 15: Good fit (high R-squared)
+query I
+SELECT (nnls_fit_agg(y, [x1, x2])).r_squared > 0.95 FROM bls_data;
+----
+true
+
+# TEST 16: Alias verification
+query I
+SELECT (anofox_stats_nnls_fit_agg(y, [x1, x2])).coefficients IS NOT NULL FROM bls_data;
+----
+true
+
+# =============================================================================
+# GROUP BY PARTITIONING
+# =============================================================================
+
+statement ok
+CREATE TABLE grouped_data AS
+SELECT * FROM (VALUES
+    ('A', 1.0, 2.0, 5.0), ('A', 2.0, 4.0, 10.0), ('A', 3.0, 6.0, 15.0),
+    ('A', 4.0, 8.0, 20.0), ('A', 5.0, 10.0, 25.0),
+    ('B', 1.0, 3.0, 8.0), ('B', 2.0, 6.0, 16.0), ('B', 3.0, 9.0, 24.0),
+    ('B', 4.0, 12.0, 32.0), ('B', 5.0, 15.0, 40.0)
+) AS t(category, x1, x2, y);
+
+query TI
+SELECT category, (bls_fit_agg(y, [x1, x2])).r_squared > 0.99 AS good_fit
+FROM grouped_data
+GROUP BY category
+ORDER BY category;
+----
+A	true
+B	true
+
+# =============================================================================
+# CLEANUP
+# =============================================================================
+
+statement ok
+DROP TABLE IF EXISTS poisson_data;
+
+statement ok
+DROP TABLE IF EXISTS alm_data;
+
+statement ok
+DROP TABLE IF EXISTS bls_data;
+
+statement ok
+DROP TABLE IF EXISTS grouped_data;

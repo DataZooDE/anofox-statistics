@@ -1,0 +1,330 @@
+# name: test/sql/equivalence/test_tost_agg.test
+# description: Test TOST equivalence test aggregate functions (t-test, paired, correlation)
+# group: [equivalence]
+
+require anofox_statistics
+
+# =============================================================================
+# TOST T-TEST (Two One-Sided Tests for equivalence)
+# =============================================================================
+
+statement ok
+CREATE TABLE tost_data AS
+SELECT * FROM (VALUES
+    (10.0, 0), (10.5, 0), (10.2, 0), (9.8, 0), (10.3, 0), (10.1, 0),
+    (10.4, 0), (9.9, 0), (10.6, 0), (10.0, 0), (10.2, 0), (10.1, 0),
+    (10.3, 1), (10.1, 1), (10.5, 1), (9.9, 1), (10.2, 1), (10.4, 1),
+    (10.0, 1), (10.3, 1), (10.1, 1), (10.6, 1), (10.2, 1), (10.0, 1)
+) AS t(value, grp);
+
+# TEST 1: TOST t-test returns valid result structure
+query I
+SELECT (tost_t_test_agg(value, grp)).p_value IS NOT NULL FROM tost_data;
+----
+true
+
+query I
+SELECT (tost_t_test_agg(value, grp)).p_lower IS NOT NULL FROM tost_data;
+----
+true
+
+query I
+SELECT (tost_t_test_agg(value, grp)).p_upper IS NOT NULL FROM tost_data;
+----
+true
+
+query I
+SELECT (tost_t_test_agg(value, grp)).t_lower IS NOT NULL FROM tost_data;
+----
+true
+
+query I
+SELECT (tost_t_test_agg(value, grp)).t_upper IS NOT NULL FROM tost_data;
+----
+true
+
+query I
+SELECT (tost_t_test_agg(value, grp)).df IS NOT NULL FROM tost_data;
+----
+true
+
+query I
+SELECT (tost_t_test_agg(value, grp)).estimate IS NOT NULL FROM tost_data;
+----
+true
+
+query I
+SELECT (tost_t_test_agg(value, grp)).ci_lower IS NOT NULL FROM tost_data;
+----
+true
+
+query I
+SELECT (tost_t_test_agg(value, grp)).ci_upper IS NOT NULL FROM tost_data;
+----
+true
+
+query I
+SELECT (tost_t_test_agg(value, grp)).bound_lower IS NOT NULL FROM tost_data;
+----
+true
+
+query I
+SELECT (tost_t_test_agg(value, grp)).bound_upper IS NOT NULL FROM tost_data;
+----
+true
+
+query I
+SELECT (tost_t_test_agg(value, grp)).equivalent IS NOT NULL FROM tost_data;
+----
+true
+
+query I
+SELECT (tost_t_test_agg(value, grp)).n IS NOT NULL FROM tost_data;
+----
+true
+
+query I
+SELECT (tost_t_test_agg(value, grp)).method IS NOT NULL FROM tost_data;
+----
+true
+
+# TEST 2: Sample size correct (24 total observations)
+query I
+SELECT (tost_t_test_agg(value, grp)).n = 24 FROM tost_data;
+----
+true
+
+# TEST 3: Equivalence established with custom bounds (similar groups)
+query I
+SELECT (tost_t_test_agg(value, grp, {'low': -1.0, 'high': 1.0})).p_value < 0.05 FROM tost_data;
+----
+true
+
+# TEST 4: P-value is max of p_lower and p_upper
+query I
+SELECT ABS((tost_t_test_agg(value, grp)).p_value -
+       GREATEST((tost_t_test_agg(value, grp)).p_lower, (tost_t_test_agg(value, grp)).p_upper)) < 0.001
+FROM tost_data;
+----
+true
+
+# TEST 5: Non-equivalent groups (different means)
+statement ok
+CREATE TABLE non_equiv AS
+SELECT * FROM (VALUES
+    (10.0, 0), (10.5, 0), (10.2, 0), (9.8, 0), (10.3, 0), (10.1, 0),
+    (20.0, 1), (20.5, 1), (20.2, 1), (19.8, 1), (20.3, 1), (20.1, 1)
+) AS t(value, grp);
+
+query I
+SELECT (tost_t_test_agg(value, grp, {'low': -1.0, 'high': 1.0})).p_value > 0.05 FROM non_equiv;
+----
+true
+
+# TEST 6: Custom equivalence bounds
+query I
+SELECT (tost_t_test_agg(value, grp, {'low': -0.5, 'high': 0.5})).p_value IS NOT NULL FROM tost_data;
+----
+true
+
+# TEST 7: Alias verification
+query I
+SELECT (anofox_stats_tost_t_test_agg(value, grp)).p_value IS NOT NULL FROM tost_data;
+----
+true
+
+# =============================================================================
+# TOST PAIRED TEST
+# =============================================================================
+
+statement ok
+CREATE TABLE paired_data AS
+SELECT * FROM (VALUES
+    (1, 10.0, 10.2), (2, 11.0, 11.1), (3, 9.5, 9.6), (4, 10.5, 10.4),
+    (5, 10.2, 10.3), (6, 9.8, 9.9), (7, 10.8, 10.7), (8, 10.1, 10.2),
+    (9, 9.9, 10.0), (10, 10.3, 10.4), (11, 10.6, 10.5), (12, 10.0, 10.1)
+) AS t(subject, before, after);
+
+# TEST 8: TOST paired returns valid result structure
+query I
+SELECT (tost_paired_agg(before, after)).p_value IS NOT NULL FROM paired_data;
+----
+true
+
+query I
+SELECT (tost_paired_agg(before, after)).estimate IS NOT NULL FROM paired_data;
+----
+true
+
+query I
+SELECT (tost_paired_agg(before, after)).ci_lower IS NOT NULL FROM paired_data;
+----
+true
+
+query I
+SELECT (tost_paired_agg(before, after)).ci_upper IS NOT NULL FROM paired_data;
+----
+true
+
+query I
+SELECT (tost_paired_agg(before, after)).equivalent IS NOT NULL FROM paired_data;
+----
+true
+
+query I
+SELECT (tost_paired_agg(before, after)).n IS NOT NULL FROM paired_data;
+----
+true
+
+query I
+SELECT (tost_paired_agg(before, after)).method IS NOT NULL FROM paired_data;
+----
+true
+
+# TEST 9: Sample size correct
+query I
+SELECT (tost_paired_agg(before, after)).n = 12 FROM paired_data;
+----
+true
+
+# TEST 10: Equivalence established (small differences)
+query I
+SELECT (tost_paired_agg(before, after, {'low': -0.5, 'high': 0.5})).p_value < 0.05 FROM paired_data;
+----
+true
+
+# TEST 11: Non-equivalent paired data
+statement ok
+CREATE TABLE non_equiv_paired AS
+SELECT * FROM (VALUES
+    (1, 10.0, 15.0), (2, 11.0, 16.0), (3, 9.5, 14.5), (4, 10.5, 15.5),
+    (5, 10.2, 15.2), (6, 9.8, 14.8), (7, 10.8, 15.8), (8, 10.1, 15.1)
+) AS t(subject, before, after);
+
+query I
+SELECT (tost_paired_agg(before, after, {'low': -1.0, 'high': 1.0})).p_value > 0.05 FROM non_equiv_paired;
+----
+true
+
+# TEST 12: Alias verification
+query I
+SELECT (anofox_stats_tost_paired_agg(before, after)).p_value IS NOT NULL FROM paired_data;
+----
+true
+
+# =============================================================================
+# TOST CORRELATION TEST
+# =============================================================================
+
+statement ok
+CREATE TABLE cor_data AS
+SELECT * FROM (VALUES
+    (1.0, 2.0), (2.0, 4.0), (3.0, 6.0), (4.0, 8.0), (5.0, 10.0),
+    (6.0, 12.0), (7.0, 14.0), (8.0, 16.0), (9.0, 18.0), (10.0, 20.0),
+    (11.0, 22.0), (12.0, 24.0), (13.0, 26.0), (14.0, 28.0), (15.0, 30.0)
+) AS t(x, y);
+
+# TEST 13: TOST correlation returns valid result structure
+# Returns STRUCT with: estimate (correlation), ci_lower, ci_upper, p_value, equivalent, n, method
+query I
+SELECT (tost_correlation_agg(x, y)).p_value IS NOT NULL FROM cor_data;
+----
+true
+
+query I
+SELECT (tost_correlation_agg(x, y)).estimate IS NOT NULL FROM cor_data;
+----
+true
+
+query I
+SELECT (tost_correlation_agg(x, y)).ci_lower IS NOT NULL FROM cor_data;
+----
+true
+
+query I
+SELECT (tost_correlation_agg(x, y)).ci_upper IS NOT NULL FROM cor_data;
+----
+true
+
+query I
+SELECT (tost_correlation_agg(x, y)).equivalent IS NOT NULL FROM cor_data;
+----
+true
+
+query I
+SELECT (tost_correlation_agg(x, y)).n IS NOT NULL FROM cor_data;
+----
+true
+
+query I
+SELECT (tost_correlation_agg(x, y)).method IS NOT NULL FROM cor_data;
+----
+true
+
+# TEST 14: Sample size correct
+query I
+SELECT (tost_correlation_agg(x, y)).n = 15 FROM cor_data;
+----
+true
+
+# TEST 15: Perfect correlation (estimate = 1.0)
+query I
+SELECT (tost_correlation_agg(x, y)).estimate > 0.99 FROM cor_data;
+----
+true
+
+# TEST 16: Equivalence test with custom bounds returns valid result
+query I
+SELECT (tost_correlation_agg(x, y, {'bound_lower': 0.9, 'bound_upper': 1.0})).p_value IS NOT NULL FROM cor_data;
+----
+true
+
+# TEST 17: Alias verification
+query I
+SELECT (anofox_stats_tost_correlation_agg(x, y)).p_value IS NOT NULL FROM cor_data;
+----
+true
+
+# =============================================================================
+# GROUP BY PARTITIONING
+# =============================================================================
+
+statement ok
+CREATE TABLE grouped_data AS
+SELECT * FROM (VALUES
+    ('equiv', 10.0, 0), ('equiv', 10.1, 0), ('equiv', 10.2, 0), ('equiv', 9.9, 0), ('equiv', 10.0, 0),
+    ('equiv', 10.1, 1), ('equiv', 10.0, 1), ('equiv', 10.2, 1), ('equiv', 10.1, 1), ('equiv', 9.9, 1),
+    ('nonequiv', 10.0, 0), ('nonequiv', 10.1, 0), ('nonequiv', 10.2, 0), ('nonequiv', 9.9, 0), ('nonequiv', 10.0, 0),
+    ('nonequiv', 20.0, 1), ('nonequiv', 20.1, 1), ('nonequiv', 20.2, 1), ('nonequiv', 19.9, 1), ('nonequiv', 20.0, 1)
+) AS t(category, value, grp);
+
+query TI
+SELECT category, (tost_t_test_agg(value, grp, {'low': -1.0, 'high': 1.0})).p_value < 0.05 AS equivalent
+FROM grouped_data
+GROUP BY category
+ORDER BY category;
+----
+equiv	true
+nonequiv	false
+
+# =============================================================================
+# CLEANUP
+# =============================================================================
+
+statement ok
+DROP TABLE IF EXISTS tost_data;
+
+statement ok
+DROP TABLE IF EXISTS non_equiv;
+
+statement ok
+DROP TABLE IF EXISTS paired_data;
+
+statement ok
+DROP TABLE IF EXISTS non_equiv_paired;
+
+statement ok
+DROP TABLE IF EXISTS cor_data;
+
+statement ok
+DROP TABLE IF EXISTS grouped_data;

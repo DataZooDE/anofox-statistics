@@ -1,0 +1,199 @@
+# name: test/sql/aid/test_aid_agg.test
+# description: Test AID aggregate functions (Automatic Identification of Demand)
+# group: [aid]
+
+require anofox_statistics
+
+# =============================================================================
+# SETUP: Create demand time series data
+# =============================================================================
+
+# Smooth demand pattern
+statement ok
+CREATE TABLE smooth_demand AS
+SELECT * FROM (VALUES
+    (1, 100.0), (2, 102.0), (3, 105.0), (4, 103.0), (5, 106.0),
+    (6, 108.0), (7, 110.0), (8, 112.0), (9, 115.0), (10, 118.0),
+    (11, 120.0), (12, 122.0), (13, 125.0), (14, 128.0), (15, 130.0),
+    (16, 132.0), (17, 135.0), (18, 138.0), (19, 140.0), (20, 142.0)
+) AS t(period, demand);
+
+# Intermittent demand pattern (many zeros)
+statement ok
+CREATE TABLE intermittent_demand AS
+SELECT * FROM (VALUES
+    (1, 0.0), (2, 0.0), (3, 50.0), (4, 0.0), (5, 0.0),
+    (6, 0.0), (7, 45.0), (8, 0.0), (9, 0.0), (10, 0.0),
+    (11, 55.0), (12, 0.0), (13, 0.0), (14, 0.0), (15, 0.0),
+    (16, 48.0), (17, 0.0), (18, 0.0), (19, 52.0), (20, 0.0)
+) AS t(period, demand);
+
+# =============================================================================
+# AID_AGG TESTS
+# Struct fields: demand_type, is_intermittent, distribution, mean, variance,
+#                zero_proportion, n_observations, has_stockouts, is_new_product,
+#                is_obsolete_product, stockout_count, new_product_count,
+#                obsolete_product_count, high_outlier_count, low_outlier_count
+# =============================================================================
+
+# TEST 1: AID returns valid result structure
+query I
+SELECT (aid_agg(demand)).demand_type IS NOT NULL FROM smooth_demand;
+----
+true
+
+query I
+SELECT (aid_agg(demand)).is_intermittent IS NOT NULL FROM smooth_demand;
+----
+true
+
+query I
+SELECT (aid_agg(demand)).distribution IS NOT NULL FROM smooth_demand;
+----
+true
+
+query I
+SELECT (aid_agg(demand)).mean IS NOT NULL FROM smooth_demand;
+----
+true
+
+query I
+SELECT (aid_agg(demand)).variance IS NOT NULL FROM smooth_demand;
+----
+true
+
+query I
+SELECT (aid_agg(demand)).zero_proportion IS NOT NULL FROM smooth_demand;
+----
+true
+
+query I
+SELECT (aid_agg(demand)).n_observations IS NOT NULL FROM smooth_demand;
+----
+true
+
+query I
+SELECT (aid_agg(demand)).has_stockouts IS NOT NULL FROM smooth_demand;
+----
+true
+
+# TEST 2: Sample size correct
+query I
+SELECT (aid_agg(demand)).n_observations = 20 FROM smooth_demand;
+----
+true
+
+# TEST 3: Mean is positive
+query I
+SELECT (aid_agg(demand)).mean > 0 FROM smooth_demand;
+----
+true
+
+# TEST 4: Variance non-negative
+query I
+SELECT (aid_agg(demand)).variance >= 0 FROM smooth_demand;
+----
+true
+
+# TEST 5: Smooth demand is not intermittent
+query I
+SELECT (aid_agg(demand)).is_intermittent = false FROM smooth_demand;
+----
+true
+
+# TEST 6: Smooth demand has zero proportion of zeros
+query I
+SELECT (aid_agg(demand)).zero_proportion = 0.0 FROM smooth_demand;
+----
+true
+
+# TEST 7: Intermittent demand detected
+query I
+SELECT (aid_agg(demand)).is_intermittent = true FROM intermittent_demand;
+----
+true
+
+# TEST 8: Intermittent demand has high zero proportion
+query I
+SELECT (aid_agg(demand)).zero_proportion > 0.5 FROM intermittent_demand;
+----
+true
+
+# TEST 9: Alias verification
+query I
+SELECT (anofox_stats_aid_agg(demand)).demand_type IS NOT NULL FROM smooth_demand;
+----
+true
+
+# =============================================================================
+# AID_ANOMALY_AGG TESTS
+# Returns LIST of STRUCT with flags per observation
+# =============================================================================
+
+# Create data with anomaly (spike at period 5)
+statement ok
+CREATE TABLE anomaly_data AS
+SELECT * FROM (VALUES
+    (1, 100.0), (2, 102.0), (3, 105.0), (4, 103.0), (5, 500.0),
+    (6, 108.0), (7, 110.0), (8, 112.0), (9, 115.0), (10, 118.0),
+    (11, 120.0), (12, 122.0), (13, 125.0), (14, 128.0), (15, 130.0),
+    (16, 132.0), (17, 135.0), (18, 138.0), (19, 140.0), (20, 142.0)
+) AS t(period, demand);
+
+# TEST 10: AID anomaly returns valid result (list of structs)
+query I
+SELECT aid_anomaly_agg(demand) IS NOT NULL FROM anomaly_data;
+----
+true
+
+# TEST 11: Result is a list with 20 elements
+query I
+SELECT len(aid_anomaly_agg(demand)) = 20 FROM anomaly_data;
+----
+true
+
+# TEST 12: Alias verification
+query I
+SELECT anofox_stats_aid_anomaly_agg(demand) IS NOT NULL FROM anomaly_data;
+----
+true
+
+# =============================================================================
+# GROUP BY PARTITIONING
+# =============================================================================
+
+statement ok
+CREATE TABLE grouped_data AS
+SELECT * FROM (VALUES
+    ('smooth', 1, 100.0), ('smooth', 2, 102.0), ('smooth', 3, 105.0),
+    ('smooth', 4, 103.0), ('smooth', 5, 106.0), ('smooth', 6, 108.0),
+    ('smooth', 7, 110.0), ('smooth', 8, 112.0), ('smooth', 9, 115.0), ('smooth', 10, 118.0),
+    ('intermittent', 1, 0.0), ('intermittent', 2, 0.0), ('intermittent', 3, 50.0),
+    ('intermittent', 4, 0.0), ('intermittent', 5, 0.0), ('intermittent', 6, 0.0),
+    ('intermittent', 7, 45.0), ('intermittent', 8, 0.0), ('intermittent', 9, 0.0), ('intermittent', 10, 55.0)
+) AS t(category, period, demand);
+
+query TI
+SELECT category, (aid_agg(demand)).is_intermittent AS is_intermittent
+FROM grouped_data
+GROUP BY category
+ORDER BY category;
+----
+intermittent	true
+smooth	false
+
+# =============================================================================
+# CLEANUP
+# =============================================================================
+
+statement ok
+DROP TABLE IF EXISTS smooth_demand;
+
+statement ok
+DROP TABLE IF EXISTS intermittent_demand;
+
+statement ok
+DROP TABLE IF EXISTS anomaly_data;
+
+statement ok
+DROP TABLE IF EXISTS grouped_data;
