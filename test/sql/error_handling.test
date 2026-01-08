@@ -8,27 +8,29 @@ require anofox_statistics
 # INSUFFICIENT DATA ERRORS
 # =============================================================================
 
-# OLS requires at least n_features + 2 observations (for intercept + 1 df)
+# OLS requires at least n_effective_features + 1 observations (with intercept)
+# With 2 non-constant features + intercept, need at least 3 observations.
+# 2 observations with 2 features is insufficient.
 statement error
-SELECT anofox_stats_ols_fit([1.0, 2.0], [[1.0, 2.0]]);
+SELECT anofox_stats_ols_fit([1.0, 2.0], [[1.0, 2.0], [3.0, 4.0]]);
 ----
 Insufficient data
 
 # Ridge requires minimum observations (using MAP syntax)
 statement error
-SELECT anofox_stats_ridge_fit([1.0, 2.0], [[1.0, 2.0]], {'alpha': 0.1});
+SELECT anofox_stats_ridge_fit([1.0, 2.0], [[1.0, 2.0], [3.0, 4.0]], {'alpha': 0.1});
 ----
 Insufficient data
 
 # Elastic Net requires minimum observations (using MAP syntax)
 statement error
-SELECT anofox_stats_elasticnet_fit([1.0, 2.0], [[1.0, 2.0]], {'alpha': 0.1, 'l1_ratio': 0.5});
+SELECT anofox_stats_elasticnet_fit([1.0, 2.0], [[1.0, 2.0], [3.0, 4.0]], {'alpha': 0.1, 'l1_ratio': 0.5});
 ----
 Insufficient data
 
 # WLS requires minimum observations
 statement error
-SELECT anofox_stats_wls_fit([1.0, 2.0], [[1.0, 2.0]], [1.0, 1.0]);
+SELECT anofox_stats_wls_fit([1.0, 2.0], [[1.0, 2.0], [3.0, 4.0]], [1.0, 1.0]);
 ----
 Insufficient data
 
@@ -101,23 +103,26 @@ true
 # =============================================================================
 
 # Aggregate with insufficient data in group should handle gracefully
+# With 2 features + intercept, need at least 3 observations.
+# Group A has only 2 observations, so should return NULL.
+# Group B has 4 observations, so should succeed.
 query TT
 WITH data AS (
-    SELECT 'A' as grp, 1.0 as y, 1.0 as x
+    SELECT 'A' as grp, 1.0 as y, 1.0 as x1, 2.0 as x2
     UNION ALL
-    SELECT 'A', 2.0, 2.0
+    SELECT 'A', 2.0, 2.0, 3.0
     UNION ALL
-    SELECT 'B', 1.0, 1.0
+    SELECT 'B', 1.0, 1.0, 2.0
     UNION ALL
-    SELECT 'B', 2.0, 2.0
+    SELECT 'B', 2.0, 2.0, 3.0
     UNION ALL
-    SELECT 'B', 3.0, 3.0
+    SELECT 'B', 3.0, 3.0, 4.0
     UNION ALL
-    SELECT 'B', 4.0, 4.0
+    SELECT 'B', 4.0, 4.0, 5.0
 )
 SELECT
     grp,
-    CASE WHEN (anofox_stats_ols_fit_agg(y, [x])).r_squared IS NULL THEN 'NULL' ELSE 'OK' END as result
+    CASE WHEN (anofox_stats_ols_fit_agg(y, [x1, x2])).r_squared IS NULL THEN 'NULL' ELSE 'OK' END as result
 FROM data
 GROUP BY grp
 ORDER BY grp;
