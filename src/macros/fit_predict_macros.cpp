@@ -22,14 +22,15 @@ struct FitPredictTableMacro {
 // clang-format off
 static const FitPredictTableMacro fit_predict_table_macros[] = {
     // ols_fit_predict_by: OLS fit and predict per group (long format - one row per observation)
-    // C++ API: ols_fit_predict_by(table_name, group_col, y_col, x_cols)
+    // C++ API: ols_fit_predict_by(table_name, group_col, y_col, x_cols, options)
+    // Options: fit_intercept, confidence_level, null_policy
     // Returns: group_id, y, x, yhat, yhat_lower, yhat_upper, is_training
-    {"ols_fit_predict_by", {"source", "group_col", "y_col", "x_cols", nullptr}, {{nullptr, nullptr}},
+    {"ols_fit_predict_by", {"source", "group_col", "y_col", "x_cols", nullptr}, {{"options", "NULL"}},
 R"(
 WITH predictions AS (
     SELECT
         group_col AS group_id,
-        ols_fit_predict_agg(y_col, x_cols) AS pred
+        ols_fit_predict_agg(y_col, x_cols, options) AS pred
     FROM query_table(source::VARCHAR)
     GROUP BY group_col
 ),
@@ -52,13 +53,14 @@ ORDER BY group_id
 )"},
 
     // ridge_fit_predict_by: Ridge fit and predict per group (long format)
-    // C++ API: ridge_fit_predict_by(table_name, group_col, y_col, x_cols)
-    {"ridge_fit_predict_by", {"source", "group_col", "y_col", "x_cols", nullptr}, {{nullptr, nullptr}},
+    // C++ API: ridge_fit_predict_by(table_name, group_col, y_col, x_cols, options)
+    // Options: alpha, fit_intercept, confidence_level, null_policy
+    {"ridge_fit_predict_by", {"source", "group_col", "y_col", "x_cols", nullptr}, {{"options", "NULL"}},
 R"(
 WITH predictions AS (
     SELECT
         group_col AS group_id,
-        ridge_fit_predict_agg(y_col, x_cols) AS pred
+        ridge_fit_predict_agg(y_col, x_cols, options) AS pred
     FROM query_table(source::VARCHAR)
     GROUP BY group_col
 ),
@@ -81,13 +83,14 @@ ORDER BY group_id
 )"},
 
     // elasticnet_fit_predict_by: ElasticNet fit and predict per group (long format)
-    // C++ API: elasticnet_fit_predict_by(table_name, group_col, y_col, x_cols)
-    {"elasticnet_fit_predict_by", {"source", "group_col", "y_col", "x_cols", nullptr}, {{nullptr, nullptr}},
+    // C++ API: elasticnet_fit_predict_by(table_name, group_col, y_col, x_cols, options)
+    // Options: alpha, l1_ratio, max_iterations, tolerance, fit_intercept, confidence_level, null_policy
+    {"elasticnet_fit_predict_by", {"source", "group_col", "y_col", "x_cols", nullptr}, {{"options", "NULL"}},
 R"(
 WITH predictions AS (
     SELECT
         group_col AS group_id,
-        elasticnet_fit_predict_agg(y_col, x_cols) AS pred
+        elasticnet_fit_predict_agg(y_col, x_cols, options) AS pred
     FROM query_table(source::VARCHAR)
     GROUP BY group_col
 ),
@@ -110,13 +113,14 @@ ORDER BY group_id
 )"},
 
     // wls_fit_predict_by: WLS fit and predict per group (long format)
-    // C++ API: wls_fit_predict_by(table_name, group_col, y_col, x_cols, weight_col)
-    {"wls_fit_predict_by", {"source", "group_col", "y_col", "x_cols", "weight_col", nullptr}, {{nullptr, nullptr}},
+    // C++ API: wls_fit_predict_by(table_name, group_col, y_col, x_cols, weight_col, options)
+    // Options: fit_intercept, confidence_level, null_policy
+    {"wls_fit_predict_by", {"source", "group_col", "y_col", "x_cols", "weight_col", nullptr}, {{"options", "NULL"}},
 R"(
 WITH predictions AS (
     SELECT
         group_col AS group_id,
-        wls_fit_predict_agg(y_col, x_cols, weight_col) AS pred
+        wls_fit_predict_agg(y_col, x_cols, weight_col, options) AS pred
     FROM query_table(source::VARCHAR)
     GROUP BY group_col
 ),
@@ -139,13 +143,14 @@ ORDER BY group_id
 )"},
 
     // rls_fit_predict_by: RLS fit and predict per group (long format)
-    // C++ API: rls_fit_predict_by(table_name, group_col, y_col, x_cols)
-    {"rls_fit_predict_by", {"source", "group_col", "y_col", "x_cols", nullptr}, {{nullptr, nullptr}},
+    // C++ API: rls_fit_predict_by(table_name, group_col, y_col, x_cols, options)
+    // Options: forgetting_factor, initial_p_diagonal, fit_intercept, confidence_level, null_policy
+    {"rls_fit_predict_by", {"source", "group_col", "y_col", "x_cols", nullptr}, {{"options", "NULL"}},
 R"(
 WITH predictions AS (
     SELECT
         group_col AS group_id,
-        rls_fit_predict_agg(y_col, x_cols) AS pred
+        rls_fit_predict_agg(y_col, x_cols, options) AS pred
     FROM query_table(source::VARCHAR)
     GROUP BY group_col
 ),
@@ -168,13 +173,14 @@ ORDER BY group_id
 )"},
 
     // bls_fit_predict_by: BLS (Bounded Least Squares) fit and predict per group (long format)
-    // C++ API: bls_fit_predict_by(table_name, group_col, y_col, x_cols)
-    {"bls_fit_predict_by", {"source", "group_col", "y_col", "x_cols", nullptr}, {{nullptr, nullptr}},
+    // C++ API: bls_fit_predict_by(table_name, group_col, y_col, x_cols, options)
+    // Options: lower_bound, upper_bound, intercept, max_iterations, tolerance, confidence_level, null_policy
+    {"bls_fit_predict_by", {"source", "group_col", "y_col", "x_cols", nullptr}, {{"options", "NULL"}},
 R"(
 WITH predictions AS (
     SELECT
         group_col AS group_id,
-        bls_fit_predict_agg(y_col, x_cols) AS pred
+        bls_fit_predict_agg(y_col, x_cols, options) AS pred
     FROM query_table(source::VARCHAR)
     GROUP BY group_col
 ),
@@ -196,14 +202,15 @@ FROM unnested
 ORDER BY group_id
 )"},
 
-    // alm_fit_predict_by: ALM (Additive Linear Model) fit and predict per group (long format)
-    // C++ API: alm_fit_predict_by(table_name, group_col, y_col, x_cols)
-    {"alm_fit_predict_by", {"source", "group_col", "y_col", "x_cols", nullptr}, {{nullptr, nullptr}},
+    // alm_fit_predict_by: ALM (Augmented Linear Model) fit and predict per group (long format)
+    // C++ API: alm_fit_predict_by(table_name, group_col, y_col, x_cols, options)
+    // Options: distribution, intercept, max_iterations, tolerance, confidence_level, null_policy
+    {"alm_fit_predict_by", {"source", "group_col", "y_col", "x_cols", nullptr}, {{"options", "NULL"}},
 R"(
 WITH predictions AS (
     SELECT
         group_col AS group_id,
-        alm_fit_predict_agg(y_col, x_cols) AS pred
+        alm_fit_predict_agg(y_col, x_cols, options) AS pred
     FROM query_table(source::VARCHAR)
     GROUP BY group_col
 ),
@@ -226,13 +233,14 @@ ORDER BY group_id
 )"},
 
     // poisson_fit_predict_by: Poisson GLM fit and predict per group (long format)
-    // C++ API: poisson_fit_predict_by(table_name, group_col, y_col, x_cols)
-    {"poisson_fit_predict_by", {"source", "group_col", "y_col", "x_cols", nullptr}, {{nullptr, nullptr}},
+    // C++ API: poisson_fit_predict_by(table_name, group_col, y_col, x_cols, options)
+    // Options: link, intercept, max_iterations, tolerance, confidence_level, null_policy
+    {"poisson_fit_predict_by", {"source", "group_col", "y_col", "x_cols", nullptr}, {{"options", "NULL"}},
 R"(
 WITH predictions AS (
     SELECT
         group_col AS group_id,
-        poisson_fit_predict_agg(y_col, x_cols) AS pred
+        poisson_fit_predict_agg(y_col, x_cols, options) AS pred
     FROM query_table(source::VARCHAR)
     GROUP BY group_col
 ),
