@@ -2283,7 +2283,7 @@ SELECT * FROM ols_fit_predict_by('sales_data', region, revenue, [advertising, pr
 
 -- With 99% prediction intervals
 SELECT * FROM ols_fit_predict_by('sales_data', region, revenue, [advertising, price],
-    options := {'confidence_level': 0.99});
+    {'confidence_level': 0.99});
 
 -- Filter to out-of-sample predictions only
 SELECT * FROM ols_fit_predict_by('forecast_data', store_id, sales, [inventory, promotions])
@@ -2308,11 +2308,11 @@ SELECT * FROM ridge_fit_predict_by('data', category, y, [x1, x2]);
 
 -- Ridge with custom regularization
 SELECT * FROM ridge_fit_predict_by('data', category, y, [x1, x2],
-    options := {'alpha': 0.5});
+    {'alpha': 0.5});
 
 -- Strong regularization
 SELECT * FROM ridge_fit_predict_by('data', category, y, [x1, x2],
-    options := {'alpha': 10.0, 'confidence_level': 0.99});
+    {'alpha': 10.0, 'confidence_level': 0.99});
 ```
 
 ### elasticnet_fit_predict_by
@@ -2336,7 +2336,7 @@ SELECT * FROM elasticnet_fit_predict_by('data', category, y, [x1, x2]);
 
 -- More Lasso-like (70% L1)
 SELECT * FROM elasticnet_fit_predict_by('data', category, y, [x1, x2],
-    options := {'alpha': 0.1, 'l1_ratio': 0.7});
+    {'alpha': 0.1, 'l1_ratio': 0.7});
 ```
 
 ### wls_fit_predict_by
@@ -2368,7 +2368,7 @@ SELECT * FROM wls_fit_predict_by('weighted_data', segment, y, [x1, x2], weight);
 
 -- WLS with custom confidence level
 SELECT * FROM wls_fit_predict_by('weighted_data', segment, y, [x1, x2], weight,
-    options := {'confidence_level': 0.99});
+    {'confidence_level': 0.99});
 ```
 
 ### rls_fit_predict_by
@@ -2390,7 +2390,7 @@ SELECT * FROM rls_fit_predict_by('streaming_data', sensor_id, reading, [temp, pr
 
 -- RLS with forgetting (adapts to recent data)
 SELECT * FROM rls_fit_predict_by('streaming_data', sensor_id, reading, [temp, pressure],
-    options := {'forgetting_factor': 0.95});
+    {'forgetting_factor': 0.95});
 ```
 
 ### bls_fit_predict_by
@@ -2414,7 +2414,7 @@ SELECT * FROM bls_fit_predict_by('constrained_data', portfolio_id, returns, [fac
 
 -- Box constraints (coefficients between 0 and 1)
 SELECT * FROM bls_fit_predict_by('portfolio_data', asset_class, returns, [factors],
-    options := {'lower_bound': 0.0, 'upper_bound': 1.0});
+    {'lower_bound': 0.0, 'upper_bound': 1.0});
 ```
 
 ### alm_fit_predict_by
@@ -2439,11 +2439,11 @@ SELECT * FROM alm_fit_predict_by('robust_data', group_id, y, [x1, x2]);
 
 -- Robust regression with Laplace (median regression)
 SELECT * FROM alm_fit_predict_by('data_with_outliers', group_id, y, [x1, x2],
-    options := {'distribution': 'laplace'});
+    {'distribution': 'laplace'});
 
 -- Student-t for heavy tails
 SELECT * FROM alm_fit_predict_by('heavy_tailed_data', group_id, y, [x1, x2],
-    options := {'distribution': 'studentt'});
+    {'distribution': 'studentt'});
 ```
 
 ### poisson_fit_predict_by
@@ -2466,11 +2466,11 @@ SELECT * FROM poisson_fit_predict_by('count_data', store_id, visitor_count, [mar
 
 -- Poisson with identity link
 SELECT * FROM poisson_fit_predict_by('count_data', store_id, visitor_count, [marketing_spend],
-    options := {'link': 'identity'});
+    {'link': 'identity'});
 
 -- Poisson with custom iterations
 SELECT * FROM poisson_fit_predict_by('count_data', store_id, visitor_count, [marketing_spend],
-    options := {'link': 'log', 'max_iterations': 200});
+    {'link': 'log', 'max_iterations': 200});
 ```
 
 ### Table Macro Aliases
