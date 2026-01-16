@@ -54,11 +54,30 @@ A statistical analysis extension for DuckDB, providing regression analysis, diag
 | `residuals_diagnostics_agg` | Residual analysis |
 | `aid_agg`, `aid_anomaly_agg` | Demand pattern classification |
 
+### Fit-Predict Table Macros (`*_fit_predict_by`)
+
+Table macros for easy per-group model fitting and prediction with a single function call:
+
+| Macro | Description |
+|-------|-------------|
+| `ols_fit_predict_by` | OLS per-group fit + predict |
+| `ridge_fit_predict_by` | Ridge per-group fit + predict |
+| `elasticnet_fit_predict_by` | ElasticNet per-group fit + predict |
+| `wls_fit_predict_by` | WLS per-group fit + predict |
+| `rls_fit_predict_by` | RLS per-group fit + predict |
+| `bls_fit_predict_by` | Bounded LS per-group fit + predict |
+| `alm_fit_predict_by` | ALM per-group fit + predict |
+| `poisson_fit_predict_by` | Poisson GLM per-group fit + predict |
+| `pls_fit_predict_by` | PLS per-group fit + predict |
+| `isotonic_fit_predict_by` | Isotonic per-group fit + predict |
+| `quantile_fit_predict_by` | Quantile per-group fit + predict |
+
 ### Key Capabilities
 - **Aggregate Functions**: All methods support `GROUP BY` for per-group analysis
 - **Window Functions**: Regression methods support `OVER` clause for rolling/expanding windows
 - **Prediction Intervals**: Confidence and prediction intervals for forecasts
 - **Full Inference**: t-statistics, p-values, confidence intervals for coefficients
+- **Table Macros**: `*_fit_predict_by` macros simplify per-group workflows
 
 ## Quick Start
 
@@ -130,6 +149,25 @@ FROM (
     FROM sales_data
     GROUP BY category
 ) sub;
+
+-- EASIER: Per-group fit + predict using table macros
+-- Returns one row per observation with predictions
+SELECT * FROM ols_fit_predict_by(
+    'sales_data',      -- table name (as string)
+    category,          -- group column
+    sales,             -- y column
+    [price, quantity]  -- x columns as list
+);
+-- Returns: group_id, y, x, yhat, yhat_lower, yhat_upper, is_training
+
+-- With options (e.g., confidence level)
+SELECT * FROM ridge_fit_predict_by(
+    'sales_data',
+    category,
+    sales,
+    [price, quantity],
+    {'alpha': 0.5, 'confidence_level': 0.99}  -- options
+);
 ```
 
 ## Installation
