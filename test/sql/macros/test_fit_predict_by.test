@@ -204,6 +204,278 @@ SELECT COUNT(*) FROM wls_fit_predict_by('wls_data', group_id, y, [x1, x2], weigh
 12
 
 # =============================================================================
+# OPTIONS PARAMETER TESTS
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# OLS OPTIONS TESTS
+# -----------------------------------------------------------------------------
+
+# TEST 17: OLS with explicit NULL options (backwards compatible)
+query I
+SELECT COUNT(*) FROM ols_fit_predict_by('reg_data', group_id, y, [x1, x2], NULL);
+----
+12
+
+# TEST 18: OLS with confidence_level option
+query I
+SELECT COUNT(*) FROM ols_fit_predict_by('reg_data', group_id, y, [x1, x2], {'confidence_level': 0.99});
+----
+12
+
+# TEST 19: OLS with fit_intercept option
+query I
+SELECT COUNT(*) FROM ols_fit_predict_by('reg_data', group_id, y, [x1, x2], {'fit_intercept': true});
+----
+12
+
+# TEST 20: OLS with null_policy option
+query I
+SELECT COUNT(*) FROM ols_fit_predict_by('reg_data', group_id, y, [x1, x2], {'null_policy': 'drop'});
+----
+12
+
+# TEST 21: OLS with multiple options
+query I
+SELECT COUNT(*) FROM ols_fit_predict_by('reg_data', group_id, y, [x1, x2],
+    {'fit_intercept': true, 'confidence_level': 0.90});
+----
+12
+
+# -----------------------------------------------------------------------------
+# RIDGE OPTIONS TESTS
+# -----------------------------------------------------------------------------
+
+# TEST 22: Ridge with alpha option
+query I
+SELECT COUNT(*) FROM ridge_fit_predict_by('reg_data', group_id, y, [x1, x2], {'alpha': 0.5});
+----
+12
+
+# TEST 23: Ridge with alpha=0 should behave like OLS
+query I
+SELECT COUNT(*) FROM ridge_fit_predict_by('reg_data', group_id, y, [x1, x2], {'alpha': 0.0});
+----
+12
+
+# TEST 24: Ridge with high alpha (strong regularization)
+query I
+SELECT COUNT(*) FROM ridge_fit_predict_by('reg_data', group_id, y, [x1, x2], {'alpha': 10.0});
+----
+12
+
+# TEST 25: Ridge with alpha and confidence_level
+query I
+SELECT COUNT(*) FROM ridge_fit_predict_by('reg_data', group_id, y, [x1, x2],
+    {'alpha': 1.0, 'confidence_level': 0.99});
+----
+12
+
+# -----------------------------------------------------------------------------
+# ELASTICNET OPTIONS TESTS
+# -----------------------------------------------------------------------------
+
+# TEST 26: ElasticNet with alpha option
+query I
+SELECT COUNT(*) FROM elasticnet_fit_predict_by('reg_data', group_id, y, [x1, x2], {'alpha': 0.1});
+----
+12
+
+# TEST 27: ElasticNet with l1_ratio option (0 = Ridge, 1 = Lasso)
+query I
+SELECT COUNT(*) FROM elasticnet_fit_predict_by('reg_data', group_id, y, [x1, x2], {'l1_ratio': 0.5});
+----
+12
+
+# TEST 28: ElasticNet with alpha and l1_ratio
+query I
+SELECT COUNT(*) FROM elasticnet_fit_predict_by('reg_data', group_id, y, [x1, x2],
+    {'alpha': 0.1, 'l1_ratio': 0.7});
+----
+12
+
+# TEST 29: ElasticNet with max_iterations and tolerance
+query I
+SELECT COUNT(*) FROM elasticnet_fit_predict_by('reg_data', group_id, y, [x1, x2],
+    {'max_iterations': 500, 'tolerance': 1e-5});
+----
+12
+
+# -----------------------------------------------------------------------------
+# WLS OPTIONS TESTS
+# -----------------------------------------------------------------------------
+
+# TEST 30: WLS with explicit NULL options
+query I
+SELECT COUNT(*) FROM wls_fit_predict_by('wls_data', group_id, y, [x1, x2], weight, NULL);
+----
+12
+
+# TEST 31: WLS with confidence_level option
+query I
+SELECT COUNT(*) FROM wls_fit_predict_by('wls_data', group_id, y, [x1, x2], weight,
+    {'confidence_level': 0.95});
+----
+12
+
+# TEST 32: WLS with fit_intercept option
+query I
+SELECT COUNT(*) FROM wls_fit_predict_by('wls_data', group_id, y, [x1, x2], weight,
+    {'fit_intercept': true});
+----
+12
+
+# -----------------------------------------------------------------------------
+# RLS OPTIONS TESTS
+# -----------------------------------------------------------------------------
+
+# TEST 33: RLS with forgetting_factor option
+query I
+SELECT COUNT(*) FROM rls_fit_predict_by('reg_data', group_id, y, [x1, x2],
+    {'forgetting_factor': 0.99});
+----
+12
+
+# TEST 34: RLS with forgetting_factor = 1.0 (no forgetting)
+query I
+SELECT COUNT(*) FROM rls_fit_predict_by('reg_data', group_id, y, [x1, x2],
+    {'forgetting_factor': 1.0});
+----
+12
+
+# TEST 35: RLS with initial_p_diagonal option
+query I
+SELECT COUNT(*) FROM rls_fit_predict_by('reg_data', group_id, y, [x1, x2],
+    {'initial_p_diagonal': 100.0});
+----
+12
+
+# TEST 36: RLS with multiple options
+query I
+SELECT COUNT(*) FROM rls_fit_predict_by('reg_data', group_id, y, [x1, x2],
+    {'forgetting_factor': 0.95, 'initial_p_diagonal': 50.0});
+----
+12
+
+# -----------------------------------------------------------------------------
+# BLS OPTIONS TESTS
+# -----------------------------------------------------------------------------
+
+# TEST 37: BLS with lower_bound option (non-negative coefficients)
+query I
+SELECT COUNT(*) FROM bls_fit_predict_by('reg_data', group_id, y, [x1, x2],
+    {'lower_bound': 0.0});
+----
+12
+
+# TEST 38: BLS with upper_bound option
+query I
+SELECT COUNT(*) FROM bls_fit_predict_by('reg_data', group_id, y, [x1, x2],
+    {'upper_bound': 10.0});
+----
+12
+
+# TEST 39: BLS with both bounds (box constraints)
+query I
+SELECT COUNT(*) FROM bls_fit_predict_by('reg_data', group_id, y, [x1, x2],
+    {'lower_bound': 0.0, 'upper_bound': 5.0});
+----
+12
+
+# TEST 40: BLS with intercept option
+query I
+SELECT COUNT(*) FROM bls_fit_predict_by('reg_data', group_id, y, [x1, x2],
+    {'intercept': true});
+----
+12
+
+# -----------------------------------------------------------------------------
+# ALM OPTIONS TESTS
+# -----------------------------------------------------------------------------
+
+# TEST 41: ALM with normal distribution (default)
+query I
+SELECT COUNT(*) FROM alm_fit_predict_by('reg_data', group_id, y, [x1, x2],
+    {'distribution': 'normal'});
+----
+12
+
+# TEST 42: ALM with laplace distribution (robust regression)
+query I
+SELECT COUNT(*) FROM alm_fit_predict_by('reg_data', group_id, y, [x1, x2],
+    {'distribution': 'laplace'});
+----
+12
+
+# TEST 43: ALM with studentt distribution
+query I
+SELECT COUNT(*) FROM alm_fit_predict_by('reg_data', group_id, y, [x1, x2],
+    {'distribution': 'studentt'});
+----
+12
+
+# TEST 44: ALM with max_iterations and tolerance
+query I
+SELECT COUNT(*) FROM alm_fit_predict_by('reg_data', group_id, y, [x1, x2],
+    {'distribution': 'laplace', 'max_iterations': 200, 'tolerance': 1e-6});
+----
+12
+
+# -----------------------------------------------------------------------------
+# POISSON OPTIONS TESTS
+# -----------------------------------------------------------------------------
+
+# TEST 45: Poisson with log link (default)
+query I
+SELECT COUNT(*) FROM poisson_fit_predict_by('count_data', group_id, count_y, [x1],
+    {'link': 'log'});
+----
+12
+
+# TEST 46: Poisson with identity link
+query I
+SELECT COUNT(*) FROM poisson_fit_predict_by('count_data', group_id, count_y, [x1],
+    {'link': 'identity'});
+----
+12
+
+# TEST 47: Poisson with sqrt link
+query I
+SELECT COUNT(*) FROM poisson_fit_predict_by('count_data', group_id, count_y, [x1],
+    {'link': 'sqrt'});
+----
+12
+
+# TEST 48: Poisson with max_iterations option
+query I
+SELECT COUNT(*) FROM poisson_fit_predict_by('count_data', group_id, count_y, [x1],
+    {'max_iterations': 50});
+----
+12
+
+# TEST 49: Poisson with intercept option
+query I
+SELECT COUNT(*) FROM poisson_fit_predict_by('count_data', group_id, count_y, [x1],
+    {'intercept': true, 'link': 'log'});
+----
+12
+
+# -----------------------------------------------------------------------------
+# VERIFY OPTIONS AFFECT RESULTS
+# -----------------------------------------------------------------------------
+
+# TEST 50: Ridge predictions change with different alpha values
+# Higher alpha = more regularization = predictions closer to mean
+query I
+SELECT
+    (SELECT AVG(ABS(yhat - y)) FROM ridge_fit_predict_by('reg_data', group_id, y, [x1, x2],
+        {'alpha': 0.01}) WHERE is_training) <
+    (SELECT AVG(ABS(yhat - y)) FROM ridge_fit_predict_by('reg_data', group_id, y, [x1, x2],
+        {'alpha': 100.0}) WHERE is_training);
+----
+true
+
+# =============================================================================
 # CLEANUP
 # =============================================================================
 
