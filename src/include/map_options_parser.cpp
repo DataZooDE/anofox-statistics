@@ -306,6 +306,21 @@ RegressionMapOptions RegressionMapOptions::ParseFromValue(const Value &map_value
             } else if (key == "outlier_method") {
                 result.outlier_method = ExtractAidOutlierMethod(val);
             }
+            // PLS options
+            else if (key == "n_components" || key == "components") {
+                auto v = ExtractUInt32(val);
+                if (v.has_value()) {
+                    result.n_components = static_cast<size_t>(v.value());
+                }
+            }
+            // Quantile options
+            else if (key == "tau") {
+                result.tau = ExtractDouble(val);
+            }
+            // Isotonic options
+            else if (key == "increasing") {
+                result.increasing = ExtractBool(val);
+            }
             // Unknown keys are silently ignored for forward compatibility
         }
     }
@@ -371,6 +386,21 @@ RegressionMapOptions RegressionMapOptions::ParseFromValue(const Value &map_value
                 result.intermittent_threshold = ExtractDouble(val);
             } else if (key == "outlier_method") {
                 result.outlier_method = ExtractAidOutlierMethod(val);
+            }
+            // PLS options
+            else if (key == "n_components" || key == "components") {
+                auto v = ExtractUInt32(val);
+                if (v.has_value()) {
+                    result.n_components = static_cast<size_t>(v.value());
+                }
+            }
+            // Quantile options
+            else if (key == "tau") {
+                result.tau = ExtractDouble(val);
+            }
+            // Isotonic options
+            else if (key == "increasing") {
+                result.increasing = ExtractBool(val);
             }
         }
     } else {

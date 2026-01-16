@@ -1494,3 +1494,160 @@ impl Default for DistanceCorResultFFI {
         }
     }
 }
+
+// =============================================================================
+// PLS (Partial Least Squares) FFI Types
+// =============================================================================
+
+/// PLS options for FFI
+#[repr(C)]
+pub struct PlsOptionsFFI {
+    /// Number of components to extract
+    pub n_components: usize,
+    /// Whether to fit intercept
+    pub fit_intercept: bool,
+}
+
+impl Default for PlsOptionsFFI {
+    fn default() -> Self {
+        Self {
+            n_components: 1,
+            fit_intercept: true,
+        }
+    }
+}
+
+/// PLS fit result
+#[repr(C)]
+pub struct PlsFitResultCore {
+    /// Pointer to coefficients array
+    pub coefficients: *mut f64,
+    /// Number of coefficients
+    pub coefficients_len: usize,
+    /// Intercept value (NaN if no intercept)
+    pub intercept: f64,
+    /// R-squared
+    pub r_squared: f64,
+    /// Number of components used
+    pub n_components: usize,
+    /// Number of observations
+    pub n_observations: usize,
+    /// Number of features
+    pub n_features: usize,
+}
+
+impl Default for PlsFitResultCore {
+    fn default() -> Self {
+        Self {
+            coefficients: std::ptr::null_mut(),
+            coefficients_len: 0,
+            intercept: f64::NAN,
+            r_squared: f64::NAN,
+            n_components: 0,
+            n_observations: 0,
+            n_features: 0,
+        }
+    }
+}
+
+// =============================================================================
+// Isotonic Regression FFI Types
+// =============================================================================
+
+/// Isotonic regression options for FFI
+#[repr(C)]
+pub struct IsotonicOptionsFFI {
+    /// Whether the function should be increasing (true) or decreasing (false)
+    pub increasing: bool,
+}
+
+impl Default for IsotonicOptionsFFI {
+    fn default() -> Self {
+        Self { increasing: true }
+    }
+}
+
+/// Isotonic fit result
+#[repr(C)]
+pub struct IsotonicFitResultCore {
+    /// Pointer to fitted values array (same length as input)
+    pub fitted_values: *mut f64,
+    /// Number of fitted values
+    pub fitted_values_len: usize,
+    /// R-squared
+    pub r_squared: f64,
+    /// Number of observations
+    pub n_observations: usize,
+    /// Whether increasing constraint was used
+    pub increasing: bool,
+}
+
+impl Default for IsotonicFitResultCore {
+    fn default() -> Self {
+        Self {
+            fitted_values: std::ptr::null_mut(),
+            fitted_values_len: 0,
+            r_squared: f64::NAN,
+            n_observations: 0,
+            increasing: true,
+        }
+    }
+}
+
+// =============================================================================
+// Quantile Regression FFI Types
+// =============================================================================
+
+/// Quantile regression options for FFI
+#[repr(C)]
+pub struct QuantileOptionsFFI {
+    /// Quantile to estimate (0 < tau < 1, e.g., 0.5 for median)
+    pub tau: f64,
+    /// Whether to fit intercept
+    pub fit_intercept: bool,
+    /// Maximum iterations
+    pub max_iterations: u32,
+    /// Convergence tolerance
+    pub tolerance: f64,
+}
+
+impl Default for QuantileOptionsFFI {
+    fn default() -> Self {
+        Self {
+            tau: 0.5,
+            fit_intercept: true,
+            max_iterations: 1000,
+            tolerance: 1e-6,
+        }
+    }
+}
+
+/// Quantile fit result
+#[repr(C)]
+pub struct QuantileFitResultCore {
+    /// Pointer to coefficients array
+    pub coefficients: *mut f64,
+    /// Number of coefficients
+    pub coefficients_len: usize,
+    /// Intercept value (NaN if no intercept)
+    pub intercept: f64,
+    /// Quantile estimated
+    pub tau: f64,
+    /// Number of observations
+    pub n_observations: usize,
+    /// Number of features
+    pub n_features: usize,
+}
+
+impl Default for QuantileFitResultCore {
+    fn default() -> Self {
+        Self {
+            coefficients: std::ptr::null_mut(),
+            coefficients_len: 0,
+            intercept: f64::NAN,
+            tau: f64::NAN,
+            n_observations: 0,
+            n_features: 0,
+        }
+    }
+}

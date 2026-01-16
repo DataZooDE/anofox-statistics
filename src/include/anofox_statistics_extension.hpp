@@ -35,6 +35,9 @@ void RegisterElasticNetFitPredictAggregateFunction(ExtensionLoader &loader);
 void RegisterBlsFitPredictAggregateFunction(ExtensionLoader &loader);
 void RegisterAlmFitPredictAggregateFunction(ExtensionLoader &loader);
 void RegisterPoissonFitPredictAggregateFunction(ExtensionLoader &loader);
+void RegisterPlsFitPredictAggregateFunction(ExtensionLoader &loader);
+void RegisterIsotonicFitPredictAggregateFunction(ExtensionLoader &loader);
+void RegisterQuantileFitPredictAggregateFunction(ExtensionLoader &loader);
 
 // GLM aggregate functions
 void RegisterPoissonAggregateFunction(ExtensionLoader &loader);

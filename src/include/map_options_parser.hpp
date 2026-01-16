@@ -157,6 +157,15 @@ struct RegressionMapOptions {
     std::optional<double> intermittent_threshold;    // Zero proportion threshold (default: 0.3)
     std::optional<AidOutlierMethod> outlier_method;  // Outlier detection method
 
+    // PLS specific
+    std::optional<size_t> n_components;  // Number of components for PLS
+
+    // Quantile specific
+    std::optional<double> tau;  // Quantile to estimate (0 < tau < 1)
+
+    // Isotonic specific
+    std::optional<bool> increasing;  // Whether function is increasing or decreasing
+
     /**
      * Parse options from a DuckDB MAP Value.
      * Supports both integer (0/1) and boolean values for boolean options.

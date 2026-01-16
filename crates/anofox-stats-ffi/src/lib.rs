@@ -10,12 +10,12 @@ use anofox_stats_core::{
     diagnostics::{compute_aic, compute_bic, compute_residuals, compute_vif, jarque_bera},
     models::{
         compute_aid, compute_aid_anomalies, fit_alm, fit_binomial, fit_bls, fit_elasticnet,
-        fit_negbinomial, fit_ols, fit_poisson, fit_ridge, fit_rls, fit_tweedie, fit_wls, predict,
-        RlsOptions,
+        fit_isotonic, fit_negbinomial, fit_ols, fit_pls, fit_poisson, fit_quantile, fit_ridge,
+        fit_rls, fit_tweedie, fit_wls, predict, RlsOptions,
     },
     AidOptions, AlmDistribution, AlmLoss, AlmOptions, BinomialLink, BinomialOptions, BlsOptions,
-    ElasticNetOptions, NegBinomialOptions, OlsOptions, OutlierMethod, PoissonLink, PoissonOptions,
-    RidgeOptions, StatsError, TweedieOptions, WlsOptions,
+    ElasticNetOptions, IsotonicOptions, NegBinomialOptions, OlsOptions, OutlierMethod, PoissonLink,
+    PoissonOptions, PlsOptions, QuantileOptions, RidgeOptions, StatsError, TweedieOptions, WlsOptions,
 };
 use statrs::distribution::{ContinuousCDF, StudentsT};
 use std::slice;
@@ -2500,6 +2500,350 @@ pub unsafe extern "C" fn anofox_free_bls_result(result: *mut BlsFitResultCore) {
     if !(*result).at_upper_bound.is_null() {
         libc::free((*result).at_upper_bound as *mut libc::c_void);
         (*result).at_upper_bound = std::ptr::null_mut();
+    }
+}
+
+// =============================================================================
+// PLS (Partial Least Squares) FFI Functions
+// =============================================================================
+
+/// Fit a PLS (Partial Least Squares) regression model
+///
+/// # Safety
+/// - `y` must be a valid DataArray
+/// - `x` must point to `x_count` valid DataArray structs
+/// - `out_core` must be a valid pointer
+/// - `out_error` must be a valid pointer
+///
+/// # Returns
+/// `true` on success, `false` on error (check `out_error` for details)
+#[no_mangle]
+pub unsafe extern "C" fn anofox_pls_fit(
+    y: DataArray,
+    x: *const DataArray,
+    x_count: usize,
+    options: PlsOptionsFFI,
+    out_core: *mut PlsFitResultCore,
+    out_error: *mut AnofoxError,
+) -> bool {
+    if !out_error.is_null() {
+        *out_error = AnofoxError::success();
+    }
+
+    if out_core.is_null() {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "out_core is NULL");
+        }
+        return false;
+    }
+
+    if x.is_null() || x_count == 0 {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
+        }
+        return false;
+    }
+
+    // Convert y to Vec
+    let y_vec = y.to_vec();
+
+    // Convert x arrays to Vec<Vec<f64>>
+    let x_arrays = slice::from_raw_parts(x, x_count);
+    let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
+
+    // Convert options
+    let opts = PlsOptions {
+        n_components: options.n_components,
+        fit_intercept: options.fit_intercept,
+    };
+
+    // Call the core function with panic catching
+    let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        fit_pls(&y_vec, &x_vecs, &opts)
+    }));
+
+    let fit_result = match fit_result {
+        Ok(r) => r,
+        Err(_) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InternalError, "Internal panic in PLS fit");
+            }
+            return false;
+        }
+    };
+
+    match fit_result {
+        Ok(result) => {
+            let n_coef = result.coefficients.len();
+
+            // Allocate and copy coefficients
+            let coef_ptr = libc::malloc(n_coef * std::mem::size_of::<f64>()) as *mut f64;
+            if coef_ptr.is_null() && n_coef > 0 {
+                if !out_error.is_null() {
+                    (*out_error).set(ErrorCode::AllocationFailure, "Failed to allocate coefficients");
+                }
+                return false;
+            }
+            std::ptr::copy_nonoverlapping(result.coefficients.as_ptr(), coef_ptr, n_coef);
+
+            (*out_core) = PlsFitResultCore {
+                coefficients: coef_ptr,
+                coefficients_len: n_coef,
+                intercept: result.intercept.unwrap_or(f64::NAN),
+                r_squared: result.r_squared,
+                n_components: result.n_components,
+                n_observations: result.n_observations,
+                n_features: result.n_features,
+            };
+
+            true
+        }
+        Err(e) => {
+            if !out_error.is_null() {
+                (*out_error).set(error_to_code(&e), &e.to_string());
+            }
+            false
+        }
+    }
+}
+
+/// Free memory allocated by PLS fit function
+///
+/// # Safety
+/// - `result` must be NULL or a valid pointer to a PlsFitResultCore
+#[no_mangle]
+pub unsafe extern "C" fn anofox_free_pls_result(result: *mut PlsFitResultCore) {
+    if result.is_null() {
+        return;
+    }
+    if !(*result).coefficients.is_null() {
+        libc::free((*result).coefficients as *mut libc::c_void);
+        (*result).coefficients = std::ptr::null_mut();
+    }
+}
+
+// =============================================================================
+// Isotonic Regression FFI Functions
+// =============================================================================
+
+/// Fit an Isotonic regression model
+///
+/// # Safety
+/// - `x` must be a valid DataArray (1D input values)
+/// - `y` must be a valid DataArray (response values)
+/// - `out_core` must be a valid pointer
+/// - `out_error` must be a valid pointer
+///
+/// # Returns
+/// `true` on success, `false` on error (check `out_error` for details)
+#[no_mangle]
+pub unsafe extern "C" fn anofox_isotonic_fit(
+    x: DataArray,
+    y: DataArray,
+    options: IsotonicOptionsFFI,
+    out_core: *mut IsotonicFitResultCore,
+    out_error: *mut AnofoxError,
+) -> bool {
+    if !out_error.is_null() {
+        *out_error = AnofoxError::success();
+    }
+
+    if out_core.is_null() {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "out_core is NULL");
+        }
+        return false;
+    }
+
+    // Convert to Vec
+    let x_vec = x.to_vec();
+    let y_vec = y.to_vec();
+
+    // Convert options
+    let opts = IsotonicOptions {
+        increasing: options.increasing,
+    };
+
+    // Call the core function with panic catching
+    let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        fit_isotonic(&x_vec, &y_vec, &opts)
+    }));
+
+    let fit_result = match fit_result {
+        Ok(r) => r,
+        Err(_) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InternalError, "Internal panic in Isotonic fit");
+            }
+            return false;
+        }
+    };
+
+    match fit_result {
+        Ok(result) => {
+            let n_values = result.fitted_values.len();
+
+            // Allocate and copy fitted values
+            let fitted_ptr = libc::malloc(n_values * std::mem::size_of::<f64>()) as *mut f64;
+            if fitted_ptr.is_null() && n_values > 0 {
+                if !out_error.is_null() {
+                    (*out_error).set(ErrorCode::AllocationFailure, "Failed to allocate fitted values");
+                }
+                return false;
+            }
+            std::ptr::copy_nonoverlapping(result.fitted_values.as_ptr(), fitted_ptr, n_values);
+
+            (*out_core) = IsotonicFitResultCore {
+                fitted_values: fitted_ptr,
+                fitted_values_len: n_values,
+                r_squared: result.r_squared,
+                n_observations: result.n_observations,
+                increasing: result.increasing,
+            };
+
+            true
+        }
+        Err(e) => {
+            if !out_error.is_null() {
+                (*out_error).set(error_to_code(&e), &e.to_string());
+            }
+            false
+        }
+    }
+}
+
+/// Free memory allocated by Isotonic fit function
+///
+/// # Safety
+/// - `result` must be NULL or a valid pointer to an IsotonicFitResultCore
+#[no_mangle]
+pub unsafe extern "C" fn anofox_free_isotonic_result(result: *mut IsotonicFitResultCore) {
+    if result.is_null() {
+        return;
+    }
+    if !(*result).fitted_values.is_null() {
+        libc::free((*result).fitted_values as *mut libc::c_void);
+        (*result).fitted_values = std::ptr::null_mut();
+    }
+}
+
+// =============================================================================
+// Quantile Regression FFI Functions
+// =============================================================================
+
+/// Fit a Quantile regression model
+///
+/// # Safety
+/// - `y` must be a valid DataArray
+/// - `x` must point to `x_count` valid DataArray structs
+/// - `out_core` must be a valid pointer
+/// - `out_error` must be a valid pointer
+///
+/// # Returns
+/// `true` on success, `false` on error (check `out_error` for details)
+#[no_mangle]
+pub unsafe extern "C" fn anofox_quantile_fit(
+    y: DataArray,
+    x: *const DataArray,
+    x_count: usize,
+    options: QuantileOptionsFFI,
+    out_core: *mut QuantileFitResultCore,
+    out_error: *mut AnofoxError,
+) -> bool {
+    if !out_error.is_null() {
+        *out_error = AnofoxError::success();
+    }
+
+    if out_core.is_null() {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "out_core is NULL");
+        }
+        return false;
+    }
+
+    if x.is_null() || x_count == 0 {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
+        }
+        return false;
+    }
+
+    // Convert y to Vec
+    let y_vec = y.to_vec();
+
+    // Convert x arrays to Vec<Vec<f64>>
+    let x_arrays = slice::from_raw_parts(x, x_count);
+    let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
+
+    // Convert options
+    let opts = QuantileOptions {
+        tau: options.tau,
+        fit_intercept: options.fit_intercept,
+        max_iterations: options.max_iterations,
+        tolerance: options.tolerance,
+    };
+
+    // Call the core function with panic catching
+    let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        fit_quantile(&y_vec, &x_vecs, &opts)
+    }));
+
+    let fit_result = match fit_result {
+        Ok(r) => r,
+        Err(_) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InternalError, "Internal panic in Quantile fit");
+            }
+            return false;
+        }
+    };
+
+    match fit_result {
+        Ok(result) => {
+            let n_coef = result.coefficients.len();
+
+            // Allocate and copy coefficients
+            let coef_ptr = libc::malloc(n_coef * std::mem::size_of::<f64>()) as *mut f64;
+            if coef_ptr.is_null() && n_coef > 0 {
+                if !out_error.is_null() {
+                    (*out_error).set(ErrorCode::AllocationFailure, "Failed to allocate coefficients");
+                }
+                return false;
+            }
+            std::ptr::copy_nonoverlapping(result.coefficients.as_ptr(), coef_ptr, n_coef);
+
+            (*out_core) = QuantileFitResultCore {
+                coefficients: coef_ptr,
+                coefficients_len: n_coef,
+                intercept: result.intercept.unwrap_or(f64::NAN),
+                tau: result.tau,
+                n_observations: result.n_observations,
+                n_features: result.n_features,
+            };
+
+            true
+        }
+        Err(e) => {
+            if !out_error.is_null() {
+                (*out_error).set(error_to_code(&e), &e.to_string());
+            }
+            false
+        }
+    }
+}
+
+/// Free memory allocated by Quantile fit function
+///
+/// # Safety
+/// - `result` must be NULL or a valid pointer to a QuantileFitResultCore
+#[no_mangle]
+pub unsafe extern "C" fn anofox_free_quantile_result(result: *mut QuantileFitResultCore) {
+    if result.is_null() {
+        return;
+    }
+    if !(*result).coefficients.is_null() {
+        libc::free((*result).coefficients as *mut libc::c_void);
+        (*result).coefficients = std::ptr::null_mut();
     }
 }
 
