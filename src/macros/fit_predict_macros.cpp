@@ -262,6 +262,97 @@ FROM unnested
 ORDER BY group_id
 )"},
 
+    // pls_fit_predict_by: PLS (Partial Least Squares) fit and predict per group (long format)
+    // C++ API: pls_fit_predict_by(table_name, group_col, y_col, x_cols, options)
+    // Options: n_components, fit_intercept, confidence_level, null_policy
+    {"pls_fit_predict_by", {"source", "group_col", "y_col", "x_cols", nullptr}, {{"options", "NULL"}},
+R"(
+WITH predictions AS (
+    SELECT
+        group_col AS group_id,
+        pls_fit_predict_agg(y_col, x_cols, options) AS pred
+    FROM query_table(source::VARCHAR)
+    GROUP BY group_col
+),
+unnested AS (
+    SELECT
+        group_id,
+        UNNEST(pred) AS p
+    FROM predictions
+)
+SELECT
+    group_id,
+    (p).y AS y,
+    (p).x AS x,
+    (p).yhat AS yhat,
+    (p).yhat_lower AS yhat_lower,
+    (p).yhat_upper AS yhat_upper,
+    (p).is_training AS is_training
+FROM unnested
+ORDER BY group_id
+)"},
+
+    // isotonic_fit_predict_by: Isotonic regression fit and predict per group (long format)
+    // C++ API: isotonic_fit_predict_by(table_name, group_col, y_col, x_col, options)
+    // Note: Isotonic takes a single x column, not a list
+    // Options: increasing, confidence_level, null_policy
+    {"isotonic_fit_predict_by", {"source", "group_col", "y_col", "x_col", nullptr}, {{"options", "NULL"}},
+R"(
+WITH predictions AS (
+    SELECT
+        group_col AS group_id,
+        isotonic_fit_predict_agg(y_col, x_col, options) AS pred
+    FROM query_table(source::VARCHAR)
+    GROUP BY group_col
+),
+unnested AS (
+    SELECT
+        group_id,
+        UNNEST(pred) AS p
+    FROM predictions
+)
+SELECT
+    group_id,
+    (p).y AS y,
+    (p).x AS x,
+    (p).yhat AS yhat,
+    (p).yhat_lower AS yhat_lower,
+    (p).yhat_upper AS yhat_upper,
+    (p).is_training AS is_training
+FROM unnested
+ORDER BY group_id
+)"},
+
+    // quantile_fit_predict_by: Quantile regression fit and predict per group (long format)
+    // C++ API: quantile_fit_predict_by(table_name, group_col, y_col, x_cols, options)
+    // Options: tau, fit_intercept, max_iterations, tolerance, confidence_level, null_policy
+    {"quantile_fit_predict_by", {"source", "group_col", "y_col", "x_cols", nullptr}, {{"options", "NULL"}},
+R"(
+WITH predictions AS (
+    SELECT
+        group_col AS group_id,
+        quantile_fit_predict_agg(y_col, x_cols, options) AS pred
+    FROM query_table(source::VARCHAR)
+    GROUP BY group_col
+),
+unnested AS (
+    SELECT
+        group_id,
+        UNNEST(pred) AS p
+    FROM predictions
+)
+SELECT
+    group_id,
+    (p).y AS y,
+    (p).x AS x,
+    (p).yhat AS yhat,
+    (p).yhat_lower AS yhat_lower,
+    (p).yhat_upper AS yhat_upper,
+    (p).is_training AS is_training
+FROM unnested
+ORDER BY group_id
+)"},
+
     // Sentinel
     {nullptr, {nullptr}, {{nullptr, nullptr}}, nullptr}
 };

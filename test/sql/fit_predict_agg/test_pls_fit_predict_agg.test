@@ -1,0 +1,262 @@
+# name: test/sql/fit_predict_agg/test_pls_fit_predict_agg.test
+# description: Test PLS fit_predict_agg aggregate function
+# group: [fit_predict_agg]
+
+require anofox_statistics
+
+# =============================================================================
+# SETUP: Create test data
+# =============================================================================
+
+statement ok
+CREATE TABLE test_data AS
+SELECT
+    CASE WHEN i <= 7 THEN (2.0 * i + 1.0 + 0.5 * (i * 0.5)) ELSE NULL END AS y,
+    i::DOUBLE AS x1,
+    (i * 0.5)::DOUBLE AS x2,
+    i AS id
+FROM range(1, 11) t(i);
+
+# =============================================================================
+# TEST 1: Basic Fit and Predict - Returns correct number of rows
+# =============================================================================
+
+query I
+SELECT LENGTH(pls_fit_predict_agg(y, [x1, x2])) AS n_rows FROM test_data;
+----
+10
+
+# =============================================================================
+# TEST 2: Training vs Prediction Row Identification
+# =============================================================================
+
+query II
+SELECT
+    SUM(CASE WHEN (pred).is_training THEN 1 ELSE 0 END) AS n_training,
+    SUM(CASE WHEN NOT (pred).is_training THEN 1 ELSE 0 END) AS n_prediction
+FROM (
+    SELECT UNNEST(pls_fit_predict_agg(y, [x1, x2])) AS pred
+    FROM test_data
+);
+----
+7	3
+
+# =============================================================================
+# TEST 3: Predictions Are Reasonable
+# =============================================================================
+
+query I
+SELECT COUNT(*) FROM (
+    SELECT UNNEST(pls_fit_predict_agg(y, [x1, x2])) AS pred
+    FROM test_data
+)
+WHERE (pred).yhat IS NOT NULL;
+----
+10
+
+# =============================================================================
+# TEST 4: Configuration Options - n_components
+# =============================================================================
+
+query I
+SELECT LENGTH(pls_fit_predict_agg(y, [x1, x2], {'n_components': 1})) FROM test_data;
+----
+10
+
+query I
+SELECT LENGTH(pls_fit_predict_agg(y, [x1, x2], {'n_components': 2})) FROM test_data;
+----
+10
+
+# =============================================================================
+# TEST 5: GROUP BY Partitioning
+# =============================================================================
+
+statement ok
+CREATE TABLE grouped_data AS
+SELECT
+    CASE WHEN i <= 5 THEN 'A' ELSE 'B' END AS grp,
+    CASE WHEN i <= 4 OR (i > 5 AND i <= 9) THEN (i::DOUBLE * 2.0 + i * 0.3) ELSE NULL END AS y,
+    i::DOUBLE AS x1,
+    (i * 0.5)::DOUBLE AS x2,
+    i AS id
+FROM range(1, 11) t(i);
+
+query TI
+SELECT grp, LENGTH(pls_fit_predict_agg(y, [x1, x2])) AS n_rows
+FROM grouped_data
+GROUP BY grp
+ORDER BY grp;
+----
+A	5
+B	5
+
+# =============================================================================
+# TEST 6: Multiple Groups with Different IDs
+# =============================================================================
+
+statement ok
+CREATE TABLE multi_group_data AS
+SELECT
+    category,
+    product_id,
+    CASE WHEN row_num <= 4 THEN sales ELSE NULL END AS y,
+    price AS x1,
+    quantity AS x2
+FROM (
+    SELECT
+        CASE WHEN i <= 6 THEN 'Electronics' ELSE 'Clothing' END AS category,
+        i AS product_id,
+        (100 + i * 10 + RANDOM() * 5)::DOUBLE AS sales,
+        (50 + i * 5)::DOUBLE AS price,
+        (10 + i)::DOUBLE AS quantity,
+        ROW_NUMBER() OVER (PARTITION BY (CASE WHEN i <= 6 THEN 'Electronics' ELSE 'Clothing' END) ORDER BY i) AS row_num
+    FROM range(1, 13) t(i)
+);
+
+query TI
+SELECT category, LENGTH(pls_fit_predict_agg(y, [x1, x2])) AS n_rows
+FROM multi_group_data
+GROUP BY category
+ORDER BY category;
+----
+Clothing	6
+Electronics	6
+
+# =============================================================================
+# TEST 7: Original Values Preserved
+# =============================================================================
+
+query I
+SELECT COUNT(*) FROM (
+    SELECT UNNEST(pls_fit_predict_agg(y, [x1, x2])) AS pred
+    FROM test_data
+)
+WHERE (pred).x IS NOT NULL AND LENGTH((pred).x) = 2;
+----
+10
+
+# =============================================================================
+# TEST 8: fit_intercept Option
+# =============================================================================
+
+query I
+SELECT LENGTH(pls_fit_predict_agg(y, [x1, x2], {'fit_intercept': false})) FROM test_data;
+----
+10
+
+# =============================================================================
+# TEST 9: Minimal Data - PLS can work with 2 observations
+# =============================================================================
+
+query I
+SELECT LENGTH(pls_fit_predict_agg(y, [x1, x2])) FROM (SELECT * FROM test_data LIMIT 2);
+----
+2
+
+# =============================================================================
+# TEST 10: All Training Rows (No Predictions)
+# =============================================================================
+
+statement ok
+CREATE TABLE all_training AS
+SELECT (2.0 * i + 1.0) AS y, i::DOUBLE AS x1, (i * 0.5)::DOUBLE AS x2, i AS id
+FROM range(1, 11) t(i);
+
+query II
+SELECT
+    SUM(CASE WHEN (pred).is_training THEN 1 ELSE 0 END) AS n_training,
+    SUM(CASE WHEN NOT (pred).is_training THEN 1 ELSE 0 END) AS n_prediction
+FROM (
+    SELECT UNNEST(pls_fit_predict_agg(y, [x1, x2])) AS pred
+    FROM all_training
+);
+----
+10	0
+
+# =============================================================================
+# TEST 11: All Prediction Rows (No Training) - Should return NULL
+# =============================================================================
+
+statement ok
+CREATE TABLE all_prediction AS
+SELECT NULL::DOUBLE AS y, i::DOUBLE AS x1, (i * 0.5)::DOUBLE AS x2, i AS id
+FROM range(1, 11) t(i);
+
+query I
+SELECT pls_fit_predict_agg(y, [x1, x2]) IS NULL FROM all_prediction;
+----
+true
+
+# =============================================================================
+# TEST 12: High-Dimensional Data (Many Features)
+# =============================================================================
+
+statement ok
+CREATE TABLE high_dim AS
+SELECT
+    CASE WHEN i <= 20 THEN (i * 1.5 + i * 0.3 + i * 0.1) ELSE NULL END AS y,
+    i::DOUBLE AS x1,
+    (i * 2)::DOUBLE AS x2,
+    (i * 3)::DOUBLE AS x3,
+    (i * 4)::DOUBLE AS x4,
+    (i * 5)::DOUBLE AS x5,
+    i AS id
+FROM range(1, 26) t(i);
+
+query I
+SELECT LENGTH(pls_fit_predict_agg(y, [x1, x2, x3, x4, x5])) FROM high_dim;
+----
+25
+
+# =============================================================================
+# TEST 13: n_components Cannot Exceed Number of Features (returns NULL)
+# =============================================================================
+
+query I
+SELECT pls_fit_predict_agg(y, [x1, x2], {'n_components': 10}) IS NULL FROM test_data;
+----
+true
+
+# =============================================================================
+# TEST 14: Larger Dataset
+# =============================================================================
+
+statement ok
+CREATE TABLE large_data AS
+SELECT
+    CASE WHEN i <= 80 THEN (2.0 * i + 1.0 + 0.5 * (i * 0.5)) ELSE NULL END AS y,
+    i::DOUBLE AS x1,
+    (i * 0.5)::DOUBLE AS x2,
+    i AS id
+FROM range(1, 101) t(i);
+
+query I
+SELECT LENGTH(pls_fit_predict_agg(y, [x1, x2])) FROM large_data;
+----
+100
+
+# =============================================================================
+# CLEANUP
+# =============================================================================
+
+statement ok
+DROP TABLE IF EXISTS test_data;
+
+statement ok
+DROP TABLE IF EXISTS grouped_data;
+
+statement ok
+DROP TABLE IF EXISTS multi_group_data;
+
+statement ok
+DROP TABLE IF EXISTS all_training;
+
+statement ok
+DROP TABLE IF EXISTS all_prediction;
+
+statement ok
+DROP TABLE IF EXISTS high_dim;
+
+statement ok
+DROP TABLE IF EXISTS large_data;

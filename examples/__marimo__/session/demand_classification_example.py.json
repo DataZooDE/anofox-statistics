@@ -1,0 +1,287 @@
+{
+  "version": "1",
+  "metadata": {
+    "marimo_version": "0.18.4"
+  },
+  "cells": [
+    {
+      "id": "Hbol",
+      "code_hash": "67a9297f56454fbff7fc92ff8b94c9fb",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/markdown": "<span class=\"markdown prose dark:prose-invert contents\"><h1 id=\"automatic-identification-of-demand-aid\">Automatic Identification of Demand (AID)</h1>\n<span class=\"paragraph\">The Failure of \"Syntactic\" Classification. The traditional approach to supply chain analysis, known as Syntactic Classification (SBC), relies on calculating summary statistics\u2014specifically the Average Demand Interval (ADI) and the Coefficient of Variation squared (<marimo-tex class=\"arithmatex\">||(CV^2||)</marimo-tex>) \u2014 and mapping them to a matrix with fixed thresholds (classically <marimo-tex class=\"arithmatex\">||(ADI=1.32||)</marimo-tex> and <marimo-tex class=\"arithmatex\">||(CV^2=0.49||)</marimo-tex>). The paper <a href=\"https://arxiv.org/html/2504.05894v1\" rel=\"noopener noreferrer\" target=\"_blank\">Why do zeroes happen? A model-based approach for demand classification</a> (Svetunkov &amp; Sroginis 2025) identifies critical failures in this industry-standard approach:</span>\n<ul>\n<li><strong>Arbitrary Boundaries:</strong> The cutoffs (like 1.32) are mathematically derived from specific theoretical assumptions that rarely hold in real-world data. A product with an ADI of 1.31 is treated fundamentally differently from one with 1.33, causing \"classification flip-flopping\" where stable products jump between categories (e.g., from \"Smooth\" to \"Lumpy\") due to minor noise</li>\n<li><strong>Ambiguity of Zeros</strong>: SBC counts zeros but ignores their context. It cannot distinguish between Structural Zeros (product not yet launched), Censored Zeros (stockouts), and Stochastic Zeros (pure random intermittency).</li>\n<li><strong>Loss of Distributional Information:</strong> Knowing a product is \"Erratic\" is not enough to optimise inventory. You need to know if the demand follows a Gamma, Log-Normal, or Negative Binomial distribution to calculate safety stock accurately.</li>\n</ul>\n<span class=\"paragraph\">This DuckDB extension implements the Model-Based Classification (MBC) approach proposed in the paper, which is also in the R package <a href=\"https://cran.r-project.org/web/packages/greybox/index.html\" rel=\"noopener noreferrer\" target=\"_blank\">greybox</a> available. Instead of relying on brittle ADI/CV thresholds, multiple probabilistic models (Poisson, Negative Binomial, Normal, etc.) are fitted to the data. It selects the classification based on Information Criteria (AIC), identifying the model that minimises information loss. This provides a rigorous, statistically stable foundation for all subsequent supply chain decisions.</span></span>"
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "MJUe",
+      "code_hash": "1d0db38904205bec4d6f6f6a1f6cec3e",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/plain": ""
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "bkHC",
+      "code_hash": "658f8b4a33673aa345ec629dbba67481",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/plain": ""
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "lEQa",
+      "code_hash": "d31ed881984099966eb437002a3d07c7",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/markdown": "<span class=\"markdown prose dark:prose-invert contents\"><h2 id=\"example-1-basic-demand-classification\">Example 1: Basic Demand Classification</h2>\n<span class=\"paragraph\"><strong>Motivation</strong></span>\n<span class=\"paragraph\">Standard classification rules are highly sensitive to outliers. A single extreme sales spike can inflate the standard deviation, pushing the <marimo-tex class=\"arithmatex\">||(CV^2||)</marimo-tex> above 0.49 and reclassifying a stable product as \"Erratic.\" This forces the use of complex forecasting models when a simple average would have sufficed.</span>\n<span class=\"paragraph\"><strong>Description</strong> </span>\n<span class=\"paragraph\">This query runs <code>aid_agg(demand)</code> to classify a series. Unlike standard SQL math that blindly checks variance thresholds, this function tests if the data is better explained by a stable process or a variable process, preventing \"false erratic\" classifications caused by single outliers.</span></span>"
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "PKri",
+      "code_hash": "fc994b7b6bcdebbaa341830015926a65",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/html": "<marimo-ui-element object-id='PKri-0' random-id='5492bde0-6ef0-fdf4-046c-91bc2ac1f1ea'><marimo-table data-initial-value='[]' data-label='null' data-data='&quot;[{&#92;&quot;demand_type&#92;&quot;:&#92;&quot;regular&#92;&quot;,&#92;&quot;is_intermittent&#92;&quot;:false,&#92;&quot;distribution&#92;&quot;:&#92;&quot;poisson&#92;&quot;,&#92;&quot;mean&#92;&quot;:11.3,&#92;&quot;variance&#92;&quot;:4.900000000000001,&#92;&quot;zero_proportion&#92;&quot;:0.0,&#92;&quot;n_observations&#92;&quot;:10,&#92;&quot;has_stockouts&#92;&quot;:false,&#92;&quot;is_new_product&#92;&quot;:false,&#92;&quot;is_obsolete_product&#92;&quot;:false,&#92;&quot;stockout_count&#92;&quot;:0,&#92;&quot;new_product_count&#92;&quot;:0,&#92;&quot;obsolete_product_count&#92;&quot;:0,&#92;&quot;high_outlier_count&#92;&quot;:0,&#92;&quot;low_outlier_count&#92;&quot;:0}]&quot;' data-total-rows='1' data-total-columns='15' data-max-columns='50' data-banner-text='&quot;&quot;' data-pagination='true' data-page-size='10' data-field-types='[[&quot;demand_type&quot;,[&quot;string&quot;,&quot;object&quot;]],[&quot;is_intermittent&quot;,[&quot;boolean&quot;,&quot;bool&quot;]],[&quot;distribution&quot;,[&quot;string&quot;,&quot;object&quot;]],[&quot;mean&quot;,[&quot;number&quot;,&quot;float64&quot;]],[&quot;variance&quot;,[&quot;number&quot;,&quot;float64&quot;]],[&quot;zero_proportion&quot;,[&quot;number&quot;,&quot;float64&quot;]],[&quot;n_observations&quot;,[&quot;integer&quot;,&quot;int64&quot;]],[&quot;has_stockouts&quot;,[&quot;boolean&quot;,&quot;bool&quot;]],[&quot;is_new_product&quot;,[&quot;boolean&quot;,&quot;bool&quot;]],[&quot;is_obsolete_product&quot;,[&quot;boolean&quot;,&quot;bool&quot;]],[&quot;stockout_count&quot;,[&quot;integer&quot;,&quot;int64&quot;]],[&quot;new_product_count&quot;,[&quot;integer&quot;,&quot;int64&quot;]],[&quot;obsolete_product_count&quot;,[&quot;integer&quot;,&quot;int64&quot;]],[&quot;high_outlier_count&quot;,[&quot;integer&quot;,&quot;int64&quot;]],[&quot;low_outlier_count&quot;,[&quot;integer&quot;,&quot;int64&quot;]]]' data-show-filters='true' data-show-download='true' data-show-column-summaries='false' data-show-data-types='true' data-show-page-size-selector='false' data-show-column-explorer='true' data-show-chart-builder='true' data-row-headers='[]' data-has-stable-row-id='false' data-lazy='false' data-preload='false'></marimo-table></marimo-ui-element>"
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "Xref",
+      "code_hash": "cee6ff36a7729cfa73ffee9c372b3029",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/markdown": "<span class=\"markdown prose dark:prose-invert contents\"><h2 id=\"example-2-intermittent-demand-detection\">Example 2: Intermittent Demand Detection</h2>\n<span class=\"paragraph\"><strong>Motivation</strong></span>\n<span class=\"paragraph\">In the Syntactic approach, intermittency is defined strictly by the average time between sales (ADI). However, on short time series, the ADI is unreliable. A slow-moving product might accidentally have two sales in consecutive weeks, lowering its ADI and tricking the system into treating it as a fast mover (\"False Smooth\"), leading to dangerous stockouts later.</span>\n<span class=\"paragraph\"><strong>Description</strong> </span>\n<span class=\"paragraph\">This example extracts <code>is_intermittent</code> by validating the process rather than just the interval. It checks if the sequence of zeros and non-zeros fits a Poisson-like arrival process, correctly identifying intermittency even when random clustering makes the demand look temporarily smooth.</span></span>"
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "SFPL",
+      "code_hash": "c98fd6432059f6adee8c33c3c3a42558",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/html": "<marimo-ui-element object-id='SFPL-0' random-id='463bec16-f329-aa99-5f58-b753bd7275eb'><marimo-table data-initial-value='[]' data-label='null' data-data='&quot;[{&#92;&quot;demand_type&#92;&quot;:&#92;&quot;intermittent&#92;&quot;,&#92;&quot;is_intermittent&#92;&quot;:true,&#92;&quot;distribution&#92;&quot;:&#92;&quot;negative_binomial&#92;&quot;,&#92;&quot;zero_proportion&#92;&quot;:0.6,&#92;&quot;n_observations&#92;&quot;:10}]&quot;' data-total-rows='1' data-total-columns='5' data-max-columns='50' data-banner-text='&quot;&quot;' data-pagination='true' data-page-size='10' data-field-types='[[&quot;demand_type&quot;,[&quot;string&quot;,&quot;object&quot;]],[&quot;is_intermittent&quot;,[&quot;boolean&quot;,&quot;bool&quot;]],[&quot;distribution&quot;,[&quot;string&quot;,&quot;object&quot;]],[&quot;zero_proportion&quot;,[&quot;number&quot;,&quot;float64&quot;]],[&quot;n_observations&quot;,[&quot;integer&quot;,&quot;int64&quot;]]]' data-show-filters='true' data-show-download='true' data-show-column-summaries='false' data-show-data-types='true' data-show-page-size-selector='false' data-show-column-explorer='true' data-show-chart-builder='true' data-row-headers='[]' data-has-stable-row-id='false' data-lazy='false' data-preload='false'></marimo-table></marimo-ui-element>"
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "BYtC",
+      "code_hash": "ba07f477797e5a23eaf151f5e9312f14",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/markdown": "<span class=\"markdown prose dark:prose-invert contents\"><h2 id=\"example-3-multi-sku-classification-with-group-by\">Example 3: Multi-SKU Classification with GROUP BY</h2>\n<span class=\"paragraph\"><strong>Motivation</strong></span>\n<span class=\"paragraph\">Applying a \"one-size-fits-all\" threshold (e.g., \"Intermittent if ADI &gt; 1.32\") across a diverse catalogue fails because different categories (e.g., Screws vs. Engines) have different natural variances. Syntactic rules force analysts to manually maintain complex lookup tables of \"exception rules\" for other item types.</span>\n<span class=\"paragraph\"><strong>Description</strong> </span>\n<span class=\"paragraph\">This query demonstrates how to scale the Model-Based approach. Because it uses Information Criteria (relative fit) rather than absolute thresholds, the engine automatically adapts to the scale and behaviour of every individual SKU, eliminating the need for manual category-specific tuning.</span></span>"
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "RGSE",
+      "code_hash": "3b520b2b4bf7c5257e9540a536c0a4c6",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/html": "<marimo-ui-element object-id='weVE-0' random-id='77203f23-6d31-4924-e8e6-7b506adba4e0'><marimo-table data-initial-value='[]' data-label='null' data-data='&quot;[{&#92;&quot;sku&#92;&quot;:&#92;&quot;SKU001&#92;&quot;,&#92;&quot;demand_type&#92;&quot;:&#92;&quot;intermittent&#92;&quot;,&#92;&quot;distribution&#92;&quot;:&#92;&quot;negative_binomial&#92;&quot;,&#92;&quot;mean&#92;&quot;:2.2,&#92;&quot;zero_pct&#92;&quot;:0.6,&#92;&quot;is_new_product&#92;&quot;:true,&#92;&quot;is_obsolete_product&#92;&quot;:false,&#92;&quot;has_stockouts&#92;&quot;:true},{&#92;&quot;sku&#92;&quot;:&#92;&quot;SKU002&#92;&quot;,&#92;&quot;demand_type&#92;&quot;:&#92;&quot;regular&#92;&quot;,&#92;&quot;distribution&#92;&quot;:&#92;&quot;poisson&#92;&quot;,&#92;&quot;mean&#92;&quot;:46.5,&#92;&quot;zero_pct&#92;&quot;:0.0,&#92;&quot;is_new_product&#92;&quot;:false,&#92;&quot;is_obsolete_product&#92;&quot;:false,&#92;&quot;has_stockouts&#92;&quot;:false},{&#92;&quot;sku&#92;&quot;:&#92;&quot;SKU003&#92;&quot;,&#92;&quot;demand_type&#92;&quot;:&#92;&quot;intermittent&#92;&quot;,&#92;&quot;distribution&#92;&quot;:&#92;&quot;negative_binomial&#92;&quot;,&#92;&quot;mean&#92;&quot;:7.8,&#92;&quot;zero_pct&#92;&quot;:0.4,&#92;&quot;is_new_product&#92;&quot;:true,&#92;&quot;is_obsolete_product&#92;&quot;:false,&#92;&quot;has_stockouts&#92;&quot;:false},{&#92;&quot;sku&#92;&quot;:&#92;&quot;SKU004&#92;&quot;,&#92;&quot;demand_type&#92;&quot;:&#92;&quot;intermittent&#92;&quot;,&#92;&quot;distribution&#92;&quot;:&#92;&quot;negative_binomial&#92;&quot;,&#92;&quot;mean&#92;&quot;:9.5,&#92;&quot;zero_pct&#92;&quot;:0.4,&#92;&quot;is_new_product&#92;&quot;:false,&#92;&quot;is_obsolete_product&#92;&quot;:true,&#92;&quot;has_stockouts&#92;&quot;:false}]&quot;' data-total-rows='4' data-total-columns='8' data-max-columns='50' data-banner-text='&quot;&quot;' data-pagination='true' data-page-size='10' data-field-types='[[&quot;sku&quot;,[&quot;string&quot;,&quot;object&quot;]],[&quot;demand_type&quot;,[&quot;string&quot;,&quot;object&quot;]],[&quot;distribution&quot;,[&quot;string&quot;,&quot;object&quot;]],[&quot;mean&quot;,[&quot;number&quot;,&quot;float64&quot;]],[&quot;zero_pct&quot;,[&quot;number&quot;,&quot;float64&quot;]],[&quot;is_new_product&quot;,[&quot;boolean&quot;,&quot;bool&quot;]],[&quot;is_obsolete_product&quot;,[&quot;boolean&quot;,&quot;bool&quot;]],[&quot;has_stockouts&quot;,[&quot;boolean&quot;,&quot;bool&quot;]]]' data-show-filters='true' data-show-download='true' data-show-column-summaries='false' data-show-data-types='true' data-show-page-size-selector='false' data-show-column-explorer='true' data-show-chart-builder='true' data-row-headers='[]' data-has-stable-row-id='false' data-lazy='false' data-preload='false'></marimo-table></marimo-ui-element>"
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "Kclp",
+      "code_hash": "5b2c6ecb95e2fd31a1c9504c2291e811",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/markdown": "<span class=\"markdown prose dark:prose-invert contents\"><h2 id=\"example-4-simple-anomaly-detection-per-observation\">Example 4: Simple Anomaly Detection Per Observation</h2>\n<span class=\"paragraph\"><strong>Motivation</strong> </span>\n<span class=\"paragraph\">Most ERP systems use \"3-Sigma\" (Standard Deviation) to detect outliers. This assumes a Normal (Bell Curve) distribution. The paper argues this is disastrous for supply chains because demand is often skewed (right-tailed). A 3-Sigma rule will flag valid high demand as an \"anomaly,\" causing planners to ignore real growth signals. Outlier detection is use case specific. This may be just a rough estimation and need addiotional adjustment and/or more sophisticated methods.</span>\n<span class=\"paragraph\"><strong>Description</strong> </span>\n<span class=\"paragraph\">This example uses aid_anomaly_agg to detect outliers based on the fitted distribution. If the data follows a Poisson distribution, the engine asks, \"Is this value unlikely for a Poisson process?\" rather than \"Is it 3 deviations from the mean?\", significantly reducing false positive anomaly flags.</span></span>"
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "emfo",
+      "code_hash": "3295c3df7beaa9a3b9a98b0de7953326",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/html": "<marimo-ui-element object-id='xVIO-0' random-id='9d3807fe-920c-68e4-b4e9-ec91d39439de'><marimo-table data-initial-value='[]' data-label='null' data-data='&quot;[{&#92;&quot;period&#92;&quot;:1,&#92;&quot;demand&#92;&quot;:0,&#92;&quot;stockout&#92;&quot;:false,&#92;&quot;new_product&#92;&quot;:true,&#92;&quot;obsolete_product&#92;&quot;:false,&#92;&quot;high_outlier&#92;&quot;:false,&#92;&quot;low_outlier&#92;&quot;:false},{&#92;&quot;period&#92;&quot;:2,&#92;&quot;demand&#92;&quot;:0,&#92;&quot;stockout&#92;&quot;:false,&#92;&quot;new_product&#92;&quot;:true,&#92;&quot;obsolete_product&#92;&quot;:false,&#92;&quot;high_outlier&#92;&quot;:false,&#92;&quot;low_outlier&#92;&quot;:false},{&#92;&quot;period&#92;&quot;:3,&#92;&quot;demand&#92;&quot;:5,&#92;&quot;stockout&#92;&quot;:false,&#92;&quot;new_product&#92;&quot;:false,&#92;&quot;obsolete_product&#92;&quot;:false,&#92;&quot;high_outlier&#92;&quot;:false,&#92;&quot;low_outlier&#92;&quot;:false},{&#92;&quot;period&#92;&quot;:4,&#92;&quot;demand&#92;&quot;:0,&#92;&quot;stockout&#92;&quot;:true,&#92;&quot;new_product&#92;&quot;:false,&#92;&quot;obsolete_product&#92;&quot;:false,&#92;&quot;high_outlier&#92;&quot;:false,&#92;&quot;low_outlier&#92;&quot;:false},{&#92;&quot;period&#92;&quot;:5,&#92;&quot;demand&#92;&quot;:8,&#92;&quot;stockout&#92;&quot;:false,&#92;&quot;new_product&#92;&quot;:false,&#92;&quot;obsolete_product&#92;&quot;:false,&#92;&quot;high_outlier&#92;&quot;:false,&#92;&quot;low_outlier&#92;&quot;:false},{&#92;&quot;period&#92;&quot;:6,&#92;&quot;demand&#92;&quot;:0,&#92;&quot;stockout&#92;&quot;:false,&#92;&quot;new_product&#92;&quot;:false,&#92;&quot;obsolete_product&#92;&quot;:true,&#92;&quot;high_outlier&#92;&quot;:false,&#92;&quot;low_outlier&#92;&quot;:false},{&#92;&quot;period&#92;&quot;:7,&#92;&quot;demand&#92;&quot;:0,&#92;&quot;stockout&#92;&quot;:false,&#92;&quot;new_product&#92;&quot;:false,&#92;&quot;obsolete_product&#92;&quot;:true,&#92;&quot;high_outlier&#92;&quot;:false,&#92;&quot;low_outlier&#92;&quot;:false}]&quot;' data-total-rows='7' data-total-columns='7' data-max-columns='50' data-banner-text='&quot;&quot;' data-pagination='true' data-page-size='10' data-field-types='[[&quot;period&quot;,[&quot;integer&quot;,&quot;int64&quot;]],[&quot;demand&quot;,[&quot;integer&quot;,&quot;int32&quot;]],[&quot;stockout&quot;,[&quot;boolean&quot;,&quot;bool&quot;]],[&quot;new_product&quot;,[&quot;boolean&quot;,&quot;bool&quot;]],[&quot;obsolete_product&quot;,[&quot;boolean&quot;,&quot;bool&quot;]],[&quot;high_outlier&quot;,[&quot;boolean&quot;,&quot;bool&quot;]],[&quot;low_outlier&quot;,[&quot;boolean&quot;,&quot;bool&quot;]]]' data-show-filters='true' data-show-download='true' data-show-column-summaries='false' data-show-data-types='true' data-show-page-size-selector='true' data-show-column-explorer='true' data-show-chart-builder='true' data-row-headers='[]' data-has-stable-row-id='false' data-lazy='false' data-preload='false'></marimo-table></marimo-ui-element>"
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "Hstk",
+      "code_hash": "f37735cd9344e08e9b24b96b29d0e490",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/markdown": "<span class=\"markdown prose dark:prose-invert contents\"><h2 id=\"example-5-custom-threshold-for-intermittent-classification\">Example 5: Custom Threshold for Intermittent Classification</h2>\n<span class=\"paragraph\"><strong>Motivation</strong> </span>\n<span class=\"paragraph\">While Model-Based Classification is statistically superior, organisational inertia often mandates adherence to legacy business rules (e.g., \"Marketing defines 'Slow' as selling less than 50% of the time\"). Pure statistical engines often fail to adopt because they cannot accommodate these operational constraints.</span>\n<span class=\"paragraph\"><strong>Description</strong> </span>\n<span class=\"paragraph\">This query demonstrates the flexibility to override the statistical engine. By passing <code>{'intermittent_threshold': 0.5}</code>, it forces the system to respect a domain-specific constraint, allowing the user to blend the robustness of the AID engine with fixed business logic where necessary.</span></span>"
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "nWHF",
+      "code_hash": "8d8b903f6e3dcf1572a3e1b00b1a4ba6",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/html": "<marimo-ui-element object-id='nWHF-0' random-id='60f618c6-f2d4-0fa2-04f7-1f869db03435'><marimo-table data-initial-value='[]' data-label='null' data-data='&quot;[{&#92;&quot;threshold_setting&#92;&quot;:&#92;&quot;Default (30%)&#92;&quot;,&#92;&quot;demand_type&#92;&quot;:&#92;&quot;intermittent&#92;&quot;,&#92;&quot;zero_proportion&#92;&quot;:0.4},{&#92;&quot;threshold_setting&#92;&quot;:&#92;&quot;Custom (50%)&#92;&quot;,&#92;&quot;demand_type&#92;&quot;:&#92;&quot;regular&#92;&quot;,&#92;&quot;zero_proportion&#92;&quot;:0.4}]&quot;' data-total-rows='2' data-total-columns='3' data-max-columns='50' data-banner-text='&quot;&quot;' data-pagination='true' data-page-size='10' data-field-types='[[&quot;threshold_setting&quot;,[&quot;string&quot;,&quot;object&quot;]],[&quot;demand_type&quot;,[&quot;string&quot;,&quot;object&quot;]],[&quot;zero_proportion&quot;,[&quot;number&quot;,&quot;float64&quot;]]]' data-show-filters='true' data-show-download='true' data-show-column-summaries='false' data-show-data-types='true' data-show-page-size-selector='false' data-show-column-explorer='true' data-show-chart-builder='true' data-row-headers='[]' data-has-stable-row-id='false' data-lazy='false' data-preload='false'></marimo-table></marimo-ui-element>"
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "ROlb",
+      "code_hash": "072c3c762ac9cd9ee921e48e4f0066e1",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/markdown": "<span class=\"markdown prose dark:prose-invert contents\"><h2 id=\"example-6-stockout-analysis\">Example 6: Stockout Analysis</h2>\n<span class=\"paragraph\"><strong>Motivation</strong></span>\n<span class=\"paragraph\">A major blind spot in Syntactic Classification is Censoring. A zero record in the database is ambiguous: it could mean \"no customer arrived\" or \"customer arrived but no stock was available.\" Treating stockout zeros as demand zeros distorts the demand probability, leading to a downward-biased forecast that perpetuates the shortage.</span>\n<span class=\"paragraph\"><strong>Description</strong> </span>\n<span class=\"paragraph\">This query distinguishes \"natural zeros\" from \"censored zeros\" (stockouts). It implements the paper's requirement to account for inventory availability, ensuring that the demand profile reflects potential sales rather than just recorded sales.</span></span>"
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "qnkX",
+      "code_hash": "5ac7137a7610f19b78ccb72d70985119",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/html": "<marimo-ui-element object-id='qnkX-0' random-id='6511d9e2-273c-7c79-e302-7587fe6e7e47'><marimo-table data-initial-value='[]' data-label='null' data-data='&quot;[{&#92;&quot;product&#92;&quot;:&#92;&quot;Product_C&#92;&quot;,&#92;&quot;has_stockouts&#92;&quot;:true,&#92;&quot;stockout_count&#92;&quot;:5,&#92;&quot;stockout_pct&#92;&quot;:50.0,&#92;&quot;demand_type&#92;&quot;:&#92;&quot;intermittent&#92;&quot;},{&#92;&quot;product&#92;&quot;:&#92;&quot;Product_A&#92;&quot;,&#92;&quot;has_stockouts&#92;&quot;:true,&#92;&quot;stockout_count&#92;&quot;:3,&#92;&quot;stockout_pct&#92;&quot;:30.0,&#92;&quot;demand_type&#92;&quot;:&#92;&quot;intermittent&#92;&quot;},{&#92;&quot;product&#92;&quot;:&#92;&quot;Product_B&#92;&quot;,&#92;&quot;has_stockouts&#92;&quot;:false,&#92;&quot;stockout_count&#92;&quot;:0,&#92;&quot;stockout_pct&#92;&quot;:0.0,&#92;&quot;demand_type&#92;&quot;:&#92;&quot;regular&#92;&quot;}]&quot;' data-total-rows='3' data-total-columns='5' data-max-columns='50' data-banner-text='&quot;&quot;' data-pagination='true' data-page-size='10' data-field-types='[[&quot;product&quot;,[&quot;string&quot;,&quot;object&quot;]],[&quot;has_stockouts&quot;,[&quot;boolean&quot;,&quot;bool&quot;]],[&quot;stockout_count&quot;,[&quot;integer&quot;,&quot;int64&quot;]],[&quot;stockout_pct&quot;,[&quot;number&quot;,&quot;float64&quot;]],[&quot;demand_type&quot;,[&quot;string&quot;,&quot;object&quot;]]]' data-show-filters='true' data-show-download='true' data-show-column-summaries='false' data-show-data-types='true' data-show-page-size-selector='false' data-show-column-explorer='true' data-show-chart-builder='true' data-row-headers='[]' data-has-stable-row-id='false' data-lazy='false' data-preload='false'></marimo-table></marimo-ui-element>"
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "TqIu",
+      "code_hash": "bec333d7a8f07a8e84a29ae9db88d8c6",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/markdown": "<span class=\"markdown prose dark:prose-invert contents\"><h2 id=\"example-7-distribution-recommendation\">Example 7: Distribution Recommendation</h2>\n<span class=\"paragraph\"><strong>Motivation</strong> </span>\n<span class=\"paragraph\">Knowing a product is \"Lumpy\" (Quadrant 4 in SBC) is descriptive but not actionable. To set a safety stock level that achieves a 95% service level, you need the specific Probability Mass Function (PMF). Syntactic rules do not provide this; they only categorize.</span>\n<span class=\"paragraph\"><strong>Description</strong> </span>\n<span class=\"paragraph\">This example outputs the recommended_distribution. It bridges the gap between classification and calculation, automating the selection of the mathematical model (e.g., Negative Binomial for overdispersed data) required for precise inventory optimization.</span></span>"
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "Vxnm",
+      "code_hash": "b2f6802b00a9e2644d3bff646fb40e9f",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/html": "<marimo-ui-element object-id='Vxnm-0' random-id='5c891f7d-4347-404e-67c3-565a50d4f214'><marimo-table data-initial-value='[]' data-label='null' data-data='&quot;[{&#92;&quot;category&#92;&quot;:&#92;&quot;Continuous_Positive&#92;&quot;,&#92;&quot;recommended_distribution&#92;&quot;:&#92;&quot;normal&#92;&quot;,&#92;&quot;demand_type&#92;&quot;:&#92;&quot;regular&#92;&quot;,&#92;&quot;mean&#92;&quot;:11.76,&#92;&quot;variance&#92;&quot;:4.24},{&#92;&quot;category&#92;&quot;:&#92;&quot;Low_Count_Data&#92;&quot;,&#92;&quot;recommended_distribution&#92;&quot;:&#92;&quot;poisson&#92;&quot;,&#92;&quot;demand_type&#92;&quot;:&#92;&quot;regular&#92;&quot;,&#92;&quot;mean&#92;&quot;:2.7,&#92;&quot;variance&#92;&quot;:1.34},{&#92;&quot;category&#92;&quot;:&#92;&quot;Normal_Like&#92;&quot;,&#92;&quot;recommended_distribution&#92;&quot;:&#92;&quot;poisson&#92;&quot;,&#92;&quot;demand_type&#92;&quot;:&#92;&quot;regular&#92;&quot;,&#92;&quot;mean&#92;&quot;:100.0,&#92;&quot;variance&#92;&quot;:3.33},{&#92;&quot;category&#92;&quot;:&#92;&quot;Overdispersed_Counts&#92;&quot;,&#92;&quot;recommended_distribution&#92;&quot;:&#92;&quot;negative_binomial&#92;&quot;,&#92;&quot;demand_type&#92;&quot;:&#92;&quot;intermittent&#92;&quot;,&#92;&quot;mean&#92;&quot;:4.0,&#92;&quot;variance&#92;&quot;:33.11}]&quot;' data-total-rows='4' data-total-columns='5' data-max-columns='50' data-banner-text='&quot;&quot;' data-pagination='true' data-page-size='10' data-field-types='[[&quot;category&quot;,[&quot;string&quot;,&quot;object&quot;]],[&quot;recommended_distribution&quot;,[&quot;string&quot;,&quot;object&quot;]],[&quot;demand_type&quot;,[&quot;string&quot;,&quot;object&quot;]],[&quot;mean&quot;,[&quot;number&quot;,&quot;float64&quot;]],[&quot;variance&quot;,[&quot;number&quot;,&quot;float64&quot;]]]' data-show-filters='true' data-show-download='true' data-show-column-summaries='false' data-show-data-types='true' data-show-page-size-selector='false' data-show-column-explorer='true' data-show-chart-builder='true' data-row-headers='[]' data-has-stable-row-id='false' data-lazy='false' data-preload='false'></marimo-table></marimo-ui-element>"
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "DnEU",
+      "code_hash": "32e9f77fde80c7e6646d7816a6e5ce60",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/markdown": "<span class=\"markdown prose dark:prose-invert contents\"><h2 id=\"example-8-product-lifecycle-detection\">Example 8: Product Lifecycle Detection</h2>\n<span class=\"paragraph\"><strong>Motivation</strong> </span>\n<span class=\"paragraph\">Syntactic metrics (ADI/CV) are static averages calculated over a fixed window (e.g., last 12 months). They fail to detect <strong>Structural Breaks</strong> \u2014 such as a product dying (End of Life) or being born (NPI). Including \"dead\" periods in the average creates a \"Zombie\" forecast that suggests buying stock for a product that will never sell again.</span>\n<span class=\"paragraph\"><strong>Description</strong> </span>\n<span class=\"paragraph\">This query identifies \"Leading Zeros\" and \"Trailing Zeros.\" It filters out these non-demand periods to prevent them from contaminating the statistical properties of the active lifecycle, ensuring the classification reflects the product's current reality rather than its history.</span></span>"
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "ulZA",
+      "code_hash": "46b678d2f5bf1ef7d2d2569dd39f0b22",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/html": "<marimo-ui-element object-id='OLbh-0' random-id='e85ccc50-01e5-51e8-994a-7430d0c6ab51'><marimo-table data-initial-value='[]' data-label='null' data-data='&quot;[{&#92;&quot;product&#92;&quot;:&#92;&quot;EndOfLife_Legacy&#92;&quot;,&#92;&quot;lifecycle_stage&#92;&quot;:&#92;&quot;Decline Phase&#92;&quot;,&#92;&quot;intro_periods&#92;&quot;:0,&#92;&quot;decline_periods&#92;&quot;:5,&#92;&quot;total_periods&#92;&quot;:12},{&#92;&quot;product&#92;&quot;:&#92;&quot;MatureProduct&#92;&quot;,&#92;&quot;lifecycle_stage&#92;&quot;:&#92;&quot;Mature/Stable&#92;&quot;,&#92;&quot;intro_periods&#92;&quot;:0,&#92;&quot;decline_periods&#92;&quot;:0,&#92;&quot;total_periods&#92;&quot;:12},{&#92;&quot;product&#92;&quot;:&#92;&quot;NewProduct_2024&#92;&quot;,&#92;&quot;lifecycle_stage&#92;&quot;:&#92;&quot;Introduction Phase&#92;&quot;,&#92;&quot;intro_periods&#92;&quot;:3,&#92;&quot;decline_periods&#92;&quot;:0,&#92;&quot;total_periods&#92;&quot;:12}]&quot;' data-total-rows='3' data-total-columns='5' data-max-columns='50' data-banner-text='&quot;&quot;' data-pagination='true' data-page-size='10' data-field-types='[[&quot;product&quot;,[&quot;string&quot;,&quot;object&quot;]],[&quot;lifecycle_stage&quot;,[&quot;string&quot;,&quot;object&quot;]],[&quot;intro_periods&quot;,[&quot;integer&quot;,&quot;int64&quot;]],[&quot;decline_periods&quot;,[&quot;integer&quot;,&quot;int64&quot;]],[&quot;total_periods&quot;,[&quot;integer&quot;,&quot;int64&quot;]]]' data-show-filters='true' data-show-download='true' data-show-column-summaries='false' data-show-data-types='true' data-show-page-size-selector='false' data-show-column-explorer='true' data-show-chart-builder='true' data-row-headers='[]' data-has-stable-row-id='false' data-lazy='false' data-preload='false'></marimo-table></marimo-ui-element>"
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "ecfG",
+      "code_hash": "5ee7c6629368d7371f6f1860c1843b76",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/markdown": "<span class=\"markdown prose dark:prose-invert contents\"><h2 id=\"example-10-demand-analysis-report\">Example 10: Demand Analysis Report</h2>\n<span class=\"paragraph\"><strong>Motivation</strong> </span>\n<span class=\"paragraph\">In reality, demand data suffers from all these issues simultaneously: non-normality, stockouts, lifecycle changes, and outliers. Disjointed tools that fix only one problem (e.g., just outlier detection) often make the others worse. The paper concludes that a robust system must model the joint probability of these events.</span>\n<span class=\"paragraph\"><strong>Description</strong> </span>\n<span class=\"paragraph\">This final example aggregates all AID features into a \"Control Tower\" view. It represents the Model-Based ideal: a holistic assessment that simultaneously cleans anomalies, accounts for stockouts, fits the distribution, and determines lifecycle status, delivering a single, scientifically valid truth for every SKU.</span></span>"
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "hfYC",
+      "code_hash": "f298641372ea7193c38032f1cf67b5e8",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/html": "<marimo-ui-element object-id='hfYC-0' random-id='c5215983-e3a0-a7b4-62c2-26fe820151ee'><marimo-table data-initial-value='[]' data-label='null' data-data='&quot;[{&#92;&quot;category&#92;&quot;:&#92;&quot;Apparel&#92;&quot;,&#92;&quot;sku_count&#92;&quot;:3,&#92;&quot;intermittent_skus&#92;&quot;:2.0,&#92;&quot;skus_with_stockouts&#92;&quot;:1.0,&#92;&quot;new_products&#92;&quot;:0.0,&#92;&quot;eol_products&#92;&quot;:2.0},{&#92;&quot;category&#92;&quot;:&#92;&quot;Electronics&#92;&quot;,&#92;&quot;sku_count&#92;&quot;:3,&#92;&quot;intermittent_skus&#92;&quot;:2.0,&#92;&quot;skus_with_stockouts&#92;&quot;:1.0,&#92;&quot;new_products&#92;&quot;:2.0,&#92;&quot;eol_products&#92;&quot;:0.0},{&#92;&quot;category&#92;&quot;:&#92;&quot;Food&#92;&quot;,&#92;&quot;sku_count&#92;&quot;:3,&#92;&quot;intermittent_skus&#92;&quot;:1.0,&#92;&quot;skus_with_stockouts&#92;&quot;:1.0,&#92;&quot;new_products&#92;&quot;:1.0,&#92;&quot;eol_products&#92;&quot;:0.0}]&quot;' data-total-rows='3' data-total-columns='6' data-max-columns='50' data-banner-text='&quot;&quot;' data-pagination='true' data-page-size='10' data-field-types='[[&quot;category&quot;,[&quot;string&quot;,&quot;object&quot;]],[&quot;sku_count&quot;,[&quot;integer&quot;,&quot;int64&quot;]],[&quot;intermittent_skus&quot;,[&quot;number&quot;,&quot;float64&quot;]],[&quot;skus_with_stockouts&quot;,[&quot;number&quot;,&quot;float64&quot;]],[&quot;new_products&quot;,[&quot;number&quot;,&quot;float64&quot;]],[&quot;eol_products&quot;,[&quot;number&quot;,&quot;float64&quot;]]]' data-show-filters='true' data-show-download='true' data-show-column-summaries='false' data-show-data-types='true' data-show-page-size-selector='false' data-show-column-explorer='true' data-show-chart-builder='true' data-row-headers='[]' data-has-stable-row-id='false' data-lazy='false' data-preload='false'></marimo-table></marimo-ui-element>"
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "DOZE",
+      "code_hash": null,
+      "outputs": [],
+      "console": []
+    }
+  ]
+}

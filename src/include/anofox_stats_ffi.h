@@ -830,6 +830,160 @@ bool anofox_nnls_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count
 void anofox_free_bls_result(AnofoxBlsFitResultCore *result);
 
 /* ============================================================================
+ * PLS (Partial Least Squares) Functions
+ * ============================================================================ */
+
+/**
+ * PLS options
+ */
+typedef struct {
+    /** Number of components to extract */
+    size_t n_components;
+    /** Whether to fit intercept */
+    bool fit_intercept;
+} AnofoxPlsOptions;
+
+/**
+ * PLS fit result
+ */
+typedef struct {
+    /** Pointer to coefficients array */
+    double *coefficients;
+    /** Number of coefficients */
+    size_t coefficients_len;
+    /** Intercept value (NaN if no intercept) */
+    double intercept;
+    /** R-squared */
+    double r_squared;
+    /** Number of components used */
+    size_t n_components;
+    /** Number of observations */
+    size_t n_observations;
+    /** Number of features */
+    size_t n_features;
+} AnofoxPlsFitResultCore;
+
+/**
+ * Fit a PLS (Partial Least Squares) regression model
+ *
+ * @param y Response variable array
+ * @param x Pointer to array of feature arrays
+ * @param x_count Number of feature arrays
+ * @param options PLS fitting options
+ * @param out_core Output: core fit results (required)
+ * @param out_error Output: error information (required)
+ * @return true on success, false on error
+ */
+bool anofox_pls_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, AnofoxPlsOptions options,
+                    AnofoxPlsFitResultCore *out_core, AnofoxError *out_error);
+
+/**
+ * Free memory allocated for PLS core results
+ */
+void anofox_free_pls_result(AnofoxPlsFitResultCore *result);
+
+/* ============================================================================
+ * Isotonic Regression Functions
+ * ============================================================================ */
+
+/**
+ * Isotonic regression options
+ */
+typedef struct {
+    /** Whether the function should be increasing (true) or decreasing (false) */
+    bool increasing;
+} AnofoxIsotonicOptions;
+
+/**
+ * Isotonic fit result
+ */
+typedef struct {
+    /** Pointer to fitted values array (same length as input) */
+    double *fitted_values;
+    /** Number of fitted values */
+    size_t fitted_values_len;
+    /** R-squared */
+    double r_squared;
+    /** Number of observations */
+    size_t n_observations;
+    /** Whether increasing constraint was used */
+    bool increasing;
+} AnofoxIsotonicFitResultCore;
+
+/**
+ * Fit an Isotonic regression model
+ *
+ * @param x Input values array (1D)
+ * @param y Response variable array
+ * @param options Isotonic fitting options
+ * @param out_core Output: core fit results (required)
+ * @param out_error Output: error information (required)
+ * @return true on success, false on error
+ */
+bool anofox_isotonic_fit(AnofoxDataArray x, AnofoxDataArray y, AnofoxIsotonicOptions options,
+                         AnofoxIsotonicFitResultCore *out_core, AnofoxError *out_error);
+
+/**
+ * Free memory allocated for Isotonic core results
+ */
+void anofox_free_isotonic_result(AnofoxIsotonicFitResultCore *result);
+
+/* ============================================================================
+ * Quantile Regression Functions
+ * ============================================================================ */
+
+/**
+ * Quantile regression options
+ */
+typedef struct {
+    /** Quantile to estimate (0 < tau < 1, e.g., 0.5 for median) */
+    double tau;
+    /** Whether to fit intercept */
+    bool fit_intercept;
+    /** Maximum iterations */
+    uint32_t max_iterations;
+    /** Convergence tolerance */
+    double tolerance;
+} AnofoxQuantileOptions;
+
+/**
+ * Quantile fit result
+ */
+typedef struct {
+    /** Pointer to coefficients array */
+    double *coefficients;
+    /** Number of coefficients */
+    size_t coefficients_len;
+    /** Intercept value (NaN if no intercept) */
+    double intercept;
+    /** Quantile estimated */
+    double tau;
+    /** Number of observations */
+    size_t n_observations;
+    /** Number of features */
+    size_t n_features;
+} AnofoxQuantileFitResultCore;
+
+/**
+ * Fit a Quantile regression model
+ *
+ * @param y Response variable array
+ * @param x Pointer to array of feature arrays
+ * @param x_count Number of feature arrays
+ * @param options Quantile fitting options
+ * @param out_core Output: core fit results (required)
+ * @param out_error Output: error information (required)
+ * @return true on success, false on error
+ */
+bool anofox_quantile_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, AnofoxQuantileOptions options,
+                         AnofoxQuantileFitResultCore *out_core, AnofoxError *out_error);
+
+/**
+ * Free memory allocated for Quantile core results
+ */
+void anofox_free_quantile_result(AnofoxQuantileFitResultCore *result);
+
+/* ============================================================================
  * AID (Automatic Identification of Demand) Functions
  * ============================================================================ */
 

@@ -157,6 +157,9 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterBlsFitPredictAggregateFunction(loader);
     RegisterAlmFitPredictAggregateFunction(loader);
     RegisterPoissonFitPredictAggregateFunction(loader);
+    RegisterPlsFitPredictAggregateFunction(loader);
+    RegisterIsotonicFitPredictAggregateFunction(loader);
+    RegisterQuantileFitPredictAggregateFunction(loader);
 
     // Register diagnostic functions
     RegisterVifFunction(loader);

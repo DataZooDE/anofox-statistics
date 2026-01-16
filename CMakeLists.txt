@@ -165,6 +165,9 @@ set(EXTENSION_SOURCES
     src/aggregate_functions/mcnemar_aggregate.cpp
     src/aggregate_functions/phi_coefficient_aggregate.cpp
     src/aggregate_functions/contingency_coef_aggregate.cpp
+    src/aggregate_functions/pls_fit_predict_aggregate.cpp
+    src/aggregate_functions/isotonic_fit_predict_aggregate.cpp
+    src/aggregate_functions/quantile_fit_predict_aggregate.cpp
     src/scalar_functions/vif.cpp
     src/scalar_functions/aic_bic.cpp
     src/scalar_functions/jarque_bera.cpp
