@@ -1,0 +1,129 @@
+# name: test/sql/aid/test_aid_anomaly_large.test
+# description: Test aid_anomaly_agg with many groups (regression test for GitHub Issue #25)
+# group: [aid]
+
+require anofox_statistics
+
+# =============================================================================
+# SETUP: Create large dataset with many time series groups
+# This tests ListVector capacity handling when processing many groups
+# GitHub Issue #25: aid_anomaly_agg crashes with segfault on large datasets
+# =============================================================================
+
+# Create 1000 unique time series with 30 observations each
+statement ok
+CREATE TABLE large_dataset AS
+SELECT
+    'series_' || LPAD(series_id::VARCHAR, 4, '0') AS unique_id,
+    period,
+    CASE
+        WHEN period = 15 AND series_id % 10 = 0 THEN 500.0  -- Add spike every 10th series
+        ELSE 100.0 + (series_id % 20) + RANDOM() * 10
+    END AS y
+FROM
+    generate_series(1, 1000) AS s(series_id),
+    generate_series(1, 30) AS p(period);
+
+# =============================================================================
+# TEST 1: aid_anomaly_agg with many groups should not crash
+# This was causing segfault before the fix due to missing ListVector::Reserve()
+# =============================================================================
+
+query I
+SELECT COUNT(*) FROM (
+    SELECT unique_id, aid_anomaly_agg(y ORDER BY period) AS anomalies
+    FROM large_dataset
+    GROUP BY unique_id
+) sub WHERE anomalies IS NOT NULL;
+----
+1000
+
+# TEST 2: Verify result structure is valid for all groups
+query I
+SELECT COUNT(*) FROM (
+    SELECT unique_id, len(aid_anomaly_agg(y ORDER BY period)) AS list_len
+    FROM large_dataset
+    GROUP BY unique_id
+) sub WHERE list_len = 30;
+----
+1000
+
+# =============================================================================
+# TEST 3: Test with varying series lengths (edge case)
+# =============================================================================
+
+statement ok
+CREATE TABLE variable_length_data AS
+SELECT
+    'var_' || LPAD(series_id::VARCHAR, 3, '0') AS unique_id,
+    period,
+    100.0 + RANDOM() * 50 AS y
+FROM
+    generate_series(1, 500) AS s(series_id),
+    generate_series(1, (series_id % 50) + 5) AS p(period);
+
+query I
+SELECT COUNT(DISTINCT unique_id) FROM (
+    SELECT unique_id, aid_anomaly_agg(y ORDER BY period) AS anomalies
+    FROM variable_length_data
+    GROUP BY unique_id
+) sub WHERE anomalies IS NOT NULL;
+----
+500
+
+# =============================================================================
+# TEST 4: Empty and single element edge cases
+# Similar to anofox-forecast PR #84 fix
+# =============================================================================
+
+# Empty table aggregate should return NULL (not crash)
+statement ok
+CREATE TABLE empty_series AS
+SELECT 'empty' AS unique_id, NULL::DOUBLE AS y, 1 AS period WHERE false;
+
+query I
+SELECT aid_anomaly_agg(y ORDER BY period) IS NULL FROM empty_series;
+----
+true
+
+# Single element should work or return NULL gracefully
+statement ok
+CREATE TABLE single_element AS
+SELECT 'single' AS unique_id, 100.0 AS y, 1 AS period;
+
+query I
+SELECT aid_anomaly_agg(y ORDER BY period) IS NOT NULL FROM single_element;
+----
+true
+
+# Two elements
+statement ok
+CREATE TABLE two_elements AS
+SELECT * FROM (VALUES
+    ('two', 1, 100.0),
+    ('two', 2, 102.0)
+) AS t(unique_id, period, y);
+
+query I
+SELECT len(aid_anomaly_agg(y ORDER BY period)) = 2 FROM two_elements;
+----
+true
+
+# =============================================================================
+# CLEANUP
+# =============================================================================
+
+statement ok
+DROP TABLE IF EXISTS large_dataset;
+
+statement ok
+DROP TABLE IF EXISTS variable_length_data;
+
+statement ok
+DROP TABLE IF EXISTS empty_series;
+
+statement ok
+DROP TABLE IF EXISTS single_element;
+
+statement ok
+DROP TABLE IF EXISTS two_elements;

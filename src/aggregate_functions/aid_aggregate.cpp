@@ -288,11 +288,13 @@ static void AidAnomalyAggFinalize(Vector &state_vector, AggregateInputData &aggr
             continue;
         }
 
-        // Set list entry
+        // Set list entry - must Reserve before SetListSize to allocate child vector capacity
         auto list_offset = ListVector::GetListSize(result);
         size_t n = anomaly_result.len;
+        list_data[result_idx].offset = list_offset;
+        list_data[result_idx].length = (idx_t)n;
+        ListVector::Reserve(result, list_offset + n);
         ListVector::SetListSize(result, list_offset + n);
-        list_data[result_idx] = {list_offset, (idx_t)n};
 
         // Copy anomaly flags to struct list
         auto stockout_data = FlatVector::GetData<bool>(*struct_entries[0]);
