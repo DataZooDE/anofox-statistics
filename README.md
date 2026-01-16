@@ -26,6 +26,9 @@ A statistical analysis extension for DuckDB, providing regression analysis, diag
 | Poisson | `poisson_fit_agg` | GLM for count data |
 | ALM | `alm_fit_agg` | 24 error distributions |
 | BLS/NNLS | `bls_fit_agg`, `nnls_fit_agg` | Bounded/Non-negative LS |
+| PLS | `pls_fit`, `pls_fit_agg` | Partial Least Squares |
+| Isotonic | `isotonic_fit`, `isotonic_fit_agg` | Monotonic regression |
+| Quantile | `quantile_fit`, `quantile_fit_agg` | Quantile/median regression |
 
 ### Statistical Hypothesis Tests
 

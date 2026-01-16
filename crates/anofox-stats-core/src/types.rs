@@ -688,3 +688,115 @@ pub struct AidAnomalyFlags {
     /// Unusually low value
     pub low_outlier: bool,
 }
+
+// ============================================================================
+// PLS Types (Partial Least Squares)
+// ============================================================================
+
+/// Options for PLS (Partial Least Squares) regression
+#[derive(Debug, Clone)]
+pub struct PlsOptions {
+    /// Number of components to extract (latent variables)
+    pub n_components: usize,
+    /// Whether to fit an intercept term
+    pub fit_intercept: bool,
+}
+
+impl Default for PlsOptions {
+    fn default() -> Self {
+        Self {
+            n_components: 2,
+            fit_intercept: true,
+        }
+    }
+}
+
+/// Result from PLS fitting
+#[derive(Debug, Clone)]
+pub struct PlsFitResult {
+    /// Regression coefficients (excluding intercept)
+    pub coefficients: Vec<f64>,
+    /// Intercept term (if fitted with intercept)
+    pub intercept: Option<f64>,
+    /// R-squared (coefficient of determination)
+    pub r_squared: f64,
+    /// Number of components used
+    pub n_components: usize,
+    /// Number of observations used
+    pub n_observations: usize,
+    /// Number of features (excluding intercept)
+    pub n_features: usize,
+}
+
+// ============================================================================
+// Isotonic Regression Types
+// ============================================================================
+
+/// Options for Isotonic regression
+#[derive(Debug, Clone)]
+pub struct IsotonicOptions {
+    /// Whether the fitted function should be increasing (true) or decreasing (false)
+    pub increasing: bool,
+}
+
+impl Default for IsotonicOptions {
+    fn default() -> Self {
+        Self { increasing: true }
+    }
+}
+
+/// Result from Isotonic regression fitting
+#[derive(Debug, Clone)]
+pub struct IsotonicFitResult {
+    /// Fitted values (monotonic transformation of input)
+    pub fitted_values: Vec<f64>,
+    /// R-squared (coefficient of determination)
+    pub r_squared: f64,
+    /// Number of observations used
+    pub n_observations: usize,
+    /// Whether the fit is increasing
+    pub increasing: bool,
+}
+
+// ============================================================================
+// Quantile Regression Types
+// ============================================================================
+
+/// Options for Quantile regression
+#[derive(Debug, Clone)]
+pub struct QuantileOptions {
+    /// Quantile to estimate (0 < tau < 1, default 0.5 for median)
+    pub tau: f64,
+    /// Whether to fit an intercept term
+    pub fit_intercept: bool,
+    /// Maximum iterations for optimization
+    pub max_iterations: u32,
+    /// Convergence tolerance
+    pub tolerance: f64,
+}
+
+impl Default for QuantileOptions {
+    fn default() -> Self {
+        Self {
+            tau: 0.5,
+            fit_intercept: true,
+            max_iterations: 1000,
+            tolerance: 1e-6,
+        }
+    }
+}
+
+/// Result from Quantile regression fitting
+#[derive(Debug, Clone)]
+pub struct QuantileFitResult {
+    /// Regression coefficients (excluding intercept)
+    pub coefficients: Vec<f64>,
+    /// Intercept term (if fitted with intercept)
+    pub intercept: Option<f64>,
+    /// Quantile that was estimated
+    pub tau: f64,
+    /// Number of observations used
+    pub n_observations: usize,
+    /// Number of features (excluding intercept)
+    pub n_features: usize,
+}
