@@ -14,8 +14,9 @@ use anofox_stats_core::{
         fit_rls, fit_tweedie, fit_wls, predict, RlsOptions,
     },
     AidOptions, AlmDistribution, AlmLoss, AlmOptions, BinomialLink, BinomialOptions, BlsOptions,
-    ElasticNetOptions, IsotonicOptions, NegBinomialOptions, OlsOptions, OutlierMethod, PoissonLink,
-    PoissonOptions, PlsOptions, QuantileOptions, RidgeOptions, StatsError, TweedieOptions, WlsOptions,
+    ElasticNetOptions, IsotonicOptions, NegBinomialOptions, OlsOptions, OutlierMethod, PlsOptions,
+    PoissonLink, PoissonOptions, QuantileOptions, RidgeOptions, StatsError, TweedieOptions,
+    WlsOptions,
 };
 use statrs::distribution::{ContinuousCDF, StudentsT};
 use std::slice;
@@ -2580,7 +2581,10 @@ pub unsafe extern "C" fn anofox_pls_fit(
             let coef_ptr = libc::malloc(n_coef * std::mem::size_of::<f64>()) as *mut f64;
             if coef_ptr.is_null() && n_coef > 0 {
                 if !out_error.is_null() {
-                    (*out_error).set(ErrorCode::AllocationFailure, "Failed to allocate coefficients");
+                    (*out_error).set(
+                        ErrorCode::AllocationFailure,
+                        "Failed to allocate coefficients",
+                    );
                 }
                 return false;
             }
@@ -2687,7 +2691,10 @@ pub unsafe extern "C" fn anofox_isotonic_fit(
             let fitted_ptr = libc::malloc(n_values * std::mem::size_of::<f64>()) as *mut f64;
             if fitted_ptr.is_null() && n_values > 0 {
                 if !out_error.is_null() {
-                    (*out_error).set(ErrorCode::AllocationFailure, "Failed to allocate fitted values");
+                    (*out_error).set(
+                        ErrorCode::AllocationFailure,
+                        "Failed to allocate fitted values",
+                    );
                 }
                 return false;
             }
@@ -2806,7 +2813,10 @@ pub unsafe extern "C" fn anofox_quantile_fit(
             let coef_ptr = libc::malloc(n_coef * std::mem::size_of::<f64>()) as *mut f64;
             if coef_ptr.is_null() && n_coef > 0 {
                 if !out_error.is_null() {
-                    (*out_error).set(ErrorCode::AllocationFailure, "Failed to allocate coefficients");
+                    (*out_error).set(
+                        ErrorCode::AllocationFailure,
+                        "Failed to allocate coefficients",
+                    );
                 }
                 return false;
             }

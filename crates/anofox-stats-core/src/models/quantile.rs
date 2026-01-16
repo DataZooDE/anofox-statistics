@@ -18,7 +18,11 @@ use faer::{Col, Mat};
 ///
 /// # Returns
 /// * `QuantileFitResult` containing coefficients for the specified quantile
-pub fn fit_quantile(y: &[f64], x: &[Vec<f64>], options: &QuantileOptions) -> StatsResult<QuantileFitResult> {
+pub fn fit_quantile(
+    y: &[f64],
+    x: &[Vec<f64>],
+    options: &QuantileOptions,
+) -> StatsResult<QuantileFitResult> {
     // Validate inputs
     if y.is_empty() {
         return Err(StatsError::EmptyInput { field: "y" });

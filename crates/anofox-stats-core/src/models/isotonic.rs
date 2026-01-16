@@ -18,7 +18,11 @@ use faer::Col;
 ///
 /// # Returns
 /// * `IsotonicFitResult` containing fitted values and R-squared
-pub fn fit_isotonic(x: &[f64], y: &[f64], options: &IsotonicOptions) -> StatsResult<IsotonicFitResult> {
+pub fn fit_isotonic(
+    x: &[f64],
+    y: &[f64],
+    options: &IsotonicOptions,
+) -> StatsResult<IsotonicFitResult> {
     // Validate inputs
     if y.is_empty() {
         return Err(StatsError::EmptyInput { field: "y" });
@@ -37,9 +41,7 @@ pub fn fit_isotonic(x: &[f64], y: &[f64], options: &IsotonicOptions) -> StatsRes
 
     // Filter out rows with NaN values and collect valid data
     let valid_data: Vec<(f64, f64)> = (0..n_obs)
-        .filter(|&i| {
-            !y[i].is_nan() && !y[i].is_infinite() && !x[i].is_nan() && !x[i].is_infinite()
-        })
+        .filter(|&i| !y[i].is_nan() && !y[i].is_infinite() && !x[i].is_nan() && !x[i].is_infinite())
         .map(|i| (x[i], y[i]))
         .collect();
 
