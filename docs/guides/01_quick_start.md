@@ -356,7 +356,7 @@ SELECT ols_fit([1.0, 2.0, 3.0], [[1.0, 2.0, 3.0]]);
 
 ## Next Steps
 
-- See [API Reference](../index.md) for complete function documentation
+- See [API Reference](../API_REFERENCE.md) for complete function documentation
 - See [Technical Guide](02_technical_guide.md) for implementation details
 - See [Business Guide](03_business_guide.md) for real-world applications
 - See [Advanced Use Cases](04_advanced_use_cases.md) for complex scenarios
