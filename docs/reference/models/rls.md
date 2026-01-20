@@ -17,6 +17,16 @@ RLS updates model parameters incrementally with each new observation, supporting
 - Real-time forecasting
 - Non-stationary processes
 
+## Available Functions
+
+| Function | Type | Description |
+|----------|------|-------------|
+| `rls_fit` | Scalar | Fit on array data |
+| `rls_fit_agg` | Aggregate | Streaming fit with GROUP BY support |
+| `rls_fit_predict` | Window | Fit and predict in window context |
+| `rls_fit_predict_agg` | Aggregate | Fit and return predictions array |
+| `rls_fit_predict_by` | Table Macro | Fit per group, return predictions table |
+
 ## Parameters
 
 | Parameter | Default | Description |

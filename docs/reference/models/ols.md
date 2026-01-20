@@ -24,6 +24,16 @@ $$\hat{\beta} = \arg\min_\beta \|y - X\beta\|^2$$
 - More features than observations (use regularization)
 - Non-Gaussian errors (use ALM/GLM)
 
+## Available Functions
+
+| Function | Type | Description |
+|----------|------|-------------|
+| `ols_fit` | Scalar | Fit on array data |
+| `ols_fit_agg` | Aggregate | Streaming fit with GROUP BY support |
+| `ols_fit_predict` | Window | Fit and predict in window context |
+| `ols_fit_predict_agg` | Aggregate | Fit and return predictions array |
+| `ols_fit_predict_by` | Table Macro | Fit per group, return predictions table |
+
 ## Parameters
 
 | Parameter | Default | Description |
@@ -58,6 +68,9 @@ SELECT
     (ols_fit_agg(y, [x])).coefficients[1] as slope,
     (ols_fit_agg(y, [x])).r_squared as r2
 FROM data;
+
+-- Fit per group and get predictions table
+FROM ols_fit_predict_by('sales_data', store_id, revenue, [ads, traffic]);
 ```
 
 ## Related

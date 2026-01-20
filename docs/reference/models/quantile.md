@@ -21,6 +21,15 @@ where ρ_τ is the check function for quantile τ.
 - Heterogeneous effects across distribution
 - Presence of outliers
 
+## Available Functions
+
+| Function | Type | Description |
+|----------|------|-------------|
+| `quantile_fit` | Scalar | Fit on array data |
+| `quantile_fit_agg` | Aggregate | Streaming fit with GROUP BY support |
+| `quantile_fit_predict_agg` | Aggregate | Fit and return predictions array |
+| `quantile_fit_predict_by` | Table Macro | Fit per group, return predictions table |
+
 ## Parameters
 
 | Parameter | Default | Description |

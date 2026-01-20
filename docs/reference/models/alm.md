@@ -37,6 +37,14 @@ ALM supports 24 error distributions, enabling robust regression for non-Gaussian
 - Known error distribution
 - Robust estimation needs
 
+## Available Functions
+
+| Function | Type | Description |
+|----------|------|-------------|
+| `alm_fit_agg` | Aggregate | Streaming fit with GROUP BY support |
+| `alm_fit_predict_agg` | Aggregate | Fit and return predictions array |
+| `alm_fit_predict_by` | Table Macro | Fit per group, return predictions table |
+
 ## Parameters
 
 | Parameter | Default | Description |

@@ -18,6 +18,16 @@ $$\hat{\beta} = \arg\min_\beta \|y - X\beta\|^2 + \alpha \left[ \rho\|\beta\|_1 
 - Correlated features (where pure Lasso struggles)
 - High-dimensional data (p > n)
 
+## Available Functions
+
+| Function | Type | Description |
+|----------|------|-------------|
+| `elasticnet_fit` | Scalar | Fit on array data |
+| `elasticnet_fit_agg` | Aggregate | Streaming fit with GROUP BY support |
+| `elasticnet_fit_predict` | Window | Fit and predict in window context |
+| `elasticnet_fit_predict_agg` | Aggregate | Fit and return predictions array |
+| `elasticnet_fit_predict_by` | Table Macro | Fit per group, return predictions table |
+
 ## Parameters
 
 | Parameter | Default | Description |

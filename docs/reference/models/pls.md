@@ -17,6 +17,15 @@ PLS finds latent components that maximize covariance between X and y, handling m
 - Chemometrics, spectroscopy data
 - When features are noisy measurements of latent factors
 
+## Available Functions
+
+| Function | Type | Description |
+|----------|------|-------------|
+| `pls_fit` | Scalar | Fit on array data |
+| `pls_fit_agg` | Aggregate | Streaming fit with GROUP BY support |
+| `pls_fit_predict_agg` | Aggregate | Fit and return predictions array |
+| `pls_fit_predict_by` | Table Macro | Fit per group, return predictions table |
+
 ## Parameters
 
 | Parameter | Default | Description |

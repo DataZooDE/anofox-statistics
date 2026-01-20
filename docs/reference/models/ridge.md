@@ -19,6 +19,16 @@ $$\hat{\beta} = \arg\min_\beta \|y - X\beta\|^2 + \alpha\|\beta\|^2$$
 - Preventing overfitting
 - When all features should contribute (no feature selection)
 
+## Available Functions
+
+| Function | Type | Description |
+|----------|------|-------------|
+| `ridge_fit` | Scalar | Fit on array data |
+| `ridge_fit_agg` | Aggregate | Streaming fit with GROUP BY support |
+| `ridge_fit_predict` | Window | Fit and predict in window context |
+| `ridge_fit_predict_agg` | Aggregate | Fit and return predictions array |
+| `ridge_fit_predict_by` | Table Macro | Fit per group, return predictions table |
+
 ## Parameters
 
 | Parameter | Default | Description |

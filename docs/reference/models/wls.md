@@ -18,6 +18,16 @@ $$\hat{\beta} = \arg\min_\beta \sum_i w_i (y_i - x_i'\beta)^2$$
 - Combining data from different sources
 - Survey data with sampling weights
 
+## Available Functions
+
+| Function | Type | Description |
+|----------|------|-------------|
+| `wls_fit` | Scalar | Fit on array data |
+| `wls_fit_agg` | Aggregate | Streaming fit with GROUP BY support |
+| `wls_fit_predict` | Window | Fit and predict in window context |
+| `wls_fit_predict_agg` | Aggregate | Fit and return predictions array |
+| `wls_fit_predict_by` | Table Macro | Fit per group, return predictions table |
+
 ## Parameters
 
 | Parameter | Default | Description |

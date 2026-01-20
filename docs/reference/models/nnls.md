@@ -19,6 +19,14 @@ $$\hat{\beta} = \arg\min_\beta \|y - X\beta\|^2 \quad \text{s.t.} \quad \beta \g
 - Physical constraints (concentrations, counts)
 - Portfolio weights (long-only)
 
+## Available Functions
+
+| Function | Type | Description |
+|----------|------|-------------|
+| `nnls_fit_agg` | Aggregate | Streaming fit with GROUP BY support |
+
+Note: NNLS shares `bls_fit_predict_by` with lower_bounds set to 0.
+
 ## Parameters
 
 | Parameter | Default | Description |

@@ -19,6 +19,14 @@ $$\hat{\beta} = \arg\min_\beta \|y - X\beta\|^2 \quad \text{s.t.} \quad l \leq \
 - Mixture models (coefficients sum to 1)
 - Sign constraints
 
+## Available Functions
+
+| Function | Type | Description |
+|----------|------|-------------|
+| `bls_fit_agg` | Aggregate | Streaming fit with GROUP BY support |
+| `bls_fit_predict_agg` | Aggregate | Fit and return predictions array |
+| `bls_fit_predict_by` | Table Macro | Fit per group, return predictions table |
+
 ## Parameters
 
 | Parameter | Default | Description |

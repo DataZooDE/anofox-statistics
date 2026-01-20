@@ -17,6 +17,15 @@ Isotonic regression fits a non-decreasing (or non-increasing) step function to t
 - When domain knowledge requires monotonicity
 - Non-parametric regression with shape constraints
 
+## Available Functions
+
+| Function | Type | Description |
+|----------|------|-------------|
+| `isotonic_fit` | Scalar | Fit on array data |
+| `isotonic_fit_agg` | Aggregate | Streaming fit with GROUP BY support |
+| `isotonic_fit_predict_agg` | Aggregate | Fit and return predictions array |
+| `isotonic_fit_predict_by` | Table Macro | Fit per group, return predictions table |
+
 ## Parameters
 
 | Parameter | Default | Description |

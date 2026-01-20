@@ -22,6 +22,14 @@ $$\log(\mathbb{E}[y]) = X\beta$$
 - Event rates
 - Exposure-adjusted counts
 
+### Available Functions
+
+| Function | Type | Description |
+|----------|------|-------------|
+| `poisson_fit_agg` | Aggregate | Streaming fit with GROUP BY support |
+| `poisson_fit_predict_agg` | Aggregate | Fit and return predictions array |
+| `poisson_fit_predict_by` | Table Macro | Fit per group, return predictions table |
+
 ### Parameters
 
 | Parameter | Default | Description |
