@@ -2,11 +2,21 @@
 
 Elastic Net regression with combined L1/L2 regularization.
 
-## anofox_stats_elasticnet_fit
+## Function Overview
+
+| Function | Type | Description |
+|----------|------|-------------|
+| `elasticnet_fit` | Scalar | Fit on array data |
+| `elasticnet_fit_agg` | Aggregate | Streaming fit with GROUP BY support |
+| `elasticnet_fit_predict` | Window | Fit and predict in window context |
+| `elasticnet_fit_predict_agg` | Aggregate | Fit and return predictions array |
+| `elasticnet_fit_predict_by` | Table Macro | Fit per group, return predictions table |
+
+## elasticnet_fit
 
 **Signature:**
 ```sql
-anofox_stats_elasticnet_fit(
+elasticnet_fit(
     y LIST(DOUBLE),
     x LIST(LIST(DOUBLE)),
     alpha DOUBLE,
@@ -28,19 +38,38 @@ anofox_stats_elasticnet_fit(
 
 **Example:**
 ```sql
-SELECT anofox_stats_elasticnet_fit(
+SELECT elasticnet_fit(
     [2.1, 4.0, 5.9, 8.1, 10.0],
     [[1.0, 2.0, 3.0, 4.0, 5.0]],
-    0.1,  -- alpha
-    0.5   -- l1_ratio (50% L1, 50% L2)
+    0.1, 0.5
 );
 ```
 
-## anofox_stats_elasticnet_fit_agg
+## elasticnet_fit_agg
 
 Streaming Elastic Net aggregate function.
+
+## elasticnet_fit_predict
+
+Window function for rolling elastic net.
+
+## elasticnet_fit_predict_agg
+
+Aggregate function returning predictions array.
+
+## elasticnet_fit_predict_by
+
+**Recommended for predictions.** Table macro for grouped fit-predict.
+
+```sql
+FROM elasticnet_fit_predict_by('data', grp, y, [x1, x2], {'alpha': 0.1, 'l1_ratio': 0.5});
+```
+
+**Options:** `alpha`, `l1_ratio`, `max_iterations`, `tolerance`, `fit_intercept`, `confidence_level`, `null_policy`
 
 ## Short Aliases
 
 - `elasticnet_fit` -> `anofox_stats_elasticnet_fit`
 - `elasticnet_fit_agg` -> `anofox_stats_elasticnet_fit_agg`
+- `elasticnet_fit_predict` -> `anofox_stats_elasticnet_fit_predict`
+- `elasticnet_fit_predict_agg` -> `anofox_stats_elasticnet_fit_predict_agg`

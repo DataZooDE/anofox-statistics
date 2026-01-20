@@ -2,18 +2,27 @@
 
 Quantile regression for modeling conditional quantiles (including median regression).
 
-## anofox_stats_quantile_fit
+## Function Overview
+
+| Function | Type | Description |
+|----------|------|-------------|
+| `quantile_fit` | Scalar | Fit on array data |
+| `quantile_fit_agg` | Aggregate | Streaming fit with GROUP BY support |
+| `quantile_fit_predict_agg` | Aggregate | Fit and return predictions array |
+| `quantile_fit_predict_by` | Table Macro | Fit per group, return predictions table |
+
+## quantile_fit
 
 **Signature:**
 ```sql
-anofox_stats_quantile_fit(
+quantile_fit(
     y LIST(DOUBLE),
     x LIST(LIST(DOUBLE)),
     [options MAP]
 ) -> STRUCT
 ```
 
-**Options MAP:**
+**Options:**
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
@@ -22,11 +31,26 @@ anofox_stats_quantile_fit(
 | max_iterations | INTEGER | 1000 | Max optimization iterations |
 | tolerance | DOUBLE | 1e-6 | Convergence tolerance |
 
-## anofox_stats_quantile_fit_agg
+## quantile_fit_agg
 
 Streaming quantile regression aggregate function.
+
+## quantile_fit_predict_agg
+
+Aggregate function returning predictions array.
+
+## quantile_fit_predict_by
+
+**Recommended for predictions.** Table macro for grouped fit-predict.
+
+```sql
+FROM quantile_fit_predict_by('sales', region, revenue, [price, promo], {'quantile': 0.5});
+```
+
+**Options:** `quantile`, `fit_intercept`, `max_iterations`, `tolerance`, `null_policy`
 
 ## Short Aliases
 
 - `quantile_fit` -> `anofox_stats_quantile_fit`
 - `quantile_fit_agg` -> `anofox_stats_quantile_fit_agg`
+- `quantile_fit_predict_agg` -> `anofox_stats_quantile_fit_predict_agg`

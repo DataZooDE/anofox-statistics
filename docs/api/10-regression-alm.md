@@ -2,13 +2,21 @@
 
 Augmented Linear Models supporting 24 error distributions.
 
-## anofox_stats_alm_fit_agg
+## Function Overview
+
+| Function | Type | Description |
+|----------|------|-------------|
+| `alm_fit_agg` | Aggregate | ALM with GROUP BY support |
+| `alm_fit_predict_agg` | Aggregate | Fit and return predictions array |
+| `alm_fit_predict_by` | Table Macro | Fit per group, return predictions table |
+
+## alm_fit_agg
 
 Augmented Linear Model with flexible error distributions.
 
 **Signature:**
 ```sql
-anofox_stats_alm_fit_agg(
+alm_fit_agg(
     y DOUBLE,
     x LIST(DOUBLE),
     distribution VARCHAR,
@@ -27,11 +35,25 @@ anofox_stats_alm_fit_agg(
 
 **Example:**
 ```sql
--- Robust regression with Student's t errors
-SELECT anofox_stats_alm_fit_agg(y, [x], 'student_t')
+SELECT alm_fit_agg(y, [x], 'student_t')
 FROM data_with_outliers;
 ```
+
+## alm_fit_predict_agg
+
+Aggregate function returning predictions array.
+
+## alm_fit_predict_by
+
+**Recommended for predictions.** Table macro for grouped fit-predict.
+
+```sql
+FROM alm_fit_predict_by('robust_data', grp, y, [x], {'distribution': 'student_t'});
+```
+
+**Options:** `distribution`, `fit_intercept`, `null_policy`
 
 ## Short Aliases
 
 - `alm_fit_agg` -> `anofox_stats_alm_fit_agg`
+- `alm_fit_predict_agg` -> `anofox_stats_alm_fit_predict_agg`

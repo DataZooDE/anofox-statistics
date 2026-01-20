@@ -2,20 +2,28 @@
 
 Generalized Linear Models for non-Gaussian distributions.
 
-## anofox_stats_poisson_fit_agg
+## Function Overview
 
-Poisson regression for count data using IRLS (Iteratively Reweighted Least Squares).
+| Function | Type | Description |
+|----------|------|-------------|
+| `poisson_fit_agg` | Aggregate | Poisson regression with GROUP BY support |
+| `poisson_fit_predict_agg` | Aggregate | Fit and return predictions array |
+| `poisson_fit_predict_by` | Table Macro | Fit per group, return predictions table |
+
+## poisson_fit_agg
+
+Poisson regression for count data using IRLS.
 
 **Signature:**
 ```sql
-anofox_stats_poisson_fit_agg(
+poisson_fit_agg(
     y DOUBLE,
     x LIST(DOUBLE),
     [options MAP]
 ) -> STRUCT
 ```
 
-**Options MAP:**
+**Options:**
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
@@ -25,11 +33,25 @@ anofox_stats_poisson_fit_agg(
 
 **Example:**
 ```sql
--- Count data regression
-SELECT anofox_stats_poisson_fit_agg(count, [exposure, factor])
+SELECT poisson_fit_agg(count, [exposure, factor])
 FROM count_data;
 ```
+
+## poisson_fit_predict_agg
+
+Aggregate function returning predictions array.
+
+## poisson_fit_predict_by
+
+**Recommended for predictions.** Table macro for grouped fit-predict.
+
+```sql
+FROM poisson_fit_predict_by('counts', region, events, [exposure, risk]);
+```
+
+**Options:** `fit_intercept`, `max_iterations`, `tolerance`, `null_policy`
 
 ## Short Aliases
 
 - `poisson_fit_agg` -> `anofox_stats_poisson_fit_agg`
+- `poisson_fit_predict_agg` -> `anofox_stats_poisson_fit_predict_agg`

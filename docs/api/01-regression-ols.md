@@ -2,11 +2,23 @@
 
 Ordinary Least Squares regression using QR decomposition.
 
-## anofox_stats_ols_fit
+## Function Overview
+
+| Function | Type | Description |
+|----------|------|-------------|
+| `ols_fit` | Scalar | Fit on array data |
+| `ols_fit_agg` | Aggregate | Streaming fit with GROUP BY support |
+| `ols_fit_predict` | Window | Fit and predict in window context |
+| `ols_fit_predict_agg` | Aggregate | Fit and return predictions array |
+| `ols_fit_predict_by` | Table Macro | Fit per group, return predictions table |
+
+## ols_fit
+
+Scalar function for array-based fitting.
 
 **Signature:**
 ```sql
-anofox_stats_ols_fit(
+ols_fit(
     y LIST(DOUBLE),
     x LIST(LIST(DOUBLE)),
     [fit_intercept BOOLEAN DEFAULT true],
@@ -29,27 +41,20 @@ anofox_stats_ols_fit(
 
 **Example:**
 ```sql
--- Simple regression: y = 2x + 1
-SELECT anofox_stats_ols_fit(
-    [3.0, 5.0, 7.0, 9.0, 11.0],
-    [[1.0, 2.0, 3.0, 4.0, 5.0]]
-);
-
--- With inference
-SELECT anofox_stats_ols_fit(
+SELECT ols_fit(
     [3.0, 5.0, 7.0, 9.0, 11.0],
     [[1.0, 2.0, 3.0, 4.0, 5.0]],
     true, true, 0.95
 );
 ```
 
-## anofox_stats_ols_fit_agg
+## ols_fit_agg
 
-Streaming OLS regression aggregate function.
+Streaming aggregate function with GROUP BY support.
 
 **Signature:**
 ```sql
-anofox_stats_ols_fit_agg(
+ols_fit_agg(
     y DOUBLE,
     x LIST(DOUBLE),
     [fit_intercept BOOLEAN DEFAULT true],
@@ -63,20 +68,84 @@ anofox_stats_ols_fit_agg(
 -- Per-group regression
 SELECT
     category,
-    (anofox_stats_ols_fit_agg(sales, [price, ads])).r_squared
+    (ols_fit_agg(sales, [price, ads])).r_squared
 FROM data
 GROUP BY category;
+```
 
--- Rolling regression (window function)
+## ols_fit_predict
+
+Window function for fit and predict in rolling/expanding windows.
+
+**Signature:**
+```sql
+ols_fit_predict(
+    y DOUBLE,
+    x LIST(DOUBLE),
+    [options MAP]
+) OVER (...) -> DOUBLE
+```
+
+**Example:**
+```sql
 SELECT
     date,
-    (anofox_stats_ols_fit_agg(y, [x]) OVER (
-        ORDER BY date ROWS BETWEEN 9 PRECEDING AND CURRENT ROW
-    )).coefficients[1] as rolling_beta
+    ols_fit_predict(y, [x]) OVER (
+        ORDER BY date ROWS BETWEEN 29 PRECEDING AND CURRENT ROW
+    ) as predicted
 FROM time_series;
 ```
 
+## ols_fit_predict_agg
+
+Aggregate function returning predictions for all input rows.
+
+**Signature:**
+```sql
+ols_fit_predict_agg(
+    y DOUBLE,
+    x LIST(DOUBLE),
+    [options MAP]
+) -> LIST(STRUCT)
+```
+
+**Returns:** List of structs with `y`, `x`, `yhat`, `yhat_lower`, `yhat_upper`, `is_training`
+
+**Example:**
+```sql
+SELECT ols_fit_predict_agg(sales, [ads, price])
+FROM monthly_data
+GROUP BY region;
+```
+
+## ols_fit_predict_by
+
+**Recommended for predictions.** Table macro for grouped fit-predict returning a table.
+
+**Signature:**
+```sql
+FROM ols_fit_predict_by(
+    source VARCHAR,
+    group_col COLUMN,
+    y_col COLUMN,
+    x_cols LIST(COLUMN),
+    [options MAP]
+)
+```
+
+**Returns:** Table with columns: `group_id`, `y`, `x`, `yhat`, `yhat_lower`, `yhat_upper`, `is_training`
+
+**Example:**
+```sql
+FROM ols_fit_predict_by('sales_data', store_id, revenue, [ads, traffic]);
+```
+
+**Options:** `fit_intercept`, `confidence_level`, `null_policy`
+
 ## Short Aliases
 
+All functions have short aliases (without `anofox_stats_` prefix):
 - `ols_fit` -> `anofox_stats_ols_fit`
 - `ols_fit_agg` -> `anofox_stats_ols_fit_agg`
+- `ols_fit_predict` -> `anofox_stats_ols_fit_predict`
+- `ols_fit_predict_agg` -> `anofox_stats_ols_fit_predict_agg`
