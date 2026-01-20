@@ -11,6 +11,17 @@ Bounded and Non-negative Least Squares for constrained optimization.
 | `bls_fit_predict_by` | Table Macro | Fit per group, return predictions table |
 | `nnls_fit_agg` | Aggregate | Non-negative LS with GROUP BY support |
 
+## NULL Handling
+
+The `null_policy` option controls how NULL values are handled:
+
+| Value | Behavior |
+|-------|----------|
+| `'drop'` (default) | Drop rows with NULL y from training, include in output with predictions |
+| `'drop_y_zero_x'` | Drop rows with NULL y OR zero x values from training |
+
+See [Common Options](19-common-options.md#null-handling-options) for details.
+
 ## bls_fit_agg
 
 Bounded Least Squares with coefficient constraints.

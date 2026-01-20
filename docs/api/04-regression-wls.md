@@ -12,6 +12,17 @@ Weighted Least Squares regression.
 | `wls_fit_predict_agg` | Aggregate | Fit and return predictions array |
 | `wls_fit_predict_by` | Table Macro | Fit per group, return predictions table |
 
+## NULL Handling
+
+The `null_policy` option controls how NULL values are handled:
+
+| Value | Behavior |
+|-------|----------|
+| `'drop'` (default) | Drop rows with NULL y from training, include in output with predictions |
+| `'drop_y_zero_x'` | Drop rows with NULL y OR zero x values from training |
+
+See [Common Options](19-common-options.md#null-handling-options) for details.
+
 ## wls_fit
 
 **Signature:**
