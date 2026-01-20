@@ -28,6 +28,17 @@ FROM ols_fit_predict_by(
 ) -> TABLE
 ```
 
+## Common Options
+
+All table macros support the `null_policy` option for handling NULL values:
+
+| Value | Behavior |
+|-------|----------|
+| `'drop'` (default) | Drop rows with NULL y from training, include in output with predictions |
+| `'drop_y_zero_x'` | Drop rows with NULL y OR zero x values from training |
+
+See [Common Options](19-common-options.md#null-handling-options) for details.
+
 ## Return Columns
 
 All table macros return:
