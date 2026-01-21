@@ -4,6 +4,9 @@
 -- Demonstrates statistical inference capabilities: t-tests, p-values, CIs, F-test
 -- Topics: Coefficient significance, confidence intervals, model significance
 --
+-- NOTE: Inference arrays (std_errors, t_values, p_values, ci_lower, ci_upper)
+-- contain values for coefficients only, NOT for intercept.
+--
 -- Run: ./build/release/duckdb < examples/ols_inference.sql
 
 LOAD 'anofox_statistics';
@@ -36,25 +39,23 @@ SELECT '=== Example 1: Full Inference Output ===' AS section;
 
 SELECT
     -- Coefficients
-    ROUND(intercept, 4) AS intercept,
-    coefficients AS coefs,
+    ROUND(result.intercept, 4) AS intercept,
+    result.coefficients AS coefs,
 
-    -- Standard errors
-    ROUND(intercept_std_error, 4) AS intercept_se,
-    coefficient_std_errors AS coef_se,
+    -- Standard errors (for coefficients only)
+    result.std_errors AS coef_se,
 
-    -- t-statistics
-    ROUND(intercept_t_value, 4) AS intercept_t,
-    coefficient_t_values AS coef_t,
+    -- t-statistics (for coefficients only)
+    result.t_values AS coef_t,
 
-    -- p-values
-    ROUND(intercept_p_value, 6) AS intercept_p,
-    coefficient_p_values AS coef_p
-
-FROM ols_fit(
-    (SELECT LIST(y ORDER BY id) FROM inference_data),
-    (SELECT LIST([x1, x2] ORDER BY id) FROM inference_data),
-    {'intercept': true, 'full_output': true}
+    -- p-values (for coefficients only)
+    result.p_values AS coef_p
+FROM (
+    SELECT anofox_stats_ols_fit(
+        [10.0, 15.0, 20.0, 25.0, 30.0, 35.0, 40.0, 45.0, 50.0, 55.0]::DOUBLE[],
+        [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]]::DOUBLE[][],
+        {'intercept': true, 'compute_inference': true}
+    ) AS result
 );
 
 -- ============================================================================
@@ -63,40 +64,19 @@ FROM ols_fit(
 
 SELECT '=== Example 2: Confidence Intervals ===' AS section;
 
-SELECT
-    'Intercept' AS parameter,
-    ROUND(intercept, 4) AS estimate,
-    ROUND(intercept_ci_lower, 4) AS ci_lower,
-    ROUND(intercept_ci_upper, 4) AS ci_upper,
-    ROUND(intercept_ci_upper - intercept_ci_lower, 4) AS ci_width
-FROM ols_fit(
-    (SELECT LIST(y ORDER BY id) FROM inference_data),
-    (SELECT LIST([x1, x2] ORDER BY id) FROM inference_data),
-    {'intercept': true, 'full_output': true, 'confidence_level': 0.95}
-)
-UNION ALL
+-- ci_lower/ci_upper arrays contain CIs for coefficients only
 SELECT
     'x1' AS parameter,
-    ROUND(coefficients[1], 4) AS estimate,
-    ROUND(coefficient_ci_lower[1], 4) AS ci_lower,
-    ROUND(coefficient_ci_upper[1], 4) AS ci_upper,
-    ROUND(coefficient_ci_upper[1] - coefficient_ci_lower[1], 4) AS ci_width
-FROM ols_fit(
-    (SELECT LIST(y ORDER BY id) FROM inference_data),
-    (SELECT LIST([x1, x2] ORDER BY id) FROM inference_data),
-    {'intercept': true, 'full_output': true, 'confidence_level': 0.95}
-)
-UNION ALL
-SELECT
-    'x2' AS parameter,
-    ROUND(coefficients[2], 4) AS estimate,
-    ROUND(coefficient_ci_lower[2], 4) AS ci_lower,
-    ROUND(coefficient_ci_upper[2], 4) AS ci_upper,
-    ROUND(coefficient_ci_upper[2] - coefficient_ci_lower[2], 4) AS ci_width
-FROM ols_fit(
-    (SELECT LIST(y ORDER BY id) FROM inference_data),
-    (SELECT LIST([x1, x2] ORDER BY id) FROM inference_data),
-    {'intercept': true, 'full_output': true, 'confidence_level': 0.95}
+    ROUND(result.coefficients[1], 4) AS estimate,
+    ROUND(result.ci_lower[1], 4) AS ci_lower,
+    ROUND(result.ci_upper[1], 4) AS ci_upper,
+    ROUND(result.ci_upper[1] - result.ci_lower[1], 4) AS ci_width
+FROM (
+    SELECT anofox_stats_ols_fit(
+        [10.0, 15.0, 20.0, 25.0, 30.0, 35.0, 40.0, 45.0, 50.0, 55.0]::DOUBLE[],
+        [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]]::DOUBLE[][],
+        {'intercept': true, 'compute_inference': true, 'confidence_level': 0.95}
+    ) AS result
 );
 
 -- ============================================================================
@@ -106,47 +86,21 @@ FROM ols_fit(
 SELECT '=== Example 3: Significance Stars ===' AS section;
 
 WITH fit AS (
-    SELECT * FROM ols_fit(
-        (SELECT LIST(y ORDER BY id) FROM inference_data),
-        (SELECT LIST([x1, x2] ORDER BY id) FROM inference_data),
-        {'intercept': true, 'full_output': true}
-    )
+    SELECT anofox_stats_ols_fit(
+        [10.0, 15.0, 20.0, 25.0, 30.0, 35.0, 40.0, 45.0, 50.0, 55.0]::DOUBLE[],
+        [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]]::DOUBLE[][],
+        {'intercept': true, 'compute_inference': true}
+    ) AS result
 )
 SELECT
-    'Intercept' AS variable,
-    ROUND(intercept, 4) AS estimate,
-    ROUND(intercept_p_value, 6) AS p_value,
-    CASE
-        WHEN intercept_p_value < 0.001 THEN '***'
-        WHEN intercept_p_value < 0.01 THEN '**'
-        WHEN intercept_p_value < 0.05 THEN '*'
-        WHEN intercept_p_value < 0.1 THEN '.'
-        ELSE ''
-    END AS significance
-FROM fit
-UNION ALL
-SELECT
     'x1' AS variable,
-    ROUND(coefficients[1], 4) AS estimate,
-    ROUND(coefficient_p_values[1], 6) AS p_value,
+    ROUND(result.coefficients[1], 4) AS estimate,
+    ROUND(result.p_values[1], 6) AS p_value,
     CASE
-        WHEN coefficient_p_values[1] < 0.001 THEN '***'
-        WHEN coefficient_p_values[1] < 0.01 THEN '**'
-        WHEN coefficient_p_values[1] < 0.05 THEN '*'
-        WHEN coefficient_p_values[1] < 0.1 THEN '.'
-        ELSE ''
-    END AS significance
-FROM fit
-UNION ALL
-SELECT
-    'x2' AS variable,
-    ROUND(coefficients[2], 4) AS estimate,
-    ROUND(coefficient_p_values[2], 6) AS p_value,
-    CASE
-        WHEN coefficient_p_values[2] < 0.001 THEN '***'
-        WHEN coefficient_p_values[2] < 0.01 THEN '**'
-        WHEN coefficient_p_values[2] < 0.05 THEN '*'
-        WHEN coefficient_p_values[2] < 0.1 THEN '.'
+        WHEN result.p_values[1] < 0.001 THEN '***'
+        WHEN result.p_values[1] < 0.01 THEN '**'
+        WHEN result.p_values[1] < 0.05 THEN '*'
+        WHEN result.p_values[1] < 0.1 THEN '.'
         ELSE ''
     END AS significance
 FROM fit;
@@ -158,20 +112,20 @@ FROM fit;
 SELECT '=== Example 4: F-Statistic ===' AS section;
 
 SELECT
-    ROUND(f_statistic, 4) AS f_statistic,
-    ROUND(f_statistic_pvalue, 8) AS f_pvalue,
+    ROUND(result.f_statistic, 4) AS f_statistic,
+    ROUND(result.f_pvalue, 8) AS f_pvalue,
     CASE
-        WHEN f_statistic_pvalue < 0.001 THEN 'Highly significant (p < 0.001)'
-        WHEN f_statistic_pvalue < 0.01 THEN 'Very significant (p < 0.01)'
-        WHEN f_statistic_pvalue < 0.05 THEN 'Significant (p < 0.05)'
+        WHEN result.f_pvalue < 0.001 THEN 'Highly significant (p < 0.001)'
+        WHEN result.f_pvalue < 0.01 THEN 'Very significant (p < 0.01)'
+        WHEN result.f_pvalue < 0.05 THEN 'Significant (p < 0.05)'
         ELSE 'Not significant (p >= 0.05)'
-    END AS model_significance,
-    df_residual AS df_residual,
-    n_obs - df_residual - 1 AS df_model
-FROM ols_fit(
-    (SELECT LIST(y ORDER BY id) FROM inference_data),
-    (SELECT LIST([x1, x2] ORDER BY id) FROM inference_data),
-    {'intercept': true, 'full_output': true}
+    END AS model_significance
+FROM (
+    SELECT anofox_stats_ols_fit(
+        [10.0, 15.0, 20.0, 25.0, 30.0, 35.0, 40.0, 45.0, 50.0, 55.0]::DOUBLE[],
+        [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]]::DOUBLE[][],
+        {'intercept': true, 'compute_inference': true}
+    ) AS result
 );
 
 -- ============================================================================
@@ -183,41 +137,47 @@ SELECT '=== Example 5: Confidence Level Comparison ===' AS section;
 -- 90% CI
 SELECT
     '90%' AS conf_level,
-    ROUND(coefficients[1], 4) AS x1_estimate,
-    ROUND(coefficient_ci_lower[1], 4) AS x1_ci_lower,
-    ROUND(coefficient_ci_upper[1], 4) AS x1_ci_upper
-FROM ols_fit(
-    (SELECT LIST(y ORDER BY id) FROM inference_data),
-    (SELECT LIST([x1, x2] ORDER BY id) FROM inference_data),
-    {'intercept': true, 'full_output': true, 'confidence_level': 0.90}
+    ROUND(result.coefficients[1], 4) AS x1_estimate,
+    ROUND(result.ci_lower[1], 4) AS x1_ci_lower,
+    ROUND(result.ci_upper[1], 4) AS x1_ci_upper
+FROM (
+    SELECT anofox_stats_ols_fit(
+        [10.0, 15.0, 20.0, 25.0, 30.0, 35.0, 40.0, 45.0, 50.0, 55.0]::DOUBLE[],
+        [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]]::DOUBLE[][],
+        {'intercept': true, 'compute_inference': true, 'confidence_level': 0.90}
+    ) AS result
 )
 UNION ALL
 -- 95% CI
 SELECT
     '95%' AS conf_level,
-    ROUND(coefficients[1], 4) AS x1_estimate,
-    ROUND(coefficient_ci_lower[1], 4) AS x1_ci_lower,
-    ROUND(coefficient_ci_upper[1], 4) AS x1_ci_upper
-FROM ols_fit(
-    (SELECT LIST(y ORDER BY id) FROM inference_data),
-    (SELECT LIST([x1, x2] ORDER BY id) FROM inference_data),
-    {'intercept': true, 'full_output': true, 'confidence_level': 0.95}
+    ROUND(result.coefficients[1], 4) AS x1_estimate,
+    ROUND(result.ci_lower[1], 4) AS x1_ci_lower,
+    ROUND(result.ci_upper[1], 4) AS x1_ci_upper
+FROM (
+    SELECT anofox_stats_ols_fit(
+        [10.0, 15.0, 20.0, 25.0, 30.0, 35.0, 40.0, 45.0, 50.0, 55.0]::DOUBLE[],
+        [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]]::DOUBLE[][],
+        {'intercept': true, 'compute_inference': true, 'confidence_level': 0.95}
+    ) AS result
 )
 UNION ALL
 -- 99% CI
 SELECT
     '99%' AS conf_level,
-    ROUND(coefficients[1], 4) AS x1_estimate,
-    ROUND(coefficient_ci_lower[1], 4) AS x1_ci_lower,
-    ROUND(coefficient_ci_upper[1], 4) AS x1_ci_upper
-FROM ols_fit(
-    (SELECT LIST(y ORDER BY id) FROM inference_data),
-    (SELECT LIST([x1, x2] ORDER BY id) FROM inference_data),
-    {'intercept': true, 'full_output': true, 'confidence_level': 0.99}
+    ROUND(result.coefficients[1], 4) AS x1_estimate,
+    ROUND(result.ci_lower[1], 4) AS x1_ci_lower,
+    ROUND(result.ci_upper[1], 4) AS x1_ci_upper
+FROM (
+    SELECT anofox_stats_ols_fit(
+        [10.0, 15.0, 20.0, 25.0, 30.0, 35.0, 40.0, 45.0, 50.0, 55.0]::DOUBLE[],
+        [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]]::DOUBLE[][],
+        {'intercept': true, 'compute_inference': true, 'confidence_level': 0.99}
+    ) AS result
 );
 
 -- ============================================================================
--- Example 6: Per-Group Inference
+-- Example 6: Per-Group Inference with Aggregate Function
 -- ============================================================================
 
 SELECT '=== Example 6: Per-Group Inference ===' AS section;
@@ -239,19 +199,19 @@ FROM (VALUES ('A'), ('B'), ('C')) AS c(category),
 SELECT
     category,
     ROUND(result.coefficients[1], 4) AS slope,
-    ROUND(result.coefficient_std_errors[1], 4) AS slope_se,
-    ROUND(result.coefficient_t_values[1], 4) AS slope_t,
-    ROUND(result.coefficient_p_values[1], 6) AS slope_p,
+    ROUND(result.std_errors[1], 4) AS slope_se,
+    ROUND(result.t_values[1], 4) AS slope_t,
+    ROUND(result.p_values[1], 6) AS slope_p,
     CASE
-        WHEN result.coefficient_p_values[1] < 0.001 THEN '***'
-        WHEN result.coefficient_p_values[1] < 0.01 THEN '**'
-        WHEN result.coefficient_p_values[1] < 0.05 THEN '*'
+        WHEN result.p_values[1] < 0.001 THEN '***'
+        WHEN result.p_values[1] < 0.01 THEN '**'
+        WHEN result.p_values[1] < 0.05 THEN '*'
         ELSE 'ns'
     END AS sig
 FROM (
     SELECT
         category,
-        ols_fit_agg(y, [x], {'intercept': true, 'full_output': true}) AS result
+        ols_fit_agg(y, [x], {'intercept': true, 'compute_inference': true}) AS result
     FROM grouped_inference
     GROUP BY category
 ) sub
@@ -264,11 +224,14 @@ ORDER BY category;
 SELECT '=== Example 7: Hypothesis Testing ===' AS section;
 
 WITH fit AS (
-    SELECT * FROM ols_fit(
-        (SELECT LIST(y ORDER BY id) FROM inference_data),
-        (SELECT LIST([x1, x2] ORDER BY id) FROM inference_data),
-        {'intercept': true, 'full_output': true}
-    )
+    SELECT anofox_stats_ols_fit(
+        [15.0, 22.0, 31.0, 38.0, 45.0, 54.0, 61.0, 70.0]::DOUBLE[],
+        [
+            [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
+            [2.0, 3.0, 5.0, 6.0, 7.0, 9.0, 10.0, 12.0]
+        ]::DOUBLE[][],
+        {'intercept': true, 'compute_inference': true}
+    ) AS result
 )
 SELECT
     variable,
@@ -282,111 +245,91 @@ SELECT
     END AS conclusion
 FROM (
     SELECT 'x1' AS variable,
-           ROUND(coefficients[1], 4) AS estimate,
-           ROUND(coefficient_std_errors[1], 4) AS std_error,
-           ROUND(coefficient_t_values[1], 4) AS t_value,
-           ROUND(coefficient_p_values[1], 6) AS p_value
+           ROUND(result.coefficients[1], 4) AS estimate,
+           ROUND(result.std_errors[1], 4) AS std_error,
+           ROUND(result.t_values[1], 4) AS t_value,
+           ROUND(result.p_values[1], 6) AS p_value
     FROM fit
     UNION ALL
     SELECT 'x2' AS variable,
-           ROUND(coefficients[2], 4) AS estimate,
-           ROUND(coefficient_std_errors[2], 4) AS std_error,
-           ROUND(coefficient_t_values[2], 4) AS t_value,
-           ROUND(coefficient_p_values[2], 6) AS p_value
+           ROUND(result.coefficients[2], 4) AS estimate,
+           ROUND(result.std_errors[2], 4) AS std_error,
+           ROUND(result.t_values[2], 4) AS t_value,
+           ROUND(result.p_values[2], 6) AS p_value
     FROM fit
 );
 
 -- ============================================================================
--- Example 8: Standard Error and Sample Size Relationship
+-- Example 8: Model Summary Statistics
 -- ============================================================================
 
-SELECT '=== Example 8: Sample Size Effect on SE ===' AS section;
+SELECT '=== Example 8: Model Summary Statistics ===' AS section;
 
--- Fit with different sample sizes
-WITH samples AS (
-    SELECT
-        n,
-        ols_fit(
-            (SELECT LIST(y ORDER BY id) FROM inference_data WHERE id <= n),
-            (SELECT LIST([x1, x2] ORDER BY id) FROM inference_data WHERE id <= n),
-            {'intercept': true, 'full_output': true}
-        ) AS result
-    FROM (VALUES (10), (20), (30), (40), (50)) AS t(n)
-)
 SELECT
-    n AS sample_size,
-    ROUND((result).coefficients[1], 4) AS x1_estimate,
-    ROUND((result).coefficient_std_errors[1], 4) AS x1_std_error,
-    ROUND((result).coefficient_ci_upper[1] - (result).coefficient_ci_lower[1], 4) AS x1_ci_width
-FROM samples
-ORDER BY n;
+    ROUND(result.r_squared, 4) AS r_squared,
+    ROUND(result.adj_r_squared, 4) AS adj_r_squared,
+    ROUND(result.residual_std_error, 4) AS residual_std_error,
+    result.n_observations,
+    result.n_features,
+    ROUND(result.f_statistic, 4) AS f_statistic,
+    ROUND(result.f_pvalue, 6) AS f_pvalue
+FROM (
+    SELECT anofox_stats_ols_fit(
+        [15.0, 22.0, 31.0, 38.0, 45.0, 54.0, 61.0, 70.0]::DOUBLE[],
+        [
+            [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
+            [2.0, 3.0, 5.0, 6.0, 7.0, 9.0, 10.0, 12.0]
+        ]::DOUBLE[][],
+        {'intercept': true, 'compute_inference': true}
+    ) AS result
+);
 
 -- ============================================================================
--- Example 9: Model Summary Table
+-- Example 9: Coefficient Summary Table
 -- ============================================================================
 
-SELECT '=== Example 9: Model Summary Table ===' AS section;
+SELECT '=== Example 9: Coefficient Summary Table ===' AS section;
 
 WITH fit AS (
-    SELECT * FROM ols_fit(
-        (SELECT LIST(y ORDER BY id) FROM inference_data),
-        (SELECT LIST([x1, x2] ORDER BY id) FROM inference_data),
-        {'intercept': true, 'full_output': true, 'confidence_level': 0.95}
-    )
+    SELECT anofox_stats_ols_fit(
+        [15.0, 22.0, 31.0, 38.0, 45.0, 54.0, 61.0, 70.0]::DOUBLE[],
+        [
+            [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
+            [2.0, 3.0, 5.0, 6.0, 7.0, 9.0, 10.0, 12.0]
+        ]::DOUBLE[][],
+        {'intercept': true, 'compute_inference': true, 'confidence_level': 0.95}
+    ) AS result
 )
-SELECT '--- Coefficients ---' AS section
-UNION ALL
 SELECT
-    LPAD(variable, 12) || ' | ' ||
-    LPAD(estimate::VARCHAR, 10) || ' | ' ||
-    LPAD(std_err::VARCHAR, 10) || ' | ' ||
-    LPAD(t_val::VARCHAR, 10) || ' | ' ||
-    LPAD(p_val::VARCHAR, 12) || ' | ' ||
+    variable,
+    estimate,
+    std_error,
+    t_value,
+    p_value,
     sig
 FROM (
     SELECT
-        'Intercept' AS variable,
-        ROUND(intercept, 4)::VARCHAR AS estimate,
-        ROUND(intercept_std_error, 4)::VARCHAR AS std_err,
-        ROUND(intercept_t_value, 4)::VARCHAR AS t_val,
-        ROUND(intercept_p_value, 6)::VARCHAR AS p_val,
-        CASE WHEN intercept_p_value < 0.001 THEN '***'
-             WHEN intercept_p_value < 0.01 THEN '**'
-             WHEN intercept_p_value < 0.05 THEN '*' ELSE '' END AS sig
-    FROM fit
-    UNION ALL
-    SELECT
         'x1' AS variable,
-        ROUND(coefficients[1], 4)::VARCHAR,
-        ROUND(coefficient_std_errors[1], 4)::VARCHAR,
-        ROUND(coefficient_t_values[1], 4)::VARCHAR,
-        ROUND(coefficient_p_values[1], 6)::VARCHAR,
-        CASE WHEN coefficient_p_values[1] < 0.001 THEN '***'
-             WHEN coefficient_p_values[1] < 0.01 THEN '**'
-             WHEN coefficient_p_values[1] < 0.05 THEN '*' ELSE '' END
+        ROUND(result.coefficients[1], 4) AS estimate,
+        ROUND(result.std_errors[1], 4) AS std_error,
+        ROUND(result.t_values[1], 4) AS t_value,
+        ROUND(result.p_values[1], 6) AS p_value,
+        CASE WHEN result.p_values[1] < 0.001 THEN '***'
+             WHEN result.p_values[1] < 0.01 THEN '**'
+             WHEN result.p_values[1] < 0.05 THEN '*' ELSE '' END AS sig
     FROM fit
     UNION ALL
     SELECT
         'x2' AS variable,
-        ROUND(coefficients[2], 4)::VARCHAR,
-        ROUND(coefficient_std_errors[2], 4)::VARCHAR,
-        ROUND(coefficient_t_values[2], 4)::VARCHAR,
-        ROUND(coefficient_p_values[2], 6)::VARCHAR,
-        CASE WHEN coefficient_p_values[2] < 0.001 THEN '***'
-             WHEN coefficient_p_values[2] < 0.01 THEN '**'
-             WHEN coefficient_p_values[2] < 0.05 THEN '*' ELSE '' END
+        ROUND(result.coefficients[2], 4),
+        ROUND(result.std_errors[2], 4),
+        ROUND(result.t_values[2], 4),
+        ROUND(result.p_values[2], 6),
+        CASE WHEN result.p_values[2] < 0.001 THEN '***'
+             WHEN result.p_values[2] < 0.01 THEN '**'
+             WHEN result.p_values[2] < 0.05 THEN '*' ELSE '' END
     FROM fit
-) summary
-UNION ALL
-SELECT '--- Model Statistics ---' AS section
-UNION ALL
-SELECT 'R-squared: ' || ROUND(r2, 4)::VARCHAR FROM fit
-UNION ALL
-SELECT 'Adj. R-squared: ' || ROUND(adj_r2, 4)::VARCHAR FROM fit
-UNION ALL
-SELECT 'F-statistic: ' || ROUND(f_statistic, 4)::VARCHAR || ' (p = ' || ROUND(f_statistic_pvalue, 6)::VARCHAR || ')' FROM fit
-UNION ALL
-SELECT 'Observations: ' || n_obs::VARCHAR FROM fit;
+);
 
 -- ============================================================================
 -- Example 10: Checking if Zero is in Confidence Interval
@@ -395,33 +338,36 @@ SELECT 'Observations: ' || n_obs::VARCHAR FROM fit;
 SELECT '=== Example 10: Zero in CI Check ===' AS section;
 
 WITH fit AS (
-    SELECT * FROM ols_fit(
-        (SELECT LIST(y ORDER BY id) FROM inference_data),
-        (SELECT LIST([x1, x2] ORDER BY id) FROM inference_data),
-        {'intercept': true, 'full_output': true, 'confidence_level': 0.95}
-    )
+    SELECT anofox_stats_ols_fit(
+        [15.0, 22.0, 31.0, 38.0, 45.0, 54.0, 61.0, 70.0]::DOUBLE[],
+        [
+            [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
+            [2.0, 3.0, 5.0, 6.0, 7.0, 9.0, 10.0, 12.0]
+        ]::DOUBLE[][],
+        {'intercept': true, 'compute_inference': true, 'confidence_level': 0.95}
+    ) AS result
 )
 SELECT
     variable,
     ROUND(estimate, 4) AS estimate,
-    ROUND(ci_lower, 4) AS ci_lower,
-    ROUND(ci_upper, 4) AS ci_upper,
+    ROUND(ci_low, 4) AS ci_lower,
+    ROUND(ci_high, 4) AS ci_upper,
     CASE
-        WHEN ci_lower > 0 THEN 'Significant positive (0 not in CI)'
-        WHEN ci_upper < 0 THEN 'Significant negative (0 not in CI)'
+        WHEN ci_low > 0 THEN 'Significant positive (0 not in CI)'
+        WHEN ci_high < 0 THEN 'Significant negative (0 not in CI)'
         ELSE 'Not significant (0 in CI)'
     END AS interpretation
 FROM (
     SELECT 'x1' AS variable,
-           coefficients[1] AS estimate,
-           coefficient_ci_lower[1] AS ci_lower,
-           coefficient_ci_upper[1] AS ci_upper
+           result.coefficients[1] AS estimate,
+           result.ci_lower[1] AS ci_low,
+           result.ci_upper[1] AS ci_high
     FROM fit
     UNION ALL
     SELECT 'x2' AS variable,
-           coefficients[2] AS estimate,
-           coefficient_ci_lower[2] AS ci_lower,
-           coefficient_ci_upper[2] AS ci_upper
+           result.coefficients[2] AS estimate,
+           result.ci_lower[2] AS ci_low,
+           result.ci_upper[2] AS ci_high
     FROM fit
 );
 

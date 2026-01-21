@@ -51,8 +51,8 @@ SELECT
     category,
     ROUND(result.intercept, 2) AS intercept,
     ROUND(result.coefficients[1], 2) AS price_effect,
-    ROUND(result.r2, 4) AS r_squared,
-    result.n_obs AS observations
+    ROUND(result.r_squared, 4) AS r_squared,
+    result.n_observations AS observations
 FROM (
     SELECT
         category,
@@ -94,14 +94,14 @@ SELECT '=== Example 3: Model Comparison Across Groups ===' AS section;
 
 SELECT
     category,
-    ROUND(result.r2, 4) AS r_squared,
-    ROUND(result.adj_r2, 4) AS adj_r_squared,
-    ROUND(result.mse, 2) AS mse,
+    ROUND(result.r_squared, 4) AS r_squared,
+    ROUND(result.adj_r_squared, 4) AS adj_r_squared,
+    ROUND(result.residual_std_error * result.residual_std_error, 2) AS mse,
     ROUND(result.residual_std_error, 2) AS rmse,
     CASE
-        WHEN result.r2 > 0.95 THEN 'Excellent fit'
-        WHEN result.r2 > 0.80 THEN 'Good fit'
-        WHEN result.r2 > 0.60 THEN 'Moderate fit'
+        WHEN result.r_squared > 0.95 THEN 'Excellent fit'
+        WHEN result.r_squared > 0.80 THEN 'Good fit'
+        WHEN result.r_squared > 0.60 THEN 'Moderate fit'
         ELSE 'Poor fit'
     END AS model_quality
 FROM (
@@ -111,7 +111,7 @@ FROM (
     FROM sales_data
     GROUP BY category
 ) sub
-ORDER BY result.r2 DESC;
+ORDER BY result.r_squared DESC;
 
 -- ============================================================================
 -- Example 4: Full Inference Per Group
@@ -122,19 +122,19 @@ SELECT '=== Example 4: Full Inference Per Group ===' AS section;
 SELECT
     category,
     ROUND(result.coefficients[1], 4) AS price_coef,
-    ROUND(result.coefficient_std_errors[1], 4) AS std_error,
-    ROUND(result.coefficient_t_values[1], 4) AS t_statistic,
-    ROUND(result.coefficient_p_values[1], 6) AS p_value,
+    ROUND(result.std_errors[1], 4) AS std_error,
+    ROUND(result.t_values[1], 4) AS t_statistic,
+    ROUND(result.p_values[1], 6) AS p_value,
     CASE
-        WHEN result.coefficient_p_values[1] < 0.001 THEN '***'
-        WHEN result.coefficient_p_values[1] < 0.01 THEN '**'
-        WHEN result.coefficient_p_values[1] < 0.05 THEN '*'
+        WHEN result.p_values[1] < 0.001 THEN '***'
+        WHEN result.p_values[1] < 0.01 THEN '**'
+        WHEN result.p_values[1] < 0.05 THEN '*'
         ELSE 'ns'
     END AS significance
 FROM (
     SELECT
         category,
-        ols_fit_agg(sales, [price], {'intercept': true, 'full_output': true}) AS result
+        ols_fit_agg(sales, [price], {'intercept': true, 'compute_inference': true}) AS result
     FROM sales_data
     GROUP BY category
 ) sub
@@ -169,7 +169,7 @@ SELECT
     ROUND(result.intercept, 2) AS intercept,
     ROUND(result.coefficients[1], 2) AS price_effect,
     ROUND(result.coefficients[2], 2) AS ad_effect,
-    ROUND(result.r2, 4) AS r_squared
+    ROUND(result.r_squared, 4) AS r_squared
 FROM (
     SELECT
         category,
@@ -214,8 +214,8 @@ SELECT
     region,
     category,
     ROUND(result.coefficients[1], 2) AS price_effect,
-    ROUND(result.r2, 4) AS r_squared,
-    result.n_obs AS n
+    ROUND(result.r_squared, 4) AS r_squared,
+    result.n_observations AS n
 FROM (
     SELECT
         region,
@@ -269,9 +269,9 @@ SELECT '=== Example 8: Rank Groups by Performance ===' AS section;
 
 SELECT
     category,
-    ROUND(result.r2, 4) AS r_squared,
+    ROUND(result.r_squared, 4) AS r_squared,
     ROUND(result.residual_std_error, 2) AS rmse,
-    RANK() OVER (ORDER BY result.r2 DESC) AS r2_rank,
+    RANK() OVER (ORDER BY result.r_squared DESC) AS r2_rank,
     RANK() OVER (ORDER BY result.residual_std_error ASC) AS rmse_rank
 FROM (
     SELECT
@@ -291,7 +291,7 @@ SELECT '=== Example 9: Filter by Model Quality ===' AS section;
 -- Only show groups where R² > 0.90
 SELECT
     category,
-    ROUND(result.r2, 4) AS r_squared,
+    ROUND(result.r_squared, 4) AS r_squared,
     ROUND(result.coefficients[1], 2) AS price_effect
 FROM (
     SELECT
@@ -300,8 +300,8 @@ FROM (
     FROM sales_data
     GROUP BY category
 ) sub
-WHERE result.r2 > 0.90
-ORDER BY result.r2 DESC;
+WHERE result.r_squared > 0.90
+ORDER BY result.r_squared DESC;
 
 -- Cleanup
 DROP TABLE IF EXISTS sales_data;

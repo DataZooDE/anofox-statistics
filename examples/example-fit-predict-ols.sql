@@ -502,13 +502,13 @@ FROM (
 SELECT
     'Statistical Significance' as description,
     ROUND((fit).coefficients[1], 4) as beta_x1,
-    ROUND((fit).coefficient_std_errors[1], 4) as se_x1,
-    ROUND((fit).coefficients[1] / (fit).coefficient_std_errors[1], 4) as t_stat_x1,
+    ROUND((fit).std_errors[1], 4) as se_x1,
+    ROUND((fit).coefficients[1] / (fit).std_errors[1], 4) as t_stat_x1,
     ROUND((fit).coefficients[2], 4) as beta_x2,
-    ROUND((fit).coefficient_std_errors[2], 4) as se_x2,
-    ROUND((fit).coefficients[2] / (fit).coefficient_std_errors[2], 4) as t_stat_x2
+    ROUND((fit).std_errors[2], 4) as se_x2,
+    ROUND((fit).coefficients[2] / (fit).std_errors[2], 4) as t_stat_x2
 FROM (
-    SELECT anofox_stats_ols_fit_agg(y, [x1, x2], MAP{'intercept': 1}) as fit
+    SELECT ols_fit_agg(y, [x1, x2], {'intercept': true, 'compute_inference': true}) as fit
     FROM coef_demo
 );
 

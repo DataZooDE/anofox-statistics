@@ -63,17 +63,17 @@ FROM (
 
 SELECT '=== Example 3: Full Inference Output ===' AS section;
 
+-- Note: std_errors, t_values, p_values arrays include intercept as first element
 SELECT
     result.coefficients,
     result.intercept,
-    result.coefficient_std_errors,
-    result.intercept_std_error,
-    result.coefficient_t_values,
-    result.intercept_t_value,
-    result.coefficient_p_values,
-    result.intercept_p_value,
+    result.std_errors,
+    result.t_values,
+    result.p_values,
+    result.ci_lower,
+    result.ci_upper,
     result.f_statistic,
-    result.f_statistic_pvalue
+    result.f_pvalue
 FROM (
     SELECT anofox_stats_ols_fit(
         [10.0, 15.0, 20.0, 25.0, 30.0, 35.0, 40.0, 45.0, 50.0, 55.0]::DOUBLE[],
@@ -191,11 +191,12 @@ FROM arrays, LATERAL (SELECT anofox_stats_ols_fit(y_arr, x_arr, {'intercept': tr
 
 SELECT '=== Example 8: Different Confidence Levels ===' AS section;
 
+-- ci_lower/ci_upper arrays contain coefficient CIs (not intercept)
 SELECT
     '90%' AS confidence_level,
-    ROUND(result.coefficient_ci_lower[1], 4) AS ci_lower,
-    ROUND(result.coefficient_ci_upper[1], 4) AS ci_upper,
-    ROUND(result.coefficient_ci_upper[1] - result.coefficient_ci_lower[1], 4) AS ci_width
+    ROUND(result.ci_lower[1], 4) AS ci_lower,
+    ROUND(result.ci_upper[1], 4) AS ci_upper,
+    ROUND(result.ci_upper[1] - result.ci_lower[1], 4) AS ci_width
 FROM (
     SELECT anofox_stats_ols_fit(
         [10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0]::DOUBLE[],
@@ -206,9 +207,9 @@ FROM (
 UNION ALL
 SELECT
     '95%' AS confidence_level,
-    ROUND(result.coefficient_ci_lower[1], 4) AS ci_lower,
-    ROUND(result.coefficient_ci_upper[1], 4) AS ci_upper,
-    ROUND(result.coefficient_ci_upper[1] - result.coefficient_ci_lower[1], 4) AS ci_width
+    ROUND(result.ci_lower[1], 4) AS ci_lower,
+    ROUND(result.ci_upper[1], 4) AS ci_upper,
+    ROUND(result.ci_upper[1] - result.ci_lower[1], 4) AS ci_width
 FROM (
     SELECT anofox_stats_ols_fit(
         [10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0]::DOUBLE[],
@@ -219,9 +220,9 @@ FROM (
 UNION ALL
 SELECT
     '99%' AS confidence_level,
-    ROUND(result.coefficient_ci_lower[1], 4) AS ci_lower,
-    ROUND(result.coefficient_ci_upper[1], 4) AS ci_upper,
-    ROUND(result.coefficient_ci_upper[1] - result.coefficient_ci_lower[1], 4) AS ci_width
+    ROUND(result.ci_lower[1], 4) AS ci_lower,
+    ROUND(result.ci_upper[1], 4) AS ci_upper,
+    ROUND(result.ci_upper[1] - result.ci_lower[1], 4) AS ci_width
 FROM (
     SELECT anofox_stats_ols_fit(
         [10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0]::DOUBLE[],

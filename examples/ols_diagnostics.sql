@@ -358,30 +358,29 @@ GROUP BY category;
 SELECT '=== Example 10: Complete Diagnostic Report ===' AS section;
 
 WITH fit AS (
-    SELECT * FROM ols_fit(
+    SELECT anofox_stats_ols_fit(
         (SELECT LIST(y ORDER BY id) FROM normal_data),
         (SELECT LIST([x] ORDER BY id) FROM normal_data),
-        {'intercept': true, 'full_output': true}
-    )
+        {'intercept': true, 'compute_inference': true}
+    ) AS result
 ),
 residuals AS (
     SELECT
-        y - (f.intercept + f.coefficients[1] * x) AS residual
-    FROM normal_data, fitted f
-    LATERAL (SELECT * FROM fit) f
+        y - ((SELECT result.intercept FROM fit) + (SELECT result.coefficients[1] FROM fit) * x) AS residual
+    FROM normal_data
 ),
 jb AS (
     SELECT jarque_bera((SELECT LIST(residual) FROM residuals)) AS result
 )
 SELECT '=== MODEL FIT ===' AS report
 UNION ALL
-SELECT 'R-squared: ' || ROUND((SELECT r2 FROM fit), 4)::VARCHAR
+SELECT 'R-squared: ' || ROUND((SELECT result.r_squared FROM fit), 4)::VARCHAR
 UNION ALL
-SELECT 'Adj R-squared: ' || ROUND((SELECT adj_r2 FROM fit), 4)::VARCHAR
+SELECT 'Adj R-squared: ' || ROUND((SELECT result.adj_r_squared FROM fit), 4)::VARCHAR
 UNION ALL
-SELECT 'Residual Std Error: ' || ROUND((SELECT residual_std_error FROM fit), 4)::VARCHAR
+SELECT 'Residual Std Error: ' || ROUND((SELECT result.residual_std_error FROM fit), 4)::VARCHAR
 UNION ALL
-SELECT 'F-statistic: ' || ROUND((SELECT f_statistic FROM fit), 4)::VARCHAR || ' (p=' || ROUND((SELECT f_statistic_pvalue FROM fit), 6)::VARCHAR || ')'
+SELECT 'F-statistic: ' || ROUND((SELECT result.f_statistic FROM fit), 4)::VARCHAR || ' (p=' || ROUND((SELECT result.f_pvalue FROM fit), 6)::VARCHAR || ')'
 UNION ALL
 SELECT ''
 UNION ALL

@@ -158,7 +158,7 @@ WITH normal_pred AS (
     SELECT
         group_id,
         (pred).yhat AS yhat_normal,
-        (pred).is_training
+        (pred).is_training AS is_training
     FROM (
         SELECT group_id, UNNEST(alm_fit_predict_agg(y, [x], {'distribution': 'normal'})) AS pred
         FROM robust_forecast GROUP BY group_id
@@ -168,7 +168,7 @@ laplace_pred AS (
     SELECT
         group_id,
         (pred).yhat AS yhat_laplace,
-        (pred).is_training
+        (pred).is_training AS is_training
     FROM (
         SELECT group_id, UNNEST(alm_fit_predict_agg(y, [x], {'distribution': 'laplace'})) AS pred
         FROM robust_forecast GROUP BY group_id
