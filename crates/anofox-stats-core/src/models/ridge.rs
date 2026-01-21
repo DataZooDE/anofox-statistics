@@ -186,6 +186,14 @@ pub fn fit_ridge(y: &[f64], x: &[Vec<f64>], options: &RidgeOptions) -> StatsResu
         let ci_lower = reconstruct(result.conf_interval_lower.as_ref());
         let ci_upper = reconstruct(result.conf_interval_upper.as_ref());
 
+        // Extract intercept confidence interval tuple
+        let (intercept_ci_lower, intercept_ci_upper) =
+            if let Some((lo, hi)) = result.intercept_conf_interval {
+                (Some(lo), Some(hi))
+            } else {
+                (None, None)
+            };
+
         Some(FitResultInference {
             std_errors,
             t_values,
@@ -195,6 +203,11 @@ pub fn fit_ridge(y: &[f64], x: &[Vec<f64>], options: &RidgeOptions) -> StatsResu
             confidence_level: options.confidence_level,
             f_statistic: Some(result.f_statistic),
             f_pvalue: Some(result.f_pvalue),
+            intercept_std_error: result.intercept_std_error,
+            intercept_t_value: result.intercept_t_statistic,
+            intercept_p_value: result.intercept_p_value,
+            intercept_ci_lower,
+            intercept_ci_upper,
         })
     } else {
         None

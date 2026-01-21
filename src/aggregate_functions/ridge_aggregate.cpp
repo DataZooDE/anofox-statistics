@@ -85,6 +85,11 @@ static LogicalType GetRidgeAggResultType(bool compute_inference) {
         children.push_back(make_pair("ci_upper", LogicalType::LIST(LogicalType::DOUBLE)));
         children.push_back(make_pair("f_statistic", LogicalType::DOUBLE));
         children.push_back(make_pair("f_pvalue", LogicalType::DOUBLE));
+        children.push_back(make_pair("intercept_std_error", LogicalType::DOUBLE));
+        children.push_back(make_pair("intercept_t_value", LogicalType::DOUBLE));
+        children.push_back(make_pair("intercept_p_value", LogicalType::DOUBLE));
+        children.push_back(make_pair("intercept_ci_lower", LogicalType::DOUBLE));
+        children.push_back(make_pair("intercept_ci_upper", LogicalType::DOUBLE));
     }
 
     return LogicalType::STRUCT(std::move(children));
@@ -318,6 +323,11 @@ static void RidgeAggFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
 
             FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = inference_result.f_statistic;
             FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = inference_result.f_pvalue;
+            FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = inference_result.intercept_std_error;
+            FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = inference_result.intercept_t_value;
+            FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = inference_result.intercept_p_value;
+            FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = inference_result.intercept_ci_lower;
+            FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = inference_result.intercept_ci_upper;
 
             anofox_free_result_inference(&inference_result);
         }

@@ -5,7 +5,9 @@
 -- Topics: Coefficient significance, confidence intervals, model significance
 --
 -- NOTE: Inference arrays (std_errors, t_values, p_values, ci_lower, ci_upper)
--- contain values for coefficients only, NOT for intercept.
+-- contain values for coefficients only. Intercept inference is returned as
+-- separate scalar fields: intercept_std_error, intercept_t_value, intercept_p_value,
+-- intercept_ci_lower, intercept_ci_upper.
 --
 -- Run: ./build/release/duckdb < examples/ols_inference.sql
 
@@ -59,10 +61,38 @@ FROM (
 );
 
 -- ============================================================================
--- Example 2: Confidence Intervals for Coefficients
+-- Example 2: Intercept Inference Statistics
+-- ============================================================================
+-- NEW: The intercept now has its own inference statistics
+
+SELECT '=== Example 2: Intercept Inference ===' AS section;
+
+SELECT
+    ROUND(result.intercept, 4) AS intercept,
+    ROUND(result.intercept_std_error, 4) AS intercept_se,
+    ROUND(result.intercept_t_value, 4) AS intercept_t,
+    ROUND(result.intercept_p_value, 6) AS intercept_p,
+    ROUND(result.intercept_ci_lower, 4) AS intercept_ci_lower,
+    ROUND(result.intercept_ci_upper, 4) AS intercept_ci_upper,
+    CASE
+        WHEN result.intercept_p_value < 0.001 THEN '***'
+        WHEN result.intercept_p_value < 0.01 THEN '**'
+        WHEN result.intercept_p_value < 0.05 THEN '*'
+        ELSE ''
+    END AS significance
+FROM (
+    SELECT anofox_stats_ols_fit(
+        [10.0, 15.0, 20.0, 25.0, 30.0, 35.0, 40.0, 45.0, 50.0, 55.0]::DOUBLE[],
+        [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]]::DOUBLE[][],
+        {'intercept': true, 'compute_inference': true}
+    ) AS result
+);
+
+-- ============================================================================
+-- Example 3: Confidence Intervals for Coefficients
 -- ============================================================================
 
-SELECT '=== Example 2: Confidence Intervals ===' AS section;
+SELECT '=== Example 3: Confidence Intervals ===' AS section;
 
 -- ci_lower/ci_upper arrays contain CIs for coefficients only
 SELECT
@@ -80,10 +110,10 @@ FROM (
 );
 
 -- ============================================================================
--- Example 3: Significance Stars (p-value interpretation)
+-- Example 4: Significance Stars (p-value interpretation)
 -- ============================================================================
 
-SELECT '=== Example 3: Significance Stars ===' AS section;
+SELECT '=== Example 4: Significance Stars ===' AS section;
 
 WITH fit AS (
     SELECT anofox_stats_ols_fit(
@@ -106,10 +136,10 @@ SELECT
 FROM fit;
 
 -- ============================================================================
--- Example 4: F-Statistic (Overall Model Significance)
+-- Example 5: F-Statistic (Overall Model Significance)
 -- ============================================================================
 
-SELECT '=== Example 4: F-Statistic ===' AS section;
+SELECT '=== Example 5: F-Statistic ===' AS section;
 
 SELECT
     ROUND(result.f_statistic, 4) AS f_statistic,
@@ -129,10 +159,10 @@ FROM (
 );
 
 -- ============================================================================
--- Example 5: Comparing Different Confidence Levels
+-- Example 6: Comparing Different Confidence Levels
 -- ============================================================================
 
-SELECT '=== Example 5: Confidence Level Comparison ===' AS section;
+SELECT '=== Example 6: Confidence Level Comparison ===' AS section;
 
 -- 90% CI
 SELECT
@@ -177,10 +207,10 @@ FROM (
 );
 
 -- ============================================================================
--- Example 6: Per-Group Inference with Aggregate Function
+-- Example 7: Per-Group Inference with Aggregate Function
 -- ============================================================================
 
-SELECT '=== Example 6: Per-Group Inference ===' AS section;
+SELECT '=== Example 7: Per-Group Inference ===' AS section;
 
 CREATE OR REPLACE TABLE grouped_inference AS
 SELECT
@@ -218,10 +248,10 @@ FROM (
 ORDER BY category;
 
 -- ============================================================================
--- Example 7: Testing Hypothesis H0: beta = 0
+-- Example 8: Testing Hypothesis H0: beta = 0
 -- ============================================================================
 
-SELECT '=== Example 7: Hypothesis Testing ===' AS section;
+SELECT '=== Example 8: Hypothesis Testing ===' AS section;
 
 WITH fit AS (
     SELECT anofox_stats_ols_fit(
@@ -260,10 +290,10 @@ FROM (
 );
 
 -- ============================================================================
--- Example 8: Model Summary Statistics
+-- Example 9: Model Summary Statistics
 -- ============================================================================
 
-SELECT '=== Example 8: Model Summary Statistics ===' AS section;
+SELECT '=== Example 9: Model Summary Statistics ===' AS section;
 
 SELECT
     ROUND(result.r_squared, 4) AS r_squared,
@@ -285,10 +315,10 @@ FROM (
 );
 
 -- ============================================================================
--- Example 9: Coefficient Summary Table
+-- Example 10: Coefficient Summary Table
 -- ============================================================================
 
-SELECT '=== Example 9: Coefficient Summary Table ===' AS section;
+SELECT '=== Example 10: Coefficient Summary Table ===' AS section;
 
 WITH fit AS (
     SELECT anofox_stats_ols_fit(
@@ -332,10 +362,10 @@ FROM (
 );
 
 -- ============================================================================
--- Example 10: Checking if Zero is in Confidence Interval
+-- Example 11: Checking if Zero is in Confidence Interval
 -- ============================================================================
 
-SELECT '=== Example 10: Zero in CI Check ===' AS section;
+SELECT '=== Example 11: Zero in CI Check ===' AS section;
 
 WITH fit AS (
     SELECT anofox_stats_ols_fit(

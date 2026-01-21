@@ -94,6 +94,16 @@ typedef struct {
     double f_statistic;
     /** F p-value (NaN if not computed) */
     double f_pvalue;
+    /** Standard error of intercept (NaN if not computed or no intercept) */
+    double intercept_std_error;
+    /** t-value for intercept (NaN if not computed or no intercept) */
+    double intercept_t_value;
+    /** p-value for intercept (NaN if not computed or no intercept) */
+    double intercept_p_value;
+    /** Lower bound of intercept confidence interval (NaN if not computed) */
+    double intercept_ci_lower;
+    /** Upper bound of intercept confidence interval (NaN if not computed) */
+    double intercept_ci_upper;
 } AnofoxFitResultInference;
 
 /**

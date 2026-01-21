@@ -36,6 +36,16 @@ pub struct FitResultInference {
     pub f_statistic: Option<f64>,
     /// p-value for F-statistic
     pub f_pvalue: Option<f64>,
+    /// Standard error of intercept
+    pub intercept_std_error: Option<f64>,
+    /// t-statistic for intercept
+    pub intercept_t_value: Option<f64>,
+    /// p-value for intercept
+    pub intercept_p_value: Option<f64>,
+    /// Lower bound of intercept confidence interval
+    pub intercept_ci_lower: Option<f64>,
+    /// Upper bound of intercept confidence interval
+    pub intercept_ci_upper: Option<f64>,
 }
 
 /// Diagnostic results

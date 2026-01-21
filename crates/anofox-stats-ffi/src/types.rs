@@ -146,6 +146,16 @@ pub struct FitResultInference {
     pub f_statistic: f64,
     /// F p-value (NaN if not computed)
     pub f_pvalue: f64,
+    /// Standard error of intercept (NaN if not computed or no intercept)
+    pub intercept_std_error: f64,
+    /// t-value for intercept (NaN if not computed or no intercept)
+    pub intercept_t_value: f64,
+    /// p-value for intercept (NaN if not computed or no intercept)
+    pub intercept_p_value: f64,
+    /// Lower bound of intercept confidence interval (NaN if not computed)
+    pub intercept_ci_lower: f64,
+    /// Upper bound of intercept confidence interval (NaN if not computed)
+    pub intercept_ci_upper: f64,
 }
 
 impl Default for FitResultInference {
@@ -160,6 +170,11 @@ impl Default for FitResultInference {
             confidence_level: 0.95,
             f_statistic: f64::NAN,
             f_pvalue: f64::NAN,
+            intercept_std_error: f64::NAN,
+            intercept_t_value: f64::NAN,
+            intercept_p_value: f64::NAN,
+            intercept_ci_lower: f64::NAN,
+            intercept_ci_upper: f64::NAN,
         }
     }
 }

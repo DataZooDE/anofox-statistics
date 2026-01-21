@@ -205,6 +205,11 @@ pub unsafe extern "C" fn anofox_ols_fit(
                         confidence_level: inf.confidence_level,
                         f_statistic: inf.f_statistic.unwrap_or(f64::NAN),
                         f_pvalue: inf.f_pvalue.unwrap_or(f64::NAN),
+                        intercept_std_error: inf.intercept_std_error.unwrap_or(f64::NAN),
+                        intercept_t_value: inf.intercept_t_value.unwrap_or(f64::NAN),
+                        intercept_p_value: inf.intercept_p_value.unwrap_or(f64::NAN),
+                        intercept_ci_lower: inf.intercept_ci_lower.unwrap_or(f64::NAN),
+                        intercept_ci_upper: inf.intercept_ci_upper.unwrap_or(f64::NAN),
                     };
                 } else {
                     (*out_inference) = FitResultInference::default();
@@ -434,6 +439,11 @@ pub unsafe extern "C" fn anofox_ridge_fit(
                         confidence_level: inf.confidence_level,
                         f_statistic: inf.f_statistic.unwrap_or(f64::NAN),
                         f_pvalue: inf.f_pvalue.unwrap_or(f64::NAN),
+                        intercept_std_error: inf.intercept_std_error.unwrap_or(f64::NAN),
+                        intercept_t_value: inf.intercept_t_value.unwrap_or(f64::NAN),
+                        intercept_p_value: inf.intercept_p_value.unwrap_or(f64::NAN),
+                        intercept_ci_lower: inf.intercept_ci_lower.unwrap_or(f64::NAN),
+                        intercept_ci_upper: inf.intercept_ci_upper.unwrap_or(f64::NAN),
                     };
                 } else {
                     (*out_inference) = FitResultInference::default();
@@ -731,6 +741,11 @@ pub unsafe extern "C" fn anofox_wls_fit(
                         confidence_level: inf.confidence_level,
                         f_statistic: inf.f_statistic.unwrap_or(f64::NAN),
                         f_pvalue: inf.f_pvalue.unwrap_or(f64::NAN),
+                        intercept_std_error: inf.intercept_std_error.unwrap_or(f64::NAN),
+                        intercept_t_value: inf.intercept_t_value.unwrap_or(f64::NAN),
+                        intercept_p_value: inf.intercept_p_value.unwrap_or(f64::NAN),
+                        intercept_ci_lower: inf.intercept_ci_lower.unwrap_or(f64::NAN),
+                        intercept_ci_upper: inf.intercept_ci_upper.unwrap_or(f64::NAN),
                     };
                 } else {
                     (*out_inference) = FitResultInference::default();
@@ -1673,6 +1688,11 @@ pub unsafe extern "C" fn anofox_poisson_fit(
                         confidence_level: inf.confidence_level,
                         f_statistic: f64::NAN,
                         f_pvalue: f64::NAN,
+                        intercept_std_error: f64::NAN,
+                        intercept_t_value: f64::NAN,
+                        intercept_p_value: f64::NAN,
+                        intercept_ci_lower: f64::NAN,
+                        intercept_ci_upper: f64::NAN,
                     };
                 } else {
                     (*out_inference) = FitResultInference::default();
@@ -1815,6 +1835,11 @@ pub unsafe extern "C" fn anofox_binomial_fit(
                         confidence_level: inf.confidence_level,
                         f_statistic: f64::NAN,
                         f_pvalue: f64::NAN,
+                        intercept_std_error: f64::NAN,
+                        intercept_t_value: f64::NAN,
+                        intercept_p_value: f64::NAN,
+                        intercept_ci_lower: f64::NAN,
+                        intercept_ci_upper: f64::NAN,
                     };
                 } else {
                     (*out_inference) = FitResultInference::default();
@@ -1954,6 +1979,11 @@ pub unsafe extern "C" fn anofox_negbinomial_fit(
                         confidence_level: inf.confidence_level,
                         f_statistic: f64::NAN,
                         f_pvalue: f64::NAN,
+                        intercept_std_error: f64::NAN,
+                        intercept_t_value: f64::NAN,
+                        intercept_p_value: f64::NAN,
+                        intercept_ci_lower: f64::NAN,
+                        intercept_ci_upper: f64::NAN,
                     };
                 } else {
                     (*out_inference) = FitResultInference::default();
@@ -2090,6 +2120,11 @@ pub unsafe extern "C" fn anofox_tweedie_fit(
                         confidence_level: inf.confidence_level,
                         f_statistic: f64::NAN,
                         f_pvalue: f64::NAN,
+                        intercept_std_error: f64::NAN,
+                        intercept_t_value: f64::NAN,
+                        intercept_p_value: f64::NAN,
+                        intercept_ci_lower: f64::NAN,
+                        intercept_ci_upper: f64::NAN,
                     };
                 } else {
                     (*out_inference) = FitResultInference::default();
@@ -2290,6 +2325,11 @@ pub unsafe extern "C" fn anofox_alm_fit(
                         confidence_level: opts.confidence_level,
                         f_statistic: f64::NAN,
                         f_pvalue: f64::NAN,
+                        intercept_std_error: f64::NAN,
+                        intercept_t_value: f64::NAN,
+                        intercept_p_value: f64::NAN,
+                        intercept_ci_lower: f64::NAN,
+                        intercept_ci_upper: f64::NAN,
                     };
                 } else {
                     (*out_inference) = FitResultInference::default();
