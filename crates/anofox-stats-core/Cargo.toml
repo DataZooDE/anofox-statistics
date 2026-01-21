@@ -13,5 +13,9 @@ faer.workspace = true
 thiserror.workspace = true
 rand = "0.8"
 
+# Enable js feature for getrandom on WASM targets
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.2", features = ["js"] }
+
 [dev-dependencies]
 approx = "0.5"
