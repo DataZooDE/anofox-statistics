@@ -3,7 +3,7 @@
 A statistical analysis extension for DuckDB, providing regression analysis, diagnostics, and inference capabilities directly within your database.
 
 [![License: BSL 1.1](https://img.shields.io/badge/License-BSL%201.1-blue.svg)](LICENSE)
-[![DuckDB Version](https://img.shields.io/badge/DuckDB-v1.4.3-brightgreen.svg)](https://duckdb.org)
+[![DuckDB Version](https://img.shields.io/badge/DuckDB-v1.4.4-brightgreen.svg)](https://duckdb.org)
 
 > [!WARNING]
 > **BREAKING CHANGE**: Function names have changed from `anofox_statistics_*` to `anofox_stats_*` to align with the unified naming convention across Anofox extensions. Aliases without the prefix (e.g., `ols_fit`) are also available for convenience. Update your code accordingly.
@@ -192,7 +192,7 @@ Guides are available in the [`guides/`](guides/) directory:
 
 ## Dependencies
 
-- **DuckDB**: v1.4.3 or higher
+- **DuckDB**: v1.4.4 or higher
 - **Rust**: Stable toolchain (for building from source)
 - **anofox-regression**: Rust regression library (via Cargo)
 - **faer**: Linear algebra library (via Cargo, no default features)
