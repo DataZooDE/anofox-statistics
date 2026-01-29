@@ -2701,6 +2701,68 @@ SELECT * FROM poisson_fit_predict_by('count_data', store_id, visitor_count, [mar
 | bls_fit_predict_by | bls_fit_predict_agg | lower_bound, upper_bound, intercept, max_iterations, tolerance |
 | alm_fit_predict_by | alm_fit_predict_agg | distribution, intercept, max_iterations, tolerance |
 | poisson_fit_predict_by | poisson_fit_predict_agg | link, intercept, max_iterations, tolerance |
+| aid_anomaly_by | aid_anomaly_agg | intermittent_threshold, outlier_method |
+
+### aid_anomaly_by
+Table macro for grouped anomaly detection using Automatic Intermittent Demand (AID) analysis.
+
+**Signature:**
+```sql
+aid_anomaly_by(
+    source VARCHAR,           -- Table name (as string)
+    group_col COLUMN,         -- Column to group by (e.g., product_id)
+    order_col COLUMN,         -- Column to order by within each group (e.g., date)
+    y_col COLUMN,             -- Numeric column to analyze for anomalies
+    [options MAP]             -- Optional configuration (default: NULL)
+) -> TABLE
+```
+
+**Options:**
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| intermittent_threshold | DOUBLE | 0.3 | Zero proportion threshold for intermittent classification |
+| outlier_method | VARCHAR | 'zscore' | Outlier detection method: 'zscore' or 'iqr' |
+
+**Returns:**
+
+| Column | Type | Description |
+|--------|------|-------------|
+| group_id | ANY | Group identifier (from group_col) |
+| order_value | ANY | Order value (from order_col, e.g., date) |
+| stockout | BOOLEAN | Unexpected zero in positive demand period |
+| new_product | BOOLEAN | Part of leading zeros pattern |
+| obsolete_product | BOOLEAN | Part of trailing zeros pattern |
+| high_outlier | BOOLEAN | Unusually high value |
+| low_outlier | BOOLEAN | Unusually low value |
+
+**Example:**
+```sql
+-- Basic usage - returns anomaly flags with group and order columns
+SELECT * FROM aid_anomaly_by('sales_data', product_id, sale_date, quantity, NULL);
+
+-- With custom options
+SELECT * FROM aid_anomaly_by('sales_data', product_id, sale_date, quantity,
+    {'intermittent_threshold': 0.5, 'outlier_method': 'iqr'});
+
+-- Filter to only stockout anomalies
+SELECT group_id, order_value AS sale_date
+FROM aid_anomaly_by('inventory', sku, period, demand, NULL)
+WHERE stockout;
+
+-- Join back to original data to get demand values
+SELECT o.*, a.stockout, a.high_outlier
+FROM sales_data o
+JOIN aid_anomaly_by('sales_data', product_id, sale_date, quantity, NULL) a
+  ON o.product_id = a.group_id AND o.sale_date = a.order_value;
+
+-- Aggregate anomaly counts per product
+SELECT group_id,
+       SUM(stockout::INT) AS stockout_count,
+       SUM(high_outlier::INT) AS high_outlier_count
+FROM aid_anomaly_by('sales_data', product_id, sale_date, quantity, NULL)
+GROUP BY group_id;
+```
 
 ---
 
