@@ -49,9 +49,9 @@ SELECT COUNT(*) FROM aid_by('grouped_demand', product_id, demand);
 ----
 2
 
-# TEST 3: Returns correct groups
+# TEST 3: Returns correct groups (column name preserved from input)
 query I
-SELECT COUNT(DISTINCT group_id) FROM aid_by('grouped_demand', product_id, demand);
+SELECT COUNT(DISTINCT product_id) FROM aid_by('grouped_demand', product_id, demand);
 ----
 2
 
@@ -59,10 +59,10 @@ SELECT COUNT(DISTINCT group_id) FROM aid_by('grouped_demand', product_id, demand
 # COLUMN STRUCTURE TESTS (16 columns)
 # =============================================================================
 
-# TEST 4: All columns exist and are accessible
+# TEST 4: All columns exist and are accessible (first column preserves input name)
 query IIIIIIIIIIIIIIII
 SELECT
-    group_id IS NOT NULL AS has_group_id,
+    product_id IS NOT NULL AS has_product_id,
     demand_type IS NOT NULL AS has_demand_type,
     is_intermittent IS NOT NULL AS has_is_intermittent,
     distribution IS NOT NULL AS has_distribution,
@@ -101,8 +101,8 @@ true
 
 # TEST 7: Grouped data correctly classifies each product
 query TT
-SELECT group_id, is_intermittent FROM aid_by('grouped_demand', product_id, demand)
-ORDER BY group_id;
+SELECT product_id, is_intermittent FROM aid_by('grouped_demand', product_id, demand)
+ORDER BY product_id;
 ----
 intermittent	true
 smooth	false
@@ -217,7 +217,7 @@ SELECT COUNT(*) FROM aid_by('single_obs', product_id, demand);
 
 # TEST 21: Single observation count is 1
 query II
-SELECT group_id, n_observations FROM aid_by('single_obs', product_id, demand) ORDER BY group_id;
+SELECT product_id, n_observations FROM aid_by('single_obs', product_id, demand) ORDER BY product_id;
 ----
 A	1
 B	1
@@ -226,9 +226,9 @@ B	1
 # ORDERING AND DETERMINISM TESTS
 # =============================================================================
 
-# TEST 22: Results are ordered by group_id
+# TEST 22: Results are ordered by group column (preserves input column name)
 query T
-SELECT group_id FROM aid_by('grouped_demand', product_id, demand);
+SELECT product_id FROM aid_by('grouped_demand', product_id, demand);
 ----
 intermittent
 smooth
