@@ -6,11 +6,111 @@ AID provides demand pattern classification and anomaly detection for time series
 
 | Function | Type | Description |
 |----------|------|-------------|
+| `aid_by` | Table Macro | Grouped demand classification with wide-format output |
+| `aid_anomaly_by` | Table Macro | Grouped anomaly detection with long-format output |
 | `aid_agg` | Aggregate | Classify demand patterns and detect anomalies |
 | `aid_anomaly_agg` | Aggregate | Per-observation anomaly flags |
-| `aid_anomaly_by` | Table Macro | Grouped anomaly detection with long-format output |
 
-## aid_agg / anofox_stats_aid_agg
+## Table Macros (Recommended Entry Point)
+
+Table macros are the easiest way to use AID functions. They handle the GROUP BY, column extraction, and result formatting automatically.
+
+### aid_by
+
+Classifies demand patterns for each group, returning one row per group with flat columns.
+
+**Signature:**
+```sql
+aid_by(
+    source VARCHAR,           -- Table name (as string)
+    group_col COLUMN,         -- Column to group by
+    y_col COLUMN,             -- Demand/value column
+    [options MAP]             -- Optional configuration (default: NULL)
+) -> TABLE
+```
+
+**Options:**
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| intermittent_threshold | DOUBLE | 0.3 | Zero proportion cutoff for intermittent classification |
+| outlier_method | VARCHAR | 'zscore' | Outlier detection: 'zscore' (mean±3σ) or 'iqr' (1.5×IQR) |
+
+**Returns:**
+| Column | Type | Description |
+|--------|------|-------------|
+| group_id | ANY | Group identifier (same type as group_col) |
+| demand_type | VARCHAR | 'regular' or 'intermittent' |
+| is_intermittent | BOOLEAN | True if zero_proportion >= threshold |
+| distribution | VARCHAR | Best-fit distribution name |
+| mean | DOUBLE | Mean of values |
+| variance | DOUBLE | Variance of values |
+| zero_proportion | DOUBLE | Proportion of zero values (0.0 to 1.0) |
+| n_observations | BIGINT | Number of observations |
+| has_stockouts | BOOLEAN | True if stockouts detected |
+| is_new_product | BOOLEAN | True if new product pattern (leading zeros) |
+| is_obsolete_product | BOOLEAN | True if obsolete pattern (trailing zeros) |
+| stockout_count | BIGINT | Number of stockout observations |
+| new_product_count | BIGINT | Number of leading zero observations |
+| obsolete_product_count | BIGINT | Number of trailing zero observations |
+| high_outlier_count | BIGINT | Number of unusually high values |
+| low_outlier_count | BIGINT | Number of unusually low values |
+
+**Example:**
+```sql
+-- Classify demand pattern for each SKU
+SELECT * FROM aid_by('sales', sku, demand);
+
+-- With custom intermittent threshold
+SELECT * FROM aid_by('sales', sku, demand, {'intermittent_threshold': 0.4});
+
+-- Find products with stockout issues
+SELECT * FROM aid_by('sales', sku, demand)
+WHERE has_stockouts
+ORDER BY stockout_count DESC;
+```
+
+### aid_anomaly_by
+
+Per-observation anomaly detection for each group, returning one row per observation.
+
+**Signature:**
+```sql
+aid_anomaly_by(
+    source VARCHAR,           -- Table name
+    group_col COLUMN,         -- Column to group by
+    order_col COLUMN,         -- Column to order by within group
+    y_col COLUMN,             -- Numeric column to analyze
+    [options MAP]             -- Optional configuration
+) -> TABLE
+```
+
+**Returns:**
+| Column | Type | Description |
+|--------|------|-------------|
+| group_id | ANY | Group identifier |
+| order_value | ANY | Order column value |
+| stockout | BOOLEAN | Unexpected zero in positive demand |
+| new_product | BOOLEAN | Leading zeros pattern |
+| obsolete_product | BOOLEAN | Trailing zeros pattern |
+| high_outlier | BOOLEAN | Unusually high value |
+| low_outlier | BOOLEAN | Unusually low value |
+
+**Example:**
+```sql
+-- Get anomaly flags per product with dates
+SELECT * FROM aid_anomaly_by('sales_data', product_id, sale_date, quantity, NULL);
+
+-- Filter to stockouts only
+SELECT group_id, order_value AS sale_date
+FROM aid_anomaly_by('inventory', sku, period, demand, NULL)
+WHERE stockout;
+```
+
+---
+
+## Aggregate Functions
+
+### aid_agg / anofox_stats_aid_agg
 
 Classifies demand patterns as regular or intermittent, identifies best-fit distribution, and detects various anomaly patterns.
 
@@ -69,7 +169,7 @@ SELECT aid_agg(demand, {'outlier_method': 'iqr'})
 FROM inventory_data;
 ```
 
-## aid_anomaly_agg / anofox_stats_aid_anomaly_agg
+### aid_anomaly_agg / anofox_stats_aid_anomaly_agg
 
 Returns per-observation anomaly flags for demand analysis. Maintains input order.
 
@@ -131,31 +231,7 @@ WHERE result.has_stockouts
 ORDER BY result.stockout_count DESC;
 ```
 
-## aid_anomaly_by
-
-Table macro for grouped anomaly detection. See [Table Macros](../macros/table_macros.md#aid_anomaly_by) for details.
-
-**Signature:**
-```sql
-aid_anomaly_by(
-    source VARCHAR,           -- Table name
-    group_col COLUMN,         -- Column to group by
-    order_col COLUMN,         -- Column to order by within group
-    y_col COLUMN,             -- Numeric column to analyze
-    [options MAP]             -- Optional configuration
-) -> TABLE
-```
-
-**Example:**
-```sql
--- Get anomaly flags per product with dates
-SELECT * FROM aid_anomaly_by('sales_data', product_id, sale_date, quantity, NULL);
-
--- Filter to stockouts only
-SELECT group_id, order_value AS sale_date
-FROM aid_anomaly_by('inventory', sku, period, demand, NULL)
-WHERE stockout;
-```
+---
 
 ## Use Cases
 
@@ -168,4 +244,4 @@ WHERE stockout;
 ## See Also
 
 - [Diagnostics](../diagnostics/diagnostics.md) - Model diagnostics
-- [Table Macros](../macros/table_macros.md#aid_anomaly_by) - Grouped anomaly detection
+- [Table Macros](../macros/table_macros.md) - All table macros
