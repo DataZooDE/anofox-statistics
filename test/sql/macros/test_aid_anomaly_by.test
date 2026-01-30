@@ -1,0 +1,141 @@
+# name: test/sql/macros/test_aid_anomaly_by.test
+# description: Test aid_anomaly_by table macro
+# group: [macros]
+
+require anofox_statistics
+
+# Test data setup - multi-group time series with various anomaly patterns
+statement ok
+CREATE TABLE test_anomaly_data AS
+SELECT * FROM (VALUES
+    -- Group A: Normal demand with one stockout and one high outlier
+    ('A', 1, 10.0),
+    ('A', 2, 12.0),
+    ('A', 3, 0.0),    -- stockout (unexpected zero)
+    ('A', 4, 11.0),
+    ('A', 5, 100.0),  -- high outlier
+    ('A', 6, 13.0),
+    -- Group B: New product pattern (leading zeros)
+    ('B', 1, 0.0),
+    ('B', 2, 0.0),
+    ('B', 3, 0.0),
+    ('B', 4, 5.0),
+    ('B', 5, 8.0),
+    ('B', 6, 10.0),
+    -- Group C: Obsolete product pattern (trailing zeros)
+    ('C', 1, 15.0),
+    ('C', 2, 12.0),
+    ('C', 3, 8.0),
+    ('C', 4, 0.0),
+    ('C', 5, 0.0),
+    ('C', 6, 0.0)
+) AS t(group_id, period, demand);
+
+# TEST 1: Basic functionality - returns results
+query I
+SELECT COUNT(*) > 0 FROM aid_anomaly_by('test_anomaly_data', group_id, period, demand, NULL);
+----
+true
+
+# TEST 2: Returns correct number of rows (6 per group = 18 total)
+query I
+SELECT COUNT(*) FROM aid_anomaly_by('test_anomaly_data', group_id, period, demand, NULL);
+----
+18
+
+# TEST 3: Has all three groups
+query I
+SELECT COUNT(DISTINCT group_id) FROM aid_anomaly_by('test_anomaly_data', group_id, period, demand, NULL);
+----
+3
+
+# TEST 4: Output has correct columns (group_id, order_value, and boolean flags)
+query TTTTTTT
+SELECT
+    group_id IS NOT NULL AS has_group,
+    order_value IS NOT NULL AS has_order,
+    stockout IS NOT NULL AS has_stockout,
+    new_product IS NOT NULL AS has_new_product,
+    obsolete_product IS NOT NULL AS has_obsolete,
+    high_outlier IS NOT NULL AS has_high,
+    low_outlier IS NOT NULL AS has_low
+FROM aid_anomaly_by('test_anomaly_data', group_id, period, demand, NULL)
+LIMIT 1;
+----
+true	true	true	true	true	true	true
+
+# TEST 5: Correct rows per group
+query II
+SELECT group_id, COUNT(*) FROM aid_anomaly_by('test_anomaly_data', group_id, period, demand, NULL)
+GROUP BY group_id ORDER BY group_id;
+----
+A	6
+B	6
+C	6
+
+# TEST 6: order_value column preserves original data
+query TI
+SELECT group_id, order_value
+FROM aid_anomaly_by('test_anomaly_data', group_id, period, demand, NULL)
+WHERE group_id = 'A'
+ORDER BY order_value
+LIMIT 3;
+----
+A	1
+A	2
+A	3
+
+# TEST 7: Works with NULL options (backward compatible)
+query I
+SELECT COUNT(*) FROM aid_anomaly_by('test_anomaly_data', group_id, period, demand, NULL);
+----
+18
+
+# TEST 8: Works with custom intermittent_threshold option
+query I
+SELECT COUNT(*) FROM aid_anomaly_by('test_anomaly_data', group_id, period, demand,
+    {'intermittent_threshold': 0.5});
+----
+18
+
+# TEST 9: Works with outlier_method option
+query I
+SELECT COUNT(*) FROM aid_anomaly_by('test_anomaly_data', group_id, period, demand,
+    {'outlier_method': 'iqr'});
+----
+18
+
+# TEST 10: Single-row group handling
+statement ok
+CREATE TABLE single_row_data AS
+SELECT * FROM (VALUES
+    ('X', 1, 5.0)
+) AS t(group_id, period, demand);
+
+query I
+SELECT COUNT(*) FROM aid_anomaly_by('single_row_data', group_id, period, demand, NULL);
+----
+1
+
+# TEST 11: Two-row group handling
+statement ok
+CREATE TABLE two_row_data AS
+SELECT * FROM (VALUES
+    ('Y', 1, 5.0),
+    ('Y', 2, 10.0)
+) AS t(group_id, period, demand);
+
+query I
+SELECT COUNT(*) FROM aid_anomaly_by('two_row_data', group_id, period, demand, NULL);
+----
+2
+
+# Cleanup
+statement ok
+DROP TABLE IF EXISTS test_anomaly_data;
+
+statement ok
+DROP TABLE IF EXISTS single_row_data;
+
+statement ok
+DROP TABLE IF EXISTS two_row_data;
