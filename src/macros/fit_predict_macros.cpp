@@ -353,6 +353,42 @@ FROM unnested
 ORDER BY group_id
 )"},
 
+    // aid_by: AID (Automatic Identification of Demand) classification per group (wide format - one row per group)
+    // C++ API: aid_by(table_name, group_col, y_col, options)
+    // Options: intermittent_threshold, outlier_method
+    // Returns: group_id, demand_type, is_intermittent, distribution, mean, variance, zero_proportion,
+    //          n_observations, has_stockouts, is_new_product, is_obsolete_product, stockout_count,
+    //          new_product_count, obsolete_product_count, high_outlier_count, low_outlier_count
+    {"aid_by", {"source", "group_col", "y_col", nullptr}, {{"options", "NULL"}},
+R"(
+WITH agg AS (
+    SELECT
+        group_col AS group_id,
+        aid_agg(y_col, options) AS result
+    FROM query_table(source::VARCHAR)
+    GROUP BY group_col
+)
+SELECT
+    group_id,
+    (result).demand_type AS demand_type,
+    (result).is_intermittent AS is_intermittent,
+    (result).distribution AS distribution,
+    (result).mean AS mean,
+    (result).variance AS variance,
+    (result).zero_proportion AS zero_proportion,
+    (result).n_observations AS n_observations,
+    (result).has_stockouts AS has_stockouts,
+    (result).is_new_product AS is_new_product,
+    (result).is_obsolete_product AS is_obsolete_product,
+    (result).stockout_count AS stockout_count,
+    (result).new_product_count AS new_product_count,
+    (result).obsolete_product_count AS obsolete_product_count,
+    (result).high_outlier_count AS high_outlier_count,
+    (result).low_outlier_count AS low_outlier_count
+FROM agg
+ORDER BY group_id
+)"},
+
     // Sentinel
     {nullptr, {nullptr}, {{nullptr, nullptr}}, nullptr}
 };

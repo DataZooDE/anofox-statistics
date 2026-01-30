@@ -1,0 +1,250 @@
+# name: test/sql/macros/test_aid_by.test
+# description: Test aid_by table macro for AID (Automatic Identification of Demand) classification
+# group: [macros]
+
+require anofox_statistics
+
+# =============================================================================
+# SETUP: Create demand time series data with multiple groups
+# =============================================================================
+
+# Smooth demand - consistent non-zero values
+statement ok
+CREATE TABLE smooth_demand AS
+SELECT * FROM (VALUES
+    ('smooth', 1, 100.0), ('smooth', 2, 102.0), ('smooth', 3, 105.0),
+    ('smooth', 4, 103.0), ('smooth', 5, 106.0), ('smooth', 6, 108.0),
+    ('smooth', 7, 110.0), ('smooth', 8, 112.0), ('smooth', 9, 115.0), ('smooth', 10, 118.0)
+) AS t(product_id, period, demand);
+
+# Intermittent demand - many zeros
+statement ok
+CREATE TABLE intermittent_demand AS
+SELECT * FROM (VALUES
+    ('intermittent', 1, 0.0), ('intermittent', 2, 0.0), ('intermittent', 3, 50.0),
+    ('intermittent', 4, 0.0), ('intermittent', 5, 0.0), ('intermittent', 6, 0.0),
+    ('intermittent', 7, 45.0), ('intermittent', 8, 0.0), ('intermittent', 9, 0.0), ('intermittent', 10, 55.0)
+) AS t(product_id, period, demand);
+
+# Combined data for group tests
+statement ok
+CREATE TABLE grouped_demand AS
+SELECT * FROM smooth_demand
+UNION ALL
+SELECT * FROM intermittent_demand;
+
+# =============================================================================
+# BASIC FUNCTIONALITY TESTS
+# =============================================================================
+
+# TEST 1: aid_by returns results
+query I
+SELECT COUNT(*) > 0 FROM aid_by('smooth_demand', product_id, demand);
+----
+true
+
+# TEST 2: Returns one row per group
+query I
+SELECT COUNT(*) FROM aid_by('grouped_demand', product_id, demand);
+----
+2
+
+# TEST 3: Returns correct groups
+query I
+SELECT COUNT(DISTINCT group_id) FROM aid_by('grouped_demand', product_id, demand);
+----
+2
+
+# =============================================================================
+# COLUMN STRUCTURE TESTS (16 columns)
+# =============================================================================
+
+# TEST 4: All columns exist and are accessible
+query IIIIIIIIIIIIIIII
+SELECT
+    group_id IS NOT NULL AS has_group_id,
+    demand_type IS NOT NULL AS has_demand_type,
+    is_intermittent IS NOT NULL AS has_is_intermittent,
+    distribution IS NOT NULL AS has_distribution,
+    mean IS NOT NULL AS has_mean,
+    variance IS NOT NULL AS has_variance,
+    zero_proportion IS NOT NULL AS has_zero_proportion,
+    n_observations IS NOT NULL AS has_n_observations,
+    has_stockouts IS NOT NULL AS has_has_stockouts,
+    is_new_product IS NOT NULL AS has_is_new_product,
+    is_obsolete_product IS NOT NULL AS has_is_obsolete_product,
+    stockout_count IS NOT NULL AS has_stockout_count,
+    new_product_count IS NOT NULL AS has_new_product_count,
+    obsolete_product_count IS NOT NULL AS has_obsolete_product_count,
+    high_outlier_count IS NOT NULL AS has_high_outlier_count,
+    low_outlier_count IS NOT NULL AS has_low_outlier_count
+FROM aid_by('smooth_demand', product_id, demand)
+LIMIT 1;
+----
+true	true	true	true	true	true	true	true	true	true	true	true	true	true	true	true
+
+# =============================================================================
+# DEMAND TYPE CLASSIFICATION TESTS
+# =============================================================================
+
+# TEST 5: Smooth demand is not intermittent
+query T
+SELECT is_intermittent FROM aid_by('smooth_demand', product_id, demand);
+----
+false
+
+# TEST 6: Intermittent demand is detected
+query T
+SELECT is_intermittent FROM aid_by('intermittent_demand', product_id, demand);
+----
+true
+
+# TEST 7: Grouped data correctly classifies each product
+query TT
+SELECT group_id, is_intermittent FROM aid_by('grouped_demand', product_id, demand)
+ORDER BY group_id;
+----
+intermittent	true
+smooth	false
+
+# TEST 8: Demand type is valid (lowercase values)
+query I
+SELECT COUNT(*) FROM aid_by('grouped_demand', product_id, demand)
+WHERE demand_type IN ('smooth', 'erratic', 'intermittent', 'lumpy', 'regular');
+----
+2
+
+# =============================================================================
+# NUMERIC STATISTICS TESTS
+# =============================================================================
+
+# TEST 9: Mean is positive for smooth demand
+query I
+SELECT mean > 0 FROM aid_by('smooth_demand', product_id, demand);
+----
+true
+
+# TEST 10: Variance is non-negative
+query I
+SELECT variance >= 0 FROM aid_by('smooth_demand', product_id, demand);
+----
+true
+
+# TEST 11: n_observations matches input count
+query I
+SELECT n_observations FROM aid_by('smooth_demand', product_id, demand);
+----
+10
+
+# TEST 12: Zero proportion is 0 for smooth demand (all non-zero)
+query R
+SELECT zero_proportion FROM aid_by('smooth_demand', product_id, demand);
+----
+0.0
+
+# TEST 13: Zero proportion > 0.5 for intermittent demand
+query I
+SELECT zero_proportion > 0.5 FROM aid_by('intermittent_demand', product_id, demand);
+----
+true
+
+# =============================================================================
+# COUNT FIELDS TESTS
+# =============================================================================
+
+# TEST 14: Count fields are non-negative
+query IIII
+SELECT
+    stockout_count >= 0,
+    new_product_count >= 0,
+    obsolete_product_count >= 0,
+    high_outlier_count >= 0
+FROM aid_by('smooth_demand', product_id, demand);
+----
+true	true	true	true
+
+# TEST 15: low_outlier_count is non-negative
+query I
+SELECT low_outlier_count >= 0 FROM aid_by('smooth_demand', product_id, demand);
+----
+true
+
+# =============================================================================
+# OPTIONS PARAMETER TESTS
+# =============================================================================
+
+# TEST 16: Works with explicit NULL options (backwards compatible)
+query I
+SELECT COUNT(*) FROM aid_by('smooth_demand', product_id, demand, NULL);
+----
+1
+
+# TEST 17: Works with intermittent_threshold option
+query I
+SELECT COUNT(*) FROM aid_by('grouped_demand', product_id, demand, {'intermittent_threshold': 0.5});
+----
+2
+
+# TEST 18: Works with outlier_method option
+query I
+SELECT COUNT(*) FROM aid_by('grouped_demand', product_id, demand, {'outlier_method': 'iqr'});
+----
+2
+
+# TEST 19: Works with multiple options
+query I
+SELECT COUNT(*) FROM aid_by('grouped_demand', product_id, demand,
+    {'intermittent_threshold': 0.3, 'outlier_method': 'iqr'});
+----
+2
+
+# =============================================================================
+# SINGLE-ROW GROUP TESTS
+# =============================================================================
+
+statement ok
+CREATE TABLE single_obs AS
+SELECT * FROM (VALUES
+    ('A', 1, 100.0),
+    ('B', 1, 50.0)
+) AS t(product_id, period, demand);
+
+# TEST 20: Handles single-row groups
+query I
+SELECT COUNT(*) FROM aid_by('single_obs', product_id, demand);
+----
+2
+
+# TEST 21: Single observation count is 1
+query II
+SELECT group_id, n_observations FROM aid_by('single_obs', product_id, demand) ORDER BY group_id;
+----
+A	1
+B	1
+
+# =============================================================================
+# ORDERING AND DETERMINISM TESTS
+# =============================================================================
+
+# TEST 22: Results are ordered by group_id
+query T
+SELECT group_id FROM aid_by('grouped_demand', product_id, demand);
+----
+intermittent
+smooth
+
+# =============================================================================
+# CLEANUP
+# =============================================================================
+
+statement ok
+DROP TABLE IF EXISTS smooth_demand;
+
+statement ok
+DROP TABLE IF EXISTS intermittent_demand;
+
+statement ok
+DROP TABLE IF EXISTS grouped_demand;
+
+statement ok
+DROP TABLE IF EXISTS single_obs;

@@ -958,6 +958,60 @@ ORDER BY result.stockout_count DESC;
 - Data quality: Find outliers in demand data
 - Supply chain: Monitor for demand anomalies
 
+### aid_by
+
+Table macro that classifies demand patterns for each group, returning one row per group with flat columns.
+
+**Signature:**
+```sql
+aid_by(
+    source VARCHAR,           -- Table name (as string)
+    group_col COLUMN,         -- Column to group by
+    y_col COLUMN,             -- Demand/value column
+    [options MAP]             -- Optional configuration (default: NULL)
+) -> TABLE
+```
+
+**Options:**
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| intermittent_threshold | DOUBLE | 0.3 | Zero proportion cutoff for intermittent classification |
+| outlier_method | VARCHAR | 'zscore' | Outlier detection: 'zscore' (mean±3σ) or 'iqr' (1.5×IQR) |
+
+**Returns:**
+| Column | Type | Description |
+|--------|------|-------------|
+| group_id | ANY | Group identifier (same type as group_col) |
+| demand_type | VARCHAR | 'regular' or 'intermittent' |
+| is_intermittent | BOOLEAN | True if zero_proportion >= threshold |
+| distribution | VARCHAR | Best-fit distribution name |
+| mean | DOUBLE | Mean of values |
+| variance | DOUBLE | Variance of values |
+| zero_proportion | DOUBLE | Proportion of zero values (0.0 to 1.0) |
+| n_observations | BIGINT | Number of observations |
+| has_stockouts | BOOLEAN | True if stockouts detected |
+| is_new_product | BOOLEAN | True if new product pattern (leading zeros) |
+| is_obsolete_product | BOOLEAN | True if obsolete pattern (trailing zeros) |
+| stockout_count | BIGINT | Number of stockout observations |
+| new_product_count | BIGINT | Number of leading zero observations |
+| obsolete_product_count | BIGINT | Number of trailing zero observations |
+| high_outlier_count | BIGINT | Number of unusually high values |
+| low_outlier_count | BIGINT | Number of unusually low values |
+
+**Example:**
+```sql
+-- Classify demand pattern for each SKU
+SELECT * FROM aid_by('sales', sku, demand);
+
+-- With custom intermittent threshold
+SELECT * FROM aid_by('sales', sku, demand, {'intermittent_threshold': 0.4});
+
+-- Find products with stockout issues
+SELECT * FROM aid_by('sales', sku, demand)
+WHERE has_stockouts
+ORDER BY stockout_count DESC;
+```
+
 ---
 
 ## Statistical Hypothesis Testing Functions
