@@ -8,6 +8,8 @@
 
 namespace duckdb {
 
+#ifdef ANOFOX_TELEMETRY_ENABLED
+
 namespace {
 
 void OnTelemetryEnabled(ClientContext &context, SetScope scope, Value &parameter) {
@@ -42,7 +44,10 @@ static void RegisterTelemetryOptions(ExtensionLoader &loader) {
                               OnTelemetryKey);
 }
 
+#endif // ANOFOX_TELEMETRY_ENABLED
+
 void LoadInternal(ExtensionLoader &loader) {
+#ifdef ANOFOX_TELEMETRY_ENABLED
     // Register telemetry options
     RegisterTelemetryOptions(loader);
 
@@ -57,6 +62,7 @@ void LoadInternal(ExtensionLoader &loader) {
     version = "0.1.0";
 #endif
     telemetry.CaptureExtensionLoad("anofox_statistics", version);
+#endif // ANOFOX_TELEMETRY_ENABLED
 
     // Register scalar functions
     RegisterOlsFitFunction(loader);

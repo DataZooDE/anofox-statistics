@@ -81,22 +81,29 @@ set(LOADABLE_EXTENSION_NAME ${TARGET_NAME}_loadable_extension)
 
 project(${TARGET_NAME})
 
-# --- Telemetry ---
-find_package(OpenSSL REQUIRED)
+# --- Telemetry (disabled on MinGW where vcpkg cannot build OpenSSL) ---
+if(NOT MINGW)
+    find_package(OpenSSL REQUIRED)
 
-add_library(posthog_telemetry_obj OBJECT
-    ${CMAKE_CURRENT_SOURCE_DIR}/posthog-telemetry/src/telemetry.cpp
-)
+    add_library(posthog_telemetry_obj OBJECT
+        ${CMAKE_CURRENT_SOURCE_DIR}/posthog-telemetry/src/telemetry.cpp
+    )
 
-target_include_directories(posthog_telemetry_obj PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/posthog-telemetry/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/duckdb/src/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/duckdb/third_party
-    ${CMAKE_CURRENT_SOURCE_DIR}/duckdb/third_party/httplib
-    ${OPENSSL_INCLUDE_DIR}
-)
+    target_include_directories(posthog_telemetry_obj PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/posthog-telemetry/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/duckdb/src/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/duckdb/third_party
+        ${CMAKE_CURRENT_SOURCE_DIR}/duckdb/third_party/httplib
+        ${OPENSSL_INCLUDE_DIR}
+    )
 
-target_compile_features(posthog_telemetry_obj PUBLIC cxx_std_17)
+    target_compile_features(posthog_telemetry_obj PUBLIC cxx_std_17)
+    target_compile_definitions(posthog_telemetry_obj PRIVATE ANOFOX_TELEMETRY_ENABLED)
+    set(ANOFOX_TELEMETRY_ENABLED ON)
+else()
+    message(STATUS "Telemetry disabled: OpenSSL not available on MinGW")
+    set(ANOFOX_TELEMETRY_ENABLED OFF)
+endif()
 
 include_directories(src/include)
 
@@ -186,24 +193,36 @@ build_static_extension(${TARGET_NAME} ${EXTENSION_SOURCES})
 # Build loadable extension
 build_loadable_extension(${TARGET_NAME} " " ${EXTENSION_SOURCES})
 
-# Add telemetry objects to both extension targets
-target_sources(${EXTENSION_NAME} PRIVATE $<TARGET_OBJECTS:posthog_telemetry_obj>)
-target_sources(${LOADABLE_EXTENSION_NAME} PRIVATE $<TARGET_OBJECTS:posthog_telemetry_obj>)
+# Link to Rust library
+target_link_libraries(${EXTENSION_NAME} anofox_stats_ffi-static)
+target_link_libraries(${LOADABLE_EXTENSION_NAME} anofox_stats_ffi-static)
 
-# Add telemetry include path
+# Telemetry header is always needed (provides no-op stubs when telemetry is disabled)
 target_include_directories(${EXTENSION_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/posthog-telemetry/include)
 target_include_directories(${LOADABLE_EXTENSION_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/posthog-telemetry/include)
 
-# Link to Rust library and OpenSSL (for telemetry)
-target_link_libraries(${EXTENSION_NAME} anofox_stats_ffi-static OpenSSL::SSL OpenSSL::Crypto)
-target_link_libraries(${LOADABLE_EXTENSION_NAME} anofox_stats_ffi-static OpenSSL::SSL OpenSSL::Crypto)
+# Add telemetry objects and OpenSSL linking (when available)
+if(ANOFOX_TELEMETRY_ENABLED)
+    target_sources(${EXTENSION_NAME} PRIVATE $<TARGET_OBJECTS:posthog_telemetry_obj>)
+    target_sources(${LOADABLE_EXTENSION_NAME} PRIVATE $<TARGET_OBJECTS:posthog_telemetry_obj>)
+
+    target_link_libraries(${EXTENSION_NAME} OpenSSL::SSL OpenSSL::Crypto)
+    target_link_libraries(${LOADABLE_EXTENSION_NAME} OpenSSL::SSL OpenSSL::Crypto)
+
+    target_compile_definitions(${EXTENSION_NAME} PRIVATE ANOFOX_TELEMETRY_ENABLED)
+    target_compile_definitions(${LOADABLE_EXTENSION_NAME} PRIVATE ANOFOX_TELEMETRY_ENABLED)
+endif()
 
 # Link Windows system libraries
 if(WIN32)
     # bcrypt: required by Rust's getrandom crate
-    # iphlpapi: required by telemetry GetAdaptersInfo
-    target_link_libraries(${EXTENSION_NAME} bcrypt iphlpapi)
-    target_link_libraries(${LOADABLE_EXTENSION_NAME} bcrypt iphlpapi)
+    target_link_libraries(${EXTENSION_NAME} bcrypt)
+    target_link_libraries(${LOADABLE_EXTENSION_NAME} bcrypt)
+    if(ANOFOX_TELEMETRY_ENABLED)
+        # iphlpapi: required by telemetry GetAdaptersInfo
+        target_link_libraries(${EXTENSION_NAME} iphlpapi)
+        target_link_libraries(${LOADABLE_EXTENSION_NAME} iphlpapi)
+    endif()
 endif()
 
 # Install

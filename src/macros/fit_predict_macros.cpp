@@ -389,6 +389,46 @@ FROM agg
 ORDER BY group_id
 )"},
 
+    // aid_anomaly_by: AID anomaly detection per group (long format - one row per observation)
+    // C++ API: aid_anomaly_by(table_name, group_col, order_col, y_col, options)
+    // Options: intermittent_threshold, outlier_method
+    // Returns: group_id, order_value, stockout, new_product, obsolete_product, high_outlier, low_outlier
+    {"aid_anomaly_by", {"source", "group_col", "order_col", "y_col", nullptr}, {{"options", "NULL"}},
+R"(
+WITH original_data AS (
+    SELECT
+        group_col AS group_id,
+        order_col AS order_value,
+        ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_col) AS rn
+    FROM query_table(source::VARCHAR)
+),
+anomalies AS (
+    SELECT
+        group_col AS group_id,
+        aid_anomaly_agg(y_col, options ORDER BY order_col) AS flags
+    FROM query_table(source::VARCHAR)
+    GROUP BY group_col
+),
+unnested AS (
+    SELECT
+        group_id,
+        UNNEST(flags) AS f,
+        generate_subscripts(flags, 1) AS rn
+    FROM anomalies
+)
+SELECT
+    o.group_id,
+    o.order_value,
+    (u.f).stockout AS stockout,
+    (u.f).new_product AS new_product,
+    (u.f).obsolete_product AS obsolete_product,
+    (u.f).high_outlier AS high_outlier,
+    (u.f).low_outlier AS low_outlier
+FROM original_data o
+JOIN unnested u ON o.group_id = u.group_id AND o.rn = u.rn
+ORDER BY o.group_id, o.order_value
+)"},
+
     // Sentinel
     {nullptr, {nullptr}, {{nullptr, nullptr}}, nullptr}
 };

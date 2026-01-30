@@ -12,111 +12,80 @@ The Anofox Statistics Extension provides comprehensive regression analysis capab
 
 ### Regression Methods
 
-| Method | Scalar Function | Aggregate Function | Description |
-|--------|-----------------|-------------------|-------------|
-| OLS | `ols_fit` | `ols_fit_agg` | Ordinary Least Squares |
-| Ridge | `ridge_fit` | `ridge_fit_agg` | L2 regularization |
-| Elastic Net | `elasticnet_fit` | `elasticnet_fit_agg` | Combined L1+L2 regularization |
-| WLS | `wls_fit` | `wls_fit_agg` | Weighted Least Squares |
-| RLS | `rls_fit` | `rls_fit_agg` | Recursive Least Squares (online) |
-| Poisson | - | `poisson_fit_agg` | GLM for count data |
-| ALM | - | `alm_fit_agg` | 24 error distributions |
-| BLS | - | `bls_fit_agg` | Bounded Least Squares |
-| NNLS | - | `nnls_fit_agg` | Non-negative Least Squares |
-| PLS | `pls_fit` | `pls_fit_agg` | Partial Least Squares |
-| Isotonic | `isotonic_fit` | `isotonic_fit_agg` | Monotonic regression |
-| Quantile | `quantile_fit` | `quantile_fit_agg` | Quantile/median regression |
+| Method | Scalar | Aggregate | Documentation |
+|--------|--------|-----------|---------------|
+| OLS | `ols_fit` | `ols_fit_agg` | [OLS](api/regression/ols.md) |
+| Ridge | `ridge_fit` | `ridge_fit_agg` | [Ridge](api/regression/ridge.md) |
+| Elastic Net | `elasticnet_fit` | `elasticnet_fit_agg` | [Elastic Net](api/regression/elasticnet.md) |
+| WLS | `wls_fit` | `wls_fit_agg` | [WLS](api/regression/wls.md) |
+| RLS | `rls_fit` | `rls_fit_agg` | [RLS](api/regression/rls.md) |
+| BLS | - | `bls_fit_agg` | [BLS/NNLS](api/regression/bls.md) |
+| NNLS | - | `nnls_fit_agg` | [BLS/NNLS](api/regression/bls.md) |
+| PLS | `pls_fit` | `pls_fit_agg` | [PLS](api/regression/pls.md) |
+| Isotonic | `isotonic_fit` | `isotonic_fit_agg` | [Isotonic](api/regression/isotonic.md) |
+| Quantile | `quantile_fit` | `quantile_fit_agg` | [Quantile](api/regression/quantile.md) |
+
+### GLM Functions
+
+| Method | Aggregate | Documentation |
+|--------|-----------|---------------|
+| Poisson | `poisson_fit_agg` | [Poisson](api/glm/poisson.md) |
+| ALM | `alm_fit_agg` | [ALM](api/glm/alm.md) |
 
 ### Statistical Hypothesis Tests
 
-| Category | Function | Description |
-|----------|----------|-------------|
-| Normality | `shapiro_wilk_agg` | Shapiro-Wilk test |
-| Normality | `jarque_bera_agg` | Jarque-Bera test |
-| Normality | `dagostino_k2_agg` | D'Agostino K² test |
-| Parametric | `t_test_agg` | Two-sample t-test (Welch/Student) |
-| Parametric | `one_way_anova_agg` | One-way ANOVA |
-| Parametric | `yuen_agg` | Yuen's trimmed mean test |
-| Parametric | `brown_forsythe_agg` | Brown-Forsythe variance test |
-| Nonparametric | `mann_whitney_u_agg` | Mann-Whitney U test |
-| Nonparametric | `kruskal_wallis_agg` | Kruskal-Wallis H test |
-| Nonparametric | `wilcoxon_signed_rank_agg` | Wilcoxon signed-rank test |
-| Nonparametric | `brunner_munzel_agg` | Brunner-Munzel test |
-| Nonparametric | `permutation_t_test_agg` | Permutation t-test |
-| Correlation | `pearson_agg` | Pearson correlation |
-| Correlation | `spearman_agg` | Spearman rank correlation |
-| Correlation | `kendall_agg` | Kendall tau correlation |
-| Correlation | `distance_cor_agg` | Distance correlation |
-| Correlation | `icc_agg` | Intraclass correlation |
-| Categorical | `chisq_test_agg` | Chi-square independence test |
-| Categorical | `chisq_gof_agg` | Chi-square goodness of fit |
-| Categorical | `g_test_agg` | G-test (log-likelihood ratio) |
-| Categorical | `fisher_exact_agg` | Fisher's exact test |
-| Categorical | `mcnemar_agg` | McNemar's test |
-| Effect Size | `cramers_v_agg` | Cramér's V |
-| Effect Size | `phi_coefficient_agg` | Phi coefficient |
-| Effect Size | `contingency_coef_agg` | Contingency coefficient |
-| Effect Size | `cohen_kappa_agg` | Cohen's kappa |
-| Proportion | `prop_test_one_agg` | One-sample proportion test |
-| Proportion | `prop_test_two_agg` | Two-sample proportion test |
-| Proportion | `binom_test_agg` | Exact binomial test |
-| Equivalence | `tost_t_test_agg` | TOST two-sample t-test |
-| Equivalence | `tost_paired_agg` | TOST paired t-test |
-| Equivalence | `tost_correlation_agg` | TOST correlation equivalence |
-| Distribution | `energy_distance_agg` | Energy distance |
-| Distribution | `mmd_agg` | Maximum Mean Discrepancy |
-| Forecast | `diebold_mariano_agg` | Diebold-Mariano test |
-| Forecast | `clark_west_agg` | Clark-West test |
+| Category | Function | Documentation |
+|----------|----------|---------------|
+| Parametric | `t_test_agg`, `one_way_anova_agg` | [Hypothesis Tests](api/statistics/hypothesis.md) |
+| Nonparametric | `mann_whitney_u_agg`, `kruskal_wallis_agg` | [Hypothesis Tests](api/statistics/hypothesis.md) |
+| Normality | `shapiro_wilk_agg`, `jarque_bera_agg` | [Hypothesis Tests](api/statistics/hypothesis.md) |
+| Equivalence | `tost_t_test_agg`, `tost_paired_agg` | [Hypothesis Tests](api/statistics/hypothesis.md) |
+
+### Correlation Tests
+
+| Function | Description | Documentation |
+|----------|-------------|---------------|
+| `pearson_agg` | Pearson correlation | [Correlation](api/statistics/correlation.md) |
+| `spearman_agg` | Spearman rank correlation | [Correlation](api/statistics/correlation.md) |
+| `kendall_agg` | Kendall tau correlation | [Correlation](api/statistics/correlation.md) |
+| `distance_cor_agg` | Distance correlation | [Correlation](api/statistics/correlation.md) |
+| `icc_agg` | Intraclass correlation | [Correlation](api/statistics/correlation.md) |
+
+### Categorical Tests
+
+| Function | Description | Documentation |
+|----------|-------------|---------------|
+| `chisq_test_agg` | Chi-square independence | [Categorical](api/statistics/categorical.md) |
+| `fisher_exact_agg` | Fisher's exact test | [Categorical](api/statistics/categorical.md) |
+| `mcnemar_agg` | McNemar's test | [Categorical](api/statistics/categorical.md) |
+| `cramers_v_agg` | Cramér's V | [Categorical](api/statistics/categorical.md) |
+| `cohen_kappa_agg` | Cohen's kappa | [Categorical](api/statistics/categorical.md) |
 
 ### Diagnostics & Utilities
 
-| Function | Description |
-|----------|-------------|
-| `vif`, `vif_agg` | Variance Inflation Factor |
-| `aic`, `bic` | Model selection criteria |
-| `residuals_diagnostics_agg` | Residual analysis |
-| `aid_agg`, `aid_anomaly_agg` | Demand pattern classification |
+| Function | Description | Documentation |
+|----------|-------------|---------------|
+| `vif`, `vif_agg` | Variance Inflation Factor | [Diagnostics](api/diagnostics/diagnostics.md) |
+| `aic`, `bic` | Model selection criteria | [Diagnostics](api/diagnostics/diagnostics.md) |
+| `residuals_diagnostics_agg` | Residual analysis | [Diagnostics](api/diagnostics/diagnostics.md) |
+| `aid_agg`, `aid_anomaly_agg` | Demand classification | [AID](api/aid/aid.md) |
 
-### Window & Fit-Predict Aggregate Functions
+### Table Macros
 
-| Method | Window Function | Fit-Predict Aggregate | Table Macro |
-|--------|-----------------|----------------------|-------------|
-| OLS | `ols_fit_predict` | `ols_fit_predict_agg` | `ols_fit_predict_by` |
-| Ridge | `ridge_fit_predict` | `ridge_fit_predict_agg` | `ridge_fit_predict_by` |
-| Elastic Net | `elasticnet_fit_predict` | `elasticnet_fit_predict_agg` | `elasticnet_fit_predict_by` |
-| WLS | `wls_fit_predict` | `wls_fit_predict_agg` | `wls_fit_predict_by` |
-| RLS | `rls_fit_predict` | `rls_fit_predict_agg` | `rls_fit_predict_by` |
-| BLS | - | `bls_fit_predict_agg` | `bls_fit_predict_by` |
-| ALM | - | `alm_fit_predict_agg` | `alm_fit_predict_by` |
-| Poisson | - | `poisson_fit_predict_agg` | `poisson_fit_predict_by` |
+| Macro | Description | Documentation |
+|-------|-------------|---------------|
+| `ols_fit_predict_by` | Per-group OLS predictions | [Table Macros](api/macros/table_macros.md) |
+| `ridge_fit_predict_by` | Per-group Ridge predictions | [Table Macros](api/macros/table_macros.md) |
+| `elasticnet_fit_predict_by` | Per-group Elastic Net | [Table Macros](api/macros/table_macros.md) |
+| `wls_fit_predict_by` | Per-group WLS | [Table Macros](api/macros/table_macros.md) |
+| `rls_fit_predict_by` | Per-group RLS | [Table Macros](api/macros/table_macros.md) |
+| `bls_fit_predict_by` | Per-group BLS | [Table Macros](api/macros/table_macros.md) |
+| `alm_fit_predict_by` | Per-group ALM | [Table Macros](api/macros/table_macros.md) |
+| `poisson_fit_predict_by` | Per-group Poisson | [Table Macros](api/macros/table_macros.md) |
+| `aid_anomaly_by` | Grouped anomaly detection | [Table Macros](api/macros/table_macros.md) |
 
 > **Deprecation Notice:** The old `*_predict_agg` names (`ols_predict_agg`, etc.) are deprecated
 > but still work for backwards compatibility. Use `*_fit_predict_agg` instead.
-
----
-
-## Table of Contents
-
-1. [Quick Reference](#quick-reference)
-2. [Function Types](#function-types)
-3. [OLS Functions](#ols-functions)
-4. [Ridge Functions](#ridge-functions)
-5. [Elastic Net Functions](#elastic-net-functions)
-6. [WLS Functions](#wls-functions)
-7. [RLS Functions](#rls-functions)
-8. [GLM Functions](#glm-functions)
-9. [ALM Functions](#alm-functions)
-10. [BLS/NNLS Functions](#blsnnls-functions)
-11. [AID Functions](#aid-functions)
-12. [Statistical Hypothesis Testing Functions](#statistical-hypothesis-testing-functions)
-13. [Fit-Predict Window Functions](#fit-predict-window-functions)
-14. [Fit-Predict Aggregate Functions](#fit-predict-aggregate-functions)
-15. [Fit-Predict Table Macros](#fit-predict-table-macros)
-16. [Predict Function](#predict-function)
-17. [Diagnostic Functions](#diagnostic-functions)
-18. [Common Options](#common-options)
-19. [Return Types](#return-types)
-20. [Short Aliases](#short-aliases)
 
 ---
 
@@ -125,13 +94,19 @@ The Anofox Statistics Extension provides comprehensive regression analysis capab
 ### Scalar Functions (Array-based)
 Process complete arrays of data in a single call. Best for batch operations.
 ```sql
-SELECT anofox_stats_ols_fit(y_array, x_arrays);
+SELECT ols_fit(y_array, x_arrays);
 ```
 
 ### Aggregate Functions (Streaming)
 Accumulate data row-by-row. Support `GROUP BY` and window functions via `OVER`.
 ```sql
-SELECT anofox_stats_ols_fit_agg(y, [x1, x2]) FROM table GROUP BY category;
+SELECT ols_fit_agg(y, [x1, x2]) FROM table GROUP BY category;
+```
+
+### Table Macros
+Convenience wrappers that handle GROUP BY, UNNEST, and column extraction automatically.
+```sql
+SELECT * FROM ols_fit_predict_by('sales', region, revenue, [ads, price]);
 ```
 
 ---
@@ -2915,38 +2890,18 @@ SELECT residuals_diagnostics(
 ### anofox_stats_residuals_diagnostics_agg / residuals_diagnostics_agg
 Streaming residuals diagnostics aggregate function.
 
-```sql
-SELECT residuals_diagnostics_agg(y, y_hat, [x]) FROM data;
-```
-
 ---
 
 ## Common Options
 
 ### null_policy Parameter
 
-The `null_policy` option controls how NULL values and zero x values are handled during model training. Available in all fit_predict window functions and predict_agg functions.
+The `null_policy` option controls how NULL values are handled during model training.
 
 | Value | Training Set | Predictions |
 |-------|--------------|-------------|
 | `'drop'` (default) | Rows where y IS NOT NULL | All rows get predictions |
 | `'drop_y_zero_x'` | Rows where y IS NOT NULL AND all x != 0 | All rows get predictions |
-
-**Use Cases:**
-- `'drop'`: Standard approach - use all valid observations for training
-- `'drop_y_zero_x'`: Exclude zero values which may represent missing data or invalid measurements
-
-**Example:**
-```sql
--- Default: only exclude NULL y from training
-SELECT ols_fit_predict(y, [x]) OVER (ORDER BY date) FROM data;
-
--- Exclude both NULL y and rows where any x is 0
-SELECT ols_fit_predict(y, [x], {'null_policy': 'drop_y_zero_x'}) OVER (ORDER BY date) FROM data;
-
--- With predict_agg
-SELECT UNNEST(ols_predict_agg(y, [x], {'null_policy': 'drop_y_zero_x'})) FROM data;
-```
 
 ---
 
@@ -2954,187 +2909,102 @@ SELECT UNNEST(ols_predict_agg(y, [x], {'null_policy': 'drop_y_zero_x'})) FROM da
 
 ### FitResult Structure
 
-All linear model fit functions (OLS, Ridge, Elastic Net, WLS, RLS) return a STRUCT with the following fields:
+Standard return type for linear regression functions.
 
 ```
 STRUCT(
-    coefficients LIST(DOUBLE),      -- Feature coefficients
-    intercept DOUBLE,               -- Intercept (NaN if fit_intercept=false)
-    r_squared DOUBLE,               -- R² goodness of fit
-    adj_r_squared DOUBLE,           -- Adjusted R²
-    residual_std_error DOUBLE,      -- Residual standard error
-    n_observations BIGINT,          -- Number of observations
-    n_features BIGINT,              -- Number of features
-    -- If compute_inference=true:
-    std_errors LIST(DOUBLE),        -- Standard errors
-    t_values LIST(DOUBLE),          -- t-statistics
-    p_values LIST(DOUBLE),          -- p-values
-    ci_lower LIST(DOUBLE),          -- CI lower bounds
-    ci_upper LIST(DOUBLE),          -- CI upper bounds
-    f_statistic DOUBLE,             -- F-statistic
-    f_pvalue DOUBLE                 -- F-test p-value
-)
-```
-
-### GlmFitResult Structure
-
-GLM functions (Poisson) return a STRUCT with:
-
-```
-STRUCT(
-    coefficients LIST(DOUBLE),      -- Feature coefficients
-    intercept DOUBLE,               -- Intercept (NaN if fit_intercept=false)
-    deviance DOUBLE,                -- Residual deviance
-    null_deviance DOUBLE,           -- Null model deviance
-    pseudo_r_squared DOUBLE,        -- McFadden's pseudo R²
-    aic DOUBLE,                     -- Akaike Information Criterion
-    dispersion DOUBLE,              -- Dispersion parameter
-    n_observations BIGINT,          -- Number of observations
-    n_features BIGINT,              -- Number of features
-    iterations INTEGER,             -- IRLS iterations
-    -- If compute_inference=true:
-    std_errors LIST(DOUBLE),        -- Standard errors
-    z_values LIST(DOUBLE),          -- z-statistics (Wald)
-    p_values LIST(DOUBLE),          -- p-values
-    ci_lower LIST(DOUBLE),          -- CI lower bounds
-    ci_upper LIST(DOUBLE)           -- CI upper bounds
-)
-```
-
-### AlmFitResult Structure
-
-ALM functions return a STRUCT with:
-
-```
-STRUCT(
-    coefficients LIST(DOUBLE),      -- Feature coefficients
-    intercept DOUBLE,               -- Intercept (NaN if fit_intercept=false)
-    log_likelihood DOUBLE,          -- Log-likelihood
-    aic DOUBLE,                     -- Akaike Information Criterion
-    bic DOUBLE,                     -- Bayesian Information Criterion
-    scale DOUBLE,                   -- Scale parameter
-    n_observations BIGINT,          -- Number of observations
-    n_features BIGINT,              -- Number of features
-    iterations INTEGER,             -- Optimization iterations
-    -- If compute_inference=true:
-    std_errors LIST(DOUBLE),        -- Standard errors
-    t_values LIST(DOUBLE),          -- t-statistics
-    p_values LIST(DOUBLE),          -- p-values
-    ci_lower LIST(DOUBLE),          -- CI lower bounds
-    ci_upper LIST(DOUBLE)           -- CI upper bounds
-)
-```
-
-### BlsFitResult Structure
-
-BLS and NNLS functions return a STRUCT with:
-
-```
-STRUCT(
-    coefficients LIST(DOUBLE),      -- Feature coefficients (constrained)
-    intercept DOUBLE,               -- Intercept (NaN if fit_intercept=false)
-    ssr DOUBLE,                     -- Sum of squared residuals
-    r_squared DOUBLE,               -- R² goodness of fit
-    n_observations BIGINT,          -- Number of observations
-    n_features BIGINT,              -- Number of features
-    n_active_constraints BIGINT,    -- Number of active constraints
-    at_lower_bound LIST(BOOLEAN),   -- Which coefficients are at lower bound
-    at_upper_bound LIST(BOOLEAN)    -- Which coefficients are at upper bound
+    coefficients LIST(DOUBLE),
+    intercept DOUBLE,
+    r_squared DOUBLE,
+    adj_r_squared DOUBLE,
+    mse DOUBLE,
+    rmse DOUBLE,
+    mae DOUBLE,
+    rss DOUBLE,
+    tss DOUBLE,
+    n_observations BIGINT,
+    n_features INTEGER,
+    -- When compute_inference=true:
+    t_statistics LIST(DOUBLE),
+    p_values LIST(DOUBLE),
+    std_errors LIST(DOUBLE),
+    conf_int_lower LIST(DOUBLE),
+    conf_int_upper LIST(DOUBLE)
 )
 ```
 
 ### Accessing Results
 
 ```sql
--- Extract single value
-SELECT (anofox_stats_ols_fit(y, x)).r_squared;
-
--- Extract coefficient
-SELECT (anofox_stats_ols_fit(y, x)).coefficients[1];
-
--- Multiple extractions
+-- Extract specific fields
 SELECT
-    fit.coefficients[1] as beta1,
-    fit.intercept,
-    fit.r_squared
-FROM (SELECT anofox_stats_ols_fit(y, x) as fit FROM data);
+    (result).r_squared,
+    (result).coefficients[1] as beta1,
+    (result).coefficients[2] as beta2
+FROM (SELECT ols_fit_agg(y, [x1, x2]) as result FROM data);
+
+-- Expand all fields
+SELECT (ols_fit_agg(y, [x1, x2])).* FROM data;
 ```
 
 ---
 
 ## Short Aliases
 
-For convenience, the following short aliases are available:
+Most functions have short aliases without the `anofox_stats_` prefix:
 
-| Full Name | Short Alias |
-|-----------|-------------|
-| anofox_stats_ols_fit | ols_fit |
-| anofox_stats_ridge_fit | ridge_fit |
-| anofox_stats_elasticnet_fit | elasticnet_fit |
-| anofox_stats_wls_fit | wls_fit |
-| anofox_stats_rls_fit | rls_fit |
-| anofox_stats_ols_fit_predict | ols_fit_predict |
-| anofox_stats_ridge_fit_predict | ridge_fit_predict |
-| anofox_stats_wls_fit_predict | wls_fit_predict |
-| anofox_stats_rls_fit_predict | rls_fit_predict |
-| anofox_stats_elasticnet_fit_predict | elasticnet_fit_predict |
-| anofox_stats_ols_fit_predict_agg | ols_fit_predict_agg |
-| anofox_stats_ridge_fit_predict_agg | ridge_fit_predict_agg |
-| anofox_stats_wls_fit_predict_agg | wls_fit_predict_agg |
-| anofox_stats_rls_fit_predict_agg | rls_fit_predict_agg |
-| anofox_stats_elasticnet_fit_predict_agg | elasticnet_fit_predict_agg |
-| anofox_stats_bls_fit_predict_agg | bls_fit_predict_agg |
-| anofox_stats_alm_fit_predict_agg | alm_fit_predict_agg |
-| anofox_stats_poisson_fit_predict_agg | poisson_fit_predict_agg |
-| anofox_stats_poisson_fit_agg | poisson_fit_agg |
-| anofox_stats_alm_fit_agg | alm_fit_agg |
-| anofox_stats_bls_fit_agg | bls_fit_agg |
-| anofox_stats_nnls_fit_agg | nnls_fit_agg |
-| anofox_stats_aid_agg | aid_agg |
-| anofox_stats_aid_anomaly_agg | aid_anomaly_agg |
-| anofox_stats_vif | vif |
-| anofox_stats_vif_agg | vif_agg |
-| anofox_stats_aic | aic |
-| anofox_stats_bic | bic |
-| anofox_stats_jarque_bera | jarque_bera |
-| anofox_stats_jarque_bera_agg | jarque_bera_agg |
-| anofox_stats_residuals_diagnostics | residuals_diagnostics |
-| anofox_stats_residuals_diagnostics_agg | residuals_diagnostics_agg |
+| Full Name | Alias |
+|-----------|-------|
+| `anofox_stats_ols_fit` | `ols_fit` |
+| `anofox_stats_ridge_fit` | `ridge_fit` |
+| `anofox_stats_t_test_agg` | `t_test_agg` |
+| `anofox_stats_pearson_agg` | `pearson_agg` |
+| ... | ... |
+
+---
+
+## Detailed Documentation
+
+For comprehensive documentation on each function category:
+
+- **Regression**: [OLS](api/regression/ols.md) | [Ridge](api/regression/ridge.md) | [Elastic Net](api/regression/elasticnet.md) | [WLS](api/regression/wls.md) | [RLS](api/regression/rls.md) | [BLS/NNLS](api/regression/bls.md) | [PLS](api/regression/pls.md) | [Isotonic](api/regression/isotonic.md) | [Quantile](api/regression/quantile.md)
+- **GLM**: [Poisson](api/glm/poisson.md) | [ALM](api/glm/alm.md)
+- **Statistics**: [Hypothesis Tests](api/statistics/hypothesis.md) | [Correlation](api/statistics/correlation.md) | [Categorical](api/statistics/categorical.md)
+- **AID**: [Demand Classification](api/aid/aid.md)
+- **Diagnostics**: [Model Diagnostics](api/diagnostics/diagnostics.md)
+- **Table Macros**: [Table Macros](api/macros/table_macros.md)
 
 ---
 
 ## Error Handling
 
-The extension validates inputs and returns clear error messages:
+All functions return NULL on error conditions:
+- Invalid input types
+- Empty arrays
+- Singular matrices (insufficient data variation)
 
-- **Insufficient data**: Minimum 3 observations required for single feature
-- **Dimension mismatch**: All feature arrays must have same length as y
-- **Singular matrix**: Occurs with perfectly collinear features
-- **Invalid parameters**: Alpha must be >= 0, l1_ratio must be in [0, 1]
-
+Check for NULL results when using these functions:
 ```sql
--- This will error: insufficient observations
-SELECT anofox_stats_ols_fit([1.0, 2.0], [[1.0, 2.0]]);
--- Error: Insufficient data: need at least 3 observations, got 2
+SELECT COALESCE((ols_fit_agg(y, [x])).r_squared, 0.0) as r_squared
+FROM data;
 ```
 
 ---
 
 ## Performance Notes
 
-1. **Scalar vs Aggregate**: Use scalar functions for batch processing, aggregates for GROUP BY/window operations
-2. **Inference overhead**: Setting `compute_inference=true` adds ~30% computation time
-3. **Memory**: Aggregate functions accumulate state; consider partitioning large datasets
-4. **RLS**: Best for streaming/online scenarios; use OLS for batch analysis
+- **Aggregate functions** are generally preferred for large datasets as they process data in a streaming fashion
+- **Scalar functions** may be faster for small, pre-aggregated arrays
+- Use **table macros** for the simplest syntax when doing per-group predictions
+- VIF computation is O(k³) where k is the number of features
 
 ---
 
 ## Version History
 
-- **0.7.0**: Renamed `*_predict_agg` to `*_fit_predict_agg` for clarity (old names deprecated). Added `bls_fit_predict_agg`, `alm_fit_predict_agg`, `poisson_fit_predict_agg`.
-- **0.6.0**: Added Statistical Hypothesis Testing functions (t-test, ANOVA, Mann-Whitney U, Kruskal-Wallis, Shapiro-Wilk, Pearson, Spearman, Chi-square)
-- **0.5.0**: Added AID (Automatic Identification of Demand) for demand classification and anomaly detection
-- **0.4.0**: Added GLM (Poisson), ALM (24 distributions), BLS/NNLS constrained optimization
-- **0.3.0**: Added fit_predict window functions, predict_agg aggregate functions, null_policy parameter
-- **0.2.0**: Added RLS, Jarque-Bera, residuals diagnostics, VIF aggregate
+- **0.6.0**: Added aid_anomaly_by table macro, reorganized documentation
+- **0.5.0**: Added PLS, Isotonic, Quantile regression
+- **0.4.0**: Added ALM with 24 distributions
+- **0.3.0**: Added comprehensive hypothesis testing
+- **0.2.0**: Added BLS/NNLS, RLS
 - **0.1.0**: Initial release with OLS, Ridge, Elastic Net, WLS

@@ -1,6 +1,15 @@
-# AID - Automatic Item-level Demand Classification
+# AID (Automatic Identification of Demand)
 
-AID (Automatic Identification of Demand) provides demand pattern classification and anomaly detection for time series data. Useful for inventory management, supply chain analysis, and demand forecasting.
+AID provides demand pattern classification and anomaly detection for time series data. Useful for inventory management, supply chain analysis, and demand forecasting.
+
+## Functions
+
+| Function | Type | Description |
+|----------|------|-------------|
+| `aid_by` | Table Macro | Grouped demand classification with wide-format output |
+| `aid_anomaly_by` | Table Macro | Grouped anomaly detection with long-format output |
+| `aid_agg` | Aggregate | Classify demand patterns and detect anomalies |
+| `aid_anomaly_agg` | Aggregate | Per-observation anomaly flags |
 
 ## Table Macros (Recommended Entry Point)
 
@@ -54,31 +63,60 @@ SELECT * FROM aid_by('sales', sku, demand);
 -- With custom intermittent threshold
 SELECT * FROM aid_by('sales', sku, demand, {'intermittent_threshold': 0.4});
 
--- Using IQR-based outlier detection
-SELECT * FROM aid_by('inventory_data', product_id, quantity, {'outlier_method': 'iqr'});
-
 -- Find products with stockout issues
 SELECT * FROM aid_by('sales', sku, demand)
 WHERE has_stockouts
 ORDER BY stockout_count DESC;
 ```
 
+### aid_anomaly_by
+
+Per-observation anomaly detection for each group, returning one row per observation.
+
+**Signature:**
+```sql
+aid_anomaly_by(
+    source VARCHAR,           -- Table name
+    group_col COLUMN,         -- Column to group by
+    order_col COLUMN,         -- Column to order by within group
+    y_col COLUMN,             -- Numeric column to analyze
+    [options MAP]             -- Optional configuration
+) -> TABLE
+```
+
+**Returns:**
+| Column | Type | Description |
+|--------|------|-------------|
+| group_id | ANY | Group identifier |
+| order_value | ANY | Order column value |
+| stockout | BOOLEAN | Unexpected zero in positive demand |
+| new_product | BOOLEAN | Leading zeros pattern |
+| obsolete_product | BOOLEAN | Trailing zeros pattern |
+| high_outlier | BOOLEAN | Unusually high value |
+| low_outlier | BOOLEAN | Unusually low value |
+
+**Example:**
+```sql
+-- Get anomaly flags per product with dates
+SELECT * FROM aid_anomaly_by('sales_data', product_id, sale_date, quantity, NULL);
+
+-- Filter to stockouts only
+SELECT group_id, order_value AS sale_date
+FROM aid_anomaly_by('inventory', sku, period, demand, NULL)
+WHERE stockout;
+```
+
 ---
 
 ## Aggregate Functions
 
-Aggregate functions provide more control and can be used with custom GROUP BY logic.
-
-### aid_agg
+### aid_agg / anofox_stats_aid_agg
 
 Classifies demand patterns as regular or intermittent, identifies best-fit distribution, and detects various anomaly patterns.
 
 **Signature:**
 ```sql
-aid_agg(
-    y DOUBLE,
-    [options MAP]
-) -> STRUCT
+aid_agg(y DOUBLE, [options MAP]) -> STRUCT
 ```
 
 **Options:**
@@ -131,16 +169,13 @@ SELECT aid_agg(demand, {'outlier_method': 'iqr'})
 FROM inventory_data;
 ```
 
-### aid_anomaly_agg
+### aid_anomaly_agg / anofox_stats_aid_anomaly_agg
 
 Returns per-observation anomaly flags for demand analysis. Maintains input order.
 
 **Signature:**
 ```sql
-aid_anomaly_agg(
-    y DOUBLE,
-    [options MAP]
-) -> LIST(STRUCT)
+aid_anomaly_agg(y DOUBLE, [options MAP]) -> LIST(STRUCT)
 ```
 
 **Options:**
@@ -161,11 +196,13 @@ LIST(STRUCT(
 ```
 
 **Anomaly Definitions:**
-- **Stockout**: Zero value occurring between non-zero values (not at start or end)
-- **New Product**: Leading sequence of zeros (before first non-zero)
-- **Obsolete Product**: Trailing sequence of zeros (after last non-zero)
-- **High Outlier**: Value > mean + 3*std (zscore) or > Q3 + 1.5*IQR (iqr)
-- **Low Outlier**: Non-zero value < mean - 3*std (zscore) or < Q1 - 1.5*IQR (iqr)
+| Anomaly | Description |
+|---------|-------------|
+| **Stockout** | Zero value occurring between non-zero values |
+| **New Product** | Leading sequence of zeros (before first non-zero) |
+| **Obsolete Product** | Trailing sequence of zeros (after last non-zero) |
+| **High Outlier** | Value > mean + 3*std (zscore) or > Q3 + 1.5*IQR (iqr) |
+| **Low Outlier** | Non-zero value < mean - 3*std (zscore) or < Q1 - 1.5*IQR (iqr) |
 
 **Example:**
 ```sql
@@ -196,38 +233,6 @@ ORDER BY result.stockout_count DESC;
 
 ---
 
-## Scalar Functions
-
-### aid_category
-
-Returns the demand category based on ADI (Average Demand Interval) and CV² (Coefficient of Variation squared).
-
-**Signature:**
-```sql
-aid_category(
-    adi DOUBLE,
-    cv2 DOUBLE
-) -> VARCHAR
-```
-
-**Returns:** One of `'Smooth'`, `'Erratic'`, `'Intermittent'`, or `'Lumpy'`
-
-**Classification Logic:**
-| ADI | CV² | Category |
-|-----|-----|----------|
-| < 1.32 | < 0.49 | Smooth |
-| < 1.32 | >= 0.49 | Erratic |
-| >= 1.32 | < 0.49 | Intermittent |
-| >= 1.32 | >= 0.49 | Lumpy |
-
-**Example:**
-```sql
-SELECT aid_category(1.5, 0.3);  -- Returns: 'Intermittent'
-SELECT aid_category(1.0, 0.6);  -- Returns: 'Erratic'
-```
-
----
-
 ## Use Cases
 
 - **Inventory management**: Identify stockout patterns
@@ -236,10 +241,7 @@ SELECT aid_category(1.0, 0.6);  -- Returns: 'Erratic'
 - **Data quality**: Find outliers in demand data
 - **Supply chain**: Monitor for demand anomalies
 
-## Function Aliases
+## See Also
 
-| Primary Name | Alias |
-|--------------|-------|
-| aid_agg | anofox_stats_aid_agg |
-| aid_anomaly_agg | anofox_stats_aid_anomaly_agg |
-| aid_category | anofox_stats_aid_category |
+- [Diagnostics](../diagnostics/diagnostics.md) - Model diagnostics
+- [Table Macros](../macros/table_macros.md) - All table macros
