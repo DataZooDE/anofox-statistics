@@ -49,11 +49,11 @@ SELECT COUNT(DISTINCT group_id) FROM aid_anomaly_by('test_anomaly_data', group_i
 ----
 3
 
-# TEST 4: Output has correct columns (group_id, order_value, and boolean flags)
+# TEST 4: Output has correct columns (preserves original column names + boolean flags)
 query TTTTTTT
 SELECT
     group_id IS NOT NULL AS has_group,
-    order_value IS NOT NULL AS has_order,
+    period IS NOT NULL AS has_order,
     stockout IS NOT NULL AS has_stockout,
     new_product IS NOT NULL AS has_new_product,
     obsolete_product IS NOT NULL AS has_obsolete,
@@ -73,12 +73,12 @@ A	6
 B	6
 C	6
 
-# TEST 6: order_value column preserves original data
+# TEST 6: period column preserves original data (column name preserved from input)
 query TI
-SELECT group_id, order_value
+SELECT group_id, period
 FROM aid_anomaly_by('test_anomaly_data', group_id, period, demand, NULL)
 WHERE group_id = 'A'
-ORDER BY order_value
+ORDER BY period
 LIMIT 3;
 ----
 A	1

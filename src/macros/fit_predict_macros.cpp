@@ -356,20 +356,21 @@ ORDER BY group_id
     // aid_by: AID (Automatic Identification of Demand) classification per group (wide format - one row per group)
     // C++ API: aid_by(table_name, group_col, y_col, options)
     // Options: intermittent_threshold, outlier_method
-    // Returns: group_id, demand_type, is_intermittent, distribution, mean, variance, zero_proportion,
+    // Returns: <group_col>, demand_type, is_intermittent, distribution, mean, variance, zero_proportion,
     //          n_observations, has_stockouts, is_new_product, is_obsolete_product, stockout_count,
     //          new_product_count, obsolete_product_count, high_outlier_count, low_outlier_count
+    // Note: Output column preserves the original column name passed by the user
     {"aid_by", {"source", "group_col", "y_col", nullptr}, {{"options", "NULL"}},
 R"(
 WITH agg AS (
     SELECT
-        group_col AS group_id,
+        group_col,
         aid_agg(y_col, options) AS result
     FROM query_table(source::VARCHAR)
     GROUP BY group_col
 )
 SELECT
-    group_id,
+    group_col,
     (result).demand_type AS demand_type,
     (result).is_intermittent AS is_intermittent,
     (result).distribution AS distribution,
@@ -386,47 +387,33 @@ SELECT
     (result).high_outlier_count AS high_outlier_count,
     (result).low_outlier_count AS low_outlier_count
 FROM agg
-ORDER BY group_id
+ORDER BY group_col
 )"},
 
     // aid_anomaly_by: AID anomaly detection per group (long format - one row per observation)
     // C++ API: aid_anomaly_by(table_name, group_col, order_col, y_col, options)
     // Options: intermittent_threshold, outlier_method
-    // Returns: group_id, order_value, stockout, new_product, obsolete_product, high_outlier, low_outlier
+    // Returns: <group_col>, <order_col>, stockout, new_product, obsolete_product, high_outlier, low_outlier
+    // Note: Output columns preserve the original column names passed by the user
     {"aid_anomaly_by", {"source", "group_col", "order_col", "y_col", nullptr}, {{"options", "NULL"}},
 R"(
-WITH original_data AS (
-    SELECT
-        group_col AS group_id,
-        order_col AS order_value,
-        ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_col) AS rn
-    FROM query_table(source::VARCHAR)
-),
-anomalies AS (
-    SELECT
-        group_col AS group_id,
-        aid_anomaly_agg(y_col, options ORDER BY order_col) AS flags
-    FROM query_table(source::VARCHAR)
-    GROUP BY group_col
-),
-unnested AS (
-    SELECT
-        group_id,
-        UNNEST(flags) AS f,
-        generate_subscripts(flags, 1) AS rn
-    FROM anomalies
-)
 SELECT
-    o.group_id,
-    o.order_value,
-    (u.f).stockout AS stockout,
-    (u.f).new_product AS new_product,
-    (u.f).obsolete_product AS obsolete_product,
-    (u.f).high_outlier AS high_outlier,
-    (u.f).low_outlier AS low_outlier
-FROM original_data o
-JOIN unnested u ON o.group_id = u.group_id AND o.rn = u.rn
-ORDER BY o.group_id, o.order_value
+    group_col,
+    order_col,
+    (anomaly_flags[row_num]).stockout AS stockout,
+    (anomaly_flags[row_num]).new_product AS new_product,
+    (anomaly_flags[row_num]).obsolete_product AS obsolete_product,
+    (anomaly_flags[row_num]).high_outlier AS high_outlier,
+    (anomaly_flags[row_num]).low_outlier AS low_outlier
+FROM (
+    SELECT
+        group_col,
+        order_col,
+        ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_col) AS row_num,
+        aid_anomaly_agg(y_col, options ORDER BY order_col) OVER (PARTITION BY group_col) AS anomaly_flags
+    FROM query_table(source::VARCHAR)
+) sub
+ORDER BY group_col, order_col
 )"},
 
     // Sentinel
