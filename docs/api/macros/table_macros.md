@@ -1,6 +1,8 @@
 # Table Macros
 
-Table macros that wrap `*_fit_predict_agg` functions for easy per-group regression with long-format output. These macros simplify common workflows by handling GROUP BY, UNNEST, and column extraction automatically.
+Table macros that wrap `*_fit_predict_agg` functions for easy per-group regression with long-format output. These macros simplify common workflows by handling grouping, prediction, and column extraction automatically.
+
+All source columns are **passed through** to the output, so you retain the original data alongside predictions.
 
 ## Overview
 
@@ -16,16 +18,20 @@ All regression table macros share a common interface:
 ) -> TABLE
 ```
 
-**Common Return Columns:**
+**Return Columns:**
+
+All columns from the source table are preserved in the output (including the group column, y column, and all feature columns with their original names). The following prediction columns are appended:
+
 | Column | Type | Description |
 |--------|------|-------------|
-| group_id | ANY | Group identifier |
-| y | DOUBLE | Original y value (NULL for out-of-sample) |
-| x | LIST(DOUBLE) | Feature values |
 | yhat | DOUBLE | Predicted value |
 | yhat_lower | DOUBLE | Lower prediction interval bound |
 | yhat_upper | DOUBLE | Upper prediction interval bound |
 | is_training | BOOLEAN | True if row was used for training |
+
+> **Note:** Column names in the output preserve the original names from the source table. For example, if you pass `region` as the group column and `revenue` as y_col, the output will have `region` and `revenue` columns, not generic names.
+>
+> PLS, isotonic, and quantile regression macros return only `yhat` and `is_training` (no prediction intervals).
 
 **Common Options:**
 | Key | Type | Default | Description |
@@ -240,8 +246,8 @@ aid_anomaly_by(
 **Returns:**
 | Column | Type | Description |
 |--------|------|-------------|
-| group_id | ANY | Group identifier |
-| order_value | ANY | Order value (e.g., date) |
+| \<group_col\> | ANY | Group identifier (preserves original column name) |
+| \<order_col\> | ANY | Order value (preserves original column name) |
 | stockout | BOOLEAN | Unexpected zero in positive demand period |
 | new_product | BOOLEAN | Part of leading zeros pattern |
 | obsolete_product | BOOLEAN | Part of trailing zeros pattern |
@@ -257,17 +263,17 @@ SELECT * FROM aid_anomaly_by('sales_data', product_id, sale_date, quantity, NULL
 SELECT * FROM aid_anomaly_by('sales_data', product_id, sale_date, quantity,
     {'intermittent_threshold': 0.5, 'outlier_method': 'iqr'});
 
--- Filter to only stockout anomalies
-SELECT group_id, order_value AS sale_date
+-- Filter to only stockout anomalies (column names are preserved)
+SELECT sku, period
 FROM aid_anomaly_by('inventory', sku, period, demand, NULL)
 WHERE stockout;
 
--- Aggregate anomaly counts per product
-SELECT group_id,
+-- Aggregate anomaly counts per product (column names are preserved)
+SELECT product_id,
        SUM(stockout::INT) AS stockout_count,
        SUM(high_outlier::INT) AS high_outlier_count
 FROM aid_anomaly_by('sales_data', product_id, sale_date, quantity, NULL)
-GROUP BY group_id;
+GROUP BY product_id;
 ```
 
 ## null_policy Parameter
