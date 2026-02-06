@@ -104,7 +104,7 @@ SELECT ols_fit_agg(y, [x1, x2]) FROM table GROUP BY category;
 ```
 
 ### Table Macros
-Convenience wrappers that handle GROUP BY, UNNEST, and column extraction automatically.
+Convenience wrappers for per-group regression. All source columns are passed through to the output alongside predictions.
 ```sql
 SELECT * FROM ols_fit_predict_by('sales', region, revenue, [ads, price]);
 ```
@@ -2485,7 +2485,7 @@ WHERE store_id = 1;
 
 ## Fit-Predict Table Macros
 
-Table macros that wrap `*_fit_predict_agg` functions for easy per-group regression with long-format output. These macros simplify common workflows by handling the GROUP BY, UNNEST, and column extraction automatically.
+Table macros that wrap `*_fit_predict_agg` functions for easy per-group regression with long-format output. All source columns are **passed through** to the output, so you retain the original data alongside predictions.
 
 All table macros accept an optional `options` MAP parameter to configure method-specific settings. When not provided, defaults are used.
 
@@ -2511,15 +2511,17 @@ ols_fit_predict_by(
 | null_policy | VARCHAR | 'drop' | NULL handling: 'drop' or 'drop_y_zero_x' |
 
 **Returns:**
+
+All columns from the source table are preserved in the output (including the group column, y column, and all feature columns with their original names). The following prediction columns are appended:
+
 | Column | Type | Description |
 |--------|------|-------------|
-| group_id | ANY | Group identifier |
-| y | DOUBLE | Original y value (NULL for out-of-sample) |
-| x | LIST(DOUBLE) | Feature values |
 | yhat | DOUBLE | Predicted value |
 | yhat_lower | DOUBLE | Lower prediction interval bound |
 | yhat_upper | DOUBLE | Upper prediction interval bound |
 | is_training | BOOLEAN | True if row was used for training |
+
+> **Note:** Column names in the output preserve the original names from the source table.
 
 **Example:**
 ```sql

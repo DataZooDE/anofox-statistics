@@ -47,19 +47,20 @@ SELECT COUNT(DISTINCT group_id) FROM ols_fit_predict_by('reg_data', group_id, y,
 ----
 2
 
-# TEST 4: Output has correct columns
-query TIIIII
+# TEST 4: Output has correct columns including passthrough source columns
+query IIIIIII
 SELECT
     group_id IS NOT NULL AS has_group,
+    x1 IS NOT NULL OR x1 IS NULL AS has_x1,
+    x2 IS NOT NULL AS has_x2,
     y IS NOT NULL OR y IS NULL AS has_y,
-    x IS NOT NULL AS has_x,
     yhat IS NOT NULL AS has_yhat,
     yhat_lower IS NOT NULL OR yhat_lower IS NULL AS has_lower,
     yhat_upper IS NOT NULL OR yhat_upper IS NULL AS has_upper
 FROM ols_fit_predict_by('reg_data', group_id, y, [x1, x2])
 LIMIT 1;
 ----
-true	true	true	true	true	true
+true	true	true	true	true	true	true
 
 # TEST 5: Training rows have y values, OOS rows have NULL y
 query II
@@ -82,6 +83,16 @@ SELECT COUNT(*) FROM ols_fit_predict_by('reg_data', group_id, y, [x1, x2])
 WHERE is_training AND ABS(yhat - y) < 1.0;
 ----
 10
+
+# TEST 7b: Passthrough columns preserve original values
+query IRRR
+SELECT COUNT(*) AS n,
+    MIN(x1) AS min_x1,
+    MAX(x2) AS max_x2,
+    SUM(CASE WHEN x1 IS NULL THEN 1 ELSE 0 END) AS null_x1_count
+FROM ols_fit_predict_by('reg_data', group_id, y, [x1, x2]);
+----
+12	1.0	18.0	2
 
 # =============================================================================
 # RIDGE_FIT_PREDICT_BY TESTS
