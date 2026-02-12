@@ -38,7 +38,7 @@ aid_by(
 **Returns:**
 | Column | Type | Description |
 |--------|------|-------------|
-| group_id | ANY | Group identifier (same type as group_col) |
+| \<group_col\> | ANY | Group identifier (preserves original column name) |
 | demand_type | VARCHAR | 'regular' or 'intermittent' |
 | is_intermittent | BOOLEAN | True if zero_proportion >= threshold |
 | distribution | VARCHAR | Best-fit distribution name |
@@ -87,8 +87,8 @@ aid_anomaly_by(
 **Returns:**
 | Column | Type | Description |
 |--------|------|-------------|
-| group_id | ANY | Group identifier |
-| order_value | ANY | Order column value |
+| \<group_col\> | ANY | Group identifier (preserves original column name) |
+| \<order_col\> | ANY | Order column value (preserves original column name) |
 | stockout | BOOLEAN | Unexpected zero in positive demand |
 | new_product | BOOLEAN | Leading zeros pattern |
 | obsolete_product | BOOLEAN | Trailing zeros pattern |
@@ -100,8 +100,8 @@ aid_anomaly_by(
 -- Get anomaly flags per product with dates
 SELECT * FROM aid_anomaly_by('sales_data', product_id, sale_date, quantity, NULL);
 
--- Filter to stockouts only
-SELECT group_id, order_value AS sale_date
+-- Filter to stockouts only (using actual column names)
+SELECT sku, period
 FROM aid_anomaly_by('inventory', sku, period, demand, NULL)
 WHERE stockout;
 ```

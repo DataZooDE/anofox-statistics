@@ -40,11 +40,12 @@ struct BlsFitPredictAggState {
     double tolerance;
     double confidence_level;
     NullPolicy null_policy;
+    bool use_split_col;
 
     BlsFitPredictAggState()
         : n_features(0), initialized(false), fit_intercept(false), lower_bound(0.0), upper_bound(0.0),
           has_lower_bound(false), has_upper_bound(false), max_iterations(1000), tolerance(1e-10),
-          confidence_level(0.95), null_policy(NullPolicy::DROP) {}
+          confidence_level(0.95), null_policy(NullPolicy::DROP), use_split_col(false) {}
 
     void Reset() {
         y_train.clear();
@@ -71,6 +72,7 @@ struct BlsFitPredictAggBindData : public FunctionData {
     double tolerance = 1e-10;
     double confidence_level = 0.95;
     NullPolicy null_policy = NullPolicy::DROP;
+    bool use_split_col = false;
 
     unique_ptr<FunctionData> Copy() const override {
         auto result = make_uniq<BlsFitPredictAggBindData>();
@@ -83,6 +85,7 @@ struct BlsFitPredictAggBindData : public FunctionData {
         result->tolerance = tolerance;
         result->confidence_level = confidence_level;
         result->null_policy = null_policy;
+        result->use_split_col = use_split_col;
         return std::move(result);
     }
 
@@ -92,17 +95,16 @@ struct BlsFitPredictAggBindData : public FunctionData {
                upper_bound == other.upper_bound && has_lower_bound == other.has_lower_bound &&
                has_upper_bound == other.has_upper_bound && max_iterations == other.max_iterations &&
                tolerance == other.tolerance && confidence_level == other.confidence_level &&
-               null_policy == other.null_policy;
+               null_policy == other.null_policy && use_split_col == other.use_split_col;
     }
 };
 
 //===--------------------------------------------------------------------===//
-// Result type: LIST(STRUCT(y, x, yhat, yhat_lower, yhat_upper, is_training))
+// Result type: LIST(STRUCT(y, yhat, yhat_lower, yhat_upper, is_training))
 //===--------------------------------------------------------------------===//
 static LogicalType GetBlsFitPredictAggResultType() {
     child_list_t<LogicalType> row_children;
     row_children.push_back(make_pair("y", LogicalType::DOUBLE));
-    row_children.push_back(make_pair("x", LogicalType::LIST(LogicalType::DOUBLE)));
     row_children.push_back(make_pair("yhat", LogicalType::DOUBLE));
     row_children.push_back(make_pair("yhat_lower", LogicalType::DOUBLE));
     row_children.push_back(make_pair("yhat_upper", LogicalType::DOUBLE));
@@ -131,6 +133,14 @@ static void BlsFitPredictAggDestroy(Vector &state_vector, AggregateInputData &, 
     }
 }
 
+static bool BlsIsSplitTraining(const string_t &split_val) {
+    string val = split_val.GetString();
+    for (auto &c : val) {
+        c = std::tolower(c);
+    }
+    return val == "train" || val == "training";
+}
+
 // Update: accumulate ALL rows, track which are training vs prediction
 static void BlsFitPredictAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data, idx_t input_count,
                                  Vector &state_vector, idx_t count) {
@@ -145,6 +155,13 @@ static void BlsFitPredictAggUpdate(Vector inputs[], AggregateInputData &aggr_inp
     auto x_list_data = ListVector::GetData(inputs[1]);
     auto &x_child = ListVector::GetEntry(inputs[1]);
     auto x_child_data = FlatVector::GetData<double>(x_child);
+
+    UnifiedVectorFormat split_data;
+    const string_t *split_values = nullptr;
+    if (bind_data.use_split_col && input_count >= 3) {
+        inputs[2].ToUnifiedFormat(count, split_data);
+        split_values = UnifiedVectorFormat::GetData<string_t>(split_data);
+    }
 
     UnifiedVectorFormat sdata;
     state_vector.ToUnifiedFormat(count, sdata);
@@ -163,6 +180,7 @@ static void BlsFitPredictAggUpdate(Vector inputs[], AggregateInputData &aggr_inp
         state.tolerance = bind_data.tolerance;
         state.confidence_level = bind_data.confidence_level;
         state.null_policy = bind_data.null_policy;
+        state.use_split_col = bind_data.use_split_col;
 
         // Get x values
         auto x_idx = x_data.sel->get_index(i);
@@ -198,7 +216,20 @@ static void BlsFitPredictAggUpdate(Vector inputs[], AggregateInputData &aggr_inp
         double y_val = y_valid ? y_values[y_idx] : std::nan("");
 
         // Determine if this row is for training
-        bool row_is_training = y_valid;
+        bool row_is_training;
+        if (bind_data.use_split_col && split_values) {
+            auto split_idx = split_data.sel->get_index(i);
+            if (split_data.validity.RowIsValid(split_idx)) {
+                row_is_training = BlsIsSplitTraining(split_values[split_idx]);
+            } else {
+                row_is_training = false;
+            }
+            if (row_is_training && !y_valid) {
+                row_is_training = false;
+            }
+        } else {
+            row_is_training = y_valid;
+        }
 
         // Apply null_policy for drop_y_zero_x
         if (row_is_training && state.null_policy == NullPolicy::DROP_Y_ZERO_X) {
@@ -261,6 +292,7 @@ static void BlsFitPredictAggCombine(Vector &source_vector, Vector &target_vector
             target.tolerance = source.tolerance;
             target.confidence_level = source.confidence_level;
             target.null_policy = source.null_policy;
+            target.use_split_col = source.use_split_col;
             continue;
         }
 
@@ -369,13 +401,12 @@ static void BlsFitPredictAggFinalize(Vector &state_vector, AggregateInputData &a
         auto &child_struct = ListVector::GetEntry(result);
         auto &struct_entries = StructVector::GetEntries(child_struct);
 
-        // struct_entries: [y, x, yhat, yhat_lower, yhat_upper, is_training]
+        // struct_entries: [y, yhat, yhat_lower, yhat_upper, is_training]
         auto &y_vec = *struct_entries[0];
-        auto &x_vec = *struct_entries[1];
-        auto &yhat_vec = *struct_entries[2];
-        auto &yhat_lower_vec = *struct_entries[3];
-        auto &yhat_upper_vec = *struct_entries[4];
-        auto &is_training_vec = *struct_entries[5];
+        auto &yhat_vec = *struct_entries[1];
+        auto &yhat_lower_vec = *struct_entries[2];
+        auto &yhat_upper_vec = *struct_entries[3];
+        auto &is_training_vec = *struct_entries[4];
 
         for (idx_t row = 0; row < n_rows; row++) {
             idx_t child_idx = list_offset + row;
@@ -385,21 +416,6 @@ static void BlsFitPredictAggFinalize(Vector &state_vector, AggregateInputData &a
                 FlatVector::SetNull(y_vec, child_idx, true);
             } else {
                 FlatVector::GetData<double>(y_vec)[child_idx] = state.y_all[row];
-            }
-
-            // Set x as LIST
-            auto *x_list_data = ListVector::GetData(x_vec);
-            auto x_list_offset = ListVector::GetListSize(x_vec);
-            x_list_data[child_idx].offset = x_list_offset;
-            x_list_data[child_idx].length = state.n_features;
-
-            ListVector::Reserve(x_vec, x_list_offset + state.n_features);
-            ListVector::SetListSize(x_vec, x_list_offset + state.n_features);
-
-            auto &x_child = ListVector::GetEntry(x_vec);
-            auto x_child_data = FlatVector::GetData<double>(x_child);
-            for (idx_t j = 0; j < state.n_features; j++) {
-                x_child_data[x_list_offset + j] = state.x_all[row][j];
             }
 
             // Compute prediction for this row
@@ -468,6 +484,43 @@ static unique_ptr<FunctionData> BlsFitPredictAggBind(ClientContext &context, Agg
     return std::move(result);
 }
 
+static unique_ptr<FunctionData> BlsFitPredictAggBindWithSplit(ClientContext &context, AggregateFunction &function,
+                                                               vector<unique_ptr<Expression>> &arguments) {
+    auto result = make_uniq<BlsFitPredictAggBindData>();
+    result->use_split_col = true;
+
+    if (arguments.size() >= 4 && arguments[3]->IsFoldable()) {
+        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[3]);
+        if (opts.fit_intercept.has_value()) {
+            result->fit_intercept = opts.fit_intercept.value();
+        }
+        if (opts.lower_bound.has_value()) {
+            result->lower_bound = opts.lower_bound.value();
+            result->has_lower_bound = true;
+        }
+        if (opts.upper_bound.has_value()) {
+            result->upper_bound = opts.upper_bound.value();
+            result->has_upper_bound = true;
+        }
+        if (opts.max_iterations.has_value()) {
+            result->max_iterations = opts.max_iterations.value();
+        }
+        if (opts.tolerance.has_value()) {
+            result->tolerance = opts.tolerance.value();
+        }
+        if (opts.confidence_level.has_value()) {
+            result->confidence_level = opts.confidence_level.value();
+        }
+        if (opts.null_policy.has_value()) {
+            result->null_policy = opts.null_policy.value();
+        }
+    }
+
+    function.return_type = GetBlsFitPredictAggResultType();
+    PostHogTelemetry::Instance().CaptureFunctionExecution("bls_fit_predict_agg");
+    return std::move(result);
+}
+
 //===--------------------------------------------------------------------===//
 // Registration
 //===--------------------------------------------------------------------===//
@@ -491,12 +544,29 @@ void RegisterBlsFitPredictAggregateFunction(ExtensionLoader &loader) {
         BlsFitPredictAggCombine, BlsFitPredictAggFinalize, nullptr, BlsFitPredictAggBind, BlsFitPredictAggDestroy);
     func_set.AddFunction(map_func);
 
+    auto split_func = AggregateFunction(
+        "anofox_stats_bls_fit_predict_agg",
+        {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR}, LogicalType::ANY,
+        AggregateFunction::StateSize<BlsFitPredictAggState>, BlsFitPredictAggInitialize, BlsFitPredictAggUpdate,
+        BlsFitPredictAggCombine, BlsFitPredictAggFinalize, nullptr, BlsFitPredictAggBindWithSplit, BlsFitPredictAggDestroy);
+    func_set.AddFunction(split_func);
+
+    auto split_opts_func = AggregateFunction(
+        "anofox_stats_bls_fit_predict_agg",
+        {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR, LogicalType::ANY},
+        LogicalType::ANY, AggregateFunction::StateSize<BlsFitPredictAggState>, BlsFitPredictAggInitialize,
+        BlsFitPredictAggUpdate, BlsFitPredictAggCombine, BlsFitPredictAggFinalize, nullptr, BlsFitPredictAggBindWithSplit,
+        BlsFitPredictAggDestroy);
+    func_set.AddFunction(split_opts_func);
+
     loader.RegisterFunction(func_set);
 
     // Short alias
     AggregateFunctionSet alias_set("bls_fit_predict_agg");
     alias_set.AddFunction(basic_func);
     alias_set.AddFunction(map_func);
+    alias_set.AddFunction(split_func);
+    alias_set.AddFunction(split_opts_func);
     loader.RegisterFunction(alias_set);
 }
 
