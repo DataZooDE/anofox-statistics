@@ -487,8 +487,61 @@ SELECT
 true
 
 # =============================================================================
+# SPLIT PARAMETER TESTS
+# =============================================================================
+
+# Create data with explicit split column
+statement ok
+CREATE TABLE split_data AS
+SELECT *, CASE WHEN y IS NOT NULL THEN 'train' ELSE 'test' END AS split
+FROM reg_data;
+
+# TEST 51: Split parameter produces same row count
+query I
+SELECT COUNT(*) FROM ols_fit_predict_by('split_data', group_id, y, [x1, x2], split := split);
+----
+12
+
+# TEST 52: Split parameter correctly identifies training rows
+query II
+SELECT
+    SUM(CASE WHEN is_training THEN 1 ELSE 0 END) AS train_count,
+    SUM(CASE WHEN NOT is_training THEN 1 ELSE 0 END) AS test_count
+FROM ols_fit_predict_by('split_data', group_id, y, [x1, x2], split := split);
+----
+10	2
+
+# TEST 53: Split results match NULL-y approach (same predictions per group)
+query I
+SELECT COUNT(*) FROM (
+    SELECT a.group_id, ABS(a.sum_yhat - b.sum_yhat) < 1e-8 AS match
+    FROM (SELECT group_id, SUM(yhat) AS sum_yhat FROM ols_fit_predict_by('reg_data', group_id, y, [x1, x2]) GROUP BY group_id) a
+    JOIN (SELECT group_id, SUM(yhat) AS sum_yhat FROM ols_fit_predict_by('split_data', group_id, y, [x1, x2], split := split) GROUP BY group_id) b
+    ON a.group_id = b.group_id
+    WHERE match
+);
+----
+2
+
+# TEST 54: Without split parameter, backward compatible (same as before)
+query I
+SELECT COUNT(*) FROM ols_fit_predict_by('split_data', group_id, y, [x1, x2]);
+----
+12
+
+# TEST 55: Split with options
+query I
+SELECT COUNT(*) FROM ols_fit_predict_by('split_data', group_id, y, [x1, x2],
+    options := {'confidence_level': 0.99}, split := split);
+----
+12
+
+# =============================================================================
 # CLEANUP
 # =============================================================================
+
+statement ok
+DROP TABLE IF EXISTS split_data;
 
 statement ok
 DROP TABLE IF EXISTS reg_data;

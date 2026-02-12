@@ -26,7 +26,7 @@ static const FitPredictTableMacro fit_predict_table_macros[] = {
     // Options: fit_intercept, confidence_level, null_policy
     // Returns: all source columns (incl. y_col) + yhat, yhat_lower, yhat_upper, is_training
     // Note: Output column preserves the original column name passed by the user
-    {"ols_fit_predict_by", {"source", "group_col", "y_col", "x_cols", nullptr}, {{"options", "NULL"}},
+    {"ols_fit_predict_by", {"source", "group_col", "y_col", "x_cols", nullptr}, {{"options", "NULL"}, {"split", "NULL"}},
 R"(
 SELECT
     * EXCLUDE (_pred, _rn),
@@ -37,7 +37,7 @@ SELECT
 FROM (
     SELECT *,
         ROW_NUMBER() OVER (PARTITION BY group_col) AS _rn,
-        ols_fit_predict_agg(y_col, x_cols, options) OVER (PARTITION BY group_col) AS _pred
+        ols_fit_predict_agg(CASE WHEN split IS NOT NULL AND split != 'train' THEN NULL ELSE y_col END, x_cols, options) OVER (PARTITION BY group_col) AS _pred
     FROM query_table(source::VARCHAR)
 ) sub
 ORDER BY group_col
@@ -47,7 +47,7 @@ ORDER BY group_col
     // C++ API: ridge_fit_predict_by(table_name, group_col, y_col, x_cols, options)
     // Options: alpha, fit_intercept, confidence_level, null_policy
     // Note: Output column preserves the original column name passed by the user
-    {"ridge_fit_predict_by", {"source", "group_col", "y_col", "x_cols", nullptr}, {{"options", "NULL"}},
+    {"ridge_fit_predict_by", {"source", "group_col", "y_col", "x_cols", nullptr}, {{"options", "NULL"}, {"split", "NULL"}},
 R"(
 SELECT
     * EXCLUDE (_pred, _rn),
@@ -58,7 +58,7 @@ SELECT
 FROM (
     SELECT *,
         ROW_NUMBER() OVER (PARTITION BY group_col) AS _rn,
-        ridge_fit_predict_agg(y_col, x_cols, options) OVER (PARTITION BY group_col) AS _pred
+        ridge_fit_predict_agg(CASE WHEN split IS NOT NULL AND split != 'train' THEN NULL ELSE y_col END, x_cols, options) OVER (PARTITION BY group_col) AS _pred
     FROM query_table(source::VARCHAR)
 ) sub
 ORDER BY group_col
@@ -68,7 +68,7 @@ ORDER BY group_col
     // C++ API: elasticnet_fit_predict_by(table_name, group_col, y_col, x_cols, options)
     // Options: alpha, l1_ratio, max_iterations, tolerance, fit_intercept, confidence_level, null_policy
     // Note: Output column preserves the original column name passed by the user
-    {"elasticnet_fit_predict_by", {"source", "group_col", "y_col", "x_cols", nullptr}, {{"options", "NULL"}},
+    {"elasticnet_fit_predict_by", {"source", "group_col", "y_col", "x_cols", nullptr}, {{"options", "NULL"}, {"split", "NULL"}},
 R"(
 SELECT
     * EXCLUDE (_pred, _rn),
@@ -79,7 +79,7 @@ SELECT
 FROM (
     SELECT *,
         ROW_NUMBER() OVER (PARTITION BY group_col) AS _rn,
-        elasticnet_fit_predict_agg(y_col, x_cols, options) OVER (PARTITION BY group_col) AS _pred
+        elasticnet_fit_predict_agg(CASE WHEN split IS NOT NULL AND split != 'train' THEN NULL ELSE y_col END, x_cols, options) OVER (PARTITION BY group_col) AS _pred
     FROM query_table(source::VARCHAR)
 ) sub
 ORDER BY group_col
@@ -89,7 +89,7 @@ ORDER BY group_col
     // C++ API: wls_fit_predict_by(table_name, group_col, y_col, x_cols, weight_col, options)
     // Options: fit_intercept, confidence_level, null_policy
     // Note: Output column preserves the original column name passed by the user
-    {"wls_fit_predict_by", {"source", "group_col", "y_col", "x_cols", "weight_col", nullptr}, {{"options", "NULL"}},
+    {"wls_fit_predict_by", {"source", "group_col", "y_col", "x_cols", "weight_col", nullptr}, {{"options", "NULL"}, {"split", "NULL"}},
 R"(
 SELECT
     * EXCLUDE (_pred, _rn),
@@ -100,7 +100,7 @@ SELECT
 FROM (
     SELECT *,
         ROW_NUMBER() OVER (PARTITION BY group_col) AS _rn,
-        wls_fit_predict_agg(y_col, x_cols, weight_col, options) OVER (PARTITION BY group_col) AS _pred
+        wls_fit_predict_agg(CASE WHEN split IS NOT NULL AND split != 'train' THEN NULL ELSE y_col END, x_cols, weight_col, options) OVER (PARTITION BY group_col) AS _pred
     FROM query_table(source::VARCHAR)
 ) sub
 ORDER BY group_col
@@ -110,7 +110,7 @@ ORDER BY group_col
     // C++ API: rls_fit_predict_by(table_name, group_col, y_col, x_cols, options)
     // Options: forgetting_factor, initial_p_diagonal, fit_intercept, confidence_level, null_policy
     // Note: Output column preserves the original column name passed by the user
-    {"rls_fit_predict_by", {"source", "group_col", "y_col", "x_cols", nullptr}, {{"options", "NULL"}},
+    {"rls_fit_predict_by", {"source", "group_col", "y_col", "x_cols", nullptr}, {{"options", "NULL"}, {"split", "NULL"}},
 R"(
 SELECT
     * EXCLUDE (_pred, _rn),
@@ -121,7 +121,7 @@ SELECT
 FROM (
     SELECT *,
         ROW_NUMBER() OVER (PARTITION BY group_col) AS _rn,
-        rls_fit_predict_agg(y_col, x_cols, options) OVER (PARTITION BY group_col) AS _pred
+        rls_fit_predict_agg(CASE WHEN split IS NOT NULL AND split != 'train' THEN NULL ELSE y_col END, x_cols, options) OVER (PARTITION BY group_col) AS _pred
     FROM query_table(source::VARCHAR)
 ) sub
 ORDER BY group_col
@@ -131,7 +131,7 @@ ORDER BY group_col
     // C++ API: bls_fit_predict_by(table_name, group_col, y_col, x_cols, options)
     // Options: lower_bound, upper_bound, intercept, max_iterations, tolerance, confidence_level, null_policy
     // Note: Output column preserves the original column name passed by the user
-    {"bls_fit_predict_by", {"source", "group_col", "y_col", "x_cols", nullptr}, {{"options", "NULL"}},
+    {"bls_fit_predict_by", {"source", "group_col", "y_col", "x_cols", nullptr}, {{"options", "NULL"}, {"split", "NULL"}},
 R"(
 SELECT
     * EXCLUDE (_pred, _rn),
@@ -142,7 +142,7 @@ SELECT
 FROM (
     SELECT *,
         ROW_NUMBER() OVER (PARTITION BY group_col) AS _rn,
-        bls_fit_predict_agg(y_col, x_cols, options) OVER (PARTITION BY group_col) AS _pred
+        bls_fit_predict_agg(CASE WHEN split IS NOT NULL AND split != 'train' THEN NULL ELSE y_col END, x_cols, options) OVER (PARTITION BY group_col) AS _pred
     FROM query_table(source::VARCHAR)
 ) sub
 ORDER BY group_col
@@ -152,7 +152,7 @@ ORDER BY group_col
     // C++ API: alm_fit_predict_by(table_name, group_col, y_col, x_cols, options)
     // Options: distribution, intercept, max_iterations, tolerance, confidence_level, null_policy
     // Note: Output column preserves the original column name passed by the user
-    {"alm_fit_predict_by", {"source", "group_col", "y_col", "x_cols", nullptr}, {{"options", "NULL"}},
+    {"alm_fit_predict_by", {"source", "group_col", "y_col", "x_cols", nullptr}, {{"options", "NULL"}, {"split", "NULL"}},
 R"(
 SELECT
     * EXCLUDE (_pred, _rn),
@@ -163,7 +163,7 @@ SELECT
 FROM (
     SELECT *,
         ROW_NUMBER() OVER (PARTITION BY group_col) AS _rn,
-        alm_fit_predict_agg(y_col, x_cols, options) OVER (PARTITION BY group_col) AS _pred
+        alm_fit_predict_agg(CASE WHEN split IS NOT NULL AND split != 'train' THEN NULL ELSE y_col END, x_cols, options) OVER (PARTITION BY group_col) AS _pred
     FROM query_table(source::VARCHAR)
 ) sub
 ORDER BY group_col
@@ -173,7 +173,7 @@ ORDER BY group_col
     // C++ API: poisson_fit_predict_by(table_name, group_col, y_col, x_cols, options)
     // Options: link, intercept, max_iterations, tolerance, confidence_level, null_policy
     // Note: Output column preserves the original column name passed by the user
-    {"poisson_fit_predict_by", {"source", "group_col", "y_col", "x_cols", nullptr}, {{"options", "NULL"}},
+    {"poisson_fit_predict_by", {"source", "group_col", "y_col", "x_cols", nullptr}, {{"options", "NULL"}, {"split", "NULL"}},
 R"(
 SELECT
     * EXCLUDE (_pred, _rn),
@@ -184,7 +184,7 @@ SELECT
 FROM (
     SELECT *,
         ROW_NUMBER() OVER (PARTITION BY group_col) AS _rn,
-        poisson_fit_predict_agg(y_col, x_cols, options) OVER (PARTITION BY group_col) AS _pred
+        poisson_fit_predict_agg(CASE WHEN split IS NOT NULL AND split != 'train' THEN NULL ELSE y_col END, x_cols, options) OVER (PARTITION BY group_col) AS _pred
     FROM query_table(source::VARCHAR)
 ) sub
 ORDER BY group_col
@@ -194,7 +194,7 @@ ORDER BY group_col
     // C++ API: pls_fit_predict_by(table_name, group_col, y_col, x_cols, options)
     // Options: n_components, fit_intercept, confidence_level, null_policy
     // Note: Output column preserves the original column name passed by the user
-    {"pls_fit_predict_by", {"source", "group_col", "y_col", "x_cols", nullptr}, {{"options", "NULL"}},
+    {"pls_fit_predict_by", {"source", "group_col", "y_col", "x_cols", nullptr}, {{"options", "NULL"}, {"split", "NULL"}},
 R"(
 SELECT
     * EXCLUDE (_pred, _rn),
@@ -203,7 +203,7 @@ SELECT
 FROM (
     SELECT *,
         ROW_NUMBER() OVER (PARTITION BY group_col) AS _rn,
-        pls_fit_predict_agg(y_col, x_cols, options) OVER (PARTITION BY group_col) AS _pred
+        pls_fit_predict_agg(CASE WHEN split IS NOT NULL AND split != 'train' THEN NULL ELSE y_col END, x_cols, options) OVER (PARTITION BY group_col) AS _pred
     FROM query_table(source::VARCHAR)
 ) sub
 ORDER BY group_col
@@ -214,7 +214,7 @@ ORDER BY group_col
     // Note: Isotonic takes a single x column, not a list
     // Options: increasing, confidence_level, null_policy
     // Note: Output column preserves the original column name passed by the user
-    {"isotonic_fit_predict_by", {"source", "group_col", "y_col", "x_col", nullptr}, {{"options", "NULL"}},
+    {"isotonic_fit_predict_by", {"source", "group_col", "y_col", "x_col", nullptr}, {{"options", "NULL"}, {"split", "NULL"}},
 R"(
 SELECT
     * EXCLUDE (_pred, _rn),
@@ -223,7 +223,7 @@ SELECT
 FROM (
     SELECT *,
         ROW_NUMBER() OVER (PARTITION BY group_col) AS _rn,
-        isotonic_fit_predict_agg(y_col, x_col, options) OVER (PARTITION BY group_col) AS _pred
+        isotonic_fit_predict_agg(CASE WHEN split IS NOT NULL AND split != 'train' THEN NULL ELSE y_col END, x_col, options) OVER (PARTITION BY group_col) AS _pred
     FROM query_table(source::VARCHAR)
 ) sub
 ORDER BY group_col
@@ -233,7 +233,7 @@ ORDER BY group_col
     // C++ API: quantile_fit_predict_by(table_name, group_col, y_col, x_cols, options)
     // Options: tau, fit_intercept, max_iterations, tolerance, confidence_level, null_policy
     // Note: Output column preserves the original column name passed by the user
-    {"quantile_fit_predict_by", {"source", "group_col", "y_col", "x_cols", nullptr}, {{"options", "NULL"}},
+    {"quantile_fit_predict_by", {"source", "group_col", "y_col", "x_cols", nullptr}, {{"options", "NULL"}, {"split", "NULL"}},
 R"(
 SELECT
     * EXCLUDE (_pred, _rn),
@@ -242,7 +242,7 @@ SELECT
 FROM (
     SELECT *,
         ROW_NUMBER() OVER (PARTITION BY group_col) AS _rn,
-        quantile_fit_predict_agg(y_col, x_cols, options) OVER (PARTITION BY group_col) AS _pred
+        quantile_fit_predict_agg(CASE WHEN split IS NOT NULL AND split != 'train' THEN NULL ELSE y_col END, x_cols, options) OVER (PARTITION BY group_col) AS _pred
     FROM query_table(source::VARCHAR)
 ) sub
 ORDER BY group_col

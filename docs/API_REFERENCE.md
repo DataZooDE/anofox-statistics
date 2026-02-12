@@ -2499,7 +2499,8 @@ ols_fit_predict_by(
     group_col COLUMN,         -- Column to group by
     y_col COLUMN,             -- Response variable column
     x_cols LIST(COLUMN),      -- Feature columns as list
-    [options STRUCT]          -- Optional configuration (default: NULL)
+    [options STRUCT],         -- Optional configuration (default: NULL)
+    [split COLUMN]            -- Optional train/test split column (default: NULL)
 ) -> TABLE
 ```
 

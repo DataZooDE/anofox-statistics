@@ -14,7 +14,8 @@ All regression table macros share a common interface:
     group_col COLUMN,         -- Column to group by
     y_col COLUMN,             -- Response variable column
     x_cols LIST(COLUMN),      -- Feature columns as list
-    [options STRUCT]          -- Optional configuration
+    [options STRUCT],         -- Optional configuration
+    [split COLUMN]            -- Optional train/test split column
 ) -> TABLE
 ```
 
@@ -32,6 +33,16 @@ All columns from the source table are preserved in the output (including the gro
 > **Note:** Column names in the output preserve the original names from the source table. For example, if you pass `region` as the group column and `revenue` as y_col, the output will have `region` and `revenue` columns, not generic names.
 >
 > PLS, isotonic, and quantile regression macros return only `yhat` and `is_training` (no prediction intervals).
+
+**Split Parameter:**
+
+The optional `split` parameter accepts a column containing `'train'`/`'test'` values. Rows where `split != 'train'` are treated as out-of-sample (y is NULLed before fitting). When not provided, the default behavior applies: rows where y is NULL are out-of-sample.
+
+```sql
+-- With split column
+SELECT * FROM ols_fit_predict_by('data', group_id, target, [x1, x2],
+    options := {'null_policy': 'drop'}, split := split_col);
+```
 
 **Common Options:**
 | Key | Type | Default | Description |
