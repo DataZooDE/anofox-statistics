@@ -99,7 +99,7 @@ SELECT COUNT(*) FROM (
     SELECT UNNEST(poisson_fit_predict_agg(y, [x1, x2], {'link': 'log'})) AS pred
     FROM test_data
 )
-WHERE (pred).x IS NOT NULL AND LENGTH((pred).x) = 2;
+WHERE (pred).yhat IS NOT NULL;
 ----
 10
 

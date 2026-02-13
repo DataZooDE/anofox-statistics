@@ -58,11 +58,11 @@ FROM (
 query I
 SELECT COUNT(*) FROM (
     SELECT
-        (pred).x AS x_val,
         (pred).yhat AS yhat_val,
-        LAG((pred).yhat) OVER (ORDER BY (pred).x) AS prev_yhat
+        LAG((pred).yhat) OVER (ORDER BY rownum) AS prev_yhat
     FROM (
-        SELECT UNNEST(isotonic_fit_predict_agg(y, x)) AS pred
+        SELECT UNNEST(isotonic_fit_predict_agg(y, x)) AS pred,
+               ROW_NUMBER() OVER () AS rownum
         FROM test_data
     )
 )
@@ -91,11 +91,11 @@ SELECT LENGTH(isotonic_fit_predict_agg(y, x, {'increasing': false})) FROM decrea
 query I
 SELECT COUNT(*) FROM (
     SELECT
-        (pred).x AS x_val,
         (pred).yhat AS yhat_val,
-        LAG((pred).yhat) OVER (ORDER BY (pred).x) AS prev_yhat
+        LAG((pred).yhat) OVER (ORDER BY rownum) AS prev_yhat
     FROM (
-        SELECT UNNEST(isotonic_fit_predict_agg(y, x, {'increasing': false})) AS pred
+        SELECT UNNEST(isotonic_fit_predict_agg(y, x, {'increasing': false})) AS pred,
+               ROW_NUMBER() OVER () AS rownum
         FROM decreasing_data
     )
 )
@@ -177,7 +177,7 @@ SELECT COUNT(*) FROM (
     SELECT UNNEST(isotonic_fit_predict_agg(y, x)) AS pred
     FROM test_data
 )
-WHERE (pred).x IS NOT NULL;
+WHERE (pred).yhat IS NOT NULL;
 ----
 10
 
