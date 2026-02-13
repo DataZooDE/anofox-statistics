@@ -64,6 +64,7 @@ struct PoissonFitPredictAggBindData : public FunctionData {
     double tolerance = 1e-8;
     double confidence_level = 0.95;
     NullPolicy null_policy = NullPolicy::DROP;
+    bool use_split_col = false;  // True if using split column instead of y NULL
 
     unique_ptr<FunctionData> Copy() const override {
         auto result = make_uniq<PoissonFitPredictAggBindData>();
@@ -73,6 +74,7 @@ struct PoissonFitPredictAggBindData : public FunctionData {
         result->tolerance = tolerance;
         result->confidence_level = confidence_level;
         result->null_policy = null_policy;
+        result->use_split_col = use_split_col;
         return std::move(result);
     }
 
@@ -80,7 +82,8 @@ struct PoissonFitPredictAggBindData : public FunctionData {
         auto &other = other_p.Cast<PoissonFitPredictAggBindData>();
         return fit_intercept == other.fit_intercept && link == other.link &&
                max_iterations == other.max_iterations && tolerance == other.tolerance &&
-               confidence_level == other.confidence_level && null_policy == other.null_policy;
+               confidence_level == other.confidence_level && null_policy == other.null_policy &&
+               use_split_col == other.use_split_col;
     }
 };
 
@@ -90,7 +93,6 @@ struct PoissonFitPredictAggBindData : public FunctionData {
 static LogicalType GetPoissonFitPredictAggResultType() {
     child_list_t<LogicalType> row_children;
     row_children.push_back(make_pair("y", LogicalType::DOUBLE));
-    row_children.push_back(make_pair("x", LogicalType::LIST(LogicalType::DOUBLE)));
     row_children.push_back(make_pair("yhat", LogicalType::DOUBLE));
     row_children.push_back(make_pair("yhat_lower", LogicalType::DOUBLE));
     row_children.push_back(make_pair("yhat_upper", LogicalType::DOUBLE));
@@ -128,6 +130,15 @@ static double ApplyInverseLink(double linear_pred, AnofoxPoissonLink link) {
     default:
         return std::exp(linear_pred);
     }
+}
+
+// Helper: Check if split column value indicates training data
+static bool PoissonIsSplitTraining(const string_t &split_val) {
+    string val = split_val.GetString();
+    for (auto &c : val) {
+        c = std::tolower(c);
+    }
+    return val == "train" || val == "training";
 }
 
 // Get t critical value for confidence interval
@@ -181,6 +192,14 @@ static void PoissonFitPredictAggUpdate(Vector inputs[], AggregateInputData &aggr
     auto &x_child = ListVector::GetEntry(inputs[1]);
     auto x_child_data = FlatVector::GetData<double>(x_child);
 
+    // Handle split column if provided (y, x, split)
+    UnifiedVectorFormat split_data;
+    const string_t *split_values = nullptr;
+    if (bind_data.use_split_col && input_count >= 3) {
+        inputs[2].ToUnifiedFormat(count, split_data);
+        split_values = UnifiedVectorFormat::GetData<string_t>(split_data);
+    }
+
     UnifiedVectorFormat sdata;
     state_vector.ToUnifiedFormat(count, sdata);
     auto states = (PoissonFitPredictAggState **)sdata.data;
@@ -230,7 +249,23 @@ static void PoissonFitPredictAggUpdate(Vector inputs[], AggregateInputData &aggr
         double y_val = y_valid ? y_values[y_idx] : std::nan("");
 
         // Determine if this row is for training
-        bool row_is_training = y_valid;
+        bool row_is_training;
+        if (bind_data.use_split_col && split_values) {
+            // Use split column to determine training status
+            auto split_idx = split_data.sel->get_index(i);
+            if (split_data.validity.RowIsValid(split_idx)) {
+                row_is_training = PoissonIsSplitTraining(split_values[split_idx]);
+            } else {
+                row_is_training = false;  // NULL split -> not training
+            }
+            // If marked as training but y is NULL, can't actually train
+            if (row_is_training && !y_valid) {
+                row_is_training = false;
+            }
+        } else {
+            // Default: use y NULL to determine training
+            row_is_training = y_valid;
+        }
 
         // Apply null_policy for drop_y_zero_x
         if (row_is_training && state.null_policy == NullPolicy::DROP_Y_ZERO_X) {
@@ -377,13 +412,12 @@ static void PoissonFitPredictAggFinalize(Vector &state_vector, AggregateInputDat
         auto &child_struct = ListVector::GetEntry(result);
         auto &struct_entries = StructVector::GetEntries(child_struct);
 
-        // struct_entries: [y, x, yhat, yhat_lower, yhat_upper, is_training]
+        // struct_entries: [y, yhat, yhat_lower, yhat_upper, is_training]
         auto &y_vec = *struct_entries[0];
-        auto &x_vec = *struct_entries[1];
-        auto &yhat_vec = *struct_entries[2];
-        auto &yhat_lower_vec = *struct_entries[3];
-        auto &yhat_upper_vec = *struct_entries[4];
-        auto &is_training_vec = *struct_entries[5];
+        auto &yhat_vec = *struct_entries[1];
+        auto &yhat_lower_vec = *struct_entries[2];
+        auto &yhat_upper_vec = *struct_entries[3];
+        auto &is_training_vec = *struct_entries[4];
 
         // Get t-critical value for prediction intervals
         size_t df = core_result.n_observations - core_result.n_features - (state.fit_intercept ? 1 : 0);
@@ -397,21 +431,6 @@ static void PoissonFitPredictAggFinalize(Vector &state_vector, AggregateInputDat
                 FlatVector::SetNull(y_vec, child_idx, true);
             } else {
                 FlatVector::GetData<double>(y_vec)[child_idx] = state.y_all[row];
-            }
-
-            // Set x as LIST
-            auto *x_list_data = ListVector::GetData(x_vec);
-            auto x_list_offset = ListVector::GetListSize(x_vec);
-            x_list_data[child_idx].offset = x_list_offset;
-            x_list_data[child_idx].length = state.n_features;
-
-            ListVector::Reserve(x_vec, x_list_offset + state.n_features);
-            ListVector::SetListSize(x_vec, x_list_offset + state.n_features);
-
-            auto &x_child = ListVector::GetEntry(x_vec);
-            auto x_child_data = FlatVector::GetData<double>(x_child);
-            for (idx_t j = 0; j < state.n_features; j++) {
-                x_child_data[x_list_offset + j] = state.x_all[row][j];
             }
 
             // Compute linear predictor: eta = intercept + sum(coef * x)
@@ -503,6 +522,40 @@ static unique_ptr<FunctionData> PoissonFitPredictAggBind(ClientContext &context,
     return std::move(result);
 }
 
+// Bind function with split column
+static unique_ptr<FunctionData> PoissonFitPredictAggBindWithSplit(ClientContext &context, AggregateFunction &function,
+                                                                   vector<unique_ptr<Expression>> &arguments) {
+    auto result = make_uniq<PoissonFitPredictAggBindData>();
+    result->use_split_col = true;
+
+    // Parse MAP options if provided as 4th argument (y, x, split, options)
+    if (arguments.size() >= 4 && arguments[3]->IsFoldable()) {
+        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[3]);
+        if (opts.fit_intercept.has_value()) {
+            result->fit_intercept = opts.fit_intercept.value();
+        }
+        if (opts.poisson_link.has_value()) {
+            result->link = opts.poisson_link.value();
+        }
+        if (opts.max_iterations.has_value()) {
+            result->max_iterations = opts.max_iterations.value();
+        }
+        if (opts.tolerance.has_value()) {
+            result->tolerance = opts.tolerance.value();
+        }
+        if (opts.confidence_level.has_value()) {
+            result->confidence_level = opts.confidence_level.value();
+        }
+        if (opts.null_policy.has_value()) {
+            result->null_policy = opts.null_policy.value();
+        }
+    }
+
+    function.return_type = GetPoissonFitPredictAggResultType();
+    PostHogTelemetry::Instance().CaptureFunctionExecution("poisson_fit_predict_agg");
+    return std::move(result);
+}
+
 //===--------------------------------------------------------------------===//
 // Registration
 //===--------------------------------------------------------------------===//
@@ -526,12 +579,30 @@ void RegisterPoissonFitPredictAggregateFunction(ExtensionLoader &loader) {
         PoissonFitPredictAggCombine, PoissonFitPredictAggFinalize, nullptr, PoissonFitPredictAggBind, PoissonFitPredictAggDestroy);
     func_set.AddFunction(map_func);
 
+    // Version with split column: poisson_fit_predict_agg(y, x, split)
+    auto split_func = AggregateFunction(
+        "anofox_stats_poisson_fit_predict_agg",
+        {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR}, LogicalType::ANY,
+        AggregateFunction::StateSize<PoissonFitPredictAggState>, PoissonFitPredictAggInitialize, PoissonFitPredictAggUpdate,
+        PoissonFitPredictAggCombine, PoissonFitPredictAggFinalize, nullptr, PoissonFitPredictAggBindWithSplit, PoissonFitPredictAggDestroy);
+    func_set.AddFunction(split_func);
+
+    // Version with split column and options: poisson_fit_predict_agg(y, x, split, options)
+    auto split_map_func = AggregateFunction(
+        "anofox_stats_poisson_fit_predict_agg",
+        {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR, LogicalType::ANY}, LogicalType::ANY,
+        AggregateFunction::StateSize<PoissonFitPredictAggState>, PoissonFitPredictAggInitialize, PoissonFitPredictAggUpdate,
+        PoissonFitPredictAggCombine, PoissonFitPredictAggFinalize, nullptr, PoissonFitPredictAggBindWithSplit, PoissonFitPredictAggDestroy);
+    func_set.AddFunction(split_map_func);
+
     loader.RegisterFunction(func_set);
 
     // Short alias
     AggregateFunctionSet alias_set("poisson_fit_predict_agg");
     alias_set.AddFunction(basic_func);
     alias_set.AddFunction(map_func);
+    alias_set.AddFunction(split_func);
+    alias_set.AddFunction(split_map_func);
     loader.RegisterFunction(alias_set);
 }
 

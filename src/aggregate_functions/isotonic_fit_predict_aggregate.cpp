@@ -59,31 +59,41 @@ struct IsotonicPredictAggState {
 //===--------------------------------------------------------------------===//
 struct IsotonicPredictAggBindData : public FunctionData {
     bool increasing = true;
+    bool use_split_col = false;  // True if using split column instead of y NULL
 
     unique_ptr<FunctionData> Copy() const override {
         auto result = make_uniq<IsotonicPredictAggBindData>();
         result->increasing = increasing;
+        result->use_split_col = use_split_col;
         return std::move(result);
     }
 
     bool Equals(const FunctionData &other_p) const override {
         auto &other = other_p.Cast<IsotonicPredictAggBindData>();
-        return increasing == other.increasing;
+        return increasing == other.increasing && use_split_col == other.use_split_col;
     }
 };
 
 //===--------------------------------------------------------------------===//
-// Result type: LIST(STRUCT(y, x, yhat, is_training))
+// Result type: LIST(STRUCT(y, yhat, is_training))
 //===--------------------------------------------------------------------===//
 static LogicalType GetIsotonicPredictAggResultType() {
     child_list_t<LogicalType> row_children;
     row_children.push_back(make_pair("y", LogicalType::DOUBLE));
-    row_children.push_back(make_pair("x", LogicalType::DOUBLE));
     row_children.push_back(make_pair("yhat", LogicalType::DOUBLE));
     row_children.push_back(make_pair("is_training", LogicalType::BOOLEAN));
 
     auto row_struct = LogicalType::STRUCT(std::move(row_children));
     return LogicalType::LIST(row_struct);
+}
+
+// Helper: Check if split column value indicates training data
+static bool IsotonicIsSplitTraining(const string_t &split_val) {
+    string val = split_val.GetString();
+    for (auto &c : val) {
+        c = std::tolower(c);
+    }
+    return val == "train" || val == "training";
 }
 
 //===--------------------------------------------------------------------===//
@@ -117,6 +127,14 @@ static void IsotonicPredictAggUpdate(Vector inputs[], AggregateInputData &aggr_i
     auto y_values = UnifiedVectorFormat::GetData<double>(y_data);
     auto x_values = UnifiedVectorFormat::GetData<double>(x_data);
 
+    // Handle split column if provided (y, x, split)
+    UnifiedVectorFormat split_data;
+    const string_t *split_values = nullptr;
+    if (bind_data.use_split_col && input_count >= 3) {
+        inputs[2].ToUnifiedFormat(count, split_data);
+        split_values = UnifiedVectorFormat::GetData<string_t>(split_data);
+    }
+
     UnifiedVectorFormat sdata;
     state_vector.ToUnifiedFormat(count, sdata);
     auto states = (IsotonicPredictAggState **)sdata.data;
@@ -138,7 +156,24 @@ static void IsotonicPredictAggUpdate(Vector inputs[], AggregateInputData &aggr_i
         bool y_valid = y_data.validity.RowIsValid(y_idx);
         double y_val = y_valid ? y_values[y_idx] : std::nan("");
 
-        bool row_is_training = y_valid;
+        // Determine if this row is for training
+        bool row_is_training;
+        if (bind_data.use_split_col && split_values) {
+            // Use split column to determine training status
+            auto split_idx = split_data.sel->get_index(i);
+            if (split_data.validity.RowIsValid(split_idx)) {
+                row_is_training = IsotonicIsSplitTraining(split_values[split_idx]);
+            } else {
+                row_is_training = false;  // NULL split -> not training
+            }
+            // If marked as training but y is NULL, can't actually train
+            if (row_is_training && !y_valid) {
+                row_is_training = false;
+            }
+        } else {
+            // Default: use y NULL to determine training
+            row_is_training = y_valid;
+        }
 
         state.x_all.push_back(x_val);
         state.y_all.push_back(y_val);
@@ -292,9 +327,8 @@ static void IsotonicPredictAggFinalize(Vector &state_vector, AggregateInputData 
         auto &struct_entries = StructVector::GetEntries(child_struct);
 
         auto &y_vec = *struct_entries[0];
-        auto &x_vec = *struct_entries[1];
-        auto &yhat_vec = *struct_entries[2];
-        auto &is_training_vec = *struct_entries[3];
+        auto &yhat_vec = *struct_entries[1];
+        auto &is_training_vec = *struct_entries[2];
 
         for (idx_t row = 0; row < n_rows; row++) {
             idx_t child_idx = list_offset + row;
@@ -304,8 +338,6 @@ static void IsotonicPredictAggFinalize(Vector &state_vector, AggregateInputData 
             } else {
                 FlatVector::GetData<double>(y_vec)[child_idx] = state.y_all[row];
             }
-
-            FlatVector::GetData<double>(x_vec)[child_idx] = state.x_all[row];
 
             // Predict using isotonic model
             double yhat = IsotonicPredict(state.sorted_x, state.fitted_y, state.x_all[row]);
@@ -338,6 +370,25 @@ static unique_ptr<FunctionData> IsotonicPredictAggBind(ClientContext &context, A
     return std::move(result);
 }
 
+// Bind function with split column
+static unique_ptr<FunctionData> IsotonicPredictAggBindWithSplit(ClientContext &context, AggregateFunction &function,
+                                                                  vector<unique_ptr<Expression>> &arguments) {
+    auto result = make_uniq<IsotonicPredictAggBindData>();
+    result->use_split_col = true;
+
+    // Parse MAP options if provided as 4th argument (y, x, split, options)
+    if (arguments.size() >= 4 && arguments[3]->IsFoldable()) {
+        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[3]);
+        if (opts.increasing.has_value()) {
+            result->increasing = opts.increasing.value();
+        }
+    }
+
+    function.return_type = GetIsotonicPredictAggResultType();
+    PostHogTelemetry::Instance().CaptureFunctionExecution("isotonic_fit_predict_agg");
+    return std::move(result);
+}
+
 //===--------------------------------------------------------------------===//
 // Registration
 //===--------------------------------------------------------------------===//
@@ -359,11 +410,29 @@ void RegisterIsotonicFitPredictAggregateFunction(ExtensionLoader &loader) {
         IsotonicPredictAggCombine, IsotonicPredictAggFinalize, nullptr, IsotonicPredictAggBind, IsotonicPredictAggDestroy);
     func_set.AddFunction(map_func);
 
+    // Version with split column: isotonic_fit_predict_agg(y, x, split)
+    auto split_func = AggregateFunction(
+        "anofox_stats_isotonic_fit_predict_agg",
+        {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::VARCHAR}, LogicalType::ANY,
+        AggregateFunction::StateSize<IsotonicPredictAggState>, IsotonicPredictAggInitialize, IsotonicPredictAggUpdate,
+        IsotonicPredictAggCombine, IsotonicPredictAggFinalize, nullptr, IsotonicPredictAggBindWithSplit, IsotonicPredictAggDestroy);
+    func_set.AddFunction(split_func);
+
+    // Version with split column and options: isotonic_fit_predict_agg(y, x, split, options)
+    auto split_map_func = AggregateFunction(
+        "anofox_stats_isotonic_fit_predict_agg",
+        {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::VARCHAR, LogicalType::ANY}, LogicalType::ANY,
+        AggregateFunction::StateSize<IsotonicPredictAggState>, IsotonicPredictAggInitialize, IsotonicPredictAggUpdate,
+        IsotonicPredictAggCombine, IsotonicPredictAggFinalize, nullptr, IsotonicPredictAggBindWithSplit, IsotonicPredictAggDestroy);
+    func_set.AddFunction(split_map_func);
+
     loader.RegisterFunction(func_set);
 
     AggregateFunctionSet alias_set("isotonic_fit_predict_agg");
     alias_set.AddFunction(basic_func);
     alias_set.AddFunction(map_func);
+    alias_set.AddFunction(split_func);
+    alias_set.AddFunction(split_map_func);
     loader.RegisterFunction(alias_set);
 }
 

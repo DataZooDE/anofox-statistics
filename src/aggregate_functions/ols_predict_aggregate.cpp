@@ -34,10 +34,11 @@ struct OlsPredictAggState {
     bool fit_intercept;
     double confidence_level;
     NullPolicy null_policy;
+    bool use_split_col;  // True if using split column instead of y NULL
 
     OlsPredictAggState()
         : n_features(0), initialized(false), fit_intercept(true), confidence_level(0.95),
-          null_policy(NullPolicy::DROP) {}
+          null_policy(NullPolicy::DROP), use_split_col(false) {}
 
     void Reset() {
         y_train.clear();
@@ -58,29 +59,30 @@ struct OlsPredictAggBindData : public FunctionData {
     bool fit_intercept = true;
     double confidence_level = 0.95;
     NullPolicy null_policy = NullPolicy::DROP;
+    bool use_split_col = false;  // True if split column is provided
 
     unique_ptr<FunctionData> Copy() const override {
         auto result = make_uniq<OlsPredictAggBindData>();
         result->fit_intercept = fit_intercept;
         result->confidence_level = confidence_level;
         result->null_policy = null_policy;
+        result->use_split_col = use_split_col;
         return std::move(result);
     }
 
     bool Equals(const FunctionData &other_p) const override {
         auto &other = other_p.Cast<OlsPredictAggBindData>();
         return fit_intercept == other.fit_intercept && confidence_level == other.confidence_level &&
-               null_policy == other.null_policy;
+               null_policy == other.null_policy && use_split_col == other.use_split_col;
     }
 };
 
 //===--------------------------------------------------------------------===//
-// Result type: LIST(STRUCT(y, x, yhat, yhat_lower, yhat_upper, is_training))
+// Result type: LIST(STRUCT(y, yhat, yhat_lower, yhat_upper, is_training))
 //===--------------------------------------------------------------------===//
 static LogicalType GetOlsPredictAggResultType() {
     child_list_t<LogicalType> row_children;
     row_children.push_back(make_pair("y", LogicalType::DOUBLE));
-    row_children.push_back(make_pair("x", LogicalType::LIST(LogicalType::DOUBLE)));
     row_children.push_back(make_pair("yhat", LogicalType::DOUBLE));
     row_children.push_back(make_pair("yhat_lower", LogicalType::DOUBLE));
     row_children.push_back(make_pair("yhat_upper", LogicalType::DOUBLE));
@@ -109,6 +111,16 @@ static void OlsPredictAggDestroy(Vector &state_vector, AggregateInputData &, idx
     }
 }
 
+// Helper: check if split value indicates training (case-insensitive)
+static bool IsSplitTraining(const string_t &split_val) {
+    string val = split_val.GetString();
+    // Convert to lowercase for case-insensitive comparison
+    for (auto &c : val) {
+        c = std::tolower(c);
+    }
+    return val == "train" || val == "training";
+}
+
 // Update: accumulate ALL rows, track which are training vs prediction
 static void OlsPredictAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data, idx_t input_count,
                                  Vector &state_vector, idx_t count) {
@@ -124,6 +136,14 @@ static void OlsPredictAggUpdate(Vector inputs[], AggregateInputData &aggr_input_
     auto &x_child = ListVector::GetEntry(inputs[1]);
     auto x_child_data = FlatVector::GetData<double>(x_child);
 
+    // Optional split column (when use_split_col is true, it's at index 2)
+    UnifiedVectorFormat split_data;
+    const string_t *split_values = nullptr;
+    if (bind_data.use_split_col && input_count >= 3) {
+        inputs[2].ToUnifiedFormat(count, split_data);
+        split_values = UnifiedVectorFormat::GetData<string_t>(split_data);
+    }
+
     UnifiedVectorFormat sdata;
     state_vector.ToUnifiedFormat(count, sdata);
     auto states = (OlsPredictAggState **)sdata.data;
@@ -135,6 +155,7 @@ static void OlsPredictAggUpdate(Vector inputs[], AggregateInputData &aggr_input_
         state.fit_intercept = bind_data.fit_intercept;
         state.confidence_level = bind_data.confidence_level;
         state.null_policy = bind_data.null_policy;
+        state.use_split_col = bind_data.use_split_col;
 
         // Get x values
         auto x_idx = x_data.sel->get_index(i);
@@ -170,7 +191,24 @@ static void OlsPredictAggUpdate(Vector inputs[], AggregateInputData &aggr_input_
         double y_val = y_valid ? y_values[y_idx] : std::nan("");
 
         // Determine if this row is for training
-        bool row_is_training = y_valid;
+        bool row_is_training;
+        if (bind_data.use_split_col && split_values) {
+            // Use split column: 'train'/'training' = training, anything else = prediction
+            auto split_idx = split_data.sel->get_index(i);
+            if (split_data.validity.RowIsValid(split_idx)) {
+                row_is_training = IsSplitTraining(split_values[split_idx]);
+            } else {
+                // NULL split value = not training
+                row_is_training = false;
+            }
+            // When using split column, y must still be valid for training
+            if (row_is_training && !y_valid) {
+                row_is_training = false;
+            }
+        } else {
+            // Default: y NULL means prediction row
+            row_is_training = y_valid;
+        }
 
         // Apply null_policy for drop_y_zero_x
         if (row_is_training && state.null_policy == NullPolicy::DROP_Y_ZERO_X) {
@@ -227,6 +265,7 @@ static void OlsPredictAggCombine(Vector &source_vector, Vector &target_vector, A
             target.fit_intercept = source.fit_intercept;
             target.confidence_level = source.confidence_level;
             target.null_policy = source.null_policy;
+            target.use_split_col = source.use_split_col;
             continue;
         }
 
@@ -311,13 +350,12 @@ static void OlsPredictAggFinalize(Vector &state_vector, AggregateInputData &aggr
         auto &child_struct = ListVector::GetEntry(result);
         auto &struct_entries = StructVector::GetEntries(child_struct);
 
-        // struct_entries: [y, x, yhat, yhat_lower, yhat_upper, is_training]
+        // struct_entries: [y, yhat, yhat_lower, yhat_upper, is_training]
         auto &y_vec = *struct_entries[0];
-        auto &x_vec = *struct_entries[1];
-        auto &yhat_vec = *struct_entries[2];
-        auto &yhat_lower_vec = *struct_entries[3];
-        auto &yhat_upper_vec = *struct_entries[4];
-        auto &is_training_vec = *struct_entries[5];
+        auto &yhat_vec = *struct_entries[1];
+        auto &yhat_lower_vec = *struct_entries[2];
+        auto &yhat_upper_vec = *struct_entries[3];
+        auto &is_training_vec = *struct_entries[4];
 
         for (idx_t row = 0; row < n_rows; row++) {
             idx_t child_idx = list_offset + row;
@@ -327,21 +365,6 @@ static void OlsPredictAggFinalize(Vector &state_vector, AggregateInputData &aggr
                 FlatVector::SetNull(y_vec, child_idx, true);
             } else {
                 FlatVector::GetData<double>(y_vec)[child_idx] = state.y_all[row];
-            }
-
-            // Set x as LIST
-            auto *x_list_data = ListVector::GetData(x_vec);
-            auto x_list_offset = ListVector::GetListSize(x_vec);
-            x_list_data[child_idx].offset = x_list_offset;
-            x_list_data[child_idx].length = state.n_features;
-
-            ListVector::Reserve(x_vec, x_list_offset + state.n_features);
-            ListVector::SetListSize(x_vec, x_list_offset + state.n_features);
-
-            auto &x_child = ListVector::GetEntry(x_vec);
-            auto x_child_data = FlatVector::GetData<double>(x_child);
-            for (idx_t j = 0; j < state.n_features; j++) {
-                x_child_data[x_list_offset + j] = state.x_all[row][j];
             }
 
             // Compute prediction for this row
@@ -371,7 +394,7 @@ static void OlsPredictAggFinalize(Vector &state_vector, AggregateInputData &aggr
 }
 
 //===--------------------------------------------------------------------===//
-// Bind function
+// Bind functions
 //===--------------------------------------------------------------------===//
 static unique_ptr<FunctionData> OlsPredictAggBind(ClientContext &context, AggregateFunction &function,
                                                    vector<unique_ptr<Expression>> &arguments) {
@@ -380,6 +403,31 @@ static unique_ptr<FunctionData> OlsPredictAggBind(ClientContext &context, Aggreg
     // Parse MAP options if provided as 3rd argument
     if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
         auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[2]);
+        if (opts.fit_intercept.has_value()) {
+            result->fit_intercept = opts.fit_intercept.value();
+        }
+        if (opts.confidence_level.has_value()) {
+            result->confidence_level = opts.confidence_level.value();
+        }
+        if (opts.null_policy.has_value()) {
+            result->null_policy = opts.null_policy.value();
+        }
+    }
+
+    function.return_type = GetOlsPredictAggResultType();
+    PostHogTelemetry::Instance().CaptureFunctionExecution("ols_fit_predict_agg");
+    return std::move(result);
+}
+
+// Bind function for versions with split column
+static unique_ptr<FunctionData> OlsPredictAggBindWithSplit(ClientContext &context, AggregateFunction &function,
+                                                            vector<unique_ptr<Expression>> &arguments) {
+    auto result = make_uniq<OlsPredictAggBindData>();
+    result->use_split_col = true;
+
+    // Parse MAP options if provided as 4th argument
+    if (arguments.size() >= 4 && arguments[3]->IsFoldable()) {
+        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[3]);
         if (opts.fit_intercept.has_value()) {
             result->fit_intercept = opts.fit_intercept.value();
         }
@@ -419,23 +467,46 @@ void RegisterOlsFitPredictAggregateFunction(ExtensionLoader &loader) {
         OlsPredictAggCombine, OlsPredictAggFinalize, nullptr, OlsPredictAggBind, OlsPredictAggDestroy);
     func_set.AddFunction(map_func);
 
+    // Version with split column: ols_fit_predict_agg(y, x, split_col)
+    auto split_func = AggregateFunction(
+        "anofox_stats_ols_fit_predict_agg",
+        {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR}, LogicalType::ANY,
+        AggregateFunction::StateSize<OlsPredictAggState>, OlsPredictAggInitialize, OlsPredictAggUpdate,
+        OlsPredictAggCombine, OlsPredictAggFinalize, nullptr, OlsPredictAggBindWithSplit, OlsPredictAggDestroy);
+    func_set.AddFunction(split_func);
+
+    // Version with split column and options: ols_fit_predict_agg(y, x, split_col, options)
+    auto split_opts_func = AggregateFunction(
+        "anofox_stats_ols_fit_predict_agg",
+        {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR, LogicalType::ANY},
+        LogicalType::ANY, AggregateFunction::StateSize<OlsPredictAggState>, OlsPredictAggInitialize,
+        OlsPredictAggUpdate, OlsPredictAggCombine, OlsPredictAggFinalize, nullptr, OlsPredictAggBindWithSplit,
+        OlsPredictAggDestroy);
+    func_set.AddFunction(split_opts_func);
+
     loader.RegisterFunction(func_set);
 
     // Short alias (new)
     AggregateFunctionSet alias_set("ols_fit_predict_agg");
     alias_set.AddFunction(basic_func);
     alias_set.AddFunction(map_func);
+    alias_set.AddFunction(split_func);
+    alias_set.AddFunction(split_opts_func);
     loader.RegisterFunction(alias_set);
 
     // Deprecated aliases (old names for backwards compatibility)
     AggregateFunctionSet deprecated_set("ols_predict_agg");
     deprecated_set.AddFunction(basic_func);
     deprecated_set.AddFunction(map_func);
+    deprecated_set.AddFunction(split_func);
+    deprecated_set.AddFunction(split_opts_func);
     loader.RegisterFunction(deprecated_set);
 
     AggregateFunctionSet deprecated_full_set("anofox_stats_ols_predict_agg");
     deprecated_full_set.AddFunction(basic_func);
     deprecated_full_set.AddFunction(map_func);
+    deprecated_full_set.AddFunction(split_func);
+    deprecated_full_set.AddFunction(split_opts_func);
     loader.RegisterFunction(deprecated_full_set);
 }
 

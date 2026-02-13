@@ -53,32 +53,43 @@ struct PlsPredictAggState {
 struct PlsPredictAggBindData : public FunctionData {
     size_t n_components = 1;
     bool fit_intercept = true;
+    bool use_split_col = false;  // True if using split column instead of y NULL
 
     unique_ptr<FunctionData> Copy() const override {
         auto result = make_uniq<PlsPredictAggBindData>();
         result->n_components = n_components;
         result->fit_intercept = fit_intercept;
+        result->use_split_col = use_split_col;
         return std::move(result);
     }
 
     bool Equals(const FunctionData &other_p) const override {
         auto &other = other_p.Cast<PlsPredictAggBindData>();
-        return n_components == other.n_components && fit_intercept == other.fit_intercept;
+        return n_components == other.n_components && fit_intercept == other.fit_intercept &&
+               use_split_col == other.use_split_col;
     }
 };
 
 //===--------------------------------------------------------------------===//
-// Result type: LIST(STRUCT(y, x, yhat, is_training))
+// Result type: LIST(STRUCT(y, yhat, is_training))
 //===--------------------------------------------------------------------===//
 static LogicalType GetPlsPredictAggResultType() {
     child_list_t<LogicalType> row_children;
     row_children.push_back(make_pair("y", LogicalType::DOUBLE));
-    row_children.push_back(make_pair("x", LogicalType::LIST(LogicalType::DOUBLE)));
     row_children.push_back(make_pair("yhat", LogicalType::DOUBLE));
     row_children.push_back(make_pair("is_training", LogicalType::BOOLEAN));
 
     auto row_struct = LogicalType::STRUCT(std::move(row_children));
     return LogicalType::LIST(row_struct);
+}
+
+// Helper: Check if split column value indicates training data
+static bool PlsIsSplitTraining(const string_t &split_val) {
+    string val = split_val.GetString();
+    for (auto &c : val) {
+        c = std::tolower(c);
+    }
+    return val == "train" || val == "training";
 }
 
 //===--------------------------------------------------------------------===//
@@ -113,6 +124,14 @@ static void PlsPredictAggUpdate(Vector inputs[], AggregateInputData &aggr_input_
     auto x_list_data = ListVector::GetData(inputs[1]);
     auto &x_child = ListVector::GetEntry(inputs[1]);
     auto x_child_data = FlatVector::GetData<double>(x_child);
+
+    // Handle split column if provided (y, x, split)
+    UnifiedVectorFormat split_data;
+    const string_t *split_values = nullptr;
+    if (bind_data.use_split_col && input_count >= 3) {
+        inputs[2].ToUnifiedFormat(count, split_data);
+        split_values = UnifiedVectorFormat::GetData<string_t>(split_data);
+    }
 
     UnifiedVectorFormat sdata;
     state_vector.ToUnifiedFormat(count, sdata);
@@ -151,7 +170,24 @@ static void PlsPredictAggUpdate(Vector inputs[], AggregateInputData &aggr_input_
         bool y_valid = y_data.validity.RowIsValid(y_idx);
         double y_val = y_valid ? y_values[y_idx] : std::nan("");
 
-        bool row_is_training = y_valid;
+        // Determine if this row is for training
+        bool row_is_training;
+        if (bind_data.use_split_col && split_values) {
+            // Use split column to determine training status
+            auto split_idx = split_data.sel->get_index(i);
+            if (split_data.validity.RowIsValid(split_idx)) {
+                row_is_training = PlsIsSplitTraining(split_values[split_idx]);
+            } else {
+                row_is_training = false;  // NULL split -> not training
+            }
+            // If marked as training but y is NULL, can't actually train
+            if (row_is_training && !y_valid) {
+                row_is_training = false;
+            }
+        } else {
+            // Default: use y NULL to determine training
+            row_is_training = y_valid;
+        }
 
         state.y_all.push_back(y_val);
         state.y_is_null.push_back(!y_valid);
@@ -272,9 +308,8 @@ static void PlsPredictAggFinalize(Vector &state_vector, AggregateInputData &aggr
         auto &struct_entries = StructVector::GetEntries(child_struct);
 
         auto &y_vec = *struct_entries[0];
-        auto &x_vec = *struct_entries[1];
-        auto &yhat_vec = *struct_entries[2];
-        auto &is_training_vec = *struct_entries[3];
+        auto &yhat_vec = *struct_entries[1];
+        auto &is_training_vec = *struct_entries[2];
 
         for (idx_t row = 0; row < n_rows; row++) {
             idx_t child_idx = list_offset + row;
@@ -283,20 +318,6 @@ static void PlsPredictAggFinalize(Vector &state_vector, AggregateInputData &aggr
                 FlatVector::SetNull(y_vec, child_idx, true);
             } else {
                 FlatVector::GetData<double>(y_vec)[child_idx] = state.y_all[row];
-            }
-
-            auto *x_list_data = ListVector::GetData(x_vec);
-            auto x_list_offset = ListVector::GetListSize(x_vec);
-            x_list_data[child_idx].offset = x_list_offset;
-            x_list_data[child_idx].length = state.n_features;
-
-            ListVector::Reserve(x_vec, x_list_offset + state.n_features);
-            ListVector::SetListSize(x_vec, x_list_offset + state.n_features);
-
-            auto &x_child = ListVector::GetEntry(x_vec);
-            auto x_child_data = FlatVector::GetData<double>(x_child);
-            for (idx_t j = 0; j < state.n_features; j++) {
-                x_child_data[x_list_offset + j] = state.x_all[row][j];
             }
 
             // Compute prediction: yhat = intercept + sum(coef[j] * x[j])
@@ -336,6 +357,28 @@ static unique_ptr<FunctionData> PlsPredictAggBind(ClientContext &context, Aggreg
     return std::move(result);
 }
 
+// Bind function with split column
+static unique_ptr<FunctionData> PlsPredictAggBindWithSplit(ClientContext &context, AggregateFunction &function,
+                                                            vector<unique_ptr<Expression>> &arguments) {
+    auto result = make_uniq<PlsPredictAggBindData>();
+    result->use_split_col = true;
+
+    // Parse MAP options if provided as 4th argument (y, x, split, options)
+    if (arguments.size() >= 4 && arguments[3]->IsFoldable()) {
+        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[3]);
+        if (opts.n_components.has_value()) {
+            result->n_components = opts.n_components.value();
+        }
+        if (opts.fit_intercept.has_value()) {
+            result->fit_intercept = opts.fit_intercept.value();
+        }
+    }
+
+    function.return_type = GetPlsPredictAggResultType();
+    PostHogTelemetry::Instance().CaptureFunctionExecution("pls_fit_predict_agg");
+    return std::move(result);
+}
+
 //===--------------------------------------------------------------------===//
 // Registration
 //===--------------------------------------------------------------------===//
@@ -356,11 +399,29 @@ void RegisterPlsFitPredictAggregateFunction(ExtensionLoader &loader) {
         PlsPredictAggCombine, PlsPredictAggFinalize, nullptr, PlsPredictAggBind, PlsPredictAggDestroy);
     func_set.AddFunction(map_func);
 
+    // Version with split column: pls_fit_predict_agg(y, x, split)
+    auto split_func = AggregateFunction(
+        "anofox_stats_pls_fit_predict_agg",
+        {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR}, LogicalType::ANY,
+        AggregateFunction::StateSize<PlsPredictAggState>, PlsPredictAggInitialize, PlsPredictAggUpdate,
+        PlsPredictAggCombine, PlsPredictAggFinalize, nullptr, PlsPredictAggBindWithSplit, PlsPredictAggDestroy);
+    func_set.AddFunction(split_func);
+
+    // Version with split column and options: pls_fit_predict_agg(y, x, split, options)
+    auto split_map_func = AggregateFunction(
+        "anofox_stats_pls_fit_predict_agg",
+        {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR, LogicalType::ANY}, LogicalType::ANY,
+        AggregateFunction::StateSize<PlsPredictAggState>, PlsPredictAggInitialize, PlsPredictAggUpdate,
+        PlsPredictAggCombine, PlsPredictAggFinalize, nullptr, PlsPredictAggBindWithSplit, PlsPredictAggDestroy);
+    func_set.AddFunction(split_map_func);
+
     loader.RegisterFunction(func_set);
 
     AggregateFunctionSet alias_set("pls_fit_predict_agg");
     alias_set.AddFunction(basic_func);
     alias_set.AddFunction(map_func);
+    alias_set.AddFunction(split_func);
+    alias_set.AddFunction(split_map_func);
     loader.RegisterFunction(alias_set);
 }
 

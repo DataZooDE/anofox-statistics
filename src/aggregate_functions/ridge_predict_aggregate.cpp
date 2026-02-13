@@ -31,10 +31,11 @@ struct RidgePredictAggState {
     bool fit_intercept;
     double confidence_level;
     NullPolicy null_policy;
+    bool use_split_col;  // True if using split column instead of y NULL
 
     RidgePredictAggState()
         : n_features(0), initialized(false), alpha(1.0), fit_intercept(true), confidence_level(0.95),
-          null_policy(NullPolicy::DROP) {}
+          null_policy(NullPolicy::DROP), use_split_col(false) {}
 
     void Reset() {
         y_train.clear();
@@ -56,6 +57,7 @@ struct RidgePredictAggBindData : public FunctionData {
     bool fit_intercept = true;
     double confidence_level = 0.95;
     NullPolicy null_policy = NullPolicy::DROP;
+    bool use_split_col = false;  // True if split column is provided
 
     unique_ptr<FunctionData> Copy() const override {
         auto result = make_uniq<RidgePredictAggBindData>();
@@ -63,13 +65,15 @@ struct RidgePredictAggBindData : public FunctionData {
         result->fit_intercept = fit_intercept;
         result->confidence_level = confidence_level;
         result->null_policy = null_policy;
+        result->use_split_col = use_split_col;
         return std::move(result);
     }
 
     bool Equals(const FunctionData &other_p) const override {
         auto &other = other_p.Cast<RidgePredictAggBindData>();
         return alpha == other.alpha && fit_intercept == other.fit_intercept &&
-               confidence_level == other.confidence_level && null_policy == other.null_policy;
+               confidence_level == other.confidence_level && null_policy == other.null_policy &&
+               use_split_col == other.use_split_col;
     }
 };
 
@@ -79,7 +83,6 @@ struct RidgePredictAggBindData : public FunctionData {
 static LogicalType GetRidgePredictAggResultType() {
     child_list_t<LogicalType> row_children;
     row_children.push_back(make_pair("y", LogicalType::DOUBLE));
-    row_children.push_back(make_pair("x", LogicalType::LIST(LogicalType::DOUBLE)));
     row_children.push_back(make_pair("yhat", LogicalType::DOUBLE));
     row_children.push_back(make_pair("yhat_lower", LogicalType::DOUBLE));
     row_children.push_back(make_pair("yhat_upper", LogicalType::DOUBLE));
@@ -108,6 +111,15 @@ static void RidgePredictAggDestroy(Vector &state_vector, AggregateInputData &, i
     }
 }
 
+// Helper: check if split value indicates training (case-insensitive)
+static bool RidgeIsSplitTraining(const string_t &split_val) {
+    string val = split_val.GetString();
+    for (auto &c : val) {
+        c = std::tolower(c);
+    }
+    return val == "train" || val == "training";
+}
+
 static void RidgePredictAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data, idx_t input_count,
                                    Vector &state_vector, idx_t count) {
     auto &bind_data = aggr_input_data.bind_data->Cast<RidgePredictAggBindData>();
@@ -122,6 +134,14 @@ static void RidgePredictAggUpdate(Vector inputs[], AggregateInputData &aggr_inpu
     auto &x_child = ListVector::GetEntry(inputs[1]);
     auto x_child_data = FlatVector::GetData<double>(x_child);
 
+    // Optional split column (when use_split_col is true, it's at index 2)
+    UnifiedVectorFormat split_data;
+    const string_t *split_values = nullptr;
+    if (bind_data.use_split_col && input_count >= 3) {
+        inputs[2].ToUnifiedFormat(count, split_data);
+        split_values = UnifiedVectorFormat::GetData<string_t>(split_data);
+    }
+
     UnifiedVectorFormat sdata;
     state_vector.ToUnifiedFormat(count, sdata);
     auto states = (RidgePredictAggState **)sdata.data;
@@ -133,6 +153,7 @@ static void RidgePredictAggUpdate(Vector inputs[], AggregateInputData &aggr_inpu
         state.fit_intercept = bind_data.fit_intercept;
         state.confidence_level = bind_data.confidence_level;
         state.null_policy = bind_data.null_policy;
+        state.use_split_col = bind_data.use_split_col;
 
         auto x_idx = x_data.sel->get_index(i);
         if (!x_data.validity.RowIsValid(x_idx)) {
@@ -162,7 +183,22 @@ static void RidgePredictAggUpdate(Vector inputs[], AggregateInputData &aggr_inpu
         bool y_valid = y_data.validity.RowIsValid(y_idx);
         double y_val = y_valid ? y_values[y_idx] : std::nan("");
 
-        bool row_is_training = y_valid;
+        // Determine if this row is for training
+        bool row_is_training;
+        if (bind_data.use_split_col && split_values) {
+            auto split_idx = split_data.sel->get_index(i);
+            if (split_data.validity.RowIsValid(split_idx)) {
+                row_is_training = RidgeIsSplitTraining(split_values[split_idx]);
+            } else {
+                row_is_training = false;
+            }
+            if (row_is_training && !y_valid) {
+                row_is_training = false;
+            }
+        } else {
+            row_is_training = y_valid;
+        }
+
         if (row_is_training && state.null_policy == NullPolicy::DROP_Y_ZERO_X) {
             for (idx_t j = 0; j < n_features; j++) {
                 if (x_row[j] == 0.0) {
@@ -215,6 +251,7 @@ static void RidgePredictAggCombine(Vector &source_vector, Vector &target_vector,
             target.fit_intercept = source.fit_intercept;
             target.confidence_level = source.confidence_level;
             target.null_policy = source.null_policy;
+            target.use_split_col = source.use_split_col;
             continue;
         }
 
@@ -294,11 +331,10 @@ static void RidgePredictAggFinalize(Vector &state_vector, AggregateInputData &ag
         auto &struct_entries = StructVector::GetEntries(child_struct);
 
         auto &y_vec = *struct_entries[0];
-        auto &x_vec = *struct_entries[1];
-        auto &yhat_vec = *struct_entries[2];
-        auto &yhat_lower_vec = *struct_entries[3];
-        auto &yhat_upper_vec = *struct_entries[4];
-        auto &is_training_vec = *struct_entries[5];
+        auto &yhat_vec = *struct_entries[1];
+        auto &yhat_lower_vec = *struct_entries[2];
+        auto &yhat_upper_vec = *struct_entries[3];
+        auto &is_training_vec = *struct_entries[4];
 
         for (idx_t row = 0; row < n_rows; row++) {
             idx_t child_idx = list_offset + row;
@@ -307,20 +343,6 @@ static void RidgePredictAggFinalize(Vector &state_vector, AggregateInputData &ag
                 FlatVector::SetNull(y_vec, child_idx, true);
             } else {
                 FlatVector::GetData<double>(y_vec)[child_idx] = state.y_all[row];
-            }
-
-            auto x_list_data = ListVector::GetData(x_vec);
-            auto x_list_offset = ListVector::GetListSize(x_vec);
-            x_list_data[child_idx].offset = x_list_offset;
-            x_list_data[child_idx].length = state.n_features;
-
-            ListVector::Reserve(x_vec, x_list_offset + state.n_features);
-            ListVector::SetListSize(x_vec, x_list_offset + state.n_features);
-
-            auto &x_child = ListVector::GetEntry(x_vec);
-            auto x_child_data = FlatVector::GetData<double>(x_child);
-            for (idx_t j = 0; j < state.n_features; j++) {
-                x_child_data[x_list_offset + j] = state.x_all[row][j];
             }
 
             AnofoxPredictionResult pred;
@@ -375,6 +397,34 @@ static unique_ptr<FunctionData> RidgePredictAggBind(ClientContext &context, Aggr
     return std::move(result);
 }
 
+// Bind function for versions with split column
+static unique_ptr<FunctionData> RidgePredictAggBindWithSplit(ClientContext &context, AggregateFunction &function,
+                                                              vector<unique_ptr<Expression>> &arguments) {
+    auto result = make_uniq<RidgePredictAggBindData>();
+    result->use_split_col = true;
+
+    // Parse MAP options if provided as 4th argument
+    if (arguments.size() >= 4 && arguments[3]->IsFoldable()) {
+        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[3]);
+        if (opts.alpha.has_value()) {
+            result->alpha = opts.alpha.value();
+        }
+        if (opts.fit_intercept.has_value()) {
+            result->fit_intercept = opts.fit_intercept.value();
+        }
+        if (opts.confidence_level.has_value()) {
+            result->confidence_level = opts.confidence_level.value();
+        }
+        if (opts.null_policy.has_value()) {
+            result->null_policy = opts.null_policy.value();
+        }
+    }
+
+    function.return_type = GetRidgePredictAggResultType();
+    PostHogTelemetry::Instance().CaptureFunctionExecution("ridge_fit_predict_agg");
+    return std::move(result);
+}
+
 //===--------------------------------------------------------------------===//
 // Registration
 //===--------------------------------------------------------------------===//
@@ -396,23 +446,46 @@ void RegisterRidgeFitPredictAggregateFunction(ExtensionLoader &loader) {
         RidgePredictAggCombine, RidgePredictAggFinalize, nullptr, RidgePredictAggBind, RidgePredictAggDestroy);
     func_set.AddFunction(map_func);
 
+    // Version with split column: ridge_fit_predict_agg(y, x, split_col)
+    auto split_func = AggregateFunction(
+        "anofox_stats_ridge_fit_predict_agg",
+        {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR}, LogicalType::ANY,
+        AggregateFunction::StateSize<RidgePredictAggState>, RidgePredictAggInitialize, RidgePredictAggUpdate,
+        RidgePredictAggCombine, RidgePredictAggFinalize, nullptr, RidgePredictAggBindWithSplit, RidgePredictAggDestroy);
+    func_set.AddFunction(split_func);
+
+    // Version with split column and options: ridge_fit_predict_agg(y, x, split_col, options)
+    auto split_opts_func = AggregateFunction(
+        "anofox_stats_ridge_fit_predict_agg",
+        {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR, LogicalType::ANY},
+        LogicalType::ANY, AggregateFunction::StateSize<RidgePredictAggState>, RidgePredictAggInitialize,
+        RidgePredictAggUpdate, RidgePredictAggCombine, RidgePredictAggFinalize, nullptr, RidgePredictAggBindWithSplit,
+        RidgePredictAggDestroy);
+    func_set.AddFunction(split_opts_func);
+
     loader.RegisterFunction(func_set);
 
     // Short alias (new)
     AggregateFunctionSet alias_set("ridge_fit_predict_agg");
     alias_set.AddFunction(basic_func);
     alias_set.AddFunction(map_func);
+    alias_set.AddFunction(split_func);
+    alias_set.AddFunction(split_opts_func);
     loader.RegisterFunction(alias_set);
 
     // Deprecated aliases (old names for backwards compatibility)
     AggregateFunctionSet deprecated_set("ridge_predict_agg");
     deprecated_set.AddFunction(basic_func);
     deprecated_set.AddFunction(map_func);
+    deprecated_set.AddFunction(split_func);
+    deprecated_set.AddFunction(split_opts_func);
     loader.RegisterFunction(deprecated_set);
 
     AggregateFunctionSet deprecated_full_set("anofox_stats_ridge_predict_agg");
     deprecated_full_set.AddFunction(basic_func);
     deprecated_full_set.AddFunction(map_func);
+    deprecated_full_set.AddFunction(split_func);
+    deprecated_full_set.AddFunction(split_opts_func);
     loader.RegisterFunction(deprecated_full_set);
 }
 

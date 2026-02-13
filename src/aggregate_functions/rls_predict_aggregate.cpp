@@ -31,10 +31,11 @@ struct RlsPredictAggState {
     double initial_p_diagonal;
     double confidence_level;
     NullPolicy null_policy;
+    bool use_split_col;
 
     RlsPredictAggState()
         : n_features(0), initialized(false), forgetting_factor(1.0), fit_intercept(true),
-          initial_p_diagonal(100.0), confidence_level(0.95), null_policy(NullPolicy::DROP) {}
+          initial_p_diagonal(100.0), confidence_level(0.95), null_policy(NullPolicy::DROP), use_split_col(false) {}
 
     void Reset() {
         y_train.clear();
@@ -57,6 +58,7 @@ struct RlsPredictAggBindData : public FunctionData {
     double initial_p_diagonal = 100.0;
     double confidence_level = 0.95;
     NullPolicy null_policy = NullPolicy::DROP;
+    bool use_split_col = false;
 
     unique_ptr<FunctionData> Copy() const override {
         auto result = make_uniq<RlsPredictAggBindData>();
@@ -65,6 +67,7 @@ struct RlsPredictAggBindData : public FunctionData {
         result->initial_p_diagonal = initial_p_diagonal;
         result->confidence_level = confidence_level;
         result->null_policy = null_policy;
+        result->use_split_col = use_split_col;
         return std::move(result);
     }
 
@@ -72,7 +75,7 @@ struct RlsPredictAggBindData : public FunctionData {
         auto &other = other_p.Cast<RlsPredictAggBindData>();
         return forgetting_factor == other.forgetting_factor && fit_intercept == other.fit_intercept &&
                initial_p_diagonal == other.initial_p_diagonal && confidence_level == other.confidence_level &&
-               null_policy == other.null_policy;
+               null_policy == other.null_policy && use_split_col == other.use_split_col;
     }
 };
 
@@ -82,7 +85,6 @@ struct RlsPredictAggBindData : public FunctionData {
 static LogicalType GetRlsPredictAggResultType() {
     child_list_t<LogicalType> row_children;
     row_children.push_back(make_pair("y", LogicalType::DOUBLE));
-    row_children.push_back(make_pair("x", LogicalType::LIST(LogicalType::DOUBLE)));
     row_children.push_back(make_pair("yhat", LogicalType::DOUBLE));
     row_children.push_back(make_pair("yhat_lower", LogicalType::DOUBLE));
     row_children.push_back(make_pair("yhat_upper", LogicalType::DOUBLE));
@@ -111,6 +113,14 @@ static void RlsPredictAggDestroy(Vector &state_vector, AggregateInputData &, idx
     }
 }
 
+static bool RlsIsSplitTraining(const string_t &split_val) {
+    string val = split_val.GetString();
+    for (auto &c : val) {
+        c = std::tolower(c);
+    }
+    return val == "train" || val == "training";
+}
+
 static void RlsPredictAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data, idx_t input_count,
                                  Vector &state_vector, idx_t count) {
     auto &bind_data = aggr_input_data.bind_data->Cast<RlsPredictAggBindData>();
@@ -125,6 +135,13 @@ static void RlsPredictAggUpdate(Vector inputs[], AggregateInputData &aggr_input_
     auto &x_child = ListVector::GetEntry(inputs[1]);
     auto x_child_data = FlatVector::GetData<double>(x_child);
 
+    UnifiedVectorFormat split_data;
+    const string_t *split_values = nullptr;
+    if (bind_data.use_split_col && input_count >= 3) {
+        inputs[2].ToUnifiedFormat(count, split_data);
+        split_values = UnifiedVectorFormat::GetData<string_t>(split_data);
+    }
+
     UnifiedVectorFormat sdata;
     state_vector.ToUnifiedFormat(count, sdata);
     auto states = (RlsPredictAggState **)sdata.data;
@@ -137,6 +154,7 @@ static void RlsPredictAggUpdate(Vector inputs[], AggregateInputData &aggr_input_
         state.initial_p_diagonal = bind_data.initial_p_diagonal;
         state.confidence_level = bind_data.confidence_level;
         state.null_policy = bind_data.null_policy;
+        state.use_split_col = bind_data.use_split_col;
 
         auto x_idx = x_data.sel->get_index(i);
         if (!x_data.validity.RowIsValid(x_idx)) {
@@ -165,7 +183,21 @@ static void RlsPredictAggUpdate(Vector inputs[], AggregateInputData &aggr_input_
         bool y_valid = y_data.validity.RowIsValid(y_idx);
         double y_val = y_valid ? y_values[y_idx] : std::nan("");
 
-        bool row_is_training = y_valid;
+        bool row_is_training;
+        if (bind_data.use_split_col && split_values) {
+            auto split_idx = split_data.sel->get_index(i);
+            if (split_data.validity.RowIsValid(split_idx)) {
+                row_is_training = RlsIsSplitTraining(split_values[split_idx]);
+            } else {
+                row_is_training = false;
+            }
+            if (row_is_training && !y_valid) {
+                row_is_training = false;
+            }
+        } else {
+            row_is_training = y_valid;
+        }
+
         if (row_is_training && state.null_policy == NullPolicy::DROP_Y_ZERO_X) {
             for (idx_t j = 0; j < n_features; j++) {
                 if (x_row[j] == 0.0) {
@@ -219,6 +251,7 @@ static void RlsPredictAggCombine(Vector &source_vector, Vector &target_vector, A
             target.initial_p_diagonal = source.initial_p_diagonal;
             target.confidence_level = source.confidence_level;
             target.null_policy = source.null_policy;
+            target.use_split_col = source.use_split_col;
             continue;
         }
 
@@ -297,11 +330,10 @@ static void RlsPredictAggFinalize(Vector &state_vector, AggregateInputData &aggr
         auto &struct_entries = StructVector::GetEntries(child_struct);
 
         auto &y_vec = *struct_entries[0];
-        auto &x_vec = *struct_entries[1];
-        auto &yhat_vec = *struct_entries[2];
-        auto &yhat_lower_vec = *struct_entries[3];
-        auto &yhat_upper_vec = *struct_entries[4];
-        auto &is_training_vec = *struct_entries[5];
+        auto &yhat_vec = *struct_entries[1];
+        auto &yhat_lower_vec = *struct_entries[2];
+        auto &yhat_upper_vec = *struct_entries[3];
+        auto &is_training_vec = *struct_entries[4];
 
         for (idx_t row = 0; row < n_rows; row++) {
             idx_t child_idx = list_offset + row;
@@ -310,20 +342,6 @@ static void RlsPredictAggFinalize(Vector &state_vector, AggregateInputData &aggr
                 FlatVector::SetNull(y_vec, child_idx, true);
             } else {
                 FlatVector::GetData<double>(y_vec)[child_idx] = state.y_all[row];
-            }
-
-            auto x_list_data = ListVector::GetData(x_vec);
-            auto x_list_offset = ListVector::GetListSize(x_vec);
-            x_list_data[child_idx].offset = x_list_offset;
-            x_list_data[child_idx].length = state.n_features;
-
-            ListVector::Reserve(x_vec, x_list_offset + state.n_features);
-            ListVector::SetListSize(x_vec, x_list_offset + state.n_features);
-
-            auto &x_child = ListVector::GetEntry(x_vec);
-            auto x_child_data = FlatVector::GetData<double>(x_child);
-            for (idx_t j = 0; j < state.n_features; j++) {
-                x_child_data[x_list_offset + j] = state.x_all[row][j];
             }
 
             AnofoxPredictionResult pred;
@@ -381,6 +399,35 @@ static unique_ptr<FunctionData> RlsPredictAggBind(ClientContext &context, Aggreg
     return std::move(result);
 }
 
+static unique_ptr<FunctionData> RlsPredictAggBindWithSplit(ClientContext &context, AggregateFunction &function,
+                                                            vector<unique_ptr<Expression>> &arguments) {
+    auto result = make_uniq<RlsPredictAggBindData>();
+    result->use_split_col = true;
+
+    if (arguments.size() >= 4 && arguments[3]->IsFoldable()) {
+        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[3]);
+        if (opts.forgetting_factor.has_value()) {
+            result->forgetting_factor = opts.forgetting_factor.value();
+        }
+        if (opts.fit_intercept.has_value()) {
+            result->fit_intercept = opts.fit_intercept.value();
+        }
+        if (opts.initial_p_diagonal.has_value()) {
+            result->initial_p_diagonal = opts.initial_p_diagonal.value();
+        }
+        if (opts.confidence_level.has_value()) {
+            result->confidence_level = opts.confidence_level.value();
+        }
+        if (opts.null_policy.has_value()) {
+            result->null_policy = opts.null_policy.value();
+        }
+    }
+
+    function.return_type = GetRlsPredictAggResultType();
+    PostHogTelemetry::Instance().CaptureFunctionExecution("rls_fit_predict_agg");
+    return std::move(result);
+}
+
 //===--------------------------------------------------------------------===//
 // Registration
 //===--------------------------------------------------------------------===//
@@ -402,23 +449,44 @@ void RegisterRlsFitPredictAggregateFunction(ExtensionLoader &loader) {
         RlsPredictAggCombine, RlsPredictAggFinalize, nullptr, RlsPredictAggBind, RlsPredictAggDestroy);
     func_set.AddFunction(map_func);
 
+    auto split_func = AggregateFunction(
+        "anofox_stats_rls_fit_predict_agg",
+        {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR}, LogicalType::ANY,
+        AggregateFunction::StateSize<RlsPredictAggState>, RlsPredictAggInitialize, RlsPredictAggUpdate,
+        RlsPredictAggCombine, RlsPredictAggFinalize, nullptr, RlsPredictAggBindWithSplit, RlsPredictAggDestroy);
+    func_set.AddFunction(split_func);
+
+    auto split_opts_func = AggregateFunction(
+        "anofox_stats_rls_fit_predict_agg",
+        {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR, LogicalType::ANY},
+        LogicalType::ANY, AggregateFunction::StateSize<RlsPredictAggState>, RlsPredictAggInitialize,
+        RlsPredictAggUpdate, RlsPredictAggCombine, RlsPredictAggFinalize, nullptr, RlsPredictAggBindWithSplit,
+        RlsPredictAggDestroy);
+    func_set.AddFunction(split_opts_func);
+
     loader.RegisterFunction(func_set);
 
     // Short alias (new)
     AggregateFunctionSet alias_set("rls_fit_predict_agg");
     alias_set.AddFunction(basic_func);
     alias_set.AddFunction(map_func);
+    alias_set.AddFunction(split_func);
+    alias_set.AddFunction(split_opts_func);
     loader.RegisterFunction(alias_set);
 
     // Deprecated aliases (old names for backwards compatibility)
     AggregateFunctionSet deprecated_set("rls_predict_agg");
     deprecated_set.AddFunction(basic_func);
     deprecated_set.AddFunction(map_func);
+    deprecated_set.AddFunction(split_func);
+    deprecated_set.AddFunction(split_opts_func);
     loader.RegisterFunction(deprecated_set);
 
     AggregateFunctionSet deprecated_full_set("anofox_stats_rls_predict_agg");
     deprecated_full_set.AddFunction(basic_func);
     deprecated_full_set.AddFunction(map_func);
+    deprecated_full_set.AddFunction(split_func);
+    deprecated_full_set.AddFunction(split_opts_func);
     loader.RegisterFunction(deprecated_full_set);
 }
 

@@ -33,10 +33,11 @@ struct ElasticNetPredictAggState {
     double tolerance;
     double confidence_level;
     NullPolicy null_policy;
+    bool use_split_col;
 
     ElasticNetPredictAggState()
         : n_features(0), initialized(false), alpha(1.0), l1_ratio(0.5), fit_intercept(true),
-          max_iterations(1000), tolerance(1e-6), confidence_level(0.95), null_policy(NullPolicy::DROP) {}
+          max_iterations(1000), tolerance(1e-6), confidence_level(0.95), null_policy(NullPolicy::DROP), use_split_col(false) {}
 
     void Reset() {
         y_train.clear();
@@ -61,6 +62,7 @@ struct ElasticNetPredictAggBindData : public FunctionData {
     double tolerance = 1e-6;
     double confidence_level = 0.95;
     NullPolicy null_policy = NullPolicy::DROP;
+    bool use_split_col = false;
 
     unique_ptr<FunctionData> Copy() const override {
         auto result = make_uniq<ElasticNetPredictAggBindData>();
@@ -71,6 +73,7 @@ struct ElasticNetPredictAggBindData : public FunctionData {
         result->tolerance = tolerance;
         result->confidence_level = confidence_level;
         result->null_policy = null_policy;
+        result->use_split_col = use_split_col;
         return std::move(result);
     }
 
@@ -78,7 +81,8 @@ struct ElasticNetPredictAggBindData : public FunctionData {
         auto &other = other_p.Cast<ElasticNetPredictAggBindData>();
         return alpha == other.alpha && l1_ratio == other.l1_ratio && fit_intercept == other.fit_intercept &&
                max_iterations == other.max_iterations && tolerance == other.tolerance &&
-               confidence_level == other.confidence_level && null_policy == other.null_policy;
+               confidence_level == other.confidence_level && null_policy == other.null_policy &&
+               use_split_col == other.use_split_col;
     }
 };
 
@@ -88,7 +92,6 @@ struct ElasticNetPredictAggBindData : public FunctionData {
 static LogicalType GetElasticNetPredictAggResultType() {
     child_list_t<LogicalType> row_children;
     row_children.push_back(make_pair("y", LogicalType::DOUBLE));
-    row_children.push_back(make_pair("x", LogicalType::LIST(LogicalType::DOUBLE)));
     row_children.push_back(make_pair("yhat", LogicalType::DOUBLE));
     row_children.push_back(make_pair("yhat_lower", LogicalType::DOUBLE));
     row_children.push_back(make_pair("yhat_upper", LogicalType::DOUBLE));
@@ -117,6 +120,14 @@ static void ElasticNetPredictAggDestroy(Vector &state_vector, AggregateInputData
     }
 }
 
+static bool ElasticNetIsSplitTraining(const string_t &split_val) {
+    string val = split_val.GetString();
+    for (auto &c : val) {
+        c = std::tolower(c);
+    }
+    return val == "train" || val == "training";
+}
+
 static void ElasticNetPredictAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data, idx_t input_count,
                                         Vector &state_vector, idx_t count) {
     auto &bind_data = aggr_input_data.bind_data->Cast<ElasticNetPredictAggBindData>();
@@ -130,6 +141,13 @@ static void ElasticNetPredictAggUpdate(Vector inputs[], AggregateInputData &aggr
     auto x_list_data = ListVector::GetData(inputs[1]);
     auto &x_child = ListVector::GetEntry(inputs[1]);
     auto x_child_data = FlatVector::GetData<double>(x_child);
+
+    UnifiedVectorFormat split_data;
+    const string_t *split_values = nullptr;
+    if (bind_data.use_split_col && input_count >= 3) {
+        inputs[2].ToUnifiedFormat(count, split_data);
+        split_values = UnifiedVectorFormat::GetData<string_t>(split_data);
+    }
 
     UnifiedVectorFormat sdata;
     state_vector.ToUnifiedFormat(count, sdata);
@@ -145,6 +163,7 @@ static void ElasticNetPredictAggUpdate(Vector inputs[], AggregateInputData &aggr
         state.tolerance = bind_data.tolerance;
         state.confidence_level = bind_data.confidence_level;
         state.null_policy = bind_data.null_policy;
+        state.use_split_col = bind_data.use_split_col;
 
         auto x_idx = x_data.sel->get_index(i);
         if (!x_data.validity.RowIsValid(x_idx)) {
@@ -173,7 +192,21 @@ static void ElasticNetPredictAggUpdate(Vector inputs[], AggregateInputData &aggr
         bool y_valid = y_data.validity.RowIsValid(y_idx);
         double y_val = y_valid ? y_values[y_idx] : std::nan("");
 
-        bool row_is_training = y_valid;
+        bool row_is_training;
+        if (bind_data.use_split_col && split_values) {
+            auto split_idx = split_data.sel->get_index(i);
+            if (split_data.validity.RowIsValid(split_idx)) {
+                row_is_training = ElasticNetIsSplitTraining(split_values[split_idx]);
+            } else {
+                row_is_training = false;
+            }
+            if (row_is_training && !y_valid) {
+                row_is_training = false;
+            }
+        } else {
+            row_is_training = y_valid;
+        }
+
         if (row_is_training && state.null_policy == NullPolicy::DROP_Y_ZERO_X) {
             for (idx_t j = 0; j < n_features; j++) {
                 if (x_row[j] == 0.0) {
@@ -229,6 +262,7 @@ static void ElasticNetPredictAggCombine(Vector &source_vector, Vector &target_ve
             target.tolerance = source.tolerance;
             target.confidence_level = source.confidence_level;
             target.null_policy = source.null_policy;
+            target.use_split_col = source.use_split_col;
             continue;
         }
 
@@ -309,11 +343,10 @@ static void ElasticNetPredictAggFinalize(Vector &state_vector, AggregateInputDat
         auto &struct_entries = StructVector::GetEntries(child_struct);
 
         auto &y_vec = *struct_entries[0];
-        auto &x_vec = *struct_entries[1];
-        auto &yhat_vec = *struct_entries[2];
-        auto &yhat_lower_vec = *struct_entries[3];
-        auto &yhat_upper_vec = *struct_entries[4];
-        auto &is_training_vec = *struct_entries[5];
+        auto &yhat_vec = *struct_entries[1];
+        auto &yhat_lower_vec = *struct_entries[2];
+        auto &yhat_upper_vec = *struct_entries[3];
+        auto &is_training_vec = *struct_entries[4];
 
         for (idx_t row = 0; row < n_rows; row++) {
             idx_t child_idx = list_offset + row;
@@ -322,20 +355,6 @@ static void ElasticNetPredictAggFinalize(Vector &state_vector, AggregateInputDat
                 FlatVector::SetNull(y_vec, child_idx, true);
             } else {
                 FlatVector::GetData<double>(y_vec)[child_idx] = state.y_all[row];
-            }
-
-            auto x_list_data = ListVector::GetData(x_vec);
-            auto x_list_offset = ListVector::GetListSize(x_vec);
-            x_list_data[child_idx].offset = x_list_offset;
-            x_list_data[child_idx].length = state.n_features;
-
-            ListVector::Reserve(x_vec, x_list_offset + state.n_features);
-            ListVector::SetListSize(x_vec, x_list_offset + state.n_features);
-
-            auto &x_child = ListVector::GetEntry(x_vec);
-            auto x_child_data = FlatVector::GetData<double>(x_child);
-            for (idx_t j = 0; j < state.n_features; j++) {
-                x_child_data[x_list_offset + j] = state.x_all[row][j];
             }
 
             AnofoxPredictionResult pred;
@@ -399,6 +418,41 @@ static unique_ptr<FunctionData> ElasticNetPredictAggBind(ClientContext &context,
     return std::move(result);
 }
 
+static unique_ptr<FunctionData> ElasticNetPredictAggBindWithSplit(ClientContext &context, AggregateFunction &function,
+                                                                   vector<unique_ptr<Expression>> &arguments) {
+    auto result = make_uniq<ElasticNetPredictAggBindData>();
+    result->use_split_col = true;
+
+    if (arguments.size() >= 4 && arguments[3]->IsFoldable()) {
+        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[3]);
+        if (opts.alpha.has_value()) {
+            result->alpha = opts.alpha.value();
+        }
+        if (opts.l1_ratio.has_value()) {
+            result->l1_ratio = opts.l1_ratio.value();
+        }
+        if (opts.fit_intercept.has_value()) {
+            result->fit_intercept = opts.fit_intercept.value();
+        }
+        if (opts.max_iterations.has_value()) {
+            result->max_iterations = opts.max_iterations.value();
+        }
+        if (opts.tolerance.has_value()) {
+            result->tolerance = opts.tolerance.value();
+        }
+        if (opts.confidence_level.has_value()) {
+            result->confidence_level = opts.confidence_level.value();
+        }
+        if (opts.null_policy.has_value()) {
+            result->null_policy = opts.null_policy.value();
+        }
+    }
+
+    function.return_type = GetElasticNetPredictAggResultType();
+    PostHogTelemetry::Instance().CaptureFunctionExecution("elasticnet_fit_predict_agg");
+    return std::move(result);
+}
+
 //===--------------------------------------------------------------------===//
 // Registration
 //===--------------------------------------------------------------------===//
@@ -421,23 +475,45 @@ void RegisterElasticNetFitPredictAggregateFunction(ExtensionLoader &loader) {
         ElasticNetPredictAggBind, ElasticNetPredictAggDestroy);
     func_set.AddFunction(map_func);
 
+    auto split_func = AggregateFunction(
+        "anofox_stats_elasticnet_fit_predict_agg",
+        {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR}, LogicalType::ANY,
+        AggregateFunction::StateSize<ElasticNetPredictAggState>, ElasticNetPredictAggInitialize,
+        ElasticNetPredictAggUpdate, ElasticNetPredictAggCombine, ElasticNetPredictAggFinalize, nullptr,
+        ElasticNetPredictAggBindWithSplit, ElasticNetPredictAggDestroy);
+    func_set.AddFunction(split_func);
+
+    auto split_opts_func = AggregateFunction(
+        "anofox_stats_elasticnet_fit_predict_agg",
+        {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR, LogicalType::ANY},
+        LogicalType::ANY, AggregateFunction::StateSize<ElasticNetPredictAggState>, ElasticNetPredictAggInitialize,
+        ElasticNetPredictAggUpdate, ElasticNetPredictAggCombine, ElasticNetPredictAggFinalize, nullptr,
+        ElasticNetPredictAggBindWithSplit, ElasticNetPredictAggDestroy);
+    func_set.AddFunction(split_opts_func);
+
     loader.RegisterFunction(func_set);
 
     // Short alias (new)
     AggregateFunctionSet alias_set("elasticnet_fit_predict_agg");
     alias_set.AddFunction(basic_func);
     alias_set.AddFunction(map_func);
+    alias_set.AddFunction(split_func);
+    alias_set.AddFunction(split_opts_func);
     loader.RegisterFunction(alias_set);
 
     // Deprecated aliases (old names for backwards compatibility)
     AggregateFunctionSet deprecated_set("elasticnet_predict_agg");
     deprecated_set.AddFunction(basic_func);
     deprecated_set.AddFunction(map_func);
+    deprecated_set.AddFunction(split_func);
+    deprecated_set.AddFunction(split_opts_func);
     loader.RegisterFunction(deprecated_set);
 
     AggregateFunctionSet deprecated_full_set("anofox_stats_elasticnet_predict_agg");
     deprecated_full_set.AddFunction(basic_func);
     deprecated_full_set.AddFunction(map_func);
+    deprecated_full_set.AddFunction(split_func);
+    deprecated_full_set.AddFunction(split_opts_func);
     loader.RegisterFunction(deprecated_full_set);
 }
 
