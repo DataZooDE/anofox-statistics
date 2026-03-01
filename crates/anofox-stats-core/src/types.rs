@@ -59,6 +59,84 @@ pub struct FitResult {
     pub diagnostics: Option<FitResultDiagnostics>,
 }
 
+/// Condition number severity classification
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConditionSeverity {
+    /// Well-conditioned (condition number < 30)
+    WellConditioned,
+    /// Moderate conditioning issues (30-100)
+    Moderate,
+    /// High conditioning issues (100-1000)
+    High,
+    /// Severe conditioning issues (> 1000)
+    Severe,
+}
+
+/// Result from condition number diagnostics
+#[derive(Debug, Clone)]
+pub struct ConditionDiagnosticResult {
+    /// Condition number of the design matrix
+    pub condition_number: f64,
+    /// Condition number of X'X
+    pub condition_number_xtx: f64,
+    /// Singular values of the design matrix
+    pub singular_values: Vec<f64>,
+    /// Condition indices
+    pub condition_indices: Vec<f64>,
+    /// Severity classification
+    pub severity: ConditionSeverity,
+    /// Optional warning message
+    pub warning: Option<String>,
+}
+
+/// Type of quasi-separation detected in GLM data
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SeparationType {
+    /// No separation detected
+    None,
+    /// Complete separation (perfect prediction possible)
+    Complete,
+    /// Quasi-separation (near-perfect prediction)
+    Quasi,
+    /// Monotonic response pattern
+    MonotonicResponse,
+}
+
+/// Result from quasi-separation detection
+#[derive(Debug, Clone)]
+pub struct SeparationCheckResult {
+    /// Whether any separation was detected
+    pub has_separation: bool,
+    /// Indices of separated predictors
+    pub separated_predictors: Vec<usize>,
+    /// Type of separation for each separated predictor
+    pub separation_types: Vec<SeparationType>,
+    /// Warning message if separation detected
+    pub warning: Option<String>,
+}
+
+/// Decomposition method for solving linear systems
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SolverType {
+    /// QR decomposition with column pivoting (default, good balance of speed and stability)
+    #[default]
+    Qr,
+    /// SVD decomposition (most robust, handles rank-deficient matrices best, slower)
+    Svd,
+    /// Cholesky decomposition (fastest, requires positive definite X'X, falls back to QR)
+    Cholesky,
+}
+
+/// Lambda scaling convention for regularized regression
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LambdaScaling {
+    /// Use lambda as-is (default)
+    #[default]
+    Raw,
+    /// Scale lambda to match R's glmnet package convention
+    Glmnet,
+}
+
 /// Options for OLS fitting
 #[derive(Debug, Clone)]
 pub struct OlsOptions {
@@ -68,6 +146,10 @@ pub struct OlsOptions {
     pub compute_inference: bool,
     /// Confidence level for confidence intervals (default: 0.95)
     pub confidence_level: f64,
+    /// Decomposition method for solving the linear system
+    pub solver: SolverType,
+    /// Heteroscedasticity-consistent SE type (None = classical inference)
+    pub hc_type: Option<HcType>,
 }
 
 impl Default for OlsOptions {
@@ -76,6 +158,8 @@ impl Default for OlsOptions {
             fit_intercept: true,
             compute_inference: false,
             confidence_level: 0.95,
+            solver: SolverType::Qr,
+            hc_type: None,
         }
     }
 }
@@ -91,6 +175,10 @@ pub struct RidgeOptions {
     pub compute_inference: bool,
     /// Confidence level for confidence intervals
     pub confidence_level: f64,
+    /// Decomposition method for solving the linear system
+    pub solver: SolverType,
+    /// Lambda scaling convention (Raw or Glmnet)
+    pub lambda_scaling: LambdaScaling,
 }
 
 impl Default for RidgeOptions {
@@ -100,6 +188,8 @@ impl Default for RidgeOptions {
             fit_intercept: true,
             compute_inference: false,
             confidence_level: 0.95,
+            solver: SolverType::Qr,
+            lambda_scaling: LambdaScaling::Raw,
         }
     }
 }
@@ -117,6 +207,8 @@ pub struct ElasticNetOptions {
     pub max_iterations: u32,
     /// Convergence tolerance
     pub tolerance: f64,
+    /// Lambda scaling convention (Raw or Glmnet)
+    pub lambda_scaling: LambdaScaling,
 }
 
 impl Default for ElasticNetOptions {
@@ -127,6 +219,7 @@ impl Default for ElasticNetOptions {
             fit_intercept: true,
             max_iterations: 1000,
             tolerance: 1e-6,
+            lambda_scaling: LambdaScaling::Raw,
         }
     }
 }
@@ -151,6 +244,10 @@ pub struct WlsOptions {
     pub compute_inference: bool,
     /// Confidence level for confidence intervals
     pub confidence_level: f64,
+    /// Decomposition method for solving the linear system
+    pub solver: SolverType,
+    /// Heteroscedasticity-consistent SE type (None = classical inference)
+    pub hc_type: Option<HcType>,
 }
 
 impl Default for WlsOptions {
@@ -159,6 +256,8 @@ impl Default for WlsOptions {
             fit_intercept: true,
             compute_inference: false,
             confidence_level: 0.95,
+            solver: SolverType::Qr,
+            hc_type: None,
         }
     }
 }
@@ -185,6 +284,20 @@ pub enum NanPolicy {
     ErrorOnNaN,
     /// Keep NaN (for predictions where input might be NaN)
     KeepNaN,
+}
+
+/// Type of heteroscedasticity-consistent standard errors
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum HcType {
+    /// HC0: White's original estimator
+    HC0,
+    /// HC1: With degrees-of-freedom correction (default)
+    #[default]
+    HC1,
+    /// HC2: Using leverage-based weights
+    HC2,
+    /// HC3: Jackknife-like estimator (most conservative)
+    HC3,
 }
 
 // ============================================================================
@@ -248,6 +361,8 @@ pub struct PoissonOptions {
     pub compute_inference: bool,
     /// Confidence level for confidence intervals
     pub confidence_level: f64,
+    /// L2 regularization parameter for penalized IRLS (0.0 = no regularization)
+    pub lambda: f64,
 }
 
 impl Default for PoissonOptions {
@@ -259,6 +374,7 @@ impl Default for PoissonOptions {
             tolerance: 1e-8,
             compute_inference: false,
             confidence_level: 0.95,
+            lambda: 0.0,
         }
     }
 }
@@ -278,6 +394,8 @@ pub struct BinomialOptions {
     pub compute_inference: bool,
     /// Confidence level for confidence intervals
     pub confidence_level: f64,
+    /// L2 regularization parameter for penalized IRLS (0.0 = no regularization)
+    pub lambda: f64,
 }
 
 impl Default for BinomialOptions {
@@ -289,6 +407,7 @@ impl Default for BinomialOptions {
             tolerance: 1e-8,
             compute_inference: false,
             confidence_level: 0.95,
+            lambda: 0.0,
         }
     }
 }
@@ -308,6 +427,8 @@ pub struct NegBinomialOptions {
     pub compute_inference: bool,
     /// Confidence level for confidence intervals
     pub confidence_level: f64,
+    /// L2 regularization parameter for penalized IRLS (0.0 = no regularization)
+    pub lambda: f64,
 }
 
 impl Default for NegBinomialOptions {
@@ -319,6 +440,7 @@ impl Default for NegBinomialOptions {
             tolerance: 1e-8,
             compute_inference: false,
             confidence_level: 0.95,
+            lambda: 0.0,
         }
     }
 }
@@ -339,6 +461,8 @@ pub struct TweedieOptions {
     pub compute_inference: bool,
     /// Confidence level for confidence intervals
     pub confidence_level: f64,
+    /// L2 regularization parameter for penalized IRLS (0.0 = no regularization)
+    pub lambda: f64,
 }
 
 impl Default for TweedieOptions {
@@ -350,6 +474,7 @@ impl Default for TweedieOptions {
             tolerance: 1e-8,
             compute_inference: false,
             confidence_level: 0.95,
+            lambda: 0.0,
         }
     }
 }
@@ -799,4 +924,100 @@ pub struct QuantileFitResult {
     pub n_observations: usize,
     /// Number of features (excluding intercept)
     pub n_features: usize,
+}
+
+// ============================================================================
+// LOWESS Types
+// ============================================================================
+
+/// Options for LOWESS smoothing
+#[derive(Debug, Clone)]
+pub struct LowessOptions {
+    /// Smoothing span (0.0 to 1.0), fraction of data used for each local regression
+    pub span: f64,
+}
+
+impl Default for LowessOptions {
+    fn default() -> Self {
+        Self { span: 0.3 }
+    }
+}
+
+/// Result from LOWESS smoothing
+#[derive(Debug, Clone)]
+pub struct LowessResult {
+    /// Smoothed values
+    pub fitted_values: Vec<f64>,
+    /// Number of observations
+    pub n_observations: usize,
+    /// Span used
+    pub span: f64,
+}
+
+// ============================================================================
+// LmDynamic Types (Time-Varying Coefficient Model)
+// ============================================================================
+
+/// Information criterion for model selection
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum InformationCriterion {
+    /// Akaike Information Criterion
+    AIC,
+    /// Corrected AIC (default, better for small samples)
+    #[default]
+    AICc,
+    /// Bayesian Information Criterion
+    BIC,
+}
+
+/// Options for LmDynamic (time-varying coefficient) model
+#[derive(Debug, Clone)]
+pub struct LmDynamicOptions {
+    /// Whether to fit an intercept term
+    pub fit_intercept: bool,
+    /// Information criterion for model weighting
+    pub ic: InformationCriterion,
+    /// Distribution family for the error term
+    pub distribution: AlmDistribution,
+    /// LOWESS smoothing span for model weights (None = no smoothing)
+    pub lowess_span: Option<f64>,
+    /// Maximum number of candidate models (None = default 64)
+    pub max_models: Option<usize>,
+    /// Confidence level for confidence intervals
+    pub confidence_level: f64,
+}
+
+impl Default for LmDynamicOptions {
+    fn default() -> Self {
+        Self {
+            fit_intercept: true,
+            ic: InformationCriterion::AICc,
+            distribution: AlmDistribution::Normal,
+            lowess_span: Some(0.3),
+            max_models: None,
+            confidence_level: 0.95,
+        }
+    }
+}
+
+/// Result from LmDynamic fitting
+#[derive(Debug, Clone)]
+pub struct LmDynamicResult {
+    /// Averaged regression coefficients (excluding intercept)
+    pub coefficients: Vec<f64>,
+    /// Intercept term (if fitted with intercept)
+    pub intercept: Option<f64>,
+    /// R-squared (coefficient of determination)
+    pub r_squared: f64,
+    /// Adjusted R-squared
+    pub adj_r_squared: f64,
+    /// RMSE (Root Mean Squared Error)
+    pub rmse: f64,
+    /// Number of observations used
+    pub n_observations: usize,
+    /// Number of features (excluding intercept)
+    pub n_features: usize,
+    /// Time-varying coefficients: dynamic_coefficients[obs_idx][coef_idx]
+    /// Includes intercept as the last element if fit_intercept=true
+    pub dynamic_coefficients: Vec<Vec<f64>>,
 }

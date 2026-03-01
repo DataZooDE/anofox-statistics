@@ -69,6 +69,7 @@ pub fn compute_vif(x: &[Vec<f64>]) -> StatsResult<Vec<f64>> {
             fit_intercept: true,
             compute_inference: false,
             confidence_level: 0.95,
+            ..Default::default()
         };
 
         match fit_ols(y, &other_x, &options) {

@@ -1,9 +1,28 @@
 //! Ordinary Least Squares (OLS) regression wrapper
 
 use crate::errors::{StatsError, StatsResult};
-use crate::types::{FitResult, FitResultCore, FitResultInference, OlsOptions};
+use crate::types::{FitResult, FitResultCore, FitResultInference, HcType, OlsOptions, SolverType};
 use anofox_regression::prelude::*;
 use faer::{Col, Mat};
+
+/// Convert our SolverType to anofox_regression's SolverType
+fn convert_solver(solver: SolverType) -> anofox_regression::SolverType {
+    match solver {
+        SolverType::Qr => anofox_regression::SolverType::Qr,
+        SolverType::Svd => anofox_regression::SolverType::Svd,
+        SolverType::Cholesky => anofox_regression::SolverType::Cholesky,
+    }
+}
+
+/// Convert our HcType to anofox_regression's HcType
+fn convert_hc_type(hc: HcType) -> anofox_regression::HcType {
+    match hc {
+        HcType::HC0 => anofox_regression::HcType::HC0,
+        HcType::HC1 => anofox_regression::HcType::HC1,
+        HcType::HC2 => anofox_regression::HcType::HC2,
+        HcType::HC3 => anofox_regression::HcType::HC3,
+    }
+}
 
 /// Fit an OLS regression model
 ///
@@ -136,6 +155,7 @@ pub fn fit_ols(y: &[f64], x: &[Vec<f64>], options: &OlsOptions) -> StatsResult<F
     let fitted = OlsRegressor::builder()
         .with_intercept(options.fit_intercept)
         .confidence_level(options.confidence_level)
+        .solve_method(convert_solver(options.solver))
         .build()
         .fit(&x_mat, &y_col)
         .map_err(|e| StatsError::RegressError(format!("{:?}", e)))?;
@@ -177,23 +197,65 @@ pub fn fit_ols(y: &[f64], x: &[Vec<f64>], options: &OlsOptions) -> StatsResult<F
             }
             full
         };
+        let reconstruct_col = |col: &faer::Col<f64>| -> Vec<f64> {
+            let mut full = vec![f64::NAN; n_features];
+            for (reduced_idx, &orig_idx) in non_constant_indices.iter().enumerate() {
+                full[orig_idx] = col[reduced_idx];
+            }
+            full
+        };
 
-        let std_errors = reconstruct(result.std_errors.as_ref());
-        let t_values = reconstruct(result.t_statistics.as_ref());
-        let p_values = reconstruct(result.p_values.as_ref());
-        let ci_lower = reconstruct(result.conf_interval_lower.as_ref());
-        let ci_upper = reconstruct(result.conf_interval_upper.as_ref());
+        // If HC inference is requested, use heteroscedasticity-consistent standard errors
+        if let Some(hc_type) = options.hc_type {
+            let hc_result = anofox_regression::inference::compute_hc_inference(
+                &x_mat,
+                &result.coefficients,
+                result.intercept,
+                &result.residuals,
+                &result.aliased,
+                options.fit_intercept,
+                convert_hc_type(hc_type),
+                options.confidence_level,
+            );
 
-        Some(FitResultInference {
-            std_errors,
-            t_values,
-            p_values,
-            ci_lower,
-            ci_upper,
-            confidence_level: options.confidence_level,
-            f_statistic: Some(result.f_statistic),
-            f_pvalue: Some(result.f_pvalue),
-        })
+            match hc_result {
+                Ok(hc) => Some(FitResultInference {
+                    std_errors: reconstruct_col(&hc.std_errors),
+                    t_values: reconstruct_col(&hc.t_statistics),
+                    p_values: reconstruct_col(&hc.p_values),
+                    ci_lower: reconstruct_col(&hc.conf_interval_lower),
+                    ci_upper: reconstruct_col(&hc.conf_interval_upper),
+                    confidence_level: hc.confidence_level,
+                    f_statistic: Some(result.f_statistic),
+                    f_pvalue: Some(result.f_pvalue),
+                }),
+                Err(_) => {
+                    // Fall back to classical inference if HC fails
+                    Some(FitResultInference {
+                        std_errors: reconstruct(result.std_errors.as_ref()),
+                        t_values: reconstruct(result.t_statistics.as_ref()),
+                        p_values: reconstruct(result.p_values.as_ref()),
+                        ci_lower: reconstruct(result.conf_interval_lower.as_ref()),
+                        ci_upper: reconstruct(result.conf_interval_upper.as_ref()),
+                        confidence_level: options.confidence_level,
+                        f_statistic: Some(result.f_statistic),
+                        f_pvalue: Some(result.f_pvalue),
+                    })
+                }
+            }
+        } else {
+            // Classical inference
+            Some(FitResultInference {
+                std_errors: reconstruct(result.std_errors.as_ref()),
+                t_values: reconstruct(result.t_statistics.as_ref()),
+                p_values: reconstruct(result.p_values.as_ref()),
+                ci_lower: reconstruct(result.conf_interval_lower.as_ref()),
+                ci_upper: reconstruct(result.conf_interval_upper.as_ref()),
+                confidence_level: options.confidence_level,
+                f_statistic: Some(result.f_statistic),
+                f_pvalue: Some(result.f_pvalue),
+            })
+        }
     } else {
         None
     };
@@ -201,7 +263,7 @@ pub fn fit_ols(y: &[f64], x: &[Vec<f64>], options: &OlsOptions) -> StatsResult<F
     Ok(FitResult {
         core,
         inference,
-        diagnostics: None, // TODO: implement diagnostics
+        diagnostics: None,
     })
 }
 
@@ -219,6 +281,7 @@ mod tests {
             fit_intercept: true,
             compute_inference: false,
             confidence_level: 0.95,
+            ..Default::default()
         };
 
         let result = fit_ols(&y, &x, &options).unwrap();
@@ -240,6 +303,7 @@ mod tests {
             fit_intercept: true,
             compute_inference: true,
             confidence_level: 0.95,
+            ..Default::default()
         };
 
         let result = fit_ols(&y, &x, &options).unwrap();
@@ -303,5 +367,88 @@ mod tests {
         assert!((result.core.coefficients[0] - 2.0).abs() < 0.01);
         // Intercept should be 1 - 2*1 = -1
         assert!((result.core.intercept.unwrap() - (-1.0)).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_ols_svd_solver() {
+        let x = vec![vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]];
+        let y = vec![2.1, 4.0, 5.9, 8.1, 10.0, 11.9, 14.1, 16.0, 17.9, 20.1];
+
+        let options = OlsOptions {
+            solver: SolverType::Svd,
+            ..Default::default()
+        };
+
+        let result = fit_ols(&y, &x, &options).unwrap();
+        assert!((result.core.coefficients[0] - 2.0).abs() < 0.1);
+        assert!(result.core.r_squared > 0.99);
+    }
+
+    #[test]
+    fn test_ols_cholesky_solver() {
+        let x = vec![vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]];
+        let y = vec![2.1, 4.0, 5.9, 8.1, 10.0, 11.9, 14.1, 16.0, 17.9, 20.1];
+
+        let options = OlsOptions {
+            solver: SolverType::Cholesky,
+            ..Default::default()
+        };
+
+        let result = fit_ols(&y, &x, &options).unwrap();
+        assert!((result.core.coefficients[0] - 2.0).abs() < 0.1);
+        assert!(result.core.r_squared > 0.99);
+    }
+
+    #[test]
+    fn test_ols_hc1_inference() {
+        // HC1 (default) heteroscedasticity-consistent standard errors
+        let x = vec![vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]];
+        let y = vec![2.1, 4.0, 5.9, 8.1, 10.0, 11.9, 14.1, 16.0, 17.9, 20.1];
+
+        let options = OlsOptions {
+            fit_intercept: true,
+            compute_inference: true,
+            confidence_level: 0.95,
+            hc_type: Some(HcType::HC1),
+            ..Default::default()
+        };
+
+        let result = fit_ols(&y, &x, &options).unwrap();
+        assert!(result.inference.is_some());
+        let inf = result.inference.unwrap();
+        // HC standard errors should be finite and positive
+        assert!(inf.std_errors[0].is_finite() && inf.std_errors[0] > 0.0);
+        // p-value should be significant
+        assert!(inf.p_values[0] < 0.05);
+    }
+
+    #[test]
+    fn test_ols_hc3_inference() {
+        // HC3 (jackknife-like) should produce larger SE than classical
+        let x = vec![vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]];
+        let y = vec![2.1, 4.0, 5.9, 8.1, 10.0, 11.9, 14.1, 16.0, 17.9, 20.1];
+
+        let classical = OlsOptions {
+            compute_inference: true,
+            hc_type: None,
+            ..Default::default()
+        };
+        let hc3 = OlsOptions {
+            compute_inference: true,
+            hc_type: Some(HcType::HC3),
+            ..Default::default()
+        };
+
+        let result_classical = fit_ols(&y, &x, &classical).unwrap();
+        let result_hc3 = fit_ols(&y, &x, &hc3).unwrap();
+
+        let se_classical = result_classical.inference.unwrap().std_errors[0];
+        let se_hc3 = result_hc3.inference.unwrap().std_errors[0];
+
+        // Both should be finite and positive
+        assert!(se_classical.is_finite() && se_classical > 0.0);
+        assert!(se_hc3.is_finite() && se_hc3 > 0.0);
+        // HC3 and classical should differ (HC3 is typically larger but not guaranteed)
+        assert!((se_hc3 - se_classical).abs() > 1e-15);
     }
 }

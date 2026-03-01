@@ -1,9 +1,17 @@
 //! Elastic Net Regression (combined L1+L2 regularization) wrapper
 
 use crate::errors::{StatsError, StatsResult};
-use crate::types::{ElasticNetOptions, FitResult, FitResultCore};
+use crate::types::{ElasticNetOptions, FitResult, FitResultCore, LambdaScaling};
 use anofox_regression::prelude::*;
 use faer::{Col, Mat};
+
+/// Convert our LambdaScaling to anofox_regression's LambdaScaling
+fn convert_lambda_scaling(scaling: LambdaScaling) -> anofox_regression::LambdaScaling {
+    match scaling {
+        LambdaScaling::Raw => anofox_regression::LambdaScaling::Raw,
+        LambdaScaling::Glmnet => anofox_regression::LambdaScaling::Glmnet,
+    }
+}
 
 /// Fit an Elastic Net regression model
 ///
@@ -154,6 +162,7 @@ pub fn fit_elasticnet(
         .with_intercept(options.fit_intercept)
         .lambda(options.alpha) // our alpha is their lambda
         .alpha(options.l1_ratio) // our l1_ratio is their alpha
+        .lambda_scaling(convert_lambda_scaling(options.lambda_scaling))
         .max_iterations(options.max_iterations as usize)
         .tolerance(options.tolerance)
         .build()
@@ -210,6 +219,7 @@ mod tests {
             fit_intercept: true,
             max_iterations: 1000,
             tolerance: 1e-6,
+            ..Default::default()
         };
 
         let result = fit_elasticnet(&y, &x, &options).unwrap();
@@ -259,6 +269,7 @@ mod tests {
             fit_intercept: true,
             max_iterations: 1000,
             tolerance: 1e-6,
+            ..Default::default()
         };
 
         let result = fit_elasticnet(&y, &x, &options).unwrap();
@@ -277,6 +288,7 @@ mod tests {
             fit_intercept: true,
             max_iterations: 1000,
             tolerance: 1e-6,
+            ..Default::default()
         };
 
         let result = fit_elasticnet(&y, &x, &options).unwrap();

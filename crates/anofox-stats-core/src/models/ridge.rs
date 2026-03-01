@@ -1,9 +1,26 @@
 //! Ridge Regression (L2 regularization) wrapper
 
 use crate::errors::{StatsError, StatsResult};
-use crate::types::{FitResult, FitResultCore, FitResultInference, RidgeOptions};
+use crate::types::{FitResult, FitResultCore, FitResultInference, LambdaScaling, RidgeOptions, SolverType};
 use anofox_regression::prelude::*;
 use faer::{Col, Mat};
+
+/// Convert our SolverType to anofox_regression's SolverType
+fn convert_solver(solver: SolverType) -> anofox_regression::SolverType {
+    match solver {
+        SolverType::Qr => anofox_regression::SolverType::Qr,
+        SolverType::Svd => anofox_regression::SolverType::Svd,
+        SolverType::Cholesky => anofox_regression::SolverType::Cholesky,
+    }
+}
+
+/// Convert our LambdaScaling to anofox_regression's LambdaScaling
+fn convert_lambda_scaling(scaling: LambdaScaling) -> anofox_regression::LambdaScaling {
+    match scaling {
+        LambdaScaling::Raw => anofox_regression::LambdaScaling::Raw,
+        LambdaScaling::Glmnet => anofox_regression::LambdaScaling::Glmnet,
+    }
+}
 
 /// Fit a Ridge regression model
 ///
@@ -137,7 +154,9 @@ pub fn fit_ridge(y: &[f64], x: &[Vec<f64>], options: &RidgeOptions) -> StatsResu
     let fitted = RidgeRegressor::builder()
         .with_intercept(options.fit_intercept)
         .lambda(options.alpha)
+        .lambda_scaling(convert_lambda_scaling(options.lambda_scaling))
         .confidence_level(options.confidence_level)
+        .solve_method(convert_solver(options.solver))
         .build()
         .fit(&x_mat, &y_col)
         .map_err(|e| StatsError::RegressError(format!("{:?}", e)))?;
@@ -222,6 +241,7 @@ mod tests {
             fit_intercept: true,
             compute_inference: false,
             confidence_level: 0.95,
+            ..Default::default()
         };
 
         let result = fit_ridge(&y, &x, &options).unwrap();
@@ -242,6 +262,7 @@ mod tests {
             fit_intercept: true,
             compute_inference: false,
             confidence_level: 0.95,
+            ..Default::default()
         };
 
         let result = fit_ridge(&y, &x, &options);
@@ -260,6 +281,7 @@ mod tests {
             fit_intercept: true,
             compute_inference: false,
             confidence_level: 0.95,
+            ..Default::default()
         };
 
         let result = fit_ridge(&y, &x, &options).unwrap();
@@ -279,6 +301,7 @@ mod tests {
             fit_intercept: true,
             compute_inference: false,
             confidence_level: 0.95,
+            ..Default::default()
         };
 
         // Should not panic even with minimal data
@@ -297,6 +320,7 @@ mod tests {
             fit_intercept: true,
             compute_inference: false,
             confidence_level: 0.95,
+            ..Default::default()
         };
 
         let high_reg = RidgeOptions {
@@ -304,6 +328,7 @@ mod tests {
             fit_intercept: true,
             compute_inference: false,
             confidence_level: 0.95,
+            ..Default::default()
         };
 
         let result_low = fit_ridge(&y, &x, &low_reg).unwrap();
@@ -311,5 +336,63 @@ mod tests {
 
         // Higher regularization = smaller coefficient magnitude
         assert!(result_high.core.coefficients[0].abs() < result_low.core.coefficients[0].abs());
+    }
+
+    #[test]
+    fn test_ridge_svd_solver() {
+        let x = vec![vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]];
+        let y = vec![2.1, 4.0, 5.9, 8.1, 10.0, 11.9, 14.1, 16.0, 17.9, 20.1];
+
+        let options = RidgeOptions {
+            alpha: 0.1,
+            solver: SolverType::Svd,
+            ..Default::default()
+        };
+
+        let result = fit_ridge(&y, &x, &options).unwrap();
+        assert!(result.core.coefficients[0] > 1.5 && result.core.coefficients[0] < 2.5);
+        assert!(result.core.r_squared > 0.95);
+    }
+
+    #[test]
+    fn test_ridge_cholesky_solver() {
+        let x = vec![vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]];
+        let y = vec![2.1, 4.0, 5.9, 8.1, 10.0, 11.9, 14.1, 16.0, 17.9, 20.1];
+
+        // Cholesky is ideal for Ridge since L2 guarantees positive definite X'X + λI
+        let options = RidgeOptions {
+            alpha: 0.1,
+            solver: SolverType::Cholesky,
+            ..Default::default()
+        };
+
+        let result = fit_ridge(&y, &x, &options).unwrap();
+        assert!(result.core.coefficients[0] > 1.5 && result.core.coefficients[0] < 2.5);
+        assert!(result.core.r_squared > 0.95);
+    }
+
+    #[test]
+    fn test_ridge_glmnet_scaling() {
+        let x = vec![vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]];
+        let y = vec![2.1, 4.0, 5.9, 8.1, 10.0, 11.9, 14.1, 16.0, 17.9, 20.1];
+
+        let raw = RidgeOptions {
+            alpha: 1.0,
+            lambda_scaling: LambdaScaling::Raw,
+            ..Default::default()
+        };
+
+        let glmnet = RidgeOptions {
+            alpha: 1.0,
+            lambda_scaling: LambdaScaling::Glmnet,
+            ..Default::default()
+        };
+
+        let result_raw = fit_ridge(&y, &x, &raw).unwrap();
+        let result_glmnet = fit_ridge(&y, &x, &glmnet).unwrap();
+
+        // Verify that different lambda scaling modes produce different coefficients
+        assert!((result_raw.core.coefficients[0] - result_glmnet.core.coefficients[0]).abs() > 1e-10,
+            "Raw and Glmnet scaling should produce different coefficients");
     }
 }

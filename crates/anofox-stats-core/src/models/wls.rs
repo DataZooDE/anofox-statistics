@@ -1,12 +1,28 @@
-//! Weighted Least Squares (WLS) regression
-//!
-//! WLS is implemented by transforming the data: multiply X and y by sqrt(weights),
-//! then perform OLS on the transformed data.
+//! Weighted Least Squares (WLS) regression using native WlsRegressor
 
 use crate::errors::{StatsError, StatsResult};
-use crate::types::{FitResult, FitResultCore, FitResultInference, WlsOptions};
+use crate::types::{FitResult, FitResultCore, FitResultInference, HcType, SolverType, WlsOptions};
 use anofox_regression::prelude::*;
 use faer::{Col, Mat};
+
+/// Convert our SolverType to anofox_regression's SolverType
+fn convert_solver(solver: SolverType) -> anofox_regression::SolverType {
+    match solver {
+        SolverType::Qr => anofox_regression::SolverType::Qr,
+        SolverType::Svd => anofox_regression::SolverType::Svd,
+        SolverType::Cholesky => anofox_regression::SolverType::Cholesky,
+    }
+}
+
+/// Convert our HcType to anofox_regression's HcType
+fn convert_hc_type(hc: HcType) -> anofox_regression::HcType {
+    match hc {
+        HcType::HC0 => anofox_regression::HcType::HC0,
+        HcType::HC1 => anofox_regression::HcType::HC1,
+        HcType::HC2 => anofox_regression::HcType::HC2,
+        HcType::HC3 => anofox_regression::HcType::HC3,
+    }
+}
 
 /// Fit a Weighted Least Squares regression model
 ///
@@ -147,22 +163,20 @@ pub fn fit_wls(
         .filter_map(|(i, &is_const)| if !is_const { Some(i) } else { None })
         .collect();
 
-    // WLS transformation: multiply X and y by sqrt(weights)
-    // This makes OLS on transformed data equivalent to WLS
-    let sqrt_weights: Vec<f64> = valid_indices.iter().map(|&i| weights[i].sqrt()).collect();
-
-    // Transform y: y_tilde = sqrt(w) * y
-    let y_col = Col::from_fn(n_valid, |i| y[valid_indices[i]] * sqrt_weights[i]);
-
-    // Transform X: X_tilde = diag(sqrt(w)) * X (only non-constant columns)
+    // Convert to faer types (only non-constant columns, only valid rows)
+    let y_col = Col::from_fn(n_valid, |i| y[valid_indices[i]]);
     let x_mat = Mat::from_fn(n_valid, n_effective_features, |i, j| {
-        x[non_constant_indices[j]][valid_indices[i]] * sqrt_weights[i]
+        x[non_constant_indices[j]][valid_indices[i]]
     });
+    let w_col = Col::from_fn(n_valid, |i| weights[valid_indices[i]]);
 
-    // Build and fit the model using OLS on transformed data
-    let fitted = OlsRegressor::builder()
+    // Build and fit the model using native WlsRegressor
+    let fitted = WlsRegressor::builder()
         .with_intercept(options.fit_intercept)
+        .weights(w_col)
+        .compute_inference(options.compute_inference || options.hc_type.is_some())
         .confidence_level(options.confidence_level)
+        .solve_method(convert_solver(options.solver))
         .build()
         .fit(&x_mat, &y_col)
         .map_err(|e| StatsError::RegressError(format!("{:?}", e)))?;
@@ -182,83 +196,17 @@ pub fn fit_wls(
         None
     };
 
-    // Note: R-squared from the transformed model is not the same as weighted R-squared
-    // We compute proper weighted R-squared here
-    let y_mean_weighted = {
-        let sum_wy: f64 = valid_indices.iter().map(|&i| weights[i] * y[i]).sum();
-        let sum_w: f64 = valid_indices.iter().map(|&i| weights[i]).sum();
-        sum_wy / sum_w
-    };
-
-    // Compute weighted SS_tot and SS_res
-    // Note: NaN coefficients contribute 0 to predictions (skip them)
-    let mut ss_tot = 0.0;
-    let mut ss_res = 0.0;
-    for &i in valid_indices.iter() {
-        let y_pred = if let Some(intercept) = intercept {
-            intercept
-                + coefficients
-                    .iter()
-                    .zip(x.iter())
-                    .filter(|(c, _)| !c.is_nan())
-                    .map(|(c, col)| c * col[i])
-                    .sum::<f64>()
-        } else {
-            coefficients
-                .iter()
-                .zip(x.iter())
-                .filter(|(c, _)| !c.is_nan())
-                .map(|(c, col)| c * col[i])
-                .sum::<f64>()
-        };
-        let w = weights[i];
-        ss_tot += w * (y[i] - y_mean_weighted).powi(2);
-        ss_res += w * (y[i] - y_pred).powi(2);
-    }
-
-    let r_squared = if ss_tot > 0.0 {
-        1.0 - ss_res / ss_tot
-    } else {
-        0.0
-    };
-
-    // Adjusted R-squared for weighted regression (use effective features for df)
-    let adj_r_squared = if n_valid > min_obs && ss_tot > 0.0 {
-        let p = if options.fit_intercept {
-            n_effective_features + 1
-        } else {
-            n_effective_features
-        };
-        1.0 - (1.0 - r_squared) * ((n_valid - 1) as f64) / ((n_valid - p) as f64)
-    } else {
-        r_squared
-    };
-
-    // Weighted residual standard error (use effective features for df)
-    let df_residual = n_valid
-        - if options.fit_intercept {
-            n_effective_features + 1
-        } else {
-            n_effective_features
-        };
-    let residual_std_error = if df_residual > 0 {
-        (ss_res / df_residual as f64).sqrt()
-    } else {
-        0.0
-    };
-
     let core = FitResultCore {
         coefficients,
         intercept,
-        r_squared,
-        adj_r_squared,
-        residual_std_error,
+        r_squared: result.r_squared,
+        adj_r_squared: result.adj_r_squared,
+        residual_std_error: result.rmse,
         n_observations: n_valid,
         n_features,
     };
 
     // Build inference results if requested
-    // Note: The inference from transformed OLS is approximately correct for WLS
     let inference = if options.compute_inference {
         // Helper to reconstruct reduced vector to full size with NaN for constant columns
         let reconstruct = |reduced: Option<&faer::Col<f64>>| -> Vec<f64> {
@@ -270,23 +218,65 @@ pub fn fit_wls(
             }
             full
         };
+        let reconstruct_col = |col: &faer::Col<f64>| -> Vec<f64> {
+            let mut full = vec![f64::NAN; n_features];
+            for (reduced_idx, &orig_idx) in non_constant_indices.iter().enumerate() {
+                full[orig_idx] = col[reduced_idx];
+            }
+            full
+        };
 
-        let std_errors = reconstruct(result.std_errors.as_ref());
-        let t_values = reconstruct(result.t_statistics.as_ref());
-        let p_values = reconstruct(result.p_values.as_ref());
-        let ci_lower = reconstruct(result.conf_interval_lower.as_ref());
-        let ci_upper = reconstruct(result.conf_interval_upper.as_ref());
+        // If HC inference is requested, use heteroscedasticity-consistent standard errors
+        if let Some(hc_type) = options.hc_type {
+            let hc_result = anofox_regression::inference::compute_hc_inference(
+                &x_mat,
+                &result.coefficients,
+                result.intercept,
+                &result.residuals,
+                &result.aliased,
+                options.fit_intercept,
+                convert_hc_type(hc_type),
+                options.confidence_level,
+            );
 
-        Some(FitResultInference {
-            std_errors,
-            t_values,
-            p_values,
-            ci_lower,
-            ci_upper,
-            confidence_level: options.confidence_level,
-            f_statistic: Some(result.f_statistic),
-            f_pvalue: Some(result.f_pvalue),
-        })
+            match hc_result {
+                Ok(hc) => Some(FitResultInference {
+                    std_errors: reconstruct_col(&hc.std_errors),
+                    t_values: reconstruct_col(&hc.t_statistics),
+                    p_values: reconstruct_col(&hc.p_values),
+                    ci_lower: reconstruct_col(&hc.conf_interval_lower),
+                    ci_upper: reconstruct_col(&hc.conf_interval_upper),
+                    confidence_level: hc.confidence_level,
+                    f_statistic: Some(result.f_statistic),
+                    f_pvalue: Some(result.f_pvalue),
+                }),
+                Err(_) => {
+                    // Fall back to classical inference if HC fails
+                    Some(FitResultInference {
+                        std_errors: reconstruct(result.std_errors.as_ref()),
+                        t_values: reconstruct(result.t_statistics.as_ref()),
+                        p_values: reconstruct(result.p_values.as_ref()),
+                        ci_lower: reconstruct(result.conf_interval_lower.as_ref()),
+                        ci_upper: reconstruct(result.conf_interval_upper.as_ref()),
+                        confidence_level: options.confidence_level,
+                        f_statistic: Some(result.f_statistic),
+                        f_pvalue: Some(result.f_pvalue),
+                    })
+                }
+            }
+        } else {
+            // Classical inference from the native WLS fit
+            Some(FitResultInference {
+                std_errors: reconstruct(result.std_errors.as_ref()),
+                t_values: reconstruct(result.t_statistics.as_ref()),
+                p_values: reconstruct(result.p_values.as_ref()),
+                ci_lower: reconstruct(result.conf_interval_lower.as_ref()),
+                ci_upper: reconstruct(result.conf_interval_upper.as_ref()),
+                confidence_level: options.confidence_level,
+                f_statistic: Some(result.f_statistic),
+                f_pvalue: Some(result.f_pvalue),
+            })
+        }
     } else {
         None
     };
@@ -313,6 +303,7 @@ mod tests {
             fit_intercept: true,
             compute_inference: false,
             confidence_level: 0.95,
+            ..Default::default()
         };
 
         let result = fit_wls(&y, &x, &weights, &options).unwrap();
@@ -335,6 +326,7 @@ mod tests {
             fit_intercept: true,
             compute_inference: false,
             confidence_level: 0.95,
+            ..Default::default()
         };
 
         let result = fit_wls(&y, &x, &weights, &options).unwrap();
@@ -383,5 +375,57 @@ mod tests {
         let result = fit_wls(&y, &x, &weights, &options);
 
         assert!(matches!(result, Err(StatsError::DimensionMismatch { .. })));
+    }
+
+    #[test]
+    fn test_wls_with_inference() {
+        let x = vec![vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]];
+        let y = vec![2.1, 4.0, 5.9, 8.1, 10.0, 11.9, 14.1, 16.0, 17.9, 20.1];
+        let weights = vec![1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0];
+
+        let options = WlsOptions {
+            compute_inference: true,
+            ..Default::default()
+        };
+
+        let result = fit_wls(&y, &x, &weights, &options).unwrap();
+        assert!(result.inference.is_some());
+        let inf = result.inference.unwrap();
+        assert!(inf.std_errors[0].is_finite() && inf.std_errors[0] > 0.0);
+        assert!(inf.p_values[0] < 0.05);
+    }
+
+    #[test]
+    fn test_wls_hc1_inference() {
+        let x = vec![vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]];
+        let y = vec![2.1, 4.0, 5.9, 8.1, 10.0, 11.9, 14.1, 16.0, 17.9, 20.1];
+        let weights = vec![1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0];
+
+        let options = WlsOptions {
+            compute_inference: true,
+            hc_type: Some(HcType::HC1),
+            ..Default::default()
+        };
+
+        let result = fit_wls(&y, &x, &weights, &options).unwrap();
+        assert!(result.inference.is_some());
+        let inf = result.inference.unwrap();
+        assert!(inf.std_errors[0].is_finite() && inf.std_errors[0] > 0.0);
+    }
+
+    #[test]
+    fn test_wls_svd_solver() {
+        let x = vec![vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]];
+        let y = vec![2.1, 4.0, 5.9, 8.1, 10.0, 11.9, 14.1, 16.0, 17.9, 20.1];
+        let weights = vec![1.0; 10];
+
+        let options = WlsOptions {
+            solver: SolverType::Svd,
+            ..Default::default()
+        };
+
+        let result = fit_wls(&y, &x, &weights, &options).unwrap();
+        assert!((result.core.coefficients[0] - 2.0).abs() < 0.1);
+        assert!(result.core.r_squared > 0.99);
     }
 }

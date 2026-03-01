@@ -126,6 +126,7 @@ pub fn fit_poisson(y: &[f64], x: &[Vec<f64>], options: &PoissonOptions) -> Stats
             .max_iterations(options.max_iterations as usize)
             .tolerance(options.tolerance)
             .confidence_level(options.confidence_level)
+            .lambda(options.lambda)
             .build()
             .fit(&x_mat, &y_col),
         PoissonLink::Identity => PoissonRegressor::identity()
@@ -133,6 +134,7 @@ pub fn fit_poisson(y: &[f64], x: &[Vec<f64>], options: &PoissonOptions) -> Stats
             .max_iterations(options.max_iterations as usize)
             .tolerance(options.tolerance)
             .confidence_level(options.confidence_level)
+            .lambda(options.lambda)
             .build()
             .fit(&x_mat, &y_col),
         PoissonLink::Sqrt => PoissonRegressor::sqrt()
@@ -140,6 +142,7 @@ pub fn fit_poisson(y: &[f64], x: &[Vec<f64>], options: &PoissonOptions) -> Stats
             .max_iterations(options.max_iterations as usize)
             .tolerance(options.tolerance)
             .confidence_level(options.confidence_level)
+            .lambda(options.lambda)
             .build()
             .fit(&x_mat, &y_col),
     }
@@ -260,6 +263,7 @@ pub fn fit_binomial(
         .max_iterations(options.max_iterations as usize)
         .tolerance(options.tolerance)
         .confidence_level(options.confidence_level)
+        .lambda(options.lambda)
         .build()
         .fit(&x_mat, &y_col)
         .map_err(|e| StatsError::RegressError(format!("{:?}", e)))?;
@@ -355,6 +359,7 @@ pub fn fit_negbinomial(
         .max_iterations(options.max_iterations as usize)
         .tolerance(options.tolerance)
         .confidence_level(options.confidence_level)
+        .lambda(options.lambda)
         .build()
         .fit(&x_mat, &y_col)
         .map_err(|e| StatsError::RegressError(format!("{:?}", e)))?;
@@ -453,6 +458,7 @@ pub fn fit_tweedie(y: &[f64], x: &[Vec<f64>], options: &TweedieOptions) -> Stats
         .max_iterations(options.max_iterations as usize)
         .tolerance(options.tolerance)
         .confidence_level(options.confidence_level)
+        .lambda(options.lambda)
         .build()
         .fit(&x_mat, &y_col)
         .map_err(|e| StatsError::RegressError(format!("{:?}", e)))?;
@@ -656,5 +662,43 @@ mod tests {
         let result = fit_binomial(&y, &x, &options);
 
         assert!(matches!(result, Err(StatsError::InvalidValue { .. })));
+    }
+
+    #[test]
+    fn test_poisson_with_lambda() {
+        // Penalized IRLS: lambda > 0 should regularize coefficients
+        let x = vec![vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]];
+        let y = vec![1.0, 2.0, 4.0, 5.0, 8.0, 10.0, 15.0, 20.0, 25.0, 30.0];
+
+        let no_penalty = PoissonOptions {
+            lambda: 0.0,
+            ..Default::default()
+        };
+        let with_penalty = PoissonOptions {
+            lambda: 1.0,
+            ..Default::default()
+        };
+
+        let result_no = fit_poisson(&y, &x, &no_penalty).unwrap();
+        let result_pen = fit_poisson(&y, &x, &with_penalty).unwrap();
+
+        // Penalized coefficients should be smaller in magnitude
+        assert!(
+            result_pen.core.coefficients[0].abs() <= result_no.core.coefficients[0].abs() + 0.01
+        );
+    }
+
+    #[test]
+    fn test_binomial_with_lambda() {
+        let x = vec![vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]];
+        let y = vec![0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 1.0, 1.0];
+
+        let options = BinomialOptions {
+            lambda: 0.5,
+            ..Default::default()
+        };
+
+        let result = fit_binomial(&y, &x, &options);
+        assert!(result.is_ok());
     }
 }
