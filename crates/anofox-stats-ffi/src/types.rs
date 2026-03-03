@@ -178,7 +178,7 @@ pub enum SolverTypeFFI {
 
 impl Default for SolverTypeFFI {
     fn default() -> Self {
-        Self::Qr
+        Self::Svd
     }
 }
 

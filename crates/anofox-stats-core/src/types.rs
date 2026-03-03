@@ -118,10 +118,10 @@ pub struct SeparationCheckResult {
 /// Decomposition method for solving linear systems
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SolverType {
-    /// QR decomposition with column pivoting (default, good balance of speed and stability)
-    #[default]
+    /// QR decomposition with column pivoting (good balance of speed and stability)
     Qr,
-    /// SVD decomposition (most robust, handles rank-deficient matrices best, slower)
+    /// SVD decomposition (default, most robust, handles rank-deficient matrices best)
+    #[default]
     Svd,
     /// Cholesky decomposition (fastest, requires positive definite X'X, falls back to QR)
     Cholesky,
