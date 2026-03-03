@@ -1,6 +1,6 @@
 # OLS (Ordinary Least Squares)
 
-Ordinary Least Squares regression using QR decomposition.
+Ordinary Least Squares regression using SVD decomposition.
 
 ## Functions
 

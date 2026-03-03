@@ -114,7 +114,7 @@ SELECT * FROM ols_fit_predict_by('sales', region, revenue, [ads, price]);
 ## OLS Functions
 
 ### anofox_stats_ols_fit
-Ordinary Least Squares regression using QR decomposition.
+Ordinary Least Squares regression using SVD decomposition.
 
 **Signature:**
 ```sql
