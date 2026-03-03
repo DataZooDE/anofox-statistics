@@ -166,43 +166,34 @@ impl Default for FitResultInference {
 
 /// Decomposition method for FFI
 #[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SolverTypeFFI {
     /// QR decomposition with column pivoting (default)
     Qr = 0,
     /// SVD decomposition (most robust)
+    #[default]
     Svd = 1,
     /// Cholesky decomposition (fastest)
     Cholesky = 2,
 }
 
-impl Default for SolverTypeFFI {
-    fn default() -> Self {
-        Self::Svd
-    }
-}
-
 /// Lambda scaling convention for FFI
 #[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum LambdaScalingFFI {
     /// Use lambda as-is (default)
+    #[default]
     Raw = 0,
     /// Scale to match R's glmnet convention
     Glmnet = 1,
 }
 
-impl Default for LambdaScalingFFI {
-    fn default() -> Self {
-        Self::Raw
-    }
-}
-
 /// Heteroscedasticity-consistent SE type for FFI
 #[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum HcTypeFFI {
     /// No HC inference (use classical)
+    #[default]
     None = 0,
     /// HC0: White's original
     HC0 = 1,
@@ -212,12 +203,6 @@ pub enum HcTypeFFI {
     HC2 = 3,
     /// HC3: Jackknife-like
     HC3 = 4,
-}
-
-impl Default for HcTypeFFI {
-    fn default() -> Self {
-        Self::None
-    }
 }
 
 /// OLS options for FFI
@@ -1747,20 +1732,15 @@ impl Default for QuantileFitResultCore {
 
 /// Information criterion for FFI
 #[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum InformationCriterionFFI {
     /// Akaike Information Criterion
     AIC = 0,
     /// Corrected AIC (default)
+    #[default]
     AICc = 1,
     /// Bayesian Information Criterion
     BIC = 2,
-}
-
-impl Default for InformationCriterionFFI {
-    fn default() -> Self {
-        Self::AICc
-    }
 }
 
 /// LmDynamic options for FFI
