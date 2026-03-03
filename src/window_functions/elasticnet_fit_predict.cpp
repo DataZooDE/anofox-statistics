@@ -247,8 +247,13 @@ static void ElasticNetFitPredictFinalize(Vector &state_vector, AggregateInputDat
             x_arrays.push_back({col.data(), nullptr, col.size()});
         }
 
-        AnofoxElasticNetOptions options = {state.alpha, state.l1_ratio, state.fit_intercept, state.max_iterations,
-                                           state.tolerance};
+        AnofoxElasticNetOptions options;
+        options.alpha = state.alpha;
+        options.l1_ratio = state.l1_ratio;
+        options.fit_intercept = state.fit_intercept;
+        options.max_iterations = state.max_iterations;
+        options.tolerance = state.tolerance;
+        options.lambda_scaling = ANOFOX_LAMBDA_SCALING_RAW;
         AnofoxFitResultCore core_result;
         AnofoxError error;
 

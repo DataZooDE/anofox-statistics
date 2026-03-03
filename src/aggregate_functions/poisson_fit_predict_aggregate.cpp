@@ -387,6 +387,7 @@ static void PoissonFitPredictAggFinalize(Vector &state_vector, AggregateInputDat
         options.tolerance = state.tolerance;
         options.compute_inference = false;
         options.confidence_level = state.confidence_level;
+        options.lambda = 0.0;
 
         AnofoxGlmFitResultCore core_result;
         AnofoxError error;

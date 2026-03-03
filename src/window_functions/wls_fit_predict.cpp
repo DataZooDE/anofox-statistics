@@ -237,7 +237,12 @@ static void WlsFitPredictFinalize(Vector &state_vector, AggregateInputData &, Ve
             x_arrays.push_back({col.data(), nullptr, col.size()});
         }
 
-        AnofoxWlsOptions options = {state.fit_intercept, false, state.confidence_level};
+        AnofoxWlsOptions options;
+        options.fit_intercept = state.fit_intercept;
+        options.compute_inference = false;
+        options.confidence_level = state.confidence_level;
+        options.solver = ANOFOX_SOLVER_SVD;
+        options.hc_type = ANOFOX_HC_NONE;
         AnofoxFitResultCore core_result;
         AnofoxError error;
 

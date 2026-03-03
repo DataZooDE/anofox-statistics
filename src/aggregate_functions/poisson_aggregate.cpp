@@ -286,6 +286,7 @@ static void PoissonAggFinalize(Vector &state_vector, AggregateInputData &aggr_in
         options.tolerance = state.tolerance;
         options.compute_inference = state.compute_inference;
         options.confidence_level = state.confidence_level;
+        options.lambda = 0.0;
 
         AnofoxGlmFitResultCore core_result;
         AnofoxFitResultInference inference_result;

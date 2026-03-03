@@ -149,6 +149,8 @@ static void OlsFitFunction(DataChunk &args, ExpressionState &state, Vector &resu
         options.fit_intercept = bind_data.fit_intercept;
         options.compute_inference = bind_data.compute_inference;
         options.confidence_level = bind_data.confidence_level;
+        options.solver = ANOFOX_SOLVER_SVD;
+        options.hc_type = ANOFOX_HC_NONE;
 
         // Call Rust FFI
         AnofoxFitResultCore core_result;

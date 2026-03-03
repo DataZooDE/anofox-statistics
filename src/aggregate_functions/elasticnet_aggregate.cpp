@@ -275,6 +275,7 @@ static void ElasticNetAggFinalize(Vector &state_vector, AggregateInputData &aggr
         options.fit_intercept = state.fit_intercept;
         options.max_iterations = state.max_iterations;
         options.tolerance = state.tolerance;
+        options.lambda_scaling = ANOFOX_LAMBDA_SCALING_RAW;
 
         AnofoxFitResultCore core_result;
         AnofoxError error;

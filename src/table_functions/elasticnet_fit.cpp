@@ -152,6 +152,7 @@ static void ElasticNetFitFunction(DataChunk &args, ExpressionState &state, Vecto
         options.fit_intercept = bind_data.fit_intercept;
         options.max_iterations = bind_data.max_iterations;
         options.tolerance = bind_data.tolerance;
+        options.lambda_scaling = ANOFOX_LAMBDA_SCALING_RAW;
 
         // Call Rust FFI
         AnofoxFitResultCore core_result;

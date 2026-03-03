@@ -230,7 +230,13 @@ static void RidgeFitPredictFinalize(Vector &state_vector, AggregateInputData &, 
             x_arrays.push_back({col.data(), nullptr, col.size()});
         }
 
-        AnofoxRidgeOptions options = {state.alpha, state.fit_intercept, false, state.confidence_level};
+        AnofoxRidgeOptions options;
+        options.alpha = state.alpha;
+        options.fit_intercept = state.fit_intercept;
+        options.compute_inference = false;
+        options.confidence_level = state.confidence_level;
+        options.solver = ANOFOX_SOLVER_SVD;
+        options.lambda_scaling = ANOFOX_LAMBDA_SCALING_RAW;
         AnofoxFitResultCore core_result;
         AnofoxError error;
 

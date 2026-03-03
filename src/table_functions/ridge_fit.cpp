@@ -157,6 +157,8 @@ static void RidgeFitFunction(DataChunk &args, ExpressionState &state, Vector &re
         options.fit_intercept = bind_data.fit_intercept;
         options.compute_inference = bind_data.compute_inference;
         options.confidence_level = bind_data.confidence_level;
+        options.solver = ANOFOX_SOLVER_SVD;
+        options.lambda_scaling = ANOFOX_LAMBDA_SCALING_RAW;
 
         // Call Rust FFI
         AnofoxFitResultCore core_result;

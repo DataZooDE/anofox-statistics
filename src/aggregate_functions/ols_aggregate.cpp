@@ -272,6 +272,8 @@ static void OlsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
         options.fit_intercept = state.fit_intercept;
         options.compute_inference = state.compute_inference;
         options.confidence_level = state.confidence_level;
+        options.solver = ANOFOX_SOLVER_SVD;
+        options.hc_type = ANOFOX_HC_NONE;
 
         AnofoxFitResultCore core_result;
         AnofoxFitResultInference inference_result;
