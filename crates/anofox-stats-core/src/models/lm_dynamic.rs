@@ -6,10 +6,10 @@
 use crate::errors::{StatsError, StatsResult};
 use crate::types::{AlmDistribution, InformationCriterion, LmDynamicOptions, LmDynamicResult};
 use anofox_regression::prelude::AlmDistribution as UpstreamAlmDist;
+use anofox_regression::prelude::*;
 use anofox_regression::solvers::lm_dynamic::{
     InformationCriterion as UpstreamIC, LmDynamicRegressor,
 };
-use anofox_regression::prelude::*;
 use faer::{Col, Mat};
 
 /// Convert our InformationCriterion to upstream
@@ -28,19 +28,13 @@ fn convert_distribution(dist: AlmDistribution) -> UpstreamAlmDist {
         AlmDistribution::Laplace => UpstreamAlmDist::Laplace,
         AlmDistribution::StudentT => UpstreamAlmDist::StudentT,
         AlmDistribution::Logistic => UpstreamAlmDist::Logistic,
-        AlmDistribution::AsymmetricLaplace => {
-            UpstreamAlmDist::AsymmetricLaplace
-        }
-        AlmDistribution::GeneralisedNormal => {
-            UpstreamAlmDist::GeneralisedNormal
-        }
+        AlmDistribution::AsymmetricLaplace => UpstreamAlmDist::AsymmetricLaplace,
+        AlmDistribution::GeneralisedNormal => UpstreamAlmDist::GeneralisedNormal,
         AlmDistribution::S => UpstreamAlmDist::S,
         AlmDistribution::LogNormal => UpstreamAlmDist::LogNormal,
         AlmDistribution::LogLaplace => UpstreamAlmDist::LogLaplace,
         AlmDistribution::LogS => UpstreamAlmDist::LogS,
-        AlmDistribution::LogGeneralisedNormal => {
-            UpstreamAlmDist::LogGeneralisedNormal
-        }
+        AlmDistribution::LogGeneralisedNormal => UpstreamAlmDist::LogGeneralisedNormal,
         AlmDistribution::FoldedNormal => UpstreamAlmDist::FoldedNormal,
         AlmDistribution::RectifiedNormal => UpstreamAlmDist::RectifiedNormal,
         AlmDistribution::BoxCoxNormal => UpstreamAlmDist::BoxCoxNormal,
@@ -53,9 +47,7 @@ fn convert_distribution(dist: AlmDistribution) -> UpstreamAlmDist {
         AlmDistribution::NegativeBinomial => UpstreamAlmDist::NegativeBinomial,
         AlmDistribution::Binomial => UpstreamAlmDist::Binomial,
         AlmDistribution::Geometric => UpstreamAlmDist::Geometric,
-        AlmDistribution::CumulativeLogistic => {
-            UpstreamAlmDist::CumulativeLogistic
-        }
+        AlmDistribution::CumulativeLogistic => UpstreamAlmDist::CumulativeLogistic,
         AlmDistribution::CumulativeNormal => UpstreamAlmDist::CumulativeNormal,
     }
 }
@@ -220,9 +212,7 @@ mod tests {
     #[test]
     fn test_lm_dynamic_basic() {
         // Simple linear relationship: y = 2*x + 1
-        let x = vec![vec![
-            1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0,
-        ]];
+        let x = vec![vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]];
         let y = vec![3.1, 5.0, 6.9, 9.1, 11.0, 12.9, 15.1, 17.0, 18.9, 21.1];
 
         let options = LmDynamicOptions::default();
@@ -239,9 +229,7 @@ mod tests {
 
     #[test]
     fn test_lm_dynamic_has_dynamic_coefficients() {
-        let x = vec![vec![
-            1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0,
-        ]];
+        let x = vec![vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]];
         let y = vec![3.1, 5.0, 6.9, 9.1, 11.0, 12.9, 15.1, 17.0, 18.9, 21.1];
 
         let options = LmDynamicOptions::default();
@@ -255,9 +243,7 @@ mod tests {
 
     #[test]
     fn test_lm_dynamic_no_smoothing() {
-        let x = vec![vec![
-            1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0,
-        ]];
+        let x = vec![vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]];
         let y = vec![3.1, 5.0, 6.9, 9.1, 11.0, 12.9, 15.1, 17.0, 18.9, 21.1];
 
         let options = LmDynamicOptions {
@@ -271,9 +257,7 @@ mod tests {
 
     #[test]
     fn test_lm_dynamic_bic() {
-        let x = vec![vec![
-            1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0,
-        ]];
+        let x = vec![vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]];
         let y = vec![3.1, 5.0, 6.9, 9.1, 11.0, 12.9, 15.1, 17.0, 18.9, 21.1];
 
         let options = LmDynamicOptions {

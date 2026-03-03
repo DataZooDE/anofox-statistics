@@ -10,8 +10,8 @@ use anofox_stats_core::{
     diagnostics::{compute_aic, compute_bic, compute_residuals, compute_vif, jarque_bera},
     models::{
         compute_aid, compute_aid_anomalies, fit_alm, fit_binomial, fit_bls, fit_elasticnet,
-        fit_isotonic, fit_lm_dynamic, fit_negbinomial, fit_ols, fit_pls, fit_poisson,
-        fit_quantile, fit_ridge, fit_rls, fit_tweedie, fit_wls, predict, RlsOptions,
+        fit_isotonic, fit_lm_dynamic, fit_negbinomial, fit_ols, fit_pls, fit_poisson, fit_quantile,
+        fit_ridge, fit_rls, fit_tweedie, fit_wls, predict, RlsOptions,
     },
     AidOptions, AlmDistribution, AlmLoss, AlmOptions, BinomialLink, BinomialOptions, BlsOptions,
     ElasticNetOptions, HcType, InformationCriterion, IsotonicOptions, LambdaScaling,
@@ -6152,11 +6152,7 @@ pub unsafe extern "C" fn anofox_fit_lm_dynamic(
             let n_coefs = fit_result.coefficients.len();
             let coefs_ptr = libc::malloc(n_coefs * std::mem::size_of::<f64>()) as *mut f64;
             if !coefs_ptr.is_null() {
-                std::ptr::copy_nonoverlapping(
-                    fit_result.coefficients.as_ptr(),
-                    coefs_ptr,
-                    n_coefs,
-                );
+                std::ptr::copy_nonoverlapping(fit_result.coefficients.as_ptr(), coefs_ptr, n_coefs);
             }
 
             (*result).coefficients = coefs_ptr;

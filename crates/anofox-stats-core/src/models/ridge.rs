@@ -1,7 +1,9 @@
 //! Ridge Regression (L2 regularization) wrapper
 
 use crate::errors::{StatsError, StatsResult};
-use crate::types::{FitResult, FitResultCore, FitResultInference, LambdaScaling, RidgeOptions, SolverType};
+use crate::types::{
+    FitResult, FitResultCore, FitResultInference, LambdaScaling, RidgeOptions, SolverType,
+};
 use anofox_regression::prelude::*;
 use faer::{Col, Mat};
 
@@ -392,7 +394,9 @@ mod tests {
         let result_glmnet = fit_ridge(&y, &x, &glmnet).unwrap();
 
         // Verify that different lambda scaling modes produce different coefficients
-        assert!((result_raw.core.coefficients[0] - result_glmnet.core.coefficients[0]).abs() > 1e-10,
-            "Raw and Glmnet scaling should produce different coefficients");
+        assert!(
+            (result_raw.core.coefficients[0] - result_glmnet.core.coefficients[0]).abs() > 1e-10,
+            "Raw and Glmnet scaling should produce different coefficients"
+        );
     }
 }

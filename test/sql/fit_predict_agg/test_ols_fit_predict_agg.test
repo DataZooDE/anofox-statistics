@@ -11,7 +11,7 @@ require anofox_statistics
 statement ok
 CREATE TABLE test_data AS
 SELECT
-    CASE WHEN i <= 7 THEN (2.0 * i + 1.0) ELSE NULL END AS y,
+    CASE WHEN i <= 7 THEN (2.0 * i + 1.0 + (i % 2) * 0.3) ELSE NULL END AS y,
     i::DOUBLE AS x1,
     (i * 0.5)::DOUBLE AS x2,
     i AS id

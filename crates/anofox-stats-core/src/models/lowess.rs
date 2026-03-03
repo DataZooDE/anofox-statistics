@@ -161,6 +161,9 @@ mod tests {
             .sum::<f64>()
             / result.fitted_values.len() as f64;
 
-        assert!(var_s < var_y, "Smoothed variance should be less than original");
+        assert!(
+            var_s < var_y,
+            "Smoothed variance should be less than original"
+        );
     }
 }
