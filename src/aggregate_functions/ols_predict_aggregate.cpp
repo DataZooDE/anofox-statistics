@@ -7,6 +7,7 @@
 #include "duckdb/main/extension/extension_loader.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/ffi_enum_converters.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
 
@@ -33,11 +34,14 @@ struct OlsPredictAggState {
     // Options
     bool fit_intercept;
     double confidence_level;
+    SolverType solver;
+    HcType hc_type;
     NullPolicy null_policy;
     bool use_split_col;  // True if using split column instead of y NULL
 
     OlsPredictAggState()
         : n_features(0), initialized(false), fit_intercept(true), confidence_level(0.95),
+          solver(SolverType::SVD), hc_type(HcType::NONE),
           null_policy(NullPolicy::DROP), use_split_col(false) {}
 
     void Reset() {
@@ -58,6 +62,8 @@ struct OlsPredictAggState {
 struct OlsPredictAggBindData : public FunctionData {
     bool fit_intercept = true;
     double confidence_level = 0.95;
+    SolverType solver = SolverType::SVD;
+    HcType hc_type = HcType::NONE;
     NullPolicy null_policy = NullPolicy::DROP;
     bool use_split_col = false;  // True if split column is provided
 
@@ -65,6 +71,8 @@ struct OlsPredictAggBindData : public FunctionData {
         auto result = make_uniq<OlsPredictAggBindData>();
         result->fit_intercept = fit_intercept;
         result->confidence_level = confidence_level;
+        result->solver = solver;
+        result->hc_type = hc_type;
         result->null_policy = null_policy;
         result->use_split_col = use_split_col;
         return std::move(result);
@@ -73,6 +81,7 @@ struct OlsPredictAggBindData : public FunctionData {
     bool Equals(const FunctionData &other_p) const override {
         auto &other = other_p.Cast<OlsPredictAggBindData>();
         return fit_intercept == other.fit_intercept && confidence_level == other.confidence_level &&
+               solver == other.solver && hc_type == other.hc_type &&
                null_policy == other.null_policy && use_split_col == other.use_split_col;
     }
 };
@@ -154,6 +163,8 @@ static void OlsPredictAggUpdate(Vector inputs[], AggregateInputData &aggr_input_
         // Copy options from bind data
         state.fit_intercept = bind_data.fit_intercept;
         state.confidence_level = bind_data.confidence_level;
+        state.solver = bind_data.solver;
+        state.hc_type = bind_data.hc_type;
         state.null_policy = bind_data.null_policy;
         state.use_split_col = bind_data.use_split_col;
 
@@ -264,6 +275,8 @@ static void OlsPredictAggCombine(Vector &source_vector, Vector &target_vector, A
             target.initialized = true;
             target.fit_intercept = source.fit_intercept;
             target.confidence_level = source.confidence_level;
+            target.solver = source.solver;
+            target.hc_type = source.hc_type;
             target.null_policy = source.null_policy;
             target.use_split_col = source.use_split_col;
             continue;
@@ -325,8 +338,8 @@ static void OlsPredictAggFinalize(Vector &state_vector, AggregateInputData &aggr
         options.fit_intercept = state.fit_intercept;
         options.compute_inference = false;
         options.confidence_level = state.confidence_level;
-        options.solver = ANOFOX_SOLVER_SVD;
-        options.hc_type = ANOFOX_HC_NONE;
+        options.solver = ConvertSolverType(state.solver);
+        options.hc_type = ConvertHcType(state.hc_type);
 
         AnofoxFitResultCore core_result;
         AnofoxError error;
@@ -414,6 +427,12 @@ static unique_ptr<FunctionData> OlsPredictAggBind(ClientContext &context, Aggreg
         if (opts.null_policy.has_value()) {
             result->null_policy = opts.null_policy.value();
         }
+        if (opts.solver.has_value()) {
+            result->solver = opts.solver.value();
+        }
+        if (opts.hc_type.has_value()) {
+            result->hc_type = opts.hc_type.value();
+        }
     }
 
     function.return_type = GetOlsPredictAggResultType();
@@ -438,6 +457,12 @@ static unique_ptr<FunctionData> OlsPredictAggBindWithSplit(ClientContext &contex
         }
         if (opts.null_policy.has_value()) {
             result->null_policy = opts.null_policy.value();
+        }
+        if (opts.solver.has_value()) {
+            result->solver = opts.solver.value();
+        }
+        if (opts.hc_type.has_value()) {
+            result->hc_type = opts.hc_type.value();
         }
     }
 

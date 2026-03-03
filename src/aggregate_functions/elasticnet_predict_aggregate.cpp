@@ -7,6 +7,7 @@
 #include "duckdb/main/extension/extension_loader.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/ffi_enum_converters.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
 
@@ -34,10 +35,12 @@ struct ElasticNetPredictAggState {
     double confidence_level;
     NullPolicy null_policy;
     bool use_split_col;
+    LambdaScaling lambda_scaling;
 
     ElasticNetPredictAggState()
         : n_features(0), initialized(false), alpha(1.0), l1_ratio(0.5), fit_intercept(true),
-          max_iterations(1000), tolerance(1e-6), confidence_level(0.95), null_policy(NullPolicy::DROP), use_split_col(false) {}
+          max_iterations(1000), tolerance(1e-6), confidence_level(0.95), null_policy(NullPolicy::DROP), use_split_col(false),
+          lambda_scaling(LambdaScaling::RAW) {}
 
     void Reset() {
         y_train.clear();
@@ -63,6 +66,7 @@ struct ElasticNetPredictAggBindData : public FunctionData {
     double confidence_level = 0.95;
     NullPolicy null_policy = NullPolicy::DROP;
     bool use_split_col = false;
+    LambdaScaling lambda_scaling = LambdaScaling::RAW;
 
     unique_ptr<FunctionData> Copy() const override {
         auto result = make_uniq<ElasticNetPredictAggBindData>();
@@ -74,6 +78,7 @@ struct ElasticNetPredictAggBindData : public FunctionData {
         result->confidence_level = confidence_level;
         result->null_policy = null_policy;
         result->use_split_col = use_split_col;
+        result->lambda_scaling = lambda_scaling;
         return std::move(result);
     }
 
@@ -82,7 +87,7 @@ struct ElasticNetPredictAggBindData : public FunctionData {
         return alpha == other.alpha && l1_ratio == other.l1_ratio && fit_intercept == other.fit_intercept &&
                max_iterations == other.max_iterations && tolerance == other.tolerance &&
                confidence_level == other.confidence_level && null_policy == other.null_policy &&
-               use_split_col == other.use_split_col;
+               use_split_col == other.use_split_col && lambda_scaling == other.lambda_scaling;
     }
 };
 
@@ -164,6 +169,7 @@ static void ElasticNetPredictAggUpdate(Vector inputs[], AggregateInputData &aggr
         state.confidence_level = bind_data.confidence_level;
         state.null_policy = bind_data.null_policy;
         state.use_split_col = bind_data.use_split_col;
+        state.lambda_scaling = bind_data.lambda_scaling;
 
         auto x_idx = x_data.sel->get_index(i);
         if (!x_data.validity.RowIsValid(x_idx)) {
@@ -263,6 +269,7 @@ static void ElasticNetPredictAggCombine(Vector &source_vector, Vector &target_ve
             target.confidence_level = source.confidence_level;
             target.null_policy = source.null_policy;
             target.use_split_col = source.use_split_col;
+            target.lambda_scaling = source.lambda_scaling;
             continue;
         }
 
@@ -318,7 +325,7 @@ static void ElasticNetPredictAggFinalize(Vector &state_vector, AggregateInputDat
         options.fit_intercept = state.fit_intercept;
         options.max_iterations = state.max_iterations;
         options.tolerance = state.tolerance;
-        options.lambda_scaling = ANOFOX_LAMBDA_SCALING_RAW;
+        options.lambda_scaling = ConvertLambdaScaling(state.lambda_scaling);
 
         AnofoxFitResultCore core_result;
         AnofoxError error;
@@ -412,6 +419,9 @@ static unique_ptr<FunctionData> ElasticNetPredictAggBind(ClientContext &context,
         if (opts.null_policy.has_value()) {
             result->null_policy = opts.null_policy.value();
         }
+        if (opts.lambda_scaling.has_value()) {
+            result->lambda_scaling = opts.lambda_scaling.value();
+        }
     }
 
     function.return_type = GetElasticNetPredictAggResultType();
@@ -446,6 +456,9 @@ static unique_ptr<FunctionData> ElasticNetPredictAggBindWithSplit(ClientContext 
         }
         if (opts.null_policy.has_value()) {
             result->null_policy = opts.null_policy.value();
+        }
+        if (opts.lambda_scaling.has_value()) {
+            result->lambda_scaling = opts.lambda_scaling.value();
         }
     }
 

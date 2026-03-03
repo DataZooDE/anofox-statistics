@@ -7,6 +7,7 @@
 #include "duckdb/main/extension/extension_loader.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/ffi_enum_converters.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
 
@@ -32,10 +33,13 @@ struct RidgePredictAggState {
     double confidence_level;
     NullPolicy null_policy;
     bool use_split_col;  // True if using split column instead of y NULL
+    SolverType solver;
+    LambdaScaling lambda_scaling;
 
     RidgePredictAggState()
         : n_features(0), initialized(false), alpha(1.0), fit_intercept(true), confidence_level(0.95),
-          null_policy(NullPolicy::DROP), use_split_col(false) {}
+          null_policy(NullPolicy::DROP), use_split_col(false), solver(SolverType::SVD),
+          lambda_scaling(LambdaScaling::RAW) {}
 
     void Reset() {
         y_train.clear();
@@ -58,6 +62,8 @@ struct RidgePredictAggBindData : public FunctionData {
     double confidence_level = 0.95;
     NullPolicy null_policy = NullPolicy::DROP;
     bool use_split_col = false;  // True if split column is provided
+    SolverType solver = SolverType::SVD;
+    LambdaScaling lambda_scaling = LambdaScaling::RAW;
 
     unique_ptr<FunctionData> Copy() const override {
         auto result = make_uniq<RidgePredictAggBindData>();
@@ -66,6 +72,8 @@ struct RidgePredictAggBindData : public FunctionData {
         result->confidence_level = confidence_level;
         result->null_policy = null_policy;
         result->use_split_col = use_split_col;
+        result->solver = solver;
+        result->lambda_scaling = lambda_scaling;
         return std::move(result);
     }
 
@@ -73,7 +81,8 @@ struct RidgePredictAggBindData : public FunctionData {
         auto &other = other_p.Cast<RidgePredictAggBindData>();
         return alpha == other.alpha && fit_intercept == other.fit_intercept &&
                confidence_level == other.confidence_level && null_policy == other.null_policy &&
-               use_split_col == other.use_split_col;
+               use_split_col == other.use_split_col && solver == other.solver &&
+               lambda_scaling == other.lambda_scaling;
     }
 };
 
@@ -154,6 +163,8 @@ static void RidgePredictAggUpdate(Vector inputs[], AggregateInputData &aggr_inpu
         state.confidence_level = bind_data.confidence_level;
         state.null_policy = bind_data.null_policy;
         state.use_split_col = bind_data.use_split_col;
+        state.solver = bind_data.solver;
+        state.lambda_scaling = bind_data.lambda_scaling;
 
         auto x_idx = x_data.sel->get_index(i);
         if (!x_data.validity.RowIsValid(x_idx)) {
@@ -252,6 +263,8 @@ static void RidgePredictAggCombine(Vector &source_vector, Vector &target_vector,
             target.confidence_level = source.confidence_level;
             target.null_policy = source.null_policy;
             target.use_split_col = source.use_split_col;
+            target.solver = source.solver;
+            target.lambda_scaling = source.lambda_scaling;
             continue;
         }
 
@@ -306,8 +319,8 @@ static void RidgePredictAggFinalize(Vector &state_vector, AggregateInputData &ag
         options.fit_intercept = state.fit_intercept;
         options.compute_inference = false;
         options.confidence_level = state.confidence_level;
-        options.solver = ANOFOX_SOLVER_SVD;
-        options.lambda_scaling = ANOFOX_LAMBDA_SCALING_RAW;
+        options.solver = ConvertSolverType(state.solver);
+        options.lambda_scaling = ConvertLambdaScaling(state.lambda_scaling);
 
         AnofoxFitResultCore core_result;
         AnofoxError error;
@@ -392,6 +405,12 @@ static unique_ptr<FunctionData> RidgePredictAggBind(ClientContext &context, Aggr
         if (opts.null_policy.has_value()) {
             result->null_policy = opts.null_policy.value();
         }
+        if (opts.solver.has_value()) {
+            result->solver = opts.solver.value();
+        }
+        if (opts.lambda_scaling.has_value()) {
+            result->lambda_scaling = opts.lambda_scaling.value();
+        }
     }
 
     function.return_type = GetRidgePredictAggResultType();
@@ -419,6 +438,12 @@ static unique_ptr<FunctionData> RidgePredictAggBindWithSplit(ClientContext &cont
         }
         if (opts.null_policy.has_value()) {
             result->null_policy = opts.null_policy.value();
+        }
+        if (opts.solver.has_value()) {
+            result->solver = opts.solver.value();
+        }
+        if (opts.lambda_scaling.has_value()) {
+            result->lambda_scaling = opts.lambda_scaling.value();
         }
     }
 

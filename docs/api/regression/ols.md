@@ -1,6 +1,6 @@
 # OLS (Ordinary Least Squares)
 
-Ordinary Least Squares regression using SVD decomposition.
+Ordinary Least Squares regression. Supports SVD, QR, and Cholesky decomposition with optional heteroscedasticity-consistent standard errors.
 
 ## Functions
 
@@ -83,6 +83,27 @@ SELECT
         ORDER BY date ROWS BETWEEN 9 PRECEDING AND CURRENT ROW
     )).coefficients[1] as rolling_beta
 FROM time_series;
+```
+
+## MAP Options
+
+All OLS functions accept an optional MAP parameter for advanced configuration:
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `fit_intercept` | BOOLEAN | `true` | Include intercept term |
+| `compute_inference` | BOOLEAN | `false` | Compute t-tests, p-values, CIs |
+| `confidence_level` | DOUBLE | `0.95` | CI confidence level |
+| `solver` | VARCHAR | `'svd'` | Decomposition method: `'qr'`, `'svd'`, `'cholesky'` |
+| `hc_type` | VARCHAR | `'none'` | Heteroscedasticity-consistent SEs: `'none'`, `'hc0'`, `'hc1'`, `'hc2'`, `'hc3'` |
+
+**Example with MAP options:**
+```sql
+-- OLS with QR decomposition and HC3 robust standard errors
+SELECT ols_fit_agg(
+    y, [x1, x2],
+    {'solver': 'qr', 'hc_type': 'hc3', 'compute_inference': true}
+) FROM data;
 ```
 
 ## Use Cases

@@ -36,11 +36,12 @@ struct PoissonFitPredictAggState {
     uint32_t max_iterations;
     double tolerance;
     double confidence_level;
+    double glm_lambda;
     NullPolicy null_policy;
 
     PoissonFitPredictAggState()
         : n_features(0), initialized(false), fit_intercept(true), link(ANOFOX_POISSON_LINK_LOG),
-          max_iterations(100), tolerance(1e-8), confidence_level(0.95), null_policy(NullPolicy::DROP) {}
+          max_iterations(100), tolerance(1e-8), confidence_level(0.95), glm_lambda(0.0), null_policy(NullPolicy::DROP) {}
 
     void Reset() {
         y_train.clear();
@@ -63,6 +64,7 @@ struct PoissonFitPredictAggBindData : public FunctionData {
     uint32_t max_iterations = 100;
     double tolerance = 1e-8;
     double confidence_level = 0.95;
+    double glm_lambda = 0.0;
     NullPolicy null_policy = NullPolicy::DROP;
     bool use_split_col = false;  // True if using split column instead of y NULL
 
@@ -73,6 +75,7 @@ struct PoissonFitPredictAggBindData : public FunctionData {
         result->max_iterations = max_iterations;
         result->tolerance = tolerance;
         result->confidence_level = confidence_level;
+        result->glm_lambda = glm_lambda;
         result->null_policy = null_policy;
         result->use_split_col = use_split_col;
         return std::move(result);
@@ -82,8 +85,8 @@ struct PoissonFitPredictAggBindData : public FunctionData {
         auto &other = other_p.Cast<PoissonFitPredictAggBindData>();
         return fit_intercept == other.fit_intercept && link == other.link &&
                max_iterations == other.max_iterations && tolerance == other.tolerance &&
-               confidence_level == other.confidence_level && null_policy == other.null_policy &&
-               use_split_col == other.use_split_col;
+               confidence_level == other.confidence_level && glm_lambda == other.glm_lambda &&
+               null_policy == other.null_policy && use_split_col == other.use_split_col;
     }
 };
 
@@ -213,6 +216,7 @@ static void PoissonFitPredictAggUpdate(Vector inputs[], AggregateInputData &aggr
         state.max_iterations = bind_data.max_iterations;
         state.tolerance = bind_data.tolerance;
         state.confidence_level = bind_data.confidence_level;
+        state.glm_lambda = bind_data.glm_lambda;
         state.null_policy = bind_data.null_policy;
 
         // Get x values
@@ -324,6 +328,7 @@ static void PoissonFitPredictAggCombine(Vector &source_vector, Vector &target_ve
             target.max_iterations = source.max_iterations;
             target.tolerance = source.tolerance;
             target.confidence_level = source.confidence_level;
+            target.glm_lambda = source.glm_lambda;
             target.null_policy = source.null_policy;
             continue;
         }
@@ -387,7 +392,7 @@ static void PoissonFitPredictAggFinalize(Vector &state_vector, AggregateInputDat
         options.tolerance = state.tolerance;
         options.compute_inference = false;
         options.confidence_level = state.confidence_level;
-        options.lambda = 0.0;
+        options.lambda = state.glm_lambda;
 
         AnofoxGlmFitResultCore core_result;
         AnofoxError error;
@@ -516,6 +521,9 @@ static unique_ptr<FunctionData> PoissonFitPredictAggBind(ClientContext &context,
         if (opts.null_policy.has_value()) {
             result->null_policy = opts.null_policy.value();
         }
+        if (opts.glm_lambda.has_value()) {
+            result->glm_lambda = opts.glm_lambda.value();
+        }
     }
 
     function.return_type = GetPoissonFitPredictAggResultType();
@@ -549,6 +557,9 @@ static unique_ptr<FunctionData> PoissonFitPredictAggBindWithSplit(ClientContext 
         }
         if (opts.null_policy.has_value()) {
             result->null_policy = opts.null_policy.value();
+        }
+        if (opts.glm_lambda.has_value()) {
+            result->glm_lambda = opts.glm_lambda.value();
         }
     }
 

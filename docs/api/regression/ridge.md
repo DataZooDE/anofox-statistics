@@ -1,6 +1,6 @@
 # Ridge Regression
 
-Ridge regression with L2 regularization. Shrinks coefficients toward zero to handle multicollinearity.
+Ridge regression with L2 regularization. Supports SVD, QR, and Cholesky decomposition with configurable lambda scaling.
 
 ## Functions
 
@@ -55,6 +55,28 @@ Streaming Ridge regression aggregate function.
 SELECT
     (anofox_stats_ridge_fit_agg(y, [x1, x2], 0.5)).coefficients
 FROM data;
+```
+
+## MAP Options
+
+All Ridge functions accept an optional MAP parameter for advanced configuration:
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `alpha` / `lambda` | DOUBLE | `1.0` | L2 regularization strength |
+| `fit_intercept` | BOOLEAN | `true` | Include intercept term |
+| `compute_inference` | BOOLEAN | `false` | Compute t-tests, p-values, CIs |
+| `confidence_level` | DOUBLE | `0.95` | CI confidence level |
+| `solver` | VARCHAR | `'svd'` | Decomposition method: `'qr'`, `'svd'`, `'cholesky'` |
+| `lambda_scaling` | VARCHAR | `'raw'` | Lambda scaling convention: `'raw'`, `'glmnet'` |
+
+**Example with MAP options:**
+```sql
+-- Ridge with glmnet-style lambda scaling
+SELECT ridge_fit_agg(
+    y, [x1, x2],
+    {'alpha': 0.1, 'lambda_scaling': 'glmnet', 'solver': 'cholesky'}
+) FROM data;
 ```
 
 ## Choosing Alpha

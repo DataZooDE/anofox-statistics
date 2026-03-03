@@ -32,6 +32,7 @@ anofox_stats_poisson_fit_agg(
 | tolerance | DOUBLE | 1e-8 | Convergence tolerance |
 | compute_inference | BOOLEAN | false | Compute z-tests, p-values, CIs |
 | confidence_level | DOUBLE | 0.95 | CI confidence level |
+| glm_lambda | DOUBLE | 0.0 | L2 regularization strength (0 = no regularization) |
 
 **Returns:** [GlmFitResult](../reference/return_types.md#glmfitresult-structure) STRUCT
 
@@ -55,6 +56,14 @@ SELECT
     (poisson_fit_agg(sales_count, [price, ads])).coefficients
 FROM sales_data
 GROUP BY region;
+
+-- Regularized Poisson regression
+SELECT poisson_fit_agg(
+    claims,
+    [age, exposure],
+    {'glm_lambda': 0.01, 'compute_inference': true}
+)
+FROM insurance_data;
 ```
 
 ## Link Functions

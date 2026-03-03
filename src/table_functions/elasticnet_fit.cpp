@@ -9,6 +9,7 @@
 #include "duckdb/planner/expression/bound_function_expression.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/ffi_enum_converters.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
 
@@ -36,6 +37,7 @@ struct ElasticNetFitBindData : public FunctionData {
     bool fit_intercept = true;
     uint32_t max_iterations = 1000;
     double tolerance = 1e-6;
+    LambdaScaling lambda_scaling = LambdaScaling::RAW;
 
     unique_ptr<FunctionData> Copy() const override {
         auto result = make_uniq<ElasticNetFitBindData>();
@@ -44,13 +46,15 @@ struct ElasticNetFitBindData : public FunctionData {
         result->fit_intercept = fit_intercept;
         result->max_iterations = max_iterations;
         result->tolerance = tolerance;
+        result->lambda_scaling = lambda_scaling;
         return std::move(result);
     }
 
     bool Equals(const FunctionData &other_p) const override {
         auto &other = other_p.Cast<ElasticNetFitBindData>();
         return alpha == other.alpha && l1_ratio == other.l1_ratio && fit_intercept == other.fit_intercept &&
-               max_iterations == other.max_iterations && tolerance == other.tolerance;
+               max_iterations == other.max_iterations && tolerance == other.tolerance &&
+               lambda_scaling == other.lambda_scaling;
     }
 };
 
@@ -77,6 +81,9 @@ static unique_ptr<FunctionData> ElasticNetFitBind(ClientContext &context, Scalar
         }
         if (opts.tolerance.has_value()) {
             result->tolerance = opts.tolerance.value();
+        }
+        if (opts.lambda_scaling.has_value()) {
+            result->lambda_scaling = opts.lambda_scaling.value();
         }
     }
 
@@ -152,7 +159,7 @@ static void ElasticNetFitFunction(DataChunk &args, ExpressionState &state, Vecto
         options.fit_intercept = bind_data.fit_intercept;
         options.max_iterations = bind_data.max_iterations;
         options.tolerance = bind_data.tolerance;
-        options.lambda_scaling = ANOFOX_LAMBDA_SCALING_RAW;
+        options.lambda_scaling = ConvertLambdaScaling(bind_data.lambda_scaling);
 
         // Call Rust FFI
         AnofoxFitResultCore core_result;

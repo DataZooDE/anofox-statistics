@@ -7,6 +7,7 @@
 #include "duckdb/main/extension/extension_loader.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/ffi_enum_converters.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
 
@@ -28,10 +29,12 @@ struct ElasticNetFitPredictState {
     uint32_t max_iterations;
     double tolerance;
     NullPolicy null_policy;
+    LambdaScaling lambda_scaling;
 
     ElasticNetFitPredictState()
         : n_features(0), initialized(false), has_current_x(false), fit_intercept(true), confidence_level(0.95),
-          alpha(1.0), l1_ratio(0.5), max_iterations(1000), tolerance(1e-6), null_policy(NullPolicy::DROP) {}
+          alpha(1.0), l1_ratio(0.5), max_iterations(1000), tolerance(1e-6), null_policy(NullPolicy::DROP),
+          lambda_scaling(LambdaScaling::RAW) {}
 
     void Reset() {
         y_values.clear();
@@ -51,6 +54,7 @@ struct ElasticNetFitPredictBindData : public FunctionData {
     uint32_t max_iterations = 1000;
     double tolerance = 1e-6;
     NullPolicy null_policy = NullPolicy::DROP;
+    LambdaScaling lambda_scaling = LambdaScaling::RAW;
 
     unique_ptr<FunctionData> Copy() const override {
         auto result = make_uniq<ElasticNetFitPredictBindData>();
@@ -61,6 +65,7 @@ struct ElasticNetFitPredictBindData : public FunctionData {
         result->max_iterations = max_iterations;
         result->tolerance = tolerance;
         result->null_policy = null_policy;
+        result->lambda_scaling = lambda_scaling;
         return std::move(result);
     }
 
@@ -68,7 +73,8 @@ struct ElasticNetFitPredictBindData : public FunctionData {
         auto &other = other_p.Cast<ElasticNetFitPredictBindData>();
         return fit_intercept == other.fit_intercept && confidence_level == other.confidence_level &&
                alpha == other.alpha && l1_ratio == other.l1_ratio && max_iterations == other.max_iterations &&
-               tolerance == other.tolerance && null_policy == other.null_policy;
+               tolerance == other.tolerance && null_policy == other.null_policy &&
+               lambda_scaling == other.lambda_scaling;
     }
 };
 
@@ -121,6 +127,7 @@ static void ElasticNetFitPredictUpdate(Vector inputs[], AggregateInputData &aggr
         state.max_iterations = bind_data.max_iterations;
         state.tolerance = bind_data.tolerance;
         state.null_policy = bind_data.null_policy;
+        state.lambda_scaling = bind_data.lambda_scaling;
 
         auto x_idx = x_data.sel->get_index(i);
         if (!x_data.validity.RowIsValid(x_idx)) {
@@ -199,6 +206,7 @@ static void ElasticNetFitPredictCombine(Vector &source_vector, Vector &target_ve
             target.max_iterations = source.max_iterations;
             target.tolerance = source.tolerance;
             target.null_policy = source.null_policy;
+            target.lambda_scaling = source.lambda_scaling;
             continue;
         }
 
@@ -253,7 +261,7 @@ static void ElasticNetFitPredictFinalize(Vector &state_vector, AggregateInputDat
         options.fit_intercept = state.fit_intercept;
         options.max_iterations = state.max_iterations;
         options.tolerance = state.tolerance;
-        options.lambda_scaling = ANOFOX_LAMBDA_SCALING_RAW;
+        options.lambda_scaling = ConvertLambdaScaling(state.lambda_scaling);
         AnofoxFitResultCore core_result;
         AnofoxError error;
 
@@ -306,6 +314,8 @@ static unique_ptr<FunctionData> ElasticNetFitPredictBind(ClientContext &context,
             result->tolerance = opts.tolerance.value();
         if (opts.null_policy.has_value())
             result->null_policy = opts.null_policy.value();
+        if (opts.lambda_scaling.has_value())
+            result->lambda_scaling = opts.lambda_scaling.value();
     }
 
     function.return_type = GetElasticNetFitPredictResultType();
