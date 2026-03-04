@@ -7,6 +7,7 @@
 #include "duckdb/main/extension/extension_loader.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/ffi_enum_converters.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
 
@@ -25,10 +26,12 @@ struct RidgeFitPredictState {
     double confidence_level;
     double alpha;
     NullPolicy null_policy;
+    SolverType solver;
+    LambdaScaling lambda_scaling;
 
     RidgeFitPredictState()
         : n_features(0), initialized(false), has_current_x(false), fit_intercept(true), confidence_level(0.95),
-          alpha(1.0), null_policy(NullPolicy::DROP) {}
+          alpha(1.0), null_policy(NullPolicy::DROP), solver(SolverType::SVD), lambda_scaling(LambdaScaling::RAW) {}
 
     void Reset() {
         y_values.clear();
@@ -45,6 +48,8 @@ struct RidgeFitPredictBindData : public FunctionData {
     double confidence_level = 0.95;
     double alpha = 1.0;
     NullPolicy null_policy = NullPolicy::DROP;
+    SolverType solver = SolverType::SVD;
+    LambdaScaling lambda_scaling = LambdaScaling::RAW;
 
     unique_ptr<FunctionData> Copy() const override {
         auto result = make_uniq<RidgeFitPredictBindData>();
@@ -52,13 +57,16 @@ struct RidgeFitPredictBindData : public FunctionData {
         result->confidence_level = confidence_level;
         result->alpha = alpha;
         result->null_policy = null_policy;
+        result->solver = solver;
+        result->lambda_scaling = lambda_scaling;
         return std::move(result);
     }
 
     bool Equals(const FunctionData &other_p) const override {
         auto &other = other_p.Cast<RidgeFitPredictBindData>();
         return fit_intercept == other.fit_intercept && confidence_level == other.confidence_level &&
-               alpha == other.alpha && null_policy == other.null_policy;
+               alpha == other.alpha && null_policy == other.null_policy &&
+               solver == other.solver && lambda_scaling == other.lambda_scaling;
     }
 };
 
@@ -108,6 +116,8 @@ static void RidgeFitPredictUpdate(Vector inputs[], AggregateInputData &aggr_inpu
         state.confidence_level = bind_data.confidence_level;
         state.alpha = bind_data.alpha;
         state.null_policy = bind_data.null_policy;
+        state.solver = bind_data.solver;
+        state.lambda_scaling = bind_data.lambda_scaling;
 
         auto x_idx = x_data.sel->get_index(i);
         if (!x_data.validity.RowIsValid(x_idx)) {
@@ -182,6 +192,8 @@ static void RidgeFitPredictCombine(Vector &source_vector, Vector &target_vector,
             target.confidence_level = source.confidence_level;
             target.alpha = source.alpha;
             target.null_policy = source.null_policy;
+            target.solver = source.solver;
+            target.lambda_scaling = source.lambda_scaling;
             continue;
         }
 
@@ -230,7 +242,13 @@ static void RidgeFitPredictFinalize(Vector &state_vector, AggregateInputData &, 
             x_arrays.push_back({col.data(), nullptr, col.size()});
         }
 
-        AnofoxRidgeOptions options = {state.alpha, state.fit_intercept, false, state.confidence_level};
+        AnofoxRidgeOptions options;
+        options.alpha = state.alpha;
+        options.fit_intercept = state.fit_intercept;
+        options.compute_inference = false;
+        options.confidence_level = state.confidence_level;
+        options.solver = ConvertSolverType(state.solver);
+        options.lambda_scaling = ConvertLambdaScaling(state.lambda_scaling);
         AnofoxFitResultCore core_result;
         AnofoxError error;
 
@@ -278,6 +296,10 @@ static unique_ptr<FunctionData> RidgeFitPredictBind(ClientContext &context, Aggr
             result->alpha = reg.value();
         if (opts.null_policy.has_value())
             result->null_policy = opts.null_policy.value();
+        if (opts.solver.has_value())
+            result->solver = opts.solver.value();
+        if (opts.lambda_scaling.has_value())
+            result->lambda_scaling = opts.lambda_scaling.value();
     }
 
     function.return_type = GetRidgeFitPredictResultType();

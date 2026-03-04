@@ -1,6 +1,6 @@
 # WLS (Weighted Least Squares)
 
-Weighted Least Squares regression for heteroscedastic data.
+Weighted Least Squares regression for heteroscedastic data. Supports SVD, QR, and Cholesky decomposition with optional HC standard errors.
 
 ## Functions
 
@@ -53,6 +53,27 @@ Streaming WLS aggregate function.
 
 ```sql
 SELECT anofox_stats_wls_fit_agg(y, [x], weight) FROM data;
+```
+
+## MAP Options
+
+All WLS functions accept an optional MAP parameter for advanced configuration:
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `fit_intercept` | BOOLEAN | `true` | Include intercept term |
+| `compute_inference` | BOOLEAN | `false` | Compute t-tests, p-values, CIs |
+| `confidence_level` | DOUBLE | `0.95` | CI confidence level |
+| `solver` | VARCHAR | `'svd'` | Decomposition method: `'qr'`, `'svd'`, `'cholesky'` |
+| `hc_type` | VARCHAR | `'none'` | Heteroscedasticity-consistent SEs: `'none'`, `'hc0'`, `'hc1'`, `'hc2'`, `'hc3'` |
+
+**Example with MAP options:**
+```sql
+-- WLS with Cholesky decomposition
+SELECT wls_fit_agg(
+    y, [x], weight,
+    {'solver': 'cholesky', 'compute_inference': true}
+) FROM data;
 ```
 
 ## Choosing Weights

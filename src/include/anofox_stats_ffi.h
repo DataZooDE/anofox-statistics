@@ -97,6 +97,34 @@ typedef struct {
 } AnofoxFitResultInference;
 
 /**
+ * Solver (decomposition) type for linear regression
+ */
+typedef enum {
+    ANOFOX_SOLVER_QR = 0,
+    ANOFOX_SOLVER_SVD = 1,
+    ANOFOX_SOLVER_CHOLESKY = 2,
+} AnofoxSolverType;
+
+/**
+ * Lambda scaling convention for regularized regression
+ */
+typedef enum {
+    ANOFOX_LAMBDA_SCALING_RAW = 0,
+    ANOFOX_LAMBDA_SCALING_GLMNET = 1,
+} AnofoxLambdaScaling;
+
+/**
+ * Heteroscedasticity-consistent standard error type
+ */
+typedef enum {
+    ANOFOX_HC_NONE = 0,
+    ANOFOX_HC_HC0 = 1,
+    ANOFOX_HC_HC1 = 2,
+    ANOFOX_HC_HC2 = 3,
+    ANOFOX_HC_HC3 = 4,
+} AnofoxHcType;
+
+/**
  * OLS options for FFI
  */
 typedef struct {
@@ -106,6 +134,10 @@ typedef struct {
     bool compute_inference;
     /** Confidence level for CIs */
     double confidence_level;
+    /** Solver type (QR, SVD, Cholesky) */
+    AnofoxSolverType solver;
+    /** HC standard errors type (None = classical) */
+    AnofoxHcType hc_type;
 } AnofoxOlsOptions;
 
 /**
@@ -145,6 +177,10 @@ typedef struct {
     bool compute_inference;
     /** Confidence level for CIs */
     double confidence_level;
+    /** Solver type (QR, SVD, Cholesky) */
+    AnofoxSolverType solver;
+    /** Lambda scaling convention (Raw or Glmnet) */
+    AnofoxLambdaScaling lambda_scaling;
 } AnofoxRidgeOptions;
 
 /**
@@ -176,6 +212,8 @@ typedef struct {
     uint32_t max_iterations;
     /** Convergence tolerance */
     double tolerance;
+    /** Lambda scaling convention (Raw or Glmnet) */
+    AnofoxLambdaScaling lambda_scaling;
 } AnofoxElasticNetOptions;
 
 /**
@@ -202,6 +240,10 @@ typedef struct {
     bool compute_inference;
     /** Confidence level for CIs */
     double confidence_level;
+    /** Solver type (QR, SVD, Cholesky) */
+    AnofoxSolverType solver;
+    /** HC standard errors type (None = classical) */
+    AnofoxHcType hc_type;
 } AnofoxWlsOptions;
 
 /**
@@ -501,6 +543,8 @@ typedef struct {
     bool compute_inference;
     /** Confidence level for CIs */
     double confidence_level;
+    /** L2 regularization parameter (0 = no regularization) */
+    double lambda;
 } AnofoxPoissonOptions;
 
 /**
@@ -519,6 +563,8 @@ typedef struct {
     bool compute_inference;
     /** Confidence level for CIs */
     double confidence_level;
+    /** L2 regularization parameter (0 = no regularization) */
+    double lambda;
 } AnofoxBinomialOptions;
 
 /**
@@ -535,6 +581,8 @@ typedef struct {
     bool compute_inference;
     /** Confidence level for CIs */
     double confidence_level;
+    /** L2 regularization parameter (0 = no regularization) */
+    double lambda;
 } AnofoxNegBinomialOptions;
 
 /**
@@ -553,6 +601,8 @@ typedef struct {
     bool compute_inference;
     /** Confidence level for CIs */
     double confidence_level;
+    /** L2 regularization parameter (0 = no regularization) */
+    double lambda;
 } AnofoxTweedieOptions;
 
 /**
@@ -1783,6 +1833,83 @@ void anofox_free_chisq_result(AnofoxChiSquareResult *result);
  * Free memory allocated by TOST functions
  */
 void anofox_free_tost_result(AnofoxTostResult *result);
+
+/* ============================================================================
+ * LmDynamic (Time-Varying Coefficient) Functions
+ * ============================================================================ */
+
+/**
+ * Information criterion for model weighting
+ */
+typedef enum {
+    ANOFOX_IC_AIC = 0,
+    ANOFOX_IC_AICC = 1,
+    ANOFOX_IC_BIC = 2,
+} AnofoxInformationCriterion;
+
+/**
+ * LmDynamic options
+ */
+typedef struct {
+    /** Whether to fit intercept */
+    bool fit_intercept;
+    /** Information criterion for model weighting */
+    AnofoxInformationCriterion ic;
+    /** Distribution family (uses AnofoxAlmDistribution enum) */
+    AnofoxAlmDistribution distribution;
+    /** LOWESS smoothing span (0.0 = no smoothing, >0 = span value) */
+    double lowess_span;
+    /** Maximum number of candidate models (0 = default) */
+    uint32_t max_models;
+    /** Confidence level for intervals */
+    double confidence_level;
+} AnofoxLmDynamicOptions;
+
+/**
+ * LmDynamic fit result
+ */
+typedef struct {
+    /** Averaged coefficients (heap-allocated, caller must free) */
+    double *coefficients;
+    /** Number of coefficients */
+    size_t coefficients_len;
+    /** Intercept value (NaN if no intercept) */
+    double intercept;
+    /** R-squared */
+    double r_squared;
+    /** Adjusted R-squared */
+    double adj_r_squared;
+    /** RMSE */
+    double rmse;
+    /** Number of observations */
+    size_t n_observations;
+    /** Number of features */
+    size_t n_features;
+    /** Flattened dynamic coefficients (n_observations x n_coefs_per_obs, row-major) */
+    double *dynamic_coefficients;
+    /** Number of coefficient columns per observation */
+    size_t n_coefs_per_obs;
+} AnofoxLmDynamicFitResult;
+
+/**
+ * Fit a time-varying coefficient model using information-theoretic model averaging
+ *
+ * @param y Response variable array
+ * @param x Pointer to array of feature arrays
+ * @param x_count Number of feature arrays
+ * @param options LmDynamic fitting options
+ * @param out_result Output: fit result (required)
+ * @param out_error Output: error information (required)
+ * @return true on success, false on error
+ */
+bool anofox_fit_lm_dynamic(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count,
+                            AnofoxLmDynamicOptions options, AnofoxLmDynamicFitResult *out_result,
+                            AnofoxError *out_error);
+
+/**
+ * Free memory allocated for LmDynamic fit result
+ */
+void anofox_free_lm_dynamic_result(AnofoxLmDynamicFitResult *result);
 
 #ifdef __cplusplus
 }

@@ -7,6 +7,7 @@
 #include "duckdb/main/extension/extension_loader.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/ffi_enum_converters.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
 
@@ -25,10 +26,12 @@ struct WlsFitPredictState {
     bool fit_intercept;
     double confidence_level;
     NullPolicy null_policy;
+    SolverType solver;
+    HcType hc_type;
 
     WlsFitPredictState()
         : n_features(0), initialized(false), has_current_x(false), fit_intercept(true), confidence_level(0.95),
-          null_policy(NullPolicy::DROP) {}
+          null_policy(NullPolicy::DROP), solver(SolverType::SVD), hc_type(HcType::NONE) {}
 
     void Reset() {
         y_values.clear();
@@ -45,19 +48,23 @@ struct WlsFitPredictBindData : public FunctionData {
     bool fit_intercept = true;
     double confidence_level = 0.95;
     NullPolicy null_policy = NullPolicy::DROP;
+    SolverType solver = SolverType::SVD;
+    HcType hc_type = HcType::NONE;
 
     unique_ptr<FunctionData> Copy() const override {
         auto result = make_uniq<WlsFitPredictBindData>();
         result->fit_intercept = fit_intercept;
         result->confidence_level = confidence_level;
         result->null_policy = null_policy;
+        result->solver = solver;
+        result->hc_type = hc_type;
         return std::move(result);
     }
 
     bool Equals(const FunctionData &other_p) const override {
         auto &other = other_p.Cast<WlsFitPredictBindData>();
         return fit_intercept == other.fit_intercept && confidence_level == other.confidence_level &&
-               null_policy == other.null_policy;
+               null_policy == other.null_policy && solver == other.solver && hc_type == other.hc_type;
     }
 };
 
@@ -109,6 +116,8 @@ static void WlsFitPredictUpdate(Vector inputs[], AggregateInputData &aggr_input_
         state.fit_intercept = bind_data.fit_intercept;
         state.confidence_level = bind_data.confidence_level;
         state.null_policy = bind_data.null_policy;
+        state.solver = bind_data.solver;
+        state.hc_type = bind_data.hc_type;
 
         auto x_idx = x_data.sel->get_index(i);
         if (!x_data.validity.RowIsValid(x_idx)) {
@@ -187,6 +196,8 @@ static void WlsFitPredictCombine(Vector &source_vector, Vector &target_vector, A
             target.fit_intercept = source.fit_intercept;
             target.confidence_level = source.confidence_level;
             target.null_policy = source.null_policy;
+            target.solver = source.solver;
+            target.hc_type = source.hc_type;
             continue;
         }
 
@@ -237,7 +248,12 @@ static void WlsFitPredictFinalize(Vector &state_vector, AggregateInputData &, Ve
             x_arrays.push_back({col.data(), nullptr, col.size()});
         }
 
-        AnofoxWlsOptions options = {state.fit_intercept, false, state.confidence_level};
+        AnofoxWlsOptions options;
+        options.fit_intercept = state.fit_intercept;
+        options.compute_inference = false;
+        options.confidence_level = state.confidence_level;
+        options.solver = ConvertSolverType(state.solver);
+        options.hc_type = ConvertHcType(state.hc_type);
         AnofoxFitResultCore core_result;
         AnofoxError error;
 
@@ -282,6 +298,10 @@ static unique_ptr<FunctionData> WlsFitPredictBind(ClientContext &context, Aggreg
             result->confidence_level = opts.confidence_level.value();
         if (opts.null_policy.has_value())
             result->null_policy = opts.null_policy.value();
+        if (opts.solver.has_value())
+            result->solver = opts.solver.value();
+        if (opts.hc_type.has_value())
+            result->hc_type = opts.hc_type.value();
     }
 
     function.return_type = GetWlsFitPredictResultType();

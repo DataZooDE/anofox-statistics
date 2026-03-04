@@ -10,16 +10,52 @@ use anofox_stats_core::{
     diagnostics::{compute_aic, compute_bic, compute_residuals, compute_vif, jarque_bera},
     models::{
         compute_aid, compute_aid_anomalies, fit_alm, fit_binomial, fit_bls, fit_elasticnet,
-        fit_isotonic, fit_negbinomial, fit_ols, fit_pls, fit_poisson, fit_quantile, fit_ridge,
-        fit_rls, fit_tweedie, fit_wls, predict, RlsOptions,
+        fit_isotonic, fit_lm_dynamic, fit_negbinomial, fit_ols, fit_pls, fit_poisson, fit_quantile,
+        fit_ridge, fit_rls, fit_tweedie, fit_wls, predict, RlsOptions,
     },
     AidOptions, AlmDistribution, AlmLoss, AlmOptions, BinomialLink, BinomialOptions, BlsOptions,
-    ElasticNetOptions, IsotonicOptions, NegBinomialOptions, OlsOptions, OutlierMethod, PlsOptions,
-    PoissonLink, PoissonOptions, QuantileOptions, RidgeOptions, StatsError, TweedieOptions,
+    ElasticNetOptions, HcType, InformationCriterion, IsotonicOptions, LambdaScaling,
+    LmDynamicOptions, NegBinomialOptions, OlsOptions, OutlierMethod, PlsOptions, PoissonLink,
+    PoissonOptions, QuantileOptions, RidgeOptions, SolverType, StatsError, TweedieOptions,
     WlsOptions,
 };
 use statrs::distribution::{ContinuousCDF, StudentsT};
 use std::slice;
+
+/// Convert FFI solver type to core SolverType
+fn convert_solver_ffi(solver: SolverTypeFFI) -> SolverType {
+    match solver {
+        SolverTypeFFI::Qr => SolverType::Qr,
+        SolverTypeFFI::Svd => SolverType::Svd,
+        SolverTypeFFI::Cholesky => SolverType::Cholesky,
+    }
+}
+
+fn convert_lambda_scaling_ffi(scaling: LambdaScalingFFI) -> LambdaScaling {
+    match scaling {
+        LambdaScalingFFI::Raw => LambdaScaling::Raw,
+        LambdaScalingFFI::Glmnet => LambdaScaling::Glmnet,
+    }
+}
+
+fn convert_hc_type_ffi(hc: HcTypeFFI) -> Option<HcType> {
+    match hc {
+        HcTypeFFI::None => None,
+        HcTypeFFI::HC0 => Some(HcType::HC0),
+        HcTypeFFI::HC1 => Some(HcType::HC1),
+        HcTypeFFI::HC2 => Some(HcType::HC2),
+        HcTypeFFI::HC3 => Some(HcType::HC3),
+    }
+}
+
+/// Convert FFI InformationCriterion to core InformationCriterion
+fn convert_ic_ffi(ic: InformationCriterionFFI) -> InformationCriterion {
+    match ic {
+        InformationCriterionFFI::AIC => InformationCriterion::AIC,
+        InformationCriterionFFI::AICc => InformationCriterion::AICc,
+        InformationCriterionFFI::BIC => InformationCriterion::BIC,
+    }
+}
 
 /// Convert StatsError to ErrorCode
 fn error_to_code(err: &StatsError) -> ErrorCode {
@@ -96,6 +132,8 @@ pub unsafe extern "C" fn anofox_ols_fit(
         fit_intercept: options.fit_intercept,
         compute_inference: options.compute_inference,
         confidence_level: options.confidence_level,
+        solver: convert_solver_ffi(options.solver),
+        hc_type: convert_hc_type_ffi(options.hc_type),
     };
 
     // Call the core function with panic catching
@@ -322,6 +360,8 @@ pub unsafe extern "C" fn anofox_ridge_fit(
         fit_intercept: options.fit_intercept,
         compute_inference: options.compute_inference,
         confidence_level: options.confidence_level,
+        solver: convert_solver_ffi(options.solver),
+        lambda_scaling: convert_lambda_scaling_ffi(options.lambda_scaling),
     };
 
     // Call the core function with panic catching for regress-rs issues
@@ -504,6 +544,7 @@ pub unsafe extern "C" fn anofox_elasticnet_fit(
         fit_intercept: options.fit_intercept,
         max_iterations: options.max_iterations,
         tolerance: options.tolerance,
+        lambda_scaling: convert_lambda_scaling_ffi(options.lambda_scaling),
     };
 
     // Call the core function with panic catching
@@ -622,6 +663,8 @@ pub unsafe extern "C" fn anofox_wls_fit(
         fit_intercept: options.fit_intercept,
         compute_inference: options.compute_inference,
         confidence_level: options.confidence_level,
+        solver: convert_solver_ffi(options.solver),
+        hc_type: convert_hc_type_ffi(options.hc_type),
     };
 
     // Call the core function with panic catching
@@ -1600,6 +1643,7 @@ pub unsafe extern "C" fn anofox_poisson_fit(
         tolerance: options.tolerance,
         compute_inference: options.compute_inference,
         confidence_level: options.confidence_level,
+        lambda: options.lambda,
     };
 
     let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -1743,6 +1787,7 @@ pub unsafe extern "C" fn anofox_binomial_fit(
         tolerance: options.tolerance,
         compute_inference: options.compute_inference,
         confidence_level: options.confidence_level,
+        lambda: options.lambda,
     };
 
     let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -1879,6 +1924,7 @@ pub unsafe extern "C" fn anofox_negbinomial_fit(
         tolerance: options.tolerance,
         compute_inference: options.compute_inference,
         confidence_level: options.confidence_level,
+        lambda: options.lambda,
     };
 
     let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -2018,6 +2064,7 @@ pub unsafe extern "C" fn anofox_tweedie_fit(
         tolerance: options.tolerance,
         compute_inference: options.compute_inference,
         confidence_level: options.confidence_level,
+        lambda: options.lambda,
     };
 
     let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -6045,5 +6092,116 @@ pub unsafe extern "C" fn anofox_free_icc_result(result: *mut IccResultFFI) {
     if !(*result).method.is_null() {
         libc::free((*result).method as *mut libc::c_void);
         (*result).method = std::ptr::null_mut();
+    }
+}
+
+// ============================================================================
+// LmDynamic (Time-Varying Coefficient Model) FFI
+// ============================================================================
+
+/// Fit a time-varying coefficient model using information-theoretic model averaging
+///
+/// # Safety
+/// - All pointers must be valid
+/// - `y`, `x_flat` arrays must have correct lengths
+/// - `result` and `error` must be valid writable pointers
+#[no_mangle]
+pub unsafe extern "C" fn anofox_fit_lm_dynamic(
+    y: *const f64,
+    y_len: usize,
+    x_flat: *const f64,
+    n_features: usize,
+    options: *const LmDynamicOptionsFFI,
+    result: *mut LmDynamicFitResultFFI,
+    error: *mut AnofoxError,
+) {
+    *error = AnofoxError::success();
+    *result = LmDynamicFitResultFFI::default();
+
+    let y_slice = slice::from_raw_parts(y, y_len);
+    let x_slice = slice::from_raw_parts(x_flat, y_len * n_features);
+
+    // Convert column-major flat array to Vec<Vec<f64>>
+    let mut x_cols: Vec<Vec<f64>> = Vec::with_capacity(n_features);
+    for j in 0..n_features {
+        let col: Vec<f64> = (0..y_len).map(|i| x_slice[j * y_len + i]).collect();
+        x_cols.push(col);
+    }
+
+    let opts = &*options;
+    let core_options = LmDynamicOptions {
+        fit_intercept: opts.fit_intercept,
+        ic: convert_ic_ffi(opts.ic),
+        distribution: convert_alm_distribution(opts.distribution),
+        lowess_span: if opts.lowess_span > 0.0 {
+            Some(opts.lowess_span)
+        } else {
+            None
+        },
+        max_models: if opts.max_models > 0 {
+            Some(opts.max_models as usize)
+        } else {
+            None
+        },
+        confidence_level: opts.confidence_level,
+    };
+
+    match fit_lm_dynamic(y_slice, &x_cols, &core_options) {
+        Ok(fit_result) => {
+            // Allocate and copy coefficients
+            let n_coefs = fit_result.coefficients.len();
+            let coefs_ptr = libc::malloc(n_coefs * std::mem::size_of::<f64>()) as *mut f64;
+            if !coefs_ptr.is_null() {
+                std::ptr::copy_nonoverlapping(fit_result.coefficients.as_ptr(), coefs_ptr, n_coefs);
+            }
+
+            (*result).coefficients = coefs_ptr;
+            (*result).coefficients_len = n_coefs;
+            (*result).intercept = fit_result.intercept.unwrap_or(f64::NAN);
+            (*result).r_squared = fit_result.r_squared;
+            (*result).adj_r_squared = fit_result.adj_r_squared;
+            (*result).rmse = fit_result.rmse;
+            (*result).n_observations = fit_result.n_observations;
+            (*result).n_features = fit_result.n_features;
+
+            // Flatten and copy dynamic coefficients
+            if !fit_result.dynamic_coefficients.is_empty() {
+                let n_obs = fit_result.dynamic_coefficients.len();
+                let n_coefs_per_obs = fit_result.dynamic_coefficients[0].len();
+                let total = n_obs * n_coefs_per_obs;
+                let dyn_ptr = libc::malloc(total * std::mem::size_of::<f64>()) as *mut f64;
+                if !dyn_ptr.is_null() {
+                    for (i, row) in fit_result.dynamic_coefficients.iter().enumerate() {
+                        for (j, &val) in row.iter().enumerate() {
+                            *dyn_ptr.add(i * n_coefs_per_obs + j) = val;
+                        }
+                    }
+                }
+                (*result).dynamic_coefficients = dyn_ptr;
+                (*result).n_coefs_per_obs = n_coefs_per_obs;
+            }
+        }
+        Err(e) => {
+            (*error).set(error_to_code(&e), &format!("{}", e));
+        }
+    }
+}
+
+/// Free memory allocated by LmDynamic result
+///
+/// # Safety
+/// - `result` must be NULL or a valid pointer to a LmDynamicFitResultFFI
+#[no_mangle]
+pub unsafe extern "C" fn anofox_free_lm_dynamic_result(result: *mut LmDynamicFitResultFFI) {
+    if result.is_null() {
+        return;
+    }
+    if !(*result).coefficients.is_null() {
+        libc::free((*result).coefficients as *mut libc::c_void);
+        (*result).coefficients = std::ptr::null_mut();
+    }
+    if !(*result).dynamic_coefficients.is_null() {
+        libc::free((*result).dynamic_coefficients as *mut libc::c_void);
+        (*result).dynamic_coefficients = std::ptr::null_mut();
     }
 }

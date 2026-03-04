@@ -1,6 +1,6 @@
 # Elastic Net Regression
 
-Elastic Net regression with combined L1/L2 regularization. Combines Lasso's feature selection with Ridge's stability.
+Elastic Net regression with combined L1/L2 regularization. Supports configurable lambda scaling for glmnet compatibility.
 
 ## Functions
 
@@ -56,6 +56,28 @@ Streaming Elastic Net aggregate function.
 ```sql
 SELECT elasticnet_fit_agg(y, [x1, x2], 0.1, 0.5)
 FROM data;
+```
+
+## MAP Options
+
+All Elastic Net functions accept an optional MAP parameter for advanced configuration:
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `alpha` / `lambda` | DOUBLE | `1.0` | Regularization strength |
+| `l1_ratio` | DOUBLE | `0.5` | L1 ratio: 0=Ridge, 1=Lasso |
+| `fit_intercept` | BOOLEAN | `true` | Include intercept term |
+| `max_iterations` | INTEGER | `1000` | Max coordinate descent iterations |
+| `tolerance` | DOUBLE | `1e-6` | Convergence tolerance |
+| `lambda_scaling` | VARCHAR | `'raw'` | Lambda scaling convention: `'raw'`, `'glmnet'` |
+
+**Example with MAP options:**
+```sql
+-- Elastic Net with glmnet-compatible scaling
+SELECT elasticnet_fit_agg(
+    y, [x1, x2],
+    {'alpha': 0.1, 'l1_ratio': 0.5, 'lambda_scaling': 'glmnet'}
+) FROM data;
 ```
 
 ## Understanding l1_ratio

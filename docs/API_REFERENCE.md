@@ -2,7 +2,7 @@
 
 **Version:** 0.6.0
 **DuckDB Version:** 1.4.4+
-**Backend:** Rust (anofox-regression 0.5.1, anofox-statistics 0.4.0, faer)
+**Backend:** Rust (anofox-regression 0.5.2, anofox-statistics 0.4.0, faer)
 
 ## Overview
 
@@ -114,7 +114,7 @@ SELECT * FROM ols_fit_predict_by('sales', region, revenue, [ads, price]);
 ## OLS Functions
 
 ### anofox_stats_ols_fit
-Ordinary Least Squares regression using QR decomposition.
+Ordinary Least Squares regression using SVD decomposition.
 
 **Signature:**
 ```sql
@@ -2905,6 +2905,41 @@ The `null_policy` option controls how NULL values are handled during model train
 |-------|--------------|-------------|
 | `'drop'` (default) | Rows where y IS NOT NULL | All rows get predictions |
 | `'drop_y_zero_x'` | Rows where y IS NOT NULL AND all x != 0 | All rows get predictions |
+
+### solver Parameter
+
+Controls the matrix decomposition method for OLS, Ridge, and WLS.
+
+| Value | Description | Best for |
+|-------|-------------|----------|
+| `'svd'` (default) | Singular Value Decomposition | Most robust, handles rank-deficient matrices |
+| `'qr'` | QR Decomposition | Faster for well-conditioned problems |
+| `'cholesky'` | Cholesky Decomposition | Fastest for positive-definite X'X |
+
+### hc_type Parameter
+
+Heteroscedasticity-consistent standard errors for OLS and WLS. Requires `compute_inference: true`.
+
+| Value | Description |
+|-------|-------------|
+| `'none'` (default) | Classical (homoscedastic) standard errors |
+| `'hc0'` | White's estimator |
+| `'hc1'` | HC0 with degrees-of-freedom correction |
+| `'hc2'` | HC0 with leverage adjustment |
+| `'hc3'` | HC0 with squared leverage adjustment (most conservative) |
+
+### lambda_scaling Parameter
+
+Controls the lambda scaling convention for Ridge and Elastic Net.
+
+| Value | Description |
+|-------|-------------|
+| `'raw'` (default) | Lambda is used as-is in the penalty term |
+| `'glmnet'` | Lambda is scaled by 1/(2n) to match glmnet convention |
+
+### glm_lambda Parameter
+
+L2 regularization for Poisson GLM. Set to 0.0 (default) for no regularization.
 
 ---
 

@@ -170,6 +170,43 @@ static std::optional<AidOutlierMethod> ExtractAidOutlierMethod(const Value &val)
     throw InvalidInputException("Invalid outlier_method: '%s'. Valid values are 'zscore', 'iqr'", str);
 }
 
+// Helper to extract SolverType from Value
+static std::optional<SolverType> ExtractSolverType(const Value &val) {
+    if (val.IsNull()) {
+        return std::nullopt;
+    }
+    string str = ToLower(StringValue::Get(val));
+    if (str == "qr") return SolverType::QR;
+    if (str == "svd") return SolverType::SVD;
+    if (str == "cholesky") return SolverType::CHOLESKY;
+    throw InvalidInputException("Invalid solver: '%s'. Valid values are 'qr', 'svd', 'cholesky'", str);
+}
+
+// Helper to extract HcType from Value
+static std::optional<HcType> ExtractHcType(const Value &val) {
+    if (val.IsNull()) {
+        return std::nullopt;
+    }
+    string str = ToLower(StringValue::Get(val));
+    if (str == "none") return HcType::NONE;
+    if (str == "hc0") return HcType::HC0;
+    if (str == "hc1") return HcType::HC1;
+    if (str == "hc2") return HcType::HC2;
+    if (str == "hc3") return HcType::HC3;
+    throw InvalidInputException("Invalid hc_type: '%s'. Valid values are 'none', 'hc0', 'hc1', 'hc2', 'hc3'", str);
+}
+
+// Helper to extract LambdaScaling from Value
+static std::optional<LambdaScaling> ExtractLambdaScaling(const Value &val) {
+    if (val.IsNull()) {
+        return std::nullopt;
+    }
+    string str = ToLower(StringValue::Get(val));
+    if (str == "raw") return LambdaScaling::RAW;
+    if (str == "glmnet") return LambdaScaling::GLMNET;
+    throw InvalidInputException("Invalid lambda_scaling: '%s'. Valid values are 'raw', 'glmnet'", str);
+}
+
 // ============================================================================
 // Statistical Test Option Extractors
 // ============================================================================
@@ -321,6 +358,20 @@ RegressionMapOptions RegressionMapOptions::ParseFromValue(const Value &map_value
             else if (key == "increasing") {
                 result.increasing = ExtractBool(val);
             }
+            // Solver/inference options
+            else if (key == "solver") {
+                result.solver = ExtractSolverType(val);
+            } else if (key == "hc_type") {
+                result.hc_type = ExtractHcType(val);
+            }
+            // Lambda scaling
+            else if (key == "lambda_scaling") {
+                result.lambda_scaling = ExtractLambdaScaling(val);
+            }
+            // GLM regularization
+            else if (key == "glm_lambda") {
+                result.glm_lambda = ExtractDouble(val);
+            }
             // Unknown keys are silently ignored for forward compatibility
         }
     }
@@ -401,6 +452,20 @@ RegressionMapOptions RegressionMapOptions::ParseFromValue(const Value &map_value
             // Isotonic options
             else if (key == "increasing") {
                 result.increasing = ExtractBool(val);
+            }
+            // Solver/inference options
+            else if (key == "solver") {
+                result.solver = ExtractSolverType(val);
+            } else if (key == "hc_type") {
+                result.hc_type = ExtractHcType(val);
+            }
+            // Lambda scaling
+            else if (key == "lambda_scaling") {
+                result.lambda_scaling = ExtractLambdaScaling(val);
+            }
+            // GLM regularization
+            else if (key == "glm_lambda") {
+                result.glm_lambda = ExtractDouble(val);
             }
         }
     } else {

@@ -6,6 +6,7 @@
 #include "duckdb/main/extension/extension_loader.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/ffi_enum_converters.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
 
@@ -26,10 +27,11 @@ struct ElasticNetAggregateState {
     bool fit_intercept;
     uint32_t max_iterations;
     double tolerance;
+    LambdaScaling lambda_scaling;
 
     ElasticNetAggregateState()
         : n_features(0), initialized(false), alpha(1.0), l1_ratio(0.5), fit_intercept(true), max_iterations(1000),
-          tolerance(1e-6) {}
+          tolerance(1e-6), lambda_scaling(LambdaScaling::RAW) {}
 
     void Reset() {
         y_values.clear();
@@ -48,6 +50,7 @@ struct ElasticNetAggregateBindData : public FunctionData {
     bool fit_intercept = true;
     uint32_t max_iterations = 1000;
     double tolerance = 1e-6;
+    LambdaScaling lambda_scaling = LambdaScaling::RAW;
 
     unique_ptr<FunctionData> Copy() const override {
         auto result = make_uniq<ElasticNetAggregateBindData>();
@@ -56,13 +59,15 @@ struct ElasticNetAggregateBindData : public FunctionData {
         result->fit_intercept = fit_intercept;
         result->max_iterations = max_iterations;
         result->tolerance = tolerance;
+        result->lambda_scaling = lambda_scaling;
         return std::move(result);
     }
 
     bool Equals(const FunctionData &other_p) const override {
         auto &other = other_p.Cast<ElasticNetAggregateBindData>();
         return alpha == other.alpha && l1_ratio == other.l1_ratio && fit_intercept == other.fit_intercept &&
-               max_iterations == other.max_iterations && tolerance == other.tolerance;
+               max_iterations == other.max_iterations && tolerance == other.tolerance &&
+               lambda_scaling == other.lambda_scaling;
     }
 };
 
@@ -132,6 +137,7 @@ static void ElasticNetAggUpdate(Vector inputs[], AggregateInputData &aggr_input_
         state.fit_intercept = bind_data.fit_intercept;
         state.max_iterations = bind_data.max_iterations;
         state.tolerance = bind_data.tolerance;
+        state.lambda_scaling = bind_data.lambda_scaling;
 
         // Get y value
         auto y_idx = y_data.sel->get_index(i);
@@ -201,6 +207,7 @@ static void ElasticNetAggCombine(Vector &source_vector, Vector &target_vector, A
             target.fit_intercept = source.fit_intercept;
             target.max_iterations = source.max_iterations;
             target.tolerance = source.tolerance;
+            target.lambda_scaling = source.lambda_scaling;
             continue;
         }
 
@@ -275,6 +282,7 @@ static void ElasticNetAggFinalize(Vector &state_vector, AggregateInputData &aggr
         options.fit_intercept = state.fit_intercept;
         options.max_iterations = state.max_iterations;
         options.tolerance = state.tolerance;
+        options.lambda_scaling = ConvertLambdaScaling(state.lambda_scaling);
 
         AnofoxFitResultCore core_result;
         AnofoxError error;
@@ -333,6 +341,9 @@ static unique_ptr<FunctionData> ElasticNetAggBind(ClientContext &context, Aggreg
         }
         if (opts.tolerance.has_value()) {
             result->tolerance = opts.tolerance.value();
+        }
+        if (opts.lambda_scaling.has_value()) {
+            result->lambda_scaling = opts.lambda_scaling.value();
         }
     }
 

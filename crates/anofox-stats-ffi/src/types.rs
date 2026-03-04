@@ -164,6 +164,47 @@ impl Default for FitResultInference {
     }
 }
 
+/// Decomposition method for FFI
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SolverTypeFFI {
+    /// QR decomposition with column pivoting (default)
+    Qr = 0,
+    /// SVD decomposition (most robust)
+    #[default]
+    Svd = 1,
+    /// Cholesky decomposition (fastest)
+    Cholesky = 2,
+}
+
+/// Lambda scaling convention for FFI
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LambdaScalingFFI {
+    /// Use lambda as-is (default)
+    #[default]
+    Raw = 0,
+    /// Scale to match R's glmnet convention
+    Glmnet = 1,
+}
+
+/// Heteroscedasticity-consistent SE type for FFI
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum HcTypeFFI {
+    /// No HC inference (use classical)
+    #[default]
+    None = 0,
+    /// HC0: White's original
+    HC0 = 1,
+    /// HC1: With df correction (default)
+    HC1 = 2,
+    /// HC2: Leverage-based
+    HC2 = 3,
+    /// HC3: Jackknife-like
+    HC3 = 4,
+}
+
 /// OLS options for FFI
 #[repr(C)]
 pub struct OlsOptionsFFI {
@@ -173,6 +214,10 @@ pub struct OlsOptionsFFI {
     pub compute_inference: bool,
     /// Confidence level for CIs
     pub confidence_level: f64,
+    /// Decomposition method (0=QR, 1=SVD, 2=Cholesky)
+    pub solver: SolverTypeFFI,
+    /// Heteroscedasticity-consistent SE type
+    pub hc_type: HcTypeFFI,
 }
 
 impl Default for OlsOptionsFFI {
@@ -181,6 +226,8 @@ impl Default for OlsOptionsFFI {
             fit_intercept: true,
             compute_inference: false,
             confidence_level: 0.95,
+            solver: SolverTypeFFI::Qr,
+            hc_type: HcTypeFFI::None,
         }
     }
 }
@@ -196,6 +243,10 @@ pub struct RidgeOptionsFFI {
     pub compute_inference: bool,
     /// Confidence level for CIs
     pub confidence_level: f64,
+    /// Decomposition method (0=QR, 1=SVD, 2=Cholesky)
+    pub solver: SolverTypeFFI,
+    /// Lambda scaling convention
+    pub lambda_scaling: LambdaScalingFFI,
 }
 
 impl Default for RidgeOptionsFFI {
@@ -205,6 +256,8 @@ impl Default for RidgeOptionsFFI {
             fit_intercept: true,
             compute_inference: false,
             confidence_level: 0.95,
+            solver: SolverTypeFFI::Qr,
+            lambda_scaling: LambdaScalingFFI::Raw,
         }
     }
 }
@@ -222,6 +275,8 @@ pub struct ElasticNetOptionsFFI {
     pub max_iterations: u32,
     /// Convergence tolerance
     pub tolerance: f64,
+    /// Lambda scaling convention
+    pub lambda_scaling: LambdaScalingFFI,
 }
 
 impl Default for ElasticNetOptionsFFI {
@@ -232,6 +287,7 @@ impl Default for ElasticNetOptionsFFI {
             fit_intercept: true,
             max_iterations: 1000,
             tolerance: 1e-6,
+            lambda_scaling: LambdaScalingFFI::Raw,
         }
     }
 }
@@ -245,6 +301,10 @@ pub struct WlsOptionsFFI {
     pub compute_inference: bool,
     /// Confidence level for CIs
     pub confidence_level: f64,
+    /// Decomposition method (0=QR, 1=SVD, 2=Cholesky)
+    pub solver: SolverTypeFFI,
+    /// Heteroscedasticity-consistent SE type
+    pub hc_type: HcTypeFFI,
 }
 
 impl Default for WlsOptionsFFI {
@@ -253,6 +313,8 @@ impl Default for WlsOptionsFFI {
             fit_intercept: true,
             compute_inference: false,
             confidence_level: 0.95,
+            solver: SolverTypeFFI::Qr,
+            hc_type: HcTypeFFI::None,
         }
     }
 }
@@ -304,6 +366,8 @@ pub struct PoissonOptionsFFI {
     pub compute_inference: bool,
     /// Confidence level for CIs
     pub confidence_level: f64,
+    /// L2 regularization parameter (0 = no regularization)
+    pub lambda: f64,
 }
 
 impl Default for PoissonOptionsFFI {
@@ -315,6 +379,7 @@ impl Default for PoissonOptionsFFI {
             tolerance: 1e-8,
             compute_inference: false,
             confidence_level: 0.95,
+            lambda: 0.0,
         }
     }
 }
@@ -334,6 +399,8 @@ pub struct BinomialOptionsFFI {
     pub compute_inference: bool,
     /// Confidence level for CIs
     pub confidence_level: f64,
+    /// L2 regularization parameter (0 = no regularization)
+    pub lambda: f64,
 }
 
 impl Default for BinomialOptionsFFI {
@@ -345,6 +412,7 @@ impl Default for BinomialOptionsFFI {
             tolerance: 1e-8,
             compute_inference: false,
             confidence_level: 0.95,
+            lambda: 0.0,
         }
     }
 }
@@ -362,6 +430,8 @@ pub struct NegBinomialOptionsFFI {
     pub compute_inference: bool,
     /// Confidence level for CIs
     pub confidence_level: f64,
+    /// L2 regularization parameter (0 = no regularization)
+    pub lambda: f64,
 }
 
 impl Default for NegBinomialOptionsFFI {
@@ -372,6 +442,7 @@ impl Default for NegBinomialOptionsFFI {
             tolerance: 1e-8,
             compute_inference: false,
             confidence_level: 0.95,
+            lambda: 0.0,
         }
     }
 }
@@ -391,6 +462,8 @@ pub struct TweedieOptionsFFI {
     pub compute_inference: bool,
     /// Confidence level for CIs
     pub confidence_level: f64,
+    /// L2 regularization parameter (0 = no regularization)
+    pub lambda: f64,
 }
 
 impl Default for TweedieOptionsFFI {
@@ -402,6 +475,7 @@ impl Default for TweedieOptionsFFI {
             tolerance: 1e-8,
             compute_inference: false,
             confidence_level: 0.95,
+            lambda: 0.0,
         }
     }
 }
@@ -1648,6 +1722,95 @@ impl Default for QuantileFitResultCore {
             tau: f64::NAN,
             n_observations: 0,
             n_features: 0,
+        }
+    }
+}
+
+// ============================================================================
+// LmDynamic FFI Types
+// ============================================================================
+
+/// Information criterion for FFI
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum InformationCriterionFFI {
+    /// Akaike Information Criterion
+    AIC = 0,
+    /// Corrected AIC (default)
+    #[default]
+    AICc = 1,
+    /// Bayesian Information Criterion
+    BIC = 2,
+}
+
+/// LmDynamic options for FFI
+#[repr(C)]
+pub struct LmDynamicOptionsFFI {
+    /// Whether to fit intercept
+    pub fit_intercept: bool,
+    /// Information criterion for model weighting
+    pub ic: InformationCriterionFFI,
+    /// Distribution family
+    pub distribution: AlmDistributionFFI,
+    /// LOWESS smoothing span (0.0 = no smoothing, >0 = span value)
+    pub lowess_span: f64,
+    /// Maximum number of candidate models (0 = default)
+    pub max_models: u32,
+    /// Confidence level for intervals
+    pub confidence_level: f64,
+}
+
+impl Default for LmDynamicOptionsFFI {
+    fn default() -> Self {
+        Self {
+            fit_intercept: true,
+            ic: InformationCriterionFFI::AICc,
+            distribution: AlmDistributionFFI::Normal,
+            lowess_span: 0.3,
+            max_models: 0,
+            confidence_level: 0.95,
+        }
+    }
+}
+
+/// LmDynamic result for FFI
+#[repr(C)]
+pub struct LmDynamicFitResultFFI {
+    /// Averaged coefficients (heap-allocated, caller must free)
+    pub coefficients: *mut f64,
+    /// Number of coefficients
+    pub coefficients_len: usize,
+    /// Intercept value (NaN if no intercept)
+    pub intercept: f64,
+    /// R-squared
+    pub r_squared: f64,
+    /// Adjusted R-squared
+    pub adj_r_squared: f64,
+    /// RMSE
+    pub rmse: f64,
+    /// Number of observations
+    pub n_observations: usize,
+    /// Number of features
+    pub n_features: usize,
+    /// Flattened dynamic coefficients (n_observations x n_coefs_per_obs, row-major)
+    pub dynamic_coefficients: *mut f64,
+    /// Number of coefficient columns per observation
+    pub n_coefs_per_obs: usize,
+}
+
+impl Default for LmDynamicFitResultFFI {
+    fn default() -> Self {
+        Self {
+            coefficients: std::ptr::null_mut(),
+            coefficients_len: 0,
+            intercept: f64::NAN,
+            r_squared: f64::NAN,
+            adj_r_squared: f64::NAN,
+            rmse: f64::NAN,
+            n_observations: 0,
+            n_features: 0,
+            dynamic_coefficients: std::ptr::null_mut(),
+            n_coefs_per_obs: 0,
         }
     }
 }

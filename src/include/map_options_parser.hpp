@@ -75,6 +75,34 @@ enum class AlmLoss {
 };
 
 /**
+ * Solver (decomposition) type for linear regression
+ */
+enum class SolverType {
+    QR,
+    SVD,
+    CHOLESKY
+};
+
+/**
+ * Heteroscedasticity-consistent standard error type
+ */
+enum class HcType {
+    NONE,
+    HC0,
+    HC1,
+    HC2,
+    HC3
+};
+
+/**
+ * Lambda scaling convention for regularized regression
+ */
+enum class LambdaScaling {
+    RAW,
+    GLMNET
+};
+
+/**
  * AID outlier detection methods
  */
 enum class AidOutlierMethod {
@@ -165,6 +193,16 @@ struct RegressionMapOptions {
 
     // Isotonic specific
     std::optional<bool> increasing;  // Whether function is increasing or decreasing
+
+    // Solver/inference options (OLS, Ridge, WLS)
+    std::optional<SolverType> solver;    // Decomposition method: qr, svd, cholesky
+    std::optional<HcType> hc_type;      // HC standard errors: none, hc0, hc1, hc2, hc3
+
+    // Lambda scaling (Ridge, ElasticNet)
+    std::optional<LambdaScaling> lambda_scaling;  // Lambda scaling: raw, glmnet
+
+    // GLM regularization
+    std::optional<double> glm_lambda;  // L2 regularization for GLM (Poisson)
 
     /**
      * Parse options from a DuckDB MAP Value.

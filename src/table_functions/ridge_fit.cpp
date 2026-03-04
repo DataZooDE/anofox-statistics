@@ -9,6 +9,7 @@
 #include "duckdb/planner/expression/bound_function_expression.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/ffi_enum_converters.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
 
@@ -45,6 +46,8 @@ struct RidgeFitBindData : public FunctionData {
     bool fit_intercept = true;
     bool compute_inference = false;
     double confidence_level = 0.95;
+    SolverType solver = SolverType::SVD;
+    LambdaScaling lambda_scaling = LambdaScaling::RAW;
 
     unique_ptr<FunctionData> Copy() const override {
         auto result = make_uniq<RidgeFitBindData>();
@@ -52,13 +55,16 @@ struct RidgeFitBindData : public FunctionData {
         result->fit_intercept = fit_intercept;
         result->compute_inference = compute_inference;
         result->confidence_level = confidence_level;
+        result->solver = solver;
+        result->lambda_scaling = lambda_scaling;
         return std::move(result);
     }
 
     bool Equals(const FunctionData &other_p) const override {
         auto &other = other_p.Cast<RidgeFitBindData>();
         return alpha == other.alpha && fit_intercept == other.fit_intercept &&
-               compute_inference == other.compute_inference && confidence_level == other.confidence_level;
+               compute_inference == other.compute_inference && confidence_level == other.confidence_level &&
+               solver == other.solver && lambda_scaling == other.lambda_scaling;
     }
 };
 
@@ -83,6 +89,12 @@ static unique_ptr<FunctionData> RidgeFitBind(ClientContext &context, ScalarFunct
         auto reg_strength = opts.GetRegularizationStrength();
         if (reg_strength.has_value()) {
             result->alpha = reg_strength.value();
+        }
+        if (opts.solver.has_value()) {
+            result->solver = opts.solver.value();
+        }
+        if (opts.lambda_scaling.has_value()) {
+            result->lambda_scaling = opts.lambda_scaling.value();
         }
     }
 
@@ -157,6 +169,8 @@ static void RidgeFitFunction(DataChunk &args, ExpressionState &state, Vector &re
         options.fit_intercept = bind_data.fit_intercept;
         options.compute_inference = bind_data.compute_inference;
         options.confidence_level = bind_data.confidence_level;
+        options.solver = ConvertSolverType(bind_data.solver);
+        options.lambda_scaling = ConvertLambdaScaling(bind_data.lambda_scaling);
 
         // Call Rust FFI
         AnofoxFitResultCore core_result;

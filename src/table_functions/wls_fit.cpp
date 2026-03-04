@@ -9,6 +9,7 @@
 #include "duckdb/planner/expression/bound_function_expression.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/ffi_enum_converters.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
 
@@ -44,19 +45,23 @@ struct WlsFitBindData : public FunctionData {
     bool fit_intercept = true;
     bool compute_inference = false;
     double confidence_level = 0.95;
+    SolverType solver = SolverType::SVD;
+    HcType hc_type = HcType::NONE;
 
     unique_ptr<FunctionData> Copy() const override {
         auto result = make_uniq<WlsFitBindData>();
         result->fit_intercept = fit_intercept;
         result->compute_inference = compute_inference;
         result->confidence_level = confidence_level;
+        result->solver = solver;
+        result->hc_type = hc_type;
         return std::move(result);
     }
 
     bool Equals(const FunctionData &other_p) const override {
         auto &other = other_p.Cast<WlsFitBindData>();
         return fit_intercept == other.fit_intercept && compute_inference == other.compute_inference &&
-               confidence_level == other.confidence_level;
+               confidence_level == other.confidence_level && solver == other.solver && hc_type == other.hc_type;
     }
 };
 
@@ -76,6 +81,12 @@ static unique_ptr<FunctionData> WlsFitBind(ClientContext &context, ScalarFunctio
         }
         if (opts.confidence_level.has_value()) {
             result->confidence_level = opts.confidence_level.value();
+        }
+        if (opts.solver.has_value()) {
+            result->solver = opts.solver.value();
+        }
+        if (opts.hc_type.has_value()) {
+            result->hc_type = opts.hc_type.value();
         }
     }
 
@@ -158,6 +169,8 @@ static void WlsFitFunction(DataChunk &args, ExpressionState &state, Vector &resu
         options.fit_intercept = bind_data.fit_intercept;
         options.compute_inference = bind_data.compute_inference;
         options.confidence_level = bind_data.confidence_level;
+        options.solver = ConvertSolverType(bind_data.solver);
+        options.hc_type = ConvertHcType(bind_data.hc_type);
 
         // Call Rust FFI
         AnofoxFitResultCore core_result;
