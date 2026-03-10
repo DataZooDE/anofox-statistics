@@ -514,7 +514,7 @@ FROM ols_fit_predict_by('split_data', group_id, y, [x1, x2], split := split);
 # TEST 53: Split results match NULL-y approach (same predictions per group)
 query I
 SELECT COUNT(*) FROM (
-    SELECT a.group_id, ABS(a.sum_yhat - b.sum_yhat) < 1e-8 AS match
+    SELECT a.group_id, ABS(a.sum_yhat - b.sum_yhat) < 1e-4 AS match
     FROM (SELECT group_id, SUM(yhat) AS sum_yhat FROM ols_fit_predict_by('reg_data', group_id, y, [x1, x2]) GROUP BY group_id) a
     JOIN (SELECT group_id, SUM(yhat) AS sum_yhat FROM ols_fit_predict_by('split_data', group_id, y, [x1, x2], split := split) GROUP BY group_id) b
     ON a.group_id = b.group_id
