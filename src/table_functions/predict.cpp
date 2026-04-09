@@ -5,6 +5,7 @@
 #include "duckdb/common/types/data_chunk.hpp"
 #include "duckdb/function/scalar_function.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
+#include "duckdb/parser/parsed_data/create_scalar_function_info.hpp"
 #include "duckdb/planner/expression/bound_function_expression.hpp"
 
 #include "../include/anofox_stats_ffi.h"
@@ -107,18 +108,23 @@ static void PredictFunction(DataChunk &args, ExpressionState &state, Vector &res
 
 // Register the function
 void RegisterPredictFunction(ExtensionLoader &loader) {
-    ScalarFunctionSet func_set("anofox_stats_predict");
-
-    // anofox_stats_predict(x, coefficients, intercept)
-    // x: LIST(LIST(DOUBLE)) - feature data (list of feature columns, each a list of values)
-    // coefficients: LIST(DOUBLE) - fitted coefficients
-    // intercept: DOUBLE - intercept value (can be NULL)
     ScalarFunction func({LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)),
                          LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE},
                         LogicalType::LIST(LogicalType::DOUBLE), PredictFunction);
-    func_set.AddFunction(func);
 
-    loader.RegisterFunction(func_set);
+    ScalarFunctionSet func_set("anofox_stats_predict");
+    func_set.AddFunction(func);
+    CreateScalarFunctionInfo info(std::move(func_set));
+    info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
+    FunctionDescription desc;
+    desc.description     = "Applies pre-fitted coefficients and intercept to feature data to generate predictions.";
+    desc.examples        = {"anofox_stats_predict(x, coefficients, intercept)"};
+    desc.categories      = {"regression", "prediction"};
+    desc.parameter_names = {"x", "coefficients", "intercept"};
+    desc.parameter_types = {LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)),
+                            LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE};
+    info.descriptions.push_back(std::move(desc));
+    loader.RegisterFunction(std::move(info));
 }
 
 } // namespace duckdb

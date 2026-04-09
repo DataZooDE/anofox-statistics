@@ -4,6 +4,7 @@
 #include "duckdb/common/types/data_chunk.hpp"
 #include "duckdb/function/scalar_function.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
+#include "duckdb/parser/parsed_data/create_scalar_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
 #include "telemetry.hpp"
@@ -89,19 +90,33 @@ static void VifFunction(DataChunk &args, ExpressionState &state, Vector &result)
 
 // Register the function
 void RegisterVifFunction(ExtensionLoader &loader) {
-    ScalarFunctionSet func_set("anofox_stats_vif");
-
-    // anofox_stats_vif(x) -> LIST(DOUBLE)
     ScalarFunction func({LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE))},
                         LogicalType::LIST(LogicalType::DOUBLE), VifFunction);
-    func_set.AddFunction(func);
 
-    loader.RegisterFunction(func_set);
-
-    // Also register short alias
-    ScalarFunctionSet alias_set("vif");
-    alias_set.AddFunction(func);
-    loader.RegisterFunction(alias_set);
+    // Primary
+    {
+        ScalarFunctionSet func_set("anofox_stats_vif");
+        func_set.AddFunction(func);
+        CreateScalarFunctionInfo info(std::move(func_set));
+        info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
+        FunctionDescription desc;
+        desc.description     = "Computes Variance Inflation Factor (VIF) for each column of a feature matrix to detect multicollinearity.";
+        desc.examples        = {"anofox_stats_vif(x)"};
+        desc.categories      = {"regression-diagnostics"};
+        desc.parameter_names = {"x"};
+        desc.parameter_types = {LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE))};
+        info.descriptions.push_back(std::move(desc));
+        loader.RegisterFunction(std::move(info));
+    }
+    // Alias
+    {
+        ScalarFunctionSet alias_set("vif");
+        alias_set.AddFunction(func);
+        CreateScalarFunctionInfo alias_info(std::move(alias_set));
+        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
+        alias_info.alias_of = "anofox_stats_vif";
+        loader.RegisterFunction(std::move(alias_info));
+    }
 }
 
 } // namespace duckdb
