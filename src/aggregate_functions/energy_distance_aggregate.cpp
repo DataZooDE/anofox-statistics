@@ -4,6 +4,7 @@
 #include "duckdb/common/types/data_chunk.hpp"
 #include "duckdb/function/aggregate_function.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
+#include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
 #include "../include/map_options_parser.hpp"
@@ -228,8 +229,6 @@ static unique_ptr<FunctionData> EnergyDistanceAggBind(ClientContext &context, Ag
 // Registration
 //===--------------------------------------------------------------------===//
 void RegisterEnergyDistanceAggregateFunction(ExtensionLoader &loader) {
-    AggregateFunctionSet func_set("anofox_stats_energy_distance_agg");
-
     // With options
     auto func_with_opts = AggregateFunction(
         "anofox_stats_energy_distance_agg", {LogicalType::DOUBLE, LogicalType::INTEGER, LogicalType::ANY},
@@ -237,7 +236,6 @@ void RegisterEnergyDistanceAggregateFunction(ExtensionLoader &loader) {
         AggregateFunction::StateSize<EnergyDistanceAggregateState>, EnergyDistanceAggInitialize,
         EnergyDistanceAggUpdate, EnergyDistanceAggCombine, EnergyDistanceAggFinalize,
         nullptr, EnergyDistanceAggBind, EnergyDistanceAggDestroy);
-    func_set.AddFunction(func_with_opts);
 
     // Without options
     auto func_no_opts = AggregateFunction(
@@ -246,15 +244,40 @@ void RegisterEnergyDistanceAggregateFunction(ExtensionLoader &loader) {
         AggregateFunction::StateSize<EnergyDistanceAggregateState>, EnergyDistanceAggInitialize,
         EnergyDistanceAggUpdate, EnergyDistanceAggCombine, EnergyDistanceAggFinalize,
         nullptr, EnergyDistanceAggBind, EnergyDistanceAggDestroy);
-    func_set.AddFunction(func_no_opts);
 
-    loader.RegisterFunction(func_set);
+    {
+        AggregateFunctionSet func_set("anofox_stats_energy_distance_agg");
+        func_set.AddFunction(func_with_opts);
+        func_set.AddFunction(func_no_opts);
+        CreateAggregateFunctionInfo info(std::move(func_set));
+        info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
+        FunctionDescription d1;
+        d1.description     = "Computes the energy distance between two samples as a measure of distributional difference.";
+        d1.examples        = {"anofox_stats_energy_distance_agg(value, group_id, {'n_permutations': 1000})"};
+        d1.categories      = {"distribution-comparison"};
+        d1.parameter_names = {"value", "group_id", "options"};
+        d1.parameter_types = {LogicalType::DOUBLE, LogicalType::INTEGER, LogicalType::ANY};
+        info.descriptions.push_back(std::move(d1));
+        FunctionDescription d2;
+        d2.description     = "Computes the energy distance between two samples as a measure of distributional difference, using default options.";
+        d2.examples        = {"anofox_stats_energy_distance_agg(value, group_id)"};
+        d2.categories      = {"distribution-comparison"};
+        d2.parameter_names = {"value", "group_id"};
+        d2.parameter_types = {LogicalType::DOUBLE, LogicalType::INTEGER};
+        info.descriptions.push_back(std::move(d2));
+        loader.RegisterFunction(std::move(info));
+    }
 
     // Short alias
-    AggregateFunctionSet alias_set("energy_distance_agg");
-    alias_set.AddFunction(func_with_opts);
-    alias_set.AddFunction(func_no_opts);
-    loader.RegisterFunction(alias_set);
+    {
+        AggregateFunctionSet alias_set("energy_distance_agg");
+        alias_set.AddFunction(func_with_opts);
+        alias_set.AddFunction(func_no_opts);
+        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
+        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
+        alias_info.alias_of = "anofox_stats_energy_distance_agg";
+        loader.RegisterFunction(std::move(alias_info));
+    }
 }
 
 } // namespace duckdb

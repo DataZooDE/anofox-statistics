@@ -4,6 +4,7 @@
 #include "duckdb/common/types/data_chunk.hpp"
 #include "duckdb/function/aggregate_function.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
+#include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
 #include "../include/map_options_parser.hpp"
@@ -399,50 +400,93 @@ static unique_ptr<FunctionData> NnlsAggBind(ClientContext &context, AggregateFun
 //===--------------------------------------------------------------------===//
 void RegisterBlsAggregateFunction(ExtensionLoader &loader) {
     // BLS (Bounded Least Squares)
-    AggregateFunctionSet bls_set("anofox_stats_bls_fit_agg");
+    {
+        AggregateFunctionSet bls_set("anofox_stats_bls_fit_agg");
 
-    auto bls_basic = AggregateFunction(
-        "anofox_stats_bls_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)}, LogicalType::ANY,
-        AggregateFunction::StateSize<BlsAggregateState>, BlsAggInitialize, BlsAggUpdate, BlsAggCombine, BlsAggFinalize,
-        nullptr, BlsAggBind, BlsAggDestroy);
-    bls_set.AddFunction(bls_basic);
+        auto bls_basic = AggregateFunction(
+            "anofox_stats_bls_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)}, LogicalType::ANY,
+            AggregateFunction::StateSize<BlsAggregateState>, BlsAggInitialize, BlsAggUpdate, BlsAggCombine,
+            BlsAggFinalize, nullptr, BlsAggBind, BlsAggDestroy);
+        bls_set.AddFunction(bls_basic);
 
-    auto bls_map = AggregateFunction(
-        "anofox_stats_bls_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
-        LogicalType::ANY, AggregateFunction::StateSize<BlsAggregateState>, BlsAggInitialize, BlsAggUpdate,
-        BlsAggCombine, BlsAggFinalize, nullptr, BlsAggBind, BlsAggDestroy);
-    bls_set.AddFunction(bls_map);
+        auto bls_map = AggregateFunction(
+            "anofox_stats_bls_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
+            LogicalType::ANY, AggregateFunction::StateSize<BlsAggregateState>, BlsAggInitialize, BlsAggUpdate,
+            BlsAggCombine, BlsAggFinalize, nullptr, BlsAggBind, BlsAggDestroy);
+        bls_set.AddFunction(bls_map);
 
-    loader.RegisterFunction(bls_set);
+        CreateAggregateFunctionInfo bls_info(std::move(bls_set));
+        bls_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
+        FunctionDescription d1;
+        d1.description     = "Fits a Bounded Least Squares (BLS) regression with coefficient bounds and returns fit statistics.";
+        d1.examples        = {"anofox_stats_bls_fit_agg(y, x, {'lower_bounds': [-1.0], 'upper_bounds': [1.0]})"};
+        d1.categories      = {"regression"};
+        d1.parameter_names = {"y", "x", "options"};
+        d1.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY};
+        bls_info.descriptions.push_back(std::move(d1));
+        FunctionDescription d2;
+        d2.description     = "Fits a Bounded Least Squares (BLS) regression with coefficient bounds and returns fit statistics.";
+        d2.examples        = {"anofox_stats_bls_fit_agg(y, x)"};
+        d2.categories      = {"regression"};
+        d2.parameter_names = {"y", "x"};
+        d2.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)};
+        bls_info.descriptions.push_back(std::move(d2));
+        loader.RegisterFunction(std::move(bls_info));
 
-    // Short alias
-    AggregateFunctionSet bls_alias("bls_fit_agg");
-    bls_alias.AddFunction(bls_basic);
-    bls_alias.AddFunction(bls_map);
-    loader.RegisterFunction(bls_alias);
+        // Short alias
+        AggregateFunctionSet bls_alias("bls_fit_agg");
+        bls_alias.AddFunction(bls_basic);
+        bls_alias.AddFunction(bls_map);
+        CreateAggregateFunctionInfo bls_alias_info(std::move(bls_alias));
+        bls_alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
+        bls_alias_info.alias_of = "anofox_stats_bls_fit_agg";
+        loader.RegisterFunction(std::move(bls_alias_info));
+    }
 
     // NNLS (Non-Negative Least Squares)
-    AggregateFunctionSet nnls_set("anofox_stats_nnls_fit_agg");
+    {
+        AggregateFunctionSet nnls_set("anofox_stats_nnls_fit_agg");
 
-    auto nnls_basic = AggregateFunction(
-        "anofox_stats_nnls_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)}, LogicalType::ANY,
-        AggregateFunction::StateSize<BlsAggregateState>, BlsAggInitialize, BlsAggUpdate, BlsAggCombine, BlsAggFinalize,
-        nullptr, NnlsAggBind, BlsAggDestroy);
-    nnls_set.AddFunction(nnls_basic);
+        auto nnls_basic = AggregateFunction(
+            "anofox_stats_nnls_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)}, LogicalType::ANY,
+            AggregateFunction::StateSize<BlsAggregateState>, BlsAggInitialize, BlsAggUpdate, BlsAggCombine,
+            BlsAggFinalize, nullptr, NnlsAggBind, BlsAggDestroy);
+        nnls_set.AddFunction(nnls_basic);
 
-    auto nnls_map = AggregateFunction(
-        "anofox_stats_nnls_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
-        LogicalType::ANY, AggregateFunction::StateSize<BlsAggregateState>, BlsAggInitialize, BlsAggUpdate,
-        BlsAggCombine, BlsAggFinalize, nullptr, NnlsAggBind, BlsAggDestroy);
-    nnls_set.AddFunction(nnls_map);
+        auto nnls_map = AggregateFunction(
+            "anofox_stats_nnls_fit_agg",
+            {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY}, LogicalType::ANY,
+            AggregateFunction::StateSize<BlsAggregateState>, BlsAggInitialize, BlsAggUpdate, BlsAggCombine,
+            BlsAggFinalize, nullptr, NnlsAggBind, BlsAggDestroy);
+        nnls_set.AddFunction(nnls_map);
 
-    loader.RegisterFunction(nnls_set);
+        CreateAggregateFunctionInfo nnls_info(std::move(nnls_set));
+        nnls_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
+        FunctionDescription d1;
+        d1.description     = "Fits a Non-Negative Least Squares (NNLS) regression with non-negativity constraints.";
+        d1.examples        = {"anofox_stats_nnls_fit_agg(y, x, {'tolerance': 1e-6})"};
+        d1.categories      = {"regression"};
+        d1.parameter_names = {"y", "x", "options"};
+        d1.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY};
+        nnls_info.descriptions.push_back(std::move(d1));
+        FunctionDescription d2;
+        d2.description     = "Fits a Non-Negative Least Squares (NNLS) regression with non-negativity constraints.";
+        d2.examples        = {"anofox_stats_nnls_fit_agg(y, x)"};
+        d2.categories      = {"regression"};
+        d2.parameter_names = {"y", "x"};
+        d2.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)};
+        nnls_info.descriptions.push_back(std::move(d2));
+        loader.RegisterFunction(std::move(nnls_info));
 
-    // Short alias for NNLS
-    AggregateFunctionSet nnls_alias("nnls_fit_agg");
-    nnls_alias.AddFunction(nnls_basic);
-    nnls_alias.AddFunction(nnls_map);
-    loader.RegisterFunction(nnls_alias);
+        // Short alias for NNLS
+        AggregateFunctionSet nnls_alias("nnls_fit_agg");
+        nnls_alias.AddFunction(nnls_basic);
+        nnls_alias.AddFunction(nnls_map);
+        CreateAggregateFunctionInfo nnls_alias_info(std::move(nnls_alias));
+        nnls_alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
+        nnls_alias_info.alias_of = "anofox_stats_nnls_fit_agg";
+        loader.RegisterFunction(std::move(nnls_alias_info));
+    }
 }
 
 } // namespace duckdb

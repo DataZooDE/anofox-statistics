@@ -4,6 +4,7 @@
 #include "duckdb/common/types/data_chunk.hpp"
 #include "duckdb/function/aggregate_function.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
+#include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
 #include "telemetry.hpp"
@@ -337,13 +338,37 @@ void RegisterResidualsDiagnosticsAggregateFunction(ExtensionLoader &loader) {
         ResidualsDiagnosticsAggBind, ResidualsDiagnosticsAggDestroy);
     func_set.AddFunction(full_func);
 
-    loader.RegisterFunction(func_set);
+    CreateAggregateFunctionInfo info(std::move(func_set));
+    info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
+
+    FunctionDescription d1;
+    d1.description = "Aggregate version of residuals diagnostics: computes raw, standardized, studentized residuals and leverage from predicted and actual values.";
+    d1.examples = {"anofox_stats_residuals_diagnostics_agg(y, y_hat)"};
+    d1.categories = {"regression-diagnostics"};
+    d1.parameter_names = {"y", "y_hat"};
+    d1.parameter_types = {LogicalType::DOUBLE, LogicalType::DOUBLE};
+    info.descriptions.push_back(std::move(d1));
+
+    FunctionDescription d2;
+    d2.description = "Aggregate version of residuals diagnostics with feature matrix: computes raw, standardized, studentized residuals and leverage from predicted and actual values.";
+    d2.examples = {"anofox_stats_residuals_diagnostics_agg(y, y_hat, x)"};
+    d2.categories = {"regression-diagnostics"};
+    d2.parameter_names = {"y", "y_hat", "x"};
+    d2.parameter_types = {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)};
+    info.descriptions.push_back(std::move(d2));
+
+    loader.RegisterFunction(std::move(info));
 
     // Also register short aliases
-    AggregateFunctionSet alias_set("residuals_diagnostics_agg");
-    alias_set.AddFunction(basic_func);
-    alias_set.AddFunction(full_func);
-    loader.RegisterFunction(alias_set);
+    {
+        AggregateFunctionSet alias_set("residuals_diagnostics_agg");
+        alias_set.AddFunction(basic_func);
+        alias_set.AddFunction(full_func);
+        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
+        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
+        alias_info.alias_of = "anofox_stats_residuals_diagnostics_agg";
+        loader.RegisterFunction(std::move(alias_info));
+    }
 }
 
 } // namespace duckdb

@@ -4,6 +4,7 @@
 #include "duckdb/common/types/data_chunk.hpp"
 #include "duckdb/function/aggregate_function.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
+#include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
 #include "../include/map_options_parser.hpp"
@@ -250,13 +251,34 @@ void RegisterFisherExactAggregateFunction(ExtensionLoader &loader) {
         nullptr, FisherExactAggBind, FisherExactAggDestroy);
     func_set.AddFunction(func_no_opts);
 
-    loader.RegisterFunction(func_set);
+    CreateAggregateFunctionInfo info(std::move(func_set));
+    info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
+    FunctionDescription d1;
+    d1.description     = "Performs Fisher's exact test for association in a 2×2 contingency table.";
+    d1.examples        = {"anofox_stats_fisher_exact_agg(row_var, col_var, {'alternative': 'two_sided'})"};
+    d1.categories      = {"hypothesis-testing", "categorical"};
+    d1.parameter_names = {"row_var", "col_var", "options"};
+    d1.parameter_types = {LogicalType::INTEGER, LogicalType::INTEGER, LogicalType::ANY};
+    info.descriptions.push_back(std::move(d1));
+    FunctionDescription d2;
+    d2.description     = "Performs Fisher's exact test for association in a 2×2 contingency table.";
+    d2.examples        = {"anofox_stats_fisher_exact_agg(row_var, col_var)"};
+    d2.categories      = {"hypothesis-testing", "categorical"};
+    d2.parameter_names = {"row_var", "col_var"};
+    d2.parameter_types = {LogicalType::INTEGER, LogicalType::INTEGER};
+    info.descriptions.push_back(std::move(d2));
+    loader.RegisterFunction(std::move(info));
 
     // Short alias
-    AggregateFunctionSet alias_set("fisher_exact_agg");
-    alias_set.AddFunction(func_with_opts);
-    alias_set.AddFunction(func_no_opts);
-    loader.RegisterFunction(alias_set);
+    {
+        AggregateFunctionSet alias_set("fisher_exact_agg");
+        alias_set.AddFunction(func_with_opts);
+        alias_set.AddFunction(func_no_opts);
+        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
+        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
+        alias_info.alias_of = "anofox_stats_fisher_exact_agg";
+        loader.RegisterFunction(std::move(alias_info));
+    }
 }
 
 } // namespace duckdb

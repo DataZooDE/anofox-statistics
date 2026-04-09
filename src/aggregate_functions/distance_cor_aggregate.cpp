@@ -4,6 +4,7 @@
 #include "duckdb/common/types/data_chunk.hpp"
 #include "duckdb/function/aggregate_function.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
+#include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
 #include "../include/map_options_parser.hpp"
@@ -244,8 +245,6 @@ static unique_ptr<FunctionData> DistanceCorAggBind(ClientContext &context, Aggre
 // Registration
 //===--------------------------------------------------------------------===//
 void RegisterDistanceCorAggregateFunction(ExtensionLoader &loader) {
-    AggregateFunctionSet func_set("anofox_stats_distance_cor_agg");
-
     // With options: (x, y, options)
     auto func_with_opts = AggregateFunction(
         "anofox_stats_distance_cor_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::ANY},
@@ -253,7 +252,6 @@ void RegisterDistanceCorAggregateFunction(ExtensionLoader &loader) {
         AggregateFunction::StateSize<DistanceCorAggregateState>, DistanceCorAggInitialize,
         DistanceCorAggUpdate, DistanceCorAggCombine, DistanceCorAggFinalize,
         nullptr, DistanceCorAggBind, DistanceCorAggDestroy);
-    func_set.AddFunction(func_with_opts);
 
     // Without options: (x, y)
     auto func_no_opts = AggregateFunction(
@@ -262,15 +260,40 @@ void RegisterDistanceCorAggregateFunction(ExtensionLoader &loader) {
         AggregateFunction::StateSize<DistanceCorAggregateState>, DistanceCorAggInitialize,
         DistanceCorAggUpdate, DistanceCorAggCombine, DistanceCorAggFinalize,
         nullptr, DistanceCorAggBind, DistanceCorAggDestroy);
-    func_set.AddFunction(func_no_opts);
 
-    loader.RegisterFunction(func_set);
+    {
+        AggregateFunctionSet func_set("anofox_stats_distance_cor_agg");
+        func_set.AddFunction(func_with_opts);
+        func_set.AddFunction(func_no_opts);
+        CreateAggregateFunctionInfo info(std::move(func_set));
+        info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
+        FunctionDescription d1;
+        d1.description     = "Computes the distance correlation between two variables, detecting both linear and nonlinear dependence.";
+        d1.examples        = {"anofox_stats_distance_cor_agg(x, y, {'n_permutations': 1000})"};
+        d1.categories      = {"correlation"};
+        d1.parameter_names = {"x", "y", "options"};
+        d1.parameter_types = {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::ANY};
+        info.descriptions.push_back(std::move(d1));
+        FunctionDescription d2;
+        d2.description     = "Computes the distance correlation between two variables, detecting both linear and nonlinear dependence, using default options.";
+        d2.examples        = {"anofox_stats_distance_cor_agg(x, y)"};
+        d2.categories      = {"correlation"};
+        d2.parameter_names = {"x", "y"};
+        d2.parameter_types = {LogicalType::DOUBLE, LogicalType::DOUBLE};
+        info.descriptions.push_back(std::move(d2));
+        loader.RegisterFunction(std::move(info));
+    }
 
     // Short alias
-    AggregateFunctionSet alias_set("distance_cor_agg");
-    alias_set.AddFunction(func_with_opts);
-    alias_set.AddFunction(func_no_opts);
-    loader.RegisterFunction(alias_set);
+    {
+        AggregateFunctionSet alias_set("distance_cor_agg");
+        alias_set.AddFunction(func_with_opts);
+        alias_set.AddFunction(func_no_opts);
+        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
+        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
+        alias_info.alias_of = "anofox_stats_distance_cor_agg";
+        loader.RegisterFunction(std::move(alias_info));
+    }
 }
 
 } // namespace duckdb

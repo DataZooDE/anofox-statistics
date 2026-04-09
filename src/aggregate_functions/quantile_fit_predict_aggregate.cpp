@@ -5,6 +5,7 @@
 #include "duckdb/common/types/data_chunk.hpp"
 #include "duckdb/function/aggregate_function.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
+#include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
 #include "../include/map_options_parser.hpp"
@@ -417,14 +418,54 @@ void RegisterQuantileFitPredictAggregateFunction(ExtensionLoader &loader) {
         QuantilePredictAggCombine, QuantilePredictAggFinalize, nullptr, QuantilePredictAggBindWithSplit, QuantilePredictAggDestroy);
     func_set.AddFunction(split_map_func);
 
-    loader.RegisterFunction(func_set);
+    CreateAggregateFunctionInfo info(std::move(func_set));
+    info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
 
-    AggregateFunctionSet alias_set("quantile_fit_predict_agg");
-    alias_set.AddFunction(basic_func);
-    alias_set.AddFunction(map_func);
-    alias_set.AddFunction(split_func);
-    alias_set.AddFunction(split_map_func);
-    loader.RegisterFunction(alias_set);
+    FunctionDescription d1;
+    d1.description = "Fits a quantile regression model over a partition and returns per-row predictions.";
+    d1.examples = {"anofox_stats_quantile_fit_predict_agg(y, x)"};
+    d1.categories = {"regression", "quantile"};
+    d1.parameter_names = {"y", "x"};
+    d1.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)};
+    info.descriptions.push_back(std::move(d1));
+
+    FunctionDescription d2;
+    d2.description = "Fits a quantile regression model over a partition with a MAP of options and returns per-row predictions.";
+    d2.examples = {"anofox_stats_quantile_fit_predict_agg(y, x, {'quantile': 0.5})"};
+    d2.categories = {"regression", "quantile"};
+    d2.parameter_names = {"y", "x", "options"};
+    d2.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY};
+    info.descriptions.push_back(std::move(d2));
+
+    FunctionDescription d3;
+    d3.description = "Fits a quantile regression model using only training rows (split_col='train') and predicts all rows.";
+    d3.examples = {"anofox_stats_quantile_fit_predict_agg(y, x, split_col)"};
+    d3.categories = {"regression", "quantile"};
+    d3.parameter_names = {"y", "x", "split_col"};
+    d3.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR};
+    info.descriptions.push_back(std::move(d3));
+
+    FunctionDescription d4;
+    d4.description = "Fits a quantile regression model on training rows with a MAP of options and predicts all rows.";
+    d4.examples = {"anofox_stats_quantile_fit_predict_agg(y, x, split_col, {'quantile': 0.5})"};
+    d4.categories = {"regression", "quantile"};
+    d4.parameter_names = {"y", "x", "split_col", "options"};
+    d4.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR, LogicalType::ANY};
+    info.descriptions.push_back(std::move(d4));
+
+    loader.RegisterFunction(std::move(info));
+
+    {
+        AggregateFunctionSet alias_set("quantile_fit_predict_agg");
+        alias_set.AddFunction(basic_func);
+        alias_set.AddFunction(map_func);
+        alias_set.AddFunction(split_func);
+        alias_set.AddFunction(split_map_func);
+        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
+        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
+        alias_info.alias_of = "anofox_stats_quantile_fit_predict_agg";
+        loader.RegisterFunction(std::move(alias_info));
+    }
 }
 
 } // namespace duckdb

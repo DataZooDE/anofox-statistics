@@ -4,6 +4,7 @@
 #include "duckdb/common/types/data_chunk.hpp"
 #include "duckdb/function/aggregate_function.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
+#include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
 #include "../include/map_options_parser.hpp"
@@ -216,12 +217,26 @@ void RegisterBrownForsytheAggregateFunction(ExtensionLoader &loader) {
         nullptr, BrownForsytheAggBind, BrownForsytheAggDestroy);
     func_set.AddFunction(func);
 
-    loader.RegisterFunction(func_set);
+    CreateAggregateFunctionInfo info(std::move(func_set));
+    info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
+    FunctionDescription d1;
+    d1.description     = "Tests equality of variances across groups using the Brown-Forsythe test.";
+    d1.examples        = {"anofox_stats_brown_forsythe_agg(value, group_id)"};
+    d1.categories      = {"hypothesis-testing", "anova"};
+    d1.parameter_names = {"value", "group_id"};
+    d1.parameter_types = {LogicalType::DOUBLE, LogicalType::INTEGER};
+    info.descriptions.push_back(std::move(d1));
+    loader.RegisterFunction(std::move(info));
 
     // Short alias
-    AggregateFunctionSet alias_set("brown_forsythe_agg");
-    alias_set.AddFunction(func);
-    loader.RegisterFunction(alias_set);
+    {
+        AggregateFunctionSet alias_set("brown_forsythe_agg");
+        alias_set.AddFunction(func);
+        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
+        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
+        alias_info.alias_of = "anofox_stats_brown_forsythe_agg";
+        loader.RegisterFunction(std::move(alias_info));
+    }
 }
 
 } // namespace duckdb
