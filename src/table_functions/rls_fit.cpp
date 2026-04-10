@@ -6,6 +6,7 @@
 #include "duckdb/common/vector_operations/generic_executor.hpp"
 #include "duckdb/function/scalar_function.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
+#include "duckdb/parser/parsed_data/create_scalar_function_info.hpp"
 #include "duckdb/planner/expression/bound_function_expression.hpp"
 
 #include "../include/anofox_stats_ffi.h"
@@ -184,29 +185,52 @@ static void RlsFitFunction(DataChunk &args, ExpressionState &state, Vector &resu
 
 // Register the function
 void RegisterRlsFitFunction(ExtensionLoader &loader) {
-    ScalarFunctionSet func_set("anofox_stats_rls_fit");
-
-    // Basic version: anofox_stats_rls_fit(y, x) - uses defaults
     ScalarFunction basic_func(
         {LogicalType::LIST(LogicalType::DOUBLE), LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE))},
-        LogicalType::ANY, // Set in bind
+        LogicalType::ANY,
         RlsFitFunction, RlsFitBind);
-    func_set.AddFunction(basic_func);
 
-    // Version with MAP options: anofox_stats_rls_fit(y, x, {'forgetting_factor': 0.99, ...})
     ScalarFunction map_func({LogicalType::LIST(LogicalType::DOUBLE),
                              LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)),
-                             LogicalType::ANY}, // MAP or STRUCT for options
+                             LogicalType::ANY},
                             LogicalType::ANY, RlsFitFunction, RlsFitBind);
-    func_set.AddFunction(map_func);
 
-    loader.RegisterFunction(func_set);
+    // Primary
+    {
+        ScalarFunctionSet func_set("anofox_stats_rls_fit");
+        func_set.AddFunction(basic_func);
+        func_set.AddFunction(map_func);
+        CreateScalarFunctionInfo info(std::move(func_set));
+        info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
 
-    // Register short alias
-    ScalarFunctionSet alias_set("rls_fit");
-    alias_set.AddFunction(basic_func);
-    alias_set.AddFunction(map_func);
-    loader.RegisterFunction(alias_set);
+        FunctionDescription d1;
+        d1.description     = "Fits a Recursive Least Squares (RLS) model to the given response and feature data.";
+        d1.examples        = {"anofox_stats_rls_fit(y, x)"};
+        d1.categories      = {"regression"};
+        d1.parameter_names = {"y", "x"};
+        d1.parameter_types = {LogicalType::LIST(LogicalType::DOUBLE), LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE))};
+        info.descriptions.push_back(std::move(d1));
+
+        FunctionDescription d2;
+        d2.description     = "Fits a Recursive Least Squares (RLS) model with optional MAP of settings (fit_intercept, forgetting_factor, initial_p_diagonal).";
+        d2.examples        = {"anofox_stats_rls_fit(y, x, {'forgetting_factor': 0.99})"};
+        d2.categories      = {"regression"};
+        d2.parameter_names = {"y", "x", "options"};
+        d2.parameter_types = {LogicalType::LIST(LogicalType::DOUBLE), LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)), LogicalType::ANY};
+        info.descriptions.push_back(std::move(d2));
+
+        loader.RegisterFunction(std::move(info));
+    }
+    // Alias
+    {
+        ScalarFunctionSet alias_set("rls_fit");
+        alias_set.AddFunction(basic_func);
+        alias_set.AddFunction(map_func);
+        CreateScalarFunctionInfo alias_info(std::move(alias_set));
+        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
+        alias_info.alias_of = "anofox_stats_rls_fit";
+        loader.RegisterFunction(std::move(alias_info));
+    }
 }
 
 } // namespace duckdb

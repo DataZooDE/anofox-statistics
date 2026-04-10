@@ -4,6 +4,7 @@
 #include "duckdb/common/types/data_chunk.hpp"
 #include "duckdb/function/aggregate_function.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
+#include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
 #include "../include/map_options_parser.hpp"
@@ -249,13 +250,34 @@ void RegisterMcNemarAggregateFunction(ExtensionLoader &loader) {
         nullptr, McNemarAggBind, McNemarAggDestroy);
     func_set.AddFunction(func_no_opts);
 
-    loader.RegisterFunction(func_set);
+    CreateAggregateFunctionInfo info(std::move(func_set));
+    info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
+    FunctionDescription d1;
+    d1.description     = "Performs McNemar's test for marginal homogeneity in paired categorical data.";
+    d1.examples        = {"anofox_stats_mcnemar_agg(var1, var2, {'correction': true})"};
+    d1.categories      = {"hypothesis-testing", "categorical"};
+    d1.parameter_names = {"var1", "var2", "options"};
+    d1.parameter_types = {LogicalType::BIGINT, LogicalType::BIGINT, LogicalType::ANY};
+    info.descriptions.push_back(std::move(d1));
+    FunctionDescription d2;
+    d2.description     = "Performs McNemar's test for marginal homogeneity in paired categorical data.";
+    d2.examples        = {"anofox_stats_mcnemar_agg(var1, var2)"};
+    d2.categories      = {"hypothesis-testing", "categorical"};
+    d2.parameter_names = {"var1", "var2"};
+    d2.parameter_types = {LogicalType::BIGINT, LogicalType::BIGINT};
+    info.descriptions.push_back(std::move(d2));
+    loader.RegisterFunction(std::move(info));
 
     // Short alias
-    AggregateFunctionSet alias_set("mcnemar_agg");
-    alias_set.AddFunction(func_with_opts);
-    alias_set.AddFunction(func_no_opts);
-    loader.RegisterFunction(alias_set);
+    {
+        AggregateFunctionSet alias_set("mcnemar_agg");
+        alias_set.AddFunction(func_with_opts);
+        alias_set.AddFunction(func_no_opts);
+        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
+        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
+        alias_info.alias_of = "anofox_stats_mcnemar_agg";
+        loader.RegisterFunction(std::move(alias_info));
+    }
 }
 
 } // namespace duckdb

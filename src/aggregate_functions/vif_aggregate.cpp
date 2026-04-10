@@ -4,6 +4,7 @@
 #include "duckdb/common/types/data_chunk.hpp"
 #include "duckdb/function/aggregate_function.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
+#include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
 #include "telemetry.hpp"
@@ -208,12 +209,26 @@ void RegisterVifAggregateFunction(ExtensionLoader &loader) {
                                   VifAggBind, VifAggDestroy);
     func_set.AddFunction(func);
 
-    loader.RegisterFunction(func_set);
+    CreateAggregateFunctionInfo info(std::move(func_set));
+    info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
+    FunctionDescription d1;
+    d1.description     = "Aggregate version of VIF: computes Variance Inflation Factor for each feature from a column of feature vectors.";
+    d1.examples        = {"anofox_stats_vif_agg(x)"};
+    d1.categories      = {"regression-diagnostics"};
+    d1.parameter_names = {"x"};
+    d1.parameter_types = {LogicalType::LIST(LogicalType::DOUBLE)};
+    info.descriptions.push_back(std::move(d1));
+    loader.RegisterFunction(std::move(info));
 
     // Also register short alias
-    AggregateFunctionSet alias_set("vif_agg");
-    alias_set.AddFunction(func);
-    loader.RegisterFunction(alias_set);
+    {
+        AggregateFunctionSet alias_set("vif_agg");
+        alias_set.AddFunction(func);
+        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
+        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
+        alias_info.alias_of = "anofox_stats_vif_agg";
+        loader.RegisterFunction(std::move(alias_info));
+    }
 }
 
 } // namespace duckdb

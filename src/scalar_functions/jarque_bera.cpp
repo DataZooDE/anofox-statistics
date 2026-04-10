@@ -5,6 +5,7 @@
 #include "duckdb/common/vector_operations/generic_executor.hpp"
 #include "duckdb/function/scalar_function.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
+#include "duckdb/parser/parsed_data/create_scalar_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
 #include "telemetry.hpp"
@@ -95,19 +96,34 @@ static void JarqueBeraFunction(DataChunk &args, ExpressionState &state, Vector &
 
 // Register the function
 void RegisterJarqueBeraFunction(ExtensionLoader &loader) {
-    ScalarFunctionSet func_set("anofox_stats_jarque_bera");
-
     auto func = ScalarFunction({LogicalType::LIST(LogicalType::DOUBLE)},
-                               LogicalType::ANY, // Set in bind
+                               LogicalType::ANY,
                                JarqueBeraFunction, JarqueBeraBind);
-    func_set.AddFunction(func);
 
-    loader.RegisterFunction(func_set);
-
-    // Also register short alias
-    ScalarFunctionSet alias_set("jarque_bera");
-    alias_set.AddFunction(func);
-    loader.RegisterFunction(alias_set);
+    // Primary
+    {
+        ScalarFunctionSet func_set("anofox_stats_jarque_bera");
+        func_set.AddFunction(func);
+        CreateScalarFunctionInfo info(std::move(func_set));
+        info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
+        FunctionDescription desc;
+        desc.description     = "Tests whether a sample has skewness and kurtosis consistent with a normal distribution (Jarque-Bera test).";
+        desc.examples        = {"anofox_stats_jarque_bera(values)"};
+        desc.categories      = {"normality-test"};
+        desc.parameter_names = {"values"};
+        desc.parameter_types = {LogicalType::LIST(LogicalType::DOUBLE)};
+        info.descriptions.push_back(std::move(desc));
+        loader.RegisterFunction(std::move(info));
+    }
+    // Alias
+    {
+        ScalarFunctionSet alias_set("jarque_bera");
+        alias_set.AddFunction(func);
+        CreateScalarFunctionInfo alias_info(std::move(alias_set));
+        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
+        alias_info.alias_of = "anofox_stats_jarque_bera";
+        loader.RegisterFunction(std::move(alias_info));
+    }
 }
 
 } // namespace duckdb

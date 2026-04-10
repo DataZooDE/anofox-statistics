@@ -4,6 +4,7 @@
 #include "duckdb/common/types/data_chunk.hpp"
 #include "duckdb/function/aggregate_function.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
+#include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
 #include "../include/map_options_parser.hpp"
@@ -277,13 +278,34 @@ void RegisterTostTTestAggregateFunction(ExtensionLoader &loader) {
         nullptr, TostTTestAggBind, TostTTestAggDestroy);
     func_set.AddFunction(func_no_opts);
 
-    loader.RegisterFunction(func_set);
+    CreateAggregateFunctionInfo info(std::move(func_set));
+    info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
+    FunctionDescription d1;
+    d1.description     = "Tests equivalence of two groups using the Two One-Sided Tests (TOST) procedure with a t-test.";
+    d1.examples        = {"anofox_stats_tost_t_test_agg(value, group_id, {'delta': 1.0})"};
+    d1.categories      = {"hypothesis-testing", "equivalence"};
+    d1.parameter_names = {"value", "group_id", "options"};
+    d1.parameter_types = {LogicalType::DOUBLE, LogicalType::INTEGER, LogicalType::ANY};
+    info.descriptions.push_back(std::move(d1));
+    FunctionDescription d2;
+    d2.description     = "Tests equivalence of two groups using the Two One-Sided Tests (TOST) procedure with a t-test, using default options.";
+    d2.examples        = {"anofox_stats_tost_t_test_agg(value, group_id)"};
+    d2.categories      = {"hypothesis-testing", "equivalence"};
+    d2.parameter_names = {"value", "group_id"};
+    d2.parameter_types = {LogicalType::DOUBLE, LogicalType::INTEGER};
+    info.descriptions.push_back(std::move(d2));
+    loader.RegisterFunction(std::move(info));
 
     // Short alias
-    AggregateFunctionSet alias_set("tost_t_test_agg");
-    alias_set.AddFunction(func_with_opts);
-    alias_set.AddFunction(func_no_opts);
-    loader.RegisterFunction(alias_set);
+    {
+        AggregateFunctionSet alias_set("tost_t_test_agg");
+        alias_set.AddFunction(func_with_opts);
+        alias_set.AddFunction(func_no_opts);
+        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
+        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
+        alias_info.alias_of = "anofox_stats_tost_t_test_agg";
+        loader.RegisterFunction(std::move(alias_info));
+    }
 }
 
 } // namespace duckdb

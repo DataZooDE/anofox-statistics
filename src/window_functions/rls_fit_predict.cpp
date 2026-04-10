@@ -5,6 +5,7 @@
 #include "duckdb/common/types/data_chunk.hpp"
 #include "duckdb/function/aggregate_function.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
+#include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
 #include "../include/map_options_parser.hpp"
@@ -293,15 +294,12 @@ static unique_ptr<FunctionData> RlsFitPredictBind(ClientContext &context, Aggreg
 }
 
 void RegisterRlsFitPredictFunction(ExtensionLoader &loader) {
-    AggregateFunctionSet func_set("anofox_stats_rls_fit_predict");
-
     auto basic_func =
         AggregateFunction("anofox_stats_rls_fit_predict",
                           {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)}, GetRlsFitPredictResultType(),
                           AggregateFunction::StateSize<RlsFitPredictState>, RlsFitPredictInitialize,
                           RlsFitPredictUpdate, RlsFitPredictCombine, RlsFitPredictFinalize, nullptr,
                           RlsFitPredictBind, RlsFitPredictDestroy);
-    func_set.AddFunction(basic_func);
 
     auto map_func =
         AggregateFunction("anofox_stats_rls_fit_predict",
@@ -309,14 +307,42 @@ void RegisterRlsFitPredictFunction(ExtensionLoader &loader) {
                           GetRlsFitPredictResultType(), AggregateFunction::StateSize<RlsFitPredictState>,
                           RlsFitPredictInitialize, RlsFitPredictUpdate, RlsFitPredictCombine, RlsFitPredictFinalize,
                           nullptr, RlsFitPredictBind, RlsFitPredictDestroy);
-    func_set.AddFunction(map_func);
 
-    loader.RegisterFunction(func_set);
+    {
+        AggregateFunctionSet func_set("anofox_stats_rls_fit_predict");
+        func_set.AddFunction(basic_func);
+        func_set.AddFunction(map_func);
+        CreateAggregateFunctionInfo info(std::move(func_set));
+        info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
 
-    AggregateFunctionSet alias_set("rls_fit_predict");
-    alias_set.AddFunction(basic_func);
-    alias_set.AddFunction(map_func);
-    loader.RegisterFunction(alias_set);
+        FunctionDescription d1;
+        d1.description     = "Fits a Robust Least Squares model over a window partition and returns predictions with confidence intervals.";
+        d1.examples        = {"anofox_stats_rls_fit_predict(y, x)"};
+        d1.categories      = {"regression", "prediction"};
+        d1.parameter_names = {"y", "x"};
+        d1.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)};
+        info.descriptions.push_back(std::move(d1));
+
+        FunctionDescription d2;
+        d2.description     = "Fits a Robust Least Squares model over a window partition and returns predictions with confidence intervals.";
+        d2.examples        = {"anofox_stats_rls_fit_predict(y, x, {'null_policy': 'drop'})"};
+        d2.categories      = {"regression", "prediction"};
+        d2.parameter_names = {"y", "x", "options"};
+        d2.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY};
+        info.descriptions.push_back(std::move(d2));
+
+        loader.RegisterFunction(std::move(info));
+    }
+
+    {
+        AggregateFunctionSet alias_set("rls_fit_predict");
+        alias_set.AddFunction(basic_func);
+        alias_set.AddFunction(map_func);
+        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
+        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
+        alias_info.alias_of = "anofox_stats_rls_fit_predict";
+        loader.RegisterFunction(std::move(alias_info));
+    }
 }
 
 } // namespace duckdb

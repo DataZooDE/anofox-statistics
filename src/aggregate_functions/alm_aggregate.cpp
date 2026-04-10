@@ -4,6 +4,7 @@
 #include "duckdb/common/types/data_chunk.hpp"
 #include "duckdb/function/aggregate_function.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
+#include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
 #include "../include/map_options_parser.hpp"
@@ -410,12 +411,33 @@ void RegisterAlmAggregateFunction(ExtensionLoader &loader) {
         AlmAggCombine, AlmAggFinalize, nullptr, AlmAggBind, AlmAggDestroy);
     func_set.AddFunction(map_func);
 
-    loader.RegisterFunction(func_set);
+    CreateAggregateFunctionInfo info(std::move(func_set));
+    info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
+    FunctionDescription d1;
+    d1.description     = "Fits an Additive Linear Model (ALM) and returns coefficients and fit statistics.";
+    d1.examples        = {"anofox_stats_alm_fit_agg(y, x, {'fit_intercept': true})"};
+    d1.categories      = {"regression"};
+    d1.parameter_names = {"y", "x", "options"};
+    d1.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY};
+    info.descriptions.push_back(std::move(d1));
+    FunctionDescription d2;
+    d2.description     = "Fits an Additive Linear Model (ALM) and returns coefficients and fit statistics.";
+    d2.examples        = {"anofox_stats_alm_fit_agg(y, x)"};
+    d2.categories      = {"regression"};
+    d2.parameter_names = {"y", "x"};
+    d2.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)};
+    info.descriptions.push_back(std::move(d2));
+    loader.RegisterFunction(std::move(info));
 
-    AggregateFunctionSet alias_set("alm_fit_agg");
-    alias_set.AddFunction(basic_func);
-    alias_set.AddFunction(map_func);
-    loader.RegisterFunction(alias_set);
+    {
+        AggregateFunctionSet alias_set("alm_fit_agg");
+        alias_set.AddFunction(basic_func);
+        alias_set.AddFunction(map_func);
+        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
+        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
+        alias_info.alias_of = "anofox_stats_alm_fit_agg";
+        loader.RegisterFunction(std::move(alias_info));
+    }
 }
 
 } // namespace duckdb

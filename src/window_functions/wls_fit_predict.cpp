@@ -5,6 +5,7 @@
 #include "duckdb/common/types/data_chunk.hpp"
 #include "duckdb/function/aggregate_function.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
+#include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
 #include "../include/ffi_enum_converters.hpp"
@@ -310,8 +311,6 @@ static unique_ptr<FunctionData> WlsFitPredictBind(ClientContext &context, Aggreg
 }
 
 void RegisterWlsFitPredictFunction(ExtensionLoader &loader) {
-    AggregateFunctionSet func_set("anofox_stats_wls_fit_predict");
-
     // WLS takes (y, x, weight)
     auto basic_func = AggregateFunction(
         "anofox_stats_wls_fit_predict",
@@ -319,7 +318,6 @@ void RegisterWlsFitPredictFunction(ExtensionLoader &loader) {
         GetWlsFitPredictResultType(), AggregateFunction::StateSize<WlsFitPredictState>, WlsFitPredictInitialize,
         WlsFitPredictUpdate, WlsFitPredictCombine, WlsFitPredictFinalize, nullptr, WlsFitPredictBind,
         WlsFitPredictDestroy);
-    func_set.AddFunction(basic_func);
 
     auto map_func = AggregateFunction(
         "anofox_stats_wls_fit_predict",
@@ -327,14 +325,42 @@ void RegisterWlsFitPredictFunction(ExtensionLoader &loader) {
         GetWlsFitPredictResultType(), AggregateFunction::StateSize<WlsFitPredictState>, WlsFitPredictInitialize,
         WlsFitPredictUpdate, WlsFitPredictCombine, WlsFitPredictFinalize, nullptr, WlsFitPredictBind,
         WlsFitPredictDestroy);
-    func_set.AddFunction(map_func);
 
-    loader.RegisterFunction(func_set);
+    {
+        AggregateFunctionSet func_set("anofox_stats_wls_fit_predict");
+        func_set.AddFunction(basic_func);
+        func_set.AddFunction(map_func);
+        CreateAggregateFunctionInfo info(std::move(func_set));
+        info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
 
-    AggregateFunctionSet alias_set("wls_fit_predict");
-    alias_set.AddFunction(basic_func);
-    alias_set.AddFunction(map_func);
-    loader.RegisterFunction(alias_set);
+        FunctionDescription d1;
+        d1.description     = "Fits a WLS regression model over a window partition using per-row weights and returns predictions.";
+        d1.examples        = {"anofox_stats_wls_fit_predict(y, x, weight)"};
+        d1.categories      = {"regression", "prediction"};
+        d1.parameter_names = {"y", "x", "weight"};
+        d1.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE};
+        info.descriptions.push_back(std::move(d1));
+
+        FunctionDescription d2;
+        d2.description     = "Fits a WLS regression model over a window partition using per-row weights and returns predictions.";
+        d2.examples        = {"anofox_stats_wls_fit_predict(y, x, weight, {'null_policy': 'drop'})"};
+        d2.categories      = {"regression", "prediction"};
+        d2.parameter_names = {"y", "x", "weight", "options"};
+        d2.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE, LogicalType::ANY};
+        info.descriptions.push_back(std::move(d2));
+
+        loader.RegisterFunction(std::move(info));
+    }
+
+    {
+        AggregateFunctionSet alias_set("wls_fit_predict");
+        alias_set.AddFunction(basic_func);
+        alias_set.AddFunction(map_func);
+        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
+        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
+        alias_info.alias_of = "anofox_stats_wls_fit_predict";
+        loader.RegisterFunction(std::move(alias_info));
+    }
 }
 
 } // namespace duckdb

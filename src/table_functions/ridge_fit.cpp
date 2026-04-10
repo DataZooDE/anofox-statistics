@@ -6,6 +6,7 @@
 #include "duckdb/common/vector_operations/generic_executor.hpp"
 #include "duckdb/function/scalar_function.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
+#include "duckdb/parser/parsed_data/create_scalar_function_info.hpp"
 #include "duckdb/planner/expression/bound_function_expression.hpp"
 
 #include "../include/anofox_stats_ffi.h"
@@ -241,29 +242,52 @@ static void RidgeFitFunction(DataChunk &args, ExpressionState &state, Vector &re
 
 // Register the function
 void RegisterRidgeFitFunction(ExtensionLoader &loader) {
-    ScalarFunctionSet func_set("anofox_stats_ridge_fit");
-
-    // Basic version: anofox_stats_ridge_fit(y, x) - uses default alpha=1.0
     ScalarFunction basic_func(
         {LogicalType::LIST(LogicalType::DOUBLE), LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE))},
-        LogicalType::ANY, // Will be set in bind
+        LogicalType::ANY,
         RidgeFitFunction, RidgeFitBind);
-    func_set.AddFunction(basic_func);
 
-    // Version with MAP options: anofox_stats_ridge_fit(y, x, {'alpha': 1.0, 'intercept': true, ...})
     ScalarFunction map_func({LogicalType::LIST(LogicalType::DOUBLE),
                              LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)),
-                             LogicalType::ANY}, // MAP or STRUCT for options
+                             LogicalType::ANY},
                             LogicalType::ANY, RidgeFitFunction, RidgeFitBind);
-    func_set.AddFunction(map_func);
 
-    loader.RegisterFunction(func_set);
+    // Primary
+    {
+        ScalarFunctionSet func_set("anofox_stats_ridge_fit");
+        func_set.AddFunction(basic_func);
+        func_set.AddFunction(map_func);
+        CreateScalarFunctionInfo info(std::move(func_set));
+        info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
 
-    // Register short alias
-    ScalarFunctionSet alias_set("ridge_fit");
-    alias_set.AddFunction(basic_func);
-    alias_set.AddFunction(map_func);
-    loader.RegisterFunction(alias_set);
+        FunctionDescription d1;
+        d1.description     = "Fits a Ridge regression model with L2 regularization to the given response and feature data.";
+        d1.examples        = {"anofox_stats_ridge_fit(y, x)"};
+        d1.categories      = {"regression"};
+        d1.parameter_names = {"y", "x"};
+        d1.parameter_types = {LogicalType::LIST(LogicalType::DOUBLE), LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE))};
+        info.descriptions.push_back(std::move(d1));
+
+        FunctionDescription d2;
+        d2.description     = "Fits a Ridge regression model with L2 regularization and optional MAP of settings (fit_intercept, compute_inference, confidence_level, alpha, solver).";
+        d2.examples        = {"anofox_stats_ridge_fit(y, x, {'alpha': 1.0, 'compute_inference': true})"};
+        d2.categories      = {"regression"};
+        d2.parameter_names = {"y", "x", "options"};
+        d2.parameter_types = {LogicalType::LIST(LogicalType::DOUBLE), LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)), LogicalType::ANY};
+        info.descriptions.push_back(std::move(d2));
+
+        loader.RegisterFunction(std::move(info));
+    }
+    // Alias
+    {
+        ScalarFunctionSet alias_set("ridge_fit");
+        alias_set.AddFunction(basic_func);
+        alias_set.AddFunction(map_func);
+        CreateScalarFunctionInfo alias_info(std::move(alias_set));
+        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
+        alias_info.alias_of = "anofox_stats_ridge_fit";
+        loader.RegisterFunction(std::move(alias_info));
+    }
 }
 
 } // namespace duckdb

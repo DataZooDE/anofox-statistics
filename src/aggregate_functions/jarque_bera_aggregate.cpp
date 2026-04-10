@@ -4,6 +4,7 @@
 #include "duckdb/common/types/data_chunk.hpp"
 #include "duckdb/function/aggregate_function.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
+#include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
 #include "telemetry.hpp"
@@ -170,22 +171,37 @@ static unique_ptr<FunctionData> JarqueBeraAggBind(ClientContext &context, Aggreg
 // Registration
 //===--------------------------------------------------------------------===//
 void RegisterJarqueBeraAggregateFunction(ExtensionLoader &loader) {
-    AggregateFunctionSet func_set("anofox_stats_jarque_bera_agg");
-
     auto func = AggregateFunction("anofox_stats_jarque_bera_agg", {LogicalType::DOUBLE},
                                   LogicalType::ANY, // Set in bind
                                   AggregateFunction::StateSize<JarqueBeraAggregateState>, JarqueBeraAggInitialize,
                                   JarqueBeraAggUpdate, JarqueBeraAggCombine, JarqueBeraAggFinalize,
                                   nullptr, // simple_update
                                   JarqueBeraAggBind, JarqueBeraAggDestroy);
-    func_set.AddFunction(func);
 
-    loader.RegisterFunction(func_set);
+    {
+        AggregateFunctionSet func_set("anofox_stats_jarque_bera_agg");
+        func_set.AddFunction(func);
+        CreateAggregateFunctionInfo info(std::move(func_set));
+        info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
+        FunctionDescription desc;
+        desc.description     = "Aggregate version of the Jarque-Bera normality test, applied to a column of values.";
+        desc.examples        = {"anofox_stats_jarque_bera_agg(value)"};
+        desc.categories      = {"normality-test"};
+        desc.parameter_names = {"value"};
+        desc.parameter_types = {LogicalType::DOUBLE};
+        info.descriptions.push_back(std::move(desc));
+        loader.RegisterFunction(std::move(info));
+    }
 
     // Also register short alias
-    AggregateFunctionSet alias_set("jarque_bera_agg");
-    alias_set.AddFunction(func);
-    loader.RegisterFunction(alias_set);
+    {
+        AggregateFunctionSet alias_set("jarque_bera_agg");
+        alias_set.AddFunction(func);
+        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
+        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
+        alias_info.alias_of = "anofox_stats_jarque_bera_agg";
+        loader.RegisterFunction(std::move(alias_info));
+    }
 }
 
 } // namespace duckdb

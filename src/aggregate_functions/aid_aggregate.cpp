@@ -4,6 +4,7 @@
 #include "duckdb/common/types/data_chunk.hpp"
 #include "duckdb/function/aggregate_function.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
+#include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
 #include "../include/map_options_parser.hpp"
@@ -382,13 +383,39 @@ void RegisterAidAggregateFunction(ExtensionLoader &loader) {
                                      AidAggCombine, AidAggFinalize, nullptr, AidAggBind, AidAggDestroy);
     aid_set.AddFunction(aid_map);
 
-    loader.RegisterFunction(aid_set);
+    {
+        CreateAggregateFunctionInfo info(std::move(aid_set));
+        info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
+
+        FunctionDescription d1;
+        d1.description = "Classifies demand patterns (smooth, intermittent, erratic, lumpy) using Automatic Identification of Demand (AID).";
+        d1.examples = {"anofox_stats_aid_agg(y)"};
+        d1.categories = {"demand-classification"};
+        d1.parameter_names = {"y"};
+        d1.parameter_types = {LogicalType::DOUBLE};
+        info.descriptions.push_back(std::move(d1));
+
+        FunctionDescription d2;
+        d2.description = "Classifies demand patterns using AID with a MAP of options (intermittent_threshold, outlier_method).";
+        d2.examples = {"anofox_stats_aid_agg(y, {'intermittent_threshold': 0.3})"};
+        d2.categories = {"demand-classification"};
+        d2.parameter_names = {"y", "options"};
+        d2.parameter_types = {LogicalType::DOUBLE, LogicalType::ANY};
+        info.descriptions.push_back(std::move(d2));
+
+        loader.RegisterFunction(std::move(info));
+    }
 
     // Short alias for AID
-    AggregateFunctionSet aid_alias("aid_agg");
-    aid_alias.AddFunction(aid_basic);
-    aid_alias.AddFunction(aid_map);
-    loader.RegisterFunction(aid_alias);
+    {
+        AggregateFunctionSet aid_alias("aid_agg");
+        aid_alias.AddFunction(aid_basic);
+        aid_alias.AddFunction(aid_map);
+        CreateAggregateFunctionInfo alias_info(std::move(aid_alias));
+        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
+        alias_info.alias_of = "anofox_stats_aid_agg";
+        loader.RegisterFunction(std::move(alias_info));
+    }
 
     // AID Anomaly Detection
     AggregateFunctionSet aid_anomaly_set("anofox_stats_aid_anomaly_agg");
@@ -405,13 +432,39 @@ void RegisterAidAggregateFunction(ExtensionLoader &loader) {
         AidAnomalyAggFinalize, nullptr, AidAnomalyAggBind, AidAggDestroy);
     aid_anomaly_set.AddFunction(aid_anomaly_map);
 
-    loader.RegisterFunction(aid_anomaly_set);
+    {
+        CreateAggregateFunctionInfo info(std::move(aid_anomaly_set));
+        info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
+
+        FunctionDescription d1;
+        d1.description = "Identifies anomalies in demand time series using the AID classification framework.";
+        d1.examples = {"anofox_stats_aid_anomaly_agg(y)"};
+        d1.categories = {"demand-classification"};
+        d1.parameter_names = {"y"};
+        d1.parameter_types = {LogicalType::DOUBLE};
+        info.descriptions.push_back(std::move(d1));
+
+        FunctionDescription d2;
+        d2.description = "Identifies anomalies in demand time series using AID with a MAP of options (intermittent_threshold, outlier_method).";
+        d2.examples = {"anofox_stats_aid_anomaly_agg(y, {'outlier_method': 'iqr'})"};
+        d2.categories = {"demand-classification"};
+        d2.parameter_names = {"y", "options"};
+        d2.parameter_types = {LogicalType::DOUBLE, LogicalType::ANY};
+        info.descriptions.push_back(std::move(d2));
+
+        loader.RegisterFunction(std::move(info));
+    }
 
     // Short alias for AID anomaly
-    AggregateFunctionSet aid_anomaly_alias("aid_anomaly_agg");
-    aid_anomaly_alias.AddFunction(aid_anomaly_basic);
-    aid_anomaly_alias.AddFunction(aid_anomaly_map);
-    loader.RegisterFunction(aid_anomaly_alias);
+    {
+        AggregateFunctionSet aid_anomaly_alias("aid_anomaly_agg");
+        aid_anomaly_alias.AddFunction(aid_anomaly_basic);
+        aid_anomaly_alias.AddFunction(aid_anomaly_map);
+        CreateAggregateFunctionInfo alias_info(std::move(aid_anomaly_alias));
+        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
+        alias_info.alias_of = "anofox_stats_aid_anomaly_agg";
+        loader.RegisterFunction(std::move(alias_info));
+    }
 }
 
 } // namespace duckdb
