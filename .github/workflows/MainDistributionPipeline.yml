@@ -14,10 +14,20 @@ concurrency:
 jobs:
   duckdb-stable-build:
     name: Build extension binaries
-    uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.5.1
+    uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.5.2
     with:
-      duckdb_version: v1.5.1
-      ci_tools_version: v1.5.1
+      duckdb_version: v1.5.2
+      ci_tools_version: v1.5.2
+      extension_name: anofox_statistics
+      enable_rust: true
+      reduced_ci_mode: disabled
+
+  duckdb-v144-build:
+    name: Build extension binaries (DuckDB v1.4.4)
+    uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.4.4
+    with:
+      duckdb_version: v1.4.4
+      ci_tools_version: v1.4.4
       extension_name: anofox_statistics
       enable_rust: true
       reduced_ci_mode: disabled
