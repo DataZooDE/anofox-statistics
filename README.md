@@ -5,9 +5,6 @@ A statistical analysis extension for DuckDB, providing regression analysis, diag
 [![License: BSL 1.1](https://img.shields.io/badge/License-BSL%201.1-blue.svg)](LICENSE)
 [![DuckDB Version](https://img.shields.io/badge/DuckDB-v1.5.3-brightgreen.svg)](https://duckdb.org)
 
-> [!WARNING]
-> **BREAKING CHANGE**: Function names have changed from `anofox_statistics_*` to `anofox_stats_*` to align with the unified naming convention across Anofox extensions. Aliases without the prefix (e.g., `ols_fit`) are also available for convenience. Update your code accordingly.
-
 > [!IMPORTANT]
 > This extension is in early development, so bugs and breaking changes are expected.
 > Please use the [issues page](https://github.com/DataZooDE/anofox-statistics/issues) to report bugs or request features.
