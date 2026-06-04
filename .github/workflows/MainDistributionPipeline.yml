@@ -7,6 +7,11 @@ on:
   pull_request:
   workflow_dispatch:
 
+# OIDC token needed for AWS credentials in the deploy job.
+permissions:
+  id-token: write
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || '' }}-${{ github.base_ref || '' }}-${{ github.ref != 'refs/heads/main' || github.sha }}
   cancel-in-progress: true
@@ -22,6 +27,17 @@ jobs:
       enable_rust: true
       reduced_ci_mode: disabled
 
+  duckdb-stable-deploy:
+    name: Deploy extension binaries (v1.5.3)
+    needs: duckdb-stable-build
+    uses: ./.github/workflows/_extension_deploy.yml
+    secrets: inherit
+    with:
+      duckdb_version: v1.5.3
+      extension_name: anofox_statistics
+      deploy_latest: ${{ startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main' }}
+      deploy_versioned: ${{ startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main' }}
+
   duckdb-v144-build:
     name: Build extension binaries (DuckDB v1.4.4)
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.4.4
@@ -31,6 +47,17 @@ jobs:
       extension_name: anofox_statistics
       enable_rust: true
       reduced_ci_mode: disabled
+
+  duckdb-v144-deploy:
+    name: Deploy extension binaries (v1.4.4 LTS)
+    needs: duckdb-v144-build
+    uses: ./.github/workflows/_extension_deploy.yml
+    secrets: inherit
+    with:
+      duckdb_version: v1.4.4
+      extension_name: anofox_statistics
+      deploy_latest: ${{ startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main' }}
+      deploy_versioned: ${{ startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main' }}
 
   build-and-test-rust:
     name: Build and test Rust components
