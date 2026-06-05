@@ -169,6 +169,21 @@ SELECT * FROM ridge_fit_predict_by(
 
 ## Installation
 
+### From erpl.io (recommended)
+
+Install directly from our public distribution bucket. DuckDB must be started
+with the `-unsigned` flag, since the extension binary is not signed by the
+DuckDB Foundation:
+
+```sql
+INSTALL 'anofox_statistics' FROM 'http://get.erpl.io';
+LOAD 'anofox_statistics';
+```
+
+This pulls the right binary for your platform (Linux amd64/arm64, macOS
+amd64/arm64, Windows amd64). No build toolchain, no vcpkg, no submodules
+required.
+
 ### Community Extension
 
 ```sql
