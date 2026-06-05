@@ -224,6 +224,42 @@ impl Default for ElasticNetOptions {
     }
 }
 
+/// Options for Huber M-estimator robust regression
+#[derive(Debug, Clone)]
+pub struct HuberOptions {
+    /// Huber threshold parameter. Points with |r_i / sigma| > epsilon are
+    /// downweighted via IRLS. Must be > 1.0. Default 1.35 matches sklearn.
+    pub epsilon: f64,
+    /// L2 regularization parameter (must be >= 0). Default 0.0001.
+    pub alpha: f64,
+    /// Whether to fit an intercept term.
+    pub fit_intercept: bool,
+    /// Maximum IRLS iterations.
+    pub max_iterations: u32,
+    /// Convergence tolerance on the max coefficient change between iterations.
+    pub tolerance: f64,
+    /// Whether to compute inference statistics (std errors, p-values, CIs)
+    /// using the asymptotic Huber sandwich estimator delegated to the
+    /// upstream solver.
+    pub compute_inference: bool,
+    /// Confidence level for confidence intervals.
+    pub confidence_level: f64,
+}
+
+impl Default for HuberOptions {
+    fn default() -> Self {
+        Self {
+            epsilon: 1.35,
+            alpha: 0.0001,
+            fit_intercept: true,
+            max_iterations: 100,
+            tolerance: 1e-5,
+            compute_inference: false,
+            confidence_level: 0.95,
+        }
+    }
+}
+
 /// Convergence information for iterative methods
 #[derive(Debug, Clone)]
 pub struct ConvergenceInfo {
