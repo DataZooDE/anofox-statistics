@@ -219,8 +219,10 @@ mod tests {
     fn rejects_epsilon_below_one() {
         let x = vec![vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]];
         let y: Vec<f64> = x[0].iter().map(|&v| 2.0 * v).collect();
-        let mut opts = HuberOptions::default();
-        opts.epsilon = 0.5;
+        let opts = HuberOptions {
+            epsilon: 0.5,
+            ..HuberOptions::default()
+        };
         let err = fit_huber(&y, &x, &opts).unwrap_err();
         match err {
             StatsError::InvalidInput(_) => {}
