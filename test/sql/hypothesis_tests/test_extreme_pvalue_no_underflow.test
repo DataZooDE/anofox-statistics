@@ -1,0 +1,50 @@
+# name: test/sql/hypothesis_tests/test_extreme_pvalue_no_underflow.test
+# description: Regression test for the anofox-statistics 0.4.2 fix that switched
+#              p-value computation from `1.0 - cdf(x)` to the survival function
+#              `sf(x)`. Under the old form, any test statistic whose CDF
+#              saturated to 1.0 (around |z| > 8.3 for the standard normal) had
+#              its p-value silently rounded to exactly 0.0, which downstream
+#              tooling could misread as "perfect significance" rather than
+#              "below numerical precision".
+#
+#              The data below is constructed to produce a test statistic well
+#              past the saturation point. Pre-fix builds return p_value = 0.0
+#              for every assertion here; post-fix builds return a strictly
+#              positive number.
+# group: [hypothesis_tests]
+
+require anofox_statistics
+
+# Two tightly-clustered groups whose means are ~90 standard deviations apart.
+# Welch's t-statistic comes out in the hundreds, far past the cdf-saturation
+# point.
+statement ok
+CREATE TABLE extreme_separation AS
+SELECT * FROM (VALUES
+    ( 9.95, 0), (10.05, 0), ( 9.97, 0), (10.03, 0), (10.00, 0),
+    ( 9.98, 0), (10.02, 0), ( 9.99, 0), (10.01, 0), (10.00, 0),
+    (99.95, 1), (100.05, 1), (99.97, 1), (100.03, 1), (100.00, 1),
+    (99.98, 1), (100.02, 1), (99.99, 1), (100.01, 1), (100.00, 1)
+) AS t(value, grp);
+
+# t_test_agg: p_value must be strictly positive AND below 1e-10 to prove
+# (a) no underflow to zero and (b) the magnitude is small enough that the
+# unfixed code path would have returned exactly 0.0.
+query I
+SELECT (t_test_agg(value, grp)).p_value > 0.0
+   AND (t_test_agg(value, grp)).p_value < 1e-10
+FROM extreme_separation;
+----
+true
+
+# mann_whitney_u_agg: same property on a nonparametric code path that also
+# routed through `1.0 - cdf(z)` before the fix.
+query I
+SELECT (mann_whitney_u_agg(value, grp)).p_value > 0.0
+   AND (mann_whitney_u_agg(value, grp)).p_value < 1e-3
+FROM extreme_separation;
+----
+true
+
+statement ok
+DROP TABLE extreme_separation;
