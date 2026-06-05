@@ -159,6 +159,9 @@ struct RegressionMapOptions {
     std::optional<uint32_t> max_iterations;  // Max iterations for coordinate descent
     std::optional<double> tolerance;         // Convergence tolerance
 
+    // Huber specific
+    std::optional<double> epsilon;  // Huber threshold parameter (must be > 1.0)
+
     // RLS specific
     std::optional<double> forgetting_factor;   // Forgetting factor (0-1)
     std::optional<double> initial_p_diagonal;  // Initial P matrix diagonal value

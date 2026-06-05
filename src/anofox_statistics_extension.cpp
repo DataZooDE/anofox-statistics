@@ -69,6 +69,7 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterRidgeFitFunction(loader);
     RegisterElasticNetFitFunction(loader);
     RegisterWlsFitFunction(loader);
+    RegisterHuberFitFunction(loader);
     RegisterPredictFunction(loader);
     RegisterRlsFitFunction(loader);
 
@@ -77,6 +78,7 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterRidgeAggregateFunction(loader);
     RegisterElasticNetAggregateFunction(loader);
     RegisterWlsAggregateFunction(loader);
+    RegisterHuberAggregateFunction(loader);
     RegisterRlsAggregateFunction(loader);
     RegisterVifAggregateFunction(loader);
     RegisterJarqueBeraAggregateFunction(loader);
