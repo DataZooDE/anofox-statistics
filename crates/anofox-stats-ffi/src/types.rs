@@ -232,6 +232,69 @@ impl Default for OlsOptionsFFI {
     }
 }
 
+/// Huber M-estimator robust regression options for FFI
+#[repr(C)]
+pub struct HuberOptionsFFI {
+    /// Huber threshold parameter (must be > 1.0). Default 1.35.
+    pub epsilon: f64,
+    /// L2 regularization (must be >= 0). Default 0.0001.
+    pub alpha: f64,
+    /// Whether to fit intercept.
+    pub fit_intercept: bool,
+    /// Whether to compute inference statistics.
+    pub compute_inference: bool,
+    /// Confidence level for CIs.
+    pub confidence_level: f64,
+    /// Maximum IRLS iterations.
+    pub max_iterations: u32,
+    /// Convergence tolerance.
+    pub tolerance: f64,
+}
+
+impl Default for HuberOptionsFFI {
+    fn default() -> Self {
+        Self {
+            epsilon: 1.35,
+            alpha: 0.0001,
+            fit_intercept: true,
+            compute_inference: false,
+            confidence_level: 0.95,
+            max_iterations: 100,
+            tolerance: 1e-5,
+        }
+    }
+}
+
+/// Huber-specific diagnostics returned alongside FitResultCore / FitResultInference.
+/// Memory rules: `outliers` is allocated by `anofox_huber_fit` and must be freed
+/// via `anofox_free_huber_extras` (boolean array exposed as u8: 0 = inlier, 1 = outlier).
+#[repr(C)]
+pub struct HuberFitExtras {
+    /// MAD-based scale estimate (sigma).
+    pub scale: f64,
+    /// Echoed epsilon used for the fit.
+    pub epsilon: f64,
+    /// Per-observation outlier mask (1 = |r_i| > epsilon * scale).
+    pub outliers: *mut u8,
+    /// Number of valid (non-NaN) observations the fit was computed on
+    /// — equals `outliers` array length.
+    pub outliers_len: usize,
+    /// Number of observations flagged as outliers.
+    pub n_outliers: usize,
+}
+
+impl Default for HuberFitExtras {
+    fn default() -> Self {
+        Self {
+            scale: f64::NAN,
+            epsilon: f64::NAN,
+            outliers: std::ptr::null_mut(),
+            outliers_len: 0,
+            n_outliers: 0,
+        }
+    }
+}
+
 /// Ridge regression options for FFI
 #[repr(C)]
 pub struct RidgeOptionsFFI {
