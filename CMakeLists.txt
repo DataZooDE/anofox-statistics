@@ -128,6 +128,7 @@ set(EXTENSION_SOURCES
     src/aggregate_functions/jarque_bera_aggregate.cpp
     src/aggregate_functions/residuals_diagnostics_aggregate.cpp
     src/aggregate_functions/ols_predict_aggregate.cpp
+    src/aggregate_functions/huber_predict_aggregate.cpp
     src/aggregate_functions/ridge_predict_aggregate.cpp
     src/aggregate_functions/wls_predict_aggregate.cpp
     src/aggregate_functions/rls_predict_aggregate.cpp
