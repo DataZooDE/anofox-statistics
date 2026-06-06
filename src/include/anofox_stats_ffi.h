@@ -166,6 +166,72 @@ void anofox_free_result_core(AnofoxFitResultCore *result);
 void anofox_free_result_inference(AnofoxFitResultInference *result);
 
 /**
+ * Huber M-estimator robust regression options for FFI
+ */
+typedef struct {
+    /** Huber threshold parameter (must be > 1.0). Default 1.35. */
+    double epsilon;
+    /** L2 regularization (must be >= 0). Default 0.0001. */
+    double alpha;
+    /** Whether to fit intercept */
+    bool fit_intercept;
+    /** Whether to compute inference statistics */
+    bool compute_inference;
+    /** Confidence level for CIs */
+    double confidence_level;
+    /** Maximum IRLS iterations */
+    uint32_t max_iterations;
+    /** Convergence tolerance */
+    double tolerance;
+} AnofoxHuberOptions;
+
+/**
+ * Huber-specific extras returned alongside core/inference results.
+ *
+ * Memory: `outliers` is allocated by anofox_huber_fit when out_extras != NULL
+ * and must be freed via anofox_free_huber_extras. Each byte is 0 (inlier) or
+ * 1 (outlier). Length equals the number of non-NaN observations used in the
+ * fit (which can be less than the input length when NaNs were filtered out).
+ */
+typedef struct {
+    /** MAD-based scale estimate (sigma) */
+    double scale;
+    /** Echoed epsilon used for the fit */
+    double epsilon;
+    /** Per-observation outlier mask: 1 = |r_i| > epsilon * scale */
+    uint8_t *outliers;
+    /** Length of the outliers array */
+    size_t outliers_len;
+    /** Number of observations flagged as outliers */
+    size_t n_outliers;
+} AnofoxHuberFitExtras;
+
+/**
+ * Fit a Huber M-estimator robust regression model.
+ *
+ * @param y Response variable array
+ * @param x Pointer to array of feature arrays
+ * @param x_count Number of feature arrays
+ * @param options Huber fitting options
+ * @param out_core Output: core fit results (required)
+ * @param out_inference Output: inference results (NULL if not needed)
+ * @param out_extras Output: Huber-specific scale + outlier mask (NULL if not needed)
+ * @param out_error Output: error information (required)
+ * @return true on success, false on error
+ */
+bool anofox_huber_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count,
+                      AnofoxHuberOptions options, AnofoxFitResultCore *out_core,
+                      AnofoxFitResultInference *out_inference, AnofoxHuberFitExtras *out_extras,
+                      AnofoxError *out_error);
+
+/**
+ * Free the outliers array inside a AnofoxHuberFitExtras previously filled by
+ * anofox_huber_fit. The core / inference parts are freed via the standard
+ * anofox_free_result_core / anofox_free_result_inference helpers.
+ */
+void anofox_free_huber_extras(AnofoxHuberFitExtras *extras);
+
+/**
  * Ridge regression options for FFI
  */
 typedef struct {
