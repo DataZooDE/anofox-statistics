@@ -306,6 +306,8 @@ RegressionMapOptions RegressionMapOptions::ParseFromValue(const Value &map_value
                 result.max_iterations = ExtractUInt32(val);
             } else if (key == "tolerance" || key == "tol") {
                 result.tolerance = ExtractDouble(val);
+            } else if (key == "epsilon") {
+                result.epsilon = ExtractDouble(val);
             } else if (key == "forgetting_factor") {
                 result.forgetting_factor = ExtractDouble(val);
             } else if (key == "initial_p_diagonal" || key == "p_diagonal") {
@@ -401,6 +403,8 @@ RegressionMapOptions RegressionMapOptions::ParseFromValue(const Value &map_value
                 result.max_iterations = ExtractUInt32(val);
             } else if (key == "tolerance" || key == "tol") {
                 result.tolerance = ExtractDouble(val);
+            } else if (key == "epsilon") {
+                result.epsilon = ExtractDouble(val);
             } else if (key == "forgetting_factor") {
                 result.forgetting_factor = ExtractDouble(val);
             } else if (key == "initial_p_diagonal" || key == "p_diagonal") {
