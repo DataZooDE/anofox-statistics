@@ -1,0 +1,60 @@
+# name: test/sql/fit_predict/test_huber_fit_predict_basic.test
+# description: Test Huber window function (huber_fit_predict / OVER)
+# group: [fit_predict]
+
+require anofox_statistics
+
+# Linear data, last 4 rows are prediction-only (y NULL).
+statement ok
+CREATE TABLE huber_window_data AS
+SELECT
+    CASE WHEN i <= 6 THEN (i * 2.0 + 1.0)::DOUBLE ELSE NULL END as y,
+    i::DOUBLE as x1,
+    i as id
+FROM range(1, 11) t(i);
+
+# TEST 1: window function emits non-null yhat once enough training rows accumulate.
+query I
+SELECT COUNT(*) FROM (
+    SELECT id, anofox_stats_huber_fit_predict(y, [x1]) OVER (ORDER BY id) AS pred
+    FROM huber_window_data
+)
+WHERE (pred).yhat IS NOT NULL;
+----
+8
+
+# TEST 2: confidence intervals are ordered when present.
+query I
+SELECT COUNT(*) FROM (
+    SELECT id, anofox_stats_huber_fit_predict(y, [x1]) OVER (ORDER BY id) AS pred
+    FROM huber_window_data
+)
+WHERE (pred).yhat IS NOT NULL
+  AND (pred).yhat_lower IS NOT NULL
+  AND (pred).yhat_upper IS NOT NULL
+  AND ((pred).yhat_lower > (pred).yhat OR (pred).yhat > (pred).yhat_upper);
+----
+0
+
+# TEST 3: short alias resolves.
+query I
+SELECT COUNT(*) FROM (
+    SELECT id, huber_fit_predict(y, [x1]) OVER (ORDER BY id) AS pred
+    FROM huber_window_data
+)
+WHERE (pred).yhat IS NOT NULL;
+----
+8
+
+# TEST 4: options MAP is accepted.
+query I
+SELECT COUNT(*) FROM (
+    SELECT id, huber_fit_predict(y, [x1], {'epsilon': 1.5}) OVER (ORDER BY id) AS pred
+    FROM huber_window_data
+)
+WHERE (pred).yhat IS NOT NULL;
+----
+8
+
+statement ok
+DROP TABLE IF EXISTS huber_window_data;

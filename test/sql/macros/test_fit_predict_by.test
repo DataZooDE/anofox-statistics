@@ -95,6 +95,29 @@ FROM ols_fit_predict_by('reg_data', group_id, y, [x1, x2]);
 12	1.0	18.0	2
 
 # =============================================================================
+# HUBER_FIT_PREDICT_BY TESTS
+# =============================================================================
+
+# TEST 7a: Huber macro returns one row per source observation
+query I
+SELECT COUNT(*) FROM huber_fit_predict_by('reg_data', group_id, y, [x1, x2]);
+----
+12
+
+# TEST 7b: Predictions are sensible on training rows (yhat close to y)
+query I
+SELECT COUNT(*) FROM huber_fit_predict_by('reg_data', group_id, y, [x1, x2])
+WHERE is_training AND ABS(yhat - y) < 2.0;
+----
+10
+
+# TEST 7c: Options MAP is accepted
+query I
+SELECT COUNT(*) FROM huber_fit_predict_by('reg_data', group_id, y, [x1, x2], options := {'epsilon': 1.5});
+----
+12
+
+# =============================================================================
 # RIDGE_FIT_PREDICT_BY TESTS
 # =============================================================================
 

@@ -16,6 +16,7 @@ A statistical analysis extension for DuckDB, providing regression analysis, diag
 | Method | Function | Description |
 |--------|----------|-------------|
 | OLS | `ols_fit`, `ols_fit_agg` | Ordinary Least Squares |
+| Huber | `huber_fit`, `huber_fit_agg` | Robust M-estimator (outlier-resistant; reports MAD scale + outlier mask) |
 | Ridge | `ridge_fit`, `ridge_fit_agg` | L2 regularization |
 | Elastic Net | `elasticnet_fit`, `elasticnet_fit_agg` | Combined L1+L2 regularization |
 | WLS | `wls_fit`, `wls_fit_agg` | Weighted Least Squares |
@@ -58,6 +59,7 @@ Table macros for easy per-group model fitting and prediction with a single funct
 | Macro | Description |
 |-------|-------------|
 | `ols_fit_predict_by` | OLS per-group fit + predict |
+| `huber_fit_predict_by` | Huber robust per-group fit + predict |
 | `ridge_fit_predict_by` | Ridge per-group fit + predict |
 | `elasticnet_fit_predict_by` | ElasticNet per-group fit + predict |
 | `wls_fit_predict_by` | WLS per-group fit + predict |
