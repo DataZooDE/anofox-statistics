@@ -29,32 +29,27 @@ SELECT
 FROM range(1, 21) t(i);
 
 # =============================================================================
-# TEST 1: huber_fit returns a STRUCT with the expected fields
+# TEST 1: huber_fit_agg returns a STRUCT with the expected fields
 # =============================================================================
 query I
-SELECT (anofox_stats_huber_fit(
-    list(y ORDER BY x),
-    list([x] ORDER BY x)
-)).coefficients[1] IS NOT NULL FROM clean_data;
+SELECT (huber_fit_agg(y, [x])).coefficients[1] IS NOT NULL FROM clean_data;
 ----
 true
 
 # =============================================================================
-# TEST 2: huber_fit recovers slope ≈ 2.0 on clean data
-# =============================================================================
-query I
-SELECT ABS((anofox_stats_huber_fit(
-    list(y ORDER BY x),
-    list([x] ORDER BY x)
-)).coefficients[1] - 2.0) < 0.1 FROM clean_data;
-----
-true
-
-# =============================================================================
-# TEST 3: huber_fit_agg recovers slope ≈ 2.0 on clean data
+# TEST 2: huber_fit_agg recovers slope ≈ 2.0 on clean data (short alias)
 # =============================================================================
 query I
 SELECT ABS((huber_fit_agg(y, [x])).coefficients[1] - 2.0) < 0.1 FROM clean_data;
+----
+true
+
+# =============================================================================
+# TEST 3: Same result via the fully-qualified name
+# =============================================================================
+query I
+SELECT ABS((anofox_stats_huber_fit_agg(y, [x])).coefficients[1] - 2.0) < 0.1
+FROM clean_data;
 ----
 true
 
