@@ -23,6 +23,7 @@ void RegisterRlsFitFunction(ExtensionLoader &loader);
 
 // Window aggregate functions (fit_predict)
 void RegisterOlsFitPredictFunction(ExtensionLoader &loader);
+void RegisterHuberFitPredictFunction(ExtensionLoader &loader);
 void RegisterRidgeFitPredictFunction(ExtensionLoader &loader);
 void RegisterWlsFitPredictFunction(ExtensionLoader &loader);
 void RegisterRlsFitPredictFunction(ExtensionLoader &loader);

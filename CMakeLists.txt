@@ -183,6 +183,7 @@ set(EXTENSION_SOURCES
     src/scalar_functions/jarque_bera.cpp
     src/scalar_functions/residuals_diagnostics.cpp
     src/window_functions/ols_fit_predict.cpp
+    src/window_functions/huber_fit_predict.cpp
     src/window_functions/ridge_fit_predict.cpp
     src/window_functions/wls_fit_predict.cpp
     src/window_functions/rls_fit_predict.cpp
