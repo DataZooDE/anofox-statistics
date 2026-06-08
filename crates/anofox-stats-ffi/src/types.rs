@@ -380,6 +380,41 @@ impl Default for RansacFitExtras {
     }
 }
 
+/// Theil-Sen robust regression options for FFI.
+///
+/// `n_subsamples_*` together encode Option<usize>: when `n_subsamples_set` is
+/// false the upstream solver picks `n_features + 1` (sklearn default).
+#[repr(C)]
+pub struct TheilSenOptionsFFI {
+    pub fit_intercept: bool,
+    pub compute_inference: bool,
+    pub confidence_level: f64,
+    /// Cap on the number of subsamples examined (sklearn default 10_000).
+    pub max_subpopulation: u32,
+    pub max_iterations: u32,
+    pub tolerance: f64,
+    pub random_state: u64,
+
+    pub n_subsamples_set: bool,
+    pub n_subsamples_value: usize,
+}
+
+impl Default for TheilSenOptionsFFI {
+    fn default() -> Self {
+        Self {
+            fit_intercept: true,
+            compute_inference: false,
+            confidence_level: 0.95,
+            max_subpopulation: 10_000,
+            max_iterations: 300,
+            tolerance: 1e-3,
+            random_state: 0,
+            n_subsamples_set: false,
+            n_subsamples_value: 0,
+        }
+    }
+}
+
 /// Ridge regression options for FFI
 #[repr(C)]
 pub struct RidgeOptionsFFI {
