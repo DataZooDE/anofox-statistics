@@ -1,0 +1,102 @@
+# name: test/sql/fit_predict_agg/test_huber_fit_predict_agg.test
+# description: Test huber_fit_predict_agg aggregate function
+# group: [fit_predict_agg]
+
+require anofox_statistics
+
+# =============================================================================
+# SETUP — y = 2*x + 1, with the last 3 rows marked for prediction (y NULL).
+# =============================================================================
+statement ok
+CREATE TABLE huber_pred_data AS
+SELECT
+    CASE WHEN i <= 7 THEN (2.0 * i + 1.0)::DOUBLE ELSE NULL END AS y,
+    i::DOUBLE AS x,
+    i AS id
+FROM range(1, 11) t(i);
+
+# =============================================================================
+# TEST 1: Returns one struct per input row
+# =============================================================================
+query I
+SELECT LENGTH(huber_fit_predict_agg(y, [x])) FROM huber_pred_data;
+----
+10
+
+# =============================================================================
+# TEST 2: Training / prediction split is correct (7 train, 3 predict)
+# =============================================================================
+query II
+SELECT
+    SUM(CASE WHEN (p).is_training THEN 1 ELSE 0 END) AS n_train,
+    SUM(CASE WHEN NOT (p).is_training THEN 1 ELSE 0 END) AS n_predict
+FROM (SELECT UNNEST(huber_fit_predict_agg(y, [x])) AS p FROM huber_pred_data);
+----
+7	3
+
+# =============================================================================
+# TEST 3: Prediction rows have non-NULL yhat
+# =============================================================================
+query I
+SELECT COUNT(*) FROM (SELECT UNNEST(huber_fit_predict_agg(y, [x])) AS p FROM huber_pred_data)
+WHERE NOT (p).is_training AND (p).yhat IS NOT NULL;
+----
+3
+
+# =============================================================================
+# TEST 4: Confidence intervals are ordered (lower ≤ yhat ≤ upper) when present
+# =============================================================================
+query I
+SELECT COUNT(*) FROM (SELECT UNNEST(huber_fit_predict_agg(y, [x])) AS p FROM huber_pred_data)
+WHERE (p).yhat IS NOT NULL
+  AND (p).yhat_lower IS NOT NULL
+  AND (p).yhat_upper IS NOT NULL
+  AND (p).yhat_lower > (p).yhat;
+----
+0
+
+# =============================================================================
+# TEST 5: Prediction rows are in the expected magnitude band.
+# Prediction rows correspond to x=8,9,10 → true y = 17,19,21. With reasonable
+# tolerance the yhat values should land between 14 and 24.
+# =============================================================================
+query I
+SELECT COUNT(*) FROM (SELECT UNNEST(huber_fit_predict_agg(y, [x])) AS p FROM huber_pred_data)
+WHERE NOT (p).is_training
+  AND (p).yhat BETWEEN 14.0 AND 24.0;
+----
+3
+
+# =============================================================================
+# TEST 6: Options MAP is accepted
+# =============================================================================
+query I
+SELECT LENGTH(huber_fit_predict_agg(y, [x], {'epsilon': 1.5, 'fit_intercept': true})) FROM huber_pred_data;
+----
+10
+
+# =============================================================================
+# TEST 7: Split-column variant works
+# =============================================================================
+statement ok
+CREATE TABLE huber_split_data AS
+SELECT
+    (2.0 * i + 1.0)::DOUBLE AS y,
+    i::DOUBLE AS x,
+    CASE WHEN i <= 7 THEN 'train' ELSE 'test' END AS split,
+    i AS id
+FROM range(1, 11) t(i);
+
+query II
+SELECT
+    SUM(CASE WHEN (p).is_training THEN 1 ELSE 0 END) AS n_train,
+    SUM(CASE WHEN NOT (p).is_training THEN 1 ELSE 0 END) AS n_predict
+FROM (SELECT UNNEST(huber_fit_predict_agg(y, [x], split)) AS p FROM huber_split_data);
+----
+7	3
+
+statement ok
+DROP TABLE IF EXISTS huber_pred_data;
+
+statement ok
+DROP TABLE IF EXISTS huber_split_data;

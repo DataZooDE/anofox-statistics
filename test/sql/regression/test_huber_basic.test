@@ -1,0 +1,145 @@
+# name: test/sql/regression/test_huber_basic.test
+# description: Test Huber M-estimator scalar and aggregate functions
+# group: [regression]
+
+require anofox_statistics
+
+# =============================================================================
+# SETUP
+# =============================================================================
+
+statement ok
+CREATE TABLE clean_data AS
+SELECT
+    (2.0 * i + 1.0)::DOUBLE AS y,
+    i::DOUBLE AS x
+FROM range(1, 21) t(i);
+
+# Same y = 2x + 1 relationship but with two extreme outliers that would
+# severely bias OLS. Huber should recover slope ≈ 2 and flag the outliers.
+statement ok
+CREATE TABLE outlier_data AS
+SELECT
+    CASE
+        WHEN i = 6 THEN 300.0
+        WHEN i = 14 THEN -250.0
+        ELSE (2.0 * i + 1.0)::DOUBLE
+    END AS y,
+    i::DOUBLE AS x
+FROM range(1, 21) t(i);
+
+# =============================================================================
+# TEST 1: huber_fit_agg returns a STRUCT with the expected fields
+# =============================================================================
+query I
+SELECT (huber_fit_agg(y, [x])).coefficients[1] IS NOT NULL FROM clean_data;
+----
+true
+
+# =============================================================================
+# TEST 2: huber_fit_agg recovers slope ≈ 2.0 on clean data (short alias)
+# =============================================================================
+query I
+SELECT ABS((huber_fit_agg(y, [x])).coefficients[1] - 2.0) < 0.1 FROM clean_data;
+----
+true
+
+# =============================================================================
+# TEST 3: Same result via the fully-qualified name
+# =============================================================================
+query I
+SELECT ABS((anofox_stats_huber_fit_agg(y, [x])).coefficients[1] - 2.0) < 0.1
+FROM clean_data;
+----
+true
+
+# =============================================================================
+# TEST 4: huber_fit_agg exposes the Huber-specific scale and n_outliers fields.
+# Note: on perfectly noise-free data MAD collapses to the 1e-10 floor in the
+# upstream solver, so even sub-epsilon floating-point noise can be flagged.
+# All we want to check here is that the fields are populated with sane values
+# (scale strictly positive; n_outliers a non-negative count bounded by the
+# 20-observation training set).
+# =============================================================================
+query II
+SELECT
+    (huber_fit_agg(y, [x])).scale > 0.0,
+    (huber_fit_agg(y, [x])).n_outliers BETWEEN 0 AND 20
+FROM clean_data;
+----
+true	true
+
+# =============================================================================
+# TEST 5: Huber is robust to outliers — slope ≈ 2 despite two large outliers
+# =============================================================================
+query I
+SELECT ABS((huber_fit_agg(y, [x])).coefficients[1] - 2.0) < 0.5 FROM outlier_data;
+----
+true
+
+# =============================================================================
+# TEST 6: Huber flags the injected outliers
+# =============================================================================
+query I
+SELECT (huber_fit_agg(y, [x])).n_outliers >= 2 FROM outlier_data;
+----
+true
+
+# =============================================================================
+# TEST 7: epsilon option is forwarded to the solver
+# =============================================================================
+# Loosening epsilon should never increase the outlier count (more points fall
+# inside the quadratic region).
+query I
+SELECT (huber_fit_agg(y, [x], {'epsilon': 3.0})).n_outliers
+       <= (huber_fit_agg(y, [x], {'epsilon': 1.35})).n_outliers
+FROM outlier_data;
+----
+true
+
+# =============================================================================
+# TEST 8: invalid epsilon (≤ 1.0) — aggregate path silently NULLs the row
+# (matching ols_fit_agg's behaviour on FFI failure); the actual validation
+# is covered by the Rust unit test rejects_epsilon_below_one.
+# =============================================================================
+query I
+SELECT (huber_fit_agg(y, [x], {'epsilon': 0.5})).coefficients IS NULL FROM clean_data;
+----
+true
+
+# =============================================================================
+# TEST 9: Per-group fit works
+# =============================================================================
+statement ok
+CREATE TABLE grouped_data AS
+SELECT g AS group_id, y, x FROM (
+    SELECT 'a' AS g, y, x FROM clean_data
+    UNION ALL
+    SELECT 'b' AS g, y * 3.0 AS y, x FROM clean_data
+);
+
+query II
+SELECT
+    group_id,
+    ABS((huber_fit_agg(y, [x])).coefficients[1] - expected_slope) < 0.2 AS slope_ok
+FROM (
+    SELECT group_id, y, x, CASE WHEN group_id = 'a' THEN 2.0 ELSE 6.0 END AS expected_slope
+    FROM grouped_data
+)
+GROUP BY group_id, expected_slope
+ORDER BY group_id;
+----
+a	true
+b	true
+
+# =============================================================================
+# CLEANUP
+# =============================================================================
+statement ok
+DROP TABLE IF EXISTS clean_data;
+
+statement ok
+DROP TABLE IF EXISTS outlier_data;
+
+statement ok
+DROP TABLE IF EXISTS grouped_data;
