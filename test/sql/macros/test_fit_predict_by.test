@@ -136,6 +136,17 @@ SELECT COUNT(*) FROM ransac_fit_predict_by('reg_data', group_id, y, [x1, x2],
 # on a larger fixture.
 
 # =============================================================================
+# THEILSEN_FIT_PREDICT_BY TESTS
+# =============================================================================
+
+# TEST 7f: Theil-Sen macro returns one row per source observation
+query I
+SELECT COUNT(*) FROM theilsen_fit_predict_by('reg_data', group_id, y, [x1, x2],
+    options := {'random_state': 42});
+----
+12
+
+# =============================================================================
 # RIDGE_FIT_PREDICT_BY TESTS
 # =============================================================================
 

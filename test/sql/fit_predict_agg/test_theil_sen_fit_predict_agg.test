@@ -1,0 +1,67 @@
+# name: test/sql/fit_predict_agg/test_theil_sen_fit_predict_agg.test
+# description: Test theilsen_fit_predict_agg aggregate function
+# group: [fit_predict_agg]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE theilsen_pred AS
+SELECT
+    CASE WHEN i < 12 THEN (1.0 + 2.0 * (i * 0.2))::DOUBLE ELSE NULL END AS y,
+    (i * 0.2)::DOUBLE AS x,
+    i AS id
+FROM range(0, 16) t(i);
+
+# TEST 1: Returns one struct per input row.
+query I
+SELECT LENGTH(theilsen_fit_predict_agg(y, [x], {'random_state': 42})) FROM theilsen_pred;
+----
+16
+
+# TEST 2: Training/prediction split (12 training, 4 prediction).
+query II
+SELECT
+    SUM(CASE WHEN (p).is_training THEN 1 ELSE 0 END) AS n_train,
+    SUM(CASE WHEN NOT (p).is_training THEN 1 ELSE 0 END) AS n_predict
+FROM (SELECT UNNEST(theilsen_fit_predict_agg(y, [x], {'random_state': 42})) AS p FROM theilsen_pred);
+----
+12	4
+
+# TEST 3: Non-NULL yhat on prediction rows.
+query I
+SELECT COUNT(*) FROM (SELECT UNNEST(theilsen_fit_predict_agg(y, [x], {'random_state': 42})) AS p FROM theilsen_pred)
+WHERE NOT (p).is_training AND (p).yhat IS NOT NULL;
+----
+4
+
+# TEST 4: yhat magnitudes are sensible on prediction rows.
+query I
+SELECT COUNT(*) FROM (SELECT UNNEST(theilsen_fit_predict_agg(y, [x], {'random_state': 42})) AS p FROM theilsen_pred)
+WHERE NOT (p).is_training
+  AND (p).yhat BETWEEN 4.0 AND 9.0;
+----
+4
+
+# TEST 5: Split-column variant works.
+statement ok
+CREATE TABLE theilsen_split AS
+SELECT
+    (1.0 + 2.0 * (i * 0.2))::DOUBLE AS y,
+    (i * 0.2)::DOUBLE AS x,
+    CASE WHEN i < 12 THEN 'train' ELSE 'test' END AS split,
+    i AS id
+FROM range(0, 16) t(i);
+
+query II
+SELECT
+    SUM(CASE WHEN (p).is_training THEN 1 ELSE 0 END) AS n_train,
+    SUM(CASE WHEN NOT (p).is_training THEN 1 ELSE 0 END) AS n_predict
+FROM (SELECT UNNEST(theilsen_fit_predict_agg(y, [x], split, {'random_state': 42})) AS p FROM theilsen_split);
+----
+12	4
+
+statement ok
+DROP TABLE IF EXISTS theilsen_pred;
+
+statement ok
+DROP TABLE IF EXISTS theilsen_split;
