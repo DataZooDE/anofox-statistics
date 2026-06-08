@@ -16,6 +16,7 @@ mod quantile;
 mod ransac;
 mod ridge;
 mod rls;
+mod theil_sen;
 mod wls;
 
 pub use aid::{compute_aid, compute_aid_anomalies};
@@ -34,4 +35,5 @@ pub use quantile::fit_quantile;
 pub use ransac::{fit_ransac, RansacResult};
 pub use ridge::fit_ridge;
 pub use rls::{fit_rls, RlsOptions, RlsState};
+pub use theil_sen::{fit_theilsen, TheilSenResult};
 pub use wls::fit_wls;
