@@ -116,6 +116,7 @@ set(EXTENSION_SOURCES
     src/table_functions/elasticnet_fit.cpp
     src/table_functions/wls_fit.cpp
     src/table_functions/huber_fit.cpp
+    src/table_functions/ransac_fit.cpp
     src/table_functions/predict.cpp
     src/table_functions/rls_fit.cpp
     src/aggregate_functions/ols_aggregate.cpp
@@ -123,6 +124,7 @@ set(EXTENSION_SOURCES
     src/aggregate_functions/elasticnet_aggregate.cpp
     src/aggregate_functions/wls_aggregate.cpp
     src/aggregate_functions/huber_aggregate.cpp
+    src/aggregate_functions/ransac_aggregate.cpp
     src/aggregate_functions/rls_aggregate.cpp
     src/aggregate_functions/vif_aggregate.cpp
     src/aggregate_functions/jarque_bera_aggregate.cpp

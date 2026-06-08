@@ -62,6 +62,19 @@ static std::optional<uint32_t> ExtractUInt32(const Value &val) {
     return static_cast<uint32_t>(v);
 }
 
+// Helper to extract uint64 from Value (used for seeds; accepts any non-negative
+// integer that fits in int64).
+static std::optional<uint64_t> ExtractUInt64(const Value &val) {
+    if (val.IsNull()) {
+        return std::nullopt;
+    }
+    auto v = val.GetValue<int64_t>();
+    if (v < 0) {
+        throw InvalidInputException("Expected non-negative integer, got %lld", v);
+    }
+    return static_cast<uint64_t>(v);
+}
+
 // Helper to extract NullPolicy from Value
 static std::optional<NullPolicy> ExtractNullPolicy(const Value &val) {
     if (val.IsNull()) {
@@ -308,6 +321,18 @@ RegressionMapOptions RegressionMapOptions::ParseFromValue(const Value &map_value
                 result.tolerance = ExtractDouble(val);
             } else if (key == "epsilon") {
                 result.epsilon = ExtractDouble(val);
+            } else if (key == "residual_threshold") {
+                result.residual_threshold = ExtractDouble(val);
+            } else if (key == "max_trials") {
+                result.max_trials = ExtractUInt32(val);
+            } else if (key == "stop_probability") {
+                result.stop_probability = ExtractDouble(val);
+            } else if (key == "stop_n_inliers") {
+                result.stop_n_inliers = ExtractUInt32(val);
+            } else if (key == "min_samples") {
+                result.min_samples = ExtractUInt32(val);
+            } else if (key == "random_state" || key == "seed") {
+                result.random_state = ExtractUInt64(val);
             } else if (key == "forgetting_factor") {
                 result.forgetting_factor = ExtractDouble(val);
             } else if (key == "initial_p_diagonal" || key == "p_diagonal") {
@@ -405,6 +430,18 @@ RegressionMapOptions RegressionMapOptions::ParseFromValue(const Value &map_value
                 result.tolerance = ExtractDouble(val);
             } else if (key == "epsilon") {
                 result.epsilon = ExtractDouble(val);
+            } else if (key == "residual_threshold") {
+                result.residual_threshold = ExtractDouble(val);
+            } else if (key == "max_trials") {
+                result.max_trials = ExtractUInt32(val);
+            } else if (key == "stop_probability") {
+                result.stop_probability = ExtractDouble(val);
+            } else if (key == "stop_n_inliers") {
+                result.stop_n_inliers = ExtractUInt32(val);
+            } else if (key == "min_samples") {
+                result.min_samples = ExtractUInt32(val);
+            } else if (key == "random_state" || key == "seed") {
+                result.random_state = ExtractUInt64(val);
             } else if (key == "forgetting_factor") {
                 result.forgetting_factor = ExtractDouble(val);
             } else if (key == "initial_p_diagonal" || key == "p_diagonal") {
