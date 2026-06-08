@@ -118,6 +118,24 @@ SELECT COUNT(*) FROM huber_fit_predict_by('reg_data', group_id, y, [x1, x2], opt
 12
 
 # =============================================================================
+# RANSAC_FIT_PREDICT_BY TESTS
+# =============================================================================
+
+# TEST 7d: RANSAC macro returns one row per source observation
+query I
+SELECT COUNT(*) FROM ransac_fit_predict_by('reg_data', group_id, y, [x1, x2],
+    options := {'random_state': 42, 'residual_threshold': 1.0});
+----
+12
+
+# Note: a strict prediction-quality assertion (analogous to Huber's TEST 7b)
+# isn't appropriate for RANSAC on this 5-training-row-per-group fixture —
+# its consensus-set selection is stochastic enough that a meaningful inlier
+# threshold can't be hit reliably with so little data. Prediction-quality is
+# exercised separately in test/sql/fit_predict_agg/test_ransac_fit_predict_agg.test
+# on a larger fixture.
+
+# =============================================================================
 # RIDGE_FIT_PREDICT_BY TESTS
 # =============================================================================
 

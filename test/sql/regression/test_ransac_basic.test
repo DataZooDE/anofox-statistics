@@ -1,0 +1,136 @@
+# name: test/sql/regression/test_ransac_basic.test
+# description: Test RANSAC robust regression scalar and aggregate functions
+# group: [regression]
+
+require anofox_statistics
+
+# =============================================================================
+# SETUP
+# =============================================================================
+
+# Clean linear data: y = 1 + 2*x.
+statement ok
+CREATE TABLE ransac_clean AS
+SELECT
+    (1.0 + 2.0 * (i * 0.2))::DOUBLE AS y,
+    (i * 0.2)::DOUBLE AS x
+FROM range(0, 50) t(i);
+
+# Same linear relationship for 50 points, plus 20 wild outliers that would
+# severely bias OLS. RANSAC should recover slope ≈ 2 and flag the 20.
+statement ok
+CREATE TABLE ransac_outliers AS
+SELECT y, x FROM (
+    SELECT (1.0 + 2.0 * (i * 0.2))::DOUBLE AS y, (i * 0.2)::DOUBLE AS x
+    FROM range(0, 50) t(i)
+    UNION ALL
+    SELECT 50.0 + i AS y, (i * 0.1)::DOUBLE AS x
+    FROM range(0, 20) t(i)
+);
+
+# =============================================================================
+# TEST 1: ransac_fit_agg returns a STRUCT with the expected fields
+# =============================================================================
+query I
+SELECT (ransac_fit_agg(y, [x], {'random_state': 42, 'residual_threshold': 0.5})).coefficients[1] IS NOT NULL
+FROM ransac_clean;
+----
+true
+
+# =============================================================================
+# TEST 2: slope ≈ 2.0 on clean data
+# =============================================================================
+query I
+SELECT ABS((ransac_fit_agg(y, [x], {'random_state': 42, 'residual_threshold': 0.5})).coefficients[1] - 2.0) < 0.05
+FROM ransac_clean;
+----
+true
+
+# =============================================================================
+# TEST 3: residual_threshold + n_inliers + n_trials fields populated and sane
+# =============================================================================
+query III
+SELECT
+    (ransac_fit_agg(y, [x], {'random_state': 42, 'residual_threshold': 0.5})).residual_threshold > 0.0,
+    (ransac_fit_agg(y, [x], {'random_state': 42, 'residual_threshold': 0.5})).n_inliers > 0,
+    (ransac_fit_agg(y, [x], {'random_state': 42, 'residual_threshold': 0.5})).n_trials > 0
+FROM ransac_clean;
+----
+true	true	true
+
+# =============================================================================
+# TEST 4: RANSAC is robust to outliers — slope ≈ 2 despite the 20 wild outliers.
+# =============================================================================
+query I
+SELECT ABS((ransac_fit_agg(y, [x], {'random_state': 42, 'residual_threshold': 0.5, 'max_trials': 200})).coefficients[1] - 2.0) < 0.3
+FROM ransac_outliers;
+----
+true
+
+# =============================================================================
+# TEST 5: inlier set sits around the 50-clean-points size (not 70 total).
+# =============================================================================
+query I
+SELECT (ransac_fit_agg(y, [x], {'random_state': 42, 'residual_threshold': 0.5, 'max_trials': 200})).n_inliers
+       BETWEEN 45 AND 55
+FROM ransac_outliers;
+----
+true
+
+# =============================================================================
+# TEST 6: max_trials = 0 silently NULLs the row (matches Huber's contract).
+# The Rust unit test rejects_zero_max_trials covers the actual validation.
+# =============================================================================
+query I
+SELECT (ransac_fit_agg(y, [x], {'max_trials': 0})).coefficients IS NULL FROM ransac_clean;
+----
+true
+
+# =============================================================================
+# TEST 7: Per-group fit recovers different slopes.
+# =============================================================================
+statement ok
+CREATE TABLE ransac_groups AS
+SELECT g AS group_id, y, x FROM (
+    SELECT 'a' AS g, y, x FROM ransac_clean
+    UNION ALL
+    SELECT 'b' AS g, y * 3.0 AS y, x FROM ransac_clean
+);
+
+query II
+SELECT
+    group_id,
+    ABS((ransac_fit_agg(y, [x], {'random_state': 42, 'residual_threshold': 0.5})).coefficients[1] - expected_slope) < 0.2
+        AS slope_ok
+FROM (
+    SELECT group_id, y, x, CASE WHEN group_id = 'a' THEN 2.0 ELSE 6.0 END AS expected_slope
+    FROM ransac_groups
+)
+GROUP BY group_id, expected_slope
+ORDER BY group_id;
+----
+a	true
+b	true
+
+# =============================================================================
+# TEST 8: Same random_state produces the same fit (reproducibility).
+# =============================================================================
+query I
+SELECT
+    (ransac_fit_agg(y, [x], {'random_state': 42, 'residual_threshold': 0.5})).coefficients[1]
+    = (ransac_fit_agg(y, [x], {'random_state': 42, 'residual_threshold': 0.5})).coefficients[1]
+FROM ransac_clean;
+----
+true
+
+# =============================================================================
+# CLEANUP
+# =============================================================================
+statement ok
+DROP TABLE IF EXISTS ransac_clean;
+
+statement ok
+DROP TABLE IF EXISTS ransac_outliers;
+
+statement ok
+DROP TABLE IF EXISTS ransac_groups;

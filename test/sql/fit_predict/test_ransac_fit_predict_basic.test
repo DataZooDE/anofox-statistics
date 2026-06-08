@@ -1,0 +1,55 @@
+# name: test/sql/fit_predict/test_ransac_fit_predict_basic.test
+# description: Test RANSAC window function (anofox_stats_ransac_fit_predict / OVER)
+# group: [fit_predict]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE ransac_window AS
+SELECT
+    CASE WHEN i < 12 THEN (1.0 + 2.0 * (i * 0.2))::DOUBLE ELSE NULL END AS y,
+    (i * 0.2)::DOUBLE AS x1,
+    i AS id
+FROM range(0, 16) t(i);
+
+# TEST 1: window function emits non-null yhat once enough training rows accumulate.
+query I
+SELECT COUNT(*) FROM (
+    SELECT id,
+           anofox_stats_ransac_fit_predict(y, [x1], {'random_state': 42, 'residual_threshold': 0.5})
+               OVER (ORDER BY id) AS pred
+    FROM ransac_window
+)
+WHERE (pred).yhat IS NOT NULL;
+----
+14
+
+# TEST 2: confidence intervals are ordered (lower ≤ yhat ≤ upper) when present.
+query I
+SELECT COUNT(*) FROM (
+    SELECT id,
+           anofox_stats_ransac_fit_predict(y, [x1], {'random_state': 42, 'residual_threshold': 0.5})
+               OVER (ORDER BY id) AS pred
+    FROM ransac_window
+)
+WHERE (pred).yhat IS NOT NULL
+  AND (pred).yhat_lower IS NOT NULL
+  AND (pred).yhat_upper IS NOT NULL
+  AND ((pred).yhat_lower > (pred).yhat OR (pred).yhat > (pred).yhat_upper);
+----
+0
+
+# TEST 3: short alias resolves.
+query I
+SELECT COUNT(*) FROM (
+    SELECT id,
+           ransac_fit_predict(y, [x1], {'random_state': 42, 'residual_threshold': 0.5})
+               OVER (ORDER BY id) AS pred
+    FROM ransac_window
+)
+WHERE (pred).yhat IS NOT NULL;
+----
+14
+
+statement ok
+DROP TABLE IF EXISTS ransac_window;
