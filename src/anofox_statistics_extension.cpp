@@ -151,6 +151,7 @@ void LoadInternal(ExtensionLoader &loader) {
 
     // Register window aggregate functions (fit_predict)
     RegisterOlsFitPredictFunction(loader);
+    RegisterHuberFitPredictFunction(loader);
     RegisterRidgeFitPredictFunction(loader);
     RegisterWlsFitPredictFunction(loader);
     RegisterRlsFitPredictFunction(loader);
