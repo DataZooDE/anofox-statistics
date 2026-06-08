@@ -162,6 +162,14 @@ struct RegressionMapOptions {
     // Huber specific
     std::optional<double> epsilon;  // Huber threshold parameter (must be > 1.0)
 
+    // RANSAC specific
+    std::optional<double> residual_threshold;  // Inlier threshold; None → MAD(y)
+    std::optional<uint32_t> max_trials;        // Max RANSAC trials (also reused by other iterative solvers)
+    std::optional<double> stop_probability;    // Fischler-Bolles probability in [0,1]
+    std::optional<uint32_t> stop_n_inliers;    // Stop as soon as this many inliers found
+    std::optional<uint32_t> min_samples;       // Subsample size per trial; None → n_features + 1
+    std::optional<uint64_t> random_state;      // Seed for the trial subsampler
+
     // RLS specific
     std::optional<double> forgetting_factor;   // Forgetting factor (0-1)
     std::optional<double> initial_p_diagonal;  // Initial P matrix diagonal value
