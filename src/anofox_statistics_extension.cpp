@@ -158,6 +158,7 @@ void LoadInternal(ExtensionLoader &loader) {
 
     // Register fit + predict aggregate functions (with deprecated aliases)
     RegisterOlsFitPredictAggregateFunction(loader);
+    RegisterHuberFitPredictAggregateFunction(loader);
     RegisterRidgeFitPredictAggregateFunction(loader);
     RegisterWlsFitPredictAggregateFunction(loader);
     RegisterRlsFitPredictAggregateFunction(loader);

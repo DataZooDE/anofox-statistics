@@ -30,6 +30,7 @@ void RegisterElasticNetFitPredictFunction(ExtensionLoader &loader);
 
 // Fit + Predict aggregate functions (fit + predict all rows, with deprecated aliases)
 void RegisterOlsFitPredictAggregateFunction(ExtensionLoader &loader);
+void RegisterHuberFitPredictAggregateFunction(ExtensionLoader &loader);
 void RegisterRidgeFitPredictAggregateFunction(ExtensionLoader &loader);
 void RegisterWlsFitPredictAggregateFunction(ExtensionLoader &loader);
 void RegisterRlsFitPredictAggregateFunction(ExtensionLoader &loader);
