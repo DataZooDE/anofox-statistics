@@ -295,6 +295,91 @@ impl Default for HuberFitExtras {
     }
 }
 
+/// RANSAC robust regression options for FFI.
+///
+/// `min_samples_set` / `min_samples_value` together encode an
+/// `Option<usize>`: when `min_samples_set` is false the upstream solver
+/// picks the default (`n_features + 1` with intercept). Same encoding for
+/// `residual_threshold_*` and `stop_n_inliers_*`.
+#[repr(C)]
+pub struct RansacOptionsFFI {
+    /// Whether to fit intercept.
+    pub fit_intercept: bool,
+    /// Whether to compute inference statistics on the inlier-only final fit.
+    pub compute_inference: bool,
+    /// Confidence level for any inference intervals.
+    pub confidence_level: f64,
+    /// Maximum number of RANSAC trials.
+    pub max_trials: u32,
+    /// Fischler-Bolles stop probability (must be in [0, 1]).
+    pub stop_probability: f64,
+    /// Random seed for the trial subsampler.
+    pub random_state: u64,
+
+    /// `Option<usize>` for `min_samples`.
+    pub min_samples_set: bool,
+    pub min_samples_value: usize,
+
+    /// `Option<f64>` for `residual_threshold` (must be finite and > 0 when set).
+    pub residual_threshold_set: bool,
+    pub residual_threshold_value: f64,
+
+    /// `Option<usize>` for `stop_n_inliers`.
+    pub stop_n_inliers_set: bool,
+    pub stop_n_inliers_value: usize,
+}
+
+impl Default for RansacOptionsFFI {
+    fn default() -> Self {
+        Self {
+            fit_intercept: true,
+            compute_inference: false,
+            confidence_level: 0.95,
+            max_trials: 100,
+            stop_probability: 0.99,
+            random_state: 0,
+            min_samples_set: false,
+            min_samples_value: 0,
+            residual_threshold_set: false,
+            residual_threshold_value: 0.0,
+            stop_n_inliers_set: false,
+            stop_n_inliers_value: 0,
+        }
+    }
+}
+
+/// RANSAC-specific diagnostics returned alongside FitResultCore /
+/// FitResultInference.
+///
+/// Memory rules: `inliers` is allocated by `anofox_ransac_fit` (1 byte per
+/// observation, 0 = outlier, 1 = inlier) and must be freed via
+/// `anofox_free_ransac_extras`.
+#[repr(C)]
+pub struct RansacFitExtras {
+    /// Residual threshold actually used (either user-supplied or MAD(y)).
+    pub residual_threshold: f64,
+    /// Per-observation inlier mask (1 = inlier).
+    pub inliers: *mut u8,
+    /// Length of the inliers array.
+    pub inliers_len: usize,
+    /// Number of observations classified as inliers in the final consensus.
+    pub n_inliers: usize,
+    /// Actual number of RANSAC trials run before early termination.
+    pub n_trials: usize,
+}
+
+impl Default for RansacFitExtras {
+    fn default() -> Self {
+        Self {
+            residual_threshold: f64::NAN,
+            inliers: std::ptr::null_mut(),
+            inliers_len: 0,
+            n_inliers: 0,
+            n_trials: 0,
+        }
+    }
+}
+
 /// Ridge regression options for FFI
 #[repr(C)]
 pub struct RidgeOptionsFFI {
