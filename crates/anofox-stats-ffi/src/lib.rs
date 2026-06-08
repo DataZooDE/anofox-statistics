@@ -11,13 +11,13 @@ use anofox_stats_core::{
     models::{
         compute_aid, compute_aid_anomalies, fit_alm, fit_binomial, fit_bls, fit_elasticnet,
         fit_huber, fit_isotonic, fit_lm_dynamic, fit_negbinomial, fit_ols, fit_pls, fit_poisson,
-        fit_quantile, fit_ridge, fit_rls, fit_tweedie, fit_wls, predict, RlsOptions,
+        fit_quantile, fit_ransac, fit_ridge, fit_rls, fit_tweedie, fit_wls, predict, RlsOptions,
     },
     AidOptions, AlmDistribution, AlmLoss, AlmOptions, BinomialLink, BinomialOptions, BlsOptions,
     ElasticNetOptions, HcType, HuberOptions, InformationCriterion, IsotonicOptions, LambdaScaling,
     LmDynamicOptions, NegBinomialOptions, OlsOptions, OutlierMethod, PlsOptions, PoissonLink,
-    PoissonOptions, QuantileOptions, RidgeOptions, SolverType, StatsError, TweedieOptions,
-    WlsOptions,
+    PoissonOptions, QuantileOptions, RansacOptions, RidgeOptions, SolverType, StatsError,
+    TweedieOptions, WlsOptions,
 };
 use statrs::distribution::{ContinuousCDF, StudentsT};
 use std::slice;
@@ -535,6 +535,252 @@ pub unsafe extern "C" fn anofox_free_huber_extras(extras: *mut HuberFitExtras) {
         libc::free((*extras).outliers as *mut libc::c_void);
         (*extras).outliers = std::ptr::null_mut();
         (*extras).outliers_len = 0;
+    }
+}
+
+/// Fit a RANSAC robust regression model.
+///
+/// # Safety
+/// - `y` must be a valid DataArray
+/// - `x` must point to `x_count` valid DataArray structs
+/// - `out_core` must be a valid pointer
+/// - `out_inference` can be NULL if inference is not needed
+/// - `out_extras` can be NULL if the inlier mask / trial count is not needed
+/// - `out_error` must be a valid pointer
+///
+/// Memory rules:
+/// - On success, the caller frees `out_core` via `anofox_free_result_core`,
+///   `out_inference` via `anofox_free_result_inference`, and `out_extras` via
+///   `anofox_free_ransac_extras`.
+/// - On failure, no allocations are returned (any partial allocations are
+///   rolled back before returning false).
+///
+/// # Returns
+/// `true` on success, `false` on error (check `out_error` for details).
+#[no_mangle]
+pub unsafe extern "C" fn anofox_ransac_fit(
+    y: DataArray,
+    x: *const DataArray,
+    x_count: usize,
+    options: RansacOptionsFFI,
+    out_core: *mut FitResultCore,
+    out_inference: *mut FitResultInference,
+    out_extras: *mut RansacFitExtras,
+    out_error: *mut AnofoxError,
+) -> bool {
+    if !out_error.is_null() {
+        *out_error = AnofoxError::success();
+    }
+
+    if out_core.is_null() {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "out_core is NULL");
+        }
+        return false;
+    }
+
+    if x.is_null() || x_count == 0 {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
+        }
+        return false;
+    }
+
+    let y_vec = y.to_vec();
+    let x_arrays = slice::from_raw_parts(x, x_count);
+    let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
+
+    let opts = RansacOptions {
+        fit_intercept: options.fit_intercept,
+        min_samples: if options.min_samples_set {
+            Some(options.min_samples_value)
+        } else {
+            None
+        },
+        residual_threshold: if options.residual_threshold_set {
+            Some(options.residual_threshold_value)
+        } else {
+            None
+        },
+        max_trials: options.max_trials,
+        stop_probability: options.stop_probability,
+        stop_n_inliers: if options.stop_n_inliers_set {
+            Some(options.stop_n_inliers_value)
+        } else {
+            None
+        },
+        random_state: options.random_state,
+        compute_inference: options.compute_inference,
+        confidence_level: options.confidence_level,
+    };
+
+    let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        fit_ransac(&y_vec, &x_vecs, &opts)
+    }));
+
+    let fit_result = match fit_result {
+        Ok(r) => r,
+        Err(_) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InternalError, "Internal panic in RANSAC fit");
+            }
+            return false;
+        }
+    };
+
+    match fit_result {
+        Ok(ransac) => {
+            let result = ransac.fit;
+            let n_coef = result.core.coefficients.len();
+
+            let coef_ptr = libc::malloc(n_coef * std::mem::size_of::<f64>()) as *mut f64;
+            if coef_ptr.is_null() && n_coef > 0 {
+                if !out_error.is_null() {
+                    (*out_error).set(
+                        ErrorCode::AllocationFailure,
+                        "Failed to allocate coefficients",
+                    );
+                }
+                return false;
+            }
+            std::ptr::copy_nonoverlapping(result.core.coefficients.as_ptr(), coef_ptr, n_coef);
+
+            (*out_core) = FitResultCore {
+                coefficients: coef_ptr,
+                coefficients_len: n_coef,
+                intercept: result.core.intercept.unwrap_or(f64::NAN),
+                r_squared: result.core.r_squared,
+                adj_r_squared: result.core.adj_r_squared,
+                residual_std_error: result.core.residual_std_error,
+                n_observations: result.core.n_observations,
+                n_features: result.core.n_features,
+            };
+
+            if !out_inference.is_null() {
+                if let Some(inf) = result.inference {
+                    let n = inf.std_errors.len();
+
+                    let std_err_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                    let t_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                    let p_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                    let ci_lo_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                    let ci_hi_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+
+                    if n > 0
+                        && (std_err_ptr.is_null()
+                            || t_val_ptr.is_null()
+                            || p_val_ptr.is_null()
+                            || ci_lo_ptr.is_null()
+                            || ci_hi_ptr.is_null())
+                    {
+                        if !std_err_ptr.is_null() {
+                            libc::free(std_err_ptr as *mut libc::c_void);
+                        }
+                        if !t_val_ptr.is_null() {
+                            libc::free(t_val_ptr as *mut libc::c_void);
+                        }
+                        if !p_val_ptr.is_null() {
+                            libc::free(p_val_ptr as *mut libc::c_void);
+                        }
+                        if !ci_lo_ptr.is_null() {
+                            libc::free(ci_lo_ptr as *mut libc::c_void);
+                        }
+                        if !ci_hi_ptr.is_null() {
+                            libc::free(ci_hi_ptr as *mut libc::c_void);
+                        }
+                        libc::free(coef_ptr as *mut libc::c_void);
+
+                        if !out_error.is_null() {
+                            (*out_error).set(
+                                ErrorCode::AllocationFailure,
+                                "Failed to allocate inference arrays",
+                            );
+                        }
+                        return false;
+                    }
+
+                    std::ptr::copy_nonoverlapping(inf.std_errors.as_ptr(), std_err_ptr, n);
+                    std::ptr::copy_nonoverlapping(inf.t_values.as_ptr(), t_val_ptr, n);
+                    std::ptr::copy_nonoverlapping(inf.p_values.as_ptr(), p_val_ptr, n);
+                    std::ptr::copy_nonoverlapping(inf.ci_lower.as_ptr(), ci_lo_ptr, n);
+                    std::ptr::copy_nonoverlapping(inf.ci_upper.as_ptr(), ci_hi_ptr, n);
+
+                    (*out_inference) = FitResultInference {
+                        std_errors: std_err_ptr,
+                        t_values: t_val_ptr,
+                        p_values: p_val_ptr,
+                        ci_lower: ci_lo_ptr,
+                        ci_upper: ci_hi_ptr,
+                        len: n,
+                        confidence_level: inf.confidence_level,
+                        f_statistic: inf.f_statistic.unwrap_or(f64::NAN),
+                        f_pvalue: inf.f_pvalue.unwrap_or(f64::NAN),
+                    };
+                } else {
+                    (*out_inference) = FitResultInference::default();
+                }
+            }
+
+            if !out_extras.is_null() {
+                let n_in = ransac.inliers.len();
+                let inliers_ptr = if n_in > 0 {
+                    let p = libc::malloc(n_in) as *mut u8;
+                    if p.is_null() {
+                        libc::free(coef_ptr as *mut libc::c_void);
+                        if !out_inference.is_null() {
+                            anofox_free_result_inference(out_inference);
+                        }
+                        if !out_error.is_null() {
+                            (*out_error).set(
+                                ErrorCode::AllocationFailure,
+                                "Failed to allocate RANSAC inlier mask",
+                            );
+                        }
+                        return false;
+                    }
+                    for (i, &flag) in ransac.inliers.iter().enumerate() {
+                        *p.add(i) = u8::from(flag);
+                    }
+                    p
+                } else {
+                    std::ptr::null_mut()
+                };
+
+                (*out_extras) = RansacFitExtras {
+                    residual_threshold: ransac.residual_threshold,
+                    inliers: inliers_ptr,
+                    inliers_len: n_in,
+                    n_inliers: ransac.n_inliers,
+                    n_trials: ransac.n_trials,
+                };
+            }
+
+            true
+        }
+        Err(e) => {
+            if !out_error.is_null() {
+                (*out_error).set(error_to_code(&e), &e.to_string());
+            }
+            false
+        }
+    }
+}
+
+/// Free the inliers array inside a RansacFitExtras previously filled by
+/// anofox_ransac_fit.
+///
+/// # Safety
+/// `extras` must be a pointer to a RansacFitExtras previously filled by
+/// anofox_ransac_fit, or NULL.
+#[no_mangle]
+pub unsafe extern "C" fn anofox_free_ransac_extras(extras: *mut RansacFitExtras) {
+    if extras.is_null() {
+        return;
+    }
+    if !(*extras).inliers.is_null() {
+        libc::free((*extras).inliers as *mut libc::c_void);
+        (*extras).inliers = std::ptr::null_mut();
+        (*extras).inliers_len = 0;
     }
 }
 

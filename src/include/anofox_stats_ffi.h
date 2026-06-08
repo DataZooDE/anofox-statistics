@@ -232,6 +232,80 @@ bool anofox_huber_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_coun
 void anofox_free_huber_extras(AnofoxHuberFitExtras *extras);
 
 /**
+ * RANSAC robust regression options for FFI.
+ *
+ * The `*_set` / `*_value` pairs encode Option<T> from Rust: when `*_set`
+ * is false the upstream solver picks the default (e.g. min_samples
+ * defaults to n_features + 1 with intercept; residual_threshold defaults
+ * to MAD(y); stop_n_inliers defaults to disabled).
+ */
+typedef struct {
+    bool fit_intercept;
+    bool compute_inference;
+    double confidence_level;
+    uint32_t max_trials;
+    /** Fischler-Bolles stop probability in [0, 1]. */
+    double stop_probability;
+    /** Random seed for the trial subsampler. */
+    uint64_t random_state;
+
+    bool min_samples_set;
+    size_t min_samples_value;
+
+    bool residual_threshold_set;
+    double residual_threshold_value;
+
+    bool stop_n_inliers_set;
+    size_t stop_n_inliers_value;
+} AnofoxRansacOptions;
+
+/**
+ * RANSAC-specific extras returned alongside core / inference results.
+ *
+ * Memory: `inliers` is allocated by anofox_ransac_fit when out_extras !=
+ * NULL and must be freed via anofox_free_ransac_extras. Each byte is 0
+ * (outlier) or 1 (inlier). Length equals the number of non-NaN
+ * observations used in the fit.
+ */
+typedef struct {
+    /** Residual threshold actually used (user-supplied or MAD(y) default). */
+    double residual_threshold;
+    /** Per-observation inlier mask. */
+    uint8_t *inliers;
+    /** Length of the inliers array. */
+    size_t inliers_len;
+    /** Number of inliers in the final consensus set. */
+    size_t n_inliers;
+    /** Actual number of RANSAC trials run before early termination. */
+    size_t n_trials;
+} AnofoxRansacFitExtras;
+
+/**
+ * Fit a RANSAC robust regression model.
+ *
+ * @param y Response variable array
+ * @param x Pointer to array of feature arrays
+ * @param x_count Number of feature arrays
+ * @param options RANSAC fitting options
+ * @param out_core Output: core fit results (required)
+ * @param out_inference Output: inference results (NULL if not needed)
+ * @param out_extras Output: inlier mask / trial count (NULL if not needed)
+ * @param out_error Output: error information (required)
+ * @return true on success, false on error
+ */
+bool anofox_ransac_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count,
+                       AnofoxRansacOptions options, AnofoxFitResultCore *out_core,
+                       AnofoxFitResultInference *out_inference, AnofoxRansacFitExtras *out_extras,
+                       AnofoxError *out_error);
+
+/**
+ * Free the inliers array inside an AnofoxRansacFitExtras previously filled
+ * by anofox_ransac_fit. The core / inference parts are freed via the
+ * standard anofox_free_result_core / anofox_free_result_inference helpers.
+ */
+void anofox_free_ransac_extras(AnofoxRansacFitExtras *extras);
+
+/**
  * Ridge regression options for FFI
  */
 typedef struct {
