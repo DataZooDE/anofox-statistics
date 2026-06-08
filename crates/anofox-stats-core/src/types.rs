@@ -303,6 +303,45 @@ impl Default for RansacOptions {
     }
 }
 
+/// Options for Theil-Sen robust regression
+#[derive(Debug, Clone)]
+pub struct TheilSenOptions {
+    /// Whether to fit an intercept term.
+    pub fit_intercept: bool,
+    /// Cap on the number of subsamples examined (sklearn default 10_000).
+    pub max_subpopulation: u32,
+    /// Subsample size. `None` → `n_features + 1` (the minimum for an OLS fit
+    /// with intercept), matching sklearn's default.
+    pub n_subsamples: Option<usize>,
+    /// Maximum iterations for the spatial-median solver.
+    pub max_iterations: u32,
+    /// Convergence tolerance on the spatial-median solver.
+    pub tolerance: f64,
+    /// Random seed for the trial subsampler.
+    pub random_state: u64,
+    /// Whether to compute inference statistics. Theil-Sen does not produce
+    /// analytical confidence intervals upstream; populated only when the
+    /// underlying RegressionResult exposes asymptotic SEs.
+    pub compute_inference: bool,
+    /// Confidence level (kept for API parity).
+    pub confidence_level: f64,
+}
+
+impl Default for TheilSenOptions {
+    fn default() -> Self {
+        Self {
+            fit_intercept: true,
+            max_subpopulation: 10_000,
+            n_subsamples: None,
+            max_iterations: 300,
+            tolerance: 1e-3,
+            random_state: 0,
+            compute_inference: false,
+            confidence_level: 0.95,
+        }
+    }
+}
+
 /// Convergence information for iterative methods
 #[derive(Debug, Clone)]
 pub struct ConvergenceInfo {
