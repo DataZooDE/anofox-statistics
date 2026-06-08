@@ -170,6 +170,10 @@ struct RegressionMapOptions {
     std::optional<uint32_t> min_samples;       // Subsample size per trial; None → n_features + 1
     std::optional<uint64_t> random_state;      // Seed for the trial subsampler
 
+    // Theil-Sen specific
+    std::optional<uint32_t> max_subpopulation;  // Cap on subsamples examined (sklearn default 10_000)
+    std::optional<uint32_t> n_subsamples;       // Subsample size; None → n_features + 1
+
     // RLS specific
     std::optional<double> forgetting_factor;   // Forgetting factor (0-1)
     std::optional<double> initial_p_diagonal;  // Initial P matrix diagonal value
