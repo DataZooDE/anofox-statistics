@@ -26,6 +26,7 @@ void RegisterRlsFitFunction(ExtensionLoader &loader);
 // Window aggregate functions (fit_predict)
 void RegisterOlsFitPredictFunction(ExtensionLoader &loader);
 void RegisterHuberFitPredictFunction(ExtensionLoader &loader);
+void RegisterRansacFitPredictFunction(ExtensionLoader &loader);
 void RegisterRidgeFitPredictFunction(ExtensionLoader &loader);
 void RegisterWlsFitPredictFunction(ExtensionLoader &loader);
 void RegisterRlsFitPredictFunction(ExtensionLoader &loader);
@@ -34,6 +35,7 @@ void RegisterElasticNetFitPredictFunction(ExtensionLoader &loader);
 // Fit + Predict aggregate functions (fit + predict all rows, with deprecated aliases)
 void RegisterOlsFitPredictAggregateFunction(ExtensionLoader &loader);
 void RegisterHuberFitPredictAggregateFunction(ExtensionLoader &loader);
+void RegisterRansacFitPredictAggregateFunction(ExtensionLoader &loader);
 void RegisterRidgeFitPredictAggregateFunction(ExtensionLoader &loader);
 void RegisterWlsFitPredictAggregateFunction(ExtensionLoader &loader);
 void RegisterRlsFitPredictAggregateFunction(ExtensionLoader &loader);

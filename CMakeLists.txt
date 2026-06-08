@@ -131,6 +131,7 @@ set(EXTENSION_SOURCES
     src/aggregate_functions/residuals_diagnostics_aggregate.cpp
     src/aggregate_functions/ols_predict_aggregate.cpp
     src/aggregate_functions/huber_predict_aggregate.cpp
+    src/aggregate_functions/ransac_predict_aggregate.cpp
     src/aggregate_functions/ridge_predict_aggregate.cpp
     src/aggregate_functions/wls_predict_aggregate.cpp
     src/aggregate_functions/rls_predict_aggregate.cpp
@@ -186,6 +187,7 @@ set(EXTENSION_SOURCES
     src/scalar_functions/residuals_diagnostics.cpp
     src/window_functions/ols_fit_predict.cpp
     src/window_functions/huber_fit_predict.cpp
+    src/window_functions/ransac_fit_predict.cpp
     src/window_functions/ridge_fit_predict.cpp
     src/window_functions/wls_fit_predict.cpp
     src/window_functions/rls_fit_predict.cpp
