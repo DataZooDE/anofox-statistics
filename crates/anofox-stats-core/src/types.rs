@@ -260,6 +260,49 @@ impl Default for HuberOptions {
     }
 }
 
+/// Options for RANSAC robust regression
+#[derive(Debug, Clone)]
+pub struct RansacOptions {
+    /// Whether to fit an intercept term.
+    pub fit_intercept: bool,
+    /// Subsample size for each trial. `None` → `n_features + 1` (the minimum
+    /// for an OLS fit with intercept).
+    pub min_samples: Option<usize>,
+    /// Inlier threshold on |y - yhat|. `None` → MAD of `y` (sklearn default).
+    pub residual_threshold: Option<f64>,
+    /// Maximum number of RANSAC trials.
+    pub max_trials: u32,
+    /// Probability of having seen at least one all-inlier subsample; used by
+    /// the Fischler-Bolles early-termination bound. Default 0.99.
+    pub stop_probability: f64,
+    /// Stop as soon as this many inliers have been found. `None` → no early
+    /// stop on inlier count.
+    pub stop_n_inliers: Option<usize>,
+    /// Random seed for the trial subsampler.
+    pub random_state: u64,
+    /// Whether to compute inference statistics on the final inlier-only fit.
+    pub compute_inference: bool,
+    /// Confidence level (kept for API parity; the upstream solver does not
+    /// currently emit intervals for RANSAC).
+    pub confidence_level: f64,
+}
+
+impl Default for RansacOptions {
+    fn default() -> Self {
+        Self {
+            fit_intercept: true,
+            min_samples: None,
+            residual_threshold: None,
+            max_trials: 100,
+            stop_probability: 0.99,
+            stop_n_inliers: None,
+            random_state: 0,
+            compute_inference: false,
+            confidence_level: 0.95,
+        }
+    }
+}
+
 /// Convergence information for iterative methods
 #[derive(Debug, Clone)]
 pub struct ConvergenceInfo {
