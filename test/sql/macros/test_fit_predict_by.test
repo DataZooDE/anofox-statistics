@@ -118,6 +118,25 @@ SELECT COUNT(*) FROM huber_fit_predict_by('reg_data', group_id, y, [x1, x2], opt
 12
 
 # =============================================================================
+# RANSAC_FIT_PREDICT_BY TESTS
+# =============================================================================
+
+# TEST 7d: RANSAC macro returns one row per source observation
+query I
+SELECT COUNT(*) FROM ransac_fit_predict_by('reg_data', group_id, y, [x1, x2],
+    options := {'random_state': 42, 'residual_threshold': 1.0});
+----
+12
+
+# TEST 7e: Predictions are sensible on training rows (yhat close to y)
+query I
+SELECT COUNT(*) FROM ransac_fit_predict_by('reg_data', group_id, y, [x1, x2],
+    options := {'random_state': 42, 'residual_threshold': 1.0})
+WHERE is_training AND ABS(yhat - y) < 3.0;
+----
+10
+
+# =============================================================================
 # RIDGE_FIT_PREDICT_BY TESTS
 # =============================================================================
 
