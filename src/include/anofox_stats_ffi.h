@@ -306,6 +306,48 @@ bool anofox_ransac_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_cou
 void anofox_free_ransac_extras(AnofoxRansacFitExtras *extras);
 
 /**
+ * Theil-Sen robust regression options for FFI.
+ *
+ * `n_subsamples_set` / `n_subsamples_value` encode Rust's Option<usize>:
+ * when `n_subsamples_set` is false the upstream solver picks
+ * `n_features + 1` (sklearn default).
+ */
+typedef struct {
+    bool fit_intercept;
+    bool compute_inference;
+    double confidence_level;
+    /** Cap on the number of subsamples examined (sklearn default 10_000). */
+    uint32_t max_subpopulation;
+    uint32_t max_iterations;
+    double tolerance;
+    /** Random seed for the trial subsampler. */
+    uint64_t random_state;
+
+    bool n_subsamples_set;
+    size_t n_subsamples_value;
+} AnofoxTheilSenOptions;
+
+/**
+ * Fit a Theil-Sen robust regression model.
+ *
+ * Unlike Huber and RANSAC, Theil-Sen does not surface any consensus-set
+ * diagnostics — the FFI returns only the standard core / inference
+ * results.
+ *
+ * @param y Response variable array
+ * @param x Pointer to array of feature arrays
+ * @param x_count Number of feature arrays
+ * @param options Theil-Sen fitting options
+ * @param out_core Output: core fit results (required)
+ * @param out_inference Output: inference results (NULL if not needed)
+ * @param out_error Output: error information (required)
+ * @return true on success, false on error
+ */
+bool anofox_theilsen_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count,
+                         AnofoxTheilSenOptions options, AnofoxFitResultCore *out_core,
+                         AnofoxFitResultInference *out_inference, AnofoxError *out_error);
+
+/**
  * Ridge regression options for FFI
  */
 typedef struct {
