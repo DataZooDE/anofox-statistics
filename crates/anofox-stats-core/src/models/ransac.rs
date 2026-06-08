@@ -89,13 +89,11 @@ pub fn fit_ransac(y: &[f64], x: &[Vec<f64>], options: &RansacOptions) -> StatsRe
     // override min_samples, the upstream solver picks n_features + 1
     // (or +0 without intercept). Surface a clear error in either case
     // rather than letting the upstream return InsufficientObservations.
-    let effective_min_samples = options
-        .min_samples
-        .unwrap_or(if options.fit_intercept {
-            n_features + 1
-        } else {
-            n_features
-        });
+    let effective_min_samples = options.min_samples.unwrap_or(if options.fit_intercept {
+        n_features + 1
+    } else {
+        n_features
+    });
     if n_valid < effective_min_samples {
         return Err(StatsError::InsufficientData {
             rows: n_valid,
