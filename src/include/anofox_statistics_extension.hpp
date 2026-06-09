@@ -13,6 +13,7 @@ void RegisterElasticNetFitFunction(ExtensionLoader &loader);
 void RegisterWlsFitFunction(ExtensionLoader &loader);
 void RegisterHuberFitFunction(ExtensionLoader &loader);
 void RegisterRansacFitFunction(ExtensionLoader &loader);
+void RegisterTheilSenFitFunction(ExtensionLoader &loader);
 void RegisterPredictFunction(ExtensionLoader &loader);
 void RegisterOlsAggregateFunction(ExtensionLoader &loader);
 void RegisterRidgeAggregateFunction(ExtensionLoader &loader);
@@ -20,6 +21,7 @@ void RegisterElasticNetAggregateFunction(ExtensionLoader &loader);
 void RegisterWlsAggregateFunction(ExtensionLoader &loader);
 void RegisterHuberAggregateFunction(ExtensionLoader &loader);
 void RegisterRansacAggregateFunction(ExtensionLoader &loader);
+void RegisterTheilSenAggregateFunction(ExtensionLoader &loader);
 void RegisterRlsAggregateFunction(ExtensionLoader &loader);
 void RegisterRlsFitFunction(ExtensionLoader &loader);
 

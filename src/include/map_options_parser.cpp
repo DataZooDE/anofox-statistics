@@ -333,6 +333,10 @@ RegressionMapOptions RegressionMapOptions::ParseFromValue(const Value &map_value
                 result.min_samples = ExtractUInt32(val);
             } else if (key == "random_state" || key == "seed") {
                 result.random_state = ExtractUInt64(val);
+            } else if (key == "max_subpopulation") {
+                result.max_subpopulation = ExtractUInt32(val);
+            } else if (key == "n_subsamples") {
+                result.n_subsamples = ExtractUInt32(val);
             } else if (key == "forgetting_factor") {
                 result.forgetting_factor = ExtractDouble(val);
             } else if (key == "initial_p_diagonal" || key == "p_diagonal") {
@@ -442,6 +446,10 @@ RegressionMapOptions RegressionMapOptions::ParseFromValue(const Value &map_value
                 result.min_samples = ExtractUInt32(val);
             } else if (key == "random_state" || key == "seed") {
                 result.random_state = ExtractUInt64(val);
+            } else if (key == "max_subpopulation") {
+                result.max_subpopulation = ExtractUInt32(val);
+            } else if (key == "n_subsamples") {
+                result.n_subsamples = ExtractUInt32(val);
             } else if (key == "forgetting_factor") {
                 result.forgetting_factor = ExtractDouble(val);
             } else if (key == "initial_p_diagonal" || key == "p_diagonal") {
