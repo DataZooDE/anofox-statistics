@@ -87,6 +87,28 @@ FROM (
 ORDER BY group_col
 )"},
 
+    // theilsen_fit_predict_by: Theil-Sen robust fit and predict per group (long format)
+    // C++ API: theilsen_fit_predict_by(table_name, group_col, y_col, x_cols, options)
+    // Options: max_subpopulation, n_subsamples, max_iterations, tolerance, random_state,
+    //          fit_intercept, confidence_level, null_policy
+    // Note: Output column preserves the original column name passed by the user
+    {"theilsen_fit_predict_by", {"source", "group_col", "y_col", "x_cols", nullptr}, {{"options", "NULL"}, {"split", "NULL"}},
+R"(
+SELECT
+    * EXCLUDE (_pred, _rn),
+    (_pred[_rn]).yhat AS yhat,
+    (_pred[_rn]).yhat_lower AS yhat_lower,
+    (_pred[_rn]).yhat_upper AS yhat_upper,
+    (_pred[_rn]).is_training AS is_training
+FROM (
+    SELECT *,
+        ROW_NUMBER() OVER (PARTITION BY group_col) AS _rn,
+        theilsen_fit_predict_agg(CASE WHEN split IS NOT NULL AND split != 'train' THEN NULL ELSE y_col END, x_cols, options) OVER (PARTITION BY group_col) AS _pred
+    FROM query_table(source::VARCHAR)
+) sub
+ORDER BY group_col
+)"},
+
     // ridge_fit_predict_by: Ridge fit and predict per group (long format)
     // C++ API: ridge_fit_predict_by(table_name, group_col, y_col, x_cols, options)
     // Options: alpha, fit_intercept, confidence_level, null_policy

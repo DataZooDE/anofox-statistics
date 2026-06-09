@@ -157,6 +157,7 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterOlsFitPredictFunction(loader);
     RegisterHuberFitPredictFunction(loader);
     RegisterRansacFitPredictFunction(loader);
+    RegisterTheilSenFitPredictFunction(loader);
     RegisterRidgeFitPredictFunction(loader);
     RegisterWlsFitPredictFunction(loader);
     RegisterRlsFitPredictFunction(loader);
@@ -166,6 +167,7 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterOlsFitPredictAggregateFunction(loader);
     RegisterHuberFitPredictAggregateFunction(loader);
     RegisterRansacFitPredictAggregateFunction(loader);
+    RegisterTheilSenFitPredictAggregateFunction(loader);
     RegisterRidgeFitPredictAggregateFunction(loader);
     RegisterWlsFitPredictAggregateFunction(loader);
     RegisterRlsFitPredictAggregateFunction(loader);
