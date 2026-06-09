@@ -1,0 +1,40 @@
+# name: test/sql/fit_predict/test_theil_sen_fit_predict_basic.test
+# description: Test Theil-Sen window function
+# group: [fit_predict]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE theilsen_window AS
+SELECT
+    CASE WHEN i < 12 THEN (1.0 + 2.0 * (i * 0.2))::DOUBLE ELSE NULL END AS y,
+    (i * 0.2)::DOUBLE AS x1,
+    i AS id
+FROM range(0, 16) t(i);
+
+# TEST 1: window function emits non-null yhat once enough training rows accumulate.
+query I
+SELECT COUNT(*) FROM (
+    SELECT id,
+           anofox_stats_theilsen_fit_predict(y, [x1], {'random_state': 42})
+               OVER (ORDER BY id) AS pred
+    FROM theilsen_window
+)
+WHERE (pred).yhat IS NOT NULL;
+----
+14
+
+# TEST 2: short alias resolves.
+query I
+SELECT COUNT(*) FROM (
+    SELECT id,
+           theilsen_fit_predict(y, [x1], {'random_state': 42})
+               OVER (ORDER BY id) AS pred
+    FROM theilsen_window
+)
+WHERE (pred).yhat IS NOT NULL;
+----
+14
+
+statement ok
+DROP TABLE IF EXISTS theilsen_window;

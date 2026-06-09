@@ -1,0 +1,93 @@
+# name: test/sql/regression/test_theil_sen_basic.test
+# description: Test Theil-Sen robust regression scalar and aggregate functions
+# group: [regression]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE theilsen_clean AS
+SELECT
+    (1.0 + 2.0 * (i * 0.2))::DOUBLE AS y,
+    (i * 0.2)::DOUBLE AS x
+FROM range(0, 50) t(i);
+
+statement ok
+CREATE TABLE theilsen_outliers AS
+SELECT y, x FROM (
+    SELECT (1.0 + 2.0 * (i * 0.2))::DOUBLE AS y, (i * 0.2)::DOUBLE AS x
+    FROM range(0, 50) t(i)
+    UNION ALL
+    SELECT 50.0 + i AS y, (i * 0.1)::DOUBLE AS x
+    FROM range(0, 20) t(i)
+);
+
+# TEST 1: theilsen_fit_agg returns a STRUCT with the expected fields
+query I
+SELECT (theilsen_fit_agg(y, [x], {'random_state': 42})).coefficients[1] IS NOT NULL
+FROM theilsen_clean;
+----
+true
+
+# TEST 2: slope ≈ 2.0 on clean data
+query I
+SELECT ABS((theilsen_fit_agg(y, [x], {'random_state': 42})).coefficients[1] - 2.0) < 0.05
+FROM theilsen_clean;
+----
+true
+
+# TEST 3: Theil-Sen is robust to outliers — slope stays close to 2 despite
+# 20 wild outliers (Theil-Sen blends rather than excluding, so tolerance is
+# wider than RANSAC's).
+query I
+SELECT ABS((theilsen_fit_agg(y, [x], {'random_state': 42})).coefficients[1] - 2.0) < 0.6
+FROM theilsen_outliers;
+----
+true
+
+# TEST 4: max_subpopulation = 0 silently NULLs the row.
+query I
+SELECT (theilsen_fit_agg(y, [x], {'max_subpopulation': 0})).coefficients IS NULL FROM theilsen_clean;
+----
+true
+
+# TEST 5: Per-group fit recovers different slopes.
+statement ok
+CREATE TABLE theilsen_groups AS
+SELECT g AS group_id, y, x FROM (
+    SELECT 'a' AS g, y, x FROM theilsen_clean
+    UNION ALL
+    SELECT 'b' AS g, y * 3.0 AS y, x FROM theilsen_clean
+);
+
+query II
+SELECT
+    group_id,
+    ABS((theilsen_fit_agg(y, [x], {'random_state': 42})).coefficients[1] - expected_slope) < 0.2
+        AS slope_ok
+FROM (
+    SELECT group_id, y, x, CASE WHEN group_id = 'a' THEN 2.0 ELSE 6.0 END AS expected_slope
+    FROM theilsen_groups
+)
+GROUP BY group_id, expected_slope
+ORDER BY group_id;
+----
+a	true
+b	true
+
+# TEST 6: Reproducibility via random_state.
+query I
+SELECT
+    (theilsen_fit_agg(y, [x], {'random_state': 42})).coefficients[1]
+    = (theilsen_fit_agg(y, [x], {'random_state': 42})).coefficients[1]
+FROM theilsen_clean;
+----
+true
+
+statement ok
+DROP TABLE IF EXISTS theilsen_clean;
+
+statement ok
+DROP TABLE IF EXISTS theilsen_outliers;
+
+statement ok
+DROP TABLE IF EXISTS theilsen_groups;
