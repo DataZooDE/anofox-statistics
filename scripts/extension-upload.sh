@@ -23,8 +23,19 @@ echo $ext
 
 script_dir="$(dirname "$(readlink -f "$0")")"
 
-# calculate SHA256 hash of extension binary
+# The build artifact already ends with a 256-byte signature placeholder
+# (zero-filled when unsigned). Strip it before computing the hash and
+# re-appending a fresh signature — otherwise we'd end up with 512 bytes
+# of trailing data and the metadata footer would no longer be at the
+# fixed offset DuckDB v1.5.3+ checks, causing the install to fail with
+# "metadata at the end of the file is invalid".
+#
+# wasm artifacts do not carry the placeholder, so the strip is gated on
+# the native-binary path only.
 cat $ext > $ext.append
+if [[ $4 != wasm* ]]; then
+  truncate -s -256 $ext.append
+fi
 
 if [[ $4 == wasm* ]]; then
   # 0 for custom section
