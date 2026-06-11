@@ -91,6 +91,10 @@ jobs:
     needs: generate_matrix
     if: ${{ needs.generate_matrix.outputs.deploy_matrix != '{}' && needs.generate_matrix.outputs.deploy_matrix != '' }}
     strategy:
+      # One missing artifact (e.g. a Windows build that didn't produce one)
+      # must not cancel sibling per-arch deploys — Linux / macOS / wasm
+      # publishing should proceed independently.
+      fail-fast: false
       matrix: ${{fromJson(needs.generate_matrix.outputs.deploy_matrix)}}
 
     steps:

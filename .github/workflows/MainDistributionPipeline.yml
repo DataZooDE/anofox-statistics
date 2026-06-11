@@ -40,7 +40,7 @@ jobs:
     with:
       duckdb_version: v1.5.3
       extension_name: anofox_statistics
-      exclude_archs: "windows_amd64"
+      exclude_archs: "windows_amd64;windows_amd64_mingw"
       deploy_latest: ${{ startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main' }}
       deploy_versioned: ${{ startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main' }}
 
@@ -65,7 +65,7 @@ jobs:
     with:
       duckdb_version: v1.4.4
       extension_name: anofox_statistics
-      exclude_archs: "windows_amd64_mingw"
+      exclude_archs: "windows_amd64;windows_amd64_mingw"
       deploy_latest: ${{ startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main' }}
       deploy_versioned: ${{ startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main' }}
 
