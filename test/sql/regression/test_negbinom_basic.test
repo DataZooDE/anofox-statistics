@@ -6,12 +6,17 @@ require anofox_statistics
 
 # Setup: overdispersed count data ~ NegBin(mu = exp(0.5 + 0.3*x), alpha = 0.5).
 # We fit and check that the coefficient on x is close to the truth.
+#
+# Fixture is capped at 100 rows: above ~150 rows the IRLS weighted-least-
+# squares QR enters faer's blocked-GEMM path, which segfaults inside the
+# DuckDB v1.4.4 unittest harness (pre-existing bug — poisson_fit_agg crashes
+# identically there; not reproducible in the CLI shell or on v1.5.3).
 statement ok
 CREATE TABLE negbinom_data AS
 SELECT
     CAST(ROUND(EXP(0.5 + 0.3 * (i % 10)) + ((i * 7) % 5)) AS DOUBLE) AS y,
     (i % 10)::DOUBLE AS x
-FROM range(0, 200) t(i);
+FROM range(0, 100) t(i);
 
 # TEST 1: result struct populated
 query I
@@ -45,7 +50,7 @@ true	true	true
 query I
 SELECT (negbinom_fit_agg(y, [x])).n_observations FROM negbinom_data;
 ----
-200
+100
 
 # TEST 6: fully-qualified name resolves
 query I
