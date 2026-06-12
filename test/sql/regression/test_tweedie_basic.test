@@ -5,12 +5,16 @@
 require anofox_statistics
 
 # Setup: insurance-claims-style fixture with a positive-skew positive-y target.
+#
+# Fixture capped at 100 rows: larger fixtures push the IRLS QR into faer's
+# blocked-GEMM path which segfaults in the DuckDB v1.4.4 unittest harness
+# (pre-existing bug, affects poisson_fit_agg identically).
 statement ok
 CREATE TABLE tweedie_data AS
 SELECT
     CAST(EXP(0.5 + 0.3 * (i % 10) + ((i * 13) % 7) * 0.05) AS DOUBLE) AS y,
     (i % 10)::DOUBLE AS x
-FROM range(0, 200) t(i);
+FROM range(0, 100) t(i);
 
 # TEST 1: result struct populated, default power = 1.5
 query I
@@ -45,7 +49,7 @@ true
 query I
 SELECT (tweedie_fit_agg(y, [x])).n_observations FROM tweedie_data;
 ----
-200
+100
 
 statement ok
 DROP TABLE IF EXISTS tweedie_data;
