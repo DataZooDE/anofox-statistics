@@ -55,6 +55,7 @@ void RegisterQuantileFitPredictAggregateFunction(ExtensionLoader &loader);
 void RegisterPoissonAggregateFunction(ExtensionLoader &loader);
 void RegisterBinomialAggregateFunction(ExtensionLoader &loader);
 void RegisterNegBinomAggregateFunction(ExtensionLoader &loader);
+void RegisterTweedieAggregateFunction(ExtensionLoader &loader);
 
 // ALM aggregate functions
 void RegisterAlmAggregateFunction(ExtensionLoader &loader);

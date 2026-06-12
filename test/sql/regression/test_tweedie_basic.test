@@ -1,0 +1,49 @@
+# name: test/sql/regression/test_tweedie_basic.test
+# description: Test Tweedie GLM aggregate function
+# group: [regression]
+
+require anofox_statistics
+
+# Setup: insurance-claims-style fixture with a positive-skew positive-y target.
+statement ok
+CREATE TABLE tweedie_data AS
+SELECT
+    CAST(EXP(0.5 + 0.3 * (i % 10) + ((i * 13) % 7) * 0.05) AS DOUBLE) AS y,
+    (i % 10)::DOUBLE AS x
+FROM range(0, 200) t(i);
+
+# TEST 1: result struct populated, default power = 1.5
+query I
+SELECT (tweedie_fit_agg(y, [x])).coefficients[1] IS NOT NULL FROM tweedie_data;
+----
+true
+
+# TEST 2: slope on x is positive and bounded (truth: 0.3 on log scale)
+query I
+SELECT (tweedie_fit_agg(y, [x])).coefficients[1] BETWEEN 0.0 AND 1.0 FROM tweedie_data;
+----
+true
+
+# TEST 3: power parameter is honoured (different power produces different fit)
+query I
+SELECT
+    (tweedie_fit_agg(y, [x], {'power': 1.2})).coefficients[1]
+    <> (tweedie_fit_agg(y, [x], {'power': 1.8})).coefficients[1]
+FROM tweedie_data;
+----
+true
+
+# TEST 4: dispersion (phi) populated as a positive number
+query I
+SELECT (tweedie_fit_agg(y, [x])).dispersion > 0.0 FROM tweedie_data;
+----
+true
+
+# TEST 5: n_observations matches input
+query I
+SELECT (tweedie_fit_agg(y, [x])).n_observations FROM tweedie_data;
+----
+200
+
+statement ok
+DROP TABLE IF EXISTS tweedie_data;
