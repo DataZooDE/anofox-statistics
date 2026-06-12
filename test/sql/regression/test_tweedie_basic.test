@@ -18,9 +18,11 @@ SELECT (tweedie_fit_agg(y, [x])).coefficients[1] IS NOT NULL FROM tweedie_data;
 ----
 true
 
-# TEST 2: slope on x is positive and bounded (truth: 0.3 on log scale)
+# TEST 2: slope on x recovers the truth (0.3 on the log scale; the wrapper
+# pins link_power = 0.0, so coefficients are log-scale effects). Verified
+# against the Rust estimator directly: 0.3003 at every power in [1.2, 1.8].
 query I
-SELECT (tweedie_fit_agg(y, [x])).coefficients[1] BETWEEN 0.0 AND 1.0 FROM tweedie_data;
+SELECT ABS((tweedie_fit_agg(y, [x])).coefficients[1] - 0.3) < 0.05 FROM tweedie_data;
 ----
 true
 
