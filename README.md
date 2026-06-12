@@ -25,6 +25,7 @@ A statistical analysis extension for DuckDB, providing regression analysis, diag
 | RLS | `rls_fit`, `rls_fit_agg` | Recursive Least Squares (online) |
 | Poisson | `poisson_fit_agg` | GLM for count data |
 | Binomial | `binomial_fit_agg` | GLM for success-rate data (logit / probit / cloglog links) |
+| Negative Binomial | `negbinom_fit_agg` | GLM for overdispersed counts (dispersion α estimated jointly) |
 | ALM | `alm_fit_agg` | 24 error distributions |
 | BLS/NNLS | `bls_fit_agg`, `nnls_fit_agg` | Bounded/Non-negative LS |
 | PLS | `pls_fit`, `pls_fit_agg` | Partial Least Squares |

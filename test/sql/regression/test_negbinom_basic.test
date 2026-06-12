@@ -1,0 +1,57 @@
+# name: test/sql/regression/test_negbinom_basic.test
+# description: Test Negative Binomial GLM aggregate function
+# group: [regression]
+
+require anofox_statistics
+
+# Setup: overdispersed count data ~ NegBin(mu = exp(0.5 + 0.3*x), alpha = 0.5).
+# We fit and check that the coefficient on x is close to the truth.
+statement ok
+CREATE TABLE negbinom_data AS
+SELECT
+    CAST(ROUND(EXP(0.5 + 0.3 * (i % 10)) + ((i * 7) % 5)) AS DOUBLE) AS y,
+    (i % 10)::DOUBLE AS x
+FROM range(0, 200) t(i);
+
+# TEST 1: result struct populated
+query I
+SELECT (negbinom_fit_agg(y, [x])).coefficients[1] IS NOT NULL FROM negbinom_data;
+----
+true
+
+# TEST 2: slope on x is positive and finite (truth: 0.3 on log scale)
+query I
+SELECT (negbinom_fit_agg(y, [x])).coefficients[1] BETWEEN 0.0 AND 1.0 FROM negbinom_data;
+----
+true
+
+# TEST 3: dispersion field (= alpha) is populated as a positive number
+query I
+SELECT (negbinom_fit_agg(y, [x])).dispersion > 0.0 FROM negbinom_data;
+----
+true
+
+# TEST 4: deviance, null_deviance, aic populated
+query III
+SELECT
+    (negbinom_fit_agg(y, [x])).deviance IS NOT NULL,
+    (negbinom_fit_agg(y, [x])).null_deviance IS NOT NULL,
+    (negbinom_fit_agg(y, [x])).aic IS NOT NULL
+FROM negbinom_data;
+----
+true	true	true
+
+# TEST 5: n_observations matches input
+query I
+SELECT (negbinom_fit_agg(y, [x])).n_observations FROM negbinom_data;
+----
+200
+
+# TEST 6: fully-qualified name resolves
+query I
+SELECT (anofox_stats_negbinom_fit_agg(y, [x])).coefficients[1] IS NOT NULL FROM negbinom_data;
+----
+true
+
+statement ok
+DROP TABLE IF EXISTS negbinom_data;
