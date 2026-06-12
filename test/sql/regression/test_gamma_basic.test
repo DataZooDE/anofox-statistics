@@ -1,0 +1,56 @@
+# name: test/sql/regression/test_gamma_basic.test
+# description: Test Gamma GLM aggregate function
+# group: [regression]
+
+require anofox_statistics
+
+# Strictly-positive y, generated from a log-linear mean (gamma-like).
+statement ok
+CREATE TABLE gamma_data AS
+SELECT
+    EXP(0.5 + 0.3 * (i % 10) + ((i * 17) % 5) * 0.05)::DOUBLE AS y,
+    (i % 10)::DOUBLE AS x
+FROM range(0, 200) t(i);
+
+# TEST 1: result struct populated
+query I
+SELECT (gamma_fit_agg(y, [x])).coefficients[1] IS NOT NULL FROM gamma_data;
+----
+true
+
+# TEST 2: slope on x close to 0.3 (log link, truth)
+query I
+SELECT ABS((gamma_fit_agg(y, [x])).coefficients[1] - 0.3) < 0.1 FROM gamma_data;
+----
+true
+
+# TEST 3: dispersion (phi) populated as a positive number
+query I
+SELECT (gamma_fit_agg(y, [x])).dispersion > 0.0 FROM gamma_data;
+----
+true
+
+# TEST 4: deviance, null_deviance, aic populated
+query III
+SELECT
+    (gamma_fit_agg(y, [x])).deviance IS NOT NULL,
+    (gamma_fit_agg(y, [x])).null_deviance IS NOT NULL,
+    (gamma_fit_agg(y, [x])).aic IS NOT NULL
+FROM gamma_data;
+----
+true	true	true
+
+# TEST 5: n_observations matches input
+query I
+SELECT (gamma_fit_agg(y, [x])).n_observations FROM gamma_data;
+----
+200
+
+# TEST 6: fully-qualified name resolves
+query I
+SELECT (anofox_stats_gamma_fit_agg(y, [x])).coefficients[1] IS NOT NULL FROM gamma_data;
+----
+true
+
+statement ok
+DROP TABLE IF EXISTS gamma_data;

@@ -788,6 +788,34 @@ typedef struct {
 } AnofoxTweedieOptions;
 
 /**
+ * Gamma GLM options (var_power = 2.0 fixed; log link).
+ */
+typedef struct {
+    bool fit_intercept;
+    uint32_t max_iterations;
+    double tolerance;
+    bool compute_inference;
+    double confidence_level;
+    double lambda;
+} AnofoxGammaOptions;
+
+/**
+ * Fit a Gamma GLM (var_power = 2.0; log link).
+ *
+ * @param y Strictly positive response variable
+ * @param x Pointer to array of feature arrays
+ * @param x_count Number of feature arrays
+ * @param options Gamma fitting options
+ * @param out_result Output: core fit results (required)
+ * @param out_inference Output: inference results (NULL if not needed)
+ * @param out_error Output: error information (required)
+ * @return true on success, false on error
+ */
+bool anofox_gamma_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count,
+                      AnofoxGammaOptions options, AnofoxGlmFitResultCore *out_result,
+                      AnofoxFitResultInference *out_inference, AnofoxError *out_error);
+
+/**
  * Fit a Poisson regression model
  *
  * @param y Response variable array (counts)

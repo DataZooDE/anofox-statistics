@@ -597,6 +597,36 @@ impl Default for TweedieOptions {
     }
 }
 
+/// Options for Gamma regression (GLM with var_power = 2.0 fixed).
+#[derive(Debug, Clone)]
+pub struct GammaOptions {
+    /// Whether to fit an intercept term.
+    pub fit_intercept: bool,
+    /// Maximum iterations for IRLS.
+    pub max_iterations: u32,
+    /// Convergence tolerance.
+    pub tolerance: f64,
+    /// Whether to compute inference statistics.
+    pub compute_inference: bool,
+    /// Confidence level for confidence intervals.
+    pub confidence_level: f64,
+    /// L2 regularization parameter for penalized IRLS (0.0 = no regularization).
+    pub lambda: f64,
+}
+
+impl Default for GammaOptions {
+    fn default() -> Self {
+        Self {
+            fit_intercept: true,
+            max_iterations: 100,
+            tolerance: 1e-8,
+            compute_inference: false,
+            confidence_level: 0.95,
+            lambda: 0.0,
+        }
+    }
+}
+
 /// Result from GLM fitting - uses deviance-based metrics instead of R²
 #[derive(Debug, Clone)]
 pub struct GlmFitResult {
