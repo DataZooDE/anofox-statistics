@@ -1,0 +1,55 @@
+# name: test/sql/regression/test_binomial_basic.test
+# description: Test Binomial GLM aggregate function
+# group: [regression]
+
+require anofox_statistics
+
+# Setup: success-rate fixture where y is a logistic function of x.
+# y_i = sigmoid(0.5 + 0.3 * x_i) — should recover slope close to 0.3
+# under the logit link.
+statement ok
+CREATE TABLE binomial_data AS
+SELECT
+    (1.0 / (1.0 + EXP(-(0.5 + 0.3 * (i % 10)))))::DOUBLE AS y,
+    (i % 10)::DOUBLE AS x
+FROM range(0, 200) t(i);
+
+# TEST 1: result struct populated
+query I
+SELECT (binomial_fit_agg(y, [x])).coefficients[1] IS NOT NULL FROM binomial_data;
+----
+true
+
+# TEST 2: slope on x is positive and finite (truth: 0.3 on logit scale)
+query I
+SELECT (binomial_fit_agg(y, [x])).coefficients[1] BETWEEN 0.0 AND 1.0 FROM binomial_data;
+----
+true
+
+# TEST 3: different link functions produce different fits
+query I
+SELECT
+    (binomial_fit_agg(y, [x], {'binomial_link': 'logit'})).coefficients[1]
+    <> (binomial_fit_agg(y, [x], {'binomial_link': 'probit'})).coefficients[1]
+FROM binomial_data;
+----
+true
+
+# TEST 4: deviance, null_deviance, aic populated
+query III
+SELECT
+    (binomial_fit_agg(y, [x])).deviance IS NOT NULL,
+    (binomial_fit_agg(y, [x])).null_deviance IS NOT NULL,
+    (binomial_fit_agg(y, [x])).aic IS NOT NULL
+FROM binomial_data;
+----
+true	true	true
+
+# TEST 5: n_observations matches input
+query I
+SELECT (binomial_fit_agg(y, [x])).n_observations FROM binomial_data;
+----
+200
+
+statement ok
+DROP TABLE IF EXISTS binomial_data;

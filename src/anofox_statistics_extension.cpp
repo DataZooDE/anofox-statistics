@@ -90,6 +90,7 @@ void LoadInternal(ExtensionLoader &loader) {
 
     // Register GLM aggregate functions
     RegisterPoissonAggregateFunction(loader);
+    RegisterBinomialAggregateFunction(loader);
 
     // Register ALM aggregate functions
     RegisterAlmAggregateFunction(loader);
