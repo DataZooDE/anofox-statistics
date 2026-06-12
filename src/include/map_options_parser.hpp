@@ -219,6 +219,9 @@ struct RegressionMapOptions {
     // GLM regularization
     std::optional<double> glm_lambda;  // L2 regularization for GLM (Poisson)
 
+    // Classification (Logistic)
+    std::optional<double> threshold;  // Classification threshold on P(y=1) — Logistic
+
     /**
      * Parse options from a DuckDB MAP Value.
      * Supports both integer (0/1) and boolean values for boolean options.

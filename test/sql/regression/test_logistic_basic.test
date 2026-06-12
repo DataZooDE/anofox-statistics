@@ -1,0 +1,63 @@
+# name: test/sql/regression/test_logistic_basic.test
+# description: Test binary Logistic regression aggregate
+# group: [regression]
+
+require anofox_statistics
+
+# Binary labels generated from a sigmoid of x. The sign of x roughly
+# determines the class, so a Logistic fit should recover a positive slope.
+statement ok
+CREATE TABLE logistic_data AS
+SELECT
+    CASE
+        WHEN ((1.0 / (1.0 + EXP(-(0.4 * (i % 10) - 2.0)))) > 0.5) THEN 1.0
+        ELSE 0.0
+    END::DOUBLE AS y,
+    (i % 10)::DOUBLE AS x
+FROM range(0, 200) t(i);
+
+# TEST 1: result struct populated
+query I
+SELECT (logistic_fit_agg(y, [x])).coefficients[1] IS NOT NULL FROM logistic_data;
+----
+true
+
+# TEST 2: positive slope on x (truth ~ 0.4 on logit scale, but threshold
+# binarisation noise makes the recovered slope variable — just check sign).
+query I
+SELECT (logistic_fit_agg(y, [x])).coefficients[1] > 0.0 FROM logistic_data;
+----
+true
+
+# TEST 3: accuracy is in [0, 1] and reasonable for the fixture
+query I
+SELECT (logistic_fit_agg(y, [x])).accuracy BETWEEN 0.5 AND 1.0 FROM logistic_data;
+----
+true
+
+# TEST 4: threshold is echoed (default 0.5)
+query I
+SELECT (logistic_fit_agg(y, [x])).threshold = 0.5 FROM logistic_data;
+----
+true
+
+# TEST 5: explicit threshold honoured
+query I
+SELECT (logistic_fit_agg(y, [x], {'threshold': 0.7})).threshold = 0.7 FROM logistic_data;
+----
+true
+
+# TEST 6: n_observations matches input
+query I
+SELECT (logistic_fit_agg(y, [x])).n_observations FROM logistic_data;
+----
+200
+
+# TEST 7: fully-qualified name resolves
+query I
+SELECT (anofox_stats_logistic_fit_agg(y, [x])).coefficients[1] IS NOT NULL FROM logistic_data;
+----
+true
+
+statement ok
+DROP TABLE IF EXISTS logistic_data;

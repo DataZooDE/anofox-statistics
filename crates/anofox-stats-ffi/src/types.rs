@@ -265,6 +265,53 @@ impl Default for HuberOptionsFFI {
     }
 }
 
+/// Binary Logistic regression options for FFI (logit link; classifier API).
+#[repr(C)]
+pub struct LogisticOptionsFFI {
+    pub fit_intercept: bool,
+    pub compute_inference: bool,
+    pub confidence_level: f64,
+    /// L2 (ridge) penalty strength. 0.0 = unpenalised.
+    pub lambda: f64,
+    /// Classification threshold on the predicted probability.
+    pub threshold: f64,
+    pub max_iterations: u32,
+    pub tolerance: f64,
+}
+
+impl Default for LogisticOptionsFFI {
+    fn default() -> Self {
+        Self {
+            fit_intercept: true,
+            compute_inference: false,
+            confidence_level: 0.95,
+            lambda: 0.0,
+            threshold: 0.5,
+            max_iterations: 100,
+            tolerance: 1e-8,
+        }
+    }
+}
+
+/// Logistic-specific diagnostics returned alongside GlmFitResultCore.
+/// All fields are scalars — no allocations to free.
+#[repr(C)]
+pub struct LogisticFitExtras {
+    /// Classification accuracy on the training data with the configured threshold.
+    pub accuracy: f64,
+    /// Classification threshold actually used (echoed from options).
+    pub threshold: f64,
+}
+
+impl Default for LogisticFitExtras {
+    fn default() -> Self {
+        Self {
+            accuracy: f64::NAN,
+            threshold: 0.5,
+        }
+    }
+}
+
 /// Huber-specific diagnostics returned alongside FitResultCore / FitResultInference.
 /// Memory rules: `outliers` is allocated by `anofox_huber_fit` and must be freed
 /// via `anofox_free_huber_extras` (boolean array exposed as u8: 0 = inlier, 1 = outlier).

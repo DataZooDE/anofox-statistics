@@ -880,6 +880,50 @@ bool anofox_tweedie_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_co
                         AnofoxError *out_error);
 
 /**
+ * Binary Logistic regression options (logit link; classifier-oriented API).
+ */
+typedef struct {
+    bool fit_intercept;
+    bool compute_inference;
+    double confidence_level;
+    /** L2 (ridge) penalty strength. 0.0 = unpenalised. */
+    double lambda;
+    /** Classification threshold on P(y=1). */
+    double threshold;
+    uint32_t max_iterations;
+    double tolerance;
+} AnofoxLogisticOptions;
+
+/**
+ * Logistic-specific diagnostics. Both fields are scalars; no allocations
+ * to free.
+ */
+typedef struct {
+    /** Classification accuracy on the training data with the configured threshold. */
+    double accuracy;
+    /** Classification threshold actually used (echoed from options). */
+    double threshold;
+} AnofoxLogisticFitExtras;
+
+/**
+ * Fit a binary Logistic regression.
+ *
+ * @param y Binary response (0.0 or 1.0)
+ * @param x Pointer to array of feature arrays
+ * @param x_count Number of feature arrays
+ * @param options Logistic fitting options
+ * @param out_result Output: core fit results (required)
+ * @param out_inference Output: inference results (NULL if not needed)
+ * @param out_extras Output: accuracy + threshold echo (NULL if not needed)
+ * @param out_error Output: error information (required)
+ * @return true on success, false on error
+ */
+bool anofox_logistic_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count,
+                         AnofoxLogisticOptions options, AnofoxGlmFitResultCore *out_result,
+                         AnofoxFitResultInference *out_inference,
+                         AnofoxLogisticFitExtras *out_extras, AnofoxError *out_error);
+
+/**
  * Free memory allocated for GLM core results
  */
 void anofox_free_glm_result(AnofoxGlmFitResultCore *result);

@@ -403,6 +403,10 @@ RegressionMapOptions RegressionMapOptions::ParseFromValue(const Value &map_value
             else if (key == "glm_lambda") {
                 result.glm_lambda = ExtractDouble(val);
             }
+            // Classification (Logistic)
+            else if (key == "threshold") {
+                result.threshold = ExtractDouble(val);
+            }
             // Unknown keys are silently ignored for forward compatibility
         }
     }
@@ -515,6 +519,10 @@ RegressionMapOptions RegressionMapOptions::ParseFromValue(const Value &map_value
             // GLM regularization
             else if (key == "glm_lambda") {
                 result.glm_lambda = ExtractDouble(val);
+            }
+            // Classification (Logistic)
+            else if (key == "threshold") {
+                result.threshold = ExtractDouble(val);
             }
         }
     } else {

@@ -10,13 +10,15 @@ use anofox_stats_core::{
     diagnostics::{compute_aic, compute_bic, compute_residuals, compute_vif, jarque_bera},
     models::{
         compute_aid, compute_aid_anomalies, fit_alm, fit_binomial, fit_bls, fit_elasticnet,
-        fit_gamma, fit_huber, fit_isotonic, fit_lm_dynamic, fit_negbinomial, fit_ols, fit_pls,
+        fit_gamma, fit_huber, fit_isotonic, fit_lm_dynamic, fit_logistic, fit_negbinomial, fit_ols,
+        fit_pls,
         fit_poisson, fit_quantile, fit_ransac, fit_ridge, fit_rls, fit_theilsen, fit_tweedie,
         fit_wls, predict, RlsOptions,
     },
     AidOptions, AlmDistribution, AlmLoss, AlmOptions, BinomialLink, BinomialOptions, BlsOptions,
     ElasticNetOptions, GammaOptions, HcType, HuberOptions, InformationCriterion, IsotonicOptions,
-    LambdaScaling, LmDynamicOptions, NegBinomialOptions, OlsOptions, OutlierMethod, PlsOptions,
+    LambdaScaling, LmDynamicOptions, LogisticOptions, NegBinomialOptions, OlsOptions, OutlierMethod,
+    PlsOptions,
     PoissonLink, PoissonOptions, QuantileOptions, RansacOptions, RidgeOptions, SolverType,
     StatsError, TheilSenOptions, TweedieOptions, WlsOptions,
 };
@@ -2937,6 +2939,153 @@ pub unsafe extern "C" fn anofox_gamma_fit(
                 } else {
                     (*out_inference) = FitResultInference::default();
                 }
+            }
+
+            true
+        }
+        Err(e) => {
+            if !out_error.is_null() {
+                (*out_error).set(error_to_code(&e), &e.to_string());
+            }
+            false
+        }
+    }
+}
+
+/// Fit a binary Logistic regression (logit link; classifier-oriented).
+///
+/// # Safety
+/// - `y` must be binary (0.0 or 1.0)
+/// - `x` must point to `x_count` valid DataArray structs
+/// - `out_result` must be a valid pointer
+/// - `out_inference` can be NULL if inference is not needed
+/// - `out_extras` can be NULL if accuracy / threshold echo is not needed
+/// - `out_error` must be a valid pointer
+#[no_mangle]
+pub unsafe extern "C" fn anofox_logistic_fit(
+    y: DataArray,
+    x: *const DataArray,
+    x_count: usize,
+    options: LogisticOptionsFFI,
+    out_result: *mut GlmFitResultCore,
+    out_inference: *mut FitResultInference,
+    out_extras: *mut LogisticFitExtras,
+    out_error: *mut AnofoxError,
+) -> bool {
+    if !out_error.is_null() {
+        *out_error = AnofoxError::success();
+    }
+
+    if out_result.is_null() {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+        }
+        return false;
+    }
+
+    if x.is_null() || x_count == 0 {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
+        }
+        return false;
+    }
+
+    let y_vec = y.to_vec();
+    let x_arrays = slice::from_raw_parts(x, x_count);
+    let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
+
+    let opts = LogisticOptions {
+        fit_intercept: options.fit_intercept,
+        lambda: options.lambda,
+        threshold: options.threshold,
+        max_iterations: options.max_iterations,
+        tolerance: options.tolerance,
+        compute_inference: options.compute_inference,
+        confidence_level: options.confidence_level,
+    };
+
+    let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        fit_logistic(&y_vec, &x_vecs, &opts)
+    }));
+
+    let fit_result = match fit_result {
+        Ok(r) => r,
+        Err(_) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InternalError, "Internal panic in Logistic fit");
+            }
+            return false;
+        }
+    };
+
+    match fit_result {
+        Ok(logistic) => {
+            let result = logistic.fit;
+            let n_coef = result.core.coefficients.len();
+            let coef_ptr = libc::malloc(n_coef * std::mem::size_of::<f64>()) as *mut f64;
+            if coef_ptr.is_null() && n_coef > 0 {
+                if !out_error.is_null() {
+                    (*out_error).set(
+                        ErrorCode::AllocationFailure,
+                        "Failed to allocate coefficients",
+                    );
+                }
+                return false;
+            }
+            std::ptr::copy_nonoverlapping(result.core.coefficients.as_ptr(), coef_ptr, n_coef);
+
+            (*out_result) = GlmFitResultCore {
+                coefficients: coef_ptr,
+                coefficients_len: n_coef,
+                intercept: result.core.intercept.unwrap_or(f64::NAN),
+                deviance: result.core.residual_deviance,
+                null_deviance: result.core.null_deviance,
+                pseudo_r_squared: result.core.pseudo_r_squared,
+                aic: result.core.aic,
+                dispersion: result.core.dispersion.unwrap_or(f64::NAN),
+                n_observations: result.core.n_observations,
+                n_features: result.core.n_features,
+                iterations: result.core.iterations,
+            };
+
+            if !out_inference.is_null() {
+                if let Some(inf) = result.inference {
+                    let n = inf.std_errors.len();
+                    let std_err_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                    let t_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                    let p_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                    let ci_lo_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                    let ci_hi_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+
+                    if n > 0 && !std_err_ptr.is_null() {
+                        std::ptr::copy_nonoverlapping(inf.std_errors.as_ptr(), std_err_ptr, n);
+                        std::ptr::copy_nonoverlapping(inf.z_values.as_ptr(), t_val_ptr, n);
+                        std::ptr::copy_nonoverlapping(inf.p_values.as_ptr(), p_val_ptr, n);
+                        std::ptr::copy_nonoverlapping(inf.ci_lower.as_ptr(), ci_lo_ptr, n);
+                        std::ptr::copy_nonoverlapping(inf.ci_upper.as_ptr(), ci_hi_ptr, n);
+                    }
+
+                    (*out_inference) = FitResultInference {
+                        std_errors: std_err_ptr,
+                        t_values: t_val_ptr,
+                        p_values: p_val_ptr,
+                        ci_lower: ci_lo_ptr,
+                        ci_upper: ci_hi_ptr,
+                        len: n,
+                        confidence_level: inf.confidence_level,
+                        f_statistic: f64::NAN,
+                        f_pvalue: f64::NAN,
+                    };
+                } else {
+                    (*out_inference) = FitResultInference::default();
+                }
+            }
+
+            if !out_extras.is_null() {
+                (*out_extras) = LogisticFitExtras {
+                    accuracy: logistic.accuracy,
+                    threshold: logistic.threshold,
+                };
             }
 
             true

@@ -627,6 +627,40 @@ impl Default for GammaOptions {
     }
 }
 
+/// Options for binary Logistic regression (a thin wrapper around the
+/// binomial GLM with logit link; classifier-oriented API).
+#[derive(Debug, Clone)]
+pub struct LogisticOptions {
+    /// Whether to fit an intercept term.
+    pub fit_intercept: bool,
+    /// L2 (ridge) penalty strength. 0.0 = unpenalised.
+    pub lambda: f64,
+    /// Classification threshold on the predicted probability.
+    pub threshold: f64,
+    /// Maximum IRLS iterations.
+    pub max_iterations: u32,
+    /// Convergence tolerance.
+    pub tolerance: f64,
+    /// Whether to compute inference statistics on the coefficient vector.
+    pub compute_inference: bool,
+    /// Confidence level for inference intervals.
+    pub confidence_level: f64,
+}
+
+impl Default for LogisticOptions {
+    fn default() -> Self {
+        Self {
+            fit_intercept: true,
+            lambda: 0.0,
+            threshold: 0.5,
+            max_iterations: 100,
+            tolerance: 1e-8,
+            compute_inference: false,
+            confidence_level: 0.95,
+        }
+    }
+}
+
 /// Result from GLM fitting - uses deviance-based metrics instead of R²
 #[derive(Debug, Clone)]
 pub struct GlmFitResult {
