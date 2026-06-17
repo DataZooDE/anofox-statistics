@@ -3,7 +3,7 @@
 A statistical analysis extension for DuckDB, providing regression analysis, diagnostics, and inference capabilities directly within your database.
 
 [![License: BSL 1.1](https://img.shields.io/badge/License-BSL%201.1-blue.svg)](LICENSE)
-[![DuckDB Version](https://img.shields.io/badge/DuckDB-v1.5.3-brightgreen.svg)](https://duckdb.org)
+[![DuckDB Version](https://img.shields.io/badge/DuckDB-v1.4.5%20LTS%20%7C%20v1.5.4-brightgreen.svg)](https://duckdb.org)
 
 > [!IMPORTANT]
 > This extension is in early development, so bugs and breaking changes are expected.
@@ -210,7 +210,7 @@ Guides are available in the [`guides/`](guides/) directory:
 
 ## Dependencies
 
-- **DuckDB**: v1.5.1 or higher
+- **DuckDB**: v1.4.5 LTS or v1.5.4 (latest)
 - **Rust**: Stable toolchain (for building from source)
 - **anofox-regression**: Rust regression library (via Cargo)
 - **faer**: Linear algebra library (via Cargo, no default features)
