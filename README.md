@@ -27,6 +27,7 @@ A statistical analysis extension for DuckDB, providing regression analysis, diag
 | Binomial | `binomial_fit_agg` | GLM for success-rate data (logit / probit / cloglog links) |
 | Negative Binomial | `negbinom_fit_agg` | GLM for overdispersed counts (dispersion α estimated jointly) |
 | Tweedie | `tweedie_fit_agg` | GLM for positive-skew continuous outcomes (power parameter; default 1.5 for compound Poisson-Gamma) |
+| Gamma | `gamma_fit_agg` | GLM for strictly-positive continuous outcomes (claims, durations) |
 | ALM | `alm_fit_agg` | 24 error distributions |
 | BLS/NNLS | `bls_fit_agg`, `nnls_fit_agg` | Bounded/Non-negative LS |
 | PLS | `pls_fit`, `pls_fit_agg` | Partial Least Squares |

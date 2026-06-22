@@ -2,8 +2,8 @@
 
 use crate::errors::{StatsError, StatsResult};
 use crate::types::{
-    BinomialLink, BinomialOptions, GlmFitResult, GlmInferenceResult, NegBinomialOptions,
-    PoissonLink, PoissonOptions, TweedieOptions,
+    BinomialLink, BinomialOptions, GammaOptions, GlmFitResult, GlmInferenceResult,
+    NegBinomialOptions, PoissonLink, PoissonOptions, TweedieOptions,
 };
 use anofox_regression::prelude::*;
 use faer::{Col, Mat};
@@ -492,6 +492,88 @@ pub fn fit_tweedie(y: &[f64], x: &[Vec<f64>], options: &TweedieOptions) -> Stats
         iterations: fitted.iterations as u32,
         converged: true,
         dispersion: Some(fitted.dispersion),
+    };
+
+    let inference = if options.compute_inference {
+        extract_inference(result, options.confidence_level)
+    } else {
+        None
+    };
+
+    Ok(GlmResult { core, inference })
+}
+
+/// Fit a Gamma GLM. Equivalent to Tweedie with `var_power = 2.0` baked in;
+/// log link (the upstream solver's default for Gamma).
+pub fn fit_gamma(y: &[f64], x: &[Vec<f64>], options: &GammaOptions) -> StatsResult<GlmResult> {
+    validate_inputs(y, x)?;
+
+    let n_features = x.len();
+
+    for &val in y.iter() {
+        if !val.is_nan() && val <= 0.0 {
+            return Err(StatsError::InvalidValue {
+                field: "y",
+                message: "Gamma regression requires strictly positive response values".to_string(),
+            });
+        }
+    }
+
+    let valid_indices = get_valid_indices(y, x);
+    if valid_indices.is_empty() {
+        return Err(StatsError::NoValidData);
+    }
+
+    let n_valid = valid_indices.len();
+    let min_obs = if options.fit_intercept {
+        n_features + 1
+    } else {
+        n_features
+    };
+    if n_valid <= min_obs {
+        return Err(StatsError::InsufficientData {
+            rows: n_valid,
+            cols: n_features,
+        });
+    }
+
+    let y_col = Col::from_fn(n_valid, |i| y[valid_indices[i]]);
+    let x_mat = Mat::from_fn(n_valid, n_features, |i, j| x[j][valid_indices[i]]);
+
+    let fitted = GammaRegressor::builder()
+        .with_intercept(options.fit_intercept)
+        .max_iterations(options.max_iterations as usize)
+        .tolerance(options.tolerance)
+        .confidence_level(options.confidence_level)
+        .lambda(options.lambda)
+        .build()
+        .fit(&x_mat, &y_col)
+        .map_err(|e| StatsError::RegressError(format!("{:?}", e)))?;
+
+    // FittedGamma wraps FittedTweedie — reuse its diagnostics.
+    let inner = fitted.inner();
+    let result = inner.result();
+    let coefficients: Vec<f64> = result.coefficients.iter().copied().collect();
+    let intercept = result.intercept;
+
+    let pseudo_r_squared = if inner.null_deviance > 0.0 {
+        1.0 - inner.deviance / inner.null_deviance
+    } else {
+        0.0
+    };
+
+    let core = GlmFitResult {
+        coefficients,
+        intercept,
+        null_deviance: inner.null_deviance,
+        residual_deviance: inner.deviance,
+        pseudo_r_squared,
+        aic: result.aic,
+        n_observations: n_valid,
+        n_features,
+        iterations: inner.iterations as u32,
+        converged: true,
+        dispersion: Some(inner.dispersion),
     };
 
     let inference = if options.compute_inference {

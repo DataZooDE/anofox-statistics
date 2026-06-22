@@ -663,6 +663,30 @@ impl Default for TweedieOptionsFFI {
     }
 }
 
+/// Gamma GLM options for FFI (var_power = 2.0 fixed; log link).
+#[repr(C)]
+pub struct GammaOptionsFFI {
+    pub fit_intercept: bool,
+    pub max_iterations: u32,
+    pub tolerance: f64,
+    pub compute_inference: bool,
+    pub confidence_level: f64,
+    pub lambda: f64,
+}
+
+impl Default for GammaOptionsFFI {
+    fn default() -> Self {
+        Self {
+            fit_intercept: true,
+            max_iterations: 100,
+            tolerance: 1e-8,
+            compute_inference: false,
+            confidence_level: 0.95,
+            lambda: 0.0,
+        }
+    }
+}
+
 /// GLM fit result (different from standard regression - uses deviance)
 #[repr(C)]
 pub struct GlmFitResultCore {
