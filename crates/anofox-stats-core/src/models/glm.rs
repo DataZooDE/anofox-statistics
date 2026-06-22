@@ -451,9 +451,14 @@ pub fn fit_tweedie(y: &[f64], x: &[Vec<f64>], options: &TweedieOptions) -> Stats
     let y_col = Col::from_fn(n_valid, |i| y[valid_indices[i]]);
     let x_mat = Mat::from_fn(n_valid, n_features, |i, j| x[j][valid_indices[i]]);
 
-    // Build regressor using var_power (not power)
+    // Build regressor using var_power (not power). link_power(0.0) pins the
+    // log link explicitly: the upstream builder otherwise defaults to the
+    // canonical link `1 - var_power` (e.g. mu^-0.5 for p = 1.5), which is
+    // neither what the docs advertise nor what sklearn / statsmodels users
+    // expect from a Tweedie GLM.
     let fitted = TweedieRegressor::builder()
         .var_power(options.power)
+        .link_power(0.0)
         .with_intercept(options.fit_intercept)
         .max_iterations(options.max_iterations as usize)
         .tolerance(options.tolerance)
