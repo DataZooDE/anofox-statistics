@@ -2,7 +2,7 @@
 
 use crate::errors::{StatsError, StatsResult};
 use crate::types::{
-    BinomialLink, BinomialOptions, GammaOptions, GlmFitResult, GlmInferenceResult,
+    BinomialLink, BinomialOptions, GammaOptions, GlmFitResult, GlmInferenceResult, LogisticOptions,
     NegBinomialOptions, PoissonLink, PoissonOptions, TweedieOptions,
 };
 use anofox_regression::prelude::*;
@@ -583,6 +583,126 @@ pub fn fit_gamma(y: &[f64], x: &[Vec<f64>], options: &GammaOptions) -> StatsResu
     };
 
     Ok(GlmResult { core, inference })
+}
+
+/// Result from Logistic regression fit. Bundles the standard GLM result
+/// with the classification-specific diagnostics (accuracy on the training
+/// set and the classification threshold that was used).
+#[derive(Debug, Clone)]
+pub struct LogisticResult {
+    pub fit: GlmResult,
+    /// Classification accuracy on the training data using the configured
+    /// threshold.
+    pub accuracy: f64,
+    /// Classification threshold used (echoed from options).
+    pub threshold: f64,
+}
+
+/// Fit a binary Logistic regression. Wraps the upstream LogisticRegression
+/// builder (which is itself a binomial GLM with logit link). y must be
+/// binary (0.0 or 1.0); the classifier-oriented API also returns the
+/// training-set accuracy alongside the GLM diagnostics.
+pub fn fit_logistic(
+    y: &[f64],
+    x: &[Vec<f64>],
+    options: &LogisticOptions,
+) -> StatsResult<LogisticResult> {
+    validate_inputs(y, x)?;
+
+    let n_features = x.len();
+
+    // y must be binary 0/1.
+    for &val in y.iter() {
+        if !val.is_nan() && val != 0.0 && val != 1.0 {
+            return Err(StatsError::InvalidValue {
+                field: "y",
+                message: "Logistic regression requires binary response values (0.0 or 1.0)"
+                    .to_string(),
+            });
+        }
+    }
+
+    if !(0.0..=1.0).contains(&options.threshold) {
+        return Err(StatsError::InvalidInput(format!(
+            "threshold must be in [0, 1], got {}",
+            options.threshold
+        )));
+    }
+
+    let valid_indices = get_valid_indices(y, x);
+    if valid_indices.is_empty() {
+        return Err(StatsError::NoValidData);
+    }
+
+    let n_valid = valid_indices.len();
+    let min_obs = if options.fit_intercept {
+        n_features + 1
+    } else {
+        n_features
+    };
+    if n_valid <= min_obs {
+        return Err(StatsError::InsufficientData {
+            rows: n_valid,
+            cols: n_features,
+        });
+    }
+
+    let y_col = Col::from_fn(n_valid, |i| y[valid_indices[i]]);
+    let x_mat = Mat::from_fn(n_valid, n_features, |i, j| x[j][valid_indices[i]]);
+
+    let mut builder = anofox_regression::solvers::LogisticRegression::builder()
+        .with_intercept(options.fit_intercept)
+        .threshold(options.threshold)
+        .max_iterations(options.max_iterations as usize)
+        .tolerance(options.tolerance)
+        .compute_inference(options.compute_inference)
+        .confidence_level(options.confidence_level);
+    if options.lambda > 0.0 {
+        builder = builder.penalty(anofox_regression::solvers::Penalty::L2(options.lambda));
+    }
+
+    let fitted = builder
+        .build()
+        .fit(&x_mat, &y_col)
+        .map_err(|e| StatsError::RegressError(format!("{:?}", e)))?;
+
+    let accuracy = fitted.score(&x_mat, &y_col);
+    let inner = fitted.inner();
+    let result = inner.result();
+    let coefficients: Vec<f64> = result.coefficients.iter().copied().collect();
+    let intercept = result.intercept;
+
+    let pseudo_r_squared = if inner.null_deviance > 0.0 {
+        1.0 - inner.deviance / inner.null_deviance
+    } else {
+        0.0
+    };
+
+    let core = GlmFitResult {
+        coefficients,
+        intercept,
+        null_deviance: inner.null_deviance,
+        residual_deviance: inner.deviance,
+        pseudo_r_squared,
+        aic: result.aic,
+        n_observations: n_valid,
+        n_features,
+        iterations: inner.iterations as u32,
+        converged: true,
+        dispersion: Some(inner.dispersion),
+    };
+
+    let inference = if options.compute_inference {
+        extract_inference(result, options.confidence_level)
+    } else {
+        None
+    };
+
+    Ok(LogisticResult {
+        fit: GlmResult { core, inference },
+        accuracy,
+        threshold: options.threshold,
+    })
 }
 
 // Helper functions

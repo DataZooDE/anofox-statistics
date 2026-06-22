@@ -57,6 +57,7 @@ void RegisterBinomialAggregateFunction(ExtensionLoader &loader);
 void RegisterNegBinomAggregateFunction(ExtensionLoader &loader);
 void RegisterTweedieAggregateFunction(ExtensionLoader &loader);
 void RegisterGammaAggregateFunction(ExtensionLoader &loader);
+void RegisterLogisticAggregateFunction(ExtensionLoader &loader);
 
 // ALM aggregate functions
 void RegisterAlmAggregateFunction(ExtensionLoader &loader);
