@@ -141,6 +141,7 @@ set(EXTENSION_SOURCES
     src/aggregate_functions/elasticnet_predict_aggregate.cpp
     src/aggregate_functions/poisson_aggregate.cpp
     src/aggregate_functions/binomial_aggregate.cpp
+    src/aggregate_functions/negbinom_aggregate.cpp
     src/aggregate_functions/alm_aggregate.cpp
     src/aggregate_functions/bls_aggregate.cpp
     src/aggregate_functions/bls_fit_predict_aggregate.cpp
