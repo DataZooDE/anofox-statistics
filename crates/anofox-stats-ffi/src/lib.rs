@@ -11,16 +11,14 @@ use anofox_stats_core::{
     models::{
         compute_aid, compute_aid_anomalies, fit_alm, fit_binomial, fit_bls, fit_elasticnet,
         fit_gamma, fit_huber, fit_isotonic, fit_lm_dynamic, fit_logistic, fit_negbinomial, fit_ols,
-        fit_pls,
-        fit_poisson, fit_quantile, fit_ransac, fit_ridge, fit_rls, fit_theilsen, fit_tweedie,
-        fit_wls, predict, RlsOptions,
+        fit_pls, fit_poisson, fit_quantile, fit_ransac, fit_ridge, fit_rls, fit_theilsen,
+        fit_tweedie, fit_wls, predict, RlsOptions,
     },
     AidOptions, AlmDistribution, AlmLoss, AlmOptions, BinomialLink, BinomialOptions, BlsOptions,
     ElasticNetOptions, GammaOptions, HcType, HuberOptions, InformationCriterion, IsotonicOptions,
-    LambdaScaling, LmDynamicOptions, LogisticOptions, NegBinomialOptions, OlsOptions, OutlierMethod,
-    PlsOptions,
-    PoissonLink, PoissonOptions, QuantileOptions, RansacOptions, RidgeOptions, SolverType,
-    StatsError, TheilSenOptions, TweedieOptions, WlsOptions,
+    LambdaScaling, LmDynamicOptions, LogisticOptions, NegBinomialOptions, OlsOptions,
+    OutlierMethod, PlsOptions, PoissonLink, PoissonOptions, QuantileOptions, RansacOptions,
+    RidgeOptions, SolverType, StatsError, TheilSenOptions, TweedieOptions, WlsOptions,
 };
 use statrs::distribution::{ContinuousCDF, StudentsT};
 use std::slice;
