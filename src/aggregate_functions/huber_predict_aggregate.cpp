@@ -154,6 +154,7 @@ static void HuberPredictAggUpdate(Vector inputs[], AggregateInputData &aggr_inpu
     auto x_list_data = ListVector::GetData(inputs[1]);
     auto &x_child = ListVector::GetEntry(inputs[1]);
     auto x_child_data = FlatVector::GetData<double>(x_child);
+    auto &x_child_validity = FlatVector::Validity(x_child);
 
     UnifiedVectorFormat split_data;
     const string_t *split_values = nullptr;
@@ -199,7 +200,12 @@ static void HuberPredictAggUpdate(Vector inputs[], AggregateInputData &aggr_inpu
 
         vector<double> x_row(n_features);
         for (idx_t j = 0; j < n_features; j++) {
-            x_row[j] = x_child_data[list_entry.offset + j];
+            idx_t child_pos = list_entry.offset + j;
+            // List elements can be NULL; the flat-vector slot for a NULL is
+            // uninitialized and must not be read (returned garbage that poisoned
+            // predictions, #95). Substitute NaN so a missing feature yields a
+            // NaN/NULL prediction instead of garbage.
+            x_row[j] = x_child_validity.RowIsValid(child_pos) ? x_child_data[child_pos] : std::nan("");
         }
 
         auto y_idx = y_data.sel->get_index(i);
@@ -383,7 +389,7 @@ static void HuberPredictAggFinalize(Vector &state_vector, AggregateInputData &ag
                 state.x_all[row].data(), state.n_features, core_result.residual_std_error,
                 core_result.n_observations, state.confidence_level, &pred);
 
-            if (pred_success) {
+            if (pred_success && std::isfinite(pred.yhat)) {
                 FlatVector::GetData<double>(yhat_vec)[child_idx] = pred.yhat;
                 FlatVector::GetData<double>(yhat_lower_vec)[child_idx] = pred.yhat_lower;
                 FlatVector::GetData<double>(yhat_upper_vec)[child_idx] = pred.yhat_upper;

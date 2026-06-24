@@ -71,11 +71,13 @@ FROM ols_fit_predict_by('reg_data', group_id, y, [x1, x2]);
 ----
 10	2
 
-# TEST 6: All rows have predictions
+# TEST 6: Rows with complete features get predictions; the two prediction
+# rows have a NULL x1 (a missing feature), so they correctly yield NULL yhat
+# rather than a garbage value read from an uninitialized slot (#95).
 query I
 SELECT COUNT(*) FROM ols_fit_predict_by('reg_data', group_id, y, [x1, x2]) WHERE yhat IS NOT NULL;
 ----
-12
+10
 
 # TEST 7: Predictions are reasonable (yhat close to y for training data)
 query I
