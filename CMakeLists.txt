@@ -123,6 +123,7 @@ set(EXTENSION_SOURCES
     src/aggregate_functions/ols_aggregate.cpp
     src/aggregate_functions/ridge_aggregate.cpp
     src/aggregate_functions/elasticnet_aggregate.cpp
+    src/aggregate_functions/lars_aggregate.cpp
     src/aggregate_functions/wls_aggregate.cpp
     src/aggregate_functions/huber_aggregate.cpp
     src/aggregate_functions/ransac_aggregate.cpp

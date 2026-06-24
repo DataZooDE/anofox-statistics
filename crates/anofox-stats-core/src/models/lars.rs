@@ -44,7 +44,8 @@ pub fn fit_lars(y: &[f64], x: &[Vec<f64>], options: &LarsOptions) -> StatsResult
         .filter(|&i| {
             !y[i].is_nan()
                 && !y[i].is_infinite()
-                && x.iter().all(|col| !col[i].is_nan() && !col[i].is_infinite())
+                && x.iter()
+                    .all(|col| !col[i].is_nan() && !col[i].is_infinite())
         })
         .collect();
 

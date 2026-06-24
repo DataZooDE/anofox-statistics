@@ -79,6 +79,7 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterOlsAggregateFunction(loader);
     RegisterRidgeAggregateFunction(loader);
     RegisterElasticNetAggregateFunction(loader);
+    RegisterLarsAggregateFunction(loader);
     RegisterWlsAggregateFunction(loader);
     RegisterHuberAggregateFunction(loader);
     RegisterRansacAggregateFunction(loader);

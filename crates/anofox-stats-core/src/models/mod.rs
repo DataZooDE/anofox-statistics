@@ -4,10 +4,10 @@ mod aid;
 mod alm;
 mod bls;
 mod elasticnet;
-mod lars;
 mod glm;
 mod huber;
 mod isotonic;
+mod lars;
 mod lm_dynamic;
 mod lowess;
 mod ols;
@@ -24,13 +24,13 @@ pub use aid::{compute_aid, compute_aid_anomalies};
 pub use alm::{fit_alm, AlmInferenceResult, AlmResult};
 pub use bls::{fit_bls, fit_nnls};
 pub use elasticnet::fit_elasticnet;
-pub use lars::fit_lars;
 pub use glm::{
     fit_binomial, fit_gamma, fit_logistic, fit_negbinomial, fit_poisson, fit_tweedie, GlmResult,
     LogisticResult,
 };
 pub use huber::{fit_huber, HuberResult};
 pub use isotonic::fit_isotonic;
+pub use lars::fit_lars;
 pub use lm_dynamic::fit_lm_dynamic;
 pub use lowess::fit_lowess;
 pub use ols::fit_ols;

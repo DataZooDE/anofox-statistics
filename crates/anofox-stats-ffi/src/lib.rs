@@ -10,10 +10,9 @@ use anofox_stats_core::{
     diagnostics::{compute_aic, compute_bic, compute_residuals, compute_vif, jarque_bera},
     models::{
         compute_aid, compute_aid_anomalies, fit_alm, fit_binomial, fit_bls, fit_elasticnet,
-        fit_gamma, fit_huber, fit_isotonic, fit_lars, fit_lm_dynamic, fit_logistic, fit_negbinomial,
-        fit_ols,
-        fit_pls, fit_poisson, fit_quantile, fit_ransac, fit_ridge, fit_rls, fit_theilsen,
-        fit_tweedie, fit_wls, predict, RlsOptions,
+        fit_gamma, fit_huber, fit_isotonic, fit_lars, fit_lm_dynamic, fit_logistic,
+        fit_negbinomial, fit_ols, fit_pls, fit_poisson, fit_quantile, fit_ransac, fit_ridge,
+        fit_rls, fit_theilsen, fit_tweedie, fit_wls, predict, RlsOptions,
     },
     AidOptions, AlmDistribution, AlmLoss, AlmOptions, BinomialLink, BinomialOptions, BlsOptions,
     ElasticNetOptions, GammaOptions, HcType, HuberOptions, InformationCriterion, IsotonicOptions,
@@ -1335,7 +1334,10 @@ pub unsafe extern "C" fn anofox_lars_fit(
             let coef_ptr = libc::malloc(n_coef * std::mem::size_of::<f64>()) as *mut f64;
             if coef_ptr.is_null() && n_coef > 0 {
                 if !out_error.is_null() {
-                    (*out_error).set(ErrorCode::AllocationFailure, "Failed to allocate coefficients");
+                    (*out_error).set(
+                        ErrorCode::AllocationFailure,
+                        "Failed to allocate coefficients",
+                    );
                 }
                 return false;
             }
