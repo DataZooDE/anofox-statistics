@@ -195,6 +195,7 @@ static void PoissonFitPredictAggUpdate(Vector inputs[], AggregateInputData &aggr
     auto x_list_data = ListVector::GetData(inputs[1]);
     auto &x_child = ListVector::GetEntry(inputs[1]);
     auto x_child_data = FlatVector::GetData<double>(x_child);
+    auto &x_child_validity = FlatVector::Validity(x_child);
 
     // Handle split column if provided (y, x, split)
     UnifiedVectorFormat split_data;
@@ -245,7 +246,12 @@ static void PoissonFitPredictAggUpdate(Vector inputs[], AggregateInputData &aggr
         // Extract x values for this row
         vector<double> x_row(n_features);
         for (idx_t j = 0; j < n_features; j++) {
-            x_row[j] = x_child_data[list_entry.offset + j];
+            idx_t child_pos = list_entry.offset + j;
+            // List elements can be NULL; the flat-vector slot for a NULL is
+            // uninitialized and must not be read (returned garbage that poisoned
+            // predictions, #95). Substitute NaN so a missing feature yields a
+            // NaN/NULL prediction instead of garbage.
+            x_row[j] = x_child_validity.RowIsValid(child_pos) ? x_child_data[child_pos] : std::nan("");
         }
 
         // Check y validity
@@ -440,10 +446,14 @@ static void PoissonFitPredictAggFinalize(Vector &state_vector, AggregateInputDat
                 FlatVector::GetData<double>(y_vec)[child_idx] = state.y_all[row];
             }
 
-            // Compute linear predictor: eta = intercept + sum(coef * x)
+            // Compute linear predictor: eta = intercept + sum(coef * x).
+            // Skip aliased coefficients (NaN, e.g. a collinear/constant column);
+            // a NaN x (missing feature) still propagates to a NaN prediction.
             double linear_pred = core_result.intercept;
             for (idx_t j = 0; j < state.n_features; j++) {
-                linear_pred += core_result.coefficients[j] * state.x_all[row][j];
+                if (!std::isnan(core_result.coefficients[j])) {
+                    linear_pred += core_result.coefficients[j] * state.x_all[row][j];
+                }
             }
 
             // Apply inverse link function to get predicted mean
@@ -481,9 +491,17 @@ static void PoissonFitPredictAggFinalize(Vector &state_vector, AggregateInputDat
                 yhat_upper = yhat;
             }
 
-            FlatVector::GetData<double>(yhat_vec)[child_idx] = yhat;
-            FlatVector::GetData<double>(yhat_lower_vec)[child_idx] = std::max(0.0, yhat_lower); // Poisson predictions must be >= 0
-            FlatVector::GetData<double>(yhat_upper_vec)[child_idx] = yhat_upper;
+            if (std::isfinite(yhat)) {
+                FlatVector::GetData<double>(yhat_vec)[child_idx] = yhat;
+                FlatVector::GetData<double>(yhat_lower_vec)[child_idx] =
+                    std::max(0.0, yhat_lower); // Poisson predictions must be >= 0
+                FlatVector::GetData<double>(yhat_upper_vec)[child_idx] = yhat_upper;
+            } else {
+                // Missing feature (NULL) or otherwise undefined prediction (#95).
+                FlatVector::SetNull(yhat_vec, child_idx, true);
+                FlatVector::SetNull(yhat_lower_vec, child_idx, true);
+                FlatVector::SetNull(yhat_upper_vec, child_idx, true);
+            }
 
             // Set is_training flag
             FlatVector::GetData<bool>(is_training_vec)[child_idx] = state.is_training[row];

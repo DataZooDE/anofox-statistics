@@ -145,6 +145,7 @@ static void OlsPredictAggUpdate(Vector inputs[], AggregateInputData &aggr_input_
     auto x_list_data = ListVector::GetData(inputs[1]);
     auto &x_child = ListVector::GetEntry(inputs[1]);
     auto x_child_data = FlatVector::GetData<double>(x_child);
+    auto &x_child_validity = FlatVector::Validity(x_child);
 
     // Optional split column (when use_split_col is true, it's at index 2)
     UnifiedVectorFormat split_data;
@@ -191,10 +192,20 @@ static void OlsPredictAggUpdate(Vector inputs[], AggregateInputData &aggr_input_
                                         n_features);
         }
 
-        // Extract x values for this row
+        // Extract x values for this row. List elements can be NULL (e.g. a
+        // prediction row with a missing feature); the underlying flat-vector
+        // slot for a NULL is uninitialized, so it must NOT be read — doing so
+        // returned garbage feature values that poisoned predictions (#95).
         vector<double> x_row(n_features);
+        bool row_has_null_feature = false;
         for (idx_t j = 0; j < n_features; j++) {
-            x_row[j] = x_child_data[list_entry.offset + j];
+            idx_t child_pos = list_entry.offset + j;
+            if (x_child_validity.RowIsValid(child_pos)) {
+                x_row[j] = x_child_data[child_pos];
+            } else {
+                x_row[j] = std::nan("");
+                row_has_null_feature = true;
+            }
         }
 
         // Check y validity
@@ -220,6 +231,11 @@ static void OlsPredictAggUpdate(Vector inputs[], AggregateInputData &aggr_input_
         } else {
             // Default: y NULL means prediction row
             row_is_training = y_valid;
+        }
+
+        // A row with a missing feature value cannot be used to fit.
+        if (row_has_null_feature) {
+            row_is_training = false;
         }
 
         // Apply null_policy for drop_y_zero_x
@@ -390,7 +406,7 @@ static void OlsPredictAggFinalize(Vector &state_vector, AggregateInputData &aggr
                 state.n_features, core_result.residual_std_error, core_result.n_observations, state.confidence_level,
                 &pred);
 
-            if (pred_success) {
+            if (pred_success && std::isfinite(pred.yhat)) {
                 FlatVector::GetData<double>(yhat_vec)[child_idx] = pred.yhat;
                 FlatVector::GetData<double>(yhat_lower_vec)[child_idx] = pred.yhat_lower;
                 FlatVector::GetData<double>(yhat_upper_vec)[child_idx] = pred.yhat_upper;
