@@ -18,6 +18,7 @@ void RegisterPredictFunction(ExtensionLoader &loader);
 void RegisterOlsAggregateFunction(ExtensionLoader &loader);
 void RegisterRidgeAggregateFunction(ExtensionLoader &loader);
 void RegisterElasticNetAggregateFunction(ExtensionLoader &loader);
+void RegisterLarsAggregateFunction(ExtensionLoader &loader);
 void RegisterWlsAggregateFunction(ExtensionLoader &loader);
 void RegisterHuberAggregateFunction(ExtensionLoader &loader);
 void RegisterRansacAggregateFunction(ExtensionLoader &loader);

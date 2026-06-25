@@ -509,6 +509,21 @@ pub struct ElasticNetOptionsFFI {
     pub lambda_scaling: LambdaScalingFFI,
 }
 
+/// Options for Least Angle Regression (LARS / LassoLars) for FFI
+#[repr(C)]
+pub struct LarsOptionsFFI {
+    /// false = plain LARS, true = LassoLars (exact Lasso path)
+    pub method_lasso: bool,
+    /// Whether to fit an intercept term
+    pub fit_intercept: bool,
+    /// LassoLars early-stop alpha (0.0 = full path)
+    pub alpha: f64,
+    /// Cap on non-zero coefficients (<= 0 = unlimited)
+    pub n_nonzero_coefs: i64,
+    /// Standardize features before fitting
+    pub standardize: bool,
+}
+
 impl Default for ElasticNetOptionsFFI {
     fn default() -> Self {
         Self {

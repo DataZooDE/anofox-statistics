@@ -10,13 +10,13 @@ use anofox_stats_core::{
     diagnostics::{compute_aic, compute_bic, compute_residuals, compute_vif, jarque_bera},
     models::{
         compute_aid, compute_aid_anomalies, fit_alm, fit_binomial, fit_bls, fit_elasticnet,
-        fit_gamma, fit_huber, fit_isotonic, fit_lm_dynamic, fit_logistic, fit_negbinomial, fit_ols,
-        fit_pls, fit_poisson, fit_quantile, fit_ransac, fit_ridge, fit_rls, fit_theilsen,
-        fit_tweedie, fit_wls, predict, RlsOptions,
+        fit_gamma, fit_huber, fit_isotonic, fit_lars, fit_lm_dynamic, fit_logistic,
+        fit_negbinomial, fit_ols, fit_pls, fit_poisson, fit_quantile, fit_ransac, fit_ridge,
+        fit_rls, fit_theilsen, fit_tweedie, fit_wls, predict, RlsOptions,
     },
     AidOptions, AlmDistribution, AlmLoss, AlmOptions, BinomialLink, BinomialOptions, BlsOptions,
     ElasticNetOptions, GammaOptions, HcType, HuberOptions, InformationCriterion, IsotonicOptions,
-    LambdaScaling, LmDynamicOptions, LogisticOptions, NegBinomialOptions, OlsOptions,
+    LambdaScaling, LarsOptions, LmDynamicOptions, LogisticOptions, NegBinomialOptions, OlsOptions,
     OutlierMethod, PlsOptions, PoissonLink, PoissonOptions, QuantileOptions, RansacOptions,
     RidgeOptions, SolverType, StatsError, TheilSenOptions, TweedieOptions, WlsOptions,
 };
@@ -1231,6 +1231,106 @@ pub unsafe extern "C" fn anofox_elasticnet_fit(
             let n_coef = result.core.coefficients.len();
 
             // Allocate and copy coefficients
+            let coef_ptr = libc::malloc(n_coef * std::mem::size_of::<f64>()) as *mut f64;
+            if coef_ptr.is_null() && n_coef > 0 {
+                if !out_error.is_null() {
+                    (*out_error).set(
+                        ErrorCode::AllocationFailure,
+                        "Failed to allocate coefficients",
+                    );
+                }
+                return false;
+            }
+            std::ptr::copy_nonoverlapping(result.core.coefficients.as_ptr(), coef_ptr, n_coef);
+
+            (*out_core) = FitResultCore {
+                coefficients: coef_ptr,
+                coefficients_len: n_coef,
+                intercept: result.core.intercept.unwrap_or(f64::NAN),
+                r_squared: result.core.r_squared,
+                adj_r_squared: result.core.adj_r_squared,
+                residual_std_error: result.core.residual_std_error,
+                n_observations: result.core.n_observations,
+                n_features: result.core.n_features,
+            };
+
+            true
+        }
+        Err(e) => {
+            if !out_error.is_null() {
+                (*out_error).set(error_to_code(&e), &e.to_string());
+            }
+            false
+        }
+    }
+}
+
+/// Fit a Least Angle Regression model (LARS / LassoLars)
+///
+/// # Safety
+/// - `y` must be a valid DataArray
+/// - `x` must point to `x_count` valid DataArray structs
+/// - `out_core` must be a valid pointer
+/// - `out_error` must be a valid pointer
+///
+/// # Returns
+/// `true` on success, `false` on error (check `out_error` for details)
+#[no_mangle]
+pub unsafe extern "C" fn anofox_lars_fit(
+    y: DataArray,
+    x: *const DataArray,
+    x_count: usize,
+    options: LarsOptionsFFI,
+    out_core: *mut FitResultCore,
+    out_error: *mut AnofoxError,
+) -> bool {
+    if !out_error.is_null() {
+        *out_error = AnofoxError::success();
+    }
+
+    if out_core.is_null() {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "out_core is NULL");
+        }
+        return false;
+    }
+
+    if x.is_null() || x_count == 0 {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
+        }
+        return false;
+    }
+
+    let y_vec = y.to_vec();
+    let x_arrays = slice::from_raw_parts(x, x_count);
+    let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
+
+    let opts = LarsOptions {
+        method_lasso: options.method_lasso,
+        fit_intercept: options.fit_intercept,
+        alpha: options.alpha,
+        n_nonzero_coefs: options.n_nonzero_coefs,
+        standardize: options.standardize,
+    };
+
+    let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        fit_lars(&y_vec, &x_vecs, &opts)
+    }));
+
+    let fit_result = match fit_result {
+        Ok(r) => r,
+        Err(_) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InternalError, "Internal panic in LARS fit");
+            }
+            return false;
+        }
+    };
+
+    match fit_result {
+        Ok(result) => {
+            let n_coef = result.core.coefficients.len();
             let coef_ptr = libc::malloc(n_coef * std::mem::size_of::<f64>()) as *mut f64;
             if coef_ptr.is_null() && n_coef > 0 {
                 if !out_error.is_null() {

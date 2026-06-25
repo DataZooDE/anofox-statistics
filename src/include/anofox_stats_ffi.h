@@ -413,6 +413,36 @@ bool anofox_elasticnet_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x
                            AnofoxFitResultCore *out_core, AnofoxError *out_error);
 
 /**
+ * Options for Least Angle Regression (LARS / LassoLars)
+ */
+typedef struct {
+    /** false = plain LARS, true = LassoLars (exact Lasso path) */
+    bool method_lasso;
+    /** Whether to fit an intercept term */
+    bool fit_intercept;
+    /** LassoLars early-stop alpha (0.0 = full path) */
+    double alpha;
+    /** Cap on non-zero coefficients (<= 0 = unlimited) */
+    int64_t n_nonzero_coefs;
+    /** Standardize features before fitting */
+    bool standardize;
+} AnofoxLarsOptions;
+
+/**
+ * Fit a Least Angle Regression (LARS / LassoLars) model
+ *
+ * @param y Response variable array
+ * @param x Pointer to array of feature arrays
+ * @param x_count Number of feature arrays
+ * @param options LARS fitting options
+ * @param out_core Output: core fit results (required)
+ * @param out_error Output: error information (required)
+ * @return true on success, false on error
+ */
+bool anofox_lars_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, AnofoxLarsOptions options,
+                     AnofoxFitResultCore *out_core, AnofoxError *out_error);
+
+/**
  * WLS (Weighted Least Squares) options for FFI
  */
 typedef struct {

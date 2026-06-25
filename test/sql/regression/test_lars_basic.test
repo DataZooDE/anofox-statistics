@@ -1,0 +1,77 @@
+# name: test/sql/regression/test_lars_basic.test
+# description: Basic tests for Least Angle Regression (LARS / LassoLars)
+# group: [regression]
+
+require anofox_statistics
+
+# Exact linear relationship y = 3 + 2*x; full-path LARS (alpha=0) == OLS here.
+statement ok
+CREATE TABLE lars_data AS
+SELECT i::DOUBLE AS x, (3.0 + 2.0 * i)::DOUBLE AS y
+FROM range(1, 21) t(i);
+
+# TEST 1: result struct populated with one coefficient
+query I
+SELECT len((lars_fit_agg(y, [x])).coefficients) FROM lars_data;
+----
+1
+
+# TEST 2: slope coefficient recovered (~2.0)
+query I
+SELECT ROUND((lars_fit_agg(y, [x])).coefficients[1], 4) FROM lars_data;
+----
+2.0
+
+# TEST 3: intercept recovered (~3.0)
+query I
+SELECT ROUND((lars_fit_agg(y, [x])).intercept, 4) FROM lars_data;
+----
+3.0
+
+# TEST 4: perfect fit
+query I
+SELECT ROUND((lars_fit_agg(y, [x])).r_squared, 4) FROM lars_data;
+----
+1.0
+
+# TEST 5: observation count
+query I
+SELECT (lars_fit_agg(y, [x])).n_observations FROM lars_data;
+----
+20
+
+# TEST 6: multi-feature recovery, y = 5 + 2*x1 + 0.5*x2
+statement ok
+CREATE TABLE lars_multi AS
+SELECT i::DOUBLE AS x1, (i * i)::DOUBLE AS x2, (5.0 + 2.0 * i + 0.5 * i * i)::DOUBLE AS y
+FROM range(1, 31) t(i);
+
+query II
+SELECT ROUND((lars_fit_agg(y, [x1, x2])).coefficients[1], 3),
+       ROUND((lars_fit_agg(y, [x1, x2])).coefficients[2], 3)
+FROM lars_multi;
+----
+2.0	0.5
+
+# TEST 7: fully-qualified name resolves
+query I
+SELECT ROUND((anofox_stats_lars_fit_agg(y, [x])).coefficients[1], 4) FROM lars_data;
+----
+2.0
+
+# TEST 8: LassoLars via MAP options (fit_intercept=false), still finite & sane
+query I
+SELECT (lars_fit_agg(y, [x], {'fit_intercept': false})).coefficients[1] IS NOT NULL FROM lars_data;
+----
+true
+
+# TEST 9: NULL feature on a row is dropped, not read as garbage
+statement ok
+CREATE TABLE lars_null AS
+SELECT * FROM (VALUES (1.0, 5.0), (2.0, 7.0), (3.0, 9.0), (4.0, 11.0), (5.0, 13.0), (NULL, NULL))
+AS t(x, y);
+
+query I
+SELECT (lars_fit_agg(y, [x])).n_observations FROM lars_null;
+----
+5

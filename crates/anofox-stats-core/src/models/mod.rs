@@ -7,6 +7,7 @@ mod elasticnet;
 mod glm;
 mod huber;
 mod isotonic;
+mod lars;
 mod lm_dynamic;
 mod lowess;
 mod ols;
@@ -29,6 +30,7 @@ pub use glm::{
 };
 pub use huber::{fit_huber, HuberResult};
 pub use isotonic::fit_isotonic;
+pub use lars::fit_lars;
 pub use lm_dynamic::fit_lm_dynamic;
 pub use lowess::fit_lowess;
 pub use ols::fit_ols;

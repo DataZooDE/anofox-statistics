@@ -224,6 +224,36 @@ impl Default for ElasticNetOptions {
     }
 }
 
+/// Options for Least Angle Regression (LARS / LassoLars)
+#[derive(Debug, Clone)]
+pub struct LarsOptions {
+    /// false = plain LARS (variables only enter the active set);
+    /// true = LassoLars (variables can also leave — reproduces the Lasso path).
+    pub method_lasso: bool,
+    /// Whether to fit an intercept term.
+    pub fit_intercept: bool,
+    /// LassoLars-only early stop: terminate once the path reaches this alpha
+    /// (regularization level). 0.0 runs the full path.
+    pub alpha: f64,
+    /// Cap on the number of non-zero coefficients (active set size).
+    /// <= 0 means unlimited (min(n - intercept, p)).
+    pub n_nonzero_coefs: i64,
+    /// Standardize features to unit variance before fitting (recommended).
+    pub standardize: bool,
+}
+
+impl Default for LarsOptions {
+    fn default() -> Self {
+        Self {
+            method_lasso: false,
+            fit_intercept: true,
+            alpha: 0.0,
+            n_nonzero_coefs: 0,
+            standardize: true,
+        }
+    }
+}
+
 /// Options for Huber M-estimator robust regression
 #[derive(Debug, Clone)]
 pub struct HuberOptions {
