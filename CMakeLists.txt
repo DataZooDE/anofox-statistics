@@ -229,6 +229,13 @@ if(ANOFOX_TELEMETRY_ENABLED)
 
     target_compile_definitions(${EXTENSION_NAME} PRIVATE ANOFOX_TELEMETRY_ENABLED)
     target_compile_definitions(${LOADABLE_EXTENSION_NAME} PRIVATE ANOFOX_TELEMETRY_ENABLED)
+else()
+    # Since posthog-telemetry consolidated on main (DataZooDE/posthog-telemetry#5),
+    # the header's no-op stubs are opt-out: POSTHOG_TELEMETRY_DISABLED turns every
+    # telemetry call into an inline no-op (the old header keyed on the absence of
+    # ANOFOX_TELEMETRY_ENABLED instead).
+    target_compile_definitions(${EXTENSION_NAME} PRIVATE POSTHOG_TELEMETRY_DISABLED)
+    target_compile_definitions(${LOADABLE_EXTENSION_NAME} PRIVATE POSTHOG_TELEMETRY_DISABLED)
 endif()
 
 # Link Windows system libraries
