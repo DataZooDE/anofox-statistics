@@ -229,6 +229,20 @@ if(ANOFOX_TELEMETRY_ENABLED)
 
     target_compile_definitions(${EXTENSION_NAME} PRIVATE ANOFOX_TELEMETRY_ENABLED)
     target_compile_definitions(${LOADABLE_EXTENSION_NAME} PRIVATE ANOFOX_TELEMETRY_ENABLED)
+
+    # posthog-telemetry reads the machine id from the IORegistry on macOS
+    # (IORegistryEntryFromPath et al.), which requires linking IOKit explicitly.
+    if(APPLE)
+        target_link_libraries(${EXTENSION_NAME} "-framework IOKit" "-framework CoreFoundation")
+        target_link_libraries(${LOADABLE_EXTENSION_NAME} "-framework IOKit" "-framework CoreFoundation")
+    endif()
+else()
+    # Since posthog-telemetry consolidated on main (DataZooDE/posthog-telemetry#5),
+    # the header's no-op stubs are opt-out: POSTHOG_TELEMETRY_DISABLED turns every
+    # telemetry call into an inline no-op (the old header keyed on the absence of
+    # ANOFOX_TELEMETRY_ENABLED instead).
+    target_compile_definitions(${EXTENSION_NAME} PRIVATE POSTHOG_TELEMETRY_DISABLED)
+    target_compile_definitions(${LOADABLE_EXTENSION_NAME} PRIVATE POSTHOG_TELEMETRY_DISABLED)
 endif()
 
 # Link Windows system libraries
