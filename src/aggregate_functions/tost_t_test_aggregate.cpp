@@ -250,7 +250,7 @@ static unique_ptr<FunctionData> TostTTestAggBind(ClientContext &context, Aggrega
         bind_data->options = TostMapOptions::ParseFromValue(options_val);
     }
 
-    PostHogTelemetry::Instance().CaptureFunctionExecution("tost_t_test_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("tost_t_test_agg");
     return bind_data;
 }
 

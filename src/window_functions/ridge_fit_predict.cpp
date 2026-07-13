@@ -304,7 +304,7 @@ static unique_ptr<FunctionData> RidgeFitPredictBind(ClientContext &context, Aggr
     }
 
     function.return_type = GetRidgeFitPredictResultType();
-    PostHogTelemetry::Instance().CaptureFunctionExecution("ridge_fit_predict");
+    PostHogTelemetry::Instance().RecordFunctionCall("ridge_fit_predict");
     return std::move(result);
 }
 

@@ -367,7 +367,7 @@ static unique_ptr<FunctionData> OlsAggBind(ClientContext &context, AggregateFunc
     // Set return type based on options
     function.return_type = GetOlsAggResultType(result->compute_inference);
 
-    PostHogTelemetry::Instance().CaptureFunctionExecution("ols_fit_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("ols_fit_agg");
     return std::move(result);
 }
 

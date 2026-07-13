@@ -101,7 +101,7 @@ static unique_ptr<FunctionData> HuberFitBind(ClientContext &context, ScalarFunct
 
     bound_function.return_type = GetHuberResultType(result->compute_inference);
 
-    PostHogTelemetry::Instance().CaptureFunctionExecution("huber_fit");
+    PostHogTelemetry::Instance().RecordFunctionCall("huber_fit");
     return std::move(result);
 }
 

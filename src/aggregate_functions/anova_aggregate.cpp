@@ -188,7 +188,7 @@ static void AnovaAggFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
 static unique_ptr<FunctionData> AnovaAggBind(ClientContext &context, AggregateFunction &function,
                                               vector<unique_ptr<Expression>> &arguments) {
     function.return_type = GetAnovaAggResultType();
-    PostHogTelemetry::Instance().CaptureFunctionExecution("one_way_anova_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("one_way_anova_agg");
     return nullptr;
 }
 

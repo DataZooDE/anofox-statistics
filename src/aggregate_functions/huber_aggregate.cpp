@@ -367,7 +367,7 @@ static unique_ptr<FunctionData> HuberAggBind(ClientContext &context, AggregateFu
 
     function.return_type = GetHuberAggResultType(result->compute_inference);
 
-    PostHogTelemetry::Instance().CaptureFunctionExecution("huber_fit_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("huber_fit_agg");
     return std::move(result);
 }
 

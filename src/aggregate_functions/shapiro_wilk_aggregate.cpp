@@ -166,7 +166,7 @@ static void ShapiroWilkAggFinalize(Vector &state_vector, AggregateInputData &agg
 static unique_ptr<FunctionData> ShapiroWilkAggBind(ClientContext &context, AggregateFunction &function,
                                                     vector<unique_ptr<Expression>> &arguments) {
     function.return_type = GetShapiroWilkAggResultType();
-    PostHogTelemetry::Instance().CaptureFunctionExecution("shapiro_wilk_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("shapiro_wilk_agg");
     return nullptr;
 }
 

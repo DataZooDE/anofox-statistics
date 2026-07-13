@@ -369,7 +369,7 @@ static unique_ptr<FunctionData> PlsPredictAggBind(ClientContext &context, Aggreg
     }
 
     function.return_type = GetPlsPredictAggResultType();
-    PostHogTelemetry::Instance().CaptureFunctionExecution("pls_fit_predict_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("pls_fit_predict_agg");
     return std::move(result);
 }
 
@@ -391,7 +391,7 @@ static unique_ptr<FunctionData> PlsPredictAggBindWithSplit(ClientContext &contex
     }
 
     function.return_type = GetPlsPredictAggResultType();
-    PostHogTelemetry::Instance().CaptureFunctionExecution("pls_fit_predict_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("pls_fit_predict_agg");
     return std::move(result);
 }
 

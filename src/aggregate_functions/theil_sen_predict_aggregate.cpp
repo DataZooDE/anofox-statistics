@@ -433,7 +433,7 @@ static unique_ptr<FunctionData> TheilSenPredictAggBind(ClientContext &context, A
     }
 
     function.return_type = GetTheilSenPredictAggResultType();
-    PostHogTelemetry::Instance().CaptureFunctionExecution("theilsen_fit_predict_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("theilsen_fit_predict_agg");
     return std::move(result);
 }
 
@@ -448,7 +448,7 @@ static unique_ptr<FunctionData> TheilSenPredictAggBindWithSplit(ClientContext &c
     }
 
     function.return_type = GetTheilSenPredictAggResultType();
-    PostHogTelemetry::Instance().CaptureFunctionExecution("theilsen_fit_predict_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("theilsen_fit_predict_agg");
     return std::move(result);
 }
 

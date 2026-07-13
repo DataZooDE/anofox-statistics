@@ -320,7 +320,7 @@ static unique_ptr<FunctionData> RlsAggBind(ClientContext &context, AggregateFunc
     // Set return type
     function.return_type = GetRlsAggResultType();
 
-    PostHogTelemetry::Instance().CaptureFunctionExecution("rls_fit_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("rls_fit_agg");
     return std::move(result);
 }
 

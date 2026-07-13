@@ -453,7 +453,7 @@ static unique_ptr<FunctionData> OlsPredictAggBind(ClientContext &context, Aggreg
     }
 
     function.return_type = GetOlsPredictAggResultType();
-    PostHogTelemetry::Instance().CaptureFunctionExecution("ols_fit_predict_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("ols_fit_predict_agg");
     return std::move(result);
 }
 
@@ -484,7 +484,7 @@ static unique_ptr<FunctionData> OlsPredictAggBindWithSplit(ClientContext &contex
     }
 
     function.return_type = GetOlsPredictAggResultType();
-    PostHogTelemetry::Instance().CaptureFunctionExecution("ols_fit_predict_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("ols_fit_predict_agg");
     return std::move(result);
 }
 

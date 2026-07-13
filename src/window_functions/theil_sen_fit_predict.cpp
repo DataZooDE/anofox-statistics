@@ -355,7 +355,7 @@ static unique_ptr<FunctionData> TheilSenFitPredictBind(ClientContext &context, A
     }
 
     function.return_type = GetTheilSenFitPredictResultType();
-    PostHogTelemetry::Instance().CaptureFunctionExecution("theilsen_fit_predict");
+    PostHogTelemetry::Instance().RecordFunctionCall("theilsen_fit_predict");
     return std::move(result);
 }
 

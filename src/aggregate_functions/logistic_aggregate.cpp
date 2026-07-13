@@ -354,7 +354,7 @@ static unique_ptr<FunctionData> LogisticAggBind(ClientContext &context, Aggregat
 
     function.return_type = GetLogisticAggResultType(result->compute_inference);
 
-    PostHogTelemetry::Instance().CaptureFunctionExecution("logistic_fit_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("logistic_fit_agg");
     return std::move(result);
 }
 

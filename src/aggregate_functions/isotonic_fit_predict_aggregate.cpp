@@ -367,7 +367,7 @@ static unique_ptr<FunctionData> IsotonicPredictAggBind(ClientContext &context, A
     }
 
     function.return_type = GetIsotonicPredictAggResultType();
-    PostHogTelemetry::Instance().CaptureFunctionExecution("isotonic_fit_predict_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("isotonic_fit_predict_agg");
     return std::move(result);
 }
 
@@ -386,7 +386,7 @@ static unique_ptr<FunctionData> IsotonicPredictAggBindWithSplit(ClientContext &c
     }
 
     function.return_type = GetIsotonicPredictAggResultType();
-    PostHogTelemetry::Instance().CaptureFunctionExecution("isotonic_fit_predict_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("isotonic_fit_predict_agg");
     return std::move(result);
 }
 

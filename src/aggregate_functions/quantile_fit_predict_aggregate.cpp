@@ -371,7 +371,7 @@ static unique_ptr<FunctionData> QuantilePredictAggBind(ClientContext &context, A
     }
 
     function.return_type = GetQuantilePredictAggResultType();
-    PostHogTelemetry::Instance().CaptureFunctionExecution("quantile_fit_predict_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("quantile_fit_predict_agg");
     return std::move(result);
 }
 
@@ -393,7 +393,7 @@ static unique_ptr<FunctionData> QuantilePredictAggBindWithSplit(ClientContext &c
     }
 
     function.return_type = GetQuantilePredictAggResultType();
-    PostHogTelemetry::Instance().CaptureFunctionExecution("quantile_fit_predict_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("quantile_fit_predict_agg");
     return std::move(result);
 }
 

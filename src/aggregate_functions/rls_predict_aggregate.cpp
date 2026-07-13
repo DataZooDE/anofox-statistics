@@ -402,7 +402,7 @@ static unique_ptr<FunctionData> RlsPredictAggBind(ClientContext &context, Aggreg
     }
 
     function.return_type = GetRlsPredictAggResultType();
-    PostHogTelemetry::Instance().CaptureFunctionExecution("rls_fit_predict_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("rls_fit_predict_agg");
     return std::move(result);
 }
 
@@ -431,7 +431,7 @@ static unique_ptr<FunctionData> RlsPredictAggBindWithSplit(ClientContext &contex
     }
 
     function.return_type = GetRlsPredictAggResultType();
-    PostHogTelemetry::Instance().CaptureFunctionExecution("rls_fit_predict_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("rls_fit_predict_agg");
     return std::move(result);
 }
 

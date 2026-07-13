@@ -233,7 +233,7 @@ static unique_ptr<FunctionData> KendallAggBind(ClientContext &context, Aggregate
         bind_data->options = KendallMapOptions::ParseFromValue(options_val);
     }
 
-    PostHogTelemetry::Instance().CaptureFunctionExecution("kendall_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("kendall_agg");
     return bind_data;
 }
 

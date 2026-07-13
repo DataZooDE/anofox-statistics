@@ -378,7 +378,7 @@ static unique_ptr<FunctionData> RidgeAggBind(ClientContext &context, AggregateFu
     // Set return type based on options
     function.return_type = GetRidgeAggResultType(result->compute_inference);
 
-    PostHogTelemetry::Instance().CaptureFunctionExecution("ridge_fit_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("ridge_fit_agg");
     return std::move(result);
 }
 

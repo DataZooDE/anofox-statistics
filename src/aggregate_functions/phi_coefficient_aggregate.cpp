@@ -177,7 +177,7 @@ static void PhiCoefficientAggFinalize(Vector &state_vector, AggregateInputData &
 static unique_ptr<FunctionData> PhiCoefficientAggBind(ClientContext &context, AggregateFunction &function,
                                                        vector<unique_ptr<Expression>> &arguments) {
     function.return_type = LogicalType::DOUBLE;
-    PostHogTelemetry::Instance().CaptureFunctionExecution("phi_coefficient_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("phi_coefficient_agg");
     return nullptr;
 }
 

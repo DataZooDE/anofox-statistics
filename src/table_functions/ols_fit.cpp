@@ -94,7 +94,7 @@ static unique_ptr<FunctionData> OlsFitBind(ClientContext &context, ScalarFunctio
     // Set return type
     bound_function.return_type = GetOlsResultType(result->compute_inference);
 
-    PostHogTelemetry::Instance().CaptureFunctionExecution("ols_fit");
+    PostHogTelemetry::Instance().RecordFunctionCall("ols_fit");
     return std::move(result);
 }
 

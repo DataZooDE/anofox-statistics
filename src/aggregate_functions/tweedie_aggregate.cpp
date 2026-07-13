@@ -344,7 +344,7 @@ static unique_ptr<FunctionData> TweedieAggBind(ClientContext &context, Aggregate
 
     function.return_type = GetTweedieAggResultType(result->compute_inference);
 
-    PostHogTelemetry::Instance().CaptureFunctionExecution("tweedie_fit_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("tweedie_fit_agg");
     return std::move(result);
 }
 

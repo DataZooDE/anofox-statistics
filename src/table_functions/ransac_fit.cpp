@@ -126,7 +126,7 @@ static unique_ptr<FunctionData> RansacFitBind(ClientContext &context, ScalarFunc
 
     bound_function.return_type = GetRansacResultType(result->compute_inference);
 
-    PostHogTelemetry::Instance().CaptureFunctionExecution("ransac_fit");
+    PostHogTelemetry::Instance().RecordFunctionCall("ransac_fit");
     return std::move(result);
 }
 

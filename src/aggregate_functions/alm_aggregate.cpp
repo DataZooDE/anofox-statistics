@@ -389,7 +389,7 @@ static unique_ptr<FunctionData> AlmAggBind(ClientContext &context, AggregateFunc
 
     function.return_type = GetAlmAggResultType(result->compute_inference);
 
-    PostHogTelemetry::Instance().CaptureFunctionExecution("alm_fit_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("alm_fit_agg");
     return std::move(result);
 }
 

@@ -421,7 +421,7 @@ static unique_ptr<FunctionData> RidgePredictAggBind(ClientContext &context, Aggr
     }
 
     function.return_type = GetRidgePredictAggResultType();
-    PostHogTelemetry::Instance().CaptureFunctionExecution("ridge_fit_predict_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("ridge_fit_predict_agg");
     return std::move(result);
 }
 
@@ -455,7 +455,7 @@ static unique_ptr<FunctionData> RidgePredictAggBindWithSplit(ClientContext &cont
     }
 
     function.return_type = GetRidgePredictAggResultType();
-    PostHogTelemetry::Instance().CaptureFunctionExecution("ridge_fit_predict_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("ridge_fit_predict_agg");
     return std::move(result);
 }
 

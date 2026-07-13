@@ -289,7 +289,7 @@ static unique_ptr<FunctionData> RlsFitPredictBind(ClientContext &context, Aggreg
     }
 
     function.return_type = GetRlsFitPredictResultType();
-    PostHogTelemetry::Instance().CaptureFunctionExecution("rls_fit_predict");
+    PostHogTelemetry::Instance().RecordFunctionCall("rls_fit_predict");
     return std::move(result);
 }
 

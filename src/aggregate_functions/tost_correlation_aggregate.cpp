@@ -263,7 +263,7 @@ static unique_ptr<FunctionData> TostCorrelationAggBind(ClientContext &context, A
         }
     }
 
-    PostHogTelemetry::Instance().CaptureFunctionExecution("tost_correlation_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("tost_correlation_agg");
     return bind_data;
 }
 

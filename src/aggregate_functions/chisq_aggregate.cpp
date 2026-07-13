@@ -206,7 +206,7 @@ static unique_ptr<FunctionData> ChiSquareAggBind(ClientContext &context, Aggrega
         bind_data->options = ChiSquareMapOptions::ParseFromValue(options_val);
     }
 
-    PostHogTelemetry::Instance().CaptureFunctionExecution("chisq_test_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("chisq_test_agg");
     return bind_data;
 }
 

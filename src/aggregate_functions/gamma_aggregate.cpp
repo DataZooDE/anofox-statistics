@@ -333,7 +333,7 @@ static unique_ptr<FunctionData> GammaAggBind(ClientContext &context, AggregateFu
 
     function.return_type = GetGammaAggResultType(result->compute_inference);
 
-    PostHogTelemetry::Instance().CaptureFunctionExecution("gamma_fit_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("gamma_fit_agg");
     return std::move(result);
 }
 

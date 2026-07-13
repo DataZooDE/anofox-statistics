@@ -306,7 +306,7 @@ static unique_ptr<FunctionData> WlsFitPredictBind(ClientContext &context, Aggreg
     }
 
     function.return_type = GetWlsFitPredictResultType();
-    PostHogTelemetry::Instance().CaptureFunctionExecution("wls_fit_predict");
+    PostHogTelemetry::Instance().RecordFunctionCall("wls_fit_predict");
     return std::move(result);
 }
 

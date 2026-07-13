@@ -102,7 +102,7 @@ static unique_ptr<FunctionData> RidgeFitBind(ClientContext &context, ScalarFunct
     // Set return type
     bound_function.return_type = GetRidgeResultType(result->compute_inference);
 
-    PostHogTelemetry::Instance().CaptureFunctionExecution("ridge_fit");
+    PostHogTelemetry::Instance().RecordFunctionCall("ridge_fit");
     return std::move(result);
 }
 

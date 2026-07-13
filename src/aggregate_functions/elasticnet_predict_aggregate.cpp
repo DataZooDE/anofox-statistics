@@ -432,7 +432,7 @@ static unique_ptr<FunctionData> ElasticNetPredictAggBind(ClientContext &context,
     }
 
     function.return_type = GetElasticNetPredictAggResultType();
-    PostHogTelemetry::Instance().CaptureFunctionExecution("elasticnet_fit_predict_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("elasticnet_fit_predict_agg");
     return std::move(result);
 }
 
@@ -470,7 +470,7 @@ static unique_ptr<FunctionData> ElasticNetPredictAggBindWithSplit(ClientContext 
     }
 
     function.return_type = GetElasticNetPredictAggResultType();
-    PostHogTelemetry::Instance().CaptureFunctionExecution("elasticnet_fit_predict_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("elasticnet_fit_predict_agg");
     return std::move(result);
 }
 

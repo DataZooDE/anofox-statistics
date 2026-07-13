@@ -165,7 +165,7 @@ static void DAgostinoK2AggFinalize(Vector &state_vector, AggregateInputData &agg
 static unique_ptr<FunctionData> DAgostinoK2AggBind(ClientContext &context, AggregateFunction &function,
                                                     vector<unique_ptr<Expression>> &arguments) {
     function.return_type = GetDAgostinoK2AggResultType();
-    PostHogTelemetry::Instance().CaptureFunctionExecution("dagostino_k2_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("dagostino_k2_agg");
     return nullptr;
 }
 

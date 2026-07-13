@@ -221,7 +221,7 @@ static unique_ptr<FunctionData> PearsonAggBind(ClientContext &context, Aggregate
         bind_data->options = CorrelationMapOptions::ParseFromValue(options_val);
     }
 
-    PostHogTelemetry::Instance().CaptureFunctionExecution("pearson_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("pearson_agg");
     return bind_data;
 }
 

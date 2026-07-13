@@ -350,7 +350,7 @@ static unique_ptr<FunctionData> OlsFitPredictBind(ClientContext &context, Aggreg
     }
 
     function.return_type = GetOlsFitPredictResultType();
-    PostHogTelemetry::Instance().CaptureFunctionExecution("ols_fit_predict");
+    PostHogTelemetry::Instance().RecordFunctionCall("ols_fit_predict");
     return std::move(result);
 }
 

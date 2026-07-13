@@ -73,7 +73,7 @@ static unique_ptr<FunctionData> RlsFitBind(ClientContext &context, ScalarFunctio
     // Set return type
     bound_function.return_type = GetRlsResultType();
 
-    PostHogTelemetry::Instance().CaptureFunctionExecution("rls_fit");
+    PostHogTelemetry::Instance().RecordFunctionCall("rls_fit");
     return std::move(result);
 }
 

@@ -466,7 +466,7 @@ static unique_ptr<FunctionData> RansacPredictAggBind(ClientContext &context, Agg
     }
 
     function.return_type = GetRansacPredictAggResultType();
-    PostHogTelemetry::Instance().CaptureFunctionExecution("ransac_fit_predict_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("ransac_fit_predict_agg");
     return std::move(result);
 }
 
@@ -480,7 +480,7 @@ static unique_ptr<FunctionData> RansacPredictAggBindWithSplit(ClientContext &con
     }
 
     function.return_type = GetRansacPredictAggResultType();
-    PostHogTelemetry::Instance().CaptureFunctionExecution("ransac_fit_predict_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("ransac_fit_predict_agg");
     return std::move(result);
 }
 

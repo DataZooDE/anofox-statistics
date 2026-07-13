@@ -222,7 +222,7 @@ static unique_ptr<FunctionData> McNemarAggBind(ClientContext &context, Aggregate
         }
     }
 
-    PostHogTelemetry::Instance().CaptureFunctionExecution("mcnemar_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("mcnemar_agg");
     return bind_data;
 }
 

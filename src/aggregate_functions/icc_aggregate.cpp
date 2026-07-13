@@ -279,7 +279,7 @@ static unique_ptr<FunctionData> IccAggBind(ClientContext &context, AggregateFunc
         }
     }
 
-    PostHogTelemetry::Instance().CaptureFunctionExecution("icc_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("icc_agg");
     return bind_data;
 }
 

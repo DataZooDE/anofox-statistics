@@ -352,7 +352,7 @@ static unique_ptr<FunctionData> HuberFitPredictBind(ClientContext &context, Aggr
     }
 
     function.return_type = GetHuberFitPredictResultType();
-    PostHogTelemetry::Instance().CaptureFunctionExecution("huber_fit_predict");
+    PostHogTelemetry::Instance().RecordFunctionCall("huber_fit_predict");
     return std::move(result);
 }
 

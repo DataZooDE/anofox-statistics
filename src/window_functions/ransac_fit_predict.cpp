@@ -380,7 +380,7 @@ static unique_ptr<FunctionData> RansacFitPredictBind(ClientContext &context, Agg
     }
 
     function.return_type = GetRansacFitPredictResultType();
-    PostHogTelemetry::Instance().CaptureFunctionExecution("ransac_fit_predict");
+    PostHogTelemetry::Instance().RecordFunctionCall("ransac_fit_predict");
     return std::move(result);
 }
 

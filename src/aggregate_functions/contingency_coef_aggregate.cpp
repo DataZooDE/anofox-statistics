@@ -175,7 +175,7 @@ static void ContingencyCoefAggFinalize(Vector &state_vector, AggregateInputData 
 static unique_ptr<FunctionData> ContingencyCoefAggBind(ClientContext &context, AggregateFunction &function,
                                                         vector<unique_ptr<Expression>> &arguments) {
     function.return_type = LogicalType::DOUBLE;
-    PostHogTelemetry::Instance().CaptureFunctionExecution("contingency_coef_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("contingency_coef_agg");
     return nullptr;
 }
 

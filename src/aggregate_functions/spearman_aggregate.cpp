@@ -216,7 +216,7 @@ static unique_ptr<FunctionData> SpearmanAggBind(ClientContext &context, Aggregat
         bind_data->options = CorrelationMapOptions::ParseFromValue(options_val);
     }
 
-    PostHogTelemetry::Instance().CaptureFunctionExecution("spearman_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("spearman_agg");
     return bind_data;
 }
 
