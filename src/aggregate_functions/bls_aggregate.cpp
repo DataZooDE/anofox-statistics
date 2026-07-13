@@ -362,7 +362,7 @@ static unique_ptr<FunctionData> BlsAggBind(ClientContext &context, AggregateFunc
 
     function.return_type = GetBlsAggResultType();
 
-    PostHogTelemetry::Instance().CaptureFunctionExecution("bls_fit_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("bls_fit_agg");
     return std::move(result);
 }
 
@@ -391,7 +391,7 @@ static unique_ptr<FunctionData> NnlsAggBind(ClientContext &context, AggregateFun
 
     function.return_type = GetBlsAggResultType();
 
-    PostHogTelemetry::Instance().CaptureFunctionExecution("nnls_fit_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("nnls_fit_agg");
     return std::move(result);
 }
 

@@ -339,7 +339,7 @@ static unique_ptr<FunctionData> AidAggBind(ClientContext &context, AggregateFunc
 
     function.return_type = GetAidAggResultType();
 
-    PostHogTelemetry::Instance().CaptureFunctionExecution("aid_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("aid_agg");
     return std::move(result);
 }
 
@@ -361,7 +361,7 @@ static unique_ptr<FunctionData> AidAnomalyAggBind(ClientContext &context, Aggreg
 
     function.return_type = GetAidAnomalyResultType();
 
-    PostHogTelemetry::Instance().CaptureFunctionExecution("aid_anomaly_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("aid_anomaly_agg");
     return std::move(result);
 }
 

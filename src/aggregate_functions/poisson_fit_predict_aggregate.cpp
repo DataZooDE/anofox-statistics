@@ -546,7 +546,7 @@ static unique_ptr<FunctionData> PoissonFitPredictAggBind(ClientContext &context,
     }
 
     function.return_type = GetPoissonFitPredictAggResultType();
-    PostHogTelemetry::Instance().CaptureFunctionExecution("poisson_fit_predict_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("poisson_fit_predict_agg");
     return std::move(result);
 }
 
@@ -583,7 +583,7 @@ static unique_ptr<FunctionData> PoissonFitPredictAggBindWithSplit(ClientContext 
     }
 
     function.return_type = GetPoissonFitPredictAggResultType();
-    PostHogTelemetry::Instance().CaptureFunctionExecution("poisson_fit_predict_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("poisson_fit_predict_agg");
     return std::move(result);
 }
 

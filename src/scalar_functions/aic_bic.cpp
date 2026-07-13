@@ -11,7 +11,7 @@ namespace duckdb {
 
 // AIC function: anofox_stats_aic(rss, n, k) -> DOUBLE
 static void AicFunction(DataChunk &args, ExpressionState &state, Vector &result) {
-    PostHogTelemetry::Instance().CaptureFunctionExecution("aic");
+    PostHogTelemetry::Instance().RecordFunctionCall("aic");
     auto &rss_vec = args.data[0];
     auto &n_vec = args.data[1];
     auto &k_vec = args.data[2];
@@ -61,7 +61,7 @@ static void AicFunction(DataChunk &args, ExpressionState &state, Vector &result)
 
 // BIC function: anofox_stats_bic(rss, n, k) -> DOUBLE
 static void BicFunction(DataChunk &args, ExpressionState &state, Vector &result) {
-    PostHogTelemetry::Instance().CaptureFunctionExecution("bic");
+    PostHogTelemetry::Instance().RecordFunctionCall("bic");
     auto &rss_vec = args.data[0];
     auto &n_vec = args.data[1];
     auto &k_vec = args.data[2];

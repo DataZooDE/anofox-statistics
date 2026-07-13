@@ -28,7 +28,7 @@ static LogicalType GetResidualsDiagnosticsResultType() {
 static unique_ptr<FunctionData> ResidualsDiagnosticsBind(ClientContext &context, ScalarFunction &bound_function,
                                                          vector<unique_ptr<Expression>> &arguments) {
     bound_function.return_type = GetResidualsDiagnosticsResultType();
-    PostHogTelemetry::Instance().CaptureFunctionExecution("residuals_diagnostics");
+    PostHogTelemetry::Instance().RecordFunctionCall("residuals_diagnostics");
     return nullptr;
 }
 

@@ -223,7 +223,7 @@ static unique_ptr<FunctionData> FisherExactAggBind(ClientContext &context, Aggre
         bind_data->options = FisherExactMapOptions::ParseFromValue(options_val);
     }
 
-    PostHogTelemetry::Instance().CaptureFunctionExecution("fisher_exact_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("fisher_exact_agg");
     return bind_data;
 }
 

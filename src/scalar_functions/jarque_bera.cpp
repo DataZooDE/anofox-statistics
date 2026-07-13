@@ -29,7 +29,7 @@ static LogicalType GetJarqueBeraResultType() {
 static unique_ptr<FunctionData> JarqueBeraBind(ClientContext &context, ScalarFunction &bound_function,
                                                vector<unique_ptr<Expression>> &arguments) {
     bound_function.return_type = GetJarqueBeraResultType();
-    PostHogTelemetry::Instance().CaptureFunctionExecution("jarque_bera");
+    PostHogTelemetry::Instance().RecordFunctionCall("jarque_bera");
     return nullptr;
 }
 

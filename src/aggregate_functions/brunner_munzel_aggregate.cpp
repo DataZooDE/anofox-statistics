@@ -233,7 +233,7 @@ static unique_ptr<FunctionData> BrunnerMunzelAggBind(ClientContext &context, Agg
         bind_data->options = BrunnerMunzelMapOptions::ParseFromValue(options_val);
     }
 
-    PostHogTelemetry::Instance().CaptureFunctionExecution("brunner_munzel_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("brunner_munzel_agg");
     return bind_data;
 }
 

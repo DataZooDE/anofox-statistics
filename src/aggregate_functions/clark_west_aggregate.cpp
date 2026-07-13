@@ -243,7 +243,7 @@ static unique_ptr<FunctionData> ClarkWestAggBind(ClientContext &context, Aggrega
         }
     }
 
-    PostHogTelemetry::Instance().CaptureFunctionExecution("clark_west_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("clark_west_agg");
     return bind_data;
 }
 

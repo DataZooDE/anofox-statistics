@@ -358,7 +358,7 @@ static unique_ptr<FunctionData> BinomialAggBind(ClientContext &context, Aggregat
 
     function.return_type = GetBinomialAggResultType(result->compute_inference);
 
-    PostHogTelemetry::Instance().CaptureFunctionExecution("binomial_fit_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("binomial_fit_agg");
     return std::move(result);
 }
 

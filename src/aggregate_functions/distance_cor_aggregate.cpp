@@ -237,7 +237,7 @@ static unique_ptr<FunctionData> DistanceCorAggBind(ClientContext &context, Aggre
         }
     }
 
-    PostHogTelemetry::Instance().CaptureFunctionExecution("distance_cor_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("distance_cor_agg");
     return bind_data;
 }
 

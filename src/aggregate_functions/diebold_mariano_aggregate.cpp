@@ -273,7 +273,7 @@ static unique_ptr<FunctionData> DieboldMarianoAggBind(ClientContext &context, Ag
         }
     }
 
-    PostHogTelemetry::Instance().CaptureFunctionExecution("diebold_mariano_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("diebold_mariano_agg");
     return bind_data;
 }
 

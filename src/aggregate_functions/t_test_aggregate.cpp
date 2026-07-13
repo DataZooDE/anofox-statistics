@@ -241,7 +241,7 @@ static unique_ptr<FunctionData> TTestAggBind(ClientContext &context, AggregateFu
         bind_data->options = TTestMapOptions::ParseFromValue(options_val);
     }
 
-    PostHogTelemetry::Instance().CaptureFunctionExecution("t_test_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("t_test_agg");
     return bind_data;
 }
 

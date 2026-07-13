@@ -61,6 +61,8 @@ void LoadInternal(ExtensionLoader &loader) {
 #else
     version = "0.1.0";
 #endif
+    telemetry.SetProduct("anofox_statistics", version, "oss");
+    telemetry.AssociateGroup("deployment", PostHogTelemetry::GetDistinctId());
     telemetry.CaptureExtensionLoad("anofox_statistics", version);
 #endif // ANOFOX_TELEMETRY_ENABLED
 

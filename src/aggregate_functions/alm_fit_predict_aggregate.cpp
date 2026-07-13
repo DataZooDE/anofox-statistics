@@ -487,7 +487,7 @@ static unique_ptr<FunctionData> AlmFitPredictAggBind(ClientContext &context, Agg
     }
 
     function.return_type = GetAlmFitPredictAggResultType();
-    PostHogTelemetry::Instance().CaptureFunctionExecution("alm_fit_predict_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("alm_fit_predict_agg");
     return std::move(result);
 }
 
@@ -528,7 +528,7 @@ static unique_ptr<FunctionData> AlmFitPredictAggBindWithSplit(ClientContext &con
     }
 
     function.return_type = GetAlmFitPredictAggResultType();
-    PostHogTelemetry::Instance().CaptureFunctionExecution("alm_fit_predict_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("alm_fit_predict_agg");
     return std::move(result);
 }
 

@@ -336,7 +336,7 @@ static unique_ptr<FunctionData> NegBinomAggBind(ClientContext &context, Aggregat
 
     function.return_type = GetNegBinomAggResultType(result->compute_inference);
 
-    PostHogTelemetry::Instance().CaptureFunctionExecution("negbinom_fit_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("negbinom_fit_agg");
     return std::move(result);
 }
 

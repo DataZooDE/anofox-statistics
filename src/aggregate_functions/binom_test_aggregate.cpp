@@ -221,7 +221,7 @@ static unique_ptr<FunctionData> BinomTestAggBind(ClientContext &context, Aggrega
         }
     }
 
-    PostHogTelemetry::Instance().CaptureFunctionExecution("binom_test_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("binom_test_agg");
     return bind_data;
 }
 

@@ -241,7 +241,7 @@ static unique_ptr<FunctionData> CohenKappaAggBind(ClientContext &context, Aggreg
         }
     }
 
-    PostHogTelemetry::Instance().CaptureFunctionExecution("cohen_kappa_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("cohen_kappa_agg");
     return bind_data;
 }
 

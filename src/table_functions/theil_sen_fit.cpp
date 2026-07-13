@@ -109,7 +109,7 @@ static unique_ptr<FunctionData> TheilSenFitBind(ClientContext &context, ScalarFu
 
     bound_function.return_type = GetTheilSenResultType(result->compute_inference);
 
-    PostHogTelemetry::Instance().CaptureFunctionExecution("theilsen_fit");
+    PostHogTelemetry::Instance().RecordFunctionCall("theilsen_fit");
     return std::move(result);
 }
 

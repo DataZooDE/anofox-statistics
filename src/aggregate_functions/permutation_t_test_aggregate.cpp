@@ -241,7 +241,7 @@ static unique_ptr<FunctionData> PermutationTTestAggBind(ClientContext &context, 
         }
     }
 
-    PostHogTelemetry::Instance().CaptureFunctionExecution("permutation_t_test_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("permutation_t_test_agg");
     return bind_data;
 }
 

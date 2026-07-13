@@ -413,7 +413,7 @@ static unique_ptr<FunctionData> RansacAggBind(ClientContext &context, AggregateF
 
     function.return_type = GetRansacAggResultType(result->compute_inference);
 
-    PostHogTelemetry::Instance().CaptureFunctionExecution("ransac_fit_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("ransac_fit_agg");
     return std::move(result);
 }
 

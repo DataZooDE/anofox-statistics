@@ -373,7 +373,7 @@ static unique_ptr<FunctionData> TheilSenAggBind(ClientContext &context, Aggregat
 
     function.return_type = GetTheilSenAggResultType(result->compute_inference);
 
-    PostHogTelemetry::Instance().CaptureFunctionExecution("theilsen_fit_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("theilsen_fit_agg");
     return std::move(result);
 }
 

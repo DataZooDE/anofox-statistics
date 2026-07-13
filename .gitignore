@@ -33,3 +33,5 @@ Thumbs.db
 
 # Debug files
 *.dSYM/
+
+.cache/

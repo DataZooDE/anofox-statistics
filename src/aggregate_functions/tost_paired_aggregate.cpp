@@ -252,7 +252,7 @@ static unique_ptr<FunctionData> TostPairedAggBind(ClientContext &context, Aggreg
         }
     }
 
-    PostHogTelemetry::Instance().CaptureFunctionExecution("tost_paired_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("tost_paired_agg");
     return bind_data;
 }
 

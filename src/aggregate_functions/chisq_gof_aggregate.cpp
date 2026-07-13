@@ -173,7 +173,7 @@ static void ChisqGofAggFinalize(Vector &state_vector, AggregateInputData &aggr_i
 static unique_ptr<FunctionData> ChisqGofAggBind(ClientContext &context, AggregateFunction &function,
                                                  vector<unique_ptr<Expression>> &arguments) {
     function.return_type = GetChisqGofAggResultType();
-    PostHogTelemetry::Instance().CaptureFunctionExecution("chisq_gof_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("chisq_gof_agg");
     return nullptr;
 }
 

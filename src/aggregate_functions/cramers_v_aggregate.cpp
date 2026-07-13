@@ -183,7 +183,7 @@ static void CramersVAggFinalize(Vector &state_vector, AggregateInputData &aggr_i
 static unique_ptr<FunctionData> CramersVAggBind(ClientContext &context, AggregateFunction &function,
                                                  vector<unique_ptr<Expression>> &arguments) {
     function.return_type = GetCramersVAggResultType();
-    PostHogTelemetry::Instance().CaptureFunctionExecution("cramers_v_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("cramers_v_agg");
     return nullptr;
 }
 

@@ -94,7 +94,7 @@ static unique_ptr<FunctionData> WlsFitBind(ClientContext &context, ScalarFunctio
     // Set return type
     bound_function.return_type = GetWlsResultType(result->compute_inference);
 
-    PostHogTelemetry::Instance().CaptureFunctionExecution("wls_fit");
+    PostHogTelemetry::Instance().RecordFunctionCall("wls_fit");
     return std::move(result);
 }
 

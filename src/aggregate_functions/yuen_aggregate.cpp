@@ -257,7 +257,7 @@ static unique_ptr<FunctionData> YuenAggBind(ClientContext &context, AggregateFun
         }
     }
 
-    PostHogTelemetry::Instance().CaptureFunctionExecution("yuen_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("yuen_agg");
     return bind_data;
 }
 

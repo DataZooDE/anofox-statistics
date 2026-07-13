@@ -221,7 +221,7 @@ static unique_ptr<FunctionData> EnergyDistanceAggBind(ClientContext &context, Ag
         bind_data->options = EnergyDistanceMapOptions::ParseFromValue(options_val);
     }
 
-    PostHogTelemetry::Instance().CaptureFunctionExecution("energy_distance_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("energy_distance_agg");
     return bind_data;
 }
 

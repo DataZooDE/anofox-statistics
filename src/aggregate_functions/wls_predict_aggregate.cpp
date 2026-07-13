@@ -426,7 +426,7 @@ static unique_ptr<FunctionData> WlsPredictAggBind(ClientContext &context, Aggreg
     }
 
     function.return_type = GetWlsPredictAggResultType();
-    PostHogTelemetry::Instance().CaptureFunctionExecution("wls_fit_predict_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("wls_fit_predict_agg");
     return std::move(result);
 }
 
@@ -456,7 +456,7 @@ static unique_ptr<FunctionData> WlsPredictAggBindWithSplit(ClientContext &contex
     }
 
     function.return_type = GetWlsPredictAggResultType();
-    PostHogTelemetry::Instance().CaptureFunctionExecution("wls_fit_predict_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("wls_fit_predict_agg");
     return std::move(result);
 }
 

@@ -448,7 +448,7 @@ static unique_ptr<FunctionData> HuberPredictAggBind(ClientContext &context, Aggr
     }
 
     function.return_type = GetHuberPredictAggResultType();
-    PostHogTelemetry::Instance().CaptureFunctionExecution("huber_fit_predict_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("huber_fit_predict_agg");
     return std::move(result);
 }
 
@@ -462,7 +462,7 @@ static unique_ptr<FunctionData> HuberPredictAggBindWithSplit(ClientContext &cont
     }
 
     function.return_type = GetHuberPredictAggResultType();
-    PostHogTelemetry::Instance().CaptureFunctionExecution("huber_fit_predict_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("huber_fit_predict_agg");
     return std::move(result);
 }
 

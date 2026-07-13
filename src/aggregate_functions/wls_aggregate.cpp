@@ -391,7 +391,7 @@ static unique_ptr<FunctionData> WlsAggBind(ClientContext &context, AggregateFunc
     // Set return type based on options
     function.return_type = GetWlsAggResultType(result->compute_inference);
 
-    PostHogTelemetry::Instance().CaptureFunctionExecution("wls_fit_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("wls_fit_agg");
     return std::move(result);
 }
 

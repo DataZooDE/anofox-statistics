@@ -91,7 +91,7 @@ static unique_ptr<FunctionData> ElasticNetFitBind(ClientContext &context, Scalar
     // Set return type
     bound_function.return_type = GetElasticNetResultType();
 
-    PostHogTelemetry::Instance().CaptureFunctionExecution("elasticnet_fit");
+    PostHogTelemetry::Instance().RecordFunctionCall("elasticnet_fit");
     return std::move(result);
 }
 

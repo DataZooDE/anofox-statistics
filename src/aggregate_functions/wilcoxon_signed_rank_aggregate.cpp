@@ -234,7 +234,7 @@ static unique_ptr<FunctionData> WilcoxonSignedRankAggBind(ClientContext &context
         bind_data->options = WilcoxonMapOptions::ParseFromValue(options_val);
     }
 
-    PostHogTelemetry::Instance().CaptureFunctionExecution("wilcoxon_signed_rank_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("wilcoxon_signed_rank_agg");
     return bind_data;
 }
 

@@ -309,7 +309,7 @@ static unique_ptr<FunctionData> LarsAggBind(ClientContext &context, AggregateFun
 
     function.return_type = GetLarsAggResultType();
 
-    PostHogTelemetry::Instance().CaptureFunctionExecution("lars_fit_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("lars_fit_agg");
     return std::move(result);
 }
 

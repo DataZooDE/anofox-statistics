@@ -221,7 +221,7 @@ static unique_ptr<FunctionData> PropTestOneAggBind(ClientContext &context, Aggre
         }
     }
 
-    PostHogTelemetry::Instance().CaptureFunctionExecution("prop_test_one_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("prop_test_one_agg");
     return bind_data;
 }
 

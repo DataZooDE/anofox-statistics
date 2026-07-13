@@ -229,7 +229,7 @@ static unique_ptr<FunctionData> MannWhitneyAggBind(ClientContext &context, Aggre
         bind_data->options = MannWhitneyMapOptions::ParseFromValue(options_val);
     }
 
-    PostHogTelemetry::Instance().CaptureFunctionExecution("mann_whitney_u_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("mann_whitney_u_agg");
     return bind_data;
 }
 

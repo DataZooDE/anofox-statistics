@@ -199,7 +199,7 @@ static void GTestAggFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
 static unique_ptr<FunctionData> GTestAggBind(ClientContext &context, AggregateFunction &function,
                                               vector<unique_ptr<Expression>> &arguments) {
     function.return_type = GetGTestAggResultType();
-    PostHogTelemetry::Instance().CaptureFunctionExecution("g_test_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("g_test_agg");
     return nullptr;
 }
 

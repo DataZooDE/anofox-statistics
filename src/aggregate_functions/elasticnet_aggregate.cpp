@@ -351,7 +351,7 @@ static unique_ptr<FunctionData> ElasticNetAggBind(ClientContext &context, Aggreg
     // Set return type
     function.return_type = GetElasticNetAggResultType();
 
-    PostHogTelemetry::Instance().CaptureFunctionExecution("elasticnet_fit_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("elasticnet_fit_agg");
     return std::move(result);
 }
 

@@ -32,7 +32,7 @@ static vector<double> ExtractDoubleList(Vector &vec, idx_t row_idx) {
 
 // Predict function: anofox_stats_predict(x, coefficients, intercept) -> LIST(DOUBLE)
 static void PredictFunction(DataChunk &args, ExpressionState &state, Vector &result) {
-    PostHogTelemetry::Instance().CaptureFunctionExecution("predict");
+    PostHogTelemetry::Instance().RecordFunctionCall("predict");
     auto &x_vec = args.data[0];         // LIST(LIST(DOUBLE)) - new feature data
     auto &coef_vec = args.data[1];      // LIST(DOUBLE) - coefficients
     auto &intercept_vec = args.data[2]; // DOUBLE - intercept (can be NULL)

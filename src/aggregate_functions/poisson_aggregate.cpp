@@ -377,7 +377,7 @@ static unique_ptr<FunctionData> PoissonAggBind(ClientContext &context, Aggregate
 
     function.return_type = GetPoissonAggResultType(result->compute_inference);
 
-    PostHogTelemetry::Instance().CaptureFunctionExecution("poisson_fit_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("poisson_fit_agg");
     return std::move(result);
 }
 
