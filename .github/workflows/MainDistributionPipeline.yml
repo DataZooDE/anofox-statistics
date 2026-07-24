@@ -21,14 +21,14 @@ jobs:
     name: Build extension binaries
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.5-variegata
     with:
-      duckdb_version: v1.5.4
+      duckdb_version: v1.5.5
       ci_tools_version: v1.5-variegata
       extension_name: anofox_statistics
       enable_rust: true
       reduced_ci_mode: disabled
 
   duckdb-stable-deploy:
-    name: Deploy extension binaries (v1.5.4)
+    name: Deploy extension binaries (v1.5.5)
     needs: duckdb-stable-build
     # Run the deploy step even when a non-essential build matrix entry
     # (currently windows_amd64 — DuckDB's vendored third_party/fmt is
@@ -38,7 +38,7 @@ jobs:
     uses: ./.github/workflows/_extension_deploy.yml
     secrets: inherit
     with:
-      duckdb_version: v1.5.4
+      duckdb_version: v1.5.5
       ci_tools_version: v1.5-variegata
       extension_name: anofox_statistics
       exclude_archs: "windows_amd64;windows_amd64_mingw"
@@ -58,7 +58,7 @@ jobs:
   duckdb-lts-deploy:
     name: Deploy extension binaries (v1.4.5 LTS)
     needs: duckdb-lts-build
-    # Same resilience as the v1.5.4 deploy: don't gate the whole release on
+    # Same resilience as the v1.5.5 deploy: don't gate the whole release on
     # the flaky LTS windows_amd64_mingw matrix entry.
     if: ${{ !cancelled() }}
     uses: ./.github/workflows/_extension_deploy.yml
