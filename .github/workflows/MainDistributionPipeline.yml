@@ -21,14 +21,25 @@ jobs:
     name: Build extension binaries
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.5-variegata
     with:
-      duckdb_version: v1.5.4
+      duckdb_version: v1.5.5
       ci_tools_version: v1.5-variegata
       extension_name: anofox_statistics
       enable_rust: true
       reduced_ci_mode: disabled
+      # Windows is not shipped for this extension — both deploy jobs below
+      # already exclude these two archs, so building them produces nothing
+      # publishable while reliably failing CI:
+      #   * windows_amd64_mingw — vcpkg's openssl build fetches MSYS2 packages
+      #     by exact version, and the version pinned by the ci-tools vcpkg
+      #     baseline (libtool-2.4.7-4) has been deleted from every MSYS2
+      #     mirror (they retain only current versions, now 2.5.4-x) => 404.
+      #     Not fixable here: vcpkg comes from extension-ci-tools.
+      #   * windows_amd64 — DuckDB's vendored third_party/fmt is flaky on MSVC
+      #     (see the deploy job comment below).
+      exclude_archs: "windows_amd64;windows_amd64_mingw"
 
   duckdb-stable-deploy:
-    name: Deploy extension binaries (v1.5.4)
+    name: Deploy extension binaries (v1.5.5)
     needs: duckdb-stable-build
     # Run the deploy step even when a non-essential build matrix entry
     # (currently windows_amd64 — DuckDB's vendored third_party/fmt is
@@ -38,7 +49,7 @@ jobs:
     uses: ./.github/workflows/_extension_deploy.yml
     secrets: inherit
     with:
-      duckdb_version: v1.5.4
+      duckdb_version: v1.5.5
       ci_tools_version: v1.5-variegata
       extension_name: anofox_statistics
       exclude_archs: "windows_amd64;windows_amd64_mingw"
@@ -54,11 +65,14 @@ jobs:
       extension_name: anofox_statistics
       enable_rust: true
       reduced_ci_mode: disabled
+      # Same rationale as the stable build job above — Windows is never
+      # deployed, and the mingw leg 404s on a deleted MSYS2 libtool package.
+      exclude_archs: "windows_amd64;windows_amd64_mingw"
 
   duckdb-lts-deploy:
     name: Deploy extension binaries (v1.4.5 LTS)
     needs: duckdb-lts-build
-    # Same resilience as the v1.5.4 deploy: don't gate the whole release on
+    # Same resilience as the v1.5.5 deploy: don't gate the whole release on
     # the flaky LTS windows_amd64_mingw matrix entry.
     if: ${{ !cancelled() }}
     uses: ./.github/workflows/_extension_deploy.yml
