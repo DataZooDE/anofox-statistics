@@ -9,10 +9,11 @@ pub use types::*;
 use anofox_stats_core::{
     diagnostics::{compute_aic, compute_bic, compute_residuals, compute_vif, jarque_bera},
     models::{
-        compute_aid, compute_aid_anomalies, fit_alm, fit_binomial, fit_bls, fit_elasticnet,
-        fit_gamma, fit_huber, fit_isotonic, fit_lars, fit_lm_dynamic, fit_logistic,
+        compute_aid, compute_aid_anomalies, fit_aft, fit_alm, fit_binomial, fit_bls,
+        fit_elasticnet, fit_gamma, fit_huber, fit_isotonic, fit_lars, fit_lm_dynamic, fit_logistic,
         fit_negbinomial, fit_ols, fit_pls, fit_poisson, fit_quantile, fit_ransac, fit_ridge,
-        fit_rls, fit_theilsen, fit_tweedie, fit_wls, predict, RlsOptions,
+        fit_rls, fit_theilsen, fit_tweedie, fit_wls, predict, AftDistribution, AftOptions,
+        RlsOptions,
     },
     AidOptions, AlmDistribution, AlmLoss, AlmOptions, BinomialLink, BinomialOptions, BlsOptions,
     ElasticNetOptions, GammaOptions, GlmPriorOptions, HcType, HuberOptions, InformationCriterion,
@@ -7277,4 +7278,226 @@ pub unsafe extern "C" fn anofox_free_lm_dynamic_result(result: *mut LmDynamicFit
         libc::free((*result).dynamic_coefficients as *mut libc::c_void);
         (*result).dynamic_coefficients = std::ptr::null_mut();
     }
+}
+
+// =============================================================================
+// AFT (accelerated failure time) survival regression — issue #107
+// =============================================================================
+
+/// Copy a slice into a caller-owned `libc::malloc` buffer, matching the ownership
+/// convention every other result array in this file uses.
+unsafe fn alloc_f64(values: &[f64]) -> *mut f64 {
+    if values.is_empty() {
+        return std::ptr::null_mut();
+    }
+    let ptr = libc::malloc(std::mem::size_of::<f64>() * values.len()) as *mut f64;
+    if !ptr.is_null() {
+        std::ptr::copy_nonoverlapping(values.as_ptr(), ptr, values.len());
+    }
+    ptr
+}
+
+/// Fit an AFT survival model with right censoring.
+///
+/// # Safety
+/// All pointers must be valid for the lengths implied by `x_count` and the
+/// `AnofoxDataArray` headers. `out_core` is required; `out_inference` may be null.
+#[no_mangle]
+pub unsafe extern "C" fn anofox_aft_fit(
+    time: DataArray,
+    x: *const DataArray,
+    x_count: usize,
+    event: DataArray,
+    options: AftOptionsFFI,
+    out_core: *mut AftFitResultCore,
+    out_inference: *mut AftInferenceFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    if !out_error.is_null() {
+        *out_error = AnofoxError::success();
+    }
+    if out_core.is_null() {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "out_core is NULL");
+        }
+        return false;
+    }
+    if x.is_null() || x_count == 0 {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
+        }
+        return false;
+    }
+
+    let time_vec = time.to_vec();
+    let event_vec = event.to_vec();
+    let x_arrays = slice::from_raw_parts(x, x_count);
+    let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
+
+    let dist = match options.dist {
+        AftDistributionFFI::Weibull => AftDistribution::Weibull,
+        AftDistributionFFI::LogNormal => AftDistribution::LogNormal,
+        AftDistributionFFI::LogLogistic => AftDistribution::LogLogistic,
+        AftDistributionFFI::Exponential => AftDistribution::Exponential,
+    };
+
+    let opts = AftOptions {
+        dist,
+        fit_intercept: options.fit_intercept,
+        max_iterations: options.max_iterations,
+        tolerance: options.tolerance,
+        compute_inference: options.compute_inference,
+        confidence_level: options.confidence_level,
+        priors: priors_from_ffi(options.priors, options.priors_len),
+        vcov: vcov_from_ffi(options.vcov),
+    };
+
+    let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        fit_aft(&time_vec, &x_vecs, &event_vec, &opts)
+    }));
+
+    let fit_result = match fit_result {
+        Ok(r) => r,
+        Err(_) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InternalError, "Internal panic in AFT fit");
+            }
+            return false;
+        }
+    };
+
+    match fit_result {
+        Ok(result) => {
+            let coef_ptr = alloc_f64(&result.core.coefficients);
+            if coef_ptr.is_null() && !result.core.coefficients.is_empty() {
+                if !out_error.is_null() {
+                    (*out_error).set(
+                        ErrorCode::AllocationFailure,
+                        "Failed to allocate AFT coefficients",
+                    );
+                }
+                return false;
+            }
+
+            (*out_core) = AftFitResultCore {
+                coefficients: coef_ptr,
+                coefficients_len: result.core.coefficients.len(),
+                intercept: result.core.intercept.unwrap_or(f64::NAN),
+                scale: result.core.scale,
+                log_likelihood: result.core.log_likelihood,
+                null_log_likelihood: result.core.null_log_likelihood,
+                aic: result.core.aic,
+                bic: result.core.bic,
+                n_observations: result.core.n_observations,
+                n_events: result.core.n_events,
+                n_censored: result.core.n_censored,
+                n_features: result.core.n_features,
+                iterations: result.core.iterations,
+                converged: result.core.converged,
+            };
+
+            if !out_inference.is_null() {
+                if let Some(inf) = result.inference {
+                    (*out_inference) = AftInferenceFFI {
+                        std_errors: alloc_f64(&inf.std_errors),
+                        z_values: alloc_f64(&inf.z_values),
+                        p_values: alloc_f64(&inf.p_values),
+                        ci_lower: alloc_f64(&inf.ci_lower),
+                        ci_upper: alloc_f64(&inf.ci_upper),
+                        len: inf.std_errors.len(),
+                        confidence_level: inf.confidence_level,
+                        intercept_std_error: inf.intercept_std_error.unwrap_or(f64::NAN),
+                        log_scale_std_error: inf.log_scale_std_error.unwrap_or(f64::NAN),
+                    };
+                }
+            }
+            true
+        }
+        Err(e) => {
+            if !out_error.is_null() {
+                (*out_error).set(error_to_code(&e), &e.to_string());
+            }
+            false
+        }
+    }
+}
+
+/// Release the arrays owned by an `AftFitResultCore`.
+///
+/// # Safety
+/// `result` must come from a successful `anofox_aft_fit`. Safe to call once.
+#[no_mangle]
+pub unsafe extern "C" fn anofox_free_aft_result(result: *mut AftFitResultCore) {
+    if result.is_null() {
+        return;
+    }
+    if !(*result).coefficients.is_null() {
+        libc::free((*result).coefficients as *mut libc::c_void);
+        (*result).coefficients = std::ptr::null_mut();
+    }
+}
+
+/// Release the arrays owned by an `AftInferenceFFI`.
+///
+/// # Safety
+/// `inf` must come from a successful `anofox_aft_fit` that requested inference.
+#[no_mangle]
+pub unsafe extern "C" fn anofox_free_aft_inference(inf: *mut AftInferenceFFI) {
+    if inf.is_null() {
+        return;
+    }
+    for p in [
+        &mut (*inf).std_errors,
+        &mut (*inf).z_values,
+        &mut (*inf).p_values,
+        &mut (*inf).ci_lower,
+        &mut (*inf).ci_upper,
+    ] {
+        if !p.is_null() {
+            libc::free(*p as *mut libc::c_void);
+            *p = std::ptr::null_mut();
+        }
+    }
+}
+
+/// `P(T <= t)` for a fitted AFT model.
+///
+/// Stateless, so it composes with `anofox_stats_predict` for `eta`.
+///
+/// # Safety
+/// Trivially safe; takes only scalars.
+#[no_mangle]
+pub unsafe extern "C" fn anofox_aft_cdf(
+    t: f64,
+    eta: f64,
+    scale: f64,
+    dist: AftDistributionFFI,
+) -> f64 {
+    let d = match dist {
+        AftDistributionFFI::Weibull => AftDistribution::Weibull,
+        AftDistributionFFI::LogNormal => AftDistribution::LogNormal,
+        AftDistributionFFI::LogLogistic => AftDistribution::LogLogistic,
+        AftDistributionFFI::Exponential => AftDistribution::Exponential,
+    };
+    d.cdf_time(t, eta, scale)
+}
+
+/// The `p`-quantile of `T` for a fitted AFT model.
+///
+/// # Safety
+/// Trivially safe; takes only scalars.
+#[no_mangle]
+pub unsafe extern "C" fn anofox_aft_quantile(
+    p: f64,
+    eta: f64,
+    scale: f64,
+    dist: AftDistributionFFI,
+) -> f64 {
+    let d = match dist {
+        AftDistributionFFI::Weibull => AftDistribution::Weibull,
+        AftDistributionFFI::LogNormal => AftDistribution::LogNormal,
+        AftDistributionFFI::LogLogistic => AftDistribution::LogLogistic,
+        AftDistributionFFI::Exponential => AftDistribution::Exponential,
+    };
+    d.quantile_time(p, eta, scale)
 }

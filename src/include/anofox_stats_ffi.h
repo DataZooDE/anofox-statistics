@@ -2262,6 +2262,105 @@ bool anofox_fit_lm_dynamic(AnofoxDataArray y, const AnofoxDataArray *x, size_t x
  */
 void anofox_free_lm_dynamic_result(AnofoxLmDynamicFitResult *result);
 
+/* ============================================================================
+ * AFT (accelerated failure time) survival regression -- issue #107
+ * ============================================================================ */
+
+/**
+ * AFT error distribution code.
+ */
+typedef enum {
+	ANOFOX_AFT_WEIBULL = 0,
+	ANOFOX_AFT_LOGNORMAL = 1,
+	ANOFOX_AFT_LOGLOGISTIC = 2,
+	/** Weibull with the scale held at 1. */
+	ANOFOX_AFT_EXPONENTIAL = 3,
+} AnofoxAftDistribution;
+
+/**
+ * AFT fitting options.
+ */
+typedef struct {
+	AnofoxAftDistribution dist;
+	bool fit_intercept;
+	uint32_t max_iterations;
+	double tolerance;
+	bool compute_inference;
+	double confidence_level;
+	/** Per-coefficient priors, or NULL for none. */
+	const AnofoxPriorSpec *priors;
+	size_t priors_len;
+	AnofoxVcovType vcov;
+} AnofoxAftOptions;
+
+/**
+ * Core results of an AFT fit. Coefficients are on the log-time scale.
+ */
+typedef struct {
+	double *coefficients;
+	size_t coefficients_len;
+	/** NaN when no intercept was fitted. */
+	double intercept;
+	/** The scale sigma; exactly 1.0 for the exponential distribution. */
+	double scale;
+	double log_likelihood;
+	double null_log_likelihood;
+	double aic;
+	double bic;
+	size_t n_observations;
+	size_t n_events;
+	size_t n_censored;
+	size_t n_features;
+	uint32_t iterations;
+	bool converged;
+} AnofoxAftFitResultCore;
+
+/**
+ * Curvature-based inference for an AFT fit.
+ */
+typedef struct {
+	double *std_errors;
+	double *z_values;
+	double *p_values;
+	double *ci_lower;
+	double *ci_upper;
+	size_t len;
+	double confidence_level;
+	/** NaN when no intercept was fitted. */
+	double intercept_std_error;
+	/** NaN when the scale is fixed. */
+	double log_scale_std_error;
+} AnofoxAftInference;
+
+/**
+ * Fit an AFT survival model with right censoring.
+ *
+ * @param time Event or censoring times (must be strictly positive)
+ * @param x Feature arrays (column-major)
+ * @param x_count Number of feature arrays
+ * @param event 1.0 when the event was observed, 0.0 when right-censored
+ * @param options Fitting options
+ * @param out_core Output: fit result (required)
+ * @param out_inference Output: inference, or NULL to skip
+ * @param out_error Output: error information (required)
+ * @return true on success, false on error
+ */
+bool anofox_aft_fit(AnofoxDataArray time, const AnofoxDataArray *x, size_t x_count, AnofoxDataArray event,
+                    AnofoxAftOptions options, AnofoxAftFitResultCore *out_core, AnofoxAftInference *out_inference,
+                    AnofoxError *out_error);
+
+/** Free the arrays owned by an AFT fit result. */
+void anofox_free_aft_result(AnofoxAftFitResultCore *result);
+
+/** Free the arrays owned by AFT inference. */
+void anofox_free_aft_inference(AnofoxAftInference *inf);
+
+/** P(T <= t) for a fitted AFT model. */
+double anofox_aft_cdf(double t, double eta, double scale, AnofoxAftDistribution dist);
+
+/** The p-quantile of T for a fitted AFT model. */
+double anofox_aft_quantile(double p, double eta, double scale, AnofoxAftDistribution dist);
+
 #ifdef __cplusplus
 }
 #endif

@@ -606,7 +606,10 @@ pub enum BinomialLinkFFI {
 }
 
 /// Prior family code, mirroring `anofox_stats_core::types::PriorKind`.
-#[repr(u8)]
+// repr(C), not repr(u8): a C enum is int-sized, so a 1-byte Rust enum shifts
+// every field that follows it. Harmless while such a field sits last in a
+// struct, fatal when it sits first (AftOptionsFFI::dist).
+#[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PriorKindFFI {
     /// No prior on this coefficient.
@@ -638,7 +641,10 @@ impl Default for PriorSpecFFI {
 }
 
 /// Covariance type code, mirroring `anofox_stats_core::types::VcovType`.
-#[repr(u8)]
+// repr(C), not repr(u8): a C enum is int-sized, so a 1-byte Rust enum shifts
+// every field that follows it. Harmless while such a field sits last in a
+// struct, fatal when it sits first (AftOptionsFFI::dist).
+#[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VcovTypeFFI {
     /// `(X'WX + P)^-1`, the curvature of the log posterior at the mode.
@@ -2235,5 +2241,147 @@ impl Default for LmDynamicFitResultFFI {
             dynamic_coefficients: std::ptr::null_mut(),
             n_coefs_per_obs: 0,
         }
+    }
+}
+
+// =============================================================================
+// AFT (accelerated failure time) survival regression — issue #107
+// =============================================================================
+
+/// AFT error distribution code.
+// repr(C), not repr(u8): a C enum is int-sized, so a 1-byte Rust enum shifts
+// every field that follows it. Harmless while such a field sits last in a
+// struct, fatal when it sits first (AftOptionsFFI::dist).
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AftDistributionFFI {
+    Weibull = 0,
+    LogNormal = 1,
+    LogLogistic = 2,
+    Exponential = 3,
+}
+
+impl Default for AftDistributionFFI {
+    fn default() -> Self {
+        AftDistributionFFI::Weibull
+    }
+}
+
+/// Options for an AFT fit. Flat POD, like every other options struct here.
+#[repr(C)]
+pub struct AftOptionsFFI {
+    pub dist: AftDistributionFFI,
+    pub fit_intercept: bool,
+    pub max_iterations: u32,
+    pub tolerance: f64,
+    pub compute_inference: bool,
+    pub confidence_level: f64,
+    /// Per-coefficient priors, or null.
+    pub priors: *const PriorSpecFFI,
+    pub priors_len: usize,
+    pub vcov: VcovTypeFFI,
+}
+
+impl Default for AftOptionsFFI {
+    fn default() -> Self {
+        Self {
+            dist: AftDistributionFFI::Weibull,
+            fit_intercept: true,
+            max_iterations: 100,
+            tolerance: 1e-9,
+            compute_inference: false,
+            confidence_level: 0.95,
+            priors: std::ptr::null(),
+            priors_len: 0,
+            vcov: VcovTypeFFI::Laplace,
+        }
+    }
+}
+
+/// Core results of an AFT fit. `coefficients` is owned by the caller and must be
+/// released with `anofox_free_aft_result`.
+#[repr(C)]
+pub struct AftFitResultCore {
+    pub coefficients: *mut f64,
+    pub coefficients_len: usize,
+    pub intercept: f64,
+    pub scale: f64,
+    pub log_likelihood: f64,
+    pub null_log_likelihood: f64,
+    pub aic: f64,
+    pub bic: f64,
+    pub n_observations: usize,
+    pub n_events: usize,
+    pub n_censored: usize,
+    pub n_features: usize,
+    pub iterations: u32,
+    pub converged: bool,
+}
+
+/// Inference for an AFT fit. All arrays are caller-owned and released with
+/// `anofox_free_aft_inference`.
+#[repr(C)]
+pub struct AftInferenceFFI {
+    pub std_errors: *mut f64,
+    pub z_values: *mut f64,
+    pub p_values: *mut f64,
+    pub ci_lower: *mut f64,
+    pub ci_upper: *mut f64,
+    pub len: usize,
+    pub confidence_level: f64,
+    /// NaN when no intercept was fitted.
+    pub intercept_std_error: f64,
+    /// NaN when the scale is fixed (exponential).
+    pub log_scale_std_error: f64,
+}
+
+#[cfg(test)]
+mod abi_tests {
+    use super::*;
+
+    /// The C header is maintained by hand, so nothing but a test stops a Rust-side
+    /// enum from silently disagreeing with its C counterpart about width. A C enum
+    /// is int-sized; these must be too, or every field after them shifts.
+    #[test]
+    fn ffi_enums_are_int_sized() {
+        assert_eq!(std::mem::size_of::<PriorKindFFI>(), 4);
+        assert_eq!(std::mem::size_of::<VcovTypeFFI>(), 4);
+        assert_eq!(std::mem::size_of::<AftDistributionFFI>(), 4);
+        assert_eq!(std::mem::size_of::<PoissonLinkFFI>(), 4);
+        assert_eq!(std::mem::size_of::<BinomialLinkFFI>(), 4);
+    }
+
+    /// Offsets the C compiler will use for the equivalent struct.
+    #[test]
+    fn aft_options_layout_matches_the_c_struct() {
+        use std::mem::{align_of, size_of};
+        assert_eq!(align_of::<AftOptionsFFI>(), 8);
+        // int, bool, uint32, double, bool, double, ptr, size_t, int
+        //   0     4       8       16      24      32     40      48    56
+        assert_eq!(size_of::<AftOptionsFFI>(), 64);
+
+        let o = AftOptionsFFI::default();
+        let base = &o as *const _ as usize;
+        assert_eq!(&o.dist as *const _ as usize - base, 0);
+        assert_eq!(&o.fit_intercept as *const _ as usize - base, 4);
+        assert_eq!(&o.max_iterations as *const _ as usize - base, 8);
+        assert_eq!(&o.tolerance as *const _ as usize - base, 16);
+        assert_eq!(&o.compute_inference as *const _ as usize - base, 24);
+        assert_eq!(&o.confidence_level as *const _ as usize - base, 32);
+        assert_eq!(&o.priors as *const _ as usize - base, 40);
+        assert_eq!(&o.priors_len as *const _ as usize - base, 48);
+        assert_eq!(&o.vcov as *const _ as usize - base, 56);
+    }
+
+    #[test]
+    fn prior_spec_layout_matches_the_c_struct() {
+        use std::mem::size_of;
+        // int + 4 pad + double + double
+        assert_eq!(size_of::<PriorSpecFFI>(), 24);
+        let p = PriorSpecFFI::default();
+        let base = &p as *const _ as usize;
+        assert_eq!(&p.kind as *const _ as usize - base, 0);
+        assert_eq!(&p.loc as *const _ as usize - base, 8);
+        assert_eq!(&p.scale as *const _ as usize - base, 16);
     }
 }

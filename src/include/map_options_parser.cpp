@@ -182,7 +182,7 @@ static std::optional<AlmDistribution> ExtractAlmDistribution(const Value &val) {
 		return AlmDistribution::CUMULATIVE_LOGISTIC;
 	if (str == "cumulative_normal" || str == "cumulativenormal")
 		return AlmDistribution::CUMULATIVE_NORMAL;
-	throw InvalidInputException("Invalid ALM distribution: '%s'", str);
+	return std::nullopt;
 }
 
 // Helper to extract AlmLoss from Value
@@ -371,6 +371,27 @@ static void VisitOptionEntries(const Value &map_value, Callback callback) {
 	} else {
 		throw InvalidInputException("Expected MAP or STRUCT type for options, got %s", map_value.type().ToString());
 	}
+}
+
+static bool IsAftDistName(const string &raw) {
+	string v = ToLower(raw);
+	return v == "weibull" || v == "lognormal" || v == "log_normal" || v == "log-normal" || v == "loglogistic" ||
+	       v == "log_logistic" || v == "log-logistic" || v == "exponential" || v == "exp";
+}
+
+// Values mirror AnofoxAftDistribution in anofox_stats_ffi.h.
+static AnofoxAftDistribution_t ParseAftDist(const string &raw) {
+	string v = ToLower(raw);
+	if (v == "weibull") {
+		return 0;
+	}
+	if (v == "lognormal" || v == "log_normal" || v == "log-normal") {
+		return 1;
+	}
+	if (v == "loglogistic" || v == "log_logistic" || v == "log-logistic") {
+		return 2;
+	}
+	return 3; // exponential
 }
 
 static std::optional<VcovTypeOpt> ExtractVcovType(const Value &val) {
@@ -616,7 +637,23 @@ RegressionMapOptions RegressionMapOptions::ParseFromValue(const Value &map_value
 		}
 		// ALM options
 		else if (key == "distribution" || key == "dist") {
-			result.distribution = ExtractAlmDistribution(val);
+			// Shared key. ALM and AFT have overlapping distribution vocabularies --
+			// "lognormal" and "gamma" name a valid distribution in both -- so set
+			// whichever matches, possibly both, and let each function read the
+			// field it cares about.
+			const string raw = val.IsNull() ? string() : val.ToString();
+			bool matched = false;
+			if (!raw.empty() && IsAftDistName(raw)) {
+				result.aft_dist = ParseAftDist(raw);
+				matched = true;
+			}
+			if (auto alm = ExtractAlmDistribution(val)) {
+				result.distribution = alm;
+				matched = true;
+			}
+			if (!matched && !raw.empty()) {
+				throw InvalidInputException("Unknown distribution: '%s'", raw);
+			}
 		} else if (key == "loss") {
 			result.loss = ExtractAlmLoss(val);
 		} else if (key == "quantile") {

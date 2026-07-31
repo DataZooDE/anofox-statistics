@@ -3,6 +3,10 @@
 #include "duckdb.hpp"
 
 #include <limits>
+
+// Mirrors AnofoxAftDistribution in anofox_stats_ffi.h; kept as a plain int so this
+// header does not have to include the C ABI header.
+using AnofoxAftDistribution_t = int;
 #include <optional>
 #include <string>
 
@@ -166,10 +170,11 @@ struct RegressionMapOptions {
 	std::optional<NullPolicy> null_policy; // How to handle NULL y values
 
 	// GLM specific
-	std::optional<PoissonLink> poisson_link;   // Link function for Poisson
-	std::optional<BinomialLink> binomial_link; // Link function for Binomial
-	std::optional<double> tweedie_power;       // Power parameter for Tweedie (1 < p < 2)
-	std::optional<double> nb_theta;            // Negative Binomial dispersion; unset = estimate
+	std::optional<PoissonLink> poisson_link;         // Link function for Poisson
+	std::optional<BinomialLink> binomial_link;       // Link function for Binomial
+	std::optional<double> tweedie_power;             // Power parameter for Tweedie (1 < p < 2)
+	std::optional<AnofoxAftDistribution_t> aft_dist; // AFT error distribution
+	std::optional<double> nb_theta;                  // Negative Binomial dispersion; unset = estimate
 
 	// ALM specific
 	std::optional<AlmDistribution> distribution; // Distribution family
