@@ -2385,3 +2385,57 @@ mod abi_tests {
         assert_eq!(&p.scale as *const _ as usize - base, 16);
     }
 }
+
+// =============================================================================
+// Empirical-Bayes shrinkage — issue #107
+// =============================================================================
+
+/// Between-group variance estimator.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TauMethodFFI {
+    DerSimonianLaird = 0,
+    /// Complete pooling.
+    None = 1,
+}
+
+impl Default for TauMethodFFI {
+    fn default() -> Self {
+        TauMethodFFI::DerSimonianLaird
+    }
+}
+
+/// Options for empirical-Bayes shrinkage.
+#[repr(C)]
+pub struct EbShrinkOptionsFFI {
+    pub method: TauMethodFFI,
+    /// A fixed between-group variance; NaN means "estimate it".
+    pub tau_squared: f64,
+}
+
+impl Default for EbShrinkOptionsFFI {
+    fn default() -> Self {
+        Self {
+            method: TauMethodFFI::DerSimonianLaird,
+            tau_squared: f64::NAN,
+        }
+    }
+}
+
+/// Result of a shrinkage pass. The five per-group arrays share `len` and are in
+/// input order; all are caller-owned and released by `anofox_free_eb_shrink_result`.
+#[repr(C)]
+pub struct EbShrinkResultFFI {
+    pub mu: f64,
+    pub mu_se: f64,
+    pub tau_squared: f64,
+    pub i_squared: f64,
+    pub q: f64,
+    pub n_groups: usize,
+    pub estimate: *mut f64,
+    pub se: *mut f64,
+    pub shrunken: *mut f64,
+    pub shrunken_se: *mut f64,
+    pub weight: *mut f64,
+    pub len: usize,
+}

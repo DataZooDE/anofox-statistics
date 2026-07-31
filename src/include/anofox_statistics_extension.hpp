@@ -55,6 +55,7 @@ void RegisterQuantileFitPredictAggregateFunction(ExtensionLoader &loader);
 // GLM aggregate functions
 void RegisterPoissonAggregateFunction(ExtensionLoader &loader);
 void RegisterAftAggregateFunction(ExtensionLoader &loader);
+void RegisterEbShrinkAggregateFunction(ExtensionLoader &loader);
 void RegisterAftScalarFunctions(ExtensionLoader &loader);
 void RegisterBinomialAggregateFunction(ExtensionLoader &loader);
 void RegisterNegBinomAggregateFunction(ExtensionLoader &loader);

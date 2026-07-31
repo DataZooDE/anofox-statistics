@@ -714,6 +714,17 @@ RegressionMapOptions RegressionMapOptions::ParseFromValue(const Value &map_value
 			result.feature_names = ExtractStringList(val);
 		} else if (key == "prior" || key == "priors") {
 			result.prior_value = val;
+		} else if (key == "tau_squared" || key == "tau2") {
+			result.tau_squared = ExtractDouble(val);
+		} else if (key == "tau_method" || key == "shrinkage") {
+			const string m = ToLower(val.IsNull() ? string() : val.ToString());
+			if (m == "dl" || m == "dersimonian_laird" || m == "dersimonian-laird") {
+				result.tau_method = false;
+			} else if (m == "none" || m == "pooled" || m == "complete") {
+				result.tau_method = true;
+			} else {
+				throw InvalidInputException("Unknown tau_method '%s'. Expected 'dl' or 'none'.", m);
+			}
 		} else if (key == "theta" || key == "nb_theta" || key == "dispersion") {
 			result.nb_theta = ExtractDouble(val);
 		} else if (key == "vcov" || key == "vcov_type") {

@@ -2361,6 +2361,50 @@ double anofox_aft_cdf(double t, double eta, double scale, AnofoxAftDistribution 
 /** The p-quantile of T for a fitted AFT model. */
 double anofox_aft_quantile(double p, double eta, double scale, AnofoxAftDistribution dist);
 
+/* ============================================================================
+ * Empirical-Bayes shrinkage -- issue #107
+ * ============================================================================ */
+
+/** Between-group variance estimator. */
+typedef enum {
+	ANOFOX_TAU_DERSIMONIAN_LAIRD = 0,
+	/** Complete pooling. */
+	ANOFOX_TAU_NONE = 1,
+} AnofoxTauMethod;
+
+typedef struct {
+	AnofoxTauMethod method;
+	/** Fixed between-group variance; NaN means "estimate it". */
+	double tau_squared;
+} AnofoxEbShrinkOptions;
+
+/**
+ * Shrinkage result. The five per-group arrays share `len` and are in input order.
+ */
+typedef struct {
+	double mu;
+	double mu_se;
+	double tau_squared;
+	double i_squared;
+	double q;
+	size_t n_groups;
+	double *estimate;
+	double *se;
+	double *shrunken;
+	double *shrunken_se;
+	double *weight;
+	size_t len;
+} AnofoxEbShrinkResult;
+
+/**
+ * Shrink per-group estimates toward their precision-weighted mean.
+ */
+bool anofox_eb_shrink(AnofoxDataArray estimate, AnofoxDataArray se, AnofoxEbShrinkOptions options,
+                      AnofoxEbShrinkResult *out_result, AnofoxError *out_error);
+
+/** Free the arrays owned by a shrinkage result. */
+void anofox_free_eb_shrink_result(AnofoxEbShrinkResult *result);
+
 #ifdef __cplusplus
 }
 #endif

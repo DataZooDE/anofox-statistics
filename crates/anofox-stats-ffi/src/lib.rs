@@ -9,11 +9,11 @@ pub use types::*;
 use anofox_stats_core::{
     diagnostics::{compute_aic, compute_bic, compute_residuals, compute_vif, jarque_bera},
     models::{
-        compute_aid, compute_aid_anomalies, fit_aft, fit_alm, fit_binomial, fit_bls,
+        compute_aid, compute_aid_anomalies, eb_shrink, fit_aft, fit_alm, fit_binomial, fit_bls,
         fit_elasticnet, fit_gamma, fit_huber, fit_isotonic, fit_lars, fit_lm_dynamic, fit_logistic,
         fit_negbinomial, fit_ols, fit_pls, fit_poisson, fit_quantile, fit_ransac, fit_ridge,
         fit_rls, fit_theilsen, fit_tweedie, fit_wls, predict, AftDistribution, AftOptions,
-        RlsOptions,
+        EbShrinkOptions, RlsOptions, TauMethod,
     },
     AidOptions, AlmDistribution, AlmLoss, AlmOptions, BinomialLink, BinomialOptions, BlsOptions,
     ElasticNetOptions, GammaOptions, GlmPriorOptions, HcType, HuberOptions, InformationCriterion,
@@ -7500,4 +7500,116 @@ pub unsafe extern "C" fn anofox_aft_quantile(
         AftDistributionFFI::Exponential => AftDistribution::Exponential,
     };
     d.quantile_time(p, eta, scale)
+}
+
+// =============================================================================
+// Empirical-Bayes shrinkage — issue #107
+// =============================================================================
+
+/// Shrink per-group estimates toward their precision-weighted mean.
+///
+/// # Safety
+/// `estimate` and `se` must be valid `AnofoxDataArray`s of equal length.
+/// `out_result` is required.
+#[no_mangle]
+pub unsafe extern "C" fn anofox_eb_shrink(
+    estimate: DataArray,
+    se: DataArray,
+    options: EbShrinkOptionsFFI,
+    out_result: *mut EbShrinkResultFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    if !out_error.is_null() {
+        *out_error = AnofoxError::success();
+    }
+    if out_result.is_null() {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+        }
+        return false;
+    }
+
+    let est_vec = estimate.to_vec();
+    let se_vec = se.to_vec();
+
+    let opts = EbShrinkOptions {
+        method: match options.method {
+            TauMethodFFI::DerSimonianLaird => TauMethod::DerSimonianLaird,
+            TauMethodFFI::None => TauMethod::None,
+        },
+        tau_squared: if options.tau_squared.is_nan() {
+            None
+        } else {
+            Some(options.tau_squared)
+        },
+    };
+
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        eb_shrink(&est_vec, &se_vec, &opts)
+    }));
+
+    let outcome = match outcome {
+        Ok(r) => r,
+        Err(_) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InternalError, "Internal panic in eb_shrink");
+            }
+            return false;
+        }
+    };
+
+    match outcome {
+        Ok(r) => {
+            let estimates: Vec<f64> = r.groups.iter().map(|g| g.estimate).collect();
+            let ses: Vec<f64> = r.groups.iter().map(|g| g.se).collect();
+            let shrunken: Vec<f64> = r.groups.iter().map(|g| g.shrunken).collect();
+            let shrunken_se: Vec<f64> = r.groups.iter().map(|g| g.shrunken_se).collect();
+            let weight: Vec<f64> = r.groups.iter().map(|g| g.weight).collect();
+
+            (*out_result) = EbShrinkResultFFI {
+                mu: r.mu,
+                mu_se: r.mu_se,
+                tau_squared: r.tau_squared,
+                i_squared: r.i_squared,
+                q: r.q,
+                n_groups: r.n_groups,
+                estimate: alloc_f64(&estimates),
+                se: alloc_f64(&ses),
+                shrunken: alloc_f64(&shrunken),
+                shrunken_se: alloc_f64(&shrunken_se),
+                weight: alloc_f64(&weight),
+                len: r.groups.len(),
+            };
+            true
+        }
+        Err(e) => {
+            if !out_error.is_null() {
+                (*out_error).set(error_to_code(&e), &e.to_string());
+            }
+            false
+        }
+    }
+}
+
+/// Release the arrays owned by an `EbShrinkResultFFI`.
+///
+/// # Safety
+/// `result` must come from a successful `anofox_eb_shrink`. Safe to call once.
+#[no_mangle]
+pub unsafe extern "C" fn anofox_free_eb_shrink_result(result: *mut EbShrinkResultFFI) {
+    if result.is_null() {
+        return;
+    }
+    for p in [
+        &mut (*result).estimate,
+        &mut (*result).se,
+        &mut (*result).shrunken,
+        &mut (*result).shrunken_se,
+        &mut (*result).weight,
+    ] {
+        if !p.is_null() {
+            libc::free(*p as *mut libc::c_void);
+            *p = std::ptr::null_mut();
+        }
+    }
 }
