@@ -5,6 +5,7 @@ mod alm;
 mod bls;
 mod elasticnet;
 mod glm;
+pub mod glm_engine;
 mod huber;
 mod isotonic;
 mod lars;
