@@ -185,12 +185,13 @@ pub fn solve_weighted_ls_qr(
     // Undo the column pivoting. `X * P = Q * R`, so the i-th pivoted column is the
     // original column `fwd[i]` and therefore `beta[fwd[i]] = beta_perm[i]`.
     //
-    // Note this uses the *forward* array. Upstream indexes with
+    // Note this uses the *forward* array. Upstream historically indexed with
     // `perm.inverse().arrays().0` instead, which happens to agree whenever the
     // pivot order is an involution (any 2-column design, and 3-column orders like
-    // [2,1,0]) but silently rotates the coefficient vector for a genuine cycle such
-    // as [1,2,0]. That is why upstream diverges on ordinary 3-column fixtures — see
-    // `permutation_is_undone_for_a_three_cycle` below.
+    // [2,1,0]) but silently rotated the coefficient vector for a genuine cycle such
+    // as [1,2,0] — see `permutation_is_undone_for_a_three_cycle` below. That defect
+    // (anofox-regression#28) was fixed upstream in 0.5.13; this engine always used
+    // the forward array and is unaffected either way.
     let mut beta: Col<f64> = Col::zeros(p);
     let fwd = perm.arrays().0;
     for i in 0..p {
