@@ -34,6 +34,9 @@ A statistical analysis extension for DuckDB, providing regression analysis, diag
 | PLS | `pls_fit`, `pls_fit_agg` | Partial Least Squares |
 | Isotonic | `isotonic_fit`, `isotonic_fit_agg` | Monotonic regression |
 | Quantile | `quantile_fit`, `quantile_fit_agg` | Quantile/median regression |
+| AFT survival | `aft_fit_agg` | Duration models with right censoring |
+| Mixed effects | `glmm_fit_agg` | Random intercept over a grouping factor |
+| EB shrinkage | `eb_shrink_agg` | Partial pooling of per-group estimates |
 
 ### Statistical Hypothesis Tests
 
