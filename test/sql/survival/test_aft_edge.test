@@ -1,0 +1,95 @@
+# name: test/sql/survival/test_aft_edge.test
+# description: AFT degenerate inputs must produce clear results, never NaN (issue #107)
+# group: [survival]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE aft_edge AS
+SELECT (i % 10) / 3.0 AS x,
+       EXP(1.5 + 0.3 * ((i % 10) / 3.0) + 0.5 * LN(-LN(1 - ((i + 0.5) / 100.0)))) AS days,
+       1.0::DOUBLE AS delivered
+FROM range(0, 100) t(i);
+
+# ==== TEST 1: all-censored data is not identified; the fit returns NULL ====
+query I
+SELECT aft_fit_agg(days, [x], 0.0::DOUBLE) IS NULL FROM aft_edge;
+----
+true
+
+# ==== TEST 2: a non-positive time returns NULL rather than NaN ====
+statement ok
+CREATE TABLE aft_zero AS SELECT x, 0.0::DOUBLE AS days, delivered FROM aft_edge
+UNION ALL SELECT x, days, delivered FROM aft_edge;
+
+query I
+SELECT aft_fit_agg(days, [x], delivered) IS NULL FROM aft_zero;
+----
+true
+
+# ==== TEST 3: a non-binary event indicator returns NULL ====
+query I
+SELECT aft_fit_agg(days, [x], 0.5::DOUBLE) IS NULL FROM aft_edge;
+----
+true
+
+# ==== TEST 4: too few observations returns NULL ====
+query I
+SELECT aft_fit_agg(days, [x], delivered) IS NULL FROM (SELECT * FROM aft_edge LIMIT 2);
+----
+true
+
+# ==== TEST 5: an empty input returns NULL ====
+query I
+SELECT aft_fit_agg(days, [x], delivered) IS NULL FROM aft_edge WHERE false;
+----
+true
+
+# ==== TEST 6: NULL rows are skipped, not fatal ====
+statement ok
+CREATE TABLE aft_nulls AS
+SELECT x, days, delivered FROM aft_edge
+UNION ALL SELECT 1.0, NULL, 1.0
+UNION ALL SELECT 1.0, 5.0, NULL;
+
+query I
+SELECT (aft_fit_agg(days, [x], delivered)).n_observations FROM aft_nulls;
+----
+100
+
+# ==== TEST 7: no coefficient or scale comes back NaN on a healthy fit ====
+query I
+SELECT NOT isnan((aft_fit_agg(days, [x], delivered)).coefficients[1])
+   AND NOT isnan((aft_fit_agg(days, [x], delivered)).intercept)
+   AND NOT isnan((aft_fit_agg(days, [x], delivered)).scale)
+   AND NOT isnan((aft_fit_agg(days, [x], delivered)).log_likelihood)
+FROM aft_edge;
+----
+true
+
+# ==== TEST 8: an unknown distribution name is rejected ====
+statement error
+SELECT (aft_fit_agg(days, [x], delivered, {'dist': 'cauchy'})).scale FROM aft_edge;
+----
+Unknown distribution
+
+# ==== TEST 9: an unknown distribution in the scalar helper is rejected ====
+statement error
+SELECT anofox_stats_aft_cdf(1.0, 1.0, 1.0, 'cauchy');
+----
+Unknown AFT distribution
+
+# ==== TEST 10: a zero-variance feature does not break the fit ====
+query I
+SELECT (aft_fit_agg(days, [x, 1.0::DOUBLE], delivered)).converged FROM aft_edge;
+----
+true
+
+statement ok
+DROP TABLE IF EXISTS aft_nulls;
+
+statement ok
+DROP TABLE IF EXISTS aft_zero;
+
+statement ok
+DROP TABLE IF EXISTS aft_edge;

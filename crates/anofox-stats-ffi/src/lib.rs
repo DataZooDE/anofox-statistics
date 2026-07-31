@@ -9,16 +9,18 @@ pub use types::*;
 use anofox_stats_core::{
     diagnostics::{compute_aic, compute_bic, compute_residuals, compute_vif, jarque_bera},
     models::{
-        compute_aid, compute_aid_anomalies, fit_alm, fit_binomial, fit_bls, fit_elasticnet,
-        fit_gamma, fit_huber, fit_isotonic, fit_lars, fit_lm_dynamic, fit_logistic,
-        fit_negbinomial, fit_ols, fit_pls, fit_poisson, fit_quantile, fit_ransac, fit_ridge,
-        fit_rls, fit_theilsen, fit_tweedie, fit_wls, predict, RlsOptions,
+        compute_aid, compute_aid_anomalies, eb_shrink, fit_aft, fit_alm, fit_binomial, fit_bls,
+        fit_elasticnet, fit_gamma, fit_glmm, fit_huber, fit_isotonic, fit_lars, fit_lm_dynamic,
+        fit_logistic, fit_negbinomial, fit_ols, fit_pls, fit_poisson, fit_quantile, fit_ransac,
+        fit_ridge, fit_rls, fit_theilsen, fit_tweedie, fit_wls, predict, AftDistribution,
+        AftOptions, EbShrinkOptions, GlmmFamily, GlmmOptions, RlsOptions, TauMethod,
     },
     AidOptions, AlmDistribution, AlmLoss, AlmOptions, BinomialLink, BinomialOptions, BlsOptions,
-    ElasticNetOptions, GammaOptions, HcType, HuberOptions, InformationCriterion, IsotonicOptions,
-    LambdaScaling, LarsOptions, LmDynamicOptions, LogisticOptions, NegBinomialOptions, OlsOptions,
-    OutlierMethod, PlsOptions, PoissonLink, PoissonOptions, QuantileOptions, RansacOptions,
-    RidgeOptions, SolverType, StatsError, TheilSenOptions, TweedieOptions, WlsOptions,
+    ElasticNetOptions, GammaOptions, GlmPriorOptions, HcType, HuberOptions, InformationCriterion,
+    IsotonicOptions, LambdaScaling, LarsOptions, LmDynamicOptions, LogisticOptions,
+    NegBinomialOptions, OlsOptions, OutlierMethod, PlsOptions, PoissonLink, PoissonOptions,
+    QuantileOptions, RansacOptions, RidgeOptions, SolverType, StatsError, TheilSenOptions,
+    TweedieOptions, WlsOptions,
 };
 use statrs::distribution::{ContinuousCDF, StudentsT};
 use std::slice;
@@ -2404,6 +2406,10 @@ pub unsafe extern "C" fn anofox_poisson_fit(
         compute_inference: options.compute_inference,
         confidence_level: options.confidence_level,
         lambda: options.lambda,
+        prior_opts: GlmPriorOptions {
+            priors: priors_from_ffi(options.priors, options.priors_len),
+            vcov: vcov_from_ffi(options.vcov),
+        },
     };
 
     let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -2548,6 +2554,10 @@ pub unsafe extern "C" fn anofox_binomial_fit(
         compute_inference: options.compute_inference,
         confidence_level: options.confidence_level,
         lambda: options.lambda,
+        prior_opts: GlmPriorOptions {
+            priors: priors_from_ffi(options.priors, options.priors_len),
+            vcov: vcov_from_ffi(options.vcov),
+        },
     };
 
     let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -2679,12 +2689,21 @@ pub unsafe extern "C" fn anofox_negbinomial_fit(
 
     let opts = NegBinomialOptions {
         fit_intercept: options.fit_intercept,
-        alpha: None, // Let the algorithm estimate alpha
+        // NaN on the wire means "estimate theta from the data".
+        alpha: if options.alpha.is_nan() {
+            None
+        } else {
+            Some(options.alpha)
+        },
         max_iterations: options.max_iterations,
         tolerance: options.tolerance,
         compute_inference: options.compute_inference,
         confidence_level: options.confidence_level,
         lambda: options.lambda,
+        prior_opts: GlmPriorOptions {
+            priors: priors_from_ffi(options.priors, options.priors_len),
+            vcov: vcov_from_ffi(options.vcov),
+        },
     };
 
     let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -2825,6 +2844,10 @@ pub unsafe extern "C" fn anofox_tweedie_fit(
         compute_inference: options.compute_inference,
         confidence_level: options.confidence_level,
         lambda: options.lambda,
+        prior_opts: GlmPriorOptions {
+            priors: priors_from_ffi(options.priors, options.priors_len),
+            vcov: vcov_from_ffi(options.vcov),
+        },
     };
 
     let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -2961,6 +2984,10 @@ pub unsafe extern "C" fn anofox_gamma_fit(
         compute_inference: options.compute_inference,
         confidence_level: options.confidence_level,
         lambda: options.lambda,
+        prior_opts: GlmPriorOptions {
+            priors: priors_from_ffi(options.priors, options.priors_len),
+            vcov: vcov_from_ffi(options.vcov),
+        },
     };
 
     let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -3100,6 +3127,10 @@ pub unsafe extern "C" fn anofox_logistic_fit(
         tolerance: options.tolerance,
         compute_inference: options.compute_inference,
         confidence_level: options.confidence_level,
+        prior_opts: GlmPriorOptions {
+            priors: priors_from_ffi(options.priors, options.priors_len),
+            vcov: vcov_from_ffi(options.vcov),
+        },
     };
 
     let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -7246,5 +7277,529 @@ pub unsafe extern "C" fn anofox_free_lm_dynamic_result(result: *mut LmDynamicFit
     if !(*result).dynamic_coefficients.is_null() {
         libc::free((*result).dynamic_coefficients as *mut libc::c_void);
         (*result).dynamic_coefficients = std::ptr::null_mut();
+    }
+}
+
+// =============================================================================
+// AFT (accelerated failure time) survival regression — issue #107
+// =============================================================================
+
+/// Copy a slice into a caller-owned `libc::malloc` buffer, matching the ownership
+/// convention every other result array in this file uses.
+unsafe fn alloc_f64(values: &[f64]) -> *mut f64 {
+    if values.is_empty() {
+        return std::ptr::null_mut();
+    }
+    let ptr = libc::malloc(std::mem::size_of::<f64>() * values.len()) as *mut f64;
+    if !ptr.is_null() {
+        std::ptr::copy_nonoverlapping(values.as_ptr(), ptr, values.len());
+    }
+    ptr
+}
+
+/// Fit an AFT survival model with right censoring.
+///
+/// # Safety
+/// All pointers must be valid for the lengths implied by `x_count` and the
+/// `AnofoxDataArray` headers. `out_core` is required; `out_inference` may be null.
+#[no_mangle]
+pub unsafe extern "C" fn anofox_aft_fit(
+    time: DataArray,
+    x: *const DataArray,
+    x_count: usize,
+    event: DataArray,
+    options: AftOptionsFFI,
+    out_core: *mut AftFitResultCore,
+    out_inference: *mut AftInferenceFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    if !out_error.is_null() {
+        *out_error = AnofoxError::success();
+    }
+    if out_core.is_null() {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "out_core is NULL");
+        }
+        return false;
+    }
+    if x.is_null() || x_count == 0 {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
+        }
+        return false;
+    }
+
+    let time_vec = time.to_vec();
+    let event_vec = event.to_vec();
+    let x_arrays = slice::from_raw_parts(x, x_count);
+    let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
+
+    let dist = match options.dist {
+        AftDistributionFFI::Weibull => AftDistribution::Weibull,
+        AftDistributionFFI::LogNormal => AftDistribution::LogNormal,
+        AftDistributionFFI::LogLogistic => AftDistribution::LogLogistic,
+        AftDistributionFFI::Exponential => AftDistribution::Exponential,
+    };
+
+    let opts = AftOptions {
+        dist,
+        fit_intercept: options.fit_intercept,
+        max_iterations: options.max_iterations,
+        tolerance: options.tolerance,
+        compute_inference: options.compute_inference,
+        confidence_level: options.confidence_level,
+        priors: priors_from_ffi(options.priors, options.priors_len),
+        vcov: vcov_from_ffi(options.vcov),
+    };
+
+    let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        fit_aft(&time_vec, &x_vecs, &event_vec, &opts)
+    }));
+
+    let fit_result = match fit_result {
+        Ok(r) => r,
+        Err(_) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InternalError, "Internal panic in AFT fit");
+            }
+            return false;
+        }
+    };
+
+    match fit_result {
+        Ok(result) => {
+            let coef_ptr = alloc_f64(&result.core.coefficients);
+            if coef_ptr.is_null() && !result.core.coefficients.is_empty() {
+                if !out_error.is_null() {
+                    (*out_error).set(
+                        ErrorCode::AllocationFailure,
+                        "Failed to allocate AFT coefficients",
+                    );
+                }
+                return false;
+            }
+
+            (*out_core) = AftFitResultCore {
+                coefficients: coef_ptr,
+                coefficients_len: result.core.coefficients.len(),
+                intercept: result.core.intercept.unwrap_or(f64::NAN),
+                scale: result.core.scale,
+                log_likelihood: result.core.log_likelihood,
+                null_log_likelihood: result.core.null_log_likelihood,
+                aic: result.core.aic,
+                bic: result.core.bic,
+                n_observations: result.core.n_observations,
+                n_events: result.core.n_events,
+                n_censored: result.core.n_censored,
+                n_features: result.core.n_features,
+                iterations: result.core.iterations,
+                converged: result.core.converged,
+            };
+
+            if !out_inference.is_null() {
+                if let Some(inf) = result.inference {
+                    (*out_inference) = AftInferenceFFI {
+                        std_errors: alloc_f64(&inf.std_errors),
+                        z_values: alloc_f64(&inf.z_values),
+                        p_values: alloc_f64(&inf.p_values),
+                        ci_lower: alloc_f64(&inf.ci_lower),
+                        ci_upper: alloc_f64(&inf.ci_upper),
+                        len: inf.std_errors.len(),
+                        confidence_level: inf.confidence_level,
+                        intercept_std_error: inf.intercept_std_error.unwrap_or(f64::NAN),
+                        log_scale_std_error: inf.log_scale_std_error.unwrap_or(f64::NAN),
+                    };
+                }
+            }
+            true
+        }
+        Err(e) => {
+            if !out_error.is_null() {
+                (*out_error).set(error_to_code(&e), &e.to_string());
+            }
+            false
+        }
+    }
+}
+
+/// Release the arrays owned by an `AftFitResultCore`.
+///
+/// # Safety
+/// `result` must come from a successful `anofox_aft_fit`. Safe to call once.
+#[no_mangle]
+pub unsafe extern "C" fn anofox_free_aft_result(result: *mut AftFitResultCore) {
+    if result.is_null() {
+        return;
+    }
+    if !(*result).coefficients.is_null() {
+        libc::free((*result).coefficients as *mut libc::c_void);
+        (*result).coefficients = std::ptr::null_mut();
+    }
+}
+
+/// Release the arrays owned by an `AftInferenceFFI`.
+///
+/// # Safety
+/// `inf` must come from a successful `anofox_aft_fit` that requested inference.
+#[no_mangle]
+pub unsafe extern "C" fn anofox_free_aft_inference(inf: *mut AftInferenceFFI) {
+    if inf.is_null() {
+        return;
+    }
+    for p in [
+        &mut (*inf).std_errors,
+        &mut (*inf).z_values,
+        &mut (*inf).p_values,
+        &mut (*inf).ci_lower,
+        &mut (*inf).ci_upper,
+    ] {
+        if !p.is_null() {
+            libc::free(*p as *mut libc::c_void);
+            *p = std::ptr::null_mut();
+        }
+    }
+}
+
+/// `P(T <= t)` for a fitted AFT model.
+///
+/// Stateless, so it composes with `anofox_stats_predict` for `eta`.
+///
+/// # Safety
+/// Trivially safe; takes only scalars.
+#[no_mangle]
+pub unsafe extern "C" fn anofox_aft_cdf(
+    t: f64,
+    eta: f64,
+    scale: f64,
+    dist: AftDistributionFFI,
+) -> f64 {
+    let d = match dist {
+        AftDistributionFFI::Weibull => AftDistribution::Weibull,
+        AftDistributionFFI::LogNormal => AftDistribution::LogNormal,
+        AftDistributionFFI::LogLogistic => AftDistribution::LogLogistic,
+        AftDistributionFFI::Exponential => AftDistribution::Exponential,
+    };
+    d.cdf_time(t, eta, scale)
+}
+
+/// The `p`-quantile of `T` for a fitted AFT model.
+///
+/// # Safety
+/// Trivially safe; takes only scalars.
+#[no_mangle]
+pub unsafe extern "C" fn anofox_aft_quantile(
+    p: f64,
+    eta: f64,
+    scale: f64,
+    dist: AftDistributionFFI,
+) -> f64 {
+    let d = match dist {
+        AftDistributionFFI::Weibull => AftDistribution::Weibull,
+        AftDistributionFFI::LogNormal => AftDistribution::LogNormal,
+        AftDistributionFFI::LogLogistic => AftDistribution::LogLogistic,
+        AftDistributionFFI::Exponential => AftDistribution::Exponential,
+    };
+    d.quantile_time(p, eta, scale)
+}
+
+// =============================================================================
+// Empirical-Bayes shrinkage — issue #107
+// =============================================================================
+
+/// Shrink per-group estimates toward their precision-weighted mean.
+///
+/// # Safety
+/// `estimate` and `se` must be valid `AnofoxDataArray`s of equal length.
+/// `out_result` is required.
+#[no_mangle]
+pub unsafe extern "C" fn anofox_eb_shrink(
+    estimate: DataArray,
+    se: DataArray,
+    options: EbShrinkOptionsFFI,
+    out_result: *mut EbShrinkResultFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    if !out_error.is_null() {
+        *out_error = AnofoxError::success();
+    }
+    if out_result.is_null() {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+        }
+        return false;
+    }
+
+    let est_vec = estimate.to_vec();
+    let se_vec = se.to_vec();
+
+    let opts = EbShrinkOptions {
+        method: match options.method {
+            TauMethodFFI::DerSimonianLaird => TauMethod::DerSimonianLaird,
+            TauMethodFFI::None => TauMethod::None,
+        },
+        tau_squared: if options.tau_squared.is_nan() {
+            None
+        } else {
+            Some(options.tau_squared)
+        },
+    };
+
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        eb_shrink(&est_vec, &se_vec, &opts)
+    }));
+
+    let outcome = match outcome {
+        Ok(r) => r,
+        Err(_) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InternalError, "Internal panic in eb_shrink");
+            }
+            return false;
+        }
+    };
+
+    match outcome {
+        Ok(r) => {
+            let estimates: Vec<f64> = r.groups.iter().map(|g| g.estimate).collect();
+            let ses: Vec<f64> = r.groups.iter().map(|g| g.se).collect();
+            let shrunken: Vec<f64> = r.groups.iter().map(|g| g.shrunken).collect();
+            let shrunken_se: Vec<f64> = r.groups.iter().map(|g| g.shrunken_se).collect();
+            let weight: Vec<f64> = r.groups.iter().map(|g| g.weight).collect();
+
+            (*out_result) = EbShrinkResultFFI {
+                mu: r.mu,
+                mu_se: r.mu_se,
+                tau_squared: r.tau_squared,
+                i_squared: r.i_squared,
+                q: r.q,
+                n_groups: r.n_groups,
+                estimate: alloc_f64(&estimates),
+                se: alloc_f64(&ses),
+                shrunken: alloc_f64(&shrunken),
+                shrunken_se: alloc_f64(&shrunken_se),
+                weight: alloc_f64(&weight),
+                len: r.groups.len(),
+            };
+            true
+        }
+        Err(e) => {
+            if !out_error.is_null() {
+                (*out_error).set(error_to_code(&e), &e.to_string());
+            }
+            false
+        }
+    }
+}
+
+/// Release the arrays owned by an `EbShrinkResultFFI`.
+///
+/// # Safety
+/// `result` must come from a successful `anofox_eb_shrink`. Safe to call once.
+#[no_mangle]
+pub unsafe extern "C" fn anofox_free_eb_shrink_result(result: *mut EbShrinkResultFFI) {
+    if result.is_null() {
+        return;
+    }
+    for p in [
+        &mut (*result).estimate,
+        &mut (*result).se,
+        &mut (*result).shrunken,
+        &mut (*result).shrunken_se,
+        &mut (*result).weight,
+    ] {
+        if !p.is_null() {
+            libc::free(*p as *mut libc::c_void);
+            *p = std::ptr::null_mut();
+        }
+    }
+}
+
+// =============================================================================
+// Mixed-effects GLMs — issue #107
+// =============================================================================
+
+unsafe fn alloc_i32(values: &[i32]) -> *mut i32 {
+    if values.is_empty() {
+        return std::ptr::null_mut();
+    }
+    let ptr = libc::malloc(std::mem::size_of::<i32>() * values.len()) as *mut i32;
+    if !ptr.is_null() {
+        std::ptr::copy_nonoverlapping(values.as_ptr(), ptr, values.len());
+    }
+    ptr
+}
+
+unsafe fn alloc_i64(values: &[i64]) -> *mut i64 {
+    if values.is_empty() {
+        return std::ptr::null_mut();
+    }
+    let ptr = libc::malloc(std::mem::size_of::<i64>() * values.len()) as *mut i64;
+    if !ptr.is_null() {
+        std::ptr::copy_nonoverlapping(values.as_ptr(), ptr, values.len());
+    }
+    ptr
+}
+
+/// Fit a mixed-effects GLM with a random intercept over one grouping factor.
+///
+/// # Safety
+/// All pointers must be valid for the lengths implied by `x_count` and the
+/// `AnofoxDataArray` headers. `group_ids` must hold `n_obs` dense group indices.
+#[no_mangle]
+pub unsafe extern "C" fn anofox_glmm_fit(
+    y: DataArray,
+    x: *const DataArray,
+    x_count: usize,
+    group_ids: *const i32,
+    n_obs: usize,
+    options: GlmmOptionsFFI,
+    out_result: *mut GlmmResultFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    if !out_error.is_null() {
+        *out_error = AnofoxError::success();
+    }
+    if out_result.is_null() {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+        }
+        return false;
+    }
+    if x.is_null() || x_count == 0 || group_ids.is_null() {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "x or group_ids is NULL or empty");
+        }
+        return false;
+    }
+
+    let y_vec = y.to_vec();
+    let x_arrays = slice::from_raw_parts(x, x_count);
+    let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
+    let groups = slice::from_raw_parts(group_ids, n_obs).to_vec();
+
+    let family = match options.family {
+        GlmmFamilyFFI::Gaussian => GlmmFamily::Gaussian,
+        GlmmFamilyFFI::Poisson => GlmmFamily::Poisson,
+        GlmmFamilyFFI::Binomial => GlmmFamily::Binomial,
+        GlmmFamilyFFI::NegativeBinomial => GlmmFamily::NegativeBinomial {
+            theta: options.theta,
+        },
+        GlmmFamilyFFI::Gamma => GlmmFamily::Gamma,
+        GlmmFamilyFFI::Tweedie => GlmmFamily::Tweedie {
+            power: options.power,
+        },
+    };
+
+    let opts = GlmmOptions {
+        family,
+        fit_intercept: options.fit_intercept,
+        max_iterations: options.max_iterations,
+        tolerance: options.tolerance,
+        compute_inference: options.compute_inference,
+        confidence_level: options.confidence_level,
+        reml: options.reml,
+        offset_column: if options.offset_column == 0 {
+            None
+        } else {
+            Some(options.offset_column)
+        },
+    };
+
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        fit_glmm(&y_vec, &x_vecs, &groups, &opts)
+    }));
+
+    let outcome = match outcome {
+        Ok(r) => r,
+        Err(_) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InternalError, "Internal panic in GLMM fit");
+            }
+            return false;
+        }
+    };
+
+    match outcome {
+        Ok(r) => {
+            let empty: Vec<f64> = Vec::new();
+            let ranef_group: Vec<i32> = r.ranef.iter().map(|e| e.group).collect();
+            let ranef_value: Vec<f64> = r.ranef.iter().map(|e| e.value).collect();
+            let ranef_se: Vec<f64> = r.ranef.iter().map(|e| e.se).collect();
+            let ranef_n: Vec<i64> = r.ranef.iter().map(|e| e.n as i64).collect();
+
+            let inference_len = r.std_errors.as_ref().map_or(0, |v| v.len());
+
+            (*out_result) = GlmmResultFFI {
+                coefficients: alloc_f64(&r.coefficients),
+                coefficients_len: r.coefficients.len(),
+                intercept: r.intercept.unwrap_or(f64::NAN),
+                std_errors: alloc_f64(r.std_errors.as_ref().unwrap_or(&empty)),
+                z_values: alloc_f64(r.z_values.as_ref().unwrap_or(&empty)),
+                p_values: alloc_f64(r.p_values.as_ref().unwrap_or(&empty)),
+                ci_lower: alloc_f64(r.ci_lower.as_ref().unwrap_or(&empty)),
+                ci_upper: alloc_f64(r.ci_upper.as_ref().unwrap_or(&empty)),
+                inference_len,
+                intercept_std_error: r.intercept_std_error.unwrap_or(f64::NAN),
+                confidence_level: r.confidence_level,
+                var_group: r.var_group,
+                var_residual: r.var_residual,
+                icc: r.icc,
+                log_likelihood: r.log_likelihood,
+                aic: r.aic,
+                bic: r.bic,
+                deviance: r.deviance,
+                n_observations: r.n_observations,
+                n_groups: r.n_groups,
+                n_features: r.n_features,
+                iterations: r.iterations,
+                converged: r.converged,
+                ranef_group: alloc_i32(&ranef_group),
+                ranef_value: alloc_f64(&ranef_value),
+                ranef_se: alloc_f64(&ranef_se),
+                ranef_n: alloc_i64(&ranef_n),
+                ranef_len: r.ranef.len(),
+            };
+            true
+        }
+        Err(e) => {
+            if !out_error.is_null() {
+                (*out_error).set(error_to_code(&e), &e.to_string());
+            }
+            false
+        }
+    }
+}
+
+/// Release the arrays owned by a `GlmmResultFFI`.
+///
+/// # Safety
+/// `result` must come from a successful `anofox_glmm_fit`. Safe to call once.
+#[no_mangle]
+pub unsafe extern "C" fn anofox_free_glmm_result(result: *mut GlmmResultFFI) {
+    if result.is_null() {
+        return;
+    }
+    for p in [
+        &mut (*result).coefficients,
+        &mut (*result).std_errors,
+        &mut (*result).z_values,
+        &mut (*result).p_values,
+        &mut (*result).ci_lower,
+        &mut (*result).ci_upper,
+        &mut (*result).ranef_value,
+        &mut (*result).ranef_se,
+    ] {
+        if !p.is_null() {
+            libc::free(*p as *mut libc::c_void);
+            *p = std::ptr::null_mut();
+        }
+    }
+    if !(*result).ranef_group.is_null() {
+        libc::free((*result).ranef_group as *mut libc::c_void);
+        (*result).ranef_group = std::ptr::null_mut();
+    }
+    if !(*result).ranef_n.is_null() {
+        libc::free((*result).ranef_n as *mut libc::c_void);
+        (*result).ranef_n = std::ptr::null_mut();
     }
 }

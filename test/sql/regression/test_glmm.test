@@ -1,0 +1,197 @@
+# name: test/sql/regression/test_glmm.test
+# description: Mixed-effects GLMs with a random intercept (issue #107)
+# group: [regression]
+
+require anofox_statistics
+
+# 20 SKUs x 15 weeks: y = 1 + 0.5x + b_sku + small noise, group effects spread
+# deterministically so the fit is reproducible.
+statement ok
+CREATE TABLE panel AS
+SELECT 'sku_' || (i // 15)::VARCHAR AS sku,
+       ((i % 15) % 5)::DOUBLE       AS x,
+       1.0 + 0.5 * ((i % 15) % 5)
+           + 0.8 * (((i // 15) + 0.5) / 20 * 2 - 1) * 1.732
+           + 0.3 * ((((i // 15) * 7 + (i % 15) * 3) % 11) / 5.0 - 1) AS y
+FROM range(0, 300) t(i);
+
+# ==== TEST 1: the fixture has the intended shape ====
+query II
+SELECT COUNT(DISTINCT sku), COUNT(*) FROM panel;
+----
+20	300
+
+# ==== TEST 2: fixed effects are recovered ====
+query IIII
+SELECT ROUND((glmm_fit_agg(y, [x], sku)).intercept, 4),
+       ROUND((glmm_fit_agg(y, [x], sku)).coefficients[1], 4),
+       (glmm_fit_agg(y, [x], sku)).n_groups,
+       (glmm_fit_agg(y, [x], sku)).n_observations
+FROM panel;
+----
+1.0052	0.4974	20	300
+
+# ==== TEST 3: variance components and ICC are sane ====
+query I
+SELECT (glmm_fit_agg(y, [x], sku)).var_group > 0.0
+   AND (glmm_fit_agg(y, [x], sku)).var_residual > 0.0
+   AND (glmm_fit_agg(y, [x], sku)).icc BETWEEN 0.0 AND 1.0
+   AND (glmm_fit_agg(y, [x], sku)).icc > 0.5
+FROM panel;
+----
+true
+
+# ==== TEST 4: one random effect per group, labelled with the original key ====
+query II
+SELECT COUNT(*), COUNT(DISTINCT r.group)
+FROM (SELECT glmm_fit_agg(y, [x], sku) AS f FROM panel) t, LATERAL UNNEST(t.f.ranef) AS u(r);
+----
+20	20
+
+query I
+SELECT bool_and(r.group LIKE 'sku_%')
+FROM (SELECT glmm_fit_agg(y, [x], sku) AS f FROM panel) t, LATERAL UNNEST(t.f.ranef) AS u(r);
+----
+true
+
+# ==== TEST 5: the random effects are centred and each group's n is right ====
+query I
+SELECT ABS(AVG(r.intercept)) < 0.3 AND bool_and(r.n = 15)
+FROM (SELECT glmm_fit_agg(y, [x], sku) AS f FROM panel) t, LATERAL UNNEST(t.f.ranef) AS u(r);
+----
+true
+
+# ==== TEST 6: BLUPs shrink relative to raw group deviations ====
+# This is the whole point of partial pooling.
+query I
+SELECT bool_and(ABS(b.ranef) <= ABS(b.raw) + 1e-9)
+FROM (
+    SELECT r.group AS g, r.intercept AS ranef,
+           (SELECT AVG(p.y) FROM panel p WHERE p.sku = r.group) - (SELECT AVG(y) FROM panel) AS raw
+    FROM (SELECT glmm_fit_agg(y, [x], sku) AS f FROM panel) t, LATERAL UNNEST(t.f.ranef) AS u(r)
+) b;
+----
+true
+
+# ==== TEST 7: conditional standard errors are finite and positive ====
+query I
+SELECT bool_and(r.se > 0.0 AND NOT isnan(r.se))
+FROM (SELECT glmm_fit_agg(y, [x], sku) AS f FROM panel) t, LATERAL UNNEST(t.f.ranef) AS u(r);
+----
+true
+
+# ==== TEST 8: fixed-effect inference ====
+query I
+SELECT (glmm_fit_agg(y, [x], sku, {'compute_inference': true})).std_errors[1] > 0
+   AND (glmm_fit_agg(y, [x], sku, {'compute_inference': true})).ci_lower[1]
+     < (glmm_fit_agg(y, [x], sku, {'compute_inference': true})).coefficients[1]
+   AND (glmm_fit_agg(y, [x], sku, {'compute_inference': true})).intercept_std_error > 0
+FROM panel;
+----
+true
+
+# ==== TEST 9: no group structure collapses to (near) complete pooling ====
+statement ok
+CREATE TABLE flat_panel AS
+SELECT 'g' || (i // 20)::VARCHAR AS g, ((i % 20) % 5)::DOUBLE AS x,
+       2.0 + 0.4 * ((i % 20) % 5) + 0.2 * (((i * 7) % 11) / 5.0 - 1) AS y
+FROM range(0, 240) t(i);
+
+query I
+SELECT (glmm_fit_agg(y, [x], g)).icc < 0.3 FROM flat_panel;
+----
+true
+
+# ==== TEST 10: Poisson mixed model ====
+statement ok
+CREATE TABLE counts AS
+SELECT 'g' || (i // 20)::VARCHAR AS g, ((i % 20) % 4)::DOUBLE AS x,
+       ROUND(EXP(0.5 + 0.3 * ((i % 20) % 4) + 0.6 * (((i // 20) + 0.5) / 15 * 2 - 1)))::DOUBLE AS y
+FROM range(0, 300) t(i);
+
+query I
+SELECT ABS((glmm_fit_agg(y, [x], g, {'family': 'poisson'})).coefficients[1] - 0.3) < 0.1
+   AND (glmm_fit_agg(y, [x], g, {'family': 'poisson'})).var_group > 0.0
+   AND (glmm_fit_agg(y, [x], g, {'family': 'poisson'})).n_groups = 15
+FROM counts;
+----
+true
+
+# ==== TEST 11: an integer grouping key works as well as a string ====
+statement ok
+CREATE TABLE int_panel AS SELECT (i // 15) AS g, ((i % 15) % 5)::DOUBLE AS x,
+       1.0 + 0.5 * ((i % 15) % 5) + 0.8 * (((i // 15) + 0.5) / 20 * 2 - 1) * 1.732 AS y
+FROM range(0, 300) t(i);
+
+query I
+SELECT (glmm_fit_agg(y, [x], g)).n_groups FROM int_panel;
+----
+20
+
+# ==== TEST 12: a single group is rejected ====
+query I
+SELECT glmm_fit_agg(y, [x], 'only') IS NULL FROM panel;
+----
+true
+
+# ==== TEST 13: all-singleton groups are rejected ====
+statement ok
+CREATE TABLE singletons AS SELECT i AS g, (i % 5)::DOUBLE AS x, i::DOUBLE AS y FROM range(0, 40) t(i);
+
+query I
+SELECT glmm_fit_agg(y, [x], g) IS NULL FROM singletons;
+----
+true
+
+# ==== TEST 14: an unknown family is rejected ====
+statement error
+SELECT (glmm_fit_agg(y, [x], sku, {'family': 'bogus'})).icc FROM panel;
+----
+Unknown GLMM family
+
+# ==== TEST 15: NULL rows are skipped ====
+statement ok
+CREATE TABLE panel_nulls AS
+SELECT sku, x, y FROM panel
+UNION ALL SELECT 'sku_0', NULL, 1.0
+UNION ALL SELECT NULL, 1.0, 1.0;
+
+query I
+SELECT (glmm_fit_agg(y, [x], sku)).n_observations FROM panel_nulls;
+----
+300
+
+# ==== TEST 16: the glmm_fit_by macro returns one row per group ====
+query I
+SELECT COUNT(*) FROM glmm_fit_by('panel', sku, y, [x]);
+----
+20
+
+query I
+SELECT bool_and(fixed_intercept IS NOT NULL AND var_group > 0) FROM glmm_fit_by('panel', sku, y, [x]);
+----
+true
+
+# ==== TEST 17: the fully-qualified name resolves ====
+query I
+SELECT (anofox_stats_glmm_fit_agg(y, [x], sku)).icc IS NOT NULL FROM panel;
+----
+true
+
+statement ok
+DROP TABLE IF EXISTS panel_nulls;
+
+statement ok
+DROP TABLE IF EXISTS singletons;
+
+statement ok
+DROP TABLE IF EXISTS int_panel;
+
+statement ok
+DROP TABLE IF EXISTS counts;
+
+statement ok
+DROP TABLE IF EXISTS flat_panel;
+
+statement ok
+DROP TABLE IF EXISTS panel;

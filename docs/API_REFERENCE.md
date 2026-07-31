@@ -31,6 +31,15 @@ The Anofox Statistics Extension provides comprehensive regression analysis capab
 |--------|-----------|---------------|
 | Poisson | `poisson_fit_agg` | [Poisson](api/glm/poisson.md) |
 | ALM | `alm_fit_agg` | [ALM](api/glm/alm.md) |
+| Negative Binomial | `negbinom_fit_agg` | [Negative Binomial](api/glm/negbinom.md) |
+| Binomial | `binomial_fit_agg` | [Priors](api/glm/priors.md) |
+| Tweedie | `tweedie_fit_agg` | [Priors](api/glm/priors.md) |
+| Gamma | `gamma_fit_agg` | [Priors](api/glm/priors.md) |
+| Logistic | `logistic_fit_agg` | [Priors](api/glm/priors.md) |
+| AFT survival | `aft_fit_agg` | [AFT](api/survival/aft.md) |
+| EB shrinkage | `eb_shrink_agg` | [EB shrinkage](api/glm/eb_shrink.md) |
+| Mixed effects | `glmm_fit_agg` | [Mixed-effects GLMs](api/glm/glmm.md) |
+| Explicit priors | *(options on any GLM)* | [Priors](api/glm/priors.md) |
 
 ### Statistical Hypothesis Tests
 
@@ -3046,3 +3055,14 @@ FROM data;
 - **0.3.0**: Added comprehensive hypothesis testing
 - **0.2.0**: Added BLS/NNLS, RLS
 - **0.1.0**: Initial release with OLS, Ridge, Elastic Net, WLS
+
+
+## Issue #107 additions
+
+| Topic | Page |
+|-------|------|
+| Explicit priors and Laplace intervals | [api/glm/priors.md](api/glm/priors.md) |
+| AFT survival regression | [api/survival/aft.md](api/survival/aft.md) |
+| Empirical-Bayes shrinkage | [api/glm/eb_shrink.md](api/glm/eb_shrink.md) |
+| Mixed-effects GLMs | [api/glm/glmm.md](api/glm/glmm.md) |
+| Negative Binomial GLM | [api/glm/negbinom.md](api/glm/negbinom.md) |

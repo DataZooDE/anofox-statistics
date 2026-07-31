@@ -35,3 +35,6 @@ Thumbs.db
 *.dSYM/
 
 .cache/
+
+# Codex delegation artifacts (contains API responses)
+.codex-delegate/

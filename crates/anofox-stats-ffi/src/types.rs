@@ -277,6 +277,12 @@ pub struct LogisticOptionsFFI {
     pub threshold: f64,
     pub max_iterations: u32,
     pub tolerance: f64,
+    /// Explicit per-coefficient priors, positionally aligned with the design
+    /// (intercept first when one is fitted). Null or zero-length means none.
+    pub priors: *const PriorSpecFFI,
+    pub priors_len: usize,
+    /// How to compute the coefficient covariance.
+    pub vcov: VcovTypeFFI,
 }
 
 impl Default for LogisticOptionsFFI {
@@ -289,6 +295,9 @@ impl Default for LogisticOptionsFFI {
             threshold: 0.5,
             max_iterations: 100,
             tolerance: 1e-8,
+            priors: std::ptr::null(),
+            priors_len: 0,
+            vcov: VcovTypeFFI::Laplace,
         }
     }
 }
@@ -596,6 +605,109 @@ pub enum BinomialLinkFFI {
     Cloglog = 2,
 }
 
+/// Prior family code, mirroring `anofox_stats_core::types::PriorKind`.
+// repr(C), not repr(u8): a C enum is int-sized, so a 1-byte Rust enum shifts
+// every field that follows it. Harmless while such a field sits last in a
+// struct, fatal when it sits first (AftOptionsFFI::dist).
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PriorKindFFI {
+    /// No prior on this coefficient.
+    Flat = 0,
+    /// Gaussian prior: `scale` is the prior standard deviation.
+    Normal = 1,
+    /// Laplace prior: `scale` is the Laplace scale `b`.
+    Laplace = 2,
+}
+
+/// One coefficient's prior. Flat POD; the C++ side resolves feature names to
+/// positions before crossing this boundary, so names never appear here.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct PriorSpecFFI {
+    pub kind: PriorKindFFI,
+    pub loc: f64,
+    pub scale: f64,
+}
+
+impl Default for PriorSpecFFI {
+    fn default() -> Self {
+        Self {
+            kind: PriorKindFFI::Flat,
+            loc: 0.0,
+            scale: f64::INFINITY,
+        }
+    }
+}
+
+/// Covariance type code, mirroring `anofox_stats_core::types::VcovType`.
+// repr(C), not repr(u8): a C enum is int-sized, so a 1-byte Rust enum shifts
+// every field that follows it. Harmless while such a field sits last in a
+// struct, fatal when it sits first (AftOptionsFFI::dist).
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VcovTypeFFI {
+    /// `(X'WX + P)^-1`, the curvature of the log posterior at the mode.
+    Laplace = 0,
+    /// `(X'WX + P)^-1 X'WX (X'WX + P)^-1`.
+    Sandwich = 1,
+    /// `(X'WX)^-1`, ignoring the penalty.
+    Naive = 2,
+}
+
+impl Default for VcovTypeFFI {
+    fn default() -> Self {
+        VcovTypeFFI::Laplace
+    }
+}
+
+/// Prior and covariance settings carried by every GLM options struct.
+///
+/// These three fields are appended verbatim to each `*OptionsFFI` rather than
+/// nested, keeping the C ABI structs flat POD as the rest of the header is.
+#[derive(Debug, Clone, Copy)]
+pub struct GlmPriorFields {
+    pub priors: *const PriorSpecFFI,
+    pub priors_len: usize,
+    pub vcov: VcovTypeFFI,
+}
+
+/// Rebuild the core-crate prior vector from a raw FFI array.
+///
+/// # Safety
+/// `priors` must be null or point to `priors_len` initialised `PriorSpecFFI`.
+pub unsafe fn priors_from_ffi(
+    priors: *const PriorSpecFFI,
+    priors_len: usize,
+) -> Vec<anofox_stats_core::types::PriorSpec> {
+    use anofox_stats_core::types::{PriorKind, PriorSpec};
+    if priors.is_null() || priors_len == 0 {
+        return Vec::new();
+    }
+    std::slice::from_raw_parts(priors, priors_len)
+        .iter()
+        .map(|p| PriorSpec {
+            kind: match p.kind {
+                PriorKindFFI::Flat => PriorKind::Flat,
+                PriorKindFFI::Normal => PriorKind::Normal,
+                PriorKindFFI::Laplace => PriorKind::Laplace,
+            },
+            loc: p.loc,
+            scale: p.scale,
+        })
+        .collect()
+}
+
+/// Map the FFI covariance code onto the core enum.
+pub fn vcov_from_ffi(v: VcovTypeFFI) -> anofox_stats_core::types::VcovType {
+    use anofox_stats_core::types::VcovType;
+    match v {
+        VcovTypeFFI::Laplace => VcovType::Laplace,
+        VcovTypeFFI::Sandwich => VcovType::Sandwich,
+        VcovTypeFFI::Naive => VcovType::Naive,
+    }
+}
+
 /// GLM options for Poisson regression
 #[repr(C)]
 pub struct PoissonOptionsFFI {
@@ -613,6 +725,12 @@ pub struct PoissonOptionsFFI {
     pub confidence_level: f64,
     /// L2 regularization parameter (0 = no regularization)
     pub lambda: f64,
+    /// Explicit per-coefficient priors, positionally aligned with the design
+    /// (intercept first when one is fitted). Null or zero-length means none.
+    pub priors: *const PriorSpecFFI,
+    pub priors_len: usize,
+    /// How to compute the coefficient covariance.
+    pub vcov: VcovTypeFFI,
 }
 
 impl Default for PoissonOptionsFFI {
@@ -625,6 +743,9 @@ impl Default for PoissonOptionsFFI {
             compute_inference: false,
             confidence_level: 0.95,
             lambda: 0.0,
+            priors: std::ptr::null(),
+            priors_len: 0,
+            vcov: VcovTypeFFI::Laplace,
         }
     }
 }
@@ -646,6 +767,12 @@ pub struct BinomialOptionsFFI {
     pub confidence_level: f64,
     /// L2 regularization parameter (0 = no regularization)
     pub lambda: f64,
+    /// Explicit per-coefficient priors, positionally aligned with the design
+    /// (intercept first when one is fitted). Null or zero-length means none.
+    pub priors: *const PriorSpecFFI,
+    pub priors_len: usize,
+    /// How to compute the coefficient covariance.
+    pub vcov: VcovTypeFFI,
 }
 
 impl Default for BinomialOptionsFFI {
@@ -658,6 +785,9 @@ impl Default for BinomialOptionsFFI {
             compute_inference: false,
             confidence_level: 0.95,
             lambda: 0.0,
+            priors: std::ptr::null(),
+            priors_len: 0,
+            vcov: VcovTypeFFI::Laplace,
         }
     }
 }
@@ -665,6 +795,8 @@ impl Default for BinomialOptionsFFI {
 /// GLM options for Negative Binomial regression
 #[repr(C)]
 pub struct NegBinomialOptionsFFI {
+    /// Dispersion (theta). NaN means "estimate from the data".
+    pub alpha: f64,
     /// Whether to fit intercept
     pub fit_intercept: bool,
     /// Maximum iterations for IRLS
@@ -677,17 +809,27 @@ pub struct NegBinomialOptionsFFI {
     pub confidence_level: f64,
     /// L2 regularization parameter (0 = no regularization)
     pub lambda: f64,
+    /// Explicit per-coefficient priors, positionally aligned with the design
+    /// (intercept first when one is fitted). Null or zero-length means none.
+    pub priors: *const PriorSpecFFI,
+    pub priors_len: usize,
+    /// How to compute the coefficient covariance.
+    pub vcov: VcovTypeFFI,
 }
 
 impl Default for NegBinomialOptionsFFI {
     fn default() -> Self {
         Self {
+            alpha: f64::NAN,
             fit_intercept: true,
             max_iterations: 100,
             tolerance: 1e-8,
             compute_inference: false,
             confidence_level: 0.95,
             lambda: 0.0,
+            priors: std::ptr::null(),
+            priors_len: 0,
+            vcov: VcovTypeFFI::Laplace,
         }
     }
 }
@@ -709,6 +851,12 @@ pub struct TweedieOptionsFFI {
     pub confidence_level: f64,
     /// L2 regularization parameter (0 = no regularization)
     pub lambda: f64,
+    /// Explicit per-coefficient priors, positionally aligned with the design
+    /// (intercept first when one is fitted). Null or zero-length means none.
+    pub priors: *const PriorSpecFFI,
+    pub priors_len: usize,
+    /// How to compute the coefficient covariance.
+    pub vcov: VcovTypeFFI,
 }
 
 impl Default for TweedieOptionsFFI {
@@ -721,6 +869,9 @@ impl Default for TweedieOptionsFFI {
             compute_inference: false,
             confidence_level: 0.95,
             lambda: 0.0,
+            priors: std::ptr::null(),
+            priors_len: 0,
+            vcov: VcovTypeFFI::Laplace,
         }
     }
 }
@@ -734,6 +885,12 @@ pub struct GammaOptionsFFI {
     pub compute_inference: bool,
     pub confidence_level: f64,
     pub lambda: f64,
+    /// Explicit per-coefficient priors, positionally aligned with the design
+    /// (intercept first when one is fitted). Null or zero-length means none.
+    pub priors: *const PriorSpecFFI,
+    pub priors_len: usize,
+    /// How to compute the coefficient covariance.
+    pub vcov: VcovTypeFFI,
 }
 
 impl Default for GammaOptionsFFI {
@@ -745,6 +902,9 @@ impl Default for GammaOptionsFFI {
             compute_inference: false,
             confidence_level: 0.95,
             lambda: 0.0,
+            priors: std::ptr::null(),
+            priors_len: 0,
+            vcov: VcovTypeFFI::Laplace,
         }
     }
 }
@@ -2082,4 +2242,292 @@ impl Default for LmDynamicFitResultFFI {
             n_coefs_per_obs: 0,
         }
     }
+}
+
+// =============================================================================
+// AFT (accelerated failure time) survival regression — issue #107
+// =============================================================================
+
+/// AFT error distribution code.
+// repr(C), not repr(u8): a C enum is int-sized, so a 1-byte Rust enum shifts
+// every field that follows it. Harmless while such a field sits last in a
+// struct, fatal when it sits first (AftOptionsFFI::dist).
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AftDistributionFFI {
+    Weibull = 0,
+    LogNormal = 1,
+    LogLogistic = 2,
+    Exponential = 3,
+}
+
+impl Default for AftDistributionFFI {
+    fn default() -> Self {
+        AftDistributionFFI::Weibull
+    }
+}
+
+/// Options for an AFT fit. Flat POD, like every other options struct here.
+#[repr(C)]
+pub struct AftOptionsFFI {
+    pub dist: AftDistributionFFI,
+    pub fit_intercept: bool,
+    pub max_iterations: u32,
+    pub tolerance: f64,
+    pub compute_inference: bool,
+    pub confidence_level: f64,
+    /// Per-coefficient priors, or null.
+    pub priors: *const PriorSpecFFI,
+    pub priors_len: usize,
+    pub vcov: VcovTypeFFI,
+}
+
+impl Default for AftOptionsFFI {
+    fn default() -> Self {
+        Self {
+            dist: AftDistributionFFI::Weibull,
+            fit_intercept: true,
+            max_iterations: 100,
+            tolerance: 1e-9,
+            compute_inference: false,
+            confidence_level: 0.95,
+            priors: std::ptr::null(),
+            priors_len: 0,
+            vcov: VcovTypeFFI::Laplace,
+        }
+    }
+}
+
+/// Core results of an AFT fit. `coefficients` is owned by the caller and must be
+/// released with `anofox_free_aft_result`.
+#[repr(C)]
+pub struct AftFitResultCore {
+    pub coefficients: *mut f64,
+    pub coefficients_len: usize,
+    pub intercept: f64,
+    pub scale: f64,
+    pub log_likelihood: f64,
+    pub null_log_likelihood: f64,
+    pub aic: f64,
+    pub bic: f64,
+    pub n_observations: usize,
+    pub n_events: usize,
+    pub n_censored: usize,
+    pub n_features: usize,
+    pub iterations: u32,
+    pub converged: bool,
+}
+
+/// Inference for an AFT fit. All arrays are caller-owned and released with
+/// `anofox_free_aft_inference`.
+#[repr(C)]
+pub struct AftInferenceFFI {
+    pub std_errors: *mut f64,
+    pub z_values: *mut f64,
+    pub p_values: *mut f64,
+    pub ci_lower: *mut f64,
+    pub ci_upper: *mut f64,
+    pub len: usize,
+    pub confidence_level: f64,
+    /// NaN when no intercept was fitted.
+    pub intercept_std_error: f64,
+    /// NaN when the scale is fixed (exponential).
+    pub log_scale_std_error: f64,
+}
+
+#[cfg(test)]
+mod abi_tests {
+    use super::*;
+
+    /// The C header is maintained by hand, so nothing but a test stops a Rust-side
+    /// enum from silently disagreeing with its C counterpart about width. A C enum
+    /// is int-sized; these must be too, or every field after them shifts.
+    #[test]
+    fn ffi_enums_are_int_sized() {
+        assert_eq!(std::mem::size_of::<PriorKindFFI>(), 4);
+        assert_eq!(std::mem::size_of::<VcovTypeFFI>(), 4);
+        assert_eq!(std::mem::size_of::<AftDistributionFFI>(), 4);
+        assert_eq!(std::mem::size_of::<PoissonLinkFFI>(), 4);
+        assert_eq!(std::mem::size_of::<BinomialLinkFFI>(), 4);
+    }
+
+    /// Offsets the C compiler will use for the equivalent struct.
+    #[test]
+    fn aft_options_layout_matches_the_c_struct() {
+        use std::mem::{align_of, size_of};
+        assert_eq!(align_of::<AftOptionsFFI>(), 8);
+        // int, bool, uint32, double, bool, double, ptr, size_t, int
+        //   0     4       8       16      24      32     40      48    56
+        assert_eq!(size_of::<AftOptionsFFI>(), 64);
+
+        let o = AftOptionsFFI::default();
+        let base = &o as *const _ as usize;
+        assert_eq!(&o.dist as *const _ as usize - base, 0);
+        assert_eq!(&o.fit_intercept as *const _ as usize - base, 4);
+        assert_eq!(&o.max_iterations as *const _ as usize - base, 8);
+        assert_eq!(&o.tolerance as *const _ as usize - base, 16);
+        assert_eq!(&o.compute_inference as *const _ as usize - base, 24);
+        assert_eq!(&o.confidence_level as *const _ as usize - base, 32);
+        assert_eq!(&o.priors as *const _ as usize - base, 40);
+        assert_eq!(&o.priors_len as *const _ as usize - base, 48);
+        assert_eq!(&o.vcov as *const _ as usize - base, 56);
+    }
+
+    #[test]
+    fn prior_spec_layout_matches_the_c_struct() {
+        use std::mem::size_of;
+        // int + 4 pad + double + double
+        assert_eq!(size_of::<PriorSpecFFI>(), 24);
+        let p = PriorSpecFFI::default();
+        let base = &p as *const _ as usize;
+        assert_eq!(&p.kind as *const _ as usize - base, 0);
+        assert_eq!(&p.loc as *const _ as usize - base, 8);
+        assert_eq!(&p.scale as *const _ as usize - base, 16);
+    }
+}
+
+// =============================================================================
+// Empirical-Bayes shrinkage — issue #107
+// =============================================================================
+
+/// Between-group variance estimator.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TauMethodFFI {
+    DerSimonianLaird = 0,
+    /// Complete pooling.
+    None = 1,
+}
+
+impl Default for TauMethodFFI {
+    fn default() -> Self {
+        TauMethodFFI::DerSimonianLaird
+    }
+}
+
+/// Options for empirical-Bayes shrinkage.
+#[repr(C)]
+pub struct EbShrinkOptionsFFI {
+    pub method: TauMethodFFI,
+    /// A fixed between-group variance; NaN means "estimate it".
+    pub tau_squared: f64,
+}
+
+impl Default for EbShrinkOptionsFFI {
+    fn default() -> Self {
+        Self {
+            method: TauMethodFFI::DerSimonianLaird,
+            tau_squared: f64::NAN,
+        }
+    }
+}
+
+/// Result of a shrinkage pass. The five per-group arrays share `len` and are in
+/// input order; all are caller-owned and released by `anofox_free_eb_shrink_result`.
+#[repr(C)]
+pub struct EbShrinkResultFFI {
+    pub mu: f64,
+    pub mu_se: f64,
+    pub tau_squared: f64,
+    pub i_squared: f64,
+    pub q: f64,
+    pub n_groups: usize,
+    pub estimate: *mut f64,
+    pub se: *mut f64,
+    pub shrunken: *mut f64,
+    pub shrunken_se: *mut f64,
+    pub weight: *mut f64,
+    pub len: usize,
+}
+
+// =============================================================================
+// Mixed-effects GLMs — issue #107
+// =============================================================================
+
+/// Response family for a mixed-effects fit.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GlmmFamilyFFI {
+    Gaussian = 0,
+    Poisson = 1,
+    Binomial = 2,
+    NegativeBinomial = 3,
+    Gamma = 4,
+    Tweedie = 5,
+}
+
+impl Default for GlmmFamilyFFI {
+    fn default() -> Self {
+        GlmmFamilyFFI::Gaussian
+    }
+}
+
+/// Options for a mixed-effects fit.
+#[repr(C)]
+pub struct GlmmOptionsFFI {
+    pub family: GlmmFamilyFFI,
+    pub fit_intercept: bool,
+    pub max_iterations: u32,
+    pub tolerance: f64,
+    pub compute_inference: bool,
+    pub confidence_level: f64,
+    pub reml: bool,
+    /// Negative Binomial theta; ignored by other families.
+    pub theta: f64,
+    /// Tweedie variance power; ignored by other families.
+    pub power: f64,
+    /// 1-based index into `x` of an offset column; 0 means none.
+    pub offset_column: usize,
+}
+
+impl Default for GlmmOptionsFFI {
+    fn default() -> Self {
+        Self {
+            family: GlmmFamilyFFI::Gaussian,
+            fit_intercept: true,
+            max_iterations: 100,
+            tolerance: 1e-8,
+            compute_inference: false,
+            confidence_level: 0.95,
+            reml: true,
+            theta: 1.0,
+            power: 1.5,
+            offset_column: 0,
+        }
+    }
+}
+
+/// Result of a mixed-effects fit. Every array is caller-owned and released by
+/// `anofox_free_glmm_result`.
+#[repr(C)]
+pub struct GlmmResultFFI {
+    pub coefficients: *mut f64,
+    pub coefficients_len: usize,
+    pub intercept: f64,
+    pub std_errors: *mut f64,
+    pub z_values: *mut f64,
+    pub p_values: *mut f64,
+    pub ci_lower: *mut f64,
+    pub ci_upper: *mut f64,
+    pub inference_len: usize,
+    pub intercept_std_error: f64,
+    pub confidence_level: f64,
+    pub var_group: f64,
+    pub var_residual: f64,
+    pub icc: f64,
+    pub log_likelihood: f64,
+    pub aic: f64,
+    pub bic: f64,
+    pub deviance: f64,
+    pub n_observations: usize,
+    pub n_groups: usize,
+    pub n_features: usize,
+    pub iterations: u32,
+    pub converged: bool,
+    /// Per-group random effects, all of length `ranef_len == n_groups`.
+    pub ranef_group: *mut i32,
+    pub ranef_value: *mut f64,
+    pub ranef_se: *mut f64,
+    pub ranef_n: *mut i64,
+    pub ranef_len: usize,
 }

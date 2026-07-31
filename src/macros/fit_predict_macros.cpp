@@ -10,13 +10,13 @@ namespace duckdb {
 
 // Structure for defining table macros
 struct FitPredictTableMacro {
-    const char *name;
-    const char *parameters[8];          // Positional parameters (nullptr terminated)
-    struct {
-        const char *name;
-        const char *default_value;
-    } named_params[8];                  // Named parameters with defaults
-    const char *macro;                  // SQL definition
+	const char *name;
+	const char *parameters[8]; // Positional parameters (nullptr terminated)
+	struct {
+		const char *name;
+		const char *default_value;
+	} named_params[8]; // Named parameters with defaults
+	const char *macro; // SQL definition
 };
 
 // clang-format off
@@ -235,6 +235,55 @@ FROM (
 ORDER BY group_col
 )"},
 
+    // glmm_fit_by: mixed-effects GLM with a random intercept (issue #107)
+    // C++ API: glmm_fit_by(source, group_col, y_col, x_cols, options)
+    // Unlike the *_fit_predict_by macros this fits ONE model across all groups and
+    // returns the per-group random effects (BLUPs), which is the point of partial
+    // pooling: every group's estimate borrows strength from the others.
+    // Returns: one row per group -- group, ranef, ranef_se, n, plus the shared
+    // fixed effects and variance components.
+    {"glmm_fit_by", {"source", "group_col", "y_col", "x_cols", nullptr}, {{"options", "NULL"}, {"unused", "NULL"}},
+R"(
+SELECT
+    r.group AS group,
+    r.intercept AS ranef,
+    r.se AS ranef_se,
+    r.n AS n,
+    sub._fit.intercept AS fixed_intercept,
+    sub._fit.coefficients AS fixed_coefficients,
+    sub._fit.var_group AS var_group,
+    sub._fit.var_residual AS var_residual,
+    sub._fit.icc AS icc
+FROM (
+    SELECT glmm_fit_agg(y_col, x_cols, group_col, options) AS _fit
+    FROM query_table(source::VARCHAR)
+) sub, LATERAL UNNEST(sub._fit.ranef) AS u(r)
+ORDER BY r.group
+)"},
+
+    // eb_shrink_by: empirical-Bayes shrinkage of per-group estimates (issue #107)
+    // C++ API: eb_shrink_by(source, estimate_col, se_col, options)
+    // Unlike the *_fit_predict_by macros this does not fit a model -- it consumes
+    // estimates that already exist (typically one row per group from a GROUP BY
+    // fit) and shrinks each toward the precision-weighted mean.
+    // Returns: all source columns + shrunken, shrunken_se, weight, mu, tau_squared
+    {"eb_shrink_by", {"source", "estimate_col", "se_col", nullptr}, {{"options", "NULL"}, {"unused", "NULL"}},
+R"(
+SELECT
+    * EXCLUDE (_res, _rn),
+    (_res.shrunken[_rn]).shrunken AS shrunken,
+    (_res.shrunken[_rn]).shrunken_se AS shrunken_se,
+    (_res.shrunken[_rn]).weight AS weight,
+    _res.mu AS mu,
+    _res.tau_squared AS tau_squared
+FROM (
+    SELECT *,
+        ROW_NUMBER() OVER () AS _rn,
+        eb_shrink_agg(estimate_col, se_col, options) OVER () AS _res
+    FROM query_table(source::VARCHAR)
+) sub
+)"},
+
     // poisson_fit_predict_by: Poisson GLM fit and predict per group (long format)
     // C++ API: poisson_fit_predict_by(table_name, group_col, y_col, x_cols, options)
     // Options: link, intercept, max_iterations, tolerance, confidence_level, null_policy
@@ -384,50 +433,50 @@ ORDER BY group_col, order_col
 
 // Helper function to create a table macro from the definition
 static unique_ptr<CreateMacroInfo> CreateFitPredictTableMacro(const FitPredictTableMacro &macro_def) {
-    // Parse the SQL
-    Parser parser;
-    parser.ParseQuery(macro_def.macro);
-    if (parser.statements.size() != 1 || parser.statements[0]->type != StatementType::SELECT_STATEMENT) {
-        throw InternalException("Expected a single select statement in CreateFitPredictTableMacro");
-    }
-    auto node = std::move(parser.statements[0]->Cast<SelectStatement>().node);
+	// Parse the SQL
+	Parser parser;
+	parser.ParseQuery(macro_def.macro);
+	if (parser.statements.size() != 1 || parser.statements[0]->type != StatementType::SELECT_STATEMENT) {
+		throw InternalException("Expected a single select statement in CreateFitPredictTableMacro");
+	}
+	auto node = std::move(parser.statements[0]->Cast<SelectStatement>().node);
 
-    // Create the macro function
-    auto function = make_uniq<TableMacroFunction>(std::move(node));
+	// Create the macro function
+	auto function = make_uniq<TableMacroFunction>(std::move(node));
 
-    // Add positional parameters
-    for (idx_t i = 0; macro_def.parameters[i] != nullptr; i++) {
-        function->parameters.push_back(make_uniq<ColumnRefExpression>(macro_def.parameters[i]));
-    }
+	// Add positional parameters
+	for (idx_t i = 0; macro_def.parameters[i] != nullptr; i++) {
+		function->parameters.push_back(make_uniq<ColumnRefExpression>(macro_def.parameters[i]));
+	}
 
-    // Add named parameters with defaults
-    for (idx_t i = 0; macro_def.named_params[i].name != nullptr; i++) {
-        const auto &param = macro_def.named_params[i];
-        function->parameters.push_back(make_uniq<ColumnRefExpression>(param.name));
+	// Add named parameters with defaults
+	for (idx_t i = 0; macro_def.named_params[i].name != nullptr; i++) {
+		const auto &param = macro_def.named_params[i];
+		function->parameters.push_back(make_uniq<ColumnRefExpression>(param.name));
 
-        // Parse the default value
-        auto expr_list = Parser::ParseExpressionList(param.default_value);
-        if (!expr_list.empty()) {
-            function->default_parameters.insert(make_pair(string(param.name), std::move(expr_list[0])));
-        }
-    }
+		// Parse the default value
+		auto expr_list = Parser::ParseExpressionList(param.default_value);
+		if (!expr_list.empty()) {
+			function->default_parameters.insert(make_pair(string(param.name), std::move(expr_list[0])));
+		}
+	}
 
-    // Create the macro info
-    auto info = make_uniq<CreateMacroInfo>(CatalogType::TABLE_MACRO_ENTRY);
-    info->schema = DEFAULT_SCHEMA;
-    info->name = macro_def.name;
-    info->temporary = true;
-    info->internal = true;
-    info->macros.push_back(std::move(function));
+	// Create the macro info
+	auto info = make_uniq<CreateMacroInfo>(CatalogType::TABLE_MACRO_ENTRY);
+	info->schema = DEFAULT_SCHEMA;
+	info->name = macro_def.name;
+	info->temporary = true;
+	info->internal = true;
+	info->macros.push_back(std::move(function));
 
-    return info;
+	return info;
 }
 
 void RegisterFitPredictTableMacros(ExtensionLoader &loader) {
-    for (idx_t i = 0; fit_predict_table_macros[i].name != nullptr; i++) {
-        auto info = CreateFitPredictTableMacro(fit_predict_table_macros[i]);
-        loader.RegisterFunction(*info);
-    }
+	for (idx_t i = 0; fit_predict_table_macros[i].name != nullptr; i++) {
+		auto info = CreateFitPredictTableMacro(fit_predict_table_macros[i]);
+		loader.RegisterFunction(*info);
+	}
 }
 
 } // namespace duckdb

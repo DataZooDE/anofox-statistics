@@ -494,6 +494,136 @@ pub enum BinomialLink {
     Log,
 }
 
+/// Family of an explicit prior placed on a single coefficient.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PriorKind {
+    /// No prior: the coefficient is estimated by unpenalized maximum likelihood.
+    #[default]
+    Flat,
+    /// Gaussian prior `beta ~ N(loc, scale^2)`. Contributes a quadratic penalty
+    /// `(beta - loc)^2 / scale^2`, i.e. a precision block `1 / scale^2` on the diagonal.
+    Normal,
+    /// Laplace (double-exponential) prior `beta ~ Laplace(loc, scale)`. Contributes an
+    /// L1 penalty `|beta - loc| / scale`. Not a precision block: the MAP objective is
+    /// non-differentiable at `loc`, so it is fitted by proximal coordinate descent and
+    /// curvature-based standard errors exist only for the active set.
+    Laplace,
+}
+
+/// An explicit prior on one coefficient.
+///
+/// `scale` is the prior standard deviation for [`PriorKind::Normal`] and the Laplace
+/// scale parameter `b` for [`PriorKind::Laplace`]. A flat prior ignores both fields.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PriorSpec {
+    pub kind: PriorKind,
+    pub loc: f64,
+    pub scale: f64,
+}
+
+impl Default for PriorSpec {
+    fn default() -> Self {
+        Self {
+            kind: PriorKind::Flat,
+            loc: 0.0,
+            scale: f64::INFINITY,
+        }
+    }
+}
+
+impl PriorSpec {
+    /// A flat (improper uniform) prior — no penalty contribution.
+    pub fn flat() -> Self {
+        Self::default()
+    }
+
+    /// A Gaussian prior with the given mean and standard deviation.
+    pub fn normal(loc: f64, scale: f64) -> Self {
+        Self {
+            kind: PriorKind::Normal,
+            loc,
+            scale,
+        }
+    }
+
+    /// A Laplace prior with the given location and scale.
+    pub fn laplace(loc: f64, scale: f64) -> Self {
+        Self {
+            kind: PriorKind::Laplace,
+            loc,
+            scale,
+        }
+    }
+
+    /// Gaussian precision `1 / scale^2`; zero for flat and for Laplace priors
+    /// (the latter contributes no quadratic term).
+    pub fn precision(&self) -> f64 {
+        match self.kind {
+            PriorKind::Normal if self.scale.is_finite() && self.scale > 0.0 => {
+                1.0 / (self.scale * self.scale)
+            }
+            _ => 0.0,
+        }
+    }
+
+    /// Returns true when this prior contributes nothing to the objective.
+    pub fn is_flat(&self) -> bool {
+        match self.kind {
+            PriorKind::Flat => true,
+            PriorKind::Normal | PriorKind::Laplace => !self.scale.is_finite() || self.scale <= 0.0,
+        }
+    }
+}
+
+/// How the coefficient covariance matrix is computed for a penalized/MAP fit.
+///
+/// For an unpenalized fit all three coincide.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum VcovType {
+    /// `(X'WX + P)^-1` — the curvature of the log posterior at the mode (Laplace
+    /// approximation). This is the correct observed information for a MAP estimate
+    /// and is the default.
+    #[default]
+    Laplace,
+    /// `(X'WX + P)^-1 X'WX (X'WX + P)^-1` — the sandwich form, which targets the
+    /// frequentist sampling variance of the penalized estimator rather than the
+    /// posterior curvature.
+    Sandwich,
+    /// `(X'WX)^-1` — ignores the penalty entirely. This reproduces the (incorrect)
+    /// standard errors that penalized GLM fits reported before the Laplace work;
+    /// retained so the old numbers stay reachable.
+    Naive,
+}
+
+/// Prior / covariance options shared by every GLM family.
+///
+/// Kept as a separate struct rather than duplicated across the six family option
+/// structs. It is deliberately *not* mirrored across the FFI boundary — the C ABI
+/// structs stay flat POD.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct GlmPriorOptions {
+    /// Per-coefficient priors, positionally aligned with the feature columns.
+    /// When `fit_intercept` is set, an extra leading entry applies to the intercept.
+    /// An empty vector means "no explicit priors" and is the default.
+    pub priors: Vec<PriorSpec>,
+    /// How to compute the coefficient covariance matrix.
+    pub vcov: VcovType,
+}
+
+impl GlmPriorOptions {
+    /// True when no explicit prior was supplied (or every supplied prior is flat).
+    pub fn is_empty(&self) -> bool {
+        self.priors.iter().all(PriorSpec::is_flat)
+    }
+
+    /// True when any prior is a Laplace/L1 prior, which requires the proximal path.
+    pub fn has_l1(&self) -> bool {
+        self.priors
+            .iter()
+            .any(|p| p.kind == PriorKind::Laplace && !p.is_flat())
+    }
+}
+
 /// Options for Poisson regression (GLM)
 #[derive(Debug, Clone)]
 pub struct PoissonOptions {
@@ -511,6 +641,8 @@ pub struct PoissonOptions {
     pub confidence_level: f64,
     /// L2 regularization parameter for penalized IRLS (0.0 = no regularization)
     pub lambda: f64,
+    /// Explicit per-coefficient priors and covariance type (see [`GlmPriorOptions`]).
+    pub prior_opts: GlmPriorOptions,
 }
 
 impl Default for PoissonOptions {
@@ -523,6 +655,7 @@ impl Default for PoissonOptions {
             compute_inference: false,
             confidence_level: 0.95,
             lambda: 0.0,
+            prior_opts: GlmPriorOptions::default(),
         }
     }
 }
@@ -544,6 +677,8 @@ pub struct BinomialOptions {
     pub confidence_level: f64,
     /// L2 regularization parameter for penalized IRLS (0.0 = no regularization)
     pub lambda: f64,
+    /// Explicit per-coefficient priors and covariance type (see [`GlmPriorOptions`]).
+    pub prior_opts: GlmPriorOptions,
 }
 
 impl Default for BinomialOptions {
@@ -556,6 +691,7 @@ impl Default for BinomialOptions {
             compute_inference: false,
             confidence_level: 0.95,
             lambda: 0.0,
+            prior_opts: GlmPriorOptions::default(),
         }
     }
 }
@@ -577,6 +713,8 @@ pub struct NegBinomialOptions {
     pub confidence_level: f64,
     /// L2 regularization parameter for penalized IRLS (0.0 = no regularization)
     pub lambda: f64,
+    /// Explicit per-coefficient priors and covariance type (see [`GlmPriorOptions`]).
+    pub prior_opts: GlmPriorOptions,
 }
 
 impl Default for NegBinomialOptions {
@@ -589,6 +727,7 @@ impl Default for NegBinomialOptions {
             compute_inference: false,
             confidence_level: 0.95,
             lambda: 0.0,
+            prior_opts: GlmPriorOptions::default(),
         }
     }
 }
@@ -611,6 +750,8 @@ pub struct TweedieOptions {
     pub confidence_level: f64,
     /// L2 regularization parameter for penalized IRLS (0.0 = no regularization)
     pub lambda: f64,
+    /// Explicit per-coefficient priors and covariance type (see [`GlmPriorOptions`]).
+    pub prior_opts: GlmPriorOptions,
 }
 
 impl Default for TweedieOptions {
@@ -623,6 +764,7 @@ impl Default for TweedieOptions {
             compute_inference: false,
             confidence_level: 0.95,
             lambda: 0.0,
+            prior_opts: GlmPriorOptions::default(),
         }
     }
 }
@@ -642,6 +784,8 @@ pub struct GammaOptions {
     pub confidence_level: f64,
     /// L2 regularization parameter for penalized IRLS (0.0 = no regularization).
     pub lambda: f64,
+    /// Explicit per-coefficient priors and covariance type (see [`GlmPriorOptions`]).
+    pub prior_opts: GlmPriorOptions,
 }
 
 impl Default for GammaOptions {
@@ -653,6 +797,7 @@ impl Default for GammaOptions {
             compute_inference: false,
             confidence_level: 0.95,
             lambda: 0.0,
+            prior_opts: GlmPriorOptions::default(),
         }
     }
 }
@@ -675,6 +820,8 @@ pub struct LogisticOptions {
     pub compute_inference: bool,
     /// Confidence level for inference intervals.
     pub confidence_level: f64,
+    /// Explicit per-coefficient priors and covariance type (see [`GlmPriorOptions`]).
+    pub prior_opts: GlmPriorOptions,
 }
 
 impl Default for LogisticOptions {
@@ -687,6 +834,7 @@ impl Default for LogisticOptions {
             tolerance: 1e-8,
             compute_inference: false,
             confidence_level: 0.95,
+            prior_opts: GlmPriorOptions::default(),
         }
     }
 }

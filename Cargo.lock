@@ -37,6 +37,7 @@ dependencies = [
  "approx",
  "faer",
  "rand 0.8.5",
+ "statrs",
  "thiserror 2.0.17",
 ]
 

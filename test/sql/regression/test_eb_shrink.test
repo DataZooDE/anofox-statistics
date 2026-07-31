@@ -1,0 +1,179 @@
+# name: test/sql/regression/test_eb_shrink.test
+# description: Empirical-Bayes shrinkage of per-group estimates (issue #107)
+# group: [regression]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE sku_fits(sku VARCHAR, est DOUBLE, se DOUBLE);
+
+statement ok
+INSERT INTO sku_fits VALUES
+  ('a', 0.10, 0.30), ('b', 0.30, 0.10), ('c', 0.35, 0.50),
+  ('d', 0.65, 0.20), ('e', 1.00, 0.40);
+
+# ==== TEST 1: pooled mean, tau^2 and I^2 ====
+# DerSimonian-Laird, matching metafor::rma(yi, sei, method = "DL").
+query IIII
+SELECT ROUND((eb_shrink_agg(est, se)).mu, 6),
+       ROUND((eb_shrink_agg(est, se)).tau_squared, 6),
+       ROUND((eb_shrink_agg(est, se)).i_squared, 6),
+       (eb_shrink_agg(est, se)).n_groups
+FROM sku_fits;
+----
+0.422398	0.023946	0.302796	5
+
+# ==== TEST 2: the shrunken list comes back in input order ====
+query I
+SELECT LENGTH((eb_shrink_agg(est, se)).shrunken) FROM sku_fits;
+----
+5
+
+# ==== TEST 3: every shrunken value lies between its estimate and the mean ====
+query I
+SELECT bool_and(g.shrunken BETWEEN LEAST(g.estimate, m.mu) AND GREATEST(g.estimate, m.mu))
+FROM (SELECT eb_shrink_agg(est, se) AS r FROM sku_fits) t,
+     LATERAL (SELECT t.r.mu AS mu) m,
+     LATERAL UNNEST(t.r.shrunken) AS u(g);
+----
+true
+
+# ==== TEST 4: noisier groups keep less of their own estimate ====
+# The retained weight must fall as the standard error rises.
+query I
+SELECT bool_and(w_desc)
+FROM (
+    SELECT g.weight <= LAG(g.weight) OVER (ORDER BY g.se) OR LAG(g.weight) OVER (ORDER BY g.se) IS NULL AS w_desc
+    FROM (SELECT eb_shrink_agg(est, se) AS r FROM sku_fits) t,
+         LATERAL UNNEST(t.r.shrunken) AS u(g)
+);
+----
+true
+
+# ==== TEST 5: shrinkage never inflates the standard error ====
+query I
+SELECT bool_and(g.shrunken_se <= g.se + 1e-12)
+FROM (SELECT eb_shrink_agg(est, se) AS r FROM sku_fits) t,
+     LATERAL UNNEST(t.r.shrunken) AS u(g);
+----
+true
+
+# ==== TEST 6: identical estimates collapse to complete pooling ====
+statement ok
+CREATE TABLE homogeneous(est DOUBLE, se DOUBLE);
+
+statement ok
+INSERT INTO homogeneous VALUES (0.5,0.2),(0.5,0.3),(0.5,0.1),(0.5,0.4),(0.5,0.25);
+
+query II
+SELECT (eb_shrink_agg(est, se)).tau_squared, (eb_shrink_agg(est, se)).i_squared FROM homogeneous;
+----
+0.0	0.0
+
+query I
+SELECT bool_and(ABS(g.shrunken - 0.5) < 1e-12)
+FROM (SELECT eb_shrink_agg(est, se) AS r FROM homogeneous) t,
+     LATERAL UNNEST(t.r.shrunken) AS u(g);
+----
+true
+
+# ==== TEST 7: a huge fixed tau^2 leaves the estimates alone ====
+query I
+SELECT bool_and(ABS(g.shrunken - g.estimate) < 1e-3)
+FROM (SELECT eb_shrink_agg(est, se, {'tau_squared': 1000000.0}) AS r FROM sku_fits) t,
+     LATERAL UNNEST(t.r.shrunken) AS u(g);
+----
+true
+
+# ==== TEST 8: tau_method := 'none' forces complete pooling ====
+query I
+SELECT (eb_shrink_agg(est, se, {'tau_method': 'none'})).tau_squared FROM sku_fits;
+----
+0.0
+
+# ==== TEST 9: heterogeneous groups produce a large I^2 ====
+statement ok
+CREATE TABLE heterogeneous AS
+SELECT i::DOUBLE AS est, 0.05::DOUBLE AS se FROM range(0, 4) t(i);
+
+query I
+SELECT (eb_shrink_agg(est, se)).i_squared > 0.95 FROM heterogeneous;
+----
+true
+
+# ==== TEST 10: a single group is not enough ====
+query I
+SELECT eb_shrink_agg(est, se) IS NULL FROM sku_fits WHERE sku = 'a';
+----
+true
+
+# ==== TEST 11: NULL rows are skipped ====
+statement ok
+CREATE TABLE with_nulls AS SELECT est, se FROM sku_fits UNION ALL SELECT NULL, 0.2 UNION ALL SELECT 0.4, NULL;
+
+query I
+SELECT (eb_shrink_agg(est, se)).n_groups FROM with_nulls;
+----
+5
+
+# ==== TEST 12: composes with a GROUP BY GLM fit ====
+# This is the intended workflow: fit per group, then shrink the group estimates.
+statement ok
+CREATE TABLE demand AS
+SELECT (i % 8) AS sku, (i % 5)::DOUBLE AS promo,
+       ROUND(EXP(0.4 + 0.1 * (i % 8) + 0.2 * (i % 5)))::DOUBLE AS qty
+FROM range(0, 240) t(i);
+
+statement ok
+CREATE TABLE per_sku AS
+SELECT sku,
+       (poisson_fit_agg(qty, [promo], {'compute_inference': true})).coefficients[1] AS est,
+       (poisson_fit_agg(qty, [promo], {'compute_inference': true})).std_errors[1] AS se
+FROM demand GROUP BY sku;
+
+query I
+SELECT (eb_shrink_agg(est, se)).n_groups FROM per_sku;
+----
+8
+
+# ==== TEST 13: the eb_shrink_by macro returns one row per input ====
+query I
+SELECT COUNT(*) FROM eb_shrink_by('sku_fits', est, se);
+----
+5
+
+# ==== TEST 14: the macro's shrunken column matches the aggregate ====
+query I
+SELECT bool_and(ABS(shrunken - mu) <= ABS(est - mu) + 1e-12) FROM eb_shrink_by('sku_fits', est, se);
+----
+true
+
+# ==== TEST 15: the fully-qualified name resolves ====
+query I
+SELECT (anofox_stats_eb_shrink_agg(est, se)).mu IS NOT NULL FROM sku_fits;
+----
+true
+
+# ==== TEST 16: an unknown tau_method is rejected ====
+statement error
+SELECT (eb_shrink_agg(est, se, {'tau_method': 'bogus'})).mu FROM sku_fits;
+----
+Unknown tau_method
+
+statement ok
+DROP TABLE IF EXISTS per_sku;
+
+statement ok
+DROP TABLE IF EXISTS demand;
+
+statement ok
+DROP TABLE IF EXISTS with_nulls;
+
+statement ok
+DROP TABLE IF EXISTS heterogeneous;
+
+statement ok
+DROP TABLE IF EXISTS homogeneous;
+
+statement ok
+DROP TABLE IF EXISTS sku_fits;
