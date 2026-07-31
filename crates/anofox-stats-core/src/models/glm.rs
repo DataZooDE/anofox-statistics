@@ -25,7 +25,9 @@ use crate::types::{
     BinomialLink, BinomialOptions, GammaOptions, GlmFitResult, GlmInferenceResult, LogisticOptions,
     NegBinomialOptions, PoissonLink, PoissonOptions, TweedieOptions,
 };
-use anofox_regression::core::{BinomialFamily, NegativeBinomialFamily, PoissonFamily, TweedieFamily};
+use anofox_regression::core::{
+    BinomialFamily, NegativeBinomialFamily, PoissonFamily, TweedieFamily,
+};
 use anofox_regression::prelude::*;
 
 /// Combined GLM result with optional inference
@@ -45,7 +47,12 @@ impl From<EngineFit> for GlmResult {
 }
 
 /// Reject responses outside a family's support.
-fn require<F: Fn(f64) -> bool>(y: &[f64], field: &'static str, message: &str, ok: F) -> StatsResult<()> {
+fn require<F: Fn(f64) -> bool>(
+    y: &[f64],
+    field: &'static str,
+    message: &str,
+    ok: F,
+) -> StatsResult<()> {
     for &v in y.iter() {
         if !v.is_nan() && !ok(v) {
             return Err(StatsError::InvalidValue {
@@ -134,14 +141,9 @@ pub fn fit_binomial(
         constant_policy: ConstantColumnPolicy::Keep,
     };
 
-    let fit = glm_engine::fit(
-        &family,
-        y,
-        x,
-        &engine_opts,
-        DispersionRule::Fixed,
-        |_| LogLikKind::Binomial,
-    )?;
+    let fit = glm_engine::fit(&family, y, x, &engine_opts, DispersionRule::Fixed, |_| {
+        LogLikKind::Binomial
+    })?;
     Ok(fit.into())
 }
 
@@ -518,7 +520,9 @@ mod tests {
         let x1: Vec<f64> = (0..n).map(|i| (i % 10) as f64 / 3.0).collect();
         let x2: Vec<f64> = (0..n).map(|i| ((i * 7) % 5) as f64 - 2.0).collect();
         let y: Vec<f64> = (0..n)
-            .map(|i| ((0.6 + 0.25 * x1[i] - 0.15 * x2[i]).exp() + ((i * 13) % 4) as f64 * 0.3).round())
+            .map(|i| {
+                ((0.6 + 0.25 * x1[i] - 0.15 * x2[i]).exp() + ((i * 13) % 4) as f64 * 0.3).round()
+            })
             .collect();
         (y, vec![x1, x2])
     }

@@ -277,6 +277,12 @@ pub struct LogisticOptionsFFI {
     pub threshold: f64,
     pub max_iterations: u32,
     pub tolerance: f64,
+    /// Explicit per-coefficient priors, positionally aligned with the design
+    /// (intercept first when one is fitted). Null or zero-length means none.
+    pub priors: *const PriorSpecFFI,
+    pub priors_len: usize,
+    /// How to compute the coefficient covariance.
+    pub vcov: VcovTypeFFI,
 }
 
 impl Default for LogisticOptionsFFI {
@@ -289,6 +295,9 @@ impl Default for LogisticOptionsFFI {
             threshold: 0.5,
             max_iterations: 100,
             tolerance: 1e-8,
+            priors: std::ptr::null(),
+            priors_len: 0,
+            vcov: VcovTypeFFI::Laplace,
         }
     }
 }
@@ -596,6 +605,103 @@ pub enum BinomialLinkFFI {
     Cloglog = 2,
 }
 
+/// Prior family code, mirroring `anofox_stats_core::types::PriorKind`.
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PriorKindFFI {
+    /// No prior on this coefficient.
+    Flat = 0,
+    /// Gaussian prior: `scale` is the prior standard deviation.
+    Normal = 1,
+    /// Laplace prior: `scale` is the Laplace scale `b`.
+    Laplace = 2,
+}
+
+/// One coefficient's prior. Flat POD; the C++ side resolves feature names to
+/// positions before crossing this boundary, so names never appear here.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct PriorSpecFFI {
+    pub kind: PriorKindFFI,
+    pub loc: f64,
+    pub scale: f64,
+}
+
+impl Default for PriorSpecFFI {
+    fn default() -> Self {
+        Self {
+            kind: PriorKindFFI::Flat,
+            loc: 0.0,
+            scale: f64::INFINITY,
+        }
+    }
+}
+
+/// Covariance type code, mirroring `anofox_stats_core::types::VcovType`.
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VcovTypeFFI {
+    /// `(X'WX + P)^-1`, the curvature of the log posterior at the mode.
+    Laplace = 0,
+    /// `(X'WX + P)^-1 X'WX (X'WX + P)^-1`.
+    Sandwich = 1,
+    /// `(X'WX)^-1`, ignoring the penalty.
+    Naive = 2,
+}
+
+impl Default for VcovTypeFFI {
+    fn default() -> Self {
+        VcovTypeFFI::Laplace
+    }
+}
+
+/// Prior and covariance settings carried by every GLM options struct.
+///
+/// These three fields are appended verbatim to each `*OptionsFFI` rather than
+/// nested, keeping the C ABI structs flat POD as the rest of the header is.
+#[derive(Debug, Clone, Copy)]
+pub struct GlmPriorFields {
+    pub priors: *const PriorSpecFFI,
+    pub priors_len: usize,
+    pub vcov: VcovTypeFFI,
+}
+
+/// Rebuild the core-crate prior vector from a raw FFI array.
+///
+/// # Safety
+/// `priors` must be null or point to `priors_len` initialised `PriorSpecFFI`.
+pub unsafe fn priors_from_ffi(
+    priors: *const PriorSpecFFI,
+    priors_len: usize,
+) -> Vec<anofox_stats_core::types::PriorSpec> {
+    use anofox_stats_core::types::{PriorKind, PriorSpec};
+    if priors.is_null() || priors_len == 0 {
+        return Vec::new();
+    }
+    std::slice::from_raw_parts(priors, priors_len)
+        .iter()
+        .map(|p| PriorSpec {
+            kind: match p.kind {
+                PriorKindFFI::Flat => PriorKind::Flat,
+                PriorKindFFI::Normal => PriorKind::Normal,
+                PriorKindFFI::Laplace => PriorKind::Laplace,
+            },
+            loc: p.loc,
+            scale: p.scale,
+        })
+        .collect()
+}
+
+/// Map the FFI covariance code onto the core enum.
+pub fn vcov_from_ffi(v: VcovTypeFFI) -> anofox_stats_core::types::VcovType {
+    use anofox_stats_core::types::VcovType;
+    match v {
+        VcovTypeFFI::Laplace => VcovType::Laplace,
+        VcovTypeFFI::Sandwich => VcovType::Sandwich,
+        VcovTypeFFI::Naive => VcovType::Naive,
+    }
+}
+
 /// GLM options for Poisson regression
 #[repr(C)]
 pub struct PoissonOptionsFFI {
@@ -613,6 +719,12 @@ pub struct PoissonOptionsFFI {
     pub confidence_level: f64,
     /// L2 regularization parameter (0 = no regularization)
     pub lambda: f64,
+    /// Explicit per-coefficient priors, positionally aligned with the design
+    /// (intercept first when one is fitted). Null or zero-length means none.
+    pub priors: *const PriorSpecFFI,
+    pub priors_len: usize,
+    /// How to compute the coefficient covariance.
+    pub vcov: VcovTypeFFI,
 }
 
 impl Default for PoissonOptionsFFI {
@@ -625,6 +737,9 @@ impl Default for PoissonOptionsFFI {
             compute_inference: false,
             confidence_level: 0.95,
             lambda: 0.0,
+            priors: std::ptr::null(),
+            priors_len: 0,
+            vcov: VcovTypeFFI::Laplace,
         }
     }
 }
@@ -646,6 +761,12 @@ pub struct BinomialOptionsFFI {
     pub confidence_level: f64,
     /// L2 regularization parameter (0 = no regularization)
     pub lambda: f64,
+    /// Explicit per-coefficient priors, positionally aligned with the design
+    /// (intercept first when one is fitted). Null or zero-length means none.
+    pub priors: *const PriorSpecFFI,
+    pub priors_len: usize,
+    /// How to compute the coefficient covariance.
+    pub vcov: VcovTypeFFI,
 }
 
 impl Default for BinomialOptionsFFI {
@@ -658,6 +779,9 @@ impl Default for BinomialOptionsFFI {
             compute_inference: false,
             confidence_level: 0.95,
             lambda: 0.0,
+            priors: std::ptr::null(),
+            priors_len: 0,
+            vcov: VcovTypeFFI::Laplace,
         }
     }
 }
@@ -665,6 +789,8 @@ impl Default for BinomialOptionsFFI {
 /// GLM options for Negative Binomial regression
 #[repr(C)]
 pub struct NegBinomialOptionsFFI {
+    /// Dispersion (theta). NaN means "estimate from the data".
+    pub alpha: f64,
     /// Whether to fit intercept
     pub fit_intercept: bool,
     /// Maximum iterations for IRLS
@@ -677,17 +803,27 @@ pub struct NegBinomialOptionsFFI {
     pub confidence_level: f64,
     /// L2 regularization parameter (0 = no regularization)
     pub lambda: f64,
+    /// Explicit per-coefficient priors, positionally aligned with the design
+    /// (intercept first when one is fitted). Null or zero-length means none.
+    pub priors: *const PriorSpecFFI,
+    pub priors_len: usize,
+    /// How to compute the coefficient covariance.
+    pub vcov: VcovTypeFFI,
 }
 
 impl Default for NegBinomialOptionsFFI {
     fn default() -> Self {
         Self {
+            alpha: f64::NAN,
             fit_intercept: true,
             max_iterations: 100,
             tolerance: 1e-8,
             compute_inference: false,
             confidence_level: 0.95,
             lambda: 0.0,
+            priors: std::ptr::null(),
+            priors_len: 0,
+            vcov: VcovTypeFFI::Laplace,
         }
     }
 }
@@ -709,6 +845,12 @@ pub struct TweedieOptionsFFI {
     pub confidence_level: f64,
     /// L2 regularization parameter (0 = no regularization)
     pub lambda: f64,
+    /// Explicit per-coefficient priors, positionally aligned with the design
+    /// (intercept first when one is fitted). Null or zero-length means none.
+    pub priors: *const PriorSpecFFI,
+    pub priors_len: usize,
+    /// How to compute the coefficient covariance.
+    pub vcov: VcovTypeFFI,
 }
 
 impl Default for TweedieOptionsFFI {
@@ -721,6 +863,9 @@ impl Default for TweedieOptionsFFI {
             compute_inference: false,
             confidence_level: 0.95,
             lambda: 0.0,
+            priors: std::ptr::null(),
+            priors_len: 0,
+            vcov: VcovTypeFFI::Laplace,
         }
     }
 }
@@ -734,6 +879,12 @@ pub struct GammaOptionsFFI {
     pub compute_inference: bool,
     pub confidence_level: f64,
     pub lambda: f64,
+    /// Explicit per-coefficient priors, positionally aligned with the design
+    /// (intercept first when one is fitted). Null or zero-length means none.
+    pub priors: *const PriorSpecFFI,
+    pub priors_len: usize,
+    /// How to compute the coefficient covariance.
+    pub vcov: VcovTypeFFI,
 }
 
 impl Default for GammaOptionsFFI {
@@ -745,6 +896,9 @@ impl Default for GammaOptionsFFI {
             compute_inference: false,
             confidence_level: 0.95,
             lambda: 0.0,
+            priors: std::ptr::null(),
+            priors_len: 0,
+            vcov: VcovTypeFFI::Laplace,
         }
     }
 }

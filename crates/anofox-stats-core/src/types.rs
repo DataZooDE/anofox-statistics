@@ -570,9 +570,7 @@ impl PriorSpec {
     pub fn is_flat(&self) -> bool {
         match self.kind {
             PriorKind::Flat => true,
-            PriorKind::Normal | PriorKind::Laplace => {
-                !self.scale.is_finite() || self.scale <= 0.0
-            }
+            PriorKind::Normal | PriorKind::Laplace => !self.scale.is_finite() || self.scale <= 0.0,
         }
     }
 }

@@ -80,9 +80,7 @@ pub fn unit_log_likelihood(kind: LogLikKind, y: f64, mu: f64) -> f64 {
             let y = y.max(1e-300);
             a * (a / mu).ln() + (a - 1.0) * y.ln() - a * y / mu - ln_gamma(a)
         }
-        LogLikKind::Tweedie { power, dispersion } => {
-            tweedie_log_density(y, mu, power, dispersion)
-        }
+        LogLikKind::Tweedie { power, dispersion } => tweedie_log_density(y, mu, power, dispersion),
     }
 }
 
@@ -230,7 +228,14 @@ mod tests {
         let p = 1.5;
         let phi = 1.0;
         let mu = 2.0;
-        let ll = unit_log_likelihood(LogLikKind::Tweedie { power: p, dispersion: phi }, 0.0, mu);
+        let ll = unit_log_likelihood(
+            LogLikKind::Tweedie {
+                power: p,
+                dispersion: phi,
+            },
+            0.0,
+            mu,
+        );
         let expect = -mu.powf(2.0 - p) / (2.0 - p);
         assert!((ll - expect).abs() < 1e-12, "got {ll}, want {expect}");
     }
@@ -240,7 +245,10 @@ mod tests {
         // Crude trapezoid over the continuous part plus the atom at zero.
         let (p, phi, mu) = (1.5, 0.8, 2.0);
         let atom = unit_log_likelihood(
-            LogLikKind::Tweedie { power: p, dispersion: phi },
+            LogLikKind::Tweedie {
+                power: p,
+                dispersion: phi,
+            },
             0.0,
             mu,
         )
@@ -256,7 +264,10 @@ mod tests {
                 continue;
             }
             let d = unit_log_likelihood(
-                LogLikKind::Tweedie { power: p, dispersion: phi },
+                LogLikKind::Tweedie {
+                    power: p,
+                    dispersion: phi,
+                },
                 y,
                 mu,
             )

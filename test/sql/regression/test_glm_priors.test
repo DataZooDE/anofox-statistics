@@ -1,0 +1,259 @@
+# name: test/sql/regression/test_glm_priors.test
+# description: Explicit Gaussian/Laplace priors on GLM coefficients (issue #107)
+# group: [regression]
+
+require anofox_statistics
+
+# Count data with log(mu) = 0.6 + 0.25*x1 - 0.15*x2 plus a deterministic wobble.
+# The unpenalized fit of this fixture is coefficients [0.241563, -0.128771] with
+# intercept 0.783762, verified against an independent NumPy IRLS.
+statement ok
+CREATE TABLE prior_data AS
+SELECT
+    (i % 10) / 3.0                                                   AS x1,
+    ((i * 7) % 5) - 2.0                                              AS x2,
+    ROUND(EXP(0.6 + 0.25 * ((i % 10) / 3.0) - 0.15 * (((i * 7) % 5) - 2.0))
+          + ((i * 13) % 4) * 0.3)                                    AS y
+FROM range(0, 60) t(i);
+
+# ==== TEST 1: baseline, no prior ====
+query II
+SELECT ROUND((poisson_fit_agg(y, [x1, x2])).coefficients[1], 6),
+       ROUND((poisson_fit_agg(y, [x1, x2])).coefficients[2], 6)
+FROM prior_data;
+----
+0.241563	-0.128771
+
+# ==== TEST 2: a tight prior at zero shrinks its coefficient hard ====
+query I
+SELECT ROUND((poisson_fit_agg(y, [x1, x2], {
+    'feature_names': ['x1', 'x2'],
+    'prior': MAP {'x1': {'dist': 'normal', 'loc': 0.0, 'scale': 0.02}}
+})).coefficients[1], 6)
+FROM prior_data;
+----
+0.015081
+
+# ==== TEST 3: a loose prior leaves the estimate essentially untouched ====
+query I
+SELECT ABS((poisson_fit_agg(y, [x1, x2], {
+    'feature_names': ['x1', 'x2'],
+    'prior': MAP {'x1': {'dist': 'normal', 'loc': 0.0, 'scale': 10.0}}
+})).coefficients[1] - 0.241563) < 0.001
+FROM prior_data;
+----
+true
+
+# ==== TEST 4: shrinkage is monotone in the prior scale ====
+query I
+SELECT
+    (poisson_fit_agg(y, [x1, x2], {'feature_names': ['x1','x2'],
+        'prior': MAP {'x1': {'dist':'normal','loc':0.0,'scale':0.05}}})).coefficients[1]
+  < (poisson_fit_agg(y, [x1, x2], {'feature_names': ['x1','x2'],
+        'prior': MAP {'x1': {'dist':'normal','loc':0.0,'scale':0.5}}})).coefficients[1]
+FROM prior_data;
+----
+true
+
+# ==== TEST 5: a prior pulls toward its location, not only toward zero ====
+# A tight prior centred at 2.0 must drag the coefficient far above its MLE.
+query I
+SELECT (poisson_fit_agg(y, [x1, x2], {
+    'feature_names': ['x1', 'x2'],
+    'prior': MAP {'x1': {'dist': 'normal', 'loc': 2.0, 'scale': 0.01}}
+})).coefficients[1] > 1.5
+FROM prior_data;
+----
+true
+
+# ==== TEST 6: a prior on one feature leaves the other alone ====
+query I
+SELECT ABS((poisson_fit_agg(y, [x1, x2], {
+    'feature_names': ['x1', 'x2'],
+    'prior': MAP {'x2': {'dist': 'normal', 'loc': 0.0, 'scale': 0.01}}
+})).coefficients[1] - 0.241563) < 0.15
+FROM prior_data;
+----
+true
+
+# ==== TEST 7: '_default' applies to every unnamed feature ====
+query I
+SELECT (poisson_fit_agg(y, [x1, x2], {
+    'feature_names': ['x1', 'x2'],
+    'prior': MAP {'_default': {'dist': 'normal', 'loc': 0.0, 'scale': 0.01}}
+})).coefficients[1] < 0.05
+  AND ABS((poisson_fit_agg(y, [x1, x2], {
+    'feature_names': ['x1', 'x2'],
+    'prior': MAP {'_default': {'dist': 'normal', 'loc': 0.0, 'scale': 0.01}}
+})).coefficients[2]) < 0.05
+FROM prior_data;
+----
+true
+
+# ==== TEST 8: an explicit entry beats '_default' ====
+# '_default' tight everywhere with a loose override on x1 must agree with naming
+# only x2. Note this is *not* the same as the unpenalized estimate for x1: pinning
+# x2 near zero shifts x1, because the two coefficients are correlated.
+query I
+SELECT ABS(
+    (poisson_fit_agg(y, [x1, x2], {
+        'feature_names': ['x1', 'x2'],
+        'prior': MAP {'_default': {'dist':'normal','loc':0.0,'scale':0.01},
+                      'x1':       {'dist':'normal','loc':0.0,'scale':100.0}}
+    })).coefficients[1]
+  - (poisson_fit_agg(y, [x1, x2], {
+        'feature_names': ['x1', 'x2'],
+        'prior': MAP {'x2': {'dist':'normal','loc':0.0,'scale':0.01}}
+    })).coefficients[1]
+) < 1e-5
+FROM prior_data;
+----
+true
+
+# ==== TEST 9: shorthand form {'normal': [loc, scale]} ====
+query I
+SELECT ROUND((poisson_fit_agg(y, [x1, x2], {
+    'feature_names': ['x1', 'x2'],
+    'prior': MAP {'x1': {'normal': [0.0, 0.02]}}
+})).coefficients[1], 6)
+FROM prior_data;
+----
+0.015081
+
+# ==== TEST 10: a prior on the intercept is addressable ====
+query I
+SELECT ABS((poisson_fit_agg(y, [x1, x2], {
+    'feature_names': ['x1', 'x2'],
+    'prior': MAP {'(Intercept)': {'dist': 'normal', 'loc': 0.0, 'scale': 0.01}}
+})).intercept) < 0.05
+FROM prior_data;
+----
+true
+
+# ==== TEST 11: a Laplace prior can drive a coefficient to exactly zero ====
+query I
+SELECT (poisson_fit_agg(y, [x1, x2], {
+    'feature_names': ['x1', 'x2'],
+    'prior': MAP {'x2': {'dist': 'laplace', 'loc': 0.0, 'scale': 0.001}}
+})).coefficients[2] = 0.0
+FROM prior_data;
+----
+true
+
+# ==== TEST 12: an L1 coefficient at zero has no curvature-based SE ====
+# The objective is not differentiable there, so NaN is the honest answer.
+query I
+SELECT isnan((poisson_fit_agg(y, [x1, x2], {
+    'feature_names': ['x1', 'x2'],
+    'compute_inference': true,
+    'prior': MAP {'x2': {'dist': 'laplace', 'loc': 0.0, 'scale': 0.001}}
+})).std_errors[2])
+FROM prior_data;
+----
+true
+
+# ==== TEST 13: a prior tightens the standard error ====
+query I
+SELECT (poisson_fit_agg(y, [x1, x2], {'feature_names': ['x1','x2'], 'compute_inference': true,
+            'prior': MAP {'x1': {'dist':'normal','loc':0.0,'scale':0.1}}})).std_errors[1]
+     < (poisson_fit_agg(y, [x1, x2], {'compute_inference': true})).std_errors[1]
+FROM prior_data;
+----
+true
+
+# ==== TEST 14: priors work on the other GLM families too ====
+statement ok
+CREATE TABLE prior_binary AS
+SELECT (i % 12) / 4.0 - 1.0 AS x1,
+       ((i * 5) % 7) / 3.0  AS x2,
+       CASE WHEN 0.4 * ((i % 12) / 4.0 - 1.0) + 0.3 * (((i * 5) % 7) / 3.0)
+                 + ((i % 3) - 1.0) * 0.5 > 0 THEN 1.0 ELSE 0.0 END AS y
+FROM range(0, 80) t(i);
+
+query I
+SELECT ABS((binomial_fit_agg(y, [x1, x2], {
+    'feature_names': ['x1', 'x2'],
+    'prior': MAP {'_default': {'dist': 'normal', 'loc': 0.0, 'scale': 0.01}}
+})).coefficients[1]) < 0.1
+FROM prior_binary;
+----
+true
+
+# ==== TEST 15: a prior on an unknown feature is an error, not a silent no-op ====
+statement error
+SELECT (poisson_fit_agg(y, [x1, x2], {
+    'feature_names': ['x1', 'x2'],
+    'prior': MAP {'nope': {'dist': 'normal', 'loc': 0.0, 'scale': 1.0}}
+})).coefficients[1] FROM prior_data;
+----
+unknown feature 'nope'
+
+# ==== TEST 16: priors without feature_names cannot be resolved ====
+statement error
+SELECT (poisson_fit_agg(y, [x1, x2], {
+    'prior': MAP {'x1': {'dist': 'normal', 'loc': 0.0, 'scale': 1.0}}
+})).coefficients[1] FROM prior_data;
+----
+no feature_names option was supplied
+
+# ==== TEST 17: feature_names of the wrong length is an error ====
+statement error
+SELECT (poisson_fit_agg(y, [x1, x2], {
+    'feature_names': ['x1', 'x2', 'x3'],
+    'prior': MAP {'x1': {'dist': 'normal', 'loc': 0.0, 'scale': 1.0}}
+})).coefficients[1] FROM prior_data;
+----
+feature_names has 3 entries but x has 2 features
+
+# ==== TEST 18: an unknown distribution name is rejected ====
+statement error
+SELECT (poisson_fit_agg(y, [x1, x2], {
+    'feature_names': ['x1', 'x2'],
+    'prior': MAP {'x1': {'dist': 'cauchy', 'loc': 0.0, 'scale': 1.0}}
+})).coefficients[1] FROM prior_data;
+----
+Unknown prior distribution 'cauchy'
+
+# ==== TEST 19: a non-positive prior scale is rejected ====
+statement error
+SELECT (poisson_fit_agg(y, [x1, x2], {
+    'feature_names': ['x1', 'x2'],
+    'prior': MAP {'x1': {'dist': 'normal', 'loc': 0.0, 'scale': 0.0}}
+})).coefficients[1] FROM prior_data;
+----
+must be strictly positive
+
+# ==== TEST 20: the fully-qualified name accepts priors too ====
+query I
+SELECT (anofox_stats_poisson_fit_agg(y, [x1, x2], {
+    'feature_names': ['x1', 'x2'],
+    'prior': MAP {'x1': {'dist': 'normal', 'loc': 0.0, 'scale': 0.02}}
+})).coefficients[1] IS NOT NULL
+FROM prior_data;
+----
+true
+
+# ==== TEST 21: priors survive GROUP BY (one resolved state per group) ====
+statement ok
+CREATE TABLE prior_grouped AS
+SELECT (i % 2) AS g, x1, x2, y FROM prior_data, range(0, 2) s(i);
+
+query I
+SELECT COUNT(*) FROM (
+    SELECT g, (poisson_fit_agg(y, [x1, x2], {
+        'feature_names': ['x1', 'x2'],
+        'prior': MAP {'x1': {'dist': 'normal', 'loc': 0.0, 'scale': 0.02}}
+    })).coefficients[1] AS b1
+    FROM prior_grouped GROUP BY g
+) WHERE ROUND(b1, 6) = 0.015081;
+----
+2
+
+statement ok
+DROP TABLE IF EXISTS prior_grouped;
+
+statement ok
+DROP TABLE IF EXISTS prior_binary;
+
+statement ok
+DROP TABLE IF EXISTS prior_data;

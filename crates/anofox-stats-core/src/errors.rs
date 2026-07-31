@@ -73,10 +73,9 @@ impl From<anofox_regression::solvers::RegressionError> for StatsError {
     fn from(err: anofox_regression::solvers::RegressionError) -> Self {
         use anofox_regression::solvers::RegressionError as R;
         match err {
-            R::DimensionMismatch { x_rows, y_len } => StatsError::DimensionMismatch {
-                y_len,
-                x_rows,
-            },
+            R::DimensionMismatch { x_rows, y_len } => {
+                StatsError::DimensionMismatch { y_len, x_rows }
+            }
             R::InsufficientObservations { needed, got } => StatsError::InsufficientData {
                 rows: got,
                 cols: needed,

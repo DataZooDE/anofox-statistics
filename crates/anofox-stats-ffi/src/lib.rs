@@ -15,10 +15,11 @@ use anofox_stats_core::{
         fit_rls, fit_theilsen, fit_tweedie, fit_wls, predict, RlsOptions,
     },
     AidOptions, AlmDistribution, AlmLoss, AlmOptions, BinomialLink, BinomialOptions, BlsOptions,
-    ElasticNetOptions, GammaOptions, HcType, HuberOptions, InformationCriterion, IsotonicOptions,
-    LambdaScaling, LarsOptions, LmDynamicOptions, LogisticOptions, NegBinomialOptions, OlsOptions,
-    OutlierMethod, PlsOptions, PoissonLink, PoissonOptions, QuantileOptions, RansacOptions,
-    RidgeOptions, SolverType, StatsError, TheilSenOptions, TweedieOptions, WlsOptions,
+    ElasticNetOptions, GammaOptions, GlmPriorOptions, HcType, HuberOptions, InformationCriterion,
+    IsotonicOptions, LambdaScaling, LarsOptions, LmDynamicOptions, LogisticOptions,
+    NegBinomialOptions, OlsOptions, OutlierMethod, PlsOptions, PoissonLink, PoissonOptions,
+    QuantileOptions, RansacOptions, RidgeOptions, SolverType, StatsError, TheilSenOptions,
+    TweedieOptions, WlsOptions,
 };
 use statrs::distribution::{ContinuousCDF, StudentsT};
 use std::slice;
@@ -2404,6 +2405,10 @@ pub unsafe extern "C" fn anofox_poisson_fit(
         compute_inference: options.compute_inference,
         confidence_level: options.confidence_level,
         lambda: options.lambda,
+        prior_opts: GlmPriorOptions {
+            priors: priors_from_ffi(options.priors, options.priors_len),
+            vcov: vcov_from_ffi(options.vcov),
+        },
     };
 
     let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -2548,6 +2553,10 @@ pub unsafe extern "C" fn anofox_binomial_fit(
         compute_inference: options.compute_inference,
         confidence_level: options.confidence_level,
         lambda: options.lambda,
+        prior_opts: GlmPriorOptions {
+            priors: priors_from_ffi(options.priors, options.priors_len),
+            vcov: vcov_from_ffi(options.vcov),
+        },
     };
 
     let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -2679,12 +2688,21 @@ pub unsafe extern "C" fn anofox_negbinomial_fit(
 
     let opts = NegBinomialOptions {
         fit_intercept: options.fit_intercept,
-        alpha: None, // Let the algorithm estimate alpha
+        // NaN on the wire means "estimate theta from the data".
+        alpha: if options.alpha.is_nan() {
+            None
+        } else {
+            Some(options.alpha)
+        },
         max_iterations: options.max_iterations,
         tolerance: options.tolerance,
         compute_inference: options.compute_inference,
         confidence_level: options.confidence_level,
         lambda: options.lambda,
+        prior_opts: GlmPriorOptions {
+            priors: priors_from_ffi(options.priors, options.priors_len),
+            vcov: vcov_from_ffi(options.vcov),
+        },
     };
 
     let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -2825,6 +2843,10 @@ pub unsafe extern "C" fn anofox_tweedie_fit(
         compute_inference: options.compute_inference,
         confidence_level: options.confidence_level,
         lambda: options.lambda,
+        prior_opts: GlmPriorOptions {
+            priors: priors_from_ffi(options.priors, options.priors_len),
+            vcov: vcov_from_ffi(options.vcov),
+        },
     };
 
     let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -2961,6 +2983,10 @@ pub unsafe extern "C" fn anofox_gamma_fit(
         compute_inference: options.compute_inference,
         confidence_level: options.confidence_level,
         lambda: options.lambda,
+        prior_opts: GlmPriorOptions {
+            priors: priors_from_ffi(options.priors, options.priors_len),
+            vcov: vcov_from_ffi(options.vcov),
+        },
     };
 
     let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -3100,6 +3126,10 @@ pub unsafe extern "C" fn anofox_logistic_fit(
         tolerance: options.tolerance,
         compute_inference: options.compute_inference,
         confidence_level: options.confidence_level,
+        prior_opts: GlmPriorOptions {
+            priors: priors_from_ffi(options.priors, options.priors_len),
+            vcov: vcov_from_ffi(options.vcov),
+        },
     };
 
     let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {

@@ -16,128 +16,128 @@ extern "C" {
  * Error codes for FFI boundary
  */
 typedef enum {
-    ANOFOX_ERROR_SUCCESS = 0,
-    ANOFOX_ERROR_INVALID_INPUT = 1,
-    ANOFOX_ERROR_SINGULAR_MATRIX = 2,
-    ANOFOX_ERROR_CONVERGENCE_FAILURE = 3,
-    ANOFOX_ERROR_INVALID_ALPHA = 4,
-    ANOFOX_ERROR_INVALID_L1_RATIO = 5,
-    ANOFOX_ERROR_INSUFFICIENT_DATA = 6,
-    ANOFOX_ERROR_ALLOCATION_FAILURE = 7,
-    ANOFOX_ERROR_SERIALIZATION_ERROR = 8,
-    ANOFOX_ERROR_DIMENSION_MISMATCH = 9,
-    ANOFOX_ERROR_NO_VALID_DATA = 10,
-    ANOFOX_ERROR_INTERNAL = 99,
+	ANOFOX_ERROR_SUCCESS = 0,
+	ANOFOX_ERROR_INVALID_INPUT = 1,
+	ANOFOX_ERROR_SINGULAR_MATRIX = 2,
+	ANOFOX_ERROR_CONVERGENCE_FAILURE = 3,
+	ANOFOX_ERROR_INVALID_ALPHA = 4,
+	ANOFOX_ERROR_INVALID_L1_RATIO = 5,
+	ANOFOX_ERROR_INSUFFICIENT_DATA = 6,
+	ANOFOX_ERROR_ALLOCATION_FAILURE = 7,
+	ANOFOX_ERROR_SERIALIZATION_ERROR = 8,
+	ANOFOX_ERROR_DIMENSION_MISMATCH = 9,
+	ANOFOX_ERROR_NO_VALID_DATA = 10,
+	ANOFOX_ERROR_INTERNAL = 99,
 } AnofoxErrorCode;
 
 /**
  * Error information for FFI
  */
 typedef struct {
-    AnofoxErrorCode code;
-    char message[256];
+	AnofoxErrorCode code;
+	char message[256];
 } AnofoxError;
 
 /**
  * Array of f64 values with validity mask for NULL handling
  */
 typedef struct {
-    /** Pointer to data values */
-    const double *data;
-    /** Validity bitmask: bit i is 1 if data[i] is valid, 0 if NULL. Can be NULL if all values are valid. */
-    const uint8_t *validity;
-    /** Number of elements */
-    size_t len;
+	/** Pointer to data values */
+	const double *data;
+	/** Validity bitmask: bit i is 1 if data[i] is valid, 0 if NULL. Can be NULL if all values are valid. */
+	const uint8_t *validity;
+	/** Number of elements */
+	size_t len;
 } AnofoxDataArray;
 
 /**
  * Core fit result (always returned)
  */
 typedef struct {
-    /** Pointer to coefficients array */
-    double *coefficients;
-    /** Number of coefficients */
-    size_t coefficients_len;
-    /** Intercept value (NaN if no intercept) */
-    double intercept;
-    /** R-squared */
-    double r_squared;
-    /** Adjusted R-squared */
-    double adj_r_squared;
-    /** Residual standard error */
-    double residual_std_error;
-    /** Number of observations */
-    size_t n_observations;
-    /** Number of features */
-    size_t n_features;
+	/** Pointer to coefficients array */
+	double *coefficients;
+	/** Number of coefficients */
+	size_t coefficients_len;
+	/** Intercept value (NaN if no intercept) */
+	double intercept;
+	/** R-squared */
+	double r_squared;
+	/** Adjusted R-squared */
+	double adj_r_squared;
+	/** Residual standard error */
+	double residual_std_error;
+	/** Number of observations */
+	size_t n_observations;
+	/** Number of features */
+	size_t n_features;
 } AnofoxFitResultCore;
 
 /**
  * Inference results (optional)
  */
 typedef struct {
-    /** Standard errors of coefficients */
-    double *std_errors;
-    /** t-values */
-    double *t_values;
-    /** p-values */
-    double *p_values;
-    /** Lower confidence interval bounds */
-    double *ci_lower;
-    /** Upper confidence interval bounds */
-    double *ci_upper;
-    /** Number of elements in each array */
-    size_t len;
-    /** Confidence level used */
-    double confidence_level;
-    /** F-statistic (NaN if not computed) */
-    double f_statistic;
-    /** F p-value (NaN if not computed) */
-    double f_pvalue;
+	/** Standard errors of coefficients */
+	double *std_errors;
+	/** t-values */
+	double *t_values;
+	/** p-values */
+	double *p_values;
+	/** Lower confidence interval bounds */
+	double *ci_lower;
+	/** Upper confidence interval bounds */
+	double *ci_upper;
+	/** Number of elements in each array */
+	size_t len;
+	/** Confidence level used */
+	double confidence_level;
+	/** F-statistic (NaN if not computed) */
+	double f_statistic;
+	/** F p-value (NaN if not computed) */
+	double f_pvalue;
 } AnofoxFitResultInference;
 
 /**
  * Solver (decomposition) type for linear regression
  */
 typedef enum {
-    ANOFOX_SOLVER_QR = 0,
-    ANOFOX_SOLVER_SVD = 1,
-    ANOFOX_SOLVER_CHOLESKY = 2,
+	ANOFOX_SOLVER_QR = 0,
+	ANOFOX_SOLVER_SVD = 1,
+	ANOFOX_SOLVER_CHOLESKY = 2,
 } AnofoxSolverType;
 
 /**
  * Lambda scaling convention for regularized regression
  */
 typedef enum {
-    ANOFOX_LAMBDA_SCALING_RAW = 0,
-    ANOFOX_LAMBDA_SCALING_GLMNET = 1,
+	ANOFOX_LAMBDA_SCALING_RAW = 0,
+	ANOFOX_LAMBDA_SCALING_GLMNET = 1,
 } AnofoxLambdaScaling;
 
 /**
  * Heteroscedasticity-consistent standard error type
  */
 typedef enum {
-    ANOFOX_HC_NONE = 0,
-    ANOFOX_HC_HC0 = 1,
-    ANOFOX_HC_HC1 = 2,
-    ANOFOX_HC_HC2 = 3,
-    ANOFOX_HC_HC3 = 4,
+	ANOFOX_HC_NONE = 0,
+	ANOFOX_HC_HC0 = 1,
+	ANOFOX_HC_HC1 = 2,
+	ANOFOX_HC_HC2 = 3,
+	ANOFOX_HC_HC3 = 4,
 } AnofoxHcType;
 
 /**
  * OLS options for FFI
  */
 typedef struct {
-    /** Whether to fit intercept */
-    bool fit_intercept;
-    /** Whether to compute inference statistics */
-    bool compute_inference;
-    /** Confidence level for CIs */
-    double confidence_level;
-    /** Solver type (QR, SVD, Cholesky) */
-    AnofoxSolverType solver;
-    /** HC standard errors type (None = classical) */
-    AnofoxHcType hc_type;
+	/** Whether to fit intercept */
+	bool fit_intercept;
+	/** Whether to compute inference statistics */
+	bool compute_inference;
+	/** Confidence level for CIs */
+	double confidence_level;
+	/** Solver type (QR, SVD, Cholesky) */
+	AnofoxSolverType solver;
+	/** HC standard errors type (None = classical) */
+	AnofoxHcType hc_type;
 } AnofoxOlsOptions;
 
 /**
@@ -169,20 +169,20 @@ void anofox_free_result_inference(AnofoxFitResultInference *result);
  * Huber M-estimator robust regression options for FFI
  */
 typedef struct {
-    /** Huber threshold parameter (must be > 1.0). Default 1.35. */
-    double epsilon;
-    /** L2 regularization (must be >= 0). Default 0.0001. */
-    double alpha;
-    /** Whether to fit intercept */
-    bool fit_intercept;
-    /** Whether to compute inference statistics */
-    bool compute_inference;
-    /** Confidence level for CIs */
-    double confidence_level;
-    /** Maximum IRLS iterations */
-    uint32_t max_iterations;
-    /** Convergence tolerance */
-    double tolerance;
+	/** Huber threshold parameter (must be > 1.0). Default 1.35. */
+	double epsilon;
+	/** L2 regularization (must be >= 0). Default 0.0001. */
+	double alpha;
+	/** Whether to fit intercept */
+	bool fit_intercept;
+	/** Whether to compute inference statistics */
+	bool compute_inference;
+	/** Confidence level for CIs */
+	double confidence_level;
+	/** Maximum IRLS iterations */
+	uint32_t max_iterations;
+	/** Convergence tolerance */
+	double tolerance;
 } AnofoxHuberOptions;
 
 /**
@@ -194,16 +194,16 @@ typedef struct {
  * fit (which can be less than the input length when NaNs were filtered out).
  */
 typedef struct {
-    /** MAD-based scale estimate (sigma) */
-    double scale;
-    /** Echoed epsilon used for the fit */
-    double epsilon;
-    /** Per-observation outlier mask: 1 = |r_i| > epsilon * scale */
-    uint8_t *outliers;
-    /** Length of the outliers array */
-    size_t outliers_len;
-    /** Number of observations flagged as outliers */
-    size_t n_outliers;
+	/** MAD-based scale estimate (sigma) */
+	double scale;
+	/** Echoed epsilon used for the fit */
+	double epsilon;
+	/** Per-observation outlier mask: 1 = |r_i| > epsilon * scale */
+	uint8_t *outliers;
+	/** Length of the outliers array */
+	size_t outliers_len;
+	/** Number of observations flagged as outliers */
+	size_t n_outliers;
 } AnofoxHuberFitExtras;
 
 /**
@@ -219,10 +219,9 @@ typedef struct {
  * @param out_error Output: error information (required)
  * @return true on success, false on error
  */
-bool anofox_huber_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count,
-                      AnofoxHuberOptions options, AnofoxFitResultCore *out_core,
-                      AnofoxFitResultInference *out_inference, AnofoxHuberFitExtras *out_extras,
-                      AnofoxError *out_error);
+bool anofox_huber_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, AnofoxHuberOptions options,
+                      AnofoxFitResultCore *out_core, AnofoxFitResultInference *out_inference,
+                      AnofoxHuberFitExtras *out_extras, AnofoxError *out_error);
 
 /**
  * Free the outliers array inside a AnofoxHuberFitExtras previously filled by
@@ -240,23 +239,23 @@ void anofox_free_huber_extras(AnofoxHuberFitExtras *extras);
  * to MAD(y); stop_n_inliers defaults to disabled).
  */
 typedef struct {
-    bool fit_intercept;
-    bool compute_inference;
-    double confidence_level;
-    uint32_t max_trials;
-    /** Fischler-Bolles stop probability in [0, 1]. */
-    double stop_probability;
-    /** Random seed for the trial subsampler. */
-    uint64_t random_state;
+	bool fit_intercept;
+	bool compute_inference;
+	double confidence_level;
+	uint32_t max_trials;
+	/** Fischler-Bolles stop probability in [0, 1]. */
+	double stop_probability;
+	/** Random seed for the trial subsampler. */
+	uint64_t random_state;
 
-    bool min_samples_set;
-    size_t min_samples_value;
+	bool min_samples_set;
+	size_t min_samples_value;
 
-    bool residual_threshold_set;
-    double residual_threshold_value;
+	bool residual_threshold_set;
+	double residual_threshold_value;
 
-    bool stop_n_inliers_set;
-    size_t stop_n_inliers_value;
+	bool stop_n_inliers_set;
+	size_t stop_n_inliers_value;
 } AnofoxRansacOptions;
 
 /**
@@ -268,16 +267,16 @@ typedef struct {
  * observations used in the fit.
  */
 typedef struct {
-    /** Residual threshold actually used (user-supplied or MAD(y) default). */
-    double residual_threshold;
-    /** Per-observation inlier mask. */
-    uint8_t *inliers;
-    /** Length of the inliers array. */
-    size_t inliers_len;
-    /** Number of inliers in the final consensus set. */
-    size_t n_inliers;
-    /** Actual number of RANSAC trials run before early termination. */
-    size_t n_trials;
+	/** Residual threshold actually used (user-supplied or MAD(y) default). */
+	double residual_threshold;
+	/** Per-observation inlier mask. */
+	uint8_t *inliers;
+	/** Length of the inliers array. */
+	size_t inliers_len;
+	/** Number of inliers in the final consensus set. */
+	size_t n_inliers;
+	/** Actual number of RANSAC trials run before early termination. */
+	size_t n_trials;
 } AnofoxRansacFitExtras;
 
 /**
@@ -293,10 +292,9 @@ typedef struct {
  * @param out_error Output: error information (required)
  * @return true on success, false on error
  */
-bool anofox_ransac_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count,
-                       AnofoxRansacOptions options, AnofoxFitResultCore *out_core,
-                       AnofoxFitResultInference *out_inference, AnofoxRansacFitExtras *out_extras,
-                       AnofoxError *out_error);
+bool anofox_ransac_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, AnofoxRansacOptions options,
+                       AnofoxFitResultCore *out_core, AnofoxFitResultInference *out_inference,
+                       AnofoxRansacFitExtras *out_extras, AnofoxError *out_error);
 
 /**
  * Free the inliers array inside an AnofoxRansacFitExtras previously filled
@@ -313,18 +311,18 @@ void anofox_free_ransac_extras(AnofoxRansacFitExtras *extras);
  * `n_features + 1` (sklearn default).
  */
 typedef struct {
-    bool fit_intercept;
-    bool compute_inference;
-    double confidence_level;
-    /** Cap on the number of subsamples examined (sklearn default 10_000). */
-    uint32_t max_subpopulation;
-    uint32_t max_iterations;
-    double tolerance;
-    /** Random seed for the trial subsampler. */
-    uint64_t random_state;
+	bool fit_intercept;
+	bool compute_inference;
+	double confidence_level;
+	/** Cap on the number of subsamples examined (sklearn default 10_000). */
+	uint32_t max_subpopulation;
+	uint32_t max_iterations;
+	double tolerance;
+	/** Random seed for the trial subsampler. */
+	uint64_t random_state;
 
-    bool n_subsamples_set;
-    size_t n_subsamples_value;
+	bool n_subsamples_set;
+	size_t n_subsamples_value;
 } AnofoxTheilSenOptions;
 
 /**
@@ -343,26 +341,26 @@ typedef struct {
  * @param out_error Output: error information (required)
  * @return true on success, false on error
  */
-bool anofox_theilsen_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count,
-                         AnofoxTheilSenOptions options, AnofoxFitResultCore *out_core,
-                         AnofoxFitResultInference *out_inference, AnofoxError *out_error);
+bool anofox_theilsen_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, AnofoxTheilSenOptions options,
+                         AnofoxFitResultCore *out_core, AnofoxFitResultInference *out_inference,
+                         AnofoxError *out_error);
 
 /**
  * Ridge regression options for FFI
  */
 typedef struct {
-    /** L2 regularization parameter (alpha/lambda) */
-    double alpha;
-    /** Whether to fit intercept */
-    bool fit_intercept;
-    /** Whether to compute inference statistics */
-    bool compute_inference;
-    /** Confidence level for CIs */
-    double confidence_level;
-    /** Solver type (QR, SVD, Cholesky) */
-    AnofoxSolverType solver;
-    /** Lambda scaling convention (Raw or Glmnet) */
-    AnofoxLambdaScaling lambda_scaling;
+	/** L2 regularization parameter (alpha/lambda) */
+	double alpha;
+	/** Whether to fit intercept */
+	bool fit_intercept;
+	/** Whether to compute inference statistics */
+	bool compute_inference;
+	/** Confidence level for CIs */
+	double confidence_level;
+	/** Solver type (QR, SVD, Cholesky) */
+	AnofoxSolverType solver;
+	/** Lambda scaling convention (Raw or Glmnet) */
+	AnofoxLambdaScaling lambda_scaling;
 } AnofoxRidgeOptions;
 
 /**
@@ -384,18 +382,18 @@ bool anofox_ridge_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_coun
  * Elastic Net regression options for FFI
  */
 typedef struct {
-    /** Regularization strength (must be >= 0) */
-    double alpha;
-    /** L1 ratio: 0 = Ridge, 1 = Lasso (must be in [0, 1]) */
-    double l1_ratio;
-    /** Whether to fit intercept */
-    bool fit_intercept;
-    /** Maximum iterations for coordinate descent */
-    uint32_t max_iterations;
-    /** Convergence tolerance */
-    double tolerance;
-    /** Lambda scaling convention (Raw or Glmnet) */
-    AnofoxLambdaScaling lambda_scaling;
+	/** Regularization strength (must be >= 0) */
+	double alpha;
+	/** L1 ratio: 0 = Ridge, 1 = Lasso (must be in [0, 1]) */
+	double l1_ratio;
+	/** Whether to fit intercept */
+	bool fit_intercept;
+	/** Maximum iterations for coordinate descent */
+	uint32_t max_iterations;
+	/** Convergence tolerance */
+	double tolerance;
+	/** Lambda scaling convention (Raw or Glmnet) */
+	AnofoxLambdaScaling lambda_scaling;
 } AnofoxElasticNetOptions;
 
 /**
@@ -416,16 +414,16 @@ bool anofox_elasticnet_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x
  * Options for Least Angle Regression (LARS / LassoLars)
  */
 typedef struct {
-    /** false = plain LARS, true = LassoLars (exact Lasso path) */
-    bool method_lasso;
-    /** Whether to fit an intercept term */
-    bool fit_intercept;
-    /** LassoLars early-stop alpha (0.0 = full path) */
-    double alpha;
-    /** Cap on non-zero coefficients (<= 0 = unlimited) */
-    int64_t n_nonzero_coefs;
-    /** Standardize features before fitting */
-    bool standardize;
+	/** false = plain LARS, true = LassoLars (exact Lasso path) */
+	bool method_lasso;
+	/** Whether to fit an intercept term */
+	bool fit_intercept;
+	/** LassoLars early-stop alpha (0.0 = full path) */
+	double alpha;
+	/** Cap on non-zero coefficients (<= 0 = unlimited) */
+	int64_t n_nonzero_coefs;
+	/** Standardize features before fitting */
+	bool standardize;
 } AnofoxLarsOptions;
 
 /**
@@ -446,16 +444,16 @@ bool anofox_lars_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count
  * WLS (Weighted Least Squares) options for FFI
  */
 typedef struct {
-    /** Whether to fit intercept */
-    bool fit_intercept;
-    /** Whether to compute inference statistics */
-    bool compute_inference;
-    /** Confidence level for CIs */
-    double confidence_level;
-    /** Solver type (QR, SVD, Cholesky) */
-    AnofoxSolverType solver;
-    /** HC standard errors type (None = classical) */
-    AnofoxHcType hc_type;
+	/** Whether to fit intercept */
+	bool fit_intercept;
+	/** Whether to compute inference statistics */
+	bool compute_inference;
+	/** Confidence level for CIs */
+	double confidence_level;
+	/** Solver type (QR, SVD, Cholesky) */
+	AnofoxSolverType solver;
+	/** HC standard errors type (None = classical) */
+	AnofoxHcType hc_type;
 } AnofoxWlsOptions;
 
 /**
@@ -527,14 +525,14 @@ void anofox_free_vif(double *vif);
  * Residuals computation result
  */
 typedef struct {
-    double *raw;
-    double *standardized;
-    double *studentized;
-    double *leverage;
-    size_t len;
-    bool has_standardized;
-    bool has_studentized;
-    bool has_leverage;
+	double *raw;
+	double *standardized;
+	double *studentized;
+	double *leverage;
+	size_t len;
+	bool has_standardized;
+	bool has_studentized;
+	bool has_leverage;
 } AnofoxResidualsResult;
 
 /**
@@ -591,12 +589,12 @@ bool anofox_compute_bic(double rss, size_t n, size_t k, double *out_bic, AnofoxE
  * RLS options for FFI
  */
 typedef struct {
-    /** Forgetting factor (lambda), typically 0.95-1.0 */
-    double forgetting_factor;
-    /** Whether to fit intercept */
-    bool fit_intercept;
-    /** Initial value for diagonal of P matrix */
-    double initial_p_diagonal;
+	/** Forgetting factor (lambda), typically 0.95-1.0 */
+	double forgetting_factor;
+	/** Whether to fit intercept */
+	bool fit_intercept;
+	/** Initial value for diagonal of P matrix */
+	double initial_p_diagonal;
 } AnofoxRlsOptions;
 
 /**
@@ -621,16 +619,16 @@ bool anofox_rls_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count,
  * Result of Jarque-Bera test
  */
 typedef struct {
-    /** JB test statistic */
-    double statistic;
-    /** p-value for the test */
-    double p_value;
-    /** Sample skewness */
-    double skewness;
-    /** Sample kurtosis (excess) */
-    double kurtosis;
-    /** Number of observations */
-    size_t n;
+	/** JB test statistic */
+	double statistic;
+	/** p-value for the test */
+	double p_value;
+	/** Sample skewness */
+	double skewness;
+	/** Sample kurtosis (excess) */
+	double kurtosis;
+	/** Number of observations */
+	size_t n;
 } AnofoxJarqueBeraResult;
 
 /**
@@ -660,12 +658,12 @@ double anofox_t_critical(double confidence_level, size_t df);
  * Prediction result with confidence interval
  */
 typedef struct {
-    /** Predicted value */
-    double yhat;
-    /** Lower bound of prediction interval */
-    double yhat_lower;
-    /** Upper bound of prediction interval */
-    double yhat_upper;
+	/** Predicted value */
+	double yhat;
+	/** Lower bound of prediction interval */
+	double yhat_lower;
+	/** Upper bound of prediction interval */
+	double yhat_upper;
 } AnofoxPredictionResult;
 
 /**
@@ -686,8 +684,8 @@ typedef struct {
  * @return true on success, false on error
  */
 bool anofox_predict_with_interval(const double *coefficients, size_t coefficients_len, double intercept,
-                                   const double *x_new, size_t x_len, double residual_std_error, size_t n_observations,
-                                   double confidence_level, AnofoxPredictionResult *out_result);
+                                  const double *x_new, size_t x_len, double residual_std_error, size_t n_observations,
+                                  double confidence_level, AnofoxPredictionResult *out_result);
 
 /* ============================================================================
  * GLM (Generalized Linear Models) Functions
@@ -697,136 +695,213 @@ bool anofox_predict_with_interval(const double *coefficients, size_t coefficient
  * Poisson link function codes
  */
 typedef enum {
-    ANOFOX_POISSON_LINK_LOG = 0,
-    ANOFOX_POISSON_LINK_IDENTITY = 1,
-    ANOFOX_POISSON_LINK_SQRT = 2,
+	ANOFOX_POISSON_LINK_LOG = 0,
+	ANOFOX_POISSON_LINK_IDENTITY = 1,
+	ANOFOX_POISSON_LINK_SQRT = 2,
 } AnofoxPoissonLink;
 
 /**
  * Binomial link function codes
  */
 typedef enum {
-    ANOFOX_BINOMIAL_LINK_LOGIT = 0,
-    ANOFOX_BINOMIAL_LINK_PROBIT = 1,
-    ANOFOX_BINOMIAL_LINK_CLOGLOG = 2,
+	ANOFOX_BINOMIAL_LINK_LOGIT = 0,
+	ANOFOX_BINOMIAL_LINK_PROBIT = 1,
+	ANOFOX_BINOMIAL_LINK_CLOGLOG = 2,
 } AnofoxBinomialLink;
 
 /**
  * GLM fit result (uses deviance instead of R-squared)
  */
 typedef struct {
-    /** Pointer to coefficients array */
-    double *coefficients;
-    /** Number of coefficients */
-    size_t coefficients_len;
-    /** Intercept value (NaN if no intercept) */
-    double intercept;
-    /** Model deviance (residual deviance) */
-    double deviance;
-    /** Null deviance */
-    double null_deviance;
-    /** Pseudo R-squared (1 - deviance/null_deviance) */
-    double pseudo_r_squared;
-    /** AIC */
-    double aic;
-    /** Dispersion parameter (if applicable) */
-    double dispersion;
-    /** Number of observations */
-    size_t n_observations;
-    /** Number of features */
-    size_t n_features;
-    /** Number of iterations to converge */
-    uint32_t iterations;
+	/** Pointer to coefficients array */
+	double *coefficients;
+	/** Number of coefficients */
+	size_t coefficients_len;
+	/** Intercept value (NaN if no intercept) */
+	double intercept;
+	/** Model deviance (residual deviance) */
+	double deviance;
+	/** Null deviance */
+	double null_deviance;
+	/** Pseudo R-squared (1 - deviance/null_deviance) */
+	double pseudo_r_squared;
+	/** AIC */
+	double aic;
+	/** Dispersion parameter (if applicable) */
+	double dispersion;
+	/** Number of observations */
+	size_t n_observations;
+	/** Number of features */
+	size_t n_features;
+	/** Number of iterations to converge */
+	uint32_t iterations;
 } AnofoxGlmFitResultCore;
+
+/*
+ * NOTE ON ADDING FIELDS TO THE OPTIONS STRUCTS BELOW
+ *
+ * These structs are hand-mirrored against crates/anofox-stats-ffi/src/types.rs and
+ * are plain C PODs: declaring one without an initialiser leaves every field as
+ * garbage. Callers therefore declare them as `AnofoxXxxOptions options {};` and
+ * assign afterwards. When you add a field here you must add it in the same
+ * position on the Rust side AND confirm every construction site still
+ * value-initialises, otherwise Rust reads uninitialised memory. Adding `priors`
+ * without doing so produced a multi-terabyte allocation attempt from a garbage
+ * pointer/length pair.
+ */
+
+/**
+ * Prior family code (mirrors PriorKindFFI).
+ */
+typedef enum {
+	/** No prior on this coefficient. */
+	ANOFOX_PRIOR_FLAT = 0,
+	/** Gaussian prior; `scale` is the prior standard deviation. */
+	ANOFOX_PRIOR_NORMAL = 1,
+	/** Laplace prior; `scale` is the Laplace scale b. */
+	ANOFOX_PRIOR_LAPLACE = 2,
+} AnofoxPriorKind;
+
+/**
+ * One coefficient's prior.
+ *
+ * Positionally aligned with the design matrix (intercept first when one is
+ * fitted). Feature names are resolved to positions on the C++ side, so they
+ * never cross this boundary.
+ */
+typedef struct {
+	AnofoxPriorKind kind;
+	double loc;
+	double scale;
+} AnofoxPriorSpec;
+
+/**
+ * Coefficient covariance type (mirrors VcovTypeFFI).
+ */
+typedef enum {
+	/** (X'WX + P)^-1 -- curvature of the log posterior at the mode. */
+	ANOFOX_VCOV_LAPLACE = 0,
+	/** (X'WX + P)^-1 X'WX (X'WX + P)^-1. */
+	ANOFOX_VCOV_SANDWICH = 1,
+	/** (X'WX)^-1 -- ignores the penalty. */
+	ANOFOX_VCOV_NAIVE = 2,
+} AnofoxVcovType;
 
 /**
  * Poisson regression options
  */
 typedef struct {
-    /** Whether to fit intercept */
-    bool fit_intercept;
-    /** Link function */
-    AnofoxPoissonLink link;
-    /** Maximum iterations for IRLS */
-    uint32_t max_iterations;
-    /** Convergence tolerance */
-    double tolerance;
-    /** Whether to compute inference statistics */
-    bool compute_inference;
-    /** Confidence level for CIs */
-    double confidence_level;
-    /** L2 regularization parameter (0 = no regularization) */
-    double lambda;
+	/** Whether to fit intercept */
+	bool fit_intercept;
+	/** Link function */
+	AnofoxPoissonLink link;
+	/** Maximum iterations for IRLS */
+	uint32_t max_iterations;
+	/** Convergence tolerance */
+	double tolerance;
+	/** Whether to compute inference statistics */
+	bool compute_inference;
+	/** Confidence level for CIs */
+	double confidence_level;
+	/** L2 regularization parameter (0 = no regularization) */
+	double lambda;
+	/** Per-coefficient priors, or NULL for none. */
+	const AnofoxPriorSpec *priors;
+	size_t priors_len;
+	/** How to compute the coefficient covariance. */
+	AnofoxVcovType vcov;
 } AnofoxPoissonOptions;
 
 /**
  * Binomial (logistic) regression options
  */
 typedef struct {
-    /** Whether to fit intercept */
-    bool fit_intercept;
-    /** Link function */
-    AnofoxBinomialLink link;
-    /** Maximum iterations for IRLS */
-    uint32_t max_iterations;
-    /** Convergence tolerance */
-    double tolerance;
-    /** Whether to compute inference statistics */
-    bool compute_inference;
-    /** Confidence level for CIs */
-    double confidence_level;
-    /** L2 regularization parameter (0 = no regularization) */
-    double lambda;
+	/** Whether to fit intercept */
+	bool fit_intercept;
+	/** Link function */
+	AnofoxBinomialLink link;
+	/** Maximum iterations for IRLS */
+	uint32_t max_iterations;
+	/** Convergence tolerance */
+	double tolerance;
+	/** Whether to compute inference statistics */
+	bool compute_inference;
+	/** Confidence level for CIs */
+	double confidence_level;
+	/** L2 regularization parameter (0 = no regularization) */
+	double lambda;
+	/** Per-coefficient priors, or NULL for none. */
+	const AnofoxPriorSpec *priors;
+	size_t priors_len;
+	/** How to compute the coefficient covariance. */
+	AnofoxVcovType vcov;
 } AnofoxBinomialOptions;
 
 /**
  * Negative Binomial regression options
  */
 typedef struct {
-    /** Whether to fit intercept */
-    bool fit_intercept;
-    /** Maximum iterations for IRLS */
-    uint32_t max_iterations;
-    /** Convergence tolerance */
-    double tolerance;
-    /** Whether to compute inference statistics */
-    bool compute_inference;
-    /** Confidence level for CIs */
-    double confidence_level;
-    /** L2 regularization parameter (0 = no regularization) */
-    double lambda;
+	/** Dispersion (theta). NaN means "estimate from the data". */
+	double alpha;
+	/** Whether to fit intercept */
+	bool fit_intercept;
+	/** Maximum iterations for IRLS */
+	uint32_t max_iterations;
+	/** Convergence tolerance */
+	double tolerance;
+	/** Whether to compute inference statistics */
+	bool compute_inference;
+	/** Confidence level for CIs */
+	double confidence_level;
+	/** L2 regularization parameter (0 = no regularization) */
+	double lambda;
+	/** Per-coefficient priors, or NULL for none. */
+	const AnofoxPriorSpec *priors;
+	size_t priors_len;
+	/** How to compute the coefficient covariance. */
+	AnofoxVcovType vcov;
 } AnofoxNegBinomialOptions;
 
 /**
  * Tweedie regression options
  */
 typedef struct {
-    /** Whether to fit intercept */
-    bool fit_intercept;
-    /** Tweedie power parameter (1 < p < 2 for compound Poisson-Gamma) */
-    double power;
-    /** Maximum iterations for IRLS */
-    uint32_t max_iterations;
-    /** Convergence tolerance */
-    double tolerance;
-    /** Whether to compute inference statistics */
-    bool compute_inference;
-    /** Confidence level for CIs */
-    double confidence_level;
-    /** L2 regularization parameter (0 = no regularization) */
-    double lambda;
+	/** Whether to fit intercept */
+	bool fit_intercept;
+	/** Tweedie power parameter (1 < p < 2 for compound Poisson-Gamma) */
+	double power;
+	/** Maximum iterations for IRLS */
+	uint32_t max_iterations;
+	/** Convergence tolerance */
+	double tolerance;
+	/** Whether to compute inference statistics */
+	bool compute_inference;
+	/** Confidence level for CIs */
+	double confidence_level;
+	/** L2 regularization parameter (0 = no regularization) */
+	double lambda;
+	/** Per-coefficient priors, or NULL for none. */
+	const AnofoxPriorSpec *priors;
+	size_t priors_len;
+	/** How to compute the coefficient covariance. */
+	AnofoxVcovType vcov;
 } AnofoxTweedieOptions;
 
 /**
  * Gamma GLM options (var_power = 2.0 fixed; log link).
  */
 typedef struct {
-    bool fit_intercept;
-    uint32_t max_iterations;
-    double tolerance;
-    bool compute_inference;
-    double confidence_level;
-    double lambda;
+	bool fit_intercept;
+	uint32_t max_iterations;
+	double tolerance;
+	bool compute_inference;
+	double confidence_level;
+	double lambda;
+	/** Per-coefficient priors, or NULL for none. */
+	const AnofoxPriorSpec *priors;
+	size_t priors_len;
+	/** How to compute the coefficient covariance. */
+	AnofoxVcovType vcov;
 } AnofoxGammaOptions;
 
 /**
@@ -841,9 +916,9 @@ typedef struct {
  * @param out_error Output: error information (required)
  * @return true on success, false on error
  */
-bool anofox_gamma_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count,
-                      AnofoxGammaOptions options, AnofoxGlmFitResultCore *out_result,
-                      AnofoxFitResultInference *out_inference, AnofoxError *out_error);
+bool anofox_gamma_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, AnofoxGammaOptions options,
+                      AnofoxGlmFitResultCore *out_result, AnofoxFitResultInference *out_inference,
+                      AnofoxError *out_error);
 
 /**
  * Fit a Poisson regression model
@@ -889,9 +964,9 @@ bool anofox_binomial_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_c
  * @param out_error Output: error information (required)
  * @return true on success, false on error
  */
-bool anofox_negbinomial_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, AnofoxNegBinomialOptions options,
-                            AnofoxGlmFitResultCore *out_core, AnofoxFitResultInference *out_inference,
-                            AnofoxError *out_error);
+bool anofox_negbinomial_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count,
+                            AnofoxNegBinomialOptions options, AnofoxGlmFitResultCore *out_core,
+                            AnofoxFitResultInference *out_inference, AnofoxError *out_error);
 
 /**
  * Fit a Tweedie regression model
@@ -913,15 +988,20 @@ bool anofox_tweedie_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_co
  * Binary Logistic regression options (logit link; classifier-oriented API).
  */
 typedef struct {
-    bool fit_intercept;
-    bool compute_inference;
-    double confidence_level;
-    /** L2 (ridge) penalty strength. 0.0 = unpenalised. */
-    double lambda;
-    /** Classification threshold on P(y=1). */
-    double threshold;
-    uint32_t max_iterations;
-    double tolerance;
+	bool fit_intercept;
+	bool compute_inference;
+	double confidence_level;
+	/** L2 (ridge) penalty strength. 0.0 = unpenalised. */
+	double lambda;
+	/** Classification threshold on P(y=1). */
+	double threshold;
+	uint32_t max_iterations;
+	double tolerance;
+	/** Per-coefficient priors, or NULL for none. */
+	const AnofoxPriorSpec *priors;
+	size_t priors_len;
+	/** How to compute the coefficient covariance. */
+	AnofoxVcovType vcov;
 } AnofoxLogisticOptions;
 
 /**
@@ -929,10 +1009,10 @@ typedef struct {
  * to free.
  */
 typedef struct {
-    /** Classification accuracy on the training data with the configured threshold. */
-    double accuracy;
-    /** Classification threshold actually used (echoed from options). */
-    double threshold;
+	/** Classification accuracy on the training data with the configured threshold. */
+	double accuracy;
+	/** Classification threshold actually used (echoed from options). */
+	double threshold;
 } AnofoxLogisticFitExtras;
 
 /**
@@ -948,9 +1028,8 @@ typedef struct {
  * @param out_error Output: error information (required)
  * @return true on success, false on error
  */
-bool anofox_logistic_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count,
-                         AnofoxLogisticOptions options, AnofoxGlmFitResultCore *out_result,
-                         AnofoxFitResultInference *out_inference,
+bool anofox_logistic_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, AnofoxLogisticOptions options,
+                         AnofoxGlmFitResultCore *out_result, AnofoxFitResultInference *out_inference,
                          AnofoxLogisticFitExtras *out_extras, AnofoxError *out_error);
 
 /**
@@ -966,92 +1045,92 @@ void anofox_free_glm_result(AnofoxGlmFitResultCore *result);
  * ALM distribution codes
  */
 typedef enum {
-    ANOFOX_ALM_DIST_NORMAL = 0,
-    ANOFOX_ALM_DIST_LAPLACE = 1,
-    ANOFOX_ALM_DIST_STUDENT_T = 2,
-    ANOFOX_ALM_DIST_LOGISTIC = 3,
-    ANOFOX_ALM_DIST_ASYMMETRIC_LAPLACE = 4,
-    ANOFOX_ALM_DIST_GENERALISED_NORMAL = 5,
-    ANOFOX_ALM_DIST_S = 6,
-    ANOFOX_ALM_DIST_LOG_NORMAL = 7,
-    ANOFOX_ALM_DIST_LOG_LAPLACE = 8,
-    ANOFOX_ALM_DIST_LOG_S = 9,
-    ANOFOX_ALM_DIST_LOG_GENERALISED_NORMAL = 10,
-    ANOFOX_ALM_DIST_FOLDED_NORMAL = 11,
-    ANOFOX_ALM_DIST_RECTIFIED_NORMAL = 12,
-    ANOFOX_ALM_DIST_BOX_COX_NORMAL = 13,
-    ANOFOX_ALM_DIST_GAMMA = 14,
-    ANOFOX_ALM_DIST_INVERSE_GAUSSIAN = 15,
-    ANOFOX_ALM_DIST_EXPONENTIAL = 16,
-    ANOFOX_ALM_DIST_BETA = 17,
-    ANOFOX_ALM_DIST_LOGIT_NORMAL = 18,
-    ANOFOX_ALM_DIST_POISSON = 19,
-    ANOFOX_ALM_DIST_NEGATIVE_BINOMIAL = 20,
-    ANOFOX_ALM_DIST_BINOMIAL = 21,
-    ANOFOX_ALM_DIST_GEOMETRIC = 22,
-    ANOFOX_ALM_DIST_CUMULATIVE_LOGISTIC = 23,
-    ANOFOX_ALM_DIST_CUMULATIVE_NORMAL = 24,
+	ANOFOX_ALM_DIST_NORMAL = 0,
+	ANOFOX_ALM_DIST_LAPLACE = 1,
+	ANOFOX_ALM_DIST_STUDENT_T = 2,
+	ANOFOX_ALM_DIST_LOGISTIC = 3,
+	ANOFOX_ALM_DIST_ASYMMETRIC_LAPLACE = 4,
+	ANOFOX_ALM_DIST_GENERALISED_NORMAL = 5,
+	ANOFOX_ALM_DIST_S = 6,
+	ANOFOX_ALM_DIST_LOG_NORMAL = 7,
+	ANOFOX_ALM_DIST_LOG_LAPLACE = 8,
+	ANOFOX_ALM_DIST_LOG_S = 9,
+	ANOFOX_ALM_DIST_LOG_GENERALISED_NORMAL = 10,
+	ANOFOX_ALM_DIST_FOLDED_NORMAL = 11,
+	ANOFOX_ALM_DIST_RECTIFIED_NORMAL = 12,
+	ANOFOX_ALM_DIST_BOX_COX_NORMAL = 13,
+	ANOFOX_ALM_DIST_GAMMA = 14,
+	ANOFOX_ALM_DIST_INVERSE_GAUSSIAN = 15,
+	ANOFOX_ALM_DIST_EXPONENTIAL = 16,
+	ANOFOX_ALM_DIST_BETA = 17,
+	ANOFOX_ALM_DIST_LOGIT_NORMAL = 18,
+	ANOFOX_ALM_DIST_POISSON = 19,
+	ANOFOX_ALM_DIST_NEGATIVE_BINOMIAL = 20,
+	ANOFOX_ALM_DIST_BINOMIAL = 21,
+	ANOFOX_ALM_DIST_GEOMETRIC = 22,
+	ANOFOX_ALM_DIST_CUMULATIVE_LOGISTIC = 23,
+	ANOFOX_ALM_DIST_CUMULATIVE_NORMAL = 24,
 } AnofoxAlmDistribution;
 
 /**
  * ALM loss function codes
  */
 typedef enum {
-    ANOFOX_ALM_LOSS_LIKELIHOOD = 0,
-    ANOFOX_ALM_LOSS_MSE = 1,
-    ANOFOX_ALM_LOSS_MAE = 2,
-    ANOFOX_ALM_LOSS_HAM = 3,
-    ANOFOX_ALM_LOSS_ROLE = 4,
+	ANOFOX_ALM_LOSS_LIKELIHOOD = 0,
+	ANOFOX_ALM_LOSS_MSE = 1,
+	ANOFOX_ALM_LOSS_MAE = 2,
+	ANOFOX_ALM_LOSS_HAM = 3,
+	ANOFOX_ALM_LOSS_ROLE = 4,
 } AnofoxAlmLoss;
 
 /**
  * ALM options
  */
 typedef struct {
-    /** Whether to fit intercept */
-    bool fit_intercept;
-    /** Distribution family */
-    AnofoxAlmDistribution distribution;
-    /** Loss function */
-    AnofoxAlmLoss loss;
-    /** Maximum iterations */
-    uint32_t max_iterations;
-    /** Convergence tolerance */
-    double tolerance;
-    /** Quantile for AsymmetricLaplace (0-1) */
-    double quantile;
-    /** ROLE trim fraction */
-    double role_trim;
-    /** Whether to compute inference statistics */
-    bool compute_inference;
-    /** Confidence level for CIs */
-    double confidence_level;
+	/** Whether to fit intercept */
+	bool fit_intercept;
+	/** Distribution family */
+	AnofoxAlmDistribution distribution;
+	/** Loss function */
+	AnofoxAlmLoss loss;
+	/** Maximum iterations */
+	uint32_t max_iterations;
+	/** Convergence tolerance */
+	double tolerance;
+	/** Quantile for AsymmetricLaplace (0-1) */
+	double quantile;
+	/** ROLE trim fraction */
+	double role_trim;
+	/** Whether to compute inference statistics */
+	bool compute_inference;
+	/** Confidence level for CIs */
+	double confidence_level;
 } AnofoxAlmOptions;
 
 /**
  * ALM fit result
  */
 typedef struct {
-    /** Pointer to coefficients array */
-    double *coefficients;
-    /** Number of coefficients */
-    size_t coefficients_len;
-    /** Intercept value (NaN if no intercept) */
-    double intercept;
-    /** Log-likelihood */
-    double log_likelihood;
-    /** AIC */
-    double aic;
-    /** BIC */
-    double bic;
-    /** Scale parameter */
-    double scale;
-    /** Number of observations */
-    size_t n_observations;
-    /** Number of features */
-    size_t n_features;
-    /** Number of iterations to converge */
-    uint32_t iterations;
+	/** Pointer to coefficients array */
+	double *coefficients;
+	/** Number of coefficients */
+	size_t coefficients_len;
+	/** Intercept value (NaN if no intercept) */
+	double intercept;
+	/** Log-likelihood */
+	double log_likelihood;
+	/** AIC */
+	double aic;
+	/** BIC */
+	double bic;
+	/** Scale parameter */
+	double scale;
+	/** Number of observations */
+	size_t n_observations;
+	/** Number of features */
+	size_t n_features;
+	/** Number of iterations to converge */
+	uint32_t iterations;
 } AnofoxAlmFitResultCore;
 
 /**
@@ -1069,8 +1148,7 @@ typedef struct {
  * @return true on success, false on error
  */
 bool anofox_alm_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, AnofoxAlmOptions options,
-                    AnofoxAlmFitResultCore *out_core, AnofoxFitResultInference *out_inference,
-                    AnofoxError *out_error);
+                    AnofoxAlmFitResultCore *out_core, AnofoxFitResultInference *out_inference, AnofoxError *out_error);
 
 /**
  * Free memory allocated for ALM core results
@@ -1085,46 +1163,46 @@ void anofox_free_alm_result(AnofoxAlmFitResultCore *result);
  * BLS options
  */
 typedef struct {
-    /** Whether to fit intercept */
-    bool fit_intercept;
-    /** Pointer to lower bounds (NULL = no lower bounds, single value = apply to all) */
-    const double *lower_bounds;
-    /** Number of lower bounds (0 = no bounds, 1 = single value for all) */
-    size_t lower_bounds_len;
-    /** Pointer to upper bounds (NULL = no upper bounds, single value = apply to all) */
-    const double *upper_bounds;
-    /** Number of upper bounds (0 = no bounds, 1 = single value for all) */
-    size_t upper_bounds_len;
-    /** Maximum iterations */
-    uint32_t max_iterations;
-    /** Convergence tolerance */
-    double tolerance;
+	/** Whether to fit intercept */
+	bool fit_intercept;
+	/** Pointer to lower bounds (NULL = no lower bounds, single value = apply to all) */
+	const double *lower_bounds;
+	/** Number of lower bounds (0 = no bounds, 1 = single value for all) */
+	size_t lower_bounds_len;
+	/** Pointer to upper bounds (NULL = no upper bounds, single value = apply to all) */
+	const double *upper_bounds;
+	/** Number of upper bounds (0 = no bounds, 1 = single value for all) */
+	size_t upper_bounds_len;
+	/** Maximum iterations */
+	uint32_t max_iterations;
+	/** Convergence tolerance */
+	double tolerance;
 } AnofoxBlsOptions;
 
 /**
  * BLS fit result
  */
 typedef struct {
-    /** Pointer to coefficients array */
-    double *coefficients;
-    /** Number of coefficients */
-    size_t coefficients_len;
-    /** Intercept value (NaN if no intercept) */
-    double intercept;
-    /** Sum of squared residuals */
-    double ssr;
-    /** R-squared */
-    double r_squared;
-    /** Number of observations */
-    size_t n_observations;
-    /** Number of features */
-    size_t n_features;
-    /** Number of active constraints */
-    size_t n_active_constraints;
-    /** Pointer to at_lower_bound flags */
-    bool *at_lower_bound;
-    /** Pointer to at_upper_bound flags */
-    bool *at_upper_bound;
+	/** Pointer to coefficients array */
+	double *coefficients;
+	/** Number of coefficients */
+	size_t coefficients_len;
+	/** Intercept value (NaN if no intercept) */
+	double intercept;
+	/** Sum of squared residuals */
+	double ssr;
+	/** R-squared */
+	double r_squared;
+	/** Number of observations */
+	size_t n_observations;
+	/** Number of features */
+	size_t n_features;
+	/** Number of active constraints */
+	size_t n_active_constraints;
+	/** Pointer to at_lower_bound flags */
+	bool *at_lower_bound;
+	/** Pointer to at_upper_bound flags */
+	bool *at_upper_bound;
 } AnofoxBlsFitResultCore;
 
 /**
@@ -1171,30 +1249,30 @@ void anofox_free_bls_result(AnofoxBlsFitResultCore *result);
  * PLS options
  */
 typedef struct {
-    /** Number of components to extract */
-    size_t n_components;
-    /** Whether to fit intercept */
-    bool fit_intercept;
+	/** Number of components to extract */
+	size_t n_components;
+	/** Whether to fit intercept */
+	bool fit_intercept;
 } AnofoxPlsOptions;
 
 /**
  * PLS fit result
  */
 typedef struct {
-    /** Pointer to coefficients array */
-    double *coefficients;
-    /** Number of coefficients */
-    size_t coefficients_len;
-    /** Intercept value (NaN if no intercept) */
-    double intercept;
-    /** R-squared */
-    double r_squared;
-    /** Number of components used */
-    size_t n_components;
-    /** Number of observations */
-    size_t n_observations;
-    /** Number of features */
-    size_t n_features;
+	/** Pointer to coefficients array */
+	double *coefficients;
+	/** Number of coefficients */
+	size_t coefficients_len;
+	/** Intercept value (NaN if no intercept) */
+	double intercept;
+	/** R-squared */
+	double r_squared;
+	/** Number of components used */
+	size_t n_components;
+	/** Number of observations */
+	size_t n_observations;
+	/** Number of features */
+	size_t n_features;
 } AnofoxPlsFitResultCore;
 
 /**
@@ -1224,24 +1302,24 @@ void anofox_free_pls_result(AnofoxPlsFitResultCore *result);
  * Isotonic regression options
  */
 typedef struct {
-    /** Whether the function should be increasing (true) or decreasing (false) */
-    bool increasing;
+	/** Whether the function should be increasing (true) or decreasing (false) */
+	bool increasing;
 } AnofoxIsotonicOptions;
 
 /**
  * Isotonic fit result
  */
 typedef struct {
-    /** Pointer to fitted values array (same length as input) */
-    double *fitted_values;
-    /** Number of fitted values */
-    size_t fitted_values_len;
-    /** R-squared */
-    double r_squared;
-    /** Number of observations */
-    size_t n_observations;
-    /** Whether increasing constraint was used */
-    bool increasing;
+	/** Pointer to fitted values array (same length as input) */
+	double *fitted_values;
+	/** Number of fitted values */
+	size_t fitted_values_len;
+	/** R-squared */
+	double r_squared;
+	/** Number of observations */
+	size_t n_observations;
+	/** Whether increasing constraint was used */
+	bool increasing;
 } AnofoxIsotonicFitResultCore;
 
 /**
@@ -1270,32 +1348,32 @@ void anofox_free_isotonic_result(AnofoxIsotonicFitResultCore *result);
  * Quantile regression options
  */
 typedef struct {
-    /** Quantile to estimate (0 < tau < 1, e.g., 0.5 for median) */
-    double tau;
-    /** Whether to fit intercept */
-    bool fit_intercept;
-    /** Maximum iterations */
-    uint32_t max_iterations;
-    /** Convergence tolerance */
-    double tolerance;
+	/** Quantile to estimate (0 < tau < 1, e.g., 0.5 for median) */
+	double tau;
+	/** Whether to fit intercept */
+	bool fit_intercept;
+	/** Maximum iterations */
+	uint32_t max_iterations;
+	/** Convergence tolerance */
+	double tolerance;
 } AnofoxQuantileOptions;
 
 /**
  * Quantile fit result
  */
 typedef struct {
-    /** Pointer to coefficients array */
-    double *coefficients;
-    /** Number of coefficients */
-    size_t coefficients_len;
-    /** Intercept value (NaN if no intercept) */
-    double intercept;
-    /** Quantile estimated */
-    double tau;
-    /** Number of observations */
-    size_t n_observations;
-    /** Number of features */
-    size_t n_features;
+	/** Pointer to coefficients array */
+	double *coefficients;
+	/** Number of coefficients */
+	size_t coefficients_len;
+	/** Intercept value (NaN if no intercept) */
+	double intercept;
+	/** Quantile estimated */
+	double tau;
+	/** Number of observations */
+	size_t n_observations;
+	/** Number of features */
+	size_t n_features;
 } AnofoxQuantileFitResultCore;
 
 /**
@@ -1325,80 +1403,80 @@ void anofox_free_quantile_result(AnofoxQuantileFitResultCore *result);
  * Outlier detection method codes
  */
 typedef enum {
-    ANOFOX_AID_OUTLIER_ZSCORE = 0,
-    ANOFOX_AID_OUTLIER_IQR = 1,
+	ANOFOX_AID_OUTLIER_ZSCORE = 0,
+	ANOFOX_AID_OUTLIER_IQR = 1,
 } AnofoxAidOutlierMethod;
 
 /**
  * AID options
  */
 typedef struct {
-    /** Zero proportion threshold for intermittent classification (default: 0.3) */
-    double intermittent_threshold;
-    /** Outlier detection method */
-    AnofoxAidOutlierMethod outlier_method;
+	/** Zero proportion threshold for intermittent classification (default: 0.3) */
+	double intermittent_threshold;
+	/** Outlier detection method */
+	AnofoxAidOutlierMethod outlier_method;
 } AnofoxAidOptions;
 
 /**
  * AID classification result
  */
 typedef struct {
-    /** Demand type string ("regular" or "intermittent") - must be freed */
-    char *demand_type;
-    /** Whether demand is intermittent */
-    bool is_intermittent;
-    /** Best-fit distribution name - must be freed */
-    char *distribution;
-    /** Mean of values */
-    double mean;
-    /** Variance of values */
-    double variance;
-    /** Proportion of zero values */
-    double zero_proportion;
-    /** Number of observations */
-    size_t n_observations;
-    /** Whether stockouts were detected */
-    bool has_stockouts;
-    /** Whether new product pattern was detected */
-    bool is_new_product;
-    /** Whether obsolete product pattern was detected */
-    bool is_obsolete_product;
-    /** Number of stockout observations */
-    size_t stockout_count;
-    /** Number of new product observations */
-    size_t new_product_count;
-    /** Number of obsolete product observations */
-    size_t obsolete_product_count;
-    /** Number of high outlier observations */
-    size_t high_outlier_count;
-    /** Number of low outlier observations */
-    size_t low_outlier_count;
+	/** Demand type string ("regular" or "intermittent") - must be freed */
+	char *demand_type;
+	/** Whether demand is intermittent */
+	bool is_intermittent;
+	/** Best-fit distribution name - must be freed */
+	char *distribution;
+	/** Mean of values */
+	double mean;
+	/** Variance of values */
+	double variance;
+	/** Proportion of zero values */
+	double zero_proportion;
+	/** Number of observations */
+	size_t n_observations;
+	/** Whether stockouts were detected */
+	bool has_stockouts;
+	/** Whether new product pattern was detected */
+	bool is_new_product;
+	/** Whether obsolete product pattern was detected */
+	bool is_obsolete_product;
+	/** Number of stockout observations */
+	size_t stockout_count;
+	/** Number of new product observations */
+	size_t new_product_count;
+	/** Number of obsolete product observations */
+	size_t obsolete_product_count;
+	/** Number of high outlier observations */
+	size_t high_outlier_count;
+	/** Number of low outlier observations */
+	size_t low_outlier_count;
 } AnofoxAidResult;
 
 /**
  * Per-observation anomaly flags for AID
  */
 typedef struct {
-    /** Unexpected zero in positive demand (stockout) */
-    bool stockout;
-    /** Leading zeros pattern (new product) */
-    bool new_product;
-    /** Trailing zeros pattern (obsolete product) */
-    bool obsolete_product;
-    /** Unusually high value */
-    bool high_outlier;
-    /** Unusually low value */
-    bool low_outlier;
+	/** Unexpected zero in positive demand (stockout) */
+	bool stockout;
+	/** Leading zeros pattern (new product) */
+	bool new_product;
+	/** Trailing zeros pattern (obsolete product) */
+	bool obsolete_product;
+	/** Unusually high value */
+	bool high_outlier;
+	/** Unusually low value */
+	bool low_outlier;
 } AnofoxAidAnomalyFlags;
 
 /**
  * AID anomaly result (array of per-observation flags)
  */
 typedef struct {
-    /** Pointer to array of anomaly flags - must be freed */
-    AnofoxAidAnomalyFlags *flags;
-    /** Number of observations */
-    size_t len;
+	/** Pointer to array of anomaly flags - must be freed */
+	AnofoxAidAnomalyFlags *flags;
+	/** Number of observations */
+	size_t len;
 } AnofoxAidAnomalyResult;
 
 /**
@@ -1448,260 +1526,260 @@ void anofox_free_aid_anomaly_result(AnofoxAidAnomalyResult *result);
  * Alternative hypothesis codes
  */
 typedef enum {
-    ANOFOX_ALTERNATIVE_TWO_SIDED = 0,
-    ANOFOX_ALTERNATIVE_LESS = 1,
-    ANOFOX_ALTERNATIVE_GREATER = 2,
+	ANOFOX_ALTERNATIVE_TWO_SIDED = 0,
+	ANOFOX_ALTERNATIVE_LESS = 1,
+	ANOFOX_ALTERNATIVE_GREATER = 2,
 } AnofoxAlternative;
 
 /**
  * Generic test result structure
  */
 typedef struct {
-    /** Test statistic */
-    double statistic;
-    /** p-value */
-    double p_value;
-    /** Degrees of freedom (NaN if N/A) */
-    double df;
-    /** Effect size (NaN if N/A) */
-    double effect_size;
-    /** Confidence interval lower bound */
-    double ci_lower;
-    /** Confidence interval upper bound */
-    double ci_upper;
-    /** Confidence level */
-    double confidence_level;
-    /** Total sample size */
-    size_t n;
-    /** Group 1 sample size */
-    size_t n1;
-    /** Group 2 sample size */
-    size_t n2;
-    /** Alternative hypothesis */
-    AnofoxAlternative alternative;
-    /** Method name - must be freed */
-    char *method;
+	/** Test statistic */
+	double statistic;
+	/** p-value */
+	double p_value;
+	/** Degrees of freedom (NaN if N/A) */
+	double df;
+	/** Effect size (NaN if N/A) */
+	double effect_size;
+	/** Confidence interval lower bound */
+	double ci_lower;
+	/** Confidence interval upper bound */
+	double ci_upper;
+	/** Confidence level */
+	double confidence_level;
+	/** Total sample size */
+	size_t n;
+	/** Group 1 sample size */
+	size_t n1;
+	/** Group 2 sample size */
+	size_t n2;
+	/** Alternative hypothesis */
+	AnofoxAlternative alternative;
+	/** Method name - must be freed */
+	char *method;
 } AnofoxTestResult;
 
 /**
  * ANOVA result structure
  */
 typedef struct {
-    /** F statistic */
-    double f_statistic;
-    /** p-value */
-    double p_value;
-    /** Between-groups df */
-    size_t df_between;
-    /** Within-groups df */
-    size_t df_within;
-    /** Between-groups SS */
-    double ss_between;
-    /** Within-groups SS */
-    double ss_within;
-    /** Number of groups */
-    size_t n_groups;
-    /** Total sample size */
-    size_t n;
-    /** Method name - must be freed */
-    char *method;
+	/** F statistic */
+	double f_statistic;
+	/** p-value */
+	double p_value;
+	/** Between-groups df */
+	size_t df_between;
+	/** Within-groups df */
+	size_t df_within;
+	/** Between-groups SS */
+	double ss_between;
+	/** Within-groups SS */
+	double ss_within;
+	/** Number of groups */
+	size_t n_groups;
+	/** Total sample size */
+	size_t n;
+	/** Method name - must be freed */
+	char *method;
 } AnofoxAnovaResult;
 
 /**
  * Correlation result structure
  */
 typedef struct {
-    /** Correlation coefficient */
-    double r;
-    /** Test statistic */
-    double statistic;
-    /** p-value */
-    double p_value;
-    /** CI lower bound */
-    double ci_lower;
-    /** CI upper bound */
-    double ci_upper;
-    /** Confidence level */
-    double confidence_level;
-    /** Sample size */
-    size_t n;
-    /** Method name - must be freed */
-    char *method;
+	/** Correlation coefficient */
+	double r;
+	/** Test statistic */
+	double statistic;
+	/** p-value */
+	double p_value;
+	/** CI lower bound */
+	double ci_lower;
+	/** CI upper bound */
+	double ci_upper;
+	/** Confidence level */
+	double confidence_level;
+	/** Sample size */
+	size_t n;
+	/** Method name - must be freed */
+	char *method;
 } AnofoxCorrelationResult;
 
 /**
  * Chi-square result structure
  */
 typedef struct {
-    /** Chi-square statistic */
-    double statistic;
-    /** p-value */
-    double p_value;
-    /** Degrees of freedom */
-    size_t df;
-    /** Method name - must be freed */
-    char *method;
+	/** Chi-square statistic */
+	double statistic;
+	/** p-value */
+	double p_value;
+	/** Degrees of freedom */
+	size_t df;
+	/** Method name - must be freed */
+	char *method;
 } AnofoxChiSquareResult;
 
 /**
  * TOST (equivalence) result structure
  */
 typedef struct {
-    /** Lower bound test statistic */
-    double t_lower;
-    /** Upper bound test statistic */
-    double t_upper;
-    /** p-value for lower test */
-    double p_lower;
-    /** p-value for upper test */
-    double p_upper;
-    /** Overall p-value */
-    double p_value;
-    /** Degrees of freedom */
-    double df;
-    /** Point estimate */
-    double estimate;
-    /** CI lower bound */
-    double ci_lower;
-    /** CI upper bound */
-    double ci_upper;
-    /** Equivalence bound lower */
-    double bound_lower;
-    /** Equivalence bound upper */
-    double bound_upper;
-    /** Whether equivalence was established */
-    bool equivalent;
-    /** Sample size */
-    size_t n;
-    /** Method name - must be freed */
-    char *method;
+	/** Lower bound test statistic */
+	double t_lower;
+	/** Upper bound test statistic */
+	double t_upper;
+	/** p-value for lower test */
+	double p_lower;
+	/** p-value for upper test */
+	double p_upper;
+	/** Overall p-value */
+	double p_value;
+	/** Degrees of freedom */
+	double df;
+	/** Point estimate */
+	double estimate;
+	/** CI lower bound */
+	double ci_lower;
+	/** CI upper bound */
+	double ci_upper;
+	/** Equivalence bound lower */
+	double bound_lower;
+	/** Equivalence bound upper */
+	double bound_upper;
+	/** Whether equivalence was established */
+	bool equivalent;
+	/** Sample size */
+	size_t n;
+	/** Method name - must be freed */
+	char *method;
 } AnofoxTostResult;
 
 /**
  * T-test options
  */
 typedef struct {
-    /** Alternative hypothesis */
-    AnofoxAlternative alternative;
-    /** Confidence level */
-    double confidence_level;
-    /** Use equal variance (Student's t) vs Welch */
-    bool var_equal;
-    /** Hypothesized mean difference */
-    double mu;
+	/** Alternative hypothesis */
+	AnofoxAlternative alternative;
+	/** Confidence level */
+	double confidence_level;
+	/** Use equal variance (Student's t) vs Welch */
+	bool var_equal;
+	/** Hypothesized mean difference */
+	double mu;
 } AnofoxTTestOptions;
 
 /**
  * Mann-Whitney U test options
  */
 typedef struct {
-    /** Alternative hypothesis */
-    AnofoxAlternative alternative;
-    /** Use exact distribution */
-    bool exact;
-    /** Apply continuity correction */
-    bool continuity_correction;
-    /** Confidence level */
-    double confidence_level;
-    /** Hypothesized location shift */
-    double mu;
+	/** Alternative hypothesis */
+	AnofoxAlternative alternative;
+	/** Use exact distribution */
+	bool exact;
+	/** Apply continuity correction */
+	bool continuity_correction;
+	/** Confidence level */
+	double confidence_level;
+	/** Hypothesized location shift */
+	double mu;
 } AnofoxMannWhitneyOptions;
 
 /**
  * Correlation test options
  */
 typedef struct {
-    /** Alternative hypothesis */
-    AnofoxAlternative alternative;
-    /** Confidence level */
-    double confidence_level;
+	/** Alternative hypothesis */
+	AnofoxAlternative alternative;
+	/** Confidence level */
+	double confidence_level;
 } AnofoxCorrelationOptions;
 
 /**
  * Kendall tau type codes
  */
 typedef enum {
-    ANOFOX_KENDALL_TAU_A = 0,
-    ANOFOX_KENDALL_TAU_B = 1,
-    ANOFOX_KENDALL_TAU_C = 2,
+	ANOFOX_KENDALL_TAU_A = 0,
+	ANOFOX_KENDALL_TAU_B = 1,
+	ANOFOX_KENDALL_TAU_C = 2,
 } AnofoxKendallType;
 
 /**
  * Kendall correlation options
  */
 typedef struct {
-    /** Alternative hypothesis */
-    AnofoxAlternative alternative;
-    /** Tau type */
-    AnofoxKendallType tau_type;
-    /** Confidence level */
-    double confidence_level;
+	/** Alternative hypothesis */
+	AnofoxAlternative alternative;
+	/** Tau type */
+	AnofoxKendallType tau_type;
+	/** Confidence level */
+	double confidence_level;
 } AnofoxKendallOptions;
 
 /**
  * Chi-square test options
  */
 typedef struct {
-    /** Apply Yates correction */
-    bool correction;
+	/** Apply Yates correction */
+	bool correction;
 } AnofoxChiSquareOptions;
 
 /**
  * Fisher's exact test options
  */
 typedef struct {
-    /** Alternative hypothesis */
-    AnofoxAlternative alternative;
-    /** Confidence level */
-    double confidence_level;
+	/** Alternative hypothesis */
+	AnofoxAlternative alternative;
+	/** Confidence level */
+	double confidence_level;
 } AnofoxFisherExactOptions;
 
 /**
  * Energy distance test options
  */
 typedef struct {
-    /** Number of permutations */
-    size_t n_permutations;
-    /** Random seed (0 = random) */
-    uint64_t seed;
-    /** Whether seed is set */
-    bool has_seed;
+	/** Number of permutations */
+	size_t n_permutations;
+	/** Random seed (0 = random) */
+	uint64_t seed;
+	/** Whether seed is set */
+	bool has_seed;
 } AnofoxEnergyDistanceOptions;
 
 /**
  * MMD test options
  */
 typedef struct {
-    /** Number of permutations */
-    size_t n_permutations;
-    /** Random seed (0 = random) */
-    uint64_t seed;
-    /** Whether seed is set */
-    bool has_seed;
+	/** Number of permutations */
+	size_t n_permutations;
+	/** Random seed (0 = random) */
+	uint64_t seed;
+	/** Whether seed is set */
+	bool has_seed;
 } AnofoxMmdOptions;
 
 /**
  * TOST options
  */
 typedef struct {
-    /** Lower equivalence bound */
-    double bound_lower;
-    /** Upper equivalence bound */
-    double bound_upper;
-    /** Significance level */
-    double alpha;
-    /** Use pooled variance (for two-sample t-test) */
-    bool pooled;
+	/** Lower equivalence bound */
+	double bound_lower;
+	/** Upper equivalence bound */
+	double bound_upper;
+	/** Significance level */
+	double alpha;
+	/** Use pooled variance (for two-sample t-test) */
+	bool pooled;
 } AnofoxTostOptions;
 
 /**
  * Brunner-Munzel test options
  */
 typedef struct {
-    /** Alternative hypothesis */
-    AnofoxAlternative alternative;
-    /** Confidence level */
-    double confidence_level;
+	/** Alternative hypothesis */
+	AnofoxAlternative alternative;
+	/** Confidence level */
+	double confidence_level;
 } AnofoxBrunnerMunzelOptions;
 
 /* --- Test Functions --- */
@@ -1785,8 +1863,8 @@ bool anofox_energy_distance(AnofoxDataArray group1, AnofoxDataArray group2, Anof
 /**
  * Maximum Mean Discrepancy (MMD) test
  */
-bool anofox_mmd(AnofoxDataArray group1, AnofoxDataArray group2, AnofoxMmdOptions options,
-                AnofoxTestResult *out_result, AnofoxError *out_error);
+bool anofox_mmd(AnofoxDataArray group1, AnofoxDataArray group2, AnofoxMmdOptions options, AnofoxTestResult *out_result,
+                AnofoxError *out_error);
 
 /**
  * TOST two-sample t-test for equivalence
@@ -1798,45 +1876,44 @@ bool anofox_tost_t_test(AnofoxDataArray group1, AnofoxDataArray group2, AnofoxTo
  * TOST paired t-test for equivalence
  */
 bool anofox_tost_t_test_paired(AnofoxDataArray x, AnofoxDataArray y, AnofoxTostOptions options,
-                                AnofoxTostResult *out_result, AnofoxError *out_error);
+                               AnofoxTostResult *out_result, AnofoxError *out_error);
 
 /**
  * TOST correlation method codes
  */
 typedef enum {
-    ANOFOX_TOST_COR_PEARSON = 0,
-    ANOFOX_TOST_COR_SPEARMAN = 1,
+	ANOFOX_TOST_COR_PEARSON = 0,
+	ANOFOX_TOST_COR_SPEARMAN = 1,
 } AnofoxTostCorrelationMethod;
 
 /**
  * TOST correlation test for equivalence to zero
  */
-bool anofox_tost_correlation(AnofoxDataArray x, AnofoxDataArray y, double rho_null,
-                              double bound_lower, double bound_upper, double alpha,
-                              AnofoxTostCorrelationMethod method,
-                              AnofoxTostResult *out_result, AnofoxError *out_error);
+bool anofox_tost_correlation(AnofoxDataArray x, AnofoxDataArray y, double rho_null, double bound_lower,
+                             double bound_upper, double alpha, AnofoxTostCorrelationMethod method,
+                             AnofoxTostResult *out_result, AnofoxError *out_error);
 
 /**
  * Wilcoxon signed-rank test options
  */
 typedef struct {
-    /** Alternative hypothesis */
-    AnofoxAlternative alternative;
-    /** Use exact distribution */
-    bool exact;
-    /** Apply continuity correction */
-    bool continuity_correction;
-    /** Confidence level for CI */
-    double confidence_level;
-    /** Hypothesized median */
-    double mu;
+	/** Alternative hypothesis */
+	AnofoxAlternative alternative;
+	/** Use exact distribution */
+	bool exact;
+	/** Apply continuity correction */
+	bool continuity_correction;
+	/** Confidence level for CI */
+	double confidence_level;
+	/** Hypothesized median */
+	double mu;
 } AnofoxWilcoxonOptions;
 
 /**
  * Wilcoxon signed-rank test for paired samples
  */
 bool anofox_wilcoxon_signed_rank(AnofoxDataArray x, AnofoxDataArray y, AnofoxWilcoxonOptions options,
-                                  AnofoxTestResult *out_result, AnofoxError *out_error);
+                                 AnofoxTestResult *out_result, AnofoxError *out_error);
 
 /* --- Categorical Tests --- */
 
@@ -1844,110 +1921,104 @@ bool anofox_wilcoxon_signed_rank(AnofoxDataArray x, AnofoxDataArray y, AnofoxWil
  * Proportion test result
  */
 typedef struct {
-    /** Test statistic (z) */
-    double statistic;
-    /** p-value */
-    double p_value;
-    /** Estimated proportion */
-    double estimate;
-    /** Confidence interval lower bound */
-    double ci_lower;
-    /** Confidence interval upper bound */
-    double ci_upper;
-    /** Sample size */
-    size_t n;
-    /** Alternative hypothesis */
-    AnofoxAlternative alternative;
-    /** Method name (must be freed) */
-    char *method;
+	/** Test statistic (z) */
+	double statistic;
+	/** p-value */
+	double p_value;
+	/** Estimated proportion */
+	double estimate;
+	/** Confidence interval lower bound */
+	double ci_lower;
+	/** Confidence interval upper bound */
+	double ci_upper;
+	/** Sample size */
+	size_t n;
+	/** Alternative hypothesis */
+	AnofoxAlternative alternative;
+	/** Method name (must be freed) */
+	char *method;
 } AnofoxPropTestResult;
 
 /**
  * Cohen's kappa result
  */
 typedef struct {
-    /** Kappa coefficient */
-    double kappa;
-    /** Standard error */
-    double se;
-    /** Confidence interval lower bound */
-    double ci_lower;
-    /** Confidence interval upper bound */
-    double ci_upper;
-    /** z-statistic */
-    double z;
-    /** p-value */
-    double p_value;
+	/** Kappa coefficient */
+	double kappa;
+	/** Standard error */
+	double se;
+	/** Confidence interval lower bound */
+	double ci_lower;
+	/** Confidence interval upper bound */
+	double ci_upper;
+	/** z-statistic */
+	double z;
+	/** p-value */
+	double p_value;
 } AnofoxKappaResult;
 
 /**
  * Chi-square goodness-of-fit test
  */
-bool anofox_chisq_goodness_of_fit(const size_t *observed, size_t observed_len,
-                                   const double *expected, size_t expected_len,
-                                   AnofoxChiSquareResult *out_result, AnofoxError *out_error);
+bool anofox_chisq_goodness_of_fit(const size_t *observed, size_t observed_len, const double *expected,
+                                  size_t expected_len, AnofoxChiSquareResult *out_result, AnofoxError *out_error);
 
 /**
  * One-sample proportion z-test
  */
-bool anofox_prop_test_one(size_t successes, size_t trials, double p0,
-                          AnofoxAlternative alternative,
+bool anofox_prop_test_one(size_t successes, size_t trials, double p0, AnofoxAlternative alternative,
                           AnofoxPropTestResult *out_result, AnofoxError *out_error);
 
 /**
  * Two-sample proportion z-test
  */
-bool anofox_prop_test_two(size_t successes1, size_t trials1,
-                          size_t successes2, size_t trials2,
-                          AnofoxAlternative alternative, bool correction,
-                          AnofoxPropTestResult *out_result, AnofoxError *out_error);
+bool anofox_prop_test_two(size_t successes1, size_t trials1, size_t successes2, size_t trials2,
+                          AnofoxAlternative alternative, bool correction, AnofoxPropTestResult *out_result,
+                          AnofoxError *out_error);
 
 /**
  * Exact binomial test
  */
-bool anofox_binom_test(size_t successes, size_t trials, double p0,
-                       AnofoxAlternative alternative,
+bool anofox_binom_test(size_t successes, size_t trials, double p0, AnofoxAlternative alternative,
                        AnofoxPropTestResult *out_result, AnofoxError *out_error);
 
 /**
  * Cramer's V effect size for contingency tables
  */
-bool anofox_cramers_v(const size_t *table, const size_t *row_lengths, size_t n_rows,
-                      double *out_result, AnofoxError *out_error);
+bool anofox_cramers_v(const size_t *table, const size_t *row_lengths, size_t n_rows, double *out_result,
+                      AnofoxError *out_error);
 
 /**
  * Cohen's kappa for inter-rater agreement
  */
-bool anofox_cohen_kappa(const size_t *table, const size_t *row_lengths, size_t n_rows,
-                        bool weighted, AnofoxKappaResult *out_result, AnofoxError *out_error);
+bool anofox_cohen_kappa(const size_t *table, const size_t *row_lengths, size_t n_rows, bool weighted,
+                        AnofoxKappaResult *out_result, AnofoxError *out_error);
 
 /**
  * G-test (log-likelihood ratio test) for contingency tables
  * Takes a flattened contingency table (row-major order)
  */
-bool anofox_g_test(const size_t *table, const size_t *row_lengths, size_t n_rows,
-                   AnofoxChiSquareResult *out_result, AnofoxError *out_error);
+bool anofox_g_test(const size_t *table, const size_t *row_lengths, size_t n_rows, AnofoxChiSquareResult *out_result,
+                   AnofoxError *out_error);
 
 /**
  * McNemar's test for paired categorical data
  * Takes a 2x2 contingency table as 4 cell counts: a, b, c, d
  */
-bool anofox_mcnemar_test(size_t a, size_t b, size_t c, size_t d,
-                         bool correction, bool exact,
+bool anofox_mcnemar_test(size_t a, size_t b, size_t c, size_t d, bool correction, bool exact,
                          AnofoxChiSquareResult *out_result, AnofoxError *out_error);
 
 /**
  * Phi coefficient for 2x2 contingency tables
  * Takes a 2x2 contingency table as 4 cell counts: a, b, c, d
  */
-bool anofox_phi_coefficient(size_t a, size_t b, size_t c, size_t d,
-                            double *out_result, AnofoxError *out_error);
+bool anofox_phi_coefficient(size_t a, size_t b, size_t c, size_t d, double *out_result, AnofoxError *out_error);
 
 /**
  * Contingency coefficient (Pearson's C)
  */
-bool anofox_contingency_coef(const size_t *table, const size_t *row_lengths, size_t n_rows,
-                             double *out_result, AnofoxError *out_error);
+bool anofox_contingency_coef(const size_t *table, const size_t *row_lengths, size_t n_rows, double *out_result,
+                             AnofoxError *out_error);
 
 /**
  * Free memory allocated by proportion test result functions
@@ -1960,58 +2031,58 @@ void anofox_free_prop_test_result(AnofoxPropTestResult *result);
  * Distance correlation result
  */
 typedef struct {
-    /** Distance correlation coefficient */
-    double dcor;
-    /** Distance covariance */
-    double dcov;
-    /** Distance variance of x */
-    double dvar_x;
-    /** Distance variance of y */
-    double dvar_y;
-    /** Sample size */
-    size_t n;
+	/** Distance correlation coefficient */
+	double dcor;
+	/** Distance covariance */
+	double dcov;
+	/** Distance variance of x */
+	double dvar_x;
+	/** Distance variance of y */
+	double dvar_y;
+	/** Sample size */
+	size_t n;
 } AnofoxDistanceCorResult;
 
 /**
  * Distance correlation
  */
-bool anofox_distance_cor(AnofoxDataArray x, AnofoxDataArray y,
-                         AnofoxDistanceCorResult *out_result, AnofoxError *out_error);
+bool anofox_distance_cor(AnofoxDataArray x, AnofoxDataArray y, AnofoxDistanceCorResult *out_result,
+                         AnofoxError *out_error);
 
 /**
  * Distance correlation test with permutations
  */
-bool anofox_distance_cor_test(AnofoxDataArray x, AnofoxDataArray y, size_t n_permutations,
-                              AnofoxTestResult *out_result, AnofoxError *out_error);
+bool anofox_distance_cor_test(AnofoxDataArray x, AnofoxDataArray y, size_t n_permutations, AnofoxTestResult *out_result,
+                              AnofoxError *out_error);
 
 /**
  * ICC type codes
  */
 typedef enum {
-    ANOFOX_ICC_SINGLE = 0,
-    ANOFOX_ICC_AVERAGE = 1,
+	ANOFOX_ICC_SINGLE = 0,
+	ANOFOX_ICC_AVERAGE = 1,
 } AnofoxIccType;
 
 /**
  * ICC result
  */
 typedef struct {
-    /** ICC value */
-    double icc;
-    /** F-statistic */
-    double f_statistic;
-    /** Lower CI bound */
-    double ci_lower;
-    /** Upper CI bound */
-    double ci_upper;
-    /** Confidence level */
-    double confidence_level;
-    /** Number of subjects */
-    size_t n_subjects;
-    /** Number of raters */
-    size_t n_raters;
-    /** Method name (must be freed) */
-    char *method;
+	/** ICC value */
+	double icc;
+	/** F-statistic */
+	double f_statistic;
+	/** Lower CI bound */
+	double ci_lower;
+	/** Upper CI bound */
+	double ci_upper;
+	/** Confidence level */
+	double confidence_level;
+	/** Number of subjects */
+	size_t n_subjects;
+	/** Number of raters */
+	size_t n_raters;
+	/** Method name (must be freed) */
+	char *method;
 } AnofoxIccResult;
 
 /**
@@ -2025,8 +2096,8 @@ typedef struct {
  * @param out_error Output: error information
  * @return true on success, false on error
  */
-bool anofox_icc(const double *data, size_t n_subjects, size_t n_raters,
-                AnofoxIccType icc_type, AnofoxIccResult *out_result, AnofoxError *out_error);
+bool anofox_icc(const double *data, size_t n_subjects, size_t n_raters, AnofoxIccType icc_type,
+                AnofoxIccResult *out_result, AnofoxError *out_error);
 
 /**
  * Free memory allocated by ICC result functions
@@ -2038,15 +2109,14 @@ void anofox_free_icc_result(AnofoxIccResult *result);
 /**
  * Yuen's trimmed mean test
  */
-bool anofox_yuen_test(AnofoxDataArray group1, AnofoxDataArray group2, double trim,
-                      AnofoxAlternative alternative, double confidence_level,
-                      AnofoxTestResult *out_result, AnofoxError *out_error);
+bool anofox_yuen_test(AnofoxDataArray group1, AnofoxDataArray group2, double trim, AnofoxAlternative alternative,
+                      double confidence_level, AnofoxTestResult *out_result, AnofoxError *out_error);
 
 /**
  * Brown-Forsythe test for homogeneity of variances
  */
-bool anofox_brown_forsythe(AnofoxDataArray values, AnofoxDataArray groups,
-                           AnofoxTestResult *out_result, AnofoxError *out_error);
+bool anofox_brown_forsythe(AnofoxDataArray values, AnofoxDataArray groups, AnofoxTestResult *out_result,
+                           AnofoxError *out_error);
 
 /* --- Forecast Tests --- */
 
@@ -2054,42 +2124,40 @@ bool anofox_brown_forsythe(AnofoxDataArray values, AnofoxDataArray groups,
  * Loss function for forecast comparison
  */
 typedef enum {
-    ANOFOX_FORECAST_LOSS_SQUARED = 0,
-    ANOFOX_FORECAST_LOSS_ABSOLUTE = 1,
+	ANOFOX_FORECAST_LOSS_SQUARED = 0,
+	ANOFOX_FORECAST_LOSS_ABSOLUTE = 1,
 } AnofoxForecastLoss;
 
 /**
  * Variance estimator for forecast tests
  */
 typedef enum {
-    ANOFOX_FORECAST_VAR_ACF = 0,
-    ANOFOX_FORECAST_VAR_BARTLETT = 1,
+	ANOFOX_FORECAST_VAR_ACF = 0,
+	ANOFOX_FORECAST_VAR_BARTLETT = 1,
 } AnofoxForecastVarEstimator;
 
 /**
  * Diebold-Mariano test for equal predictive accuracy
  */
 bool anofox_diebold_mariano(AnofoxDataArray actual, AnofoxDataArray forecast1, AnofoxDataArray forecast2,
-                            AnofoxForecastLoss loss, AnofoxForecastVarEstimator var_estimator,
-                            size_t horizon, AnofoxAlternative alternative,
-                            AnofoxTestResult *out_result, AnofoxError *out_error);
+                            AnofoxForecastLoss loss, AnofoxForecastVarEstimator var_estimator, size_t horizon,
+                            AnofoxAlternative alternative, AnofoxTestResult *out_result, AnofoxError *out_error);
 
 /**
  * Clark-West test for nested model comparison
  */
 bool anofox_clark_west(AnofoxDataArray actual, AnofoxDataArray forecast_restricted,
-                       AnofoxDataArray forecast_unrestricted, size_t horizon,
-                       AnofoxTestResult *out_result, AnofoxError *out_error);
+                       AnofoxDataArray forecast_unrestricted, size_t horizon, AnofoxTestResult *out_result,
+                       AnofoxError *out_error);
 
 /* --- Resampling Tests --- */
 
 /**
  * Permutation t-test (distribution-free alternative to t-test)
  */
-bool anofox_permutation_t_test(AnofoxDataArray group1, AnofoxDataArray group2,
-                                AnofoxAlternative alternative, size_t n_permutations,
-                                uint64_t seed, bool has_seed,
-                                AnofoxTestResult *out_result, AnofoxError *out_error);
+bool anofox_permutation_t_test(AnofoxDataArray group1, AnofoxDataArray group2, AnofoxAlternative alternative,
+                               size_t n_permutations, uint64_t seed, bool has_seed, AnofoxTestResult *out_result,
+                               AnofoxError *out_error);
 
 /* --- Free Functions --- */
 
@@ -2126,53 +2194,53 @@ void anofox_free_tost_result(AnofoxTostResult *result);
  * Information criterion for model weighting
  */
 typedef enum {
-    ANOFOX_IC_AIC = 0,
-    ANOFOX_IC_AICC = 1,
-    ANOFOX_IC_BIC = 2,
+	ANOFOX_IC_AIC = 0,
+	ANOFOX_IC_AICC = 1,
+	ANOFOX_IC_BIC = 2,
 } AnofoxInformationCriterion;
 
 /**
  * LmDynamic options
  */
 typedef struct {
-    /** Whether to fit intercept */
-    bool fit_intercept;
-    /** Information criterion for model weighting */
-    AnofoxInformationCriterion ic;
-    /** Distribution family (uses AnofoxAlmDistribution enum) */
-    AnofoxAlmDistribution distribution;
-    /** LOWESS smoothing span (0.0 = no smoothing, >0 = span value) */
-    double lowess_span;
-    /** Maximum number of candidate models (0 = default) */
-    uint32_t max_models;
-    /** Confidence level for intervals */
-    double confidence_level;
+	/** Whether to fit intercept */
+	bool fit_intercept;
+	/** Information criterion for model weighting */
+	AnofoxInformationCriterion ic;
+	/** Distribution family (uses AnofoxAlmDistribution enum) */
+	AnofoxAlmDistribution distribution;
+	/** LOWESS smoothing span (0.0 = no smoothing, >0 = span value) */
+	double lowess_span;
+	/** Maximum number of candidate models (0 = default) */
+	uint32_t max_models;
+	/** Confidence level for intervals */
+	double confidence_level;
 } AnofoxLmDynamicOptions;
 
 /**
  * LmDynamic fit result
  */
 typedef struct {
-    /** Averaged coefficients (heap-allocated, caller must free) */
-    double *coefficients;
-    /** Number of coefficients */
-    size_t coefficients_len;
-    /** Intercept value (NaN if no intercept) */
-    double intercept;
-    /** R-squared */
-    double r_squared;
-    /** Adjusted R-squared */
-    double adj_r_squared;
-    /** RMSE */
-    double rmse;
-    /** Number of observations */
-    size_t n_observations;
-    /** Number of features */
-    size_t n_features;
-    /** Flattened dynamic coefficients (n_observations x n_coefs_per_obs, row-major) */
-    double *dynamic_coefficients;
-    /** Number of coefficient columns per observation */
-    size_t n_coefs_per_obs;
+	/** Averaged coefficients (heap-allocated, caller must free) */
+	double *coefficients;
+	/** Number of coefficients */
+	size_t coefficients_len;
+	/** Intercept value (NaN if no intercept) */
+	double intercept;
+	/** R-squared */
+	double r_squared;
+	/** Adjusted R-squared */
+	double adj_r_squared;
+	/** RMSE */
+	double rmse;
+	/** Number of observations */
+	size_t n_observations;
+	/** Number of features */
+	size_t n_features;
+	/** Flattened dynamic coefficients (n_observations x n_coefs_per_obs, row-major) */
+	double *dynamic_coefficients;
+	/** Number of coefficient columns per observation */
+	size_t n_coefs_per_obs;
 } AnofoxLmDynamicFitResult;
 
 /**
@@ -2186,9 +2254,8 @@ typedef struct {
  * @param out_error Output: error information (required)
  * @return true on success, false on error
  */
-bool anofox_fit_lm_dynamic(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count,
-                            AnofoxLmDynamicOptions options, AnofoxLmDynamicFitResult *out_result,
-                            AnofoxError *out_error);
+bool anofox_fit_lm_dynamic(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, AnofoxLmDynamicOptions options,
+                           AnofoxLmDynamicFitResult *out_result, AnofoxError *out_error);
 
 /**
  * Free memory allocated for LmDynamic fit result

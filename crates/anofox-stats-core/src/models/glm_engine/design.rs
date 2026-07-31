@@ -80,11 +80,7 @@ impl Design {
     ///
     /// `priors` may be empty (no explicit priors). When non-empty it must have
     /// either `n_features` entries or `n_features + 1` when an intercept is fitted.
-    pub fn build_penalty(
-        &self,
-        priors: &[PriorSpec],
-        legacy_lambda: f64,
-    ) -> StatsResult<Penalty> {
+    pub fn build_penalty(&self, priors: &[PriorSpec], legacy_lambda: f64) -> StatsResult<Penalty> {
         let p = self.n_params();
 
         if priors.is_empty() {
@@ -111,8 +107,7 @@ impl Design {
         }
 
         // Whether the caller supplied a leading intercept prior.
-        let has_intercept_entry =
-            self.fit_intercept && priors.len() == expected_with_intercept;
+        let has_intercept_entry = self.fit_intercept && priors.len() == expected_with_intercept;
 
         let mut aligned = vec![PriorSpec::flat(); p];
         let param_offset = usize::from(self.fit_intercept);
@@ -215,9 +210,7 @@ pub fn build(spec: &DesignSpec<'_>) -> StatsResult<Design> {
 
     // Drop rows with any non-finite value, in y, in a feature, or in the offset.
     let valid_rows: Vec<usize> = (0..n_obs)
-        .filter(|&i| {
-            y[i].is_finite() && x.iter().all(|col| col[i].is_finite())
-        })
+        .filter(|&i| y[i].is_finite() && x.iter().all(|col| col[i].is_finite()))
         .collect();
     if valid_rows.is_empty() {
         return Err(StatsError::NoValidData);
@@ -229,9 +222,7 @@ pub fn build(spec: &DesignSpec<'_>) -> StatsResult<Design> {
         .iter()
         .map(|&ci| {
             let first = x[ci][valid_rows[0]];
-            valid_rows
-                .iter()
-                .all(|&i| (x[ci][i] - first).abs() < 1e-10)
+            valid_rows.iter().all(|&i| (x[ci][i] - first).abs() < 1e-10)
         })
         .collect();
 
@@ -313,8 +304,8 @@ mod tests {
     fn constant_columns_are_dropped_under_the_drop_policy() {
         let y = vec![1.0, 2.0, 3.0, 4.0, 5.0];
         let x = vec![
-            vec![7.0; 5],                     // constant
-            vec![1.0, 2.0, 3.0, 4.0, 5.0],    // informative
+            vec![7.0; 5],                  // constant
+            vec![1.0, 2.0, 3.0, 4.0, 5.0], // informative
         ];
         let d = build(&DesignSpec {
             y: &y,
@@ -352,7 +343,7 @@ mod tests {
     fn offset_column_leaves_the_feature_set() {
         let y = vec![1.0, 2.0, 3.0, 4.0];
         let x = vec![
-            vec![1.0, 2.0, 3.0, 4.0],  // feature
+            vec![1.0, 2.0, 3.0, 4.0],     // feature
             vec![10.0, 20.0, 30.0, 40.0], // offset
         ];
         let d = build(&DesignSpec {

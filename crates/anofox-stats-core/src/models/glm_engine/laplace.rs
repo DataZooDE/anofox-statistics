@@ -128,8 +128,8 @@ fn normal_quantile(p: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::glm_engine::penalty::{DiagonalPenalty, QuadraticPenalty};
     use crate::models::glm_engine::normal_eq::solve_qr;
+    use crate::models::glm_engine::penalty::{DiagonalPenalty, QuadraticPenalty};
     use crate::types::PriorSpec;
     use faer::Col;
 
@@ -247,9 +247,36 @@ mod tests {
 
         let beta = [1.0, 1.0];
         let inactive = [false, false];
-        let lap = inference(&beta, &info, Some(&unpen), 1.0, 0.95, VcovType::Laplace, &inactive).unwrap();
-        let sw = inference(&beta, &info, Some(&unpen), 1.0, 0.95, VcovType::Sandwich, &inactive).unwrap();
-        let nv = inference(&beta, &info, Some(&unpen), 1.0, 0.95, VcovType::Naive, &inactive).unwrap();
+        let lap = inference(
+            &beta,
+            &info,
+            Some(&unpen),
+            1.0,
+            0.95,
+            VcovType::Laplace,
+            &inactive,
+        )
+        .unwrap();
+        let sw = inference(
+            &beta,
+            &info,
+            Some(&unpen),
+            1.0,
+            0.95,
+            VcovType::Sandwich,
+            &inactive,
+        )
+        .unwrap();
+        let nv = inference(
+            &beta,
+            &info,
+            Some(&unpen),
+            1.0,
+            0.95,
+            VcovType::Naive,
+            &inactive,
+        )
+        .unwrap();
 
         // 1/10 = 0.1 (laplace) ; 6/100 = 0.06 (sandwich) ; 1/6 = 0.167 (naive)
         assert!((lap.vcov[(0, 0)] - 0.1).abs() < 1e-12);
@@ -278,7 +305,8 @@ mod tests {
         let beta = [0.0];
         let inactive = [false];
 
-        let narrow = inference(&beta, &info, None, 1.0, 0.90, VcovType::Laplace, &inactive).unwrap();
+        let narrow =
+            inference(&beta, &info, None, 1.0, 0.90, VcovType::Laplace, &inactive).unwrap();
         let wide = inference(&beta, &info, None, 1.0, 0.99, VcovType::Laplace, &inactive).unwrap();
         assert!(wide.ci_upper[0] > narrow.ci_upper[0]);
         // z_{0.975} = 1.959964

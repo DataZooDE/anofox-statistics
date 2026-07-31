@@ -34,9 +34,7 @@ pub mod penalty;
 mod parity;
 
 use crate::errors::StatsResult;
-use crate::types::{
-    GlmFitResult, GlmInferenceResult, PriorSpec, VcovType,
-};
+use crate::types::{GlmFitResult, GlmInferenceResult, PriorSpec, VcovType};
 use anofox_regression::core::GlmFamily;
 
 pub use design::{ConstantColumnPolicy, Design, DesignSpec};

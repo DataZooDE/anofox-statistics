@@ -1,0 +1,89 @@
+# name: test/sql/regression/test_glm_vcov.test
+# description: Coefficient covariance type for penalized GLM fits (issue #107)
+# group: [regression]
+
+require anofox_statistics
+
+# Before this work, a penalized fit (glm_lambda > 0) computed its standard errors
+# from the *unpenalized* X'WX, which is simply wrong for a MAP estimate. The
+# default is now the Laplace curvature (X'WX + P)^-1. 'naive' keeps the old
+# numbers reachable; 'sandwich' gives the frequentist form.
+
+statement ok
+CREATE TABLE vcov_data AS
+SELECT
+    (i % 10) / 3.0                                                   AS x1,
+    ((i * 7) % 5) - 2.0                                              AS x2,
+    ROUND(EXP(0.6 + 0.25 * ((i % 10) / 3.0) - 0.15 * (((i * 7) % 5) - 2.0))
+          + ((i * 13) % 4) * 0.3)                                    AS y
+FROM range(0, 60) t(i);
+
+# ==== TEST 1: the three variants are ordered sandwich < laplace < naive ====
+# A penalty adds information, so the posterior curvature is tighter than the
+# unpenalized one; the sandwich form is tighter still for a ridge penalty.
+query I
+SELECT
+    (poisson_fit_agg(y, [x1,x2], {'glm_lambda':5.0,'compute_inference':true,'vcov':'sandwich'})).std_errors[1]
+  < (poisson_fit_agg(y, [x1,x2], {'glm_lambda':5.0,'compute_inference':true,'vcov':'laplace'})).std_errors[1]
+  AND
+    (poisson_fit_agg(y, [x1,x2], {'glm_lambda':5.0,'compute_inference':true,'vcov':'laplace'})).std_errors[1]
+  < (poisson_fit_agg(y, [x1,x2], {'glm_lambda':5.0,'compute_inference':true,'vcov':'naive'})).std_errors[1]
+FROM vcov_data;
+----
+true
+
+# ==== TEST 2: laplace is the default ====
+query I
+SELECT (poisson_fit_agg(y, [x1,x2], {'glm_lambda':5.0,'compute_inference':true})).std_errors[1]
+     = (poisson_fit_agg(y, [x1,x2], {'glm_lambda':5.0,'compute_inference':true,'vcov':'laplace'})).std_errors[1]
+FROM vcov_data;
+----
+true
+
+# ==== TEST 3: pinned values, so any future change to the covariance is visible ====
+query III
+SELECT
+    ROUND((poisson_fit_agg(y, [x1,x2], {'glm_lambda':5.0,'compute_inference':true,'vcov':'laplace'})).std_errors[1], 6),
+    ROUND((poisson_fit_agg(y, [x1,x2], {'glm_lambda':5.0,'compute_inference':true,'vcov':'naive'})).std_errors[1], 6),
+    ROUND((poisson_fit_agg(y, [x1,x2], {'glm_lambda':5.0,'compute_inference':true,'vcov':'sandwich'})).std_errors[1], 6)
+FROM vcov_data;
+----
+0.076937	0.07814	0.075752
+
+# ==== TEST 4: the point estimate does not depend on the vcov choice ====
+query I
+SELECT (poisson_fit_agg(y, [x1,x2], {'glm_lambda':5.0,'vcov':'laplace'})).coefficients[1]
+     = (poisson_fit_agg(y, [x1,x2], {'glm_lambda':5.0,'vcov':'naive'})).coefficients[1]
+FROM vcov_data;
+----
+true
+
+# ==== TEST 5: with no penalty all three variants coincide ====
+query I
+SELECT
+    ABS((poisson_fit_agg(y, [x1,x2], {'compute_inference':true,'vcov':'laplace'})).std_errors[1]
+      - (poisson_fit_agg(y, [x1,x2], {'compute_inference':true,'vcov':'naive'})).std_errors[1]) < 1e-9
+  AND
+    ABS((poisson_fit_agg(y, [x1,x2], {'compute_inference':true,'vcov':'laplace'})).std_errors[1]
+      - (poisson_fit_agg(y, [x1,x2], {'compute_inference':true,'vcov':'sandwich'})).std_errors[1]) < 1e-9
+FROM vcov_data;
+----
+true
+
+# ==== TEST 6: an unknown vcov name is rejected ====
+statement error
+SELECT (poisson_fit_agg(y, [x1,x2], {'compute_inference':true,'vcov':'bogus'})).std_errors[1]
+FROM vcov_data;
+----
+Unknown vcov type 'bogus'
+
+# ==== TEST 7: vcov applies to the other families as well ====
+query I
+SELECT (gamma_fit_agg(y, [x1,x2], {'glm_lambda':2.0,'compute_inference':true,'vcov':'laplace'})).std_errors[1]
+     < (gamma_fit_agg(y, [x1,x2], {'glm_lambda':2.0,'compute_inference':true,'vcov':'naive'})).std_errors[1]
+FROM vcov_data;
+----
+true
+
+statement ok
+DROP TABLE IF EXISTS vcov_data;

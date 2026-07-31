@@ -103,9 +103,7 @@ fn count_2f() -> (Vec<f64>, Vec<Vec<f64>>) {
     let x1: Vec<f64> = (0..n).map(|i| (i % 10) as f64 / 3.0).collect();
     let x2: Vec<f64> = (0..n).map(|i| ((i * 7) % 5) as f64 - 2.0).collect();
     let y: Vec<f64> = (0..n)
-        .map(|i| {
-            ((0.6 + 0.25 * x1[i] - 0.15 * x2[i]).exp() + ((i * 13) % 4) as f64 * 0.3).round()
-        })
+        .map(|i| ((0.6 + 0.25 * x1[i] - 0.15 * x2[i]).exp() + ((i * 13) % 4) as f64 * 0.3).round())
         .collect();
     (y, vec![x1, x2])
 }
@@ -372,9 +370,19 @@ fn poisson_single_feature_matches_the_reference() {
     )
     .unwrap();
 
-    assert_close("intercept", fit.irls.beta[0], 0.792_438_587_563_215_5, REF_TOL);
+    assert_close(
+        "intercept",
+        fit.irls.beta[0],
+        0.792_438_587_563_215_5,
+        REF_TOL,
+    );
     assert_close("slope", fit.irls.beta[1], 0.238_180_118_325_312_0, REF_TOL);
-    assert_close("deviance", fit.irls.deviance, 2.196_259_953_161_739_7, REF_TOL);
+    assert_close(
+        "deviance",
+        fit.irls.deviance,
+        2.196_259_953_161_739_7,
+        REF_TOL,
+    );
     assert_close("dispersion", fit.dispersion, 1.0, REF_TOL);
     assert_close(
         "log-likelihood",
@@ -384,8 +392,18 @@ fn poisson_single_feature_matches_the_reference() {
     );
 
     let inf = fit.inference.as_ref().unwrap();
-    assert_close("intercept se", inf.std_errors[0], 0.163_214_083_892_442_5, REF_TOL);
-    assert_close("slope se", inf.std_errors[1], 0.083_365_561_343_722_2, REF_TOL);
+    assert_close(
+        "intercept se",
+        inf.std_errors[0],
+        0.163_214_083_892_442_5,
+        REF_TOL,
+    );
+    assert_close(
+        "slope se",
+        inf.std_errors[1],
+        0.083_365_561_343_722_2,
+        REF_TOL,
+    );
 }
 
 #[test]
@@ -401,10 +419,20 @@ fn poisson_two_feature_matches_the_reference() {
     )
     .expect("engine fits a design upstream cannot");
 
-    assert_close("intercept", fit.irls.beta[0], 0.783_761_952_889_341_5, REF_TOL);
+    assert_close(
+        "intercept",
+        fit.irls.beta[0],
+        0.783_761_952_889_341_5,
+        REF_TOL,
+    );
     assert_close("x1", fit.irls.beta[1], 0.241_563_412_876_373_3, REF_TOL);
     assert_close("x2", fit.irls.beta[2], -0.128_771_260_171_794_0, REF_TOL);
-    assert_close("deviance", fit.irls.deviance, 4.058_105_133_758_942, REF_TOL);
+    assert_close(
+        "deviance",
+        fit.irls.deviance,
+        4.058_105_133_758_942,
+        REF_TOL,
+    );
     assert_close(
         "null deviance",
         fit.irls.null_deviance,
@@ -414,7 +442,12 @@ fn poisson_two_feature_matches_the_reference() {
     assert_close("aic", fit.aic, 191.759_615_110_957_4, 1e-7);
 
     let inf = fit.inference.as_ref().unwrap();
-    assert_close("intercept se", inf.std_errors[0], 0.151_817_171_836_096_0, REF_TOL);
+    assert_close(
+        "intercept se",
+        inf.std_errors[0],
+        0.151_817_171_836_096_0,
+        REF_TOL,
+    );
     assert_close("x1 se", inf.std_errors[1], 0.078_215_310_636_067_5, REF_TOL);
     assert_close("x2 se", inf.std_errors[2], 0.053_881_779_210_963_2, REF_TOL);
 }
@@ -432,13 +465,23 @@ fn binomial_two_feature_matches_the_reference() {
     )
     .unwrap();
 
-    assert_close("intercept", fit.irls.beta[0], -0.487_597_085_001_402_8, 1e-7);
+    assert_close(
+        "intercept",
+        fit.irls.beta[0],
+        -0.487_597_085_001_402_8,
+        1e-7,
+    );
     assert_close("x1", fit.irls.beta[1], 2.032_116_216_778_389_7, 1e-7);
     assert_close("x2", fit.irls.beta[2], 1.253_874_832_725_110_4, 1e-7);
     assert_close("deviance", fit.irls.deviance, 65.457_295_009_204_61, 1e-7);
 
     let inf = fit.inference.as_ref().unwrap();
-    assert_close("intercept se", inf.std_errors[0], 0.540_822_900_347_485_5, 1e-7);
+    assert_close(
+        "intercept se",
+        inf.std_errors[0],
+        0.540_822_900_347_485_5,
+        1e-7,
+    );
     assert_close("x1 se", inf.std_errors[1], 0.499_186_947_693_966_3, 1e-7);
     assert_close("x2 se", inf.std_errors[2], 0.504_527_654_702_257_9, 1e-7);
 }
@@ -456,9 +499,19 @@ fn gamma_single_feature_matches_the_reference() {
     )
     .unwrap();
 
-    assert_close("intercept", fit.irls.beta[0], 0.545_169_938_453_627_3, REF_TOL);
+    assert_close(
+        "intercept",
+        fit.irls.beta[0],
+        0.545_169_938_453_627_3,
+        REF_TOL,
+    );
     assert_close("slope", fit.irls.beta[1], 0.233_092_575_836_164_4, REF_TOL);
-    assert_close("deviance", fit.irls.deviance, 0.157_203_357_930_006_4, REF_TOL);
+    assert_close(
+        "deviance",
+        fit.irls.deviance,
+        0.157_203_357_930_006_4,
+        REF_TOL,
+    );
     assert_close("dispersion", fit.dispersion, 0.003_268_561_584_628_4, 1e-12);
 }
 
@@ -478,9 +531,19 @@ fn tweedie_single_feature_matches_the_reference() {
     )
     .unwrap();
 
-    assert_close("intercept", fit.irls.beta[0], 0.545_111_433_395_903_3, REF_TOL);
+    assert_close(
+        "intercept",
+        fit.irls.beta[0],
+        0.545_111_433_395_903_3,
+        REF_TOL,
+    );
     assert_close("slope", fit.irls.beta[1], 0.233_128_099_664_133_0, REF_TOL);
-    assert_close("deviance", fit.irls.deviance, 0.245_508_931_952_702_6, REF_TOL);
+    assert_close(
+        "deviance",
+        fit.irls.deviance,
+        0.245_508_931_952_702_6,
+        REF_TOL,
+    );
 }
 
 #[test]
@@ -497,13 +560,33 @@ fn negbinomial_single_feature_matches_the_reference() {
     )
     .unwrap();
 
-    assert_close("intercept", fit.irls.beta[0], 0.787_144_955_189_279_5, REF_TOL);
+    assert_close(
+        "intercept",
+        fit.irls.beta[0],
+        0.787_144_955_189_279_5,
+        REF_TOL,
+    );
     assert_close("slope", fit.irls.beta[1], 0.241_472_737_764_617_3, REF_TOL);
-    assert_close("deviance", fit.irls.deviance, 1.094_755_272_069_461_3, REF_TOL);
+    assert_close(
+        "deviance",
+        fit.irls.deviance,
+        1.094_755_272_069_461_3,
+        REF_TOL,
+    );
 
     let inf = fit.inference.as_ref().unwrap();
-    assert_close("intercept se", inf.std_errors[0], 0.223_896_259_692_016_9, REF_TOL);
-    assert_close("slope se", inf.std_errors[1], 0.119_889_845_294_418_0, REF_TOL);
+    assert_close(
+        "intercept se",
+        inf.std_errors[0],
+        0.223_896_259_692_016_9,
+        REF_TOL,
+    );
+    assert_close(
+        "slope se",
+        inf.std_errors[1],
+        0.119_889_845_294_418_0,
+        REF_TOL,
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -622,7 +705,12 @@ fn rows_with_non_finite_values_are_excluded_from_the_fit() {
 
     assert_eq!(fit.design.n_observations(), clean_n);
     // And the estimates are unchanged from the clean fixture.
-    assert_close("intercept", fit.irls.beta[0], 0.783_761_952_889_341_5, REF_TOL);
+    assert_close(
+        "intercept",
+        fit.irls.beta[0],
+        0.783_761_952_889_341_5,
+        REF_TOL,
+    );
 }
 
 #[test]
@@ -695,9 +783,19 @@ fn dropping_a_constant_column_reproduces_the_clean_fit() {
         clean_res.intercept.unwrap(),
         TOL,
     );
-    assert_close("x1", padded_res.coefficients[0], clean_res.coefficients[0], TOL);
+    assert_close(
+        "x1",
+        padded_res.coefficients[0],
+        clean_res.coefficients[0],
+        TOL,
+    );
     assert!(padded_res.coefficients[1].is_nan());
-    assert_close("x2", padded_res.coefficients[2], clean_res.coefficients[1], TOL);
+    assert_close(
+        "x2",
+        padded_res.coefficients[2],
+        clean_res.coefficients[1],
+        TOL,
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -813,8 +911,18 @@ fn an_unpenalized_fit_is_identical_under_every_vcov_variant() {
     let sw = run(VcovType::Sandwich);
     let nv = run(VcovType::Naive);
     for j in 0..3 {
-        assert_close("laplace vs naive", lap.std_errors[j], nv.std_errors[j], 1e-9);
-        assert_close("laplace vs sandwich", lap.std_errors[j], sw.std_errors[j], 1e-9);
+        assert_close(
+            "laplace vs naive",
+            lap.std_errors[j],
+            nv.std_errors[j],
+            1e-9,
+        );
+        assert_close(
+            "laplace vs sandwich",
+            lap.std_errors[j],
+            sw.std_errors[j],
+            1e-9,
+        );
     }
 }
 

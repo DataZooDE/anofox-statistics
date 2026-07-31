@@ -258,7 +258,9 @@ mod tests {
     fn permutation_is_undone_for_a_three_cycle() {
         let n = 12;
         let c0: Vec<f64> = (0..n).map(|i| ((i % 4) as f64) * 0.001 + 0.001).collect();
-        let c1: Vec<f64> = (0..n).map(|i| ((i * 3) % 5) as f64 * 1000.0 + 5.0).collect();
+        let c1: Vec<f64> = (0..n)
+            .map(|i| ((i * 3) % 5) as f64 * 1000.0 + 5.0)
+            .collect();
         let c2: Vec<f64> = (0..n).map(|i| ((i * 7) % 6) as f64 * 10.0 + 1.0).collect();
         let x = Mat::from_fn(n, 3, |i, j| match j {
             0 => c0[i],
@@ -276,7 +278,10 @@ mod tests {
         // silently stop covering the cycle case.
         let fwd = x.col_piv_qr().P().arrays().0.to_vec();
         let inv = x.col_piv_qr().P().inverse().arrays().0.to_vec();
-        assert_ne!(fwd, inv, "fixture must produce a non-involutive permutation");
+        assert_ne!(
+            fwd, inv,
+            "fixture must produce a non-involutive permutation"
+        );
 
         let beta = solve_weighted_ls_qr(&x, &z, &w, 1e-12).unwrap();
         for j in 0..3 {

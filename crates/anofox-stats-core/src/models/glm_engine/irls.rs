@@ -321,9 +321,7 @@ fn solve_penalized_wls(
     ne.accumulate_dense(x, z, weights);
 
     if !penalty.has_l1() {
-        penalty
-            .quadratic
-            .accumulate(&mut ne.xtwx, &mut ne.xtwz);
+        penalty.quadratic.accumulate(&mut ne.xtwx, &mut ne.xtwz);
         return ne.solve(config.rank_tolerance);
     }
 
@@ -437,7 +435,11 @@ mod tests {
         .unwrap();
 
         assert!(fit.converged);
-        assert!((fit.beta[0] - 0.5).abs() < 1e-8, "intercept {}", fit.beta[0]);
+        assert!(
+            (fit.beta[0] - 0.5).abs() < 1e-8,
+            "intercept {}",
+            fit.beta[0]
+        );
         assert!((fit.beta[1] - 0.3).abs() < 1e-8, "slope {}", fit.beta[1]);
     }
 
@@ -448,9 +450,8 @@ mod tests {
         let y: Vec<f64> = xs.iter().map(|&x| (0.4 + 0.5 * x).exp().round()).collect();
         let design = design_with_intercept(&[xs], n);
 
-        let mk = |scale: f64| {
-            Penalty::from_priors(&[PriorSpec::flat(), PriorSpec::normal(0.0, scale)])
-        };
+        let mk =
+            |scale: f64| Penalty::from_priors(&[PriorSpec::flat(), PriorSpec::normal(0.0, scale)]);
 
         let loose = fit_irls(
             &PoissonFamily::log(),
@@ -498,7 +499,11 @@ mod tests {
         )
         .unwrap();
 
-        assert!(fit.beta[1] > 1.5, "slope {} should be pulled toward 2.0", fit.beta[1]);
+        assert!(
+            fit.beta[1] > 1.5,
+            "slope {} should be pulled toward 2.0",
+            fit.beta[1]
+        );
     }
 
     #[test]
@@ -530,7 +535,10 @@ mod tests {
         .unwrap();
 
         assert_eq!(fit.beta[2], 0.0, "noise coefficient should be zeroed");
-        assert!(fit.inactive[2], "zeroed L1 coefficient must be flagged inactive");
+        assert!(
+            fit.inactive[2],
+            "zeroed L1 coefficient must be flagged inactive"
+        );
         assert!(!fit.inactive[1]);
     }
 
@@ -558,7 +566,11 @@ mod tests {
         )
         .unwrap();
 
-        assert!((fit.beta[0] - 0.2).abs() < 1e-8, "intercept {}", fit.beta[0]);
+        assert!(
+            (fit.beta[0] - 0.2).abs() < 1e-8,
+            "intercept {}",
+            fit.beta[0]
+        );
         assert!((fit.beta[1] - 0.4).abs() < 1e-8, "slope {}", fit.beta[1]);
     }
 
