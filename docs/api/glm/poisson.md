@@ -33,8 +33,11 @@ anofox_stats_poisson_fit_agg(
 | compute_inference | BOOLEAN | false | Compute z-tests, p-values, CIs |
 | confidence_level | DOUBLE | 0.95 | CI confidence level |
 | glm_lambda | DOUBLE | 0.0 | L2 regularization strength (0 = no regularization) |
+| offset | INTEGER | (none) | 1-based index into `x` of a column to use as an offset. The column is added to the linear predictor with coefficient fixed at 1 and removed from the design. Values are used as-is — take logs upstream if the link requires it (e.g. `log(exposure)` for the log link). |
 
 **Returns:** [GlmFitResult](../reference/return_types.md#glmfitresult-structure) STRUCT
+
+The returned STRUCT includes a `converged BOOLEAN` field reporting whether IRLS reached the convergence tolerance. `offset` and `converged` are available on all six GLM aggregates (`poisson`, `binomial`, `negbinom`, `tweedie`, `gamma`, `logistic`).
 
 **Example:**
 ```sql

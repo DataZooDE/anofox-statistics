@@ -87,7 +87,7 @@ pub fn fit_poisson(y: &[f64], x: &[Vec<f64>], options: &PoissonOptions) -> Stats
         lambda: options.lambda,
         priors: options.prior_opts.priors.clone(),
         vcov: options.prior_opts.vcov,
-        offset_column: None,
+        offset_column: options.offset_column,
         // Poisson has always dropped constant columns and reported NaN for them.
         constant_policy: ConstantColumnPolicy::Drop,
     };
@@ -137,7 +137,7 @@ pub fn fit_binomial(
         lambda: options.lambda,
         priors: options.prior_opts.priors.clone(),
         vcov: options.prior_opts.vcov,
-        offset_column: None,
+        offset_column: options.offset_column,
         constant_policy: ConstantColumnPolicy::Keep,
     };
 
@@ -200,7 +200,7 @@ pub fn fit_negbinomial(
         lambda: options.lambda,
         priors: options.prior_opts.priors.clone(),
         vcov: options.prior_opts.vcov,
-        offset_column: None,
+        offset_column: options.offset_column,
         constant_policy: ConstantColumnPolicy::Keep,
     };
 
@@ -297,7 +297,7 @@ pub fn fit_tweedie(y: &[f64], x: &[Vec<f64>], options: &TweedieOptions) -> Stats
         lambda: options.lambda,
         priors: options.prior_opts.priors.clone(),
         vcov: options.prior_opts.vcov,
-        offset_column: None,
+        offset_column: options.offset_column,
         constant_policy: ConstantColumnPolicy::Keep,
     };
 
@@ -338,7 +338,7 @@ pub fn fit_gamma(y: &[f64], x: &[Vec<f64>], options: &GammaOptions) -> StatsResu
         lambda: options.lambda,
         priors: options.prior_opts.priors.clone(),
         vcov: options.prior_opts.vcov,
-        offset_column: None,
+        offset_column: options.offset_column,
         constant_policy: ConstantColumnPolicy::Keep,
     };
 
@@ -396,7 +396,7 @@ pub fn fit_logistic(
         lambda: options.lambda,
         priors: options.prior_opts.priors.clone(),
         vcov: options.prior_opts.vcov,
-        offset_column: None,
+        offset_column: options.offset_column,
         constant_policy: ConstantColumnPolicy::Keep,
     };
 

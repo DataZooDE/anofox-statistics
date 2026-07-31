@@ -283,6 +283,10 @@ pub struct LogisticOptionsFFI {
     pub priors_len: usize,
     /// How to compute the coefficient covariance.
     pub vcov: VcovTypeFFI,
+    /// 1-based index into `x` of an offset column (0 = none). The column is added
+    /// to the linear predictor with coefficient fixed at 1 and dropped from the
+    /// design. Used as-is; take logs upstream if the link requires it.
+    pub offset_column: usize,
 }
 
 impl Default for LogisticOptionsFFI {
@@ -298,6 +302,7 @@ impl Default for LogisticOptionsFFI {
             priors: std::ptr::null(),
             priors_len: 0,
             vcov: VcovTypeFFI::Laplace,
+            offset_column: 0,
         }
     }
 }
@@ -731,6 +736,10 @@ pub struct PoissonOptionsFFI {
     pub priors_len: usize,
     /// How to compute the coefficient covariance.
     pub vcov: VcovTypeFFI,
+    /// 1-based index into `x` of an offset column (0 = none). The column is added
+    /// to the linear predictor with coefficient fixed at 1 and dropped from the
+    /// design. Used as-is; take logs upstream if the link requires it.
+    pub offset_column: usize,
 }
 
 impl Default for PoissonOptionsFFI {
@@ -746,6 +755,7 @@ impl Default for PoissonOptionsFFI {
             priors: std::ptr::null(),
             priors_len: 0,
             vcov: VcovTypeFFI::Laplace,
+            offset_column: 0,
         }
     }
 }
@@ -773,6 +783,10 @@ pub struct BinomialOptionsFFI {
     pub priors_len: usize,
     /// How to compute the coefficient covariance.
     pub vcov: VcovTypeFFI,
+    /// 1-based index into `x` of an offset column (0 = none). The column is added
+    /// to the linear predictor with coefficient fixed at 1 and dropped from the
+    /// design. Used as-is; take logs upstream if the link requires it.
+    pub offset_column: usize,
 }
 
 impl Default for BinomialOptionsFFI {
@@ -788,6 +802,7 @@ impl Default for BinomialOptionsFFI {
             priors: std::ptr::null(),
             priors_len: 0,
             vcov: VcovTypeFFI::Laplace,
+            offset_column: 0,
         }
     }
 }
@@ -815,6 +830,10 @@ pub struct NegBinomialOptionsFFI {
     pub priors_len: usize,
     /// How to compute the coefficient covariance.
     pub vcov: VcovTypeFFI,
+    /// 1-based index into `x` of an offset column (0 = none). The column is added
+    /// to the linear predictor with coefficient fixed at 1 and dropped from the
+    /// design. Used as-is; take logs upstream if the link requires it.
+    pub offset_column: usize,
 }
 
 impl Default for NegBinomialOptionsFFI {
@@ -830,6 +849,7 @@ impl Default for NegBinomialOptionsFFI {
             priors: std::ptr::null(),
             priors_len: 0,
             vcov: VcovTypeFFI::Laplace,
+            offset_column: 0,
         }
     }
 }
@@ -857,6 +877,10 @@ pub struct TweedieOptionsFFI {
     pub priors_len: usize,
     /// How to compute the coefficient covariance.
     pub vcov: VcovTypeFFI,
+    /// 1-based index into `x` of an offset column (0 = none). The column is added
+    /// to the linear predictor with coefficient fixed at 1 and dropped from the
+    /// design. Used as-is; take logs upstream if the link requires it.
+    pub offset_column: usize,
 }
 
 impl Default for TweedieOptionsFFI {
@@ -872,6 +896,7 @@ impl Default for TweedieOptionsFFI {
             priors: std::ptr::null(),
             priors_len: 0,
             vcov: VcovTypeFFI::Laplace,
+            offset_column: 0,
         }
     }
 }
@@ -891,6 +916,10 @@ pub struct GammaOptionsFFI {
     pub priors_len: usize,
     /// How to compute the coefficient covariance.
     pub vcov: VcovTypeFFI,
+    /// 1-based index into `x` of an offset column (0 = none). The column is added
+    /// to the linear predictor with coefficient fixed at 1 and dropped from the
+    /// design. Used as-is; take logs upstream if the link requires it.
+    pub offset_column: usize,
 }
 
 impl Default for GammaOptionsFFI {
@@ -905,6 +934,7 @@ impl Default for GammaOptionsFFI {
             priors: std::ptr::null(),
             priors_len: 0,
             vcov: VcovTypeFFI::Laplace,
+            offset_column: 0,
         }
     }
 }
@@ -934,6 +964,9 @@ pub struct GlmFitResultCore {
     pub n_features: usize,
     /// Number of iterations to converge
     pub iterations: u32,
+    /// Whether the IRLS solver reached the convergence tolerance. Appended last to
+    /// preserve the ABI; every construction site must set it explicitly.
+    pub converged: bool,
 }
 
 impl Default for GlmFitResultCore {
@@ -950,6 +983,7 @@ impl Default for GlmFitResultCore {
             n_observations: 0,
             n_features: 0,
             iterations: 0,
+            converged: false,
         }
     }
 }
