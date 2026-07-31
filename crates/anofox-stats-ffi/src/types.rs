@@ -2439,3 +2439,95 @@ pub struct EbShrinkResultFFI {
     pub weight: *mut f64,
     pub len: usize,
 }
+
+// =============================================================================
+// Mixed-effects GLMs — issue #107
+// =============================================================================
+
+/// Response family for a mixed-effects fit.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GlmmFamilyFFI {
+    Gaussian = 0,
+    Poisson = 1,
+    Binomial = 2,
+    NegativeBinomial = 3,
+    Gamma = 4,
+    Tweedie = 5,
+}
+
+impl Default for GlmmFamilyFFI {
+    fn default() -> Self {
+        GlmmFamilyFFI::Gaussian
+    }
+}
+
+/// Options for a mixed-effects fit.
+#[repr(C)]
+pub struct GlmmOptionsFFI {
+    pub family: GlmmFamilyFFI,
+    pub fit_intercept: bool,
+    pub max_iterations: u32,
+    pub tolerance: f64,
+    pub compute_inference: bool,
+    pub confidence_level: f64,
+    pub reml: bool,
+    /// Negative Binomial theta; ignored by other families.
+    pub theta: f64,
+    /// Tweedie variance power; ignored by other families.
+    pub power: f64,
+    /// 1-based index into `x` of an offset column; 0 means none.
+    pub offset_column: usize,
+}
+
+impl Default for GlmmOptionsFFI {
+    fn default() -> Self {
+        Self {
+            family: GlmmFamilyFFI::Gaussian,
+            fit_intercept: true,
+            max_iterations: 100,
+            tolerance: 1e-8,
+            compute_inference: false,
+            confidence_level: 0.95,
+            reml: true,
+            theta: 1.0,
+            power: 1.5,
+            offset_column: 0,
+        }
+    }
+}
+
+/// Result of a mixed-effects fit. Every array is caller-owned and released by
+/// `anofox_free_glmm_result`.
+#[repr(C)]
+pub struct GlmmResultFFI {
+    pub coefficients: *mut f64,
+    pub coefficients_len: usize,
+    pub intercept: f64,
+    pub std_errors: *mut f64,
+    pub z_values: *mut f64,
+    pub p_values: *mut f64,
+    pub ci_lower: *mut f64,
+    pub ci_upper: *mut f64,
+    pub inference_len: usize,
+    pub intercept_std_error: f64,
+    pub confidence_level: f64,
+    pub var_group: f64,
+    pub var_residual: f64,
+    pub icc: f64,
+    pub log_likelihood: f64,
+    pub aic: f64,
+    pub bic: f64,
+    pub deviance: f64,
+    pub n_observations: usize,
+    pub n_groups: usize,
+    pub n_features: usize,
+    pub iterations: u32,
+    pub converged: bool,
+    /// Per-group random effects, all of length `ranef_len == n_groups`.
+    pub ranef_group: *mut i32,
+    pub ranef_value: *mut f64,
+    pub ranef_se: *mut f64,
+    pub ranef_n: *mut i64,
+    pub ranef_len: usize,
+}

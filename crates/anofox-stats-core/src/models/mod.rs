@@ -9,6 +9,7 @@ mod eb_shrink;
 mod elasticnet;
 mod glm;
 pub mod glm_engine;
+mod glmm;
 mod huber;
 mod isotonic;
 mod lars;
@@ -35,6 +36,7 @@ pub use glm::{
     fit_binomial, fit_gamma, fit_logistic, fit_negbinomial, fit_poisson, fit_tweedie, GlmResult,
     LogisticResult,
 };
+pub use glmm::{fit_glmm, GlmmFamily, GlmmOptions, GlmmResult, RandomEffect};
 pub use huber::{fit_huber, HuberResult};
 pub use isotonic::fit_isotonic;
 pub use lars::fit_lars;

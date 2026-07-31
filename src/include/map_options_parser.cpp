@@ -373,6 +373,35 @@ static void VisitOptionEntries(const Value &map_value, Callback callback) {
 	}
 }
 
+// Values mirror AnofoxGlmmFamily in anofox_stats_ffi.h.
+static std::optional<int> ParseGlmmFamily(const Value &val) {
+	if (val.IsNull()) {
+		return std::nullopt;
+	}
+	string v = ToLower(val.ToString());
+	if (v == "gaussian" || v == "normal" || v == "lmm") {
+		return 0;
+	}
+	if (v == "poisson") {
+		return 1;
+	}
+	if (v == "binomial" || v == "logistic") {
+		return 2;
+	}
+	if (v == "negbinomial" || v == "negative_binomial" || v == "negbin") {
+		return 3;
+	}
+	if (v == "gamma") {
+		return 4;
+	}
+	if (v == "tweedie") {
+		return 5;
+	}
+	throw InvalidInputException("Unknown GLMM family '%s'. Expected 'gaussian', 'poisson', "
+	                            "'binomial', 'negbinomial', 'gamma' or 'tweedie'.",
+	                            val.ToString());
+}
+
 static bool IsAftDistName(const string &raw) {
 	string v = ToLower(raw);
 	return v == "weibull" || v == "lognormal" || v == "log_normal" || v == "log-normal" || v == "loglogistic" ||
@@ -714,6 +743,15 @@ RegressionMapOptions RegressionMapOptions::ParseFromValue(const Value &map_value
 			result.feature_names = ExtractStringList(val);
 		} else if (key == "prior" || key == "priors") {
 			result.prior_value = val;
+		} else if (key == "family") {
+			result.glmm_family = ParseGlmmFamily(val);
+		} else if (key == "reml") {
+			result.reml = ExtractBool(val);
+		} else if (key == "offset") {
+			auto v = ExtractUInt32(val);
+			if (v.has_value()) {
+				result.offset_column = (idx_t)v.value();
+			}
 		} else if (key == "tau_squared" || key == "tau2") {
 			result.tau_squared = ExtractDouble(val);
 		} else if (key == "tau_method" || key == "shrinkage") {

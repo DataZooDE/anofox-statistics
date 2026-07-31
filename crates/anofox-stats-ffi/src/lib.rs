@@ -10,10 +10,10 @@ use anofox_stats_core::{
     diagnostics::{compute_aic, compute_bic, compute_residuals, compute_vif, jarque_bera},
     models::{
         compute_aid, compute_aid_anomalies, eb_shrink, fit_aft, fit_alm, fit_binomial, fit_bls,
-        fit_elasticnet, fit_gamma, fit_huber, fit_isotonic, fit_lars, fit_lm_dynamic, fit_logistic,
-        fit_negbinomial, fit_ols, fit_pls, fit_poisson, fit_quantile, fit_ransac, fit_ridge,
-        fit_rls, fit_theilsen, fit_tweedie, fit_wls, predict, AftDistribution, AftOptions,
-        EbShrinkOptions, RlsOptions, TauMethod,
+        fit_elasticnet, fit_gamma, fit_glmm, fit_huber, fit_isotonic, fit_lars, fit_lm_dynamic,
+        fit_logistic, fit_negbinomial, fit_ols, fit_pls, fit_poisson, fit_quantile, fit_ransac,
+        fit_ridge, fit_rls, fit_theilsen, fit_tweedie, fit_wls, predict, AftDistribution,
+        AftOptions, EbShrinkOptions, GlmmFamily, GlmmOptions, RlsOptions, TauMethod,
     },
     AidOptions, AlmDistribution, AlmLoss, AlmOptions, BinomialLink, BinomialOptions, BlsOptions,
     ElasticNetOptions, GammaOptions, GlmPriorOptions, HcType, HuberOptions, InformationCriterion,
@@ -7611,5 +7611,195 @@ pub unsafe extern "C" fn anofox_free_eb_shrink_result(result: *mut EbShrinkResul
             libc::free(*p as *mut libc::c_void);
             *p = std::ptr::null_mut();
         }
+    }
+}
+
+// =============================================================================
+// Mixed-effects GLMs — issue #107
+// =============================================================================
+
+unsafe fn alloc_i32(values: &[i32]) -> *mut i32 {
+    if values.is_empty() {
+        return std::ptr::null_mut();
+    }
+    let ptr = libc::malloc(std::mem::size_of::<i32>() * values.len()) as *mut i32;
+    if !ptr.is_null() {
+        std::ptr::copy_nonoverlapping(values.as_ptr(), ptr, values.len());
+    }
+    ptr
+}
+
+unsafe fn alloc_i64(values: &[i64]) -> *mut i64 {
+    if values.is_empty() {
+        return std::ptr::null_mut();
+    }
+    let ptr = libc::malloc(std::mem::size_of::<i64>() * values.len()) as *mut i64;
+    if !ptr.is_null() {
+        std::ptr::copy_nonoverlapping(values.as_ptr(), ptr, values.len());
+    }
+    ptr
+}
+
+/// Fit a mixed-effects GLM with a random intercept over one grouping factor.
+///
+/// # Safety
+/// All pointers must be valid for the lengths implied by `x_count` and the
+/// `AnofoxDataArray` headers. `group_ids` must hold `n_obs` dense group indices.
+#[no_mangle]
+pub unsafe extern "C" fn anofox_glmm_fit(
+    y: DataArray,
+    x: *const DataArray,
+    x_count: usize,
+    group_ids: *const i32,
+    n_obs: usize,
+    options: GlmmOptionsFFI,
+    out_result: *mut GlmmResultFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    if !out_error.is_null() {
+        *out_error = AnofoxError::success();
+    }
+    if out_result.is_null() {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+        }
+        return false;
+    }
+    if x.is_null() || x_count == 0 || group_ids.is_null() {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "x or group_ids is NULL or empty");
+        }
+        return false;
+    }
+
+    let y_vec = y.to_vec();
+    let x_arrays = slice::from_raw_parts(x, x_count);
+    let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
+    let groups = slice::from_raw_parts(group_ids, n_obs).to_vec();
+
+    let family = match options.family {
+        GlmmFamilyFFI::Gaussian => GlmmFamily::Gaussian,
+        GlmmFamilyFFI::Poisson => GlmmFamily::Poisson,
+        GlmmFamilyFFI::Binomial => GlmmFamily::Binomial,
+        GlmmFamilyFFI::NegativeBinomial => GlmmFamily::NegativeBinomial {
+            theta: options.theta,
+        },
+        GlmmFamilyFFI::Gamma => GlmmFamily::Gamma,
+        GlmmFamilyFFI::Tweedie => GlmmFamily::Tweedie {
+            power: options.power,
+        },
+    };
+
+    let opts = GlmmOptions {
+        family,
+        fit_intercept: options.fit_intercept,
+        max_iterations: options.max_iterations,
+        tolerance: options.tolerance,
+        compute_inference: options.compute_inference,
+        confidence_level: options.confidence_level,
+        reml: options.reml,
+        offset_column: if options.offset_column == 0 {
+            None
+        } else {
+            Some(options.offset_column)
+        },
+    };
+
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        fit_glmm(&y_vec, &x_vecs, &groups, &opts)
+    }));
+
+    let outcome = match outcome {
+        Ok(r) => r,
+        Err(_) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InternalError, "Internal panic in GLMM fit");
+            }
+            return false;
+        }
+    };
+
+    match outcome {
+        Ok(r) => {
+            let empty: Vec<f64> = Vec::new();
+            let ranef_group: Vec<i32> = r.ranef.iter().map(|e| e.group).collect();
+            let ranef_value: Vec<f64> = r.ranef.iter().map(|e| e.value).collect();
+            let ranef_se: Vec<f64> = r.ranef.iter().map(|e| e.se).collect();
+            let ranef_n: Vec<i64> = r.ranef.iter().map(|e| e.n as i64).collect();
+
+            let inference_len = r.std_errors.as_ref().map_or(0, |v| v.len());
+
+            (*out_result) = GlmmResultFFI {
+                coefficients: alloc_f64(&r.coefficients),
+                coefficients_len: r.coefficients.len(),
+                intercept: r.intercept.unwrap_or(f64::NAN),
+                std_errors: alloc_f64(r.std_errors.as_ref().unwrap_or(&empty)),
+                z_values: alloc_f64(r.z_values.as_ref().unwrap_or(&empty)),
+                p_values: alloc_f64(r.p_values.as_ref().unwrap_or(&empty)),
+                ci_lower: alloc_f64(r.ci_lower.as_ref().unwrap_or(&empty)),
+                ci_upper: alloc_f64(r.ci_upper.as_ref().unwrap_or(&empty)),
+                inference_len,
+                intercept_std_error: r.intercept_std_error.unwrap_or(f64::NAN),
+                confidence_level: r.confidence_level,
+                var_group: r.var_group,
+                var_residual: r.var_residual,
+                icc: r.icc,
+                log_likelihood: r.log_likelihood,
+                aic: r.aic,
+                bic: r.bic,
+                deviance: r.deviance,
+                n_observations: r.n_observations,
+                n_groups: r.n_groups,
+                n_features: r.n_features,
+                iterations: r.iterations,
+                converged: r.converged,
+                ranef_group: alloc_i32(&ranef_group),
+                ranef_value: alloc_f64(&ranef_value),
+                ranef_se: alloc_f64(&ranef_se),
+                ranef_n: alloc_i64(&ranef_n),
+                ranef_len: r.ranef.len(),
+            };
+            true
+        }
+        Err(e) => {
+            if !out_error.is_null() {
+                (*out_error).set(error_to_code(&e), &e.to_string());
+            }
+            false
+        }
+    }
+}
+
+/// Release the arrays owned by a `GlmmResultFFI`.
+///
+/// # Safety
+/// `result` must come from a successful `anofox_glmm_fit`. Safe to call once.
+#[no_mangle]
+pub unsafe extern "C" fn anofox_free_glmm_result(result: *mut GlmmResultFFI) {
+    if result.is_null() {
+        return;
+    }
+    for p in [
+        &mut (*result).coefficients,
+        &mut (*result).std_errors,
+        &mut (*result).z_values,
+        &mut (*result).p_values,
+        &mut (*result).ci_lower,
+        &mut (*result).ci_upper,
+        &mut (*result).ranef_value,
+        &mut (*result).ranef_se,
+    ] {
+        if !p.is_null() {
+            libc::free(*p as *mut libc::c_void);
+            *p = std::ptr::null_mut();
+        }
+    }
+    if !(*result).ranef_group.is_null() {
+        libc::free((*result).ranef_group as *mut libc::c_void);
+        (*result).ranef_group = std::ptr::null_mut();
+    }
+    if !(*result).ranef_n.is_null() {
+        libc::free((*result).ranef_n as *mut libc::c_void);
+        (*result).ranef_n = std::ptr::null_mut();
     }
 }

@@ -2405,6 +2405,78 @@ bool anofox_eb_shrink(AnofoxDataArray estimate, AnofoxDataArray se, AnofoxEbShri
 /** Free the arrays owned by a shrinkage result. */
 void anofox_free_eb_shrink_result(AnofoxEbShrinkResult *result);
 
+/* ============================================================================
+ * Mixed-effects GLMs -- issue #107
+ * ============================================================================ */
+
+typedef enum {
+	ANOFOX_GLMM_GAUSSIAN = 0,
+	ANOFOX_GLMM_POISSON = 1,
+	ANOFOX_GLMM_BINOMIAL = 2,
+	ANOFOX_GLMM_NEGBINOMIAL = 3,
+	ANOFOX_GLMM_GAMMA = 4,
+	ANOFOX_GLMM_TWEEDIE = 5,
+} AnofoxGlmmFamily;
+
+typedef struct {
+	AnofoxGlmmFamily family;
+	bool fit_intercept;
+	uint32_t max_iterations;
+	double tolerance;
+	bool compute_inference;
+	double confidence_level;
+	bool reml;
+	/** Negative Binomial theta; ignored by other families. */
+	double theta;
+	/** Tweedie variance power; ignored by other families. */
+	double power;
+	/** 1-based index into x of an offset column; 0 means none. */
+	size_t offset_column;
+} AnofoxGlmmOptions;
+
+typedef struct {
+	double *coefficients;
+	size_t coefficients_len;
+	double intercept;
+	double *std_errors;
+	double *z_values;
+	double *p_values;
+	double *ci_lower;
+	double *ci_upper;
+	size_t inference_len;
+	double intercept_std_error;
+	double confidence_level;
+	double var_group;
+	double var_residual;
+	double icc;
+	double log_likelihood;
+	double aic;
+	double bic;
+	double deviance;
+	size_t n_observations;
+	size_t n_groups;
+	size_t n_features;
+	uint32_t iterations;
+	bool converged;
+	/** Per-group random effects, all of length ranef_len. */
+	int32_t *ranef_group;
+	double *ranef_value;
+	double *ranef_se;
+	int64_t *ranef_n;
+	size_t ranef_len;
+} AnofoxGlmmResult;
+
+/**
+ * Fit a mixed-effects GLM with a random intercept over one grouping factor.
+ *
+ * @param group_ids Dense group indices in 0..n_groups, one per observation
+ */
+bool anofox_glmm_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, const int32_t *group_ids,
+                     size_t n_obs, AnofoxGlmmOptions options, AnofoxGlmmResult *out_result, AnofoxError *out_error);
+
+/** Free the arrays owned by a GLMM result. */
+void anofox_free_glmm_result(AnofoxGlmmResult *result);
+
 #ifdef __cplusplus
 }
 #endif

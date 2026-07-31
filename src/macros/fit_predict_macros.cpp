@@ -235,6 +235,32 @@ FROM (
 ORDER BY group_col
 )"},
 
+    // glmm_fit_by: mixed-effects GLM with a random intercept (issue #107)
+    // C++ API: glmm_fit_by(source, group_col, y_col, x_cols, options)
+    // Unlike the *_fit_predict_by macros this fits ONE model across all groups and
+    // returns the per-group random effects (BLUPs), which is the point of partial
+    // pooling: every group's estimate borrows strength from the others.
+    // Returns: one row per group -- group, ranef, ranef_se, n, plus the shared
+    // fixed effects and variance components.
+    {"glmm_fit_by", {"source", "group_col", "y_col", "x_cols", nullptr}, {{"options", "NULL"}, {"unused", "NULL"}},
+R"(
+SELECT
+    r.group AS group,
+    r.intercept AS ranef,
+    r.se AS ranef_se,
+    r.n AS n,
+    sub._fit.intercept AS fixed_intercept,
+    sub._fit.coefficients AS fixed_coefficients,
+    sub._fit.var_group AS var_group,
+    sub._fit.var_residual AS var_residual,
+    sub._fit.icc AS icc
+FROM (
+    SELECT glmm_fit_agg(y_col, x_cols, group_col, options) AS _fit
+    FROM query_table(source::VARCHAR)
+) sub, LATERAL UNNEST(sub._fit.ranef) AS u(r)
+ORDER BY r.group
+)"},
+
     // eb_shrink_by: empirical-Bayes shrinkage of per-group estimates (issue #107)
     // C++ API: eb_shrink_by(source, estimate_col, se_col, options)
     // Unlike the *_fit_predict_by macros this does not fit a model -- it consumes

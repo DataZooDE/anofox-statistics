@@ -174,6 +174,11 @@ struct RegressionMapOptions {
 	std::optional<BinomialLink> binomial_link;       // Link function for Binomial
 	std::optional<double> tweedie_power;             // Power parameter for Tweedie (1 < p < 2)
 	std::optional<AnofoxAftDistribution_t> aft_dist; // AFT error distribution
+	// Mixed-effects GLMs (issue #107)
+	std::optional<int> glmm_family;     // Mirrors AnofoxGlmmFamily
+	std::optional<bool> reml;           // REML vs ML variance components
+	std::optional<idx_t> offset_column; // 1-based index into x; 0/unset = none
+
 	// Empirical-Bayes shrinkage (issue #107)
 	std::optional<double> tau_squared; // Fixed between-group variance; unset = estimate
 	std::optional<bool> tau_method;    // true = complete pooling, false = DerSimonian-Laird
