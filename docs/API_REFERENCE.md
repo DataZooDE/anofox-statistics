@@ -601,6 +601,7 @@ anofox_stats_poisson_fit_agg(
 | tolerance | DOUBLE | 1e-8 | Convergence tolerance |
 | compute_inference | BOOLEAN | false | Compute z-tests, p-values, CIs |
 | confidence_level | DOUBLE | 0.95 | CI confidence level |
+| offset | INTEGER | (none) | 1-based index into `x` of an offset column, added to the linear predictor with coefficient fixed at 1 and removed from the design. Used as-is (take logs upstream if the link requires it). Applies to all six GLM aggregates. |
 
 **Returns:** [GlmFitResult](#glmfitresult-structure) STRUCT
 
@@ -2979,6 +2980,38 @@ STRUCT(
     conf_int_upper LIST(DOUBLE)
 )
 ```
+
+### GlmFitResult Structure
+
+Return type for the GLM aggregates (`poisson_fit_agg`, `binomial_fit_agg`,
+`negbinom_fit_agg`, `tweedie_fit_agg`, `gamma_fit_agg`, `logistic_fit_agg`).
+
+```
+STRUCT(
+    coefficients LIST(DOUBLE),
+    intercept DOUBLE,
+    deviance DOUBLE,
+    null_deviance DOUBLE,
+    pseudo_r_squared DOUBLE,
+    aic DOUBLE,
+    dispersion DOUBLE,
+    n_observations BIGINT,
+    n_features BIGINT,
+    iterations INTEGER,
+    converged BOOLEAN,       -- whether IRLS reached the convergence tolerance
+    -- When compute_inference=true:
+    std_errors LIST(DOUBLE),
+    z_values LIST(DOUBLE),
+    p_values LIST(DOUBLE),
+    ci_lower LIST(DOUBLE),
+    ci_upper LIST(DOUBLE)
+)
+```
+
+> Note: `converged` was added as a first-class field so non-convergence is
+> reported rather than surfacing only as a NULL result. When an `offset` is
+> supplied, the offset column is dropped from the design, so `coefficients` and
+> `n_features` count one fewer than the input feature list.
 
 ### Accessing Results
 

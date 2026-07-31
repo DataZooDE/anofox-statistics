@@ -735,6 +735,9 @@ typedef struct {
 	size_t n_features;
 	/** Number of iterations to converge */
 	uint32_t iterations;
+	/** Whether the IRLS solver reached the convergence tolerance. Appended last
+	    to preserve the ABI; every construction site must value-initialise. */
+	bool converged;
 } AnofoxGlmFitResultCore;
 
 /*
@@ -810,6 +813,9 @@ typedef struct {
 	size_t priors_len;
 	/** How to compute the coefficient covariance. */
 	AnofoxVcovType vcov;
+	/** 1-based index into x of an offset column (0 = none). Added to the linear
+	    predictor with coefficient fixed at 1 and dropped from the design. */
+	size_t offset_column;
 } AnofoxPoissonOptions;
 
 /**
@@ -835,6 +841,9 @@ typedef struct {
 	size_t priors_len;
 	/** How to compute the coefficient covariance. */
 	AnofoxVcovType vcov;
+	/** 1-based index into x of an offset column (0 = none). Added to the linear
+	    predictor with coefficient fixed at 1 and dropped from the design. */
+	size_t offset_column;
 } AnofoxBinomialOptions;
 
 /**
@@ -860,6 +869,9 @@ typedef struct {
 	size_t priors_len;
 	/** How to compute the coefficient covariance. */
 	AnofoxVcovType vcov;
+	/** 1-based index into x of an offset column (0 = none). Added to the linear
+	    predictor with coefficient fixed at 1 and dropped from the design. */
+	size_t offset_column;
 } AnofoxNegBinomialOptions;
 
 /**
@@ -885,6 +897,9 @@ typedef struct {
 	size_t priors_len;
 	/** How to compute the coefficient covariance. */
 	AnofoxVcovType vcov;
+	/** 1-based index into x of an offset column (0 = none). Added to the linear
+	    predictor with coefficient fixed at 1 and dropped from the design. */
+	size_t offset_column;
 } AnofoxTweedieOptions;
 
 /**
@@ -902,6 +917,9 @@ typedef struct {
 	size_t priors_len;
 	/** How to compute the coefficient covariance. */
 	AnofoxVcovType vcov;
+	/** 1-based index into x of an offset column (0 = none). Added to the linear
+	    predictor with coefficient fixed at 1 and dropped from the design. */
+	size_t offset_column;
 } AnofoxGammaOptions;
 
 /**
@@ -1002,6 +1020,9 @@ typedef struct {
 	size_t priors_len;
 	/** How to compute the coefficient covariance. */
 	AnofoxVcovType vcov;
+	/** 1-based index into x of an offset column (0 = none). Added to the linear
+	    predictor with coefficient fixed at 1 and dropped from the design. */
+	size_t offset_column;
 } AnofoxLogisticOptions;
 
 /**

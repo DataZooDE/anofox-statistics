@@ -1,3 +1,4 @@
+#include <limits>
 #include <vector>
 
 #include "duckdb.hpp"
@@ -31,10 +32,11 @@ struct PoissonAggregateState {
 	bool compute_inference;
 	double confidence_level;
 	double glm_lambda;
+	idx_t offset_column;
 
 	PoissonAggregateState()
 	    : n_features(0), initialized(false), fit_intercept(true), link(ANOFOX_POISSON_LINK_LOG), max_iterations(100),
-	      tolerance(1e-8), compute_inference(false), confidence_level(0.95), glm_lambda(0.0) {
+	      tolerance(1e-8), compute_inference(false), confidence_level(0.95), glm_lambda(0.0), offset_column(0) {
 	}
 
 	void Reset() {
@@ -58,6 +60,7 @@ struct PoissonAggregateBindData : public FunctionData {
 	bool compute_inference = false;
 	double confidence_level = 0.95;
 	double glm_lambda = 0.0;
+	idx_t offset_column = 0;
 
 	unique_ptr<FunctionData> Copy() const override {
 		auto result = make_uniq<PoissonAggregateBindData>();
@@ -69,6 +72,7 @@ struct PoissonAggregateBindData : public FunctionData {
 		result->compute_inference = compute_inference;
 		result->confidence_level = confidence_level;
 		result->glm_lambda = glm_lambda;
+		result->offset_column = offset_column;
 		return std::move(result);
 	}
 
@@ -76,7 +80,8 @@ struct PoissonAggregateBindData : public FunctionData {
 		auto &other = other_p.Cast<PoissonAggregateBindData>();
 		return fit_intercept == other.fit_intercept && link == other.link && max_iterations == other.max_iterations &&
 		       tolerance == other.tolerance && compute_inference == other.compute_inference &&
-		       confidence_level == other.confidence_level && glm_lambda == other.glm_lambda;
+		       confidence_level == other.confidence_level && glm_lambda == other.glm_lambda &&
+		       offset_column == other.offset_column;
 	}
 };
 
@@ -96,6 +101,7 @@ static LogicalType GetPoissonAggResultType(bool compute_inference) {
 	children.push_back(make_pair("n_observations", LogicalType::BIGINT));
 	children.push_back(make_pair("n_features", LogicalType::BIGINT));
 	children.push_back(make_pair("iterations", LogicalType::INTEGER));
+	children.push_back(make_pair("converged", LogicalType::BOOLEAN));
 
 	if (compute_inference) {
 		children.push_back(make_pair("std_errors", LogicalType::LIST(LogicalType::DOUBLE)));
@@ -153,6 +159,10 @@ static void PoissonAggUpdate(Vector inputs[], AggregateInputData &aggr_input_dat
 	auto x_list_data = ListVector::GetData(inputs[1]);
 	auto &x_child = ListVector::GetEntry(inputs[1]);
 	auto x_child_data = FlatVector::GetData<double>(x_child);
+	// A LIST containing NULLs is not itself NULL, so the list-level validity mask
+	// says nothing about the elements. Read the child mask too and pass NaN for a
+	// NULL element; the Rust side drops any row that is not finite throughout.
+	auto &x_child_validity = FlatVector::Validity(x_child);
 
 	UnifiedVectorFormat sdata;
 	state_vector.ToUnifiedFormat(count, sdata);
@@ -168,6 +178,7 @@ static void PoissonAggUpdate(Vector inputs[], AggregateInputData &aggr_input_dat
 		state.compute_inference = bind_data.compute_inference;
 		state.confidence_level = bind_data.confidence_level;
 		state.glm_lambda = bind_data.glm_lambda;
+		state.offset_column = bind_data.offset_column;
 
 		auto y_idx = y_data.sel->get_index(i);
 		if (!y_data.validity.RowIsValid(y_idx)) {
@@ -198,8 +209,10 @@ static void PoissonAggUpdate(Vector inputs[], AggregateInputData &aggr_input_dat
 		state.y_values.push_back(y_val);
 
 		for (idx_t j = 0; j < n_features; j++) {
-			double x_val = x_child_data[list_entry.offset + j];
-			state.x_columns[j].push_back(x_val);
+			const idx_t child_idx = list_entry.offset + j;
+			state.x_columns[j].push_back(x_child_validity.RowIsValid(child_idx)
+			                                 ? x_child_data[child_idx]
+			                                 : std::numeric_limits<double>::quiet_NaN());
 		}
 	}
 }
@@ -235,6 +248,7 @@ static void PoissonAggCombine(Vector &source_vector, Vector &target_vector, Aggr
 			target.compute_inference = source.compute_inference;
 			target.confidence_level = source.confidence_level;
 			target.glm_lambda = source.glm_lambda;
+			target.offset_column = source.offset_column;
 			continue;
 		}
 
@@ -304,6 +318,7 @@ static void PoissonAggFinalize(Vector &state_vector, AggregateInputData &aggr_in
 		options.compute_inference = state.compute_inference;
 		options.confidence_level = state.confidence_level;
 		options.lambda = state.glm_lambda;
+		options.offset_column = state.offset_column;
 		state.prior_state.Apply(options);
 
 		AnofoxGlmFitResultCore core_result;
@@ -332,6 +347,7 @@ static void PoissonAggFinalize(Vector &state_vector, AggregateInputData &aggr_in
 		FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = core_result.n_observations;
 		FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = core_result.n_features;
 		FlatVector::GetData<int32_t>(*struct_entries[struct_idx++])[result_idx] = core_result.iterations;
+		FlatVector::GetData<bool>(*struct_entries[struct_idx++])[result_idx] = core_result.converged;
 
 		if (state.compute_inference) {
 			SetListInResult(*struct_entries[struct_idx++], result_idx, inference_result.std_errors,
@@ -380,6 +396,9 @@ static unique_ptr<FunctionData> PoissonAggBind(ClientContext &context, Aggregate
 		}
 		if (opts.glm_lambda.has_value()) {
 			result->glm_lambda = opts.glm_lambda.value();
+		}
+		if (opts.offset_column.has_value()) {
+			result->offset_column = opts.offset_column.value();
 		}
 	}
 

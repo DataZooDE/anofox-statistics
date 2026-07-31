@@ -34,10 +34,11 @@ struct NegBinomAggregateState {
 	double tolerance;
 	bool compute_inference;
 	double confidence_level;
+	idx_t offset_column;
 
 	NegBinomAggregateState()
 	    : n_features(0), initialized(false), fit_intercept(true), max_iterations(100), tolerance(1e-8),
-	      compute_inference(false), confidence_level(0.95) {
+	      compute_inference(false), confidence_level(0.95), offset_column(0) {
 	}
 
 	void Reset() {
@@ -54,6 +55,7 @@ struct NegBinomAggregateBindData : public FunctionData {
 	//! Negative Binomial dispersion. NaN means "estimate from the data".
 	double theta = std::numeric_limits<double>::quiet_NaN();
 	double glm_lambda = 0.0;
+	idx_t offset_column = 0;
 	bool fit_intercept = true;
 	uint32_t max_iterations = 100;
 	double tolerance = 1e-8;
@@ -70,13 +72,15 @@ struct NegBinomAggregateBindData : public FunctionData {
 		result->tolerance = tolerance;
 		result->compute_inference = compute_inference;
 		result->confidence_level = confidence_level;
+		result->offset_column = offset_column;
 		return std::move(result);
 	}
 
 	bool Equals(const FunctionData &other_p) const override {
 		auto &o = other_p.Cast<NegBinomAggregateBindData>();
 		return fit_intercept == o.fit_intercept && max_iterations == o.max_iterations && tolerance == o.tolerance &&
-		       compute_inference == o.compute_inference && confidence_level == o.confidence_level;
+		       compute_inference == o.compute_inference && confidence_level == o.confidence_level &&
+		       offset_column == o.offset_column;
 	}
 };
 
@@ -93,6 +97,7 @@ static LogicalType GetNegBinomAggResultType(bool compute_inference) {
 	children.push_back(make_pair("n_observations", LogicalType::BIGINT));
 	children.push_back(make_pair("n_features", LogicalType::BIGINT));
 	children.push_back(make_pair("iterations", LogicalType::INTEGER));
+	children.push_back(make_pair("converged", LogicalType::BOOLEAN));
 
 	if (compute_inference) {
 		children.push_back(make_pair("std_errors", LogicalType::LIST(LogicalType::DOUBLE)));
@@ -133,6 +138,10 @@ static void NegBinomAggUpdate(Vector inputs[], AggregateInputData &aggr_input_da
 	auto x_list_data = ListVector::GetData(inputs[1]);
 	auto &x_child = ListVector::GetEntry(inputs[1]);
 	auto x_child_data = FlatVector::GetData<double>(x_child);
+	// A LIST containing NULLs is not itself NULL, so the list-level validity mask
+	// says nothing about the elements. Read the child mask too and pass NaN for a
+	// NULL element; the Rust side drops any row that is not finite throughout.
+	auto &x_child_validity = FlatVector::Validity(x_child);
 
 	UnifiedVectorFormat sdata;
 	state_vector.ToUnifiedFormat(count, sdata);
@@ -147,6 +156,7 @@ static void NegBinomAggUpdate(Vector inputs[], AggregateInputData &aggr_input_da
 		state.compute_inference = bind_data.compute_inference;
 		state.theta = bind_data.theta;
 		state.glm_lambda = bind_data.glm_lambda;
+		state.offset_column = bind_data.offset_column;
 		state.confidence_level = bind_data.confidence_level;
 
 		auto y_idx = y_data.sel->get_index(i);
@@ -178,8 +188,10 @@ static void NegBinomAggUpdate(Vector inputs[], AggregateInputData &aggr_input_da
 		state.y_values.push_back(y_val);
 
 		for (idx_t j = 0; j < n_features; j++) {
-			double x_val = x_child_data[list_entry.offset + j];
-			state.x_columns[j].push_back(x_val);
+			const idx_t child_idx = list_entry.offset + j;
+			state.x_columns[j].push_back(x_child_validity.RowIsValid(child_idx)
+			                                 ? x_child_data[child_idx]
+			                                 : std::numeric_limits<double>::quiet_NaN());
 		}
 	}
 }
@@ -215,6 +227,7 @@ static void NegBinomAggCombine(Vector &source_vector, Vector &target_vector, Agg
 			target.confidence_level = source.confidence_level;
 			target.glm_lambda = source.glm_lambda;
 			target.theta = source.theta;
+			target.offset_column = source.offset_column;
 			continue;
 		}
 
@@ -284,6 +297,7 @@ static void NegBinomAggFinalize(Vector &state_vector, AggregateInputData &aggr_i
 		options.lambda = state.glm_lambda;
 		// NaN on the wire means "estimate theta from the data".
 		options.alpha = state.theta;
+		options.offset_column = state.offset_column;
 		state.prior_state.Apply(options);
 
 		AnofoxGlmFitResultCore core_result;
@@ -314,6 +328,7 @@ static void NegBinomAggFinalize(Vector &state_vector, AggregateInputData &aggr_i
 		FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = core_result.n_observations;
 		FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = core_result.n_features;
 		FlatVector::GetData<int32_t>(*struct_entries[struct_idx++])[result_idx] = core_result.iterations;
+		FlatVector::GetData<bool>(*struct_entries[struct_idx++])[result_idx] = core_result.converged;
 
 		if (state.compute_inference) {
 			SetListInResult(*struct_entries[struct_idx++], result_idx, inference_result.std_errors,
@@ -356,6 +371,9 @@ static unique_ptr<FunctionData> NegBinomAggBind(ClientContext &context, Aggregat
 		}
 		if (opts.glm_lambda.has_value()) {
 			result->glm_lambda = opts.glm_lambda.value();
+		}
+		if (opts.offset_column.has_value()) {
+			result->offset_column = opts.offset_column.value();
 		}
 		if (opts.tolerance.has_value()) {
 			result->tolerance = opts.tolerance.value();
