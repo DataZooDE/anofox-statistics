@@ -63,5 +63,33 @@ pub enum StatsError {
     RegressError(String),
 }
 
+/// Map upstream regression errors onto this crate's error type.
+///
+/// Call sites previously did `.map_err(|e| StatsError::RegressError(format!("{:?}", e)))`,
+/// which collapsed every upstream variant into a `Debug` string and lost the
+/// structure. Cases with a faithful local counterpart are translated; the rest keep
+/// the string form.
+impl From<anofox_regression::solvers::RegressionError> for StatsError {
+    fn from(err: anofox_regression::solvers::RegressionError) -> Self {
+        use anofox_regression::solvers::RegressionError as R;
+        match err {
+            R::DimensionMismatch { x_rows, y_len } => StatsError::DimensionMismatch {
+                y_len,
+                x_rows,
+            },
+            R::InsufficientObservations { needed, got } => StatsError::InsufficientData {
+                rows: got,
+                cols: needed,
+            },
+            R::SingularMatrix => StatsError::SingularMatrix,
+            R::ConvergenceFailed { iterations } => StatsError::ConvergenceFailure {
+                iterations: iterations as u32,
+                tolerance: f64::NAN,
+            },
+            other => StatsError::RegressError(format!("{other:?}")),
+        }
+    }
+}
+
 /// Result type for statistical operations
 pub type StatsResult<T> = Result<T, StatsError>;

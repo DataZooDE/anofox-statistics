@@ -1,18 +1,60 @@
-//! Generalized Linear Models (GLM) - Poisson, Binomial, Negative Binomial, Tweedie
+//! Generalized Linear Models (GLM) — Poisson, Binomial, Negative Binomial,
+//! Tweedie, Gamma, Logistic.
+//!
+//! Every family routes through [`crate::models::glm_engine`], a single
+//! family-generic penalized IRLS loop. Each `fit_*` below is therefore a thin
+//! adapter: validate the family's response domain, pick the family object, the
+//! dispersion rule and the log-likelihood, and hand over.
+//!
+//! Two user-visible consequences of the switch, both intentional:
+//!
+//! * **AIC changed for Gamma, Negative Binomial and Tweedie.** The engine computes
+//!   a real per-family log-likelihood; upstream substituted `-deviance / 2`, which
+//!   is only correct up to a constant for the Gaussian family. The new values are
+//!   comparable with R's.
+//! * **Standard errors changed for penalized fits.** `glm_lambda > 0` previously
+//!   reported standard errors computed from the *unpenalized* `X'WX`. The default
+//!   is now the Laplace curvature `(X'WX + P)^-1`; `vcov := 'naive'` restores the
+//!   old numbers.
 
 use crate::errors::{StatsError, StatsResult};
+use crate::models::glm_engine::{
+    self, ConstantColumnPolicy, DispersionRule, EngineFit, EngineOptions, LogLikKind,
+};
 use crate::types::{
     BinomialLink, BinomialOptions, GammaOptions, GlmFitResult, GlmInferenceResult, LogisticOptions,
     NegBinomialOptions, PoissonLink, PoissonOptions, TweedieOptions,
 };
+use anofox_regression::core::{BinomialFamily, NegativeBinomialFamily, PoissonFamily, TweedieFamily};
 use anofox_regression::prelude::*;
-use faer::{Col, Mat};
 
 /// Combined GLM result with optional inference
 #[derive(Debug, Clone)]
 pub struct GlmResult {
     pub core: GlmFitResult,
     pub inference: Option<GlmInferenceResult>,
+}
+
+impl From<EngineFit> for GlmResult {
+    fn from(fit: EngineFit) -> Self {
+        GlmResult {
+            core: fit.to_glm_fit_result(),
+            inference: fit.to_glm_inference(),
+        }
+    }
+}
+
+/// Reject responses outside a family's support.
+fn require<F: Fn(f64) -> bool>(y: &[f64], field: &'static str, message: &str, ok: F) -> StatsResult<()> {
+    for &v in y.iter() {
+        if !v.is_nan() && !ok(v) {
+            return Err(StatsError::InvalidValue {
+                field,
+                message: message.to_string(),
+            });
+        }
+    }
+    Ok(())
 }
 
 /// Fit a Poisson regression model (for count data)
@@ -22,176 +64,42 @@ pub struct GlmResult {
 /// * `x` - Feature matrix (n observations x p features, column-major)
 /// * `options` - Fitting options
 pub fn fit_poisson(y: &[f64], x: &[Vec<f64>], options: &PoissonOptions) -> StatsResult<GlmResult> {
-    validate_inputs(y, x)?;
+    require(
+        y,
+        "y",
+        "Poisson regression requires non-negative response values",
+        |v| v >= 0.0,
+    )?;
 
-    let n_features = x.len();
-
-    // Check for non-negative y values
-    for &val in y.iter() {
-        if val < 0.0 {
-            return Err(StatsError::InvalidValue {
-                field: "y",
-                message: "Poisson regression requires non-negative response values".to_string(),
-            });
-        }
-    }
-
-    // Filter out rows with NaN/Inf values
-    let valid_indices = get_valid_indices(y, x);
-    if valid_indices.is_empty() {
-        return Err(StatsError::NoValidData);
-    }
-
-    let n_valid = valid_indices.len();
-
-    // Detect zero-variance (constant) columns BEFORE min_obs check
-    let is_constant_column: Vec<bool> = x
-        .iter()
-        .map(|col| {
-            if valid_indices.is_empty() {
-                return true;
-            }
-            let first_val = col[valid_indices[0]];
-            valid_indices
-                .iter()
-                .all(|&i| (col[i] - first_val).abs() < 1e-10)
-        })
-        .collect();
-
-    // Count non-constant features for min_obs calculation
-    let n_effective_features = is_constant_column.iter().filter(|&&c| !c).count();
-
-    // Check we have enough observations for the effective (non-constant) features
-    let min_obs = if options.fit_intercept {
-        n_effective_features + 1
-    } else {
-        n_effective_features
+    let engine_opts = EngineOptions {
+        fit_intercept: options.fit_intercept,
+        max_iterations: options.max_iterations,
+        tolerance: options.tolerance,
+        compute_inference: options.compute_inference,
+        confidence_level: options.confidence_level,
+        lambda: options.lambda,
+        priors: options.prior_opts.priors.clone(),
+        vcov: options.prior_opts.vcov,
+        offset_column: None,
+        // Poisson has always dropped constant columns and reported NaN for them.
+        constant_policy: ConstantColumnPolicy::Drop,
     };
 
-    // If ALL columns are constant, we can still fit (intercept-only model if fit_intercept=true)
-    if n_effective_features == 0 {
-        if !options.fit_intercept {
-            return Err(StatsError::InsufficientData {
-                rows: n_valid,
-                cols: n_features,
-            });
-        }
-        // Intercept-only model: compute log of mean of y as intercept (Poisson log link)
-        let y_mean = valid_indices.iter().map(|&i| y[i]).sum::<f64>() / n_valid as f64;
-
-        let core = GlmFitResult {
-            coefficients: vec![f64::NAN; n_features],
-            intercept: Some(y_mean.ln()),
-            null_deviance: f64::NAN,
-            residual_deviance: f64::NAN,
-            pseudo_r_squared: 0.0,
-            aic: f64::NAN,
-            n_observations: n_valid,
-            n_features,
-            iterations: 0,
-            converged: true,
-            dispersion: Some(1.0),
-        };
-
-        return Ok(GlmResult {
-            core,
-            inference: None,
-        });
-    }
-
-    if n_valid < min_obs {
-        return Err(StatsError::InsufficientData {
-            rows: n_valid,
-            cols: n_features,
-        });
-    }
-
-    // Build reduced X matrix (only non-constant columns)
-    let non_constant_indices: Vec<usize> = is_constant_column
-        .iter()
-        .enumerate()
-        .filter_map(|(i, &is_const)| if !is_const { Some(i) } else { None })
-        .collect();
-
-    // Convert to faer types (only non-constant columns)
-    let y_col = Col::from_fn(n_valid, |i| y[valid_indices[i]]);
-    let x_mat = Mat::from_fn(n_valid, n_effective_features, |i, j| {
-        x[non_constant_indices[j]][valid_indices[i]]
-    });
-
-    // Build regressor based on link function
-    let fitted = match options.link {
-        PoissonLink::Log => PoissonRegressor::log()
-            .with_intercept(options.fit_intercept)
-            .max_iterations(options.max_iterations as usize)
-            .tolerance(options.tolerance)
-            .confidence_level(options.confidence_level)
-            .lambda(options.lambda)
-            .build()
-            .fit(&x_mat, &y_col),
-        PoissonLink::Identity => PoissonRegressor::identity()
-            .with_intercept(options.fit_intercept)
-            .max_iterations(options.max_iterations as usize)
-            .tolerance(options.tolerance)
-            .confidence_level(options.confidence_level)
-            .lambda(options.lambda)
-            .build()
-            .fit(&x_mat, &y_col),
-        PoissonLink::Sqrt => PoissonRegressor::sqrt()
-            .with_intercept(options.fit_intercept)
-            .max_iterations(options.max_iterations as usize)
-            .tolerance(options.tolerance)
-            .confidence_level(options.confidence_level)
-            .lambda(options.lambda)
-            .build()
-            .fit(&x_mat, &y_col),
-    }
-    .map_err(|e| StatsError::RegressError(format!("{:?}", e)))?;
-
-    // Extract GLM-specific results from FittedPoisson
-    let result = fitted.result();
-
-    // Reconstruct full coefficient vector with NaN for constant columns
-    let reduced_coefficients: Vec<f64> = result.coefficients.iter().copied().collect();
-    let mut coefficients = vec![f64::NAN; n_features];
-    for (reduced_idx, &orig_idx) in non_constant_indices.iter().enumerate() {
-        coefficients[orig_idx] = reduced_coefficients[reduced_idx];
-    }
-    let intercept = result.intercept;
-
-    // Calculate pseudo R-squared
-    let pseudo_r_squared = if fitted.null_deviance > 0.0 {
-        1.0 - fitted.deviance / fitted.null_deviance
-    } else {
-        0.0
+    let family: Box<dyn GlmFamily> = match options.link {
+        PoissonLink::Log => Box::new(PoissonFamily::log()),
+        PoissonLink::Identity => Box::new(PoissonFamily::identity()),
+        PoissonLink::Sqrt => Box::new(PoissonFamily::sqrt()),
     };
 
-    let core = GlmFitResult {
-        coefficients,
-        intercept,
-        null_deviance: fitted.null_deviance,
-        residual_deviance: fitted.deviance,
-        pseudo_r_squared,
-        aic: result.aic,
-        n_observations: n_valid,
-        n_features,
-        iterations: fitted.iterations as u32,
-        converged: true, // IRLS converged if we got here
-        dispersion: Some(fitted.dispersion),
-    };
-
-    let inference = if options.compute_inference {
-        extract_inference_with_nan(
-            result,
-            &non_constant_indices,
-            n_features,
-            options.confidence_level,
-        )
-    } else {
-        None
-    };
-
-    Ok(GlmResult { core, inference })
+    let fit = glm_engine::fit(
+        family.as_ref(),
+        y,
+        x,
+        &engine_opts,
+        DispersionRule::PearsonFlooredAtOne,
+        |_| LogLikKind::Poisson,
+    )?;
+    Ok(fit.into())
 }
 
 /// Fit a Binomial (Logistic) regression model (for binary outcomes)
@@ -205,102 +113,49 @@ pub fn fit_binomial(
     x: &[Vec<f64>],
     options: &BinomialOptions,
 ) -> StatsResult<GlmResult> {
-    validate_inputs(y, x)?;
+    require(
+        y,
+        "y",
+        "Binomial regression requires y values in [0, 1]",
+        |v| (0.0..=1.0).contains(&v),
+    )?;
 
-    let n_features = x.len();
+    let family = binomial_family(options.link)?;
+    let engine_opts = EngineOptions {
+        fit_intercept: options.fit_intercept,
+        max_iterations: options.max_iterations,
+        tolerance: options.tolerance,
+        compute_inference: options.compute_inference,
+        confidence_level: options.confidence_level,
+        lambda: options.lambda,
+        priors: options.prior_opts.priors.clone(),
+        vcov: options.prior_opts.vcov,
+        offset_column: None,
+        constant_policy: ConstantColumnPolicy::Keep,
+    };
 
-    // Check y values are in [0, 1]
-    for &val in y.iter() {
-        if !(0.0..=1.0).contains(&val) {
-            return Err(StatsError::InvalidValue {
-                field: "y",
-                message: "Binomial regression requires y values in [0, 1]".to_string(),
-            });
-        }
+    let fit = glm_engine::fit(
+        &family,
+        y,
+        x,
+        &engine_opts,
+        DispersionRule::Fixed,
+        |_| LogLikKind::Binomial,
+    )?;
+    Ok(fit.into())
+}
+
+fn binomial_family(link: BinomialLink) -> StatsResult<BinomialFamily> {
+    match link {
+        BinomialLink::Logit => Ok(BinomialFamily::logistic()),
+        BinomialLink::Probit => Ok(BinomialFamily::probit()),
+        BinomialLink::Cloglog => Ok(BinomialFamily::cloglog()),
+        BinomialLink::Cauchit | BinomialLink::Log => Err(StatsError::InvalidValue {
+            field: "link",
+            message: "Cauchit and Log links are not supported. Use Logit, Probit, or Cloglog."
+                .to_string(),
+        }),
     }
-
-    // Filter out rows with NaN/Inf values
-    let valid_indices = get_valid_indices(y, x);
-    if valid_indices.is_empty() {
-        return Err(StatsError::NoValidData);
-    }
-
-    let n_valid = valid_indices.len();
-    let min_obs = if options.fit_intercept {
-        n_features + 1
-    } else {
-        n_features
-    };
-    if n_valid <= min_obs {
-        return Err(StatsError::InsufficientData {
-            rows: n_valid,
-            cols: n_features,
-        });
-    }
-
-    // Convert to faer types
-    let y_col = Col::from_fn(n_valid, |i| y[valid_indices[i]]);
-    let x_mat = Mat::from_fn(n_valid, n_features, |i, j| x[j][valid_indices[i]]);
-
-    // Map our link function to the library's - only 3 supported
-    let link = match options.link {
-        BinomialLink::Logit => anofox_regression::core::BinomialLink::Logit,
-        BinomialLink::Probit => anofox_regression::core::BinomialLink::Probit,
-        BinomialLink::Cloglog => anofox_regression::core::BinomialLink::Cloglog,
-        // Cauchit and Log not supported by upstream, fall back to Logit
-        BinomialLink::Cauchit | BinomialLink::Log => {
-            return Err(StatsError::InvalidValue {
-                field: "link",
-                message: "Cauchit and Log links are not supported. Use Logit, Probit, or Cloglog."
-                    .to_string(),
-            });
-        }
-    };
-
-    let fitted = BinomialRegressor::builder()
-        .link(link)
-        .with_intercept(options.fit_intercept)
-        .max_iterations(options.max_iterations as usize)
-        .tolerance(options.tolerance)
-        .confidence_level(options.confidence_level)
-        .lambda(options.lambda)
-        .build()
-        .fit(&x_mat, &y_col)
-        .map_err(|e| StatsError::RegressError(format!("{:?}", e)))?;
-
-    // Extract GLM-specific results from FittedBinomial
-    let result = fitted.result();
-    let coefficients: Vec<f64> = result.coefficients.iter().copied().collect();
-    let intercept = result.intercept;
-
-    // Calculate pseudo R-squared
-    let pseudo_r_squared = if fitted.null_deviance > 0.0 {
-        1.0 - fitted.deviance / fitted.null_deviance
-    } else {
-        0.0
-    };
-
-    let core = GlmFitResult {
-        coefficients,
-        intercept,
-        null_deviance: fitted.null_deviance,
-        residual_deviance: fitted.deviance,
-        pseudo_r_squared,
-        aic: result.aic,
-        n_observations: n_valid,
-        n_features,
-        iterations: fitted.iterations as u32,
-        converged: true,
-        dispersion: Some(fitted.dispersion),
-    };
-
-    let inference = if options.compute_inference {
-        extract_inference(result, options.confidence_level)
-    } else {
-        None
-    };
-
-    Ok(GlmResult { core, inference })
 }
 
 /// Fit a Negative Binomial regression model (for overdispersed count data)
@@ -309,94 +164,105 @@ pub fn fit_binomial(
 /// * `y` - Response variable (counts, must be non-negative)
 /// * `x` - Feature matrix (n observations x p features, column-major)
 /// * `options` - Fitting options
+///
+/// When `options.alpha` is `None` the dispersion `theta` is estimated from the data
+/// by alternating between an IRLS fit at the current `theta` and a method-of-moments
+/// update, which is how `MASS::glm.nb` proceeds.
 pub fn fit_negbinomial(
     y: &[f64],
     x: &[Vec<f64>],
     options: &NegBinomialOptions,
 ) -> StatsResult<GlmResult> {
-    validate_inputs(y, x)?;
+    require(
+        y,
+        "y",
+        "Negative Binomial regression requires non-negative response values",
+        |v| v >= 0.0,
+    )?;
 
-    let n_features = x.len();
-
-    // Check for non-negative y values
-    for &val in y.iter() {
-        if val < 0.0 {
+    if let Some(alpha) = options.alpha {
+        if !(alpha.is_finite() && alpha > 0.0) {
             return Err(StatsError::InvalidValue {
-                field: "y",
-                message: "Negative Binomial regression requires non-negative response values"
-                    .to_string(),
+                field: "alpha",
+                message: "Negative Binomial alpha (theta) must be finite and positive".to_string(),
             });
         }
     }
 
-    // Filter out rows with NaN/Inf values
-    let valid_indices = get_valid_indices(y, x);
-    if valid_indices.is_empty() {
-        return Err(StatsError::NoValidData);
+    let engine_opts = EngineOptions {
+        fit_intercept: options.fit_intercept,
+        max_iterations: options.max_iterations,
+        tolerance: options.tolerance,
+        compute_inference: options.compute_inference,
+        confidence_level: options.confidence_level,
+        lambda: options.lambda,
+        priors: options.prior_opts.priors.clone(),
+        vcov: options.prior_opts.vcov,
+        offset_column: None,
+        constant_policy: ConstantColumnPolicy::Keep,
+    };
+
+    let run = |theta: f64, opts: &EngineOptions| {
+        glm_engine::fit(
+            &NegativeBinomialFamily::new(theta),
+            y,
+            x,
+            opts,
+            DispersionRule::Given(theta),
+            |_| LogLikKind::NegativeBinomial { theta },
+        )
+    };
+
+    // `alpha` given: a single fit at that theta.
+    if let Some(theta) = options.alpha {
+        return Ok(run(theta, &engine_opts)?.into());
     }
 
-    let n_valid = valid_indices.len();
-    let min_obs = if options.fit_intercept {
-        n_features + 1
-    } else {
-        n_features
+    // Otherwise alternate IRLS and a moment update for theta.
+    let mut theta = 1.0_f64;
+    let mut fit = {
+        let mut probe = engine_opts.clone();
+        probe.compute_inference = false;
+        run(theta, &probe)?
     };
-    if n_valid <= min_obs {
-        return Err(StatsError::InsufficientData {
-            rows: n_valid,
-            cols: n_features,
-        });
+
+    for _ in 0..25 {
+        let next = estimate_theta_moments(&fit.design.y, &fit.irls.mu);
+        if !next.is_finite() || next <= 0.0 {
+            break;
+        }
+        if (next - theta).abs() / theta.max(1e-8) < 1e-6 {
+            theta = next;
+            break;
+        }
+        theta = next;
+        let mut probe = engine_opts.clone();
+        probe.compute_inference = false;
+        fit = run(theta, &probe)?;
     }
 
-    // Convert to faer types
-    let y_col = Col::from_fn(n_valid, |i| y[valid_indices[i]]);
-    let x_mat = Mat::from_fn(n_valid, n_features, |i, j| x[j][valid_indices[i]]);
+    Ok(run(theta, &engine_opts)?.into())
+}
 
-    // Build regressor
-    // Note: NegativeBinomialRegressor estimates alpha (dispersion) from data
-    let fitted = NegativeBinomialRegressor::builder()
-        .with_intercept(options.fit_intercept)
-        .max_iterations(options.max_iterations as usize)
-        .tolerance(options.tolerance)
-        .confidence_level(options.confidence_level)
-        .lambda(options.lambda)
-        .build()
-        .fit(&x_mat, &y_col)
-        .map_err(|e| StatsError::RegressError(format!("{:?}", e)))?;
-
-    // Extract GLM-specific results
-    let result = fitted.result();
-    let coefficients: Vec<f64> = result.coefficients.iter().copied().collect();
-    let intercept = result.intercept;
-
-    // Calculate pseudo R-squared
-    let pseudo_r_squared = if fitted.null_deviance > 0.0 {
-        1.0 - fitted.deviance / fitted.null_deviance
-    } else {
-        0.0
-    };
-
-    let core = GlmFitResult {
-        coefficients,
-        intercept,
-        null_deviance: fitted.null_deviance,
-        residual_deviance: fitted.deviance,
-        pseudo_r_squared,
-        aic: result.aic,
-        n_observations: n_valid,
-        n_features,
-        iterations: fitted.iterations as u32,
-        converged: true,
-        dispersion: Some(fitted.dispersion), // NegBinomial dispersion (alpha/theta)
-    };
-
-    let inference = if options.compute_inference {
-        extract_inference(result, options.confidence_level)
-    } else {
-        None
-    };
-
-    Ok(GlmResult { core, inference })
+/// Method-of-moments estimate of the Negative Binomial `theta`.
+///
+/// Solves `sum (y - mu)^2 / (mu + mu^2/theta) = n - p` approximately by matching
+/// the Pearson statistic, clamped to a sane range so a near-Poisson sample cannot
+/// drive `theta` to infinity.
+fn estimate_theta_moments(y: &[f64], mu: &[f64]) -> f64 {
+    let n = y.len() as f64;
+    let num: f64 = y
+        .iter()
+        .zip(mu.iter())
+        .map(|(&yi, &mui)| (yi - mui).powi(2) - mui)
+        .sum();
+    let den: f64 = mu.iter().map(|&m| m * m).sum();
+    if den <= 0.0 || num <= 0.0 {
+        // No detectable overdispersion — a large theta approaches Poisson.
+        return 1e6;
+    }
+    let alpha = (num / den).max(1e-12) * n / n;
+    (1.0 / alpha).clamp(1e-6, 1e6)
 }
 
 /// Fit a Tweedie regression model (for zero-inflated continuous data)
@@ -406,21 +272,13 @@ pub fn fit_negbinomial(
 /// * `x` - Feature matrix (n observations x p features, column-major)
 /// * `options` - Fitting options
 pub fn fit_tweedie(y: &[f64], x: &[Vec<f64>], options: &TweedieOptions) -> StatsResult<GlmResult> {
-    validate_inputs(y, x)?;
+    require(
+        y,
+        "y",
+        "Tweedie regression requires non-negative response values",
+        |v| v >= 0.0,
+    )?;
 
-    let n_features = x.len();
-
-    // Check for non-negative y values
-    for &val in y.iter() {
-        if val < 0.0 {
-            return Err(StatsError::InvalidValue {
-                field: "y",
-                message: "Tweedie regression requires non-negative response values".to_string(),
-            });
-        }
-    }
-
-    // Validate power parameter
     if !(1.0..=2.0).contains(&options.power) {
         return Err(StatsError::InvalidValue {
             field: "power",
@@ -428,161 +286,69 @@ pub fn fit_tweedie(y: &[f64], x: &[Vec<f64>], options: &TweedieOptions) -> Stats
         });
     }
 
-    // Filter out rows with NaN/Inf values
-    let valid_indices = get_valid_indices(y, x);
-    if valid_indices.is_empty() {
-        return Err(StatsError::NoValidData);
-    }
-
-    let n_valid = valid_indices.len();
-    let min_obs = if options.fit_intercept {
-        n_features + 1
-    } else {
-        n_features
-    };
-    if n_valid <= min_obs {
-        return Err(StatsError::InsufficientData {
-            rows: n_valid,
-            cols: n_features,
-        });
-    }
-
-    // Convert to faer types
-    let y_col = Col::from_fn(n_valid, |i| y[valid_indices[i]]);
-    let x_mat = Mat::from_fn(n_valid, n_features, |i, j| x[j][valid_indices[i]]);
-
-    // Build regressor using var_power (not power). link_power(0.0) pins the
-    // log link explicitly: the upstream builder otherwise defaults to the
-    // canonical link `1 - var_power` (e.g. mu^-0.5 for p = 1.5), which is
-    // neither what the docs advertise nor what sklearn / statsmodels users
-    // expect from a Tweedie GLM.
-    let fitted = TweedieRegressor::builder()
-        .var_power(options.power)
-        .link_power(0.0)
-        .with_intercept(options.fit_intercept)
-        .max_iterations(options.max_iterations as usize)
-        .tolerance(options.tolerance)
-        .confidence_level(options.confidence_level)
-        .lambda(options.lambda)
-        .build()
-        .fit(&x_mat, &y_col)
-        .map_err(|e| StatsError::RegressError(format!("{:?}", e)))?;
-
-    // Extract GLM-specific results
-    let result = fitted.result();
-    let coefficients: Vec<f64> = result.coefficients.iter().copied().collect();
-    let intercept = result.intercept;
-
-    // Calculate pseudo R-squared
-    let pseudo_r_squared = if fitted.null_deviance > 0.0 {
-        1.0 - fitted.deviance / fitted.null_deviance
-    } else {
-        0.0
+    let engine_opts = EngineOptions {
+        fit_intercept: options.fit_intercept,
+        max_iterations: options.max_iterations,
+        tolerance: options.tolerance,
+        compute_inference: options.compute_inference,
+        confidence_level: options.confidence_level,
+        lambda: options.lambda,
+        priors: options.prior_opts.priors.clone(),
+        vcov: options.prior_opts.vcov,
+        offset_column: None,
+        constant_policy: ConstantColumnPolicy::Keep,
     };
 
-    let core = GlmFitResult {
-        coefficients,
-        intercept,
-        null_deviance: fitted.null_deviance,
-        residual_deviance: fitted.deviance,
-        pseudo_r_squared,
-        aic: result.aic,
-        n_observations: n_valid,
-        n_features,
-        iterations: fitted.iterations as u32,
-        converged: true,
-        dispersion: Some(fitted.dispersion),
-    };
-
-    let inference = if options.compute_inference {
-        extract_inference(result, options.confidence_level)
-    } else {
-        None
-    };
-
-    Ok(GlmResult { core, inference })
+    // link_power 0.0 pins the log link. The upstream builder otherwise defaults to
+    // the canonical link `1 - var_power` (mu^-0.5 for p = 1.5), which is neither
+    // what the docs advertise nor what sklearn / statsmodels users expect.
+    let power = options.power;
+    let fit = glm_engine::fit(
+        &TweedieFamily::new(power, 0.0),
+        y,
+        x,
+        &engine_opts,
+        DispersionRule::Pearson,
+        move |phi| LogLikKind::Tweedie {
+            power,
+            dispersion: phi,
+        },
+    )?;
+    Ok(fit.into())
 }
 
 /// Fit a Gamma GLM. Equivalent to Tweedie with `var_power = 2.0` baked in;
 /// log link (the upstream solver's default for Gamma).
 pub fn fit_gamma(y: &[f64], x: &[Vec<f64>], options: &GammaOptions) -> StatsResult<GlmResult> {
-    validate_inputs(y, x)?;
+    require(
+        y,
+        "y",
+        "Gamma regression requires strictly positive response values",
+        |v| v > 0.0,
+    )?;
 
-    let n_features = x.len();
-
-    for &val in y.iter() {
-        if !val.is_nan() && val <= 0.0 {
-            return Err(StatsError::InvalidValue {
-                field: "y",
-                message: "Gamma regression requires strictly positive response values".to_string(),
-            });
-        }
-    }
-
-    let valid_indices = get_valid_indices(y, x);
-    if valid_indices.is_empty() {
-        return Err(StatsError::NoValidData);
-    }
-
-    let n_valid = valid_indices.len();
-    let min_obs = if options.fit_intercept {
-        n_features + 1
-    } else {
-        n_features
-    };
-    if n_valid <= min_obs {
-        return Err(StatsError::InsufficientData {
-            rows: n_valid,
-            cols: n_features,
-        });
-    }
-
-    let y_col = Col::from_fn(n_valid, |i| y[valid_indices[i]]);
-    let x_mat = Mat::from_fn(n_valid, n_features, |i, j| x[j][valid_indices[i]]);
-
-    let fitted = GammaRegressor::builder()
-        .with_intercept(options.fit_intercept)
-        .max_iterations(options.max_iterations as usize)
-        .tolerance(options.tolerance)
-        .confidence_level(options.confidence_level)
-        .lambda(options.lambda)
-        .build()
-        .fit(&x_mat, &y_col)
-        .map_err(|e| StatsError::RegressError(format!("{:?}", e)))?;
-
-    // FittedGamma wraps FittedTweedie — reuse its diagnostics.
-    let inner = fitted.inner();
-    let result = inner.result();
-    let coefficients: Vec<f64> = result.coefficients.iter().copied().collect();
-    let intercept = result.intercept;
-
-    let pseudo_r_squared = if inner.null_deviance > 0.0 {
-        1.0 - inner.deviance / inner.null_deviance
-    } else {
-        0.0
+    let engine_opts = EngineOptions {
+        fit_intercept: options.fit_intercept,
+        max_iterations: options.max_iterations,
+        tolerance: options.tolerance,
+        compute_inference: options.compute_inference,
+        confidence_level: options.confidence_level,
+        lambda: options.lambda,
+        priors: options.prior_opts.priors.clone(),
+        vcov: options.prior_opts.vcov,
+        offset_column: None,
+        constant_policy: ConstantColumnPolicy::Keep,
     };
 
-    let core = GlmFitResult {
-        coefficients,
-        intercept,
-        null_deviance: inner.null_deviance,
-        residual_deviance: inner.deviance,
-        pseudo_r_squared,
-        aic: result.aic,
-        n_observations: n_valid,
-        n_features,
-        iterations: inner.iterations as u32,
-        converged: true,
-        dispersion: Some(inner.dispersion),
-    };
-
-    let inference = if options.compute_inference {
-        extract_inference(result, options.confidence_level)
-    } else {
-        None
-    };
-
-    Ok(GlmResult { core, inference })
+    let fit = glm_engine::fit(
+        &TweedieFamily::new(2.0, 0.0),
+        y,
+        x,
+        &engine_opts,
+        DispersionRule::Pearson,
+        |phi| LogLikKind::Gamma { dispersion: phi },
+    )?;
+    Ok(fit.into())
 }
 
 /// Result from Logistic regression fit. Bundles the standard GLM result
@@ -598,29 +364,19 @@ pub struct LogisticResult {
     pub threshold: f64,
 }
 
-/// Fit a binary Logistic regression. Wraps the upstream LogisticRegression
-/// builder (which is itself a binomial GLM with logit link). y must be
-/// binary (0.0 or 1.0); the classifier-oriented API also returns the
-/// training-set accuracy alongside the GLM diagnostics.
+/// Fit a binary Logistic regression — a binomial GLM with logit link, plus the
+/// training-set accuracy at the configured threshold.
 pub fn fit_logistic(
     y: &[f64],
     x: &[Vec<f64>],
     options: &LogisticOptions,
 ) -> StatsResult<LogisticResult> {
-    validate_inputs(y, x)?;
-
-    let n_features = x.len();
-
-    // y must be binary 0/1.
-    for &val in y.iter() {
-        if !val.is_nan() && val != 0.0 && val != 1.0 {
-            return Err(StatsError::InvalidValue {
-                field: "y",
-                message: "Logistic regression requires binary response values (0.0 or 1.0)"
-                    .to_string(),
-            });
-        }
-    }
+    require(
+        y,
+        "y",
+        "Logistic regression requires binary response values (0.0 or 1.0)",
+        |v| v == 0.0 || v == 1.0,
+    )?;
 
     if !(0.0..=1.0).contains(&options.threshold) {
         return Err(StatsError::InvalidInput(format!(
@@ -629,203 +385,55 @@ pub fn fit_logistic(
         )));
     }
 
-    let valid_indices = get_valid_indices(y, x);
-    if valid_indices.is_empty() {
-        return Err(StatsError::NoValidData);
-    }
-
-    let n_valid = valid_indices.len();
-    let min_obs = if options.fit_intercept {
-        n_features + 1
-    } else {
-        n_features
-    };
-    if n_valid <= min_obs {
-        return Err(StatsError::InsufficientData {
-            rows: n_valid,
-            cols: n_features,
-        });
-    }
-
-    let y_col = Col::from_fn(n_valid, |i| y[valid_indices[i]]);
-    let x_mat = Mat::from_fn(n_valid, n_features, |i, j| x[j][valid_indices[i]]);
-
-    let mut builder = anofox_regression::solvers::LogisticRegression::builder()
-        .with_intercept(options.fit_intercept)
-        .threshold(options.threshold)
-        .max_iterations(options.max_iterations as usize)
-        .tolerance(options.tolerance)
-        .compute_inference(options.compute_inference)
-        .confidence_level(options.confidence_level);
-    if options.lambda > 0.0 {
-        builder = builder.penalty(anofox_regression::solvers::Penalty::L2(options.lambda));
-    }
-
-    let fitted = builder
-        .build()
-        .fit(&x_mat, &y_col)
-        .map_err(|e| StatsError::RegressError(format!("{:?}", e)))?;
-
-    let accuracy = fitted.score(&x_mat, &y_col);
-    let inner = fitted.inner();
-    let result = inner.result();
-    let coefficients: Vec<f64> = result.coefficients.iter().copied().collect();
-    let intercept = result.intercept;
-
-    let pseudo_r_squared = if inner.null_deviance > 0.0 {
-        1.0 - inner.deviance / inner.null_deviance
-    } else {
-        0.0
+    let engine_opts = EngineOptions {
+        fit_intercept: options.fit_intercept,
+        max_iterations: options.max_iterations,
+        tolerance: options.tolerance,
+        compute_inference: options.compute_inference,
+        confidence_level: options.confidence_level,
+        lambda: options.lambda,
+        priors: options.prior_opts.priors.clone(),
+        vcov: options.prior_opts.vcov,
+        offset_column: None,
+        constant_policy: ConstantColumnPolicy::Keep,
     };
 
-    let core = GlmFitResult {
-        coefficients,
-        intercept,
-        null_deviance: inner.null_deviance,
-        residual_deviance: inner.deviance,
-        pseudo_r_squared,
-        aic: result.aic,
-        n_observations: n_valid,
-        n_features,
-        iterations: inner.iterations as u32,
-        converged: true,
-        dispersion: Some(inner.dispersion),
-    };
+    let fit = glm_engine::fit(
+        &BinomialFamily::logistic(),
+        y,
+        x,
+        &engine_opts,
+        DispersionRule::Fixed,
+        |_| LogLikKind::Binomial,
+    )?;
 
-    let inference = if options.compute_inference {
-        extract_inference(result, options.confidence_level)
-    } else {
-        None
-    };
+    // Training accuracy over the rows that were actually fitted.
+    let correct = fit
+        .design
+        .y
+        .iter()
+        .zip(fit.irls.mu.iter())
+        .filter(|(&yi, &mui)| {
+            let predicted = f64::from(u8::from(mui >= options.threshold));
+            (predicted - yi).abs() < f64::EPSILON
+        })
+        .count();
+    let accuracy = correct as f64 / fit.design.n_observations().max(1) as f64;
 
     Ok(LogisticResult {
-        fit: GlmResult { core, inference },
+        fit: fit.into(),
         accuracy,
         threshold: options.threshold,
-    })
-}
-
-// Helper functions
-
-fn validate_inputs(y: &[f64], x: &[Vec<f64>]) -> StatsResult<()> {
-    if y.is_empty() {
-        return Err(StatsError::EmptyInput { field: "y" });
-    }
-    if x.is_empty() {
-        return Err(StatsError::EmptyInput { field: "x" });
-    }
-
-    let n_obs = y.len();
-    for col in x.iter() {
-        if col.len() != n_obs {
-            return Err(StatsError::DimensionMismatch {
-                y_len: n_obs,
-                x_rows: col.len(),
-            });
-        }
-    }
-    Ok(())
-}
-
-fn get_valid_indices(y: &[f64], x: &[Vec<f64>]) -> Vec<usize> {
-    let n_obs = y.len();
-    (0..n_obs)
-        .filter(|&i| {
-            !y[i].is_nan()
-                && !y[i].is_infinite()
-                && x.iter()
-                    .all(|col| !col[i].is_nan() && !col[i].is_infinite())
-        })
-        .collect()
-}
-
-fn extract_inference_with_nan(
-    result: &RegressionResult,
-    non_constant_indices: &[usize],
-    n_features: usize,
-    confidence_level: f64,
-) -> Option<GlmInferenceResult> {
-    // Helper to reconstruct reduced vector to full size with NaN for constant columns
-    let reconstruct = |reduced: Option<&faer::Col<f64>>| -> Vec<f64> {
-        let mut full = vec![f64::NAN; n_features];
-        if let Some(col) = reduced {
-            for (reduced_idx, &orig_idx) in non_constant_indices.iter().enumerate() {
-                if reduced_idx < col.nrows() {
-                    full[orig_idx] = col[reduced_idx];
-                }
-            }
-        }
-        full
-    };
-
-    let std_errors = reconstruct(result.std_errors.as_ref());
-    let z_values = reconstruct(result.t_statistics.as_ref());
-    let p_values = reconstruct(result.p_values.as_ref());
-    let ci_lower = reconstruct(result.conf_interval_lower.as_ref());
-    let ci_upper = reconstruct(result.conf_interval_upper.as_ref());
-
-    Some(GlmInferenceResult {
-        std_errors,
-        z_values,
-        p_values,
-        ci_lower,
-        ci_upper,
-        confidence_level,
-    })
-}
-
-fn extract_inference(
-    result: &RegressionResult,
-    confidence_level: f64,
-) -> Option<GlmInferenceResult> {
-    let std_errors: Vec<f64> = result
-        .std_errors
-        .as_ref()
-        .map(|c| c.iter().copied().collect())
-        .unwrap_or_default();
-
-    // For GLMs, we use z-statistics (same as t-statistics for large samples)
-    let z_values: Vec<f64> = result
-        .t_statistics
-        .as_ref()
-        .map(|c| c.iter().copied().collect())
-        .unwrap_or_default();
-
-    let p_values: Vec<f64> = result
-        .p_values
-        .as_ref()
-        .map(|c| c.iter().copied().collect())
-        .unwrap_or_default();
-
-    let ci_lower: Vec<f64> = result
-        .conf_interval_lower
-        .as_ref()
-        .map(|c| c.iter().copied().collect())
-        .unwrap_or_default();
-
-    let ci_upper: Vec<f64> = result
-        .conf_interval_upper
-        .as_ref()
-        .map(|c| c.iter().copied().collect())
-        .unwrap_or_default();
-
-    Some(GlmInferenceResult {
-        std_errors,
-        z_values,
-        p_values,
-        ci_lower,
-        ci_upper,
-        confidence_level,
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::{PriorSpec, VcovType};
 
     #[test]
     fn test_poisson_basic() {
-        // Simple count data
         let x = vec![vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]];
         let y = vec![1.0, 2.0, 4.0, 5.0, 8.0, 10.0, 15.0, 20.0, 25.0, 30.0];
 
@@ -839,20 +447,17 @@ mod tests {
 
     #[test]
     fn test_binomial_basic() {
-        // Binary outcome data
         let x = vec![vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]];
         let y = vec![0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 1.0, 1.0];
 
         let options = BinomialOptions::default();
-        let result = fit_binomial(&y, &x, &options);
-
-        assert!(result.is_ok());
+        assert!(fit_binomial(&y, &x, &options).is_ok());
     }
 
     #[test]
     fn test_poisson_negative_y_error() {
         let x = vec![vec![1.0, 2.0, 3.0, 4.0, 5.0]];
-        let y = vec![-1.0, 2.0, 3.0, 4.0, 5.0]; // Invalid negative count
+        let y = vec![-1.0, 2.0, 3.0, 4.0, 5.0];
 
         let options = PoissonOptions::default();
         let result = fit_poisson(&y, &x, &options);
@@ -863,7 +468,7 @@ mod tests {
     #[test]
     fn test_binomial_invalid_y_error() {
         let x = vec![vec![1.0, 2.0, 3.0, 4.0, 5.0]];
-        let y = vec![0.5, 1.5, 0.0, 0.5, 0.5]; // 1.5 is invalid
+        let y = vec![0.5, 1.5, 0.0, 0.5, 0.5];
 
         let options = BinomialOptions::default();
         let result = fit_binomial(&y, &x, &options);
@@ -873,7 +478,6 @@ mod tests {
 
     #[test]
     fn test_poisson_with_lambda() {
-        // Penalized IRLS: lambda > 0 should regularize coefficients
         let x = vec![vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]];
         let y = vec![1.0, 2.0, 4.0, 5.0, 8.0, 10.0, 15.0, 20.0, 25.0, 30.0];
 
@@ -889,7 +493,6 @@ mod tests {
         let result_no = fit_poisson(&y, &x, &no_penalty).unwrap();
         let result_pen = fit_poisson(&y, &x, &with_penalty).unwrap();
 
-        // Penalized coefficients should be smaller in magnitude
         assert!(
             result_pen.core.coefficients[0].abs() <= result_no.core.coefficients[0].abs() + 0.01
         );
@@ -905,7 +508,147 @@ mod tests {
             ..Default::default()
         };
 
-        let result = fit_binomial(&y, &x, &options);
-        assert!(result.is_ok());
+        assert!(fit_binomial(&y, &x, &options).is_ok());
+    }
+
+    // --- new surface -------------------------------------------------------
+
+    fn count_data() -> (Vec<f64>, Vec<Vec<f64>>) {
+        let n = 60;
+        let x1: Vec<f64> = (0..n).map(|i| (i % 10) as f64 / 3.0).collect();
+        let x2: Vec<f64> = (0..n).map(|i| ((i * 7) % 5) as f64 - 2.0).collect();
+        let y: Vec<f64> = (0..n)
+            .map(|i| ((0.6 + 0.25 * x1[i] - 0.15 * x2[i]).exp() + ((i * 13) % 4) as f64 * 0.3).round())
+            .collect();
+        (y, vec![x1, x2])
+    }
+
+    #[test]
+    fn a_prior_shrinks_the_coefficient_toward_its_location() {
+        let (y, x) = count_data();
+
+        let flat = fit_poisson(&y, &x, &PoissonOptions::default()).unwrap();
+
+        let mut opts = PoissonOptions::default();
+        opts.prior_opts.priors = vec![PriorSpec::normal(0.0, 0.02), PriorSpec::flat()];
+        let shrunk = fit_poisson(&y, &x, &opts).unwrap();
+
+        assert!(
+            shrunk.core.coefficients[0].abs() < flat.core.coefficients[0].abs(),
+            "prior should shrink x1: {} vs {}",
+            shrunk.core.coefficients[0],
+            flat.core.coefficients[0]
+        );
+        // The unpenalized coefficient is essentially untouched.
+        assert!((shrunk.core.coefficients[1] - flat.core.coefficients[1]).abs() < 0.2);
+    }
+
+    #[test]
+    fn vcov_choice_changes_only_the_standard_errors() {
+        let (y, x) = count_data();
+
+        let mk = |vcov: VcovType| {
+            let mut o = PoissonOptions {
+                compute_inference: true,
+                lambda: 5.0,
+                ..Default::default()
+            };
+            o.prior_opts.vcov = vcov;
+            o
+        };
+
+        let lap = fit_poisson(&y, &x, &mk(VcovType::Laplace)).unwrap();
+        let naive = fit_poisson(&y, &x, &mk(VcovType::Naive)).unwrap();
+
+        for j in 0..2 {
+            assert!((lap.core.coefficients[j] - naive.core.coefficients[j]).abs() < 1e-12);
+        }
+        let li = lap.inference.unwrap();
+        let ni = naive.inference.unwrap();
+        for j in 0..2 {
+            assert!(
+                li.std_errors[j] < ni.std_errors[j],
+                "laplace SE should be tighter at {j}"
+            );
+        }
+    }
+
+    #[test]
+    fn negbinomial_estimates_theta_when_alpha_is_absent() {
+        let (y, x) = count_data();
+        let fit = fit_negbinomial(&y, &x, &NegBinomialOptions::default()).unwrap();
+        let theta = fit.core.dispersion.unwrap();
+        assert!(theta > 0.0 && theta.is_finite(), "theta = {theta}");
+    }
+
+    #[test]
+    fn negbinomial_honours_a_supplied_alpha() {
+        let (y, x) = count_data();
+        let opts = NegBinomialOptions {
+            alpha: Some(2.5),
+            ..Default::default()
+        };
+        let fit = fit_negbinomial(&y, &x, &opts).unwrap();
+        assert!((fit.core.dispersion.unwrap() - 2.5).abs() < 1e-12);
+    }
+
+    #[test]
+    fn negbinomial_rejects_a_non_positive_alpha() {
+        let (y, x) = count_data();
+        let opts = NegBinomialOptions {
+            alpha: Some(-1.0),
+            ..Default::default()
+        };
+        assert!(matches!(
+            fit_negbinomial(&y, &x, &opts),
+            Err(StatsError::InvalidValue { .. })
+        ));
+    }
+
+    #[test]
+    fn multi_feature_fits_now_succeed() {
+        // Three design columns; upstream cannot fit this at all (see the parity
+        // module for the pivot back-permutation defect).
+        let (y, x) = count_data();
+        let fit = fit_poisson(&y, &x, &PoissonOptions::default()).unwrap();
+        assert!((fit.core.intercept.unwrap() - 0.783_761_952_889_341_5).abs() < 1e-7);
+        assert!((fit.core.coefficients[0] - 0.241_563_412_876_373_3).abs() < 1e-7);
+        assert!((fit.core.coefficients[1] + 0.128_771_260_171_794_0).abs() < 1e-7);
+    }
+
+    #[test]
+    fn logistic_reports_training_accuracy() {
+        let n = 50;
+        let xs: Vec<f64> = (0..n).map(|i| (i % 12) as f64 / 4.0 - 1.0).collect();
+        let y: Vec<f64> = (0..n)
+            .map(|i| f64::from(u8::from(0.8 * xs[i] + ((i % 3) as f64 - 1.0) * 0.5 > 0.0)))
+            .collect();
+        let fit = fit_logistic(&y, &vec![xs], &LogisticOptions::default()).unwrap();
+        assert!((0.0..=1.0).contains(&fit.accuracy));
+        assert!(fit.accuracy > 0.5, "accuracy {}", fit.accuracy);
+    }
+
+    #[test]
+    fn gamma_rejects_non_positive_response() {
+        let x = vec![vec![1.0, 2.0, 3.0, 4.0, 5.0]];
+        let y = vec![1.0, 2.0, 0.0, 4.0, 5.0];
+        assert!(matches!(
+            fit_gamma(&y, &x, &GammaOptions::default()),
+            Err(StatsError::InvalidValue { .. })
+        ));
+    }
+
+    #[test]
+    fn tweedie_rejects_a_power_outside_one_to_two() {
+        let x = vec![vec![1.0, 2.0, 3.0, 4.0, 5.0]];
+        let y = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        let opts = TweedieOptions {
+            power: 2.5,
+            ..Default::default()
+        };
+        assert!(matches!(
+            fit_tweedie(&y, &x, &opts),
+            Err(StatsError::InvalidValue { .. })
+        ));
     }
 }
