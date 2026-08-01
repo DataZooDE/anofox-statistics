@@ -2410,6 +2410,11 @@ pub unsafe extern "C" fn anofox_poisson_fit(
             priors: priors_from_ffi(options.priors, options.priors_len),
             vcov: vcov_from_ffi(options.vcov),
         },
+        offset_column: if options.offset_column == 0 {
+            None
+        } else {
+            Some(options.offset_column)
+        },
     };
 
     let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -2453,6 +2458,7 @@ pub unsafe extern "C" fn anofox_poisson_fit(
                 n_observations: result.core.n_observations,
                 n_features: result.core.n_features,
                 iterations: result.core.iterations,
+                converged: result.core.converged,
             };
 
             // Fill inference if available
@@ -2558,6 +2564,11 @@ pub unsafe extern "C" fn anofox_binomial_fit(
             priors: priors_from_ffi(options.priors, options.priors_len),
             vcov: vcov_from_ffi(options.vcov),
         },
+        offset_column: if options.offset_column == 0 {
+            None
+        } else {
+            Some(options.offset_column)
+        },
     };
 
     let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -2601,6 +2612,7 @@ pub unsafe extern "C" fn anofox_binomial_fit(
                 n_observations: result.core.n_observations,
                 n_features: result.core.n_features,
                 iterations: result.core.iterations,
+                converged: result.core.converged,
             };
 
             if !out_inference.is_null() {
@@ -2704,6 +2716,11 @@ pub unsafe extern "C" fn anofox_negbinomial_fit(
             priors: priors_from_ffi(options.priors, options.priors_len),
             vcov: vcov_from_ffi(options.vcov),
         },
+        offset_column: if options.offset_column == 0 {
+            None
+        } else {
+            Some(options.offset_column)
+        },
     };
 
     let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -2750,6 +2767,7 @@ pub unsafe extern "C" fn anofox_negbinomial_fit(
                 n_observations: result.core.n_observations,
                 n_features: result.core.n_features,
                 iterations: result.core.iterations,
+                converged: result.core.converged,
             };
 
             if !out_inference.is_null() {
@@ -2848,6 +2866,11 @@ pub unsafe extern "C" fn anofox_tweedie_fit(
             priors: priors_from_ffi(options.priors, options.priors_len),
             vcov: vcov_from_ffi(options.vcov),
         },
+        offset_column: if options.offset_column == 0 {
+            None
+        } else {
+            Some(options.offset_column)
+        },
     };
 
     let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -2891,6 +2914,7 @@ pub unsafe extern "C" fn anofox_tweedie_fit(
                 n_observations: result.core.n_observations,
                 n_features: result.core.n_features,
                 iterations: result.core.iterations,
+                converged: result.core.converged,
             };
 
             if !out_inference.is_null() {
@@ -2988,6 +3012,11 @@ pub unsafe extern "C" fn anofox_gamma_fit(
             priors: priors_from_ffi(options.priors, options.priors_len),
             vcov: vcov_from_ffi(options.vcov),
         },
+        offset_column: if options.offset_column == 0 {
+            None
+        } else {
+            Some(options.offset_column)
+        },
     };
 
     let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -3031,6 +3060,7 @@ pub unsafe extern "C" fn anofox_gamma_fit(
                 n_observations: result.core.n_observations,
                 n_features: result.core.n_features,
                 iterations: result.core.iterations,
+                converged: result.core.converged,
             };
 
             if !out_inference.is_null() {
@@ -3131,6 +3161,11 @@ pub unsafe extern "C" fn anofox_logistic_fit(
             priors: priors_from_ffi(options.priors, options.priors_len),
             vcov: vcov_from_ffi(options.vcov),
         },
+        offset_column: if options.offset_column == 0 {
+            None
+        } else {
+            Some(options.offset_column)
+        },
     };
 
     let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -3175,6 +3210,7 @@ pub unsafe extern "C" fn anofox_logistic_fit(
                 n_observations: result.core.n_observations,
                 n_features: result.core.n_features,
                 iterations: result.core.iterations,
+                converged: result.core.converged,
             };
 
             if !out_inference.is_null() {

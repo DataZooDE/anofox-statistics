@@ -1,0 +1,148 @@
+# name: test/sql/regression/test_glm_offset_converged.test
+# description: GLM offset support (#110), NULL list elements (#110), and converged field (#111)
+# group: [regression]
+
+require anofox_statistics
+
+# =============================================================================
+# Fixtures
+# =============================================================================
+
+# Counts (poisson / negbinom / tweedie)
+statement ok
+CREATE TABLE counts AS SELECT * FROM (VALUES
+    (1.0, 0.5, 2), (2.0, 1.0, 5), (3.0, 1.5, 12), (4.0, 2.0, 25), (5.0, 2.5, 45),
+    (6.0, 3.0, 80), (7.0, 3.5, 130), (8.0, 4.0, 200), (9.0, 4.5, 300), (10.0, 5.0, 450)
+) AS t(x1, x2, y);
+
+# Binary outcomes (binomial / logistic)
+statement ok
+CREATE TABLE binom_data AS SELECT * FROM (VALUES
+    (1.0, 0.5, 0), (2.0, 1.0, 0), (3.0, 1.5, 0), (4.0, 2.0, 0), (5.0, 2.5, 1),
+    (6.0, 3.0, 0), (7.0, 3.5, 1), (8.0, 4.0, 1), (9.0, 4.5, 1), (10.0, 5.0, 1)
+) AS t(x1, x2, y);
+
+# Strictly positive continuous (gamma)
+statement ok
+CREATE TABLE positive AS SELECT * FROM (VALUES
+    (1.0, 0.5, 1.2), (2.0, 1.0, 2.1), (3.0, 1.5, 3.4), (4.0, 2.0, 5.0), (5.0, 2.5, 7.1),
+    (6.0, 3.0, 9.0), (7.0, 3.5, 12.0), (8.0, 4.0, 15.0), (9.0, 4.5, 19.0), (10.0, 5.0, 24.0)
+) AS t(x1, x2, y);
+
+# =============================================================================
+# #111 - converged field is exposed on all six GLM aggregates
+# =============================================================================
+
+query I
+SELECT (poisson_fit_agg(y, [x1, x2])).converged FROM counts;
+----
+true
+
+query I
+SELECT (negbinom_fit_agg(y, [x1, x2])).converged FROM counts;
+----
+true
+
+query I
+SELECT (tweedie_fit_agg(y, [x1, x2])).converged FROM counts;
+----
+true
+
+query I
+SELECT (binomial_fit_agg(y, [x1, x2])).converged FROM binom_data;
+----
+true
+
+query I
+SELECT (logistic_fit_agg(y, [x1, x2])).converged FROM binom_data;
+----
+true
+
+query I
+SELECT (gamma_fit_agg(y, [x1, x2])).converged FROM positive;
+----
+true
+
+# converged is BOOLEAN in the returned STRUCT type
+query T
+SELECT typeof((poisson_fit_agg(y, [x1, x2])).converged) FROM counts;
+----
+BOOLEAN
+
+# =============================================================================
+# #110 - offset: the 1-based offset column is dropped from the design, so the
+# coefficient vector has one fewer entry than the feature list.
+# =============================================================================
+
+query II
+SELECT len((poisson_fit_agg(y, [x1, x2])).coefficients),
+       len((poisson_fit_agg(y, [x1, x2], {'offset': 2})).coefficients)
+FROM counts;
+----
+2	1
+
+query II
+SELECT len((negbinom_fit_agg(y, [x1, x2])).coefficients),
+       len((negbinom_fit_agg(y, [x1, x2], {'offset': 2})).coefficients)
+FROM counts;
+----
+2	1
+
+query II
+SELECT len((tweedie_fit_agg(y, [x1, x2])).coefficients),
+       len((tweedie_fit_agg(y, [x1, x2], {'offset': 2})).coefficients)
+FROM counts;
+----
+2	1
+
+query II
+SELECT len((binomial_fit_agg(y, [x1, x2])).coefficients),
+       len((binomial_fit_agg(y, [x1, x2], {'offset': 2})).coefficients)
+FROM binom_data;
+----
+2	1
+
+query II
+SELECT len((logistic_fit_agg(y, [x1, x2])).coefficients),
+       len((logistic_fit_agg(y, [x1, x2], {'offset': 2})).coefficients)
+FROM binom_data;
+----
+2	1
+
+query II
+SELECT len((gamma_fit_agg(y, [x1, x2])).coefficients),
+       len((gamma_fit_agg(y, [x1, x2], {'offset': 2})).coefficients)
+FROM positive;
+----
+2	1
+
+# n_features reflects the dropped offset column
+query I
+SELECT (poisson_fit_agg(y, [x1, x2], {'offset': 2})).n_features FROM counts;
+----
+1
+
+# An out-of-range offset index is rejected by the engine (row becomes NULL)
+query I
+SELECT (poisson_fit_agg(y, [x1, x2], {'offset': 9})) IS NULL FROM counts;
+----
+true
+
+# =============================================================================
+# #110 - NULL elements inside the x LIST drop the row rather than being read as
+# garbage. One of the five rows has a NULL feature, so n_observations is 4.
+# =============================================================================
+
+query I
+SELECT (poisson_fit_agg(y, [a, b])).n_observations FROM (VALUES
+    (2, 1.0, 1.0), (5, 2.0, 2.0), (12, 3.0, NULL), (25, 4.0, 4.0), (45, 5.0, 5.0)
+) AS v(y, a, b);
+----
+4
+
+query I
+SELECT (gamma_fit_agg(y, [a, b])).n_observations FROM (VALUES
+    (1.2, 1.0, 1.0), (2.1, 2.0, 2.0), (3.4, 3.0, NULL), (5.0, 4.0, 4.0), (7.1, 5.0, 5.0)
+) AS v(y, a, b);
+----
+4

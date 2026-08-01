@@ -643,6 +643,10 @@ pub struct PoissonOptions {
     pub lambda: f64,
     /// Explicit per-coefficient priors and covariance type (see [`GlmPriorOptions`]).
     pub prior_opts: GlmPriorOptions,
+    /// 1-based index into `x` of a column used as an offset (added to the linear
+    /// predictor with coefficient fixed at 1 and dropped from the design).
+    /// `None` = no offset. The value is used as-is; take logs upstream if needed.
+    pub offset_column: Option<usize>,
 }
 
 impl Default for PoissonOptions {
@@ -656,6 +660,7 @@ impl Default for PoissonOptions {
             confidence_level: 0.95,
             lambda: 0.0,
             prior_opts: GlmPriorOptions::default(),
+            offset_column: None,
         }
     }
 }
@@ -679,6 +684,10 @@ pub struct BinomialOptions {
     pub lambda: f64,
     /// Explicit per-coefficient priors and covariance type (see [`GlmPriorOptions`]).
     pub prior_opts: GlmPriorOptions,
+    /// 1-based index into `x` of a column used as an offset (added to the linear
+    /// predictor with coefficient fixed at 1 and dropped from the design).
+    /// `None` = no offset. The value is used as-is; take logs upstream if needed.
+    pub offset_column: Option<usize>,
 }
 
 impl Default for BinomialOptions {
@@ -692,6 +701,7 @@ impl Default for BinomialOptions {
             confidence_level: 0.95,
             lambda: 0.0,
             prior_opts: GlmPriorOptions::default(),
+            offset_column: None,
         }
     }
 }
@@ -715,6 +725,10 @@ pub struct NegBinomialOptions {
     pub lambda: f64,
     /// Explicit per-coefficient priors and covariance type (see [`GlmPriorOptions`]).
     pub prior_opts: GlmPriorOptions,
+    /// 1-based index into `x` of a column used as an offset (added to the linear
+    /// predictor with coefficient fixed at 1 and dropped from the design).
+    /// `None` = no offset. The value is used as-is; take logs upstream if needed.
+    pub offset_column: Option<usize>,
 }
 
 impl Default for NegBinomialOptions {
@@ -728,6 +742,7 @@ impl Default for NegBinomialOptions {
             confidence_level: 0.95,
             lambda: 0.0,
             prior_opts: GlmPriorOptions::default(),
+            offset_column: None,
         }
     }
 }
@@ -752,6 +767,10 @@ pub struct TweedieOptions {
     pub lambda: f64,
     /// Explicit per-coefficient priors and covariance type (see [`GlmPriorOptions`]).
     pub prior_opts: GlmPriorOptions,
+    /// 1-based index into `x` of a column used as an offset (added to the linear
+    /// predictor with coefficient fixed at 1 and dropped from the design).
+    /// `None` = no offset. The value is used as-is; take logs upstream if needed.
+    pub offset_column: Option<usize>,
 }
 
 impl Default for TweedieOptions {
@@ -765,6 +784,7 @@ impl Default for TweedieOptions {
             confidence_level: 0.95,
             lambda: 0.0,
             prior_opts: GlmPriorOptions::default(),
+            offset_column: None,
         }
     }
 }
@@ -786,6 +806,10 @@ pub struct GammaOptions {
     pub lambda: f64,
     /// Explicit per-coefficient priors and covariance type (see [`GlmPriorOptions`]).
     pub prior_opts: GlmPriorOptions,
+    /// 1-based index into `x` of a column used as an offset (added to the linear
+    /// predictor with coefficient fixed at 1 and dropped from the design).
+    /// `None` = no offset. The value is used as-is; take logs upstream if needed.
+    pub offset_column: Option<usize>,
 }
 
 impl Default for GammaOptions {
@@ -798,6 +822,7 @@ impl Default for GammaOptions {
             confidence_level: 0.95,
             lambda: 0.0,
             prior_opts: GlmPriorOptions::default(),
+            offset_column: None,
         }
     }
 }
@@ -822,6 +847,10 @@ pub struct LogisticOptions {
     pub confidence_level: f64,
     /// Explicit per-coefficient priors and covariance type (see [`GlmPriorOptions`]).
     pub prior_opts: GlmPriorOptions,
+    /// 1-based index into `x` of a column used as an offset (added to the linear
+    /// predictor with coefficient fixed at 1 and dropped from the design).
+    /// `None` = no offset. The value is used as-is; take logs upstream if needed.
+    pub offset_column: Option<usize>,
 }
 
 impl Default for LogisticOptions {
@@ -835,6 +864,7 @@ impl Default for LogisticOptions {
             compute_inference: false,
             confidence_level: 0.95,
             prior_opts: GlmPriorOptions::default(),
+            offset_column: None,
         }
     }
 }
