@@ -7290,7 +7290,7 @@ unsafe fn alloc_f64(values: &[f64]) -> *mut f64 {
     if values.is_empty() {
         return std::ptr::null_mut();
     }
-    let ptr = libc::malloc(std::mem::size_of::<f64>() * values.len()) as *mut f64;
+    let ptr = libc::malloc(std::mem::size_of_val(values)) as *mut f64;
     if !ptr.is_null() {
         std::ptr::copy_nonoverlapping(values.as_ptr(), ptr, values.len());
     }
@@ -7622,7 +7622,7 @@ unsafe fn alloc_i32(values: &[i32]) -> *mut i32 {
     if values.is_empty() {
         return std::ptr::null_mut();
     }
-    let ptr = libc::malloc(std::mem::size_of::<i32>() * values.len()) as *mut i32;
+    let ptr = libc::malloc(std::mem::size_of_val(values)) as *mut i32;
     if !ptr.is_null() {
         std::ptr::copy_nonoverlapping(values.as_ptr(), ptr, values.len());
     }
@@ -7633,7 +7633,7 @@ unsafe fn alloc_i64(values: &[i64]) -> *mut i64 {
     if values.is_empty() {
         return std::ptr::null_mut();
     }
-    let ptr = libc::malloc(std::mem::size_of::<i64>() * values.len()) as *mut i64;
+    let ptr = libc::malloc(std::mem::size_of_val(values)) as *mut i64;
     if !ptr.is_null() {
         std::ptr::copy_nonoverlapping(values.as_ptr(), ptr, values.len());
     }

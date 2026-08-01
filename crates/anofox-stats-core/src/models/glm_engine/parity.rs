@@ -376,7 +376,7 @@ fn poisson_single_feature_matches_the_reference() {
         0.792_438_587_563_215_5,
         REF_TOL,
     );
-    assert_close("slope", fit.irls.beta[1], 0.238_180_118_325_312_0, REF_TOL);
+    assert_close("slope", fit.irls.beta[1], 0.238_180_118_325_312, REF_TOL);
     assert_close(
         "deviance",
         fit.irls.deviance,
@@ -426,7 +426,7 @@ fn poisson_two_feature_matches_the_reference() {
         REF_TOL,
     );
     assert_close("x1", fit.irls.beta[1], 0.241_563_412_876_373_3, REF_TOL);
-    assert_close("x2", fit.irls.beta[2], -0.128_771_260_171_794_0, REF_TOL);
+    assert_close("x2", fit.irls.beta[2], -0.128_771_260_171_794, REF_TOL);
     assert_close(
         "deviance",
         fit.irls.deviance,
@@ -445,7 +445,7 @@ fn poisson_two_feature_matches_the_reference() {
     assert_close(
         "intercept se",
         inf.std_errors[0],
-        0.151_817_171_836_096_0,
+        0.151_817_171_836_096,
         REF_TOL,
     );
     assert_close("x1 se", inf.std_errors[1], 0.078_215_310_636_067_5, REF_TOL);
@@ -537,7 +537,7 @@ fn tweedie_single_feature_matches_the_reference() {
         0.545_111_433_395_903_3,
         REF_TOL,
     );
-    assert_close("slope", fit.irls.beta[1], 0.233_128_099_664_133_0, REF_TOL);
+    assert_close("slope", fit.irls.beta[1], 0.233_128_099_664_133, REF_TOL);
     assert_close(
         "deviance",
         fit.irls.deviance,
@@ -584,7 +584,7 @@ fn negbinomial_single_feature_matches_the_reference() {
     assert_close(
         "slope se",
         inf.std_errors[1],
-        0.119_889_845_294_418_0,
+        0.119_889_845_294_418,
         REF_TOL,
     );
 }
@@ -738,7 +738,7 @@ fn constant_columns_are_dropped_and_reported_as_nan() {
     assert_eq!(res.coefficients.len(), 3);
     assert!(res.coefficients[0].is_nan(), "constant column must be NaN");
     assert_close("x1", res.coefficients[1], 0.241_563_412_876_373_3, REF_TOL);
-    assert_close("x2", res.coefficients[2], -0.128_771_260_171_794_0, REF_TOL);
+    assert_close("x2", res.coefficients[2], -0.128_771_260_171_794, REF_TOL);
 
     let inf = fit.to_glm_inference().unwrap();
     assert!(inf.std_errors[0].is_nan());

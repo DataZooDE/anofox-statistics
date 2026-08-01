@@ -297,7 +297,6 @@ pub fn fit_glmm(
             &yv,
             &groups,
             n_groups,
-            &group_sizes,
             offset.as_deref(),
             log_theta.exp(),
         ) {
@@ -315,7 +314,6 @@ pub fn fit_glmm(
         &yv,
         &groups,
         n_groups,
-        &group_sizes,
         offset.as_deref(),
         theta,
     )?;
@@ -440,7 +438,6 @@ fn inner_fit(
     y: &[f64],
     groups: &[usize],
     n_groups: usize,
-    group_sizes: &[usize],
     offset: Option<&[f64]>,
     theta: f64,
 ) -> StatsResult<InnerFit> {
@@ -668,8 +665,8 @@ fn inner_fit(
     // Joint posterior precision of b_g is (Z'WZ)_g / phi + 1 / sigma_b^2, which is
     // (zwz_g + lambda) / phi. Diagonal, so the determinant is a sum of logs.
     let mut log_det = 0.0;
-    for g in 0..n_groups {
-        let d = (zwz[g] + lambda) / phi;
+    for &z in zwz.iter().take(n_groups) {
+        let d = (z + lambda) / phi;
         if d > 0.0 {
             log_det += d.ln();
         }
@@ -865,7 +862,7 @@ mod tests {
                 let x = (j % 4) as f64;
                 y.push((0.5 + 0.3 * x + b).exp().round());
                 xs.push(x);
-                g.push(gi as i32);
+                g.push(gi);
             }
         }
         let opts = GlmmOptions {
@@ -873,7 +870,7 @@ mod tests {
             compute_inference: true,
             ..Default::default()
         };
-        let fit = fit_glmm(&y, &vec![xs], &g, &opts).unwrap();
+        let fit = fit_glmm(&y, &[xs], &g, &opts).unwrap();
 
         assert!(
             (fit.coefficients[0] - 0.3).abs() < 0.1,
