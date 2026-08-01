@@ -593,10 +593,14 @@ fn negbinomial_single_feature_matches_the_reference() {
 // Pins for the two upstream defects.
 // ---------------------------------------------------------------------------
 
-/// Upstream's inverted back-permutation. If a future dependency bump fixes this,
-/// the test fails loudly and the workaround notes above can be removed.
+/// Upstream's inverted back-permutation (anofox-regression#28) rotated the
+/// coefficient vector for any non-involutive pivot order, i.e. essentially every
+/// 3+-column design. It was fixed in 0.5.13 (the pivoted-QR solvers now use the
+/// forward `perm.arrays().0`). This pins that fix: upstream must fit a 3-column
+/// design and agree with the engine, whose local unpermute in `normal_eq.rs` was
+/// always correct. If a future bump reintroduces the defect, this fails loudly.
 #[test]
-fn upstream_cannot_fit_a_three_column_design_but_the_engine_can() {
+fn upstream_and_engine_agree_on_a_three_column_design() {
     let (y, x) = count_2f();
     let (y_col, x_mat) = to_faer(&y, &x);
 
@@ -605,12 +609,9 @@ fn upstream_cannot_fit_a_three_column_design_but_the_engine_can() {
         .max_iterations(100)
         .tolerance(1e-8)
         .build()
-        .fit(&x_mat, &y_col);
-    assert!(
-        upstream.is_err(),
-        "upstream unexpectedly fitted a 3-column design — the pivot back-permutation \
-         defect may have been fixed; re-check the workaround in normal_eq.rs"
-    );
+        .fit(&x_mat, &y_col)
+        .expect("upstream must fit a 3-column design (pivot unpermute fixed in 0.5.13)");
+    let up = upstream.result();
 
     let fit = fit(
         &PoissonFamily::log(),
@@ -619,8 +620,13 @@ fn upstream_cannot_fit_a_three_column_design_but_the_engine_can() {
         &poisson_opts(false),
         DispersionRule::PearsonFlooredAtOne,
         |_| LogLikKind::Poisson,
-    );
-    assert!(fit.is_ok(), "the engine must handle 3-column designs");
+    )
+    .expect("the engine must handle 3-column designs");
+
+    // Engine beta is [intercept, x1, x2]; upstream splits intercept from coefficients.
+    assert_close("intercept", fit.irls.beta[0], up.intercept.unwrap(), TOL);
+    assert_close("x1", fit.irls.beta[1], up.coefficients[0], TOL);
+    assert_close("x2", fit.irls.beta[2], up.coefficients[1], TOL);
 }
 
 /// A perfectly-fitting model drives the deviance to ~1e-14, where a purely
