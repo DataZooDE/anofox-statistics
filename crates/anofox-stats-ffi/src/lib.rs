@@ -10,10 +10,11 @@ use anofox_stats_core::{
     diagnostics::{compute_aic, compute_bic, compute_residuals, compute_vif, jarque_bera},
     models::{
         compute_aid, compute_aid_anomalies, eb_shrink, fit_aft, fit_alm, fit_binomial, fit_bls,
-        fit_elasticnet, fit_gamma, fit_glmm, fit_huber, fit_isotonic, fit_lars, fit_lm_dynamic,
-        fit_logistic, fit_negbinomial, fit_ols, fit_pls, fit_poisson, fit_quantile, fit_ransac,
-        fit_ridge, fit_rls, fit_theilsen, fit_tweedie, fit_wls, predict, AftDistribution,
-        AftOptions, EbShrinkOptions, GlmmFamily, GlmmOptions, RlsOptions, TauMethod,
+        fit_elasticnet, fit_gamma, fit_glmm, fit_glmm_crossed, fit_huber, fit_isotonic, fit_lars,
+        fit_lm_dynamic, fit_logistic, fit_negbinomial, fit_ols, fit_pls, fit_poisson, fit_quantile,
+        fit_ransac, fit_ridge, fit_rls, fit_theilsen, fit_tweedie, fit_wls, predict,
+        AftDistribution, AftOptions, EbShrinkOptions, GlmmFamily, GlmmOptions, RlsOptions,
+        TauMethod,
     },
     AidOptions, AlmDistribution, AlmLoss, AlmOptions, BinomialLink, BinomialOptions, BlsOptions,
     ElasticNetOptions, GammaOptions, GlmPriorOptions, HcType, HuberOptions, InformationCriterion,
@@ -7688,6 +7689,8 @@ pub unsafe extern "C" fn anofox_glmm_fit(
     x_count: usize,
     group_ids: *const i32,
     n_obs: usize,
+    extra_group_ids: *const *const i32,
+    n_extra_factors: usize,
     options: GlmmOptionsFFI,
     out_result: *mut GlmmResultFFI,
     out_error: *mut AnofoxError,
@@ -7726,6 +7729,13 @@ pub unsafe extern "C" fn anofox_glmm_fit(
         },
     };
 
+    let random_slopes: Vec<usize> =
+        if options.random_slopes.is_null() || options.random_slopes_len == 0 {
+            Vec::new()
+        } else {
+            slice::from_raw_parts(options.random_slopes, options.random_slopes_len).to_vec()
+        };
+
     let opts = GlmmOptions {
         family,
         fit_intercept: options.fit_intercept,
@@ -7739,10 +7749,30 @@ pub unsafe extern "C" fn anofox_glmm_fit(
         } else {
             Some(options.offset_column)
         },
+        random_slopes,
+    };
+
+    // Additional crossed/nested grouping factors, if any.
+    let extra_factors: Vec<Vec<i32>> = if n_extra_factors == 0 || extra_group_ids.is_null() {
+        Vec::new()
+    } else {
+        slice::from_raw_parts(extra_group_ids, n_extra_factors)
+            .iter()
+            .map(|&p| slice::from_raw_parts(p, n_obs).to_vec())
+            .collect()
     };
 
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        fit_glmm(&y_vec, &x_vecs, &groups, &opts)
+        if extra_factors.is_empty() {
+            fit_glmm(&y_vec, &x_vecs, &groups, &opts)
+        } else {
+            let mut factors: Vec<&[i32]> = Vec::with_capacity(1 + extra_factors.len());
+            factors.push(&groups);
+            for e in &extra_factors {
+                factors.push(e.as_slice());
+            }
+            fit_glmm_crossed(&y_vec, &x_vecs, &factors, &opts)
+        }
     }));
 
     let outcome = match outcome {
@@ -7762,6 +7792,15 @@ pub unsafe extern "C" fn anofox_glmm_fit(
             let ranef_value: Vec<f64> = r.ranef.iter().map(|e| e.value).collect();
             let ranef_se: Vec<f64> = r.ranef.iter().map(|e| e.se).collect();
             let ranef_n: Vec<i64> = r.ranef.iter().map(|e| e.n as i64).collect();
+            let random_dim = r.random_cov.len();
+            let random_cov_flat: Vec<f64> = r.random_cov.iter().flatten().copied().collect();
+            let ranef_effects_flat: Vec<f64> = r
+                .ranef
+                .iter()
+                .flat_map(|e| e.effects.iter().copied())
+                .collect();
+            let factor_var: Vec<f64> = r.factors.iter().map(|f| f.var).collect();
+            let factor_levels: Vec<i64> = r.factors.iter().map(|f| f.n_levels as i64).collect();
 
             let inference_len = r.std_errors.as_ref().map_or(0, |v| v.len());
 
@@ -7794,6 +7833,12 @@ pub unsafe extern "C" fn anofox_glmm_fit(
                 ranef_se: alloc_f64(&ranef_se),
                 ranef_n: alloc_i64(&ranef_n),
                 ranef_len: r.ranef.len(),
+                random_cov: alloc_f64(&random_cov_flat),
+                random_dim,
+                ranef_effects: alloc_f64(&ranef_effects_flat),
+                factor_var: alloc_f64(&factor_var),
+                factor_n_levels: alloc_i64(&factor_levels),
+                factor_len: r.factors.len(),
             };
             true
         }
@@ -7824,11 +7869,18 @@ pub unsafe extern "C" fn anofox_free_glmm_result(result: *mut GlmmResultFFI) {
         &mut (*result).ci_upper,
         &mut (*result).ranef_value,
         &mut (*result).ranef_se,
+        &mut (*result).random_cov,
+        &mut (*result).ranef_effects,
+        &mut (*result).factor_var,
     ] {
         if !p.is_null() {
             libc::free(*p as *mut libc::c_void);
             *p = std::ptr::null_mut();
         }
+    }
+    if !(*result).factor_n_levels.is_null() {
+        libc::free((*result).factor_n_levels as *mut libc::c_void);
+        (*result).factor_n_levels = std::ptr::null_mut();
     }
     if !(*result).ranef_group.is_null() {
         libc::free((*result).ranef_group as *mut libc::c_void);

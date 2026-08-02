@@ -178,6 +178,10 @@ struct RegressionMapOptions {
 	std::optional<int> glmm_family;     // Mirrors AnofoxGlmmFamily
 	std::optional<bool> reml;           // REML vs ML variance components
 	std::optional<idx_t> offset_column; // 1-based index into x; 0/unset = none
+	//! 1-based indices into x of columns that also carry a random slope (GLMM).
+	std::optional<vector<idx_t>> random_slopes;
+	//! 1-based indices into x of additional crossed grouping-factor columns (GLMM).
+	std::optional<vector<idx_t>> group_columns;
 
 	// Empirical-Bayes shrinkage (issue #107)
 	std::optional<double> tau_squared; // Fixed between-group variance; unset = estimate

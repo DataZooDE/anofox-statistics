@@ -2512,6 +2512,10 @@ pub struct GlmmOptionsFFI {
     pub power: f64,
     /// 1-based index into `x` of an offset column; 0 means none.
     pub offset_column: usize,
+    /// Pointer to `random_slopes_len` 0-based indices into `x` of columns that
+    /// additionally carry a random slope. Null/zero-length = random intercept only.
+    pub random_slopes: *const usize,
+    pub random_slopes_len: usize,
 }
 
 impl Default for GlmmOptionsFFI {
@@ -2527,6 +2531,8 @@ impl Default for GlmmOptionsFFI {
             theta: 1.0,
             power: 1.5,
             offset_column: 0,
+            random_slopes: std::ptr::null(),
+            random_slopes_len: 0,
         }
     }
 }
@@ -2564,4 +2570,16 @@ pub struct GlmmResultFFI {
     pub ranef_se: *mut f64,
     pub ranef_n: *mut i64,
     pub ranef_len: usize,
+    /// Random-effects covariance Σ, flattened row-major `random_dim × random_dim`.
+    pub random_cov: *mut f64,
+    /// `q = 1 + number of random slopes`.
+    pub random_dim: usize,
+    /// Per-group random-effect vectors `[intercept, slope_1, …]`, flattened
+    /// row-major `ranef_len × random_dim`.
+    pub ranef_effects: *mut f64,
+    /// Per-factor variance components for crossed/nested fits (length
+    /// `factor_len`). Empty for the single-factor path.
+    pub factor_var: *mut f64,
+    pub factor_n_levels: *mut i64,
+    pub factor_len: usize,
 }

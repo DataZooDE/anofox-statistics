@@ -440,6 +440,29 @@ static std::optional<VcovTypeOpt> ExtractVcovType(const Value &val) {
 	throw InvalidInputException("Unknown vcov type '%s'. Expected 'laplace', 'sandwich' or 'naive'.", val.ToString());
 }
 
+// Extract a LIST of positive integers (1-based column indices).
+static std::optional<vector<idx_t>> ExtractIndexList(const Value &val) {
+	if (val.IsNull()) {
+		return std::nullopt;
+	}
+	if (val.type().id() != LogicalTypeId::LIST) {
+		throw InvalidInputException("'random' must be a LIST of integer column indices, got %s",
+		                            val.type().ToString());
+	}
+	vector<idx_t> out;
+	for (auto &child : ListValue::GetChildren(val)) {
+		if (child.IsNull()) {
+			throw InvalidInputException("'random' must not contain NULL");
+		}
+		auto v = child.GetValue<int64_t>();
+		if (v < 1) {
+			throw InvalidInputException("'random' indices are 1-based and must be >= 1, got %lld", (long long)v);
+		}
+		out.push_back((idx_t)v);
+	}
+	return out;
+}
+
 static std::optional<vector<string>> ExtractStringList(const Value &val) {
 	if (val.IsNull()) {
 		return std::nullopt;
@@ -752,6 +775,10 @@ RegressionMapOptions RegressionMapOptions::ParseFromValue(const Value &map_value
 			if (v.has_value()) {
 				result.offset_column = (idx_t)v.value();
 			}
+		} else if (key == "random" || key == "random_slopes") {
+			result.random_slopes = ExtractIndexList(val);
+		} else if (key == "groups" || key == "crossed") {
+			result.group_columns = ExtractIndexList(val);
 		} else if (key == "tau_squared" || key == "tau2") {
 			result.tau_squared = ExtractDouble(val);
 		} else if (key == "tau_method" || key == "shrinkage") {
