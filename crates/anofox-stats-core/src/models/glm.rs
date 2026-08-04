@@ -617,7 +617,7 @@ mod tests {
         let fit = fit_poisson(&y, &x, &PoissonOptions::default()).unwrap();
         assert!((fit.core.intercept.unwrap() - 0.783_761_952_889_341_5).abs() < 1e-7);
         assert!((fit.core.coefficients[0] - 0.241_563_412_876_373_3).abs() < 1e-7);
-        assert!((fit.core.coefficients[1] + 0.128_771_260_171_794_0).abs() < 1e-7);
+        assert!((fit.core.coefficients[1] + 0.128_771_260_171_794).abs() < 1e-7);
     }
 
     #[test]
@@ -627,7 +627,7 @@ mod tests {
         let y: Vec<f64> = (0..n)
             .map(|i| f64::from(u8::from(0.8 * xs[i] + ((i % 3) as f64 - 1.0) * 0.5 > 0.0)))
             .collect();
-        let fit = fit_logistic(&y, &vec![xs], &LogisticOptions::default()).unwrap();
+        let fit = fit_logistic(&y, &[xs], &LogisticOptions::default()).unwrap();
         assert!((0.0..=1.0).contains(&fit.accuracy));
         assert!(fit.accuracy > 0.5, "accuracy {}", fit.accuracy);
     }

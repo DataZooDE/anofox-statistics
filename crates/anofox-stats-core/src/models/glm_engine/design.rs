@@ -446,7 +446,7 @@ mod tests {
         })
         .unwrap();
 
-        let err = d.build_penalty(&vec![PriorSpec::flat(); 7], 0.0);
+        let err = d.build_penalty(&[PriorSpec::flat(); 7], 0.0);
         assert!(matches!(err, Err(StatsError::InvalidInput(_))));
     }
 

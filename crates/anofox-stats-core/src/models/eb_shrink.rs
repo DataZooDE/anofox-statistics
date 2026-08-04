@@ -37,20 +37,11 @@ pub enum TauMethod {
 }
 
 /// Options for empirical-Bayes shrinkage.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct EbShrinkOptions {
     pub method: TauMethod,
     /// A fixed `tau^2` instead of estimating one. Overrides `method` when set.
     pub tau_squared: Option<f64>,
-}
-
-impl Default for EbShrinkOptions {
-    fn default() -> Self {
-        Self {
-            method: TauMethod::default(),
-            tau_squared: None,
-        }
-    }
 }
 
 /// One group's shrunken estimate.

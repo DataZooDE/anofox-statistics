@@ -650,20 +650,15 @@ impl Default for PriorSpecFFI {
 // every field that follows it. Harmless while such a field sits last in a
 // struct, fatal when it sits first (AftOptionsFFI::dist).
 #[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum VcovTypeFFI {
     /// `(X'WX + P)^-1`, the curvature of the log posterior at the mode.
+    #[default]
     Laplace = 0,
     /// `(X'WX + P)^-1 X'WX (X'WX + P)^-1`.
     Sandwich = 1,
     /// `(X'WX)^-1`, ignoring the penalty.
     Naive = 2,
-}
-
-impl Default for VcovTypeFFI {
-    fn default() -> Self {
-        VcovTypeFFI::Laplace
-    }
 }
 
 /// Prior and covariance settings carried by every GLM options struct.
@@ -2287,18 +2282,13 @@ impl Default for LmDynamicFitResultFFI {
 // every field that follows it. Harmless while such a field sits last in a
 // struct, fatal when it sits first (AftOptionsFFI::dist).
 #[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AftDistributionFFI {
+    #[default]
     Weibull = 0,
     LogNormal = 1,
     LogLogistic = 2,
     Exponential = 3,
-}
-
-impl Default for AftDistributionFFI {
-    fn default() -> Self {
-        AftDistributionFFI::Weibull
-    }
 }
 
 /// Options for an AFT fit. Flat POD, like every other options struct here.
@@ -2426,17 +2416,12 @@ mod abi_tests {
 
 /// Between-group variance estimator.
 #[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TauMethodFFI {
+    #[default]
     DerSimonianLaird = 0,
     /// Complete pooling.
     None = 1,
-}
-
-impl Default for TauMethodFFI {
-    fn default() -> Self {
-        TauMethodFFI::DerSimonianLaird
-    }
 }
 
 /// Options for empirical-Bayes shrinkage.
@@ -2480,20 +2465,15 @@ pub struct EbShrinkResultFFI {
 
 /// Response family for a mixed-effects fit.
 #[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum GlmmFamilyFFI {
+    #[default]
     Gaussian = 0,
     Poisson = 1,
     Binomial = 2,
     NegativeBinomial = 3,
     Gamma = 4,
     Tweedie = 5,
-}
-
-impl Default for GlmmFamilyFFI {
-    fn default() -> Self {
-        GlmmFamilyFFI::Gaussian
-    }
 }
 
 /// Options for a mixed-effects fit.

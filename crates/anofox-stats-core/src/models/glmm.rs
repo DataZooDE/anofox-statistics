@@ -777,7 +777,7 @@ mod tests {
                 let x = (j % 4) as f64;
                 y.push((0.5 + 0.3 * x + b).exp().round());
                 xs.push(x);
-                g.push(gi as i32);
+                g.push(gi);
             }
         }
         let opts = GlmmOptions {
@@ -785,7 +785,7 @@ mod tests {
             compute_inference: true,
             ..Default::default()
         };
-        let fit = fit_glmm(&y, &vec![xs], &g, &opts).unwrap();
+        let fit = fit_glmm(&y, &[xs], &g, &opts).unwrap();
 
         assert!(
             (fit.coefficients[0] - 0.3).abs() < 0.1,

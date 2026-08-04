@@ -190,7 +190,7 @@ mod tests {
     fn poisson_matches_dpois() {
         // R: dpois(3, lambda = 2.5, log = TRUE) = -1.542887273605590
         let ll = unit_log_likelihood(LogLikKind::Poisson, 3.0, 2.5);
-        assert!((ll - (-1.542_887_273_605_590)).abs() < 1e-12, "got {ll}");
+        assert!((ll - (-1.542_887_273_605_59)).abs() < 1e-12, "got {ll}");
     }
 
     #[test]
