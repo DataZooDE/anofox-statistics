@@ -408,7 +408,7 @@ fn newton(
 
         let mut step = crate::models::glm_engine::normal_eq::solve_qr(&build_info(0.0), &g, 1e-12)?;
         let mut decrement: f64 = (0..n_params).map(|j| grad[j] * step[j]).sum();
-        if !(decrement > 0.0) || !decrement.is_finite() {
+        if !decrement.is_finite() || decrement <= 0.0 {
             let mut damping = 1e-3;
             for _ in 0..20 {
                 step = crate::models::glm_engine::normal_eq::solve_qr(
@@ -422,7 +422,7 @@ fn newton(
                 }
                 damping *= 10.0;
             }
-            if !(decrement > 0.0) || !decrement.is_finite() {
+            if !decrement.is_finite() || decrement <= 0.0 {
                 // Even heavy damping did not produce an ascent direction; fall back
                 // to steepest ascent, normalised so the line search starts sanely.
                 let gnorm = grad.iter().fold(0.0_f64, |m, v| m.max(v.abs())).max(1e-300);
