@@ -43,6 +43,10 @@ struct GlmmAggregateState {
 	double theta;
 	double power;
 	idx_t offset_column;
+	//! 0-based indices into x of columns that also carry a random slope.
+	vector<idx_t> random_slopes;
+	//! 0-based indices into x of additional crossed grouping-factor columns.
+	vector<idx_t> group_columns;
 
 	GlmmAggregateState()
 	    : n_features(0), initialized(false), family(ANOFOX_GLMM_GAUSSIAN), fit_intercept(true), max_iterations(100),
@@ -83,6 +87,8 @@ struct GlmmAggregateBindData : public FunctionData {
 	double theta = 1.0;
 	double power = 1.5;
 	idx_t offset_column = 0;
+	vector<idx_t> random_slopes;
+	vector<idx_t> group_columns;
 
 	unique_ptr<FunctionData> Copy() const override {
 		auto r = make_uniq<GlmmAggregateBindData>();
@@ -96,6 +102,8 @@ struct GlmmAggregateBindData : public FunctionData {
 		r->theta = theta;
 		r->power = power;
 		r->offset_column = offset_column;
+		r->random_slopes = random_slopes;
+		r->group_columns = group_columns;
 		return std::move(r);
 	}
 
@@ -104,7 +112,8 @@ struct GlmmAggregateBindData : public FunctionData {
 		return family == o.family && fit_intercept == o.fit_intercept && max_iterations == o.max_iterations &&
 		       tolerance == o.tolerance && compute_inference == o.compute_inference &&
 		       confidence_level == o.confidence_level && reml == o.reml && theta == o.theta && power == o.power &&
-		       offset_column == o.offset_column;
+		       offset_column == o.offset_column && random_slopes == o.random_slopes &&
+		       group_columns == o.group_columns;
 	}
 };
 
@@ -131,6 +140,14 @@ static LogicalType GetGlmmResultType(bool compute_inference) {
 	children.push_back(make_pair("n_features", LogicalType::BIGINT));
 	children.push_back(make_pair("iterations", LogicalType::INTEGER));
 	children.push_back(make_pair("converged", LogicalType::BOOLEAN));
+	// Random-effects covariance Sigma, flattened row-major (random_dim x random_dim).
+	children.push_back(make_pair("random_cov", LogicalType::LIST(LogicalType::DOUBLE)));
+	children.push_back(make_pair("random_dim", LogicalType::INTEGER));
+	// Per-factor variance components for crossed/nested fits (empty otherwise).
+	child_list_t<LogicalType> factor_children;
+	factor_children.push_back(make_pair("n_levels", LogicalType::BIGINT));
+	factor_children.push_back(make_pair("var", LogicalType::DOUBLE));
+	children.push_back(make_pair("factors", LogicalType::LIST(LogicalType::STRUCT(std::move(factor_children)))));
 
 	if (compute_inference) {
 		children.push_back(make_pair("std_errors", LogicalType::LIST(LogicalType::DOUBLE)));
@@ -198,6 +215,8 @@ static void GlmmAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data, 
 		state.theta = bind_data.theta;
 		state.power = bind_data.power;
 		state.offset_column = bind_data.offset_column;
+		state.random_slopes = bind_data.random_slopes;
+		state.group_columns = bind_data.group_columns;
 
 		auto y_idx = y_data.sel->get_index(i);
 		auto x_idx = x_data.sel->get_index(i);
@@ -260,6 +279,8 @@ static void GlmmAggCombine(Vector &source_vector, Vector &target_vector, Aggrega
 			target.theta = source.theta;
 			target.power = source.power;
 			target.offset_column = source.offset_column;
+			target.random_slopes = source.random_slopes;
+			target.group_columns = source.group_columns;
 		}
 		if (source.n_features != target.n_features) {
 			throw InvalidInputException("Inconsistent feature count during combine");
@@ -306,10 +327,42 @@ static void GlmmAggFinalize(Vector &state_vector, AggregateInputData &, Vector &
 		}
 
 		AnofoxDataArray y_array {state.y_values.data(), nullptr, state.y_values.size()};
+
+		// Additional crossed grouping factors are dictionary-encoded here and
+		// removed from the design (like the offset column).
+		vector<bool> is_group_col(state.n_features, false);
+		for (auto gc : state.group_columns) {
+			if (gc < state.n_features) {
+				is_group_col[gc] = true;
+			}
+		}
 		vector<AnofoxDataArray> x_arrays;
-		x_arrays.reserve(state.n_features);
 		for (idx_t j = 0; j < state.n_features; j++) {
-			x_arrays.push_back(AnofoxDataArray {state.x_columns[j].data(), nullptr, state.x_columns[j].size()});
+			if (!is_group_col[j]) {
+				x_arrays.push_back(AnofoxDataArray {state.x_columns[j].data(), nullptr, state.x_columns[j].size()});
+			}
+		}
+		vector<vector<int32_t>> extra_factor_ids;
+		for (auto gc : state.group_columns) {
+			if (gc >= state.n_features) {
+				continue;
+			}
+			unordered_map<double, int32_t> levels;
+			vector<int32_t> ids;
+			ids.reserve(state.x_columns[gc].size());
+			for (double v : state.x_columns[gc]) {
+				auto it = levels.find(v);
+				int32_t id = (it == levels.end()) ? (int32_t)levels.size() : it->second;
+				if (it == levels.end()) {
+					levels.emplace(v, id);
+				}
+				ids.push_back(id);
+			}
+			extra_factor_ids.push_back(std::move(ids));
+		}
+		vector<const int32_t *> extra_ptrs;
+		for (auto &f : extra_factor_ids) {
+			extra_ptrs.push_back(f.data());
 		}
 
 		AnofoxGlmmOptions options {};
@@ -323,11 +376,14 @@ static void GlmmAggFinalize(Vector &state_vector, AggregateInputData &, Vector &
 		options.theta = state.theta;
 		options.power = state.power;
 		options.offset_column = state.offset_column;
+		options.random_slopes = state.random_slopes.empty() ? nullptr : state.random_slopes.data();
+		options.random_slopes_len = state.random_slopes.size();
 
 		AnofoxGlmmResult res {};
 		AnofoxError error;
 		bool ok = anofox_glmm_fit(y_array, x_arrays.data(), x_arrays.size(), state.group_ids.data(),
-		                          state.group_ids.size(), options, &res, &error);
+		                          state.group_ids.size(), extra_ptrs.empty() ? nullptr : extra_ptrs.data(),
+		                          extra_ptrs.size(), options, &res, &error);
 		if (!ok) {
 			FlatVector::SetNull(result, row, true);
 			state.Reset();
@@ -349,6 +405,27 @@ static void GlmmAggFinalize(Vector &state_vector, AggregateInputData &, Vector &
 		FlatVector::GetData<int64_t>(*struct_entries[c++])[row] = (int64_t)res.n_features;
 		FlatVector::GetData<int32_t>(*struct_entries[c++])[row] = (int32_t)res.iterations;
 		FlatVector::GetData<bool>(*struct_entries[c++])[row] = res.converged;
+		SetDoubleListG(*struct_entries[c++], row, res.random_cov, res.random_dim * res.random_dim);
+		FlatVector::GetData<int32_t>(*struct_entries[c++])[row] = (int32_t)res.random_dim;
+
+		// Per-factor variance components LIST(STRUCT(n_levels, var)).
+		{
+			auto &fac_vec = *struct_entries[c++];
+			auto fac_list = FlatVector::GetData<list_entry_t>(fac_vec);
+			auto fac_off = ListVector::GetListSize(fac_vec);
+			ListVector::Reserve(fac_vec, fac_off + res.factor_len);
+			auto &fac_struct = ListVector::GetEntry(fac_vec);
+			auto &fac_children = StructVector::GetEntries(fac_struct);
+			auto f_levels = FlatVector::GetData<int64_t>(*fac_children[0]);
+			auto f_var = FlatVector::GetData<double>(*fac_children[1]);
+			for (idx_t j = 0; j < res.factor_len; j++) {
+				f_levels[fac_off + j] = (int64_t)res.factor_n_levels[j];
+				f_var[fac_off + j] = res.factor_var[j];
+			}
+			ListVector::SetListSize(fac_vec, fac_off + res.factor_len);
+			fac_list[row].offset = fac_off;
+			fac_list[row].length = res.factor_len;
+		}
 
 		if (state.compute_inference) {
 			SetDoubleListG(*struct_entries[c++], row, res.std_errors, res.inference_len);
@@ -424,6 +501,17 @@ static unique_ptr<FunctionData> GlmmAggBind(ClientContext &context, AggregateFun
 		}
 		if (opts.offset_column.has_value()) {
 			result->offset_column = opts.offset_column.value();
+		}
+		if (opts.random_slopes.has_value()) {
+			// Options carry 1-based indices; the core/FFI want 0-based.
+			for (auto idx1 : opts.random_slopes.value()) {
+				result->random_slopes.push_back(idx1 - 1);
+			}
+		}
+		if (opts.group_columns.has_value()) {
+			for (auto idx1 : opts.group_columns.value()) {
+				result->group_columns.push_back(idx1 - 1);
+			}
 		}
 	}
 

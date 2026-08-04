@@ -2453,6 +2453,10 @@ typedef struct {
 	double power;
 	/** 1-based index into x of an offset column; 0 means none. */
 	size_t offset_column;
+	/** Pointer to random_slopes_len 0-based indices into x of columns that also
+	    carry a random slope. Null/zero-length = random intercept only. */
+	const size_t *random_slopes;
+	size_t random_slopes_len;
 } AnofoxGlmmOptions;
 
 typedef struct {
@@ -2485,6 +2489,18 @@ typedef struct {
 	double *ranef_se;
 	int64_t *ranef_n;
 	size_t ranef_len;
+	/** Random-effects covariance Sigma, flattened row-major random_dim x random_dim. */
+	double *random_cov;
+	/** q = 1 + number of random slopes. */
+	size_t random_dim;
+	/** Per-group random-effect vectors [intercept, slope_1, ...], flattened
+	    row-major ranef_len x random_dim. */
+	double *ranef_effects;
+	/** Per-factor variance components for crossed/nested fits (length factor_len);
+	    empty for the single-factor path. */
+	double *factor_var;
+	int64_t *factor_n_levels;
+	size_t factor_len;
 } AnofoxGlmmResult;
 
 /**
@@ -2493,7 +2509,8 @@ typedef struct {
  * @param group_ids Dense group indices in 0..n_groups, one per observation
  */
 bool anofox_glmm_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, const int32_t *group_ids,
-                     size_t n_obs, AnofoxGlmmOptions options, AnofoxGlmmResult *out_result, AnofoxError *out_error);
+                     size_t n_obs, const int32_t *const *extra_group_ids, size_t n_extra_factors,
+                     AnofoxGlmmOptions options, AnofoxGlmmResult *out_result, AnofoxError *out_error);
 
 /** Free the arrays owned by a GLMM result. */
 void anofox_free_glmm_result(AnofoxGlmmResult *result);
