@@ -44,7 +44,9 @@ struct GlmmAggregateState {
 	double power;
 	idx_t offset_column;
 	//! 0-based indices into x of columns that also carry a random slope.
-	vector<idx_t> random_slopes;
+	// size_t (not idx_t) to match the FFI's `const size_t *` on every platform:
+	// on macOS/wasm idx_t (uint64_t) is a distinct type/width from size_t.
+	vector<size_t> random_slopes;
 	//! 0-based indices into x of additional crossed grouping-factor columns.
 	vector<idx_t> group_columns;
 
@@ -87,7 +89,9 @@ struct GlmmAggregateBindData : public FunctionData {
 	double theta = 1.0;
 	double power = 1.5;
 	idx_t offset_column = 0;
-	vector<idx_t> random_slopes;
+	// size_t (not idx_t) to match the FFI's `const size_t *` on every platform:
+	// on macOS/wasm idx_t (uint64_t) is a distinct type/width from size_t.
+	vector<size_t> random_slopes;
 	vector<idx_t> group_columns;
 
 	unique_ptr<FunctionData> Copy() const override {
@@ -505,7 +509,7 @@ static unique_ptr<FunctionData> GlmmAggBind(ClientContext &context, AggregateFun
 		if (opts.random_slopes.has_value()) {
 			// Options carry 1-based indices; the core/FFI want 0-based.
 			for (auto idx1 : opts.random_slopes.value()) {
-				result->random_slopes.push_back(idx1 - 1);
+				result->random_slopes.push_back((size_t)(idx1 - 1));
 			}
 		}
 		if (opts.group_columns.has_value()) {
