@@ -7,6 +7,31 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Telemetry off for everything CI runs.
+#
+# The extension records a PostHog event per function call, and the suite exercises
+# thousands of them on every push -- so a green pipeline was publishing a spike of
+# usage that looks exactly like a customer.
+#
+# `is_ci` does not prevent this. It is a *tag* on the event envelope, and it is not
+# even set correctly on the platform that does most of the testing: the Linux jobs run
+# inside a container that receives only the variables extension-ci-tools writes into
+# `docker_env.txt`, and none of the eight names `ComputeCI()` looks for -- `CI`,
+# `GITHUB_ACTIONS` and friends -- are among them. So those events arrived tagged
+# `is_ci: false`, indistinguishable from real traffic.
+#
+# `DATAZOO_DISABLE_TELEMETRY` is the switch that actually stops egress:
+# `PostHogProcessBatch` is documented as the only place that touches the network and
+# returns early when it is set. It is read per batch rather than cached at startup, so
+# it takes effect wherever it is set.
+#
+# This block covers the jobs defined here. The reusable-workflow jobs cannot inherit it
+# -- a called workflow gets no env from its caller -- so they pass it through
+# `test_config.test_env_variables`, which extension-ci-tools applies both to
+# `docker_env.txt` and to the native test steps.
+env:
+  DATAZOO_DISABLE_TELEMETRY: "1"
+
 # OIDC token needed for AWS credentials in the deploy job.
 permissions:
   id-token: write
@@ -22,6 +47,9 @@ jobs:
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.5-variegata
     with:
       duckdb_version: v1.5.5
+      # See the `env:` note at the top: a called workflow inherits no env, so the
+      # opt-out reaches the docker env file and the native test steps through here.
+      test_config: '{"test_env_variables": {"DATAZOO_DISABLE_TELEMETRY": "1"}}'
       ci_tools_version: v1.5-variegata
       extension_name: anofox_statistics
       enable_rust: true
@@ -61,6 +89,9 @@ jobs:
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.4-andium
     with:
       duckdb_version: v1.4.5
+      # See the `env:` note at the top: a called workflow inherits no env, so the
+      # opt-out reaches the docker env file and the native test steps through here.
+      test_config: '{"test_env_variables": {"DATAZOO_DISABLE_TELEMETRY": "1"}}'
       ci_tools_version: v1.4-andium
       extension_name: anofox_statistics
       enable_rust: true

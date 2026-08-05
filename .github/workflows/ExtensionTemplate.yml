@@ -8,6 +8,13 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || '' }}-${{ github.base_ref || '' }}-${{ github.ref != 'refs/heads/main' || github.sha }}
   cancel-in-progress: true
 
+
+# Telemetry off: this workflow builds and tests an extension, and the extension
+# records a PostHog event per function call. See MainDistributionPipeline.yml for why
+# `is_ci` is not sufficient on its own.
+env:
+  DATAZOO_DISABLE_TELEMETRY: "1"
+
 jobs:
   linux:
     name: Linux
