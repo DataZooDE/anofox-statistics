@@ -1,3 +1,4 @@
+#include <type_traits>
 #include <limits>
 #include <unordered_map>
 #include <vector>
@@ -13,6 +14,13 @@
 #include "telemetry.hpp"
 
 namespace duckdb {
+
+namespace {
+/// The index type `AnofoxGlmmOptions::random_slopes` points at, taken from the header
+/// rather than written out. See the note on the fields that use it.
+using RandomSlopeIndex = std::remove_const<std::remove_pointer<decltype(AnofoxGlmmOptions::random_slopes)>::type>::type;
+} // namespace
+
 
 //===--------------------------------------------------------------------===//
 // Mixed-effects GLM with a random intercept over one grouping factor.
@@ -44,7 +52,21 @@ struct GlmmAggregateState {
 	double power;
 	idx_t offset_column;
 	//! 0-based indices into x of columns that also carry a random slope.
-	vector<idx_t> random_slopes;
+	// The element type is *derived from* the FFI declaration rather than restated, so
+	// the two cannot drift.
+	//
+	// Restating it is what broke every non-Linux build: this held `idx_t` while
+	// `AnofoxGlmmOptions::random_slopes` is `const size_t *`. On Linux those are the
+	// same *type* -- both `unsigned long` -- so `.data()` assigned cleanly and every
+	// Linux job stayed green. On macOS and on wasm32 they are distinct types, and it
+	// is a hard error. The same line failed the macOS and all three DuckDB-Wasm jobs,
+	// and the deploys that depend on them.
+	//
+	// A `static_assert` here would not have helped, and that was measured rather than
+	// assumed: asserting the two types are the same passes on Linux, because on Linux
+	// they are. Deriving the type is the only form of the check that means anything on
+	// the platform where the mistake is invisible.
+	vector<RandomSlopeIndex> random_slopes;
 	//! 0-based indices into x of additional crossed grouping-factor columns.
 	vector<idx_t> group_columns;
 
@@ -87,7 +109,21 @@ struct GlmmAggregateBindData : public FunctionData {
 	double theta = 1.0;
 	double power = 1.5;
 	idx_t offset_column = 0;
-	vector<idx_t> random_slopes;
+	// The element type is *derived from* the FFI declaration rather than restated, so
+	// the two cannot drift.
+	//
+	// Restating it is what broke every non-Linux build: this held `idx_t` while
+	// `AnofoxGlmmOptions::random_slopes` is `const size_t *`. On Linux those are the
+	// same *type* -- both `unsigned long` -- so `.data()` assigned cleanly and every
+	// Linux job stayed green. On macOS and on wasm32 they are distinct types, and it
+	// is a hard error. The same line failed the macOS and all three DuckDB-Wasm jobs,
+	// and the deploys that depend on them.
+	//
+	// A `static_assert` here would not have helped, and that was measured rather than
+	// assumed: asserting the two types are the same passes on Linux, because on Linux
+	// they are. Deriving the type is the only form of the check that means anything on
+	// the platform where the mistake is invisible.
+	vector<RandomSlopeIndex> random_slopes;
 	vector<idx_t> group_columns;
 
 	unique_ptr<FunctionData> Copy() const override {
