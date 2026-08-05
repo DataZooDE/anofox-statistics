@@ -99,6 +99,21 @@ pub struct AftInference {
     pub intercept_std_error: Option<f64>,
     /// Standard error of `log sigma`; `None` when the scale is fixed.
     pub log_scale_std_error: Option<f64>,
+    /// The full covariance of the fitted parameters at the mode, `None` when inference
+    /// was not requested.
+    ///
+    /// Indexed in the order the fit parameterises: the intercept first when one is
+    /// fitted, then the coefficients in feature order, then `log sigma` when the scale
+    /// is estimated. So for a fit with an intercept and `p` features the matrix is
+    /// `(1 + p + 1)` square, and `sqrt(vcov[(j, j)])` is the standard error this struct
+    /// reports for parameter `j`.
+    ///
+    /// Reported because the diagonal is not the whole answer. Anything that needs the
+    /// *joint* distribution -- a Laplace posterior to sample, a prediction interval on
+    /// a linear combination, a delta-method standard error -- would otherwise have to
+    /// rebuild this matrix from `AftDistribution`'s derivatives, re-differentiating a
+    /// likelihood this function has already differentiated.
+    pub vcov: Option<Mat<f64>>,
 }
 
 /// Fit an AFT model.
@@ -276,6 +291,7 @@ pub fn fit_aft(
             } else {
                 None
             },
+            vcov: Some(inf.vcov.clone()),
         })
     } else {
         None
@@ -798,6 +814,85 @@ mod tests {
             "intercept {} vs OLS {intercept}",
             fit.core.intercept.unwrap()
         );
+    }
+
+    /// **The curvature is reported, not just its diagonal.**
+    ///
+    /// `fit_aft` computes the full observed information at the mode and hands it to
+    /// `laplace::inference`, which returns the whole covariance matrix. Until now only
+    /// slices of the *diagonal* survived into `AftInference` -- `std_errors`,
+    /// `z_values`, the interval bounds -- and the off-diagonal was discarded on the way
+    /// out of the crate.
+    ///
+    /// That is a real loss rather than a tidy-up. Any consumer that needs the joint
+    /// distribution of the coefficients -- a Laplace posterior to sample from, a
+    /// prediction interval on a linear combination, a delta-method standard error --
+    /// has to reconstruct the matrix from `AftDistribution`'s public derivatives, which
+    /// means re-deriving the likelihood this function has already differentiated.
+    ///
+    /// So the matrix is part of the result. Its diagonal must reproduce the standard
+    /// errors this crate already reports, which is the assertion that keeps the two
+    /// from drifting apart.
+    #[test]
+    fn the_reported_curvature_agrees_with_the_standard_errors_it_summarises() {
+        for dist in [
+            AftDistribution::Weibull,
+            AftDistribution::LogNormal,
+            AftDistribution::LogLogistic,
+        ] {
+            let (time, x, event) = survival_fixture(dist, 1.5, 0.35, 0.6, 400, Some(0.3));
+            let opts = AftOptions {
+                dist,
+                compute_inference: true,
+                ..Default::default()
+            };
+            let fit = fit_aft(&time, &x, &event, &opts).unwrap();
+            let inf = fit.inference.as_ref().expect("inference was requested");
+            let vcov = inf.vcov.as_ref().expect("the covariance must be reported");
+
+            // Intercept first, then the coefficients, then log-scale: the order
+            // `fit_aft` fits in, and the order the matrix is indexed by.
+            let n_beta = 1 + 1; // intercept + one feature
+            assert_eq!(vcov.nrows(), n_beta + 1, "{dist:?} covariance is p x p");
+            assert_eq!(vcov.ncols(), vcov.nrows(), "{dist:?} covariance is square");
+
+            let se_of = |j: usize| vcov[(j, j)].sqrt();
+            assert!(
+                (se_of(0) - inf.intercept_std_error.unwrap()).abs() < 1e-9,
+                "{dist:?} intercept SE {} vs sqrt(vcov[0,0]) {}",
+                inf.intercept_std_error.unwrap(),
+                se_of(0)
+            );
+            assert!(
+                (se_of(1) - inf.std_errors[0]).abs() < 1e-9,
+                "{dist:?} slope SE {} vs sqrt(vcov[1,1]) {}",
+                inf.std_errors[0],
+                se_of(1)
+            );
+            assert!(
+                (se_of(2) - inf.log_scale_std_error.unwrap()).abs() < 1e-9,
+                "{dist:?} log-scale SE {} vs sqrt(vcov[2,2]) {}",
+                inf.log_scale_std_error.unwrap(),
+                se_of(2)
+            );
+
+            // Symmetric, and not diagonal: the off-diagonal is the part that was being
+            // thrown away, so a matrix that happened to be diagonal would prove nothing.
+            for r in 0..vcov.nrows() {
+                for c in 0..vcov.ncols() {
+                    assert!(
+                        (vcov[(r, c)] - vcov[(c, r)]).abs() < 1e-12,
+                        "{dist:?} covariance must be symmetric at ({r},{c})"
+                    );
+                }
+            }
+            assert!(
+                vcov[(0, 1)].abs() > 1e-12,
+                "{dist:?} intercept and slope must covary on a fixture whose \
+                 covariate is not centred; got {}",
+                vcov[(0, 1)]
+            );
+        }
     }
 
     #[test]
