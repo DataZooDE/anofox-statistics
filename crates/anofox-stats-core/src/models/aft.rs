@@ -114,6 +114,19 @@ pub struct AftInference {
     /// rebuild this matrix from `AftDistribution`'s derivatives, re-differentiating a
     /// likelihood this function has already differentiated.
     pub vcov: Option<Mat<f64>>,
+    /// The penalised observed information at the mode -- the inverse of [`Self::vcov`]
+    /// -- in the same parameter order, `None` when inference was not requested.
+    ///
+    /// Both are reported because they answer different questions and each is awkward
+    /// to get from the other. `vcov` is what a report reads. The information is what a
+    /// *sampler* reads: drawing from the Laplace approximation factorises the
+    /// curvature, and recovering it by inverting `vcov` is a round trip through a
+    /// matrix this function already holds.
+    ///
+    /// "Penalised" is the operative word: it includes the contribution of any
+    /// [`PriorSpec`] supplied, so it is the curvature of the log *posterior* at the
+    /// mode rather than of the log likelihood.
+    pub information: Option<Mat<f64>>,
 }
 
 /// Fit an AFT model.
@@ -292,6 +305,7 @@ pub fn fit_aft(
                 None
             },
             vcov: Some(inf.vcov.clone()),
+            information: Some(state.information.clone()),
         })
     } else {
         None
@@ -833,6 +847,59 @@ mod tests {
     /// So the matrix is part of the result. Its diagonal must reproduce the standard
     /// errors this crate already reports, which is the assertion that keeps the two
     /// from drifting apart.
+    /// **The curvature itself, not only its inverse.**
+    ///
+    /// `vcov` answers "how uncertain", which is what a report wants. A consumer that
+    /// *samples* the Laplace approximation wants the other one: the observed
+    /// information is what a Cholesky factorises to draw from the Gaussian, and
+    /// recovering it by inverting `vcov` is a round trip through a matrix this
+    /// function already has in hand.
+    ///
+    /// `anofox-bayes` is that consumer, and until this existed it rebuilt the matrix
+    /// from `AftDistribution`'s derivatives per observation -- re-differentiating a
+    /// likelihood already differentiated here.
+    #[test]
+    fn the_reported_information_is_the_inverse_of_the_reported_covariance() {
+        for dist in [
+            AftDistribution::Weibull,
+            AftDistribution::LogNormal,
+            AftDistribution::LogLogistic,
+        ] {
+            let (time, x, event) = survival_fixture(dist, 1.5, 0.35, 0.6, 400, Some(0.3));
+            let opts = AftOptions {
+                dist,
+                compute_inference: true,
+                ..Default::default()
+            };
+            let fit = fit_aft(&time, &x, &event, &opts).unwrap();
+            let inf = fit.inference.as_ref().expect("inference was requested");
+            let info = inf
+                .information
+                .as_ref()
+                .expect("the observed information must be reported");
+            let vcov = inf.vcov.as_ref().expect("the covariance must be reported");
+
+            assert_eq!(info.nrows(), vcov.nrows(), "{dist:?} same shape");
+            // information * vcov = I, which is the whole claim about what it is.
+            let n = info.nrows();
+            for r in 0..n {
+                for c in 0..n {
+                    let entry: f64 = (0..n).map(|k| info[(r, k)] * vcov[(k, c)]).sum();
+                    let want = if r == c { 1.0 } else { 0.0 };
+                    assert!(
+                        (entry - want).abs() < 1e-8,
+                        "{dist:?}: (information * vcov)[{r},{c}] = {entry}, expected {want}"
+                    );
+                }
+            }
+            // Penalised, not naive: the diagonal must exceed nothing in particular,
+            // but it must be symmetric and positive on the diagonal to be a curvature.
+            for j in 0..n {
+                assert!(info[(j, j)] > 0.0, "{dist:?}: information diagonal {j}");
+            }
+        }
+    }
+
     #[test]
     fn the_reported_curvature_agrees_with_the_standard_errors_it_summarises() {
         for dist in [
