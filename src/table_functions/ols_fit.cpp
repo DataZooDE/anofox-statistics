@@ -13,6 +13,7 @@
 #include "../include/ffi_enum_converters.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
+#include "anofox_statistics_banner.hpp"
 
 namespace duckdb {
 
@@ -236,12 +237,14 @@ void RegisterOlsFitFunction(ExtensionLoader &loader) {
     ScalarFunction basic_func(
         {LogicalType::LIST(LogicalType::DOUBLE), LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE))},
         LogicalType::ANY,
-        OlsFitFunction, OlsFitBind);
+        DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, OlsFitFunction),
+                        DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, OlsFitBind));
 
     ScalarFunction map_func({LogicalType::LIST(LogicalType::DOUBLE),
                              LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)),
                              LogicalType::ANY},
-                            LogicalType::ANY, OlsFitFunction, OlsFitBind);
+                            LogicalType::ANY, DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, OlsFitFunction),
+                        DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, OlsFitBind));
 
     // Primary
     {

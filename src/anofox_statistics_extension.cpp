@@ -5,6 +5,21 @@
 #include "duckdb.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
 #include "telemetry.hpp"
+#include "anofox_statistics_banner.hpp"
+
+// The build stamps EXT_VERSION_ANOFOX_STATISTICS from the git tag; the fallback
+// matches what SetProduct reports below.
+#ifdef EXT_VERSION_ANOFOX_STATISTICS
+#define ANOFOX_STATISTICS_BANNER_VERSION EXT_VERSION_ANOFOX_STATISTICS
+#else
+#define ANOFOX_STATISTICS_BANNER_VERSION "0.1.0"
+#endif
+
+// Deliberately outside namespace duckdb: the banner library is DuckDB-agnostic
+// and the guard macro refers to this object from every guarded source file.
+const datazoo::BannerInfo ANOFOX_STATISTICS_BANNER {
+    "anofox_statistics", ANOFOX_STATISTICS_BANNER_VERSION,
+    "https://github.com/DataZooDE/anofox-statistics"};
 
 namespace duckdb {
 
@@ -199,6 +214,11 @@ void LoadInternal(ExtensionLoader &loader) {
 
     // Register table macros for fit_predict_by functions
     RegisterFitPredictTableMacros(loader);
+
+    datazoo::RegisterBannerOption(loader);
+    // Last, so a load that fails earlier never advertises itself. Silent unless
+    // stderr is a terminal and the ~/.duckdb stamp is over a day old.
+    datazoo::ShowBanner(ANOFOX_STATISTICS_BANNER);
 }
 
 void AnofoxStatisticsExtension::Load(ExtensionLoader &loader) {

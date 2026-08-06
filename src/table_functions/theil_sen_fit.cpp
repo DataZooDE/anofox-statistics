@@ -12,6 +12,7 @@
 #include "../include/ffi_enum_converters.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
+#include "anofox_statistics_banner.hpp"
 
 namespace duckdb {
 
@@ -240,11 +241,13 @@ static void TheilSenFitFunction(DataChunk &args, ExpressionState &state, Vector 
 void RegisterTheilSenFitFunction(ExtensionLoader &loader) {
     ScalarFunction basic_func(
         {LogicalType::LIST(LogicalType::DOUBLE), LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE))},
-        LogicalType::ANY, TheilSenFitFunction, TheilSenFitBind);
+        LogicalType::ANY, DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, TheilSenFitFunction),
+                        DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, TheilSenFitBind));
 
     ScalarFunction map_func({LogicalType::LIST(LogicalType::DOUBLE),
                              LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)), LogicalType::ANY},
-                            LogicalType::ANY, TheilSenFitFunction, TheilSenFitBind);
+                            LogicalType::ANY, DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, TheilSenFitFunction),
+                        DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, TheilSenFitBind));
 
     {
         ScalarFunctionSet func_set("anofox_stats_theilsen_fit");

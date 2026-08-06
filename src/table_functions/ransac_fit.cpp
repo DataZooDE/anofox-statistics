@@ -12,6 +12,7 @@
 #include "../include/ffi_enum_converters.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
+#include "anofox_statistics_banner.hpp"
 
 namespace duckdb {
 
@@ -266,11 +267,13 @@ static void RansacFitFunction(DataChunk &args, ExpressionState &state, Vector &r
 void RegisterRansacFitFunction(ExtensionLoader &loader) {
     ScalarFunction basic_func(
         {LogicalType::LIST(LogicalType::DOUBLE), LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE))},
-        LogicalType::ANY, RansacFitFunction, RansacFitBind);
+        LogicalType::ANY, DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, RansacFitFunction),
+                        DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, RansacFitBind));
 
     ScalarFunction map_func({LogicalType::LIST(LogicalType::DOUBLE),
                              LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)), LogicalType::ANY},
-                            LogicalType::ANY, RansacFitFunction, RansacFitBind);
+                            LogicalType::ANY, DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, RansacFitFunction),
+                        DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, RansacFitBind));
 
     {
         ScalarFunctionSet func_set("anofox_stats_ransac_fit");

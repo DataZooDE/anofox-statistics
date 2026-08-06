@@ -1,0 +1,40 @@
+# name: test/sql/feedback.test
+# description: The feedback banner's two contracts: errors from user-facing entry
+#              points carry an issue link, and the banner never writes anything
+#              under a test runner.
+# group: [sql]
+
+require anofox_statistics
+
+# --- Errors from the user-facing fit/predict entry points pick up the issue
+#     link, so a user who hits one is told where to report it. The guards sit at
+#     those registration sites only -- not on internal aggregate combine paths,
+#     which users do not invoke directly.
+statement error
+SELECT anofox_stats_ols_fit([1.0, 2.0], [[1.0]]);
+----
+https://github.com/DataZooDE/anofox-statistics/issues
+
+# The link is appended, not substituted: the real diagnostic must survive, and
+# it is the diagnostic from the Rust core that crossed the FFI boundary.
+statement error
+SELECT anofox_stats_ols_fit([1.0, 2.0], [[1.0]]);
+----
+Dimension mismatch
+
+# --- Errors DuckDB raises before dispatch (binder, catalog, arity) are
+#     deliberately NOT annotated -- they are not ours, and claiming them would
+#     send users to the wrong tracker.
+statement error
+SELECT anofox_stats_ols_fit();
+----
+Binder Error
+
+# --- The opt-out knob exists and is settable. The banner itself cannot be
+#     observed from a .test file at all -- stderr is not a tty here, which is
+#     precisely the guarantee that keeps this suite's expected output unchanged.
+statement ok
+SET datazoo_banner = false;
+
+statement ok
+SET datazoo_banner = true;
