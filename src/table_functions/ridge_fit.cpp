@@ -13,6 +13,7 @@
 #include "../include/ffi_enum_converters.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
+#include "anofox_statistics_banner.hpp"
 
 namespace duckdb {
 
@@ -245,12 +246,14 @@ void RegisterRidgeFitFunction(ExtensionLoader &loader) {
     ScalarFunction basic_func(
         {LogicalType::LIST(LogicalType::DOUBLE), LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE))},
         LogicalType::ANY,
-        RidgeFitFunction, RidgeFitBind);
+        DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, RidgeFitFunction),
+                        DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, RidgeFitBind));
 
     ScalarFunction map_func({LogicalType::LIST(LogicalType::DOUBLE),
                              LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)),
                              LogicalType::ANY},
-                            LogicalType::ANY, RidgeFitFunction, RidgeFitBind);
+                            LogicalType::ANY, DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, RidgeFitFunction),
+                        DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, RidgeFitBind));
 
     // Primary
     {

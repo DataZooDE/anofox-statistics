@@ -304,6 +304,17 @@ For questions, open an issue on GitHub.
 - **Discussions**: [GitHub Discussions](https://github.com/DataZooDE/anofox-statistics/discussions)
 - **Email**: contact@datazoo.de
 
+If a fit misbehaves or a result looks wrong, please open an issue — regression against
+real data has failure modes we cannot reproduce from synthetic tests, so a report with
+your data shape is the fastest path to a fix. Errors from the fit and predict functions
+end with that link.
+
+If it saved you time, a star on the repo helps other people find it.
+
+The first time you load the extension in an interactive terminal each day, a small
+banner says the same thing. It never prints when output is piped, in notebooks, or in
+CI. Silence it with `SET datazoo_banner = false;` or `DATAZOO_NO_BANNER=1`.
+
 ## Citation
 
 If you use this extension in research, please cite:

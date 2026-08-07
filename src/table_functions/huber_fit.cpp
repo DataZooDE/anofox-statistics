@@ -12,6 +12,7 @@
 #include "../include/ffi_enum_converters.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
+#include "anofox_statistics_banner.hpp"
 
 namespace duckdb {
 
@@ -236,11 +237,13 @@ static void HuberFitFunction(DataChunk &args, ExpressionState &state, Vector &re
 void RegisterHuberFitFunction(ExtensionLoader &loader) {
     ScalarFunction basic_func(
         {LogicalType::LIST(LogicalType::DOUBLE), LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE))},
-        LogicalType::ANY, HuberFitFunction, HuberFitBind);
+        LogicalType::ANY, DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, HuberFitFunction),
+                        DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, HuberFitBind));
 
     ScalarFunction map_func({LogicalType::LIST(LogicalType::DOUBLE),
                              LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)), LogicalType::ANY},
-                            LogicalType::ANY, HuberFitFunction, HuberFitBind);
+                            LogicalType::ANY, DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, HuberFitFunction),
+                        DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, HuberFitBind));
 
     {
         ScalarFunctionSet func_set("anofox_stats_huber_fit");

@@ -105,6 +105,15 @@ else()
     set(ANOFOX_TELEMETRY_ENABLED OFF)
 endif()
 
+# Feedback banner (header-only, no dependencies of its own). Its banner_shown
+# event goes through posthog-telemetry, so the flag follows whether telemetry is
+# actually compiled in -- on MinGW it is not, and the banner header would then
+# include a telemetry.hpp that is not on the path.
+set(DATAZOO_BANNER_TELEMETRY ${ANOFOX_TELEMETRY_ENABLED} CACHE BOOL "" FORCE)
+set(DATAZOO_BANNER_TELEMETRY_INCLUDE_DIR
+    ${CMAKE_CURRENT_SOURCE_DIR}/posthog-telemetry/include CACHE PATH "" FORCE)
+add_subdirectory(datazoo-banner)
+
 include_directories(src/include)
 
 # Extension source files
@@ -215,8 +224,8 @@ build_static_extension(${TARGET_NAME} ${EXTENSION_SOURCES})
 build_loadable_extension(${TARGET_NAME} " " ${EXTENSION_SOURCES})
 
 # Link to Rust library
-target_link_libraries(${EXTENSION_NAME} anofox_stats_ffi-static)
-target_link_libraries(${LOADABLE_EXTENSION_NAME} anofox_stats_ffi-static)
+target_link_libraries(${EXTENSION_NAME} anofox_stats_ffi-static datazoo_banner)
+target_link_libraries(${LOADABLE_EXTENSION_NAME} anofox_stats_ffi-static datazoo_banner)
 
 # Telemetry header is always needed (provides no-op stubs when telemetry is disabled)
 target_include_directories(${EXTENSION_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/posthog-telemetry/include)

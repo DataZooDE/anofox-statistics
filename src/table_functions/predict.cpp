@@ -10,6 +10,7 @@
 
 #include "../include/anofox_stats_ffi.h"
 #include "telemetry.hpp"
+#include "anofox_statistics_banner.hpp"
 
 namespace duckdb {
 
@@ -110,7 +111,8 @@ static void PredictFunction(DataChunk &args, ExpressionState &state, Vector &res
 void RegisterPredictFunction(ExtensionLoader &loader) {
     ScalarFunction func({LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)),
                          LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE},
-                        LogicalType::LIST(LogicalType::DOUBLE), PredictFunction);
+                        LogicalType::LIST(LogicalType::DOUBLE),
+                        DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, PredictFunction));
 
     ScalarFunctionSet func_set("anofox_stats_predict");
     func_set.AddFunction(func);

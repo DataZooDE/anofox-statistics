@@ -12,6 +12,7 @@
 #include "../include/anofox_stats_ffi.h"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
+#include "anofox_statistics_banner.hpp"
 
 namespace duckdb {
 
@@ -188,12 +189,14 @@ void RegisterRlsFitFunction(ExtensionLoader &loader) {
     ScalarFunction basic_func(
         {LogicalType::LIST(LogicalType::DOUBLE), LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE))},
         LogicalType::ANY,
-        RlsFitFunction, RlsFitBind);
+        DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, RlsFitFunction),
+                        DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, RlsFitBind));
 
     ScalarFunction map_func({LogicalType::LIST(LogicalType::DOUBLE),
                              LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)),
                              LogicalType::ANY},
-                            LogicalType::ANY, RlsFitFunction, RlsFitBind);
+                            LogicalType::ANY, DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, RlsFitFunction),
+                        DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, RlsFitBind));
 
     // Primary
     {
