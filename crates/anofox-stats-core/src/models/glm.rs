@@ -434,6 +434,115 @@ mod tests {
     use super::*;
     use crate::types::{PriorSpec, VcovType};
 
+    /// **The GLM curvature is reported, and says which parameter each row is.**
+    ///
+    /// `fit` computes the full covariance on the way to the standard errors and then
+    /// keeps only the diagonal, exactly as the AFT path did before #120. A consumer
+    /// that needs the joint distribution -- a Laplace posterior to sample, a
+    /// prediction interval on a linear combination -- has to rebuild it otherwise.
+    ///
+    /// The mapping is the part that cannot be left implicit. `GlmInferenceResult`'s
+    /// *vectors* are in expanded feature order: the intercept is stripped out
+    /// entirely and a column dropped for rank deficiency comes back as `NaN`. A
+    /// matrix cannot use that convention -- dropping the intercept row would discard
+    /// the intercept/slope covariance, which is most of the reason to want the matrix
+    /// at all. So the matrices are in *fitted* order and `matrix_parameters` says what
+    /// each row is: `None` for the intercept, `Some(j)` for original feature `j`.
+    #[test]
+    fn the_reported_glm_curvature_carries_the_mapping_for_its_rows() {
+        let x = vec![
+            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0],
+            vec![0.5, 1.5, 1.0, 2.5, 2.0, 3.5, 3.0, 4.5, 4.0, 5.5],
+        ];
+        let y = vec![1.0, 2.0, 4.0, 5.0, 8.0, 10.0, 15.0, 20.0, 25.0, 30.0];
+        let options = PoissonOptions {
+            compute_inference: true,
+            ..Default::default()
+        };
+        let fit = fit_poisson(&y, &x, &options).unwrap();
+        let inf = fit.inference.as_ref().expect("inference was requested");
+        let vcov = inf.vcov.as_ref().expect("the covariance must be reported");
+        let info = inf
+            .information
+            .as_ref()
+            .expect("the observed information must be reported");
+
+        // Intercept first, then both features: three fitted parameters.
+        assert_eq!(inf.matrix_parameters, vec![None, Some(0), Some(1)]);
+        assert_eq!(vcov.nrows(), 3);
+        assert_eq!(info.nrows(), 3);
+
+        // The defining relation, rather than a value.
+        for r in 0..3 {
+            for c in 0..3 {
+                let entry: f64 = (0..3).map(|k| info[(r, k)] * vcov[(k, c)]).sum();
+                let want = if r == c { 1.0 } else { 0.0 };
+                assert!(
+                    (entry - want).abs() < 1e-8,
+                    "(information * vcov)[{r},{c}] = {entry}, expected {want}"
+                );
+            }
+        }
+
+        // And the diagonal reproduces the standard errors already reported, at the
+        // feature index `matrix_parameters` points to -- which is the assertion that
+        // the mapping is right rather than merely present.
+        for (row, slot) in inf.matrix_parameters.iter().enumerate() {
+            if let Some(feature) = slot {
+                assert!(
+                    (vcov[(row, row)].sqrt() - inf.std_errors[*feature]).abs() < 1e-9,
+                    "row {row} maps to feature {feature}: sqrt(vcov) {} vs std_error {}",
+                    vcov[(row, row)].sqrt(),
+                    inf.std_errors[*feature]
+                );
+            }
+        }
+
+        // The off-diagonal is real, so the matrix carries something the diagonal did
+        // not.
+        assert!(
+            vcov[(0, 1)].abs() > 1e-12,
+            "intercept and slope must covary"
+        );
+    }
+
+    /// A column dropped for rank deficiency is absent from the matrices and `NaN` in
+    /// the vectors, and `matrix_parameters` is what reconciles the two.
+    #[test]
+    fn a_dropped_column_leaves_the_curvature_rather_than_appearing_as_a_zero_row() {
+        // The second feature never varies, which is the case the design drops.
+        let col = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0];
+        let x = vec![col.clone(), vec![7.0; 10]];
+        let y = vec![1.0, 2.0, 4.0, 5.0, 8.0, 10.0, 15.0, 20.0, 25.0, 30.0];
+        let options = PoissonOptions {
+            compute_inference: true,
+            ..Default::default()
+        };
+        let fit = fit_poisson(&y, &x, &options).unwrap();
+        let inf = fit.inference.as_ref().expect("inference was requested");
+        let vcov = inf.vcov.as_ref().expect("the covariance must be reported");
+
+        let dropped: Vec<usize> = (0..2).filter(|j| inf.std_errors[*j].is_nan()).collect();
+        assert_eq!(dropped, vec![1], "the constant column is the one dropped");
+
+        // The dropped feature has no row, so a caller cannot index a meaningless one.
+        assert!(
+            !inf.matrix_parameters.contains(&Some(dropped[0])),
+            "a dropped column must not appear in matrix_parameters: {:?}",
+            inf.matrix_parameters
+        );
+        assert_eq!(
+            vcov.nrows(),
+            inf.matrix_parameters.len(),
+            "the matrix is exactly as wide as the mapping says"
+        );
+        for r in 0..vcov.nrows() {
+            for c in 0..vcov.ncols() {
+                assert!(vcov[(r, c)].is_finite(), "no NaN inside the fitted block");
+            }
+        }
+    }
+
     #[test]
     fn test_poisson_basic() {
         let x = vec![vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]];
