@@ -1,3 +1,5 @@
+use faer::Mat;
+
 /// Core result from model fitting - always computed
 #[derive(Debug, Clone)]
 pub struct FitResultCore {
@@ -911,6 +913,28 @@ pub struct GlmInferenceResult {
     pub ci_upper: Vec<f64>,
     /// Confidence level used (e.g., 0.95)
     pub confidence_level: f64,
+    /// The full covariance of the fitted parameters at the mode, `None` when
+    /// inference was not requested.
+    ///
+    /// **In fitted order, not the expanded feature order the vectors above use.**
+    /// The vectors strip the intercept and put `NaN` where a column was dropped for
+    /// rank deficiency; a matrix cannot follow that convention, because removing the
+    /// intercept row would discard the intercept/slope covariance that is most of the
+    /// reason to want the matrix. [`Self::matrix_parameters`] says what each row is.
+    pub vcov: Option<Mat<f64>>,
+    /// The penalised observed information at the mode — the inverse of [`Self::vcov`]
+    /// — in the same order, `None` when inference was not requested.
+    ///
+    /// Reported alongside the covariance because they answer different questions:
+    /// `vcov` is what a report reads, the information is what a sampler factorises to
+    /// draw from the Laplace approximation.
+    pub information: Option<Mat<f64>>,
+    /// What each row and column of [`Self::vcov`] and [`Self::information`] refers to:
+    /// `None` for the intercept, `Some(j)` for feature `j` of the *original* design.
+    ///
+    /// Dropped columns are absent rather than present-and-`NaN`, so a caller cannot
+    /// index a row that was never fitted.
+    pub matrix_parameters: Vec<Option<usize>>,
 }
 
 // ============================================================================
