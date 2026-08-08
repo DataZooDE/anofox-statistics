@@ -38,9 +38,18 @@ jobs:
       #     (see the deploy job comment below).
       exclude_archs: "windows_amd64;windows_amd64_mingw"
 
+  duckdb-stable-smoke-test:
+    name: Smoke test (v1.5.5)
+    needs: duckdb-stable-build
+    uses: ./.github/workflows/_extension_smoke_test.yml
+    with:
+      duckdb_version: v1.5.5
+      extension_name: anofox_statistics
+      exclude_archs: 'windows_amd64;windows_amd64_mingw'
+
   duckdb-stable-deploy:
     name: Deploy extension binaries (v1.5.5)
-    needs: duckdb-stable-build
+    needs: [duckdb-stable-build, duckdb-stable-smoke-test]
     # Run the deploy step even when a non-essential build matrix entry
     # (currently windows_amd64 — DuckDB's vendored third_party/fmt is
     # flaky on MSVC) fails. The deploy job itself fans out per arch and
@@ -69,9 +78,18 @@ jobs:
       # deployed, and the mingw leg 404s on a deleted MSYS2 libtool package.
       exclude_archs: "windows_amd64;windows_amd64_mingw"
 
+  duckdb-lts-smoke-test:
+    name: Smoke test (v1.4.5)
+    needs: duckdb-lts-build
+    uses: ./.github/workflows/_extension_smoke_test.yml
+    with:
+      duckdb_version: v1.4.5
+      extension_name: anofox_statistics
+      exclude_archs: 'windows_amd64;windows_amd64_mingw'
+
   duckdb-lts-deploy:
     name: Deploy extension binaries (v1.4.5 LTS)
-    needs: duckdb-lts-build
+    needs: [duckdb-lts-build, duckdb-lts-smoke-test]
     # Same resilience as the v1.5.5 deploy: don't gate the whole release on
     # the flaky LTS windows_amd64_mingw matrix entry.
     if: ${{ !cancelled() }}
