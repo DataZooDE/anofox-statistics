@@ -155,6 +155,17 @@ impl EngineFit {
         let inf = self.inference.as_ref()?;
         let expand = |v: &[f64]| self.design.expand(v).0;
 
+        // What each row of the matrices is. The vectors above are expanded into the
+        // original feature order with `NaN` for dropped columns and the intercept
+        // stripped; the matrices stay in fitted order, so this is what reconciles the
+        // two. A dropped column is absent rather than present-and-`NaN`, so a caller
+        // cannot index a row that was never fitted.
+        let mut matrix_parameters: Vec<Option<usize>> = Vec::new();
+        if self.design.fit_intercept {
+            matrix_parameters.push(None);
+        }
+        matrix_parameters.extend(self.design.retained_columns.iter().map(|&j| Some(j)));
+
         Some(GlmInferenceResult {
             std_errors: expand(&inf.std_errors),
             z_values: expand(&inf.z_values),
@@ -162,6 +173,9 @@ impl EngineFit {
             ci_lower: expand(&inf.ci_lower),
             ci_upper: expand(&inf.ci_upper),
             confidence_level: inf.confidence_level,
+            vcov: Some(inf.vcov.clone()),
+            information: Some(self.irls.information.clone()),
+            matrix_parameters,
         })
     }
 }
