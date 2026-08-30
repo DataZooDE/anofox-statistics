@@ -19,8 +19,8 @@ gates every push/PR in CI, and is documented for local use.
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: WASM Build Green** - Rust compiles for emscripten and the extension builds for all WASM archs in CI *(implemented; CI-gate verification pending push)*
-- [ ] **Phase 2: Load & Runtime Correctness** - The built `.wasm` loads in DuckDB-Wasm and core functions return correct results
-- [ ] **Phase 3: Automated Harness & CI Gate** - Node harness runs the SQL suite, gates CI on every push/PR, and is documented
+- [x] **Phase 2: Load & Runtime Correctness** - The built `.wasm` loads in DuckDB-Wasm and core functions return correct results *(implemented via test/wasm harness; CI-gate pending)*
+- [x] **Phase 3: Automated Harness & CI Gate** - Node harness runs the SQL suite, gates CI on every push/PR, and is documented *(implemented; first CI run pending)*
 
 ## Phase Details
 
@@ -78,5 +78,5 @@ Phases execute in numeric order: 1 → 2 → 3
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. WASM Build Green | 1/1 | Implemented (CI-gate pending) | 2026-08-30 |
-| 2. Load & Runtime Correctness | 0/TBD | Not started | - |
-| 3. Automated Harness & CI Gate | 0/TBD | Not started | - |
+| 2. Load & Runtime Correctness | 1/1 | Implemented (CI-gate pending) | 2026-08-30 |
+| 3. Automated Harness & CI Gate | 1/1 | Implemented (CI-gate pending) | 2026-08-30 |

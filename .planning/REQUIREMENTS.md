@@ -50,15 +50,15 @@ Which phases cover which requirements. Filled during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| WASM-01 | Phase 1 | Pending |
-| WASM-02 | Phase 1 | Pending |
-| WASM-03 | Phase 1 | Pending |
-| WASM-04 | Phase 1 | Pending |
-| LOAD-01 | Phase 2 | Pending |
-| LOAD-02 | Phase 2 | Pending |
-| TEST-01 | Phase 3 | Pending |
-| TEST-02 | Phase 3 | Pending |
-| TEST-03 | Phase 3 | Pending |
+| WASM-01 | Phase 1 | Implemented (CI-gate pending) |
+| WASM-02 | Phase 1 | Implemented (CI-gate pending) |
+| WASM-03 | Phase 1 | Implemented (CI-gate pending) |
+| WASM-04 | Phase 1 | Implemented (CI-gate pending) |
+| LOAD-01 | Phase 2 | Implemented (CI-gate pending) |
+| LOAD-02 | Phase 2 | Implemented (CI-gate pending) |
+| TEST-01 | Phase 3 | Implemented (CI-gate pending) |
+| TEST-02 | Phase 3 | Implemented (CI-gate pending) |
+| TEST-03 | Phase 3 | Implemented (CI-gate pending) |
 
 **Coverage:**
 - v0.2.0 requirements: 9 total
