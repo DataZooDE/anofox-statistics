@@ -1,0 +1,17 @@
+{
+  "name": "anofox-statistics-wasm-tests",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "DuckDB-Wasm smoke/regression harness for the anofox_statistics extension.",
+  "scripts": {
+    "test": "node run.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@duckdb/duckdb-wasm": "1.29.0",
+    "web-worker": "1.2.0"
+  }
+}
