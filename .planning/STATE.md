@@ -40,6 +40,18 @@ Progress: [██████████] 100% implemented (CI-gate verificatio
 ### Todos
 - (none)
 
+## Deferred Verification
+
+All phases are implemented; WASM verification is a CI gate (no local emcc /
+wasm32-unknown-emscripten), deferred per the autonomous run's "implement now,
+verify in CI" decision.
+
+| Phase | State | Resume |
+|-------|-------|--------|
+| 1 | verification_deferred_ci | push branch → confirm wasm_* build legs green (v1.5.5, v1.4.5) |
+| 2 | verification_deferred_ci | push branch → `wasm-runtime-test` LOAD + representative results pass |
+| 3 | verification_deferred_ci | push branch → `wasm-runtime-test` job green (reconcile duckdb-wasm pin if needed) |
+
 ## Session Continuity
 
 Last session: 2026-08-30
