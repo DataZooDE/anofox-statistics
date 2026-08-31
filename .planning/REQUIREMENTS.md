@@ -46,27 +46,25 @@ Deferred to a later milestone.
 
 ## Traceability
 
-Filled during roadmap creation.
-
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PERF-01 | TBD | Pending |
-| PERF-02 | TBD | Pending |
-| PERF-03 | TBD | Pending |
-| PERF-04 | TBD | Pending |
-| ERGO-01 | TBD | Pending |
-| ERGO-02 | TBD | Pending |
-| ERGO-03 | TBD | Pending |
-| DOCS-01 | TBD | Pending |
-| DOCS-02 | TBD | Pending |
-| DOCS-03 | TBD | Pending |
-| DOCS-04 | TBD | Pending |
+| PERF-01 | Phase 4 | Pending |
+| PERF-02 | Phase 4 | Pending |
+| PERF-03 | Phase 4 | Pending |
+| PERF-04 | Phase 4 | Pending |
+| ERGO-01 | Phase 5 | Pending |
+| ERGO-02 | Phase 5 | Pending |
+| ERGO-03 | Phase 5 | Pending |
+| DOCS-01 | Phase 6 | Pending |
+| DOCS-02 | Phase 6 | Pending |
+| DOCS-03 | Phase 6 | Pending |
+| DOCS-04 | Phase 6 | Pending |
 
 **Coverage:**
 - v0.3.0 requirements: 11 total
-- Mapped to phases: 0 (roadmap pending)
-- Unmapped: 11 ⚠️
+- Mapped to phases: 11 ✓
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-08-31*
-*Last updated: 2026-08-31 after initial definition*
+*Last updated: 2026-08-31 after v0.3.0 roadmap creation (Phases 4-6)*
