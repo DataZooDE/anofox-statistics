@@ -64,11 +64,11 @@ documented SQL example validated in CI. Breaking API changes are permitted
   3. Each top hotspot surfaced by profiling is either optimized or explicitly documented as inherent, each with before/after numbers from the benchmark
   4. The FFI layer's manual `libc::malloc`/`free` pattern is refactored (RAII wrapper and/or codegen macros) with per-call allocation overhead reduced, and the existing `test/sql` + `cargo test` suites stay green (results unchanged)
 
-**Plans**: 2/3 plans executed
+**Plans**: 3/3 plans executed
 
 - [x] 04-01-PLAN.md — Benchmark harness (tracer): scripts/bench.sh + three workload SQL scripts + bench/README.md (PERF-01/02)
 - [x] 04-02-PLAN.md — FFI allocation refactor: FfiVec<T> RAII wrapper + alloc_inference_arrays! macro across 13 sites (PERF-04)
-- [ ] 04-03-PLAN.md — Profiling & hotspot optimization: top-3 hotspots optimized or documented inherent with before/after numbers (PERF-03)
+- [x] 04-03-PLAN.md — Profiling & hotspot optimization: top-3 hotspots optimized or documented inherent with before/after numbers (PERF-03)
 
 ### Phase 5: API Ergonomics
 
@@ -105,6 +105,6 @@ Phases execute in numeric order: 4 → 5 → 6
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 4. Benchmarking & Performance | v0.3.0 | 2/3 | In Progress|  |
+| 4. Benchmarking & Performance | v0.3.0 | 3/3 | In Progress|  |
 | 5. API Ergonomics | v0.3.0 | 0/TBD | Not started | - |
 | 6. Docs Refresh & SQL Validation | v0.3.0 | 0/TBD | Not started | - |
