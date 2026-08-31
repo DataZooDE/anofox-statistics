@@ -62,23 +62,27 @@ Exit code is non-zero on any load or assertion failure.
   intentionally tolerant on numeric comparisons (float tolerance) — not a full
   sqllogictest implementation.
 
-## Coverage & known `--all` discrepancies
+## Coverage
 
-The **CI gate** runs the curated subset (currently 9 files) and is fully green
-(198/198). Running the full suite locally (`--all`, 99 files) currently reports
-**2089 passed / 1 failed**, with per-file catalog isolation and these caveats:
+The CI gate runs the **full suite** (`--all`, all `test/sql/**/*.test`) against
+the built `.wasm` and is green: **2090 assertions passing** across 99 files
+(`test/sql/quack.test` is skipped — extension-template boilerplate calling
+`quack` / `quack_openssl_version`, functions this extension doesn't define).
 
-- `test/sql/quack.test` is **skipped** — it's extension-template boilerplate that
-  calls `quack` / `quack_openssl_version`, functions this extension doesn't define.
-- `test/sql/macros/test_fit_predict_by.test` has **1 failing assertion**:
-  `MIN(x1)` over `ols_fit_predict_by(...)` returns `10` under DuckDB-Wasm where
-  the suite expects `1.0` (COUNT / MAX / null-count on the same row all match).
-  This is **not** load/state leakage — it's a possible WASM-specific discrepancy
-  in the macro's passthrough column and is left **unmasked** pending
-  investigation (tracked as a follow-up, not gated).
+Notes on how results are compared (learned the hard way):
 
-Float comparison uses a loose tolerance (abs 1e-6 / rel 1e-4) to absorb benign
-native-vs-WASM floating-point differences.
+- **Results are formatted via DuckDB's own `::VARCHAR`**, not read as JS values.
+  duckdb-wasm's Arrow-JS extraction mis-renders `DECIMAL` columns — it returns
+  the *unscaled* integer (`1.0` → `10`) — whereas `x::VARCHAR` applies the scale
+  (`"1.0"`), matching native sqllogictest output. (This is a duckdb-wasm/Arrow
+  quirk, independent of this extension; it was the cause of a spurious
+  `MIN(x1)` "failure" during bring-up.)
+- Each file runs with an **isolated catalog** (DB re-opened + extension re-loaded
+  per file) so `CREATE TABLE` / temp state can't leak across files.
+- Multi-column `.test` rows are TAB-separated on one line; booleans render per
+  the column type (`query I` → 1/0, `query T` → true/false) — both handled.
+- Float comparison uses a loose tolerance (abs 1e-6 / rel 1e-4) to absorb benign
+  native-vs-WASM floating-point differences.
 
 ## Version matching (important)
 

@@ -89,7 +89,7 @@ jobs:
           EXT=$(find wasm-artifact -name 'anofox_statistics.duckdb_extension.wasm' | head -1)
           if [ -z "$EXT" ]; then echo "::error::built wasm extension not found in artifact"; exit 1; fi
           echo "Testing extension: $EXT"
-          node test/wasm/run.mjs --ext "$EXT"
+          node test/wasm/run.mjs --all --ext "$EXT"
 
   duckdb-lts-build:
     name: Build extension binaries (DuckDB LTS v1.4.5)

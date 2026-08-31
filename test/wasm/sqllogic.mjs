@@ -225,7 +225,19 @@ export async function runRecords(records, runQuery, { file, log }) {
 
     if (rec.type === 'query') {
       try {
-        const rows = await runQuery(rec.sql);
+        // Format results through DuckDB's own ::VARCHAR rather than reading JS
+        // values: duckdb-wasm's Arrow-JS extraction mis-renders DECIMAL columns
+        // (returns the unscaled integer — 1.0 → "10"), whereas DuckDB's text
+        // cast applies the scale ("1.0"), matching native sqllogictest output.
+        // Fall back to the raw query if the wrap fails to bind (e.g. a
+        // non-projectable statement).
+        const inner = rec.sql.trim().replace(/;\s*$/, '');
+        let rows;
+        try {
+          rows = await runQuery(`SELECT COLUMNS(*)::VARCHAR FROM (\n${inner}\n) AS _wrap`);
+        } catch {
+          rows = await runQuery(rec.sql);
+        }
         const cmp = compareQuery(rec, rows);
         if (cmp.ok) result.passed++;
         else {

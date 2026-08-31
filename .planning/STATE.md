@@ -48,11 +48,17 @@ predicted duckdb-wasm↔engine ABI mismatch (1.29.0 → engine v1.1.1 vs v1.5.5
 artifact); fixed by pinning `@duckdb/duckdb-wasm@1.33.1-dev64.0` (engine v1.5.5).
 The `Smoke test (linux_amd64)` failure was an unrelated network flake.
 
+Locally verified against the real v1.5.5 wasm_eh artifact: extension LOADs and the
+**full 99-file suite passes 2090/2090** (quack.test skipped as template cruft).
+The gate now runs `--all`. A `MIN(x1)` discrepancy was investigated and traced to
+a duckdb-wasm Arrow-JS DECIMAL-rendering quirk (unscaled integer) in the harness,
+NOT an extension bug; fixed by formatting results through DuckDB `::VARCHAR`.
+
 | Phase | State | Resume |
 |-------|-------|--------|
-| 1 | VERIFIED (CI run 1) | — |
-| 2 | verification_pending_ci | CI run 2 → `wasm-runtime-test` LOAD + results pass with dev64 pin |
-| 3 | verification_pending_ci | CI run 2 → `wasm-runtime-test` job green |
+| 1 | VERIFIED (CI run 1: all wasm build/deploy legs green) | — |
+| 2 | VERIFIED locally (LOAD + full-suite results correct vs native) | CI confirmation on final run |
+| 3 | VERIFIED locally (harness + full suite green); CI job + badge wired | CI confirmation on final run |
 
 ## Session Continuity
 
