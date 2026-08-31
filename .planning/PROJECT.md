@@ -29,14 +29,14 @@ SQL, wherever DuckDB runs — **including the browser (DuckDB-Wasm)**.
 - ✓ Extension loads without error in DuckDB-Wasm — v0.2.0
 - ✓ Statistical functions return correct results under DuckDB-Wasm (full SQL suite, 2095/2095) — v0.2.0
 - ✓ Automated Node WASM harness runs the SQL suite and gates CI + status badge — v0.2.0
+- ✓ Repeatable benchmark suite over representative workloads (`scripts/bench.sh` + 3 workloads, diffable results) — Phase 4
+- ✓ Hotspots profiled and optimized-or-documented-as-inherent, with before/after numbers (`bench/PROFILING.md`) — Phase 4
+- ✓ FFI manual malloc/free pattern refactored (`FfiVec` RAII + `alloc_inference_arrays!` macro; C `free` contract preserved; suites green) — Phase 4
 
 ### Active
 
 <!-- Current milestone: v0.3.0 — Performance & Polish. -->
 
-- [ ] Repeatable benchmark suite over representative workloads
-- [ ] Hotspots profiled and optimized (or documented as inherent)
-- [ ] FFI manual malloc/free pattern refactored (less overhead + leak risk, no behavior change)
 - [ ] Clear, actionable error messages + early input validation
 - [ ] Consistent signatures / option keys / return-struct fields across function families
 - [ ] README restructured to anofox-forecast form (emoji sections, ToC, Quick Start, structured API ref)
@@ -82,6 +82,8 @@ SQL, wherever DuckDB runs — **including the browser (DuckDB-Wasm)**.
 | Verify WASM via Node harness running `test/sql` | Compile+link (ci-tools) can't catch load/runtime failures; Node has a real FS so it installs/loads like production | ✓ Good — 2095/2095 assertions pass; gating CI job + badge (v0.2.0) |
 | Pin `@duckdb/duckdb-wasm` to engine v1.5.5 (dev build `1.33.1-dev64.0`) | Extensions are ABI-locked to the engine version; only this dev build bundles v1.5.5 | ⚠️ Revisit — dev-tag dependency; bump when a stable duckdb-wasm ships 1.5.x |
 | Format harness results via DuckDB `::VARCHAR` | duckdb-wasm Arrow-JS renders DECIMAL unscaled (1.0→10); `::VARCHAR` applies scale, matching native | ✓ Good (v0.2.0) |
+| FFI result arrays stay `libc::malloc`-backed (`FfiVec`), never `Box`/`Vec` | C++ frees them with C `free()`; Rust's global allocator can differ from libc malloc on musl (WASM/CI) → UB | ✓ Good — Phase 4; `ffi_vec_ptr_is_freeable_by_libc` guards it |
+| Convert only the 6 strict inference sites to the macro; leave 6 GLM + 1 ALM hand-written | GLM maps `z_values`→t_values with lenient OOM; ALM uses different field names — forcing the strict macro would change behavior | ✓ Good — Phase 4; documented, suites green |
 
 ## Evolution
 
@@ -100,5 +102,11 @@ This document evolves at phase transitions and milestone boundaries.
 3. Audit Out of Scope — reasons still valid?
 4. Update Context with current state
 
+> **Carried into Phase 5 (ERGO):** the rolling `anofox_stats_ols_fit_predict(...) OVER (...)`
+> window throws a DuckDB INTERNAL error ("access index 0 within vector of size 0") when the
+> expanding frame fits on a degenerate sub-`(n_features+1)` frame at each partition start —
+> a pre-existing input-validation gap surfaced by the Phase-4 benchmark. Prime target for
+> ERGO-01/02 (fail fast with a clear message instead of a panic).
+
 ---
-*Last updated: 2026-08-31 after v0.2.0 (WASM Support) milestone*
+*Last updated: 2026-08-31 after Phase 4 (Benchmarking & Performance)*

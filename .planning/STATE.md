@@ -2,15 +2,20 @@
 gsd_state_version: 1.0
 milestone: v0.3.0
 milestone_name: Performance & Polish
+current_phase: 5
+current_phase_name: API Ergonomics
 status: planning
-last_updated: "2026-08-31T12:11:23.810Z"
+stopped_at: Phase 04 complete, ready to plan Phase 5
+last_updated: "2026-08-31T20:02:05.979Z"
 last_activity: 2026-08-31
+last_activity_desc: Phase 04 complete, transitioned to Phase 5
+state_head: 866497affe284497557308128f27f9079736252b
 progress:
   total_phases: 3
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  completed_phases: 1
+  total_plans: 3
+  completed_plans: 3
+  percent: 33
 ---
 
 # State
@@ -20,14 +25,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-31)
 
 **Core value:** Users can run rigorous statistical models in plain SQL wherever DuckDB runs, including the browser (DuckDB-Wasm) — this milestone makes that faster and easier to use.
-**Current focus:** Milestone v0.3.0 — Performance & Polish (roadmap created, ready to plan Phase 4)
+**Current focus:** Milestone v0.3.0 — Performance & Polish (Phase 4 complete; ready to plan Phase 5 — API Ergonomics)
 
 ## Current Position
 
-Phase: Phase 4 — Benchmarking & Performance
-Plan: —
-Status: Roadmap created, ready to plan Phase 4
-Last activity: 2026-08-31 — v0.3.0 roadmap created (3 phases, 11 requirements mapped)
+Phase: 5 — API Ergonomics
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-08-31 — Phase 04 complete, transitioned to Phase 5
 
 ## Accumulated Context
 
@@ -38,10 +43,12 @@ Last activity: 2026-08-31 — v0.3.0 roadmap created (3 phases, 11 requirements 
 - No external domain research phase for v0.3.0
 - Benchmark suite (PERF-01/02) comes first — it is the measurement foundation for PERF-03 (hotspots) and PERF-04 (FFI/alloc refactor), which need before/after numbers
 - Docs work (Phase 6) comes last, after ERGO renames land, so SQL examples are validated against the final API
+- [Phase 4] FFI result arrays are `libc::malloc`-backed (`FfiVec`), never Box/Vec — C++ frees with C `free()` (musl/WASM ABI)
+- [Phase 4] Benchmark harness = `scripts/bench.sh`; hotspots dominated by DuckDB `HASH_GROUP_BY` dispatch (inherent), not extension code
 
 ### Blockers
 
-- (none)
+- ⚠️ [Phase 4→5] `anofox_stats_ols_fit_predict(...) OVER (...)` rolling window throws a DuckDB INTERNAL error on degenerate sub-`(n_features+1)` frames at partition start — pre-existing input-validation gap; prime ERGO-01/02 target for Phase 5
 
 ### Todos
 
@@ -50,7 +57,7 @@ Last activity: 2026-08-31 — v0.3.0 roadmap created (3 phases, 11 requirements 
 ## Session Continuity
 
 Last session: 2026-08-31
-Stopped at: v0.3.0 roadmap created (Phases 4-6, 11 requirements mapped: PERF-01..04 → Phase 4, ERGO-01..03 → Phase 5, DOCS-01..04 → Phase 6)
+Stopped at: Phase 04 complete, ready to plan Phase 5
 Resume file: None
 
 ## Operator Next Steps

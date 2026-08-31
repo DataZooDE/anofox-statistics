@@ -105,6 +105,6 @@ Phases execute in numeric order: 4 → 5 → 6
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 4. Benchmarking & Performance | v0.3.0 | 3/3 | In Progress|  |
+| 4. Benchmarking & Performance | v0.3.0 | 3/3 | Complete    | 2026-08-31 |
 | 5. API Ergonomics | v0.3.0 | 0/TBD | Not started | - |
 | 6. Docs Refresh & SQL Validation | v0.3.0 | 0/TBD | Not started | - |

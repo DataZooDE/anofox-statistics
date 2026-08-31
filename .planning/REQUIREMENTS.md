@@ -10,10 +10,10 @@ API changes may be **breaking** (early-dev); docs/tests are updated to match.
 
 ### Performance (PERF)
 
-- [ ] **PERF-01**: A repeatable benchmark harness measures representative workloads (aggregate dispatch, fit/predict paths, FFI marshalling) and reports timings
-- [ ] **PERF-02**: Benchmark runs are reproducible locally and documented (how to run, what they cover); optional CI perf tracking noted
-- [ ] **PERF-03**: The top hotspots surfaced by profiling are each optimized or explicitly documented as inherent, with before/after numbers from the benchmark
-- [ ] **PERF-04**: The FFI layer's manual `libc::malloc`/`free` pattern is refactored (RAII wrapper and/or codegen macros) reducing per-call overhead and leak risk, with results unchanged (tests still green)
+- [x] **PERF-01**: A repeatable benchmark harness measures representative workloads (aggregate dispatch, fit/predict paths, FFI marshalling) and reports timings
+- [x] **PERF-02**: Benchmark runs are reproducible locally and documented (how to run, what they cover); optional CI perf tracking noted
+- [x] **PERF-03**: The top hotspots surfaced by profiling are each optimized or explicitly documented as inherent, with before/after numbers from the benchmark
+- [x] **PERF-04**: The FFI layer's manual `libc::malloc`/`free` pattern is refactored (RAII wrapper and/or codegen macros) reducing per-call overhead and leak risk, with results unchanged (tests still green)
 
 ### Ergonomics (ERGO)
 
@@ -48,10 +48,10 @@ Deferred to a later milestone.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PERF-01 | Phase 4 | Pending |
-| PERF-02 | Phase 4 | Pending |
-| PERF-03 | Phase 4 | Pending |
-| PERF-04 | Phase 4 | Pending |
+| PERF-01 | Phase 4 | Complete |
+| PERF-02 | Phase 4 | Complete |
+| PERF-03 | Phase 4 | Complete |
+| PERF-04 | Phase 4 | Complete |
 | ERGO-01 | Phase 5 | Pending |
 | ERGO-02 | Phase 5 | Pending |
 | ERGO-03 | Phase 5 | Pending |
@@ -61,6 +61,7 @@ Deferred to a later milestone.
 | DOCS-04 | Phase 6 | Pending |
 
 **Coverage:**
+
 - v0.3.0 requirements: 11 total
 - Mapped to phases: 11 ✓
 - Unmapped: 0 ✓
