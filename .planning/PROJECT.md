@@ -25,15 +25,16 @@ SQL, wherever DuckDB runs — **including the browser (DuckDB-Wasm)**.
 - ✓ Native statistical function suite (regression, GLM, GLMM, AFT, tests, diagnostics) — v0.1.0
 - ✓ Native distribution for linux/osx (amd64+arm64) via extension-ci-tools — v0.1.0
 - ✓ Rust FFI static archive linked into WASM builds (`LINKED_LIBS`) — #103
+- ✓ Extension builds green for all WASM archs (wasm_mvp/eh/threads) on v1.5.5 + v1.4.5 — v0.2.0
+- ✓ Extension loads without error in DuckDB-Wasm — v0.2.0
+- ✓ Statistical functions return correct results under DuckDB-Wasm (full SQL suite, 2095/2095) — v0.2.0
+- ✓ Automated Node WASM harness runs the SQL suite and gates CI + status badge — v0.2.0
 
 ### Active
 
-<!-- Current milestone: v0.2.0 — WASM Support. Building toward these. -->
+<!-- No active milestone. Next milestone defined via /gsd-new-milestone. -->
 
-- [ ] Extension builds green for all WASM archs in CI
-- [ ] Extension loads without error in DuckDB-Wasm
-- [ ] Core statistical functions return correct results under DuckDB-Wasm
-- [ ] Automated Node-based WASM harness runs the SQL test suite and gates CI
+(None — v0.2.0 shipped; next milestone TBD)
 
 ### Out of Scope
 
@@ -71,8 +72,10 @@ SQL, wherever DuckDB runs — **including the browser (DuckDB-Wasm)**.
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
 | Link Rust FFI archive via `LINKED_LIBS` in `extension_config.cmake` | WASM post-build emcc link ignores `target_link_libraries`; symbols else unresolved | ✓ Good (#103) |
-| Disable telemetry on Emscripten (like MinGW) | `CaptureExtensionLoad` makes a raw HTTPS socket call at load; WASM has no sockets → load throws | — Pending (verify in CI) |
-| Verify WASM via Node harness running `test/sql` | Compile+link (ci-tools) can't catch load/runtime failures; Node has a real FS so it installs/loads like production | — Pending |
+| Disable telemetry on Emscripten (like MinGW) | `CaptureExtensionLoad` makes a raw HTTPS socket call at load; WASM has no sockets → load throws | ✓ Good — CI-verified, extension loads in DuckDB-Wasm (v0.2.0) |
+| Verify WASM via Node harness running `test/sql` | Compile+link (ci-tools) can't catch load/runtime failures; Node has a real FS so it installs/loads like production | ✓ Good — 2095/2095 assertions pass; gating CI job + badge (v0.2.0) |
+| Pin `@duckdb/duckdb-wasm` to engine v1.5.5 (dev build `1.33.1-dev64.0`) | Extensions are ABI-locked to the engine version; only this dev build bundles v1.5.5 | ⚠️ Revisit — dev-tag dependency; bump when a stable duckdb-wasm ships 1.5.x |
+| Format harness results via DuckDB `::VARCHAR` | duckdb-wasm Arrow-JS renders DECIMAL unscaled (1.0→10); `::VARCHAR` applies scale, matching native | ✓ Good (v0.2.0) |
 
 ## Evolution
 
@@ -92,4 +95,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-08-30 after starting milestone v0.2.0 (WASM Support)*
+*Last updated: 2026-08-31 after v0.2.0 (WASM Support) milestone*

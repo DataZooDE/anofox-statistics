@@ -38,3 +38,6 @@ Thumbs.db
 
 # Codex delegation artifacts (contains API responses)
 .codex-delegate/
+
+# WASM test harness local install
+test/wasm/node_modules/
