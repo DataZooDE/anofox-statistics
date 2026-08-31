@@ -50,19 +50,19 @@ Which phases cover which requirements. Filled during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| WASM-01 | Phase 1 | Implemented (CI-gate pending) |
-| WASM-02 | Phase 1 | Implemented (CI-gate pending) |
-| WASM-03 | Phase 1 | Implemented (CI-gate pending) |
-| WASM-04 | Phase 1 | Implemented (CI-gate pending) |
-| LOAD-01 | Phase 2 | Implemented (CI-gate pending) |
-| LOAD-02 | Phase 2 | Implemented (CI-gate pending) |
-| TEST-01 | Phase 3 | Implemented (CI-gate pending) |
-| TEST-02 | Phase 3 | Implemented (CI-gate pending) |
-| TEST-03 | Phase 3 | Implemented (CI-gate pending) |
+| WASM-01 | Phase 1 | Complete |
+| WASM-02 | Phase 1 | Complete |
+| WASM-03 | Phase 1 | Complete |
+| WASM-04 | Phase 1 | Complete |
+| LOAD-01 | Phase 2 | Complete |
+| LOAD-02 | Phase 2 | Complete |
+| TEST-01 | Phase 3 | Complete |
+| TEST-02 | Phase 3 | Complete |
+| TEST-03 | Phase 3 | Complete |
 
 **Coverage:**
 - v0.2.0 requirements: 9 total
-- Mapped to phases: 9 ✓
+- Mapped to phases: 9 ✓ — all Complete (CI-verified in DuckDB-Wasm)
 - Unmapped: 0 ✓
 
 ---

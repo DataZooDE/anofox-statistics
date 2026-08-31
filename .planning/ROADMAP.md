@@ -77,6 +77,6 @@ Phases execute in numeric order: 1 → 2 → 3
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. WASM Build Green | 1/1 | Implemented (CI-gate pending) | 2026-08-30 |
-| 2. Load & Runtime Correctness | 1/1 | Implemented (CI-gate pending) | 2026-08-30 |
-| 3. Automated Harness & CI Gate | 1/1 | Implemented (CI-gate pending) | 2026-08-30 |
+| 1. WASM Build Green | 1/1 | ✓ Verified (CI) | 2026-08-31 |
+| 2. Load & Runtime Correctness | 1/1 | ✓ Verified (CI) | 2026-08-31 |
+| 3. Automated Harness & CI Gate | 1/1 | ✓ Verified (CI) | 2026-08-31 |
