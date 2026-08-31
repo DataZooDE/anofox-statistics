@@ -4,6 +4,7 @@ A statistical analysis extension for DuckDB, providing regression analysis, diag
 
 [![License: BSL 1.1](https://img.shields.io/badge/License-BSL%201.1-blue.svg)](LICENSE)
 [![DuckDB Version](https://img.shields.io/badge/DuckDB-v1.4.5%20LTS%20%7C%20v1.5.4-brightgreen.svg)](https://duckdb.org)
+[![WASM](https://github.com/DataZooDE/anofox-statistics/actions/workflows/WasmTest.yml/badge.svg?branch=main)](https://github.com/DataZooDE/anofox-statistics/actions/workflows/WasmTest.yml)
 
 > [!IMPORTANT]
 > This extension is in early development, so bugs and breaking changes are expected.
