@@ -81,8 +81,14 @@ set(LOADABLE_EXTENSION_NAME ${TARGET_NAME}_loadable_extension)
 
 project(${TARGET_NAME})
 
-# --- Telemetry (disabled on MinGW where vcpkg cannot build OpenSSL) ---
-if(NOT MINGW)
+# --- Telemetry (disabled on MinGW and WASM) ---
+# MinGW: vcpkg cannot build OpenSSL there.
+# WASM/Emscripten: PostHogTelemetry::CaptureExtensionLoad() runs at extension
+# LOAD time and performs a raw HTTPS request via httplib + OpenSSL sockets.
+# WASM has no native socket layer, so that call throws and the extension fails
+# to load in DuckDB-Wasm. Compiling it out here is the WASM analogue of the
+# MinGW guard and mirrors DuckDB's own guidance to avoid raw HTTP in WASM.
+if(NOT MINGW AND NOT EMSCRIPTEN)
     find_package(OpenSSL REQUIRED)
 
     add_library(posthog_telemetry_obj OBJECT
@@ -101,7 +107,11 @@ if(NOT MINGW)
     target_compile_definitions(posthog_telemetry_obj PRIVATE ANOFOX_TELEMETRY_ENABLED)
     set(ANOFOX_TELEMETRY_ENABLED ON)
 else()
-    message(STATUS "Telemetry disabled: OpenSSL not available on MinGW")
+    if(EMSCRIPTEN)
+        message(STATUS "Telemetry disabled: raw HTTP/socket telemetry is not supported on WASM")
+    else()
+        message(STATUS "Telemetry disabled: OpenSSL not available on MinGW")
+    endif()
     set(ANOFOX_TELEMETRY_ENABLED OFF)
 endif()
 

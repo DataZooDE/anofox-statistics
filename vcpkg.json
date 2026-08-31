@@ -1,6 +1,9 @@
 {
   "dependencies": [
-    "openssl"
+    {
+      "name": "openssl",
+      "platform": "!wasm32"
+    }
   ],
   "vcpkg-configuration": {
     "overlay-ports": [

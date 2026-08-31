@@ -65,6 +65,41 @@ jobs:
       deploy_latest: ${{ startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main' }}
       deploy_versioned: ${{ startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main' }}
 
+  wasm-runtime-test:
+    name: WASM runtime test (Node harness, v1.5.5 wasm_eh)
+    # A green wasm build only proves the extension COMPILES + LINKS. This job
+    # proves it actually LOADS and RUNS in DuckDB-Wasm — the gap described in
+    # query.farm's "Testing DuckDB WASM Extensions". It consumes the wasm_eh
+    # artifact the build job already produced and runs test/wasm/run.mjs against
+    # it. Gating (no continue-on-error) per milestone requirement TEST-02.
+    needs: duckdb-stable-build
+    if: ${{ !cancelled() && needs.duckdb-stable-build.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        # Submodules not needed: the harness only uses test/ (this repo) + the
+        # downloaded .wasm; skipping them keeps this leg fast.
+
+      - name: Download built wasm_eh extension
+        uses: actions/download-artifact@v4
+        with:
+          name: anofox_statistics-v1.5.5-extension-wasm_eh
+          path: wasm-artifact
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install harness dependencies
+        run: npm --prefix test/wasm install
+
+      - name: Run DuckDB-Wasm load + runtime harness
+        run: |
+          EXT=$(find wasm-artifact -name 'anofox_statistics.duckdb_extension.wasm' | head -1)
+          if [ -z "$EXT" ]; then echo "::error::built wasm extension not found in artifact"; exit 1; fi
+          echo "Testing extension: $EXT"
+          node test/wasm/run.mjs --all --ext "$EXT"
+
   duckdb-lts-build:
     name: Build extension binaries (DuckDB LTS v1.4.5)
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.4-andium
