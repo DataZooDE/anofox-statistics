@@ -28,7 +28,9 @@ for arg in "$@"; do
   case "$arg" in
     --full) RUN_FULL=1 ;;
     -h|--help)
-      grep '^#' "$0" | sed 's/^# \{0,1\}//'
+      # WR-02: print only the usage block (lines from "Usage:" to the first
+      # non-comment line), not every '#' line in the script.
+      sed -n '/^# Usage:/,/^[^#]/ { /^#/ { s/^# \{0,1\}//; p } }' "$0"
       exit 0
       ;;
     *)

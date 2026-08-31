@@ -152,7 +152,16 @@ impl<T> FfiVec<T> {
         if self.len == 0 {
             return;
         }
-        debug_assert_eq!(src.len(), self.len, "copy_from_slice length mismatch");
+        // WR-01: assert in release too. A length mismatch here would read past the
+        // source slice or the destination allocation (UB) — at an FFI boundary a
+        // hard panic is strictly safer than silent memory corruption.
+        assert_eq!(
+            src.len(),
+            self.len,
+            "FfiVec::copy_from_slice: length mismatch ({} vs {})",
+            src.len(),
+            self.len
+        );
         std::ptr::copy_nonoverlapping(src.as_ptr(), self.ptr, self.len);
     }
 

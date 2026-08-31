@@ -261,7 +261,14 @@ pub unsafe extern "C" fn anofox_ols_fit(
                         inf,
                         out_inference,
                         out_error,
-                        { libc::free(coef_ptr as *mut libc::c_void); }
+                        {
+                            libc::free(coef_ptr as *mut libc::c_void);
+                            // CR-01: null the just-written coefficients pointer so a caller
+                            // that inspects *out_core after the `false` return cannot see a
+                            // dangling/freed pointer. Callers currently ignore *out_core on
+                            // failure; this is defense-in-depth at the FFI boundary.
+                            *out_core = FitResultCore::default();
+                        }
                     );
                 } else {
                     (*out_inference) = FitResultInference::default();
@@ -435,7 +442,14 @@ pub unsafe extern "C" fn anofox_huber_fit(
                         inf,
                         out_inference,
                         out_error,
-                        { libc::free(coef_ptr as *mut libc::c_void); }
+                        {
+                            libc::free(coef_ptr as *mut libc::c_void);
+                            // CR-01: null the just-written coefficients pointer so a caller
+                            // that inspects *out_core after the `false` return cannot see a
+                            // dangling/freed pointer. Callers currently ignore *out_core on
+                            // failure; this is defense-in-depth at the FFI boundary.
+                            *out_core = FitResultCore::default();
+                        }
                     );
                 } else {
                     (*out_inference) = FitResultInference::default();
@@ -629,7 +643,14 @@ pub unsafe extern "C" fn anofox_ransac_fit(
                         inf,
                         out_inference,
                         out_error,
-                        { libc::free(coef_ptr as *mut libc::c_void); }
+                        {
+                            libc::free(coef_ptr as *mut libc::c_void);
+                            // CR-01: null the just-written coefficients pointer so a caller
+                            // that inspects *out_core after the `false` return cannot see a
+                            // dangling/freed pointer. Callers currently ignore *out_core on
+                            // failure; this is defense-in-depth at the FFI boundary.
+                            *out_core = FitResultCore::default();
+                        }
                     );
                 } else {
                     (*out_inference) = FitResultInference::default();
@@ -810,7 +831,14 @@ pub unsafe extern "C" fn anofox_theilsen_fit(
                         inf,
                         out_inference,
                         out_error,
-                        { libc::free(coef_ptr as *mut libc::c_void); }
+                        {
+                            libc::free(coef_ptr as *mut libc::c_void);
+                            // CR-01: null the just-written coefficients pointer so a caller
+                            // that inspects *out_core after the `false` return cannot see a
+                            // dangling/freed pointer. Callers currently ignore *out_core on
+                            // failure; this is defense-in-depth at the FFI boundary.
+                            *out_core = FitResultCore::default();
+                        }
                     );
                 } else {
                     (*out_inference) = FitResultInference::default();
@@ -940,7 +968,14 @@ pub unsafe extern "C" fn anofox_ridge_fit(
                         inf,
                         out_inference,
                         out_error,
-                        { libc::free(coef_ptr as *mut libc::c_void); }
+                        {
+                            libc::free(coef_ptr as *mut libc::c_void);
+                            // CR-01: null the just-written coefficients pointer so a caller
+                            // that inspects *out_core after the `false` return cannot see a
+                            // dangling/freed pointer. Callers currently ignore *out_core on
+                            // failure; this is defense-in-depth at the FFI boundary.
+                            *out_core = FitResultCore::default();
+                        }
                     );
                 } else {
                     (*out_inference) = FitResultInference::default();
@@ -1285,7 +1320,14 @@ pub unsafe extern "C" fn anofox_wls_fit(
                         inf,
                         out_inference,
                         out_error,
-                        { libc::free(coef_ptr as *mut libc::c_void); }
+                        {
+                            libc::free(coef_ptr as *mut libc::c_void);
+                            // CR-01: null the just-written coefficients pointer so a caller
+                            // that inspects *out_core after the `false` return cannot see a
+                            // dangling/freed pointer. Callers currently ignore *out_core on
+                            // failure; this is defense-in-depth at the FFI boundary.
+                            *out_core = FitResultCore::default();
+                        }
                     );
                 } else {
                     (*out_inference) = FitResultInference::default();
