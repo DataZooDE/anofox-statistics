@@ -40,17 +40,19 @@ Progress: [██████████] 100% implemented (CI-gate verificatio
 ### Todos
 - (none)
 
-## Deferred Verification
+## Verification — CI
 
-All phases are implemented; WASM verification is a CI gate (no local emcc /
-wasm32-unknown-emscripten), deferred per the autonomous run's "implement now,
-verify in CI" decision.
+CI run 1 (PR #131): all WASM build + deploy legs GREEN on v1.5.5 and v1.4.5 →
+Phase 1 (WASM-01/02/03/04) VERIFIED. `wasm-runtime-test` gate failed on the
+predicted duckdb-wasm↔engine ABI mismatch (1.29.0 → engine v1.1.1 vs v1.5.5
+artifact); fixed by pinning `@duckdb/duckdb-wasm@1.33.1-dev64.0` (engine v1.5.5).
+The `Smoke test (linux_amd64)` failure was an unrelated network flake.
 
 | Phase | State | Resume |
 |-------|-------|--------|
-| 1 | verification_deferred_ci | push branch → confirm wasm_* build legs green (v1.5.5, v1.4.5) |
-| 2 | verification_deferred_ci | push branch → `wasm-runtime-test` LOAD + representative results pass |
-| 3 | verification_deferred_ci | push branch → `wasm-runtime-test` job green (reconcile duckdb-wasm pin if needed) |
+| 1 | VERIFIED (CI run 1) | — |
+| 2 | verification_pending_ci | CI run 2 → `wasm-runtime-test` LOAD + results pass with dev64 pin |
+| 3 | verification_pending_ci | CI run 2 → `wasm-runtime-test` job green |
 
 ## Session Continuity
 

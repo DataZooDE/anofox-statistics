@@ -30,11 +30,19 @@
   parses as valid YAML with the new job wired in.
 - **CI gate (open — T4):** first run of `wasm-runtime-test` must go green.
 
-## Known Reconciliation (first CI run)
+## Reconciliation — RESOLVED
 
-- **duckdb-wasm ↔ DuckDB version pairing** is the one knob that needs the real CI
-  signal: `@duckdb/duckdb-wasm` must be ABI-compatible with DuckDB v1.5.5. If the
-  first run fails at `LOAD` with a version/ABI error, bump the pin in
-  `test/wasm/package.json` (and, if no stable duckdb-wasm bundles 1.5.5, test the
-  v1.4.5 LTS artifact against a matching duckdb-wasm instead). The harness prints
-  the engine version to make this obvious.
+- **duckdb-wasm ↔ DuckDB version pairing** was the one knob needing the real CI
+  signal. First CI run (PR #131) confirmed it: `@duckdb/duckdb-wasm@1.29.0`
+  bundles engine **v1.1.1**, so loading the **v1.5.5** artifact ABI-mismatched
+  (`bad export type for '…SupportStatementCache…'`). The harness surfaced this
+  cleanly (it printed `engine: v1.1.1`).
+- **Fix:** pinned `@duckdb/duckdb-wasm@1.33.1-dev64.0` — the only published
+  version whose bundled engine is exactly **v1.5.5** (verified via the
+  storage-version list embedded in `dist/duckdb-eh.wasm`). It is the `@next` dev
+  build; no stable duckdb-wasm ships 1.5.x yet, and none bundles exactly v1.4.5,
+  so the gate targets the v1.5.5 artifact.
+- **Also observed:** all WASM build + deploy legs (wasm_mvp/eh/threads on v1.5.5
+  and v1.4.5) went green — WASM-01/02/03/04 confirmed. The concurrent
+  `Smoke test (linux_amd64)` failure was an unrelated network flake (connection
+  reset downloading the DuckDB CLI), not caused by this milestone.
