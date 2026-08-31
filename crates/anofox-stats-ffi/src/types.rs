@@ -77,6 +77,17 @@ impl DataArray {
     /// # Safety
     /// Caller must ensure pointers are valid and len is correct
     pub unsafe fn to_vec(&self) -> Vec<f64> {
+        if self.len == 0 {
+            return Vec::new();
+        }
+        // Fast path: no validity mask means every value is valid (the common case
+        // for dense/non-nullable columns). Bulk-copy the slice instead of the
+        // per-element validity branch + push. This returns the same owned
+        // Vec<f64> — no borrow crosses the FFI boundary, so there is no aliasing
+        // or lifetime risk; only the NULL→NaN branch (unreachable here) is skipped.
+        if self.validity.is_null() {
+            return std::slice::from_raw_parts(self.data, self.len).to_vec();
+        }
         let mut result = Vec::with_capacity(self.len);
         for i in 0..self.len {
             if self.is_valid(i) {
