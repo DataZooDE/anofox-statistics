@@ -35,6 +35,13 @@ const EXT_FILE = `${EXT_NAME}.duckdb_extension.wasm`;
 // Curated WASM-appropriate subset: breadth across function families, kept small
 // so the first CI gate is robust. Expand with --all once green. NOTE: this is an
 // explicit, logged subset — not a silent truncation of the 99-file suite.
+// Files skipped even under --all, with reason (logged, never silent):
+//  - quack.test is extension-template boilerplate that calls `quack` /
+//    `quack_openssl_version`, functions this extension does not define.
+const SKIP_FILES = new Map([
+  ['test/sql/quack.test', 'extension-template boilerplate (references non-existent quack* functions)'],
+]);
+
 const CURATED = [
   'test/sql/ols_basic.test',
   'test/sql/ols_validation.test',
@@ -181,8 +188,7 @@ async function main() {
     await conn.query(`FORCE INSTALL ${EXT_NAME} FROM '${base}';`);
     await conn.query(`LOAD ${EXT_NAME};`);
     log(`✓ LOAD ${EXT_NAME} succeeded — extension loads in DuckDB-Wasm.`);
-
-    const runQuery = makeRunQuery(conn);
+    await conn.close(); // per-file isolation below re-opens the catalog
 
     // Choose test files.
     let files;
@@ -207,11 +213,21 @@ async function main() {
     let totalPass = 0, totalFail = 0, totalSkip = 0;
     const failedFiles = [];
     for (const rel of files) {
+      if (SKIP_FILES.has(rel)) { log(`  ⊘ ${rel} — skipped (${SKIP_FILES.get(rel)})`); continue; }
       const abs = path.join(REPO_ROOT, rel);
       if (!fs.existsSync(abs)) { log(`  ⚠ missing: ${rel} (skipped)`); continue; }
       const text = fs.readFileSync(abs, 'utf8');
       const records = parseTest(text);
-      const r = await runRecords(records, runQuery, { file: rel, log });
+
+      // Isolate each file with a fresh catalog (native sqllogictest resets state
+      // per file). Re-open the DB, reconnect, and re-LOAD the already-installed
+      // extension so CREATE TABLE / temp state cannot leak across files.
+      await engine.db.open({ allowUnsignedExtensions: true });
+      const c = await engine.db.connect();
+      await c.query(`LOAD ${EXT_NAME};`);
+      const r = await runRecords(records, makeRunQuery(c), { file: rel, log });
+      await c.close();
+
       totalPass += r.passed; totalFail += r.failed; totalSkip += r.skipped;
       const mark = r.failed === 0 ? '✓' : '✗';
       log(`  ${mark} ${rel} — ${r.passed} passed, ${r.failed} failed, ${r.skipped} skipped`);
@@ -226,8 +242,6 @@ async function main() {
     } else {
       log('✓ All assertions passed on DuckDB-Wasm.');
     }
-
-    await conn.close();
   } catch (err) {
     failedHard = true;
     log(`✗ HARNESS ERROR: ${err && err.stack ? err.stack : err}`);

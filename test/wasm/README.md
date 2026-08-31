@@ -62,6 +62,24 @@ Exit code is non-zero on any load or assertion failure.
   intentionally tolerant on numeric comparisons (float tolerance) — not a full
   sqllogictest implementation.
 
+## Coverage & known `--all` discrepancies
+
+The **CI gate** runs the curated subset (currently 9 files) and is fully green
+(198/198). Running the full suite locally (`--all`, 99 files) currently reports
+**2089 passed / 1 failed**, with per-file catalog isolation and these caveats:
+
+- `test/sql/quack.test` is **skipped** — it's extension-template boilerplate that
+  calls `quack` / `quack_openssl_version`, functions this extension doesn't define.
+- `test/sql/macros/test_fit_predict_by.test` has **1 failing assertion**:
+  `MIN(x1)` over `ols_fit_predict_by(...)` returns `10` under DuckDB-Wasm where
+  the suite expects `1.0` (COUNT / MAX / null-count on the same row all match).
+  This is **not** load/state leakage — it's a possible WASM-specific discrepancy
+  in the macro's passthrough column and is left **unmasked** pending
+  investigation (tracked as a follow-up, not gated).
+
+Float comparison uses a loose tolerance (abs 1e-6 / rel 1e-4) to absorb benign
+native-vs-WASM floating-point differences.
+
 ## Version matching (important)
 
 The `@duckdb/duckdb-wasm` engine version must **exactly match** the DuckDB version
