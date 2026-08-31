@@ -105,10 +105,20 @@ export function parseTest(text) {
 // if both sides parse as finite numbers, compare with float tolerance; otherwise
 // compare as trimmed strings. This is correct for ints, floats, and text alike.
 function valuesEqual(_typeLetter, expected, actual) {
-  const exp = String(expected).trim();
-  const act = actual === null || actual === undefined ? 'NULL' : String(actual).trim();
+  let exp = String(expected).trim();
+  let act = actual === null || actual === undefined ? 'NULL' : String(actual).trim();
 
   if (exp === 'NULL' || act === 'NULL') return exp === act;
+
+  // DuckDB sqllogictest renders BOOLEAN differently by column type: `query I`
+  // → 1/0, `query T` → true/false. The Arrow value comes back as a JS boolean
+  // (→ "true"/"false"). Normalize both sides so true≡1 and false≡0.
+  const normBool = (s) => {
+    const l = s.toLowerCase();
+    return l === 'true' ? '1' : l === 'false' ? '0' : s;
+  };
+  exp = normBool(exp);
+  act = normBool(act);
 
   const a = Number(exp), b = Number(act);
   const bothNumeric = exp !== '' && act !== '' && Number.isFinite(a) && Number.isFinite(b);
@@ -138,7 +148,11 @@ export function compareQuery(record, rows) {
 
   const nCols = record.types ? record.types.length : (rows[0] ? rows[0].length : 1);
   let actualFlat = flattenRows(rows);
-  let expectedFlat = record.expected.slice();
+  // DuckDB `.test` files put a multi-column row on ONE line with columns
+  // separated by TABS. Split each expected line into its columns so the value
+  // stream lines up with the flattened actual cells (a single-column line with
+  // no tab splits to itself).
+  let expectedFlat = record.expected.flatMap((line) => line.split('\t'));
 
   if (record.sortMode === 'rowsort' || record.sortMode === 'sort') {
     // Group into rows, sort rows by joined text, then reflatten.
