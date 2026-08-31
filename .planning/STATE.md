@@ -1,18 +1,15 @@
 ---
 gsd_state_version: 1.0
-milestone: v0.2.0
-milestone_name: (WASM Support)
-status: Awaiting next milestone
-stopped_at: Roadmap for v0.2.0 created (3 phases, 9 requirements mapped)
-last_updated: "2026-08-31T07:59:27.325Z"
+milestone: v0.3.0
+milestone_name: Performance & Polish
+status: planning
+last_updated: "2026-08-31T12:11:23.810Z"
 last_activity: 2026-08-31
-last_activity_desc: Milestone v0.2.0 completed and archived
-state_head: 95e2f6102a4846108134f9eb2e3c9d7496c3a782
 progress:
-  total_phases: 3
+  total_phases: 0
   completed_phases: 0
-  total_plans: 3
-  completed_plans: 3
+  total_plans: 0
+  completed_plans: 0
   percent: 0
 ---
 
@@ -27,10 +24,10 @@ See: .planning/PROJECT.md (updated 2026-08-30)
 
 ## Current Position
 
-Phase: Milestone v0.2.0 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-08-31 — Milestone v0.2.0 completed and archived
+Status: Defining requirements
+Last activity: 2026-08-31 — Milestone v0.3.0 started
 
 ## Accumulated Context
 

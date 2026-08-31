@@ -32,9 +32,15 @@ SQL, wherever DuckDB runs — **including the browser (DuckDB-Wasm)**.
 
 ### Active
 
-<!-- No active milestone. Next milestone defined via /gsd-new-milestone. -->
+<!-- Current milestone: v0.3.0 — Performance & Polish. -->
 
-(None — v0.2.0 shipped; next milestone TBD)
+- [ ] Repeatable benchmark suite over representative workloads
+- [ ] Hotspots profiled and optimized (or documented as inherent)
+- [ ] FFI manual malloc/free pattern refactored (less overhead + leak risk, no behavior change)
+- [ ] Clear, actionable error messages + early input validation
+- [ ] Consistent signatures / option keys / return-struct fields across function families
+- [ ] README restructured to anofox-forecast form (emoji sections, ToC, Quick Start, structured API ref)
+- [ ] Every documented SQL example (README + guides + docs) validated against the built extension
 
 ### Out of Scope
 

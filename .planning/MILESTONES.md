@@ -1,5 +1,18 @@
 # Milestones
 
+## v0.3.0 — Performance & Polish (in progress)
+
+**Started:** 2026-08-31
+
+**Goal:** Make the extension measurably faster and easier to use — a benchmark
+suite + FFI/allocation refactor + hotspot optimization, clearer errors and
+consistent APIs, and a refreshed README (anofox-forecast form) with every
+documented SQL example validated in CI.
+
+**Requirements:** PERF-01..04, ERGO-01..03, DOCS-01..04 (see REQUIREMENTS.md)
+
+---
+
 ## v0.2.0 — WASM Support (Shipped: 2026-08-31)
 
 **Phases:** 3 phases, 3 plans · **Requirements:** 9/9 (WASM-01..04, LOAD-01..02, TEST-01..03)
