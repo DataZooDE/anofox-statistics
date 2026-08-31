@@ -19,6 +19,7 @@ documentation drift in CI.
 ## Phases
 
 **Phase Numbering:**
+
 - Integer phases (4, 5, 6): Planned milestone work
 - Decimal phases (5.1, 5.2): Urgent insertions (marked with INSERTED)
 
@@ -52,39 +53,49 @@ documented SQL example validated in CI. Breaking API changes are permitted
 ## Phase Details
 
 ### Phase 4: Benchmarking & Performance
+
 **Goal**: The extension has a repeatable benchmark harness that measures representative workloads, and the surfaced hotspots plus the FFI allocation pattern are optimized with before/after numbers proving the improvement — behavior unchanged.
 **Depends on**: Phase 3 (v0.2.0 shipped; native + WASM suites green)
 **Requirements**: PERF-01, PERF-02, PERF-03, PERF-04
 **Success Criteria** (what must be TRUE):
+
   1. A user can run one documented command to execute the benchmark suite over representative workloads (aggregate dispatch, fit/predict paths, FFI marshalling) and get reported timings
   2. Benchmark runs reproduce locally with documented scope (what they cover, how to run); optional CI perf tracking is noted
   3. Each top hotspot surfaced by profiling is either optimized or explicitly documented as inherent, each with before/after numbers from the benchmark
   4. The FFI layer's manual `libc::malloc`/`free` pattern is refactored (RAII wrapper and/or codegen macros) with per-call allocation overhead reduced, and the existing `test/sql` + `cargo test` suites stay green (results unchanged)
-**Plans**: 3 plans
-- [ ] 04-01-PLAN.md — Benchmark harness (tracer): scripts/bench.sh + three workload SQL scripts + bench/README.md (PERF-01/02)
+
+**Plans**: 1/3 plans executed
+
+- [x] 04-01-PLAN.md — Benchmark harness (tracer): scripts/bench.sh + three workload SQL scripts + bench/README.md (PERF-01/02)
 - [ ] 04-02-PLAN.md — FFI allocation refactor: FfiVec<T> RAII wrapper + alloc_inference_arrays! macro across 13 sites (PERF-04)
 - [ ] 04-03-PLAN.md — Profiling & hotspot optimization: top-3 hotspots optimized or documented inherent with before/after numbers (PERF-03)
 
 ### Phase 5: API Ergonomics
+
 **Goal**: Fit/predict/test functions fail fast with clear, actionable messages for invalid input, and signatures, option-map keys, and return-struct field names follow one documented convention consistent across model families.
 **Depends on**: Phase 4
 **Requirements**: ERGO-01, ERGO-02, ERGO-03
 **Success Criteria** (what must be TRUE):
+
   1. Invalid input (dimension mismatch, insufficient rows, non-finite or constant columns) to a fit/predict/test function returns a clear, actionable error message instead of a panic or opaque error
   2. Inputs are validated early (at bind time where possible) with a specific message naming the offending argument and its expected shape
   3. Function signatures, option-map keys, and return-struct field names across model families follow one documented naming convention, with the convention written down
   4. Any breaking renames from the consistency pass are reflected in the test suite (`test/sql` + `cargo test` green against the new names)
+
 **Plans**: TBD
 
 ### Phase 6: Docs Refresh & SQL Validation
+
 **Goal**: The README matches the anofox-forecast form and every documented SQL example across README, guides, and API reference is validated against the built extension in CI, so documentation drift fails the build.
 **Depends on**: Phase 5 (examples validated against the final, renamed API)
 **Requirements**: DOCS-01, DOCS-02, DOCS-03, DOCS-04
 **Success Criteria** (what must be TRUE):
+
   1. The README follows the anofox-forecast form — emoji section headers, Table of Contents, Key Features (incl. ⚡ Performance and 🎨 User-Friendly API), a Quick Start walkthrough on a concrete dataset, structured API Reference, Development, Support, Citation
   2. A doc-SQL validation harness extracts every SQL example from README + `guides/*.md` + `docs/API_REFERENCE.md` and runs each against the built extension, reporting pass/fail per example
   3. Every extracted SQL example passes — examples broken by drift or by the Phase 5 API changes are fixed
   4. The doc-SQL validation runs in CI so any future documentation drift fails the build
+
 **Plans**: TBD
 
 ## Progress
@@ -94,6 +105,6 @@ Phases execute in numeric order: 4 → 5 → 6
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 4. Benchmarking & Performance | v0.3.0 | 0/3 | Not started | - |
+| 4. Benchmarking & Performance | v0.3.0 | 1/3 | In Progress|  |
 | 5. API Ergonomics | v0.3.0 | 0/TBD | Not started | - |
 | 6. Docs Refresh & SQL Validation | v0.3.0 | 0/TBD | Not started | - |
