@@ -1,12 +1,19 @@
 ---
+gsd_state_version: 1.0
 milestone: v0.2.0
-milestone_name: WASM Support
-status: planning
+milestone_name: (WASM Support)
+status: Awaiting next milestone
+stopped_at: Roadmap for v0.2.0 created (3 phases, 9 requirements mapped)
+last_updated: "2026-08-31T07:59:27.325Z"
+last_activity: 2026-08-31
+last_activity_desc: Milestone v0.2.0 completed and archived
+state_head: 95e2f6102a4846108134f9eb2e3c9d7496c3a782
 progress:
-  phases_total: 3
-  phases_complete: 0
-  plans_total: 0
-  plans_complete: 0
+  total_phases: 3
+  completed_phases: 0
+  total_plans: 3
+  completed_plans: 3
+  percent: 0
 ---
 
 # State
@@ -20,24 +27,25 @@ See: .planning/PROJECT.md (updated 2026-08-30)
 
 ## Current Position
 
-Phase: 3 of 3 (all phases complete)
-Plan: — (autonomous run, implement-now/verify-in-CI)
-Status: VERIFIED — full pipeline green (PR #131, run 33365401865)
-Last activity: 2026-08-31 — CI green: all WASM build/deploy legs + wasm-runtime-test gate (2095/2095 in DuckDB-Wasm)
-
-Progress: [██████████] 100% — all 9 requirements Complete, CI-verified
+Phase: Milestone v0.2.0 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-08-31 — Milestone v0.2.0 completed and archived
 
 ## Accumulated Context
 
 ### Decisions
+
 - Link Rust FFI archive via `LINKED_LIBS` in `extension_config.cmake` (#103) — confirmed in Phase 1, not re-discovered
 - Disable telemetry on Emscripten (raw HTTP/socket + OpenSSL unsupported on WASM) — applied in working tree, confirmed in Phase 1
 - Verify WASM via a Node harness running `test/sql` (query.farm approach) — Phase 3
 
 ### Blockers
+
 - (none)
 
 ### Todos
+
 - (none)
 
 ## Verification — CI
@@ -65,3 +73,7 @@ NOT an extension bug; fixed by formatting results through DuckDB `::VARCHAR`.
 Last session: 2026-08-30
 Stopped at: Roadmap for v0.2.0 created (3 phases, 9 requirements mapped)
 Resume file: None
+
+## Operator Next Steps
+
+- Start the next milestone with /gsd-new-milestone
