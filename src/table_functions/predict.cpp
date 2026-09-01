@@ -9,6 +9,7 @@
 #include "duckdb/planner/expression/bound_function_expression.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/error_dispatch.hpp"
 #include "telemetry.hpp"
 #include "anofox_statistics_banner.hpp"
 
@@ -86,7 +87,7 @@ static void PredictFunction(DataChunk &args, ExpressionState &state, Vector &res
                                       intercept, &predictions, &predictions_len, &error);
 
         if (!success) {
-            throw InvalidInputException("Predict failed: " + string(error.message));
+            ThrowFromFfiError("predict", error);
         }
 
         // Build result list

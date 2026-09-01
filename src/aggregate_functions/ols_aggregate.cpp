@@ -7,6 +7,7 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/error_dispatch.hpp"
 #include "../include/ffi_enum_converters.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
@@ -303,8 +304,7 @@ static void OlsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
                                       state.compute_inference ? &inference_result : nullptr, &error);
 
         if (!success) {
-            FlatVector::SetNull(result, result_idx, true);
-            continue;
+            ThrowFromFfiError("ols_fit_agg", error);
         }
 
         // Fill STRUCT result

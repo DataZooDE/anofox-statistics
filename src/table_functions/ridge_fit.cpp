@@ -10,6 +10,7 @@
 #include "duckdb/planner/expression/bound_function_expression.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/error_dispatch.hpp"
 #include "../include/ffi_enum_converters.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
@@ -183,7 +184,7 @@ static void RidgeFitFunction(DataChunk &args, ExpressionState &state, Vector &re
                                         bind_data.compute_inference ? &inference_result : nullptr, &error);
 
         if (!success) {
-            throw InvalidInputException("Ridge fit failed: " + string(error.message));
+            ThrowFromFfiError("ridge_fit", error);
         }
 
         // Build result struct

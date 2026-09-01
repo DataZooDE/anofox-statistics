@@ -9,6 +9,7 @@
 #include "duckdb/planner/expression/bound_function_expression.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/error_dispatch.hpp"
 #include "../include/ffi_enum_converters.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
@@ -185,7 +186,7 @@ static void TheilSenFitFunction(DataChunk &args, ExpressionState &state, Vector 
                                            bind_data.compute_inference ? &inference_result : nullptr, &error);
 
         if (!success) {
-            throw InvalidInputException("Theil-Sen fit failed: " + string(error.message));
+            ThrowFromFfiError("theil_sen_fit", error);
         }
 
         auto &struct_vec = StructVector::GetEntries(result);

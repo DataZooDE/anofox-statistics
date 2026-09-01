@@ -9,6 +9,7 @@
 #include "duckdb/planner/expression/bound_function_expression.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/error_dispatch.hpp"
 #include "../include/ffi_enum_converters.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
@@ -177,7 +178,7 @@ static void HuberFitFunction(DataChunk &args, ExpressionState &state, Vector &re
                                         &error);
 
         if (!success) {
-            throw InvalidInputException("Huber fit failed: " + string(error.message));
+            ThrowFromFfiError("huber_fit", error);
         }
 
         auto &struct_vec = StructVector::GetEntries(result);

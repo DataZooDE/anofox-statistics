@@ -5,6 +5,7 @@
 #include "duckdb/parser/parsed_data/create_scalar_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/error_dispatch.hpp"
 #include "telemetry.hpp"
 
 namespace duckdb {
@@ -50,7 +51,7 @@ static void AicFunction(DataChunk &args, ExpressionState &state, Vector &result)
         bool success = anofox_compute_aic(rss, n, k, &aic, &error);
 
         if (!success) {
-            throw InvalidInputException("AIC computation failed: " + string(error.message));
+            ThrowFromFfiError("aic", error);
         }
 
         result_data[row] = aic;
@@ -100,7 +101,7 @@ static void BicFunction(DataChunk &args, ExpressionState &state, Vector &result)
         bool success = anofox_compute_bic(rss, n, k, &bic, &error);
 
         if (!success) {
-            throw InvalidInputException("BIC computation failed: " + string(error.message));
+            ThrowFromFfiError("bic", error);
         }
 
         result_data[row] = bic;

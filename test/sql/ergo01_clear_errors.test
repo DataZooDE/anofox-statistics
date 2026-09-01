@@ -1,0 +1,92 @@
+# name: test/sql/ergo01_clear_errors.test
+# description: ERGO-01 — typed, function-named, actionable errors from fit/predict/vif/aic/bic
+# group: [sql]
+
+require anofox_statistics
+
+# =============================================================================
+# (a) Dimension-mismatch: message names the function, contains the detail,
+#     and does NOT contain the old generic "fit failed" wrapper.
+# =============================================================================
+
+# OLS: y has 4 elements, X has 3 rows — dimension mismatch
+statement error
+SELECT anofox_stats_ols_fit([1.0, 2.0, 3.0, 4.0], [[1.0, 2.0, 3.0]]);
+----
+ols_fit: Dimension mismatch
+
+# Ridge: same mismatch
+statement error
+SELECT anofox_stats_ridge_fit([1.0, 2.0, 3.0, 4.0], [[1.0, 2.0, 3.0]], {'alpha': 0.1});
+----
+ridge_fit: Dimension mismatch
+
+# Predict: coefficient count mismatches feature count
+# x has 1 feature column, but coefficients has 3 entries → dimension mismatch
+statement error
+SELECT anofox_stats_predict([[1.0, 2.0, 3.0]], [1.0, 2.0, 3.0], 0.0);
+----
+predict:
+
+# =============================================================================
+# (b) Insufficient-rows: message names the function and gives the specific
+#     detail from the Rust layer (row count vs feature count).
+# =============================================================================
+
+# OLS: 2 rows, 2 features — needs rows > features (with intercept, needs 3)
+statement error
+SELECT anofox_stats_ols_fit([1.0, 2.0], [[1.0, 2.0], [3.0, 4.0]]);
+----
+ols_fit: Insufficient data
+
+# WLS: same pattern, 2 rows 2 features
+statement error
+SELECT anofox_stats_wls_fit([1.0, 2.0], [[1.0, 2.0], [3.0, 4.0]], [1.0, 1.0]);
+----
+wls_fit: Insufficient data
+
+# ElasticNet: insufficient data
+statement error
+SELECT anofox_stats_elasticnet_fit([1.0, 2.0], [[1.0, 2.0], [3.0, 4.0]], {'alpha': 0.1, 'l1_ratio': 0.5});
+----
+elasticnet_fit: Insufficient data
+
+# =============================================================================
+# (c) No "fit failed" generic wrapper appears in any of the above errors.
+#     The tests above serve as this gate implicitly: the ---- assertions match
+#     the new function-prefixed messages, not the old generic wrapper.
+#     Any test asserting "OLS fit failed:" would fail, so none are added.
+# =============================================================================
+
+# =============================================================================
+# (d) Aggregate GROUP BY finalize: genuine FFI !success now throws a clear
+#     error instead of silently NULL-ing.  Degenerate frames (n <= min_obs)
+#     still return NULL (tested in ergo01_window_null.test).
+# =============================================================================
+
+# Insufficient data in GROUP BY aggregate — the min_obs guard returns NULL for
+# degenerate frames; only a genuine Rust error post-guard would throw. Here we
+# test the guard path: 2 rows with 2 features → NULL (not an error).
+query TT
+WITH data AS (
+    SELECT 'A' as grp, 1.0 as y, 1.0 as x1, 2.0 as x2
+    UNION ALL
+    SELECT 'A', 2.0, 2.0, 3.0
+    UNION ALL
+    SELECT 'B', 1.0, 1.0, 2.0
+    UNION ALL
+    SELECT 'B', 2.0, 2.0, 3.0
+    UNION ALL
+    SELECT 'B', 3.0, 3.0, 4.0
+    UNION ALL
+    SELECT 'B', 4.0, 4.0, 5.0
+)
+SELECT
+    grp,
+    CASE WHEN (anofox_stats_ols_fit_agg(y, [x1, x2])).r_squared IS NULL THEN 'NULL' ELSE 'OK' END as result
+FROM data
+GROUP BY grp
+ORDER BY grp;
+----
+A	NULL
+B	OK

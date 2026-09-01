@@ -10,6 +10,7 @@
 #include "duckdb/planner/expression/bound_function_expression.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/error_dispatch.hpp"
 #include "../include/ffi_enum_converters.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
@@ -170,7 +171,7 @@ static void ElasticNetFitFunction(DataChunk &args, ExpressionState &state, Vecto
         bool success = anofox_elasticnet_fit(y_array, x_arrays.data(), x_arrays.size(), options, &core_result, &error);
 
         if (!success) {
-            throw InvalidInputException("Elastic Net fit failed: " + string(error.message));
+            ThrowFromFfiError("elasticnet_fit", error);
         }
 
         // Build result struct

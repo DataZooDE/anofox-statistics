@@ -7,6 +7,7 @@
 #include "duckdb/parser/parsed_data/create_scalar_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/error_dispatch.hpp"
 #include "telemetry.hpp"
 
 namespace duckdb {
@@ -67,7 +68,7 @@ static void VifFunction(DataChunk &args, ExpressionState &state, Vector &result)
         bool success = anofox_compute_vif(x_arrays.data(), x_arrays.size(), &vif_values, &vif_len, &error);
 
         if (!success) {
-            throw InvalidInputException("VIF computation failed: " + string(error.message));
+            ThrowFromFfiError("vif", error);
         }
 
         // Build result list
