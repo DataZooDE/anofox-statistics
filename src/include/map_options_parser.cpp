@@ -794,8 +794,28 @@ RegressionMapOptions RegressionMapOptions::ParseFromValue(const Value &map_value
 			result.nb_theta = ExtractDouble(val);
 		} else if (key == "vcov" || key == "vcov_type") {
 			result.vcov = ExtractVcovType(val);
+		} else {
+			throw InvalidInputException(
+			    "unknown option '%s'; valid keys: fit_intercept (alias: intercept), "
+			    "compute_inference (alias: inference), confidence_level (alias: confidence), "
+			    "alpha, lambda, l1_ratio, max_iterations (alias: max_iter), "
+			    "tolerance (alias: tol), epsilon, residual_threshold, max_trials, "
+			    "stop_probability, stop_n_inliers, min_samples, "
+			    "random_state (alias: seed), max_subpopulation, n_subsamples, "
+			    "forgetting_factor, initial_p_diagonal (alias: p_diagonal), "
+			    "null_policy, link (alias: poisson_link), binomial_link, "
+			    "power (alias: tweedie_power), distribution (alias: dist), "
+			    "loss, quantile, role_trim, lower_bound (alias: lower), "
+			    "upper_bound (alias: upper), intermittent_threshold, outlier_method, "
+			    "n_components (alias: components), tau, increasing, "
+			    "solver, hc_type, lambda_scaling, glm_lambda, threshold, "
+			    "feature_names (alias: features), prior (alias: priors), "
+			    "family, reml, offset, random (alias: random_slopes), "
+			    "groups (alias: crossed), vcov (alias: vcov_type), "
+			    "tau_squared (alias: tau2), tau_method (alias: shrinkage), "
+			    "theta (alias: nb_theta, dispersion)",
+			    key.c_str());
 		}
-		// Unknown keys are silently ignored for forward compatibility
 	});
 
 	return result;
@@ -870,6 +890,12 @@ TTestMapOptions TTestMapOptions::ParseFromValue(const Value &map_value) {
 			                                         result.paired = ExtractBool(val);
 		                                         } else if (key == "mu") {
 			                                         result.mu = ExtractDouble(val);
+		                                         } else {
+			                                         throw InvalidInputException(
+			                                             "unknown option '%s'; valid keys: "
+			                                             "alternative, confidence_level (alias: confidence), "
+			                                             "kind (alias: var_equal), paired, mu",
+			                                             key.c_str());
 		                                         }
 	                                         });
 }
@@ -883,6 +909,12 @@ MannWhitneyMapOptions MannWhitneyMapOptions::ParseFromValue(const Value &map_val
 			    result.confidence_level = ExtractDouble(val);
 		    } else if (key == "continuity_correction" || key == "correction") {
 			    result.continuity_correction = ExtractBool(val);
+		    } else {
+			    throw InvalidInputException(
+			        "unknown option '%s'; valid keys: "
+			        "alternative, confidence_level (alias: confidence), "
+			        "continuity_correction (alias: correction)",
+			        key.c_str());
 		    }
 	    });
 }
@@ -896,6 +928,12 @@ WilcoxonMapOptions WilcoxonMapOptions::ParseFromValue(const Value &map_value) {
 			                                            result.confidence_level = ExtractDouble(val);
 		                                            } else if (key == "continuity_correction" || key == "correction") {
 			                                            result.continuity_correction = ExtractBool(val);
+		                                            } else {
+			                                            throw InvalidInputException(
+			                                                "unknown option '%s'; valid keys: "
+			                                                "alternative, confidence_level (alias: confidence), "
+			                                                "continuity_correction (alias: correction)",
+			                                                key.c_str());
 		                                            }
 	                                            });
 }
@@ -907,6 +945,11 @@ BrunnerMunzelMapOptions BrunnerMunzelMapOptions::ParseFromValue(const Value &map
 			    result.alternative = ExtractAlternative(val);
 		    } else if (key == "confidence_level" || key == "confidence") {
 			    result.confidence_level = ExtractDouble(val);
+		    } else {
+			    throw InvalidInputException(
+			        "unknown option '%s'; valid keys: "
+			        "alternative, confidence_level (alias: confidence)",
+			        key.c_str());
 		    }
 	    });
 }
@@ -916,6 +959,10 @@ CorrelationMapOptions CorrelationMapOptions::ParseFromValue(const Value &map_val
 	    map_value, [](CorrelationMapOptions &result, const string &key, const Value &val) {
 		    if (key == "confidence_level" || key == "confidence") {
 			    result.confidence_level = ExtractDouble(val);
+		    } else {
+			    throw InvalidInputException(
+			        "unknown option '%s'; valid keys: confidence_level (alias: confidence)",
+			        key.c_str());
 		    }
 	    });
 }
@@ -927,6 +974,12 @@ KendallMapOptions KendallMapOptions::ParseFromValue(const Value &map_value) {
 			                                           result.confidence_level = ExtractDouble(val);
 		                                           } else if (key == "variant" || key == "tau_type" || key == "type") {
 			                                           result.variant = ExtractKendallType(val);
+		                                           } else {
+			                                           throw InvalidInputException(
+			                                               "unknown option '%s'; valid keys: "
+			                                               "confidence_level (alias: confidence), "
+			                                               "variant (alias: tau_type, type)",
+			                                               key.c_str());
 		                                           }
 	                                           });
 }
@@ -936,6 +989,11 @@ ChiSquareMapOptions ChiSquareMapOptions::ParseFromValue(const Value &map_value) 
 	    map_value, [](ChiSquareMapOptions &result, const string &key, const Value &val) {
 		    if (key == "continuity_correction" || key == "correction" || key == "yates") {
 			    result.continuity_correction = ExtractBool(val);
+		    } else {
+			    throw InvalidInputException(
+			        "unknown option '%s'; valid keys: "
+			        "continuity_correction (alias: correction, yates)",
+			        key.c_str());
 		    }
 	    });
 }
@@ -945,6 +1003,10 @@ FisherExactMapOptions FisherExactMapOptions::ParseFromValue(const Value &map_val
 	    map_value, [](FisherExactMapOptions &result, const string &key, const Value &val) {
 		    if (key == "alternative") {
 			    result.alternative = ExtractAlternative(val);
+		    } else {
+			    throw InvalidInputException(
+			        "unknown option '%s'; valid keys: alternative",
+			        key.c_str());
 		    }
 	    });
 }
@@ -954,6 +1016,10 @@ EnergyDistanceMapOptions EnergyDistanceMapOptions::ParseFromValue(const Value &m
 	    map_value, [](EnergyDistanceMapOptions &result, const string &key, const Value &val) {
 		    if (key == "n_permutations" || key == "permutations") {
 			    result.n_permutations = ExtractUInt32(val);
+		    } else {
+			    throw InvalidInputException(
+			        "unknown option '%s'; valid keys: n_permutations (alias: permutations)",
+			        key.c_str());
 		    }
 	    });
 }
@@ -964,6 +1030,11 @@ MmdMapOptions MmdMapOptions::ParseFromValue(const Value &map_value) {
 			result.bandwidth = ExtractDouble(val);
 		} else if (key == "n_permutations" || key == "permutations") {
 			result.n_permutations = ExtractUInt32(val);
+		} else {
+			throw InvalidInputException(
+			    "unknown option '%s'; valid keys: "
+			    "bandwidth (alias: sigma), n_permutations (alias: permutations)",
+			    key.c_str());
 		}
 	});
 }
@@ -986,6 +1057,14 @@ TostMapOptions TostMapOptions::ParseFromValue(const Value &map_value) {
 			result.bound_lower = ExtractDouble(val);
 		} else if (key == "bound_upper" || key == "upper" || key == "high") {
 			result.bound_upper = ExtractDouble(val);
+		} else {
+			throw InvalidInputException(
+			    "unknown option '%s'; valid keys: "
+			    "alternative, confidence_level (alias: confidence), "
+			    "kind (alias: var_equal), paired, mu, "
+			    "delta (alias: equivalence_bound), "
+			    "bound_lower (alias: lower, low), bound_upper (alias: upper, high)",
+			    key.c_str());
 		}
 	});
 }
@@ -998,6 +1077,12 @@ YuenMapOptions YuenMapOptions::ParseFromValue(const Value &map_value) {
 			result.confidence_level = ExtractDouble(val);
 		} else if (key == "trim" || key == "trim_proportion") {
 			result.trim = ExtractDouble(val);
+		} else {
+			throw InvalidInputException(
+			    "unknown option '%s'; valid keys: "
+			    "alternative, confidence_level (alias: confidence), "
+			    "trim (alias: trim_proportion)",
+			    key.c_str());
 		}
 	});
 }
@@ -1009,6 +1094,11 @@ PermutationMapOptions PermutationMapOptions::ParseFromValue(const Value &map_val
 			    result.alternative = ExtractAlternative(val);
 		    } else if (key == "n_permutations" || key == "permutations") {
 			    result.n_permutations = ExtractUInt32(val);
+		    } else {
+			    throw InvalidInputException(
+			        "unknown option '%s'; valid keys: "
+			        "alternative, n_permutations (alias: permutations)",
+			        key.c_str());
 		    }
 	    });
 }
