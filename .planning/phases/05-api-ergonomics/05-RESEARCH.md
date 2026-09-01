@@ -654,7 +654,9 @@ if (!success) {
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+> Q1 → resolved by Plan 05-01 Task 1's repro-first tracer (identifies the crashing file before fixing). Q2 → resolved by CONTEXT.md locked decision + PATTERNS.md A2 (GROUP BY finalize throws a clear error on insufficient data). Q3 → resolved by Plan 05-03 Task 2's stale-name fix table.
 
 1. **Which window file causes the INTERNAL crash?**
    - What we know: `ols_fit_predict.cpp` already has a correct NULL guard at lines 259-268.
