@@ -82,9 +82,9 @@ documented SQL example validated in CI. Breaking API changes are permitted
   3. Function signatures, option-map keys, and return-struct field names across model families follow one documented naming convention, with the convention written down
   4. Any breaking renames from the consistency pass are reflected in the test suite (`test/sql` + `cargo test` green against the new names)
 
-**Plans**: 3 plans
+**Plans**: 1/3 plans executed
 
-- [ ] 05-01-PLAN.md — Tracer: rolling-window degenerate-frame NULL fix across all fit_predict finalize paths (ERGO-01)
+- [x] 05-01-PLAN.md — Tracer: rolling-window degenerate-frame NULL fix across all fit_predict finalize paths (ERGO-01)
 - [ ] 05-02-PLAN.md — Error surfacing (ThrowFromFfiError typed exceptions) + unknown-option-key rejection at bind (ERGO-01, ERGO-02)
 - [ ] 05-03-PLAN.md — Cross-family rename (drop prefix, no aliases) + docs/API_CONVENTIONS.md + test/sql & cargo green (ERGO-03)
 
@@ -110,5 +110,5 @@ Phases execute in numeric order: 4 → 5 → 6
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 4. Benchmarking & Performance | v0.3.0 | 3/3 | Complete    | 2026-08-31 |
-| 5. API Ergonomics | v0.3.0 | 0/3 | Not started | - |
+| 5. API Ergonomics | v0.3.0 | 1/3 | In Progress|  |
 | 6. Docs Refresh & SQL Validation | v0.3.0 | 0/TBD | Not started | - |
