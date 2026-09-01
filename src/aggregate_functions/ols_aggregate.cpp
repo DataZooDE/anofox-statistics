@@ -258,10 +258,17 @@ static void OlsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
         auto &state = *states[sdata.sel->get_index(i)];
         idx_t result_idx = i + offset;
 
-        // Check if we have enough data (basic sanity check only)
-        // Detailed validation including zero-variance column handling is done in Rust
-        if (!state.initialized || state.y_values.size() < 2) {
-            // Set NULL result
+        // Check if we have enough data to attempt a fit.
+        // Use the scaling min_obs guard: need strictly more than n_features+1
+        // observations (with intercept) or n_features (without) to avoid fitting a
+        // perfectly-determined/degenerate system that produces NaN adj_r_squared
+        // and undefined std_errors. Matches the guard in ols_fit_predict.cpp:264-268.
+        if (!state.initialized) {
+            FlatVector::SetNull(result, result_idx, true);
+            continue;
+        }
+        idx_t min_obs = state.fit_intercept ? state.n_features + 1 : state.n_features;
+        if (state.y_values.size() <= min_obs) {
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
