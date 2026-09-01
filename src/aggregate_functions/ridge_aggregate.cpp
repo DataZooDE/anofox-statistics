@@ -386,11 +386,11 @@ static unique_ptr<FunctionData> RidgeAggBind(ClientContext &context, AggregateFu
 // Registration
 //===--------------------------------------------------------------------===//
 void RegisterRidgeAggregateFunction(ExtensionLoader &loader) {
-    AggregateFunctionSet func_set("anofox_stats_ridge_fit_agg");
+    AggregateFunctionSet func_set("ridge_fit_agg");
 
     // Basic version: anofox_stats_ridge_fit_agg(y, x) - uses default alpha=1.0
     auto basic_func = AggregateFunction(
-        "anofox_stats_ridge_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
+        "ridge_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
         LogicalType::ANY, // Set in bind
         AggregateFunction::StateSize<RidgeAggregateState>, RidgeAggInitialize, RidgeAggUpdate, RidgeAggCombine,
         RidgeAggFinalize,
@@ -399,7 +399,7 @@ void RegisterRidgeAggregateFunction(ExtensionLoader &loader) {
     func_set.AddFunction(basic_func);
 
     // Version with MAP options: anofox_stats_ridge_fit_agg(y, x, {'alpha': 1.0, ...})
-    auto map_func = AggregateFunction("anofox_stats_ridge_fit_agg",
+    auto map_func = AggregateFunction("ridge_fit_agg",
                                       {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE),
                                        LogicalType::ANY}, // MAP or STRUCT for options
                                       LogicalType::ANY, AggregateFunction::StateSize<RidgeAggregateState>,
@@ -411,30 +411,20 @@ void RegisterRidgeAggregateFunction(ExtensionLoader &loader) {
     info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
     FunctionDescription d1;
     d1.description     = "Fits a Ridge regression model with L2 regularization and returns coefficients and fit statistics.";
-    d1.examples        = {"anofox_stats_ridge_fit_agg(y, x, {'alpha': 1.0})"};
+    d1.examples        = {"ridge_fit_agg(y, x, {'alpha': 1.0})"};
     d1.categories      = {"regression"};
     d1.parameter_names = {"y", "x", "options"};
     d1.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY};
     info.descriptions.push_back(std::move(d1));
     FunctionDescription d2;
     d2.description     = "Fits a Ridge regression model with L2 regularization and returns coefficients and fit statistics.";
-    d2.examples        = {"anofox_stats_ridge_fit_agg(y, x)"};
+    d2.examples        = {"ridge_fit_agg(y, x)"};
     d2.categories      = {"regression"};
     d2.parameter_names = {"y", "x"};
     d2.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)};
     info.descriptions.push_back(std::move(d2));
     loader.RegisterFunction(std::move(info));
 
-    // Register short alias
-    {
-        AggregateFunctionSet alias_set("ridge_fit_agg");
-        alias_set.AddFunction(basic_func);
-        alias_set.AddFunction(map_func);
-        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_ridge_fit_agg";
-        loader.RegisterFunction(std::move(alias_info));
-    }
 }
 
 } // namespace duckdb

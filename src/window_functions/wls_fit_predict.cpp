@@ -313,21 +313,21 @@ static unique_ptr<FunctionData> WlsFitPredictBind(ClientContext &context, Aggreg
 void RegisterWlsFitPredictFunction(ExtensionLoader &loader) {
     // WLS takes (y, x, weight)
     auto basic_func = AggregateFunction(
-        "anofox_stats_wls_fit_predict",
+        "wls_fit_predict",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE},
         GetWlsFitPredictResultType(), AggregateFunction::StateSize<WlsFitPredictState>, WlsFitPredictInitialize,
         WlsFitPredictUpdate, WlsFitPredictCombine, WlsFitPredictFinalize, nullptr, WlsFitPredictBind,
         WlsFitPredictDestroy);
 
     auto map_func = AggregateFunction(
-        "anofox_stats_wls_fit_predict",
+        "wls_fit_predict",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE, LogicalType::ANY},
         GetWlsFitPredictResultType(), AggregateFunction::StateSize<WlsFitPredictState>, WlsFitPredictInitialize,
         WlsFitPredictUpdate, WlsFitPredictCombine, WlsFitPredictFinalize, nullptr, WlsFitPredictBind,
         WlsFitPredictDestroy);
 
     {
-        AggregateFunctionSet func_set("anofox_stats_wls_fit_predict");
+        AggregateFunctionSet func_set("wls_fit_predict");
         func_set.AddFunction(basic_func);
         func_set.AddFunction(map_func);
         CreateAggregateFunctionInfo info(std::move(func_set));
@@ -335,7 +335,7 @@ void RegisterWlsFitPredictFunction(ExtensionLoader &loader) {
 
         FunctionDescription d1;
         d1.description     = "Fits a WLS regression model over a window partition using per-row weights and returns predictions.";
-        d1.examples        = {"anofox_stats_wls_fit_predict(y, x, weight)"};
+        d1.examples        = {"wls_fit_predict(y, x, weight)"};
         d1.categories      = {"regression", "prediction"};
         d1.parameter_names = {"y", "x", "weight"};
         d1.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE};
@@ -343,7 +343,7 @@ void RegisterWlsFitPredictFunction(ExtensionLoader &loader) {
 
         FunctionDescription d2;
         d2.description     = "Fits a WLS regression model over a window partition using per-row weights and returns predictions.";
-        d2.examples        = {"anofox_stats_wls_fit_predict(y, x, weight, {'null_policy': 'drop'})"};
+        d2.examples        = {"wls_fit_predict(y, x, weight, {'null_policy': 'drop'})"};
         d2.categories      = {"regression", "prediction"};
         d2.parameter_names = {"y", "x", "weight", "options"};
         d2.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE, LogicalType::ANY};
@@ -352,15 +352,6 @@ void RegisterWlsFitPredictFunction(ExtensionLoader &loader) {
         loader.RegisterFunction(std::move(info));
     }
 
-    {
-        AggregateFunctionSet alias_set("wls_fit_predict");
-        alias_set.AddFunction(basic_func);
-        alias_set.AddFunction(map_func);
-        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_wls_fit_predict";
-        loader.RegisterFunction(std::move(alias_info));
-    }
 }
 
 } // namespace duckdb

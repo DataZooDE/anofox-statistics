@@ -234,10 +234,10 @@ static unique_ptr<FunctionData> MannWhitneyAggBind(ClientContext &context, Aggre
 }
 
 void RegisterMannWhitneyAggregateFunction(ExtensionLoader &loader) {
-    AggregateFunctionSet func_set("anofox_stats_mann_whitney_u_agg");
+    AggregateFunctionSet func_set("mann_whitney_u_agg");
 
     auto func_with_opts = AggregateFunction(
-        "anofox_stats_mann_whitney_u_agg", {LogicalType::DOUBLE, LogicalType::INTEGER, LogicalType::ANY},
+        "mann_whitney_u_agg", {LogicalType::DOUBLE, LogicalType::INTEGER, LogicalType::ANY},
         LogicalType::ANY,
         AggregateFunction::StateSize<MannWhitneyAggregateState>, MannWhitneyAggInitialize,
         MannWhitneyAggUpdate, MannWhitneyAggCombine, MannWhitneyAggFinalize,
@@ -245,7 +245,7 @@ void RegisterMannWhitneyAggregateFunction(ExtensionLoader &loader) {
     func_set.AddFunction(func_with_opts);
 
     auto func_no_opts = AggregateFunction(
-        "anofox_stats_mann_whitney_u_agg", {LogicalType::DOUBLE, LogicalType::INTEGER},
+        "mann_whitney_u_agg", {LogicalType::DOUBLE, LogicalType::INTEGER},
         LogicalType::ANY,
         AggregateFunction::StateSize<MannWhitneyAggregateState>, MannWhitneyAggInitialize,
         MannWhitneyAggUpdate, MannWhitneyAggCombine, MannWhitneyAggFinalize,
@@ -256,29 +256,20 @@ void RegisterMannWhitneyAggregateFunction(ExtensionLoader &loader) {
     info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
     FunctionDescription d1;
     d1.description     = "Performs the Mann-Whitney U test (Wilcoxon rank-sum) for two independent samples.";
-    d1.examples        = {"anofox_stats_mann_whitney_u_agg(value, group_id, {'alternative': 'two_sided'})"};
+    d1.examples        = {"mann_whitney_u_agg(value, group_id, {'alternative': 'two_sided'})"};
     d1.categories      = {"hypothesis-testing", "nonparametric"};
     d1.parameter_names = {"value", "group_id", "options"};
     d1.parameter_types = {LogicalType::DOUBLE, LogicalType::INTEGER, LogicalType::ANY};
     info.descriptions.push_back(std::move(d1));
     FunctionDescription d2;
     d2.description     = "Performs the Mann-Whitney U test (Wilcoxon rank-sum) for two independent samples, using default options.";
-    d2.examples        = {"anofox_stats_mann_whitney_u_agg(value, group_id)"};
+    d2.examples        = {"mann_whitney_u_agg(value, group_id)"};
     d2.categories      = {"hypothesis-testing", "nonparametric"};
     d2.parameter_names = {"value", "group_id"};
     d2.parameter_types = {LogicalType::DOUBLE, LogicalType::INTEGER};
     info.descriptions.push_back(std::move(d2));
     loader.RegisterFunction(std::move(info));
 
-    {
-        AggregateFunctionSet alias_set("mann_whitney_u_agg");
-        alias_set.AddFunction(func_with_opts);
-        alias_set.AddFunction(func_no_opts);
-        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_mann_whitney_u_agg";
-        loader.RegisterFunction(std::move(alias_info));
-    }
 }
 
 } // namespace duckdb

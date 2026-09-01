@@ -229,16 +229,16 @@ static unique_ptr<FunctionData> EbShrinkBind(ClientContext &context, AggregateFu
 }
 
 void RegisterEbShrinkAggregateFunction(ExtensionLoader &loader) {
-	AggregateFunctionSet func_set("anofox_stats_eb_shrink_agg");
+	AggregateFunctionSet func_set("eb_shrink_agg");
 
 	auto basic =
-	    AggregateFunction("anofox_stats_eb_shrink_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE}, LogicalType::ANY,
+	    AggregateFunction("eb_shrink_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE}, LogicalType::ANY,
 	                      AggregateFunction::StateSize<EbShrinkState>, EbShrinkInitialize, EbShrinkUpdate,
 	                      EbShrinkCombine, EbShrinkFinalize, nullptr, EbShrinkBind, EbShrinkDestroy);
 	func_set.AddFunction(basic);
 
 	auto with_opts =
-	    AggregateFunction("anofox_stats_eb_shrink_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::ANY},
+	    AggregateFunction("eb_shrink_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::ANY},
 	                      LogicalType::ANY, AggregateFunction::StateSize<EbShrinkState>, EbShrinkInitialize,
 	                      EbShrinkUpdate, EbShrinkCombine, EbShrinkFinalize, nullptr, EbShrinkBind, EbShrinkDestroy);
 	func_set.AddFunction(with_opts);
@@ -246,12 +246,6 @@ void RegisterEbShrinkAggregateFunction(ExtensionLoader &loader) {
 	CreateAggregateFunctionInfo info(func_set);
 	loader.RegisterFunction(info);
 
-	AggregateFunctionSet alias_set("eb_shrink_agg");
-	alias_set.AddFunction(basic);
-	alias_set.AddFunction(with_opts);
-	CreateAggregateFunctionInfo alias_info(alias_set);
-	alias_info.alias_of = "anofox_stats_eb_shrink_agg";
-	loader.RegisterFunction(alias_info);
 }
 
 } // namespace duckdb

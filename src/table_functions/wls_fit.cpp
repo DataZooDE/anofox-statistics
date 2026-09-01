@@ -259,7 +259,7 @@ void RegisterWlsFitFunction(ExtensionLoader &loader) {
 
     // Primary
     {
-        ScalarFunctionSet func_set("anofox_stats_wls_fit");
+        ScalarFunctionSet func_set("wls_fit");
         func_set.AddFunction(basic_func);
         func_set.AddFunction(map_func);
         CreateScalarFunctionInfo info(std::move(func_set));
@@ -267,7 +267,7 @@ void RegisterWlsFitFunction(ExtensionLoader &loader) {
 
         FunctionDescription d1;
         d1.description     = "Fits a Weighted Least Squares (WLS) regression model using per-observation weights.";
-        d1.examples        = {"anofox_stats_wls_fit(y, x, weights)"};
+        d1.examples        = {"wls_fit(y, x, weights)"};
         d1.categories      = {"regression"};
         d1.parameter_names = {"y", "x", "weights"};
         d1.parameter_types = {LogicalType::LIST(LogicalType::DOUBLE),
@@ -277,7 +277,7 @@ void RegisterWlsFitFunction(ExtensionLoader &loader) {
 
         FunctionDescription d2;
         d2.description     = "Fits a WLS regression model with optional MAP of settings (fit_intercept, compute_inference, confidence_level, solver, hc_type).";
-        d2.examples        = {"anofox_stats_wls_fit(y, x, weights, {'compute_inference': true})"};
+        d2.examples        = {"wls_fit(y, x, weights, {'compute_inference': true})"};
         d2.categories      = {"regression"};
         d2.parameter_names = {"y", "x", "weights", "options"};
         d2.parameter_types = {LogicalType::LIST(LogicalType::DOUBLE),
@@ -289,15 +289,6 @@ void RegisterWlsFitFunction(ExtensionLoader &loader) {
         loader.RegisterFunction(std::move(info));
     }
     // Alias
-    {
-        ScalarFunctionSet alias_set("wls_fit");
-        alias_set.AddFunction(basic_func);
-        alias_set.AddFunction(map_func);
-        CreateScalarFunctionInfo alias_info(std::move(alias_set));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_wls_fit";
-        loader.RegisterFunction(std::move(alias_info));
-    }
 }
 
 } // namespace duckdb

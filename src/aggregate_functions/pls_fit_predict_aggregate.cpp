@@ -399,17 +399,17 @@ static unique_ptr<FunctionData> PlsPredictAggBindWithSplit(ClientContext &contex
 // Registration
 //===--------------------------------------------------------------------===//
 void RegisterPlsFitPredictAggregateFunction(ExtensionLoader &loader) {
-    AggregateFunctionSet func_set("anofox_stats_pls_fit_predict_agg");
+    AggregateFunctionSet func_set("pls_fit_predict_agg");
 
     auto basic_func =
-        AggregateFunction("anofox_stats_pls_fit_predict_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
+        AggregateFunction("pls_fit_predict_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
                           LogicalType::ANY, AggregateFunction::StateSize<PlsPredictAggState>, PlsPredictAggInitialize,
                           PlsPredictAggUpdate, PlsPredictAggCombine, PlsPredictAggFinalize, nullptr, PlsPredictAggBind,
                           PlsPredictAggDestroy);
     func_set.AddFunction(basic_func);
 
     auto map_func = AggregateFunction(
-        "anofox_stats_pls_fit_predict_agg",
+        "pls_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY}, LogicalType::ANY,
         AggregateFunction::StateSize<PlsPredictAggState>, PlsPredictAggInitialize, PlsPredictAggUpdate,
         PlsPredictAggCombine, PlsPredictAggFinalize, nullptr, PlsPredictAggBind, PlsPredictAggDestroy);
@@ -417,7 +417,7 @@ void RegisterPlsFitPredictAggregateFunction(ExtensionLoader &loader) {
 
     // Version with split column: pls_fit_predict_agg(y, x, split)
     auto split_func = AggregateFunction(
-        "anofox_stats_pls_fit_predict_agg",
+        "pls_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR}, LogicalType::ANY,
         AggregateFunction::StateSize<PlsPredictAggState>, PlsPredictAggInitialize, PlsPredictAggUpdate,
         PlsPredictAggCombine, PlsPredictAggFinalize, nullptr, PlsPredictAggBindWithSplit, PlsPredictAggDestroy);
@@ -425,7 +425,7 @@ void RegisterPlsFitPredictAggregateFunction(ExtensionLoader &loader) {
 
     // Version with split column and options: pls_fit_predict_agg(y, x, split, options)
     auto split_map_func = AggregateFunction(
-        "anofox_stats_pls_fit_predict_agg",
+        "pls_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR, LogicalType::ANY}, LogicalType::ANY,
         AggregateFunction::StateSize<PlsPredictAggState>, PlsPredictAggInitialize, PlsPredictAggUpdate,
         PlsPredictAggCombine, PlsPredictAggFinalize, nullptr, PlsPredictAggBindWithSplit, PlsPredictAggDestroy);
@@ -436,7 +436,7 @@ void RegisterPlsFitPredictAggregateFunction(ExtensionLoader &loader) {
 
     FunctionDescription d1;
     d1.description = "Fits a Partial Least Squares model over a partition and returns per-row predictions.";
-    d1.examples = {"anofox_stats_pls_fit_predict_agg(y, x)"};
+    d1.examples = {"pls_fit_predict_agg(y, x)"};
     d1.categories = {"regression", "partial-least-squares"};
     d1.parameter_names = {"y", "x"};
     d1.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)};
@@ -444,7 +444,7 @@ void RegisterPlsFitPredictAggregateFunction(ExtensionLoader &loader) {
 
     FunctionDescription d2;
     d2.description = "Fits a Partial Least Squares model over a partition with a MAP of options and returns per-row predictions.";
-    d2.examples = {"anofox_stats_pls_fit_predict_agg(y, x, {'n_components': 2})"};
+    d2.examples = {"pls_fit_predict_agg(y, x, {'n_components': 2})"};
     d2.categories = {"regression", "partial-least-squares"};
     d2.parameter_names = {"y", "x", "options"};
     d2.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY};
@@ -452,7 +452,7 @@ void RegisterPlsFitPredictAggregateFunction(ExtensionLoader &loader) {
 
     FunctionDescription d3;
     d3.description = "Fits a Partial Least Squares model using only training rows (split_col='train') and predicts all rows.";
-    d3.examples = {"anofox_stats_pls_fit_predict_agg(y, x, split_col)"};
+    d3.examples = {"pls_fit_predict_agg(y, x, split_col)"};
     d3.categories = {"regression", "partial-least-squares"};
     d3.parameter_names = {"y", "x", "split_col"};
     d3.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR};
@@ -460,7 +460,7 @@ void RegisterPlsFitPredictAggregateFunction(ExtensionLoader &loader) {
 
     FunctionDescription d4;
     d4.description = "Fits a Partial Least Squares model on training rows with a MAP of options and predicts all rows.";
-    d4.examples = {"anofox_stats_pls_fit_predict_agg(y, x, split_col, {'n_components': 2})"};
+    d4.examples = {"pls_fit_predict_agg(y, x, split_col, {'n_components': 2})"};
     d4.categories = {"regression", "partial-least-squares"};
     d4.parameter_names = {"y", "x", "split_col", "options"};
     d4.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR, LogicalType::ANY};
@@ -468,17 +468,6 @@ void RegisterPlsFitPredictAggregateFunction(ExtensionLoader &loader) {
 
     loader.RegisterFunction(std::move(info));
 
-    {
-        AggregateFunctionSet alias_set("pls_fit_predict_agg");
-        alias_set.AddFunction(basic_func);
-        alias_set.AddFunction(map_func);
-        alias_set.AddFunction(split_func);
-        alias_set.AddFunction(split_map_func);
-        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_pls_fit_predict_agg";
-        loader.RegisterFunction(std::move(alias_info));
-    }
 }
 
 } // namespace duckdb

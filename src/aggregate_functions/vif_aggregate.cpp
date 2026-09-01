@@ -199,9 +199,9 @@ static unique_ptr<FunctionData> VifAggBind(ClientContext &context, AggregateFunc
 // Registration
 //===--------------------------------------------------------------------===//
 void RegisterVifAggregateFunction(ExtensionLoader &loader) {
-    AggregateFunctionSet func_set("anofox_stats_vif_agg");
+    AggregateFunctionSet func_set("vif_agg");
 
-    auto func = AggregateFunction("anofox_stats_vif_agg", {LogicalType::LIST(LogicalType::DOUBLE)},
+    auto func = AggregateFunction("vif_agg", {LogicalType::LIST(LogicalType::DOUBLE)},
                                   LogicalType::ANY, // Set in bind
                                   AggregateFunction::StateSize<VifAggregateState>, VifAggInitialize, VifAggUpdate,
                                   VifAggCombine, VifAggFinalize,
@@ -213,7 +213,7 @@ void RegisterVifAggregateFunction(ExtensionLoader &loader) {
     info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
     FunctionDescription d1;
     d1.description     = "Aggregate version of VIF: computes Variance Inflation Factor for each feature from a column of feature vectors.";
-    d1.examples        = {"anofox_stats_vif_agg(x)"};
+    d1.examples        = {"vif_agg(x)"};
     d1.categories      = {"regression-diagnostics"};
     d1.parameter_names = {"x"};
     d1.parameter_types = {LogicalType::LIST(LogicalType::DOUBLE)};
@@ -221,14 +221,6 @@ void RegisterVifAggregateFunction(ExtensionLoader &loader) {
     loader.RegisterFunction(std::move(info));
 
     // Also register short alias
-    {
-        AggregateFunctionSet alias_set("vif_agg");
-        alias_set.AddFunction(func);
-        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_vif_agg";
-        loader.RegisterFunction(std::move(alias_info));
-    }
 }
 
 } // namespace duckdb

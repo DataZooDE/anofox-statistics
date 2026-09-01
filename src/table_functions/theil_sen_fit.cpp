@@ -111,7 +111,7 @@ static unique_ptr<FunctionData> TheilSenFitBind(ClientContext &context, ScalarFu
 
     bound_function.return_type = GetTheilSenResultType(result->compute_inference);
 
-    PostHogTelemetry::Instance().RecordFunctionCall("theilsen_fit");
+    PostHogTelemetry::Instance().RecordFunctionCall("theil_sen_fit");
     return std::move(result);
 }
 
@@ -251,7 +251,7 @@ void RegisterTheilSenFitFunction(ExtensionLoader &loader) {
                         DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, TheilSenFitBind));
 
     {
-        ScalarFunctionSet func_set("anofox_stats_theilsen_fit");
+        ScalarFunctionSet func_set("theil_sen_fit");
         func_set.AddFunction(basic_func);
         func_set.AddFunction(map_func);
         CreateScalarFunctionInfo info(std::move(func_set));
@@ -260,7 +260,7 @@ void RegisterTheilSenFitFunction(ExtensionLoader &loader) {
         FunctionDescription d1;
         d1.description = "Fits a Theil-Sen robust regression model. Returns coefficients and fit statistics as a "
                          "struct.";
-        d1.examples = {"anofox_stats_theilsen_fit(y, x)"};
+        d1.examples = {"theil_sen_fit(y, x)"};
         d1.categories = {"regression"};
         d1.parameter_names = {"y", "x"};
         d1.parameter_types = {LogicalType::LIST(LogicalType::DOUBLE),
@@ -271,7 +271,7 @@ void RegisterTheilSenFitFunction(ExtensionLoader &loader) {
         d2.description = "Fits a Theil-Sen regression model with optional MAP of settings (max_subpopulation, "
                          "n_subsamples, max_iterations, tolerance, random_state, fit_intercept, "
                          "compute_inference, confidence_level).";
-        d2.examples = {"anofox_stats_theilsen_fit(y, x, {'random_state': 42, 'max_subpopulation': 5000})"};
+        d2.examples = {"theil_sen_fit(y, x, {'random_state': 42, 'max_subpopulation': 5000})"};
         d2.categories = {"regression"};
         d2.parameter_names = {"y", "x", "options"};
         d2.parameter_types = {LogicalType::LIST(LogicalType::DOUBLE),
@@ -279,15 +279,6 @@ void RegisterTheilSenFitFunction(ExtensionLoader &loader) {
         info.descriptions.push_back(std::move(d2));
 
         loader.RegisterFunction(std::move(info));
-    }
-    {
-        ScalarFunctionSet alias_set("theilsen_fit");
-        alias_set.AddFunction(basic_func);
-        alias_set.AddFunction(map_func);
-        CreateScalarFunctionInfo alias_info(std::move(alias_set));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_theilsen_fit";
-        loader.RegisterFunction(std::move(alias_info));
     }
 }
 

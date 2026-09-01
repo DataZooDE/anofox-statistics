@@ -203,7 +203,7 @@ void RegisterResidualsDiagnosticsFunction(ExtensionLoader &loader) {
 
     // Primary (2 overloads)
     {
-        ScalarFunctionSet func_set("anofox_stats_residuals_diagnostics");
+        ScalarFunctionSet func_set("residuals_diagnostics");
         func_set.AddFunction(basic_func);
         func_set.AddFunction(full_func);
         CreateScalarFunctionInfo info(std::move(func_set));
@@ -211,7 +211,7 @@ void RegisterResidualsDiagnosticsFunction(ExtensionLoader &loader) {
 
         FunctionDescription d1;
         d1.description     = "Computes raw and standardized residuals, leverage, and Cook's distance from actuals and predictions.";
-        d1.examples        = {"anofox_stats_residuals_diagnostics(y, y_hat)"};
+        d1.examples        = {"residuals_diagnostics(y, y_hat)"};
         d1.categories      = {"regression-diagnostics"};
         d1.parameter_names = {"y", "y_hat"};
         d1.parameter_types = {LogicalType::LIST(LogicalType::DOUBLE), LogicalType::LIST(LogicalType::DOUBLE)};
@@ -219,7 +219,7 @@ void RegisterResidualsDiagnosticsFunction(ExtensionLoader &loader) {
 
         FunctionDescription d2;
         d2.description     = "Computes residual diagnostics including studentized residuals when feature matrix and residual standard error are supplied.";
-        d2.examples        = {"anofox_stats_residuals_diagnostics(y, y_hat, x, rse, true)"};
+        d2.examples        = {"residuals_diagnostics(y, y_hat, x, rse, true)"};
         d2.categories      = {"regression-diagnostics"};
         d2.parameter_names = {"y", "y_hat", "x", "residual_std_error", "include_studentized"};
         d2.parameter_types = {LogicalType::LIST(LogicalType::DOUBLE), LogicalType::LIST(LogicalType::DOUBLE),
@@ -230,15 +230,6 @@ void RegisterResidualsDiagnosticsFunction(ExtensionLoader &loader) {
         loader.RegisterFunction(std::move(info));
     }
     // Alias
-    {
-        ScalarFunctionSet alias_set("residuals_diagnostics");
-        alias_set.AddFunction(basic_func);
-        alias_set.AddFunction(full_func);
-        CreateScalarFunctionInfo alias_info(std::move(alias_set));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_residuals_diagnostics";
-        loader.RegisterFunction(std::move(alias_info));
-    }
 }
 
 } // namespace duckdb

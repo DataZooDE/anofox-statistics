@@ -418,16 +418,16 @@ static unique_ptr<FunctionData> RansacAggBind(ClientContext &context, AggregateF
 }
 
 void RegisterRansacAggregateFunction(ExtensionLoader &loader) {
-    AggregateFunctionSet func_set("anofox_stats_ransac_fit_agg");
+    AggregateFunctionSet func_set("ransac_fit_agg");
 
     auto basic_func = AggregateFunction(
-        "anofox_stats_ransac_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
+        "ransac_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
         LogicalType::ANY, AggregateFunction::StateSize<RansacAggregateState>, RansacAggInitialize, RansacAggUpdate,
         RansacAggCombine, RansacAggFinalize, nullptr, RansacAggBind, RansacAggDestroy);
     func_set.AddFunction(basic_func);
 
     auto map_func = AggregateFunction(
-        "anofox_stats_ransac_fit_agg",
+        "ransac_fit_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY}, LogicalType::ANY,
         AggregateFunction::StateSize<RansacAggregateState>, RansacAggInitialize, RansacAggUpdate, RansacAggCombine,
         RansacAggFinalize, nullptr, RansacAggBind, RansacAggDestroy);
@@ -439,7 +439,7 @@ void RegisterRansacAggregateFunction(ExtensionLoader &loader) {
     d1.description =
         "Fits a RANSAC robust regression model and returns coefficients, fit statistics, the residual threshold "
         "used, and the inlier / trial counts as a struct.";
-    d1.examples = {"anofox_stats_ransac_fit_agg(y, x, {'residual_threshold': 0.5, 'random_state': 42})"};
+    d1.examples = {"ransac_fit_agg(y, x, {'residual_threshold': 0.5, 'random_state': 42})"};
     d1.categories = {"regression"};
     d1.parameter_names = {"y", "x", "options"};
     d1.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY};
@@ -448,22 +448,13 @@ void RegisterRansacAggregateFunction(ExtensionLoader &loader) {
     d2.description =
         "Fits a RANSAC robust regression model and returns coefficients, fit statistics, the residual threshold "
         "used, and the inlier / trial counts as a struct.";
-    d2.examples = {"anofox_stats_ransac_fit_agg(y, x)"};
+    d2.examples = {"ransac_fit_agg(y, x)"};
     d2.categories = {"regression"};
     d2.parameter_names = {"y", "x"};
     d2.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)};
     info.descriptions.push_back(std::move(d2));
     loader.RegisterFunction(std::move(info));
 
-    {
-        AggregateFunctionSet alias_set("ransac_fit_agg");
-        alias_set.AddFunction(basic_func);
-        alias_set.AddFunction(map_func);
-        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_ransac_fit_agg";
-        loader.RegisterFunction(std::move(alias_info));
-    }
 }
 
 } // namespace duckdb

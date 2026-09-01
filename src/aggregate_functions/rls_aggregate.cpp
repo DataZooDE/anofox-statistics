@@ -328,11 +328,11 @@ static unique_ptr<FunctionData> RlsAggBind(ClientContext &context, AggregateFunc
 // Registration
 //===--------------------------------------------------------------------===//
 void RegisterRlsAggregateFunction(ExtensionLoader &loader) {
-    AggregateFunctionSet func_set("anofox_stats_rls_fit_agg");
+    AggregateFunctionSet func_set("rls_fit_agg");
 
     // Basic version: anofox_stats_rls_fit_agg(y, x) - uses defaults
     auto basic_func = AggregateFunction(
-        "anofox_stats_rls_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
+        "rls_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
         LogicalType::ANY, // Set in bind
         AggregateFunction::StateSize<RlsAggregateState>, RlsAggInitialize, RlsAggUpdate, RlsAggCombine, RlsAggFinalize,
         nullptr, // simple_update
@@ -340,7 +340,7 @@ void RegisterRlsAggregateFunction(ExtensionLoader &loader) {
     func_set.AddFunction(basic_func);
 
     // Version with MAP options: anofox_stats_rls_fit_agg(y, x, {'forgetting_factor': 0.99, ...})
-    auto map_func = AggregateFunction("anofox_stats_rls_fit_agg",
+    auto map_func = AggregateFunction("rls_fit_agg",
                                       {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE),
                                        LogicalType::ANY}, // MAP or STRUCT for options
                                       LogicalType::ANY, AggregateFunction::StateSize<RlsAggregateState>,
@@ -352,30 +352,20 @@ void RegisterRlsAggregateFunction(ExtensionLoader &loader) {
     info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
     FunctionDescription d1;
     d1.description     = "Fits a Recursive Least Squares model and returns coefficients and fit statistics.";
-    d1.examples        = {"anofox_stats_rls_fit_agg(y, x, {'forgetting_factor': 0.99})"};
+    d1.examples        = {"rls_fit_agg(y, x, {'forgetting_factor': 0.99})"};
     d1.categories      = {"regression"};
     d1.parameter_names = {"y", "x", "options"};
     d1.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY};
     info.descriptions.push_back(std::move(d1));
     FunctionDescription d2;
     d2.description     = "Fits a Recursive Least Squares model and returns coefficients and fit statistics.";
-    d2.examples        = {"anofox_stats_rls_fit_agg(y, x)"};
+    d2.examples        = {"rls_fit_agg(y, x)"};
     d2.categories      = {"regression"};
     d2.parameter_names = {"y", "x"};
     d2.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)};
     info.descriptions.push_back(std::move(d2));
     loader.RegisterFunction(std::move(info));
 
-    // Register short alias
-    {
-        AggregateFunctionSet alias_set("rls_fit_agg");
-        alias_set.AddFunction(basic_func);
-        alias_set.AddFunction(map_func);
-        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_rls_fit_agg";
-        loader.RegisterFunction(std::move(alias_info));
-    }
 }
 
 } // namespace duckdb

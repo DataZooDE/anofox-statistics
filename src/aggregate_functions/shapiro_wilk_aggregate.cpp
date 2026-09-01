@@ -174,7 +174,7 @@ static unique_ptr<FunctionData> ShapiroWilkAggBind(ClientContext &context, Aggre
 // Registration
 //===--------------------------------------------------------------------===//
 void RegisterShapiroWilkAggregateFunction(ExtensionLoader &loader) {
-    auto func = AggregateFunction("anofox_stats_shapiro_wilk_agg", {LogicalType::DOUBLE},
+    auto func = AggregateFunction("shapiro_wilk_agg", {LogicalType::DOUBLE},
                                   LogicalType::ANY, // Set in bind
                                   AggregateFunction::StateSize<ShapiroWilkAggregateState>, ShapiroWilkAggInitialize,
                                   ShapiroWilkAggUpdate, ShapiroWilkAggCombine, ShapiroWilkAggFinalize,
@@ -182,13 +182,13 @@ void RegisterShapiroWilkAggregateFunction(ExtensionLoader &loader) {
                                   ShapiroWilkAggBind, ShapiroWilkAggDestroy);
 
     {
-        AggregateFunctionSet func_set("anofox_stats_shapiro_wilk_agg");
+        AggregateFunctionSet func_set("shapiro_wilk_agg");
         func_set.AddFunction(func);
         CreateAggregateFunctionInfo info(std::move(func_set));
         info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
         FunctionDescription desc;
         desc.description     = "Performs the Shapiro-Wilk test for normality on a sample.";
-        desc.examples        = {"anofox_stats_shapiro_wilk_agg(value)"};
+        desc.examples        = {"shapiro_wilk_agg(value)"};
         desc.categories      = {"normality-test"};
         desc.parameter_names = {"value"};
         desc.parameter_types = {LogicalType::DOUBLE};
@@ -197,14 +197,6 @@ void RegisterShapiroWilkAggregateFunction(ExtensionLoader &loader) {
     }
 
     // Also register short alias
-    {
-        AggregateFunctionSet alias_set("shapiro_wilk_agg");
-        alias_set.AddFunction(func);
-        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_shapiro_wilk_agg";
-        loader.RegisterFunction(std::move(alias_info));
-    }
 }
 
 } // namespace duckdb

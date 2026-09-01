@@ -248,11 +248,11 @@ static unique_ptr<FunctionData> PropTestTwoAggBind(ClientContext &context, Aggre
 // Registration
 //===--------------------------------------------------------------------===//
 void RegisterPropTestTwoAggregateFunction(ExtensionLoader &loader) {
-    AggregateFunctionSet func_set("anofox_stats_prop_test_two_agg");
+    AggregateFunctionSet func_set("prop_test_two_agg");
 
     // With options: (value BIGINT, group_id BIGINT, options)
     auto func_with_opts = AggregateFunction(
-        "anofox_stats_prop_test_two_agg", {LogicalType::BIGINT, LogicalType::BIGINT, LogicalType::ANY},
+        "prop_test_two_agg", {LogicalType::BIGINT, LogicalType::BIGINT, LogicalType::ANY},
         LogicalType::ANY,
         AggregateFunction::StateSize<PropTestTwoAggregateState>, PropTestTwoAggInitialize,
         PropTestTwoAggUpdate, PropTestTwoAggCombine, PropTestTwoAggFinalize,
@@ -261,7 +261,7 @@ void RegisterPropTestTwoAggregateFunction(ExtensionLoader &loader) {
 
     // Without options: (value BIGINT, group_id BIGINT)
     auto func_no_opts = AggregateFunction(
-        "anofox_stats_prop_test_two_agg", {LogicalType::BIGINT, LogicalType::BIGINT},
+        "prop_test_two_agg", {LogicalType::BIGINT, LogicalType::BIGINT},
         LogicalType::ANY,
         AggregateFunction::StateSize<PropTestTwoAggregateState>, PropTestTwoAggInitialize,
         PropTestTwoAggUpdate, PropTestTwoAggCombine, PropTestTwoAggFinalize,
@@ -272,30 +272,20 @@ void RegisterPropTestTwoAggregateFunction(ExtensionLoader &loader) {
     info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
     FunctionDescription d1;
     d1.description     = "Tests whether two observed proportions are equal (two-sample proportion test).";
-    d1.examples        = {"anofox_stats_prop_test_two_agg(value, group_id, {'alternative': 'two_sided'})"};
+    d1.examples        = {"prop_test_two_agg(value, group_id, {'alternative': 'two_sided'})"};
     d1.categories      = {"hypothesis-testing", "proportion"};
     d1.parameter_names = {"value", "group_id", "options"};
     d1.parameter_types = {LogicalType::BIGINT, LogicalType::BIGINT, LogicalType::ANY};
     info.descriptions.push_back(std::move(d1));
     FunctionDescription d2;
     d2.description     = "Tests whether two observed proportions are equal (two-sample proportion test), using default options.";
-    d2.examples        = {"anofox_stats_prop_test_two_agg(value, group_id)"};
+    d2.examples        = {"prop_test_two_agg(value, group_id)"};
     d2.categories      = {"hypothesis-testing", "proportion"};
     d2.parameter_names = {"value", "group_id"};
     d2.parameter_types = {LogicalType::BIGINT, LogicalType::BIGINT};
     info.descriptions.push_back(std::move(d2));
     loader.RegisterFunction(std::move(info));
 
-    // Short alias
-    {
-        AggregateFunctionSet alias_set("prop_test_two_agg");
-        alias_set.AddFunction(func_with_opts);
-        alias_set.AddFunction(func_no_opts);
-        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_prop_test_two_agg";
-        loader.RegisterFunction(std::move(alias_info));
-    }
 }
 
 } // namespace duckdb

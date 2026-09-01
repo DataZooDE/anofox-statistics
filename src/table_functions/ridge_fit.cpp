@@ -258,7 +258,7 @@ void RegisterRidgeFitFunction(ExtensionLoader &loader) {
 
     // Primary
     {
-        ScalarFunctionSet func_set("anofox_stats_ridge_fit");
+        ScalarFunctionSet func_set("ridge_fit");
         func_set.AddFunction(basic_func);
         func_set.AddFunction(map_func);
         CreateScalarFunctionInfo info(std::move(func_set));
@@ -266,7 +266,7 @@ void RegisterRidgeFitFunction(ExtensionLoader &loader) {
 
         FunctionDescription d1;
         d1.description     = "Fits a Ridge regression model with L2 regularization to the given response and feature data.";
-        d1.examples        = {"anofox_stats_ridge_fit(y, x)"};
+        d1.examples        = {"ridge_fit(y, x)"};
         d1.categories      = {"regression"};
         d1.parameter_names = {"y", "x"};
         d1.parameter_types = {LogicalType::LIST(LogicalType::DOUBLE), LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE))};
@@ -274,7 +274,7 @@ void RegisterRidgeFitFunction(ExtensionLoader &loader) {
 
         FunctionDescription d2;
         d2.description     = "Fits a Ridge regression model with L2 regularization and optional MAP of settings (fit_intercept, compute_inference, confidence_level, alpha, solver).";
-        d2.examples        = {"anofox_stats_ridge_fit(y, x, {'alpha': 1.0, 'compute_inference': true})"};
+        d2.examples        = {"ridge_fit(y, x, {'alpha': 1.0, 'compute_inference': true})"};
         d2.categories      = {"regression"};
         d2.parameter_names = {"y", "x", "options"};
         d2.parameter_types = {LogicalType::LIST(LogicalType::DOUBLE), LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)), LogicalType::ANY};
@@ -283,15 +283,6 @@ void RegisterRidgeFitFunction(ExtensionLoader &loader) {
         loader.RegisterFunction(std::move(info));
     }
     // Alias
-    {
-        ScalarFunctionSet alias_set("ridge_fit");
-        alias_set.AddFunction(basic_func);
-        alias_set.AddFunction(map_func);
-        CreateScalarFunctionInfo alias_info(std::move(alias_set));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_ridge_fit";
-        loader.RegisterFunction(std::move(alias_info));
-    }
 }
 
 } // namespace duckdb

@@ -537,11 +537,11 @@ static unique_ptr<FunctionData> AlmFitPredictAggBindWithSplit(ClientContext &con
 //===--------------------------------------------------------------------===//
 void RegisterAlmFitPredictAggregateFunction(ExtensionLoader &loader) {
     // Primary name
-    AggregateFunctionSet func_set("anofox_stats_alm_fit_predict_agg");
+    AggregateFunctionSet func_set("alm_fit_predict_agg");
 
     // Basic version: alm_fit_predict_agg(y, x)
     auto basic_func =
-        AggregateFunction("anofox_stats_alm_fit_predict_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
+        AggregateFunction("alm_fit_predict_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
                           LogicalType::ANY, AggregateFunction::StateSize<AlmFitPredictAggState>, AlmFitPredictAggInitialize,
                           AlmFitPredictAggUpdate, AlmFitPredictAggCombine, AlmFitPredictAggFinalize, nullptr, AlmFitPredictAggBind,
                           AlmFitPredictAggDestroy);
@@ -549,21 +549,21 @@ void RegisterAlmFitPredictAggregateFunction(ExtensionLoader &loader) {
 
     // Version with MAP options: alm_fit_predict_agg(y, x, {'distribution': 'laplace', ...})
     auto map_func = AggregateFunction(
-        "anofox_stats_alm_fit_predict_agg",
+        "alm_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY}, LogicalType::ANY,
         AggregateFunction::StateSize<AlmFitPredictAggState>, AlmFitPredictAggInitialize, AlmFitPredictAggUpdate,
         AlmFitPredictAggCombine, AlmFitPredictAggFinalize, nullptr, AlmFitPredictAggBind, AlmFitPredictAggDestroy);
     func_set.AddFunction(map_func);
 
     auto split_func = AggregateFunction(
-        "anofox_stats_alm_fit_predict_agg",
+        "alm_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR}, LogicalType::ANY,
         AggregateFunction::StateSize<AlmFitPredictAggState>, AlmFitPredictAggInitialize, AlmFitPredictAggUpdate,
         AlmFitPredictAggCombine, AlmFitPredictAggFinalize, nullptr, AlmFitPredictAggBindWithSplit, AlmFitPredictAggDestroy);
     func_set.AddFunction(split_func);
 
     auto split_opts_func = AggregateFunction(
-        "anofox_stats_alm_fit_predict_agg",
+        "alm_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR, LogicalType::ANY},
         LogicalType::ANY, AggregateFunction::StateSize<AlmFitPredictAggState>, AlmFitPredictAggInitialize,
         AlmFitPredictAggUpdate, AlmFitPredictAggCombine, AlmFitPredictAggFinalize, nullptr, AlmFitPredictAggBindWithSplit,
@@ -575,7 +575,7 @@ void RegisterAlmFitPredictAggregateFunction(ExtensionLoader &loader) {
 
     FunctionDescription d1;
     d1.description = "Fits an Additive Linear Model over a partition and returns per-row predictions.";
-    d1.examples = {"anofox_stats_alm_fit_predict_agg(y, x)"};
+    d1.examples = {"alm_fit_predict_agg(y, x)"};
     d1.categories = {"regression", "prediction"};
     d1.parameter_names = {"y", "x"};
     d1.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)};
@@ -583,7 +583,7 @@ void RegisterAlmFitPredictAggregateFunction(ExtensionLoader &loader) {
 
     FunctionDescription d2;
     d2.description = "Fits an Additive Linear Model over a partition with a MAP of options and returns per-row predictions.";
-    d2.examples = {"anofox_stats_alm_fit_predict_agg(y, x, {'distribution': 'laplace'})"};
+    d2.examples = {"alm_fit_predict_agg(y, x, {'distribution': 'laplace'})"};
     d2.categories = {"regression", "prediction"};
     d2.parameter_names = {"y", "x", "options"};
     d2.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY};
@@ -591,7 +591,7 @@ void RegisterAlmFitPredictAggregateFunction(ExtensionLoader &loader) {
 
     FunctionDescription d3;
     d3.description = "Fits an Additive Linear Model using only training rows (split_col='train') and predicts all rows.";
-    d3.examples = {"anofox_stats_alm_fit_predict_agg(y, x, split_col)"};
+    d3.examples = {"alm_fit_predict_agg(y, x, split_col)"};
     d3.categories = {"regression", "prediction"};
     d3.parameter_names = {"y", "x", "split_col"};
     d3.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR};
@@ -599,7 +599,7 @@ void RegisterAlmFitPredictAggregateFunction(ExtensionLoader &loader) {
 
     FunctionDescription d4;
     d4.description = "Fits an Additive Linear Model on training rows with a MAP of options and predicts all rows.";
-    d4.examples = {"anofox_stats_alm_fit_predict_agg(y, x, split_col, {'distribution': 'laplace'})"};
+    d4.examples = {"alm_fit_predict_agg(y, x, split_col, {'distribution': 'laplace'})"};
     d4.categories = {"regression", "prediction"};
     d4.parameter_names = {"y", "x", "split_col", "options"};
     d4.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR, LogicalType::ANY};
@@ -607,18 +607,6 @@ void RegisterAlmFitPredictAggregateFunction(ExtensionLoader &loader) {
 
     loader.RegisterFunction(std::move(info));
 
-    // Short alias
-    {
-        AggregateFunctionSet alias_set("alm_fit_predict_agg");
-        alias_set.AddFunction(basic_func);
-        alias_set.AddFunction(map_func);
-        alias_set.AddFunction(split_func);
-        alias_set.AddFunction(split_opts_func);
-        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_alm_fit_predict_agg";
-        loader.RegisterFunction(std::move(alias_info));
-    }
 }
 
 } // namespace duckdb

@@ -485,24 +485,24 @@ static unique_ptr<FunctionData> RansacPredictAggBindWithSplit(ClientContext &con
 }
 
 void RegisterRansacFitPredictAggregateFunction(ExtensionLoader &loader) {
-    AggregateFunctionSet func_set("anofox_stats_ransac_fit_predict_agg");
+    AggregateFunctionSet func_set("ransac_fit_predict_agg");
 
     auto basic_func = AggregateFunction(
-        "anofox_stats_ransac_fit_predict_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
+        "ransac_fit_predict_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
         LogicalType::ANY, AggregateFunction::StateSize<RansacPredictAggState>, RansacPredictAggInitialize,
         RansacPredictAggUpdate, RansacPredictAggCombine, RansacPredictAggFinalize, nullptr,
         RansacPredictAggBind, RansacPredictAggDestroy);
     func_set.AddFunction(basic_func);
 
     auto map_func = AggregateFunction(
-        "anofox_stats_ransac_fit_predict_agg",
+        "ransac_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY}, LogicalType::ANY,
         AggregateFunction::StateSize<RansacPredictAggState>, RansacPredictAggInitialize, RansacPredictAggUpdate,
         RansacPredictAggCombine, RansacPredictAggFinalize, nullptr, RansacPredictAggBind, RansacPredictAggDestroy);
     func_set.AddFunction(map_func);
 
     auto split_func = AggregateFunction(
-        "anofox_stats_ransac_fit_predict_agg",
+        "ransac_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR}, LogicalType::ANY,
         AggregateFunction::StateSize<RansacPredictAggState>, RansacPredictAggInitialize, RansacPredictAggUpdate,
         RansacPredictAggCombine, RansacPredictAggFinalize, nullptr, RansacPredictAggBindWithSplit,
@@ -510,7 +510,7 @@ void RegisterRansacFitPredictAggregateFunction(ExtensionLoader &loader) {
     func_set.AddFunction(split_func);
 
     auto split_opts_func = AggregateFunction(
-        "anofox_stats_ransac_fit_predict_agg",
+        "ransac_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR, LogicalType::ANY},
         LogicalType::ANY, AggregateFunction::StateSize<RansacPredictAggState>, RansacPredictAggInitialize,
         RansacPredictAggUpdate, RansacPredictAggCombine, RansacPredictAggFinalize, nullptr,
@@ -523,7 +523,7 @@ void RegisterRansacFitPredictAggregateFunction(ExtensionLoader &loader) {
     FunctionDescription d1;
     d1.description = "Fits a RANSAC robust regression over a partition and returns per-row predictions with "
                      "confidence intervals.";
-    d1.examples = {"anofox_stats_ransac_fit_predict_agg(y, x)"};
+    d1.examples = {"ransac_fit_predict_agg(y, x)"};
     d1.categories = {"regression", "prediction"};
     d1.parameter_names = {"y", "x"};
     d1.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)};
@@ -531,7 +531,7 @@ void RegisterRansacFitPredictAggregateFunction(ExtensionLoader &loader) {
 
     FunctionDescription d2;
     d2.description = "Fits RANSAC over a partition with a MAP of options and returns per-row predictions.";
-    d2.examples = {"anofox_stats_ransac_fit_predict_agg(y, x, {'residual_threshold': 0.5, 'random_state': 42})"};
+    d2.examples = {"ransac_fit_predict_agg(y, x, {'residual_threshold': 0.5, 'random_state': 42})"};
     d2.categories = {"regression", "prediction"};
     d2.parameter_names = {"y", "x", "options"};
     d2.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY};
@@ -539,7 +539,7 @@ void RegisterRansacFitPredictAggregateFunction(ExtensionLoader &loader) {
 
     FunctionDescription d3;
     d3.description = "Fits RANSAC using only training rows (split_col='train') and predicts all rows.";
-    d3.examples = {"anofox_stats_ransac_fit_predict_agg(y, x, split_col)"};
+    d3.examples = {"ransac_fit_predict_agg(y, x, split_col)"};
     d3.categories = {"regression", "prediction"};
     d3.parameter_names = {"y", "x", "split_col"};
     d3.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR};
@@ -547,7 +547,7 @@ void RegisterRansacFitPredictAggregateFunction(ExtensionLoader &loader) {
 
     FunctionDescription d4;
     d4.description = "Fits RANSAC on training rows with a MAP of options and predicts all rows.";
-    d4.examples = {"anofox_stats_ransac_fit_predict_agg(y, x, split_col, {'residual_threshold': 0.5})"};
+    d4.examples = {"ransac_fit_predict_agg(y, x, split_col, {'residual_threshold': 0.5})"};
     d4.categories = {"regression", "prediction"};
     d4.parameter_names = {"y", "x", "split_col", "options"};
     d4.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR,
@@ -556,17 +556,6 @@ void RegisterRansacFitPredictAggregateFunction(ExtensionLoader &loader) {
 
     loader.RegisterFunction(std::move(info));
 
-    {
-        AggregateFunctionSet alias_set("ransac_fit_predict_agg");
-        alias_set.AddFunction(basic_func);
-        alias_set.AddFunction(map_func);
-        alias_set.AddFunction(split_func);
-        alias_set.AddFunction(split_opts_func);
-        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_ransac_fit_predict_agg";
-        loader.RegisterFunction(std::move(alias_info));
-    }
 }
 
 } // namespace duckdb

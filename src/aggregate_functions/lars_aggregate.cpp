@@ -317,16 +317,16 @@ static unique_ptr<FunctionData> LarsAggBind(ClientContext &context, AggregateFun
 // Registration
 //===--------------------------------------------------------------------===//
 void RegisterLarsAggregateFunction(ExtensionLoader &loader) {
-    AggregateFunctionSet func_set("anofox_stats_lars_fit_agg");
+    AggregateFunctionSet func_set("lars_fit_agg");
 
     auto basic_func = AggregateFunction(
-        "anofox_stats_lars_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
+        "lars_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
         LogicalType::ANY, AggregateFunction::StateSize<LarsAggregateState>, LarsAggInitialize, LarsAggUpdate,
         LarsAggCombine, LarsAggFinalize, nullptr, LarsAggBind, LarsAggDestroy);
     func_set.AddFunction(basic_func);
 
     auto map_func = AggregateFunction(
-        "anofox_stats_lars_fit_agg",
+        "lars_fit_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY}, LogicalType::ANY,
         AggregateFunction::StateSize<LarsAggregateState>, LarsAggInitialize, LarsAggUpdate, LarsAggCombine,
         LarsAggFinalize, nullptr, LarsAggBind, LarsAggDestroy);
@@ -337,30 +337,20 @@ void RegisterLarsAggregateFunction(ExtensionLoader &loader) {
     FunctionDescription d1;
     d1.description = "Fits a Least Angle Regression (LARS / LassoLars) model and returns coefficients and fit "
                      "statistics.";
-    d1.examples = {"anofox_stats_lars_fit_agg(y, x, {'fit_intercept': true, 'alpha': 0.0})"};
+    d1.examples = {"lars_fit_agg(y, x, {'fit_intercept': true, 'alpha': 0.0})"};
     d1.categories = {"regression"};
     d1.parameter_names = {"y", "x", "options"};
     d1.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY};
     info.descriptions.push_back(std::move(d1));
     FunctionDescription d2;
     d2.description = "Fits a Least Angle Regression (LARS) model and returns coefficients and fit statistics.";
-    d2.examples = {"anofox_stats_lars_fit_agg(y, x)"};
+    d2.examples = {"lars_fit_agg(y, x)"};
     d2.categories = {"regression"};
     d2.parameter_names = {"y", "x"};
     d2.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)};
     info.descriptions.push_back(std::move(d2));
     loader.RegisterFunction(std::move(info));
 
-    // Register short alias
-    {
-        AggregateFunctionSet alias_set("lars_fit_agg");
-        alias_set.AddFunction(basic_func);
-        alias_set.AddFunction(map_func);
-        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_lars_fit_agg";
-        loader.RegisterFunction(std::move(alias_info));
-    }
 }
 
 } // namespace duckdb

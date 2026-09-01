@@ -249,11 +249,11 @@ static unique_ptr<FunctionData> TTestAggBind(ClientContext &context, AggregateFu
 // Registration
 //===--------------------------------------------------------------------===//
 void RegisterTTestAggregateFunction(ExtensionLoader &loader) {
-    AggregateFunctionSet func_set("anofox_stats_t_test_agg");
+    AggregateFunctionSet func_set("t_test_agg");
 
     // Version with options: t_test_agg(value, group_id, {'alternative': 'two_sided'})
     auto func_with_opts = AggregateFunction(
-        "anofox_stats_t_test_agg", {LogicalType::DOUBLE, LogicalType::INTEGER, LogicalType::ANY},
+        "t_test_agg", {LogicalType::DOUBLE, LogicalType::INTEGER, LogicalType::ANY},
         LogicalType::ANY,
         AggregateFunction::StateSize<TTestAggregateState>, TTestAggInitialize,
         TTestAggUpdate, TTestAggCombine, TTestAggFinalize,
@@ -262,7 +262,7 @@ void RegisterTTestAggregateFunction(ExtensionLoader &loader) {
 
     // Version without options: t_test_agg(value, group_id)
     auto func_no_opts = AggregateFunction(
-        "anofox_stats_t_test_agg", {LogicalType::DOUBLE, LogicalType::INTEGER},
+        "t_test_agg", {LogicalType::DOUBLE, LogicalType::INTEGER},
         LogicalType::ANY,
         AggregateFunction::StateSize<TTestAggregateState>, TTestAggInitialize,
         TTestAggUpdate, TTestAggCombine, TTestAggFinalize,
@@ -273,30 +273,20 @@ void RegisterTTestAggregateFunction(ExtensionLoader &loader) {
     info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
     FunctionDescription d1;
     d1.description     = "Performs a two-sample t-test (Welch or Student) comparing values between two groups.";
-    d1.examples        = {"anofox_stats_t_test_agg(value, group_id, {'alternative': 'two_sided'})"};
+    d1.examples        = {"t_test_agg(value, group_id, {'alternative': 'two_sided'})"};
     d1.categories      = {"hypothesis-testing"};
     d1.parameter_names = {"value", "group_id", "options"};
     d1.parameter_types = {LogicalType::DOUBLE, LogicalType::INTEGER, LogicalType::ANY};
     info.descriptions.push_back(std::move(d1));
     FunctionDescription d2;
     d2.description     = "Performs a two-sample t-test (Welch or Student) comparing values between two groups, using default options.";
-    d2.examples        = {"anofox_stats_t_test_agg(value, group_id)"};
+    d2.examples        = {"t_test_agg(value, group_id)"};
     d2.categories      = {"hypothesis-testing"};
     d2.parameter_names = {"value", "group_id"};
     d2.parameter_types = {LogicalType::DOUBLE, LogicalType::INTEGER};
     info.descriptions.push_back(std::move(d2));
     loader.RegisterFunction(std::move(info));
 
-    // Short alias
-    {
-        AggregateFunctionSet alias_set("t_test_agg");
-        alias_set.AddFunction(func_with_opts);
-        alias_set.AddFunction(func_no_opts);
-        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_t_test_agg";
-        loader.RegisterFunction(std::move(alias_info));
-    }
 }
 
 } // namespace duckdb

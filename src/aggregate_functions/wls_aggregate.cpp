@@ -399,11 +399,11 @@ static unique_ptr<FunctionData> WlsAggBind(ClientContext &context, AggregateFunc
 // Registration
 //===--------------------------------------------------------------------===//
 void RegisterWlsAggregateFunction(ExtensionLoader &loader) {
-    AggregateFunctionSet func_set("anofox_stats_wls_fit_agg");
+    AggregateFunctionSet func_set("wls_fit_agg");
 
     // Basic version: anofox_stats_wls_fit_agg(y, x, weight) - uses defaults
     auto basic_func = AggregateFunction(
-        "anofox_stats_wls_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE},
+        "wls_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE},
         LogicalType::ANY, // Set in bind
         AggregateFunction::StateSize<WlsAggregateState>, WlsAggInitialize, WlsAggUpdate, WlsAggCombine, WlsAggFinalize,
         nullptr, // simple_update
@@ -411,7 +411,7 @@ void RegisterWlsAggregateFunction(ExtensionLoader &loader) {
     func_set.AddFunction(basic_func);
 
     // Version with MAP options: anofox_stats_wls_fit_agg(y, x, weight, {'intercept': true, ...})
-    auto map_func = AggregateFunction("anofox_stats_wls_fit_agg",
+    auto map_func = AggregateFunction("wls_fit_agg",
                                       {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE,
                                        LogicalType::ANY}, // MAP or STRUCT for options
                                       LogicalType::ANY, AggregateFunction::StateSize<WlsAggregateState>,
@@ -423,30 +423,20 @@ void RegisterWlsAggregateFunction(ExtensionLoader &loader) {
     info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
     FunctionDescription d1;
     d1.description     = "Fits a Weighted Least Squares regression model and returns coefficients and fit statistics.";
-    d1.examples        = {"anofox_stats_wls_fit_agg(y, x, weight, {'fit_intercept': true})"};
+    d1.examples        = {"wls_fit_agg(y, x, weight, {'fit_intercept': true})"};
     d1.categories      = {"regression"};
     d1.parameter_names = {"y", "x", "weight", "options"};
     d1.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE, LogicalType::ANY};
     info.descriptions.push_back(std::move(d1));
     FunctionDescription d2;
     d2.description     = "Fits a Weighted Least Squares regression model and returns coefficients and fit statistics.";
-    d2.examples        = {"anofox_stats_wls_fit_agg(y, x, weight)"};
+    d2.examples        = {"wls_fit_agg(y, x, weight)"};
     d2.categories      = {"regression"};
     d2.parameter_names = {"y", "x", "weight"};
     d2.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE};
     info.descriptions.push_back(std::move(d2));
     loader.RegisterFunction(std::move(info));
 
-    // Register short alias
-    {
-        AggregateFunctionSet alias_set("wls_fit_agg");
-        alias_set.AddFunction(basic_func);
-        alias_set.AddFunction(map_func);
-        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_wls_fit_agg";
-        loader.RegisterFunction(std::move(alias_info));
-    }
 }
 
 } // namespace duckdb

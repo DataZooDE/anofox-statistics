@@ -370,15 +370,15 @@ static unique_ptr<FunctionData> AidAnomalyAggBind(ClientContext &context, Aggreg
 //===--------------------------------------------------------------------===//
 void RegisterAidAggregateFunction(ExtensionLoader &loader) {
     // AID Classification
-    AggregateFunctionSet aid_set("anofox_stats_aid_agg");
+    AggregateFunctionSet aid_set("aid_agg");
 
     auto aid_basic =
-        AggregateFunction("anofox_stats_aid_agg", {LogicalType::DOUBLE}, LogicalType::ANY,
+        AggregateFunction("aid_agg", {LogicalType::DOUBLE}, LogicalType::ANY,
                           AggregateFunction::StateSize<AidAggregateState>, AidAggInitialize, AidAggUpdate, AidAggCombine,
                           AidAggFinalize, nullptr, AidAggBind, AidAggDestroy);
     aid_set.AddFunction(aid_basic);
 
-    auto aid_map = AggregateFunction("anofox_stats_aid_agg", {LogicalType::DOUBLE, LogicalType::ANY}, LogicalType::ANY,
+    auto aid_map = AggregateFunction("aid_agg", {LogicalType::DOUBLE, LogicalType::ANY}, LogicalType::ANY,
                                      AggregateFunction::StateSize<AidAggregateState>, AidAggInitialize, AidAggUpdate,
                                      AidAggCombine, AidAggFinalize, nullptr, AidAggBind, AidAggDestroy);
     aid_set.AddFunction(aid_map);
@@ -389,7 +389,7 @@ void RegisterAidAggregateFunction(ExtensionLoader &loader) {
 
         FunctionDescription d1;
         d1.description = "Classifies demand patterns (smooth, intermittent, erratic, lumpy) using Automatic Identification of Demand (AID).";
-        d1.examples = {"anofox_stats_aid_agg(y)"};
+        d1.examples = {"aid_agg(y)"};
         d1.categories = {"demand-classification"};
         d1.parameter_names = {"y"};
         d1.parameter_types = {LogicalType::DOUBLE};
@@ -397,7 +397,7 @@ void RegisterAidAggregateFunction(ExtensionLoader &loader) {
 
         FunctionDescription d2;
         d2.description = "Classifies demand patterns using AID with a MAP of options (intermittent_threshold, outlier_method).";
-        d2.examples = {"anofox_stats_aid_agg(y, {'intermittent_threshold': 0.3})"};
+        d2.examples = {"aid_agg(y, {'intermittent_threshold': 0.3})"};
         d2.categories = {"demand-classification"};
         d2.parameter_names = {"y", "options"};
         d2.parameter_types = {LogicalType::DOUBLE, LogicalType::ANY};
@@ -406,28 +406,18 @@ void RegisterAidAggregateFunction(ExtensionLoader &loader) {
         loader.RegisterFunction(std::move(info));
     }
 
-    // Short alias for AID
-    {
-        AggregateFunctionSet aid_alias("aid_agg");
-        aid_alias.AddFunction(aid_basic);
-        aid_alias.AddFunction(aid_map);
-        CreateAggregateFunctionInfo alias_info(std::move(aid_alias));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_aid_agg";
-        loader.RegisterFunction(std::move(alias_info));
-    }
 
     // AID Anomaly Detection
-    AggregateFunctionSet aid_anomaly_set("anofox_stats_aid_anomaly_agg");
+    AggregateFunctionSet aid_anomaly_set("aid_anomaly_agg");
 
     auto aid_anomaly_basic = AggregateFunction(
-        "anofox_stats_aid_anomaly_agg", {LogicalType::DOUBLE}, LogicalType::ANY,
+        "aid_anomaly_agg", {LogicalType::DOUBLE}, LogicalType::ANY,
         AggregateFunction::StateSize<AidAggregateState>, AidAggInitialize, AidAggUpdate, AidAggCombine,
         AidAnomalyAggFinalize, nullptr, AidAnomalyAggBind, AidAggDestroy);
     aid_anomaly_set.AddFunction(aid_anomaly_basic);
 
     auto aid_anomaly_map = AggregateFunction(
-        "anofox_stats_aid_anomaly_agg", {LogicalType::DOUBLE, LogicalType::ANY}, LogicalType::ANY,
+        "aid_anomaly_agg", {LogicalType::DOUBLE, LogicalType::ANY}, LogicalType::ANY,
         AggregateFunction::StateSize<AidAggregateState>, AidAggInitialize, AidAggUpdate, AidAggCombine,
         AidAnomalyAggFinalize, nullptr, AidAnomalyAggBind, AidAggDestroy);
     aid_anomaly_set.AddFunction(aid_anomaly_map);
@@ -438,7 +428,7 @@ void RegisterAidAggregateFunction(ExtensionLoader &loader) {
 
         FunctionDescription d1;
         d1.description = "Identifies anomalies in demand time series using the AID classification framework.";
-        d1.examples = {"anofox_stats_aid_anomaly_agg(y)"};
+        d1.examples = {"aid_anomaly_agg(y)"};
         d1.categories = {"demand-classification"};
         d1.parameter_names = {"y"};
         d1.parameter_types = {LogicalType::DOUBLE};
@@ -446,7 +436,7 @@ void RegisterAidAggregateFunction(ExtensionLoader &loader) {
 
         FunctionDescription d2;
         d2.description = "Identifies anomalies in demand time series using AID with a MAP of options (intermittent_threshold, outlier_method).";
-        d2.examples = {"anofox_stats_aid_anomaly_agg(y, {'outlier_method': 'iqr'})"};
+        d2.examples = {"aid_anomaly_agg(y, {'outlier_method': 'iqr'})"};
         d2.categories = {"demand-classification"};
         d2.parameter_names = {"y", "options"};
         d2.parameter_types = {LogicalType::DOUBLE, LogicalType::ANY};
@@ -455,16 +445,6 @@ void RegisterAidAggregateFunction(ExtensionLoader &loader) {
         loader.RegisterFunction(std::move(info));
     }
 
-    // Short alias for AID anomaly
-    {
-        AggregateFunctionSet aid_anomaly_alias("aid_anomaly_agg");
-        aid_anomaly_alias.AddFunction(aid_anomaly_basic);
-        aid_anomaly_alias.AddFunction(aid_anomaly_map);
-        CreateAggregateFunctionInfo alias_info(std::move(aid_anomaly_alias));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_aid_anomaly_agg";
-        loader.RegisterFunction(std::move(alias_info));
-    }
 }
 
 } // namespace duckdb

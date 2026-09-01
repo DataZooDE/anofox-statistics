@@ -193,10 +193,10 @@ static unique_ptr<FunctionData> AnovaAggBind(ClientContext &context, AggregateFu
 }
 
 void RegisterAnovaAggregateFunction(ExtensionLoader &loader) {
-    AggregateFunctionSet func_set("anofox_stats_one_way_anova_agg");
+    AggregateFunctionSet func_set("one_way_anova_agg");
 
     auto func = AggregateFunction(
-        "anofox_stats_one_way_anova_agg", {LogicalType::DOUBLE, LogicalType::INTEGER},
+        "one_way_anova_agg", {LogicalType::DOUBLE, LogicalType::INTEGER},
         LogicalType::ANY,
         AggregateFunction::StateSize<AnovaAggregateState>, AnovaAggInitialize,
         AnovaAggUpdate, AnovaAggCombine, AnovaAggFinalize,
@@ -207,21 +207,13 @@ void RegisterAnovaAggregateFunction(ExtensionLoader &loader) {
     info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
     FunctionDescription d1;
     d1.description     = "Performs a one-way ANOVA F-test to compare means across multiple groups.";
-    d1.examples        = {"anofox_stats_one_way_anova_agg(value, group_id)"};
+    d1.examples        = {"one_way_anova_agg(value, group_id)"};
     d1.categories      = {"hypothesis-testing", "anova"};
     d1.parameter_names = {"value", "group_id"};
     d1.parameter_types = {LogicalType::DOUBLE, LogicalType::INTEGER};
     info.descriptions.push_back(std::move(d1));
     loader.RegisterFunction(std::move(info));
 
-    {
-        AggregateFunctionSet alias_set("one_way_anova_agg");
-        alias_set.AddFunction(func);
-        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_one_way_anova_agg";
-        loader.RegisterFunction(std::move(alias_info));
-    }
 }
 
 } // namespace duckdb

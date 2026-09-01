@@ -229,11 +229,11 @@ static unique_ptr<FunctionData> BinomTestAggBind(ClientContext &context, Aggrega
 // Registration
 //===--------------------------------------------------------------------===//
 void RegisterBinomTestAggregateFunction(ExtensionLoader &loader) {
-    AggregateFunctionSet func_set("anofox_stats_binom_test_agg");
+    AggregateFunctionSet func_set("binom_test_agg");
 
     // With options: (value BIGINT, options)
     auto func_with_opts = AggregateFunction(
-        "anofox_stats_binom_test_agg", {LogicalType::BIGINT, LogicalType::ANY},
+        "binom_test_agg", {LogicalType::BIGINT, LogicalType::ANY},
         LogicalType::ANY,
         AggregateFunction::StateSize<BinomTestAggregateState>, BinomTestAggInitialize,
         BinomTestAggUpdate, BinomTestAggCombine, BinomTestAggFinalize,
@@ -242,7 +242,7 @@ void RegisterBinomTestAggregateFunction(ExtensionLoader &loader) {
 
     // Without options: (value BIGINT)
     auto func_no_opts = AggregateFunction(
-        "anofox_stats_binom_test_agg", {LogicalType::BIGINT},
+        "binom_test_agg", {LogicalType::BIGINT},
         LogicalType::ANY,
         AggregateFunction::StateSize<BinomTestAggregateState>, BinomTestAggInitialize,
         BinomTestAggUpdate, BinomTestAggCombine, BinomTestAggFinalize,
@@ -253,30 +253,20 @@ void RegisterBinomTestAggregateFunction(ExtensionLoader &loader) {
     info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
     FunctionDescription d1;
     d1.description     = "Performs an exact binomial test comparing an observed success count to a hypothesized probability.";
-    d1.examples        = {"anofox_stats_binom_test_agg(value, {'p0': 0.5, 'alternative': 'two_sided'})"};
+    d1.examples        = {"binom_test_agg(value, {'p0': 0.5, 'alternative': 'two_sided'})"};
     d1.categories      = {"hypothesis-testing", "proportion"};
     d1.parameter_names = {"value", "options"};
     d1.parameter_types = {LogicalType::BIGINT, LogicalType::ANY};
     info.descriptions.push_back(std::move(d1));
     FunctionDescription d2;
     d2.description     = "Performs an exact binomial test comparing an observed success count to a hypothesized probability, using default options.";
-    d2.examples        = {"anofox_stats_binom_test_agg(value)"};
+    d2.examples        = {"binom_test_agg(value)"};
     d2.categories      = {"hypothesis-testing", "proportion"};
     d2.parameter_names = {"value"};
     d2.parameter_types = {LogicalType::BIGINT};
     info.descriptions.push_back(std::move(d2));
     loader.RegisterFunction(std::move(info));
 
-    // Short alias
-    {
-        AggregateFunctionSet alias_set("binom_test_agg");
-        alias_set.AddFunction(func_with_opts);
-        alias_set.AddFunction(func_no_opts);
-        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_binom_test_agg";
-        loader.RegisterFunction(std::move(alias_info));
-    }
 }
 
 } // namespace duckdb

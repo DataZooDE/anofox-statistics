@@ -249,7 +249,7 @@ void RegisterOlsFitFunction(ExtensionLoader &loader) {
 
     // Primary
     {
-        ScalarFunctionSet func_set("anofox_stats_ols_fit");
+        ScalarFunctionSet func_set("ols_fit");
         func_set.AddFunction(basic_func);
         func_set.AddFunction(map_func);
         CreateScalarFunctionInfo info(std::move(func_set));
@@ -257,7 +257,7 @@ void RegisterOlsFitFunction(ExtensionLoader &loader) {
 
         FunctionDescription d1;
         d1.description     = "Fits an Ordinary Least Squares (OLS) regression model to the given response and feature data.";
-        d1.examples        = {"anofox_stats_ols_fit(y, x)"};
+        d1.examples        = {"ols_fit(y, x)"};
         d1.categories      = {"regression"};
         d1.parameter_names = {"y", "x"};
         d1.parameter_types = {LogicalType::LIST(LogicalType::DOUBLE), LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE))};
@@ -265,7 +265,7 @@ void RegisterOlsFitFunction(ExtensionLoader &loader) {
 
         FunctionDescription d2;
         d2.description     = "Fits an OLS regression model with optional MAP of settings (fit_intercept, compute_inference, confidence_level, solver, hc_type).";
-        d2.examples        = {"anofox_stats_ols_fit(y, x, {'compute_inference': true, 'confidence_level': 0.95})"};
+        d2.examples        = {"ols_fit(y, x, {'compute_inference': true, 'confidence_level': 0.95})"};
         d2.categories      = {"regression"};
         d2.parameter_names = {"y", "x", "options"};
         d2.parameter_types = {LogicalType::LIST(LogicalType::DOUBLE), LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)), LogicalType::ANY};
@@ -274,15 +274,6 @@ void RegisterOlsFitFunction(ExtensionLoader &loader) {
         loader.RegisterFunction(std::move(info));
     }
     // Alias
-    {
-        ScalarFunctionSet alias_set("ols_fit");
-        alias_set.AddFunction(basic_func);
-        alias_set.AddFunction(map_func);
-        CreateScalarFunctionInfo alias_info(std::move(alias_set));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_ols_fit";
-        loader.RegisterFunction(std::move(alias_info));
-    }
 }
 
 } // namespace duckdb

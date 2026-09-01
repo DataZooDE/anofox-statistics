@@ -211,10 +211,10 @@ static unique_ptr<FunctionData> ChiSquareAggBind(ClientContext &context, Aggrega
 }
 
 void RegisterChiSquareAggregateFunction(ExtensionLoader &loader) {
-    AggregateFunctionSet func_set("anofox_stats_chisq_test_agg");
+    AggregateFunctionSet func_set("chisq_test_agg");
 
     auto func_with_opts = AggregateFunction(
-        "anofox_stats_chisq_test_agg", {LogicalType::INTEGER, LogicalType::INTEGER, LogicalType::ANY},
+        "chisq_test_agg", {LogicalType::INTEGER, LogicalType::INTEGER, LogicalType::ANY},
         LogicalType::ANY,
         AggregateFunction::StateSize<ChiSquareAggregateState>, ChiSquareAggInitialize,
         ChiSquareAggUpdate, ChiSquareAggCombine, ChiSquareAggFinalize,
@@ -222,7 +222,7 @@ void RegisterChiSquareAggregateFunction(ExtensionLoader &loader) {
     func_set.AddFunction(func_with_opts);
 
     auto func_no_opts = AggregateFunction(
-        "anofox_stats_chisq_test_agg", {LogicalType::INTEGER, LogicalType::INTEGER},
+        "chisq_test_agg", {LogicalType::INTEGER, LogicalType::INTEGER},
         LogicalType::ANY,
         AggregateFunction::StateSize<ChiSquareAggregateState>, ChiSquareAggInitialize,
         ChiSquareAggUpdate, ChiSquareAggCombine, ChiSquareAggFinalize,
@@ -233,30 +233,20 @@ void RegisterChiSquareAggregateFunction(ExtensionLoader &loader) {
     info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
     FunctionDescription d1;
     d1.description     = "Performs a chi-squared test of independence on a 2×2 contingency table from two categorical columns.";
-    d1.examples        = {"anofox_stats_chisq_test_agg(row_var, col_var, {'correction': true})"};
+    d1.examples        = {"chisq_test_agg(row_var, col_var, {'correction': true})"};
     d1.categories      = {"hypothesis-testing", "categorical"};
     d1.parameter_names = {"row_var", "col_var", "options"};
     d1.parameter_types = {LogicalType::INTEGER, LogicalType::INTEGER, LogicalType::ANY};
     info.descriptions.push_back(std::move(d1));
     FunctionDescription d2;
     d2.description     = "Performs a chi-squared test of independence on a 2×2 contingency table from two categorical columns.";
-    d2.examples        = {"anofox_stats_chisq_test_agg(row_var, col_var)"};
+    d2.examples        = {"chisq_test_agg(row_var, col_var)"};
     d2.categories      = {"hypothesis-testing", "categorical"};
     d2.parameter_names = {"row_var", "col_var"};
     d2.parameter_types = {LogicalType::INTEGER, LogicalType::INTEGER};
     info.descriptions.push_back(std::move(d2));
     loader.RegisterFunction(std::move(info));
 
-    // Short alias
-    {
-        AggregateFunctionSet alias_set("chisq_test_agg");
-        alias_set.AddFunction(func_with_opts);
-        alias_set.AddFunction(func_no_opts);
-        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_chisq_test_agg";
-        loader.RegisterFunction(std::move(alias_info));
-    }
 }
 
 } // namespace duckdb

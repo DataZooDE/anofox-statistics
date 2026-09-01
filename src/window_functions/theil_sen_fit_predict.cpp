@@ -355,26 +355,26 @@ static unique_ptr<FunctionData> TheilSenFitPredictBind(ClientContext &context, A
     }
 
     function.return_type = GetTheilSenFitPredictResultType();
-    PostHogTelemetry::Instance().RecordFunctionCall("theilsen_fit_predict");
+    PostHogTelemetry::Instance().RecordFunctionCall("theil_sen_fit_predict");
     return std::move(result);
 }
 
 void RegisterTheilSenFitPredictFunction(ExtensionLoader &loader) {
     auto basic_func = AggregateFunction(
-        "anofox_stats_theilsen_fit_predict", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
+        "theil_sen_fit_predict", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
         GetTheilSenFitPredictResultType(), AggregateFunction::StateSize<TheilSenFitPredictState>,
         TheilSenFitPredictInitialize, TheilSenFitPredictUpdate, TheilSenFitPredictCombine,
         TheilSenFitPredictFinalize, nullptr, TheilSenFitPredictBind, TheilSenFitPredictDestroy);
 
     auto map_func = AggregateFunction(
-        "anofox_stats_theilsen_fit_predict",
+        "theil_sen_fit_predict",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
         GetTheilSenFitPredictResultType(), AggregateFunction::StateSize<TheilSenFitPredictState>,
         TheilSenFitPredictInitialize, TheilSenFitPredictUpdate, TheilSenFitPredictCombine,
         TheilSenFitPredictFinalize, nullptr, TheilSenFitPredictBind, TheilSenFitPredictDestroy);
 
     {
-        AggregateFunctionSet func_set("anofox_stats_theilsen_fit_predict");
+        AggregateFunctionSet func_set("theil_sen_fit_predict");
         func_set.AddFunction(basic_func);
         func_set.AddFunction(map_func);
         CreateAggregateFunctionInfo info(std::move(func_set));
@@ -383,7 +383,7 @@ void RegisterTheilSenFitPredictFunction(ExtensionLoader &loader) {
         FunctionDescription d1;
         d1.description = "Fits a Theil-Sen robust regression over a window partition and returns the prediction for "
                          "the current row.";
-        d1.examples = {"anofox_stats_theilsen_fit_predict(y, x) OVER (PARTITION BY g ORDER BY t)"};
+        d1.examples = {"theil_sen_fit_predict(y, x) OVER (PARTITION BY g ORDER BY t)"};
         d1.categories = {"regression", "prediction"};
         d1.parameter_names = {"y", "x"};
         d1.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)};
@@ -391,7 +391,7 @@ void RegisterTheilSenFitPredictFunction(ExtensionLoader &loader) {
 
         FunctionDescription d2;
         d2.description = "Fits a Theil-Sen regression over a window with a MAP of options.";
-        d2.examples = {"anofox_stats_theilsen_fit_predict(y, x, {'random_state': 42}) OVER (...)"};
+        d2.examples = {"theil_sen_fit_predict(y, x, {'random_state': 42}) OVER (...)"};
         d2.categories = {"regression", "prediction"};
         d2.parameter_names = {"y", "x", "options"};
         d2.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY};
@@ -400,15 +400,6 @@ void RegisterTheilSenFitPredictFunction(ExtensionLoader &loader) {
         loader.RegisterFunction(std::move(info));
     }
 
-    {
-        AggregateFunctionSet alias_set("theilsen_fit_predict");
-        alias_set.AddFunction(basic_func);
-        alias_set.AddFunction(map_func);
-        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_theilsen_fit_predict";
-        loader.RegisterFunction(std::move(alias_info));
-    }
 }
 
 } // namespace duckdb

@@ -117,13 +117,13 @@ void RegisterAicBicFunctions(ExtensionLoader &loader) {
 
     // AIC primary
     {
-        ScalarFunctionSet aic_set("anofox_stats_aic");
+        ScalarFunctionSet aic_set("aic");
         aic_set.AddFunction(aic_func);
         CreateScalarFunctionInfo info(std::move(aic_set));
         info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
         FunctionDescription desc;
         desc.description     = "Computes Akaike Information Criterion (AIC) from residual sum of squares, number of observations, and number of parameters.";
-        desc.examples        = {"anofox_stats_aic(rss, n, k)"};
+        desc.examples        = {"aic(rss, n, k)"};
         desc.categories      = {"model-selection"};
         desc.parameter_names = {"rss", "n", "k"};
         desc.parameter_types = {LogicalType::DOUBLE, LogicalType::BIGINT, LogicalType::BIGINT};
@@ -131,24 +131,16 @@ void RegisterAicBicFunctions(ExtensionLoader &loader) {
         loader.RegisterFunction(std::move(info));
     }
     // AIC alias
-    {
-        ScalarFunctionSet alias_set("aic");
-        alias_set.AddFunction(aic_func);
-        CreateScalarFunctionInfo alias_info(std::move(alias_set));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_aic";
-        loader.RegisterFunction(std::move(alias_info));
-    }
 
     // BIC primary
     {
-        ScalarFunctionSet bic_set("anofox_stats_bic");
+        ScalarFunctionSet bic_set("bic");
         bic_set.AddFunction(bic_func);
         CreateScalarFunctionInfo info(std::move(bic_set));
         info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
         FunctionDescription desc;
         desc.description     = "Computes Bayesian Information Criterion (BIC) from residual sum of squares, number of observations, and number of parameters.";
-        desc.examples        = {"anofox_stats_bic(rss, n, k)"};
+        desc.examples        = {"bic(rss, n, k)"};
         desc.categories      = {"model-selection"};
         desc.parameter_names = {"rss", "n", "k"};
         desc.parameter_types = {LogicalType::DOUBLE, LogicalType::BIGINT, LogicalType::BIGINT};
@@ -156,14 +148,6 @@ void RegisterAicBicFunctions(ExtensionLoader &loader) {
         loader.RegisterFunction(std::move(info));
     }
     // BIC alias
-    {
-        ScalarFunctionSet alias_set("bic");
-        alias_set.AddFunction(bic_func);
-        CreateScalarFunctionInfo alias_info(std::move(alias_set));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_bic";
-        loader.RegisterFunction(std::move(alias_info));
-    }
 }
 
 } // namespace duckdb

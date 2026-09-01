@@ -557,16 +557,16 @@ static unique_ptr<FunctionData> GlmmAggBind(ClientContext &context, AggregateFun
 }
 
 void RegisterGlmmAggregateFunction(ExtensionLoader &loader) {
-	AggregateFunctionSet func_set("anofox_stats_glmm_fit_agg");
+	AggregateFunctionSet func_set("glmm_fit_agg");
 
 	auto basic = AggregateFunction(
-	    "anofox_stats_glmm_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
+	    "glmm_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
 	    LogicalType::ANY, AggregateFunction::StateSize<GlmmAggregateState>, GlmmAggInitialize, GlmmAggUpdate,
 	    GlmmAggCombine, GlmmAggFinalize, nullptr, GlmmAggBind, GlmmAggDestroy);
 	func_set.AddFunction(basic);
 
 	auto with_opts = AggregateFunction(
-	    "anofox_stats_glmm_fit_agg",
+	    "glmm_fit_agg",
 	    {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY, LogicalType::ANY},
 	    LogicalType::ANY, AggregateFunction::StateSize<GlmmAggregateState>, GlmmAggInitialize, GlmmAggUpdate,
 	    GlmmAggCombine, GlmmAggFinalize, nullptr, GlmmAggBind, GlmmAggDestroy);
@@ -575,12 +575,6 @@ void RegisterGlmmAggregateFunction(ExtensionLoader &loader) {
 	CreateAggregateFunctionInfo info(func_set);
 	loader.RegisterFunction(info);
 
-	AggregateFunctionSet alias_set("glmm_fit_agg");
-	alias_set.AddFunction(basic);
-	alias_set.AddFunction(with_opts);
-	CreateAggregateFunctionInfo alias_info(alias_set);
-	alias_info.alias_of = "anofox_stats_glmm_fit_agg";
-	loader.RegisterFunction(alias_info);
 }
 
 } // namespace duckdb

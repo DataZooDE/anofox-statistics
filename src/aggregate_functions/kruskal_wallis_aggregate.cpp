@@ -184,10 +184,10 @@ static unique_ptr<FunctionData> KruskalWallisAggBind(ClientContext &context, Agg
 }
 
 void RegisterKruskalWallisAggregateFunction(ExtensionLoader &loader) {
-    AggregateFunctionSet func_set("anofox_stats_kruskal_wallis_agg");
+    AggregateFunctionSet func_set("kruskal_wallis_agg");
 
     auto func = AggregateFunction(
-        "anofox_stats_kruskal_wallis_agg", {LogicalType::DOUBLE, LogicalType::INTEGER},
+        "kruskal_wallis_agg", {LogicalType::DOUBLE, LogicalType::INTEGER},
         LogicalType::ANY,
         AggregateFunction::StateSize<KruskalWallisAggregateState>, KruskalWallisAggInitialize,
         KruskalWallisAggUpdate, KruskalWallisAggCombine, KruskalWallisAggFinalize,
@@ -198,21 +198,13 @@ void RegisterKruskalWallisAggregateFunction(ExtensionLoader &loader) {
     info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
     FunctionDescription d1;
     d1.description     = "Performs the Kruskal-Wallis H-test, a nonparametric alternative to one-way ANOVA.";
-    d1.examples        = {"anofox_stats_kruskal_wallis_agg(value, group_id)"};
+    d1.examples        = {"kruskal_wallis_agg(value, group_id)"};
     d1.categories      = {"hypothesis-testing", "nonparametric"};
     d1.parameter_names = {"value", "group_id"};
     d1.parameter_types = {LogicalType::DOUBLE, LogicalType::INTEGER};
     info.descriptions.push_back(std::move(d1));
     loader.RegisterFunction(std::move(info));
 
-    {
-        AggregateFunctionSet alias_set("kruskal_wallis_agg");
-        alias_set.AddFunction(func);
-        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_kruskal_wallis_agg";
-        loader.RegisterFunction(std::move(alias_info));
-    }
 }
 
 } // namespace duckdb

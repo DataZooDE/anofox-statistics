@@ -273,7 +273,7 @@ static unique_ptr<FunctionData> TostCorrelationAggBind(ClientContext &context, A
 void RegisterTostCorrelationAggregateFunction(ExtensionLoader &loader) {
     // With options: (x, y, options)
     auto func_with_opts = AggregateFunction(
-        "anofox_stats_tost_correlation_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::ANY},
+        "tost_correlation_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::ANY},
         LogicalType::ANY,
         AggregateFunction::StateSize<TostCorrelationAggregateState>, TostCorrelationAggInitialize,
         TostCorrelationAggUpdate, TostCorrelationAggCombine, TostCorrelationAggFinalize,
@@ -281,28 +281,28 @@ void RegisterTostCorrelationAggregateFunction(ExtensionLoader &loader) {
 
     // Without options: (x, y)
     auto func_no_opts = AggregateFunction(
-        "anofox_stats_tost_correlation_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE},
+        "tost_correlation_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE},
         LogicalType::ANY,
         AggregateFunction::StateSize<TostCorrelationAggregateState>, TostCorrelationAggInitialize,
         TostCorrelationAggUpdate, TostCorrelationAggCombine, TostCorrelationAggFinalize,
         nullptr, TostCorrelationAggBind, TostCorrelationAggDestroy);
 
     {
-        AggregateFunctionSet func_set("anofox_stats_tost_correlation_agg");
+        AggregateFunctionSet func_set("tost_correlation_agg");
         func_set.AddFunction(func_with_opts);
         func_set.AddFunction(func_no_opts);
         CreateAggregateFunctionInfo info(std::move(func_set));
         info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
         FunctionDescription d1;
         d1.description     = "Tests equivalence of a correlation to a reference value using the TOST procedure.";
-        d1.examples        = {"anofox_stats_tost_correlation_agg(x, y, {'delta': 0.1})"};
+        d1.examples        = {"tost_correlation_agg(x, y, {'delta': 0.1})"};
         d1.categories      = {"hypothesis-testing", "equivalence"};
         d1.parameter_names = {"x", "y", "options"};
         d1.parameter_types = {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::ANY};
         info.descriptions.push_back(std::move(d1));
         FunctionDescription d2;
         d2.description     = "Tests equivalence of a correlation to a reference value using the TOST procedure, using default options.";
-        d2.examples        = {"anofox_stats_tost_correlation_agg(x, y)"};
+        d2.examples        = {"tost_correlation_agg(x, y)"};
         d2.categories      = {"hypothesis-testing", "equivalence"};
         d2.parameter_names = {"x", "y"};
         d2.parameter_types = {LogicalType::DOUBLE, LogicalType::DOUBLE};
@@ -310,16 +310,6 @@ void RegisterTostCorrelationAggregateFunction(ExtensionLoader &loader) {
         loader.RegisterFunction(std::move(info));
     }
 
-    // Short alias
-    {
-        AggregateFunctionSet alias_set("tost_correlation_agg");
-        alias_set.AddFunction(func_with_opts);
-        alias_set.AddFunction(func_no_opts);
-        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_tost_correlation_agg";
-        loader.RegisterFunction(std::move(alias_info));
-    }
 }
 
 } // namespace duckdb

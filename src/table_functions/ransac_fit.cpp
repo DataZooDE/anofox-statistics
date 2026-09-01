@@ -277,7 +277,7 @@ void RegisterRansacFitFunction(ExtensionLoader &loader) {
                         DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, RansacFitBind));
 
     {
-        ScalarFunctionSet func_set("anofox_stats_ransac_fit");
+        ScalarFunctionSet func_set("ransac_fit");
         func_set.AddFunction(basic_func);
         func_set.AddFunction(map_func);
         CreateScalarFunctionInfo info(std::move(func_set));
@@ -286,7 +286,7 @@ void RegisterRansacFitFunction(ExtensionLoader &loader) {
         FunctionDescription d1;
         d1.description = "Fits a RANSAC robust regression model. Returns coefficients, fit statistics, the residual "
                          "threshold used, and the inlier / trial counts as a struct.";
-        d1.examples = {"anofox_stats_ransac_fit(y, x)"};
+        d1.examples = {"ransac_fit(y, x)"};
         d1.categories = {"regression"};
         d1.parameter_names = {"y", "x"};
         d1.parameter_types = {LogicalType::LIST(LogicalType::DOUBLE),
@@ -297,7 +297,7 @@ void RegisterRansacFitFunction(ExtensionLoader &loader) {
         d2.description = "Fits a RANSAC regression model with optional MAP of settings (residual_threshold, "
                          "max_trials, min_samples, stop_probability, stop_n_inliers, random_state, fit_intercept, "
                          "compute_inference, confidence_level).";
-        d2.examples = {"anofox_stats_ransac_fit(y, x, {'residual_threshold': 0.5, 'random_state': 42})"};
+        d2.examples = {"ransac_fit(y, x, {'residual_threshold': 0.5, 'random_state': 42})"};
         d2.categories = {"regression"};
         d2.parameter_names = {"y", "x", "options"};
         d2.parameter_types = {LogicalType::LIST(LogicalType::DOUBLE),
@@ -305,15 +305,6 @@ void RegisterRansacFitFunction(ExtensionLoader &loader) {
         info.descriptions.push_back(std::move(d2));
 
         loader.RegisterFunction(std::move(info));
-    }
-    {
-        ScalarFunctionSet alias_set("ransac_fit");
-        alias_set.AddFunction(basic_func);
-        alias_set.AddFunction(map_func);
-        CreateScalarFunctionInfo alias_info(std::move(alias_set));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_ransac_fit";
-        loader.RegisterFunction(std::move(alias_info));
     }
 }
 

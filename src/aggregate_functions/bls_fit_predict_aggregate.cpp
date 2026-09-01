@@ -533,11 +533,11 @@ static unique_ptr<FunctionData> BlsFitPredictAggBindWithSplit(ClientContext &con
 //===--------------------------------------------------------------------===//
 void RegisterBlsFitPredictAggregateFunction(ExtensionLoader &loader) {
     // Primary name
-    AggregateFunctionSet func_set("anofox_stats_bls_fit_predict_agg");
+    AggregateFunctionSet func_set("bls_fit_predict_agg");
 
     // Basic version: bls_fit_predict_agg(y, x)
     auto basic_func =
-        AggregateFunction("anofox_stats_bls_fit_predict_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
+        AggregateFunction("bls_fit_predict_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
                           LogicalType::ANY, AggregateFunction::StateSize<BlsFitPredictAggState>, BlsFitPredictAggInitialize,
                           BlsFitPredictAggUpdate, BlsFitPredictAggCombine, BlsFitPredictAggFinalize, nullptr, BlsFitPredictAggBind,
                           BlsFitPredictAggDestroy);
@@ -545,21 +545,21 @@ void RegisterBlsFitPredictAggregateFunction(ExtensionLoader &loader) {
 
     // Version with MAP options: bls_fit_predict_agg(y, x, {'null_policy': 'drop', ...})
     auto map_func = AggregateFunction(
-        "anofox_stats_bls_fit_predict_agg",
+        "bls_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY}, LogicalType::ANY,
         AggregateFunction::StateSize<BlsFitPredictAggState>, BlsFitPredictAggInitialize, BlsFitPredictAggUpdate,
         BlsFitPredictAggCombine, BlsFitPredictAggFinalize, nullptr, BlsFitPredictAggBind, BlsFitPredictAggDestroy);
     func_set.AddFunction(map_func);
 
     auto split_func = AggregateFunction(
-        "anofox_stats_bls_fit_predict_agg",
+        "bls_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR}, LogicalType::ANY,
         AggregateFunction::StateSize<BlsFitPredictAggState>, BlsFitPredictAggInitialize, BlsFitPredictAggUpdate,
         BlsFitPredictAggCombine, BlsFitPredictAggFinalize, nullptr, BlsFitPredictAggBindWithSplit, BlsFitPredictAggDestroy);
     func_set.AddFunction(split_func);
 
     auto split_opts_func = AggregateFunction(
-        "anofox_stats_bls_fit_predict_agg",
+        "bls_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR, LogicalType::ANY},
         LogicalType::ANY, AggregateFunction::StateSize<BlsFitPredictAggState>, BlsFitPredictAggInitialize,
         BlsFitPredictAggUpdate, BlsFitPredictAggCombine, BlsFitPredictAggFinalize, nullptr, BlsFitPredictAggBindWithSplit,
@@ -571,7 +571,7 @@ void RegisterBlsFitPredictAggregateFunction(ExtensionLoader &loader) {
 
     FunctionDescription d1;
     d1.description = "Fits a Bounded Least Squares model over a partition and returns per-row predictions.";
-    d1.examples = {"anofox_stats_bls_fit_predict_agg(y, x)"};
+    d1.examples = {"bls_fit_predict_agg(y, x)"};
     d1.categories = {"regression", "prediction"};
     d1.parameter_names = {"y", "x"};
     d1.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)};
@@ -579,7 +579,7 @@ void RegisterBlsFitPredictAggregateFunction(ExtensionLoader &loader) {
 
     FunctionDescription d2;
     d2.description = "Fits a Bounded Least Squares model over a partition with a MAP of options and returns per-row predictions.";
-    d2.examples = {"anofox_stats_bls_fit_predict_agg(y, x, {'null_policy': 'drop'})"};
+    d2.examples = {"bls_fit_predict_agg(y, x, {'null_policy': 'drop'})"};
     d2.categories = {"regression", "prediction"};
     d2.parameter_names = {"y", "x", "options"};
     d2.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY};
@@ -587,7 +587,7 @@ void RegisterBlsFitPredictAggregateFunction(ExtensionLoader &loader) {
 
     FunctionDescription d3;
     d3.description = "Fits a Bounded Least Squares model using only training rows (split_col='train') and predicts all rows.";
-    d3.examples = {"anofox_stats_bls_fit_predict_agg(y, x, split_col)"};
+    d3.examples = {"bls_fit_predict_agg(y, x, split_col)"};
     d3.categories = {"regression", "prediction"};
     d3.parameter_names = {"y", "x", "split_col"};
     d3.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR};
@@ -595,7 +595,7 @@ void RegisterBlsFitPredictAggregateFunction(ExtensionLoader &loader) {
 
     FunctionDescription d4;
     d4.description = "Fits a Bounded Least Squares model on training rows with a MAP of options and predicts all rows.";
-    d4.examples = {"anofox_stats_bls_fit_predict_agg(y, x, split_col, {'null_policy': 'drop'})"};
+    d4.examples = {"bls_fit_predict_agg(y, x, split_col, {'null_policy': 'drop'})"};
     d4.categories = {"regression", "prediction"};
     d4.parameter_names = {"y", "x", "split_col", "options"};
     d4.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR, LogicalType::ANY};
@@ -603,18 +603,6 @@ void RegisterBlsFitPredictAggregateFunction(ExtensionLoader &loader) {
 
     loader.RegisterFunction(std::move(info));
 
-    // Short alias
-    {
-        AggregateFunctionSet alias_set("bls_fit_predict_agg");
-        alias_set.AddFunction(basic_func);
-        alias_set.AddFunction(map_func);
-        alias_set.AddFunction(split_func);
-        alias_set.AddFunction(split_opts_func);
-        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_bls_fit_predict_agg";
-        loader.RegisterFunction(std::move(alias_info));
-    }
 }
 
 } // namespace duckdb

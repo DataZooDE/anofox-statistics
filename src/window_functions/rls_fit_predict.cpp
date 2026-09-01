@@ -295,21 +295,21 @@ static unique_ptr<FunctionData> RlsFitPredictBind(ClientContext &context, Aggreg
 
 void RegisterRlsFitPredictFunction(ExtensionLoader &loader) {
     auto basic_func =
-        AggregateFunction("anofox_stats_rls_fit_predict",
+        AggregateFunction("rls_fit_predict",
                           {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)}, GetRlsFitPredictResultType(),
                           AggregateFunction::StateSize<RlsFitPredictState>, RlsFitPredictInitialize,
                           RlsFitPredictUpdate, RlsFitPredictCombine, RlsFitPredictFinalize, nullptr,
                           RlsFitPredictBind, RlsFitPredictDestroy);
 
     auto map_func =
-        AggregateFunction("anofox_stats_rls_fit_predict",
+        AggregateFunction("rls_fit_predict",
                           {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
                           GetRlsFitPredictResultType(), AggregateFunction::StateSize<RlsFitPredictState>,
                           RlsFitPredictInitialize, RlsFitPredictUpdate, RlsFitPredictCombine, RlsFitPredictFinalize,
                           nullptr, RlsFitPredictBind, RlsFitPredictDestroy);
 
     {
-        AggregateFunctionSet func_set("anofox_stats_rls_fit_predict");
+        AggregateFunctionSet func_set("rls_fit_predict");
         func_set.AddFunction(basic_func);
         func_set.AddFunction(map_func);
         CreateAggregateFunctionInfo info(std::move(func_set));
@@ -317,7 +317,7 @@ void RegisterRlsFitPredictFunction(ExtensionLoader &loader) {
 
         FunctionDescription d1;
         d1.description     = "Fits a Robust Least Squares model over a window partition and returns predictions with confidence intervals.";
-        d1.examples        = {"anofox_stats_rls_fit_predict(y, x)"};
+        d1.examples        = {"rls_fit_predict(y, x)"};
         d1.categories      = {"regression", "prediction"};
         d1.parameter_names = {"y", "x"};
         d1.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)};
@@ -325,7 +325,7 @@ void RegisterRlsFitPredictFunction(ExtensionLoader &loader) {
 
         FunctionDescription d2;
         d2.description     = "Fits a Robust Least Squares model over a window partition and returns predictions with confidence intervals.";
-        d2.examples        = {"anofox_stats_rls_fit_predict(y, x, {'null_policy': 'drop'})"};
+        d2.examples        = {"rls_fit_predict(y, x, {'null_policy': 'drop'})"};
         d2.categories      = {"regression", "prediction"};
         d2.parameter_names = {"y", "x", "options"};
         d2.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY};
@@ -334,15 +334,6 @@ void RegisterRlsFitPredictFunction(ExtensionLoader &loader) {
         loader.RegisterFunction(std::move(info));
     }
 
-    {
-        AggregateFunctionSet alias_set("rls_fit_predict");
-        alias_set.AddFunction(basic_func);
-        alias_set.AddFunction(map_func);
-        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_rls_fit_predict";
-        loader.RegisterFunction(std::move(alias_info));
-    }
 }
 
 } // namespace duckdb

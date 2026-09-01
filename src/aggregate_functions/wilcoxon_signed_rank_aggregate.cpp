@@ -242,11 +242,11 @@ static unique_ptr<FunctionData> WilcoxonSignedRankAggBind(ClientContext &context
 // Registration
 //===--------------------------------------------------------------------===//
 void RegisterWilcoxonSignedRankAggregateFunction(ExtensionLoader &loader) {
-    AggregateFunctionSet func_set("anofox_stats_wilcoxon_signed_rank_agg");
+    AggregateFunctionSet func_set("wilcoxon_signed_rank_agg");
 
     // With options: (x, y, options)
     auto func_with_opts = AggregateFunction(
-        "anofox_stats_wilcoxon_signed_rank_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::ANY},
+        "wilcoxon_signed_rank_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::ANY},
         LogicalType::ANY,
         AggregateFunction::StateSize<WilcoxonSignedRankAggregateState>, WilcoxonSignedRankAggInitialize,
         WilcoxonSignedRankAggUpdate, WilcoxonSignedRankAggCombine, WilcoxonSignedRankAggFinalize,
@@ -255,7 +255,7 @@ void RegisterWilcoxonSignedRankAggregateFunction(ExtensionLoader &loader) {
 
     // Without options: (x, y)
     auto func_no_opts = AggregateFunction(
-        "anofox_stats_wilcoxon_signed_rank_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE},
+        "wilcoxon_signed_rank_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE},
         LogicalType::ANY,
         AggregateFunction::StateSize<WilcoxonSignedRankAggregateState>, WilcoxonSignedRankAggInitialize,
         WilcoxonSignedRankAggUpdate, WilcoxonSignedRankAggCombine, WilcoxonSignedRankAggFinalize,
@@ -266,30 +266,20 @@ void RegisterWilcoxonSignedRankAggregateFunction(ExtensionLoader &loader) {
     info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
     FunctionDescription d1;
     d1.description     = "Performs the Wilcoxon signed-rank test for paired samples.";
-    d1.examples        = {"anofox_stats_wilcoxon_signed_rank_agg(x, y, {'alternative': 'two_sided'})"};
+    d1.examples        = {"wilcoxon_signed_rank_agg(x, y, {'alternative': 'two_sided'})"};
     d1.categories      = {"hypothesis-testing", "nonparametric"};
     d1.parameter_names = {"x", "y", "options"};
     d1.parameter_types = {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::ANY};
     info.descriptions.push_back(std::move(d1));
     FunctionDescription d2;
     d2.description     = "Performs the Wilcoxon signed-rank test for paired samples, using default options.";
-    d2.examples        = {"anofox_stats_wilcoxon_signed_rank_agg(x, y)"};
+    d2.examples        = {"wilcoxon_signed_rank_agg(x, y)"};
     d2.categories      = {"hypothesis-testing", "nonparametric"};
     d2.parameter_names = {"x", "y"};
     d2.parameter_types = {LogicalType::DOUBLE, LogicalType::DOUBLE};
     info.descriptions.push_back(std::move(d2));
     loader.RegisterFunction(std::move(info));
 
-    // Short alias
-    {
-        AggregateFunctionSet alias_set("wilcoxon_signed_rank_agg");
-        alias_set.AddFunction(func_with_opts);
-        alias_set.AddFunction(func_no_opts);
-        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_wilcoxon_signed_rank_agg";
-        loader.RegisterFunction(std::move(alias_info));
-    }
 }
 
 } // namespace duckdb
