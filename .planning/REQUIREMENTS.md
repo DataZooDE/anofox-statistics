@@ -18,7 +18,7 @@ API changes may be **breaking** (early-dev); docs/tests are updated to match.
 ### Ergonomics (ERGO)
 
 - [x] **ERGO-01**: Fit/predict/test functions return clear, actionable error messages for invalid input (dimension mismatch, insufficient rows, non-finite/constant columns) instead of panics or opaque errors
-- [ ] **ERGO-02**: Inputs are validated early with specific messages naming the offending argument and expected shape
+- [x] **ERGO-02**: Inputs are validated early with specific messages naming the offending argument and expected shape
 - [ ] **ERGO-03**: Function signatures, option-map keys, and return-struct field names follow one documented convention consistent across model families
 
 ### Documentation (DOCS)
@@ -53,7 +53,7 @@ Deferred to a later milestone.
 | PERF-03 | Phase 4 | Complete |
 | PERF-04 | Phase 4 | Complete |
 | ERGO-01 | Phase 5 | Complete |
-| ERGO-02 | Phase 5 | Pending |
+| ERGO-02 | Phase 5 | Complete |
 | ERGO-03 | Phase 5 | Pending |
 | DOCS-01 | Phase 6 | Pending |
 | DOCS-02 | Phase 6 | Pending |

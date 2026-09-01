@@ -5,16 +5,16 @@ milestone_name: Performance & Polish
 current_phase: 5
 current_phase_name: API Ergonomics
 status: executing
-stopped_at: Completed 05-01-PLAN.md
-last_updated: "2026-09-01T21:22:07.379Z"
+stopped_at: Completed 05-02-PLAN.md
+last_updated: "2026-09-01T21:43:52.574Z"
 last_activity: 2026-09-01
 last_activity_desc: Phase 5 execution started
-state_head: 7bc58acb69d326fdba23426b43f51d02964a97ec
+state_head: 1492032fc1fd6aefa0729f69b9e36038fac8796b
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 6
-  completed_plans: 4
+  completed_plans: 5
   percent: 33
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-31)
 ## Current Position
 
 Phase: 5 (API Ergonomics) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-09-01 — Phase 5 execution started
 
@@ -47,6 +47,9 @@ Last activity: 2026-09-01 — Phase 5 execution started
 - [Phase 4] Benchmark harness = `scripts/bench.sh`; hotspots dominated by DuckDB `HASH_GROUP_BY` dispatch (inherent), not extension code
 - [Phase 5]: Scaling min_obs NULL guard (fit_intercept ? n_features+1 : n_features) replaces fixed < 2 threshold in OlsAggFinalize — degenerate frames return NULL per ERGO-01
 - [Phase 5]: All 7 non-OLS window fit_predict files already had the correct guard; only ols_aggregate.cpp needed fixing
+- [Phase 5]: FunctionException not in embedded DuckDB — InternalException used for numerical FFI failures (SingularMatrix, ConvergenceFailure, Internal, AllocationFailure)
+- [Phase 5]: [Phase 5]: All 11 FFI !success sites wired to ThrowFromFfiError; GROUP BY aggregate finalize now throws instead of silently NULLing
+- [Phase 5]: [Phase 5]: Unknown MAP option keys rejected at bind via InvalidInputException in RegressionMapOptions and all 10 test-option parsers; intercept alias preserved
 
 ### Blockers
 
@@ -58,8 +61,8 @@ Last activity: 2026-09-01 — Phase 5 execution started
 
 ## Session Continuity
 
-Last session: 2026-09-01T21:22:07.351Z
-Stopped at: Completed 05-01-PLAN.md
+Last session: 2026-09-01T21:43:52.542Z
+Stopped at: Completed 05-02-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
@@ -71,3 +74,4 @@ Resume file: None
 | Plan | Duration | Tasks | Files |
 |------|----------|-------|-------|
 | Phase 05 P01 | 25 | 2 tasks | 2 files |
+| Phase 05 P02 | 18 | 3 tasks | 14 files |
