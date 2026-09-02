@@ -4,9 +4,9 @@ milestone: v0.3.0
 milestone_name: Performance & Polish
 current_phase: 6
 current_phase_name: Docs Refresh & SQL Validation
-status: executing
-stopped_at: Completed 06-03-PLAN.md (README restructure + harness passes)
-last_updated: "2026-09-02T08:26:31.957Z"
+status: complete
+stopped_at: Completed 06-04-PLAN.md (DocsSqlValidation.yml CI gate — DOCS-04)
+last_updated: "2026-09-02T08:40:00Z"
 last_activity: 2026-09-02
 last_activity_desc: Phase 6 execution resumed (wave continue)
 state_head: 930c05056b9a9ef308874441a1ab69d1f53b0c16
@@ -14,8 +14,8 @@ progress:
   total_phases: 3
   completed_phases: 2
   total_plans: 10
-  completed_plans: 9
-  percent: 67
+  completed_plans: 10
+  percent: 100
 ---
 
 # State
@@ -58,6 +58,7 @@ Last activity: 2026-09-02 — Phase 6 execution resumed (wave continue)
 - [Phase 6]: README Quick Start uses (ols_fit([y_vals], [[x_col_vals]])).coefficients subquery inside predict() — cross-join stored struct approach had NULL issue in DuckDB optimizer for small datasets
 - [Phase 6]: ols_fit scalar X is column-major: each inner array is all observations for one feature (not row-major)
 - [Phase 6]: README Installation/telemetry sql blocks marked 'sql skip' — not runnable in local harness; GROUP BY illustrative example also skip-marked (references undefined sales_data)
+- [Phase 6]: DocsSqlValidation.yml uses python3 scripts/validate_docs_sql.py (not bash) — harness was written in Python in Plan 06-01; RESEARCH yaml snippet had bash variant that doesn't exist on disk
 
 ### Blockers
 
@@ -69,8 +70,8 @@ Last activity: 2026-09-02 — Phase 6 execution resumed (wave continue)
 
 ## Session Continuity
 
-Last session: 2026-09-02T08:26:31.911Z
-Stopped at: Completed 06-03-PLAN.md (README restructure + harness passes)
+Last session: 2026-09-02T08:40:00Z
+Stopped at: Completed 06-04-PLAN.md (DocsSqlValidation.yml CI gate — DOCS-04)
 Resume file: None
 
 ## Operator Next Steps
@@ -87,3 +88,4 @@ Resume file: None
 | Phase 06 P01 | 4 | 2 tasks | 2 files |
 | Phase 06-docs-refresh-sql-validation P02 | 45 | 3 tasks | 5 files |
 | Phase 06-docs-refresh-sql-validation P03 | 25 | 2 tasks | 1 files |
+| Phase 06-docs-refresh-sql-validation P04 | 12 | 2 tasks | 1 files |
