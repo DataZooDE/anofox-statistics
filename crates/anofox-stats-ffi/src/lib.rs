@@ -257,19 +257,14 @@ pub unsafe extern "C" fn anofox_ols_fit(
             // Fill inference results if requested and available
             if !out_inference.is_null() {
                 if let Some(inf) = result.inference {
-                    alloc_inference_arrays!(
-                        inf,
-                        out_inference,
-                        out_error,
-                        {
-                            libc::free(coef_ptr as *mut libc::c_void);
-                            // CR-01: null the just-written coefficients pointer so a caller
-                            // that inspects *out_core after the `false` return cannot see a
-                            // dangling/freed pointer. Callers currently ignore *out_core on
-                            // failure; this is defense-in-depth at the FFI boundary.
-                            *out_core = FitResultCore::default();
-                        }
-                    );
+                    alloc_inference_arrays!(inf, out_inference, out_error, {
+                        libc::free(coef_ptr as *mut libc::c_void);
+                        // CR-01: null the just-written coefficients pointer so a caller
+                        // that inspects *out_core after the `false` return cannot see a
+                        // dangling/freed pointer. Callers currently ignore *out_core on
+                        // failure; this is defense-in-depth at the FFI boundary.
+                        *out_core = FitResultCore::default();
+                    });
                 } else {
                     (*out_inference) = FitResultInference::default();
                 }
@@ -438,19 +433,14 @@ pub unsafe extern "C" fn anofox_huber_fit(
 
             if !out_inference.is_null() {
                 if let Some(inf) = result.inference {
-                    alloc_inference_arrays!(
-                        inf,
-                        out_inference,
-                        out_error,
-                        {
-                            libc::free(coef_ptr as *mut libc::c_void);
-                            // CR-01: null the just-written coefficients pointer so a caller
-                            // that inspects *out_core after the `false` return cannot see a
-                            // dangling/freed pointer. Callers currently ignore *out_core on
-                            // failure; this is defense-in-depth at the FFI boundary.
-                            *out_core = FitResultCore::default();
-                        }
-                    );
+                    alloc_inference_arrays!(inf, out_inference, out_error, {
+                        libc::free(coef_ptr as *mut libc::c_void);
+                        // CR-01: null the just-written coefficients pointer so a caller
+                        // that inspects *out_core after the `false` return cannot see a
+                        // dangling/freed pointer. Callers currently ignore *out_core on
+                        // failure; this is defense-in-depth at the FFI boundary.
+                        *out_core = FitResultCore::default();
+                    });
                 } else {
                     (*out_inference) = FitResultInference::default();
                 }
@@ -639,19 +629,14 @@ pub unsafe extern "C" fn anofox_ransac_fit(
 
             if !out_inference.is_null() {
                 if let Some(inf) = result.inference {
-                    alloc_inference_arrays!(
-                        inf,
-                        out_inference,
-                        out_error,
-                        {
-                            libc::free(coef_ptr as *mut libc::c_void);
-                            // CR-01: null the just-written coefficients pointer so a caller
-                            // that inspects *out_core after the `false` return cannot see a
-                            // dangling/freed pointer. Callers currently ignore *out_core on
-                            // failure; this is defense-in-depth at the FFI boundary.
-                            *out_core = FitResultCore::default();
-                        }
-                    );
+                    alloc_inference_arrays!(inf, out_inference, out_error, {
+                        libc::free(coef_ptr as *mut libc::c_void);
+                        // CR-01: null the just-written coefficients pointer so a caller
+                        // that inspects *out_core after the `false` return cannot see a
+                        // dangling/freed pointer. Callers currently ignore *out_core on
+                        // failure; this is defense-in-depth at the FFI boundary.
+                        *out_core = FitResultCore::default();
+                    });
                 } else {
                     (*out_inference) = FitResultInference::default();
                 }
@@ -827,19 +812,14 @@ pub unsafe extern "C" fn anofox_theilsen_fit(
 
             if !out_inference.is_null() {
                 if let Some(inf) = result.inference {
-                    alloc_inference_arrays!(
-                        inf,
-                        out_inference,
-                        out_error,
-                        {
-                            libc::free(coef_ptr as *mut libc::c_void);
-                            // CR-01: null the just-written coefficients pointer so a caller
-                            // that inspects *out_core after the `false` return cannot see a
-                            // dangling/freed pointer. Callers currently ignore *out_core on
-                            // failure; this is defense-in-depth at the FFI boundary.
-                            *out_core = FitResultCore::default();
-                        }
-                    );
+                    alloc_inference_arrays!(inf, out_inference, out_error, {
+                        libc::free(coef_ptr as *mut libc::c_void);
+                        // CR-01: null the just-written coefficients pointer so a caller
+                        // that inspects *out_core after the `false` return cannot see a
+                        // dangling/freed pointer. Callers currently ignore *out_core on
+                        // failure; this is defense-in-depth at the FFI boundary.
+                        *out_core = FitResultCore::default();
+                    });
                 } else {
                     (*out_inference) = FitResultInference::default();
                 }
@@ -964,19 +944,14 @@ pub unsafe extern "C" fn anofox_ridge_fit(
             // Fill inference results if requested and available
             if !out_inference.is_null() {
                 if let Some(inf) = result.inference {
-                    alloc_inference_arrays!(
-                        inf,
-                        out_inference,
-                        out_error,
-                        {
-                            libc::free(coef_ptr as *mut libc::c_void);
-                            // CR-01: null the just-written coefficients pointer so a caller
-                            // that inspects *out_core after the `false` return cannot see a
-                            // dangling/freed pointer. Callers currently ignore *out_core on
-                            // failure; this is defense-in-depth at the FFI boundary.
-                            *out_core = FitResultCore::default();
-                        }
-                    );
+                    alloc_inference_arrays!(inf, out_inference, out_error, {
+                        libc::free(coef_ptr as *mut libc::c_void);
+                        // CR-01: null the just-written coefficients pointer so a caller
+                        // that inspects *out_core after the `false` return cannot see a
+                        // dangling/freed pointer. Callers currently ignore *out_core on
+                        // failure; this is defense-in-depth at the FFI boundary.
+                        *out_core = FitResultCore::default();
+                    });
                 } else {
                     (*out_inference) = FitResultInference::default();
                 }
@@ -1316,19 +1291,14 @@ pub unsafe extern "C" fn anofox_wls_fit(
             // Fill inference results if requested and available
             if !out_inference.is_null() {
                 if let Some(inf) = result.inference {
-                    alloc_inference_arrays!(
-                        inf,
-                        out_inference,
-                        out_error,
-                        {
-                            libc::free(coef_ptr as *mut libc::c_void);
-                            // CR-01: null the just-written coefficients pointer so a caller
-                            // that inspects *out_core after the `false` return cannot see a
-                            // dangling/freed pointer. Callers currently ignore *out_core on
-                            // failure; this is defense-in-depth at the FFI boundary.
-                            *out_core = FitResultCore::default();
-                        }
-                    );
+                    alloc_inference_arrays!(inf, out_inference, out_error, {
+                        libc::free(coef_ptr as *mut libc::c_void);
+                        // CR-01: null the just-written coefficients pointer so a caller
+                        // that inspects *out_core after the `false` return cannot see a
+                        // dangling/freed pointer. Callers currently ignore *out_core on
+                        // failure; this is defense-in-depth at the FFI boundary.
+                        *out_core = FitResultCore::default();
+                    });
                 } else {
                     (*out_inference) = FitResultInference::default();
                 }
