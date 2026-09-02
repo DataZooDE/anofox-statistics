@@ -559,7 +559,9 @@ Not applicable — this phase installs no external packages. All tooling (DuckDB
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+> OQ-1 (per-block vs per-file granularity) → resolved: harness reports per-example (file + block index/line) while concatenating a file's blocks in document order for shared setup — adopted by Plan 06-01. OQ-2 (how many API_REFERENCE blocks need external tables) → resolved operationally: Plan 06-01 runs the harness first to produce the baseline count, then Plan 06-02 fixes/inline-data/skip-marks per that output.
 
 1. **Per-block vs per-file failure granularity**
    - What we know: The CONTEXT.md requires "pass/fail per example with the source file + line."
