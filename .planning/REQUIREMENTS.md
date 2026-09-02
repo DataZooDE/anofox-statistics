@@ -24,7 +24,7 @@ API changes may be **breaking** (early-dev); docs/tests are updated to match.
 ### Documentation (DOCS)
 
 - [ ] **DOCS-01**: README is restructured to match the anofox-forecast form — emoji section headers, Table of Contents, Key Features (incl. ⚡ Performance and 🎨 User-Friendly API), a Quick Start walkthrough on a concrete dataset, structured API Reference, Development, Support, Citation
-- [ ] **DOCS-02**: A doc-SQL validation harness extracts every SQL example from README + `guides/*.md` + `docs/API_REFERENCE.md` and runs it against the built extension, reporting pass/fail per example
+- [x] **DOCS-02**: A doc-SQL validation harness extracts every SQL example from README + `guides/*.md` + `docs/API_REFERENCE.md` and runs it against the built extension, reporting pass/fail per example
 - [ ] **DOCS-03**: All documented SQL examples pass — broken examples are fixed (whether from drift or intentional API changes)
 - [ ] **DOCS-04**: The doc-SQL validation runs in CI so documentation drift fails the build
 
@@ -56,7 +56,7 @@ Deferred to a later milestone.
 | ERGO-02 | Phase 5 | Complete |
 | ERGO-03 | Phase 5 | Complete |
 | DOCS-01 | Phase 6 | Pending |
-| DOCS-02 | Phase 6 | Pending |
+| DOCS-02 | Phase 6 | Complete |
 | DOCS-03 | Phase 6 | Pending |
 | DOCS-04 | Phase 6 | Pending |
 

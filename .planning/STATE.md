@@ -4,17 +4,17 @@ milestone: v0.3.0
 milestone_name: Performance & Polish
 current_phase: 6
 current_phase_name: Docs Refresh & SQL Validation
-status: planning
-stopped_at: Phase 5 complete, ready to plan Phase 6
-last_updated: "2026-09-02T07:13:47.488Z"
+status: executing
+stopped_at: Completed 06-01-PLAN.md (doc-SQL validation harness)
+last_updated: "2026-09-02T07:43:16.557Z"
 last_activity: 2026-09-02
-last_activity_desc: Phase 5 complete, transitioned to Phase 6
-state_head: 7566b4473169fae5af41b5b9bca022a61629642d
+last_activity_desc: Phase 6 execution resumed (wave continue)
+state_head: d4a52160c15fff18090d5d79fd452516d9d3ab36
 progress:
   total_phases: 3
   completed_phases: 2
-  total_plans: 6
-  completed_plans: 6
+  total_plans: 10
+  completed_plans: 7
   percent: 67
 ---
 
@@ -29,10 +29,10 @@ See: .planning/PROJECT.md (updated 2026-08-31)
 
 ## Current Position
 
-Phase: 6 — Docs Refresh & SQL Validation
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-09-02 — Phase 5 complete, transitioned to Phase 6
+Phase: 6 (Docs Refresh & SQL Validation) — EXECUTING
+Plan: 1 of ?
+Status: Executing Phase 6
+Last activity: 2026-09-02 — Phase 6 execution resumed (wave continue)
 
 ## Accumulated Context
 
@@ -51,6 +51,8 @@ Last activity: 2026-09-02 — Phase 5 complete, transitioned to Phase 6
 - [Phase 5]: [Phase 5]: All 11 FFI !success sites wired to ThrowFromFfiError; GROUP BY aggregate finalize now throws instead of silently NULLing
 - [Phase 5]: [Phase 5]: Unknown MAP option keys rejected at bind via InvalidInputException in RegressionMapOptions and all 10 test-option parsers; intercept alias preserved
 - [Phase 5]: [Phase 5][ERGO-03]: anofox_stats_ prefix dropped from all SQL registrations; theilsen->theil_sen; no deprecated aliases; docs/API_CONVENTIONS.md is the authoritative naming reference for Phase 6
+- [Phase 6]: Python harness validate_docs_sql.py: per-file concatenated DuckDB session with .bail on; skip marker is 'sql skip' info-string
+- [Phase 6]: 5 blocks in API_CONVENTIONS.md skip-marked: 2 migration Before examples + 3 syntax-illustration blocks with FROM tbl
 
 ### Blockers
 
@@ -62,8 +64,8 @@ Last activity: 2026-09-02 — Phase 5 complete, transitioned to Phase 6
 
 ## Session Continuity
 
-Last session: 2026-09-02T06:36:35.044Z
-Stopped at: Phase 5 complete, ready to plan Phase 4
+Last session: 2026-09-02T07:43:16.509Z
+Stopped at: Completed 06-01-PLAN.md (doc-SQL validation harness)
 Resume file: None
 
 ## Operator Next Steps
@@ -77,3 +79,4 @@ Resume file: None
 | Phase 05 P01 | 25 | 2 tasks | 2 files |
 | Phase 05 P02 | 18 | 3 tasks | 14 files |
 | Phase 05 P03 | 35 | 3 tasks | 161 files |
+| Phase 06 P01 | 4 | 2 tasks | 2 files |

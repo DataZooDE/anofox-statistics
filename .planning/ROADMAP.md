@@ -100,9 +100,9 @@ documented SQL example validated in CI. Breaking API changes are permitted
   3. Every extracted SQL example passes — examples broken by drift or by the Phase 5 API changes are fixed
   4. The doc-SQL validation runs in CI so any future documentation drift fails the build
 
-**Plans**: 4 plans
+**Plans**: 1/4 plans executed
 
-- [ ] 06-01-PLAN.md — Tracer: doc-SQL validation harness `scripts/validate_docs_sql.py` + skip marker + baseline failure count (DOCS-02)
+- [x] 06-01-PLAN.md — Tracer: doc-SQL validation harness `scripts/validate_docs_sql.py` + skip marker + baseline failure count (DOCS-02)
 - [ ] 06-02-PLAN.md — Fix every failing sql block in guides/01-04 + docs/API_REFERENCE.md (DOCS-03)
 - [ ] 06-03-PLAN.md — Restructure README.md to anofox-forecast form with validated Quick Start (DOCS-01)
 - [ ] 06-04-PLAN.md — `.github/workflows/DocsSqlValidation.yml` CI gate on PR + push to main (DOCS-04)
@@ -116,4 +116,4 @@ Phases execute in numeric order: 4 → 5 → 6
 |-------|-----------|----------------|--------|-----------|
 | 4. Benchmarking & Performance | v0.3.0 | 3/3 | Complete    | 2026-08-31 |
 | 5. API Ergonomics | v0.3.0 | 3/3 | Complete    | 2026-09-02 |
-| 6. Docs Refresh & SQL Validation | v0.3.0 | 0/4 | Planned | - |
+| 6. Docs Refresh & SQL Validation | v0.3.0 | 1/4 | In Progress|  |
