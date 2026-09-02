@@ -25,9 +25,9 @@ documentation drift in CI.
 
 Continuous numbering from v0.2.0 (which ended at Phase 3).
 
-- [ ] **Phase 4: Benchmarking & Performance** - Bench harness first, then profile/optimize hotspots and refactor the FFI alloc pattern with before/after numbers
+- [x] **Phase 4: Benchmarking & Performance** - Bench harness first, then profile/optimize hotspots and refactor the FFI alloc pattern with before/after numbers
 - [x] **Phase 5: API Ergonomics** - Clear errors + early validation, then a consistency pass on signatures/option keys/return fields (breaking renames)
-- [ ] **Phase 6: Docs Refresh & SQL Validation** - Restructure README to anofox-forecast form, validate every documented SQL example against the final API, gate in CI
+- [x] **Phase 6: Docs Refresh & SQL Validation** - Restructure README to anofox-forecast form, validate every documented SQL example against the final API, gate in CI
 
 ## Archived Phases
 
@@ -116,4 +116,4 @@ Phases execute in numeric order: 4 → 5 → 6
 |-------|-----------|----------------|--------|-----------|
 | 4. Benchmarking & Performance | v0.3.0 | 3/3 | Complete    | 2026-08-31 |
 | 5. API Ergonomics | v0.3.0 | 3/3 | Complete    | 2026-09-02 |
-| 6. Docs Refresh & SQL Validation | v0.3.0 | 4/4 | In Progress|  |
+| 6. Docs Refresh & SQL Validation | v0.3.0 | 4/4 | Complete    | 2026-09-02 |
