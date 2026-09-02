@@ -32,15 +32,16 @@ SQL, wherever DuckDB runs — **including the browser (DuckDB-Wasm)**.
 - ✓ Repeatable benchmark suite over representative workloads (`scripts/bench.sh` + 3 workloads, diffable results) — Phase 4
 - ✓ Hotspots profiled and optimized-or-documented-as-inherent, with before/after numbers (`bench/PROFILING.md`) — Phase 4
 - ✓ FFI manual malloc/free pattern refactored (`FfiVec` RAII + `alloc_inference_arrays!` macro; C `free` contract preserved; suites green) — Phase 4
+- ✓ Clear, actionable typed error messages + early bind-time input validation (`ThrowFromFfiError`; unknown-option rejection; degenerate-frame NULL guards) — v0.3.0
+- ✓ Consistent unprefixed signatures / snake_case option keys / return-struct fields across function families (`docs/API_CONVENTIONS.md`; breaking rename, no aliases) — v0.3.0
+- ✓ README restructured to anofox-forecast form (emoji sections, ToC, ⚡/🎨 Key Features, Quick Start, structured API ref) — v0.3.0
+- ✓ Every documented SQL example (README + guides + docs) validated against the built extension in CI (`scripts/validate_docs_sql.py` + `DocsSqlValidation.yml`) — v0.3.0
 
 ### Active
 
-<!-- Current milestone: v0.3.0 — Performance & Polish. -->
+<!-- Next milestone: TBD. v0.3.0 (Performance & Polish) shipped. -->
 
-- [ ] Clear, actionable error messages + early input validation
-- [ ] Consistent signatures / option keys / return-struct fields across function families
-- [ ] README restructured to anofox-forecast form (emoji sections, ToC, Quick Start, structured API ref)
-- [ ] Every documented SQL example (README + guides + docs) validated against the built extension
+(None — v0.3.0 shipped. Candidate next-milestone items in tech-debt: named parameters `param := value` (ERGOX-01), scalar `ols_fit` insufficient-rows fast-fail, the skip-marked `ols_fit_agg OVER()` window edge.)
 
 ### Out of Scope
 
@@ -84,6 +85,9 @@ SQL, wherever DuckDB runs — **including the browser (DuckDB-Wasm)**.
 | Format harness results via DuckDB `::VARCHAR` | duckdb-wasm Arrow-JS renders DECIMAL unscaled (1.0→10); `::VARCHAR` applies scale, matching native | ✓ Good (v0.2.0) |
 | FFI result arrays stay `libc::malloc`-backed (`FfiVec`), never `Box`/`Vec` | C++ frees them with C `free()`; Rust's global allocator can differ from libc malloc on musl (WASM/CI) → UB | ✓ Good — Phase 4; `ffi_vec_ptr_is_freeable_by_libc` guards it |
 | Convert only the 6 strict inference sites to the macro; leave 6 GLM + 1 ALM hand-written | GLM maps `z_values`→t_values with lenient OOM; ALM uses different field names — forcing the strict macro would change behavior | ✓ Good — Phase 4; documented, suites green |
+| Breaking cross-family rename with NO deprecated aliases (drop `anofox_stats_` prefix, `theilsen`→`theil_sen`) | Early-dev; one clean convention beats carrying dual names; `ergo03_naming.test` locks old names as errors | ✓ Good — v0.3.0; all suites + docs green against new names |
+| Route FFI errors through `ThrowFromFfiError` dispatching on `AnofoxError.code`; use `InternalException` for numerical failures | `FunctionException` is absent in the embedded DuckDB build; intent (distinct class for computational vs user-data errors) preserved | ✓ Good — v0.3.0 |
+| Validate documented SQL by running fenced blocks against the built extension in CI (` ```sql skip ` for illustrative blocks) | Docs drift silently as the API changes; a hard CI gate makes drift fail the build | ✓ Good — v0.3.0; `DocsSqlValidation.yml`, 50 blocks green |
 
 ## Evolution
 
@@ -102,11 +106,10 @@ This document evolves at phase transitions and milestone boundaries.
 3. Audit Out of Scope — reasons still valid?
 4. Update Context with current state
 
-> **Carried into Phase 5 (ERGO):** the rolling `anofox_stats_ols_fit_predict(...) OVER (...)`
-> window throws a DuckDB INTERNAL error ("access index 0 within vector of size 0") when the
-> expanding frame fits on a degenerate sub-`(n_features+1)` frame at each partition start —
-> a pre-existing input-validation gap surfaced by the Phase-4 benchmark. Prime target for
-> ERGO-01/02 (fail fast with a clear message instead of a panic).
+> **Resolved in v0.3.0 (ERGO-01):** the degenerate sub-`(n_features+1)` frame that returned a
+> saturated/NaN result now returns NULL via the scaled `min_obs` guard across all fit_predict
+> finalize paths (incl. BLS/NNLS). A separate `ols_fit_agg OVER(...)` window edge remains
+> skip-marked in guides and is tracked as tech debt in the v0.3.0 milestone audit.
 
 ---
-*Last updated: 2026-08-31 after Phase 4 (Benchmarking & Performance)*
+*Last updated: 2026-09-02 after v0.3.0 (Performance & Polish) milestone*
