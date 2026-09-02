@@ -194,7 +194,7 @@ FROM preds;
 
 All `*_fit_agg` functions support `GROUP BY` for per-segment models:
 
-```sql
+```sql skip
 -- Fit a separate OLS model per product category
 SELECT
     category,
@@ -214,7 +214,7 @@ Install directly from our public distribution bucket. DuckDB must be started
 with the `-unsigned` flag, since the extension binary is not signed by the
 DuckDB Foundation:
 
-```sql
+```sql skip
 INSTALL 'anofox_statistics' FROM 'http://get.erpl.io';
 LOAD 'anofox_statistics';
 ```
@@ -225,7 +225,7 @@ required.
 
 ### Community Extension
 
-```sql
+```sql skip
 INSTALL anofox_statistics FROM community;
 LOAD anofox_statistics;
 ```
@@ -244,7 +244,7 @@ This extension collects anonymous usage telemetry to help improve the product. T
 export DATAZOO_DISABLE_TELEMETRY=1
 ```
 
-```sql
+```sql skip
 SET anofox_telemetry_enabled = false;
 ```
 
