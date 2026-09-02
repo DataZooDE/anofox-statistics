@@ -7,6 +7,7 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
 
@@ -257,12 +258,22 @@ static void BlsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
         auto &state = *states[sdata.sel->get_index(i)];
         idx_t result_idx = i + offset;
 
-        if (!state.initialized || state.y_values.size() < 2) {
+        // Check if we have enough data to attempt a fit.
+        // BLS/NNLS have no fit_intercept option by default; use n_features as the
+        // minimum. If fit_intercept is set (NNLS ignores it; BLS may not expose it
+        // via options but the state carries it), use n_features + 1.
+        // Mirrors the guard added for OLS in this phase (ols_aggregate.cpp:271-275).
+        if (!state.initialized) {
+            FlatVector::SetNull(result, result_idx, true);
+            continue;
+        }
+        idx_t min_obs = state.fit_intercept ? state.n_features + 1 : state.n_features;
+        if (state.y_values.size() <= min_obs) {
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
 
-        // Note: Detailed min_obs validation including zero-variance column handling is done in Rust
+        // Note: Additional validation (zero-variance columns, etc.) is performed in Rust
         AnofoxDataArray y_array;
         y_array.data = state.y_values.data();
         y_array.validity = nullptr;
@@ -305,8 +316,7 @@ static void BlsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
         bool success = anofox_bls_fit(y_array, x_arrays.data(), x_arrays.size(), options, &core_result, &error);
 
         if (!success) {
-            FlatVector::SetNull(result, result_idx, true);
-            continue;
+            ThrowFromFfiError("bls_fit_agg", error);
         }
 
         idx_t struct_idx = 0;
