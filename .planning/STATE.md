@@ -5,16 +5,16 @@ milestone_name: Performance & Polish
 current_phase: 6
 current_phase_name: Docs Refresh & SQL Validation
 status: executing
-stopped_at: Completed 06-01-PLAN.md (doc-SQL validation harness)
-last_updated: "2026-09-02T07:43:16.557Z"
+stopped_at: Completed 06-02-PLAN.md (guides/01-04 + API_REFERENCE all pass harness)
+last_updated: "2026-09-02T08:11:52.160Z"
 last_activity: 2026-09-02
 last_activity_desc: Phase 6 execution resumed (wave continue)
-state_head: d4a52160c15fff18090d5d79fd452516d9d3ab36
+state_head: f3a83368f665b26d9367a989a47909a5119b2d2d
 progress:
   total_phases: 3
   completed_phases: 2
   total_plans: 10
-  completed_plans: 7
+  completed_plans: 8
   percent: 67
 ---
 
@@ -53,6 +53,8 @@ Last activity: 2026-09-02 — Phase 6 execution resumed (wave continue)
 - [Phase 5]: [Phase 5][ERGO-03]: anofox_stats_ prefix dropped from all SQL registrations; theilsen->theil_sen; no deprecated aliases; docs/API_CONVENTIONS.md is the authoritative naming reference for Phase 6
 - [Phase 6]: Python harness validate_docs_sql.py: per-file concatenated DuckDB session with .bail on; skip marker is 'sql skip' info-string
 - [Phase 6]: 5 blocks in API_CONVENTIONS.md skip-marked: 2 migration Before examples + 3 syntax-illustration blocks with FROM tbl
+- [Phase 6]: Skip-mark API_REFERENCE.md signature blocks — they are API type sketches, not runnable examples
+- [Phase 6]: ols_fit_agg/rls_fit_agg OVER window crashes DuckDB INTERNAL Error — skip-mark, not a doc error
 
 ### Blockers
 
@@ -64,8 +66,8 @@ Last activity: 2026-09-02 — Phase 6 execution resumed (wave continue)
 
 ## Session Continuity
 
-Last session: 2026-09-02T07:43:16.509Z
-Stopped at: Completed 06-01-PLAN.md (doc-SQL validation harness)
+Last session: 2026-09-02T08:11:52.078Z
+Stopped at: Completed 06-02-PLAN.md (guides/01-04 + API_REFERENCE all pass harness)
 Resume file: None
 
 ## Operator Next Steps
@@ -80,3 +82,4 @@ Resume file: None
 | Phase 05 P02 | 18 | 3 tasks | 14 files |
 | Phase 05 P03 | 35 | 3 tasks | 161 files |
 | Phase 06 P01 | 4 | 2 tasks | 2 files |
+| Phase 06-docs-refresh-sql-validation P02 | 45 | 3 tasks | 5 files |
