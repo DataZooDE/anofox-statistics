@@ -1,4 +1,4 @@
-# Anofox Statistics - DuckDB Extension
+# Anofox Statistics — DuckDB Extension
 
 A statistical analysis extension for DuckDB, providing regression analysis, diagnostics, and inference capabilities directly within your database.
 
@@ -10,7 +10,22 @@ A statistical analysis extension for DuckDB, providing regression analysis, diag
 > This extension is in early development, so bugs and breaking changes are expected.
 > Please use the [issues page](https://github.com/DataZooDE/anofox-statistics/issues) to report bugs or request features.
 
-## Features
+---
+
+## 📋 Table of Contents
+
+- [Key Features](#-key-features)
+- [Quick Start](#-quick-start)
+- [Installation](#-installation)
+- [API Reference](#-api-reference)
+- [Development](#-development)
+- [Support](#-support)
+- [Citation](#-citation)
+- [License](#-license)
+
+---
+
+## ✨ Key Features
 
 ### Regression Methods
 
@@ -19,7 +34,7 @@ A statistical analysis extension for DuckDB, providing regression analysis, diag
 | OLS | `ols_fit`, `ols_fit_agg` | Ordinary Least Squares |
 | Huber | `huber_fit`, `huber_fit_agg` | Robust M-estimator (outlier-resistant; reports MAD scale + outlier mask) |
 | RANSAC | `ransac_fit`, `ransac_fit_agg` | Robust consensus regression (outlier-resistant; reports inlier mask + trial count) |
-| Theil-Sen | `theilsen_fit`, `theilsen_fit_agg` | Robust nonparametric regression via spatial-median over OLS subsamples |
+| Theil-Sen | `theil_sen_fit`, `theil_sen_fit_agg` | Robust nonparametric regression via spatial-median over OLS subsamples |
 | Ridge | `ridge_fit`, `ridge_fit_agg` | L2 regularization |
 | Elastic Net | `elasticnet_fit`, `elasticnet_fit_agg` | Combined L1+L2 regularization |
 | WLS | `wls_fit`, `wls_fit_agg` | Weighted Least Squares |
@@ -27,7 +42,7 @@ A statistical analysis extension for DuckDB, providing regression analysis, diag
 | Poisson | `poisson_fit_agg` | GLM for count data |
 | Binomial | `binomial_fit_agg` | GLM for success-rate data (logit / probit / cloglog links) |
 | Negative Binomial | `negbinom_fit_agg` | GLM for overdispersed counts (dispersion α estimated jointly) |
-| Tweedie | `tweedie_fit_agg` | GLM for positive-skew continuous outcomes (power parameter; default 1.5 for compound Poisson-Gamma) |
+| Tweedie | `tweedie_fit_agg` | GLM for positive-skew continuous outcomes |
 | Gamma | `gamma_fit_agg` | GLM for strictly-positive continuous outcomes (claims, durations) |
 | Logistic | `logistic_fit_agg` | Binary classification (binomial GLM with logit link); reports accuracy + threshold echo, optional L2 penalty |
 | ALM | `alm_fit_agg` | 24 error distributions |
@@ -60,7 +75,7 @@ A statistical analysis extension for DuckDB, providing regression analysis, diag
 |----------|-------------|
 | `vif`, `vif_agg` | Variance Inflation Factor |
 | `aic`, `bic` | Model selection criteria |
-| `residuals_diagnostics_agg` | Residual analysis |
+| `residuals_diagnostics_agg` | Residual analysis (raw, standardized, studentized, leverage arrays) |
 | `aid_agg`, `aid_anomaly_agg` | Demand pattern classification |
 
 ### Fit-Predict Table Macros (`*_fit_predict_by`)
@@ -72,7 +87,7 @@ Table macros for easy per-group model fitting and prediction with a single funct
 | `ols_fit_predict_by` | OLS per-group fit + predict |
 | `huber_fit_predict_by` | Huber robust per-group fit + predict |
 | `ransac_fit_predict_by` | RANSAC robust per-group fit + predict |
-| `theilsen_fit_predict_by` | Theil-Sen robust per-group fit + predict |
+| `theil_sen_fit_predict_by` | Theil-Sen robust per-group fit + predict |
 | `ridge_fit_predict_by` | Ridge per-group fit + predict |
 | `elasticnet_fit_predict_by` | ElasticNet per-group fit + predict |
 | `wls_fit_predict_by` | WLS per-group fit + predict |
@@ -84,105 +99,114 @@ Table macros for easy per-group model fitting and prediction with a single funct
 | `isotonic_fit_predict_by` | Isotonic per-group fit + predict |
 | `quantile_fit_predict_by` | Quantile per-group fit + predict |
 
-### Key Capabilities
-- **Aggregate Functions**: All methods support `GROUP BY` for per-group analysis
-- **Window Functions**: Regression methods support `OVER` clause for rolling/expanding windows
-- **Prediction Intervals**: Confidence and prediction intervals for forecasts
-- **Full Inference**: t-statistics, p-values, confidence intervals for coefficients
-- **Table Macros**: `*_fit_predict_by` macros simplify per-group workflows
+### ⚡ Performance
 
-## Quick Start
+The extension is built with performance as a first-class concern. The Phase-4 benchmark harness (`scripts/bench.sh`) covers three representative workloads:
 
-**Important**: All functions in this extension use **positional parameters**, not named parameters (`:=` syntax). Parameters must be provided in the order shown in the examples below.
+| Workload | Scale | Per-group cost |
+|----------|-------|----------------|
+| W1 — aggregate dispatch | 10K groups / 1M rows | ~3.2 µs per OLS fit (3 features) |
+| W2 — fit + predict | 10K groups / 1M rows | fit → predict → marshal pipeline |
+| W3 — FFI micro (inference) | 500 groups / 50K rows | ~4.8 µs per fit with `compute_inference: true` |
 
-### Naming Convention
+Profiling showed that the dominant cost is DuckDB's own `HASH_GROUP_BY` dispatch (~66% of query time) — the extension's per-call overhead is a minority. Two optimizations landed in Phase 4:
 
-All functions follow the `anofox_stats_*` naming convention, with convenient aliases without the prefix:
+- **`DataArray::to_vec` bulk-copy fast path** (no-NULL path): eliminated per-element branching for dense columns, yielding a consistent ~3–4% query-time reduction at 5M rows / 50K groups (controlled A/B).
+- **`FfiVec<T>` RAII wrapper + `alloc_inference_arrays!` macro**: replaced 6 hand-written `libc::malloc` inference blocks, removing manual free/OOM boilerplate without changing allocation count (inherent to the FFI ABI).
 
-- **Primary**: `anofox_stats_ols_fit(...)`
-- **Alias**: `ols_fit(...)` - Shorter and more convenient!
+Benchmark results and before/after numbers live in `bench/PROFILING.md` and `bench/baseline/`. Run `bash scripts/bench.sh` to reproduce.
 
-Both work identically - use whichever you prefer!
+### 🎨 User-Friendly API
+
+Phase 5 (ERGO) made the API consistent and ergonomic:
+
+- **Unprefixed function names**: all functions are now `ols_fit_agg(...)`, `theil_sen_fit(...)`, etc. The old `anofox_stats_` prefix is gone — see `docs/API_CONVENTIONS.md` §5 for migration.
+- **MAP-style options** with documented keys (e.g. `{'fit_intercept': true, 'compute_inference': true}`); unknown keys raise `InvalidInputException` at bind time instead of being silently ignored.
+- **Early input validation**: dimension mismatches, insufficient rows, all-non-finite input, and constant columns are caught with a descriptive message before any computation.
+- **Consistent return-struct field names** across families: `r_squared` (not `.r2`), `residual_std_error`, `n_observations`, `z_values` for GLM/AFT (not `t_values`).
+
+The regression algorithms are validated against R's `lm()`, `glmnet`, and other standard statistical packages in the [anofox-regression](https://github.com/DataZooDE/anofox-regression) Rust crate.
+
+---
+
+## 🚀 Quick Start
+
+All functions use the **v0.3.0 API** — unprefixed names and MAP-style options. See `docs/API_CONVENTIONS.md` for the full naming and options reference.
+
+### Step 1 — Create a small dataset and fit an OLS model
 
 ```sql
--- Load the extension
-LOAD 'anofox_statistics';
+-- Dataset: house size (sqm) and sale price (kEUR)
+CREATE TABLE houses AS SELECT * FROM (VALUES
+    (50.0, 120.0), (65.0, 155.0), (80.0, 190.0),
+    (95.0, 225.0), (110.0, 265.0), (125.0, 300.0)
+) t(sqm, price_keur);
 
--- Simple OLS regression (using alias - recommended)
-SELECT * FROM ols_fit(
-    [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],  -- y: response variable
-    [[1.1], [2.1], [2.9], [4.2], [4.8]]::DOUBLE[][],  -- x: feature matrix
-    MAP{'intercept': true}                 -- options
-);
-
--- Or use the full name if you prefer
-SELECT * FROM anofox_stats_ols_fit(
-    [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],  -- y: response variable
-    [[1.1], [2.1], [2.9], [4.2], [4.8]]::DOUBLE[][],  -- x: feature matrix
-    MAP{'intercept': true}                 -- options
-);
-
--- Multiple regression with 3 predictors
-SELECT * FROM ols_fit(
-    [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],  -- y: response variable
-    [[1.1, 2.0, 3.0], [2.1, 3.0, 4.0], [2.9, 4.0, 5.0],
-     [4.2, 5.0, 6.0], [4.8, 6.0, 7.0]]::DOUBLE[][],  -- x: feature matrix
-    MAP{'intercept': true}                 -- options
-);
-
--- Get coefficient inference using fit with full_output
+-- Fit: OLS regression (price_keur ~ sqm) via the aggregate form
 SELECT
-    coefficients,
-    intercept,
-    coefficient_p_values,
-    intercept_p_value,
-    f_statistic,
-    f_statistic_pvalue
-FROM ols_fit(
-    [1.0, 2.0, 3.0, 4.0, 5.0]::DOUBLE[],                  -- y
-    [[1.0], [2.0], [3.0], [4.0], [5.0]]::DOUBLE[][],      -- x (matrix format)
-    {'intercept': true, 'full_output': true, 'confidence_level': 0.95}  -- options
-);
-
--- Per-group regression with aggregate functions
-SELECT
-    category,
-    result.coefficients[1] as price_effect,
-    result.intercept,
-    result.r2
-FROM (
-    SELECT
-        category,
-        ols_fit_agg(
-            sales,
-            [price],
-            MAP{'intercept': true}
-        ) as result
-    FROM sales_data
-    GROUP BY category
-) sub;
-
--- EASIER: Per-group fit + predict using table macros
--- Returns one row per observation with predictions
-SELECT * FROM ols_fit_predict_by(
-    'sales_data',      -- table name (as string)
-    category,          -- group column
-    sales,             -- y column
-    [price, quantity]  -- x columns as list
-);
--- Returns: group_id, y, x, yhat, yhat_lower, yhat_upper, is_training
-
--- With options (e.g., confidence level)
-SELECT * FROM ridge_fit_predict_by(
-    'sales_data',
-    category,
-    sales,
-    [price, quantity],
-    {'alpha': 0.5, 'confidence_level': 0.99}  -- options
-);
+    round((ols_fit_agg(price_keur, [sqm])).r_squared, 4) AS r_squared,
+    (ols_fit_agg(price_keur, [sqm])).coefficients[1]      AS slope,
+    (ols_fit_agg(price_keur, [sqm])).intercept            AS intercept
+FROM houses;
+-- r_squared ≈ 0.9995, slope ≈ 2.41, intercept ≈ -1.67
 ```
 
-## Installation
+### Step 2 — Predict on new data
+
+The scalar `ols_fit` takes `y` and `X` in **column-major** format (each inner array is one feature column across all observations). Use the scalar `predict(X_new, coefficients, intercept)` to score new points:
+
+```sql
+-- Predict prices for three new house sizes (70, 100, 140 sqm)
+-- ols_fit column-major X: [[sqm_col]] = one feature column with all 6 training values
+SELECT
+    unnest([70.0, 100.0, 140.0]) AS new_sqm,
+    unnest(predict(
+        [[70.0, 100.0, 140.0]]::DOUBLE[][],
+        (ols_fit([120.0, 155.0, 190.0, 225.0, 265.0, 300.0],
+                 [[50.0, 65.0, 80.0, 95.0, 110.0, 125.0]])).coefficients,
+        (ols_fit([120.0, 155.0, 190.0, 225.0, 265.0, 300.0],
+                 [[50.0, 65.0, 80.0, 95.0, 110.0, 125.0]])).intercept
+    )) AS predicted_keur;
+-- 70 sqm → ~167 kEUR, 100 sqm → ~239 kEUR, 140 sqm → ~336 kEUR
+```
+
+### Step 3 — Inspect residuals
+
+```sql
+-- Residual diagnostics: raw and standardized residuals from in-sample predictions
+WITH preds AS (
+    SELECT
+        unnest([120.0, 155.0, 190.0, 225.0, 265.0, 300.0])::DOUBLE AS actual,
+        unnest(predict(
+            [[50.0, 65.0, 80.0, 95.0, 110.0, 125.0]]::DOUBLE[][],
+            (ols_fit([120.0, 155.0, 190.0, 225.0, 265.0, 300.0],
+                     [[50.0, 65.0, 80.0, 95.0, 110.0, 125.0]])).coefficients,
+            (ols_fit([120.0, 155.0, 190.0, 225.0, 265.0, 300.0],
+                     [[50.0, 65.0, 80.0, 95.0, 110.0, 125.0]])).intercept
+        )) AS yhat
+)
+SELECT
+    (residuals_diagnostics_agg(actual, yhat)).raw AS raw_residuals
+FROM preds;
+```
+
+### Per-group regression with `GROUP BY`
+
+All `*_fit_agg` functions support `GROUP BY` for per-segment models:
+
+```sql
+-- Fit a separate OLS model per product category
+SELECT
+    category,
+    (ols_fit_agg(revenue, [units_sold], {'compute_inference': true})).r_squared AS r_squared,
+    (ols_fit_agg(revenue, [units_sold], {'compute_inference': true})).coefficients[1] AS slope
+FROM sales_data
+GROUP BY category;
+```
+
+---
+
+## 📦 Installation
 
 ### From erpl.io (recommended)
 
@@ -206,30 +230,7 @@ INSTALL anofox_statistics FROM community;
 LOAD anofox_statistics;
 ```
 
-## Documentation
-
-- **[API Reference](docs/API_REFERENCE.md)**: Complete function reference and specifications
-
-Guides are available in the [`guides/`](guides/) directory:
-
-- **[Quick Start Guide](guides/01_quick_start.md)**: Getting started
-- **[Technical Guide](guides/02_technical_guide.md)**: Architecture and implementation details
-- **[Business Guide](guides/03_business_guide.md)**: Real-world business use cases
-- **[Advanced Use Cases](guides/04_advanced_use_cases.md)**: Complex analytical workflows
-
-## Dependencies
-
-- **DuckDB**: v1.4.5 LTS or v1.5.4 (latest)
-- **Rust**: Stable toolchain (for building from source)
-- **anofox-regression**: Rust regression library (via Cargo)
-- **faer**: Linear algebra library (via Cargo, no default features)
-- **ICU Extension** (Optional): Required for date/time operations in documentation examples
-  ```sql
-  INSTALL icu;
-  LOAD icu;
-  ```
-
-## Telemetry
+### Telemetry
 
 This extension collects anonymous usage telemetry to help improve the product. Telemetry is **enabled by default** and includes:
 
@@ -237,21 +238,124 @@ This extension collects anonymous usage telemetry to help improve the product. T
 - Function execution events (which functions are used)
 - No personal data or query contents are collected
 
-### Disabling Telemetry
+**Disable telemetry:**
 
-**Environment Variable:**
 ```bash
 export DATAZOO_DISABLE_TELEMETRY=1
 ```
 
-**DuckDB SQL Setting:**
 ```sql
 SET anofox_telemetry_enabled = false;
 ```
 
 For more information, see the [posthog-telemetry](https://github.com/DataZooDE/posthog-telemetry) repository.
 
-## License
+---
+
+## 📚 API Reference
+
+The authoritative function reference and naming conventions live in the `docs/` directory — not duplicated here to avoid drift:
+
+- **[docs/API_REFERENCE.md](docs/API_REFERENCE.md)** — complete function signatures, option keys, and return-struct fields for all 100+ functions.
+- **[docs/API_CONVENTIONS.md](docs/API_CONVENTIONS.md)** — naming convention, MAP-option keys, return-struct field names, error taxonomy, and the v0.3.0 breaking-changes migration guide.
+
+User-facing guides are in the [`guides/`](guides/) directory:
+
+- **[guides/01_quick_start.md](guides/01_quick_start.md)** — getting started with worked examples
+- **[guides/02_technical_guide.md](guides/02_technical_guide.md)** — architecture and implementation details
+- **[guides/03_business_guide.md](guides/03_business_guide.md)** — real-world business use cases
+- **[guides/04_advanced_use_cases.md](guides/04_advanced_use_cases.md)** — complex analytical workflows
+
+---
+
+## 🛠️ Development
+
+### Building from source
+
+**Prerequisites:** Rust stable toolchain, a C++17 compiler, and CMake (all provided by `extension-ci-tools`):
+
+```bash
+git clone --recurse-submodules https://github.com/DataZooDE/anofox-statistics.git
+cd anofox-statistics
+make release
+```
+
+This produces `build/release/duckdb` (the CLI) and `build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension`.
+
+**Rust unit tests** (the core regression library):
+
+```bash
+cargo test
+```
+
+**DuckDB SQL test suite** (2 000+ assertions across all function families):
+
+```bash
+build/release/test/unittest --test-dir=test/sql
+```
+
+**Doc-SQL validation** (all SQL examples in README + guides + API docs must pass):
+
+```bash
+python3 scripts/validate_docs_sql.py          # full 7-file sweep
+python3 scripts/validate_docs_sql.py --file README.md   # single-file fast path
+```
+
+**Benchmark harness** (repeatable timing across three workloads):
+
+```bash
+bash scripts/bench.sh          # default: ~1 s total
+bash scripts/bench.sh --full   # adds 1M-group workload (~8 GB RAM, ~160 s)
+```
+
+Results are written to `bench/results/` as diffable markdown files. See `bench/README.md` for details.
+
+### Contributing
+
+Contributions are welcome:
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes with tests
+4. Submit a pull request
+
+**Areas for contribution:** additional statistical tests, visualization helpers for diagnostics, documentation and examples, bug reports and fixes, performance optimizations.
+
+---
+
+## 💬 Support
+
+- **API docs**: [docs/API_REFERENCE.md](docs/API_REFERENCE.md) and [docs/API_CONVENTIONS.md](docs/API_CONVENTIONS.md)
+- **Guides**: [guides/](guides/)
+- **Issues**: [GitHub Issues](https://github.com/DataZooDE/anofox-statistics/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/DataZooDE/anofox-statistics/discussions)
+- **Email**: contact@datazoo.de
+
+If a fit misbehaves or a result looks wrong, please open an issue — regression against real data has failure modes we cannot reproduce from synthetic tests, so a report with your data shape is the fastest path to a fix. Errors from the fit and predict functions include that link.
+
+If it saved you time, a star on the repo helps other people find it.
+
+The first time you load the extension in an interactive terminal each day, a small banner says the same thing. It never prints when output is piped, in notebooks, or in CI. Silence it with `SET datazoo_banner = false;` or `DATAZOO_NO_BANNER=1`.
+
+---
+
+## 📖 Citation
+
+If you use this extension in research, please cite:
+
+```bibtex
+@software{anofox_statistics,
+  title = {Anofox Statistics: Statistical Analysis Extension for DuckDB},
+  author = {DataZoo DE},
+  year = {2025},
+  url = {https://github.com/DataZooDE/anofox-statistics},
+  version = {1.0.0}
+}
+```
+
+---
+
+## ⚖️ License
 
 This project is licensed under the **Business Source License 1.1** (BSL 1.1).
 
@@ -277,65 +381,4 @@ While ensuring:
 - Protection for the project's long-term viability
 - Future conversion to fully open source (Apache 2.0)
 
-For commercial production use before the Change Date, please contact: [contact@datazoo.de]
-
-## Contributing
-
-Contributions are welcome. To get started:
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes with tests
-4. Submit a pull request
-
-For questions, open an issue on GitHub.
-
-### Areas for Contribution
-
-- Additional statistical tests (Durbin-Watson, Breusch-Pagan, etc.)
-- Visualization helpers for diagnostics
-- Documentation and examples
-- Bug reports and fixes
-- Performance optimizations
-- Internationalization
-
-## Support
-
-- **Documentation**: [guides/](guides/)
-- **Issues**: [GitHub Issues](https://github.com/DataZooDE/anofox-statistics/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/DataZooDE/anofox-statistics/discussions)
-- **Email**: contact@datazoo.de
-
-If a fit misbehaves or a result looks wrong, please open an issue — regression against
-real data has failure modes we cannot reproduce from synthetic tests, so a report with
-your data shape is the fastest path to a fix. Errors from the fit and predict functions
-end with that link.
-
-If it saved you time, a star on the repo helps other people find it.
-
-The first time you load the extension in an interactive terminal each day, a small
-banner says the same thing. It never prints when output is piped, in notebooks, or in
-CI. Silence it with `SET datazoo_banner = false;` or `DATAZOO_NO_BANNER=1`.
-
-## Citation
-
-If you use this extension in research, please cite:
-
-```bibtex
-@software{anofox_statistics,
-  title = {Anofox Statistics: Statistical Analysis Extension for DuckDB},
-  author = {DataZoo DE},
-  year = {2025},
-  url = {https://github.com/DataZooDE/anofox-statistics},
-  version = {1.0.0}
-}
-```
-
-## Validation
-
-The regression algorithms in this extension are powered by the [anofox-regression](https://github.com/DataZooDE/anofox-regression) Rust crate, which is validated against R's statistical functions. The test suite compares results with R's `lm()`, `glmnet`, and other standard statistical packages to ensure numerical accuracy.
-
-## Acknowledgments
-
-- **DuckDB Team**: For the database and extension framework
-- **anofox-regression**: Rust regression library with R-validated implementations
-- **Open Source Community**: For contributions and feedback
+For commercial production use before the Change Date, please contact: contact@datazoo.de
