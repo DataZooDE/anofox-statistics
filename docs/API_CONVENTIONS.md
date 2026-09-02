@@ -92,7 +92,7 @@ The verb describes what the function does:
 
 Options are passed as a DuckDB `MAP` literal, e.g.:
 
-```sql
+```sql skip
 SELECT ols_fit_agg(y, [x1, x2], {'fit_intercept': true, 'compute_inference': true}) FROM tbl;
 ```
 
@@ -100,7 +100,7 @@ SELECT ols_fit_agg(y, [x1, x2], {'fit_intercept': true, 'compute_inference': tru
 
 All option keys are `snake_case` matching the Rust core. Unknown keys are rejected at bind time:
 
-```sql
+```sql skip
 -- This raises: "unknown option 'intercept_mode'; valid keys: fit_intercept, ..."
 SELECT ols_fit_agg(y, [x], {'intercept_mode': true}) FROM tbl;
 ```
@@ -206,7 +206,7 @@ When a function receives invalid input, it throws an exception with the format:
 
 Unknown option-map keys are rejected at bind time:
 
-```sql
+```sql skip
 -- Raises: "unknown option 'typo_key'; valid keys: fit_intercept, compute_inference, ..."
 SELECT ols_fit_agg(y, [x], {'typo_key': true}) FROM tbl;
 ```
@@ -225,7 +225,7 @@ All functions previously registered under the `anofox_stats_` prefix are now reg
 
 **Migration:** Remove the `anofox_stats_` prefix from every function call.
 
-```sql
+```sql skip
 -- Before (v0.2.x):
 SELECT anofox_stats_ols_fit_agg(y, [x1, x2]) FROM tbl;
 
@@ -237,7 +237,7 @@ SELECT ols_fit_agg(y, [x1, x2]) FROM tbl;
 
 The Theil-Sen estimator functions were previously named `theilsen_*`. They are now `theil_sen_*` (underscore inserted for consistency).
 
-```sql
+```sql skip
 -- Before:
 SELECT anofox_stats_theilsen_fit_agg(y, [x]) FROM tbl;
 
