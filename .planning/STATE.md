@@ -2,20 +2,20 @@
 gsd_state_version: 1.0
 milestone: v0.3.0
 milestone_name: Performance & Polish
-current_phase: 5
-current_phase_name: API Ergonomics
-status: verifying
-stopped_at: Completed 05-03-PLAN.md (ERGO-03 done)
-last_updated: "2026-09-02T06:36:35.075Z"
-last_activity: 2026-09-01
-last_activity_desc: Phase 5 execution started
-state_head: d9644fabd487b87013af129d201d524ca35ea69f
+current_phase: 6
+current_phase_name: Docs Refresh & SQL Validation
+status: planning
+stopped_at: Phase 5 complete, ready to plan Phase 6
+last_updated: "2026-09-02T07:13:47.488Z"
+last_activity: 2026-09-02
+last_activity_desc: Phase 5 complete, transitioned to Phase 6
+state_head: 7566b4473169fae5af41b5b9bca022a61629642d
 progress:
   total_phases: 3
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 6
   completed_plans: 6
-  percent: 33
+  percent: 67
 ---
 
 # State
@@ -25,14 +25,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-31)
 
 **Core value:** Users can run rigorous statistical models in plain SQL wherever DuckDB runs, including the browser (DuckDB-Wasm) — this milestone makes that faster and easier to use.
-**Current focus:** Phase 5 — API Ergonomics
+**Current focus:** Phase 6 — Docs Refresh & SQL Validation
 
 ## Current Position
 
-Phase: 5 (API Ergonomics) — EXECUTING
-Plan: 3 of 3
-Status: Phase complete — ready for verification
-Last activity: 2026-09-01 — Phase 5 execution started
+Phase: 6 — Docs Refresh & SQL Validation
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-09-02 — Phase 5 complete, transitioned to Phase 6
 
 ## Accumulated Context
 
@@ -63,7 +63,7 @@ Last activity: 2026-09-01 — Phase 5 execution started
 ## Session Continuity
 
 Last session: 2026-09-02T06:36:35.044Z
-Stopped at: Completed 05-03-PLAN.md (ERGO-03 done)
+Stopped at: Phase 5 complete, ready to plan Phase 4
 Resume file: None
 
 ## Operator Next Steps
