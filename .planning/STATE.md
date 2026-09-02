@@ -5,16 +5,16 @@ milestone_name: Performance & Polish
 current_phase: 6
 current_phase_name: Docs Refresh & SQL Validation
 status: executing
-stopped_at: Completed 06-02-PLAN.md (guides/01-04 + API_REFERENCE all pass harness)
-last_updated: "2026-09-02T08:11:52.160Z"
+stopped_at: Completed 06-03-PLAN.md (README restructure + harness passes)
+last_updated: "2026-09-02T08:26:31.957Z"
 last_activity: 2026-09-02
 last_activity_desc: Phase 6 execution resumed (wave continue)
-state_head: f3a83368f665b26d9367a989a47909a5119b2d2d
+state_head: 930c05056b9a9ef308874441a1ab69d1f53b0c16
 progress:
   total_phases: 3
   completed_phases: 2
   total_plans: 10
-  completed_plans: 8
+  completed_plans: 9
   percent: 67
 ---
 
@@ -55,6 +55,9 @@ Last activity: 2026-09-02 — Phase 6 execution resumed (wave continue)
 - [Phase 6]: 5 blocks in API_CONVENTIONS.md skip-marked: 2 migration Before examples + 3 syntax-illustration blocks with FROM tbl
 - [Phase 6]: Skip-mark API_REFERENCE.md signature blocks — they are API type sketches, not runnable examples
 - [Phase 6]: ols_fit_agg/rls_fit_agg OVER window crashes DuckDB INTERNAL Error — skip-mark, not a doc error
+- [Phase 6]: README Quick Start uses (ols_fit([y_vals], [[x_col_vals]])).coefficients subquery inside predict() — cross-join stored struct approach had NULL issue in DuckDB optimizer for small datasets
+- [Phase 6]: ols_fit scalar X is column-major: each inner array is all observations for one feature (not row-major)
+- [Phase 6]: README Installation/telemetry sql blocks marked 'sql skip' — not runnable in local harness; GROUP BY illustrative example also skip-marked (references undefined sales_data)
 
 ### Blockers
 
@@ -66,8 +69,8 @@ Last activity: 2026-09-02 — Phase 6 execution resumed (wave continue)
 
 ## Session Continuity
 
-Last session: 2026-09-02T08:11:52.078Z
-Stopped at: Completed 06-02-PLAN.md (guides/01-04 + API_REFERENCE all pass harness)
+Last session: 2026-09-02T08:26:31.911Z
+Stopped at: Completed 06-03-PLAN.md (README restructure + harness passes)
 Resume file: None
 
 ## Operator Next Steps
@@ -83,3 +86,4 @@ Resume file: None
 | Phase 05 P03 | 35 | 3 tasks | 161 files |
 | Phase 06 P01 | 4 | 2 tasks | 2 files |
 | Phase 06-docs-refresh-sql-validation P02 | 45 | 3 tasks | 5 files |
+| Phase 06-docs-refresh-sql-validation P03 | 25 | 2 tasks | 1 files |
