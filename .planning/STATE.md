@@ -1,18 +1,15 @@
 ---
 gsd_state_version: 1.0
-milestone: v0.2.0
-milestone_name: (WASM Support)
-status: Awaiting next milestone
-stopped_at: Roadmap for v0.2.0 created (3 phases, 9 requirements mapped)
-last_updated: "2026-08-31T07:59:27.325Z"
+milestone: v0.3.0
+milestone_name: Performance & Polish
+status: planning
+last_updated: "2026-08-31T12:11:23.810Z"
 last_activity: 2026-08-31
-last_activity_desc: Milestone v0.2.0 completed and archived
-state_head: 95e2f6102a4846108134f9eb2e3c9d7496c3a782
 progress:
   total_phases: 3
   completed_phases: 0
-  total_plans: 3
-  completed_plans: 3
+  total_plans: 0
+  completed_plans: 0
   percent: 0
 ---
 
@@ -20,25 +17,27 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-08-30)
+See: .planning/PROJECT.md (updated 2026-08-31)
 
-**Core value:** Users can run rigorous statistical models in plain SQL wherever DuckDB runs, including the browser (DuckDB-Wasm).
-**Current focus:** Milestone v0.2.0 — WASM Support (roadmap created, ready to plan Phase 1)
+**Core value:** Users can run rigorous statistical models in plain SQL wherever DuckDB runs, including the browser (DuckDB-Wasm) — this milestone makes that faster and easier to use.
+**Current focus:** Milestone v0.3.0 — Performance & Polish (roadmap created, ready to plan Phase 4)
 
 ## Current Position
 
-Phase: Milestone v0.2.0 complete
+Phase: Phase 4 — Benchmarking & Performance
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-08-31 — Milestone v0.2.0 completed and archived
+Status: Roadmap created, ready to plan Phase 4
+Last activity: 2026-08-31 — v0.3.0 roadmap created (3 phases, 11 requirements mapped)
 
 ## Accumulated Context
 
 ### Decisions
 
-- Link Rust FFI archive via `LINKED_LIBS` in `extension_config.cmake` (#103) — confirmed in Phase 1, not re-discovered
-- Disable telemetry on Emscripten (raw HTTP/socket + OpenSSL unsupported on WASM) — applied in working tree, confirmed in Phase 1
-- Verify WASM via a Node harness running `test/sql` (query.farm approach) — Phase 3
+- Breaking API changes are ALLOWED this milestone (early-dev); docs/tests updated to match
+- No new statistical models; no named-parameters work (ERGOX-01 deferred to a dedicated milestone)
+- No external domain research phase for v0.3.0
+- Benchmark suite (PERF-01/02) comes first — it is the measurement foundation for PERF-03 (hotspots) and PERF-04 (FFI/alloc refactor), which need before/after numbers
+- Docs work (Phase 6) comes last, after ERGO renames land, so SQL examples are validated against the final API
 
 ### Blockers
 
@@ -48,32 +47,12 @@ Last activity: 2026-08-31 — Milestone v0.2.0 completed and archived
 
 - (none)
 
-## Verification — CI
-
-CI run 1 (PR #131): all WASM build + deploy legs GREEN on v1.5.5 and v1.4.5 →
-Phase 1 (WASM-01/02/03/04) VERIFIED. `wasm-runtime-test` gate failed on the
-predicted duckdb-wasm↔engine ABI mismatch (1.29.0 → engine v1.1.1 vs v1.5.5
-artifact); fixed by pinning `@duckdb/duckdb-wasm@1.33.1-dev64.0` (engine v1.5.5).
-The `Smoke test (linux_amd64)` failure was an unrelated network flake.
-
-Locally verified against the real v1.5.5 wasm_eh artifact: extension LOADs and the
-**full 99-file suite passes 2090/2090** (quack.test skipped as template cruft).
-The gate now runs `--all`. A `MIN(x1)` discrepancy was investigated and traced to
-a duckdb-wasm Arrow-JS DECIMAL-rendering quirk (unscaled integer) in the harness,
-NOT an extension bug; fixed by formatting results through DuckDB `::VARCHAR`.
-
-| Phase | State | Resume |
-|-------|-------|--------|
-| 1 | VERIFIED (CI run 1: all wasm build/deploy legs green) | — |
-| 2 | VERIFIED locally (LOAD + full-suite results correct vs native) | CI confirmation on final run |
-| 3 | VERIFIED locally (harness + full suite green); CI job + badge wired | CI confirmation on final run |
-
 ## Session Continuity
 
-Last session: 2026-08-30
-Stopped at: Roadmap for v0.2.0 created (3 phases, 9 requirements mapped)
+Last session: 2026-08-31
+Stopped at: v0.3.0 roadmap created (Phases 4-6, 11 requirements mapped: PERF-01..04 → Phase 4, ERGO-01..03 → Phase 5, DOCS-01..04 → Phase 6)
 Resume file: None
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- Plan the first phase with `/gsd-plan-phase 4`
