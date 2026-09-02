@@ -146,6 +146,8 @@ Result structs use `snake_case` field names. The **standard field set** for regr
 | `p_values` | DOUBLE[] | Two-sided p-values |
 | `r_squared` | DOUBLE | Coefficient of determination R² |
 | `adj_r_squared` | DOUBLE | Adjusted R² |
+| `f_statistic` | DOUBLE | Overall F-statistic for the fitted model |
+| `f_pvalue` | DOUBLE | p-value of the overall F-statistic |
 | `residual_std_error` | DOUBLE | Residual standard error |
 | `n_obs` | BIGINT | Number of observations used |
 | `n_features` | BIGINT | Number of features (predictors) |

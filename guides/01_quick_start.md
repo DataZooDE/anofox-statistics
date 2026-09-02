@@ -306,23 +306,26 @@ LOAD 'path/to/anofox_statistics.duckdb_extension';
 
 ### Type Errors
 Ensure all numeric values are DOUBLE:
-```sql
--- Wrong: integer arrays
+```sql skip
+-- Illustrative: integer arrays — prefer explicit DOUBLE to avoid relying on implicit casts
 SELECT ols_fit([1, 2, 3], [[1, 2, 3]]);
-
+```
+```sql
 -- Correct: explicit DOUBLE
 SELECT ols_fit([1.0, 2.0, 3.0], [[1.0, 2.0, 3.0]]);
-
--- Or cast (illustrative -- requires a real table)
--- SELECT ols_fit(array_agg(y::DOUBLE), [array_agg(x::DOUBLE)]) FROM my_table;
+```
+From a real table, cast to DOUBLE:
+```sql skip
+SELECT ols_fit(array_agg(y::DOUBLE), [array_agg(x::DOUBLE)]) FROM my_table;
 ```
 
 ### Insufficient Observations
 Minimum 3 observations required for single-feature regression with intercept:
-```sql
--- This will error
+```sql skip
+-- Illustrative: too few observations (n < n_features + 1)
 SELECT ols_fit([1.0, 2.0], [[1.0, 2.0]]);
-
+```
+```sql
 -- Need at least 3 points
 SELECT ols_fit([1.0, 2.0, 3.0], [[1.0, 2.0, 3.0]]);
 ```
