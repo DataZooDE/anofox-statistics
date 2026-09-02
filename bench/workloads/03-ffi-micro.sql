@@ -21,7 +21,7 @@ SELECT
 FROM (
     SELECT
         group_id,
-        (anofox_stats_ols_fit_agg(y, [x1], {'intercept': true, 'compute_inference': true})).std_errors[1] AS se1
+        (ols_fit_agg(y, [x1], {'intercept': true, 'compute_inference': true})).std_errors[1] AS se1
     FROM test_data
     GROUP BY group_id
 ) t;

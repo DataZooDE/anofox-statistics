@@ -21,7 +21,7 @@ SELECT
 FROM (
     SELECT
         group_id,
-        (anofox_stats_ols_fit_agg(y, [x1, x2, x3], {'intercept': true})).r_squared AS r2
+        (ols_fit_agg(y, [x1, x2, x3], {'intercept': true})).r_squared AS r2
     FROM test_data
     GROUP BY group_id
 ) t;

@@ -31,7 +31,7 @@ SELECT
 FROM (
     SELECT
         group_id,
-        UNNEST(anofox_stats_ols_predict_agg(y, [x1, x2, x3])) AS pred
+        UNNEST(ols_fit_predict_agg(y, [x1, x2, x3])) AS pred
     FROM test_data
     GROUP BY group_id
 ) t;
