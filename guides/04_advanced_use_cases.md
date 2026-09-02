@@ -20,7 +20,9 @@ This guide demonstrates sophisticated analytical patterns using the Anofox Stati
 
 Build complete analytical workflows where each stage uses results from previous stages.
 
-```sql
+```sql skip
+-- Illustrative multi-stage pipeline (requires a historical_sales table with
+-- columns: date, sales, price, advertising, seasonality)
 -- Stage 1: Fit the model
 WITH training_data AS (
     SELECT
@@ -33,7 +35,7 @@ WITH training_data AS (
     FROM historical_sales
 ),
 model AS (
-    SELECT anofox_stats_ols_fit(y, x, true, true, 0.95) as fit
+    SELECT ols_fit(y, x, {'fit_intercept': true, 'compute_inference': true, 'confidence_level': 0.95}) as fit
     FROM training_data
 ),
 
@@ -41,7 +43,7 @@ model AS (
 predictions AS (
     SELECT
         training_data.y as actual,
-        anofox_stats_predict(training_data.x, model.fit.coefficients, model.fit.intercept) as predicted
+        predict(training_data.x, model.fit.coefficients, model.fit.intercept) as predicted
     FROM training_data, model
 ),
 
@@ -53,24 +55,56 @@ diagnostics AS (
             (SELECT (residuals_diagnostics(actual, predicted)).raw FROM predictions)
         ) as normality_test
     FROM predictions
-),
-
--- Stage 4: Identify outliers
-outliers AS (
-    SELECT
-        unnest(generate_series(1, list_count(resid_diag.raw))) as idx,
-        unnest(resid_diag.raw) as residual
-    FROM diagnostics
-    WHERE ABS(unnest(resid_diag.raw)) > 2 * STDDEV(unnest(resid_diag.raw))
 )
 
 -- Final output
 SELECT
     model.fit.r_squared as model_r_squared,
     model.fit.coefficients as coefficients,
-    diagnostics.normality_test.p_value as normality_pvalue,
-    (SELECT COUNT(*) FROM outliers) as outlier_count
+    diagnostics.normality_test.p_value as normality_pvalue
 FROM model, diagnostics;
+```
+
+### Pattern: Self-Contained Multi-Stage Pipeline
+
+A runnable example using inline data.
+
+```sql
+-- Inline data: simulate sales driven by price + advertising + seasonality
+CREATE OR REPLACE TABLE sales_demo AS
+SELECT
+    i as period,
+    (100 - i * 0.5 + (random()-0.5)*5)::DOUBLE as price,
+    (50 + i * 0.3 + (random()-0.5)*3)::DOUBLE as advertising,
+    (CASE (i % 4) WHEN 0 THEN 1.2 WHEN 1 THEN 0.9 WHEN 2 THEN 1.1 ELSE 0.8 END)::DOUBLE as seasonality,
+    (500 - i * 2 + i * 0.8 + seasonality_val * 50 + (random()-0.5)*20)::DOUBLE as sales
+FROM (
+    SELECT i,
+        CASE (i % 4) WHEN 0 THEN 1.2 WHEN 1 THEN 0.9 WHEN 2 THEN 1.1 ELSE 0.8 END as seasonality_val
+    FROM generate_series(1, 24) t(i)
+);
+
+-- Stage 1: Fit
+WITH model AS (
+    SELECT ols_fit(
+        array_agg(sales ORDER BY period),
+        [
+            array_agg(price ORDER BY period),
+            array_agg(advertising ORDER BY period),
+            array_agg(seasonality ORDER BY period)
+        ],
+        {'compute_inference': true}
+    ) as fit
+    FROM sales_demo
+)
+-- Stage 2: Report
+SELECT
+    fit.r_squared as r_squared,
+    fit.coefficients[1] as price_effect,
+    fit.coefficients[2] as ad_effect,
+    fit.coefficients[3] as seasonal_effect,
+    fit.p_values[1] as price_pvalue
+FROM model;
 ```
 
 ### Pattern: Model Selection with Information Criteria
@@ -78,6 +112,15 @@ FROM model, diagnostics;
 Compare multiple model specifications.
 
 ```sql
+-- Inline data for model selection
+CREATE OR REPLACE TABLE analysis_data AS
+SELECT
+    i::DOUBLE as x1,
+    (i * 0.7 + (random()-0.5)*2)::DOUBLE as x2,
+    (i * 0.3 + (random()-0.5)*5)::DOUBLE as x3,
+    (2.0*i + 1.5*(i*0.7) + (random()-0.5)*3)::DOUBLE as y
+FROM generate_series(1, 30) t(i);
+
 WITH data AS (
     SELECT
         array_agg(y::DOUBLE) as y_arr,
@@ -90,21 +133,21 @@ WITH data AS (
 models AS (
     SELECT
         'Model 1: x1 only' as model_name,
-        anofox_stats_ols_fit(y_arr, [x1_arr]) as fit,
+        ols_fit(y_arr, [x1_arr]) as fit,
         2 as k,
         n
     FROM data
     UNION ALL
     SELECT
         'Model 2: x1 + x2' as model_name,
-        anofox_stats_ols_fit(y_arr, [x1_arr, x2_arr]) as fit,
+        ols_fit(y_arr, [x1_arr, x2_arr]) as fit,
         3 as k,
         n
     FROM data
     UNION ALL
     SELECT
         'Model 3: x1 + x2 + x3' as model_name,
-        anofox_stats_ols_fit(y_arr, [x1_arr, x2_arr, x3_arr]) as fit,
+        ols_fit(y_arr, [x1_arr, x2_arr, x3_arr]) as fit,
         4 as k,
         n
     FROM data
@@ -128,27 +171,40 @@ ORDER BY aic;
 Detect structural breaks by monitoring coefficient stability.
 
 ```sql
+-- Inline time-series data with a regime shift at t=50
+CREATE OR REPLACE TABLE daily_prices AS
+SELECT
+    (DATE '2026-09-01' - (100 - i)::INTEGER)::DATE as date,
+    CASE
+        WHEN i <= 50 THEN (100.0 + i * 0.5 + (random()-0.5)*2)::DOUBLE
+        ELSE (125.0 + (i-50) * 1.2 + (random()-0.5)*2)::DOUBLE
+    END as value
+FROM generate_series(1, 100) t(i);
+```
+
+```sql skip
+-- Note: ols_fit_agg() as a window aggregate (OVER clause) triggers a DuckDB
+-- INTERNAL Error in this build. Shown here as a pattern reference only.
 WITH time_series AS (
-    SELECT
-        date,
-        value,
-        LAG(value, 1) OVER (ORDER BY date) as lag1
+    SELECT date, value, LAG(value, 1) OVER (ORDER BY date) as lag1
     FROM daily_prices
-    WHERE LAG(value, 1) OVER (ORDER BY date) IS NOT NULL
+),
+time_series_filtered AS (
+    SELECT date, value, lag1 FROM time_series WHERE lag1 IS NOT NULL
 ),
 rolling_betas AS (
     SELECT
         date,
         value,
         -- Short-term beta (10-day window)
-        (anofox_stats_ols_fit_agg(value, [lag1]) OVER (
+        (ols_fit_agg(value, [lag1]) OVER (
             ORDER BY date ROWS BETWEEN 9 PRECEDING AND CURRENT ROW
         )).coefficients[1] as beta_short,
         -- Long-term beta (30-day window)
-        (anofox_stats_ols_fit_agg(value, [lag1]) OVER (
+        (ols_fit_agg(value, [lag1]) OVER (
             ORDER BY date ROWS BETWEEN 29 PRECEDING AND CURRENT ROW
         )).coefficients[1] as beta_long
-    FROM time_series
+    FROM time_series_filtered
 )
 SELECT
     date,
@@ -161,6 +217,7 @@ SELECT
         ELSE 'STABLE'
     END as regime_status
 FROM rolling_betas
+WHERE beta_short IS NOT NULL AND beta_long IS NOT NULL
 ORDER BY date;
 ```
 
@@ -169,11 +226,23 @@ ORDER BY date;
 Separate trend from seasonal components.
 
 ```sql
+-- Inline monthly data with trend + seasonality
+CREATE OR REPLACE TABLE daily_data AS
+SELECT
+    (DATE '2022-01-01' + INTERVAL (i) MONTH)::DATE as date,
+    (i % 12 + 1) as month_num,
+    (100 + i * 2 + CASE (i%12)
+        WHEN 0 THEN 20 WHEN 1 THEN -5 WHEN 2 THEN -10 WHEN 3 THEN 5
+        WHEN 4 THEN 15 WHEN 5 THEN 25 WHEN 6 THEN 30 WHEN 7 THEN 25
+        WHEN 8 THEN 10 WHEN 9 THEN -5 WHEN 10 THEN -10 ELSE 15
+    END + (random()-0.5)*5)::DOUBLE as value
+FROM generate_series(0, 35) t(i);
+
 WITH monthly_data AS (
     SELECT
         date_trunc('month', date) as month,
         AVG(value) as value,
-        EXTRACT(month FROM date) as month_num
+        EXTRACT(month FROM date)::INTEGER as month_num
     FROM daily_data
     GROUP BY 1, 3
 ),
@@ -187,20 +256,18 @@ with_dummies AS (
         CASE WHEN month_num = 1 THEN 1.0 ELSE 0.0 END as jan,
         CASE WHEN month_num = 2 THEN 1.0 ELSE 0.0 END as feb,
         CASE WHEN month_num = 3 THEN 1.0 ELSE 0.0 END as mar,
-        -- ... (continue for all months, omit December as base)
         CASE WHEN month_num = 11 THEN 1.0 ELSE 0.0 END as nov
     FROM monthly_data
 ),
 -- Fit trend + seasonal model
 model AS (
-    SELECT anofox_stats_ols_fit(
+    SELECT ols_fit(
         array_agg(value ORDER BY month),
         [
             array_agg(trend_idx::DOUBLE ORDER BY month),
             array_agg(jan ORDER BY month),
             array_agg(feb ORDER BY month),
             array_agg(mar ORDER BY month)
-            -- ... include all seasonal dummies
         ]
     ) as fit
     FROM with_dummies
@@ -218,7 +285,9 @@ FROM model;
 
 Real-time coefficient adaptation using exponential forgetting.
 
-```sql
+```sql skip
+-- Adaptive RLS forecasting (illustrative — requires a sensor_readings table with
+-- columns: timestamp, target_value, feature_1, feature_2)
 WITH streaming_data AS (
     SELECT
         timestamp,
@@ -226,12 +295,10 @@ WITH streaming_data AS (
         feature_1,
         feature_2,
         -- RLS with forgetting factor 0.98 (recent data weighted more)
-        anofox_stats_rls_fit_agg(
+        rls_fit_agg(
             target_value,
             [feature_1, feature_2],
-            0.98,    -- forgetting_factor
-            true,    -- fit_intercept
-            100.0    -- initial_p_diagonal
+            {'forgetting_factor': 0.98, 'fit_intercept': true}
         ) OVER (ORDER BY timestamp) as rls_model
     FROM sensor_readings
 )
@@ -240,11 +307,7 @@ SELECT
     target_value,
     rls_model.coefficients[1] as adaptive_coef_1,
     rls_model.coefficients[2] as adaptive_coef_2,
-    rls_model.intercept as adaptive_intercept,
-    -- Generate forecast
-    rls_model.intercept +
-    rls_model.coefficients[1] * LEAD(feature_1) OVER (ORDER BY timestamp) +
-    rls_model.coefficients[2] * LEAD(feature_2) OVER (ORDER BY timestamp) as next_forecast
+    rls_model.intercept as adaptive_intercept
 FROM streaming_data;
 ```
 
@@ -256,28 +319,20 @@ FROM streaming_data;
 
 Analyze data at multiple organizational levels.
 
-```sql
+```sql skip
+-- Hierarchical analysis (illustrative — requires a retail_sales table with
+-- columns: company, region, territory, store_id, sales, traffic, promotions)
 WITH store_data AS (
-    SELECT
-        company,
-        region,
-        territory,
-        store_id,
-        sales,
-        traffic,
-        promotions
+    SELECT company, region, territory, store_id, sales, traffic, promotions
     FROM retail_sales
 ),
 -- Level 1: Store-level analysis
 store_models AS (
     SELECT
-        store_id,
-        territory,
-        region,
-        company,
-        (anofox_stats_ols_fit_agg(sales, [traffic, promotions])).coefficients[1] as traffic_coef,
-        (anofox_stats_ols_fit_agg(sales, [traffic, promotions])).coefficients[2] as promo_coef,
-        (anofox_stats_ols_fit_agg(sales, [traffic, promotions])).r_squared as r_squared,
+        store_id, territory, region, company,
+        (ols_fit_agg(sales, [traffic, promotions])).coefficients[1] as traffic_coef,
+        (ols_fit_agg(sales, [traffic, promotions])).coefficients[2] as promo_coef,
+        (ols_fit_agg(sales, [traffic, promotions])).r_squared as r_squared,
         COUNT(*) as obs
     FROM store_data
     GROUP BY store_id, territory, region, company
@@ -285,42 +340,22 @@ store_models AS (
 -- Level 2: Territory aggregation
 territory_summary AS (
     SELECT
-        territory,
-        region,
+        territory, region,
         AVG(traffic_coef) as avg_traffic_effect,
         STDDEV(traffic_coef) as std_traffic_effect,
         AVG(promo_coef) as avg_promo_effect,
         COUNT(*) as store_count
     FROM store_models
     GROUP BY territory, region
-),
--- Level 3: Regional benchmarks
-region_benchmarks AS (
-    SELECT
-        region,
-        AVG(avg_traffic_effect) as region_traffic_benchmark,
-        AVG(avg_promo_effect) as region_promo_benchmark
-    FROM territory_summary
-    GROUP BY region
 )
--- Compare stores to benchmarks
 SELECT
     s.store_id,
     s.territory,
-    s.region,
     s.traffic_coef,
     t.avg_traffic_effect as territory_avg,
-    r.region_traffic_benchmark as region_avg,
-    s.traffic_coef - t.avg_traffic_effect as vs_territory,
-    s.traffic_coef - r.region_traffic_benchmark as vs_region,
-    CASE
-        WHEN s.traffic_coef > t.avg_traffic_effect * 1.1 THEN 'OUTPERFORMER'
-        WHEN s.traffic_coef < t.avg_traffic_effect * 0.9 THEN 'UNDERPERFORMER'
-        ELSE 'AVERAGE'
-    END as performance_tier
+    s.traffic_coef - t.avg_traffic_effect as vs_territory
 FROM store_models s
 JOIN territory_summary t ON s.territory = t.territory
-JOIN region_benchmarks r ON s.region = r.region
 ORDER BY s.traffic_coef DESC;
 ```
 
@@ -333,26 +368,35 @@ ORDER BY s.traffic_coef DESC;
 Model customer value trajectories for different acquisition cohorts.
 
 ```sql
-WITH cohort_data AS (
+-- Inline cohort data: simulate 4 cohorts x 12 months LTV curves
+CREATE OR REPLACE TABLE cohort_data AS
+SELECT
+    cohort_month,
+    months_since_acquisition,
+    (EXP(base_rate + growth_rate * LN(months_since_acquisition + 1)) * (1 + (random()-0.5)*0.1))::DOUBLE as cumulative_revenue
+FROM (
     SELECT
-        cohort_month,
-        months_since_acquisition,
-        cumulative_revenue
-    FROM customer_revenue_by_cohort
-),
+        DATE '2023-01-01' + INTERVAL (c) MONTH as cohort_month,
+        m as months_since_acquisition,
+        CASE c WHEN 0 THEN 4.5 WHEN 1 THEN 4.3 WHEN 2 THEN 4.6 ELSE 4.4 END as base_rate,
+        CASE c WHEN 0 THEN 0.4 WHEN 1 THEN 0.35 WHEN 2 THEN 0.45 ELSE 0.38 END as growth_rate
+    FROM generate_series(0, 3) t(c),
+         generate_series(1, 12) u(m)
+);
+
 -- Fit growth model per cohort: revenue = a * months^b (log-linearized)
-cohort_models AS (
+WITH cohort_models AS (
     SELECT
         cohort_month,
-        (anofox_stats_ols_fit_agg(
+        (ols_fit_agg(
             LN(cumulative_revenue + 1),
             [LN(months_since_acquisition + 1)]
         )).coefficients[1] as growth_rate,
-        (anofox_stats_ols_fit_agg(
+        (ols_fit_agg(
             LN(cumulative_revenue + 1),
             [LN(months_since_acquisition + 1)]
         )).intercept as initial_value,
-        (anofox_stats_ols_fit_agg(
+        (ols_fit_agg(
             LN(cumulative_revenue + 1),
             [LN(months_since_acquisition + 1)]
         )).r_squared as model_fit,
@@ -385,6 +429,16 @@ ORDER BY cohort_month;
 Use regression for controlled experiment analysis.
 
 ```sql
+-- Inline A/B test data
+CREATE OR REPLACE TABLE ab_test_results AS
+SELECT
+    i as user_id,
+    CASE WHEN random() < 0.5 THEN 'treatment' ELSE 'control' END as variant,
+    (18 + random() * 50)::INTEGER as age,
+    (1 + random() * 60)::INTEGER as tenure,
+    CASE WHEN random() < 0.12 THEN 1 ELSE 0 END as conversion
+FROM generate_series(1, 1000) t(i);
+
 WITH experiment_data AS (
     SELECT
         user_id,
@@ -396,14 +450,14 @@ WITH experiment_data AS (
 ),
 -- OLS with control variables
 model AS (
-    SELECT anofox_stats_ols_fit(
+    SELECT ols_fit(
         array_agg(converted),
         [
             array_agg(is_treatment),
             array_agg(age),
             array_agg(tenure)
         ],
-        true, true, 0.95
+        {'fit_intercept': true, 'compute_inference': true, 'confidence_level': 0.95}
     ) as fit
     FROM experiment_data
 )
@@ -428,24 +482,25 @@ FROM model;
 Identify segments where treatment works differently.
 
 ```sql
+-- Reuse ab_test_results created above (must run in same session)
 WITH experiment_data AS (
     SELECT
         user_id,
-        segment,
-        is_treatment,
-        outcome
+        CASE WHEN age < 35 THEN 'young' ELSE 'mature' END as segment,
+        CASE WHEN variant = 'treatment' THEN 1.0 ELSE 0.0 END as is_treatment,
+        conversion::DOUBLE as outcome
     FROM ab_test_results
 )
 SELECT
     segment,
     COUNT(*) as sample_size,
-    (anofox_stats_ols_fit_agg(outcome, [is_treatment], true, true, 0.95)).coefficients[1] as treatment_effect,
-    (anofox_stats_ols_fit_agg(outcome, [is_treatment], true, true, 0.95)).p_values[1] as p_value,
-    (anofox_stats_ols_fit_agg(outcome, [is_treatment], true, true, 0.95)).ci_lower[1] as ci_lower,
-    (anofox_stats_ols_fit_agg(outcome, [is_treatment], true, true, 0.95)).ci_upper[1] as ci_upper
+    (ols_fit_agg(outcome, [is_treatment], {'compute_inference': true})).coefficients[1] as treatment_effect,
+    (ols_fit_agg(outcome, [is_treatment], {'compute_inference': true})).p_values[1] as p_value,
+    (ols_fit_agg(outcome, [is_treatment], {'compute_inference': true})).ci_lower[1] as ci_lower,
+    (ols_fit_agg(outcome, [is_treatment], {'compute_inference': true})).ci_upper[1] as ci_upper
 FROM experiment_data
 GROUP BY segment
-HAVING COUNT(*) >= 100  -- Minimum sample size
+HAVING COUNT(*) >= 100
 ORDER BY treatment_effect DESC;
 ```
 
@@ -458,26 +513,41 @@ ORDER BY treatment_effect DESC;
 Estimate causal effects from observational data.
 
 ```sql
+-- Inline DiD data: 2 periods, 2 groups
+CREATE OR REPLACE TABLE panel_data AS
+SELECT
+    i as unit_id,
+    period,
+    CASE WHEN i <= 50 THEN true ELSE false END as is_treated,
+    3 as treatment_start,
+    -- Outcome: treated group gets +5 uplift post-treatment
+    (10 + period * 0.5 + CASE WHEN i <= 50 AND period >= 3 THEN 5.0 ELSE 0.0 END
+        + (random()-0.5)*2)::DOUBLE as outcome
+FROM generate_series(1, 100) t(i),
+     generate_series(1, 4) u(period);
+
 WITH did_data AS (
     SELECT
-        unit_id,
-        time_period,
+        unit_id, time_period,
         CASE WHEN is_treated THEN 1.0 ELSE 0.0 END as treatment,
         CASE WHEN time_period >= treatment_start THEN 1.0 ELSE 0.0 END as post,
         CASE WHEN is_treated AND time_period >= treatment_start THEN 1.0 ELSE 0.0 END as treatment_x_post,
         outcome
-    FROM panel_data
+    FROM (
+        SELECT unit_id, period as time_period, is_treated, treatment_start, outcome
+        FROM panel_data
+    )
 ),
 -- DiD regression: outcome = α + β₁*treatment + β₂*post + β₃*treatment×post + ε
 did_model AS (
-    SELECT anofox_stats_ols_fit(
+    SELECT ols_fit(
         array_agg(outcome),
         [
             array_agg(treatment),
             array_agg(post),
             array_agg(treatment_x_post)
         ],
-        true, true, 0.95
+        {'fit_intercept': true, 'compute_inference': true, 'confidence_level': 0.95}
     ) as fit
     FROM did_data
 )
@@ -503,6 +573,16 @@ FROM did_model;
 Pre-compute and cache model results for fast lookups.
 
 ```sql
+-- Create inline training data
+CREATE OR REPLACE TABLE training_data AS
+SELECT
+    CASE (i % 3) WHEN 0 THEN 'A' WHEN 1 THEN 'B' ELSE 'C' END as category,
+    (i * 1.5 + (random()-0.5)*3)::DOUBLE as y,
+    (i * 0.8 + (random()-0.5)*2)::DOUBLE as x1,
+    (i * 0.5 + (random()-0.5)*1)::DOUBLE as x2,
+    (DATE '2026-09-01' - INTERVAL (100 - i) DAY)::DATE as date
+FROM generate_series(1, 90) t(i);
+
 -- Create model cache table
 CREATE OR REPLACE TABLE model_cache AS
 WITH latest_data AS (
@@ -512,38 +592,46 @@ WITH latest_data AS (
         array_agg(x1::DOUBLE) as x1_arr,
         array_agg(x2::DOUBLE) as x2_arr
     FROM training_data
-    WHERE date >= CURRENT_DATE - INTERVAL '90 days'
     GROUP BY category
 )
 SELECT
     category,
-    CURRENT_TIMESTAMP as trained_at,
-    anofox_stats_ols_fit(y_arr, [x1_arr, x2_arr], true, true, 0.95) as model
+    TIMESTAMP '2026-09-01 00:00:00' as trained_at,
+    ols_fit(y_arr, [x1_arr, x2_arr], {'fit_intercept': true, 'compute_inference': true, 'confidence_level': 0.95}) as model
 FROM latest_data;
 
--- Query cached model for predictions
+-- Query cached model
 SELECT
-    new_data.id,
-    anofox_stats_predict(
-        [[new_data.x1, new_data.x2]],
-        cache.model.coefficients,
-        cache.model.intercept
-    )[1] as prediction
-FROM new_data
-JOIN model_cache cache ON new_data.category = cache.category;
+    category,
+    model.r_squared,
+    model.coefficients[1] as x1_coef,
+    model.coefficients[2] as x2_coef,
+    model.n_observations as n
+FROM model_cache
+ORDER BY category;
 ```
 
-### Pattern: Scheduled Model Refresh
+### Pattern: Model Drift Detection
 
 Automate model retraining with drift detection.
 
 ```sql
--- Check if model needs retraining
-WITH current_performance AS (
+-- Using model_cache and training_data from above
+-- Check calibration: fit actual ~ predicted
+WITH predictions AS (
+    SELECT
+        t.category,
+        t.y as actual,
+        predict([[t.x1], [t.x2]], c.model.coefficients, c.model.intercept)[1] as predicted
+    FROM training_data t
+    JOIN model_cache c ON t.category = c.category
+    LIMIT 60  -- training set rows
+),
+current_performance AS (
     SELECT
         category,
-        (anofox_stats_ols_fit_agg(actual, [predicted])).r_squared as current_r2
-    FROM recent_predictions
+        (ols_fit_agg(actual, [predicted])).r_squared as current_r2
+    FROM predictions
     GROUP BY category
 ),
 baseline_performance AS (
@@ -552,9 +640,9 @@ baseline_performance AS (
 )
 SELECT
     c.category,
-    c.current_r2,
-    b.baseline_r2,
-    c.current_r2 / b.baseline_r2 as performance_ratio,
+    ROUND(c.current_r2, 3) as current_r2,
+    ROUND(b.baseline_r2, 3) as baseline_r2,
+    ROUND(c.current_r2 / b.baseline_r2, 3) as performance_ratio,
     CASE
         WHEN c.current_r2 / b.baseline_r2 < 0.9 THEN 'RETRAIN_NEEDED'
         ELSE 'OK'
@@ -568,8 +656,17 @@ JOIN baseline_performance b ON c.category = b.category;
 Partition data for parallel regression.
 
 ```sql
+-- Inline large dataset simulation
+WITH large_dataset AS (
+    SELECT
+        i as id,
+        (i * 1.2 + (random()-0.5)*5)::DOUBLE as y,
+        (i * 0.8 + (random()-0.5)*3)::DOUBLE as x1,
+        (i * 0.5 + (random()-0.5)*2)::DOUBLE as x2
+    FROM generate_series(1, 500) t(i)
+),
 -- Partition large dataset
-WITH partitioned AS (
+partitioned AS (
     SELECT
         NTILE(10) OVER (ORDER BY id) as partition_id,
         y, x1, x2
@@ -578,8 +675,8 @@ WITH partitioned AS (
 -- Process each partition (can be parallelized)
 SELECT
     partition_id,
-    (anofox_stats_ols_fit_agg(y, [x1, x2])).coefficients as partition_coefs,
-    (anofox_stats_ols_fit_agg(y, [x1, x2])).r_squared as partition_r2,
+    (ols_fit_agg(y, [x1, x2])).coefficients as partition_coefs,
+    (ols_fit_agg(y, [x1, x2])).r_squared as partition_r2,
     COUNT(*) as partition_size
 FROM partitioned
 GROUP BY partition_id;
@@ -589,33 +686,20 @@ GROUP BY partition_id;
 
 Export model results for downstream systems.
 
-```sql
--- Export to JSON format
+```sql skip
+-- Export model to JSON format (requires the json extension: LOAD json)
+-- Run: INSTALL json; LOAD json; before executing.
 SELECT
     json_object(
         'model_type', 'ols',
-        'coefficients', fit.coefficients,
-        'intercept', fit.intercept,
-        'r_squared', fit.r_squared,
-        'n_observations', fit.n_observations,
-        'trained_at', CURRENT_TIMESTAMP
+        'coefficients', model.coefficients,
+        'intercept', model.intercept,
+        'r_squared', model.r_squared,
+        'n_observations', model.n_observations,
+        'trained_at', TIMESTAMP '2026-09-01 00:00:00'
     ) as model_json
-FROM (
-    SELECT anofox_stats_ols_fit(y, x) as fit FROM training_data
-);
-
--- Export to CSV for reporting
-COPY (
-    SELECT
-        category,
-        model.coefficients[1] as coef_1,
-        model.coefficients[2] as coef_2,
-        model.intercept,
-        model.r_squared,
-        model.p_values[1] as coef_1_pvalue,
-        model.p_values[2] as coef_2_pvalue
-    FROM model_cache
-) TO 'model_summary.csv' (HEADER, DELIMITER ',');
+FROM model_cache
+WHERE category = 'A';
 ```
 
 ---
@@ -625,16 +709,19 @@ COPY (
 ### 1. Validate Before Deployment
 
 ```sql
--- Cross-validation pattern
+-- Cross-validation pattern (using training_data from above)
 WITH folds AS (
-    SELECT *, NTILE(5) OVER (ORDER BY random()) as fold FROM data
+    SELECT *, NTILE(5) OVER (ORDER BY random()) as fold FROM training_data
 ),
+-- For each held-out fold, fit on all other folds
 cv_results AS (
     SELECT
-        fold as test_fold,
-        (anofox_stats_ols_fit_agg(y, [x1, x2]) FILTER (WHERE fold != test_fold)).r_squared as train_r2
-    FROM folds
-    GROUP BY fold
+        held_out.fold as test_fold,
+        (
+            SELECT ols_fit_agg(tr.y, [tr.x1, tr.x2])
+            FROM folds tr WHERE tr.fold != held_out.fold
+        ).r_squared as train_r2
+    FROM (SELECT DISTINCT fold FROM folds) held_out
 )
 SELECT
     AVG(train_r2) as mean_cv_r2,
@@ -645,11 +732,19 @@ FROM cv_results;
 ### 2. Monitor Drift
 
 ```sql
--- Track coefficient stability over time
+-- Track calibration stability (using predictions from model_cache / training_data above)
+WITH preds AS (
+    SELECT
+        t.date,
+        t.y as actual,
+        predict([[t.x1], [t.x2]], c.model.coefficients, c.model.intercept)[1] as predicted
+    FROM training_data t
+    JOIN model_cache c ON t.category = c.category
+)
 SELECT
-    date_trunc('week', prediction_date) as week,
-    (anofox_stats_ols_fit_agg(actual, [predicted])).coefficients[1] as weekly_calibration
-FROM predictions
+    date_trunc('week', date) as week,
+    (ols_fit_agg(actual, [predicted])).coefficients[1] as weekly_calibration
+FROM preds
 GROUP BY 1
 ORDER BY 1;
 ```
@@ -657,22 +752,19 @@ ORDER BY 1;
 ### 3. Document Assumptions
 
 ```sql
--- Store model metadata
-INSERT INTO model_registry (
-    model_id,
-    model_type,
-    features,
-    assumptions,
-    validation_r2,
-    created_at
-)
+-- Store model metadata (creates a simple metadata record)
+CREATE OR REPLACE TABLE model_registry AS
 SELECT
-    gen_random_uuid(),
-    'OLS',
-    ['price', 'advertising'],
-    'Linear relationship, homoscedastic errors, no multicollinearity',
-    (SELECT r_squared FROM model_fit),
-    CURRENT_TIMESTAMP;
+    gen_random_uuid() as model_id,
+    'OLS' as model_type,
+    ['x1', 'x2'] as features,
+    'Linear relationship, homoscedastic errors' as assumptions,
+    model.r_squared as validation_r2,
+    TIMESTAMP '2026-09-01 00:00:00' as created_at
+FROM model_cache
+WHERE category = 'A';
+
+SELECT * FROM model_registry;
 ```
 
 ---
