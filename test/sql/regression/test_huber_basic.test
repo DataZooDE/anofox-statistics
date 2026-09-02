@@ -48,7 +48,7 @@ true
 # TEST 3: Same result via the fully-qualified name
 # =============================================================================
 query I
-SELECT ABS((anofox_stats_huber_fit_agg(y, [x])).coefficients[1] - 2.0) < 0.1
+SELECT ABS((huber_fit_agg(y, [x])).coefficients[1] - 2.0) < 0.1
 FROM clean_data;
 ----
 true

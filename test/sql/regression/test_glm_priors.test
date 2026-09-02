@@ -225,7 +225,7 @@ must be strictly positive
 
 # ==== TEST 20: the fully-qualified name accepts priors too ====
 query I
-SELECT (anofox_stats_poisson_fit_agg(y, [x1, x2], {
+SELECT (poisson_fit_agg(y, [x1, x2], {
     'feature_names': ['x1', 'x2'],
     'prior': MAP {'x1': {'dist': 'normal', 'loc': 0.0, 'scale': 0.02}}
 })).coefficients[1] IS NOT NULL

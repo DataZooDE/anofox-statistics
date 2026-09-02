@@ -2,7 +2,7 @@
 # description: Regression test for ERGO-01 — rolling fit_predict degenerate-frame NULL guard
 # group: [sql]
 #
-# Bug: anofox_stats_ols_fit_agg(...) OVER (ROWS BETWEEN N PRECEDING AND CURRENT ROW)
+# Bug: ols_fit_agg(...) OVER (ROWS BETWEEN N PRECEDING AND CURRENT ROW)
 # returned a non-NULL result when the frame has exactly min_obs = n_features+1 rows
 # instead of returning NULL for the degenerate (exactly-determined/saturated) case.
 #
@@ -12,7 +12,7 @@
 # With 1 feature + intercept: min_obs = 2, so a 2-row frame passed `< 2` (false for size=2)
 # but must fail `<= 2` (true for size=2 → NULL).
 # The function that first triggers the wrong non-NULL result is:
-# anofox_stats_ols_fit_agg(y, [x1]) OVER (ORDER BY t ROWS BETWEEN 2 PRECEDING AND CURRENT ROW)
+# ols_fit_agg(y, [x1]) OVER (ORDER BY t ROWS BETWEEN 2 PRECEDING AND CURRENT ROW)
 # at t=2, where the frame contains exactly 2 rows (= min_obs) and should be NULL.
 
 require anofox_statistics
@@ -48,7 +48,7 @@ SELECT
     COUNT(*) AS degenerate_null_count
 FROM (
     SELECT
-        anofox_stats_ols_fit_agg(y, [x1]) OVER (ORDER BY t ROWS BETWEEN 2 PRECEDING AND CURRENT ROW) AS result
+        ols_fit_agg(y, [x1]) OVER (ORDER BY t ROWS BETWEEN 2 PRECEDING AND CURRENT ROW) AS result
     FROM ergo01_data
 )
 WHERE result IS NULL;
@@ -61,7 +61,7 @@ SELECT
     COUNT(*) AS valid_non_null_count
 FROM (
     SELECT
-        anofox_stats_ols_fit_agg(y, [x1]) OVER (ORDER BY t ROWS BETWEEN 2 PRECEDING AND CURRENT ROW) AS result
+        ols_fit_agg(y, [x1]) OVER (ORDER BY t ROWS BETWEEN 2 PRECEDING AND CURRENT ROW) AS result
     FROM ergo01_data
 )
 WHERE result IS NOT NULL;
@@ -76,7 +76,7 @@ SELECT
 FROM (
     SELECT
         t,
-        anofox_stats_ols_fit_agg(y, [x1]) OVER (ORDER BY t ROWS BETWEEN 2 PRECEDING AND CURRENT ROW) AS result
+        ols_fit_agg(y, [x1]) OVER (ORDER BY t ROWS BETWEEN 2 PRECEDING AND CURRENT ROW) AS result
     FROM ergo01_data
 )
 ORDER BY t;
@@ -103,7 +103,7 @@ SELECT
     COUNT(*) AS degenerate_null_count
 FROM (
     SELECT
-        anofox_stats_ols_fit_agg(y, [x1, x2]) OVER (ORDER BY t ROWS BETWEEN 3 PRECEDING AND CURRENT ROW) AS result
+        ols_fit_agg(y, [x1, x2]) OVER (ORDER BY t ROWS BETWEEN 3 PRECEDING AND CURRENT ROW) AS result
     FROM ergo01_data
 )
 WHERE result IS NULL;
@@ -116,7 +116,7 @@ SELECT
     COUNT(*) AS valid_non_null_count
 FROM (
     SELECT
-        anofox_stats_ols_fit_agg(y, [x1, x2]) OVER (ORDER BY t ROWS BETWEEN 3 PRECEDING AND CURRENT ROW) AS result
+        ols_fit_agg(y, [x1, x2]) OVER (ORDER BY t ROWS BETWEEN 3 PRECEDING AND CURRENT ROW) AS result
     FROM ergo01_data
 )
 WHERE result IS NOT NULL;
@@ -125,7 +125,7 @@ WHERE result IS NOT NULL;
 
 # =============================================================================
 # CASE C — ols_fit_predict window function: already correct, must stay correct
-# anofox_stats_ols_fit_predict uses the scaling min_obs guard; verify here so
+# ols_fit_predict uses the scaling min_obs guard; verify here so
 # any regression is caught. Expanding window (UNBOUNDED PRECEDING):
 # frame sizes: 1, 2, 3, 4, 5, 6, 7. With 1 feature + intercept (min_obs=2),
 # rows t=1 (size=1) and t=2 (size=2) must be NULL; t>=3 must yield non-NULL.
@@ -136,7 +136,7 @@ SELECT
     COUNT(*) AS degenerate_null_count
 FROM (
     SELECT
-        anofox_stats_ols_fit_predict(y, [x1]) OVER (ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS pred
+        ols_fit_predict(y, [x1]) OVER (ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS pred
     FROM ergo01_data
 )
 WHERE pred IS NULL;
@@ -148,7 +148,7 @@ SELECT
     COUNT(*) AS valid_non_null_count
 FROM (
     SELECT
-        anofox_stats_ols_fit_predict(y, [x1]) OVER (ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS pred
+        ols_fit_predict(y, [x1]) OVER (ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS pred
     FROM ergo01_data
 )
 WHERE pred IS NOT NULL;

@@ -10,7 +10,7 @@ WITH data AS (
         ] as X
 )
 SELECT result.* FROM data,
-LATERAL anofox_stats_ridge_fit(
+LATERAL ridge_fit(
     data.y,
     data.X,
     {'lambda': 0.1, 'intercept': true}

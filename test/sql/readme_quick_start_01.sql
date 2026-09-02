@@ -1,10 +1,10 @@
 -- DISABLED: This file uses the OLD API with individual array parameters
 --
 -- The old API used:
---   anofox_stats_ols_fit(y, x1, x2, x3, true)  -- Multiple individual arrays
+--   ols_fit(y, x1, x2, x3, true)  -- Multiple individual arrays
 --
 -- The NEW API uses:
---   anofox_stats_ols_fit(y, [[x1, x2, x3]], {'intercept': true})  -- 2D array + MAP options
+--   ols_fit(y, [[x1, x2, x3]], {'intercept': true})  -- 2D array + MAP options
 --
 -- Also references deprecated functions like ols_inference and uses non-existent sales_data table
 

@@ -110,11 +110,11 @@ A	true
 B	false
 
 # =============================================================================
-# TEST 8: Alias verification (anofox_stats_permutation_t_test_agg)
+# TEST 8: Alias verification (permutation_t_test_agg)
 # =============================================================================
 
 query I
-SELECT (anofox_stats_permutation_t_test_agg(value, grp)).statistic IS NOT NULL FROM perm_data;
+SELECT (permutation_t_test_agg(value, grp)).statistic IS NOT NULL FROM perm_data;
 ----
 true
 

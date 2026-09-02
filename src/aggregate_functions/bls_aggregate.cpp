@@ -400,8 +400,75 @@ static unique_ptr<FunctionData> NnlsAggBind(ClientContext &context, AggregateFun
 //===--------------------------------------------------------------------===//
 void RegisterBlsAggregateFunction(ExtensionLoader &loader) {
     // BLS (Bounded Least Squares)
+    {
+        AggregateFunctionSet bls_set("bls_fit_agg");
+
+        auto bls_basic = AggregateFunction(
+            "bls_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)}, LogicalType::ANY,
+            AggregateFunction::StateSize<BlsAggregateState>, BlsAggInitialize, BlsAggUpdate, BlsAggCombine,
+            BlsAggFinalize, nullptr, BlsAggBind, BlsAggDestroy);
+        bls_set.AddFunction(bls_basic);
+
+        auto bls_map = AggregateFunction(
+            "bls_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
+            LogicalType::ANY, AggregateFunction::StateSize<BlsAggregateState>, BlsAggInitialize, BlsAggUpdate,
+            BlsAggCombine, BlsAggFinalize, nullptr, BlsAggBind, BlsAggDestroy);
+        bls_set.AddFunction(bls_map);
+
+        CreateAggregateFunctionInfo bls_info(std::move(bls_set));
+        bls_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
+        FunctionDescription d1;
+        d1.description     = "Fits a Bounded Least Squares (BLS) regression with coefficient bounds and returns fit statistics.";
+        d1.examples        = {"bls_fit_agg(y, x, {'lower_bound': 0.0, 'upper_bound': 1.0})"};
+        d1.categories      = {"regression"};
+        d1.parameter_names = {"y", "x", "options"};
+        d1.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY};
+        bls_info.descriptions.push_back(std::move(d1));
+        FunctionDescription d2;
+        d2.description     = "Fits a Bounded Least Squares (BLS) regression with coefficient bounds and returns fit statistics.";
+        d2.examples        = {"bls_fit_agg(y, x)"};
+        d2.categories      = {"regression"};
+        d2.parameter_names = {"y", "x"};
+        d2.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)};
+        bls_info.descriptions.push_back(std::move(d2));
+        loader.RegisterFunction(std::move(bls_info));
+    }
 
     // NNLS (Non-Negative Least Squares)
+    {
+        AggregateFunctionSet nnls_set("nnls_fit_agg");
+
+        auto nnls_basic = AggregateFunction(
+            "nnls_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)}, LogicalType::ANY,
+            AggregateFunction::StateSize<BlsAggregateState>, BlsAggInitialize, BlsAggUpdate, BlsAggCombine,
+            BlsAggFinalize, nullptr, NnlsAggBind, BlsAggDestroy);
+        nnls_set.AddFunction(nnls_basic);
+
+        auto nnls_map = AggregateFunction(
+            "nnls_fit_agg",
+            {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY}, LogicalType::ANY,
+            AggregateFunction::StateSize<BlsAggregateState>, BlsAggInitialize, BlsAggUpdate, BlsAggCombine,
+            BlsAggFinalize, nullptr, NnlsAggBind, BlsAggDestroy);
+        nnls_set.AddFunction(nnls_map);
+
+        CreateAggregateFunctionInfo nnls_info(std::move(nnls_set));
+        nnls_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
+        FunctionDescription d1;
+        d1.description     = "Fits a Non-Negative Least Squares (NNLS) regression with non-negativity constraints.";
+        d1.examples        = {"nnls_fit_agg(y, x, {'tolerance': 1e-6})"};
+        d1.categories      = {"regression"};
+        d1.parameter_names = {"y", "x", "options"};
+        d1.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY};
+        nnls_info.descriptions.push_back(std::move(d1));
+        FunctionDescription d2;
+        d2.description     = "Fits a Non-Negative Least Squares (NNLS) regression with non-negativity constraints.";
+        d2.examples        = {"nnls_fit_agg(y, x)"};
+        d2.categories      = {"regression"};
+        d2.parameter_names = {"y", "x"};
+        d2.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)};
+        nnls_info.descriptions.push_back(std::move(d2));
+        loader.RegisterFunction(std::move(nnls_info));
+    }
 }
 
 } // namespace duckdb

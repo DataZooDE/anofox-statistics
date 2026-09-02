@@ -151,11 +151,11 @@ A	true
 B	false
 
 # =============================================================================
-# TEST 7: Alias verification (anofox_stats_g_test_agg)
+# TEST 7: Alias verification (g_test_agg)
 # =============================================================================
 
 query I
-SELECT (anofox_stats_g_test_agg(row_var, col_var)).statistic IS NOT NULL FROM g_test_data;
+SELECT (g_test_agg(row_var, col_var)).statistic IS NOT NULL FROM g_test_data;
 ----
 true
 

@@ -103,11 +103,11 @@ FROM icc_data;
 true
 
 # =============================================================================
-# TEST 5: Alias verification (anofox_stats_icc_agg)
+# TEST 5: Alias verification (icc_agg)
 # =============================================================================
 
 query I
-SELECT (anofox_stats_icc_agg(rating, subject, rater)).icc IS NOT NULL FROM icc_data;
+SELECT (icc_agg(rating, subject, rater)).icc IS NOT NULL FROM icc_data;
 ----
 true
 

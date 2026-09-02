@@ -12,25 +12,25 @@ require anofox_statistics
 # With 2 non-constant features + intercept, need at least 3 observations.
 # 2 observations with 2 features is insufficient.
 statement error
-SELECT anofox_stats_ols_fit([1.0, 2.0], [[1.0, 2.0], [3.0, 4.0]]);
+SELECT ols_fit([1.0, 2.0], [[1.0, 2.0], [3.0, 4.0]]);
 ----
 Insufficient data
 
 # Ridge requires minimum observations (using MAP syntax)
 statement error
-SELECT anofox_stats_ridge_fit([1.0, 2.0], [[1.0, 2.0], [3.0, 4.0]], {'alpha': 0.1});
+SELECT ridge_fit([1.0, 2.0], [[1.0, 2.0], [3.0, 4.0]], {'alpha': 0.1});
 ----
 Insufficient data
 
 # Elastic Net requires minimum observations (using MAP syntax)
 statement error
-SELECT anofox_stats_elasticnet_fit([1.0, 2.0], [[1.0, 2.0], [3.0, 4.0]], {'alpha': 0.1, 'l1_ratio': 0.5});
+SELECT elasticnet_fit([1.0, 2.0], [[1.0, 2.0], [3.0, 4.0]], {'alpha': 0.1, 'l1_ratio': 0.5});
 ----
 Insufficient data
 
 # WLS requires minimum observations
 statement error
-SELECT anofox_stats_wls_fit([1.0, 2.0], [[1.0, 2.0], [3.0, 4.0]], [1.0, 1.0]);
+SELECT wls_fit([1.0, 2.0], [[1.0, 2.0], [3.0, 4.0]], [1.0, 1.0]);
 ----
 Insufficient data
 
@@ -43,13 +43,13 @@ Insufficient data
 
 # Y and X must have matching lengths
 statement error
-SELECT anofox_stats_ols_fit([1.0, 2.0, 3.0, 4.0], [[1.0, 2.0, 3.0]]);
+SELECT ols_fit([1.0, 2.0, 3.0, 4.0], [[1.0, 2.0, 3.0]]);
 ----
 Dimension mismatch
 
 # All X columns must have same length
 statement error
-SELECT anofox_stats_ols_fit(
+SELECT ols_fit(
     [1.0, 2.0, 3.0, 4.0],
     [[1.0, 2.0, 3.0, 4.0], [1.0, 2.0, 3.0]]
 );
@@ -58,7 +58,7 @@ Dimension mismatch
 
 # WLS weights must match Y length
 statement error
-SELECT anofox_stats_wls_fit(
+SELECT wls_fit(
     [1.0, 2.0, 3.0, 4.0],
     [[1.0, 2.0, 3.0, 4.0]],
     [1.0, 1.0, 1.0]
@@ -80,12 +80,12 @@ Dimension mismatch
 
 # Empty Y array
 statement error
-SELECT anofox_stats_ols_fit([]::DOUBLE[], [[1.0, 2.0, 3.0]]);
+SELECT ols_fit([]::DOUBLE[], [[1.0, 2.0, 3.0]]);
 ----
 
 # Empty X array
 statement error
-SELECT anofox_stats_ols_fit([1.0, 2.0, 3.0], []::LIST(DOUBLE)[]);
+SELECT ols_fit([1.0, 2.0, 3.0], []::LIST(DOUBLE)[]);
 ----
 
 # =============================================================================
@@ -94,7 +94,7 @@ SELECT anofox_stats_ols_fit([1.0, 2.0, 3.0], []::LIST(DOUBLE)[]);
 
 # Perfectly collinear features should produce very high VIF
 query I
-SELECT (anofox_stats_vif([[1.0, 2.0, 3.0, 4.0, 5.0], [2.0, 4.0, 6.0, 8.0, 10.0]]))[1] > 1000;
+SELECT (vif([[1.0, 2.0, 3.0, 4.0, 5.0], [2.0, 4.0, 6.0, 8.0, 10.0]]))[1] > 1000;
 ----
 true
 
@@ -122,7 +122,7 @@ WITH data AS (
 )
 SELECT
     grp,
-    CASE WHEN (anofox_stats_ols_fit_agg(y, [x1, x2])).r_squared IS NULL THEN 'NULL' ELSE 'OK' END as result
+    CASE WHEN (ols_fit_agg(y, [x1, x2])).r_squared IS NULL THEN 'NULL' ELSE 'OK' END as result
 FROM data
 GROUP BY grp
 ORDER BY grp;
@@ -136,7 +136,7 @@ B	OK
 
 # Predict with mismatched coefficient count
 statement error
-SELECT anofox_stats_predict(
+SELECT predict(
     [[1.0, 2.0, 3.0]],
     [1.0, 2.0, 3.0],
     0.0
@@ -149,7 +149,7 @@ SELECT anofox_stats_predict(
 
 # VIF with single feature returns 1.0 (no collinearity possible)
 query I
-SELECT ROUND(anofox_stats_vif([[1.0, 2.0, 3.0, 4.0, 5.0]])[1], 2);
+SELECT ROUND(vif([[1.0, 2.0, 3.0, 4.0, 5.0]])[1], 2);
 ----
 1.0
 
@@ -159,13 +159,13 @@ SELECT ROUND(anofox_stats_vif([[1.0, 2.0, 3.0, 4.0, 5.0]])[1], 2);
 
 # AIC with RSS = 0 (perfect fit) should return -infinity or very negative
 query I
-SELECT anofox_stats_aic(0.0, 10, 2) < -1000000;
+SELECT aic(0.0, 10, 2) < -1000000;
 ----
 1
 
 # BIC with RSS = 0 (perfect fit) should return -infinity or very negative
 query I
-SELECT anofox_stats_bic(0.0, 10, 2) < -1000000;
+SELECT bic(0.0, 10, 2) < -1000000;
 ----
 1
 
@@ -175,6 +175,6 @@ SELECT anofox_stats_bic(0.0, 10, 2) < -1000000;
 
 # Jarque-Bera with very small sample returns NULL (not enough data for meaningful test)
 query I
-SELECT anofox_stats_jarque_bera([1.0, 2.0]) IS NULL;
+SELECT jarque_bera([1.0, 2.0]) IS NULL;
 ----
 1

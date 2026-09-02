@@ -160,11 +160,11 @@ A	true
 B	false
 
 # =============================================================================
-# TEST 8: Alias verification (anofox_stats_fisher_exact_agg)
+# TEST 8: Alias verification (fisher_exact_agg)
 # =============================================================================
 
 query I
-SELECT (anofox_stats_fisher_exact_agg(row_var, col_var)).statistic IS NOT NULL FROM fisher_data;
+SELECT (fisher_exact_agg(row_var, col_var)).statistic IS NOT NULL FROM fisher_data;
 ----
 true
 

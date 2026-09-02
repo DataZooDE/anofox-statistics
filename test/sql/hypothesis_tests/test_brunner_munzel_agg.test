@@ -130,11 +130,11 @@ A	true
 B	false
 
 # =============================================================================
-# TEST 7: Alias verification (anofox_stats_brunner_munzel_agg)
+# TEST 7: Alias verification (brunner_munzel_agg)
 # =============================================================================
 
 query I
-SELECT (anofox_stats_brunner_munzel_agg(value, grp)).statistic IS NOT NULL FROM bm_data;
+SELECT (brunner_munzel_agg(value, grp)).statistic IS NOT NULL FROM bm_data;
 ----
 true
 

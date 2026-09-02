@@ -1,6 +1,6 @@
 -- Comprehensive test suite for aggregate functions
--- Tests: anofox_stats_ols_fit_agg, anofox_stats_wls_fit_agg,
---        anofox_stats_ridge_fit_agg, anofox_stats_rls_fit_agg
+-- Tests: ols_fit_agg, wls_fit_agg,
+--        ridge_fit_agg, rls_fit_agg
 --
 -- R VALIDATION METHODOLOGY:
 -- All aggregate functions have been validated against R baseline implementations:
@@ -52,13 +52,13 @@ SELECT
     category,
     result.coefficients,
     result.intercept,
-    result.r2,
+    result.r_squared,
     result.adj_r2,
     result.n_obs
 FROM (
     SELECT
         category,
-        anofox_stats_ols_fit_agg(y, [x1, x2], {'intercept': true}) as result
+        ols_fit_agg(y, [x1, x2], {'intercept': true}) as result
     FROM aggregate_test_data
     GROUP BY category
 ) sub;
@@ -84,12 +84,12 @@ SELECT
     category,
     result.coefficients,
     result.intercept,
-    result.r2,
+    result.r_squared,
     result.n_obs
 FROM (
     SELECT
         category,
-        anofox_stats_ols_fit_agg(y, [x1, x2], {'intercept': false}) as result
+        ols_fit_agg(y, [x1, x2], {'intercept': false}) as result
     FROM aggregate_test_data
     GROUP BY category
 ) sub;
@@ -115,13 +115,13 @@ SELECT
     category,
     result.coefficients,
     result.intercept,
-    result.r2,
+    result.r_squared,
     result.weighted_mse,
     result.n_obs
 FROM (
     SELECT
         category,
-        anofox_stats_wls_fit_agg(y, [x1, x2], weight, {'intercept': true}) as result
+        wls_fit_agg(y, [x1, x2], weight, {'intercept': true}) as result
     FROM aggregate_test_data
     GROUP BY category
 ) sub;
@@ -144,11 +144,11 @@ SELECT '=== Test 4: WLS Aggregate without intercept ===' as test_name;
 SELECT
     category,
     result.intercept,
-    result.r2
+    result.r_squared
 FROM (
     SELECT
         category,
-        anofox_stats_wls_fit_agg(y, [x1, x2], weight, {'intercept': false}) as result
+        wls_fit_agg(y, [x1, x2], weight, {'intercept': false}) as result
     FROM aggregate_test_data
     GROUP BY category
 ) sub;
@@ -178,13 +178,13 @@ SELECT
     category,
     result.coefficients,
     result.intercept,
-    result.r2,
+    result.r_squared,
     result.lambda,
     result.n_obs
 FROM (
     SELECT
         category,
-        anofox_stats_ridge_fit_agg(y, [x1, x2], {'lambda': 1.0, 'intercept': true}) as result
+        ridge_fit_agg(y, [x1, x2], {'lambda': 1.0, 'intercept': true}) as result
     FROM aggregate_test_data
     GROUP BY category
 ) sub;
@@ -211,7 +211,7 @@ SELECT
 FROM (
     SELECT
         category,
-        anofox_stats_ridge_fit_agg(y, [x1, x2], {'lambda': 1.0, 'intercept': false}) as result
+        ridge_fit_agg(y, [x1, x2], {'lambda': 1.0, 'intercept': false}) as result
     FROM aggregate_test_data
     GROUP BY category
 ) sub;
@@ -245,13 +245,13 @@ SELECT
     category,
     result.coefficients,
     result.intercept,
-    result.r2,
+    result.r_squared,
     result.forgetting_factor,
     result.n_obs
 FROM (
     SELECT
         category,
-        anofox_stats_rls_fit_agg(y, [x1, x2], {'forgetting_factor': 1.0, 'intercept': true}) as result
+        rls_fit_agg(y, [x1, x2], {'forgetting_factor': 1.0, 'intercept': true}) as result
     FROM aggregate_test_data
     GROUP BY category
 ) sub;
@@ -285,7 +285,7 @@ SELECT
 FROM (
     SELECT
         category,
-        anofox_stats_rls_fit_agg(y, [x1, x2], {'forgetting_factor': 0.95, 'intercept': false}) as result
+        rls_fit_agg(y, [x1, x2], {'forgetting_factor': 0.95, 'intercept': false}) as result
     FROM aggregate_test_data
     GROUP BY category
 ) sub;
@@ -307,17 +307,17 @@ FROM (
 SELECT '=== Test 9: All aggregates in single query ===' as test_name;
 SELECT
     category,
-    ols.r2 as ols_r2,
-    wls.r2 as wls_r2,
-    ridge.r2 as ridge_r2,
-    rls.r2 as rls_r2
+    ols.r_squared as ols_r2,
+    wls.r_squared as wls_r2,
+    ridge.r_squared as ridge_r2,
+    rls.r_squared as rls_r2
 FROM (
     SELECT
         category,
-        anofox_stats_ols_fit_agg(y, [x1, x2], {'intercept': true}) as ols,
-        anofox_stats_wls_fit_agg(y, [x1, x2], weight, {'intercept': true}) as wls,
-        anofox_stats_ridge_fit_agg(y, [x1, x2], {'lambda': 0.1, 'intercept': true}) as ridge,
-        anofox_stats_rls_fit_agg(y, [x1, x2], {'forgetting_factor': 1.0, 'intercept': true}) as rls
+        ols_fit_agg(y, [x1, x2], {'intercept': true}) as ols,
+        wls_fit_agg(y, [x1, x2], weight, {'intercept': true}) as wls,
+        ridge_fit_agg(y, [x1, x2], {'lambda': 0.1, 'intercept': true}) as ridge,
+        rls_fit_agg(y, [x1, x2], {'forgetting_factor': 1.0, 'intercept': true}) as rls
     FROM aggregate_test_data
     GROUP BY category
 ) sub;
@@ -355,7 +355,7 @@ SELECT
 FROM (
     SELECT
         category,
-        anofox_stats_ols_fit_agg(y, [x1, x2], {'intercept': true}) as result
+        ols_fit_agg(y, [x1, x2], {'intercept': true}) as result
     FROM null_test_data
     GROUP BY category
 ) sub;
@@ -382,10 +382,10 @@ SELECT '=== Test 11: Single feature ===' as test_name;
 SELECT
     result.coefficients,
     result.intercept,
-    result.r2
+    result.r_squared
 FROM (
     SELECT
-        anofox_stats_ols_fit_agg(y, [x1], {'intercept': true}) as result
+        ols_fit_agg(y, [x1], {'intercept': true}) as result
     FROM aggregate_test_data
 ) sub;
 
@@ -420,7 +420,7 @@ SELECT
     result.n_obs
 FROM (
     SELECT
-        anofox_stats_ols_fit_agg(y, [x1, x1, x1], {'intercept': true}) as result
+        ols_fit_agg(y, [x1, x1, x1], {'intercept': true}) as result
     FROM small_data
 ) sub;
 

@@ -75,7 +75,7 @@ Unknown distribution
 
 # ==== TEST 9: an unknown distribution in the scalar helper is rejected ====
 statement error
-SELECT anofox_stats_aft_cdf(1.0, 1.0, 1.0, 'cauchy');
+SELECT aft_cdf(1.0, 1.0, 1.0, 'cauchy');
 ----
 Unknown AFT distribution
 

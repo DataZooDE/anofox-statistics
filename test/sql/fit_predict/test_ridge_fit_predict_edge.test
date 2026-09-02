@@ -22,7 +22,7 @@ SELECT
 FROM (
     SELECT
         id,
-        anofox_stats_ridge_fit_predict(
+        ridge_fit_predict(
             y,
             [x1, x2],
             {'intercept': 1.0, 'alpha': 1.0}
@@ -48,7 +48,7 @@ SELECT
 FROM (
     SELECT
         id,
-        anofox_stats_ridge_fit_predict(
+        ridge_fit_predict(
             y,
             [x],
             {'intercept': 1.0, 'alpha': 1.0}
@@ -75,7 +75,7 @@ SELECT
 FROM (
     SELECT
         id,
-        anofox_stats_ridge_fit_predict(
+        ridge_fit_predict(
             y,
             x_empty,
             {'intercept': 1.0, 'alpha': 1.0}
@@ -102,7 +102,7 @@ SELECT
 FROM (
     SELECT
         id,
-        anofox_stats_ridge_fit_predict(
+        ridge_fit_predict(
             y,
             [x],
             {'intercept': 1.0, 'alpha': 1.0}
@@ -128,7 +128,7 @@ SELECT
 FROM (
     SELECT
         id,
-        anofox_stats_ridge_fit_predict(
+        ridge_fit_predict(
             y,
             [x],
             {'intercept': 1.0, 'alpha': 0.0}
@@ -146,7 +146,7 @@ SELECT
 FROM (
     SELECT
         id,
-        anofox_stats_ridge_fit_predict(
+        ridge_fit_predict(
             y,
             [x],
             {'intercept': 1.0, 'alpha': 10000.0}
@@ -180,7 +180,7 @@ FROM (
     SELECT
         group_id,
         id,
-        anofox_stats_ridge_fit_predict(
+        ridge_fit_predict(
             y,
             [x],
             {'intercept': 1.0, 'alpha': 1.0}
@@ -206,7 +206,7 @@ SELECT
 FROM (
     SELECT
         id,
-        anofox_stats_ridge_fit_predict(
+        ridge_fit_predict(
             y,
             [x_large],
             {'intercept': 1.0, 'alpha': 1.0}

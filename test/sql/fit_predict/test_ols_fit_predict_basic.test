@@ -20,7 +20,7 @@ SELECT
 FROM (
     SELECT
         id,
-        anofox_stats_ols_fit_predict(y, [x1]) OVER (ORDER BY id) as pred
+        ols_fit_predict(y, [x1]) OVER (ORDER BY id) as pred
     FROM ols_data
 )
 WHERE (pred).yhat IS NOT NULL;
@@ -34,7 +34,7 @@ SELECT
 FROM (
     SELECT
         id,
-        anofox_stats_ols_fit_predict(y, [x1]) OVER (ORDER BY id) as pred
+        ols_fit_predict(y, [x1]) OVER (ORDER BY id) as pred
     FROM ols_data
 )
 WHERE id > 2 AND (pred).yhat IS NOT NULL;
@@ -53,7 +53,7 @@ FROM (
     FROM (
         SELECT
             id,
-            anofox_stats_ols_fit_predict(y, [x1]) OVER (ORDER BY id) as pred
+            ols_fit_predict(y, [x1]) OVER (ORDER BY id) as pred
         FROM ols_data
     )
 )
@@ -68,7 +68,7 @@ SELECT
 FROM (
     SELECT
         id,
-        anofox_stats_ols_fit_predict(y, [x1], {'intercept': 0.0}) OVER (ORDER BY id) as pred
+        ols_fit_predict(y, [x1], {'intercept': 0.0}) OVER (ORDER BY id) as pred
     FROM ols_data
 )
 WHERE (pred).yhat IS NOT NULL;

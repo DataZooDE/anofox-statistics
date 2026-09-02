@@ -55,7 +55,7 @@ FROM lars_multi;
 
 # TEST 7: fully-qualified name resolves
 query I
-SELECT ROUND((anofox_stats_lars_fit_agg(y, [x])).coefficients[1], 4) FROM lars_data;
+SELECT ROUND((lars_fit_agg(y, [x])).coefficients[1], 4) FROM lars_data;
 ----
 2.0
 

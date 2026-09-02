@@ -11,7 +11,7 @@ FROM range(1, 16) t(i);
 
 query I
 SELECT COUNT(*) as predictions
-FROM (SELECT time_id, anofox_stats_wls_fit_predict(y, [x], w) OVER (ORDER BY time_id) as pred FROM wls_rolling)
+FROM (SELECT time_id, wls_fit_predict(y, [x], w) OVER (ORDER BY time_id) as pred FROM wls_rolling)
 WHERE (pred).yhat IS NOT NULL;
 ----
 13

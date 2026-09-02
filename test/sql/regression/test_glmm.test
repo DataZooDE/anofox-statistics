@@ -177,7 +177,7 @@ true
 
 # ==== TEST 17: the fully-qualified name resolves ====
 query I
-SELECT (anofox_stats_glmm_fit_agg(y, [x], sku)).icc IS NOT NULL FROM panel;
+SELECT (glmm_fit_agg(y, [x], sku)).icc IS NOT NULL FROM panel;
 ----
 true
 

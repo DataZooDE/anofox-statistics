@@ -165,11 +165,11 @@ SELECT (wilcoxon_signed_rank_agg(x1, x2)).statistic IS NOT NULL FROM zero_diff;
 true
 
 # =============================================================================
-# TEST 11: Alias verification (anofox_stats_wilcoxon_signed_rank_agg)
+# TEST 11: Alias verification (wilcoxon_signed_rank_agg)
 # =============================================================================
 
 query I
-SELECT (anofox_stats_wilcoxon_signed_rank_agg(before, after)).statistic IS NOT NULL FROM paired_data;
+SELECT (wilcoxon_signed_rank_agg(before, after)).statistic IS NOT NULL FROM paired_data;
 ----
 true
 

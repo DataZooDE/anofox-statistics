@@ -28,12 +28,12 @@ SELECT
     result.coefficients[1] as market_beta,
     result.coefficients[2] as sector_beta,
     result.coefficients[3] as momentum_factor,
-    result.r2,
+    result.r_squared,
     result.lambda
 FROM (
     SELECT
         ticker,
-        anofox_stats_ridge_fit_agg(
+        ridge_fit_agg(
             return,
             [market_return, sector_return, momentum],
             {'lambda': 1.0, 'intercept': true}

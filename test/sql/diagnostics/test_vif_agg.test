@@ -119,7 +119,7 @@ low	true
 # =============================================================================
 
 query I
-SELECT anofox_stats_vif_agg([x1, x2, x3]) IS NOT NULL FROM low_mc;
+SELECT vif_agg([x1, x2, x3]) IS NOT NULL FROM low_mc;
 ----
 true
 

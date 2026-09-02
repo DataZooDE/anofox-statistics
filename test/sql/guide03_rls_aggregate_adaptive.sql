@@ -28,10 +28,10 @@ SELECT
     'Forgetting Factor: 1.0 (OLS equivalent)' as model,
     result.forgetting_factor,
     result.coefficients[1] as estimated_beta,
-    result.r2,
+    result.r_squared,
     'Averages all data equally - slow to adapt' as interpretation
 FROM (
-    SELECT anofox_stats_rls_fit_agg(
+    SELECT rls_fit_agg(
         stock_return,
         [market_return],
         {'forgetting_factor': 1.0, 'intercept': true}
@@ -43,10 +43,10 @@ SELECT
     'Forgetting Factor: 0.98 (slow adaptation)' as model,
     result.forgetting_factor,
     result.coefficients[1] as estimated_beta,
-    result.r2,
+    result.r_squared,
     'Gradual weight decay - moderate adaptation' as interpretation
 FROM (
-    SELECT anofox_stats_rls_fit_agg(
+    SELECT rls_fit_agg(
         stock_return,
         [market_return],
         {'forgetting_factor': 0.98, 'intercept': true}
@@ -58,10 +58,10 @@ SELECT
     'Forgetting Factor: 0.95 (moderate adaptation)' as model,
     result.forgetting_factor,
     result.coefficients[1] as estimated_beta,
-    result.r2,
+    result.r_squared,
     'Balanced - good for detecting regime changes' as interpretation
 FROM (
-    SELECT anofox_stats_rls_fit_agg(
+    SELECT rls_fit_agg(
         stock_return,
         [market_return],
         {'forgetting_factor': 0.95, 'intercept': true}
@@ -73,10 +73,10 @@ SELECT
     'Forgetting Factor: 0.90 (fast adaptation)' as model,
     result.forgetting_factor,
     result.coefficients[1] as estimated_beta,
-    result.r2,
+    result.r_squared,
     'Heavy decay - very responsive to recent changes' as interpretation
 FROM (
-    SELECT anofox_stats_rls_fit_agg(
+    SELECT rls_fit_agg(
         stock_return,
         [market_return],
         {'forgetting_factor': 0.90, 'intercept': true}
@@ -89,12 +89,12 @@ SELECT
     market_regime,
     result.coefficients[1] as regime_beta,
     result.forgetting_factor,
-    result.r2,
+    result.r_squared,
     result.n_obs
 FROM (
     SELECT
         market_regime,
-        anofox_stats_rls_fit_agg(
+        rls_fit_agg(
             stock_return,
             [market_return],
             {'forgetting_factor': 0.95, 'intercept': true}

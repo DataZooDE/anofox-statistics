@@ -11,13 +11,13 @@ require anofox_statistics
 
 # Deliberate typo: "unknow_key" is not a valid option
 statement error
-SELECT anofox_stats_ols_fit([1.0, 2.0, 3.0, 4.0, 5.0], [[1.0, 2.0, 3.0, 4.0, 5.0]], {'unknow_key': 1});
+SELECT ols_fit([1.0, 2.0, 3.0, 4.0, 5.0], [[1.0, 2.0, 3.0, 4.0, 5.0]], {'unknow_key': 1});
 ----
 unknown option 'unknow_key'
 
 # Another typo: "compute_inferense" (wrong spelling)
 statement error
-SELECT anofox_stats_ols_fit([1.0, 2.0, 3.0, 4.0, 5.0], [[1.0, 2.0, 3.0, 4.0, 5.0]], {'compute_inferense': true});
+SELECT ols_fit([1.0, 2.0, 3.0, 4.0, 5.0], [[1.0, 2.0, 3.0, 4.0, 5.0]], {'compute_inferense': true});
 ----
 unknown option 'compute_inferense'
 
@@ -27,25 +27,25 @@ unknown option 'compute_inferense'
 
 # 'intercept' alias (315 tests use this — Pitfall 3 guard)
 query I
-SELECT (anofox_stats_ols_fit([1.0, 2.0, 3.0, 4.0, 5.0], [[1.0, 2.0, 3.0, 4.0, 5.0]], {'intercept': true})).r_squared IS NOT NULL;
+SELECT (ols_fit([1.0, 2.0, 3.0, 4.0, 5.0], [[1.0, 2.0, 3.0, 4.0, 5.0]], {'intercept': true})).r_squared IS NOT NULL;
 ----
 true
 
 # 'fit_intercept' canonical key
 query I
-SELECT (anofox_stats_ols_fit([1.0, 2.0, 3.0, 4.0, 5.0], [[1.0, 2.0, 3.0, 4.0, 5.0]], {'fit_intercept': true})).r_squared IS NOT NULL;
+SELECT (ols_fit([1.0, 2.0, 3.0, 4.0, 5.0], [[1.0, 2.0, 3.0, 4.0, 5.0]], {'fit_intercept': true})).r_squared IS NOT NULL;
 ----
 true
 
 # 'compute_inference' canonical key
 query I
-SELECT (anofox_stats_ols_fit([1.0, 2.0, 3.0, 4.0, 5.0], [[1.0, 2.0, 3.0, 4.0, 5.0]], {'compute_inference': true})).r_squared IS NOT NULL;
+SELECT (ols_fit([1.0, 2.0, 3.0, 4.0, 5.0], [[1.0, 2.0, 3.0, 4.0, 5.0]], {'compute_inference': true})).r_squared IS NOT NULL;
 ----
 true
 
 # Ridge with alpha and lambda
 query I
-SELECT (anofox_stats_ridge_fit([1.0, 2.0, 3.0, 4.0, 5.0], [[1.0, 2.0, 3.0, 4.0, 5.0]], {'alpha': 0.1})).r_squared IS NOT NULL;
+SELECT (ridge_fit([1.0, 2.0, 3.0, 4.0, 5.0], [[1.0, 2.0, 3.0, 4.0, 5.0]], {'alpha': 0.1})).r_squared IS NOT NULL;
 ----
 true
 
@@ -60,7 +60,7 @@ WITH data AS (
     SELECT 10.0 as val, 0 as grp UNION ALL SELECT 11.0, 0 UNION ALL SELECT 12.0, 0
     UNION ALL SELECT 20.0, 1 UNION ALL SELECT 21.0, 1 UNION ALL SELECT 22.0, 1
 )
-SELECT anofox_stats_t_test_agg(val, grp, {'unknow_ttest_key': 1}) FROM data;
+SELECT t_test_agg(val, grp, {'unknow_ttest_key': 1}) FROM data;
 ----
 unknown option 'unknow_ttest_key'
 
@@ -70,6 +70,6 @@ WITH data AS (
     SELECT 10.0 as val, 0 as grp UNION ALL SELECT 11.0, 0 UNION ALL SELECT 12.0, 0
     UNION ALL SELECT 20.0, 1 UNION ALL SELECT 21.0, 1 UNION ALL SELECT 22.0, 1
 )
-SELECT (anofox_stats_t_test_agg(val, grp, {'alternative': 'two_sided'})).p_value IS NOT NULL FROM data;
+SELECT (t_test_agg(val, grp, {'alternative': 'two_sided'})).p_value IS NOT NULL FROM data;
 ----
 true

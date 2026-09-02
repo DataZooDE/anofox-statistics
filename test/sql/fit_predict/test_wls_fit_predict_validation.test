@@ -17,7 +17,7 @@ FROM range(1, 16) t(i);
 query I
 SELECT COUNT(*) FROM (
     SELECT (pred).yhat as yhat
-    FROM (SELECT anofox_stats_wls_fit_predict(y, [x], w, {'intercept': 1.0}) OVER (ORDER BY id) as pred FROM wls_val)
+    FROM (SELECT wls_fit_predict(y, [x], w, {'intercept': 1.0}) OVER (ORDER BY id) as pred FROM wls_val)
 ) WHERE yhat IS NOT NULL;
 ----
 13
@@ -26,7 +26,7 @@ SELECT COUNT(*) FROM (
 query I
 SELECT COUNT(*) FROM (
     SELECT (pred).yhat as y, (pred).yhat_lower as lo, (pred).yhat_upper as up
-    FROM (SELECT anofox_stats_wls_fit_predict(y, [x], w, {'intercept': 1.0}) OVER (ORDER BY id) as pred FROM wls_val)
+    FROM (SELECT wls_fit_predict(y, [x], w, {'intercept': 1.0}) OVER (ORDER BY id) as pred FROM wls_val)
 ) WHERE y IS NOT NULL AND lo <= y AND y <= up;
 ----
 13
@@ -35,7 +35,7 @@ SELECT COUNT(*) FROM (
 query I
 SELECT COUNT(*) FROM (
     SELECT (pred).yhat as yhat
-    FROM (SELECT anofox_stats_wls_fit_predict(y, [x], w, {'intercept': 1.0}) OVER (ORDER BY id) as pred FROM wls_val)
+    FROM (SELECT wls_fit_predict(y, [x], w, {'intercept': 1.0}) OVER (ORDER BY id) as pred FROM wls_val)
 ) WHERE yhat IS NOT NULL AND NOT ISINF(yhat) AND NOT ISNAN(yhat);
 ----
 13

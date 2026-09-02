@@ -78,7 +78,7 @@ true
 
 # TEST 5: Alias verification
 query I
-SELECT (anofox_stats_ols_fit_agg(y, [x1, x2, x3])).coefficients IS NOT NULL FROM reg_data;
+SELECT (ols_fit_agg(y, [x1, x2, x3])).coefficients IS NOT NULL FROM reg_data;
 ----
 true
 
@@ -126,7 +126,7 @@ true
 
 # TEST 9: Alias verification
 query I
-SELECT (anofox_stats_ridge_fit_agg(y, [x1, x2, x3])).coefficients IS NOT NULL FROM reg_data;
+SELECT (ridge_fit_agg(y, [x1, x2, x3])).coefficients IS NOT NULL FROM reg_data;
 ----
 true
 
@@ -174,7 +174,7 @@ true
 
 # TEST 13: Alias verification
 query I
-SELECT (anofox_stats_elasticnet_fit_agg(y, [x1, x2, x3])).coefficients IS NOT NULL FROM reg_data;
+SELECT (elasticnet_fit_agg(y, [x1, x2, x3])).coefficients IS NOT NULL FROM reg_data;
 ----
 true
 
@@ -231,7 +231,7 @@ true
 
 # TEST 16: Alias verification
 query I
-SELECT (anofox_stats_wls_fit_agg(y, [x1, x2], weight)).coefficients IS NOT NULL FROM wls_data;
+SELECT (wls_fit_agg(y, [x1, x2], weight)).coefficients IS NOT NULL FROM wls_data;
 ----
 true
 
@@ -279,7 +279,7 @@ true
 
 # TEST 20: Alias verification
 query I
-SELECT (anofox_stats_rls_fit_agg(y, [x1, x2, x3])).coefficients IS NOT NULL FROM reg_data;
+SELECT (rls_fit_agg(y, [x1, x2, x3])).coefficients IS NOT NULL FROM reg_data;
 ----
 true
 

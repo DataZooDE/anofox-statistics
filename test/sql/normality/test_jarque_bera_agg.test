@@ -116,11 +116,11 @@ normal	true
 skewed	false
 
 # =============================================================================
-# TEST 7: Alias verification (anofox_stats_jarque_bera_agg)
+# TEST 7: Alias verification (jarque_bera_agg)
 # =============================================================================
 
 query I
-SELECT (anofox_stats_jarque_bera_agg(value)).statistic IS NOT NULL FROM normal_data;
+SELECT (jarque_bera_agg(value)).statistic IS NOT NULL FROM normal_data;
 ----
 true
 

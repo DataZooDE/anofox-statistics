@@ -26,7 +26,7 @@ FROM (
     FROM (
         SELECT
             id,
-            anofox_stats_ridge_fit_predict(
+            ridge_fit_predict(
                 y, [x], {'intercept': 1.0, 'alpha': 1.0}
             ) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred
         FROM ridge_val
@@ -46,7 +46,7 @@ FROM (
         (pred).yhat_upper - (pred).yhat_lower as width
     FROM (
         SELECT
-            anofox_stats_ridge_fit_predict(
+            ridge_fit_predict(
                 y, [x], {'intercept': 1.0, 'alpha': 1.0}
             ) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred
         FROM ridge_val
@@ -65,7 +65,7 @@ FROM (
         (pred).yhat as yhat
     FROM (
         SELECT
-            anofox_stats_ridge_fit_predict(
+            ridge_fit_predict(
                 y, [x], {'intercept': 1.0, 'alpha': 1.0}
             ) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred
         FROM ridge_val
@@ -95,8 +95,8 @@ FROM (
     FROM (
         SELECT
             id,
-            anofox_stats_ridge_fit_predict(y, [x], {'intercept': 1.0, 'alpha': 0.1}) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred_low,
-            anofox_stats_ridge_fit_predict(y, [x], {'intercept': 1.0, 'alpha': 10.0}) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred_high
+            ridge_fit_predict(y, [x], {'intercept': 1.0, 'alpha': 0.1}) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred_low,
+            ridge_fit_predict(y, [x], {'intercept': 1.0, 'alpha': 10.0}) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred_high
         FROM ridge_alpha_val
     )
 )
@@ -116,7 +116,7 @@ FROM (
     FROM (
         SELECT
             id,
-            anofox_stats_ridge_fit_predict(
+            ridge_fit_predict(
                 y, [x], {'intercept': 1.0, 'alpha': 1.0}
             ) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred
         FROM ridge_val

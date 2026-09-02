@@ -46,10 +46,15 @@ elseif(WIN32)
     endif()
 endif()
 
-# Check for WASM target
-string(FIND "${RUST_TARGETS}" "wasm32-unknown-emscripten" WASM_TARGET_FOUND)
-if (NOT WASM_TARGET_FOUND EQUAL -1)
-    set(Rust_CARGO_TARGET "wasm32-unknown-emscripten")
+# Check for WASM target — only override if actually building for WASM
+# (WASM_LOADABLE_EXTENSIONS=1 is passed by emcmake wasm_eh/wasm_mvp targets).
+# Do NOT override when the WASM Rust target is merely installed locally;
+# that caused native builds to link against a WASM-format static library.
+if (WASM_LOADABLE_EXTENSIONS)
+    string(FIND "${RUST_TARGETS}" "wasm32-unknown-emscripten" WASM_TARGET_FOUND)
+    if (NOT WASM_TARGET_FOUND EQUAL -1)
+        set(Rust_CARGO_TARGET "wasm32-unknown-emscripten")
+    endif()
 endif()
 
 message(STATUS "Rust_CARGO_TARGET: ${Rust_CARGO_TARGET}")

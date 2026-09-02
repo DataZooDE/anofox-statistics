@@ -150,7 +150,7 @@ true
 
 # ==== TEST 15: the fully-qualified name resolves ====
 query I
-SELECT (anofox_stats_eb_shrink_agg(est, se)).mu IS NOT NULL FROM sku_fits;
+SELECT (eb_shrink_agg(est, se)).mu IS NOT NULL FROM sku_fits;
 ----
 true
 

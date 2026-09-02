@@ -30,21 +30,21 @@ WITH cohort_models_data AS (
 cohort_models AS (
     SELECT
         cohort_month,
-        (anofox_stats_ols_fit_agg(
+        (ols_fit_agg(
             avg_order_value::DOUBLE,
             [months_since_first::DOUBLE],
             {'intercept': true}
         )).coefficients[1] as ltv_slope,
-        (anofox_stats_ols_fit_agg(
+        (ols_fit_agg(
             avg_order_value::DOUBLE,
             [months_since_first::DOUBLE],
             {'intercept': true}
         )).intercept as ltv_intercept,
-        (anofox_stats_ols_fit_agg(
+        (ols_fit_agg(
             avg_order_value::DOUBLE,
             [months_since_first::DOUBLE],
             {'intercept': true}
-        )).r2 as ltv_predictability,
+        )).r_squared as ltv_predictability,
         SUM(total_revenue) as cohort_total_revenue,
         AVG(active_customers) as avg_cohort_size
     FROM cohort_models_data

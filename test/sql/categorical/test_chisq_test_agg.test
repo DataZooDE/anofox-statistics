@@ -169,11 +169,11 @@ A	true
 B	false
 
 # =============================================================================
-# TEST 8: Alias verification (anofox_stats_chisq_test_agg)
+# TEST 8: Alias verification (chisq_test_agg)
 # =============================================================================
 
 query I
-SELECT (anofox_stats_chisq_test_agg(row_var, col_var)).statistic IS NOT NULL FROM contingency_2x2;
+SELECT (chisq_test_agg(row_var, col_var)).statistic IS NOT NULL FROM contingency_2x2;
 ----
 true
 

@@ -170,11 +170,11 @@ SELECT kruskal_wallis_agg(value, grp) IS NULL FROM single_group;
 true
 
 # =============================================================================
-# TEST 10: Alias verification (anofox_stats_kruskal_wallis_agg)
+# TEST 10: Alias verification (kruskal_wallis_agg)
 # =============================================================================
 
 query I
-SELECT (anofox_stats_kruskal_wallis_agg(value, grp)).statistic IS NOT NULL FROM three_groups;
+SELECT (kruskal_wallis_agg(value, grp)).statistic IS NOT NULL FROM three_groups;
 ----
 true
 

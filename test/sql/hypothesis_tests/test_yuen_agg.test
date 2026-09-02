@@ -139,11 +139,11 @@ A	true
 B	false
 
 # =============================================================================
-# TEST 8: Alias verification (anofox_stats_yuen_agg)
+# TEST 8: Alias verification (yuen_agg)
 # =============================================================================
 
 query I
-SELECT (anofox_stats_yuen_agg(value, grp)).statistic IS NOT NULL FROM yuen_data;
+SELECT (yuen_agg(value, grp)).statistic IS NOT NULL FROM yuen_data;
 ----
 true
 

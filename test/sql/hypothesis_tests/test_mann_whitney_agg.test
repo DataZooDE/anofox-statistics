@@ -196,11 +196,11 @@ SELECT mann_whitney_u_agg(value, grp) IS NULL FROM same_group;
 true
 
 # =============================================================================
-# TEST 12: Alias verification (anofox_stats_mann_whitney_u_agg)
+# TEST 12: Alias verification (mann_whitney_u_agg)
 # =============================================================================
 
 query I
-SELECT (anofox_stats_mann_whitney_u_agg(value, grp)).statistic IS NOT NULL FROM two_groups;
+SELECT (mann_whitney_u_agg(value, grp)).statistic IS NOT NULL FROM two_groups;
 ----
 true
 
