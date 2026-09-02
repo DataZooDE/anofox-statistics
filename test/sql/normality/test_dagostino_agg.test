@@ -96,11 +96,11 @@ normal	true
 skewed	false
 
 # =============================================================================
-# TEST 6: Alias verification (anofox_stats_dagostino_k2_agg)
+# TEST 6: Alias verification (dagostino_k2_agg)
 # =============================================================================
 
 query I
-SELECT (anofox_stats_dagostino_k2_agg(value)).statistic IS NOT NULL FROM normal_data;
+SELECT (dagostino_k2_agg(value)).statistic IS NOT NULL FROM normal_data;
 ----
 true
 

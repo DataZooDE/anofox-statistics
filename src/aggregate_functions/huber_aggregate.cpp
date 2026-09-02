@@ -375,16 +375,16 @@ static unique_ptr<FunctionData> HuberAggBind(ClientContext &context, AggregateFu
 // Registration
 //===--------------------------------------------------------------------===//
 void RegisterHuberAggregateFunction(ExtensionLoader &loader) {
-    AggregateFunctionSet func_set("anofox_stats_huber_fit_agg");
+    AggregateFunctionSet func_set("huber_fit_agg");
 
     auto basic_func = AggregateFunction(
-        "anofox_stats_huber_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
+        "huber_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
         LogicalType::ANY, AggregateFunction::StateSize<HuberAggregateState>, HuberAggInitialize, HuberAggUpdate,
         HuberAggCombine, HuberAggFinalize, nullptr, HuberAggBind, HuberAggDestroy);
     func_set.AddFunction(basic_func);
 
     auto map_func = AggregateFunction(
-        "anofox_stats_huber_fit_agg",
+        "huber_fit_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY}, LogicalType::ANY,
         AggregateFunction::StateSize<HuberAggregateState>, HuberAggInitialize, HuberAggUpdate, HuberAggCombine,
         HuberAggFinalize, nullptr, HuberAggBind, HuberAggDestroy);
@@ -396,7 +396,7 @@ void RegisterHuberAggregateFunction(ExtensionLoader &loader) {
     d1.description =
         "Fits a Huber M-estimator robust regression model and returns coefficients, fit statistics, the MAD-based "
         "scale, and the outlier count as a struct.";
-    d1.examples = {"anofox_stats_huber_fit_agg(y, x, {'epsilon': 1.35, 'fit_intercept': true})"};
+    d1.examples = {"huber_fit_agg(y, x, {'epsilon': 1.35, 'fit_intercept': true})"};
     d1.categories = {"regression"};
     d1.parameter_names = {"y", "x", "options"};
     d1.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY};
@@ -404,22 +404,13 @@ void RegisterHuberAggregateFunction(ExtensionLoader &loader) {
     FunctionDescription d2;
     d2.description = "Fits a Huber M-estimator robust regression model and returns coefficients, fit statistics, the "
                      "MAD-based scale, and the outlier count as a struct.";
-    d2.examples = {"anofox_stats_huber_fit_agg(y, x)"};
+    d2.examples = {"huber_fit_agg(y, x)"};
     d2.categories = {"regression"};
     d2.parameter_names = {"y", "x"};
     d2.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)};
     info.descriptions.push_back(std::move(d2));
     loader.RegisterFunction(std::move(info));
 
-    {
-        AggregateFunctionSet alias_set("huber_fit_agg");
-        alias_set.AddFunction(basic_func);
-        alias_set.AddFunction(map_func);
-        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_huber_fit_agg";
-        loader.RegisterFunction(std::move(alias_info));
-    }
 }
 
 } // namespace duckdb

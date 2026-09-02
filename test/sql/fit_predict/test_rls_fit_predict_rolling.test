@@ -11,7 +11,7 @@ FROM range(1, 16) t(i);
 
 query I
 SELECT COUNT(*) as predictions
-FROM (SELECT time_id, anofox_stats_rls_fit_predict(y, [x], {'forgetting_factor': 0.99}) OVER (ORDER BY time_id) as pred FROM rls_rolling)
+FROM (SELECT time_id, rls_fit_predict(y, [x], {'forgetting_factor': 0.99}) OVER (ORDER BY time_id) as pred FROM rls_rolling)
 WHERE (pred).yhat IS NOT NULL;
 ----
 13

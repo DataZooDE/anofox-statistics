@@ -116,11 +116,11 @@ placebo	false
 treatment	true
 
 # =============================================================================
-# TEST 6: Alias verification (anofox_stats_mcnemar_agg)
+# TEST 6: Alias verification (mcnemar_agg)
 # =============================================================================
 
 query I
-SELECT (anofox_stats_mcnemar_agg(before, after)).statistic IS NOT NULL FROM mcnemar_data;
+SELECT (mcnemar_agg(before, after)).statistic IS NOT NULL FROM mcnemar_data;
 ----
 true
 

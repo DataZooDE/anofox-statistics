@@ -326,20 +326,20 @@ static unique_ptr<FunctionData> ElasticNetFitPredictBind(ClientContext &context,
 
 void RegisterElasticNetFitPredictFunction(ExtensionLoader &loader) {
     auto basic_func = AggregateFunction(
-        "anofox_stats_elasticnet_fit_predict", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
+        "elasticnet_fit_predict", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
         GetElasticNetFitPredictResultType(), AggregateFunction::StateSize<ElasticNetFitPredictState>,
         ElasticNetFitPredictInitialize, ElasticNetFitPredictUpdate, ElasticNetFitPredictCombine,
         ElasticNetFitPredictFinalize, nullptr, ElasticNetFitPredictBind, ElasticNetFitPredictDestroy);
 
     auto map_func = AggregateFunction(
-        "anofox_stats_elasticnet_fit_predict",
+        "elasticnet_fit_predict",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
         GetElasticNetFitPredictResultType(), AggregateFunction::StateSize<ElasticNetFitPredictState>,
         ElasticNetFitPredictInitialize, ElasticNetFitPredictUpdate, ElasticNetFitPredictCombine,
         ElasticNetFitPredictFinalize, nullptr, ElasticNetFitPredictBind, ElasticNetFitPredictDestroy);
 
     {
-        AggregateFunctionSet func_set("anofox_stats_elasticnet_fit_predict");
+        AggregateFunctionSet func_set("elasticnet_fit_predict");
         func_set.AddFunction(basic_func);
         func_set.AddFunction(map_func);
         CreateAggregateFunctionInfo info(std::move(func_set));
@@ -347,7 +347,7 @@ void RegisterElasticNetFitPredictFunction(ExtensionLoader &loader) {
 
         FunctionDescription d1;
         d1.description     = "Fits an ElasticNet regression model over a window partition and returns predictions with confidence intervals.";
-        d1.examples        = {"anofox_stats_elasticnet_fit_predict(y, x)"};
+        d1.examples        = {"elasticnet_fit_predict(y, x)"};
         d1.categories      = {"regression", "prediction"};
         d1.parameter_names = {"y", "x"};
         d1.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)};
@@ -355,7 +355,7 @@ void RegisterElasticNetFitPredictFunction(ExtensionLoader &loader) {
 
         FunctionDescription d2;
         d2.description     = "Fits an ElasticNet regression model over a window partition and returns predictions with confidence intervals.";
-        d2.examples        = {"anofox_stats_elasticnet_fit_predict(y, x, {'null_policy': 'drop'})"};
+        d2.examples        = {"elasticnet_fit_predict(y, x, {'null_policy': 'drop'})"};
         d2.categories      = {"regression", "prediction"};
         d2.parameter_names = {"y", "x", "options"};
         d2.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY};
@@ -364,15 +364,6 @@ void RegisterElasticNetFitPredictFunction(ExtensionLoader &loader) {
         loader.RegisterFunction(std::move(info));
     }
 
-    {
-        AggregateFunctionSet alias_set("elasticnet_fit_predict");
-        alias_set.AddFunction(basic_func);
-        alias_set.AddFunction(map_func);
-        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_elasticnet_fit_predict";
-        loader.RegisterFunction(std::move(alias_info));
-    }
 }
 
 } // namespace duckdb

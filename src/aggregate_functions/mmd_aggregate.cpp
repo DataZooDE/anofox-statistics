@@ -232,7 +232,7 @@ static unique_ptr<FunctionData> MmdAggBind(ClientContext &context, AggregateFunc
 void RegisterMmdAggregateFunction(ExtensionLoader &loader) {
     // With options
     auto func_with_opts = AggregateFunction(
-        "anofox_stats_mmd_agg", {LogicalType::DOUBLE, LogicalType::INTEGER, LogicalType::ANY},
+        "mmd_agg", {LogicalType::DOUBLE, LogicalType::INTEGER, LogicalType::ANY},
         LogicalType::ANY,
         AggregateFunction::StateSize<MmdAggregateState>, MmdAggInitialize,
         MmdAggUpdate, MmdAggCombine, MmdAggFinalize,
@@ -240,28 +240,28 @@ void RegisterMmdAggregateFunction(ExtensionLoader &loader) {
 
     // Without options
     auto func_no_opts = AggregateFunction(
-        "anofox_stats_mmd_agg", {LogicalType::DOUBLE, LogicalType::INTEGER},
+        "mmd_agg", {LogicalType::DOUBLE, LogicalType::INTEGER},
         LogicalType::ANY,
         AggregateFunction::StateSize<MmdAggregateState>, MmdAggInitialize,
         MmdAggUpdate, MmdAggCombine, MmdAggFinalize,
         nullptr, MmdAggBind, MmdAggDestroy);
 
     {
-        AggregateFunctionSet func_set("anofox_stats_mmd_agg");
+        AggregateFunctionSet func_set("mmd_agg");
         func_set.AddFunction(func_with_opts);
         func_set.AddFunction(func_no_opts);
         CreateAggregateFunctionInfo info(std::move(func_set));
         info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
         FunctionDescription d1;
         d1.description     = "Computes the Maximum Mean Discrepancy (MMD) between two samples to test distributional similarity.";
-        d1.examples        = {"anofox_stats_mmd_agg(value, group_id, {'n_permutations': 1000})"};
+        d1.examples        = {"mmd_agg(value, group_id, {'n_permutations': 1000})"};
         d1.categories      = {"distribution-comparison"};
         d1.parameter_names = {"value", "group_id", "options"};
         d1.parameter_types = {LogicalType::DOUBLE, LogicalType::INTEGER, LogicalType::ANY};
         info.descriptions.push_back(std::move(d1));
         FunctionDescription d2;
         d2.description     = "Computes the Maximum Mean Discrepancy (MMD) between two samples to test distributional similarity, using default options.";
-        d2.examples        = {"anofox_stats_mmd_agg(value, group_id)"};
+        d2.examples        = {"mmd_agg(value, group_id)"};
         d2.categories      = {"distribution-comparison"};
         d2.parameter_names = {"value", "group_id"};
         d2.parameter_types = {LogicalType::DOUBLE, LogicalType::INTEGER};
@@ -269,16 +269,6 @@ void RegisterMmdAggregateFunction(ExtensionLoader &loader) {
         loader.RegisterFunction(std::move(info));
     }
 
-    // Short alias
-    {
-        AggregateFunctionSet alias_set("mmd_agg");
-        alias_set.AddFunction(func_with_opts);
-        alias_set.AddFunction(func_no_opts);
-        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_mmd_agg";
-        loader.RegisterFunction(std::move(alias_info));
-    }
 }
 
 } // namespace duckdb

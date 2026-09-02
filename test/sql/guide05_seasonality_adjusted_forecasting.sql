@@ -24,7 +24,7 @@ WITH monthly_data AS (
 -- Fit overall trend using aggregate function
 trend_model AS (
     SELECT
-        anofox_stats_ols_fit_agg(revenue, [time_idx::DOUBLE], {'intercept': true}) as model
+        ols_fit_agg(revenue, [time_idx::DOUBLE], {'intercept': true}) as model
     FROM monthly_data
 ),
 

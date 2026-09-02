@@ -11,14 +11,14 @@ require anofox_statistics
 #     those registration sites only -- not on internal aggregate combine paths,
 #     which users do not invoke directly.
 statement error
-SELECT anofox_stats_ols_fit([1.0, 2.0], [[1.0]]);
+SELECT ols_fit([1.0, 2.0], [[1.0]]);
 ----
 https://github.com/DataZooDE/anofox-statistics/issues
 
 # The link is appended, not substituted: the real diagnostic must survive, and
 # it is the diagnostic from the Rust core that crossed the FFI boundary.
 statement error
-SELECT anofox_stats_ols_fit([1.0, 2.0], [[1.0]]);
+SELECT ols_fit([1.0, 2.0], [[1.0]]);
 ----
 Dimension mismatch
 
@@ -26,7 +26,7 @@ Dimension mismatch
 #     deliberately NOT annotated -- they are not ours, and claiming them would
 #     send users to the wrong tracker.
 statement error
-SELECT anofox_stats_ols_fit();
+SELECT ols_fit();
 ----
 Binder Error
 

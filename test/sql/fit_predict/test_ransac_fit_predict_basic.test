@@ -1,5 +1,5 @@
 # name: test/sql/fit_predict/test_ransac_fit_predict_basic.test
-# description: Test RANSAC window function (anofox_stats_ransac_fit_predict / OVER)
+# description: Test RANSAC window function (ransac_fit_predict / OVER)
 # group: [fit_predict]
 
 require anofox_statistics
@@ -16,7 +16,7 @@ FROM range(0, 16) t(i);
 query I
 SELECT COUNT(*) FROM (
     SELECT id,
-           anofox_stats_ransac_fit_predict(y, [x1], {'random_state': 42, 'residual_threshold': 0.5})
+           ransac_fit_predict(y, [x1], {'random_state': 42, 'residual_threshold': 0.5})
                OVER (ORDER BY id) AS pred
     FROM ransac_window
 )
@@ -28,7 +28,7 @@ WHERE (pred).yhat IS NOT NULL;
 query I
 SELECT COUNT(*) FROM (
     SELECT id,
-           anofox_stats_ransac_fit_predict(y, [x1], {'random_state': 42, 'residual_threshold': 0.5})
+           ransac_fit_predict(y, [x1], {'random_state': 42, 'residual_threshold': 0.5})
                OVER (ORDER BY id) AS pred
     FROM ransac_window
 )

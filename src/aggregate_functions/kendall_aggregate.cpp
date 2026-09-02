@@ -241,11 +241,11 @@ static unique_ptr<FunctionData> KendallAggBind(ClientContext &context, Aggregate
 // Registration
 //===--------------------------------------------------------------------===//
 void RegisterKendallAggregateFunction(ExtensionLoader &loader) {
-    AggregateFunctionSet func_set("anofox_stats_kendall_agg");
+    AggregateFunctionSet func_set("kendall_agg");
 
     // With options
     auto func_with_opts = AggregateFunction(
-        "anofox_stats_kendall_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::ANY},
+        "kendall_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::ANY},
         LogicalType::ANY,
         AggregateFunction::StateSize<KendallAggregateState>, KendallAggInitialize,
         KendallAggUpdate, KendallAggCombine, KendallAggFinalize,
@@ -254,7 +254,7 @@ void RegisterKendallAggregateFunction(ExtensionLoader &loader) {
 
     // Without options
     auto func_no_opts = AggregateFunction(
-        "anofox_stats_kendall_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE},
+        "kendall_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE},
         LogicalType::ANY,
         AggregateFunction::StateSize<KendallAggregateState>, KendallAggInitialize,
         KendallAggUpdate, KendallAggCombine, KendallAggFinalize,
@@ -265,30 +265,20 @@ void RegisterKendallAggregateFunction(ExtensionLoader &loader) {
     info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
     FunctionDescription d1;
     d1.description     = "Computes Kendall's tau rank correlation coefficient and tests its significance.";
-    d1.examples        = {"anofox_stats_kendall_agg(x, y, {'alternative': 'two_sided'})"};
+    d1.examples        = {"kendall_agg(x, y, {'alternative': 'two_sided'})"};
     d1.categories      = {"correlation"};
     d1.parameter_names = {"x", "y", "options"};
     d1.parameter_types = {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::ANY};
     info.descriptions.push_back(std::move(d1));
     FunctionDescription d2;
     d2.description     = "Computes Kendall's tau rank correlation coefficient and tests its significance.";
-    d2.examples        = {"anofox_stats_kendall_agg(x, y)"};
+    d2.examples        = {"kendall_agg(x, y)"};
     d2.categories      = {"correlation"};
     d2.parameter_names = {"x", "y"};
     d2.parameter_types = {LogicalType::DOUBLE, LogicalType::DOUBLE};
     info.descriptions.push_back(std::move(d2));
     loader.RegisterFunction(std::move(info));
 
-    // Short alias
-    {
-        AggregateFunctionSet alias_set("kendall_agg");
-        alias_set.AddFunction(func_with_opts);
-        alias_set.AddFunction(func_no_opts);
-        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_kendall_agg";
-        loader.RegisterFunction(std::move(alias_info));
-    }
 }
 
 } // namespace duckdb

@@ -253,7 +253,7 @@ static unique_ptr<FunctionData> ClarkWestAggBind(ClientContext &context, Aggrega
 void RegisterClarkWestAggregateFunction(ExtensionLoader &loader) {
     // With options: (actual, forecast_restricted, forecast_unrestricted, options)
     auto func_with_opts = AggregateFunction(
-        "anofox_stats_clark_west_agg",
+        "clark_west_agg",
         {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::ANY},
         LogicalType::ANY,
         AggregateFunction::StateSize<ClarkWestAggregateState>, ClarkWestAggInitialize,
@@ -262,7 +262,7 @@ void RegisterClarkWestAggregateFunction(ExtensionLoader &loader) {
 
     // Without options: (actual, forecast_restricted, forecast_unrestricted)
     auto func_no_opts = AggregateFunction(
-        "anofox_stats_clark_west_agg",
+        "clark_west_agg",
         {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::DOUBLE},
         LogicalType::ANY,
         AggregateFunction::StateSize<ClarkWestAggregateState>, ClarkWestAggInitialize,
@@ -270,21 +270,21 @@ void RegisterClarkWestAggregateFunction(ExtensionLoader &loader) {
         nullptr, ClarkWestAggBind, ClarkWestAggDestroy);
 
     {
-        AggregateFunctionSet func_set("anofox_stats_clark_west_agg");
+        AggregateFunctionSet func_set("clark_west_agg");
         func_set.AddFunction(func_with_opts);
         func_set.AddFunction(func_no_opts);
         CreateAggregateFunctionInfo info(std::move(func_set));
         info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
         FunctionDescription d1;
         d1.description     = "Performs the Clark-West test to compare a nested forecast model against an encompassing model.";
-        d1.examples        = {"anofox_stats_clark_west_agg(actual, forecast_restricted, forecast_unrestricted, {'horizon': 1})"};
+        d1.examples        = {"clark_west_agg(actual, forecast_restricted, forecast_unrestricted, {'horizon': 1})"};
         d1.categories      = {"forecast-evaluation"};
         d1.parameter_names = {"actual", "forecast_restricted", "forecast_unrestricted", "options"};
         d1.parameter_types = {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::ANY};
         info.descriptions.push_back(std::move(d1));
         FunctionDescription d2;
         d2.description     = "Performs the Clark-West test to compare a nested forecast model against an encompassing model, using default options.";
-        d2.examples        = {"anofox_stats_clark_west_agg(actual, forecast_restricted, forecast_unrestricted)"};
+        d2.examples        = {"clark_west_agg(actual, forecast_restricted, forecast_unrestricted)"};
         d2.categories      = {"forecast-evaluation"};
         d2.parameter_names = {"actual", "forecast_restricted", "forecast_unrestricted"};
         d2.parameter_types = {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::DOUBLE};
@@ -292,16 +292,6 @@ void RegisterClarkWestAggregateFunction(ExtensionLoader &loader) {
         loader.RegisterFunction(std::move(info));
     }
 
-    // Short alias
-    {
-        AggregateFunctionSet alias_set("clark_west_agg");
-        alias_set.AddFunction(func_with_opts);
-        alias_set.AddFunction(func_no_opts);
-        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_clark_west_agg";
-        loader.RegisterFunction(std::move(alias_info));
-    }
 }
 
 } // namespace duckdb

@@ -7,6 +7,7 @@
 #include "duckdb/parser/parsed_data/create_scalar_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/error_dispatch.hpp"
 #include "telemetry.hpp"
 
 namespace duckdb {
@@ -67,7 +68,7 @@ static void VifFunction(DataChunk &args, ExpressionState &state, Vector &result)
         bool success = anofox_compute_vif(x_arrays.data(), x_arrays.size(), &vif_values, &vif_len, &error);
 
         if (!success) {
-            throw InvalidInputException("VIF computation failed: " + string(error.message));
+            ThrowFromFfiError("vif", error);
         }
 
         // Build result list
@@ -95,13 +96,13 @@ void RegisterVifFunction(ExtensionLoader &loader) {
 
     // Primary
     {
-        ScalarFunctionSet func_set("anofox_stats_vif");
+        ScalarFunctionSet func_set("vif");
         func_set.AddFunction(func);
         CreateScalarFunctionInfo info(std::move(func_set));
         info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
         FunctionDescription desc;
         desc.description     = "Computes Variance Inflation Factor (VIF) for each column of a feature matrix to detect multicollinearity.";
-        desc.examples        = {"anofox_stats_vif(x)"};
+        desc.examples        = {"vif(x)"};
         desc.categories      = {"regression-diagnostics"};
         desc.parameter_names = {"x"};
         desc.parameter_types = {LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE))};
@@ -109,14 +110,6 @@ void RegisterVifFunction(ExtensionLoader &loader) {
         loader.RegisterFunction(std::move(info));
     }
     // Alias
-    {
-        ScalarFunctionSet alias_set("vif");
-        alias_set.AddFunction(func);
-        CreateScalarFunctionInfo alias_info(std::move(alias_set));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_vif";
-        loader.RegisterFunction(std::move(alias_info));
-    }
 }
 
 } // namespace duckdb

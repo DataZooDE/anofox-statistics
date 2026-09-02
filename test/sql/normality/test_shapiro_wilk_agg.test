@@ -141,11 +141,11 @@ SELECT (shapiro_wilk_agg(value)).statistic IS NOT NULL FROM constant_data;
 true
 
 # =============================================================================
-# TEST 10: Alias verification (anofox_stats_shapiro_wilk_agg)
+# TEST 10: Alias verification (shapiro_wilk_agg)
 # =============================================================================
 
 query I
-SELECT (anofox_stats_shapiro_wilk_agg(value)).statistic IS NOT NULL FROM normal_data;
+SELECT (shapiro_wilk_agg(value)).statistic IS NOT NULL FROM normal_data;
 ----
 true
 

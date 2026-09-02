@@ -17,9 +17,9 @@ make release
 
 ### Loading the Extension
 
-```sql
--- Load the extension
-LOAD 'build/release/extension/anofox_stats/anofox_stats.duckdb_extension';
+```sql skip
+-- Load the extension (adjust path to your local build)
+LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
 ```
 
 ---
@@ -36,9 +36,9 @@ WITH sample_data AS (
         [3.0, 5.0, 7.0, 9.0, 11.0] as y_values
 )
 SELECT
-    (anofox_stats_ols_fit(y_values, [x_values])).coefficients[1] as slope,
-    (anofox_stats_ols_fit(y_values, [x_values])).intercept as intercept,
-    (anofox_stats_ols_fit(y_values, [x_values])).r_squared as r_squared
+    (ols_fit(y_values, [x_values])).coefficients[1] as slope,
+    (ols_fit(y_values, [x_values])).intercept as intercept,
+    (ols_fit(y_values, [x_values])).r_squared as r_squared
 FROM sample_data;
 ```
 
@@ -71,12 +71,10 @@ SELECT
     fit.f_statistic,
     fit.f_pvalue
 FROM (
-    SELECT anofox_stats_ols_fit(
+    SELECT ols_fit(
         y_values,
         [x_values],
-        true,   -- fit_intercept
-        true,   -- compute_inference
-        0.95    -- confidence_level
+        {'fit_intercept': true, 'compute_inference': true, 'confidence_level': 0.95}
     ) as fit
     FROM sample_data
 );
@@ -109,15 +107,15 @@ WITH sales_data AS (
 )
 SELECT
     region,
-    ROUND((anofox_stats_ols_fit_agg(
+    ROUND((ols_fit_agg(
         sales::DOUBLE,
         [marketing_spend::DOUBLE]
     )).coefficients[1], 2) as sales_per_dollar,
-    ROUND((anofox_stats_ols_fit_agg(
+    ROUND((ols_fit_agg(
         sales::DOUBLE,
         [marketing_spend::DOUBLE]
     )).intercept, 2) as base_sales,
-    ROUND((anofox_stats_ols_fit_agg(
+    ROUND((ols_fit_agg(
         sales::DOUBLE,
         [marketing_spend::DOUBLE]
     )).r_squared, 3) as r_squared
@@ -133,7 +131,7 @@ ORDER BY region;
 ├────────┼─────────────────┼────────────┼───────────┤
 │ North  │ 10.0            │ 0.0        │ 1.0       │
 │ South  │ 12.0            │ 0.0        │ 1.0       │
-└────────┴─────────────────┴────────────┴───────────┘
+└───────┴─────────────────┴────────────┴───────────┘
 ```
 
 ---
@@ -154,7 +152,7 @@ WITH time_series AS (
 SELECT
     day,
     ROUND(y, 2) as y,
-    ROUND((anofox_stats_ols_fit_agg(y, [x]) OVER (
+    ROUND((ols_fit_agg(y, [x]) OVER (
         ORDER BY day
         ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
     )).coefficients[1], 3) as rolling_7day_slope
@@ -176,11 +174,11 @@ WITH training_data AS (
         [[1.0, 2.0, 3.0, 4.0, 5.0]] as x_train
 ),
 model AS (
-    SELECT anofox_stats_ols_fit(y_train, x_train) as fit
+    SELECT ols_fit(y_train, x_train) as fit
     FROM training_data
 )
 SELECT
-    anofox_stats_predict(
+    predict(
         [[6.0, 7.0, 8.0]],  -- new x values
         model.fit.coefficients,
         model.fit.intercept
@@ -197,37 +195,17 @@ FROM model;
 Compare models using AIC and BIC.
 
 ```sql
--- Compare two models
-WITH data AS (
-    SELECT
-        [10.0, 15.0, 20.0, 25.0, 30.0, 35.0, 40.0, 45.0, 50.0, 55.0] as y,
-        [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]] as x1,
-        [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0],
-         [1.0, 4.0, 9.0, 16.0, 25.0, 36.0, 49.0, 64.0, 81.0, 100.0]] as x2
-),
-models AS (
-    SELECT
-        anofox_stats_ols_fit(y, x1) as model1,
-        anofox_stats_ols_fit(y, x2) as model2
-    FROM data
-)
+-- Compare two models using AIC and BIC (lower = better fit for complexity)
+-- AIC/BIC take residual sum of squares, n observations, k parameters
 SELECT
-    'Model 1 (linear)' as model,
-    models.model1.r_squared as r_squared,
-    aic(
-        (1 - models.model1.r_squared) * 10 * var_pop(unnest(data.y)),
-        10, 2
-    ) as aic
-FROM models, data
+    'Model 1 (linear, k=2)' as model,
+    ROUND(aic(45.2, 50, 2), 2) as aic_value,
+    ROUND(bic(45.2, 50, 2), 2) as bic_value
 UNION ALL
 SELECT
-    'Model 2 (quadratic)' as model,
-    models.model2.r_squared as r_squared,
-    aic(
-        (1 - models.model2.r_squared) * 10 * var_pop(unnest(data.y)),
-        10, 3
-    ) as aic
-FROM models, data;
+    'Model 2 (quadratic, k=3)' as model,
+    ROUND(aic(22.1, 50, 3), 2) as aic_value,
+    ROUND(bic(22.1, 50, 3), 2) as bic_value;
 ```
 
 **Interpretation:** Lower AIC indicates better model fit (balancing complexity and fit).
@@ -263,26 +241,26 @@ FROM (
 
 ### OLS Aggregate
 Basic regression for per-group analysis.
-```sql
-SELECT anofox_stats_ols_fit_agg(y, [x1, x2]) FROM data GROUP BY category;
+```sql skip
+SELECT ols_fit_agg(y, [x1, x2]) FROM data GROUP BY category;
 ```
 
 ### WLS Aggregate
 Weighted regression for heteroscedastic data.
-```sql
-SELECT anofox_stats_wls_fit_agg(y, [x], weight) FROM data GROUP BY category;
+```sql skip
+SELECT wls_fit_agg(y, [x], weight) FROM data GROUP BY category;
 ```
 
 ### Ridge Aggregate
 L2-regularized regression for multicollinearity.
-```sql
-SELECT anofox_stats_ridge_fit_agg(y, [x1, x2], 0.5) FROM data GROUP BY category;
+```sql skip
+SELECT ridge_fit_agg(y, [x1, x2], {'alpha': 0.5}) FROM data GROUP BY category;
 ```
 
 ### RLS Aggregate
 Recursive least squares for adaptive/streaming analysis.
-```sql
-SELECT anofox_stats_rls_fit_agg(y, [x], 0.95) FROM streaming_data;
+```sql skip
+SELECT rls_fit_agg(y, [x], {'forgetting_factor': 0.95}) FROM streaming_data;
 ```
 
 ---
@@ -290,24 +268,24 @@ SELECT anofox_stats_rls_fit_agg(y, [x], 0.95) FROM streaming_data;
 ## Common Patterns
 
 ### Quick Coefficient Extraction
-```sql
+```sql skip
 SELECT (ols_fit(y_array, x_array)).coefficients[1] as beta1;
 ```
 
 ### Grouped Analysis
-```sql
+```sql skip
 SELECT
     category,
-    (anofox_stats_ols_fit_agg(y, [x])).*
+    (ols_fit_agg(y, [x])).*
 FROM data
 GROUP BY category;
 ```
 
 ### Rolling Window
-```sql
+```sql skip
 SELECT
     date,
-    (anofox_stats_ols_fit_agg(y, [x]) OVER (
+    (ols_fit_agg(y, [x]) OVER (
         ORDER BY date ROWS BETWEEN 29 PRECEDING AND CURRENT ROW
     )).coefficients[1] as rolling_30day_beta
 FROM time_series;
@@ -318,36 +296,36 @@ FROM time_series;
 ## Troubleshooting
 
 ### Extension Loading Issues
-```sql
+```sql skip
 -- Check if loaded
-SELECT * FROM duckdb_extensions() WHERE extension_name = 'anofox_stats';
+SELECT * FROM duckdb_extensions() WHERE extension_name = 'anofox_statistics';
 
 -- Reload if needed
-LOAD 'path/to/anofox_stats.duckdb_extension';
+LOAD 'path/to/anofox_statistics.duckdb_extension';
 ```
 
 ### Type Errors
 Ensure all numeric values are DOUBLE:
-```sql
--- Wrong: integer arrays
+```sql skip
+-- Illustrative: integer arrays — prefer explicit DOUBLE to avoid relying on implicit casts
 SELECT ols_fit([1, 2, 3], [[1, 2, 3]]);
-
+```
+```sql
 -- Correct: explicit DOUBLE
 SELECT ols_fit([1.0, 2.0, 3.0], [[1.0, 2.0, 3.0]]);
-
--- Or cast
-SELECT ols_fit(
-    array_agg(y::DOUBLE),
-    [array_agg(x::DOUBLE)]
-) FROM data;
+```
+From a real table, cast to DOUBLE:
+```sql skip
+SELECT ols_fit(array_agg(y::DOUBLE), [array_agg(x::DOUBLE)]) FROM my_table;
 ```
 
 ### Insufficient Observations
 Minimum 3 observations required for single-feature regression with intercept:
-```sql
--- This will error
+```sql skip
+-- Illustrative: too few observations (n < n_features + 1)
 SELECT ols_fit([1.0, 2.0], [[1.0, 2.0]]);
-
+```
+```sql
 -- Need at least 3 points
 SELECT ols_fit([1.0, 2.0, 3.0], [[1.0, 2.0, 3.0]]);
 ```

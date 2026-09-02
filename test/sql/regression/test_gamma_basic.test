@@ -52,7 +52,7 @@ SELECT (gamma_fit_agg(y, [x])).n_observations FROM gamma_data;
 
 # TEST 6: fully-qualified name resolves
 query I
-SELECT (anofox_stats_gamma_fit_agg(y, [x])).coefficients[1] IS NOT NULL FROM gamma_data;
+SELECT (gamma_fit_agg(y, [x])).coefficients[1] IS NOT NULL FROM gamma_data;
 ----
 true
 

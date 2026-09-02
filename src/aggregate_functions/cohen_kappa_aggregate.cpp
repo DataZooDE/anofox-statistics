@@ -249,11 +249,11 @@ static unique_ptr<FunctionData> CohenKappaAggBind(ClientContext &context, Aggreg
 // Registration
 //===--------------------------------------------------------------------===//
 void RegisterCohenKappaAggregateFunction(ExtensionLoader &loader) {
-    AggregateFunctionSet func_set("anofox_stats_cohen_kappa_agg");
+    AggregateFunctionSet func_set("cohen_kappa_agg");
 
     // With options: (rater1 BIGINT, rater2 BIGINT, options)
     auto func_with_opts = AggregateFunction(
-        "anofox_stats_cohen_kappa_agg", {LogicalType::BIGINT, LogicalType::BIGINT, LogicalType::ANY},
+        "cohen_kappa_agg", {LogicalType::BIGINT, LogicalType::BIGINT, LogicalType::ANY},
         LogicalType::ANY,
         AggregateFunction::StateSize<CohenKappaAggregateState>, CohenKappaAggInitialize,
         CohenKappaAggUpdate, CohenKappaAggCombine, CohenKappaAggFinalize,
@@ -262,7 +262,7 @@ void RegisterCohenKappaAggregateFunction(ExtensionLoader &loader) {
 
     // Without options: (rater1 BIGINT, rater2 BIGINT)
     auto func_no_opts = AggregateFunction(
-        "anofox_stats_cohen_kappa_agg", {LogicalType::BIGINT, LogicalType::BIGINT},
+        "cohen_kappa_agg", {LogicalType::BIGINT, LogicalType::BIGINT},
         LogicalType::ANY,
         AggregateFunction::StateSize<CohenKappaAggregateState>, CohenKappaAggInitialize,
         CohenKappaAggUpdate, CohenKappaAggCombine, CohenKappaAggFinalize,
@@ -273,30 +273,20 @@ void RegisterCohenKappaAggregateFunction(ExtensionLoader &loader) {
     info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
     FunctionDescription d1;
     d1.description     = "Computes Cohen's kappa, a measure of inter-rater agreement for categorical classifications.";
-    d1.examples        = {"anofox_stats_cohen_kappa_agg(rater1, rater2, {'weighted': false})"};
+    d1.examples        = {"cohen_kappa_agg(rater1, rater2, {'weighted': false})"};
     d1.categories      = {"hypothesis-testing", "categorical"};
     d1.parameter_names = {"rater1", "rater2", "options"};
     d1.parameter_types = {LogicalType::BIGINT, LogicalType::BIGINT, LogicalType::ANY};
     info.descriptions.push_back(std::move(d1));
     FunctionDescription d2;
     d2.description     = "Computes Cohen's kappa, a measure of inter-rater agreement for categorical classifications.";
-    d2.examples        = {"anofox_stats_cohen_kappa_agg(rater1, rater2)"};
+    d2.examples        = {"cohen_kappa_agg(rater1, rater2)"};
     d2.categories      = {"hypothesis-testing", "categorical"};
     d2.parameter_names = {"rater1", "rater2"};
     d2.parameter_types = {LogicalType::BIGINT, LogicalType::BIGINT};
     info.descriptions.push_back(std::move(d2));
     loader.RegisterFunction(std::move(info));
 
-    // Short alias
-    {
-        AggregateFunctionSet alias_set("cohen_kappa_agg");
-        alias_set.AddFunction(func_with_opts);
-        alias_set.AddFunction(func_no_opts);
-        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_cohen_kappa_agg";
-        loader.RegisterFunction(std::move(alias_info));
-    }
 }
 
 } // namespace duckdb

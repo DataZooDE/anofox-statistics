@@ -373,21 +373,21 @@ static unique_ptr<FunctionData> TheilSenAggBind(ClientContext &context, Aggregat
 
     function.return_type = GetTheilSenAggResultType(result->compute_inference);
 
-    PostHogTelemetry::Instance().RecordFunctionCall("theilsen_fit_agg");
+    PostHogTelemetry::Instance().RecordFunctionCall("theil_sen_fit_agg");
     return std::move(result);
 }
 
 void RegisterTheilSenAggregateFunction(ExtensionLoader &loader) {
-    AggregateFunctionSet func_set("anofox_stats_theilsen_fit_agg");
+    AggregateFunctionSet func_set("theil_sen_fit_agg");
 
     auto basic_func = AggregateFunction(
-        "anofox_stats_theilsen_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
+        "theil_sen_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
         LogicalType::ANY, AggregateFunction::StateSize<TheilSenAggregateState>, TheilSenAggInitialize,
         TheilSenAggUpdate, TheilSenAggCombine, TheilSenAggFinalize, nullptr, TheilSenAggBind, TheilSenAggDestroy);
     func_set.AddFunction(basic_func);
 
     auto map_func = AggregateFunction(
-        "anofox_stats_theilsen_fit_agg",
+        "theil_sen_fit_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY}, LogicalType::ANY,
         AggregateFunction::StateSize<TheilSenAggregateState>, TheilSenAggInitialize, TheilSenAggUpdate,
         TheilSenAggCombine, TheilSenAggFinalize, nullptr, TheilSenAggBind, TheilSenAggDestroy);
@@ -398,7 +398,7 @@ void RegisterTheilSenAggregateFunction(ExtensionLoader &loader) {
     FunctionDescription d1;
     d1.description =
         "Fits a Theil-Sen robust regression model and returns coefficients and fit statistics as a struct.";
-    d1.examples = {"anofox_stats_theilsen_fit_agg(y, x, {'random_state': 42, 'max_subpopulation': 5000})"};
+    d1.examples = {"theil_sen_fit_agg(y, x, {'random_state': 42, 'max_subpopulation': 5000})"};
     d1.categories = {"regression"};
     d1.parameter_names = {"y", "x", "options"};
     d1.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY};
@@ -406,22 +406,13 @@ void RegisterTheilSenAggregateFunction(ExtensionLoader &loader) {
     FunctionDescription d2;
     d2.description =
         "Fits a Theil-Sen robust regression model and returns coefficients and fit statistics as a struct.";
-    d2.examples = {"anofox_stats_theilsen_fit_agg(y, x)"};
+    d2.examples = {"theil_sen_fit_agg(y, x)"};
     d2.categories = {"regression"};
     d2.parameter_names = {"y", "x"};
     d2.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)};
     info.descriptions.push_back(std::move(d2));
     loader.RegisterFunction(std::move(info));
 
-    {
-        AggregateFunctionSet alias_set("theilsen_fit_agg");
-        alias_set.AddFunction(basic_func);
-        alias_set.AddFunction(map_func);
-        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_theilsen_fit_agg";
-        loader.RegisterFunction(std::move(alias_info));
-    }
 }
 
 } // namespace duckdb

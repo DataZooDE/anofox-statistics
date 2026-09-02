@@ -230,11 +230,11 @@ static unique_ptr<FunctionData> McNemarAggBind(ClientContext &context, Aggregate
 // Registration
 //===--------------------------------------------------------------------===//
 void RegisterMcNemarAggregateFunction(ExtensionLoader &loader) {
-    AggregateFunctionSet func_set("anofox_stats_mcnemar_agg");
+    AggregateFunctionSet func_set("mcnemar_agg");
 
     // With options: (var1 BIGINT, var2 BIGINT, options)
     auto func_with_opts = AggregateFunction(
-        "anofox_stats_mcnemar_agg", {LogicalType::BIGINT, LogicalType::BIGINT, LogicalType::ANY},
+        "mcnemar_agg", {LogicalType::BIGINT, LogicalType::BIGINT, LogicalType::ANY},
         LogicalType::ANY,
         AggregateFunction::StateSize<McNemarAggregateState>, McNemarAggInitialize,
         McNemarAggUpdate, McNemarAggCombine, McNemarAggFinalize,
@@ -243,7 +243,7 @@ void RegisterMcNemarAggregateFunction(ExtensionLoader &loader) {
 
     // Without options: (var1 BIGINT, var2 BIGINT)
     auto func_no_opts = AggregateFunction(
-        "anofox_stats_mcnemar_agg", {LogicalType::BIGINT, LogicalType::BIGINT},
+        "mcnemar_agg", {LogicalType::BIGINT, LogicalType::BIGINT},
         LogicalType::ANY,
         AggregateFunction::StateSize<McNemarAggregateState>, McNemarAggInitialize,
         McNemarAggUpdate, McNemarAggCombine, McNemarAggFinalize,
@@ -254,30 +254,20 @@ void RegisterMcNemarAggregateFunction(ExtensionLoader &loader) {
     info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
     FunctionDescription d1;
     d1.description     = "Performs McNemar's test for marginal homogeneity in paired categorical data.";
-    d1.examples        = {"anofox_stats_mcnemar_agg(var1, var2, {'correction': true})"};
+    d1.examples        = {"mcnemar_agg(var1, var2, {'correction': true})"};
     d1.categories      = {"hypothesis-testing", "categorical"};
     d1.parameter_names = {"var1", "var2", "options"};
     d1.parameter_types = {LogicalType::BIGINT, LogicalType::BIGINT, LogicalType::ANY};
     info.descriptions.push_back(std::move(d1));
     FunctionDescription d2;
     d2.description     = "Performs McNemar's test for marginal homogeneity in paired categorical data.";
-    d2.examples        = {"anofox_stats_mcnemar_agg(var1, var2)"};
+    d2.examples        = {"mcnemar_agg(var1, var2)"};
     d2.categories      = {"hypothesis-testing", "categorical"};
     d2.parameter_names = {"var1", "var2"};
     d2.parameter_types = {LogicalType::BIGINT, LogicalType::BIGINT};
     info.descriptions.push_back(std::move(d2));
     loader.RegisterFunction(std::move(info));
 
-    // Short alias
-    {
-        AggregateFunctionSet alias_set("mcnemar_agg");
-        alias_set.AddFunction(func_with_opts);
-        alias_set.AddFunction(func_no_opts);
-        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_mcnemar_agg";
-        loader.RegisterFunction(std::move(alias_info));
-    }
 }
 
 } // namespace duckdb

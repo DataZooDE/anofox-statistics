@@ -79,8 +79,8 @@ true
 # =============================================================================
 
 query I
-SELECT anofox_stats_residuals_diagnostics_agg(y_actual, y_predicted) IS NULL
-    OR anofox_stats_residuals_diagnostics_agg(y_actual, y_predicted) IS NOT NULL
+SELECT residuals_diagnostics_agg(y_actual, y_predicted) IS NULL
+    OR residuals_diagnostics_agg(y_actual, y_predicted) IS NOT NULL
 FROM reg_data;
 ----
 true

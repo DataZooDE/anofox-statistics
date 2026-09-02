@@ -83,7 +83,7 @@ true
 
 # TEST 6: Alias verification
 query I
-SELECT (anofox_stats_diebold_mariano_agg(actual, forecast1, forecast2)).statistic IS NOT NULL FROM dm_data;
+SELECT (diebold_mariano_agg(actual, forecast1, forecast2)).statistic IS NOT NULL FROM dm_data;
 ----
 true
 
@@ -147,7 +147,7 @@ true
 
 # TEST 11: Alias verification
 query I
-SELECT (anofox_stats_clark_west_agg(actual, forecast_restricted, forecast_unrestricted)).statistic IS NOT NULL FROM cw_data;
+SELECT (clark_west_agg(actual, forecast_restricted, forecast_unrestricted)).statistic IS NOT NULL FROM cw_data;
 ----
 true
 

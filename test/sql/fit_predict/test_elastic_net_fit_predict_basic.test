@@ -14,7 +14,7 @@ FROM range(1, 11) t(i);
 
 query I
 SELECT COUNT(*) as valid_predictions
-FROM (SELECT id, anofox_stats_elasticnet_fit_predict(y, [x1], {'alpha': 0.1, 'l1_ratio': 0.5}) OVER (ORDER BY id) as pred FROM elasticnet_data)
+FROM (SELECT id, elasticnet_fit_predict(y, [x1], {'alpha': 0.1, 'l1_ratio': 0.5}) OVER (ORDER BY id) as pred FROM elasticnet_data)
 WHERE (pred).yhat IS NOT NULL;
 ----
 8

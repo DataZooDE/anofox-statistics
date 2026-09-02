@@ -7,6 +7,7 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/error_dispatch.hpp"
 #include "../include/ffi_enum_converters.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
@@ -258,10 +259,17 @@ static void OlsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
         auto &state = *states[sdata.sel->get_index(i)];
         idx_t result_idx = i + offset;
 
-        // Check if we have enough data (basic sanity check only)
-        // Detailed validation including zero-variance column handling is done in Rust
-        if (!state.initialized || state.y_values.size() < 2) {
-            // Set NULL result
+        // Check if we have enough data to attempt a fit.
+        // Use the scaling min_obs guard: need strictly more than n_features+1
+        // observations (with intercept) or n_features (without) to avoid fitting a
+        // perfectly-determined/degenerate system that produces NaN adj_r_squared
+        // and undefined std_errors. Matches the guard in ols_fit_predict.cpp:264-268.
+        if (!state.initialized) {
+            FlatVector::SetNull(result, result_idx, true);
+            continue;
+        }
+        idx_t min_obs = state.fit_intercept ? state.n_features + 1 : state.n_features;
+        if (state.y_values.size() <= min_obs) {
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
@@ -296,8 +304,7 @@ static void OlsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
                                       state.compute_inference ? &inference_result : nullptr, &error);
 
         if (!success) {
-            FlatVector::SetNull(result, result_idx, true);
-            continue;
+            ThrowFromFfiError("ols_fit_agg", error);
         }
 
         // Fill STRUCT result
@@ -375,19 +382,19 @@ static unique_ptr<FunctionData> OlsAggBind(ClientContext &context, AggregateFunc
 // Registration
 //===--------------------------------------------------------------------===//
 void RegisterOlsAggregateFunction(ExtensionLoader &loader) {
-    AggregateFunctionSet func_set("anofox_stats_ols_fit_agg");
+    AggregateFunctionSet func_set("ols_fit_agg");
 
-    // Basic version: anofox_stats_ols_fit_agg(y, x) - uses defaults
+    // Basic version: ols_fit_agg(y, x) - uses defaults
     auto basic_func = AggregateFunction(
-        "anofox_stats_ols_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
+        "ols_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
         LogicalType::ANY, // Set in bind
         AggregateFunction::StateSize<OlsAggregateState>, OlsAggInitialize, OlsAggUpdate, OlsAggCombine, OlsAggFinalize,
         nullptr, // simple_update
         OlsAggBind, OlsAggDestroy);
     func_set.AddFunction(basic_func);
 
-    // Version with MAP options: anofox_stats_ols_fit_agg(y, x, {'intercept': true, ...})
-    auto map_func = AggregateFunction("anofox_stats_ols_fit_agg",
+    // Version with MAP options: ols_fit_agg(y, x, {'intercept': true, ...})
+    auto map_func = AggregateFunction("ols_fit_agg",
                                       {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE),
                                        LogicalType::ANY}, // MAP or STRUCT for options
                                       LogicalType::ANY, AggregateFunction::StateSize<OlsAggregateState>,
@@ -399,30 +406,20 @@ void RegisterOlsAggregateFunction(ExtensionLoader &loader) {
     info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
     FunctionDescription d1;
     d1.description     = "Fits an OLS regression model and returns coefficients and fit statistics as a struct.";
-    d1.examples        = {"anofox_stats_ols_fit_agg(y, x, {'fit_intercept': true})"};
+    d1.examples        = {"ols_fit_agg(y, x, {'fit_intercept': true})"};
     d1.categories      = {"regression"};
     d1.parameter_names = {"y", "x", "options"};
     d1.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY};
     info.descriptions.push_back(std::move(d1));
     FunctionDescription d2;
     d2.description     = "Fits an OLS regression model and returns coefficients and fit statistics as a struct.";
-    d2.examples        = {"anofox_stats_ols_fit_agg(y, x)"};
+    d2.examples        = {"ols_fit_agg(y, x)"};
     d2.categories      = {"regression"};
     d2.parameter_names = {"y", "x"};
     d2.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)};
     info.descriptions.push_back(std::move(d2));
     loader.RegisterFunction(std::move(info));
 
-    // Register short alias
-    {
-        AggregateFunctionSet alias_set("ols_fit_agg");
-        alias_set.AddFunction(basic_func);
-        alias_set.AddFunction(map_func);
-        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_ols_fit_agg";
-        loader.RegisterFunction(std::move(alias_info));
-    }
 }
 
 } // namespace duckdb

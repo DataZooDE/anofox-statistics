@@ -384,16 +384,16 @@ static unique_ptr<FunctionData> TweedieAggBind(ClientContext &context, Aggregate
 }
 
 void RegisterTweedieAggregateFunction(ExtensionLoader &loader) {
-	AggregateFunctionSet func_set("anofox_stats_tweedie_fit_agg");
+	AggregateFunctionSet func_set("tweedie_fit_agg");
 
 	auto basic_func = AggregateFunction(
-	    "anofox_stats_tweedie_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)}, LogicalType::ANY,
+	    "tweedie_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)}, LogicalType::ANY,
 	    AggregateFunction::StateSize<TweedieAggregateState>, TweedieAggInitialize, TweedieAggUpdate, TweedieAggCombine,
 	    TweedieAggFinalize, nullptr, TweedieAggBind, TweedieAggDestroy);
 	func_set.AddFunction(basic_func);
 
 	auto map_func = AggregateFunction(
-	    "anofox_stats_tweedie_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
+	    "tweedie_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
 	    LogicalType::ANY, AggregateFunction::StateSize<TweedieAggregateState>, TweedieAggInitialize, TweedieAggUpdate,
 	    TweedieAggCombine, TweedieAggFinalize, nullptr, TweedieAggBind, TweedieAggDestroy);
 	func_set.AddFunction(map_func);
@@ -404,7 +404,7 @@ void RegisterTweedieAggregateFunction(ExtensionLoader &loader) {
 	d1.description = "Fits a Tweedie GLM (log link, user-specified power 1 < p < 2 for compound "
 	                 "Poisson-Gamma) and returns coefficients, deviance, AIC, dispersion (= phi), and "
 	                 "fit statistics. Default power is 1.5.";
-	d1.examples = {"anofox_stats_tweedie_fit_agg(y, x, {'power': 1.5, 'fit_intercept': true})"};
+	d1.examples = {"tweedie_fit_agg(y, x, {'power': 1.5, 'fit_intercept': true})"};
 	d1.categories = {"regression"};
 	d1.parameter_names = {"y", "x", "options"};
 	d1.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY};
@@ -412,22 +412,13 @@ void RegisterTweedieAggregateFunction(ExtensionLoader &loader) {
 	FunctionDescription d2;
 	d2.description = "Fits a Tweedie GLM (log link, default power = 1.5 — compound Poisson-Gamma) and "
 	                 "returns coefficients, deviance, AIC, dispersion (= phi), and fit statistics.";
-	d2.examples = {"anofox_stats_tweedie_fit_agg(y, x)"};
+	d2.examples = {"tweedie_fit_agg(y, x)"};
 	d2.categories = {"regression"};
 	d2.parameter_names = {"y", "x"};
 	d2.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)};
 	info.descriptions.push_back(std::move(d2));
 	loader.RegisterFunction(std::move(info));
 
-	{
-		AggregateFunctionSet alias_set("tweedie_fit_agg");
-		alias_set.AddFunction(basic_func);
-		alias_set.AddFunction(map_func);
-		CreateAggregateFunctionInfo alias_info(std::move(alias_set));
-		alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-		alias_info.alias_of = "anofox_stats_tweedie_fit_agg";
-		loader.RegisterFunction(std::move(alias_info));
-	}
 }
 
 } // namespace duckdb

@@ -221,10 +221,10 @@ static unique_ptr<FunctionData> SpearmanAggBind(ClientContext &context, Aggregat
 }
 
 void RegisterSpearmanAggregateFunction(ExtensionLoader &loader) {
-    AggregateFunctionSet func_set("anofox_stats_spearman_agg");
+    AggregateFunctionSet func_set("spearman_agg");
 
     auto func_with_opts = AggregateFunction(
-        "anofox_stats_spearman_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::ANY},
+        "spearman_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::ANY},
         LogicalType::ANY,
         AggregateFunction::StateSize<SpearmanAggregateState>, SpearmanAggInitialize,
         SpearmanAggUpdate, SpearmanAggCombine, SpearmanAggFinalize,
@@ -232,7 +232,7 @@ void RegisterSpearmanAggregateFunction(ExtensionLoader &loader) {
     func_set.AddFunction(func_with_opts);
 
     auto func_no_opts = AggregateFunction(
-        "anofox_stats_spearman_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE},
+        "spearman_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE},
         LogicalType::ANY,
         AggregateFunction::StateSize<SpearmanAggregateState>, SpearmanAggInitialize,
         SpearmanAggUpdate, SpearmanAggCombine, SpearmanAggFinalize,
@@ -243,30 +243,20 @@ void RegisterSpearmanAggregateFunction(ExtensionLoader &loader) {
     info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
     FunctionDescription d1;
     d1.description     = "Computes Spearman's rank correlation coefficient and tests its significance.";
-    d1.examples        = {"anofox_stats_spearman_agg(x, y, {'alternative': 'two_sided'})"};
+    d1.examples        = {"spearman_agg(x, y, {'alternative': 'two_sided'})"};
     d1.categories      = {"correlation"};
     d1.parameter_names = {"x", "y", "options"};
     d1.parameter_types = {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::ANY};
     info.descriptions.push_back(std::move(d1));
     FunctionDescription d2;
     d2.description     = "Computes Spearman's rank correlation coefficient and tests its significance.";
-    d2.examples        = {"anofox_stats_spearman_agg(x, y)"};
+    d2.examples        = {"spearman_agg(x, y)"};
     d2.categories      = {"correlation"};
     d2.parameter_names = {"x", "y"};
     d2.parameter_types = {LogicalType::DOUBLE, LogicalType::DOUBLE};
     info.descriptions.push_back(std::move(d2));
     loader.RegisterFunction(std::move(info));
 
-    // Short alias
-    {
-        AggregateFunctionSet alias_set("spearman_agg");
-        alias_set.AddFunction(func_with_opts);
-        alias_set.AddFunction(func_no_opts);
-        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_spearman_agg";
-        loader.RegisterFunction(std::move(alias_info));
-    }
 }
 
 } // namespace duckdb

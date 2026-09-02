@@ -185,11 +185,11 @@ static unique_ptr<FunctionData> PhiCoefficientAggBind(ClientContext &context, Ag
 // Registration
 //===--------------------------------------------------------------------===//
 void RegisterPhiCoefficientAggregateFunction(ExtensionLoader &loader) {
-    AggregateFunctionSet func_set("anofox_stats_phi_coefficient_agg");
+    AggregateFunctionSet func_set("phi_coefficient_agg");
 
     // (row_var BIGINT, col_var BIGINT)
     auto func = AggregateFunction(
-        "anofox_stats_phi_coefficient_agg", {LogicalType::BIGINT, LogicalType::BIGINT},
+        "phi_coefficient_agg", {LogicalType::BIGINT, LogicalType::BIGINT},
         LogicalType::DOUBLE,
         AggregateFunction::StateSize<PhiCoefficientAggregateState>, PhiCoefficientAggInitialize,
         PhiCoefficientAggUpdate, PhiCoefficientAggCombine, PhiCoefficientAggFinalize,
@@ -200,22 +200,13 @@ void RegisterPhiCoefficientAggregateFunction(ExtensionLoader &loader) {
     info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
     FunctionDescription d1;
     d1.description     = "Computes the phi coefficient (φ), a measure of association for 2×2 contingency tables.";
-    d1.examples        = {"anofox_stats_phi_coefficient_agg(row_var, col_var)"};
+    d1.examples        = {"phi_coefficient_agg(row_var, col_var)"};
     d1.categories      = {"hypothesis-testing", "categorical"};
     d1.parameter_names = {"row_var", "col_var"};
     d1.parameter_types = {LogicalType::BIGINT, LogicalType::BIGINT};
     info.descriptions.push_back(std::move(d1));
     loader.RegisterFunction(std::move(info));
 
-    // Short alias
-    {
-        AggregateFunctionSet alias_set("phi_coefficient_agg");
-        alias_set.AddFunction(func);
-        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_phi_coefficient_agg";
-        loader.RegisterFunction(std::move(alias_info));
-    }
 }
 
 } // namespace duckdb

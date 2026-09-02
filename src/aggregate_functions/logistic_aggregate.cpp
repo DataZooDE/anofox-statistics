@@ -387,15 +387,15 @@ static unique_ptr<FunctionData> LogisticAggBind(ClientContext &context, Aggregat
 }
 
 void RegisterLogisticAggregateFunction(ExtensionLoader &loader) {
-	AggregateFunctionSet func_set("anofox_stats_logistic_fit_agg");
+	AggregateFunctionSet func_set("logistic_fit_agg");
 
 	auto basic_func = AggregateFunction(
-	    "anofox_stats_logistic_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
+	    "logistic_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
 	    LogicalType::ANY, AggregateFunction::StateSize<LogisticAggregateState>, LogisticAggInitialize,
 	    LogisticAggUpdate, LogisticAggCombine, LogisticAggFinalize, nullptr, LogisticAggBind, LogisticAggDestroy);
 	func_set.AddFunction(basic_func);
 
-	auto map_func = AggregateFunction("anofox_stats_logistic_fit_agg",
+	auto map_func = AggregateFunction("logistic_fit_agg",
 	                                  {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
 	                                  LogicalType::ANY, AggregateFunction::StateSize<LogisticAggregateState>,
 	                                  LogisticAggInitialize, LogisticAggUpdate, LogisticAggCombine, LogisticAggFinalize,
@@ -409,7 +409,7 @@ void RegisterLogisticAggregateFunction(ExtensionLoader &loader) {
 	    "Fits a binary Logistic regression (binomial GLM with logit link; classifier API). y must be binary "
 	    "(0 or 1). Result struct extends the standard GLM shape with `accuracy` (on training data, at the "
 	    "configured threshold) and the `threshold` echo. Optional L2 (ridge) penalty.";
-	d1.examples = {"anofox_stats_logistic_fit_agg(y, x, {'glm_lambda': 0.1, 'threshold': 0.5})"};
+	d1.examples = {"logistic_fit_agg(y, x, {'glm_lambda': 0.1, 'threshold': 0.5})"};
 	d1.categories = {"regression", "classification"};
 	d1.parameter_names = {"y", "x", "options"};
 	d1.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY};
@@ -418,22 +418,13 @@ void RegisterLogisticAggregateFunction(ExtensionLoader &loader) {
 	d2.description =
 	    "Fits a binary Logistic regression (binomial GLM with logit link; classifier API). y must be binary "
 	    "(0 or 1). Result struct extends the standard GLM shape with `accuracy` and the `threshold` echo.";
-	d2.examples = {"anofox_stats_logistic_fit_agg(y, x)"};
+	d2.examples = {"logistic_fit_agg(y, x)"};
 	d2.categories = {"regression", "classification"};
 	d2.parameter_names = {"y", "x"};
 	d2.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)};
 	info.descriptions.push_back(std::move(d2));
 	loader.RegisterFunction(std::move(info));
 
-	{
-		AggregateFunctionSet alias_set("logistic_fit_agg");
-		alias_set.AddFunction(basic_func);
-		alias_set.AddFunction(map_func);
-		CreateAggregateFunctionInfo alias_info(std::move(alias_set));
-		alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-		alias_info.alias_of = "anofox_stats_logistic_fit_agg";
-		loader.RegisterFunction(std::move(alias_info));
-	}
 }
 
 } // namespace duckdb

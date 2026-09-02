@@ -351,16 +351,16 @@ static unique_ptr<FunctionData> AftAggBind(ClientContext &context, AggregateFunc
 }
 
 void RegisterAftAggregateFunction(ExtensionLoader &loader) {
-	AggregateFunctionSet func_set("anofox_stats_aft_fit_agg");
+	AggregateFunctionSet func_set("aft_fit_agg");
 
-	auto basic = AggregateFunction("anofox_stats_aft_fit_agg",
+	auto basic = AggregateFunction("aft_fit_agg",
 	                               {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE},
 	                               LogicalType::ANY, AggregateFunction::StateSize<AftAggregateState>, AftAggInitialize,
 	                               AftAggUpdate, AftAggCombine, AftAggFinalize, nullptr, AftAggBind, AftAggDestroy);
 	func_set.AddFunction(basic);
 
 	auto with_opts = AggregateFunction(
-	    "anofox_stats_aft_fit_agg",
+	    "aft_fit_agg",
 	    {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE, LogicalType::ANY},
 	    LogicalType::ANY, AggregateFunction::StateSize<AftAggregateState>, AftAggInitialize, AftAggUpdate,
 	    AftAggCombine, AftAggFinalize, nullptr, AftAggBind, AftAggDestroy);
@@ -369,12 +369,6 @@ void RegisterAftAggregateFunction(ExtensionLoader &loader) {
 	CreateAggregateFunctionInfo info(func_set);
 	loader.RegisterFunction(info);
 
-	AggregateFunctionSet alias_set("aft_fit_agg");
-	alias_set.AddFunction(basic);
-	alias_set.AddFunction(with_opts);
-	CreateAggregateFunctionInfo alias_info(alias_set);
-	alias_info.alias_of = "anofox_stats_aft_fit_agg";
-	loader.RegisterFunction(alias_info);
 }
 
 //===--------------------------------------------------------------------===//
@@ -449,29 +443,17 @@ static void AftQuantileFunction(DataChunk &args, ExpressionState &, Vector &resu
 }
 
 void RegisterAftScalarFunctions(ExtensionLoader &loader) {
-	ScalarFunction cdf("anofox_stats_aft_cdf",
+	ScalarFunction cdf("aft_cdf",
 	                   {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::VARCHAR},
 	                   LogicalType::DOUBLE, AftCdfFunction);
 	loader.RegisterFunction(cdf);
 
-	ScalarFunction quantile("anofox_stats_aft_quantile",
+	ScalarFunction quantile("aft_quantile",
 	                        {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::VARCHAR},
 	                        LogicalType::DOUBLE, AftQuantileFunction);
 	loader.RegisterFunction(quantile);
 
-	ScalarFunction cdf_alias("aft_cdf",
-	                         {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::VARCHAR},
-	                         LogicalType::DOUBLE, AftCdfFunction);
-	CreateScalarFunctionInfo cdf_alias_info(cdf_alias);
-	cdf_alias_info.alias_of = "anofox_stats_aft_cdf";
-	loader.RegisterFunction(cdf_alias_info);
 
-	ScalarFunction q_alias("aft_quantile",
-	                       {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::VARCHAR},
-	                       LogicalType::DOUBLE, AftQuantileFunction);
-	CreateScalarFunctionInfo q_alias_info(q_alias);
-	q_alias_info.alias_of = "anofox_stats_aft_quantile";
-	loader.RegisterFunction(q_alias_info);
 }
 
 } // namespace duckdb

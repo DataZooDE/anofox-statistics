@@ -21,12 +21,12 @@ SELECT
     result.coefficients[1] as adv_coef,
     result.coefficients[2] as social_coef,
     result.coefficients[3] as influencer_coef,
-    result.r2,
+    result.r_squared,
     result.adj_r2
 FROM (
     SELECT
         product,
-        anofox_stats_ridge_fit_agg(
+        ridge_fit_agg(
             sales,
             [advertising, social_media, influencer],
             {'lambda': 0.0, 'intercept': true}
@@ -42,12 +42,12 @@ SELECT
     result.coefficients[1],
     result.coefficients[2],
     result.coefficients[3],
-    result.r2,
+    result.r_squared,
     result.adj_r2
 FROM (
     SELECT
         product,
-        anofox_stats_ridge_fit_agg(
+        ridge_fit_agg(
             sales,
             [advertising, social_media, influencer],
             {'lambda': 1.0, 'intercept': true}
@@ -63,12 +63,12 @@ SELECT
     result.coefficients[1],
     result.coefficients[2],
     result.coefficients[3],
-    result.r2,
+    result.r_squared,
     result.adj_r2
 FROM (
     SELECT
         product,
-        anofox_stats_ridge_fit_agg(
+        ridge_fit_agg(
             sales,
             [advertising, social_media, influencer],
             {'lambda': 10.0, 'intercept': true}

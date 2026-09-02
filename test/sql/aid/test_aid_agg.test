@@ -121,7 +121,7 @@ true
 
 # TEST 9: Alias verification
 query I
-SELECT (anofox_stats_aid_agg(demand)).demand_type IS NOT NULL FROM smooth_demand;
+SELECT (aid_agg(demand)).demand_type IS NOT NULL FROM smooth_demand;
 ----
 true
 
@@ -154,7 +154,7 @@ true
 
 # TEST 12: Alias verification
 query I
-SELECT anofox_stats_aid_anomaly_agg(demand) IS NOT NULL FROM anomaly_data;
+SELECT aid_anomaly_agg(demand) IS NOT NULL FROM anomaly_data;
 ----
 true
 

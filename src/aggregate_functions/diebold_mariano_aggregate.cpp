@@ -283,7 +283,7 @@ static unique_ptr<FunctionData> DieboldMarianoAggBind(ClientContext &context, Ag
 void RegisterDieboldMarianoAggregateFunction(ExtensionLoader &loader) {
     // With options: (actual, forecast1, forecast2, options)
     auto func_with_opts = AggregateFunction(
-        "anofox_stats_diebold_mariano_agg",
+        "diebold_mariano_agg",
         {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::ANY},
         LogicalType::ANY,
         AggregateFunction::StateSize<DieboldMarianoAggregateState>, DieboldMarianoAggInitialize,
@@ -292,7 +292,7 @@ void RegisterDieboldMarianoAggregateFunction(ExtensionLoader &loader) {
 
     // Without options: (actual, forecast1, forecast2)
     auto func_no_opts = AggregateFunction(
-        "anofox_stats_diebold_mariano_agg",
+        "diebold_mariano_agg",
         {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::DOUBLE},
         LogicalType::ANY,
         AggregateFunction::StateSize<DieboldMarianoAggregateState>, DieboldMarianoAggInitialize,
@@ -300,21 +300,21 @@ void RegisterDieboldMarianoAggregateFunction(ExtensionLoader &loader) {
         nullptr, DieboldMarianoAggBind, DieboldMarianoAggDestroy);
 
     {
-        AggregateFunctionSet func_set("anofox_stats_diebold_mariano_agg");
+        AggregateFunctionSet func_set("diebold_mariano_agg");
         func_set.AddFunction(func_with_opts);
         func_set.AddFunction(func_no_opts);
         CreateAggregateFunctionInfo info(std::move(func_set));
         info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
         FunctionDescription d1;
         d1.description     = "Performs the Diebold-Mariano test to compare predictive accuracy of two forecast models.";
-        d1.examples        = {"anofox_stats_diebold_mariano_agg(actual, forecast1, forecast2, {'loss': 'squared'})"};
+        d1.examples        = {"diebold_mariano_agg(actual, forecast1, forecast2, {'loss': 'squared'})"};
         d1.categories      = {"forecast-evaluation"};
         d1.parameter_names = {"actual", "forecast1", "forecast2", "options"};
         d1.parameter_types = {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::ANY};
         info.descriptions.push_back(std::move(d1));
         FunctionDescription d2;
         d2.description     = "Performs the Diebold-Mariano test to compare predictive accuracy of two forecast models, using default options.";
-        d2.examples        = {"anofox_stats_diebold_mariano_agg(actual, forecast1, forecast2)"};
+        d2.examples        = {"diebold_mariano_agg(actual, forecast1, forecast2)"};
         d2.categories      = {"forecast-evaluation"};
         d2.parameter_names = {"actual", "forecast1", "forecast2"};
         d2.parameter_types = {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::DOUBLE};
@@ -322,16 +322,6 @@ void RegisterDieboldMarianoAggregateFunction(ExtensionLoader &loader) {
         loader.RegisterFunction(std::move(info));
     }
 
-    // Short alias
-    {
-        AggregateFunctionSet alias_set("diebold_mariano_agg");
-        alias_set.AddFunction(func_with_opts);
-        alias_set.AddFunction(func_no_opts);
-        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_diebold_mariano_agg";
-        loader.RegisterFunction(std::move(alias_info));
-    }
 }
 
 } // namespace duckdb

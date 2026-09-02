@@ -20,7 +20,7 @@ SELECT
 FROM (
     SELECT
         id,
-        anofox_stats_ridge_fit_predict(
+        ridge_fit_predict(
             y,
             [x1],
             {'alpha': 1.0}
@@ -38,7 +38,7 @@ SELECT
 FROM (
     SELECT
         id,
-        anofox_stats_ridge_fit_predict(y, [x1], {'alpha': 1.0}) OVER (ORDER BY id) as pred
+        ridge_fit_predict(y, [x1], {'alpha': 1.0}) OVER (ORDER BY id) as pred
     FROM ridge_data
 )
 WHERE id > 2 AND (pred).yhat IS NOT NULL;
@@ -57,7 +57,7 @@ FROM (
     FROM (
         SELECT
             id,
-            anofox_stats_ridge_fit_predict(y, [x1], {'alpha': 1.0}) OVER (ORDER BY id) as pred
+            ridge_fit_predict(y, [x1], {'alpha': 1.0}) OVER (ORDER BY id) as pred
         FROM ridge_data
     )
 )
@@ -72,7 +72,7 @@ SELECT
 FROM (
     SELECT
         id,
-        anofox_stats_ridge_fit_predict(y, [x1], {'intercept': 0.0, 'alpha': 1.0}) OVER (ORDER BY id) as pred
+        ridge_fit_predict(y, [x1], {'intercept': 0.0, 'alpha': 1.0}) OVER (ORDER BY id) as pred
     FROM ridge_data
 )
 WHERE (pred).yhat IS NOT NULL;

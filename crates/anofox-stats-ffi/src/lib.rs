@@ -26,6 +26,76 @@ use anofox_stats_core::{
 use statrs::distribution::{ContinuousCDF, StudentsT};
 use std::slice;
 
+/// Marshal the 5-array inference block (std_errors / t_values / p_values /
+/// ci_lower / ci_upper) into `*out_inference` using [`FfiVec`] RAII allocations.
+///
+/// This encodes the *strict* canonical inference pattern used by the linear-model
+/// fit functions (OLS, Huber, RANSAC, RLS, WLS, Theil-Sen, …): it allocates all
+/// five buffers up front and, if ANY allocation fails, frees the ones that
+/// succeeded (via `FfiVec::Drop`), runs the caller-supplied `$oom_cleanup` block
+/// (which frees the already-allocated coefficients buffer), sets
+/// `AllocationFailure`, and `return`s `false` from the enclosing function — the
+/// same explicit-`return false` contract the file uses everywhere (no `?`).
+///
+/// Behavior is identical to the hand-written block it replaces: on success every
+/// buffer holds the same values and `*out_inference` gets the same field values
+/// (`f_statistic`/`f_pvalue` from the inference struct, `confidence_level` from
+/// it too). Allocating all five before any `into_raw()` guarantees no partial /
+/// dangling pointer is ever written into `FitResultInference` on OOM.
+///
+/// NOTE: this deliberately does NOT cover the GLM fit functions (which map
+/// `z_values` onto the `t_values` field and use a lenient OOM path) or the ALM
+/// fit (which uses `standard_errors` / `conf_int_*` field names). Those sites use
+/// a different inference contract and are left as hand-written blocks so this
+/// macro can stay a faithful, behavior-preserving replacement for the strict
+/// pattern only.
+macro_rules! alloc_inference_arrays {
+    ($inf:expr, $out_inference:expr, $out_error:expr, $oom_cleanup:block) => {{
+        let inf = $inf;
+        let n = inf.std_errors.len();
+        let std_err = FfiVec::<f64>::alloc(n);
+        let t_val = FfiVec::<f64>::alloc(n);
+        let p_val = FfiVec::<f64>::alloc(n);
+        let ci_lo = FfiVec::<f64>::alloc(n);
+        let ci_hi = FfiVec::<f64>::alloc(n);
+        match (std_err, t_val, p_val, ci_lo, ci_hi) {
+            (Some(std_err), Some(t_val), Some(p_val), Some(ci_lo), Some(ci_hi)) => {
+                std_err.copy_from_slice(&inf.std_errors);
+                t_val.copy_from_slice(&inf.t_values);
+                p_val.copy_from_slice(&inf.p_values);
+                ci_lo.copy_from_slice(&inf.ci_lower);
+                ci_hi.copy_from_slice(&inf.ci_upper);
+                *$out_inference = FitResultInference {
+                    std_errors: std_err.into_raw(),
+                    t_values: t_val.into_raw(),
+                    p_values: p_val.into_raw(),
+                    ci_lower: ci_lo.into_raw(),
+                    ci_upper: ci_hi.into_raw(),
+                    len: n,
+                    confidence_level: inf.confidence_level,
+                    f_statistic: inf.f_statistic.unwrap_or(f64::NAN),
+                    f_pvalue: inf.f_pvalue.unwrap_or(f64::NAN),
+                };
+            }
+            _ => {
+                // At least one allocation failed. The `Some` FfiVecs above are
+                // dropped here (freeing via libc::free), so nothing leaks and no
+                // partial pointer is written into out_inference. Then free the
+                // coefficients buffer the caller already allocated and bail out
+                // with the same error + `return false` as the original block.
+                $oom_cleanup
+                if !$out_error.is_null() {
+                    (*$out_error).set(
+                        ErrorCode::AllocationFailure,
+                        "Failed to allocate inference arrays",
+                    );
+                }
+                return false;
+            }
+        }
+    }};
+}
+
 /// Convert FFI solver type to core SolverType
 fn convert_solver_ffi(solver: SolverTypeFFI) -> SolverType {
     match solver {
@@ -187,67 +257,14 @@ pub unsafe extern "C" fn anofox_ols_fit(
             // Fill inference results if requested and available
             if !out_inference.is_null() {
                 if let Some(inf) = result.inference {
-                    let n = inf.std_errors.len();
-
-                    // Allocate arrays
-                    let std_err_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-                    let t_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-                    let p_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-                    let ci_lo_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-                    let ci_hi_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-
-                    if n > 0
-                        && (std_err_ptr.is_null()
-                            || t_val_ptr.is_null()
-                            || p_val_ptr.is_null()
-                            || ci_lo_ptr.is_null()
-                            || ci_hi_ptr.is_null())
-                    {
-                        // Free any allocated memory
-                        if !std_err_ptr.is_null() {
-                            libc::free(std_err_ptr as *mut libc::c_void);
-                        }
-                        if !t_val_ptr.is_null() {
-                            libc::free(t_val_ptr as *mut libc::c_void);
-                        }
-                        if !p_val_ptr.is_null() {
-                            libc::free(p_val_ptr as *mut libc::c_void);
-                        }
-                        if !ci_lo_ptr.is_null() {
-                            libc::free(ci_lo_ptr as *mut libc::c_void);
-                        }
-                        if !ci_hi_ptr.is_null() {
-                            libc::free(ci_hi_ptr as *mut libc::c_void);
-                        }
+                    alloc_inference_arrays!(inf, out_inference, out_error, {
                         libc::free(coef_ptr as *mut libc::c_void);
-
-                        if !out_error.is_null() {
-                            (*out_error).set(
-                                ErrorCode::AllocationFailure,
-                                "Failed to allocate inference arrays",
-                            );
-                        }
-                        return false;
-                    }
-
-                    // Copy data
-                    std::ptr::copy_nonoverlapping(inf.std_errors.as_ptr(), std_err_ptr, n);
-                    std::ptr::copy_nonoverlapping(inf.t_values.as_ptr(), t_val_ptr, n);
-                    std::ptr::copy_nonoverlapping(inf.p_values.as_ptr(), p_val_ptr, n);
-                    std::ptr::copy_nonoverlapping(inf.ci_lower.as_ptr(), ci_lo_ptr, n);
-                    std::ptr::copy_nonoverlapping(inf.ci_upper.as_ptr(), ci_hi_ptr, n);
-
-                    (*out_inference) = FitResultInference {
-                        std_errors: std_err_ptr,
-                        t_values: t_val_ptr,
-                        p_values: p_val_ptr,
-                        ci_lower: ci_lo_ptr,
-                        ci_upper: ci_hi_ptr,
-                        len: n,
-                        confidence_level: inf.confidence_level,
-                        f_statistic: inf.f_statistic.unwrap_or(f64::NAN),
-                        f_pvalue: inf.f_pvalue.unwrap_or(f64::NAN),
-                    };
+                        // CR-01: null the just-written coefficients pointer so a caller
+                        // that inspects *out_core after the `false` return cannot see a
+                        // dangling/freed pointer. Callers currently ignore *out_core on
+                        // failure; this is defense-in-depth at the FFI boundary.
+                        *out_core = FitResultCore::default();
+                    });
                 } else {
                     (*out_inference) = FitResultInference::default();
                 }
@@ -416,64 +433,14 @@ pub unsafe extern "C" fn anofox_huber_fit(
 
             if !out_inference.is_null() {
                 if let Some(inf) = result.inference {
-                    let n = inf.std_errors.len();
-
-                    let std_err_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-                    let t_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-                    let p_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-                    let ci_lo_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-                    let ci_hi_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-
-                    if n > 0
-                        && (std_err_ptr.is_null()
-                            || t_val_ptr.is_null()
-                            || p_val_ptr.is_null()
-                            || ci_lo_ptr.is_null()
-                            || ci_hi_ptr.is_null())
-                    {
-                        if !std_err_ptr.is_null() {
-                            libc::free(std_err_ptr as *mut libc::c_void);
-                        }
-                        if !t_val_ptr.is_null() {
-                            libc::free(t_val_ptr as *mut libc::c_void);
-                        }
-                        if !p_val_ptr.is_null() {
-                            libc::free(p_val_ptr as *mut libc::c_void);
-                        }
-                        if !ci_lo_ptr.is_null() {
-                            libc::free(ci_lo_ptr as *mut libc::c_void);
-                        }
-                        if !ci_hi_ptr.is_null() {
-                            libc::free(ci_hi_ptr as *mut libc::c_void);
-                        }
+                    alloc_inference_arrays!(inf, out_inference, out_error, {
                         libc::free(coef_ptr as *mut libc::c_void);
-
-                        if !out_error.is_null() {
-                            (*out_error).set(
-                                ErrorCode::AllocationFailure,
-                                "Failed to allocate inference arrays",
-                            );
-                        }
-                        return false;
-                    }
-
-                    std::ptr::copy_nonoverlapping(inf.std_errors.as_ptr(), std_err_ptr, n);
-                    std::ptr::copy_nonoverlapping(inf.t_values.as_ptr(), t_val_ptr, n);
-                    std::ptr::copy_nonoverlapping(inf.p_values.as_ptr(), p_val_ptr, n);
-                    std::ptr::copy_nonoverlapping(inf.ci_lower.as_ptr(), ci_lo_ptr, n);
-                    std::ptr::copy_nonoverlapping(inf.ci_upper.as_ptr(), ci_hi_ptr, n);
-
-                    (*out_inference) = FitResultInference {
-                        std_errors: std_err_ptr,
-                        t_values: t_val_ptr,
-                        p_values: p_val_ptr,
-                        ci_lower: ci_lo_ptr,
-                        ci_upper: ci_hi_ptr,
-                        len: n,
-                        confidence_level: inf.confidence_level,
-                        f_statistic: inf.f_statistic.unwrap_or(f64::NAN),
-                        f_pvalue: inf.f_pvalue.unwrap_or(f64::NAN),
-                    };
+                        // CR-01: null the just-written coefficients pointer so a caller
+                        // that inspects *out_core after the `false` return cannot see a
+                        // dangling/freed pointer. Callers currently ignore *out_core on
+                        // failure; this is defense-in-depth at the FFI boundary.
+                        *out_core = FitResultCore::default();
+                    });
                 } else {
                     (*out_inference) = FitResultInference::default();
                 }
@@ -662,64 +629,14 @@ pub unsafe extern "C" fn anofox_ransac_fit(
 
             if !out_inference.is_null() {
                 if let Some(inf) = result.inference {
-                    let n = inf.std_errors.len();
-
-                    let std_err_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-                    let t_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-                    let p_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-                    let ci_lo_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-                    let ci_hi_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-
-                    if n > 0
-                        && (std_err_ptr.is_null()
-                            || t_val_ptr.is_null()
-                            || p_val_ptr.is_null()
-                            || ci_lo_ptr.is_null()
-                            || ci_hi_ptr.is_null())
-                    {
-                        if !std_err_ptr.is_null() {
-                            libc::free(std_err_ptr as *mut libc::c_void);
-                        }
-                        if !t_val_ptr.is_null() {
-                            libc::free(t_val_ptr as *mut libc::c_void);
-                        }
-                        if !p_val_ptr.is_null() {
-                            libc::free(p_val_ptr as *mut libc::c_void);
-                        }
-                        if !ci_lo_ptr.is_null() {
-                            libc::free(ci_lo_ptr as *mut libc::c_void);
-                        }
-                        if !ci_hi_ptr.is_null() {
-                            libc::free(ci_hi_ptr as *mut libc::c_void);
-                        }
+                    alloc_inference_arrays!(inf, out_inference, out_error, {
                         libc::free(coef_ptr as *mut libc::c_void);
-
-                        if !out_error.is_null() {
-                            (*out_error).set(
-                                ErrorCode::AllocationFailure,
-                                "Failed to allocate inference arrays",
-                            );
-                        }
-                        return false;
-                    }
-
-                    std::ptr::copy_nonoverlapping(inf.std_errors.as_ptr(), std_err_ptr, n);
-                    std::ptr::copy_nonoverlapping(inf.t_values.as_ptr(), t_val_ptr, n);
-                    std::ptr::copy_nonoverlapping(inf.p_values.as_ptr(), p_val_ptr, n);
-                    std::ptr::copy_nonoverlapping(inf.ci_lower.as_ptr(), ci_lo_ptr, n);
-                    std::ptr::copy_nonoverlapping(inf.ci_upper.as_ptr(), ci_hi_ptr, n);
-
-                    (*out_inference) = FitResultInference {
-                        std_errors: std_err_ptr,
-                        t_values: t_val_ptr,
-                        p_values: p_val_ptr,
-                        ci_lower: ci_lo_ptr,
-                        ci_upper: ci_hi_ptr,
-                        len: n,
-                        confidence_level: inf.confidence_level,
-                        f_statistic: inf.f_statistic.unwrap_or(f64::NAN),
-                        f_pvalue: inf.f_pvalue.unwrap_or(f64::NAN),
-                    };
+                        // CR-01: null the just-written coefficients pointer so a caller
+                        // that inspects *out_core after the `false` return cannot see a
+                        // dangling/freed pointer. Callers currently ignore *out_core on
+                        // failure; this is defense-in-depth at the FFI boundary.
+                        *out_core = FitResultCore::default();
+                    });
                 } else {
                     (*out_inference) = FitResultInference::default();
                 }
@@ -895,64 +812,14 @@ pub unsafe extern "C" fn anofox_theilsen_fit(
 
             if !out_inference.is_null() {
                 if let Some(inf) = result.inference {
-                    let n = inf.std_errors.len();
-
-                    let std_err_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-                    let t_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-                    let p_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-                    let ci_lo_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-                    let ci_hi_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-
-                    if n > 0
-                        && (std_err_ptr.is_null()
-                            || t_val_ptr.is_null()
-                            || p_val_ptr.is_null()
-                            || ci_lo_ptr.is_null()
-                            || ci_hi_ptr.is_null())
-                    {
-                        if !std_err_ptr.is_null() {
-                            libc::free(std_err_ptr as *mut libc::c_void);
-                        }
-                        if !t_val_ptr.is_null() {
-                            libc::free(t_val_ptr as *mut libc::c_void);
-                        }
-                        if !p_val_ptr.is_null() {
-                            libc::free(p_val_ptr as *mut libc::c_void);
-                        }
-                        if !ci_lo_ptr.is_null() {
-                            libc::free(ci_lo_ptr as *mut libc::c_void);
-                        }
-                        if !ci_hi_ptr.is_null() {
-                            libc::free(ci_hi_ptr as *mut libc::c_void);
-                        }
+                    alloc_inference_arrays!(inf, out_inference, out_error, {
                         libc::free(coef_ptr as *mut libc::c_void);
-
-                        if !out_error.is_null() {
-                            (*out_error).set(
-                                ErrorCode::AllocationFailure,
-                                "Failed to allocate inference arrays",
-                            );
-                        }
-                        return false;
-                    }
-
-                    std::ptr::copy_nonoverlapping(inf.std_errors.as_ptr(), std_err_ptr, n);
-                    std::ptr::copy_nonoverlapping(inf.t_values.as_ptr(), t_val_ptr, n);
-                    std::ptr::copy_nonoverlapping(inf.p_values.as_ptr(), p_val_ptr, n);
-                    std::ptr::copy_nonoverlapping(inf.ci_lower.as_ptr(), ci_lo_ptr, n);
-                    std::ptr::copy_nonoverlapping(inf.ci_upper.as_ptr(), ci_hi_ptr, n);
-
-                    (*out_inference) = FitResultInference {
-                        std_errors: std_err_ptr,
-                        t_values: t_val_ptr,
-                        p_values: p_val_ptr,
-                        ci_lower: ci_lo_ptr,
-                        ci_upper: ci_hi_ptr,
-                        len: n,
-                        confidence_level: inf.confidence_level,
-                        f_statistic: inf.f_statistic.unwrap_or(f64::NAN),
-                        f_pvalue: inf.f_pvalue.unwrap_or(f64::NAN),
-                    };
+                        // CR-01: null the just-written coefficients pointer so a caller
+                        // that inspects *out_core after the `false` return cannot see a
+                        // dangling/freed pointer. Callers currently ignore *out_core on
+                        // failure; this is defense-in-depth at the FFI boundary.
+                        *out_core = FitResultCore::default();
+                    });
                 } else {
                     (*out_inference) = FitResultInference::default();
                 }
@@ -1077,67 +944,14 @@ pub unsafe extern "C" fn anofox_ridge_fit(
             // Fill inference results if requested and available
             if !out_inference.is_null() {
                 if let Some(inf) = result.inference {
-                    let n = inf.std_errors.len();
-
-                    // Allocate arrays
-                    let std_err_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-                    let t_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-                    let p_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-                    let ci_lo_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-                    let ci_hi_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-
-                    if n > 0
-                        && (std_err_ptr.is_null()
-                            || t_val_ptr.is_null()
-                            || p_val_ptr.is_null()
-                            || ci_lo_ptr.is_null()
-                            || ci_hi_ptr.is_null())
-                    {
-                        // Free any allocated memory
-                        if !std_err_ptr.is_null() {
-                            libc::free(std_err_ptr as *mut libc::c_void);
-                        }
-                        if !t_val_ptr.is_null() {
-                            libc::free(t_val_ptr as *mut libc::c_void);
-                        }
-                        if !p_val_ptr.is_null() {
-                            libc::free(p_val_ptr as *mut libc::c_void);
-                        }
-                        if !ci_lo_ptr.is_null() {
-                            libc::free(ci_lo_ptr as *mut libc::c_void);
-                        }
-                        if !ci_hi_ptr.is_null() {
-                            libc::free(ci_hi_ptr as *mut libc::c_void);
-                        }
+                    alloc_inference_arrays!(inf, out_inference, out_error, {
                         libc::free(coef_ptr as *mut libc::c_void);
-
-                        if !out_error.is_null() {
-                            (*out_error).set(
-                                ErrorCode::AllocationFailure,
-                                "Failed to allocate inference arrays",
-                            );
-                        }
-                        return false;
-                    }
-
-                    // Copy data
-                    std::ptr::copy_nonoverlapping(inf.std_errors.as_ptr(), std_err_ptr, n);
-                    std::ptr::copy_nonoverlapping(inf.t_values.as_ptr(), t_val_ptr, n);
-                    std::ptr::copy_nonoverlapping(inf.p_values.as_ptr(), p_val_ptr, n);
-                    std::ptr::copy_nonoverlapping(inf.ci_lower.as_ptr(), ci_lo_ptr, n);
-                    std::ptr::copy_nonoverlapping(inf.ci_upper.as_ptr(), ci_hi_ptr, n);
-
-                    (*out_inference) = FitResultInference {
-                        std_errors: std_err_ptr,
-                        t_values: t_val_ptr,
-                        p_values: p_val_ptr,
-                        ci_lower: ci_lo_ptr,
-                        ci_upper: ci_hi_ptr,
-                        len: n,
-                        confidence_level: inf.confidence_level,
-                        f_statistic: inf.f_statistic.unwrap_or(f64::NAN),
-                        f_pvalue: inf.f_pvalue.unwrap_or(f64::NAN),
-                    };
+                        // CR-01: null the just-written coefficients pointer so a caller
+                        // that inspects *out_core after the `false` return cannot see a
+                        // dangling/freed pointer. Callers currently ignore *out_core on
+                        // failure; this is defense-in-depth at the FFI boundary.
+                        *out_core = FitResultCore::default();
+                    });
                 } else {
                     (*out_inference) = FitResultInference::default();
                 }
@@ -1477,67 +1291,14 @@ pub unsafe extern "C" fn anofox_wls_fit(
             // Fill inference results if requested and available
             if !out_inference.is_null() {
                 if let Some(inf) = result.inference {
-                    let n = inf.std_errors.len();
-
-                    // Allocate arrays
-                    let std_err_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-                    let t_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-                    let p_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-                    let ci_lo_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-                    let ci_hi_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-
-                    if n > 0
-                        && (std_err_ptr.is_null()
-                            || t_val_ptr.is_null()
-                            || p_val_ptr.is_null()
-                            || ci_lo_ptr.is_null()
-                            || ci_hi_ptr.is_null())
-                    {
-                        // Free any allocated memory
-                        if !std_err_ptr.is_null() {
-                            libc::free(std_err_ptr as *mut libc::c_void);
-                        }
-                        if !t_val_ptr.is_null() {
-                            libc::free(t_val_ptr as *mut libc::c_void);
-                        }
-                        if !p_val_ptr.is_null() {
-                            libc::free(p_val_ptr as *mut libc::c_void);
-                        }
-                        if !ci_lo_ptr.is_null() {
-                            libc::free(ci_lo_ptr as *mut libc::c_void);
-                        }
-                        if !ci_hi_ptr.is_null() {
-                            libc::free(ci_hi_ptr as *mut libc::c_void);
-                        }
+                    alloc_inference_arrays!(inf, out_inference, out_error, {
                         libc::free(coef_ptr as *mut libc::c_void);
-
-                        if !out_error.is_null() {
-                            (*out_error).set(
-                                ErrorCode::AllocationFailure,
-                                "Failed to allocate inference arrays",
-                            );
-                        }
-                        return false;
-                    }
-
-                    // Copy data
-                    std::ptr::copy_nonoverlapping(inf.std_errors.as_ptr(), std_err_ptr, n);
-                    std::ptr::copy_nonoverlapping(inf.t_values.as_ptr(), t_val_ptr, n);
-                    std::ptr::copy_nonoverlapping(inf.p_values.as_ptr(), p_val_ptr, n);
-                    std::ptr::copy_nonoverlapping(inf.ci_lower.as_ptr(), ci_lo_ptr, n);
-                    std::ptr::copy_nonoverlapping(inf.ci_upper.as_ptr(), ci_hi_ptr, n);
-
-                    (*out_inference) = FitResultInference {
-                        std_errors: std_err_ptr,
-                        t_values: t_val_ptr,
-                        p_values: p_val_ptr,
-                        ci_lower: ci_lo_ptr,
-                        ci_upper: ci_hi_ptr,
-                        len: n,
-                        confidence_level: inf.confidence_level,
-                        f_statistic: inf.f_statistic.unwrap_or(f64::NAN),
-                        f_pvalue: inf.f_pvalue.unwrap_or(f64::NAN),
-                    };
+                        // CR-01: null the just-written coefficients pointer so a caller
+                        // that inspects *out_core after the `false` return cannot see a
+                        // dangling/freed pointer. Callers currently ignore *out_core on
+                        // failure; this is defense-in-depth at the FFI boundary.
+                        *out_core = FitResultCore::default();
+                    });
                 } else {
                     (*out_inference) = FitResultInference::default();
                 }
@@ -2465,6 +2226,9 @@ pub unsafe extern "C" fn anofox_poisson_fit(
             // Fill inference if available
             if !out_inference.is_null() {
                 if let Some(inf) = result.inference {
+                    // NOTE: hand-written (not the alloc_inference_arrays! macro) — this GLM fit maps
+                    // `z_values` onto the t_values field and uses a lenient OOM path, a different
+                    // inference contract than the strict linear-model pattern the macro encodes.
                     let n = inf.std_errors.len();
                     let std_err_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
                     let t_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
@@ -2618,6 +2382,9 @@ pub unsafe extern "C" fn anofox_binomial_fit(
 
             if !out_inference.is_null() {
                 if let Some(inf) = result.inference {
+                    // NOTE: hand-written (not the alloc_inference_arrays! macro) — this GLM fit maps
+                    // `z_values` onto the t_values field and uses a lenient OOM path, a different
+                    // inference contract than the strict linear-model pattern the macro encodes.
                     let n = inf.std_errors.len();
                     let std_err_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
                     let t_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
@@ -2773,6 +2540,9 @@ pub unsafe extern "C" fn anofox_negbinomial_fit(
 
             if !out_inference.is_null() {
                 if let Some(inf) = result.inference {
+                    // NOTE: hand-written (not the alloc_inference_arrays! macro) — this GLM fit maps
+                    // `z_values` onto the t_values field and uses a lenient OOM path, a different
+                    // inference contract than the strict linear-model pattern the macro encodes.
                     let n = inf.std_errors.len();
                     let std_err_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
                     let t_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
@@ -2920,6 +2690,9 @@ pub unsafe extern "C" fn anofox_tweedie_fit(
 
             if !out_inference.is_null() {
                 if let Some(inf) = result.inference {
+                    // NOTE: hand-written (not the alloc_inference_arrays! macro) — this GLM fit maps
+                    // `z_values` onto the t_values field and uses a lenient OOM path, a different
+                    // inference contract than the strict linear-model pattern the macro encodes.
                     let n = inf.std_errors.len();
                     let std_err_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
                     let t_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
@@ -3066,6 +2839,9 @@ pub unsafe extern "C" fn anofox_gamma_fit(
 
             if !out_inference.is_null() {
                 if let Some(inf) = result.inference {
+                    // NOTE: hand-written (not the alloc_inference_arrays! macro) — this GLM fit maps
+                    // `z_values` onto the t_values field and uses a lenient OOM path, a different
+                    // inference contract than the strict linear-model pattern the macro encodes.
                     let n = inf.std_errors.len();
                     let std_err_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
                     let t_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
@@ -3216,6 +2992,9 @@ pub unsafe extern "C" fn anofox_logistic_fit(
 
             if !out_inference.is_null() {
                 if let Some(inf) = result.inference {
+                    // NOTE: hand-written (not the alloc_inference_arrays! macro) — this GLM fit maps
+                    // `z_values` onto the t_values field and uses a lenient OOM path, a different
+                    // inference contract than the strict linear-model pattern the macro encodes.
                     let n = inf.std_errors.len();
                     let std_err_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
                     let t_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
@@ -3423,6 +3202,9 @@ pub unsafe extern "C" fn anofox_alm_fit(
 
             if !out_inference.is_null() {
                 if let Some(inf) = result.inference {
+                    // NOTE: hand-written (not the alloc_inference_arrays! macro) — this fit uses the
+                    // `standard_errors` / `conf_int_*` field names and a lenient OOM path, a different
+                    // inference contract than the strict linear-model pattern the macro encodes.
                     let n = inf.standard_errors.len();
                     let std_err_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
                     let t_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;

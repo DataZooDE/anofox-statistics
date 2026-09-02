@@ -11,24 +11,24 @@ require anofox_statistics
 # Test 1.1: Perfect linear fit y = 2x + 1
 # From Rust test: test_simple_ols
 query I
-SELECT ROUND((anofox_stats_ols_fit([3.0, 5.0, 7.0, 9.0, 11.0], [[1.0, 2.0, 3.0, 4.0, 5.0]])).coefficients[1], 2);
+SELECT ROUND((ols_fit([3.0, 5.0, 7.0, 9.0, 11.0], [[1.0, 2.0, 3.0, 4.0, 5.0]])).coefficients[1], 2);
 ----
 2.0
 
 query I
-SELECT ROUND((anofox_stats_ols_fit([3.0, 5.0, 7.0, 9.0, 11.0], [[1.0, 2.0, 3.0, 4.0, 5.0]])).intercept, 2);
+SELECT ROUND((ols_fit([3.0, 5.0, 7.0, 9.0, 11.0], [[1.0, 2.0, 3.0, 4.0, 5.0]])).intercept, 2);
 ----
 1.0
 
 query I
-SELECT (anofox_stats_ols_fit([3.0, 5.0, 7.0, 9.0, 11.0], [[1.0, 2.0, 3.0, 4.0, 5.0]])).r_squared > 0.99;
+SELECT (ols_fit([3.0, 5.0, 7.0, 9.0, 11.0], [[1.0, 2.0, 3.0, 4.0, 5.0]])).r_squared > 0.99;
 ----
 true
 
 # Test 1.2: OLS with multiple features y = 1 + 2*x1 + 3*x2
 # Use distinct features to avoid multicollinearity
 query I
-SELECT ROUND((anofox_stats_ols_fit(
+SELECT ROUND((ols_fit(
     [6.0, 11.0, 16.0, 21.0, 26.0],
     [[1.0, 2.0, 3.0, 4.0, 5.0], [1.0, 2.0, 3.0, 4.0, 5.0]]
 )).r_squared, 1);
@@ -37,7 +37,7 @@ SELECT ROUND((anofox_stats_ols_fit(
 
 # Test 1.3: OLS with inference statistics enabled using MAP syntax
 query I
-SELECT (anofox_stats_ols_fit([3.0, 5.0, 7.0, 9.0, 11.0], [[1.0, 2.0, 3.0, 4.0, 5.0]], {'intercept': true, 'compute_inference': true})).f_statistic IS NOT NULL;
+SELECT (ols_fit([3.0, 5.0, 7.0, 9.0, 11.0], [[1.0, 2.0, 3.0, 4.0, 5.0]], {'intercept': true, 'compute_inference': true})).f_statistic IS NOT NULL;
 ----
 true
 
@@ -54,7 +54,7 @@ SELECT ROUND((ols_fit([3.0, 5.0, 7.0, 9.0, 11.0], [[1.0, 2.0, 3.0, 4.0, 5.0]])).
 # Test 2.1: Ridge with low alpha (should be close to OLS)
 # From Rust test: test_ridge_regression
 query I
-SELECT (anofox_stats_ridge_fit(
+SELECT (ridge_fit(
     [2.1, 4.0, 5.9, 8.1, 10.0, 11.9, 14.1, 16.0, 17.9, 20.1],
     [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]],
     {'alpha': 0.1}
@@ -64,11 +64,11 @@ true
 
 # Test 2.2: Ridge coefficient should be between 1.5 and 2.5
 query I
-SELECT (anofox_stats_ridge_fit(
+SELECT (ridge_fit(
     [2.1, 4.0, 5.9, 8.1, 10.0, 11.9, 14.1, 16.0, 17.9, 20.1],
     [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]],
     {'alpha': 0.1}
-)).coefficients[1] > 1.5 AND (anofox_stats_ridge_fit(
+)).coefficients[1] > 1.5 AND (ridge_fit(
     [2.1, 4.0, 5.9, 8.1, 10.0, 11.9, 14.1, 16.0, 17.9, 20.1],
     [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]],
     {'alpha': 0.1}
@@ -78,11 +78,11 @@ true
 
 # Test 2.3: Ridge produces valid coefficients with different alpha values
 query I
-SELECT (anofox_stats_ridge_fit(
+SELECT (ridge_fit(
     [2.1, 4.0, 5.9, 8.1, 10.0, 11.9, 14.1, 16.0, 17.9, 20.1],
     [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]],
     {'alpha': 0.1}
-)).coefficients[1] > 1.9 AND (anofox_stats_ridge_fit(
+)).coefficients[1] > 1.9 AND (ridge_fit(
     [2.1, 4.0, 5.9, 8.1, 10.0, 11.9, 14.1, 16.0, 17.9, 20.1],
     [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]],
     {'alpha': 0.1}
@@ -97,7 +97,7 @@ SELECT (anofox_stats_ridge_fit(
 # Test 3.1: Elastic Net with alpha=0.1, l1_ratio=0.5
 # From Rust test: test_elasticnet_regression
 query I
-SELECT (anofox_stats_elasticnet_fit(
+SELECT (elasticnet_fit(
     [2.1, 4.0, 5.9, 8.1, 10.0, 11.9, 14.1, 16.0, 17.9, 20.1],
     [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]],
     {'alpha': 0.1, 'l1_ratio': 0.5}
@@ -107,11 +107,11 @@ true
 
 # Test 3.2: Elastic Net coefficient should be reasonable
 query I
-SELECT (anofox_stats_elasticnet_fit(
+SELECT (elasticnet_fit(
     [2.1, 4.0, 5.9, 8.1, 10.0, 11.9, 14.1, 16.0, 17.9, 20.1],
     [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]],
     {'alpha': 0.1, 'l1_ratio': 0.5}
-)).coefficients[1] > 1.5 AND (anofox_stats_elasticnet_fit(
+)).coefficients[1] > 1.5 AND (elasticnet_fit(
     [2.1, 4.0, 5.9, 8.1, 10.0, 11.9, 14.1, 16.0, 17.9, 20.1],
     [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]],
     {'alpha': 0.1, 'l1_ratio': 0.5}
@@ -125,7 +125,7 @@ true
 
 # Test 4.1: WLS with uniform weights (should match OLS)
 query I
-SELECT ROUND((anofox_stats_wls_fit(
+SELECT ROUND((wls_fit(
     [3.0, 5.0, 7.0, 9.0, 11.0],
     [[1.0, 2.0, 3.0, 4.0, 5.0]],
     [1.0, 1.0, 1.0, 1.0, 1.0]
@@ -134,7 +134,7 @@ SELECT ROUND((anofox_stats_wls_fit(
 2.0
 
 query I
-SELECT ROUND((anofox_stats_wls_fit(
+SELECT ROUND((wls_fit(
     [3.0, 5.0, 7.0, 9.0, 11.0],
     [[1.0, 2.0, 3.0, 4.0, 5.0]],
     [1.0, 1.0, 1.0, 1.0, 1.0]
@@ -144,7 +144,7 @@ SELECT ROUND((anofox_stats_wls_fit(
 
 # Test 4.2: WLS with varying weights
 query I
-SELECT (anofox_stats_wls_fit(
+SELECT (wls_fit(
     [3.0, 5.0, 7.0, 9.0, 11.0],
     [[1.0, 2.0, 3.0, 4.0, 5.0]],
     [1.0, 2.0, 3.0, 2.0, 1.0]
@@ -158,7 +158,7 @@ SELECT (anofox_stats_wls_fit(
 
 # Test 5.1: RLS scalar function basic test
 query I
-SELECT (anofox_stats_rls_fit(
+SELECT (rls_fit(
     [3.0, 5.0, 7.0, 9.0, 11.0, 13.0, 15.0, 17.0, 19.0, 21.0],
     [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]]
 )).n_observations;
@@ -167,10 +167,10 @@ SELECT (anofox_stats_rls_fit(
 
 # Test 5.2: RLS coefficient should converge to approximately 2 (y = 2x + 1)
 query I
-SELECT (anofox_stats_rls_fit(
+SELECT (rls_fit(
     [3.0, 5.0, 7.0, 9.0, 11.0, 13.0, 15.0, 17.0, 19.0, 21.0, 23.0, 25.0, 27.0, 29.0, 31.0, 33.0, 35.0, 37.0, 39.0, 41.0],
     [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0, 18.0, 19.0, 20.0]]
-)).coefficients[1] > 1.9 AND (anofox_stats_rls_fit(
+)).coefficients[1] > 1.9 AND (rls_fit(
     [3.0, 5.0, 7.0, 9.0, 11.0, 13.0, 15.0, 17.0, 19.0, 21.0, 23.0, 25.0, 27.0, 29.0, 31.0, 33.0, 35.0, 37.0, 39.0, 41.0],
     [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0, 18.0, 19.0, 20.0]]
 )).coefficients[1] < 2.1;
@@ -202,7 +202,7 @@ true
 
 # Test 6.3: VIF for full name
 query I
-SELECT ROUND(anofox_stats_vif([[1.0, 2.0, 3.0, 4.0, 5.0]])[1], 2);
+SELECT ROUND(vif([[1.0, 2.0, 3.0, 4.0, 5.0]])[1], 2);
 ----
 1.0
 
@@ -232,12 +232,12 @@ true
 
 # Test 7.4: Full names work
 query I
-SELECT ROUND(anofox_stats_aic(10.0, 100, 3), 2);
+SELECT ROUND(aic(10.0, 100, 3), 2);
 ----
 -224.26
 
 query I
-SELECT ROUND(anofox_stats_bic(10.0, 100, 3), 2);
+SELECT ROUND(bic(10.0, 100, 3), 2);
 ----
 -216.44
 
@@ -274,7 +274,7 @@ true
 
 # Test 8.3: Full name works
 query I
-SELECT (anofox_stats_jarque_bera([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0])).n;
+SELECT (jarque_bera([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0])).n;
 ----
 10
 
@@ -302,7 +302,7 @@ SELECT ROUND((residuals_diagnostics([1.0, 2.0, 3.0, 4.0, 5.0], [1.1, 1.9, 3.0, 4
 
 # Test 9.2: Full name works
 query I
-SELECT list_count((anofox_stats_residuals_diagnostics([1.0, 2.0, 3.0, 4.0, 5.0], [1.1, 1.9, 3.0, 4.1, 4.9])).raw);
+SELECT list_count((residuals_diagnostics([1.0, 2.0, 3.0, 4.0, 5.0], [1.1, 1.9, 3.0, 4.1, 4.9])).raw);
 ----
 5
 
@@ -326,7 +326,7 @@ WITH data AS (
 )
 SELECT
     grp,
-    ROUND((anofox_stats_ols_fit_agg(y, [x])).coefficients[1], 1) as coef
+    ROUND((ols_fit_agg(y, [x])).coefficients[1], 1) as coef
 FROM data
 GROUP BY grp
 ORDER BY grp;
@@ -343,7 +343,7 @@ WITH data AS (
     FROM generate_series(1, 50) t(i)
 )
 SELECT
-    ROUND((anofox_stats_ridge_fit_agg(y, [x], {'alpha': 0.1})).coefficients[1], 1) as coef
+    ROUND((ridge_fit_agg(y, [x], {'alpha': 0.1})).coefficients[1], 1) as coef
 FROM data;
 ----
 2.0
@@ -357,7 +357,7 @@ WITH data AS (
     FROM generate_series(1, 50) t(i)
 )
 SELECT
-    (anofox_stats_rls_fit_agg(y, [x])).n_observations
+    (rls_fit_agg(y, [x])).n_observations
 FROM data;
 ----
 50
@@ -398,23 +398,23 @@ SELECT list_count((residuals_diagnostics_agg(y, y_hat)).raw) FROM data;
 
 # Test 11.1: Basic prediction
 query I
-SELECT list_count(anofox_stats_predict([[1.0, 2.0, 3.0, 4.0, 5.0]], [2.0], 1.0));
+SELECT list_count(predict([[1.0, 2.0, 3.0, 4.0, 5.0]], [2.0], 1.0));
 ----
 5
 
 # Test 11.2: Prediction values (y = 2x + 1)
 query I
-SELECT ROUND(anofox_stats_predict([[1.0, 2.0, 3.0]], [2.0], 1.0)[1], 2);
+SELECT ROUND(predict([[1.0, 2.0, 3.0]], [2.0], 1.0)[1], 2);
 ----
 3.0
 
 query I
-SELECT ROUND(anofox_stats_predict([[1.0, 2.0, 3.0]], [2.0], 1.0)[2], 2);
+SELECT ROUND(predict([[1.0, 2.0, 3.0]], [2.0], 1.0)[2], 2);
 ----
 5.0
 
 query I
-SELECT ROUND(anofox_stats_predict([[1.0, 2.0, 3.0]], [2.0], 1.0)[3], 2);
+SELECT ROUND(predict([[1.0, 2.0, 3.0]], [2.0], 1.0)[3], 2);
 ----
 7.0
 
@@ -434,7 +434,7 @@ WITH data AS (
 SELECT COUNT(*) FROM (
     SELECT
         idx,
-        (anofox_stats_ols_fit_agg(y, [x]) OVER (
+        (ols_fit_agg(y, [x]) OVER (
             ORDER BY idx
             ROWS BETWEEN 4 PRECEDING AND CURRENT ROW
         )).n_observations as n
@@ -449,18 +449,18 @@ SELECT COUNT(*) FROM (
 
 # Test 13.1: Minimum observations (3 for single feature with intercept)
 query I
-SELECT (anofox_stats_ols_fit([3.0, 5.0, 7.0], [[1.0, 2.0, 3.0]])).r_squared IS NOT NULL;
+SELECT (ols_fit([3.0, 5.0, 7.0], [[1.0, 2.0, 3.0]])).r_squared IS NOT NULL;
 ----
 true
 
 # Test 13.2: Model metadata
 query I
-SELECT (anofox_stats_ols_fit([3.0, 5.0, 7.0, 9.0, 11.0], [[1.0, 2.0, 3.0, 4.0, 5.0]])).n_features;
+SELECT (ols_fit([3.0, 5.0, 7.0, 9.0, 11.0], [[1.0, 2.0, 3.0, 4.0, 5.0]])).n_features;
 ----
 1
 
 query I
-SELECT (anofox_stats_ols_fit([3.0, 5.0, 7.0, 9.0, 11.0], [[1.0, 2.0, 3.0, 4.0, 5.0]])).n_observations;
+SELECT (ols_fit([3.0, 5.0, 7.0, 9.0, 11.0], [[1.0, 2.0, 3.0, 4.0, 5.0]])).n_observations;
 ----
 5
 
@@ -506,7 +506,7 @@ true
 # Test 15.1: Ridge regression produces valid results with low alpha
 # Note: Coefficient shrinkage effect may not be visible with near-perfect fit data
 query I
-SELECT (anofox_stats_ridge_fit(
+SELECT (ridge_fit(
     [3.0, 5.0, 7.0, 9.0, 11.0, 13.0, 15.0, 17.0, 19.0, 21.0],
     [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]],
     {'alpha': 0.001}
@@ -516,7 +516,7 @@ SELECT (anofox_stats_ridge_fit(
 
 # Test 15.2: Ridge with high alpha produces valid coefficients
 query I
-SELECT (anofox_stats_ridge_fit(
+SELECT (ridge_fit(
     [3.0, 5.0, 7.0, 9.0, 11.0, 13.0, 15.0, 17.0, 19.0, 21.0],
     [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]],
     {'alpha': 100.0}
@@ -526,7 +526,7 @@ SELECT (anofox_stats_ridge_fit(
 
 # Test 15.3: Alpha = 0 should give OLS-like results
 query I
-SELECT ABS((anofox_stats_ridge_fit(
+SELECT ABS((ridge_fit(
     [3.0, 5.0, 7.0, 9.0, 11.0],
     [[1.0, 2.0, 3.0, 4.0, 5.0]],
     {'alpha': 0.0}
@@ -541,7 +541,7 @@ true
 # Test 16.1: Lasso-like behavior (l1_ratio = 1.0)
 # From Rust test: test_elasticnet_lasso_like
 query I
-SELECT (anofox_stats_elasticnet_fit(
+SELECT (elasticnet_fit(
     [3.0, 5.0, 7.0, 9.0, 11.0, 13.0, 15.0, 17.0, 19.0, 21.0],
     [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]],
     {'alpha': 0.1, 'l1_ratio': 1.0}
@@ -552,7 +552,7 @@ true
 # Test 16.2: Ridge-like behavior (l1_ratio = 0.0)
 # From Rust test: test_elasticnet_ridge_like
 query I
-SELECT (anofox_stats_elasticnet_fit(
+SELECT (elasticnet_fit(
     [3.0, 5.0, 7.0, 9.0, 11.0, 13.0, 15.0, 17.0, 19.0, 21.0],
     [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]],
     {'alpha': 0.1, 'l1_ratio': 0.0}
@@ -562,7 +562,7 @@ true
 
 # Test 16.3: Elastic Net produces valid coefficients with different alpha values
 query I
-SELECT (anofox_stats_elasticnet_fit(
+SELECT (elasticnet_fit(
     [2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 14.0, 16.0, 18.0, 20.0],
     [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]],
     {'alpha': 1.0, 'l1_ratio': 1.0}
@@ -572,11 +572,11 @@ SELECT (anofox_stats_elasticnet_fit(
 
 # Test 16.4: Mixed penalty (l1_ratio = 0.5)
 query I
-SELECT (anofox_stats_elasticnet_fit(
+SELECT (elasticnet_fit(
     [3.0, 5.0, 7.0, 9.0, 11.0, 13.0, 15.0, 17.0, 19.0, 21.0],
     [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]],
     {'alpha': 0.1, 'l1_ratio': 0.5}
-)).coefficients[1] > 1.5 AND (anofox_stats_elasticnet_fit(
+)).coefficients[1] > 1.5 AND (elasticnet_fit(
     [3.0, 5.0, 7.0, 9.0, 11.0, 13.0, 15.0, 17.0, 19.0, 21.0],
     [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]],
     {'alpha': 0.1, 'l1_ratio': 0.5}
@@ -592,7 +592,7 @@ true
 # From Rust test: test_wls_heteroscedastic
 # Higher weights on middle observations should influence fit
 query I
-SELECT (anofox_stats_wls_fit(
+SELECT (wls_fit(
     [3.0, 5.0, 7.0, 9.0, 11.0, 13.0, 15.0, 17.0, 19.0, 21.0],
     [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]],
     [1.0, 1.0, 1.0, 10.0, 10.0, 10.0, 10.0, 1.0, 1.0, 1.0]
@@ -602,7 +602,7 @@ true
 
 # Test 17.2: WLS coefficient should be close to 2 for y = 2x + 1
 query I
-SELECT ABS((anofox_stats_wls_fit(
+SELECT ABS((wls_fit(
     [3.0, 5.0, 7.0, 9.0, 11.0, 13.0, 15.0, 17.0, 19.0, 21.0],
     [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]],
     [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
@@ -613,11 +613,11 @@ true
 # Test 17.3: WLS with extreme weight differences
 # Points with very low weights should have less influence
 query I
-SELECT (anofox_stats_wls_fit(
+SELECT (wls_fit(
     [3.0, 5.0, 100.0, 9.0, 11.0],
     [[1.0, 2.0, 3.0, 4.0, 5.0]],
     [1.0, 1.0, 0.001, 1.0, 1.0]
-)).coefficients[1] > 1.5 AND (anofox_stats_wls_fit(
+)).coefficients[1] > 1.5 AND (wls_fit(
     [3.0, 5.0, 100.0, 9.0, 11.0],
     [[1.0, 2.0, 3.0, 4.0, 5.0]],
     [1.0, 1.0, 0.001, 1.0, 1.0]
@@ -674,7 +674,7 @@ true
 # Test 19.1: Highly correlated features should have high VIF
 # From Rust test: test_vif_correlated_features
 query I
-SELECT (anofox_stats_vif([
+SELECT (vif([
     [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0],
     [1.1, 2.1, 3.1, 4.1, 5.1, 6.1, 7.1, 8.1, 9.1, 10.1]
 ]))[1] > 100.0;
@@ -684,7 +684,7 @@ true
 # Test 19.2: Uncorrelated features should have low VIF (close to 1)
 # From Rust test: test_vif_uncorrelated
 query I
-SELECT (anofox_stats_vif([
+SELECT (vif([
     [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0],
     [10.0, 1.0, 8.0, 3.0, 6.0, 5.0, 4.0, 7.0, 2.0, 9.0]
 ]))[1] < 5.0;
@@ -693,7 +693,7 @@ true
 
 # Test 19.3: Three features with partial correlation
 query I
-SELECT list_count(anofox_stats_vif([
+SELECT list_count(vif([
     [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0],
     [10.0, 1.0, 8.0, 3.0, 6.0, 5.0, 4.0, 7.0, 2.0, 9.0],
     [2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 14.0, 16.0, 18.0, 20.0]
@@ -708,7 +708,7 @@ SELECT list_count(anofox_stats_vif([
 # Test 20.1: RLS basic function test (2-argument form)
 # From Rust test: test_rls_no_forgetting
 query I
-SELECT (anofox_stats_rls_fit(
+SELECT (rls_fit(
     [3.0, 5.0, 7.0, 9.0, 11.0, 13.0, 15.0, 17.0, 19.0, 21.0],
     [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]]
 )).n_observations;
@@ -717,7 +717,7 @@ SELECT (anofox_stats_rls_fit(
 
 # Test 20.2: RLS with noisy data produces coefficients
 query I
-SELECT (anofox_stats_rls_fit(
+SELECT (rls_fit(
     [2.1, 4.0, 5.9, 8.1, 10.0, 11.9, 14.1, 16.0, 17.9, 20.1],
     [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]]
 )).coefficients IS NOT NULL;
@@ -727,7 +727,7 @@ SELECT (anofox_stats_rls_fit(
 # Test 20.3: RLS multivariate (2 features)
 # From Rust test: test_rls_multivariate
 query I
-SELECT (anofox_stats_rls_fit(
+SELECT (rls_fit(
     [5.0, 8.0, 11.0, 14.0, 17.0, 20.0, 23.0, 26.0, 29.0, 32.0],
     [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0],
      [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]]
@@ -737,7 +737,7 @@ SELECT (anofox_stats_rls_fit(
 
 # Test 20.4: RLS returns correct observation count
 query I
-SELECT (anofox_stats_rls_fit(
+SELECT (rls_fit(
     [2.1, 4.0, 5.9, 8.1, 10.0, 11.9, 14.1, 16.0, 17.9, 20.1],
     [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]]
 )).n_observations;
@@ -750,7 +750,7 @@ SELECT (anofox_stats_rls_fit(
 
 # Test 21.1: t-values should be returned when inference is enabled
 query I
-SELECT list_count((anofox_stats_ols_fit(
+SELECT list_count((ols_fit(
     [3.0, 5.0, 7.0, 9.0, 11.0, 13.0, 15.0, 17.0, 19.0, 21.0],
     [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]],
     {'intercept': true, 'compute_inference': true}
@@ -760,7 +760,7 @@ SELECT list_count((anofox_stats_ols_fit(
 
 # Test 21.2: p-values should be very small for good fit with noisy data
 query I
-SELECT (anofox_stats_ols_fit(
+SELECT (ols_fit(
     [2.1, 4.0, 5.9, 8.1, 10.0, 11.9, 14.1, 16.0, 17.9, 20.1],
     [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]],
     {'intercept': true, 'compute_inference': true}
@@ -770,11 +770,11 @@ SELECT (anofox_stats_ols_fit(
 
 # Test 21.3: Confidence intervals are returned
 query I
-SELECT (anofox_stats_ols_fit(
+SELECT (ols_fit(
     [2.1, 4.0, 5.9, 8.1, 10.0, 11.9, 14.1, 16.0, 17.9, 20.1],
     [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]],
     {'intercept': true, 'compute_inference': true}
-)).ci_lower IS NOT NULL AND (anofox_stats_ols_fit(
+)).ci_lower IS NOT NULL AND (ols_fit(
     [2.1, 4.0, 5.9, 8.1, 10.0, 11.9, 14.1, 16.0, 17.9, 20.1],
     [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]],
     {'intercept': true, 'compute_inference': true}
@@ -784,7 +784,7 @@ SELECT (anofox_stats_ols_fit(
 
 # Test 21.4: F-statistic should be significant for good fit
 query I
-SELECT (anofox_stats_ols_fit(
+SELECT (ols_fit(
     [2.1, 4.0, 5.9, 8.1, 10.0, 11.9, 14.1, 16.0, 17.9, 20.1],
     [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]],
     {'intercept': true, 'compute_inference': true}
@@ -794,10 +794,10 @@ SELECT (anofox_stats_ols_fit(
 
 # Test 21.5: Adjusted R-squared should be slightly less than R-squared
 query I
-SELECT (anofox_stats_ols_fit(
+SELECT (ols_fit(
     [3.0, 5.0, 7.0, 9.0, 11.0, 13.0, 15.0, 17.0, 19.0, 21.0],
     [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]]
-)).adj_r_squared <= (anofox_stats_ols_fit(
+)).adj_r_squared <= (ols_fit(
     [3.0, 5.0, 7.0, 9.0, 11.0, 13.0, 15.0, 17.0, 19.0, 21.0],
     [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]]
 )).r_squared;
@@ -810,7 +810,7 @@ SELECT (anofox_stats_ols_fit(
 
 # Test 22.1: Multivariate prediction (2 features)
 query I
-SELECT ROUND(anofox_stats_predict(
+SELECT ROUND(predict(
     [[1.0, 2.0, 3.0], [1.0, 1.0, 1.0]],
     [2.0, 3.0],
     1.0
@@ -819,7 +819,7 @@ SELECT ROUND(anofox_stats_predict(
 6.0
 
 query I
-SELECT ROUND(anofox_stats_predict(
+SELECT ROUND(predict(
     [[1.0, 2.0, 3.0], [1.0, 1.0, 1.0]],
     [2.0, 3.0],
     1.0
@@ -829,7 +829,7 @@ SELECT ROUND(anofox_stats_predict(
 
 # Test 22.2: Prediction without intercept (intercept = 0)
 query I
-SELECT ROUND(anofox_stats_predict(
+SELECT ROUND(predict(
     [[1.0, 2.0, 3.0]],
     [2.0],
     0.0
@@ -839,7 +839,7 @@ SELECT ROUND(anofox_stats_predict(
 
 # Test 22.3: Larger prediction set
 query I
-SELECT list_count(anofox_stats_predict(
+SELECT list_count(predict(
     [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0,
       11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0, 18.0, 19.0, 20.0]],
     [2.0],
@@ -871,7 +871,7 @@ WITH data AS (
 windowed AS (
     SELECT
         grp,
-        (anofox_stats_ols_fit_agg(y, [x]) OVER (PARTITION BY grp)).coefficients[1] as coef
+        (ols_fit_agg(y, [x]) OVER (PARTITION BY grp)).coefficients[1] as coef
     FROM data
 )
 SELECT grp, ROUND(MAX(coef), 1) as coef
@@ -894,7 +894,7 @@ WITH data AS (
 SELECT COUNT(*) FROM (
     SELECT
         idx,
-        (anofox_stats_ols_fit_agg(y, [x]) OVER (
+        (ols_fit_agg(y, [x]) OVER (
             ORDER BY idx
             ROWS BETWEEN 2 PRECEDING AND CURRENT ROW
         )).n_observations as n
@@ -911,7 +911,7 @@ WITH data AS (
         CAST(2*i + 1 AS DOUBLE) as y
     FROM generate_series(1, 20) t(i)
 )
-SELECT (anofox_stats_ols_fit_agg(y, [x]) OVER ()).n_observations FROM data LIMIT 1;
+SELECT (ols_fit_agg(y, [x]) OVER ()).n_observations FROM data LIMIT 1;
 ----
 20
 
@@ -921,7 +921,7 @@ SELECT (anofox_stats_ols_fit_agg(y, [x]) OVER ()).n_observations FROM data LIMIT
 
 # Test 24.1: Ridge with inference enabled returns std_errors using MAP syntax
 query I
-SELECT list_count((anofox_stats_ridge_fit(
+SELECT list_count((ridge_fit(
     [2.1, 4.0, 5.9, 8.1, 10.0, 11.9, 14.1, 16.0, 17.9, 20.1],
     [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]],
     {'alpha': 0.1, 'intercept': true, 'compute_inference': true}
@@ -931,11 +931,11 @@ SELECT list_count((anofox_stats_ridge_fit(
 
 # Test 24.2: Ridge p-values should be between 0 and 1
 query I
-SELECT (anofox_stats_ridge_fit(
+SELECT (ridge_fit(
     [2.1, 4.0, 5.9, 8.1, 10.0, 11.9, 14.1, 16.0, 17.9, 20.1],
     [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]],
     {'alpha': 0.1, 'intercept': true, 'compute_inference': true}
-)).p_values[1] >= 0.0 AND (anofox_stats_ridge_fit(
+)).p_values[1] >= 0.0 AND (ridge_fit(
     [2.1, 4.0, 5.9, 8.1, 10.0, 11.9, 14.1, 16.0, 17.9, 20.1],
     [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]],
     {'alpha': 0.1, 'intercept': true, 'compute_inference': true}
@@ -945,11 +945,11 @@ SELECT (anofox_stats_ridge_fit(
 
 # Test 24.3: Ridge confidence intervals
 query I
-SELECT (anofox_stats_ridge_fit(
+SELECT (ridge_fit(
     [2.1, 4.0, 5.9, 8.1, 10.0, 11.9, 14.1, 16.0, 17.9, 20.1],
     [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]],
     {'alpha': 0.1, 'intercept': true, 'compute_inference': true}
-)).ci_lower IS NOT NULL AND (anofox_stats_ridge_fit(
+)).ci_lower IS NOT NULL AND (ridge_fit(
     [2.1, 4.0, 5.9, 8.1, 10.0, 11.9, 14.1, 16.0, 17.9, 20.1],
     [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]],
     {'alpha': 0.1, 'intercept': true, 'compute_inference': true}
@@ -959,7 +959,7 @@ SELECT (anofox_stats_ridge_fit(
 
 # Test 24.4: Ridge t-values should exist
 query I
-SELECT (anofox_stats_ridge_fit(
+SELECT (ridge_fit(
     [2.1, 4.0, 5.9, 8.1, 10.0, 11.9, 14.1, 16.0, 17.9, 20.1],
     [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]],
     {'alpha': 0.1, 'intercept': true, 'compute_inference': true}
@@ -973,7 +973,7 @@ SELECT (anofox_stats_ridge_fit(
 
 # Test 25.1: WLS with inference enabled returns std_errors using MAP syntax
 query I
-SELECT list_count((anofox_stats_wls_fit(
+SELECT list_count((wls_fit(
     [3.0, 5.0, 7.0, 9.0, 11.0, 13.0, 15.0, 17.0, 19.0, 21.0],
     [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]],
     [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
@@ -984,12 +984,12 @@ SELECT list_count((anofox_stats_wls_fit(
 
 # Test 25.2: WLS p-values should be between 0 and 1
 query I
-SELECT (anofox_stats_wls_fit(
+SELECT (wls_fit(
     [3.0, 5.0, 7.0, 9.0, 11.0, 13.0, 15.0, 17.0, 19.0, 21.0],
     [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]],
     [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
     {'intercept': true, 'compute_inference': true}
-)).p_values[1] >= 0.0 AND (anofox_stats_wls_fit(
+)).p_values[1] >= 0.0 AND (wls_fit(
     [3.0, 5.0, 7.0, 9.0, 11.0, 13.0, 15.0, 17.0, 19.0, 21.0],
     [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]],
     [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
@@ -1000,7 +1000,7 @@ SELECT (anofox_stats_wls_fit(
 
 # Test 25.3: WLS confidence intervals
 query I
-SELECT (anofox_stats_wls_fit(
+SELECT (wls_fit(
     [3.0, 5.0, 7.0, 9.0, 11.0, 13.0, 15.0, 17.0, 19.0, 21.0],
     [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]],
     [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
@@ -1011,7 +1011,7 @@ SELECT (anofox_stats_wls_fit(
 
 # Test 25.4: WLS F-statistic should exist
 query I
-SELECT (anofox_stats_wls_fit(
+SELECT (wls_fit(
     [3.0, 5.0, 7.0, 9.0, 11.0, 13.0, 15.0, 17.0, 19.0, 21.0],
     [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]],
     [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
@@ -1022,7 +1022,7 @@ SELECT (anofox_stats_wls_fit(
 
 # Test 25.5: WLS with inference should be significant for good fit
 query I
-SELECT (anofox_stats_wls_fit(
+SELECT (wls_fit(
     [3.0, 5.0, 7.0, 9.0, 11.0, 13.0, 15.0, 17.0, 19.0, 21.0],
     [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]],
     [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
@@ -1044,7 +1044,7 @@ WITH data AS (
     FROM generate_series(1, 50) t(i)
 )
 SELECT
-    (anofox_stats_elasticnet_fit_agg(y, [x], {'alpha': 0.1, 'l1_ratio': 0.5})).n_observations
+    (elasticnet_fit_agg(y, [x], {'alpha': 0.1, 'l1_ratio': 0.5})).n_observations
 FROM data;
 ----
 50
@@ -1058,7 +1058,7 @@ WITH data AS (
     FROM generate_series(1, 50) t(i)
 )
 SELECT
-    (anofox_stats_elasticnet_fit_agg(y, [x], {'alpha': 0.1, 'l1_ratio': 0.5})).coefficients[1] > 1.5
+    (elasticnet_fit_agg(y, [x], {'alpha': 0.1, 'l1_ratio': 0.5})).coefficients[1] > 1.5
 FROM data;
 ----
 true
@@ -1077,7 +1077,7 @@ WITH data AS (
     FROM generate_series(1, 50) t(i)
 )
 SELECT
-    (anofox_stats_wls_fit_agg(y, [x], w)).n_observations
+    (wls_fit_agg(y, [x], w)).n_observations
 FROM data;
 ----
 50
@@ -1092,7 +1092,7 @@ WITH data AS (
     FROM generate_series(1, 50) t(i)
 )
 SELECT
-    (anofox_stats_wls_fit_agg(y, [x], w)).r_squared > 0.99
+    (wls_fit_agg(y, [x], w)).r_squared > 0.99
 FROM data;
 ----
 true

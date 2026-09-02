@@ -85,7 +85,7 @@ true
 
 # TEST 6: Alias verification
 query I
-SELECT (anofox_stats_binom_test_agg(success)).statistic IS NOT NULL FROM binom_data;
+SELECT (binom_test_agg(success)).statistic IS NOT NULL FROM binom_data;
 ----
 true
 
@@ -151,7 +151,7 @@ true
 
 # TEST 11: Alias verification
 query I
-SELECT (anofox_stats_prop_test_one_agg(success)).statistic IS NOT NULL FROM binom_data;
+SELECT (prop_test_one_agg(success)).statistic IS NOT NULL FROM binom_data;
 ----
 true
 
@@ -254,7 +254,7 @@ true
 
 # TEST 17: Alias verification
 query I
-SELECT (anofox_stats_prop_test_two_agg(success, grp)).statistic IS NOT NULL FROM two_prop_data;
+SELECT (prop_test_two_agg(success, grp)).statistic IS NOT NULL FROM two_prop_data;
 ----
 true
 

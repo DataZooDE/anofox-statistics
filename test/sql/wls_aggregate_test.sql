@@ -1,4 +1,4 @@
--- Test suite for anofox_stats_wls_fit_agg aggregate function (Weighted Least Squares)
+-- Test suite for wls_fit_agg aggregate function (Weighted Least Squares)
 
 LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
 
@@ -25,13 +25,13 @@ SELECT
     customer_segment,
     result.coefficients[1] as tenure_effect,
     result.intercept,
-    result.r2,
+    result.r_squared,
     result.weighted_mse,
     result.n_obs
 FROM (
     SELECT
         customer_segment,
-        anofox_stats_wls_fit_agg(
+        wls_fit_agg(
             monthly_revenue,
             [customer_tenure_months],
             weight,
@@ -45,16 +45,16 @@ ORDER BY customer_segment;
 SELECT '=== Test 2: WLS vs OLS comparison ===' as test_name;
 SELECT
     customer_segment,
-    wls.r2 as wls_r2,
-    ols.r2 as ols_r2,
+    wls.r_squared as wls_r2,
+    ols.r_squared as ols_r2,
     wls.coefficients[1] as wls_coef,
     ols.coefficients[1] as ols_coef,
-    (wls.r2 - ols.r2) as r2_improvement
+    (wls.r_squared - ols.r_squared) as r2_improvement
 FROM (
     SELECT
         customer_segment,
-        anofox_stats_wls_fit_agg(monthly_revenue, [customer_tenure_months], weight, {'intercept': true}) as wls,
-        anofox_stats_ols_fit_agg(monthly_revenue, [customer_tenure_months], {'intercept': true}) as ols
+        wls_fit_agg(monthly_revenue, [customer_tenure_months], weight, {'intercept': true}) as wls,
+        ols_fit_agg(monthly_revenue, [customer_tenure_months], {'intercept': true}) as ols
     FROM wls_agg_data
     GROUP BY customer_segment
 ) sub
@@ -69,7 +69,7 @@ SELECT
 FROM (
     SELECT
         customer_segment,
-        anofox_stats_wls_fit_agg(
+        wls_fit_agg(
             monthly_revenue,
             [customer_tenure_months],
             weight,
@@ -95,12 +95,12 @@ SELECT
     grp,
     result.coefficients,
     result.intercept,
-    result.r2,
+    result.r_squared,
     result.adj_r2
 FROM (
     SELECT
         grp,
-        anofox_stats_wls_fit_agg(y, [x1, x2, x3], w, {'intercept': true}) as result
+        wls_fit_agg(y, [x1, x2, x3], w, {'intercept': true}) as result
     FROM wls_multi_data
     GROUP BY grp
 ) sub;
@@ -118,9 +118,9 @@ SELECT
     'WLS with uniform weights' as method,
     result.coefficients[1] as slope,
     result.intercept,
-    result.r2
+    result.r_squared
 FROM (
-    SELECT anofox_stats_wls_fit_agg(y, [x], weight, {'intercept': true}) as result
+    SELECT wls_fit_agg(y, [x], weight, {'intercept': true}) as result
     FROM uniform_weight_data
 ) sub
 UNION ALL
@@ -128,9 +128,9 @@ SELECT
     'OLS for comparison' as method,
     result.coefficients[1] as slope,
     result.intercept,
-    result.r2
+    result.r_squared
 FROM (
-    SELECT anofox_stats_ols_fit_agg(y, [x], {'intercept': true}) as result
+    SELECT ols_fit_agg(y, [x], {'intercept': true}) as result
     FROM uniform_weight_data
 ) sub;
 
@@ -151,7 +151,7 @@ SELECT
 FROM (
     SELECT
         scenario,
-        anofox_stats_wls_fit_agg(y, [x], weight, {'intercept': true}) as result
+        wls_fit_agg(y, [x], weight, {'intercept': true}) as result
     FROM weight_impact_data
     GROUP BY scenario
 ) sub;
@@ -176,7 +176,7 @@ SELECT
 FROM (
     SELECT
         grp,
-        anofox_stats_wls_fit_agg(y, [x], weight, {'intercept': true}) as result
+        wls_fit_agg(y, [x], weight, {'intercept': true}) as result
     FROM edge_weight_data
     GROUP BY grp
 ) sub;
@@ -185,12 +185,12 @@ SELECT '=== Test 8: Entire dataset aggregation ===' as test_name;
 SELECT
     result.coefficients,
     result.intercept,
-    result.r2,
+    result.r_squared,
     result.weighted_mse,
     result.n_obs
 FROM (
     SELECT
-        anofox_stats_wls_fit_agg(monthly_revenue, [customer_tenure_months], weight, {'intercept': true}) as result
+        wls_fit_agg(monthly_revenue, [customer_tenure_months], weight, {'intercept': true}) as result
     FROM wls_agg_data
 ) sub;
 

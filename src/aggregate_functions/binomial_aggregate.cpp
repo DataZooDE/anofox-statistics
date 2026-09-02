@@ -398,15 +398,15 @@ static unique_ptr<FunctionData> BinomialAggBind(ClientContext &context, Aggregat
 }
 
 void RegisterBinomialAggregateFunction(ExtensionLoader &loader) {
-	AggregateFunctionSet func_set("anofox_stats_binomial_fit_agg");
+	AggregateFunctionSet func_set("binomial_fit_agg");
 
 	auto basic_func = AggregateFunction(
-	    "anofox_stats_binomial_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
+	    "binomial_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
 	    LogicalType::ANY, AggregateFunction::StateSize<BinomialAggregateState>, BinomialAggInitialize,
 	    BinomialAggUpdate, BinomialAggCombine, BinomialAggFinalize, nullptr, BinomialAggBind, BinomialAggDestroy);
 	func_set.AddFunction(basic_func);
 
-	auto map_func = AggregateFunction("anofox_stats_binomial_fit_agg",
+	auto map_func = AggregateFunction("binomial_fit_agg",
 	                                  {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
 	                                  LogicalType::ANY, AggregateFunction::StateSize<BinomialAggregateState>,
 	                                  BinomialAggInitialize, BinomialAggUpdate, BinomialAggCombine, BinomialAggFinalize,
@@ -419,7 +419,7 @@ void RegisterBinomialAggregateFunction(ExtensionLoader &loader) {
 	d1.description = "Fits a Binomial GLM (user-selectable link: logit / probit / cloglog; default "
 	                 "logit) and returns coefficients, deviance, AIC, dispersion (= 1 for canonical "
 	                 "binomial), and fit statistics. y is the success rate in [0, 1].";
-	d1.examples = {"anofox_stats_binomial_fit_agg(y, x, {'binomial_link': 'logit', 'fit_intercept': true})"};
+	d1.examples = {"binomial_fit_agg(y, x, {'binomial_link': 'logit', 'fit_intercept': true})"};
 	d1.categories = {"regression"};
 	d1.parameter_names = {"y", "x", "options"};
 	d1.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY};
@@ -427,22 +427,13 @@ void RegisterBinomialAggregateFunction(ExtensionLoader &loader) {
 	FunctionDescription d2;
 	d2.description = "Fits a Binomial GLM (logit link by default) and returns coefficients, deviance, "
 	                 "AIC, dispersion, and fit statistics. y is the success rate in [0, 1].";
-	d2.examples = {"anofox_stats_binomial_fit_agg(y, x)"};
+	d2.examples = {"binomial_fit_agg(y, x)"};
 	d2.categories = {"regression"};
 	d2.parameter_names = {"y", "x"};
 	d2.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)};
 	info.descriptions.push_back(std::move(d2));
 	loader.RegisterFunction(std::move(info));
 
-	{
-		AggregateFunctionSet alias_set("binomial_fit_agg");
-		alias_set.AddFunction(basic_func);
-		alias_set.AddFunction(map_func);
-		CreateAggregateFunctionInfo alias_info(std::move(alias_set));
-		alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-		alias_info.alias_of = "anofox_stats_binomial_fit_agg";
-		loader.RegisterFunction(std::move(alias_info));
-	}
 }
 
 } // namespace duckdb

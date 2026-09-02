@@ -229,11 +229,11 @@ static unique_ptr<FunctionData> PearsonAggBind(ClientContext &context, Aggregate
 // Registration
 //===--------------------------------------------------------------------===//
 void RegisterPearsonAggregateFunction(ExtensionLoader &loader) {
-    AggregateFunctionSet func_set("anofox_stats_pearson_agg");
+    AggregateFunctionSet func_set("pearson_agg");
 
     // With options
     auto func_with_opts = AggregateFunction(
-        "anofox_stats_pearson_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::ANY},
+        "pearson_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::ANY},
         LogicalType::ANY,
         AggregateFunction::StateSize<PearsonAggregateState>, PearsonAggInitialize,
         PearsonAggUpdate, PearsonAggCombine, PearsonAggFinalize,
@@ -242,7 +242,7 @@ void RegisterPearsonAggregateFunction(ExtensionLoader &loader) {
 
     // Without options
     auto func_no_opts = AggregateFunction(
-        "anofox_stats_pearson_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE},
+        "pearson_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE},
         LogicalType::ANY,
         AggregateFunction::StateSize<PearsonAggregateState>, PearsonAggInitialize,
         PearsonAggUpdate, PearsonAggCombine, PearsonAggFinalize,
@@ -253,30 +253,20 @@ void RegisterPearsonAggregateFunction(ExtensionLoader &loader) {
     info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
     FunctionDescription d1;
     d1.description     = "Computes Pearson's product-moment correlation coefficient and tests its significance.";
-    d1.examples        = {"anofox_stats_pearson_agg(x, y, {'alternative': 'two_sided'})"};
+    d1.examples        = {"pearson_agg(x, y, {'alternative': 'two_sided'})"};
     d1.categories      = {"correlation"};
     d1.parameter_names = {"x", "y", "options"};
     d1.parameter_types = {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::ANY};
     info.descriptions.push_back(std::move(d1));
     FunctionDescription d2;
     d2.description     = "Computes Pearson's product-moment correlation coefficient and tests its significance.";
-    d2.examples        = {"anofox_stats_pearson_agg(x, y)"};
+    d2.examples        = {"pearson_agg(x, y)"};
     d2.categories      = {"correlation"};
     d2.parameter_names = {"x", "y"};
     d2.parameter_types = {LogicalType::DOUBLE, LogicalType::DOUBLE};
     info.descriptions.push_back(std::move(d2));
     loader.RegisterFunction(std::move(info));
 
-    // Short alias
-    {
-        AggregateFunctionSet alias_set("pearson_agg");
-        alias_set.AddFunction(func_with_opts);
-        alias_set.AddFunction(func_no_opts);
-        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_pearson_agg";
-        loader.RegisterFunction(std::move(alias_info));
-    }
 }
 
 } // namespace duckdb

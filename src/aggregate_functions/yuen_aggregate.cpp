@@ -265,11 +265,11 @@ static unique_ptr<FunctionData> YuenAggBind(ClientContext &context, AggregateFun
 // Registration
 //===--------------------------------------------------------------------===//
 void RegisterYuenAggregateFunction(ExtensionLoader &loader) {
-    AggregateFunctionSet func_set("anofox_stats_yuen_agg");
+    AggregateFunctionSet func_set("yuen_agg");
 
     // Version with options: yuen_agg(value, group_id, {'trim': 0.2})
     auto func_with_opts = AggregateFunction(
-        "anofox_stats_yuen_agg", {LogicalType::DOUBLE, LogicalType::INTEGER, LogicalType::ANY},
+        "yuen_agg", {LogicalType::DOUBLE, LogicalType::INTEGER, LogicalType::ANY},
         LogicalType::ANY,
         AggregateFunction::StateSize<YuenAggregateState>, YuenAggInitialize,
         YuenAggUpdate, YuenAggCombine, YuenAggFinalize,
@@ -278,7 +278,7 @@ void RegisterYuenAggregateFunction(ExtensionLoader &loader) {
 
     // Version without options: yuen_agg(value, group_id)
     auto func_no_opts = AggregateFunction(
-        "anofox_stats_yuen_agg", {LogicalType::DOUBLE, LogicalType::INTEGER},
+        "yuen_agg", {LogicalType::DOUBLE, LogicalType::INTEGER},
         LogicalType::ANY,
         AggregateFunction::StateSize<YuenAggregateState>, YuenAggInitialize,
         YuenAggUpdate, YuenAggCombine, YuenAggFinalize,
@@ -289,30 +289,20 @@ void RegisterYuenAggregateFunction(ExtensionLoader &loader) {
     info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
     FunctionDescription d1;
     d1.description     = "Performs Yuen's trimmed-means t-test, robust to outliers and non-normality.";
-    d1.examples        = {"anofox_stats_yuen_agg(value, group_id, {'trim': 0.2})"};
+    d1.examples        = {"yuen_agg(value, group_id, {'trim': 0.2})"};
     d1.categories      = {"hypothesis-testing"};
     d1.parameter_names = {"value", "group_id", "options"};
     d1.parameter_types = {LogicalType::DOUBLE, LogicalType::INTEGER, LogicalType::ANY};
     info.descriptions.push_back(std::move(d1));
     FunctionDescription d2;
     d2.description     = "Performs Yuen's trimmed-means t-test, robust to outliers and non-normality, using default options.";
-    d2.examples        = {"anofox_stats_yuen_agg(value, group_id)"};
+    d2.examples        = {"yuen_agg(value, group_id)"};
     d2.categories      = {"hypothesis-testing"};
     d2.parameter_names = {"value", "group_id"};
     d2.parameter_types = {LogicalType::DOUBLE, LogicalType::INTEGER};
     info.descriptions.push_back(std::move(d2));
     loader.RegisterFunction(std::move(info));
 
-    // Short alias
-    {
-        AggregateFunctionSet alias_set("yuen_agg");
-        alias_set.AddFunction(func_with_opts);
-        alias_set.AddFunction(func_no_opts);
-        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_yuen_agg";
-        loader.RegisterFunction(std::move(alias_info));
-    }
 }
 
 } // namespace duckdb

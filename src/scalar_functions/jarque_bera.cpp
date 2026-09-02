@@ -102,13 +102,13 @@ void RegisterJarqueBeraFunction(ExtensionLoader &loader) {
 
     // Primary
     {
-        ScalarFunctionSet func_set("anofox_stats_jarque_bera");
+        ScalarFunctionSet func_set("jarque_bera");
         func_set.AddFunction(func);
         CreateScalarFunctionInfo info(std::move(func_set));
         info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
         FunctionDescription desc;
         desc.description     = "Tests whether a sample has skewness and kurtosis consistent with a normal distribution (Jarque-Bera test).";
-        desc.examples        = {"anofox_stats_jarque_bera(values)"};
+        desc.examples        = {"jarque_bera(values)"};
         desc.categories      = {"normality-test"};
         desc.parameter_names = {"values"};
         desc.parameter_types = {LogicalType::LIST(LogicalType::DOUBLE)};
@@ -116,14 +116,6 @@ void RegisterJarqueBeraFunction(ExtensionLoader &loader) {
         loader.RegisterFunction(std::move(info));
     }
     // Alias
-    {
-        ScalarFunctionSet alias_set("jarque_bera");
-        alias_set.AddFunction(func);
-        CreateScalarFunctionInfo alias_info(std::move(alias_set));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_jarque_bera";
-        loader.RegisterFunction(std::move(alias_info));
-    }
 }
 
 } // namespace duckdb

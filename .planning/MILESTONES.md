@@ -1,5 +1,21 @@
 # Milestones
 
+## v0.3.0 Performance & Polish (Shipped: 2026-09-02)
+
+**Phases completed:** 3 phases, 10 plans, 23 tasks
+
+**Key accomplishments:**
+
+- One-command bash+SQL benchmark harness that loads the local release extension by explicit path and times three representative workloads (aggregate dispatch, fit/predict, FFI marshalling) into a diffable results file.
+- Profiled the release build with DuckDB EXPLAIN ANALYZE + differential bench workloads; top-3 hotspots dispositioned — DuckDB HASH_GROUP_BY dispatch and the 5-array FFI inference count are inherent, and DataArray::to_vec got a safe bulk-copy fast path (~3–4%), full suite green.
+- Dropped anofox_stats_ prefix from all SQL registrations, fixed theilsen→theil_sen, deleted all alias blocks, and shipped docs/API_CONVENTIONS.md with the written convention; make test (103 tests) and cargo test --workspace (295 tests) fully green against the renamed API
+- Python harness scripts/validate_docs_sql.py extracts and runs all non-skipped sql blocks from 7 doc files against the locally-built DuckDB extension, establishing the baseline: 6/7 files fail before the DOCS-03 fix sweep
+- Systematic fix of all failing SQL blocks across 5 documentation files: strip `anofox_stats_` prefix, convert positional-boolean calls to MAP options, replace external table references with inline data, and skip-mark blocks that reference DuckDB extensions not loaded by the harness or that crash the current build.
+- README rewritten to the anofox-forecast form: emoji section headers, ToC, Key Features with Phase-4 benchmark data and Phase-5 ergonomics subsections, validated three-step Quick Start (ols_fit_agg → predict → residuals_diagnostics_agg on a concrete houses dataset), API Reference linking docs/ instead of duplicating the surface, Development section, License last — harness exits 0.
+- `.github/workflows/DocsSqlValidation.yml` added — ubuntu-24.04 self-contained build-then-validate gate that hard-fails on any doc-SQL drift; full 7-file harness sweep is green (50 blocks, 0 failures) and SQL regression suite stays clean (506 assertions)
+
+---
+
 ## v0.3.0 — Performance & Polish (in progress)
 
 **Started:** 2026-08-31

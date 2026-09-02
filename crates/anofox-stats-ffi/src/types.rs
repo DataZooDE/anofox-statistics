@@ -77,6 +77,17 @@ impl DataArray {
     /// # Safety
     /// Caller must ensure pointers are valid and len is correct
     pub unsafe fn to_vec(&self) -> Vec<f64> {
+        if self.len == 0 {
+            return Vec::new();
+        }
+        // Fast path: no validity mask means every value is valid (the common case
+        // for dense/non-nullable columns). Bulk-copy the slice instead of the
+        // per-element validity branch + push. This returns the same owned
+        // Vec<f64> — no borrow crosses the FFI boundary, so there is no aliasing
+        // or lifetime risk; only the NULL→NaN branch (unreachable here) is skipped.
+        if self.validity.is_null() {
+            return std::slice::from_raw_parts(self.data, self.len).to_vec();
+        }
         let mut result = Vec::with_capacity(self.len);
         for i in 0..self.len {
             if self.is_valid(i) {
@@ -86,6 +97,131 @@ impl DataArray {
             }
         }
         result
+    }
+}
+
+/// An owning heap buffer of `T`, allocated with `libc::malloc`.
+///
+/// RAII wrapper for FFI result arrays: it frees its buffer with `libc::free` on
+/// `Drop`, or relinquishes ownership via [`FfiVec::into_raw`] to a caller that
+/// will free it with C `free()`.
+///
+/// # Safety / ABI invariant
+/// The pointer is allocated with `libc::malloc` and MUST be released with C
+/// `free()` — which is exactly what the `anofox_free_*` FFI functions call. This
+/// is why the buffer is NOT backed by `Box`, `Vec`, or Rust's global allocator:
+/// on musl targets (WASM, some CI) the Rust global allocator and libc's malloc
+/// can differ, so freeing a `Box`/`Vec` pointer with C `free()` is undefined
+/// behavior. Changing the allocator here is a published-ABI break — it would
+/// require changing every C++ `free` site. See PERF-04 / phase-04 CONTEXT.
+pub struct FfiVec<T> {
+    ptr: *mut T,
+    len: usize,
+}
+
+impl<T> FfiVec<T> {
+    /// Allocate an uninitialized buffer of `len` elements via `libc::malloc`.
+    ///
+    /// `len == 0` yields a null pointer and no allocation (mirrors the previous
+    /// hand-written behavior, where a zero-length request produced a null ptr).
+    /// Returns `None` on allocation failure (OOM) for `len > 0`.
+    pub fn alloc(len: usize) -> Option<Self> {
+        if len == 0 {
+            return Some(Self {
+                ptr: std::ptr::null_mut(),
+                len: 0,
+            });
+        }
+        // Safety: size computed from a checked element count; null is handled below.
+        let ptr = unsafe { libc::malloc(len * std::mem::size_of::<T>()) as *mut T };
+        if ptr.is_null() {
+            None
+        } else {
+            Some(Self { ptr, len })
+        }
+    }
+
+    /// Copy `src` element-for-element into the buffer.
+    ///
+    /// # Safety
+    /// `src.len()` must equal the allocated `len`. No-op for a zero-length buffer.
+    pub unsafe fn copy_from_slice(&self, src: &[T])
+    where
+        T: Copy,
+    {
+        if self.len == 0 {
+            return;
+        }
+        // WR-01: assert in release too. A length mismatch here would read past the
+        // source slice or the destination allocation (UB) — at an FFI boundary a
+        // hard panic is strictly safer than silent memory corruption.
+        assert_eq!(
+            src.len(),
+            self.len,
+            "FfiVec::copy_from_slice: length mismatch ({} vs {})",
+            src.len(),
+            self.len
+        );
+        std::ptr::copy_nonoverlapping(src.as_ptr(), self.ptr, self.len);
+    }
+
+    /// Consume the wrapper, returning the raw pointer and suppressing `Drop`.
+    ///
+    /// The returned pointer is transferred to the caller, which MUST release it
+    /// with C `free()` (i.e. via the `anofox_free_*` functions). For a
+    /// zero-length buffer this returns a null pointer.
+    pub fn into_raw(self) -> *mut T {
+        let ptr = self.ptr;
+        std::mem::forget(self);
+        ptr
+    }
+}
+
+impl<T> Drop for FfiVec<T> {
+    fn drop(&mut self) {
+        if !self.ptr.is_null() {
+            // Safety: `ptr` was allocated by `libc::malloc` in `alloc` and is only
+            // freed once (Drop is suppressed by `into_raw`).
+            unsafe { libc::free(self.ptr as *mut libc::c_void) };
+        }
+    }
+}
+
+#[cfg(test)]
+mod ffi_vec_tests {
+    use super::FfiVec;
+
+    /// Proves the `into_raw()` pointer is freeable by `libc::free` — i.e. the
+    /// buffer really is libc-malloc-backed. This test would be undefined behavior
+    /// (and flagged by ASan/valgrind) if `FfiVec` ever switched to `Box`/`Vec`.
+    #[test]
+    fn ffi_vec_ptr_is_freeable_by_libc() {
+        let v = FfiVec::<f64>::alloc(4).expect("alloc(4) failed");
+        let src = [1.0f64, 2.0, 3.0, 4.0];
+        unsafe { v.copy_from_slice(&src) };
+        let raw = v.into_raw();
+        assert!(!raw.is_null());
+        unsafe {
+            let back = std::slice::from_raw_parts(raw, 4);
+            assert_eq!(back, &src, "values must round-trip through the raw buffer");
+            libc::free(raw as *mut libc::c_void);
+        }
+    }
+
+    /// A zero-length allocation is a null pointer with no allocation.
+    #[test]
+    fn ffi_vec_alloc_zero_is_null() {
+        let v = FfiVec::<f64>::alloc(0).expect("alloc(0) failed");
+        assert!(v.into_raw().is_null());
+    }
+
+    /// Dropping a non-into_raw'd FfiVec frees via libc::free without leaking or
+    /// double-freeing (observable under ASan/valgrind; here we just exercise it).
+    #[test]
+    fn ffi_vec_drop_frees() {
+        let v = FfiVec::<f64>::alloc(8).expect("alloc(8) failed");
+        unsafe { v.copy_from_slice(&[0.0f64; 8]) };
+        drop(v);
     }
 }
 

@@ -9,6 +9,7 @@
 #include "duckdb/planner/expression/bound_function_expression.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/error_dispatch.hpp"
 #include "telemetry.hpp"
 #include "anofox_statistics_banner.hpp"
 
@@ -86,7 +87,7 @@ static void PredictFunction(DataChunk &args, ExpressionState &state, Vector &res
                                       intercept, &predictions, &predictions_len, &error);
 
         if (!success) {
-            throw InvalidInputException("Predict failed: " + string(error.message));
+            ThrowFromFfiError("predict", error);
         }
 
         // Build result list
@@ -114,13 +115,13 @@ void RegisterPredictFunction(ExtensionLoader &loader) {
                         LogicalType::LIST(LogicalType::DOUBLE),
                         DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, PredictFunction));
 
-    ScalarFunctionSet func_set("anofox_stats_predict");
+    ScalarFunctionSet func_set("predict");
     func_set.AddFunction(func);
     CreateScalarFunctionInfo info(std::move(func_set));
     info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
     FunctionDescription desc;
     desc.description     = "Applies pre-fitted coefficients and intercept to feature data to generate predictions.";
-    desc.examples        = {"anofox_stats_predict(x, coefficients, intercept)"};
+    desc.examples        = {"predict(x, coefficients, intercept)"};
     desc.categories      = {"regression", "prediction"};
     desc.parameter_names = {"x", "coefficients", "intercept"};
     desc.parameter_types = {LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)),

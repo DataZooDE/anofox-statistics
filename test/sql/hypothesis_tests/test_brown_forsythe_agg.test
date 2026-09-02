@@ -113,11 +113,11 @@ A	true
 B	false
 
 # =============================================================================
-# TEST 8: Alias verification (anofox_stats_brown_forsythe_agg)
+# TEST 8: Alias verification (brown_forsythe_agg)
 # =============================================================================
 
 query I
-SELECT (anofox_stats_brown_forsythe_agg(value, grp)).statistic IS NOT NULL FROM variance_data;
+SELECT (brown_forsythe_agg(value, grp)).statistic IS NOT NULL FROM variance_data;
 ----
 true
 

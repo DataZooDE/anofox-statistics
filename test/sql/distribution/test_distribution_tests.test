@@ -79,7 +79,7 @@ true
 
 # TEST 6: Alias verification
 query I
-SELECT (anofox_stats_energy_distance_agg(value, grp)).statistic IS NOT NULL FROM energy_data;
+SELECT (energy_distance_agg(value, grp)).statistic IS NOT NULL FROM energy_data;
 ----
 true
 
@@ -146,7 +146,7 @@ true
 
 # TEST 13: Alias verification
 query I
-SELECT (anofox_stats_mmd_agg(value, grp)).statistic IS NOT NULL FROM energy_data;
+SELECT (mmd_agg(value, grp)).statistic IS NOT NULL FROM energy_data;
 ----
 true
 

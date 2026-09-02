@@ -207,11 +207,11 @@ static unique_ptr<FunctionData> GTestAggBind(ClientContext &context, AggregateFu
 // Registration
 //===--------------------------------------------------------------------===//
 void RegisterGTestAggregateFunction(ExtensionLoader &loader) {
-    AggregateFunctionSet func_set("anofox_stats_g_test_agg");
+    AggregateFunctionSet func_set("g_test_agg");
 
     // (row_var BIGINT, col_var BIGINT)
     auto func = AggregateFunction(
-        "anofox_stats_g_test_agg", {LogicalType::BIGINT, LogicalType::BIGINT},
+        "g_test_agg", {LogicalType::BIGINT, LogicalType::BIGINT},
         LogicalType::ANY,
         AggregateFunction::StateSize<GTestAggregateState>, GTestAggInitialize,
         GTestAggUpdate, GTestAggCombine, GTestAggFinalize,
@@ -222,22 +222,13 @@ void RegisterGTestAggregateFunction(ExtensionLoader &loader) {
     info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
     FunctionDescription d1;
     d1.description     = "Performs a G-test (log-likelihood ratio test) for goodness of fit or independence.";
-    d1.examples        = {"anofox_stats_g_test_agg(row_var, col_var)"};
+    d1.examples        = {"g_test_agg(row_var, col_var)"};
     d1.categories      = {"hypothesis-testing", "categorical"};
     d1.parameter_names = {"row_var", "col_var"};
     d1.parameter_types = {LogicalType::BIGINT, LogicalType::BIGINT};
     info.descriptions.push_back(std::move(d1));
     loader.RegisterFunction(std::move(info));
 
-    // Short alias
-    {
-        AggregateFunctionSet alias_set("g_test_agg");
-        alias_set.AddFunction(func);
-        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_g_test_agg";
-        loader.RegisterFunction(std::move(alias_info));
-    }
 }
 
 } // namespace duckdb

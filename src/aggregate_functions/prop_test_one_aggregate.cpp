@@ -229,11 +229,11 @@ static unique_ptr<FunctionData> PropTestOneAggBind(ClientContext &context, Aggre
 // Registration
 //===--------------------------------------------------------------------===//
 void RegisterPropTestOneAggregateFunction(ExtensionLoader &loader) {
-    AggregateFunctionSet func_set("anofox_stats_prop_test_one_agg");
+    AggregateFunctionSet func_set("prop_test_one_agg");
 
     // With options: (value BIGINT, options)
     auto func_with_opts = AggregateFunction(
-        "anofox_stats_prop_test_one_agg", {LogicalType::BIGINT, LogicalType::ANY},
+        "prop_test_one_agg", {LogicalType::BIGINT, LogicalType::ANY},
         LogicalType::ANY,
         AggregateFunction::StateSize<PropTestOneAggregateState>, PropTestOneAggInitialize,
         PropTestOneAggUpdate, PropTestOneAggCombine, PropTestOneAggFinalize,
@@ -242,7 +242,7 @@ void RegisterPropTestOneAggregateFunction(ExtensionLoader &loader) {
 
     // Without options: (value BIGINT)
     auto func_no_opts = AggregateFunction(
-        "anofox_stats_prop_test_one_agg", {LogicalType::BIGINT},
+        "prop_test_one_agg", {LogicalType::BIGINT},
         LogicalType::ANY,
         AggregateFunction::StateSize<PropTestOneAggregateState>, PropTestOneAggInitialize,
         PropTestOneAggUpdate, PropTestOneAggCombine, PropTestOneAggFinalize,
@@ -253,30 +253,20 @@ void RegisterPropTestOneAggregateFunction(ExtensionLoader &loader) {
     info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
     FunctionDescription d1;
     d1.description     = "Tests whether an observed proportion differs from a hypothesized value (one-sample proportion test).";
-    d1.examples        = {"anofox_stats_prop_test_one_agg(value, {'p0': 0.5, 'alternative': 'two_sided'})"};
+    d1.examples        = {"prop_test_one_agg(value, {'p0': 0.5, 'alternative': 'two_sided'})"};
     d1.categories      = {"hypothesis-testing", "proportion"};
     d1.parameter_names = {"value", "options"};
     d1.parameter_types = {LogicalType::BIGINT, LogicalType::ANY};
     info.descriptions.push_back(std::move(d1));
     FunctionDescription d2;
     d2.description     = "Tests whether an observed proportion differs from a hypothesized value (one-sample proportion test), using default options.";
-    d2.examples        = {"anofox_stats_prop_test_one_agg(value)"};
+    d2.examples        = {"prop_test_one_agg(value)"};
     d2.categories      = {"hypothesis-testing", "proportion"};
     d2.parameter_names = {"value"};
     d2.parameter_types = {LogicalType::BIGINT};
     info.descriptions.push_back(std::move(d2));
     loader.RegisterFunction(std::move(info));
 
-    // Short alias
-    {
-        AggregateFunctionSet alias_set("prop_test_one_agg");
-        alias_set.AddFunction(func_with_opts);
-        alias_set.AddFunction(func_no_opts);
-        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_prop_test_one_agg";
-        loader.RegisterFunction(std::move(alias_info));
-    }
 }
 
 } // namespace duckdb

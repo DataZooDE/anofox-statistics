@@ -493,11 +493,11 @@ static unique_ptr<FunctionData> OlsPredictAggBindWithSplit(ClientContext &contex
 //===--------------------------------------------------------------------===//
 void RegisterOlsFitPredictAggregateFunction(ExtensionLoader &loader) {
     // Primary name (new)
-    AggregateFunctionSet func_set("anofox_stats_ols_fit_predict_agg");
+    AggregateFunctionSet func_set("ols_fit_predict_agg");
 
     // Basic version: ols_fit_predict_agg(y, x)
     auto basic_func =
-        AggregateFunction("anofox_stats_ols_fit_predict_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
+        AggregateFunction("ols_fit_predict_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
                           LogicalType::ANY, AggregateFunction::StateSize<OlsPredictAggState>, OlsPredictAggInitialize,
                           OlsPredictAggUpdate, OlsPredictAggCombine, OlsPredictAggFinalize, nullptr, OlsPredictAggBind,
                           OlsPredictAggDestroy);
@@ -505,7 +505,7 @@ void RegisterOlsFitPredictAggregateFunction(ExtensionLoader &loader) {
 
     // Version with MAP options: ols_fit_predict_agg(y, x, {'null_policy': 'drop', ...})
     auto map_func = AggregateFunction(
-        "anofox_stats_ols_fit_predict_agg",
+        "ols_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY}, LogicalType::ANY,
         AggregateFunction::StateSize<OlsPredictAggState>, OlsPredictAggInitialize, OlsPredictAggUpdate,
         OlsPredictAggCombine, OlsPredictAggFinalize, nullptr, OlsPredictAggBind, OlsPredictAggDestroy);
@@ -513,7 +513,7 @@ void RegisterOlsFitPredictAggregateFunction(ExtensionLoader &loader) {
 
     // Version with split column: ols_fit_predict_agg(y, x, split_col)
     auto split_func = AggregateFunction(
-        "anofox_stats_ols_fit_predict_agg",
+        "ols_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR}, LogicalType::ANY,
         AggregateFunction::StateSize<OlsPredictAggState>, OlsPredictAggInitialize, OlsPredictAggUpdate,
         OlsPredictAggCombine, OlsPredictAggFinalize, nullptr, OlsPredictAggBindWithSplit, OlsPredictAggDestroy);
@@ -521,7 +521,7 @@ void RegisterOlsFitPredictAggregateFunction(ExtensionLoader &loader) {
 
     // Version with split column and options: ols_fit_predict_agg(y, x, split_col, options)
     auto split_opts_func = AggregateFunction(
-        "anofox_stats_ols_fit_predict_agg",
+        "ols_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR, LogicalType::ANY},
         LogicalType::ANY, AggregateFunction::StateSize<OlsPredictAggState>, OlsPredictAggInitialize,
         OlsPredictAggUpdate, OlsPredictAggCombine, OlsPredictAggFinalize, nullptr, OlsPredictAggBindWithSplit,
@@ -533,7 +533,7 @@ void RegisterOlsFitPredictAggregateFunction(ExtensionLoader &loader) {
 
     FunctionDescription d1;
     d1.description = "Fits OLS regression over a partition and returns per-row predictions with confidence intervals.";
-    d1.examples = {"anofox_stats_ols_fit_predict_agg(y, x)"};
+    d1.examples = {"ols_fit_predict_agg(y, x)"};
     d1.categories = {"regression", "prediction"};
     d1.parameter_names = {"y", "x"};
     d1.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)};
@@ -541,7 +541,7 @@ void RegisterOlsFitPredictAggregateFunction(ExtensionLoader &loader) {
 
     FunctionDescription d2;
     d2.description = "Fits OLS regression over a partition with a MAP of options and returns per-row predictions with confidence intervals.";
-    d2.examples = {"anofox_stats_ols_fit_predict_agg(y, x, {'null_policy': 'drop'})"};
+    d2.examples = {"ols_fit_predict_agg(y, x, {'null_policy': 'drop'})"};
     d2.categories = {"regression", "prediction"};
     d2.parameter_names = {"y", "x", "options"};
     d2.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY};
@@ -549,7 +549,7 @@ void RegisterOlsFitPredictAggregateFunction(ExtensionLoader &loader) {
 
     FunctionDescription d3;
     d3.description = "Fits OLS regression using only training rows (split_col='train') and predicts all rows.";
-    d3.examples = {"anofox_stats_ols_fit_predict_agg(y, x, split_col)"};
+    d3.examples = {"ols_fit_predict_agg(y, x, split_col)"};
     d3.categories = {"regression", "prediction"};
     d3.parameter_names = {"y", "x", "split_col"};
     d3.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR};
@@ -557,7 +557,7 @@ void RegisterOlsFitPredictAggregateFunction(ExtensionLoader &loader) {
 
     FunctionDescription d4;
     d4.description = "Fits OLS regression on training rows with a MAP of options and predicts all rows.";
-    d4.examples = {"anofox_stats_ols_fit_predict_agg(y, x, split_col, {'null_policy': 'drop'})"};
+    d4.examples = {"ols_fit_predict_agg(y, x, split_col, {'null_policy': 'drop'})"};
     d4.categories = {"regression", "prediction"};
     d4.parameter_names = {"y", "x", "split_col", "options"};
     d4.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR, LogicalType::ANY};
@@ -565,43 +565,9 @@ void RegisterOlsFitPredictAggregateFunction(ExtensionLoader &loader) {
 
     loader.RegisterFunction(std::move(info));
 
-    // Short alias (new)
-    {
-        AggregateFunctionSet alias_set("ols_fit_predict_agg");
-        alias_set.AddFunction(basic_func);
-        alias_set.AddFunction(map_func);
-        alias_set.AddFunction(split_func);
-        alias_set.AddFunction(split_opts_func);
-        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_ols_fit_predict_agg";
-        loader.RegisterFunction(std::move(alias_info));
-    }
 
     // Deprecated aliases (old names for backwards compatibility)
-    {
-        AggregateFunctionSet dep_set("ols_predict_agg");
-        dep_set.AddFunction(basic_func);
-        dep_set.AddFunction(map_func);
-        dep_set.AddFunction(split_func);
-        dep_set.AddFunction(split_opts_func);
-        CreateAggregateFunctionInfo dep_info(std::move(dep_set));
-        dep_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        dep_info.alias_of = "anofox_stats_ols_fit_predict_agg";
-        loader.RegisterFunction(std::move(dep_info));
-    }
 
-    {
-        AggregateFunctionSet dep2_set("anofox_stats_ols_predict_agg");
-        dep2_set.AddFunction(basic_func);
-        dep2_set.AddFunction(map_func);
-        dep2_set.AddFunction(split_func);
-        dep2_set.AddFunction(split_opts_func);
-        CreateAggregateFunctionInfo dep2_info(std::move(dep2_set));
-        dep2_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        dep2_info.alias_of = "anofox_stats_ols_fit_predict_agg";
-        loader.RegisterFunction(std::move(dep2_info));
-    }
 }
 
 } // namespace duckdb

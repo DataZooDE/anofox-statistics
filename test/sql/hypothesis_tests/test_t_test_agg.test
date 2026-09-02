@@ -240,11 +240,11 @@ SELECT (t_test_agg(value, grp)).n1, (t_test_agg(value, grp)).n2 FROM nan_data;
 3	3
 
 # =============================================================================
-# TEST 15: Alias verification (anofox_stats_t_test_agg)
+# TEST 15: Alias verification (t_test_agg)
 # =============================================================================
 
 query I
-SELECT (anofox_stats_t_test_agg(value, grp)).statistic IS NOT NULL FROM two_groups;
+SELECT (t_test_agg(value, grp)).statistic IS NOT NULL FROM two_groups;
 ----
 true
 

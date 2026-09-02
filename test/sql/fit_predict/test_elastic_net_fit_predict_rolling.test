@@ -11,7 +11,7 @@ FROM range(1, 16) t(i);
 
 query I
 SELECT COUNT(*) as predictions
-FROM (SELECT time_id, anofox_stats_elasticnet_fit_predict(y, [x], {'alpha': 0.1, 'l1_ratio': 0.5}) OVER (ORDER BY time_id) as pred FROM elasticnet_rolling)
+FROM (SELECT time_id, elasticnet_fit_predict(y, [x], {'alpha': 0.1, 'l1_ratio': 0.5}) OVER (ORDER BY time_id) as pred FROM elasticnet_rolling)
 WHERE (pred).yhat IS NOT NULL;
 ----
 13

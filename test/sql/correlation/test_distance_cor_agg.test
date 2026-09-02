@@ -125,11 +125,11 @@ linear	true
 quadratic	true
 
 # =============================================================================
-# TEST 8: Alias verification (anofox_stats_distance_cor_agg)
+# TEST 8: Alias verification (distance_cor_agg)
 # =============================================================================
 
 query I
-SELECT (anofox_stats_distance_cor_agg(x, y)).dcor IS NOT NULL FROM dcor_data;
+SELECT (distance_cor_agg(x, y)).dcor IS NOT NULL FROM dcor_data;
 ----
 true
 

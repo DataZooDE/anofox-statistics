@@ -35,13 +35,13 @@ SELECT
     product,
     revenue,
     model.coefficients[1] as marketing_roi,
-    model.r2
+    model.r_squared
 FROM (
     SELECT
         date,
         product,
         revenue,
-        anofox_stats_ols_fit_agg(revenue, [marketing_spend], {'intercept': true}) OVER (
+        ols_fit_agg(revenue, [marketing_spend], {'intercept': true}) OVER (
             PARTITION BY product
             ORDER BY date
             ROWS BETWEEN 15 PRECEDING AND CURRENT ROW
@@ -57,9 +57,9 @@ WITH base_models AS (
     SELECT
         product,
         region,
-        anofox_stats_ols_fit_agg(revenue, [marketing_spend, product_cost], {'intercept': true}) as ols_model,
-        anofox_stats_wls_fit_agg(revenue, [marketing_spend, product_cost], weight, {'intercept': true}) as wls_model,
-        anofox_stats_ridge_fit_agg(revenue, [marketing_spend, product_cost], {'lambda': 1.0, 'intercept': true}) as ridge_model
+        ols_fit_agg(revenue, [marketing_spend, product_cost], {'intercept': true}) as ols_model,
+        wls_fit_agg(revenue, [marketing_spend, product_cost], weight, {'intercept': true}) as wls_model,
+        ridge_fit_agg(revenue, [marketing_spend, product_cost], {'lambda': 1.0, 'intercept': true}) as ridge_model
     FROM sales_data
     GROUP BY product, region
 ),
@@ -67,9 +67,9 @@ model_comparison AS (
     SELECT
         product,
         region,
-        ols_model.r2 as ols_r2,
-        wls_model.r2 as wls_r2,
-        ridge_model.r2 as ridge_r2,
+        ols_model.r_squared as ols_r2,
+        wls_model.r_squared as wls_r2,
+        ridge_model.r_squared as ridge_r2,
         ols_model.coefficients[1] as ols_marketing_coef,
         wls_model.coefficients[1] as wls_marketing_coef,
         ridge_model.coefficients[1] as ridge_marketing_coef
@@ -94,7 +94,7 @@ SELECT
     main.product,
     main.avg_revenue,
     model.coefficients[1] as cost_sensitivity,
-    model.r2,
+    model.r_squared,
     model.n_obs
 FROM (
     SELECT
@@ -106,7 +106,7 @@ FROM (
 JOIN (
     SELECT
         product,
-        anofox_stats_ols_fit_agg(revenue, [product_cost], {'intercept': true}) as model
+        ols_fit_agg(revenue, [product_cost], {'intercept': true}) as model
     FROM sales_data
     GROUP BY product
 ) model ON main.product = model.product
@@ -118,12 +118,12 @@ WITH validation AS (
   SELECT
     product,
     model.n_obs,
-    model.r2,
+    model.r_squared,
     model.coefficients[1] as cost_sensitivity
   FROM (
     SELECT
       product,
-      anofox_stats_ols_fit_agg(revenue, [product_cost], {'intercept': true}) as model
+      ols_fit_agg(revenue, [product_cost], {'intercept': true}) as model
     FROM sales_data
     GROUP BY product
   ) sub
@@ -147,15 +147,15 @@ WITH daily_models AS (
     SELECT
         date,
         product,
-        anofox_stats_ols_fit_agg(revenue, [marketing_spend], {'intercept': true}) as daily_model
+        ols_fit_agg(revenue, [marketing_spend], {'intercept': true}) as daily_model
     FROM sales_data
     GROUP BY date, product
 )
 SELECT
     date,
     product,
-    daily_model.r2 as daily_r2,
-    AVG(daily_model.r2) OVER (
+    daily_model.r_squared as daily_r2,
+    AVG(daily_model.r_squared) OVER (
         PARTITION BY product
         ORDER BY date
         ROWS BETWEEN 7 PRECEDING AND CURRENT ROW
@@ -170,36 +170,36 @@ SELECT '=== Test 5: HAVING with aggregate conditions ===' as test_name;
 SELECT
     product,
     region,
-    model.r2,
+    model.r_squared,
     model.coefficients,
     model.n_obs
 FROM (
     SELECT
         product,
         region,
-        anofox_stats_ols_fit_agg(revenue, [marketing_spend, product_cost], {'intercept': true}) as model
+        ols_fit_agg(revenue, [marketing_spend, product_cost], {'intercept': true}) as model
     FROM sales_data
     GROUP BY product, region
     HAVING COUNT(*) >= 15
 ) sub
-WHERE sub.model.r2 > 0.5
-ORDER BY sub.model.r2 DESC;
+WHERE sub.model.r_squared > 0.5
+ORDER BY sub.model.r_squared DESC;
 
 SELECT '=== Test 6: Nested aggregation ===' as test_name;
 WITH region_models AS (
     SELECT
         region,
-        anofox_stats_ols_fit_agg(revenue, [marketing_spend], {'intercept': true}) as model,
+        ols_fit_agg(revenue, [marketing_spend], {'intercept': true}) as model,
         COUNT(*) as n_observations
     FROM sales_data
     GROUP BY region
 )
 SELECT
     region,
-    model.r2,
+    model.r_squared,
     model.coefficients[1] as marketing_effectiveness,
     n_observations,
-    RANK() OVER (ORDER BY model.r2 DESC) as performance_rank
+    RANK() OVER (ORDER BY model.r_squared DESC) as performance_rank
 FROM region_models
 ORDER BY performance_rank;
 
@@ -208,13 +208,13 @@ SELECT '=== VALIDATION: Test 6 Statistical Checks ===' as test_name;
 WITH validation AS (
   SELECT
     region,
-    model.r2,
+    model.r_squared,
     model.coefficients[1] as marketing_effectiveness,
     model.n_obs
   FROM (
     SELECT
       region,
-      anofox_stats_ols_fit_agg(revenue, [marketing_spend], {'intercept': true}) as model
+      ols_fit_agg(revenue, [marketing_spend], {'intercept': true}) as model
     FROM sales_data
     GROUP BY region
   ) sub
@@ -237,12 +237,12 @@ SELECT '=== Test 7: UNION of aggregate results ===' as test_name;
 SELECT
     'OLS' as method,
     product,
-    model.r2,
+    model.r_squared,
     model.coefficients[1] as coef1
 FROM (
     SELECT
         product,
-        anofox_stats_ols_fit_agg(revenue, [marketing_spend], {'intercept': true}) as model
+        ols_fit_agg(revenue, [marketing_spend], {'intercept': true}) as model
     FROM sales_data
     GROUP BY product
 ) sub
@@ -250,12 +250,12 @@ UNION ALL
 SELECT
     'Ridge (lambda=1)' as method,
     product,
-    model.r2,
+    model.r_squared,
     model.coefficients[1] as coef1
 FROM (
     SELECT
         product,
-        anofox_stats_ridge_fit_agg(revenue, [marketing_spend], {'lambda': 1.0, 'intercept': true}) as model
+        ridge_fit_agg(revenue, [marketing_spend], {'lambda': 1.0, 'intercept': true}) as model
     FROM sales_data
     GROUP BY product
 ) sub
@@ -263,12 +263,12 @@ UNION ALL
 SELECT
     'RLS (ff=0.95)' as method,
     product,
-    model.r2,
+    model.r_squared,
     model.coefficients[1] as coef1
 FROM (
     SELECT
         product,
-        anofox_stats_rls_fit_agg(revenue, [marketing_spend], {'forgetting_factor': 0.95, 'intercept': true}) as model
+        rls_fit_agg(revenue, [marketing_spend], {'forgetting_factor': 0.95, 'intercept': true}) as model
     FROM sales_data
     GROUP BY product
 ) sub
@@ -278,15 +278,15 @@ SELECT '=== Test 8: Self-join with aggregates ===' as test_name;
 WITH product_models AS (
     SELECT
         product,
-        anofox_stats_ols_fit_agg(revenue, [marketing_spend], {'intercept': true}) as model
+        ols_fit_agg(revenue, [marketing_spend], {'intercept': true}) as model
     FROM sales_data
     GROUP BY product
 )
 SELECT
     a.product as product_a,
     b.product as product_b,
-    a.model.r2 as r2_a,
-    b.model.r2 as r2_b,
+    a.model.r_squared as r2_a,
+    b.model.r_squared as r2_b,
     ABS(a.model.coefficients[1] - b.model.coefficients[1]) as coef_difference
 FROM product_models a
 CROSS JOIN product_models b
@@ -297,29 +297,29 @@ SELECT '=== Test 9: Aggregate with CASE expressions ===' as test_name;
 SELECT
     product,
     CASE
-        WHEN model.r2 > 0.8 THEN 'Excellent fit'
-        WHEN model.r2 > 0.6 THEN 'Good fit'
-        WHEN model.r2 > 0.4 THEN 'Moderate fit'
+        WHEN model.r_squared > 0.8 THEN 'Excellent fit'
+        WHEN model.r_squared > 0.6 THEN 'Good fit'
+        WHEN model.r_squared > 0.4 THEN 'Moderate fit'
         ELSE 'Poor fit'
     END as model_quality,
-    model.r2,
+    model.r_squared,
     model.coefficients,
     model.n_obs
 FROM (
     SELECT
         product,
-        anofox_stats_ols_fit_agg(revenue, [marketing_spend, product_cost], {'intercept': true}) as model
+        ols_fit_agg(revenue, [marketing_spend, product_cost], {'intercept': true}) as model
     FROM sales_data
     GROUP BY product
 ) sub
-ORDER BY model.r2 DESC;
+ORDER BY model.r_squared DESC;
 
 SELECT '=== Test 10: Complex filtering with aggregates ===' as test_name;
 WITH initial_models AS (
     SELECT
         product,
         region,
-        anofox_stats_ols_fit_agg(revenue, [marketing_spend], {'intercept': true}) as model,
+        ols_fit_agg(revenue, [marketing_spend], {'intercept': true}) as model,
         AVG(revenue) as avg_revenue
     FROM sales_data
     WHERE revenue > 100
@@ -329,26 +329,26 @@ WITH initial_models AS (
 SELECT
     product,
     region,
-    model.r2,
+    model.r_squared,
     model.coefficients[1] as marketing_roi,
     avg_revenue
 FROM initial_models
-WHERE model.r2 > 0.3
-ORDER BY model.r2 DESC
+WHERE model.r_squared > 0.3
+ORDER BY model.r_squared DESC
 LIMIT 15;
 
 SELECT '=== Test 11: Aggregate results in calculated columns ===' as test_name;
 SELECT
     product,
-    model.r2,
+    model.r_squared,
     model.coefficients[1] * 100 as roi_percentage,
     model.intercept,
-    model.r2 * model.n_obs as weighted_quality_score,
-    ROUND(model.r2, 3) as r2_rounded
+    model.r_squared * model.n_obs as weighted_quality_score,
+    ROUND(model.r_squared, 3) as r2_rounded
 FROM (
     SELECT
         product,
-        anofox_stats_ols_fit_agg(revenue, [marketing_spend], {'intercept': true}) as model
+        ols_fit_agg(revenue, [marketing_spend], {'intercept': true}) as model
     FROM sales_data
     GROUP BY product
 ) sub;
@@ -358,7 +358,7 @@ WITH daily_coefficients AS (
     SELECT
         date,
         product,
-        anofox_stats_ols_fit_agg(revenue, [marketing_spend], {'intercept': true}) as model
+        ols_fit_agg(revenue, [marketing_spend], {'intercept': true}) as model
     FROM sales_data
     GROUP BY date, product
 )
@@ -377,16 +377,16 @@ WITH product_level AS (
     SELECT
         product,
         region,
-        anofox_stats_ols_fit_agg(revenue, [marketing_spend], {'intercept': true}) as model
+        ols_fit_agg(revenue, [marketing_spend], {'intercept': true}) as model
     FROM sales_data
     GROUP BY product, region
 ),
 summary AS (
     SELECT
         product,
-        AVG(model.r2) as avg_r2_across_regions,
-        MAX(model.r2) as max_r2,
-        MIN(model.r2) as min_r2,
+        AVG(model.r_squared) as avg_r2_across_regions,
+        MAX(model.r_squared) as max_r2,
+        MIN(model.r_squared) as min_r2,
         COUNT(*) as num_regions
     FROM product_level
     GROUP BY product
@@ -401,15 +401,15 @@ product_validation AS (
   SELECT
     'Per-Product Models' as test_group,
     COUNT(*) as n_groups,
-    MIN(model.r2) as min_r2,
-    MAX(model.r2) as max_r2,
-    AVG(model.r2) as avg_r2,
+    MIN(model.r_squared) as min_r2,
+    MAX(model.r_squared) as max_r2,
+    AVG(model.r_squared) as avg_r2,
     MIN(model.n_obs) as min_obs,
     MAX(model.n_obs) as max_obs
   FROM (
     SELECT
       product,
-      anofox_stats_ols_fit_agg(revenue, [product_cost], {'intercept': true}) as model
+      ols_fit_agg(revenue, [product_cost], {'intercept': true}) as model
     FROM sales_data
     GROUP BY product
   ) sub
@@ -418,15 +418,15 @@ region_validation AS (
   SELECT
     'Per-Region Models' as test_group,
     COUNT(*) as n_groups,
-    MIN(model.r2) as min_r2,
-    MAX(model.r2) as max_r2,
-    AVG(model.r2) as avg_r2,
+    MIN(model.r_squared) as min_r2,
+    MAX(model.r_squared) as max_r2,
+    AVG(model.r_squared) as avg_r2,
     MIN(model.n_obs) as min_obs,
     MAX(model.n_obs) as max_obs
   FROM (
     SELECT
       region,
-      anofox_stats_ols_fit_agg(revenue, [marketing_spend], {'intercept': true}) as model
+      ols_fit_agg(revenue, [marketing_spend], {'intercept': true}) as model
     FROM sales_data
     GROUP BY region
   ) sub

@@ -31,7 +31,7 @@ true
 
 # TEST 2: Alias exists
 query I
-SELECT anofox_stats_chisq_gof_agg(observed, expected) IS NULL OR anofox_stats_chisq_gof_agg(observed, expected) IS NOT NULL FROM gof_data;
+SELECT chisq_gof_agg(observed, expected) IS NULL OR chisq_gof_agg(observed, expected) IS NOT NULL FROM gof_data;
 ----
 true
 

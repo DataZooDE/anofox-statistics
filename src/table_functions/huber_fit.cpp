@@ -9,6 +9,7 @@
 #include "duckdb/planner/expression/bound_function_expression.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/error_dispatch.hpp"
 #include "../include/ffi_enum_converters.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
@@ -177,7 +178,7 @@ static void HuberFitFunction(DataChunk &args, ExpressionState &state, Vector &re
                                         &error);
 
         if (!success) {
-            throw InvalidInputException("Huber fit failed: " + string(error.message));
+            ThrowFromFfiError("huber_fit", error);
         }
 
         auto &struct_vec = StructVector::GetEntries(result);
@@ -246,7 +247,7 @@ void RegisterHuberFitFunction(ExtensionLoader &loader) {
                         DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, HuberFitBind));
 
     {
-        ScalarFunctionSet func_set("anofox_stats_huber_fit");
+        ScalarFunctionSet func_set("huber_fit");
         func_set.AddFunction(basic_func);
         func_set.AddFunction(map_func);
         CreateScalarFunctionInfo info(std::move(func_set));
@@ -255,7 +256,7 @@ void RegisterHuberFitFunction(ExtensionLoader &loader) {
         FunctionDescription d1;
         d1.description = "Fits a Huber M-estimator robust regression model. Returns coefficients, fit statistics, the "
                          "MAD-based scale, and the outlier count as a struct.";
-        d1.examples = {"anofox_stats_huber_fit(y, x)"};
+        d1.examples = {"huber_fit(y, x)"};
         d1.categories = {"regression"};
         d1.parameter_names = {"y", "x"};
         d1.parameter_types = {LogicalType::LIST(LogicalType::DOUBLE),
@@ -265,7 +266,7 @@ void RegisterHuberFitFunction(ExtensionLoader &loader) {
         FunctionDescription d2;
         d2.description = "Fits a Huber M-estimator regression model with optional MAP of settings (epsilon, alpha, "
                          "fit_intercept, compute_inference, confidence_level, max_iterations, tolerance).";
-        d2.examples = {"anofox_stats_huber_fit(y, x, {'epsilon': 1.35, 'alpha': 0.01})"};
+        d2.examples = {"huber_fit(y, x, {'epsilon': 1.35, 'alpha': 0.01})"};
         d2.categories = {"regression"};
         d2.parameter_names = {"y", "x", "options"};
         d2.parameter_types = {LogicalType::LIST(LogicalType::DOUBLE),
@@ -273,15 +274,6 @@ void RegisterHuberFitFunction(ExtensionLoader &loader) {
         info.descriptions.push_back(std::move(d2));
 
         loader.RegisterFunction(std::move(info));
-    }
-    {
-        ScalarFunctionSet alias_set("huber_fit");
-        alias_set.AddFunction(basic_func);
-        alias_set.AddFunction(map_func);
-        CreateScalarFunctionInfo alias_info(std::move(alias_set));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_huber_fit";
-        loader.RegisterFunction(std::move(alias_info));
     }
 }
 

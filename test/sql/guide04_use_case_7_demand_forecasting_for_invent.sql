@@ -46,15 +46,15 @@ FROM (
 SELECT
     product_id,
     season,
-    ROUND((anofox_stats_ols_fit_agg(units_sold, [price], {'intercept': true})).coefficients[1], 2) as price_sensitivity,
-    ROUND((anofox_stats_ols_fit_agg(units_sold, [price], {'intercept': true})).r2, 3) as forecast_accuracy,
+    ROUND((ols_fit_agg(units_sold, [price], {'intercept': true})).coefficients[1], 2) as price_sensitivity,
+    ROUND((ols_fit_agg(units_sold, [price], {'intercept': true})).r_squared, 3) as forecast_accuracy,
     CASE
-        WHEN (anofox_stats_ols_fit_agg(units_sold, [price], {'intercept': true})).r2 > 0.8 THEN 'High Confidence'
-        WHEN (anofox_stats_ols_fit_agg(units_sold, [price], {'intercept': true})).r2 > 0.5 THEN 'Medium Confidence'
+        WHEN (ols_fit_agg(units_sold, [price], {'intercept': true})).r_squared > 0.8 THEN 'High Confidence'
+        WHEN (ols_fit_agg(units_sold, [price], {'intercept': true})).r_squared > 0.5 THEN 'Medium Confidence'
         ELSE 'Low Confidence'
     END as forecast_reliability,
     CASE
-        WHEN (anofox_stats_ols_fit_agg(units_sold, [price], {'intercept': true})).r2 > 0.7 THEN 'Auto-Replenish'
+        WHEN (ols_fit_agg(units_sold, [price], {'intercept': true})).r_squared > 0.7 THEN 'Auto-Replenish'
         ELSE 'Manual Review'
     END as inventory_strategy,
     COUNT(*) as sample_size

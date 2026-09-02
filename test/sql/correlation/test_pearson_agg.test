@@ -207,11 +207,11 @@ SELECT (pearson_agg(x, y)).r IS NOT NULL FROM min_sample;
 true
 
 # =============================================================================
-# TEST 13: Alias verification (anofox_stats_pearson_agg)
+# TEST 13: Alias verification (pearson_agg)
 # =============================================================================
 
 query I
-SELECT (anofox_stats_pearson_agg(x, y)).r IS NOT NULL FROM positive_cor;
+SELECT (pearson_agg(x, y)).r IS NOT NULL FROM positive_cor;
 ----
 true
 

@@ -173,20 +173,20 @@ static unique_ptr<FunctionData> DAgostinoK2AggBind(ClientContext &context, Aggre
 // Registration
 //===--------------------------------------------------------------------===//
 void RegisterDAgostinoK2AggregateFunction(ExtensionLoader &loader) {
-    auto func = AggregateFunction("anofox_stats_dagostino_k2_agg", {LogicalType::DOUBLE},
+    auto func = AggregateFunction("dagostino_k2_agg", {LogicalType::DOUBLE},
                                   LogicalType::ANY,
                                   AggregateFunction::StateSize<DAgostinoK2AggregateState>, DAgostinoK2AggInitialize,
                                   DAgostinoK2AggUpdate, DAgostinoK2AggCombine, DAgostinoK2AggFinalize,
                                   nullptr, DAgostinoK2AggBind, DAgostinoK2AggDestroy);
 
     {
-        AggregateFunctionSet func_set("anofox_stats_dagostino_k2_agg");
+        AggregateFunctionSet func_set("dagostino_k2_agg");
         func_set.AddFunction(func);
         CreateAggregateFunctionInfo info(std::move(func_set));
         info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
         FunctionDescription desc;
         desc.description     = "Performs the D'Agostino-Pearson K² omnibus normality test based on skewness and kurtosis.";
-        desc.examples        = {"anofox_stats_dagostino_k2_agg(value)"};
+        desc.examples        = {"dagostino_k2_agg(value)"};
         desc.categories      = {"normality-test"};
         desc.parameter_names = {"value"};
         desc.parameter_types = {LogicalType::DOUBLE};
@@ -194,15 +194,6 @@ void RegisterDAgostinoK2AggregateFunction(ExtensionLoader &loader) {
         loader.RegisterFunction(std::move(info));
     }
 
-    // Short alias
-    {
-        AggregateFunctionSet alias_set("dagostino_k2_agg");
-        alias_set.AddFunction(func);
-        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_dagostino_k2_agg";
-        loader.RegisterFunction(std::move(alias_info));
-    }
 }
 
 } // namespace duckdb

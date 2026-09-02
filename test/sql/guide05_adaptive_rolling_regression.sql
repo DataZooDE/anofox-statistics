@@ -26,14 +26,14 @@ rolling_30 AS (
     SELECT
         date_id,
         y,
-        (anofox_stats_ols_fit_agg(y, [time_idx::DOUBLE], {'intercept': true}) OVER (
+        (ols_fit_agg(y, [time_idx::DOUBLE], {'intercept': true}) OVER (
             ORDER BY time_idx
             ROWS BETWEEN 29 PRECEDING AND CURRENT ROW
         )).coefficients[1] as trend_30d,
-        (anofox_stats_ols_fit_agg(y, [time_idx::DOUBLE], {'intercept': true}) OVER (
+        (ols_fit_agg(y, [time_idx::DOUBLE], {'intercept': true}) OVER (
             ORDER BY time_idx
             ROWS BETWEEN 29 PRECEDING AND CURRENT ROW
-        )).r2 as r2_30d
+        )).r_squared as r2_30d
     FROM time_series
 ),
 
@@ -41,14 +41,14 @@ rolling_30 AS (
 rolling_90 AS (
     SELECT
         date_id,
-        (anofox_stats_ols_fit_agg(y, [time_idx::DOUBLE], {'intercept': true}) OVER (
+        (ols_fit_agg(y, [time_idx::DOUBLE], {'intercept': true}) OVER (
             ORDER BY time_idx
             ROWS BETWEEN 89 PRECEDING AND CURRENT ROW
         )).coefficients[1] as trend_90d,
-        (anofox_stats_ols_fit_agg(y, [time_idx::DOUBLE], {'intercept': true}) OVER (
+        (ols_fit_agg(y, [time_idx::DOUBLE], {'intercept': true}) OVER (
             ORDER BY time_idx
             ROWS BETWEEN 89 PRECEDING AND CURRENT ROW
-        )).r2 as r2_90d
+        )).r_squared as r2_90d
     FROM time_series
 ),
 
@@ -56,14 +56,14 @@ rolling_90 AS (
 expanding AS (
     SELECT
         date_id,
-        (anofox_stats_ols_fit_agg(y, [time_idx::DOUBLE], {'intercept': true}) OVER (
+        (ols_fit_agg(y, [time_idx::DOUBLE], {'intercept': true}) OVER (
             ORDER BY time_idx
             ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
         )).coefficients[1] as trend_expanding,
-        (anofox_stats_ols_fit_agg(y, [time_idx::DOUBLE], {'intercept': true}) OVER (
+        (ols_fit_agg(y, [time_idx::DOUBLE], {'intercept': true}) OVER (
             ORDER BY time_idx
             ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-        )).r2 as r2_expanding
+        )).r_squared as r2_expanding
     FROM time_series
 )
 

@@ -22,12 +22,12 @@ SELECT
     category,
     result.coefficients[1] as price_elasticity,
     result.intercept,
-    result.r2,
+    result.r_squared,
     result.n_obs
 FROM (
     SELECT
         category,
-        anofox_stats_ols_fit_agg(
+        ols_fit_agg(
             units_sold::DOUBLE,
             [price::DOUBLE],
             {'intercept': true}

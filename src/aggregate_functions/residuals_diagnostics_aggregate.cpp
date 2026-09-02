@@ -317,11 +317,11 @@ static unique_ptr<FunctionData> ResidualsDiagnosticsAggBind(ClientContext &conte
 // Registration
 //===--------------------------------------------------------------------===//
 void RegisterResidualsDiagnosticsAggregateFunction(ExtensionLoader &loader) {
-    AggregateFunctionSet func_set("anofox_stats_residuals_diagnostics_agg");
+    AggregateFunctionSet func_set("residuals_diagnostics_agg");
 
-    // Basic version: anofox_stats_residuals_diagnostics_agg(y, y_hat)
+    // Basic version: residuals_diagnostics_agg(y, y_hat)
     auto basic_func = AggregateFunction(
-        "anofox_stats_residuals_diagnostics_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE},
+        "residuals_diagnostics_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE},
         LogicalType::ANY, // Set in bind
         AggregateFunction::StateSize<ResidualsDiagnosticsAggregateState>, ResidualsDiagnosticsAggInitialize,
         ResidualsDiagnosticsAggUpdateBasic, ResidualsDiagnosticsAggCombine, ResidualsDiagnosticsAggFinalize,
@@ -329,9 +329,9 @@ void RegisterResidualsDiagnosticsAggregateFunction(ExtensionLoader &loader) {
         ResidualsDiagnosticsAggBind, ResidualsDiagnosticsAggDestroy);
     func_set.AddFunction(basic_func);
 
-    // Full version: anofox_stats_residuals_diagnostics_agg(y, y_hat, x)
+    // Full version: residuals_diagnostics_agg(y, y_hat, x)
     auto full_func = AggregateFunction(
-        "anofox_stats_residuals_diagnostics_agg",
+        "residuals_diagnostics_agg",
         {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)}, LogicalType::ANY,
         AggregateFunction::StateSize<ResidualsDiagnosticsAggregateState>, ResidualsDiagnosticsAggInitialize,
         ResidualsDiagnosticsAggUpdateFull, ResidualsDiagnosticsAggCombine, ResidualsDiagnosticsAggFinalize, nullptr,
@@ -343,7 +343,7 @@ void RegisterResidualsDiagnosticsAggregateFunction(ExtensionLoader &loader) {
 
     FunctionDescription d1;
     d1.description = "Aggregate version of residuals diagnostics: computes raw, standardized, studentized residuals and leverage from predicted and actual values.";
-    d1.examples = {"anofox_stats_residuals_diagnostics_agg(y, y_hat)"};
+    d1.examples = {"residuals_diagnostics_agg(y, y_hat)"};
     d1.categories = {"regression-diagnostics"};
     d1.parameter_names = {"y", "y_hat"};
     d1.parameter_types = {LogicalType::DOUBLE, LogicalType::DOUBLE};
@@ -351,7 +351,7 @@ void RegisterResidualsDiagnosticsAggregateFunction(ExtensionLoader &loader) {
 
     FunctionDescription d2;
     d2.description = "Aggregate version of residuals diagnostics with feature matrix: computes raw, standardized, studentized residuals and leverage from predicted and actual values.";
-    d2.examples = {"anofox_stats_residuals_diagnostics_agg(y, y_hat, x)"};
+    d2.examples = {"residuals_diagnostics_agg(y, y_hat, x)"};
     d2.categories = {"regression-diagnostics"};
     d2.parameter_names = {"y", "y_hat", "x"};
     d2.parameter_types = {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)};
@@ -360,15 +360,6 @@ void RegisterResidualsDiagnosticsAggregateFunction(ExtensionLoader &loader) {
     loader.RegisterFunction(std::move(info));
 
     // Also register short aliases
-    {
-        AggregateFunctionSet alias_set("residuals_diagnostics_agg");
-        alias_set.AddFunction(basic_func);
-        alias_set.AddFunction(full_func);
-        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_residuals_diagnostics_agg";
-        loader.RegisterFunction(std::move(alias_info));
-    }
 }
 
 } // namespace duckdb

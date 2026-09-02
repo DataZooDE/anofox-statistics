@@ -171,7 +171,7 @@ static unique_ptr<FunctionData> JarqueBeraAggBind(ClientContext &context, Aggreg
 // Registration
 //===--------------------------------------------------------------------===//
 void RegisterJarqueBeraAggregateFunction(ExtensionLoader &loader) {
-    auto func = AggregateFunction("anofox_stats_jarque_bera_agg", {LogicalType::DOUBLE},
+    auto func = AggregateFunction("jarque_bera_agg", {LogicalType::DOUBLE},
                                   LogicalType::ANY, // Set in bind
                                   AggregateFunction::StateSize<JarqueBeraAggregateState>, JarqueBeraAggInitialize,
                                   JarqueBeraAggUpdate, JarqueBeraAggCombine, JarqueBeraAggFinalize,
@@ -179,13 +179,13 @@ void RegisterJarqueBeraAggregateFunction(ExtensionLoader &loader) {
                                   JarqueBeraAggBind, JarqueBeraAggDestroy);
 
     {
-        AggregateFunctionSet func_set("anofox_stats_jarque_bera_agg");
+        AggregateFunctionSet func_set("jarque_bera_agg");
         func_set.AddFunction(func);
         CreateAggregateFunctionInfo info(std::move(func_set));
         info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
         FunctionDescription desc;
         desc.description     = "Aggregate version of the Jarque-Bera normality test, applied to a column of values.";
-        desc.examples        = {"anofox_stats_jarque_bera_agg(value)"};
+        desc.examples        = {"jarque_bera_agg(value)"};
         desc.categories      = {"normality-test"};
         desc.parameter_names = {"value"};
         desc.parameter_types = {LogicalType::DOUBLE};
@@ -194,14 +194,6 @@ void RegisterJarqueBeraAggregateFunction(ExtensionLoader &loader) {
     }
 
     // Also register short alias
-    {
-        AggregateFunctionSet alias_set("jarque_bera_agg");
-        alias_set.AddFunction(func);
-        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_jarque_bera_agg";
-        loader.RegisterFunction(std::move(alias_info));
-    }
 }
 
 } // namespace duckdb

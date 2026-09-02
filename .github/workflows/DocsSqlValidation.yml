@@ -1,0 +1,57 @@
+# Doc-SQL validation gate — prevents documentation drift from breaking the build.
+#
+# Every fenced ```sql block in README.md, guides/*.md, docs/API_REFERENCE.md,
+# and docs/API_CONVENTIONS.md is extracted and executed against the locally-built
+# extension via scripts/validate_docs_sql.py.  A non-zero harness exit (any SQL
+# block fails) fails this job — there is NO continue-on-error.  Future pull
+# requests that introduce doc-SQL drift will fail CI before merge.
+#
+# Design (DOCS-04 / Phase 6): mirrors the build-and-test-rust job pattern from
+# MainDistributionPipeline.yml — ubuntu-24.04, dtolnay/rust-toolchain@stable,
+# actions/cache@v4 with the standard Cargo key, make release to produce the
+# DuckDB CLI + loadable extension, then the harness.  Linux-only (no matrix),
+# per RESEARCH.md §3 Option B.
+
+name: Doc-SQL Validation
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  docs-sql-validation:
+    name: Validate doc-file SQL blocks
+    runs-on: ubuntu-24.04
+    env:
+      CC: gcc
+      CXX: g++
+
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo registry and build artefacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Build extension (release)
+        run: make release
+
+      - name: Run doc-SQL validation
+        run: python3 scripts/validate_docs_sql.py

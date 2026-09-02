@@ -36,7 +36,7 @@ EXTENSION_NAME = "anofox_statistics"
 # not prove the registered functions work, because symbols can resolve lazily
 # and only fail when actually called. Verified against a real build of this
 # extension before being committed.
-SMOKE_QUERY = "SELECT anofox_stats_ols_fit([1.0,2.0,3.0,4.0], [[1.0,2.0,3.0,4.0]]) IS NOT NULL AS ok;"
+SMOKE_QUERY = "SELECT ols_fit([1.0,2.0,3.0,4.0], [[1.0,2.0,3.0,4.0]]) IS NOT NULL AS ok;"
 # ─────────────────────────────────────────────────────────────────────────────
 
 ARCH_TO_CLI_ZIP: dict[str, str] = {

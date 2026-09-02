@@ -129,7 +129,7 @@ true
 
 # TEST 7: Alias verification
 query I
-SELECT (anofox_stats_tost_t_test_agg(value, grp)).p_value IS NOT NULL FROM tost_data;
+SELECT (tost_t_test_agg(value, grp)).p_value IS NOT NULL FROM tost_data;
 ----
 true
 
@@ -208,7 +208,7 @@ true
 
 # TEST 12: Alias verification
 query I
-SELECT (anofox_stats_tost_paired_agg(before, after)).p_value IS NOT NULL FROM paired_data;
+SELECT (tost_paired_agg(before, after)).p_value IS NOT NULL FROM paired_data;
 ----
 true
 
@@ -281,7 +281,7 @@ true
 
 # TEST 17: Alias verification
 query I
-SELECT (anofox_stats_tost_correlation_agg(x, y)).p_value IS NOT NULL FROM cor_data;
+SELECT (tost_correlation_agg(x, y)).p_value IS NOT NULL FROM cor_data;
 ----
 true
 

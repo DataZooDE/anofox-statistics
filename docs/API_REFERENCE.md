@@ -102,19 +102,19 @@ The Anofox Statistics Extension provides comprehensive regression analysis capab
 
 ### Scalar Functions (Array-based)
 Process complete arrays of data in a single call. Best for batch operations.
-```sql
+```sql skip
 SELECT ols_fit(y_array, x_arrays);
 ```
 
 ### Aggregate Functions (Streaming)
 Accumulate data row-by-row. Support `GROUP BY` and window functions via `OVER`.
-```sql
+```sql skip
 SELECT ols_fit_agg(y, [x1, x2]) FROM table GROUP BY category;
 ```
 
 ### Table Macros
 Convenience wrappers for per-group regression. All source columns are passed through to the output alongside predictions.
-```sql
+```sql skip
 SELECT * FROM ols_fit_predict_by('sales', region, revenue, [ads, price]);
 ```
 
@@ -126,7 +126,7 @@ SELECT * FROM ols_fit_predict_by('sales', region, revenue, [ads, price]);
 Ordinary Least Squares regression using SVD decomposition.
 
 **Signature:**
-```sql
+```sql skip
 anofox_stats_ols_fit(
     y LIST(DOUBLE),
     x LIST(LIST(DOUBLE)),
@@ -148,7 +148,7 @@ anofox_stats_ols_fit(
 **Returns:** [FitResult](#fitresult-structure) STRUCT
 
 **Example:**
-```sql
+```sql skip
 -- Simple regression: y = 2x + 1
 SELECT anofox_stats_ols_fit(
     [3.0, 5.0, 7.0, 9.0, 11.0],
@@ -167,7 +167,7 @@ SELECT anofox_stats_ols_fit(
 Streaming OLS regression aggregate function.
 
 **Signature:**
-```sql
+```sql skip
 anofox_stats_ols_fit_agg(
     y DOUBLE,
     x LIST(DOUBLE),
@@ -178,7 +178,7 @@ anofox_stats_ols_fit_agg(
 ```
 
 **Example:**
-```sql
+```sql skip
 -- Per-group regression
 SELECT
     category,
@@ -203,7 +203,7 @@ FROM time_series;
 Ridge regression with L2 regularization.
 
 **Signature:**
-```sql
+```sql skip
 anofox_stats_ridge_fit(
     y LIST(DOUBLE),
     x LIST(LIST(DOUBLE)),
@@ -221,17 +221,17 @@ anofox_stats_ridge_fit(
 
 **Example:**
 ```sql
-SELECT anofox_stats_ridge_fit(
+SELECT ridge_fit(
     [2.1, 4.0, 5.9, 8.1, 10.0],
     [[1.0, 2.0, 3.0, 4.0, 5.0]],
-    0.1  -- alpha
+    {'alpha': 0.1}
 );
 ```
 
 ### anofox_stats_ridge_fit_agg
 Streaming Ridge regression aggregate function.
 
-```sql
+```sql skip
 SELECT
     (anofox_stats_ridge_fit_agg(y, [x1, x2], 0.5)).coefficients
 FROM data;
@@ -245,7 +245,7 @@ FROM data;
 Elastic Net regression with combined L1/L2 regularization.
 
 **Signature:**
-```sql
+```sql skip
 anofox_stats_elasticnet_fit(
     y LIST(DOUBLE),
     x LIST(LIST(DOUBLE)),
@@ -266,7 +266,7 @@ anofox_stats_elasticnet_fit(
 | tolerance | DOUBLE | Convergence tolerance |
 
 **Example:**
-```sql
+```sql skip
 SELECT anofox_stats_elasticnet_fit(
     [2.1, 4.0, 5.9, 8.1, 10.0],
     [[1.0, 2.0, 3.0, 4.0, 5.0]],
@@ -286,7 +286,7 @@ Streaming Elastic Net aggregate function.
 Weighted Least Squares regression.
 
 **Signature:**
-```sql
+```sql skip
 anofox_stats_wls_fit(
     y LIST(DOUBLE),
     x LIST(LIST(DOUBLE)),
@@ -304,7 +304,7 @@ anofox_stats_wls_fit(
 
 **Example:**
 ```sql
-SELECT anofox_stats_wls_fit(
+SELECT wls_fit(
     [3.0, 5.0, 7.0, 9.0, 11.0],
     [[1.0, 2.0, 3.0, 4.0, 5.0]],
     [1.0, 2.0, 3.0, 2.0, 1.0]  -- higher weight for middle observations
@@ -314,7 +314,7 @@ SELECT anofox_stats_wls_fit(
 ### anofox_stats_wls_fit_agg
 Streaming WLS aggregate function.
 
-```sql
+```sql skip
 SELECT anofox_stats_wls_fit_agg(y, [x], weight) FROM data;
 ```
 
@@ -326,7 +326,7 @@ SELECT anofox_stats_wls_fit_agg(y, [x], weight) FROM data;
 Recursive Least Squares for online/adaptive regression.
 
 **Signature:**
-```sql
+```sql skip
 anofox_stats_rls_fit(
     y LIST(DOUBLE),
     x LIST(LIST(DOUBLE)),
@@ -344,19 +344,17 @@ anofox_stats_rls_fit(
 
 **Example:**
 ```sql
-SELECT anofox_stats_rls_fit(
+SELECT rls_fit(
     [3.0, 5.0, 7.0, 9.0, 11.0],
     [[1.0, 2.0, 3.0, 4.0, 5.0]],
-    0.99,  -- forgetting_factor
-    true,  -- fit_intercept
-    100.0  -- initial_p_diagonal
+    {'forgetting_factor': 0.99, 'fit_intercept': true, 'initial_p_diagonal': 100.0}
 );
 ```
 
 ### anofox_stats_rls_fit_agg
 Streaming RLS aggregate function. Ideal for adaptive/online learning.
 
-```sql
+```sql skip
 -- Adaptive regression with exponential forgetting
 SELECT anofox_stats_rls_fit_agg(y, [x], 0.95) FROM streaming_data;
 ```
@@ -371,7 +369,7 @@ Partial Least Squares regression for high-dimensional data and multicollinearity
 PLS regression using the SIMPLS algorithm to find latent components that maximize covariance between X scores and y.
 
 **Signature:**
-```sql
+```sql skip
 anofox_stats_pls_fit(
     y LIST(DOUBLE),
     x LIST(LIST(DOUBLE)),
@@ -398,7 +396,7 @@ STRUCT(
 ```
 
 **Example:**
-```sql
+```sql skip
 -- PLS with 3 components for high-dimensional data
 SELECT pls_fit(
     [y1, y2, y3, y4, y5],
@@ -425,7 +423,7 @@ GROUP BY category;
 ### anofox_stats_pls_fit_agg / pls_fit_agg
 Streaming PLS regression aggregate function.
 
-```sql
+```sql skip
 SELECT pls_fit_agg(y, [x1, x2, x3], {'n_components': 2}) FROM data;
 ```
 
@@ -439,7 +437,7 @@ Isotonic regression for monotonic constraints.
 Fits a monotonic (non-decreasing or non-increasing) function to the data using pool adjacent violators algorithm (PAVA).
 
 **Signature:**
-```sql
+```sql skip
 anofox_stats_isotonic_fit(
     x LIST(DOUBLE),
     y LIST(DOUBLE),
@@ -463,7 +461,7 @@ STRUCT(
 ```
 
 **Example:**
-```sql
+```sql skip
 -- Fit increasing monotonic function (e.g., dose-response curve)
 SELECT isotonic_fit(
     [1.0, 2.0, 3.0, 4.0, 5.0],
@@ -488,7 +486,7 @@ SELECT isotonic_fit(
 ### anofox_stats_isotonic_fit_agg / isotonic_fit_agg
 Streaming isotonic regression aggregate function.
 
-```sql
+```sql skip
 SELECT isotonic_fit_agg(x, y, {'increasing': true}) FROM calibration_data;
 ```
 
@@ -502,7 +500,7 @@ Quantile regression for estimating conditional quantiles.
 Quantile regression estimates conditional quantiles of the response variable distribution, rather than the conditional mean. Robust to outliers.
 
 **Signature:**
-```sql
+```sql skip
 anofox_stats_quantile_fit(
     y LIST(DOUBLE),
     x LIST(LIST(DOUBLE)),
@@ -530,7 +528,7 @@ STRUCT(
 ```
 
 **Example:**
-```sql
+```sql skip
 -- Median regression (tau = 0.5) - robust to outliers
 SELECT quantile_fit(
     [y1, y2, y3, y4, y5],
@@ -565,7 +563,7 @@ SELECT
 ### anofox_stats_quantile_fit_agg / quantile_fit_agg
 Streaming quantile regression aggregate function.
 
-```sql
+```sql skip
 -- Per-group median regression
 SELECT
     region,
@@ -584,7 +582,7 @@ Generalized Linear Models for count data and other non-normal response distribut
 Poisson regression for count data using maximum likelihood estimation.
 
 **Signature:**
-```sql
+```sql skip
 anofox_stats_poisson_fit_agg(
     y DOUBLE,
     x LIST(DOUBLE),
@@ -606,7 +604,7 @@ anofox_stats_poisson_fit_agg(
 **Returns:** [GlmFitResult](#glmfitresult-structure) STRUCT
 
 **Example:**
-```sql
+```sql skip
 -- Basic Poisson regression for count data
 SELECT poisson_fit_agg(count, [x1, x2])
 FROM event_counts;
@@ -642,7 +640,7 @@ Augmented Linear Models with 24 error distribution families for flexible regress
 Fit an Augmented Linear Model with choice of distribution and loss function.
 
 **Signature:**
-```sql
+```sql skip
 anofox_stats_alm_fit_agg(
     y DOUBLE,
     x LIST(DOUBLE),
@@ -675,7 +673,7 @@ anofox_stats_alm_fit_agg(
 **Returns:** [AlmFitResult](#almfitresult-structure) STRUCT
 
 **Example:**
-```sql
+```sql skip
 -- Robust regression with Laplace distribution (median regression)
 SELECT alm_fit_agg(y, [x1, x2], {'distribution': 'laplace'})
 FROM data_with_outliers;
@@ -722,7 +720,7 @@ Bounded Least Squares and Non-Negative Least Squares for constrained optimizatio
 Bounded Least Squares with box constraints on coefficients.
 
 **Signature:**
-```sql
+```sql skip
 anofox_stats_bls_fit_agg(
     y DOUBLE,
     x LIST(DOUBLE),
@@ -742,7 +740,7 @@ anofox_stats_bls_fit_agg(
 **Returns:** [BlsFitResult](#blsfitresult-structure) STRUCT
 
 **Example:**
-```sql
+```sql skip
 -- Coefficients bounded between 0 and 1
 SELECT bls_fit_agg(
     y,
@@ -764,7 +762,7 @@ FROM data;
 Non-Negative Least Squares - all coefficients constrained to be >= 0.
 
 **Signature:**
-```sql
+```sql skip
 anofox_stats_nnls_fit_agg(
     y DOUBLE,
     x LIST(DOUBLE),
@@ -782,7 +780,7 @@ anofox_stats_nnls_fit_agg(
 **Returns:** [BlsFitResult](#blsfitresult-structure) STRUCT
 
 **Example:**
-```sql
+```sql skip
 -- Non-negative coefficients (e.g., mixture models)
 SELECT nnls_fit_agg(spectrum, [component1, component2, component3])
 FROM spectral_data;
@@ -816,7 +814,7 @@ AID (Automatic Identification of Demand) provides demand pattern classification 
 Classifies demand patterns as regular or intermittent, identifies best-fit distribution, and detects various anomaly patterns.
 
 **Signature:**
-```sql
+```sql skip
 anofox_stats_aid_agg(
     y DOUBLE,
     [options MAP]
@@ -855,7 +853,7 @@ STRUCT(
 - Continuous data: `normal`, `gamma`, `lognormal`, `rectified_normal`
 
 **Example:**
-```sql
+```sql skip
 -- Classify demand pattern for each SKU
 SELECT
     sku,
@@ -878,7 +876,7 @@ FROM inventory_data;
 Returns per-observation anomaly flags for demand analysis. Maintains input order.
 
 **Signature:**
-```sql
+```sql skip
 anofox_stats_aid_anomaly_agg(
     y DOUBLE,
     [options MAP]
@@ -912,19 +910,12 @@ LIST(STRUCT(
 **Example:**
 ```sql
 -- Get anomaly flags for demand series
-SELECT aid_anomaly_agg(demand)
+SELECT aid_anomaly_agg(demand::DOUBLE)
 FROM (VALUES (0), (0), (5), (0), (8), (0), (0)) AS t(demand);
--- Returns: [
---   {stockout: false, new_product: true, ...},   -- Leading zero
---   {stockout: false, new_product: true, ...},   -- Leading zero
---   {stockout: false, new_product: false, ...},  -- First non-zero
---   {stockout: true, new_product: false, ...},   -- Stockout (zero between)
---   {stockout: false, new_product: false, ...},  -- Normal
---   {stockout: false, obsolete_product: true,...}, -- Trailing zero
---   {stockout: false, obsolete_product: true,...}  -- Trailing zero
--- ]
+```
 
--- Identify problematic SKUs with stockouts
+```sql skip
+-- Identify problematic SKUs with stockouts (illustrative — requires a sales table)
 WITH anomalies AS (
     SELECT sku, aid_agg(demand) as result
     FROM sales
@@ -948,7 +939,7 @@ ORDER BY result.stockout_count DESC;
 Table macro that classifies demand patterns for each group, returning one row per group with flat columns.
 
 **Signature:**
-```sql
+```sql skip
 aid_by(
     source VARCHAR,           -- Table name (as string)
     group_col COLUMN,         -- Column to group by
@@ -984,7 +975,7 @@ aid_by(
 | low_outlier_count | BIGINT | Number of unusually low values |
 
 **Example:**
-```sql
+```sql skip
 -- Classify demand pattern for each SKU
 SELECT * FROM aid_by('sales', sku, demand);
 
@@ -1010,7 +1001,7 @@ Comprehensive statistical hypothesis testing powered by the `anofox-statistics` 
 Shapiro-Wilk test for normality. Tests whether a sample comes from a normal distribution.
 
 **Signature:**
-```sql
+```sql skip
 shapiro_wilk_agg(value DOUBLE) -> STRUCT
 ```
 
@@ -1025,7 +1016,7 @@ STRUCT(
 ```
 
 **Example:**
-```sql
+```sql skip
 -- Test normality of residuals
 SELECT (shapiro_wilk_agg(residual)).p_value as normality_p
 FROM model_diagnostics;
@@ -1045,7 +1036,7 @@ GROUP BY category;
 Two-sample t-test comparing means of two groups. Supports both Student's t-test (equal variances) and Welch's t-test (unequal variances).
 
 **Signature:**
-```sql
+```sql skip
 t_test_agg(value DOUBLE, group_id INTEGER, [options MAP]) -> STRUCT
 ```
 
@@ -1073,7 +1064,7 @@ STRUCT(
 ```
 
 **Example:**
-```sql
+```sql skip
 -- Compare treatment vs control (group_id: 0 = control, 1 = treatment)
 SELECT (t_test_agg(outcome, treatment_group)).*
 FROM experiment;
@@ -1092,7 +1083,7 @@ FROM data;
 One-way Analysis of Variance for comparing means across multiple groups.
 
 **Signature:**
-```sql
+```sql skip
 one_way_anova_agg(value DOUBLE, group_id INTEGER) -> STRUCT
 ```
 
@@ -1112,7 +1103,7 @@ STRUCT(
 ```
 
 **Example:**
-```sql
+```sql skip
 -- Compare means across multiple treatment groups
 SELECT (one_way_anova_agg(response, treatment_group)).*
 FROM clinical_trial;
@@ -1132,7 +1123,7 @@ GROUP BY study_id;
 Mann-Whitney U test (Wilcoxon rank-sum test). Non-parametric alternative to independent t-test.
 
 **Signature:**
-```sql
+```sql skip
 mann_whitney_u_agg(value DOUBLE, group_id INTEGER, [options MAP]) -> STRUCT
 ```
 
@@ -1158,7 +1149,7 @@ STRUCT(
 ```
 
 **Example:**
-```sql
+```sql skip
 -- Non-parametric comparison of two groups
 SELECT (mann_whitney_u_agg(score, group)).*
 FROM non_normal_data;
@@ -1173,7 +1164,7 @@ FROM survey_results;
 Kruskal-Wallis H test. Non-parametric alternative to one-way ANOVA.
 
 **Signature:**
-```sql
+```sql skip
 kruskal_wallis_agg(value DOUBLE, group_id INTEGER) -> STRUCT
 ```
 
@@ -1189,7 +1180,7 @@ STRUCT(
 ```
 
 **Example:**
-```sql
+```sql skip
 -- Non-parametric comparison of multiple groups
 SELECT (kruskal_wallis_agg(satisfaction, department)).*
 FROM employee_survey;
@@ -1202,7 +1193,7 @@ FROM employee_survey;
 Pearson product-moment correlation with significance test.
 
 **Signature:**
-```sql
+```sql skip
 pearson_agg(x DOUBLE, y DOUBLE, [options MAP]) -> STRUCT
 ```
 
@@ -1225,7 +1216,7 @@ STRUCT(
 ```
 
 **Example:**
-```sql
+```sql skip
 -- Test correlation between two variables
 SELECT (pearson_agg(height, weight)).*
 FROM measurements;
@@ -1243,7 +1234,7 @@ GROUP BY region;
 Spearman rank correlation with significance test. Robust to outliers and non-linear relationships.
 
 **Signature:**
-```sql
+```sql skip
 spearman_agg(x DOUBLE, y DOUBLE, [options MAP]) -> STRUCT
 ```
 
@@ -1255,7 +1246,7 @@ spearman_agg(x DOUBLE, y DOUBLE, [options MAP]) -> STRUCT
 **Returns:** Same structure as pearson_agg with method "Spearman"
 
 **Example:**
-```sql
+```sql skip
 -- Rank correlation for ordinal data
 SELECT (spearman_agg(rank_x, rank_y)).*
 FROM ranked_data;
@@ -1268,7 +1259,7 @@ FROM ranked_data;
 Chi-square test of independence for categorical variables.
 
 **Signature:**
-```sql
+```sql skip
 chisq_test_agg(row_var INTEGER, col_var INTEGER, [options MAP]) -> STRUCT
 ```
 
@@ -1288,7 +1279,7 @@ STRUCT(
 ```
 
 **Example:**
-```sql
+```sql skip
 -- Test independence of two categorical variables
 SELECT (chisq_test_agg(gender, preference)).*
 FROM survey;
@@ -1303,7 +1294,7 @@ FROM clinical_data;
 Chi-square goodness of fit test. Tests whether observed frequencies match expected frequencies.
 
 **Signature:**
-```sql
+```sql skip
 chisq_gof_agg(observed INTEGER, expected DOUBLE) -> STRUCT
 ```
 
@@ -1318,7 +1309,7 @@ STRUCT(
 ```
 
 **Example:**
-```sql
+```sql skip
 -- Test if observed frequencies match expected
 SELECT (chisq_gof_agg(observed_count, expected_count)).*
 FROM frequency_data;
@@ -1329,7 +1320,7 @@ FROM frequency_data;
 G-test (log-likelihood ratio test) for contingency tables.
 
 **Signature:**
-```sql
+```sql skip
 g_test_agg(row_var INTEGER, col_var INTEGER) -> STRUCT
 ```
 
@@ -1344,7 +1335,7 @@ STRUCT(
 ```
 
 **Example:**
-```sql
+```sql skip
 -- G-test for independence
 SELECT (g_test_agg(category_a, category_b)).*
 FROM contingency_data;
@@ -1355,7 +1346,7 @@ FROM contingency_data;
 Fisher's exact test for 2x2 contingency tables.
 
 **Signature:**
-```sql
+```sql skip
 fisher_exact_agg(row_var INTEGER, col_var INTEGER, [options MAP]) -> STRUCT
 ```
 
@@ -1376,7 +1367,7 @@ STRUCT(
 ```
 
 **Example:**
-```sql
+```sql skip
 -- Fisher's exact test for small samples
 SELECT (fisher_exact_agg(treatment, outcome)).*
 FROM small_study;
@@ -1387,7 +1378,7 @@ FROM small_study;
 McNemar's test for paired nominal data.
 
 **Signature:**
-```sql
+```sql skip
 mcnemar_agg(var1 INTEGER, var2 INTEGER, [options MAP]) -> STRUCT
 ```
 
@@ -1407,7 +1398,7 @@ STRUCT(
 ```
 
 **Example:**
-```sql
+```sql skip
 -- Compare paired binary outcomes (before/after)
 SELECT (mcnemar_agg(before_treatment, after_treatment)).*
 FROM paired_study;
@@ -1420,14 +1411,14 @@ FROM paired_study;
 Cramér's V effect size for categorical association.
 
 **Signature:**
-```sql
+```sql skip
 cramers_v_agg(row_var INTEGER, col_var INTEGER) -> DOUBLE
 ```
 
 **Returns:** Cramér's V coefficient (0 to 1)
 
 **Example:**
-```sql
+```sql skip
 -- Measure association strength
 SELECT cramers_v_agg(category_a, category_b) as effect_size
 FROM survey_data;
@@ -1438,14 +1429,14 @@ FROM survey_data;
 Phi coefficient for 2x2 contingency tables.
 
 **Signature:**
-```sql
+```sql skip
 phi_coefficient_agg(row_var INTEGER, col_var INTEGER) -> DOUBLE
 ```
 
 **Returns:** Phi coefficient (-1 to 1)
 
 **Example:**
-```sql
+```sql skip
 -- Phi coefficient for binary variables
 SELECT phi_coefficient_agg(gender, preference) as phi
 FROM binary_data;
@@ -1456,14 +1447,14 @@ FROM binary_data;
 Pearson's contingency coefficient.
 
 **Signature:**
-```sql
+```sql skip
 contingency_coef_agg(row_var INTEGER, col_var INTEGER) -> DOUBLE
 ```
 
 **Returns:** Contingency coefficient (0 to 1)
 
 **Example:**
-```sql
+```sql skip
 SELECT contingency_coef_agg(row_category, col_category) as c_coef
 FROM categorical_data;
 ```
@@ -1473,7 +1464,7 @@ FROM categorical_data;
 Cohen's kappa for inter-rater agreement.
 
 **Signature:**
-```sql
+```sql skip
 cohen_kappa_agg(rater1 INTEGER, rater2 INTEGER) -> STRUCT
 ```
 
@@ -1491,7 +1482,7 @@ STRUCT(
 ```
 
 **Example:**
-```sql
+```sql skip
 -- Measure agreement between two raters
 SELECT (cohen_kappa_agg(rater1_score, rater2_score)).*
 FROM ratings;
@@ -1504,7 +1495,7 @@ FROM ratings;
 One-sample proportion test.
 
 **Signature:**
-```sql
+```sql skip
 prop_test_one_agg(successes INTEGER, trials INTEGER, p0 DOUBLE, [options MAP]) -> STRUCT
 ```
 
@@ -1527,7 +1518,7 @@ STRUCT(
 ```
 
 **Example:**
-```sql
+```sql skip
 -- Test if success rate differs from 50%
 SELECT (prop_test_one_agg(successes, total, 0.5)).*
 FROM experiment_results;
@@ -1538,7 +1529,7 @@ FROM experiment_results;
 Two-sample proportion test.
 
 **Signature:**
-```sql
+```sql skip
 prop_test_two_agg(successes INTEGER, trials INTEGER, group_id INTEGER, [options MAP]) -> STRUCT
 ```
 
@@ -1556,7 +1547,7 @@ STRUCT(
 ```
 
 **Example:**
-```sql
+```sql skip
 -- Compare conversion rates between groups
 SELECT (prop_test_two_agg(conversions, visitors, ab_group)).*
 FROM ab_test;
@@ -1567,7 +1558,7 @@ FROM ab_test;
 Exact binomial test.
 
 **Signature:**
-```sql
+```sql skip
 binom_test_agg(successes INTEGER, trials INTEGER, p0 DOUBLE, [options MAP]) -> STRUCT
 ```
 
@@ -1583,7 +1574,7 @@ STRUCT(
 ```
 
 **Example:**
-```sql
+```sql skip
 -- Exact test for small samples
 SELECT (binom_test_agg(heads, flips, 0.5)).*
 FROM coin_flip_data;
@@ -1596,7 +1587,7 @@ FROM coin_flip_data;
 Kendall's tau rank correlation with significance test.
 
 **Signature:**
-```sql
+```sql skip
 kendall_agg(x DOUBLE, y DOUBLE, [options MAP]) -> STRUCT
 ```
 
@@ -1617,7 +1608,7 @@ STRUCT(
 ```
 
 **Example:**
-```sql
+```sql skip
 -- Kendall correlation for ordinal data
 SELECT (kendall_agg(rank_x, rank_y)).*
 FROM ranked_data;
@@ -1628,7 +1619,7 @@ FROM ranked_data;
 Distance correlation for detecting nonlinear dependencies.
 
 **Signature:**
-```sql
+```sql skip
 distance_cor_agg(x DOUBLE, y DOUBLE) -> STRUCT
 ```
 
@@ -1645,7 +1636,7 @@ STRUCT(
 ```
 
 **Example:**
-```sql
+```sql skip
 -- Detect nonlinear relationships
 SELECT (distance_cor_agg(x, y)).*
 FROM complex_relationships;
@@ -1656,7 +1647,7 @@ FROM complex_relationships;
 Intraclass correlation coefficient.
 
 **Signature:**
-```sql
+```sql skip
 icc_agg(value DOUBLE, rater_id INTEGER, subject_id INTEGER, [options MAP]) -> STRUCT
 ```
 
@@ -1675,7 +1666,7 @@ STRUCT(
 ```
 
 **Example:**
-```sql
+```sql skip
 -- Measure reliability across raters
 SELECT (icc_agg(score, rater_id, subject_id)).*
 FROM reliability_study;
@@ -1688,7 +1679,7 @@ FROM reliability_study;
 Yuen's trimmed mean test (robust alternative to t-test).
 
 **Signature:**
-```sql
+```sql skip
 yuen_agg(value DOUBLE, group_id INTEGER, [options MAP]) -> STRUCT
 ```
 
@@ -1711,7 +1702,7 @@ STRUCT(
 ```
 
 **Example:**
-```sql
+```sql skip
 -- Robust comparison with outliers
 SELECT (yuen_agg(score, treatment_group, {'trim': 0.1})).*
 FROM data_with_outliers;
@@ -1722,7 +1713,7 @@ FROM data_with_outliers;
 Brown-Forsythe test for equality of variances.
 
 **Signature:**
-```sql
+```sql skip
 brown_forsythe_agg(value DOUBLE, group_id INTEGER) -> STRUCT
 ```
 
@@ -1738,7 +1729,7 @@ STRUCT(
 ```
 
 **Example:**
-```sql
+```sql skip
 -- Test homogeneity of variances
 SELECT (brown_forsythe_agg(measurement, group)).*
 FROM multi_group_data;
@@ -1751,7 +1742,7 @@ FROM multi_group_data;
 Wilcoxon signed-rank test for paired samples.
 
 **Signature:**
-```sql
+```sql skip
 wilcoxon_signed_rank_agg(value1 DOUBLE, value2 DOUBLE, [options MAP]) -> STRUCT
 ```
 
@@ -1772,7 +1763,7 @@ STRUCT(
 ```
 
 **Example:**
-```sql
+```sql skip
 -- Paired nonparametric test (before/after)
 SELECT (wilcoxon_signed_rank_agg(before, after)).*
 FROM paired_measurements;
@@ -1783,7 +1774,7 @@ FROM paired_measurements;
 Brunner-Munzel test (generalized Wilcoxon test).
 
 **Signature:**
-```sql
+```sql skip
 brunner_munzel_agg(value DOUBLE, group_id INTEGER, [options MAP]) -> STRUCT
 ```
 
@@ -1799,7 +1790,7 @@ STRUCT(
 ```
 
 **Example:**
-```sql
+```sql skip
 -- Robust rank test
 SELECT (brunner_munzel_agg(outcome, treatment_group)).*
 FROM clinical_trial;
@@ -1810,7 +1801,7 @@ FROM clinical_trial;
 Permutation t-test (resampling-based).
 
 **Signature:**
-```sql
+```sql skip
 permutation_t_test_agg(value DOUBLE, group_id INTEGER, [options MAP]) -> STRUCT
 ```
 
@@ -1831,7 +1822,7 @@ STRUCT(
 ```
 
 **Example:**
-```sql
+```sql skip
 -- Exact test via permutation
 SELECT (permutation_t_test_agg(score, group, {'n_permutations': 5000})).*
 FROM small_sample_data;
@@ -1844,7 +1835,7 @@ FROM small_sample_data;
 D'Agostino K² test for normality (based on skewness and kurtosis).
 
 **Signature:**
-```sql
+```sql skip
 dagostino_k2_agg(value DOUBLE) -> STRUCT
 ```
 
@@ -1861,7 +1852,7 @@ STRUCT(
 ```
 
 **Example:**
-```sql
+```sql skip
 -- Test normality using skewness/kurtosis
 SELECT (dagostino_k2_agg(residual)).*
 FROM model_diagnostics;
@@ -1874,7 +1865,7 @@ FROM model_diagnostics;
 Energy distance for comparing distributions.
 
 **Signature:**
-```sql
+```sql skip
 energy_distance_agg(value DOUBLE, group_id INTEGER) -> STRUCT
 ```
 
@@ -1889,7 +1880,7 @@ STRUCT(
 ```
 
 **Example:**
-```sql
+```sql skip
 -- Compare two distributions
 SELECT (energy_distance_agg(measurement, group)).*
 FROM two_sample_data;
@@ -1900,7 +1891,7 @@ FROM two_sample_data;
 Maximum Mean Discrepancy for distribution comparison.
 
 **Signature:**
-```sql
+```sql skip
 mmd_agg(value DOUBLE, group_id INTEGER, [options MAP]) -> STRUCT
 ```
 
@@ -1921,7 +1912,7 @@ STRUCT(
 ```
 
 **Example:**
-```sql
+```sql skip
 -- Two-sample test using kernel methods
 SELECT (mmd_agg(feature, sample_group)).*
 FROM kernel_comparison;
@@ -1934,7 +1925,7 @@ FROM kernel_comparison;
 Two One-Sided Tests (TOST) for equivalence.
 
 **Signature:**
-```sql
+```sql skip
 tost_t_test_agg(value DOUBLE, group_id INTEGER, delta DOUBLE, [options MAP]) -> STRUCT
 ```
 
@@ -1955,7 +1946,7 @@ STRUCT(
 ```
 
 **Example:**
-```sql
+```sql skip
 -- Test equivalence within ±0.5
 SELECT (tost_t_test_agg(outcome, treatment_group, 0.5)).*
 FROM bioequivalence_study;
@@ -1966,14 +1957,14 @@ FROM bioequivalence_study;
 TOST for paired samples.
 
 **Signature:**
-```sql
+```sql skip
 tost_paired_agg(value1 DOUBLE, value2 DOUBLE, delta DOUBLE, [options MAP]) -> STRUCT
 ```
 
 **Returns:** Same structure as tost_t_test_agg
 
 **Example:**
-```sql
+```sql skip
 -- Paired equivalence test
 SELECT (tost_paired_agg(method_a, method_b, 0.1)).*
 FROM method_comparison;
@@ -1984,7 +1975,7 @@ FROM method_comparison;
 TOST for testing correlation equivalence to a reference value.
 
 **Signature:**
-```sql
+```sql skip
 tost_correlation_agg(x DOUBLE, y DOUBLE, rho0 DOUBLE, delta DOUBLE) -> STRUCT
 ```
 
@@ -2007,7 +1998,7 @@ STRUCT(
 ```
 
 **Example:**
-```sql
+```sql skip
 -- Test if correlation is equivalent to zero (negligible relationship)
 SELECT (tost_correlation_agg(x, y, 0.0, 0.1)).*
 FROM correlation_study;
@@ -2020,7 +2011,7 @@ FROM correlation_study;
 Diebold-Mariano test for comparing forecast accuracy.
 
 **Signature:**
-```sql
+```sql skip
 diebold_mariano_agg(actual DOUBLE, forecast1 DOUBLE, forecast2 DOUBLE, [options MAP]) -> STRUCT
 ```
 
@@ -2042,7 +2033,7 @@ STRUCT(
 ```
 
 **Example:**
-```sql
+```sql skip
 -- Compare two forecasting models
 SELECT (diebold_mariano_agg(actual, model1_pred, model2_pred)).*
 FROM forecast_comparison;
@@ -2053,7 +2044,7 @@ FROM forecast_comparison;
 Clark-West test for nested model comparison.
 
 **Signature:**
-```sql
+```sql skip
 clark_west_agg(actual DOUBLE, forecast1 DOUBLE, forecast2 DOUBLE) -> STRUCT
 ```
 
@@ -2068,7 +2059,7 @@ STRUCT(
 ```
 
 **Example:**
-```sql
+```sql skip
 -- Compare nested forecasting models
 SELECT (clark_west_agg(actual, restricted_model, unrestricted_model)).*
 FROM nested_model_comparison;
@@ -2125,7 +2116,7 @@ Window-based aggregate functions that fit a model incrementally and predict for 
 OLS regression with per-row predictions using window semantics.
 
 **Signature:**
-```sql
+```sql skip
 anofox_stats_ols_fit_predict(
     y DOUBLE,
     x LIST(DOUBLE),
@@ -2150,7 +2141,7 @@ STRUCT(
 ```
 
 **Example:**
-```sql
+```sql skip
 -- Expanding window: train on all previous rows, predict current
 SELECT
     date,
@@ -2196,7 +2187,7 @@ Ridge regression with per-row predictions.
 |-----|------|---------|-------------|
 | alpha | DOUBLE | 1.0 | L2 regularization strength |
 
-```sql
+```sql skip
 SELECT ridge_fit_predict(y, [x], {'alpha': 0.5}) OVER (ORDER BY date) FROM data;
 ```
 
@@ -2204,11 +2195,11 @@ SELECT ridge_fit_predict(y, [x], {'alpha': 0.5}) OVER (ORDER BY date) FROM data;
 Weighted Least Squares with per-row predictions.
 
 **Signature:**
-```sql
+```sql skip
 wls_fit_predict(y DOUBLE, x LIST(DOUBLE), weight DOUBLE, [options MAP]) OVER (...)
 ```
 
-```sql
+```sql skip
 SELECT wls_fit_predict(y, [x], weight) OVER (ORDER BY date) FROM data;
 ```
 
@@ -2221,7 +2212,7 @@ Recursive Least Squares with per-row predictions.
 | forgetting_factor | DOUBLE | 1.0 | Exponential forgetting (0.95-1.0) |
 | initial_p_diagonal | DOUBLE | 100.0 | Initial covariance diagonal |
 
-```sql
+```sql skip
 SELECT rls_fit_predict(y, [x], {'forgetting_factor': 0.99}) OVER (ORDER BY date) FROM data;
 ```
 
@@ -2236,7 +2227,7 @@ Elastic Net with per-row predictions.
 | max_iterations | INTEGER | 1000 | Max iterations |
 | tolerance | DOUBLE | 1e-6 | Convergence tolerance |
 
-```sql
+```sql skip
 SELECT elasticnet_fit_predict(y, [x], {'alpha': 0.1, 'l1_ratio': 0.7}) OVER (ORDER BY date) FROM data;
 ```
 
@@ -2253,7 +2244,7 @@ Non-rolling aggregate functions that fit a model once on training data (rows whe
 Fit OLS on training rows, predict all rows.
 
 **Signature:**
-```sql
+```sql skip
 anofox_stats_ols_fit_predict_agg(
     y DOUBLE,
     x LIST(DOUBLE),
@@ -2283,7 +2274,7 @@ LIST(STRUCT(
 **Example:**
 ```sql
 -- Basic usage: fit on rows where y IS NOT NULL, predict all
-CREATE TABLE data AS
+CREATE OR REPLACE TABLE data AS
 SELECT
     CASE WHEN i <= 80 THEN i * 2.0 ELSE NULL END as y,
     i::DOUBLE as x,
@@ -2293,15 +2284,16 @@ FROM range(1, 101) t(i);
 -- Get predictions with training indicator
 SELECT
     (p).y as original_y,
-    (p).x as features,
     (p).yhat as predicted,
     (p).is_training
 FROM (
     SELECT UNNEST(ols_fit_predict_agg(y, [x])) AS p
     FROM data
 );
+```
 
--- Per-group predictions
+```sql skip
+-- Per-group predictions (illustrative — requires a sales_data table with segment, y, x1, x2 columns)
 SELECT
     segment,
     UNNEST(ols_fit_predict_agg(y, [x1, x2], {'confidence_level': 0.99})) AS pred
@@ -2317,7 +2309,7 @@ Ridge regression fit-predict aggregate.
 |-----|------|---------|-------------|
 | alpha | DOUBLE | 1.0 | L2 regularization strength |
 
-```sql
+```sql skip
 SELECT UNNEST(ridge_fit_predict_agg(y, [x], {'alpha': 0.5})) FROM data;
 ```
 
@@ -2325,11 +2317,11 @@ SELECT UNNEST(ridge_fit_predict_agg(y, [x], {'alpha': 0.5})) FROM data;
 Weighted Least Squares fit-predict aggregate.
 
 **Signature:**
-```sql
+```sql skip
 wls_fit_predict_agg(y DOUBLE, x LIST(DOUBLE), weight DOUBLE, [options MAP]) -> LIST(STRUCT)
 ```
 
-```sql
+```sql skip
 SELECT UNNEST(wls_fit_predict_agg(y, [x], weight)) FROM data;
 ```
 
@@ -2342,7 +2334,7 @@ Recursive Least Squares fit-predict aggregate.
 | forgetting_factor | DOUBLE | 1.0 | Exponential forgetting |
 | initial_p_diagonal | DOUBLE | 100.0 | Initial covariance diagonal |
 
-```sql
+```sql skip
 SELECT UNNEST(rls_fit_predict_agg(y, [x], {'forgetting_factor': 0.99})) FROM data;
 ```
 
@@ -2357,7 +2349,7 @@ Elastic Net fit-predict aggregate.
 | max_iterations | INTEGER | 1000 | Max iterations |
 | tolerance | DOUBLE | 1e-6 | Convergence tolerance |
 
-```sql
+```sql skip
 SELECT UNNEST(elasticnet_fit_predict_agg(y, [x], {'alpha': 0.1, 'l1_ratio': 0.5})) FROM data;
 ```
 
@@ -2365,7 +2357,7 @@ SELECT UNNEST(elasticnet_fit_predict_agg(y, [x], {'alpha': 0.1, 'l1_ratio': 0.5}
 Bounded Least Squares (BLS/NNLS) fit-predict aggregate with coefficient constraints.
 
 **Signature:**
-```sql
+```sql skip
 bls_fit_predict_agg(y DOUBLE, x LIST(DOUBLE), [options MAP]) -> LIST(STRUCT)
 ```
 
@@ -2406,7 +2398,7 @@ FROM (
 Augmented Linear Model fit-predict aggregate with robust error distributions.
 
 **Signature:**
-```sql
+```sql skip
 alm_fit_predict_agg(y DOUBLE, x LIST(DOUBLE), [options MAP]) -> LIST(STRUCT)
 ```
 
@@ -2452,7 +2444,7 @@ FROM (
 Poisson GLM fit-predict aggregate for count data.
 
 **Signature:**
-```sql
+```sql skip
 poisson_fit_predict_agg(y DOUBLE, x LIST(DOUBLE), [options MAP]) -> LIST(STRUCT)
 ```
 
@@ -2503,7 +2495,7 @@ All table macros accept an optional `options` MAP parameter to configure method-
 OLS regression per group with predictions in long format.
 
 **Signature:**
-```sql
+```sql skip
 ols_fit_predict_by(
     source VARCHAR,           -- Table name (as string)
     group_col COLUMN,         -- Column to group by
@@ -2535,7 +2527,7 @@ All columns from the source table are preserved in the output (including the gro
 > **Note:** Column names in the output preserve the original names from the source table.
 
 **Example:**
-```sql
+```sql skip
 -- Per-group OLS regression
 SELECT * FROM ols_fit_predict_by('sales_data', region, revenue, [advertising, price]);
 
@@ -2560,7 +2552,7 @@ Ridge regression per group with predictions in long format.
 | null_policy | VARCHAR | 'drop' | NULL handling |
 
 **Example:**
-```sql
+```sql skip
 -- Ridge with default alpha
 SELECT * FROM ridge_fit_predict_by('data', category, y, [x1, x2]);
 
@@ -2588,7 +2580,7 @@ Elastic Net regression per group with predictions in long format.
 | null_policy | VARCHAR | 'drop' | NULL handling |
 
 **Example:**
-```sql
+```sql skip
 -- ElasticNet with default settings
 SELECT * FROM elasticnet_fit_predict_by('data', category, y, [x1, x2]);
 
@@ -2601,7 +2593,7 @@ SELECT * FROM elasticnet_fit_predict_by('data', category, y, [x1, x2],
 Weighted Least Squares per group with predictions in long format.
 
 **Signature:**
-```sql
+```sql skip
 wls_fit_predict_by(
     source VARCHAR,
     group_col COLUMN,
@@ -2620,7 +2612,7 @@ wls_fit_predict_by(
 | null_policy | VARCHAR | 'drop' | NULL handling |
 
 **Example:**
-```sql
+```sql skip
 -- WLS with weight column
 SELECT * FROM wls_fit_predict_by('weighted_data', segment, y, [x1, x2], weight);
 
@@ -2642,7 +2634,7 @@ Recursive Least Squares per group with predictions in long format.
 | null_policy | VARCHAR | 'drop' | NULL handling |
 
 **Example:**
-```sql
+```sql skip
 -- RLS with default settings
 SELECT * FROM rls_fit_predict_by('streaming_data', sensor_id, reading, [temp, pressure]);
 
@@ -2666,7 +2658,7 @@ Bounded Least Squares per group with predictions in long format.
 | null_policy | VARCHAR | 'drop' | NULL handling |
 
 **Example:**
-```sql
+```sql skip
 -- BLS with default (non-negative coefficients)
 SELECT * FROM bls_fit_predict_by('constrained_data', portfolio_id, returns, [factor1, factor2]);
 
@@ -2691,7 +2683,7 @@ Augmented Linear Model per group with predictions in long format.
 **Distributions:** `normal`, `laplace`, `studentt`, `cauchy`, `huber`, `tukey`, `quantile`, `expectile`, `trimmed`, `winsorized`
 
 **Example:**
-```sql
+```sql skip
 -- ALM with default (normal distribution)
 SELECT * FROM alm_fit_predict_by('robust_data', group_id, y, [x1, x2]);
 
@@ -2718,7 +2710,7 @@ Poisson GLM per group with predictions in long format.
 | null_policy | VARCHAR | 'drop' | NULL handling |
 
 **Example:**
-```sql
+```sql skip
 -- Poisson with default log link
 SELECT * FROM poisson_fit_predict_by('count_data', store_id, visitor_count, [marketing_spend]);
 
@@ -2752,7 +2744,7 @@ SELECT * FROM poisson_fit_predict_by('count_data', store_id, visitor_count, [mar
 Generate predictions using fitted coefficients.
 
 **Signature:**
-```sql
+```sql skip
 anofox_stats_predict(
     x LIST(LIST(DOUBLE)),
     coefficients LIST(DOUBLE),
@@ -2761,7 +2753,7 @@ anofox_stats_predict(
 ```
 
 **Example:**
-```sql
+```sql skip
 -- First fit a model
 WITH model AS (
     SELECT anofox_stats_ols_fit(y_values, x_values) as fit FROM training_data
@@ -2783,7 +2775,7 @@ FROM model;
 Compute Variance Inflation Factor for multicollinearity detection.
 
 **Signature:**
-```sql
+```sql skip
 anofox_stats_vif(x LIST(LIST(DOUBLE))) -> LIST(DOUBLE)
 ```
 
@@ -2793,14 +2785,14 @@ anofox_stats_vif(x LIST(LIST(DOUBLE))) -> LIST(DOUBLE)
 - VIF > 10: High correlation (problematic)
 
 **Example:**
-```sql
+```sql skip
 SELECT vif([[x1_vals], [x2_vals], [x3_vals]]) as vif_values;
 ```
 
 ### anofox_stats_vif_agg / vif_agg
 Streaming VIF aggregate function.
 
-```sql
+```sql skip
 SELECT vif_agg([x1, x2, x3]) FROM data;
 ```
 
@@ -2808,7 +2800,7 @@ SELECT vif_agg([x1, x2, x3]) FROM data;
 Compute Akaike Information Criterion.
 
 **Signature:**
-```sql
+```sql skip
 anofox_stats_aic(rss DOUBLE, n BIGINT, k BIGINT) -> DOUBLE
 ```
 
@@ -2828,7 +2820,7 @@ SELECT aic(100.0, 50, 3) as aic_value;
 Compute Bayesian Information Criterion.
 
 **Signature:**
-```sql
+```sql skip
 anofox_stats_bic(rss DOUBLE, n BIGINT, k BIGINT) -> DOUBLE
 ```
 
@@ -2841,7 +2833,7 @@ SELECT bic(100.0, 50, 3) as bic_value;
 Jarque-Bera test for normality of residuals.
 
 **Signature:**
-```sql
+```sql skip
 anofox_stats_jarque_bera(data LIST(DOUBLE)) -> STRUCT
 ```
 
@@ -2857,14 +2849,14 @@ STRUCT(
 ```
 
 **Example:**
-```sql
+```sql skip
 SELECT jarque_bera(residuals).p_value as normality_pvalue;
 ```
 
 ### anofox_stats_jarque_bera_agg / jarque_bera_agg
 Streaming Jarque-Bera aggregate function.
 
-```sql
+```sql skip
 SELECT jarque_bera_agg(residual) FROM fitted_data;
 ```
 
@@ -2872,7 +2864,7 @@ SELECT jarque_bera_agg(residual) FROM fitted_data;
 Compute comprehensive residual diagnostics.
 
 **Signature:**
-```sql
+```sql skip
 anofox_stats_residuals_diagnostics(
     y LIST(DOUBLE),
     y_hat LIST(DOUBLE),
@@ -2893,7 +2885,7 @@ STRUCT(
 ```
 
 **Example:**
-```sql
+```sql skip
 SELECT residuals_diagnostics(
     actual_values,
     predicted_values
@@ -3015,7 +3007,7 @@ STRUCT(
 
 ### Accessing Results
 
-```sql
+```sql skip
 -- Extract specific fields
 SELECT
     (result).r_squared,
@@ -3064,7 +3056,7 @@ All functions return NULL on error conditions:
 - Singular matrices (insufficient data variation)
 
 Check for NULL results when using these functions:
-```sql
+```sql skip
 SELECT COALESCE((ols_fit_agg(y, [x])).r_squared, 0.0) as r_squared
 FROM data;
 ```

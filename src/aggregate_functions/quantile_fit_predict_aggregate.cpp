@@ -401,17 +401,17 @@ static unique_ptr<FunctionData> QuantilePredictAggBindWithSplit(ClientContext &c
 // Registration
 //===--------------------------------------------------------------------===//
 void RegisterQuantileFitPredictAggregateFunction(ExtensionLoader &loader) {
-    AggregateFunctionSet func_set("anofox_stats_quantile_fit_predict_agg");
+    AggregateFunctionSet func_set("quantile_fit_predict_agg");
 
     auto basic_func =
-        AggregateFunction("anofox_stats_quantile_fit_predict_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
+        AggregateFunction("quantile_fit_predict_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
                           LogicalType::ANY, AggregateFunction::StateSize<QuantilePredictAggState>, QuantilePredictAggInitialize,
                           QuantilePredictAggUpdate, QuantilePredictAggCombine, QuantilePredictAggFinalize, nullptr, QuantilePredictAggBind,
                           QuantilePredictAggDestroy);
     func_set.AddFunction(basic_func);
 
     auto map_func = AggregateFunction(
-        "anofox_stats_quantile_fit_predict_agg",
+        "quantile_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY}, LogicalType::ANY,
         AggregateFunction::StateSize<QuantilePredictAggState>, QuantilePredictAggInitialize, QuantilePredictAggUpdate,
         QuantilePredictAggCombine, QuantilePredictAggFinalize, nullptr, QuantilePredictAggBind, QuantilePredictAggDestroy);
@@ -419,7 +419,7 @@ void RegisterQuantileFitPredictAggregateFunction(ExtensionLoader &loader) {
 
     // Version with split column: quantile_fit_predict_agg(y, x, split)
     auto split_func = AggregateFunction(
-        "anofox_stats_quantile_fit_predict_agg",
+        "quantile_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR}, LogicalType::ANY,
         AggregateFunction::StateSize<QuantilePredictAggState>, QuantilePredictAggInitialize, QuantilePredictAggUpdate,
         QuantilePredictAggCombine, QuantilePredictAggFinalize, nullptr, QuantilePredictAggBindWithSplit, QuantilePredictAggDestroy);
@@ -427,7 +427,7 @@ void RegisterQuantileFitPredictAggregateFunction(ExtensionLoader &loader) {
 
     // Version with split column and options: quantile_fit_predict_agg(y, x, split, options)
     auto split_map_func = AggregateFunction(
-        "anofox_stats_quantile_fit_predict_agg",
+        "quantile_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR, LogicalType::ANY}, LogicalType::ANY,
         AggregateFunction::StateSize<QuantilePredictAggState>, QuantilePredictAggInitialize, QuantilePredictAggUpdate,
         QuantilePredictAggCombine, QuantilePredictAggFinalize, nullptr, QuantilePredictAggBindWithSplit, QuantilePredictAggDestroy);
@@ -438,7 +438,7 @@ void RegisterQuantileFitPredictAggregateFunction(ExtensionLoader &loader) {
 
     FunctionDescription d1;
     d1.description = "Fits a quantile regression model over a partition and returns per-row predictions.";
-    d1.examples = {"anofox_stats_quantile_fit_predict_agg(y, x)"};
+    d1.examples = {"quantile_fit_predict_agg(y, x)"};
     d1.categories = {"regression", "quantile"};
     d1.parameter_names = {"y", "x"};
     d1.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)};
@@ -446,7 +446,7 @@ void RegisterQuantileFitPredictAggregateFunction(ExtensionLoader &loader) {
 
     FunctionDescription d2;
     d2.description = "Fits a quantile regression model over a partition with a MAP of options and returns per-row predictions.";
-    d2.examples = {"anofox_stats_quantile_fit_predict_agg(y, x, {'quantile': 0.5})"};
+    d2.examples = {"quantile_fit_predict_agg(y, x, {'quantile': 0.5})"};
     d2.categories = {"regression", "quantile"};
     d2.parameter_names = {"y", "x", "options"};
     d2.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY};
@@ -454,7 +454,7 @@ void RegisterQuantileFitPredictAggregateFunction(ExtensionLoader &loader) {
 
     FunctionDescription d3;
     d3.description = "Fits a quantile regression model using only training rows (split_col='train') and predicts all rows.";
-    d3.examples = {"anofox_stats_quantile_fit_predict_agg(y, x, split_col)"};
+    d3.examples = {"quantile_fit_predict_agg(y, x, split_col)"};
     d3.categories = {"regression", "quantile"};
     d3.parameter_names = {"y", "x", "split_col"};
     d3.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR};
@@ -462,7 +462,7 @@ void RegisterQuantileFitPredictAggregateFunction(ExtensionLoader &loader) {
 
     FunctionDescription d4;
     d4.description = "Fits a quantile regression model on training rows with a MAP of options and predicts all rows.";
-    d4.examples = {"anofox_stats_quantile_fit_predict_agg(y, x, split_col, {'quantile': 0.5})"};
+    d4.examples = {"quantile_fit_predict_agg(y, x, split_col, {'quantile': 0.5})"};
     d4.categories = {"regression", "quantile"};
     d4.parameter_names = {"y", "x", "split_col", "options"};
     d4.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR, LogicalType::ANY};
@@ -470,17 +470,6 @@ void RegisterQuantileFitPredictAggregateFunction(ExtensionLoader &loader) {
 
     loader.RegisterFunction(std::move(info));
 
-    {
-        AggregateFunctionSet alias_set("quantile_fit_predict_agg");
-        alias_set.AddFunction(basic_func);
-        alias_set.AddFunction(map_func);
-        alias_set.AddFunction(split_func);
-        alias_set.AddFunction(split_map_func);
-        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_quantile_fit_predict_agg";
-        loader.RegisterFunction(std::move(alias_info));
-    }
 }
 
 } // namespace duckdb

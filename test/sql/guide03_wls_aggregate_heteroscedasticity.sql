@@ -26,12 +26,12 @@ SELECT
     'OLS (unweighted)' as method,
     result.coefficients[1] as income_propensity,
     result.intercept as base_spending,
-    result.r2,
+    result.r_squared,
     NULL as weighted_mse
 FROM (
     SELECT
         segment,
-        anofox_stats_ols_fit_agg(
+        ols_fit_agg(
             annual_spending,
             [annual_income],
             {'intercept': true}
@@ -45,12 +45,12 @@ SELECT
     'WLS (precision weighted)' as method,
     result.coefficients[1] as income_propensity,
     result.intercept as base_spending,
-    result.r2,
+    result.r_squared,
     result.weighted_mse
 FROM (
     SELECT
         segment,
-        anofox_stats_wls_fit_agg(
+        wls_fit_agg(
             annual_spending,
             [annual_income],
             precision_weight,

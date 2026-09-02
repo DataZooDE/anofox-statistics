@@ -394,18 +394,18 @@ static unique_ptr<FunctionData> IsotonicPredictAggBindWithSplit(ClientContext &c
 // Registration
 //===--------------------------------------------------------------------===//
 void RegisterIsotonicFitPredictAggregateFunction(ExtensionLoader &loader) {
-    AggregateFunctionSet func_set("anofox_stats_isotonic_fit_predict_agg");
+    AggregateFunctionSet func_set("isotonic_fit_predict_agg");
 
     // isotonic_fit_predict_agg(y, x) - y is response, x is 1D input
     auto basic_func =
-        AggregateFunction("anofox_stats_isotonic_fit_predict_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE},
+        AggregateFunction("isotonic_fit_predict_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE},
                           LogicalType::ANY, AggregateFunction::StateSize<IsotonicPredictAggState>, IsotonicPredictAggInitialize,
                           IsotonicPredictAggUpdate, IsotonicPredictAggCombine, IsotonicPredictAggFinalize, nullptr, IsotonicPredictAggBind,
                           IsotonicPredictAggDestroy);
     func_set.AddFunction(basic_func);
 
     auto map_func = AggregateFunction(
-        "anofox_stats_isotonic_fit_predict_agg",
+        "isotonic_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::ANY}, LogicalType::ANY,
         AggregateFunction::StateSize<IsotonicPredictAggState>, IsotonicPredictAggInitialize, IsotonicPredictAggUpdate,
         IsotonicPredictAggCombine, IsotonicPredictAggFinalize, nullptr, IsotonicPredictAggBind, IsotonicPredictAggDestroy);
@@ -413,7 +413,7 @@ void RegisterIsotonicFitPredictAggregateFunction(ExtensionLoader &loader) {
 
     // Version with split column: isotonic_fit_predict_agg(y, x, split)
     auto split_func = AggregateFunction(
-        "anofox_stats_isotonic_fit_predict_agg",
+        "isotonic_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::VARCHAR}, LogicalType::ANY,
         AggregateFunction::StateSize<IsotonicPredictAggState>, IsotonicPredictAggInitialize, IsotonicPredictAggUpdate,
         IsotonicPredictAggCombine, IsotonicPredictAggFinalize, nullptr, IsotonicPredictAggBindWithSplit, IsotonicPredictAggDestroy);
@@ -421,7 +421,7 @@ void RegisterIsotonicFitPredictAggregateFunction(ExtensionLoader &loader) {
 
     // Version with split column and options: isotonic_fit_predict_agg(y, x, split, options)
     auto split_map_func = AggregateFunction(
-        "anofox_stats_isotonic_fit_predict_agg",
+        "isotonic_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::VARCHAR, LogicalType::ANY}, LogicalType::ANY,
         AggregateFunction::StateSize<IsotonicPredictAggState>, IsotonicPredictAggInitialize, IsotonicPredictAggUpdate,
         IsotonicPredictAggCombine, IsotonicPredictAggFinalize, nullptr, IsotonicPredictAggBindWithSplit, IsotonicPredictAggDestroy);
@@ -432,7 +432,7 @@ void RegisterIsotonicFitPredictAggregateFunction(ExtensionLoader &loader) {
 
     FunctionDescription d1;
     d1.description = "Fits an isotonic regression model over a partition and returns per-row predictions.";
-    d1.examples = {"anofox_stats_isotonic_fit_predict_agg(y, x)"};
+    d1.examples = {"isotonic_fit_predict_agg(y, x)"};
     d1.categories = {"regression", "nonparametric"};
     d1.parameter_names = {"y", "x"};
     d1.parameter_types = {LogicalType::DOUBLE, LogicalType::DOUBLE};
@@ -440,7 +440,7 @@ void RegisterIsotonicFitPredictAggregateFunction(ExtensionLoader &loader) {
 
     FunctionDescription d2;
     d2.description = "Fits an isotonic regression model over a partition with a MAP of options and returns per-row predictions.";
-    d2.examples = {"anofox_stats_isotonic_fit_predict_agg(y, x, {'increasing': true})"};
+    d2.examples = {"isotonic_fit_predict_agg(y, x, {'increasing': true})"};
     d2.categories = {"regression", "nonparametric"};
     d2.parameter_names = {"y", "x", "options"};
     d2.parameter_types = {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::ANY};
@@ -448,7 +448,7 @@ void RegisterIsotonicFitPredictAggregateFunction(ExtensionLoader &loader) {
 
     FunctionDescription d3;
     d3.description = "Fits an isotonic regression model using only training rows (split_col='train') and predicts all rows.";
-    d3.examples = {"anofox_stats_isotonic_fit_predict_agg(y, x, split_col)"};
+    d3.examples = {"isotonic_fit_predict_agg(y, x, split_col)"};
     d3.categories = {"regression", "nonparametric"};
     d3.parameter_names = {"y", "x", "split_col"};
     d3.parameter_types = {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::VARCHAR};
@@ -456,7 +456,7 @@ void RegisterIsotonicFitPredictAggregateFunction(ExtensionLoader &loader) {
 
     FunctionDescription d4;
     d4.description = "Fits an isotonic regression model on training rows with a MAP of options and predicts all rows.";
-    d4.examples = {"anofox_stats_isotonic_fit_predict_agg(y, x, split_col, {'increasing': true})"};
+    d4.examples = {"isotonic_fit_predict_agg(y, x, split_col, {'increasing': true})"};
     d4.categories = {"regression", "nonparametric"};
     d4.parameter_names = {"y", "x", "split_col", "options"};
     d4.parameter_types = {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::VARCHAR, LogicalType::ANY};
@@ -464,17 +464,6 @@ void RegisterIsotonicFitPredictAggregateFunction(ExtensionLoader &loader) {
 
     loader.RegisterFunction(std::move(info));
 
-    {
-        AggregateFunctionSet alias_set("isotonic_fit_predict_agg");
-        alias_set.AddFunction(basic_func);
-        alias_set.AddFunction(map_func);
-        alias_set.AddFunction(split_func);
-        alias_set.AddFunction(split_map_func);
-        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_isotonic_fit_predict_agg";
-        loader.RegisterFunction(std::move(alias_info));
-    }
 }
 
 } // namespace duckdb

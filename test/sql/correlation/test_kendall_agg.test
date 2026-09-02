@@ -146,11 +146,11 @@ SELECT (kendall_agg(x, y)).tau > 0.8 FROM tied_data;
 true
 
 # =============================================================================
-# TEST 9: Alias verification (anofox_stats_kendall_agg)
+# TEST 9: Alias verification (kendall_agg)
 # =============================================================================
 
 query I
-SELECT (anofox_stats_kendall_agg(x, y)).tau IS NOT NULL FROM positive_cor;
+SELECT (kendall_agg(x, y)).tau IS NOT NULL FROM positive_cor;
 ----
 true
 

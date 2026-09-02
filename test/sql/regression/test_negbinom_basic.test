@@ -54,7 +54,7 @@ SELECT (negbinom_fit_agg(y, [x])).n_observations FROM negbinom_data;
 
 # TEST 6: fully-qualified name resolves
 query I
-SELECT (anofox_stats_negbinom_fit_agg(y, [x])).coefficients[1] IS NOT NULL FROM negbinom_data;
+SELECT (negbinom_fit_agg(y, [x])).coefficients[1] IS NOT NULL FROM negbinom_data;
 ----
 true
 

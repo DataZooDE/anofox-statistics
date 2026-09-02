@@ -183,11 +183,11 @@ static unique_ptr<FunctionData> ContingencyCoefAggBind(ClientContext &context, A
 // Registration
 //===--------------------------------------------------------------------===//
 void RegisterContingencyCoefAggregateFunction(ExtensionLoader &loader) {
-    AggregateFunctionSet func_set("anofox_stats_contingency_coef_agg");
+    AggregateFunctionSet func_set("contingency_coef_agg");
 
     // (row_var BIGINT, col_var BIGINT)
     auto func = AggregateFunction(
-        "anofox_stats_contingency_coef_agg", {LogicalType::BIGINT, LogicalType::BIGINT},
+        "contingency_coef_agg", {LogicalType::BIGINT, LogicalType::BIGINT},
         LogicalType::DOUBLE,
         AggregateFunction::StateSize<ContingencyCoefAggregateState>, ContingencyCoefAggInitialize,
         ContingencyCoefAggUpdate, ContingencyCoefAggCombine, ContingencyCoefAggFinalize,
@@ -198,22 +198,13 @@ void RegisterContingencyCoefAggregateFunction(ExtensionLoader &loader) {
     info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
     FunctionDescription d1;
     d1.description     = "Computes the contingency coefficient (C), a measure of association for categorical variables.";
-    d1.examples        = {"anofox_stats_contingency_coef_agg(row_var, col_var)"};
+    d1.examples        = {"contingency_coef_agg(row_var, col_var)"};
     d1.categories      = {"hypothesis-testing", "categorical"};
     d1.parameter_names = {"row_var", "col_var"};
     d1.parameter_types = {LogicalType::BIGINT, LogicalType::BIGINT};
     info.descriptions.push_back(std::move(d1));
     loader.RegisterFunction(std::move(info));
 
-    // Short alias
-    {
-        AggregateFunctionSet alias_set("contingency_coef_agg");
-        alias_set.AddFunction(func);
-        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_contingency_coef_agg";
-        loader.RegisterFunction(std::move(alias_info));
-    }
 }
 
 } // namespace duckdb

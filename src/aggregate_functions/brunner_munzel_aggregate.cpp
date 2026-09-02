@@ -241,11 +241,11 @@ static unique_ptr<FunctionData> BrunnerMunzelAggBind(ClientContext &context, Agg
 // Registration
 //===--------------------------------------------------------------------===//
 void RegisterBrunnerMunzelAggregateFunction(ExtensionLoader &loader) {
-    AggregateFunctionSet func_set("anofox_stats_brunner_munzel_agg");
+    AggregateFunctionSet func_set("brunner_munzel_agg");
 
     // With options
     auto func_with_opts = AggregateFunction(
-        "anofox_stats_brunner_munzel_agg", {LogicalType::DOUBLE, LogicalType::INTEGER, LogicalType::ANY},
+        "brunner_munzel_agg", {LogicalType::DOUBLE, LogicalType::INTEGER, LogicalType::ANY},
         LogicalType::ANY,
         AggregateFunction::StateSize<BrunnerMunzelAggregateState>, BrunnerMunzelAggInitialize,
         BrunnerMunzelAggUpdate, BrunnerMunzelAggCombine, BrunnerMunzelAggFinalize,
@@ -254,7 +254,7 @@ void RegisterBrunnerMunzelAggregateFunction(ExtensionLoader &loader) {
 
     // Without options
     auto func_no_opts = AggregateFunction(
-        "anofox_stats_brunner_munzel_agg", {LogicalType::DOUBLE, LogicalType::INTEGER},
+        "brunner_munzel_agg", {LogicalType::DOUBLE, LogicalType::INTEGER},
         LogicalType::ANY,
         AggregateFunction::StateSize<BrunnerMunzelAggregateState>, BrunnerMunzelAggInitialize,
         BrunnerMunzelAggUpdate, BrunnerMunzelAggCombine, BrunnerMunzelAggFinalize,
@@ -265,30 +265,20 @@ void RegisterBrunnerMunzelAggregateFunction(ExtensionLoader &loader) {
     info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
     FunctionDescription d1;
     d1.description     = "Performs the Brunner-Munzel test for stochastic equality of two independent samples.";
-    d1.examples        = {"anofox_stats_brunner_munzel_agg(value, group_id, {'alternative': 'two_sided'})"};
+    d1.examples        = {"brunner_munzel_agg(value, group_id, {'alternative': 'two_sided'})"};
     d1.categories      = {"hypothesis-testing"};
     d1.parameter_names = {"value", "group_id", "options"};
     d1.parameter_types = {LogicalType::DOUBLE, LogicalType::INTEGER, LogicalType::ANY};
     info.descriptions.push_back(std::move(d1));
     FunctionDescription d2;
     d2.description     = "Performs the Brunner-Munzel test for stochastic equality of two independent samples, using default options.";
-    d2.examples        = {"anofox_stats_brunner_munzel_agg(value, group_id)"};
+    d2.examples        = {"brunner_munzel_agg(value, group_id)"};
     d2.categories      = {"hypothesis-testing"};
     d2.parameter_names = {"value", "group_id"};
     d2.parameter_types = {LogicalType::DOUBLE, LogicalType::INTEGER};
     info.descriptions.push_back(std::move(d2));
     loader.RegisterFunction(std::move(info));
 
-    // Short alias
-    {
-        AggregateFunctionSet alias_set("brunner_munzel_agg");
-        alias_set.AddFunction(func_with_opts);
-        alias_set.AddFunction(func_no_opts);
-        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_brunner_munzel_agg";
-        loader.RegisterFunction(std::move(alias_info));
-    }
 }
 
 } // namespace duckdb

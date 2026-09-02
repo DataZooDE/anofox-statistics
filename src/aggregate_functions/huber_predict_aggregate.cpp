@@ -470,24 +470,24 @@ static unique_ptr<FunctionData> HuberPredictAggBindWithSplit(ClientContext &cont
 // Registration
 //===--------------------------------------------------------------------===//
 void RegisterHuberFitPredictAggregateFunction(ExtensionLoader &loader) {
-    AggregateFunctionSet func_set("anofox_stats_huber_fit_predict_agg");
+    AggregateFunctionSet func_set("huber_fit_predict_agg");
 
     auto basic_func = AggregateFunction(
-        "anofox_stats_huber_fit_predict_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
+        "huber_fit_predict_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
         LogicalType::ANY, AggregateFunction::StateSize<HuberPredictAggState>, HuberPredictAggInitialize,
         HuberPredictAggUpdate, HuberPredictAggCombine, HuberPredictAggFinalize, nullptr, HuberPredictAggBind,
         HuberPredictAggDestroy);
     func_set.AddFunction(basic_func);
 
     auto map_func = AggregateFunction(
-        "anofox_stats_huber_fit_predict_agg",
+        "huber_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY}, LogicalType::ANY,
         AggregateFunction::StateSize<HuberPredictAggState>, HuberPredictAggInitialize, HuberPredictAggUpdate,
         HuberPredictAggCombine, HuberPredictAggFinalize, nullptr, HuberPredictAggBind, HuberPredictAggDestroy);
     func_set.AddFunction(map_func);
 
     auto split_func = AggregateFunction(
-        "anofox_stats_huber_fit_predict_agg",
+        "huber_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR}, LogicalType::ANY,
         AggregateFunction::StateSize<HuberPredictAggState>, HuberPredictAggInitialize, HuberPredictAggUpdate,
         HuberPredictAggCombine, HuberPredictAggFinalize, nullptr, HuberPredictAggBindWithSplit,
@@ -495,7 +495,7 @@ void RegisterHuberFitPredictAggregateFunction(ExtensionLoader &loader) {
     func_set.AddFunction(split_func);
 
     auto split_opts_func = AggregateFunction(
-        "anofox_stats_huber_fit_predict_agg",
+        "huber_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR, LogicalType::ANY},
         LogicalType::ANY, AggregateFunction::StateSize<HuberPredictAggState>, HuberPredictAggInitialize,
         HuberPredictAggUpdate, HuberPredictAggCombine, HuberPredictAggFinalize, nullptr,
@@ -509,7 +509,7 @@ void RegisterHuberFitPredictAggregateFunction(ExtensionLoader &loader) {
     d1.description =
         "Fits a Huber M-estimator robust regression over a partition and returns per-row predictions with "
         "confidence intervals.";
-    d1.examples = {"anofox_stats_huber_fit_predict_agg(y, x)"};
+    d1.examples = {"huber_fit_predict_agg(y, x)"};
     d1.categories = {"regression", "prediction"};
     d1.parameter_names = {"y", "x"};
     d1.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)};
@@ -518,7 +518,7 @@ void RegisterHuberFitPredictAggregateFunction(ExtensionLoader &loader) {
     FunctionDescription d2;
     d2.description = "Fits Huber regression over a partition with a MAP of options and returns per-row "
                      "predictions with confidence intervals.";
-    d2.examples = {"anofox_stats_huber_fit_predict_agg(y, x, {'epsilon': 1.35, 'null_policy': 'drop'})"};
+    d2.examples = {"huber_fit_predict_agg(y, x, {'epsilon': 1.35, 'null_policy': 'drop'})"};
     d2.categories = {"regression", "prediction"};
     d2.parameter_names = {"y", "x", "options"};
     d2.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY};
@@ -526,7 +526,7 @@ void RegisterHuberFitPredictAggregateFunction(ExtensionLoader &loader) {
 
     FunctionDescription d3;
     d3.description = "Fits Huber regression using only training rows (split_col='train') and predicts all rows.";
-    d3.examples = {"anofox_stats_huber_fit_predict_agg(y, x, split_col)"};
+    d3.examples = {"huber_fit_predict_agg(y, x, split_col)"};
     d3.categories = {"regression", "prediction"};
     d3.parameter_names = {"y", "x", "split_col"};
     d3.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR};
@@ -534,7 +534,7 @@ void RegisterHuberFitPredictAggregateFunction(ExtensionLoader &loader) {
 
     FunctionDescription d4;
     d4.description = "Fits Huber regression on training rows with a MAP of options and predicts all rows.";
-    d4.examples = {"anofox_stats_huber_fit_predict_agg(y, x, split_col, {'epsilon': 1.5})"};
+    d4.examples = {"huber_fit_predict_agg(y, x, split_col, {'epsilon': 1.5})"};
     d4.categories = {"regression", "prediction"};
     d4.parameter_names = {"y", "x", "split_col", "options"};
     d4.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR,
@@ -543,17 +543,6 @@ void RegisterHuberFitPredictAggregateFunction(ExtensionLoader &loader) {
 
     loader.RegisterFunction(std::move(info));
 
-    {
-        AggregateFunctionSet alias_set("huber_fit_predict_agg");
-        alias_set.AddFunction(basic_func);
-        alias_set.AddFunction(map_func);
-        alias_set.AddFunction(split_func);
-        alias_set.AddFunction(split_opts_func);
-        CreateAggregateFunctionInfo alias_info(std::move(alias_set));
-        alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        alias_info.alias_of = "anofox_stats_huber_fit_predict_agg";
-        loader.RegisterFunction(std::move(alias_info));
-    }
 }
 
 } // namespace duckdb

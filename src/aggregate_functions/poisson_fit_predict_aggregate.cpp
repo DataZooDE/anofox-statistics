@@ -596,11 +596,11 @@ static unique_ptr<FunctionData> PoissonFitPredictAggBindWithSplit(ClientContext 
 //===--------------------------------------------------------------------===//
 void RegisterPoissonFitPredictAggregateFunction(ExtensionLoader &loader) {
 	// Primary name
-	AggregateFunctionSet func_set("anofox_stats_poisson_fit_predict_agg");
+	AggregateFunctionSet func_set("poisson_fit_predict_agg");
 
 	// Basic version: poisson_fit_predict_agg(y, x)
 	auto basic_func = AggregateFunction(
-	    "anofox_stats_poisson_fit_predict_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
+	    "poisson_fit_predict_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
 	    LogicalType::ANY, AggregateFunction::StateSize<PoissonFitPredictAggState>, PoissonFitPredictAggInitialize,
 	    PoissonFitPredictAggUpdate, PoissonFitPredictAggCombine, PoissonFitPredictAggFinalize, nullptr,
 	    PoissonFitPredictAggBind, PoissonFitPredictAggDestroy);
@@ -608,7 +608,7 @@ void RegisterPoissonFitPredictAggregateFunction(ExtensionLoader &loader) {
 
 	// Version with MAP options: poisson_fit_predict_agg(y, x, {'link': 'log', ...})
 	auto map_func =
-	    AggregateFunction("anofox_stats_poisson_fit_predict_agg",
+	    AggregateFunction("poisson_fit_predict_agg",
 	                      {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
 	                      LogicalType::ANY, AggregateFunction::StateSize<PoissonFitPredictAggState>,
 	                      PoissonFitPredictAggInitialize, PoissonFitPredictAggUpdate, PoissonFitPredictAggCombine,
@@ -617,7 +617,7 @@ void RegisterPoissonFitPredictAggregateFunction(ExtensionLoader &loader) {
 
 	// Version with split column: poisson_fit_predict_agg(y, x, split)
 	auto split_func = AggregateFunction(
-	    "anofox_stats_poisson_fit_predict_agg",
+	    "poisson_fit_predict_agg",
 	    {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR}, LogicalType::ANY,
 	    AggregateFunction::StateSize<PoissonFitPredictAggState>, PoissonFitPredictAggInitialize,
 	    PoissonFitPredictAggUpdate, PoissonFitPredictAggCombine, PoissonFitPredictAggFinalize, nullptr,
@@ -626,7 +626,7 @@ void RegisterPoissonFitPredictAggregateFunction(ExtensionLoader &loader) {
 
 	// Version with split column and options: poisson_fit_predict_agg(y, x, split, options)
 	auto split_map_func = AggregateFunction(
-	    "anofox_stats_poisson_fit_predict_agg",
+	    "poisson_fit_predict_agg",
 	    {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR, LogicalType::ANY},
 	    LogicalType::ANY, AggregateFunction::StateSize<PoissonFitPredictAggState>, PoissonFitPredictAggInitialize,
 	    PoissonFitPredictAggUpdate, PoissonFitPredictAggCombine, PoissonFitPredictAggFinalize, nullptr,
@@ -638,7 +638,7 @@ void RegisterPoissonFitPredictAggregateFunction(ExtensionLoader &loader) {
 
 	FunctionDescription d1;
 	d1.description = "Fits a Poisson regression over a partition and returns per-row predictions.";
-	d1.examples = {"anofox_stats_poisson_fit_predict_agg(y, x)"};
+	d1.examples = {"poisson_fit_predict_agg(y, x)"};
 	d1.categories = {"regression", "prediction"};
 	d1.parameter_names = {"y", "x"};
 	d1.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)};
@@ -647,7 +647,7 @@ void RegisterPoissonFitPredictAggregateFunction(ExtensionLoader &loader) {
 	FunctionDescription d2;
 	d2.description =
 	    "Fits a Poisson regression over a partition with a MAP of options and returns per-row predictions.";
-	d2.examples = {"anofox_stats_poisson_fit_predict_agg(y, x, {'link': 'log'})"};
+	d2.examples = {"poisson_fit_predict_agg(y, x, {'link': 'log'})"};
 	d2.categories = {"regression", "prediction"};
 	d2.parameter_names = {"y", "x", "options"};
 	d2.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY};
@@ -655,7 +655,7 @@ void RegisterPoissonFitPredictAggregateFunction(ExtensionLoader &loader) {
 
 	FunctionDescription d3;
 	d3.description = "Fits a Poisson regression using only training rows (split_col='train') and predicts all rows.";
-	d3.examples = {"anofox_stats_poisson_fit_predict_agg(y, x, split_col)"};
+	d3.examples = {"poisson_fit_predict_agg(y, x, split_col)"};
 	d3.categories = {"regression", "prediction"};
 	d3.parameter_names = {"y", "x", "split_col"};
 	d3.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR};
@@ -663,7 +663,7 @@ void RegisterPoissonFitPredictAggregateFunction(ExtensionLoader &loader) {
 
 	FunctionDescription d4;
 	d4.description = "Fits a Poisson regression on training rows with a MAP of options and predicts all rows.";
-	d4.examples = {"anofox_stats_poisson_fit_predict_agg(y, x, split_col, {'link': 'log'})"};
+	d4.examples = {"poisson_fit_predict_agg(y, x, split_col, {'link': 'log'})"};
 	d4.categories = {"regression", "prediction"};
 	d4.parameter_names = {"y", "x", "split_col", "options"};
 	d4.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR,
@@ -672,18 +672,6 @@ void RegisterPoissonFitPredictAggregateFunction(ExtensionLoader &loader) {
 
 	loader.RegisterFunction(std::move(info));
 
-	// Short alias
-	{
-		AggregateFunctionSet alias_set("poisson_fit_predict_agg");
-		alias_set.AddFunction(basic_func);
-		alias_set.AddFunction(map_func);
-		alias_set.AddFunction(split_func);
-		alias_set.AddFunction(split_map_func);
-		CreateAggregateFunctionInfo alias_info(std::move(alias_set));
-		alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-		alias_info.alias_of = "anofox_stats_poisson_fit_predict_agg";
-		loader.RegisterFunction(std::move(alias_info));
-	}
 }
 
 } // namespace duckdb

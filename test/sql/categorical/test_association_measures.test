@@ -43,7 +43,7 @@ true
 
 # TEST 4: Alias verification
 query I
-SELECT anofox_stats_cramers_v_agg(row_var, col_var) IS NOT NULL FROM assoc_data;
+SELECT cramers_v_agg(row_var, col_var) IS NOT NULL FROM assoc_data;
 ----
 true
 
@@ -71,7 +71,7 @@ true
 
 # TEST 8: Alias verification
 query I
-SELECT anofox_stats_phi_coefficient_agg(row_var, col_var) IS NOT NULL FROM assoc_data;
+SELECT phi_coefficient_agg(row_var, col_var) IS NOT NULL FROM assoc_data;
 ----
 true
 
@@ -99,7 +99,7 @@ true
 
 # TEST 12: Alias verification
 query I
-SELECT anofox_stats_contingency_coef_agg(row_var, col_var) IS NOT NULL FROM assoc_data;
+SELECT contingency_coef_agg(row_var, col_var) IS NOT NULL FROM assoc_data;
 ----
 true
 
@@ -182,12 +182,12 @@ true
 
 # TEST 17: Alias verification
 query I
-SELECT (anofox_stats_cohen_kappa_agg(rater1, rater2)).kappa IS NOT NULL FROM kappa_data;
+SELECT (cohen_kappa_agg(rater1, rater2)).kappa IS NOT NULL FROM kappa_data;
 ----
 true
 
 query I
-SELECT (anofox_stats_cohen_kappa_agg(rater1, rater2)).p_value IS NOT NULL FROM kappa_data;
+SELECT (cohen_kappa_agg(rater1, rater2)).p_value IS NOT NULL FROM kappa_data;
 ----
 true
 

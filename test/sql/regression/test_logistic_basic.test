@@ -59,7 +59,7 @@ SELECT (logistic_fit_agg(y, [x])).n_observations FROM logistic_data;
 
 # TEST 7: fully-qualified name resolves
 query I
-SELECT (anofox_stats_logistic_fit_agg(y, [x])).coefficients[1] IS NOT NULL FROM logistic_data;
+SELECT (logistic_fit_agg(y, [x])).coefficients[1] IS NOT NULL FROM logistic_data;
 ----
 true
 

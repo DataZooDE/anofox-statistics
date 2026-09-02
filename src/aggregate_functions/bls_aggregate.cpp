@@ -7,6 +7,7 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
 
@@ -53,7 +54,6 @@ struct BlsAggregateBindData : public FunctionData {
     bool has_upper_bound = false;
     uint32_t max_iterations = 1000;
     double tolerance = 1e-10;
-    bool is_nnls = false; // Non-negative least squares mode
 
     unique_ptr<FunctionData> Copy() const override {
         auto result = make_uniq<BlsAggregateBindData>();
@@ -64,7 +64,6 @@ struct BlsAggregateBindData : public FunctionData {
         result->has_upper_bound = has_upper_bound;
         result->max_iterations = max_iterations;
         result->tolerance = tolerance;
-        result->is_nnls = is_nnls;
         return std::move(result);
     }
 
@@ -73,7 +72,7 @@ struct BlsAggregateBindData : public FunctionData {
         return fit_intercept == other.fit_intercept && lower_bound == other.lower_bound &&
                upper_bound == other.upper_bound && has_lower_bound == other.has_lower_bound &&
                has_upper_bound == other.has_upper_bound && max_iterations == other.max_iterations &&
-               tolerance == other.tolerance && is_nnls == other.is_nnls;
+               tolerance == other.tolerance;
     }
 };
 
@@ -257,12 +256,22 @@ static void BlsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
         auto &state = *states[sdata.sel->get_index(i)];
         idx_t result_idx = i + offset;
 
-        if (!state.initialized || state.y_values.size() < 2) {
+        // Check if we have enough data to attempt a fit.
+        // BLS/NNLS have no fit_intercept option by default; use n_features as the
+        // minimum. If fit_intercept is set (NNLS ignores it; BLS may not expose it
+        // via options but the state carries it), use n_features + 1.
+        // Mirrors the guard added for OLS in this phase (ols_aggregate.cpp:271-275).
+        if (!state.initialized) {
+            FlatVector::SetNull(result, result_idx, true);
+            continue;
+        }
+        idx_t min_obs = state.fit_intercept ? state.n_features + 1 : state.n_features;
+        if (state.y_values.size() <= min_obs) {
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
 
-        // Note: Detailed min_obs validation including zero-variance column handling is done in Rust
+        // Note: Additional validation (zero-variance columns, etc.) is performed in Rust
         AnofoxDataArray y_array;
         y_array.data = state.y_values.data();
         y_array.validity = nullptr;
@@ -305,8 +314,7 @@ static void BlsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
         bool success = anofox_bls_fit(y_array, x_arrays.data(), x_arrays.size(), options, &core_result, &error);
 
         if (!success) {
-            FlatVector::SetNull(result, result_idx, true);
-            continue;
+            ThrowFromFfiError("bls_fit_agg", error);
         }
 
         idx_t struct_idx = 0;
@@ -371,9 +379,11 @@ static unique_ptr<FunctionData> NnlsAggBind(ClientContext &context, AggregateFun
                                             vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<BlsAggregateBindData>();
 
-    // NNLS: lower bound is 0, no upper bound
-    result->is_nnls = true;
-    result->has_lower_bound = false; // FFI will use NNLS defaults (0 lower bound)
+    // NNLS is implemented via anofox_bls_fit with no bounds.
+    // In the Rust core, lower_bounds=None AND upper_bounds=None routes to
+    // BlsRegressor::nnls() which enforces a lower bound of 0 for all coefficients.
+    // No explicit is_nnls flag is needed at the C++ layer.
+    result->has_lower_bound = false;
     result->has_upper_bound = false;
 
     if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
@@ -401,16 +411,16 @@ static unique_ptr<FunctionData> NnlsAggBind(ClientContext &context, AggregateFun
 void RegisterBlsAggregateFunction(ExtensionLoader &loader) {
     // BLS (Bounded Least Squares)
     {
-        AggregateFunctionSet bls_set("anofox_stats_bls_fit_agg");
+        AggregateFunctionSet bls_set("bls_fit_agg");
 
         auto bls_basic = AggregateFunction(
-            "anofox_stats_bls_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)}, LogicalType::ANY,
+            "bls_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)}, LogicalType::ANY,
             AggregateFunction::StateSize<BlsAggregateState>, BlsAggInitialize, BlsAggUpdate, BlsAggCombine,
             BlsAggFinalize, nullptr, BlsAggBind, BlsAggDestroy);
         bls_set.AddFunction(bls_basic);
 
         auto bls_map = AggregateFunction(
-            "anofox_stats_bls_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
+            "bls_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
             LogicalType::ANY, AggregateFunction::StateSize<BlsAggregateState>, BlsAggInitialize, BlsAggUpdate,
             BlsAggCombine, BlsAggFinalize, nullptr, BlsAggBind, BlsAggDestroy);
         bls_set.AddFunction(bls_map);
@@ -419,42 +429,33 @@ void RegisterBlsAggregateFunction(ExtensionLoader &loader) {
         bls_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
         FunctionDescription d1;
         d1.description     = "Fits a Bounded Least Squares (BLS) regression with coefficient bounds and returns fit statistics.";
-        d1.examples        = {"anofox_stats_bls_fit_agg(y, x, {'lower_bounds': [-1.0], 'upper_bounds': [1.0]})"};
+        d1.examples        = {"bls_fit_agg(y, x, {'lower_bound': 0.0, 'upper_bound': 1.0})"};
         d1.categories      = {"regression"};
         d1.parameter_names = {"y", "x", "options"};
         d1.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY};
         bls_info.descriptions.push_back(std::move(d1));
         FunctionDescription d2;
         d2.description     = "Fits a Bounded Least Squares (BLS) regression with coefficient bounds and returns fit statistics.";
-        d2.examples        = {"anofox_stats_bls_fit_agg(y, x)"};
+        d2.examples        = {"bls_fit_agg(y, x)"};
         d2.categories      = {"regression"};
         d2.parameter_names = {"y", "x"};
         d2.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)};
         bls_info.descriptions.push_back(std::move(d2));
         loader.RegisterFunction(std::move(bls_info));
-
-        // Short alias
-        AggregateFunctionSet bls_alias("bls_fit_agg");
-        bls_alias.AddFunction(bls_basic);
-        bls_alias.AddFunction(bls_map);
-        CreateAggregateFunctionInfo bls_alias_info(std::move(bls_alias));
-        bls_alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        bls_alias_info.alias_of = "anofox_stats_bls_fit_agg";
-        loader.RegisterFunction(std::move(bls_alias_info));
     }
 
     // NNLS (Non-Negative Least Squares)
     {
-        AggregateFunctionSet nnls_set("anofox_stats_nnls_fit_agg");
+        AggregateFunctionSet nnls_set("nnls_fit_agg");
 
         auto nnls_basic = AggregateFunction(
-            "anofox_stats_nnls_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)}, LogicalType::ANY,
+            "nnls_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)}, LogicalType::ANY,
             AggregateFunction::StateSize<BlsAggregateState>, BlsAggInitialize, BlsAggUpdate, BlsAggCombine,
             BlsAggFinalize, nullptr, NnlsAggBind, BlsAggDestroy);
         nnls_set.AddFunction(nnls_basic);
 
         auto nnls_map = AggregateFunction(
-            "anofox_stats_nnls_fit_agg",
+            "nnls_fit_agg",
             {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY}, LogicalType::ANY,
             AggregateFunction::StateSize<BlsAggregateState>, BlsAggInitialize, BlsAggUpdate, BlsAggCombine,
             BlsAggFinalize, nullptr, NnlsAggBind, BlsAggDestroy);
@@ -464,28 +465,19 @@ void RegisterBlsAggregateFunction(ExtensionLoader &loader) {
         nnls_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
         FunctionDescription d1;
         d1.description     = "Fits a Non-Negative Least Squares (NNLS) regression with non-negativity constraints.";
-        d1.examples        = {"anofox_stats_nnls_fit_agg(y, x, {'tolerance': 1e-6})"};
+        d1.examples        = {"nnls_fit_agg(y, x, {'tolerance': 1e-6})"};
         d1.categories      = {"regression"};
         d1.parameter_names = {"y", "x", "options"};
         d1.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY};
         nnls_info.descriptions.push_back(std::move(d1));
         FunctionDescription d2;
         d2.description     = "Fits a Non-Negative Least Squares (NNLS) regression with non-negativity constraints.";
-        d2.examples        = {"anofox_stats_nnls_fit_agg(y, x)"};
+        d2.examples        = {"nnls_fit_agg(y, x)"};
         d2.categories      = {"regression"};
         d2.parameter_names = {"y", "x"};
         d2.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)};
         nnls_info.descriptions.push_back(std::move(d2));
         loader.RegisterFunction(std::move(nnls_info));
-
-        // Short alias for NNLS
-        AggregateFunctionSet nnls_alias("nnls_fit_agg");
-        nnls_alias.AddFunction(nnls_basic);
-        nnls_alias.AddFunction(nnls_map);
-        CreateAggregateFunctionInfo nnls_alias_info(std::move(nnls_alias));
-        nnls_alias_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
-        nnls_alias_info.alias_of = "anofox_stats_nnls_fit_agg";
-        loader.RegisterFunction(std::move(nnls_alias_info));
     }
 }
 

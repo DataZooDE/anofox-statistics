@@ -56,9 +56,9 @@ SELECT
     'With intercept' as mode,
     result.intercept,
     result.coefficients,
-    result.r2
+    result.r_squared
 FROM (
-    SELECT anofox_stats_ols_fit_agg(y, [x1, x2], {'intercept': true}) as result
+    SELECT ols_fit_agg(y, [x1, x2], {'intercept': true}) as result
     FROM intercept_test_data
 ) sub
 UNION ALL
@@ -66,9 +66,9 @@ SELECT
     'Without intercept' as mode,
     result.intercept as should_be_zero,
     result.coefficients,
-    result.r2
+    result.r_squared
 FROM (
-    SELECT anofox_stats_ols_fit_agg(y, [x1, x2], {'intercept': false}) as result
+    SELECT ols_fit_agg(y, [x1, x2], {'intercept': false}) as result
     FROM intercept_test_data
 ) sub;
 
@@ -89,16 +89,16 @@ FROM (
 -- Tolerance: R² difference should be positive for this data (intercept ≈10)
 SELECT '=== Test 2: Verify R² calculation difference ===' as test_name;
 SELECT
-    with_int.r2 as r2_with_intercept,
-    without_int.r2 as r2_without_intercept,
-    (with_int.r2 - without_int.r2) as r2_difference,
+    with_int.r_squared as r2_with_intercept,
+    without_int.r_squared as r2_without_intercept,
+    (with_int.r_squared - without_int.r_squared) as r2_difference,
     CASE
-        WHEN with_int.r2 > without_int.r2 THEN 'With intercept has higher R² (expected)'
+        WHEN with_int.r_squared > without_int.r_squared THEN 'With intercept has higher R² (expected)'
         ELSE 'Unexpected: Without intercept has higher R²'
     END as interpretation
 FROM (
-    SELECT anofox_stats_ols_fit_agg(y, [x1], {'intercept': true}) as with_int,
-           anofox_stats_ols_fit_agg(y, [x1], {'intercept': false}) as without_int
+    SELECT ols_fit_agg(y, [x1], {'intercept': true}) as with_int,
+           ols_fit_agg(y, [x1], {'intercept': false}) as without_int
     FROM intercept_test_data
 ) sub;
 
@@ -122,20 +122,20 @@ SELECT '=== Test 3: WLS intercept validation ===' as test_name;
 SELECT
     'WLS with intercept' as mode,
     result.intercept,
-    result.r2,
+    result.r_squared,
     result.weighted_mse
 FROM (
-    SELECT anofox_stats_wls_fit_agg(y, [x1, x2], weight, {'intercept': true}) as result
+    SELECT wls_fit_agg(y, [x1, x2], weight, {'intercept': true}) as result
     FROM intercept_test_data
 ) sub
 UNION ALL
 SELECT
     'WLS without intercept' as mode,
     result.intercept,
-    result.r2,
+    result.r_squared,
     result.weighted_mse
 FROM (
-    SELECT anofox_stats_wls_fit_agg(y, [x1, x2], weight, {'intercept': false}) as result
+    SELECT wls_fit_agg(y, [x1, x2], weight, {'intercept': false}) as result
     FROM intercept_test_data
 ) sub;
 
@@ -161,10 +161,10 @@ SELECT
     'Ridge with intercept' as mode,
     result.intercept,
     result.coefficients,
-    result.r2,
+    result.r_squared,
     result.lambda
 FROM (
-    SELECT anofox_stats_ridge_fit_agg(y, [x1, x2], {'lambda': 1.0, 'intercept': true}) as result
+    SELECT ridge_fit_agg(y, [x1, x2], {'lambda': 1.0, 'intercept': true}) as result
     FROM intercept_test_data
 ) sub
 UNION ALL
@@ -172,10 +172,10 @@ SELECT
     'Ridge without intercept' as mode,
     result.intercept,
     result.coefficients,
-    result.r2,
+    result.r_squared,
     result.lambda
 FROM (
-    SELECT anofox_stats_ridge_fit_agg(y, [x1, x2], {'lambda': 1.0, 'intercept': false}) as result
+    SELECT ridge_fit_agg(y, [x1, x2], {'lambda': 1.0, 'intercept': false}) as result
     FROM intercept_test_data
 ) sub;
 
@@ -208,10 +208,10 @@ SELECT
     'RLS with intercept' as mode,
     result.intercept,
     result.coefficients,
-    result.r2,
+    result.r_squared,
     result.forgetting_factor
 FROM (
-    SELECT anofox_stats_rls_fit_agg(y, [x1, x2], {'forgetting_factor': 1.0, 'intercept': true}) as result
+    SELECT rls_fit_agg(y, [x1, x2], {'forgetting_factor': 1.0, 'intercept': true}) as result
     FROM intercept_test_data
 ) sub
 UNION ALL
@@ -219,10 +219,10 @@ SELECT
     'RLS without intercept' as mode,
     result.intercept,
     result.coefficients,
-    result.r2,
+    result.r_squared,
     result.forgetting_factor
 FROM (
-    SELECT anofox_stats_rls_fit_agg(y, [x1, x2], {'forgetting_factor': 1.0, 'intercept': false}) as result
+    SELECT rls_fit_agg(y, [x1, x2], {'forgetting_factor': 1.0, 'intercept': false}) as result
     FROM intercept_test_data
 ) sub;
 
@@ -251,8 +251,8 @@ SELECT
     ABS(without_int.coefficients[1]) - ABS(with_int.coefficients[1]) as magnitude_difference
 FROM (
     SELECT
-        anofox_stats_ols_fit_agg(y, [x1], {'intercept': true}) as with_int,
-        anofox_stats_ols_fit_agg(y, [x1], {'intercept': false}) as without_int
+        ols_fit_agg(y, [x1], {'intercept': true}) as with_int,
+        ols_fit_agg(y, [x1], {'intercept': false}) as without_int
     FROM intercept_test_data
 ) sub;
 
@@ -283,13 +283,13 @@ FROM generate_series(1, 20) as t(i);
 SELECT
     result.intercept,
     result.coefficients[1] as slope,
-    result.r2,
+    result.r_squared,
     CASE
         WHEN result.intercept BETWEEN 45.0 AND 55.0 THEN 'Intercept estimate looks reasonable'
         ELSE 'Unexpected intercept value'
     END as validation
 FROM (
-    SELECT anofox_stats_ols_fit_agg(y, [x], {'intercept': true}) as result
+    SELECT ols_fit_agg(y, [x], {'intercept': true}) as result
     FROM known_intercept_data
 ) sub;
 
@@ -314,7 +314,7 @@ FROM (
 --
 --   Expected: Each window produces independent regression estimate
 --   Tolerance: intercept[i] = 0.0 for all windows when intercept=FALSE
--- Test 8: SKIPPED - anofox_stats_rolling_ols function not implemented yet
+-- Test 8: SKIPPED - rolling_ols function not implemented yet
 -- SELECT '=== Test 8: Rolling/Expanding OLS intercept validation ===' as test_name;
 -- CREATE TABLE rolling_test_array AS
 -- SELECT
@@ -329,9 +329,9 @@ FROM (
 -- SELECT
 --     'Rolling OLS with intercept' as mode,
 --     result.intercept[1] as first_window_intercept,
---     result.r2[1] as first_window_r2
+--     result.r_squared[1] as first_window_r2
 -- FROM (
---     SELECT * FROM anofox_stats_rolling_ols(
+--     SELECT * FROM rolling_ols(
 --         (SELECT y_array FROM rolling_test_array),
 --         (SELECT x_array FROM rolling_test_array),
 --         {'window_size': 10, 'intercept': true}
@@ -342,9 +342,9 @@ FROM (
 -- SELECT
 --     'Rolling OLS without intercept' as mode,
 --     result.intercept[1] as should_be_zero,
---     result.r2[1] as first_window_r2
+--     result.r_squared[1] as first_window_r2
 -- FROM (
---     SELECT * FROM anofox_stats_rolling_ols(
+--     SELECT * FROM rolling_ols(
 --         (SELECT y_array FROM rolling_test_array),
 --         (SELECT x_array FROM rolling_test_array),
 --         {'window_size': 10, 'intercept': false}
@@ -370,14 +370,14 @@ FROM (
 --
 --   Expected: Estimates stabilize as more data is included
 --   Tolerance: intercept[i] = 0.0 for all windows when intercept=FALSE
--- Test 9: SKIPPED - anofox_stats_expanding_ols function not implemented yet
+-- Test 9: SKIPPED - expanding_ols function not implemented yet
 -- SELECT '=== Test 9: Expanding OLS intercept validation ===' as test_name;
 -- SELECT
 --     'Expanding OLS with intercept' as mode,
 --     result.intercept[1] as first_window_intercept,
---     result.r2[1] as first_window_r2
+--     result.r_squared[1] as first_window_r2
 -- FROM (
---     SELECT * FROM anofox_stats_expanding_ols(
+--     SELECT * FROM expanding_ols(
 --         (SELECT y_array FROM rolling_test_array),
 --         (SELECT x_array FROM rolling_test_array),
 --         {'min_periods': 10, 'intercept': true}
@@ -388,9 +388,9 @@ FROM (
 -- SELECT
 --     'Expanding OLS without intercept' as mode,
 --     result.intercept[1] as should_be_zero,
---     result.r2[1] as first_window_r2
+--     result.r_squared[1] as first_window_r2
 -- FROM (
---     SELECT * FROM anofox_stats_expanding_ols(
+--     SELECT * FROM expanding_ols(
 --         (SELECT y_array FROM rolling_test_array),
 --         (SELECT x_array FROM rolling_test_array),
 --         {'min_periods': 10, 'intercept': false}
@@ -433,13 +433,13 @@ SELECT
     grp,
     with_int.intercept as intercept_with,
     without_int.intercept as intercept_without,
-    with_int.r2 as r2_with,
-    without_int.r2 as r2_without
+    with_int.r_squared as r2_with,
+    without_int.r_squared as r2_without
 FROM (
     SELECT
         grp,
-        anofox_stats_ols_fit_agg(y, [x], {'intercept': true}) as with_int,
-        anofox_stats_ols_fit_agg(y, [x], {'intercept': false}) as without_int
+        ols_fit_agg(y, [x], {'intercept': true}) as with_int,
+        ols_fit_agg(y, [x], {'intercept': false}) as without_int
     FROM grouped_intercept_test
     GROUP BY grp
 ) sub
@@ -477,7 +477,7 @@ SELECT
         ELSE 'FAIL: Intercept is not zero'
     END as validation
 FROM (
-    SELECT anofox_stats_ols_fit_agg(y, [x1], {'intercept': false}) as result
+    SELECT ols_fit_agg(y, [x1], {'intercept': false}) as result
     FROM intercept_test_data
 ) sub
 UNION ALL
@@ -489,7 +489,7 @@ SELECT
         ELSE 'FAIL: Intercept is not zero'
     END as validation
 FROM (
-    SELECT anofox_stats_wls_fit_agg(y, [x1], weight, {'intercept': false}) as result
+    SELECT wls_fit_agg(y, [x1], weight, {'intercept': false}) as result
     FROM intercept_test_data
 ) sub
 UNION ALL
@@ -501,7 +501,7 @@ SELECT
         ELSE 'FAIL: Intercept is not zero'
     END as validation
 FROM (
-    SELECT anofox_stats_ridge_fit_agg(y, [x1], {'lambda': 1.0, 'intercept': false}) as result
+    SELECT ridge_fit_agg(y, [x1], {'lambda': 1.0, 'intercept': false}) as result
     FROM intercept_test_data
 ) sub
 UNION ALL
@@ -513,7 +513,7 @@ SELECT
         ELSE 'FAIL: Intercept is not zero'
     END as validation
 FROM (
-    SELECT anofox_stats_rls_fit_agg(y, [x1], {'forgetting_factor': 1.0, 'intercept': false}) as result
+    SELECT rls_fit_agg(y, [x1], {'forgetting_factor': 1.0, 'intercept': false}) as result
     FROM intercept_test_data
 ) sub;
 

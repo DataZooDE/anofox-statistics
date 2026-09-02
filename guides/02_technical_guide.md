@@ -106,10 +106,20 @@ Aggregate functions automatically support window operations via DuckDB's `OVER` 
 
 ```sql
 -- DuckDB handles windowing; aggregate sees accumulated rows per frame
-SELECT (anofox_stats_ols_fit_agg(y, [x]) OVER (
-    ORDER BY date ROWS BETWEEN 9 PRECEDING AND CURRENT ROW
-)).coefficients[1] as rolling_beta
-FROM data;
+WITH time_series AS (
+    SELECT
+        row_number() OVER () as date,
+        i::DOUBLE as y,
+        i::DOUBLE as x
+    FROM generate_series(1, 30) t(i)
+)
+SELECT
+    date,
+    (ols_fit_agg(y, [x]) OVER (
+        ORDER BY date ROWS BETWEEN 9 PRECEDING AND CURRENT ROW
+    )).coefficients[1] as rolling_beta
+FROM time_series
+ORDER BY date;
 ```
 
 ---
@@ -316,8 +326,6 @@ cargo test
 ### Manual Testing
 
 ```sql
-LOAD 'build/release/extension/anofox_stats/anofox_stats.duckdb_extension';
-
 -- Verify known values
 SELECT ROUND((ols_fit([3.0, 5.0, 7.0, 9.0, 11.0], [[1.0, 2.0, 3.0, 4.0, 5.0]])).coefficients[1], 2);
 -- Expected: 2.0
@@ -397,7 +405,7 @@ pub unsafe extern "C" fn anofox_new_diagnostic(
 ```cpp
 // 3. C++ registration
 void RegisterNewDiagnosticFunction(ExtensionLoader &loader) {
-    ScalarFunctionSet func_set("anofox_stats_new_diagnostic");
+    ScalarFunctionSet func_set("new_diagnostic");
     // ...
     loader.RegisterFunction(func_set);
 }

@@ -10,29 +10,29 @@ require anofox_statistics
 
 # Basic OLS: y = 2x + 1
 query I
-SELECT (anofox_stats_ols_fit([3.0, 5.0, 7.0, 9.0], [[1.0, 2.0, 3.0, 4.0]])).r_squared;
+SELECT (ols_fit([3.0, 5.0, 7.0, 9.0], [[1.0, 2.0, 3.0, 4.0]])).r_squared;
 ----
 1.0
 
 query I
-SELECT (anofox_stats_ols_fit([3.0, 5.0, 7.0, 9.0], [[1.0, 2.0, 3.0, 4.0]])).intercept;
+SELECT (ols_fit([3.0, 5.0, 7.0, 9.0], [[1.0, 2.0, 3.0, 4.0]])).intercept;
 ----
 1.0
 
 query I
-SELECT (anofox_stats_ols_fit([3.0, 5.0, 7.0, 9.0], [[1.0, 2.0, 3.0, 4.0]])).coefficients[1];
+SELECT (ols_fit([3.0, 5.0, 7.0, 9.0], [[1.0, 2.0, 3.0, 4.0]])).coefficients[1];
 ----
 2.0
 
 # OLS with multiple features: y = 1 + 2*x1 + 3*x2
 query I
-SELECT ROUND((anofox_stats_ols_fit([6.0, 11.0, 16.0, 21.0], [[1.0, 2.0, 3.0, 4.0], [1.0, 2.0, 3.0, 4.0]])).intercept, 1);
+SELECT ROUND((ols_fit([6.0, 11.0, 16.0, 21.0], [[1.0, 2.0, 3.0, 4.0], [1.0, 2.0, 3.0, 4.0]])).intercept, 1);
 ----
 1.0
 
 # OLS with inference using MAP syntax
 query I
-SELECT (anofox_stats_ols_fit([3.0, 5.0, 7.0, 9.0], [[1.0, 2.0, 3.0, 4.0]], {'intercept': true, 'compute_inference': true})).r_squared;
+SELECT (ols_fit([3.0, 5.0, 7.0, 9.0], [[1.0, 2.0, 3.0, 4.0]], {'intercept': true, 'compute_inference': true})).r_squared;
 ----
 1.0
 
@@ -42,13 +42,13 @@ SELECT (anofox_stats_ols_fit([3.0, 5.0, 7.0, 9.0], [[1.0, 2.0, 3.0, 4.0]], {'int
 
 # Basic Ridge with low alpha using MAP syntax
 query I
-SELECT (anofox_stats_ridge_fit([3.0, 5.0, 7.0, 9.0], [[1.0, 2.0, 3.0, 4.0]], {'alpha': 0.01})).r_squared;
+SELECT (ridge_fit([3.0, 5.0, 7.0, 9.0], [[1.0, 2.0, 3.0, 4.0]], {'alpha': 0.01})).r_squared;
 ----
 1.0
 
 # Ridge with alpha - produces valid model
 query I
-SELECT (anofox_stats_ridge_fit([3.0, 5.0, 7.0, 9.0], [[1.0, 2.0, 3.0, 4.0]], {'alpha': 1.0})).n_features;
+SELECT (ridge_fit([3.0, 5.0, 7.0, 9.0], [[1.0, 2.0, 3.0, 4.0]], {'alpha': 1.0})).n_features;
 ----
 1
 
@@ -70,7 +70,7 @@ WITH data AS (
 )
 SELECT
     grp,
-    ROUND((anofox_stats_ols_fit_agg(y, [x])).intercept, 1) as intercept
+    ROUND((ols_fit_agg(y, [x])).intercept, 1) as intercept
 FROM data
 GROUP BY grp
 ORDER BY grp;
@@ -87,7 +87,7 @@ WITH data AS (
     FROM generate_series(1, 100) t(i)
 )
 SELECT
-    ROUND((anofox_stats_ols_fit_agg(y, [x])).coefficients[1], 1) as coef
+    ROUND((ols_fit_agg(y, [x])).coefficients[1], 1) as coef
 FROM data;
 ----
 2.0
@@ -98,6 +98,6 @@ FROM data;
 
 # Minimum observations (3 for single feature with intercept)
 query I
-SELECT (anofox_stats_ols_fit([3.0, 5.0, 7.0], [[1.0, 2.0, 3.0]])).r_squared IS NOT NULL;
+SELECT (ols_fit([3.0, 5.0, 7.0], [[1.0, 2.0, 3.0]])).r_squared IS NOT NULL;
 ----
 true

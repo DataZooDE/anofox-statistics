@@ -46,7 +46,7 @@ SELECT
     fit.intercept as base_revenue,
     ROUND(fit.r_squared, 3) as r_squared
 FROM (
-    SELECT anofox_stats_ols_fit(
+    SELECT ols_fit(
         array_agg(revenue::DOUBLE ORDER BY month),
         [
             array_agg(tv_spend::DOUBLE ORDER BY month),
@@ -54,7 +54,7 @@ FROM (
             array_agg(print_spend::DOUBLE ORDER BY month),
             array_agg(radio_spend::DOUBLE ORDER BY month)
         ],
-        true, true, 0.95
+        {'fit_intercept': true, 'compute_inference': true, 'confidence_level': 0.95}
     ) as fit
     FROM marketing_data
 );
@@ -85,7 +85,7 @@ SELECT
     -- Elasticity at mean price
     fit.coefficients[1] * AVG(price) / AVG(units_sold) as price_elasticity
 FROM (
-    SELECT anofox_stats_ols_fit(
+    SELECT ols_fit(
         array_agg(units_sold),
         [array_agg(price)]
     ) as fit
@@ -110,7 +110,7 @@ SELECT
     (random() * 5 + 1)::DOUBLE as first_purchase_amount,
     (random() * 10 + 1)::DOUBLE as days_to_second_purchase,
     (random() * 5)::DOUBLE as support_tickets,
-    (random() * 50 + first_purchase_amount * 8)::DOUBLE as ltv_12_months
+    (random() * 50 + (random() * 5 + 1) * 8)::DOUBLE as ltv_12_months
 FROM generate_series(1, 100) t(i);
 
 -- Build LTV prediction model
@@ -121,14 +121,14 @@ SELECT
     fit.intercept as base_ltv,
     fit.r_squared as predictive_power
 FROM (
-    SELECT anofox_stats_ols_fit(
+    SELECT ols_fit(
         array_agg(ltv_12_months),
         [
             array_agg(first_purchase_amount),
             array_agg(1.0 / days_to_second_purchase),  -- Engagement proxy
             array_agg(support_tickets)
         ],
-        true, true, 0.95
+        {'fit_intercept': true, 'compute_inference': true, 'confidence_level': 0.95}
     ) as fit
     FROM customer_data
 );
@@ -158,10 +158,10 @@ SELECT
     fit.r_squared as r_squared,
     fit.p_values[1] as beta_pvalue
 FROM (
-    SELECT anofox_stats_ols_fit(
+    SELECT ols_fit(
         array_agg(stock_return ORDER BY month),
         [array_agg(market_return ORDER BY month)],
-        true, true, 0.95
+        {'fit_intercept': true, 'compute_inference': true, 'confidence_level': 0.95}
     ) as fit
     FROM returns_data
 );
@@ -196,7 +196,7 @@ SELECT
     fit.coefficients[4] as momentum_exposure,
     fit.r_squared
 FROM (
-    SELECT anofox_stats_ridge_fit(
+    SELECT ridge_fit(
         array_agg(portfolio_return ORDER BY period),
         [
             array_agg(market_factor ORDER BY period),
@@ -204,7 +204,7 @@ FROM (
             array_agg(value_factor ORDER BY period),
             array_agg(momentum_factor ORDER BY period)
         ],
-        0.5  -- Regularization parameter
+        {'alpha': 0.5}
     ) as fit
     FROM factor_data
 );
@@ -234,7 +234,7 @@ SELECT
     fit.intercept as base_probability,
     fit.r_squared
 FROM (
-    SELECT anofox_stats_ols_fit(
+    SELECT ols_fit(
         array_agg(defaulted),
         [
             array_agg(loan_amount / 10000),  -- Normalize
@@ -274,7 +274,7 @@ SELECT
     fit.intercept as base_demand,
     fit.r_squared
 FROM (
-    SELECT anofox_stats_ols_fit(
+    SELECT ols_fit(
         array_agg(units_sold ORDER BY week),
         [
             array_agg(week_of_month ORDER BY week),
@@ -301,12 +301,14 @@ SELECT
         ELSE (3.0 * i - 40 + (random() - 0.5) * 5)::DOUBLE  -- Regime change at t=50
     END as measurement
 FROM generate_series(1, 100) t(i);
+```
 
--- RLS with forgetting factor to adapt to changes
+```sql skip
+-- RLS as a rolling window aggregate (illustrative — use rls_fit_predict for production rolling predictions)
 SELECT
     timestamp,
     measurement,
-    (anofox_stats_rls_fit_agg(measurement, [time_index::DOUBLE], 0.95) OVER (
+    (rls_fit_agg(measurement, [time_index::DOUBLE], {'forgetting_factor': 0.95}) OVER (
         ORDER BY timestamp
         ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
     )).coefficients[1] as adaptive_slope
@@ -322,32 +324,41 @@ Identify factors affecting product quality.
 -- Sample manufacturing data
 CREATE OR REPLACE TABLE quality_data AS
 SELECT
-    (150 + random() * 20)::DOUBLE as temperature,
-    (50 + random() * 10)::DOUBLE as pressure,
+    temp as temperature,
+    pres as pressure,
     (5 + random() * 2)::DOUBLE as cycle_time,
-    (85 + (150 - temperature) * 0.5 + (55 - pressure) * 0.3 + (random() - 0.5) * 5)::DOUBLE as quality_score
-FROM generate_series(1, 100) t(i);
+    (85 + (150 - temp) * 0.5 + (55 - pres) * 0.3 + (random() - 0.5) * 5)::DOUBLE as quality_score
+FROM (
+    SELECT
+        (150 + random() * 20)::DOUBLE as temp,
+        (50 + random() * 10)::DOUBLE as pres
+    FROM generate_series(1, 100) t(i)
+);
 
 -- Identify quality drivers
+WITH agg AS (
+    SELECT
+        ols_fit(
+            array_agg(quality_score),
+            [
+                array_agg(temperature),
+                array_agg(pressure),
+                array_agg(cycle_time)
+            ],
+            {'fit_intercept': true, 'compute_inference': true, 'confidence_level': 0.95}
+        ) as fit,
+        array_agg(temperature) as temp_arr,
+        array_agg(pressure) as pres_arr,
+        array_agg(cycle_time) as ct_arr
+    FROM quality_data
+)
 SELECT
     fit.coefficients[1] as temperature_impact,
     fit.coefficients[2] as pressure_impact,
     fit.coefficients[3] as cycle_time_impact,
     fit.r_squared,
-    vif([[temperature], [pressure], [cycle_time]]) as multicollinearity_check
-FROM (
-    SELECT anofox_stats_ols_fit(
-        array_agg(quality_score),
-        [
-            array_agg(temperature),
-            array_agg(pressure),
-            array_agg(cycle_time)
-        ],
-        true, true, 0.95
-    ) as fit
-    FROM quality_data
-), quality_data
-GROUP BY fit.coefficients, fit.intercept, fit.r_squared;
+    vif([temp_arr, pres_arr, ct_arr]) as multicollinearity_check
+FROM agg;
 ```
 
 ---
@@ -368,17 +379,23 @@ SELECT
         WHEN 2 THEN 'North'
         ELSE 'South'
     END as territory,
-    (random() * 100 + 50)::DOUBLE as accounts,
-    (random() * 50 + 20)::DOUBLE as calls_per_account,
-    (random() * 10000 + accounts * 50 + calls_per_account * 100 + (random() - 0.5) * 2000)::DOUBLE as revenue
-FROM generate_series(1, 200) t(i);
+    acc as accounts,
+    cpa as calls_per_account,
+    (random() * 10000 + acc * 50 + cpa * 100 + (random() - 0.5) * 2000)::DOUBLE as revenue
+FROM (
+    SELECT
+        i,
+        (random() * 100 + 50)::DOUBLE as acc,
+        (random() * 50 + 20)::DOUBLE as cpa
+    FROM generate_series(1, 200) t(i)
+);
 
 -- Per-territory analysis
 SELECT
     territory,
-    ROUND((anofox_stats_ols_fit_agg(revenue, [accounts, calls_per_account])).coefficients[1], 2) as revenue_per_account,
-    ROUND((anofox_stats_ols_fit_agg(revenue, [accounts, calls_per_account])).coefficients[2], 2) as revenue_per_call,
-    ROUND((anofox_stats_ols_fit_agg(revenue, [accounts, calls_per_account])).r_squared, 3) as r_squared,
+    ROUND((ols_fit_agg(revenue, [accounts, calls_per_account])).coefficients[1], 2) as revenue_per_account,
+    ROUND((ols_fit_agg(revenue, [accounts, calls_per_account])).coefficients[2], 2) as revenue_per_call,
+    ROUND((ols_fit_agg(revenue, [accounts, calls_per_account])).r_squared, 3) as r_squared,
     COUNT(*) as sample_size
 FROM territory_data
 GROUP BY territory
@@ -395,19 +412,22 @@ CREATE OR REPLACE TABLE rep_performance AS
 SELECT
     'Rep' || (i % 10 + 1) as rep_id,
     (100 - i * 0.5)::DOUBLE as months_ago,
-    (random() * 50 + 30)::DOUBLE as activities,
-    (random() * 20000 + activities * 300)::DOUBLE as revenue
-FROM generate_series(1, 100) t(i);
+    act as activities,
+    (random() * 20000 + act * 300)::DOUBLE as revenue
+FROM (
+    SELECT i, (random() * 50 + 30)::DOUBLE as act
+    FROM generate_series(1, 100) t(i)
+);
 
 -- Weight recent data more heavily
 SELECT
     rep_id,
-    ROUND((anofox_stats_wls_fit_agg(
+    ROUND((wls_fit_agg(
         revenue,
         [activities],
         1.0 / (months_ago + 1)  -- Higher weight for recent data
     )).coefficients[1], 2) as revenue_per_activity,
-    ROUND((anofox_stats_wls_fit_agg(
+    ROUND((wls_fit_agg(
         revenue,
         [activities],
         1.0 / (months_ago + 1)
@@ -452,13 +472,13 @@ Revenue = Base + β₁×Price + β₂×Advertising
 
 ### Confidence Intervals
 
-```sql
--- Get 95% confidence interval
+```sql skip
+-- Get 95% confidence interval (requires a real table with y and x columns)
 SELECT
     fit.coefficients[1] as point_estimate,
     fit.ci_lower[1] as lower_bound,
     fit.ci_upper[1] as upper_bound
-FROM (SELECT anofox_stats_ols_fit(y, x, true, true, 0.95) as fit FROM data);
+FROM (SELECT ols_fit(y, x, {'compute_inference': true}) as fit FROM my_table);
 ```
 
 **Interpretation:**
@@ -472,35 +492,35 @@ FROM (SELECT anofox_stats_ols_fit(y, x, true, true, 0.95) as fit FROM data);
 
 ### 1. Check Statistical Significance
 
-```sql
--- Only trust significant coefficients
+```sql skip
+-- Only trust significant coefficients (requires a real table)
 SELECT
     CASE WHEN fit.p_values[1] < 0.05 THEN 'Significant' ELSE 'Not Significant' END as price_significance,
     fit.coefficients[1] as price_effect
-FROM (SELECT anofox_stats_ols_fit(y, x, true, true, 0.95) as fit FROM data);
+FROM (SELECT ols_fit(y, x, {'compute_inference': true}) as fit FROM my_table);
 ```
 
 ### 2. Validate Model Quality
 
-```sql
--- Check R² and residual diagnostics
+```sql skip
+-- Check R² and residual diagnostics (requires real tables)
 WITH model AS (
-    SELECT anofox_stats_ols_fit(y_array, x_array) as fit FROM data
+    SELECT ols_fit_agg(y, [x]) as fit FROM my_table
 ),
 predictions AS (
-    SELECT anofox_stats_predict(x_array, model.fit.coefficients, model.fit.intercept) as y_hat
-    FROM data, model
+    SELECT predict([[x_val]], model.fit.coefficients, model.fit.intercept) as y_hat
+    FROM my_table, model
 )
 SELECT
     model.fit.r_squared,
-    (jarque_bera((residuals_diagnostics(y_array, y_hat)).raw)).p_value as normality_test
-FROM model, predictions, data;
+    (jarque_bera((residuals_diagnostics(y_arr, y_hat_arr)).raw)).p_value as normality_test
+FROM model, predictions;
 ```
 
 ### 3. Use Confidence Intervals for Decisions
 
-```sql
--- Conservative revenue projection
+```sql skip
+-- Conservative revenue projection (requires fitted model and projected spend)
 SELECT
     fit.coefficients[1] * projected_spend as expected_return,
     fit.ci_lower[1] * projected_spend as pessimistic_return,
@@ -516,8 +536,8 @@ FROM model_fit, (SELECT 10000 as projected_spend);
 
 ### 5. Monitor Model Performance
 
-```sql
--- Track model accuracy over time
+```sql skip
+-- Track model accuracy over time (requires a predictions table)
 SELECT
     date_trunc('month', date) as month,
     SQRT(AVG((actual - predicted) * (actual - predicted))) as rmse,
@@ -529,15 +549,15 @@ ORDER BY 1;
 
 ### 6. Combine Multiple Models
 
-```sql
--- Ensemble approach
+```sql skip
+-- Ensemble approach (requires pre-fitted coefficient variables)
 SELECT
     (ols_prediction + ridge_prediction + wls_prediction) / 3 as ensemble_prediction
 FROM (
     SELECT
-        anofox_stats_predict(x, ols_coef, ols_int)[1] as ols_prediction,
-        anofox_stats_predict(x, ridge_coef, ridge_int)[1] as ridge_prediction,
-        anofox_stats_predict(x, wls_coef, wls_int)[1] as wls_prediction
+        predict(x, ols_coef, ols_int)[1] as ols_prediction,
+        predict(x, ridge_coef, ridge_int)[1] as ridge_prediction,
+        predict(x, wls_coef, wls_int)[1] as wls_prediction
     FROM models, new_data
 );
 ```

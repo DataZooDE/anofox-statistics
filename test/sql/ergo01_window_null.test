@@ -1,0 +1,163 @@
+# name: test/sql/ergo01_window_null.test
+# description: Regression test for ERGO-01 — rolling fit_predict degenerate-frame NULL guard
+# group: [sql]
+#
+# Bug: ols_fit_agg(...) OVER (ROWS BETWEEN N PRECEDING AND CURRENT ROW)
+# returned a non-NULL result when the frame has exactly min_obs = n_features+1 rows
+# instead of returning NULL for the degenerate (exactly-determined/saturated) case.
+#
+# Root cause (pinned): src/aggregate_functions/ols_aggregate.cpp OlsAggFinalize()
+# used a fixed `y_values.size() < 2` guard (line 263) instead of the scaling
+# `y_values.size() <= (fit_intercept ? n_features+1 : n_features)` guard.
+# With 1 feature + intercept: min_obs = 2, so a 2-row frame passed `< 2` (false for size=2)
+# but must fail `<= 2` (true for size=2 → NULL).
+# The function that first triggers the wrong non-NULL result is:
+# ols_fit_agg(y, [x1]) OVER (ORDER BY t ROWS BETWEEN 2 PRECEDING AND CURRENT ROW)
+# at t=2, where the frame contains exactly 2 rows (= min_obs) and should be NULL.
+
+require anofox_statistics
+
+# =============================================================================
+# SETUP
+# =============================================================================
+
+statement ok
+CREATE TABLE ergo01_data AS
+SELECT
+    t::INTEGER AS t,
+    t::DOUBLE  AS x1,
+    (t * 0.5)::DOUBLE AS x2,
+    (2.0 * t + 1.0)::DOUBLE AS y
+FROM range(1, 8) t(t);
+
+# =============================================================================
+# CASE A — 1 feature, fit_intercept=true: min_obs = 2
+# ROWS BETWEEN 2 PRECEDING AND CURRENT ROW → frame sizes: 1, 2, 3, 3, 3, 3, 3
+#
+# Frames with <= min_obs rows (t=1: size=1, t=2: size=2) must be NULL.
+# Frames with > min_obs rows (t=3..7: size=3) must be non-NULL.
+#
+# The weak `< 2` guard missed the t=2 case (size=2 < 2 is false → proceeded to fit,
+# returning a degenerate result with adj_r_squared=NaN instead of NULL).
+# The scaling `<= min_obs` guard catches it (2 <= 2 → NULL).
+# =============================================================================
+
+# Frames at t=1 (size=1) and t=2 (size=2) must both be NULL — 2 NULL rows
+query I
+SELECT
+    COUNT(*) AS degenerate_null_count
+FROM (
+    SELECT
+        ols_fit_agg(y, [x1]) OVER (ORDER BY t ROWS BETWEEN 2 PRECEDING AND CURRENT ROW) AS result
+    FROM ergo01_data
+)
+WHERE result IS NULL;
+----
+2
+
+# Frames at t=3..7 (size=3 > min_obs=2) must be non-NULL — 5 valid rows
+query I
+SELECT
+    COUNT(*) AS valid_non_null_count
+FROM (
+    SELECT
+        ols_fit_agg(y, [x1]) OVER (ORDER BY t ROWS BETWEEN 2 PRECEDING AND CURRENT ROW) AS result
+    FROM ergo01_data
+)
+WHERE result IS NOT NULL;
+----
+5
+
+# Row-level pattern: 2 NULLs then 5 non-NULLs
+query II
+SELECT
+    t,
+    CASE WHEN result IS NULL THEN 'NULL' ELSE 'non-NULL' END AS result_status
+FROM (
+    SELECT
+        t,
+        ols_fit_agg(y, [x1]) OVER (ORDER BY t ROWS BETWEEN 2 PRECEDING AND CURRENT ROW) AS result
+    FROM ergo01_data
+)
+ORDER BY t;
+----
+1	NULL
+2	NULL
+3	non-NULL
+4	non-NULL
+5	non-NULL
+6	non-NULL
+7	non-NULL
+
+# =============================================================================
+# CASE B — 2 features, fit_intercept=true: min_obs = 3
+# ROWS BETWEEN 3 PRECEDING AND CURRENT ROW → frame sizes: 1, 2, 3, 4, 4, 4, 4
+#
+# Frames with <= min_obs=3 rows (t=1,2,3) must be NULL.
+# Frames with > min_obs=3 rows (t=4..7: size=4) must be non-NULL.
+# =============================================================================
+
+# 3 NULL rows (sizes 1, 2, 3 all <= min_obs=3)
+query I
+SELECT
+    COUNT(*) AS degenerate_null_count
+FROM (
+    SELECT
+        ols_fit_agg(y, [x1, x2]) OVER (ORDER BY t ROWS BETWEEN 3 PRECEDING AND CURRENT ROW) AS result
+    FROM ergo01_data
+)
+WHERE result IS NULL;
+----
+3
+
+# 4 valid rows (sizes 4 > min_obs=3)
+query I
+SELECT
+    COUNT(*) AS valid_non_null_count
+FROM (
+    SELECT
+        ols_fit_agg(y, [x1, x2]) OVER (ORDER BY t ROWS BETWEEN 3 PRECEDING AND CURRENT ROW) AS result
+    FROM ergo01_data
+)
+WHERE result IS NOT NULL;
+----
+4
+
+# =============================================================================
+# CASE C — ols_fit_predict window function: already correct, must stay correct
+# ols_fit_predict uses the scaling min_obs guard; verify here so
+# any regression is caught. Expanding window (UNBOUNDED PRECEDING):
+# frame sizes: 1, 2, 3, 4, 5, 6, 7. With 1 feature + intercept (min_obs=2),
+# rows t=1 (size=1) and t=2 (size=2) must be NULL; t>=3 must yield non-NULL.
+# =============================================================================
+
+query I
+SELECT
+    COUNT(*) AS degenerate_null_count
+FROM (
+    SELECT
+        ols_fit_predict(y, [x1]) OVER (ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS pred
+    FROM ergo01_data
+)
+WHERE pred IS NULL;
+----
+2
+
+query I
+SELECT
+    COUNT(*) AS valid_non_null_count
+FROM (
+    SELECT
+        ols_fit_predict(y, [x1]) OVER (ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS pred
+    FROM ergo01_data
+)
+WHERE pred IS NOT NULL;
+----
+5
+
+# =============================================================================
+# CLEANUP
+# =============================================================================
+
+statement ok
+DROP TABLE ergo01_data;
