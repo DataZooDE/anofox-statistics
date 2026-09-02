@@ -384,7 +384,7 @@ static unique_ptr<FunctionData> OlsAggBind(ClientContext &context, AggregateFunc
 void RegisterOlsAggregateFunction(ExtensionLoader &loader) {
     AggregateFunctionSet func_set("ols_fit_agg");
 
-    // Basic version: anofox_stats_ols_fit_agg(y, x) - uses defaults
+    // Basic version: ols_fit_agg(y, x) - uses defaults
     auto basic_func = AggregateFunction(
         "ols_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
         LogicalType::ANY, // Set in bind
@@ -393,7 +393,7 @@ void RegisterOlsAggregateFunction(ExtensionLoader &loader) {
         OlsAggBind, OlsAggDestroy);
     func_set.AddFunction(basic_func);
 
-    // Version with MAP options: anofox_stats_ols_fit_agg(y, x, {'intercept': true, ...})
+    // Version with MAP options: ols_fit_agg(y, x, {'intercept': true, ...})
     auto map_func = AggregateFunction("ols_fit_agg",
                                       {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE),
                                        LogicalType::ANY}, // MAP or STRUCT for options

@@ -319,7 +319,7 @@ static unique_ptr<FunctionData> ResidualsDiagnosticsAggBind(ClientContext &conte
 void RegisterResidualsDiagnosticsAggregateFunction(ExtensionLoader &loader) {
     AggregateFunctionSet func_set("residuals_diagnostics_agg");
 
-    // Basic version: anofox_stats_residuals_diagnostics_agg(y, y_hat)
+    // Basic version: residuals_diagnostics_agg(y, y_hat)
     auto basic_func = AggregateFunction(
         "residuals_diagnostics_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE},
         LogicalType::ANY, // Set in bind
@@ -329,7 +329,7 @@ void RegisterResidualsDiagnosticsAggregateFunction(ExtensionLoader &loader) {
         ResidualsDiagnosticsAggBind, ResidualsDiagnosticsAggDestroy);
     func_set.AddFunction(basic_func);
 
-    // Full version: anofox_stats_residuals_diagnostics_agg(y, y_hat, x)
+    // Full version: residuals_diagnostics_agg(y, y_hat, x)
     auto full_func = AggregateFunction(
         "residuals_diagnostics_agg",
         {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)}, LogicalType::ANY,

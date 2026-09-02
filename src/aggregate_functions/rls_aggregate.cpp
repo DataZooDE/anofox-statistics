@@ -330,7 +330,7 @@ static unique_ptr<FunctionData> RlsAggBind(ClientContext &context, AggregateFunc
 void RegisterRlsAggregateFunction(ExtensionLoader &loader) {
     AggregateFunctionSet func_set("rls_fit_agg");
 
-    // Basic version: anofox_stats_rls_fit_agg(y, x) - uses defaults
+    // Basic version: rls_fit_agg(y, x) - uses defaults
     auto basic_func = AggregateFunction(
         "rls_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
         LogicalType::ANY, // Set in bind
@@ -339,7 +339,7 @@ void RegisterRlsAggregateFunction(ExtensionLoader &loader) {
         RlsAggBind, RlsAggDestroy);
     func_set.AddFunction(basic_func);
 
-    // Version with MAP options: anofox_stats_rls_fit_agg(y, x, {'forgetting_factor': 0.99, ...})
+    // Version with MAP options: rls_fit_agg(y, x, {'forgetting_factor': 0.99, ...})
     auto map_func = AggregateFunction("rls_fit_agg",
                                       {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE),
                                        LogicalType::ANY}, // MAP or STRUCT for options

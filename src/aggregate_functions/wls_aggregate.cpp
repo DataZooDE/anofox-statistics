@@ -401,7 +401,7 @@ static unique_ptr<FunctionData> WlsAggBind(ClientContext &context, AggregateFunc
 void RegisterWlsAggregateFunction(ExtensionLoader &loader) {
     AggregateFunctionSet func_set("wls_fit_agg");
 
-    // Basic version: anofox_stats_wls_fit_agg(y, x, weight) - uses defaults
+    // Basic version: wls_fit_agg(y, x, weight) - uses defaults
     auto basic_func = AggregateFunction(
         "wls_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE},
         LogicalType::ANY, // Set in bind
@@ -410,7 +410,7 @@ void RegisterWlsAggregateFunction(ExtensionLoader &loader) {
         WlsAggBind, WlsAggDestroy);
     func_set.AddFunction(basic_func);
 
-    // Version with MAP options: anofox_stats_wls_fit_agg(y, x, weight, {'intercept': true, ...})
+    // Version with MAP options: wls_fit_agg(y, x, weight, {'intercept': true, ...})
     auto map_func = AggregateFunction("wls_fit_agg",
                                       {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE,
                                        LogicalType::ANY}, // MAP or STRUCT for options

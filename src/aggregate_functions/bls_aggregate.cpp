@@ -54,7 +54,6 @@ struct BlsAggregateBindData : public FunctionData {
     bool has_upper_bound = false;
     uint32_t max_iterations = 1000;
     double tolerance = 1e-10;
-    bool is_nnls = false; // Non-negative least squares mode
 
     unique_ptr<FunctionData> Copy() const override {
         auto result = make_uniq<BlsAggregateBindData>();
@@ -65,7 +64,6 @@ struct BlsAggregateBindData : public FunctionData {
         result->has_upper_bound = has_upper_bound;
         result->max_iterations = max_iterations;
         result->tolerance = tolerance;
-        result->is_nnls = is_nnls;
         return std::move(result);
     }
 
@@ -74,7 +72,7 @@ struct BlsAggregateBindData : public FunctionData {
         return fit_intercept == other.fit_intercept && lower_bound == other.lower_bound &&
                upper_bound == other.upper_bound && has_lower_bound == other.has_lower_bound &&
                has_upper_bound == other.has_upper_bound && max_iterations == other.max_iterations &&
-               tolerance == other.tolerance && is_nnls == other.is_nnls;
+               tolerance == other.tolerance;
     }
 };
 
@@ -381,9 +379,11 @@ static unique_ptr<FunctionData> NnlsAggBind(ClientContext &context, AggregateFun
                                             vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<BlsAggregateBindData>();
 
-    // NNLS: lower bound is 0, no upper bound
-    result->is_nnls = true;
-    result->has_lower_bound = false; // FFI will use NNLS defaults (0 lower bound)
+    // NNLS is implemented via anofox_bls_fit with no bounds.
+    // In the Rust core, lower_bounds=None AND upper_bounds=None routes to
+    // BlsRegressor::nnls() which enforces a lower bound of 0 for all coefficients.
+    // No explicit is_nnls flag is needed at the C++ layer.
+    result->has_lower_bound = false;
     result->has_upper_bound = false;
 
     if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {

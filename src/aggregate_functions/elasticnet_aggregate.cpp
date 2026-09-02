@@ -361,7 +361,7 @@ static unique_ptr<FunctionData> ElasticNetAggBind(ClientContext &context, Aggreg
 void RegisterElasticNetAggregateFunction(ExtensionLoader &loader) {
     AggregateFunctionSet func_set("elasticnet_fit_agg");
 
-    // Basic version: anofox_stats_elasticnet_fit_agg(y, x) - uses default alpha=1.0, l1_ratio=0.5
+    // Basic version: elasticnet_fit_agg(y, x) - uses default alpha=1.0, l1_ratio=0.5
     auto basic_func = AggregateFunction(
         "elasticnet_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
         LogicalType::ANY, // Set in bind
@@ -371,7 +371,7 @@ void RegisterElasticNetAggregateFunction(ExtensionLoader &loader) {
         ElasticNetAggBind, ElasticNetAggDestroy);
     func_set.AddFunction(basic_func);
 
-    // Version with MAP options: anofox_stats_elasticnet_fit_agg(y, x, {'alpha': 1.0, 'l1_ratio': 0.5, ...})
+    // Version with MAP options: elasticnet_fit_agg(y, x, {'alpha': 1.0, 'l1_ratio': 0.5, ...})
     auto map_func = AggregateFunction("elasticnet_fit_agg",
                                       {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE),
                                        LogicalType::ANY}, // MAP or STRUCT for options
