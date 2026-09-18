@@ -5,6 +5,12 @@ A statistical analysis extension for DuckDB, providing regression analysis, diag
 [![License: BSL 1.1](https://img.shields.io/badge/License-BSL%201.1-blue.svg)](LICENSE)
 [![DuckDB Version](https://img.shields.io/badge/DuckDB-v1.4.5%20LTS%20%7C%20v1.5.4-brightgreen.svg)](https://duckdb.org)
 [![WASM](https://github.com/DataZooDE/anofox-statistics/actions/workflows/WasmTest.yml/badge.svg?branch=main)](https://github.com/DataZooDE/anofox-statistics/actions/workflows/WasmTest.yml)
+[![Claude Code Plugin](https://img.shields.io/badge/Claude_Code-AI_skills_plugin-8A2BE2)](#-claude-code-skills-ai-pair-programming)
+
+> [!TIP]
+> **🤖 Built for AI pair-programming.** anofox-statistics ships an installable **[Claude Code plugin](#-claude-code-skills-ai-pair-programming)** — four skills that give your AI assistant verified, hallucination-free knowledge of the full SQL API. Describe the analysis in plain English; Claude writes correct `ols_fit_agg`, GLM, and batch queries.
+>
+> Install with `/plugin marketplace add DataZooDE/anofox-statistics` → `/plugin install anofox-statistics@anofox-statistics`.
 
 > [!IMPORTANT]
 > This extension is in early development, so bugs and breaking changes are expected.
@@ -16,8 +22,8 @@ A statistical analysis extension for DuckDB, providing regression analysis, diag
 
 - [Key Features](#-key-features)
 - [Quick Start](#-quick-start)
-- [Installation](#-installation)
 - [Claude Code Skills](#-claude-code-skills-ai-pair-programming)
+- [Installation](#-installation)
 - [API Reference](#-api-reference)
 - [Development](#-development)
 - [Support](#-support)
@@ -207,6 +213,28 @@ GROUP BY category;
 
 ---
 
+## 🤖 Claude Code Skills (AI pair-programming)
+
+**Statistics is easier when your AI assistant actually knows the API.** anofox-statistics ships an installable [Claude Code](https://claude.com/claude-code) plugin — four skills that give Claude deep, *source-verified* knowledge of every function, MAP option, and return-struct field. Instead of guessing at signatures, Claude writes correct SQL from a plain-English request like *"fit a robust regression per store and flag outliers"* or *"run a per-segment Poisson GLM and give me the z-values."*
+
+Install in any Claude Code session:
+
+```
+/plugin marketplace add DataZooDE/anofox-statistics
+/plugin install anofox-statistics@anofox-statistics
+```
+
+| Skill | Covers |
+|-------|--------|
+| `anofox-statistics-regression` | OLS, robust (Huber/RANSAC/Theil-Sen), Ridge/Elastic Net, WLS/RLS, BLS/NNLS, PLS, isotonic, quantile, GLMs, ALM, AFT, GLMM, EB — options + return-struct fields |
+| `anofox-statistics-tests` | Normality, parametric & nonparametric tests, correlation, categorical/contingency, effect sizes, TOST equivalence, distribution comparison, forecast-evaluation tests |
+| `anofox-statistics-diagnostics` | VIF, AIC/BIC, residual diagnostics, AID demand-pattern classification, model-selection guidance |
+| `anofox-statistics-batch` | AI-ready batch fitting — train thousands of models in one SQL query via `*_fit_predict_by`, `*_fit_agg` + `GROUP BY`, and rolling `*_fit_predict_agg` |
+
+The skills live in [`plugins/anofox-statistics/`](plugins/anofox-statistics/). For in-repo development, load them directly with `claude --plugin-dir ./plugins/anofox-statistics`.
+
+---
+
 ## 📦 Installation
 
 ### From erpl.io (recommended)
@@ -250,26 +278,6 @@ SET anofox_telemetry_enabled = false;
 ```
 
 For more information, see the [posthog-telemetry](https://github.com/DataZooDE/posthog-telemetry) repository.
-
----
-
-## 🤖 Claude Code Skills (AI pair-programming)
-
-Four Claude Code skills are bundled as an installable plugin, giving your AI assistant deep, accurate knowledge of the extension's SQL API — regression models, hypothesis tests, diagnostics, and AI-ready batch per-group fitting:
-
-```
-/plugin marketplace add DataZooDE/anofox-statistics
-/plugin install anofox-statistics@anofox-statistics
-```
-
-| Skill | Covers |
-|-------|--------|
-| `anofox-statistics-regression` | OLS, robust (Huber/RANSAC/Theil-Sen), Ridge/Elastic Net, WLS/RLS, BLS/NNLS, PLS, isotonic, quantile, GLMs, ALM, AFT, GLMM, EB — options + return-struct fields |
-| `anofox-statistics-tests` | Normality, parametric & nonparametric tests, correlation, categorical/contingency, effect sizes, TOST equivalence, distribution comparison, forecast-evaluation tests |
-| `anofox-statistics-diagnostics` | VIF, AIC/BIC, residual diagnostics, AID demand-pattern classification, model-selection guidance |
-| `anofox-statistics-batch` | AI-ready batch fitting — train thousands of models in one SQL query via `*_fit_predict_by`, `*_fit_agg` + `GROUP BY`, and rolling `*_fit_predict_agg` |
-
-The skills live in [`plugins/anofox-statistics/`](plugins/anofox-statistics/). For in-repo development, load them directly with `claude --plugin-dir ./plugins/anofox-statistics`.
 
 ---
 
