@@ -68,6 +68,12 @@ Last activity: 2026-09-02 — Milestone v0.3.0 completed and archived
 
 - (none)
 
+## Quick Tasks Completed
+
+| Date | Slug | Summary |
+|------|------|---------|
+| 2026-09-05 | claude-skills-plugin | Installable Claude Code plugin (marketplace + 4 skills: regression, tests, diagnostics, batch) + README install section |
+
 ## Session Continuity
 
 Last session: 2026-09-02T08:40:00Z

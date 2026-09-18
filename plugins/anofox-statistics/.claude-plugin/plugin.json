@@ -1,0 +1,12 @@
+{
+  "name": "anofox-statistics",
+  "description": "SQL-native statistical regression and inference skills for the anofox_statistics DuckDB extension — regression (OLS/robust/GLM/AFT/mixed-effects), hypothesis tests & correlation, diagnostics (VIF/AIC/BIC/residuals), and AI-ready batch per-group model fitting.",
+  "version": "0.10.0",
+  "author": {
+    "name": "DataZoo GmbH",
+    "url": "https://github.com/DataZooDE"
+  },
+  "homepage": "https://github.com/DataZooDE/anofox-statistics",
+  "repository": "https://github.com/DataZooDE/anofox-statistics",
+  "license": "BUSL-1.1"
+}

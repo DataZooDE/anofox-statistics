@@ -17,6 +17,7 @@ A statistical analysis extension for DuckDB, providing regression analysis, diag
 - [Key Features](#-key-features)
 - [Quick Start](#-quick-start)
 - [Installation](#-installation)
+- [Claude Code Skills](#-claude-code-skills-ai-pair-programming)
 - [API Reference](#-api-reference)
 - [Development](#-development)
 - [Support](#-support)
@@ -249,6 +250,26 @@ SET anofox_telemetry_enabled = false;
 ```
 
 For more information, see the [posthog-telemetry](https://github.com/DataZooDE/posthog-telemetry) repository.
+
+---
+
+## 🤖 Claude Code Skills (AI pair-programming)
+
+Four Claude Code skills are bundled as an installable plugin, giving your AI assistant deep, accurate knowledge of the extension's SQL API — regression models, hypothesis tests, diagnostics, and AI-ready batch per-group fitting:
+
+```
+/plugin marketplace add DataZooDE/anofox-statistics
+/plugin install anofox-statistics@anofox-statistics
+```
+
+| Skill | Covers |
+|-------|--------|
+| `anofox-statistics-regression` | OLS, robust (Huber/RANSAC/Theil-Sen), Ridge/Elastic Net, WLS/RLS, BLS/NNLS, PLS, isotonic, quantile, GLMs, ALM, AFT, GLMM, EB — options + return-struct fields |
+| `anofox-statistics-tests` | Normality, parametric & nonparametric tests, correlation, categorical/contingency, effect sizes, TOST equivalence, distribution comparison, forecast-evaluation tests |
+| `anofox-statistics-diagnostics` | VIF, AIC/BIC, residual diagnostics, AID demand-pattern classification, model-selection guidance |
+| `anofox-statistics-batch` | AI-ready batch fitting — train thousands of models in one SQL query via `*_fit_predict_by`, `*_fit_agg` + `GROUP BY`, and rolling `*_fit_predict_agg` |
+
+The skills live in [`plugins/anofox-statistics/`](plugins/anofox-statistics/). For in-repo development, load them directly with `claude --plugin-dir ./plugins/anofox-statistics`.
 
 ---
 
