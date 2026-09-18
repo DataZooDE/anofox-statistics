@@ -1,0 +1,15 @@
+{
+  "name": "anofox-statistics",
+  "owner": {
+    "name": "DataZoo GmbH",
+    "url": "https://github.com/DataZooDE"
+  },
+  "plugins": [
+    {
+      "name": "anofox-statistics",
+      "source": "./plugins/anofox-statistics",
+      "description": "SQL-native statistical regression and inference skills for the anofox_statistics DuckDB extension — regression (OLS/robust/GLM/AFT/mixed-effects), hypothesis tests & correlation, diagnostics (VIF/AIC/BIC/residuals), and AI-ready batch per-group model fitting.",
+      "keywords": ["duckdb", "statistics", "regression", "inference", "sql", "analytics", "claude-code"]
+    }
+  ]
+}
