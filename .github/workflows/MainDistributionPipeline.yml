@@ -21,7 +21,7 @@ jobs:
     name: Build extension binaries
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.5-variegata
     with:
-      duckdb_version: v1.5.5
+      duckdb_version: v1.5.6
       ci_tools_version: v1.5-variegata
       extension_name: anofox_statistics
       enable_rust: true
@@ -39,16 +39,16 @@ jobs:
       exclude_archs: "windows_amd64;windows_amd64_mingw"
 
   duckdb-stable-smoke-test:
-    name: Smoke test (v1.5.5)
+    name: Smoke test (v1.5.6)
     needs: duckdb-stable-build
     uses: ./.github/workflows/_extension_smoke_test.yml
     with:
-      duckdb_version: v1.5.5
+      duckdb_version: v1.5.6
       extension_name: anofox_statistics
       exclude_archs: 'windows_amd64;windows_amd64_mingw'
 
   duckdb-stable-deploy:
-    name: Deploy extension binaries (v1.5.5)
+    name: Deploy extension binaries (v1.5.6)
     needs: [duckdb-stable-build, duckdb-stable-smoke-test]
     # Run the deploy step even when a non-essential build matrix entry
     # (currently windows_amd64 — DuckDB's vendored third_party/fmt is
@@ -58,7 +58,7 @@ jobs:
     uses: ./.github/workflows/_extension_deploy.yml
     secrets: inherit
     with:
-      duckdb_version: v1.5.5
+      duckdb_version: v1.5.6
       ci_tools_version: v1.5-variegata
       extension_name: anofox_statistics
       exclude_archs: "windows_amd64;windows_amd64_mingw"
@@ -66,7 +66,7 @@ jobs:
       deploy_versioned: ${{ startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main' }}
 
   wasm-runtime-test:
-    name: WASM runtime test (Node harness, v1.5.5 wasm_eh)
+    name: WASM runtime test (Node harness, v1.5.6 wasm_eh)
     # A green wasm build only proves the extension COMPILES + LINKS. This job
     # proves it actually LOADS and RUNS in DuckDB-Wasm — the gap described in
     # query.farm's "Testing DuckDB WASM Extensions". It consumes the wasm_eh
@@ -83,7 +83,7 @@ jobs:
       - name: Download built wasm_eh extension
         uses: actions/download-artifact@v4
         with:
-          name: anofox_statistics-v1.5.5-extension-wasm_eh
+          name: anofox_statistics-v1.5.6-extension-wasm_eh
           path: wasm-artifact
 
       - uses: actions/setup-node@v4
@@ -125,7 +125,7 @@ jobs:
   duckdb-lts-deploy:
     name: Deploy extension binaries (v1.4.5 LTS)
     needs: [duckdb-lts-build, duckdb-lts-smoke-test]
-    # Same resilience as the v1.5.5 deploy: don't gate the whole release on
+    # Same resilience as the v1.5.6 deploy: don't gate the whole release on
     # the flaky LTS windows_amd64_mingw matrix entry.
     if: ${{ !cancelled() }}
     uses: ./.github/workflows/_extension_deploy.yml

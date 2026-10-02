@@ -89,16 +89,16 @@ Notes on how results are compared (learned the hard way):
 The `@duckdb/duckdb-wasm` engine version must **exactly match** the DuckDB version
 the extension was built against — DuckDB extensions are ABI-locked to the engine
 version. **The npm version is not the engine version**: e.g. `1.29.0` → engine
-`v1.1.1`, `1.32.0` → `v1.4.3`, `1.33.1-dev64.0` → `v1.5.5`.
+`v1.1.1`, `1.32.0` → `v1.4.3`, `1.33.1-dev64.0` → `v1.5.5`, `1.33.1-dev65.0` → `v1.5.6`.
 
-This harness is pinned to **`@duckdb/duckdb-wasm@1.33.1-dev64.0`** (engine
-**v1.5.5**), matching the extension's stable target, and the CI job feeds it the
-**v1.5.5 `wasm_eh`** artifact. Notes:
+This harness is pinned to **`@duckdb/duckdb-wasm@1.33.1-dev65.0`** (engine
+**v1.5.6**), matching the extension's stable target, and the CI job feeds it the
+**v1.5.6 `wasm_eh`** artifact. Notes:
 
-- `1.33.1-dev64.0` is a **dev/prerelease** (the `@next` dist-tag today) — no
+- `1.33.1-dev65.0` is a **dev/prerelease** (the `@next` dist-tag today) — no
   *stable* duckdb-wasm ships a 1.5.x engine yet.
 - There is no published duckdb-wasm bundling exactly `v1.4.5` (LTS), so the gate
-  intentionally targets the v1.5.5 artifact only.
+  intentionally targets the v1.5.6 artifact only.
 
 When the extension moves to a new DuckDB version, bump this pin in lockstep. To
 find the engine version of any candidate:
