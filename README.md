@@ -3,7 +3,7 @@
 A statistical analysis extension for DuckDB, providing regression analysis, diagnostics, and inference capabilities directly within your database.
 
 [![License: BSL 1.1](https://img.shields.io/badge/License-BSL%201.1-blue.svg)](LICENSE)
-[![DuckDB Version](https://img.shields.io/badge/DuckDB-v1.4.5%20LTS%20%7C%20v1.5.4-brightgreen.svg)](https://duckdb.org)
+[![DuckDB Version](https://img.shields.io/badge/DuckDB-v1.4.5%20LTS%20%7C%20v1.5.6-brightgreen.svg)](https://duckdb.org)
 [![WASM](https://github.com/DataZooDE/anofox-statistics/actions/workflows/WasmTest.yml/badge.svg?branch=main)](https://github.com/DataZooDE/anofox-statistics/actions/workflows/WasmTest.yml)
 [![Claude Code Plugin](https://img.shields.io/badge/Claude_Code-AI_skills_plugin-8A2BE2)](#-claude-code-skills-ai-pair-programming)
 
