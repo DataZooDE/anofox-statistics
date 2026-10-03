@@ -4,6 +4,8 @@
 name: Main Extension Distribution Pipeline
 on:
   push:
+    branches: [main]
+    tags: ['**']
   pull_request:
   workflow_dispatch:
 
@@ -74,6 +76,7 @@ jobs:
     # it. Gating (no continue-on-error) per milestone requirement TEST-02.
     needs: duckdb-stable-build
     if: ${{ !cancelled() && needs.duckdb-stable-build.result == 'success' }}
+    timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -140,6 +143,7 @@ jobs:
 
   build-and-test-rust:
     name: Build and test Rust components
+    timeout-minutes: 20
     runs-on: ubuntu-24.04
     env:
       CC: gcc
