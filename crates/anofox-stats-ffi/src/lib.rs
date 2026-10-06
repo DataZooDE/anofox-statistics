@@ -26,6 +26,30 @@ use anofox_stats_core::{
 use statrs::distribution::{ContinuousCDF, StudentsT};
 use std::slice;
 
+/// Validate a confidence level: must be finite and strictly inside (0, 1).
+/// On failure sets `out_error` to `InvalidInput` and returns `false`.
+unsafe fn check_confidence_level(confidence_level: f64, out_error: *mut AnofoxError) -> bool {
+    if confidence_level.is_finite() && confidence_level > 0.0 && confidence_level < 1.0 {
+        return true;
+    }
+    if !out_error.is_null() {
+        (*out_error).set(
+            ErrorCode::InvalidInput,
+            &format!("confidence_level must be in (0, 1), got {confidence_level}"),
+        );
+    }
+    false
+}
+
+/// Like [`check_confidence_level`], but `<= 0` is accepted as the documented
+/// "no confidence interval requested" sentinel (Mann-Whitney, Wilcoxon).
+unsafe fn check_optional_confidence_level(
+    confidence_level: f64,
+    out_error: *mut AnofoxError,
+) -> bool {
+    confidence_level <= 0.0 || check_confidence_level(confidence_level, out_error)
+}
+
 /// Panic guard for every `extern "C"` export.
 ///
 /// Unwinding a Rust panic across a C ABI boundary is undefined behaviour, so
@@ -210,6 +234,9 @@ pub unsafe extern "C" fn anofox_ols_fit(
         // Initialize error
         if !out_error.is_null() {
             *out_error = AnofoxError::success();
+        }
+        if !check_confidence_level(options.confidence_level, out_error) {
+            return false;
         }
 
         // Validate inputs
@@ -399,6 +426,9 @@ pub unsafe extern "C" fn anofox_huber_fit(
         if !out_error.is_null() {
             *out_error = AnofoxError::success();
         }
+        if !check_confidence_level(options.confidence_level, out_error) {
+            return false;
+        }
 
         if out_core.is_null() {
             if !out_error.is_null() {
@@ -584,6 +614,9 @@ pub unsafe extern "C" fn anofox_ransac_fit(
     ffi_guard(out_error, false, || {
         if !out_error.is_null() {
             *out_error = AnofoxError::success();
+        }
+        if !check_confidence_level(options.confidence_level, out_error) {
+            return false;
         }
 
         if out_core.is_null() {
@@ -781,6 +814,9 @@ pub unsafe extern "C" fn anofox_theilsen_fit(
         if !out_error.is_null() {
             *out_error = AnofoxError::success();
         }
+        if !check_confidence_level(options.confidence_level, out_error) {
+            return false;
+        }
 
         if out_core.is_null() {
             if !out_error.is_null() {
@@ -909,6 +945,9 @@ pub unsafe extern "C" fn anofox_ridge_fit(
         // Initialize error
         if !out_error.is_null() {
             *out_error = AnofoxError::success();
+        }
+        if !check_confidence_level(options.confidence_level, out_error) {
+            return false;
         }
 
         // Validate inputs
@@ -1263,6 +1302,9 @@ pub unsafe extern "C" fn anofox_wls_fit(
         // Initialize error
         if !out_error.is_null() {
             *out_error = AnofoxError::success();
+        }
+        if !check_confidence_level(options.confidence_level, out_error) {
+            return false;
         }
 
         // Validate inputs
@@ -2218,6 +2260,9 @@ pub unsafe extern "C" fn anofox_poisson_fit(
         if !out_error.is_null() {
             *out_error = AnofoxError::success();
         }
+        if !check_confidence_level(options.confidence_level, out_error) {
+            return false;
+        }
 
         if out_result.is_null() {
             if !out_error.is_null() {
@@ -2378,6 +2423,9 @@ pub unsafe extern "C" fn anofox_binomial_fit(
         if !out_error.is_null() {
             *out_error = AnofoxError::success();
         }
+        if !check_confidence_level(options.confidence_level, out_error) {
+            return false;
+        }
 
         if out_result.is_null() {
             if !out_error.is_null() {
@@ -2535,6 +2583,9 @@ pub unsafe extern "C" fn anofox_negbinomial_fit(
     ffi_guard(out_error, false, || {
         if !out_error.is_null() {
             *out_error = AnofoxError::success();
+        }
+        if !check_confidence_level(options.confidence_level, out_error) {
+            return false;
         }
 
         if out_result.is_null() {
@@ -2696,6 +2747,9 @@ pub unsafe extern "C" fn anofox_tweedie_fit(
         if !out_error.is_null() {
             *out_error = AnofoxError::success();
         }
+        if !check_confidence_level(options.confidence_level, out_error) {
+            return false;
+        }
 
         if out_result.is_null() {
             if !out_error.is_null() {
@@ -2847,6 +2901,9 @@ pub unsafe extern "C" fn anofox_gamma_fit(
     ffi_guard(out_error, false, || {
         if !out_error.is_null() {
             *out_error = AnofoxError::success();
+        }
+        if !check_confidence_level(options.confidence_level, out_error) {
+            return false;
         }
 
         if out_result.is_null() {
@@ -3000,6 +3057,9 @@ pub unsafe extern "C" fn anofox_logistic_fit(
     ffi_guard(out_error, false, || {
         if !out_error.is_null() {
             *out_error = AnofoxError::success();
+        }
+        if !check_confidence_level(options.confidence_level, out_error) {
+            return false;
         }
 
         if out_result.is_null() {
@@ -3224,6 +3284,9 @@ pub unsafe extern "C" fn anofox_alm_fit(
     ffi_guard(out_error, false, || {
         if !out_error.is_null() {
             *out_error = AnofoxError::success();
+        }
+        if !check_confidence_level(options.confidence_level, out_error) {
+            return false;
         }
 
         if out_result.is_null() {
@@ -4214,8 +4277,9 @@ pub unsafe extern "C" fn anofox_free_aid_anomaly_result(result: *mut AidAnomalyR
 use anofox_stats_core::tests::{
     categorical::{
         binom_test, chisq_goodness_of_fit, chisq_test, cohen_kappa, contingency_coef, cramers_v,
-        fisher_exact, g_test, mcnemar_test, phi_coefficient, prop_test_one, prop_test_two,
-        ChiSquareOptions, FisherExactOptions, McNemarOptions, PropTestOptions,
+        fisher_exact, fisher_exact_conditional, g_test, mcnemar_test, phi_coefficient,
+        prop_test_one, prop_test_two, ChiSquareOptions, FisherExactOptions, McNemarOptions,
+        PropTestOptions,
     },
     correlation::{
         distance_cor, distance_cor_test, icc, kendall, pearson, spearman, DistanceCorTestOptions,
@@ -4270,6 +4334,9 @@ pub unsafe extern "C" fn anofox_t_test(
     ffi_guard(out_error, false, || {
         if !out_error.is_null() {
             *out_error = AnofoxError::success();
+        }
+        if !check_confidence_level(options.confidence_level, out_error) {
+            return false;
         }
 
         if out_result.is_null() {
@@ -4490,6 +4557,9 @@ pub unsafe extern "C" fn anofox_pearson_cor(
         if !out_error.is_null() {
             *out_error = AnofoxError::success();
         }
+        if !check_confidence_level(options.confidence_level, out_error) {
+            return false;
+        }
 
         if out_result.is_null() {
             if !out_error.is_null() {
@@ -4560,6 +4630,9 @@ pub unsafe extern "C" fn anofox_spearman_cor(
     ffi_guard(out_error, false, || {
         if !out_error.is_null() {
             *out_error = AnofoxError::success();
+        }
+        if !check_confidence_level(options.confidence_level, out_error) {
+            return false;
         }
 
         if out_result.is_null() {
@@ -4707,6 +4780,9 @@ pub unsafe extern "C" fn anofox_mann_whitney_u(
         if !out_error.is_null() {
             *out_error = AnofoxError::success();
         }
+        if !check_optional_confidence_level(options.confidence_level, out_error) {
+            return false;
+        }
 
         if out_result.is_null() {
             if !out_error.is_null() {
@@ -4793,6 +4869,9 @@ pub unsafe extern "C" fn anofox_brunner_munzel(
     ffi_guard(out_error, false, || {
         if !out_error.is_null() {
             *out_error = AnofoxError::success();
+        }
+        if !check_confidence_level(options.confidence_level, out_error) {
+            return false;
         }
 
         if out_result.is_null() {
@@ -5104,7 +5183,88 @@ pub unsafe extern "C" fn anofox_chisq_test(
     })
 }
 
+/// Shared body of [`anofox_fisher_exact`] / [`anofox_fisher_exact_conditional`].
+unsafe fn fisher_exact_ffi_impl(
+    table: [[usize; 2]; 2],
+    options: FisherExactOptionsFFI,
+    conditional: bool,
+    out_result: *mut TestResultFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    if !out_error.is_null() {
+        *out_error = AnofoxError::success();
+    }
+
+    if out_result.is_null() {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+        }
+        return false;
+    }
+    if !check_confidence_level(options.confidence_level, out_error) {
+        return false;
+    }
+    let [[a, b], [c, d]] = table;
+    let n = match a
+        .checked_add(b)
+        .and_then(|v| v.checked_add(c))
+        .and_then(|v| v.checked_add(d))
+    {
+        Some(n) => n,
+        None => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InvalidInput, "table counts overflow");
+            }
+            return false;
+        }
+    };
+
+    let opts = FisherExactOptions {
+        alternative: options.alternative.into(),
+        confidence_level: options.confidence_level,
+    };
+    let result = if conditional {
+        fisher_exact_conditional(&table, &opts)
+    } else {
+        fisher_exact(&table, &opts)
+    };
+
+    match result {
+        Ok(r) => {
+            (*out_result) = TestResultFFI {
+                statistic: r.odds_ratio,
+                p_value: r.p_value,
+                df: f64::NAN,
+                effect_size: r.odds_ratio,
+                ci_lower: r.ci_lower,
+                ci_upper: r.ci_upper,
+                confidence_level: options.confidence_level,
+                n,
+                n1: 0,
+                n2: 0,
+                alternative: r.alternative.into(),
+                method: alloc_string(if conditional {
+                    "Fisher's exact test (conditional MLE)"
+                } else {
+                    "Fisher's exact test"
+                }),
+            };
+            true
+        }
+        Err(e) => {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+            }
+            false
+        }
+    }
+}
+
 /// Fisher's exact test (2x2 tables only)
+///
+/// `statistic`/`effect_size` hold the sample odds ratio `ad/bc`; the CI is the
+/// Woolf (log-odds Wald) interval at `options.confidence_level` (previously a
+/// hardcoded 95%). `confidence_level` must be in (0, 1).
 ///
 /// # Safety
 /// - `a`, `b`, `c`, `d` are the four cells of the 2x2 table
@@ -5121,60 +5281,31 @@ pub unsafe extern "C" fn anofox_fisher_exact(
     out_error: *mut AnofoxError,
 ) -> bool {
     ffi_guard(out_error, false, || {
-        if !out_error.is_null() {
-            *out_error = AnofoxError::success();
-        }
+        fisher_exact_ffi_impl([[a, b], [c, d]], options, false, out_result, out_error)
+    })
+}
 
-        if out_result.is_null() {
-            if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
-            }
-            return false;
-        }
-
-        let opts = FisherExactOptions {
-            alternative: options.alternative.into(),
-        };
-        let table = [[a, b], [c, d]];
-
-        let result =
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| fisher_exact(&table, &opts)));
-
-        let result = match result {
-            Ok(r) => r,
-            Err(_) => {
-                if !out_error.is_null() {
-                    (*out_error).set(ErrorCode::InternalError, "Internal panic in Fisher exact");
-                }
-                return false;
-            }
-        };
-
-        match result {
-            Ok(r) => {
-                (*out_result) = TestResultFFI {
-                    statistic: r.odds_ratio,
-                    p_value: r.p_value,
-                    df: f64::NAN,
-                    effect_size: r.odds_ratio,
-                    ci_lower: r.ci_lower,
-                    ci_upper: r.ci_upper,
-                    confidence_level: options.confidence_level, // From options, not result
-                    n: a + b + c + d,
-                    n1: 0,
-                    n2: 0,
-                    alternative: r.alternative.into(),
-                    method: alloc_string("Fisher's exact test"),
-                };
-                true
-            }
-            Err(e) => {
-                if !out_error.is_null() {
-                    (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
-                }
-                false
-            }
-        }
+/// Fisher's exact test (2x2 tables) with R `fisher.test` semantics.
+///
+/// `statistic`/`effect_size` hold the conditional maximum-likelihood odds ratio
+/// and `ci_lower`/`ci_upper` the exact conditional interval at
+/// `options.confidence_level` (one-sided for `less`/`greater`). Valid for any
+/// table with n >= 1.
+///
+/// # Safety
+/// - `out_result` must be a valid pointer; `out_error` may be NULL
+#[no_mangle]
+pub unsafe extern "C" fn anofox_fisher_exact_conditional(
+    a: usize,
+    b: usize,
+    c: usize,
+    d: usize,
+    options: FisherExactOptionsFFI,
+    out_result: *mut TestResultFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    ffi_guard(out_error, false, || {
+        fisher_exact_ffi_impl([[a, b], [c, d]], options, true, out_result, out_error)
     })
 }
 
@@ -5628,6 +5759,9 @@ pub unsafe extern "C" fn anofox_wilcoxon_signed_rank(
     ffi_guard(out_error, false, || {
         if !out_error.is_null() {
             *out_error = AnofoxError::success();
+        }
+        if !check_optional_confidence_level(options.confidence_level, out_error) {
+            return false;
         }
 
         if out_result.is_null() {
@@ -6445,6 +6579,9 @@ pub unsafe extern "C" fn anofox_yuen_test(
         if !out_error.is_null() {
             *out_error = AnofoxError::success();
         }
+        if !check_confidence_level(confidence_level, out_error) {
+            return false;
+        }
 
         if out_result.is_null() {
             if !out_error.is_null() {
@@ -7251,11 +7388,37 @@ pub unsafe extern "C" fn anofox_fit_lm_dynamic(
     error: *mut AnofoxError,
 ) {
     ffi_guard(error, (), || {
+        if error.is_null() || result.is_null() {
+            return;
+        }
         *error = AnofoxError::success();
         *result = LmDynamicFitResultFFI::default();
 
-        let y_slice = slice::from_raw_parts(y, y_len);
-        let x_slice = slice::from_raw_parts(x_flat, y_len * n_features);
+        let x_total = match y_len.checked_mul(n_features) {
+            Some(t) => t,
+            None => {
+                (*error).set(ErrorCode::InvalidInput, "y_len * n_features overflows");
+                return;
+            }
+        };
+        if options.is_null() || (y.is_null() && y_len > 0) || (x_flat.is_null() && x_total > 0) {
+            (*error).set(ErrorCode::InvalidInput, "NULL input pointer");
+            return;
+        }
+        if !check_confidence_level((*options).confidence_level, error) {
+            return;
+        }
+
+        let y_slice = if y_len == 0 {
+            &[][..]
+        } else {
+            slice::from_raw_parts(y, y_len)
+        };
+        let x_slice = if x_total == 0 {
+            &[][..]
+        } else {
+            slice::from_raw_parts(x_flat, x_total)
+        };
 
         // Convert column-major flat array to Vec<Vec<f64>>
         let mut x_cols: Vec<Vec<f64>> = Vec::with_capacity(n_features);
@@ -7385,6 +7548,9 @@ pub unsafe extern "C" fn anofox_aft_fit(
     ffi_guard(out_error, false, || {
         if !out_error.is_null() {
             *out_error = AnofoxError::success();
+        }
+        if !check_confidence_level(options.confidence_level, out_error) {
+            return false;
         }
         if out_core.is_null() {
             if !out_error.is_null() {
@@ -7744,6 +7910,9 @@ pub unsafe extern "C" fn anofox_glmm_fit(
     ffi_guard(out_error, false, || {
         if !out_error.is_null() {
             *out_error = AnofoxError::success();
+        }
+        if !check_confidence_level(options.confidence_level, out_error) {
+            return false;
         }
         if out_result.is_null() {
             if !out_error.is_null() {

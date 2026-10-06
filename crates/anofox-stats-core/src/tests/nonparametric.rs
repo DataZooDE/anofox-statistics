@@ -72,7 +72,12 @@ pub fn mann_whitney_u(
         statistic: result.statistic,
         p_value: result.p_value,
         df: f64::NAN,
-        effect_size: f64::NAN, // Not provided by library
+        // Rank-biserial correlation r = 1 - 2*U1 / (n1*n2), where U1 (the
+        // reported statistic, R's W) counts pairs with group1 > group2 (ties
+        // 0.5), after any `mu` shift. Sign convention: r = P(g2 > g1) - P(g1 > g2),
+        // so r > 0 when group 2 tends to be LARGER than group 1, r < 0 when
+        // group 1 tends to be larger; r is in [-1, 1].
+        effect_size: 1.0 - 2.0 * result.statistic / (g1.len() as f64 * g2.len() as f64),
         ci_lower: result
             .conf_int
             .as_ref()
@@ -310,6 +315,19 @@ mod tests {
         let result = mann_whitney_u(&g1, &g2, &opts).unwrap();
 
         assert!(result.p_value < 0.05); // Should be significant
+                                        // Complete separation with group 2 larger: U1 = 0 -> r = +1.
+        assert!((result.effect_size - 1.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_mann_whitney_rank_biserial() {
+        // Pairs (g1 > g2): only 3 > 2 -> U1 = 1; r = 1 - 2*1/(2*2) = 0.5.
+        let r = mann_whitney_u(&[1.0, 3.0], &[2.0, 4.0], &MannWhitneyOptions::default()).unwrap();
+        assert!((r.statistic - 1.0).abs() < 1e-12);
+        assert!((r.effect_size - 0.5).abs() < 1e-12);
+        // Swapping the groups flips the sign.
+        let r = mann_whitney_u(&[2.0, 4.0], &[1.0, 3.0], &MannWhitneyOptions::default()).unwrap();
+        assert!((r.effect_size + 0.5).abs() < 1e-12);
     }
 
     #[test]

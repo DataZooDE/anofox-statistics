@@ -1871,9 +1871,22 @@ bool anofox_chisq_test(AnofoxDataArray row_var, AnofoxDataArray col_var, AnofoxC
 
 /**
  * Fisher's exact test (2x2 tables)
+ *
+ * statistic/effect_size = sample odds ratio ad/bc; CI = Woolf (log-odds Wald) interval
+ * at options.confidence_level, which must be in (0, 1) (InvalidInput otherwise).
  */
 bool anofox_fisher_exact(size_t a, size_t b, size_t c, size_t d, AnofoxFisherExactOptions options,
                          AnofoxTestResult *out_result, AnofoxError *out_error);
+
+/**
+ * Fisher's exact test (2x2 tables) with R fisher.test semantics
+ *
+ * statistic/effect_size = conditional maximum-likelihood odds ratio; ci_lower/ci_upper =
+ * exact conditional interval at options.confidence_level (one-sided for less/greater:
+ * [0, U] / [L, Inf)). Valid for any table with n >= 1. confidence_level must be in (0, 1).
+ */
+bool anofox_fisher_exact_conditional(size_t a, size_t b, size_t c, size_t d, AnofoxFisherExactOptions options,
+                                     AnofoxTestResult *out_result, AnofoxError *out_error);
 
 /**
  * Energy distance test
