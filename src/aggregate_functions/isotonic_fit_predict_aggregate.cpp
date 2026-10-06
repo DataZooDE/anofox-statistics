@@ -9,6 +9,8 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/fit_predict_rows.hpp"
+#include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
@@ -148,6 +150,13 @@ static void IsotonicPredictAggUpdate(Vector inputs[], AggregateInputData &aggr_i
 
         auto x_idx = x_data.sel->get_index(i);
         if (!x_data.validity.RowIsValid(x_idx)) {
+            // Keep the row (not training, NULL yhat) so output positions line up.
+            auto y_null_idx = y_data.sel->get_index(i);
+            bool y_null_valid = y_data.validity.RowIsValid(y_null_idx);
+            state.y_all.push_back(y_null_valid ? y_values[y_null_idx] : std::nan(""));
+            state.y_is_null.push_back(!y_null_valid);
+            state.is_training.push_back(false);
+            state.x_all.push_back(std::nan(""));
             continue;
         }
 
@@ -202,10 +211,13 @@ static void IsotonicPredictAggCombine(Vector &source_vector, Vector &target_vect
         auto &target = *targets[target_data.sel->get_index(i)];
 
         if (!source.initialized) {
+            // Only NULL-x rows; keep them.
+            AppendOutputRows(target, source);
             continue;
         }
 
         if (!target.initialized) {
+            auto pending_rows = TakeOutputRows(target);
             target.x_train = CombineTake(source.x_train, aggr_input_data);
             target.y_train = CombineTake(source.y_train, aggr_input_data);
             target.x_all = CombineTake(source.x_all, aggr_input_data);
@@ -214,6 +226,7 @@ static void IsotonicPredictAggCombine(Vector &source_vector, Vector &target_vect
             target.is_training = CombineTake(source.is_training, aggr_input_data);
             target.initialized = true;
             target.increasing = source.increasing;
+            PrependOutputRows(target, std::move(pending_rows));
             continue;
         }
 
@@ -295,6 +308,7 @@ static void IsotonicPredictAggFinalize(Vector &state_vector, AggregateInputData 
         bool success = anofox_isotonic_fit(x_array, y_array, options, &core_result, &error);
 
         if (!success) {
+            ThrowUnlessDegenerate("isotonic_fit_predict_agg", error);
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
@@ -342,8 +356,13 @@ static void IsotonicPredictAggFinalize(Vector &state_vector, AggregateInputData 
             }
 
             // Predict using isotonic model
-            double yhat = IsotonicPredict(state.sorted_x, state.fitted_y, state.x_all[row]);
-            FlatVector::GetData<double>(yhat_vec)[child_idx] = yhat;
+            // A NULL x (stored as NaN) has no prediction.
+            if (std::isnan(state.x_all[row])) {
+                FlatVector::SetNull(yhat_vec, child_idx, true);
+            } else {
+                double yhat = IsotonicPredict(state.sorted_x, state.fitted_y, state.x_all[row]);
+                FlatVector::GetData<double>(yhat_vec)[child_idx] = yhat;
+            }
 
             FlatVector::GetData<bool>(is_training_vec)[child_idx] = state.is_training[row];
         }
