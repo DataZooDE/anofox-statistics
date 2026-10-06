@@ -4,6 +4,9 @@
 
 mod types;
 
+#[cfg(test)]
+mod tests;
+
 pub use types::*;
 
 use anofox_stats_core::{
