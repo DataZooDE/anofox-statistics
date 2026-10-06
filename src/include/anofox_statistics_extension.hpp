@@ -15,6 +15,7 @@ void RegisterHuberFitFunction(ExtensionLoader &loader);
 void RegisterRansacFitFunction(ExtensionLoader &loader);
 void RegisterTheilSenFitFunction(ExtensionLoader &loader);
 void RegisterPredictFunction(ExtensionLoader &loader);
+void RegisterTidyGlanceFunctions(ExtensionLoader &loader);
 void RegisterOlsAggregateFunction(ExtensionLoader &loader);
 void RegisterRidgeAggregateFunction(ExtensionLoader &loader);
 void RegisterElasticNetAggregateFunction(ExtensionLoader &loader);
@@ -51,6 +52,7 @@ void RegisterPoissonFitPredictAggregateFunction(ExtensionLoader &loader);
 void RegisterPlsFitPredictAggregateFunction(ExtensionLoader &loader);
 void RegisterIsotonicFitPredictAggregateFunction(ExtensionLoader &loader);
 void RegisterQuantileFitPredictAggregateFunction(ExtensionLoader &loader);
+void RegisterExtraFitAggregateFunctions(ExtensionLoader &loader);
 
 // GLM aggregate functions
 void RegisterPoissonAggregateFunction(ExtensionLoader &loader);
