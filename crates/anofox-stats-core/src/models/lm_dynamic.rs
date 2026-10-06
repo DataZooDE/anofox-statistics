@@ -78,14 +78,7 @@ pub fn fit_lm_dynamic(
     let n_features = x.len();
 
     // Check all feature vectors have same length as y
-    for col in x.iter() {
-        if col.len() != n_obs {
-            return Err(StatsError::DimensionMismatch {
-                y_len: n_obs,
-                x_rows: col.len(),
-            });
-        }
-    }
+    crate::validation::validate_x_columns(n_obs, x)?;
 
     // Filter out rows with NaN values
     let valid_indices: Vec<usize> = (0..n_obs)
@@ -112,15 +105,10 @@ pub fn fit_lm_dynamic(
     }
 
     // Detect zero-variance (constant) columns
-    let is_constant_column: Vec<bool> = x
-        .iter()
-        .map(|col| {
-            let first_val = col[valid_indices[0]];
-            valid_indices
-                .iter()
-                .all(|&i| (col[i] - first_val).abs() < 1e-10)
-        })
-        .collect();
+    // Constant columns are only dropped when an intercept is fitted (see
+    // `validation::droppable_columns`); without one, a constant column IS the intercept.
+    let is_constant_column: Vec<bool> =
+        crate::validation::droppable_columns(x, &valid_indices, options.fit_intercept);
 
     let non_constant_indices: Vec<usize> = is_constant_column
         .iter()

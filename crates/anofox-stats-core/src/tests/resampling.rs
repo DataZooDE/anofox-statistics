@@ -140,6 +140,19 @@ pub fn bootstrap_mean(data: &[f64], options: &BootstrapOptions) -> StatsResult<B
         ));
     }
 
+    if options.n_bootstrap < 2 {
+        return Err(StatsError::InvalidInput(format!(
+            "n_bootstrap must be >= 2, got {}",
+            options.n_bootstrap
+        )));
+    }
+    if !(options.confidence_level > 0.0 && options.confidence_level < 1.0) {
+        return Err(StatsError::InvalidInput(format!(
+            "confidence_level must be in (0, 1), got {}",
+            options.confidence_level
+        )));
+    }
+
     // Compute original mean
     let original_mean: f64 = filtered.iter().sum::<f64>() / filtered.len() as f64;
     let mut bootstrap_means: Vec<f64> = Vec::with_capacity(options.n_bootstrap);
@@ -180,27 +193,34 @@ pub fn bootstrap_mean(data: &[f64], options: &BootstrapOptions) -> StatsResult<B
     }
 
     // Sort for percentile method
-    bootstrap_means.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    // total_cmp: NaN-safe (a resample mixing +inf and -inf yields NaN; it sorts last).
+    bootstrap_means.sort_by(|a, b| a.total_cmp(b));
+    if bootstrap_means.len() < 2 {
+        return Err(StatsError::InsufficientDataMsg(
+            "Bootstrap produced fewer than 2 resamples".into(),
+        ));
+    }
+    let n_boot = bootstrap_means.len();
 
     let alpha = 1.0 - options.confidence_level;
-    let lower_idx = ((alpha / 2.0) * options.n_bootstrap as f64).floor() as usize;
-    let upper_idx = ((1.0 - alpha / 2.0) * options.n_bootstrap as f64).ceil() as usize;
+    let lower_idx = ((alpha / 2.0) * n_boot as f64).floor() as usize;
+    let upper_idx = ((1.0 - alpha / 2.0) * n_boot as f64).ceil() as usize;
 
     let se = {
-        let mean_of_means = bootstrap_means.iter().sum::<f64>() / options.n_bootstrap as f64;
+        let mean_of_means = bootstrap_means.iter().sum::<f64>() / n_boot as f64;
         let variance = bootstrap_means
             .iter()
             .map(|x| (x - mean_of_means).powi(2))
             .sum::<f64>()
-            / (options.n_bootstrap - 1) as f64;
+            / (n_boot - 1) as f64;
         variance.sqrt()
     };
 
     Ok(BootstrapResult {
         statistic: original_mean,
         se,
-        ci_lower: bootstrap_means[lower_idx.min(bootstrap_means.len() - 1)],
-        ci_upper: bootstrap_means[upper_idx.min(bootstrap_means.len() - 1)],
+        ci_lower: bootstrap_means[lower_idx.min(n_boot - 1)],
+        ci_upper: bootstrap_means[upper_idx.min(n_boot - 1)],
         n_bootstrap: options.n_bootstrap,
     })
 }
@@ -235,5 +255,38 @@ mod tests {
 
         assert!((result.statistic - 5.5).abs() < 0.01); // Mean should be 5.5
         assert!(result.ci_lower < 5.5 && result.ci_upper > 5.5);
+    }
+
+    #[test]
+    fn test_bootstrap_rejects_degenerate_options() {
+        let data = vec![1.0, 2.0, 3.0, 4.0];
+        for n_bootstrap in [0, 1] {
+            let opts = BootstrapOptions {
+                n_bootstrap,
+                seed: Some(1),
+                ..Default::default()
+            };
+            assert!(bootstrap_mean(&data, &opts).is_err());
+        }
+        for cl in [0.0, 1.0, f64::NAN, 1.5] {
+            let opts = BootstrapOptions {
+                n_bootstrap: 100,
+                confidence_level: cl,
+                seed: Some(1),
+                ..Default::default()
+            };
+            assert!(bootstrap_mean(&data, &opts).is_err());
+        }
+    }
+
+    #[test]
+    fn test_bootstrap_with_infinities_does_not_panic() {
+        let data = vec![f64::INFINITY, f64::NEG_INFINITY, 1.0, 2.0];
+        let opts = BootstrapOptions {
+            n_bootstrap: 200,
+            seed: Some(7),
+            ..Default::default()
+        };
+        assert!(bootstrap_mean(&data, &opts).is_ok());
     }
 }

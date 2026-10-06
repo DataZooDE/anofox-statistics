@@ -48,14 +48,7 @@ pub fn fit_huber(y: &[f64], x: &[Vec<f64>], options: &HuberOptions) -> StatsResu
     let n_obs = y.len();
     let n_features = x.len();
 
-    for col in x.iter() {
-        if col.len() != n_obs {
-            return Err(StatsError::DimensionMismatch {
-                y_len: n_obs,
-                x_rows: col.len(),
-            });
-        }
-    }
+    crate::validation::validate_x_columns(n_obs, x)?;
 
     // NaN / infinite filtering — identical policy to OLS so per-group
     // call sites can swap estimators transparently.

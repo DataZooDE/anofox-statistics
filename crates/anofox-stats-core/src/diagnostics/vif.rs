@@ -49,6 +49,12 @@ pub fn compute_vif(x: &[Vec<f64>]) -> StatsResult<Vec<f64>> {
         }
     }
 
+    // Without a single complete row every auxiliary regression fails and the
+    // result would be a misleading vector of +inf.
+    if !(0..n_obs).any(|i| x.iter().all(|col| col[i].is_finite())) {
+        return Err(StatsError::NoValidData);
+    }
+
     let mut vif_values = Vec::with_capacity(n_features);
 
     // For each feature, regress it on all other features

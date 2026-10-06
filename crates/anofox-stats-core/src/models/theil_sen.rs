@@ -51,14 +51,7 @@ pub fn fit_theilsen(
     let n_obs = y.len();
     let n_features = x.len();
 
-    for col in x.iter() {
-        if col.len() != n_obs {
-            return Err(StatsError::DimensionMismatch {
-                y_len: n_obs,
-                x_rows: col.len(),
-            });
-        }
-    }
+    crate::validation::validate_x_columns(n_obs, x)?;
 
     let valid_indices: Vec<usize> = (0..n_obs)
         .filter(|&i| {
