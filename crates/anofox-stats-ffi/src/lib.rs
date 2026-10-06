@@ -2235,6 +2235,206 @@ pub unsafe extern "C" fn anofox_predict_with_interval(
     })
 }
 
+/// Compute the leverage matrix `M` for leverage-aware prediction intervals.
+///
+/// The predictive variance factor of a new row `x0` (augmented with a leading
+/// 1 when `fit_intercept`) is `x0' M x0`:
+/// OLS `M = (X'X)^-1`; with `weights` `M = (X'WX)^-1`; with `ridge_lambda > 0`
+/// `M = A X'(W)X A`, `A = (X'(W)X + lambda*I)^-1` with the intercept unpenalised
+/// (matches `anofox_ridge_fit`; pass the *effective* lambda, i.e. `lambda * n`
+/// under glmnet scaling). Columns whose coefficient is NaN (aliased/constant)
+/// or exactly 0.0 (inactive in sparse fits) are excluded and their rows/columns
+/// are 0. Rows with a non-finite x value (or non-finite/negative weight) are
+/// skipped.
+///
+/// On success `*out_matrix` receives a malloc'd row-major `dim x dim` matrix
+/// (`dim = x_count + fit_intercept`) that must be released with
+/// `anofox_free_interval_matrix`, and `*out_dim = dim`.
+///
+/// # Safety
+/// - `x` must point to `x_count` valid DataArrays of equal length
+/// - `coefficients` must point to `coefficients_len` doubles (`== x_count`)
+/// - `weights` may be NULL; otherwise a valid DataArray of the same length
+/// - `out_matrix`, `out_dim` must be valid pointers; `out_error` may be NULL
+#[no_mangle]
+pub unsafe extern "C" fn anofox_interval_matrix(
+    x: *const DataArray,
+    x_count: usize,
+    coefficients: *const f64,
+    coefficients_len: usize,
+    fit_intercept: bool,
+    weights: *const DataArray,
+    ridge_lambda: f64,
+    out_matrix: *mut *mut f64,
+    out_dim: *mut usize,
+    out_error: *mut AnofoxError,
+) -> bool {
+    ffi_guard(out_error, false, || {
+        if !out_error.is_null() {
+            *out_error = AnofoxError::success();
+        }
+        let fail = |code: ErrorCode, msg: &str| {
+            if !out_error.is_null() {
+                (*out_error).set(code, msg);
+            }
+            false
+        };
+        if out_matrix.is_null() || out_dim.is_null() {
+            return fail(ErrorCode::InvalidInput, "out_matrix or out_dim is NULL");
+        }
+        *out_matrix = std::ptr::null_mut();
+        *out_dim = 0;
+        if x_count == 0 || x.is_null() {
+            return fail(ErrorCode::InvalidInput, "x is NULL or empty");
+        }
+        if coefficients.is_null() || coefficients_len != x_count {
+            return fail(
+                ErrorCode::DimensionMismatch,
+                "coefficients is NULL or coefficients_len != x_count",
+            );
+        }
+
+        let x_vecs: Vec<Vec<f64>> = slice::from_raw_parts(x, x_count)
+            .iter()
+            .map(|arr| arr.to_vec())
+            .collect();
+        let coef = slice::from_raw_parts(coefficients, coefficients_len);
+        let w_vec = if weights.is_null() {
+            None
+        } else {
+            Some((*weights).to_vec())
+        };
+
+        match anofox_stats_core::models::interval_matrix(
+            &x_vecs,
+            coef,
+            fit_intercept,
+            w_vec.as_deref(),
+            ridge_lambda,
+        ) {
+            Ok((m, dim)) => match FfiVec::<f64>::alloc(m.len()) {
+                Some(buf) => {
+                    buf.copy_from_slice(&m);
+                    *out_matrix = buf.into_raw();
+                    *out_dim = dim;
+                    true
+                }
+                None => fail(ErrorCode::AllocationFailure, "Failed to allocate matrix"),
+            },
+            Err(e) => fail(error_to_code(&e), &e.to_string()),
+        }
+    })
+}
+
+/// Free a matrix returned by `anofox_interval_matrix`.
+///
+/// # Safety
+/// `matrix` must be NULL or a pointer returned by `anofox_interval_matrix`.
+#[no_mangle]
+pub unsafe extern "C" fn anofox_free_interval_matrix(matrix: *mut f64) {
+    ffi_guard(std::ptr::null_mut(), (), || {
+        if !matrix.is_null() {
+            libc::free(matrix as *mut libc::c_void);
+        }
+    })
+}
+
+/// Point prediction with a leverage-aware interval.
+///
+/// `yhat ± t_{df} * s * sqrt(1 + x0' M x0)` for `interval_type == 0`
+/// (prediction interval) or `sqrt(x0' M x0)` for `interval_type == 1`
+/// (confidence interval for the mean), with `df = n_observations -
+/// n_params_effective` (`n_params_effective` counts the intercept). `matrix`,
+/// `dim` come from `anofox_interval_matrix`; `dim` must equal
+/// `x_len + (intercept is not NaN)`. If `df == 0` or `residual_std_error` is not
+/// a positive finite number the bounds are NaN (still returns true).
+///
+/// # Safety
+/// - `coefficients`, `x_new` must point to `coefficients_len` / `x_len` doubles
+/// - `matrix` must point to `dim * dim` doubles
+/// - `out_result` must be valid; `out_error` may be NULL
+#[no_mangle]
+pub unsafe extern "C" fn anofox_predict_with_interval_matrix(
+    coefficients: *const f64,
+    coefficients_len: usize,
+    intercept: f64,
+    x_new: *const f64,
+    x_len: usize,
+    matrix: *const f64,
+    dim: usize,
+    n_observations: usize,
+    n_params_effective: usize,
+    residual_std_error: f64,
+    confidence_level: f64,
+    interval_type: i32,
+    out_result: *mut PredictionResult,
+    out_error: *mut AnofoxError,
+) -> bool {
+    ffi_guard(out_error, false, || {
+        if !out_error.is_null() {
+            *out_error = AnofoxError::success();
+        }
+        let fail = |code: ErrorCode, msg: &str| {
+            if !out_error.is_null() {
+                (*out_error).set(code, msg);
+            }
+            false
+        };
+        if out_result.is_null() {
+            return fail(ErrorCode::InvalidInput, "out_result is NULL");
+        }
+        *out_result = PredictionResult::default();
+        let kind = match interval_type {
+            0 => anofox_stats_core::models::IntervalType::Prediction,
+            1 => anofox_stats_core::models::IntervalType::Confidence,
+            _ => return fail(ErrorCode::InvalidInput, "interval_type must be 0 or 1"),
+        };
+        if (coefficients.is_null() && coefficients_len > 0)
+            || (x_new.is_null() && x_len > 0)
+            || matrix.is_null()
+        {
+            return fail(ErrorCode::InvalidInput, "NULL input pointer");
+        }
+        let n_m = match dim.checked_mul(dim) {
+            Some(v) if v > 0 => v,
+            _ => return fail(ErrorCode::InvalidInput, "invalid matrix dim"),
+        };
+        let coef: &[f64] = if coefficients_len == 0 {
+            &[]
+        } else {
+            slice::from_raw_parts(coefficients, coefficients_len)
+        };
+        let xs: &[f64] = if x_len == 0 {
+            &[]
+        } else {
+            slice::from_raw_parts(x_new, x_len)
+        };
+        let m = slice::from_raw_parts(matrix, n_m);
+        match anofox_stats_core::models::predict_with_interval_matrix(
+            coef,
+            intercept,
+            xs,
+            m,
+            dim,
+            n_observations,
+            n_params_effective,
+            residual_std_error,
+            confidence_level,
+            kind,
+        ) {
+            Ok((yhat, lo, hi)) => {
+                *out_result = PredictionResult {
+                    yhat,
+                    yhat_lower: lo,
+                    yhat_upper: hi,
+                };
+                true
+            }
+            Err(e) => fail(error_to_code(&e), &e.to_string()),
+        }
+    })
+}
+
 // =============================================================================
 // GLM (Generalized Linear Models) FFI Functions
 // =============================================================================

@@ -11,6 +11,7 @@ mod glm;
 pub mod glm_engine;
 mod glmm;
 mod huber;
+mod interval;
 mod isotonic;
 mod lars;
 mod lm_dynamic;
@@ -40,6 +41,7 @@ pub use glmm::{
     fit_glmm, fit_glmm_crossed, FactorVariance, GlmmFamily, GlmmOptions, GlmmResult, RandomEffect,
 };
 pub use huber::{fit_huber, HuberResult};
+pub use interval::{interval_matrix, predict_with_interval_matrix, IntervalType};
 pub use isotonic::fit_isotonic;
 pub use lars::fit_lars;
 pub use lm_dynamic::fit_lm_dynamic;
