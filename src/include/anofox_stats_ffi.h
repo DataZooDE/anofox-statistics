@@ -2190,6 +2190,8 @@ typedef struct {
 	size_t n_raters;
 	/** Method name (must be freed) */
 	char *method;
+	/** p-value of the F test of H0: ICC = 0 */
+	double p_value;
 } AnofoxIccResult;
 
 /**

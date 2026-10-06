@@ -57,7 +57,7 @@ pub fn mann_whitney_u(
         ));
     }
 
-    let result = lib_mann_whitney_u(
+    let mut result = lib_mann_whitney_u(
         &g1,
         &g2,
         options.alternative,
@@ -67,6 +67,32 @@ pub fn mann_whitney_u(
         options.mu,
     )
     .map_err(convert_error)?;
+
+    // Upstream's exact two-sided p-value is 2 * min(P(U <= u), P(U >= n1*n2 - u)),
+    // and those two tails are equal by symmetry, so whenever u lies above its
+    // mean the result is 1.0. R (wilcox.test) uses 2 * min(P(U <= u), P(U >= u));
+    // the one-sided exact p-values are correct, so rebuild it from them.
+    if options.exact
+        && matches!(options.alternative, Alternative::TwoSided)
+        && !mann_whitney_has_ties(&g1, &g2, options.mu)
+    {
+        let one_sided = |alt| {
+            lib_mann_whitney_u(
+                &g1,
+                &g2,
+                alt,
+                options.continuity_correction,
+                true,
+                None,
+                options.mu,
+            )
+            .map(|r| r.p_value)
+            .map_err(convert_error)
+        };
+        let p_less = one_sided(Alternative::Less)?;
+        let p_greater = one_sided(Alternative::Greater)?;
+        result.p_value = (2.0 * p_less.min(p_greater)).min(1.0);
+    }
 
     Ok(TestResult {
         statistic: result.statistic,
@@ -95,6 +121,20 @@ pub fn mann_whitney_u(
         alternative: options.alternative,
         method: "Mann-Whitney U test".into(),
     })
+}
+
+/// Whether the pooled sample (x, y + mu) contains ties; mirrors the check the
+/// upstream crate uses to decide between the exact and the normal p-value.
+fn mann_whitney_has_ties(x: &[f64], y: &[f64], mu: Option<f64>) -> bool {
+    let shift = mu.unwrap_or(0.0);
+    let mut pooled: Vec<f64> = x.to_vec();
+    if mu.is_some() {
+        pooled.extend(y.iter().map(|v| v + shift));
+    } else {
+        pooled.extend_from_slice(y);
+    }
+    pooled.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    pooled.windows(2).any(|w| w[0] == w[1])
 }
 
 /// Options for Wilcoxon signed-rank test
@@ -306,6 +346,29 @@ pub fn brunner_munzel(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Exact two-sided p-value when U lies above its mean (R: wilcox.test(x, y,
+    /// exact = TRUE) gives W = 58, p = 0.3153781203).
+    #[test]
+    #[allow(clippy::approx_constant)] // 3.14 is a data value, not pi
+    fn test_mann_whitney_exact_two_sided_upper_tail() {
+        let x = vec![1.83, 0.50, 1.62, 2.48, 1.68, 1.88, 1.55, 3.06, 1.30];
+        let y = vec![0.878, 0.647, 0.598, 2.05, 1.06, 1.29, 1.07, 3.14, 1.28, 4.1];
+        let opts = MannWhitneyOptions {
+            exact: true,
+            ..Default::default()
+        };
+        let r = mann_whitney_u(&x, &y, &opts).unwrap();
+        assert_eq!(r.statistic, 58.0);
+        assert!((r.p_value - 0.3153781203).abs() < 1e-9, "p = {}", r.p_value);
+        // Swapping the samples mirrors U below its mean; same two-sided p.
+        let r2 = mann_whitney_u(&y, &x, &opts).unwrap();
+        assert!(
+            (r2.p_value - 0.3153781203).abs() < 1e-9,
+            "p = {}",
+            r2.p_value
+        );
+    }
 
     #[test]
     fn test_mann_whitney_u() {

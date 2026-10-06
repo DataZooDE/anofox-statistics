@@ -7173,6 +7173,7 @@ pub unsafe extern "C" fn anofox_icc(
                     n_subjects,
                     n_raters,
                     method: alloc_string(&r.icc_type),
+                    p_value: r.p_value,
                 };
                 true
             }

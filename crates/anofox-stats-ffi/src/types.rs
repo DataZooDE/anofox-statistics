@@ -2050,6 +2050,8 @@ pub struct IccResultFFI {
     pub n_raters: usize,
     /// Method name (must be freed)
     pub method: *mut c_char,
+    /// p-value of the F test of H0: ICC = 0 (appended; keep last for ABI order)
+    pub p_value: f64,
 }
 
 impl Default for IccResultFFI {
@@ -2063,6 +2065,7 @@ impl Default for IccResultFFI {
             n_subjects: 0,
             n_raters: 0,
             method: std::ptr::null_mut(),
+            p_value: f64::NAN,
         }
     }
 }
