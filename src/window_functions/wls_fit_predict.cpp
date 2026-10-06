@@ -11,6 +11,8 @@
 #include "../include/ffi_enum_converters.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
+#include "aggregate_combine.hpp"
+#include "list_input.hpp"
 
 namespace duckdb {
 
@@ -106,6 +108,7 @@ static void WlsFitPredictUpdate(Vector inputs[], AggregateInputData &aggr_input_
     auto x_list_data = ListVector::GetData(inputs[1]);
     auto &x_child = ListVector::GetEntry(inputs[1]);
     auto x_child_data = FlatVector::GetData<double>(x_child);
+    auto &x_child_validity = FlatVector::Validity(x_child);
 
     UnifiedVectorFormat sdata;
     state_vector.ToUnifiedFormat(count, sdata);
@@ -141,7 +144,7 @@ static void WlsFitPredictUpdate(Vector inputs[], AggregateInputData &aggr_input_
 
         state.current_x.resize(n_features);
         for (idx_t j = 0; j < n_features; j++) {
-            state.current_x[j] = x_child_data[list_entry.offset + j];
+            state.current_x[j] = ListChildValue(x_child_data, x_child_validity, list_entry.offset + j);
         }
         state.has_current_x = true;
 
@@ -150,7 +153,7 @@ static void WlsFitPredictUpdate(Vector inputs[], AggregateInputData &aggr_input_
         auto w_idx = w_data.sel->get_index(i);
         bool y_valid = y_data.validity.RowIsValid(y_idx);
         bool w_valid = w_data.validity.RowIsValid(w_idx);
-        bool use_for_training = y_valid && w_valid;
+        bool use_for_training = y_valid && w_valid && !ListHasNullElement(x_child_validity, list_entry);
 
         if (use_for_training && state.null_policy == NullPolicy::DROP_Y_ZERO_X) {
             for (idx_t j = 0; j < n_features; j++) {
@@ -171,7 +174,7 @@ static void WlsFitPredictUpdate(Vector inputs[], AggregateInputData &aggr_input_
     }
 }
 
-static void WlsFitPredictCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &, idx_t count) {
+static void WlsFitPredictCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &aggr_input_data, idx_t count) {
     UnifiedVectorFormat source_data, target_data;
     source_vector.ToUnifiedFormat(count, source_data);
     target_vector.ToUnifiedFormat(count, target_data);
@@ -187,12 +190,12 @@ static void WlsFitPredictCombine(Vector &source_vector, Vector &target_vector, A
             continue;
 
         if (!target.initialized) {
-            target.y_values = std::move(source.y_values);
-            target.x_columns = std::move(source.x_columns);
-            target.weights = std::move(source.weights);
+            target.y_values = CombineTake(source.y_values, aggr_input_data);
+            target.x_columns = CombineTake(source.x_columns, aggr_input_data);
+            target.weights = CombineTake(source.weights, aggr_input_data);
             target.n_features = source.n_features;
             target.initialized = true;
-            target.current_x = std::move(source.current_x);
+            target.current_x = CombineTake(source.current_x, aggr_input_data);
             target.has_current_x = source.has_current_x;
             target.fit_intercept = source.fit_intercept;
             target.confidence_level = source.confidence_level;
@@ -214,7 +217,7 @@ static void WlsFitPredictCombine(Vector &source_vector, Vector &target_vector, A
         }
 
         if (source.has_current_x) {
-            target.current_x = std::move(source.current_x);
+            target.current_x = CombineTake(source.current_x, aggr_input_data);
             target.has_current_x = true;
         }
     }

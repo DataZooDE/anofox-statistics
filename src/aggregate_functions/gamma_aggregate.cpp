@@ -11,6 +11,7 @@
 #include "../include/map_options_parser.hpp"
 #include "../include/glm_prior_options.hpp"
 #include "telemetry.hpp"
+#include "aggregate_combine.hpp"
 
 namespace duckdb {
 
@@ -189,7 +190,7 @@ static void GammaAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data,
 	}
 }
 
-static void GammaAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &, idx_t count) {
+static void GammaAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &aggr_input_data, idx_t count) {
 	UnifiedVectorFormat source_data, target_data;
 	source_vector.ToUnifiedFormat(count, source_data);
 	target_vector.ToUnifiedFormat(count, target_data);
@@ -206,14 +207,14 @@ static void GammaAggCombine(Vector &source_vector, Vector &target_vector, Aggreg
 		}
 
 		if (!target.initialized) {
-			target.y_values = std::move(source.y_values);
-			target.x_columns = std::move(source.x_columns);
+			target.y_values = CombineTake(source.y_values, aggr_input_data);
+			target.x_columns = CombineTake(source.x_columns, aggr_input_data);
 			target.n_features = source.n_features;
 			target.initialized = true;
 			target.fit_intercept = source.fit_intercept;
 			// Resolved priors are part of the option set and must travel with it,
 			// otherwise a parallel aggregation finalises a state that has none.
-			target.prior_state = std::move(source.prior_state);
+			target.prior_state = CombineTake(source.prior_state, aggr_input_data);
 			target.max_iterations = source.max_iterations;
 			target.tolerance = source.tolerance;
 			target.compute_inference = source.compute_inference;

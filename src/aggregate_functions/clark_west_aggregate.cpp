@@ -9,6 +9,7 @@
 #include "../include/anofox_stats_ffi.h"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
+#include "aggregate_combine.hpp"
 
 #ifdef _WIN32
 #define strcasecmp _stricmp
@@ -130,7 +131,7 @@ static void ClarkWestAggUpdate(Vector inputs[], AggregateInputData &aggr_input_d
     }
 }
 
-static void ClarkWestAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &, idx_t count) {
+static void ClarkWestAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &aggr_input_data, idx_t count) {
     UnifiedVectorFormat source_data, target_data;
     source_vector.ToUnifiedFormat(count, source_data);
     target_vector.ToUnifiedFormat(count, target_data);
@@ -147,9 +148,9 @@ static void ClarkWestAggCombine(Vector &source_vector, Vector &target_vector, Ag
         }
 
         if (!target.initialized) {
-            target.actual = std::move(source.actual);
-            target.forecast_restricted = std::move(source.forecast_restricted);
-            target.forecast_unrestricted = std::move(source.forecast_unrestricted);
+            target.actual = CombineTake(source.actual, aggr_input_data);
+            target.forecast_restricted = CombineTake(source.forecast_restricted, aggr_input_data);
+            target.forecast_unrestricted = CombineTake(source.forecast_unrestricted, aggr_input_data);
             target.initialized = true;
             continue;
         }

@@ -9,6 +9,7 @@
 
 #include "../include/anofox_stats_ffi.h"
 #include "telemetry.hpp"
+#include "aggregate_combine.hpp"
 
 namespace duckdb {
 
@@ -102,7 +103,7 @@ static void AnovaAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data,
     }
 }
 
-static void AnovaAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &, idx_t count) {
+static void AnovaAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &aggr_input_data, idx_t count) {
     UnifiedVectorFormat source_data, target_data;
     source_vector.ToUnifiedFormat(count, source_data);
     target_vector.ToUnifiedFormat(count, target_data);
@@ -119,8 +120,8 @@ static void AnovaAggCombine(Vector &source_vector, Vector &target_vector, Aggreg
         }
 
         if (!target.initialized) {
-            target.values = std::move(source.values);
-            target.groups = std::move(source.groups);
+            target.values = CombineTake(source.values, aggr_input_data);
+            target.groups = CombineTake(source.groups, aggr_input_data);
             target.initialized = true;
             continue;
         }

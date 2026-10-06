@@ -9,6 +9,7 @@
 #include "../include/anofox_stats_ffi.h"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
+#include "aggregate_combine.hpp"
 
 namespace duckdb {
 
@@ -144,7 +145,7 @@ static void AidAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data, i
     }
 }
 
-static void AidAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &, idx_t count) {
+static void AidAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &aggr_input_data, idx_t count) {
     UnifiedVectorFormat source_data, target_data;
     source_vector.ToUnifiedFormat(count, source_data);
     target_vector.ToUnifiedFormat(count, target_data);
@@ -161,7 +162,7 @@ static void AidAggCombine(Vector &source_vector, Vector &target_vector, Aggregat
         }
 
         if (!target.initialized) {
-            target.y_values = std::move(source.y_values);
+            target.y_values = CombineTake(source.y_values, aggr_input_data);
             target.initialized = true;
             target.intermittent_threshold = source.intermittent_threshold;
             target.outlier_method = source.outlier_method;

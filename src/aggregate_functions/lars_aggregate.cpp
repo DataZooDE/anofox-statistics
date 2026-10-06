@@ -10,6 +10,7 @@
 #include "../include/ffi_enum_converters.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
+#include "aggregate_combine.hpp"
 
 namespace duckdb {
 
@@ -173,7 +174,7 @@ static void LarsAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data, 
     }
 }
 
-static void LarsAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &, idx_t count) {
+static void LarsAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &aggr_input_data, idx_t count) {
     UnifiedVectorFormat source_data, target_data;
     source_vector.ToUnifiedFormat(count, source_data);
     target_vector.ToUnifiedFormat(count, target_data);
@@ -190,8 +191,8 @@ static void LarsAggCombine(Vector &source_vector, Vector &target_vector, Aggrega
         }
 
         if (!target.initialized) {
-            target.y_values = std::move(source.y_values);
-            target.x_columns = std::move(source.x_columns);
+            target.y_values = CombineTake(source.y_values, aggr_input_data);
+            target.x_columns = CombineTake(source.x_columns, aggr_input_data);
             target.n_features = source.n_features;
             target.initialized = true;
             target.method_lasso = source.method_lasso;

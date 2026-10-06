@@ -10,6 +10,7 @@
 #include "../include/anofox_stats_ffi.h"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
+#include "aggregate_combine.hpp"
 
 #ifdef _WIN32
 #define strcasecmp _stricmp
@@ -117,7 +118,7 @@ static void CohenKappaAggUpdate(Vector inputs[], AggregateInputData &aggr_input_
     }
 }
 
-static void CohenKappaAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &, idx_t count) {
+static void CohenKappaAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &aggr_input_data, idx_t count) {
     UnifiedVectorFormat source_data, target_data;
     source_vector.ToUnifiedFormat(count, source_data);
     target_vector.ToUnifiedFormat(count, target_data);
@@ -134,8 +135,8 @@ static void CohenKappaAggCombine(Vector &source_vector, Vector &target_vector, A
         }
 
         if (!target.initialized) {
-            target.rater1_values = std::move(source.rater1_values);
-            target.rater2_values = std::move(source.rater2_values);
+            target.rater1_values = CombineTake(source.rater1_values, aggr_input_data);
+            target.rater2_values = CombineTake(source.rater2_values, aggr_input_data);
             target.initialized = true;
             continue;
         }

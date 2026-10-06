@@ -9,6 +9,7 @@
 
 #include "../include/anofox_stats_ffi.h"
 #include "telemetry.hpp"
+#include "aggregate_combine.hpp"
 
 namespace duckdb {
 
@@ -76,7 +77,7 @@ static void PhiCoefficientAggUpdate(Vector inputs[], AggregateInputData &aggr_in
     }
 }
 
-static void PhiCoefficientAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &, idx_t count) {
+static void PhiCoefficientAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &aggr_input_data, idx_t count) {
     UnifiedVectorFormat source_data, target_data;
     source_vector.ToUnifiedFormat(count, source_data);
     target_vector.ToUnifiedFormat(count, target_data);
@@ -93,8 +94,8 @@ static void PhiCoefficientAggCombine(Vector &source_vector, Vector &target_vecto
         }
 
         if (!target.initialized) {
-            target.row_values = std::move(source.row_values);
-            target.col_values = std::move(source.col_values);
+            target.row_values = CombineTake(source.row_values, aggr_input_data);
+            target.col_values = CombineTake(source.col_values, aggr_input_data);
             target.initialized = true;
             continue;
         }

@@ -11,6 +11,7 @@
 #include "../include/ffi_enum_converters.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
+#include "aggregate_combine.hpp"
 
 namespace duckdb {
 
@@ -243,7 +244,7 @@ static void ElasticNetPredictAggUpdate(Vector inputs[], AggregateInputData &aggr
     }
 }
 
-static void ElasticNetPredictAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &, idx_t count) {
+static void ElasticNetPredictAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &aggr_input_data, idx_t count) {
     UnifiedVectorFormat source_data, target_data;
     source_vector.ToUnifiedFormat(count, source_data);
     target_vector.ToUnifiedFormat(count, target_data);
@@ -260,12 +261,12 @@ static void ElasticNetPredictAggCombine(Vector &source_vector, Vector &target_ve
         }
 
         if (!target.initialized) {
-            target.y_train = std::move(source.y_train);
-            target.x_train = std::move(source.x_train);
-            target.y_all = std::move(source.y_all);
-            target.y_is_null = std::move(source.y_is_null);
-            target.is_training = std::move(source.is_training);
-            target.x_all = std::move(source.x_all);
+            target.y_train = CombineTake(source.y_train, aggr_input_data);
+            target.x_train = CombineTake(source.x_train, aggr_input_data);
+            target.y_all = CombineTake(source.y_all, aggr_input_data);
+            target.y_is_null = CombineTake(source.y_is_null, aggr_input_data);
+            target.is_training = CombineTake(source.is_training, aggr_input_data);
+            target.x_all = CombineTake(source.x_all, aggr_input_data);
             target.n_features = source.n_features;
             target.initialized = true;
             target.alpha = source.alpha;

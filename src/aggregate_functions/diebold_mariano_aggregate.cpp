@@ -9,6 +9,7 @@
 #include "../include/anofox_stats_ffi.h"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
+#include "aggregate_combine.hpp"
 
 #ifdef _WIN32
 #define strcasecmp _stricmp
@@ -143,7 +144,7 @@ static void DieboldMarianoAggUpdate(Vector inputs[], AggregateInputData &aggr_in
     }
 }
 
-static void DieboldMarianoAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &, idx_t count) {
+static void DieboldMarianoAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &aggr_input_data, idx_t count) {
     UnifiedVectorFormat source_data, target_data;
     source_vector.ToUnifiedFormat(count, source_data);
     target_vector.ToUnifiedFormat(count, target_data);
@@ -160,9 +161,9 @@ static void DieboldMarianoAggCombine(Vector &source_vector, Vector &target_vecto
         }
 
         if (!target.initialized) {
-            target.actual = std::move(source.actual);
-            target.forecast1 = std::move(source.forecast1);
-            target.forecast2 = std::move(source.forecast2);
+            target.actual = CombineTake(source.actual, aggr_input_data);
+            target.forecast1 = CombineTake(source.forecast1, aggr_input_data);
+            target.forecast2 = CombineTake(source.forecast2, aggr_input_data);
             target.initialized = true;
             continue;
         }

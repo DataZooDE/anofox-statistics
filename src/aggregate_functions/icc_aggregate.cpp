@@ -10,6 +10,7 @@
 #include "../include/anofox_stats_ffi.h"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
+#include "aggregate_combine.hpp"
 
 #ifdef _WIN32
 #define strcasecmp _stricmp
@@ -131,7 +132,7 @@ static void IccAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data, i
     }
 }
 
-static void IccAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &, idx_t count) {
+static void IccAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &aggr_input_data, idx_t count) {
     UnifiedVectorFormat source_data, target_data;
     source_vector.ToUnifiedFormat(count, source_data);
     target_vector.ToUnifiedFormat(count, target_data);
@@ -148,9 +149,9 @@ static void IccAggCombine(Vector &source_vector, Vector &target_vector, Aggregat
         }
 
         if (!target.initialized) {
-            target.values = std::move(source.values);
-            target.subject_ids = std::move(source.subject_ids);
-            target.rater_ids = std::move(source.rater_ids);
+            target.values = CombineTake(source.values, aggr_input_data);
+            target.subject_ids = CombineTake(source.subject_ids, aggr_input_data);
+            target.rater_ids = CombineTake(source.rater_ids, aggr_input_data);
             target.initialized = true;
             continue;
         }

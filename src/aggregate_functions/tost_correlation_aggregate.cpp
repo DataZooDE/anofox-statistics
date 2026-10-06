@@ -9,6 +9,7 @@
 #include "../include/anofox_stats_ffi.h"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
+#include "aggregate_combine.hpp"
 
 #ifdef _WIN32
 #define strcasecmp _stricmp
@@ -137,7 +138,7 @@ static void TostCorrelationAggUpdate(Vector inputs[], AggregateInputData &aggr_i
     }
 }
 
-static void TostCorrelationAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &, idx_t count) {
+static void TostCorrelationAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &aggr_input_data, idx_t count) {
     UnifiedVectorFormat source_data, target_data;
     source_vector.ToUnifiedFormat(count, source_data);
     target_vector.ToUnifiedFormat(count, target_data);
@@ -154,8 +155,8 @@ static void TostCorrelationAggCombine(Vector &source_vector, Vector &target_vect
         }
 
         if (!target.initialized) {
-            target.x_values = std::move(source.x_values);
-            target.y_values = std::move(source.y_values);
+            target.x_values = CombineTake(source.x_values, aggr_input_data);
+            target.y_values = CombineTake(source.y_values, aggr_input_data);
             target.initialized = true;
             continue;
         }

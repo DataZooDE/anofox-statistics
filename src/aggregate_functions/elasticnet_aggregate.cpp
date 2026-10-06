@@ -10,6 +10,8 @@
 #include "../include/ffi_enum_converters.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
+#include "aggregate_combine.hpp"
+#include "list_input.hpp"
 
 namespace duckdb {
 
@@ -124,6 +126,7 @@ static void ElasticNetAggUpdate(Vector inputs[], AggregateInputData &aggr_input_
     auto x_list_data = ListVector::GetData(inputs[1]);
     auto &x_child = ListVector::GetEntry(inputs[1]);
     auto x_child_data = FlatVector::GetData<double>(x_child);
+    auto &x_child_validity = FlatVector::Validity(x_child);
 
     UnifiedVectorFormat sdata;
     state_vector.ToUnifiedFormat(count, sdata);
@@ -154,6 +157,10 @@ static void ElasticNetAggUpdate(Vector inputs[], AggregateInputData &aggr_input_
         }
 
         auto list_entry = x_list_data[x_idx];
+        // A LIST holding a NULL element is itself valid; skip the row like a NULL list.
+        if (ListHasNullElement(x_child_validity, list_entry)) {
+            continue;
+        }
         idx_t n_features = list_entry.length;
 
         // Initialize x_columns on first valid row
@@ -181,7 +188,7 @@ static void ElasticNetAggUpdate(Vector inputs[], AggregateInputData &aggr_input_
 }
 
 // Combine: merge two states
-static void ElasticNetAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &, idx_t count) {
+static void ElasticNetAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &aggr_input_data, idx_t count) {
     UnifiedVectorFormat source_data, target_data;
     source_vector.ToUnifiedFormat(count, source_data);
     target_vector.ToUnifiedFormat(count, target_data);
@@ -199,8 +206,8 @@ static void ElasticNetAggCombine(Vector &source_vector, Vector &target_vector, A
 
         if (!target.initialized) {
             // Copy source to target
-            target.y_values = std::move(source.y_values);
-            target.x_columns = std::move(source.x_columns);
+            target.y_values = CombineTake(source.y_values, aggr_input_data);
+            target.x_columns = CombineTake(source.x_columns, aggr_input_data);
             target.n_features = source.n_features;
             target.initialized = true;
             target.alpha = source.alpha;

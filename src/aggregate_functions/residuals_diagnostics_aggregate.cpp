@@ -8,6 +8,8 @@
 
 #include "../include/anofox_stats_ffi.h"
 #include "telemetry.hpp"
+#include "aggregate_combine.hpp"
+#include "list_input.hpp"
 
 namespace duckdb {
 
@@ -115,6 +117,7 @@ static void ResidualsDiagnosticsAggUpdateFull(Vector inputs[], AggregateInputDat
     auto x_list_data = ListVector::GetData(inputs[2]);
     auto &x_child = ListVector::GetEntry(inputs[2]);
     auto x_child_data = FlatVector::GetData<double>(x_child);
+    auto &x_child_validity = FlatVector::Validity(x_child);
 
     UnifiedVectorFormat sdata;
     state_vector.ToUnifiedFormat(count, sdata);
@@ -138,6 +141,10 @@ static void ResidualsDiagnosticsAggUpdateFull(Vector inputs[], AggregateInputDat
         double y_hat_val = y_hat_values[y_hat_idx];
 
         auto list_entry = x_list_data[x_idx];
+        // A LIST holding a NULL element is itself valid; skip the row like a NULL list.
+        if (ListHasNullElement(x_child_validity, list_entry)) {
+            continue;
+        }
         idx_t n_features = list_entry.length;
 
         // Initialize x_columns on first valid row
@@ -163,7 +170,7 @@ static void ResidualsDiagnosticsAggUpdateFull(Vector inputs[], AggregateInputDat
     }
 }
 
-static void ResidualsDiagnosticsAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &,
+static void ResidualsDiagnosticsAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &aggr_input_data,
                                            idx_t count) {
     UnifiedVectorFormat source_data, target_data;
     source_vector.ToUnifiedFormat(count, source_data);
@@ -181,9 +188,9 @@ static void ResidualsDiagnosticsAggCombine(Vector &source_vector, Vector &target
         }
 
         if (!target.initialized) {
-            target.y_values = std::move(source.y_values);
-            target.y_hat_values = std::move(source.y_hat_values);
-            target.x_columns = std::move(source.x_columns);
+            target.y_values = CombineTake(source.y_values, aggr_input_data);
+            target.y_hat_values = CombineTake(source.y_hat_values, aggr_input_data);
+            target.x_columns = CombineTake(source.x_columns, aggr_input_data);
             target.n_features = source.n_features;
             target.initialized = true;
             target.has_x = source.has_x;
