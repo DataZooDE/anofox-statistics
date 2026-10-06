@@ -28,6 +28,33 @@ Breaking changes are called out explicitly.
   (per-function key validation).
 - TODO(lead): leverage-aware prediction intervals
   (`s·sqrt(1 + x₀ᵀ(XᵀX)⁻¹x₀)` instead of `s·sqrt(1 + 1/n)`).
+- **Error policy (behaviour change).** All aggregates, scalar, table and window
+  functions now treat FFI failures the same way: invalid input or options
+  (bad option values, mismatched lengths, out-of-domain values such as negative
+  Poisson responses or non-positive AFT times, expected probabilities that do
+  not sum to 1) raise an `Invalid Input Error` naming the function; data that is
+  valid but degenerate (too few rows, no valid rows, zero variance, a single
+  group, a singular design, a numerically broken fit) returns `NULL`. Previously
+  most aggregates returned `NULL` for both, while `ols_fit`, `ridge_fit`,
+  `wls_fit`, `elasticnet_fit` & co. raised on insufficient data; those now
+  return `NULL` like their `_agg` counterparts.
+- GLM (and AFT) non-convergence is no longer an error: the fit is returned with
+  `converged = false`.
+- `ridge_fit` / `ridge_fit_agg` with `alpha > 0` return `NULL` for
+  `std_errors`, `t_values`, `p_values`, `ci_lower`, `ci_upper`, `f_statistic`
+  and `f_pvalue`: classical tests on shrunken coefficients are not valid.
+  `alpha = 0` keeps the OLS inference.
+- OLS with a requested `hc_type` no longer silently falls back to classical
+  standard errors when the HC estimator is unavailable; the coefficient
+  inference is NaN instead.
+- RANSAC inference (`compute_inference`) is the OLS inference of the final
+  inlier-only refit and ignores the inlier selection, so it is optimistic.
+  Values are unchanged; treat them as descriptive.
+- `negbinom_fit_agg` estimates theta by maximum likelihood like
+  `MASS::glm.nb` (was a moment estimate); results now match R.
+- `rls_fit_agg`, `rls_fit_predict_agg`, `diebold_mariano_agg`, `clark_west_agg`,
+  `aid_agg` and `aid_anomaly_agg` declare themselves order dependent; use
+  `agg(... ORDER BY t)` for a deterministic sequential result.
 - License metadata is consistent with `LICENSE`: BSL 1.1 that converts to MPL 2.0
   five years after each version is first published. The Cargo workspace license
   is now `BUSL-1.1`.
@@ -35,6 +62,24 @@ Breaking changes are called out explicitly.
 ### Fixed
 
 - TODO(lead): bug fixes from the review remediation.
+- `*_fit_predict_agg` dropped rows whose whole `x` list is NULL, so the output
+  LIST was shorter than the group. Such rows are now kept with `yhat` (and
+  bounds) NULL and `is_training = false`.
+- `rls_fit` / `rls_fit_agg` reported NaN `r_squared`, `adj_r_squared` and
+  `residual_std_error`; they are now computed (and match OLS for
+  `forgetting_factor = 1` with a diffuse `initial_p_diagonal`).
+- `huber_fit_agg` / `huber_fit` with `compute_inference` returned empty
+  inference lists; they now carry the Huber asymptotic standard errors
+  (as `MASS` `summary.rlm`, `method = "XtX"`).
+- `negbinom_fit_agg` returned NULL on ordinary count data and negative
+  deviances on zero-heavy data (wrong sign of the `y = 0` unit deviance).
+- `residuals_diagnostics_agg` (and `residuals_diagnostics` with `x` but no
+  `residual_std_error`) returned NULL standardized and studentized residuals;
+  sigma is now estimated as `sqrt(RSS / (n - k - 1))`.
+- `t_test_agg` returned `effect_size = NaN`; it is now Cohen's d (pooled SD for
+  Student, average-variance standardiser for Welch, `d_z` for paired).
+- `pearson_agg` on a constant column raised an internal panic error; it now
+  returns NULL.
 - Documentation: removed the stale `anofox_stats_` prefixes, the wrong calling
   conventions, the wrong option keys and field names, and the broken links.
 
