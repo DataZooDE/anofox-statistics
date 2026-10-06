@@ -344,6 +344,15 @@ static void RidgeAggFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
             FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = inference_result.f_pvalue;
 
             anofox_free_result_inference(&inference_result);
+
+            // alpha > 0: classical inference on shrunken coefficients is not
+            // valid, so the seven inference fields above are NULL (the Rust core
+            // reports NaN for them). alpha == 0 is OLS and keeps its inference.
+            if (state.alpha > 0) {
+                for (idx_t k = struct_idx - 7; k < struct_idx; k++) {
+                    FlatVector::SetNull(*struct_entries[k], result_idx, true);
+                }
+            }
         }
 
         anofox_free_result_core(&core_result);

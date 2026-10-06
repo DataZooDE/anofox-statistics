@@ -285,13 +285,23 @@ pub fn fit_ols(y: &[f64], x: &[Vec<f64>], options: &OlsOptions) -> StatsResult<F
                     }
                 }),
                 Err(_) => {
-                    // Fall back to classical inference if HC fails
+                    // The requested HC estimator is not available for this fit
+                    // (e.g. a leverage-1 observation for HC2/HC3). Silently
+                    // substituting classical standard errors would hand back
+                    // numbers the caller did not ask for, so the coefficient
+                    // inference is reported as NaN (NULL in SQL) instead. The
+                    // F-test does not depend on the HC estimator and is kept.
+                    let nan = vec![f64::NAN; n_features];
+                    pseudo_stats.std_error = f64::NAN;
+                    pseudo_stats.t_value = f64::NAN;
+                    pseudo_stats.p_value = f64::NAN;
+                    pseudo_stats.ci = (f64::NAN, f64::NAN);
                     Some(FitResultInference {
-                        std_errors: reconstruct(result.std_errors.as_ref()),
-                        t_values: reconstruct(result.t_statistics.as_ref()),
-                        p_values: reconstruct(result.p_values.as_ref()),
-                        ci_lower: reconstruct(result.conf_interval_lower.as_ref()),
-                        ci_upper: reconstruct(result.conf_interval_upper.as_ref()),
+                        std_errors: nan.clone(),
+                        t_values: nan.clone(),
+                        p_values: nan.clone(),
+                        ci_lower: nan.clone(),
+                        ci_upper: nan,
                         confidence_level: options.confidence_level,
                         f_statistic: Some(result.f_statistic),
                         f_pvalue: Some(result.f_pvalue),
@@ -485,6 +495,28 @@ mod tests {
         assert!(inf.std_errors[0].is_finite() && inf.std_errors[0] > 0.0);
         // p-value should be significant
         assert!(inf.p_values[0] < 0.05);
+    }
+
+    /// A saturated fit (n == p) has no HC covariance. The requested estimator
+    /// must not be silently replaced by classical standard errors: coefficient
+    /// inference is NaN instead.
+    #[test]
+    fn test_ols_hc_failure_reports_nan_not_classical() {
+        let x = vec![vec![1.0, 2.0]];
+        let y = vec![3.0, 5.5];
+        let options = OlsOptions {
+            fit_intercept: true,
+            compute_inference: true,
+            hc_type: Some(HcType::HC1),
+            ..Default::default()
+        };
+        let result = fit_ols(&y, &x, &options).unwrap();
+        let inf = result.inference.unwrap();
+        assert!(inf.std_errors.iter().all(|v| v.is_nan()));
+        assert!(inf.t_values.iter().all(|v| v.is_nan()));
+        assert!(inf.p_values.iter().all(|v| v.is_nan()));
+        assert!(inf.ci_lower.iter().all(|v| v.is_nan()));
+        assert!(inf.ci_upper.iter().all(|v| v.is_nan()));
     }
 
     #[test]
