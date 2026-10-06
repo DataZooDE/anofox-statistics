@@ -7,7 +7,9 @@ description: >
   selection, residual diagnostics (raw / standardized / studentized residuals,
   leverage) via residuals_diagnostics / residuals_diagnostics_agg, and AID
   demand-pattern and anomaly classification (aid_agg, aid_anomaly_agg, aid_by,
-  aid_anomaly_by). Use when checking whether a fitted regression is sound —
+  aid_anomaly_by), plus the model report tools tidy (per-term estimates and
+  inference) and glance (one-row fit summary) and model-aware predict for
+  in-sample fitted values. Use when checking whether a fitted regression is sound —
   multicollinearity, influential points, residual adequacy — or classifying a
   series' demand regime before choosing a model.
 version: 0.10.0
@@ -29,6 +31,9 @@ Diagnostics answer "is this fit trustworthy?" — run them after fitting a model
 | `bic(rss, n, k)` | scalar | Bayesian Information Criterion for model selection |
 | `jarque_bera(values[])`, `jarque_bera_agg(value)` | scalar / aggregate | Jarque-Bera normality test (`statistic`, `p_value`, `skewness`, `kurtosis`, `n`) |
 | `residuals_diagnostics`, `residuals_diagnostics_agg` | scalar / aggregate | Residual analysis: `raw`, `standardized`, `studentized`, `leverage` arrays |
+| `tidy(model[, names])` | scalar on a model STRUCT | Per-term table: `term`, `estimate`, `std_error`, `statistic`, `p_value`, `conf_low`, `conf_high` (intercept row first, `'(Intercept)'`) — `unnest(…, recursive := true)` |
+| `glance(model)` | scalar on a model STRUCT | One-row summary of the model's scalar fields (`r_squared`, `aic`, `n_observations`, GLM `family`/`link`, …) — `unnest(glance(m))` |
+| `predict(model, x)` | scalar on a model STRUCT | Fitted value for one row; use it to build `y_hat` for the residual diagnostics |
 | `aid_agg`, `aid_by` | aggregate / table macro | Demand classification: `demand_type` is `regular` or `intermittent`, plus distribution, zero proportion, stockout / new / obsolete product and outlier counts |
 | `aid_anomaly_agg`, `aid_anomaly_by` | aggregate / table macro | Per-observation flags: `stockout`, `new_product`, `obsolete_product`, `high_outlier`, `low_outlier` |
 
@@ -37,6 +42,7 @@ Diagnostics answer "is this fit trustworthy?" — run them after fitting a model
 - **VIF:** > 5 warns of multicollinearity, > 10 is severe — consider dropping/combining collinear predictors or switching to Ridge/Elastic Net.
 - **AIC / BIC:** lower is better; compare *nested or same-data* models. BIC penalizes complexity harder than AIC. GLM result structs already carry an `aic` field; AFT and ALM results carry both `aic` and `bic`.
 - **Residuals:** `standardized`/`studentized` residuals with |value| > 2–3 flag potential outliers; high `leverage` flags influential x-positions. Structure in residuals ⇒ mis-specified model.
+- **`tidy` inference columns** are NULL when the model has no inference (fit without `compute_inference`, or PLS/quantile/LARS); `ols_fit_agg` gives inference for slopes only, so its intercept row is NULL. Works per group: `SELECT g, unnest(tidy(ols_fit_agg(y, [x], {'compute_inference': true})), recursive := true) … GROUP BY g`.
 - **AID demand classes:** use before forecasting/choosing a model — intermittent series (many zeros; threshold `intermittent_threshold`, default 0.3) need count/intermittent methods rather than plain OLS.
 
 ## Return fields
@@ -60,6 +66,21 @@ WITH preds AS (
     )) AS yhat
 )
 SELECT (residuals_diagnostics_agg(actual, yhat)).raw AS raw_residuals FROM preds;
+```
+
+```sql
+-- Same residual check with an aggregate fit: fitted values from predict(model, x)
+CREATE OR REPLACE TABLE houses AS SELECT * FROM (VALUES
+  (50.0,120.0),(65.0,155.0),(80.0,190.0),(95.0,225.0),(110.0,265.0),(125.0,300.0)
+) t(sqm, price);
+WITH m AS (SELECT ols_fit_agg(price, [sqm]) AS fit FROM houses)
+SELECT (residuals_diagnostics_agg(price, predict(fit, [sqm]))).raw AS raw_residuals
+FROM houses, m;
+
+-- Coefficient table with inference and a one-row model summary
+SELECT unnest(tidy(ols_fit_agg(price, [sqm], {'compute_inference': true}), ['sqm']), recursive := true)
+FROM houses;
+SELECT unnest(glance(ols_fit_agg(price, [sqm]))) FROM houses;
 ```
 
 ```sql

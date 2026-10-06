@@ -8,6 +8,7 @@ mean, which a Poisson GLM cannot represent.
 | Function | Type | Description |
 |----------|------|-------------|
 | `negbinom_fit_agg` | Aggregate | Fit a Negative Binomial GLM (log link) |
+| `negbinom_fit_predict_by` | Table macro | Per-group fit, expected counts for every row, see [Table macros](../macros/table_macros.md#negbinom_fit_predict_by) |
 
 ## negbinom_fit_agg
 
@@ -54,6 +55,8 @@ for the field descriptions):
 | `iterations` | INTEGER |
 | `converged` | BOOLEAN |
 | `std_errors`, `z_values`, `p_values`, `ci_lower`, `ci_upper` | DOUBLE[] — only with `compute_inference` |
+| `family` | VARCHAR — `'negbinom'` |
+| `link` | VARCHAR — `'log'` |
 
 **Example:**
 
@@ -72,6 +75,51 @@ SELECT negbinom_fit_agg(qty, [promo, shelf_facings]) AS fit FROM demand;
 SELECT negbinom_fit_agg(qty, [promo],
                         {'theta': 2.5, 'compute_inference': true}) AS fit
 FROM demand;
+```
+
+## Prediction
+
+Apply a fitted model to new rows with
+[`predict(model, x)`](../regression/model_tools.md#predict). The model's `link`
+field maps the linear predictor back to the response scale; pass
+`{'type': 'link'}` for the log rate instead. [`tidy`](../regression/model_tools.md#tidy)
+and [`glance`](../regression/model_tools.md#glance) give the per-term table and
+the fit summary.
+
+```sql
+WITH fit AS (SELECT negbinom_fit_agg(qty, [promo, shelf_facings]) AS m FROM demand)
+SELECT m.family, m.link,
+       round(predict(m, [1.0, 3.0]), 4) AS response,   -- expected count with promo and 3 facings
+       round(predict(m, [1.0, 3.0], {'type': 'link'}), 4) AS linear_predictor
+FROM fit;
+```
+
+### negbinom_fit_predict_by
+
+```text
+negbinom_fit_predict_by(source VARCHAR, group_col, y_col, x_cols,
+    options := NULL, split := NULL) -> TABLE
+```
+
+Fits `negbinom_fit_agg` on each group's training rows (`y` not NULL and `split`
+NULL or `'train'`) and applies `predict(model, x)` to every row. Returns all
+source columns plus `yhat` (response scale), `yhat_lower` and `yhat_upper`
+(NULL: no interval for this GLM) and `is_training`, ordered by the group
+column. A group whose fit fails gets NULL `yhat`. See
+[Table macros](../macros/table_macros.md#negbinom_fit_predict_by).
+
+```sql
+CREATE OR REPLACE VIEW demand_seg AS
+SELECT *,
+       CASE WHEN week % 2 = 0 THEN 'even' ELSE 'odd' END AS segment,
+       CASE WHEN week % 10 < 8 THEN 'train' ELSE 'test' END AS split
+FROM demand;
+
+SELECT segment, week, qty, round(yhat, 3) AS yhat, is_training
+FROM negbinom_fit_predict_by('demand_seg', segment, qty, [promo, shelf_facings], split := split)
+WHERE NOT is_training
+ORDER BY segment, week
+LIMIT 4;
 ```
 
 ## Dispersion

@@ -65,6 +65,16 @@ STRUCT(y DOUBLE, yhat DOUBLE, yhat_lower DOUBLE, yhat_upper DOUBLE, is_training 
 | `yhat_upper` | `DOUBLE` | Upper prediction-interval bound |
 | `is_training` | `BOOLEAN` | Whether the row was used to fit the model |
 
+The interval is leverage-aware: `yhat ± t(n − p) · s · sqrt(1 + x₀ᵀ M x₀)`
+with `M = (XᵀX)⁻¹` for OLS (the same interval as R's `predict.lm`),
+`(XᵀWX)⁻¹` for WLS (the new point at unit weight), the ridge sandwich
+`A XᵀX A`, `A = (XᵀX + λI)⁻¹`, for Ridge, and the OLS leverage of the training
+rows as an approximation for Huber, RANSAC, Theil-Sen, RLS, BLS, ALM and
+Elastic Net (active columns only). Intervals are wider for rows far from the
+training data. The bounds are NULL when no interval exists (zero residual
+degrees of freedom, singular design) and equal to `yhat` for an exact fit. See
+[Methodology](../../METHODOLOGY.md#prediction-intervals).
+
 ## Common options
 
 Accepted by every function except PLS, quantile and isotonic, in addition to

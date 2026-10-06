@@ -101,17 +101,29 @@ coefficients. As a result, intervals widen as `x₀` moves away from the centre 
 the training data, and are narrowest near the mean of the features.
 `confidence_level` (default `0.95`) sets the coverage.
 
-<!-- TODO(lead): confirm which model families use the leverage-aware formula
-     (OLS/WLS certainly; state what regularised/robust/GLM fit-predict functions do)
-     once the prediction-interval change lands, and fill in the release that
-     introduced it. -->
+How `M` in `se_pred = s · sqrt(1 + x̃₀ᵀ M x̃₀)` is chosen depends on the
+estimator:
 
-Earlier releases (up to and including 0.10.0) used the approximation
+| Family | `M` | Notes |
+|--------|-----|-------|
+| OLS | `(XᵀX)⁻¹` | Exact; matches R's `predict.lm(..., interval = "prediction")` |
+| WLS | `(XᵀWX)⁻¹` | The new point is assumed to have unit weight |
+| Ridge | `A XᵀX A` with `A = (XᵀX + λI)⁻¹` | Sandwich covariance of the ridge estimator; the intercept is not penalised. With glmnet-style scaling the penalty is `λ·n` |
+| Huber, RANSAC, Theil-Sen, RLS, BLS, ALM | `(XᵀX)⁻¹` over the training rows | Approximation: the OLS leverage of the training design |
+| Elastic Net | `(XᵀX)⁻¹` over the active columns | Approximation: OLS leverage restricted to the columns with non-zero coefficients |
+
+`s` is the residual standard error of the fitted model and the critical value is
+`t(1 − α/2; n − p)`. The same formula is used by the `*_fit_predict_agg`
+aggregates, the `*_fit_predict_by` table macros built on them, and the window
+`*_fit_predict` functions (which predict the last row of the frame). Earlier
+releases (up to and including 0.10.0) used the approximation
 `se_pred = s · sqrt(1 + 1/n)` for every row. That approximation ignores leverage,
 so it is too narrow far from the data and slightly too wide near the centre.
 
-When there are no residual degrees of freedom (`n − p = 0`) or `s` is not
-finite, the interval collapses to `yhat_lower = yhat_upper = yhat`. Coefficients
+When no interval exists (no residual degrees of freedom, `n − p = 0`, or a
+singular design) `yhat_lower` and `yhat_upper` are NULL while `yhat` is still
+returned. An exact fit (`s = 0`) gives a zero-width interval,
+`yhat_lower = yhat_upper = yhat`. Coefficients
 that are `NaN` (constant or aliased columns) contribute nothing to `yhat`.
 
 ## Generalized linear models: IRLS

@@ -89,26 +89,26 @@ error rather than being silently ignored. Option values must be constants.
 | LARS | - | `lars_fit_agg` | - | - | - | [LARS](api/regression/lars.md) |
 | BLS | - | `bls_fit_agg` | - | `bls_fit_predict_agg` | `bls_fit_predict_by` | [BLS/NNLS](api/regression/bls.md) |
 | NNLS | - | `nnls_fit_agg` | - | - | - | [BLS/NNLS](api/regression/bls.md) |
-| PLS | - | `pls_fit_agg` (planned) | - | `pls_fit_predict_agg` | `pls_fit_predict_by` | [PLS](api/regression/pls.md) |
-| Isotonic | - | `isotonic_fit_agg` (planned) | - | `isotonic_fit_predict_agg` | `isotonic_fit_predict_by` | [Isotonic](api/regression/isotonic.md) |
-| Quantile | - | `quantile_fit_agg` (planned) | - | `quantile_fit_predict_agg` | `quantile_fit_predict_by` | [Quantile](api/regression/quantile.md) |
-
-<!-- TODO(lead): verify after *_fit_agg lands -->
+| PLS | - | `pls_fit_agg` | - | `pls_fit_predict_agg` | `pls_fit_predict_by` | [PLS](api/regression/pls.md) |
+| Isotonic | - | `isotonic_fit_agg` | - | `isotonic_fit_predict_agg` | `isotonic_fit_predict_by` | [Isotonic](api/regression/isotonic.md) |
+| Quantile | - | `quantile_fit_agg` | - | `quantile_fit_predict_agg` | `quantile_fit_predict_by` | [Quantile](api/regression/quantile.md) |
 
 Overview pages: [window functions](api/regression/fit_predict_window.md),
 [fit-predict aggregates](api/regression/fit_predict_agg.md),
-[table macros](api/macros/table_macros.md).
+[table macros](api/macros/table_macros.md),
+[model tools](api/regression/model_tools.md) (`predict`, `tidy`, `glance` on any
+fitted model struct).
 
 ### GLMs and Related Models
 
 | Method | Aggregate | Other forms | Page |
 |--------|-----------|-------------|------|
 | Poisson | `poisson_fit_agg` | `poisson_fit_predict_agg`, `poisson_fit_predict_by` | [Poisson](api/glm/poisson.md) |
-| Binomial | `binomial_fit_agg` | - | [Binomial](api/glm/binomial.md) |
-| Logistic | `logistic_fit_agg` | - | [Logistic](api/glm/logistic.md) |
-| Negative Binomial | `negbinom_fit_agg` | - | [Negative Binomial](api/glm/negbinom.md) |
-| Gamma | `gamma_fit_agg` | - | [Gamma](api/glm/gamma.md) |
-| Tweedie | `tweedie_fit_agg` | - | [Tweedie](api/glm/tweedie.md) |
+| Binomial | `binomial_fit_agg` | `binomial_fit_predict_by` | [Binomial](api/glm/binomial.md) |
+| Logistic | `logistic_fit_agg` | `logistic_fit_predict_by` | [Logistic](api/glm/logistic.md) |
+| Negative Binomial | `negbinom_fit_agg` | `negbinom_fit_predict_by` | [Negative Binomial](api/glm/negbinom.md) |
+| Gamma | `gamma_fit_agg` | `gamma_fit_predict_by` | [Gamma](api/glm/gamma.md) |
+| Tweedie | `tweedie_fit_agg` | `tweedie_fit_predict_by` | [Tweedie](api/glm/tweedie.md) |
 | ALM (24 distributions) | `alm_fit_agg` | `alm_fit_predict_agg`, `alm_fit_predict_by` | [ALM](api/glm/alm.md) |
 | AFT survival | `aft_fit_agg` | scalars `aft_cdf`, `aft_quantile` | [AFT](api/survival/aft.md) |
 | Mixed effects | `glmm_fit_agg` | `glmm_fit_by` | [Mixed-effects GLMs](api/glm/glmm.md) |
@@ -134,7 +134,10 @@ Overview pages: [window functions](api/regression/fit_predict_window.md),
 
 | Function | Description | Page |
 |----------|-------------|------|
-| `predict` | Linear predictions from coefficients | [Diagnostics](api/diagnostics/diagnostics.md) |
+| `predict` | Prediction from any fitted model struct (`predict(model, x)`), or column-layout linear prediction (`predict(x, coefficients, intercept)`) | [Model tools](api/regression/model_tools.md) |
+| `linear_predict` | Column-layout linear prediction (same as the 3-argument `predict`) | [Model tools](api/regression/model_tools.md) |
+| `tidy` | Per-term table (estimate, std. error, statistic, p-value, CI) of a fitted model | [Model tools](api/regression/model_tools.md) |
+| `glance` | One-row summary (scalar fields) of a fitted model | [Model tools](api/regression/model_tools.md) |
 | `vif`, `vif_agg` | Variance inflation factors | [Diagnostics](api/diagnostics/diagnostics.md) |
 | `aic`, `bic` | Information criteria from RSS | [Diagnostics](api/diagnostics/diagnostics.md) |
 | `jarque_bera`, `jarque_bera_agg` | Jarque-Bera normality test | [Diagnostics](api/diagnostics/diagnostics.md) |
@@ -493,16 +496,16 @@ ORDER BY category;
 
 ## PLS, Isotonic and Quantile Regression
 
-These three methods are currently available as fit-predict aggregates
-(`pls_fit_predict_agg`, `isotonic_fit_predict_agg`, `quantile_fit_predict_agg`)
-and table macros (`*_fit_predict_by`); see
+These three methods have a `*_fit_agg` aggregate that returns the fitted model,
+fit-predict aggregates (`pls_fit_predict_agg`, `isotonic_fit_predict_agg`,
+`quantile_fit_predict_agg`) and table macros (`*_fit_predict_by`); see
 [Fit-Predict Aggregate Functions](#fit-predict-aggregate-functions).
 
 | Method | Options (default) | Notes |
 |--------|-------------------|-------|
 | PLS | `n_components` (1), `fit_intercept` (true) | SIMPLS latent components; for collinear or wide data |
 | Isotonic | `increasing` (true) | Monotone fit (PAVA); `x` is a single `DOUBLE`, not a list |
-| Quantile | `tau` (0.5), `fit_intercept` (true) | Conditional quantile; `tau = 0.5` is median regression |
+| Quantile | `tau` (alias `quantile`, 0.5), `fit_intercept` (true), `max_iterations` (1000), `tolerance` (1e-6) | Conditional quantile; `tau = 0.5` is median regression |
 
 ```sql
 SELECT
@@ -515,18 +518,32 @@ FROM (
 LIMIT 3;
 ```
 
-<!-- TODO(lead): verify after *_fit_agg lands -->
+**Model aggregates.**
 
-**Planned aggregates.** `pls_fit_agg(y, x LIST(DOUBLE) [, options])`,
-`quantile_fit_agg(y, x LIST(DOUBLE) [, options])` and
-`isotonic_fit_agg(y, x DOUBLE [, options])` follow the same calling convention
-as the other `*_fit_agg` functions.
+```text
+pls_fit_agg(y DOUBLE, x LIST(DOUBLE) [, options])
+    -> STRUCT(coefficients, intercept, r_squared, n_components, n_observations, n_features)
+quantile_fit_agg(y DOUBLE, x LIST(DOUBLE) [, options])
+    -> STRUCT(coefficients, intercept, tau, n_observations, n_features)
+isotonic_fit_agg(y DOUBLE, x DOUBLE [, options])
+    -> STRUCT(x DOUBLE[], fitted DOUBLE[], increasing, r_squared, n_observations)
+```
 
-```sql skip
--- TODO(lead): verify after *_fit_agg lands
+The isotonic model is a monotone function given by its knots (`x`) and the
+fitted value at each knot (`fitted`); `predict(model, [x])` interpolates
+between knots and clamps outside the training range. All three models work
+with [`predict`](#predict); PLS and quantile models also work with
+[`tidy`](#tidy) (estimates only, no inference). A group with too few usable
+rows returns NULL.
+
+```sql
 SELECT unnest(pls_fit_agg(y, [x1, x2, x3], {'n_components': 2})) FROM reg_data;
 SELECT unnest(quantile_fit_agg(y, [x1, x2], {'tau': 0.5})) FROM reg_data;
-SELECT unnest(isotonic_fit_agg(y, x1, {'increasing': true})) FROM reg_data;
+SELECT (isotonic_fit_agg(y, x1, {'increasing': true})).r_squared AS r2 FROM reg_data;
+
+-- Median prediction for a new row
+SELECT round(predict(quantile_fit_agg(y, [x1, x2], {'tau': 0.5}), [5.0, 3.0]), 3) AS median_yhat
+FROM reg_data;
 ```
 
 ---
@@ -566,7 +583,14 @@ signature and most options:
 | `gamma_fit_agg` | - | - | Log link, variance power fixed at 2 |
 
 **Returns:** the [GlmFitResult](#glmfitresult-structure) struct;
-`logistic_fit_agg` replaces `dispersion` with `accuracy` and `threshold`.
+`logistic_fit_agg` replaces `dispersion` with `accuracy` and `threshold`. Every
+GLM struct ends with `family` and `link` (VARCHAR), so
+[`predict(model, x)`](#predict) can map predictions to the response scale.
+
+**Per-group prediction.** `poisson_fit_predict_by`, `binomial_fit_predict_by`,
+`logistic_fit_predict_by`, `negbinom_fit_predict_by`, `gamma_fit_predict_by` and
+`tweedie_fit_predict_by` fit one model per group and append `yhat` (response
+scale) to every source row; see [Fit-Predict Table Macros](#fit-predict-table-macros).
 
 **Examples:**
 
@@ -588,6 +612,13 @@ SELECT (negbinom_fit_agg(y_count, [x1, x2])).dispersion AS dispersion FROM reg_d
 SELECT (gamma_fit_agg(y_positive, [x1, x2])).coefficients AS gamma_coef,
        (tweedie_fit_agg(y_positive, [x1, x2], {'power': 1.5})).coefficients AS tweedie_coef
 FROM reg_data;
+
+-- Predicted probability (response scale) and log-odds (link scale) for a new row
+WITH fit AS (SELECT logistic_fit_agg(y_binary, [x1, x2]) AS m FROM reg_data)
+SELECT m.family, m.link,
+       round(predict(m, [4.0, 5.0]), 4) AS probability,
+       round(predict(m, [4.0, 5.0], {'type': 'link'}), 4) AS log_odds
+FROM fit;
 ```
 
 ---
@@ -1147,21 +1178,24 @@ LIMIT 5;
 
 **One-step-ahead forecasts.** To predict each row from a model trained only on
 earlier rows, fit with `ols_fit_agg` over a frame ending at `1 PRECEDING` and
-apply the coefficients with [`predict`](#predict). `predict` takes
-feature-major input, so one row with features `x1, x2` is `[[x1], [x2]]`.
+evaluate the fitted model on the current row with the model-aware
+[`predict(model, x)`](#predict). While the frame is too small to fit, the model
+and the prediction are NULL.
 
-<!-- TODO(lead): model-aware predict -->
-
-```sql skip
--- Not runnable as-is: predict() raises an error while the frame is still empty
--- (coefficients NULL for the first rows). Pending a model-aware predict().
+```sql
 SELECT id, y,
-       predict([[x1], [x2]], (ols_fit_agg(y, [x1, x2]) OVER w).coefficients,
-                             (ols_fit_agg(y, [x1, x2]) OVER w).intercept)[1] AS yhat_next
+       round(predict((ols_fit_agg(y, [x1, x2]) OVER (
+           ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+       )), [x1, x2]), 3) AS yhat_next
 FROM reg_data
-WINDOW w AS (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)
-ORDER BY id;
+ORDER BY id
+LIMIT 8;
 ```
+
+**Prediction intervals.** `yhat_lower`/`yhat_upper` are leverage-aware
+prediction intervals for the frame's last row (see
+[Methodology](METHODOLOGY.md#prediction-intervals)); they are NULL when no
+interval exists (zero residual degrees of freedom, singular design).
 
 ---
 
@@ -1240,16 +1274,25 @@ columns are passed through and prediction columns are appended.
 
 | Macro | Signature | Appended columns |
 |-------|-----------|------------------|
-| `ols_fit_predict_by`, `ridge_fit_predict_by`, `elasticnet_fit_predict_by`, `rls_fit_predict_by`, `huber_fit_predict_by`, `ransac_fit_predict_by`, `theil_sen_fit_predict_by`, `bls_fit_predict_by`, `alm_fit_predict_by`, `poisson_fit_predict_by` | `(source, group_col, y_col, x_cols [, options] [, split])` | `yhat, yhat_lower, yhat_upper, is_training` |
-| `wls_fit_predict_by` | `(source, group_col, y_col, x_cols, weight_col [, options] [, split])` | `yhat, yhat_lower, yhat_upper, is_training` |
-| `pls_fit_predict_by`, `quantile_fit_predict_by` | `(source, group_col, y_col, x_cols [, options] [, split])` | `yhat, is_training` |
-| `isotonic_fit_predict_by` | `(source, group_col, y_col, x_col [, options] [, split])` | `yhat, is_training` |
+| `ols_fit_predict_by`, `ridge_fit_predict_by`, `elasticnet_fit_predict_by`, `rls_fit_predict_by`, `huber_fit_predict_by`, `ransac_fit_predict_by`, `theil_sen_fit_predict_by`, `bls_fit_predict_by`, `alm_fit_predict_by`, `poisson_fit_predict_by` | `(source, group_col, y_col, x_cols [, options] [, split] [, order_by])` | `yhat, yhat_lower, yhat_upper, is_training` |
+| `wls_fit_predict_by` | `(source, group_col, y_col, x_cols, weight_col [, options] [, split] [, order_by])` | `yhat, yhat_lower, yhat_upper, is_training` |
+| `pls_fit_predict_by`, `quantile_fit_predict_by` | `(source, group_col, y_col, x_cols [, options] [, split] [, order_by])` | `yhat, is_training` |
+| `isotonic_fit_predict_by` | `(source, group_col, y_col, x_col [, options] [, split] [, order_by])` | `yhat, is_training` |
+| `binomial_fit_predict_by`, `logistic_fit_predict_by`, `negbinom_fit_predict_by`, `gamma_fit_predict_by`, `tweedie_fit_predict_by` | `(source, group_col, y_col, x_cols [, options] [, split])` | `yhat` (response scale), `yhat_lower`, `yhat_upper` (both NULL), `is_training` |
 
 - `source` is the table name as a string; the other arguments are column references.
 - `options` takes the same keys as the underlying aggregate.
-- `split` is an optional expression; rows whose value is not `'train'` are
-  predicted but not used for training. Pass it by name: `split := ...`.
+- `split` is an optional expression; rows whose value is neither `'train'` nor
+  NULL are predicted but not used for training. Pass it by name: `split := ...`.
+- `order_by` (by name: `order_by := col`) orders the rows of each group, so the
+  alignment of predictions to rows is deterministic; it also sets the row order
+  for order-dependent fits such as RLS. The GLM macros (binomial, logistic,
+  negbinom, gamma, tweedie) fit each group's model and apply
+  [`predict`](#predict) to every row, so they do not take `order_by`.
 - Rows with a `NULL` `y` are predicted but not used for training.
+- Prediction intervals are leverage-aware (see
+  [Methodology](METHODOLOGY.md#prediction-intervals)) and NULL where no
+  interval exists.
 
 Other table macros on this page: [`glmm_fit_by`](#glmm_fit_by),
 [`eb_shrink_by`](#eb_shrink_by), [`aid_by`](#aid_by),
@@ -1275,6 +1318,16 @@ SELECT count(*) AS n FROM ridge_fit_predict_by('reg_data', category, y, [x1, x2]
 SELECT count(*) AS n FROM huber_fit_predict_by('reg_data', category, y, [x1, x2]);
 SELECT count(*) AS n FROM poisson_fit_predict_by('reg_data', category, y_count, [x1, x2]);
 SELECT count(*) AS n FROM isotonic_fit_predict_by('reg_data', category, y, x1);
+
+-- Order-dependent RLS, rows fed in id order within each category
+SELECT count(*) AS n FROM rls_fit_predict_by('reg_data', category, y, [x1, x2], order_by := id);
+
+-- GLM macros: predictions on the response scale
+SELECT category, id, y_binary, round(yhat, 3) AS p_hat
+FROM logistic_fit_predict_by('reg_data', category, y_binary, [x1, x2])
+ORDER BY category, id
+LIMIT 3;
+SELECT count(*) AS n FROM gamma_fit_predict_by('reg_data', category, y_positive, [x1, x2]);
 ```
 
 ---
@@ -1283,19 +1336,81 @@ SELECT count(*) AS n FROM isotonic_fit_predict_by('reg_data', category, y, x1);
 
 ### predict
 
-Linear predictions from coefficients. `x` is a list of feature columns, like the
-scalar fit functions.
+Two forms; see [Model tools](api/regression/model_tools.md) for details.
 
 ```sql skip
+predict(model STRUCT, x LIST(DOUBLE) [, {'type': 'response' | 'link'}]) -> DOUBLE
 predict(x LIST(LIST(DOUBLE)), coefficients LIST(DOUBLE), intercept DOUBLE) -> LIST(DOUBLE)
+linear_predict(x LIST(LIST(DOUBLE)), coefficients LIST(DOUBLE), intercept DOUBLE) -> LIST(DOUBLE)
 ```
 
+**Model-aware form.** `model` is the struct returned by any `*_fit_agg` or
+`*_fit` function and `x` holds one row's features. Linear models give
+`intercept + coefficients · x`. GLMs map the linear predictor through their
+`link` to the response scale (default) or return it unchanged with
+`{'type': 'link'}`. Isotonic models interpolate between knots and clamp at the
+ends. A NULL model or NULL feature gives NULL; a feature count that does not
+match the coefficients raises an error.
+
+**Column-layout form.** `x` is a list of feature columns, like the scalar fit
+functions; returns one prediction per position. Also available as
+`linear_predict`.
+
 ```sql
+-- Score every row with its category's model
+WITH models AS (
+    SELECT category, ols_fit_agg(y, [x1, x2]) AS m FROM reg_data GROUP BY category
+)
+SELECT r.id, r.category, round(predict(m.m, [r.x1, r.x2]), 3) AS yhat
+FROM reg_data r JOIN models m USING (category)
+ORDER BY r.id
+LIMIT 4;
+
+-- Column layout
 WITH model AS (
     SELECT ols_fit([3.0, 5.0, 7.0, 9.0, 11.0], [[1.0, 2.0, 3.0, 4.0, 5.0]]) AS fit
 )
-SELECT predict([[6.0, 7.0, 8.0]], fit.coefficients, fit.intercept) AS predictions
+SELECT predict([[6.0, 7.0, 8.0]], fit.coefficients, fit.intercept) AS predictions,
+       linear_predict([[6.0, 7.0, 8.0]], fit.coefficients, fit.intercept) AS same
 FROM model;
+```
+
+### tidy
+
+```sql skip
+tidy(model STRUCT [, names LIST(VARCHAR)])
+    -> LIST(STRUCT(term, estimate, std_error, statistic, p_value, conf_low, conf_high))
+```
+
+One entry per term, intercept first (`'(Intercept)'`), then the slopes named
+`x1 .. xk` or by `names`. The inference columns come from the model's
+`std_errors`, `t_values`/`z_values`, `p_values`, `ci_lower`, `ci_upper` and are
+NULL when the model has none (e.g. no `compute_inference`). `ols_fit_agg`
+reports inference for the slopes only, so its intercept row has NULL inference.
+
+```sql
+SELECT category,
+       unnest(tidy(ols_fit_agg(y, [x1, x2], {'compute_inference': true}), ['x1', 'x2']),
+              recursive := true)
+FROM reg_data
+GROUP BY category
+ORDER BY category;
+```
+
+### glance
+
+```sql skip
+glance(model STRUCT) -> STRUCT
+```
+
+The model's scalar fields (fit statistics; for GLMs also `family` and `link`),
+without list fields such as `coefficients`. Expand with `unnest(glance(...))`.
+
+```sql
+SELECT category, unnest(glance(poisson_fit_agg(y_count, [x1, x2])))
+FROM reg_data
+GROUP BY category
+ORDER BY category;
 ```
 
 ### vif / vif_agg
@@ -1477,9 +1592,14 @@ STRUCT(
     z_values DOUBLE[],
     p_values DOUBLE[],
     ci_lower DOUBLE[],
-    ci_upper DOUBLE[]
+    ci_upper DOUBLE[],
+    -- always last:
+    family VARCHAR,             -- 'poisson', 'binomial', 'negbinom', 'gamma', 'tweedie'
+    link VARCHAR                -- e.g. 'log', 'logit', 'probit', 'cloglog', 'sqrt', 'identity'
 )
 ```
+
+`logistic_fit_agg` reports `family = 'binomial'` and `link = 'logit'`.
 
 When an `offset` column is given it is removed from the design, so
 `coefficients` and `n_features` count one fewer than the input feature list.
@@ -1561,7 +1681,7 @@ SELECT ols_fit_agg(y, [x]) IS NULL AS is_null FROM (VALUES (1.0, 2.0)) AS t(y, x
 ## Detailed Documentation
 
 - **Regression:** [OLS](api/regression/ols.md) | [Ridge](api/regression/ridge.md) | [Elastic Net](api/regression/elasticnet.md) | [WLS](api/regression/wls.md) | [RLS](api/regression/rls.md) | [Huber](api/regression/huber.md) | [RANSAC](api/regression/ransac.md) | [Theil-Sen](api/regression/theil_sen.md) | [LARS](api/regression/lars.md) | [BLS/NNLS](api/regression/bls.md) | [PLS](api/regression/pls.md) | [Isotonic](api/regression/isotonic.md) | [Quantile](api/regression/quantile.md)
-- **Prediction:** [Window functions](api/regression/fit_predict_window.md) | [Fit-predict aggregates](api/regression/fit_predict_agg.md) | [Table macros](api/macros/table_macros.md)
+- **Prediction:** [Window functions](api/regression/fit_predict_window.md) | [Fit-predict aggregates](api/regression/fit_predict_agg.md) | [Table macros](api/macros/table_macros.md) | [Model tools (predict, tidy, glance)](api/regression/model_tools.md)
 - **GLM:** [Poisson](api/glm/poisson.md) | [Binomial](api/glm/binomial.md) | [Logistic](api/glm/logistic.md) | [Negative Binomial](api/glm/negbinom.md) | [Gamma](api/glm/gamma.md) | [Tweedie](api/glm/tweedie.md) | [ALM](api/glm/alm.md) | [Priors](api/glm/priors.md) | [GLMM](api/glm/glmm.md) | [EB shrinkage](api/glm/eb_shrink.md)
 - **Survival:** [AFT](api/survival/aft.md)
 - **Statistics:** [Hypothesis tests](api/statistics/hypothesis.md) | [Correlation](api/statistics/correlation.md) | [Categorical](api/statistics/categorical.md)

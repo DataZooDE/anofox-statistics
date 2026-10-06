@@ -90,7 +90,7 @@ support raise an error.
 ```text
 ransac_fit_predict(y DOUBLE, x DOUBLE[] [, options MAP]) OVER (...) -> STRUCT(yhat, yhat_lower, yhat_upper)
 ransac_fit_predict_agg(y DOUBLE, x DOUBLE[] [, split_col VARCHAR] [, options MAP]) -> STRUCT(y, yhat, yhat_lower, yhat_upper, is_training)[]
-ransac_fit_predict_by(source VARCHAR, group_col, y_col, x_cols [, options] [, split]) -> TABLE
+ransac_fit_predict_by(source VARCHAR, group_col, y_col, x_cols [, options] [, split] [, order_by]) -> TABLE
 ```
 
 ```sql

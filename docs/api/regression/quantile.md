@@ -8,13 +8,11 @@ outliers in `y`.
 
 | Function | Type | Description |
 |----------|------|-------------|
-| `quantile_fit_agg` | Aggregate | Fit a quantile regression per group <!-- TODO(lead): verify after *_fit_agg lands --> |
+| `quantile_fit_agg` | Aggregate | Fit a quantile regression per group |
 | `quantile_fit_predict_agg` | Aggregate | Fit and predict every row of a group |
 | `quantile_fit_predict_by` | Table macro | Per-group fit and predict in long format, see [Table macros](../macros/table_macros.md#quantile_fit_predict_by) |
 
 ## quantile_fit_agg
-
-<!-- TODO(lead): verify after *_fit_agg lands -->
 
 **Signature:**
 
@@ -22,14 +20,43 @@ outliers in `y`.
 quantile_fit_agg(y DOUBLE, x DOUBLE[] [, options MAP]) -> STRUCT
 ```
 
-Options: `tau`, `fit_intercept` (see [Options](#options)).
+Options: `tau` (alias `quantile`), `fit_intercept`, `max_iterations`,
+`tolerance` (see [Options](#options)).
 
-```sql skip
--- TODO(lead): un-skip once quantile_fit_agg is registered
+**Returns:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `coefficients` | `DOUBLE[]` | Slope coefficients, one per feature |
+| `intercept` | `DOUBLE` | Intercept (0 when `fit_intercept` is false) |
+| `tau` | `DOUBLE` | The quantile that was estimated |
+| `n_observations` | `BIGINT` | Rows used in the fit |
+| `n_features` | `BIGINT` | Number of features |
+
+Rows with a NULL `y`, a NULL `x` or a NULL list element are skipped. A group
+with too few usable rows returns NULL. Apply the model to new rows with
+[`predict(model, x)`](model_tools.md#predict).
+
+**Example:**
+
+```sql
+CREATE OR REPLACE TABLE quantile_demo AS
+SELECT
+    i AS id,
+    i::DOUBLE AS x,
+    -- spread grows with x, plus two gross outliers
+    2.0 + 0.5 * i + (i % 5 - 2) * 0.2 * i + CASE WHEN i IN (7, 19) THEN 50.0 ELSE 0.0 END AS y
+FROM range(1, 41) t(i);
+
+-- Slopes of the 10th, 50th and 90th percentile lines
 SELECT
     (quantile_fit_agg(y, [x], {'tau': 0.1})).coefficients AS p10,
     (quantile_fit_agg(y, [x], {'tau': 0.5})).coefficients AS p50,
     (quantile_fit_agg(y, [x], {'tau': 0.9})).coefficients AS p90
+FROM quantile_demo;
+
+-- Median prediction for a new x
+SELECT round(predict(quantile_fit_agg(y, [x], {'tau': 0.5}), [45.0]), 3) AS median_at_45
 FROM quantile_demo;
 ```
 
@@ -50,15 +77,7 @@ prediction. Quantile regression returns point predictions only; there are no
 **Example:**
 
 ```sql
-CREATE OR REPLACE TABLE quantile_demo AS
-SELECT
-    i AS id,
-    i::DOUBLE AS x,
-    -- spread grows with x, plus two gross outliers
-    2.0 + 0.5 * i + (i % 5 - 2) * 0.2 * i + CASE WHEN i IN (7, 19) THEN 50.0 ELSE 0.0 END AS y
-FROM range(1, 41) t(i);
-
--- Upper (90th percentile) band per row
+-- Upper (90th percentile) band per row (quantile_demo is created above)
 SELECT p.y, round(p.yhat, 2) AS p90
 FROM (
     SELECT unnest(quantile_fit_predict_agg(y, [x], {'tau': 0.9})) AS p
@@ -71,8 +90,10 @@ LIMIT 5;
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `tau` | DOUBLE | `0.5` | Quantile to estimate, 0 < tau < 1 |
+| `tau` (alias `quantile`) | DOUBLE | `0.5` | Quantile to estimate, 0 < tau < 1 |
 | `fit_intercept` (alias `intercept`) | BOOLEAN | `true` | Include an intercept term |
+| `max_iterations` | INTEGER | `1000` | Maximum solver iterations |
+| `tolerance` | DOUBLE | `1e-6` | Convergence tolerance |
 
 Option keys the function does not support raise an error.
 
