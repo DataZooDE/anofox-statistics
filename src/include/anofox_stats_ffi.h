@@ -2090,6 +2090,15 @@ bool anofox_distance_cor_test(AnofoxDataArray x, AnofoxDataArray y, size_t n_per
                               AnofoxError *out_error);
 
 /**
+ * Distance correlation test with permutations and optional seed
+ *
+ * Same as anofox_distance_cor_test; when has_seed is true the permutation RNG is
+ * seeded with seed so the p-value is reproducible.
+ */
+bool anofox_distance_cor_test_seeded(AnofoxDataArray x, AnofoxDataArray y, size_t n_permutations, uint64_t seed,
+                                     bool has_seed, AnofoxTestResult *out_result, AnofoxError *out_error);
+
+/**
  * ICC type codes
  */
 typedef enum {

@@ -6814,6 +6814,27 @@ pub unsafe extern "C" fn anofox_distance_cor_test(
     out_result: *mut TestResultFFI,
     out_error: *mut AnofoxError,
 ) -> bool {
+    anofox_distance_cor_test_seeded(x, y, n_permutations, 0, false, out_result, out_error)
+}
+
+/// Distance correlation test with permutations and an optional RNG seed
+///
+/// Same as [`anofox_distance_cor_test`], but when `has_seed` is true the
+/// permutation RNG is seeded with `seed`, making the p-value reproducible.
+///
+/// # Safety
+/// - `x` and `y` must be valid DataArrays of equal length
+/// - `out_result` must be a valid pointer; `out_error` may be NULL
+#[no_mangle]
+pub unsafe extern "C" fn anofox_distance_cor_test_seeded(
+    x: DataArray,
+    y: DataArray,
+    n_permutations: usize,
+    seed: u64,
+    has_seed: bool,
+    out_result: *mut TestResultFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
     ffi_guard(out_error, false, || {
         if !out_error.is_null() {
             *out_error = AnofoxError::success();
@@ -6831,7 +6852,7 @@ pub unsafe extern "C" fn anofox_distance_cor_test(
 
         let opts = DistanceCorTestOptions {
             n_permutations,
-            seed: None,
+            seed: if has_seed { Some(seed) } else { None },
         };
 
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
