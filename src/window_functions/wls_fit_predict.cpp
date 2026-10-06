@@ -13,6 +13,7 @@
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 #include "list_input.hpp"
+#include "prediction_interval.hpp"
 
 namespace duckdb {
 
@@ -270,10 +271,11 @@ static void WlsFitPredictFinalize(Vector &state_vector, AggregateInputData &, Ve
         }
 
         AnofoxPredictionResult pred_result;
+        LeverageIntervals intervals(x_arrays, core_result.coefficients, core_result.coefficients_len,
+                                    core_result.intercept, state.fit_intercept, core_result.residual_std_error, core_result.n_observations,
+                                    &w_array, 0.0);
         bool pred_success =
-            anofox_predict_with_interval(core_result.coefficients, core_result.coefficients_len, core_result.intercept,
-                                         state.current_x.data(), state.current_x.size(), core_result.residual_std_error,
-                                         core_result.n_observations, state.confidence_level, &pred_result);
+            intervals.Predict(state.current_x.data(), state.current_x.size(), state.confidence_level, pred_result);
 
         anofox_free_result_core(&core_result);
 
@@ -283,8 +285,8 @@ static void WlsFitPredictFinalize(Vector &state_vector, AggregateInputData &, Ve
         }
 
         FlatVector::GetData<double>(*struct_entries[0])[result_idx] = pred_result.yhat;
-        FlatVector::GetData<double>(*struct_entries[1])[result_idx] = pred_result.yhat_lower;
-        FlatVector::GetData<double>(*struct_entries[2])[result_idx] = pred_result.yhat_upper;
+        WriteIntervalBound(*struct_entries[1], result_idx, pred_result.yhat_lower);
+        WriteIntervalBound(*struct_entries[2], result_idx, pred_result.yhat_upper);
 
         state.Reset();
     }

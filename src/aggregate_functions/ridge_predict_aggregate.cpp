@@ -12,6 +12,7 @@
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
+#include "prediction_interval.hpp"
 
 namespace duckdb {
 
@@ -359,7 +360,10 @@ static void RidgePredictAggFinalize(Vector &state_vector, AggregateInputData &ag
         auto &yhat_upper_vec = *struct_entries[3];
         auto &is_training_vec = *struct_entries[4];
 
-        for (idx_t row = 0; row < n_rows; row++) {
+        LeverageIntervals intervals(x_arrays, core_result.coefficients, core_result.coefficients_len,
+                                    core_result.intercept, state.fit_intercept, core_result.residual_std_error, core_result.n_observations,
+                                    nullptr, (state.lambda_scaling == LambdaScaling::GLMNET ? state.alpha * (double)core_result.n_observations : state.alpha));
+for (idx_t row = 0; row < n_rows; row++) {
             idx_t child_idx = list_offset + row;
 
             if (state.y_is_null[row]) {
@@ -369,15 +373,12 @@ static void RidgePredictAggFinalize(Vector &state_vector, AggregateInputData &ag
             }
 
             AnofoxPredictionResult pred;
-            bool pred_success = anofox_predict_with_interval(
-                core_result.coefficients, core_result.coefficients_len, core_result.intercept, state.x_all[row].data(),
-                state.n_features, core_result.residual_std_error, core_result.n_observations, state.confidence_level,
-                &pred);
+            bool pred_success = intervals.Predict(state.x_all[row].data(), state.n_features, state.confidence_level, pred);
 
             if (pred_success && std::isfinite(pred.yhat)) {
                 FlatVector::GetData<double>(yhat_vec)[child_idx] = pred.yhat;
-                FlatVector::GetData<double>(yhat_lower_vec)[child_idx] = pred.yhat_lower;
-                FlatVector::GetData<double>(yhat_upper_vec)[child_idx] = pred.yhat_upper;
+                WriteIntervalBound(yhat_lower_vec, child_idx, pred.yhat_lower);
+                WriteIntervalBound(yhat_upper_vec, child_idx, pred.yhat_upper);
             } else {
                 FlatVector::SetNull(yhat_vec, child_idx, true);
                 FlatVector::SetNull(yhat_lower_vec, child_idx, true);

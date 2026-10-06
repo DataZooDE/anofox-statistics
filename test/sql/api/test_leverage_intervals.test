@@ -1,0 +1,81 @@
+# name: test/sql/api/test_leverage_intervals.test
+# description: Prediction intervals include the leverage term x0'(X'X)^-1 x0 (R predict.lm)
+# group: [api]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE d AS SELECT * FROM (VALUES
+    (1, 1.0, 2.1), (2, 2.0, 3.9), (3, 3.0, 6.2), (4, 4.0, 7.8),
+    (5, 5.0, 10.1), (6, 6.0, 12.2), (7, 7.0, 13.8), (8, 8.0, 16.1),
+    (9, 4.5, NULL), (10, 12.0, NULL)
+) t(id, x, y);
+
+# R: predict(lm(y ~ x), data.frame(x = c(4.5, 12)), interval = "prediction", level = 0.95)
+#    fit 9.0250000000 / 24.0071428571, lwr 8.5574038066 / 23.3150884550, upr 9.4925961934 / 24.6991972593
+query I
+WITH p AS (SELECT unnest(ols_fit_predict_agg(y, [x] ORDER BY id)) AS r FROM d)
+SELECT bool_and(CASE
+    WHEN abs(r.yhat - 9.025) < 1e-9 THEN abs(r.yhat_lower - 8.5574038066) < 1e-8 AND abs(r.yhat_upper - 9.4925961934) < 1e-8
+    WHEN abs(r.yhat - 24.0071428571) < 1e-8 THEN abs(r.yhat_lower - 23.3150884550) < 1e-8 AND abs(r.yhat_upper - 24.6991972593) < 1e-8
+    ELSE true END)
+FROM p WHERE NOT r.is_training
+----
+true
+
+# The interval widens with distance from the centroid of x (it did not before)
+query I
+WITH p AS (SELECT unnest(ols_fit_predict_agg(y, [x] ORDER BY id)) AS r FROM d)
+SELECT max(r.yhat_upper - r.yhat_lower) FILTER (WHERE abs(r.yhat - 24.0071428571) < 1e-6)
+     > max(r.yhat_upper - r.yhat_lower) FILTER (WHERE abs(r.yhat - 9.025) < 1e-6)
+FROM p
+----
+true
+
+# Two features, 90% level. R: predict(lm(y2 ~ x2 + z), data.frame(x2 = c(11, 2.5), z = c(7, 0)),
+#   interval = "prediction", level = 0.90): fit 19.4307979120 / 6.0537472036,
+#   lwr 18.6284011864 / 5.2824025786, upr 20.2331946376 / 6.8250918286
+statement ok
+CREATE TABLE d2 AS SELECT x2::DOUBLE AS x2, z::DOUBLE AS z, y2 FROM (VALUES
+    (1, 3, 1 + 2*1 - 0.5*3 + 0.3), (2, 1, 1 + 2*2 - 0.5*1 - 0.2), (3, 4, 1 + 2*3 - 0.5*4 + 0.1),
+    (4, 1, 1 + 2*4 - 0.5*1 + 0.4), (5, 5, 1 + 2*5 - 0.5*5 - 0.5), (6, 9, 1 + 2*6 - 0.5*9 + 0.2),
+    (7, 2, 1 + 2*7 - 0.5*2 - 0.1), (8, 6, 1 + 2*8 - 0.5*6 + 0.3), (9, 5, 1 + 2*9 - 0.5*5 - 0.4),
+    (10, 3, 1 + 2*10 - 0.5*3 + 0.1), (11, 7, NULL), (2.5, 0, NULL)
+) t(x2, z, y2);
+
+query I
+WITH p AS (SELECT unnest(ols_fit_predict_agg(y2, [x2, z], {'confidence_level': 0.90})) AS r FROM d2)
+SELECT bool_and(CASE
+    WHEN abs(r.yhat - 19.4307979120) < 1e-8 THEN abs(r.yhat_lower - 18.6284011864) < 1e-8 AND abs(r.yhat_upper - 20.2331946376) < 1e-8
+    WHEN abs(r.yhat - 6.0537472036) < 1e-8 THEN abs(r.yhat_lower - 5.2824025786) < 1e-8 AND abs(r.yhat_upper - 6.8250918286) < 1e-8
+    ELSE false END) AND count(*) = 2
+FROM p WHERE NOT r.is_training
+----
+true
+
+# WLS with weights, new point at unit weight.
+# R: predict(lm(y ~ x, weights = c(1,2,1,2,1,2,1,2)), data.frame(x = 10), interval = "prediction", weights = 1)
+#    fit 20.0904255319, lwr 19.4295923775, upr 20.7512586863
+statement ok
+CREATE TABLE dw AS SELECT x, y, w FROM (VALUES
+    (1.0, 2.1, 1.0), (2.0, 3.9, 2.0), (3.0, 6.2, 1.0), (4.0, 7.8, 2.0),
+    (5.0, 10.1, 1.0), (6.0, 12.2, 2.0), (7.0, 13.8, 1.0), (8.0, 16.1, 2.0), (10.0, NULL, 1.0)
+) t(x, y, w);
+
+query I
+WITH p AS (SELECT unnest(wls_fit_predict_agg(y, [x], w)) AS r FROM dw)
+SELECT abs(r.yhat - 20.0904255319) < 1e-8 AND abs(r.yhat_lower - 19.4295923775) < 1e-8
+   AND abs(r.yhat_upper - 20.7512586863) < 1e-8
+FROM p WHERE NOT r.is_training
+----
+true
+
+# Window form uses the same formula: the last frame row's interval equals the aggregate's
+query I
+WITH w AS (
+    SELECT id, ols_fit_predict(y, [x]) OVER (ORDER BY id ROWS BETWEEN 7 PRECEDING AND CURRENT ROW) AS p
+    FROM d WHERE id <= 8
+)
+SELECT abs((p).yhat_upper - (p).yhat_lower) > 0 FROM w WHERE id = 8
+----
+true
