@@ -111,32 +111,17 @@ pub fn fit_huber(y: &[f64], x: &[Vec<f64>], options: &HuberOptions) -> StatsResu
     };
 
     let inference = if options.compute_inference {
-        result.std_errors.as_ref().map(|se| FitResultInference {
-            std_errors: se.iter().copied().collect(),
-            t_values: result
-                .t_statistics
-                .as_ref()
-                .map(|c| c.iter().copied().collect())
-                .unwrap_or_else(|| vec![f64::NAN; n_features]),
-            p_values: result
-                .p_values
-                .as_ref()
-                .map(|c| c.iter().copied().collect())
-                .unwrap_or_else(|| vec![f64::NAN; n_features]),
-            ci_lower: result
-                .conf_interval_lower
-                .as_ref()
-                .map(|c| c.iter().copied().collect())
-                .unwrap_or_else(|| vec![f64::NAN; n_features]),
-            ci_upper: result
-                .conf_interval_upper
-                .as_ref()
-                .map(|c| c.iter().copied().collect())
-                .unwrap_or_else(|| vec![f64::NAN; n_features]),
-            confidence_level: options.confidence_level,
-            f_statistic: Some(result.f_statistic),
-            f_pvalue: Some(result.f_pvalue),
-        })
+        Some(huber_inference(
+            &x_mat,
+            &y_col,
+            &result.coefficients,
+            intercept,
+            fitted.scale(),
+            fitted.epsilon(),
+            options.confidence_level,
+            result.f_statistic,
+            result.f_pvalue,
+        ))
     } else {
         None
     };
@@ -157,6 +142,113 @@ pub fn fit_huber(y: &[f64], x: &[Vec<f64>], options: &HuberOptions) -> StatsResu
         outliers,
         n_outliers,
     })
+}
+
+/// Asymptotic covariance of a Huber M-estimator (Huber 1981, sec. 7.6), computed
+/// as in R `MASS:::summary.rlm` with `method = "XtX"`:
+///
+/// ```text
+/// u_i   = r_i / s                     (s = the fitted MAD scale)
+/// S     = s^2 * sum(psi(u_i)^2) / (n - p)
+/// m     = mean(psi'(u_i))
+/// kappa = 1 + p * var(psi'(u)) / (n * m^2)
+/// Cov   = (S * kappa^2 / m^2) * (X'X)^-1
+/// ```
+///
+/// with `psi(u) = clamp(u, -epsilon, epsilon)` and `p` counting the intercept.
+/// t-values use `n - p` degrees of freedom for p-values and confidence intervals.
+/// The tiny default L2 penalty (`alpha`) is ignored in the covariance. Returns
+/// NaN entries when the covariance is not available (`n <= p`, no observation
+/// inside the Huber threshold, or a singular `X'X`).
+#[allow(clippy::too_many_arguments)]
+fn huber_inference(
+    x: &Mat<f64>,
+    y: &Col<f64>,
+    coefficients: &Col<f64>,
+    intercept: Option<f64>,
+    scale: f64,
+    epsilon: f64,
+    confidence_level: f64,
+    f_statistic: f64,
+    f_pvalue: f64,
+) -> FitResultInference {
+    use statrs::distribution::{ContinuousCDF, StudentsT};
+
+    let n = x.nrows();
+    let k = x.ncols();
+    let off = usize::from(intercept.is_some());
+    let p = k + off;
+    let nan = || vec![f64::NAN; k];
+    let empty = FitResultInference {
+        std_errors: nan(),
+        t_values: nan(),
+        p_values: nan(),
+        ci_lower: nan(),
+        ci_upper: nan(),
+        confidence_level,
+        f_statistic: Some(f_statistic),
+        f_pvalue: Some(f_pvalue),
+    };
+    if n <= p || scale.is_nan() || scale <= 0.0 || !scale.is_finite() {
+        return empty;
+    }
+
+    let mut sum_psi2 = 0.0;
+    let mut psi_prime = Vec::with_capacity(n);
+    for i in 0..n {
+        let mut fitted = intercept.unwrap_or(0.0);
+        for j in 0..k {
+            fitted += x[(i, j)] * coefficients[j];
+        }
+        let u = (y[i] - fitted) / scale;
+        let psi = u.clamp(-epsilon, epsilon);
+        sum_psi2 += psi * psi;
+        psi_prime.push(if u.abs() <= epsilon { 1.0 } else { 0.0 });
+    }
+    let nf = n as f64;
+    let m = psi_prime.iter().sum::<f64>() / nf;
+    if m <= 0.0 {
+        return empty;
+    }
+    let var_pp = psi_prime.iter().map(|v| (v - m).powi(2)).sum::<f64>() / (nf - 1.0);
+    let kappa = 1.0 + p as f64 * var_pp / (nf * m * m);
+    let s2 = scale * scale * sum_psi2 / (nf - p as f64);
+    let factor = s2 * kappa * kappa / (m * m);
+
+    // X'X of the design including the intercept column.
+    let design = Mat::from_fn(n, p, |i, j| {
+        if off == 1 && j == 0 {
+            1.0
+        } else {
+            x[(i, j - off)]
+        }
+    });
+    let xtx = design.transpose() * &design;
+    let Ok(inv) = crate::models::glm_engine::normal_eq::invert_spd(&xtx) else {
+        return empty;
+    };
+
+    let df = nf - p as f64;
+    let Ok(t_dist) = StudentsT::new(0.0, 1.0, df) else {
+        return empty;
+    };
+    let t_crit = t_dist.inverse_cdf(1.0 - (1.0 - confidence_level) / 2.0);
+    let mut out = empty;
+    for j in 0..k {
+        let var = factor * inv[(j + off, j + off)];
+        if !(var.is_finite() && var >= 0.0) {
+            continue;
+        }
+        let se = var.sqrt();
+        let b = coefficients[j];
+        let t = b / se;
+        out.std_errors[j] = se;
+        out.t_values[j] = t;
+        out.p_values[j] = 2.0 * (1.0 - t_dist.cdf(t.abs()));
+        out.ci_lower[j] = b - t_crit * se;
+        out.ci_upper[j] = b + t_crit * se;
+    }
+    out
 }
 
 #[cfg(test)]
@@ -232,5 +324,36 @@ mod tests {
             StatsError::DimensionMismatch { .. } => {}
             other => panic!("expected DimensionMismatch, got {:?}", other),
         }
+    }
+
+    /// Coefficients, scale and standard errors against R:
+    /// `MASS::rlm(y ~ x, psi = psi.huber, k = 1.35, scale.est = "MAD")` and
+    /// `summary(fit, method = "XtX")`.
+    #[test]
+    fn inference_matches_mass_rlm() {
+        let xs: Vec<f64> = (1..=20).map(|i| i as f64).collect();
+        let mut y: Vec<f64> = xs
+            .iter()
+            .map(|&x| 1.0 + 2.0 * x + (((x as i64 * 7) % 5) as f64 - 2.0) * 0.4)
+            .collect();
+        y[5] = 40.0;
+        y[14] = 5.0;
+        let opts = HuberOptions {
+            alpha: 0.0,
+            max_iterations: 500,
+            tolerance: 1e-12,
+            compute_inference: true,
+            ..HuberOptions::default()
+        };
+        let r = fit_huber(&y, &[xs], &opts).unwrap();
+        let inf = r.fit.inference.as_ref().unwrap();
+        eprintln!(
+            "coef {:?} icpt {:?} scale {} se {:?}",
+            r.fit.core.coefficients, r.fit.core.intercept, r.scale, inf.std_errors
+        );
+        assert!(approx(r.fit.core.coefficients[0], 1.97692968311, 1e-6));
+        assert!(approx(r.fit.core.intercept.unwrap(), 1.28668277180, 1e-5));
+        assert!(approx(inf.std_errors[0], 0.0296479346015, 1e-6));
+        assert!(approx(inf.t_values[0], 66.68018226841, 1e-2));
     }
 }
