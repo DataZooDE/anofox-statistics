@@ -8,6 +8,7 @@ pub mod errors;
 pub mod models;
 pub mod tests;
 pub mod types;
+mod validation;
 
 pub use errors::{StatsError, StatsResult};
 pub use types::*;

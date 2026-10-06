@@ -30,14 +30,7 @@ pub fn fit_pls(y: &[f64], x: &[Vec<f64>], options: &PlsOptions) -> StatsResult<P
     let n_features = x.len();
 
     // Check all feature vectors have same length as y
-    for col in x.iter() {
-        if col.len() != n_obs {
-            return Err(StatsError::DimensionMismatch {
-                y_len: n_obs,
-                x_rows: col.len(),
-            });
-        }
-    }
+    crate::validation::validate_x_columns(n_obs, x)?;
 
     // Validate n_components
     if options.n_components == 0 {

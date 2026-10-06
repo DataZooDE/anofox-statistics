@@ -59,14 +59,7 @@ pub fn fit_ransac(y: &[f64], x: &[Vec<f64>], options: &RansacOptions) -> StatsRe
     let n_obs = y.len();
     let n_features = x.len();
 
-    for col in x.iter() {
-        if col.len() != n_obs {
-            return Err(StatsError::DimensionMismatch {
-                y_len: n_obs,
-                x_rows: col.len(),
-            });
-        }
-    }
+    crate::validation::validate_x_columns(n_obs, x)?;
 
     // Same NaN/infinite filtering policy as OLS/Huber so per-group call
     // sites can swap estimators transparently.

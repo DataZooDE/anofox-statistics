@@ -53,14 +53,7 @@ pub fn fit_elasticnet(
     let n_features = x.len();
 
     // Check all feature vectors have same length as y
-    for col in x.iter() {
-        if col.len() != n_obs {
-            return Err(StatsError::DimensionMismatch {
-                y_len: n_obs,
-                x_rows: col.len(),
-            });
-        }
-    }
+    crate::validation::validate_x_columns(n_obs, x)?;
 
     // Filter out rows with NaN values
     let valid_indices: Vec<usize> = (0..n_obs)
@@ -79,18 +72,10 @@ pub fn fit_elasticnet(
     let n_valid = valid_indices.len();
 
     // Detect zero-variance (constant) columns BEFORE min_obs check
-    let is_constant_column: Vec<bool> = x
-        .iter()
-        .map(|col| {
-            if valid_indices.is_empty() {
-                return true;
-            }
-            let first_val = col[valid_indices[0]];
-            valid_indices
-                .iter()
-                .all(|&i| (col[i] - first_val).abs() < 1e-10)
-        })
-        .collect();
+    // Constant columns are only dropped when an intercept is fitted (see
+    // `validation::droppable_columns`); without one, a constant column IS the intercept.
+    let is_constant_column: Vec<bool> =
+        crate::validation::droppable_columns(x, &valid_indices, options.fit_intercept);
 
     // Count non-constant features for min_obs calculation
     let n_effective_features = is_constant_column.iter().filter(|&&c| !c).count();
@@ -112,11 +97,17 @@ pub fn fit_elasticnet(
         }
         // Intercept-only model: compute mean of y as intercept
         let y_mean = valid_indices.iter().map(|&i| y[i]).sum::<f64>() / n_valid as f64;
-        let y_var = valid_indices
-            .iter()
-            .map(|&i| (y[i] - y_mean).powi(2))
-            .sum::<f64>()
-            / (n_valid - 1) as f64;
+        // The residual variance of an intercept-only fit has n-1 degrees of
+        // freedom; with a single observation it is undefined (NaN), not 0/0.
+        let y_var = if n_valid > 1 {
+            valid_indices
+                .iter()
+                .map(|&i| (y[i] - y_mean).powi(2))
+                .sum::<f64>()
+                / (n_valid - 1) as f64
+        } else {
+            f64::NAN
+        };
         let rmse = y_var.sqrt();
 
         return Ok(FitResult {

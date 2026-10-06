@@ -153,23 +153,13 @@ impl RlsState {
             self.coefficients[i] += k[i] * error;
         }
 
-        // Update P matrix: P = (P - k * x' * P) / λ
-        // First compute k * x'
-        let mut k_x_t = vec![vec![0.0; dim]; dim];
+        // Update P matrix: P = (P - k * x' * P) / λ.
+        // P is symmetric, so x' * P = (P * x)' = p_x' and k * x' * P = k * p_x'.
+        // (A previous in-place triple loop read rows of P that had already been
+        // overwritten in the same pass, corrupting P after the first row.)
         for i in 0..dim {
             for j in 0..dim {
-                k_x_t[i][j] = k[i] * x_vec[j];
-            }
-        }
-
-        // P_new = (P - k * x' * P) / λ
-        for i in 0..dim {
-            for j in 0..dim {
-                let mut kxp_ij = 0.0;
-                for l in 0..dim {
-                    kxp_ij += k_x_t[i][l] * self.p_matrix[l][j];
-                }
-                self.p_matrix[i][j] = (self.p_matrix[i][j] - kxp_ij) / lambda;
+                self.p_matrix[i][j] = (self.p_matrix[i][j] - k[i] * p_x[j]) / lambda;
             }
         }
 
@@ -232,17 +222,13 @@ pub fn fit_rls(y: &[f64], x: &[Vec<f64>], options: &RlsOptions) -> StatsResult<R
         return Err(StatsError::EmptyInput { field: "x" });
     }
 
-    let n_obs = x[0].len();
+    let n_obs = y.len();
     if n_obs == 0 {
-        return Err(StatsError::EmptyInput { field: "x[0]" });
+        return Err(StatsError::EmptyInput { field: "y" });
     }
 
-    if y.len() != n_obs {
-        return Err(StatsError::DimensionMismatch {
-            y_len: y.len(),
-            x_rows: n_obs,
-        });
-    }
+    // Every column (not just x[0]) must match y, otherwise indexing panics.
+    crate::validation::validate_x_columns(n_obs, x)?;
 
     // Filter out rows with NaN values
     let valid_indices: Vec<usize> = (0..n_obs)
@@ -259,18 +245,10 @@ pub fn fit_rls(y: &[f64], x: &[Vec<f64>], options: &RlsOptions) -> StatsResult<R
     }
 
     // Detect zero-variance (constant) columns
-    let is_constant_column: Vec<bool> = x
-        .iter()
-        .map(|col| {
-            if valid_indices.is_empty() {
-                return true;
-            }
-            let first_val = col[valid_indices[0]];
-            valid_indices
-                .iter()
-                .all(|&i| (col[i] - first_val).abs() < 1e-10)
-        })
-        .collect();
+    // Constant columns are only dropped when an intercept is fitted (see
+    // `validation::droppable_columns`); without one, a constant column IS the intercept.
+    let is_constant_column: Vec<bool> =
+        crate::validation::droppable_columns(x, &valid_indices, options.fit_intercept);
 
     // Get non-constant column indices
     let non_constant_indices: Vec<usize> = is_constant_column
@@ -455,5 +433,29 @@ mod tests {
         let pred = state.predict(&[5.0, 10.0]).unwrap();
         // Should be approximately 5 + 20 + 0.5 = 25.5
         assert!((pred - 25.5).abs() < 2.0); // Allow tolerance for multivariate
+    }
+
+    #[test]
+    fn test_fit_rls_mismatched_columns_errors() {
+        // Previously only x[0] was checked; a short x[1] panicked on indexing.
+        let y = vec![1.0, 2.0, 3.0, 4.0];
+        let x = vec![vec![1.0, 2.0, 3.0, 4.0], vec![1.0, 2.0]];
+        let r = fit_rls(&y, &x, &RlsOptions::default());
+        assert!(matches!(r, Err(StatsError::DimensionMismatch { .. })));
+    }
+
+    #[test]
+    fn test_fit_rls_no_intercept_keeps_ones_column() {
+        let x1: Vec<f64> = (1..=30).map(|i| i as f64).collect();
+        let y: Vec<f64> = x1.iter().map(|v| 2.0 * v + 1.0).collect();
+        let opts = RlsOptions {
+            forgetting_factor: 1.0,
+            fit_intercept: false,
+            initial_p_diagonal: 1e6,
+        };
+        let state = fit_rls(&y, &[vec![1.0; 30], x1], &opts).unwrap();
+        let c = state.get_coefficients();
+        assert!((c[0] - 1.0).abs() < 1e-2, "ones-column coef {}", c[0]);
+        assert!((c[1] - 2.0).abs() < 1e-2);
     }
 }
