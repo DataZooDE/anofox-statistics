@@ -48,7 +48,9 @@ pub fn chisq_test(
     options: &ChiSquareOptions,
 ) -> StatsResult<ChiSquareResult> {
     if table.is_empty() {
-        return Err(StatsError::InvalidInput("Empty contingency table".into()));
+        return Err(StatsError::InsufficientDataMsg(
+            "Empty contingency table".into(),
+        ));
     }
 
     let n_cols = table[0].len();
@@ -127,7 +129,9 @@ pub fn chisq_goodness_of_fit_uniform(observed: &[usize]) -> StatsResult<ChiSquar
 /// * `table` - Contingency table
 pub fn g_test(table: &[Vec<usize>]) -> StatsResult<ChiSquareResult> {
     if table.is_empty() {
-        return Err(StatsError::InvalidInput("Empty contingency table".into()));
+        return Err(StatsError::InsufficientDataMsg(
+            "Empty contingency table".into(),
+        ));
     }
 
     let n_cols = table[0].len();
@@ -496,7 +500,9 @@ pub fn mcnemar_test(
 /// Measures association strength for contingency tables (0 to 1).
 pub fn cramers_v(table: &[Vec<usize>]) -> StatsResult<f64> {
     if table.is_empty() {
-        return Err(StatsError::InvalidInput("Empty contingency table".into()));
+        return Err(StatsError::InsufficientDataMsg(
+            "Empty contingency table".into(),
+        ));
     }
 
     let result = lib_cramers_v(table).map_err(convert_error)?;
@@ -516,7 +522,9 @@ pub fn phi_coefficient(table: &[[usize; 2]; 2]) -> StatsResult<f64> {
 /// Measures association strength (0 to < 1).
 pub fn contingency_coef(table: &[Vec<usize>]) -> StatsResult<f64> {
     if table.is_empty() {
-        return Err(StatsError::InvalidInput("Empty contingency table".into()));
+        return Err(StatsError::InsufficientDataMsg(
+            "Empty contingency table".into(),
+        ));
     }
 
     let result = lib_contingency_coef(table).map_err(convert_error)?;
@@ -613,7 +621,7 @@ pub fn prop_test_one(
     options: &PropTestOptions,
 ) -> StatsResult<PropTestResult> {
     if trials == 0 {
-        return Err(StatsError::InvalidInput(
+        return Err(StatsError::InsufficientDataMsg(
             "Number of trials must be > 0".into(),
         ));
     }
@@ -652,7 +660,7 @@ pub fn prop_test_two(
     options: &PropTestOptions,
 ) -> StatsResult<PropTestResult> {
     if trials1 == 0 || trials2 == 0 {
-        return Err(StatsError::InvalidInput(
+        return Err(StatsError::InsufficientDataMsg(
             "Number of trials must be > 0".into(),
         ));
     }
@@ -689,7 +697,7 @@ pub fn binom_test(
     options: &PropTestOptions,
 ) -> StatsResult<PropTestResult> {
     if trials == 0 {
-        return Err(StatsError::InvalidInput(
+        return Err(StatsError::InsufficientDataMsg(
             "Number of trials must be > 0".into(),
         ));
     }

@@ -145,7 +145,7 @@ pub fn fit_bls(y: &[f64], x: &[Vec<f64>], options: &BlsOptions) -> StatsResult<B
             .tolerance(options.tolerance)
             .build()
             .fit(&x_mat, &y_col)
-            .map_err(|e| StatsError::RegressError(format!("{:?}", e)))?
+            .map_err(StatsError::from)?
     } else {
         // Custom bounds
         let mut builder = BlsRegressor::builder()
@@ -174,7 +174,7 @@ pub fn fit_bls(y: &[f64], x: &[Vec<f64>], options: &BlsOptions) -> StatsResult<B
         builder
             .build()
             .fit(&x_mat, &y_col)
-            .map_err(|e| StatsError::RegressError(format!("{:?}", e)))?
+            .map_err(StatsError::from)?
     };
 
     // Extract results

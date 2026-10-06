@@ -37,7 +37,7 @@ pub fn compute_residuals(
     let n = y.len();
 
     if n == 0 {
-        return Err(StatsError::InvalidInput("Empty y array".into()));
+        return Err(StatsError::NoValidData);
     }
 
     if y_hat.len() != n {
