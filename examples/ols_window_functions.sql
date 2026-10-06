@@ -1,384 +1,209 @@
 -- ============================================================================
--- OLS Window Functions Examples
+-- OLS Window Function Examples
 -- ============================================================================
--- Demonstrates window-based regression using OVER clause.
--- Topics: Expanding windows, rolling windows, partitioned analysis, fit_predict
+-- *_fit_predict(y, x[, options]) OVER (...) is a window aggregate: it fits on
+-- the rows of the window frame (rows with NULL y are not trained on) and
+-- returns STRUCT(yhat, yhat_lower, yhat_upper) for the LAST ROW OF THE FRAME.
+--
+-- Use frames that end at CURRENT ROW over a unique ORDER BY:
+--   ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW   (expanding)
+--   ROWS BETWEEN k PRECEDING AND CURRENT ROW           (rolling)
+-- Do NOT use:
+--   ... AND 1 PRECEDING   -- predicts the previous row, not a one-step-ahead forecast
+--   OVER (PARTITION BY g) without ORDER BY -- every row gets the same prediction
+--   RANGE frames with ties
+-- For one prediction per row of a whole group use ols_fit_predict_agg or
+-- ols_fit_predict_by (see ols_predict_agg.sql).
+--
+-- Window functions exist for ols, ridge, elasticnet, wls (extra weight
+-- argument), rls, huber, ransac and theil_sen.
 --
 -- Run: ./build/release/duckdb < examples/ols_window_functions.sql
 
 LOAD 'anofox_statistics';
 
 -- ============================================================================
--- Create Sample Time Series Dataset
+-- Sample time series (deterministic pseudo-noise for reproducibility)
 -- ============================================================================
 
 CREATE OR REPLACE TABLE stock_prices AS
 SELECT
     ticker,
     day,
-    -- Different stocks with different characteristics
     CASE ticker
-        WHEN 'TECH' THEN 100.0 + day * 1.5 + (RANDOM() * 10 - 5)
-        WHEN 'BANK' THEN 50.0 + day * 0.5 + (RANDOM() * 5 - 2.5)
-        WHEN 'RETAIL' THEN 30.0 + day * 0.3 + SIN(day * 0.2) * 5 + (RANDOM() * 3 - 1.5)
+        WHEN 'TECH'   THEN 100.0 + day * 1.5 + (((day * 37) % 11) - 5.0)
+        WHEN 'BANK'   THEN 50.0 + day * 0.5 + (((day * 17) % 7) - 3.0) * 0.8
+        WHEN 'RETAIL' THEN 30.0 + day * 0.3 + SIN(day * 0.2) * 5
     END AS price,
-    CASE ticker
-        WHEN 'TECH' THEN 1000000 + day * 10000 + (RANDOM() * 50000)::INTEGER
-        WHEN 'BANK' THEN 500000 + day * 5000 + (RANDOM() * 25000)::INTEGER
-        WHEN 'RETAIL' THEN 200000 + day * 2000 + (RANDOM() * 10000)::INTEGER
-    END AS volume
+    (CASE ticker WHEN 'TECH' THEN 1000.0 WHEN 'BANK' THEN 500.0 ELSE 200.0 END
+        + day * 10.0 + ((day * 13) % 9) * 5.0) AS volume_k
 FROM (VALUES ('TECH'), ('BANK'), ('RETAIL')) AS t(ticker),
      generate_series(1, 30) AS d(day);
 
 -- ============================================================================
--- Example 1: Expanding Window (Train on All Preceding)
+-- Example 1: Expanding window (in-sample fit on all rows up to the current one)
 -- ============================================================================
--- As you move through time, the model is trained on all historical data
 
 SELECT '=== Example 1: Expanding Window ===' AS section;
 
 SELECT
     day,
-    ROUND(price, 2) AS price,
-    ROUND(volume / 1000.0, 0) AS volume_k,
-    ROUND((pred).yhat, 2) AS predicted,
-    ROUND(price - (pred).yhat, 2) AS error
+    ROUND(price, 2)                AS price,
+    ROUND((pred).yhat, 2)          AS fitted,
+    ROUND(price - (pred).yhat, 2)  AS residual
 FROM (
     SELECT
         day,
         price,
-        volume,
-        ols_fit_predict(
-            price,
-            [volume::DOUBLE],
-            {'intercept': true}
-        ) OVER (
-            ORDER BY day
-            ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+        ols_fit_predict(price, [day::DOUBLE]) OVER (
+            ORDER BY day ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
         ) AS pred
     FROM stock_prices
     WHERE ticker = 'TECH'
 )
-WHERE day >= 5  -- Need some history first
+ORDER BY day
+LIMIT 10;
+
+-- ============================================================================
+-- Example 2: Rolling window (last 10 rows including the current one)
+-- ============================================================================
+
+SELECT '=== Example 2: Rolling Window ===' AS section;
+
+SELECT
+    day,
+    ROUND(price, 2) AS price,
+    ROUND((ols_fit_predict(price, [day::DOUBLE]) OVER (
+        ORDER BY day ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)).yhat, 2) AS fitted_expanding,
+    ROUND((ols_fit_predict(price, [day::DOUBLE]) OVER (
+        ORDER BY day ROWS BETWEEN 9 PRECEDING AND CURRENT ROW)).yhat, 2)         AS fitted_rolling_10
+FROM stock_prices
+WHERE ticker = 'RETAIL'
 ORDER BY day
 LIMIT 15;
 
 -- ============================================================================
--- Example 2: Fixed-Size Rolling Window
+-- Example 3: Partitioned windows (one rolling model per ticker)
 -- ============================================================================
--- Model trained on last N observations only (more responsive to recent trends)
 
-SELECT '=== Example 2: Rolling Window (10 days) ===' AS section;
+SELECT '=== Example 3: Partitioned Windows ===' AS section;
 
-SELECT
-    day,
-    ROUND(price, 2) AS actual,
-    ROUND((pred_expand).yhat, 2) AS expanding_pred,
-    ROUND((pred_roll).yhat, 2) AS rolling_pred,
-    ROUND(ABS(price - (pred_expand).yhat), 2) AS expand_error,
-    ROUND(ABS(price - (pred_roll).yhat), 2) AS roll_error
-FROM (
-    SELECT
-        day,
-        price,
-        -- Expanding window
-        ols_fit_predict(price, [day::DOUBLE], {'intercept': true})
-            OVER (ORDER BY day ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS pred_expand,
-        -- Rolling window (last 10 days)
-        ols_fit_predict(price, [day::DOUBLE], {'intercept': true})
-            OVER (ORDER BY day ROWS BETWEEN 9 PRECEDING AND 1 PRECEDING) AS pred_roll
-    FROM stock_prices
-    WHERE ticker = 'TECH'
-)
-WHERE day >= 12  -- Need full window
-ORDER BY day;
-
--- ============================================================================
--- Example 3: Partitioned Analysis (Per-Group Time Series)
--- ============================================================================
--- Separate model for each ticker
-
-SELECT '=== Example 3: Partitioned Analysis ===' AS section;
-
-SELECT
-    ticker,
-    day,
-    ROUND(price, 2) AS actual,
-    ROUND((pred).yhat, 2) AS predicted,
-    ROUND((pred).yhat_lower, 2) AS lower_95,
-    ROUND((pred).yhat_upper, 2) AS upper_95
-FROM (
+-- Window functions are evaluated after WHERE, so filter in an outer query.
+SELECT * FROM (
     SELECT
         ticker,
         day,
-        price,
-        ols_fit_predict(
-            price,
-            [day::DOUBLE],
-            {'intercept': true, 'confidence_level': 0.95}
-        ) OVER (
-            PARTITION BY ticker
-            ORDER BY day
-            ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
-        ) AS pred
+        ROUND(price, 2) AS price,
+        ROUND((ols_fit_predict(price, [day::DOUBLE, volume_k]) OVER (
+            PARTITION BY ticker ORDER BY day
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)).yhat, 2) AS fitted
     FROM stock_prices
 )
-WHERE day IN (15, 20, 25, 30)
+WHERE day >= 25
 ORDER BY ticker, day;
 
 -- ============================================================================
--- Example 4: Prediction Intervals
+-- Example 4: Prediction intervals from the window function
 -- ============================================================================
--- Get confidence/prediction intervals along with point estimates
 
-SELECT '=== Example 4: Prediction Intervals ===' AS section;
+SELECT '=== Example 4: Intervals ===' AS section;
 
 SELECT
     day,
-    ROUND(price, 2) AS actual,
-    ROUND((pred).yhat, 2) AS predicted,
-    ROUND((pred).yhat_lower, 2) AS ci_lower,
-    ROUND((pred).yhat_upper, 2) AS ci_upper,
-    ROUND((pred).yhat_upper - (pred).yhat_lower, 2) AS interval_width,
-    CASE WHEN price BETWEEN (pred).yhat_lower AND (pred).yhat_upper
-         THEN 'Within CI' ELSE 'Outside CI' END AS in_interval
+    ROUND(price, 2)             AS price,
+    ROUND((pred).yhat, 2)       AS fitted,
+    ROUND((pred).yhat_lower, 2) AS lower_90,
+    ROUND((pred).yhat_upper, 2) AS upper_90
 FROM (
     SELECT
         day,
         price,
-        ols_fit_predict(
-            price,
-            [day::DOUBLE],
-            {'intercept': true, 'confidence_level': 0.95}
-        ) OVER (
-            ORDER BY day
-            ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+        ols_fit_predict(price, [day::DOUBLE], {'confidence_level': 0.90}) OVER (
+            ORDER BY day ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
         ) AS pred
     FROM stock_prices
-    WHERE ticker = 'TECH'
+    WHERE ticker = 'BANK'
 )
-WHERE day >= 5
+WHERE day > 25
 ORDER BY day;
 
 -- ============================================================================
--- Example 5: Multiple Features in Window Function
+-- Example 5: Forecasting appended rows (NULL y is predicted, not trained on)
 -- ============================================================================
+-- Rows whose y is NULL are excluded from fitting but still get a prediction
+-- when they are the last row of the frame.
 
-SELECT '=== Example 5: Multiple Features ===' AS section;
+SELECT '=== Example 5: Forecast Rows with NULL y ===' AS section;
 
-SELECT
-    day,
-    ROUND(price, 2) AS actual,
-    ROUND((pred).yhat, 2) AS predicted,
-    ROUND(price - (pred).yhat, 2) AS residual
-FROM (
+WITH extended AS (
+    SELECT day, price FROM stock_prices WHERE ticker = 'TECH'
+    UNION ALL
+    SELECT day, NULL::DOUBLE FROM generate_series(31, 33) AS f(day)
+)
+SELECT * FROM (
     SELECT
         day,
-        price,
-        ols_fit_predict(
-            price,
-            [day::DOUBLE, volume::DOUBLE],  -- Two features
-            {'intercept': true}
-        ) OVER (
-            ORDER BY day
-            ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
-        ) AS pred
-    FROM stock_prices
-    WHERE ticker = 'TECH'
+        ROUND(price, 2) AS actual,
+        ROUND((ols_fit_predict(price, [day::DOUBLE]) OVER (
+            ORDER BY day ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)).yhat, 2) AS prediction
+    FROM extended
 )
-WHERE day >= 5
-ORDER BY day
-LIMIT 15;
+WHERE day >= 28
+ORDER BY day;
 
 -- ============================================================================
--- Example 6: Fixed Mode - Train Once, Predict All
+-- Example 6: Other models as window functions
 -- ============================================================================
--- Use fit_predict_mode='fixed' to fit on all training data, then predict all rows
 
-SELECT '=== Example 6: Fixed Mode (Train Once) ===' AS section;
+SELECT '=== Example 6: Ridge, Huber and WLS Windows ===' AS section;
 
--- Create dataset with training (y not null) and test (y null) rows
-CREATE OR REPLACE TABLE train_test AS
 SELECT
     day,
-    CASE WHEN day <= 20 THEN price ELSE NULL END AS y_train,
-    price AS actual,
-    volume
+    ROUND(price, 2) AS price,
+    ROUND((ridge_fit_predict(price, [day::DOUBLE], {'alpha': 1.0}) OVER w).yhat, 2) AS ridge,
+    ROUND((huber_fit_predict(price, [day::DOUBLE]) OVER w).yhat, 2)                 AS huber,
+    ROUND((wls_fit_predict(price, [day::DOUBLE], volume_k) OVER w).yhat, 2)         AS wls
 FROM stock_prices
-WHERE ticker = 'TECH';
-
-SELECT
-    day,
-    ROUND(actual, 2) AS actual,
-    ROUND((pred).yhat, 2) AS predicted,
-    CASE WHEN y_train IS NULL THEN 'Test' ELSE 'Train' END AS dataset
-FROM (
-    SELECT
-        day,
-        actual,
-        y_train,
-        ols_fit_predict(
-            y_train,
-            [day::DOUBLE],
-            {'fit_predict_mode': 'fixed', 'intercept': true}
-        ) OVER (
-            ORDER BY day
-            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-        ) AS pred
-    FROM train_test
-)
-ORDER BY day;
-
--- ============================================================================
--- Example 7: Comparing Window Sizes
--- ============================================================================
-
-SELECT '=== Example 7: Compare Window Sizes ===' AS section;
-
-SELECT
-    day,
-    ROUND((pred_5).yhat, 2) AS window_5,
-    ROUND((pred_10).yhat, 2) AS window_10,
-    ROUND((pred_20).yhat, 2) AS window_20,
-    ROUND((pred_all).yhat, 2) AS window_all
-FROM (
-    SELECT
-        day,
-        -- Window size 5
-        ols_fit_predict(price, [day::DOUBLE], {'intercept': true})
-            OVER (ORDER BY day ROWS BETWEEN 4 PRECEDING AND 1 PRECEDING) AS pred_5,
-        -- Window size 10
-        ols_fit_predict(price, [day::DOUBLE], {'intercept': true})
-            OVER (ORDER BY day ROWS BETWEEN 9 PRECEDING AND 1 PRECEDING) AS pred_10,
-        -- Window size 20
-        ols_fit_predict(price, [day::DOUBLE], {'intercept': true})
-            OVER (ORDER BY day ROWS BETWEEN 19 PRECEDING AND 1 PRECEDING) AS pred_20,
-        -- All history (expanding)
-        ols_fit_predict(price, [day::DOUBLE], {'intercept': true})
-            OVER (ORDER BY day ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS pred_all
-    FROM stock_prices
-    WHERE ticker = 'TECH'
-)
-WHERE day >= 22
-ORDER BY day;
-
--- ============================================================================
--- Example 8: Handling Missing Values (null_policy)
--- ============================================================================
-
-SELECT '=== Example 8: Handling Missing Values ===' AS section;
-
--- Create data with some missing y values
-CREATE OR REPLACE TABLE sparse_data AS
-SELECT
-    day,
-    -- Make some y values NULL
-    CASE WHEN day % 3 = 0 THEN NULL ELSE price END AS y,
-    day::DOUBLE AS x,
-    price AS actual
-FROM stock_prices
-WHERE ticker = 'TECH';
-
-SELECT
-    day,
-    ROUND(actual, 2) AS actual,
-    y IS NOT NULL AS y_present,
-    ROUND((pred).yhat, 2) AS predicted
-FROM (
-    SELECT
-        day,
-        actual,
-        y,
-        ols_fit_predict(
-            y,
-            [x],
-            {'intercept': true, 'null_policy': 'drop'}
-        ) OVER (
-            ORDER BY day
-            ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
-        ) AS pred
-    FROM sparse_data
-)
-WHERE day >= 5
+WHERE ticker = 'TECH'
+WINDOW w AS (ORDER BY day ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
 ORDER BY day
-LIMIT 15;
+LIMIT 8;
 
 -- ============================================================================
--- Example 9: One-Step-Ahead Forecasting
+-- Example 7: Coefficients over an expanding window with ols_fit_agg
 -- ============================================================================
--- Train on rows up to t-1, predict for row t
+-- ols_fit_agg can also be used as a window aggregate to track how the
+-- coefficients evolve as data accumulates.
 
-SELECT '=== Example 9: One-Step-Ahead Forecast ===' AS section;
-
-WITH forecasts AS (
-    SELECT
-        day,
-        price AS actual,
-        (pred).yhat AS forecast
-    FROM (
-        SELECT
-            day,
-            price,
-            ols_fit_predict(
-                price,
-                [day::DOUBLE],
-                {'intercept': true}
-            ) OVER (
-                ORDER BY day
-                ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
-            ) AS pred
-        FROM stock_prices
-        WHERE ticker = 'TECH'
-    )
-    WHERE day >= 5
-)
-SELECT
-    ROUND(AVG(ABS(actual - forecast)), 4) AS mae,
-    ROUND(SQRT(AVG(POW(actual - forecast, 2))), 4) AS rmse,
-    ROUND(AVG(ABS(actual - forecast) / actual) * 100, 2) AS mape_pct
-FROM forecasts;
-
--- ============================================================================
--- Example 10: Model Performance Over Time
--- ============================================================================
-
-SELECT '=== Example 10: Performance Over Time ===' AS section;
+SELECT '=== Example 7: Evolving Coefficients ===' AS section;
 
 SELECT
-    CASE
-        WHEN day <= 10 THEN 'Days 1-10'
-        WHEN day <= 20 THEN 'Days 11-20'
-        ELSE 'Days 21-30'
-    END AS period,
-    COUNT(*) AS n,
-    ROUND(AVG(ABS(actual - predicted)), 4) AS mae,
-    ROUND(SQRT(AVG(POW(actual - predicted, 2))), 4) AS rmse
-FROM (
-    SELECT
-        day,
-        price AS actual,
-        (pred).yhat AS predicted
-    FROM (
-        SELECT
-            day,
-            price,
-            ols_fit_predict(
-                price,
-                [day::DOUBLE],
-                {'intercept': true}
-            ) OVER (
-                ORDER BY day
-                ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
-            ) AS pred
-        FROM stock_prices
-        WHERE ticker = 'TECH'
-    )
-    WHERE day >= 5
-)
-GROUP BY 1
-ORDER BY 1;
+    day,
+    ROUND((ols_fit_agg(price, [day::DOUBLE]) OVER w).coefficients[1], 4) AS slope,
+    ROUND((ols_fit_agg(price, [day::DOUBLE]) OVER w).r_squared, 4)       AS r_squared
+FROM stock_prices
+WHERE ticker = 'TECH'
+WINDOW w AS (ORDER BY day ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+ORDER BY day
+LIMIT 10;
+
+-- ============================================================================
+-- One-step-ahead forecasts
+-- ============================================================================
+-- To predict each row from a model fitted on EARLIER rows only, fit with
+-- ols_fit_agg over a frame ending at 1 PRECEDING and score the current row
+-- with predict(). predict() takes feature-major x and currently raises an
+-- error when the coefficients are NULL (the first rows), so the query is
+-- shown here commented out.
+-- TODO(lead): model-aware predict
+--
+-- SELECT day, price,
+--     predict([[day::DOUBLE]],
+--             (ols_fit_agg(price, [day::DOUBLE]) OVER w).coefficients,
+--             (ols_fit_agg(price, [day::DOUBLE]) OVER w).intercept)[1] AS forecast
+-- FROM stock_prices
+-- WHERE ticker = 'TECH'
+-- WINDOW w AS (ORDER BY day ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING);
 
 -- Cleanup
 DROP TABLE IF EXISTS stock_prices;
-DROP TABLE IF EXISTS train_test;
-DROP TABLE IF EXISTS sparse_data;

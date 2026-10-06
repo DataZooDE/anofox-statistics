@@ -1,99 +1,209 @@
 # Poisson GLM
 
-Poisson regression for count data using maximum likelihood estimation via Iteratively Reweighted Least Squares (IRLS).
+Poisson regression for count data, fitted by maximum likelihood via
+Iteratively Reweighted Least Squares (IRLS).
 
 ## Functions
 
 | Function | Type | Description |
 |----------|------|-------------|
-| `poisson_fit_agg` | Aggregate | Fit Poisson GLM to count data |
-| `poisson_fit_predict_agg` | Aggregate | Fit and predict with GROUP BY support |
-| `poisson_fit_predict_by` | Table Macro | Per-group regression with long-format output |
+| `poisson_fit_agg` | Aggregate | Fit a Poisson GLM |
+| `poisson_fit_predict_agg` | Aggregate | Fit on training rows, predict every row |
+| `poisson_fit_predict_by` | Table Macro | Per-group fit + predict with long-format output |
 
-## anofox_stats_poisson_fit_agg / poisson_fit_agg
+The examples on this page use this table:
 
-Poisson regression for count data using maximum likelihood estimation.
-
-**Signature:**
 ```sql
-anofox_stats_poisson_fit_agg(
-    y DOUBLE,
-    x LIST(DOUBLE),
-    [options MAP]
-) -> STRUCT
+-- Weekly unit sales for 20 SKUs, half the weeks on promotion
+CREATE OR REPLACE TABLE demand AS
+SELECT i AS week,
+       'SKU-' || (i % 4) AS sku,
+       (i % 2)::DOUBLE AS promo,
+       ((i % 3) + 1)::DOUBLE AS shelf_facings,
+       (((i * 7) % 11) + 3 * (i % 2) + (i % 3))::DOUBLE AS qty
+FROM range(200) r(i);
 ```
 
-**Options MAP:**
+## poisson_fit_agg
+
+**Signature:**
+
+```text
+poisson_fit_agg(y DOUBLE, x DOUBLE[] [, options MAP]) -> STRUCT
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `y` | DOUBLE | Response; non-negative counts |
+| `x` | DOUBLE[] | Feature values for the row, same length on every row |
+| `options` | MAP/STRUCT | Optional; must be a constant |
+
+**Options:**
+
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| fit_intercept | BOOLEAN | true | Include intercept term |
-| link | VARCHAR | 'log' | Link function: 'log', 'identity', 'sqrt' |
-| max_iterations | INTEGER | 100 | Maximum IRLS iterations |
-| tolerance | DOUBLE | 1e-8 | Convergence tolerance |
-| compute_inference | BOOLEAN | false | Compute z-tests, p-values, CIs |
-| confidence_level | DOUBLE | 0.95 | CI confidence level |
-| glm_lambda | DOUBLE | 0.0 | L2 regularization strength (0 = no regularization) |
-| offset | INTEGER | (none) | 1-based index into `x` of a column to use as an offset. The column is added to the linear predictor with coefficient fixed at 1 and removed from the design. Values are used as-is — take logs upstream if the link requires it (e.g. `log(exposure)` for the log link). |
+| `fit_intercept` | BOOLEAN | `true` | Include an intercept term |
+| `link` | VARCHAR | `'log'` | Link function: `'log'`, `'identity'`, `'sqrt'` |
+| `max_iterations` | INTEGER | `100` | Maximum IRLS iterations |
+| `tolerance` | DOUBLE | `1e-8` | Convergence tolerance |
+| `compute_inference` | BOOLEAN | `false` | Add standard errors, z-tests, p-values and confidence intervals |
+| `confidence_level` | DOUBLE | `0.95` | Confidence level for the intervals |
+| `glm_lambda` | DOUBLE | `0.0` | L2 (ridge) penalty strength; 0 disables it |
+| `offset` | INTEGER | none | 1-based index into `x` of a column used as an offset: added to the linear predictor with coefficient fixed at 1 and removed from the design. Values are used as-is, so take logs upstream for the log link (e.g. `log(exposure)`). |
+| `feature_names`, `prior`, `vcov` | | | Explicit coefficient priors; see [Explicit priors](priors.md) |
 
-**Returns:** [GlmFitResult](../reference/return_types.md#glmfitresult-structure) STRUCT
+**Returns:**
 
-The returned STRUCT includes a `converged BOOLEAN` field reporting whether IRLS reached the convergence tolerance. `offset` and `converged` are available on all six GLM aggregates (`poisson`, `binomial`, `negbinom`, `tweedie`, `gamma`, `logistic`).
+| Field | Type | Description |
+|-------|------|-------------|
+| `coefficients` | DOUBLE[] | Feature coefficients (excluding intercept); `NaN` for an aliased column |
+| `intercept` | DOUBLE | Intercept (0 when `fit_intercept` is false) |
+| `deviance` | DOUBLE | Residual deviance |
+| `null_deviance` | DOUBLE | Deviance of the intercept-only model |
+| `pseudo_r_squared` | DOUBLE | McFadden-style deviance ratio `1 - deviance / null_deviance` |
+| `aic` | DOUBLE | Akaike information criterion |
+| `dispersion` | DOUBLE | Pearson χ² / residual df, floored at 1.0. Standard errors are scaled by it (quasi-Poisson behaviour). |
+| `n_observations` | BIGINT | Rows used in the fit |
+| `n_features` | BIGINT | Number of features |
+| `iterations` | INTEGER | IRLS iterations performed |
+| `converged` | BOOLEAN | Whether IRLS reached the tolerance |
+| `std_errors` | DOUBLE[] | Only with `compute_inference` |
+| `z_values` | DOUBLE[] | Only with `compute_inference` |
+| `p_values` | DOUBLE[] | Only with `compute_inference` |
+| `ci_lower` | DOUBLE[] | Only with `compute_inference` |
+| `ci_upper` | DOUBLE[] | Only with `compute_inference` |
 
-**Example:**
+The same struct (with `dispersion`, `iterations` and `converged`) is returned by
+all GLM aggregates: `poisson`, [`binomial`](binomial.md),
+[`negbinom`](negbinom.md), [`gamma`](gamma.md), [`tweedie`](tweedie.md); the
+[`logistic`](logistic.md) aggregate replaces `dispersion` with `accuracy` and
+`threshold`.
+
+**Examples:**
+
 ```sql
--- Basic Poisson regression for count data
-SELECT poisson_fit_agg(count, [x1, x2])
-FROM event_counts;
+-- Basic Poisson regression
+SELECT poisson_fit_agg(qty, [promo, shelf_facings]) AS fit FROM demand;
 
--- With inference and custom link
-SELECT poisson_fit_agg(
-    accidents,
-    [traffic_volume, weather_score],
-    {'compute_inference': true, 'link': 'log'}
-)
-FROM daily_accidents;
+-- With inference
+SELECT (fit).coefficients, (fit).p_values, (fit).dispersion
+FROM (
+    SELECT poisson_fit_agg(qty, [promo, shelf_facings],
+                           {'compute_inference': true}) AS fit
+    FROM demand
+);
 
--- Per-group Poisson regression
-SELECT
-    region,
-    (poisson_fit_agg(sales_count, [price, ads])).coefficients
-FROM sales_data
-GROUP BY region;
+-- One model per SKU
+SELECT sku, (poisson_fit_agg(qty, [promo])).coefficients AS coefficients
+FROM demand
+GROUP BY sku
+ORDER BY sku;
 
--- Regularized Poisson regression
-SELECT poisson_fit_agg(
-    claims,
-    [age, exposure],
-    {'glm_lambda': 0.01, 'compute_inference': true}
-)
-FROM insurance_data;
+-- Ridge-penalised fit with an exposure offset (x-column 2 holds log(exposure))
+SELECT poisson_fit_agg(qty, [promo, ln(shelf_facings)],
+                       {'glm_lambda': 0.01, 'offset': 2}) AS fit
+FROM demand;
+```
+
+## poisson_fit_predict_agg
+
+Fits on the training rows and returns one prediction per input row, in input
+order. Use it as an aggregate (`GROUP BY`) or as a window function
+(`OVER (PARTITION BY ...)`).
+
+**Signature:**
+
+```text
+poisson_fit_predict_agg(y DOUBLE, x DOUBLE[] [, options MAP])
+poisson_fit_predict_agg(y DOUBLE, x DOUBLE[], split VARCHAR [, options MAP])
+    -> LIST(STRUCT(y DOUBLE, yhat DOUBLE, yhat_lower DOUBLE,
+                   yhat_upper DOUBLE, is_training BOOLEAN))
+```
+
+A row is a training row when `y` is not NULL. With the `split` form, only rows
+whose split value is `'train'` or `'training'` (case-insensitive) and whose `y`
+is not NULL are used for training; every row still gets a prediction.
+
+**Options:** `fit_intercept`, `link`, `max_iterations`, `tolerance`,
+`confidence_level`, `glm_lambda` (as above), plus `null_policy`:
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `null_policy` | VARCHAR | `'drop'` | `'drop'`: rows with NULL `y` are predicted but not trained on. `'drop_y_zero_x'`: additionally excludes training rows with any NULL feature. |
+
+`yhat` is the predicted mean on the response scale. `yhat_lower`/`yhat_upper`
+form an approximate interval derived from the dispersion on the link scale
+(not the full coefficient uncertainty); `yhat_lower` is floored at 0. A row
+with a NULL feature gets NULL predictions.
+
+```sql
+-- Hold out the last 20 weeks: their y is passed as NULL
+SELECT p.y, round(p.yhat, 2) AS yhat, p.is_training
+FROM (
+    SELECT poisson_fit_predict_agg(
+               CASE WHEN week < 180 THEN qty END, [promo, shelf_facings]) AS preds
+    FROM demand
+), UNNEST(preds) AS u(p)
+LIMIT 5;
+```
+
+## poisson_fit_predict_by
+
+Table macro that runs `poisson_fit_predict_agg` per group and returns every
+source row with its prediction.
+
+```text
+poisson_fit_predict_by(source VARCHAR, group_col, y_col, x_cols
+                       [, options MAP] [, split VARCHAR column]) -> TABLE
+```
+
+Output: all source columns plus `yhat`, `yhat_lower`, `yhat_upper`,
+`is_training`, ordered by the group column. When a split column is given, rows
+whose split value is not `'train'` are predicted but not trained on.
+
+```sql
+SELECT sku, week, qty, round(yhat, 2) AS yhat, is_training
+FROM poisson_fit_predict_by('demand', sku, qty, [promo, shelf_facings])
+LIMIT 5;
 ```
 
 ## Link Functions
 
 | Link | Formula | Use Case |
 |------|---------|----------|
-| `log` (default) | μ = exp(Xβ) | Ensures positive predictions, multiplicative effects |
-| `identity` | μ = Xβ | Additive effects, can produce negative predictions |
+| `log` (default) | μ = exp(Xβ) | Positive predictions, multiplicative effects |
+| `identity` | μ = Xβ | Additive effects; can produce negative predictions |
 | `sqrt` | μ = (Xβ)² | Compromise between log and identity |
 
 ## Interpreting Coefficients
 
-With the log link (default):
-- Coefficients represent log rate ratios
-- exp(β) gives the multiplicative effect on the count
-- A coefficient of 0.1 means a 1-unit increase in x multiplies the expected count by exp(0.1) ≈ 1.105
+With the log link, coefficients are log rate ratios: `exp(β)` is the
+multiplicative effect on the expected count. A coefficient of 0.1 means a
+one-unit increase multiplies the expected count by exp(0.1) ≈ 1.105.
+
+If `dispersion` comes out well above 1 the data are overdispersed. The
+standard errors are already inflated by the dispersion (quasi-Poisson), but the
+point estimates still assume Poisson variance; [Negative Binomial](negbinom.md)
+models the extra variation explicitly.
+
+## NULL and Invalid Input Handling
+
+- Rows where `y` or the `x` list is NULL are skipped.
+- A NULL element inside `x`, or any non-finite value, drops that row from the fit;
+  `n_observations` reports the rows actually used.
+- All `x` lists must have the same length, otherwise an error is raised.
+- Fewer than two usable rows, a negative `y`, or a failed fit returns `NULL`.
 
 ## Use Cases
 
-- **Count data**: Events, occurrences, frequencies
-- **Rate modeling**: With exposure offsets
-- **Insurance claims**: Number of claims per policy
-- **Website analytics**: Page views, clicks
-- **Quality control**: Defect counts
-- **Epidemiology**: Disease incidence rates
+- **Count data**: events, occurrences, frequencies
+- **Rate modelling**: with an exposure `offset`
+- **Insurance**: number of claims per policy
+- **Quality control**: defect counts
 
 ## See Also
 
-- [ALM](alm.md) - Flexible distributions including negative binomial
-- [Table Macros](../macros/table_macros.md#poisson_fit_predict_by) - Per-group predictions
+- [Negative Binomial](negbinom.md) — overdispersed counts
+- [ALM](alm.md) — flexible distributions including negative binomial
+- [Mixed-effects GLMs](glmm.md) — Poisson with a random intercept
+- [Table Macros](../macros/table_macros.md#poisson_fit_predict_by)

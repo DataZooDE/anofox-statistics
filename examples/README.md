@@ -1,6 +1,6 @@
-# anofox_stats Examples
+# anofox-statistics Examples
 
-This directory contains SQL and Python examples demonstrating the `anofox_stats` DuckDB extension for statistical modeling.
+This directory contains SQL and Python examples demonstrating the `anofox_statistics` DuckDB extension for statistical modeling.
 
 ## Directory Structure
 
@@ -15,7 +15,7 @@ examples/
 ├── ols_single_series.sql              # Single series OLS: fit, inference, prediction
 ├── ols_multiple_series.sql            # GROUP BY regression: per-group models
 ├── ols_window_functions.sql           # Window functions: expanding, rolling, partitioned
-├── ols_predict_agg.sql                # Predict aggregate: fit once, predict all
+├── ols_predict_agg.sql                # ols_fit_predict_agg: fit once, predict all
 ├── ols_inference.sql                  # Statistical inference: t-tests, p-values, CIs
 ├── ols_diagnostics.sql                # Diagnostics: VIF, Jarque-Bera, AIC/BIC
 │
@@ -55,7 +55,7 @@ Build and install the extension from the project root:
 make release
 ```
 
-The extension binary is located at `build/release/extension/anofox_stats/anofox_stats.duckdb_extension`.
+The extension binary is located at `build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension`.
 
 ### Python Environment (Optional)
 
@@ -80,8 +80,8 @@ uv pip install duckdb pandas
 Demonstrates the core workflow: fitting an OLS model via aggregation, making predictions, and using window functions.
 
 **Functions demonstrated:**
-- `anofox_stats_ols_fit_agg`: Aggregate function for GROUP BY model fitting
-- `anofox_stats_ols_fit_predict`: Window function for expanding/rolling predictions
+- `ols_fit_agg`: Aggregate function for GROUP BY model fitting
+- `ols_fit_predict`: Window function for expanding/rolling in-sample fits
 - Manual prediction using stored coefficients: `intercept + coef[1]*x1 + coef[2]*x2 + ...`
 
 **Run:**
@@ -113,11 +113,11 @@ python examples/model_prediction_demo.py
 
 ### Extended Demo: example-fit-predict-ols.sql
 
-Comprehensive examples of OLS window function usage including:
-- Expanding window predictions
-- Fixed-size rolling window predictions
-- Handling NULL values
-- Extracting model diagnostics (R-squared, MSE, standard errors)
+Examples of per-row OLS predictions including:
+- Train/test split via NULL `y` and via a split column (`ols_fit_predict_agg`)
+- The `ols_fit_predict_by` table macro
+- Expanding vs rolling windows (`ols_fit_predict`)
+- Prediction intervals and inference
 
 **Run:**
 
@@ -134,7 +134,7 @@ Complete runnable examples covering all OLS API functionality. Each file demonst
 | `ols_single_series.sql` | Single dataset regression | Basic fit, inference, prediction, diagnostics |
 | `ols_multiple_series.sql` | Per-group regression (GROUP BY) | `ols_fit_agg`, coefficient comparison, hierarchical groups |
 | `ols_window_functions.sql` | Time series / rolling regression | Expanding, rolling, partitioned windows, `ols_fit_predict` |
-| `ols_predict_agg.sql` | Train once, predict all | `ols_predict_agg`, `null_policy`, training vs prediction rows |
+| `ols_predict_agg.sql` | Train once, predict all | `ols_fit_predict_agg`, `ols_fit_predict_by`, `null_policy`, training vs prediction rows |
 | `ols_inference.sql` | Statistical inference | t-tests, p-values, confidence intervals, F-statistic |
 | `ols_diagnostics.sql` | Model diagnostics | VIF, Jarque-Bera normality, AIC/BIC, residual analysis |
 
@@ -164,20 +164,20 @@ Complete runnable examples covering all OLS API functionality. Each file demonst
 
 **Single Series** (`ols_single_series.sql`):
 ```sql
--- Basic OLS fit with array inputs
-SELECT * FROM ols_fit(
+-- Scalar OLS fit: y DOUBLE[], x DOUBLE[][] (column-major: one inner list per feature)
+SELECT ols_fit(
     [10.0, 15.0, 20.0, 25.0, 30.0]::DOUBLE[],
-    [[1.0], [2.0], [3.0], [4.0], [5.0]]::DOUBLE[][],
-    {'intercept': true}
+    [[1.0, 2.0, 3.0, 4.0, 5.0]]::DOUBLE[][],
+    {'fit_intercept': true}
 );
 ```
 
 **Per-Group Regression** (`ols_multiple_series.sql`):
 ```sql
 -- Fit separate model per category
-SELECT category, (result).coefficients[1] AS price_effect, (result).r2
+SELECT category, (result).coefficients[1] AS price_effect, (result).r_squared
 FROM (
-    SELECT category, ols_fit_agg(sales, [price], {'intercept': true}) AS result
+    SELECT category, ols_fit_agg(sales, [price]) AS result
     FROM sales_data
     GROUP BY category
 ) sub;
@@ -185,36 +185,30 @@ FROM (
 
 **Window Functions** (`ols_window_functions.sql`):
 ```sql
--- Expanding window: train on all preceding rows
-SELECT ols_fit_predict(y, [x], {'intercept': true})
-    OVER (ORDER BY time ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)
+-- The window function predicts the LAST ROW of the frame: end frames at CURRENT ROW.
+-- Expanding window: in-sample fit on all rows up to the current one
+SELECT (ols_fit_predict(y, [x]) OVER (ORDER BY time ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)).yhat
 FROM data;
 
--- Rolling window: train on last 10 rows
-SELECT ols_fit_predict(y, [x], {'intercept': true})
-    OVER (ORDER BY time ROWS BETWEEN 9 PRECEDING AND 1 PRECEDING)
+-- Rolling window: the last 10 rows including the current one
+SELECT (ols_fit_predict(y, [x]) OVER (ORDER BY time ROWS BETWEEN 9 PRECEDING AND CURRENT ROW)).yhat
 FROM data;
 ```
 
-**Predict Aggregate** (`ols_predict_agg.sql`):
+**Fit-Predict Aggregate** (`ols_predict_agg.sql`):
 ```sql
--- Fit once per group, predict all rows (including future)
-SELECT store_id, UNNEST(ols_predict_agg(sales, [marketing_spend])) AS pred
+-- Fit once per group on rows with non-NULL y, predict all rows (including future rows with NULL y)
+SELECT store_id, UNNEST(ols_fit_predict_agg(sales, [marketing_spend])) AS pred
 FROM data
 GROUP BY store_id;
--- Returns: y, x, yhat, yhat_lower, yhat_upper, is_training
+-- Each element: y, yhat, yhat_lower, yhat_upper, is_training
 ```
 
 **Statistical Inference** (`ols_inference.sql`):
 ```sql
--- Full inference with significance stars
-SELECT
-    coefficients[1] AS estimate,
-    coefficient_p_values[1] AS p_value,
-    CASE WHEN coefficient_p_values[1] < 0.001 THEN '***'
-         WHEN coefficient_p_values[1] < 0.01 THEN '**'
-         WHEN coefficient_p_values[1] < 0.05 THEN '*' ELSE '' END AS sig
-FROM ols_fit(y_arr, x_arr, {'intercept': true, 'full_output': true});
+-- Inference fields exist only with compute_inference
+SELECT fit.coefficients[1] AS estimate, fit.p_values[1] AS p_value
+FROM (SELECT ols_fit_agg(y, [x1, x2], {'compute_inference': true}) AS fit FROM data);
 ```
 
 **Diagnostics** (`ols_diagnostics.sql`):
@@ -222,8 +216,9 @@ FROM ols_fit(y_arr, x_arr, {'intercept': true, 'full_output': true});
 -- VIF for multicollinearity
 SELECT vif_agg([x1, x2, x3]) AS vif_values FROM data;
 
--- Jarque-Bera normality test
-SELECT (jarque_bera(residuals)).p_value AS normality_p FROM fitted;
+-- Jarque-Bera normality test on residuals
+SELECT (jarque_bera_agg(y - yhat)).p_value AS normality_p
+FROM ols_fit_predict_by('data', grp, y, [x]);
 
 -- AIC/BIC for model comparison
 SELECT aic(rss, n, k), bic(rss, n, k) FROM model_stats;
@@ -286,7 +281,7 @@ FROM sales_data;
 
 **Location:** `examples/performance_10k_groups_R/`
 
-Compares `anofox_stats_ols_fit_predict` window function against R's `lm()` function with equivalent semantics.
+Compares `ols_fit_predict` window function against R's `lm()` function with equivalent semantics.
 
 **Dataset:**
 - 10,000 groups
@@ -346,11 +341,11 @@ See `examples/performance_10k_groups_R/README.md` for detailed methodology and r
 Stress tests for all regression methods with 1 million groups (100 million rows).
 
 **Methods tested:**
-- OLS (`anofox_stats_ols_fit_predict`)
-- Ridge (`anofox_stats_ridge_fit_predict`)
-- WLS (`anofox_stats_wls_fit_predict`)
-- RLS (`anofox_stats_rls_fit_predict`)
-- Elastic Net (`anofox_stats_elasticnet_fit_predict`)
+- OLS (`ols_fit_predict`)
+- Ridge (`ridge_fit_predict`)
+- WLS (`wls_fit_predict`)
+- RLS (`rls_fit_predict`)
+- Elastic Net (`elasticnet_fit_predict`)
 
 **Run individual benchmark:**
 
@@ -380,15 +375,20 @@ See `examples/performance_1m_groups/README.md` for detailed methodology.
 
 ## Function Reference
 
+The full reference is in [docs/API_REFERENCE.md](../docs/API_REFERENCE.md) and [docs/api/](../docs/api/).
+
 ### Aggregate Functions
 
 ```sql
 -- Fit OLS model via GROUP BY
-SELECT anofox_stats_ols_fit_agg(y, [x1, x2, ...]) AS model
+SELECT ols_fit_agg(y, [x1, x2, ...]) AS model
 FROM data
 GROUP BY group_id;
 
--- Returns STRUCT with: intercept, coefficients[], r2, mse, n_obs
+-- Returns STRUCT with: coefficients[], intercept, r_squared, adj_r_squared,
+-- residual_std_error, n_observations, n_features
+-- (+ std_errors, t_values, p_values, ci_lower, ci_upper, f_statistic, f_pvalue
+--  with {'compute_inference': true})
 ```
 
 ### Prediction from Stored Coefficients
@@ -401,42 +401,42 @@ SELECT intercept + coefficients[1] * x1 + coefficients[2] * x2 AS yhat;
 ### Window Functions
 
 ```sql
--- Expanding window (train on all preceding rows)
-SELECT anofox_stats_ols_fit_predict(
-    y,
-    [x1, x2, ...],
-    {'fit_intercept': true}
-) OVER (
+-- Expanding window (in-sample fit on all rows up to the current one)
+SELECT ols_fit_predict(y, [x1, x2, ...]) OVER (
     PARTITION BY group_id
     ORDER BY time
-    ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+    ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
 ) AS pred
 FROM data;
 
--- Fixed window (train on last N rows)
-SELECT anofox_stats_ols_fit_predict(
-    y,
-    [x1, x2, ...],
-    {'fit_intercept': true}
-) OVER (
+-- Rolling window (last 50 rows including the current one)
+SELECT ols_fit_predict(y, [x1, x2, ...]) OVER (
     PARTITION BY group_id
     ORDER BY time
-    ROWS BETWEEN 50 PRECEDING AND 1 PRECEDING
+    ROWS BETWEEN 49 PRECEDING AND CURRENT ROW
 ) AS pred
 FROM data;
 
--- Returns STRUCT with: yhat, std_error, r2, mse, n_obs
+-- Returns STRUCT with: yhat, yhat_lower, yhat_upper (for the last row of the frame)
 ```
+
+Frames that end before the current row (`... AND 1 PRECEDING`) do not give a
+one-step-ahead forecast, and `OVER (PARTITION BY g)` without `ORDER BY` gives
+every row the same prediction. Use `ols_fit_predict_agg` / `ols_fit_predict_by`
+for one prediction per row of a whole group.
 
 ### Available Window Functions
 
 | Function | Description |
 |----------|-------------|
-| `anofox_stats_ols_fit_predict` | Ordinary Least Squares |
-| `anofox_stats_ridge_fit_predict` | Ridge regression (L2 penalty) |
-| `anofox_stats_wls_fit_predict` | Weighted Least Squares |
-| `anofox_stats_rls_fit_predict` | Recursive Least Squares (exponential weighting) |
-| `anofox_stats_elasticnet_fit_predict` | Elastic Net (L1 + L2 penalty) |
+| `ols_fit_predict` | Ordinary Least Squares |
+| `ridge_fit_predict` | Ridge regression (L2 penalty) |
+| `elasticnet_fit_predict` | Elastic Net (L1 + L2 penalty) |
+| `wls_fit_predict` | Weighted Least Squares (weight is the third argument) |
+| `rls_fit_predict` | Recursive Least Squares (exponential weighting) |
+| `huber_fit_predict` | Huber robust regression |
+| `ransac_fit_predict` | RANSAC robust regression |
+| `theil_sen_fit_predict` | Theil-Sen robust regression |
 
 ## Troubleshooting
 
@@ -449,7 +449,7 @@ Ensure the extension is built and in the search path:
 make release
 
 # Or load explicitly in DuckDB
-LOAD 'build/release/extension/anofox_stats/anofox_stats.duckdb_extension';
+LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
 ```
 
 ### Python Import Errors

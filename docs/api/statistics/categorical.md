@@ -9,7 +9,7 @@ Statistical tests and association measures for categorical data.
 Chi-square test of independence for categorical variables.
 
 **Signature:**
-```sql
+```text
 chisq_test_agg(row_var INTEGER, col_var INTEGER, [options MAP]) -> STRUCT
 ```
 
@@ -30,13 +30,19 @@ STRUCT(
 
 **Example:**
 ```sql
--- Test independence of two categorical variables
-SELECT (chisq_test_agg(gender, preference)).*
-FROM survey;
+-- Survey: gender (0/1) vs preferred product (0/1/2)
+CREATE OR REPLACE TABLE survey AS
+SELECT (i % 2)::INTEGER AS gender,
+       (CASE WHEN i % 2 = 0 THEN (i * 7) % 3 ELSE least(2, (i * 7) % 4) END)::INTEGER AS preference
+FROM range(120) r(i);
 
--- With Yates correction for 2x2 tables
-SELECT chisq_test_agg(group, outcome, {'correction': true})
-FROM clinical_data;
+-- Test independence of two categorical variables
+SELECT unnest(chisq_test_agg(gender, preference)) FROM survey;
+
+-- With Yates correction for a 2x2 table
+SELECT chisq_test_agg(arm, outcome, {'correction': true}) AS result
+FROM (VALUES (0, 1), (0, 1), (0, 0), (0, 1), (0, 0), (0, 1), (0, 1), (0, 1),
+             (1, 0), (1, 0), (1, 1), (1, 0), (1, 0), (1, 0), (1, 1), (1, 0)) t(arm, outcome);
 ```
 
 ### g_test_agg
@@ -44,7 +50,7 @@ FROM clinical_data;
 G-test (log-likelihood ratio test) for contingency tables.
 
 **Signature:**
-```sql
+```text
 g_test_agg(row_var INTEGER, col_var INTEGER) -> STRUCT
 ```
 
@@ -63,7 +69,7 @@ STRUCT(
 Fisher's exact test for 2x2 contingency tables. Exact test for small samples.
 
 **Signature:**
-```sql
+```text
 fisher_exact_agg(row_var INTEGER, col_var INTEGER, [options MAP]) -> STRUCT
 ```
 
@@ -75,30 +81,36 @@ fisher_exact_agg(row_var INTEGER, col_var INTEGER, [options MAP]) -> STRUCT
 **Returns:**
 ```
 STRUCT(
-    odds_ratio DOUBLE,   -- Odds ratio
+    statistic DOUBLE,    -- Test statistic (the sample odds ratio)
     p_value DOUBLE,      -- p-value
-    ci_lower DOUBLE,     -- CI lower bound
-    ci_upper DOUBLE,     -- CI upper bound
-    method VARCHAR       -- "Fisher's Exact Test"
+    odds_ratio DOUBLE,   -- Odds ratio
+    ci_lower DOUBLE,     -- CI lower bound for the odds ratio
+    ci_upper DOUBLE,     -- CI upper bound for the odds ratio
+    n BIGINT,            -- Sample size
+    method VARCHAR       -- "Fisher's exact test"
 )
 ```
 
 **Example:**
 ```sql
 -- Fisher's exact test for small samples
-SELECT (fisher_exact_agg(treatment, outcome)).*
-FROM small_study;
+SELECT unnest(fisher_exact_agg(treatment, outcome))
+FROM (VALUES (1, 1), (1, 1), (1, 1), (1, 0), (1, 1),
+             (0, 0), (0, 0), (0, 1), (0, 0), (0, 0)) small_study(treatment, outcome);
 ```
 
 ## Goodness of Fit
 
 ### chisq_gof_agg
 
-Chi-square goodness of fit test. Tests whether observed frequencies match expected.
+Chi-square goodness of fit test. Tests whether observed frequencies match
+expected proportions. One row per category: the observed count and the
+expected **probability** of that category (the probabilities must sum to 1;
+otherwise the result is `NULL`).
 
 **Signature:**
-```sql
-chisq_gof_agg(observed INTEGER, expected DOUBLE) -> STRUCT
+```text
+chisq_gof_agg(observed BIGINT, expected_prob DOUBLE) -> STRUCT
 ```
 
 **Returns:**
@@ -113,9 +125,10 @@ STRUCT(
 
 **Example:**
 ```sql
--- Test if observed frequencies match expected
-SELECT (chisq_gof_agg(observed_count, expected_count)).*
-FROM frequency_data;
+-- Is a four-sided die fair?
+SELECT unnest(chisq_gof_agg(observed_count, expected_prob))
+FROM (VALUES (18, 0.25), (22, 0.25), (29, 0.25), (31, 0.25))
+     frequency_data(observed_count, expected_prob);
 ```
 
 ## Paired Data
@@ -125,20 +138,24 @@ FROM frequency_data;
 McNemar's test for paired nominal data. Tests marginal homogeneity in 2x2 tables.
 
 **Signature:**
-```sql
-mcnemar_agg(var1 INTEGER, var2 INTEGER, [options MAP]) -> STRUCT
+```text
+mcnemar_agg(var1 BIGINT, var2 BIGINT [, options MAP]) -> STRUCT
 ```
 
-**Options:**
+Returns `STRUCT(statistic DOUBLE, p_value DOUBLE, df BIGINT, method VARCHAR)`.
+
+**Options** (pass as a `MAP {...}` literal):
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | correction | BOOLEAN | true | Apply continuity correction |
 
 **Example:**
 ```sql
--- Before/after comparison
-SELECT (mcnemar_agg(before_treatment, after_treatment)).*
-FROM paired_study;
+-- Before/after comparison (1 = symptom present)
+SELECT unnest(mcnemar_agg(before_treatment, after_treatment))
+FROM (SELECT CASE WHEN i < 30 THEN 1 ELSE 0 END AS before_treatment,
+             CASE WHEN i < 10 OR i BETWEEN 30 AND 34 THEN 1 ELSE 0 END AS after_treatment
+      FROM range(60) r(i)) paired_study;
 ```
 
 ## Effect Size Measures
@@ -148,19 +165,14 @@ FROM paired_study;
 Cramér's V - effect size for chi-square tests (0 to 1).
 
 **Signature:**
-```sql
-cramers_v_agg(row_var INTEGER, col_var INTEGER) -> STRUCT
+```text
+cramers_v_agg(row_var BIGINT, col_var BIGINT) -> DOUBLE
 ```
 
-**Returns:**
-```
-STRUCT(
-    v DOUBLE,            -- Cramér's V (0 to 1)
-    chi_sq DOUBLE,       -- Chi-square statistic
-    df BIGINT,           -- Degrees of freedom
-    n BIGINT,            -- Sample size
-    method VARCHAR       -- "Cramér's V"
-)
+**Returns:** Cramér's V as a `DOUBLE` in `[0, 1]`.
+
+```sql
+SELECT cramers_v_agg(gender, preference) AS v FROM survey;
 ```
 
 **Interpretation:**
@@ -173,8 +185,15 @@ STRUCT(
 Phi coefficient for 2x2 tables (-1 to 1).
 
 **Signature:**
+```text
+phi_coefficient_agg(row_var BIGINT, col_var BIGINT) -> DOUBLE
+```
+
+**Returns:** the phi coefficient as a `DOUBLE` in `[-1, 1]`.
+
 ```sql
-phi_coefficient_agg(row_var INTEGER, col_var INTEGER) -> STRUCT
+SELECT phi_coefficient_agg(a, b) AS phi
+FROM (VALUES (1, 1), (1, 1), (1, 0), (0, 0), (0, 0), (0, 1), (1, 1), (0, 0)) t(a, b);
 ```
 
 ### contingency_coef_agg
@@ -182,8 +201,14 @@ phi_coefficient_agg(row_var INTEGER, col_var INTEGER) -> STRUCT
 Contingency coefficient (Pearson's C).
 
 **Signature:**
+```text
+contingency_coef_agg(row_var BIGINT, col_var BIGINT) -> DOUBLE
+```
+
+**Returns:** Pearson's contingency coefficient C as a `DOUBLE` in `[0, 1)`.
+
 ```sql
-contingency_coef_agg(row_var INTEGER, col_var INTEGER) -> STRUCT
+SELECT contingency_coef_agg(gender, preference) AS c FROM survey;
 ```
 
 ### cohen_kappa_agg
@@ -191,9 +216,15 @@ contingency_coef_agg(row_var INTEGER, col_var INTEGER) -> STRUCT
 Cohen's kappa for inter-rater agreement.
 
 **Signature:**
-```sql
-cohen_kappa_agg(rater1 INTEGER, rater2 INTEGER) -> STRUCT
+```text
+cohen_kappa_agg(rater1 BIGINT, rater2 BIGINT [, options MAP]) -> STRUCT
 ```
+
+**Options** (pass as a `MAP {...}` literal):
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| weighted | BOOLEAN | false | Weighted kappa for ordinal categories |
 
 **Returns:**
 ```
@@ -203,9 +234,13 @@ STRUCT(
     ci_lower DOUBLE,     -- CI lower bound
     ci_upper DOUBLE,     -- CI upper bound
     z DOUBLE,            -- Z-statistic
-    p_value DOUBLE,      -- p-value
-    method VARCHAR       -- "Cohen's Kappa"
+    p_value DOUBLE       -- p-value
 )
+```
+
+```sql
+SELECT unnest(cohen_kappa_agg(r1, r2))
+FROM (VALUES (1, 1), (2, 2), (3, 3), (1, 2), (2, 2), (3, 3), (1, 1), (3, 2), (2, 2), (1, 1)) t(r1, r2);
 ```
 
 **Interpretation:**
@@ -224,14 +259,16 @@ STRUCT(
 One-sample proportion test.
 
 **Signature:**
-```sql
-prop_test_one_agg(success INTEGER, [options MAP]) -> STRUCT
+```text
+prop_test_one_agg(value BIGINT [, options MAP]) -> STRUCT
 ```
 
-**Options:**
+`value` is 1 for a success and 0 for a failure, one row per trial.
+
+**Options** (pass as a `MAP {...}` literal):
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| p0 | DOUBLE | 0.5 | Null hypothesis proportion |
+| p0 (alias `p`) | DOUBLE | 0.5 | Null hypothesis proportion |
 | alternative | VARCHAR | 'two_sided' | 'two_sided', 'less', 'greater' |
 
 ### prop_test_two_agg
@@ -239,8 +276,23 @@ prop_test_one_agg(success INTEGER, [options MAP]) -> STRUCT
 Two-sample proportion test.
 
 **Signature:**
+```text
+prop_test_two_agg(value BIGINT, group_id BIGINT [, options MAP]) -> STRUCT
+```
+
+**Options** (pass as a `MAP {...}` literal):
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| alternative | VARCHAR | 'two_sided' | 'two_sided', 'less', 'greater' |
+| correction | BOOLEAN | true | Continuity correction |
+
+Both proportion tests return `STRUCT(statistic DOUBLE, p_value DOUBLE,
+estimate DOUBLE, ci_lower DOUBLE, ci_upper DOUBLE, n BIGINT, method VARCHAR)`.
+
 ```sql
-prop_test_two_agg(success INTEGER, group_id INTEGER, [options MAP]) -> STRUCT
+SELECT unnest(prop_test_one_agg(success, MAP {'p0': 0.3}))
+FROM (SELECT CASE WHEN i % 5 < 2 THEN 1 ELSE 0 END AS success FROM range(100) r(i));
 ```
 
 ### binom_test_agg
@@ -248,7 +300,7 @@ prop_test_two_agg(success INTEGER, group_id INTEGER, [options MAP]) -> STRUCT
 Exact binomial test.
 
 **Signature:**
-```sql
+```text
 binom_test_agg(success INTEGER, [options MAP]) -> STRUCT
 ```
 

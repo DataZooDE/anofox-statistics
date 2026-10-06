@@ -36,7 +36,7 @@ SELECT
     group_id,
     (pred).y AS actual,
     ROUND((pred).yhat, 2) AS predicted,
-    (pred).is_training
+    (pred).is_training AS is_training
 FROM (
     SELECT
         group_id,
@@ -48,7 +48,7 @@ FROM (
     GROUP BY group_id
 ) sub
 WHERE group_id = 1
-ORDER BY (pred).x[1];
+ORDER BY (pred).yhat;
 
 -- ============================================================================
 -- Example 2: Box-Constrained Regression
@@ -60,7 +60,7 @@ SELECT '=== Example 2: Box-Constrained BLS ===' AS section;
 SELECT
     group_id,
     ROUND((pred).yhat, 2) AS predicted,
-    (pred).is_training
+    (pred).is_training AS is_training
 FROM (
     SELECT
         group_id,

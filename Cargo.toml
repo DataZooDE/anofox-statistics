@@ -6,9 +6,9 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.1.0"
+version = "0.10.0"
 edition = "2021"
-license = "MIT"
+license = "BUSL-1.1"
 authors = ["Simon M"]
 repository = "https://github.com/DataZooDE/anofox-statistics"
 

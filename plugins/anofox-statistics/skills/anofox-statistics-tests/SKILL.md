@@ -19,7 +19,7 @@ user-invocable: false
 
 # Anofox Statistics — Hypothesis Tests Cheat Sheet
 
-**Extension:** `anofox_statistics` v0.10.0 | **DuckDB:** v1.4.5 LTS / v1.5.4+ | Tests are **aggregates** — use with `GROUP BY` for per-segment tests.
+**Extension:** `anofox_statistics` v0.10.0 | **DuckDB:** v1.4.5 LTS / v1.5.x | Tests are **aggregates** — use with `GROUP BY` for per-segment tests.
 
 ## Gotchas
 
@@ -109,18 +109,25 @@ user-invocable: false
 ## Worked examples
 
 ```sql
--- Two-sample t-test between two groups' values
+-- Paired columns: control and treatment measured on the same units
 CREATE TABLE ab AS SELECT * FROM (VALUES
   (10.1, 12.3),(9.8, 11.9),(10.5, 12.8),(10.0, 12.1),(9.9, 12.0)
 ) t(control, treatment);
-SELECT (t_test_agg(control, treatment)).* FROM ab;
+-- Two-sample t-test takes long format: t_test_agg(value DOUBLE, group_id INTEGER[, options])
+SELECT r.statistic, r.p_value
+FROM (
+  SELECT t_test_agg(value, group_id) AS r
+  FROM (SELECT control::DOUBLE AS value, 0 AS group_id FROM ab
+        UNION ALL
+        SELECT treatment::DOUBLE, 1 FROM ab)
+);
 ```
 
 ```sql
 -- Pearson and Spearman correlation (both aggregate forms)
 SELECT
-  (pearson_agg(control, treatment)).statistic   AS pearson_r,
-  (spearman_agg(control, treatment)).statistic  AS spearman_rho
+  (pearson_agg(control, treatment)).r   AS pearson_r,
+  (spearman_agg(control, treatment)).r  AS spearman_rho
 FROM ab;
 ```
 

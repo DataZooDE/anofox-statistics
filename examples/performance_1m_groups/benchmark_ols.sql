@@ -14,9 +14,9 @@ WITH test_data AS (
     FROM generate_series(1, 100000000) t(i)
 )
 SELECT COUNT(*) AS total_predictions FROM (
-    SELECT anofox_stats_ols_fit_predict(y, [x1, x2, x3], {'fit_intercept': true}) OVER (
+    SELECT ols_fit_predict(y, [x1, x2, x3], {'fit_intercept': true}) OVER (
         PARTITION BY group_id ORDER BY row_num
-        ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
     ) AS pred
     FROM test_data
 ) t WHERE pred IS NOT NULL;

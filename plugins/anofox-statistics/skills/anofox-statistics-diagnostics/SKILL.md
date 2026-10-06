@@ -16,7 +16,7 @@ user-invocable: false
 
 # Anofox Statistics — Diagnostics Cheat Sheet
 
-**Extension:** `anofox_statistics` v0.10.0 | **DuckDB:** v1.4.5 LTS / v1.5.4+
+**Extension:** `anofox_statistics` v0.10.0 | **DuckDB:** v1.4.5 LTS / v1.5.x
 
 Diagnostics answer "is this fit trustworthy?" — run them after fitting a model (see **anofox-statistics-regression**).
 
@@ -25,23 +25,24 @@ Diagnostics answer "is this fit trustworthy?" — run them after fitting a model
 | Function | Type | Purpose |
 |---|---|---|
 | `vif`, `vif_agg` | scalar / aggregate | Variance Inflation Factor per predictor — detect multicollinearity |
-| `aic` | scalar | Akaike Information Criterion for model selection |
-| `bic` | scalar | Bayesian Information Criterion for model selection |
+| `aic(rss, n, k)` | scalar | Akaike Information Criterion for model selection |
+| `bic(rss, n, k)` | scalar | Bayesian Information Criterion for model selection |
+| `jarque_bera(values[])`, `jarque_bera_agg(value)` | scalar / aggregate | Jarque-Bera normality test (`statistic`, `p_value`, `skewness`, `kurtosis`, `n`) |
 | `residuals_diagnostics`, `residuals_diagnostics_agg` | scalar / aggregate | Residual analysis: `raw`, `standardized`, `studentized`, `leverage` arrays |
-| `aid_agg`, `aid_by` | aggregate / table macro | Demand-pattern classification (smooth / erratic / intermittent / lumpy) |
-| `aid_anomaly_agg`, `aid_anomaly_by` | aggregate / table macro | Anomaly / influence detection on the series |
+| `aid_agg`, `aid_by` | aggregate / table macro | Demand classification: `demand_type` is `regular` or `intermittent`, plus distribution, zero proportion, stockout / new / obsolete product and outlier counts |
+| `aid_anomaly_agg`, `aid_anomaly_by` | aggregate / table macro | Per-observation flags: `stockout`, `new_product`, `obsolete_product`, `high_outlier`, `low_outlier` |
 
 ## Interpretation guidance
 
 - **VIF:** > 5 warns of multicollinearity, > 10 is severe — consider dropping/combining collinear predictors or switching to Ridge/Elastic Net.
-- **AIC / BIC:** lower is better; compare *nested or same-data* models. BIC penalizes complexity harder than AIC. GLM result structs already carry `aic` / `bic` fields.
+- **AIC / BIC:** lower is better; compare *nested or same-data* models. BIC penalizes complexity harder than AIC. GLM result structs already carry an `aic` field; AFT and ALM results carry both `aic` and `bic`.
 - **Residuals:** `standardized`/`studentized` residuals with |value| > 2–3 flag potential outliers; high `leverage` flags influential x-positions. Structure in residuals ⇒ mis-specified model.
-- **AID demand classes:** use before forecasting/choosing a model — intermittent/lumpy series need count/intermittent methods rather than plain OLS.
+- **AID demand classes:** use before forecasting/choosing a model — intermittent series (many zeros; threshold `intermittent_threshold`, default 0.3) need count/intermittent methods rather than plain OLS.
 
 ## Return fields
 
-- `residuals_diagnostics_agg(actual, predicted)` → STRUCT with `raw DOUBLE[]`, `standardized DOUBLE[]`, `studentized DOUBLE[]`, `leverage DOUBLE[]`.
-- `vif_agg(y, [x1, x2, …])` → per-predictor VIF array.
+- `residuals_diagnostics_agg(y, y_hat[, x])` → STRUCT with `raw DOUBLE[]`, `standardized DOUBLE[]`, `studentized DOUBLE[]`, `leverage DOUBLE[]` (leverage needs the `x` argument). In the current build the aggregate returns NULL `standardized` / `studentized`; for those use the scalar full form `residuals_diagnostics(y[], y_hat[], x[][], residual_std_error, true)` (x column-major).
+- `vif_agg([x1, x2, …])` → per-predictor VIF array (`vif(X)` is the scalar form on column-major arrays).
 
 ## Worked examples
 
@@ -61,10 +62,19 @@ WITH preds AS (
 SELECT (residuals_diagnostics_agg(actual, yhat)).raw AS raw_residuals FROM preds;
 ```
 
-```sql skip
--- Multicollinearity check and model-selection comparison
-SELECT vif_agg(y, [x1, x2, x3]) AS vifs FROM design;
+```sql
+-- Multicollinearity check (x3 is nearly x1 + x2)
+SELECT vif_agg([x1, x2, x3]) AS vifs
+FROM (SELECT i::DOUBLE AS x1, (i % 7)::DOUBLE AS x2, (i + (i % 7) + (i % 2) * 0.1)::DOUBLE AS x3
+      FROM range(1, 51) t(i));
+
+-- Model selection from RSS
+SELECT aic(12.5, 100, 3) AS aic, bic(12.5, 100, 3) AS bic;
 
 -- AID demand-pattern classification per SKU
-SELECT sku, (aid_agg(demand)).* FROM sales GROUP BY sku;
+SELECT sku, (aid_agg(demand)).demand_type AS demand_type
+FROM (SELECT 'sku' || (i % 2) AS sku,
+             CASE WHEN i % 2 = 0 THEN 10.0 + (i % 4) WHEN i % 5 = 0 THEN 3.0 ELSE 0.0 END AS demand
+      FROM range(1, 61) t(i))
+GROUP BY sku ORDER BY sku;
 ```

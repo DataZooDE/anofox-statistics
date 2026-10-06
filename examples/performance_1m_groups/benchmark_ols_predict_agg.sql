@@ -2,7 +2,7 @@
 -- This benchmark tests the non-rolling predict aggregate function that:
 -- - Fits model once per group on training rows (y IS NOT NULL)
 -- - Returns predictions for ALL rows (including out-of-sample)
--- Usage: duckdb < benchmark_ols_predict_agg.sql
+-- Usage: duckdb < benchmark_ols_fit_predict_agg.sql
 
 .timer on
 
@@ -27,7 +27,7 @@ SELECT
 FROM (
     SELECT
         group_id,
-        UNNEST(anofox_stats_ols_predict_agg(y, [x1, x2, x3])) AS pred
+        UNNEST(ols_fit_predict_agg(y, [x1, x2, x3])) AS pred
     FROM test_data
     GROUP BY group_id
 ) t;

@@ -1,317 +1,320 @@
 # Table Macros
 
-Table macros that wrap `*_fit_predict_agg` functions for easy per-group regression with long-format output. These macros simplify common workflows by handling grouping, prediction, and column extraction automatically.
+Table macros wrap the aggregate functions so that a per-group analysis is a
+single `SELECT * FROM <macro>(...)`. The `*_fit_predict_by` macros fit one
+model per group and return **one row per input row**, with every source column
+passed through and the prediction columns appended.
 
-All source columns are **passed through** to the output, so you retain the original data alongside predictions.
+| Macro | Wraps | Output |
+|-------|-------|--------|
+| `ols_fit_predict_by` | `ols_fit_predict_agg` | one row per input row |
+| `ridge_fit_predict_by` | `ridge_fit_predict_agg` | one row per input row |
+| `elasticnet_fit_predict_by` | `elasticnet_fit_predict_agg` | one row per input row |
+| `wls_fit_predict_by` | `wls_fit_predict_agg` | one row per input row |
+| `rls_fit_predict_by` | `rls_fit_predict_agg` | one row per input row |
+| `huber_fit_predict_by` | `huber_fit_predict_agg` | one row per input row |
+| `ransac_fit_predict_by` | `ransac_fit_predict_agg` | one row per input row |
+| `theil_sen_fit_predict_by` | `theil_sen_fit_predict_agg` | one row per input row |
+| `bls_fit_predict_by` | `bls_fit_predict_agg` | one row per input row |
+| `alm_fit_predict_by` | `alm_fit_predict_agg` | one row per input row |
+| `poisson_fit_predict_by` | `poisson_fit_predict_agg` | one row per input row |
+| `pls_fit_predict_by` | `pls_fit_predict_agg` | one row per input row, no intervals |
+| `quantile_fit_predict_by` | `quantile_fit_predict_agg` | one row per input row, no intervals |
+| `isotonic_fit_predict_by` | `isotonic_fit_predict_agg` | one row per input row, no intervals |
+| `glmm_fit_by` | `glmm_fit_agg` | one row per group (random effects) |
+| `eb_shrink_by` | `eb_shrink_agg` | one row per input row (shrunken estimates) |
+| `aid_by` | `aid_agg` | one row per group (demand classification) |
+| `aid_anomaly_by` | `aid_anomaly_agg` | one row per input row (anomaly flags) |
 
-## Overview
+## Common interface of the *_fit_predict_by macros
 
-All regression table macros share a common interface:
-
-```sql
+```text
 <method>_fit_predict_by(
-    source VARCHAR,           -- Table name (as string)
-    group_col COLUMN,         -- Column to group by
-    y_col COLUMN,             -- Response variable column
-    x_cols LIST(COLUMN),      -- Feature columns as list
-    [options STRUCT],         -- Optional configuration
-    [split COLUMN]            -- Optional train/test split column
+    source VARCHAR,          -- table or view name, as a string
+    group_col,               -- column to group by
+    y_col,                   -- response column; NULL marks a row to predict
+    x_cols,                  -- feature columns as a list, e.g. [x1, x2]
+    options := NULL,         -- optional MAP/STRUCT of model options
+    split := NULL            -- optional column with 'train' / other values
 ) -> TABLE
 ```
 
-**Return Columns:**
+Two macros differ:
 
-All columns from the source table are preserved in the output (including the group column, y column, and all feature columns with their original names). The following prediction columns are appended:
+```text
+wls_fit_predict_by(source, group_col, y_col, x_cols, weight_col, options := NULL, split := NULL)
+isotonic_fit_predict_by(source, group_col, y_col, x_col, options := NULL, split := NULL)   -- single x column
+```
+
+`options` and `split` can be passed positionally or by name
+(`options := {...}`, `split := split_col`).
+
+**Output columns:** all columns of `source` (original names), followed by
 
 | Column | Type | Description |
 |--------|------|-------------|
-| yhat | DOUBLE | Predicted value |
-| yhat_lower | DOUBLE | Lower prediction interval bound |
-| yhat_upper | DOUBLE | Upper prediction interval bound |
-| is_training | BOOLEAN | True if row was used for training |
+| `yhat` | `DOUBLE` | Prediction |
+| `yhat_lower` | `DOUBLE` | Lower prediction-interval bound (not for PLS, quantile, isotonic) |
+| `yhat_upper` | `DOUBLE` | Upper prediction-interval bound (not for PLS, quantile, isotonic) |
+| `is_training` | `BOOLEAN` | Whether the row was used to fit its group's model |
 
-> **Note:** Column names in the output preserve the original names from the source table. For example, if you pass `region` as the group column and `revenue` as y_col, the output will have `region` and `revenue` columns, not generic names.
->
-> PLS, isotonic, and quantile regression macros return only `yhat` and `is_training` (no prediction intervals).
+Rows are returned ordered by `group_col`.
 
-**Split Parameter:**
+**Training rows:** without `split`, rows with a non-NULL `y` train the model
+and rows with NULL `y` are predicted. With `split`, only rows whose split value
+is exactly `'train'` (and whose `y` is not NULL) are trained on; every other
+row, including NULL split values, is predicted.
 
-The optional `split` parameter accepts a column containing `'train'`/`'test'` values. Rows where `split != 'train'` are treated as out-of-sample (y is NULLed before fitting). When not provided, the default behavior applies: rows where y is NULL are out-of-sample.
+**Options:** each macro accepts the options of the model it wraps (see the
+model pages linked below), plus `confidence_level` (default `0.95`) and
+`null_policy` (default `'drop'`, see [null_policy](#null_policy)) for all
+macros except PLS, quantile and isotonic. Option keys the model does not
+support raise an error.
+
+### Demo data
+
+The examples below use this table:
 
 ```sql
--- With split column
-SELECT * FROM ols_fit_predict_by('data', group_id, target, [x1, x2],
-    options := {'null_policy': 'drop'}, split := split_col);
+CREATE OR REPLACE TABLE macro_demo AS
+SELECT
+    i AS t,
+    CASE WHEN i % 2 = 0 THEN 'north' ELSE 'south' END AS region,
+    i::DOUBLE AS price,
+    (i % 4)::DOUBLE AS promo,
+    1.0 + (i % 3) AS weight,
+    -- the last 6 periods have no sales yet
+    CASE WHEN i <= 34 THEN 50.0 + 1.2 * i + 3.0 * (i % 4) + sin(i) END AS sales,
+    round(5.0 + 0.3 * i + (i % 4))::DOUBLE AS visits,
+    CASE WHEN i <= 26 THEN 'train' ELSE 'test' END AS split
+FROM range(1, 41) t(i);
 ```
-
-**Common Options:**
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| fit_intercept | BOOLEAN | true | Include intercept term |
-| confidence_level | DOUBLE | 0.95 | Prediction interval confidence |
-| null_policy | VARCHAR | 'drop' | NULL handling: 'drop' or 'drop_y_zero_x' |
 
 ## ols_fit_predict_by
 
-OLS regression per group with predictions in long format.
+Options: [OLS](../regression/ols.md#options).
 
-**Example:**
 ```sql
--- Per-group OLS regression
-SELECT * FROM ols_fit_predict_by('sales_data', region, revenue, [advertising, price]);
-
--- With 99% prediction intervals
-SELECT * FROM ols_fit_predict_by('sales_data', region, revenue, [advertising, price],
-    {'confidence_level': 0.99});
-
--- Filter to out-of-sample predictions only
-SELECT * FROM ols_fit_predict_by('forecast_data', store_id, sales, [inventory, promotions])
+-- Per-region OLS; rows with NULL sales receive forecasts
+SELECT region, t, sales, round(yhat, 2) AS yhat, is_training
+FROM ols_fit_predict_by('macro_demo', region, sales, [price, promo])
 WHERE NOT is_training;
+
+-- 99% prediction intervals and an explicit train/test split
+SELECT region, t, sales, round(yhat, 2) AS yhat, round(yhat_lower, 2) AS lo, round(yhat_upper, 2) AS hi
+FROM ols_fit_predict_by('macro_demo', region, sales, [price, promo],
+    options := {'confidence_level': 0.99}, split := split)
+WHERE NOT is_training AND sales IS NOT NULL;
 ```
 
 ## ridge_fit_predict_by
 
-Ridge regression per group with L2 regularization.
+Options: [Ridge](../regression/ridge.md#options) (`alpha` default `1.0`, ...).
 
-**Additional Options:**
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| alpha | DOUBLE | 1.0 | L2 regularization strength |
-
-**Example:**
 ```sql
--- Ridge with default alpha
-SELECT * FROM ridge_fit_predict_by('data', category, y, [x1, x2]);
-
--- Ridge with custom regularization
-SELECT * FROM ridge_fit_predict_by('data', category, y, [x1, x2],
-    {'alpha': 0.5});
-
--- Strong regularization
-SELECT * FROM ridge_fit_predict_by('data', category, y, [x1, x2],
-    {'alpha': 10.0, 'confidence_level': 0.99});
+SELECT * FROM ridge_fit_predict_by('macro_demo', region, sales, [price, promo], {'alpha': 0.5})
+LIMIT 5;
 ```
 
 ## elasticnet_fit_predict_by
 
-Elastic Net regression per group with combined L1/L2 regularization.
+Options: [Elastic Net](../regression/elasticnet.md#options) (`alpha`, `l1_ratio`, ...).
 
-**Additional Options:**
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| alpha | DOUBLE | 1.0 | Regularization strength |
-| l1_ratio | DOUBLE | 0.5 | L1 ratio: 0=Ridge, 1=Lasso |
-| max_iterations | INTEGER | 1000 | Max coordinate descent iterations |
-| tolerance | DOUBLE | 1e-6 | Convergence tolerance |
-
-**Example:**
 ```sql
--- ElasticNet with default settings
-SELECT * FROM elasticnet_fit_predict_by('data', category, y, [x1, x2]);
-
--- More Lasso-like (70% L1)
-SELECT * FROM elasticnet_fit_predict_by('data', category, y, [x1, x2],
-    {'alpha': 0.1, 'l1_ratio': 0.7});
+SELECT * FROM elasticnet_fit_predict_by('macro_demo', region, sales, [price, promo],
+    {'alpha': 0.1, 'l1_ratio': 0.7})
+LIMIT 5;
 ```
 
 ## wls_fit_predict_by
 
-Weighted Least Squares per group. Requires a weight column.
+Options: [WLS](../regression/wls.md#options). The weight column is the fifth
+positional argument.
 
-**Signature:**
 ```sql
-wls_fit_predict_by(
-    source VARCHAR,
-    group_col COLUMN,
-    y_col COLUMN,
-    x_cols LIST(COLUMN),
-    weight_col COLUMN,        -- Weight column (required)
-    [options STRUCT]
-) -> TABLE
-```
-
-**Example:**
-```sql
--- WLS with weight column
-SELECT * FROM wls_fit_predict_by('weighted_data', segment, y, [x1, x2], weight);
-
--- WLS with custom confidence level
-SELECT * FROM wls_fit_predict_by('weighted_data', segment, y, [x1, x2], weight,
-    {'confidence_level': 0.99});
+SELECT * FROM wls_fit_predict_by('macro_demo', region, sales, [price, promo], weight)
+LIMIT 5;
 ```
 
 ## rls_fit_predict_by
 
-Recursive Least Squares per group for adaptive/online regression.
+Options: [RLS](../regression/rls.md#options) (`forgetting_factor`, `initial_p_diagonal`, ...).
 
-**Additional Options:**
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| forgetting_factor | DOUBLE | 1.0 | Exponential forgetting (0.95-1.0 typical) |
-| initial_p_diagonal | DOUBLE | 100.0 | Initial covariance diagonal |
-
-**Example:**
 ```sql
--- RLS with default settings
-SELECT * FROM rls_fit_predict_by('streaming_data', sensor_id, reading, [temp, pressure]);
+SELECT * FROM rls_fit_predict_by('macro_demo', region, sales, [price, promo],
+    {'forgetting_factor': 0.95})
+LIMIT 5;
+```
 
--- RLS with forgetting (adapts to recent data)
-SELECT * FROM rls_fit_predict_by('streaming_data', sensor_id, reading, [temp, pressure],
-    {'forgetting_factor': 0.95});
+## huber_fit_predict_by
+
+Options: [Huber](../regression/huber.md#options) (`epsilon`, `alpha`, ...).
+
+```sql
+SELECT * FROM huber_fit_predict_by('macro_demo', region, sales, [price, promo], {'epsilon': 1.5})
+LIMIT 5;
+```
+
+## ransac_fit_predict_by
+
+Options: [RANSAC](../regression/ransac.md#options) (`residual_threshold`, `max_trials`, `random_state`, ...).
+
+```sql
+SELECT * FROM ransac_fit_predict_by('macro_demo', region, sales, [price, promo], {'random_state': 42})
+LIMIT 5;
+```
+
+## theil_sen_fit_predict_by
+
+Options: [Theil-Sen](../regression/theil_sen.md#options).
+
+```sql
+SELECT * FROM theil_sen_fit_predict_by('macro_demo', region, sales, [price, promo])
+LIMIT 5;
 ```
 
 ## bls_fit_predict_by
 
-Bounded Least Squares per group with box constraints on coefficients.
+Options: [BLS](../regression/bls.md#bls_fit_agg) (`lower_bound`, `upper_bound`,
+`fit_intercept` default `false`, `max_iterations`, `tolerance`). Without
+bounds the fit is non-negative least squares.
 
-**Additional Options:**
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| lower_bound | DOUBLE | 0.0 | Lower bound for coefficients |
-| upper_bound | DOUBLE | +inf | Upper bound for coefficients |
-| intercept | BOOLEAN | false | Include intercept term |
-| max_iterations | INTEGER | 1000 | Maximum iterations |
-| tolerance | DOUBLE | 1e-6 | Convergence tolerance |
-
-**Example:**
 ```sql
--- BLS with default (non-negative coefficients)
-SELECT * FROM bls_fit_predict_by('constrained_data', portfolio_id, returns, [factor1, factor2]);
-
--- Box constraints (coefficients between 0 and 1)
-SELECT * FROM bls_fit_predict_by('portfolio_data', asset_class, returns, [factors],
-    {'lower_bound': 0.0, 'upper_bound': 1.0});
+SELECT * FROM bls_fit_predict_by('macro_demo', region, sales, [price, promo],
+    {'lower_bound': 0.0, 'upper_bound': 5.0, 'fit_intercept': true})
+LIMIT 5;
 ```
 
 ## alm_fit_predict_by
 
-Augmented Linear Model per group with flexible error distributions.
+Augmented linear model with a selectable error distribution. Options:
+[ALM](../glm/alm.md) (`distribution`, `loss`, `quantile`, `role_trim`,
+`max_iterations`, `tolerance`, `fit_intercept`).
 
-**Additional Options:**
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| distribution | VARCHAR | 'normal' | Error distribution |
-| intercept | BOOLEAN | true | Include intercept term |
-| max_iterations | INTEGER | 1000 | Maximum iterations |
-| tolerance | DOUBLE | 1e-6 | Convergence tolerance |
-
-**Distributions:** `normal`, `laplace`, `studentt`, `cauchy`, `huber`, `tukey`, `quantile`, `expectile`, `trimmed`, `winsorized`
-
-**Example:**
 ```sql
--- ALM with default (normal distribution)
-SELECT * FROM alm_fit_predict_by('robust_data', group_id, y, [x1, x2]);
-
--- Robust regression with Laplace (median regression)
-SELECT * FROM alm_fit_predict_by('data_with_outliers', group_id, y, [x1, x2],
-    {'distribution': 'laplace'});
-
--- Student-t for heavy tails
-SELECT * FROM alm_fit_predict_by('heavy_tailed_data', group_id, y, [x1, x2],
-    {'distribution': 'studentt'});
+-- Laplace errors: robust, median-type regression
+SELECT * FROM alm_fit_predict_by('macro_demo', region, sales, [price, promo],
+    {'distribution': 'laplace'})
+LIMIT 5;
 ```
 
 ## poisson_fit_predict_by
 
-Poisson GLM per group for count data.
+Poisson GLM for counts. Options: [Poisson](../glm/poisson.md) (`link`:
+`'log'`, `'identity'`, `'sqrt'`; `max_iterations`, `tolerance`,
+`fit_intercept`).
 
-**Additional Options:**
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| link | VARCHAR | 'log' | Link function: 'log', 'identity', 'sqrt' |
-| intercept | BOOLEAN | true | Include intercept term |
-| max_iterations | INTEGER | 100 | Maximum IRLS iterations |
-| tolerance | DOUBLE | 1e-8 | Convergence tolerance |
-
-**Example:**
 ```sql
--- Poisson with default log link
-SELECT * FROM poisson_fit_predict_by('count_data', store_id, visitor_count, [marketing_spend]);
+SELECT * FROM poisson_fit_predict_by('macro_demo', region, visits, [promo])
+LIMIT 5;
+```
 
--- Poisson with identity link
-SELECT * FROM poisson_fit_predict_by('count_data', store_id, visitor_count, [marketing_spend],
-    {'link': 'identity'});
+## pls_fit_predict_by
+
+Options: [PLS](../regression/pls.md#options) (`n_components` default `1`,
+`fit_intercept`). Returns `yhat` and `is_training` only.
+
+```sql
+SELECT * FROM pls_fit_predict_by('macro_demo', region, sales, [price, promo], {'n_components': 2})
+LIMIT 5;
+```
+
+## quantile_fit_predict_by
+
+Options: [Quantile](../regression/quantile.md#options) (`tau` default `0.5`,
+`fit_intercept`). Returns `yhat` and `is_training` only.
+
+```sql
+SELECT * FROM quantile_fit_predict_by('macro_demo', region, sales, [price, promo], {'tau': 0.9})
+LIMIT 5;
+```
+
+## isotonic_fit_predict_by
+
+Options: [Isotonic](../regression/isotonic.md#options) (`increasing` default
+`true`). Takes a single `x_col`, not a list. Returns `yhat` and `is_training`
+only.
+
+```sql
+SELECT * FROM isotonic_fit_predict_by('macro_demo', region, sales, price)
+LIMIT 5;
+```
+
+## glmm_fit_by
+
+```text
+glmm_fit_by(source VARCHAR, group_col, y_col, x_cols, options := NULL) -> TABLE
+```
+
+Fits **one** mixed-effects model across all groups (random intercept per
+group) and returns one row per group: `group`, `ranef`, `ranef_se`, `n`,
+`fixed_intercept`, `fixed_coefficients`, `var_group`, `var_residual`, `icc`.
+See [GLMM](../glm/glmm.md) for the options.
+
+```sql
+SELECT "group", round(ranef, 3) AS ranef, n, round(icc, 3) AS icc
+FROM glmm_fit_by('macro_demo', region, price, [promo]);
+```
+
+## eb_shrink_by
+
+```text
+eb_shrink_by(source VARCHAR, estimate_col, se_col, options := NULL) -> TABLE
+```
+
+Empirical-Bayes shrinkage of existing per-group estimates toward their
+precision-weighted mean. Returns all source columns plus `shrunken`,
+`shrunken_se`, `weight`, `mu`, `tau_squared`. See
+[Empirical-Bayes shrinkage](../glm/eb_shrink.md).
+
+```sql
+CREATE OR REPLACE TABLE macro_estimates AS
+SELECT * FROM (VALUES ('a', 1.2, 0.3), ('b', 0.4, 0.5), ('c', 2.1, 0.8), ('d', 0.9, 0.2))
+    t(segment, estimate, se);
+
+SELECT segment, estimate, round(shrunken, 3) AS shrunken
+FROM eb_shrink_by('macro_estimates', estimate, se);
+```
+
+## aid_by
+
+```text
+aid_by(source VARCHAR, group_col, y_col, options := NULL) -> TABLE
+```
+
+Demand classification per group (one row per group). Options:
+`intermittent_threshold`, `outlier_method`. See [AID](../aid/aid.md).
+
+```sql
+SELECT region, demand_type, is_intermittent, zero_proportion
+FROM aid_by('macro_demo', region, promo);
 ```
 
 ## aid_anomaly_by
 
-Table macro for grouped anomaly detection using AID analysis.
-
-**Signature:**
-```sql
-aid_anomaly_by(
-    source VARCHAR,           -- Table name
-    group_col COLUMN,         -- Column to group by (e.g., product_id)
-    order_col COLUMN,         -- Column to order by within group (e.g., date)
-    y_col COLUMN,             -- Numeric column to analyze for anomalies
-    [options MAP]             -- Optional configuration
-) -> TABLE
+```text
+aid_anomaly_by(source VARCHAR, group_col, order_col, y_col, options := NULL) -> TABLE
 ```
 
-**Options:**
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| intermittent_threshold | DOUBLE | 0.3 | Zero proportion threshold |
-| outlier_method | VARCHAR | 'zscore' | Outlier detection: 'zscore' or 'iqr' |
+Per-observation anomaly flags (`stockout`, `new_product`, `obsolete_product`,
+`high_outlier`, `low_outlier`), returned with the group and order columns. See
+[AID](../aid/aid.md).
 
-**Returns:**
-| Column | Type | Description |
-|--------|------|-------------|
-| \<group_col\> | ANY | Group identifier (preserves original column name) |
-| \<order_col\> | ANY | Order value (preserves original column name) |
-| stockout | BOOLEAN | Unexpected zero in positive demand period |
-| new_product | BOOLEAN | Part of leading zeros pattern |
-| obsolete_product | BOOLEAN | Part of trailing zeros pattern |
-| high_outlier | BOOLEAN | Unusually high value |
-| low_outlier | BOOLEAN | Unusually low value |
-
-**Example:**
 ```sql
--- Basic usage - returns anomaly flags with group and order columns
-SELECT * FROM aid_anomaly_by('sales_data', product_id, sale_date, quantity, NULL);
-
--- With custom options
-SELECT * FROM aid_anomaly_by('sales_data', product_id, sale_date, quantity,
-    {'intermittent_threshold': 0.5, 'outlier_method': 'iqr'});
-
--- Filter to only stockout anomalies (column names are preserved)
-SELECT sku, period
-FROM aid_anomaly_by('inventory', sku, period, demand, NULL)
-WHERE stockout;
-
--- Aggregate anomaly counts per product (column names are preserved)
-SELECT product_id,
-       SUM(stockout::INT) AS stockout_count,
-       SUM(high_outlier::INT) AS high_outlier_count
-FROM aid_anomaly_by('sales_data', product_id, sale_date, quantity, NULL)
-GROUP BY product_id;
+SELECT region, t, stockout, high_outlier
+FROM aid_anomaly_by('macro_demo', region, t, promo)
+WHERE stockout OR high_outlier;
 ```
 
-## null_policy Parameter
+## null_policy
 
-The `null_policy` option controls how NULL values and zero x values are handled:
-
-| Value | Training Set | Predictions |
-|-------|--------------|-------------|
-| `'drop'` (default) | Rows where y IS NOT NULL | All rows get predictions |
-| `'drop_y_zero_x'` | Rows where y IS NOT NULL AND all x != 0 | All rows get predictions |
-
-## Summary Table
-
-| Macro | Method | Key Options |
-|-------|--------|-------------|
-| ols_fit_predict_by | OLS | (common only) |
-| ridge_fit_predict_by | Ridge | alpha |
-| elasticnet_fit_predict_by | Elastic Net | alpha, l1_ratio |
-| wls_fit_predict_by | WLS | weight_col |
-| rls_fit_predict_by | RLS | forgetting_factor |
-| bls_fit_predict_by | BLS | lower_bound, upper_bound |
-| alm_fit_predict_by | ALM | distribution |
-| poisson_fit_predict_by | Poisson | link |
-| aid_anomaly_by | AID | intermittent_threshold, outlier_method |
+| Value | Training rows | Predicted rows |
+|-------|---------------|----------------|
+| `'drop'` (default) | `y` is not NULL | all rows |
+| `'drop_y_zero_x'` | `y` is not NULL and no feature equals 0 | all rows |
 
 ## See Also
 
-- [OLS](../regression/ols.md) - OLS functions
-- [ALM](../glm/alm.md) - ALM distributions
-- [AID](../aid/aid.md) - AID demand classification
+- [Fit-predict aggregates](../regression/fit_predict_agg.md) - The underlying aggregates
+- [Window fit-predict](../regression/fit_predict_window.md) - Expanding/rolling window predictions
+- [ALM](../glm/alm.md), [Poisson](../glm/poisson.md), [AID](../aid/aid.md)

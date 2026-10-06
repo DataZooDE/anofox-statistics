@@ -8,7 +8,7 @@ This guide helps you get started with regression analysis using the Anofox Stati
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/anofox-statistics.git
+git clone --recurse-submodules https://github.com/DataZooDE/anofox-statistics.git
 cd anofox-statistics
 
 # Build the extension

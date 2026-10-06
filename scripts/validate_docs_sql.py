@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Doc-SQL validation harness for the anofox-statistics DuckDB extension.
 
-Extracts every fenced sql code block from the seven documentation files listed
-in DOC_FILES, runs each file's blocks (concatenated in document order into a
+Extracts every fenced sql code block from the documentation files listed in
+DOC_FILES plus every Markdown page under DOC_GLOBS (docs/*.md, docs/api/**),
+runs each file's blocks (concatenated in document order into a
 single DuckDB session) against the locally-built extension, and reports pass or
 fail per file.  Exits non-zero if any file's SQL fails.
 
@@ -32,11 +33,12 @@ repository root, so it cannot be pointed at arbitrary filesystem locations
 
 Usage
 -----
-    python3 scripts/validate_docs_sql.py              # validate all 7 doc files
+    python3 scripts/validate_docs_sql.py              # validate all doc files
     python3 scripts/validate_docs_sql.py --file README.md   # single-file fast path
 """
 
 import argparse
+import glob
 import os
 import re
 import subprocess
@@ -71,6 +73,31 @@ DOC_FILES = [
     "docs/API_REFERENCE.md",
     "docs/API_CONVENTIONS.md",
 ]
+
+# Additional files picked up by glob (relative to the repo root).  Every
+# Markdown page in docs/ and docs/api/** is validated, so new reference pages
+# are covered automatically.
+DOC_GLOBS = [
+    "docs/*.md",
+    "docs/api/**/*.md",
+]
+
+
+def _all_doc_files() -> list[str]:
+    """DOC_FILES followed by the DOC_GLOBS matches, de-duplicated, in order."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for rel in DOC_FILES:
+        if rel not in seen:
+            seen.add(rel)
+            out.append(rel)
+    for pattern in DOC_GLOBS:
+        for path in sorted(glob.glob(os.path.join(REPO, pattern), recursive=True)):
+            rel = os.path.relpath(path, REPO)
+            if rel not in seen:
+                seen.add(rel)
+                out.append(rel)
+    return out
 
 # ---------------------------------------------------------------------------
 # Regex for fenced sql blocks.
@@ -201,8 +228,17 @@ def _run_file(abs_path: str, rel_label: str) -> tuple[bool, int, str]:
     #            failing statement, so a mid-file error aborts the remaining
     #            concatenated blocks rather than silently continuing.
     #   Lines 2+: all executable blocks joined in document order.
-    sql_content = ".bail on\n" + "\n".join(body for body, _ in executable)
+    result = _run_sql(".bail on\n" + "\n".join(body for body, _ in executable))
 
+    if result.returncode != 0:
+        lineno = _locate_failing_block(executable)
+        where = f"first failing block starts at line {lineno}\n" if lineno else ""
+        return False, len(executable), where + result.stderr
+    return True, len(executable), ""
+
+
+def _run_sql(sql_content: str) -> subprocess.CompletedProcess:
+    """Run *sql_content* in a fresh DuckDB CLI session with the extension loaded."""
     tmp = tempfile.NamedTemporaryFile(
         suffix=".sql", mode="w", encoding="utf-8", delete=False
     )
@@ -211,7 +247,7 @@ def _run_file(abs_path: str, rel_label: str) -> tuple[bool, int, str]:
         tmp.flush()
         tmp.close()
 
-        result = subprocess.run(
+        return subprocess.run(
             [DUCKDB, "-unsigned", "-cmd", f"LOAD '{EXT}';", "-f", tmp.name],
             capture_output=True,
             text=True,
@@ -222,9 +258,24 @@ def _run_file(abs_path: str, rel_label: str) -> tuple[bool, int, str]:
         except OSError:
             pass
 
-    if result.returncode != 0:
-        return False, len(executable), result.stderr
-    return True, len(executable), ""
+
+def _locate_failing_block(executable: list[tuple[str, int]]) -> int | None:
+    """Binary-search the smallest block prefix that fails; return its start line.
+
+    Blocks share one session (later blocks may use tables created earlier), so
+    the search re-runs prefixes rather than individual blocks.
+    """
+    lo, hi = 1, len(executable)
+    if _run_sql(".bail on\n" + "\n".join(b for b, _ in executable)).returncode == 0:
+        return None
+    while lo < hi:
+        mid = (lo + hi) // 2
+        prefix = ".bail on\n" + "\n".join(b for b, _ in executable[:mid])
+        if _run_sql(prefix).returncode != 0:
+            hi = mid
+        else:
+            lo = mid + 1
+    return executable[lo - 1][1]
 
 
 def main() -> int:
@@ -238,7 +289,7 @@ def main() -> int:
         files_to_run = [(abs_path, rel_label)]
     else:
         files_to_run = [
-            (os.path.join(REPO, rel), rel) for rel in DOC_FILES
+            (os.path.join(REPO, rel), rel) for rel in _all_doc_files()
         ]
 
     total_executed = 0

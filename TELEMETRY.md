@@ -1,6 +1,6 @@
 # Anofox Statistics Telemetry
 
-The `anofox_statistics` DuckDB extension collects **anonymous, privacy-preserving
+The `anofox_statistics` DuckDB extension collects **pseudonymous, privacy-preserving
 usage telemetry** so we can see which statistical functions are used, on which
 platforms, and where they fail — and prioritise accordingly. It is **on by
 default** and **trivial to turn off**.

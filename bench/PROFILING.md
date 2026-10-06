@@ -1,9 +1,33 @@
-# Profiling & hotspots (PERF-03)
+# Profiling & hotspots
 
 Profiling of the native **release** build (LTO, `codegen-units=1`, `opt-level=3`)
 to surface the top hotspots and, for each, either apply a safe behavior-preserving
 optimization or document it as inherent — every decision backed by before/after
 numbers from the Plan-01 harness (`scripts/bench.sh`).
+
+## Summary
+
+The harness (`scripts/bench.sh`) covers three workloads:
+
+| Workload | Scale | Per-group cost |
+|----------|-------|----------------|
+| W1 — aggregate dispatch | 10K groups / 1M rows | ~3.2 µs per OLS fit (3 features) |
+| W2 — fit + predict | 10K groups / 1M rows | fit → predict → marshal pipeline |
+| W3 — FFI micro (inference) | 500 groups / 50K rows | ~4.8 µs per fit with `compute_inference: true` |
+
+Profiling showed that the dominant cost is DuckDB's own `HASH_GROUP_BY` dispatch
+(~66% of query time); the extension's per-call overhead is a minority. Two
+changes landed as a result:
+
+- **`DataArray::to_vec` bulk-copy fast path** (no-NULL path): removes per-element
+  branching for dense columns, a consistent ~3–4% query-time reduction at
+  5M rows / 50K groups (controlled A/B).
+- **`FfiVec<T>` RAII wrapper + `alloc_inference_arrays!` macro**: replaces six
+  hand-written `libc::malloc` inference blocks, removing manual free/OOM
+  boilerplate without changing the allocation count (which is fixed by the FFI ABI).
+
+Baseline result files are written locally by `scripts/bench.sh` (under
+`bench/results/`, git-ignored); they are not committed. The details follow.
 
 ## Methodology & tooling
 

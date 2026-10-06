@@ -1,100 +1,118 @@
 # Elastic Net Regression
 
-Elastic Net regression with combined L1/L2 regularization. Supports configurable lambda scaling for glmnet compatibility.
+Elastic Net regression (combined L1 and L2 penalty) fitted by coordinate
+descent, with optional glmnet-compatible lambda scaling.
 
 ## Functions
 
 | Function | Type | Description |
 |----------|------|-------------|
-| `elasticnet_fit` | Scalar | Process complete arrays in a single call |
-| `elasticnet_fit_agg` | Aggregate | Streaming row-by-row accumulation |
-| `elasticnet_fit_predict` | Window | Fit and predict in a single pass |
-| `elasticnet_fit_predict_agg` | Aggregate | Fit and predict with GROUP BY support |
-| `elasticnet_fit_predict_by` | Table Macro | Per-group regression with long-format output |
+| `elasticnet_fit` | Scalar | Fit on complete arrays in a single call |
+| `elasticnet_fit_agg` | Aggregate | Row-by-row accumulation; works with `GROUP BY` |
+| `elasticnet_fit_predict` | Window aggregate | Fit and predict per window frame, see [Window fit-predict](fit_predict_window.md) |
+| `elasticnet_fit_predict_agg` | Aggregate | Fit and predict every row of a group, see [Fit-predict aggregates](fit_predict_agg.md) |
+| `elasticnet_fit_predict_by` | Table macro | Per-group fit and predict in long format, see [Table macros](../macros/table_macros.md#elasticnet_fit_predict_by) |
 
-## anofox_stats_elasticnet_fit
+## elasticnet_fit
 
 **Signature:**
-```sql
-anofox_stats_elasticnet_fit(
-    y LIST(DOUBLE),
-    x LIST(LIST(DOUBLE)),
-    alpha DOUBLE,
-    l1_ratio DOUBLE,
-    [fit_intercept BOOLEAN DEFAULT true],
-    [max_iterations INTEGER DEFAULT 1000],
-    [tolerance DOUBLE DEFAULT 1e-6]
-) -> STRUCT
+
+```text
+elasticnet_fit(y DOUBLE[], x DOUBLE[][] [, options MAP]) -> STRUCT
 ```
 
-**Parameters:**
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| y | LIST(DOUBLE) | Response variable values |
-| x | LIST(LIST(DOUBLE)) | Feature arrays |
-| alpha | DOUBLE | Regularization strength (>= 0) |
-| l1_ratio | DOUBLE | L1 ratio: 0=Ridge, 1=Lasso (range: 0-1) |
-| max_iterations | INTEGER | Max coordinate descent iterations |
-| tolerance | DOUBLE | Convergence tolerance |
+| `y` | `DOUBLE[]` | Response values |
+| `x` | `DOUBLE[][]` | Feature columns: each inner list is one feature |
+| `options` | `MAP` / `STRUCT` | Optional settings, see [Options](#options) |
 
-**Returns:** [FitResult](../reference/return_types.md#fitresult-structure) STRUCT
+`alpha` and `l1_ratio` are options, not positional arguments.
 
 **Example:**
+
 ```sql
-SELECT anofox_stats_elasticnet_fit(
+SELECT elasticnet_fit(
     [2.1, 4.0, 5.9, 8.1, 10.0],
     [[1.0, 2.0, 3.0, 4.0, 5.0]],
-    0.1,  -- alpha
-    0.5   -- l1_ratio (50% L1, 50% L2)
-);
+    {'alpha': 0.1, 'l1_ratio': 0.5}
+) AS fit;
 ```
 
-## anofox_stats_elasticnet_fit_agg
+## elasticnet_fit_agg
 
-Streaming Elastic Net aggregate function.
+**Signature:**
+
+```text
+elasticnet_fit_agg(y DOUBLE, x DOUBLE[] [, options MAP]) -> STRUCT
+```
+
+**Example:**
 
 ```sql
-SELECT elasticnet_fit_agg(y, [x1, x2], 0.1, 0.5)
-FROM data;
+CREATE OR REPLACE TABLE enet_demo AS
+SELECT
+    i::DOUBLE AS x1,
+    (i % 5)::DOUBLE AS x2,
+    ((i * 7) % 11)::DOUBLE AS noise_feature,
+    2.0 + 1.5 * i + 0.8 * (i % 5) AS y
+FROM range(1, 51) t(i);
+
+-- Mostly L1: irrelevant features are pushed toward zero
+SELECT (elasticnet_fit_agg(
+    y, [x1, x2, noise_feature],
+    {'alpha': 0.5, 'l1_ratio': 0.9}
+)).coefficients AS coefficients
+FROM enet_demo;
 ```
 
-## MAP Options
-
-All Elastic Net functions accept an optional MAP parameter for advanced configuration:
+## Options
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `alpha` / `lambda` | DOUBLE | `1.0` | Regularization strength |
-| `l1_ratio` | DOUBLE | `0.5` | L1 ratio: 0=Ridge, 1=Lasso |
-| `fit_intercept` | BOOLEAN | `true` | Include intercept term |
-| `max_iterations` | INTEGER | `1000` | Max coordinate descent iterations |
-| `tolerance` | DOUBLE | `1e-6` | Convergence tolerance |
-| `lambda_scaling` | VARCHAR | `'raw'` | Lambda scaling convention: `'raw'`, `'glmnet'` |
+| `alpha` (alias `lambda`) | DOUBLE | `1.0` | Overall penalty strength, >= 0 |
+| `l1_ratio` | DOUBLE | `0.5` | Mix between L1 and L2: 0 = ridge, 1 = lasso |
+| `fit_intercept` (alias `intercept`) | BOOLEAN | `true` | Include an intercept term |
+| `max_iterations` (alias `max_iter`) | INTEGER | `1000` | Maximum coordinate-descent iterations |
+| `tolerance` (alias `tol`) | DOUBLE | `1e-6` | Convergence tolerance |
+| `lambda_scaling` | VARCHAR | `'raw'` | `'raw'` or `'glmnet'` (match R's glmnet scaling) |
 
-**Example with MAP options:**
+Elastic Net has no inference output. Option keys the function does not support
+raise an error.
+
 ```sql
--- Elastic Net with glmnet-compatible scaling
-SELECT elasticnet_fit_agg(
+SELECT (elasticnet_fit_agg(
     y, [x1, x2],
-    {'alpha': 0.1, 'l1_ratio': 0.5, 'lambda_scaling': 'glmnet'}
-) FROM data;
+    {'alpha': 0.01, 'l1_ratio': 0.5, 'lambda_scaling': 'glmnet'}
+)).coefficients AS coefficients
+FROM enet_demo;
 ```
+
+## Returns
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `coefficients` | `DOUBLE[]` | One coefficient per feature (zero for features removed by the L1 penalty) |
+| `intercept` | `DOUBLE` | Intercept |
+| `r_squared` | `DOUBLE` | Coefficient of determination |
+| `adj_r_squared` | `DOUBLE` | Adjusted R² |
+| `residual_std_error` | `DOUBLE` | Residual standard error |
+| `n_observations` | `BIGINT` | Rows used in the fit |
+| `n_features` | `BIGINT` | Number of features |
 
 ## Understanding l1_ratio
 
-- **l1_ratio = 0**: Pure Ridge (L2 only)
-- **l1_ratio = 0.5**: Equal mix of L1 and L2
-- **l1_ratio = 1**: Pure Lasso (L1 only)
+- **l1_ratio = 0**: pure ridge (L2 only)
+- **l1_ratio = 0.5**: equal mix of L1 and L2
+- **l1_ratio = 1**: pure lasso (L1 only)
 
-## Use Cases
+## NULL handling
 
-- Feature selection with grouped correlated features
-- When Lasso is unstable due to collinearity
-- High-dimensional data with correlated predictors
-- Sparse models with stability
+The aggregate skips rows where `y` or `x` is NULL, or where `x` contains a NULL
+element. `elasticnet_fit` drops positions with NaN or infinite values.
 
 ## See Also
 
-- [OLS](ols.md) - Unregularized baseline
-- [Ridge](ridge.md) - L2 regularization only
-- [Table Macros](../macros/table_macros.md#elasticnet_fit_predict_by) - Per-group predictions
+- [Ridge](ridge.md) - L2 penalty only
+- [LARS](lars.md) - Least angle regression
+- [Table macros](../macros/table_macros.md#elasticnet_fit_predict_by) - Per-group predictions

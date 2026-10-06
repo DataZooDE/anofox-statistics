@@ -5,7 +5,7 @@
 # This script loads the same dataset used by SQL tests and performs
 # equivalent OLS aggregate operations using R's lm() function with GROUP BY.
 #
-# Equivalent to: anofox_statistics_ols_fit_agg aggregate function
+# Equivalent to: ols_fit_agg aggregate function
 #
 # Prerequisites:
 # 1. Run generate_test_data.sql first to create the parquet file
@@ -40,7 +40,7 @@ cat("\nDataset loaded successfully!\n\n")
 # ============================================================================
 
 # Function to extract comprehensive OLS statistics
-# Equivalent to: anofox_statistics_ols_fit_agg with full_output=true
+# Equivalent to: ols_fit_agg with compute_inference=true
 extract_ols_stats <- function(data, full_output = FALSE) {
   model <- lm(y ~ x1 + x2 + x3 + x4 + x5 + x6 + x7 + x8, data = data)
 
@@ -63,9 +63,9 @@ extract_ols_stats <- function(data, full_output = FALSE) {
     result <- list(
       intercept = intercept,
       coefficients = list(coefficients),
-      coefficient_std_errors = list(coef_summary[-1, "Std. Error"]),
+      std_errors = list(coef_summary[-1, "Std. Error"]),
       coefficient_t_statistics = list(coef_summary[-1, "t value"]),
-      coefficient_p_values = list(coef_summary[-1, "Pr(>|t|)"]),
+      p_values = list(coef_summary[-1, "Pr(>|t|)"]),
       r2 = r2,
       adj_r2 = adj_r2,
       f_statistic = model_summary$fstatistic[1],
@@ -263,14 +263,14 @@ group_models_full_save <- group_models_full %>%
     coef_x6 = sapply(coefficients, function(x) x[6]),
     coef_x7 = sapply(coefficients, function(x) x[7]),
     coef_x8 = sapply(coefficients, function(x) x[8]),
-    std_err_x1 = sapply(coefficient_std_errors, function(x) x[1]),
-    std_err_x2 = sapply(coefficient_std_errors, function(x) x[2]),
-    std_err_x3 = sapply(coefficient_std_errors, function(x) x[3]),
-    std_err_x4 = sapply(coefficient_std_errors, function(x) x[4]),
-    std_err_x5 = sapply(coefficient_std_errors, function(x) x[5]),
-    std_err_x6 = sapply(coefficient_std_errors, function(x) x[6]),
-    std_err_x7 = sapply(coefficient_std_errors, function(x) x[7]),
-    std_err_x8 = sapply(coefficient_std_errors, function(x) x[8]),
+    std_err_x1 = sapply(std_errors, function(x) x[1]),
+    std_err_x2 = sapply(std_errors, function(x) x[2]),
+    std_err_x3 = sapply(std_errors, function(x) x[3]),
+    std_err_x4 = sapply(std_errors, function(x) x[4]),
+    std_err_x5 = sapply(std_errors, function(x) x[5]),
+    std_err_x6 = sapply(std_errors, function(x) x[6]),
+    std_err_x7 = sapply(std_errors, function(x) x[7]),
+    std_err_x8 = sapply(std_errors, function(x) x[8]),
     t_stat_x1 = sapply(coefficient_t_statistics, function(x) x[1]),
     t_stat_x2 = sapply(coefficient_t_statistics, function(x) x[2]),
     t_stat_x3 = sapply(coefficient_t_statistics, function(x) x[3]),
@@ -279,16 +279,16 @@ group_models_full_save <- group_models_full %>%
     t_stat_x6 = sapply(coefficient_t_statistics, function(x) x[6]),
     t_stat_x7 = sapply(coefficient_t_statistics, function(x) x[7]),
     t_stat_x8 = sapply(coefficient_t_statistics, function(x) x[8]),
-    p_value_x1 = sapply(coefficient_p_values, function(x) x[1]),
-    p_value_x2 = sapply(coefficient_p_values, function(x) x[2]),
-    p_value_x3 = sapply(coefficient_p_values, function(x) x[3]),
-    p_value_x4 = sapply(coefficient_p_values, function(x) x[4]),
-    p_value_x5 = sapply(coefficient_p_values, function(x) x[5]),
-    p_value_x6 = sapply(coefficient_p_values, function(x) x[6]),
-    p_value_x7 = sapply(coefficient_p_values, function(x) x[7]),
-    p_value_x8 = sapply(coefficient_p_values, function(x) x[8])
+    p_value_x1 = sapply(p_values, function(x) x[1]),
+    p_value_x2 = sapply(p_values, function(x) x[2]),
+    p_value_x3 = sapply(p_values, function(x) x[3]),
+    p_value_x4 = sapply(p_values, function(x) x[4]),
+    p_value_x5 = sapply(p_values, function(x) x[5]),
+    p_value_x6 = sapply(p_values, function(x) x[6]),
+    p_value_x7 = sapply(p_values, function(x) x[7]),
+    p_value_x8 = sapply(p_values, function(x) x[8])
   ) %>%
-  select(-coefficients, -coefficient_std_errors, -coefficient_t_statistics, -coefficient_p_values)
+  select(-coefficients, -std_errors, -coefficient_t_statistics, -p_values)
 
 # Save full model results
 write_parquet(

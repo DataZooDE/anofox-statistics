@@ -39,6 +39,12 @@ resolved to column positions before the fit; they never reach the numeric core.
 The canonical entry is a `STRUCT(dist, loc, scale)`:
 
 ```sql
+CREATE OR REPLACE TABLE t AS
+SELECT (i % 7)::DOUBLE AS x1,
+       ((i * 3) % 5)::DOUBLE AS x2,
+       (((i * 7) % 11) + (i % 7))::DOUBLE AS y
+FROM range(200) r(i);
+
 SELECT poisson_fit_agg(y, [x1, x2], {
     'feature_names': ['x1', 'x2'],
     'prior': MAP {
@@ -54,7 +60,7 @@ A DuckDB `MAP` requires a single value type, so the shorthand
 `{'normal': [loc, scale]}` can only be used when every entry names the same
 family:
 
-```sql
+```text
 'prior': MAP {'x1': {'normal': [0.0, 1.0]}, 'x2': {'normal': [0.0, 0.5]}}
 ```
 
@@ -69,9 +75,10 @@ Distribution names: `normal` (or `gaussian`), `laplace` (or `l1`, `lasso`),
 `flat` (or `none`). `scale` is the prior standard deviation for a normal prior
 and the scale parameter `b` for a Laplace prior; it must be strictly positive.
 
-**Unknown prior keys raise an error** rather than being ignored. The rest of the
-options MAP tolerates unknown keys for forward compatibility, but a silently
-dropped prior would change the estimate with no signal at all.
+**A prior for an unknown feature raises an error** rather than being ignored:
+a silently dropped prior would change the estimate with no signal at all. A
+prior given by name without `feature_names` is also an error. (Option keys a
+function does not support raise an error as well.)
 
 ## Covariance type
 
@@ -84,7 +91,7 @@ For an unpenalized fit all three coincide. They differ once a prior or
 | `sandwich` | `(X'WX + P)^-1 X'WX (X'WX + P)^-1` | Frequentist sampling variance of the penalized estimator. |
 | `naive` | `(X'WX)^-1` | Ignores the penalty. |
 
-> **Behaviour change.** Before this feature, penalized fits (`glm_lambda > 0`)
+> **Behaviour change.** In earlier releases, penalized fits (`glm_lambda > 0`)
 > reported standard errors computed from the unpenalized `X'WX` — that is,
 > `naive` — which is simply wrong for a MAP estimate. The default is now
 > `laplace`. Pass `'vcov': 'naive'` to recover the old numbers.

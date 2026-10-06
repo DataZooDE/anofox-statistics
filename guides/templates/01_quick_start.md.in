@@ -1,229 +1,340 @@
-# Quick Start Guide
+# Anofox Statistics - Quick Start Guide
 
-This guide demonstrates the core regression analysis capabilities of the Anofox Statistics extension for DuckDB.
-
-## Table of Contents
-
-- [Installation](#installation)
-- [Load Extension](#load-extension)
-- [Example 1: Simple Linear Regression](#example-1-simple-linear-regression)
-- [Example 2: Get p-values and Significance](#example-2-get-p-values-and-significance)
-- [Example 3: Regression Per Group](#example-3-regression-per-group)
-- [Example 4: Time-Series Rolling Regression](#example-4-time-series-rolling-regression)
-- [Example 5: Make Predictions](#example-5-make-predictions)
-- [Example 6: Check Model Quality](#example-6-check-model-quality)
-- [Example 7: Detect Outliers](#example-7-detect-outliers)
-- [Aggregate Functions for GROUP BY](#aggregate-functions-for-group-by)
-  - [OLS Aggregate](#ols-aggregate-basic-per-group-regression)
-  - [WLS Aggregate](#wls-aggregate-weighted-analysis)
-  - [Ridge Aggregate](#ridge-aggregate-handling-multicollinearity)
-  - [RLS Aggregate](#rls-aggregate-adaptive-online-learning)
-- [Common Patterns](#common-patterns)
-  - [Pattern 1: Quick coefficient check](#pattern-1-quick-coefficient-check)
-  - [Pattern 2: Per-group with GROUP BY](#pattern-2-per-group-with-group-by)
-  - [Pattern 3: Rolling window with OVER](#pattern-3-rolling-window-with-over)
-  - [Pattern 4: Full statistical workflow](#pattern-4-full-statistical-workflow)
-- [Common Issues](#common-issues)
+This guide helps you get started with regression analysis using the Anofox Statistics DuckDB extension.
 
 ## Installation
 
+### Building from Source
+
 ```bash
+# Clone the repository
+git clone --recurse-submodules https://github.com/DataZooDE/anofox-statistics.git
+cd anofox-statistics
+
 # Build the extension
-cd anofox-statistics-duckdb-extension
 make release
 ```
 
-## Load Extension
+### Loading the Extension
 
-<!-- include: test/sql/guide01_load_extension.sql -->
+```sql skip
+-- Load the extension (adjust path to your local build)
+LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
+```
+
+---
 
 ## Example 1: Simple Linear Regression
 
-**How it works**: The `anofox_statistics_ols_fit` table function fits an OLS regression model using QR decomposition from libanostat. It takes array inputs for y (response) and X (feature matrix), along with configuration options in a MAP.
+Fit a basic OLS model to find the relationship between variables.
 
-<!-- include: test/sql/guide01_example_1_simple_linear_regression.sql -->
+```sql
+-- Create sample data: y = 2x + 1
+WITH sample_data AS (
+    SELECT
+        [1.0, 2.0, 3.0, 4.0, 5.0] as x_values,
+        [3.0, 5.0, 7.0, 9.0, 11.0] as y_values
+)
+SELECT
+    (ols_fit(y_values, [x_values])).coefficients[1] as slope,
+    (ols_fit(y_values, [x_values])).intercept as intercept,
+    (ols_fit(y_values, [x_values])).r_squared as r_squared
+FROM sample_data;
+```
 
-**Technical interpretation**:
+**Expected Output:**
+```
+┌───────┬───────────┬───────────┐
+│ slope │ intercept │ r_squared │
+├───────┼───────────┼───────────┤
+│ 2.0   │ 1.0       │ 1.0       │
+└───────┴───────────┴───────────┘
+```
 
-- **coefficients[1]**: Estimated slope parameter (β₁)
-- **r_squared**: Coefficient of determination (proportion of variance explained)
-- **adj_r_squared**: Adjusted R² penalizing additional predictors
-- **mse**: Mean squared error (residual variance)
-- **n_obs**: Sample size used in estimation
+---
 
-## Example 2: Get p-values and Significance
+## Example 2: Statistical Inference
 
-**How it works**: The aggregate fit functions compute t-statistics and p-values for hypothesis testing. Each coefficient is tested against H₀: β = 0 using the t-distribution with df_residual degrees of freedom.
+Get p-values and confidence intervals for hypothesis testing.
 
-<!-- include: test/sql/guide01_example_2_get_p_values_and_significance.sql -->
+```sql
+WITH sample_data AS (
+    SELECT
+        [3.1, 4.9, 7.2, 8.8, 11.1] as y_values,
+        [1.0, 2.0, 3.0, 4.0, 5.0] as x_values
+)
+SELECT
+    fit.coefficients[1] as slope,
+    fit.p_values[1] as slope_pvalue,
+    fit.ci_lower[1] as ci_lower,
+    fit.ci_upper[1] as ci_upper,
+    fit.f_statistic,
+    fit.f_pvalue
+FROM (
+    SELECT ols_fit(
+        y_values,
+        [x_values],
+        {'fit_intercept': true, 'compute_inference': true, 'confidence_level': 0.95}
+    ) as fit
+    FROM sample_data
+);
+```
 
-**Technical interpretation**:
+**Interpretation:**
+- If `slope_pvalue < 0.05`, the slope is statistically significant
+- The true slope lies within `[ci_lower, ci_upper]` with 95% confidence
+- `f_pvalue` tests if the overall model is significant
 
-- **coefficient_p_values**: Two-tailed p-values for testing H₀: β_i = 0
-- **intercept_p_value**: Two-tailed p-value for testing H₀: intercept = 0
-- **Interpretation**: p < α (e.g., 0.05) provides evidence to reject the null hypothesis
-- **coefficient_t_statistics**: Test statistics computed as β̂ / SE(β̂)
+---
 
-## Example 3: Regression Per Group
+## Example 3: Per-Group Regression
 
-**How it works**: The `anofox_statistics_ols_fit_agg` aggregate function supports GROUP BY to fit separate models per group. Each group accumulates observations independently and computes a complete regression result struct.
+Use aggregate functions with GROUP BY for segmented analysis.
 
-<!-- include: test/sql/guide01_example_3_regression_per_group.sql -->
+```sql
+-- Create sample data with groups
+WITH sales_data AS (
+    SELECT * FROM (VALUES
+        ('North', 100, 10),
+        ('North', 150, 15),
+        ('North', 200, 20),
+        ('North', 250, 25),
+        ('South', 120, 10),
+        ('South', 180, 15),
+        ('South', 240, 20),
+        ('South', 300, 25)
+    ) AS t(region, sales, marketing_spend)
+)
+SELECT
+    region,
+    ROUND((ols_fit_agg(
+        sales::DOUBLE,
+        [marketing_spend::DOUBLE]
+    )).coefficients[1], 2) as sales_per_dollar,
+    ROUND((ols_fit_agg(
+        sales::DOUBLE,
+        [marketing_spend::DOUBLE]
+    )).intercept, 2) as base_sales,
+    ROUND((ols_fit_agg(
+        sales::DOUBLE,
+        [marketing_spend::DOUBLE]
+    )).r_squared, 3) as r_squared
+FROM sales_data
+GROUP BY region
+ORDER BY region;
+```
 
-**Technical interpretation**:
+**Expected Output:**
+```
+┌────────┬─────────────────┬────────────┬───────────┐
+│ region │ sales_per_dollar│ base_sales │ r_squared │
+├────────┼─────────────────┼────────────┼───────────┤
+│ North  │ 10.0            │ 0.0        │ 1.0       │
+│ South  │ 12.0            │ 0.0        │ 1.0       │
+└───────┴─────────────────┴────────────┴───────────┘
+```
 
-- **GROUP BY semantics**: Each group receives a separate OLS estimation
-- **coefficients[1]**: Slope estimate per group
-- **r2**: Within-group coefficient of determination
-- **n_obs**: Sample size per group used in estimation
+---
 
-## Example 4: Time-Series Rolling Regression
+## Example 4: Rolling Regression (Time Series)
 
-**How it works**: Aggregate functions support OVER clauses for window-based computation. The `ROWS BETWEEN n PRECEDING AND CURRENT ROW` frame defines a sliding window, with regression re-computed at each row.
+Use window functions for rolling/moving regression analysis.
 
-<!-- include: test/sql/guide01_example_4_time_series_rolling_regression.sql -->
+```sql
+-- Generate time series data
+WITH time_series AS (
+    SELECT
+        row_number() OVER () as day,
+        i::DOUBLE as x,
+        (2.0 * i + 1.0 + (random() - 0.5))::DOUBLE as y
+    FROM generate_series(1, 30) t(i)
+)
+SELECT
+    day,
+    ROUND(y, 2) as y,
+    ROUND((ols_fit_agg(y, [x]) OVER (
+        ORDER BY day
+        ROWS BETWEEN 6 PRECEDING AND CURRENT ROW
+    )).coefficients[1], 3) as rolling_7day_slope
+FROM time_series
+ORDER BY day;
+```
 
-**Technical interpretation**:
+---
 
-- **OVER (ORDER BY ... ROWS BETWEEN ...)**: Window frame specification
-- **coefficients[1]**: Slope estimate using observations in the current window
-- **Window size**: Number of preceding rows + current row determines sample size
-- **Computation**: Each row gets a new regression using only the windowed data
+## Example 5: Predictions
 
-## Example 5: Make Predictions
+Generate predictions from a fitted model.
 
-**How it works**: The `anofox_statistics_predict_ols` table function fits a model on training data (y_train, x_train) and generates predictions for new observations (x_new) with confidence or prediction intervals using the t-distribution.
+```sql
+-- Fit model and predict
+WITH training_data AS (
+    SELECT
+        [3.0, 5.0, 7.0, 9.0, 11.0] as y_train,
+        [[1.0, 2.0, 3.0, 4.0, 5.0]] as x_train
+),
+model AS (
+    SELECT ols_fit(y_train, x_train) as fit
+    FROM training_data
+)
+SELECT
+    predict(
+        [[6.0, 7.0, 8.0]],  -- new x values
+        model.fit.coefficients,
+        model.fit.intercept
+    ) as predictions
+FROM model;
+```
 
-<!-- include: test/sql/guide01_example_5_make_predictions.sql -->
+**Expected Output:** `[13.0, 15.0, 17.0]`
 
-**Technical interpretation**:
+---
 
-- **predicted**: Point prediction ŷ = X_new × β̂
-- **ci_lower/ci_upper**: Interval bounds using t-critical values at specified confidence level
-- **se**: Standard error of prediction SE(ŷ) = √(MSE × x'(X'X)⁻¹x)
-- **interval_type='prediction'**: Includes residual variance; 'confidence' for mean prediction only
+## Example 6: Model Comparison with Information Criteria
 
-## Example 6: Check Model Quality
+Compare models using AIC and BIC.
 
-**How it works**: Aggregate fit functions return information criteria (AIC, BIC, AICc) computed from the log-likelihood and number of parameters. These metrics penalize model complexity to prevent overfitting.
+```sql
+-- Compare two models using AIC and BIC (lower = better fit for complexity)
+-- AIC/BIC take residual sum of squares, n observations, k parameters
+SELECT
+    'Model 1 (linear, k=2)' as model,
+    ROUND(aic(45.2, 50, 2), 2) as aic_value,
+    ROUND(bic(45.2, 50, 2), 2) as bic_value
+UNION ALL
+SELECT
+    'Model 2 (quadratic, k=3)' as model,
+    ROUND(aic(22.1, 50, 3), 2) as aic_value,
+    ROUND(bic(22.1, 50, 3), 2) as bic_value;
+```
 
-<!-- include: test/sql/guide01_example_6_check_model_quality.sql -->
+**Interpretation:** Lower AIC indicates better model fit (balancing complexity and fit).
 
-**Technical interpretation**:
+---
 
-- **aic**: Akaike Information Criterion = -2×log(L) + 2k
-- **bic**: Bayesian Information Criterion = -2×log(L) + k×log(n)
-- **aicc**: Corrected AIC for small samples = AIC + 2k(k+1)/(n-k-1)
-- **Model comparison**: Lower values indicate better trade-off between fit and complexity
+## Example 7: Residual Diagnostics
 
-## Example 7: Detect Outliers
+Check model assumptions with residual analysis.
 
-**How it works**: The `anofox_statistics_residual_diagnostics` table function computes standardized residuals and flags outliers based on a threshold. It returns per-observation diagnostics for assessing model fit and data quality.
+```sql
+WITH fitted AS (
+    SELECT
+        [3.1, 4.9, 7.2, 8.8, 11.1] as y,
+        [3.0, 5.0, 7.0, 9.0, 11.0] as y_hat
+)
+SELECT
+    diag.raw as raw_residuals,
+    (jarque_bera(diag.raw)).p_value as normality_pvalue
+FROM (
+    SELECT residuals_diagnostics(y, y_hat) as diag
+    FROM fitted
+);
+```
 
-<!-- include: test/sql/guide01_example_7_detect_outliers.sql -->
+**Interpretation:**
+- If `normality_pvalue > 0.05`, residuals are approximately normal
+- Raw residuals should be randomly distributed around 0
 
-**Technical interpretation**:
+---
 
-- **observation_id**: Row index (1-indexed)
-- **residual**: Raw residual e_i = y_i - ŷ_i
-- **standardized_residual**: Residual divided by standard deviation
-- **is_outlier**: Boolean flag where |standardized_residual| > threshold
-- **is_influential**: Boolean flag for high-influence observations
+## Aggregate Function Types
 
-## Aggregate Functions for GROUP BY
+### OLS Aggregate
+Basic regression for per-group analysis.
+```sql skip
+SELECT ols_fit_agg(y, [x1, x2]) FROM data GROUP BY category;
+```
 
-The extension provides aggregate functions that support GROUP BY and OVER clauses for per-group and windowed regression analysis.
+### WLS Aggregate
+Weighted regression for heteroscedastic data.
+```sql skip
+SELECT wls_fit_agg(y, [x], weight) FROM data GROUP BY category;
+```
 
-### OLS Aggregate: Basic Per-Group Regression
+### Ridge Aggregate
+L2-regularized regression for multicollinearity.
+```sql skip
+SELECT ridge_fit_agg(y, [x1, x2], {'alpha': 0.5}) FROM data GROUP BY category;
+```
 
-**How it works**: `anofox_statistics_ols_fit_agg` is a DuckDB aggregate that accumulates observations per group and computes OLS regression coefficients using QR decomposition. Returns a complete statistics struct per group.
+### RLS Aggregate
+Recursive least squares for adaptive/streaming analysis.
+```sql skip
+SELECT rls_fit_agg(y, [x], {'forgetting_factor': 0.95}) FROM streaming_data;
+```
 
-<!-- include: test/sql/guide01_aggregate_ols_simple.sql -->
-
-**Technical interpretation**:
-
-- **Per-group estimation**: Each GROUP BY group gets independent coefficient estimates
-- **coefficients[1]**: Slope β₁ estimated from group observations only
-- **r2**: Proportion of within-group variance explained
-- **n_obs**: Sample size used for group's estimation
-
-### WLS Aggregate: Weighted Analysis
-
-**How it works**: `anofox_statistics_wls_fit_agg` implements weighted least squares by transforming inputs with √W before applying OLS. Each observation i receives weight w_i, modifying its contribution to the objective function.
-
-<!-- include: test/sql/guide01_aggregate_wls_weighted.sql -->
-
-**Technical interpretation**:
-
-- **Weighted estimation**: Minimizes Σ w_i(y_i - ŷ_i)²
-- **coefficients**: β̂_WLS = (X'WX)⁻¹X'Wy
-- **mse**: Weighted mean squared error
-- **Heteroscedasticity**: Weights inversely proportional to variance (w_i = 1/σ²_i) yield efficient estimates
-
-### Ridge Aggregate: Handling Multicollinearity
-
-**How it works**: `anofox_statistics_ridge_fit_agg` adds L2 regularization to the OLS objective function. The penalty term λ||β||² shrinks coefficient estimates, reducing variance at the cost of bias.
-
-<!-- include: test/sql/guide01_aggregate_ridge_regularized.sql -->
-
-**Technical interpretation**:
-
-- **Regularized estimation**: Minimizes ||y - Xβ||² + λ||β||²
-- **coefficients**: β̂_ridge = (X'X + λI)⁻¹X'y
-- **lambda**: Regularization parameter controlling shrinkage strength
-- **Bias-variance trade-off**: Larger λ increases bias but reduces variance
-
-### RLS Aggregate: Adaptive Online Learning
-
-**How it works**: `anofox_statistics_rls_fit_agg` implements recursive least squares with exponential forgetting. Observations are weighted by λ^(n-i) where λ is the forgetting factor and i is the observation index.
-
-<!-- include: test/sql/guide01_aggregate_rls_streaming.sql -->
-
-**Technical interpretation**:
-
-- **Sequential update**: Coefficients updated recursively as new observations arrive
-- **lambda** (forgetting_factor): Exponential decay parameter (0 < λ ≤ 1)
-- **Effective window**: Approximately 1/(1-λ) observations contribute significantly
-- **Adaptation**: Lower λ values (e.g., 0.90-0.95) track non-stationary relationships
+---
 
 ## Common Patterns
 
-### Pattern 1: Quick coefficient check
-
-Extract a single coefficient from the aggregate result struct by accessing the coefficients array directly.
-
-<!-- include: test/sql/guide01_pattern_1_quick_coefficient_check.sql -->
-
-### Pattern 2: Per-group with GROUP BY
-
-Fit independent regression models for each category using GROUP BY semantics.
-
-<!-- include: test/sql/guide01_pattern_2_per_group_with_group_by.sql -->
-
-### Pattern 3: Rolling window with OVER
-
-Apply regression over a sliding window using OVER clause with ROWS BETWEEN frame specification.
-
-<!-- include: test/sql/guide01_pattern_3_rolling_window_with_over.sql -->
-
-### Pattern 4: Full statistical workflow
-
-Combine model fitting, residual computation, and diagnostic checks in a single CTE chain.
-
-<!-- include: test/sql/guide01_pattern_4_full_statistical_workflow.sql -->
-
-## Common Issues
-
-### Issue: Extension won't load
-<!-- include: test/sql/guide01_issue_extension_wont_load.sql -->
-
-### Issue: Type mismatch
-<!-- include: test/sql/guide01_issue_type_mismatch.sql -->
-
-### Issue: Insufficient observations
-
-```
-Error: Need at least n+1 observations for n parameters
+### Quick Coefficient Extraction
+```sql skip
+SELECT (ols_fit(y_array, x_array)).coefficients[1] as beta1;
 ```
 
-Solution: Ensure you have more observations than predictors.
+### Grouped Analysis
+```sql skip
+SELECT
+    category,
+    (ols_fit_agg(y, [x])).*
+FROM data
+GROUP BY category;
+```
+
+### Rolling Window
+```sql skip
+SELECT
+    date,
+    (ols_fit_agg(y, [x]) OVER (
+        ORDER BY date ROWS BETWEEN 29 PRECEDING AND CURRENT ROW
+    )).coefficients[1] as rolling_30day_beta
+FROM time_series;
+```
+
+---
+
+## Troubleshooting
+
+### Extension Loading Issues
+```sql skip
+-- Check if loaded
+SELECT * FROM duckdb_extensions() WHERE extension_name = 'anofox_statistics';
+
+-- Reload if needed
+LOAD 'path/to/anofox_statistics.duckdb_extension';
+```
+
+### Type Errors
+Ensure all numeric values are DOUBLE:
+```sql skip
+-- Illustrative: integer arrays — prefer explicit DOUBLE to avoid relying on implicit casts
+SELECT ols_fit([1, 2, 3], [[1, 2, 3]]);
+```
+```sql
+-- Correct: explicit DOUBLE
+SELECT ols_fit([1.0, 2.0, 3.0], [[1.0, 2.0, 3.0]]);
+```
+From a real table, cast to DOUBLE:
+```sql skip
+SELECT ols_fit(array_agg(y::DOUBLE), [array_agg(x::DOUBLE)]) FROM my_table;
+```
+
+### Insufficient Observations
+Minimum 3 observations required for single-feature regression with intercept:
+```sql skip
+-- Illustrative: too few observations (n < n_features + 1)
+SELECT ols_fit([1.0, 2.0], [[1.0, 2.0]]);
+```
+```sql
+-- Need at least 3 points
+SELECT ols_fit([1.0, 2.0, 3.0], [[1.0, 2.0, 3.0]]);
+```
+
+---
+
+## Next Steps
+
+- See [API Reference](../docs/API_REFERENCE.md) for complete function documentation
+- See [Technical Guide](02_technical_guide.md) for implementation details
+- See [Business Guide](03_business_guide.md) for real-world applications
+- See [Advanced Use Cases](04_advanced_use_cases.md) for complex scenarios

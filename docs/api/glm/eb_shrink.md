@@ -15,28 +15,30 @@ their estimate, noisy ones are pulled toward the mean.
 | `eb_shrink_agg` | Aggregate | Shrink a set of estimates toward their pooled mean |
 | `eb_shrink_by` | Table Macro | Same, returning one row per input |
 
-## anofox_stats_eb_shrink_agg / eb_shrink_agg
+## eb_shrink_agg
 
 **Signature:**
 
-```sql
-anofox_stats_eb_shrink_agg(
-    estimate DOUBLE,
-    se DOUBLE,
-    [options MAP]
-) -> STRUCT
+```text
+eb_shrink_agg(estimate DOUBLE, se DOUBLE [, options MAP]) -> STRUCT
 ```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `estimate` | DOUBLE | One per-group estimate per row |
+| `se` | DOUBLE | Its standard error (must be positive to contribute) |
+| `options` | MAP/STRUCT | Optional; must be a constant |
 
 **Options MAP:**
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| tau_squared | DOUBLE | — | Fix the between-group variance instead of estimating it |
-| tau_method | VARCHAR | 'dl' | `dl` (DerSimonian-Laird) or `none` (complete pooling) |
+| tau_squared (alias `tau2`) | DOUBLE | — | Fix the between-group variance instead of estimating it |
+| tau_method (alias `shrinkage`) | VARCHAR | 'dl' | `dl` (DerSimonian-Laird) or `none` (complete pooling) |
 
 **Returns:**
 
-```
+```text
 STRUCT(mu DOUBLE, mu_se DOUBLE, tau_squared DOUBLE, i_squared DOUBLE,
        q DOUBLE, n_groups BIGINT,
        shrunken LIST(STRUCT(estimate DOUBLE, se DOUBLE, shrunken DOUBLE,
@@ -52,18 +54,59 @@ The `shrunken` list is in **input order**, matching the convention the
 Fit per group first, then shrink the group estimates:
 
 ```sql
-CREATE TABLE per_sku AS
-SELECT sku,
-       (poisson_fit_agg(qty, [promo], {'compute_inference': true})).coefficients[1] AS est,
-       (poisson_fit_agg(qty, [promo], {'compute_inference': true})).std_errors[1]   AS se
-FROM demand
-GROUP BY sku;
+-- 12 SKUs, 30 weeks each, promotion in alternating 12-week blocks
+CREATE OR REPLACE TABLE demand AS
+SELECT i AS week,
+       'SKU-' || (i % 12) AS sku,
+       ((i // 12) % 2)::DOUBLE AS promo,
+       (((i * 7) % 11) + (1 + (i % 12) % 4) * ((i // 12) % 2) + (i % 12) % 4)::DOUBLE AS qty
+FROM range(360) r(i);
 
-SELECT * FROM eb_shrink_by('per_sku', est, se);
+-- 1. Fit per group
+CREATE OR REPLACE TABLE per_sku AS
+SELECT sku, (fit).coefficients[1] AS est, (fit).std_errors[1] AS se
+FROM (
+    SELECT sku, poisson_fit_agg(qty, [promo], {'compute_inference': true}) AS fit
+    FROM demand
+    GROUP BY sku
+);
+
+-- 2. Shrink the group estimates
+SELECT r.mu, r.tau_squared, r.i_squared, r.q, r.n_groups
+FROM (SELECT eb_shrink_agg(est, se) AS r FROM per_sku);
+
+-- With a fixed between-group variance
+SELECT (eb_shrink_agg(est, se, {'tau_squared': 0.01})).mu FROM per_sku;
 ```
 
 Because the inputs are estimates rather than data, this composes with **any**
 per-group fit — not just GLMs.
+
+## eb_shrink_by
+
+Table macro returning every source row with its shrunken estimate.
+
+**Signature:**
+
+```text
+eb_shrink_by(source VARCHAR, estimate_col, se_col [, options MAP]) -> TABLE
+```
+
+**Returns:** all source columns plus
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `shrunken` | DOUBLE | Posterior mean for the row |
+| `shrunken_se` | DOUBLE | Posterior standard deviation |
+| `weight` | DOUBLE | Share of its own estimate the row keeps |
+| `mu` | DOUBLE | Pooled mean (same on every row) |
+| `tau_squared` | DOUBLE | Between-group variance (same on every row) |
+
+```sql
+SELECT sku, round(est, 3) AS est, round(shrunken, 3) AS shrunken, round(weight, 3) AS weight
+FROM eb_shrink_by('per_sku', est, se)
+ORDER BY sku;
+```
 
 ## The model
 
@@ -93,7 +136,7 @@ untouched, 0 means fully pooled.
 | `q` | Cochran's Q heterogeneity statistic |
 | `shrunken_se` | Posterior standard deviation, always at most the input `se` |
 
-## Degenerate inputs
+## Degenerate inputs and NULL handling
 
 Fewer than two usable groups returns `NULL` — with one group there is nothing to
 shrink toward.

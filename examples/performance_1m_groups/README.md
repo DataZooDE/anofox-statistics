@@ -14,7 +14,7 @@ Benchmarks for `fit_predict` window functions and `predict_agg` aggregate functi
 
 ### Prerequisites
 
-Build DuckDB with the anofox_stats extension:
+Build DuckDB with the anofox_statistics extension:
 
 ```bash
 make
