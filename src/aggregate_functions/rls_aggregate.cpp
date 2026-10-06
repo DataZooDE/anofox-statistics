@@ -346,6 +346,9 @@ void RegisterRlsAggregateFunction(ExtensionLoader &loader) {
         AggregateFunction::StateSize<RlsAggregateState>, RlsAggInitialize, RlsAggUpdate, RlsAggCombine, RlsAggFinalize,
         nullptr, // simple_update
         RlsAggBind, RlsAggDestroy);
+    // Row order is part of the input (sequential / time-series estimator):
+    // declare it so DuckDB honours `agg(... ORDER BY t)`.
+    basic_func.SetOrderDependent(AggregateOrderDependent::ORDER_DEPENDENT);
     func_set.AddFunction(basic_func);
 
     // Version with MAP options: rls_fit_agg(y, x, {'forgetting_factor': 0.99, ...})
@@ -355,6 +358,7 @@ void RegisterRlsAggregateFunction(ExtensionLoader &loader) {
                                       LogicalType::ANY, AggregateFunction::StateSize<RlsAggregateState>,
                                       RlsAggInitialize, RlsAggUpdate, RlsAggCombine, RlsAggFinalize, nullptr,
                                       RlsAggBind, RlsAggDestroy);
+    map_func.SetOrderDependent(AggregateOrderDependent::ORDER_DEPENDENT);
     func_set.AddFunction(map_func);
 
     CreateAggregateFunctionInfo info(std::move(func_set));

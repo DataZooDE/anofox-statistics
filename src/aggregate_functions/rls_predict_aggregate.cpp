@@ -468,6 +468,9 @@ void RegisterRlsFitPredictAggregateFunction(ExtensionLoader &loader) {
         LogicalType::ANY, AggregateFunction::StateSize<RlsPredictAggState>, RlsPredictAggInitialize,
         RlsPredictAggUpdate, RlsPredictAggCombine, RlsPredictAggFinalize, nullptr, RlsPredictAggBind,
         RlsPredictAggDestroy);
+    // Row order is part of the input (sequential / time-series estimator):
+    // declare it so DuckDB honours `agg(... ORDER BY t)`.
+    basic_func.SetOrderDependent(AggregateOrderDependent::ORDER_DEPENDENT);
     func_set.AddFunction(basic_func);
 
     auto map_func = AggregateFunction(
@@ -475,6 +478,7 @@ void RegisterRlsFitPredictAggregateFunction(ExtensionLoader &loader) {
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY}, LogicalType::ANY,
         AggregateFunction::StateSize<RlsPredictAggState>, RlsPredictAggInitialize, RlsPredictAggUpdate,
         RlsPredictAggCombine, RlsPredictAggFinalize, nullptr, RlsPredictAggBind, RlsPredictAggDestroy);
+    map_func.SetOrderDependent(AggregateOrderDependent::ORDER_DEPENDENT);
     func_set.AddFunction(map_func);
 
     auto split_func = AggregateFunction(
@@ -482,6 +486,7 @@ void RegisterRlsFitPredictAggregateFunction(ExtensionLoader &loader) {
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR}, LogicalType::ANY,
         AggregateFunction::StateSize<RlsPredictAggState>, RlsPredictAggInitialize, RlsPredictAggUpdate,
         RlsPredictAggCombine, RlsPredictAggFinalize, nullptr, RlsPredictAggBindWithSplit, RlsPredictAggDestroy);
+    split_func.SetOrderDependent(AggregateOrderDependent::ORDER_DEPENDENT);
     func_set.AddFunction(split_func);
 
     auto split_opts_func = AggregateFunction(
@@ -490,6 +495,7 @@ void RegisterRlsFitPredictAggregateFunction(ExtensionLoader &loader) {
         LogicalType::ANY, AggregateFunction::StateSize<RlsPredictAggState>, RlsPredictAggInitialize,
         RlsPredictAggUpdate, RlsPredictAggCombine, RlsPredictAggFinalize, nullptr, RlsPredictAggBindWithSplit,
         RlsPredictAggDestroy);
+    split_opts_func.SetOrderDependent(AggregateOrderDependent::ORDER_DEPENDENT);
     func_set.AddFunction(split_opts_func);
 
     CreateAggregateFunctionInfo info(std::move(func_set));
