@@ -52,6 +52,6 @@ pub use predict::predict;
 pub use quantile::fit_quantile;
 pub use ransac::{fit_ransac, RansacResult};
 pub use ridge::fit_ridge;
-pub use rls::{fit_rls, RlsOptions, RlsState};
+pub use rls::{fit_rls, rls_fit_statistics, RlsFitStatistics, RlsOptions, RlsState};
 pub use theil_sen::{fit_theilsen, TheilSenResult};
 pub use wls::fit_wls;

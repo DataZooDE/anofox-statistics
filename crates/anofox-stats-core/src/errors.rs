@@ -47,10 +47,14 @@ pub enum StatsError {
     #[error("QR decomposition failed")]
     QrFailed,
 
-    #[error(
-        "Elastic Net failed to converge after {iterations} iterations (tolerance: {tolerance})"
-    )]
+    #[error("Failed to converge after {iterations} iterations (tolerance: {tolerance})")]
     ConvergenceFailure { iterations: u32, tolerance: f64 },
+
+    /// A data-dependent numerical breakdown (non-finite linear predictor or
+    /// likelihood, etc.). Reported to SQL as a degenerate outcome (NULL), not as
+    /// an input error.
+    #[error("Numerical failure: {0}")]
+    NumericalFailure(String),
 
     // Internal errors
     #[error("Memory allocation failed")]
@@ -85,8 +89,33 @@ impl From<anofox_regression::solvers::RegressionError> for StatsError {
                 iterations: iterations as u32,
                 tolerance: f64::NAN,
             },
-            other => StatsError::RegressError(format!("{other:?}")),
+            R::AllFeaturesConstant => StatsError::SingularMatrix,
+            R::InvalidOptions(e) => StatsError::InvalidInput(e.to_string()),
+            R::InvalidWeights => StatsError::InvalidInput(
+                "invalid weights: all weights must be non-negative".to_string(),
+            ),
+            R::NumericalError(msg) => classify_numerical_error(msg),
         }
+    }
+}
+
+/// Upstream `NumericalError` mixes three kinds of failure under one variant:
+/// option/parameter validation ("tau must be between 0 and 1"), structurally
+/// degenerate data ("needs at least two distinct groups") and genuine numerical
+/// breakdown ("non-finite linear predictor"). Split them so the SQL layer can
+/// raise the first and return NULL for the other two.
+fn classify_numerical_error(msg: String) -> StatsError {
+    let lower = msg.to_lowercase();
+    if lower.contains("must be")
+        || lower.contains("out of range")
+        || lower.contains("requires exactly")
+        || lower.contains("needs a random")
+    {
+        StatsError::InvalidInput(msg)
+    } else if lower.contains("at least") {
+        StatsError::InsufficientDataMsg(msg)
+    } else {
+        StatsError::NumericalFailure(msg)
     }
 }
 

@@ -184,7 +184,9 @@ static void RidgeFitFunction(DataChunk &args, ExpressionState &state, Vector &re
                                         bind_data.compute_inference ? &inference_result : nullptr, &error);
 
         if (!success) {
-            ThrowFromFfiError("ridge_fit", error);
+            ThrowUnlessDegenerate("ridge_fit", error);
+            FlatVector::SetNull(result, row, true);
+            continue;
         }
 
         // Build result struct
@@ -233,6 +235,15 @@ static void RidgeFitFunction(DataChunk &args, ExpressionState &state, Vector &re
             FlatVector::GetData<double>(*struct_vec[struct_idx++])[row] = inference_result.f_pvalue;
 
             anofox_free_result_inference(&inference_result);
+
+            // alpha > 0: classical inference on shrunken coefficients is not
+            // valid, so the seven inference fields above are NULL (the Rust core
+            // reports NaN for them). alpha == 0 is OLS and keeps its inference.
+            if (bind_data.alpha > 0) {
+                for (idx_t k = struct_idx - 7; k < struct_idx; k++) {
+                    FlatVector::SetNull(*struct_vec[k], row, true);
+                }
+            }
         }
 
         // Free core result

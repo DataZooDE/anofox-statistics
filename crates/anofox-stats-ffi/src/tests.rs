@@ -116,7 +116,7 @@ fn ols_invalid_inputs() {
             ptr::null_mut(),
             &mut e
         ));
-        assert_eq!(e.code, ErrorCode::InvalidInput);
+        assert_eq!(e.code, ErrorCode::InsufficientData);
         // NULL out_error must not crash.
         assert!(!anofox_ols_fit(
             arr(&Y),
@@ -139,7 +139,7 @@ fn ols_invalid_inputs() {
             ptr::null_mut(),
             &mut e
         ));
-        assert_eq!(e.code, ErrorCode::InvalidInput);
+        assert_eq!(e.code, ErrorCode::InsufficientData);
 
         // Mismatched lengths (second column short).
         let xm = [arr(&X1), arr(&X1[..5])];
@@ -403,7 +403,7 @@ fn rls_round_trip_and_mismatched_columns() {
             &mut core,
             &mut e
         ));
-        assert_eq!(e.code, ErrorCode::InvalidInput);
+        assert_eq!(e.code, ErrorCode::InsufficientData);
         assert!(!anofox_rls_fit(
             arr(&Y),
             x.as_ptr(),
@@ -612,7 +612,7 @@ fn poisson_round_trip_and_invalid() {
             ptr::null_mut(),
             &mut e
         ));
-        assert_eq!(e.code, ErrorCode::InvalidInput);
+        assert_eq!(e.code, ErrorCode::InsufficientData);
     }
 }
 

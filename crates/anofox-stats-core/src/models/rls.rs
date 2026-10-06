@@ -317,6 +317,81 @@ pub fn fit_rls(y: &[f64], x: &[Vec<f64>], options: &RlsOptions) -> StatsResult<R
     Ok(state)
 }
 
+/// In-sample goodness-of-fit summary for a fitted RLS model.
+#[derive(Debug, Clone, Copy)]
+pub struct RlsFitStatistics {
+    pub r_squared: f64,
+    pub adj_r_squared: f64,
+    pub residual_std_error: f64,
+}
+
+/// Goodness-of-fit of the *final* RLS coefficients on the rows used to fit them.
+///
+/// Uses the same conventions as OLS: with an intercept the total sum of squares
+/// is centred and `p` counts the intercept; without one it is uncentred. Columns
+/// that were dropped as constant (NaN coefficient) do not contribute and are not
+/// counted in `p`. With `forgetting_factor == 1` and a diffuse prior the RLS
+/// coefficients equal the OLS ones, so these statistics match OLS. With
+/// forgetting they describe how well the end-of-sample model fits the whole
+/// sample.
+pub fn rls_fit_statistics(y: &[f64], x: &[Vec<f64>], state: &RlsState) -> RlsFitStatistics {
+    let coefs = state.get_coefficients();
+    let intercept = state.get_intercept();
+    let rows: Vec<usize> = (0..y.len())
+        .filter(|&i| y[i].is_finite() && x.iter().all(|col| col[i].is_finite()))
+        .collect();
+    let n = rows.len();
+    let n_active = coefs.iter().filter(|c| c.is_finite()).count();
+    let p = n_active + usize::from(intercept.is_some());
+
+    let nan = RlsFitStatistics {
+        r_squared: f64::NAN,
+        adj_r_squared: f64::NAN,
+        residual_std_error: f64::NAN,
+    };
+    if n == 0 {
+        return nan;
+    }
+
+    let mut rss = 0.0;
+    for &i in &rows {
+        let mut yhat = intercept.unwrap_or(0.0);
+        for (j, c) in coefs.iter().enumerate() {
+            if c.is_finite() {
+                yhat += c * x[j][i];
+            }
+        }
+        rss += (y[i] - yhat).powi(2);
+    }
+    let tss = if intercept.is_some() {
+        let mean = rows.iter().map(|&i| y[i]).sum::<f64>() / n as f64;
+        rows.iter().map(|&i| (y[i] - mean).powi(2)).sum::<f64>()
+    } else {
+        rows.iter().map(|&i| y[i] * y[i]).sum::<f64>()
+    };
+
+    let r_squared = if tss > 0.0 { 1.0 - rss / tss } else { f64::NAN };
+    let df_resid = n as f64 - p as f64;
+    let df_total = if intercept.is_some() {
+        n as f64 - 1.0
+    } else {
+        n as f64
+    };
+    let (adj_r_squared, residual_std_error) = if df_resid > 0.0 {
+        (
+            1.0 - (1.0 - r_squared) * df_total / df_resid,
+            (rss / df_resid).sqrt(),
+        )
+    } else {
+        (f64::NAN, f64::NAN)
+    };
+    RlsFitStatistics {
+        r_squared,
+        adj_r_squared,
+        residual_std_error,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -457,5 +532,32 @@ mod tests {
         let c = state.get_coefficients();
         assert!((c[0] - 1.0).abs() < 1e-2, "ones-column coef {}", c[0]);
         assert!((c[1] - 2.0).abs() < 1e-2);
+    }
+
+    /// With no forgetting and a diffuse prior, RLS is OLS: coefficients and the
+    /// in-sample summary must match the batch least-squares solution
+    /// (reference values from numpy.linalg.lstsq).
+    #[test]
+    fn test_rls_converges_to_ols_with_summary() {
+        let x1: Vec<f64> = (0..40).map(|i| ((i * 37) % 17) as f64 / 3.0).collect();
+        let x2: Vec<f64> = (0..40).map(|i| ((i * 11) % 13) as f64 * 0.5).collect();
+        let y: Vec<f64> = (0..40)
+            .map(|i| 1.5 + 2.0 * x1[i] - 0.7 * x2[i] + (((i * 7) % 5) as f64 - 2.0) * 0.3)
+            .collect();
+        let x = vec![x1, x2];
+        let opts = RlsOptions {
+            forgetting_factor: 1.0,
+            fit_intercept: true,
+            initial_p_diagonal: 1e8,
+        };
+        let state = fit_rls(&y, &x, &opts).unwrap();
+        let c = state.get_coefficients();
+        assert!((state.get_intercept().unwrap() - 1.50559658).abs() < 1e-5);
+        assert!((c[0] - 1.9836767).abs() < 1e-5, "slope {}", c[0]);
+        assert!((c[1] - -0.68717123).abs() < 1e-5);
+        let s = rls_fit_statistics(&y, &x, &state);
+        assert!((s.r_squared - 0.9846591023871762).abs() < 1e-8);
+        assert!((s.adj_r_squared - 0.983829864678375).abs() < 1e-8);
+        assert!((s.residual_std_error - 0.4396778687186898).abs() < 1e-7);
     }
 }

@@ -124,8 +124,38 @@ pub struct ChiSquareResult {
 }
 
 /// Convert anofox_tests StatError to our StatsError
+///
+/// The upstream crate reports both invalid arguments and degenerate samples
+/// (zero variance, fewer than two groups, an empty group, ...) as
+/// `InvalidParameter`. The SQL layer raises the former and returns NULL for the
+/// latter, so split them here: anything describing the *data* rather than an
+/// argument is reported as insufficient data.
 fn convert_error(e: anofox_tests::StatError) -> StatsError {
-    StatsError::InvalidInput(e.to_string())
+    use anofox_tests::StatError as E;
+    match e {
+        E::EmptyData | E::InsufficientData { .. } => StatsError::InsufficientDataMsg(e.to_string()),
+        E::InvalidParameter(ref msg) if is_degenerate_data_message(msg) => {
+            StatsError::InsufficientDataMsg(msg.clone())
+        }
+        other => StatsError::InvalidInput(other.to_string()),
+    }
+}
+
+/// Upstream `InvalidParameter` messages that describe a degenerate sample rather
+/// than an invalid argument.
+fn is_degenerate_data_message(msg: &str) -> bool {
+    let lower = msg.to_lowercase();
+    [
+        "zero variance",
+        "variance is effectively zero",
+        "requires at least 2",
+        "must have at least 2",
+        "is empty",
+        "empty cell",
+        "limited to n <=",
+    ]
+    .iter()
+    .any(|needle| lower.contains(needle))
 }
 
 /// Filter NaN values from a slice

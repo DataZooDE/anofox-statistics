@@ -8,6 +8,7 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
 #include "../include/glm_prior_options.hpp"
 #include "telemetry.hpp"
@@ -324,6 +325,7 @@ static void BinomialAggFinalize(Vector &state_vector, AggregateInputData &aggr_i
 		                                   state.compute_inference ? &inference_result : nullptr, &error);
 
 		if (!success) {
+			ThrowUnlessDegenerate("binomial_fit_agg", error);
 			FlatVector::SetNull(result, result_idx, true);
 			continue;
 		}

@@ -122,11 +122,11 @@ SELECT (poisson_fit_agg(y, [x1, x2], {'offset': 2})).n_features FROM counts;
 ----
 1
 
-# An out-of-range offset index is rejected by the engine (row becomes NULL)
-query I
-SELECT (poisson_fit_agg(y, [x1, x2], {'offset': 9})) IS NULL FROM counts;
+# An out-of-range offset index is an invalid option: rejected with an error
+statement error
+SELECT (poisson_fit_agg(y, [x1, x2], {'offset': 9})) FROM counts;
 ----
-true
+poisson_fit_agg: Invalid value for offset
 
 # =============================================================================
 # #110 - NULL elements inside the x LIST drop the row rather than being read as

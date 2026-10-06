@@ -7,6 +7,7 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/error_dispatch.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 #include "list_input.hpp"
@@ -179,6 +180,9 @@ static void VifAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
 
         bool success = anofox_compute_vif(x_arrays.data(), x_arrays.size(), &vif_values, &vif_len, &error);
 
+        if (!success) {
+            ThrowUnlessDegenerate("vif_agg", error);
+        }
         if (!success || vif_values == nullptr) {
             FlatVector::SetNull(result, result_idx, true);
             continue;

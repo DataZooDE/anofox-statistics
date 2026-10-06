@@ -321,7 +321,9 @@ static void BlsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
         bool success = anofox_bls_fit(y_array, x_arrays.data(), x_arrays.size(), options, &core_result, &error);
 
         if (!success) {
-            ThrowFromFfiError("bls_fit_agg", error);
+            ThrowUnlessDegenerate("bls_fit_agg", error);
+            FlatVector::SetNull(result, result_idx, true);
+            continue;
         }
 
         idx_t struct_idx = 0;

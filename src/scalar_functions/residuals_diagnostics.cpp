@@ -8,6 +8,7 @@
 #include "duckdb/parser/parsed_data/create_scalar_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/error_dispatch.hpp"
 #include "telemetry.hpp"
 
 namespace duckdb {
@@ -156,6 +157,7 @@ static void ResidualsDiagnosticsFunction(DataChunk &args, ExpressionState &state
                                                 &resid_result, &error);
 
         if (!success) {
+            ThrowUnlessDegenerate("residuals_diagnostics", error);
             FlatVector::SetNull(result, row, true);
             continue;
         }

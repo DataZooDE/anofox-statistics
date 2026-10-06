@@ -7,6 +7,7 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/error_dispatch.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 #include "list_input.hpp"
@@ -278,6 +279,7 @@ static void ResidualsDiagnosticsAggFinalize(Vector &state_vector, AggregateInput
                                                 &resid_result, &error);
 
         if (!success) {
+            ThrowUnlessDegenerate("residuals_diagnostics_agg", error);
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }

@@ -7,6 +7,7 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
 
@@ -168,6 +169,7 @@ static void BinomTestAggFinalize(Vector &state_vector, AggregateInputData &aggr_
                                           bind_data.alternative, &binom_result, &error);
 
         if (!success) {
+            ThrowUnlessDegenerate("binom_test_agg", error);
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }

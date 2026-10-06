@@ -1,0 +1,178 @@
+# name: test/sql/errors/test_error_policy.test
+# description: FFI error policy. Invalid input or options raise an error that
+#              names the function; data-dependent degenerate outcomes are NULL.
+# group: [errors]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE d AS
+SELECT i::DOUBLE AS x, (2 * i + (i % 3))::DOUBLE AS y, (i % 2)::INT AS g, (i % 4)::DOUBLE AS c
+FROM range(1, 21) r(i);
+
+# =============================================================================
+# Invalid options / input -> InvalidInputException with the Rust message
+# =============================================================================
+
+# --- linear models ---
+statement error
+SELECT ridge_fit_agg(y, [x], {'alpha': -1.0}) FROM d;
+----
+Invalid Input Error: ridge_fit_agg: Invalid alpha parameter: -1 (must be >= 0)
+
+statement error
+SELECT elasticnet_fit_agg(y, [x], {'alpha': 0.1, 'l1_ratio': 1.5}) FROM d;
+----
+elasticnet_fit_agg: Invalid L1 ratio: 1.5 (must be in [0, 1])
+
+statement error
+SELECT rls_fit_agg(y, [x], {'forgetting_factor': 1.5}) FROM d;
+----
+rls_fit_agg: Invalid input: forgetting_factor must be in (0, 1]
+
+statement error
+SELECT ols_fit([1.0, 2.0, 3.0, 4.0], [[1.0, 2.0, 3.0]]);
+----
+ols_fit: Dimension mismatch
+
+# window function
+statement error
+SELECT ridge_fit_predict(y, [x], {'alpha': -1.0}) OVER () FROM d;
+----
+ridge_fit_predict: Invalid alpha parameter: -1 (must be >= 0)
+
+# --- robust ---
+statement error
+SELECT huber_fit_agg(y, [x], {'epsilon': 0.5}) FROM d;
+----
+huber_fit_agg: Invalid input: epsilon must be > 1.0, got 0.5
+
+statement error
+SELECT ransac_fit_agg(y, [x], {'max_trials': 0}) FROM d;
+----
+ransac_fit_agg: Invalid input: max_trials must be > 0
+
+statement error
+SELECT quantile_fit_predict_agg(y, [x], {'tau': 1.5}) FROM d;
+----
+quantile_fit_predict_agg: Invalid value for tau: tau must be in (0, 1)
+
+# --- GLM ---
+statement error
+SELECT poisson_fit_agg(y - 30, [x]) FROM d;
+----
+poisson_fit_agg: Invalid value for y: Poisson regression requires non-negative response values
+
+statement error
+SELECT negbinom_fit_agg(y, [x], {'theta': -1.0}) FROM d;
+----
+negbinom_fit_agg: Invalid value for alpha: Negative Binomial alpha (theta) must be finite and positive
+
+statement error
+SELECT tweedie_fit_agg(y, [x], {'power': 3.0}) FROM d;
+----
+tweedie_fit_agg: Invalid value for power: Tweedie power parameter must be in [1, 2]
+
+# --- survival ---
+statement error
+SELECT aft_fit_agg(y - 30, [x], 1.0) FROM d;
+----
+aft_fit_agg: Invalid value for time: AFT regression requires strictly positive times
+
+# --- hypothesis tests / categorical ---
+statement error
+SELECT t_test_agg(y, g, {'confidence_level': 1.5}) FROM d;
+----
+t_test_agg: confidence_level must be in (0, 1), got 1.5
+
+statement error
+SELECT chisq_gof_agg(o, e) FROM (VALUES (10::BIGINT, 5.0), (20::BIGINT, 5.0)) t(o, e);
+----
+chisq_gof_agg: Invalid input: invalid parameter: Expected proportions must sum to 1.0
+
+# =============================================================================
+# Degenerate data -> NULL, never an error
+# =============================================================================
+
+# too few rows
+query I
+SELECT ols_fit_agg(y, [x]) IS NULL FROM d WHERE x < 3;
+----
+true
+
+query I
+SELECT ridge_fit_agg(y, [x]) IS NULL FROM d WHERE x < 2;
+----
+true
+
+query I
+SELECT negbinom_fit_agg(y, [x]) IS NULL FROM d WHERE x < 2;
+----
+true
+
+query I
+SELECT ols_fit([1.0, 2.0], [[1.0, 2.0], [3.0, 4.0]]) IS NULL;
+----
+true
+
+query I
+SELECT t_test_agg(y, g) IS NULL FROM d WHERE x < 3;
+----
+true
+
+# no rows at all
+query I
+SELECT huber_fit_agg(y, [x]) IS NULL FROM d WHERE false;
+----
+true
+
+# zero variance
+query I
+SELECT pearson_agg(c * 0, y) IS NULL FROM d;
+----
+true
+
+query I
+SELECT jarque_bera_agg(c * 0) IS NULL FROM d;
+----
+true
+
+query I
+SELECT tost_correlation_agg(c * 0, y) IS NULL FROM d;
+----
+true
+
+# scalar functions on degenerate lists
+query II
+SELECT jarque_bera([1.0, 1.0, 1.0, 1.0, 1.0]) IS NULL, residuals_diagnostics([]::DOUBLE[], []::DOUBLE[]) IS NULL;
+----
+true	true
+
+# a single group where at least two are required
+query I
+SELECT one_way_anova_agg(y, 1) IS NULL FROM d;
+----
+true
+
+query I
+SELECT kruskal_wallis_agg(y, 1) IS NULL FROM d;
+----
+true
+
+query I
+SELECT glmm_fit_agg(y, [x], 'only_one_level') IS NULL FROM d;
+----
+true
+
+# every observation censored: the AFT model is not identified
+query I
+SELECT aft_fit_agg(y, [x], 0.0) IS NULL FROM d;
+----
+true
+
+# NULL per group, the other groups still fit
+query II
+SELECT g, ols_fit_agg(y, [x]) IS NULL FROM d WHERE x < 4 OR g = 1 GROUP BY g ORDER BY g;
+----
+0	true
+1	false

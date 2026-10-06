@@ -7,6 +7,7 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
@@ -197,6 +198,7 @@ static void TTestAggFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
         bool success = anofox_t_test(group1_array, group2_array, options, &test_result, &error);
 
         if (!success) {
+            ThrowUnlessDegenerate("t_test_agg", error);
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }

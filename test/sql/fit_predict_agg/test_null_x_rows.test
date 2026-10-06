@@ -1,0 +1,111 @@
+# name: test/sql/fit_predict_agg/test_null_x_rows.test
+# description: *_fit_predict_agg keep rows whose whole x list is NULL (yhat NULL,
+#              is_training false) so the output LIST lines up with the input rows.
+# group: [fit_predict_agg]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE p AS SELECT * FROM (VALUES
+    (1, 1.0, 3.1), (2, 2.0, 4.8), (3, NULL, 7.2), (4, 4.0, 9.1), (5, 5.0, NULL),
+    (6, 6.0, 13.2), (7, 7.0, 15.1), (8, 8.0, 16.8), (9, NULL, NULL), (10, 10.0, 21.2)
+) v(t, x, y);
+
+statement ok
+CREATE VIEW pl AS SELECT t, y, x AS xs, CASE WHEN x IS NULL THEN NULL ELSE [x] END AS x FROM p;
+
+# one output element per input row, NULL-x rows: yhat NULL and not training
+query IIII
+SELECT len(r), [e.is_training for e in r], [e.yhat IS NULL for e in r], [e.y for e in r][3]
+FROM (SELECT ols_fit_predict_agg(y, x ORDER BY t) AS r FROM pl);
+----
+10	[true, true, false, true, false, true, true, true, false, true]	[false, false, true, false, false, false, false, false, true, false]	7.2
+
+# a NULL-x row before the first non-NULL row (feature count not yet known)
+query IIII
+SELECT len(r), r[1].yhat IS NULL, r[1].is_training, r[1].y
+FROM (SELECT ols_fit_predict_agg(y, x ORDER BY xs NULLS FIRST, t) AS r FROM pl);
+----
+10	true	false	7.2
+
+# every fit-predict aggregate
+query I
+SELECT list_distinct([
+    len(ridge_fit_predict_agg(y, x ORDER BY t)),
+    len(wls_fit_predict_agg(y, x, 1.0 ORDER BY t)),
+    len(elasticnet_fit_predict_agg(y, x, {'alpha': 0.01} ORDER BY t)),
+    len(huber_fit_predict_agg(y, x ORDER BY t)),
+    len(ransac_fit_predict_agg(y, x ORDER BY t)),
+    len(theil_sen_fit_predict_agg(y, x ORDER BY t)),
+    len(rls_fit_predict_agg(y, x ORDER BY t)),
+    len(bls_fit_predict_agg(y, x ORDER BY t)),
+    len(alm_fit_predict_agg(y, x ORDER BY t)),
+    len(poisson_fit_predict_agg(y, x ORDER BY t)),
+    len(quantile_fit_predict_agg(y, x ORDER BY t)),
+    len(pls_fit_predict_agg(y, x ORDER BY t)),
+    len(isotonic_fit_predict_agg(y, xs ORDER BY t))
+]) FROM pl;
+----
+[10]
+
+query I
+SELECT [e.yhat IS NULL for e in isotonic_fit_predict_agg(y, xs ORDER BY t)] FROM pl;
+----
+[false, false, true, false, false, false, false, false, true, false]
+
+# parallel combine: many groups, NULL-x rows spread over threads, lengths match
+statement ok
+SET threads = 4;
+
+statement ok
+CREATE TABLE big AS
+SELECT i, i % 50 AS k, CASE WHEN i % 13 = 0 THEN NULL ELSE [(i % 17)::DOUBLE] END AS x,
+       CASE WHEN i % 5 = 0 THEN NULL ELSE (i % 17) * 2.0 + (i % 3) END AS y
+FROM range(0, 20000) r(i);
+
+query I
+SELECT bool_and(len(r) = n AND nulls = expected_nulls)
+FROM (
+    SELECT k, count(*) AS n, count(*) FILTER (WHERE x IS NULL) AS expected_nulls,
+           ols_fit_predict_agg(y, x) AS r,
+           len(list_filter(ols_fit_predict_agg(y, x), e -> e.yhat IS NULL)) AS nulls
+    FROM big GROUP BY k
+);
+----
+true
+
+# a NULL element inside x: the row is not used to fit, so is_training is false,
+# and its prediction is NULL
+statement ok
+CREATE TABLE pe AS SELECT * FROM (VALUES
+    (1, [1.0, 2.0], 3.1), (2, [2.0, 1.0], 4.8), (3, [3.0, NULL], 7.2), (4, [4.0, 3.0], 9.1),
+    (5, [5.0, 1.0], 10.8), (6, [6.0, 2.0], 13.2), (7, [7.0, 5.0], 15.1), (8, [8.0, 1.0], 16.8)
+) v(t, x, y);
+
+query I
+SELECT list_distinct([
+    (ols_fit_predict_agg(y, x ORDER BY t))[3].is_training,
+    (ridge_fit_predict_agg(y, x ORDER BY t))[3].is_training,
+    (wls_fit_predict_agg(y, x, 1.0 ORDER BY t))[3].is_training,
+    (elasticnet_fit_predict_agg(y, x, {'alpha': 0.01} ORDER BY t))[3].is_training,
+    (huber_fit_predict_agg(y, x ORDER BY t))[3].is_training,
+    (ransac_fit_predict_agg(y, x ORDER BY t))[3].is_training,
+    (theil_sen_fit_predict_agg(y, x ORDER BY t))[3].is_training,
+    (rls_fit_predict_agg(y, x ORDER BY t))[3].is_training,
+    (bls_fit_predict_agg(y, x ORDER BY t))[3].is_training,
+    (alm_fit_predict_agg(y, x ORDER BY t))[3].is_training,
+    (poisson_fit_predict_agg(y, x ORDER BY t))[3].is_training,
+    (quantile_fit_predict_agg(y, x ORDER BY t))[3].is_training,
+    (pls_fit_predict_agg(y, x ORDER BY t))[3].is_training
+]) FROM pe;
+----
+[false]
+
+query I
+SELECT list_distinct([
+    (ridge_fit_predict_agg(y, x ORDER BY t))[3].yhat IS NULL,
+    (huber_fit_predict_agg(y, x ORDER BY t))[3].yhat IS NULL,
+    (rls_fit_predict_agg(y, x ORDER BY t))[3].yhat IS NULL
+]) FROM pe;
+----
+[true]

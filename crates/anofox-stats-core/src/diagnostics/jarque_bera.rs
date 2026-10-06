@@ -60,7 +60,9 @@ pub fn jarque_bera(data: &[f64]) -> StatsResult<JarqueBeraResult> {
 
     // Check for zero variance
     if m2 <= 0.0 {
-        return Err(StatsError::InvalidInput("Data has zero variance".into()));
+        return Err(StatsError::InsufficientDataMsg(
+            "Data has zero variance".into(),
+        ));
     }
 
     // Compute skewness and kurtosis

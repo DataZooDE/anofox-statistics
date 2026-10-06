@@ -7,6 +7,7 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
@@ -277,6 +278,7 @@ static void RlsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
         bool success = anofox_rls_fit(y_array, x_arrays.data(), x_arrays.size(), options, &core_result, &error);
 
         if (!success) {
+            ThrowUnlessDegenerate("rls_fit_agg", error);
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
@@ -344,6 +346,9 @@ void RegisterRlsAggregateFunction(ExtensionLoader &loader) {
         AggregateFunction::StateSize<RlsAggregateState>, RlsAggInitialize, RlsAggUpdate, RlsAggCombine, RlsAggFinalize,
         nullptr, // simple_update
         RlsAggBind, RlsAggDestroy);
+    // Row order is part of the input (sequential / time-series estimator):
+    // declare it so DuckDB honours `agg(... ORDER BY t)`.
+    basic_func.SetOrderDependent(AggregateOrderDependent::ORDER_DEPENDENT);
     func_set.AddFunction(basic_func);
 
     // Version with MAP options: rls_fit_agg(y, x, {'forgetting_factor': 0.99, ...})
@@ -353,6 +358,7 @@ void RegisterRlsAggregateFunction(ExtensionLoader &loader) {
                                       LogicalType::ANY, AggregateFunction::StateSize<RlsAggregateState>,
                                       RlsAggInitialize, RlsAggUpdate, RlsAggCombine, RlsAggFinalize, nullptr,
                                       RlsAggBind, RlsAggDestroy);
+    map_func.SetOrderDependent(AggregateOrderDependent::ORDER_DEPENDENT);
     func_set.AddFunction(map_func);
 
     CreateAggregateFunctionInfo info(std::move(func_set));

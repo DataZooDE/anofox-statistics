@@ -207,7 +207,7 @@ pub fn fit_wls(
         .solve_method(convert_solver(options.solver))
         .build()
         .fit(&x_mat, &y_col)
-        .map_err(|e| StatsError::RegressError(format!("{:?}", e)))?;
+        .map_err(StatsError::from)?;
 
     // Extract results
     let result = fitted.result();

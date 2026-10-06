@@ -7,6 +7,7 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
 
@@ -187,6 +188,7 @@ static void PropTestTwoAggFinalize(Vector &state_vector, AggregateInputData &agg
                                              &prop_result, &error);
 
         if (!success) {
+            ThrowUnlessDegenerate("prop_test_two_agg", error);
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
