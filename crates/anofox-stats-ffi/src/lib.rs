@@ -2056,6 +2056,7 @@ pub unsafe extern "C" fn anofox_rls_fit(
 
         match result {
             Ok(state) => {
+                let stats = anofox_stats_core::models::rls_fit_statistics(&y_vec, &x_vecs, &state);
                 let coefficients = state.get_coefficients();
                 let n_coef = coefficients.len();
 
@@ -2076,9 +2077,9 @@ pub unsafe extern "C" fn anofox_rls_fit(
                     coefficients: coef_ptr,
                     coefficients_len: n_coef,
                     intercept: state.get_intercept().unwrap_or(f64::NAN),
-                    r_squared: f64::NAN, // RLS doesn't compute R² during fitting
-                    adj_r_squared: f64::NAN,
-                    residual_std_error: f64::NAN,
+                    r_squared: stats.r_squared,
+                    adj_r_squared: stats.adj_r_squared,
+                    residual_std_error: stats.residual_std_error,
                     n_observations: state.n_observations,
                     n_features: state.n_features,
                 };
