@@ -76,7 +76,7 @@ pub fn t_test(group1: &[f64], group2: &[f64], options: &TTestOptions) -> StatsRe
         statistic: result.statistic,
         p_value: result.p_value,
         df: result.df,
-        effect_size: f64::NAN, // TTestResult doesn't include effect size
+        effect_size: cohens_d(&g1, &g2, options.kind, options.mu),
         ci_lower: result
             .conf_int
             .as_ref()
@@ -94,6 +94,54 @@ pub fn t_test(group1: &[f64], group2: &[f64], options: &TTestOptions) -> StatsRe
         alternative: options.alternative,
         method: format!("{:?} t-test", options.kind),
     })
+}
+
+fn mean_var(v: &[f64]) -> (f64, f64) {
+    let n = v.len() as f64;
+    let mean = v.iter().sum::<f64>() / n;
+    let var = v.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / (n - 1.0);
+    (mean, var)
+}
+
+/// Cohen's d for the t-test, matching R `effectsize::cohens_d` conventions:
+///
+/// - Student: `(m1 - m2 - mu) / s_pooled`, with the pooled SD
+///   `sqrt(((n1-1) s1^2 + (n2-1) s2^2) / (n1 + n2 - 2))`
+///   (`cohens_d(pooled_sd = TRUE)`).
+/// - Welch: `(m1 - m2 - mu) / sqrt((s1^2 + s2^2) / 2)`, the average-variance
+///   standardiser (`cohens_d(pooled_sd = FALSE)`), which does not assume equal
+///   variances.
+/// - Paired: `d_z = mean(d - mu) / sd(d)` on the pairwise differences.
+///
+/// NaN when the standardiser is zero or not finite.
+fn cohens_d(g1: &[f64], g2: &[f64], kind: TTestKind, mu: f64) -> f64 {
+    let (num, sd) = match kind {
+        TTestKind::Paired => {
+            if g1.len() != g2.len() || g1.len() < 2 {
+                return f64::NAN;
+            }
+            let d: Vec<f64> = g1.iter().zip(g2).map(|(a, b)| a - b).collect();
+            let (m, v) = mean_var(&d);
+            (m - mu, v.sqrt())
+        }
+        TTestKind::Student => {
+            let (m1, v1) = mean_var(g1);
+            let (m2, v2) = mean_var(g2);
+            let (n1, n2) = (g1.len() as f64, g2.len() as f64);
+            let pooled = ((n1 - 1.0) * v1 + (n2 - 1.0) * v2) / (n1 + n2 - 2.0);
+            (m1 - m2 - mu, pooled.sqrt())
+        }
+        TTestKind::Welch => {
+            let (m1, v1) = mean_var(g1);
+            let (m2, v2) = mean_var(g2);
+            (m1 - m2 - mu, ((v1 + v2) / 2.0).sqrt())
+        }
+    };
+    if sd > 0.0 && sd.is_finite() {
+        num / sd
+    } else {
+        f64::NAN
+    }
 }
 
 /// Options for Yuen test
