@@ -80,6 +80,11 @@ impl DataArray {
         if self.len == 0 {
             return Vec::new();
         }
+        // Defensive: a NULL data pointer with a non-zero length would be UB in
+        // `from_raw_parts`; treat every element as NULL (NaN) instead.
+        if self.data.is_null() {
+            return vec![f64::NAN; self.len];
+        }
         // Fast path: no validity mask means every value is valid (the common case
         // for dense/non-nullable columns). Bulk-copy the slice instead of the
         // per-element validity branch + push. This returns the same owned
