@@ -51,6 +51,20 @@ pub fn compute_residuals(
     // Compute raw residuals
     let raw: Vec<f64> = y.iter().zip(y_hat).map(|(yi, yhi)| yi - yhi).collect();
 
+    // Without an explicit residual standard error but with the design matrix,
+    // estimate it from the residuals assuming y_hat comes from a least-squares
+    // fit on x with an intercept: s = sqrt(RSS / (n - k - 1)), as R's
+    // `summary(lm)$sigma`. Without x the model size is unknown, so s (and hence
+    // the standardized/studentized residuals) stays unavailable.
+    let residual_std_error = residual_std_error.or_else(|| {
+        let k = x.map(|cols| cols.len())?;
+        if k == 0 || n <= k + 1 {
+            return None;
+        }
+        let rss: f64 = raw.iter().map(|e| e * e).sum();
+        Some((rss / (n - k - 1) as f64).sqrt())
+    });
+
     // Compute standardized residuals if we have residual_std_error
     let standardized = residual_std_error.map(|s| {
         if s > 0.0 {
