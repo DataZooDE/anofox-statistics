@@ -180,13 +180,6 @@ void ExtraFitCombine(Vector &source_vector, Vector &target_vector, AggregateInpu
 	}
 }
 
-//! Data-dependent failures (too few rows, nothing usable, singular design) give NULL;
-//! anything else is a problem with the input or options and raises.
-bool IsDegenerateFitError(const AnofoxError &error) {
-	return error.code == ANOFOX_ERROR_INSUFFICIENT_DATA || error.code == ANOFOX_ERROR_NO_VALID_DATA ||
-	       error.code == ANOFOX_ERROR_SINGULAR_MATRIX;
-}
-
 vector<AnofoxDataArray> ColumnArrays(ExtraFitState &state) {
 	vector<AnofoxDataArray> arrays;
 	for (auto &col : state.x_columns) {
@@ -255,11 +248,9 @@ void PlsFitAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_data
 		AnofoxPlsFitResultCore fit;
 		AnofoxError error;
 		if (!anofox_pls_fit(y, x.data(), x.size(), options, &fit, &error)) {
-			if (IsDegenerateFitError(error)) {
-				FlatVector::SetNull(result, row, true);
-				continue;
-			}
-			ThrowFromFfiError("pls_fit_agg", error);
+			ThrowUnlessDegenerate("pls_fit_agg", error);
+			FlatVector::SetNull(result, row, true);
+			continue;
 		}
 		SetDoubleList(*entries[0], row, fit.coefficients, fit.coefficients_len);
 		SetDouble(*entries[1], row, bind.fit_intercept ? fit.intercept : 0.0);
@@ -306,11 +297,9 @@ void QuantileFitAggFinalize(Vector &state_vector, AggregateInputData &aggr_input
 		AnofoxQuantileFitResultCore fit;
 		AnofoxError error;
 		if (!anofox_quantile_fit(y, x.data(), x.size(), options, &fit, &error)) {
-			if (IsDegenerateFitError(error)) {
-				FlatVector::SetNull(result, row, true);
-				continue;
-			}
-			ThrowFromFfiError("quantile_fit_agg", error);
+			ThrowUnlessDegenerate("quantile_fit_agg", error);
+			FlatVector::SetNull(result, row, true);
+			continue;
 		}
 		SetDoubleList(*entries[0], row, fit.coefficients, fit.coefficients_len);
 		SetDouble(*entries[1], row, bind.fit_intercept ? fit.intercept : 0.0);
@@ -356,11 +345,9 @@ void IsotonicFitAggFinalize(Vector &state_vector, AggregateInputData &aggr_input
 		AnofoxIsotonicFitResultCore fit;
 		AnofoxError error;
 		if (!anofox_isotonic_fit(x, y, options, &fit, &error)) {
-			if (IsDegenerateFitError(error)) {
-				FlatVector::SetNull(result, row, true);
-				continue;
-			}
-			ThrowFromFfiError("isotonic_fit_agg", error);
+			ThrowUnlessDegenerate("isotonic_fit_agg", error);
+			FlatVector::SetNull(result, row, true);
+			continue;
 		}
 		// fitted_values align with the input rows; collapse to one knot per distinct x.
 		vector<idx_t> order(xs.size());
