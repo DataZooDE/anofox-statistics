@@ -7,6 +7,7 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
@@ -200,6 +201,7 @@ static void KendallAggFinalize(Vector &state_vector, AggregateInputData &aggr_in
         bool success = anofox_kendall_cor(x_array, y_array, options, &cor_result, &error);
 
         if (!success) {
+            ThrowUnlessDegenerate("kendall_agg", error);
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }

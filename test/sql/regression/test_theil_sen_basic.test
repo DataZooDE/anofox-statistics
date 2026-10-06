@@ -44,11 +44,11 @@ FROM theil_sen_outliers;
 ----
 true
 
-# TEST 4: max_subpopulation = 0 silently NULLs the row.
-query I
-SELECT (theil_sen_fit_agg(y, [x], {'max_subpopulation': 0})).coefficients IS NULL FROM theil_sen_clean;
+# TEST 4: max_subpopulation = 0 is an invalid option and raises an error.
+statement error
+SELECT (theil_sen_fit_agg(y, [x], {'max_subpopulation': 0})).coefficients FROM theil_sen_clean;
 ----
-true
+theil_sen_fit_agg: Invalid input: max_subpopulation must be > 0
 
 # TEST 5: Per-group fit recovers different slopes.
 statement ok

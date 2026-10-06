@@ -184,7 +184,9 @@ static void RidgeFitFunction(DataChunk &args, ExpressionState &state, Vector &re
                                         bind_data.compute_inference ? &inference_result : nullptr, &error);
 
         if (!success) {
-            ThrowFromFfiError("ridge_fit", error);
+            ThrowUnlessDegenerate("ridge_fit", error);
+            FlatVector::SetNull(result, row, true);
+            continue;
         }
 
         // Build result struct

@@ -8,6 +8,7 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
@@ -180,6 +181,7 @@ static void ChiSquareAggFinalize(Vector &state_vector, AggregateInputData &aggr_
         bool success = anofox_chisq_test(row_array, col_array, options, &chisq_result, &error);
 
         if (!success) {
+            ThrowUnlessDegenerate("chisq_test_agg", error);
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }

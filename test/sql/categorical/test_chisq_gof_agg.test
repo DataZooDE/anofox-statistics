@@ -13,9 +13,9 @@ require anofox_statistics
 statement ok
 CREATE TABLE gof_data AS
 SELECT * FROM (VALUES
-    (CAST(20 AS BIGINT), 26.67),
-    (CAST(30 AS BIGINT), 26.67),
-    (CAST(30 AS BIGINT), 26.67)
+    (CAST(20 AS BIGINT), 0.25),
+    (CAST(30 AS BIGINT), 0.25),
+    (CAST(30 AS BIGINT), 0.5)
 ) AS t(observed, expected);
 
 # =============================================================================
@@ -34,6 +34,22 @@ query I
 SELECT chisq_gof_agg(observed, expected) IS NULL OR chisq_gof_agg(observed, expected) IS NOT NULL FROM gof_data;
 ----
 true
+
+# TEST 3: against R chisq.test(c(20, 30, 30), p = c(0.25, 0.25, 0.5))
+query III
+SELECT round((chisq_gof_agg(observed, expected)).statistic, 6),
+       round((chisq_gof_agg(observed, expected)).p_value, 6),
+       (chisq_gof_agg(observed, expected)).df
+FROM gof_data;
+----
+7.5	0.023518	2
+
+# TEST 4: expected values that are not probabilities (do not sum to 1) are
+# invalid input and raise an error rather than returning NULL
+statement error
+SELECT chisq_gof_agg(observed, expected * 100) FROM gof_data;
+----
+chisq_gof_agg: Invalid input: invalid parameter: Expected proportions must sum to 1.0
 
 # =============================================================================
 # CLEANUP

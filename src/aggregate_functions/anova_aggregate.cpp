@@ -8,6 +8,7 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/error_dispatch.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 
@@ -164,6 +165,7 @@ static void AnovaAggFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
         bool success = anofox_one_way_anova(values_array, groups_array, &anova_result, &error);
 
         if (!success) {
+            ThrowUnlessDegenerate("one_way_anova_agg", error);
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }

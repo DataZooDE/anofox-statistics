@@ -29,27 +29,27 @@ SELECT predict([[1.0, 2.0, 3.0]], [1.0, 2.0, 3.0], 0.0);
 predict:
 
 # =============================================================================
-# (b) Insufficient-rows: message names the function and gives the specific
-#     detail from the Rust layer (row count vs feature count).
+# (b) Insufficient rows is a degenerate outcome, not an input error: the
+#     result is NULL (consistent with the *_fit_agg aggregates).
 # =============================================================================
 
 # OLS: 2 rows, 2 features — needs rows > features (with intercept, needs 3)
-statement error
-SELECT ols_fit([1.0, 2.0], [[1.0, 2.0], [3.0, 4.0]]);
+query I
+SELECT ols_fit([1.0, 2.0], [[1.0, 2.0], [3.0, 4.0]]) IS NULL;
 ----
-ols_fit: Insufficient data
+true
 
 # WLS: same pattern, 2 rows 2 features
-statement error
-SELECT wls_fit([1.0, 2.0], [[1.0, 2.0], [3.0, 4.0]], [1.0, 1.0]);
+query I
+SELECT wls_fit([1.0, 2.0], [[1.0, 2.0], [3.0, 4.0]], [1.0, 1.0]) IS NULL;
 ----
-wls_fit: Insufficient data
+true
 
 # ElasticNet: insufficient data
-statement error
-SELECT elasticnet_fit([1.0, 2.0], [[1.0, 2.0], [3.0, 4.0]], {'alpha': 0.1, 'l1_ratio': 0.5});
+query I
+SELECT elasticnet_fit([1.0, 2.0], [[1.0, 2.0], [3.0, 4.0]], {'alpha': 0.1, 'l1_ratio': 0.5}) IS NULL;
 ----
-elasticnet_fit: Insufficient data
+true
 
 # =============================================================================
 # (c) No "fit failed" generic wrapper appears in any of the above errors.

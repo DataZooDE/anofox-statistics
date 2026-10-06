@@ -68,7 +68,9 @@ static void VifFunction(DataChunk &args, ExpressionState &state, Vector &result)
         bool success = anofox_compute_vif(x_arrays.data(), x_arrays.size(), &vif_values, &vif_len, &error);
 
         if (!success) {
-            ThrowFromFfiError("vif", error);
+            ThrowUnlessDegenerate("vif", error);
+            FlatVector::SetNull(result, row, true);
+            continue;
         }
 
         // Build result list

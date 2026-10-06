@@ -7,6 +7,7 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
@@ -185,6 +186,7 @@ static void DistanceCorAggFinalize(Vector &state_vector, AggregateInputData &agg
 
         bool dcor_success = anofox_distance_cor(x_array, y_array, &dcor_result, &error);
         if (!dcor_success) {
+            ThrowUnlessDegenerate("distance_cor_agg", error);
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
@@ -194,6 +196,7 @@ static void DistanceCorAggFinalize(Vector &state_vector, AggregateInputData &agg
         bool test_success = anofox_distance_cor_test(x_array, y_array, bind_data.n_permutations, &test_result, &error);
 
         if (!test_success) {
+            ThrowUnlessDegenerate("distance_cor_agg", error);
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }

@@ -8,6 +8,7 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/error_dispatch.hpp"
 #include "../include/ffi_enum_converters.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
@@ -260,6 +261,7 @@ static void RidgeFitPredictFinalize(Vector &state_vector, AggregateInputData &, 
             anofox_ridge_fit(y_array, x_arrays.data(), x_arrays.size(), options, &core_result, nullptr, &error);
 
         if (!success) {
+            ThrowUnlessDegenerate("ridge_fit_predict", error);
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }

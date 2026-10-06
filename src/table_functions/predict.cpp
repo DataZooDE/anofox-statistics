@@ -87,7 +87,9 @@ static void PredictFunction(DataChunk &args, ExpressionState &state, Vector &res
                                       intercept, &predictions, &predictions_len, &error);
 
         if (!success) {
-            ThrowFromFfiError("predict", error);
+            ThrowUnlessDegenerate("predict", error);
+            FlatVector::SetNull(result, row, true);
+            continue;
         }
 
         // Build result list

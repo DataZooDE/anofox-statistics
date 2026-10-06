@@ -208,7 +208,9 @@ static void RansacFitFunction(DataChunk &args, ExpressionState &state, Vector &r
                                          &error);
 
         if (!success) {
-            ThrowFromFfiError("ransac_fit", error);
+            ThrowUnlessDegenerate("ransac_fit", error);
+            FlatVector::SetNull(result, row, true);
+            continue;
         }
 
         auto &struct_vec = StructVector::GetEntries(result);
