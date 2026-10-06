@@ -10,6 +10,7 @@
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
+#include "two_group.hpp"
 
 #ifdef _WIN32
 #define strcasecmp _stricmp
@@ -21,15 +22,13 @@ namespace duckdb {
 // Permutation T-Test Aggregate State
 //===--------------------------------------------------------------------===//
 struct PermutationTTestAggregateState {
-    vector<double> group1;
-    vector<double> group2;
+    TwoGroupSamples samples;
     bool initialized;
 
     PermutationTTestAggregateState() : initialized(false) {}
 
     void Reset() {
-        group1.clear();
-        group2.clear();
+        samples.Clear();
         initialized = false;
     }
 };
@@ -96,7 +95,7 @@ static void PermutationTTestAggUpdate(Vector inputs[], AggregateInputData &aggr_
     inputs[0].ToUnifiedFormat(count, value_data);
     inputs[1].ToUnifiedFormat(count, group_data);
     auto values = UnifiedVectorFormat::GetData<double>(value_data);
-    auto groups = UnifiedVectorFormat::GetData<int32_t>(group_data);
+    const bool group_is_string = inputs[1].GetType().id() == LogicalTypeId::VARCHAR;
 
     UnifiedVectorFormat sdata;
     state_vector.ToUnifiedFormat(count, sdata);
@@ -114,17 +113,13 @@ static void PermutationTTestAggUpdate(Vector inputs[], AggregateInputData &aggr_
         }
 
         double val = values[val_idx];
-        int32_t group = groups[grp_idx];
+        auto group = ReadGroupLabel(group_data, grp_idx, group_is_string);
 
         if (std::isnan(val)) {
             continue;
         }
 
-        if (group == 0) {
-            state.group1.push_back(val);
-        } else {
-            state.group2.push_back(val);
-        }
+        state.samples.Add(group, val, "permutation_t_test_agg");
     }
 }
 
@@ -145,14 +140,12 @@ static void PermutationTTestAggCombine(Vector &source_vector, Vector &target_vec
         }
 
         if (!target.initialized) {
-            target.group1 = CombineTake(source.group1, aggr_input_data);
-            target.group2 = CombineTake(source.group2, aggr_input_data);
+            target.samples.Merge(source.samples, aggr_input_data, "permutation_t_test_agg");
             target.initialized = true;
             continue;
         }
 
-        target.group1.insert(target.group1.end(), source.group1.begin(), source.group1.end());
-        target.group2.insert(target.group2.end(), source.group2.begin(), source.group2.end());
+        target.samples.Merge(source.samples, aggr_input_data, "permutation_t_test_agg");
     }
 }
 
@@ -169,20 +162,20 @@ static void PermutationTTestAggFinalize(Vector &state_vector, AggregateInputData
         auto &state = *states[sdata.sel->get_index(i)];
         idx_t result_idx = i + offset;
 
-        if (!state.initialized || state.group1.size() < 2 || state.group2.size() < 2) {
+        if (!state.initialized || state.samples.Group1().size() < 2 || state.samples.Group2().size() < 2) {
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
 
         AnofoxDataArray group1_array;
-        group1_array.data = state.group1.data();
+        group1_array.data = state.samples.Group1().data();
         group1_array.validity = nullptr;
-        group1_array.len = state.group1.size();
+        group1_array.len = state.samples.Group1().size();
 
         AnofoxDataArray group2_array;
-        group2_array.data = state.group2.data();
+        group2_array.data = state.samples.Group2().data();
         group2_array.validity = nullptr;
-        group2_array.len = state.group2.size();
+        group2_array.len = state.samples.Group2().size();
 
         AnofoxTestResult test_result;
         AnofoxError error;
@@ -254,20 +247,24 @@ void RegisterPermutationTTestAggregateFunction(ExtensionLoader &loader) {
 
     // With options: (value, group_id, options)
     auto func_with_opts = AggregateFunction(
-        "permutation_t_test_agg", {LogicalType::DOUBLE, LogicalType::INTEGER, LogicalType::ANY},
+        "permutation_t_test_agg", {LogicalType::DOUBLE, LogicalType::BIGINT, LogicalType::ANY},
         LogicalType::ANY,
         AggregateFunction::StateSize<PermutationTTestAggregateState>, PermutationTTestAggInitialize,
         PermutationTTestAggUpdate, PermutationTTestAggCombine, PermutationTTestAggFinalize,
         nullptr, PermutationTTestAggBind, PermutationTTestAggDestroy);
     func_set.AddFunction(func_with_opts);
+    func_with_opts.arguments[1] = LogicalType::VARCHAR;
+    func_set.AddFunction(func_with_opts);
 
     // Without options: (value, group_id)
     auto func_no_opts = AggregateFunction(
-        "permutation_t_test_agg", {LogicalType::DOUBLE, LogicalType::INTEGER},
+        "permutation_t_test_agg", {LogicalType::DOUBLE, LogicalType::BIGINT},
         LogicalType::ANY,
         AggregateFunction::StateSize<PermutationTTestAggregateState>, PermutationTTestAggInitialize,
         PermutationTTestAggUpdate, PermutationTTestAggCombine, PermutationTTestAggFinalize,
         nullptr, PermutationTTestAggBind, PermutationTTestAggDestroy);
+    func_set.AddFunction(func_no_opts);
+    func_no_opts.arguments[1] = LogicalType::VARCHAR;
     func_set.AddFunction(func_no_opts);
 
     CreateAggregateFunctionInfo info(std::move(func_set));
@@ -277,14 +274,14 @@ void RegisterPermutationTTestAggregateFunction(ExtensionLoader &loader) {
     d1.examples        = {"permutation_t_test_agg(value, group_id, {'alternative': 'two_sided', 'n_permutations': 10000})"};
     d1.categories      = {"hypothesis-testing", "nonparametric"};
     d1.parameter_names = {"value", "group_id", "options"};
-    d1.parameter_types = {LogicalType::DOUBLE, LogicalType::INTEGER, LogicalType::ANY};
+    d1.parameter_types = {LogicalType::DOUBLE, LogicalType::BIGINT, LogicalType::ANY};
     info.descriptions.push_back(std::move(d1));
     FunctionDescription d2;
     d2.description     = "Performs a permutation-based two-sample t-test using resampling, using default options.";
     d2.examples        = {"permutation_t_test_agg(value, group_id)"};
     d2.categories      = {"hypothesis-testing", "nonparametric"};
     d2.parameter_names = {"value", "group_id"};
-    d2.parameter_types = {LogicalType::DOUBLE, LogicalType::INTEGER};
+    d2.parameter_types = {LogicalType::DOUBLE, LogicalType::BIGINT};
     info.descriptions.push_back(std::move(d2));
     loader.RegisterFunction(std::move(info));
 

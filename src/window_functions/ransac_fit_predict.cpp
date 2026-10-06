@@ -409,8 +409,7 @@ void RegisterRansacFitPredictFunction(ExtensionLoader &loader) {
         info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
 
         FunctionDescription d1;
-        d1.description = "Fits a RANSAC robust regression over a window partition and returns the prediction for the "
-                         "current row.";
+        d1.description = "Window aggregate: fits a RANSAC regression on the rows of the window frame and returns the prediction (with interval) for the LAST row of the frame. Use frames ending at CURRENT ROW over a unique ordering; for per-row predictions over a whole group use ransac_fit_predict_agg.";
         d1.examples = {"ransac_fit_predict(y, x) OVER (PARTITION BY g ORDER BY t)"};
         d1.categories = {"regression", "prediction"};
         d1.parameter_names = {"y", "x"};
@@ -418,7 +417,7 @@ void RegisterRansacFitPredictFunction(ExtensionLoader &loader) {
         info.descriptions.push_back(std::move(d1));
 
         FunctionDescription d2;
-        d2.description = "Fits a RANSAC regression over a window with a MAP of options.";
+        d2.description = "Window aggregate: fits a RANSAC regression on the rows of the window frame and returns the prediction (with interval) for the LAST row of the frame. Use frames ending at CURRENT ROW over a unique ordering; for per-row predictions over a whole group use ransac_fit_predict_agg.";
         d2.examples = {"ransac_fit_predict(y, x, {'residual_threshold': 0.5}) OVER (...)"};
         d2.categories = {"regression", "prediction"};
         d2.parameter_names = {"y", "x", "options"};

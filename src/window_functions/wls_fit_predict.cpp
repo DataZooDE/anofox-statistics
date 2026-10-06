@@ -337,7 +337,7 @@ void RegisterWlsFitPredictFunction(ExtensionLoader &loader) {
         info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
 
         FunctionDescription d1;
-        d1.description     = "Fits a WLS regression model over a window partition using per-row weights and returns predictions.";
+        d1.description     = "Window aggregate: fits a weighted least squares (WLS) regression on the rows of the window frame and returns the prediction (with interval) for the LAST row of the frame. Use frames ending at CURRENT ROW over a unique ordering; for per-row predictions over a whole group use wls_fit_predict_agg.";
         d1.examples        = {"wls_fit_predict(y, x, weight)"};
         d1.categories      = {"regression", "prediction"};
         d1.parameter_names = {"y", "x", "weight"};
@@ -345,7 +345,7 @@ void RegisterWlsFitPredictFunction(ExtensionLoader &loader) {
         info.descriptions.push_back(std::move(d1));
 
         FunctionDescription d2;
-        d2.description     = "Fits a WLS regression model over a window partition using per-row weights and returns predictions.";
+        d2.description     = "Window aggregate: fits a weighted least squares (WLS) regression on the rows of the window frame and returns the prediction (with interval) for the LAST row of the frame. Use frames ending at CURRENT ROW over a unique ordering; for per-row predictions over a whole group use wls_fit_predict_agg.";
         d2.examples        = {"wls_fit_predict(y, x, weight, {'null_policy': 'drop'})"};
         d2.categories      = {"regression", "prediction"};
         d2.parameter_names = {"y", "x", "weight", "options"};

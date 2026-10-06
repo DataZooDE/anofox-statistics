@@ -334,7 +334,7 @@ void RegisterRidgeFitPredictFunction(ExtensionLoader &loader) {
         info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
 
         FunctionDescription d1;
-        d1.description     = "Fits a Ridge regression model over a window partition and returns predictions with confidence intervals.";
+        d1.description     = "Window aggregate: fits a Ridge regression on the rows of the window frame and returns the prediction (with interval) for the LAST row of the frame. Use frames ending at CURRENT ROW over a unique ordering; for per-row predictions over a whole group use ridge_fit_predict_agg.";
         d1.examples        = {"ridge_fit_predict(y, x)"};
         d1.categories      = {"regression", "prediction"};
         d1.parameter_names = {"y", "x"};
@@ -342,7 +342,7 @@ void RegisterRidgeFitPredictFunction(ExtensionLoader &loader) {
         info.descriptions.push_back(std::move(d1));
 
         FunctionDescription d2;
-        d2.description     = "Fits a Ridge regression model over a window partition and returns predictions with confidence intervals.";
+        d2.description     = "Window aggregate: fits a Ridge regression on the rows of the window frame and returns the prediction (with interval) for the LAST row of the frame. Use frames ending at CURRENT ROW over a unique ordering; for per-row predictions over a whole group use ridge_fit_predict_agg.";
         d2.examples        = {"ridge_fit_predict(y, x, {'null_policy': 'drop'})"};
         d2.categories      = {"regression", "prediction"};
         d2.parameter_names = {"y", "x", "options"};

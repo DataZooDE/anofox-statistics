@@ -34,8 +34,10 @@ struct GlmmAggregateState {
 	vector<double> y_values;
 	vector<vector<double>> x_columns;
 	vector<int32_t> group_ids;
-	//! Group key -> dense index, in first-seen order.
-	unordered_map<string, int32_t> group_index;
+	//! Group key -> dense index, in first-seen order. Held behind a pointer because
+	//! DuckDB relocates aggregate states with a raw memory copy, and libstdc++'s
+	//! unordered_map keeps pointers into its own object.
+	unique_ptr<unordered_map<string, int32_t>> group_index;
 	//! Dense index -> the original key, for labelling the random effects.
 	vector<string> group_labels;
 	idx_t n_features;
@@ -77,12 +79,15 @@ struct GlmmAggregateState {
 	}
 
 	int32_t Intern(const string &key) {
-		auto it = group_index.find(key);
-		if (it != group_index.end()) {
+		if (!group_index) {
+			group_index = make_uniq<unordered_map<string, int32_t>>();
+		}
+		auto it = group_index->find(key);
+		if (it != group_index->end()) {
 			return it->second;
 		}
 		auto id = (int32_t)group_labels.size();
-		group_index.emplace(key, id);
+		group_index->emplace(key, id);
 		group_labels.push_back(key);
 		return id;
 	}
@@ -91,7 +96,7 @@ struct GlmmAggregateState {
 		y_values.clear();
 		x_columns.clear();
 		group_ids.clear();
-		group_index.clear();
+		group_index.reset();
 		group_labels.clear();
 		n_features = 0;
 		initialized = false;
