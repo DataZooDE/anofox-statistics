@@ -1,0 +1,117 @@
+# name: test/sql/reference/categorical_reference.test
+# description: Contingency-table tests vs R (chisq.test, G-test, fisher.test, mcnemar.test, Cramer's V)
+# group: [reference]
+#
+# Reference values: validation/generators/make_reference_tests.R.
+# Conventions (checked against the matching reference):
+#  * chisq_test_agg: NO Yates correction by default (R's chisq.test defaults to correct = TRUE
+#    for 2x2); {'correction': true} gives the Yates-corrected statistic.
+#  * fisher_exact_agg: p-values are R's fisher.test p-values, but odds_ratio is the SAMPLE odds
+#    ratio ad/bc and the CI is the Woolf (logit) interval — R reports the conditional MLE
+#    (4.4215633454100463) and an exact conditional CI [1.2001, 18.0348] instead.
+#  * mcnemar_agg: continuity correction on by default (= R mcnemar.test default).
+
+require anofox_statistics
+
+# 2x3 table  [[20, 15, 25], [30, 10, 12]]
+statement ok
+CREATE TABLE ct AS SELECT r::INTEGER AS r, c::INTEGER AS c
+FROM (VALUES (0,0,20),(0,1,15),(0,2,25),(1,0,30),(1,1,10),(1,2,12)) t(r, c, n), range(n);
+
+# 2x2 table  [[18, 7], [9, 16]]
+statement ok
+CREATE TABLE c2 AS SELECT r::INTEGER AS r, c::INTEGER AS c
+FROM (VALUES (0,0,18),(0,1,7),(1,0,9),(1,1,16)) t(r, c, n), range(n);
+
+# paired binary table [[30, 12], [4, 24]]  (b = 12, c = 4)
+statement ok
+CREATE TABLE mc AS SELECT a::BIGINT AS a, b::BIGINT AS b
+FROM (VALUES (0,0,30),(0,1,12),(1,0,4),(1,1,24)) t(a, b, n), range(n);
+
+# ---------------------------------------------------------------------------
+# chisq_test_agg — R: chisq.test(matrix(c(20,15,25,30,10,12), 2, byrow = TRUE))
+# ---------------------------------------------------------------------------
+query III
+SELECT abs(r.statistic - 7.0320166320166297) < 1e-9, abs(r.p_value - 0.029717822885398398) < 1e-12, r.df = 2
+FROM (SELECT chisq_test_agg(r, c) AS r FROM ct);
+----
+true	true	true
+
+# R: chisq.test(matrix(c(18,7,9,16), 2, byrow = TRUE), correct = FALSE)
+query III
+SELECT abs(r.statistic - 6.5217391304347831) < 1e-9, abs(r.p_value - 0.010656374721291413) < 1e-12, r.df = 1
+FROM (SELECT chisq_test_agg(r, c) AS r FROM c2);
+----
+true	true	true
+
+# R: chisq.test(matrix(c(18,7,9,16), 2, byrow = TRUE), correct = TRUE)
+query II
+SELECT abs(r.statistic - 5.1529790660225441) < 1e-9, abs(r.p_value - 0.023206526406763055) < 1e-12
+FROM (SELECT chisq_test_agg(r, c, {'correction': true}) AS r FROM c2);
+----
+true	true
+
+# ---------------------------------------------------------------------------
+# g_test_agg — G = 2 sum O log(O / E) (R, by hand), df = (r-1)(c-1)
+# ---------------------------------------------------------------------------
+query III
+SELECT abs(r.statistic - 7.1149282222416188) < 1e-9, abs(r.p_value - 0.028511033932094285) < 1e-12, r.df = 2
+FROM (SELECT g_test_agg(r, c) AS r FROM ct);
+----
+true	true	true
+
+# ---------------------------------------------------------------------------
+# cramers_v_agg — sqrt(X2 / (n (min(r, c) - 1))), X2 = chisq.test(tab, correct = FALSE)$statistic
+# ---------------------------------------------------------------------------
+query I
+SELECT abs(cramers_v_agg(r, c) - 0.25057107332224676) < 1e-12 FROM ct;
+----
+true
+
+# ---------------------------------------------------------------------------
+# fisher_exact_agg — R: fisher.test(matrix(c(18,7,9,16), 2, byrow = TRUE))
+# ---------------------------------------------------------------------------
+query III
+SELECT abs(r.p_value - 0.022241295691722542) < 1e-9, abs(r.odds_ratio - 4.5714285714285712) < 1e-12, r.n = 50
+FROM (SELECT fisher_exact_agg(r, c) AS r FROM c2);
+----
+true	true	true
+
+# R: fisher.test(tab2, alternative = "greater" / "less")$p.value
+query II
+SELECT abs((fisher_exact_agg(r, c, {'alternative': 'greater'})).p_value - 0.011120647845861288) < 1e-9,
+       abs((fisher_exact_agg(r, c, {'alternative': 'less'})).p_value - 0.99796884226026217) < 1e-9
+FROM c2;
+----
+true	true
+
+# Woolf CI: exp(log(OR) -/+ qnorm(0.975) * sqrt(1/a + 1/b + 1/c + 1/d))
+# (Currently fails at ~3e-5: z is hard-coded as 1.96 instead of qnorm(0.975).)
+query II
+SELECT abs(r.ci_lower - 1.3831591632505251) < 1e-9, abs(r.ci_upper - 15.108860743518289) < 1e-8
+FROM (SELECT fisher_exact_agg(r, c) AS r FROM c2);
+----
+true	true
+
+# ---------------------------------------------------------------------------
+# mcnemar_agg — R: mcnemar.test(matrix(c(30,12,4,24), 2, byrow = TRUE), correct = TRUE / FALSE)
+# ---------------------------------------------------------------------------
+query IIII
+SELECT abs(r.statistic - 3.0625) < 1e-12, abs(r.p_value - 0.080118313727634338) < 1e-12, r.df = 1, r.method = 'McNemar''s test'
+FROM (SELECT mcnemar_agg(a, b) AS r FROM mc);
+----
+true	true	true	true
+
+query II
+SELECT abs(r.statistic - 4) < 1e-12, abs(r.p_value - 0.045500263896358473) < 1e-12
+FROM (SELECT mcnemar_agg(a, b, MAP {'correction': false}) AS r FROM mc);
+----
+true	true
+
+# Same option as a STRUCT literal (the form every other aggregate accepts).
+# (Currently fails: mcnemar_agg only reads MAP options and silently ignores STRUCTs.)
+query II
+SELECT abs(r.statistic - 4) < 1e-12, abs(r.p_value - 0.045500263896358473) < 1e-12
+FROM (SELECT mcnemar_agg(a, b, {'correction': false}) AS r FROM mc);
+----
+true	true

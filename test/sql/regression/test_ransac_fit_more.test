@@ -1,0 +1,110 @@
+# name: test/sql/regression/test_ransac_fit_more.test
+# description: ransac_fit scalar function (array form and "table form" via list() per group /
+#              LATERAL over a table of arrays), consistency with ransac_fit_agg, options,
+#              reproducibility and result-field consistency.
+# group: [regression]
+
+require anofox_statistics
+
+# y = 1 + 2x with tiny noise, plus three gross outliers (i = 4, 11, 17)
+statement ok
+CREATE TABLE o AS
+SELECT i, (i * 0.5)::DOUBLE AS x,
+       (1.0 + 2.0 * (i * 0.5) + CASE WHEN i IN (4, 11, 17) THEN 25.0 ELSE ((i * 37) % 7 - 3) / 100.0 END)::DOUBLE AS y,
+       (i % 2) AS g
+FROM range(1, 25) t(i);
+
+# Array form: the consensus set is exactly the 21 clean rows, and the final
+# model is the least-squares refit on them (== ols_fit_agg on the clean rows).
+query IIII
+WITH r AS (SELECT ransac_fit(list(y ORDER BY i), [list(x ORDER BY i)], {'random_state': 42, 'residual_threshold': 0.5}) AS f FROM o),
+     c AS (SELECT ols_fit_agg(y, [x]) AS f FROM o WHERE i NOT IN (4, 11, 17))
+SELECT r.f.n_inliers, r.f.n_observations,
+       abs(r.f.coefficients[1] - c.f.coefficients[1]) < 1e-9,
+       abs(r.f.intercept - c.f.intercept) < 1e-9
+FROM r, c;
+----
+21	24	true	true
+
+# Literal arrays
+query III
+SELECT round(f.coefficients[1], 6), round(f.intercept, 6), f.n_inliers
+FROM (SELECT ransac_fit([3.0, 5.0, 7.0, 9.0, 40.0, 13.0, 15.0, 17.0],
+                        [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]],
+                        {'random_state': 1, 'residual_threshold': 0.1}) AS f);
+----
+2.0	1.0	7
+
+# Scalar and aggregate agree when fed the same rows in the same order and seed
+query I
+SELECT (SELECT ransac_fit(list(y ORDER BY i), [list(x ORDER BY i)], {'random_state': 7, 'residual_threshold': 0.5}) FROM o)
+     = (SELECT ransac_fit_agg(y, [x], {'random_state': 7, 'residual_threshold': 0.5} ORDER BY i) FROM o);
+----
+true
+
+# Reproducible for a fixed seed; 'seed' is an alias of 'random_state'
+query II
+SELECT (SELECT ransac_fit(list(y ORDER BY i), [list(x ORDER BY i)], {'random_state': 42, 'residual_threshold': 0.5}) FROM o)
+     = (SELECT ransac_fit(list(y ORDER BY i), [list(x ORDER BY i)], {'random_state': 42, 'residual_threshold': 0.5}) FROM o),
+       (SELECT ransac_fit(list(y ORDER BY i), [list(x ORDER BY i)], {'random_state': 42, 'residual_threshold': 0.5}) FROM o)
+     = (SELECT ransac_fit(list(y ORDER BY i), [list(x ORDER BY i)], {'seed': 42, 'residual_threshold': 0.5}) FROM o);
+----
+true	true
+
+# Table form 1: one scalar call per group over list()-aggregated arrays
+query IIII
+SELECT g, f.n_observations, f.n_inliers, abs(f.coefficients[1] - 2.0) < 0.01
+FROM (SELECT g, ransac_fit(list(y ORDER BY i), [list(x ORDER BY i)], {'random_state': 3, 'residual_threshold': 0.5}) AS f
+      FROM o GROUP BY g)
+ORDER BY g;
+----
+0	12	11	true
+1	12	10	true
+
+# Table form 2: a table whose rows hold arrays (e.g. pre-aggregated series)
+statement ok
+CREATE TABLE series AS
+SELECT g, list(y ORDER BY i) AS ys, [list(x ORDER BY i)] AS xs FROM o GROUP BY g;
+
+query II
+SELECT s.g, abs((ransac_fit(s.ys, s.xs, {'random_state': 3, 'residual_threshold': 0.5})).intercept - 1.0) < 0.05
+FROM series s ORDER BY s.g;
+----
+0	true
+1	true
+
+# n_trials never exceeds max_trials; the stop rule ends early on easy data
+query II
+SELECT f.n_trials <= 5, f.n_trials >= 1
+FROM (SELECT ransac_fit(list(y ORDER BY i), [list(x ORDER BY i)], {'random_state': 42, 'residual_threshold': 0.5, 'max_trials': 5}) AS f FROM o);
+----
+true	true
+
+# min_samples > n -> no model can be drawn -> error from the core (not a crash)
+statement error
+SELECT ransac_fit([1.0, 2.0, 3.0, 4.0], [[1.0, 2.0, 3.0, 4.0]], {'min_samples': 10});
+----
+ransac_fit:
+
+# Result fields are internally consistent: adj_r_squared follows from r_squared,
+# and residual_std_error is positive for noisy data (today both are reported as 0.0).
+query II
+SELECT abs(f.adj_r_squared - (1 - (1 - f.r_squared) * (f.n_observations - 1) / (f.n_observations - f.n_features - 1))) < 1e-9,
+       f.residual_std_error > 0
+FROM (SELECT ransac_fit(list(y ORDER BY i), [list(x ORDER BY i)], {'random_state': 42, 'residual_threshold': 0.5}) AS f FROM o);
+----
+true	true
+
+# compute_inference = true adds one standard error per feature (documented in
+# docs/api/regression/ransac.md; today the lists come back empty).
+query II
+SELECT len(f.std_errors), len(f.p_values)
+FROM (SELECT ransac_fit(list(y ORDER BY i), [list(x ORDER BY i)], {'random_state': 42, 'residual_threshold': 0.5, 'compute_inference': true}) AS f FROM o);
+----
+1	1
+
+# Dimension mismatch is reported with the function name
+statement error
+SELECT ransac_fit([1.0, 2.0, 3.0, 4.0], [[1.0, 2.0, 3.0]]);
+----
+ransac_fit: Dimension mismatch

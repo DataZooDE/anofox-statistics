@@ -1,0 +1,117 @@
+# name: test/sql/reference/hypothesis_reference.test
+# description: Parametric two-/k-sample tests vs R reference values (t.test, oneway ANOVA, Brown-Forsythe, Yuen)
+# group: [reference]
+#
+# Reference values: validation/generators/make_reference_tests.R (R 4.x, base stats).
+# Tolerance: 1e-9 on statistics / df / CI bounds, 1e-12 on p-values (all closed form).
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE two AS SELECT v::DOUBLE AS v, g::INTEGER AS g FROM (VALUES
+ (5.1,0),(4.9,0),(6.2,0),(5.8,0),(6.05,0),(5.5,0),(5.3,0),(6.1,0),
+ (6.5,1),(7.1,1),(6.8,1),(7.4,1),(6.0,1),(7.9,1),(6.6,1),(7.2,1),(6.9,1),(7.05,1)) t(v, g);
+
+# Same data with group labels 1/2 (smaller label = group 1).
+statement ok
+CREATE TABLE two12 AS SELECT v, g + 1 AS g FROM two;
+
+statement ok
+CREATE TABLE ks AS SELECT v::DOUBLE AS v, g::INTEGER AS g FROM (VALUES
+ (23.1,1),(25.4,1),(21.8,1),(24.9,1),(22.7,1),
+ (27.3,2),(26.1,2),(29.8,2),(28.4,2),(25.2,2),(30.6,2),
+ (24.0,3),(31.5,3),(19.9,3),(26.6,3),(33.2,3),(21.3,3),(28.9,3)) t(v, g);
+
+# ---------------------------------------------------------------------------
+# t_test_agg, Welch (default)
+# R: t.test(g1, g2)   (var.equal = FALSE)
+# ---------------------------------------------------------------------------
+query IIIIIIII
+SELECT abs(r.statistic - (-5.5346861169582375)) < 1e-9,
+       abs(r.df - 15.512126454142868) < 1e-9,
+       abs(r.p_value - 5.0653916613387091e-05) < 1e-12,
+       abs(r.ci_lower - (-1.8355341902082463)) < 1e-9,
+       abs(r.ci_upper - (-0.81696580979175326)) < 1e-9,
+       r.n1 = 8, r.n2 = 10, r.method = 'Welch t-test'
+FROM (SELECT t_test_agg(v, g) AS r FROM two);
+----
+true	true	true	true	true	true	true	true
+
+# R: t.test(g1, g2, var.equal = TRUE)
+query IIIII
+SELECT abs(r.statistic - (-5.4953120470168999)) < 1e-9,
+       abs(r.df - 16) < 1e-12,
+       abs(r.p_value - 4.890138404385045e-05) < 1e-12,
+       abs(r.ci_lower - (-1.8378723390113776)) < 1e-9,
+       abs(r.ci_upper - (-0.81462766098862227)) < 1e-9
+FROM (SELECT t_test_agg(v, g, {'kind': 'student'}) AS r FROM two);
+----
+true	true	true	true	true
+
+# R: t.test(g1, g2, alternative = "less")$p.value
+query I
+SELECT abs((t_test_agg(v, g, {'alternative': 'less'})).p_value - 2.5326958306693546e-05) < 1e-12 FROM two;
+----
+true
+
+# R: t.test(g1, g2, conf.level = 0.99)$conf.int
+query II
+SELECT abs(r.ci_lower - (-2.0290622592476559)) < 1e-9, abs(r.ci_upper - (-0.62343774075234393)) < 1e-9
+FROM (SELECT t_test_agg(v, g, {'confidence_level': 0.99}) AS r FROM two);
+----
+true	true
+
+# Group labels 1/2: identical result expected (smaller label = group 1).
+# (Fails while the group==0 convention is in place: everything lands in group 2 -> NULL.)
+query IIII
+SELECT abs(r.statistic - (-5.5346861169582375)) < 1e-9,
+       abs(r.p_value - 5.0653916613387091e-05) < 1e-12,
+       r.n1 = 8, r.n2 = 10
+FROM (SELECT t_test_agg(v, g) AS r FROM two12);
+----
+true	true	true	true
+
+# ---------------------------------------------------------------------------
+# yuen_agg (trim = 0.2), by-hand WRS2::yuen formula in the R generator
+# ---------------------------------------------------------------------------
+query IIIII
+SELECT abs(r.statistic - (-5.1109096568544503)) < 1e-9,
+       abs(r.df - 8.7653826684531069) < 1e-9,
+       abs(r.p_value - 0.00069044957544406316) < 1e-12,
+       abs(r.ci_lower - (-1.877753719528698)) < 1e-9,
+       abs(r.ci_upper - (-0.72224628047130168)) < 1e-9
+FROM (SELECT yuen_agg(v, g) AS r FROM two);
+----
+true	true	true	true	true
+
+query II
+SELECT abs(r.statistic - (-5.1109096568544503)) < 1e-9, r.n1 = 8
+FROM (SELECT yuen_agg(v, g) AS r FROM two12);
+----
+true	true
+
+# ---------------------------------------------------------------------------
+# one_way_anova_agg (Fisher)
+# R: summary(aov(kv ~ kg))
+# ---------------------------------------------------------------------------
+query IIIIIIII
+SELECT abs(r.f_statistic - 2.1298319543296316) < 1e-9,
+       abs(r.p_value - 0.1533978107480336) < 1e-12,
+       abs(r.ss_between - 52.188428571428467) < 1e-8,
+       abs(r.ss_within - 183.77657142857146) < 1e-8,
+       r.df_between = 2, r.df_within = 15, r.n_groups = 3, r.n = 18
+FROM (SELECT one_way_anova_agg(v, g) AS r FROM ks);
+----
+true	true	true	true	true	true	true	true
+
+# ---------------------------------------------------------------------------
+# brown_forsythe_agg: ANOVA on |x - group median|
+# R: summary(aov(abs(kv - ave(kv, kg, FUN = median)) ~ kg))  (== car::leveneTest(center = median))
+# ---------------------------------------------------------------------------
+query III
+SELECT abs(r.statistic - 4.8810932859476166) < 1e-9,
+       abs(r.p_value - 0.023295230217811925) < 1e-12,
+       r.n = 18
+FROM (SELECT brown_forsythe_agg(v, g) AS r FROM ks);
+----
+true	true	true

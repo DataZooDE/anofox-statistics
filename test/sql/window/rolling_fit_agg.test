@@ -1,0 +1,72 @@
+# name: test/sql/window/rolling_fit_agg.test
+# description: Rolling aggregates OVER (ORDER BY t ROWS BETWEEN 39 PRECEDING AND CURRENT ROW) on 500 rows must
+#              equal a self-join + GROUP BY recomputation over exactly the same 40-row frames. The window
+#              operator reuses segment-tree internal states across frames, so Combine must honour
+#              AggregateCombineType::PRESERVE_INPUT (must not move data out of the source state).
+#              1e-9 relative for closed-form results, 1e-6 for iterative fits.
+# group: [window]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE d AS
+SELECT i AS t,
+       ((i * 17) % 23)::DOUBLE + 0.05 * i AS x1,
+       ((i * 29) % 31)::DOUBLE / 3.0 AS x2,
+       3.0 - 0.8 * (((i * 17) % 23) + 0.05 * i) + 0.4 * (((i * 29) % 31) / 3.0) + ((i * 31) % 11 - 5) * 0.4 AS y,
+       1.0 + (i % 3) * 0.5 AS w,
+       ((i * 13) % 7 + (i % 5))::DOUBLE AS cnt,
+       (i * 7 % 3 = 0)::INT AS g2
+FROM range(1, 501) r(i);
+
+statement ok
+CREATE MACRO vclose(a, b, tol) AS
+    (a IS NULL AND b IS NULL) OR (len(a) = len(b) AND coalesce(list_max(list_transform(range(1, len(a) + 1), k ->
+        CASE WHEN a[k] IS NULL AND b[k] IS NULL THEN 0.0
+             WHEN a[k] IS NULL OR b[k] IS NULL THEN 1e300
+             WHEN isnan(a[k]) AND isnan(b[k]) THEN 0.0
+             WHEN isnan(a[k]) OR isnan(b[k]) THEN 1e300
+             ELSE abs(a[k] - b[k]) / greatest(1.0, abs(b[k])) END)), 0.0) <= tol);
+
+query IIII
+SELECT 'ols_fit_agg' AS fn, count(*) AS n, count(w.v) AS n_nonnull, bool_and(vclose(w.v, r.v, 1e-9)) AS ok
+FROM (SELECT t, list_concat([(ols_fit_agg(y, [x1, x2]) OVER (ORDER BY t ROWS BETWEEN 39 PRECEDING AND CURRENT ROW)).intercept, (ols_fit_agg(y, [x1, x2]) OVER (ORDER BY t ROWS BETWEEN 39 PRECEDING AND CURRENT ROW)).n_observations::DOUBLE], (ols_fit_agg(y, [x1, x2]) OVER (ORDER BY t ROWS BETWEEN 39 PRECEDING AND CURRENT ROW)).coefficients) AS v FROM d) w
+JOIN (SELECT a.t, list_concat([(ols_fit_agg(b.y, [b.x1, b.x2])).intercept, (ols_fit_agg(b.y, [b.x1, b.x2])).n_observations::DOUBLE], (ols_fit_agg(b.y, [b.x1, b.x2])).coefficients) AS v FROM d a JOIN d b ON b.t BETWEEN a.t - 39 AND a.t GROUP BY a.t) r USING (t)
+UNION ALL
+SELECT 'wls_fit_agg' AS fn, count(*) AS n, count(w.v) AS n_nonnull, bool_and(vclose(w.v, r.v, 1e-9)) AS ok
+FROM (SELECT t, list_concat([(wls_fit_agg(y, [x1, x2], w) OVER (ORDER BY t ROWS BETWEEN 39 PRECEDING AND CURRENT ROW)).intercept, (wls_fit_agg(y, [x1, x2], w) OVER (ORDER BY t ROWS BETWEEN 39 PRECEDING AND CURRENT ROW)).n_observations::DOUBLE], (wls_fit_agg(y, [x1, x2], w) OVER (ORDER BY t ROWS BETWEEN 39 PRECEDING AND CURRENT ROW)).coefficients) AS v FROM d) w
+JOIN (SELECT a.t, list_concat([(wls_fit_agg(b.y, [b.x1, b.x2], b.w)).intercept, (wls_fit_agg(b.y, [b.x1, b.x2], b.w)).n_observations::DOUBLE], (wls_fit_agg(b.y, [b.x1, b.x2], b.w)).coefficients) AS v FROM d a JOIN d b ON b.t BETWEEN a.t - 39 AND a.t GROUP BY a.t) r USING (t)
+UNION ALL
+SELECT 'ridge_fit_agg' AS fn, count(*) AS n, count(w.v) AS n_nonnull, bool_and(vclose(w.v, r.v, 1e-9)) AS ok
+FROM (SELECT t, list_concat([(ridge_fit_agg(y, [x1, x2], {'alpha': 0.5}) OVER (ORDER BY t ROWS BETWEEN 39 PRECEDING AND CURRENT ROW)).intercept, (ridge_fit_agg(y, [x1, x2], {'alpha': 0.5}) OVER (ORDER BY t ROWS BETWEEN 39 PRECEDING AND CURRENT ROW)).n_observations::DOUBLE], (ridge_fit_agg(y, [x1, x2], {'alpha': 0.5}) OVER (ORDER BY t ROWS BETWEEN 39 PRECEDING AND CURRENT ROW)).coefficients) AS v FROM d) w
+JOIN (SELECT a.t, list_concat([(ridge_fit_agg(b.y, [b.x1, b.x2], {'alpha': 0.5})).intercept, (ridge_fit_agg(b.y, [b.x1, b.x2], {'alpha': 0.5})).n_observations::DOUBLE], (ridge_fit_agg(b.y, [b.x1, b.x2], {'alpha': 0.5})).coefficients) AS v FROM d a JOIN d b ON b.t BETWEEN a.t - 39 AND a.t GROUP BY a.t) r USING (t)
+UNION ALL
+SELECT 'elasticnet_fit_agg' AS fn, count(*) AS n, count(w.v) AS n_nonnull, bool_and(vclose(w.v, r.v, 1e-6)) AS ok
+FROM (SELECT t, list_concat([(elasticnet_fit_agg(y, [x1, x2], {'alpha': 0.1, 'l1_ratio': 0.5}) OVER (ORDER BY t ROWS BETWEEN 39 PRECEDING AND CURRENT ROW)).intercept, (elasticnet_fit_agg(y, [x1, x2], {'alpha': 0.1, 'l1_ratio': 0.5}) OVER (ORDER BY t ROWS BETWEEN 39 PRECEDING AND CURRENT ROW)).n_observations::DOUBLE], (elasticnet_fit_agg(y, [x1, x2], {'alpha': 0.1, 'l1_ratio': 0.5}) OVER (ORDER BY t ROWS BETWEEN 39 PRECEDING AND CURRENT ROW)).coefficients) AS v FROM d) w
+JOIN (SELECT a.t, list_concat([(elasticnet_fit_agg(b.y, [b.x1, b.x2], {'alpha': 0.1, 'l1_ratio': 0.5})).intercept, (elasticnet_fit_agg(b.y, [b.x1, b.x2], {'alpha': 0.1, 'l1_ratio': 0.5})).n_observations::DOUBLE], (elasticnet_fit_agg(b.y, [b.x1, b.x2], {'alpha': 0.1, 'l1_ratio': 0.5})).coefficients) AS v FROM d a JOIN d b ON b.t BETWEEN a.t - 39 AND a.t GROUP BY a.t) r USING (t)
+UNION ALL
+SELECT 'huber_fit_agg' AS fn, count(*) AS n, count(w.v) AS n_nonnull, bool_and(vclose(w.v, r.v, 1e-6)) AS ok
+FROM (SELECT t, list_concat([(huber_fit_agg(y, [x1, x2]) OVER (ORDER BY t ROWS BETWEEN 39 PRECEDING AND CURRENT ROW)).intercept, (huber_fit_agg(y, [x1, x2]) OVER (ORDER BY t ROWS BETWEEN 39 PRECEDING AND CURRENT ROW)).n_observations::DOUBLE], (huber_fit_agg(y, [x1, x2]) OVER (ORDER BY t ROWS BETWEEN 39 PRECEDING AND CURRENT ROW)).coefficients) AS v FROM d) w
+JOIN (SELECT a.t, list_concat([(huber_fit_agg(b.y, [b.x1, b.x2])).intercept, (huber_fit_agg(b.y, [b.x1, b.x2])).n_observations::DOUBLE], (huber_fit_agg(b.y, [b.x1, b.x2])).coefficients) AS v FROM d a JOIN d b ON b.t BETWEEN a.t - 39 AND a.t GROUP BY a.t) r USING (t)
+UNION ALL
+SELECT 'poisson_fit_agg' AS fn, count(*) AS n, count(w.v) AS n_nonnull, bool_and(vclose(w.v, r.v, 1e-6)) AS ok
+FROM (SELECT t, list_concat([(poisson_fit_agg(cnt, [x1]) OVER (ORDER BY t ROWS BETWEEN 39 PRECEDING AND CURRENT ROW)).intercept, (poisson_fit_agg(cnt, [x1]) OVER (ORDER BY t ROWS BETWEEN 39 PRECEDING AND CURRENT ROW)).n_observations::DOUBLE], (poisson_fit_agg(cnt, [x1]) OVER (ORDER BY t ROWS BETWEEN 39 PRECEDING AND CURRENT ROW)).coefficients) AS v FROM d) w
+JOIN (SELECT a.t, list_concat([(poisson_fit_agg(b.cnt, [b.x1])).intercept, (poisson_fit_agg(b.cnt, [b.x1])).n_observations::DOUBLE], (poisson_fit_agg(b.cnt, [b.x1])).coefficients) AS v FROM d a JOIN d b ON b.t BETWEEN a.t - 39 AND a.t GROUP BY a.t) r USING (t)
+UNION ALL
+SELECT 'pearson_agg' AS fn, count(*) AS n, count(w.v) AS n_nonnull, bool_and(vclose(w.v, r.v, 1e-9)) AS ok
+FROM (SELECT t, [(pearson_agg(x1, y) OVER (ORDER BY t ROWS BETWEEN 39 PRECEDING AND CURRENT ROW)).r, (pearson_agg(x1, y) OVER (ORDER BY t ROWS BETWEEN 39 PRECEDING AND CURRENT ROW)).p_value, (pearson_agg(x1, y) OVER (ORDER BY t ROWS BETWEEN 39 PRECEDING AND CURRENT ROW)).n::DOUBLE] AS v FROM d) w
+JOIN (SELECT a.t, [(pearson_agg(b.x1, b.y)).r, (pearson_agg(b.x1, b.y)).p_value, (pearson_agg(b.x1, b.y)).n::DOUBLE] AS v FROM d a JOIN d b ON b.t BETWEEN a.t - 39 AND a.t GROUP BY a.t) r USING (t)
+UNION ALL
+SELECT 't_test_agg' AS fn, count(*) AS n, count(w.v) AS n_nonnull, bool_and(vclose(w.v, r.v, 1e-9)) AS ok
+FROM (SELECT t, [(t_test_agg(y, g2) OVER (ORDER BY t ROWS BETWEEN 39 PRECEDING AND CURRENT ROW)).statistic, (t_test_agg(y, g2) OVER (ORDER BY t ROWS BETWEEN 39 PRECEDING AND CURRENT ROW)).p_value, (t_test_agg(y, g2) OVER (ORDER BY t ROWS BETWEEN 39 PRECEDING AND CURRENT ROW)).df] AS v FROM d) w
+JOIN (SELECT a.t, [(t_test_agg(b.y, b.g2)).statistic, (t_test_agg(b.y, b.g2)).p_value, (t_test_agg(b.y, b.g2)).df] AS v FROM d a JOIN d b ON b.t BETWEEN a.t - 39 AND a.t GROUP BY a.t) r USING (t)
+ORDER BY fn;
+----
+elasticnet_fit_agg	500	500	true
+huber_fit_agg	500	500	true
+ols_fit_agg	500	500	true
+pearson_agg	500	500	true
+poisson_fit_agg	500	500	true
+ridge_fit_agg	500	500	true
+t_test_agg	500	500	true
+wls_fit_agg	500	500	true

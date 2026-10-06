@@ -1,0 +1,61 @@
+# name: test/sql/macros/test_isotonic_fit_predict_by.test
+# description: Isotonic per-group fit/predict macro: monotone fitted values, alignment with the aggregate, the 'increasing' option, out-of-sample rows.
+# group: [macros]
+
+require anofox_statistics
+
+# Two groups (A rising, B falling), 15 training rows each (unique y within a group,
+# one gross outlier at x = 6) plus two out-of-sample rows per group (y NULL, x = 16, 17).
+statement ok
+CREATE TABLE src AS
+SELECT g, i::DOUBLE AS x, ((i * 7) % 5)::DOUBLE AS x2,
+       CASE WHEN i > 15 THEN NULL
+            ELSE (CASE g WHEN 'A' THEN 1.0 + 2.0 * i ELSE 10.0 - 0.5 * i END
+                  + ((i * 37) % 11) / 7.0 + 0.5 * ((i * 7) % 5) + CASE WHEN i = 6 THEN 15.0 ELSE 0 END)::DOUBLE
+       END AS y
+FROM (VALUES ('A'), ('B')) v(g), range(1, 18) r(i);
+
+# One output row per source row, source columns passed through, groups sorted
+query IIII
+SELECT count(*), count(DISTINCT g), count(*) FILTER (WHERE is_training), count(*) FILTER (WHERE NOT is_training AND y IS NULL)
+FROM isotonic_fit_predict_by('src', g, y, x);
+----
+34	2	30	4
+
+# Fitted values are non-decreasing in x within each group (default increasing = true)
+query I
+SELECT count(*) FILTER (WHERE d < -1e-12)
+FROM (SELECT yhat - lag(yhat) OVER (PARTITION BY g ORDER BY x) AS d FROM isotonic_fit_predict_by('src', g, y, x));
+----
+0
+
+# increasing = false -> non-increasing
+query I
+SELECT count(*) FILTER (WHERE d > 1e-12)
+FROM (SELECT yhat - lag(yhat) OVER (PARTITION BY g ORDER BY x) AS d
+      FROM isotonic_fit_predict_by('src', g, y, x, options := {'increasing': false}));
+----
+0
+
+# Training rows carry the aggregate's predictions (joined on the unique y)
+query I
+WITH m AS (SELECT g, y, yhat FROM isotonic_fit_predict_by('src', g, y, x) WHERE y IS NOT NULL),
+     a AS (SELECT g, unnest(isotonic_fit_predict_agg(y, x)) AS e FROM src GROUP BY g)
+SELECT count(*) FILTER (WHERE abs(m.yhat - a.e.yhat) > 1e-12) FROM m JOIN a ON m.g = a.g AND m.y = a.e.y;
+----
+0
+
+# Isotonic regression preserves the mean of the training responses (PAVA property)
+query II
+SELECT g, abs(avg(yhat) - avg(y)) < 1e-9 FROM isotonic_fit_predict_by('src', g, y, x) WHERE y IS NOT NULL GROUP BY g ORDER BY g;
+----
+A	true
+B	true
+
+# Out-of-sample rows beyond the training range take the boundary fitted value
+query I
+WITH m AS (SELECT * FROM isotonic_fit_predict_by('src', g, y, x))
+SELECT count(*) FILTER (WHERE m.yhat <> b.yhat)
+FROM m JOIN (SELECT g, yhat FROM m WHERE x = 15) b USING (g) WHERE m.x > 15;
+----
+0

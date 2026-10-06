@@ -1,0 +1,83 @@
+# name: test/sql/macros/test_glmm_fit_by.test
+# description: glmm_fit_by (Gaussian random-intercept model) against lme4::lmer: fixed effects,
+#              variance components and per-group BLUPs, REML and ML; one row per group.
+# group: [macros]
+
+require anofox_statistics
+
+# R reference (lme4 1.x):
+#   i <- 0:59; g <- paste0("g", i %% 6); x <- (i %% 7) + 0.5
+#   u <- c(-1.2, 0.4, 0.9, -0.3, 1.5, -1.0)[(i %% 6) + 1]
+#   y <- 2 + 0.7*x + u + ((i*37) %% 11)/10 - 0.5
+#   m <- lmer(y ~ x + (1|g), REML = TRUE)
+#   fixef(m)            = 2.014984109927010 0.706867418648966
+#   VarCorr (vcov)      = 1.187544324110749 (g) 0.112050846170964 (residual)
+#   ranef(m)$g g0..g5   = -1.268425320974096 0.388685958845596 0.847107486068100
+#                         -0.383342815195459 1.467136743522186 -1.051162052267278
+#   m2 <- lmer(y ~ x + (1|g), REML = FALSE)
+#   fixef(m2)           = 2.015240066035978 0.706792137440418
+#   VarCorr (vcov)      = 0.987888727012890 0.109976596946808 ; logLik = -32.4385569167351
+statement ok
+CREATE TABLE panel AS
+SELECT 'g' || (i % 6) AS g, ((i % 7) + 0.5)::DOUBLE AS x,
+       (2 + 0.7 * ((i % 7) + 0.5) + [-1.2, 0.4, 0.9, -0.3, 1.5, -1.0][(i % 6) + 1] + ((i * 37) % 11) / 10.0 - 0.5)::DOUBLE AS y
+FROM range(0, 60) t(i);
+
+query IIIIII
+SELECT count(*), bool_and(n = 10),
+       bool_and(abs(fixed_intercept - 2.014984109927010) < 1e-6),
+       bool_and(abs(fixed_coefficients[1] - 0.706867418648966) < 1e-6),
+       bool_and(abs(var_group - 1.187544324110749) < 1e-6),
+       bool_and(abs(var_residual - 0.112050846170964) < 1e-6)
+FROM glmm_fit_by('panel', g, y, [x]);
+----
+6	true	true	true	true	true
+
+# BLUPs per group, in group order
+query II
+SELECT "group", abs(ranef - [-1.268425320974096, 0.388685958845596, 0.847107486068100,
+                             -0.383342815195459, 1.467136743522186, -1.051162052267278][row_number() OVER (ORDER BY "group")]) < 1e-6
+FROM glmm_fit_by('panel', g, y, [x])
+ORDER BY "group";
+----
+g0	true
+g1	true
+g2	true
+g3	true
+g4	true
+g5	true
+
+# ICC = var_group / (var_group + var_residual)
+query I
+SELECT bool_and(abs(icc - var_group / (var_group + var_residual)) < 1e-12) FROM glmm_fit_by('panel', g, y, [x]);
+----
+true
+
+# ML instead of REML via options
+query III
+SELECT bool_and(abs(fixed_intercept - 2.015240066035978) < 1e-6),
+       bool_and(abs(var_group - 0.987888727012890) < 1e-6),
+       bool_and(abs(var_residual - 0.109976596946808) < 1e-6)
+FROM glmm_fit_by('panel', g, y, [x], options := {'reml': false});
+----
+true	true	true
+
+query I
+SELECT abs(r.log_likelihood - (-32.4385569167351)) < 1e-6 FROM (SELECT glmm_fit_agg(y, [x], g, {'reml': false}) AS r FROM panel);
+----
+true
+
+# The macro is a thin wrapper: identical to unnesting the aggregate's ranef list
+query I
+SELECT count(*) FROM (
+    SELECT "group", ranef FROM glmm_fit_by('panel', g, y, [x])
+    EXCEPT
+    SELECT r.group, r.intercept FROM (SELECT unnest((glmm_fit_agg(y, [x], g)).ranef) AS r FROM panel));
+----
+0
+
+# BLUPs of a random-intercept model sum to zero
+query I
+SELECT abs(sum(ranef)) < 1e-8 FROM glmm_fit_by('panel', g, y, [x]);
+----
+true

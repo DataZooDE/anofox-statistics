@@ -1,0 +1,112 @@
+# name: test/sql/reference/nonparametric_reference.test
+# description: Rank-based tests vs R/scipy (wilcox.test, kruskal.test, scipy.stats.brunnermunzel)
+# group: [reference]
+#
+# Reference values: validation/generators/make_reference_tests.R and make_reference_tests.py.
+# Conventions of the implementation (checked against the matching reference):
+#  * mann_whitney_u_agg / wilcoxon_signed_rank_agg always use the normal approximation
+#    (continuity correction on by default), i.e. R's wilcox.test(..., exact = FALSE).
+#    The reported Hodges-Lehmann CI bounds use a different construction than R's
+#    wilcox.test(conf.int = TRUE) and are therefore not compared here.
+#  * statistic = U of the first group (R's W) / V = sum of positive ranks.
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE two AS SELECT v::DOUBLE AS v, g::INTEGER AS g FROM (VALUES
+ (5.1,0),(4.9,0),(6.2,0),(5.8,0),(6.05,0),(5.5,0),(5.3,0),(6.1,0),
+ (6.5,1),(7.1,1),(6.8,1),(7.4,1),(6.0,1),(7.9,1),(6.6,1),(7.2,1),(6.9,1),(7.05,1)) t(v, g);
+
+statement ok
+CREATE TABLE two12 AS SELECT v, g + 1 AS g FROM two;
+
+statement ok
+CREATE TABLE pr AS SELECT x::DOUBLE AS x, y::DOUBLE AS y FROM (VALUES
+ (12.1,11.5),(14.3,13.2),(11.8,12.3),(15.2,13.9),(13.9,13.0),
+ (12.7,11.1),(14.8,14.6),(13.1,11.4),(12.4,12.6),(15.6,13.85)) t(x, y);
+
+statement ok
+CREATE TABLE ks AS SELECT v::DOUBLE AS v, g::INTEGER AS g FROM (VALUES
+ (23.1,1),(25.4,1),(21.8,1),(24.9,1),(22.7,1),
+ (27.3,2),(26.1,2),(29.8,2),(28.4,2),(25.2,2),(30.6,2),
+ (24.0,3),(31.5,3),(19.9,3),(26.6,3),(33.2,3),(21.3,3),(28.9,3)) t(v, g);
+
+# ---------------------------------------------------------------------------
+# mann_whitney_u_agg
+# R: wilcox.test(g1, g2, exact = FALSE, correct = TRUE)  -> W = 3, p = 0.0011823251033786025
+#    scipy.stats.mannwhitneyu(g1, g2, method='asymptotic') agrees.
+# ---------------------------------------------------------------------------
+query IIII
+SELECT abs(r.statistic - 3) < 1e-12, abs(r.p_value - 0.0011823251033786025) < 1e-12, r.n1 = 8, r.n2 = 10
+FROM (SELECT mann_whitney_u_agg(v, g) AS r FROM two);
+----
+true	true	true	true
+
+# R: wilcox.test(g1, g2, exact = FALSE, correct = FALSE)
+query I
+SELECT abs((mann_whitney_u_agg(v, g, {'continuity_correction': false})).p_value - 0.0010106816858643458) < 1e-12 FROM two;
+----
+true
+
+# Group labels 1/2 (smaller label = group 1) must give the identical result.
+query III
+SELECT abs(r.statistic - 3) < 1e-12, abs(r.p_value - 0.0011823251033786025) < 1e-12, r.n1 = 8
+FROM (SELECT mann_whitney_u_agg(v, g) AS r FROM two12);
+----
+true	true	true
+
+# ---------------------------------------------------------------------------
+# wilcoxon_signed_rank_agg (paired x - y)
+# R: wilcox.test(px, py, paired = TRUE, exact = FALSE, correct = TRUE) -> V = 51
+# ---------------------------------------------------------------------------
+query III
+SELECT abs(r.statistic - 51) < 1e-12, abs(r.p_value - 0.019058891601730465) < 1e-12, r.n = 10
+FROM (SELECT wilcoxon_signed_rank_agg(x, y) AS r FROM pr);
+----
+true	true	true
+
+# R: wilcox.test(px, py, paired = TRUE, exact = FALSE, correct = FALSE)
+query I
+SELECT abs((wilcoxon_signed_rank_agg(x, y, {'continuity_correction': false})).p_value - 0.016604878103722687) < 1e-12 FROM pr;
+----
+true
+
+# ---------------------------------------------------------------------------
+# kruskal_wallis_agg
+# R: kruskal.test(kv, kg)
+# ---------------------------------------------------------------------------
+query IIII
+SELECT abs(r.statistic - 4.3898078529657454) < 1e-9, abs(r.df - 2) < 1e-12,
+       abs(r.p_value - 0.11136926062752156) < 1e-12, r.n = 18
+FROM (SELECT kruskal_wallis_agg(v, g) AS r FROM ks);
+----
+true	true	true	true
+
+# ---------------------------------------------------------------------------
+# brunner_munzel_agg
+# scipy: stats.brunnermunzel(g1, g2) -> statistic 11.084176756032644, p 5.99044028054196e-08
+# df, effect_size (p-hat = P(X<Y) + 0.5 P(X=Y)) and CI by hand (lawstat::brunner.munzel.test):
+#   CI = p_hat -/+ qt(0.975, df) * se,  se = sqrt(S1/(n1 n2^2) + S2/(n2 n1^2))
+# ---------------------------------------------------------------------------
+query IIII
+SELECT abs(r.statistic - 11.084176756032644) < 1e-9,
+       abs(r.p_value - 5.99044028054196e-08) < 1e-12,
+       abs(r.df - 12.858695652173914) < 1e-9,
+       abs(r.effect_size - 0.9624999999999999) < 1e-12
+FROM (SELECT brunner_munzel_agg(v, g) AS r FROM two);
+----
+true	true	true	true
+
+# 95% CI of p-hat. (Currently fails: the core passes confidence_level=0.95 where the
+# library expects alpha, producing a ~5% interval [0.95983, 0.96517].)
+query II
+SELECT abs(r.ci_lower - 0.8722553373834635) < 1e-9, abs(r.ci_upper - 1.0527446626165362) < 1e-9
+FROM (SELECT brunner_munzel_agg(v, g) AS r FROM two);
+----
+true	true
+
+query II
+SELECT abs(r.statistic - 11.084176756032644) < 1e-9, r.n1 = 8
+FROM (SELECT brunner_munzel_agg(v, g) AS r FROM two12);
+----
+true	true

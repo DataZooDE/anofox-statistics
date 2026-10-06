@@ -1,0 +1,47 @@
+# name: test/sql/window/window_one_step_ahead.test
+# description: One-step-ahead prediction idiom: fit on all rows strictly before the current row with
+#              ols_fit_agg(...) OVER (... ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) and apply
+#              predict() to the current row's x. Must equal a self-join refit on rows t' < t.
+# group: [window]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE d AS
+SELECT i AS t,
+       ((i * 17) % 23)::DOUBLE + 0.05 * i AS x,
+       3.0 - 0.8 * (((i * 17) % 23) + 0.05 * i) + ((i * 31) % 11 - 5) * 0.4 AS y
+FROM range(1, 151) r(i);
+
+# Rolling coefficients over the strictly-preceding frame equal a self-join refit
+query II
+WITH w AS (
+    SELECT t, ols_fit_agg(y, [x]) OVER (ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS m FROM d
+),
+r AS (
+    SELECT a.t, ols_fit_agg(b.y, [b.x]) AS m FROM d a JOIN d b ON b.t < a.t GROUP BY a.t
+)
+SELECT count(*), max(greatest(abs(w.m.intercept - r.m.intercept), abs(w.m.coefficients[1] - r.m.coefficients[1]))) < 1e-9
+FROM w JOIN r USING (t) WHERE w.m IS NOT NULL;
+----
+147	true
+
+# predict() applied to the current row's x with the strictly-preceding-frame coefficients
+query III
+WITH w AS (
+    SELECT t, x,
+           ols_fit_agg(y, [x]) OVER (ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS m
+    FROM d
+),
+p AS (
+    SELECT t, x, predict([[x]], (m).coefficients, (m).intercept)[1] AS yhat FROM w WHERE m IS NOT NULL
+),
+r AS (
+    SELECT a.t, ols_fit_agg(b.y, [b.x]) AS m
+    FROM d a JOIN d b ON b.t < a.t
+    GROUP BY a.t
+)
+SELECT count(*), count(r.m), max(abs(p.yhat - (r.m.intercept + r.m.coefficients[1] * p.x))) < 1e-9
+FROM p JOIN r USING (t);
+----
+147	147	true

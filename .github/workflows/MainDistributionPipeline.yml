@@ -52,11 +52,14 @@ jobs:
   duckdb-stable-deploy:
     name: Deploy extension binaries (v1.5.6)
     needs: [duckdb-stable-build, duckdb-stable-smoke-test]
-    # Run the deploy step even when a non-essential build matrix entry
-    # (currently windows_amd64 — DuckDB's vendored third_party/fmt is
-    # flaky on MSVC) fails. The deploy job itself fans out per arch and
-    # only pushes the artifacts that actually exist.
-    if: ${{ !cancelled() }}
+    # Deploy only artifacts that passed the smoke test. (Previously this was
+    # `!cancelled()` so a flaky Windows build leg could not block Linux/macOS
+    # deploys; Windows is now excluded from this build entirely — see the
+    # separate non-blocking windows-msvc-test job — and `!cancelled()` alone
+    # let a FAILED smoke test fall through to deploy, contradicting
+    # _extension_smoke_test.yml's contract that a broken artifact blocks
+    # distribution.)
+    if: ${{ !cancelled() && needs.duckdb-stable-smoke-test.result == 'success' }}
     uses: ./.github/workflows/_extension_deploy.yml
     secrets: inherit
     with:
@@ -103,6 +106,69 @@ jobs:
           echo "Testing extension: $EXT"
           node test/wasm/run.mjs --all --ext "$EXT"
 
+  duckdb-stable-windows-msvc-test:
+    name: Windows MSVC build + sqllogictests (non-blocking)
+    # windows_amd64 (MSVC) was excluded from the shipping build in #84/#106
+    # because DuckDB's vendored third_party/fmt was flaky on MSVC (DuckDB
+    # v1.5.3 era) — a flake, not a deterministic failure. windows_amd64_mingw
+    # stays excluded everywhere: its vcpkg openssl port fetches an MSYS2
+    # libtool version that no longer exists on any mirror.
+    # This job re-enables MSVC for TESTING ONLY: it builds just windows_amd64
+    # and runs the full sqllogictest suite on it. Nothing `needs` it, so a
+    # flake here never blocks the smoke tests or the deploy, and its artifact
+    # carries a postfix so it can never be picked up by the deploy job.
+    uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.5-variegata
+    with:
+      duckdb_version: v1.5.6
+      ci_tools_version: v1.5-variegata
+      extension_name: anofox_statistics
+      enable_rust: true
+      reduced_ci_mode: disabled
+      artifact_postfix: "-msvc-test"
+      exclude_archs: "linux_amd64;linux_arm64;linux_amd64_musl;osx_amd64;osx_arm64;windows_amd64_mingw;windows_amd64_rtools;windows_arm64;wasm_mvp;wasm_eh;wasm_threads"
+
+  sanitizer-tests:
+    name: ASAN + UBSAN sqllogictests (Linux debug, non-blocking)
+    # Debug build of DuckDB + the extension with AddressSanitizer and
+    # UndefinedBehaviorSanitizer (DuckDB's CMake enables both for
+    # CMAKE_BUILD_TYPE=Debug by default via ENABLE_SANITIZER / ENABLE_UBSAN;
+    # passed explicitly below so a future default change is visible). The
+    # Rust FFI crate is built normally by Corrosion (uninstrumented) and linked
+    # in; ASAN still catches C++-side misuse of FFI buffers.
+    # Separate from the release pipeline: nothing `needs` this job and it is
+    # continue-on-error, so it never blocks release artifacts.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    continue-on-error: true
+    env:
+      GEN: ninja
+      EXT_FLAGS: "-DENABLE_SANITIZER=TRUE -DENABLE_UBSAN=TRUE"
+      ASAN_OPTIONS: "detect_leaks=1:abort_on_error=1:strict_string_checks=1:detect_stack_use_after_return=1"
+      UBSAN_OPTIONS: "print_stacktrace=1:halt_on_error=1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: 'recursive'
+
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y ninja-build ccache libssl-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: sanitizer-debug-${{ hashFiles('duckdb') }}
+          max-size: 2G
+
+      - name: Build debug (ASAN + UBSAN)
+        run: make debug
+
+      - name: Run sqllogictests under sanitizers
+        run: ./build/debug/test/unittest "test/*"
+
   duckdb-lts-build:
     name: Build extension binaries (DuckDB LTS v1.4.5)
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.4-andium
@@ -128,9 +194,8 @@ jobs:
   duckdb-lts-deploy:
     name: Deploy extension binaries (v1.4.5 LTS)
     needs: [duckdb-lts-build, duckdb-lts-smoke-test]
-    # Same resilience as the v1.5.6 deploy: don't gate the whole release on
-    # the flaky LTS windows_amd64_mingw matrix entry.
-    if: ${{ !cancelled() }}
+    # Same gating as the stable deploy: only smoke-tested artifacts ship.
+    if: ${{ !cancelled() && needs.duckdb-lts-smoke-test.result == 'success' }}
     uses: ./.github/workflows/_extension_deploy.yml
     secrets: inherit
     with:
@@ -182,3 +247,30 @@ jobs:
 
       - name: Run Rust tests
         run: cargo test --all-features
+
+      # Coverage report (non-blocking): an lcov + HTML report uploaded as an
+      # artifact. Failures here never fail the job.
+      - name: Install llvm-tools + cargo-llvm-cov
+        continue-on-error: true
+        run: |
+          rustup component add llvm-tools-preview
+          cargo install cargo-llvm-cov --locked
+
+      - name: Rust coverage (cargo llvm-cov)
+        continue-on-error: true
+        run: |
+          cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
+          cargo llvm-cov report --html --output-dir coverage-html
+          cargo llvm-cov report --summary-only | tee coverage-summary.txt
+
+      - name: Upload coverage report
+        if: ${{ always() }}
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-coverage
+          path: |
+            lcov.info
+            coverage-html
+            coverage-summary.txt
+          if-no-files-found: ignore

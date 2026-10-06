@@ -1,0 +1,93 @@
+# name: test/sql/macros/test_eb_shrink_by.test
+# description: eb_shrink_by / eb_shrink_agg against a hand-computed DerSimonian-Laird reference
+#              (formulas in docs/api/glm/eb_shrink.md), input-order alignment, options.
+# group: [macros]
+
+require anofox_statistics
+
+# R reference (DerSimonian-Laird by hand; matches metafor::rma(yi, sei, method = "DL")):
+#   est <- c(0.8, 1.4, 0.2, 1.1, 2.0, 0.5); se <- c(0.30, 0.50, 0.25, 0.40, 0.90, 0.35)
+#   w <- 1/se^2; mu0 <- sum(w*est)/sum(w); Q <- sum(w*(est-mu0)^2)
+#   tau2 <- max(0, (Q-(k-1))/(sum(w)-sum(w^2)/sum(w)))
+#   ws <- 1/(se^2+tau2); mu <- sum(ws*est)/sum(ws); B <- tau2/(tau2+se^2); shrunken <- mu + B*(est-mu)
+#   Q = 9.42817040594333, tau2 = 0.122975910929027, mu = 0.776594602130069,
+#   mu_se = 0.215929498514397, I2 = 0.469674413516317
+#   shrunken = 0.790109276682489 0.982140977739606 0.394295649783433 0.917140393720061 0.937852134587397 0.638029180267427
+#   weight   = 0.577416997033096 0.329715424845300 0.663029017154061 0.434580846564958 0.131810381692032 0.500969363810945
+statement ok
+CREATE TABLE fits AS
+SELECT * FROM (VALUES
+    ('s1', 0.8, 0.30), ('s2', 1.4, 0.50), ('s3', 0.2, 0.25),
+    ('s4', 1.1, 0.40), ('s5', 2.0, 0.90), ('s6', 0.5, 0.35)
+) t(sku, est, se);
+
+query IIIII
+SELECT abs(r.q - 9.42817040594333) < 1e-10, abs(r.tau_squared - 0.122975910929027) < 1e-10,
+       abs(r.mu - 0.776594602130069) < 1e-10, abs(r.mu_se - 0.215929498514397) < 1e-10,
+       abs(r.i_squared - 0.469674413516317) < 1e-10
+FROM (SELECT eb_shrink_agg(est, se) AS r FROM fits);
+----
+true	true	true	true	true
+
+query IIII
+SELECT sku,
+       abs(shrunken - [0.790109276682489, 0.982140977739606, 0.394295649783433, 0.917140393720061, 0.937852134587397, 0.638029180267427][right(sku, 1)::INT]) < 1e-10,
+       abs(weight - [0.577416997033096, 0.329715424845300, 0.663029017154061, 0.434580846564958, 0.131810381692032, 0.500969363810945][right(sku, 1)::INT]) < 1e-10,
+       shrunken_se <= se
+FROM eb_shrink_by('fits', est, se)
+ORDER BY sku;
+----
+s1	true	true	true
+s2	true	true	true
+s3	true	true	true
+s4	true	true	true
+s5	true	true	true
+s6	true	true	true
+
+# Source columns pass through and mu / tau_squared repeat on every row
+query III
+SELECT count(*), count(DISTINCT mu), count(DISTINCT tau_squared) FROM eb_shrink_by('fits', est, se);
+----
+6	1	1
+
+# The posterior blend identity holds row by row: shrunken = w * est + (1 - w) * mu
+query I
+SELECT bool_and(abs(shrunken - (weight * est + (1 - weight) * mu)) < 1e-12) FROM eb_shrink_by('fits', est, se);
+----
+true
+
+# Fixed tau^2 via options; tau_method 'none' = complete pooling (every row -> mu, weight 0)
+query II
+SELECT bool_and(abs(tau_squared - 0.05) < 1e-15), bool_and(abs(weight - 0.05 / (0.05 + se * se)) < 1e-12)
+FROM eb_shrink_by('fits', est, se, options := {'tau_squared': 0.05});
+----
+true	true
+
+query II
+SELECT bool_and(abs(shrunken - mu) < 1e-12), bool_and(weight = 0)
+FROM eb_shrink_by('fits', est, se, options := {'tau_method': 'none'});
+----
+true	true
+
+# Input-order alignment survives rows that are excluded from the pooling
+# (non-positive se): they stay in place with NaN shrinkage (documented).
+statement ok
+CREATE TABLE fits_bad AS SELECT * FROM fits UNION ALL SELECT 's7', 9.9, 0.0;
+
+query III
+SELECT sku, isnan(shrunken), est
+FROM eb_shrink_by('fits_bad', est, se) WHERE sku IN ('s1', 's7') ORDER BY sku;
+----
+s1	false	0.8
+s7	true	9.9
+
+query I
+SELECT abs((eb_shrink_agg(est, se)).mu - 0.776594602130069) < 1e-10 FROM fits_bad;
+----
+true
+
+# Fewer than two usable groups -> NULL (documented)
+query I
+SELECT eb_shrink_agg(est, se) IS NULL FROM fits WHERE sku = 's1';
+----
+true

@@ -1,0 +1,75 @@
+# name: test/sql/categorical/test_chisq_gof_more.test
+# description: chisq_gof_agg(observed BIGINT, expected_prob DOUBLE) against R's chisq.test(x, p = p),
+#              plus NULL handling, GROUP BY and degenerate inputs.
+# group: [categorical]
+
+require anofox_statistics
+
+# R: chisq.test(c(20, 30, 30), p = rep(1/3, 3)) -> X-squared = 2.5, df = 2, p = 0.28650479686019009
+query IIII
+SELECT abs(r.statistic - 2.5) < 1e-12, abs(r.p_value - 0.28650479686019009) < 1e-12, r.df, r.method
+FROM (SELECT chisq_gof_agg(o::BIGINT, p) AS r FROM (VALUES (20, 1/3), (30, 1/3), (30, 1/3)) t(o, p));
+----
+true	true	2	Chi-square goodness-of-fit test
+
+# R: chisq.test(c(10, 25, 45, 20), p = c(0.1, 0.3, 0.4, 0.2)) -> 1.4583333333333335, df 3, p 0.6919198137398298
+query III
+SELECT abs(r.statistic - 1.4583333333333335) < 1e-12, abs(r.p_value - 0.6919198137398298) < 1e-12, r.df
+FROM (SELECT chisq_gof_agg(o::BIGINT, p) AS r FROM (VALUES (10, 0.1), (25, 0.3), (45, 0.4), (20, 0.2)) t(o, p));
+----
+true	true	3
+
+# A zero observed count is a valid category.
+# R: chisq.test(c(0, 12, 8, 20), p = c(0.1, 0.2, 0.3, 0.4)) -> 8.333333333333333925, p 0.039602355207564145
+query III
+SELECT abs(r.statistic - 8.333333333333334) < 1e-12, abs(r.p_value - 0.039602355207564145) < 1e-12, r.df
+FROM (SELECT chisq_gof_agg(o::BIGINT, p) AS r FROM (VALUES (0, 0.1), (12, 0.2), (8, 0.3), (20, 0.4)) t(o, p));
+----
+true	true	3
+
+# Row order does not matter (pairs stay aligned)
+query I
+SELECT (SELECT chisq_gof_agg(o::BIGINT, p ORDER BY o) FROM (VALUES (10, 0.1), (25, 0.3), (45, 0.4), (20, 0.2)) t(o, p)).statistic
+     = (SELECT chisq_gof_agg(o::BIGINT, p ORDER BY o DESC) FROM (VALUES (10, 0.1), (25, 0.3), (45, 0.4), (20, 0.2)) t(o, p)).statistic;
+----
+true
+
+# One test per group.
+#   fair: R chisq.test(c(18, 22, 16, 25, 19, 20), p = rep(1/6, 6)) -> 2.5, df 5, p 0.77649507112332272
+#   coin: R chisq.test(c(20, 30), p = c(.5, .5))                   -> 2.0, df 1, p 0.15729920705028447
+statement ok
+CREATE TABLE dice AS
+SELECT * FROM (VALUES
+    ('fair', 1, 18), ('fair', 2, 22), ('fair', 3, 16), ('fair', 4, 25), ('fair', 5, 19), ('fair', 6, 20),
+    ('coin', 1, 20), ('coin', 2, 30)
+) t(grp, face, n);
+
+query IIII
+SELECT grp, r.df, abs(r.statistic - CASE grp WHEN 'fair' THEN 2.5 ELSE 2.0 END) < 1e-12,
+       abs(r.p_value - CASE grp WHEN 'fair' THEN 0.77649507112332272 ELSE 0.15729920705028447 END) < 1e-12
+FROM (SELECT grp, chisq_gof_agg(n::BIGINT, CASE grp WHEN 'fair' THEN 1/6 ELSE 1/2 END) AS r FROM dice GROUP BY grp)
+ORDER BY grp;
+----
+coin	1	true	true
+fair	5	true	true
+
+# NULL rows are ignored entirely
+query I
+SELECT (SELECT chisq_gof_agg(o::BIGINT, p) FROM (VALUES (20, 1/3), (30, 1/3), (NULL, 0.5), (7, NULL), (30, 1/3)) t(o, p)).statistic
+     = 2.5000000000000004 OR abs((SELECT chisq_gof_agg(o::BIGINT, p) FROM (VALUES (20, 1/3), (30, 1/3), (NULL, 0.5), (7, NULL), (30, 1/3)) t(o, p)).statistic - 2.5) < 1e-12;
+----
+true
+
+# Probabilities that do not sum to 1 (e.g. expected counts instead of probabilities) -> NULL (documented)
+query II
+SELECT (SELECT chisq_gof_agg(o::BIGINT, p) FROM (VALUES (20, 80/3), (30, 80/3), (30, 80/3)) t(o, p)) IS NULL,
+       (SELECT chisq_gof_agg(o::BIGINT, p) FROM (VALUES (20, 0.2), (30, 0.2), (30, 0.2)) t(o, p)) IS NULL;
+----
+true	true
+
+# Empty input and a single category -> NULL
+query II
+SELECT (SELECT chisq_gof_agg(o::BIGINT, p) FROM (VALUES (20, 1.0)) t(o, p) WHERE false) IS NULL,
+       (SELECT chisq_gof_agg(o::BIGINT, p) FROM (VALUES (20, 1.0)) t(o, p)) IS NULL;
+----
+true	true

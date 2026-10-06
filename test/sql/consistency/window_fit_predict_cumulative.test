@@ -1,0 +1,71 @@
+# name: test/sql/consistency/window_fit_predict_cumulative.test
+# description: Window *_fit_predict over default frame (ORDER BY t => RANGE UNBOUNDED PRECEDING .. CURRENT ROW)
+#              must equal intercept + coef . x(current row) where coef comes from the matching *_fit_agg
+#              over exactly the frame rows (recomputed with a self-join + GROUP BY). Rows with NULL y are
+#              predicted but not trained on. Window *_fit_predict predicts for the LAST row of the frame, so
+#              only frames ending at CURRENT ROW over a unique ORDER BY are checked per row.
+#              A prediction needs more than p + 1 = 3 training rows.
+# group: [consistency]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE d AS
+SELECT i AS t,
+       (i % 11)::DOUBLE + 0.1 * i AS x1,
+       ((i * 7) % 13)::DOUBLE AS x2,
+       CASE WHEN i <= 100 AND i % 17 <> 0
+            THEN 2.0 + 1.5 * ((i % 11) + 0.1 * i) - 0.7 * ((i * 7) % 13) + ((i * 37) % 17 - 8) * 0.25 END AS y,
+       1.0 + (i % 4) * 0.5 AS w
+FROM range(1, 121) r(i);
+
+query IIII
+SELECT 'elasticnet' AS fn, count(*) FILTER (w.yhat IS NOT NULL) AS n_win, count(*) FILTER (r.ntrain > 3) AS n_ref,
+       coalesce(max(abs(w.yhat - (r.m.intercept + list_dot_product(r.m.coefficients, [w.x1, w.x2])))) < 1e-9, false) AS ok
+FROM (SELECT t, x1, x2, (elasticnet_fit_predict(y, [x1, x2], {'alpha': 0.1, 'l1_ratio': 0.5}) OVER (ORDER BY t )).yhat AS yhat FROM d) w
+JOIN (SELECT a.t, elasticnet_fit_agg(b.y, [b.x1, b.x2], {'alpha': 0.1, 'l1_ratio': 0.5} ORDER BY b.t) AS m, count(b.y) AS ntrain FROM d a JOIN d b ON b.t <= a.t GROUP BY a.t) r USING (t)
+UNION ALL
+SELECT 'huber' AS fn, count(*) FILTER (w.yhat IS NOT NULL) AS n_win, count(*) FILTER (r.ntrain > 3) AS n_ref,
+       coalesce(max(abs(w.yhat - (r.m.intercept + list_dot_product(r.m.coefficients, [w.x1, w.x2])))) < 1e-9, false) AS ok
+FROM (SELECT t, x1, x2, (huber_fit_predict(y, [x1, x2]) OVER (ORDER BY t )).yhat AS yhat FROM d) w
+JOIN (SELECT a.t, huber_fit_agg(b.y, [b.x1, b.x2] ORDER BY b.t) AS m, count(b.y) AS ntrain FROM d a JOIN d b ON b.t <= a.t GROUP BY a.t) r USING (t)
+UNION ALL
+SELECT 'ols' AS fn, count(*) FILTER (w.yhat IS NOT NULL) AS n_win, count(*) FILTER (r.ntrain > 3) AS n_ref,
+       coalesce(max(abs(w.yhat - (r.m.intercept + list_dot_product(r.m.coefficients, [w.x1, w.x2])))) < 1e-9, false) AS ok
+FROM (SELECT t, x1, x2, (ols_fit_predict(y, [x1, x2]) OVER (ORDER BY t )).yhat AS yhat FROM d) w
+JOIN (SELECT a.t, ols_fit_agg(b.y, [b.x1, b.x2] ORDER BY b.t) AS m, count(b.y) AS ntrain FROM d a JOIN d b ON b.t <= a.t GROUP BY a.t) r USING (t)
+UNION ALL
+SELECT 'ransac' AS fn, count(*) FILTER (w.yhat IS NOT NULL) AS n_win, count(*) FILTER (r.ntrain > 3) AS n_ref,
+       coalesce(max(abs(w.yhat - (r.m.intercept + list_dot_product(r.m.coefficients, [w.x1, w.x2])))) < 1e-9, false) AS ok
+FROM (SELECT t, x1, x2, (ransac_fit_predict(y, [x1, x2], {'seed': 42}) OVER (ORDER BY t )).yhat AS yhat FROM d) w
+JOIN (SELECT a.t, ransac_fit_agg(b.y, [b.x1, b.x2], {'seed': 42} ORDER BY b.t) AS m, count(b.y) AS ntrain FROM d a JOIN d b ON b.t <= a.t GROUP BY a.t) r USING (t)
+UNION ALL
+SELECT 'ridge' AS fn, count(*) FILTER (w.yhat IS NOT NULL) AS n_win, count(*) FILTER (r.ntrain > 3) AS n_ref,
+       coalesce(max(abs(w.yhat - (r.m.intercept + list_dot_product(r.m.coefficients, [w.x1, w.x2])))) < 1e-9, false) AS ok
+FROM (SELECT t, x1, x2, (ridge_fit_predict(y, [x1, x2], {'alpha': 0.5}) OVER (ORDER BY t )).yhat AS yhat FROM d) w
+JOIN (SELECT a.t, ridge_fit_agg(b.y, [b.x1, b.x2], {'alpha': 0.5} ORDER BY b.t) AS m, count(b.y) AS ntrain FROM d a JOIN d b ON b.t <= a.t GROUP BY a.t) r USING (t)
+UNION ALL
+SELECT 'rls' AS fn, count(*) FILTER (w.yhat IS NOT NULL) AS n_win, count(*) FILTER (r.ntrain > 3) AS n_ref,
+       coalesce(max(abs(w.yhat - (r.m.intercept + list_dot_product(r.m.coefficients, [w.x1, w.x2])))) < 1e-9, false) AS ok
+FROM (SELECT t, x1, x2, (rls_fit_predict(y, [x1, x2], {'forgetting_factor': 0.98}) OVER (ORDER BY t )).yhat AS yhat FROM d) w
+JOIN (SELECT a.t, rls_fit_agg(b.y, [b.x1, b.x2], {'forgetting_factor': 0.98} ORDER BY b.t) AS m, count(b.y) AS ntrain FROM d a JOIN d b ON b.t <= a.t GROUP BY a.t) r USING (t)
+UNION ALL
+SELECT 'theil_sen' AS fn, count(*) FILTER (w.yhat IS NOT NULL) AS n_win, count(*) FILTER (r.ntrain > 3) AS n_ref,
+       coalesce(max(abs(w.yhat - (r.m.intercept + list_dot_product(r.m.coefficients, [w.x1, w.x2])))) < 1e-9, false) AS ok
+FROM (SELECT t, x1, x2, (theil_sen_fit_predict(y, [x1, x2], {'seed': 42}) OVER (ORDER BY t )).yhat AS yhat FROM d) w
+JOIN (SELECT a.t, theil_sen_fit_agg(b.y, [b.x1, b.x2], {'seed': 42} ORDER BY b.t) AS m, count(b.y) AS ntrain FROM d a JOIN d b ON b.t <= a.t GROUP BY a.t) r USING (t)
+UNION ALL
+SELECT 'wls' AS fn, count(*) FILTER (w.yhat IS NOT NULL) AS n_win, count(*) FILTER (r.ntrain > 3) AS n_ref,
+       coalesce(max(abs(w.yhat - (r.m.intercept + list_dot_product(r.m.coefficients, [w.x1, w.x2])))) < 1e-9, false) AS ok
+FROM (SELECT t, x1, x2, (wls_fit_predict(y, [x1, x2], w) OVER (ORDER BY t )).yhat AS yhat FROM d) w
+JOIN (SELECT a.t, wls_fit_agg(b.y, [b.x1, b.x2], b.w ORDER BY b.t) AS m, count(b.y) AS ntrain FROM d a JOIN d b ON b.t <= a.t GROUP BY a.t) r USING (t)
+ORDER BY fn;
+----
+elasticnet	117	117	true
+huber	117	117	true
+ols	117	117	true
+ransac	117	117	true
+ridge	117	117	true
+rls	117	117	true
+theil_sen	117	117	true
+wls	117	117	true

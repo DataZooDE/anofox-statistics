@@ -1,0 +1,61 @@
+# name: test/sql/macros/test_quantile_fit_predict_by.test
+# description: Quantile-regression per-group fit/predict macro: alignment with the aggregate, out-of-sample rows on the fitted line, tau forwarded.
+# group: [macros]
+
+require anofox_statistics
+
+# Two groups (A rising, B falling), 15 training rows each (unique y within a group,
+# one gross outlier at x = 6) plus two out-of-sample rows per group (y NULL, x = 16, 17).
+statement ok
+CREATE TABLE src AS
+SELECT g, i::DOUBLE AS x, ((i * 7) % 5)::DOUBLE AS x2,
+       CASE WHEN i > 15 THEN NULL
+            ELSE (CASE g WHEN 'A' THEN 1.0 + 2.0 * i ELSE 10.0 - 0.5 * i END
+                  + ((i * 37) % 11) / 7.0 + 0.5 * ((i * 7) % 5) + CASE WHEN i = 6 THEN 15.0 ELSE 0 END)::DOUBLE
+       END AS y
+FROM (VALUES ('A'), ('B')) v(g), range(1, 18) r(i);
+
+# One output row per source row, source columns passed through, groups sorted
+query IIII
+SELECT count(*), count(DISTINCT g), count(*) FILTER (WHERE is_training), count(*) FILTER (WHERE NOT is_training AND y IS NULL)
+FROM quantile_fit_predict_by('src', g, y, [x], options := {'tau': 0.5});
+----
+34	2	30	4
+
+# Training rows carry the aggregate's predictions (joined on the unique y)
+query I
+WITH m AS (SELECT g, y, yhat FROM quantile_fit_predict_by('src', g, y, [x], options := {'tau': 0.5}) WHERE y IS NOT NULL),
+     a AS (SELECT g, unnest(quantile_fit_predict_agg(y, [x], {'tau': 0.5})) AS e FROM src GROUP BY g)
+SELECT count(*) FILTER (WHERE abs(m.yhat - a.e.yhat) > 1e-9) FROM m JOIN a ON m.g = a.g AND m.y = a.e.y;
+----
+0
+
+# One feature -> predictions are linear in x; the out-of-sample rows (x = 16, 17)
+# lie on the line through the training predictions at x = 1 and x = 15
+query I
+WITH m AS (SELECT * FROM quantile_fit_predict_by('src', g, y, [x], options := {'tau': 0.5})),
+     l AS (SELECT g, max(yhat) FILTER (WHERE x = 1) AS y1, max(yhat) FILTER (WHERE x = 15) AS y15 FROM m GROUP BY g)
+SELECT count(*) FILTER (WHERE abs(m.yhat - (l.y1 + (l.y15 - l.y1) * (m.x - 1) / 14.0)) > 1e-7)
+FROM m JOIN l USING (g) WHERE m.y IS NULL;
+----
+0
+
+# Median regression ignores the outlier: group A slope ~ 2
+query I
+WITH m AS (SELECT * FROM quantile_fit_predict_by('src', g, y, [x], options := {'tau': 0.5}) WHERE g = 'A')
+SELECT abs((max(yhat) FILTER (WHERE x = 15) - max(yhat) FILTER (WHERE x = 1)) / 14.0 - 2.0) < 0.3 FROM m;
+----
+true
+
+# Higher tau -> predictions at least as high on every row
+query I
+WITH lo AS (SELECT g, x, yhat FROM quantile_fit_predict_by('src', g, y, [x], options := {'tau': 0.2})),
+     hi AS (SELECT g, x, yhat FROM quantile_fit_predict_by('src', g, y, [x], options := {'tau': 0.8}))
+SELECT count(*) FILTER (WHERE hi.yhat < lo.yhat - 1e-9) FROM lo JOIN hi USING (g, x) WHERE x <= 15;
+----
+0
+
+statement error
+SELECT * FROM quantile_fit_predict_by('src', g, y, [x], options := {'tau': 1.5});
+----
+tau must be in (0, 1)
