@@ -1,0 +1,71 @@
+# name: test/sql/macros/test_glm_fit_predict_by.test
+# description: GLM *_fit_predict_by macros and the order_by parameter of the *_fit_predict_by macros
+# group: [macros]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE s AS
+SELECT i AS id, CASE WHEN i % 2 = 0 THEN 'a' ELSE 'b' END AS g, (i % 10)::DOUBLE AS x,
+       CASE WHEN (i * 7) % 10 < 3 + (i % 10) / 2 THEN 1.0 ELSE 0.0 END AS yb,
+       (1 + (i % 10) + (i * 13) % 5)::DOUBLE AS ycount,
+       CASE WHEN i > 180 THEN NULL ELSE 1.0 END AS holdout
+FROM range(1, 201) t(i);
+
+# One output row per input row, predictions for every row (training and holdout)
+query III
+SELECT count(*), count(yhat), count(*) FILTER (WHERE is_training)
+FROM binomial_fit_predict_by('s', g, yb, [x])
+----
+200	200	200
+
+# yhat equals predict(model) of the per-group binomial_fit_agg
+query I
+WITH m AS (SELECT g AS gg, binomial_fit_agg(yb, [x]) m FROM s GROUP BY g)
+SELECT bool_and(abs(p.yhat - predict(m.m, [p.x])) < 1e-12)
+FROM binomial_fit_predict_by('s', g, yb, [x]) p JOIN m ON p.g = m.gg
+----
+true
+
+# Probabilities stay in (0, 1)
+query I
+SELECT bool_and(yhat > 0 AND yhat < 1) FROM logistic_fit_predict_by('s', g, yb, [x])
+----
+true
+
+# split := 'test' rows are predicted but not used for training
+query II
+SELECT count(*) FILTER (WHERE NOT is_training), count(yhat) FILTER (WHERE NOT is_training)
+FROM poisson_fit_predict_by('s', g, ycount, [x], split := CASE WHEN id > 180 THEN 'test' ELSE 'train' END)
+----
+20	20
+
+query I
+SELECT count(*) = 200 AND bool_and(yhat > 0) FROM negbinom_fit_predict_by('s', g, ycount, [x])
+----
+true
+
+query I
+SELECT count(*) = 200 AND bool_and(yhat > 0) FROM gamma_fit_predict_by('s', g, ycount, [x])
+----
+true
+
+query I
+SELECT count(*) = 200 AND bool_and(yhat > 0) FROM tweedie_fit_predict_by('s', g, ycount, [x])
+----
+true
+
+# order_by: predictions line up with rows for an explicit ordering key and match the default
+query I
+WITH a AS (SELECT id, yhat FROM ols_fit_predict_by('s', g, ycount, [x], order_by := id)),
+     b AS (SELECT id, yhat FROM ols_fit_predict_by('s', g, ycount, [x]))
+SELECT bool_and(abs(a.yhat - b.yhat) < 1e-9) FROM a JOIN b USING (id)
+----
+true
+
+query I
+WITH m AS (SELECT g AS gg, ols_fit_agg(ycount, [x]) m FROM s GROUP BY g)
+SELECT bool_and(abs(p.yhat - predict(m.m, [p.x])) < 1e-9)
+FROM ols_fit_predict_by('s', g, ycount, [x], order_by := id) p JOIN m ON p.g = m.gg
+----
+true
