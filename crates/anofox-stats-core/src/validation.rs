@@ -127,6 +127,70 @@ pub(crate) fn fold_pseudo_intercept(
     }
 }
 
+/// Replace R², adjusted R² and the F test of a model fitted WITHOUT an intercept
+/// by R's `summary.lm` convention for such models: the total sum of squares is
+/// uncentered,
+///
+/// ```text
+/// mss = sum(w * f^2), rss = sum(w * (y - f)^2), R² = mss / (mss + rss)
+/// adj R² = 1 - (1 - R²) * n / (n - rank),  F = (mss / rank) / (rss / (n - rank))
+/// ```
+///
+/// where `f` are the fitted values, `rank` the number of estimated (non-NaN)
+/// coefficients and `w` the weights (1 for OLS). The centered TSS used before
+/// compares a no-intercept model with an intercept-only model it does not nest.
+pub(crate) fn apply_no_intercept_fit_stats(
+    core: &mut FitResultCore,
+    inference: Option<&mut FitResultInference>,
+    y: &[f64],
+    x: &[Vec<f64>],
+    weights: Option<&[f64]>,
+    rows: &[usize],
+) {
+    use statrs::distribution::{ContinuousCDF, FisherSnedecor};
+    let n = rows.len();
+    let active: Vec<(usize, f64)> = core
+        .coefficients
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| c.is_finite())
+        .map(|(j, &c)| (j, c))
+        .collect();
+    let rank = active.len();
+    let (mut mss, mut rss) = (0.0, 0.0);
+    for &i in rows {
+        let f: f64 = active.iter().map(|&(j, c)| c * x[j][i]).sum();
+        let w = weights.map_or(1.0, |w| w[i]);
+        mss += w * f * f;
+        rss += w * (y[i] - f).powi(2);
+    }
+    let rdf = n.saturating_sub(rank);
+    let r2 = if mss + rss > 0.0 {
+        mss / (mss + rss)
+    } else {
+        f64::NAN
+    };
+    core.r_squared = r2;
+    core.adj_r_squared = if rdf > 0 {
+        1.0 - (1.0 - r2) * n as f64 / rdf as f64
+    } else {
+        f64::NAN
+    };
+    if let Some(inf) = inference {
+        let (f_stat, f_p) = if rank > 0 && rdf > 0 && rss > 0.0 {
+            let f = (mss / rank as f64) / (rss / rdf as f64);
+            let p = FisherSnedecor::new(rank as f64, rdf as f64)
+                .map(|d| d.sf(f))
+                .unwrap_or(f64::NAN);
+            (f, p)
+        } else {
+            (f64::NAN, f64::NAN)
+        };
+        inf.f_statistic = Some(f_stat);
+        inf.f_pvalue = Some(f_p);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

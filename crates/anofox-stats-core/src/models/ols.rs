@@ -166,16 +166,25 @@ pub fn fit_ols(y: &[f64], x: &[Vec<f64>], options: &OlsOptions) -> StatsResult<F
         };
         let mut coefficients = vec![f64::NAN; n_features];
         coefficients[pcol] = y_mean / pval;
+        let mut core = FitResultCore {
+            coefficients,
+            intercept: None,
+            r_squared: 0.0,
+            adj_r_squared: 0.0,
+            residual_std_error: rmse,
+            n_observations: n_valid,
+            n_features,
+        };
+        crate::validation::apply_no_intercept_fit_stats(
+            &mut core,
+            None,
+            y,
+            x,
+            None,
+            &valid_indices,
+        );
         return Ok(FitResult {
-            core: FitResultCore {
-                coefficients,
-                intercept: None,
-                r_squared: 0.0,
-                adj_r_squared: 0.0,
-                residual_std_error: rmse,
-                n_observations: n_valid,
-                n_features,
-            },
+            core,
             inference: None,
             diagnostics: None,
         });
@@ -322,6 +331,17 @@ pub fn fit_ols(y: &[f64], x: &[Vec<f64>], options: &OlsOptions) -> StatsResult<F
             pcol,
             pval,
             pseudo_stats,
+        );
+    }
+
+    if !options.fit_intercept {
+        crate::validation::apply_no_intercept_fit_stats(
+            &mut core,
+            inference.as_mut(),
+            y,
+            x,
+            None,
+            &valid_indices,
         );
     }
 

@@ -252,17 +252,14 @@ FROM (SELECT ols_fit_agg(y, [x1, x2], {'compute_inference': true, 'intercept': f
 ----
 true	true	true	true	true
 
-# CONVENTION DIFFERENCE: without an intercept R's summary.lm reports the UNCENTERED
-# R^2 = 1 - RSS/sum(y^2) (= 0.7757731896 here) and F on 2 and n-2 df. The extension always
-# uses the centered TSS = sum((y - mean(y))^2) (and n-1 in adj. R^2). The values below are
-# computed by hand with the extension's convention: 1 - RSS/TSS_c, 1-(1-R2)(n-1)/(n-2),
-# ((TSS_c - RSS)/2) / (RSS/(n-2)).
-# no intercept fit statistics (centered convention)
+# no intercept: R's summary.lm uses the UNCENTERED total sum of squares when the
+# model has no intercept: R^2 = 1 - RSS/sum(y^2), adj. R^2 with n/(n - p), F on p and n-p df.
+# no intercept fit statistics: summary(lm(y ~ 0 + x1 + x2))$r.squared, $adj.r.squared, $fstatistic
 query III
 SELECT
-    abs((r.r_squared) - (0.59559510901138824)) <= 1e-09 * (1 + abs(0.59559510901138824)),
-    abs((r.adj_r_squared) - (0.57312817062313204)) <= 1e-09 * (1 + abs(0.57312817062313204)),
-    abs((r.f_statistic) - (13.254923717659594)) <= 1e-09 * (1 + abs(13.254923717659594))
+    abs((r.r_squared) - (0.77577318963491582)) <= 1e-09 * (1 + abs(0.77577318963491582)),
+    abs((r.adj_r_squared) - (0.75085909959435093)) <= 1e-09 * (1 + abs(0.75085909959435093)),
+    abs((r.f_statistic) - (31.137929917239941)) <= 1e-09 * (1 + abs(31.137929917239941))
 FROM (SELECT ols_fit_agg(y, [x1, x2], {'compute_inference': true, 'intercept': false}) AS r FROM d1) s;
 ----
 true	true	true

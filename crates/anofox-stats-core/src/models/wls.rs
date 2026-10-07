@@ -24,6 +24,20 @@ fn convert_hc_type(hc: HcType) -> anofox_regression::HcType {
     }
 }
 
+/// Residual standard error of a weighted intercept-only fit, as R's
+/// `summary(lm(y ~ 1, weights = w))$sigma`: `sqrt(sum(w (y - ybar_w)^2) / (n - 1))`.
+fn intercept_only_weighted_sigma(rows: &[usize], y: &[f64], weights: &[f64], y_mean: f64) -> f64 {
+    let n = rows.len();
+    if n < 2 {
+        return f64::NAN;
+    }
+    let rss: f64 = rows
+        .iter()
+        .map(|&i| weights[i] * (y[i] - y_mean).powi(2))
+        .sum();
+    (rss / (n - 1) as f64).sqrt()
+}
+
 /// Fit a Weighted Least Squares regression model
 ///
 /// # Arguments
@@ -112,12 +126,9 @@ pub fn fit_wls(
         let sum_wy: f64 = valid_indices.iter().map(|&i| weights[i] * y[i]).sum();
         let sum_w: f64 = valid_indices.iter().map(|&i| weights[i]).sum();
         let y_mean = sum_wy / sum_w;
-        let y_var = valid_indices
-            .iter()
-            .map(|&i| weights[i] * (y[i] - y_mean).powi(2))
-            .sum::<f64>()
-            / sum_w;
-        let rmse = y_var.sqrt();
+        // R lm(y ~ 1, weights = w): sigma^2 = sum(w (y - ybar_w)^2) / (n - 1)
+        // (the residual degrees of freedom), NaN with a single observation.
+        let rmse = intercept_only_weighted_sigma(&valid_indices, y, weights, y_mean);
 
         return Ok(FitResult {
             core: FitResultCore {
@@ -168,24 +179,28 @@ pub fn fit_wls(
         let sum_wy: f64 = valid_indices.iter().map(|&i| weights[i] * y[i]).sum();
         let sum_w: f64 = valid_indices.iter().map(|&i| weights[i]).sum();
         let y_mean = sum_wy / sum_w;
-        let rmse = (valid_indices
-            .iter()
-            .map(|&i| weights[i] * (y[i] - y_mean).powi(2))
-            .sum::<f64>()
-            / sum_w)
-            .sqrt();
+        let rmse = intercept_only_weighted_sigma(&valid_indices, y, weights, y_mean);
         let mut coefficients = vec![f64::NAN; n_features];
         coefficients[pcol] = y_mean / pval;
+        let mut core = FitResultCore {
+            coefficients,
+            intercept: None,
+            r_squared: 0.0,
+            adj_r_squared: 0.0,
+            residual_std_error: rmse,
+            n_observations: n_valid,
+            n_features,
+        };
+        crate::validation::apply_no_intercept_fit_stats(
+            &mut core,
+            None,
+            y,
+            x,
+            Some(weights),
+            &valid_indices,
+        );
         return Ok(FitResult {
-            core: FitResultCore {
-                coefficients,
-                intercept: None,
-                r_squared: 0.0,
-                adj_r_squared: 0.0,
-                residual_std_error: rmse,
-                n_observations: n_valid,
-                n_features,
-            },
+            core,
             inference: None,
             diagnostics: None,
         });
@@ -335,6 +350,17 @@ pub fn fit_wls(
             pcol,
             pval,
             pseudo_stats,
+        );
+    }
+
+    if !options.fit_intercept {
+        crate::validation::apply_no_intercept_fit_stats(
+            &mut core,
+            inference.as_mut(),
+            y,
+            x,
+            Some(weights),
+            &valid_indices,
         );
     }
 

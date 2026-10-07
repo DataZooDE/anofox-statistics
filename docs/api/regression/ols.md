@@ -104,7 +104,7 @@ FROM ols_demo;
 |-------|------|-------------|
 | `coefficients` | `DOUBLE[]` | One coefficient per feature (intercept excluded) |
 | `intercept` | `DOUBLE` | Intercept (NaN when `fit_intercept` is false) |
-| `r_squared` | `DOUBLE` | Coefficient of determination |
+| `r_squared` | `DOUBLE` | Coefficient of determination (uncentered, `1 - RSS/Σy²`, when `intercept` is false, as R's `summary.lm`) |
 | `adj_r_squared` | `DOUBLE` | Adjusted R² |
 | `residual_std_error` | `DOUBLE` | Residual standard error |
 | `n_observations` | `BIGINT` | Rows used in the fit |
