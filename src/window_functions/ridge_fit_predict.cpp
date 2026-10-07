@@ -8,6 +8,7 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/min_obs_guard.hpp"
 #include "../include/ffi_enum_converters.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
@@ -235,7 +236,7 @@ static void RidgeFitPredictFinalize(Vector &state_vector, AggregateInputData &, 
             continue;
         }
 
-        idx_t min_obs = state.fit_intercept ? state.n_features + 1 : state.n_features;
+        idx_t min_obs = MinObsForFit(state.x_columns, state.fit_intercept);
         if (state.y_values.size() <= min_obs) {
             FlatVector::SetNull(result, result_idx, true);
             continue;
