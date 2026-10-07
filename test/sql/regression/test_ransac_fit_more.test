@@ -80,16 +80,17 @@ FROM (SELECT ransac_fit(list(y ORDER BY i), [list(x ORDER BY i)], {'random_state
 ----
 true	true
 
-# min_samples > n -> no model can be drawn -> error from the core (not a crash)
-statement error
-SELECT ransac_fit([1.0, 2.0, 3.0, 4.0], [[1.0, 2.0, 3.0, 4.0]], {'min_samples': 10});
+# min_samples > n -> no model can be drawn -> NULL (insufficient data, not a crash)
+query I
+SELECT ransac_fit([1.0, 2.0, 3.0, 4.0], [[1.0, 2.0, 3.0, 4.0]], {'min_samples': 10}) IS NULL;
 ----
-ransac_fit:
+true
 
-# Result fields are internally consistent: adj_r_squared follows from r_squared,
-# and residual_std_error is positive for noisy data (today both are reported as 0.0).
+# Result fields are internally consistent: the summary statistics describe the final
+# OLS fit on the n_inliers consensus rows, so adj_r_squared follows from r_squared and
+# n_inliers, and residual_std_error is positive for noisy data.
 query II
-SELECT abs(f.adj_r_squared - (1 - (1 - f.r_squared) * (f.n_observations - 1) / (f.n_observations - f.n_features - 1))) < 1e-9,
+SELECT abs(f.adj_r_squared - (1 - (1 - f.r_squared) * (f.n_inliers - 1) / (f.n_inliers - f.n_features - 1))) < 1e-9,
        f.residual_std_error > 0
 FROM (SELECT ransac_fit(list(y ORDER BY i), [list(x ORDER BY i)], {'random_state': 42, 'residual_threshold': 0.5}) AS f FROM o);
 ----

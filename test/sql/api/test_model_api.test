@@ -156,3 +156,15 @@ SELECT glance(ols_fit_agg(y2, [x2, z])).n_observations, glance(ols_fit_agg(y2, [
        position('coefficients' IN typeof(glance(ols_fit_agg(y2, [x2, z])))) = 0 FROM d
 ----
 10	true	true
+
+# column-layout predict: a NULL feature value gives a NULL prediction for that observation
+query I
+SELECT predict([[1.0, NULL]], [2.0], 1.0)
+----
+[3.0, NULL]
+
+# many rows (list capacity grows correctly)
+query I
+SELECT sum(len(predict([[x, x + 1, x + 2]], [2.0], 1.0))) FROM (SELECT i::DOUBLE x FROM range(5000) t(i))
+----
+15000

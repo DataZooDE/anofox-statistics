@@ -1,4 +1,5 @@
 #include <cmath>
+#include <limits>
 #include <vector>
 
 #include "duckdb.hpp"
@@ -20,18 +21,20 @@
 
 namespace duckdb {
 
-// Extract list of doubles from a DuckDB list value
+// Extract list of doubles from a DuckDB list value; NULL elements become NaN
 static vector<double> ExtractDoubleList(Vector &vec, idx_t row_idx) {
     auto list_data = ListVector::GetData(vec);
     auto &child = ListVector::GetEntry(vec);
     auto child_data = FlatVector::GetData<double>(child);
+    auto &child_validity = FlatVector::Validity(child);
 
     vector<double> result;
     auto offset = list_data[row_idx].offset;
     auto length = list_data[row_idx].length;
 
     for (idx_t i = 0; i < length; i++) {
-        result.push_back(child_data[offset + i]);
+        result.push_back(child_validity.RowIsValid(offset + i) ? child_data[offset + i]
+                                                             : std::numeric_limits<double>::quiet_NaN());
     }
 
     return result;
@@ -110,11 +113,18 @@ static void PredictFunction(DataChunk &args, ExpressionState &state, Vector &res
         // Build result list
         auto &result_child = ListVector::GetEntry(result);
         auto result_offset = ListVector::GetListSize(result);
+        ListVector::Reserve(result, result_offset + predictions_len);
         ListVector::SetListSize(result, result_offset + predictions_len);
         auto result_data = FlatVector::GetData<double>(result_child);
 
+        auto &result_child_validity = FlatVector::Validity(result_child);
         for (size_t i = 0; i < predictions_len; i++) {
-            result_data[result_offset + i] = predictions[i];
+            // A NULL (NaN) feature value gives a NULL prediction for that observation
+            if (std::isfinite(predictions[i])) {
+                result_data[result_offset + i] = predictions[i];
+            } else {
+                result_child_validity.SetInvalid(result_offset + i);
+            }
         }
         ListVector::GetData(result)[row] = {result_offset, predictions_len};
 

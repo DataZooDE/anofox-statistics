@@ -60,12 +60,16 @@ SELECT (SELECT chisq_gof_agg(o::BIGINT, p) FROM (VALUES (20, 1/3), (30, 1/3), (N
 ----
 true
 
-# Probabilities that do not sum to 1 (e.g. expected counts instead of probabilities) -> NULL (documented)
-query II
-SELECT (SELECT chisq_gof_agg(o::BIGINT, p) FROM (VALUES (20, 80/3), (30, 80/3), (30, 80/3)) t(o, p)) IS NULL,
-       (SELECT chisq_gof_agg(o::BIGINT, p) FROM (VALUES (20, 0.2), (30, 0.2), (30, 0.2)) t(o, p)) IS NULL;
+# Probabilities that do not sum to 1 (e.g. expected counts instead of probabilities) -> error
+statement error
+SELECT chisq_gof_agg(o::BIGINT, p) FROM (VALUES (20, 80/3), (30, 80/3), (30, 80/3)) t(o, p);
 ----
-true	true
+Expected proportions must sum to 1.0
+
+statement error
+SELECT chisq_gof_agg(o::BIGINT, p) FROM (VALUES (20, 0.2), (30, 0.2), (30, 0.2)) t(o, p);
+----
+Expected proportions must sum to 1.0
 
 # Empty input and a single category -> NULL
 query II
