@@ -416,7 +416,9 @@ static void HuberPredictAggFinalize(Vector &state_vector, AggregateInputData &ag
 // already covers every Huber knob (epsilon was added in #69; alpha/max_iterations/
 // tolerance/fit_intercept/confidence_level were pre-existing).
 static void ExtractHuberOptions(ClientContext &context, Expression &opts_expr, HuberPredictAggBindData &result) {
-    auto opts = RegressionMapOptions::ParseFromExpression(context, opts_expr);
+    auto opts = RegressionMapOptions::ParseFromExpression(
+            context, opts_expr, "huber_fit_predict_agg",
+            {"fit_intercept", "confidence_level", "alpha", "max_iterations", "tolerance", "epsilon", "null_policy"});
     if (opts.fit_intercept.has_value()) {
         result.fit_intercept = opts.fit_intercept.value();
     }
@@ -444,7 +446,7 @@ static unique_ptr<FunctionData> HuberPredictAggBind(ClientContext &context, Aggr
                                                     vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<HuberPredictAggBindData>();
 
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
+    if (arguments.size() >= 3) {
         ExtractHuberOptions(context, *arguments[2], *result);
     }
 
@@ -458,7 +460,7 @@ static unique_ptr<FunctionData> HuberPredictAggBindWithSplit(ClientContext &cont
     auto result = make_uniq<HuberPredictAggBindData>();
     result->use_split_col = true;
 
-    if (arguments.size() >= 4 && arguments[3]->IsFoldable()) {
+    if (arguments.size() >= 4) {
         ExtractHuberOptions(context, *arguments[3], *result);
     }
 

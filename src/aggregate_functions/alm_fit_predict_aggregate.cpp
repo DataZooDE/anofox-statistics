@@ -456,8 +456,10 @@ static unique_ptr<FunctionData> AlmFitPredictAggBind(ClientContext &context, Agg
     auto result = make_uniq<AlmFitPredictAggBindData>();
 
     // Parse MAP options if provided as 3rd argument
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[2]);
+    if (arguments.size() >= 3) {
+        auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[2], "alm_fit_predict_agg",
+            {"fit_intercept", "confidence_level", "max_iterations", "tolerance", "null_policy", "distribution", "loss", "quantile", "role_trim"});
         if (opts.fit_intercept.has_value()) {
             result->fit_intercept = opts.fit_intercept.value();
         }
@@ -497,8 +499,10 @@ static unique_ptr<FunctionData> AlmFitPredictAggBindWithSplit(ClientContext &con
     auto result = make_uniq<AlmFitPredictAggBindData>();
     result->use_split_col = true;
 
-    if (arguments.size() >= 4 && arguments[3]->IsFoldable()) {
-        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[3]);
+    if (arguments.size() >= 4) {
+        auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[3], "alm_fit_predict_agg",
+            {"fit_intercept", "confidence_level", "max_iterations", "tolerance", "null_policy", "distribution", "loss", "quantile", "role_trim"});
         if (opts.fit_intercept.has_value()) {
             result->fit_intercept = opts.fit_intercept.value();
         }

@@ -8,12 +8,11 @@
 
 #include "../include/anofox_stats_ffi.h"
 #include "../include/map_options_parser.hpp"
+#include "../include/result_fields.hpp"
+#include "../include/ffi_enum_converters.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 
-#ifdef _WIN32
-#define strcasecmp _stricmp
-#endif
 
 namespace duckdb {
 
@@ -53,18 +52,20 @@ static LogicalType GetMcNemarAggResultType() {
 //===--------------------------------------------------------------------===//
 struct McNemarBindData : public FunctionData {
     bool correction;
+    bool exact;
 
-    McNemarBindData() : correction(true) {}
+    McNemarBindData() : correction(true), exact(false) {}
 
     unique_ptr<FunctionData> Copy() const override {
         auto copy = make_uniq<McNemarBindData>();
         copy->correction = correction;
+        copy->exact = exact;
         return copy;
     }
 
     bool Equals(const FunctionData &other_p) const override {
         auto &other = other_p.Cast<McNemarBindData>();
-        return correction == other.correction;
+        return correction == other.correction && exact == other.exact;
     }
 };
 
@@ -178,7 +179,7 @@ static void McNemarAggFinalize(Vector &state_vector, AggregateInputData &aggr_in
         AnofoxChiSquareResult mcnemar_result;
         AnofoxError error;
 
-        bool success = anofox_mcnemar_test(a, b, c, d, bind_data.correction, false,
+        bool success = anofox_mcnemar_test(a, b, c, d, bind_data.correction, bind_data.exact,
                                             &mcnemar_result, &error);
 
         if (!success) {
@@ -207,19 +208,14 @@ static unique_ptr<FunctionData> McNemarAggBind(ClientContext &context, Aggregate
     function.return_type = GetMcNemarAggResultType();
     auto bind_data = make_uniq<McNemarBindData>();
 
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        Value options_val = ExpressionExecutor::EvaluateScalar(context, *arguments[2]);
-        if (options_val.type().id() == LogicalTypeId::MAP) {
-            auto &map_children = MapValue::GetChildren(options_val);
-            for (auto &entry : map_children) {
-                auto &key_list = StructValue::GetChildren(entry);
-                if (key_list.size() >= 2) {
-                    auto key = StringValue::Get(key_list[0]).c_str();
-                    if (strcasecmp(key, "correction") == 0) {
-                        bind_data->correction = key_list[1].GetValue<bool>();
-                    }
-                }
-            }
+    if (arguments.size() >= 3) {
+        Value options_val = EvaluateConstantOptions(context, *arguments[2], "mcnemar_agg");
+        auto opts = McNemarMapOptions::ParseFromValue(options_val, "mcnemar_agg");
+        if (opts.correction.has_value()) {
+            bind_data->correction = opts.correction.value();
+        }
+        if (opts.exact.has_value()) {
+            bind_data->exact = opts.exact.value();
         }
     }
 

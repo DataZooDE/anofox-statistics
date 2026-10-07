@@ -294,8 +294,10 @@ static unique_ptr<FunctionData> WlsFitPredictBind(ClientContext &context, Aggreg
                                                    vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<WlsFitPredictBindData>();
 
-    if (arguments.size() >= 4 && arguments[3]->IsFoldable()) {
-        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[3]);
+    if (arguments.size() >= 4) {
+        auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[3], "wls_fit_predict",
+            {"fit_intercept", "confidence_level", "null_policy", "solver", "hc_type"});
         if (opts.fit_intercept.has_value())
             result->fit_intercept = opts.fit_intercept.value();
         if (opts.confidence_level.has_value())

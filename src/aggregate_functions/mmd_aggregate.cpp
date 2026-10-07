@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <vector>
 
 #include "duckdb.hpp"
@@ -61,7 +62,7 @@ struct MmdBindData : public FunctionData {
 
     bool Equals(const FunctionData &other_p) const override {
         auto &other = other_p.Cast<MmdBindData>();
-        return options.n_permutations == other.options.n_permutations &&
+        return options.n_permutations == other.options.n_permutations && options.seed == other.options.seed &&
                options.bandwidth == other.options.bandwidth;
     }
 };
@@ -169,7 +170,12 @@ static void MmdAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
             continue;
         }
 
-        // Prepare FFI data
+        if (bind_data.options.seed.has_value()) {
+            // Make the seeded result independent of the row order threads delivered.
+            std::sort(state.group1.begin(), state.group1.end());
+            std::sort(state.group2.begin(), state.group2.end());
+        }
+
         AnofoxDataArray group1_array;
         group1_array.data = state.group1.data();
         group1_array.validity = nullptr;
@@ -182,8 +188,8 @@ static void MmdAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
 
         AnofoxMmdOptions options;
         options.n_permutations = bind_data.options.n_permutations.value_or(1000);
-        options.seed = 0;
-        options.has_seed = false;
+        options.seed = bind_data.options.seed.value_or(0);
+        options.has_seed = bind_data.options.seed.has_value();
 
         AnofoxTestResult test_result;
         AnofoxError error;
@@ -218,9 +224,9 @@ static unique_ptr<FunctionData> MmdAggBind(ClientContext &context, AggregateFunc
     function.return_type = GetMmdAggResultType();
     auto bind_data = make_uniq<MmdBindData>();
 
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        Value options_val = ExpressionExecutor::EvaluateScalar(context, *arguments[2]);
-        bind_data->options = MmdMapOptions::ParseFromValue(options_val);
+    if (arguments.size() >= 3) {
+        Value options_val = EvaluateConstantOptions(context, *arguments[2], "mmd_agg");
+        bind_data->options = MmdMapOptions::ParseFromValue(options_val, "mmd_agg");
     }
 
     PostHogTelemetry::Instance().RecordFunctionCall("mmd_agg");

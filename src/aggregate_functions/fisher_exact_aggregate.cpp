@@ -7,6 +7,8 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/ffi_enum_converters.hpp"
+#include "../include/result_fields.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
 
@@ -62,7 +64,8 @@ struct FisherExactBindData : public FunctionData {
 
     bool Equals(const FunctionData &other_p) const override {
         auto &other = other_p.Cast<FisherExactBindData>();
-        return options.alternative == other.options.alternative;
+        return options.alternative == other.options.alternative &&
+               options.confidence_level == other.options.confidence_level;
     }
 };
 
@@ -120,6 +123,11 @@ static void FisherExactAggUpdate(Vector inputs[], AggregateInputData &aggr_input
             state.c++;
         } else if (row == 1 && col == 1) {
             state.d++;
+        } else {
+            // Values other than 0/1 used to be dropped silently, which changed the
+            // table without any signal.
+            throw InvalidInputException("fisher_exact_agg expects binary 0/1 values for both arguments, got (%d, %d)",
+                                        row, col);
         }
     }
 }
@@ -170,7 +178,8 @@ static void FisherExactAggFinalize(Vector &state_vector, AggregateInputData &agg
         idx_t result_idx = i + offset;
 
         size_t n = state.a + state.b + state.c + state.d;
-        if (!state.initialized || n < 4) {
+        // Any non-empty 2x2 table is valid for the conditional exact test.
+        if (!state.initialized || n < 1) {
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
@@ -181,12 +190,13 @@ static void FisherExactAggFinalize(Vector &state_vector, AggregateInputData &agg
                                   : (bind_data.options.alternative.value_or(Alternative::TWO_SIDED) == Alternative::LESS
                                          ? ANOFOX_ALTERNATIVE_LESS
                                          : ANOFOX_ALTERNATIVE_GREATER);
-        options.confidence_level = 0.95;
+        options.confidence_level = bind_data.options.confidence_level.value_or(0.95);
 
         AnofoxTestResult test_result;
         AnofoxError error;
 
-        bool success = anofox_fisher_exact(state.a, state.b, state.c, state.d, options, &test_result, &error);
+        bool success = anofox_fisher_exact_conditional(state.a, state.b, state.c, state.d, options, &test_result,
+                                                       &error);
 
         if (!success) {
             FlatVector::SetNull(result, result_idx, true);
@@ -195,7 +205,7 @@ static void FisherExactAggFinalize(Vector &state_vector, AggregateInputData &agg
 
         // Fill STRUCT result
         idx_t struct_idx = 0;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = test_result.statistic; // odds ratio
+        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = test_result.statistic; // conditional MLE odds ratio
         FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = test_result.p_value;
         FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = test_result.effect_size; // odds ratio
         FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = test_result.ci_lower;
@@ -218,9 +228,9 @@ static unique_ptr<FunctionData> FisherExactAggBind(ClientContext &context, Aggre
     function.return_type = GetFisherExactAggResultType();
     auto bind_data = make_uniq<FisherExactBindData>();
 
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        Value options_val = ExpressionExecutor::EvaluateScalar(context, *arguments[2]);
-        bind_data->options = FisherExactMapOptions::ParseFromValue(options_val);
+    if (arguments.size() >= 3) {
+        Value options_val = EvaluateConstantOptions(context, *arguments[2], "fisher_exact_agg");
+        bind_data->options = FisherExactMapOptions::ParseFromValue(options_val, "fisher_exact_agg");
     }
 
     PostHogTelemetry::Instance().RecordFunctionCall("fisher_exact_agg");

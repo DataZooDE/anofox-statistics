@@ -359,8 +359,10 @@ static unique_ptr<FunctionData> PlsPredictAggBind(ClientContext &context, Aggreg
                                                    vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<PlsPredictAggBindData>();
 
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[2]);
+    if (arguments.size() >= 3) {
+        auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[2], "pls_fit_predict_agg",
+            {"fit_intercept", "n_components"});
         if (opts.n_components.has_value()) {
             result->n_components = opts.n_components.value();
         }
@@ -381,8 +383,10 @@ static unique_ptr<FunctionData> PlsPredictAggBindWithSplit(ClientContext &contex
     result->use_split_col = true;
 
     // Parse MAP options if provided as 4th argument (y, x, split, options)
-    if (arguments.size() >= 4 && arguments[3]->IsFoldable()) {
-        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[3]);
+    if (arguments.size() >= 4) {
+        auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[3], "pls_fit_predict_agg",
+            {"fit_intercept", "n_components"});
         if (opts.n_components.has_value()) {
             result->n_components = opts.n_components.value();
         }

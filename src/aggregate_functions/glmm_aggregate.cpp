@@ -511,8 +511,10 @@ static unique_ptr<FunctionData> GlmmAggBind(ClientContext &context, AggregateFun
                                             vector<unique_ptr<Expression>> &arguments) {
 	auto result = make_uniq<GlmmAggregateBindData>();
 
-	if (arguments.size() >= 4 && arguments[3]->IsFoldable()) {
-		auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[3]);
+	if (arguments.size() >= 4) {
+		auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[3], "glmm_fit_agg",
+            {"fit_intercept", "compute_inference", "confidence_level", "max_iterations", "tolerance", "power", "family", "reml", "offset", "random", "groups", "theta"});
 		if (opts.glmm_family.has_value()) {
 			result->family = (AnofoxGlmmFamily)opts.glmm_family.value();
 		}

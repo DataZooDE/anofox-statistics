@@ -525,8 +525,10 @@ static unique_ptr<FunctionData> PoissonFitPredictAggBind(ClientContext &context,
 	auto result = make_uniq<PoissonFitPredictAggBindData>();
 
 	// Parse MAP options if provided as 3rd argument
-	if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-		auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[2]);
+	if (arguments.size() >= 3) {
+		auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[2], "poisson_fit_predict_agg",
+            {"fit_intercept", "confidence_level", "max_iterations", "tolerance", "null_policy", "poisson_link", "glm_lambda"});
 		if (opts.fit_intercept.has_value()) {
 			result->fit_intercept = opts.fit_intercept.value();
 		}
@@ -562,8 +564,10 @@ static unique_ptr<FunctionData> PoissonFitPredictAggBindWithSplit(ClientContext 
 	result->use_split_col = true;
 
 	// Parse MAP options if provided as 4th argument (y, x, split, options)
-	if (arguments.size() >= 4 && arguments[3]->IsFoldable()) {
-		auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[3]);
+	if (arguments.size() >= 4) {
+		auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[3], "poisson_fit_predict_agg",
+            {"fit_intercept", "confidence_level", "max_iterations", "tolerance", "null_policy", "poisson_link", "glm_lambda"});
 		if (opts.fit_intercept.has_value()) {
 			result->fit_intercept = opts.fit_intercept.value();
 		}

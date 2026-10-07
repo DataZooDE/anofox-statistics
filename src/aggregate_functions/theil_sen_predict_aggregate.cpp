@@ -397,7 +397,9 @@ static void TheilSenPredictAggFinalize(Vector &state_vector, AggregateInputData 
 
 static void ExtractTheilSenPredictOptions(ClientContext &context, Expression &opts_expr,
                                           TheilSenPredictAggBindData &result) {
-    auto opts = RegressionMapOptions::ParseFromExpression(context, opts_expr);
+    auto opts = RegressionMapOptions::ParseFromExpression(
+            context, opts_expr, "theil_sen_fit_predict_agg",
+            {"fit_intercept", "confidence_level", "max_iterations", "tolerance", "random_state", "max_subpopulation", "n_subsamples", "null_policy"});
     if (opts.fit_intercept.has_value()) {
         result.fit_intercept = opts.fit_intercept.value();
     }
@@ -429,7 +431,7 @@ static unique_ptr<FunctionData> TheilSenPredictAggBind(ClientContext &context, A
                                                       vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<TheilSenPredictAggBindData>();
 
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
+    if (arguments.size() >= 3) {
         ExtractTheilSenPredictOptions(context, *arguments[2], *result);
     }
 
@@ -444,7 +446,7 @@ static unique_ptr<FunctionData> TheilSenPredictAggBindWithSplit(ClientContext &c
     auto result = make_uniq<TheilSenPredictAggBindData>();
     result->use_split_col = true;
 
-    if (arguments.size() >= 4 && arguments[3]->IsFoldable()) {
+    if (arguments.size() >= 4) {
         ExtractTheilSenPredictOptions(context, *arguments[3], *result);
     }
 

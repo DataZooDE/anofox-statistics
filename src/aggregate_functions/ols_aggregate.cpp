@@ -359,8 +359,10 @@ static unique_ptr<FunctionData> OlsAggBind(ClientContext &context, AggregateFunc
     auto result = make_uniq<OlsAggregateBindData>();
 
     // Parse MAP options if provided as 3rd argument
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[2]);
+    if (arguments.size() >= 3) {
+        auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[2], "ols_fit_agg",
+            {"fit_intercept", "compute_inference", "confidence_level", "solver", "hc_type"});
         if (opts.fit_intercept.has_value()) {
             result->fit_intercept = opts.fit_intercept.value();
         }

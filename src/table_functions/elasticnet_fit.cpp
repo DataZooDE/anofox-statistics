@@ -67,8 +67,10 @@ static unique_ptr<FunctionData> ElasticNetFitBind(ClientContext &context, Scalar
     auto result = make_uniq<ElasticNetFitBindData>();
 
     // Parse MAP options if provided as 3rd argument
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[2]);
+    if (arguments.size() >= 3) {
+        auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[2], "elasticnet_fit",
+            {"fit_intercept", "alpha", "lambda", "l1_ratio", "max_iterations", "tolerance", "lambda_scaling"});
         if (opts.fit_intercept.has_value()) {
             result->fit_intercept = opts.fit_intercept.value();
         }

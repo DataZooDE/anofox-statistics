@@ -8,12 +8,10 @@
 
 #include "../include/anofox_stats_ffi.h"
 #include "../include/map_options_parser.hpp"
+#include "../include/ffi_enum_converters.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 
-#ifdef _WIN32
-#define strcasecmp _stricmp
-#endif
 
 namespace duckdb {
 
@@ -241,36 +239,20 @@ static unique_ptr<FunctionData> DieboldMarianoAggBind(ClientContext &context, Ag
     function.return_type = GetDieboldMarianoAggResultType();
     auto bind_data = make_uniq<DieboldMarianoBindData>();
 
-    if (arguments.size() >= 4 && arguments[3]->IsFoldable()) {
-        Value options_val = ExpressionExecutor::EvaluateScalar(context, *arguments[3]);
-        if (options_val.type().id() == LogicalTypeId::MAP) {
-            auto &map_children = MapValue::GetChildren(options_val);
-            for (auto &entry : map_children) {
-                auto &key_list = StructValue::GetChildren(entry);
-                if (key_list.size() >= 2) {
-                    auto key = StringValue::Get(key_list[0]).c_str();
-                    if (strcasecmp(key, "loss") == 0) {
-                        auto loss_str = StringValue::Get(key_list[1]);
-                        if (strcasecmp(loss_str.c_str(), "absolute") == 0) {
-                            bind_data->loss = ANOFOX_FORECAST_LOSS_ABSOLUTE;
-                        }
-                    } else if (strcasecmp(key, "var_estimator") == 0) {
-                        auto var_str = StringValue::Get(key_list[1]);
-                        if (strcasecmp(var_str.c_str(), "bartlett") == 0) {
-                            bind_data->var_estimator = ANOFOX_FORECAST_VAR_BARTLETT;
-                        }
-                    } else if (strcasecmp(key, "horizon") == 0) {
-                        bind_data->horizon = static_cast<size_t>(key_list[1].GetValue<int64_t>());
-                    } else if (strcasecmp(key, "alternative") == 0) {
-                        auto alt_str = StringValue::Get(key_list[1]);
-                        if (strcasecmp(alt_str.c_str(), "less") == 0) {
-                            bind_data->alternative = ANOFOX_ALTERNATIVE_LESS;
-                        } else if (strcasecmp(alt_str.c_str(), "greater") == 0) {
-                            bind_data->alternative = ANOFOX_ALTERNATIVE_GREATER;
-                        }
-                    }
-                }
-            }
+    if (arguments.size() >= 4) {
+        Value options_val = EvaluateConstantOptions(context, *arguments[3], "diebold_mariano_agg");
+        auto opts = DieboldMarianoMapOptions::ParseFromValue(options_val, "diebold_mariano_agg");
+        if (opts.absolute_loss.has_value()) {
+            bind_data->loss = opts.absolute_loss.value() ? ANOFOX_FORECAST_LOSS_ABSOLUTE : ANOFOX_FORECAST_LOSS_SQUARED;
+        }
+        if (opts.bartlett.has_value()) {
+            bind_data->var_estimator = opts.bartlett.value() ? ANOFOX_FORECAST_VAR_BARTLETT : ANOFOX_FORECAST_VAR_ACF;
+        }
+        if (opts.horizon.has_value()) {
+            bind_data->horizon = opts.horizon.value();
+        }
+        if (opts.alternative.has_value()) {
+            bind_data->alternative = ConvertAlternative(opts.alternative.value());
         }
     }
 

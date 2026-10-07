@@ -326,8 +326,10 @@ static unique_ptr<FunctionData> AidAggBind(ClientContext &context, AggregateFunc
                                            vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<AidAggregateBindData>();
 
-    if (arguments.size() >= 2 && arguments[1]->IsFoldable()) {
-        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[1]);
+    if (arguments.size() >= 2) {
+        auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[1], "aid_agg",
+            {"intermittent_threshold", "outlier_method"});
         if (opts.intermittent_threshold.has_value()) {
             result->intermittent_threshold = opts.intermittent_threshold.value();
         }
@@ -348,8 +350,10 @@ static unique_ptr<FunctionData> AidAnomalyAggBind(ClientContext &context, Aggreg
                                                   vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<AidAggregateBindData>();
 
-    if (arguments.size() >= 2 && arguments[1]->IsFoldable()) {
-        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[1]);
+    if (arguments.size() >= 2) {
+        auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[1], "aid_anomaly_agg",
+            {"intermittent_threshold", "outlier_method"});
         if (opts.intermittent_threshold.has_value()) {
             result->intermittent_threshold = opts.intermittent_threshold.value();
         }

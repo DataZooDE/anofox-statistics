@@ -363,8 +363,10 @@ static unique_ptr<FunctionData> AlmAggBind(ClientContext &context, AggregateFunc
                                            vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<AlmAggregateBindData>();
 
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[2]);
+    if (arguments.size() >= 3) {
+        auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[2], "alm_fit_agg",
+            {"fit_intercept", "compute_inference", "confidence_level", "max_iterations", "tolerance", "distribution", "loss", "quantile", "role_trim"});
         if (opts.fit_intercept.has_value()) {
             result->fit_intercept = opts.fit_intercept.value();
         }

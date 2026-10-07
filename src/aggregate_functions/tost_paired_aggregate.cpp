@@ -8,12 +8,10 @@
 
 #include "../include/anofox_stats_ffi.h"
 #include "../include/map_options_parser.hpp"
+#include "../include/ffi_enum_converters.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 
-#ifdef _WIN32
-#define strcasecmp _stricmp
-#endif
 
 namespace duckdb {
 
@@ -227,30 +225,21 @@ static unique_ptr<FunctionData> TostPairedAggBind(ClientContext &context, Aggreg
     function.return_type = GetTostPairedAggResultType();
     auto bind_data = make_uniq<TostPairedBindData>();
 
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        Value options_val = ExpressionExecutor::EvaluateScalar(context, *arguments[2]);
-        if (options_val.type().id() == LogicalTypeId::MAP) {
-            auto &map_children = MapValue::GetChildren(options_val);
-            for (auto &entry : map_children) {
-                auto &key_list = StructValue::GetChildren(entry);
-                if (key_list.size() >= 2) {
-                    auto key = StringValue::Get(key_list[0]).c_str();
-                    if (strcasecmp(key, "bound_lower") == 0 || strcasecmp(key, "delta") == 0) {
-                        double val = key_list[1].GetValue<double>();
-                        if (strcasecmp(key, "delta") == 0) {
-                            bind_data->bound_lower = -val;
-                            bind_data->bound_upper = val;
-                        } else {
-                            bind_data->bound_lower = val;
-                        }
-                    } else if (strcasecmp(key, "bound_upper") == 0) {
-                        bind_data->bound_upper = key_list[1].GetValue<double>();
-                    } else if (strcasecmp(key, "alpha") == 0) {
-                        bind_data->alpha = key_list[1].GetValue<double>();
-                    }
-                }
-            }
+    if (arguments.size() >= 3) {
+        Value options_val = EvaluateConstantOptions(context, *arguments[2], "tost_paired_agg");
+        auto opts = TostPairedMapOptions::ParseFromValue(options_val, "tost_paired_agg");
+        if (opts.bound_lower.has_value()) {
+            bind_data->bound_lower = opts.bound_lower.value();
         }
+        if (opts.bound_upper.has_value()) {
+            bind_data->bound_upper = opts.bound_upper.value();
+        }
+        // A symmetric delta takes precedence over explicit bounds, as in tost_t_test_agg.
+        if (opts.delta.has_value()) {
+            bind_data->bound_lower = -opts.delta.value();
+            bind_data->bound_upper = opts.delta.value();
+        }
+        bind_data->alpha = ResolveTostAlpha("tost_paired_agg", opts.alpha, opts.confidence_level);
     }
 
     PostHogTelemetry::Instance().RecordFunctionCall("tost_paired_agg");

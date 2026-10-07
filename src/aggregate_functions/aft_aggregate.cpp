@@ -329,8 +329,10 @@ static unique_ptr<FunctionData> AftAggBind(ClientContext &context, AggregateFunc
                                            vector<unique_ptr<Expression>> &arguments) {
 	auto result = make_uniq<AftAggregateBindData>();
 
-	if (arguments.size() >= 4 && arguments[3]->IsFoldable()) {
-		auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[3]);
+	if (arguments.size() >= 4) {
+		auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[3], "aft_fit_agg",
+            {"fit_intercept", "compute_inference", "confidence_level", "max_iterations", "tolerance", "distribution", "feature_names", "prior", "vcov"});
 		result->prior_opts.LoadFrom(opts);
 		if (opts.aft_dist.has_value()) {
 			result->dist = (AnofoxAftDistribution)opts.aft_dist.value();

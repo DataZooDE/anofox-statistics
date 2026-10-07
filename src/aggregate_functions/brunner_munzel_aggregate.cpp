@@ -7,6 +7,8 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/ffi_enum_converters.hpp"
+#include "../include/result_fields.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
@@ -222,9 +224,9 @@ static unique_ptr<FunctionData> BrunnerMunzelAggBind(ClientContext &context, Agg
     function.return_type = GetBrunnerMunzelAggResultType();
     auto bind_data = make_uniq<BrunnerMunzelBindData>();
 
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        Value options_val = ExpressionExecutor::EvaluateScalar(context, *arguments[2]);
-        bind_data->options = BrunnerMunzelMapOptions::ParseFromValue(options_val);
+    if (arguments.size() >= 3) {
+        Value options_val = EvaluateConstantOptions(context, *arguments[2], "brunner_munzel_agg");
+        bind_data->options = BrunnerMunzelMapOptions::ParseFromValue(options_val, "brunner_munzel_agg");
     }
 
     PostHogTelemetry::Instance().RecordFunctionCall("brunner_munzel_agg");

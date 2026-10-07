@@ -425,7 +425,9 @@ static void RansacPredictAggFinalize(Vector &state_vector, AggregateInputData &a
 // Shared option extraction.
 static void ExtractRansacPredictOptions(ClientContext &context, Expression &opts_expr,
                                         RansacPredictAggBindData &result) {
-    auto opts = RegressionMapOptions::ParseFromExpression(context, opts_expr);
+    auto opts = RegressionMapOptions::ParseFromExpression(
+            context, opts_expr, "ransac_fit_predict_agg",
+            {"fit_intercept", "confidence_level", "residual_threshold", "max_trials", "stop_probability", "stop_n_inliers", "min_samples", "random_state", "null_policy"});
     if (opts.fit_intercept.has_value()) {
         result.fit_intercept = opts.fit_intercept.value();
     }
@@ -462,7 +464,7 @@ static unique_ptr<FunctionData> RansacPredictAggBind(ClientContext &context, Agg
                                                     vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<RansacPredictAggBindData>();
 
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
+    if (arguments.size() >= 3) {
         ExtractRansacPredictOptions(context, *arguments[2], *result);
     }
 
@@ -476,7 +478,7 @@ static unique_ptr<FunctionData> RansacPredictAggBindWithSplit(ClientContext &con
     auto result = make_uniq<RansacPredictAggBindData>();
     result->use_split_col = true;
 
-    if (arguments.size() >= 4 && arguments[3]->IsFoldable()) {
+    if (arguments.size() >= 4) {
         ExtractRansacPredictOptions(context, *arguments[3], *result);
     }
 

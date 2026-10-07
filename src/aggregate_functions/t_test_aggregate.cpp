@@ -7,6 +7,8 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/ffi_enum_converters.hpp"
+#include "../include/result_fields.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
@@ -66,7 +68,7 @@ struct TTestBindData : public FunctionData {
         auto &other = other_p.Cast<TTestBindData>();
         return options.alternative == other.options.alternative &&
                options.confidence_level == other.options.confidence_level &&
-               options.kind == other.options.kind;
+               options.kind == other.options.kind && options.mu == other.options.mu;
     }
 };
 
@@ -229,9 +231,18 @@ static unique_ptr<FunctionData> TTestAggBind(ClientContext &context, AggregateFu
     auto bind_data = make_uniq<TTestBindData>();
 
     // Parse options if provided (3rd argument)
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        Value options_val = ExpressionExecutor::EvaluateScalar(context, *arguments[2]);
-        bind_data->options = TTestMapOptions::ParseFromValue(options_val);
+    if (arguments.size() >= 3) {
+        Value options_val = EvaluateConstantOptions(context, *arguments[2], "t_test_agg");
+        bind_data->options = TTestMapOptions::ParseFromValue(options_val, "t_test_agg");
+        // The (value, group) layout carries two independent samples; there is no
+        // pairing information, so a paired test cannot be computed here. The key
+        // used to be accepted and silently ignored (running a two-sample test).
+        if (bind_data->options.paired.value_or(false)) {
+            throw InvalidInputException(
+                "t_test_agg: 'paired': true is not supported -- t_test_agg(value, group) compares two "
+                "independent samples and has no pairing information. For paired data use "
+                "tost_paired_agg(x, y, ...) (equivalence) or wilcoxon_signed_rank_agg(x, y, ...) (difference).");
+        }
     }
 
     PostHogTelemetry::Instance().RecordFunctionCall("t_test_agg");

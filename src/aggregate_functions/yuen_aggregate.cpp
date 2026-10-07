@@ -8,13 +8,11 @@
 
 #include "../include/anofox_stats_ffi.h"
 #include "../include/map_options_parser.hpp"
+#include "../include/ffi_enum_converters.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 #include "two_group.hpp"
 
-#ifdef _WIN32
-#define strcasecmp _stricmp
-#endif
 
 namespace duckdb {
 
@@ -224,30 +222,17 @@ static unique_ptr<FunctionData> YuenAggBind(ClientContext &context, AggregateFun
     auto bind_data = make_uniq<YuenBindData>();
 
     // Parse options if provided (3rd argument)
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        Value options_val = ExpressionExecutor::EvaluateScalar(context, *arguments[2]);
-        if (options_val.type().id() == LogicalTypeId::MAP) {
-            auto &map_children = MapValue::GetChildren(options_val);
-            for (auto &entry : map_children) {
-                auto &key_list = StructValue::GetChildren(entry);
-                if (key_list.size() >= 2) {
-                    auto key = StringValue::Get(key_list[0]).c_str();
-                    if (strcasecmp(key, "trim") == 0) {
-                        bind_data->trim = key_list[1].GetValue<double>();
-                    } else if (strcasecmp(key, "alternative") == 0) {
-                        auto alt_str = StringValue::Get(key_list[1]);
-                        if (strcasecmp(alt_str.c_str(), "less") == 0) {
-                            bind_data->alternative = ANOFOX_ALTERNATIVE_LESS;
-                        } else if (strcasecmp(alt_str.c_str(), "greater") == 0) {
-                            bind_data->alternative = ANOFOX_ALTERNATIVE_GREATER;
-                        } else {
-                            bind_data->alternative = ANOFOX_ALTERNATIVE_TWO_SIDED;
-                        }
-                    } else if (strcasecmp(key, "confidence_level") == 0) {
-                        bind_data->confidence_level = key_list[1].GetValue<double>();
-                    }
-                }
-            }
+    if (arguments.size() >= 3) {
+        Value options_val = EvaluateConstantOptions(context, *arguments[2], "yuen_agg");
+        auto opts = YuenMapOptions::ParseFromValue(options_val, "yuen_agg");
+        if (opts.trim.has_value()) {
+            bind_data->trim = opts.trim.value();
+        }
+        if (opts.alternative.has_value()) {
+            bind_data->alternative = ConvertAlternative(opts.alternative.value());
+        }
+        if (opts.confidence_level.has_value()) {
+            bind_data->confidence_level = opts.confidence_level.value();
         }
     }
 

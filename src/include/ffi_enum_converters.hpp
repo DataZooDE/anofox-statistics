@@ -55,4 +55,39 @@ inline AnofoxLambdaScaling ConvertLambdaScaling(LambdaScaling scaling) {
     }
 }
 
+/**
+ * Convert C++ Alternative enum to FFI AnofoxAlternative.
+ */
+inline AnofoxAlternative ConvertAlternative(Alternative alt) {
+    switch (alt) {
+    case Alternative::LESS:
+        return ANOFOX_ALTERNATIVE_LESS;
+    case Alternative::GREATER:
+        return ANOFOX_ALTERNATIVE_GREATER;
+    case Alternative::TWO_SIDED:
+    default:
+        return ANOFOX_ALTERNATIVE_TWO_SIDED;
+    }
+}
+
+/**
+ * Canonical name of an alternative hypothesis, as reported in the `alternative`
+ * field of hypothesis-test results: 'two_sided', 'less' or 'greater'.
+ */
+inline const char *AlternativeName(AnofoxAlternative alt) {
+    switch (alt) {
+    case ANOFOX_ALTERNATIVE_LESS:
+        return "less";
+    case ANOFOX_ALTERNATIVE_GREATER:
+        return "greater";
+    case ANOFOX_ALTERNATIVE_TWO_SIDED:
+    default:
+        return "two_sided";
+    }
+}
+
+inline const char *AlternativeName(Alternative alt) {
+    return AlternativeName(ConvertAlternative(alt));
+}
+
 } // namespace duckdb

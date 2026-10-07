@@ -377,7 +377,9 @@ static void RansacAggFinalize(Vector &state_vector, AggregateInputData &aggr_inp
 
 // Shared option extraction used by both aggregate Bind and the table function.
 static void ExtractRansacOptions(ClientContext &context, Expression &opts_expr, RansacAggregateBindData &result) {
-    auto opts = RegressionMapOptions::ParseFromExpression(context, opts_expr);
+    auto opts = RegressionMapOptions::ParseFromExpression(
+            context, opts_expr, "ransac_fit_agg",
+            {"fit_intercept", "compute_inference", "confidence_level", "residual_threshold", "max_trials", "stop_probability", "stop_n_inliers", "min_samples", "random_state"});
     if (opts.fit_intercept.has_value()) {
         result.fit_intercept = opts.fit_intercept.value();
     }
@@ -414,7 +416,7 @@ static unique_ptr<FunctionData> RansacAggBind(ClientContext &context, AggregateF
                                               vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<RansacAggregateBindData>();
 
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
+    if (arguments.size() >= 3) {
         ExtractRansacOptions(context, *arguments[2], *result);
     }
 

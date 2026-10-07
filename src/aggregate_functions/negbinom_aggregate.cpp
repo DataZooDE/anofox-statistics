@@ -352,8 +352,10 @@ static unique_ptr<FunctionData> NegBinomAggBind(ClientContext &context, Aggregat
                                                 vector<unique_ptr<Expression>> &arguments) {
 	auto result = make_uniq<NegBinomAggregateBindData>();
 
-	if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-		auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[2]);
+	if (arguments.size() >= 3) {
+		auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[2], "negbinom_fit_agg",
+            {"fit_intercept", "compute_inference", "confidence_level", "max_iterations", "tolerance", "offset", "theta", "glm_lambda", "feature_names", "prior", "vcov"});
 		result->prior_opts.LoadFrom(opts);
 		if (opts.fit_intercept.has_value()) {
 			result->fit_intercept = opts.fit_intercept.value();

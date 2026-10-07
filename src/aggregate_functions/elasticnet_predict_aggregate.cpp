@@ -404,10 +404,12 @@ static unique_ptr<FunctionData> ElasticNetPredictAggBind(ClientContext &context,
                                                           vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<ElasticNetPredictAggBindData>();
 
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[2]);
-        if (opts.alpha.has_value()) {
-            result->alpha = opts.alpha.value();
+    if (arguments.size() >= 3) {
+        auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[2], "elasticnet_fit_predict_agg",
+            {"fit_intercept", "confidence_level", "alpha", "lambda", "l1_ratio", "max_iterations", "tolerance", "null_policy", "lambda_scaling"});
+        if (opts.GetRegularizationStrength().has_value()) {
+            result->alpha = opts.GetRegularizationStrength().value(); // 'alpha' or 'lambda'
         }
         if (opts.l1_ratio.has_value()) {
             result->l1_ratio = opts.l1_ratio.value();
@@ -442,10 +444,12 @@ static unique_ptr<FunctionData> ElasticNetPredictAggBindWithSplit(ClientContext 
     auto result = make_uniq<ElasticNetPredictAggBindData>();
     result->use_split_col = true;
 
-    if (arguments.size() >= 4 && arguments[3]->IsFoldable()) {
-        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[3]);
-        if (opts.alpha.has_value()) {
-            result->alpha = opts.alpha.value();
+    if (arguments.size() >= 4) {
+        auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[3], "elasticnet_fit_predict_agg",
+            {"fit_intercept", "confidence_level", "alpha", "lambda", "l1_ratio", "max_iterations", "tolerance", "null_policy", "lambda_scaling"});
+        if (opts.GetRegularizationStrength().has_value()) {
+            result->alpha = opts.GetRegularizationStrength().value(); // 'alpha' or 'lambda'
         }
         if (opts.l1_ratio.has_value()) {
             result->l1_ratio = opts.l1_ratio.value();

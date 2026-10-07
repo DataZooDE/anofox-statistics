@@ -58,8 +58,10 @@ static unique_ptr<FunctionData> RlsFitBind(ClientContext &context, ScalarFunctio
     auto result = make_uniq<RlsFitBindData>();
 
     // Parse MAP options if provided as 3rd argument
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[2]);
+    if (arguments.size() >= 3) {
+        auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[2], "rls_fit",
+            {"fit_intercept", "forgetting_factor", "initial_p_diagonal"});
         if (opts.fit_intercept.has_value()) {
             result->fit_intercept = opts.fit_intercept.value();
         }

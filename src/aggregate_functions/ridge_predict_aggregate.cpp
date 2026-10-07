@@ -399,10 +399,12 @@ static unique_ptr<FunctionData> RidgePredictAggBind(ClientContext &context, Aggr
                                                      vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<RidgePredictAggBindData>();
 
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[2]);
-        if (opts.alpha.has_value()) {
-            result->alpha = opts.alpha.value();
+    if (arguments.size() >= 3) {
+        auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[2], "ridge_fit_predict_agg",
+            {"fit_intercept", "confidence_level", "alpha", "lambda", "null_policy", "solver", "lambda_scaling"});
+        if (opts.GetRegularizationStrength().has_value()) {
+            result->alpha = opts.GetRegularizationStrength().value(); // 'alpha' or 'lambda'
         }
         if (opts.fit_intercept.has_value()) {
             result->fit_intercept = opts.fit_intercept.value();
@@ -433,10 +435,12 @@ static unique_ptr<FunctionData> RidgePredictAggBindWithSplit(ClientContext &cont
     result->use_split_col = true;
 
     // Parse MAP options if provided as 4th argument
-    if (arguments.size() >= 4 && arguments[3]->IsFoldable()) {
-        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[3]);
-        if (opts.alpha.has_value()) {
-            result->alpha = opts.alpha.value();
+    if (arguments.size() >= 4) {
+        auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[3], "ridge_fit_predict_agg",
+            {"fit_intercept", "confidence_level", "alpha", "lambda", "null_policy", "solver", "lambda_scaling"});
+        if (opts.GetRegularizationStrength().has_value()) {
+            result->alpha = opts.GetRegularizationStrength().value(); // 'alpha' or 'lambda'
         }
         if (opts.fit_intercept.has_value()) {
             result->fit_intercept = opts.fit_intercept.value();

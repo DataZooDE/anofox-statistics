@@ -301,8 +301,10 @@ static unique_ptr<FunctionData> ElasticNetFitPredictBind(ClientContext &context,
                                                           vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<ElasticNetFitPredictBindData>();
 
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[2]);
+    if (arguments.size() >= 3) {
+        auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[2], "elasticnet_fit_predict",
+            {"fit_intercept", "confidence_level", "alpha", "lambda", "l1_ratio", "max_iterations", "tolerance", "null_policy", "lambda_scaling"});
         if (opts.fit_intercept.has_value())
             result->fit_intercept = opts.fit_intercept.value();
         if (opts.confidence_level.has_value())

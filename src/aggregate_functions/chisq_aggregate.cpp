@@ -202,9 +202,9 @@ static unique_ptr<FunctionData> ChiSquareAggBind(ClientContext &context, Aggrega
     function.return_type = GetChiSquareAggResultType();
     auto bind_data = make_uniq<ChiSquareBindData>();
 
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        Value options_val = ExpressionExecutor::EvaluateScalar(context, *arguments[2]);
-        bind_data->options = ChiSquareMapOptions::ParseFromValue(options_val);
+    if (arguments.size() >= 3) {
+        Value options_val = EvaluateConstantOptions(context, *arguments[2], "chisq_test_agg");
+        bind_data->options = ChiSquareMapOptions::ParseFromValue(options_val, "chisq_test_agg");
     }
 
     PostHogTelemetry::Instance().RecordFunctionCall("chisq_test_agg");

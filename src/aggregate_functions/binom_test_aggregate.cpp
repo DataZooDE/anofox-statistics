@@ -8,11 +8,9 @@
 
 #include "../include/anofox_stats_ffi.h"
 #include "../include/map_options_parser.hpp"
+#include "../include/ffi_enum_converters.hpp"
 #include "telemetry.hpp"
 
-#ifdef _WIN32
-#define strcasecmp _stricmp
-#endif
 
 namespace duckdb {
 
@@ -196,28 +194,14 @@ static unique_ptr<FunctionData> BinomTestAggBind(ClientContext &context, Aggrega
     function.return_type = GetBinomTestAggResultType();
     auto bind_data = make_uniq<BinomTestBindData>();
 
-    if (arguments.size() >= 2 && arguments[1]->IsFoldable()) {
-        Value options_val = ExpressionExecutor::EvaluateScalar(context, *arguments[1]);
-        if (options_val.type().id() == LogicalTypeId::MAP) {
-            auto &map_children = MapValue::GetChildren(options_val);
-            for (auto &entry : map_children) {
-                auto &key_list = StructValue::GetChildren(entry);
-                if (key_list.size() >= 2) {
-                    auto key = StringValue::Get(key_list[0]).c_str();
-                    if (strcasecmp(key, "p0") == 0 || strcasecmp(key, "p") == 0) {
-                        bind_data->p0 = key_list[1].GetValue<double>();
-                    } else if (strcasecmp(key, "alternative") == 0) {
-                        auto alt_str = StringValue::Get(key_list[1]);
-                        if (strcasecmp(alt_str.c_str(), "less") == 0) {
-                            bind_data->alternative = ANOFOX_ALTERNATIVE_LESS;
-                        } else if (strcasecmp(alt_str.c_str(), "greater") == 0) {
-                            bind_data->alternative = ANOFOX_ALTERNATIVE_GREATER;
-                        } else {
-                            bind_data->alternative = ANOFOX_ALTERNATIVE_TWO_SIDED;
-                        }
-                    }
-                }
-            }
+    if (arguments.size() >= 2) {
+        Value options_val = EvaluateConstantOptions(context, *arguments[1], "binom_test_agg");
+        auto opts = ProportionMapOptions::ParseFromValue(options_val, "binom_test_agg");
+        if (opts.p0.has_value()) {
+            bind_data->p0 = opts.p0.value();
+        }
+        if (opts.alternative.has_value()) {
+            bind_data->alternative = ConvertAlternative(opts.alternative.value());
         }
     }
 

@@ -311,8 +311,10 @@ static unique_ptr<FunctionData> RlsAggBind(ClientContext &context, AggregateFunc
     auto result = make_uniq<RlsAggregateBindData>();
 
     // Parse MAP options if provided as 3rd argument
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[2]);
+    if (arguments.size() >= 3) {
+        auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[2], "rls_fit_agg",
+            {"fit_intercept", "forgetting_factor", "initial_p_diagonal"});
         if (opts.fit_intercept.has_value()) {
             result->fit_intercept = opts.fit_intercept.value();
         }

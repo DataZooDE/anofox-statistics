@@ -8,13 +8,12 @@
 
 #include "../include/anofox_stats_ffi.h"
 #include "../include/map_options_parser.hpp"
+#include "../include/ffi_enum_converters.hpp"
+#include "../include/result_fields.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 #include "two_group.hpp"
 
-#ifdef _WIN32
-#define strcasecmp _stricmp
-#endif
 
 namespace duckdb {
 
@@ -54,19 +53,25 @@ static LogicalType GetPermutationTTestAggResultType() {
 struct PermutationTTestBindData : public FunctionData {
     AnofoxAlternative alternative;
     size_t n_permutations;
+    uint64_t seed;
+    bool has_seed;
 
-    PermutationTTestBindData() : alternative(ANOFOX_ALTERNATIVE_TWO_SIDED), n_permutations(10000) {}
+    PermutationTTestBindData()
+        : alternative(ANOFOX_ALTERNATIVE_TWO_SIDED), n_permutations(10000), seed(0), has_seed(false) {}
 
     unique_ptr<FunctionData> Copy() const override {
         auto copy = make_uniq<PermutationTTestBindData>();
         copy->alternative = alternative;
         copy->n_permutations = n_permutations;
+        copy->seed = seed;
+        copy->has_seed = has_seed;
         return copy;
     }
 
     bool Equals(const FunctionData &other_p) const override {
         auto &other = other_p.Cast<PermutationTTestBindData>();
-        return alternative == other.alternative && n_permutations == other.n_permutations;
+        return alternative == other.alternative && n_permutations == other.n_permutations && seed == other.seed &&
+               has_seed == other.has_seed;
     }
 };
 
@@ -167,6 +172,11 @@ static void PermutationTTestAggFinalize(Vector &state_vector, AggregateInputData
             continue;
         }
 
+        if (bind_data.has_seed) {
+            // Make the seeded result independent of the row order threads delivered.
+            state.samples.SortValues();
+        }
+
         AnofoxDataArray group1_array;
         group1_array.data = state.samples.Group1().data();
         group1_array.validity = nullptr;
@@ -182,7 +192,7 @@ static void PermutationTTestAggFinalize(Vector &state_vector, AggregateInputData
 
         bool success = anofox_permutation_t_test(group1_array, group2_array,
                                                   bind_data.alternative, bind_data.n_permutations,
-                                                  0, false,  // No seed
+                                                  bind_data.seed, bind_data.has_seed,
                                                   &test_result, &error);
 
         if (!success) {
@@ -212,26 +222,18 @@ static unique_ptr<FunctionData> PermutationTTestAggBind(ClientContext &context, 
     function.return_type = GetPermutationTTestAggResultType();
     auto bind_data = make_uniq<PermutationTTestBindData>();
 
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        Value options_val = ExpressionExecutor::EvaluateScalar(context, *arguments[2]);
-        if (options_val.type().id() == LogicalTypeId::MAP) {
-            auto &map_children = MapValue::GetChildren(options_val);
-            for (auto &entry : map_children) {
-                auto &key_list = StructValue::GetChildren(entry);
-                if (key_list.size() >= 2) {
-                    auto key = StringValue::Get(key_list[0]).c_str();
-                    if (strcasecmp(key, "alternative") == 0) {
-                        auto alt_str = StringValue::Get(key_list[1]);
-                        if (strcasecmp(alt_str.c_str(), "less") == 0) {
-                            bind_data->alternative = ANOFOX_ALTERNATIVE_LESS;
-                        } else if (strcasecmp(alt_str.c_str(), "greater") == 0) {
-                            bind_data->alternative = ANOFOX_ALTERNATIVE_GREATER;
-                        }
-                    } else if (strcasecmp(key, "n_permutations") == 0 || strcasecmp(key, "permutations") == 0) {
-                        bind_data->n_permutations = static_cast<size_t>(key_list[1].GetValue<int64_t>());
-                    }
-                }
-            }
+    if (arguments.size() >= 3) {
+        Value options_val = EvaluateConstantOptions(context, *arguments[2], "permutation_t_test_agg");
+        auto opts = PermutationMapOptions::ParseFromValue(options_val, "permutation_t_test_agg");
+        if (opts.alternative.has_value()) {
+            bind_data->alternative = ConvertAlternative(opts.alternative.value());
+        }
+        if (opts.n_permutations.has_value()) {
+            bind_data->n_permutations = opts.n_permutations.value();
+        }
+        if (opts.seed.has_value()) {
+            bind_data->seed = opts.seed.value();
+            bind_data->has_seed = true;
         }
     }
 

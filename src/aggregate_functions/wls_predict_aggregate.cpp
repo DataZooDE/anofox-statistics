@@ -407,8 +407,10 @@ static unique_ptr<FunctionData> WlsPredictAggBind(ClientContext &context, Aggreg
                                                    vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<WlsPredictAggBindData>();
 
-    if (arguments.size() >= 4 && arguments[3]->IsFoldable()) {
-        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[3]);
+    if (arguments.size() >= 4) {
+        auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[3], "wls_fit_predict_agg",
+            {"fit_intercept", "confidence_level", "null_policy", "solver", "hc_type"});
         if (opts.fit_intercept.has_value()) {
             result->fit_intercept = opts.fit_intercept.value();
         }
@@ -437,8 +439,10 @@ static unique_ptr<FunctionData> WlsPredictAggBindWithSplit(ClientContext &contex
     result->use_split_col = true;
 
     // Parse MAP options if provided as 5th argument (y, x, w, split, options)
-    if (arguments.size() >= 5 && arguments[4]->IsFoldable()) {
-        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[4]);
+    if (arguments.size() >= 5) {
+        auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[4], "wls_fit_predict_agg",
+            {"fit_intercept", "confidence_level", "null_policy", "solver", "hc_type"});
         if (opts.fit_intercept.has_value()) {
             result->fit_intercept = opts.fit_intercept.value();
         }

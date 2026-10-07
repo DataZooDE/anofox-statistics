@@ -74,8 +74,10 @@ static unique_ptr<FunctionData> WlsFitBind(ClientContext &context, ScalarFunctio
     auto result = make_uniq<WlsFitBindData>();
 
     // Parse MAP options if provided as 4th argument (after y, x, weights)
-    if (arguments.size() >= 4 && arguments[3]->IsFoldable()) {
-        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[3]);
+    if (arguments.size() >= 4) {
+        auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[3], "wls_fit",
+            {"fit_intercept", "compute_inference", "confidence_level", "solver", "hc_type"});
         if (opts.fit_intercept.has_value()) {
             result->fit_intercept = opts.fit_intercept.value();
         }

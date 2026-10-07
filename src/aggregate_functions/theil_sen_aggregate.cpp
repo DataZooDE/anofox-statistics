@@ -342,7 +342,9 @@ static void TheilSenAggFinalize(Vector &state_vector, AggregateInputData &aggr_i
 
 static void ExtractTheilSenOptions(ClientContext &context, Expression &opts_expr,
                                    TheilSenAggregateBindData &result) {
-    auto opts = RegressionMapOptions::ParseFromExpression(context, opts_expr);
+    auto opts = RegressionMapOptions::ParseFromExpression(
+            context, opts_expr, "theil_sen_fit_agg",
+            {"fit_intercept", "compute_inference", "confidence_level", "max_iterations", "tolerance", "random_state", "max_subpopulation", "n_subsamples"});
     if (opts.fit_intercept.has_value()) {
         result.fit_intercept = opts.fit_intercept.value();
     }
@@ -374,7 +376,7 @@ static unique_ptr<FunctionData> TheilSenAggBind(ClientContext &context, Aggregat
                                                 vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<TheilSenAggregateBindData>();
 
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
+    if (arguments.size() >= 3) {
         ExtractTheilSenOptions(context, *arguments[2], *result);
     }
 

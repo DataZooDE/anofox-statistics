@@ -8,12 +8,10 @@
 
 #include "../include/anofox_stats_ffi.h"
 #include "../include/map_options_parser.hpp"
+#include "../include/ffi_enum_converters.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 
-#ifdef _WIN32
-#define strcasecmp _stricmp
-#endif
 
 namespace duckdb {
 
@@ -228,19 +226,11 @@ static unique_ptr<FunctionData> ClarkWestAggBind(ClientContext &context, Aggrega
     function.return_type = GetClarkWestAggResultType();
     auto bind_data = make_uniq<ClarkWestBindData>();
 
-    if (arguments.size() >= 4 && arguments[3]->IsFoldable()) {
-        Value options_val = ExpressionExecutor::EvaluateScalar(context, *arguments[3]);
-        if (options_val.type().id() == LogicalTypeId::MAP) {
-            auto &map_children = MapValue::GetChildren(options_val);
-            for (auto &entry : map_children) {
-                auto &key_list = StructValue::GetChildren(entry);
-                if (key_list.size() >= 2) {
-                    auto key = StringValue::Get(key_list[0]).c_str();
-                    if (strcasecmp(key, "horizon") == 0) {
-                        bind_data->horizon = static_cast<size_t>(key_list[1].GetValue<int64_t>());
-                    }
-                }
-            }
+    if (arguments.size() >= 4) {
+        Value options_val = EvaluateConstantOptions(context, *arguments[3], "clark_west_agg");
+        auto opts = ClarkWestMapOptions::ParseFromValue(options_val, "clark_west_agg");
+        if (opts.horizon.has_value()) {
+            bind_data->horizon = opts.horizon.value();
         }
     }
 

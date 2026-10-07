@@ -360,8 +360,10 @@ static unique_ptr<FunctionData> IsotonicPredictAggBind(ClientContext &context, A
                                                         vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<IsotonicPredictAggBindData>();
 
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[2]);
+    if (arguments.size() >= 3) {
+        auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[2], "isotonic_fit_predict_agg",
+            {"increasing"});
         if (opts.increasing.has_value()) {
             result->increasing = opts.increasing.value();
         }
@@ -379,8 +381,10 @@ static unique_ptr<FunctionData> IsotonicPredictAggBindWithSplit(ClientContext &c
     result->use_split_col = true;
 
     // Parse MAP options if provided as 4th argument (y, x, split, options)
-    if (arguments.size() >= 4 && arguments[3]->IsFoldable()) {
-        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[3]);
+    if (arguments.size() >= 4) {
+        auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[3], "isotonic_fit_predict_agg",
+            {"increasing"});
         if (opts.increasing.has_value()) {
             result->increasing = opts.increasing.value();
         }

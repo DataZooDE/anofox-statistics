@@ -92,8 +92,10 @@ static unique_ptr<FunctionData> RansacFitBind(ClientContext &context, ScalarFunc
                                               vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<RansacFitBindData>();
 
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[2]);
+    if (arguments.size() >= 3) {
+        auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[2], "ransac_fit",
+            {"fit_intercept", "compute_inference", "confidence_level", "residual_threshold", "max_trials", "stop_probability", "stop_n_inliers", "min_samples", "random_state"});
         if (opts.fit_intercept.has_value()) {
             result->fit_intercept = opts.fit_intercept.value();
         }

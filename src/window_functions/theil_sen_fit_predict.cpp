@@ -328,8 +328,10 @@ static unique_ptr<FunctionData> TheilSenFitPredictBind(ClientContext &context, A
                                                        vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<TheilSenFitPredictBindData>();
 
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[2]);
+    if (arguments.size() >= 3) {
+        auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[2], "theil_sen_fit_predict",
+            {"fit_intercept", "confidence_level", "max_iterations", "tolerance", "random_state", "max_subpopulation", "n_subsamples", "null_policy"});
         if (opts.fit_intercept.has_value()) {
             result->fit_intercept = opts.fit_intercept.value();
         }

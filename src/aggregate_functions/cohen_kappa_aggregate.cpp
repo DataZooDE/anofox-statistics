@@ -9,12 +9,10 @@
 
 #include "../include/anofox_stats_ffi.h"
 #include "../include/map_options_parser.hpp"
+#include "../include/ffi_enum_converters.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 
-#ifdef _WIN32
-#define strcasecmp _stricmp
-#endif
 
 namespace duckdb {
 
@@ -226,19 +224,11 @@ static unique_ptr<FunctionData> CohenKappaAggBind(ClientContext &context, Aggreg
     function.return_type = GetCohenKappaAggResultType();
     auto bind_data = make_uniq<CohenKappaBindData>();
 
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        Value options_val = ExpressionExecutor::EvaluateScalar(context, *arguments[2]);
-        if (options_val.type().id() == LogicalTypeId::MAP) {
-            auto &map_children = MapValue::GetChildren(options_val);
-            for (auto &entry : map_children) {
-                auto &key_list = StructValue::GetChildren(entry);
-                if (key_list.size() >= 2) {
-                    auto key = StringValue::Get(key_list[0]).c_str();
-                    if (strcasecmp(key, "weighted") == 0) {
-                        bind_data->weighted = key_list[1].GetValue<bool>();
-                    }
-                }
-            }
+    if (arguments.size() >= 3) {
+        Value options_val = EvaluateConstantOptions(context, *arguments[2], "cohen_kappa_agg");
+        auto opts = CohenKappaMapOptions::ParseFromValue(options_val, "cohen_kappa_agg");
+        if (opts.weighted.has_value()) {
+            bind_data->weighted = opts.weighted.value();
         }
     }
 

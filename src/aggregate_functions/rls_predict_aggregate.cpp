@@ -383,8 +383,10 @@ static unique_ptr<FunctionData> RlsPredictAggBind(ClientContext &context, Aggreg
                                                    vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<RlsPredictAggBindData>();
 
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[2]);
+    if (arguments.size() >= 3) {
+        auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[2], "rls_fit_predict_agg",
+            {"fit_intercept", "confidence_level", "forgetting_factor", "initial_p_diagonal", "null_policy"});
         if (opts.forgetting_factor.has_value()) {
             result->forgetting_factor = opts.forgetting_factor.value();
         }
@@ -412,8 +414,10 @@ static unique_ptr<FunctionData> RlsPredictAggBindWithSplit(ClientContext &contex
     auto result = make_uniq<RlsPredictAggBindData>();
     result->use_split_col = true;
 
-    if (arguments.size() >= 4 && arguments[3]->IsFoldable()) {
-        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[3]);
+    if (arguments.size() >= 4) {
+        auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[3], "rls_fit_predict_agg",
+            {"fit_intercept", "confidence_level", "forgetting_factor", "initial_p_diagonal", "null_policy"});
         if (opts.forgetting_factor.has_value()) {
             result->forgetting_factor = opts.forgetting_factor.value();
         }

@@ -9,12 +9,10 @@
 
 #include "../include/anofox_stats_ffi.h"
 #include "../include/map_options_parser.hpp"
+#include "../include/ffi_enum_converters.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 
-#ifdef _WIN32
-#define strcasecmp _stricmp
-#endif
 
 namespace duckdb {
 
@@ -259,24 +257,11 @@ static unique_ptr<FunctionData> IccAggBind(ClientContext &context, AggregateFunc
     function.return_type = GetIccAggResultType();
     auto bind_data = make_uniq<IccBindData>();
 
-    if (arguments.size() >= 4 && arguments[3]->IsFoldable()) {
-        Value options_val = ExpressionExecutor::EvaluateScalar(context, *arguments[3]);
-        if (options_val.type().id() == LogicalTypeId::MAP) {
-            auto &map_children = MapValue::GetChildren(options_val);
-            for (auto &entry : map_children) {
-                auto &key_list = StructValue::GetChildren(entry);
-                if (key_list.size() >= 2) {
-                    auto key = StringValue::Get(key_list[0]).c_str();
-                    if (strcasecmp(key, "type") == 0) {
-                        auto type_str = StringValue::Get(key_list[1]);
-                        if (strcasecmp(type_str.c_str(), "average") == 0) {
-                            bind_data->icc_type = ANOFOX_ICC_AVERAGE;
-                        } else {
-                            bind_data->icc_type = ANOFOX_ICC_SINGLE;
-                        }
-                    }
-                }
-            }
+    if (arguments.size() >= 4) {
+        Value options_val = EvaluateConstantOptions(context, *arguments[3], "icc_agg");
+        auto opts = IccMapOptions::ParseFromValue(options_val, "icc_agg");
+        if (opts.average.has_value()) {
+            bind_data->icc_type = opts.average.value() ? ANOFOX_ICC_AVERAGE : ANOFOX_ICC_SINGLE;
         }
     }
 

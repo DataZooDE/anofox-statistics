@@ -8,11 +8,9 @@
 
 #include "../include/anofox_stats_ffi.h"
 #include "../include/map_options_parser.hpp"
+#include "../include/ffi_enum_converters.hpp"
 #include "telemetry.hpp"
 
-#ifdef _WIN32
-#define strcasecmp _stricmp
-#endif
 
 namespace duckdb {
 
@@ -215,28 +213,14 @@ static unique_ptr<FunctionData> PropTestTwoAggBind(ClientContext &context, Aggre
     function.return_type = GetPropTestTwoAggResultType();
     auto bind_data = make_uniq<PropTestTwoBindData>();
 
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        Value options_val = ExpressionExecutor::EvaluateScalar(context, *arguments[2]);
-        if (options_val.type().id() == LogicalTypeId::MAP) {
-            auto &map_children = MapValue::GetChildren(options_val);
-            for (auto &entry : map_children) {
-                auto &key_list = StructValue::GetChildren(entry);
-                if (key_list.size() >= 2) {
-                    auto key = StringValue::Get(key_list[0]).c_str();
-                    if (strcasecmp(key, "alternative") == 0) {
-                        auto alt_str = StringValue::Get(key_list[1]);
-                        if (strcasecmp(alt_str.c_str(), "less") == 0) {
-                            bind_data->alternative = ANOFOX_ALTERNATIVE_LESS;
-                        } else if (strcasecmp(alt_str.c_str(), "greater") == 0) {
-                            bind_data->alternative = ANOFOX_ALTERNATIVE_GREATER;
-                        } else {
-                            bind_data->alternative = ANOFOX_ALTERNATIVE_TWO_SIDED;
-                        }
-                    } else if (strcasecmp(key, "correction") == 0) {
-                        bind_data->correction = key_list[1].GetValue<bool>();
-                    }
-                }
-            }
+    if (arguments.size() >= 3) {
+        Value options_val = EvaluateConstantOptions(context, *arguments[2], "prop_test_two_agg");
+        auto opts = PropTestTwoMapOptions::ParseFromValue(options_val, "prop_test_two_agg");
+        if (opts.alternative.has_value()) {
+            bind_data->alternative = ConvertAlternative(opts.alternative.value());
+        }
+        if (opts.correction.has_value()) {
+            bind_data->correction = opts.correction.value();
         }
     }
 

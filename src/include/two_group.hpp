@@ -4,6 +4,7 @@
 #include "duckdb/function/aggregate_state.hpp"
 #include "aggregate_combine.hpp"
 
+#include <algorithm>
 #include <string>
 #include <utility>
 #include <vector>
@@ -75,6 +76,14 @@ struct TwoGroupSamples {
 				target_values.insert(target_values.end(), source.values[k].begin(), source.values[k].end());
 			}
 		}
+	}
+
+	//! Sort both samples. Seeded resampling tests call this before handing the
+	//! samples to the core, so the result does not depend on the order in which
+	//! parallel threads delivered the rows.
+	void SortValues() {
+		std::sort(values[0].begin(), values[0].end());
+		std::sort(values[1].begin(), values[1].end());
 	}
 
 	//! Sample with the smaller label (empty when fewer than two labels were seen).

@@ -354,8 +354,10 @@ static unique_ptr<FunctionData> BlsAggBind(ClientContext &context, AggregateFunc
                                            vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<BlsAggregateBindData>();
 
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[2]);
+    if (arguments.size() >= 3) {
+        auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[2], "bls_fit_agg",
+            {"fit_intercept", "max_iterations", "tolerance", "lower_bound", "upper_bound"});
         if (opts.fit_intercept.has_value()) {
             result->fit_intercept = opts.fit_intercept.value();
         }
@@ -393,8 +395,10 @@ static unique_ptr<FunctionData> NnlsAggBind(ClientContext &context, AggregateFun
     result->has_lower_bound = false;
     result->has_upper_bound = false;
 
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[2]);
+    if (arguments.size() >= 3) {
+        auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[2], "nnls_fit_agg",
+            {"fit_intercept", "max_iterations", "tolerance"});
         if (opts.fit_intercept.has_value()) {
             result->fit_intercept = opts.fit_intercept.value();
         }

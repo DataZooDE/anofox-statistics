@@ -237,6 +237,15 @@ struct RegressionMapOptions {
 	std::optional<Value> prior_value;
 	std::optional<VcovTypeOpt> vcov;
 
+	// LARS specific
+	std::optional<bool> lars_lasso;           // 'method': 'lar' (false) | 'lasso' (true)
+	std::optional<int64_t> n_nonzero_coefs;  // Cap on non-zero coefficients
+	std::optional<bool> standardize;         // Standardize features before fitting
+
+	/// Raw value of the context-dependent `link` key; resolved to poisson_link or
+	/// binomial_link by ParseFromValue according to the function's supported keys.
+	std::optional<Value> link_value;
+
 	/// Resolve `prior_value` against `feature_names` into a positional vector of
 	/// length `n_features` (+1 in front when an intercept is fitted).
 	///
@@ -250,16 +259,33 @@ struct RegressionMapOptions {
 	}
 
 	/**
-	 * Parse options from a DuckDB MAP Value.
-	 * Supports both integer (0/1) and boolean values for boolean options.
-	 * Keys are case-insensitive.
+	 * Parse options from a DuckDB MAP or STRUCT Value.
+	 *
+	 * `function_name` is used in error messages. `supported_keys` lists the
+	 * canonical option keys (see the key table in map_options_parser.cpp) that the
+	 * calling function actually reads; every other key -- a typo or a valid key
+	 * that this function would silently ignore -- raises InvalidInputException
+	 * naming the function and listing its supported keys.
+	 *
+	 * The supported set also resolves the context-dependent aliases:
+	 *   - `link`            -> `poisson_link` or `binomial_link`, whichever is supported
+	 *   - `alpha`, `lambda` -> `glm_lambda` when the function supports `glm_lambda`
+	 *                          but not the key itself (GLMs)
+	 *   - `lambda`          -> `forgetting_factor` (RLS, where lambda is the
+	 *                          conventional symbol of the forgetting factor)
+	 *   - `tau`             -> `quantile` (ALM); `quantile` -> `tau` (quantile regression)
+	 *
+	 * Boolean options accept BOOLEAN or numeric values. Keys are case-insensitive.
 	 */
-	static RegressionMapOptions ParseFromValue(const Value &map_value);
+	static RegressionMapOptions ParseFromValue(const Value &map_value, const string &function_name,
+	                                           const vector<string> &supported_keys);
 
 	/**
-	 * Parse options from an Expression (evaluates constant expression first).
+	 * Parse options from an Expression. The expression must be foldable (a
+	 * constant); otherwise "options must be a constant" is raised.
 	 */
-	static RegressionMapOptions ParseFromExpression(ClientContext &context, Expression &expr);
+	static RegressionMapOptions ParseFromExpression(ClientContext &context, Expression &expr,
+	                                                const string &function_name, const vector<string> &supported_keys);
 
 	// Helper to get alpha/lambda (returns alpha if set, otherwise lambda)
 	std::optional<double> GetRegularizationStrength() const {
@@ -273,6 +299,32 @@ struct RegressionMapOptions {
 // ============================================================================
 // Statistical Test Option Structs
 // ============================================================================
+//
+// Every ParseFromValue below accepts both MAP {...} and STRUCT {'k': v} literals
+// (DuckDB yields either), rejects unknown keys with an error naming
+// `function_name` and listing the supported keys, rejects invalid enum values,
+// and validates confidence_level to lie strictly inside (0, 1).
+
+/**
+ * Evaluate an options argument at bind time. Throws "options must be a constant"
+ * when the expression is not foldable instead of silently ignoring it.
+ */
+Value EvaluateConstantOptions(ClientContext &context, Expression &expr, const string &function_name);
+
+/**
+ * Resolve the significance level of a TOST procedure from the user's `alpha`
+ * and/or `confidence_level`.
+ *
+ * Mapping (matches tost_t_test_agg's long-standing semantics):
+ *     alpha = 1 - confidence_level
+ * i.e. `confidence_level` is the confidence of each one-sided test, NOT of the
+ * reported interval. A TOST at level alpha corresponds to a (1 - 2*alpha)
+ * two-sided confidence interval, so {'confidence_level': 0.95} and
+ * {'alpha': 0.05} are the same request and both yield a 90% CI.
+ * Supplying both with inconsistent values is an error.
+ */
+double ResolveTostAlpha(const string &function_name, const std::optional<double> &alpha,
+                        const std::optional<double> &confidence_level, double default_alpha = 0.05);
 
 /**
  * Options for t-test
@@ -282,9 +334,9 @@ struct TTestMapOptions {
 	std::optional<double> confidence_level;
 	std::optional<TTestKind> kind; // Student (var_equal=true) vs Welch (default)
 	std::optional<bool> paired;
-	std::optional<double> mu; // Population mean for one-sample test
+	std::optional<double> mu; // Hypothesized mean difference
 
-	static TTestMapOptions ParseFromValue(const Value &map_value);
+	static TTestMapOptions ParseFromValue(const Value &map_value, const string &function_name);
 };
 
 /**
@@ -294,8 +346,10 @@ struct MannWhitneyMapOptions {
 	std::optional<Alternative> alternative;
 	std::optional<double> confidence_level;
 	std::optional<bool> continuity_correction;
+	std::optional<bool> exact; // Exact null distribution (default false: normal approximation)
+	std::optional<double> mu;  // Hypothesized location shift
 
-	static MannWhitneyMapOptions ParseFromValue(const Value &map_value);
+	static MannWhitneyMapOptions ParseFromValue(const Value &map_value, const string &function_name);
 };
 
 /**
@@ -306,7 +360,7 @@ struct WilcoxonMapOptions {
 	std::optional<double> confidence_level;
 	std::optional<bool> continuity_correction;
 
-	static WilcoxonMapOptions ParseFromValue(const Value &map_value);
+	static WilcoxonMapOptions ParseFromValue(const Value &map_value, const string &function_name);
 };
 
 /**
@@ -316,7 +370,7 @@ struct BrunnerMunzelMapOptions {
 	std::optional<Alternative> alternative;
 	std::optional<double> confidence_level;
 
-	static BrunnerMunzelMapOptions ParseFromValue(const Value &map_value);
+	static BrunnerMunzelMapOptions ParseFromValue(const Value &map_value, const string &function_name);
 };
 
 /**
@@ -325,7 +379,7 @@ struct BrunnerMunzelMapOptions {
 struct CorrelationMapOptions {
 	std::optional<double> confidence_level;
 
-	static CorrelationMapOptions ParseFromValue(const Value &map_value);
+	static CorrelationMapOptions ParseFromValue(const Value &map_value, const string &function_name);
 };
 
 /**
@@ -335,7 +389,7 @@ struct KendallMapOptions {
 	std::optional<double> confidence_level;
 	std::optional<KendallType> variant;
 
-	static KendallMapOptions ParseFromValue(const Value &map_value);
+	static KendallMapOptions ParseFromValue(const Value &map_value, const string &function_name);
 };
 
 /**
@@ -344,7 +398,7 @@ struct KendallMapOptions {
 struct ChiSquareMapOptions {
 	std::optional<bool> continuity_correction;
 
-	static ChiSquareMapOptions ParseFromValue(const Value &map_value);
+	static ChiSquareMapOptions ParseFromValue(const Value &map_value, const string &function_name);
 };
 
 /**
@@ -352,8 +406,9 @@ struct ChiSquareMapOptions {
  */
 struct FisherExactMapOptions {
 	std::optional<Alternative> alternative;
+	std::optional<double> confidence_level;
 
-	static FisherExactMapOptions ParseFromValue(const Value &map_value);
+	static FisherExactMapOptions ParseFromValue(const Value &map_value, const string &function_name);
 };
 
 /**
@@ -361,34 +416,65 @@ struct FisherExactMapOptions {
  */
 struct EnergyDistanceMapOptions {
 	std::optional<uint32_t> n_permutations;
+	std::optional<uint64_t> seed; // also accepted as random_state
 
-	static EnergyDistanceMapOptions ParseFromValue(const Value &map_value);
+	static EnergyDistanceMapOptions ParseFromValue(const Value &map_value, const string &function_name);
 };
 
 /**
  * Options for MMD test
  */
 struct MmdMapOptions {
-	std::optional<double> bandwidth;
+	std::optional<double> bandwidth; // Not supported by the core (median heuristic); the key is rejected
 	std::optional<uint32_t> n_permutations;
+	std::optional<uint64_t> seed; // also accepted as random_state
 
-	static MmdMapOptions ParseFromValue(const Value &map_value);
+	static MmdMapOptions ParseFromValue(const Value &map_value, const string &function_name);
 };
 
 /**
- * Options for TOST equivalence tests
+ * Options for the two-sample TOST t-test (tost_t_test_agg)
  */
 struct TostMapOptions {
-	std::optional<Alternative> alternative;
+	std::optional<Alternative> alternative; // unused; the key is rejected
 	std::optional<double> confidence_level;
+	std::optional<double> alpha; // = 1 - confidence_level, see ResolveTostAlpha
 	std::optional<TTestKind> kind;
-	std::optional<bool> paired;
-	std::optional<double> mu;
+	std::optional<bool> paired; // unused; the key is rejected
+	std::optional<double> mu;   // unused; the key is rejected
 	std::optional<double> delta;       // Equivalence bound (symmetric)
 	std::optional<double> bound_lower; // Asymmetric lower bound
 	std::optional<double> bound_upper; // Asymmetric upper bound
 
-	static TostMapOptions ParseFromValue(const Value &map_value);
+	static TostMapOptions ParseFromValue(const Value &map_value, const string &function_name);
+};
+
+/**
+ * Options for the paired TOST t-test (tost_paired_agg)
+ */
+struct TostPairedMapOptions {
+	std::optional<double> confidence_level;
+	std::optional<double> alpha;
+	std::optional<double> delta;
+	std::optional<double> bound_lower;
+	std::optional<double> bound_upper;
+
+	static TostPairedMapOptions ParseFromValue(const Value &map_value, const string &function_name);
+};
+
+/**
+ * Options for the TOST correlation test (tost_correlation_agg)
+ */
+struct TostCorrelationMapOptions {
+	std::optional<double> confidence_level;
+	std::optional<double> alpha;
+	std::optional<double> delta;
+	std::optional<double> bound_lower;
+	std::optional<double> bound_upper;
+	std::optional<double> rho_null;
+	std::optional<bool> spearman; // 'method': 'pearson' (false) | 'spearman' (true)
+
+	static TostCorrelationMapOptions ParseFromValue(const Value &map_value, const string &function_name);
 };
 
 /**
@@ -399,7 +485,7 @@ struct YuenMapOptions {
 	std::optional<double> confidence_level;
 	std::optional<double> trim; // Trim proportion (default 0.2)
 
-	static YuenMapOptions ParseFromValue(const Value &map_value);
+	static YuenMapOptions ParseFromValue(const Value &map_value, const string &function_name);
 };
 
 /**
@@ -408,8 +494,88 @@ struct YuenMapOptions {
 struct PermutationMapOptions {
 	std::optional<Alternative> alternative;
 	std::optional<uint32_t> n_permutations;
+	std::optional<uint64_t> seed; // also accepted as random_state
 
-	static PermutationMapOptions ParseFromValue(const Value &map_value);
+	static PermutationMapOptions ParseFromValue(const Value &map_value, const string &function_name);
+};
+
+/**
+ * Options for the distance-correlation test
+ */
+struct DistanceCorMapOptions {
+	std::optional<uint32_t> n_permutations;
+	std::optional<uint64_t> seed; // also accepted as random_state
+
+	static DistanceCorMapOptions ParseFromValue(const Value &map_value, const string &function_name);
+};
+
+/**
+ * Options for the Diebold-Mariano test
+ */
+struct DieboldMarianoMapOptions {
+	std::optional<bool> absolute_loss; // 'loss': 'squared' (false) | 'absolute' (true)
+	std::optional<bool> bartlett;      // 'var_estimator': 'acf' (false) | 'bartlett' (true)
+	std::optional<uint32_t> horizon;
+	std::optional<Alternative> alternative;
+
+	static DieboldMarianoMapOptions ParseFromValue(const Value &map_value, const string &function_name);
+};
+
+/**
+ * Options for the Clark-West test
+ */
+struct ClarkWestMapOptions {
+	std::optional<uint32_t> horizon;
+
+	static ClarkWestMapOptions ParseFromValue(const Value &map_value, const string &function_name);
+};
+
+/**
+ * Options for one-sample proportion tests (binom_test_agg, prop_test_one_agg)
+ */
+struct ProportionMapOptions {
+	std::optional<double> p0;
+	std::optional<Alternative> alternative;
+
+	static ProportionMapOptions ParseFromValue(const Value &map_value, const string &function_name);
+};
+
+/**
+ * Options for the two-sample proportion test
+ */
+struct PropTestTwoMapOptions {
+	std::optional<Alternative> alternative;
+	std::optional<bool> correction;
+
+	static PropTestTwoMapOptions ParseFromValue(const Value &map_value, const string &function_name);
+};
+
+/**
+ * Options for the intraclass correlation coefficient
+ */
+struct IccMapOptions {
+	std::optional<bool> average; // 'type': 'single' (false) | 'average' (true)
+
+	static IccMapOptions ParseFromValue(const Value &map_value, const string &function_name);
+};
+
+/**
+ * Options for McNemar's test
+ */
+struct McNemarMapOptions {
+	std::optional<bool> correction;
+	std::optional<bool> exact; // Exact binomial test on the discordant pairs
+
+	static McNemarMapOptions ParseFromValue(const Value &map_value, const string &function_name);
+};
+
+/**
+ * Options for Cohen's kappa
+ */
+struct CohenKappaMapOptions {
+	std::optional<bool> weighted;
+
+	static CohenKappaMapOptions ParseFromValue(const Value &map_value, const string &function_name);
 };
 
 } // namespace duckdb

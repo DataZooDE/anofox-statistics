@@ -8,12 +8,10 @@
 
 #include "../include/anofox_stats_ffi.h"
 #include "../include/map_options_parser.hpp"
+#include "../include/ffi_enum_converters.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 
-#ifdef _WIN32
-#define strcasecmp _stricmp
-#endif
 
 namespace duckdb {
 
@@ -231,36 +229,26 @@ static unique_ptr<FunctionData> TostCorrelationAggBind(ClientContext &context, A
     function.return_type = GetTostCorrelationAggResultType();
     auto bind_data = make_uniq<TostCorrelationBindData>();
 
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        Value options_val = ExpressionExecutor::EvaluateScalar(context, *arguments[2]);
-        if (options_val.type().id() == LogicalTypeId::MAP) {
-            auto &map_children = MapValue::GetChildren(options_val);
-            for (auto &entry : map_children) {
-                auto &key_list = StructValue::GetChildren(entry);
-                if (key_list.size() >= 2) {
-                    auto key = StringValue::Get(key_list[0]).c_str();
-                    if (strcasecmp(key, "rho_null") == 0 || strcasecmp(key, "rho") == 0) {
-                        bind_data->rho_null = key_list[1].GetValue<double>();
-                    } else if (strcasecmp(key, "bound_lower") == 0) {
-                        bind_data->bound_lower = key_list[1].GetValue<double>();
-                    } else if (strcasecmp(key, "bound_upper") == 0) {
-                        bind_data->bound_upper = key_list[1].GetValue<double>();
-                    } else if (strcasecmp(key, "delta") == 0) {
-                        double val = key_list[1].GetValue<double>();
-                        bind_data->bound_lower = -val;
-                        bind_data->bound_upper = val;
-                    } else if (strcasecmp(key, "alpha") == 0) {
-                        bind_data->alpha = key_list[1].GetValue<double>();
-                    } else if (strcasecmp(key, "method") == 0) {
-                        auto method_str = StringValue::Get(key_list[1]);
-                        if (strcasecmp(method_str.c_str(), "spearman") == 0) {
-                            bind_data->method = ANOFOX_TOST_COR_SPEARMAN;
-                        } else {
-                            bind_data->method = ANOFOX_TOST_COR_PEARSON;
-                        }
-                    }
-                }
-            }
+    if (arguments.size() >= 3) {
+        Value options_val = EvaluateConstantOptions(context, *arguments[2], "tost_correlation_agg");
+        auto opts = TostCorrelationMapOptions::ParseFromValue(options_val, "tost_correlation_agg");
+        if (opts.rho_null.has_value()) {
+            bind_data->rho_null = opts.rho_null.value();
+        }
+        if (opts.bound_lower.has_value()) {
+            bind_data->bound_lower = opts.bound_lower.value();
+        }
+        if (opts.bound_upper.has_value()) {
+            bind_data->bound_upper = opts.bound_upper.value();
+        }
+        // A symmetric delta takes precedence over explicit bounds, as in tost_t_test_agg.
+        if (opts.delta.has_value()) {
+            bind_data->bound_lower = -opts.delta.value();
+            bind_data->bound_upper = opts.delta.value();
+        }
+        bind_data->alpha = ResolveTostAlpha("tost_correlation_agg", opts.alpha, opts.confidence_level);
+        if (opts.spearman.has_value()) {
+            bind_data->method = opts.spearman.value() ? ANOFOX_TOST_COR_SPEARMAN : ANOFOX_TOST_COR_PEARSON;
         }
     }
 

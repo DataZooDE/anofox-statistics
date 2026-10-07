@@ -329,8 +329,10 @@ static unique_ptr<FunctionData> HuberFitPredictBind(ClientContext &context, Aggr
                                                      vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<HuberFitPredictBindData>();
 
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[2]);
+    if (arguments.size() >= 3) {
+        auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[2], "huber_fit_predict",
+            {"fit_intercept", "confidence_level", "alpha", "max_iterations", "tolerance", "epsilon", "null_policy"});
         if (opts.fit_intercept.has_value()) {
             result->fit_intercept = opts.fit_intercept.value();
         }

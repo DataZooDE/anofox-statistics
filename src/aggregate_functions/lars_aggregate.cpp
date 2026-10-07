@@ -297,14 +297,35 @@ static unique_ptr<FunctionData> LarsAggBind(ClientContext &context, AggregateFun
                                             vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<LarsAggregateBindData>();
 
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[2]);
+    if (arguments.size() >= 3) {
+        auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[2], "lars_fit_agg",
+            {"fit_intercept", "alpha", "lambda", "method", "n_nonzero_coefs", "standardize"});
         if (opts.fit_intercept.has_value()) {
             result->fit_intercept = opts.fit_intercept.value();
         }
         auto reg_strength = opts.GetRegularizationStrength();
         if (reg_strength.has_value()) {
             result->alpha = reg_strength.value();
+        }
+        if (opts.lars_lasso.has_value()) {
+            result->method_lasso = opts.lars_lasso.value();
+        } else if (result->alpha > 0.0) {
+            // alpha is the LassoLars early-stopping penalty; plain LAR ignores it.
+            // Before 'method' was exposed, method_lasso was always false, so a
+            // user-supplied alpha silently had no effect. Requesting a penalty
+            // therefore selects the lasso path unless a method is given.
+            result->method_lasso = true;
+        }
+        if (!result->method_lasso && result->alpha > 0.0) {
+            throw InvalidInputException("lars_fit_agg: 'alpha' only applies to method 'lasso' (plain LAR ignores "
+                                        "it); drop 'alpha' or use {'method': 'lasso'}");
+        }
+        if (opts.n_nonzero_coefs.has_value()) {
+            result->n_nonzero_coefs = opts.n_nonzero_coefs.value();
+        }
+        if (opts.standardize.has_value()) {
+            result->standardize = opts.standardize.value();
         }
     }
 

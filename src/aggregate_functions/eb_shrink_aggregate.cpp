@@ -213,8 +213,10 @@ static unique_ptr<FunctionData> EbShrinkBind(ClientContext &context, AggregateFu
                                              vector<unique_ptr<Expression>> &arguments) {
 	auto result = make_uniq<EbShrinkBindData>();
 
-	if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-		auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[2]);
+	if (arguments.size() >= 3) {
+		auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[2], "eb_shrink_agg",
+            {"tau_squared", "tau_method"});
 		if (opts.tau_squared.has_value()) {
 			result->tau_squared = opts.tau_squared.value();
 		}

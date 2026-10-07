@@ -277,8 +277,10 @@ static unique_ptr<FunctionData> RlsFitPredictBind(ClientContext &context, Aggreg
                                                    vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<RlsFitPredictBindData>();
 
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[2]);
+    if (arguments.size() >= 3) {
+        auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[2], "rls_fit_predict",
+            {"fit_intercept", "confidence_level", "forgetting_factor", "initial_p_diagonal", "null_policy"});
         if (opts.fit_intercept.has_value())
             result->fit_intercept = opts.fit_intercept.value();
         if (opts.confidence_level.has_value())

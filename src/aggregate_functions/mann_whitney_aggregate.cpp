@@ -7,6 +7,8 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/ffi_enum_converters.hpp"
+#include "../include/result_fields.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
@@ -64,7 +66,9 @@ struct MannWhitneyBindData : public FunctionData {
     bool Equals(const FunctionData &other_p) const override {
         auto &other = other_p.Cast<MannWhitneyBindData>();
         return options.alternative == other.options.alternative &&
-               options.continuity_correction == other.options.continuity_correction;
+               options.continuity_correction == other.options.continuity_correction &&
+               options.confidence_level == other.options.confidence_level && options.exact == other.options.exact &&
+               options.mu == other.options.mu;
     }
 };
 
@@ -181,10 +185,10 @@ static void MannWhitneyAggFinalize(Vector &state_vector, AggregateInputData &agg
                                   : (bind_data.options.alternative.value_or(Alternative::TWO_SIDED) == Alternative::LESS
                                          ? ANOFOX_ALTERNATIVE_LESS
                                          : ANOFOX_ALTERNATIVE_GREATER);
-        options.exact = false;
+        options.exact = bind_data.options.exact.value_or(false);
         options.continuity_correction = bind_data.options.continuity_correction.value_or(true);
         options.confidence_level = bind_data.options.confidence_level.value_or(0.95);
-        options.mu = 0.0;
+        options.mu = bind_data.options.mu.value_or(0.0);
 
         AnofoxTestResult test_result;
         AnofoxError error;
@@ -218,9 +222,9 @@ static unique_ptr<FunctionData> MannWhitneyAggBind(ClientContext &context, Aggre
     function.return_type = GetMannWhitneyAggResultType();
     auto bind_data = make_uniq<MannWhitneyBindData>();
 
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        Value options_val = ExpressionExecutor::EvaluateScalar(context, *arguments[2]);
-        bind_data->options = MannWhitneyMapOptions::ParseFromValue(options_val);
+    if (arguments.size() >= 3) {
+        Value options_val = EvaluateConstantOptions(context, *arguments[2], "mann_whitney_u_agg");
+        bind_data->options = MannWhitneyMapOptions::ParseFromValue(options_val, "mann_whitney_u_agg");
     }
 
     PostHogTelemetry::Instance().RecordFunctionCall("mann_whitney_u_agg");

@@ -7,6 +7,8 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/ffi_enum_converters.hpp"
+#include "../include/result_fields.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
@@ -229,9 +231,9 @@ static unique_ptr<FunctionData> KendallAggBind(ClientContext &context, Aggregate
     function.return_type = GetKendallAggResultType();
     auto bind_data = make_uniq<KendallBindData>();
 
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        Value options_val = ExpressionExecutor::EvaluateScalar(context, *arguments[2]);
-        bind_data->options = KendallMapOptions::ParseFromValue(options_val);
+    if (arguments.size() >= 3) {
+        Value options_val = EvaluateConstantOptions(context, *arguments[2], "kendall_agg");
+        bind_data->options = KendallMapOptions::ParseFromValue(options_val, "kendall_agg");
     }
 
     PostHogTelemetry::Instance().RecordFunctionCall("kendall_agg");

@@ -73,7 +73,8 @@ struct TostTTestBindData : public FunctionData {
         return options.delta == other.options.delta &&
                options.bound_lower == other.options.bound_lower &&
                options.bound_upper == other.options.bound_upper &&
-               options.confidence_level == other.options.confidence_level;
+               options.confidence_level == other.options.confidence_level &&
+               options.alpha == other.options.alpha && options.kind == other.options.kind;
     }
 };
 
@@ -201,7 +202,8 @@ static void TostTTestAggFinalize(Vector &state_vector, AggregateInputData &aggr_
             options.bound_lower = bind_data.options.bound_lower.value_or(-1.0);
             options.bound_upper = bind_data.options.bound_upper.value_or(1.0);
         }
-        options.alpha = 1.0 - bind_data.options.confidence_level.value_or(0.95);
+        // alpha = 1 - confidence_level (see ResolveTostAlpha); validated at bind time.
+        options.alpha = ResolveTostAlpha("tost_t_test_agg", bind_data.options.alpha, bind_data.options.confidence_level);
         options.pooled = bind_data.options.kind.value_or(TTestKind::WELCH) == TTestKind::STUDENT;
 
         AnofoxTostResult tost_result;
@@ -246,9 +248,10 @@ static unique_ptr<FunctionData> TostTTestAggBind(ClientContext &context, Aggrega
     function.return_type = GetTostTTestAggResultType();
     auto bind_data = make_uniq<TostTTestBindData>();
 
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        Value options_val = ExpressionExecutor::EvaluateScalar(context, *arguments[2]);
-        bind_data->options = TostMapOptions::ParseFromValue(options_val);
+    if (arguments.size() >= 3) {
+        Value options_val = EvaluateConstantOptions(context, *arguments[2], "tost_t_test_agg");
+        bind_data->options = TostMapOptions::ParseFromValue(options_val, "tost_t_test_agg");
+        ResolveTostAlpha("tost_t_test_agg", bind_data->options.alpha, bind_data->options.confidence_level);
     }
 
     PostHogTelemetry::Instance().RecordFunctionCall("tost_t_test_agg");
