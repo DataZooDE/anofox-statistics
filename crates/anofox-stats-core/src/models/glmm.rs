@@ -157,6 +157,19 @@ pub struct GlmmResult {
     pub factors: Vec<FactorVariance>,
 }
 
+/// `sum(log f(y | mu = y))` for the families whose solver log-likelihood is
+/// `-deviance / 2` (Poisson, Binomial); 0 otherwise. Adding it turns the
+/// deviance-based value into the full log-likelihood that lme4 reports.
+fn saturated_log_likelihood(family: GlmmFamily, y: impl Iterator<Item = f64>) -> f64 {
+    use super::glm_engine::loglik::{unit_log_likelihood, LogLikKind};
+    let kind = match family {
+        GlmmFamily::Poisson => LogLikKind::Poisson,
+        GlmmFamily::Binomial => LogLikKind::Binomial,
+        _ => return 0.0,
+    };
+    y.map(|yi| unit_log_likelihood(kind, yi, yi)).sum()
+}
+
 /// Fit a mixed-effects GLM with a random intercept over one grouping factor.
 ///
 /// The solver itself lives upstream in [`anofox_regression::solvers::GlmmRegressor`];
@@ -384,7 +397,10 @@ pub fn fit_glmm(
             options.family,
             GlmmFamily::Poisson | GlmmFamily::Binomial
         ));
-    let ll = fit.log_likelihood();
+    // The upstream solver reports -deviance/2 for Poisson/Binomial, which omits
+    // the saturated-model term; lme4's logLik(glmer) includes it.
+    let ll =
+        fit.log_likelihood() + saturated_log_likelihood(options.family, rows.iter().map(|&i| y[i]));
 
     Ok(GlmmResult {
         coefficients,
@@ -614,7 +630,10 @@ pub fn fit_glmm_crossed(
             options.family,
             GlmmFamily::Poisson | GlmmFamily::Binomial
         ));
-    let ll = fit.log_likelihood();
+    // The upstream solver reports -deviance/2 for Poisson/Binomial, which omits
+    // the saturated-model term; lme4's logLik(glmer) includes it.
+    let ll =
+        fit.log_likelihood() + saturated_log_likelihood(options.family, rows.iter().map(|&i| y[i]));
 
     Ok(GlmmResult {
         coefficients,
