@@ -8,6 +8,7 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
 #include "../include/glm_prior_options.hpp"
 #include "telemetry.hpp"
@@ -107,6 +108,11 @@ static LogicalType GetLogisticAggResultType(bool compute_inference) {
 		children.push_back(make_pair("ci_lower", LogicalType::LIST(LogicalType::DOUBLE)));
 		children.push_back(make_pair("ci_upper", LogicalType::LIST(LogicalType::DOUBLE)));
 	}
+
+	// Appended last so existing field positions are unchanged. predict(model, x)
+	// reads them to apply the inverse link.
+	children.push_back(make_pair("family", LogicalType::VARCHAR));
+	children.push_back(make_pair("link", LogicalType::VARCHAR));
 
 	return LogicalType::STRUCT(std::move(children));
 }
@@ -309,6 +315,7 @@ static void LogisticAggFinalize(Vector &state_vector, AggregateInputData &aggr_i
 		                        state.compute_inference ? &inference_result : nullptr, &extras_result, &error);
 
 		if (!success) {
+			ThrowUnlessDegenerate("logistic_fit_agg", error);
 			FlatVector::SetNull(result, result_idx, true);
 			continue;
 		}
@@ -330,6 +337,12 @@ static void LogisticAggFinalize(Vector &state_vector, AggregateInputData &aggr_i
 		FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = core_result.n_features;
 		FlatVector::GetData<int32_t>(*struct_entries[struct_idx++])[result_idx] = core_result.iterations;
 		FlatVector::GetData<bool>(*struct_entries[struct_idx++])[result_idx] = core_result.converged;
+		{
+			auto &family_vec = *struct_entries[struct_entries.size() - 2];
+			auto &link_vec = *struct_entries[struct_entries.size() - 1];
+			FlatVector::GetData<string_t>(family_vec)[result_idx] = StringVector::AddString(family_vec, "binomial");
+			FlatVector::GetData<string_t>(link_vec)[result_idx] = StringVector::AddString(link_vec, "logit");
+		}
 
 		if (state.compute_inference) {
 			SetListInResult(*struct_entries[struct_idx++], result_idx, inference_result.std_errors,

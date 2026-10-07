@@ -8,6 +8,7 @@
 
 #include "../include/anofox_stats_ffi.h"
 #include "../include/result_fields.hpp"
+#include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
@@ -215,6 +216,7 @@ static void TostTTestAggFinalize(Vector &state_vector, AggregateInputData &aggr_
         bool success = anofox_tost_t_test(group1_array, group2_array, options, &tost_result, &error);
 
         if (!success) {
+            ThrowUnlessDegenerate("tost_t_test_agg", error);
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }

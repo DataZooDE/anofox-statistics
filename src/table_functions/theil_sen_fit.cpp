@@ -188,7 +188,9 @@ static void TheilSenFitFunction(DataChunk &args, ExpressionState &state, Vector 
                                            bind_data.compute_inference ? &inference_result : nullptr, &error);
 
         if (!success) {
-            ThrowFromFfiError("theil_sen_fit", error);
+            ThrowUnlessDegenerate("theil_sen_fit", error);
+            FlatVector::SetNull(result, row, true);
+            continue;
         }
 
         auto &struct_vec = StructVector::GetEntries(result);

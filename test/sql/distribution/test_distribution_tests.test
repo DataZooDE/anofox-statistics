@@ -20,45 +20,45 @@ SELECT * FROM (VALUES
 
 # TEST 1: Energy distance returns valid result structure
 query I
-SELECT (energy_distance_agg(value, grp)).statistic IS NOT NULL FROM energy_data;
+SELECT (energy_distance_agg(value, grp, {'seed': 42})).statistic IS NOT NULL FROM energy_data;
 ----
 true
 
 query I
-SELECT (energy_distance_agg(value, grp)).p_value IS NOT NULL FROM energy_data;
+SELECT (energy_distance_agg(value, grp, {'seed': 42})).p_value IS NOT NULL FROM energy_data;
 ----
 true
 
 query I
-SELECT (energy_distance_agg(value, grp)).n1 IS NOT NULL FROM energy_data;
+SELECT (energy_distance_agg(value, grp, {'seed': 42})).n1 IS NOT NULL FROM energy_data;
 ----
 true
 
 query I
-SELECT (energy_distance_agg(value, grp)).n2 IS NOT NULL FROM energy_data;
+SELECT (energy_distance_agg(value, grp, {'seed': 42})).n2 IS NOT NULL FROM energy_data;
 ----
 true
 
 query I
-SELECT (energy_distance_agg(value, grp)).method IS NOT NULL FROM energy_data;
+SELECT (energy_distance_agg(value, grp, {'seed': 42})).method IS NOT NULL FROM energy_data;
 ----
 true
 
 # TEST 2: Sample sizes correct
 query II
-SELECT (energy_distance_agg(value, grp)).n1, (energy_distance_agg(value, grp)).n2 FROM energy_data;
+SELECT (energy_distance_agg(value, grp, {'seed': 42})).n1, (energy_distance_agg(value, grp, {'seed': 42})).n2 FROM energy_data;
 ----
 10	10
 
 # TEST 3: Statistic is non-negative
 query I
-SELECT (energy_distance_agg(value, grp)).statistic >= 0 FROM energy_data;
+SELECT (energy_distance_agg(value, grp, {'seed': 42})).statistic >= 0 FROM energy_data;
 ----
 true
 
 # TEST 4: Different distributions detected (p < 0.05)
 query I
-SELECT (energy_distance_agg(value, grp)).p_value < 0.05 FROM energy_data;
+SELECT (energy_distance_agg(value, grp, {'seed': 42})).p_value < 0.05 FROM energy_data;
 ----
 true
 
@@ -73,13 +73,13 @@ SELECT * FROM (VALUES
 ) AS t(value, grp);
 
 query I
-SELECT (energy_distance_agg(value, grp)).p_value > 0.05 FROM same_dist;
+SELECT (energy_distance_agg(value, grp, {'seed': 42})).p_value > 0.05 FROM same_dist;
 ----
 true
 
 # TEST 6: Alias verification
 query I
-SELECT (energy_distance_agg(value, grp)).statistic IS NOT NULL FROM energy_data;
+SELECT (energy_distance_agg(value, grp, {'seed': 42})).statistic IS NOT NULL FROM energy_data;
 ----
 true
 
@@ -90,51 +90,51 @@ true
 
 # TEST 7: MMD returns valid result structure
 query I
-SELECT (mmd_agg(value, grp)).statistic IS NOT NULL FROM energy_data;
+SELECT (mmd_agg(value, grp, {'seed': 42})).statistic IS NOT NULL FROM energy_data;
 ----
 true
 
 query I
-SELECT (mmd_agg(value, grp)).p_value IS NOT NULL FROM energy_data;
+SELECT (mmd_agg(value, grp, {'seed': 42})).p_value IS NOT NULL FROM energy_data;
 ----
 true
 
 query I
-SELECT (mmd_agg(value, grp)).n1 IS NOT NULL FROM energy_data;
+SELECT (mmd_agg(value, grp, {'seed': 42})).n1 IS NOT NULL FROM energy_data;
 ----
 true
 
 query I
-SELECT (mmd_agg(value, grp)).n2 IS NOT NULL FROM energy_data;
+SELECT (mmd_agg(value, grp, {'seed': 42})).n2 IS NOT NULL FROM energy_data;
 ----
 true
 
 query I
-SELECT (mmd_agg(value, grp)).method IS NOT NULL FROM energy_data;
+SELECT (mmd_agg(value, grp, {'seed': 42})).method IS NOT NULL FROM energy_data;
 ----
 true
 
 # TEST 8: Sample sizes correct
 query II
-SELECT (mmd_agg(value, grp)).n1, (mmd_agg(value, grp)).n2 FROM energy_data;
+SELECT (mmd_agg(value, grp, {'seed': 42})).n1, (mmd_agg(value, grp, {'seed': 42})).n2 FROM energy_data;
 ----
 10	10
 
 # TEST 9: Statistic non-negative
 query I
-SELECT (mmd_agg(value, grp)).statistic >= 0 FROM energy_data;
+SELECT (mmd_agg(value, grp, {'seed': 42})).statistic >= 0 FROM energy_data;
 ----
 true
 
 # TEST 10: Different distributions detected (p < 0.05)
 query I
-SELECT (mmd_agg(value, grp)).p_value < 0.05 FROM energy_data;
+SELECT (mmd_agg(value, grp, {'seed': 42})).p_value < 0.05 FROM energy_data;
 ----
 true
 
 # TEST 11: Same distribution (high p-value)
 query I
-SELECT (mmd_agg(value, grp)).p_value > 0.05 FROM same_dist;
+SELECT (mmd_agg(value, grp, {'seed': 42})).p_value > 0.05 FROM same_dist;
 ----
 true
 
@@ -147,7 +147,7 @@ mmd_agg: unknown option 'sigma'
 
 # TEST 13: Alias verification
 query I
-SELECT (mmd_agg(value, grp)).statistic IS NOT NULL FROM energy_data;
+SELECT (mmd_agg(value, grp, {'seed': 42})).statistic IS NOT NULL FROM energy_data;
 ----
 true
 
@@ -165,13 +165,34 @@ SELECT * FROM (VALUES
 ) AS t(category, value, grp);
 
 query TI
-SELECT category, (energy_distance_agg(value, grp)).p_value < 0.05 AS different_dist
+SELECT category, (energy_distance_agg(value, grp, {'seed': 42})).p_value < 0.05 AS different_dist
 FROM grouped_data
 GROUP BY category
 ORDER BY category;
 ----
 diff	true
 same	false
+
+# =============================================================================
+# Determinism: a fixed seed gives bit-identical p-values across calls and
+# regardless of input row order.
+# =============================================================================
+
+query II
+SELECT (SELECT (energy_distance_agg(value, grp, {'seed': 42})).p_value FROM energy_data)
+     = (SELECT (energy_distance_agg(value, grp, {'seed': 42})).p_value FROM (SELECT * FROM energy_data ORDER BY value DESC)),
+       (SELECT (mmd_agg(value, grp, {'seed': 42})).p_value FROM energy_data)
+     = (SELECT (mmd_agg(value, grp, {'seed': 42})).p_value FROM (SELECT * FROM energy_data ORDER BY value DESC));
+----
+true	true
+
+query II
+SELECT (SELECT (energy_distance_agg(value, grp, {'seed': 42})).p_value FROM same_dist)
+     = (SELECT (energy_distance_agg(value, grp, {'seed': 42})).p_value FROM same_dist),
+       (SELECT (mmd_agg(value, grp, {'seed': 42})).p_value FROM same_dist)
+     = (SELECT (mmd_agg(value, grp, {'seed': 42})).p_value FROM same_dist);
+----
+true	true
 
 # =============================================================================
 # CLEANUP

@@ -7,6 +7,7 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
 
@@ -167,6 +168,7 @@ static void EbShrinkFinalize(Vector &state_vector, AggregateInputData &, Vector 
 		AnofoxEbShrinkResult res {};
 		AnofoxError error;
 		if (!anofox_eb_shrink(est_array, se_array, options, &res, &error)) {
+			ThrowUnlessDegenerate("eb_shrink_agg", error);
 			FlatVector::SetNull(result, row, true);
 			state.Reset();
 			continue;

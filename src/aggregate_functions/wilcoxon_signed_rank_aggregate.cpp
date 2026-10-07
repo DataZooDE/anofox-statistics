@@ -9,6 +9,7 @@
 #include "../include/anofox_stats_ffi.h"
 #include "../include/ffi_enum_converters.hpp"
 #include "../include/result_fields.hpp"
+#include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
@@ -205,6 +206,7 @@ static void WilcoxonSignedRankAggFinalize(Vector &state_vector, AggregateInputDa
         bool success = anofox_wilcoxon_signed_rank(x_array, y_array, options, &test_result, &error);
 
         if (!success) {
+            ThrowUnlessDegenerate("wilcoxon_signed_rank_agg", error);
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }

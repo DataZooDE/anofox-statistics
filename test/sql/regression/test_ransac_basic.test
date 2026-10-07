@@ -78,13 +78,12 @@ FROM ransac_outliers;
 true
 
 # =============================================================================
-# TEST 6: max_trials = 0 silently NULLs the row (matches Huber's contract).
-# The Rust unit test rejects_zero_max_trials covers the actual validation.
+# TEST 6: max_trials = 0 is an invalid option and raises an error.
 # =============================================================================
-query I
-SELECT (ransac_fit_agg(y, [x], {'max_trials': 0})).coefficients IS NULL FROM ransac_clean;
+statement error
+SELECT (ransac_fit_agg(y, [x], {'max_trials': 0})).coefficients FROM ransac_clean;
 ----
-true
+ransac_fit_agg: Invalid input: max_trials must be > 0
 
 # =============================================================================
 # TEST 7: Per-group fit recovers different slopes.

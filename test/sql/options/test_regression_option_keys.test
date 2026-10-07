@@ -252,17 +252,17 @@ true
 statement error
 SELECT ols_fit_agg(y, [x1], {'confidence_level': 1.0}) FROM d;
 ----
-confidence_level must be strictly between 0 and 1, got 1.0
+confidence_level must be in (0, 1), got 1.0
 
 statement error
 SELECT ols_fit_agg(y, [x1], {'confidence_level': 0}) FROM d;
 ----
-confidence_level must be strictly between 0 and 1
+confidence_level must be in (0, 1)
 
 statement error
 SELECT ridge_fit_predict_agg(y, [x1], {'confidence_level': 95}) FROM d;
 ----
-confidence_level must be strictly between 0 and 1, got 95
+confidence_level must be in (0, 1), got 95
 
 statement error
 SELECT ransac_fit_agg(y, [x1], {'max_trials': -5}) FROM d;

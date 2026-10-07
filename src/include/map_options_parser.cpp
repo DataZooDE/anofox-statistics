@@ -66,10 +66,13 @@ static std::optional<double> ExtractDouble(const Value &val) {
 }
 
 // confidence_level must lie strictly inside (0, 1).
-static std::optional<double> ExtractConfidenceLevel(const Value &val) {
+static std::optional<double> ExtractConfidenceLevel(const Value &val, const string &function_name = string()) {
 	auto v = ExtractDouble(val);
 	if (v.has_value() && !(v.value() > 0.0 && v.value() < 1.0)) {
-		throw InvalidInputException("confidence_level must be strictly between 0 and 1, got %s", val.ToString());
+		if (function_name.empty()) {
+			throw InvalidInputException("confidence_level must be in (0, 1), got %s", val.ToString());
+		}
+		throw InvalidInputException("%s: confidence_level must be in (0, 1), got %s", function_name, val.ToString());
 	}
 	return v;
 }
@@ -894,7 +897,7 @@ RegressionMapOptions RegressionMapOptions::ParseFromValue(const Value &map_value
 		} else if (key == "compute_inference") {
 			result.compute_inference = ExtractBool(val);
 		} else if (key == "confidence_level") {
-			result.confidence_level = ExtractConfidenceLevel(val);
+			result.confidence_level = ExtractConfidenceLevel(val, function_name);
 		} else if (key == "alpha") {
 			result.alpha = ExtractDouble(val);
 		} else if (key == "lambda") {
@@ -1143,7 +1146,11 @@ static T ParseTestOptions(const Value &map_value, const string &function_name, c
 			throw InvalidInputException("%s: unknown option '%s'. Supported options: %s", function_name, user_key,
 			                            DescribeAllKeys(keys));
 		}
-		callback(result, string(def->canonical), val);
+		const string canonical(def->canonical);
+		if (canonical == "confidence_level") {
+			ExtractConfidenceLevel(val, function_name); // validate with the function name in the message
+		}
+		callback(result, canonical, val);
 	});
 	return result;
 }

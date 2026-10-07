@@ -8,6 +8,7 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
 #include "../include/result_fields.hpp"
 #include "telemetry.hpp"
@@ -200,6 +201,7 @@ static void MmdAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
         bool success = anofox_mmd(group1_array, group2_array, options, &test_result, &error);
 
         if (!success) {
+            ThrowUnlessDegenerate("mmd_agg", error);
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }

@@ -200,12 +200,15 @@ fn error_to_code(err: &StatsError) -> ErrorCode {
         StatsError::NoValidData => ErrorCode::NoValidData,
         StatsError::DimensionMismatch { .. } => ErrorCode::DimensionMismatch,
         StatsError::DimensionMismatchMsg(_) => ErrorCode::DimensionMismatch,
-        StatsError::EmptyInput { .. } => ErrorCode::InvalidInput,
+        // An empty list is "no data" (like an aggregate over zero rows), not a
+        // malformed argument.
+        StatsError::EmptyInput { .. } => ErrorCode::InsufficientData,
         StatsError::InvalidInput(_) => ErrorCode::InvalidInput,
         StatsError::InvalidValue { .. } => ErrorCode::InvalidInput,
         StatsError::SingularMatrix => ErrorCode::SingularMatrix,
         StatsError::CholeskyFailed | StatsError::QrFailed => ErrorCode::SingularMatrix,
         StatsError::ConvergenceFailure { .. } => ErrorCode::ConvergenceFailure,
+        StatsError::NumericalFailure(_) => ErrorCode::ConvergenceFailure,
         StatsError::AllocationFailure => ErrorCode::AllocationFailure,
         StatsError::SerializationError(_) => ErrorCode::SerializationError,
         StatsError::RegressError(_) => ErrorCode::InternalError,
@@ -252,7 +255,14 @@ pub unsafe extern "C" fn anofox_ols_fit(
 
         if x.is_null() || x_count == 0 {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
+                (*out_error).set(
+                    if x_count == 0 {
+                        ErrorCode::InsufficientData
+                    } else {
+                        ErrorCode::InvalidInput
+                    },
+                    "x is NULL or empty",
+                );
             }
             return false;
         }
@@ -442,7 +452,14 @@ pub unsafe extern "C" fn anofox_huber_fit(
 
         if x.is_null() || x_count == 0 {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
+                (*out_error).set(
+                    if x_count == 0 {
+                        ErrorCode::InsufficientData
+                    } else {
+                        ErrorCode::InvalidInput
+                    },
+                    "x is NULL or empty",
+                );
             }
             return false;
         }
@@ -631,7 +648,14 @@ pub unsafe extern "C" fn anofox_ransac_fit(
 
         if x.is_null() || x_count == 0 {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
+                (*out_error).set(
+                    if x_count == 0 {
+                        ErrorCode::InsufficientData
+                    } else {
+                        ErrorCode::InvalidInput
+                    },
+                    "x is NULL or empty",
+                );
             }
             return false;
         }
@@ -830,7 +854,14 @@ pub unsafe extern "C" fn anofox_theilsen_fit(
 
         if x.is_null() || x_count == 0 {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
+                (*out_error).set(
+                    if x_count == 0 {
+                        ErrorCode::InsufficientData
+                    } else {
+                        ErrorCode::InvalidInput
+                    },
+                    "x is NULL or empty",
+                );
             }
             return false;
         }
@@ -963,7 +994,14 @@ pub unsafe extern "C" fn anofox_ridge_fit(
 
         if x.is_null() || x_count == 0 {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
+                (*out_error).set(
+                    if x_count == 0 {
+                        ErrorCode::InsufficientData
+                    } else {
+                        ErrorCode::InvalidInput
+                    },
+                    "x is NULL or empty",
+                );
             }
             return false;
         }
@@ -1095,7 +1133,14 @@ pub unsafe extern "C" fn anofox_elasticnet_fit(
 
         if x.is_null() || x_count == 0 {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
+                (*out_error).set(
+                    if x_count == 0 {
+                        ErrorCode::InsufficientData
+                    } else {
+                        ErrorCode::InvalidInput
+                    },
+                    "x is NULL or empty",
+                );
             }
             return false;
         }
@@ -1209,7 +1254,14 @@ pub unsafe extern "C" fn anofox_lars_fit(
 
         if x.is_null() || x_count == 0 {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
+                (*out_error).set(
+                    if x_count == 0 {
+                        ErrorCode::InsufficientData
+                    } else {
+                        ErrorCode::InvalidInput
+                    },
+                    "x is NULL or empty",
+                );
             }
             return false;
         }
@@ -1320,7 +1372,14 @@ pub unsafe extern "C" fn anofox_wls_fit(
 
         if x.is_null() || x_count == 0 {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
+                (*out_error).set(
+                    if x_count == 0 {
+                        ErrorCode::InsufficientData
+                    } else {
+                        ErrorCode::InvalidInput
+                    },
+                    "x is NULL or empty",
+                );
             }
             return false;
         }
@@ -1446,14 +1505,28 @@ pub unsafe extern "C" fn anofox_predict(
         // Validate inputs
         if x.is_null() || x_count == 0 {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
+                (*out_error).set(
+                    if x_count == 0 {
+                        ErrorCode::InsufficientData
+                    } else {
+                        ErrorCode::InvalidInput
+                    },
+                    "x is NULL or empty",
+                );
             }
             return false;
         }
 
         if coefficients.is_null() || coefficients_len == 0 {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, "coefficients is NULL or empty");
+                (*out_error).set(
+                    if coefficients_len == 0 {
+                        ErrorCode::InsufficientData
+                    } else {
+                        ErrorCode::InvalidInput
+                    },
+                    "coefficients is NULL or empty",
+                );
             }
             return false;
         }
@@ -1567,7 +1640,14 @@ pub unsafe extern "C" fn anofox_compute_vif(
 
         if x.is_null() || x_count == 0 {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
+                (*out_error).set(
+                    if x_count == 0 {
+                        ErrorCode::InsufficientData
+                    } else {
+                        ErrorCode::InvalidInput
+                    },
+                    "x is NULL or empty",
+                );
             }
             return false;
         }
@@ -1945,7 +2025,14 @@ pub unsafe extern "C" fn anofox_rls_fit(
 
         if x.is_null() || x_count == 0 {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
+                (*out_error).set(
+                    if x_count == 0 {
+                        ErrorCode::InsufficientData
+                    } else {
+                        ErrorCode::InvalidInput
+                    },
+                    "x is NULL or empty",
+                );
             }
             return false;
         }
@@ -1969,6 +2056,7 @@ pub unsafe extern "C" fn anofox_rls_fit(
 
         match result {
             Ok(state) => {
+                let stats = anofox_stats_core::models::rls_fit_statistics(&y_vec, &x_vecs, &state);
                 let coefficients = state.get_coefficients();
                 let n_coef = coefficients.len();
 
@@ -1989,9 +2077,9 @@ pub unsafe extern "C" fn anofox_rls_fit(
                     coefficients: coef_ptr,
                     coefficients_len: n_coef,
                     intercept: state.get_intercept().unwrap_or(f64::NAN),
-                    r_squared: f64::NAN, // RLS doesn't compute R² during fitting
-                    adj_r_squared: f64::NAN,
-                    residual_std_error: f64::NAN,
+                    r_squared: stats.r_squared,
+                    adj_r_squared: stats.adj_r_squared,
+                    residual_std_error: stats.residual_std_error,
                     n_observations: state.n_observations,
                     n_features: state.n_features,
                 };
@@ -2476,7 +2564,14 @@ pub unsafe extern "C" fn anofox_poisson_fit(
 
         if x.is_null() || x_count == 0 {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
+                (*out_error).set(
+                    if x_count == 0 {
+                        ErrorCode::InsufficientData
+                    } else {
+                        ErrorCode::InvalidInput
+                    },
+                    "x is NULL or empty",
+                );
             }
             return false;
         }
@@ -2639,7 +2734,14 @@ pub unsafe extern "C" fn anofox_binomial_fit(
 
         if x.is_null() || x_count == 0 {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
+                (*out_error).set(
+                    if x_count == 0 {
+                        ErrorCode::InsufficientData
+                    } else {
+                        ErrorCode::InvalidInput
+                    },
+                    "x is NULL or empty",
+                );
             }
             return false;
         }
@@ -2800,7 +2902,14 @@ pub unsafe extern "C" fn anofox_negbinomial_fit(
 
         if x.is_null() || x_count == 0 {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
+                (*out_error).set(
+                    if x_count == 0 {
+                        ErrorCode::InsufficientData
+                    } else {
+                        ErrorCode::InvalidInput
+                    },
+                    "x is NULL or empty",
+                );
             }
             return false;
         }
@@ -2963,7 +3072,14 @@ pub unsafe extern "C" fn anofox_tweedie_fit(
 
         if x.is_null() || x_count == 0 {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
+                (*out_error).set(
+                    if x_count == 0 {
+                        ErrorCode::InsufficientData
+                    } else {
+                        ErrorCode::InvalidInput
+                    },
+                    "x is NULL or empty",
+                );
             }
             return false;
         }
@@ -3118,7 +3234,14 @@ pub unsafe extern "C" fn anofox_gamma_fit(
 
         if x.is_null() || x_count == 0 {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
+                (*out_error).set(
+                    if x_count == 0 {
+                        ErrorCode::InsufficientData
+                    } else {
+                        ErrorCode::InvalidInput
+                    },
+                    "x is NULL or empty",
+                );
             }
             return false;
         }
@@ -3274,7 +3397,14 @@ pub unsafe extern "C" fn anofox_logistic_fit(
 
         if x.is_null() || x_count == 0 {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
+                (*out_error).set(
+                    if x_count == 0 {
+                        ErrorCode::InsufficientData
+                    } else {
+                        ErrorCode::InvalidInput
+                    },
+                    "x is NULL or empty",
+                );
             }
             return false;
         }
@@ -3501,7 +3631,14 @@ pub unsafe extern "C" fn anofox_alm_fit(
 
         if x.is_null() || x_count == 0 {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
+                (*out_error).set(
+                    if x_count == 0 {
+                        ErrorCode::InsufficientData
+                    } else {
+                        ErrorCode::InvalidInput
+                    },
+                    "x is NULL or empty",
+                );
             }
             return false;
         }
@@ -3678,7 +3815,14 @@ pub unsafe extern "C" fn anofox_bls_fit(
 
         if x.is_null() || x_count == 0 {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
+                (*out_error).set(
+                    if x_count == 0 {
+                        ErrorCode::InsufficientData
+                    } else {
+                        ErrorCode::InvalidInput
+                    },
+                    "x is NULL or empty",
+                );
             }
             return false;
         }
@@ -3874,7 +4018,14 @@ pub unsafe extern "C" fn anofox_pls_fit(
 
         if x.is_null() || x_count == 0 {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
+                (*out_error).set(
+                    if x_count == 0 {
+                        ErrorCode::InsufficientData
+                    } else {
+                        ErrorCode::InvalidInput
+                    },
+                    "x is NULL or empty",
+                );
             }
             return false;
         }
@@ -4112,7 +4263,14 @@ pub unsafe extern "C" fn anofox_quantile_fit(
 
         if x.is_null() || x_count == 0 {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
+                (*out_error).set(
+                    if x_count == 0 {
+                        ErrorCode::InsufficientData
+                    } else {
+                        ErrorCode::InvalidInput
+                    },
+                    "x is NULL or empty",
+                );
             }
             return false;
         }
@@ -4599,7 +4757,7 @@ pub unsafe extern "C" fn anofox_t_test(
             }
             Err(e) => {
                 if !out_error.is_null() {
-                    (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+                    (*out_error).set(error_to_code(&e), &e.to_string());
                 }
                 false
             }
@@ -4666,7 +4824,7 @@ pub unsafe extern "C" fn anofox_shapiro_wilk(
             }
             Err(e) => {
                 if !out_error.is_null() {
-                    (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+                    (*out_error).set(error_to_code(&e), &e.to_string());
                 }
                 false
             }
@@ -4734,7 +4892,7 @@ pub unsafe extern "C" fn anofox_dagostino_k2(
             }
             Err(e) => {
                 if !out_error.is_null() {
-                    (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+                    (*out_error).set(error_to_code(&e), &e.to_string());
                 }
                 false
             }
@@ -4808,7 +4966,7 @@ pub unsafe extern "C" fn anofox_pearson_cor(
             }
             Err(e) => {
                 if !out_error.is_null() {
-                    (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+                    (*out_error).set(error_to_code(&e), &e.to_string());
                 }
                 false
             }
@@ -4882,7 +5040,7 @@ pub unsafe extern "C" fn anofox_spearman_cor(
             }
             Err(e) => {
                 if !out_error.is_null() {
-                    (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+                    (*out_error).set(error_to_code(&e), &e.to_string());
                 }
                 false
             }
@@ -4957,7 +5115,7 @@ pub unsafe extern "C" fn anofox_kendall_cor(
             }
             Err(e) => {
                 if !out_error.is_null() {
-                    (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+                    (*out_error).set(error_to_code(&e), &e.to_string());
                 }
                 false
             }
@@ -5047,7 +5205,7 @@ pub unsafe extern "C" fn anofox_mann_whitney_u(
             }
             Err(e) => {
                 if !out_error.is_null() {
-                    (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+                    (*out_error).set(error_to_code(&e), &e.to_string());
                 }
                 false
             }
@@ -5126,7 +5284,7 @@ pub unsafe extern "C" fn anofox_brunner_munzel(
             }
             Err(e) => {
                 if !out_error.is_null() {
-                    (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+                    (*out_error).set(error_to_code(&e), &e.to_string());
                 }
                 false
             }
@@ -5206,7 +5364,7 @@ pub unsafe extern "C" fn anofox_one_way_anova(
             }
             Err(e) => {
                 if !out_error.is_null() {
-                    (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+                    (*out_error).set(error_to_code(&e), &e.to_string());
                 }
                 false
             }
@@ -5288,7 +5446,7 @@ pub unsafe extern "C" fn anofox_kruskal_wallis(
             }
             Err(e) => {
                 if !out_error.is_null() {
-                    (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+                    (*out_error).set(error_to_code(&e), &e.to_string());
                 }
                 false
             }
@@ -5378,7 +5536,7 @@ pub unsafe extern "C" fn anofox_chisq_test(
             }
             Err(e) => {
                 if !out_error.is_null() {
-                    (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+                    (*out_error).set(error_to_code(&e), &e.to_string());
                 }
                 false
             }
@@ -5456,7 +5614,7 @@ unsafe fn fisher_exact_ffi_impl(
         }
         Err(e) => {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+                (*out_error).set(error_to_code(&e), &e.to_string());
             }
             false
         }
@@ -5587,7 +5745,7 @@ pub unsafe extern "C" fn anofox_energy_distance(
             }
             Err(e) => {
                 if !out_error.is_null() {
-                    (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+                    (*out_error).set(error_to_code(&e), &e.to_string());
                 }
                 false
             }
@@ -5666,7 +5824,7 @@ pub unsafe extern "C" fn anofox_mmd(
             }
             Err(e) => {
                 if !out_error.is_null() {
-                    (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+                    (*out_error).set(error_to_code(&e), &e.to_string());
                 }
                 false
             }
@@ -5748,7 +5906,7 @@ pub unsafe extern "C" fn anofox_tost_t_test(
             }
             Err(e) => {
                 if !out_error.is_null() {
-                    (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+                    (*out_error).set(error_to_code(&e), &e.to_string());
                 }
                 false
             }
@@ -5830,7 +5988,7 @@ pub unsafe extern "C" fn anofox_tost_t_test_paired(
             }
             Err(e) => {
                 if !out_error.is_null() {
-                    (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+                    (*out_error).set(error_to_code(&e), &e.to_string());
                 }
                 false
             }
@@ -5937,7 +6095,7 @@ pub unsafe extern "C" fn anofox_tost_correlation(
             }
             Err(e) => {
                 if !out_error.is_null() {
-                    (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+                    (*out_error).set(error_to_code(&e), &e.to_string());
                 }
                 false
             }
@@ -6030,7 +6188,7 @@ pub unsafe extern "C" fn anofox_wilcoxon_signed_rank(
             }
             Err(e) => {
                 if !out_error.is_null() {
-                    (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+                    (*out_error).set(error_to_code(&e), &e.to_string());
                 }
                 false
             }
@@ -6071,7 +6229,7 @@ pub unsafe extern "C" fn anofox_chisq_goodness_of_fit(
 
         if observed.is_null() || observed_len == 0 {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, "observed is NULL or empty");
+                (*out_error).set(ErrorCode::InsufficientData, "observed is NULL or empty");
             }
             return false;
         }
@@ -6115,7 +6273,7 @@ pub unsafe extern "C" fn anofox_chisq_goodness_of_fit(
             }
             Err(e) => {
                 if !out_error.is_null() {
-                    (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+                    (*out_error).set(error_to_code(&e), &e.to_string());
                 }
                 false
             }
@@ -6184,7 +6342,7 @@ pub unsafe extern "C" fn anofox_prop_test_one(
             }
             Err(e) => {
                 if !out_error.is_null() {
-                    (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+                    (*out_error).set(error_to_code(&e), &e.to_string());
                 }
                 false
             }
@@ -6255,7 +6413,7 @@ pub unsafe extern "C" fn anofox_prop_test_two(
             }
             Err(e) => {
                 if !out_error.is_null() {
-                    (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+                    (*out_error).set(error_to_code(&e), &e.to_string());
                 }
                 false
             }
@@ -6324,7 +6482,7 @@ pub unsafe extern "C" fn anofox_binom_test(
             }
             Err(e) => {
                 if !out_error.is_null() {
-                    (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+                    (*out_error).set(error_to_code(&e), &e.to_string());
                 }
                 false
             }
@@ -6394,7 +6552,7 @@ pub unsafe extern "C" fn anofox_cramers_v(
             }
             Err(e) => {
                 if !out_error.is_null() {
-                    (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+                    (*out_error).set(error_to_code(&e), &e.to_string());
                 }
                 false
             }
@@ -6473,7 +6631,7 @@ pub unsafe extern "C" fn anofox_cohen_kappa(
             }
             Err(e) => {
                 if !out_error.is_null() {
-                    (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+                    (*out_error).set(error_to_code(&e), &e.to_string());
                 }
                 false
             }
@@ -6549,7 +6707,7 @@ pub unsafe extern "C" fn anofox_g_test(
             }
             Err(e) => {
                 if !out_error.is_null() {
-                    (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+                    (*out_error).set(error_to_code(&e), &e.to_string());
                 }
                 false
             }
@@ -6615,7 +6773,7 @@ pub unsafe extern "C" fn anofox_mcnemar_test(
             }
             Err(e) => {
                 if !out_error.is_null() {
-                    (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+                    (*out_error).set(error_to_code(&e), &e.to_string());
                 }
                 false
             }
@@ -6676,7 +6834,7 @@ pub unsafe extern "C" fn anofox_phi_coefficient(
             }
             Err(e) => {
                 if !out_error.is_null() {
-                    (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+                    (*out_error).set(error_to_code(&e), &e.to_string());
                 }
                 false
             }
@@ -6750,7 +6908,7 @@ pub unsafe extern "C" fn anofox_contingency_coef(
             }
             Err(e) => {
                 if !out_error.is_null() {
-                    (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+                    (*out_error).set(error_to_code(&e), &e.to_string());
                 }
                 false
             }
@@ -6835,7 +6993,7 @@ pub unsafe extern "C" fn anofox_yuen_test(
             }
             Err(e) => {
                 if !out_error.is_null() {
-                    (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+                    (*out_error).set(error_to_code(&e), &e.to_string());
                 }
                 false
             }
@@ -6928,7 +7086,7 @@ pub unsafe extern "C" fn anofox_brown_forsythe(
             }
             Err(e) => {
                 if !out_error.is_null() {
-                    (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+                    (*out_error).set(error_to_code(&e), &e.to_string());
                 }
                 false
             }
@@ -6995,7 +7153,7 @@ pub unsafe extern "C" fn anofox_distance_cor(
             }
             Err(e) => {
                 if !out_error.is_null() {
-                    (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+                    (*out_error).set(error_to_code(&e), &e.to_string());
                 }
                 false
             }
@@ -7095,7 +7253,7 @@ pub unsafe extern "C" fn anofox_distance_cor_test_seeded(
             }
             Err(e) => {
                 if !out_error.is_null() {
-                    (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+                    (*out_error).set(error_to_code(&e), &e.to_string());
                 }
                 false
             }
@@ -7179,7 +7337,7 @@ pub unsafe extern "C" fn anofox_icc(
             }
             Err(e) => {
                 if !out_error.is_null() {
-                    (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+                    (*out_error).set(error_to_code(&e), &e.to_string());
                 }
                 false
             }
@@ -7303,7 +7461,7 @@ pub unsafe extern "C" fn anofox_diebold_mariano(
             }
             Err(e) => {
                 if !out_error.is_null() {
-                    (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+                    (*out_error).set(error_to_code(&e), &e.to_string());
                 }
                 false
             }
@@ -7376,7 +7534,7 @@ pub unsafe extern "C" fn anofox_clark_west(
             }
             Err(e) => {
                 if !out_error.is_null() {
-                    (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+                    (*out_error).set(error_to_code(&e), &e.to_string());
                 }
                 false
             }
@@ -7465,7 +7623,7 @@ pub unsafe extern "C" fn anofox_permutation_t_test(
             }
             Err(e) => {
                 if !out_error.is_null() {
-                    (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+                    (*out_error).set(error_to_code(&e), &e.to_string());
                 }
                 false
             }
@@ -7785,7 +7943,14 @@ pub unsafe extern "C" fn anofox_aft_fit(
         }
         if x.is_null() || x_count == 0 {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
+                (*out_error).set(
+                    if x_count == 0 {
+                        ErrorCode::InsufficientData
+                    } else {
+                        ErrorCode::InvalidInput
+                    },
+                    "x is NULL or empty",
+                );
             }
             return false;
         }
@@ -8147,7 +8312,10 @@ pub unsafe extern "C" fn anofox_glmm_fit(
         }
         if x.is_null() || x_count == 0 || group_ids.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, "x or group_ids is NULL or empty");
+                (*out_error).set(
+                    ErrorCode::InsufficientData,
+                    "x or group_ids is NULL or empty",
+                );
             }
             return false;
         }

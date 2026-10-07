@@ -8,11 +8,14 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/fit_predict_rows.hpp"
+#include "../include/error_dispatch.hpp"
 #include "../include/ffi_enum_converters.hpp"
 #include "../include/map_options_parser.hpp"
 #include "../include/canonical_order.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
+#include "prediction_interval.hpp"
 
 namespace duckdb {
 
@@ -169,6 +172,10 @@ static void TheilSenPredictAggUpdate(Vector inputs[], AggregateInputData &aggr_i
 
         auto x_idx = x_data.sel->get_index(i);
         if (!x_data.validity.RowIsValid(x_idx)) {
+            // Keep the row (not training, NULL yhat) so output positions line up.
+            auto y_null_idx = y_data.sel->get_index(i);
+            bool y_null_valid = y_data.validity.RowIsValid(y_null_idx);
+            PushNullXRow(state, y_null_valid, y_null_valid ? y_values[y_null_idx] : 0.0);
             continue;
         }
 
@@ -224,6 +231,14 @@ static void TheilSenPredictAggUpdate(Vector inputs[], AggregateInputData &aggr_i
             }
         }
 
+        // A row with a missing (NULL/NaN) feature is not used to fit; report it so.
+        for (auto v : x_row) {
+            if (std::isnan(v)) {
+                row_is_training = false;
+                break;
+            }
+        }
+
         state.y_all.push_back(y_val);
         state.y_is_null.push_back(!y_valid);
         state.is_training.push_back(row_is_training);
@@ -252,10 +267,13 @@ static void TheilSenPredictAggCombine(Vector &source_vector, Vector &target_vect
         auto &target = *targets[target_data.sel->get_index(i)];
 
         if (!source.initialized) {
+            // Only NULL-x rows; keep them.
+            AppendOutputRows(target, source);
             continue;
         }
 
         if (!target.initialized) {
+            auto pending_rows = TakeOutputRows(target);
             target.y_train = CombineTake(source.y_train, aggr_input_data);
             target.x_train = CombineTake(source.x_train, aggr_input_data);
             target.y_all = CombineTake(source.y_all, aggr_input_data);
@@ -274,6 +292,7 @@ static void TheilSenPredictAggCombine(Vector &source_vector, Vector &target_vect
             target.n_subsamples_value = source.n_subsamples_value;
             target.null_policy = source.null_policy;
             target.use_split_col = source.use_split_col;
+            PrependOutputRows(target, std::move(pending_rows));
             continue;
         }
 
@@ -345,10 +364,12 @@ static void TheilSenPredictAggFinalize(Vector &state_vector, AggregateInputData 
                                            nullptr, &error);
 
         if (!success) {
+            ThrowUnlessDegenerate("theil_sen_fit_predict_agg", error);
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
 
+        PadNullXRows(state);
         idx_t n_rows = state.y_all.size();
         auto *list_data = ListVector::GetData(result);
         auto list_offset = ListVector::GetListSize(result);
@@ -368,7 +389,10 @@ static void TheilSenPredictAggFinalize(Vector &state_vector, AggregateInputData 
         auto &yhat_upper_vec = *struct_entries[3];
         auto &is_training_vec = *struct_entries[4];
 
-        for (idx_t row = 0; row < n_rows; row++) {
+        LeverageIntervals intervals(x_arrays, core_result.coefficients, core_result.coefficients_len,
+                                    core_result.intercept, state.fit_intercept, core_result.residual_std_error, core_result.n_observations,
+                                    nullptr, 0.0);
+for (idx_t row = 0; row < n_rows; row++) {
             idx_t child_idx = list_offset + row;
 
             if (state.y_is_null[row]) {
@@ -378,15 +402,12 @@ static void TheilSenPredictAggFinalize(Vector &state_vector, AggregateInputData 
             }
 
             AnofoxPredictionResult pred;
-            bool pred_success = anofox_predict_with_interval(
-                core_result.coefficients, core_result.coefficients_len, core_result.intercept,
-                state.x_all[row].data(), state.n_features, core_result.residual_std_error,
-                core_result.n_observations, state.confidence_level, &pred);
+            bool pred_success = intervals.Predict(state.x_all[row].data(), state.n_features, state.confidence_level, pred);
 
             if (pred_success && std::isfinite(pred.yhat)) {
                 FlatVector::GetData<double>(yhat_vec)[child_idx] = pred.yhat;
-                FlatVector::GetData<double>(yhat_lower_vec)[child_idx] = pred.yhat_lower;
-                FlatVector::GetData<double>(yhat_upper_vec)[child_idx] = pred.yhat_upper;
+                WriteIntervalBound(yhat_lower_vec, child_idx, pred.yhat_lower);
+                WriteIntervalBound(yhat_upper_vec, child_idx, pred.yhat_upper);
             } else {
                 FlatVector::SetNull(yhat_vec, child_idx, true);
                 FlatVector::SetNull(yhat_lower_vec, child_idx, true);

@@ -180,7 +180,9 @@ static void HuberFitFunction(DataChunk &args, ExpressionState &state, Vector &re
                                         &error);
 
         if (!success) {
-            ThrowFromFfiError("huber_fit", error);
+            ThrowUnlessDegenerate("huber_fit", error);
+            FlatVector::SetNull(result, row, true);
+            continue;
         }
 
         auto &struct_vec = StructVector::GetEntries(result);

@@ -1,0 +1,97 @@
+# name: test/sql/survival/test_aft_quantile.test
+# description: aft_quantile / aft_cdf against closed forms evaluated in R, plus edge cases.
+#              Parametrisation (survreg): log T = eta + scale * W.
+# group: [survival]
+
+require anofox_statistics
+
+# R reference (eta = 1.5, scale = 0.7, p = 0.1 / 0.5 / 0.9):
+#   qweibull(p, shape = 1/0.7, scale = exp(1.5)) = 0.92750496712995256 3.46752455826036954 8.03512625080154308
+#   qlnorm(p, 1.5, 0.7)                         = 1.8274360230440623  4.4816890703380645  10.9911026541602634
+#   exp(1.5 + 0.7 * qlogis(p))                  = 0.96265787130494151 4.48168907033806452 20.86466804240690109
+#   qexp(p, rate = exp(-1.5))   (scale = 1)     = 0.4721930714688628  3.1064701432511526  10.3194704447947743
+
+query III
+SELECT abs(aft_quantile(0.1, 1.5, 0.7, 'weibull') - 0.92750496712995256) < 1e-10,
+       abs(aft_quantile(0.5, 1.5, 0.7, 'weibull') - 3.46752455826036954) < 1e-10,
+       abs(aft_quantile(0.9, 1.5, 0.7, 'weibull') - 8.03512625080154308) < 1e-10;
+----
+true	true	true
+
+query III
+SELECT abs(aft_quantile(0.1, 1.5, 0.7, 'lognormal') - 1.8274360230440623) < 1e-9,
+       abs(aft_quantile(0.5, 1.5, 0.7, 'lognormal') - 4.4816890703380645) < 1e-9,
+       abs(aft_quantile(0.9, 1.5, 0.7, 'lognormal') - 10.9911026541602634) < 1e-9;
+----
+true	true	true
+
+query III
+SELECT abs(aft_quantile(0.1, 1.5, 0.7, 'loglogistic') - 0.96265787130494151) < 1e-10,
+       abs(aft_quantile(0.5, 1.5, 0.7, 'loglogistic') - 4.48168907033806452) < 1e-10,
+       abs(aft_quantile(0.9, 1.5, 0.7, 'loglogistic') - 20.86466804240690109) < 1e-10;
+----
+true	true	true
+
+query III
+SELECT abs(aft_quantile(0.1, 1.5, 1.0, 'exponential') - 0.4721930714688628) < 1e-10,
+       abs(aft_quantile(0.5, 1.5, 1.0, 'exponential') - 3.1064701432511526) < 1e-10,
+       abs(aft_quantile(0.9, 1.5, 1.0, 'exponential') - 10.3194704447947743) < 1e-10;
+----
+true	true	true
+
+# R: pweibull(10, 1/0.7, exp(1.5)) = 0.95703271796731304; plnorm(10, 1.5, 0.7) = 0.87421620183557214;
+#    plogis((log(10) - 1.5) / 0.7) = 0.75888022060155214; pexp(10, exp(-1.5)) = 0.89261143798245224
+query IIII
+SELECT abs(aft_cdf(10.0, 1.5, 0.7, 'weibull') - 0.95703271796731304) < 1e-10,
+       abs(aft_cdf(10.0, 1.5, 0.7, 'lognormal') - 0.87421620183557214) < 1e-9,
+       abs(aft_cdf(10.0, 1.5, 0.7, 'loglogistic') - 0.75888022060155214) < 1e-10,
+       abs(aft_cdf(10.0, 1.5, 1.0, 'exponential') - 0.89261143798245224) < 1e-10;
+----
+true	true	true	true
+
+# Distribution aliases accepted by the parser (aft_dist.rs) and case-insensitivity
+query III
+SELECT aft_quantile(0.5, 1.5, 0.7, 'log-normal') = aft_quantile(0.5, 1.5, 0.7, 'lognormal'),
+       aft_quantile(0.5, 1.5, 0.7, 'log_logistic') = aft_quantile(0.5, 1.5, 0.7, 'loglogistic'),
+       aft_quantile(0.5, 1.5, 1.0, 'exp') = aft_quantile(0.5, 1.5, 1.0, 'exponential');
+----
+true	true	true
+
+# Vectorised over a table, monotone in p, round-trips through aft_cdf
+query II
+SELECT bool_and(q_lo < q_hi), bool_and(abs(aft_cdf(q_hi, eta, 0.4, 'loglogistic') - 0.8) < 1e-9)
+FROM (SELECT i * 0.25 AS eta,
+             aft_quantile(0.3, i * 0.25, 0.4, 'loglogistic') AS q_lo,
+             aft_quantile(0.8, i * 0.25, 0.4, 'loglogistic') AS q_hi
+      FROM range(1, 21) t(i));
+----
+true	true
+
+# NULL in any argument -> NULL
+query IIII
+SELECT aft_quantile(NULL, 1.5, 0.7, 'weibull'), aft_quantile(0.5, NULL, 0.7, 'weibull'),
+       aft_quantile(0.5, 1.5, NULL, 'weibull'), aft_quantile(0.5, 1.5, 0.7, NULL);
+----
+NULL	NULL	NULL	NULL
+
+statement error
+SELECT aft_quantile(0.5, 1.5, 0.7, 'cauchy');
+----
+Unknown AFT distribution 'cauchy'. Expected 'weibull', 'lognormal', 'loglogistic' or 'exponential'.
+
+# Boundaries: the quantile function at p = 0 is 0 and at p = 1 is +Inf
+# (R: qweibull(0, ...) = 0, qweibull(1, ...) = Inf). Today p is silently clamped
+# to [1e-12, 1 - 1e-12], giving 1.78e-08 and 45.75.
+query II
+SELECT aft_quantile(0.0, 1.5, 0.7, 'weibull') = 0.0, aft_quantile(1.0, 1.5, 0.7, 'weibull') = 'inf'::DOUBLE;
+----
+true	true
+
+# p outside [0, 1] and a non-positive scale are not valid inputs: NULL or NaN,
+# never a finite number (today p = 1.5 returns 45.75 and scale = -1 returns 6.47).
+query III
+SELECT coalesce(isnan(aft_quantile(1.5, 1.5, 0.7, 'weibull')), true),
+       coalesce(isnan(aft_quantile(-0.1, 1.5, 0.7, 'lognormal')), true),
+       coalesce(isnan(aft_quantile(0.5, 1.5, -1.0, 'weibull')), true);
+----
+true	true	true

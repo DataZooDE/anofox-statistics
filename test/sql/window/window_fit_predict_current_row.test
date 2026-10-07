@@ -1,0 +1,50 @@
+# name: test/sql/window/window_fit_predict_current_row.test
+# description: Window *_fit_predict predicts for the LAST row of the frame. Over a unique ORDER BY with a
+#              frame ending at CURRENT ROW that is the current row: yhat must equal intercept + slope * x of
+#              the current row, using a refit (ols_fit_agg) over exactly the frame rows (self-join).
+# group: [window]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE d AS
+SELECT i AS t,
+       ((i * 17) % 23)::DOUBLE + 0.05 * i AS x,
+       CASE WHEN i % 13 <> 0 THEN 3.0 - 0.8 * (((i * 17) % 23) + 0.05 * i) + ((i * 31) % 11 - 5) * 0.4 END AS y
+FROM range(1, 201) r(i);
+
+# Rolling 30-row frame: a prediction needs >= 3 training rows (t >= 3), rows with NULL y are still predicted
+query III
+WITH w AS (
+    SELECT t, x, (ols_fit_predict(y, [x]) OVER (ORDER BY t ROWS BETWEEN 29 PRECEDING AND CURRENT ROW)).yhat AS yhat
+    FROM d
+),
+r AS (
+    SELECT a.t, ols_fit_agg(b.y, [b.x]) AS m, count(b.y) AS ntrain
+    FROM d a JOIN d b ON b.t BETWEEN a.t - 29 AND a.t
+    GROUP BY a.t
+)
+SELECT count(*) FILTER (w.yhat IS NOT NULL),
+       count(*) FILTER (r.ntrain > 2),
+       max(abs(w.yhat - (r.m.intercept + r.m.coefficients[1] * w.x))) < 1e-9
+FROM w JOIN r USING (t);
+----
+198	198	true
+
+# The prediction must depend on the current row's x: rows whose frames contain the same training
+# data (rows with NULL y at the frame end) still get yhat = intercept + slope * own x
+query II
+WITH w AS (
+    SELECT t, x, y, (ols_fit_predict(y, [x]) OVER (ORDER BY t ROWS BETWEEN 29 PRECEDING AND CURRENT ROW)).yhat AS yhat
+    FROM d
+),
+r AS (
+    SELECT a.t, ols_fit_agg(b.y, [b.x]) AS m
+    FROM d a JOIN d b ON b.t BETWEEN a.t - 29 AND a.t
+    GROUP BY a.t
+)
+SELECT count(*), max(abs(w.yhat - (r.m.intercept + r.m.coefficients[1] * w.x))) < 1e-9
+FROM w JOIN r USING (t)
+WHERE w.y IS NULL;
+----
+15	true

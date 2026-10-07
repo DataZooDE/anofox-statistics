@@ -5,34 +5,36 @@
 require anofox_statistics
 
 # =============================================================================
-# INSUFFICIENT DATA ERRORS
+# INSUFFICIENT DATA -> NULL
+# Too few rows is a data-dependent degenerate outcome: the result is NULL (the
+# same as the *_fit_agg aggregates), not an error.
 # =============================================================================
 
 # OLS requires at least n_effective_features + 1 observations (with intercept)
 # With 2 non-constant features + intercept, need at least 3 observations.
 # 2 observations with 2 features is insufficient.
-statement error
-SELECT ols_fit([1.0, 2.0], [[1.0, 2.0], [3.0, 4.0]]);
+query I
+SELECT ols_fit([1.0, 2.0], [[1.0, 2.0], [3.0, 4.0]]) IS NULL;
 ----
-Insufficient data
+true
 
 # Ridge requires minimum observations (using MAP syntax)
-statement error
-SELECT ridge_fit([1.0, 2.0], [[1.0, 2.0], [3.0, 4.0]], {'alpha': 0.1});
+query I
+SELECT ridge_fit([1.0, 2.0], [[1.0, 2.0], [3.0, 4.0]], {'alpha': 0.1}) IS NULL;
 ----
-Insufficient data
+true
 
 # Elastic Net requires minimum observations (using MAP syntax)
-statement error
-SELECT elasticnet_fit([1.0, 2.0], [[1.0, 2.0], [3.0, 4.0]], {'alpha': 0.1, 'l1_ratio': 0.5});
+query I
+SELECT elasticnet_fit([1.0, 2.0], [[1.0, 2.0], [3.0, 4.0]], {'alpha': 0.1, 'l1_ratio': 0.5}) IS NULL;
 ----
-Insufficient data
+true
 
 # WLS requires minimum observations
-statement error
-SELECT wls_fit([1.0, 2.0], [[1.0, 2.0], [3.0, 4.0]], [1.0, 1.0]);
+query I
+SELECT wls_fit([1.0, 2.0], [[1.0, 2.0], [3.0, 4.0]], [1.0, 1.0]) IS NULL;
 ----
-Insufficient data
+true
 
 # Note: RLS does not require minimum observations like OLS
 # It can start with even 1 observation since it uses online learning
@@ -75,18 +77,20 @@ Dimension mismatch
 # This is a known behavior - parameter validation could be added in future versions
 
 # =============================================================================
-# EMPTY INPUT ERRORS
+# EMPTY INPUT -> NULL
 # =============================================================================
 
-# Empty Y array
-statement error
-SELECT ols_fit([]::DOUBLE[], [[1.0, 2.0, 3.0]]);
+# Empty Y array: no data -> NULL
+query I
+SELECT ols_fit([]::DOUBLE[], [[1.0, 2.0, 3.0]]) IS NULL;
 ----
+true
 
-# Empty X array
-statement error
-SELECT ols_fit([1.0, 2.0, 3.0], []::LIST(DOUBLE)[]);
+# Empty X array: no features -> NULL
+query I
+SELECT ols_fit([1.0, 2.0, 3.0], []::DOUBLE[][]) IS NULL;
 ----
+true
 
 # =============================================================================
 # SINGULAR MATRIX / COLLINEARITY

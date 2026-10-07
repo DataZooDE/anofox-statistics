@@ -4,7 +4,7 @@ A statistical analysis extension for DuckDB, providing regression analysis, diag
 
 [![License: BSL 1.1](https://img.shields.io/badge/License-BSL%201.1-blue.svg)](LICENSE)
 [![DuckDB Version](https://img.shields.io/badge/DuckDB-v1.4.5%20LTS%20%7C%20v1.5.x-brightgreen.svg)](https://duckdb.org)
-[![WASM](https://github.com/DataZooDE/anofox-statistics/actions/workflows/WasmTest.yml/badge.svg?branch=main)](https://github.com/DataZooDE/anofox-statistics/actions/workflows/WasmTest.yml)
+[![Build & WASM tests](https://github.com/DataZooDE/anofox-statistics/actions/workflows/MainDistributionPipeline.yml/badge.svg?branch=main)](https://github.com/DataZooDE/anofox-statistics/actions/workflows/MainDistributionPipeline.yml)
 [![Claude Code Plugin](https://img.shields.io/badge/Claude_Code-AI_skills_plugin-8A2BE2)](#-claude-code-skills-ai-pair-programming)
 
 > [!TIP]
@@ -58,23 +58,24 @@ Every function is unprefixed (`ols_fit_agg`, `theil_sen_fit`, …) and takes mod
 | RANSAC | `ransac_fit`, `ransac_fit_agg` | Robust consensus regression (reports `n_inliers` and `n_trials`) | [ransac](docs/api/regression/ransac.md) |
 | Theil-Sen | `theil_sen_fit`, `theil_sen_fit_agg` | Robust nonparametric regression via spatial median over subsamples | [theil_sen](docs/api/regression/theil_sen.md) |
 | BLS / NNLS | `bls_fit_agg`, `nnls_fit_agg` | Bounded / non-negative least squares | [bls](docs/api/regression/bls.md) |
-| PLS | `pls_fit_agg`, `pls_fit_predict_agg` | Partial Least Squares <!-- TODO(lead): verify after *_fit_agg lands --> | [pls](docs/api/regression/pls.md) |
-| Isotonic | `isotonic_fit_agg`, `isotonic_fit_predict_agg` | Monotonic regression <!-- TODO(lead): verify after *_fit_agg lands --> | [isotonic](docs/api/regression/isotonic.md) |
-| Quantile | `quantile_fit_agg`, `quantile_fit_predict_agg` | Quantile / median regression <!-- TODO(lead): verify after *_fit_agg lands --> | [quantile](docs/api/regression/quantile.md) |
+| PLS | `pls_fit_agg`, `pls_fit_predict_agg` | Partial Least Squares | [pls](docs/api/regression/pls.md) |
+| Isotonic | `isotonic_fit_agg`, `isotonic_fit_predict_agg` | Monotonic regression | [isotonic](docs/api/regression/isotonic.md) |
+| Quantile | `quantile_fit_agg`, `quantile_fit_predict_agg` | Quantile / median regression | [quantile](docs/api/regression/quantile.md) |
 
 ### Generalized Linear, Survival and Hierarchical Models
 
 | Method | Functions | Description | Docs |
 |--------|-----------|-------------|------|
-| Poisson | `poisson_fit_agg` | GLM for count data | [poisson](docs/api/glm/poisson.md) |
-| Binomial | `binomial_fit_agg` | GLM for success-rate data (logit / probit / cloglog links) | [binomial](docs/api/glm/binomial.md) |
-| Logistic | `logistic_fit_agg` | Binary classification (logit link); reports accuracy and the threshold used | [logistic](docs/api/glm/logistic.md) |
-| Negative Binomial | `negbinom_fit_agg` | GLM for overdispersed counts (dispersion estimated jointly) | [negbinom](docs/api/glm/negbinom.md) |
-| Gamma | `gamma_fit_agg` | GLM for strictly positive continuous outcomes | [gamma](docs/api/glm/gamma.md) |
-| Tweedie | `tweedie_fit_agg` | GLM for zero-inflated positive-skew outcomes | [tweedie](docs/api/glm/tweedie.md) |
+| Poisson | `poisson_fit_agg`, `poisson_fit_predict_agg`, `poisson_fit_predict_by` | GLM for count data | [poisson](docs/api/glm/poisson.md) |
+| Binomial | `binomial_fit_agg`, `binomial_fit_predict_by` | GLM for success-rate data (logit / probit / cloglog links) | [binomial](docs/api/glm/binomial.md) |
+| Logistic | `logistic_fit_agg`, `logistic_fit_predict_by` | Binary classification (logit link); reports accuracy and the threshold used | [logistic](docs/api/glm/logistic.md) |
+| Negative Binomial | `negbinom_fit_agg`, `negbinom_fit_predict_by` | GLM for overdispersed counts (dispersion estimated jointly) | [negbinom](docs/api/glm/negbinom.md) |
+| Gamma | `gamma_fit_agg`, `gamma_fit_predict_by` | GLM for strictly positive continuous outcomes | [gamma](docs/api/glm/gamma.md) |
+| Tweedie | `tweedie_fit_agg`, `tweedie_fit_predict_by` | GLM for zero-inflated positive-skew outcomes | [tweedie](docs/api/glm/tweedie.md) |
 | GLM priors | `prior` option | Normal / Laplace priors on GLM coefficients | [priors](docs/api/glm/priors.md) |
-| ALM | `alm_fit_agg` | Augmented Linear Model with 24 error distributions | [alm](docs/api/glm/alm.md) |
+| ALM | `alm_fit_agg`, `alm_fit_predict_agg`, `alm_fit_predict_by` | Augmented Linear Model with 24 error distributions | [alm](docs/api/glm/alm.md) |
 | AFT survival | `aft_fit_agg`, `aft_cdf`, `aft_quantile` | Accelerated failure time models with right censoring; CDF and quantile helpers | [aft](docs/api/survival/aft.md) |
+| GLM results | `family`, `link` fields | Every GLM result struct ends with its `family` and `link`, so `predict` returns response-scale predictions | [model_tools](docs/api/regression/model_tools.md) |
 | Mixed effects | `glmm_fit_agg`, `glmm_fit_by` | Random intercepts / slopes over grouping factors | [glmm](docs/api/glm/glmm.md) |
 | EB shrinkage | `eb_shrink_agg`, `eb_shrink_by` | Empirical-Bayes partial pooling of per-group estimates | [eb_shrink](docs/api/glm/eb_shrink.md) |
 
@@ -82,13 +83,16 @@ Every function is unprefixed (`ols_fit_agg`, `theil_sen_fit`, …) and takes mod
 
 | Function | Description | Docs |
 |----------|-------------|------|
-| `predict(x_new, coefficients, intercept)` | Score new points from fitted coefficients (column-major `x_new`) | [API reference](docs/API_REFERENCE.md) |
+| `predict(model, x[, {'type': 'response'\|'link'}])` | Score one row with the STRUCT returned by any `*_fit_agg` / `*_fit`; GLMs predict on the response scale (or the link scale), isotonic models interpolate between knots | [model_tools](docs/api/regression/model_tools.md) |
+| `predict(x_new, coefficients, intercept)`, `linear_predict(...)` | Score new points from fitted coefficients (column-major `x_new`); returns a LIST | [model_tools](docs/api/regression/model_tools.md) |
+| `tidy(model[, names])` | One row per term (intercept first): estimate, std. error, statistic, p-value, confidence interval — use with `unnest(..., recursive := true)` | [model_tools](docs/api/regression/model_tools.md) |
+| `glance(model)` | One-row summary of a model's scalar fields (R², AIC, n, family, link, …) | [model_tools](docs/api/regression/model_tools.md) |
 | `ols_fit_predict`, `ridge_fit_predict`, `elasticnet_fit_predict`, `wls_fit_predict`, `rls_fit_predict`, `huber_fit_predict`, `ransac_fit_predict`, `theil_sen_fit_predict` | Window aggregates (`OVER (...)`): fit on the frame and return `yhat`, `yhat_lower`, `yhat_upper` for the last row of the frame (use frames ending at `CURRENT ROW`) | [fit_predict_window](docs/api/regression/fit_predict_window.md) |
 | `ols_fit_predict_agg`, `ridge_fit_predict_agg`, `elasticnet_fit_predict_agg`, `wls_fit_predict_agg`, `rls_fit_predict_agg`, `huber_fit_predict_agg`, `ransac_fit_predict_agg`, `theil_sen_fit_predict_agg`, `bls_fit_predict_agg`, `alm_fit_predict_agg`, `poisson_fit_predict_agg`, `pls_fit_predict_agg`, `isotonic_fit_predict_agg`, `quantile_fit_predict_agg` | Fit on rows with non-NULL `y`, return a LIST of per-row predictions (`y`, `yhat`, `yhat_lower`, `yhat_upper`, `is_training`) | [fit_predict_agg](docs/api/regression/fit_predict_agg.md) |
 
 ### Fit-Predict Table Macros (`*_fit_predict_by`)
 
-Per-group model fitting and prediction with a single call. `source` is a table name string; the result is every source row plus `yhat`, `yhat_lower`, `yhat_upper`, `is_training`. See [table_macros](docs/api/macros/table_macros.md).
+Per-group model fitting and prediction with a single call. `source` is a table name string; the result is every source row plus `yhat`, `yhat_lower`, `yhat_upper`, `is_training`. Optional named arguments: `options := {...}`, `split := col` (rows whose value is neither `'train'` nor NULL are predicted only) and `order_by := col` (deterministic row alignment within each group; the GLM macros other than Poisson do not need it). Prediction intervals are leverage-aware (see [METHODOLOGY](docs/METHODOLOGY.md#prediction-intervals)). See [table_macros](docs/api/macros/table_macros.md).
 
 | Macro | Description |
 |-------|-------------|
@@ -103,6 +107,7 @@ Per-group model fitting and prediction with a single call. `source` is a table n
 | `bls_fit_predict_by` | Bounded LS per-group fit + predict |
 | `alm_fit_predict_by` | ALM per-group fit + predict |
 | `poisson_fit_predict_by` | Poisson GLM per-group fit + predict |
+| `binomial_fit_predict_by`, `logistic_fit_predict_by`, `negbinom_fit_predict_by`, `gamma_fit_predict_by`, `tweedie_fit_predict_by` | GLM per-group fit + predict; `yhat` on the response scale, `yhat_lower`/`yhat_upper` NULL |
 | `pls_fit_predict_by` | PLS per-group fit + predict |
 | `isotonic_fit_predict_by` | Isotonic per-group fit + predict (single `x_col`) |
 | `quantile_fit_predict_by` | Quantile per-group fit + predict |
@@ -240,6 +245,18 @@ SELECT
 -- 70 sqm → ~167 kEUR, 100 sqm → ~239 kEUR, 140 sqm → ~336 kEUR
 ```
 
+The aggregate result is the fitted model; `predict(model, x)` scores one row with it, and `tidy` / `glance` turn it into report tables:
+
+```sql
+-- Score a new house with the fitted model
+SELECT round(predict(ols_fit_agg(price_keur, [sqm]), [70.0]), 1) AS predicted_keur FROM houses;
+
+-- Coefficient table and one-row model summary
+SELECT unnest(tidy(ols_fit_agg(price_keur, [sqm], {'compute_inference': true}), ['sqm']), recursive := true)
+FROM houses;
+SELECT unnest(glance(ols_fit_agg(price_keur, [sqm]))) FROM houses;
+```
+
 ### Step 3 — Inspect residuals
 
 ```sql
@@ -315,7 +332,23 @@ ORDER BY units_sold
 LIMIT 5;
 ```
 
-Frames that end before the current row (`... AND 1 PRECEDING`) do not give a one-step-ahead forecast, and `OVER (PARTITION BY g)` without `ORDER BY` gives every row the same prediction. For one prediction per row of a whole group use `ols_fit_predict_agg` or `ols_fit_predict_by`; see [fit_predict_window](docs/api/regression/fit_predict_window.md).
+`*_fit_predict` over a frame that ends before the current row (`... AND 1 PRECEDING`) does not give a one-step-ahead forecast, and `OVER (PARTITION BY g)` without `ORDER BY` gives every row the same prediction. For one prediction per row of a whole group use `ols_fit_predict_agg` or `ols_fit_predict_by`; see [fit_predict_window](docs/api/regression/fit_predict_window.md).
+
+For a one-step-ahead forecast, fit the aggregate on the strictly earlier rows and score the current row with `predict`:
+
+```sql
+SELECT
+    units_sold,
+    revenue,
+    round(predict((ols_fit_agg(revenue, [units_sold]) OVER (
+        PARTITION BY category ORDER BY units_sold
+        ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+    )), [units_sold]), 2) AS yhat_next   -- NULL until the frame holds enough rows
+FROM sales_data
+WHERE category = 'A'
+ORDER BY units_sold
+LIMIT 5;
+```
 
 ---
 

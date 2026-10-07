@@ -56,6 +56,15 @@ pub fn pearson(x: &[f64], y: &[f64], options: &PearsonOptions) -> StatsResult<Co
 
     let (x_filtered, y_filtered): (Vec<f64>, Vec<f64>) = pairs.into_iter().unzip();
 
+    // A constant variable has an undefined correlation; upstream panics on it
+    // (statrs beta XOutOfRange), so report it as degenerate data up front.
+    let is_constant = |v: &[f64]| v.iter().all(|&a| a == v[0]);
+    if is_constant(&x_filtered) || is_constant(&y_filtered) {
+        return Err(StatsError::InsufficientDataMsg(
+            "Pearson correlation is undefined for a constant variable (zero variance)".into(),
+        ));
+    }
+
     let result =
         lib_pearson(&x_filtered, &y_filtered, options.confidence_level).map_err(convert_error)?;
 

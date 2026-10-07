@@ -1,0 +1,187 @@
+# name: test/sql/parallel/parallel_hypothesis.test
+# description: 12k-row parallel (threads=8) vs single-threaded results for the hypothesis aggregates, grouped (8 groups, interleaved so every scan task touches every group) and ungrouped (over a subset). Exercises per-thread states + Combine.
+#              Tolerances: 1e-9 relative for closed-form / exact algorithms (only summation order differs),
+#              1e-6 for iterative fits that stop at a convergence tolerance.
+# group: [parallel]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE big AS
+SELECT i, g, x1, x2, e, w,
+       1.0 + g + 2.0 * x1 - 0.5 * x2 + e AS y,
+       -- exact line plus ~5% gross outliers (RANSAC recovers the line exactly, independent of sampling order)
+       1.0 + 2.0 * x1 - 0.5 * x2 + CASE WHEN u12 < 0.05 THEN 40.0 ELSE 0.0 END AS y_clean,
+       floor(exp(0.2 + 0.08 * x1 - 0.1 * x2) * (0.5 + u8) * 2.0) AS cnt,
+       (u8 < 1.0 / (1.0 + exp(-(-1.0 + 0.2 * x1 + 0.3 * x2))))::INT::DOUBLE AS bin,
+       exp(0.5 + 0.1 * x1 + 0.3 * e) AS pos,
+       (u9 * 4)::INT % 4 AS c1,
+       ((u9 + u10) * 1.5)::INT % 3 AS c2,
+       (u11 < 0.5)::INT AS g2,
+       (u10 < 0.3)::INT::BIGINT AS b1,
+       ((u10 + u11) < 0.6)::INT::BIGINT AS b2,
+       x1 + 0.3 * e AS v2,
+       exp(1.5 + 0.1 * x1 + 0.4 * e) AS surv_t,
+       (u13 < 0.8)::INT::DOUBLE AS event,
+       (i // 50) % 40 AS subj
+FROM (
+    SELECT i, (i % 8)::INT AS g,
+           ((hash(i * 16 + 1) % 1000003) / 1000003.0) * 10.0 AS x1,
+           ((hash(i * 16 + 2) % 1000003) / 1000003.0) * 5.0 - 2.5 AS x2,
+           (((hash(i * 16 + 3) % 1000003) / 1000003.0) + ((hash(i * 16 + 4) % 1000003) / 1000003.0) + ((hash(i * 16 + 5) % 1000003) / 1000003.0) + ((hash(i * 16 + 6) % 1000003) / 1000003.0) - 2.0) AS e,
+           0.5 + ((hash(i * 16 + 7) % 1000003) / 1000003.0) AS w,
+           ((hash(i * 16 + 8) % 1000003) / 1000003.0) AS u8, ((hash(i * 16 + 9) % 1000003) / 1000003.0) AS u9, ((hash(i * 16 + 10) % 1000003) / 1000003.0) AS u10, ((hash(i * 16 + 11) % 1000003) / 1000003.0) AS u11, ((hash(i * 16 + 12) % 1000003) / 1000003.0) AS u12, ((hash(i * 16 + 13) % 1000003) / 1000003.0) AS u13
+    FROM range(0, 12000) r(i)
+);
+
+# small subset for O(n^2) / small-n aggregates; still spread over the whole table so a parallel scan splits it
+statement ok
+CREATE VIEW small AS SELECT * FROM big WHERE i % 5 = 0;
+
+# tiny subset for permutation-based aggregates (cost ~ n_permutations * n^2)
+statement ok
+CREATE VIEW tiny AS SELECT * FROM big WHERE i % 25 = 0;
+
+# relative closeness of two DOUBLE[] (NULL/NaN/Inf must match exactly)
+statement ok
+CREATE MACRO vclose(a, b, tol) AS
+    len(a) = len(b) AND coalesce(list_max(list_transform(range(1, len(a) + 1), k ->
+        CASE WHEN a[k] IS NULL AND b[k] IS NULL THEN 0.0
+             WHEN a[k] IS NULL OR b[k] IS NULL THEN 1e300
+             WHEN isnan(a[k]) AND isnan(b[k]) THEN 0.0
+             WHEN isnan(a[k]) OR isnan(b[k]) THEN 1e300
+             WHEN isinf(a[k]) OR isinf(b[k]) THEN CASE WHEN a[k] = b[k] THEN 0.0 ELSE 1e300 END
+             ELSE abs(a[k] - b[k]) / greatest(1.0, abs(b[k])) END)), 0.0) <= tol;
+
+statement ok
+CREATE VIEW results AS
+    SELECT 't_test_agg_welch' AS fn, g, 1e-9::DOUBLE AS tol, [(t_test_agg(y, g2)).statistic, (t_test_agg(y, g2)).p_value, (t_test_agg(y, g2)).df, (t_test_agg(y, g2)).ci_lower, (t_test_agg(y, g2)).ci_upper]::DOUBLE[] AS vals FROM big GROUP BY g
+    UNION ALL
+    SELECT 't_test_agg_welch' AS fn, -1 AS g, 1e-9::DOUBLE AS tol, [(t_test_agg(y, g2)).statistic, (t_test_agg(y, g2)).p_value, (t_test_agg(y, g2)).df, (t_test_agg(y, g2)).ci_lower, (t_test_agg(y, g2)).ci_upper]::DOUBLE[] AS vals FROM small
+    UNION ALL
+    SELECT 't_test_agg_student' AS fn, g, 1e-9::DOUBLE AS tol, [(t_test_agg(y, g2, {'var_equal': true})).statistic, (t_test_agg(y, g2, {'var_equal': true})).p_value]::DOUBLE[] AS vals FROM big GROUP BY g
+    UNION ALL
+    SELECT 't_test_agg_student' AS fn, -1 AS g, 1e-9::DOUBLE AS tol, [(t_test_agg(y, g2, {'var_equal': true})).statistic, (t_test_agg(y, g2, {'var_equal': true})).p_value]::DOUBLE[] AS vals FROM small
+    UNION ALL
+    SELECT 'mann_whitney_u_agg' AS fn, g, 1e-9::DOUBLE AS tol, [(mann_whitney_u_agg(y, g2)).statistic, (mann_whitney_u_agg(y, g2)).p_value]::DOUBLE[] AS vals FROM big GROUP BY g
+    UNION ALL
+    SELECT 'mann_whitney_u_agg' AS fn, -1 AS g, 1e-9::DOUBLE AS tol, [(mann_whitney_u_agg(y, g2)).statistic, (mann_whitney_u_agg(y, g2)).p_value]::DOUBLE[] AS vals FROM small
+    UNION ALL
+    SELECT 'brunner_munzel_agg' AS fn, g, 1e-9::DOUBLE AS tol, [(brunner_munzel_agg(y, g2)).statistic, (brunner_munzel_agg(y, g2)).p_value]::DOUBLE[] AS vals FROM big GROUP BY g
+    UNION ALL
+    SELECT 'brunner_munzel_agg' AS fn, -1 AS g, 1e-9::DOUBLE AS tol, [(brunner_munzel_agg(y, g2)).statistic, (brunner_munzel_agg(y, g2)).p_value]::DOUBLE[] AS vals FROM small
+    UNION ALL
+    SELECT 'yuen_agg' AS fn, g, 1e-9::DOUBLE AS tol, [(yuen_agg(y, g2)).statistic, (yuen_agg(y, g2)).p_value]::DOUBLE[] AS vals FROM big GROUP BY g
+    UNION ALL
+    SELECT 'yuen_agg' AS fn, -1 AS g, 1e-9::DOUBLE AS tol, [(yuen_agg(y, g2)).statistic, (yuen_agg(y, g2)).p_value]::DOUBLE[] AS vals FROM small
+    UNION ALL
+    SELECT 'tost_t_test_agg' AS fn, g, 1e-9::DOUBLE AS tol, [(tost_t_test_agg(y, g2)).p_value]::DOUBLE[] AS vals FROM big GROUP BY g
+    UNION ALL
+    SELECT 'tost_t_test_agg' AS fn, -1 AS g, 1e-9::DOUBLE AS tol, [(tost_t_test_agg(y, g2)).p_value]::DOUBLE[] AS vals FROM small
+    UNION ALL
+    SELECT 'kruskal_wallis_agg' AS fn, g, 1e-9::DOUBLE AS tol, [(kruskal_wallis_agg(y, c1)).statistic, (kruskal_wallis_agg(y, c1)).p_value]::DOUBLE[] AS vals FROM big GROUP BY g
+    UNION ALL
+    SELECT 'kruskal_wallis_agg' AS fn, -1 AS g, 1e-9::DOUBLE AS tol, [(kruskal_wallis_agg(y, c1)).statistic, (kruskal_wallis_agg(y, c1)).p_value]::DOUBLE[] AS vals FROM small
+    UNION ALL
+    SELECT 'one_way_anova_agg' AS fn, g, 1e-9::DOUBLE AS tol, [(one_way_anova_agg(y, c1)).f_statistic, (one_way_anova_agg(y, c1)).p_value]::DOUBLE[] AS vals FROM big GROUP BY g
+    UNION ALL
+    SELECT 'one_way_anova_agg' AS fn, -1 AS g, 1e-9::DOUBLE AS tol, [(one_way_anova_agg(y, c1)).f_statistic, (one_way_anova_agg(y, c1)).p_value]::DOUBLE[] AS vals FROM small
+    UNION ALL
+    SELECT 'brown_forsythe_agg' AS fn, g, 1e-9::DOUBLE AS tol, [(brown_forsythe_agg(y, c1)).statistic, (brown_forsythe_agg(y, c1)).p_value]::DOUBLE[] AS vals FROM big GROUP BY g
+    UNION ALL
+    SELECT 'brown_forsythe_agg' AS fn, -1 AS g, 1e-9::DOUBLE AS tol, [(brown_forsythe_agg(y, c1)).statistic, (brown_forsythe_agg(y, c1)).p_value]::DOUBLE[] AS vals FROM small
+    UNION ALL
+    SELECT 'wilcoxon_signed_rank_agg' AS fn, g, 1e-9::DOUBLE AS tol, [(wilcoxon_signed_rank_agg(y, v2)).statistic, (wilcoxon_signed_rank_agg(y, v2)).p_value]::DOUBLE[] AS vals FROM big GROUP BY g
+    UNION ALL
+    SELECT 'wilcoxon_signed_rank_agg' AS fn, -1 AS g, 1e-9::DOUBLE AS tol, [(wilcoxon_signed_rank_agg(y, v2)).statistic, (wilcoxon_signed_rank_agg(y, v2)).p_value]::DOUBLE[] AS vals FROM small
+    UNION ALL
+    SELECT 'shapiro_wilk_agg' AS fn, g, 1e-9::DOUBLE AS tol, [(shapiro_wilk_agg(e)).statistic, (shapiro_wilk_agg(e)).p_value]::DOUBLE[] AS vals FROM small GROUP BY g
+    UNION ALL
+    SELECT 'shapiro_wilk_agg' AS fn, -1 AS g, 1e-9::DOUBLE AS tol, [(shapiro_wilk_agg(e)).statistic, (shapiro_wilk_agg(e)).p_value]::DOUBLE[] AS vals FROM small
+    UNION ALL
+    SELECT 'jarque_bera_agg' AS fn, g, 1e-9::DOUBLE AS tol, [(jarque_bera_agg(e)).statistic, (jarque_bera_agg(e)).p_value]::DOUBLE[] AS vals FROM big GROUP BY g
+    UNION ALL
+    SELECT 'jarque_bera_agg' AS fn, -1 AS g, 1e-9::DOUBLE AS tol, [(jarque_bera_agg(e)).statistic, (jarque_bera_agg(e)).p_value]::DOUBLE[] AS vals FROM small
+    UNION ALL
+    SELECT 'dagostino_k2_agg' AS fn, g, 1e-9::DOUBLE AS tol, [(dagostino_k2_agg(e)).statistic, (dagostino_k2_agg(e)).p_value]::DOUBLE[] AS vals FROM big GROUP BY g
+    UNION ALL
+    SELECT 'dagostino_k2_agg' AS fn, -1 AS g, 1e-9::DOUBLE AS tol, [(dagostino_k2_agg(e)).statistic, (dagostino_k2_agg(e)).p_value]::DOUBLE[] AS vals FROM small
+    UNION ALL
+    -- statistic is reported as NaN
+    SELECT 'binom_test_agg' AS fn, g, 1e-9::DOUBLE AS tol, [(binom_test_agg(b1)).p_value, (binom_test_agg(b1)).estimate, (binom_test_agg(b1)).ci_lower]::DOUBLE[] AS vals FROM big GROUP BY g
+    UNION ALL
+    SELECT 'binom_test_agg' AS fn, -1 AS g, 1e-9::DOUBLE AS tol, [(binom_test_agg(b1)).p_value, (binom_test_agg(b1)).estimate, (binom_test_agg(b1)).ci_lower]::DOUBLE[] AS vals FROM small
+    UNION ALL
+    SELECT 'prop_test_one_agg' AS fn, g, 1e-9::DOUBLE AS tol, [(prop_test_one_agg(b1, {'p': 0.3})).statistic, (prop_test_one_agg(b1, {'p': 0.3})).p_value]::DOUBLE[] AS vals FROM big GROUP BY g
+    UNION ALL
+    SELECT 'prop_test_one_agg' AS fn, -1 AS g, 1e-9::DOUBLE AS tol, [(prop_test_one_agg(b1, {'p': 0.3})).statistic, (prop_test_one_agg(b1, {'p': 0.3})).p_value]::DOUBLE[] AS vals FROM small
+    UNION ALL
+    SELECT 'prop_test_two_agg' AS fn, g, 1e-9::DOUBLE AS tol, [(prop_test_two_agg(b1, g2)).statistic, (prop_test_two_agg(b1, g2)).p_value]::DOUBLE[] AS vals FROM big GROUP BY g
+    UNION ALL
+    SELECT 'prop_test_two_agg' AS fn, -1 AS g, 1e-9::DOUBLE AS tol, [(prop_test_two_agg(b1, g2)).statistic, (prop_test_two_agg(b1, g2)).p_value]::DOUBLE[] AS vals FROM small
+    UNION ALL
+    -- statistic only: permuted p-value depends on pooled row order
+    SELECT 'permutation_t_test_agg' AS fn, g, 1e-9::DOUBLE AS tol, [(permutation_t_test_agg(y, g2, {'n_permutations': 9, 'seed': 42})).statistic]::DOUBLE[] AS vals FROM tiny GROUP BY g
+    UNION ALL
+    SELECT 'permutation_t_test_agg' AS fn, -1 AS g, 1e-9::DOUBLE AS tol, [(permutation_t_test_agg(y, g2, {'n_permutations': 9, 'seed': 42})).statistic]::DOUBLE[] AS vals FROM tiny
+    UNION ALL
+    -- statistic only
+    SELECT 'energy_distance_agg' AS fn, g, 1e-9::DOUBLE AS tol, [(energy_distance_agg(y, g2, {'n_permutations': 9, 'seed': 42})).statistic]::DOUBLE[] AS vals FROM tiny GROUP BY g
+    UNION ALL
+    SELECT 'energy_distance_agg' AS fn, -1 AS g, 1e-9::DOUBLE AS tol, [(energy_distance_agg(y, g2, {'n_permutations': 9, 'seed': 42})).statistic]::DOUBLE[] AS vals FROM tiny
+    UNION ALL
+    -- statistic only
+    SELECT 'mmd_agg' AS fn, g, 1e-9::DOUBLE AS tol, [(mmd_agg(y, g2, {'n_permutations': 9, 'seed': 42})).statistic]::DOUBLE[] AS vals FROM tiny GROUP BY g
+    UNION ALL
+    SELECT 'mmd_agg' AS fn, -1 AS g, 1e-9::DOUBLE AS tol, [(mmd_agg(y, g2, {'n_permutations': 9, 'seed': 42})).statistic]::DOUBLE[] AS vals FROM tiny;
+
+# single-threaded reference
+statement ok
+SET threads = 1;
+
+statement ok
+CREATE TABLE ref AS SELECT * FROM results;
+
+# parallel run: 8 threads, every scan vector a separate task (PRAGMA verify_parallelism)
+statement ok
+SET threads = 8;
+
+statement ok
+PRAGMA verify_parallelism;
+
+statement ok
+CREATE TABLE par AS SELECT * FROM results;
+
+# sanity: the reference results are real numbers (a NULL/NaN result would compare equal trivially)
+query I
+SELECT DISTINCT fn FROM ref
+WHERE vals IS NULL OR len(vals) = 0 OR list_count(list_filter(vals, v -> v IS NULL OR isnan(v))) > 0
+ORDER BY fn;
+----
+
+# per function: 8 groups + ungrouped (over the subset) must all match the single-threaded result
+query III
+SELECT fn, count(*), bool_and(vclose(par.vals, ref.vals, ref.tol))
+FROM ref JOIN par USING (fn, g)
+GROUP BY fn
+ORDER BY fn;
+----
+binom_test_agg	9	true
+brown_forsythe_agg	9	true
+brunner_munzel_agg	9	true
+dagostino_k2_agg	9	true
+energy_distance_agg	9	true
+jarque_bera_agg	9	true
+kruskal_wallis_agg	9	true
+mann_whitney_u_agg	9	true
+mmd_agg	9	true
+one_way_anova_agg	9	true
+permutation_t_test_agg	9	true
+prop_test_one_agg	9	true
+prop_test_two_agg	9	true
+shapiro_wilk_agg	9	true
+t_test_agg_student	9	true
+t_test_agg_welch	9	true
+tost_t_test_agg	9	true
+wilcoxon_signed_rank_agg	9	true
+yuen_agg	9	true

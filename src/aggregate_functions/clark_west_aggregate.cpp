@@ -8,6 +8,7 @@
 
 #include "../include/anofox_stats_ffi.h"
 #include "../include/result_fields.hpp"
+#include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
 #include "../include/ffi_enum_converters.hpp"
 #include "telemetry.hpp"
@@ -203,6 +204,7 @@ static void ClarkWestAggFinalize(Vector &state_vector, AggregateInputData &aggr_
                                           bind_data.horizon, &test_result, &error);
 
         if (!success) {
+            ThrowUnlessDegenerate("clark_west_agg", error);
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
@@ -266,7 +268,11 @@ void RegisterClarkWestAggregateFunction(ExtensionLoader &loader) {
 
     {
         AggregateFunctionSet func_set("clark_west_agg");
+        // Row order is part of the input (sequential / time-series estimator):
+        // declare it so DuckDB honours `agg(... ORDER BY t)`.
+        func_with_opts.SetOrderDependent(AggregateOrderDependent::ORDER_DEPENDENT);
         func_set.AddFunction(func_with_opts);
+        func_no_opts.SetOrderDependent(AggregateOrderDependent::ORDER_DEPENDENT);
         func_set.AddFunction(func_no_opts);
         CreateAggregateFunctionInfo info(std::move(func_set));
         info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;

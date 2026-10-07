@@ -88,7 +88,7 @@ only rows whose split value is `'train'` are trained on. Options: the
 
 ```text
 alm_fit_predict_by(source VARCHAR, group_col, y_col, x_cols
-                   [, options MAP] [, split VARCHAR column]) -> TABLE
+                   [, options MAP] [, split := column] [, order_by := column]) -> TABLE
 ```
 
 Returns every source row plus `yhat`, `yhat_lower`, `yhat_upper`,

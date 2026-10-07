@@ -55,7 +55,7 @@ The statistical model or family name, using snake_case:
 |------|-------------|
 | `fit` | Fit a model, returning a STRUCT with coefficients and diagnostics |
 | `fit_predict` | Fit and return predictions |
-| `predict` | Predict from previously computed coefficients (`predict(x_new, coefficients, intercept)`) |
+| `predict` | Predict from a fitted model struct (`predict(model, x)`) or from coefficients (`predict(x_new, coefficients, intercept)`, also `linear_predict`); see [Model tools](api/regression/model_tools.md) |
 | `fit_by`, `fit_predict_by` | Table macro that runs a fit per group of a table |
 
 Hypothesis tests are named after the test itself (`t_test_agg`, `chisq_test_agg`, `mann_whitney_u_agg`).

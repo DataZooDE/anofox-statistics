@@ -1,0 +1,55 @@
+# name: test/sql/macros/test_theil_sen_fit_predict_by.test
+# description: Theil-Sen per-group fit/predict macro: every row (training and out-of-sample) is predicted from its own group's model at its own x; options and split are forwarded.
+# group: [macros]
+
+require anofox_statistics
+
+# Two groups (A rising, B falling), 15 training rows each (unique y within a group,
+# one gross outlier at x = 6) plus two out-of-sample rows per group (y NULL, x = 16, 17).
+statement ok
+CREATE TABLE src AS
+SELECT g, i::DOUBLE AS x, ((i * 7) % 5)::DOUBLE AS x2,
+       CASE WHEN i > 15 THEN NULL
+            ELSE (CASE g WHEN 'A' THEN 1.0 + 2.0 * i ELSE 10.0 - 0.5 * i END
+                  + ((i * 37) % 11) / 7.0 + 0.5 * ((i * 7) % 5) + CASE WHEN i = 6 THEN 15.0 ELSE 0 END)::DOUBLE
+       END AS y
+FROM (VALUES ('A'), ('B')) v(g), range(1, 18) r(i);
+
+# One output row per source row, source columns passed through, groups sorted
+query IIII
+SELECT count(*), count(DISTINCT g), count(*) FILTER (WHERE is_training), count(*) FILTER (WHERE NOT is_training AND y IS NULL)
+FROM theil_sen_fit_predict_by('src', g, y, [x, x2]);
+----
+34	2	30	4
+
+# Row alignment: yhat of EVERY row equals intercept + coefficients . x of the
+# group's model evaluated at that row's own features (catches a macro that pairs
+# rows with the wrong prediction).
+query II
+WITH m AS (SELECT * FROM theil_sen_fit_predict_by('src', g, y, [x, x2])),
+     f AS (SELECT g, theil_sen_fit_agg(y, [x, x2] ORDER BY x) AS r FROM src GROUP BY g)
+SELECT count(*),
+       count(*) FILTER (WHERE abs(m.yhat - (f.r.intercept + f.r.coefficients[1] * m.x + f.r.coefficients[2] * m.x2)) > 1e-6)
+FROM m JOIN f USING (g);
+----
+34	0
+
+# Robust to the outlier at x = 6: group A slope on x stays near 2
+query I
+SELECT abs(r.coefficients[1] - 2.0) < 0.3 FROM (SELECT theil_sen_fit_agg(y, [x, x2] ORDER BY x) AS r FROM src WHERE g = 'A');
+----
+true
+
+# split: rows not marked 'train' are excluded from fitting but still predicted
+statement ok
+CREATE TABLE src_split AS SELECT *, CASE WHEN x <= 12 THEN 'train' ELSE 'test' END AS split FROM src;
+
+query II
+WITH m AS (SELECT * FROM theil_sen_fit_predict_by('src_split', g, y, [x, x2], split := split)),
+     f AS (SELECT g, theil_sen_fit_agg(y, [x, x2] ORDER BY x) AS r FROM src WHERE x <= 12 GROUP BY g)
+SELECT count(*) FILTER (WHERE is_training),
+       count(*) FILTER (WHERE abs(m.yhat - (f.r.intercept + f.r.coefficients[1] * m.x + f.r.coefficients[2] * m.x2)) > 1e-6)
+FROM m JOIN f USING (g);
+----
+24	0
+

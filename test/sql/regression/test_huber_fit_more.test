@@ -1,0 +1,89 @@
+# name: test/sql/regression/test_huber_fit_more.test
+# description: huber_fit scalar function: equivalence with huber_fit_agg, the OLS limit for a
+#              huge epsilon, robustness to outliers, options, NaN handling, inference fields.
+# group: [regression]
+
+require anofox_statistics
+
+# y = 1 + 2x with small noise; i = 4, 11, 17 are gross outliers
+statement ok
+CREATE TABLE o AS
+SELECT i, (i * 0.5)::DOUBLE AS x, ((i * 7) % 5)::DOUBLE AS x2,
+       (1.0 + 2.0 * (i * 0.5) + CASE WHEN i IN (4, 11, 17) THEN 25.0 ELSE ((i * 37) % 7 - 3) / 100.0 END)::DOUBLE AS y
+FROM range(1, 25) t(i);
+
+# Scalar == aggregate on the same rows
+query I
+SELECT (SELECT huber_fit(list(y ORDER BY i), [list(x ORDER BY i), list(x2 ORDER BY i)]) FROM o)
+     = (SELECT huber_fit_agg(y, [x, x2]) FROM o);
+----
+true
+
+query I
+SELECT (SELECT huber_fit(list(y ORDER BY i), [list(x ORDER BY i)], {'epsilon': 2.0}) FROM o)
+     = (SELECT huber_fit_agg(y, [x], {'epsilon': 2.0}) FROM o);
+----
+true
+
+# epsilon -> infinity turns the Huber loss into squared loss: with the L2 penalty
+# switched off (alpha = 0) the fit equals OLS
+query II
+WITH h AS (SELECT huber_fit(list(y ORDER BY i), [list(x ORDER BY i), list(x2 ORDER BY i)], {'epsilon': 1e6, 'alpha': 0.0}) AS f FROM o),
+     l AS (SELECT ols_fit_agg(y, [x, x2]) AS f FROM o)
+SELECT list_distance(h.f.coefficients, l.f.coefficients) < 1e-5, abs(h.f.intercept - l.f.intercept) < 1e-5
+FROM h, l;
+----
+true	true
+
+# Robustness: with the default epsilon the slope stays near the truth (2.0)
+# while OLS is dragged away by the outliers
+query II
+SELECT abs((huber_fit(list(y ORDER BY i), [list(x ORDER BY i)])).coefficients[1] - 2.0) < 0.01,
+       abs((ols_fit(list(y ORDER BY i), [list(x ORDER BY i)])).coefficients[1] - 2.0) > 0.05
+FROM o;
+----
+true	true
+
+# The three outliers are flagged (|residual| > epsilon * scale); scale is positive
+query II
+SELECT f.n_outliers >= 3, f.scale > 0
+FROM (SELECT huber_fit(list(y ORDER BY i), [list(x ORDER BY i)]) AS f FROM o);
+----
+true	true
+
+# A smaller epsilon flags at least as many points as a larger one
+query I
+SELECT (huber_fit(list(y), [list(x)], {'epsilon': 1.1})).n_outliers >= (huber_fit(list(y), [list(x)], {'epsilon': 3.0})).n_outliers FROM o;
+----
+true
+
+# fit_intercept = false on data through the origin
+query II
+SELECT abs(f.coefficients[1] - 2.0) < 1e-4, f.n_features
+FROM (SELECT huber_fit([2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 50.0], [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0]], {'fit_intercept': false}) AS f);
+----
+true	1
+
+# NaN positions are dropped like in the other scalar fits
+query I
+SELECT (huber_fit([3.0, 5.0, 'nan'::DOUBLE, 9.0, 11.0, 13.0, 15.0, 17.0], [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]])).n_observations;
+----
+7
+
+# compute_inference = true adds one standard error per feature (documented in
+# docs/api/regression/huber.md; today the lists come back empty and F is NaN).
+query III
+SELECT len(f.std_errors), len(f.ci_lower), isnan(f.f_statistic)
+FROM (SELECT huber_fit(list(y ORDER BY i), [list(x ORDER BY i), list(x2 ORDER BY i)], {'compute_inference': true}) AS f FROM o);
+----
+2	2	false
+
+statement error
+SELECT huber_fit([1.0, 2.0, 3.0, 4.0], [[1.0, 2.0, 3.0]]);
+----
+huber_fit: Dimension mismatch
+
+statement error
+SELECT huber_fit([1.0, 2.0, 3.0, 4.0, 5.0], [[1.0, 2.0, 3.0, 4.0, 6.0]], {'epsilon': 1.0});
+----
+huber_fit: Invalid input: epsilon must be > 1.0, got 1

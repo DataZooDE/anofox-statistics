@@ -8,6 +8,7 @@
 
 #include "../include/anofox_stats_ffi.h"
 #include "../include/result_fields.hpp"
+#include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
 #include "../include/ffi_enum_converters.hpp"
 #include "telemetry.hpp"
@@ -194,6 +195,7 @@ static void YuenAggFinalize(Vector &state_vector, AggregateInputData &aggr_input
                                          &test_result, &error);
 
         if (!success) {
+            ThrowUnlessDegenerate("yuen_agg", error);
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }

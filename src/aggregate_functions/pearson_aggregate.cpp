@@ -9,6 +9,7 @@
 #include "../include/anofox_stats_ffi.h"
 #include "../include/ffi_enum_converters.hpp"
 #include "../include/result_fields.hpp"
+#include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
@@ -191,6 +192,7 @@ static void PearsonAggFinalize(Vector &state_vector, AggregateInputData &aggr_in
         bool success = anofox_pearson_cor(x_array, y_array, options, &cor_result, &error);
 
         if (!success) {
+            ThrowUnlessDegenerate("pearson_agg", error);
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }

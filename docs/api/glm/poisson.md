@@ -72,8 +72,11 @@ poisson_fit_agg(y DOUBLE, x DOUBLE[] [, options MAP]) -> STRUCT
 | `p_values` | DOUBLE[] | Only with `compute_inference` |
 | `ci_lower` | DOUBLE[] | Only with `compute_inference` |
 | `ci_upper` | DOUBLE[] | Only with `compute_inference` |
+| `family` | VARCHAR | `'poisson'`; used by [`predict`](../regression/model_tools.md#predict) |
+| `link` | VARCHAR | The link used: `'log'`, `'identity'` or `'sqrt'` |
 
-The same struct (with `dispersion`, `iterations` and `converged`) is returned by
+The same struct (with `dispersion`, `iterations`, `converged`, `family` and
+`link`) is returned by
 all GLM aggregates: `poisson`, [`binomial`](binomial.md),
 [`negbinom`](negbinom.md), [`gamma`](gamma.md), [`tweedie`](tweedie.md); the
 [`logistic`](logistic.md) aggregate replaces `dispersion` with `accuracy` and
@@ -98,6 +101,12 @@ SELECT sku, (poisson_fit_agg(qty, [promo])).coefficients AS coefficients
 FROM demand
 GROUP BY sku
 ORDER BY sku;
+
+-- Expected count for a new row (response scale) and its log rate (link scale)
+WITH fit AS (SELECT poisson_fit_agg(qty, [promo, shelf_facings]) AS m FROM demand)
+SELECT round(predict(m, [1.0, 3.0]), 3) AS expected_qty,
+       round(predict(m, [1.0, 3.0], {'type': 'link'}), 3) AS log_rate
+FROM fit;
 
 -- Ridge-penalised fit with an exposure offset (x-column 2 holds log(exposure))
 SELECT poisson_fit_agg(qty, [promo, ln(shelf_facings)],
@@ -154,16 +163,19 @@ source row with its prediction.
 
 ```text
 poisson_fit_predict_by(source VARCHAR, group_col, y_col, x_cols
-                       [, options MAP] [, split VARCHAR column]) -> TABLE
+                       [, options MAP] [, split := column] [, order_by := column]) -> TABLE
 ```
 
 Output: all source columns plus `yhat`, `yhat_lower`, `yhat_upper`,
 `is_training`, ordered by the group column. When a split column is given, rows
-whose split value is not `'train'` are predicted but not trained on.
+whose split value is neither `'train'` nor NULL are predicted but not trained
+on. `order_by` orders the rows inside each group so the alignment of
+predictions to rows is deterministic.
 
 ```sql
 SELECT sku, week, qty, round(yhat, 2) AS yhat, is_training
-FROM poisson_fit_predict_by('demand', sku, qty, [promo, shelf_facings])
+FROM poisson_fit_predict_by('demand', sku, qty, [promo, shelf_facings], order_by := week)
+ORDER BY sku, week
 LIMIT 5;
 ```
 

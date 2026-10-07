@@ -12,8 +12,22 @@ Breaking changes are called out explicitly.
 
 ### Added
 
-- TODO(lead): new functions, e.g. `pls_fit_agg`, `quantile_fit_agg`, `isotonic_fit_agg`,
-  model-aware `predict(model, x)`.
+- `pls_fit_agg`, `quantile_fit_agg` and `isotonic_fit_agg`: the fitted models of these
+  methods can now be retrieved (previously only `*_fit_predict_agg` / `*_fit_predict_by`).
+- Model-aware `predict(model, x[, {'type': 'response' | 'link'}])` for the STRUCT returned
+  by any `*_fit_agg` / `*_fit` function: GLMs are mapped to the response scale through
+  their link, isotonic models are interpolated. `linear_predict` is an unambiguous name
+  for the existing column-layout `predict(x, coefficients, intercept)`.
+- `tidy(model[, names])` (one row per term: estimate, std_error, statistic, p_value,
+  conf_low, conf_high) and `glance(model)` (the model's scalar fields).
+- GLM result structs (`poisson`, `binomial`, `logistic`, `negbinom`, `gamma`, `tweedie`)
+  gain trailing `family` and `link` fields.
+- `binomial_fit_predict_by`, `logistic_fit_predict_by`, `negbinom_fit_predict_by`,
+  `gamma_fit_predict_by`, `tweedie_fit_predict_by` (predictions on the response scale).
+- `order_by` parameter on every `*_fit_predict_by` macro. Predictions are matched to rows
+  by a total ordering (the key plus a row id) instead of relying on two windows happening
+  to share a sort.
+- Two-sample tests accept VARCHAR group labels.
 - `CHANGELOG.md`, `CONTRIBUTING.md`, `docs/MIGRATION.md`, `docs/NULL_SEMANTICS.md`,
   `docs/METHODOLOGY.md`. New reference pages for Huber, RANSAC, Theil-Sen, LARS,
   the binomial, logistic, gamma and Tweedie GLMs, the window and fit-predict
@@ -47,8 +61,6 @@ Breaking changes are called out explicitly.
 
 ### Changed
 
-- TODO(lead): option keys a function does not support now raise an error
-  (per-function key validation).
 - **Breaking:** every regression-family function (aggregates, table/scalar
   fits, window functions, fit-predict aggregates) declares the option keys it
   reads; any other key raises an error naming the function and listing its
@@ -73,15 +85,49 @@ Breaking changes are called out explicitly.
   functions) fit on a canonical row order, so a given `random_state` yields the
   same model whatever the thread count or input order. Results can differ from
   earlier versions for the same seed.
-- TODO(lead): leverage-aware prediction intervals
-  (`s·sqrt(1 + x₀ᵀ(XᵀX)⁻¹x₀)` instead of `s·sqrt(1 + 1/n)`).
+- Prediction intervals of all `*_fit_predict_agg` and window `*_fit_predict` functions are
+  leverage-aware: `yhat ± t·s·sqrt(1 + x₀ᵀMx₀)` with M = (XᵀX)⁻¹ (OLS), (XᵀWX)⁻¹ (WLS),
+  the ridge sandwich (ridge), and the OLS leverage of the training rows as an
+  approximation for the robust and sparse estimators. The old `s·sqrt(1 + 1/n)` was only
+  correct at the centroid of x and too narrow when extrapolating. Bounds are NULL (not
+  `yhat`) when no interval can be formed, e.g. zero residual degrees of freedom.
+- Window `*_fit_predict` functions are documented as predicting the **last row of the
+  frame** (SQL window aggregates cannot see the current row); use frames ending at
+  `CURRENT ROW`, or `predict(*_fit_agg(...) OVER (...), x)` for one-step-ahead forecasts.
+- The dummy `unused` parameter of `glmm_fit_by` / `eb_shrink_by` was removed.
+- **Error policy (behaviour change).** All aggregates, scalar, table and window
+  functions now treat FFI failures the same way: invalid input or options
+  (bad option values, mismatched lengths, out-of-domain values such as negative
+  Poisson responses or non-positive AFT times, expected probabilities that do
+  not sum to 1) raise an `Invalid Input Error` naming the function; data that is
+  valid but degenerate (too few rows, no valid rows, zero variance, a single
+  group, a singular design, a numerically broken fit) returns `NULL`. Previously
+  most aggregates returned `NULL` for both, while `ols_fit`, `ridge_fit`,
+  `wls_fit`, `elasticnet_fit` & co. raised on insufficient data; those now
+  return `NULL` like their `_agg` counterparts.
+- GLM (and AFT) non-convergence is no longer an error: the fit is returned with
+  `converged = false`.
+- `ridge_fit` / `ridge_fit_agg` with `alpha > 0` return `NULL` for
+  `std_errors`, `t_values`, `p_values`, `ci_lower`, `ci_upper`, `f_statistic`
+  and `f_pvalue`: classical tests on shrunken coefficients are not valid.
+  `alpha = 0` keeps the OLS inference.
+- OLS with a requested `hc_type` no longer silently falls back to classical
+  standard errors when the HC estimator is unavailable; the coefficient
+  inference is NaN instead.
+- RANSAC inference (`compute_inference`) is the OLS inference of the final
+  inlier-only refit and ignores the inlier selection, so it is optimistic.
+  Values are unchanged; treat them as descriptive.
+- `negbinom_fit_agg` estimates theta by maximum likelihood like
+  `MASS::glm.nb` (was a moment estimate); results now match R.
+- `rls_fit_agg`, `rls_fit_predict_agg`, `diebold_mariano_agg`, `clark_west_agg`,
+  `aid_agg` and `aid_anomaly_agg` declare themselves order dependent; use
+  `agg(... ORDER BY t)` for a deterministic sequential result.
 - License metadata is consistent with `LICENSE`: BSL 1.1 that converts to MPL 2.0
   five years after each version is first published. The Cargo workspace license
   is now `BUSL-1.1`.
 
 ### Fixed
 
-- TODO(lead): bug fixes from the review remediation.
 - Hypothesis-test aggregates with hand-written option parsing (yuen, permutation
   t-test, TOST paired/correlation, Diebold-Mariano, Clark-West, binomial and
   proportion tests, ICC, McNemar, Cohen's kappa, distance correlation) ignored
@@ -100,6 +146,41 @@ Breaking changes are called out explicitly.
 - `fisher_exact_agg` silently dropped values other than 0/1; it now errors.
 - Seeded tests and RANSAC/Theil-Sen gave different results depending on the
   number of threads.
+- Window frames larger than a few rows silently fitted on too few rows: aggregate
+  Combine moved data out of segment-tree nodes that DuckDB reuses (it now copies unless
+  DuckDB allows destructive combines).
+- A NULL element inside the `x` list (e.g. `[1.0, NULL]`) was read as an arbitrary value
+  by 21 aggregates/window functions; such rows are now skipped.
+- `t_test_agg`, `mann_whitney_u_agg`, `brunner_munzel_agg`, `yuen_agg`,
+  `permutation_t_test_agg` treated group 0 as group 1 and every other value as group 2:
+  data coded 1/2 returned NULL and a third group was merged silently. Any two labels now
+  work (the smaller is group 1); a third label is an error.
+- `phi_coefficient_agg` could flip sign depending on row order (parallel execution).
+- Aggregate states no longer contain self-referential members (a crash risk because
+  DuckDB relocates states with memcpy): `glmm_fit_agg` group index.
+- Rust FFI: every exported function is guarded so a Rust panic can no longer abort
+  DuckDB; all feature columns are length-checked; constant columns are kept when there
+  is no intercept; RLS covariance update read already-overwritten rows (wrong
+  coefficients with more than one parameter); Fisher exact honours `confidence_level`;
+  Mann-Whitney reports the rank-biserial correlation as `effect_size`.
+- `*_fit_predict_agg` dropped rows whose whole `x` list is NULL, so the output
+  LIST was shorter than the group. Such rows are now kept with `yhat` (and
+  bounds) NULL and `is_training = false`.
+- `rls_fit` / `rls_fit_agg` reported NaN `r_squared`, `adj_r_squared` and
+  `residual_std_error`; they are now computed (and match OLS for
+  `forgetting_factor = 1` with a diffuse `initial_p_diagonal`).
+- `huber_fit_agg` / `huber_fit` with `compute_inference` returned empty
+  inference lists; they now carry the Huber asymptotic standard errors
+  (as `MASS` `summary.rlm`, `method = "XtX"`).
+- `negbinom_fit_agg` returned NULL on ordinary count data and negative
+  deviances on zero-heavy data (wrong sign of the `y = 0` unit deviance).
+- `residuals_diagnostics_agg` (and `residuals_diagnostics` with `x` but no
+  `residual_std_error`) returned NULL standardized and studentized residuals;
+  sigma is now estimated as `sqrt(RSS / (n - k - 1))`.
+- `t_test_agg` returned `effect_size = NaN`; it is now Cohen's d (pooled SD for
+  Student, average-variance standardiser for Welch, `d_z` for paired).
+- `pearson_agg` on a constant column raised an internal panic error; it now
+  returns NULL.
 - Documentation: removed the stale `anofox_stats_` prefixes, the wrong calling
   conventions, the wrong option keys and field names, and the broken links.
 

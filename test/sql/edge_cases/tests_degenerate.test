@@ -1,0 +1,91 @@
+# name: test/sql/edge_cases/tests_degenerate.test
+# description: Degenerate inputs for hypothesis tests, normality tests, correlations and
+#              categorical tests: empty input, a single row, constant data, +-Inf values,
+#              a single group / a 1 x K table. Contract: never an error; either a NULL
+#              result or a p-value that is NULL, NaN or within [0, 1].
+# group: [edge_cases]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE d AS
+SELECT i,
+       (i * 1.3 + (i * 7) % 5)::DOUBLE AS v,
+       (i % 2)::INTEGER AS g,
+       (i * 0.5 + (i * 3) % 4)::DOUBLE AS v2,
+       (i % 3)::INTEGER AS c1,
+       ((i * 5) % 3)::INTEGER AS c2
+FROM range(1, 31) t(i);
+
+statement ok
+CREATE TABLE d_const AS SELECT * REPLACE (5.0::DOUBLE AS v, 5.0::DOUBLE AS v2) FROM d;
+
+statement ok
+CREATE TABLE d_inf AS SELECT * REPLACE (CASE WHEN i = 4 THEN 'inf'::DOUBLE WHEN i = 9 THEN '-inf'::DOUBLE ELSE v END AS v) FROM d;
+
+# =============================================================================
+# Empty input and a single row -> NULL
+# =============================================================================
+
+foreach call t_test_agg(v,g) mann_whitney_u_agg(v,g) brunner_munzel_agg(v,g) yuen_agg(v,g) wilcoxon_signed_rank_agg(v,v2) one_way_anova_agg(v,c1) kruskal_wallis_agg(v,c1) brown_forsythe_agg(v,c1) shapiro_wilk_agg(v) jarque_bera_agg(v) dagostino_k2_agg(v) pearson_agg(v,v2) spearman_agg(v,v2) kendall_agg(v,v2) chisq_test_agg(c1,c2) g_test_agg(c1,c2) fisher_exact_agg(g,c1%2) mcnemar_agg(g,c1%2) cramers_v_agg(c1,c2)
+
+query II
+SELECT (SELECT ${call} FROM d WHERE false) IS NULL,
+       (SELECT ${call} FROM d WHERE i = 1) IS NULL;
+----
+true	true
+
+endloop
+
+# =============================================================================
+# Constant data and +-Inf values: no error, and a sane p-value
+# =============================================================================
+
+foreach call t_test_agg(v,g) mann_whitney_u_agg(v,g) brunner_munzel_agg(v,g) yuen_agg(v,g) wilcoxon_signed_rank_agg(v,v2) one_way_anova_agg(v,c1) kruskal_wallis_agg(v,c1) brown_forsythe_agg(v,c1) shapiro_wilk_agg(v) jarque_bera_agg(v) dagostino_k2_agg(v) pearson_agg(v,v2) spearman_agg(v,v2) kendall_agg(v,v2) chisq_test_agg(c1,c2) g_test_agg(c1,c2) fisher_exact_agg(g,c1%2) mcnemar_agg(g,c1%2)
+
+query II
+SELECT (SELECT r IS NULL OR r.p_value IS NULL OR isnan(r.p_value) OR r.p_value BETWEEN 0 AND 1
+        FROM (SELECT ${call} AS r FROM d_const)),
+       (SELECT r IS NULL OR r.p_value IS NULL OR isnan(r.p_value) OR r.p_value BETWEEN 0 AND 1
+        FROM (SELECT ${call} AS r FROM d_inf));
+----
+true	true
+
+endloop
+
+# Mann-Whitney with every observation tied: no evidence of a shift.
+# R: wilcox.test(rep(5,15), rep(5,15))$p.value == 1;
+# scipy.stats.mannwhitneyu([5.0]*15, [5.0]*15).pvalue == 1.0
+query I
+SELECT r IS NULL OR isnan(r.p_value) OR r.p_value = 1.0
+FROM (SELECT mann_whitney_u_agg(v, g) AS r FROM d_const);
+----
+true
+
+# Wilcoxon signed-rank with all differences zero: p = 1 (or undefined)
+query I
+SELECT r IS NULL OR isnan(r.p_value) OR r.p_value = 1.0
+FROM (SELECT wilcoxon_signed_rank_agg(v, v2) AS r FROM d_const);
+----
+true
+
+# A single group: two-sample and k-sample tests have nothing to compare -> NULL
+foreach call t_test_agg(v,g) mann_whitney_u_agg(v,g) brunner_munzel_agg(v,g) yuen_agg(v,g) one_way_anova_agg(v,c1) kruskal_wallis_agg(v,c1) brown_forsythe_agg(v,c1)
+
+query I
+SELECT ${call} IS NULL FROM d WHERE g = 1 AND c1 = 1;
+----
+true
+
+endloop
+
+# A 1 x K contingency table (one level of the row variable) has df = 0: no test.
+# g_test_agg and cramers_v_agg return NULL; chisq_test_agg must agree.
+foreach call chisq_test_agg(c1,c2) g_test_agg(c1,c2) cramers_v_agg(c1,c2)
+
+query I
+SELECT ${call} IS NULL FROM d WHERE c1 = 1;
+----
+true
+
+endloop

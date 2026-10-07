@@ -1,0 +1,160 @@
+# name: test/sql/parallel/parallel_fit_predict_agg.test_slow
+# description: 2M-row parallel (threads=8) vs single-threaded results for the fit_predict_agg aggregates, grouped (8 groups, interleaved so every scan task touches every group) and ungrouped (over a subset). Exercises per-thread states + Combine.
+#              Tolerances: 1e-9 relative for closed-form / exact algorithms (only summation order differs),
+#              1e-6 for iterative fits that stop at a convergence tolerance.
+# group: [parallel]
+
+require anofox_statistics
+
+# .test_slow files are still matched by `unittest "test/*"` (make test), so gate on an env var:
+#   ANOFOX_SLOW_TESTS=1 build/release/test/unittest "test/sql/parallel/*"
+require-env ANOFOX_SLOW_TESTS
+
+statement ok
+CREATE TABLE big AS
+SELECT i, g, x1, x2, e, w,
+       1.0 + g + 2.0 * x1 - 0.5 * x2 + e AS y,
+       -- exact line plus ~5% gross outliers (RANSAC recovers the line exactly, independent of sampling order)
+       1.0 + 2.0 * x1 - 0.5 * x2 + CASE WHEN u12 < 0.05 THEN 40.0 ELSE 0.0 END AS y_clean,
+       floor(exp(0.2 + 0.08 * x1 - 0.1 * x2) * (0.5 + u8) * 2.0) AS cnt,
+       (u8 < 1.0 / (1.0 + exp(-(-1.0 + 0.2 * x1 + 0.3 * x2))))::INT::DOUBLE AS bin,
+       exp(0.5 + 0.1 * x1 + 0.3 * e) AS pos,
+       (u9 * 4)::INT % 4 AS c1,
+       ((u9 + u10) * 1.5)::INT % 3 AS c2,
+       (u11 < 0.5)::INT AS g2,
+       (u10 < 0.3)::INT::BIGINT AS b1,
+       ((u10 + u11) < 0.6)::INT::BIGINT AS b2,
+       x1 + 0.3 * e AS v2,
+       exp(1.5 + 0.1 * x1 + 0.4 * e) AS surv_t,
+       (u13 < 0.8)::INT::DOUBLE AS event,
+       (i // 50) % 40 AS subj
+FROM (
+    SELECT i, (i % 8)::INT AS g,
+           ((hash(i * 16 + 1) % 1000003) / 1000003.0) * 10.0 AS x1,
+           ((hash(i * 16 + 2) % 1000003) / 1000003.0) * 5.0 - 2.5 AS x2,
+           (((hash(i * 16 + 3) % 1000003) / 1000003.0) + ((hash(i * 16 + 4) % 1000003) / 1000003.0) + ((hash(i * 16 + 5) % 1000003) / 1000003.0) + ((hash(i * 16 + 6) % 1000003) / 1000003.0) - 2.0) AS e,
+           0.5 + ((hash(i * 16 + 7) % 1000003) / 1000003.0) AS w,
+           ((hash(i * 16 + 8) % 1000003) / 1000003.0) AS u8, ((hash(i * 16 + 9) % 1000003) / 1000003.0) AS u9, ((hash(i * 16 + 10) % 1000003) / 1000003.0) AS u10, ((hash(i * 16 + 11) % 1000003) / 1000003.0) AS u11, ((hash(i * 16 + 12) % 1000003) / 1000003.0) AS u12, ((hash(i * 16 + 13) % 1000003) / 1000003.0) AS u13
+    FROM range(0, 2000000) r(i)
+);
+
+# small subset for O(n^2) / small-n aggregates; still spread over the whole table so a parallel scan splits it
+statement ok
+CREATE VIEW small AS SELECT * FROM big WHERE i % 401 = 0;
+
+# tiny subset for permutation-based aggregates (cost ~ n_permutations * n^2)
+statement ok
+CREATE VIEW tiny AS SELECT * FROM big WHERE i % 2005 = 0;
+
+# relative closeness of two DOUBLE[] (NULL/NaN/Inf must match exactly)
+statement ok
+CREATE MACRO vclose(a, b, tol) AS
+    len(a) = len(b) AND coalesce(list_max(list_transform(range(1, len(a) + 1), k ->
+        CASE WHEN a[k] IS NULL AND b[k] IS NULL THEN 0.0
+             WHEN a[k] IS NULL OR b[k] IS NULL THEN 1e300
+             WHEN isnan(a[k]) AND isnan(b[k]) THEN 0.0
+             WHEN isnan(a[k]) OR isnan(b[k]) THEN 1e300
+             WHEN isinf(a[k]) OR isinf(b[k]) THEN CASE WHEN a[k] = b[k] THEN 0.0 ELSE 1e300 END
+             ELSE abs(a[k] - b[k]) / greatest(1.0, abs(b[k])) END)), 0.0) <= tol;
+
+statement ok
+CREATE VIEW results AS
+    SELECT 'ols_fit_predict_agg' AS fn, g, 1e-9::DOUBLE AS tol, [list_count(ols_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2])), list_sum(list_transform(ols_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2]), p -> p.yhat)), list_sum(list_transform(ols_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2]), p -> p.yhat * p.yhat)), list_min(list_transform(ols_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2]), p -> p.yhat)), list_max(list_transform(ols_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2]), p -> p.yhat)), list_sum(list_transform(ols_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2]), p -> p.is_training::INT))::DOUBLE]::DOUBLE[] AS vals FROM big GROUP BY g
+    UNION ALL
+    SELECT 'ols_fit_predict_agg' AS fn, -1 AS g, 1e-9::DOUBLE AS tol, [list_count(ols_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2])), list_sum(list_transform(ols_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2]), p -> p.yhat)), list_sum(list_transform(ols_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2]), p -> p.yhat * p.yhat)), list_min(list_transform(ols_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2]), p -> p.yhat)), list_max(list_transform(ols_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2]), p -> p.yhat)), list_sum(list_transform(ols_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2]), p -> p.is_training::INT))::DOUBLE]::DOUBLE[] AS vals FROM small
+    UNION ALL
+    SELECT 'wls_fit_predict_agg' AS fn, g, 1e-9::DOUBLE AS tol, [list_count(wls_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], w)), list_sum(list_transform(wls_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], w), p -> p.yhat)), list_sum(list_transform(wls_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], w), p -> p.yhat * p.yhat)), list_min(list_transform(wls_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], w), p -> p.yhat)), list_max(list_transform(wls_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], w), p -> p.yhat)), list_sum(list_transform(wls_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], w), p -> p.is_training::INT))::DOUBLE]::DOUBLE[] AS vals FROM big GROUP BY g
+    UNION ALL
+    SELECT 'wls_fit_predict_agg' AS fn, -1 AS g, 1e-9::DOUBLE AS tol, [list_count(wls_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], w)), list_sum(list_transform(wls_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], w), p -> p.yhat)), list_sum(list_transform(wls_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], w), p -> p.yhat * p.yhat)), list_min(list_transform(wls_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], w), p -> p.yhat)), list_max(list_transform(wls_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], w), p -> p.yhat)), list_sum(list_transform(wls_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], w), p -> p.is_training::INT))::DOUBLE]::DOUBLE[] AS vals FROM small
+    UNION ALL
+    SELECT 'ridge_fit_predict_agg' AS fn, g, 1e-9::DOUBLE AS tol, [list_count(ridge_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'alpha': 1.0})), list_sum(list_transform(ridge_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'alpha': 1.0}), p -> p.yhat)), list_sum(list_transform(ridge_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'alpha': 1.0}), p -> p.yhat * p.yhat)), list_min(list_transform(ridge_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'alpha': 1.0}), p -> p.yhat)), list_max(list_transform(ridge_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'alpha': 1.0}), p -> p.yhat)), list_sum(list_transform(ridge_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'alpha': 1.0}), p -> p.is_training::INT))::DOUBLE]::DOUBLE[] AS vals FROM big GROUP BY g
+    UNION ALL
+    SELECT 'ridge_fit_predict_agg' AS fn, -1 AS g, 1e-9::DOUBLE AS tol, [list_count(ridge_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'alpha': 1.0})), list_sum(list_transform(ridge_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'alpha': 1.0}), p -> p.yhat)), list_sum(list_transform(ridge_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'alpha': 1.0}), p -> p.yhat * p.yhat)), list_min(list_transform(ridge_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'alpha': 1.0}), p -> p.yhat)), list_max(list_transform(ridge_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'alpha': 1.0}), p -> p.yhat)), list_sum(list_transform(ridge_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'alpha': 1.0}), p -> p.is_training::INT))::DOUBLE]::DOUBLE[] AS vals FROM small
+    UNION ALL
+    SELECT 'elasticnet_fit_predict_agg' AS fn, g, 1e-6::DOUBLE AS tol, [list_count(elasticnet_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'alpha': 0.05, 'l1_ratio': 0.5})), list_sum(list_transform(elasticnet_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'alpha': 0.05, 'l1_ratio': 0.5}), p -> p.yhat)), list_sum(list_transform(elasticnet_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'alpha': 0.05, 'l1_ratio': 0.5}), p -> p.yhat * p.yhat)), list_min(list_transform(elasticnet_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'alpha': 0.05, 'l1_ratio': 0.5}), p -> p.yhat)), list_max(list_transform(elasticnet_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'alpha': 0.05, 'l1_ratio': 0.5}), p -> p.yhat)), list_sum(list_transform(elasticnet_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'alpha': 0.05, 'l1_ratio': 0.5}), p -> p.is_training::INT))::DOUBLE]::DOUBLE[] AS vals FROM big GROUP BY g
+    UNION ALL
+    SELECT 'elasticnet_fit_predict_agg' AS fn, -1 AS g, 1e-6::DOUBLE AS tol, [list_count(elasticnet_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'alpha': 0.05, 'l1_ratio': 0.5})), list_sum(list_transform(elasticnet_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'alpha': 0.05, 'l1_ratio': 0.5}), p -> p.yhat)), list_sum(list_transform(elasticnet_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'alpha': 0.05, 'l1_ratio': 0.5}), p -> p.yhat * p.yhat)), list_min(list_transform(elasticnet_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'alpha': 0.05, 'l1_ratio': 0.5}), p -> p.yhat)), list_max(list_transform(elasticnet_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'alpha': 0.05, 'l1_ratio': 0.5}), p -> p.yhat)), list_sum(list_transform(elasticnet_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'alpha': 0.05, 'l1_ratio': 0.5}), p -> p.is_training::INT))::DOUBLE]::DOUBLE[] AS vals FROM small
+    UNION ALL
+    -- order-dependent: ORDER BY i
+    SELECT 'rls_fit_predict_agg' AS fn, g, 1e-9::DOUBLE AS tol, [list_count(rls_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'forgetting_factor': 0.999} ORDER BY i)), list_sum(list_transform(rls_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'forgetting_factor': 0.999} ORDER BY i), p -> p.yhat)), list_sum(list_transform(rls_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'forgetting_factor': 0.999} ORDER BY i), p -> p.yhat * p.yhat)), list_min(list_transform(rls_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'forgetting_factor': 0.999} ORDER BY i), p -> p.yhat)), list_max(list_transform(rls_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'forgetting_factor': 0.999} ORDER BY i), p -> p.yhat)), list_sum(list_transform(rls_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'forgetting_factor': 0.999} ORDER BY i), p -> p.is_training::INT))::DOUBLE]::DOUBLE[] AS vals FROM big GROUP BY g
+    UNION ALL
+    SELECT 'rls_fit_predict_agg' AS fn, -1 AS g, 1e-9::DOUBLE AS tol, [list_count(rls_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'forgetting_factor': 0.999} ORDER BY i)), list_sum(list_transform(rls_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'forgetting_factor': 0.999} ORDER BY i), p -> p.yhat)), list_sum(list_transform(rls_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'forgetting_factor': 0.999} ORDER BY i), p -> p.yhat * p.yhat)), list_min(list_transform(rls_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'forgetting_factor': 0.999} ORDER BY i), p -> p.yhat)), list_max(list_transform(rls_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'forgetting_factor': 0.999} ORDER BY i), p -> p.yhat)), list_sum(list_transform(rls_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'forgetting_factor': 0.999} ORDER BY i), p -> p.is_training::INT))::DOUBLE]::DOUBLE[] AS vals FROM small
+    UNION ALL
+    SELECT 'bls_fit_predict_agg' AS fn, g, 1e-8::DOUBLE AS tol, [list_count(bls_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'intercept': true, 'lower_bound': 0.0})), list_sum(list_transform(bls_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'intercept': true, 'lower_bound': 0.0}), p -> p.yhat)), list_sum(list_transform(bls_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'intercept': true, 'lower_bound': 0.0}), p -> p.yhat * p.yhat)), list_min(list_transform(bls_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'intercept': true, 'lower_bound': 0.0}), p -> p.yhat)), list_max(list_transform(bls_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'intercept': true, 'lower_bound': 0.0}), p -> p.yhat)), list_sum(list_transform(bls_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'intercept': true, 'lower_bound': 0.0}), p -> p.is_training::INT))::DOUBLE]::DOUBLE[] AS vals FROM big GROUP BY g
+    UNION ALL
+    SELECT 'bls_fit_predict_agg' AS fn, -1 AS g, 1e-8::DOUBLE AS tol, [list_count(bls_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'intercept': true, 'lower_bound': 0.0})), list_sum(list_transform(bls_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'intercept': true, 'lower_bound': 0.0}), p -> p.yhat)), list_sum(list_transform(bls_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'intercept': true, 'lower_bound': 0.0}), p -> p.yhat * p.yhat)), list_min(list_transform(bls_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'intercept': true, 'lower_bound': 0.0}), p -> p.yhat)), list_max(list_transform(bls_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'intercept': true, 'lower_bound': 0.0}), p -> p.yhat)), list_sum(list_transform(bls_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'intercept': true, 'lower_bound': 0.0}), p -> p.is_training::INT))::DOUBLE]::DOUBLE[] AS vals FROM small
+    UNION ALL
+    SELECT 'huber_fit_predict_agg' AS fn, g, 1e-6::DOUBLE AS tol, [list_count(huber_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2])), list_sum(list_transform(huber_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2]), p -> p.yhat)), list_sum(list_transform(huber_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2]), p -> p.yhat * p.yhat)), list_min(list_transform(huber_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2]), p -> p.yhat)), list_max(list_transform(huber_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2]), p -> p.yhat)), list_sum(list_transform(huber_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2]), p -> p.is_training::INT))::DOUBLE]::DOUBLE[] AS vals FROM big GROUP BY g
+    UNION ALL
+    SELECT 'huber_fit_predict_agg' AS fn, -1 AS g, 1e-6::DOUBLE AS tol, [list_count(huber_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2])), list_sum(list_transform(huber_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2]), p -> p.yhat)), list_sum(list_transform(huber_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2]), p -> p.yhat * p.yhat)), list_min(list_transform(huber_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2]), p -> p.yhat)), list_max(list_transform(huber_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2]), p -> p.yhat)), list_sum(list_transform(huber_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2]), p -> p.is_training::INT))::DOUBLE]::DOUBLE[] AS vals FROM small
+    UNION ALL
+    SELECT 'alm_fit_predict_agg' AS fn, g, 1e-6::DOUBLE AS tol, [list_count(alm_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2])), list_sum(list_transform(alm_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2]), p -> p.yhat)), list_sum(list_transform(alm_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2]), p -> p.yhat * p.yhat)), list_min(list_transform(alm_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2]), p -> p.yhat)), list_max(list_transform(alm_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2]), p -> p.yhat)), list_sum(list_transform(alm_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2]), p -> p.is_training::INT))::DOUBLE]::DOUBLE[] AS vals FROM big GROUP BY g
+    UNION ALL
+    SELECT 'alm_fit_predict_agg' AS fn, -1 AS g, 1e-6::DOUBLE AS tol, [list_count(alm_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2])), list_sum(list_transform(alm_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2]), p -> p.yhat)), list_sum(list_transform(alm_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2]), p -> p.yhat * p.yhat)), list_min(list_transform(alm_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2]), p -> p.yhat)), list_max(list_transform(alm_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2]), p -> p.yhat)), list_sum(list_transform(alm_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2]), p -> p.is_training::INT))::DOUBLE]::DOUBLE[] AS vals FROM small
+    UNION ALL
+    SELECT 'poisson_fit_predict_agg' AS fn, g, 1e-6::DOUBLE AS tol, [list_count(poisson_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE cnt END, [x1, x2])), list_sum(list_transform(poisson_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE cnt END, [x1, x2]), p -> p.yhat)), list_sum(list_transform(poisson_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE cnt END, [x1, x2]), p -> p.yhat * p.yhat)), list_min(list_transform(poisson_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE cnt END, [x1, x2]), p -> p.yhat)), list_max(list_transform(poisson_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE cnt END, [x1, x2]), p -> p.yhat)), list_sum(list_transform(poisson_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE cnt END, [x1, x2]), p -> p.is_training::INT))::DOUBLE]::DOUBLE[] AS vals FROM big GROUP BY g
+    UNION ALL
+    SELECT 'poisson_fit_predict_agg' AS fn, -1 AS g, 1e-6::DOUBLE AS tol, [list_count(poisson_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE cnt END, [x1, x2])), list_sum(list_transform(poisson_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE cnt END, [x1, x2]), p -> p.yhat)), list_sum(list_transform(poisson_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE cnt END, [x1, x2]), p -> p.yhat * p.yhat)), list_min(list_transform(poisson_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE cnt END, [x1, x2]), p -> p.yhat)), list_max(list_transform(poisson_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE cnt END, [x1, x2]), p -> p.yhat)), list_sum(list_transform(poisson_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE cnt END, [x1, x2]), p -> p.is_training::INT))::DOUBLE]::DOUBLE[] AS vals FROM small
+    UNION ALL
+    SELECT 'quantile_fit_predict_agg' AS fn, g, 1e-6::DOUBLE AS tol, [list_count(quantile_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'tau': 0.5})), list_sum(list_transform(quantile_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'tau': 0.5}), p -> p.yhat)), list_sum(list_transform(quantile_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'tau': 0.5}), p -> p.yhat * p.yhat)), list_min(list_transform(quantile_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'tau': 0.5}), p -> p.yhat)), list_max(list_transform(quantile_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'tau': 0.5}), p -> p.yhat)), list_sum(list_transform(quantile_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'tau': 0.5}), p -> p.is_training::INT))::DOUBLE]::DOUBLE[] AS vals FROM small GROUP BY g
+    UNION ALL
+    SELECT 'quantile_fit_predict_agg' AS fn, -1 AS g, 1e-6::DOUBLE AS tol, [list_count(quantile_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'tau': 0.5})), list_sum(list_transform(quantile_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'tau': 0.5}), p -> p.yhat)), list_sum(list_transform(quantile_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'tau': 0.5}), p -> p.yhat * p.yhat)), list_min(list_transform(quantile_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'tau': 0.5}), p -> p.yhat)), list_max(list_transform(quantile_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'tau': 0.5}), p -> p.yhat)), list_sum(list_transform(quantile_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'tau': 0.5}), p -> p.is_training::INT))::DOUBLE]::DOUBLE[] AS vals FROM small
+    UNION ALL
+    SELECT 'isotonic_fit_predict_agg' AS fn, g, 1e-9::DOUBLE AS tol, [list_count(isotonic_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, x1)), list_sum(list_transform(isotonic_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, x1), p -> p.yhat)), list_sum(list_transform(isotonic_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, x1), p -> p.yhat * p.yhat)), list_min(list_transform(isotonic_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, x1), p -> p.yhat)), list_max(list_transform(isotonic_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, x1), p -> p.yhat)), list_sum(list_transform(isotonic_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, x1), p -> p.is_training::INT))::DOUBLE]::DOUBLE[] AS vals FROM small GROUP BY g
+    UNION ALL
+    SELECT 'isotonic_fit_predict_agg' AS fn, -1 AS g, 1e-9::DOUBLE AS tol, [list_count(isotonic_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, x1)), list_sum(list_transform(isotonic_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, x1), p -> p.yhat)), list_sum(list_transform(isotonic_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, x1), p -> p.yhat * p.yhat)), list_min(list_transform(isotonic_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, x1), p -> p.yhat)), list_max(list_transform(isotonic_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, x1), p -> p.yhat)), list_sum(list_transform(isotonic_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, x1), p -> p.is_training::INT))::DOUBLE]::DOUBLE[] AS vals FROM small
+    UNION ALL
+    SELECT 'pls_fit_predict_agg' AS fn, g, 1e-9::DOUBLE AS tol, [list_count(pls_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'n_components': 1})), list_sum(list_transform(pls_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'n_components': 1}), p -> p.yhat)), list_sum(list_transform(pls_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'n_components': 1}), p -> p.yhat * p.yhat)), list_min(list_transform(pls_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'n_components': 1}), p -> p.yhat)), list_max(list_transform(pls_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'n_components': 1}), p -> p.yhat)), list_sum(list_transform(pls_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'n_components': 1}), p -> p.is_training::INT))::DOUBLE]::DOUBLE[] AS vals FROM big GROUP BY g
+    UNION ALL
+    SELECT 'pls_fit_predict_agg' AS fn, -1 AS g, 1e-9::DOUBLE AS tol, [list_count(pls_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'n_components': 1})), list_sum(list_transform(pls_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'n_components': 1}), p -> p.yhat)), list_sum(list_transform(pls_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'n_components': 1}), p -> p.yhat * p.yhat)), list_min(list_transform(pls_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'n_components': 1}), p -> p.yhat)), list_max(list_transform(pls_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'n_components': 1}), p -> p.yhat)), list_sum(list_transform(pls_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1, x2], {'n_components': 1}), p -> p.is_training::INT))::DOUBLE]::DOUBLE[] AS vals FROM small
+    UNION ALL
+    SELECT 'theil_sen_fit_predict_agg' AS fn, g, 1e-9::DOUBLE AS tol, [list_count(theil_sen_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1], {'max_subpopulation': 100000000})), list_sum(list_transform(theil_sen_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1], {'max_subpopulation': 100000000}), p -> p.yhat)), list_sum(list_transform(theil_sen_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1], {'max_subpopulation': 100000000}), p -> p.yhat * p.yhat)), list_min(list_transform(theil_sen_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1], {'max_subpopulation': 100000000}), p -> p.yhat)), list_max(list_transform(theil_sen_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1], {'max_subpopulation': 100000000}), p -> p.yhat)), list_sum(list_transform(theil_sen_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1], {'max_subpopulation': 100000000}), p -> p.is_training::INT))::DOUBLE]::DOUBLE[] AS vals FROM small GROUP BY g
+    UNION ALL
+    SELECT 'theil_sen_fit_predict_agg' AS fn, -1 AS g, 1e-9::DOUBLE AS tol, [list_count(theil_sen_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1], {'max_subpopulation': 100000000})), list_sum(list_transform(theil_sen_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1], {'max_subpopulation': 100000000}), p -> p.yhat)), list_sum(list_transform(theil_sen_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1], {'max_subpopulation': 100000000}), p -> p.yhat * p.yhat)), list_min(list_transform(theil_sen_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1], {'max_subpopulation': 100000000}), p -> p.yhat)), list_max(list_transform(theil_sen_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1], {'max_subpopulation': 100000000}), p -> p.yhat)), list_sum(list_transform(theil_sen_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y END, [x1], {'max_subpopulation': 100000000}), p -> p.is_training::INT))::DOUBLE]::DOUBLE[] AS vals FROM small
+    UNION ALL
+    SELECT 'ransac_fit_predict_agg' AS fn, g, 1e-6::DOUBLE AS tol, [list_count(ransac_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y_clean END, [x1, x2], {'seed': 42})), list_sum(list_transform(ransac_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y_clean END, [x1, x2], {'seed': 42}), p -> p.yhat)), list_sum(list_transform(ransac_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y_clean END, [x1, x2], {'seed': 42}), p -> p.yhat * p.yhat)), list_min(list_transform(ransac_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y_clean END, [x1, x2], {'seed': 42}), p -> p.yhat)), list_max(list_transform(ransac_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y_clean END, [x1, x2], {'seed': 42}), p -> p.yhat)), list_sum(list_transform(ransac_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y_clean END, [x1, x2], {'seed': 42}), p -> p.is_training::INT))::DOUBLE]::DOUBLE[] AS vals FROM big GROUP BY g
+    UNION ALL
+    SELECT 'ransac_fit_predict_agg' AS fn, -1 AS g, 1e-6::DOUBLE AS tol, [list_count(ransac_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y_clean END, [x1, x2], {'seed': 42})), list_sum(list_transform(ransac_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y_clean END, [x1, x2], {'seed': 42}), p -> p.yhat)), list_sum(list_transform(ransac_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y_clean END, [x1, x2], {'seed': 42}), p -> p.yhat * p.yhat)), list_min(list_transform(ransac_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y_clean END, [x1, x2], {'seed': 42}), p -> p.yhat)), list_max(list_transform(ransac_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y_clean END, [x1, x2], {'seed': 42}), p -> p.yhat)), list_sum(list_transform(ransac_fit_predict_agg(CASE WHEN i % 10 = 3 THEN NULL ELSE y_clean END, [x1, x2], {'seed': 42}), p -> p.is_training::INT))::DOUBLE]::DOUBLE[] AS vals FROM small;
+
+# single-threaded reference
+statement ok
+SET threads = 1;
+
+statement ok
+CREATE TABLE ref AS SELECT * FROM results;
+
+# parallel run: 8 threads
+statement ok
+SET threads = 8;
+
+statement ok
+CREATE TABLE par AS SELECT * FROM results;
+
+# sanity: the reference results are real numbers (a NULL/NaN result would compare equal trivially)
+query I
+SELECT DISTINCT fn FROM ref
+WHERE vals IS NULL OR len(vals) = 0 OR list_count(list_filter(vals, v -> v IS NULL OR isnan(v))) > 0
+ORDER BY fn;
+----
+
+# per function: 8 groups + ungrouped (over the subset) must all match the single-threaded result
+query III
+SELECT fn, count(*), bool_and(vclose(par.vals, ref.vals, ref.tol))
+FROM ref JOIN par USING (fn, g)
+GROUP BY fn
+ORDER BY fn;
+----
+alm_fit_predict_agg	9	true
+bls_fit_predict_agg	9	true
+elasticnet_fit_predict_agg	9	true
+huber_fit_predict_agg	9	true
+isotonic_fit_predict_agg	9	true
+ols_fit_predict_agg	9	true
+pls_fit_predict_agg	9	true
+poisson_fit_predict_agg	9	true
+quantile_fit_predict_agg	9	true
+ransac_fit_predict_agg	9	true
+ridge_fit_predict_agg	9	true
+rls_fit_predict_agg	9	true
+theil_sen_fit_predict_agg	9	true
+wls_fit_predict_agg	9	true

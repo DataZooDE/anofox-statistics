@@ -66,7 +66,7 @@ pub fn fit_isotonic(
         .increasing(options.increasing)
         .build()
         .fit_1d(&x_col, &y_col)
-        .map_err(|e| StatsError::RegressError(format!("{:?}", e)))?;
+        .map_err(StatsError::from)?;
 
     // Extract fitted values
     let fitted_values: Vec<f64> = fitted.fitted_values().iter().copied().collect();

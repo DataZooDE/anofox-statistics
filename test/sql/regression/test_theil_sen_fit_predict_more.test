@@ -1,0 +1,59 @@
+# name: test/sql/regression/test_theil_sen_fit_predict_more.test
+# description: theil_sen_fit_predict window function: rolling frames per partition equal a
+#              self-join recomputation with theil_sen_fit_agg, exact on noiseless data, and
+#              NULL-y rows are predicted out of sample. A window fit_predict predicts for the
+#              last row of its frame, so all frames end at CURRENT ROW.
+# group: [regression]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE ts AS
+SELECT g, i AS t, (i % 9)::DOUBLE + 0.5 AS x,
+       (CASE WHEN g = 'a' THEN 1.0 + 2.0 * ((i % 9) + 0.5) ELSE 5.0 - 1.0 * ((i % 9) + 0.5) END
+        + ((i * 37) % 11) / 10.0 + CASE WHEN i % 13 = 0 THEN 20.0 ELSE 0.0 END)::DOUBLE AS y
+FROM (VALUES ('a'), ('b')) v(g), range(1, 41) r(i);
+
+# Rolling 10-row frame per partition == theil_sen_fit_agg on the same 10 rows at the current x
+query II
+WITH win AS (
+    SELECT g, t, x,
+           (theil_sen_fit_predict(y, [x]) OVER (PARTITION BY g ORDER BY t ROWS BETWEEN 9 PRECEDING AND CURRENT ROW)).yhat AS yhat
+    FROM ts),
+ref AS (
+    SELECT o.g, o.t, theil_sen_fit_agg(i.y, [i.x] ORDER BY i.t) AS r, count(*) AS n
+    FROM ts o JOIN ts i ON i.g = o.g AND i.t BETWEEN o.t - 9 AND o.t
+    GROUP BY o.g, o.t)
+SELECT count(*) FILTER (WHERE ref.n = 10 AND (win.yhat IS NULL OR ref.r IS NULL)),
+       count(*) FILTER (WHERE ref.n = 10 AND abs(win.yhat - (ref.r.intercept + ref.r.coefficients[1] * win.x)) > 1e-9)
+FROM win JOIN ref USING (g, t);
+----
+0	0
+
+# Noiseless line: every prediction from a frame of >= 3 rows reproduces y exactly
+query I
+SELECT count(*) FILTER (WHERE abs(yhat - y) > 1e-9)
+FROM (SELECT t, y, (theil_sen_fit_predict(y, [x]) OVER (ORDER BY t ROWS BETWEEN 5 PRECEDING AND CURRENT ROW)).yhat AS yhat
+      FROM (SELECT i AS t, (i % 4)::DOUBLE AS x, (3.0 + 0.5 * (i % 4))::DOUBLE AS y FROM range(1, 31) r(i)))
+WHERE t >= 6;
+----
+0
+
+# A row with NULL y is not used for fitting but is still predicted at its own x
+# (the frame ends at that row, so it is the row being predicted).
+query II
+WITH d AS (SELECT i AS t, i::DOUBLE AS x, CASE WHEN i = 20 THEN NULL ELSE (1.0 + 2.0 * i)::DOUBLE END AS y FROM range(1, 21) r(i))
+SELECT round(yhat, 9), y IS NULL
+FROM (SELECT t, y, (theil_sen_fit_predict(y, [x]) OVER (ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)).yhat AS yhat FROM d)
+WHERE t = 20;
+----
+41.0	true
+
+# Options are forwarded (fit_intercept = false on data through the origin)
+query I
+SELECT count(*) FILTER (WHERE abs(yhat - 3.0 * x) > 1e-6)
+FROM (SELECT t, x, (theil_sen_fit_predict(y, [x], {'fit_intercept': false}) OVER (ORDER BY t ROWS BETWEEN 7 PRECEDING AND CURRENT ROW)).yhat AS yhat
+      FROM (SELECT i AS t, (1 + i % 5)::DOUBLE AS x, (3.0 * (1 + i % 5))::DOUBLE AS y FROM range(1, 25) r(i)))
+WHERE t >= 8;
+----
+0

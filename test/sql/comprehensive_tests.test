@@ -919,51 +919,37 @@ SELECT (ols_fit_agg(y, [x]) OVER ()).n_observations FROM data LIMIT 1;
 # SECTION 24: Ridge Inference Tests
 ###############################################################################
 
-# Test 24.1: Ridge with inference enabled returns std_errors using MAP syntax
+# Test 24.1: Ridge with alpha > 0 does not report classical inference on the
+# shrunken coefficients: std_errors (and t/p/CI) are NULL.
+query I
+SELECT (ridge_fit(
+    [2.1, 4.0, 5.9, 8.1, 10.0, 11.9, 14.1, 16.0, 17.9, 20.1],
+    [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]],
+    {'alpha': 0.1, 'intercept': true, 'compute_inference': true}
+)).std_errors IS NULL;
+----
+true
+
+# Test 24.1b: alpha = 0 is OLS and keeps its inference
 query I
 SELECT list_count((ridge_fit(
     [2.1, 4.0, 5.9, 8.1, 10.0, 11.9, 14.1, 16.0, 17.9, 20.1],
     [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]],
-    {'alpha': 0.1, 'intercept': true, 'compute_inference': true}
+    {'alpha': 0.0, 'intercept': true, 'compute_inference': true}
 )).std_errors);
 ----
 1
 
-# Test 24.2: Ridge p-values should be between 0 and 1
+# Test 24.2: Ridge (alpha > 0) p-values, confidence intervals and t-values
+# are NULL: classical tests on shrunken coefficients are not valid.
 query I
-SELECT (ridge_fit(
+SELECT r.p_values IS NULL AND r.t_values IS NULL AND r.ci_lower IS NULL AND r.ci_upper IS NULL
+   AND r.f_statistic IS NULL
+FROM (SELECT ridge_fit(
     [2.1, 4.0, 5.9, 8.1, 10.0, 11.9, 14.1, 16.0, 17.9, 20.1],
     [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]],
     {'alpha': 0.1, 'intercept': true, 'compute_inference': true}
-)).p_values[1] >= 0.0 AND (ridge_fit(
-    [2.1, 4.0, 5.9, 8.1, 10.0, 11.9, 14.1, 16.0, 17.9, 20.1],
-    [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]],
-    {'alpha': 0.1, 'intercept': true, 'compute_inference': true}
-)).p_values[1] <= 1.0;
-----
-1
-
-# Test 24.3: Ridge confidence intervals
-query I
-SELECT (ridge_fit(
-    [2.1, 4.0, 5.9, 8.1, 10.0, 11.9, 14.1, 16.0, 17.9, 20.1],
-    [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]],
-    {'alpha': 0.1, 'intercept': true, 'compute_inference': true}
-)).ci_lower IS NOT NULL AND (ridge_fit(
-    [2.1, 4.0, 5.9, 8.1, 10.0, 11.9, 14.1, 16.0, 17.9, 20.1],
-    [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]],
-    {'alpha': 0.1, 'intercept': true, 'compute_inference': true}
-)).ci_upper IS NOT NULL;
-----
-1
-
-# Test 24.4: Ridge t-values should exist
-query I
-SELECT (ridge_fit(
-    [2.1, 4.0, 5.9, 8.1, 10.0, 11.9, 14.1, 16.0, 17.9, 20.1],
-    [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]],
-    {'alpha': 0.1, 'intercept': true, 'compute_inference': true}
-)).t_values IS NOT NULL;
+) AS r);
 ----
 1
 

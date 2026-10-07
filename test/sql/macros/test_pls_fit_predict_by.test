@@ -1,0 +1,50 @@
+# name: test/sql/macros/test_pls_fit_predict_by.test
+# description: PLS per-group fit/predict macro. With as many components as features PLS spans the full column space, so its predictions equal OLS; with one component they differ. Checks row alignment for training and out-of-sample rows.
+# group: [macros]
+
+require anofox_statistics
+
+# Two groups (A rising, B falling), 15 training rows each (unique y within a group,
+# one gross outlier at x = 6) plus two out-of-sample rows per group (y NULL, x = 16, 17).
+statement ok
+CREATE TABLE src AS
+SELECT g, i::DOUBLE AS x, ((i * 7) % 5)::DOUBLE AS x2,
+       CASE WHEN i > 15 THEN NULL
+            ELSE (CASE g WHEN 'A' THEN 1.0 + 2.0 * i ELSE 10.0 - 0.5 * i END
+                  + ((i * 37) % 11) / 7.0 + 0.5 * ((i * 7) % 5) + CASE WHEN i = 6 THEN 15.0 ELSE 0 END)::DOUBLE
+       END AS y
+FROM (VALUES ('A'), ('B')) v(g), range(1, 18) r(i);
+
+# One output row per source row, source columns passed through, groups sorted
+query IIII
+SELECT count(*), count(DISTINCT g), count(*) FILTER (WHERE is_training), count(*) FILTER (WHERE NOT is_training AND y IS NULL)
+FROM pls_fit_predict_by('src', g, y, [x, x2], options := {'n_components': 2});
+----
+34	2	30	4
+
+# n_components = n_features -> PLS == OLS for every row (training and out-of-sample)
+query II
+WITH m AS (SELECT * FROM pls_fit_predict_by('src', g, y, [x, x2], options := {'n_components': 2})),
+     f AS (SELECT g, ols_fit_agg(y, [x, x2]) AS r FROM src GROUP BY g)
+SELECT count(*),
+       count(*) FILTER (WHERE abs(m.yhat - (f.r.intercept + f.r.coefficients[1] * m.x + f.r.coefficients[2] * m.x2)) > 1e-8)
+FROM m JOIN f USING (g);
+----
+34	0
+
+# One component is a genuine restriction: predictions differ from OLS somewhere
+query I
+WITH m AS (SELECT * FROM pls_fit_predict_by('src', g, y, [x, x2], options := {'n_components': 1})),
+     f AS (SELECT g, ols_fit_agg(y, [x, x2]) AS r FROM src GROUP BY g)
+SELECT max(abs(m.yhat - (f.r.intercept + f.r.coefficients[1] * m.x + f.r.coefficients[2] * m.x2))) > 1e-6
+FROM m JOIN f USING (g);
+----
+true
+
+# Macro rows carry the same predictions as the aggregate run per group
+query I
+WITH m AS (SELECT g, y, yhat FROM pls_fit_predict_by('src', g, y, [x, x2], options := {'n_components': 2}) WHERE y IS NOT NULL),
+     a AS (SELECT g, unnest(pls_fit_predict_agg(y, [x, x2], {'n_components': 2})) AS e FROM src GROUP BY g)
+SELECT count(*) FILTER (WHERE abs(m.yhat - a.e.yhat) > 1e-12) FROM m JOIN a ON m.g = a.g AND m.y = a.e.y;
+----
+0

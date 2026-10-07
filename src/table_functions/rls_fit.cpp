@@ -10,6 +10,7 @@
 #include "duckdb/planner/expression/bound_function_expression.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
 #include "anofox_statistics_banner.hpp"
@@ -164,6 +165,7 @@ static void RlsFitFunction(DataChunk &args, ExpressionState &state, Vector &resu
         bool success = anofox_rls_fit(y_array, x_arrays.data(), x_arrays.size(), options, &core_result, &error);
 
         if (!success) {
+            ThrowUnlessDegenerate("rls_fit", error);
             FlatVector::SetNull(result, row, true);
             continue;
         }

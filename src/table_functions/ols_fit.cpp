@@ -177,7 +177,9 @@ static void OlsFitFunction(DataChunk &args, ExpressionState &state, Vector &resu
                                       bind_data.compute_inference ? &inference_result : nullptr, &error);
 
         if (!success) {
-            ThrowFromFfiError("ols_fit", error);
+            ThrowUnlessDegenerate("ols_fit", error);
+            FlatVector::SetNull(result, row, true);
+            continue;
         }
 
         // Build result struct

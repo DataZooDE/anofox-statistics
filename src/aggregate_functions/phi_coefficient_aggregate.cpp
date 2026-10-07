@@ -8,6 +8,7 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/error_dispatch.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 
@@ -127,16 +128,22 @@ static void PhiCoefficientAggFinalize(Vector &state_vector, AggregateInputData &
         // Table: [[a, b], [c, d]] where:
         // a = row=0, col=0; b = row=0, col=1
         // c = row=1, col=0; d = row=1, col=1
+        // Categories are indexed in sorted order. Indexing them in first-seen order made
+        // the sign of phi depend on row order, which differs between parallel runs.
         std::map<int64_t, size_t> row_map, col_map;
         for (auto r : state.row_values) {
-            if (row_map.find(r) == row_map.end()) {
-                row_map[r] = row_map.size();
-            }
+            row_map[r] = 0;
         }
         for (auto c : state.col_values) {
-            if (col_map.find(c) == col_map.end()) {
-                col_map[c] = col_map.size();
-            }
+            col_map[c] = 0;
+        }
+        size_t rank = 0;
+        for (auto &entry : row_map) {
+            entry.second = rank++;
+        }
+        rank = 0;
+        for (auto &entry : col_map) {
+            entry.second = rank++;
         }
 
         size_t n_rows_cat = row_map.size();
@@ -163,6 +170,7 @@ static void PhiCoefficientAggFinalize(Vector &state_vector, AggregateInputData &
                                                &phi, &error);
 
         if (!success) {
+            ThrowUnlessDegenerate("phi_coefficient_agg", error);
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }

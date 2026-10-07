@@ -81,7 +81,7 @@ pub fn fit_pls(y: &[f64], x: &[Vec<f64>], options: &PlsOptions) -> StatsResult<P
     // Build and fit the PLS model
     let fitted = PlsRegressor::new(options.n_components)
         .fit(&x_mat, &y_col)
-        .map_err(|e| StatsError::RegressError(format!("{:?}", e)))?;
+        .map_err(StatsError::from)?;
 
     // Extract results
     let result = fitted.result();

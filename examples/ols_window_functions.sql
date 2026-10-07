@@ -9,7 +9,8 @@
 --   ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW   (expanding)
 --   ROWS BETWEEN k PRECEDING AND CURRENT ROW           (rolling)
 -- Do NOT use:
---   ... AND 1 PRECEDING   -- predicts the previous row, not a one-step-ahead forecast
+--   *_fit_predict ... AND 1 PRECEDING -- predicts the previous row, not a one-step-ahead
+--                         forecast (see the predict(ols_fit_agg(...) OVER ...) idiom below)
 --   OVER (PARTITION BY g) without ORDER BY -- every row gets the same prediction
 --   RANGE frames with ties
 -- For one prediction per row of a whole group use ols_fit_predict_agg or
@@ -192,18 +193,17 @@ LIMIT 10;
 -- ============================================================================
 -- To predict each row from a model fitted on EARLIER rows only, fit with
 -- ols_fit_agg over a frame ending at 1 PRECEDING and score the current row
--- with predict(). predict() takes feature-major x and currently raises an
--- error when the coefficients are NULL (the first rows), so the query is
--- shown here commented out.
--- TODO(lead): model-aware predict
---
--- SELECT day, price,
---     predict([[day::DOUBLE]],
---             (ols_fit_agg(price, [day::DOUBLE]) OVER w).coefficients,
---             (ols_fit_agg(price, [day::DOUBLE]) OVER w).intercept)[1] AS forecast
--- FROM stock_prices
--- WHERE ticker = 'TECH'
--- WINDOW w AS (ORDER BY day ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING);
+-- with the model-aware predict(model, x). While the frame is still too small
+-- to fit, the model is NULL and so is the forecast.
+
+SELECT day, price,
+    round(predict((ols_fit_agg(price, [day::DOUBLE]) OVER (
+        ORDER BY day ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+    )), [day::DOUBLE]), 2) AS forecast
+FROM stock_prices
+WHERE ticker = 'TECH'
+ORDER BY day
+LIMIT 10;
 
 -- Cleanup
 DROP TABLE IF EXISTS stock_prices;

@@ -7,6 +7,7 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
@@ -205,6 +206,7 @@ static void AidAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
         bool success = anofox_aid(y_array, options, &aid_result, &error);
 
         if (!success) {
+            ThrowUnlessDegenerate("aid_agg", error);
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
@@ -286,6 +288,7 @@ static void AidAnomalyAggFinalize(Vector &state_vector, AggregateInputData &aggr
         bool success = anofox_aid_anomaly(y_array, options, &anomaly_result, &error);
 
         if (!success) {
+            ThrowUnlessDegenerate("aid_anomaly_agg", error);
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
@@ -381,11 +384,15 @@ void RegisterAidAggregateFunction(ExtensionLoader &loader) {
         AggregateFunction("aid_agg", {LogicalType::DOUBLE}, LogicalType::ANY,
                           AggregateFunction::StateSize<AidAggregateState>, AidAggInitialize, AidAggUpdate, AidAggCombine,
                           AidAggFinalize, nullptr, AidAggBind, AidAggDestroy);
+    // Row order is part of the input (sequential / time-series estimator):
+    // declare it so DuckDB honours `agg(... ORDER BY t)`.
+    aid_basic.SetOrderDependent(AggregateOrderDependent::ORDER_DEPENDENT);
     aid_set.AddFunction(aid_basic);
 
     auto aid_map = AggregateFunction("aid_agg", {LogicalType::DOUBLE, LogicalType::ANY}, LogicalType::ANY,
                                      AggregateFunction::StateSize<AidAggregateState>, AidAggInitialize, AidAggUpdate,
                                      AidAggCombine, AidAggFinalize, nullptr, AidAggBind, AidAggDestroy);
+    aid_map.SetOrderDependent(AggregateOrderDependent::ORDER_DEPENDENT);
     aid_set.AddFunction(aid_map);
 
     {
@@ -419,12 +426,14 @@ void RegisterAidAggregateFunction(ExtensionLoader &loader) {
         "aid_anomaly_agg", {LogicalType::DOUBLE}, LogicalType::ANY,
         AggregateFunction::StateSize<AidAggregateState>, AidAggInitialize, AidAggUpdate, AidAggCombine,
         AidAnomalyAggFinalize, nullptr, AidAnomalyAggBind, AidAggDestroy);
+    aid_anomaly_basic.SetOrderDependent(AggregateOrderDependent::ORDER_DEPENDENT);
     aid_anomaly_set.AddFunction(aid_anomaly_basic);
 
     auto aid_anomaly_map = AggregateFunction(
         "aid_anomaly_agg", {LogicalType::DOUBLE, LogicalType::ANY}, LogicalType::ANY,
         AggregateFunction::StateSize<AidAggregateState>, AidAggInitialize, AidAggUpdate, AidAggCombine,
         AidAnomalyAggFinalize, nullptr, AidAnomalyAggBind, AidAggDestroy);
+    aid_anomaly_map.SetOrderDependent(AggregateOrderDependent::ORDER_DEPENDENT);
     aid_anomaly_set.AddFunction(aid_anomaly_map);
 
     {

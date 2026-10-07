@@ -9,6 +9,7 @@ usual GLM fit statistics.
 | Function | Type | Description |
 |----------|------|-------------|
 | `logistic_fit_agg` | Aggregate | Fit a binary logistic regression |
+| `logistic_fit_predict_by` | Table macro | Per-group fit, predicted probabilities for every row, see [Table macros](../macros/table_macros.md#logistic_fit_predict_by) |
 
 ## logistic_fit_agg
 
@@ -58,6 +59,8 @@ cloglog links, or for proportions.
 | `iterations` | INTEGER | IRLS iterations performed |
 | `converged` | BOOLEAN | Whether IRLS reached the tolerance |
 | `std_errors`, `z_values`, `p_values`, `ci_lower`, `ci_upper` | DOUBLE[] | Only with `compute_inference` |
+| `family` | VARCHAR | `'binomial'`; used by [`predict`](../regression/model_tools.md#predict) |
+| `link` | VARCHAR | `'logit'` |
 
 **Example:**
 
@@ -82,6 +85,51 @@ FROM (
 -- Accuracy at a stricter threshold
 SELECT (logistic_fit_agg(churned, [support_tickets], {'threshold': 0.7})).accuracy
 FROM churn;
+```
+
+## Prediction
+
+Apply a fitted model to new rows with
+[`predict(model, x)`](../regression/model_tools.md#predict). The model's `link`
+field maps the linear predictor back to the response scale; pass
+`{'type': 'link'}` for the log odds instead. [`tidy`](../regression/model_tools.md#tidy)
+and [`glance`](../regression/model_tools.md#glance) give the per-term table and
+the fit summary.
+
+```sql
+WITH fit AS (SELECT logistic_fit_agg(churned, [support_tickets]) AS m FROM churn)
+SELECT m.family, m.link,
+       round(predict(m, [8.0]), 4) AS response,   -- churn probability with 8 tickets
+       round(predict(m, [8.0], {'type': 'link'}), 4) AS linear_predictor
+FROM fit;
+```
+
+### logistic_fit_predict_by
+
+```text
+logistic_fit_predict_by(source VARCHAR, group_col, y_col, x_cols,
+    options := NULL, split := NULL) -> TABLE
+```
+
+Fits `logistic_fit_agg` on each group's training rows (`y` not NULL and `split`
+NULL or `'train'`) and applies `predict(model, x)` to every row. Returns all
+source columns plus `yhat` (response scale), `yhat_lower` and `yhat_upper`
+(NULL: no interval for this GLM) and `is_training`, ordered by the group
+column. A group whose fit fails gets NULL `yhat`. See
+[Table macros](../macros/table_macros.md#logistic_fit_predict_by).
+
+```sql
+CREATE OR REPLACE VIEW churn_seg AS
+SELECT *,
+       CASE WHEN customer_id % 2 = 0 THEN 'even' ELSE 'odd' END AS segment,
+       CASE WHEN customer_id % 10 < 8 THEN 'train' ELSE 'test' END AS split
+FROM churn;
+
+SELECT segment, customer_id, churned, round(yhat, 3) AS yhat, is_training
+FROM logistic_fit_predict_by('churn_seg', segment, churned, [support_tickets], split := split)
+WHERE NOT is_training
+ORDER BY segment, customer_id
+LIMIT 4;
 ```
 
 ## Interpreting Coefficients

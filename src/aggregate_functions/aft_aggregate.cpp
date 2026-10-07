@@ -9,6 +9,7 @@
 #include "duckdb/parser/parsed_data/create_scalar_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/error_dispatch.hpp"
 #include "../include/glm_prior_options.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
@@ -289,6 +290,7 @@ static void AftAggFinalize(Vector &state_vector, AggregateInputData &, Vector &r
 		bool success = anofox_aft_fit(time_array, x_arrays.data(), x_arrays.size(), event_array, options, &core,
 		                              state.compute_inference ? &inference : nullptr, &error);
 		if (!success) {
+			ThrowUnlessDegenerate("aft_fit_agg", error);
 			FlatVector::SetNull(result, row, true);
 			state.Reset();
 			continue;

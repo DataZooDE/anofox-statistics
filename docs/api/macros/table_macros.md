@@ -18,6 +18,11 @@ passed through and the prediction columns appended.
 | `bls_fit_predict_by` | `bls_fit_predict_agg` | one row per input row |
 | `alm_fit_predict_by` | `alm_fit_predict_agg` | one row per input row |
 | `poisson_fit_predict_by` | `poisson_fit_predict_agg` | one row per input row |
+| `binomial_fit_predict_by` | `binomial_fit_agg` + `predict` | one row per input row, no intervals |
+| `logistic_fit_predict_by` | `logistic_fit_agg` + `predict` | one row per input row, no intervals |
+| `negbinom_fit_predict_by` | `negbinom_fit_agg` + `predict` | one row per input row, no intervals |
+| `gamma_fit_predict_by` | `gamma_fit_agg` + `predict` | one row per input row, no intervals |
+| `tweedie_fit_predict_by` | `tweedie_fit_agg` + `predict` | one row per input row, no intervals |
 | `pls_fit_predict_by` | `pls_fit_predict_agg` | one row per input row, no intervals |
 | `quantile_fit_predict_by` | `quantile_fit_predict_agg` | one row per input row, no intervals |
 | `isotonic_fit_predict_by` | `isotonic_fit_predict_agg` | one row per input row, no intervals |
@@ -35,40 +40,64 @@ passed through and the prediction columns appended.
     y_col,                   -- response column; NULL marks a row to predict
     x_cols,                  -- feature columns as a list, e.g. [x1, x2]
     options := NULL,         -- optional MAP/STRUCT of model options
-    split := NULL            -- optional column with 'train' / other values
+    split := NULL,           -- optional column with 'train' / other values
+    order_by := NULL         -- optional column that orders the rows of each group
 ) -> TABLE
 ```
 
-Two macros differ:
+Some macros differ:
 
 ```text
-wls_fit_predict_by(source, group_col, y_col, x_cols, weight_col, options := NULL, split := NULL)
-isotonic_fit_predict_by(source, group_col, y_col, x_col, options := NULL, split := NULL)   -- single x column
+wls_fit_predict_by(source, group_col, y_col, x_cols, weight_col, options := NULL, split := NULL, order_by := NULL)
+isotonic_fit_predict_by(source, group_col, y_col, x_col, options := NULL, split := NULL, order_by := NULL)   -- single x column
+
+-- GLM macros (fit the model per group, then predict(model, x) on every row); no order_by
+binomial_fit_predict_by(source, group_col, y_col, x_cols, options := NULL, split := NULL)
+logistic_fit_predict_by(source, group_col, y_col, x_cols, options := NULL, split := NULL)
+negbinom_fit_predict_by(source, group_col, y_col, x_cols, options := NULL, split := NULL)
+gamma_fit_predict_by(source, group_col, y_col, x_cols, options := NULL, split := NULL)
+tweedie_fit_predict_by(source, group_col, y_col, x_cols, options := NULL, split := NULL)
 ```
 
 `options` and `split` can be passed positionally or by name
-(`options := {...}`, `split := split_col`).
+(`options := {...}`, `split := split_col`); pass `order_by` by name
+(`order_by := t`).
+
+**`order_by`:** the macros built on the fit-predict aggregates attach each
+prediction to its row through the order of the rows inside the group. Without
+`order_by` that order is the scan order of `source`; with `order_by := col` it
+is `col` (ties fall back to scan order), so the row-to-prediction alignment is
+deterministic. For order-dependent models (RLS, whose recursive updates follow
+the row order) it also fixes the order the rows are fed to the fit. The GLM
+macros join each row to its group's model and need no `order_by`.
 
 **Output columns:** all columns of `source` (original names), followed by
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `yhat` | `DOUBLE` | Prediction |
-| `yhat_lower` | `DOUBLE` | Lower prediction-interval bound (not for PLS, quantile, isotonic) |
-| `yhat_upper` | `DOUBLE` | Upper prediction-interval bound (not for PLS, quantile, isotonic) |
+| `yhat` | `DOUBLE` | Prediction (GLM macros: on the response scale) |
+| `yhat_lower` | `DOUBLE` | Lower prediction-interval bound (not for PLS, quantile, isotonic; always NULL for the GLM macros other than Poisson) |
+| `yhat_upper` | `DOUBLE` | Upper prediction-interval bound (not for PLS, quantile, isotonic; always NULL for the GLM macros other than Poisson) |
 | `is_training` | `BOOLEAN` | Whether the row was used to fit its group's model |
 
 Rows are returned ordered by `group_col`.
 
 **Training rows:** without `split`, rows with a non-NULL `y` train the model
-and rows with NULL `y` are predicted. With `split`, only rows whose split value
-is exactly `'train'` (and whose `y` is not NULL) are trained on; every other
-row, including NULL split values, is predicted.
+and rows with NULL `y` are predicted. With `split`, rows whose split value is
+`'train'` or NULL (and whose `y` is not NULL) are trained on; rows with any
+other split value are predicted only.
+
+**Prediction intervals:** `yhat_lower`/`yhat_upper` are leverage-aware
+(`yhat ± t(n − p) · s · sqrt(1 + x₀ᵀ M x₀)`, see
+[Methodology](../../METHODOLOGY.md#prediction-intervals)). They are NULL when no
+interval exists for the group (zero residual degrees of freedom, singular
+design) and equal to `yhat` for an exact fit.
 
 **Options:** each macro accepts the options of the model it wraps (see the
 model pages linked below), plus `confidence_level` (default `0.95`) and
 `null_policy` (default `'drop'`, see [null_policy](#null_policy)) for all
-macros except PLS, quantile and isotonic. Option keys the model does not
+macros except PLS, quantile, isotonic and the GLM macros (binomial, logistic,
+negbinom, gamma, tweedie), which take their model's options. Option keys the model does not
 support raise an error.
 
 ### Demo data
@@ -97,7 +126,7 @@ Options: [OLS](../regression/ols.md#options).
 ```sql
 -- Per-region OLS; rows with NULL sales receive forecasts
 SELECT region, t, sales, round(yhat, 2) AS yhat, is_training
-FROM ols_fit_predict_by('macro_demo', region, sales, [price, promo])
+FROM ols_fit_predict_by('macro_demo', region, sales, [price, promo], order_by := t)
 WHERE NOT is_training;
 
 -- 99% prediction intervals and an explicit train/test split
@@ -141,8 +170,9 @@ LIMIT 5;
 Options: [RLS](../regression/rls.md#options) (`forgetting_factor`, `initial_p_diagonal`, ...).
 
 ```sql
+-- RLS is order-dependent: feed each region's rows in time order
 SELECT * FROM rls_fit_predict_by('macro_demo', region, sales, [price, promo],
-    {'forgetting_factor': 0.95})
+    {'forgetting_factor': 0.95}, order_by := t)
 LIMIT 5;
 ```
 
@@ -206,6 +236,75 @@ Poisson GLM for counts. Options: [Poisson](../glm/poisson.md) (`link`:
 
 ```sql
 SELECT * FROM poisson_fit_predict_by('macro_demo', region, visits, [promo])
+LIMIT 5;
+```
+
+## binomial_fit_predict_by
+
+Binomial GLM for success rates in [0, 1]. Options:
+[Binomial](../glm/binomial.md) (`binomial_link`: `'logit'`, `'probit'`,
+`'cloglog'`; `max_iterations`, `tolerance`, `fit_intercept`, ...). `yhat` is
+the predicted rate; `yhat_lower`/`yhat_upper` are NULL.
+
+```sql
+-- source must be a table or view name, so derive the response in a view
+CREATE OR REPLACE VIEW macro_demo_glm AS
+SELECT *, promo / 3.0 AS rate, (promo >= 2)::DOUBLE AS high FROM macro_demo;
+
+SELECT region, t, round(rate, 3) AS rate, round(yhat, 3) AS yhat, is_training
+FROM binomial_fit_predict_by('macro_demo_glm', region, rate, [price])
+ORDER BY region, t
+LIMIT 5;
+```
+
+## logistic_fit_predict_by
+
+Logistic regression for a binary (0/1) response. Options:
+[Logistic](../glm/logistic.md). `yhat` is the predicted probability.
+
+```sql
+SELECT region, t, high, round(yhat, 3) AS p_high, is_training
+FROM logistic_fit_predict_by('macro_demo_glm', region, high, [price], split := split)
+WHERE NOT is_training
+ORDER BY region, t
+LIMIT 5;
+```
+
+## negbinom_fit_predict_by
+
+Negative binomial GLM for over-dispersed counts (log link). Options:
+[Negative Binomial](../glm/negbinom.md) (`theta`, ...). `yhat` is the
+expected count.
+
+```sql
+SELECT region, t, visits, round(yhat, 2) AS yhat
+FROM negbinom_fit_predict_by('macro_demo', region, visits, [price])
+ORDER BY region, t
+LIMIT 5;
+```
+
+## gamma_fit_predict_by
+
+Gamma GLM for strictly positive, right-skewed responses (log link). Options:
+[Gamma](../glm/gamma.md). `yhat` is the expected value.
+
+```sql
+SELECT region, t, sales, round(yhat, 2) AS yhat, is_training
+FROM gamma_fit_predict_by('macro_demo', region, sales, [price, promo])
+WHERE NOT is_training
+ORDER BY region, t;
+```
+
+## tweedie_fit_predict_by
+
+Tweedie GLM for non-negative responses with exact zeros (log link). Options:
+[Tweedie](../glm/tweedie.md) (`power`, default `1.5`). `yhat` is the expected
+value.
+
+```sql
+SELECT region, t, promo, round(yhat, 3) AS yhat
+FROM tweedie_fit_predict_by('macro_demo', region, promo, [price], {'power': 1.5})
+ORDER BY region, t
 LIMIT 5;
 ```
 

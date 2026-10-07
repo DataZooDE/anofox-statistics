@@ -9,6 +9,7 @@
 #include "../include/anofox_stats_ffi.h"
 #include "../include/ffi_enum_converters.hpp"
 #include "../include/result_fields.hpp"
+#include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
@@ -195,6 +196,7 @@ static void BrunnerMunzelAggFinalize(Vector &state_vector, AggregateInputData &a
         bool success = anofox_brunner_munzel(group1_array, group2_array, options, &test_result, &error);
 
         if (!success) {
+            ThrowUnlessDegenerate("brunner_munzel_agg", error);
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }

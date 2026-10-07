@@ -174,7 +174,7 @@ pub fn fit_ridge(y: &[f64], x: &[Vec<f64>], options: &RidgeOptions) -> StatsResu
         .solve_method(convert_solver(options.solver))
         .build()
         .fit(&x_mat, &y_col)
-        .map_err(|e| StatsError::RegressError(format!("{:?}", e)))?;
+        .map_err(StatsError::from)?;
 
     // Extract results
     let result = fitted.result();
@@ -201,8 +201,29 @@ pub fn fit_ridge(y: &[f64], x: &[Vec<f64>], options: &RidgeOptions) -> StatsResu
         n_features,
     };
 
-    // Build inference results if requested
-    let inference = if options.compute_inference {
+    // Build inference results if requested.
+    //
+    // With alpha > 0 the coefficients are biased towards zero, so classical
+    // t-tests, p-values and confidence intervals (which assume an unbiased,
+    // normally distributed estimator centred on the true value) are not valid.
+    // The upstream standard errors, sqrt(MSE * diag((X'X + lambda I)^-1)), are not
+    // even the sampling variance of the ridge estimator (that would be the
+    // sandwich (X'X + lambda I)^-1 X'X (X'X + lambda I)^-1). Rather than report
+    // misleading numbers we return NaN (surfaced as NULL in SQL) for all of them.
+    // alpha == 0 is plain OLS and keeps the classical inference.
+    let inference = if options.compute_inference && options.alpha > 0.0 {
+        let nan = vec![f64::NAN; n_features];
+        Some(FitResultInference {
+            std_errors: nan.clone(),
+            t_values: nan.clone(),
+            p_values: nan.clone(),
+            ci_lower: nan.clone(),
+            ci_upper: nan,
+            confidence_level: options.confidence_level,
+            f_statistic: None,
+            f_pvalue: None,
+        })
+    } else if options.compute_inference {
         // Helper to reconstruct reduced vector to full size with NaN for constant columns
         let reconstruct = |reduced: Option<&faer::Col<f64>>| -> Vec<f64> {
             let mut full = vec![f64::NAN; n_features];

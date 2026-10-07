@@ -206,7 +206,7 @@ pub fn fit_negbinomial(
 
     let run = |theta: f64, opts: &EngineOptions| {
         glm_engine::fit(
-            &NegativeBinomialFamily::new(theta),
+            &NbFamily::new(theta),
             y,
             x,
             opts,
@@ -220,51 +220,169 @@ pub fn fit_negbinomial(
         return Ok(run(theta, &engine_opts)?.into());
     }
 
-    // Otherwise alternate IRLS and a moment update for theta.
-    let mut theta = 1.0_f64;
-    let mut fit = {
-        let mut probe = engine_opts.clone();
-        probe.compute_inference = false;
-        run(theta, &probe)?
-    };
-
-    for _ in 0..25 {
-        let next = estimate_theta_moments(&fit.design.y, &fit.irls.mu);
-        if !next.is_finite() || next <= 0.0 {
-            break;
-        }
-        if (next - theta).abs() / theta.max(1e-8) < 1e-6 {
-            theta = next;
-            break;
-        }
-        theta = next;
-        let mut probe = engine_opts.clone();
-        probe.compute_inference = false;
+    // Otherwise follow MASS::glm.nb: start from a (near-)Poisson fit, then
+    // alternate an IRLS fit at the current theta with a maximum-likelihood
+    // update of theta (MASS::theta.ml) until both the log-likelihood and theta
+    // settle.
+    let mut probe = engine_opts.clone();
+    probe.compute_inference = false;
+    let mut fit = run(THETA_MAX, &probe)?;
+    let mut theta = theta_ml(&fit.design.y, &fit.irls.mu, 25);
+    let df_resid = fit
+        .design
+        .y
+        .len()
+        .saturating_sub(fit.irls.beta.len())
+        .max(1) as f64;
+    let d1 = (2.0 * df_resid).sqrt();
+    let d2 = 1.0;
+    let mut del = 1.0_f64;
+    let mut lm = nb_loglik(&fit.design.y, &fit.irls.mu, theta);
+    let mut lm0 = lm + 2.0 * d1;
+    let mut iter = 0;
+    while iter < 25 && ((lm0 - lm).abs() / d1 + del.abs() / d2) > 1e-8 {
+        iter += 1;
         fit = run(theta, &probe)?;
+        let t0 = theta;
+        theta = theta_ml(&fit.design.y, &fit.irls.mu, 25);
+        del = t0 - theta;
+        lm0 = lm;
+        lm = nb_loglik(&fit.design.y, &fit.irls.mu, theta);
+        if !lm.is_finite() {
+            break;
+        }
     }
 
     Ok(run(theta, &engine_opts)?.into())
 }
 
-/// Method-of-moments estimate of the Negative Binomial `theta`.
+/// Bounds for the estimated Negative Binomial theta. The upper bound stands in
+/// for "no detectable overdispersion" (Poisson limit), where the ML estimate
+/// diverges.
+const THETA_MIN: f64 = 1e-8;
+const THETA_MAX: f64 = 1e8;
+
+/// Negative Binomial family with a corrected unit deviance.
 ///
-/// Solves `sum (y - mu)^2 / (mu + mu^2/theta) = n - p` approximately by matching
-/// the Pearson statistic, clamped to a sane range so a near-Poisson sample cannot
-/// drive `theta` to infinity.
-fn estimate_theta_moments(y: &[f64], mu: &[f64]) -> f64 {
-    let n = y.len() as f64;
-    let num: f64 = y
-        .iter()
-        .zip(mu.iter())
-        .map(|(&yi, &mui)| (yi - mui).powi(2) - mui)
-        .sum();
-    let den: f64 = mu.iter().map(|&m| m * m).sum();
-    if den <= 0.0 || num <= 0.0 {
-        // No detectable overdispersion — a large theta approaches Poisson.
-        return 1e6;
+/// Upstream `NegativeBinomialFamily::unit_deviance` returns
+/// `2 theta log(theta / (mu + theta))` for `y = 0`, which is the *negative* of
+/// the correct `2 theta log(1 + mu / theta)`, so zero-heavy samples produced
+/// negative deviances. Everything else delegates to the upstream family.
+struct NbFamily {
+    inner: NegativeBinomialFamily,
+    theta: f64,
+}
+
+impl NbFamily {
+    fn new(theta: f64) -> Self {
+        let theta = theta.clamp(THETA_MIN, THETA_MAX);
+        Self {
+            inner: NegativeBinomialFamily::new(theta),
+            theta,
+        }
     }
-    let alpha = (num / den).max(1e-12) * n / n;
-    (1.0 / alpha).clamp(1e-6, 1e6)
+}
+
+impl GlmFamily for NbFamily {
+    fn variance(&self, mu: f64) -> f64 {
+        self.inner.variance(mu)
+    }
+    fn link(&self, mu: f64) -> f64 {
+        self.inner.link(mu)
+    }
+    fn link_inverse(&self, eta: f64) -> f64 {
+        self.inner.link_inverse(eta)
+    }
+    fn link_derivative(&self, mu: f64) -> f64 {
+        self.inner.link_derivative(mu)
+    }
+    fn unit_deviance(&self, y: f64, mu: f64) -> f64 {
+        let mu = mu.max(1e-10);
+        let theta = self.theta;
+        let tail = (y + theta) * ((y + theta) / (mu + theta)).ln();
+        if y > 0.0 {
+            2.0 * (y * (y / mu).ln() - tail)
+        } else {
+            -2.0 * tail
+        }
+    }
+    fn initialize_mu(&self, y: &[f64]) -> Vec<f64> {
+        self.inner.initialize_mu(y)
+    }
+}
+
+/// Negative Binomial log-likelihood, as `MASS::glm.nb`'s internal `loglik`.
+fn nb_loglik(y: &[f64], mu: &[f64], theta: f64) -> f64 {
+    use statrs::function::gamma::ln_gamma;
+    y.iter()
+        .zip(mu)
+        .map(|(&yi, &mi)| {
+            ln_gamma(theta + yi) - ln_gamma(theta) - ln_gamma(yi + 1.0)
+                + theta * theta.ln()
+                + if yi > 0.0 { yi * mi.ln() } else { 0.0 }
+                - (theta + yi) * (theta + mi).ln()
+        })
+        .sum()
+}
+
+/// Trigamma function (second derivative of ln Gamma): recurrence up to x >= 6,
+/// then the asymptotic series.
+fn trigamma(mut x: f64) -> f64 {
+    let mut acc = 0.0;
+    while x < 6.0 {
+        acc += 1.0 / (x * x);
+        x += 1.0;
+    }
+    let inv = 1.0 / x;
+    let inv2 = inv * inv;
+    acc + inv
+        + inv2 / 2.0
+        + inv * inv2 * (1.0 / 6.0 - inv2 * (1.0 / 30.0 - inv2 * (1.0 / 42.0 - inv2 / 30.0)))
+}
+
+/// Maximum-likelihood estimate of the Negative Binomial theta for fixed `mu`,
+/// a port of `MASS::theta.ml` (Newton-Raphson on the score with the expected
+/// information, started from the moment estimate `n / sum((y/mu - 1)^2)`).
+fn theta_ml(y: &[f64], mu: &[f64], limit: usize) -> f64 {
+    use statrs::function::gamma::digamma;
+    let n = y.len() as f64;
+    let denom: f64 = y
+        .iter()
+        .zip(mu)
+        .map(|(&yi, &mi)| (yi / mi - 1.0).powi(2))
+        .sum();
+    let mut t0 = if denom > 0.0 { n / denom } else { THETA_MAX };
+    if !t0.is_finite() {
+        t0 = THETA_MAX;
+    }
+    let eps = f64::EPSILON.powf(0.25);
+    let mut del = 1.0_f64;
+    let mut it = 0;
+    while {
+        it += 1;
+        it < limit
+    } && del.abs() > eps
+    {
+        t0 = t0.abs();
+        let mut score = 0.0;
+        let mut info = 0.0;
+        for (&yi, &mi) in y.iter().zip(mu) {
+            score += digamma(t0 + yi) - digamma(t0) + t0.ln() + 1.0
+                - (t0 + mi).ln()
+                - (yi + t0) / (mi + t0);
+            info += -trigamma(t0 + yi) + trigamma(t0) - 1.0 / t0 + 2.0 / (mi + t0)
+                - (yi + t0) / (mi + t0).powi(2);
+        }
+        if !(score.is_finite() && info.is_finite()) || info == 0.0 {
+            break;
+        }
+        del = score / info;
+        t0 += del;
+        if !t0.is_finite() || t0 > THETA_MAX {
+            return THETA_MAX;
+        }
+    }
+    t0.clamp(THETA_MIN, THETA_MAX)
 }
 
 /// Fit a Tweedie regression model (for zero-inflated continuous data)
@@ -692,6 +810,55 @@ mod tests {
         let fit = fit_negbinomial(&y, &x, &NegBinomialOptions::default()).unwrap();
         let theta = fit.core.dispersion.unwrap();
         assert!(theta > 0.0 && theta.is_finite(), "theta = {theta}");
+    }
+
+    const NB_X: [f64; 40] = [
+        2.74, 2.81, 0.86, 2.49, 1.93, 1.56, 2.21, 0.4, 1.97, 2.12, 1.37, 2.16, 2.8, 0.77, 1.39,
+        2.82, 2.93, 0.35, 1.42, 1.68, 2.71, 0.42, 2.97, 2.84, 0.25, 1.54, 1.17, 2.72, 1.34, 2.51,
+        2.21, 2.43, 1.16, 2.06, 0.01, 2.5, 0.02, 0.62, 2.72, 1.84,
+    ];
+
+    /// Reference: `MASS::glm.nb(y ~ x)` on `set.seed(42)` NB(mu = exp(0.5 + 0.6x),
+    /// size = 2) draws.
+    #[test]
+    fn negbinomial_matches_mass_glm_nb() {
+        let y = [
+            10.0, 6.0, 5.0, 1.0, 4.0, 5.0, 11.0, 1.0, 1.0, 0.0, 2.0, 2.0, 4.0, 0.0, 2.0, 5.0, 7.0,
+            2.0, 0.0, 5.0, 0.0, 1.0, 7.0, 4.0, 2.0, 6.0, 1.0, 7.0, 7.0, 1.0, 9.0, 2.0, 5.0, 6.0,
+            2.0, 11.0, 3.0, 1.0, 10.0, 6.0,
+        ];
+        let opts = NegBinomialOptions {
+            compute_inference: true,
+            ..Default::default()
+        };
+        let fit = fit_negbinomial(&y, &[NB_X.to_vec()], &opts).unwrap();
+        let c = &fit.core;
+        assert!((c.intercept.unwrap() - 0.559998400621).abs() < 1e-5);
+        assert!((c.coefficients[0] - 0.440002318410).abs() < 1e-5);
+        assert!((c.dispersion.unwrap() - 3.37728928425).abs() < 1e-3);
+        assert!((c.residual_deviance - 45.7764701274).abs() < 1e-3);
+        assert!((c.null_deviance - 55.8911808375).abs() < 1e-3);
+        assert!((c.aic - 194.009868945).abs() < 1e-3, "aic {}", c.aic);
+        let se = &fit.inference.as_ref().unwrap().std_errors;
+        assert!((se[0] - 0.1395618977).abs() < 1e-4, "se {se:?}");
+    }
+
+    /// Zero-heavy sample (`set.seed(7)`, size = 0.5): deviances must be positive
+    /// and match `MASS::glm.nb`.
+    #[test]
+    fn negbinomial_zero_heavy_matches_mass_glm_nb() {
+        let y = [
+            6.0, 6.0, 0.0, 0.0, 7.0, 0.0, 2.0, 0.0, 0.0, 0.0, 1.0, 0.0, 2.0, 0.0, 0.0, 0.0, 0.0,
+            2.0, 0.0, 0.0, 8.0, 0.0, 0.0, 4.0, 0.0, 0.0, 1.0, 2.0, 0.0, 4.0, 0.0, 0.0, 0.0, 1.0,
+            0.0, 2.0, 2.0, 1.0, 0.0, 0.0,
+        ];
+        let fit = fit_negbinomial(&y, &[NB_X.to_vec()], &NegBinomialOptions::default()).unwrap();
+        let c = &fit.core;
+        assert!((c.intercept.unwrap() - -1.128447057480).abs() < 1e-4);
+        assert!((c.coefficients[0] - 0.668396231724).abs() < 1e-4);
+        assert!((c.dispersion.unwrap() - 0.458983081952).abs() < 1e-3);
+        assert!((c.residual_deviance - 34.4828544063).abs() < 1e-3);
+        assert!((c.null_deviance - 39.1438567019).abs() < 1e-3);
     }
 
     #[test]

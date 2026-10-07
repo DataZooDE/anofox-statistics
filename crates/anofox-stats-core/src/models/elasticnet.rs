@@ -158,7 +158,7 @@ pub fn fit_elasticnet(
         .tolerance(options.tolerance)
         .build()
         .fit(&x_mat, &y_col)
-        .map_err(|e| StatsError::RegressError(format!("{:?}", e)))?;
+        .map_err(StatsError::from)?;
 
     // Extract results
     let result = fitted.result();

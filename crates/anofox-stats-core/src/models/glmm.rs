@@ -242,12 +242,11 @@ pub fn fit_glmm(
     }
     let n_groups = orig.len();
     if n_groups < 2 {
-        return Err(StatsError::InvalidValue {
-            field: "group",
-            message: "a mixed-effects model needs at least two groups; with one group the \
+        return Err(StatsError::InsufficientDataMsg(
+            "a mixed-effects model needs at least two groups; with one group the \
                       random intercept is not separable from the fixed intercept"
                 .to_string(),
-        });
+        ));
     }
     if n <= n_fixed + 1 {
         return Err(StatsError::InsufficientData {
@@ -260,12 +259,11 @@ pub fn fit_glmm(
         group_sizes[g] += 1;
     }
     if group_sizes.iter().all(|&s| s <= 1) {
-        return Err(StatsError::InvalidValue {
-            field: "group",
-            message: "every group has a single observation, so the between-group variance is \
+        return Err(StatsError::InsufficientDataMsg(
+            "every group has a single observation, so the between-group variance is \
                       not identified"
                 .to_string(),
-        });
+        ));
     }
 
     // Dense design (no intercept column; the builder adds one) and response.
@@ -293,9 +291,7 @@ pub fn fit_glmm(
         .reml(options.reml)
         .build();
 
-    let fit = reg
-        .fit(&xm, &yv, &groups)
-        .map_err(|e| StatsError::RegressError(format!("{e:?}")))?;
+    let fit = reg.fit(&xm, &yv, &groups).map_err(StatsError::from)?;
 
     // Fixed effects: element 0 is the intercept when one is fitted.
     let (coefficients, intercept) = if options.fit_intercept {
@@ -520,10 +516,9 @@ pub fn fit_glmm_crossed(
             ids.push(id);
         }
         if next < 2 {
-            return Err(StatsError::InvalidValue {
-                field: "group",
-                message: "each grouping factor needs at least two levels".to_string(),
-            });
+            return Err(StatsError::InsufficientDataMsg(
+                "each grouping factor needs at least two levels".to_string(),
+            ));
         }
         factor_ids.push(ids);
     }
@@ -541,7 +536,7 @@ pub fn fit_glmm_crossed(
     let group_refs: Vec<&[usize]> = factor_ids.iter().map(|v| v.as_slice()).collect();
     let fit = reg
         .fit_crossed(&xm, &yv, &group_refs)
-        .map_err(|e| StatsError::RegressError(format!("{e:?}")))?;
+        .map_err(StatsError::from)?;
 
     let (coefficients, intercept) = if options.fit_intercept {
         (fit.slopes().to_vec(), fit.intercept())
@@ -911,7 +906,7 @@ mod tests {
         let g = vec![0i32; 6];
         assert!(matches!(
             fit_glmm(&y, &x, &g, &GlmmOptions::default()),
-            Err(StatsError::InvalidValue { field: "group", .. })
+            Err(StatsError::InsufficientDataMsg(_))
         ));
     }
 
@@ -922,7 +917,7 @@ mod tests {
         let g: Vec<i32> = (0..6).collect();
         assert!(matches!(
             fit_glmm(&y, &x, &g, &GlmmOptions::default()),
-            Err(StatsError::InvalidValue { field: "group", .. })
+            Err(StatsError::InsufficientDataMsg(_))
         ));
     }
 

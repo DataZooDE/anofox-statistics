@@ -208,11 +208,11 @@ FROM (SELECT (glmm_fit_agg(y, [x], sku, {'random': [1]})).random_cov AS c FROM p
 ----
 true
 
-# ==== TEST 16: an out-of-range random-slope column yields NULL (fit fails) ====
-query I
-SELECT (glmm_fit_agg(y, [x], sku, {'random': [5]})) IS NULL FROM panel;
+# ==== TEST 16: an out-of-range random-slope column is an invalid option ====
+statement error
+SELECT (glmm_fit_agg(y, [x], sku, {'random': [5]})) FROM panel;
 ----
-true
+glmm_fit_agg: Invalid value for random
 
 # ==== TEST 17: crossed grouping factors (#109) via the options MAP ====
 statement ok

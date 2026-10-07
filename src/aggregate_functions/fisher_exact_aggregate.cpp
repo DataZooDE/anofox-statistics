@@ -9,6 +9,7 @@
 #include "../include/anofox_stats_ffi.h"
 #include "../include/ffi_enum_converters.hpp"
 #include "../include/result_fields.hpp"
+#include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
 
@@ -45,6 +46,10 @@ static LogicalType GetFisherExactAggResultType() {
     children.push_back(make_pair("n", LogicalType::BIGINT));
     children.push_back(make_pair("method", LogicalType::VARCHAR));
     children.push_back(make_pair("alternative", LogicalType::VARCHAR));
+    // R fisher.test semantics: conditional MLE odds ratio and exact conditional CI.
+    children.push_back(make_pair("conditional_odds_ratio", LogicalType::DOUBLE));
+    children.push_back(make_pair("conditional_ci_lower", LogicalType::DOUBLE));
+    children.push_back(make_pair("conditional_ci_upper", LogicalType::DOUBLE));
 
     return LogicalType::STRUCT(std::move(children));
 }
@@ -179,7 +184,7 @@ static void FisherExactAggFinalize(Vector &state_vector, AggregateInputData &agg
         idx_t result_idx = i + offset;
 
         size_t n = state.a + state.b + state.c + state.d;
-        // Any non-empty 2x2 table is valid for the conditional exact test.
+        // Any non-empty 2x2 table is valid (n < 4 used to return NULL).
         if (!state.initialized || n < 1) {
             FlatVector::SetNull(result, result_idx, true);
             continue;
@@ -196,17 +201,30 @@ static void FisherExactAggFinalize(Vector &state_vector, AggregateInputData &agg
         AnofoxTestResult test_result;
         AnofoxError error;
 
-        bool success = anofox_fisher_exact_conditional(state.a, state.b, state.c, state.d, options, &test_result,
-                                                       &error);
+        // Existing fields keep their meaning: sample odds ratio ad/bc with the Woolf
+        // interval at confidence_level. The conditional (R fisher.test) estimate and
+        // exact interval are appended as conditional_*.
+        bool success = anofox_fisher_exact(state.a, state.b, state.c, state.d, options, &test_result, &error);
 
         if (!success) {
+            ThrowUnlessDegenerate("fisher_exact_agg", error);
+            FlatVector::SetNull(result, result_idx, true);
+            continue;
+        }
+
+        AnofoxTestResult cond_result;
+        bool cond_success =
+            anofox_fisher_exact_conditional(state.a, state.b, state.c, state.d, options, &cond_result, &error);
+        if (!cond_success) {
+            anofox_free_test_result(&test_result);
+            ThrowUnlessDegenerate("fisher_exact_agg", error);
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
 
         // Fill STRUCT result
         idx_t struct_idx = 0;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = test_result.statistic; // conditional MLE odds ratio
+        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = test_result.statistic; // sample odds ratio
         FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = test_result.p_value;
         FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = test_result.effect_size; // odds ratio
         FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = test_result.ci_lower;
@@ -216,7 +234,11 @@ static void FisherExactAggFinalize(Vector &state_vector, AggregateInputData &agg
         FlatVector::GetData<string_t>(method_vector)[result_idx] =
             StringVector::AddString(method_vector, test_result.method ? test_result.method : "Fisher's Exact Test");
         SetResultString(*struct_entries[struct_idx++], result_idx, AlternativeName(options.alternative));
+        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = cond_result.statistic;
+        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = cond_result.ci_lower;
+        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = cond_result.ci_upper;
 
+        anofox_free_test_result(&cond_result);
         anofox_free_test_result(&test_result);
         state.Reset();
     }

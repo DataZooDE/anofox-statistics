@@ -9,6 +9,7 @@
 
 #include "../include/anofox_stats_ffi.h"
 #include "../include/result_fields.hpp"
+#include "../include/error_dispatch.hpp"
 #include "telemetry.hpp"
 
 namespace duckdb {
@@ -83,6 +84,7 @@ static void JarqueBeraFunction(DataChunk &args, ExpressionState &state, Vector &
         bool success = anofox_jarque_bera(data_array, &jb_result, &error);
 
         if (!success) {
+            ThrowUnlessDegenerate("jarque_bera", error);
             FlatVector::SetNull(result, row, true);
             continue;
         }

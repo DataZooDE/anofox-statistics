@@ -8,15 +8,13 @@ Algorithm (PAVA).
 
 | Function | Type | Description |
 |----------|------|-------------|
-| `isotonic_fit_agg` | Aggregate | Fit an isotonic regression per group <!-- TODO(lead): verify after *_fit_agg lands --> |
+| `isotonic_fit_agg` | Aggregate | Fit an isotonic regression per group |
 | `isotonic_fit_predict_agg` | Aggregate | Fit and predict every row of a group |
 | `isotonic_fit_predict_by` | Table macro | Per-group fit and predict in long format, see [Table macros](../macros/table_macros.md#isotonic_fit_predict_by) |
 
 Unlike the other regressions, `x` is a single `DOUBLE`, not a list.
 
 ## isotonic_fit_agg
-
-<!-- TODO(lead): verify after *_fit_agg lands -->
 
 **Signature:**
 
@@ -26,10 +24,37 @@ isotonic_fit_agg(y DOUBLE, x DOUBLE [, options MAP]) -> STRUCT
 
 Options: `increasing` (see [Options](#options)).
 
-```sql skip
--- TODO(lead): un-skip once isotonic_fit_agg is registered
-SELECT isotonic_fit_agg(response, dose, {'increasing': true}) AS fit
-FROM isotonic_demo;
+**Returns:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `x` | `DOUBLE[]` | Sorted distinct `x` values (the knots of the fitted function) |
+| `fitted` | `DOUBLE[]` | Fitted value at each knot |
+| `increasing` | `BOOLEAN` | Direction of the fit |
+| `r_squared` | `DOUBLE` | In-sample R² |
+| `n_observations` | `BIGINT` | Rows used in the fit |
+
+The fitted model is a monotone function given by its knots. Evaluate it at new
+points with [`predict(model, [x])`](model_tools.md#predict), which interpolates
+linearly between neighbouring knots and clamps to the first/last fitted value
+outside the range of the training `x`. Rows with a NULL or non-finite `y` or
+`x` are skipped.
+
+**Example:**
+
+```sql
+CREATE OR REPLACE TABLE isotonic_demo AS
+SELECT * FROM (VALUES
+    (1.0, 1.5), (2.0, 2.0), (3.0, 1.8), (4.0, 3.5),
+    (5.0, 4.0), (6.0, 3.9), (7.0, 5.2), (8.0, NULL)
+) t(dose, response);
+
+SELECT
+    m.x AS knots,
+    m.fitted,
+    predict(m, [3.5]) AS at_3_5,     -- interpolated between knots 3 and 4
+    predict(m, [10.0]) AS at_10      -- clamped to the last fitted value
+FROM (SELECT isotonic_fit_agg(response, dose, {'increasing': true}) AS m FROM isotonic_demo);
 ```
 
 ## isotonic_fit_predict_agg
@@ -48,12 +73,6 @@ prediction. There are no prediction intervals.
 **Example:**
 
 ```sql
-CREATE OR REPLACE TABLE isotonic_demo AS
-SELECT * FROM (VALUES
-    (1.0, 1.5), (2.0, 2.0), (3.0, 1.8), (4.0, 3.5),
-    (5.0, 4.0), (6.0, 3.9), (7.0, 5.2), (8.0, NULL)
-) t(dose, response);
-
 -- Noisy but generally increasing dose-response curve
 SELECT p.y, p.yhat, p.is_training
 FROM (

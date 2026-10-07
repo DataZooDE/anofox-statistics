@@ -1,0 +1,76 @@
+# name: test/sql/regression/test_theil_sen_fit_more.test
+# description: theil_sen_fit scalar: the one-feature estimator against R (median of pairwise
+#              slopes, as documented in docs/api/regression/theil_sen.md), exact recovery on
+#              noiseless multi-feature data, equivalence with theil_sen_fit_agg, options.
+# group: [regression]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE t AS
+SELECT i, i::DOUBLE AS x,
+       (1.0 + 2.0 * i + ((i * 37) % 11) / 5.0 + CASE WHEN i IN (3, 8) THEN 30 ELSE 0 END)::DOUBLE AS y
+FROM range(1, 13) t(i);
+
+# One feature: slope = median of all pairwise slopes.
+# R: s <- outer-loop (y[b]-y[a])/(x[b]-x[a]) over a < b; median(s) = 1.9200000000000004
+# (cross-checked in SQL below).
+query II
+SELECT abs((theil_sen_fit(list(y ORDER BY i), [list(x ORDER BY i)])).coefficients[1] - 1.9200000000000004) < 1e-9,
+       abs((SELECT median((b.y - a.y) / (b.x - a.x)) FROM t a JOIN t b ON a.x < b.x) - 1.9200000000000004) < 1e-12
+FROM t;
+----
+true	true
+
+# Documentation example: most pairwise slopes are exactly 2, so the median is 2.0
+query I
+SELECT (theil_sen_fit([3.0, 5.0, 7.0, 9.0, 30.0, 13.0, 15.0], [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0]])).coefficients[1] = 2.0;
+----
+true
+
+# Noiseless two-feature data: every elemental subset reproduces the plane, so
+# the spatial median is exact (up to the Weiszfeld iteration tolerance).
+query III
+SELECT abs(f.coefficients[1] - 1.5) < 1e-6, abs(f.coefficients[2] + 0.5) < 1e-6, abs(f.intercept - 4.0) < 1e-6
+FROM (SELECT theil_sen_fit(list(4.0 + 1.5 * a - 0.5 * b), [list(a), list(b)]) AS f
+      FROM (SELECT (i % 7)::DOUBLE AS a, ((i * 3) % 5)::DOUBLE AS b FROM range(1, 21) t(i)));
+----
+true	true	true
+
+# Scalar == aggregate on the same rows (the default estimator is deterministic)
+query I
+SELECT (SELECT theil_sen_fit(list(y ORDER BY i), [list(x ORDER BY i)]) FROM t)
+     = (SELECT theil_sen_fit_agg(y, [x] ORDER BY i) FROM t);
+----
+true
+
+# Breakdown: two gross outliers out of twelve barely move the slope, OLS moves a lot
+query II
+SELECT abs((theil_sen_fit(list(y ORDER BY i), [list(x ORDER BY i)])).coefficients[1] - 2.0) < 0.1,
+       abs((ols_fit(list(y ORDER BY i), [list(x ORDER BY i)])).coefficients[1] - 2.0) > 0.1
+FROM t;
+----
+true	true
+
+# fit_intercept = false: data through the origin
+query I
+SELECT abs((theil_sen_fit([2.0, 4.0, 6.0, 8.0, 10.0, 99.0], [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]], {'fit_intercept': false})).coefficients[1] - 2.0) < 1e-3;
+----
+true
+
+# NaN positions are dropped
+query I
+SELECT (theil_sen_fit([3.0, 5.0, 'nan'::DOUBLE, 9.0, 11.0, 13.0], [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]])).n_observations;
+----
+5
+
+# compute_inference = true adds one entry per feature (documented; empty today)
+query I
+SELECT len((theil_sen_fit(list(y ORDER BY i), [list(x ORDER BY i)], {'compute_inference': true})).std_errors) FROM t;
+----
+1
+
+statement error
+SELECT theil_sen_fit([1.0, 2.0, 3.0, 4.0], [[1.0, 2.0, 3.0]]);
+----
+theil_sen_fit: Dimension mismatch

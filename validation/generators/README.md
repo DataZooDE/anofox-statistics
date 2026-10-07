@@ -1,174 +1,54 @@
-# Test Data Generators
+# Reference-value generators
 
-This directory contains scripts that generate test data for validating the extension.
+The scripts in this directory compute reference values with R (and scipy) and
+write them into the sqllogictests under `test/sql/reference/`. The tests
+inline small fixed datasets as `INSERT ... VALUES` and compare each extension
+result with the reference using a mixed absolute/relative tolerance
+(`abs(a - b) <= tol * (1 + abs(b))`). There are no intermediate CSV/JSON
+fixtures: the generated `.test` files are the source of truth and are
+committed.
 
-## Purpose
+Only re-run a generator when you change a dataset, add a check, or a reference
+implementation changes. Run from the repository root.
 
-These scripts generate reference data that SQL tests use to validate extension functionality.
-They should only be run when:
-- Adding new test cases
-- Updating test data
-- Fixing bugs in data generation logic
-- Updating statistical computations
+## `make_reference_regression.R`
 
-## Dependencies
-
-### R Scripts
-- R (>= 4.0.0)
-- Required packages:
-  - `jsonlite` - JSON file I/O
-  - `glmnet` - Ridge regression (for ridge tests)
-
-Install R packages:
-```r
-install.packages(c("jsonlite", "glmnet"))
-```
-
-## Usage
-
-### Generate all test data:
 ```bash
-cd validation
-./generate_all_data.sh
+Rscript validation/generators/make_reference_regression.R
 ```
 
-### Generate specific test data:
-```bash
-Rscript generators/generate_ols_tests.R
-Rscript generators/generate_ridge_wls_tests.R
-Rscript generators/generate_inference_tests.R
-```
+Requires R >= 4.0 with `MASS`, `survival`, `lme4` and `quantreg` (glmnet is
+not needed). It (re)writes:
 
-## Generator Scripts
+| File | Extension functions | R reference |
+|------|---------------------|-------------|
+| `regression_ols.test` | `ols_fit_agg` (coefficients, inference, HC0-HC3, solvers, no intercept, rank deficiency), `ols_fit_predict_agg` prediction intervals | `lm`, `summary.lm`, `confint`, `predict.lm(interval = "prediction")`, sandwich estimators coded by hand |
+| `regression_wls.test` | `wls_fit_agg` | `lm(weights = w)` |
+| `regression_ridge.test` | `ridge_fit_agg` (raw and glmnet lambda scaling) | closed-form ridge on centred data |
+| `regression_quantile.test` | `quantile_fit_predict_agg` | `quantreg::rq` |
+| `glm_fit.test` | `poisson_fit_agg`, `binomial_fit_agg` (logit/probit/cloglog), `logistic_fit_agg`, `negbinom_fit_agg`, `gamma_fit_agg` (log link) | `glm`, `MASS::glm.nb`, `negative.binomial()` |
+| `glm_glmm.test` | `glmm_fit_agg` (gaussian REML/ML, poisson, binomial) | `lme4::lmer`, `lme4::glmer(nAGQ = 0)` |
+| `survival_aft.test` | `aft_fit_agg` (weibull, lognormal, loglogistic, exponential) | `survival::survreg` |
 
-### `generate_ols_tests.R`
-Generates test data for OLS (Ordinary Least Squares) regression validation.
+Where the extension follows a different convention from R's default (e.g. the
+floored quasi-Poisson covariance scaling, centred R^2 without an intercept,
+moment-estimated negative-binomial theta, Pearson dispersion in the Gamma AIC),
+the generator computes the reference by hand with the extension's convention
+and the generated test explains the difference in a comment.
 
-**Output:** `test/data/ols_tests/`
+The datasets are literal constants in the script (drawn once with a fixed seed
+and rounded), so the output does not depend on R's RNG implementation.
 
-**Test cases:**
-1. Simple linear regression (1 predictor)
-2. Multiple regression (3 predictors)
-3. No intercept regression
-4. Rank-deficient matrix (constant feature)
-5. Perfect collinearity
+## Other generators
 
-**Reference:** R `lm()` function
+`make_reference_tests.R` / `make_reference_tests.py` produce the
+hypothesis-test, correlation, categorical and normality reference tests in the
+same directory; see the header of each script.
 
-### `generate_ridge_wls_tests.R`
-Generates test data for Ridge regression and Weighted Least Squares validation.
+## `generate_issue107_tests.R`
 
-**Output:** `test/data/ridge_tests/` and `test/data/wls_tests/`
-
-**Ridge test cases:**
-1. Ridge with lambda = 0.1 (light regularization)
-2. Ridge with lambda = 1.0 (stronger regularization)
-
-**WLS test cases:**
-1. Equal weights (should match OLS)
-2. Inverse variance weights (for heteroscedastic data)
-
-**Reference:** R `glmnet` (ridge) and `lm()` with weights (WLS)
-
-### `generate_inference_tests.R`
-Generates test data for statistical inference and prediction intervals.
-
-**Output:** `test/data/inference_tests/`
-
-**Test cases:**
-1. Simple linear inference (coefficient tests, p-values, confidence intervals)
-2. Multiple regression inference
-3. Prediction intervals (confidence and prediction bands)
-
-**Reference:** R `lm()` with `confint()` and `predict()`
-
-## Adding New Tests
-
-To add a new test generator:
-
-1. Create `generators/generate_<test_name>.R`
-2. Follow the template structure:
-   ```r
-   #!/usr/bin/env Rscript
-   library(jsonlite)
-
-   set.seed(42)  # For reproducibility
-
-   # Create output directories
-   test_dir <- "test/data/<test_name>"
-   dir.create(file.path(test_dir, "input"), recursive = TRUE, showWarnings = FALSE)
-   dir.create(file.path(test_dir, "expected"), recursive = TRUE, showWarnings = FALSE)
-
-   # Generate input data
-   # ... your data generation code ...
-   write.csv(input_data, file.path(test_dir, "input/data.csv"), row.names = FALSE)
-
-   # Compute expected results with R
-   # ... your R computation ...
-   write_json(expected_results, file.path(test_dir, "expected/results.json"),
-              auto_unbox = TRUE, pretty = TRUE, digits = 15)
-
-   # Write metadata
-   metadata <- list(generated_at = Sys.time(), seed = 42, ...)
-   write_json(metadata, file.path(test_dir, "metadata.json"), pretty = TRUE)
-   ```
-3. Test your generator: `Rscript generators/generate_<test_name>.R`
-4. Create corresponding SQL validation test in `test/sql/validate_<test_name>.sql`
-5. Create test documentation in `test/data/<test_name>/README.md`
-6. Update this README with the new generator
-
-## Generated Data Structure
-
-Each test creates a structured output:
-
-```
-test/data/<test_name>/
-├── input/              # Input data files (CSV format)
-│   ├── test_case_1.csv
-│   └── test_case_2.csv
-├── expected/           # Expected output files (JSON format with high precision)
-│   ├── test_case_1.json
-│   └── test_case_2.json
-├── metadata.json       # Generation metadata (timestamp, R version, seed, etc.)
-└── README.md          # Test case documentation
-```
-
-## Important Notes
-
-- **Deterministic generation:** Always use `set.seed(42)` for reproducibility
-- **High precision:** Save expected results with `digits = 15` to avoid rounding errors
-- **JSON format:** Use `auto_unbox = TRUE` for cleaner JSON output
-- **Metadata:** Always include generation metadata (timestamp, R version, seed)
-- **Documentation:** Document what each test case validates
-- **Version control:** Generated data MUST be committed to git
-
-## Troubleshooting
-
-### "package 'glmnet' not found"
-```bash
-R
-> install.packages("glmnet")
-```
-
-### "Error: cannot create directory"
-Make sure you run scripts from the project root or use absolute paths.
-
-### "Different results when regenerating"
-Check that you're using `set.seed(42)` before any random number generation.
-
-## Testing the Generated Data
-
-After generating data, test it with:
-```bash
-# Run SQL validation tests
-make test-validation
-
-# Or test specific validation
-scripts/test_sql_validation.sh
-```
-
-## References
-
-- R documentation: `?lm`, `?glmnet`, `?predict`, `?confint`
-- JSON format: Uses `jsonlite` package
-- Reproducibility: Fixed seed (42) for all random generation
+An older, never-executed cross-check for explicit priors (`arm::bayesglm`) and
+empirical-Bayes shrinkage (`metafor`). It writes JSON to `test/data/issue107/`,
+which no test consumes. Its AFT and GLMM parts are superseded by
+`make_reference_regression.R`; the priors and shrinkage parts remain until
+they are ported to the generated-test format.

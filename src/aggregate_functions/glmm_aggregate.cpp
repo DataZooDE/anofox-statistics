@@ -10,6 +10,7 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
 
@@ -426,6 +427,7 @@ static void GlmmAggFinalize(Vector &state_vector, AggregateInputData &, Vector &
 		                          state.group_ids.size(), extra_ptrs.empty() ? nullptr : extra_ptrs.data(),
 		                          extra_ptrs.size(), options, &res, &error);
 		if (!ok) {
+			ThrowUnlessDegenerate("glmm_fit_agg", error);
 			FlatVector::SetNull(result, row, true);
 			state.Reset();
 			continue;

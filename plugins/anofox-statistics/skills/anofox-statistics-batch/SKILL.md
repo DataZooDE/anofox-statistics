@@ -7,8 +7,11 @@ description: >
   huber_fit_predict_by, ransac_fit_predict_by, theil_sen_fit_predict_by,
   ridge_fit_predict_by, elasticnet_fit_predict_by, wls_fit_predict_by,
   rls_fit_predict_by, bls_fit_predict_by, alm_fit_predict_by,
-  poisson_fit_predict_by, pls_fit_predict_by, isotonic_fit_predict_by,
-  quantile_fit_predict_by), per-group aggregate fitting with GROUP BY,
+  poisson_fit_predict_by, binomial_fit_predict_by, logistic_fit_predict_by,
+  negbinom_fit_predict_by, gamma_fit_predict_by, tweedie_fit_predict_by,
+  pls_fit_predict_by, isotonic_fit_predict_by, quantile_fit_predict_by)
+  with split := and order_by :=, per-group aggregate fitting with GROUP BY
+  plus predict / tidy / glance on the per-group model structs,
   the *_fit_predict_agg aggregates, rolling *_fit_predict window
   functions, the glmm_fit_by / eb_shrink_by /
   aid_by macros, and scaling patterns for fitting a separate model per
@@ -35,9 +38,12 @@ Fit + predict per group with one call. The macro renames the target and adds pre
   y_col      COLUMN,    -- target (unquoted)
   x_cols     LIST,      -- feature columns, e.g. [x1, x2]
   options    MAP,       -- optional model options (defaults to NULL)
-  split      VARCHAR    -- optional: column name of a train/test split; only rows where it is 'train' (or NULL) are trained on
+  split      VARCHAR,   -- optional: column name of a train/test split; only rows where it is 'train' (or NULL) are trained on
+  order_by   COLUMN     -- optional (by name): orders each group's rows; deterministic row alignment, and the feed order for RLS
 ) -> TABLE(<all source columns>, yhat, yhat_lower, yhat_upper, is_training)
 ```
+
+Pass `split` and `order_by` by name: `ols_fit_predict_by('sales', category, revenue, [units], split := sp, order_by := t)`.
 
 Rows with a NULL `y_col` are not used for fitting but still receive a prediction, so appending future rows with `y = NULL` gives you a forecast.
 
@@ -45,8 +51,17 @@ Available macros: `ols_fit_predict_by`, `huber_fit_predict_by`, `ransac_fit_pred
 `theil_sen_fit_predict_by`, `ridge_fit_predict_by`, `elasticnet_fit_predict_by`,
 `wls_fit_predict_by`, `rls_fit_predict_by`, `bls_fit_predict_by`, `alm_fit_predict_by`,
 `poisson_fit_predict_by`, `pls_fit_predict_by`, `isotonic_fit_predict_by`,
-`quantile_fit_predict_by`. Related grouped macros: `glmm_fit_by`, `eb_shrink_by`,
-`aid_by`, `aid_anomaly_by`.
+`quantile_fit_predict_by`, and the GLM macros `binomial_fit_predict_by`,
+`logistic_fit_predict_by`, `negbinom_fit_predict_by`, `gamma_fit_predict_by`,
+`tweedie_fit_predict_by`. Related grouped macros: `glmm_fit_by(source, group_col, y_col, x_cols[, options])`,
+`eb_shrink_by(source, estimate_col, se_col[, options])`, `aid_by`, `aid_anomaly_by`.
+
+The five GLM macros fit `{family}_fit_agg` per group and apply `predict(model, x)` to every row:
+`yhat` is on the **response scale** (probability / rate / mean), `yhat_lower`/`yhat_upper` are
+NULL, and they take `(source, group_col, y_col, x_cols, options := NULL, split := NULL)` — no
+`order_by` (rows are joined to their group's model). PLS, quantile and isotonic macros return
+only `yhat` and `is_training`. Prediction intervals elsewhere are leverage-aware and NULL when
+a group has no residual degrees of freedom.
 
 **Signature variants:** `wls_fit_predict_by` takes an extra `weight_col` before `options`
 (`…, x_cols, weight_col, options`); `isotonic_fit_predict_by` takes a single `x_col`
@@ -61,7 +76,13 @@ FROM range(1, 41) t(i);
 
 -- One OLS model per product category, fit + in-sample predictions, in one query
 SELECT category, units, revenue, yhat, is_training
-FROM ols_fit_predict_by('sales', category, revenue, [units, price])
+FROM ols_fit_predict_by('sales', category, revenue, [units, price], order_by := units)
+LIMIT 5;
+
+-- One Gamma GLM per category; yhat is the expected revenue (response scale)
+SELECT category, units, revenue, round(yhat, 2) AS yhat
+FROM gamma_fit_predict_by('sales', category, revenue, [units])
+ORDER BY category, units
 LIMIT 5;
 ```
 
@@ -80,6 +101,27 @@ FROM (
 ```
 
 > Tip: compute the struct once in a subquery/CTE and unpack fields downstream to avoid repeating the `_agg` call — DuckDB evaluates each `(…_agg(...)).field` independently.
+
+The per-group model struct plugs straight into the model tools — score rows with `predict(model, x)`,
+report with `tidy` / `glance`:
+
+```sql
+-- Fit per category, then score every row with its own category's model
+WITH models AS (
+  SELECT category, ols_fit_agg(revenue, [units, price]) AS m FROM sales GROUP BY category
+)
+SELECT s.category, s.units, round(predict(m.m, [s.units, s.price]), 2) AS yhat
+FROM sales s JOIN models m USING (category)
+ORDER BY s.category, s.units
+LIMIT 4;
+
+-- Coefficient table per group (intercept row first) and one summary row per group
+SELECT category, unnest(tidy(ols_fit_agg(revenue, [units, price], {'compute_inference': true}),
+                             ['units', 'price']), recursive := true)
+FROM sales GROUP BY category ORDER BY category;
+SELECT category, unnest(glance(ols_fit_agg(revenue, [units, price])))
+FROM sales GROUP BY category ORDER BY category;
+```
 
 ## Pattern 3 — `*_fit_predict_agg` (fit once per group, predictions as a list)
 
@@ -102,9 +144,11 @@ LIMIT 3;
 `STRUCT(yhat, yhat_lower, yhat_upper)` for the **last row of the frame**. Available for `ols`, `ridge`,
 `elasticnet`, `wls` (extra weight arg), `rls`, `huber`, `ransac`, `theil_sen`.
 
-Use frames that end at `CURRENT ROW` over a unique `ORDER BY`. Do **not** use `… AND 1 PRECEDING`
+Use frames that end at `CURRENT ROW` over a unique `ORDER BY`. Do **not** use `*_fit_predict … AND 1 PRECEDING`
 (that is not a one-step-ahead forecast), `OVER (PARTITION BY g)` without `ORDER BY` (every row
-gets the same prediction), or `RANGE` frames with ties.
+gets the same prediction), or `RANGE` frames with ties. For a one-step-ahead forecast fit the
+aggregate on the earlier rows and score the current row:
+`predict((ols_fit_agg(y, [x]) OVER (PARTITION BY g ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)), [x])`.
 
 ```sql
 SELECT
@@ -112,6 +156,16 @@ SELECT
   (ols_fit_predict(revenue, [units]) OVER (
     PARTITION BY category ORDER BY units ROWS BETWEEN 9 PRECEDING AND CURRENT ROW
   )).yhat AS rolling_pred
+FROM sales
+ORDER BY category, units
+LIMIT 5;
+
+-- One-step-ahead: model from strictly earlier rows, NULL until the frame can be fitted
+SELECT
+  category, units, revenue,
+  predict((ols_fit_agg(revenue, [units]) OVER (
+    PARTITION BY category ORDER BY units ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+  )), [units]) AS yhat_next
 FROM sales
 ORDER BY category, units
 LIMIT 5;

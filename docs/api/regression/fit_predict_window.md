@@ -41,6 +41,14 @@ wls_fit_predict(y DOUBLE, x DOUBLE[], weight DOUBLE [, options MAP]) OVER (...)
 The result is NULL until the frame contains more training rows than
 parameters (`n_features + 1` with an intercept), or when the fit fails.
 
+The interval is leverage-aware, `yhat ± t(n − p) · s · sqrt(1 + x₀ᵀ M x₀)` for
+the frame's last row `x₀`, with `M = (XᵀX)⁻¹` for OLS, `(XᵀWX)⁻¹` for WLS, the
+ridge sandwich for Ridge, and the OLS leverage of the frame's training rows as
+an approximation for the robust and regularised models (see
+[Methodology](../../METHODOLOGY.md#prediction-intervals)). The bounds are NULL
+when no interval exists (zero residual degrees of freedom, singular design) and
+equal to `yhat` for an exact fit.
+
 ## How the window frame is used
 
 The model is fitted on the training rows of the frame (rows whose `y` is not
@@ -104,21 +112,23 @@ Incorrect:
 ### One-step-ahead predictions
 
 To predict each row from a model fitted only on strictly earlier rows, fit
-with the aggregate over a frame ending at `1 PRECEDING` and apply the
-coefficients to the current row with `predict`:
+with the aggregate over a frame ending at `1 PRECEDING` and evaluate the fitted
+model on the current row with the model-aware
+[`predict(model, x)`](model_tools.md#predict). While the frame is still too
+small to fit, the model is NULL and so is the prediction:
 
-<!-- TODO(lead): model-aware predict -->
-
-```sql skip
+```sql
 SELECT
     t, y,
-    predict([[x]],
-            (ols_fit_agg(y, [x]) OVER w).coefficients,
-            (ols_fit_agg(y, [x]) OVER w).intercept)[1] AS yhat_one_step
+    round(predict((ols_fit_agg(y, [x]) OVER (
+        ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+    )), [x]), 3) AS yhat_one_step
 FROM fpw_demo
-WINDOW w AS (ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)
 ORDER BY t;
 ```
+
+The same pattern works for any `*_fit_agg` (for example `ridge_fit_agg` or
+`poisson_fit_agg`, whose predictions are mapped to the response scale).
 
 ```sql
 -- Per-group expanding-window predictions

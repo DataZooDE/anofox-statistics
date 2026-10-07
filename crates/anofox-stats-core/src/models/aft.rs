@@ -191,10 +191,9 @@ pub fn fit_aft(
     let n_censored = n - n_events;
 
     if n_events == 0 {
-        return Err(StatsError::InvalidValue {
-            field: "event",
-            message: "every observation is censored, so the model is not identified".to_string(),
-        });
+        return Err(StatsError::InsufficientDataMsg(
+            "every observation is censored, so the model is not identified".to_string(),
+        ));
     }
 
     let fit_scale = !options.dist.scale_is_fixed();
@@ -408,7 +407,7 @@ fn newton(
         );
 
         if !cur_ll.is_finite() {
-            return Err(StatsError::RegressError(
+            return Err(StatsError::NumericalFailure(
                 "non-finite AFT log-likelihood during Newton iteration".to_string(),
             ));
         }
@@ -531,11 +530,13 @@ fn newton(
         }
     }
 
-    if !converged {
-        return Err(StatsError::ConvergenceFailure {
-            iterations: max_iterations,
-            tolerance,
-        });
+    // Non-convergence is reported through `converged = false` on the result
+    // rather than as an error; only a non-finite iterate is a failure.
+    if !converged && !(beta.iter().all(|b| b.is_finite()) && log_sigma.is_finite()) {
+        return Err(StatsError::NumericalFailure(format!(
+            "AFT Newton iteration did not converge after {max_iterations} iterations \
+             (tolerance {tolerance}) and the last iterate is not finite"
+        )));
     }
 
     let (final_ll, _, hess) = derivatives(
@@ -1172,10 +1173,7 @@ mod tests {
         let (time, x, _) = survival_fixture(AftDistribution::Weibull, 1.0, 0.2, 0.5, 50, None);
         let event = vec![0.0; time.len()];
         let err = fit_aft(&time, &x, &event, &AftOptions::default());
-        assert!(matches!(
-            err,
-            Err(StatsError::InvalidValue { field: "event", .. })
-        ));
+        assert!(matches!(err, Err(StatsError::InsufficientDataMsg(_))));
     }
 
     #[test]

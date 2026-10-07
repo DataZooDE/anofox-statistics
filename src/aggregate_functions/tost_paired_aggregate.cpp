@@ -8,6 +8,7 @@
 
 #include "../include/anofox_stats_ffi.h"
 #include "../include/result_fields.hpp"
+#include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
 #include "../include/ffi_enum_converters.hpp"
 #include "telemetry.hpp"
@@ -200,6 +201,7 @@ static void TostPairedAggFinalize(Vector &state_vector, AggregateInputData &aggr
         bool success = anofox_tost_t_test_paired(x_array, y_array, options, &tost_result, &error);
 
         if (!success) {
+            ThrowUnlessDegenerate("tost_paired_agg", error);
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }

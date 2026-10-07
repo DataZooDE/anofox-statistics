@@ -1,0 +1,122 @@
+# name: test/sql/reference/proportion_reference.test
+# description: Proportion tests vs R (binom.test, prop.test)
+# group: [reference]
+#
+# Reference values: validation/generators/make_reference_tests.R.
+# Conventions (checked against the matching reference):
+#  * prop_test_one_agg: NO continuity correction; statistic is the z score
+#    (= sqrt of R's prop.test(correct = FALSE) X-squared, signed); CI = Wilson score (no cc).
+#  * prop_test_two_agg: continuity correction on by default (= R); statistic is R's X-squared;
+#    estimate = p1 (proportion of group 1); CI = Wald interval WITHOUT continuity correction
+#    (R's correct = TRUE interval is wider), so the CI is compared against R's correct = FALSE.
+#  * binom_test_agg: statistic is NaN (successes are in n * estimate); CI claims Clopper-Pearson.
+
+require anofox_statistics
+
+# 13 successes out of 20
+statement ok
+CREATE TABLE bn AS SELECT (i < 13)::BIGINT AS v FROM range(20) r(i);
+
+# group 0: 18/30, group 1: 11/28
+statement ok
+CREATE TABLE p2 AS
+SELECT (i < 18)::BIGINT AS v, 0::BIGINT AS g FROM range(30) r(i)
+UNION ALL
+SELECT (i < 11)::BIGINT, 1::BIGINT FROM range(28) r(i);
+
+# ---------------------------------------------------------------------------
+# binom_test_agg — R: binom.test(13, 20, p = 0.5)
+# ---------------------------------------------------------------------------
+query III
+SELECT abs(r.p_value - 0.26317596435546875) < 1e-12, abs(r.estimate - 0.65) < 1e-15, r.n = 20
+FROM (SELECT binom_test_agg(v) AS r FROM bn);
+----
+true	true	true
+
+# Clopper-Pearson CI (R binom.test(13, 20)$conf.int).
+# (Currently fails: the library's beta-quantile approximation gives [0.40288, 0.85902].)
+query II
+SELECT abs(r.ci_lower - 0.4078114654671719) < 1e-9, abs(r.ci_upper - 0.84609079521545882) < 1e-9
+FROM (SELECT binom_test_agg(v) AS r FROM bn);
+----
+true	true
+
+# R: binom.test(13, 20, p = 0.3)$p.value ; binom.test(13, 20, alternative = "greater")$p.value
+query II
+SELECT abs((binom_test_agg(v, MAP {'p0': '0.3'})).p_value - 0.0020768022671963358) < 1e-12,
+       abs((binom_test_agg(v, MAP {'alternative': 'greater'})).p_value - 0.13158798217773438) < 1e-12
+FROM bn;
+----
+true	true
+
+# STRUCT options (the form all other aggregates accept).
+# (Currently fails: binom_test_agg only reads MAP options and silently ignores STRUCTs.)
+query II
+SELECT abs((binom_test_agg(v, {'p0': 0.3})).p_value - 0.0020768022671963358) < 1e-12,
+       abs((binom_test_agg(v, {'alternative': 'greater'})).p_value - 0.13158798217773438) < 1e-12
+FROM bn;
+----
+true	true
+
+# ---------------------------------------------------------------------------
+# prop_test_one_agg — R: prop.test(13, 20, p = 0.5, correct = FALSE)
+#   X-squared = 1.8 -> z = 1.3416407864998741; Wilson CI
+# ---------------------------------------------------------------------------
+query IIII
+SELECT abs(r.statistic - 1.3416407864998741) < 1e-12, abs(r.p_value - 0.17971249487899982) < 1e-9,
+       abs(r.ci_lower - 0.43285427668523635) < 1e-9, abs(r.ci_upper - 0.81880817589891786) < 1e-9
+FROM (SELECT prop_test_one_agg(v) AS r FROM bn);
+----
+true	true	true	true
+
+# R: prop.test(13, 20, p = 0.3, correct = FALSE); prop.test(13, 20, alternative = "greater", correct = FALSE)
+query III
+SELECT abs((prop_test_one_agg(v, MAP {'p0': '0.3'})).statistic - 3.415650255319866) < 1e-9,
+       abs((prop_test_one_agg(v, MAP {'p0': '0.3'})).p_value - 0.00063629914124020562) < 1e-9,
+       abs((prop_test_one_agg(v, MAP {'alternative': 'greater'})).p_value - 0.089856247439499923) < 1e-9
+FROM bn;
+----
+true	true	true
+
+# STRUCT options (currently silently ignored -> fails).
+query I
+SELECT abs((prop_test_one_agg(v, {'p0': 0.3})).p_value - 0.00063629914124020562) < 1e-9 FROM bn;
+----
+true
+
+# ---------------------------------------------------------------------------
+# prop_test_two_agg — R: prop.test(c(18, 11), c(30, 28))   (correct = TRUE)
+# ---------------------------------------------------------------------------
+query IIII
+SELECT abs(r.statistic - 1.7261904761904763) < 1e-9, abs(r.p_value - 0.18889814101097729) < 1e-9,
+       abs(r.estimate - 0.6) < 1e-12, r.n = 58
+FROM (SELECT prop_test_two_agg(v, g) AS r FROM p2);
+----
+true	true	true	true
+
+# R: prop.test(c(18, 11), c(30, 28), correct = FALSE)
+query II
+SELECT abs(r.statistic - 2.4857142857142858) < 1e-9, abs(r.p_value - 0.11488418098439246) < 1e-9
+FROM (SELECT prop_test_two_agg(v, g, MAP {'correction': false}) AS r FROM p2);
+----
+true	true
+
+# R: prop.test(c(18, 11), c(30, 28), alternative = "greater")$p.value
+query I
+SELECT abs((prop_test_two_agg(v, g, MAP {'alternative': 'greater'})).p_value - 0.094449070505488605) < 1e-9 FROM p2;
+----
+true
+
+# Wald CI = R prop.test(..., correct = FALSE)$conf.int
+# (Currently fails at ~5e-6: z is hard-coded as 1.96 instead of qnorm(0.975).)
+query II
+SELECT abs(r.ci_lower - (-0.044760830637797733)) < 1e-9, abs(r.ci_upper - 0.45904654492351199) < 1e-9
+FROM (SELECT prop_test_two_agg(v, g, MAP {'correction': false}) AS r FROM p2);
+----
+true	true
+
+# STRUCT options (currently silently ignored -> fails).
+query I
+SELECT abs((prop_test_two_agg(v, g, {'correction': false})).statistic - 2.4857142857142858) < 1e-9 FROM p2;
+----
+true

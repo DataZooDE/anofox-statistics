@@ -8,6 +8,7 @@
 
 #include "../include/anofox_stats_ffi.h"
 #include "../include/result_fields.hpp"
+#include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
 #include "../include/ffi_enum_converters.hpp"
 #include "telemetry.hpp"
@@ -187,6 +188,7 @@ static void PropTestTwoAggFinalize(Vector &state_vector, AggregateInputData &agg
                                              &prop_result, &error);
 
         if (!success) {
+            ThrowUnlessDegenerate("prop_test_two_agg", error);
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }

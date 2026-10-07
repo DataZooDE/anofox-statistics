@@ -6,39 +6,89 @@
 namespace duckdb {
 
 /**
- * Dispatch an FFI error to the correct DuckDB exception type based on the
- * error code returned by the Rust layer.
+ * FFI error policy — the single place that decides what an FFI failure means
+ * at the SQL level. Every aggregate, scalar, table and window function routes
+ * its FFI errors through here.
  *
- * Taxonomy (locked in CONTEXT.md):
- *   Numerical/internal failures (SingularMatrix, ConvergenceFailure,
- *   AllocationFailure, Internal) → InternalException.  These are computation
- *   failures, not user data problems.  The CONTEXT.md intent is "FunctionException"
- *   but that class does not exist in the embedded DuckDB build; InternalException
- *   is the closest available type (ExceptionType::INTERNAL) and already used in
- *   this codebase for non-user-caused failures.
+ *   Error code                        Kind            SQL outcome
+ *   --------------------------------  --------------  ---------------------------
+ *   INVALID_INPUT                     input error     InvalidInputException
+ *   INVALID_ALPHA                     input error     InvalidInputException
+ *   INVALID_L1_RATIO                  input error     InvalidInputException
+ *   DIMENSION_MISMATCH                input error     InvalidInputException
+ *   INSUFFICIENT_DATA                 degenerate      NULL
+ *   NO_VALID_DATA                     degenerate      NULL
+ *   SINGULAR_MATRIX                   degenerate      NULL
+ *   CONVERGENCE_FAILURE               degenerate      NULL
+ *   ALLOCATION_FAILURE                internal        OutOfMemoryException
+ *   SERIALIZATION_ERROR, INTERNAL,    internal        InvalidInputException,
+ *   unknown codes                                     message prefixed "internal error"
  *
- *   User data / shape problems (DimensionMismatch, InsufficientData, NoValidData,
- *   InvalidInput, InvalidAlpha, InvalidL1Ratio, SerializationError, any unknown
- *   code) → InvalidInputException.
+ * "Input error" means the user's arguments or options are invalid (bad option
+ * value, mismatched list lengths, impossible counts, ...): that is raised so it
+ * is not mistaken for missing data. "Degenerate" means the data, although valid,
+ * does not support a result (too few rows, everything NULL, a singular design,
+ * a numerically broken fit): that is a NULL, like SQL's own aggregates on empty
+ * input. GLM non-convergence is not an error at all — the fit is returned with
+ * `converged = false`.
  *
- * Message format: "<fn_name>: <error.message>" — always names the function.
- * The two-arg printf form ("%s", msg) is used so that a literal '%' in a
- * Rust error message is never treated as a format specifier.
+ * Internal failures (a caught Rust panic, an unclassified upstream error) are
+ * raised rather than hidden, but deliberately not as InternalException: DuckDB
+ * treats that as an assertion failure of its own and may invalidate the
+ * database.
+ *
+ * Message format: "<fn_name>: <error.message>". The two-arg printf form
+ * ("%s", msg) is used so that a literal '%' in a Rust error message is never
+ * treated as a format specifier.
  */
-static inline void ThrowFromFfiError(const char *fn_name, const AnofoxError &err) {
-    std::string msg = std::string(fn_name) + ": " + std::string(err.message);
-    switch (err.code) {
+enum class FfiErrorKind { INPUT_ERROR, DEGENERATE, INTERNAL };
+
+static inline FfiErrorKind ClassifyFfiError(AnofoxErrorCode code) {
+    switch (code) {
+        case ANOFOX_ERROR_INVALID_INPUT:
+        case ANOFOX_ERROR_INVALID_ALPHA:
+        case ANOFOX_ERROR_INVALID_L1_RATIO:
+        case ANOFOX_ERROR_DIMENSION_MISMATCH:
+            return FfiErrorKind::INPUT_ERROR;
+        case ANOFOX_ERROR_INSUFFICIENT_DATA:
+        case ANOFOX_ERROR_NO_VALID_DATA:
         case ANOFOX_ERROR_SINGULAR_MATRIX:
         case ANOFOX_ERROR_CONVERGENCE_FAILURE:
-        case ANOFOX_ERROR_INTERNAL:
-        case ANOFOX_ERROR_ALLOCATION_FAILURE:
-            // Numerical / internal failure — computation failed, not user data
-            throw InternalException(msg);
+            return FfiErrorKind::DEGENERATE;
         default:
-            // InsufficientData, DimensionMismatch, InvalidInput, NoValidData,
-            // InvalidAlpha, InvalidL1Ratio, SerializationError, and any
-            // unrecognised code → user data / shape problem.
-            throw InvalidInputException("%s", msg.c_str());
+            return FfiErrorKind::INTERNAL;
+    }
+}
+
+/**
+ * Raise the exception for a non-degenerate FFI error. Used directly only where
+ * a NULL result is impossible; everything else goes through
+ * ThrowUnlessDegenerate.
+ */
+[[noreturn]] static inline void ThrowFromFfiError(const char *fn_name, const AnofoxError &err) {
+    std::string msg = std::string(fn_name) + ": " + std::string(err.message);
+    if (err.code == ANOFOX_ERROR_ALLOCATION_FAILURE) {
+        throw OutOfMemoryException("%s", msg.c_str());
+    }
+    if (ClassifyFfiError(err.code) == FfiErrorKind::INTERNAL) {
+        msg = std::string(fn_name) + ": internal error: " + std::string(err.message);
+    }
+    throw InvalidInputException("%s", msg.c_str());
+}
+
+/**
+ * Apply the policy after a failed FFI call: throws for input and internal
+ * errors, returns normally for degenerate outcomes so the caller can emit NULL.
+ *
+ *     if (!success) {
+ *         ThrowUnlessDegenerate("ridge_fit_agg", error);
+ *         FlatVector::SetNull(result, idx, true);
+ *         continue;
+ *     }
+ */
+static inline void ThrowUnlessDegenerate(const char *fn_name, const AnofoxError &err) {
+    if (ClassifyFfiError(err.code) != FfiErrorKind::DEGENERATE) {
+        ThrowFromFfiError(fn_name, err);
     }
 }
 

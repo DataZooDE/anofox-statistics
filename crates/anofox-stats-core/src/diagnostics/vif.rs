@@ -34,7 +34,9 @@ pub fn compute_vif(x: &[Vec<f64>]) -> StatsResult<Vec<f64>> {
 
     let n_obs = x[0].len();
     if n_obs == 0 {
-        return Err(StatsError::InvalidInput("Empty feature arrays".into()));
+        return Err(StatsError::InsufficientDataMsg(
+            "Empty feature arrays".into(),
+        ));
     }
 
     // Check all features have same length

@@ -314,27 +314,27 @@ Invalid kendall variant: 'tau_z'
 statement error
 SELECT t_test_agg(v, g, {'confidence_level': 1.0}) FROM tg;
 ----
-confidence_level must be strictly between 0 and 1, got 1.0
+confidence_level must be in (0, 1), got 1.0
 
 statement error
 SELECT yuen_agg(v, g, {'confidence_level': 0.0}) FROM tg;
 ----
-confidence_level must be strictly between 0 and 1
+confidence_level must be in (0, 1)
 
 statement error
 SELECT pearson_agg(x, y, {'confidence_level': 95}) FROM pr;
 ----
-confidence_level must be strictly between 0 and 1, got 95
+confidence_level must be in (0, 1), got 95
 
 statement error
 SELECT fisher_exact_agg(b1::INTEGER, b2::INTEGER, {'confidence_level': -0.5}) FROM kp;
 ----
-confidence_level must be strictly between 0 and 1
+confidence_level must be in (0, 1)
 
 statement error
 SELECT tost_paired_agg(x, y, {'confidence_level': 1.5}) FROM pr;
 ----
-confidence_level must be strictly between 0 and 1
+confidence_level must be in (0, 1)
 
 statement error
 SELECT permutation_t_test_agg(v, g, {'n_permutations': -5}) FROM tg;

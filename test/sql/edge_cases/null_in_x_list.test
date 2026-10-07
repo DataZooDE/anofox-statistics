@@ -1,0 +1,206 @@
+# name: test/sql/edge_cases/null_in_x_list.test
+# description: A NULL element inside the x LIST (e.g. [1.0, NULL]) must drop the whole row,
+#              exactly as if the row were absent (documented in docs/api/regression/ols.md,
+#              "NULL handling"). Guards against NULL child elements being read as garbage.
+# group: [edge_cases]
+
+require anofox_statistics
+
+# 40 clean rows plus two rows whose x list contains a NULL element. The dirty rows carry
+# extreme responses so that consuming them in any way visibly changes the fit.
+statement ok
+CREATE TABLE base AS
+SELECT i AS id,
+       ((i % 7) + 0.5)::DOUBLE AS x1,
+       (((i * 3) % 11) / 2.0)::DOUBLE AS x2,
+       (3.0 + 0.8 * ((i % 7) + 0.5) - 0.3 * (((i * 3) % 11) / 2.0) + ((i * 37) % 13) / 13.0 - 0.5)::DOUBLE AS y,
+       (1 + (i % 4))::DOUBLE AS w,
+       CAST(ROUND(EXP(0.5 + 0.2 * (i % 7)) + ((i * 7) % 5)) AS DOUBLE) AS cnt,
+       (CASE WHEN ((i * 37) % 13) > 6 THEN 1.0 ELSE 0.0 END)::DOUBLE AS bin,
+       (1.0 + (i % 5) + ((i * 37) % 13) / 13.0)::DOUBLE AS pos,
+       (CASE WHEN i % 5 = 0 THEN 0.0 ELSE 1.0 END)::DOUBLE AS ev,
+       (i % 4)::INTEGER AS grp
+FROM range(1, 41) t(i);
+
+statement ok
+CREATE TABLE dirty AS
+SELECT id, y, [x1, x2] AS xs, w, cnt, bin, pos, ev, grp, false AS bad FROM base
+UNION ALL SELECT 1000, 500.0, [5.0, NULL], 1.0, 50.0, 1.0, 90.0, 1.0, 1, true
+UNION ALL SELECT 1001, -300.0, [NULL, 2.0], 1.0, 40.0, 0.0, 70.0, 1.0, 2, true;
+
+# -----------------------------------------------------------------------------
+# *_fit_agg: coefficients, intercept and n_observations identical to the fit on
+# the clean rows only. (NaN intercepts, e.g. BLS without intercept, compare equal
+# via IS NOT DISTINCT FROM.)
+# -----------------------------------------------------------------------------
+
+foreach call ols_fit_agg(y,xs) ridge_fit_agg(y,xs,{'alpha':0.5}) elasticnet_fit_agg(y,xs,{'alpha':0.1,'l1_ratio':0.5}) wls_fit_agg(y,xs,w) rls_fit_agg(y,xs) huber_fit_agg(y,xs) theil_sen_fit_agg(y,xs) ransac_fit_agg(y,xs,{'random_state':42}) bls_fit_agg(y,xs) nnls_fit_agg(y,xs) lars_fit_agg(y,xs) alm_fit_agg(y,xs) poisson_fit_agg(cnt,xs) binomial_fit_agg(bin,xs) logistic_fit_agg(bin,xs) negbinom_fit_agg(cnt,xs) gamma_fit_agg(pos,xs) tweedie_fit_agg(pos,xs) aft_fit_agg(pos,xs,ev) glmm_fit_agg(y,xs,grp)
+
+query III
+WITH a AS (SELECT ${call} AS r FROM dirty),
+     b AS (SELECT ${call} AS r FROM dirty WHERE NOT bad)
+SELECT a.r IS NOT NULL,
+       (a.r.intercept IS NOT DISTINCT FROM b.r.intercept OR abs(a.r.intercept - b.r.intercept) < 1e-9)
+         AND list_distance(a.r.coefficients, b.r.coefficients) < 1e-9,
+       a.r.n_observations = 40
+FROM a, b;
+----
+true	true	true
+
+endloop
+
+# vif_agg takes the x list only
+query I
+SELECT list_distance((SELECT vif_agg(xs) FROM dirty), (SELECT vif_agg(xs) FROM dirty WHERE NOT bad)) < 1e-9;
+----
+true
+
+# -----------------------------------------------------------------------------
+# *_fit_predict_agg: the clean rows get the same predictions as a fit on the
+# clean rows; the NULL-x rows get yhat NULL and is_training = false ("True if
+# row was used for training", docs/api/macros/table_macros.md).
+# -----------------------------------------------------------------------------
+
+foreach call ols_fit_predict_agg(y,xs) ridge_fit_predict_agg(y,xs,{'alpha':0.5}) elasticnet_fit_predict_agg(y,xs,{'alpha':0.1,'l1_ratio':0.5}) wls_fit_predict_agg(y,xs,w) rls_fit_predict_agg(y,xs) huber_fit_predict_agg(y,xs) theil_sen_fit_predict_agg(y,xs) ransac_fit_predict_agg(y,xs,{'random_state':42}) bls_fit_predict_agg(y,xs) alm_fit_predict_agg(y,xs) poisson_fit_predict_agg(cnt,xs) pls_fit_predict_agg(y,xs) quantile_fit_predict_agg(y,xs)
+
+query IIII
+WITH a AS (SELECT unnest(${call}) AS e FROM dirty),
+     b AS (SELECT unnest(${call}) AS e FROM dirty WHERE NOT bad),
+     clean_a AS (SELECT sum(e.yhat) s, count(*) c FROM a WHERE e.y NOT IN (500.0, -300.0, 50.0, 40.0)),
+     clean_b AS (SELECT sum(e.yhat) s, count(*) c FROM b),
+     bad_a AS (SELECT count(*) c, bool_and(e.yhat IS NULL) nul, bool_or(e.is_training) tr
+               FROM a WHERE e.y IN (500.0, -300.0, 50.0, 40.0))
+SELECT abs(clean_a.s - clean_b.s) < 1e-7 AND clean_a.c = 40 AND clean_b.c = 40,
+       bad_a.c,
+       bad_a.nul,
+       bad_a.tr
+FROM clean_a, clean_b, bad_a;
+----
+true	2	true	false
+
+endloop
+
+# isotonic takes a scalar x; a NULL x (row 1001) drops the row from the fit. (Row 1000 has a
+# valid first element, so it is a regular training row here.) Isotonic currently omits the
+# NULL-x row from the output list altogether instead of emitting it with a NULL yhat, so only
+# the fit itself is asserted.
+query I
+WITH a AS (SELECT unnest(isotonic_fit_predict_agg(y, x)) AS e
+           FROM (SELECT y, xs[1] AS x FROM dirty WHERE id <> 1000)),
+     b AS (SELECT unnest(isotonic_fit_predict_agg(y, x)) AS e
+           FROM (SELECT y, xs[1] AS x FROM dirty WHERE NOT bad))
+SELECT abs((SELECT sum(e.yhat) FROM a WHERE e.y <> -300.0) - (SELECT sum(e.yhat) FROM b)) < 1e-9
+   AND coalesce((SELECT bool_and(e.yhat IS NULL) FROM a WHERE e.y = -300.0), true);
+----
+true
+
+# -----------------------------------------------------------------------------
+# Window *_fit_predict: a window fit_predict predicts for the LAST row of its
+# frame (by design). Order the NULL-x rows first and use a whole-partition frame,
+# so every row's frame holds all 42 rows and ends at the clean row id = 40: every
+# row must get the clean-rows fit evaluated at row 40's x.
+# -----------------------------------------------------------------------------
+
+# ols_fit_predict
+query II
+WITH f AS (SELECT ols_fit_agg(y, xs) AS r FROM dirty WHERE NOT bad),
+     last AS (SELECT xs FROM dirty WHERE id = 40),
+     p AS (SELECT (ols_fit_predict(y, xs) OVER (ORDER BY CASE WHEN bad THEN 0 ELSE id END
+                              ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)).yhat AS yhat
+           FROM dirty)
+SELECT count(*),
+       count(*) FILTER (WHERE abs(p.yhat - (f.r.intercept + f.r.coefficients[1] * last.xs[1] + f.r.coefficients[2] * last.xs[2])) < 1e-7)
+FROM p, f, last;
+----
+42	42
+
+# ridge_fit_predict
+query II
+WITH f AS (SELECT ridge_fit_agg(y, xs, {'alpha': 0.5}) AS r FROM dirty WHERE NOT bad),
+     last AS (SELECT xs FROM dirty WHERE id = 40),
+     p AS (SELECT (ridge_fit_predict(y, xs, {'alpha': 0.5}) OVER (ORDER BY CASE WHEN bad THEN 0 ELSE id END
+                              ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)).yhat AS yhat
+           FROM dirty)
+SELECT count(*),
+       count(*) FILTER (WHERE abs(p.yhat - (f.r.intercept + f.r.coefficients[1] * last.xs[1] + f.r.coefficients[2] * last.xs[2])) < 1e-7)
+FROM p, f, last;
+----
+42	42
+
+# elasticnet_fit_predict
+query II
+WITH f AS (SELECT elasticnet_fit_agg(y, xs, {'alpha': 0.1, 'l1_ratio': 0.5}) AS r FROM dirty WHERE NOT bad),
+     last AS (SELECT xs FROM dirty WHERE id = 40),
+     p AS (SELECT (elasticnet_fit_predict(y, xs, {'alpha': 0.1, 'l1_ratio': 0.5}) OVER (ORDER BY CASE WHEN bad THEN 0 ELSE id END
+                              ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)).yhat AS yhat
+           FROM dirty)
+SELECT count(*),
+       count(*) FILTER (WHERE abs(p.yhat - (f.r.intercept + f.r.coefficients[1] * last.xs[1] + f.r.coefficients[2] * last.xs[2])) < 1e-7)
+FROM p, f, last;
+----
+42	42
+
+# wls_fit_predict
+query II
+WITH f AS (SELECT wls_fit_agg(y, xs, w) AS r FROM dirty WHERE NOT bad),
+     last AS (SELECT xs FROM dirty WHERE id = 40),
+     p AS (SELECT (wls_fit_predict(y, xs, w) OVER (ORDER BY CASE WHEN bad THEN 0 ELSE id END
+                              ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)).yhat AS yhat
+           FROM dirty)
+SELECT count(*),
+       count(*) FILTER (WHERE abs(p.yhat - (f.r.intercept + f.r.coefficients[1] * last.xs[1] + f.r.coefficients[2] * last.xs[2])) < 1e-7)
+FROM p, f, last;
+----
+42	42
+
+# rls_fit_predict
+query II
+WITH f AS (SELECT rls_fit_agg(y, xs ORDER BY id) AS r FROM dirty WHERE NOT bad),
+     last AS (SELECT xs FROM dirty WHERE id = 40),
+     p AS (SELECT (rls_fit_predict(y, xs) OVER (ORDER BY CASE WHEN bad THEN 0 ELSE id END
+                              ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)).yhat AS yhat
+           FROM dirty)
+SELECT count(*),
+       count(*) FILTER (WHERE abs(p.yhat - (f.r.intercept + f.r.coefficients[1] * last.xs[1] + f.r.coefficients[2] * last.xs[2])) < 1e-7)
+FROM p, f, last;
+----
+42	42
+
+# huber_fit_predict
+query II
+WITH f AS (SELECT huber_fit_agg(y, xs) AS r FROM dirty WHERE NOT bad),
+     last AS (SELECT xs FROM dirty WHERE id = 40),
+     p AS (SELECT (huber_fit_predict(y, xs) OVER (ORDER BY CASE WHEN bad THEN 0 ELSE id END
+                              ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)).yhat AS yhat
+           FROM dirty)
+SELECT count(*),
+       count(*) FILTER (WHERE abs(p.yhat - (f.r.intercept + f.r.coefficients[1] * last.xs[1] + f.r.coefficients[2] * last.xs[2])) < 1e-7)
+FROM p, f, last;
+----
+42	42
+
+# theil_sen_fit_predict
+query II
+WITH f AS (SELECT theil_sen_fit_agg(y, xs ORDER BY id) AS r FROM dirty WHERE NOT bad),
+     last AS (SELECT xs FROM dirty WHERE id = 40),
+     p AS (SELECT (theil_sen_fit_predict(y, xs) OVER (ORDER BY CASE WHEN bad THEN 0 ELSE id END
+                              ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)).yhat AS yhat
+           FROM dirty)
+SELECT count(*),
+       count(*) FILTER (WHERE abs(p.yhat - (f.r.intercept + f.r.coefficients[1] * last.xs[1] + f.r.coefficients[2] * last.xs[2])) < 1e-7)
+FROM p, f, last;
+----
+42	42
+
+# ransac_fit_predict
+query II
+WITH f AS (SELECT ransac_fit_agg(y, xs, {'random_state': 42} ORDER BY id) AS r FROM dirty WHERE NOT bad),
+     last AS (SELECT xs FROM dirty WHERE id = 40),
+     p AS (SELECT (ransac_fit_predict(y, xs, {'random_state': 42}) OVER (ORDER BY CASE WHEN bad THEN 0 ELSE id END
+                              ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)).yhat AS yhat
+           FROM dirty)
+SELECT count(*),
+       count(*) FILTER (WHERE abs(p.yhat - (f.r.intercept + f.r.coefficients[1] * last.xs[1] + f.r.coefficients[2] * last.xs[2])) < 1e-7)
+FROM p, f, last;
+----
+42	42

@@ -146,21 +146,31 @@ ORDER BY t;
 ```
 
 For a one-step-ahead (out-of-sample) forecast, fit on the rows *before* the
-current row with `ols_fit_agg`, then apply the coefficients to the current row's
-features with `predict`. This example is not run during validation: `predict`
-currently raises an error for the first rows, where the frame is still too small
-and the coefficients are NULL.
+current row with `ols_fit_agg` and evaluate the model on the current row's
+features with the model-aware `predict(model, x)`. For the first rows the frame
+is too small to fit, the model is NULL, and `predict` returns NULL:
 
-<!-- TODO(lead): model-aware predict -->
-```sql skip
+```sql
 SELECT t, y,
-       predict([[x]],
-               (ols_fit_agg(y, [x]) OVER w).coefficients,
-               (ols_fit_agg(y, [x]) OVER w).intercept)[1] AS yhat_next
-FROM observations
-WINDOW w AS (ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)
+       round(predict((ols_fit_agg(y, [x]) OVER (
+           ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)), [x]), 3) AS yhat_next
+FROM (VALUES (1, 3.1, 1.0), (2, 4.9, 2.0), (3, 7.2, 3.0), (4, 8.8, 4.0),
+             (5, NULL, 5.0), (6, 13.1, 6.0)) t(t, y, x)
 ORDER BY t;
 ```
+
+## `predict`, `tidy` and `glance`
+
+- `predict(model, x)` returns NULL when the model is NULL (for example a group
+  whose fit was degenerate), when `x` is NULL, or when any element of `x` is
+  NULL. A feature count that does not match the model's coefficients is an
+  error.
+- The column-layout `predict(x, coefficients, intercept)` (also `linear_predict`)
+  returns NULL for NULL inputs.
+- `tidy(model)` reports NULL `std_error`, `statistic`, `p_value`, `conf_low` and
+  `conf_high` for terms the model has no inference for (all terms of a model
+  fitted without inference, and the intercept row of `ols_fit_agg` with
+  `compute_inference`).
 
 ## `*_fit_predict_agg` and `*_fit_predict_by`
 

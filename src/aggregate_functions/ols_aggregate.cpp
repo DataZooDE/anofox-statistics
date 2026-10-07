@@ -311,7 +311,9 @@ static void OlsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
                                       state.compute_inference ? &inference_result : nullptr, &error);
 
         if (!success) {
-            ThrowFromFfiError("ols_fit_agg", error);
+            ThrowUnlessDegenerate("ols_fit_agg", error);
+            FlatVector::SetNull(result, result_idx, true);
+            continue;
         }
 
         // Fill STRUCT result

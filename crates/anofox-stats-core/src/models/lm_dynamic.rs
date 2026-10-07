@@ -151,7 +151,7 @@ pub fn fit_lm_dynamic(
     let fitted = builder
         .build()
         .fit(&x_mat, &y_col)
-        .map_err(|e| StatsError::RegressError(format!("{:?}", e)))?;
+        .map_err(StatsError::from)?;
 
     // Extract results
     let result = fitted.result();

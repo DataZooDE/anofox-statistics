@@ -5,7 +5,7 @@
 //! diagnostics (inlier mask, trial count, residual threshold actually used).
 
 use crate::errors::{StatsError, StatsResult};
-use crate::types::{FitResult, FitResultCore, FitResultInference, RansacOptions};
+use crate::types::{FitResult, FitResultCore, RansacOptions};
 use anofox_regression::solvers::{FittedRegressor, RansacRegressor, Regressor};
 use faer::{Col, Mat};
 
@@ -29,6 +29,9 @@ pub struct RansacResult {
 }
 
 /// Fit a RANSAC robust regression model.
+/// Inlier count above which the OLS refit avoids the n x n SVD/QR factors.
+const LARGE_REFIT_ROWS: usize = 10_000;
+
 pub fn fit_ransac(y: &[f64], x: &[Vec<f64>], options: &RansacOptions) -> StatsResult<RansacResult> {
     if y.is_empty() {
         return Err(StatsError::EmptyInput { field: "y" });
@@ -115,7 +118,7 @@ pub fn fit_ransac(y: &[f64], x: &[Vec<f64>], options: &RansacOptions) -> StatsRe
     let fitted = builder
         .build()
         .fit(&x_mat, &y_col)
-        .map_err(|e| StatsError::RegressError(format!("{:?}", e)))?;
+        .map_err(StatsError::from)?;
 
     let result = fitted.result();
 
@@ -126,51 +129,71 @@ pub fn fit_ransac(y: &[f64], x: &[Vec<f64>], options: &RansacOptions) -> StatsRe
         None
     };
 
+    let inliers = fitted.inlier_mask().to_vec();
+
+    // The upstream result leaves adj_r_squared and rmse at 0 and the inference
+    // lists empty. RANSAC's final model is the OLS fit on the inliers, so the
+    // summary statistics and inference come from refitting OLS on those rows.
+    // The inference ignores that the inliers were selected from the data, so it
+    // is optimistic (see CHANGELOG).
+    let y_in: Vec<f64> = (0..n_valid)
+        .filter(|&i| inliers.get(i).copied().unwrap_or(false))
+        .map(|i| y[valid_indices[i]])
+        .collect();
+    let x_in: Vec<Vec<f64>> = (0..n_features)
+        .map(|j| {
+            (0..n_valid)
+                .filter(|&i| inliers.get(i).copied().unwrap_or(false))
+                .map(|i| x[j][valid_indices[i]])
+                .collect()
+        })
+        .collect();
+    let refit = crate::models::ols::fit_ols(
+        &y_in,
+        &x_in,
+        &crate::types::OlsOptions {
+            fit_intercept: options.fit_intercept,
+            compute_inference: options.compute_inference,
+            confidence_level: options.confidence_level,
+            // anofox-regression's SVD and QR solvers materialise a full n x n
+            // factor (U / Q), which cannot be allocated for large inlier sets
+            // (~300k rows -> 700 GB). Above a modest size use the normal
+            // equations (Cholesky), which are O(n p^2) in time and O(p^2) in memory.
+            solver: if y_in.len() > LARGE_REFIT_ROWS {
+                crate::types::SolverType::Cholesky
+            } else {
+                crate::types::SolverType::default()
+            },
+            ..Default::default()
+        },
+    )
+    .ok();
+
     let core = FitResultCore {
         coefficients,
         intercept,
-        r_squared: result.r_squared,
-        adj_r_squared: result.adj_r_squared,
-        residual_std_error: result.rmse,
+        r_squared: refit
+            .as_ref()
+            .map(|r| r.core.r_squared)
+            .unwrap_or(result.r_squared),
+        adj_r_squared: refit
+            .as_ref()
+            .map(|r| r.core.adj_r_squared)
+            .unwrap_or(f64::NAN),
+        residual_std_error: refit
+            .as_ref()
+            .map(|r| r.core.residual_std_error)
+            .unwrap_or(f64::NAN),
         n_observations: n_valid,
         n_features,
     };
 
-    // RANSAC's predict_with_interval returns point-only — inference here
-    // mirrors what the upstream RegressionResult exposes (asymptotic SEs on
-    // the inlier-only OLS final fit, when populated).
     let inference = if options.compute_inference {
-        result.std_errors.as_ref().map(|se| FitResultInference {
-            std_errors: se.iter().copied().collect(),
-            t_values: result
-                .t_statistics
-                .as_ref()
-                .map(|c| c.iter().copied().collect())
-                .unwrap_or_else(|| vec![f64::NAN; n_features]),
-            p_values: result
-                .p_values
-                .as_ref()
-                .map(|c| c.iter().copied().collect())
-                .unwrap_or_else(|| vec![f64::NAN; n_features]),
-            ci_lower: result
-                .conf_interval_lower
-                .as_ref()
-                .map(|c| c.iter().copied().collect())
-                .unwrap_or_else(|| vec![f64::NAN; n_features]),
-            ci_upper: result
-                .conf_interval_upper
-                .as_ref()
-                .map(|c| c.iter().copied().collect())
-                .unwrap_or_else(|| vec![f64::NAN; n_features]),
-            confidence_level: options.confidence_level,
-            f_statistic: Some(result.f_statistic),
-            f_pvalue: Some(result.f_pvalue),
-        })
+        refit.and_then(|r| r.inference)
     } else {
         None
     };
 
-    let inliers = fitted.inlier_mask().to_vec();
     let n_inliers = fitted.n_inliers();
     let n_trials = fitted.n_trials();
     let residual_threshold = fitted.residual_threshold();

@@ -8,6 +8,7 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
 #include "../include/result_fields.hpp"
 #include "telemetry.hpp"
@@ -199,6 +200,7 @@ static void EnergyDistanceAggFinalize(Vector &state_vector, AggregateInputData &
         bool success = anofox_energy_distance(group1_array, group2_array, options, &test_result, &error);
 
         if (!success) {
+            ThrowUnlessDegenerate("energy_distance_agg", error);
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }

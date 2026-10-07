@@ -173,7 +173,9 @@ static void ElasticNetFitFunction(DataChunk &args, ExpressionState &state, Vecto
         bool success = anofox_elasticnet_fit(y_array, x_arrays.data(), x_arrays.size(), options, &core_result, &error);
 
         if (!success) {
-            ThrowFromFfiError("elasticnet_fit", error);
+            ThrowUnlessDegenerate("elasticnet_fit", error);
+            FlatVector::SetNull(result, row, true);
+            continue;
         }
 
         // Build result struct

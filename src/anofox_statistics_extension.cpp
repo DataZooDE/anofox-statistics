@@ -90,6 +90,7 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterRansacFitFunction(loader);
     RegisterTheilSenFitFunction(loader);
     RegisterPredictFunction(loader);
+    RegisterTidyGlanceFunctions(loader);
     RegisterRlsFitFunction(loader);
 
     // Register aggregate functions
@@ -205,6 +206,7 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterPlsFitPredictAggregateFunction(loader);
     RegisterIsotonicFitPredictAggregateFunction(loader);
     RegisterQuantileFitPredictAggregateFunction(loader);
+    RegisterExtraFitAggregateFunctions(loader);
 
     // Register diagnostic functions
     RegisterVifFunction(loader);

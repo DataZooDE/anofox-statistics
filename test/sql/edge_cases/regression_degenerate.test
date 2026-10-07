@@ -1,0 +1,380 @@
+# name: test/sql/edge_cases/regression_degenerate.test
+# description: Degenerate inputs for every regression / GLM / survival fit aggregate:
+#              empty input, a single row, n <= p, +-Inf / NaN values, constant y,
+#              a constant feature, perfectly collinear features.
+# group: [edge_cases]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE base AS
+SELECT i AS id,
+       ((i % 7) + 0.5)::DOUBLE AS x1,
+       (((i * 3) % 11) / 2.0)::DOUBLE AS x2,
+       (3.0 + 0.8 * ((i % 7) + 0.5) - 0.3 * (((i * 3) % 11) / 2.0) + ((i * 37) % 13) / 13.0 - 0.5)::DOUBLE AS y,
+       (1 + (i % 4))::DOUBLE AS w,
+       CAST(ROUND(EXP(0.5 + 0.2 * (i % 7)) + ((i * 7) % 5)) AS DOUBLE) AS cnt,
+       (CASE WHEN ((i * 37) % 13) > 6 THEN 1.0 ELSE 0.0 END)::DOUBLE AS bin,
+       (1.0 + (i % 5) + ((i * 37) % 13) / 13.0)::DOUBLE AS pos,
+       (CASE WHEN i % 5 = 0 THEN 0.0 ELSE 1.0 END)::DOUBLE AS ev,
+       (i % 4)::INTEGER AS grp
+FROM range(1, 41) t(i);
+
+# =============================================================================
+# Empty input and a single row: NULL result, never an error or a garbage struct
+# =============================================================================
+
+foreach call ols_fit_agg(y,[x1,x2]) ridge_fit_agg(y,[x1,x2],{'alpha':0.5}) elasticnet_fit_agg(y,[x1,x2],{'alpha':0.1,'l1_ratio':0.5}) wls_fit_agg(y,[x1,x2],w) rls_fit_agg(y,[x1,x2]) huber_fit_agg(y,[x1,x2]) theil_sen_fit_agg(y,[x1,x2]) ransac_fit_agg(y,[x1,x2],{'random_state':42}) bls_fit_agg(y,[x1,x2]) nnls_fit_agg(y,[x1,x2]) lars_fit_agg(y,[x1,x2]) alm_fit_agg(y,[x1,x2]) poisson_fit_agg(cnt,[x1,x2]) binomial_fit_agg(bin,[x1,x2]) logistic_fit_agg(bin,[x1,x2]) negbinom_fit_agg(cnt,[x1,x2]) gamma_fit_agg(pos,[x1,x2]) tweedie_fit_agg(pos,[x1,x2]) aft_fit_agg(pos,[x1,x2],ev) glmm_fit_agg(y,[x1,x2],grp)
+
+query II
+SELECT (SELECT ${call} FROM base WHERE false) IS NULL,
+       (SELECT ${call} FROM base WHERE id = 1) IS NULL;
+----
+true	true
+
+endloop
+
+# =============================================================================
+# n <= p: two rows, two features plus intercept -> NULL (min-obs guard).
+# RLS is excluded on purpose: it is an online estimator documented to produce
+# estimates from the first observation on (see test/sql/error_handling.test).
+# =============================================================================
+
+foreach call ols_fit_agg(y,[x1,x2]) ridge_fit_agg(y,[x1,x2],{'alpha':0.5}) elasticnet_fit_agg(y,[x1,x2],{'alpha':0.1,'l1_ratio':0.5}) wls_fit_agg(y,[x1,x2],w) huber_fit_agg(y,[x1,x2]) theil_sen_fit_agg(y,[x1,x2]) ransac_fit_agg(y,[x1,x2],{'random_state':42}) bls_fit_agg(y,[x1,x2]) nnls_fit_agg(y,[x1,x2]) lars_fit_agg(y,[x1,x2]) alm_fit_agg(y,[x1,x2]) poisson_fit_agg(cnt,[x1,x2]) binomial_fit_agg(bin,[x1,x2]) logistic_fit_agg(bin,[x1,x2]) negbinom_fit_agg(cnt,[x1,x2]) gamma_fit_agg(pos,[x1,x2]) tweedie_fit_agg(pos,[x1,x2]) aft_fit_agg(pos,[x1,x2],ev) glmm_fit_agg(y,[x1,x2],grp)
+
+query I
+SELECT (SELECT ${call} FROM base WHERE id <= 2) IS NULL;
+----
+true
+
+endloop
+
+# =============================================================================
+# +-Inf / NaN in y or in an x element: the row is dropped (documented for the
+# scalar fits; the aggregates must behave the same) -- the result equals the
+# fit without that row, and n_observations counts 39.
+# =============================================================================
+
+statement ok
+CREATE TABLE inf_y AS SELECT * REPLACE (
+    CASE WHEN id = 3 THEN 'inf'::DOUBLE ELSE y END AS y,
+    CASE WHEN id = 3 THEN 'inf'::DOUBLE ELSE cnt END AS cnt,
+    CASE WHEN id = 3 THEN 'inf'::DOUBLE ELSE bin END AS bin,
+    CASE WHEN id = 3 THEN 'inf'::DOUBLE ELSE pos END AS pos)
+FROM base;
+
+statement ok
+CREATE TABLE inf_x AS SELECT * REPLACE (CASE WHEN id = 3 THEN '-inf'::DOUBLE ELSE x1 END AS x1) FROM base;
+
+statement ok
+CREATE TABLE nan_x AS SELECT * REPLACE (CASE WHEN id = 7 THEN 'nan'::DOUBLE ELSE x2 END AS x2) FROM base;
+
+foreach call ols_fit_agg(y,[x1,x2]) ridge_fit_agg(y,[x1,x2],{'alpha':0.5}) elasticnet_fit_agg(y,[x1,x2],{'alpha':0.1,'l1_ratio':0.5}) wls_fit_agg(y,[x1,x2],w) rls_fit_agg(y,[x1,x2]) huber_fit_agg(y,[x1,x2]) theil_sen_fit_agg(y,[x1,x2]) ransac_fit_agg(y,[x1,x2],{'random_state':42}) bls_fit_agg(y,[x1,x2]) nnls_fit_agg(y,[x1,x2]) lars_fit_agg(y,[x1,x2]) alm_fit_agg(y,[x1,x2]) poisson_fit_agg(cnt,[x1,x2]) binomial_fit_agg(bin,[x1,x2]) logistic_fit_agg(bin,[x1,x2]) negbinom_fit_agg(cnt,[x1,x2]) gamma_fit_agg(pos,[x1,x2]) tweedie_fit_agg(pos,[x1,x2]) aft_fit_agg(pos,[x1,x2],ev) glmm_fit_agg(y,[x1,x2],grp)
+
+query III
+WITH a AS (SELECT ${call} AS r FROM inf_y),
+     b AS (SELECT ${call} AS r FROM base WHERE id <> 3)
+SELECT a.r.n_observations,
+       a.r.intercept IS NOT DISTINCT FROM b.r.intercept OR abs(a.r.intercept - b.r.intercept) < 1e-9,
+       list_distance(a.r.coefficients, b.r.coefficients) < 1e-9
+FROM a, b;
+----
+39	true	true
+
+query III
+WITH a AS (SELECT ${call} AS r FROM inf_x),
+     b AS (SELECT ${call} AS r FROM base WHERE id <> 3)
+SELECT a.r.n_observations,
+       a.r.intercept IS NOT DISTINCT FROM b.r.intercept OR abs(a.r.intercept - b.r.intercept) < 1e-9,
+       list_distance(a.r.coefficients, b.r.coefficients) < 1e-9
+FROM a, b;
+----
+39	true	true
+
+query III
+WITH a AS (SELECT ${call} AS r FROM nan_x),
+     b AS (SELECT ${call} AS r FROM base WHERE id <> 7)
+SELECT a.r.n_observations,
+       a.r.intercept IS NOT DISTINCT FROM b.r.intercept OR abs(a.r.intercept - b.r.intercept) < 1e-9,
+       list_distance(a.r.coefficients, b.r.coefficients) < 1e-9
+FROM a, b;
+----
+39	true	true
+
+endloop
+
+# =============================================================================
+# Constant y: the exact fit is intercept = 5, all slopes = 0.
+# =============================================================================
+
+statement ok
+CREATE TABLE const_y AS SELECT * REPLACE (5.0::DOUBLE AS y) FROM base;
+
+foreach call ols_fit_agg(y,[x1,x2]) ridge_fit_agg(y,[x1,x2],{'alpha':0.5}) elasticnet_fit_agg(y,[x1,x2],{'alpha':0.1,'l1_ratio':0.5}) wls_fit_agg(y,[x1,x2],w) huber_fit_agg(y,[x1,x2]) theil_sen_fit_agg(y,[x1,x2]) ransac_fit_agg(y,[x1,x2],{'random_state':42}) lars_fit_agg(y,[x1,x2]) alm_fit_agg(y,[x1,x2]) glmm_fit_agg(y,[x1,x2],grp)
+
+query II
+SELECT abs(r.intercept - 5.0) < 1e-6, list_max(list_transform(r.coefficients, lambda c: abs(c))) < 1e-6
+FROM (SELECT ${call} AS r FROM const_y);
+----
+true	true
+
+endloop
+
+# =============================================================================
+# A constant feature cannot be estimated: its coefficient is NaN (aliased) and
+# the remaining estimates equal the fit without that feature
+# (docs/api/regression/ols.md "NULL handling"; docs/api/glm/*.md "NaN for an
+# aliased column").
+# =============================================================================
+
+statement ok
+CREATE TABLE const_x AS SELECT * REPLACE (3.0::DOUBLE AS x2) FROM base;
+
+# ols_fit_agg
+query III
+WITH a AS (SELECT ols_fit_agg(y, [x1, x2]) AS r FROM const_x), b AS (SELECT ols_fit_agg(y, [x1]) AS r FROM const_x)
+SELECT isnan(a.r.coefficients[2]),
+       abs(a.r.coefficients[1] - b.r.coefficients[1]) < 1e-6,
+       abs(a.r.intercept - b.r.intercept) < 1e-6
+FROM a, b;
+----
+true	true	true
+
+# ridge_fit_agg
+query III
+WITH a AS (SELECT ridge_fit_agg(y, [x1, x2], {'alpha': 0.5}) AS r FROM const_x), b AS (SELECT ridge_fit_agg(y, [x1], {'alpha': 0.5}) AS r FROM const_x)
+SELECT isnan(a.r.coefficients[2]),
+       abs(a.r.coefficients[1] - b.r.coefficients[1]) < 1e-6,
+       abs(a.r.intercept - b.r.intercept) < 1e-6
+FROM a, b;
+----
+true	true	true
+
+# wls_fit_agg
+query III
+WITH a AS (SELECT wls_fit_agg(y, [x1, x2], w) AS r FROM const_x), b AS (SELECT wls_fit_agg(y, [x1], w) AS r FROM const_x)
+SELECT isnan(a.r.coefficients[2]),
+       abs(a.r.coefficients[1] - b.r.coefficients[1]) < 1e-6,
+       abs(a.r.intercept - b.r.intercept) < 1e-6
+FROM a, b;
+----
+true	true	true
+
+# elasticnet_fit_agg
+query III
+WITH a AS (SELECT elasticnet_fit_agg(y, [x1, x2], {'alpha': 0.1, 'l1_ratio': 0.5}) AS r FROM const_x), b AS (SELECT elasticnet_fit_agg(y, [x1], {'alpha': 0.1, 'l1_ratio': 0.5}) AS r FROM const_x)
+SELECT isnan(a.r.coefficients[2]),
+       abs(a.r.coefficients[1] - b.r.coefficients[1]) < 1e-6,
+       abs(a.r.intercept - b.r.intercept) < 1e-6
+FROM a, b;
+----
+true	true	true
+
+# lars_fit_agg
+query III
+WITH a AS (SELECT lars_fit_agg(y, [x1, x2]) AS r FROM const_x), b AS (SELECT lars_fit_agg(y, [x1]) AS r FROM const_x)
+SELECT isnan(a.r.coefficients[2]),
+       abs(a.r.coefficients[1] - b.r.coefficients[1]) < 1e-6,
+       abs(a.r.intercept - b.r.intercept) < 1e-6
+FROM a, b;
+----
+true	true	true
+
+# alm_fit_agg
+query III
+WITH a AS (SELECT alm_fit_agg(y, [x1, x2]) AS r FROM const_x), b AS (SELECT alm_fit_agg(y, [x1]) AS r FROM const_x)
+SELECT isnan(a.r.coefficients[2]),
+       abs(a.r.coefficients[1] - b.r.coefficients[1]) < 1e-6,
+       abs(a.r.intercept - b.r.intercept) < 1e-6
+FROM a, b;
+----
+true	true	true
+
+# poisson_fit_agg
+query III
+WITH a AS (SELECT poisson_fit_agg(cnt, [x1, x2]) AS r FROM const_x), b AS (SELECT poisson_fit_agg(cnt, [x1]) AS r FROM const_x)
+SELECT isnan(a.r.coefficients[2]),
+       abs(a.r.coefficients[1] - b.r.coefficients[1]) < 1e-6,
+       abs(a.r.intercept - b.r.intercept) < 1e-6
+FROM a, b;
+----
+true	true	true
+
+# binomial_fit_agg
+query III
+WITH a AS (SELECT binomial_fit_agg(bin, [x1, x2]) AS r FROM const_x), b AS (SELECT binomial_fit_agg(bin, [x1]) AS r FROM const_x)
+SELECT isnan(a.r.coefficients[2]),
+       abs(a.r.coefficients[1] - b.r.coefficients[1]) < 1e-6,
+       abs(a.r.intercept - b.r.intercept) < 1e-6
+FROM a, b;
+----
+true	true	true
+
+# gamma_fit_agg
+query III
+WITH a AS (SELECT gamma_fit_agg(pos, [x1, x2]) AS r FROM const_x), b AS (SELECT gamma_fit_agg(pos, [x1]) AS r FROM const_x)
+SELECT isnan(a.r.coefficients[2]),
+       abs(a.r.coefficients[1] - b.r.coefficients[1]) < 1e-6,
+       abs(a.r.intercept - b.r.intercept) < 1e-6
+FROM a, b;
+----
+true	true	true
+
+# negbinom_fit_agg
+query III
+WITH a AS (SELECT negbinom_fit_agg(cnt, [x1, x2]) AS r FROM const_x), b AS (SELECT negbinom_fit_agg(cnt, [x1]) AS r FROM const_x)
+SELECT isnan(a.r.coefficients[2]),
+       abs(a.r.coefficients[1] - b.r.coefficients[1]) < 1e-6,
+       abs(a.r.intercept - b.r.intercept) < 1e-6
+FROM a, b;
+----
+true	true	true
+
+# tweedie_fit_agg
+query III
+WITH a AS (SELECT tweedie_fit_agg(pos, [x1, x2]) AS r FROM const_x), b AS (SELECT tweedie_fit_agg(pos, [x1]) AS r FROM const_x)
+SELECT isnan(a.r.coefficients[2]),
+       abs(a.r.coefficients[1] - b.r.coefficients[1]) < 1e-6,
+       abs(a.r.intercept - b.r.intercept) < 1e-6
+FROM a, b;
+----
+true	true	true
+
+# =============================================================================
+# Perfectly collinear features (x2 = 2 * x1). The fitted values are identified
+# even though the individual coefficients are not, so assert the identified
+# quantities: intercept and c1 + 2 * c2 equal the single-feature fit (an aliased
+# NaN coefficient counts as 0).
+# =============================================================================
+
+statement ok
+CREATE TABLE collin AS SELECT * REPLACE (2.0 * x1 AS x2) FROM base;
+
+# ols_fit_agg
+query II
+WITH a AS (SELECT ols_fit_agg(y, [x1, x2]) AS r FROM collin), b AS (SELECT ols_fit_agg(y, [x1]) AS r FROM collin)
+SELECT abs(a.r.intercept - b.r.intercept) < 1e-08,
+       abs(CASE WHEN isnan(a.r.coefficients[1]) THEN 0 ELSE a.r.coefficients[1] END
+           + 2 * CASE WHEN isnan(a.r.coefficients[2]) THEN 0 ELSE a.r.coefficients[2] END
+           - b.r.coefficients[1]) < 1e-08
+FROM a, b;
+----
+true	true
+
+# wls_fit_agg
+query II
+WITH a AS (SELECT wls_fit_agg(y, [x1, x2], w) AS r FROM collin), b AS (SELECT wls_fit_agg(y, [x1], w) AS r FROM collin)
+SELECT abs(a.r.intercept - b.r.intercept) < 1e-08,
+       abs(CASE WHEN isnan(a.r.coefficients[1]) THEN 0 ELSE a.r.coefficients[1] END
+           + 2 * CASE WHEN isnan(a.r.coefficients[2]) THEN 0 ELSE a.r.coefficients[2] END
+           - b.r.coefficients[1]) < 1e-08
+FROM a, b;
+----
+true	true
+
+# lars_fit_agg
+query II
+WITH a AS (SELECT lars_fit_agg(y, [x1, x2]) AS r FROM collin), b AS (SELECT lars_fit_agg(y, [x1]) AS r FROM collin)
+SELECT abs(a.r.intercept - b.r.intercept) < 1e-08,
+       abs(CASE WHEN isnan(a.r.coefficients[1]) THEN 0 ELSE a.r.coefficients[1] END
+           + 2 * CASE WHEN isnan(a.r.coefficients[2]) THEN 0 ELSE a.r.coefficients[2] END
+           - b.r.coefficients[1]) < 1e-08
+FROM a, b;
+----
+true	true
+
+# alm_fit_agg
+query II
+WITH a AS (SELECT alm_fit_agg(y, [x1, x2]) AS r FROM collin), b AS (SELECT alm_fit_agg(y, [x1]) AS r FROM collin)
+SELECT abs(a.r.intercept - b.r.intercept) < 1e-06,
+       abs(CASE WHEN isnan(a.r.coefficients[1]) THEN 0 ELSE a.r.coefficients[1] END
+           + 2 * CASE WHEN isnan(a.r.coefficients[2]) THEN 0 ELSE a.r.coefficients[2] END
+           - b.r.coefficients[1]) < 1e-06
+FROM a, b;
+----
+true	true
+
+# huber_fit_agg
+query II
+WITH a AS (SELECT huber_fit_agg(y, [x1, x2]) AS r FROM collin), b AS (SELECT huber_fit_agg(y, [x1]) AS r FROM collin)
+SELECT abs(a.r.intercept - b.r.intercept) < 1e-05,
+       abs(CASE WHEN isnan(a.r.coefficients[1]) THEN 0 ELSE a.r.coefficients[1] END
+           + 2 * CASE WHEN isnan(a.r.coefficients[2]) THEN 0 ELSE a.r.coefficients[2] END
+           - b.r.coefficients[1]) < 1e-05
+FROM a, b;
+----
+true	true
+
+# poisson_fit_agg
+query II
+WITH a AS (SELECT poisson_fit_agg(cnt, [x1, x2]) AS r FROM collin), b AS (SELECT poisson_fit_agg(cnt, [x1]) AS r FROM collin)
+SELECT abs(a.r.intercept - b.r.intercept) < 1e-06,
+       abs(CASE WHEN isnan(a.r.coefficients[1]) THEN 0 ELSE a.r.coefficients[1] END
+           + 2 * CASE WHEN isnan(a.r.coefficients[2]) THEN 0 ELSE a.r.coefficients[2] END
+           - b.r.coefficients[1]) < 1e-06
+FROM a, b;
+----
+true	true
+
+# binomial_fit_agg
+query II
+WITH a AS (SELECT binomial_fit_agg(bin, [x1, x2]) AS r FROM collin), b AS (SELECT binomial_fit_agg(bin, [x1]) AS r FROM collin)
+SELECT abs(a.r.intercept - b.r.intercept) < 1e-06,
+       abs(CASE WHEN isnan(a.r.coefficients[1]) THEN 0 ELSE a.r.coefficients[1] END
+           + 2 * CASE WHEN isnan(a.r.coefficients[2]) THEN 0 ELSE a.r.coefficients[2] END
+           - b.r.coefficients[1]) < 1e-06
+FROM a, b;
+----
+true	true
+
+# gamma_fit_agg
+query II
+WITH a AS (SELECT gamma_fit_agg(pos, [x1, x2]) AS r FROM collin), b AS (SELECT gamma_fit_agg(pos, [x1]) AS r FROM collin)
+SELECT abs(a.r.intercept - b.r.intercept) < 1e-06,
+       abs(CASE WHEN isnan(a.r.coefficients[1]) THEN 0 ELSE a.r.coefficients[1] END
+           + 2 * CASE WHEN isnan(a.r.coefficients[2]) THEN 0 ELSE a.r.coefficients[2] END
+           - b.r.coefficients[1]) < 1e-06
+FROM a, b;
+----
+true	true
+
+# Ridge has a unique solution even for collinear columns; it lies in the row
+# space of X, so with x2 = 2 * x1 the coefficients satisfy c2 = 2 * c1.
+query I
+SELECT abs(r.coefficients[2] - 2 * r.coefficients[1]) < 1e-8
+FROM (SELECT ridge_fit_agg(y, [x1, x2], {'alpha': 0.5}) AS r FROM collin);
+----
+true
+
+# Theil-Sen on a rank-deficient design must not explode: coefficients are either
+# NaN (aliased) or finite and of the order of the data (currently ~1e14).
+query I
+SELECT list_bool_and(list_transform(r.coefficients, lambda c: isnan(c) OR abs(c) < 1e3))
+FROM (SELECT theil_sen_fit_agg(y, [x1, x2]) AS r FROM collin);
+----
+true
+
+# =============================================================================
+# RLS without forgetting and with a diffuse prior (large initial P) converges
+# to the OLS solution. Reference: textbook RLS recursion in numpy
+#   theta += K (y - x'theta), K = P x / (1 + x'P x), P -= K x'P, P0 = 1e6 I
+# gives [3.19433622, 0.73983974, -0.30492548] vs OLS [3.19433686, 0.73983966, -0.30492559].
+# =============================================================================
+
+query II
+WITH a AS (SELECT rls_fit_agg(y, [x1, x2], {'forgetting_factor': 1.0, 'initial_p_diagonal': 1e6}) AS r FROM base),
+     b AS (SELECT ols_fit_agg(y, [x1, x2]) AS r FROM base)
+SELECT abs(a.r.intercept - b.r.intercept) < 1e-4,
+       list_distance(a.r.coefficients, b.r.coefficients) < 1e-4
+FROM a, b;
+----
+true	true
+
+# Same with the default prior P0 = 100 I (numpy reference: intercept 3.18798383,
+# coefficients [0.74067461, -0.3038978]).
+query II
+SELECT abs(r.intercept - 3.18798383) < 1e-6,
+       list_distance(r.coefficients, [0.74067461, -0.3038978]) < 1e-6
+FROM (SELECT rls_fit_agg(y, [x1, x2]) AS r FROM base);
+----
+true	true

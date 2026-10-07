@@ -188,11 +188,14 @@ pub fn fit_irls<F: GlmFamily + ?Sized>(
     // Report the plain deviance, not the penalized objective.
     let dev = family.deviance(y, &mu);
 
-    if !converged {
-        return Err(StatsError::ConvergenceFailure {
-            iterations: config.max_iterations as u32,
-            tolerance: config.tolerance,
-        });
+    // Non-convergence is not an error: the caller gets the last iterate with
+    // `converged = false` (as R's glm() does with a warning). Only a numerically
+    // broken iterate is reported as a failure.
+    if !converged && !(dev.is_finite() && beta.iter().all(|b| b.is_finite())) {
+        return Err(StatsError::NumericalFailure(format!(
+            "IRLS did not converge after {} iterations and the last iterate is not finite",
+            config.max_iterations
+        )));
     }
 
     // Final weights at the mode, for the observed information.
@@ -282,7 +285,7 @@ fn update_eta_mu<F: GlmFamily + ?Sized>(
         eta[i] = e;
 
         if !family.valid_eta(e) {
-            return Err(StatsError::RegressError(
+            return Err(StatsError::NumericalFailure(
                 "invalid linear predictor (eta) during IRLS: non-finite value".to_string(),
             ));
         }

@@ -186,7 +186,9 @@ static void WlsFitFunction(DataChunk &args, ExpressionState &state, Vector &resu
                                       bind_data.compute_inference ? &inference_result : nullptr, &error);
 
         if (!success) {
-            ThrowFromFfiError("wls_fit", error);
+            ThrowUnlessDegenerate("wls_fit", error);
+            FlatVector::SetNull(result, row, true);
+            continue;
         }
 
         // Build result struct

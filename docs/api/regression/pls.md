@@ -9,13 +9,11 @@ on those components.
 
 | Function | Type | Description |
 |----------|------|-------------|
-| `pls_fit_agg` | Aggregate | Fit a PLS model per group <!-- TODO(lead): verify after *_fit_agg lands --> |
+| `pls_fit_agg` | Aggregate | Fit a PLS model per group |
 | `pls_fit_predict_agg` | Aggregate | Fit and predict every row of a group |
 | `pls_fit_predict_by` | Table macro | Per-group fit and predict in long format, see [Table macros](../macros/table_macros.md#pls_fit_predict_by) |
 
 ## pls_fit_agg
-
-<!-- TODO(lead): verify after *_fit_agg lands -->
 
 **Signature:**
 
@@ -25,10 +23,39 @@ pls_fit_agg(y DOUBLE, x DOUBLE[] [, options MAP]) -> STRUCT
 
 Options: `n_components`, `fit_intercept` (see [Options](#options)).
 
-```sql skip
--- TODO(lead): un-skip once pls_fit_agg is registered
-SELECT (pls_fit_agg(y, [x1, x2, x3], {'n_components': 2})).coefficients
-FROM pls_demo;
+**Returns:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `coefficients` | `DOUBLE[]` | Coefficients on the original feature scale, one per feature |
+| `intercept` | `DOUBLE` | Intercept (0 when `fit_intercept` is false) |
+| `r_squared` | `DOUBLE` | In-sample R² |
+| `n_components` | `BIGINT` | Number of latent components used |
+| `n_observations` | `BIGINT` | Rows used in the fit |
+| `n_features` | `BIGINT` | Number of features |
+
+Rows with a NULL `y`, a NULL `x` or a NULL list element are skipped. A group
+with too few usable rows returns NULL. Apply the model to new rows with
+[`predict(model, x)`](model_tools.md#predict), and get a per-term table with
+[`tidy`](model_tools.md#tidy) (PLS has no inference, so only `estimate` is
+filled).
+
+**Example:**
+
+```sql
+CREATE OR REPLACE TABLE pls_fit_demo AS
+SELECT
+    i::DOUBLE AS x1,
+    i::DOUBLE * 0.98 + (i % 3) * 0.1 AS x2,    -- strongly collinear with x1
+    (i % 4)::DOUBLE AS x3,
+    1.0 + 0.5 * i + 0.3 * (i % 4) AS y
+FROM range(1, 26) t(i);
+
+SELECT
+    m.n_components,
+    round(m.r_squared, 4) AS r2,
+    round(predict(m, [26.0, 25.5, 2.0]), 3) AS yhat_new
+FROM (SELECT pls_fit_agg(y, [x1, x2, x3], {'n_components': 2}) AS m FROM pls_fit_demo);
 ```
 
 ## pls_fit_predict_agg

@@ -98,14 +98,12 @@ FROM outlier_data;
 true
 
 # =============================================================================
-# TEST 8: invalid epsilon (≤ 1.0) — aggregate path silently NULLs the row
-# (matching ols_fit_agg's behaviour on FFI failure); the actual validation
-# is covered by the Rust unit test rejects_epsilon_below_one.
+# TEST 8: invalid epsilon (<= 1.0) is an invalid option and raises an error
 # =============================================================================
-query I
-SELECT (huber_fit_agg(y, [x], {'epsilon': 0.5})).coefficients IS NULL FROM clean_data;
+statement error
+SELECT (huber_fit_agg(y, [x], {'epsilon': 0.5})).coefficients FROM clean_data;
 ----
-true
+huber_fit_agg: Invalid input: epsilon must be > 1.0
 
 # =============================================================================
 # TEST 9: Per-group fit works

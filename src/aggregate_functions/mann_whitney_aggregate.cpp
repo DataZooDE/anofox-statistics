@@ -9,6 +9,7 @@
 #include "../include/anofox_stats_ffi.h"
 #include "../include/ffi_enum_converters.hpp"
 #include "../include/result_fields.hpp"
+#include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
@@ -198,6 +199,7 @@ static void MannWhitneyAggFinalize(Vector &state_vector, AggregateInputData &agg
         bool success = anofox_mann_whitney_u(group1_array, group2_array, options, &test_result, &error);
 
         if (!success) {
+            ThrowUnlessDegenerate("mann_whitney_u_agg", error);
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }

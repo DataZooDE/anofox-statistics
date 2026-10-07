@@ -10,6 +10,7 @@ with a log link by IRLS.
 | Function | Type | Description |
 |----------|------|-------------|
 | `tweedie_fit_agg` | Aggregate | Fit a Tweedie GLM (log link) |
+| `tweedie_fit_predict_by` | Table macro | Per-group fit, expected values for every row, see [Table macros](../macros/table_macros.md#tweedie_fit_predict_by) |
 
 ## tweedie_fit_agg
 
@@ -57,6 +58,8 @@ The link is always log, regardless of `power`.
 | `iterations` | INTEGER | IRLS iterations performed |
 | `converged` | BOOLEAN | Whether IRLS reached the tolerance |
 | `std_errors`, `z_values`, `p_values`, `ci_lower`, `ci_upper` | DOUBLE[] | Only with `compute_inference` |
+| `family` | VARCHAR | `'tweedie'`; used by [`predict`](../regression/model_tools.md#predict) |
+| `link` | VARCHAR | `'log'` |
 
 **Example:**
 
@@ -78,6 +81,51 @@ UNION ALL
 SELECT 1.5, (tweedie_fit_agg(loss, [risk_score], {'power': 1.5})).deviance FROM losses
 UNION ALL
 SELECT 1.7, (tweedie_fit_agg(loss, [risk_score], {'power': 1.7})).deviance FROM losses;
+```
+
+## Prediction
+
+Apply a fitted model to new rows with
+[`predict(model, x)`](../regression/model_tools.md#predict). The model's `link`
+field maps the linear predictor back to the response scale; pass
+`{'type': 'link'}` for the log mean instead. [`tidy`](../regression/model_tools.md#tidy)
+and [`glance`](../regression/model_tools.md#glance) give the per-term table and
+the fit summary.
+
+```sql
+WITH fit AS (SELECT tweedie_fit_agg(loss, [risk_score], {'power': 1.5}) AS m FROM losses)
+SELECT m.family, m.link,
+       round(predict(m, [4.0]), 4) AS response,   -- expected loss at risk score 4
+       round(predict(m, [4.0], {'type': 'link'}), 4) AS linear_predictor
+FROM fit;
+```
+
+### tweedie_fit_predict_by
+
+```text
+tweedie_fit_predict_by(source VARCHAR, group_col, y_col, x_cols,
+    options := NULL, split := NULL) -> TABLE
+```
+
+Fits `tweedie_fit_agg` on each group's training rows (`y` not NULL and `split`
+NULL or `'train'`) and applies `predict(model, x)` to every row. Returns all
+source columns plus `yhat` (response scale), `yhat_lower` and `yhat_upper`
+(NULL: no interval for this GLM) and `is_training`, ordered by the group
+column. A group whose fit fails gets NULL `yhat`. See
+[Table macros](../macros/table_macros.md#tweedie_fit_predict_by).
+
+```sql
+CREATE OR REPLACE VIEW losses_seg AS
+SELECT *,
+       CASE WHEN policy_id % 2 = 0 THEN 'even' ELSE 'odd' END AS segment,
+       CASE WHEN policy_id % 10 < 8 THEN 'train' ELSE 'test' END AS split
+FROM losses;
+
+SELECT segment, policy_id, loss, round(yhat, 3) AS yhat, is_training
+FROM tweedie_fit_predict_by('losses_seg', segment, loss, [risk_score], {'power': 1.5}, split := split)
+WHERE NOT is_training
+ORDER BY segment, policy_id
+LIMIT 4;
 ```
 
 ## Choosing the power

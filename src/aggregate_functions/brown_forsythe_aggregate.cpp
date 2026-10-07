@@ -8,6 +8,7 @@
 
 #include "../include/anofox_stats_ffi.h"
 #include "../include/result_fields.hpp"
+#include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
@@ -177,6 +178,7 @@ static void BrownForsytheAggFinalize(Vector &state_vector, AggregateInputData &a
         bool success = anofox_brown_forsythe(values_array, groups_array, &test_result, &error);
 
         if (!success) {
+            ThrowUnlessDegenerate("brown_forsythe_agg", error);
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }

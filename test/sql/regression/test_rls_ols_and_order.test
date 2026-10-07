@@ -1,0 +1,95 @@
+# name: test/sql/regression/test_rls_ols_and_order.test
+# description: RLS reduces to OLS without forgetting (coefficients and fit
+#              statistics), and order-dependent aggregates honour ORDER BY.
+# group: [regression]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE rls_ref AS SELECT * FROM (VALUES
+    (1, 1.0, 3.1), (2, 2.0, 4.8), (3, 3.0, 7.2), (4, 4.0, 9.1), (5, 5.0, 10.8), (6, 6.0, 13.2),
+    (7, 7.0, 15.1), (8, 8.0, 16.7), (9, 9.0, 19.2), (10, 10.0, 21.0), (11, 11.0, 22.8), (12, 12.0, 25.3)
+) v(t, x, y);
+
+# Reference: R summary(lm(y ~ x)): intercept 1.0045454545, slope 2.0031468531,
+# r.squared 0.9992318856, adj.r.squared 0.9991550742, sigma 0.2100199791.
+# r_squared / adj_r_squared / residual_std_error used to be NaN, and the slope
+# used to be far from OLS because of a corrupted P-matrix update.
+query IIIII
+SELECT round(r.intercept, 6), round(r.coefficients[1], 6), round(r.r_squared, 8),
+       round(r.adj_r_squared, 8), round(r.residual_std_error, 8)
+FROM (SELECT rls_fit_agg(y, [x], {'forgetting_factor': 1.0, 'initial_p_diagonal': 1e8}) AS r FROM rls_ref);
+----
+1.004545	2.003147	0.99923189	0.99915507	0.21001998
+
+query IIIII
+SELECT round(r.intercept, 6), round(r.coefficients[1], 6), round(r.r_squared, 8),
+       round(r.adj_r_squared, 8), round(r.residual_std_error, 8)
+FROM (SELECT rls_fit(list(y ORDER BY t), [list(x ORDER BY t)], {'initial_p_diagonal': 1e8}) AS r FROM rls_ref);
+----
+1.004545	2.003147	0.99923189	0.99915507	0.21001998
+
+# With forgetting the statistics are still finite
+query I
+SELECT isfinite(r.r_squared) AND isfinite(r.residual_std_error)
+FROM (SELECT rls_fit_agg(y, [x], {'forgetting_factor': 0.9}) AS r FROM rls_ref);
+----
+true
+
+# =============================================================================
+# ORDER BY: rls_fit_agg with forgetting is order dependent. The rows are stored
+# shuffled and aggregated with several threads; `ORDER BY t` must give exactly
+# the single sequential pass over the ordered lists.
+# =============================================================================
+
+statement ok
+SET threads = 4;
+
+statement ok
+CREATE TABLE ts AS
+SELECT t, x, 1.0 + 0.5 * x + 0.002 * t * x + sin(t) AS y
+FROM (SELECT i AS t, (i * 37 % 101) / 10.0 AS x FROM range(1, 5001) r(i))
+ORDER BY hash(t);
+
+query I
+SELECT a.r.coefficients = b.r.coefficients AND a.r.intercept = b.r.intercept
+FROM (SELECT rls_fit_agg(y, [x], {'forgetting_factor': 0.95} ORDER BY t) AS r FROM ts) a,
+     (SELECT rls_fit(list(y ORDER BY t), [list(x ORDER BY t)], {'forgetting_factor': 0.95}) AS r FROM ts) b;
+----
+true
+
+# Grouped, ordered: deterministic and equal to the per-group ordered list fit
+query I
+SELECT bool_and(a.r.coefficients = b.r.coefficients)
+FROM (SELECT t % 7 AS k, rls_fit_agg(y, [x], {'forgetting_factor': 0.9} ORDER BY t) AS r FROM ts GROUP BY k) a
+JOIN (SELECT t % 7 AS k, rls_fit(list(y ORDER BY t), [list(x ORDER BY t)], {'forgetting_factor': 0.9}) AS r
+      FROM ts GROUP BY k) b USING (k);
+----
+true
+
+# Descending order is a different sequence and gives a different end state
+query I
+SELECT a.r.coefficients <> b.r.coefficients
+FROM (SELECT rls_fit_agg(y, [x], {'forgetting_factor': 0.95} ORDER BY t) AS r FROM ts) a,
+     (SELECT rls_fit_agg(y, [x], {'forgetting_factor': 0.95} ORDER BY t DESC) AS r FROM ts) b;
+----
+true
+
+# rls_fit_predict_agg: positions follow the ORDER BY
+query I
+SELECT r[1].y = (SELECT y FROM ts ORDER BY t LIMIT 1)
+FROM (SELECT rls_fit_predict_agg(y, [x], {'forgetting_factor': 0.95} ORDER BY t) AS r FROM ts);
+----
+true
+
+# Diebold-Mariano (HAC variance over the loss differential) depends on order
+statement ok
+CREATE TABLE fc AS
+SELECT t, y, y + sin(t / 3.0) AS f1, y + 0.8 * cos(t / 5.0) AS f2 FROM ts;
+
+query I
+SELECT a.r.statistic = b.r.statistic
+FROM (SELECT diebold_mariano_agg(y, f1, f2, {'horizon': 4} ORDER BY t) AS r FROM fc) a,
+     (SELECT diebold_mariano_agg(y, f1, f2, {'horizon': 4} ORDER BY t) AS r FROM (SELECT * FROM fc ORDER BY random())) b;
+----
+true
