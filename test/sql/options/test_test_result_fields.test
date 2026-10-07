@@ -1,0 +1,292 @@
+# name: test/sql/options/test_test_result_fields.test
+# description: Every hypothesis-test aggregate reports statistic, p_value,
+#              n (total sample size, BIGINT), method (VARCHAR) and alternative
+#              (VARCHAR: two_sided | less | greater, NULL when not applicable).
+#              The fields were appended to the existing result structs.
+# group: [options]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE tg AS SELECT (CASE WHEN i % 2 = 0 THEN 10.0 ELSE 10.8 END + sin(i * 1.3) * 2.0) AS v, (i % 2)::BIGINT AS g, (i % 3)::INTEGER AS g3 FROM range(60) t(i);
+
+statement ok
+CREATE TABLE pr AS SELECT (5.0 + sin(i * 0.9)) AS x, (5.05 + sin(i * 0.9) + 0.2 * cos(i * 2.1)) AS y FROM range(60) t(i);
+
+statement ok
+CREATE TABLE fc AS SELECT sin(i * 0.3) * 3.0 AS actual, sin(i * 0.3) * 3.0 + 0.8 * cos(i * 1.7) AS f1, sin(i * 0.3) * 3.0 + 0.5 * cos(i * 2.3 + 1.0) AS f2 FROM range(80) t(i);
+
+statement ok
+CREATE TABLE bn AS SELECT (CASE WHEN (i * 7) % 10 < 6 THEN 1 ELSE 0 END)::BIGINT AS s, (i % 2)::BIGINT AS g FROM range(80) t(i);
+
+statement ok
+CREATE TABLE rt AS SELECT (s * 1.0 + r * 0.3 + sin(s * 7 + r)) AS rating, s::BIGINT AS subject, r::BIGINT AS rater FROM range(12) a(s), range(3) b(r);
+
+statement ok
+CREATE TABLE kp AS SELECT (i % 3)::BIGINT AS r1, (CASE WHEN i % 7 = 0 THEN (i + 1) % 3 ELSE i % 3 END)::BIGINT AS r2, (i % 2)::BIGINT AS b1, (CASE WHEN i % 5 = 0 THEN 1 - i % 2 ELSE (i % 3 = 0)::BIGINT END)::BIGINT AS b2 FROM range(60) t(i);
+
+statement ok
+CREATE TABLE gof AS SELECT * FROM (VALUES (18::BIGINT, 0.25), (22, 0.25), (31, 0.25), (29, 0.25)) t(obs, p);
+
+query TTTTTITT
+SELECT typeof(r.statistic), typeof(r.p_value), typeof(r.n), typeof(r.method), typeof(r.alternative),
+       r.n, r.alternative, r.statistic IS NOT NULL AND r.p_value IS NOT NULL AND r.method IS NOT NULL
+FROM (SELECT t_test_agg(v, g, {'alternative': 'less'}) AS r FROM tg);
+----
+DOUBLE	DOUBLE	BIGINT	VARCHAR	VARCHAR	60	less	true
+
+query TTTTTITT
+SELECT typeof(r.statistic), typeof(r.p_value), typeof(r.n), typeof(r.method), typeof(r.alternative),
+       r.n, r.alternative, r.statistic IS NOT NULL AND r.p_value IS NOT NULL AND r.method IS NOT NULL
+FROM (SELECT mann_whitney_u_agg(v, g, {'alternative': 'greater'}) AS r FROM tg);
+----
+DOUBLE	DOUBLE	BIGINT	VARCHAR	VARCHAR	60	greater	true
+
+query TTTTTITT
+SELECT typeof(r.statistic), typeof(r.p_value), typeof(r.n), typeof(r.method), typeof(r.alternative),
+       r.n, r.alternative, r.statistic IS NOT NULL AND r.p_value IS NOT NULL AND r.method IS NOT NULL
+FROM (SELECT brunner_munzel_agg(v, g) AS r FROM tg);
+----
+DOUBLE	DOUBLE	BIGINT	VARCHAR	VARCHAR	60	two_sided	true
+
+query TTTTTITT
+SELECT typeof(r.statistic), typeof(r.p_value), typeof(r.n), typeof(r.method), typeof(r.alternative),
+       r.n, r.alternative, r.statistic IS NOT NULL AND r.p_value IS NOT NULL AND r.method IS NOT NULL
+FROM (SELECT yuen_agg(v, g, {'alternative': 'less'}) AS r FROM tg);
+----
+DOUBLE	DOUBLE	BIGINT	VARCHAR	VARCHAR	60	less	true
+
+query TTTTTITT
+SELECT typeof(r.statistic), typeof(r.p_value), typeof(r.n), typeof(r.method), typeof(r.alternative),
+       r.n, r.alternative, r.statistic IS NOT NULL AND r.p_value IS NOT NULL AND r.method IS NOT NULL
+FROM (SELECT permutation_t_test_agg(v, g, {'alternative': 'greater', 'n_permutations': 100, 'seed': 1}) AS r FROM tg);
+----
+DOUBLE	DOUBLE	BIGINT	VARCHAR	VARCHAR	60	greater	true
+
+query TTTTTITT
+SELECT typeof(r.statistic), typeof(r.p_value), typeof(r.n), typeof(r.method), typeof(r.alternative),
+       r.n, r.alternative, r.statistic IS NOT NULL AND r.p_value IS NOT NULL AND r.method IS NOT NULL
+FROM (SELECT tost_t_test_agg(v, g::INTEGER, {'delta': 2.0}) AS r FROM tg);
+----
+DOUBLE	DOUBLE	BIGINT	VARCHAR	VARCHAR	60	NULL	true
+
+query TTTTTITT
+SELECT typeof(r.statistic), typeof(r.p_value), typeof(r.n), typeof(r.method), typeof(r.alternative),
+       r.n, r.alternative, r.statistic IS NOT NULL AND r.p_value IS NOT NULL AND r.method IS NOT NULL
+FROM (SELECT energy_distance_agg(v, g::INTEGER, {'n_permutations': 50, 'seed': 1}) AS r FROM tg);
+----
+DOUBLE	DOUBLE	BIGINT	VARCHAR	VARCHAR	60	NULL	true
+
+query TTTTTITT
+SELECT typeof(r.statistic), typeof(r.p_value), typeof(r.n), typeof(r.method), typeof(r.alternative),
+       r.n, r.alternative, r.statistic IS NOT NULL AND r.p_value IS NOT NULL AND r.method IS NOT NULL
+FROM (SELECT mmd_agg(v, g::INTEGER, {'n_permutations': 50, 'seed': 1}) AS r FROM tg);
+----
+DOUBLE	DOUBLE	BIGINT	VARCHAR	VARCHAR	60	NULL	true
+
+query TTTTTITT
+SELECT typeof(r.statistic), typeof(r.p_value), typeof(r.n), typeof(r.method), typeof(r.alternative),
+       r.n, r.alternative, r.statistic IS NOT NULL AND r.p_value IS NOT NULL AND r.method IS NOT NULL
+FROM (SELECT one_way_anova_agg(v, g3) AS r FROM tg);
+----
+DOUBLE	DOUBLE	BIGINT	VARCHAR	VARCHAR	60	NULL	true
+
+query TTTTTITT
+SELECT typeof(r.statistic), typeof(r.p_value), typeof(r.n), typeof(r.method), typeof(r.alternative),
+       r.n, r.alternative, r.statistic IS NOT NULL AND r.p_value IS NOT NULL AND r.method IS NOT NULL
+FROM (SELECT kruskal_wallis_agg(v, g3) AS r FROM tg);
+----
+DOUBLE	DOUBLE	BIGINT	VARCHAR	VARCHAR	60	NULL	true
+
+query TTTTTITT
+SELECT typeof(r.statistic), typeof(r.p_value), typeof(r.n), typeof(r.method), typeof(r.alternative),
+       r.n, r.alternative, r.statistic IS NOT NULL AND r.p_value IS NOT NULL AND r.method IS NOT NULL
+FROM (SELECT brown_forsythe_agg(v, g3) AS r FROM tg);
+----
+DOUBLE	DOUBLE	BIGINT	VARCHAR	VARCHAR	60	NULL	true
+
+query TTTTTITT
+SELECT typeof(r.statistic), typeof(r.p_value), typeof(r.n), typeof(r.method), typeof(r.alternative),
+       r.n, r.alternative, r.statistic IS NOT NULL AND r.p_value IS NOT NULL AND r.method IS NOT NULL
+FROM (SELECT shapiro_wilk_agg(v) AS r FROM tg);
+----
+DOUBLE	DOUBLE	BIGINT	VARCHAR	VARCHAR	60	NULL	true
+
+query TTTTTITT
+SELECT typeof(r.statistic), typeof(r.p_value), typeof(r.n), typeof(r.method), typeof(r.alternative),
+       r.n, r.alternative, r.statistic IS NOT NULL AND r.p_value IS NOT NULL AND r.method IS NOT NULL
+FROM (SELECT dagostino_k2_agg(v) AS r FROM tg);
+----
+DOUBLE	DOUBLE	BIGINT	VARCHAR	VARCHAR	60	NULL	true
+
+query TTTTTITT
+SELECT typeof(r.statistic), typeof(r.p_value), typeof(r.n), typeof(r.method), typeof(r.alternative),
+       r.n, r.alternative, r.statistic IS NOT NULL AND r.p_value IS NOT NULL AND r.method IS NOT NULL
+FROM (SELECT jarque_bera_agg(v) AS r FROM tg);
+----
+DOUBLE	DOUBLE	BIGINT	VARCHAR	VARCHAR	60	NULL	true
+
+query TTTTTITT
+SELECT typeof(r.statistic), typeof(r.p_value), typeof(r.n), typeof(r.method), typeof(r.alternative),
+       r.n, r.alternative, r.statistic IS NOT NULL AND r.p_value IS NOT NULL AND r.method IS NOT NULL
+FROM (SELECT pearson_agg(x, y) AS r FROM pr);
+----
+DOUBLE	DOUBLE	BIGINT	VARCHAR	VARCHAR	60	two_sided	true
+
+query TTTTTITT
+SELECT typeof(r.statistic), typeof(r.p_value), typeof(r.n), typeof(r.method), typeof(r.alternative),
+       r.n, r.alternative, r.statistic IS NOT NULL AND r.p_value IS NOT NULL AND r.method IS NOT NULL
+FROM (SELECT spearman_agg(x, y) AS r FROM pr);
+----
+DOUBLE	DOUBLE	BIGINT	VARCHAR	VARCHAR	60	two_sided	true
+
+query TTTTTITT
+SELECT typeof(r.statistic), typeof(r.p_value), typeof(r.n), typeof(r.method), typeof(r.alternative),
+       r.n, r.alternative, r.statistic IS NOT NULL AND r.p_value IS NOT NULL AND r.method IS NOT NULL
+FROM (SELECT kendall_agg(x, y) AS r FROM pr);
+----
+DOUBLE	DOUBLE	BIGINT	VARCHAR	VARCHAR	60	two_sided	true
+
+query TTTTTITT
+SELECT typeof(r.statistic), typeof(r.p_value), typeof(r.n), typeof(r.method), typeof(r.alternative),
+       r.n, r.alternative, r.statistic IS NOT NULL AND r.p_value IS NOT NULL AND r.method IS NOT NULL
+FROM (SELECT distance_cor_agg(x, y, {'n_permutations': 50, 'seed': 1}) AS r FROM pr);
+----
+DOUBLE	DOUBLE	BIGINT	VARCHAR	VARCHAR	60	NULL	true
+
+query TTTTTITT
+SELECT typeof(r.statistic), typeof(r.p_value), typeof(r.n), typeof(r.method), typeof(r.alternative),
+       r.n, r.alternative, r.statistic IS NOT NULL AND r.p_value IS NOT NULL AND r.method IS NOT NULL
+FROM (SELECT wilcoxon_signed_rank_agg(x, y, {'alternative': 'less'}) AS r FROM pr);
+----
+DOUBLE	DOUBLE	BIGINT	VARCHAR	VARCHAR	60	less	true
+
+query TTTTTITT
+SELECT typeof(r.statistic), typeof(r.p_value), typeof(r.n), typeof(r.method), typeof(r.alternative),
+       r.n, r.alternative, r.statistic IS NOT NULL AND r.p_value IS NOT NULL AND r.method IS NOT NULL
+FROM (SELECT tost_paired_agg(x, y) AS r FROM pr);
+----
+DOUBLE	DOUBLE	BIGINT	VARCHAR	VARCHAR	60	NULL	true
+
+query TTTTTITT
+SELECT typeof(r.statistic), typeof(r.p_value), typeof(r.n), typeof(r.method), typeof(r.alternative),
+       r.n, r.alternative, r.statistic IS NOT NULL AND r.p_value IS NOT NULL AND r.method IS NOT NULL
+FROM (SELECT tost_correlation_agg(x, y) AS r FROM pr);
+----
+DOUBLE	DOUBLE	BIGINT	VARCHAR	VARCHAR	60	NULL	true
+
+query TTTTTITT
+SELECT typeof(r.statistic), typeof(r.p_value), typeof(r.n), typeof(r.method), typeof(r.alternative),
+       r.n, r.alternative, r.statistic IS NOT NULL AND r.p_value IS NOT NULL AND r.method IS NOT NULL
+FROM (SELECT chisq_test_agg(r1::INTEGER, r2::INTEGER) AS r FROM kp);
+----
+DOUBLE	DOUBLE	BIGINT	VARCHAR	VARCHAR	60	NULL	true
+
+query TTTTTITT
+SELECT typeof(r.statistic), typeof(r.p_value), typeof(r.n), typeof(r.method), typeof(r.alternative),
+       r.n, r.alternative, r.statistic IS NOT NULL AND r.p_value IS NOT NULL AND r.method IS NOT NULL
+FROM (SELECT g_test_agg(r1, r2) AS r FROM kp);
+----
+DOUBLE	DOUBLE	BIGINT	VARCHAR	VARCHAR	60	NULL	true
+
+query TTTTTITT
+SELECT typeof(r.statistic), typeof(r.p_value), typeof(r.n), typeof(r.method), typeof(r.alternative),
+       r.n, r.alternative, r.statistic IS NOT NULL AND r.p_value IS NOT NULL AND r.method IS NOT NULL
+FROM (SELECT fisher_exact_agg(b1::INTEGER, b2::INTEGER, {'alternative': 'greater'}) AS r FROM kp);
+----
+DOUBLE	DOUBLE	BIGINT	VARCHAR	VARCHAR	60	greater	true
+
+query TTTTTITT
+SELECT typeof(r.statistic), typeof(r.p_value), typeof(r.n), typeof(r.method), typeof(r.alternative),
+       r.n, r.alternative, r.statistic IS NOT NULL AND r.p_value IS NOT NULL AND r.method IS NOT NULL
+FROM (SELECT mcnemar_agg(b1, b2) AS r FROM kp);
+----
+DOUBLE	DOUBLE	BIGINT	VARCHAR	VARCHAR	60	NULL	true
+
+query TTTTTITT
+SELECT typeof(r.statistic), typeof(r.p_value), typeof(r.n), typeof(r.method), typeof(r.alternative),
+       r.n, r.alternative, r.statistic IS NOT NULL AND r.p_value IS NOT NULL AND r.method IS NOT NULL
+FROM (SELECT cohen_kappa_agg(r1, r2) AS r FROM kp);
+----
+DOUBLE	DOUBLE	BIGINT	VARCHAR	VARCHAR	60	two_sided	true
+
+query TTTTTITT
+SELECT typeof(r.statistic), typeof(r.p_value), typeof(r.n), typeof(r.method), typeof(r.alternative),
+       r.n, r.alternative, r.statistic IS NOT NULL AND r.p_value IS NOT NULL AND r.method IS NOT NULL
+FROM (SELECT chisq_gof_agg(obs, p) AS r FROM gof);
+----
+DOUBLE	DOUBLE	BIGINT	VARCHAR	VARCHAR	100	NULL	true
+
+query TTTTTITT
+SELECT typeof(r.statistic), typeof(r.p_value), typeof(r.n), typeof(r.method), typeof(r.alternative),
+       r.n, r.alternative, r.statistic IS NOT NULL AND r.p_value IS NOT NULL AND r.method IS NOT NULL
+FROM (SELECT binom_test_agg(s, {'alternative': 'less'}) AS r FROM bn);
+----
+DOUBLE	DOUBLE	BIGINT	VARCHAR	VARCHAR	80	less	true
+
+query TTTTTITT
+SELECT typeof(r.statistic), typeof(r.p_value), typeof(r.n), typeof(r.method), typeof(r.alternative),
+       r.n, r.alternative, r.statistic IS NOT NULL AND r.p_value IS NOT NULL AND r.method IS NOT NULL
+FROM (SELECT prop_test_one_agg(s) AS r FROM bn);
+----
+DOUBLE	DOUBLE	BIGINT	VARCHAR	VARCHAR	80	two_sided	true
+
+query TTTTTITT
+SELECT typeof(r.statistic), typeof(r.p_value), typeof(r.n), typeof(r.method), typeof(r.alternative),
+       r.n, r.alternative, r.statistic IS NOT NULL AND r.p_value IS NOT NULL AND r.method IS NOT NULL
+FROM (SELECT prop_test_two_agg(s, g, {'alternative': 'greater'}) AS r FROM bn);
+----
+DOUBLE	DOUBLE	BIGINT	VARCHAR	VARCHAR	80	greater	true
+
+query TTTTTITT
+SELECT typeof(r.statistic), typeof(r.p_value), typeof(r.n), typeof(r.method), typeof(r.alternative),
+       r.n, r.alternative, r.statistic IS NOT NULL AND r.p_value IS NOT NULL AND r.method IS NOT NULL
+FROM (SELECT icc_agg(rating, subject, rater) AS r FROM rt);
+----
+DOUBLE	DOUBLE	BIGINT	VARCHAR	VARCHAR	36	NULL	true
+
+query TTTTTITT
+SELECT typeof(r.statistic), typeof(r.p_value), typeof(r.n), typeof(r.method), typeof(r.alternative),
+       r.n, r.alternative, r.statistic IS NOT NULL AND r.p_value IS NOT NULL AND r.method IS NOT NULL
+FROM (SELECT diebold_mariano_agg(actual, f1, f2, {'alternative': 'less'}) AS r FROM fc);
+----
+DOUBLE	DOUBLE	BIGINT	VARCHAR	VARCHAR	80	less	true
+
+query TTTTTITT
+SELECT typeof(r.statistic), typeof(r.p_value), typeof(r.n), typeof(r.method), typeof(r.alternative),
+       r.n, r.alternative, r.statistic IS NOT NULL AND r.p_value IS NOT NULL AND r.method IS NOT NULL
+FROM (SELECT clark_west_agg(actual, f1, f2) AS r FROM fc);
+----
+DOUBLE	DOUBLE	BIGINT	VARCHAR	VARCHAR	80	greater	true
+
+# Existing fields keep their position; new fields are appended at the end.
+query T
+SELECT typeof(cohen_kappa_agg(r1, r2)) FROM kp;
+----
+STRUCT(kappa DOUBLE, se DOUBLE, ci_lower DOUBLE, ci_upper DOUBLE, z DOUBLE, p_value DOUBLE, statistic DOUBLE, n BIGINT, "method" VARCHAR, alternative VARCHAR)
+
+query T
+SELECT typeof(icc_agg(rating, subject, rater)) FROM rt;
+----
+STRUCT(icc DOUBLE, f_statistic DOUBLE, ci_lower DOUBLE, ci_upper DOUBLE, n_subjects BIGINT, n_raters BIGINT, "method" VARCHAR, statistic DOUBLE, p_value DOUBLE, n BIGINT, alternative VARCHAR)
+
+query T
+SELECT typeof(t_test_agg(v, g)) FROM tg;
+----
+STRUCT(statistic DOUBLE, p_value DOUBLE, df DOUBLE, effect_size DOUBLE, ci_lower DOUBLE, ci_upper DOUBLE, n1 BIGINT, n2 BIGINT, "method" VARCHAR, n BIGINT, alternative VARCHAR)
+
+query T
+SELECT typeof(jarque_bera([1.0, 2.0, 3.5, 4.0, 7.0, 2.2, 3.1, 0.4]));
+----
+STRUCT(statistic DOUBLE, p_value DOUBLE, skewness DOUBLE, kurtosis DOUBLE, n BIGINT, "method" VARCHAR, alternative VARCHAR)
+
+# The statistic of cohen_kappa_agg is its z, of icc_agg its F.
+query II
+SELECT (cohen_kappa_agg(r1, r2)).statistic = (cohen_kappa_agg(r1, r2)).z, (cohen_kappa_agg(r1, r2, {'weighted': true})).method FROM kp;
+----
+true	Weighted Cohen's kappa
+
+query I
+SELECT (icc_agg(rating, subject, rater)).statistic = (icc_agg(rating, subject, rater)).f_statistic FROM rt;
+----
+true

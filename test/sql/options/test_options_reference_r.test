@@ -1,0 +1,135 @@
+# name: test/sql/options/test_options_reference_r.test
+# description: Newly exposed options checked against R.
+#   Mann-Whitney 'exact' / 'mu' vs wilcox.test(x, y, exact = TRUE[, mu = 0.5]),
+#   Fisher on small tables (n < 4 now valid) with 'confidence_level' vs fisher.test,
+#   icc_agg p_value vs the one-way F test pf(F, n-1, n(k-1), lower.tail = FALSE).
+# group: [options]
+
+require anofox_statistics
+
+# R:
+#   x <- c(1.83, 0.50, 1.62, 2.48, 1.68, 1.88, 1.55, 3.06, 1.30)
+#   y <- c(0.878, 0.647, 0.598, 2.05, 1.06, 1.29, 1.07, 3.14, 1.28, 4.1)
+statement ok
+CREATE TABLE mw AS
+SELECT unnest([1.83, 0.50, 1.62, 2.48, 1.68, 1.88, 1.55, 3.06, 1.30]) AS v, 0 AS g
+UNION ALL
+SELECT unnest([0.878, 0.647, 0.598, 2.05, 1.06, 1.29, 1.07, 3.14, 1.28, 4.1]), 1;
+
+# wilcox.test(x, y, exact = TRUE): W = 58, p = 0.3153781203
+# (two-sided exact with W above its mean used to come out as 1.0)
+query II
+SELECT r.statistic, abs(r.p_value - 0.3153781203) < 1e-9
+FROM (SELECT mann_whitney_u_agg(v, g, {'exact': true}) AS r FROM mw);
+----
+58.0	true
+
+# alternative = "less": 0.8612440191; "greater": 0.1576890602
+query II
+SELECT abs((mann_whitney_u_agg(v, g, {'exact': true, 'alternative': 'less'})).p_value - 0.8612440191) < 1e-9,
+       abs((mann_whitney_u_agg(v, g, {'exact': true, 'alternative': 'greater'})).p_value - 0.1576890602) < 1e-9
+FROM mw;
+----
+true	true
+
+# wilcox.test(x, y, exact = TRUE, mu = 0.5): W = 44, p = 0.9682391911
+query II
+SELECT r.statistic, abs(r.p_value - 0.9682391911) < 1e-9
+FROM (SELECT mann_whitney_u_agg(v, g, {'exact': true, 'mu': 0.5}) AS r FROM mw);
+----
+44.0	true
+
+# Default stays the normal approximation with continuity correction:
+# wilcox.test(x, y, exact = FALSE, correct = TRUE): p = 0.3074341659
+query II
+SELECT abs((mann_whitney_u_agg(v, g)).p_value - 0.3074341659) < 1e-9,
+       (mann_whitney_u_agg(v, g)).p_value = (mann_whitney_u_agg(v, g, {'exact': false})).p_value
+FROM mw;
+----
+true	true
+
+# =============================================================================
+# Fisher exact test: conditional MLE odds ratio and exact CI (R semantics)
+# =============================================================================
+
+statement ok
+CREATE MACRO fisher_table(a, b, c, d) AS TABLE
+SELECT 0 AS r, 0 AS c FROM range(a) UNION ALL
+SELECT 0, 1 FROM range(b) UNION ALL
+SELECT 1, 0 FROM range(c) UNION ALL
+SELECT 1, 1 FROM range(d);
+
+# fisher.test(matrix(c(1,0,0,1), 2, byrow = TRUE)): n = 2 (used to return NULL)
+#   p = 1, estimate = Inf, CI = [0.0256406641, Inf], 90% CI lower = 0.05262625
+query IIIIII
+SELECT r.n, r.p_value, r.statistic, abs(r.ci_lower - 0.0256406641) < 1e-4, r.ci_upper,
+       abs((SELECT (fisher_exact_agg(r, c, {'confidence_level': 0.9})).ci_lower FROM fisher_table(1, 0, 0, 1)) - 0.05262625) < 1e-4
+FROM (SELECT fisher_exact_agg(r, c) AS r FROM fisher_table(1, 0, 0, 1));
+----
+2	1.0	inf	true	inf	true
+
+# fisher.test(matrix(c(2,0,0,1), 2, byrow = TRUE)): n = 3, p = 0.3333333333, CI lower = 0.0512818799
+query III
+SELECT r.n, abs(r.p_value - 0.3333333333) < 1e-9, abs(r.ci_lower - 0.0512818799) < 1e-4
+FROM (SELECT fisher_exact_agg(r, c) AS r FROM fisher_table(2, 0, 0, 1));
+----
+3	true	true
+
+# fisher.test(matrix(c(1,1,1,0), 2, byrow = TRUE)): p = 1, estimate = 0, alternative = "less": p = 0.6666666667
+query IIII
+SELECT r.n, r.p_value, r.statistic,
+       abs((SELECT (fisher_exact_agg(r, c, {'alternative': 'less'})).p_value FROM fisher_table(1, 1, 1, 0)) - 0.6666666667) < 1e-9
+FROM (SELECT fisher_exact_agg(r, c) AS r FROM fisher_table(1, 1, 1, 0));
+----
+3	1.0	0.0	true
+
+# fisher.test(matrix(c(3,1,1,3), 2, byrow = TRUE)): p = 0.4857142857, estimate = 6.4083088670,
+#   CI lower = 0.2117329153, 90% CI lower = 0.3135692641; alternative = "less": p = 0.9857142857
+#   (R finds the estimate and CI with uniroot, so those agree to ~1e-4 only)
+query IIIII
+SELECT abs(r.p_value - 0.4857142857) < 1e-9, abs(r.statistic - 6.4083088670) < 1e-4,
+       abs(r.ci_lower - 0.2117329153) < 1e-3,
+       abs((SELECT (fisher_exact_agg(r, c, {'confidence_level': 0.9})).ci_lower FROM fisher_table(3, 1, 1, 3)) - 0.3135692641) < 1e-3,
+       abs((SELECT (fisher_exact_agg(r, c, {'alternative': 'less'})).p_value FROM fisher_table(3, 1, 1, 3)) - 0.9857142857) < 1e-9
+FROM (SELECT fisher_exact_agg(r, c) AS r FROM fisher_table(3, 1, 1, 3));
+----
+true	true	true	true	true
+
+# fisher.test(matrix(c(0,2,3,0), 2, byrow = TRUE)): p = 0.1, CI upper = 2.7416720896, 90% upper = 1.7080142934
+query III
+SELECT abs(r.p_value - 0.1) < 1e-9, abs(r.ci_upper - 2.7416720896) < 1e-3,
+       abs((SELECT (fisher_exact_agg(r, c, {'confidence_level': 0.9})).ci_upper FROM fisher_table(0, 2, 3, 0)) - 1.7080142934) < 1e-3
+FROM (SELECT fisher_exact_agg(r, c) AS r FROM fisher_table(0, 2, 3, 0));
+----
+true	true	true
+
+# fisher.test(matrix(c(5,0,1,4), 2, byrow = TRUE)): p = 0.0476190476, CI lower = 1.0248222561
+query II
+SELECT abs(r.p_value - 0.0476190476) < 1e-9, abs(r.ci_lower - 1.0248222561) < 1e-3
+FROM (SELECT fisher_exact_agg(r, c) AS r FROM fisher_table(5, 0, 1, 4));
+----
+true	true
+
+# Values other than 0/1 used to be dropped silently.
+statement error
+SELECT fisher_exact_agg(r, c) FROM (VALUES (0, 0), (1, 1), (2, 0)) t(r, c);
+----
+fisher_exact_agg expects binary 0/1 values for both arguments, got (2, 0)
+
+# An empty table is still NULL.
+query I
+SELECT fisher_exact_agg(r, c) IS NULL FROM (SELECT 0 AS r, 0 AS c WHERE false);
+----
+true
+
+# =============================================================================
+# icc_agg p_value: one-way F test of H0: ICC = 0
+# =============================================================================
+
+# R: d <- outer(0:11, 0:2, function(s, r) s*0.2 + r*0.3 + sin(s*7 + r)); F = 5.6119553409,
+#    pf(F, 11, 24, lower.tail = FALSE) = 0.000207300628436
+query II
+SELECT abs(r.statistic - 5.6119553409) < 1e-8, abs(r.p_value - 0.000207300628436) < 1e-12
+FROM (SELECT icc_agg(s * 0.2 + rr * 0.3 + sin(s * 7 + rr), s::BIGINT, rr::BIGINT) AS r FROM range(12) a(s), range(3) b(rr));
+----
+true	true

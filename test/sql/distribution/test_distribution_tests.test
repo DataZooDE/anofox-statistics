@@ -138,11 +138,12 @@ SELECT (mmd_agg(value, grp)).p_value > 0.05 FROM same_dist;
 ----
 true
 
-# TEST 12: Custom kernel bandwidth
-query I
+# TEST 12: Kernel bandwidth is not configurable (the core uses the median
+# heuristic); 'sigma'/'bandwidth' used to be silently ignored and now error.
+statement error
 SELECT (mmd_agg(value, grp, {'sigma': 1.0})).statistic IS NOT NULL FROM energy_data;
 ----
-true
+mmd_agg: unknown option 'sigma'
 
 # TEST 13: Alias verification
 query I
