@@ -10,6 +10,7 @@
 #include "../include/anofox_stats_ffi.h"
 #include "../include/ffi_enum_converters.hpp"
 #include "../include/map_options_parser.hpp"
+#include "../include/canonical_order.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 #include "list_input.hpp"
@@ -282,6 +283,10 @@ static void RansacFitPredictFinalize(Vector &state_vector, AggregateInputData &,
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
+
+        // The subsampler is seeded (random_state defaults to 0): fit on a canonical
+        // row order so the result does not depend on how rows reached the state.
+        SortRowsCanonically(state.y_values, state.x_columns);
 
         AnofoxDataArray y_array;
         y_array.data = state.y_values.data();

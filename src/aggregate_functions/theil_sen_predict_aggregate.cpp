@@ -10,6 +10,7 @@
 #include "../include/anofox_stats_ffi.h"
 #include "../include/ffi_enum_converters.hpp"
 #include "../include/map_options_parser.hpp"
+#include "../include/canonical_order.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 
@@ -306,6 +307,11 @@ static void TheilSenPredictAggFinalize(Vector &state_vector, AggregateInputData 
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
+
+        // The subsampler is always seeded (random_state defaults to 0), so put the
+        // training rows in a canonical order first: the fit must not depend on the
+        // order in which parallel threads delivered them.
+        SortRowsCanonically(state.y_train, state.x_train);
 
         AnofoxDataArray y_array;
         y_array.data = state.y_train.data();

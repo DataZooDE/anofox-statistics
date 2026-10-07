@@ -9,6 +9,7 @@
 #include "../include/anofox_stats_ffi.h"
 #include "../include/ffi_enum_converters.hpp"
 #include "../include/map_options_parser.hpp"
+#include "../include/canonical_order.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 #include "list_input.hpp"
@@ -296,6 +297,11 @@ static void RansacAggFinalize(Vector &state_vector, AggregateInputData &aggr_inp
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
+
+        // The subsampler is always seeded (random_state defaults to 0), so put the
+        // training rows in a canonical order first: the fit must not depend on the
+        // order in which parallel threads delivered them.
+        SortRowsCanonically(state.y_values, state.x_columns);
 
         AnofoxDataArray y_array;
         y_array.data = state.y_values.data();
