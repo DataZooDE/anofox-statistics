@@ -13,12 +13,12 @@
 use super::{convert_error, ChiSquareResult};
 use crate::{StatsError, StatsResult};
 use anofox_tests::{
-    binom_test as lib_binom_test, chisq_goodness_of_fit as lib_chisq_gof,
-    chisq_test as lib_chisq_test, cohen_kappa as lib_cohen_kappa,
-    contingency_coef as lib_contingency_coef, cramers_v as lib_cramers_v,
-    fisher_exact as lib_fisher_exact, g_test as lib_g_test, mcnemar_exact as lib_mcnemar_exact,
-    mcnemar_test as lib_mcnemar_test, phi_coefficient as lib_phi_coefficient,
-    prop_test_one as lib_prop_test_one, prop_test_two as lib_prop_test_two, Alternative,
+    chisq_goodness_of_fit as lib_chisq_gof, chisq_test as lib_chisq_test,
+    cohen_kappa as lib_cohen_kappa, contingency_coef as lib_contingency_coef,
+    cramers_v as lib_cramers_v, fisher_exact as lib_fisher_exact, g_test as lib_g_test,
+    mcnemar_exact as lib_mcnemar_exact, mcnemar_test as lib_mcnemar_test,
+    phi_coefficient as lib_phi_coefficient, prop_test_one as lib_prop_test_one,
+    prop_test_two as lib_prop_test_two, Alternative,
 };
 use statrs::distribution::{ContinuousCDF, Normal};
 use statrs::function::factorial::ln_binomial;
@@ -596,6 +596,8 @@ pub struct PropTestOptions {
     pub alternative: Alternative,
     /// Apply continuity correction (for two-sample test)
     pub correction: bool,
+    /// Confidence level of the reported interval, in (0, 1)
+    pub confidence_level: f64,
 }
 
 impl Default for PropTestOptions {
@@ -603,6 +605,7 @@ impl Default for PropTestOptions {
         Self {
             alternative: Alternative::TwoSided,
             correction: true,
+            confidence_level: 0.95,
         }
     }
 }
@@ -631,15 +634,26 @@ pub fn prop_test_one(
         ));
     }
 
+    validate_prop_confidence(options.confidence_level)?;
+
     let result =
         lib_prop_test_one(successes, trials, p0, options.alternative).map_err(convert_error)?;
+
+    // anofox-statistics <= 0.4.2 hard-codes a two-sided 95% interval; compute
+    // R's prop.test(correct = FALSE) Wilson interval at the requested level.
+    let (ci_lower, ci_upper) = wilson_ci(
+        successes,
+        trials,
+        options.confidence_level,
+        options.alternative,
+    );
 
     Ok(PropTestResult {
         statistic: result.statistic,
         p_value: result.p_value,
         estimate: result.estimate,
-        ci_lower: result.conf_int_lower,
-        ci_upper: result.conf_int_upper,
+        ci_lower,
+        ci_upper,
         alternative: options.alternative,
     })
 }
@@ -665,6 +679,8 @@ pub fn prop_test_two(
         ));
     }
 
+    validate_prop_confidence(options.confidence_level)?;
+
     let result = lib_prop_test_two(
         [successes1, successes2],
         [trials1, trials2],
@@ -673,12 +689,24 @@ pub fn prop_test_two(
     )
     .map_err(convert_error)?;
 
+    // anofox-statistics <= 0.4.2 uses z = 1.96 and ignores the continuity
+    // correction; compute R's prop.test interval here.
+    let (ci_lower, ci_upper) = two_prop_ci(
+        successes1,
+        trials1,
+        successes2,
+        trials2,
+        options.correction,
+        options.confidence_level,
+        options.alternative,
+    );
+
     Ok(PropTestResult {
         statistic: result.statistic,
         p_value: result.p_value,
         estimate: result.estimate,
-        ci_lower: result.conf_int_lower,
-        ci_upper: result.conf_int_upper,
+        ci_lower,
+        ci_upper,
         alternative: options.alternative,
     })
 }
@@ -707,17 +735,178 @@ pub fn binom_test(
         ));
     }
 
-    let result =
-        lib_binom_test(successes, trials, p0, options.alternative).map_err(convert_error)?;
+    if successes > trials {
+        return Err(StatsError::InvalidInput(
+            "successes cannot exceed trials".into(),
+        ));
+    }
+    validate_prop_confidence(options.confidence_level)?;
+
+    // Computed here rather than via anofox-statistics <= 0.4.2, whose
+    // Clopper-Pearson interval used an inaccurate beta quantile and whose
+    // two-sided p-value used an absolute tolerance (floored for large n).
+    let p_value = binom_p_value(successes, trials, p0, options.alternative);
+    let (ci_lower, ci_upper) = clopper_pearson_ci(
+        successes,
+        trials,
+        options.confidence_level,
+        options.alternative,
+    );
 
     Ok(PropTestResult {
         statistic: f64::NAN, // Binomial test doesn't have a test statistic
-        p_value: result.p_value,
-        estimate: vec![result.estimate], // Wrap single estimate in vec for consistency
-        ci_lower: result.conf_int_lower,
-        ci_upper: result.conf_int_upper,
+        p_value,
+        estimate: vec![successes as f64 / trials as f64],
+        ci_lower,
+        ci_upper,
         alternative: options.alternative,
     })
+}
+
+fn validate_prop_confidence(confidence_level: f64) -> StatsResult<()> {
+    if confidence_level.is_finite() && confidence_level > 0.0 && confidence_level < 1.0 {
+        Ok(())
+    } else {
+        Err(StatsError::InvalidInput(format!(
+            "confidence_level must be in (0, 1), got {confidence_level}"
+        )))
+    }
+}
+
+/// `qnorm((1 + cl) / 2)` for two-sided, `qnorm(cl)` for one-sided intervals (R prop.test).
+fn prop_z(confidence_level: f64, alternative: Alternative) -> f64 {
+    let normal = Normal::new(0.0, 1.0).unwrap();
+    match alternative {
+        Alternative::TwoSided => normal.inverse_cdf((1.0 + confidence_level) / 2.0),
+        _ => normal.inverse_cdf(confidence_level),
+    }
+}
+
+/// Wilson score interval, R `prop.test(x, n, correct = FALSE)$conf.int`.
+fn wilson_ci(x: usize, n: usize, confidence_level: f64, alternative: Alternative) -> (f64, f64) {
+    let n_f = n as f64;
+    let p_hat = x as f64 / n_f;
+    let z = prop_z(confidence_level, alternative);
+    let z22n = z * z / (2.0 * n_f);
+    let half = z * (p_hat * (1.0 - p_hat) / n_f + z22n / (2.0 * n_f)).sqrt();
+    let upper = if p_hat >= 1.0 {
+        1.0
+    } else {
+        ((p_hat + z22n + half) / (1.0 + 2.0 * z22n)).min(1.0)
+    };
+    let lower = if p_hat <= 0.0 {
+        0.0
+    } else {
+        ((p_hat + z22n - half) / (1.0 + 2.0 * z22n)).max(0.0)
+    };
+    match alternative {
+        Alternative::TwoSided => (lower, upper),
+        Alternative::Less => (0.0, upper),
+        Alternative::Greater => (lower, 1.0),
+    }
+}
+
+/// Interval for p1 - p2, R `prop.test(c(x1, x2), c(n1, n2), correct = ...)$conf.int`.
+fn two_prop_ci(
+    x1: usize,
+    n1: usize,
+    x2: usize,
+    n2: usize,
+    correction: bool,
+    confidence_level: f64,
+    alternative: Alternative,
+) -> (f64, f64) {
+    let (n1, n2) = (n1 as f64, n2 as f64);
+    let (p1, p2) = (x1 as f64 / n1, x2 as f64 / n2);
+    let delta = p1 - p2;
+    let inv_sum = 1.0 / n1 + 1.0 / n2;
+    let yates = if correction {
+        0.5_f64.min(delta.abs() / inv_sum)
+    } else {
+        0.0
+    };
+    let z = prop_z(confidence_level, alternative);
+    let width = z * (p1 * (1.0 - p1) / n1 + p2 * (1.0 - p2) / n2).sqrt() + yates * inv_sum;
+    match alternative {
+        Alternative::TwoSided => ((delta - width).max(-1.0), (delta + width).min(1.0)),
+        Alternative::Less => (-1.0, (delta + width).min(1.0)),
+        Alternative::Greater => ((delta - width).max(-1.0), 1.0),
+    }
+}
+
+/// Exact binomial p-value, a port of R's `binom.test` (relative tolerance 1 + 1e-7).
+fn binom_p_value(x: usize, n: usize, p0: f64, alternative: Alternative) -> f64 {
+    use statrs::distribution::{Binomial, Discrete, DiscreteCDF};
+    let binom = Binomial::new(p0, n as u64).unwrap();
+    // P(X <= k), P(X > k)
+    let cdf = |k: i64| if k < 0 { 0.0 } else { binom.cdf(k as u64) };
+    let sf = |k: i64| if k < 0 { 1.0 } else { binom.sf(k as u64) };
+    let (xi, ni) = (x as i64, n as i64);
+    let p = match alternative {
+        Alternative::Less => cdf(xi),
+        Alternative::Greater => sf(xi - 1),
+        Alternative::TwoSided => {
+            if p0 == 0.0 {
+                f64::from(u8::from(x == 0))
+            } else if p0 == 1.0 {
+                f64::from(u8::from(x == n))
+            } else {
+                let d = binom.pmf(x as u64) * (1.0 + 1e-7);
+                let m = n as f64 * p0;
+                let xf = x as f64;
+                if xf == m {
+                    1.0
+                } else if xf < m {
+                    let y = (m.ceil() as i64..=ni)
+                        .filter(|&i| binom.pmf(i as u64) <= d)
+                        .count() as i64;
+                    cdf(xi) + sf(ni - y)
+                } else {
+                    let y = (0..=m.floor() as i64)
+                        .filter(|&i| binom.pmf(i as u64) <= d)
+                        .count() as i64;
+                    cdf(y - 1) + sf(xi - 1)
+                }
+            }
+        }
+    };
+    p.clamp(0.0, 1.0)
+}
+
+/// Clopper-Pearson interval, R `binom.test(x, n)$conf.int` (one-sided for one-sided alternatives).
+fn clopper_pearson_ci(
+    x: usize,
+    n: usize,
+    confidence_level: f64,
+    alternative: Alternative,
+) -> (f64, f64) {
+    use statrs::distribution::Beta;
+    let p_lower = |alpha: f64| {
+        if x == 0 {
+            0.0
+        } else {
+            Beta::new(x as f64, (n - x + 1) as f64)
+                .unwrap()
+                .inverse_cdf(alpha)
+        }
+    };
+    let p_upper = |alpha: f64| {
+        if x == n {
+            1.0
+        } else {
+            Beta::new((x + 1) as f64, (n - x) as f64)
+                .unwrap()
+                .inverse_cdf(1.0 - alpha)
+        }
+    };
+    match alternative {
+        Alternative::TwoSided => {
+            let alpha = (1.0 - confidence_level) / 2.0;
+            (p_lower(alpha), p_upper(alpha))
+        }
+        Alternative::Less => (0.0, p_upper(1.0 - confidence_level)),
+        Alternative::Greater => (p_lower(1.0 - confidence_level), 1.0),
+    }
 }
 
 #[cfg(test)]
@@ -867,5 +1056,43 @@ mod tests {
         let result = cohen_kappa(&table, false).unwrap();
 
         assert!(result.kappa > 0.5); // High agreement
+    }
+
+    /// R binom.test / prop.test reference values.
+    #[test]
+    #[allow(clippy::excessive_precision)]
+    fn test_binom_and_prop_ci_match_r() {
+        let close = |a: f64, b: f64, t: f64| assert!((a - b).abs() <= t, "{a} vs {b}");
+        let o = PropTestOptions::default();
+        let r = binom_test(13, 20, 0.5, &o).unwrap();
+        close(r.p_value, 0.26317596435546875, 1e-14);
+        close(r.ci_lower, 0.4078114654671719, 1e-12);
+        close(r.ci_upper, 0.84609079521545882, 1e-12);
+        let r = binom_test(4500, 10000, 0.5, &o).unwrap();
+        assert!((r.p_value / 1.5510640568246068e-23 - 1.0).abs() < 1e-6);
+        let less = PropTestOptions {
+            alternative: Alternative::Less,
+            confidence_level: 0.9,
+            ..PropTestOptions::default()
+        };
+        let r = binom_test(13, 20, 0.5, &less).unwrap();
+        close(r.p_value, 0.94234085083007812, 1e-14);
+        close(r.ci_upper, 0.79333596671715334, 1e-12);
+
+        let r = prop_test_two(18, 30, 11, 28, &o).unwrap();
+        close(r.ci_lower, -0.079284640161607245, 1e-12);
+        close(r.ci_upper, 0.4935703544473215, 1e-12);
+        let r = prop_test_one(
+            13,
+            20,
+            0.5,
+            &PropTestOptions {
+                confidence_level: 0.9,
+                ..PropTestOptions::default()
+            },
+        )
+        .unwrap();
+        close(r.ci_lower, 0.46651268884847175, 1e-12);
+        close(r.ci_upper, 0.79773995994323899, 1e-12);
     }
 }

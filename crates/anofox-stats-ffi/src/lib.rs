@@ -5483,12 +5483,15 @@ pub unsafe extern "C" fn anofox_chisq_test(
         let row_vec = row_var.to_vec();
         let col_vec = col_var.to_vec();
 
-        // Filter valid pairs and convert to usize
-        let pairs: Vec<(usize, usize)> = row_vec
+        // Keep complete pairs. Categories are compacted to dense indices over the
+        // levels actually observed (like R's table()); using the raw codes as
+        // indices added empty rows/columns (wrong df) for codes not starting at
+        // 0, and merged negative codes into 0.
+        let pairs: Vec<(f64, f64)> = row_vec
             .iter()
             .zip(col_vec.iter())
-            .filter(|(r, c)| !r.is_nan() && !c.is_nan())
-            .map(|(r, c)| (*r as usize, *c as usize))
+            .filter(|(r, c)| r.is_finite() && c.is_finite())
+            .map(|(r, c)| (*r, *c))
             .collect();
 
         if pairs.is_empty() {
@@ -5498,13 +5501,37 @@ pub unsafe extern "C" fn anofox_chisq_test(
             return false;
         }
 
-        // Build contingency table
-        let max_row = pairs.iter().map(|(r, _)| *r).max().unwrap_or(0);
-        let max_col = pairs.iter().map(|(_, c)| *c).max().unwrap_or(0);
+        let levels = |vals: Vec<f64>| -> Vec<f64> {
+            let mut v = vals;
+            v.sort_by(|a, b| a.total_cmp(b));
+            v.dedup();
+            v
+        };
+        let row_levels = levels(pairs.iter().map(|(r, _)| *r).collect());
+        let col_levels = levels(pairs.iter().map(|(_, c)| *c).collect());
 
-        let mut table: Vec<Vec<usize>> = vec![vec![0; max_col + 1]; max_row + 1];
+        // A 1 x K (or K x 1) table has df = 0: there is no independence test.
+        // (R's chisq.test would silently switch to a goodness-of-fit test on
+        // the vector; use chisq_gof_agg for that.) Return NULL, like g_test_agg.
+        if row_levels.len() < 2 || col_levels.len() < 2 {
+            if !out_error.is_null() {
+                (*out_error).set(
+                    ErrorCode::InsufficientData,
+                    "chi-square test of independence needs at least 2 row and 2 column \
+                     categories (a 1 x K table has df = 0; use chisq_gof_agg for goodness of fit)",
+                );
+            }
+            return false;
+        }
+
+        let index_of = |levels: &[f64], v: f64| -> usize {
+            levels
+                .binary_search_by(|probe| probe.total_cmp(&v))
+                .unwrap_or(0)
+        };
+        let mut table: Vec<Vec<usize>> = vec![vec![0; col_levels.len()]; row_levels.len()];
         for (r, c) in &pairs {
-            table[*r][*c] += 1;
+            table[index_of(&row_levels, *r)][index_of(&col_levels, *c)] += 1;
         }
 
         let opts = ChiSquareOptions {
@@ -6310,6 +6337,7 @@ pub unsafe extern "C" fn anofox_prop_test_one(
         let opts = PropTestOptions {
             alternative: alternative.into(),
             correction: true,
+            ..PropTestOptions::default()
         };
 
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -6381,6 +6409,7 @@ pub unsafe extern "C" fn anofox_prop_test_two(
         let opts = PropTestOptions {
             alternative: alternative.into(),
             correction,
+            ..PropTestOptions::default()
         };
 
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -6450,6 +6479,7 @@ pub unsafe extern "C" fn anofox_binom_test(
         let opts = PropTestOptions {
             alternative: alternative.into(),
             correction: false,
+            ..PropTestOptions::default()
         };
 
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {

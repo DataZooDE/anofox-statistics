@@ -104,8 +104,13 @@ impl AftDistribution {
         1.0 - self.cdf_time(t, eta, sigma)
     }
 
-    /// The `p`-quantile of `T`.
+    /// The `p`-quantile of `T`: 0 at `p = 0`, `+Inf` at `p = 1` (as R's
+    /// `qweibull` / `qlnorm` / ...), `NaN` for `p` outside `[0, 1]` or a
+    /// non-positive / non-finite scale.
     pub fn quantile_time(&self, p: f64, eta: f64, sigma: f64) -> f64 {
+        if !(sigma.is_finite() && sigma > 0.0) || !eta.is_finite() {
+            return f64::NAN;
+        }
         (eta + sigma * self.quantile(p)).exp()
     }
 }
@@ -204,7 +209,17 @@ impl Kernel {
     }
 
     fn quantile(&self, p: f64) -> f64 {
-        let p = p.clamp(1e-12, 1.0 - 1e-12);
+        // No clamping: out-of-range p is invalid, and the boundaries map to
+        // -Inf / +Inf exactly (R's quantile functions do the same).
+        if !(0.0..=1.0).contains(&p) {
+            return f64::NAN;
+        }
+        if p == 0.0 {
+            return f64::NEG_INFINITY;
+        }
+        if p == 1.0 {
+            return f64::INFINITY;
+        }
         match self {
             Kernel::ExtremeValue => (-(1.0 - p).ln()).ln(),
             Kernel::Normal => match Normal::new(0.0, 1.0) {
@@ -402,5 +417,20 @@ mod tests {
         assert_eq!(AftDistribution::from_name("cauchy"), None);
         assert!(AftDistribution::Exponential.scale_is_fixed());
         assert!(!AftDistribution::Weibull.scale_is_fixed());
+    }
+
+    #[test]
+    fn quantile_time_boundaries_and_invalid_input() {
+        let d = AftDistribution::Weibull;
+        assert_eq!(d.quantile_time(0.0, 1.5, 0.7), 0.0);
+        assert_eq!(d.quantile_time(1.0, 1.5, 0.7), f64::INFINITY);
+        assert!(d.quantile_time(1.5, 1.5, 0.7).is_nan());
+        assert!(AftDistribution::LogNormal
+            .quantile_time(-0.1, 1.5, 0.7)
+            .is_nan());
+        assert!(d.quantile_time(0.5, 1.5, -1.0).is_nan());
+        // R: qweibull(0.3, shape = 1/0.7, scale = exp(1.5))
+        let q = d.quantile_time(0.3, 1.5, 0.7);
+        assert!((q - 1.5f64.exp() * (-(0.7f64).ln()).powf(0.7)).abs() < 1e-12);
     }
 }
