@@ -154,22 +154,16 @@ for (solver in c("svd", "qr", "cholesky")) {
 
 # no intercept
 f0 <- lm(y ~ 0 + x1 + x2); s0 <- summary(f0); cf0 <- coef(s0); ci0 <- confint(f0)
-rss0 <- sum(resid(f0)^2); tss_c <- sum((y - mean(y))^2)
-r2c <- 1 - rss0 / tss_c; adjc <- 1 - (1 - r2c) * (n - 1) / (n - 2)
-fc <- ((tss_c - rss0) / 2) / (rss0 / (n - 2))
 L <- c(L, checks("no intercept: coef(summary(lm(y ~ 0 + x1 + x2))), confint, $sigma", 
   "(SELECT ols_fit_agg(y, [x1, x2], {'compute_inference': true, 'intercept': false}) AS r FROM d1) s",
   c(lst("coefficients", 1:2), lst("std_errors", 1:2), lst("p_values", 1:2), lst("ci_lower", 1:2), lst("ci_upper", 1:2), "r.residual_std_error"),
   c(cf0[, 1], cf0[, 2], cf0[, 4], ci0[, 1], ci0[, 2], s0$sigma), 1e-9))
 L <- c(L,
-  "# CONVENTION DIFFERENCE: without an intercept R's summary.lm reports the UNCENTERED",
-  sprintf("# R^2 = 1 - RSS/sum(y^2) (= %.10f here) and F on 2 and n-2 df. The extension always", s0$r.squared),
-  "# uses the centered TSS = sum((y - mean(y))^2) (and n-1 in adj. R^2). The values below are",
-  "# computed by hand with the extension's convention: 1 - RSS/TSS_c, 1-(1-R2)(n-1)/(n-2),",
-  "# ((TSS_c - RSS)/2) / (RSS/(n-2)).",
-  checks("no intercept fit statistics (centered convention)",
+  "# no intercept: R's summary.lm uses the UNCENTERED total sum of squares when the",
+  "# model has no intercept: R^2 = 1 - RSS/sum(y^2), adj. R^2 with n/(n - p), F on p and n-p df.",
+  checks("no intercept fit statistics: summary(lm(y ~ 0 + x1 + x2))$r.squared, $adj.r.squared, $fstatistic",
   "(SELECT ols_fit_agg(y, [x1, x2], {'compute_inference': true, 'intercept': false}) AS r FROM d1) s",
-  c("r.r_squared", "r.adj_r_squared", "r.f_statistic"), c(r2c, adjc, fc), 1e-9))
+  c("r.r_squared", "r.adj_r_squared", "r.f_statistic"), c(s0$r.squared, s0$adj.r.squared, s0$fstatistic[1]), 1e-9))
 
 # rank deficiency (converted from test/data/ols_tests rank_deficient / perfect_collinearity)
 L <- c(L,

@@ -7,6 +7,7 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/min_obs_guard.hpp"
 #include "../include/error_dispatch.hpp"
 #include "../include/ffi_enum_converters.hpp"
 #include "../include/map_options_parser.hpp"
@@ -267,15 +268,15 @@ static void OlsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
         idx_t result_idx = i + offset;
 
         // Check if we have enough data to attempt a fit.
-        // Use the scaling min_obs guard: need strictly more than n_features+1
-        // observations (with intercept) or n_features (without) to avoid fitting a
-        // perfectly-determined/degenerate system that produces NaN adj_r_squared
-        // and undefined std_errors. Matches the guard in ols_fit_predict.cpp:264-268.
+        // Need strictly more rows than estimable parameters (intercept + non-constant
+        // features) to avoid a perfectly determined system with NaN adj_r_squared and
+        // undefined std_errors. Constant (e.g. all-zero) columns are aliased by the
+        // Rust core and do not count (MinObsForFit). Same guard as ols_fit_predict.cpp.
         if (!state.initialized) {
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
-        idx_t min_obs = state.fit_intercept ? state.n_features + 1 : state.n_features;
+        idx_t min_obs = MinObsForFit(state.x_columns, state.fit_intercept);
         if (state.y_values.size() <= min_obs) {
             FlatVector::SetNull(result, result_idx, true);
             continue;

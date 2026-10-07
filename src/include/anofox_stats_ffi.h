@@ -2081,6 +2081,20 @@ bool anofox_binom_test(size_t successes, size_t trials, double p0, AnofoxAlterna
                        AnofoxPropTestResult *out_result, AnofoxError *out_error);
 
 /**
+ * Proportion / binomial tests with the confidence level of the reported
+ * interval (in (0, 1)); the functions above use 0.95.
+ */
+bool anofox_prop_test_one_with_conf_level(size_t successes, size_t trials, double p0, AnofoxAlternative alternative,
+                                          double confidence_level, AnofoxPropTestResult *out_result,
+                                          AnofoxError *out_error);
+bool anofox_prop_test_two_with_conf_level(size_t successes1, size_t trials1, size_t successes2, size_t trials2,
+                                          AnofoxAlternative alternative, bool correction, double confidence_level,
+                                          AnofoxPropTestResult *out_result, AnofoxError *out_error);
+bool anofox_binom_test_with_conf_level(size_t successes, size_t trials, double p0, AnofoxAlternative alternative,
+                                       double confidence_level, AnofoxPropTestResult *out_result,
+                                       AnofoxError *out_error);
+
+/**
  * Cramer's V effect size for contingency tables
  */
 bool anofox_cramers_v(const size_t *table, const size_t *row_lengths, size_t n_rows, double *out_result,

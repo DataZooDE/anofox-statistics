@@ -1,0 +1,37 @@
+# name: test/sql/regression/test_no_intercept_r_squared.test
+# description: R^2 / adjusted R^2 / F of no-intercept OLS and WLS fits use R's
+#              uncentered total sum of squares; weighted intercept-only residual SE.
+# group: [regression]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE ni AS SELECT * FROM (VALUES
+    (1.2, 1.0, 1.0), (2.9, 2.0, 2.0), (4.1, 3.0, 1.0), (3.8, 4.0, 3.0),
+    (6.2, 5.0, 1.0), (5.9, 6.0, 2.0), (8.1, 7.0, 1.0)) t(y, x, w);
+
+# R: summary(lm(y ~ 0 + x))$r.squared, $adj.r.squared
+query II
+SELECT abs(r.r_squared - 0.98584447337503567) < 1e-9, abs(r.adj_r_squared - 0.98348521893754159) < 1e-9
+FROM (SELECT ols_fit_agg(y, [x], {'intercept': false}) AS r FROM ni);
+----
+true	true
+
+# R: summary(lm(y ~ 0 + x, weights = w))$r.squared, $adj.r.squared, $fstatistic
+query III
+SELECT abs(r.r_squared - 0.98308129690594781) < 1e-9, abs(r.adj_r_squared - 0.98026151305693909) < 1e-9,
+       abs(r.f_statistic - 348.63711176002124) < 1e-7
+FROM (SELECT wls_fit_agg(y, [x], w, {'intercept': false, 'compute_inference': true}) AS r FROM ni);
+----
+true	true	true
+
+# Weighted intercept-only fit (all features constant): R summary(lm(c(1, 2, 6) ~ 1,
+# weights = c(1, 2, 3)))$sigma = 3.7969285832981718 (residual df n - 1, not n), and
+# predict(..., interval = 'prediction') = [-13.812497792611278, 21.479164459277950]
+query III
+SELECT abs(r.residual_std_error - 3.7969285832981718) < 1e-9,
+       abs((p).yhat_lower - (-13.812497792611278)) < 1e-6, abs((p).yhat_upper - 21.479164459277950) < 1e-6
+FROM (SELECT wls_fit_agg(y, x, w) AS r, wls_fit_predict_agg(y, x, w)[1] AS p
+      FROM (VALUES (1.0, [5.0], 1.0), (2.0, [5.0], 2.0), (6.0, [5.0], 3.0)) t(y, x, w));
+----
+true	true	true

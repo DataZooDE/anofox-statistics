@@ -49,7 +49,10 @@ Breaking changes are called out explicitly.
 - Seeds for `permutation_t_test_agg`, `energy_distance_agg`, `mmd_agg` and
   `distance_cor_agg` (`seed` / `random_state`).
 - `mann_whitney_u_agg` options `exact` and `mu`; `fisher_exact_agg` option
-  `confidence_level`; `mcnemar_agg` option `exact`; `lars_fit_agg` options
+  `confidence_level` and fields `conditional_odds_ratio`, `conditional_ci_lower`,
+  `conditional_ci_upper` (R `fisher.test` estimate and exact interval);
+  `confidence_level` for `binom_test_agg`, `prop_test_one_agg`,
+  `prop_test_two_agg`; `mcnemar_agg` option `exact`; `lars_fit_agg` options
   `method` (`'lar'` | `'lasso'`), `n_nonzero_coefs` and `standardize`.
 - Hypothesis-test results now all carry `statistic`, `p_value`, `n` (total
   sample size), `method` and `alternative` (`'two_sided'` | `'less'` |
@@ -77,9 +80,7 @@ Breaking changes are called out explicitly.
 - `lars_fit_agg`: `alpha` > 0 without a `method` now selects the LassoLars path
   (plain LAR ignores alpha, so it used to have no effect); `{'method': 'lar',
   'alpha': > 0}` is an error.
-- `fisher_exact_agg` reports R's conditional MLE odds ratio and exact
-  conditional CI (`fisher.test` semantics) instead of the sample odds ratio and
-  Woolf interval, and returns a result for any non-empty table (n < 4 used to
+- `fisher_exact_agg` returns a result for any non-empty table (n < 4 used to
   return NULL).
 - RANSAC and Theil-Sen (aggregates, fit-predict aggregates and window
   functions) fit on a canonical row order, so a given `random_state` yields the
@@ -125,6 +126,12 @@ Breaking changes are called out explicitly.
 - License metadata is consistent with `LICENSE`: BSL 1.1 that converts to MPL 2.0
   five years after each version is first published. The Cargo workspace license
   is now `BUSL-1.1`.
+- **Behaviour change:** R², adjusted R² and the F statistic of `ols_fit_agg` /
+  `wls_fit_agg` (and their scalar/window variants) fitted **without an intercept** now use
+  R's `summary.lm` convention: the uncentered total sum of squares (`R² = 1 - RSS/Σw·y²`,
+  adjusted with `n/(n - p)`, F on `p` and `n - p` df). Previously the centered TSS was
+  used, which compares the model with an intercept-only model it does not nest. Other
+  estimators (ridge, elastic net, ...) are unchanged.
 
 ### Fixed
 
@@ -141,11 +148,40 @@ Breaking changes are called out explicitly.
 - `t_test_agg` silently ignored `paired: true` (it has no pairing information);
   it now raises an error pointing to `tost_paired_agg` /
   `wilcoxon_signed_rank_agg`.
-- `mann_whitney_u_agg` with `exact: true`: the two-sided p-value was 1.0
-  whenever U lay above its mean; it now matches `wilcox.test(exact = TRUE)`.
 - `fisher_exact_agg` silently dropped values other than 0/1; it now errors.
 - Seeded tests and RANSAC/Theil-Sen gave different results depending on the
   number of threads.
+- Statistical accuracy (all checked against R / scipy):
+  - `shapiro_wilk_agg`: the p-value for n <= 11 used a wrong approximation (0.070 vs R's
+    0.161 on a 10-value sample); W and p are now a port of R's `swilk.c` (Royston 1995).
+  - `kendall_agg`: the z statistic / p-value now use the tie-corrected variance of S
+    (R `cor.test(method = "kendall", exact = FALSE)`).
+  - `brunner_munzel_agg`: the confidence interval was a ~5% interval (the confidence
+    level was passed where alpha is expected); it now matches lawstat.
+  - `binom_test_agg`: exact Clopper-Pearson interval (was an approximate beta quantile)
+    and R's relative tolerance in the two-sided p-value (was floored for large n);
+    one-sided alternatives give one-sided intervals, as R `binom.test`.
+  - `prop_test_one_agg` / `prop_test_two_agg`: intervals use `qnorm` instead of a
+    hard-coded 1.96; `prop_test_two_agg` with the (default) continuity correction reports
+    R's continuity-corrected interval; one-sided alternatives give one-sided intervals.
+  - `glmm_fit_agg` (poisson / binomial): `log_likelihood`, `aic`, `bic` include the
+    saturated-model term, matching lme4 `logLik(glmer)` (was `-deviance/2`).
+  - `chisq_test_agg`: category codes were used as table indices, so codes not starting
+    at 0 added empty rows/columns (wrong df and statistic) and negative codes were merged
+    into 0; codes are now compacted to the observed levels. A 1 x K table (df = 0)
+    returns NULL, like `g_test_agg` (R's `chisq.test` would switch to a goodness-of-fit
+    test; use `chisq_gof_agg`).
+  - `mann_whitney_u_agg`: all observations tied returned p = 0; now p = 1. Two-sided
+    `mann_whitney_u_agg` / `wilcoxon_signed_rank_agg` apply no continuity correction when
+    the statistic equals its null expectation (R: `sign(z) * 0.5`), so p = 1 there.
+  - `aft_quantile`: `p` is no longer clamped to [1e-12, 1 - 1e-12]; p = 0 gives 0, p = 1
+    gives +Inf, p outside [0, 1] or a non-positive scale gives NaN.
+  - `ols_fit_agg`, `bls_fit_agg` and the window `*_fit_predict` functions counted constant
+    (e.g. all-zero) feature columns in their minimum-row check and returned NULL for fits
+    the core supports (aliased columns get NaN coefficients).
+  - `wls_fit_agg` intercept-only fits (all features constant) divided the residual
+    variance by n instead of n - 1 (R `lm(y ~ 1, weights = w)`), giving too-narrow
+    prediction intervals.
 - Window frames larger than a few rows silently fitted on too few rows: aggregate
   Combine moved data out of segment-tree nodes that DuckDB reuses (it now copies unless
   DuckDB allows destructive combines).

@@ -58,3 +58,13 @@ SELECT abs(r.statistic - 4.847165755153492) < 1e-9, abs(r.p_value - 0.0886035922
 FROM (SELECT dagostino_k2_agg(v) AS r FROM nv);
 ----
 true	true	true
+
+# Other sizes of the small-sample branch. R: shapiro.test(c(1.2, 3.4, 2.2, 5.9)),
+# shapiro.test(c(3.1, 2.7, 4.4, 1.9, 5.6, 3.3, 2.8)), shapiro.test(c(1, 2, 4)) (exact n = 3)
+query III
+SELECT abs((SELECT (shapiro_wilk_agg(v)).p_value FROM unnest([1.2, 3.4, 2.2, 5.9]::DOUBLE[]) t(v)) - 0.74255791273476768) < 1e-9,
+       abs((SELECT (shapiro_wilk_agg(v)).p_value FROM unnest([3.1, 2.7, 4.4, 1.9, 5.6, 3.3, 2.8]::DOUBLE[]) t(v)) - 0.50651413318800143) < 1e-9,
+       abs((SELECT (shapiro_wilk_agg(v)).p_value FROM unnest([1.0, 2.0, 4.0]::DOUBLE[]) t(v)) - 0.6368868450289632) < 1e-9;
+----
+true	true	true
+

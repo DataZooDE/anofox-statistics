@@ -188,9 +188,9 @@ SELECT clark_west_agg(actual, f1, f2, {'alternative': 'less'}) FROM fc;
 clark_west_agg: unknown option 'alternative'
 
 statement error
-SELECT binom_test_agg(s, {'confidence_level': 0.9}) FROM bn;
+SELECT binom_test_agg(s, {'conf': 0.9}) FROM bn;
 ----
-binom_test_agg: unknown option 'confidence_level'
+binom_test_agg: unknown option 'conf'. Supported options: p0 (alias: p), alternative, confidence_level (alias: confidence)
 
 statement error
 SELECT prop_test_one_agg(s, {'correction': true}) FROM bn;

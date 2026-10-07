@@ -57,19 +57,21 @@ static LogicalType GetPropTestOneAggResultType() {
 struct PropTestOneBindData : public FunctionData {
     double p0;
     AnofoxAlternative alternative;
+    double confidence_level;
 
-    PropTestOneBindData() : p0(0.5), alternative(ANOFOX_ALTERNATIVE_TWO_SIDED) {}
+    PropTestOneBindData() : p0(0.5), alternative(ANOFOX_ALTERNATIVE_TWO_SIDED), confidence_level(0.95) {}
 
     unique_ptr<FunctionData> Copy() const override {
         auto copy = make_uniq<PropTestOneBindData>();
         copy->p0 = p0;
         copy->alternative = alternative;
+        copy->confidence_level = confidence_level;
         return copy;
     }
 
     bool Equals(const FunctionData &other_p) const override {
         auto &other = other_p.Cast<PropTestOneBindData>();
-        return p0 == other.p0 && alternative == other.alternative;
+        return p0 == other.p0 && alternative == other.alternative && confidence_level == other.confidence_level;
     }
 };
 
@@ -165,8 +167,9 @@ static void PropTestOneAggFinalize(Vector &state_vector, AggregateInputData &agg
         AnofoxPropTestResult prop_result;
         AnofoxError error;
 
-        bool success = anofox_prop_test_one(state.successes, state.trials, bind_data.p0,
-                                             bind_data.alternative, &prop_result, &error);
+        bool success = anofox_prop_test_one_with_conf_level(state.successes, state.trials, bind_data.p0,
+                                                            bind_data.alternative, bind_data.confidence_level,
+                                                            &prop_result, &error);
 
         if (!success) {
             ThrowUnlessDegenerate("prop_test_one_agg", error);
@@ -207,6 +210,9 @@ static unique_ptr<FunctionData> PropTestOneAggBind(ClientContext &context, Aggre
         }
         if (opts.alternative.has_value()) {
             bind_data->alternative = ConvertAlternative(opts.alternative.value());
+        }
+        if (opts.confidence_level.has_value()) {
+            bind_data->confidence_level = opts.confidence_level.value();
         }
     }
 

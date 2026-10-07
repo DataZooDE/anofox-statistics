@@ -61,19 +61,22 @@ static LogicalType GetPropTestTwoAggResultType() {
 struct PropTestTwoBindData : public FunctionData {
     AnofoxAlternative alternative;
     bool correction;
+    double confidence_level;
 
-    PropTestTwoBindData() : alternative(ANOFOX_ALTERNATIVE_TWO_SIDED), correction(true) {}
+    PropTestTwoBindData() : alternative(ANOFOX_ALTERNATIVE_TWO_SIDED), correction(true), confidence_level(0.95) {}
 
     unique_ptr<FunctionData> Copy() const override {
         auto copy = make_uniq<PropTestTwoBindData>();
         copy->alternative = alternative;
         copy->correction = correction;
+        copy->confidence_level = confidence_level;
         return copy;
     }
 
     bool Equals(const FunctionData &other_p) const override {
         auto &other = other_p.Cast<PropTestTwoBindData>();
-        return alternative == other.alternative && correction == other.correction;
+        return alternative == other.alternative && correction == other.correction &&
+               confidence_level == other.confidence_level;
     }
 };
 
@@ -182,10 +185,10 @@ static void PropTestTwoAggFinalize(Vector &state_vector, AggregateInputData &agg
         AnofoxPropTestResult prop_result;
         AnofoxError error;
 
-        bool success = anofox_prop_test_two(state.successes1, state.trials1,
-                                             state.successes2, state.trials2,
-                                             bind_data.alternative, bind_data.correction,
-                                             &prop_result, &error);
+        bool success = anofox_prop_test_two_with_conf_level(state.successes1, state.trials1, state.successes2,
+                                                            state.trials2, bind_data.alternative,
+                                                            bind_data.correction, bind_data.confidence_level,
+                                                            &prop_result, &error);
 
         if (!success) {
             ThrowUnlessDegenerate("prop_test_two_agg", error);
@@ -226,6 +229,9 @@ static unique_ptr<FunctionData> PropTestTwoAggBind(ClientContext &context, Aggre
         }
         if (opts.correction.has_value()) {
             bind_data->correction = opts.correction.value();
+        }
+        if (opts.confidence_level.has_value()) {
+            bind_data->confidence_level = opts.confidence_level.value();
         }
     }
 

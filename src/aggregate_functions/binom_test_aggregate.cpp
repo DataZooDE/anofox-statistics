@@ -57,19 +57,21 @@ static LogicalType GetBinomTestAggResultType() {
 struct BinomTestBindData : public FunctionData {
     double p0;
     AnofoxAlternative alternative;
+    double confidence_level;
 
-    BinomTestBindData() : p0(0.5), alternative(ANOFOX_ALTERNATIVE_TWO_SIDED) {}
+    BinomTestBindData() : p0(0.5), alternative(ANOFOX_ALTERNATIVE_TWO_SIDED), confidence_level(0.95) {}
 
     unique_ptr<FunctionData> Copy() const override {
         auto copy = make_uniq<BinomTestBindData>();
         copy->p0 = p0;
         copy->alternative = alternative;
+        copy->confidence_level = confidence_level;
         return copy;
     }
 
     bool Equals(const FunctionData &other_p) const override {
         auto &other = other_p.Cast<BinomTestBindData>();
-        return p0 == other.p0 && alternative == other.alternative;
+        return p0 == other.p0 && alternative == other.alternative && confidence_level == other.confidence_level;
     }
 };
 
@@ -165,8 +167,9 @@ static void BinomTestAggFinalize(Vector &state_vector, AggregateInputData &aggr_
         AnofoxPropTestResult binom_result;
         AnofoxError error;
 
-        bool success = anofox_binom_test(state.successes, state.trials, bind_data.p0,
-                                          bind_data.alternative, &binom_result, &error);
+        bool success = anofox_binom_test_with_conf_level(state.successes, state.trials, bind_data.p0,
+                                                         bind_data.alternative, bind_data.confidence_level,
+                                                         &binom_result, &error);
 
         if (!success) {
             ThrowUnlessDegenerate("binom_test_agg", error);
@@ -207,6 +210,9 @@ static unique_ptr<FunctionData> BinomTestAggBind(ClientContext &context, Aggrega
         }
         if (opts.alternative.has_value()) {
             bind_data->alternative = ConvertAlternative(opts.alternative.value());
+        }
+        if (opts.confidence_level.has_value()) {
+            bind_data->confidence_level = opts.confidence_level.value();
         }
     }
 

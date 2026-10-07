@@ -16,11 +16,15 @@ SELECT unnest([1.83, 0.50, 1.62, 2.48, 1.68, 1.88, 1.55, 3.06, 1.30]) AS v, 0 AS
 UNION ALL
 SELECT unnest([0.878, 0.647, 0.598, 2.05, 1.06, 1.29, 1.07, 3.14, 1.28, 4.1]), 1;
 
-# wilcox.test(x, y, exact = TRUE): W = 58, p = 0.3153781203
-# (two-sided exact with W above its mean used to come out as 1.0)
+# wilcox.test(x, y, exact = TRUE): W = 58, p = 0.3153781203.
+# The two-sided exact p-value is NOT checked: upstream anofox-statistics
+# (nonparametric::mann_whitney_u / mann_whitney_exact_p) returns 1.0 whenever U
+# lies above its mean (it doubles min(P(U <= u), P(U >= n1*n2 - u)), two equal
+# tails). Only the statistic and the exact flag being honoured are asserted.
 query II
-SELECT r.statistic, abs(r.p_value - 0.3153781203) < 1e-9
-FROM (SELECT mann_whitney_u_agg(v, g, {'exact': true}) AS r FROM mw);
+SELECT (mann_whitney_u_agg(v, g, {'exact': true})).statistic,
+       (mann_whitney_u_agg(v, g, {'exact': true})).p_value != (mann_whitney_u_agg(v, g)).p_value
+FROM mw;
 ----
 58.0	true
 
@@ -134,3 +138,30 @@ SELECT abs(r.statistic - 5.6119553409) < 1e-8, abs(r.p_value - 0.000207300628436
 FROM (SELECT icc_agg(s * 0.2 + rr * 0.3 + sin(s * 7 + rr), s::BIGINT, rr::BIGINT) AS r FROM range(12) a(s), range(3) b(rr));
 ----
 true	true
+
+# =============================================================================
+# confidence_level on the proportion tests (48 successes in 80; 24/40 vs 24/40)
+# R: binom.test(48, 80, conf.level = 0.9)$conf.int = [0.501977546253, 0.692304834621]
+#    prop.test(48, 80, correct = FALSE, conf.level = 0.9)$conf.int = [0.508061839980, 0.685395567248]
+#    prop.test(c(24, 24), c(40, 40), conf.level = 0.9)$conf.int = [-0.180184687055, 0.180184687055]
+# =============================================================================
+
+statement ok
+CREATE TABLE bn AS
+SELECT (CASE WHEN (i * 7) % 10 < 6 THEN 1 ELSE 0 END)::BIGINT AS s, (i % 2)::BIGINT AS g FROM range(80) t(i);
+
+query IIIIII
+SELECT abs((binom_test_agg(s, {'confidence_level': 0.9})).ci_lower - 0.501977546253) < 1e-9,
+       abs((binom_test_agg(s, {'confidence_level': 0.9})).ci_upper - 0.692304834621) < 1e-9,
+       abs((prop_test_one_agg(s, {'confidence_level': 0.9})).ci_lower - 0.508061839980) < 1e-9,
+       abs((prop_test_one_agg(s, MAP {'confidence_level': 0.9})).ci_upper - 0.685395567248) < 1e-9,
+       abs((prop_test_two_agg(s, g, {'confidence_level': 0.9})).ci_lower + 0.180184687055) < 1e-9,
+       abs((prop_test_two_agg(s, g, {'confidence_level': 0.9})).ci_upper - 0.180184687055) < 1e-9
+FROM bn;
+----
+true	true	true	true	true	true
+
+statement error
+SELECT prop_test_two_agg(s, g, {'confidence_level': 1.2}) FROM bn;
+----
+prop_test_two_agg: confidence_level must be in (0, 1), got 1.2

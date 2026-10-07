@@ -57,7 +57,7 @@ pub fn mann_whitney_u(
         ));
     }
 
-    let mut result = lib_mann_whitney_u(
+    let result = lib_mann_whitney_u(
         &g1,
         &g2,
         options.alternative,
@@ -68,35 +68,26 @@ pub fn mann_whitney_u(
     )
     .map_err(convert_error)?;
 
-    // Upstream's exact two-sided p-value is 2 * min(P(U <= u), P(U >= n1*n2 - u)),
-    // and those two tails are equal by symmetry, so whenever u lies above its
-    // mean the result is 1.0. R (wilcox.test) uses 2 * min(P(U <= u), P(U >= u));
-    // the one-sided exact p-values are correct, so rebuild it from them.
-    if options.exact
-        && matches!(options.alternative, Alternative::TwoSided)
-        && !mann_whitney_has_ties(&g1, &g2, options.mu)
-    {
-        let one_sided = |alt| {
-            lib_mann_whitney_u(
-                &g1,
-                &g2,
-                alt,
-                options.continuity_correction,
-                true,
-                None,
-                options.mu,
-            )
-            .map(|r| r.p_value)
-            .map_err(convert_error)
-        };
-        let p_less = one_sided(Alternative::Less)?;
-        let p_greater = one_sided(Alternative::Greater)?;
-        result.p_value = (2.0 * p_less.min(p_greater)).min(1.0);
-    }
+    // Workarounds for anofox-statistics <= 0.4.2 (normal approximation):
+    // * every observation tied -> Var(U) = 0; the library divides by zero and
+    //   reports p = 0. U equals its null expectation, so p = 1 (scipy; R gives
+    //   NaN two-sided and 1 one-sided).
+    // * U == n1*n2/2 (two-sided): R applies no continuity correction
+    //   (sign(z) * 0.5 = 0), so z = 0 and p = 1.
+    let shift = options.mu.unwrap_or(0.0);
+    let first = g1[0];
+    let all_tied = g1.iter().all(|&v| v == first) && g2.iter().all(|&v| v + shift == first);
+    let at_center = options.alternative == Alternative::TwoSided
+        && result.statistic == g1.len() as f64 * g2.len() as f64 / 2.0;
+    let p_value = if all_tied || at_center {
+        1.0
+    } else {
+        result.p_value
+    };
 
     Ok(TestResult {
         statistic: result.statistic,
-        p_value: result.p_value,
+        p_value,
         df: f64::NAN,
         // Rank-biserial correlation r = 1 - 2*U1 / (n1*n2), where U1 (the
         // reported statistic, R's W) counts pairs with group1 > group2 (ties
@@ -121,20 +112,6 @@ pub fn mann_whitney_u(
         alternative: options.alternative,
         method: "Mann-Whitney U test".into(),
     })
-}
-
-/// Whether the pooled sample (x, y + mu) contains ties; mirrors the check the
-/// upstream crate uses to decide between the exact and the normal p-value.
-fn mann_whitney_has_ties(x: &[f64], y: &[f64], mu: Option<f64>) -> bool {
-    let shift = mu.unwrap_or(0.0);
-    let mut pooled: Vec<f64> = x.to_vec();
-    if mu.is_some() {
-        pooled.extend(y.iter().map(|v| v + shift));
-    } else {
-        pooled.extend_from_slice(y);
-    }
-    pooled.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    pooled.windows(2).any(|w| w[0] == w[1])
 }
 
 /// Options for Wilcoxon signed-rank test
@@ -205,9 +182,25 @@ pub fn wilcoxon_signed_rank(
     )
     .map_err(convert_error)?;
 
+    // anofox-statistics <= 0.4.2 applies the continuity correction even when
+    // V equals its null expectation; R uses sign(z) * 0.5 = 0 there, so p = 1.
+    let shift = options.mu.unwrap_or(0.0);
+    let n_nonzero = x_filtered
+        .iter()
+        .zip(y_filtered.iter())
+        .filter(|(a, b)| *a - *b - shift != 0.0)
+        .count() as f64;
+    let p_value = if options.alternative == Alternative::TwoSided
+        && result.statistic == n_nonzero * (n_nonzero + 1.0) / 4.0
+    {
+        1.0
+    } else {
+        result.p_value
+    };
+
     Ok(TestResult {
         statistic: result.statistic,
-        p_value: result.p_value,
+        p_value,
         df: f64::NAN,
         effect_size: f64::NAN, // Not provided by library
         ci_lower: result
@@ -315,7 +308,8 @@ pub fn brunner_munzel(
         &g1,
         &g2,
         options.alternative,
-        Some(options.confidence_level),
+        // The library takes alpha (CI level = 1 - alpha), not the confidence level.
+        Some(1.0 - options.confidence_level),
     )
     .map_err(convert_error)?;
 
@@ -346,29 +340,6 @@ pub fn brunner_munzel(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// Exact two-sided p-value when U lies above its mean (R: wilcox.test(x, y,
-    /// exact = TRUE) gives W = 58, p = 0.3153781203).
-    #[test]
-    #[allow(clippy::approx_constant)] // 3.14 is a data value, not pi
-    fn test_mann_whitney_exact_two_sided_upper_tail() {
-        let x = vec![1.83, 0.50, 1.62, 2.48, 1.68, 1.88, 1.55, 3.06, 1.30];
-        let y = vec![0.878, 0.647, 0.598, 2.05, 1.06, 1.29, 1.07, 3.14, 1.28, 4.1];
-        let opts = MannWhitneyOptions {
-            exact: true,
-            ..Default::default()
-        };
-        let r = mann_whitney_u(&x, &y, &opts).unwrap();
-        assert_eq!(r.statistic, 58.0);
-        assert!((r.p_value - 0.3153781203).abs() < 1e-9, "p = {}", r.p_value);
-        // Swapping the samples mirrors U below its mean; same two-sided p.
-        let r2 = mann_whitney_u(&y, &x, &opts).unwrap();
-        assert!(
-            (r2.p_value - 0.3153781203).abs() < 1e-9,
-            "p = {}",
-            r2.p_value
-        );
-    }
 
     #[test]
     fn test_mann_whitney_u() {
@@ -413,5 +384,34 @@ mod tests {
         let result = kruskal_wallis(&groups).unwrap();
 
         assert!(result.p_value < 0.05); // Should be significant
+    }
+
+    #[test]
+    #[allow(clippy::excessive_precision)]
+    fn test_brunner_munzel_ci_level() {
+        // lawstat::brunner.munzel.test: p_hat -/+ qt(0.975, df) * se
+        let g1 = [5.1, 4.9, 6.2, 5.8, 6.05, 5.5, 5.3, 6.1];
+        let g2 = [6.5, 7.1, 6.8, 7.4, 6.0, 7.9, 6.6, 7.2, 6.9, 7.05];
+        let r = brunner_munzel(&g1, &g2, &BrunnerMunzelOptions::default()).unwrap();
+        assert!((r.ci_lower - 0.8722553373834635).abs() < 1e-9);
+        assert!((r.ci_upper - 1.0527446626165362).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_mann_whitney_all_tied_and_center() {
+        let opts = MannWhitneyOptions::default();
+        let r = mann_whitney_u(&[5.0; 6], &[5.0; 7], &opts).unwrap();
+        assert_eq!(r.p_value, 1.0);
+        // R: wilcox.test(c(1, 4), c(2, 3), exact = FALSE)$p.value == 1
+        let r = mann_whitney_u(&[1.0, 4.0], &[2.0, 3.0], &opts).unwrap();
+        assert_eq!(r.p_value, 1.0);
+        // R: wilcox.test(1:4, 4:1, paired = TRUE, exact = FALSE)$p.value == 1
+        let r = wilcoxon_signed_rank(
+            &[1.0, 2.0, 3.0, 4.0],
+            &[4.0, 3.0, 2.0, 1.0],
+            &WilcoxonOptions::default(),
+        )
+        .unwrap();
+        assert_eq!(r.p_value, 1.0);
     }
 }

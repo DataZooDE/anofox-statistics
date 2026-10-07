@@ -1461,25 +1461,29 @@ ClarkWestMapOptions ClarkWestMapOptions::ParseFromValue(const Value &map_value, 
 }
 
 ProportionMapOptions ProportionMapOptions::ParseFromValue(const Value &map_value, const string &function_name) {
-	static const vector<OptionKeyDef> keys = {{"p0", {"p"}}, KEY_ALTERNATIVE};
+	static const vector<OptionKeyDef> keys = {{"p0", {"p"}}, KEY_ALTERNATIVE, KEY_CONFIDENCE};
 	return ParseTestOptions<ProportionMapOptions>(
 	    map_value, function_name, keys, [](ProportionMapOptions &result, const string &key, const Value &val) {
 		    if (key == "p0") {
 			    result.p0 = ExtractDouble(val);
 		    } else if (key == "alternative") {
 			    result.alternative = ExtractAlternative(val);
+		    } else if (key == "confidence_level") {
+			    result.confidence_level = ExtractConfidenceLevel(val);
 		    }
 	    });
 }
 
 PropTestTwoMapOptions PropTestTwoMapOptions::ParseFromValue(const Value &map_value, const string &function_name) {
-	static const vector<OptionKeyDef> keys = {KEY_ALTERNATIVE, {"correction", {"continuity_correction"}}};
+	static const vector<OptionKeyDef> keys = {KEY_ALTERNATIVE, {"correction", {"continuity_correction"}}, KEY_CONFIDENCE};
 	return ParseTestOptions<PropTestTwoMapOptions>(
 	    map_value, function_name, keys, [](PropTestTwoMapOptions &result, const string &key, const Value &val) {
 		    if (key == "alternative") {
 			    result.alternative = ExtractAlternative(val);
 		    } else if (key == "correction") {
 			    result.correction = ExtractBool(val);
+		    } else if (key == "confidence_level") {
+			    result.confidence_level = ExtractConfidenceLevel(val);
 		    }
 	    });
 }

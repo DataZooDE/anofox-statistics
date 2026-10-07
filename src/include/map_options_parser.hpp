@@ -536,6 +536,7 @@ struct ClarkWestMapOptions {
 struct ProportionMapOptions {
 	std::optional<double> p0;
 	std::optional<Alternative> alternative;
+	std::optional<double> confidence_level;
 
 	static ProportionMapOptions ParseFromValue(const Value &map_value, const string &function_name);
 };
@@ -546,6 +547,7 @@ struct ProportionMapOptions {
 struct PropTestTwoMapOptions {
 	std::optional<Alternative> alternative;
 	std::optional<bool> correction;
+	std::optional<double> confidence_level;
 
 	static PropTestTwoMapOptions ParseFromValue(const Value &map_value, const string &function_name);
 };

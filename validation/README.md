@@ -39,6 +39,6 @@ Required R packages: `MASS`, `survival`, `lme4`, `quantreg`, `jsonlite`
 * Tolerances are absolute and stated per assertion (normally 1e-9; looser only
   for iterative or approximate procedures, with the reason given in a comment).
 * When the extension deliberately uses a different convention from R (for example
-  centered R² for no-intercept models, or no Yates correction by default), the
+  no Yates correction by default), the
   test says so in a comment and checks against a reference computed with the
   extension's convention.
