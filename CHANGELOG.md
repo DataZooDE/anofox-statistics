@@ -21,11 +21,58 @@ Breaking changes are called out explicitly.
 - The doc-SQL validation now covers every page under `docs/` and `docs/api/`.
 - A Claude Code plugin (`plugins/anofox-statistics`) with skills for regression,
   tests, diagnostics and batch use.
+- Option aliases (old keys keep working): `link` sets the link of the fitted
+  family (`poisson_fit_agg`, `poisson_fit_predict_agg`, `binomial_fit_agg`);
+  `lambda`/`alpha` alias `glm_lambda` on the GLMs (poisson, binomial, logistic,
+  negbinom, gamma, tweedie); `tau` aliases `quantile` on ALM and `quantile`
+  aliases `tau` on quantile regression; `lambda` aliases `forgetting_factor` on
+  RLS; `lambda` aliases `alpha` on `ridge_fit_predict_agg` /
+  `elasticnet_fit_predict_agg`; `seed`/`random_state` on every seeded function.
+- TOST: `tost_t_test_agg`, `tost_paired_agg` and `tost_correlation_agg` all accept
+  both `alpha` and `confidence_level` (alpha = 1 - confidence_level; supplying
+  inconsistent values is an error) and `lower`/`upper` as aliases of
+  `bound_lower`/`bound_upper`.
+- Seeds for `permutation_t_test_agg`, `energy_distance_agg`, `mmd_agg` and
+  `distance_cor_agg` (`seed` / `random_state`).
+- `mann_whitney_u_agg` options `exact` and `mu`; `fisher_exact_agg` option
+  `confidence_level`; `mcnemar_agg` option `exact`; `lars_fit_agg` options
+  `method` (`'lar'` | `'lasso'`), `n_nonzero_coefs` and `standardize`.
+- Hypothesis-test results now all carry `statistic`, `p_value`, `n` (total
+  sample size), `method` and `alternative` (`'two_sided'` | `'less'` |
+  `'greater'`, NULL where not applicable). Missing fields were appended at the
+  end of each struct, e.g. `cohen_kappa_agg` gains `statistic` (= z), `n`,
+  `method`; `icc_agg` gains `statistic` (= F), `p_value` (one-way F test of
+  ICC = 0), `n`; `tost_*_agg` gain `statistic`; `jarque_bera`/`jarque_bera_agg`
+  gain `method`.
 
 ### Changed
 
 - TODO(lead): option keys a function does not support now raise an error
   (per-function key validation).
+- **Breaking:** every regression-family function (aggregates, table/scalar
+  fits, window functions, fit-predict aggregates) declares the option keys it
+  reads; any other key raises an error naming the function and listing its
+  supported keys. Keys that were silently ignored before, e.g.
+  `ols_fit_agg(y, x, {'alpha': 1})` or `compute_inference` on fit-predict
+  functions, now error. The same holds for the hypothesis-test aggregates;
+  `mmd_agg` rejects `bandwidth`/`sigma` (never used) and `tost_t_test_agg`
+  rejects `alternative`, `paired` and `mu` (never used).
+- **Breaking:** options must be a constant expression; a per-row expression
+  used to be skipped silently and now errors.
+- **Breaking:** `confidence_level` must lie strictly inside (0, 1) everywhere;
+  integer options reject negative, fractional and overflowing values instead of
+  truncating them.
+- `lars_fit_agg`: `alpha` > 0 without a `method` now selects the LassoLars path
+  (plain LAR ignores alpha, so it used to have no effect); `{'method': 'lar',
+  'alpha': > 0}` is an error.
+- `fisher_exact_agg` reports R's conditional MLE odds ratio and exact
+  conditional CI (`fisher.test` semantics) instead of the sample odds ratio and
+  Woolf interval, and returns a result for any non-empty table (n < 4 used to
+  return NULL).
+- RANSAC and Theil-Sen (aggregates, fit-predict aggregates and window
+  functions) fit on a canonical row order, so a given `random_state` yields the
+  same model whatever the thread count or input order. Results can differ from
+  earlier versions for the same seed.
 - TODO(lead): leverage-aware prediction intervals
   (`s·sqrt(1 + x₀ᵀ(XᵀX)⁻¹x₀)` instead of `s·sqrt(1 + 1/n)`).
 - License metadata is consistent with `LICENSE`: BSL 1.1 that converts to MPL 2.0
@@ -35,6 +82,24 @@ Breaking changes are called out explicitly.
 ### Fixed
 
 - TODO(lead): bug fixes from the review remediation.
+- Hypothesis-test aggregates with hand-written option parsing (yuen, permutation
+  t-test, TOST paired/correlation, Diebold-Mariano, Clark-West, binomial and
+  proportion tests, ICC, McNemar, Cohen's kappa, distance correlation) ignored
+  STRUCT literals `{'k': v}` and silently fell back to defaults on invalid enum
+  values (e.g. `alternative: 'sideways'`); they now accept MAP and STRUCT, and
+  reject unknown keys and invalid values.
+- `MAP {...}` options to the shared test-option parsers (`t_test_agg`,
+  `mann_whitney_u_agg`, ...) failed with "Invalid MAP structure".
+- `binomial_fit_agg(..., {'link': 'probit'})` failed with a Poisson-link error;
+  `quantile_fit_predict_agg` ignored `quantile`; GLMs ignored `lambda`.
+- `t_test_agg` silently ignored `paired: true` (it has no pairing information);
+  it now raises an error pointing to `tost_paired_agg` /
+  `wilcoxon_signed_rank_agg`.
+- `mann_whitney_u_agg` with `exact: true`: the two-sided p-value was 1.0
+  whenever U lay above its mean; it now matches `wilcox.test(exact = TRUE)`.
+- `fisher_exact_agg` silently dropped values other than 0/1; it now errors.
+- Seeded tests and RANSAC/Theil-Sen gave different results depending on the
+  number of threads.
 - Documentation: removed the stale `anofox_stats_` prefixes, the wrong calling
   conventions, the wrong option keys and field names, and the broken links.
 
