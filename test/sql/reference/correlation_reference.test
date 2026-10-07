@@ -62,7 +62,7 @@ SELECT abs((kendall_agg(x, y, {'variant': 'tau_a'})).tau - 0.7575757575757576) <
 ----
 true
 
-# Tie-corrected variance of S (currently fails: z = 3.6498, p = 2.62e-4).
+# Tie-corrected variance of S.
 query II
 SELECT abs(r.statistic - 3.4987518043922514) < 1e-9, abs(r.p_value - 0.00046744148056981807) < 1e-12
 FROM (SELECT kendall_agg(x, y) AS r FROM kt);
