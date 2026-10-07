@@ -5,11 +5,13 @@
 # Reference values: validation/generators/make_reference_tests.R.
 # Conventions (checked against the matching reference):
 #  * prop_test_one_agg: NO continuity correction; statistic is the z score
-#    (= sqrt of R's prop.test(correct = FALSE) X-squared, signed); CI = Wilson score (no cc).
+#    (= sqrt of R's prop.test(correct = FALSE) X-squared, signed); CI = Wilson score (no cc),
+#    one-sided for one-sided alternatives (= R).
 #  * prop_test_two_agg: continuity correction on by default (= R); statistic is R's X-squared;
-#    estimate = p1 (proportion of group 1); CI = Wald interval WITHOUT continuity correction
-#    (R's correct = TRUE interval is wider), so the CI is compared against R's correct = FALSE.
-#  * binom_test_agg: statistic is NaN (successes are in n * estimate); CI claims Clopper-Pearson.
+#    estimate = p1 (proportion of group 1); CI = R's prop.test interval (Wald, widened by the
+#    continuity correction when 'correction' is true).
+#  * binom_test_agg: statistic is NaN (successes are in n * estimate); CI = Clopper-Pearson,
+#    one-sided for one-sided alternatives (= R binom.test).
 
 require anofox_statistics
 
@@ -34,7 +36,6 @@ FROM (SELECT binom_test_agg(v) AS r FROM bn);
 true	true	true
 
 # Clopper-Pearson CI (R binom.test(13, 20)$conf.int).
-# (Currently fails: the library's beta-quantile approximation gives [0.40288, 0.85902].)
 query II
 SELECT abs(r.ci_lower - 0.4078114654671719) < 1e-9, abs(r.ci_upper - 0.84609079521545882) < 1e-9
 FROM (SELECT binom_test_agg(v) AS r FROM bn);
@@ -108,7 +109,6 @@ SELECT abs((prop_test_two_agg(v, g, MAP {'alternative': 'greater'})).p_value - 0
 true
 
 # Wald CI = R prop.test(..., correct = FALSE)$conf.int
-# (Currently fails at ~5e-6: z is hard-coded as 1.96 instead of qnorm(0.975).)
 query II
 SELECT abs(r.ci_lower - (-0.044760830637797733)) < 1e-9, abs(r.ci_upper - 0.45904654492351199) < 1e-9
 FROM (SELECT prop_test_two_agg(v, g, MAP {'correction': false}) AS r FROM p2);
@@ -118,5 +118,31 @@ true	true
 # STRUCT options (currently silently ignored -> fails).
 query I
 SELECT abs((prop_test_two_agg(v, g, {'correction': false})).statistic - 2.4857142857142858) < 1e-9 FROM p2;
+----
+true
+
+# Default (correct = TRUE) interval: R prop.test(c(18, 11), c(30, 28))$conf.int
+query II
+SELECT abs(r.ci_lower - (-0.079284640161607245)) < 1e-9, abs(r.ci_upper - 0.4935703544473215) < 1e-9
+FROM (SELECT prop_test_two_agg(v, g) AS r FROM p2);
+----
+true	true
+
+# One-sided alternatives give one-sided intervals:
+# R binom.test(13, 20, alternative = "greater")$conf.int = [0.44196548868451135, 1]
+# R prop.test(13, 20, alternative = "less", correct = FALSE)$conf.int = [0, 0.79773995994323899]
+query IIII
+SELECT abs((binom_test_agg(v, MAP {'alternative': 'greater'})).ci_lower - 0.44196548868451135) < 1e-9,
+       (binom_test_agg(v, MAP {'alternative': 'greater'})).ci_upper = 1.0,
+       (prop_test_one_agg(v, MAP {'alternative': 'less'})).ci_lower = 0.0,
+       abs((prop_test_one_agg(v, MAP {'alternative': 'less'})).ci_upper - 0.79773995994323899) < 1e-9
+FROM bn;
+----
+true	true	true	true
+
+# Large n: the two-sided p-value is not floored. R: binom.test(4500, 10000)$p.value
+query I
+SELECT abs((binom_test_agg(v)).p_value / 1.5510640568246068e-23 - 1) < 1e-6
+FROM (SELECT (i < 4500)::BIGINT AS v FROM range(10000) r(i));
 ----
 true

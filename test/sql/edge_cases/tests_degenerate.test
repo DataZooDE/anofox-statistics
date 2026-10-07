@@ -53,11 +53,12 @@ true	true
 
 endloop
 
-# Mann-Whitney with every observation tied: no evidence of a shift.
-# R: wilcox.test(rep(5,15), rep(5,15))$p.value == 1;
-# scipy.stats.mannwhitneyu([5.0]*15, [5.0]*15).pvalue == 1.0
+# Mann-Whitney with every observation tied: Var(U) = 0 and U equals its null
+# expectation, so there is no evidence of a shift: p = 1
+# (scipy.stats.mannwhitneyu([5.0]*15, [5.0]*15).pvalue == 1.0; R's normal
+# approximation gives NaN (0/0) two-sided and 1 one-sided).
 query I
-SELECT r IS NULL OR isnan(r.p_value) OR r.p_value = 1.0
+SELECT r.p_value = 1.0
 FROM (SELECT mann_whitney_u_agg(v, g) AS r FROM d_const);
 ----
 true
@@ -79,8 +80,10 @@ true
 
 endloop
 
-# A 1 x K contingency table (one level of the row variable) has df = 0: no test.
-# g_test_agg and cramers_v_agg return NULL; chisq_test_agg must agree.
+# A 1 x K contingency table (one level of the row variable) has df = 0: no test of
+# independence. g_test_agg and cramers_v_agg return NULL; chisq_test_agg agrees
+# (R's chisq.test would silently switch to a goodness-of-fit test on the vector;
+# use chisq_gof_agg for that).
 foreach call chisq_test_agg(c1,c2) g_test_agg(c1,c2) cramers_v_agg(c1,c2)
 
 query I
@@ -89,3 +92,14 @@ SELECT ${call} IS NULL FROM d WHERE c1 = 1;
 true
 
 endloop
+
+# Category codes are labels, not indices: codes that do not start at 0 (or are
+# negative) must give the same table as 0-based codes. R: chisq.test(matrix(c(20, 15,
+# 25, 30, 10, 12), 2, byrow = TRUE)) -> X-squared = 7.0320166320166297, df = 2
+query III
+SELECT abs(r.statistic - 7.0320166320166297) < 1e-9, r.df = 2, abs(r.p_value - 0.029717822885398398) < 1e-12
+FROM (SELECT chisq_test_agg(r * 5 - 3, c + 10) AS r
+      FROM (VALUES (0,0,20),(0,1,15),(0,2,25),(1,0,30),(1,1,10),(1,2,12)) t(r, c, n), range(n));
+----
+true	true	true
+
