@@ -7,6 +7,7 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/result_fields.hpp"
 #include "../include/map_options_parser.hpp"
 #include "../include/ffi_enum_converters.hpp"
 #include "telemetry.hpp"
@@ -44,6 +45,7 @@ static LogicalType GetBinomTestAggResultType() {
     children.push_back(make_pair("ci_upper", LogicalType::DOUBLE));
     children.push_back(make_pair("n", LogicalType::BIGINT));
     children.push_back(make_pair("method", LogicalType::VARCHAR));
+    children.push_back(make_pair("alternative", LogicalType::VARCHAR));
 
     return LogicalType::STRUCT(std::move(children));
 }
@@ -180,6 +182,7 @@ static void BinomTestAggFinalize(Vector &state_vector, AggregateInputData &aggr_
         auto& method_vector = *struct_entries[struct_idx++];
         FlatVector::GetData<string_t>(method_vector)[result_idx] =
             StringVector::AddString(method_vector, binom_result.method ? binom_result.method : "Exact binomial test");
+        SetResultString(*struct_entries[struct_idx++], result_idx, AlternativeName(bind_data.alternative));
 
         anofox_free_prop_test_result(&binom_result);
         state.Reset();

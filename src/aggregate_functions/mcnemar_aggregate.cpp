@@ -43,6 +43,8 @@ static LogicalType GetMcNemarAggResultType() {
     children.push_back(make_pair("p_value", LogicalType::DOUBLE));
     children.push_back(make_pair("df", LogicalType::BIGINT));
     children.push_back(make_pair("method", LogicalType::VARCHAR));
+    children.push_back(make_pair("n", LogicalType::BIGINT));
+    children.push_back(make_pair("alternative", LogicalType::VARCHAR));
 
     return LogicalType::STRUCT(std::move(children));
 }
@@ -194,6 +196,8 @@ static void McNemarAggFinalize(Vector &state_vector, AggregateInputData &aggr_in
         auto& method_vector = *struct_entries[struct_idx++];
         FlatVector::GetData<string_t>(method_vector)[result_idx] =
             StringVector::AddString(method_vector, mcnemar_result.method ? mcnemar_result.method : "McNemar's test");
+        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = static_cast<int64_t>(a + b + c + d);
+        SetResultNull(*struct_entries[struct_idx++], result_idx); // alternative: chi-square test
 
         anofox_free_chisq_result(&mcnemar_result);
         state.Reset();

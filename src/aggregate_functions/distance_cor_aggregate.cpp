@@ -45,6 +45,7 @@ static LogicalType GetDistanceCorAggResultType() {
     children.push_back(make_pair("p_value", LogicalType::DOUBLE));
     children.push_back(make_pair("n", LogicalType::BIGINT));
     children.push_back(make_pair("method", LogicalType::VARCHAR));
+    children.push_back(make_pair("alternative", LogicalType::VARCHAR));
 
     return LogicalType::STRUCT(std::move(children));
 }
@@ -226,6 +227,7 @@ static void DistanceCorAggFinalize(Vector &state_vector, AggregateInputData &agg
         auto& method_vector = *struct_entries[struct_idx++];
         FlatVector::GetData<string_t>(method_vector)[result_idx] =
             StringVector::AddString(method_vector, test_result.method ? test_result.method : "Distance correlation test");
+        SetResultNull(*struct_entries[struct_idx++], result_idx); // alternative: omnibus test
 
         anofox_free_test_result(&test_result);
         state.Reset();

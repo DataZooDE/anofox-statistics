@@ -7,6 +7,7 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/result_fields.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 
@@ -38,6 +39,8 @@ static LogicalType GetJarqueBeraAggResultType() {
     children.push_back(make_pair("skewness", LogicalType::DOUBLE));
     children.push_back(make_pair("kurtosis", LogicalType::DOUBLE));
     children.push_back(make_pair("n", LogicalType::BIGINT));
+    children.push_back(make_pair("method", LogicalType::VARCHAR));
+    children.push_back(make_pair("alternative", LogicalType::VARCHAR));
 
     return LogicalType::STRUCT(std::move(children));
 }
@@ -153,6 +156,8 @@ static void JarqueBeraAggFinalize(Vector &state_vector, AggregateInputData &aggr
         FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = jb_result.skewness;
         FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = jb_result.kurtosis;
         FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = jb_result.n;
+        SetResultString(*struct_entries[struct_idx++], result_idx, "Jarque-Bera test");
+        SetResultNull(*struct_entries[struct_idx++], result_idx); // alternative: not applicable
 
         state.Reset();
     }

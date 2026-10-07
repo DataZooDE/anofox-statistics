@@ -8,6 +8,7 @@
 #include "duckdb/parser/parsed_data/create_scalar_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/result_fields.hpp"
 #include "telemetry.hpp"
 
 namespace duckdb {
@@ -21,6 +22,8 @@ static LogicalType GetJarqueBeraResultType() {
     children.push_back(make_pair("skewness", LogicalType::DOUBLE));
     children.push_back(make_pair("kurtosis", LogicalType::DOUBLE));
     children.push_back(make_pair("n", LogicalType::BIGINT));
+    children.push_back(make_pair("method", LogicalType::VARCHAR));
+    children.push_back(make_pair("alternative", LogicalType::VARCHAR));
 
     return LogicalType::STRUCT(std::move(children));
 }
@@ -91,6 +94,8 @@ static void JarqueBeraFunction(DataChunk &args, ExpressionState &state, Vector &
         FlatVector::GetData<double>(*struct_entries[struct_idx++])[row] = jb_result.skewness;
         FlatVector::GetData<double>(*struct_entries[struct_idx++])[row] = jb_result.kurtosis;
         FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[row] = jb_result.n;
+        SetResultString(*struct_entries[struct_idx++], row, "Jarque-Bera test");
+        SetResultNull(*struct_entries[struct_idx++], row); // alternative: not applicable
     }
 }
 

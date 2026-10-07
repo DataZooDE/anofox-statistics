@@ -8,6 +8,7 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/result_fields.hpp"
 #include "../include/map_options_parser.hpp"
 #include "../include/ffi_enum_converters.hpp"
 #include "telemetry.hpp"
@@ -45,6 +46,10 @@ static LogicalType GetCohenKappaAggResultType() {
     children.push_back(make_pair("ci_upper", LogicalType::DOUBLE));
     children.push_back(make_pair("z", LogicalType::DOUBLE));
     children.push_back(make_pair("p_value", LogicalType::DOUBLE));
+    children.push_back(make_pair("statistic", LogicalType::DOUBLE));
+    children.push_back(make_pair("n", LogicalType::BIGINT));
+    children.push_back(make_pair("method", LogicalType::VARCHAR));
+    children.push_back(make_pair("alternative", LogicalType::VARCHAR));
 
     return LogicalType::STRUCT(std::move(children));
 }
@@ -211,6 +216,13 @@ static void CohenKappaAggFinalize(Vector &state_vector, AggregateInputData &aggr
         FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = kappa_result.ci_upper;
         FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = kappa_result.z;
         FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = kappa_result.p_value;
+        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = kappa_result.z; // statistic
+        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] =
+            static_cast<int64_t>(state.rater1_values.size());
+        SetResultString(*struct_entries[struct_idx++], result_idx,
+                        bind_data.weighted ? "Weighted Cohen's kappa" : "Cohen's kappa");
+        // The core's z-test p-value is two-sided.
+        SetResultString(*struct_entries[struct_idx++], result_idx, "two_sided");
 
         state.Reset();
     }
