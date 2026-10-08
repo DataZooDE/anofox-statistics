@@ -64,6 +64,41 @@ Breaking changes are called out explicitly.
 
 ### Changed
 
+- Dependency: `anofox-regression` 0.5.13 -> 0.5.14. More regression code moves
+  upstream: prediction-interval variance factors and leverage
+  (`anofox_interval_matrix` / `anofox_predict_with_interval_matrix`,
+  `anofox_t_critical`, `anofox_predict_with_interval`; C ABI unchanged), Huber
+  MASS-style standard errors, RANSAC's final inlier OLS fit, RLS (now
+  `RlsRegressor`), constant-column / no-intercept handling of the linear models,
+  the Negative Binomial y = 0 deviance and ML theta, and the GLMM log-likelihood.
+  Behaviour inherited from upstream, now matching R:
+  - logLik / AIC / BIC of the linear models use R's convention (RSS/n); Poisson,
+    Negative Binomial and GLMM report the full log-likelihood (lme4's
+    `logLik(glmer)`), so their AIC/BIC values change.
+  - Tweedie and Gamma dispersion is the Pearson estimate.
+  - Univariate Theil-Sen is the median of pairwise slopes. With
+    `compute_inference := true` its inference lists now hold one NULL per
+    feature (Theil-Sen has no inference) instead of being empty.
+  - Quantile regression returns the exact LP optimum.
+  - RANSAC: inliers are `|r| <= threshold` (a constant response now fits), and
+    R², adjusted R², sigma and inference are those of the OLS fit on the inliers;
+    collinear inliers give an aliased (NaN) coefficient.
+  - Ridge with `alpha > 0` and `compute_inference := true` reports the sandwich
+    standard errors `sigma * sqrt(diag(A X'X A))`, `A = (X'X + lambda P)^-1`
+    (previously NULL); t, p and CI stay NULL.
+  - WLS sigma is on the weighted scale, as `summary(lm(weights = w))$sigma`.
+  - No-intercept models: R², adjusted R² and F use the uncentered TSS and a
+    constant column (e.g. all ones) is kept as the intercept, computed upstream.
+    Constant-column detection is scale-relative with tolerance 1e-10 (was 1e-12).
+  - GLMs of every family drop an intercept-collinear constant column (NaN
+    coefficient), as Poisson did; previously binomial/negbinom/gamma/tweedie/
+    logistic could alias the intercept instead.
+  - RLS fit statistics come from upstream (R² clamped to [0, 1]); RLS needs at
+    least two rows.
+- Dependency: `anofox-statistics` 0.4.3 -> 0.4.4: no panics on non-finite input;
+  ±Inf are ranked like R in rank tests; NaN input and non-finite data in
+  permutation / energy / MMD / forecast tests are reported as a "non-finite
+  value" error instead of a fabricated p-value.
 - Dependency: `anofox-statistics` 0.4.2 -> 0.4.3. The extension no longer carries
   its own implementations of statistical methods; it delegates to the library:
   Shapiro-Wilk (R `swilk.c` port), Kendall's tie-corrected Var(S), the exact
