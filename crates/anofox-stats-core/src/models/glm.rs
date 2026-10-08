@@ -54,7 +54,7 @@ fn require<F: Fn(f64) -> bool>(
     ok: F,
 ) -> StatsResult<()> {
     for &v in y.iter() {
-        if !v.is_nan() && !ok(v) {
+        if v.is_finite() && !ok(v) {
             return Err(StatsError::InvalidValue {
                 field,
                 message: message.to_string(),
