@@ -226,8 +226,13 @@ L <- c(L, checks("slope inference: coef(summary(lm(..., weights = w)))[-1, ], co
   c(cw[2:3, 2], cw[2:3, 3], cw[2:3, 4], ciw[2:3, 1], ciw[2:3, 2]), 1e-9))
 L <- c(L, checks("equal weights (2.5) reproduce OLS: coef(summary(lm(y ~ x1 + x2)))",
   "(SELECT wls_fit_agg(y, [x1, x2], 2.5, {'compute_inference': true}) AS r FROM d1) s",
-  c("r.intercept", lst("coefficients", 1:2), lst("std_errors", 1:2), "r.r_squared", "r.residual_std_error"),
-  c(cf[, 1], cf[2:3, 2], s$r.squared, s$sigma), 1e-9))
+  c("r.intercept", lst("coefficients", 1:2), lst("std_errors", 1:2), "r.r_squared"),
+  c(cf[, 1], cf[2:3, 2], s$r.squared), 1e-9))
+# sigma is on the weighted scale: sqrt(sum(w r^2) / (n - p)) = sqrt(2.5) * OLS sigma
+s25 <- summary(lm(y ~ x1 + x2, weights = rep(2.5, n)))
+L <- c(L, checks("equal weights (2.5): summary(lm(y ~ x1 + x2, weights = rep(2.5, n)))$sigma",
+  "(SELECT wls_fit_agg(y, [x1, x2], 2.5, {'compute_inference': true}) AS r FROM d1) s",
+  "r.residual_std_error", s25$sigma, 1e-9))
 write_test("regression_wls.test", L)
 
 # =============================================================================

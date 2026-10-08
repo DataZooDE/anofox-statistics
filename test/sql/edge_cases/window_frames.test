@@ -137,6 +137,9 @@ FROM win JOIN ref USING (t);
 0	0
 
 # ransac_fit_predict
+# The final RANSAC model is the OLS fit on the inliers; when the inliers are
+# collinear (4-row frames where x2 = 1.5 x1 - 1.75) a column is aliased and its
+# coefficient is NaN (R: NA), contributing nothing to the prediction.
 query II
 WITH win AS (
     SELECT t, x1, x2, (ransac_fit_predict(y, [x1, x2], {'random_state': 42}) OVER (ORDER BY t RANGE BETWEEN 6 PRECEDING AND CURRENT ROW)).yhat AS yhat
@@ -147,7 +150,9 @@ ref AS (
     GROUP BY o.t)
 SELECT count(*) FILTER (WHERE ref.n >= 4 AND (win.yhat IS NULL) <> (ref.r IS NULL)),
        count(*) FILTER (WHERE ref.r IS NOT NULL
-                          AND abs(win.yhat - (ref.r.intercept + ref.r.coefficients[1] * win.x1 + ref.r.coefficients[2] * win.x2)) > 1e-6)
+                          AND abs(win.yhat - (ref.r.intercept
+                                              + CASE WHEN isnan(ref.r.coefficients[1]) THEN 0 ELSE ref.r.coefficients[1] * win.x1 END
+                                              + CASE WHEN isnan(ref.r.coefficients[2]) THEN 0 ELSE ref.r.coefficients[2] * win.x2 END)) > 1e-6)
 FROM win JOIN ref USING (t);
 ----
 0	0
