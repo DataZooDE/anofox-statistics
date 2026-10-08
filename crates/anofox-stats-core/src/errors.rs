@@ -124,6 +124,42 @@ impl From<anofox_regression::solvers::penalized_glm::GlmEngineError> for StatsEr
     }
 }
 
+/// Map errors of the upstream moment-heuristic AID onto this crate's error type.
+impl From<anofox_regression::solvers::aid::heuristic::AidError> for StatsError {
+    fn from(err: anofox_regression::solvers::aid::heuristic::AidError) -> Self {
+        use anofox_regression::solvers::aid::heuristic::AidError as A;
+        match err {
+            A::EmptyInput { field } => StatsError::EmptyInput { field },
+            A::NoValidData => StatsError::NoValidData,
+            other => StatsError::RegressError(other.to_string()),
+        }
+    }
+}
+
+/// Map errors of the upstream empirical-Bayes shrinkage onto this crate's error
+/// type, keeping the variants (and so the FFI error codes) used before.
+impl From<anofox_regression::solvers::eb_shrink::EbShrinkError> for StatsError {
+    fn from(err: anofox_regression::solvers::eb_shrink::EbShrinkError) -> Self {
+        use anofox_regression::solvers::eb_shrink::EbShrinkError as E;
+        match err {
+            E::EmptyInput { field } => StatsError::EmptyInput { field },
+            E::DimensionMismatch {
+                estimates,
+                standard_errors,
+            } => StatsError::DimensionMismatch {
+                y_len: estimates,
+                x_rows: standard_errors,
+            },
+            E::InsufficientData { usable } => StatsError::InsufficientData {
+                rows: usable,
+                cols: 2,
+            },
+            E::InvalidValue { field, message } => StatsError::InvalidValue { field, message },
+            other => StatsError::RegressError(other.to_string()),
+        }
+    }
+}
+
 /// Upstream `NumericalError` mixes three kinds of failure under one variant:
 /// option/parameter validation ("tau must be between 0 and 1"), structurally
 /// degenerate data ("needs at least two distinct groups") and genuine numerical
