@@ -48,7 +48,6 @@ dependencies = [
  "anofox-stats-core",
  "cbindgen",
  "libc",
- "statrs",
 ]
 
 [[package]]

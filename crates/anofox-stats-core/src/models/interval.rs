@@ -1,32 +1,32 @@
 //! Leverage-aware prediction / confidence intervals for linear models.
 //!
-//! For a linear predictor `yhat0 = x0' beta` (with `x0` augmented by a leading 1
-//! when the model has an intercept) the variance of `yhat0` is
-//! `sigma^2 * x0' M x0`, where `M` depends on the estimator:
-//!
-//! * OLS:   `M = (X'X)^-1`
-//! * WLS:   `M = (X'WX)^-1`
-//! * Ridge: `M = A X'X A` with `A = (X'X + P)^-1`, `P = lambda * I` except that
-//!   the intercept is not penalised (`P[0,0] = 0`). This is exactly the
-//!   estimator used by `fit_ridge` / upstream `RidgeRegressor`, which centers
-//!   `X` and `y` and penalises only the slopes — algebraically identical to the
-//!   augmented formulation with an unpenalised intercept column.
-//!   (Weights and ridge may be combined: `M = A X'WX A`, `A = (X'WX + P)^-1`.)
-//!
-//! The prediction interval is `yhat0 ± t_{df} * s * sqrt(1 + x0' M x0)`, the
-//! confidence interval for the mean `yhat0 ± t_{df} * s * sqrt(x0' M x0)`,
-//! `df = n - p_effective`.
+//! Thin marshalling layer over `anofox_regression::inference`
+//! ([`compute_variance_factor`], [`intervals_from_variance_factor`]): the
+//! variance factor `M` (`(X'X)^-1`, `(X'WX)^-1`, or the ridge sandwich
+//! `A X'(W)X A` with an unpenalised intercept) and the interval
+//! `yhat ± t_df · s · sqrt(1 + x0'Mx0)` (prediction) or `sqrt(x0'Mx0)`
+//! (confidence) are computed upstream. This module only converts the
+//! column-major `Vec<Vec<f64>>` layout, filters rows the fit skipped, maps the
+//! NaN/zero-coefficient convention to the `excluded` mask and maps errors.
 
 use crate::errors::{StatsError, StatsResult};
-use faer::linalg::solvers::DenseSolveCore;
-use faer::{Mat, Side};
-use statrs::distribution::{ContinuousCDF, StudentsT};
+use anofox_regression::core::IntervalType as UpIntervalType;
+use anofox_regression::inference::{compute_variance_factor, intervals_from_variance_factor};
+use faer::{Col, Mat};
 
 /// A column is excluded from `M` when its coefficient is NaN (aliased /
 /// constant, dropped from the fit) or exactly 0.0 (inactive in a sparse fit
 /// such as elastic net / LASSO / NNLS at the bound).
 fn is_excluded(coef: f64) -> bool {
     coef.is_nan() || coef == 0.0
+}
+
+fn map_upstream_err(msg: &'static str) -> StatsError {
+    if msg.contains("singular") {
+        StatsError::SingularMatrix
+    } else {
+        StatsError::InvalidInput(msg.to_string())
+    }
 }
 
 /// Compute the variance-factor matrix `M` (row-major, `dim x dim`).
@@ -81,111 +81,33 @@ pub fn interval_matrix(
         n
     };
 
-    let off = usize::from(fit_intercept);
-    let dim = p + off;
-    // Indices (into the augmented design) of retained parameters.
-    let retained: Vec<usize> = (0..dim)
-        .filter(|&j| j < off || !is_excluded(coefficients[j - off]))
+    // Keep the rows the fit used.
+    let rows: Vec<usize> = (0..n)
+        .filter(|&i| x.iter().all(|col| col[i].is_finite()))
+        .filter(|&i| weights.is_none_or(|w| w[i].is_finite() && w[i] >= 0.0))
         .collect();
-    let q = retained.len();
-    if q == 0 {
+    if rows.is_empty() {
+        return Err(StatsError::NoValidData);
+    }
+    let excluded: Vec<bool> = coefficients.iter().map(|&c| is_excluded(c)).collect();
+    if !fit_intercept && excluded.iter().all(|&e| e) {
         return Err(StatsError::InvalidInput(
             "all coefficients are NaN or zero; nothing to build".into(),
         ));
     }
+    let xm = Mat::from_fn(rows.len(), p, |i, j| x[j][rows[i]]);
+    let wc = weights.map(|w| Col::from_fn(rows.len(), |i| w[rows[i]]));
+    let m = compute_variance_factor(&xm, wc.as_ref(), fit_intercept, &excluded, ridge_lambda)
+        .map_err(map_upstream_err)?;
 
-    let value = |i: usize, j: usize| -> f64 {
-        if j < off {
-            1.0
-        } else {
-            x[j - off][i]
-        }
-    };
-
-    // Weighted Gram matrix over valid rows and retained columns.
-    let mut g = Mat::<f64>::zeros(q, q);
-    let mut n_used = 0usize;
-    for i in 0..n {
-        if x.iter().any(|col| !col[i].is_finite()) {
-            continue;
-        }
-        let w = match weights {
-            Some(w) => {
-                if !w[i].is_finite() || w[i] < 0.0 {
-                    continue;
-                }
-                w[i]
-            }
-            None => 1.0,
-        };
-        n_used += 1;
-        for a in 0..q {
-            let va = w * value(i, retained[a]);
-            for b in a..q {
-                g[(a, b)] += va * value(i, retained[b]);
-            }
-        }
-    }
-    if n_used == 0 {
-        return Err(StatsError::NoValidData);
-    }
-    for a in 0..q {
-        for b in (a + 1)..q {
-            g[(b, a)] = g[(a, b)];
-        }
-    }
-
-    // Penalised matrix H = G + P (intercept unpenalised).
-    let mut h = g.clone();
-    if ridge_lambda > 0.0 {
-        for (a, &j) in retained.iter().enumerate() {
-            if j >= off {
-                h[(a, a)] += ridge_lambda;
-            }
-        }
-    }
-
-    let a_inv = invert_spd_checked(&h)?;
-    let m_reduced = if ridge_lambda > 0.0 {
-        &(&a_inv * &g) * &a_inv
-    } else {
-        a_inv
-    };
-
+    let dim = m.nrows();
     let mut out = vec![0.0; dim * dim];
-    for (a, &ja) in retained.iter().enumerate() {
-        for (b, &jb) in retained.iter().enumerate() {
-            out[ja * dim + jb] = m_reduced[(a, b)];
+    for a in 0..dim {
+        for b in 0..dim {
+            out[a * dim + b] = m[(a, b)];
         }
     }
     Ok((out, dim))
-}
-
-/// Invert a symmetric positive-definite matrix via Cholesky after diagonal
-/// equilibration, failing with `SingularMatrix` when it is numerically singular.
-fn invert_spd_checked(h: &Mat<f64>) -> StatsResult<Mat<f64>> {
-    let q = h.nrows();
-    let mut d = vec![0.0; q];
-    for (j, dj) in d.iter_mut().enumerate() {
-        let hjj = h[(j, j)];
-        if !(hjj.is_finite() && hjj > 0.0) {
-            return Err(StatsError::SingularMatrix);
-        }
-        *dj = 1.0 / hjj.sqrt();
-    }
-    // Equilibrated S = D H D has unit diagonal, so its Cholesky pivots are a
-    // scale-free conditioning measure.
-    let s = Mat::<f64>::from_fn(q, q, |i, j| h[(i, j)] * d[i] * d[j]);
-    let llt = s.llt(Side::Lower).map_err(|_| StatsError::SingularMatrix)?;
-    let l = llt.L();
-    let min_pivot = (0..q).map(|j| l[(j, j)]).fold(f64::INFINITY, f64::min);
-    // Pivot^2 bounds the smallest eigenvalue-ish of S (1 on the diagonal);
-    // below ~1e-12 the inverse carries no reliable digits.
-    if !(min_pivot.is_finite() && min_pivot * min_pivot > 1e-12) {
-        return Err(StatsError::SingularMatrix);
-    }
-    let s_inv = llt.inverse();
-    Ok(Mat::from_fn(q, q, |i, j| s_inv[(i, j)] * d[i] * d[j]))
 }
 
 /// Interval kind for [`predict_with_interval_matrix`].
@@ -195,6 +117,34 @@ pub enum IntervalType {
     Prediction,
     /// Interval for the conditional mean: `sqrt(x0' M x0)`.
     Confidence,
+}
+
+impl From<IntervalType> for UpIntervalType {
+    fn from(t: IntervalType) -> Self {
+        match t {
+            IntervalType::Prediction => UpIntervalType::Prediction,
+            IntervalType::Confidence => UpIntervalType::Confidence,
+        }
+    }
+}
+
+fn validate_level(confidence_level: f64) -> StatsResult<()> {
+    if !(confidence_level.is_finite() && confidence_level > 0.0 && confidence_level < 1.0) {
+        return Err(StatsError::InvalidInput(format!(
+            "confidence_level must be in (0, 1), got {confidence_level}"
+        )));
+    }
+    Ok(())
+}
+
+/// Linear predictor; NaN coefficients contribute nothing (as `anofox_predict`).
+fn linear_predictor(coefficients: &[f64], intercept: f64, x_new: &[f64]) -> f64 {
+    let base = if intercept.is_nan() { 0.0 } else { intercept };
+    coefficients
+        .iter()
+        .zip(x_new)
+        .filter(|(c, _)| !c.is_nan())
+        .fold(base, |acc, (c, v)| acc + c * v)
 }
 
 /// Point prediction with a leverage-aware interval.
@@ -220,11 +170,7 @@ pub fn predict_with_interval_matrix(
     confidence_level: f64,
     interval_type: IntervalType,
 ) -> StatsResult<(f64, f64, f64)> {
-    if !(confidence_level.is_finite() && confidence_level > 0.0 && confidence_level < 1.0) {
-        return Err(StatsError::InvalidInput(format!(
-            "confidence_level must be in (0, 1), got {confidence_level}"
-        )));
-    }
+    validate_level(confidence_level)?;
     let p = x_new.len();
     if coefficients.len() != p {
         return Err(StatsError::DimensionMismatchMsg(format!(
@@ -248,50 +194,90 @@ pub fn predict_with_interval_matrix(
         )));
     }
 
-    // Point prediction; NaN coefficients contribute nothing (as anofox_predict).
-    let mut yhat = if has_intercept { intercept } else { 0.0 };
-    for (c, v) in coefficients.iter().zip(x_new) {
-        if !c.is_nan() {
-            yhat += c * v;
-        }
-    }
-
+    let yhat = linear_predictor(coefficients, intercept, x_new);
     let df = n_observations.saturating_sub(n_params_effective);
     if df == 0 || !(residual_std_error.is_finite() && residual_std_error > 0.0) {
         return Ok((yhat, f64::NAN, f64::NAN));
     }
 
-    // x0 augmented; excluded features are zero (their rows/cols of M are zero).
-    let x0: Vec<f64> = (0..dim)
-        .map(|j| {
-            if j < off {
-                1.0
-            } else if is_excluded(coefficients[j - off]) {
-                0.0
-            } else {
-                x_new[j - off]
-            }
-        })
-        .collect();
-    let mut quad = 0.0;
-    for a in 0..dim {
-        if x0[a] == 0.0 {
-            continue;
+    // Excluded features have zero rows/cols in M; zero their x so a NaN there
+    // cannot leak into the leverage.
+    let m = Mat::from_fn(dim, dim, |a, b| matrix[a * dim + b]);
+    let x0 = Mat::from_fn(1, p, |_, j| {
+        if is_excluded(coefficients[j]) {
+            0.0
+        } else {
+            x_new[j]
         }
-        for b in 0..dim {
-            quad += x0[a] * matrix[a * dim + b] * x0[b];
-        }
+    });
+    let r = intervals_from_variance_factor(
+        &x0,
+        &m,
+        &Col::from_fn(1, |_| yhat),
+        residual_std_error * residual_std_error,
+        df as f64,
+        confidence_level,
+        interval_type.into(),
+        has_intercept,
+    );
+    Ok((yhat, r.lower[0], r.upper[0]))
+}
+
+/// Two-sided Student-t critical value `t_{(1+level)/2, df}`, or NaN for
+/// invalid inputs. Delegates to upstream's interval routine (a zero-leverage
+/// prediction interval with unit variance has half-width exactly `t`).
+pub fn t_critical(confidence_level: f64, df: usize) -> f64 {
+    if df == 0 || !(confidence_level > 0.0 && confidence_level < 1.0) {
+        return f64::NAN;
     }
-    let quad = quad.max(0.0);
-    let factor = match interval_type {
-        IntervalType::Prediction => (1.0 + quad).sqrt(),
-        IntervalType::Confidence => quad.sqrt(),
-    };
-    let t = StudentsT::new(0.0, 1.0, df as f64)
-        .map_err(|e| StatsError::InvalidInput(e.to_string()))?
-        .inverse_cdf((1.0 + confidence_level) / 2.0);
-    let margin = t * residual_std_error * factor;
-    Ok((yhat, yhat - margin, yhat + margin))
+    let r = intervals_from_variance_factor(
+        &Mat::zeros(1, 0),
+        &Mat::zeros(1, 1),
+        &Col::zeros(1),
+        1.0,
+        df as f64,
+        confidence_level,
+        UpIntervalType::Prediction,
+        true,
+    );
+    r.upper[0]
+}
+
+/// Prediction interval without the training design: assumes the leverage of
+/// the new row equals that of the centroid (`h = 1/n`), i.e.
+/// `yhat ± t_df · s · sqrt(1 + 1/n)` with `df = n - p` (`p` counts the
+/// intercept). Returns `(yhat, lower, upper)`; when the interval is undefined
+/// the bounds equal `yhat`.
+pub fn predict_with_centroid_interval(
+    coefficients: &[f64],
+    intercept: f64,
+    x_new: &[f64],
+    residual_std_error: f64,
+    n_observations: usize,
+    confidence_level: f64,
+) -> (f64, f64, f64) {
+    let yhat = linear_predictor(coefficients, intercept, x_new);
+    let p = coefficients.len() + usize::from(!intercept.is_nan());
+    let df = n_observations.saturating_sub(p);
+    if residual_std_error.is_nan()
+        || residual_std_error <= 0.0
+        || n_observations <= coefficients.len() + 1
+        || df == 0
+        || !(confidence_level > 0.0 && confidence_level < 1.0)
+    {
+        return (yhat, yhat, yhat);
+    }
+    let r = intervals_from_variance_factor(
+        &Mat::zeros(1, 0),
+        &Mat::from_fn(1, 1, |_, _| 1.0 / n_observations as f64),
+        &Col::from_fn(1, |_| yhat),
+        residual_std_error * residual_std_error,
+        df as f64,
+        confidence_level,
+        UpIntervalType::Prediction,
+        true,
+    );
+    (yhat, r.lower[0], r.upper[0])
 }
 
 #[cfg(test)]
@@ -490,5 +476,19 @@ mod tests {
             predict_with_interval_matrix(&[1.0], 0.0, &[1.0], &m, 2, 2, 2, 1.0, 0.9, kind).unwrap();
         assert_eq!(y, 1.0);
         assert!(lo.is_nan() && hi.is_nan());
+    }
+
+    /// R: qt(0.975, 10); 5 + qt(0.95, 6) * 0.5 * sqrt(1 + 1/8)
+    #[test]
+    #[allow(clippy::excessive_precision)]
+    fn t_critical_and_centroid_interval() {
+        assert!((t_critical(0.95, 10) - 2.2281388519649385).abs() < 1e-8);
+        assert!(t_critical(0.95, 0).is_nan() && t_critical(1.0, 5).is_nan());
+        let (y, lo, hi) = predict_with_centroid_interval(&[2.0], 1.0, &[2.0], 0.5, 8, 0.90);
+        assert_eq!(y, 5.0);
+        let half = 1.9431802803927816 * 0.5 * (1.0f64 + 1.0 / 8.0).sqrt();
+        assert!((hi - (5.0 + half)).abs() < 1e-8 && (lo - (5.0 - half)).abs() < 1e-8);
+        let (_, lo, hi) = predict_with_centroid_interval(&[2.0], 1.0, &[2.0], f64::NAN, 8, 0.9);
+        assert!(lo == 5.0 && hi == 5.0);
     }
 }

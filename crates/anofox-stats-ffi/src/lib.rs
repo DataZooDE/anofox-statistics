@@ -26,7 +26,6 @@ use anofox_stats_core::{
     QuantileOptions, RansacOptions, RidgeOptions, SolverType, StatsError, TheilSenOptions,
     TweedieOptions, WlsOptions,
 };
-use statrs::distribution::{ContinuousCDF, StudentsT};
 use std::slice;
 
 /// Validate a confidence level: must be finite and strictly inside (0, 1).
@@ -2189,19 +2188,7 @@ pub unsafe extern "C" fn anofox_jarque_bera(
 #[no_mangle]
 pub extern "C" fn anofox_t_critical(confidence_level: f64, df: usize) -> f64 {
     ffi_guard(std::ptr::null_mut(), f64::NAN, || {
-        if df == 0 || confidence_level <= 0.0 || confidence_level >= 1.0 {
-            return f64::NAN;
-        }
-
-        // Create t-distribution with given degrees of freedom
-        let t_dist = match StudentsT::new(0.0, 1.0, df as f64) {
-            Ok(dist) => dist,
-            Err(_) => return f64::NAN,
-        };
-
-        // Two-tailed critical value: need quantile at (1 + confidence_level) / 2
-        let alpha = (1.0 + confidence_level) / 2.0;
-        t_dist.inverse_cdf(alpha)
+        anofox_stats_core::models::t_critical(confidence_level, df)
     })
 }
 
@@ -2226,12 +2213,14 @@ impl Default for PredictionResult {
     }
 }
 
-/// Compute prediction with confidence interval for a single new observation
+/// Compute prediction with a prediction interval for a single new observation
+/// when the training design is not available.
 ///
-/// For OLS, the prediction interval is: yhat ± t_critical * se_pred
-/// where se_pred = residual_std_error * sqrt(1 + 1/n + distance_from_mean)
-///
-/// For simplicity, this function uses a simplified formula assuming average leverage.
+/// The interval assumes the new row sits at the centroid of the training data
+/// (leverage `1/n`): `yhat ± t_{df} * s * sqrt(1 + 1/n)`, `df = n - p`. Use
+/// `anofox_interval_matrix` + `anofox_predict_with_interval_matrix` for
+/// leverage-aware intervals. When no interval can be formed the bounds equal
+/// `yhat`.
 ///
 /// # Safety
 /// - `coefficients` must point to `coefficients_len` valid doubles
@@ -2253,75 +2242,28 @@ pub unsafe extern "C" fn anofox_predict_with_interval(
         if out_result.is_null() {
             return false;
         }
-
-        // Initialize with NaN
         *out_result = PredictionResult::default();
-
-        // Validate inputs
         if coefficients.is_null() || coefficients_len == 0 {
             return false;
         }
         if x_new.is_null() || x_len != coefficients_len {
             return false;
         }
-
-        // Compute prediction: yhat = intercept + sum(coefficients[i] * x_new[i])
-        // NaN coefficients contribute 0 (skip them to avoid NaN propagation)
         let coef_slice = slice::from_raw_parts(coefficients, coefficients_len);
         let x_slice = slice::from_raw_parts(x_new, x_len);
-
-        let intercept_val = if intercept.is_nan() { 0.0 } else { intercept };
-        let mut yhat = intercept_val;
-        for (coef, x_val) in coef_slice.iter().zip(x_slice.iter()) {
-            if !coef.is_nan() {
-                yhat += coef * x_val;
-            }
-        }
-
-        (*out_result).yhat = yhat;
-
-        // Compute prediction interval if we have valid std error
-        if residual_std_error.is_nan()
-            || residual_std_error <= 0.0
-            || n_observations <= coefficients_len + 1
-        {
-            // No valid interval, just return yhat with same bounds
-            (*out_result).yhat_lower = yhat;
-            (*out_result).yhat_upper = yhat;
-            return true;
-        }
-
-        // Degrees of freedom
-        let has_intercept = !intercept.is_nan();
-        let df = if has_intercept {
-            n_observations.saturating_sub(coefficients_len + 1)
-        } else {
-            n_observations.saturating_sub(coefficients_len)
+        let (yhat, lo, hi) = anofox_stats_core::models::predict_with_centroid_interval(
+            coef_slice,
+            intercept,
+            x_slice,
+            residual_std_error,
+            n_observations,
+            confidence_level,
+        );
+        *out_result = PredictionResult {
+            yhat,
+            yhat_lower: lo,
+            yhat_upper: hi,
         };
-
-        if df == 0 {
-            (*out_result).yhat_lower = yhat;
-            (*out_result).yhat_upper = yhat;
-            return true;
-        }
-
-        // Get t-critical value
-        let t_crit = anofox_t_critical(confidence_level, df);
-        if t_crit.is_nan() {
-            (*out_result).yhat_lower = yhat;
-            (*out_result).yhat_upper = yhat;
-            return true;
-        }
-
-        // Simplified prediction interval formula: yhat ± t * se * sqrt(1 + 1/n)
-        // This ignores the leverage term for simplicity (assumes average leverage)
-        let n = n_observations as f64;
-        let se_pred = residual_std_error * (1.0 + 1.0 / n).sqrt();
-        let margin = t_crit * se_pred;
-
-        (*out_result).yhat_lower = yhat - margin;
-        (*out_result).yhat_upper = yhat + margin;
-
         true
     })
 }

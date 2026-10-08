@@ -41,7 +41,10 @@ pub use glmm::{
     fit_glmm, fit_glmm_crossed, FactorVariance, GlmmFamily, GlmmOptions, GlmmResult, RandomEffect,
 };
 pub use huber::{fit_huber, HuberResult};
-pub use interval::{interval_matrix, predict_with_interval_matrix, IntervalType};
+pub use interval::{
+    interval_matrix, predict_with_centroid_interval, predict_with_interval_matrix, t_critical,
+    IntervalType,
+};
 pub use isotonic::fit_isotonic;
 pub use lars::fit_lars;
 pub use lm_dynamic::fit_lm_dynamic;
