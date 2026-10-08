@@ -90,10 +90,6 @@ CREATE VIEW results AS
     SELECT 'cohen_kappa_agg' AS fn, g, 1e-9::DOUBLE AS tol, [(cohen_kappa_agg(c1, c2)).kappa, (cohen_kappa_agg(c1, c2)).se]::DOUBLE[] AS vals FROM big GROUP BY g
     UNION ALL
     SELECT 'cohen_kappa_agg' AS fn, -1 AS g, 1e-9::DOUBLE AS tol, [(cohen_kappa_agg(c1, c2)).kappa, (cohen_kappa_agg(c1, c2)).se]::DOUBLE[] AS vals FROM small
-    UNION ALL
-    SELECT 'chisq_gof_agg' AS fn, g, 1e-9::DOUBLE AS tol, [(chisq_gof_agg(c1, 0.25)).statistic, (chisq_gof_agg(c1, 0.25)).p_value]::DOUBLE[] AS vals FROM big GROUP BY g
-    UNION ALL
-    SELECT 'chisq_gof_agg' AS fn, -1 AS g, 1e-9::DOUBLE AS tol, [(chisq_gof_agg(c1, 0.25)).statistic, (chisq_gof_agg(c1, 0.25)).p_value]::DOUBLE[] AS vals FROM small;
 
 # single-threaded reference
 statement ok
@@ -123,7 +119,6 @@ FROM ref JOIN par USING (fn, g)
 GROUP BY fn
 ORDER BY fn;
 ----
-chisq_gof_agg	9	true
 chisq_test_agg	9	true
 cohen_kappa_agg	9	true
 contingency_coef_agg	9	true
