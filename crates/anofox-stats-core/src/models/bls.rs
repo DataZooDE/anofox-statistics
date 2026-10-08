@@ -92,7 +92,8 @@ pub fn fit_bls(y: &[f64], x: &[Vec<f64>], options: &BlsOptions) -> StatsResult<B
         n_effective_features
     };
 
-    // If ALL columns are constant, we can still fit (intercept-only model if fit_intercept=true)
+    // All columns constant: upstream fits the intercept-only model; only the
+    // single-row case (upstream needs two rows) is answered here.
     if n_effective_features == 0 {
         if !options.fit_intercept {
             return Err(StatsError::InsufficientData {
@@ -100,20 +101,19 @@ pub fn fit_bls(y: &[f64], x: &[Vec<f64>], options: &BlsOptions) -> StatsResult<B
                 cols: n_features,
             });
         }
-        // Intercept-only model: compute mean of y as intercept
-        let y_mean = valid_indices.iter().map(|&i| y[i]).sum::<f64>() / n_valid as f64;
-
-        return Ok(BlsFitResult {
-            coefficients: vec![f64::NAN; n_features],
-            intercept: Some(y_mean),
-            ssr: f64::NAN,
-            r_squared: 0.0,
-            n_observations: n_valid,
-            n_features,
-            n_active_constraints: 0,
-            at_lower_bound: vec![false; n_features],
-            at_upper_bound: vec![false; n_features],
-        });
+        if n_valid == 1 {
+            return Ok(BlsFitResult {
+                coefficients: vec![f64::NAN; n_features],
+                intercept: Some(y[valid_indices[0]]),
+                ssr: f64::NAN,
+                r_squared: 0.0,
+                n_observations: n_valid,
+                n_features,
+                n_active_constraints: 0,
+                at_lower_bound: vec![false; n_features],
+                at_upper_bound: vec![false; n_features],
+            });
+        }
     }
 
     if n_valid < min_obs {

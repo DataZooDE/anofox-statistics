@@ -87,7 +87,8 @@ pub fn fit_elasticnet(
         n_effective_features
     };
 
-    // If ALL columns are constant, we can still fit (intercept-only model if fit_intercept=true)
+    // All columns constant: upstream fits the intercept-only model; only the
+    // single-row case (upstream needs two rows) is answered here.
     if n_effective_features == 0 {
         if !options.fit_intercept {
             return Err(StatsError::InsufficientData {
@@ -95,34 +96,21 @@ pub fn fit_elasticnet(
                 cols: n_features,
             });
         }
-        // Intercept-only model: compute mean of y as intercept
-        let y_mean = valid_indices.iter().map(|&i| y[i]).sum::<f64>() / n_valid as f64;
-        // The residual variance of an intercept-only fit has n-1 degrees of
-        // freedom; with a single observation it is undefined (NaN), not 0/0.
-        let y_var = if n_valid > 1 {
-            valid_indices
-                .iter()
-                .map(|&i| (y[i] - y_mean).powi(2))
-                .sum::<f64>()
-                / (n_valid - 1) as f64
-        } else {
-            f64::NAN
-        };
-        let rmse = y_var.sqrt();
-
-        return Ok(FitResult {
-            core: FitResultCore {
-                coefficients: vec![f64::NAN; n_features],
-                intercept: Some(y_mean),
-                r_squared: 0.0,
-                adj_r_squared: 0.0,
-                residual_std_error: rmse,
-                n_observations: n_valid,
-                n_features,
-            },
-            inference: None,
-            diagnostics: None,
-        });
+        if n_valid == 1 {
+            return Ok(FitResult {
+                core: FitResultCore {
+                    coefficients: vec![f64::NAN; n_features],
+                    intercept: Some(y[valid_indices[0]]),
+                    r_squared: 0.0,
+                    adj_r_squared: 0.0,
+                    residual_std_error: f64::NAN,
+                    n_observations: 1,
+                    n_features,
+                },
+                inference: None,
+                diagnostics: None,
+            });
+        }
     }
 
     if n_valid < min_obs {

@@ -71,19 +71,7 @@ pub fn fit_isotonic(
     // Extract fitted values
     let fitted_values: Vec<f64> = fitted.fitted_values().iter().copied().collect();
 
-    // Calculate R-squared
-    let y_mean = valid_data.iter().map(|(_, y)| y).sum::<f64>() / n_valid as f64;
-    let ss_tot: f64 = valid_data.iter().map(|(_, y)| (y - y_mean).powi(2)).sum();
-    let ss_res: f64 = valid_data
-        .iter()
-        .zip(fitted_values.iter())
-        .map(|((_, y), yhat)| (y - yhat).powi(2))
-        .sum();
-    let r_squared = if ss_tot > 0.0 {
-        1.0 - ss_res / ss_tot
-    } else {
-        0.0
-    };
+    let r_squared = fitted.result().r_squared;
 
     Ok(IsotonicFitResult {
         fitted_values,
