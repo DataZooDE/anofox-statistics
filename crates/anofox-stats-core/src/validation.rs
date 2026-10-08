@@ -47,17 +47,13 @@ fn detect(m: &faer::Mat<f64>, fit_intercept: bool) -> Vec<bool> {
     }
 }
 
-/// Single-column form of [`droppable_columns`].
-pub(crate) fn is_droppable_column(col: &[f64], rows: &[usize], fit_intercept: bool) -> bool {
-    detect(
-        &faer::Mat::from_fn(rows.len(), 1, |i, _| col[rows[i]]),
-        fit_intercept,
-    )[0]
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn is_droppable_column(col: &[f64], rows: &[usize], fit_intercept: bool) -> bool {
+        droppable_columns(&[col.to_vec()], rows, fit_intercept)[0]
+    }
 
     #[test]
     fn tiny_unit_column_is_not_constant() {

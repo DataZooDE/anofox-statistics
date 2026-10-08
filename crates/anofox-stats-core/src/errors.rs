@@ -99,6 +99,31 @@ impl From<anofox_regression::solvers::RegressionError> for StatsError {
     }
 }
 
+/// Map errors of the upstream penalized GLM engine and AFT model onto this
+/// crate's error type. The upstream variants mirror `StatsError` 1:1, so every
+/// FFI error code and the error-vs-NULL policy stay what they were.
+impl From<anofox_regression::solvers::penalized_glm::GlmEngineError> for StatsError {
+    fn from(err: anofox_regression::solvers::penalized_glm::GlmEngineError) -> Self {
+        use anofox_regression::solvers::penalized_glm::GlmEngineError as G;
+        match err {
+            G::InsufficientData { rows, cols } => StatsError::InsufficientData { rows, cols },
+            G::InsufficientDataMsg(msg) => StatsError::InsufficientDataMsg(msg),
+            G::NoValidData => StatsError::NoValidData,
+            G::DimensionMismatch { y_len, x_rows } => {
+                StatsError::DimensionMismatch { y_len, x_rows }
+            }
+            G::EmptyInput { field } => StatsError::EmptyInput { field },
+            G::InvalidInput(msg) => StatsError::InvalidInput(msg),
+            G::InvalidValue { field, message } => StatsError::InvalidValue { field, message },
+            G::SingularMatrix => StatsError::SingularMatrix,
+            G::NumericalFailure(msg) => StatsError::NumericalFailure(msg),
+            // `GlmEngineError` is `#[non_exhaustive]`; a variant added upstream is
+            // surfaced as an error rather than silently degraded to NULL.
+            other => StatsError::RegressError(other.to_string()),
+        }
+    }
+}
+
 /// Upstream `NumericalError` mixes three kinds of failure under one variant:
 /// option/parameter validation ("tau must be between 0 and 1"), structurally
 /// degenerate data ("needs at least two distinct groups") and genuine numerical

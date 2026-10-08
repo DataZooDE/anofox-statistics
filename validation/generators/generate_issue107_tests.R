@@ -9,7 +9,7 @@
 # script has NOT been executed. The reference constants currently pinned in the
 # Rust and sqllogictest suites were produced instead by an independent NumPy
 # implementation of the same estimators (see
-# crates/anofox-stats-core/src/models/glm_engine/parity.rs, which documents this).
+# anofox-regression src/solvers/penalized_glm/parity.rs, which documents this).
 #
 # Running this script is therefore a genuine cross-check against R, not a
 # reproduction of what is already asserted. Where a value disagrees, R wins:
