@@ -30,9 +30,9 @@ not needed). It (re)writes:
 | `glm_glmm.test` | `glmm_fit_agg` (gaussian REML/ML, poisson, binomial) | `lme4::lmer`, `lme4::glmer(nAGQ = 0)` |
 | `survival_aft.test` | `aft_fit_agg` (weibull, lognormal, loglogistic, exponential) | `survival::survreg` |
 
-Where the extension follows a different convention from R's default (e.g. the
-floored quasi-Poisson covariance scaling, centred R^2 without an intercept,
-moment-estimated negative-binomial theta, Pearson dispersion in the Gamma AIC),
+Where the extension follows a different convention from R's default (e.g. centred
+R^2 without an intercept, moment-estimated negative-binomial theta, z instead
+of t p-values for the Gamma family),
 the generator computes the reference by hand with the extension's convention
 and the generated test explains the difference in a comment.
 

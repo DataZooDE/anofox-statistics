@@ -326,18 +326,28 @@ L <- c(L, d2_sql,
   "")
 # Poisson
 fp <- glm(cnt ~ z1 + z2, family = poisson, control = ctl)
-phi_p <- sum(residuals(fp, "pearson")^2) / fp$df.residual
 L <- c(L,
   "# ---- Poisson (log link) ----",
-  "# CONVENTION: the extension scales the Poisson covariance by max(1, Pearson",
-  sprintf("# chi^2/df) (here %.6f), a floored quasi-Poisson correction; R's", phi_p),
-  "# summary.glm uses dispersion 1. Reference: summary(glm(cnt ~ z1 + z2, poisson),",
-  "# dispersion = max(1, sum(residuals(fit, 'pearson')^2)/df.residual)).",
+  "# Covariance at dispersion 1, exactly summary.glm for family = poisson.",
   glm_block("glm(cnt ~ z1 + z2, family = poisson)", fp,
-    "poisson_fit_agg(cnt, [z1, z2], {'compute_inference': true, 'tolerance': 1e-12})",
-    extra = list(disp = max(1, phi_p))),
-  checks("Poisson dispersion field = max(1, Pearson chi^2 / df)",
-    "(SELECT poisson_fit_agg(cnt, [z1, z2], {'tolerance': 1e-12}) AS r FROM d2) s", "r.dispersion", max(1, phi_p), 1e-6))
+    "poisson_fit_agg(cnt, [z1, z2], {'compute_inference': true, 'tolerance': 1e-12})"),
+  checks("Poisson dispersion field = 1 (summary.glm)",
+    "(SELECT poisson_fit_agg(cnt, [z1, z2], {'tolerance': 1e-12}) AS r FROM d2) s", "r.dispersion", 1, 1e-6))
+# Null deviance with an offset / without an intercept (R's glm convention)
+fpo <- glm(cnt ~ z1 + offset(z2), family = poisson, control = ctl)
+fpn <- glm(cnt ~ 0 + z1 + z2, family = poisson, control = ctl)
+L <- c(L,
+  "# ---- Poisson with an offset / without an intercept ----",
+  "# null deviance as R's glm: intercept-only model fitted WITH the offset; without",
+  "# an intercept the deviance at mu = linkinv(offset) (= 1 here). pseudo R^2 = 1 - dev/null.",
+  checks("glm(cnt ~ z1 + offset(z2), poisson): coefficients, deviance, null deviance, pseudo R^2, AIC",
+    "(SELECT poisson_fit_agg(cnt, [z1, z2], {'offset': 2, 'tolerance': 1e-12}) AS r FROM d2) s",
+    c("r.intercept", "r.coefficients[1]", "r.deviance", "r.null_deviance", "r.pseudo_r_squared", "r.aic"),
+    c(coef(fpo), fpo$deviance, fpo$null.deviance, 1 - fpo$deviance / fpo$null.deviance, fpo$aic), 1e-6),
+  checks("glm(cnt ~ 0 + z1 + z2, poisson): coefficients, deviance, null deviance, pseudo R^2",
+    "(SELECT poisson_fit_agg(cnt, [z1, z2], {'intercept': false, 'tolerance': 1e-12}) AS r FROM d2) s",
+    c(lst("coefficients", 1:2), "r.deviance", "r.null_deviance", "r.pseudo_r_squared"),
+    c(coef(fpn), fpn$deviance, fpn$null.deviance, 1 - fpn$deviance / fpn$null.deviance), 1e-6))
 # Binomial
 for (lk in c("logit", "probit", "cloglog")) {
   fb <- glm(bin ~ z1 + z2, family = binomial(link = lk), control = ctl)
@@ -377,18 +387,14 @@ L <- c(L,
 # Gamma
 fg <- glm(gam ~ z1 + z2, family = Gamma(link = "log"), control = ctl)
 phi_g <- sum(residuals(fg, "pearson")^2) / fg$df.residual
-mu_g <- fitted(fg)
-aic_g <- -2 * sum(dgamma(gam, shape = 1 / phi_g, rate = 1 / (phi_g * mu_g), log = TRUE)) + 2 * (3 + 1)
 L <- c(L,
   "# ---- Gamma (log link) ----",
-  "# SEs use the Pearson dispersion exactly like summary.glm. CONVENTIONS: (1) the",
-  "# extension reports normal (z) p-values where summary.glm uses t(n-p); the",
-  "# reference p = 2*pnorm(-|b/se|). (2) R's Gamma()$aic plugs in dispersion =",
-  "# deviance/n; the extension plugs in the Pearson dispersion. Reference AIC =",
-  "# -2*sum(dgamma(y, shape = 1/phi_P, rate = 1/(phi_P*mu), log = TRUE)) + 2*(p + 1).",
+  "# SEs use the Pearson dispersion exactly like summary.glm; AIC is R's",
+  "# (Gamma()$aic, dispersion = deviance/n). CONVENTION: the extension reports",
+  "# normal (z) p-values where summary.glm uses t(n-p); the reference",
+  "# p = 2*pnorm(-|b/se|).",
   glm_block("glm(gam ~ z1 + z2, family = Gamma(link = 'log'))", fg,
-    "gamma_fit_agg(gam, [z1, z2], {'compute_inference': true, 'tolerance': 1e-12})",
-    extra = list(aic = aic_g)),
+    "gamma_fit_agg(gam, [z1, z2], {'compute_inference': true, 'tolerance': 1e-12})"),
   checks("Gamma dispersion = Pearson chi^2 / df",
     "(SELECT gamma_fit_agg(gam, [z1, z2], {'tolerance': 1e-12}) AS r FROM d2) s", "r.dispersion", phi_g, 1e-6))
 write_test("glm_fit.test", L)
