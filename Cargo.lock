@@ -4,9 +4,9 @@ version = 4
 
 [[package]]
 name = "anofox-regression"
-version = "0.5.15"
+version = "0.5.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3019bc956b33a5c0f3ca8f9683ea3cd785821468c511b9ef6eed011d3e2fbc7b"
+checksum = "f90451dd6e34d96597b640e2d5bd649e1333e6cec9b42adbd62ec6f593878870"
 dependencies = [
  "argmin",
  "argmin-math",
