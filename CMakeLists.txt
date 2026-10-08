@@ -244,6 +244,20 @@ build_loadable_extension(${TARGET_NAME} " " ${EXTENSION_SOURCES})
 target_link_libraries(${EXTENSION_NAME} anofox_stats_ffi-static datazoo_banner)
 target_link_libraries(${LOADABLE_EXTENSION_NAME} anofox_stats_ffi-static datazoo_banner)
 
+# ELF only: keep the Rust archive's symbols local to whatever shared object the
+# *static* extension ends up in (e.g. libduckdb.so in the test build). faer's
+# GEMM backend (private-gemm-x86) ships hand-written assembly kernels as global
+# symbols that tail-jump into each other and are invoked from inline asm that
+# does not declare r11 as clobbered. Inside a shared library those jumps go
+# through the PLT, and the first (lazily bound) call runs the dynamic-linker
+# resolver, which is allowed to clobber r11 -> pack_lhs reads its MillikernelInfo
+# from garbage -> SIGSEGV (seen in ransac/OLS QR fits). Forcing the symbols
+# local makes the linker bind those jumps directly. The loadable extension
+# already gets this via DuckDB's -Wl,--exclude-libs,ALL.
+if(UNIX AND NOT APPLE AND NOT EMSCRIPTEN)
+    target_link_options(${EXTENSION_NAME} INTERFACE "LINKER:--exclude-libs,libanofox_stats_ffi.a")
+endif()
+
 # Telemetry header is always needed (provides no-op stubs when telemetry is disabled)
 target_include_directories(${EXTENSION_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/posthog-telemetry/include)
 target_include_directories(${LOADABLE_EXTENSION_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/posthog-telemetry/include)
