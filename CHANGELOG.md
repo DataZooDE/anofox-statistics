@@ -64,6 +64,11 @@ Breaking changes are called out explicitly.
 
 ### Changed
 
+- Dependency: `anofox-regression` 0.5.16.
+- The penalized GLM engine (Poisson, Binomial, Negative Binomial, Tweedie, Gamma, Logistic,
+  priors, Laplace curvature) and the AFT survival model are now delegated to
+  `anofox_regression::solvers::{penalized_glm, aft}`; the extension keeps only option
+  conversion and error mapping. No change in results, error messages or NULL policy.
 - `glmm_fit_agg` z-values, p-values and Wald intervals come from `anofox-regression`
   (match lme4 `summary()` / `confint(method = "Wald")`); negative binomial standard
   errors always use dispersion 1 like `MASS::glm.nb`; Theil-Sen aliases collinear
