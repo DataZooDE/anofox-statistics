@@ -24,6 +24,8 @@ pub struct ResidualsResult {
     pub studentized: Option<Vec<f64>>,
     /// Leverage values (hat diagonal)
     pub leverage: Option<Vec<f64>>,
+    /// Cook's distance (needs leverage and a residual standard error)
+    pub cooks_distance: Option<Vec<f64>>,
 }
 
 /// Compute residuals from y and predicted values
@@ -81,11 +83,24 @@ pub fn compute_residuals(
         (None, None)
     };
 
+    // Cook's distance, as R's `cooks.distance(lm)`, delegated to anofox-regression:
+    // D_i = e_i^2 / (p * s^2) * h_ii / (1 - h_ii)^2 with p = k + 1 (intercept).
+    let cooks_distance = match (&leverage, residual_std_error, x) {
+        (Some(lev), Some(s), Some(cols)) if s.is_finite() && s > 0.0 => {
+            let e = faer::Col::from_fn(n, |i| raw[i]);
+            let h = faer::Col::from_fn(n, |i| lev[i]);
+            let d = anofox_regression::diagnostics::cooks_distance(&e, &h, s * s, cols.len() + 1);
+            Some((0..n).map(|i| d[i]).collect())
+        }
+        _ => None,
+    };
+
     Ok(ResidualsResult {
         raw,
         standardized,
         studentized,
         leverage,
+        cooks_distance,
     })
 }
 

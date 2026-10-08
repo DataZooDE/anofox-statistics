@@ -47,6 +47,7 @@ static LogicalType GetResidualsDiagnosticsAggResultType() {
     children.push_back(make_pair("standardized", LogicalType::LIST(LogicalType::DOUBLE)));
     children.push_back(make_pair("studentized", LogicalType::LIST(LogicalType::DOUBLE)));
     children.push_back(make_pair("leverage", LogicalType::LIST(LogicalType::DOUBLE)));
+    children.push_back(make_pair("cooks_distance", LogicalType::LIST(LogicalType::DOUBLE)));
 
     return LogicalType::STRUCT(std::move(children));
 }
@@ -307,6 +308,13 @@ static void ResidualsDiagnosticsAggFinalize(Vector &state_vector, AggregateInput
             FlatVector::SetNull(*struct_entries[struct_idx++], result_idx, true);
         }
 
+        // Cook's distance (needs x and a residual standard error)
+        if (resid_result.has_cooks_distance) {
+            SetListInResult(*struct_entries[struct_idx++], result_idx, resid_result.cooks_distance, resid_result.len);
+        } else {
+            FlatVector::SetNull(*struct_entries[struct_idx++], result_idx, true);
+        }
+
         anofox_free_residuals(&resid_result);
         state.Reset();
     }
@@ -351,7 +359,7 @@ void RegisterResidualsDiagnosticsAggregateFunction(ExtensionLoader &loader) {
     info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
 
     FunctionDescription d1;
-    d1.description = "Aggregate version of residuals diagnostics: computes raw, standardized, studentized residuals and leverage from predicted and actual values.";
+    d1.description = "Aggregate version of residuals diagnostics: computes raw residuals from predicted and actual values. Standardized and studentized residuals, leverage and Cook's distance need the feature matrix: use residuals_diagnostics_agg(y, y_hat, x).";
     d1.examples = {"residuals_diagnostics_agg(y, y_hat)"};
     d1.categories = {"regression-diagnostics"};
     d1.parameter_names = {"y", "y_hat"};
@@ -359,7 +367,7 @@ void RegisterResidualsDiagnosticsAggregateFunction(ExtensionLoader &loader) {
     info.descriptions.push_back(std::move(d1));
 
     FunctionDescription d2;
-    d2.description = "Aggregate version of residuals diagnostics with feature matrix: computes raw, standardized, studentized residuals and leverage from predicted and actual values.";
+    d2.description = "Aggregate version of residuals diagnostics with feature matrix: computes raw, standardized, studentized residuals, leverage and Cook's distance from predicted and actual values and the feature matrix.";
     d2.examples = {"residuals_diagnostics_agg(y, y_hat, x)"};
     d2.categories = {"regression-diagnostics"};
     d2.parameter_names = {"y", "y_hat", "x"};

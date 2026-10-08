@@ -67,8 +67,8 @@ inference output.
 | `coefficients` | `DOUBLE[]` | One coefficient per feature |
 | `intercept` | `DOUBLE` | Intercept |
 | `r_squared` | `DOUBLE` | Coefficient of determination |
-| `adj_r_squared` | `DOUBLE` | Adjusted R² |
-| `residual_std_error` | `DOUBLE` | Residual standard error |
+| `adj_r_squared` | `DOUBLE` | Adjusted R²; NULL while the LARS backend does not compute it |
+| `residual_std_error` | `DOUBLE` | Residual standard error; NULL while the LARS backend does not compute it |
 | `n_observations` | `BIGINT` | Rows used in the fit |
 | `n_features` | `BIGINT` | Number of features |
 
