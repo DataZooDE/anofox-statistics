@@ -160,7 +160,7 @@ jobs:
       - name: ccache
         uses: hendrikmuhs/ccache-action@v1.2
         with:
-          key: sanitizer-debug-${{ hashFiles('duckdb') }}
+          key: sanitizer-debug-${{ runner.os }}
           max-size: 2G
 
       - name: Build debug (ASAN + UBSAN)
