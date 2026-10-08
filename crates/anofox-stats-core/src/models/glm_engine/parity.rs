@@ -294,7 +294,7 @@ fn negbinomial_matches_upstream_on_a_sound_design() {
 
     // Upstream estimates theta; feed its estimate back so the comparison is
     // like-for-like.
-    let theta = upstream.dispersion;
+    let theta = upstream.theta;
     let fit = fit(
         &NegativeBinomialFamily::new(theta),
         &y,
