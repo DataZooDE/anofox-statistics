@@ -64,7 +64,25 @@ Breaking changes are called out explicitly.
 
 ### Changed
 
-- Dependency: `anofox-regression` 0.5.16.
+- **Behaviour change (Poisson inference).** `poisson_fit_agg` and the other Poisson
+  aggregates compute standard errors at dispersion 1, exactly R's `glm(family = poisson)` /
+  `summary.glm`. Previously the covariance was scaled by `max(1, Pearson χ²/df)`
+  (floored quasi-Poisson), so on overdispersed data `std_errors`, `z_values`, `p_values`
+  and confidence intervals are now smaller by `√(χ²/df)` and `dispersion` is 1.0.
+  Coefficients are unchanged. Use `negbinom_fit_agg` for overdispersed counts.
+- **Behaviour change (Gamma fit statistics).** `gamma_fit_agg` evaluates the
+  log-likelihood (and so `aic` / `bic`) at the dispersion `deviance / n`, exactly R's
+  `logLik.glm` / `AIC`. Coefficients, standard errors and the reported (Pearson)
+  `dispersion` are unchanged.
+- **Behaviour change (null deviance).** For every GLM family, with an offset the
+  `null_deviance` is that of the intercept-only model fitted with the offset, and without
+  an intercept it is the deviance at `μ = linkinv(offset)` (`linkinv(0)` without an
+  offset), as R's `glm`. `null_deviance` and `pseudo_r_squared` change for offset and
+  no-intercept models only.
+- The AID demand classification (`aid_agg`, `aid_anomaly_agg`) and empirical-Bayes
+  shrinkage (`eb_shrink_agg`, `eb_shrink_by`) are delegated to `anofox-regression`
+  (`solvers::aid::heuristic`, `solvers::eb_shrink`); results are bit-identical.
+- Dependency: `anofox-regression` 0.5.16 -> 0.5.17.
 - The penalized GLM engine (Poisson, Binomial, Negative Binomial, Tweedie, Gamma, Logistic,
   priors, Laplace curvature) and the AFT survival model are now delegated to
   `anofox_regression::solvers::{penalized_glm, aft}`; the extension keeps only option
