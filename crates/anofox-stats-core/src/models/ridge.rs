@@ -69,53 +69,30 @@ pub fn fit_ridge(y: &[f64], x: &[Vec<f64>], options: &RidgeOptions) -> StatsResu
 
     let n_valid = valid_indices.len();
 
-    // Detect zero-variance (constant) columns BEFORE min_obs check
-    // Constant columns are only dropped when an intercept is fitted (see
-    // `validation::droppable_columns`); without one, a constant column IS the intercept.
-    let is_constant_column: Vec<bool> =
-        crate::validation::droppable_columns(x, &valid_indices, options.fit_intercept);
-
-    // Count non-constant features for min_obs calculation
-    let n_effective_features = is_constant_column.iter().filter(|&&c| !c).count();
-
-    // Check we have enough observations for the effective (non-constant) features
-    let min_obs = if options.fit_intercept {
-        n_effective_features + 1
-    } else {
-        n_effective_features
-    };
-
-    // If ALL columns are constant, we can still fit (intercept-only model if fit_intercept=true)
-    if n_effective_features == 0 {
-        if !options.fit_intercept {
-            return Err(StatsError::InsufficientData {
-                rows: n_valid,
-                cols: n_features,
-            });
-        }
-        // Intercept-only model: compute mean of y as intercept
-        let y_mean = valid_indices.iter().map(|&i| y[i]).sum::<f64>() / n_valid as f64;
-        // The residual variance of an intercept-only fit has n-1 degrees of
-        // freedom; with a single observation it is undefined (NaN), not 0/0.
-        let y_var = if n_valid > 1 {
-            valid_indices
-                .iter()
-                .map(|&i| (y[i] - y_mean).powi(2))
-                .sum::<f64>()
-                / (n_valid - 1) as f64
-        } else {
-            f64::NAN
-        };
-        let rmse = y_var.sqrt();
-
+    // Non-estimable columns (constant with an intercept, all-zero without) are
+    // left out of the design and reported as NaN; intercept-only fits and
+    // (for alpha == 0) constant columns without an intercept are upstream's.
+    let dropped = crate::validation::droppable_columns(x, &valid_indices, options.fit_intercept);
+    let kept: Vec<usize> = (0..n_features).filter(|&j| !dropped[j]).collect();
+    if (kept.is_empty() && !options.fit_intercept)
+        || n_valid < kept.len() + usize::from(options.fit_intercept)
+    {
+        return Err(StatsError::InsufficientData {
+            rows: n_valid,
+            cols: n_features,
+        });
+    }
+    if kept.is_empty() && n_valid == 1 {
+        // A single observation: the intercept is that value, its residual
+        // variance is undefined (upstream needs two rows).
         return Ok(FitResult {
             core: FitResultCore {
                 coefficients: vec![f64::NAN; n_features],
-                intercept: Some(y_mean),
+                intercept: Some(y[valid_indices[0]]),
                 r_squared: 0.0,
                 adj_r_squared: 0.0,
-                residual_std_error: rmse,
-                n_observations: n_valid,
+                residual_std_error: f64::NAN,
+                n_observations: 1,
                 n_features,
             },
             inference: None,
@@ -123,77 +100,35 @@ pub fn fit_ridge(y: &[f64], x: &[Vec<f64>], options: &RidgeOptions) -> StatsResu
         });
     }
 
-    if n_valid < min_obs {
-        return Err(StatsError::InsufficientData {
-            rows: n_valid,
-            cols: n_features,
-        });
-    }
-
-    // Build reduced X matrix (only non-constant columns)
-    let non_constant_indices: Vec<usize> = is_constant_column
-        .iter()
-        .enumerate()
-        .filter_map(|(i, &is_const)| if !is_const { Some(i) } else { None })
-        .collect();
-
-    // With alpha == 0 and no intercept, a constant column is an (unpenalised)
-    // intercept that the upstream OLS fallback would drop. Ridge with alpha == 0
-    // IS OLS, so delegate to `fit_ols`, which handles that case. With alpha > 0
-    // the constant column is an ordinary penalised feature and is kept upstream.
-    if options.alpha == 0.0
-        && !options.fit_intercept
-        && crate::validation::find_pseudo_intercept(x, &valid_indices, &non_constant_indices)
-            .is_some()
-    {
-        return crate::models::fit_ols(
-            y,
-            x,
-            &crate::types::OlsOptions {
-                fit_intercept: false,
-                compute_inference: options.compute_inference,
-                confidence_level: options.confidence_level,
-                solver: options.solver,
-                hc_type: None,
-            },
-        );
-    }
-
-    // Convert to faer types (only non-constant columns)
     let y_col = Col::from_fn(n_valid, |i| y[valid_indices[i]]);
-    let x_mat = Mat::from_fn(n_valid, n_effective_features, |i, j| {
-        x[non_constant_indices[j]][valid_indices[i]]
-    });
+    let x_mat = Mat::from_fn(n_valid, kept.len(), |i, j| x[kept[j]][valid_indices[i]]);
 
-    // Build and fit the model
     let fitted = RidgeRegressor::builder()
         .with_intercept(options.fit_intercept)
         .lambda(options.alpha)
         .lambda_scaling(convert_lambda_scaling(options.lambda_scaling))
+        .compute_inference(options.compute_inference)
         .confidence_level(options.confidence_level)
         .solve_method(convert_solver(options.solver))
         .build()
         .fit(&x_mat, &y_col)
         .map_err(StatsError::from)?;
-
-    // Extract results
     let result = fitted.result();
 
-    // Reconstruct full coefficient vector with NaN for constant columns
-    let reduced_coefficients: Vec<f64> = result.coefficients.iter().copied().collect();
-    let mut coefficients = vec![f64::NAN; n_features];
-    for (reduced_idx, &orig_idx) in non_constant_indices.iter().enumerate() {
-        coefficients[orig_idx] = reduced_coefficients[reduced_idx];
-    }
-    let intercept = if options.fit_intercept {
-        result.intercept
-    } else {
-        None
+    // Scatter a reduced (kept-columns) vector back to full width, NaN elsewhere.
+    let expand = |reduced: Option<&Col<f64>>| -> Vec<f64> {
+        let mut full = vec![f64::NAN; n_features];
+        if let Some(col) = reduced {
+            for (r, &j) in kept.iter().enumerate() {
+                full[j] = col[r];
+            }
+        }
+        full
     };
 
     let core = FitResultCore {
-        coefficients,
-        intercept,
+        coefficients: expand(Some(&result.coefficients)),
+        intercept: result.intercept,
         r_squared: result.r_squared,
         adj_r_squared: result.adj_r_squared,
         residual_std_error: result.rmse,
@@ -201,59 +136,21 @@ pub fn fit_ridge(y: &[f64], x: &[Vec<f64>], options: &RidgeOptions) -> StatsResu
         n_features,
     };
 
-    // Build inference results if requested.
-    //
-    // With alpha > 0 the coefficients are biased towards zero, so classical
-    // t-tests, p-values and confidence intervals (which assume an unbiased,
-    // normally distributed estimator centred on the true value) are not valid.
-    // The upstream standard errors, sqrt(MSE * diag((X'X + lambda I)^-1)), are not
-    // even the sampling variance of the ridge estimator (that would be the
-    // sandwich (X'X + lambda I)^-1 X'X (X'X + lambda I)^-1). Rather than report
-    // misleading numbers we return NaN (surfaced as NULL in SQL) for all of them.
-    // alpha == 0 is plain OLS and keeps the classical inference.
-    let inference = if options.compute_inference && options.alpha > 0.0 {
-        let nan = vec![f64::NAN; n_features];
-        Some(FitResultInference {
-            std_errors: nan.clone(),
-            t_values: nan.clone(),
-            p_values: nan.clone(),
-            ci_lower: nan.clone(),
-            ci_upper: nan,
-            confidence_level: options.confidence_level,
-            f_statistic: None,
-            f_pvalue: None,
-        })
-    } else if options.compute_inference {
-        // Helper to reconstruct reduced vector to full size with NaN for constant columns
-        let reconstruct = |reduced: Option<&faer::Col<f64>>| -> Vec<f64> {
-            let mut full = vec![f64::NAN; n_features];
-            if let Some(col) = reduced {
-                for (reduced_idx, &orig_idx) in non_constant_indices.iter().enumerate() {
-                    full[orig_idx] = col[reduced_idx];
-                }
-            }
-            full
-        };
-
-        let std_errors = reconstruct(result.std_errors.as_ref());
-        let t_values = reconstruct(result.t_statistics.as_ref());
-        let p_values = reconstruct(result.p_values.as_ref());
-        let ci_lower = reconstruct(result.conf_interval_lower.as_ref());
-        let ci_upper = reconstruct(result.conf_interval_upper.as_ref());
-
-        Some(FitResultInference {
-            std_errors,
-            t_values,
-            p_values,
-            ci_lower,
-            ci_upper,
-            confidence_level: options.confidence_level,
-            f_statistic: Some(result.f_statistic),
-            f_pvalue: Some(result.f_pvalue),
-        })
-    } else {
-        None
-    };
+    // Upstream reports, for alpha > 0, the ridge sandwich standard errors
+    // sigma * sqrt(diag(A X'X A)), A = (X'X + lambda P)^-1, and leaves t, p and
+    // the confidence interval unset: a t-test centred on the shrunken, biased
+    // coefficient is not a valid test (NaN, i.e. NULL in SQL). The overall F
+    // test is likewise not reported for alpha > 0. alpha == 0 is plain OLS.
+    let inference = options.compute_inference.then(|| FitResultInference {
+        std_errors: expand(result.std_errors.as_ref()),
+        t_values: expand(result.t_statistics.as_ref()),
+        p_values: expand(result.p_values.as_ref()),
+        ci_lower: expand(result.conf_interval_lower.as_ref()),
+        ci_upper: expand(result.conf_interval_upper.as_ref()),
+        confidence_level: options.confidence_level,
+        f_statistic: (options.alpha == 0.0).then_some(result.f_statistic),
+        f_pvalue: (options.alpha == 0.0).then_some(result.f_pvalue),
+    });
 
     Ok(FitResult {
         core,
