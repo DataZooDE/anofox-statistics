@@ -99,11 +99,18 @@ Breaking changes are called out explicitly.
     logistic could alias the intercept instead.
   - RLS fit statistics come from upstream (R² clamped to [0, 1]); RLS needs at
     least two rows.
+- Dependency: `anofox-statistics` 0.4.4 -> 0.4.6: `mann_whitney_u_agg` and
+  `wilcoxon_signed_rank_agg` no longer exhaust memory on large groups (the
+  Hodges-Lehmann estimate and interval are computed as in R, O(n) memory; a group
+  of 125,000 rows previously killed the process); one-sided tests report
+  one-sided intervals as R does; Kendall, distance correlation, MMD and the 1-D
+  energy test use O(n) memory; `mcnemar_agg` exact p-values no longer become NaN
+  for large discordant counts.
 - Dependency: `anofox-statistics` 0.4.3 -> 0.4.4: no panics on non-finite input;
   ±Inf are ranked like R in rank tests; NaN input and non-finite data in
   permutation / energy / MMD / forecast tests are reported as a "non-finite
   value" error instead of a fabricated p-value.
-- Dependency: `anofox-statistics` 0.4.2 -> 0.4.3. The extension no longer carries
+- Dependency: `anofox-statistics` 0.4.2 -> 0.4.6. The extension no longer carries
   its own implementations of statistical methods; it delegates to the library:
   Shapiro-Wilk (R `swilk.c` port), Kendall's tie-corrected Var(S), the exact
   binomial test with Clopper-Pearson interval, the Wilson / two-sample proportion
