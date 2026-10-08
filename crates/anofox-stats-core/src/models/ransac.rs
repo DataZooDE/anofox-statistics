@@ -5,7 +5,7 @@
 //! diagnostics (inlier mask, trial count, residual threshold actually used).
 
 use crate::errors::{StatsError, StatsResult};
-use crate::types::{FitResult, FitResultCore, RansacOptions};
+use crate::types::{FitResult, FitResultCore, FitResultInference, RansacOptions};
 use anofox_regression::solvers::{FittedRegressor, RansacRegressor, Regressor};
 use faer::{Col, Mat};
 
@@ -29,9 +29,6 @@ pub struct RansacResult {
 }
 
 /// Fit a RANSAC robust regression model.
-/// Inlier count above which the OLS refit avoids the n x n SVD/QR factors.
-const LARGE_REFIT_ROWS: usize = 10_000;
-
 pub fn fit_ransac(y: &[f64], x: &[Vec<f64>], options: &RansacOptions) -> StatsResult<RansacResult> {
     if y.is_empty() {
         return Err(StatsError::EmptyInput { field: "y" });
@@ -104,7 +101,9 @@ pub fn fit_ransac(y: &[f64], x: &[Vec<f64>], options: &RansacOptions) -> StatsRe
         .with_intercept(options.fit_intercept)
         .max_trials(options.max_trials as usize)
         .stop_probability(options.stop_probability)
-        .random_state(options.random_state);
+        .random_state(options.random_state)
+        .compute_inference(options.compute_inference)
+        .confidence_level(options.confidence_level);
     if let Some(s) = options.min_samples {
         builder = builder.min_samples(s);
     }
@@ -131,68 +130,38 @@ pub fn fit_ransac(y: &[f64], x: &[Vec<f64>], options: &RansacOptions) -> StatsRe
 
     let inliers = fitted.inlier_mask().to_vec();
 
-    // The upstream result leaves adj_r_squared and rmse at 0 and the inference
-    // lists empty. RANSAC's final model is the OLS fit on the inliers, so the
-    // summary statistics and inference come from refitting OLS on those rows.
-    // The inference ignores that the inliers were selected from the data, so it
-    // is optimistic (see CHANGELOG).
-    let y_in: Vec<f64> = (0..n_valid)
-        .filter(|&i| inliers.get(i).copied().unwrap_or(false))
-        .map(|i| y[valid_indices[i]])
-        .collect();
-    let x_in: Vec<Vec<f64>> = (0..n_features)
-        .map(|j| {
-            (0..n_valid)
-                .filter(|&i| inliers.get(i).copied().unwrap_or(false))
-                .map(|i| x[j][valid_indices[i]])
-                .collect()
-        })
-        .collect();
-    let refit = crate::models::ols::fit_ols(
-        &y_in,
-        &x_in,
-        &crate::types::OlsOptions {
-            fit_intercept: options.fit_intercept,
-            compute_inference: options.compute_inference,
-            confidence_level: options.confidence_level,
-            // anofox-regression's SVD and QR solvers materialise a full n x n
-            // factor (U / Q), which cannot be allocated for large inlier sets
-            // (~300k rows -> 700 GB). Above a modest size use the normal
-            // equations (Cholesky), which are O(n p^2) in time and O(p^2) in memory.
-            solver: if y_in.len() > LARGE_REFIT_ROWS {
-                crate::types::SolverType::Cholesky
-            } else {
-                crate::types::SolverType::default()
-            },
-            ..Default::default()
-        },
-    )
-    .ok();
-
+    // The final model is the OLS fit on the inliers; upstream reports its
+    // statistics (and, if requested, inference) in `result`. The inference
+    // ignores that the inliers were selected from the data, so it is
+    // optimistic (see CHANGELOG).
     let core = FitResultCore {
         coefficients,
         intercept,
-        r_squared: refit
-            .as_ref()
-            .map(|r| r.core.r_squared)
-            .unwrap_or(result.r_squared),
-        adj_r_squared: refit
-            .as_ref()
-            .map(|r| r.core.adj_r_squared)
-            .unwrap_or(f64::NAN),
-        residual_std_error: refit
-            .as_ref()
-            .map(|r| r.core.residual_std_error)
-            .unwrap_or(f64::NAN),
+        r_squared: result.r_squared,
+        adj_r_squared: result.adj_r_squared,
+        residual_std_error: result.rmse,
         n_observations: n_valid,
         n_features,
     };
 
-    let inference = if options.compute_inference {
-        refit.and_then(|r| r.inference)
-    } else {
-        None
-    };
+    let inference = options.compute_inference.then(|| {
+        let col = |c: Option<&Col<f64>>| -> Vec<f64> {
+            c.map_or_else(
+                || vec![f64::NAN; n_features],
+                |c| c.iter().copied().collect(),
+            )
+        };
+        FitResultInference {
+            std_errors: col(result.std_errors.as_ref()),
+            t_values: col(result.t_statistics.as_ref()),
+            p_values: col(result.p_values.as_ref()),
+            ci_lower: col(result.conf_interval_lower.as_ref()),
+            ci_upper: col(result.conf_interval_upper.as_ref()),
+            confidence_level: options.confidence_level,
+            f_statistic: Some(result.f_statistic),
+            f_pvalue: Some(result.f_pvalue),
+        }
+    });
 
     let n_inliers = fitted.n_inliers();
     let n_trials = fitted.n_trials();
