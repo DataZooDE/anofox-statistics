@@ -2546,6 +2546,8 @@ pub unsafe extern "C" fn anofox_poisson_fit(
             } else {
                 Some(options.offset_column)
             },
+            // Dispersion fixed at 1, as R's glm(family = poisson) / summary.glm.
+            estimate_dispersion: false,
         };
 
         let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
