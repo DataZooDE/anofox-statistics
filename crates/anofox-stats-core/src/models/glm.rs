@@ -168,8 +168,8 @@ fn binomial_family(link: BinomialLink) -> StatsResult<BinomialFamily> {
 /// * `options` - Fitting options
 ///
 /// When `options.alpha` is `None` the dispersion `theta` is estimated from the data
-/// by alternating between an IRLS fit at the current `theta` and a method-of-moments
-/// update, which is how `MASS::glm.nb` proceeds.
+/// by alternating between an IRLS fit at the current `theta` and a maximum-likelihood
+/// update (upstream `estimate_theta_ml`), which is how `MASS::glm.nb` proceeds.
 pub fn fit_negbinomial(
     y: &[f64],
     x: &[Vec<f64>],
@@ -206,7 +206,7 @@ pub fn fit_negbinomial(
 
     let run = |theta: f64, opts: &EngineOptions| {
         glm_engine::fit(
-            &NbFamily::new(theta),
+            &NegativeBinomialFamily::new(theta.clamp(THETA_MIN, THETA_MAX)),
             y,
             x,
             opts,
@@ -227,7 +227,7 @@ pub fn fit_negbinomial(
     let mut probe = engine_opts.clone();
     probe.compute_inference = false;
     let mut fit = run(THETA_MAX, &probe)?;
-    let mut theta = theta_ml(&fit.design.y, &fit.irls.mu, 25);
+    let mut theta = theta_ml(&fit.design.y, &fit.irls.mu);
     let df_resid = fit
         .design
         .y
@@ -244,7 +244,7 @@ pub fn fit_negbinomial(
         iter += 1;
         fit = run(theta, &probe)?;
         let t0 = theta;
-        theta = theta_ml(&fit.design.y, &fit.irls.mu, 25);
+        theta = theta_ml(&fit.design.y, &fit.irls.mu);
         del = t0 - theta;
         lm0 = lm;
         lm = nb_loglik(&fit.design.y, &fit.irls.mu, theta);
@@ -262,127 +262,27 @@ pub fn fit_negbinomial(
 const THETA_MIN: f64 = 1e-8;
 const THETA_MAX: f64 = 1e8;
 
-/// Negative Binomial family with a corrected unit deviance.
-///
-/// Upstream `NegativeBinomialFamily::unit_deviance` returns
-/// `2 theta log(theta / (mu + theta))` for `y = 0`, which is the *negative* of
-/// the correct `2 theta log(1 + mu / theta)`, so zero-heavy samples produced
-/// negative deviances. Everything else delegates to the upstream family.
-struct NbFamily {
-    inner: NegativeBinomialFamily,
-    theta: f64,
-}
-
-impl NbFamily {
-    fn new(theta: f64) -> Self {
-        let theta = theta.clamp(THETA_MIN, THETA_MAX);
-        Self {
-            inner: NegativeBinomialFamily::new(theta),
-            theta,
-        }
-    }
-}
-
-impl GlmFamily for NbFamily {
-    fn variance(&self, mu: f64) -> f64 {
-        self.inner.variance(mu)
-    }
-    fn link(&self, mu: f64) -> f64 {
-        self.inner.link(mu)
-    }
-    fn link_inverse(&self, eta: f64) -> f64 {
-        self.inner.link_inverse(eta)
-    }
-    fn link_derivative(&self, mu: f64) -> f64 {
-        self.inner.link_derivative(mu)
-    }
-    fn unit_deviance(&self, y: f64, mu: f64) -> f64 {
-        let mu = mu.max(1e-10);
-        let theta = self.theta;
-        let tail = (y + theta) * ((y + theta) / (mu + theta)).ln();
-        if y > 0.0 {
-            2.0 * (y * (y / mu).ln() - tail)
-        } else {
-            -2.0 * tail
-        }
-    }
-    fn initialize_mu(&self, y: &[f64]) -> Vec<f64> {
-        self.inner.initialize_mu(y)
-    }
-}
-
-/// Negative Binomial log-likelihood, as `MASS::glm.nb`'s internal `loglik`.
+/// Negative Binomial log-likelihood at `(mu, theta)` (the convergence
+/// criterion of `MASS::glm.nb`), summed from the engine's unit log-likelihood.
 fn nb_loglik(y: &[f64], mu: &[f64], theta: f64) -> f64 {
-    use statrs::function::gamma::ln_gamma;
     y.iter()
         .zip(mu)
         .map(|(&yi, &mi)| {
-            ln_gamma(theta + yi) - ln_gamma(theta) - ln_gamma(yi + 1.0)
-                + theta * theta.ln()
-                + if yi > 0.0 { yi * mi.ln() } else { 0.0 }
-                - (theta + yi) * (theta + mi).ln()
+            glm_engine::loglik::unit_log_likelihood(LogLikKind::NegativeBinomial { theta }, yi, mi)
         })
         .sum()
 }
 
-/// Trigamma function (second derivative of ln Gamma): recurrence up to x >= 6,
-/// then the asymptotic series.
-fn trigamma(mut x: f64) -> f64 {
-    let mut acc = 0.0;
-    while x < 6.0 {
-        acc += 1.0 / (x * x);
-        x += 1.0;
+/// Maximum-likelihood theta for fixed `mu` (`MASS::theta.ml`), computed by
+/// upstream `estimate_theta_ml` with MASS's limit (25) and tolerance
+/// (`eps^0.25`), bounded to `[THETA_MIN, THETA_MAX]`.
+fn theta_ml(y: &[f64], mu: &[f64]) -> f64 {
+    let t = anofox_regression::core::estimate_theta_ml(y, mu, 25, f64::EPSILON.powf(0.25));
+    if t.is_finite() {
+        t.clamp(THETA_MIN, THETA_MAX)
+    } else {
+        THETA_MAX
     }
-    let inv = 1.0 / x;
-    let inv2 = inv * inv;
-    acc + inv
-        + inv2 / 2.0
-        + inv * inv2 * (1.0 / 6.0 - inv2 * (1.0 / 30.0 - inv2 * (1.0 / 42.0 - inv2 / 30.0)))
-}
-
-/// Maximum-likelihood estimate of the Negative Binomial theta for fixed `mu`,
-/// a port of `MASS::theta.ml` (Newton-Raphson on the score with the expected
-/// information, started from the moment estimate `n / sum((y/mu - 1)^2)`).
-fn theta_ml(y: &[f64], mu: &[f64], limit: usize) -> f64 {
-    use statrs::function::gamma::digamma;
-    let n = y.len() as f64;
-    let denom: f64 = y
-        .iter()
-        .zip(mu)
-        .map(|(&yi, &mi)| (yi / mi - 1.0).powi(2))
-        .sum();
-    let mut t0 = if denom > 0.0 { n / denom } else { THETA_MAX };
-    if !t0.is_finite() {
-        t0 = THETA_MAX;
-    }
-    let eps = f64::EPSILON.powf(0.25);
-    let mut del = 1.0_f64;
-    let mut it = 0;
-    while {
-        it += 1;
-        it < limit
-    } && del.abs() > eps
-    {
-        t0 = t0.abs();
-        let mut score = 0.0;
-        let mut info = 0.0;
-        for (&yi, &mi) in y.iter().zip(mu) {
-            score += digamma(t0 + yi) - digamma(t0) + t0.ln() + 1.0
-                - (t0 + mi).ln()
-                - (yi + t0) / (mi + t0);
-            info += -trigamma(t0 + yi) + trigamma(t0) - 1.0 / t0 + 2.0 / (mi + t0)
-                - (yi + t0) / (mi + t0).powi(2);
-        }
-        if !(score.is_finite() && info.is_finite()) || info == 0.0 {
-            break;
-        }
-        del = score / info;
-        t0 += del;
-        if !t0.is_finite() || t0 > THETA_MAX {
-            return THETA_MAX;
-        }
-    }
-    t0.clamp(THETA_MIN, THETA_MAX)
 }
 
 /// Fit a Tweedie regression model (for zero-inflated continuous data)
