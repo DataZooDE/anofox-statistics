@@ -64,55 +64,36 @@ pub fn fit_ols(y: &[f64], x: &[Vec<f64>], options: &OlsOptions) -> StatsResult<F
 
     let n_valid = valid_indices.len();
 
-    // Detect zero-variance (constant) columns BEFORE min_obs check
-    // A column is constant if all values in valid rows are the same
-    // Constant columns are only dropped when an intercept is fitted (see
-    // `validation::droppable_columns`); without one, a constant column IS the intercept.
-    let is_constant_column: Vec<bool> =
-        crate::validation::droppable_columns(x, &valid_indices, options.fit_intercept);
-
-    // Count non-constant features for min_obs calculation
-    let n_effective_features = is_constant_column.iter().filter(|&&c| !c).count();
-
-    // Check we have enough observations for the effective (non-constant) features
-    let min_obs = if options.fit_intercept {
-        n_effective_features + 1
-    } else {
-        n_effective_features
-    };
-
-    // If ALL columns are constant, we can still fit (intercept-only model if fit_intercept=true)
-    // or return error if fit_intercept=false and no features
-    if n_effective_features == 0 {
-        if !options.fit_intercept {
-            return Err(StatsError::InsufficientData {
-                rows: n_valid,
-                cols: n_features,
-            });
-        }
-        // Intercept-only model: compute mean of y as intercept
-        let y_mean = valid_indices.iter().map(|&i| y[i]).sum::<f64>() / n_valid as f64;
-        // The residual variance of an intercept-only fit has n-1 degrees of
-        // freedom; with a single observation it is undefined (NaN), not 0/0.
-        let y_var = if n_valid > 1 {
-            valid_indices
-                .iter()
-                .map(|&i| (y[i] - y_mean).powi(2))
-                .sum::<f64>()
-                / (n_valid - 1) as f64
-        } else {
-            f64::NAN
-        };
-        let rmse = y_var.sqrt();
-
+    // Columns that cannot be estimated (constant with an intercept, all-zero
+    // without) are left out of the design so they do not count against the
+    // observation requirement; they are reported as NaN. Everything else —
+    // aliasing, the no-intercept (uncentered) R²/F, intercept-only fits — is
+    // upstream's.
+    let dropped = crate::validation::droppable_columns(x, &valid_indices, options.fit_intercept);
+    let kept: Vec<usize> = (0..n_features).filter(|&j| !dropped[j]).collect();
+    if kept.is_empty() && !options.fit_intercept {
+        return Err(StatsError::InsufficientData {
+            rows: n_valid,
+            cols: n_features,
+        });
+    }
+    if n_valid < kept.len() + usize::from(options.fit_intercept) {
+        return Err(StatsError::InsufficientData {
+            rows: n_valid,
+            cols: n_features,
+        });
+    }
+    if kept.is_empty() && n_valid == 1 {
+        // A single observation: the intercept is that value, its residual
+        // variance is undefined (upstream needs two rows).
         return Ok(FitResult {
             core: FitResultCore {
-                coefficients: vec![f64::NAN; n_features], // All NaN for constant columns
-                intercept: Some(y_mean),
+                coefficients: vec![f64::NAN; n_features],
+                intercept: Some(y[valid_indices[0]]),
                 r_squared: 0.0,
                 adj_r_squared: 0.0,
-                residual_std_error: rmse,
-                n_observations: n_valid,
+                residual_std_error: f64::NAN,
+                n_observations: 1,
                 n_features,
             },
             inference: None,
@@ -120,240 +101,91 @@ pub fn fit_ols(y: &[f64], x: &[Vec<f64>], options: &OlsOptions) -> StatsResult<F
         });
     }
 
-    // Allow n == min_obs (fitting with 0 degrees of freedom for residuals)
-    // This enables exact fits and models with many zero-variance features
-    if n_valid < min_obs {
-        return Err(StatsError::InsufficientData {
-            rows: n_valid,
-            cols: n_features,
-        });
-    }
-
-    // Build reduced X matrix (only non-constant columns)
-    let mut non_constant_indices: Vec<usize> = is_constant_column
-        .iter()
-        .enumerate()
-        .filter_map(|(i, &is_const)| if !is_const { Some(i) } else { None })
-        .collect();
-
-    // No intercept but a constant column (e.g. all ones) is present: that column
-    // IS the intercept. The upstream solver would drop it, so fit the equivalent
-    // intercept model without the constant column(s) and fold the intercept back
-    // into its coefficient afterwards (see `validation::find_pseudo_intercept`).
-    let pseudo_intercept = if options.fit_intercept {
-        None
-    } else {
-        crate::validation::find_pseudo_intercept(x, &valid_indices, &non_constant_indices)
-    };
-    if pseudo_intercept.is_some() {
-        non_constant_indices
-            .retain(|&j| !crate::validation::is_constant_over(&x[j], &valid_indices));
-    }
-    let use_intercept = options.fit_intercept || pseudo_intercept.is_some();
-
-    if let (Some((pcol, pval)), true) = (pseudo_intercept, non_constant_indices.is_empty()) {
-        // Only constant columns: the model is y = beta * c, i.e. an intercept-only fit.
-        let y_mean = valid_indices.iter().map(|&i| y[i]).sum::<f64>() / n_valid as f64;
-        let rmse = if n_valid > 1 {
-            (valid_indices
-                .iter()
-                .map(|&i| (y[i] - y_mean).powi(2))
-                .sum::<f64>()
-                / (n_valid - 1) as f64)
-                .sqrt()
-        } else {
-            f64::NAN
-        };
-        let mut coefficients = vec![f64::NAN; n_features];
-        coefficients[pcol] = y_mean / pval;
-        let mut core = FitResultCore {
-            coefficients,
-            intercept: None,
-            r_squared: 0.0,
-            adj_r_squared: 0.0,
-            residual_std_error: rmse,
-            n_observations: n_valid,
-            n_features,
-        };
-        crate::validation::apply_no_intercept_fit_stats(
-            &mut core,
-            None,
-            y,
-            x,
-            None,
-            &valid_indices,
-        );
-        return Ok(FitResult {
-            core,
-            inference: None,
-            diagnostics: None,
-        });
-    }
-
-    // Convert to faer types (only non-constant columns)
     let y_col = Col::from_fn(n_valid, |i| y[valid_indices[i]]);
-    let x_mat = Mat::from_fn(n_valid, non_constant_indices.len(), |i, j| {
-        x[non_constant_indices[j]][valid_indices[i]]
-    });
+    let x_mat = Mat::from_fn(n_valid, kept.len(), |i, j| x[kept[j]][valid_indices[i]]);
 
-    // Build and fit the model
     let fitted = OlsRegressor::builder()
-        .with_intercept(use_intercept)
+        .with_intercept(options.fit_intercept)
+        .compute_inference(options.compute_inference && options.hc_type.is_none())
         .confidence_level(options.confidence_level)
         .solve_method(convert_solver(options.solver))
         .build()
         .fit(&x_mat, &y_col)
         .map_err(StatsError::from)?;
-
-    // Extract results
     let result = fitted.result();
 
-    // Reconstruct full coefficient vector with NaN for constant columns
-    let reduced_coefficients: Vec<f64> = result.coefficients.iter().copied().collect();
-    let mut coefficients = vec![f64::NAN; n_features];
-    for (reduced_idx, &orig_idx) in non_constant_indices.iter().enumerate() {
-        coefficients[orig_idx] = reduced_coefficients[reduced_idx];
-    }
-    let intercept = if options.fit_intercept {
-        result.intercept
-    } else {
-        None
+    // Scatter a reduced (kept-columns) vector back to full width, NaN elsewhere.
+    let expand = |reduced: Option<&Col<f64>>| -> Vec<f64> {
+        let mut full = vec![f64::NAN; n_features];
+        if let Some(col) = reduced {
+            for (r, &j) in kept.iter().enumerate() {
+                full[j] = col[r];
+            }
+        }
+        full
     };
 
-    let mut core = FitResultCore {
-        coefficients,
-        intercept,
+    let core = FitResultCore {
+        coefficients: expand(Some(&result.coefficients)),
+        intercept: result.intercept,
         r_squared: result.r_squared,
         adj_r_squared: result.adj_r_squared,
-        residual_std_error: result.rmse, // rmse is the residual standard error
+        residual_std_error: result.rmse,
         n_observations: n_valid,
         n_features,
     };
 
-    // Intercept statistics, used only to fold a pseudo-intercept back into its column.
-    let mut pseudo_stats = crate::validation::InterceptStats {
-        estimate: result.intercept.unwrap_or(f64::NAN),
-        std_error: result.intercept_std_error.unwrap_or(f64::NAN),
-        t_value: result.intercept_t_statistic.unwrap_or(f64::NAN),
-        p_value: result.intercept_p_value.unwrap_or(f64::NAN),
-        ci: result
-            .intercept_conf_interval
-            .unwrap_or((f64::NAN, f64::NAN)),
-    };
-
-    // Build inference results if requested
-    let mut inference = if options.compute_inference {
-        // Helper to reconstruct reduced vector to full size with NaN for constant columns
-        let reconstruct = |reduced: Option<&faer::Col<f64>>| -> Vec<f64> {
-            let mut full = vec![f64::NAN; n_features];
-            if let Some(col) = reduced {
-                for (reduced_idx, &orig_idx) in non_constant_indices.iter().enumerate() {
-                    full[orig_idx] = col[reduced_idx];
-                }
-            }
-            full
-        };
-        let reconstruct_col = |col: &faer::Col<f64>| -> Vec<f64> {
-            let mut full = vec![f64::NAN; n_features];
-            for (reduced_idx, &orig_idx) in non_constant_indices.iter().enumerate() {
-                full[orig_idx] = col[reduced_idx];
-            }
-            full
-        };
-
-        // If HC inference is requested, use heteroscedasticity-consistent standard errors
-        if let Some(hc_type) = options.hc_type {
-            let hc_result = anofox_regression::inference::compute_hc_inference(
-                &x_mat,
-                &result.coefficients,
-                result.intercept,
-                &result.residuals,
-                &result.aliased,
-                use_intercept,
-                convert_hc_type(hc_type),
-                options.confidence_level,
-            );
-
-            match hc_result {
-                Ok(hc) => Some({
-                    if let Some(ic) = &hc.intercept {
-                        pseudo_stats.std_error = ic.std_error;
-                        pseudo_stats.t_value = ic.t_statistic;
-                        pseudo_stats.p_value = ic.p_value;
-                        pseudo_stats.ci = ic.conf_interval;
-                    }
-                    FitResultInference {
-                        std_errors: reconstruct_col(&hc.std_errors),
-                        t_values: reconstruct_col(&hc.t_statistics),
-                        p_values: reconstruct_col(&hc.p_values),
-                        ci_lower: reconstruct_col(&hc.conf_interval_lower),
-                        ci_upper: reconstruct_col(&hc.conf_interval_upper),
-                        confidence_level: hc.confidence_level,
-                        f_statistic: Some(result.f_statistic),
-                        f_pvalue: Some(result.f_pvalue),
-                    }
-                }),
-                Err(_) => {
-                    // The requested HC estimator is not available for this fit
-                    // (e.g. a leverage-1 observation for HC2/HC3). Silently
-                    // substituting classical standard errors would hand back
-                    // numbers the caller did not ask for, so the coefficient
-                    // inference is reported as NaN (NULL in SQL) instead. The
-                    // F-test does not depend on the HC estimator and is kept.
-                    let nan = vec![f64::NAN; n_features];
-                    pseudo_stats.std_error = f64::NAN;
-                    pseudo_stats.t_value = f64::NAN;
-                    pseudo_stats.p_value = f64::NAN;
-                    pseudo_stats.ci = (f64::NAN, f64::NAN);
-                    Some(FitResultInference {
-                        std_errors: nan.clone(),
-                        t_values: nan.clone(),
-                        p_values: nan.clone(),
-                        ci_lower: nan.clone(),
-                        ci_upper: nan,
-                        confidence_level: options.confidence_level,
-                        f_statistic: Some(result.f_statistic),
-                        f_pvalue: Some(result.f_pvalue),
-                    })
-                }
-            }
-        } else {
-            // Classical inference
-            Some(FitResultInference {
-                std_errors: reconstruct(result.std_errors.as_ref()),
-                t_values: reconstruct(result.t_statistics.as_ref()),
-                p_values: reconstruct(result.p_values.as_ref()),
-                ci_lower: reconstruct(result.conf_interval_lower.as_ref()),
-                ci_upper: reconstruct(result.conf_interval_upper.as_ref()),
+    let inference = if !options.compute_inference {
+        None
+    } else if let Some(hc_type) = options.hc_type {
+        match anofox_regression::inference::compute_hc_inference(
+            &x_mat,
+            &result.coefficients,
+            result.intercept,
+            &result.residuals,
+            &result.aliased,
+            options.fit_intercept,
+            convert_hc_type(hc_type),
+            options.confidence_level,
+        ) {
+            Ok(hc) => Some(FitResultInference {
+                std_errors: expand(Some(&hc.std_errors)),
+                t_values: expand(Some(&hc.t_statistics)),
+                p_values: expand(Some(&hc.p_values)),
+                ci_lower: expand(Some(&hc.conf_interval_lower)),
+                ci_upper: expand(Some(&hc.conf_interval_upper)),
+                confidence_level: hc.confidence_level,
+                f_statistic: Some(result.f_statistic),
+                f_pvalue: Some(result.f_pvalue),
+            }),
+            // The requested HC estimator is not available for this fit (e.g. a
+            // leverage-1 observation for HC2/HC3). Substituting classical
+            // standard errors would hand back numbers the caller did not ask
+            // for, so the coefficient inference is NaN (NULL in SQL); the F
+            // test does not depend on the HC estimator and is kept.
+            Err(_) => Some(FitResultInference {
+                std_errors: vec![f64::NAN; n_features],
+                t_values: vec![f64::NAN; n_features],
+                p_values: vec![f64::NAN; n_features],
+                ci_lower: vec![f64::NAN; n_features],
+                ci_upper: vec![f64::NAN; n_features],
                 confidence_level: options.confidence_level,
                 f_statistic: Some(result.f_statistic),
                 f_pvalue: Some(result.f_pvalue),
-            })
+            }),
         }
     } else {
-        None
+        Some(FitResultInference {
+            std_errors: expand(result.std_errors.as_ref()),
+            t_values: expand(result.t_statistics.as_ref()),
+            p_values: expand(result.p_values.as_ref()),
+            ci_lower: expand(result.conf_interval_lower.as_ref()),
+            ci_upper: expand(result.conf_interval_upper.as_ref()),
+            confidence_level: options.confidence_level,
+            f_statistic: Some(result.f_statistic),
+            f_pvalue: Some(result.f_pvalue),
+        })
     };
-
-    if let Some((pcol, pval)) = pseudo_intercept {
-        crate::validation::fold_pseudo_intercept(
-            &mut core,
-            inference.as_mut(),
-            pcol,
-            pval,
-            pseudo_stats,
-        );
-    }
-
-    if !options.fit_intercept {
-        crate::validation::apply_no_intercept_fit_stats(
-            &mut core,
-            inference.as_mut(),
-            y,
-            x,
-            None,
-            &valid_indices,
-        );
-    }
 
     Ok(FitResult {
         core,
