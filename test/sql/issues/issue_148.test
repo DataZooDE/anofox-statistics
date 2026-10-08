@@ -1,0 +1,21 @@
+# name: test/sql/issues/issue_148.test
+# description: #148 collinear OLS: QR solver aliases the duplicated column like R lm (default SVD fix pending upstream)
+# group: [issues]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE d AS
+SELECT i, chr(65 + (i % 2)::INT) AS grp, i / 10.0 AS x1, sin(i) AS x2,
+       2 + 1.5 * (i / 10.0) - 0.8 * sin(i) + 0.3 * cos(i * 7) AS y
+FROM range(60) t(i);
+
+# R: x1b <- x1; coef(lm(y ~ x1 + x1b)) = 2.00330174321 1.48861560235 NA
+# With solver 'qr' the duplicate is aliased (NaN coefficient and inference).
+# The default 'svd' still returns the minimum-norm split; tracked upstream in
+# sipemu/anofox-regression#64.
+query IIII
+SELECT round(m.intercept, 8), round(m.coefficients[1], 8), isnan(m.coefficients[2]), isnan(m.std_errors[2])
+FROM (SELECT ols_fit_agg(y, [x1, x1], {'solver': 'qr', 'compute_inference': true}) AS m FROM d);
+----
+2.00330174	1.48861560	true	true

@@ -1,0 +1,31 @@
+# name: test/sql/issues/issue_150.test
+# description: #150 function metadata: table macros are described, fit-predict intervals are called prediction intervals, residuals_diagnostics does not over-promise
+# group: [issues]
+
+require anofox_statistics
+
+# Every *_by table macro has a description, an example and categories in duckdb_functions().
+query II
+SELECT count(*), count(*) FILTER (WHERE description IS NOT NULL AND len(examples) > 0
+                                  AND list_contains(categories, 'table-macro'))
+FROM duckdb_functions()
+WHERE function_type = 'table_macro'
+  AND (function_name LIKE '%\_fit\_predict\_by' ESCAPE '\'
+       OR function_name IN ('glmm_fit_by', 'eb_shrink_by', 'aid_by', 'aid_anomaly_by'));
+----
+23	23
+
+# The fit-predict intervals are prediction intervals.
+query I
+SELECT count(*) FROM duckdb_functions()
+WHERE function_name LIKE '%fit\_predict%' ESCAPE '\' AND description ILIKE '%confidence interval%';
+----
+0
+
+# The two-argument residuals_diagnostics does not promise Cook's distance.
+query I
+SELECT count(*) FROM duckdb_functions()
+WHERE function_name = 'residuals_diagnostics'
+  AND description LIKE '%Cook''s distance from actuals and predictions.%';
+----
+0

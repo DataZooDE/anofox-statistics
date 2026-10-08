@@ -1,0 +1,68 @@
+# name: test/sql/issues/issue_142.test
+# description: #142 expanding-window *_fit_predict must not raise an INTERNAL error (and invalidate the database)
+# group: [issues]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE d AS
+SELECT i, chr(65 + (i % 2)::INT) AS grp, i / 10.0 AS x1, sin(i) AS x2,
+       2 + 1.5 * (i / 10.0) - 0.8 * sin(i) + 0.3 * cos(i * 7) AS y
+FROM range(60) t(i);
+
+# The documented expanding-window example: NULL while the frame is too small, then predictions.
+query II
+SELECT count(*), count(yh)
+FROM (SELECT (ols_fit_predict(y, [x1, x2]) OVER (
+          ORDER BY i ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)).yhat AS yh FROM d);
+----
+60	56
+
+query II
+SELECT count(*), count(yh)
+FROM (SELECT (ols_fit_predict(y, [x1, x2]) OVER (ORDER BY i)).yhat AS yh FROM d);
+----
+60	57
+
+# The frame ending at CURRENT ROW predicts the current row from the fit on rows 0..i.
+# R: fitted(lm(y ~ x1 + x2, d[1:11, ]))[11] = 3.91750318395,
+#    predict(..., interval = "prediction") = [3.40213597436, 4.43287039354]
+query III
+SELECT round(p.yhat, 8), round(p.yhat_lower, 8), round(p.yhat_upper, 8)
+FROM (SELECT i, ols_fit_predict(y, [x1, x2]) OVER (
+          ORDER BY i ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS p FROM d)
+WHERE i = 10;
+----
+3.91750318	3.40213597	4.43287039
+
+# A frame ending at 1 PRECEDING predicts the last row of the frame (documented):
+# R: fitted(lm(y ~ x1 + x2, d[1:4, ]))[4] = 2.16816176489 for i = 4.
+query I
+SELECT round(yh, 8)
+FROM (SELECT i, (ols_fit_predict(y, [x1, x2]) OVER (
+          ORDER BY i ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)).yhat AS yh FROM d)
+WHERE i = 4;
+----
+2.16816176
+
+# Every window fit-predict function survives empty / too-small expanding frames.
+query IIIIIIII
+SELECT count(a), count(b), count(c), count(e), count(f) > 0, count(g) > 0, count(h) > 0, count(k) > 0
+FROM (SELECT (ols_fit_predict(y, [x1, x2]) OVER w).yhat AS a,
+             (ridge_fit_predict(y, [x1, x2], {'alpha': 0.1}) OVER w).yhat AS b,
+             (elasticnet_fit_predict(y, [x1, x2], {'alpha': 0.1}) OVER w).yhat AS c,
+             (wls_fit_predict(y, [x1, x2], 1.0 + i % 3) OVER w).yhat AS e,
+             (rls_fit_predict(y, [x1, x2]) OVER w).yhat AS f,
+             (huber_fit_predict(y, [x1, x2]) OVER w).yhat AS g,
+             (theil_sen_fit_predict(y, [x1, x2]) OVER w).yhat AS h,
+             (ransac_fit_predict(y, [x1, x2]) OVER w).yhat AS k
+      FROM d
+      WINDOW w AS (ORDER BY i ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING));
+----
+56	56	56	56	true	true	true	true
+
+# The database is still usable afterwards.
+query I
+SELECT count(*) FROM d;
+----
+60
