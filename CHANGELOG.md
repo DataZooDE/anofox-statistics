@@ -64,7 +64,11 @@ Breaking changes are called out explicitly.
 
 ### Changed
 
-- Dependency: `anofox-regression` 0.5.13 -> 0.5.14. More regression code moves
+- `glmm_fit_agg` z-values, p-values and Wald intervals come from `anofox-regression`
+  (match lme4 `summary()` / `confint(method = "Wald")`); negative binomial standard
+  errors always use dispersion 1 like `MASS::glm.nb`; Theil-Sen aliases collinear
+  feature columns (NaN coefficient, as R's `lm`) instead of returning huge values.
+- Dependency: `anofox-regression` 0.5.13 -> 0.5.15. More regression code moves
   upstream: prediction-interval variance factors and leverage
   (`anofox_interval_matrix` / `anofox_predict_with_interval_matrix`,
   `anofox_t_critical`, `anofox_predict_with_interval`; C ABI unchanged), Huber
