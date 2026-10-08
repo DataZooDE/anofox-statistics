@@ -299,8 +299,9 @@ true
 
 # ---- Negative binomial ----
 # MASS::glm.nb estimates theta by maximum likelihood (theta = 1.829468473259).
-# Passing that theta reproduces glm.nb's coefficients, SEs (conditional on theta)
-# and AIC (= -2 logLik + 2 (p + 1), theta counted as a parameter).
+# Passing that theta reproduces glm.nb's coefficients, SEs (conditional on theta,
+# dispersion fixed at 1 as summary(glm.nb) reports them, not summary.glm's Pearson
+# estimate) and AIC (= -2 logLik + 2 (p + 1), theta counted as a parameter).
 # MASS::glm.nb(nb ~ z1 + z2) at its ML theta: coefficients
 query III
 SELECT
@@ -314,12 +315,12 @@ true	true	true
 # MASS::glm.nb(nb ~ z1 + z2) at its ML theta: slope SE, z, p, Wald CI (b -/+ qnorm(.975)*se)
 query IIIIII
 SELECT
-    abs((r.std_errors[1]) - (0.27947972467922549)) <= 1e-06 * (1 + abs(0.27947972467922549)),
-    abs((r.std_errors[2]) - (0.29471652136293919)) <= 1e-06 * (1 + abs(0.29471652136293919)),
-    abs((r.z_values[1]) - (1.5904822543909984)) <= 1e-06 * (1 + abs(1.5904822543909984)),
-    abs((r.z_values[2]) - (0.53065139614035406)) <= 1e-06 * (1 + abs(0.53065139614035406)),
-    abs((r.p_values[1]) - (0.11172614251183519)) <= 1e-06 * (1 + abs(0.11172614251183519)),
-    abs((r.p_values[2]) - (0.5956603727427876)) <= 1e-06 * (1 + abs(0.5956603727427876))
+    abs((r.std_errors[1]) - (0.29539270951207597)) <= 1e-06 * (1 + abs(0.29539270951207597)),
+    abs((r.std_errors[2]) - (0.31149705719544607)) <= 1e-06 * (1 + abs(0.31149705719544607)),
+    abs((r.z_values[1]) - (1.5048020084809106)) <= 1e-06 * (1 + abs(1.5048020084809106)),
+    abs((r.z_values[2]) - (0.50206488284332507)) <= 1e-06 * (1 + abs(0.50206488284332507)),
+    abs((r.p_values[1]) - (0.13237498724480834)) <= 1e-06 * (1 + abs(0.13237498724480834)),
+    abs((r.p_values[2]) - (0.61562188147792818)) <= 1e-06 * (1 + abs(0.61562188147792818))
 FROM (SELECT negbinom_fit_agg(nb, [z1, z2], {'compute_inference': true, 'tolerance': 1e-12, 'theta': 1.8294684732585813}) AS r FROM d2) s;
 ----
 true	true	true	true	true	true
@@ -327,10 +328,10 @@ true	true	true	true	true	true
 # MASS::glm.nb(nb ~ z1 + z2) at its ML theta: slope SE, z, p, Wald CI (b -/+ qnorm(.975)*se)
 query IIII
 SELECT
-    abs((r.ci_lower[1]) - (-0.10326265221606185)) <= 1e-06 * (1 + abs(-0.10326265221606185)),
-    abs((r.ci_lower[2]) - (-0.42124203399341797)) <= 1e-06 * (1 + abs(-0.42124203399341797)),
-    abs((r.ci_upper[1]) - (0.99227773734484215)) <= 1e-06 * (1 + abs(0.99227773734484215)),
-    abs((r.ci_upper[2]) - (0.73402550104716235)) <= 1e-06 * (1 + abs(0.73402550104716235))
+    abs((r.ci_lower[1]) - (-0.13445152937498089)) <= 1e-06 * (1 + abs(-0.13445152937498089)),
+    abs((r.ci_lower[2]) - (-0.45413127986641522)) <= 1e-06 * (1 + abs(-0.45413127986641522)),
+    abs((r.ci_upper[1]) - (1.0234666145037612)) <= 1e-06 * (1 + abs(1.0234666145037612)),
+    abs((r.ci_upper[2]) - (0.7669147469201596)) <= 1e-06 * (1 + abs(0.7669147469201596))
 FROM (SELECT negbinom_fit_agg(nb, [z1, z2], {'compute_inference': true, 'tolerance': 1e-12, 'theta': 1.8294684732585813}) AS r FROM d2) s;
 ----
 true	true	true	true
@@ -354,18 +355,15 @@ FROM (SELECT negbinom_fit_agg(nb, [z1, z2], {'theta': 1.8294684732585813}) AS r 
 ----
 true
 
-# CONVENTION: without 'theta' the extension estimates theta by the method of
-# moments, alternating theta_{k+1} = sum(mu^2) / sum((y - mu)^2 - mu) with IRLS
-# (start 1, <= 25 rounds, rel. change < 1e-6); here theta = 2.6633429118, whereas
-# glm.nb's ML estimate is 1.8294684733. Reference: that iteration run with
-# glm(family = negative.binomial(theta)) in R.
-# negbinom default: moment theta and coefficients at that theta
+# Without 'theta' the extension estimates theta by maximum likelihood, alternating
+# IRLS with MASS::theta.ml as MASS::glm.nb does.
+# negbinom default: ML theta and coefficients equal MASS::glm.nb
 query IIII
 SELECT
-    abs((r.dispersion) - (2.663342911775036)) <= 1e-05 * (1 + abs(2.663342911775036)),
-    abs((r.intercept) - (1.1523652223975487)) <= 1e-05 * (1 + abs(1.1523652223975487)),
-    abs((r.coefficients[1]) - (0.42946832970255616)) <= 1e-05 * (1 + abs(0.42946832970255616)),
-    abs((r.coefficients[2]) - (0.14616017839729151)) <= 1e-05 * (1 + abs(0.14616017839729151))
+    abs((r.dispersion) - (1.8294684732585813)) <= 1e-05 * (1 + abs(1.8294684732585813)),
+    abs((r.intercept) - (1.1413104675159913)) <= 1e-05 * (1 + abs(1.1413104675159913)),
+    abs((r.coefficients[1]) - (0.44450755553098531)) <= 1e-05 * (1 + abs(0.44450755553098531)),
+    abs((r.coefficients[2]) - (0.15639174208149006)) <= 1e-05 * (1 + abs(0.15639174208149006))
 FROM (SELECT negbinom_fit_agg(nb, [z1, z2], {'tolerance': 1e-12}) AS r FROM d2) s;
 ----
 true	true	true	true

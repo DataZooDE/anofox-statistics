@@ -359,37 +359,21 @@ fnb_fixed <- glm(nb ~ z1 + z2, family = negative.binomial(th), control = ctl)
 L <- c(L,
   "# ---- Negative binomial ----",
   sprintf("# MASS::glm.nb estimates theta by maximum likelihood (theta = %.12f).", th),
-  "# Passing that theta reproduces glm.nb's coefficients, SEs (conditional on theta)",
-  "# and AIC (= -2 logLik + 2 (p + 1), theta counted as a parameter).",
+  "# Passing that theta reproduces glm.nb's coefficients, SEs (conditional on theta,",
+  "# dispersion fixed at 1 as summary(glm.nb) reports them, not summary.glm's Pearson",
+  "# estimate) and AIC (= -2 logLik + 2 (p + 1), theta counted as a parameter).",
   glm_block("MASS::glm.nb(nb ~ z1 + z2) at its ML theta", fnb_fixed,
     sprintf("negbinom_fit_agg(nb, [z1, z2], {'compute_inference': true, 'tolerance': 1e-12, 'theta': %s})", num(th)),
-    extra = list(aic = fnb$aic)),
+    extra = list(aic = fnb$aic, disp = 1)),
   checks("negbinom dispersion field reports theta",
     sprintf("(SELECT negbinom_fit_agg(nb, [z1, z2], {'theta': %s}) AS r FROM d2) s", num(th)), "r.dispersion", th, 1e-12))
-# moment-estimated theta (extension default)
-mom_theta <- function() {
-  theta <- 1
-  ft <- glm(nb ~ z1 + z2, family = negative.binomial(theta), control = ctl)
-  for (k in 1:25) {
-    mu <- fitted(ft)
-    num_ <- sum((nb - mu)^2 - mu); den <- sum(mu^2)
-    nxt <- if (den <= 0 || num_ <= 0) 1e6 else min(max(1 / max(num_ / den, 1e-12), 1e-6), 1e6)
-    if (abs(nxt - theta) / max(theta, 1e-8) < 1e-6) { theta <- nxt; break }
-    theta <- nxt
-    ft <- glm(nb ~ z1 + z2, family = negative.binomial(theta), control = ctl)
-  }
-  list(theta = theta, fit = glm(nb ~ z1 + z2, family = negative.binomial(theta), control = ctl))
-}
-mt <- mom_theta()
+# default: theta estimated by maximum likelihood, exactly as MASS::glm.nb
 L <- c(L,
-  "# CONVENTION: without 'theta' the extension estimates theta by the method of",
-  "# moments, alternating theta_{k+1} = sum(mu^2) / sum((y - mu)^2 - mu) with IRLS",
-  sprintf("# (start 1, <= 25 rounds, rel. change < 1e-6); here theta = %.10f, whereas", mt$theta),
-  sprintf("# glm.nb's ML estimate is %.10f. Reference: that iteration run with", th),
-  "# glm(family = negative.binomial(theta)) in R.",
-  checks("negbinom default: moment theta and coefficients at that theta",
+  "# Without 'theta' the extension estimates theta by maximum likelihood, alternating",
+  "# IRLS with MASS::theta.ml as MASS::glm.nb does.",
+  checks("negbinom default: ML theta and coefficients equal MASS::glm.nb",
     "(SELECT negbinom_fit_agg(nb, [z1, z2], {'tolerance': 1e-12}) AS r FROM d2) s",
-    c("r.dispersion", "r.intercept", lst("coefficients", 1:2)), c(mt$theta, coef(mt$fit)), 1e-5))
+    c("r.dispersion", "r.intercept", lst("coefficients", 1:2)), c(th, coef(fnb)), 1e-5))
 # Gamma
 fg <- glm(gam ~ z1 + z2, family = Gamma(link = "log"), control = ctl)
 phi_g <- sum(residuals(fg, "pearson")^2) / fg$df.residual
