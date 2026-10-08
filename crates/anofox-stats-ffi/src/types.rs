@@ -118,7 +118,7 @@ impl DataArray {
 /// on musl targets (WASM, some CI) the Rust global allocator and libc's malloc
 /// can differ, so freeing a `Box`/`Vec` pointer with C `free()` is undefined
 /// behavior. Changing the allocator here is a published-ABI break — it would
-/// require changing every C++ `free` site. See PERF-04 / phase-04 CONTEXT.
+/// require changing every C++ `free` site.
 pub struct FfiVec<T> {
     ptr: *mut T,
     len: usize,

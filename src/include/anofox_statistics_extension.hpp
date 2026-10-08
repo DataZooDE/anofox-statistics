@@ -94,7 +94,7 @@ void RegisterAnovaAggregateFunction(ExtensionLoader &loader);
 void RegisterKruskalWallisAggregateFunction(ExtensionLoader &loader);
 void RegisterChiSquareAggregateFunction(ExtensionLoader &loader);
 
-// Phase 1: Aggregates for existing FFI
+// Aggregates for existing FFI
 void RegisterKendallAggregateFunction(ExtensionLoader &loader);
 void RegisterFisherExactAggregateFunction(ExtensionLoader &loader);
 void RegisterBrunnerMunzelAggregateFunction(ExtensionLoader &loader);

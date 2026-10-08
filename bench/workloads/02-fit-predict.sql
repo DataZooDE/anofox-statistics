@@ -1,13 +1,12 @@
--- W2: Fit/predict path (scaled: 10K groups / 1M rows).
+-- Fit/predict path (scaled: 10K groups / 1M rows).
 -- Exercises fit-once-per-group + predict-all-rows via the predict aggregate:
 -- ~80% training rows (y not null) fit the model, all rows get a prediction.
 -- This drives the fit -> predict -> FFI-marshalling path.
 --
--- NOTE (deviation): Plan 04-01 specified the rolling `fit_predict ... OVER (...)`
--- window shape, but that path hits a pre-existing INTERNAL error — the expanding
--- frame fits on degenerate sub-(n_features+1) frames at each partition start
--- (an extension robustness gap slated for the ERGO milestone, unrelated to
--- Phase 4 measurement). `predict_agg` is the sibling analog
+-- NOTE: this uses `predict_agg` rather than the rolling `fit_predict ... OVER (...)`
+-- window shape, because the expanding frame fits on degenerate
+-- sub-(n_features+1) frames at each partition start, which is not what this
+-- benchmark is meant to measure. `predict_agg` is the sibling analog
 -- (examples/performance_1m_groups/benchmark_ols_predict_agg.sql) and exercises
 -- the same fit/predict marshalling robustly. The harness loads the extension;
 -- this file must contain no LOAD statement.

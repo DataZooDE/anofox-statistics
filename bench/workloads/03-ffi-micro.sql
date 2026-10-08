@@ -1,7 +1,7 @@
--- W3: FFI-marshalling micro-benchmark (small groups / high call count).
+-- FFI-marshalling micro-benchmark (small groups / high call count).
 -- {'compute_inference': true} forces the 5-array libc::malloc inference block
 -- (std_errors/t_values/p_values/ci_lower/ci_upper) on every group invocation —
--- the exact allocation pattern Plan 02 refactors. ~500 groups × ~100 rows keeps
+-- the allocation pattern managed by the `FfiVec` RAII wrapper. ~500 groups × ~100 rows keeps
 -- the fit cheap so per-call FFI marshalling/allocation dominates the timing.
 -- The harness loads the extension; this file must contain no LOAD statement.
 .timer on

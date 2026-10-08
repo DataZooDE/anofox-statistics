@@ -138,7 +138,7 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterKruskalWallisAggregateFunction(loader);
     RegisterChiSquareAggregateFunction(loader);
 
-    // Phase 1: Aggregates for existing FFI
+    // Aggregates for existing FFI
     RegisterKendallAggregateFunction(loader);
     RegisterFisherExactAggregateFunction(loader);
     RegisterBrunnerMunzelAggregateFunction(loader);
@@ -147,28 +147,28 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterMmdAggregateFunction(loader);
     RegisterTostTTestAggregateFunction(loader);
 
-    // Phase 2: Wilcoxon signed-rank test
+    // Wilcoxon signed-rank test
     RegisterWilcoxonSignedRankAggregateFunction(loader);
 
-    // Phase 4: Distance correlation test
+    // Distance correlation test
     RegisterDistanceCorAggregateFunction(loader);
 
-    // Phase 5: Parametric tests
+    // Parametric tests
     RegisterYuenAggregateFunction(loader);
     RegisterBrownForsytheAggregateFunction(loader);
 
-    // Phase 6: Forecast tests
+    // Forecast tests
     RegisterDieboldMarianoAggregateFunction(loader);
     RegisterClarkWestAggregateFunction(loader);
 
-    // Phase 7: Resampling tests
+    // Resampling tests
     RegisterPermutationTTestAggregateFunction(loader);
 
-    // Phase 8: TOST equivalence test variants
+    // TOST equivalence test variants
     RegisterTostPairedAggregateFunction(loader);
     RegisterTostCorrelationAggregateFunction(loader);
 
-    // Phase 9: Categorical tests
+    // Categorical tests
     RegisterChisqGofAggregateFunction(loader);
     RegisterPropTestOneAggregateFunction(loader);
     RegisterPropTestTwoAggregateFunction(loader);

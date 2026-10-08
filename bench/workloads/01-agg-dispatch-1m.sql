@@ -1,4 +1,4 @@
--- W1-full: Aggregate dispatch at official scale (1M groups / 100M rows).
+-- Aggregate dispatch at full scale (1M groups / 100M rows).
 -- Identical shape to 01-agg-dispatch.sql but full-scale. Documented ~8 GB RAM,
 -- ~160-210 s. Local-only, run via `bash scripts/bench.sh --full`; NOT default/CI.
 -- The harness loads the extension; this file must contain no LOAD statement.

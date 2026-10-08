@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 #
-# Phase-4 benchmark harness (PERF-01 / PERF-02).
+# Benchmark harness.
 #
 # One documented command runs three representative workloads against the LOCAL
 # release build of the extension and captures timings to a diffable results
-# file under bench/results/. This is the measurement foundation used to produce
-# before/after numbers for the FFI refactor (Plan 02) and hotspot work (Plan 03).
+# file under bench/results/, so optimizations can be backed by before/after
+# numbers (see bench/PROFILING.md).
 #
 # Usage:
 #   bash scripts/bench.sh          # default: scaled 10K-group / small workloads
-#   bash scripts/bench.sh --full   # additionally run the 1M-group official variant
+#   bash scripts/bench.sh --full   # additionally run the 1M-group full-scale variant
 #
 # The extension is loaded by explicit local path (-unsigned + LOAD), never via
 # the autoloaded community build, so numbers reflect this working tree.
@@ -111,13 +111,13 @@ run_workload() {
 }
 
 # --- Default workloads (scaled for fast iteration) --------------------------
-run_workload "W1 — aggregate dispatch (10K groups / 1M rows)" "$WORKLOADS_DIR/01-agg-dispatch.sql"
-run_workload "W2 — scalar/window fit_predict (10K groups / 1M rows)" "$WORKLOADS_DIR/02-fit-predict.sql"
-run_workload "W3 — FFI marshalling micro-bench (compute_inference)" "$WORKLOADS_DIR/03-ffi-micro.sql"
+run_workload "Aggregate dispatch (10K groups / 1M rows)" "$WORKLOADS_DIR/01-agg-dispatch.sql"
+run_workload "Fit + predict via predict_agg (10K groups / 1M rows)" "$WORKLOADS_DIR/02-fit-predict.sql"
+run_workload "FFI marshalling micro-bench with compute_inference (500 groups / 50K rows)" "$WORKLOADS_DIR/03-ffi-micro.sql"
 
 # --- Optional full-scale official variant -----------------------------------
 if [ "$RUN_FULL" -eq 1 ]; then
-  run_workload "W1-full — aggregate dispatch (1M groups / 100M rows)" "$WORKLOADS_DIR/01-agg-dispatch-1m.sql"
+  run_workload "Aggregate dispatch, full scale (1M groups / 100M rows)" "$WORKLOADS_DIR/01-agg-dispatch-1m.sql"
 fi
 
 echo "Results written to: $OUTFILE"
