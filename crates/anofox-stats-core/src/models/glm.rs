@@ -138,7 +138,7 @@ pub fn fit_binomial(
         priors: options.prior_opts.priors.clone(),
         vcov: options.prior_opts.vcov,
         offset_column: options.offset_column,
-        constant_policy: ConstantColumnPolicy::Keep,
+        constant_policy: ConstantColumnPolicy::Drop,
     };
 
     let fit = glm_engine::fit(&family, y, x, &engine_opts, DispersionRule::Fixed, |_| {
@@ -201,7 +201,7 @@ pub fn fit_negbinomial(
         priors: options.prior_opts.priors.clone(),
         vcov: options.prior_opts.vcov,
         offset_column: options.offset_column,
-        constant_policy: ConstantColumnPolicy::Keep,
+        constant_policy: ConstantColumnPolicy::Drop,
     };
 
     let run = |theta: f64, opts: &EngineOptions| {
@@ -316,7 +316,7 @@ pub fn fit_tweedie(y: &[f64], x: &[Vec<f64>], options: &TweedieOptions) -> Stats
         priors: options.prior_opts.priors.clone(),
         vcov: options.prior_opts.vcov,
         offset_column: options.offset_column,
-        constant_policy: ConstantColumnPolicy::Keep,
+        constant_policy: ConstantColumnPolicy::Drop,
     };
 
     // link_power 0.0 pins the log link. The upstream builder otherwise defaults to
@@ -357,7 +357,7 @@ pub fn fit_gamma(y: &[f64], x: &[Vec<f64>], options: &GammaOptions) -> StatsResu
         priors: options.prior_opts.priors.clone(),
         vcov: options.prior_opts.vcov,
         offset_column: options.offset_column,
-        constant_policy: ConstantColumnPolicy::Keep,
+        constant_policy: ConstantColumnPolicy::Drop,
     };
 
     let fit = glm_engine::fit(
@@ -415,7 +415,7 @@ pub fn fit_logistic(
         priors: options.prior_opts.priors.clone(),
         vcov: options.prior_opts.vcov,
         offset_column: options.offset_column,
-        constant_policy: ConstantColumnPolicy::Keep,
+        constant_policy: ConstantColumnPolicy::Drop,
     };
 
     let fit = glm_engine::fit(
