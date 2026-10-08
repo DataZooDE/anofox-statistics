@@ -100,6 +100,10 @@ Same structure as [OLS](ols.md#returns):
 
 With `compute_inference = true`: `std_errors`, `t_values`, `p_values`,
 `ci_lower`, `ci_upper` (all `DOUBLE[]`), `f_statistic` and `f_pvalue` (`DOUBLE`).
+With `alpha > 0` the standard errors are the ridge sandwich variance, and
+`t_values`, `p_values`, `ci_lower`, `ci_upper`, `f_statistic` and `f_pvalue` are
+`NULL`: classical tests on shrunken coefficients are not valid. With
+`alpha = 0` the fit and its inference are those of OLS.
 
 ## Choosing alpha
 

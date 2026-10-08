@@ -106,7 +106,7 @@ FROM (VALUES (1, 1), (1, 1), (1, 1), (1, 0), (1, 1),
 Chi-square goodness of fit test. Tests whether observed frequencies match
 expected proportions. One row per category: the observed count and the
 expected **probability** of that category (the probabilities must sum to 1;
-otherwise the result is `NULL`).
+otherwise the function raises an error).
 
 **Signature:**
 ```text

@@ -127,9 +127,9 @@ LIMIT 4;
 The variance is `mu + mu^2 / theta`. Small `theta` means heavy overdispersion;
 as `theta` grows the model approaches Poisson.
 
-When `theta` is not supplied it is estimated by alternating an IRLS fit at the
-current `theta` with a method-of-moments update, which is how `MASS::glm.nb`
-proceeds. The estimate is clamped to `[1e-6, 1e6]`; `1e6` means no
+When `theta` is not supplied it is estimated by maximum likelihood, alternating
+an IRLS fit at the current `theta` with a `MASS::theta.ml` update, which is how
+`MASS::glm.nb` proceeds; coefficients, `theta` and standard errors match `glm.nb`. The estimate is clamped to `[1e-6, 1e6]`; `1e6` means no
 overdispersion was detected. `theta` already enters the IRLS weights, so it
 does **not** additionally scale the coefficient covariance.
 
