@@ -2054,9 +2054,9 @@ pub unsafe extern "C" fn anofox_rls_fit(
         let result = fit_rls(&y_vec, &x_vecs, &opts);
 
         match result {
-            Ok(state) => {
-                let stats = anofox_stats_core::models::rls_fit_statistics(&y_vec, &x_vecs, &state);
-                let coefficients = state.get_coefficients();
+            Ok(fit) => {
+                let core = fit.core;
+                let coefficients = core.coefficients;
                 let n_coef = coefficients.len();
 
                 // Allocate and copy coefficients
@@ -2075,12 +2075,12 @@ pub unsafe extern "C" fn anofox_rls_fit(
                 (*out_core) = FitResultCore {
                     coefficients: coef_ptr,
                     coefficients_len: n_coef,
-                    intercept: state.get_intercept().unwrap_or(f64::NAN),
-                    r_squared: stats.r_squared,
-                    adj_r_squared: stats.adj_r_squared,
-                    residual_std_error: stats.residual_std_error,
-                    n_observations: state.n_observations,
-                    n_features: state.n_features,
+                    intercept: core.intercept.unwrap_or(f64::NAN),
+                    r_squared: core.r_squared,
+                    adj_r_squared: core.adj_r_squared,
+                    residual_std_error: core.residual_std_error,
+                    n_observations: core.n_observations,
+                    n_features: core.n_features,
                 };
 
                 true
