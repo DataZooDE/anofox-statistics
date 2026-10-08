@@ -9,8 +9,8 @@ use super::{convert_error, filter_nan, TestResult};
 use crate::{StatsError, StatsResult};
 use anofox_tests::{
     brunner_munzel as lib_brunner_munzel, kruskal_wallis as lib_kruskal_wallis,
-    mann_whitney_u as lib_mann_whitney_u, wilcoxon_signed_rank as lib_wilcoxon_signed_rank,
-    Alternative,
+    mann_whitney_u as lib_mann_whitney_u, rank_biserial_from_u as lib_rank_biserial_from_u,
+    wilcoxon_signed_rank as lib_wilcoxon_signed_rank, Alternative,
 };
 
 /// Options for Mann-Whitney U test
@@ -68,33 +68,14 @@ pub fn mann_whitney_u(
     )
     .map_err(convert_error)?;
 
-    // Workarounds for anofox-statistics <= 0.4.2 (normal approximation):
-    // * every observation tied -> Var(U) = 0; the library divides by zero and
-    //   reports p = 0. U equals its null expectation, so p = 1 (scipy; R gives
-    //   NaN two-sided and 1 one-sided).
-    // * U == n1*n2/2 (two-sided): R applies no continuity correction
-    //   (sign(z) * 0.5 = 0), so z = 0 and p = 1.
-    let shift = options.mu.unwrap_or(0.0);
-    let first = g1[0];
-    let all_tied = g1.iter().all(|&v| v == first) && g2.iter().all(|&v| v + shift == first);
-    let at_center = options.alternative == Alternative::TwoSided
-        && result.statistic == g1.len() as f64 * g2.len() as f64 / 2.0;
-    let p_value = if all_tied || at_center {
-        1.0
-    } else {
-        result.p_value
-    };
-
     Ok(TestResult {
         statistic: result.statistic,
-        p_value,
+        p_value: result.p_value,
         df: f64::NAN,
-        // Rank-biserial correlation r = 1 - 2*U1 / (n1*n2), where U1 (the
-        // reported statistic, R's W) counts pairs with group1 > group2 (ties
-        // 0.5), after any `mu` shift. Sign convention: r = P(g2 > g1) - P(g1 > g2),
-        // so r > 0 when group 2 tends to be LARGER than group 1, r < 0 when
-        // group 1 tends to be larger; r is in [-1, 1].
-        effect_size: 1.0 - 2.0 * result.statistic / (g1.len() as f64 * g2.len() as f64),
+        // Rank-biserial correlation r = 1 - 2*U1 / (n1*n2) from the reported
+        // U1 (R's W, after any `mu` shift): r > 0 when group 2 tends to be
+        // larger than group 1, r < 0 when group 1 tends to be larger.
+        effect_size: lib_rank_biserial_from_u(result.statistic, g1.len(), g2.len()),
         ci_lower: result
             .conf_int
             .as_ref()
@@ -182,25 +163,9 @@ pub fn wilcoxon_signed_rank(
     )
     .map_err(convert_error)?;
 
-    // anofox-statistics <= 0.4.2 applies the continuity correction even when
-    // V equals its null expectation; R uses sign(z) * 0.5 = 0 there, so p = 1.
-    let shift = options.mu.unwrap_or(0.0);
-    let n_nonzero = x_filtered
-        .iter()
-        .zip(y_filtered.iter())
-        .filter(|(a, b)| *a - *b - shift != 0.0)
-        .count() as f64;
-    let p_value = if options.alternative == Alternative::TwoSided
-        && result.statistic == n_nonzero * (n_nonzero + 1.0) / 4.0
-    {
-        1.0
-    } else {
-        result.p_value
-    };
-
     Ok(TestResult {
         statistic: result.statistic,
-        p_value,
+        p_value: result.p_value,
         df: f64::NAN,
         effect_size: f64::NAN, // Not provided by library
         ci_lower: result

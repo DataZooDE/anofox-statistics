@@ -4,87 +4,28 @@
 //! matching a normal distribution.
 
 use crate::errors::{StatsError, StatsResult};
+use crate::tests::convert_error;
 
-/// Result of Jarque-Bera test
-#[derive(Debug, Clone)]
-pub struct JarqueBeraResult {
-    /// JB test statistic
-    pub statistic: f64,
-    /// p-value for the test
-    pub p_value: f64,
-    /// Sample skewness
-    pub skewness: f64,
-    /// Sample kurtosis (excess)
-    pub kurtosis: f64,
-    /// Number of observations
-    pub n: usize,
-}
+pub use anofox_tests::JarqueBeraResult;
 
-/// Compute the Jarque-Bera test statistic for normality
+/// Jarque-Bera test for normality (delegates to `anofox_statistics::jarque_bera`,
+/// R `tseries::jarque.bera.test`). NaN values are dropped first.
 ///
 /// # Arguments
 /// * `data` - Sample data (typically residuals)
 ///
 /// # Returns
-/// JarqueBeraResult with test statistic, p-value, skewness, and kurtosis
+/// JarqueBeraResult with test statistic, p-value, skewness, and excess kurtosis
 pub fn jarque_bera(data: &[f64]) -> StatsResult<JarqueBeraResult> {
-    // Filter NaN values
     let clean_data: Vec<f64> = data.iter().copied().filter(|x| !x.is_nan()).collect();
-    let n = clean_data.len();
 
-    if n < 3 {
+    if clean_data.len() < 3 {
         return Err(StatsError::InsufficientDataMsg(
             "Jarque-Bera test requires at least 3 observations".into(),
         ));
     }
 
-    // Compute mean
-    let mean: f64 = clean_data.iter().sum::<f64>() / n as f64;
-
-    // Compute central moments
-    let mut m2 = 0.0;
-    let mut m3 = 0.0;
-    let mut m4 = 0.0;
-
-    for &x in &clean_data {
-        let d = x - mean;
-        let d2 = d * d;
-        m2 += d2;
-        m3 += d2 * d;
-        m4 += d2 * d2;
-    }
-
-    m2 /= n as f64;
-    m3 /= n as f64;
-    m4 /= n as f64;
-
-    // Check for zero variance
-    if m2 <= 0.0 {
-        return Err(StatsError::InsufficientDataMsg(
-            "Data has zero variance".into(),
-        ));
-    }
-
-    // Compute skewness and kurtosis
-    let std_dev = m2.sqrt();
-    let skewness = m3 / (std_dev * std_dev * std_dev);
-    let kurtosis = m4 / (m2 * m2) - 3.0; // Excess kurtosis
-
-    // Jarque-Bera statistic: JB = n/6 * (S^2 + K^2/4)
-    // where S is skewness and K is excess kurtosis
-    let jb_stat = (n as f64 / 6.0) * (skewness * skewness + kurtosis * kurtosis / 4.0);
-
-    // p-value from chi-squared distribution with 2 degrees of freedom
-    // Using approximation: P(X > x) ≈ exp(-x/2) for chi-squared(2)
-    let p_value = (-jb_stat / 2.0).exp();
-
-    Ok(JarqueBeraResult {
-        statistic: jb_stat,
-        p_value,
-        skewness,
-        kurtosis,
-        n,
-    })
+    anofox_tests::jarque_bera(&clean_data).map_err(convert_error)
 }
 
 #[cfg(test)]

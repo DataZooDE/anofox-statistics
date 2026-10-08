@@ -16,7 +16,6 @@ use anofox_tests::{
     semi_partial_cor as lib_semi_partial_cor, spearman as lib_spearman, Alternative, ICCType,
     KendallVariant,
 };
-use statrs::distribution::{ContinuousCDF, Normal};
 
 /// Options for Pearson correlation
 #[derive(Debug, Clone)]
@@ -57,17 +56,15 @@ pub fn pearson(x: &[f64], y: &[f64], options: &PearsonOptions) -> StatsResult<Co
 
     let (x_filtered, y_filtered): (Vec<f64>, Vec<f64>) = pairs.into_iter().unzip();
 
-    // A constant variable has an undefined correlation; upstream panics on it
-    // (statrs beta XOutOfRange), so report it as degenerate data up front.
-    let is_constant = |v: &[f64]| v.iter().all(|&a| a == v[0]);
-    if is_constant(&x_filtered) || is_constant(&y_filtered) {
+    let result =
+        lib_pearson(&x_filtered, &y_filtered, options.confidence_level).map_err(convert_error)?;
+    // A constant variable has an undefined correlation: upstream reports NaN
+    // (R `NA`); surface it as degenerate data (SQL NULL), as before.
+    if result.estimate.is_nan() {
         return Err(StatsError::InsufficientDataMsg(
             "Pearson correlation is undefined for a constant variable (zero variance)".into(),
         ));
     }
-
-    let result =
-        lib_pearson(&x_filtered, &y_filtered, options.confidence_level).map_err(convert_error)?;
 
     Ok(CorrelationResult {
         r: result.estimate,
@@ -190,14 +187,10 @@ pub fn kendall(x: &[f64], y: &[f64], options: &KendallOptions) -> StatsResult<Co
 
     let result = lib_kendall(&x_filtered, &y_filtered, options.variant).map_err(convert_error)?;
 
-    // anofox-statistics <= 0.4.2 ignores ties in Var(S); recompute z and p
-    // with the tie-corrected variance (R cor.test(method = "kendall", exact = FALSE)).
-    let (statistic, p_value) = kendall_z_test(&x_filtered, &y_filtered);
-
     Ok(CorrelationResult {
         r: result.estimate,
-        statistic,
-        p_value,
+        statistic: result.statistic,
+        p_value: result.p_value,
         ci_lower: result
             .conf_int
             .as_ref()
@@ -503,51 +496,6 @@ pub fn icc(data: &[Vec<f64>], icc_type: ICCType) -> StatsResult<ICCResult> {
         ci_upper: result.conf_int_upper,
         icc_type: format!("{:?}", icc_type),
     })
-}
-
-/// Kendall's S = C - D with the tie-corrected variance (Kendall 1970), as R
-/// `cor.test(method = "kendall", exact = FALSE)`: returns (z, two-sided p).
-fn kendall_z_test(x: &[f64], y: &[f64]) -> (f64, f64) {
-    let n = x.len();
-    let mut s = 0.0;
-    for i in 0..n {
-        for j in (i + 1)..n {
-            let sx = (x[i] - x[j]).partial_cmp(&0.0).map_or(0, |o| o as i32);
-            let sy = (y[i] - y[j]).partial_cmp(&0.0).map_or(0, |o| o as i32);
-            s += f64::from(sx * sy);
-        }
-    }
-    // (sum t(t-1)(2t+5), sum t(t-1), sum t(t-1)(t-2)) over tie groups
-    let tie_sums = |v: &[f64]| {
-        let mut v = v.to_vec();
-        v.sort_by(|a, b| a.total_cmp(b));
-        let (mut a, mut b, mut c) = (0.0, 0.0, 0.0);
-        let mut i = 0;
-        while i < v.len() {
-            let mut j = i + 1;
-            while j < v.len() && v[j] == v[i] {
-                j += 1;
-            }
-            let t = (j - i) as f64;
-            a += t * (t - 1.0) * (2.0 * t + 5.0);
-            b += t * (t - 1.0);
-            c += t * (t - 1.0) * (t - 2.0);
-            i = j;
-        }
-        (a, b, c)
-    };
-    let (vt, tx1, tx2) = tie_sums(x);
-    let (vu, ty1, ty2) = tie_sums(y);
-    let nf = n as f64;
-    let var_s = (nf * (nf - 1.0) * (2.0 * nf + 5.0) - vt - vu) / 18.0
-        + tx1 * ty1 / (2.0 * nf * (nf - 1.0))
-        + tx2 * ty2 / (9.0 * nf * (nf - 1.0) * (nf - 2.0));
-    if var_s.is_nan() || var_s <= 0.0 {
-        return (f64::NAN, f64::NAN);
-    }
-    let z = s / var_s.sqrt();
-    let p = 2.0 * Normal::new(0.0, 1.0).unwrap().sf(z.abs());
-    (z, p.min(1.0))
 }
 
 #[cfg(test)]

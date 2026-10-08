@@ -130,7 +130,7 @@ pub struct ChiSquareResult {
 /// `InvalidParameter`. The SQL layer raises the former and returns NULL for the
 /// latter, so split them here: anything describing the *data* rather than an
 /// argument is reported as insufficient data.
-fn convert_error(e: anofox_tests::StatError) -> StatsError {
+pub(crate) fn convert_error(e: anofox_tests::StatError) -> StatsError {
     use anofox_tests::StatError as E;
     match e {
         E::EmptyData | E::InsufficientData { .. } => StatsError::InsufficientDataMsg(e.to_string()),
@@ -153,6 +153,7 @@ fn is_degenerate_data_message(msg: &str) -> bool {
         "is empty",
         "empty cell",
         "limited to n <=",
+        "non-finite value",
     ]
     .iter()
     .any(|needle| lower.contains(needle))
