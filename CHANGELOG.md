@@ -64,6 +64,19 @@ Breaking changes are called out explicitly.
 
 ### Changed
 
+- Dependency: `anofox-statistics` 0.4.2 -> 0.4.3. The extension no longer carries
+  its own implementations of statistical methods; it delegates to the library:
+  Shapiro-Wilk (R `swilk.c` port), Kendall's tie-corrected Var(S), the exact
+  binomial test with Clopper-Pearson interval, the Wilson / two-sample proportion
+  intervals at the requested confidence level, Fisher's conditional MLE and exact
+  conditional interval (`fisher_exact_conditional`) and the Woolf interval at the
+  requested level, Mann-Whitney / Wilcoxon p-values at the centre and with all
+  values tied, the rank-biserial correlation, Cohen's d for `t_test`, Jarque-Bera
+  and the percentile bootstrap of the mean. Results are unchanged.
+- Non-finite input to `jarque_bera` and the Pearson / Spearman / Kendall
+  correlations is treated as degenerate data (NULL result) instead of raising an
+  error (Jarque-Bera previously returned NaN).
+
 - **Breaking:** every regression-family function (aggregates, table/scalar
   fits, window functions, fit-predict aggregates) declares the option keys it
   reads; any other key raises an error naming the function and listing its
@@ -135,6 +148,12 @@ Breaking changes are called out explicitly.
 
 ### Fixed
 
+- `t_test`, `one_way_anova`, `brown_forsythe` and `yuen` on constant data no longer
+  abort with an internal error (fixed upstream in `anofox-statistics` 0.4.3); they
+  return a NaN p-value.
+- GLM weighted least-squares solve (`solve_weighted_ls_qr`) built the full n x n
+  `Q` of the QR factorisation, which exhausted memory on large inputs; it now uses
+  the thin factorisation.
 - Hypothesis-test aggregates with hand-written option parsing (yuen, permutation
   t-test, TOST paired/correlation, Diebold-Mariano, Clark-West, binomial and
   proportion tests, ICC, McNemar, Cohen's kappa, distance correlation) ignored
