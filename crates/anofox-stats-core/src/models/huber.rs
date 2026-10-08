@@ -5,7 +5,7 @@
 //! carrying the MAD-based scale estimate and outlier mask.
 
 use crate::errors::{StatsError, StatsResult};
-use crate::types::{FitResult, FitResultCore, FitResultInference, HuberOptions};
+use crate::types::{FitResult, FitResultCore, HuberOptions};
 use anofox_regression::solvers::{FittedRegressor, HuberRegressor, Regressor};
 use faer::{Col, Mat};
 
@@ -114,24 +114,9 @@ pub fn fit_huber(y: &[f64], x: &[Vec<f64>], options: &HuberOptions) -> StatsResu
 
     // MASS `summary.rlm(method = "XtX")` covariance, computed upstream; NaN
     // (NULL in SQL) where it is unavailable.
-    let inference = options.compute_inference.then(|| {
-        let col = |c: Option<&Col<f64>>| -> Vec<f64> {
-            c.map_or_else(
-                || vec![f64::NAN; n_features],
-                |c| c.iter().copied().collect(),
-            )
-        };
-        FitResultInference {
-            std_errors: col(result.std_errors.as_ref()),
-            t_values: col(result.t_statistics.as_ref()),
-            p_values: col(result.p_values.as_ref()),
-            ci_lower: col(result.conf_interval_lower.as_ref()),
-            ci_upper: col(result.conf_interval_upper.as_ref()),
-            confidence_level: options.confidence_level,
-            f_statistic: Some(result.f_statistic),
-            f_pvalue: Some(result.f_pvalue),
-        }
-    });
+    let inference = options
+        .compute_inference
+        .then(|| super::inference_from_result(result, n_features, options.confidence_level));
 
     let outliers = fitted.outliers().to_vec();
     let n_outliers = fitted.n_outliers();

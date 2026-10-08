@@ -5,7 +5,7 @@
 //! diagnostics (inlier mask, trial count, residual threshold actually used).
 
 use crate::errors::{StatsError, StatsResult};
-use crate::types::{FitResult, FitResultCore, FitResultInference, RansacOptions};
+use crate::types::{FitResult, FitResultCore, RansacOptions};
 use anofox_regression::solvers::{FittedRegressor, RansacRegressor, Regressor};
 use faer::{Col, Mat};
 
@@ -144,24 +144,9 @@ pub fn fit_ransac(y: &[f64], x: &[Vec<f64>], options: &RansacOptions) -> StatsRe
         n_features,
     };
 
-    let inference = options.compute_inference.then(|| {
-        let col = |c: Option<&Col<f64>>| -> Vec<f64> {
-            c.map_or_else(
-                || vec![f64::NAN; n_features],
-                |c| c.iter().copied().collect(),
-            )
-        };
-        FitResultInference {
-            std_errors: col(result.std_errors.as_ref()),
-            t_values: col(result.t_statistics.as_ref()),
-            p_values: col(result.p_values.as_ref()),
-            ci_lower: col(result.conf_interval_lower.as_ref()),
-            ci_upper: col(result.conf_interval_upper.as_ref()),
-            confidence_level: options.confidence_level,
-            f_statistic: Some(result.f_statistic),
-            f_pvalue: Some(result.f_pvalue),
-        }
-    });
+    let inference = options
+        .compute_inference
+        .then(|| super::inference_from_result(result, n_features, options.confidence_level));
 
     let n_inliers = fitted.n_inliers();
     let n_trials = fitted.n_trials();

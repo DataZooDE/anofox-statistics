@@ -7,7 +7,7 @@
 //! and a `with_intercept` flag.
 
 use crate::errors::{StatsError, StatsResult};
-use crate::types::{FitResult, FitResultCore, FitResultInference, TheilSenOptions};
+use crate::types::{FitResult, FitResultCore, TheilSenOptions};
 use anofox_regression::solvers::{FittedRegressor, Regressor, TheilSenRegressor};
 use faer::{Col, Mat};
 
@@ -117,38 +117,12 @@ pub fn fit_theilsen(
         n_features,
     };
 
-    // Same inference projection as RANSAC: only emit fields the upstream
-    // RegressionResult actually populates.
-    let inference = if options.compute_inference {
-        result.std_errors.as_ref().map(|se| FitResultInference {
-            std_errors: se.iter().copied().collect(),
-            t_values: result
-                .t_statistics
-                .as_ref()
-                .map(|c| c.iter().copied().collect())
-                .unwrap_or_else(|| vec![f64::NAN; n_features]),
-            p_values: result
-                .p_values
-                .as_ref()
-                .map(|c| c.iter().copied().collect())
-                .unwrap_or_else(|| vec![f64::NAN; n_features]),
-            ci_lower: result
-                .conf_interval_lower
-                .as_ref()
-                .map(|c| c.iter().copied().collect())
-                .unwrap_or_else(|| vec![f64::NAN; n_features]),
-            ci_upper: result
-                .conf_interval_upper
-                .as_ref()
-                .map(|c| c.iter().copied().collect())
-                .unwrap_or_else(|| vec![f64::NAN; n_features]),
-            confidence_level: options.confidence_level,
-            f_statistic: Some(result.f_statistic),
-            f_pvalue: Some(result.f_pvalue),
-        })
-    } else {
-        None
-    };
+    // Upstream Theil-Sen has no coefficient inference; when it is requested
+    // the lists still carry one (NaN, i.e. NULL) entry per feature, as
+    // documented.
+    let inference = options
+        .compute_inference
+        .then(|| super::inference_from_result(result, n_features, options.confidence_level));
 
     Ok(TheilSenResult {
         fit: FitResult {

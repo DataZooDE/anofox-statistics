@@ -58,3 +58,28 @@ pub use ridge::fit_ridge;
 pub use rls::{fit_rls, RlsOptions};
 pub use theil_sen::{fit_theilsen, TheilSenResult};
 pub use wls::fit_wls;
+
+/// Project upstream coefficient inference onto `FitResultInference`; fields
+/// upstream leaves unset become one NaN (NULL in SQL) per feature.
+pub(crate) fn inference_from_result(
+    result: &anofox_regression::core::RegressionResult,
+    n_features: usize,
+    confidence_level: f64,
+) -> crate::types::FitResultInference {
+    let col = |c: Option<&faer::Col<f64>>| -> Vec<f64> {
+        c.map_or_else(
+            || vec![f64::NAN; n_features],
+            |c| c.iter().copied().collect(),
+        )
+    };
+    crate::types::FitResultInference {
+        std_errors: col(result.std_errors.as_ref()),
+        t_values: col(result.t_statistics.as_ref()),
+        p_values: col(result.p_values.as_ref()),
+        ci_lower: col(result.conf_interval_lower.as_ref()),
+        ci_upper: col(result.conf_interval_upper.as_ref()),
+        confidence_level,
+        f_statistic: Some(result.f_statistic),
+        f_pvalue: Some(result.f_pvalue),
+    }
+}
