@@ -386,13 +386,13 @@ void RegisterAidAggregateFunction(ExtensionLoader &loader) {
                           AidAggFinalize, nullptr, AidAggBind, AidAggDestroy);
     // Row order is part of the input (sequential / time-series estimator):
     // declare it so DuckDB honours `agg(... ORDER BY t)`.
-    aid_basic.SetOrderDependent(AggregateOrderDependent::ORDER_DEPENDENT);
+    aid_basic.order_dependent = AggregateOrderDependent::ORDER_DEPENDENT; // field form works on DuckDB v1.4 LTS and v1.5
     aid_set.AddFunction(aid_basic);
 
     auto aid_map = AggregateFunction("aid_agg", {LogicalType::DOUBLE, LogicalType::ANY}, LogicalType::ANY,
                                      AggregateFunction::StateSize<AidAggregateState>, AidAggInitialize, AidAggUpdate,
                                      AidAggCombine, AidAggFinalize, nullptr, AidAggBind, AidAggDestroy);
-    aid_map.SetOrderDependent(AggregateOrderDependent::ORDER_DEPENDENT);
+    aid_map.order_dependent = AggregateOrderDependent::ORDER_DEPENDENT; // field form works on DuckDB v1.4 LTS and v1.5
     aid_set.AddFunction(aid_map);
 
     {
@@ -426,14 +426,14 @@ void RegisterAidAggregateFunction(ExtensionLoader &loader) {
         "aid_anomaly_agg", {LogicalType::DOUBLE}, LogicalType::ANY,
         AggregateFunction::StateSize<AidAggregateState>, AidAggInitialize, AidAggUpdate, AidAggCombine,
         AidAnomalyAggFinalize, nullptr, AidAnomalyAggBind, AidAggDestroy);
-    aid_anomaly_basic.SetOrderDependent(AggregateOrderDependent::ORDER_DEPENDENT);
+    aid_anomaly_basic.order_dependent = AggregateOrderDependent::ORDER_DEPENDENT; // field form works on DuckDB v1.4 LTS and v1.5
     aid_anomaly_set.AddFunction(aid_anomaly_basic);
 
     auto aid_anomaly_map = AggregateFunction(
         "aid_anomaly_agg", {LogicalType::DOUBLE, LogicalType::ANY}, LogicalType::ANY,
         AggregateFunction::StateSize<AidAggregateState>, AidAggInitialize, AidAggUpdate, AidAggCombine,
         AidAnomalyAggFinalize, nullptr, AidAnomalyAggBind, AidAggDestroy);
-    aid_anomaly_map.SetOrderDependent(AggregateOrderDependent::ORDER_DEPENDENT);
+    aid_anomaly_map.order_dependent = AggregateOrderDependent::ORDER_DEPENDENT; // field form works on DuckDB v1.4 LTS and v1.5
     aid_anomaly_set.AddFunction(aid_anomaly_map);
 
     {

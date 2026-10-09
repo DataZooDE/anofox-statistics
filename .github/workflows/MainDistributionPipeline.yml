@@ -142,7 +142,15 @@ jobs:
     continue-on-error: true
     env:
       GEN: ninja
-      EXT_FLAGS: "-DENABLE_SANITIZER=TRUE -DENABLE_UBSAN=TRUE"
+      # CMAKE_CXX_STANDARD=17: the extension's CMakeLists compiles its sources
+      # as C++17 while DuckDB defaults to C++11. At -O0 the extension objects
+      # then emit LogicalType::VARCHAR/BOOLEAN/... as C++17 inline variables
+      # (COMDAT) while libduckdb_static.a has the C++11 strong out-of-line
+      # definitions, and linking the debug loadable extension fails with
+      # "multiple definition of duckdb::LogicalType::VARCHAR". Building DuckDB
+      # as C++17 too makes both sides agree. (Release builds never ODR-use
+      # these constants, so they are unaffected.)
+      EXT_FLAGS: "-DENABLE_SANITIZER=TRUE -DENABLE_UBSAN=TRUE -DCMAKE_CXX_STANDARD=17"
       ASAN_OPTIONS: "detect_leaks=1:abort_on_error=1:strict_string_checks=1:detect_stack_use_after_return=1"
       UBSAN_OPTIONS: "print_stacktrace=1:halt_on_error=1"
     steps:
@@ -160,7 +168,7 @@ jobs:
       - name: ccache
         uses: hendrikmuhs/ccache-action@v1.2
         with:
-          key: sanitizer-debug-${{ hashFiles('duckdb') }}
+          key: sanitizer-debug-${{ runner.os }}
           max-size: 2G
 
       - name: Build debug (ASAN + UBSAN)

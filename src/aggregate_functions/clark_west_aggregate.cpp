@@ -270,9 +270,9 @@ void RegisterClarkWestAggregateFunction(ExtensionLoader &loader) {
         AggregateFunctionSet func_set("clark_west_agg");
         // Row order is part of the input (sequential / time-series estimator):
         // declare it so DuckDB honours `agg(... ORDER BY t)`.
-        func_with_opts.SetOrderDependent(AggregateOrderDependent::ORDER_DEPENDENT);
+        func_with_opts.order_dependent = AggregateOrderDependent::ORDER_DEPENDENT; // field form works on DuckDB v1.4 LTS and v1.5
         func_set.AddFunction(func_with_opts);
-        func_no_opts.SetOrderDependent(AggregateOrderDependent::ORDER_DEPENDENT);
+        func_no_opts.order_dependent = AggregateOrderDependent::ORDER_DEPENDENT; // field form works on DuckDB v1.4 LTS and v1.5
         func_set.AddFunction(func_no_opts);
         CreateAggregateFunctionInfo info(std::move(func_set));
         info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
