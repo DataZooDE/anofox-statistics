@@ -48,10 +48,7 @@ INSERT INTO d2 VALUES
 # {'tolerance': 1e-12}. Coefficients, SEs and derived values compare at 1e-6.
 
 # ---- Poisson (log link) ----
-# CONVENTION: the extension scales the Poisson covariance by max(1, Pearson
-# chi^2/df) (here 1.005776), a floored quasi-Poisson correction; R's
-# summary.glm uses dispersion 1. Reference: summary(glm(cnt ~ z1 + z2, poisson),
-# dispersion = max(1, sum(residuals(fit, 'pearson')^2)/df.residual)).
+# Covariance at dispersion 1, exactly summary.glm for family = poisson.
 # glm(cnt ~ z1 + z2, family = poisson): coefficients
 query III
 SELECT
@@ -65,12 +62,12 @@ true	true	true
 # glm(cnt ~ z1 + z2, family = poisson): slope SE, z, p, Wald CI (b -/+ qnorm(.975)*se)
 query IIIIII
 SELECT
-    abs((r.std_errors[1]) - (0.22952105972601644)) <= 1e-06 * (1 + abs(0.22952105972601644)),
-    abs((r.std_errors[2]) - (0.2224740742942983)) <= 1e-06 * (1 + abs(0.2224740742942983)),
-    abs((r.z_values[1]) - (3.5245409399787238)) <= 1e-06 * (1 + abs(3.5245409399787238)),
-    abs((r.z_values[2]) - (1.9879486023824402)) <= 1e-06 * (1 + abs(1.9879486023824402)),
-    abs((r.p_values[1]) - (0.00042421725587204199)) <= 1e-06 * (1 + abs(0.00042421725587204199)),
-    abs((r.p_values[2]) - (0.04681737467971693)) <= 1e-06 * (1 + abs(0.04681737467971693))
+    abs((r.std_errors[1]) - (0.22886106000197948)) <= 1e-06 * (1 + abs(0.22886106000197948)),
+    abs((r.std_errors[2]) - (0.22183433854275161)) <= 1e-06 * (1 + abs(0.22183433854275161)),
+    abs((r.z_values[1]) - (3.5347051682127573)) <= 1e-06 * (1 + abs(3.5347051682127573)),
+    abs((r.z_values[2]) - (1.9936815371550081)) <= 1e-06 * (1 + abs(1.9936815371550081)),
+    abs((r.p_values[1]) - (0.00040823037696315881)) <= 1e-06 * (1 + abs(0.00040823037696315881)),
+    abs((r.p_values[2]) - (0.046186868321499097)) <= 1e-06 * (1 + abs(0.046186868321499097))
 FROM (SELECT poisson_fit_agg(cnt, [z1, z2], {'compute_inference': true, 'tolerance': 1e-12}) AS r FROM d2) s;
 ----
 true	true	true	true	true	true
@@ -78,10 +75,10 @@ true	true	true	true	true	true
 # glm(cnt ~ z1 + z2, family = poisson): slope SE, z, p, Wald CI (b -/+ qnorm(.975)*se)
 query IIII
 SELECT
-    abs((r.ci_lower[1]) - (0.35910336083518801)) <= 1e-06 * (1 + abs(0.35910336083518801)),
-    abs((r.ci_lower[2]) - (0.0062258519489646336)) <= 1e-06 * (1 + abs(0.0062258519489646336)),
-    abs((r.ci_upper[1]) - (1.2588093823481055)) <= 1e-06 * (1 + abs(1.2588093823481055)),
-    abs((r.ci_upper[2]) - (0.8783081981703903)) <= 1e-06 * (1 + abs(0.8783081981703903))
+    abs((r.ci_lower[1]) - (0.36039693652410681)) <= 1e-06 * (1 + abs(0.36039693652410681)),
+    abs((r.ci_lower[2]) - (0.0074797109816188145)) <= 1e-06 * (1 + abs(0.0074797109816188145)),
+    abs((r.ci_upper[1]) - (1.2575158066591867)) <= 1e-06 * (1 + abs(1.2575158066591867)),
+    abs((r.ci_upper[2]) - (0.87705433913773612)) <= 1e-06 * (1 + abs(0.87705433913773612))
 FROM (SELECT poisson_fit_agg(cnt, [z1, z2], {'compute_inference': true, 'tolerance': 1e-12}) AS r FROM d2) s;
 ----
 true	true	true	true
@@ -97,13 +94,41 @@ FROM (SELECT poisson_fit_agg(cnt, [z1, z2], {'compute_inference': true, 'toleran
 ----
 true	true	true	true
 
-# Poisson dispersion field = max(1, Pearson chi^2 / df)
+# Poisson dispersion field = 1 (summary.glm)
 query I
 SELECT
-    abs((r.dispersion) - (1.0057760056895637)) <= 1e-06 * (1 + abs(1.0057760056895637))
+    abs((r.dispersion) - (1)) <= 1e-06 * (1 + abs(1))
 FROM (SELECT poisson_fit_agg(cnt, [z1, z2], {'tolerance': 1e-12}) AS r FROM d2) s;
 ----
 true
+
+# ---- Poisson with an offset / without an intercept ----
+# null deviance as R's glm: intercept-only model fitted WITH the offset; without
+# an intercept the deviance at mu = linkinv(offset) (= 1 here). pseudo R^2 = 1 - dev/null.
+# glm(cnt ~ z1 + offset(z2), poisson): coefficients, deviance, null deviance, pseudo R^2, AIC
+query IIIIII
+SELECT
+    abs((r.intercept) - (-0.28990957318292304)) <= 1e-06 * (1 + abs(-0.28990957318292304)),
+    abs((r.coefficients[1]) - (0.63849595033831119)) <= 1e-06 * (1 + abs(0.63849595033831119)),
+    abs((r.deviance) - (35.35192994449131)) <= 1e-06 * (1 + abs(35.35192994449131)),
+    abs((r.null_deviance) - (44.996194441707836)) <= 1e-06 * (1 + abs(44.996194441707836)),
+    abs((r.pseudo_r_squared) - (0.21433511471088029)) <= 1e-06 * (1 + abs(0.21433511471088029)),
+    abs((r.aic) - (111.90998316613813)) <= 1e-06 * (1 + abs(111.90998316613813))
+FROM (SELECT poisson_fit_agg(cnt, [z1, z2], {'offset': 2, 'tolerance': 1e-12}) AS r FROM d2) s;
+----
+true	true	true	true	true	true
+
+# glm(cnt ~ 0 + z1 + z2, poisson): coefficients, deviance, null deviance, pseudo R^2
+query IIIII
+SELECT
+    abs((r.coefficients[1]) - (0.79996705293354586)) <= 1e-06 * (1 + abs(0.79996705293354586)),
+    abs((r.coefficients[2]) - (0.68396505976408672)) <= 1e-06 * (1 + abs(0.68396505976408672)),
+    abs((r.deviance) - (30.748181005169986)) <= 1e-06 * (1 + abs(30.748181005169986)),
+    abs((r.null_deviance) - (106.2401393467225)) <= 1e-06 * (1 + abs(106.2401393467225)),
+    abs((r.pseudo_r_squared) - (0.71057849515030247)) <= 1e-06 * (1 + abs(0.71057849515030247))
+FROM (SELECT poisson_fit_agg(cnt, [z1, z2], {'intercept': false, 'tolerance': 1e-12}) AS r FROM d2) s;
+----
+true	true	true	true	true
 
 # ---- Binomial (logit link) ----
 # glm(bin ~ z1 + z2, family = binomial(link = 'logit')): coefficients
@@ -369,11 +394,10 @@ FROM (SELECT negbinom_fit_agg(nb, [z1, z2], {'tolerance': 1e-12}) AS r FROM d2) 
 true	true	true	true
 
 # ---- Gamma (log link) ----
-# SEs use the Pearson dispersion exactly like summary.glm. CONVENTIONS: (1) the
-# extension reports normal (z) p-values where summary.glm uses t(n-p); the
-# reference p = 2*pnorm(-|b/se|). (2) R's Gamma()$aic plugs in dispersion =
-# deviance/n; the extension plugs in the Pearson dispersion. Reference AIC =
-# -2*sum(dgamma(y, shape = 1/phi_P, rate = 1/(phi_P*mu), log = TRUE)) + 2*(p + 1).
+# SEs use the Pearson dispersion exactly like summary.glm; AIC is R's
+# (Gamma()$aic, dispersion = deviance/n). CONVENTION: the extension reports
+# normal (z) p-values where summary.glm uses t(n-p); the reference
+# p = 2*pnorm(-|b/se|).
 # glm(gam ~ z1 + z2, family = Gamma(link = 'log')): coefficients
 query III
 SELECT
@@ -414,7 +438,7 @@ SELECT
     abs((r.deviance) - (11.637173254838117)) <= 1e-06 * (1 + abs(11.637173254838117)),
     abs((r.null_deviance) - (18.575443413052398)) <= 1e-06 * (1 + abs(18.575443413052398)),
     abs((r.pseudo_r_squared) - (0.37351841374289718)) <= 1e-06 * (1 + abs(0.37351841374289718)),
-    abs((r.aic) - (76.654252737139956)) <= 1e-06 * (1 + abs(76.654252737139956))
+    abs((r.aic) - (76.634192584911986)) <= 1e-06 * (1 + abs(76.634192584911986))
 FROM (SELECT gamma_fit_agg(gam, [z1, z2], {'compute_inference': true, 'tolerance': 1e-12}) AS r FROM d2) s;
 ----
 true	true	true	true

@@ -47,9 +47,9 @@ The link is always log.
 | `coefficients` | DOUBLE[] | Coefficients on the log scale; `NaN` for an aliased column |
 | `intercept` | DOUBLE | Intercept |
 | `deviance` | DOUBLE | Residual deviance |
-| `null_deviance` | DOUBLE | Intercept-only deviance |
+| `null_deviance` | DOUBLE | Intercept-only deviance (fitted with the offset, if any), as R's `glm` |
 | `pseudo_r_squared` | DOUBLE | `1 - deviance / null_deviance` |
-| `aic` | DOUBLE | Akaike information criterion |
+| `aic` | DOUBLE | Akaike information criterion; the log-likelihood uses the dispersion `deviance / n`, exactly R's `AIC(glm(..., family = Gamma))` |
 | `dispersion` | DOUBLE | Pearson χ² / residual df; scales the standard errors |
 | `n_observations` | BIGINT | Rows used in the fit |
 | `n_features` | BIGINT | Number of features |

@@ -1,4 +1,5 @@
 #include <type_traits>
+#include <cmath>
 #include <limits>
 #include <unordered_map>
 #include <vector>
@@ -75,7 +76,8 @@ struct GlmmAggregateState {
 
 	GlmmAggregateState()
 	    : n_features(0), initialized(false), family(ANOFOX_GLMM_GAUSSIAN), fit_intercept(true), max_iterations(100),
-	      tolerance(1e-8), compute_inference(false), confidence_level(0.95), reml(true), theta(1.0), power(1.5),
+	      tolerance(1e-8), compute_inference(false), confidence_level(0.95), reml(true),
+	      theta(std::numeric_limits<double>::quiet_NaN()), power(1.5),
 	      offset_column(0) {
 	}
 
@@ -112,7 +114,8 @@ struct GlmmAggregateBindData : public FunctionData {
 	bool compute_inference = false;
 	double confidence_level = 0.95;
 	bool reml = true;
-	double theta = 1.0;
+	//! NaN = estimate the negative-binomial size (lme4::glmer.nb).
+	double theta = std::numeric_limits<double>::quiet_NaN();
 	double power = 1.5;
 	idx_t offset_column = 0;
 	// The element type is *derived from* the FFI declaration rather than restated, so
@@ -153,7 +156,9 @@ struct GlmmAggregateBindData : public FunctionData {
 		auto &o = other_p.Cast<GlmmAggregateBindData>();
 		return family == o.family && fit_intercept == o.fit_intercept && max_iterations == o.max_iterations &&
 		       tolerance == o.tolerance && compute_inference == o.compute_inference &&
-		       confidence_level == o.confidence_level && reml == o.reml && theta == o.theta && power == o.power &&
+		       confidence_level == o.confidence_level && reml == o.reml &&
+		       // theta is NaN when estimated; NaN != NaN would make a copy unequal to itself.
+		       (theta == o.theta || (std::isnan(theta) && std::isnan(o.theta))) && power == o.power &&
 		       offset_column == o.offset_column && random_slopes == o.random_slopes &&
 		       group_columns == o.group_columns;
 	}
@@ -201,6 +206,8 @@ static LogicalType GetGlmmResultType(bool compute_inference) {
 	}
 
 	children.push_back(make_pair("ranef", LogicalType::LIST(ranef_type)));
+	// Negative-binomial size theta (estimated or fixed); NULL for other families.
+	children.push_back(make_pair("nb_theta", LogicalType::DOUBLE));
 	return LogicalType::STRUCT(std::move(children));
 }
 
@@ -417,9 +424,24 @@ static void GlmmAggFinalize(Vector &state_vector, AggregateInputData &, Vector &
 		options.reml = state.reml;
 		options.theta = state.theta;
 		options.power = state.power;
-		options.offset_column = state.offset_column;
-		options.random_slopes = state.random_slopes.empty() ? nullptr : state.random_slopes.data();
-		options.random_slopes_len = state.random_slopes.size();
+		// The offset / random-slope indices refer to the caller's x; re-index them onto
+		// x without the crossed grouping columns (rejected at bind if they overlap).
+		auto reduced_index = [&](idx_t col0) {
+			idx_t r = col0;
+			for (auto gc : state.group_columns) {
+				if (gc < col0) {
+					r--;
+				}
+			}
+			return r;
+		};
+		options.offset_column = state.offset_column == 0 ? 0 : reduced_index(state.offset_column - 1) + 1;
+		vector<RandomSlopeIndex> slopes;
+		for (auto c0 : state.random_slopes) {
+			slopes.push_back((RandomSlopeIndex)reduced_index(c0));
+		}
+		options.random_slopes = slopes.empty() ? nullptr : slopes.data();
+		options.random_slopes_len = slopes.size();
 
 		AnofoxGlmmResult res {};
 		AnofoxError error;
@@ -504,6 +526,13 @@ static void GlmmAggFinalize(Vector &state_vector, AggregateInputData &, Vector &
 		ranef_list[row].offset = ranef_off;
 		ranef_list[row].length = res.ranef_len;
 
+		auto &nb_theta_vec = *struct_entries[c + 1];
+		if (std::isnan(res.nb_theta)) {
+			FlatVector::SetNull(nb_theta_vec, row, true);
+		} else {
+			FlatVector::GetData<double>(nb_theta_vec)[row] = res.nb_theta;
+		}
+
 		anofox_free_glmm_result(&res);
 		state.Reset();
 	}
@@ -556,6 +585,20 @@ static unique_ptr<FunctionData> GlmmAggBind(ClientContext &context, AggregateFun
 		if (opts.group_columns.has_value()) {
 			for (auto idx1 : opts.group_columns.value()) {
 				result->group_columns.push_back(idx1 - 1);
+			}
+		}
+		for (auto gc : result->group_columns) {
+			if (result->offset_column != 0 && gc == result->offset_column - 1) {
+				throw InvalidInputException("glmm_fit_agg: column %llu cannot be both the 'offset' and a 'groups' "
+				                            "column",
+				                            (unsigned long long)(gc + 1));
+			}
+			for (auto rs : result->random_slopes) {
+				if ((idx_t)rs == gc) {
+					throw InvalidInputException("glmm_fit_agg: column %llu cannot be both a 'random' slope and a "
+					                            "'groups' column",
+					                            (unsigned long long)(gc + 1));
+				}
 			}
 		}
 	}

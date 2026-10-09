@@ -164,14 +164,18 @@ against the standard normal distribution. That is why GLM results carry
 - `z_j = β̂_j / SE_j`, `p_j = 2 · (1 − Φ(|z_j|))`.
 - Confidence intervals: `β̂_j ± z(1 − α/2) · SE_j`.
 
-For Poisson, the dispersion `φ` is `max(1, X²_Pearson / (n − p))`. When the data
-are overdispersed, the standard errors are inflated quasi-Poisson-style. Otherwise
-`φ = 1`, the standard Poisson value. The `dispersion` field reports the value
-used.
+For Poisson, `φ = 1` (the standard Poisson value, exactly R's `summary.glm`); the
+`dispersion` field reports 1.0. Overdispersed counts belong in the negative
+binomial model. For Gamma and Tweedie, `φ` is the Pearson estimate
+`X²_Pearson / (n − p)` and the `dispersion` field reports it.
 
-**Fit statistics.** `deviance` and `null_deviance` are the model and
-intercept-only deviances. `pseudo_r_squared = 1 − deviance / null_deviance`, the
-deviance-based (McFadden-type) R². `aic` is the Akaike information criterion.
+**Fit statistics.** `deviance` and `null_deviance` are the model and null-model
+deviances. As in R's `glm`, the null model is the intercept-only model fitted with
+the offset (if any); without an intercept it is `μ = linkinv(offset)` (`linkinv(0)`
+without an offset). `pseudo_r_squared = 1 − deviance / null_deviance`, the
+deviance-based (McFadden-type) R². `aic` is the Akaike information criterion; for
+Gamma the log-likelihood is evaluated at the dispersion `deviance / n`, as R's
+`logLik.glm`.
 
 ## Hypothesis tests
 

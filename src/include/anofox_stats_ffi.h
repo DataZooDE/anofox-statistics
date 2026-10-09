@@ -2551,7 +2551,8 @@ typedef struct {
 	bool compute_inference;
 	double confidence_level;
 	bool reml;
-	/** Negative Binomial theta; ignored by other families. */
+	/** Negative Binomial size theta; NaN = estimate it (lme4::glmer.nb). Ignored by
+	    other families. */
 	double theta;
 	/** Tweedie variance power; ignored by other families. */
 	double power;
@@ -2605,6 +2606,8 @@ typedef struct {
 	double *factor_var;
 	int64_t *factor_n_levels;
 	size_t factor_len;
+	/** Negative-binomial size theta (estimated or fixed); NaN for other families. */
+	double nb_theta;
 } AnofoxGlmmResult;
 
 /**

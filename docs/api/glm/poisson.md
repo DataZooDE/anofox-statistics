@@ -59,10 +59,10 @@ poisson_fit_agg(y DOUBLE, x DOUBLE[] [, options MAP]) -> STRUCT
 | `coefficients` | DOUBLE[] | Feature coefficients (excluding intercept); `NaN` for an aliased column |
 | `intercept` | DOUBLE | Intercept (0 when `fit_intercept` is false) |
 | `deviance` | DOUBLE | Residual deviance |
-| `null_deviance` | DOUBLE | Deviance of the intercept-only model |
+| `null_deviance` | DOUBLE | Deviance of the intercept-only model (fitted with the offset, if any; without an intercept the deviance at `μ = exp(offset)`), as R's `glm` |
 | `pseudo_r_squared` | DOUBLE | McFadden-style deviance ratio `1 - deviance / null_deviance` |
 | `aic` | DOUBLE | Akaike information criterion |
-| `dispersion` | DOUBLE | Pearson χ² / residual df, floored at 1.0. Standard errors are scaled by it (quasi-Poisson behaviour). |
+| `dispersion` | DOUBLE | Always 1.0: standard errors use the Poisson variance, exactly R's `summary(glm(..., family = poisson))`. |
 | `n_observations` | BIGINT | Rows used in the fit |
 | `n_features` | BIGINT | Number of features |
 | `iterations` | INTEGER | IRLS iterations performed |
@@ -193,10 +193,10 @@ With the log link, coefficients are log rate ratios: `exp(β)` is the
 multiplicative effect on the expected count. A coefficient of 0.1 means a
 one-unit increase multiplies the expected count by exp(0.1) ≈ 1.105.
 
-If `dispersion` comes out well above 1 the data are overdispersed. The
-standard errors are already inflated by the dispersion (quasi-Poisson), but the
-point estimates still assume Poisson variance; [Negative Binomial](negbinom.md)
-models the extra variation explicitly.
+Standard errors assume Poisson variance (dispersion 1, as R's `glm`). If the
+Pearson χ² divided by the residual degrees of freedom is well above 1, the data
+are overdispersed and these standard errors are too small; use
+[Negative Binomial](negbinom.md), which models the extra variation explicitly.
 
 ## NULL and Invalid Input Handling
 

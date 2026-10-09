@@ -12,6 +12,12 @@ Breaking changes are called out explicitly.
 
 ### Added
 
+- `glmm_fit_agg` families `negbinom` (θ estimated as `lme4::glmer.nb`, or fixed with
+  `'theta'`), `gamma` and `tweedie` (`'power'`), all with the log link; the `offset`
+  option; random slopes (`'random'`) together with crossed `'groups'` factors, applied to
+  the positional grouping factor. The result struct gains a trailing `nb_theta` field.
+  Validated against `lme4` with `nAGQ = 0` (`test/sql/reference/glm_glmm.test`).
+
 - `pls_fit_agg`, `quantile_fit_agg` and `isotonic_fit_agg`: the fitted models of these
   methods can now be retrieved (previously only `*_fit_predict_agg` / `*_fit_predict_by`).
 - Model-aware `predict(model, x[, {'type': 'response' | 'link'}])` for the STRUCT returned
@@ -64,6 +70,33 @@ Breaking changes are called out explicitly.
 
 ### Changed
 
+- **Behaviour change (Poisson inference).** `poisson_fit_agg` and the other Poisson
+  aggregates compute standard errors at dispersion 1, exactly R's `glm(family = poisson)` /
+  `summary.glm`. Previously the covariance was scaled by `max(1, Pearson χ²/df)`
+  (floored quasi-Poisson), so on overdispersed data `std_errors`, `z_values`, `p_values`
+  and confidence intervals are now smaller by `√(χ²/df)` and `dispersion` is 1.0.
+  Coefficients are unchanged. Use `negbinom_fit_agg` for overdispersed counts.
+- **Behaviour change (Gamma fit statistics).** `gamma_fit_agg` evaluates the
+  log-likelihood (and so `aic` / `bic`) at the dispersion `deviance / n`, exactly R's
+  `logLik.glm` / `AIC`. Coefficients, standard errors and the reported (Pearson)
+  `dispersion` are unchanged.
+- **Behaviour change (null deviance).** For every GLM family, with an offset the
+  `null_deviance` is that of the intercept-only model fitted with the offset, and without
+  an intercept it is the deviance at `μ = linkinv(offset)` (`linkinv(0)` without an
+  offset), as R's `glm`. `null_deviance` and `pseudo_r_squared` change for offset and
+  no-intercept models only.
+- The AID demand classification (`aid_agg`, `aid_anomaly_agg`) and empirical-Bayes
+  shrinkage (`eb_shrink_agg`, `eb_shrink_by`) are delegated to `anofox-regression`
+  (`solvers::aid::heuristic`, `solvers::eb_shrink`); results are bit-identical.
+- `glmm_fit_agg` `aic` / `bic` count every random-effect covariance parameter
+  (`q(q+1)/2` with random slopes, previously 1), as the df of lme4's `logLik`.
+- Dependency: `anofox-regression` 0.5.21 -> 0.5.22. The negative binomial θ estimation
+  (`negbinom_fit_agg` and friends, `glmm_fit_agg` with the `negbinom` family) is much
+  faster (sipemu/anofox-regression#72); results are unchanged.
+- The penalized GLM engine (Poisson, Binomial, Negative Binomial, Tweedie, Gamma, Logistic,
+  priors, Laplace curvature) and the AFT survival model are now delegated to
+  `anofox_regression::solvers::{penalized_glm, aft}`; the extension keeps only option
+  conversion and error mapping. No change in results, error messages or NULL policy.
 - `glmm_fit_agg` z-values, p-values and Wald intervals come from `anofox-regression`
   (match lme4 `summary()` / `confint(method = "Wald")`); negative binomial standard
   errors always use dispersion 1 like `MASS::glm.nb`; Theil-Sen aliases collinear

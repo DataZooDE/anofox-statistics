@@ -2630,7 +2630,7 @@ pub struct GlmmOptionsFFI {
     pub compute_inference: bool,
     pub confidence_level: f64,
     pub reml: bool,
-    /// Negative Binomial theta; ignored by other families.
+    /// Negative Binomial size theta; NaN = estimate it. Ignored by other families.
     pub theta: f64,
     /// Tweedie variance power; ignored by other families.
     pub power: f64,
@@ -2706,4 +2706,6 @@ pub struct GlmmResultFFI {
     pub factor_var: *mut f64,
     pub factor_n_levels: *mut i64,
     pub factor_len: usize,
+    /// Negative-binomial size theta (estimated or fixed); NaN for other families.
+    pub nb_theta: f64,
 }

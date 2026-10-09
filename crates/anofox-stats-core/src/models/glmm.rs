@@ -16,15 +16,15 @@
 //! * A random intercept over one grouping factor ([`fit_glmm`]).
 //! * Random slopes on named feature columns, with an unstructured covariance
 //!   ([`GlmmOptions::random_slopes`]).
-//! * Several crossed / nested random-intercept factors ([`fit_glmm_crossed`]).
+//! * Several crossed / nested random-intercept factors ([`fit_glmm_crossed`]);
+//!   random slopes there apply to the first factor only.
+//! * Families gaussian, poisson, binomial, negative binomial (θ estimated or
+//!   fixed), Gamma and Tweedie (log link), and an offset column.
 //!
-//! Families are limited to gaussian, poisson and binomial; NegBinomial/Gamma/
-//! Tweedie mixed-effects, an offset, per-group BLUP standard errors, and random
-//! slopes combined with multiple factors are tracked upstream (anofox-regression#29)
-//! and return a clear error until then.
+//! Per-group BLUP standard errors are not exposed upstream (`se` is NaN).
 
 use crate::errors::{StatsError, StatsResult};
-use anofox_regression::solvers::GlmmRegressor;
+use anofox_regression::solvers::{GlmmRegressor, GlmmRegressorBuilder};
 use faer::{Col, Mat};
 
 /// Which response family the mixed model uses.
@@ -34,8 +34,10 @@ pub enum GlmmFamily {
     Gaussian,
     Poisson,
     Binomial,
+    /// NB2 with the log link. `theta = None` estimates the size θ as
+    /// `lme4::glmer.nb`; `Some(θ)` fixes it.
     NegativeBinomial {
-        theta: f64,
+        theta: Option<f64>,
     },
     Gamma,
     Tweedie {
@@ -49,8 +51,8 @@ impl GlmmFamily {
             "gaussian" | "normal" | "lmm" => Some(GlmmFamily::Gaussian),
             "poisson" => Some(GlmmFamily::Poisson),
             "binomial" | "logistic" => Some(GlmmFamily::Binomial),
-            "negbinomial" | "negative_binomial" | "negbin" => {
-                Some(GlmmFamily::NegativeBinomial { theta: 1.0 })
+            "negbinom" | "negbinomial" | "negative_binomial" | "negbin" => {
+                Some(GlmmFamily::NegativeBinomial { theta: None })
             }
             "gamma" => Some(GlmmFamily::Gamma),
             "tweedie" => Some(GlmmFamily::Tweedie { power: 1.5 }),
@@ -154,6 +156,91 @@ pub struct GlmmResult {
     /// Per-factor variance components for crossed/nested fits. Empty for the
     /// single-factor path (whose variance is `var_group` / `random_cov`).
     pub factors: Vec<FactorVariance>,
+    /// Negative-binomial size θ (estimated or fixed); `None` for other families.
+    pub nb_theta: Option<f64>,
+}
+
+/// The upstream builder for the requested family.
+fn family_builder(family: GlmmFamily) -> StatsResult<GlmmRegressorBuilder> {
+    Ok(match family {
+        GlmmFamily::Gaussian => GlmmRegressor::gaussian(),
+        GlmmFamily::Poisson => GlmmRegressor::poisson(),
+        GlmmFamily::Binomial => GlmmRegressor::binomial(),
+        GlmmFamily::NegativeBinomial { theta } => {
+            let b = GlmmRegressor::negative_binomial();
+            match theta {
+                Some(t) if !(t.is_finite() && t > 0.0) => {
+                    return Err(StatsError::InvalidValue {
+                        field: "theta",
+                        message: format!("theta must be finite and positive, got {t}"),
+                    })
+                }
+                Some(t) => b.nb_theta(t),
+                None => b,
+            }
+        }
+        GlmmFamily::Gamma => GlmmRegressor::gamma(),
+        GlmmFamily::Tweedie { power } => {
+            if !(power > 1.0 && power < 2.0) {
+                return Err(StatsError::InvalidValue {
+                    field: "power",
+                    message: format!("tweedie power must be in (1, 2), got {power}"),
+                });
+            }
+            GlmmRegressor::tweedie(power)
+        }
+    })
+}
+
+/// Split `x` into the design columns and the optional offset column (1-based
+/// `offset_column`), and re-index the random-slope columns onto the design.
+fn design_layout(
+    n_x: usize,
+    options: &GlmmOptions,
+) -> StatsResult<(Vec<usize>, Option<usize>, Vec<usize>)> {
+    let offset = match options.offset_column {
+        Some(c) if c == 0 || c > n_x => {
+            return Err(StatsError::InvalidValue {
+                field: "offset",
+                message: format!("offset column {c} is out of range for {n_x} feature(s)"),
+            })
+        }
+        Some(c) => Some(c - 1),
+        None => None,
+    };
+    let design: Vec<usize> = (0..n_x).filter(|&c| Some(c) != offset).collect();
+    let mut slopes = Vec::with_capacity(options.random_slopes.len());
+    for &c in &options.random_slopes {
+        if c >= n_x || Some(c) == offset {
+            return Err(StatsError::InvalidValue {
+                field: "random",
+                message: format!(
+                    "random-slope column {} is out of range for {} feature(s) or is the offset",
+                    c + 1,
+                    n_x
+                ),
+            });
+        }
+        slopes.push(if offset.is_some_and(|o| c > o) {
+            c - 1
+        } else {
+            c
+        });
+    }
+    Ok((design, offset, slopes))
+}
+
+/// AIC/BIC parameter count: fixed effects, random-effect covariance parameters,
+/// and one scale parameter (residual variance, Gamma/Tweedie dispersion or the
+/// negative-binomial θ) for every family but Poisson and binomial, as the df of
+/// lme4's `logLik` (`glmer.nb` and a fixed `negative.binomial(θ)` both count θ).
+fn n_params(n_fixed: usize, n_cov: usize, family: GlmmFamily) -> usize {
+    n_fixed
+        + n_cov
+        + usize::from(!matches!(
+            family,
+            GlmmFamily::Poisson | GlmmFamily::Binomial
+        ))
 }
 
 /// Fit a mixed-effects GLM with a random intercept over one grouping factor.
@@ -190,30 +277,8 @@ pub fn fit_glmm(
         }
     }
 
-    // Offset and the NegBinomial/Gamma/Tweedie families are not yet in the upstream
-    // mixed-effects solver (tracked upstream: anofox-regression#29). Reject them
-    // explicitly rather than silently ignoring the request.
-    if options.offset_column.is_some() {
-        return Err(StatsError::InvalidValue {
-            field: "offset",
-            message: "offset is not yet supported for mixed-effects models \
-                      (tracked upstream: anofox-regression#29)"
-                .to_string(),
-        });
-    }
-    let builder = match options.family {
-        GlmmFamily::Gaussian => GlmmRegressor::gaussian(),
-        GlmmFamily::Poisson => GlmmRegressor::poisson(),
-        GlmmFamily::Binomial => GlmmRegressor::binomial(),
-        _ => {
-            return Err(StatsError::InvalidValue {
-                field: "family",
-                message: "mixed-effects models currently support gaussian, poisson and binomial \
-                          only (NegBinomial/Gamma/Tweedie tracked upstream: anofox-regression#29)"
-                    .to_string(),
-            })
-        }
-    };
+    let builder = family_builder(options.family)?;
+    let (design, offset_col, slopes) = design_layout(x.len(), options)?;
 
     // Keep rows finite throughout and carrying a valid group.
     let rows: Vec<usize> = (0..y.len())
@@ -223,7 +288,7 @@ pub fn fit_glmm(
         return Err(StatsError::NoValidData);
     }
     let n = rows.len();
-    let n_features = x.len();
+    let n_features = design.len();
     let n_fixed = n_features + usize::from(options.fit_intercept);
 
     // Re-compact group ids to a dense 0..k over the surviving rows, keeping the map
@@ -266,29 +331,19 @@ pub fn fit_glmm(
     }
 
     // Dense design (no intercept column; the builder adds one) and response.
-    let xm = Mat::from_fn(n, n_features, |r, c| x[c][rows[r]]);
+    let xm = Mat::from_fn(n, n_features, |r, c| x[design[c]][rows[r]]);
     let yv = Col::from_fn(n, |r| y[rows[r]]);
 
-    for &c in &options.random_slopes {
-        if c >= n_features {
-            return Err(StatsError::InvalidValue {
-                field: "random",
-                message: format!(
-                    "random-slope column {} is out of range for {} feature(s)",
-                    c + 1,
-                    n_features
-                ),
-            });
-        }
-    }
-
-    let reg = builder
+    let mut builder = builder
         .with_intercept(options.fit_intercept)
-        .random_slopes(options.random_slopes.clone())
+        .random_slopes(slopes)
         .max_iterations(options.max_iterations as usize)
         .tolerance(options.tolerance)
-        .reml(options.reml)
-        .build();
+        .reml(options.reml);
+    if let Some(o) = offset_col {
+        builder = builder.offset(Col::from_fn(n, |r| x[o][rows[r]]));
+    }
+    let reg = builder.build();
 
     let fit = reg.fit(&xm, &yv, &groups).map_err(StatsError::from)?;
 
@@ -333,14 +388,9 @@ pub fn fit_glmm(
         0.0
     };
 
-    // Variance components count toward k: sigma_b always, the residual variance
-    // only for families that estimate one.
-    let k = n_fixed
-        + 1
-        + usize::from(!matches!(
-            options.family,
-            GlmmFamily::Poisson | GlmmFamily::Binomial
-        ));
+    // Covariance parameters of Sigma (q(q+1)/2) plus the residual scale.
+    let q = random_cov.len().max(1);
+    let k = n_params(n_fixed, q * (q + 1) / 2, options.family);
     // Upstream reports lme4's logLik(glmer) (saturated term included).
     let ll = fit.log_likelihood();
 
@@ -369,6 +419,7 @@ pub fn fit_glmm(
         converged: fit.converged(),
         ranef,
         factors: Vec::new(),
+        nb_theta: fit.nb_theta(),
     })
 }
 
@@ -412,35 +463,8 @@ pub fn fit_glmm_crossed(
             });
         }
     }
-    if options.offset_column.is_some() {
-        return Err(StatsError::InvalidValue {
-            field: "offset",
-            message: "offset is not yet supported for mixed-effects models \
-                      (tracked upstream: anofox-regression#29)"
-                .to_string(),
-        });
-    }
-    if !options.random_slopes.is_empty() {
-        return Err(StatsError::InvalidValue {
-            field: "random",
-            message: "random slopes combined with multiple grouping factors are not yet \
-                      supported (tracked upstream: anofox-regression#29)"
-                .to_string(),
-        });
-    }
-    let builder = match options.family {
-        GlmmFamily::Gaussian => GlmmRegressor::gaussian(),
-        GlmmFamily::Poisson => GlmmRegressor::poisson(),
-        GlmmFamily::Binomial => GlmmRegressor::binomial(),
-        _ => {
-            return Err(StatsError::InvalidValue {
-                field: "family",
-                message: "mixed-effects models currently support gaussian, poisson and binomial \
-                          only (tracked upstream: anofox-regression#29)"
-                    .to_string(),
-            })
-        }
-    };
+    let builder = family_builder(options.family)?;
+    let (design, offset_col, slopes) = design_layout(x.len(), options)?;
 
     // Rows finite throughout and with a valid level in every factor.
     let rows: Vec<usize> = (0..y.len())
@@ -454,7 +478,7 @@ pub fn fit_glmm_crossed(
         return Err(StatsError::NoValidData);
     }
     let n = rows.len();
-    let n_features = x.len();
+    let n_features = design.len();
     let n_fixed = n_features + usize::from(options.fit_intercept);
     if n <= n_fixed + 1 {
         return Err(StatsError::InsufficientData {
@@ -485,15 +509,26 @@ pub fn fit_glmm_crossed(
         factor_ids.push(ids);
     }
 
-    let xm = Mat::from_fn(n, n_features, |r, c| x[c][rows[r]]);
+    let xm = Mat::from_fn(n, n_features, |r, c| x[design[c]][rows[r]]);
     let yv = Col::from_fn(n, |r| y[rows[r]]);
 
-    let reg = builder
+    let mut builder = builder
         .with_intercept(options.fit_intercept)
         .max_iterations(options.max_iterations as usize)
         .tolerance(options.tolerance)
-        .reml(options.reml)
-        .build();
+        .reml(options.reml);
+    // Random slopes apply to the first (positional) grouping factor:
+    // `(1 + x | group) + (1 | other) + ...`.
+    let has_slopes = !slopes.is_empty();
+    if has_slopes {
+        let mut per_factor = vec![Vec::new(); group_factors.len()];
+        per_factor[0] = slopes;
+        builder = builder.random_slopes_per_factor(per_factor);
+    }
+    if let Some(o) = offset_col {
+        builder = builder.offset(Col::from_fn(n, |r| x[o][rows[r]]));
+    }
+    let reg = builder.build();
 
     let group_refs: Vec<&[usize]> = factor_ids.iter().map(|v| v.as_slice()).collect();
     let fit = reg
@@ -530,13 +565,21 @@ pub fn fit_glmm_crossed(
         0.0
     };
 
-    // k: fixed effects + one variance per factor + residual variance (Gaussian).
-    let k = n_fixed
-        + factors.len()
-        + usize::from(!matches!(
-            options.family,
-            GlmmFamily::Poisson | GlmmFamily::Binomial
-        ));
+    // With slopes on the first factor, expose its full covariance.
+    let random_cov: Vec<Vec<f64>> = if has_slopes {
+        fit.factor_random_cov(0)
+            .map(<[Vec<f64>]>::to_vec)
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    // k: fixed effects + covariance parameters per factor + residual scale.
+    let q0 = random_cov.len().max(1);
+    let k = n_params(
+        n_fixed,
+        q0 * (q0 + 1) / 2 + factors.len() - 1,
+        options.family,
+    );
     // Upstream reports lme4's logLik(glmer) (saturated term included).
     let ll = fit.log_likelihood();
 
@@ -553,7 +596,7 @@ pub fn fit_glmm_crossed(
         var_group,
         var_residual,
         icc,
-        random_cov: Vec::new(),
+        random_cov,
         log_likelihood: ll,
         aic: 2.0 * k as f64 - 2.0 * ll,
         bic: k as f64 * (n as f64).ln() - 2.0 * ll,
@@ -565,6 +608,7 @@ pub fn fit_glmm_crossed(
         converged: fit.converged(),
         ranef: Vec::new(),
         factors,
+        nb_theta: fit.nb_theta(),
     })
 }
 
@@ -851,12 +895,18 @@ mod tests {
         assert!(single.factors.is_empty());
         assert_eq!(single.n_groups, 3);
 
-        // Random slopes combined with multiple factors is rejected.
-        let bad = GlmmOptions {
+        // Random slopes apply to the first factor: (1 + x | region) + (1 | store).
+        let slopes = GlmmOptions {
             random_slopes: vec![0],
             ..Default::default()
         };
-        assert!(fit_glmm_crossed(&y, &x, &[&region, &store], &bad).is_err());
+        let fit = fit_glmm_crossed(&y, &x, &[&region, &store], &slopes).unwrap();
+        assert_eq!(
+            fit.random_cov.len(),
+            2,
+            "2 x 2 covariance for the first factor"
+        );
+        assert_eq!(fit.factors.len(), 2);
     }
 
     #[test]

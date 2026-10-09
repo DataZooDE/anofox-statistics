@@ -2565,6 +2565,8 @@ pub unsafe extern "C" fn anofox_poisson_fit(
             } else {
                 Some(options.offset_column)
             },
+            // Dispersion fixed at 1, as R's glm(family = poisson) / summary.glm.
+            estimate_dispersion: false,
         };
 
         let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -8411,8 +8413,9 @@ pub unsafe extern "C" fn anofox_glmm_fit(
             GlmmFamilyFFI::Gaussian => GlmmFamily::Gaussian,
             GlmmFamilyFFI::Poisson => GlmmFamily::Poisson,
             GlmmFamilyFFI::Binomial => GlmmFamily::Binomial,
+            // NaN on the wire means "estimate theta" (lme4::glmer.nb).
             GlmmFamilyFFI::NegativeBinomial => GlmmFamily::NegativeBinomial {
-                theta: options.theta,
+                theta: (!options.theta.is_nan()).then_some(options.theta),
             },
             GlmmFamilyFFI::Gamma => GlmmFamily::Gamma,
             GlmmFamilyFFI::Tweedie => GlmmFamily::Tweedie {
@@ -8530,6 +8533,7 @@ pub unsafe extern "C" fn anofox_glmm_fit(
                     factor_var: alloc_f64(&factor_var),
                     factor_n_levels: alloc_i64(&factor_levels),
                     factor_len: r.factors.len(),
+                    nb_theta: r.nb_theta.unwrap_or(f64::NAN),
                 };
                 true
             }

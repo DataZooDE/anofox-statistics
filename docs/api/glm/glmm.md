@@ -40,10 +40,13 @@ glmm_fit_agg(y DOUBLE, x DOUBLE[], group ANY [, options MAP]) -> STRUCT
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| family | VARCHAR | 'gaussian' | `gaussian` (aliases `normal`, `lmm`), `poisson`, or `binomial` (alias `logistic`). `negbinomial`, `gamma` and `tweedie` are recognised but not yet supported and return `NULL`. |
+| family | VARCHAR | 'gaussian' | `gaussian` (aliases `normal`, `lmm`), `poisson`, `binomial` (alias `logistic`), `negbinom` (aliases `negbinomial`, `negative_binomial`, `negbin`; NB2, log link), `gamma` (log link, `y > 0`) or `tweedie` (log link, `y >= 0`) |
+| theta | DOUBLE | estimated | `negbinom` only: fixes the size θ (`Var = μ + μ²/θ`), as `glmer(family = MASS::negative.binomial(θ))`. Unset, θ is estimated as `lme4::glmer.nb` |
+| power | DOUBLE | 1.5 | `tweedie` only: variance power, `1 < power < 2` |
+| offset | INTEGER | — | 1-based index into `x` of a column added to the linear predictor with coefficient 1 (`offset()` in an lme4 formula) and removed from the design |
 | fit_intercept | BOOLEAN | true | Include a fixed intercept |
 | reml | BOOLEAN | true | REML rather than ML for the Gaussian variance components |
-| random | INTEGER[] | — | 1-based indices into `x` of feature columns that also get a **random slope** (unstructured covariance with the intercept) |
+| random | INTEGER[] | — | 1-based indices into `x` of feature columns that also get a **random slope** (unstructured covariance with the intercept) on the positional `group` factor; with `groups` this is `(1 + x | group) + (1 | other)` |
 | groups | INTEGER[] | — | 1-based indices into `x` of additional **crossed** grouping-factor columns; each becomes an independent random intercept and is removed from the design |
 | max_iterations | INTEGER | 100 | Inner PIRLS iterations |
 | tolerance | DOUBLE | 1e-8 | Convergence tolerance |
@@ -51,11 +54,19 @@ glmm_fit_agg(y DOUBLE, x DOUBLE[], group ANY [, options MAP]) -> STRUCT
 | confidence_level | DOUBLE | 0.95 | Interval level |
 
 > The solver lives upstream in `anofox-regression`; this extension is a wrapper.
-> Not yet available (tracked upstream, [anofox-regression#29](https://github.com/sipemu/anofox-regression/issues/29)):
-> NegBinomial/Gamma/Tweedie mixed-effects families, an `offset`, per-group BLUP
-> standard errors, and random slopes combined with multiple grouping factors.
-> Requesting an unsupported combination returns `NULL`. The `offset`, `theta`
-> and `power` keys are parsed but currently lead to a `NULL` result.
+> Non-gaussian families maximise the Laplace approximation with the fixed effects
+> inside the penalised conditional mode, so they match lme4 with `nAGQ = 0`
+> (`glmer(..., nAGQ = 0)`, `glmer.nb(..., nAGQ = 0)`), not lme4's default
+> `nAGQ = 1` (tracked upstream in
+> [anofox-regression#67](https://github.com/sipemu/anofox-regression/issues/67)).
+> For `gamma` and `tweedie`, `var_residual` is lme4's `sigma()^2 = pwrss / n`, which
+> also scales the fixed-effect standard errors, and the log-likelihood uses the
+> dispersion `deviance / n` (R's `Gamma()$aic`). `aic`/`bic` count the fixed effects,
+> the random-effect covariance parameters and, except for poisson and binomial, one
+> scale parameter (θ for `negbinom`), as the df of lme4's `logLik`.
+> Not yet available: per-group BLUP standard errors (`se` is NaN) and random slopes
+> on the additional `groups` factors. Invalid `theta` / `power` values, and an
+> `offset` or `random` column that is also listed in `groups`, raise an error.
 
 **Returns:**
 
@@ -70,7 +81,8 @@ STRUCT(coefficients DOUBLE[], intercept DOUBLE,
        factors LIST(STRUCT(n_levels BIGINT, var DOUBLE))  -- per-factor variances (crossed fits)
      [, std_errors DOUBLE[], z_values DOUBLE[], p_values DOUBLE[],
         ci_lower DOUBLE[], ci_upper DOUBLE[], intercept_std_error DOUBLE],
-       ranef LIST(STRUCT(group VARCHAR, intercept DOUBLE, se DOUBLE, n BIGINT)))
+       ranef LIST(STRUCT(group VARCHAR, intercept DOUBLE, se DOUBLE, n BIGINT)),
+       nb_theta DOUBLE)               -- negbinom size theta (estimated or fixed); NULL otherwise
 ```
 
 **Example:**
@@ -91,6 +103,9 @@ SELECT (glmm_fit_agg(qty, [promo], sku, {'random': [1]})).random_cov FROM demand
 
 -- Crossed factors: sku (positional) and region (x-column 2, named in 'groups')
 SELECT (glmm_fit_agg(qty, [promo, region], sku, {'groups': [2]})).factors FROM demand;
+
+-- Overdispersed counts: negative binomial with theta estimated (as glmer.nb)
+SELECT (glmm_fit_agg(qty, [promo], sku, {'family': 'negbinom'})).nb_theta FROM demand;
 ```
 
 ## glmm_fit_by
@@ -187,10 +202,12 @@ dropped; `n_observations` reports how many were used.
 ## Scope
 
 Random intercept and random slopes over one grouping factor, or several crossed /
-nested random-intercept factors, for the gaussian, poisson and binomial families.
-Not yet available (tracked upstream, anofox-regression#29): NegBinomial/Gamma/
-Tweedie mixed-effects families, an offset, per-group BLUP standard errors, and
-random slopes combined with multiple grouping factors.
+nested random-intercept factors (random slopes on the first one), for the gaussian,
+poisson, binomial, negative binomial, Gamma and Tweedie families, with an optional
+offset. Validated against `lme4::lmer` and `lme4::glmer` / `glmer.nb` with
+`nAGQ = 0` (`test/sql/reference/glm_glmm.test`); Tweedie has no lme4 family and is
+validated upstream. Not yet available: per-group BLUP standard errors and random
+slopes on the additional `groups` factors.
 
 If you already have per-group estimates and only want them shrunk, the cheaper
 [empirical-Bayes helper](eb_shrink.md) gets most of the way there.
