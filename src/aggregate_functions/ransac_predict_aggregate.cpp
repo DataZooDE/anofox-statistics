@@ -552,7 +552,7 @@ void RegisterRansacFitPredictAggregateFunction(ExtensionLoader &loader) {
 
     FunctionDescription d1;
     d1.description = "Fits a RANSAC robust regression over a partition and returns per-row predictions with "
-                     "confidence intervals.";
+                     "prediction intervals.";
     d1.examples = {"ransac_fit_predict_agg(y, x)"};
     d1.categories = {"regression", "prediction"};
     d1.parameter_names = {"y", "x"};

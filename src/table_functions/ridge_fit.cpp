@@ -128,7 +128,18 @@ static vector<double> ExtractDoubleList(Vector &vec, idx_t row_idx) {
 }
 
 // Main Ridge fit function
+static void RidgeFitFunctionImpl(DataChunk &args, ExpressionState &state, Vector &result);
+
+// Constant inputs must yield a CONSTANT_VECTOR (DuckDB constant folding
+// asserts this in debug builds).
 static void RidgeFitFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+	RidgeFitFunctionImpl(args, state, result);
+	if (args.AllConstant()) {
+		result.SetVectorType(VectorType::CONSTANT_VECTOR);
+	}
+}
+
+static void RidgeFitFunctionImpl(DataChunk &args, ExpressionState &state, Vector &result) {
     auto &bind_data = state.expr.Cast<BoundFunctionExpression>().bind_info->Cast<RidgeFitBindData>();
 
     auto &y_vec = args.data[0]; // LIST(DOUBLE)

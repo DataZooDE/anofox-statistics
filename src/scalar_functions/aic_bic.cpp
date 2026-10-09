@@ -11,7 +11,18 @@
 namespace duckdb {
 
 // AIC function: anofox_stats_aic(rss, n, k) -> DOUBLE
+static void AicFunctionImpl(DataChunk &args, ExpressionState &state, Vector &result);
+
+// Constant inputs must yield a CONSTANT_VECTOR (DuckDB constant folding
+// asserts this in debug builds).
 static void AicFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+	AicFunctionImpl(args, state, result);
+	if (args.AllConstant()) {
+		result.SetVectorType(VectorType::CONSTANT_VECTOR);
+	}
+}
+
+static void AicFunctionImpl(DataChunk &args, ExpressionState &state, Vector &result) {
     PostHogTelemetry::Instance().RecordFunctionCall("aic");
     auto &rss_vec = args.data[0];
     auto &n_vec = args.data[1];
@@ -61,7 +72,18 @@ static void AicFunction(DataChunk &args, ExpressionState &state, Vector &result)
 }
 
 // BIC function: anofox_stats_bic(rss, n, k) -> DOUBLE
+static void BicFunctionImpl(DataChunk &args, ExpressionState &state, Vector &result);
+
+// Constant inputs must yield a CONSTANT_VECTOR (DuckDB constant folding
+// asserts this in debug builds).
 static void BicFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+	BicFunctionImpl(args, state, result);
+	if (args.AllConstant()) {
+		result.SetVectorType(VectorType::CONSTANT_VECTOR);
+	}
+}
+
+static void BicFunctionImpl(DataChunk &args, ExpressionState &state, Vector &result) {
     PostHogTelemetry::Instance().RecordFunctionCall("bic");
     auto &rss_vec = args.data[0];
     auto &n_vec = args.data[1];

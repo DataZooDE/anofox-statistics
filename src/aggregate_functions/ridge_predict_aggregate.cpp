@@ -527,7 +527,7 @@ void RegisterRidgeFitPredictAggregateFunction(ExtensionLoader &loader) {
     info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
 
     FunctionDescription d1;
-    d1.description = "Fits Ridge regression over a partition and returns per-row predictions with confidence intervals.";
+    d1.description = "Fits Ridge regression over a partition and returns per-row predictions with prediction intervals.";
     d1.examples = {"ridge_fit_predict_agg(y, x)"};
     d1.categories = {"regression", "prediction"};
     d1.parameter_names = {"y", "x"};
@@ -535,7 +535,7 @@ void RegisterRidgeFitPredictAggregateFunction(ExtensionLoader &loader) {
     info.descriptions.push_back(std::move(d1));
 
     FunctionDescription d2;
-    d2.description = "Fits Ridge regression over a partition with a MAP of options and returns per-row predictions with confidence intervals.";
+    d2.description = "Fits Ridge regression over a partition with a MAP of options and returns per-row predictions with prediction intervals.";
     d2.examples = {"ridge_fit_predict_agg(y, x, {'null_policy': 'drop'})"};
     d2.categories = {"regression", "prediction"};
     d2.parameter_names = {"y", "x", "options"};

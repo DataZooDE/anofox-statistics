@@ -31,7 +31,18 @@ static vector<double> ExtractDoubleList(Vector &vec, idx_t row_idx) {
 
 // VIF function: anofox_stats_vif(x) -> LIST(DOUBLE)
 // x: LIST(LIST(DOUBLE)) - feature data (list of feature columns)
+static void VifFunctionImpl(DataChunk &args, ExpressionState &state, Vector &result);
+
+// Constant inputs must yield a CONSTANT_VECTOR (DuckDB constant folding
+// asserts this in debug builds).
 static void VifFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+	VifFunctionImpl(args, state, result);
+	if (args.AllConstant()) {
+		result.SetVectorType(VectorType::CONSTANT_VECTOR);
+	}
+}
+
+static void VifFunctionImpl(DataChunk &args, ExpressionState &state, Vector &result) {
     PostHogTelemetry::Instance().RecordFunctionCall("vif");
     auto &x_vec = args.data[0]; // LIST(LIST(DOUBLE))
 

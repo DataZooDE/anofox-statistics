@@ -1,0 +1,47 @@
+# name: test/sql/issues/issue_145.test
+# description: #145 residuals_diagnostics returns Cook's distance (as R cooks.distance) and its description matches the output
+# group: [issues]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE d AS
+SELECT i, chr(65 + (i % 2)::INT) AS grp, i / 10.0 AS x1, sin(i) AS x2,
+       2 + 1.5 * (i / 10.0) - 0.8 * sin(i) + 0.3 * cos(i * 7) AS y
+FROM range(60) t(i);
+
+statement ok
+CREATE TABLE f AS
+SELECT d.i, d.y, d.x1, d.x2, m.intercept + m.coefficients[1] * d.x1 + m.coefficients[2] * d.x2 AS yhat
+FROM d, (SELECT ols_fit_agg(y, [x1, x2]) AS m FROM d) s;
+
+# R: cooks.distance(lm(y ~ x1 + x2, d))[1:3] = 4.06036855402e-02 2.32602771154e-02 2.31527105759e-05
+#    max(cooks.distance(...)) = 0.0502499556547
+query IIII
+SELECT round(r.cooks_distance[1], 10), round(r.cooks_distance[2], 10), round(r.cooks_distance[3], 12),
+       round(list_max(r.cooks_distance), 10)
+FROM (SELECT residuals_diagnostics_agg(y, yhat, [x1, x2] ORDER BY i) AS r FROM f);
+----
+0.0406036855	0.0232602771	0.000023152711	0.0502499557
+
+# Scalar form, design-matrix overload (feature-major x, rse = sqrt(RSS / (n - 2))).
+# R: y <- 1:5; yh <- c(1.1,1.9,3.2,3.8,5.1); h from x = y; s = sqrt(sum(e^2)/3)
+#    cooks = 0.511363636364 0.083487940631 0.170454545455 0.333951762523 0.511363636364
+query I
+SELECT list_transform((residuals_diagnostics([1.0, 2, 3, 4, 5], [1.1, 1.9, 3.2, 3.8, 5.1],
+                       [[1.0, 2, 3, 4, 5]], sqrt(0.11 / 3), true)).cooks_distance, c -> round(c, 9));
+----
+[0.511363636, 0.083487941, 0.170454545, 0.333951763, 0.511363636]
+
+# Without x there is no leverage, so no Cook's distance (NULL), and the description says so.
+query II
+SELECT (residuals_diagnostics([1.0, 2, 3, 4, 5], [1.1, 1.9, 3.2, 3.8, 5.1])).cooks_distance IS NULL,
+       (residuals_diagnostics([1.0, 2, 3, 4, 5], [1.1, 1.9, 3.2, 3.8, 5.1])).raw IS NOT NULL;
+----
+true	true
+
+query I
+SELECT count(*) FROM duckdb_functions()
+WHERE function_name = 'residuals_diagnostics' AND description LIKE '%Cook''s distance from actuals and predictions.%';
+----
+0

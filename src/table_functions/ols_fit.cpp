@@ -120,7 +120,18 @@ static vector<double> ExtractDoubleList(Vector &vec, idx_t row_idx) {
 }
 
 // Main OLS fit function
+static void OlsFitFunctionImpl(DataChunk &args, ExpressionState &state, Vector &result);
+
+// Constant inputs must yield a CONSTANT_VECTOR (DuckDB constant folding
+// asserts this in debug builds).
 static void OlsFitFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+	OlsFitFunctionImpl(args, state, result);
+	if (args.AllConstant()) {
+		result.SetVectorType(VectorType::CONSTANT_VECTOR);
+	}
+}
+
+static void OlsFitFunctionImpl(DataChunk &args, ExpressionState &state, Vector &result) {
     auto &bind_data = state.expr.Cast<BoundFunctionExpression>().bind_info->Cast<OlsFitBindData>();
 
     auto &y_vec = args.data[0]; // LIST(DOUBLE)

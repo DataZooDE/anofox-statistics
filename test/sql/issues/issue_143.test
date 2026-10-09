@@ -1,0 +1,51 @@
+# name: test/sql/issues/issue_143.test
+# description: #143 *_fit_predict OVER () predicts the last row of the frame (documented); per-row predictions come from *_fit_predict_by / *_fit_predict_agg
+# group: [issues]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE d AS
+SELECT i, chr(65 + (i % 2)::INT) AS grp, i / 10.0 AS x1, sin(i) AS x2,
+       2 + 1.5 * (i / 10.0) - 0.8 * sin(i) + 0.3 * cos(i * 7) AS y
+FROM range(60) t(i);
+
+# A window aggregate over a whole-partition frame is evaluated once per partition by
+# DuckDB, so it cannot return per-row predictions: every row gets the prediction for
+# the last row of the frame. This is the documented behaviour.
+query II
+SELECT count(DISTINCT round(yh, 6)), count(*)
+FROM (SELECT (ols_fit_predict(y, [x1, x2]) OVER ()).yhat AS yh FROM d);
+----
+1	60
+
+# Per-row in-sample predictions over a whole group: ols_fit_predict_by.
+# R: A <- d[d$grp == "A", ]; fitted(lm(y ~ x1 + x2, A)) at x1 = 0, 2.8, 5.8
+query II
+SELECT x1, round(yhat, 8)
+FROM ols_fit_predict_by('d', grp, y, [x1, x2])
+WHERE grp = 'A' AND x1 IN (0.0, 2.8, 5.8) ORDER BY x1;
+----
+0.0	2.03438505
+2.8	5.98764520
+5.8	9.88783882
+
+query I
+SELECT count(DISTINCT round(yhat, 6))
+FROM ols_fit_predict_by('d', grp, y, [x1, x2]) WHERE grp = 'A';
+----
+30
+
+# Frames ending at CURRENT ROW give one prediction per row.
+query I
+SELECT count(DISTINCT round(yh, 6))
+FROM (SELECT (ols_fit_predict(y, [x1, x2]) OVER (ORDER BY i)).yhat AS yh FROM d);
+----
+57
+
+# The function description states the semantics.
+query I
+SELECT bool_and(description LIKE '%LAST row of the frame%')
+FROM duckdb_functions() WHERE function_name = 'ols_fit_predict';
+----
+true

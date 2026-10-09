@@ -561,6 +561,44 @@ ORDER BY group_col, order_col
 };
 // clang-format on
 
+
+// Metadata (description, example, category) shown in duckdb_functions() for each table macro.
+struct FitPredictTableMacroDoc {
+	const char *name;
+	const char *description;
+	const char *example;
+	const char *category;
+};
+
+// clang-format off
+static const FitPredictTableMacroDoc fit_predict_table_macro_docs[] = {
+    {"ols_fit_predict_by", "Table macro: fits an OLS regression per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "ols_fit_predict_by('my_table', group_col, y, [x1, x2])", "regression"},
+    {"huber_fit_predict_by", "Table macro: fits a Huber M-estimator regression per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "huber_fit_predict_by('my_table', group_col, y, [x1, x2])", "regression"},
+    {"ransac_fit_predict_by", "Table macro: fits a RANSAC robust regression per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "ransac_fit_predict_by('my_table', group_col, y, [x1, x2])", "regression"},
+    {"theil_sen_fit_predict_by", "Table macro: fits a Theil-Sen regression per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "theil_sen_fit_predict_by('my_table', group_col, y, [x1, x2])", "regression"},
+    {"ridge_fit_predict_by", "Table macro: fits a Ridge regression per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "ridge_fit_predict_by('my_table', group_col, y, [x1, x2])", "regression"},
+    {"elasticnet_fit_predict_by", "Table macro: fits an ElasticNet regression per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "elasticnet_fit_predict_by('my_table', group_col, y, [x1, x2])", "regression"},
+    {"wls_fit_predict_by", "Table macro: fits a weighted least squares (WLS) regression per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "wls_fit_predict_by('my_table', group_col, y, [x1, x2], weight)", "regression"},
+    {"rls_fit_predict_by", "Table macro: fits a Recursive Least Squares (RLS) regression per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "rls_fit_predict_by('my_table', group_col, y, [x1, x2])", "regression"},
+    {"bls_fit_predict_by", "Table macro: fits a bounded/non-negative least squares (BLS) regression per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "bls_fit_predict_by('my_table', group_col, y, [x1, x2])", "regression"},
+    {"alm_fit_predict_by", "Table macro: fits an Augmented Linear Model (ALM) per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "alm_fit_predict_by('my_table', group_col, y, [x1, x2])", "regression"},
+    {"poisson_fit_predict_by", "Table macro: fits a Poisson GLM per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "poisson_fit_predict_by('my_table', group_col, y, [x1, x2])", "glm"},
+    {"binomial_fit_predict_by", "Table macro: fits a binomial GLM per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "binomial_fit_predict_by('my_table', group_col, y, [x1, x2])", "glm"},
+    {"logistic_fit_predict_by", "Table macro: fits a logistic regression per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "logistic_fit_predict_by('my_table', group_col, y, [x1, x2])", "glm"},
+    {"negbinom_fit_predict_by", "Table macro: fits a negative binomial GLM per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "negbinom_fit_predict_by('my_table', group_col, y, [x1, x2])", "glm"},
+    {"gamma_fit_predict_by", "Table macro: fits a Gamma GLM per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "gamma_fit_predict_by('my_table', group_col, y, [x1, x2])", "glm"},
+    {"tweedie_fit_predict_by", "Table macro: fits a Tweedie GLM per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "tweedie_fit_predict_by('my_table', group_col, y, [x1, x2])", "glm"},
+    {"pls_fit_predict_by", "Table macro: fits a partial least squares (PLS) regression per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "pls_fit_predict_by('my_table', group_col, y, [x1, x2])", "regression"},
+    {"isotonic_fit_predict_by", "Table macro: fits an isotonic regression per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "isotonic_fit_predict_by('my_table', group_col, y, x)", "regression"},
+    {"quantile_fit_predict_by", "Table macro: fits a quantile regression per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "quantile_fit_predict_by('my_table', group_col, y, [x1, x2])", "regression"},
+    {"glmm_fit_by", "Table macro: fits one generalized linear mixed model (random intercept per group_col) over the whole table and returns one row per group with its random effect and the fixed effects and variance components.", "glmm_fit_by('my_table', group_col, y, [x1, x2])", "mixed-models"},
+    {"eb_shrink_by", "Table macro: empirical-Bayes shrinkage of the estimates in estimate_col (standard errors in se_col); returns every source row with shrunken, shrunken_se, weight, mu and tau_squared appended.", "eb_shrink_by('my_table', estimate, se)", "shrinkage"},
+    {"aid_by", "Table macro: Automatic Identification of Demand (AID); classifies the demand pattern of each group of source and returns one row per group.", "aid_by('sales', product_id, demand)", "demand-analysis"},
+    {"aid_anomaly_by", "Table macro: AID anomaly flags per group of source, ordered by order_col; returns one row per input row with stockout, new_product, obsolete_product, high_outlier and low_outlier flags.", "aid_anomaly_by('sales', product_id, date, demand)", "demand-analysis"},
+    {nullptr, nullptr, nullptr, nullptr}
+};
+// clang-format on
+
 // Helper function to create a table macro from the definition
 static unique_ptr<CreateMacroInfo> CreateFitPredictTableMacro(const FitPredictTableMacro &macro_def) {
 	// Parse the SQL
@@ -598,6 +636,22 @@ static unique_ptr<CreateMacroInfo> CreateFitPredictTableMacro(const FitPredictTa
 	info->temporary = true;
 	info->internal = true;
 	info->macros.push_back(std::move(function));
+
+	for (idx_t i = 0; fit_predict_table_macro_docs[i].name != nullptr; i++) {
+		const auto &doc = fit_predict_table_macro_docs[i];
+		if (macro_def.name != string(doc.name)) {
+			continue;
+		}
+		FunctionDescription description;
+		description.description = doc.description;
+		description.examples = {doc.example};
+		description.categories = {doc.category, "table-macro"};
+		for (idx_t p = 0; macro_def.parameters[p] != nullptr; p++) {
+			description.parameter_names.push_back(macro_def.parameters[p]);
+		}
+		info->descriptions.push_back(std::move(description));
+		break;
+	}
 
 	return info;
 }

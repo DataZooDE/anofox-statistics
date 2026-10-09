@@ -1708,10 +1708,12 @@ pub struct ResidualsResult {
     pub standardized: *mut f64,
     pub studentized: *mut f64,
     pub leverage: *mut f64,
+    pub cooks_distance: *mut f64,
     pub len: usize,
     pub has_standardized: bool,
     pub has_studentized: bool,
     pub has_leverage: bool,
+    pub has_cooks_distance: bool,
 }
 
 impl Default for ResidualsResult {
@@ -1721,10 +1723,12 @@ impl Default for ResidualsResult {
             standardized: std::ptr::null_mut(),
             studentized: std::ptr::null_mut(),
             leverage: std::ptr::null_mut(),
+            cooks_distance: std::ptr::null_mut(),
             len: 0,
             has_standardized: false,
             has_studentized: false,
             has_leverage: false,
+            has_cooks_distance: false,
         }
     }
 }
@@ -1824,15 +1828,27 @@ pub unsafe extern "C" fn anofox_compute_residuals(
                     (std::ptr::null_mut(), false)
                 };
 
+                let (cook_ptr, has_cook) = if let Some(ref cooks) = result.cooks_distance {
+                    let ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                    if !ptr.is_null() {
+                        std::ptr::copy_nonoverlapping(cooks.as_ptr(), ptr, n);
+                    }
+                    (ptr, !ptr.is_null() || n == 0)
+                } else {
+                    (std::ptr::null_mut(), false)
+                };
+
                 *out_result = ResidualsResult {
                     raw: raw_ptr,
                     standardized: std_ptr,
                     studentized: stud_ptr,
                     leverage: lev_ptr,
+                    cooks_distance: cook_ptr,
                     len: n,
                     has_standardized: has_std,
                     has_studentized: has_stud,
                     has_leverage: has_lev,
+                    has_cooks_distance: has_cook,
                 };
 
                 true
@@ -1868,6 +1884,9 @@ pub unsafe extern "C" fn anofox_free_residuals(result: *mut ResidualsResult) {
         }
         if !(*result).leverage.is_null() {
             libc::free((*result).leverage as *mut libc::c_void);
+        }
+        if !(*result).cooks_distance.is_null() {
+            libc::free((*result).cooks_distance as *mut libc::c_void);
         }
     })
 }

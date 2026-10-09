@@ -20,9 +20,15 @@ linear system is solved by the decomposition chosen with the `solver` option:
 
 | `solver` | Behaviour |
 |----------|-----------|
-| `'svd'` (default) | Singular value decomposition. Rank-deficient designs get the minimum-norm solution |
-| `'qr'` | QR with column pivoting. Perfectly collinear columns are flagged as aliased, and their coefficient is `NaN` |
-| `'cholesky'` | Cholesky factorisation of `XᵀX`. Fastest. Aliased columns are reported as `NaN` |
+| `'svd'` (default) | Singular value decomposition |
+| `'qr'` | QR decomposition |
+| `'cholesky'` | Cholesky factorisation of `XᵀX`. Fastest |
+
+Rank-deficient designs are handled like R's `lm`, independently of the solver:
+columns are taken in their given order and a column that is (numerically, LINPACK
+`dqrdc2` rule, tolerance `1e-7` relative to the column norm) a linear combination
+of the intercept and the earlier columns is aliased. Its coefficient, standard
+error and inference are `NaN`; the model is fitted on the remaining columns.
 
 Zero-variance (constant) feature columns are detected before solving. They get a
 `NaN` coefficient whichever solver is used. See [NULL_SEMANTICS.md](NULL_SEMANTICS.md).

@@ -125,7 +125,18 @@ static vector<double> ExtractDoubleList(Vector &vec, idx_t row_idx) {
     return result;
 }
 
+static void HuberFitFunctionImpl(DataChunk &args, ExpressionState &state, Vector &result);
+
+// Constant inputs must yield a CONSTANT_VECTOR (DuckDB constant folding
+// asserts this in debug builds).
 static void HuberFitFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+	HuberFitFunctionImpl(args, state, result);
+	if (args.AllConstant()) {
+		result.SetVectorType(VectorType::CONSTANT_VECTOR);
+	}
+}
+
+static void HuberFitFunctionImpl(DataChunk &args, ExpressionState &state, Vector &result) {
     auto &bind_data = state.expr.Cast<BoundFunctionExpression>().bind_info->Cast<HuberFitBindData>();
 
     auto &y_vec = args.data[0]; // LIST(DOUBLE)

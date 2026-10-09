@@ -67,8 +67,8 @@ inference output.
 | `coefficients` | `DOUBLE[]` | One coefficient per feature |
 | `intercept` | `DOUBLE` | Intercept |
 | `r_squared` | `DOUBLE` | Coefficient of determination |
-| `adj_r_squared` | `DOUBLE` | Adjusted R² |
-| `residual_std_error` | `DOUBLE` | Residual standard error |
+| `adj_r_squared` | `DOUBLE` | Adjusted R² with df = active coefficients + intercept; NULL when n <= df |
+| `residual_std_error` | `DOUBLE` | Residual standard error sqrt(RSS / (n - df)); NULL when n <= df |
 | `n_observations` | `BIGINT` | Rows used in the fit |
 | `n_features` | `BIGINT` | Number of features |
 

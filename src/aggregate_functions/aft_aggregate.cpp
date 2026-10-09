@@ -441,13 +441,35 @@ static void AftScalarDriver(DataChunk &args, Vector &result, FN &&fn) {
 	}
 }
 
-static void AftCdfFunction(DataChunk &args, ExpressionState &, Vector &result) {
+static void AftCdfFunctionImpl(DataChunk &args, ExpressionState &state, Vector &result);
+
+// Constant inputs must yield a CONSTANT_VECTOR (DuckDB constant folding
+// asserts this in debug builds).
+static void AftCdfFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+	AftCdfFunctionImpl(args, state, result);
+	if (args.AllConstant()) {
+		result.SetVectorType(VectorType::CONSTANT_VECTOR);
+	}
+}
+
+static void AftCdfFunctionImpl(DataChunk &args, ExpressionState &state, Vector &result) {
 	AftScalarDriver(args, result, [](double t, double eta, double scale, AnofoxAftDistribution d) {
 		return anofox_aft_cdf(t, eta, scale, d);
 	});
 }
 
-static void AftQuantileFunction(DataChunk &args, ExpressionState &, Vector &result) {
+static void AftQuantileFunctionImpl(DataChunk &args, ExpressionState &state, Vector &result);
+
+// Constant inputs must yield a CONSTANT_VECTOR (DuckDB constant folding
+// asserts this in debug builds).
+static void AftQuantileFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+	AftQuantileFunctionImpl(args, state, result);
+	if (args.AllConstant()) {
+		result.SetVectorType(VectorType::CONSTANT_VECTOR);
+	}
+}
+
+static void AftQuantileFunctionImpl(DataChunk &args, ExpressionState &state, Vector &result) {
 	AftScalarDriver(args, result, [](double p, double eta, double scale, AnofoxAftDistribution d) {
 		return anofox_aft_quantile(p, eta, scale, d);
 	});

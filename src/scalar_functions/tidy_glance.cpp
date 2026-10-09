@@ -151,7 +151,18 @@ void WriteDouble(Vector &vec, idx_t idx, double v) {
 	}
 }
 
+static void TidyFunctionImpl(DataChunk &args, ExpressionState &state, Vector &result);
+
+// Constant inputs must yield a CONSTANT_VECTOR (DuckDB constant folding
+// asserts this in debug builds).
 void TidyFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+	TidyFunctionImpl(args, state, result);
+	if (args.AllConstant()) {
+		result.SetVectorType(VectorType::CONSTANT_VECTOR);
+	}
+}
+
+static void TidyFunctionImpl(DataChunk &args, ExpressionState &state, Vector &result) {
 	auto &bind = state.expr.Cast<BoundFunctionExpression>().bind_info->Cast<TidyBindData>();
 	idx_t count = args.size();
 	args.Flatten();
@@ -267,7 +278,18 @@ unique_ptr<FunctionData> GlanceBind(ClientContext &, ScalarFunction &bound_funct
 	return std::move(data);
 }
 
+static void GlanceFunctionImpl(DataChunk &args, ExpressionState &state, Vector &result);
+
+// Constant inputs must yield a CONSTANT_VECTOR (DuckDB constant folding
+// asserts this in debug builds).
 void GlanceFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+	GlanceFunctionImpl(args, state, result);
+	if (args.AllConstant()) {
+		result.SetVectorType(VectorType::CONSTANT_VECTOR);
+	}
+}
+
+static void GlanceFunctionImpl(DataChunk &args, ExpressionState &state, Vector &result) {
 	auto &bind = state.expr.Cast<BoundFunctionExpression>().bind_info->Cast<GlanceBindData>();
 	idx_t count = args.size();
 	args.Flatten();

@@ -99,6 +99,12 @@ Breaking changes are called out explicitly.
   (match lme4 `summary()` / `confint(method = "Wald")`); negative binomial standard
   errors always use dispersion 1 like `MASS::glm.nb`; Theil-Sen aliases collinear
   feature columns (NaN coefficient, as R's `lm`) instead of returning huge values.
+- Dependency: `anofox-regression` 0.5.15 -> 0.5.21. OLS / WLS alias rank-deficient
+  designs like R's `lm` with every solver, including the default `'svd'` (#148): the
+  later column of a collinear set gets a `NaN` coefficient instead of a minimum-norm
+  split of the coefficient. `lars_fit_agg` reports `adj_r_squared` and
+  `residual_std_error` (#147; equal to R's `summary(lm())` on the active set at the
+  end of the LARS path); LARS aliases collinear columns deterministically.
 - Dependency: `anofox-regression` 0.5.13 -> 0.5.15. More regression code moves
   upstream: prediction-interval variance factors and leverage
   (`anofox_interval_matrix` / `anofox_predict_with_interval_matrix`,

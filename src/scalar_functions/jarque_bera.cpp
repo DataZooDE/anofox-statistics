@@ -55,7 +55,18 @@ static vector<double> ExtractDoubleList(Vector &vec, idx_t row_idx) {
 }
 
 // Main Jarque-Bera function
+static void JarqueBeraFunctionImpl(DataChunk &args, ExpressionState &state, Vector &result);
+
+// Constant inputs must yield a CONSTANT_VECTOR (DuckDB constant folding
+// asserts this in debug builds).
 static void JarqueBeraFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+	JarqueBeraFunctionImpl(args, state, result);
+	if (args.AllConstant()) {
+		result.SetVectorType(VectorType::CONSTANT_VECTOR);
+	}
+}
+
+static void JarqueBeraFunctionImpl(DataChunk &args, ExpressionState &state, Vector &result) {
     auto &data_vec = args.data[0]; // LIST(DOUBLE)
 
     idx_t count = args.size();
