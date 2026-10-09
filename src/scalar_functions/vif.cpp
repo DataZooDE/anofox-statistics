@@ -36,8 +36,10 @@ static void VifFunctionImpl(DataChunk &args, ExpressionState &state, Vector &res
 // Constant inputs must yield a CONSTANT_VECTOR (DuckDB constant folding
 // asserts this in debug builds).
 static void VifFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+	// Check before the call: implementations may Flatten() args in place.
+	const bool all_constant = args.AllConstant();
 	VifFunctionImpl(args, state, result);
-	if (args.AllConstant()) {
+	if (all_constant) {
 		result.SetVectorType(VectorType::CONSTANT_VECTOR);
 	}
 }

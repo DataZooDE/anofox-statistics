@@ -16,8 +16,10 @@ static void AicFunctionImpl(DataChunk &args, ExpressionState &state, Vector &res
 // Constant inputs must yield a CONSTANT_VECTOR (DuckDB constant folding
 // asserts this in debug builds).
 static void AicFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+	// Check before the call: implementations may Flatten() args in place.
+	const bool all_constant = args.AllConstant();
 	AicFunctionImpl(args, state, result);
-	if (args.AllConstant()) {
+	if (all_constant) {
 		result.SetVectorType(VectorType::CONSTANT_VECTOR);
 	}
 }
@@ -77,8 +79,10 @@ static void BicFunctionImpl(DataChunk &args, ExpressionState &state, Vector &res
 // Constant inputs must yield a CONSTANT_VECTOR (DuckDB constant folding
 // asserts this in debug builds).
 static void BicFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+	// Check before the call: implementations may Flatten() args in place.
+	const bool all_constant = args.AllConstant();
 	BicFunctionImpl(args, state, result);
-	if (args.AllConstant()) {
+	if (all_constant) {
 		result.SetVectorType(VectorType::CONSTANT_VECTOR);
 	}
 }

@@ -138,8 +138,10 @@ static void TheilSenFitFunctionImpl(DataChunk &args, ExpressionState &state, Vec
 // Constant inputs must yield a CONSTANT_VECTOR (DuckDB constant folding
 // asserts this in debug builds).
 static void TheilSenFitFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+	// Check before the call: implementations may Flatten() args in place.
+	const bool all_constant = args.AllConstant();
 	TheilSenFitFunctionImpl(args, state, result);
-	if (args.AllConstant()) {
+	if (all_constant) {
 		result.SetVectorType(VectorType::CONSTANT_VECTOR);
 	}
 }
