@@ -1,21 +1,62 @@
 # name: test/sql/issues/issue_148.test
-# description: #148 collinear OLS: QR solver aliases the duplicated column like R lm (default SVD fix pending upstream)
+# description: #148 collinear OLS aliases the later column like R lm with the default solver
 # group: [issues]
 
 require anofox_statistics
 
 statement ok
 CREATE TABLE d AS
-SELECT i, chr(65 + (i % 2)::INT) AS grp, i / 10.0 AS x1, sin(i) AS x2,
+SELECT i, chr(65 + (i % 2)::INT) AS grp, i / 10.0 AS x1, sin(i) AS x2, cos(i * 3) AS x3,
        2 + 1.5 * (i / 10.0) - 0.8 * sin(i) + 0.3 * cos(i * 7) AS y
 FROM range(60) t(i);
 
-# R: x1b <- x1; coef(lm(y ~ x1 + x1b)) = 2.00330174321 1.48861560235 NA
-# With solver 'qr' the duplicate is aliased (NaN coefficient and inference).
-# The default 'svd' still returns the minimum-norm split; tracked upstream in
-# sipemu/anofox-regression#64.
-query IIII
-SELECT round(m.intercept, 8), round(m.coefficients[1], 8), isnan(m.coefficients[2]), isnan(m.std_errors[2])
-FROM (SELECT ols_fit_agg(y, [x1, x1], {'solver': 'qr', 'compute_inference': true}) AS m FROM d);
+# R: x1b <- x1; lm(y ~ x1 + x1b): coef 2.00330174321490 1.48861560234839 NA,
+#    se(x1) 0.0442450700963615, adj.r2 0.950418966021888, sigma 0.593527454881709
+query IIIIIII
+SELECT round(m.intercept, 8), round(m.coefficients[1], 8), isnan(m.coefficients[2]),
+       round(m.std_errors[1], 8), isnan(m.std_errors[2]),
+       round(m.adj_r_squared, 8), round(m.residual_std_error, 8)
+FROM (SELECT ols_fit_agg(y, [x1, x1], {'compute_inference': true}) AS m FROM d);
 ----
-2.00330174	1.48861560	true	true
+2.00330174	1.48861560	true	0.04424507	true	0.95041897	0.59352745
+
+# Every solver agrees (the alias decision is independent of the solver)
+query II
+SELECT round(m.coefficients[1], 8), isnan(m.coefficients[2])
+FROM (SELECT ols_fit_agg(y, [x1, x1], {'solver': 'svd'}) AS m FROM d);
+----
+1.48861560	true
+
+query II
+SELECT round(m.coefficients[1], 8), isnan(m.coefficients[2])
+FROM (SELECT ols_fit_agg(y, [x1, x1], {'solver': 'qr'}) AS m FROM d);
+----
+1.48861560	true
+
+query II
+SELECT round(m.coefficients[1], 8), isnan(m.coefficients[2])
+FROM (SELECT ols_fit_agg(y, [x1, x1], {'solver': 'cholesky'}) AS m FROM d);
+----
+1.48861560	true
+
+# R: c2 <- 2*x1 - 3*x2; lm(y ~ x1 + x2 + c2): coef 2.023318557879104 1.490290680634032
+#    -0.772169023108856 NA, se 0.0161213612630192 0.0396174535357292,
+#    adj.r2 0.993417711971839, sigma 0.216257642550628
+query IIIIIIII
+SELECT round(m.intercept, 8), round(m.coefficients[1], 8), round(m.coefficients[2], 8),
+       isnan(m.coefficients[3]), round(m.std_errors[1], 8), round(m.std_errors[2], 8),
+       round(m.adj_r_squared, 8), round(m.residual_std_error, 8)
+FROM (SELECT ols_fit_agg(y, [x1, x2, 2 * x1 - 3 * x2], {'compute_inference': true}) AS m FROM d);
+----
+2.02331856	1.49029068	-0.77216902	true	0.01612136	0.03961745	0.99341771	0.21625764
+
+# R: c3 <- x1 + x2 - 0.5*x3; lm(y ~ x1 + x2 + x3 + c3): coef 2.02317403031262
+#    1.49031332738556 -0.772124858926445 0.00593849467822495 NA,
+#    se(x3) 0.0407718186582345, adj.r2 0.993302708250304, sigma 0.218138655672716
+query IIIIIIII
+SELECT round(m.intercept, 8), round(m.coefficients[1], 8), round(m.coefficients[2], 8),
+       round(m.coefficients[3], 8), isnan(m.coefficients[4]), round(m.std_errors[3], 8),
+       round(m.adj_r_squared, 8), round(m.residual_std_error, 8)
+FROM (SELECT ols_fit_agg(y, [x1, x2, x3, x1 + x2 - 0.5 * x3], {'compute_inference': true}) AS m FROM d);
+----
+2.02317403	1.49031333	-0.77212486	0.00593849	true	0.04077182	0.99330271	0.21813866

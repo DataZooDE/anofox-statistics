@@ -1,23 +1,20 @@
 # name: test/sql/issues/issue_147.test
-# description: #147 lars_fit_agg does not report adj_r_squared / residual_std_error as 0
+# description: #147 lars_fit_agg reports adj_r_squared / residual_std_error (not 0, not NULL)
 # group: [issues]
 
 require anofox_statistics
 
 statement ok
 CREATE TABLE d AS
-SELECT i, chr(65 + (i % 2)::INT) AS grp, i / 10.0 AS x1, sin(i) AS x2,
+SELECT i, chr(65 + (i % 2)::INT) AS grp, i / 10.0 AS x1, sin(i) AS x2, cos(i * 3) AS x3,
        2 + 1.5 * (i / 10.0) - 0.8 * sin(i) + 0.3 * cos(i * 7) AS y
 FROM range(60) t(i);
 
-# R: summary(lm(y ~ x1 + x2)) (LARS reaches the OLS solution): r2 = 0.99364084038,
-#    adj = 0.993417711972, sigma = 0.216257642551.
-# The LARS backend (anofox-regression, sipemu/anofox-regression#65) does not fill
-# adj_r_squared / residual_std_error yet: they are NULL ("not computed"), never 0.
+# Both predictors enter the active set, so the full LARS path is the OLS fit on it.
+# R: summary(lm(y ~ x1 + x2)): r2 0.993640840379574, adj.r2 0.993417711971839,
+#    sigma 0.216257642550628
 query III
-SELECT round(m.r_squared, 8),
-       m.adj_r_squared IS NULL OR abs(m.adj_r_squared - 0.993417711972) < 1e-6,
-       m.residual_std_error IS NULL OR abs(m.residual_std_error - 0.216257642551) < 1e-6
+SELECT round(m.r_squared, 8), round(m.adj_r_squared, 8), round(m.residual_std_error, 8)
 FROM (SELECT lars_fit_agg(y, [x1, x2]) AS m FROM d);
 ----
-0.99364084	true	true
+0.99364084	0.99341771	0.21625764

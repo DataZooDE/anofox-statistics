@@ -147,26 +147,13 @@ pub fn fit_lars(y: &[f64], x: &[Vec<f64>], options: &LarsOptions) -> StatsResult
         None
     };
 
-    // anofox-regression's LARS leaves `adj_r_squared` and `rmse` at their 0.0
-    // placeholders (sipemu/anofox-regression#65). A 0 that the residuals do not
-    // support is "not computed", reported as NaN (NULL in SQL) rather than as a
-    // perfect fit; once upstream fills them the real values pass through.
-    let has_residual_error = result.residuals.iter().any(|e| *e != 0.0);
-    let not_computed = |v: f64| {
-        if v == 0.0 && has_residual_error {
-            f64::NAN
-        } else {
-            v
-        }
-    };
-
     Ok(FitResult {
         core: FitResultCore {
             coefficients,
             intercept,
             r_squared: result.r_squared,
-            adj_r_squared: not_computed(result.adj_r_squared),
-            residual_std_error: not_computed(result.rmse),
+            adj_r_squared: result.adj_r_squared,
+            residual_std_error: result.rmse,
             n_observations: n_valid,
             n_features,
         },

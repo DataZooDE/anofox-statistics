@@ -283,8 +283,8 @@ static void LarsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input
                         core_result.coefficients_len);
         FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = core_result.intercept;
         FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = core_result.r_squared;
-        // adj_r_squared / residual_std_error are NaN when the LARS fit does not
-        // provide them; report NULL ("not computed") rather than NaN.
+        // adj_r_squared / residual_std_error are NaN when n <= df (active coefficients
+        // + intercept); report NULL rather than NaN.
         for (double v : {core_result.adj_r_squared, core_result.residual_std_error}) {
             auto &entry = *struct_entries[struct_idx++];
             if (std::isnan(v)) {
