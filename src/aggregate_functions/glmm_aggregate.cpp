@@ -156,7 +156,9 @@ struct GlmmAggregateBindData : public FunctionData {
 		auto &o = other_p.Cast<GlmmAggregateBindData>();
 		return family == o.family && fit_intercept == o.fit_intercept && max_iterations == o.max_iterations &&
 		       tolerance == o.tolerance && compute_inference == o.compute_inference &&
-		       confidence_level == o.confidence_level && reml == o.reml && theta == o.theta && power == o.power &&
+		       confidence_level == o.confidence_level && reml == o.reml &&
+		       // theta is NaN when estimated; NaN != NaN would make a copy unequal to itself.
+		       (theta == o.theta || (std::isnan(theta) && std::isnan(o.theta))) && power == o.power &&
 		       offset_column == o.offset_column && random_slopes == o.random_slopes &&
 		       group_columns == o.group_columns;
 	}
