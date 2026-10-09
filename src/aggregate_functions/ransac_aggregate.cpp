@@ -14,6 +14,7 @@
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 #include "list_input.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 namespace duckdb {
 
@@ -439,15 +440,15 @@ void RegisterRansacAggregateFunction(ExtensionLoader &loader) {
 
     auto basic_func = AggregateFunction(
         "ransac_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
-        LogicalType::ANY, AggregateFunction::StateSize<RansacAggregateState>, RansacAggInitialize, RansacAggUpdate,
-        RansacAggCombine, RansacAggFinalize, nullptr, RansacAggBind, RansacAggDestroy);
+        LogicalType::ANY, AggregateFunction::StateSize<RansacAggregateState>, RansacAggInitialize, ANOFOX_GUARDED_UPDATE(RansacAggUpdate, RansacAggDestroy, RansacAggInitialize),
+        RansacAggCombine, ANOFOX_GUARDED_FINALIZE(RansacAggFinalize, RansacAggDestroy, RansacAggInitialize), nullptr, RansacAggBind, RansacAggDestroy);
     func_set.AddFunction(basic_func);
 
     auto map_func = AggregateFunction(
         "ransac_fit_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY}, LogicalType::ANY,
-        AggregateFunction::StateSize<RansacAggregateState>, RansacAggInitialize, RansacAggUpdate, RansacAggCombine,
-        RansacAggFinalize, nullptr, RansacAggBind, RansacAggDestroy);
+        AggregateFunction::StateSize<RansacAggregateState>, RansacAggInitialize, ANOFOX_GUARDED_UPDATE(RansacAggUpdate, RansacAggDestroy, RansacAggInitialize), RansacAggCombine,
+        ANOFOX_GUARDED_FINALIZE(RansacAggFinalize, RansacAggDestroy, RansacAggInitialize), nullptr, RansacAggBind, RansacAggDestroy);
     func_set.AddFunction(map_func);
 
     CreateAggregateFunctionInfo info(std::move(func_set));

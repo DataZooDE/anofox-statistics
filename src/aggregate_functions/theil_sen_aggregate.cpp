@@ -14,6 +14,7 @@
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 #include "list_input.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 namespace duckdb {
 
@@ -400,14 +401,14 @@ void RegisterTheilSenAggregateFunction(ExtensionLoader &loader) {
     auto basic_func = AggregateFunction(
         "theil_sen_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
         LogicalType::ANY, AggregateFunction::StateSize<TheilSenAggregateState>, TheilSenAggInitialize,
-        TheilSenAggUpdate, TheilSenAggCombine, TheilSenAggFinalize, nullptr, TheilSenAggBind, TheilSenAggDestroy);
+        ANOFOX_GUARDED_UPDATE(TheilSenAggUpdate, TheilSenAggDestroy, TheilSenAggInitialize), TheilSenAggCombine, ANOFOX_GUARDED_FINALIZE(TheilSenAggFinalize, TheilSenAggDestroy, TheilSenAggInitialize), nullptr, TheilSenAggBind, TheilSenAggDestroy);
     func_set.AddFunction(basic_func);
 
     auto map_func = AggregateFunction(
         "theil_sen_fit_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY}, LogicalType::ANY,
-        AggregateFunction::StateSize<TheilSenAggregateState>, TheilSenAggInitialize, TheilSenAggUpdate,
-        TheilSenAggCombine, TheilSenAggFinalize, nullptr, TheilSenAggBind, TheilSenAggDestroy);
+        AggregateFunction::StateSize<TheilSenAggregateState>, TheilSenAggInitialize, ANOFOX_GUARDED_UPDATE(TheilSenAggUpdate, TheilSenAggDestroy, TheilSenAggInitialize),
+        TheilSenAggCombine, ANOFOX_GUARDED_FINALIZE(TheilSenAggFinalize, TheilSenAggDestroy, TheilSenAggInitialize), nullptr, TheilSenAggBind, TheilSenAggDestroy);
     func_set.AddFunction(map_func);
 
     CreateAggregateFunctionInfo info(std::move(func_set));

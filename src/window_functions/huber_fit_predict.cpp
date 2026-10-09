@@ -16,6 +16,7 @@
 #include "aggregate_combine.hpp"
 #include "list_input.hpp"
 #include "prediction_interval.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 namespace duckdb {
 
@@ -369,14 +370,14 @@ void RegisterHuberFitPredictFunction(ExtensionLoader &loader) {
     auto basic_func = AggregateFunction(
         "huber_fit_predict", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
         GetHuberFitPredictResultType(), AggregateFunction::StateSize<HuberFitPredictState>,
-        HuberFitPredictInitialize, HuberFitPredictUpdate, HuberFitPredictCombine, HuberFitPredictFinalize, nullptr,
+        HuberFitPredictInitialize, ANOFOX_GUARDED_UPDATE(HuberFitPredictUpdate, HuberFitPredictDestroy, HuberFitPredictInitialize), HuberFitPredictCombine, ANOFOX_GUARDED_FINALIZE(HuberFitPredictFinalize, HuberFitPredictDestroy, HuberFitPredictInitialize), nullptr,
         HuberFitPredictBind, HuberFitPredictDestroy);
 
     auto map_func = AggregateFunction(
         "huber_fit_predict",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
         GetHuberFitPredictResultType(), AggregateFunction::StateSize<HuberFitPredictState>,
-        HuberFitPredictInitialize, HuberFitPredictUpdate, HuberFitPredictCombine, HuberFitPredictFinalize, nullptr,
+        HuberFitPredictInitialize, ANOFOX_GUARDED_UPDATE(HuberFitPredictUpdate, HuberFitPredictDestroy, HuberFitPredictInitialize), HuberFitPredictCombine, ANOFOX_GUARDED_FINALIZE(HuberFitPredictFinalize, HuberFitPredictDestroy, HuberFitPredictInitialize), nullptr,
         HuberFitPredictBind, HuberFitPredictDestroy);
 
     {

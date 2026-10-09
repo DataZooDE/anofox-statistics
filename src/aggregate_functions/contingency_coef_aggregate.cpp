@@ -11,6 +11,7 @@
 #include "../include/error_dispatch.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 namespace duckdb {
 
@@ -193,7 +194,7 @@ void RegisterContingencyCoefAggregateFunction(ExtensionLoader &loader) {
         "contingency_coef_agg", {LogicalType::BIGINT, LogicalType::BIGINT},
         LogicalType::DOUBLE,
         AggregateFunction::StateSize<ContingencyCoefAggregateState>, ContingencyCoefAggInitialize,
-        ContingencyCoefAggUpdate, ContingencyCoefAggCombine, ContingencyCoefAggFinalize,
+        ANOFOX_GUARDED_UPDATE(ContingencyCoefAggUpdate, ContingencyCoefAggDestroy, ContingencyCoefAggInitialize), ContingencyCoefAggCombine, ANOFOX_GUARDED_FINALIZE(ContingencyCoefAggFinalize, ContingencyCoefAggDestroy, ContingencyCoefAggInitialize),
         nullptr, ContingencyCoefAggBind, ContingencyCoefAggDestroy);
     func_set.AddFunction(func);
 

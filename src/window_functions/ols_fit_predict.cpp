@@ -16,6 +16,7 @@
 #include "aggregate_combine.hpp"
 #include "list_input.hpp"
 #include "prediction_interval.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 namespace duckdb {
 
@@ -372,15 +373,15 @@ void RegisterOlsFitPredictFunction(ExtensionLoader &loader) {
         AggregateFunction("ols_fit_predict",
                           {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)}, GetOlsFitPredictResultType(),
                           AggregateFunction::StateSize<OlsFitPredictState>, OlsFitPredictInitialize,
-                          OlsFitPredictUpdate, OlsFitPredictCombine, OlsFitPredictFinalize,
+                          ANOFOX_GUARDED_UPDATE(OlsFitPredictUpdate, OlsFitPredictDestroy, OlsFitPredictInitialize), OlsFitPredictCombine, ANOFOX_GUARDED_FINALIZE(OlsFitPredictFinalize, OlsFitPredictDestroy, OlsFitPredictInitialize),
                           nullptr, // simple_update
                           OlsFitPredictBind, OlsFitPredictDestroy);
 
     auto map_func = AggregateFunction("ols_fit_predict",
                                       {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
                                       GetOlsFitPredictResultType(), AggregateFunction::StateSize<OlsFitPredictState>,
-                                      OlsFitPredictInitialize, OlsFitPredictUpdate, OlsFitPredictCombine,
-                                      OlsFitPredictFinalize, nullptr, OlsFitPredictBind, OlsFitPredictDestroy);
+                                      OlsFitPredictInitialize, ANOFOX_GUARDED_UPDATE(OlsFitPredictUpdate, OlsFitPredictDestroy, OlsFitPredictInitialize), OlsFitPredictCombine,
+                                      ANOFOX_GUARDED_FINALIZE(OlsFitPredictFinalize, OlsFitPredictDestroy, OlsFitPredictInitialize), nullptr, OlsFitPredictBind, OlsFitPredictDestroy);
 
     {
         AggregateFunctionSet func_set("ols_fit_predict");

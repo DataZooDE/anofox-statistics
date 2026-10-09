@@ -46,8 +46,10 @@ static void PredictFunctionImpl(DataChunk &args, ExpressionState &state, Vector 
 // Constant inputs must yield a CONSTANT_VECTOR (DuckDB constant folding
 // asserts this in debug builds).
 static void PredictFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+	// Check before the call: implementations may Flatten() args in place.
+	const bool all_constant = args.AllConstant();
 	PredictFunctionImpl(args, state, result);
-	if (args.AllConstant()) {
+	if (all_constant) {
 		result.SetVectorType(VectorType::CONSTANT_VECTOR);
 	}
 }
@@ -316,8 +318,10 @@ static void PredictModelFunctionImpl(DataChunk &args, ExpressionState &state, Ve
 // Constant inputs must yield a CONSTANT_VECTOR (DuckDB constant folding
 // asserts this in debug builds).
 void PredictModelFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+	// Check before the call: implementations may Flatten() args in place.
+	const bool all_constant = args.AllConstant();
 	PredictModelFunctionImpl(args, state, result);
-	if (args.AllConstant()) {
+	if (all_constant) {
 		result.SetVectorType(VectorType::CONSTANT_VECTOR);
 	}
 }

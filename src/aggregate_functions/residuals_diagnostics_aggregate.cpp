@@ -11,6 +11,7 @@
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 #include "list_input.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 namespace duckdb {
 
@@ -341,7 +342,7 @@ void RegisterResidualsDiagnosticsAggregateFunction(ExtensionLoader &loader) {
         "residuals_diagnostics_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE},
         LogicalType::ANY, // Set in bind
         AggregateFunction::StateSize<ResidualsDiagnosticsAggregateState>, ResidualsDiagnosticsAggInitialize,
-        ResidualsDiagnosticsAggUpdateBasic, ResidualsDiagnosticsAggCombine, ResidualsDiagnosticsAggFinalize,
+        ANOFOX_GUARDED_UPDATE(ResidualsDiagnosticsAggUpdateBasic, ResidualsDiagnosticsAggDestroy, ResidualsDiagnosticsAggInitialize), ResidualsDiagnosticsAggCombine, ANOFOX_GUARDED_FINALIZE(ResidualsDiagnosticsAggFinalize, ResidualsDiagnosticsAggDestroy, ResidualsDiagnosticsAggInitialize),
         nullptr, // simple_update
         ResidualsDiagnosticsAggBind, ResidualsDiagnosticsAggDestroy);
     func_set.AddFunction(basic_func);
@@ -351,7 +352,7 @@ void RegisterResidualsDiagnosticsAggregateFunction(ExtensionLoader &loader) {
         "residuals_diagnostics_agg",
         {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)}, LogicalType::ANY,
         AggregateFunction::StateSize<ResidualsDiagnosticsAggregateState>, ResidualsDiagnosticsAggInitialize,
-        ResidualsDiagnosticsAggUpdateFull, ResidualsDiagnosticsAggCombine, ResidualsDiagnosticsAggFinalize, nullptr,
+        ANOFOX_GUARDED_UPDATE(ResidualsDiagnosticsAggUpdateFull, ResidualsDiagnosticsAggDestroy, ResidualsDiagnosticsAggInitialize), ResidualsDiagnosticsAggCombine, ANOFOX_GUARDED_FINALIZE(ResidualsDiagnosticsAggFinalize, ResidualsDiagnosticsAggDestroy, ResidualsDiagnosticsAggInitialize), nullptr,
         ResidualsDiagnosticsAggBind, ResidualsDiagnosticsAggDestroy);
     func_set.AddFunction(full_func);
 

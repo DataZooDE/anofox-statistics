@@ -13,6 +13,7 @@
 #include "../include/ffi_enum_converters.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 
 namespace duckdb {
@@ -273,7 +274,7 @@ void RegisterTostCorrelationAggregateFunction(ExtensionLoader &loader) {
         "tost_correlation_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::ANY},
         LogicalType::ANY,
         AggregateFunction::StateSize<TostCorrelationAggregateState>, TostCorrelationAggInitialize,
-        TostCorrelationAggUpdate, TostCorrelationAggCombine, TostCorrelationAggFinalize,
+        ANOFOX_GUARDED_UPDATE(TostCorrelationAggUpdate, TostCorrelationAggDestroy, TostCorrelationAggInitialize), TostCorrelationAggCombine, ANOFOX_GUARDED_FINALIZE(TostCorrelationAggFinalize, TostCorrelationAggDestroy, TostCorrelationAggInitialize),
         nullptr, TostCorrelationAggBind, TostCorrelationAggDestroy);
 
     // Without options: (x, y)
@@ -281,7 +282,7 @@ void RegisterTostCorrelationAggregateFunction(ExtensionLoader &loader) {
         "tost_correlation_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE},
         LogicalType::ANY,
         AggregateFunction::StateSize<TostCorrelationAggregateState>, TostCorrelationAggInitialize,
-        TostCorrelationAggUpdate, TostCorrelationAggCombine, TostCorrelationAggFinalize,
+        ANOFOX_GUARDED_UPDATE(TostCorrelationAggUpdate, TostCorrelationAggDestroy, TostCorrelationAggInitialize), TostCorrelationAggCombine, ANOFOX_GUARDED_FINALIZE(TostCorrelationAggFinalize, TostCorrelationAggDestroy, TostCorrelationAggInitialize),
         nullptr, TostCorrelationAggBind, TostCorrelationAggDestroy);
 
     {

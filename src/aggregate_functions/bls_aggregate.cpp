@@ -13,6 +13,7 @@
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 #include "list_input.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 namespace duckdb {
 
@@ -429,14 +430,14 @@ void RegisterBlsAggregateFunction(ExtensionLoader &loader) {
 
         auto bls_basic = AggregateFunction(
             "bls_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)}, LogicalType::ANY,
-            AggregateFunction::StateSize<BlsAggregateState>, BlsAggInitialize, BlsAggUpdate, BlsAggCombine,
-            BlsAggFinalize, nullptr, BlsAggBind, BlsAggDestroy);
+            AggregateFunction::StateSize<BlsAggregateState>, BlsAggInitialize, ANOFOX_GUARDED_UPDATE(BlsAggUpdate, BlsAggDestroy, BlsAggInitialize), BlsAggCombine,
+            ANOFOX_GUARDED_FINALIZE(BlsAggFinalize, BlsAggDestroy, BlsAggInitialize), nullptr, BlsAggBind, BlsAggDestroy);
         bls_set.AddFunction(bls_basic);
 
         auto bls_map = AggregateFunction(
             "bls_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
-            LogicalType::ANY, AggregateFunction::StateSize<BlsAggregateState>, BlsAggInitialize, BlsAggUpdate,
-            BlsAggCombine, BlsAggFinalize, nullptr, BlsAggBind, BlsAggDestroy);
+            LogicalType::ANY, AggregateFunction::StateSize<BlsAggregateState>, BlsAggInitialize, ANOFOX_GUARDED_UPDATE(BlsAggUpdate, BlsAggDestroy, BlsAggInitialize),
+            BlsAggCombine, ANOFOX_GUARDED_FINALIZE(BlsAggFinalize, BlsAggDestroy, BlsAggInitialize), nullptr, BlsAggBind, BlsAggDestroy);
         bls_set.AddFunction(bls_map);
 
         CreateAggregateFunctionInfo bls_info(std::move(bls_set));
@@ -464,15 +465,15 @@ void RegisterBlsAggregateFunction(ExtensionLoader &loader) {
 
         auto nnls_basic = AggregateFunction(
             "nnls_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)}, LogicalType::ANY,
-            AggregateFunction::StateSize<BlsAggregateState>, BlsAggInitialize, BlsAggUpdate, BlsAggCombine,
-            BlsAggFinalize, nullptr, NnlsAggBind, BlsAggDestroy);
+            AggregateFunction::StateSize<BlsAggregateState>, BlsAggInitialize, ANOFOX_GUARDED_UPDATE(BlsAggUpdate, BlsAggDestroy, BlsAggInitialize), BlsAggCombine,
+            ANOFOX_GUARDED_FINALIZE(BlsAggFinalize, BlsAggDestroy, BlsAggInitialize), nullptr, NnlsAggBind, BlsAggDestroy);
         nnls_set.AddFunction(nnls_basic);
 
         auto nnls_map = AggregateFunction(
             "nnls_fit_agg",
             {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY}, LogicalType::ANY,
-            AggregateFunction::StateSize<BlsAggregateState>, BlsAggInitialize, BlsAggUpdate, BlsAggCombine,
-            BlsAggFinalize, nullptr, NnlsAggBind, BlsAggDestroy);
+            AggregateFunction::StateSize<BlsAggregateState>, BlsAggInitialize, ANOFOX_GUARDED_UPDATE(BlsAggUpdate, BlsAggDestroy, BlsAggInitialize), BlsAggCombine,
+            ANOFOX_GUARDED_FINALIZE(BlsAggFinalize, BlsAggDestroy, BlsAggInitialize), nullptr, NnlsAggBind, BlsAggDestroy);
         nnls_set.AddFunction(nnls_map);
 
         CreateAggregateFunctionInfo nnls_info(std::move(nnls_set));

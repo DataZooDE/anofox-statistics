@@ -13,6 +13,7 @@
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 namespace duckdb {
 
@@ -255,7 +256,7 @@ void RegisterKendallAggregateFunction(ExtensionLoader &loader) {
         "kendall_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::ANY},
         LogicalType::ANY,
         AggregateFunction::StateSize<KendallAggregateState>, KendallAggInitialize,
-        KendallAggUpdate, KendallAggCombine, KendallAggFinalize,
+        ANOFOX_GUARDED_UPDATE(KendallAggUpdate, KendallAggDestroy, KendallAggInitialize), KendallAggCombine, ANOFOX_GUARDED_FINALIZE(KendallAggFinalize, KendallAggDestroy, KendallAggInitialize),
         nullptr, KendallAggBind, KendallAggDestroy);
     func_set.AddFunction(func_with_opts);
 
@@ -264,7 +265,7 @@ void RegisterKendallAggregateFunction(ExtensionLoader &loader) {
         "kendall_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE},
         LogicalType::ANY,
         AggregateFunction::StateSize<KendallAggregateState>, KendallAggInitialize,
-        KendallAggUpdate, KendallAggCombine, KendallAggFinalize,
+        ANOFOX_GUARDED_UPDATE(KendallAggUpdate, KendallAggDestroy, KendallAggInitialize), KendallAggCombine, ANOFOX_GUARDED_FINALIZE(KendallAggFinalize, KendallAggDestroy, KendallAggInitialize),
         nullptr, KendallAggBind, KendallAggDestroy);
     func_set.AddFunction(func_no_opts);
 

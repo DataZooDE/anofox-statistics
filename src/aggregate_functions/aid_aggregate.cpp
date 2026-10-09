@@ -11,6 +11,7 @@
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 namespace duckdb {
 
@@ -382,16 +383,16 @@ void RegisterAidAggregateFunction(ExtensionLoader &loader) {
 
     auto aid_basic =
         AggregateFunction("aid_agg", {LogicalType::DOUBLE}, LogicalType::ANY,
-                          AggregateFunction::StateSize<AidAggregateState>, AidAggInitialize, AidAggUpdate, AidAggCombine,
-                          AidAggFinalize, nullptr, AidAggBind, AidAggDestroy);
+                          AggregateFunction::StateSize<AidAggregateState>, AidAggInitialize, ANOFOX_GUARDED_UPDATE(AidAggUpdate, AidAggDestroy, AidAggInitialize), AidAggCombine,
+                          ANOFOX_GUARDED_FINALIZE(AidAggFinalize, AidAggDestroy, AidAggInitialize), nullptr, AidAggBind, AidAggDestroy);
     // Row order is part of the input (sequential / time-series estimator):
     // declare it so DuckDB honours `agg(... ORDER BY t)`.
     aid_basic.order_dependent = AggregateOrderDependent::ORDER_DEPENDENT; // field form works on DuckDB v1.4 LTS and v1.5
     aid_set.AddFunction(aid_basic);
 
     auto aid_map = AggregateFunction("aid_agg", {LogicalType::DOUBLE, LogicalType::ANY}, LogicalType::ANY,
-                                     AggregateFunction::StateSize<AidAggregateState>, AidAggInitialize, AidAggUpdate,
-                                     AidAggCombine, AidAggFinalize, nullptr, AidAggBind, AidAggDestroy);
+                                     AggregateFunction::StateSize<AidAggregateState>, AidAggInitialize, ANOFOX_GUARDED_UPDATE(AidAggUpdate, AidAggDestroy, AidAggInitialize),
+                                     AidAggCombine, ANOFOX_GUARDED_FINALIZE(AidAggFinalize, AidAggDestroy, AidAggInitialize), nullptr, AidAggBind, AidAggDestroy);
     aid_map.order_dependent = AggregateOrderDependent::ORDER_DEPENDENT; // field form works on DuckDB v1.4 LTS and v1.5
     aid_set.AddFunction(aid_map);
 
@@ -424,15 +425,15 @@ void RegisterAidAggregateFunction(ExtensionLoader &loader) {
 
     auto aid_anomaly_basic = AggregateFunction(
         "aid_anomaly_agg", {LogicalType::DOUBLE}, LogicalType::ANY,
-        AggregateFunction::StateSize<AidAggregateState>, AidAggInitialize, AidAggUpdate, AidAggCombine,
-        AidAnomalyAggFinalize, nullptr, AidAnomalyAggBind, AidAggDestroy);
+        AggregateFunction::StateSize<AidAggregateState>, AidAggInitialize, ANOFOX_GUARDED_UPDATE(AidAggUpdate, AidAggDestroy, AidAggInitialize), AidAggCombine,
+        ANOFOX_GUARDED_FINALIZE(AidAnomalyAggFinalize, AidAggDestroy, AidAggInitialize), nullptr, AidAnomalyAggBind, AidAggDestroy);
     aid_anomaly_basic.order_dependent = AggregateOrderDependent::ORDER_DEPENDENT; // field form works on DuckDB v1.4 LTS and v1.5
     aid_anomaly_set.AddFunction(aid_anomaly_basic);
 
     auto aid_anomaly_map = AggregateFunction(
         "aid_anomaly_agg", {LogicalType::DOUBLE, LogicalType::ANY}, LogicalType::ANY,
-        AggregateFunction::StateSize<AidAggregateState>, AidAggInitialize, AidAggUpdate, AidAggCombine,
-        AidAnomalyAggFinalize, nullptr, AidAnomalyAggBind, AidAggDestroy);
+        AggregateFunction::StateSize<AidAggregateState>, AidAggInitialize, ANOFOX_GUARDED_UPDATE(AidAggUpdate, AidAggDestroy, AidAggInitialize), AidAggCombine,
+        ANOFOX_GUARDED_FINALIZE(AidAnomalyAggFinalize, AidAggDestroy, AidAggInitialize), nullptr, AidAnomalyAggBind, AidAggDestroy);
     aid_anomaly_map.order_dependent = AggregateOrderDependent::ORDER_DEPENDENT; // field form works on DuckDB v1.4 LTS and v1.5
     aid_anomaly_set.AddFunction(aid_anomaly_map);
 

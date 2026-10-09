@@ -13,6 +13,7 @@
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 namespace duckdb {
 
@@ -256,7 +257,7 @@ void RegisterWilcoxonSignedRankAggregateFunction(ExtensionLoader &loader) {
         "wilcoxon_signed_rank_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::ANY},
         LogicalType::ANY,
         AggregateFunction::StateSize<WilcoxonSignedRankAggregateState>, WilcoxonSignedRankAggInitialize,
-        WilcoxonSignedRankAggUpdate, WilcoxonSignedRankAggCombine, WilcoxonSignedRankAggFinalize,
+        ANOFOX_GUARDED_UPDATE(WilcoxonSignedRankAggUpdate, WilcoxonSignedRankAggDestroy, WilcoxonSignedRankAggInitialize), WilcoxonSignedRankAggCombine, ANOFOX_GUARDED_FINALIZE(WilcoxonSignedRankAggFinalize, WilcoxonSignedRankAggDestroy, WilcoxonSignedRankAggInitialize),
         nullptr, WilcoxonSignedRankAggBind, WilcoxonSignedRankAggDestroy);
     func_set.AddFunction(func_with_opts);
 
@@ -265,7 +266,7 @@ void RegisterWilcoxonSignedRankAggregateFunction(ExtensionLoader &loader) {
         "wilcoxon_signed_rank_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE},
         LogicalType::ANY,
         AggregateFunction::StateSize<WilcoxonSignedRankAggregateState>, WilcoxonSignedRankAggInitialize,
-        WilcoxonSignedRankAggUpdate, WilcoxonSignedRankAggCombine, WilcoxonSignedRankAggFinalize,
+        ANOFOX_GUARDED_UPDATE(WilcoxonSignedRankAggUpdate, WilcoxonSignedRankAggDestroy, WilcoxonSignedRankAggInitialize), WilcoxonSignedRankAggCombine, ANOFOX_GUARDED_FINALIZE(WilcoxonSignedRankAggFinalize, WilcoxonSignedRankAggDestroy, WilcoxonSignedRankAggInitialize),
         nullptr, WilcoxonSignedRankAggBind, WilcoxonSignedRankAggDestroy);
     func_set.AddFunction(func_no_opts);
 

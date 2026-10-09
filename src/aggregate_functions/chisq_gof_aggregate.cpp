@@ -11,6 +11,7 @@
 #include "../include/error_dispatch.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 namespace duckdb {
 
@@ -200,7 +201,7 @@ void RegisterChisqGofAggregateFunction(ExtensionLoader &loader) {
         "chisq_gof_agg", {LogicalType::BIGINT, LogicalType::DOUBLE},
         LogicalType::ANY,
         AggregateFunction::StateSize<ChisqGofAggregateState>, ChisqGofAggInitialize,
-        ChisqGofAggUpdate, ChisqGofAggCombine, ChisqGofAggFinalize,
+        ANOFOX_GUARDED_UPDATE(ChisqGofAggUpdate, ChisqGofAggDestroy, ChisqGofAggInitialize), ChisqGofAggCombine, ANOFOX_GUARDED_FINALIZE(ChisqGofAggFinalize, ChisqGofAggDestroy, ChisqGofAggInitialize),
         nullptr, ChisqGofAggBind, ChisqGofAggDestroy);
     func_set.AddFunction(func);
 

@@ -14,6 +14,7 @@
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 #include "two_group.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 namespace duckdb {
 
@@ -250,7 +251,7 @@ void RegisterBrunnerMunzelAggregateFunction(ExtensionLoader &loader) {
         "brunner_munzel_agg", {LogicalType::DOUBLE, LogicalType::BIGINT, LogicalType::ANY},
         LogicalType::ANY,
         AggregateFunction::StateSize<BrunnerMunzelAggregateState>, BrunnerMunzelAggInitialize,
-        BrunnerMunzelAggUpdate, BrunnerMunzelAggCombine, BrunnerMunzelAggFinalize,
+        ANOFOX_GUARDED_UPDATE(BrunnerMunzelAggUpdate, BrunnerMunzelAggDestroy, BrunnerMunzelAggInitialize), BrunnerMunzelAggCombine, ANOFOX_GUARDED_FINALIZE(BrunnerMunzelAggFinalize, BrunnerMunzelAggDestroy, BrunnerMunzelAggInitialize),
         nullptr, BrunnerMunzelAggBind, BrunnerMunzelAggDestroy);
     func_set.AddFunction(func_with_opts);
     func_with_opts.arguments[1] = LogicalType::VARCHAR;
@@ -261,7 +262,7 @@ void RegisterBrunnerMunzelAggregateFunction(ExtensionLoader &loader) {
         "brunner_munzel_agg", {LogicalType::DOUBLE, LogicalType::BIGINT},
         LogicalType::ANY,
         AggregateFunction::StateSize<BrunnerMunzelAggregateState>, BrunnerMunzelAggInitialize,
-        BrunnerMunzelAggUpdate, BrunnerMunzelAggCombine, BrunnerMunzelAggFinalize,
+        ANOFOX_GUARDED_UPDATE(BrunnerMunzelAggUpdate, BrunnerMunzelAggDestroy, BrunnerMunzelAggInitialize), BrunnerMunzelAggCombine, ANOFOX_GUARDED_FINALIZE(BrunnerMunzelAggFinalize, BrunnerMunzelAggDestroy, BrunnerMunzelAggInitialize),
         nullptr, BrunnerMunzelAggBind, BrunnerMunzelAggDestroy);
     func_set.AddFunction(func_no_opts);
     func_no_opts.arguments[1] = LogicalType::VARCHAR;

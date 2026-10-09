@@ -14,6 +14,7 @@
 #include "../include/ffi_enum_converters.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 
 namespace duckdb {
@@ -261,7 +262,7 @@ void RegisterCohenKappaAggregateFunction(ExtensionLoader &loader) {
         "cohen_kappa_agg", {LogicalType::BIGINT, LogicalType::BIGINT, LogicalType::ANY},
         LogicalType::ANY,
         AggregateFunction::StateSize<CohenKappaAggregateState>, CohenKappaAggInitialize,
-        CohenKappaAggUpdate, CohenKappaAggCombine, CohenKappaAggFinalize,
+        ANOFOX_GUARDED_UPDATE(CohenKappaAggUpdate, CohenKappaAggDestroy, CohenKappaAggInitialize), CohenKappaAggCombine, ANOFOX_GUARDED_FINALIZE(CohenKappaAggFinalize, CohenKappaAggDestroy, CohenKappaAggInitialize),
         nullptr, CohenKappaAggBind, CohenKappaAggDestroy);
     func_set.AddFunction(func_with_opts);
 
@@ -270,7 +271,7 @@ void RegisterCohenKappaAggregateFunction(ExtensionLoader &loader) {
         "cohen_kappa_agg", {LogicalType::BIGINT, LogicalType::BIGINT},
         LogicalType::ANY,
         AggregateFunction::StateSize<CohenKappaAggregateState>, CohenKappaAggInitialize,
-        CohenKappaAggUpdate, CohenKappaAggCombine, CohenKappaAggFinalize,
+        ANOFOX_GUARDED_UPDATE(CohenKappaAggUpdate, CohenKappaAggDestroy, CohenKappaAggInitialize), CohenKappaAggCombine, ANOFOX_GUARDED_FINALIZE(CohenKappaAggFinalize, CohenKappaAggDestroy, CohenKappaAggInitialize),
         nullptr, CohenKappaAggBind, CohenKappaAggDestroy);
     func_set.AddFunction(func_no_opts);
 

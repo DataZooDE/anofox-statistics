@@ -12,6 +12,7 @@
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 #include "list_input.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 namespace duckdb {
 
@@ -345,7 +346,7 @@ void RegisterRlsAggregateFunction(ExtensionLoader &loader) {
     auto basic_func = AggregateFunction(
         "rls_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
         LogicalType::ANY, // Set in bind
-        AggregateFunction::StateSize<RlsAggregateState>, RlsAggInitialize, RlsAggUpdate, RlsAggCombine, RlsAggFinalize,
+        AggregateFunction::StateSize<RlsAggregateState>, RlsAggInitialize, ANOFOX_GUARDED_UPDATE(RlsAggUpdate, RlsAggDestroy, RlsAggInitialize), RlsAggCombine, ANOFOX_GUARDED_FINALIZE(RlsAggFinalize, RlsAggDestroy, RlsAggInitialize),
         nullptr, // simple_update
         RlsAggBind, RlsAggDestroy);
     // Row order is part of the input (sequential / time-series estimator):
@@ -358,7 +359,7 @@ void RegisterRlsAggregateFunction(ExtensionLoader &loader) {
                                       {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE),
                                        LogicalType::ANY}, // MAP or STRUCT for options
                                       LogicalType::ANY, AggregateFunction::StateSize<RlsAggregateState>,
-                                      RlsAggInitialize, RlsAggUpdate, RlsAggCombine, RlsAggFinalize, nullptr,
+                                      RlsAggInitialize, ANOFOX_GUARDED_UPDATE(RlsAggUpdate, RlsAggDestroy, RlsAggInitialize), RlsAggCombine, ANOFOX_GUARDED_FINALIZE(RlsAggFinalize, RlsAggDestroy, RlsAggInitialize), nullptr,
                                       RlsAggBind, RlsAggDestroy);
     map_func.order_dependent = AggregateOrderDependent::ORDER_DEPENDENT; // field form works on DuckDB v1.4 LTS and v1.5
     func_set.AddFunction(map_func);

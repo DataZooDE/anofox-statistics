@@ -13,6 +13,7 @@
 #include "../include/ffi_enum_converters.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 
 namespace duckdb {
@@ -275,7 +276,7 @@ void RegisterDieboldMarianoAggregateFunction(ExtensionLoader &loader) {
         {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::ANY},
         LogicalType::ANY,
         AggregateFunction::StateSize<DieboldMarianoAggregateState>, DieboldMarianoAggInitialize,
-        DieboldMarianoAggUpdate, DieboldMarianoAggCombine, DieboldMarianoAggFinalize,
+        ANOFOX_GUARDED_UPDATE(DieboldMarianoAggUpdate, DieboldMarianoAggDestroy, DieboldMarianoAggInitialize), DieboldMarianoAggCombine, ANOFOX_GUARDED_FINALIZE(DieboldMarianoAggFinalize, DieboldMarianoAggDestroy, DieboldMarianoAggInitialize),
         nullptr, DieboldMarianoAggBind, DieboldMarianoAggDestroy);
 
     // Without options: (actual, forecast1, forecast2)
@@ -284,7 +285,7 @@ void RegisterDieboldMarianoAggregateFunction(ExtensionLoader &loader) {
         {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::DOUBLE},
         LogicalType::ANY,
         AggregateFunction::StateSize<DieboldMarianoAggregateState>, DieboldMarianoAggInitialize,
-        DieboldMarianoAggUpdate, DieboldMarianoAggCombine, DieboldMarianoAggFinalize,
+        ANOFOX_GUARDED_UPDATE(DieboldMarianoAggUpdate, DieboldMarianoAggDestroy, DieboldMarianoAggInitialize), DieboldMarianoAggCombine, ANOFOX_GUARDED_FINALIZE(DieboldMarianoAggFinalize, DieboldMarianoAggDestroy, DieboldMarianoAggInitialize),
         nullptr, DieboldMarianoAggBind, DieboldMarianoAggDestroy);
 
     {

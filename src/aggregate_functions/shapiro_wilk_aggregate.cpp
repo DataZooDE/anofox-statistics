@@ -11,6 +11,7 @@
 #include "../include/error_dispatch.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 namespace duckdb {
 
@@ -183,7 +184,7 @@ void RegisterShapiroWilkAggregateFunction(ExtensionLoader &loader) {
     auto func = AggregateFunction("shapiro_wilk_agg", {LogicalType::DOUBLE},
                                   LogicalType::ANY, // Set in bind
                                   AggregateFunction::StateSize<ShapiroWilkAggregateState>, ShapiroWilkAggInitialize,
-                                  ShapiroWilkAggUpdate, ShapiroWilkAggCombine, ShapiroWilkAggFinalize,
+                                  ANOFOX_GUARDED_UPDATE(ShapiroWilkAggUpdate, ShapiroWilkAggDestroy, ShapiroWilkAggInitialize), ShapiroWilkAggCombine, ANOFOX_GUARDED_FINALIZE(ShapiroWilkAggFinalize, ShapiroWilkAggDestroy, ShapiroWilkAggInitialize),
                                   nullptr, // simple_update
                                   ShapiroWilkAggBind, ShapiroWilkAggDestroy);
 

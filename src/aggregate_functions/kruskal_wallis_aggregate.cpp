@@ -11,6 +11,7 @@
 #include "../include/error_dispatch.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 namespace duckdb {
 
@@ -196,7 +197,7 @@ void RegisterKruskalWallisAggregateFunction(ExtensionLoader &loader) {
         "kruskal_wallis_agg", {LogicalType::DOUBLE, LogicalType::INTEGER},
         LogicalType::ANY,
         AggregateFunction::StateSize<KruskalWallisAggregateState>, KruskalWallisAggInitialize,
-        KruskalWallisAggUpdate, KruskalWallisAggCombine, KruskalWallisAggFinalize,
+        ANOFOX_GUARDED_UPDATE(KruskalWallisAggUpdate, KruskalWallisAggDestroy, KruskalWallisAggInitialize), KruskalWallisAggCombine, ANOFOX_GUARDED_FINALIZE(KruskalWallisAggFinalize, KruskalWallisAggDestroy, KruskalWallisAggInitialize),
         nullptr, KruskalWallisAggBind, KruskalWallisAggDestroy);
     func_set.AddFunction(func);
 

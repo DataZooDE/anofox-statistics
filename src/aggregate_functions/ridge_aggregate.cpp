@@ -13,6 +13,7 @@
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 #include "list_input.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 namespace duckdb {
 
@@ -412,8 +413,8 @@ void RegisterRidgeAggregateFunction(ExtensionLoader &loader) {
     auto basic_func = AggregateFunction(
         "ridge_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
         LogicalType::ANY, // Set in bind
-        AggregateFunction::StateSize<RidgeAggregateState>, RidgeAggInitialize, RidgeAggUpdate, RidgeAggCombine,
-        RidgeAggFinalize,
+        AggregateFunction::StateSize<RidgeAggregateState>, RidgeAggInitialize, ANOFOX_GUARDED_UPDATE(RidgeAggUpdate, RidgeAggDestroy, RidgeAggInitialize), RidgeAggCombine,
+        ANOFOX_GUARDED_FINALIZE(RidgeAggFinalize, RidgeAggDestroy, RidgeAggInitialize),
         nullptr, // simple_update
         RidgeAggBind, RidgeAggDestroy);
     func_set.AddFunction(basic_func);
@@ -423,7 +424,7 @@ void RegisterRidgeAggregateFunction(ExtensionLoader &loader) {
                                       {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE),
                                        LogicalType::ANY}, // MAP or STRUCT for options
                                       LogicalType::ANY, AggregateFunction::StateSize<RidgeAggregateState>,
-                                      RidgeAggInitialize, RidgeAggUpdate, RidgeAggCombine, RidgeAggFinalize, nullptr,
+                                      RidgeAggInitialize, ANOFOX_GUARDED_UPDATE(RidgeAggUpdate, RidgeAggDestroy, RidgeAggInitialize), RidgeAggCombine, ANOFOX_GUARDED_FINALIZE(RidgeAggFinalize, RidgeAggDestroy, RidgeAggInitialize), nullptr,
                                       RidgeAggBind, RidgeAggDestroy);
     func_set.AddFunction(map_func);
 

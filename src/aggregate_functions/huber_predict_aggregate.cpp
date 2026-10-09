@@ -15,6 +15,7 @@
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 #include "prediction_interval.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 namespace duckdb {
 
@@ -499,22 +500,22 @@ void RegisterHuberFitPredictAggregateFunction(ExtensionLoader &loader) {
     auto basic_func = AggregateFunction(
         "huber_fit_predict_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
         LogicalType::ANY, AggregateFunction::StateSize<HuberPredictAggState>, HuberPredictAggInitialize,
-        HuberPredictAggUpdate, HuberPredictAggCombine, HuberPredictAggFinalize, nullptr, HuberPredictAggBind,
+        ANOFOX_GUARDED_UPDATE(HuberPredictAggUpdate, HuberPredictAggDestroy, HuberPredictAggInitialize), HuberPredictAggCombine, ANOFOX_GUARDED_FINALIZE(HuberPredictAggFinalize, HuberPredictAggDestroy, HuberPredictAggInitialize), nullptr, HuberPredictAggBind,
         HuberPredictAggDestroy);
     func_set.AddFunction(basic_func);
 
     auto map_func = AggregateFunction(
         "huber_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY}, LogicalType::ANY,
-        AggregateFunction::StateSize<HuberPredictAggState>, HuberPredictAggInitialize, HuberPredictAggUpdate,
-        HuberPredictAggCombine, HuberPredictAggFinalize, nullptr, HuberPredictAggBind, HuberPredictAggDestroy);
+        AggregateFunction::StateSize<HuberPredictAggState>, HuberPredictAggInitialize, ANOFOX_GUARDED_UPDATE(HuberPredictAggUpdate, HuberPredictAggDestroy, HuberPredictAggInitialize),
+        HuberPredictAggCombine, ANOFOX_GUARDED_FINALIZE(HuberPredictAggFinalize, HuberPredictAggDestroy, HuberPredictAggInitialize), nullptr, HuberPredictAggBind, HuberPredictAggDestroy);
     func_set.AddFunction(map_func);
 
     auto split_func = AggregateFunction(
         "huber_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR}, LogicalType::ANY,
-        AggregateFunction::StateSize<HuberPredictAggState>, HuberPredictAggInitialize, HuberPredictAggUpdate,
-        HuberPredictAggCombine, HuberPredictAggFinalize, nullptr, HuberPredictAggBindWithSplit,
+        AggregateFunction::StateSize<HuberPredictAggState>, HuberPredictAggInitialize, ANOFOX_GUARDED_UPDATE(HuberPredictAggUpdate, HuberPredictAggDestroy, HuberPredictAggInitialize),
+        HuberPredictAggCombine, ANOFOX_GUARDED_FINALIZE(HuberPredictAggFinalize, HuberPredictAggDestroy, HuberPredictAggInitialize), nullptr, HuberPredictAggBindWithSplit,
         HuberPredictAggDestroy);
     func_set.AddFunction(split_func);
 
@@ -522,7 +523,7 @@ void RegisterHuberFitPredictAggregateFunction(ExtensionLoader &loader) {
         "huber_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR, LogicalType::ANY},
         LogicalType::ANY, AggregateFunction::StateSize<HuberPredictAggState>, HuberPredictAggInitialize,
-        HuberPredictAggUpdate, HuberPredictAggCombine, HuberPredictAggFinalize, nullptr,
+        ANOFOX_GUARDED_UPDATE(HuberPredictAggUpdate, HuberPredictAggDestroy, HuberPredictAggInitialize), HuberPredictAggCombine, ANOFOX_GUARDED_FINALIZE(HuberPredictAggFinalize, HuberPredictAggDestroy, HuberPredictAggInitialize), nullptr,
         HuberPredictAggBindWithSplit, HuberPredictAggDestroy);
     func_set.AddFunction(split_opts_func);
 

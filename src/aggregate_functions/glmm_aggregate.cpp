@@ -14,6 +14,7 @@
 #include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 namespace duckdb {
 
@@ -613,15 +614,15 @@ void RegisterGlmmAggregateFunction(ExtensionLoader &loader) {
 
 	auto basic = AggregateFunction(
 	    "glmm_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
-	    LogicalType::ANY, AggregateFunction::StateSize<GlmmAggregateState>, GlmmAggInitialize, GlmmAggUpdate,
-	    GlmmAggCombine, GlmmAggFinalize, nullptr, GlmmAggBind, GlmmAggDestroy);
+	    LogicalType::ANY, AggregateFunction::StateSize<GlmmAggregateState>, GlmmAggInitialize, ANOFOX_GUARDED_UPDATE(GlmmAggUpdate, GlmmAggDestroy, GlmmAggInitialize),
+	    GlmmAggCombine, ANOFOX_GUARDED_FINALIZE(GlmmAggFinalize, GlmmAggDestroy, GlmmAggInitialize), nullptr, GlmmAggBind, GlmmAggDestroy);
 	func_set.AddFunction(basic);
 
 	auto with_opts = AggregateFunction(
 	    "glmm_fit_agg",
 	    {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY, LogicalType::ANY},
-	    LogicalType::ANY, AggregateFunction::StateSize<GlmmAggregateState>, GlmmAggInitialize, GlmmAggUpdate,
-	    GlmmAggCombine, GlmmAggFinalize, nullptr, GlmmAggBind, GlmmAggDestroy);
+	    LogicalType::ANY, AggregateFunction::StateSize<GlmmAggregateState>, GlmmAggInitialize, ANOFOX_GUARDED_UPDATE(GlmmAggUpdate, GlmmAggDestroy, GlmmAggInitialize),
+	    GlmmAggCombine, ANOFOX_GUARDED_FINALIZE(GlmmAggFinalize, GlmmAggDestroy, GlmmAggInitialize), nullptr, GlmmAggBind, GlmmAggDestroy);
 	func_set.AddFunction(with_opts);
 
 	CreateAggregateFunctionInfo info(func_set);

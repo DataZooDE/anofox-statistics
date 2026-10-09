@@ -13,6 +13,7 @@
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 #include "list_input.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 namespace duckdb {
 
@@ -376,8 +377,8 @@ void RegisterElasticNetAggregateFunction(ExtensionLoader &loader) {
     auto basic_func = AggregateFunction(
         "elasticnet_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
         LogicalType::ANY, // Set in bind
-        AggregateFunction::StateSize<ElasticNetAggregateState>, ElasticNetAggInitialize, ElasticNetAggUpdate,
-        ElasticNetAggCombine, ElasticNetAggFinalize,
+        AggregateFunction::StateSize<ElasticNetAggregateState>, ElasticNetAggInitialize, ANOFOX_GUARDED_UPDATE(ElasticNetAggUpdate, ElasticNetAggDestroy, ElasticNetAggInitialize),
+        ElasticNetAggCombine, ANOFOX_GUARDED_FINALIZE(ElasticNetAggFinalize, ElasticNetAggDestroy, ElasticNetAggInitialize),
         nullptr, // simple_update
         ElasticNetAggBind, ElasticNetAggDestroy);
     func_set.AddFunction(basic_func);
@@ -387,8 +388,8 @@ void RegisterElasticNetAggregateFunction(ExtensionLoader &loader) {
                                       {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE),
                                        LogicalType::ANY}, // MAP or STRUCT for options
                                       LogicalType::ANY, AggregateFunction::StateSize<ElasticNetAggregateState>,
-                                      ElasticNetAggInitialize, ElasticNetAggUpdate, ElasticNetAggCombine,
-                                      ElasticNetAggFinalize, nullptr, ElasticNetAggBind, ElasticNetAggDestroy);
+                                      ElasticNetAggInitialize, ANOFOX_GUARDED_UPDATE(ElasticNetAggUpdate, ElasticNetAggDestroy, ElasticNetAggInitialize), ElasticNetAggCombine,
+                                      ANOFOX_GUARDED_FINALIZE(ElasticNetAggFinalize, ElasticNetAggDestroy, ElasticNetAggInitialize), nullptr, ElasticNetAggBind, ElasticNetAggDestroy);
     func_set.AddFunction(map_func);
 
     CreateAggregateFunctionInfo info(std::move(func_set));

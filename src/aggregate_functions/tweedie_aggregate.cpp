@@ -13,6 +13,7 @@
 #include "../include/glm_prior_options.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 namespace duckdb {
 
@@ -404,14 +405,14 @@ void RegisterTweedieAggregateFunction(ExtensionLoader &loader) {
 
 	auto basic_func = AggregateFunction(
 	    "tweedie_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)}, LogicalType::ANY,
-	    AggregateFunction::StateSize<TweedieAggregateState>, TweedieAggInitialize, TweedieAggUpdate, TweedieAggCombine,
-	    TweedieAggFinalize, nullptr, TweedieAggBind, TweedieAggDestroy);
+	    AggregateFunction::StateSize<TweedieAggregateState>, TweedieAggInitialize, ANOFOX_GUARDED_UPDATE(TweedieAggUpdate, TweedieAggDestroy, TweedieAggInitialize), TweedieAggCombine,
+	    ANOFOX_GUARDED_FINALIZE(TweedieAggFinalize, TweedieAggDestroy, TweedieAggInitialize), nullptr, TweedieAggBind, TweedieAggDestroy);
 	func_set.AddFunction(basic_func);
 
 	auto map_func = AggregateFunction(
 	    "tweedie_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
-	    LogicalType::ANY, AggregateFunction::StateSize<TweedieAggregateState>, TweedieAggInitialize, TweedieAggUpdate,
-	    TweedieAggCombine, TweedieAggFinalize, nullptr, TweedieAggBind, TweedieAggDestroy);
+	    LogicalType::ANY, AggregateFunction::StateSize<TweedieAggregateState>, TweedieAggInitialize, ANOFOX_GUARDED_UPDATE(TweedieAggUpdate, TweedieAggDestroy, TweedieAggInitialize),
+	    TweedieAggCombine, ANOFOX_GUARDED_FINALIZE(TweedieAggFinalize, TweedieAggDestroy, TweedieAggInitialize), nullptr, TweedieAggBind, TweedieAggDestroy);
 	func_set.AddFunction(map_func);
 
 	CreateAggregateFunctionInfo info(std::move(func_set));

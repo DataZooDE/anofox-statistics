@@ -14,6 +14,7 @@
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 #include "list_input.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 namespace duckdb {
 
@@ -400,7 +401,7 @@ void RegisterOlsAggregateFunction(ExtensionLoader &loader) {
     auto basic_func = AggregateFunction(
         "ols_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
         LogicalType::ANY, // Set in bind
-        AggregateFunction::StateSize<OlsAggregateState>, OlsAggInitialize, OlsAggUpdate, OlsAggCombine, OlsAggFinalize,
+        AggregateFunction::StateSize<OlsAggregateState>, OlsAggInitialize, ANOFOX_GUARDED_UPDATE(OlsAggUpdate, OlsAggDestroy, OlsAggInitialize), OlsAggCombine, ANOFOX_GUARDED_FINALIZE(OlsAggFinalize, OlsAggDestroy, OlsAggInitialize),
         nullptr, // simple_update
         OlsAggBind, OlsAggDestroy);
     func_set.AddFunction(basic_func);
@@ -410,7 +411,7 @@ void RegisterOlsAggregateFunction(ExtensionLoader &loader) {
                                       {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE),
                                        LogicalType::ANY}, // MAP or STRUCT for options
                                       LogicalType::ANY, AggregateFunction::StateSize<OlsAggregateState>,
-                                      OlsAggInitialize, OlsAggUpdate, OlsAggCombine, OlsAggFinalize, nullptr,
+                                      OlsAggInitialize, ANOFOX_GUARDED_UPDATE(OlsAggUpdate, OlsAggDestroy, OlsAggInitialize), OlsAggCombine, ANOFOX_GUARDED_FINALIZE(OlsAggFinalize, OlsAggDestroy, OlsAggInitialize), nullptr,
                                       OlsAggBind, OlsAggDestroy);
     func_set.AddFunction(map_func);
 

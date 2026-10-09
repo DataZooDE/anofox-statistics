@@ -16,6 +16,7 @@
 #include "aggregate_combine.hpp"
 #include "list_input.hpp"
 #include "prediction_interval.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 namespace duckdb {
 
@@ -326,14 +327,14 @@ void RegisterWlsFitPredictFunction(ExtensionLoader &loader) {
         "wls_fit_predict",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE},
         GetWlsFitPredictResultType(), AggregateFunction::StateSize<WlsFitPredictState>, WlsFitPredictInitialize,
-        WlsFitPredictUpdate, WlsFitPredictCombine, WlsFitPredictFinalize, nullptr, WlsFitPredictBind,
+        ANOFOX_GUARDED_UPDATE(WlsFitPredictUpdate, WlsFitPredictDestroy, WlsFitPredictInitialize), WlsFitPredictCombine, ANOFOX_GUARDED_FINALIZE(WlsFitPredictFinalize, WlsFitPredictDestroy, WlsFitPredictInitialize), nullptr, WlsFitPredictBind,
         WlsFitPredictDestroy);
 
     auto map_func = AggregateFunction(
         "wls_fit_predict",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE, LogicalType::ANY},
         GetWlsFitPredictResultType(), AggregateFunction::StateSize<WlsFitPredictState>, WlsFitPredictInitialize,
-        WlsFitPredictUpdate, WlsFitPredictCombine, WlsFitPredictFinalize, nullptr, WlsFitPredictBind,
+        ANOFOX_GUARDED_UPDATE(WlsFitPredictUpdate, WlsFitPredictDestroy, WlsFitPredictInitialize), WlsFitPredictCombine, ANOFOX_GUARDED_FINALIZE(WlsFitPredictFinalize, WlsFitPredictDestroy, WlsFitPredictInitialize), nullptr, WlsFitPredictBind,
         WlsFitPredictDestroy);
 
     {

@@ -13,6 +13,7 @@
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 namespace duckdb {
 
@@ -222,7 +223,7 @@ void RegisterGTestAggregateFunction(ExtensionLoader &loader) {
         "g_test_agg", {LogicalType::BIGINT, LogicalType::BIGINT},
         LogicalType::ANY,
         AggregateFunction::StateSize<GTestAggregateState>, GTestAggInitialize,
-        GTestAggUpdate, GTestAggCombine, GTestAggFinalize,
+        ANOFOX_GUARDED_UPDATE(GTestAggUpdate, GTestAggDestroy, GTestAggInitialize), GTestAggCombine, ANOFOX_GUARDED_FINALIZE(GTestAggFinalize, GTestAggDestroy, GTestAggInitialize),
         nullptr, GTestAggBind, GTestAggDestroy);
     func_set.AddFunction(func);
 

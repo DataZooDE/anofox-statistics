@@ -10,6 +10,7 @@
 #include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 namespace duckdb {
 
@@ -237,14 +238,14 @@ void RegisterEbShrinkAggregateFunction(ExtensionLoader &loader) {
 
 	auto basic =
 	    AggregateFunction("eb_shrink_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE}, LogicalType::ANY,
-	                      AggregateFunction::StateSize<EbShrinkState>, EbShrinkInitialize, EbShrinkUpdate,
-	                      EbShrinkCombine, EbShrinkFinalize, nullptr, EbShrinkBind, EbShrinkDestroy);
+	                      AggregateFunction::StateSize<EbShrinkState>, EbShrinkInitialize, ANOFOX_GUARDED_UPDATE(EbShrinkUpdate, EbShrinkDestroy, EbShrinkInitialize),
+	                      EbShrinkCombine, ANOFOX_GUARDED_FINALIZE(EbShrinkFinalize, EbShrinkDestroy, EbShrinkInitialize), nullptr, EbShrinkBind, EbShrinkDestroy);
 	func_set.AddFunction(basic);
 
 	auto with_opts =
 	    AggregateFunction("eb_shrink_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::ANY},
 	                      LogicalType::ANY, AggregateFunction::StateSize<EbShrinkState>, EbShrinkInitialize,
-	                      EbShrinkUpdate, EbShrinkCombine, EbShrinkFinalize, nullptr, EbShrinkBind, EbShrinkDestroy);
+	                      ANOFOX_GUARDED_UPDATE(EbShrinkUpdate, EbShrinkDestroy, EbShrinkInitialize), EbShrinkCombine, ANOFOX_GUARDED_FINALIZE(EbShrinkFinalize, EbShrinkDestroy, EbShrinkInitialize), nullptr, EbShrinkBind, EbShrinkDestroy);
 	func_set.AddFunction(with_opts);
 
 	CreateAggregateFunctionInfo info(func_set);

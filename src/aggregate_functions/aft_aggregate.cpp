@@ -15,6 +15,7 @@
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 #include "list_input.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 namespace duckdb {
 
@@ -367,14 +368,14 @@ void RegisterAftAggregateFunction(ExtensionLoader &loader) {
 	auto basic = AggregateFunction("aft_fit_agg",
 	                               {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE},
 	                               LogicalType::ANY, AggregateFunction::StateSize<AftAggregateState>, AftAggInitialize,
-	                               AftAggUpdate, AftAggCombine, AftAggFinalize, nullptr, AftAggBind, AftAggDestroy);
+	                               ANOFOX_GUARDED_UPDATE(AftAggUpdate, AftAggDestroy, AftAggInitialize), AftAggCombine, ANOFOX_GUARDED_FINALIZE(AftAggFinalize, AftAggDestroy, AftAggInitialize), nullptr, AftAggBind, AftAggDestroy);
 	func_set.AddFunction(basic);
 
 	auto with_opts = AggregateFunction(
 	    "aft_fit_agg",
 	    {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE, LogicalType::ANY},
-	    LogicalType::ANY, AggregateFunction::StateSize<AftAggregateState>, AftAggInitialize, AftAggUpdate,
-	    AftAggCombine, AftAggFinalize, nullptr, AftAggBind, AftAggDestroy);
+	    LogicalType::ANY, AggregateFunction::StateSize<AftAggregateState>, AftAggInitialize, ANOFOX_GUARDED_UPDATE(AftAggUpdate, AftAggDestroy, AftAggInitialize),
+	    AftAggCombine, ANOFOX_GUARDED_FINALIZE(AftAggFinalize, AftAggDestroy, AftAggInitialize), nullptr, AftAggBind, AftAggDestroy);
 	func_set.AddFunction(with_opts);
 
 	CreateAggregateFunctionInfo info(func_set);
@@ -446,8 +447,10 @@ static void AftCdfFunctionImpl(DataChunk &args, ExpressionState &state, Vector &
 // Constant inputs must yield a CONSTANT_VECTOR (DuckDB constant folding
 // asserts this in debug builds).
 static void AftCdfFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+	// Check before the call: implementations may Flatten() args in place.
+	const bool all_constant = args.AllConstant();
 	AftCdfFunctionImpl(args, state, result);
-	if (args.AllConstant()) {
+	if (all_constant) {
 		result.SetVectorType(VectorType::CONSTANT_VECTOR);
 	}
 }
@@ -463,8 +466,10 @@ static void AftQuantileFunctionImpl(DataChunk &args, ExpressionState &state, Vec
 // Constant inputs must yield a CONSTANT_VECTOR (DuckDB constant folding
 // asserts this in debug builds).
 static void AftQuantileFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+	// Check before the call: implementations may Flatten() args in place.
+	const bool all_constant = args.AllConstant();
 	AftQuantileFunctionImpl(args, state, result);
-	if (args.AllConstant()) {
+	if (all_constant) {
 		result.SetVectorType(VectorType::CONSTANT_VECTOR);
 	}
 }

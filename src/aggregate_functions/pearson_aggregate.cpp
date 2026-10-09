@@ -13,6 +13,7 @@
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 namespace duckdb {
 
@@ -243,7 +244,7 @@ void RegisterPearsonAggregateFunction(ExtensionLoader &loader) {
         "pearson_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::ANY},
         LogicalType::ANY,
         AggregateFunction::StateSize<PearsonAggregateState>, PearsonAggInitialize,
-        PearsonAggUpdate, PearsonAggCombine, PearsonAggFinalize,
+        ANOFOX_GUARDED_UPDATE(PearsonAggUpdate, PearsonAggDestroy, PearsonAggInitialize), PearsonAggCombine, ANOFOX_GUARDED_FINALIZE(PearsonAggFinalize, PearsonAggDestroy, PearsonAggInitialize),
         nullptr, PearsonAggBind, PearsonAggDestroy);
     func_set.AddFunction(func_with_opts);
 
@@ -252,7 +253,7 @@ void RegisterPearsonAggregateFunction(ExtensionLoader &loader) {
         "pearson_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE},
         LogicalType::ANY,
         AggregateFunction::StateSize<PearsonAggregateState>, PearsonAggInitialize,
-        PearsonAggUpdate, PearsonAggCombine, PearsonAggFinalize,
+        ANOFOX_GUARDED_UPDATE(PearsonAggUpdate, PearsonAggDestroy, PearsonAggInitialize), PearsonAggCombine, ANOFOX_GUARDED_FINALIZE(PearsonAggFinalize, PearsonAggDestroy, PearsonAggInitialize),
         nullptr, PearsonAggBind, PearsonAggDestroy);
     func_set.AddFunction(func_no_opts);
 

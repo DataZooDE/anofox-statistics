@@ -13,6 +13,7 @@
 #include "../include/glm_prior_options.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 namespace duckdb {
 
@@ -408,13 +409,13 @@ void RegisterLogisticAggregateFunction(ExtensionLoader &loader) {
 	auto basic_func = AggregateFunction(
 	    "logistic_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
 	    LogicalType::ANY, AggregateFunction::StateSize<LogisticAggregateState>, LogisticAggInitialize,
-	    LogisticAggUpdate, LogisticAggCombine, LogisticAggFinalize, nullptr, LogisticAggBind, LogisticAggDestroy);
+	    ANOFOX_GUARDED_UPDATE(LogisticAggUpdate, LogisticAggDestroy, LogisticAggInitialize), LogisticAggCombine, ANOFOX_GUARDED_FINALIZE(LogisticAggFinalize, LogisticAggDestroy, LogisticAggInitialize), nullptr, LogisticAggBind, LogisticAggDestroy);
 	func_set.AddFunction(basic_func);
 
 	auto map_func = AggregateFunction("logistic_fit_agg",
 	                                  {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
 	                                  LogicalType::ANY, AggregateFunction::StateSize<LogisticAggregateState>,
-	                                  LogisticAggInitialize, LogisticAggUpdate, LogisticAggCombine, LogisticAggFinalize,
+	                                  LogisticAggInitialize, ANOFOX_GUARDED_UPDATE(LogisticAggUpdate, LogisticAggDestroy, LogisticAggInitialize), LogisticAggCombine, ANOFOX_GUARDED_FINALIZE(LogisticAggFinalize, LogisticAggDestroy, LogisticAggInitialize),
 	                                  nullptr, LogisticAggBind, LogisticAggDestroy);
 	func_set.AddFunction(map_func);
 

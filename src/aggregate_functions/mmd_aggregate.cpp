@@ -13,6 +13,7 @@
 #include "../include/result_fields.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 namespace duckdb {
 
@@ -250,7 +251,7 @@ void RegisterMmdAggregateFunction(ExtensionLoader &loader) {
         "mmd_agg", {LogicalType::DOUBLE, LogicalType::INTEGER, LogicalType::ANY},
         LogicalType::ANY,
         AggregateFunction::StateSize<MmdAggregateState>, MmdAggInitialize,
-        MmdAggUpdate, MmdAggCombine, MmdAggFinalize,
+        ANOFOX_GUARDED_UPDATE(MmdAggUpdate, MmdAggDestroy, MmdAggInitialize), MmdAggCombine, ANOFOX_GUARDED_FINALIZE(MmdAggFinalize, MmdAggDestroy, MmdAggInitialize),
         nullptr, MmdAggBind, MmdAggDestroy);
 
     // Without options
@@ -258,7 +259,7 @@ void RegisterMmdAggregateFunction(ExtensionLoader &loader) {
         "mmd_agg", {LogicalType::DOUBLE, LogicalType::INTEGER},
         LogicalType::ANY,
         AggregateFunction::StateSize<MmdAggregateState>, MmdAggInitialize,
-        MmdAggUpdate, MmdAggCombine, MmdAggFinalize,
+        ANOFOX_GUARDED_UPDATE(MmdAggUpdate, MmdAggDestroy, MmdAggInitialize), MmdAggCombine, ANOFOX_GUARDED_FINALIZE(MmdAggFinalize, MmdAggDestroy, MmdAggInitialize),
         nullptr, MmdAggBind, MmdAggDestroy);
 
     {
