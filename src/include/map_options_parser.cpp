@@ -451,7 +451,7 @@ static std::optional<int> ParseGlmmFamily(const Value &val) {
 	if (v == "binomial" || v == "logistic") {
 		return 2;
 	}
-	if (v == "negbinomial" || v == "negative_binomial" || v == "negbin") {
+	if (v == "negbinom" || v == "negbinomial" || v == "negative_binomial" || v == "negbin") {
 		return 3;
 	}
 	if (v == "gamma") {
@@ -461,7 +461,7 @@ static std::optional<int> ParseGlmmFamily(const Value &val) {
 		return 5;
 	}
 	throw InvalidInputException("Unknown GLMM family '%s'. Expected 'gaussian', 'poisson', "
-	                            "'binomial', 'negbinomial', 'gamma' or 'tweedie'.",
+	                            "'binomial', 'negbinom', 'gamma' or 'tweedie'.",
 	                            val.ToString());
 }
 
