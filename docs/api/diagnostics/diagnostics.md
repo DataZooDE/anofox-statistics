@@ -14,7 +14,7 @@ form that takes arrays and an aggregate form that takes one row at a time.
 | `bic` | Scalar | Bayesian information criterion from RSS |
 | `jarque_bera` | Scalar | Jarque-Bera normality test on an array |
 | `jarque_bera_agg` | Aggregate | Jarque-Bera normality test on rows |
-| `residuals_diagnostics` | Scalar | Raw, standardized and studentized residuals, leverage |
+| `residuals_diagnostics` | Scalar | Raw, standardized and studentized residuals, leverage, Cook's distance |
 | `residuals_diagnostics_agg` | Aggregate | Same, from rows |
 
 ## Variance Inflation Factor
@@ -174,7 +174,9 @@ SELECT residuals_diagnostics(
 residuals_diagnostics_agg(y DOUBLE, y_hat DOUBLE [, x DOUBLE[]]) -> STRUCT
 ```
 
-The aggregate computes raw residuals and, when `x` is given, leverage.
+The aggregate computes raw residuals and, when `x` is given, standardized and
+studentized residuals, leverage and Cook's distance (σ is estimated from the
+residuals as `sqrt(RSS / (n - k - 1))`).
 
 ```sql
 SELECT residuals_diagnostics_agg(y, y_hat, [x]) AS diagnostics
@@ -190,6 +192,7 @@ FROM (VALUES (1.0, 1.1, 1.0), (2.0, 1.9, 2.0), (3.0, 3.2, 3.0),
 | `standardized` | `DOUBLE[]` | `raw / residual_std_error` (NULL unless `residual_std_error` is given) |
 | `studentized` | `DOUBLE[]` | Internally studentized residuals `raw / (σ · √(1 - h))` (NULL unless requested) |
 | `leverage` | `DOUBLE[]` | Diagonal of the hat matrix (NULL unless `x` is given) |
+| `cooks_distance` | `DOUBLE[]` | Cook's distance `raw² / ((k + 1) σ²) · h / (1 - h)²`, as R's `cooks.distance()` (NULL unless `x` is given and leverage is computed) |
 
 ## Detecting problems
 

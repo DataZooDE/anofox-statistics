@@ -141,7 +141,7 @@ fitted model struct).
 | `vif`, `vif_agg` | Variance inflation factors | [Diagnostics](api/diagnostics/diagnostics.md) |
 | `aic`, `bic` | Information criteria from RSS | [Diagnostics](api/diagnostics/diagnostics.md) |
 | `jarque_bera`, `jarque_bera_agg` | Jarque-Bera normality test | [Diagnostics](api/diagnostics/diagnostics.md) |
-| `residuals_diagnostics`, `residuals_diagnostics_agg` | Raw, standardized, studentized residuals, leverage | [Diagnostics](api/diagnostics/diagnostics.md) |
+| `residuals_diagnostics`, `residuals_diagnostics_agg` | Raw, standardized, studentized residuals, leverage, Cook's distance | [Diagnostics](api/diagnostics/diagnostics.md) |
 | `aid_agg`, `aid_anomaly_agg`, `aid_by`, `aid_anomaly_by` | Demand classification and anomaly flags | [AID](api/aid/aid.md) |
 
 ---

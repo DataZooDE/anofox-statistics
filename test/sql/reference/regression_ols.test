@@ -289,21 +289,19 @@ FROM (SELECT ols_fit_agg(y, [x1, 1.0, x2], {'compute_inference': true}) AS r FRO
 true
 
 # Perfect collinearity x1, 2*x1 (was test/data/ols_tests/perfect_collinearity.json):
-# R drops the aliased column (NA). The default SVD solver instead returns the
-# minimum-norm split b1 = c/5, b2 = 2c/5 of the identifiable combination
-# c = b1 + 2*b2 (= coef(lm(y ~ x1 + x2))['x1']); fitted values, R^2 and sigma are
-# identical. We assert the identifiable quantities only.
-# collinear pair: identifiable combination and fit statistics
-query IIIII
+# R lm(y ~ x1 + x1b + x2) with x1b = 2*x1 aliases the later column (NA); the
+# default SVD solver does the same (anofox-regression >= 0.5.21).
+query IIIIII
 SELECT
     abs((r.intercept) - (2.5548105858837853)) <= 1e-09 * (1 + abs(2.5548105858837853)),
-    abs((r.coefficients[1] + 2 * r.coefficients[2]) - (0.72736221632440101)) <= 1e-09 * (1 + abs(0.72736221632440101)),
+    abs((r.coefficients[1]) - (0.72736221632440101)) <= 1e-09 * (1 + abs(0.72736221632440101)),
+    isnan(r.coefficients[2]),
     abs((r.coefficients[3]) - (-0.62027780809906041)) <= 1e-09 * (1 + abs(-0.62027780809906041)),
     abs((r.r_squared) - (0.64021312047957835)) <= 1e-09 * (1 + abs(0.64021312047957835)),
     abs((r.residual_std_error) - (2.1809738871513558)) <= 1e-09 * (1 + abs(2.1809738871513558))
 FROM (SELECT ols_fit_agg(y, [x1, 2 * x1, x2]) AS r FROM d1) s;
 ----
-true	true	true	true	true
+true	true	true	true	true	true
 
 # ---- ols_fit_predict_agg: prediction intervals ----
 # Rows with y IS NULL are prediction rows. Expected: R predict.lm(fit, newdata,

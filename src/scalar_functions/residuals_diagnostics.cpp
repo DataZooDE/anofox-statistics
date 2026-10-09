@@ -21,6 +21,7 @@ static LogicalType GetResidualsDiagnosticsResultType() {
     children.push_back(make_pair("standardized", LogicalType::LIST(LogicalType::DOUBLE)));
     children.push_back(make_pair("studentized", LogicalType::LIST(LogicalType::DOUBLE)));
     children.push_back(make_pair("leverage", LogicalType::LIST(LogicalType::DOUBLE)));
+    children.push_back(make_pair("cooks_distance", LogicalType::LIST(LogicalType::DOUBLE)));
 
     return LogicalType::STRUCT(std::move(children));
 }
@@ -200,6 +201,13 @@ static void ResidualsDiagnosticsFunctionImpl(DataChunk &args, ExpressionState &s
             FlatVector::SetNull(*struct_entries[struct_idx++], row, true);
         }
 
+        // Cook's distance (needs x and a residual standard error)
+        if (resid_result.has_cooks_distance) {
+            SetListInResult(*struct_entries[struct_idx++], row, resid_result.cooks_distance, resid_result.len);
+        } else {
+            FlatVector::SetNull(*struct_entries[struct_idx++], row, true);
+        }
+
         anofox_free_residuals(&resid_result);
     }
 }
@@ -223,7 +231,7 @@ void RegisterResidualsDiagnosticsFunction(ExtensionLoader &loader) {
         info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
 
         FunctionDescription d1;
-        d1.description     = "Computes raw and standardized residuals, leverage, and Cook's distance from actuals and predictions.";
+        d1.description     = "Computes raw residuals from actuals and predictions. Standardized and studentized residuals, leverage and Cook's distance need the feature matrix: use residuals_diagnostics(y, y_hat, x, residual_std_error, include_studentized).";
         d1.examples        = {"residuals_diagnostics(y, y_hat)"};
         d1.categories      = {"regression-diagnostics"};
         d1.parameter_names = {"y", "y_hat"};
@@ -231,7 +239,7 @@ void RegisterResidualsDiagnosticsFunction(ExtensionLoader &loader) {
         info.descriptions.push_back(std::move(d1));
 
         FunctionDescription d2;
-        d2.description     = "Computes residual diagnostics including studentized residuals when feature matrix and residual standard error are supplied.";
+        d2.description     = "Computes raw, standardized and studentized residuals, leverage and Cook's distance from actuals, predictions and the feature matrix (residual_std_error may be NULL to estimate it from the residuals).";
         d2.examples        = {"residuals_diagnostics(y, y_hat, x, rse, true)"};
         d2.categories      = {"regression-diagnostics"};
         d2.parameter_names = {"y", "y_hat", "x", "residual_std_error", "include_studentized"};

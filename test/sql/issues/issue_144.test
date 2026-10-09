@@ -1,0 +1,31 @@
+# name: test/sql/issues/issue_144.test
+# description: #144 *_fit_predict_by prediction intervals are leverage-aware (match R predict.lm)
+# group: [issues]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE d AS
+SELECT i, chr(65 + (i % 2)::INT) AS grp, i / 10.0 AS x1, sin(i) AS x2,
+       2 + 1.5 * (i / 10.0) - 0.8 * sin(i) + 0.3 * cos(i * 7) AS y
+FROM range(60) t(i);
+
+# R: A <- d[d$grp == "A", ]; p <- predict(lm(y ~ x1 + x2, A), A, interval = "prediction")
+#    widths at x1 = 0, 2.8, 5.8: 0.975874668443, 0.936352556079, 1.001685771136
+query II
+SELECT x1, round(yhat_upper - yhat_lower, 8) AS width
+FROM ols_fit_predict_by('d', grp, y, [x1, x2])
+WHERE grp = 'A' AND x1 IN (0.0, 2.8, 5.8) ORDER BY x1;
+----
+0.0	0.97587467
+2.8	0.93635256
+5.8	1.00168577
+
+# Wider at the ends of the x range than at the centre.
+query I
+WITH w AS (SELECT x1, yhat_upper - yhat_lower AS width
+           FROM ols_fit_predict_by('d', grp, y, [x1, x2]) WHERE grp = 'A')
+SELECT (SELECT width FROM w WHERE x1 = 0.0) > (SELECT width FROM w WHERE x1 = 2.8)
+   AND (SELECT width FROM w WHERE x1 = 5.8) > (SELECT width FROM w WHERE x1 = 2.8);
+----
+true

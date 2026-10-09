@@ -529,10 +529,12 @@ typedef struct {
 	double *standardized;
 	double *studentized;
 	double *leverage;
+	double *cooks_distance;
 	size_t len;
 	bool has_standardized;
 	bool has_studentized;
 	bool has_leverage;
+	bool has_cooks_distance;
 } AnofoxResidualsResult;
 
 /**

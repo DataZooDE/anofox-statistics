@@ -22,6 +22,7 @@ FROM range(1, 61) t(i);
 # RANGE BETWEEN 6 PRECEDING AND CURRENT ROW == fit on {s : t - 6 <= s.t <= t},
 # evaluated at the current row's x. Frames with >= p + 2 rows must agree on NULL-ness;
 # for smaller frames the window min-obs guard may be stricter than the aggregate's.
+# An aliased (NaN) coefficient contributes nothing to yhat, as R's predict.lm.
 # =============================================================================
 
 # ols_fit_predict
@@ -35,7 +36,7 @@ ref AS (
     GROUP BY o.t)
 SELECT count(*) FILTER (WHERE ref.n >= 4 AND (win.yhat IS NULL) <> (ref.r IS NULL)),
        count(*) FILTER (WHERE ref.r IS NOT NULL
-                          AND abs(win.yhat - (ref.r.intercept + ref.r.coefficients[1] * win.x1 + ref.r.coefficients[2] * win.x2)) > 1e-6)
+                          AND abs(win.yhat - (ref.r.intercept + coalesce(nullif(ref.r.coefficients[1], 'nan'::DOUBLE), 0) * win.x1 + coalesce(nullif(ref.r.coefficients[2], 'nan'::DOUBLE), 0) * win.x2)) > 1e-6)
 FROM win JOIN ref USING (t);
 ----
 0	0
@@ -51,7 +52,7 @@ ref AS (
     GROUP BY o.t)
 SELECT count(*) FILTER (WHERE ref.n >= 4 AND (win.yhat IS NULL) <> (ref.r IS NULL)),
        count(*) FILTER (WHERE ref.r IS NOT NULL
-                          AND abs(win.yhat - (ref.r.intercept + ref.r.coefficients[1] * win.x1 + ref.r.coefficients[2] * win.x2)) > 1e-6)
+                          AND abs(win.yhat - (ref.r.intercept + coalesce(nullif(ref.r.coefficients[1], 'nan'::DOUBLE), 0) * win.x1 + coalesce(nullif(ref.r.coefficients[2], 'nan'::DOUBLE), 0) * win.x2)) > 1e-6)
 FROM win JOIN ref USING (t);
 ----
 0	0
@@ -67,7 +68,7 @@ ref AS (
     GROUP BY o.t)
 SELECT count(*) FILTER (WHERE ref.n >= 4 AND (win.yhat IS NULL) <> (ref.r IS NULL)),
        count(*) FILTER (WHERE ref.r IS NOT NULL
-                          AND abs(win.yhat - (ref.r.intercept + ref.r.coefficients[1] * win.x1 + ref.r.coefficients[2] * win.x2)) > 1e-6)
+                          AND abs(win.yhat - (ref.r.intercept + coalesce(nullif(ref.r.coefficients[1], 'nan'::DOUBLE), 0) * win.x1 + coalesce(nullif(ref.r.coefficients[2], 'nan'::DOUBLE), 0) * win.x2)) > 1e-6)
 FROM win JOIN ref USING (t);
 ----
 0	0
@@ -83,7 +84,7 @@ ref AS (
     GROUP BY o.t)
 SELECT count(*) FILTER (WHERE ref.n >= 4 AND (win.yhat IS NULL) <> (ref.r IS NULL)),
        count(*) FILTER (WHERE ref.r IS NOT NULL
-                          AND abs(win.yhat - (ref.r.intercept + ref.r.coefficients[1] * win.x1 + ref.r.coefficients[2] * win.x2)) > 1e-6)
+                          AND abs(win.yhat - (ref.r.intercept + coalesce(nullif(ref.r.coefficients[1], 'nan'::DOUBLE), 0) * win.x1 + coalesce(nullif(ref.r.coefficients[2], 'nan'::DOUBLE), 0) * win.x2)) > 1e-6)
 FROM win JOIN ref USING (t);
 ----
 0	0
@@ -99,7 +100,7 @@ ref AS (
     GROUP BY o.t)
 SELECT count(*) FILTER (WHERE ref.n >= 4 AND (win.yhat IS NULL) <> (ref.r IS NULL)),
        count(*) FILTER (WHERE ref.r IS NOT NULL
-                          AND abs(win.yhat - (ref.r.intercept + ref.r.coefficients[1] * win.x1 + ref.r.coefficients[2] * win.x2)) > 1e-6)
+                          AND abs(win.yhat - (ref.r.intercept + coalesce(nullif(ref.r.coefficients[1], 'nan'::DOUBLE), 0) * win.x1 + coalesce(nullif(ref.r.coefficients[2], 'nan'::DOUBLE), 0) * win.x2)) > 1e-6)
 FROM win JOIN ref USING (t);
 ----
 0	0
@@ -115,7 +116,7 @@ ref AS (
     GROUP BY o.t)
 SELECT count(*) FILTER (WHERE ref.n >= 4 AND (win.yhat IS NULL) <> (ref.r IS NULL)),
        count(*) FILTER (WHERE ref.r IS NOT NULL
-                          AND abs(win.yhat - (ref.r.intercept + ref.r.coefficients[1] * win.x1 + ref.r.coefficients[2] * win.x2)) > 1e-6)
+                          AND abs(win.yhat - (ref.r.intercept + coalesce(nullif(ref.r.coefficients[1], 'nan'::DOUBLE), 0) * win.x1 + coalesce(nullif(ref.r.coefficients[2], 'nan'::DOUBLE), 0) * win.x2)) > 1e-6)
 FROM win JOIN ref USING (t);
 ----
 0	0
@@ -230,7 +231,7 @@ WITH win AS (
 ref AS (
     SELECT o.t, ols_fit_agg(i.y, [i.x1, i.x2]) AS r FROM ts o JOIN ts i ON i.t <= o.t GROUP BY o.t)
 SELECT count(*) FILTER (WHERE ref.r IS NOT NULL
-                          AND abs(win.yhat - (ref.r.intercept + ref.r.coefficients[1] * win.x1 + ref.r.coefficients[2] * win.x2)) > 1e-6)
+                          AND abs(win.yhat - (ref.r.intercept + coalesce(nullif(ref.r.coefficients[1], 'nan'::DOUBLE), 0) * win.x1 + coalesce(nullif(ref.r.coefficients[2], 'nan'::DOUBLE), 0) * win.x2)) > 1e-6)
 FROM win JOIN ref USING (t);
 ----
 0

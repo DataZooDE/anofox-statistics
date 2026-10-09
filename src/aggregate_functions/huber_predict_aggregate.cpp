@@ -532,7 +532,7 @@ void RegisterHuberFitPredictAggregateFunction(ExtensionLoader &loader) {
     FunctionDescription d1;
     d1.description =
         "Fits a Huber M-estimator robust regression over a partition and returns per-row predictions with "
-        "confidence intervals.";
+        "prediction intervals.";
     d1.examples = {"huber_fit_predict_agg(y, x)"};
     d1.categories = {"regression", "prediction"};
     d1.parameter_names = {"y", "x"};
@@ -541,7 +541,7 @@ void RegisterHuberFitPredictAggregateFunction(ExtensionLoader &loader) {
 
     FunctionDescription d2;
     d2.description = "Fits Huber regression over a partition with a MAP of options and returns per-row "
-                     "predictions with confidence intervals.";
+                     "predictions with prediction intervals.";
     d2.examples = {"huber_fit_predict_agg(y, x, {'epsilon': 1.35, 'null_policy': 'drop'})"};
     d2.categories = {"regression", "prediction"};
     d2.parameter_names = {"y", "x", "options"};

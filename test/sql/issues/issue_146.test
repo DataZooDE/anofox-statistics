@@ -1,0 +1,25 @@
+# name: test/sql/issues/issue_146.test
+# description: #146 t_test_agg rejects more than two groups and returns a finite effect size
+# group: [issues]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE d AS
+SELECT i, chr(65 + (i % 2)::INT) AS grp, i / 10.0 AS x1, sin(i) AS x2,
+       2 + 1.5 * (i / 10.0) - 0.8 * sin(i) + 0.3 * cos(i * 7) AS y
+FROM range(60) t(i);
+
+statement error
+SELECT t_test_agg(y, (i % 3)::INT) FROM d;
+----
+exactly two groups
+
+# R: t.test(y[i %% 2 == 0], y[i %% 2 == 1]) -> t = -0.1961433398, df = 57.99765943,
+#    p = 0.845183623, CI [-1.52512676075, 1.25291368969]; Cohen's d (pooled SD) = -0.0506439925583
+query IIIIIIII
+SELECT round(r.statistic, 8), round(r.df, 6), round(r.p_value, 8), round(r.ci_lower, 8), round(r.ci_upper, 8),
+       round(r.effect_size, 8), r.n1, r.n2
+FROM (SELECT t_test_agg(y, (i % 2)::INT) AS r FROM d);
+----
+-0.19614334	57.997659	0.84518362	-1.52512676	1.25291369	-0.05064399	30	30
