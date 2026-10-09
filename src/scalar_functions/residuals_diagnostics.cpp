@@ -68,7 +68,18 @@ static void SetListInResult(Vector &list_vec, idx_t row, double *data, size_t le
 
 // Main residuals diagnostics function
 // Arguments: y, y_hat, [x, residual_std_error, include_studentized]
+static void ResidualsDiagnosticsFunctionImpl(DataChunk &args, ExpressionState &state, Vector &result);
+
+// Constant inputs must yield a CONSTANT_VECTOR (DuckDB constant folding
+// asserts this in debug builds).
 static void ResidualsDiagnosticsFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+	ResidualsDiagnosticsFunctionImpl(args, state, result);
+	if (args.AllConstant()) {
+		result.SetVectorType(VectorType::CONSTANT_VECTOR);
+	}
+}
+
+static void ResidualsDiagnosticsFunctionImpl(DataChunk &args, ExpressionState &state, Vector &result) {
     auto &y_vec = args.data[0];     // LIST(DOUBLE)
     auto &y_hat_vec = args.data[1]; // LIST(DOUBLE)
 

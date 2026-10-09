@@ -111,7 +111,18 @@ static void SetListResult(Vector &list_vec, idx_t row, double *data, size_t len)
 }
 
 // Main RLS fit function
+static void RlsFitFunctionImpl(DataChunk &args, ExpressionState &state, Vector &result);
+
+// Constant inputs must yield a CONSTANT_VECTOR (DuckDB constant folding
+// asserts this in debug builds).
 static void RlsFitFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+	RlsFitFunctionImpl(args, state, result);
+	if (args.AllConstant()) {
+		result.SetVectorType(VectorType::CONSTANT_VECTOR);
+	}
+}
+
+static void RlsFitFunctionImpl(DataChunk &args, ExpressionState &state, Vector &result) {
     auto &bind_data = state.expr.Cast<BoundFunctionExpression>().bind_info->Cast<RlsFitBindData>();
 
     auto &y_vec = args.data[0]; // LIST(DOUBLE)

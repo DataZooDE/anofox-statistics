@@ -41,7 +41,18 @@ static vector<double> ExtractDoubleList(Vector &vec, idx_t row_idx) {
 }
 
 // Predict function: anofox_stats_predict(x, coefficients, intercept) -> LIST(DOUBLE)
+static void PredictFunctionImpl(DataChunk &args, ExpressionState &state, Vector &result);
+
+// Constant inputs must yield a CONSTANT_VECTOR (DuckDB constant folding
+// asserts this in debug builds).
 static void PredictFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+	PredictFunctionImpl(args, state, result);
+	if (args.AllConstant()) {
+		result.SetVectorType(VectorType::CONSTANT_VECTOR);
+	}
+}
+
+static void PredictFunctionImpl(DataChunk &args, ExpressionState &state, Vector &result) {
     PostHogTelemetry::Instance().RecordFunctionCall("predict");
     auto &x_vec = args.data[0];         // LIST(LIST(DOUBLE)) - new feature data
     auto &coef_vec = args.data[1];      // LIST(DOUBLE) - coefficients
@@ -300,7 +311,18 @@ double InverseLink(const string &link, double eta) {
 	return eta; // identity
 }
 
+static void PredictModelFunctionImpl(DataChunk &args, ExpressionState &state, Vector &result);
+
+// Constant inputs must yield a CONSTANT_VECTOR (DuckDB constant folding
+// asserts this in debug builds).
 void PredictModelFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+	PredictModelFunctionImpl(args, state, result);
+	if (args.AllConstant()) {
+		result.SetVectorType(VectorType::CONSTANT_VECTOR);
+	}
+}
+
+static void PredictModelFunctionImpl(DataChunk &args, ExpressionState &state, Vector &result) {
 	auto &func_expr = state.expr.Cast<BoundFunctionExpression>();
 	auto &bind = func_expr.bind_info->Cast<PredictModelBindData>();
 	idx_t count = args.size();
