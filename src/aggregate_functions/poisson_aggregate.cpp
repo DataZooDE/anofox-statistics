@@ -13,6 +13,7 @@
 #include "../include/glm_prior_options.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 namespace duckdb {
 
@@ -433,13 +434,13 @@ void RegisterPoissonAggregateFunction(ExtensionLoader &loader) {
 	auto basic_func = AggregateFunction(
 	    "poisson_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)}, LogicalType::ANY,
 	    AggregateFunction::StateSize<PoissonAggregateState>, PoissonAggInitialize, PoissonAggUpdate, PoissonAggCombine,
-	    PoissonAggFinalize, nullptr, PoissonAggBind, PoissonAggDestroy);
+	    ANOFOX_GUARDED_FINALIZE(PoissonAggFinalize, PoissonAggDestroy, PoissonAggInitialize), nullptr, PoissonAggBind, PoissonAggDestroy);
 	func_set.AddFunction(basic_func);
 
 	auto map_func = AggregateFunction(
 	    "poisson_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
 	    LogicalType::ANY, AggregateFunction::StateSize<PoissonAggregateState>, PoissonAggInitialize, PoissonAggUpdate,
-	    PoissonAggCombine, PoissonAggFinalize, nullptr, PoissonAggBind, PoissonAggDestroy);
+	    PoissonAggCombine, ANOFOX_GUARDED_FINALIZE(PoissonAggFinalize, PoissonAggDestroy, PoissonAggInitialize), nullptr, PoissonAggBind, PoissonAggDestroy);
 	func_set.AddFunction(map_func);
 
 	CreateAggregateFunctionInfo info(std::move(func_set));

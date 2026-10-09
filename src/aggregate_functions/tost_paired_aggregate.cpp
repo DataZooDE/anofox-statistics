@@ -13,6 +13,7 @@
 #include "../include/ffi_enum_converters.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 
 namespace duckdb {
@@ -265,7 +266,7 @@ void RegisterTostPairedAggregateFunction(ExtensionLoader &loader) {
         "tost_paired_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::ANY},
         LogicalType::ANY,
         AggregateFunction::StateSize<TostPairedAggregateState>, TostPairedAggInitialize,
-        TostPairedAggUpdate, TostPairedAggCombine, TostPairedAggFinalize,
+        TostPairedAggUpdate, TostPairedAggCombine, ANOFOX_GUARDED_FINALIZE(TostPairedAggFinalize, TostPairedAggDestroy, TostPairedAggInitialize),
         nullptr, TostPairedAggBind, TostPairedAggDestroy);
     func_set.AddFunction(func_with_opts);
 
@@ -274,7 +275,7 @@ void RegisterTostPairedAggregateFunction(ExtensionLoader &loader) {
         "tost_paired_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE},
         LogicalType::ANY,
         AggregateFunction::StateSize<TostPairedAggregateState>, TostPairedAggInitialize,
-        TostPairedAggUpdate, TostPairedAggCombine, TostPairedAggFinalize,
+        TostPairedAggUpdate, TostPairedAggCombine, ANOFOX_GUARDED_FINALIZE(TostPairedAggFinalize, TostPairedAggDestroy, TostPairedAggInitialize),
         nullptr, TostPairedAggBind, TostPairedAggDestroy);
     func_set.AddFunction(func_no_opts);
 

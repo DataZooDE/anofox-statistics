@@ -14,6 +14,7 @@
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 #include "prediction_interval.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 namespace duckdb {
 
@@ -565,7 +566,7 @@ void RegisterBlsFitPredictAggregateFunction(ExtensionLoader &loader) {
     auto basic_func =
         AggregateFunction("bls_fit_predict_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
                           LogicalType::ANY, AggregateFunction::StateSize<BlsFitPredictAggState>, BlsFitPredictAggInitialize,
-                          BlsFitPredictAggUpdate, BlsFitPredictAggCombine, BlsFitPredictAggFinalize, nullptr, BlsFitPredictAggBind,
+                          BlsFitPredictAggUpdate, BlsFitPredictAggCombine, ANOFOX_GUARDED_FINALIZE(BlsFitPredictAggFinalize, BlsFitPredictAggDestroy, BlsFitPredictAggInitialize), nullptr, BlsFitPredictAggBind,
                           BlsFitPredictAggDestroy);
     func_set.AddFunction(basic_func);
 
@@ -574,21 +575,21 @@ void RegisterBlsFitPredictAggregateFunction(ExtensionLoader &loader) {
         "bls_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY}, LogicalType::ANY,
         AggregateFunction::StateSize<BlsFitPredictAggState>, BlsFitPredictAggInitialize, BlsFitPredictAggUpdate,
-        BlsFitPredictAggCombine, BlsFitPredictAggFinalize, nullptr, BlsFitPredictAggBind, BlsFitPredictAggDestroy);
+        BlsFitPredictAggCombine, ANOFOX_GUARDED_FINALIZE(BlsFitPredictAggFinalize, BlsFitPredictAggDestroy, BlsFitPredictAggInitialize), nullptr, BlsFitPredictAggBind, BlsFitPredictAggDestroy);
     func_set.AddFunction(map_func);
 
     auto split_func = AggregateFunction(
         "bls_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR}, LogicalType::ANY,
         AggregateFunction::StateSize<BlsFitPredictAggState>, BlsFitPredictAggInitialize, BlsFitPredictAggUpdate,
-        BlsFitPredictAggCombine, BlsFitPredictAggFinalize, nullptr, BlsFitPredictAggBindWithSplit, BlsFitPredictAggDestroy);
+        BlsFitPredictAggCombine, ANOFOX_GUARDED_FINALIZE(BlsFitPredictAggFinalize, BlsFitPredictAggDestroy, BlsFitPredictAggInitialize), nullptr, BlsFitPredictAggBindWithSplit, BlsFitPredictAggDestroy);
     func_set.AddFunction(split_func);
 
     auto split_opts_func = AggregateFunction(
         "bls_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR, LogicalType::ANY},
         LogicalType::ANY, AggregateFunction::StateSize<BlsFitPredictAggState>, BlsFitPredictAggInitialize,
-        BlsFitPredictAggUpdate, BlsFitPredictAggCombine, BlsFitPredictAggFinalize, nullptr, BlsFitPredictAggBindWithSplit,
+        BlsFitPredictAggUpdate, BlsFitPredictAggCombine, ANOFOX_GUARDED_FINALIZE(BlsFitPredictAggFinalize, BlsFitPredictAggDestroy, BlsFitPredictAggInitialize), nullptr, BlsFitPredictAggBindWithSplit,
         BlsFitPredictAggDestroy);
     func_set.AddFunction(split_opts_func);
 

@@ -14,6 +14,7 @@
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 namespace duckdb {
 
@@ -424,7 +425,7 @@ void RegisterIsotonicFitPredictAggregateFunction(ExtensionLoader &loader) {
     auto basic_func =
         AggregateFunction("isotonic_fit_predict_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE},
                           LogicalType::ANY, AggregateFunction::StateSize<IsotonicPredictAggState>, IsotonicPredictAggInitialize,
-                          IsotonicPredictAggUpdate, IsotonicPredictAggCombine, IsotonicPredictAggFinalize, nullptr, IsotonicPredictAggBind,
+                          IsotonicPredictAggUpdate, IsotonicPredictAggCombine, ANOFOX_GUARDED_FINALIZE(IsotonicPredictAggFinalize, IsotonicPredictAggDestroy, IsotonicPredictAggInitialize), nullptr, IsotonicPredictAggBind,
                           IsotonicPredictAggDestroy);
     func_set.AddFunction(basic_func);
 
@@ -432,7 +433,7 @@ void RegisterIsotonicFitPredictAggregateFunction(ExtensionLoader &loader) {
         "isotonic_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::ANY}, LogicalType::ANY,
         AggregateFunction::StateSize<IsotonicPredictAggState>, IsotonicPredictAggInitialize, IsotonicPredictAggUpdate,
-        IsotonicPredictAggCombine, IsotonicPredictAggFinalize, nullptr, IsotonicPredictAggBind, IsotonicPredictAggDestroy);
+        IsotonicPredictAggCombine, ANOFOX_GUARDED_FINALIZE(IsotonicPredictAggFinalize, IsotonicPredictAggDestroy, IsotonicPredictAggInitialize), nullptr, IsotonicPredictAggBind, IsotonicPredictAggDestroy);
     func_set.AddFunction(map_func);
 
     // Version with split column: isotonic_fit_predict_agg(y, x, split)
@@ -440,7 +441,7 @@ void RegisterIsotonicFitPredictAggregateFunction(ExtensionLoader &loader) {
         "isotonic_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::VARCHAR}, LogicalType::ANY,
         AggregateFunction::StateSize<IsotonicPredictAggState>, IsotonicPredictAggInitialize, IsotonicPredictAggUpdate,
-        IsotonicPredictAggCombine, IsotonicPredictAggFinalize, nullptr, IsotonicPredictAggBindWithSplit, IsotonicPredictAggDestroy);
+        IsotonicPredictAggCombine, ANOFOX_GUARDED_FINALIZE(IsotonicPredictAggFinalize, IsotonicPredictAggDestroy, IsotonicPredictAggInitialize), nullptr, IsotonicPredictAggBindWithSplit, IsotonicPredictAggDestroy);
     func_set.AddFunction(split_func);
 
     // Version with split column and options: isotonic_fit_predict_agg(y, x, split, options)
@@ -448,7 +449,7 @@ void RegisterIsotonicFitPredictAggregateFunction(ExtensionLoader &loader) {
         "isotonic_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::VARCHAR, LogicalType::ANY}, LogicalType::ANY,
         AggregateFunction::StateSize<IsotonicPredictAggState>, IsotonicPredictAggInitialize, IsotonicPredictAggUpdate,
-        IsotonicPredictAggCombine, IsotonicPredictAggFinalize, nullptr, IsotonicPredictAggBindWithSplit, IsotonicPredictAggDestroy);
+        IsotonicPredictAggCombine, ANOFOX_GUARDED_FINALIZE(IsotonicPredictAggFinalize, IsotonicPredictAggDestroy, IsotonicPredictAggInitialize), nullptr, IsotonicPredictAggBindWithSplit, IsotonicPredictAggDestroy);
     func_set.AddFunction(split_map_func);
 
     CreateAggregateFunctionInfo info(std::move(func_set));

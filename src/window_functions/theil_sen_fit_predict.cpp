@@ -17,6 +17,7 @@
 #include "aggregate_combine.hpp"
 #include "list_input.hpp"
 #include "prediction_interval.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 namespace duckdb {
 
@@ -378,14 +379,14 @@ void RegisterTheilSenFitPredictFunction(ExtensionLoader &loader) {
         "theil_sen_fit_predict", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
         GetTheilSenFitPredictResultType(), AggregateFunction::StateSize<TheilSenFitPredictState>,
         TheilSenFitPredictInitialize, TheilSenFitPredictUpdate, TheilSenFitPredictCombine,
-        TheilSenFitPredictFinalize, nullptr, TheilSenFitPredictBind, TheilSenFitPredictDestroy);
+        ANOFOX_GUARDED_FINALIZE(TheilSenFitPredictFinalize, TheilSenFitPredictDestroy, TheilSenFitPredictInitialize), nullptr, TheilSenFitPredictBind, TheilSenFitPredictDestroy);
 
     auto map_func = AggregateFunction(
         "theil_sen_fit_predict",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
         GetTheilSenFitPredictResultType(), AggregateFunction::StateSize<TheilSenFitPredictState>,
         TheilSenFitPredictInitialize, TheilSenFitPredictUpdate, TheilSenFitPredictCombine,
-        TheilSenFitPredictFinalize, nullptr, TheilSenFitPredictBind, TheilSenFitPredictDestroy);
+        ANOFOX_GUARDED_FINALIZE(TheilSenFitPredictFinalize, TheilSenFitPredictDestroy, TheilSenFitPredictInitialize), nullptr, TheilSenFitPredictBind, TheilSenFitPredictDestroy);
 
     {
         AggregateFunctionSet func_set("theil_sen_fit_predict");

@@ -13,6 +13,7 @@
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 #include "list_input.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 namespace duckdb {
 
@@ -391,14 +392,14 @@ void RegisterHuberAggregateFunction(ExtensionLoader &loader) {
     auto basic_func = AggregateFunction(
         "huber_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
         LogicalType::ANY, AggregateFunction::StateSize<HuberAggregateState>, HuberAggInitialize, HuberAggUpdate,
-        HuberAggCombine, HuberAggFinalize, nullptr, HuberAggBind, HuberAggDestroy);
+        HuberAggCombine, ANOFOX_GUARDED_FINALIZE(HuberAggFinalize, HuberAggDestroy, HuberAggInitialize), nullptr, HuberAggBind, HuberAggDestroy);
     func_set.AddFunction(basic_func);
 
     auto map_func = AggregateFunction(
         "huber_fit_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY}, LogicalType::ANY,
         AggregateFunction::StateSize<HuberAggregateState>, HuberAggInitialize, HuberAggUpdate, HuberAggCombine,
-        HuberAggFinalize, nullptr, HuberAggBind, HuberAggDestroy);
+        ANOFOX_GUARDED_FINALIZE(HuberAggFinalize, HuberAggDestroy, HuberAggInitialize), nullptr, HuberAggBind, HuberAggDestroy);
     func_set.AddFunction(map_func);
 
     CreateAggregateFunctionInfo info(std::move(func_set));

@@ -13,6 +13,7 @@
 #include "../include/glm_prior_options.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 namespace duckdb {
 
@@ -394,13 +395,13 @@ void RegisterGammaAggregateFunction(ExtensionLoader &loader) {
 	auto basic_func =
 	    AggregateFunction("gamma_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
 	                      LogicalType::ANY, AggregateFunction::StateSize<GammaAggregateState>, GammaAggInitialize,
-	                      GammaAggUpdate, GammaAggCombine, GammaAggFinalize, nullptr, GammaAggBind, GammaAggDestroy);
+	                      GammaAggUpdate, GammaAggCombine, ANOFOX_GUARDED_FINALIZE(GammaAggFinalize, GammaAggDestroy, GammaAggInitialize), nullptr, GammaAggBind, GammaAggDestroy);
 	func_set.AddFunction(basic_func);
 
 	auto map_func = AggregateFunction(
 	    "gamma_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
 	    LogicalType::ANY, AggregateFunction::StateSize<GammaAggregateState>, GammaAggInitialize, GammaAggUpdate,
-	    GammaAggCombine, GammaAggFinalize, nullptr, GammaAggBind, GammaAggDestroy);
+	    GammaAggCombine, ANOFOX_GUARDED_FINALIZE(GammaAggFinalize, GammaAggDestroy, GammaAggInitialize), nullptr, GammaAggBind, GammaAggDestroy);
 	func_set.AddFunction(map_func);
 
 	CreateAggregateFunctionInfo info(std::move(func_set));

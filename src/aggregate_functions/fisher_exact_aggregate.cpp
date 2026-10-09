@@ -12,6 +12,7 @@
 #include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 namespace duckdb {
 
@@ -272,7 +273,7 @@ void RegisterFisherExactAggregateFunction(ExtensionLoader &loader) {
         "fisher_exact_agg", {LogicalType::INTEGER, LogicalType::INTEGER, LogicalType::ANY},
         LogicalType::ANY,
         AggregateFunction::StateSize<FisherExactAggregateState>, FisherExactAggInitialize,
-        FisherExactAggUpdate, FisherExactAggCombine, FisherExactAggFinalize,
+        FisherExactAggUpdate, FisherExactAggCombine, ANOFOX_GUARDED_FINALIZE(FisherExactAggFinalize, FisherExactAggDestroy, FisherExactAggInitialize),
         nullptr, FisherExactAggBind, FisherExactAggDestroy);
     func_set.AddFunction(func_with_opts);
 
@@ -281,7 +282,7 @@ void RegisterFisherExactAggregateFunction(ExtensionLoader &loader) {
         "fisher_exact_agg", {LogicalType::INTEGER, LogicalType::INTEGER},
         LogicalType::ANY,
         AggregateFunction::StateSize<FisherExactAggregateState>, FisherExactAggInitialize,
-        FisherExactAggUpdate, FisherExactAggCombine, FisherExactAggFinalize,
+        FisherExactAggUpdate, FisherExactAggCombine, ANOFOX_GUARDED_FINALIZE(FisherExactAggFinalize, FisherExactAggDestroy, FisherExactAggInitialize),
         nullptr, FisherExactAggBind, FisherExactAggDestroy);
     func_set.AddFunction(func_no_opts);
 

@@ -13,6 +13,7 @@
 #include "../include/ffi_enum_converters.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 
 namespace duckdb {
@@ -254,7 +255,7 @@ void RegisterClarkWestAggregateFunction(ExtensionLoader &loader) {
         {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::ANY},
         LogicalType::ANY,
         AggregateFunction::StateSize<ClarkWestAggregateState>, ClarkWestAggInitialize,
-        ClarkWestAggUpdate, ClarkWestAggCombine, ClarkWestAggFinalize,
+        ClarkWestAggUpdate, ClarkWestAggCombine, ANOFOX_GUARDED_FINALIZE(ClarkWestAggFinalize, ClarkWestAggDestroy, ClarkWestAggInitialize),
         nullptr, ClarkWestAggBind, ClarkWestAggDestroy);
 
     // Without options: (actual, forecast_restricted, forecast_unrestricted)
@@ -263,7 +264,7 @@ void RegisterClarkWestAggregateFunction(ExtensionLoader &loader) {
         {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::DOUBLE},
         LogicalType::ANY,
         AggregateFunction::StateSize<ClarkWestAggregateState>, ClarkWestAggInitialize,
-        ClarkWestAggUpdate, ClarkWestAggCombine, ClarkWestAggFinalize,
+        ClarkWestAggUpdate, ClarkWestAggCombine, ANOFOX_GUARDED_FINALIZE(ClarkWestAggFinalize, ClarkWestAggDestroy, ClarkWestAggInitialize),
         nullptr, ClarkWestAggBind, ClarkWestAggDestroy);
 
     {

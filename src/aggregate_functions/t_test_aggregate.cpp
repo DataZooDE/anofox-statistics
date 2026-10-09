@@ -14,6 +14,7 @@
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 #include "two_group.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 namespace duckdb {
 
@@ -266,7 +267,7 @@ void RegisterTTestAggregateFunction(ExtensionLoader &loader) {
         "t_test_agg", {LogicalType::DOUBLE, LogicalType::BIGINT, LogicalType::ANY},
         LogicalType::ANY,
         AggregateFunction::StateSize<TTestAggregateState>, TTestAggInitialize,
-        TTestAggUpdate, TTestAggCombine, TTestAggFinalize,
+        TTestAggUpdate, TTestAggCombine, ANOFOX_GUARDED_FINALIZE(TTestAggFinalize, TTestAggDestroy, TTestAggInitialize),
         nullptr, TTestAggBind, TTestAggDestroy);
     func_set.AddFunction(func_with_opts);
     func_with_opts.arguments[1] = LogicalType::VARCHAR;
@@ -277,7 +278,7 @@ void RegisterTTestAggregateFunction(ExtensionLoader &loader) {
         "t_test_agg", {LogicalType::DOUBLE, LogicalType::BIGINT},
         LogicalType::ANY,
         AggregateFunction::StateSize<TTestAggregateState>, TTestAggInitialize,
-        TTestAggUpdate, TTestAggCombine, TTestAggFinalize,
+        TTestAggUpdate, TTestAggCombine, ANOFOX_GUARDED_FINALIZE(TTestAggFinalize, TTestAggDestroy, TTestAggInitialize),
         nullptr, TTestAggBind, TTestAggDestroy);
     func_set.AddFunction(func_no_opts);
     func_no_opts.arguments[1] = LogicalType::VARCHAR;

@@ -12,6 +12,7 @@
 #include "../include/error_dispatch.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 namespace duckdb {
 
@@ -207,7 +208,7 @@ void RegisterAnovaAggregateFunction(ExtensionLoader &loader) {
         "one_way_anova_agg", {LogicalType::DOUBLE, LogicalType::INTEGER},
         LogicalType::ANY,
         AggregateFunction::StateSize<AnovaAggregateState>, AnovaAggInitialize,
-        AnovaAggUpdate, AnovaAggCombine, AnovaAggFinalize,
+        AnovaAggUpdate, AnovaAggCombine, ANOFOX_GUARDED_FINALIZE(AnovaAggFinalize, AnovaAggDestroy, AnovaAggInitialize),
         nullptr, AnovaAggBind, AnovaAggDestroy);
     func_set.AddFunction(func);
 

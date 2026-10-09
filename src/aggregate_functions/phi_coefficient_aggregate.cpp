@@ -11,6 +11,7 @@
 #include "../include/error_dispatch.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 namespace duckdb {
 
@@ -201,7 +202,7 @@ void RegisterPhiCoefficientAggregateFunction(ExtensionLoader &loader) {
         "phi_coefficient_agg", {LogicalType::BIGINT, LogicalType::BIGINT},
         LogicalType::DOUBLE,
         AggregateFunction::StateSize<PhiCoefficientAggregateState>, PhiCoefficientAggInitialize,
-        PhiCoefficientAggUpdate, PhiCoefficientAggCombine, PhiCoefficientAggFinalize,
+        PhiCoefficientAggUpdate, PhiCoefficientAggCombine, ANOFOX_GUARDED_FINALIZE(PhiCoefficientAggFinalize, PhiCoefficientAggDestroy, PhiCoefficientAggInitialize),
         nullptr, PhiCoefficientAggBind, PhiCoefficientAggDestroy);
     func_set.AddFunction(func);
 

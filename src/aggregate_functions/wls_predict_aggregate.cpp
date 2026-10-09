@@ -15,6 +15,7 @@
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 #include "prediction_interval.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 namespace duckdb {
 
@@ -503,7 +504,7 @@ void RegisterWlsFitPredictAggregateFunction(ExtensionLoader &loader) {
         "wls_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE},
         LogicalType::ANY, AggregateFunction::StateSize<WlsPredictAggState>, WlsPredictAggInitialize,
-        WlsPredictAggUpdate, WlsPredictAggCombine, WlsPredictAggFinalize, nullptr, WlsPredictAggBind,
+        WlsPredictAggUpdate, WlsPredictAggCombine, ANOFOX_GUARDED_FINALIZE(WlsPredictAggFinalize, WlsPredictAggDestroy, WlsPredictAggInitialize), nullptr, WlsPredictAggBind,
         WlsPredictAggDestroy);
     func_set.AddFunction(basic_func);
 
@@ -512,7 +513,7 @@ void RegisterWlsFitPredictAggregateFunction(ExtensionLoader &loader) {
         "wls_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE, LogicalType::ANY},
         LogicalType::ANY, AggregateFunction::StateSize<WlsPredictAggState>, WlsPredictAggInitialize,
-        WlsPredictAggUpdate, WlsPredictAggCombine, WlsPredictAggFinalize, nullptr, WlsPredictAggBind,
+        WlsPredictAggUpdate, WlsPredictAggCombine, ANOFOX_GUARDED_FINALIZE(WlsPredictAggFinalize, WlsPredictAggDestroy, WlsPredictAggInitialize), nullptr, WlsPredictAggBind,
         WlsPredictAggDestroy);
     func_set.AddFunction(map_func);
 
@@ -521,7 +522,7 @@ void RegisterWlsFitPredictAggregateFunction(ExtensionLoader &loader) {
         "wls_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE, LogicalType::VARCHAR},
         LogicalType::ANY, AggregateFunction::StateSize<WlsPredictAggState>, WlsPredictAggInitialize,
-        WlsPredictAggUpdate, WlsPredictAggCombine, WlsPredictAggFinalize, nullptr, WlsPredictAggBindWithSplit,
+        WlsPredictAggUpdate, WlsPredictAggCombine, ANOFOX_GUARDED_FINALIZE(WlsPredictAggFinalize, WlsPredictAggDestroy, WlsPredictAggInitialize), nullptr, WlsPredictAggBindWithSplit,
         WlsPredictAggDestroy);
     func_set.AddFunction(split_func);
 
@@ -530,7 +531,7 @@ void RegisterWlsFitPredictAggregateFunction(ExtensionLoader &loader) {
         "wls_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE, LogicalType::VARCHAR, LogicalType::ANY},
         LogicalType::ANY, AggregateFunction::StateSize<WlsPredictAggState>, WlsPredictAggInitialize,
-        WlsPredictAggUpdate, WlsPredictAggCombine, WlsPredictAggFinalize, nullptr, WlsPredictAggBindWithSplit,
+        WlsPredictAggUpdate, WlsPredictAggCombine, ANOFOX_GUARDED_FINALIZE(WlsPredictAggFinalize, WlsPredictAggDestroy, WlsPredictAggInitialize), nullptr, WlsPredictAggBindWithSplit,
         WlsPredictAggDestroy);
     func_set.AddFunction(split_opts_func);
 

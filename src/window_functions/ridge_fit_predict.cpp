@@ -16,6 +16,7 @@
 #include "aggregate_combine.hpp"
 #include "list_input.hpp"
 #include "prediction_interval.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 namespace duckdb {
 
@@ -323,7 +324,7 @@ void RegisterRidgeFitPredictFunction(ExtensionLoader &loader) {
         AggregateFunction("ridge_fit_predict",
                           {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)}, GetRidgeFitPredictResultType(),
                           AggregateFunction::StateSize<RidgeFitPredictState>, RidgeFitPredictInitialize,
-                          RidgeFitPredictUpdate, RidgeFitPredictCombine, RidgeFitPredictFinalize, nullptr,
+                          RidgeFitPredictUpdate, RidgeFitPredictCombine, ANOFOX_GUARDED_FINALIZE(RidgeFitPredictFinalize, RidgeFitPredictDestroy, RidgeFitPredictInitialize), nullptr,
                           RidgeFitPredictBind, RidgeFitPredictDestroy);
 
     auto map_func =
@@ -331,7 +332,7 @@ void RegisterRidgeFitPredictFunction(ExtensionLoader &loader) {
                           {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
                           GetRidgeFitPredictResultType(), AggregateFunction::StateSize<RidgeFitPredictState>,
                           RidgeFitPredictInitialize, RidgeFitPredictUpdate, RidgeFitPredictCombine,
-                          RidgeFitPredictFinalize, nullptr, RidgeFitPredictBind, RidgeFitPredictDestroy);
+                          ANOFOX_GUARDED_FINALIZE(RidgeFitPredictFinalize, RidgeFitPredictDestroy, RidgeFitPredictInitialize), nullptr, RidgeFitPredictBind, RidgeFitPredictDestroy);
 
     {
         AggregateFunctionSet func_set("ridge_fit_predict");

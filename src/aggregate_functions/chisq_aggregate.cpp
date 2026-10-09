@@ -13,6 +13,7 @@
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 namespace duckdb {
 
@@ -225,7 +226,7 @@ void RegisterChiSquareAggregateFunction(ExtensionLoader &loader) {
         "chisq_test_agg", {LogicalType::INTEGER, LogicalType::INTEGER, LogicalType::ANY},
         LogicalType::ANY,
         AggregateFunction::StateSize<ChiSquareAggregateState>, ChiSquareAggInitialize,
-        ChiSquareAggUpdate, ChiSquareAggCombine, ChiSquareAggFinalize,
+        ChiSquareAggUpdate, ChiSquareAggCombine, ANOFOX_GUARDED_FINALIZE(ChiSquareAggFinalize, ChiSquareAggDestroy, ChiSquareAggInitialize),
         nullptr, ChiSquareAggBind, ChiSquareAggDestroy);
     func_set.AddFunction(func_with_opts);
 
@@ -233,7 +234,7 @@ void RegisterChiSquareAggregateFunction(ExtensionLoader &loader) {
         "chisq_test_agg", {LogicalType::INTEGER, LogicalType::INTEGER},
         LogicalType::ANY,
         AggregateFunction::StateSize<ChiSquareAggregateState>, ChiSquareAggInitialize,
-        ChiSquareAggUpdate, ChiSquareAggCombine, ChiSquareAggFinalize,
+        ChiSquareAggUpdate, ChiSquareAggCombine, ANOFOX_GUARDED_FINALIZE(ChiSquareAggFinalize, ChiSquareAggDestroy, ChiSquareAggInitialize),
         nullptr, ChiSquareAggBind, ChiSquareAggDestroy);
     func_set.AddFunction(func_no_opts);
 

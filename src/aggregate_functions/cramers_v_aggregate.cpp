@@ -11,6 +11,7 @@
 #include "../include/error_dispatch.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 namespace duckdb {
 
@@ -201,7 +202,7 @@ void RegisterCramersVAggregateFunction(ExtensionLoader &loader) {
         "cramers_v_agg", {LogicalType::BIGINT, LogicalType::BIGINT},
         LogicalType::DOUBLE,
         AggregateFunction::StateSize<CramersVAggregateState>, CramersVAggInitialize,
-        CramersVAggUpdate, CramersVAggCombine, CramersVAggFinalize,
+        CramersVAggUpdate, CramersVAggCombine, ANOFOX_GUARDED_FINALIZE(CramersVAggFinalize, CramersVAggDestroy, CramersVAggInitialize),
         nullptr, CramersVAggBind, CramersVAggDestroy);
     func_set.AddFunction(func);
 

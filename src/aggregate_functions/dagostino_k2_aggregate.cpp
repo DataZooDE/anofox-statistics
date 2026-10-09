@@ -11,6 +11,7 @@
 #include "../include/error_dispatch.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 namespace duckdb {
 
@@ -182,7 +183,7 @@ void RegisterDAgostinoK2AggregateFunction(ExtensionLoader &loader) {
     auto func = AggregateFunction("dagostino_k2_agg", {LogicalType::DOUBLE},
                                   LogicalType::ANY,
                                   AggregateFunction::StateSize<DAgostinoK2AggregateState>, DAgostinoK2AggInitialize,
-                                  DAgostinoK2AggUpdate, DAgostinoK2AggCombine, DAgostinoK2AggFinalize,
+                                  DAgostinoK2AggUpdate, DAgostinoK2AggCombine, ANOFOX_GUARDED_FINALIZE(DAgostinoK2AggFinalize, DAgostinoK2AggDestroy, DAgostinoK2AggInitialize),
                                   nullptr, DAgostinoK2AggBind, DAgostinoK2AggDestroy);
 
     {

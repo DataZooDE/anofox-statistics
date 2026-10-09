@@ -15,6 +15,7 @@
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 #include "list_input.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 namespace duckdb {
 
@@ -367,14 +368,14 @@ void RegisterAftAggregateFunction(ExtensionLoader &loader) {
 	auto basic = AggregateFunction("aft_fit_agg",
 	                               {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE},
 	                               LogicalType::ANY, AggregateFunction::StateSize<AftAggregateState>, AftAggInitialize,
-	                               AftAggUpdate, AftAggCombine, AftAggFinalize, nullptr, AftAggBind, AftAggDestroy);
+	                               AftAggUpdate, AftAggCombine, ANOFOX_GUARDED_FINALIZE(AftAggFinalize, AftAggDestroy, AftAggInitialize), nullptr, AftAggBind, AftAggDestroy);
 	func_set.AddFunction(basic);
 
 	auto with_opts = AggregateFunction(
 	    "aft_fit_agg",
 	    {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE, LogicalType::ANY},
 	    LogicalType::ANY, AggregateFunction::StateSize<AftAggregateState>, AftAggInitialize, AftAggUpdate,
-	    AftAggCombine, AftAggFinalize, nullptr, AftAggBind, AftAggDestroy);
+	    AftAggCombine, ANOFOX_GUARDED_FINALIZE(AftAggFinalize, AftAggDestroy, AftAggInitialize), nullptr, AftAggBind, AftAggDestroy);
 	func_set.AddFunction(with_opts);
 
 	CreateAggregateFunctionInfo info(func_set);

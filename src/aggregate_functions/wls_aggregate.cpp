@@ -13,6 +13,7 @@
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 #include "list_input.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 namespace duckdb {
 
@@ -416,7 +417,7 @@ void RegisterWlsAggregateFunction(ExtensionLoader &loader) {
     auto basic_func = AggregateFunction(
         "wls_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE},
         LogicalType::ANY, // Set in bind
-        AggregateFunction::StateSize<WlsAggregateState>, WlsAggInitialize, WlsAggUpdate, WlsAggCombine, WlsAggFinalize,
+        AggregateFunction::StateSize<WlsAggregateState>, WlsAggInitialize, WlsAggUpdate, WlsAggCombine, ANOFOX_GUARDED_FINALIZE(WlsAggFinalize, WlsAggDestroy, WlsAggInitialize),
         nullptr, // simple_update
         WlsAggBind, WlsAggDestroy);
     func_set.AddFunction(basic_func);
@@ -426,7 +427,7 @@ void RegisterWlsAggregateFunction(ExtensionLoader &loader) {
                                       {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE,
                                        LogicalType::ANY}, // MAP or STRUCT for options
                                       LogicalType::ANY, AggregateFunction::StateSize<WlsAggregateState>,
-                                      WlsAggInitialize, WlsAggUpdate, WlsAggCombine, WlsAggFinalize, nullptr,
+                                      WlsAggInitialize, WlsAggUpdate, WlsAggCombine, ANOFOX_GUARDED_FINALIZE(WlsAggFinalize, WlsAggDestroy, WlsAggInitialize), nullptr,
                                       WlsAggBind, WlsAggDestroy);
     func_set.AddFunction(map_func);
 

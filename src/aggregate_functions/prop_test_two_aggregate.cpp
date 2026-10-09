@@ -12,6 +12,7 @@
 #include "../include/map_options_parser.hpp"
 #include "../include/ffi_enum_converters.hpp"
 #include "telemetry.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 
 namespace duckdb {
@@ -250,7 +251,7 @@ void RegisterPropTestTwoAggregateFunction(ExtensionLoader &loader) {
         "prop_test_two_agg", {LogicalType::BIGINT, LogicalType::BIGINT, LogicalType::ANY},
         LogicalType::ANY,
         AggregateFunction::StateSize<PropTestTwoAggregateState>, PropTestTwoAggInitialize,
-        PropTestTwoAggUpdate, PropTestTwoAggCombine, PropTestTwoAggFinalize,
+        PropTestTwoAggUpdate, PropTestTwoAggCombine, ANOFOX_GUARDED_FINALIZE(PropTestTwoAggFinalize, PropTestTwoAggDestroy, PropTestTwoAggInitialize),
         nullptr, PropTestTwoAggBind, PropTestTwoAggDestroy);
     func_set.AddFunction(func_with_opts);
 
@@ -259,7 +260,7 @@ void RegisterPropTestTwoAggregateFunction(ExtensionLoader &loader) {
         "prop_test_two_agg", {LogicalType::BIGINT, LogicalType::BIGINT},
         LogicalType::ANY,
         AggregateFunction::StateSize<PropTestTwoAggregateState>, PropTestTwoAggInitialize,
-        PropTestTwoAggUpdate, PropTestTwoAggCombine, PropTestTwoAggFinalize,
+        PropTestTwoAggUpdate, PropTestTwoAggCombine, ANOFOX_GUARDED_FINALIZE(PropTestTwoAggFinalize, PropTestTwoAggDestroy, PropTestTwoAggInitialize),
         nullptr, PropTestTwoAggBind, PropTestTwoAggDestroy);
     func_set.AddFunction(func_no_opts);
 

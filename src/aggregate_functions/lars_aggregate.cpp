@@ -13,6 +13,7 @@
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 namespace duckdb {
 
@@ -355,14 +356,14 @@ void RegisterLarsAggregateFunction(ExtensionLoader &loader) {
     auto basic_func = AggregateFunction(
         "lars_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
         LogicalType::ANY, AggregateFunction::StateSize<LarsAggregateState>, LarsAggInitialize, LarsAggUpdate,
-        LarsAggCombine, LarsAggFinalize, nullptr, LarsAggBind, LarsAggDestroy);
+        LarsAggCombine, ANOFOX_GUARDED_FINALIZE(LarsAggFinalize, LarsAggDestroy, LarsAggInitialize), nullptr, LarsAggBind, LarsAggDestroy);
     func_set.AddFunction(basic_func);
 
     auto map_func = AggregateFunction(
         "lars_fit_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY}, LogicalType::ANY,
         AggregateFunction::StateSize<LarsAggregateState>, LarsAggInitialize, LarsAggUpdate, LarsAggCombine,
-        LarsAggFinalize, nullptr, LarsAggBind, LarsAggDestroy);
+        ANOFOX_GUARDED_FINALIZE(LarsAggFinalize, LarsAggDestroy, LarsAggInitialize), nullptr, LarsAggBind, LarsAggDestroy);
     func_set.AddFunction(map_func);
 
     CreateAggregateFunctionInfo info(std::move(func_set));

@@ -15,6 +15,7 @@
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 #include "prediction_interval.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 namespace duckdb {
 
@@ -517,7 +518,7 @@ void RegisterOlsFitPredictAggregateFunction(ExtensionLoader &loader) {
     auto basic_func =
         AggregateFunction("ols_fit_predict_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
                           LogicalType::ANY, AggregateFunction::StateSize<OlsPredictAggState>, OlsPredictAggInitialize,
-                          OlsPredictAggUpdate, OlsPredictAggCombine, OlsPredictAggFinalize, nullptr, OlsPredictAggBind,
+                          OlsPredictAggUpdate, OlsPredictAggCombine, ANOFOX_GUARDED_FINALIZE(OlsPredictAggFinalize, OlsPredictAggDestroy, OlsPredictAggInitialize), nullptr, OlsPredictAggBind,
                           OlsPredictAggDestroy);
     func_set.AddFunction(basic_func);
 
@@ -526,7 +527,7 @@ void RegisterOlsFitPredictAggregateFunction(ExtensionLoader &loader) {
         "ols_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY}, LogicalType::ANY,
         AggregateFunction::StateSize<OlsPredictAggState>, OlsPredictAggInitialize, OlsPredictAggUpdate,
-        OlsPredictAggCombine, OlsPredictAggFinalize, nullptr, OlsPredictAggBind, OlsPredictAggDestroy);
+        OlsPredictAggCombine, ANOFOX_GUARDED_FINALIZE(OlsPredictAggFinalize, OlsPredictAggDestroy, OlsPredictAggInitialize), nullptr, OlsPredictAggBind, OlsPredictAggDestroy);
     func_set.AddFunction(map_func);
 
     // Version with split column: ols_fit_predict_agg(y, x, split_col)
@@ -534,7 +535,7 @@ void RegisterOlsFitPredictAggregateFunction(ExtensionLoader &loader) {
         "ols_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR}, LogicalType::ANY,
         AggregateFunction::StateSize<OlsPredictAggState>, OlsPredictAggInitialize, OlsPredictAggUpdate,
-        OlsPredictAggCombine, OlsPredictAggFinalize, nullptr, OlsPredictAggBindWithSplit, OlsPredictAggDestroy);
+        OlsPredictAggCombine, ANOFOX_GUARDED_FINALIZE(OlsPredictAggFinalize, OlsPredictAggDestroy, OlsPredictAggInitialize), nullptr, OlsPredictAggBindWithSplit, OlsPredictAggDestroy);
     func_set.AddFunction(split_func);
 
     // Version with split column and options: ols_fit_predict_agg(y, x, split_col, options)
@@ -542,7 +543,7 @@ void RegisterOlsFitPredictAggregateFunction(ExtensionLoader &loader) {
         "ols_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR, LogicalType::ANY},
         LogicalType::ANY, AggregateFunction::StateSize<OlsPredictAggState>, OlsPredictAggInitialize,
-        OlsPredictAggUpdate, OlsPredictAggCombine, OlsPredictAggFinalize, nullptr, OlsPredictAggBindWithSplit,
+        OlsPredictAggUpdate, OlsPredictAggCombine, ANOFOX_GUARDED_FINALIZE(OlsPredictAggFinalize, OlsPredictAggDestroy, OlsPredictAggInitialize), nullptr, OlsPredictAggBindWithSplit,
         OlsPredictAggDestroy);
     func_set.AddFunction(split_opts_func);
 

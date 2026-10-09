@@ -12,6 +12,7 @@
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 #include "list_input.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 namespace duckdb {
 
@@ -412,14 +413,14 @@ void RegisterAlmAggregateFunction(ExtensionLoader &loader) {
 
     auto basic_func = AggregateFunction(
         "alm_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)}, LogicalType::ANY,
-        AggregateFunction::StateSize<AlmAggregateState>, AlmAggInitialize, AlmAggUpdate, AlmAggCombine, AlmAggFinalize,
+        AggregateFunction::StateSize<AlmAggregateState>, AlmAggInitialize, AlmAggUpdate, AlmAggCombine, ANOFOX_GUARDED_FINALIZE(AlmAggFinalize, AlmAggDestroy, AlmAggInitialize),
         nullptr, AlmAggBind, AlmAggDestroy);
     func_set.AddFunction(basic_func);
 
     auto map_func = AggregateFunction(
         "alm_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
         LogicalType::ANY, AggregateFunction::StateSize<AlmAggregateState>, AlmAggInitialize, AlmAggUpdate,
-        AlmAggCombine, AlmAggFinalize, nullptr, AlmAggBind, AlmAggDestroy);
+        AlmAggCombine, ANOFOX_GUARDED_FINALIZE(AlmAggFinalize, AlmAggDestroy, AlmAggInitialize), nullptr, AlmAggBind, AlmAggDestroy);
     func_set.AddFunction(map_func);
 
     CreateAggregateFunctionInfo info(std::move(func_set));

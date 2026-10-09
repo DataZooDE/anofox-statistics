@@ -15,6 +15,7 @@
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 #include "prediction_interval.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 namespace duckdb {
 
@@ -510,7 +511,7 @@ void RegisterElasticNetFitPredictAggregateFunction(ExtensionLoader &loader) {
     auto basic_func = AggregateFunction(
         "elasticnet_fit_predict_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
         LogicalType::ANY, AggregateFunction::StateSize<ElasticNetPredictAggState>, ElasticNetPredictAggInitialize,
-        ElasticNetPredictAggUpdate, ElasticNetPredictAggCombine, ElasticNetPredictAggFinalize, nullptr,
+        ElasticNetPredictAggUpdate, ElasticNetPredictAggCombine, ANOFOX_GUARDED_FINALIZE(ElasticNetPredictAggFinalize, ElasticNetPredictAggDestroy, ElasticNetPredictAggInitialize), nullptr,
         ElasticNetPredictAggBind, ElasticNetPredictAggDestroy);
     func_set.AddFunction(basic_func);
 
@@ -518,7 +519,7 @@ void RegisterElasticNetFitPredictAggregateFunction(ExtensionLoader &loader) {
         "elasticnet_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY}, LogicalType::ANY,
         AggregateFunction::StateSize<ElasticNetPredictAggState>, ElasticNetPredictAggInitialize,
-        ElasticNetPredictAggUpdate, ElasticNetPredictAggCombine, ElasticNetPredictAggFinalize, nullptr,
+        ElasticNetPredictAggUpdate, ElasticNetPredictAggCombine, ANOFOX_GUARDED_FINALIZE(ElasticNetPredictAggFinalize, ElasticNetPredictAggDestroy, ElasticNetPredictAggInitialize), nullptr,
         ElasticNetPredictAggBind, ElasticNetPredictAggDestroy);
     func_set.AddFunction(map_func);
 
@@ -526,7 +527,7 @@ void RegisterElasticNetFitPredictAggregateFunction(ExtensionLoader &loader) {
         "elasticnet_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR}, LogicalType::ANY,
         AggregateFunction::StateSize<ElasticNetPredictAggState>, ElasticNetPredictAggInitialize,
-        ElasticNetPredictAggUpdate, ElasticNetPredictAggCombine, ElasticNetPredictAggFinalize, nullptr,
+        ElasticNetPredictAggUpdate, ElasticNetPredictAggCombine, ANOFOX_GUARDED_FINALIZE(ElasticNetPredictAggFinalize, ElasticNetPredictAggDestroy, ElasticNetPredictAggInitialize), nullptr,
         ElasticNetPredictAggBindWithSplit, ElasticNetPredictAggDestroy);
     func_set.AddFunction(split_func);
 
@@ -534,7 +535,7 @@ void RegisterElasticNetFitPredictAggregateFunction(ExtensionLoader &loader) {
         "elasticnet_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR, LogicalType::ANY},
         LogicalType::ANY, AggregateFunction::StateSize<ElasticNetPredictAggState>, ElasticNetPredictAggInitialize,
-        ElasticNetPredictAggUpdate, ElasticNetPredictAggCombine, ElasticNetPredictAggFinalize, nullptr,
+        ElasticNetPredictAggUpdate, ElasticNetPredictAggCombine, ANOFOX_GUARDED_FINALIZE(ElasticNetPredictAggFinalize, ElasticNetPredictAggDestroy, ElasticNetPredictAggInitialize), nullptr,
         ElasticNetPredictAggBindWithSplit, ElasticNetPredictAggDestroy);
     func_set.AddFunction(split_opts_func);
 

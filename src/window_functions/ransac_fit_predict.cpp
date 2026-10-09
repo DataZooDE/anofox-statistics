@@ -17,6 +17,7 @@
 #include "aggregate_combine.hpp"
 #include "list_input.hpp"
 #include "prediction_interval.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 namespace duckdb {
 
@@ -402,14 +403,14 @@ void RegisterRansacFitPredictFunction(ExtensionLoader &loader) {
     auto basic_func = AggregateFunction(
         "ransac_fit_predict", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
         GetRansacFitPredictResultType(), AggregateFunction::StateSize<RansacFitPredictState>,
-        RansacFitPredictInitialize, RansacFitPredictUpdate, RansacFitPredictCombine, RansacFitPredictFinalize,
+        RansacFitPredictInitialize, RansacFitPredictUpdate, RansacFitPredictCombine, ANOFOX_GUARDED_FINALIZE(RansacFitPredictFinalize, RansacFitPredictDestroy, RansacFitPredictInitialize),
         nullptr, RansacFitPredictBind, RansacFitPredictDestroy);
 
     auto map_func = AggregateFunction(
         "ransac_fit_predict",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
         GetRansacFitPredictResultType(), AggregateFunction::StateSize<RansacFitPredictState>,
-        RansacFitPredictInitialize, RansacFitPredictUpdate, RansacFitPredictCombine, RansacFitPredictFinalize,
+        RansacFitPredictInitialize, RansacFitPredictUpdate, RansacFitPredictCombine, ANOFOX_GUARDED_FINALIZE(RansacFitPredictFinalize, RansacFitPredictDestroy, RansacFitPredictInitialize),
         nullptr, RansacFitPredictBind, RansacFitPredictDestroy);
 
     {

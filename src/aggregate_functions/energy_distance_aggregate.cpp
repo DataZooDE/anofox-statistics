@@ -13,6 +13,7 @@
 #include "../include/result_fields.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 namespace duckdb {
 
@@ -249,7 +250,7 @@ void RegisterEnergyDistanceAggregateFunction(ExtensionLoader &loader) {
         "energy_distance_agg", {LogicalType::DOUBLE, LogicalType::INTEGER, LogicalType::ANY},
         LogicalType::ANY,
         AggregateFunction::StateSize<EnergyDistanceAggregateState>, EnergyDistanceAggInitialize,
-        EnergyDistanceAggUpdate, EnergyDistanceAggCombine, EnergyDistanceAggFinalize,
+        EnergyDistanceAggUpdate, EnergyDistanceAggCombine, ANOFOX_GUARDED_FINALIZE(EnergyDistanceAggFinalize, EnergyDistanceAggDestroy, EnergyDistanceAggInitialize),
         nullptr, EnergyDistanceAggBind, EnergyDistanceAggDestroy);
 
     // Without options
@@ -257,7 +258,7 @@ void RegisterEnergyDistanceAggregateFunction(ExtensionLoader &loader) {
         "energy_distance_agg", {LogicalType::DOUBLE, LogicalType::INTEGER},
         LogicalType::ANY,
         AggregateFunction::StateSize<EnergyDistanceAggregateState>, EnergyDistanceAggInitialize,
-        EnergyDistanceAggUpdate, EnergyDistanceAggCombine, EnergyDistanceAggFinalize,
+        EnergyDistanceAggUpdate, EnergyDistanceAggCombine, ANOFOX_GUARDED_FINALIZE(EnergyDistanceAggFinalize, EnergyDistanceAggDestroy, EnergyDistanceAggInitialize),
         nullptr, EnergyDistanceAggBind, EnergyDistanceAggDestroy);
 
     {

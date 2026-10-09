@@ -11,6 +11,7 @@
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 #include "list_input.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 namespace duckdb {
 
@@ -215,7 +216,7 @@ void RegisterVifAggregateFunction(ExtensionLoader &loader) {
     auto func = AggregateFunction("vif_agg", {LogicalType::LIST(LogicalType::DOUBLE)},
                                   LogicalType::ANY, // Set in bind
                                   AggregateFunction::StateSize<VifAggregateState>, VifAggInitialize, VifAggUpdate,
-                                  VifAggCombine, VifAggFinalize,
+                                  VifAggCombine, ANOFOX_GUARDED_FINALIZE(VifAggFinalize, VifAggDestroy, VifAggInitialize),
                                   nullptr, // simple_update
                                   VifAggBind, VifAggDestroy);
     func_set.AddFunction(func);

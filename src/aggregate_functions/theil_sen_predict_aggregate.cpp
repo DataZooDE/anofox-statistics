@@ -16,6 +16,7 @@
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 #include "prediction_interval.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 namespace duckdb {
 
@@ -488,7 +489,7 @@ void RegisterTheilSenFitPredictAggregateFunction(ExtensionLoader &loader) {
     auto basic_func = AggregateFunction(
         "theil_sen_fit_predict_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
         LogicalType::ANY, AggregateFunction::StateSize<TheilSenPredictAggState>, TheilSenPredictAggInitialize,
-        TheilSenPredictAggUpdate, TheilSenPredictAggCombine, TheilSenPredictAggFinalize, nullptr,
+        TheilSenPredictAggUpdate, TheilSenPredictAggCombine, ANOFOX_GUARDED_FINALIZE(TheilSenPredictAggFinalize, TheilSenPredictAggDestroy, TheilSenPredictAggInitialize), nullptr,
         TheilSenPredictAggBind, TheilSenPredictAggDestroy);
     func_set.AddFunction(basic_func);
 
@@ -496,7 +497,7 @@ void RegisterTheilSenFitPredictAggregateFunction(ExtensionLoader &loader) {
         "theil_sen_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY}, LogicalType::ANY,
         AggregateFunction::StateSize<TheilSenPredictAggState>, TheilSenPredictAggInitialize,
-        TheilSenPredictAggUpdate, TheilSenPredictAggCombine, TheilSenPredictAggFinalize, nullptr,
+        TheilSenPredictAggUpdate, TheilSenPredictAggCombine, ANOFOX_GUARDED_FINALIZE(TheilSenPredictAggFinalize, TheilSenPredictAggDestroy, TheilSenPredictAggInitialize), nullptr,
         TheilSenPredictAggBind, TheilSenPredictAggDestroy);
     func_set.AddFunction(map_func);
 
@@ -504,7 +505,7 @@ void RegisterTheilSenFitPredictAggregateFunction(ExtensionLoader &loader) {
         "theil_sen_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR}, LogicalType::ANY,
         AggregateFunction::StateSize<TheilSenPredictAggState>, TheilSenPredictAggInitialize,
-        TheilSenPredictAggUpdate, TheilSenPredictAggCombine, TheilSenPredictAggFinalize, nullptr,
+        TheilSenPredictAggUpdate, TheilSenPredictAggCombine, ANOFOX_GUARDED_FINALIZE(TheilSenPredictAggFinalize, TheilSenPredictAggDestroy, TheilSenPredictAggInitialize), nullptr,
         TheilSenPredictAggBindWithSplit, TheilSenPredictAggDestroy);
     func_set.AddFunction(split_func);
 
@@ -512,7 +513,7 @@ void RegisterTheilSenFitPredictAggregateFunction(ExtensionLoader &loader) {
         "theil_sen_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR, LogicalType::ANY},
         LogicalType::ANY, AggregateFunction::StateSize<TheilSenPredictAggState>, TheilSenPredictAggInitialize,
-        TheilSenPredictAggUpdate, TheilSenPredictAggCombine, TheilSenPredictAggFinalize, nullptr,
+        TheilSenPredictAggUpdate, TheilSenPredictAggCombine, ANOFOX_GUARDED_FINALIZE(TheilSenPredictAggFinalize, TheilSenPredictAggDestroy, TheilSenPredictAggInitialize), nullptr,
         TheilSenPredictAggBindWithSplit, TheilSenPredictAggDestroy);
     func_set.AddFunction(split_opts_func);
 

@@ -16,6 +16,7 @@
 #include "aggregate_combine.hpp"
 #include "list_input.hpp"
 #include "prediction_interval.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 namespace duckdb {
 
@@ -339,14 +340,14 @@ void RegisterElasticNetFitPredictFunction(ExtensionLoader &loader) {
         "elasticnet_fit_predict", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
         GetElasticNetFitPredictResultType(), AggregateFunction::StateSize<ElasticNetFitPredictState>,
         ElasticNetFitPredictInitialize, ElasticNetFitPredictUpdate, ElasticNetFitPredictCombine,
-        ElasticNetFitPredictFinalize, nullptr, ElasticNetFitPredictBind, ElasticNetFitPredictDestroy);
+        ANOFOX_GUARDED_FINALIZE(ElasticNetFitPredictFinalize, ElasticNetFitPredictDestroy, ElasticNetFitPredictInitialize), nullptr, ElasticNetFitPredictBind, ElasticNetFitPredictDestroy);
 
     auto map_func = AggregateFunction(
         "elasticnet_fit_predict",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
         GetElasticNetFitPredictResultType(), AggregateFunction::StateSize<ElasticNetFitPredictState>,
         ElasticNetFitPredictInitialize, ElasticNetFitPredictUpdate, ElasticNetFitPredictCombine,
-        ElasticNetFitPredictFinalize, nullptr, ElasticNetFitPredictBind, ElasticNetFitPredictDestroy);
+        ANOFOX_GUARDED_FINALIZE(ElasticNetFitPredictFinalize, ElasticNetFitPredictDestroy, ElasticNetFitPredictInitialize), nullptr, ElasticNetFitPredictBind, ElasticNetFitPredictDestroy);
 
     {
         AggregateFunctionSet func_set("elasticnet_fit_predict");

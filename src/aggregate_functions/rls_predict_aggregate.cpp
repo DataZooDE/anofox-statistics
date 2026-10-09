@@ -14,6 +14,7 @@
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 #include "prediction_interval.hpp"
+#include "aggregate_finalize_guard.hpp"
 
 namespace duckdb {
 
@@ -471,7 +472,7 @@ void RegisterRlsFitPredictAggregateFunction(ExtensionLoader &loader) {
     auto basic_func = AggregateFunction(
         "rls_fit_predict_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
         LogicalType::ANY, AggregateFunction::StateSize<RlsPredictAggState>, RlsPredictAggInitialize,
-        RlsPredictAggUpdate, RlsPredictAggCombine, RlsPredictAggFinalize, nullptr, RlsPredictAggBind,
+        RlsPredictAggUpdate, RlsPredictAggCombine, ANOFOX_GUARDED_FINALIZE(RlsPredictAggFinalize, RlsPredictAggDestroy, RlsPredictAggInitialize), nullptr, RlsPredictAggBind,
         RlsPredictAggDestroy);
     // Row order is part of the input (sequential / time-series estimator):
     // declare it so DuckDB honours `agg(... ORDER BY t)`.
@@ -482,7 +483,7 @@ void RegisterRlsFitPredictAggregateFunction(ExtensionLoader &loader) {
         "rls_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY}, LogicalType::ANY,
         AggregateFunction::StateSize<RlsPredictAggState>, RlsPredictAggInitialize, RlsPredictAggUpdate,
-        RlsPredictAggCombine, RlsPredictAggFinalize, nullptr, RlsPredictAggBind, RlsPredictAggDestroy);
+        RlsPredictAggCombine, ANOFOX_GUARDED_FINALIZE(RlsPredictAggFinalize, RlsPredictAggDestroy, RlsPredictAggInitialize), nullptr, RlsPredictAggBind, RlsPredictAggDestroy);
     map_func.order_dependent = AggregateOrderDependent::ORDER_DEPENDENT; // field form works on DuckDB v1.4 LTS and v1.5
     func_set.AddFunction(map_func);
 
@@ -490,7 +491,7 @@ void RegisterRlsFitPredictAggregateFunction(ExtensionLoader &loader) {
         "rls_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR}, LogicalType::ANY,
         AggregateFunction::StateSize<RlsPredictAggState>, RlsPredictAggInitialize, RlsPredictAggUpdate,
-        RlsPredictAggCombine, RlsPredictAggFinalize, nullptr, RlsPredictAggBindWithSplit, RlsPredictAggDestroy);
+        RlsPredictAggCombine, ANOFOX_GUARDED_FINALIZE(RlsPredictAggFinalize, RlsPredictAggDestroy, RlsPredictAggInitialize), nullptr, RlsPredictAggBindWithSplit, RlsPredictAggDestroy);
     split_func.order_dependent = AggregateOrderDependent::ORDER_DEPENDENT; // field form works on DuckDB v1.4 LTS and v1.5
     func_set.AddFunction(split_func);
 
@@ -498,7 +499,7 @@ void RegisterRlsFitPredictAggregateFunction(ExtensionLoader &loader) {
         "rls_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR, LogicalType::ANY},
         LogicalType::ANY, AggregateFunction::StateSize<RlsPredictAggState>, RlsPredictAggInitialize,
-        RlsPredictAggUpdate, RlsPredictAggCombine, RlsPredictAggFinalize, nullptr, RlsPredictAggBindWithSplit,
+        RlsPredictAggUpdate, RlsPredictAggCombine, ANOFOX_GUARDED_FINALIZE(RlsPredictAggFinalize, RlsPredictAggDestroy, RlsPredictAggInitialize), nullptr, RlsPredictAggBindWithSplit,
         RlsPredictAggDestroy);
     split_opts_func.order_dependent = AggregateOrderDependent::ORDER_DEPENDENT; // field form works on DuckDB v1.4 LTS and v1.5
     func_set.AddFunction(split_opts_func);
