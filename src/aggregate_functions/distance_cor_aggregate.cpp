@@ -272,7 +272,7 @@ void RegisterDistanceCorAggregateFunction(ExtensionLoader &loader) {
         "distance_cor_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::ANY},
         LogicalType::ANY,
         AggregateFunction::StateSize<DistanceCorAggregateState>, DistanceCorAggInitialize,
-        DistanceCorAggUpdate, DistanceCorAggCombine, ANOFOX_GUARDED_FINALIZE(DistanceCorAggFinalize, DistanceCorAggDestroy, DistanceCorAggInitialize),
+        ANOFOX_GUARDED_UPDATE(DistanceCorAggUpdate, DistanceCorAggDestroy, DistanceCorAggInitialize), DistanceCorAggCombine, ANOFOX_GUARDED_FINALIZE(DistanceCorAggFinalize, DistanceCorAggDestroy, DistanceCorAggInitialize),
         nullptr, DistanceCorAggBind, DistanceCorAggDestroy);
 
     // Without options: (x, y)
@@ -280,7 +280,7 @@ void RegisterDistanceCorAggregateFunction(ExtensionLoader &loader) {
         "distance_cor_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE},
         LogicalType::ANY,
         AggregateFunction::StateSize<DistanceCorAggregateState>, DistanceCorAggInitialize,
-        DistanceCorAggUpdate, DistanceCorAggCombine, ANOFOX_GUARDED_FINALIZE(DistanceCorAggFinalize, DistanceCorAggDestroy, DistanceCorAggInitialize),
+        ANOFOX_GUARDED_UPDATE(DistanceCorAggUpdate, DistanceCorAggDestroy, DistanceCorAggInitialize), DistanceCorAggCombine, ANOFOX_GUARDED_FINALIZE(DistanceCorAggFinalize, DistanceCorAggDestroy, DistanceCorAggInitialize),
         nullptr, DistanceCorAggBind, DistanceCorAggDestroy);
 
     {

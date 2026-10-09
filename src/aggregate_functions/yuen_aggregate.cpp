@@ -259,7 +259,7 @@ void RegisterYuenAggregateFunction(ExtensionLoader &loader) {
         "yuen_agg", {LogicalType::DOUBLE, LogicalType::BIGINT, LogicalType::ANY},
         LogicalType::ANY,
         AggregateFunction::StateSize<YuenAggregateState>, YuenAggInitialize,
-        YuenAggUpdate, YuenAggCombine, ANOFOX_GUARDED_FINALIZE(YuenAggFinalize, YuenAggDestroy, YuenAggInitialize),
+        ANOFOX_GUARDED_UPDATE(YuenAggUpdate, YuenAggDestroy, YuenAggInitialize), YuenAggCombine, ANOFOX_GUARDED_FINALIZE(YuenAggFinalize, YuenAggDestroy, YuenAggInitialize),
         nullptr, YuenAggBind, YuenAggDestroy);
     func_set.AddFunction(func_with_opts);
     func_with_opts.arguments[1] = LogicalType::VARCHAR;
@@ -270,7 +270,7 @@ void RegisterYuenAggregateFunction(ExtensionLoader &loader) {
         "yuen_agg", {LogicalType::DOUBLE, LogicalType::BIGINT},
         LogicalType::ANY,
         AggregateFunction::StateSize<YuenAggregateState>, YuenAggInitialize,
-        YuenAggUpdate, YuenAggCombine, ANOFOX_GUARDED_FINALIZE(YuenAggFinalize, YuenAggDestroy, YuenAggInitialize),
+        ANOFOX_GUARDED_UPDATE(YuenAggUpdate, YuenAggDestroy, YuenAggInitialize), YuenAggCombine, ANOFOX_GUARDED_FINALIZE(YuenAggFinalize, YuenAggDestroy, YuenAggInitialize),
         nullptr, YuenAggBind, YuenAggDestroy);
     func_set.AddFunction(func_no_opts);
     func_no_opts.arguments[1] = LogicalType::VARCHAR;

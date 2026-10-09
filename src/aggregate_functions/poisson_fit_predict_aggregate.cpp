@@ -628,7 +628,7 @@ void RegisterPoissonFitPredictAggregateFunction(ExtensionLoader &loader) {
 	auto basic_func = AggregateFunction(
 	    "poisson_fit_predict_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
 	    LogicalType::ANY, AggregateFunction::StateSize<PoissonFitPredictAggState>, PoissonFitPredictAggInitialize,
-	    PoissonFitPredictAggUpdate, PoissonFitPredictAggCombine, ANOFOX_GUARDED_FINALIZE(PoissonFitPredictAggFinalize, PoissonFitPredictAggDestroy, PoissonFitPredictAggInitialize), nullptr,
+	    ANOFOX_GUARDED_UPDATE(PoissonFitPredictAggUpdate, PoissonFitPredictAggDestroy, PoissonFitPredictAggInitialize), PoissonFitPredictAggCombine, ANOFOX_GUARDED_FINALIZE(PoissonFitPredictAggFinalize, PoissonFitPredictAggDestroy, PoissonFitPredictAggInitialize), nullptr,
 	    PoissonFitPredictAggBind, PoissonFitPredictAggDestroy);
 	func_set.AddFunction(basic_func);
 
@@ -637,7 +637,7 @@ void RegisterPoissonFitPredictAggregateFunction(ExtensionLoader &loader) {
 	    AggregateFunction("poisson_fit_predict_agg",
 	                      {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
 	                      LogicalType::ANY, AggregateFunction::StateSize<PoissonFitPredictAggState>,
-	                      PoissonFitPredictAggInitialize, PoissonFitPredictAggUpdate, PoissonFitPredictAggCombine,
+	                      PoissonFitPredictAggInitialize, ANOFOX_GUARDED_UPDATE(PoissonFitPredictAggUpdate, PoissonFitPredictAggDestroy, PoissonFitPredictAggInitialize), PoissonFitPredictAggCombine,
 	                      ANOFOX_GUARDED_FINALIZE(PoissonFitPredictAggFinalize, PoissonFitPredictAggDestroy, PoissonFitPredictAggInitialize), nullptr, PoissonFitPredictAggBind, PoissonFitPredictAggDestroy);
 	func_set.AddFunction(map_func);
 
@@ -646,7 +646,7 @@ void RegisterPoissonFitPredictAggregateFunction(ExtensionLoader &loader) {
 	    "poisson_fit_predict_agg",
 	    {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR}, LogicalType::ANY,
 	    AggregateFunction::StateSize<PoissonFitPredictAggState>, PoissonFitPredictAggInitialize,
-	    PoissonFitPredictAggUpdate, PoissonFitPredictAggCombine, ANOFOX_GUARDED_FINALIZE(PoissonFitPredictAggFinalize, PoissonFitPredictAggDestroy, PoissonFitPredictAggInitialize), nullptr,
+	    ANOFOX_GUARDED_UPDATE(PoissonFitPredictAggUpdate, PoissonFitPredictAggDestroy, PoissonFitPredictAggInitialize), PoissonFitPredictAggCombine, ANOFOX_GUARDED_FINALIZE(PoissonFitPredictAggFinalize, PoissonFitPredictAggDestroy, PoissonFitPredictAggInitialize), nullptr,
 	    PoissonFitPredictAggBindWithSplit, PoissonFitPredictAggDestroy);
 	func_set.AddFunction(split_func);
 
@@ -655,7 +655,7 @@ void RegisterPoissonFitPredictAggregateFunction(ExtensionLoader &loader) {
 	    "poisson_fit_predict_agg",
 	    {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR, LogicalType::ANY},
 	    LogicalType::ANY, AggregateFunction::StateSize<PoissonFitPredictAggState>, PoissonFitPredictAggInitialize,
-	    PoissonFitPredictAggUpdate, PoissonFitPredictAggCombine, ANOFOX_GUARDED_FINALIZE(PoissonFitPredictAggFinalize, PoissonFitPredictAggDestroy, PoissonFitPredictAggInitialize), nullptr,
+	    ANOFOX_GUARDED_UPDATE(PoissonFitPredictAggUpdate, PoissonFitPredictAggDestroy, PoissonFitPredictAggInitialize), PoissonFitPredictAggCombine, ANOFOX_GUARDED_FINALIZE(PoissonFitPredictAggFinalize, PoissonFitPredictAggDestroy, PoissonFitPredictAggInitialize), nullptr,
 	    PoissonFitPredictAggBindWithSplit, PoissonFitPredictAggDestroy);
 	func_set.AddFunction(split_map_func);
 

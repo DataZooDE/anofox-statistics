@@ -440,14 +440,14 @@ void RegisterRansacAggregateFunction(ExtensionLoader &loader) {
 
     auto basic_func = AggregateFunction(
         "ransac_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
-        LogicalType::ANY, AggregateFunction::StateSize<RansacAggregateState>, RansacAggInitialize, RansacAggUpdate,
+        LogicalType::ANY, AggregateFunction::StateSize<RansacAggregateState>, RansacAggInitialize, ANOFOX_GUARDED_UPDATE(RansacAggUpdate, RansacAggDestroy, RansacAggInitialize),
         RansacAggCombine, ANOFOX_GUARDED_FINALIZE(RansacAggFinalize, RansacAggDestroy, RansacAggInitialize), nullptr, RansacAggBind, RansacAggDestroy);
     func_set.AddFunction(basic_func);
 
     auto map_func = AggregateFunction(
         "ransac_fit_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY}, LogicalType::ANY,
-        AggregateFunction::StateSize<RansacAggregateState>, RansacAggInitialize, RansacAggUpdate, RansacAggCombine,
+        AggregateFunction::StateSize<RansacAggregateState>, RansacAggInitialize, ANOFOX_GUARDED_UPDATE(RansacAggUpdate, RansacAggDestroy, RansacAggInitialize), RansacAggCombine,
         ANOFOX_GUARDED_FINALIZE(RansacAggFinalize, RansacAggDestroy, RansacAggInitialize), nullptr, RansacAggBind, RansacAggDestroy);
     func_set.AddFunction(map_func);
 

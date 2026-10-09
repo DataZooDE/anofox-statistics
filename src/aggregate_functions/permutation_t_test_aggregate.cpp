@@ -260,7 +260,7 @@ void RegisterPermutationTTestAggregateFunction(ExtensionLoader &loader) {
         "permutation_t_test_agg", {LogicalType::DOUBLE, LogicalType::BIGINT, LogicalType::ANY},
         LogicalType::ANY,
         AggregateFunction::StateSize<PermutationTTestAggregateState>, PermutationTTestAggInitialize,
-        PermutationTTestAggUpdate, PermutationTTestAggCombine, ANOFOX_GUARDED_FINALIZE(PermutationTTestAggFinalize, PermutationTTestAggDestroy, PermutationTTestAggInitialize),
+        ANOFOX_GUARDED_UPDATE(PermutationTTestAggUpdate, PermutationTTestAggDestroy, PermutationTTestAggInitialize), PermutationTTestAggCombine, ANOFOX_GUARDED_FINALIZE(PermutationTTestAggFinalize, PermutationTTestAggDestroy, PermutationTTestAggInitialize),
         nullptr, PermutationTTestAggBind, PermutationTTestAggDestroy);
     func_set.AddFunction(func_with_opts);
     func_with_opts.arguments[1] = LogicalType::VARCHAR;
@@ -271,7 +271,7 @@ void RegisterPermutationTTestAggregateFunction(ExtensionLoader &loader) {
         "permutation_t_test_agg", {LogicalType::DOUBLE, LogicalType::BIGINT},
         LogicalType::ANY,
         AggregateFunction::StateSize<PermutationTTestAggregateState>, PermutationTTestAggInitialize,
-        PermutationTTestAggUpdate, PermutationTTestAggCombine, ANOFOX_GUARDED_FINALIZE(PermutationTTestAggFinalize, PermutationTTestAggDestroy, PermutationTTestAggInitialize),
+        ANOFOX_GUARDED_UPDATE(PermutationTTestAggUpdate, PermutationTTestAggDestroy, PermutationTTestAggInitialize), PermutationTTestAggCombine, ANOFOX_GUARDED_FINALIZE(PermutationTTestAggFinalize, PermutationTTestAggDestroy, PermutationTTestAggInitialize),
         nullptr, PermutationTTestAggBind, PermutationTTestAggDestroy);
     func_set.AddFunction(func_no_opts);
     func_no_opts.arguments[1] = LogicalType::VARCHAR;

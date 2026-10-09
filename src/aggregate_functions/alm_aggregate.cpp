@@ -413,13 +413,13 @@ void RegisterAlmAggregateFunction(ExtensionLoader &loader) {
 
     auto basic_func = AggregateFunction(
         "alm_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)}, LogicalType::ANY,
-        AggregateFunction::StateSize<AlmAggregateState>, AlmAggInitialize, AlmAggUpdate, AlmAggCombine, ANOFOX_GUARDED_FINALIZE(AlmAggFinalize, AlmAggDestroy, AlmAggInitialize),
+        AggregateFunction::StateSize<AlmAggregateState>, AlmAggInitialize, ANOFOX_GUARDED_UPDATE(AlmAggUpdate, AlmAggDestroy, AlmAggInitialize), AlmAggCombine, ANOFOX_GUARDED_FINALIZE(AlmAggFinalize, AlmAggDestroy, AlmAggInitialize),
         nullptr, AlmAggBind, AlmAggDestroy);
     func_set.AddFunction(basic_func);
 
     auto map_func = AggregateFunction(
         "alm_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
-        LogicalType::ANY, AggregateFunction::StateSize<AlmAggregateState>, AlmAggInitialize, AlmAggUpdate,
+        LogicalType::ANY, AggregateFunction::StateSize<AlmAggregateState>, AlmAggInitialize, ANOFOX_GUARDED_UPDATE(AlmAggUpdate, AlmAggDestroy, AlmAggInitialize),
         AlmAggCombine, ANOFOX_GUARDED_FINALIZE(AlmAggFinalize, AlmAggDestroy, AlmAggInitialize), nullptr, AlmAggBind, AlmAggDestroy);
     func_set.AddFunction(map_func);
 

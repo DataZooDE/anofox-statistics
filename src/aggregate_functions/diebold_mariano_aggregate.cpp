@@ -276,7 +276,7 @@ void RegisterDieboldMarianoAggregateFunction(ExtensionLoader &loader) {
         {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::ANY},
         LogicalType::ANY,
         AggregateFunction::StateSize<DieboldMarianoAggregateState>, DieboldMarianoAggInitialize,
-        DieboldMarianoAggUpdate, DieboldMarianoAggCombine, ANOFOX_GUARDED_FINALIZE(DieboldMarianoAggFinalize, DieboldMarianoAggDestroy, DieboldMarianoAggInitialize),
+        ANOFOX_GUARDED_UPDATE(DieboldMarianoAggUpdate, DieboldMarianoAggDestroy, DieboldMarianoAggInitialize), DieboldMarianoAggCombine, ANOFOX_GUARDED_FINALIZE(DieboldMarianoAggFinalize, DieboldMarianoAggDestroy, DieboldMarianoAggInitialize),
         nullptr, DieboldMarianoAggBind, DieboldMarianoAggDestroy);
 
     // Without options: (actual, forecast1, forecast2)
@@ -285,7 +285,7 @@ void RegisterDieboldMarianoAggregateFunction(ExtensionLoader &loader) {
         {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::DOUBLE},
         LogicalType::ANY,
         AggregateFunction::StateSize<DieboldMarianoAggregateState>, DieboldMarianoAggInitialize,
-        DieboldMarianoAggUpdate, DieboldMarianoAggCombine, ANOFOX_GUARDED_FINALIZE(DieboldMarianoAggFinalize, DieboldMarianoAggDestroy, DieboldMarianoAggInitialize),
+        ANOFOX_GUARDED_UPDATE(DieboldMarianoAggUpdate, DieboldMarianoAggDestroy, DieboldMarianoAggInitialize), DieboldMarianoAggCombine, ANOFOX_GUARDED_FINALIZE(DieboldMarianoAggFinalize, DieboldMarianoAggDestroy, DieboldMarianoAggInitialize),
         nullptr, DieboldMarianoAggBind, DieboldMarianoAggDestroy);
 
     {

@@ -226,7 +226,7 @@ void RegisterChiSquareAggregateFunction(ExtensionLoader &loader) {
         "chisq_test_agg", {LogicalType::INTEGER, LogicalType::INTEGER, LogicalType::ANY},
         LogicalType::ANY,
         AggregateFunction::StateSize<ChiSquareAggregateState>, ChiSquareAggInitialize,
-        ChiSquareAggUpdate, ChiSquareAggCombine, ANOFOX_GUARDED_FINALIZE(ChiSquareAggFinalize, ChiSquareAggDestroy, ChiSquareAggInitialize),
+        ANOFOX_GUARDED_UPDATE(ChiSquareAggUpdate, ChiSquareAggDestroy, ChiSquareAggInitialize), ChiSquareAggCombine, ANOFOX_GUARDED_FINALIZE(ChiSquareAggFinalize, ChiSquareAggDestroy, ChiSquareAggInitialize),
         nullptr, ChiSquareAggBind, ChiSquareAggDestroy);
     func_set.AddFunction(func_with_opts);
 
@@ -234,7 +234,7 @@ void RegisterChiSquareAggregateFunction(ExtensionLoader &loader) {
         "chisq_test_agg", {LogicalType::INTEGER, LogicalType::INTEGER},
         LogicalType::ANY,
         AggregateFunction::StateSize<ChiSquareAggregateState>, ChiSquareAggInitialize,
-        ChiSquareAggUpdate, ChiSquareAggCombine, ANOFOX_GUARDED_FINALIZE(ChiSquareAggFinalize, ChiSquareAggDestroy, ChiSquareAggInitialize),
+        ANOFOX_GUARDED_UPDATE(ChiSquareAggUpdate, ChiSquareAggDestroy, ChiSquareAggInitialize), ChiSquareAggCombine, ANOFOX_GUARDED_FINALIZE(ChiSquareAggFinalize, ChiSquareAggDestroy, ChiSquareAggInitialize),
         nullptr, ChiSquareAggBind, ChiSquareAggDestroy);
     func_set.AddFunction(func_no_opts);
 

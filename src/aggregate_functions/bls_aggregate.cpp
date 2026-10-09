@@ -430,13 +430,13 @@ void RegisterBlsAggregateFunction(ExtensionLoader &loader) {
 
         auto bls_basic = AggregateFunction(
             "bls_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)}, LogicalType::ANY,
-            AggregateFunction::StateSize<BlsAggregateState>, BlsAggInitialize, BlsAggUpdate, BlsAggCombine,
+            AggregateFunction::StateSize<BlsAggregateState>, BlsAggInitialize, ANOFOX_GUARDED_UPDATE(BlsAggUpdate, BlsAggDestroy, BlsAggInitialize), BlsAggCombine,
             ANOFOX_GUARDED_FINALIZE(BlsAggFinalize, BlsAggDestroy, BlsAggInitialize), nullptr, BlsAggBind, BlsAggDestroy);
         bls_set.AddFunction(bls_basic);
 
         auto bls_map = AggregateFunction(
             "bls_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
-            LogicalType::ANY, AggregateFunction::StateSize<BlsAggregateState>, BlsAggInitialize, BlsAggUpdate,
+            LogicalType::ANY, AggregateFunction::StateSize<BlsAggregateState>, BlsAggInitialize, ANOFOX_GUARDED_UPDATE(BlsAggUpdate, BlsAggDestroy, BlsAggInitialize),
             BlsAggCombine, ANOFOX_GUARDED_FINALIZE(BlsAggFinalize, BlsAggDestroy, BlsAggInitialize), nullptr, BlsAggBind, BlsAggDestroy);
         bls_set.AddFunction(bls_map);
 
@@ -465,14 +465,14 @@ void RegisterBlsAggregateFunction(ExtensionLoader &loader) {
 
         auto nnls_basic = AggregateFunction(
             "nnls_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)}, LogicalType::ANY,
-            AggregateFunction::StateSize<BlsAggregateState>, BlsAggInitialize, BlsAggUpdate, BlsAggCombine,
+            AggregateFunction::StateSize<BlsAggregateState>, BlsAggInitialize, ANOFOX_GUARDED_UPDATE(BlsAggUpdate, BlsAggDestroy, BlsAggInitialize), BlsAggCombine,
             ANOFOX_GUARDED_FINALIZE(BlsAggFinalize, BlsAggDestroy, BlsAggInitialize), nullptr, NnlsAggBind, BlsAggDestroy);
         nnls_set.AddFunction(nnls_basic);
 
         auto nnls_map = AggregateFunction(
             "nnls_fit_agg",
             {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY}, LogicalType::ANY,
-            AggregateFunction::StateSize<BlsAggregateState>, BlsAggInitialize, BlsAggUpdate, BlsAggCombine,
+            AggregateFunction::StateSize<BlsAggregateState>, BlsAggInitialize, ANOFOX_GUARDED_UPDATE(BlsAggUpdate, BlsAggDestroy, BlsAggInitialize), BlsAggCombine,
             ANOFOX_GUARDED_FINALIZE(BlsAggFinalize, BlsAggDestroy, BlsAggInitialize), nullptr, NnlsAggBind, BlsAggDestroy);
         nnls_set.AddFunction(nnls_map);
 

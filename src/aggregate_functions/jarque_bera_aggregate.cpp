@@ -183,7 +183,7 @@ void RegisterJarqueBeraAggregateFunction(ExtensionLoader &loader) {
     auto func = AggregateFunction("jarque_bera_agg", {LogicalType::DOUBLE},
                                   LogicalType::ANY, // Set in bind
                                   AggregateFunction::StateSize<JarqueBeraAggregateState>, JarqueBeraAggInitialize,
-                                  JarqueBeraAggUpdate, JarqueBeraAggCombine, ANOFOX_GUARDED_FINALIZE(JarqueBeraAggFinalize, JarqueBeraAggDestroy, JarqueBeraAggInitialize),
+                                  ANOFOX_GUARDED_UPDATE(JarqueBeraAggUpdate, JarqueBeraAggDestroy, JarqueBeraAggInitialize), JarqueBeraAggCombine, ANOFOX_GUARDED_FINALIZE(JarqueBeraAggFinalize, JarqueBeraAggDestroy, JarqueBeraAggInitialize),
                                   nullptr, // simple_update
                                   JarqueBeraAggBind, JarqueBeraAggDestroy);
 

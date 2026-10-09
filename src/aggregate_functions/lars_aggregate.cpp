@@ -355,14 +355,14 @@ void RegisterLarsAggregateFunction(ExtensionLoader &loader) {
 
     auto basic_func = AggregateFunction(
         "lars_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
-        LogicalType::ANY, AggregateFunction::StateSize<LarsAggregateState>, LarsAggInitialize, LarsAggUpdate,
+        LogicalType::ANY, AggregateFunction::StateSize<LarsAggregateState>, LarsAggInitialize, ANOFOX_GUARDED_UPDATE(LarsAggUpdate, LarsAggDestroy, LarsAggInitialize),
         LarsAggCombine, ANOFOX_GUARDED_FINALIZE(LarsAggFinalize, LarsAggDestroy, LarsAggInitialize), nullptr, LarsAggBind, LarsAggDestroy);
     func_set.AddFunction(basic_func);
 
     auto map_func = AggregateFunction(
         "lars_fit_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY}, LogicalType::ANY,
-        AggregateFunction::StateSize<LarsAggregateState>, LarsAggInitialize, LarsAggUpdate, LarsAggCombine,
+        AggregateFunction::StateSize<LarsAggregateState>, LarsAggInitialize, ANOFOX_GUARDED_UPDATE(LarsAggUpdate, LarsAggDestroy, LarsAggInitialize), LarsAggCombine,
         ANOFOX_GUARDED_FINALIZE(LarsAggFinalize, LarsAggDestroy, LarsAggInitialize), nullptr, LarsAggBind, LarsAggDestroy);
     func_set.AddFunction(map_func);
 

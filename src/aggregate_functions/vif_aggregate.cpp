@@ -215,7 +215,7 @@ void RegisterVifAggregateFunction(ExtensionLoader &loader) {
 
     auto func = AggregateFunction("vif_agg", {LogicalType::LIST(LogicalType::DOUBLE)},
                                   LogicalType::ANY, // Set in bind
-                                  AggregateFunction::StateSize<VifAggregateState>, VifAggInitialize, VifAggUpdate,
+                                  AggregateFunction::StateSize<VifAggregateState>, VifAggInitialize, ANOFOX_GUARDED_UPDATE(VifAggUpdate, VifAggDestroy, VifAggInitialize),
                                   VifAggCombine, ANOFOX_GUARDED_FINALIZE(VifAggFinalize, VifAggDestroy, VifAggInitialize),
                                   nullptr, // simple_update
                                   VifAggBind, VifAggDestroy);

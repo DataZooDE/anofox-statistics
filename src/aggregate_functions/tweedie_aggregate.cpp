@@ -405,13 +405,13 @@ void RegisterTweedieAggregateFunction(ExtensionLoader &loader) {
 
 	auto basic_func = AggregateFunction(
 	    "tweedie_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)}, LogicalType::ANY,
-	    AggregateFunction::StateSize<TweedieAggregateState>, TweedieAggInitialize, TweedieAggUpdate, TweedieAggCombine,
+	    AggregateFunction::StateSize<TweedieAggregateState>, TweedieAggInitialize, ANOFOX_GUARDED_UPDATE(TweedieAggUpdate, TweedieAggDestroy, TweedieAggInitialize), TweedieAggCombine,
 	    ANOFOX_GUARDED_FINALIZE(TweedieAggFinalize, TweedieAggDestroy, TweedieAggInitialize), nullptr, TweedieAggBind, TweedieAggDestroy);
 	func_set.AddFunction(basic_func);
 
 	auto map_func = AggregateFunction(
 	    "tweedie_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
-	    LogicalType::ANY, AggregateFunction::StateSize<TweedieAggregateState>, TweedieAggInitialize, TweedieAggUpdate,
+	    LogicalType::ANY, AggregateFunction::StateSize<TweedieAggregateState>, TweedieAggInitialize, ANOFOX_GUARDED_UPDATE(TweedieAggUpdate, TweedieAggDestroy, TweedieAggInitialize),
 	    TweedieAggCombine, ANOFOX_GUARDED_FINALIZE(TweedieAggFinalize, TweedieAggDestroy, TweedieAggInitialize), nullptr, TweedieAggBind, TweedieAggDestroy);
 	func_set.AddFunction(map_func);
 

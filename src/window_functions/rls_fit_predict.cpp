@@ -309,14 +309,14 @@ void RegisterRlsFitPredictFunction(ExtensionLoader &loader) {
         AggregateFunction("rls_fit_predict",
                           {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)}, GetRlsFitPredictResultType(),
                           AggregateFunction::StateSize<RlsFitPredictState>, RlsFitPredictInitialize,
-                          RlsFitPredictUpdate, RlsFitPredictCombine, ANOFOX_GUARDED_FINALIZE(RlsFitPredictFinalize, RlsFitPredictDestroy, RlsFitPredictInitialize), nullptr,
+                          ANOFOX_GUARDED_UPDATE(RlsFitPredictUpdate, RlsFitPredictDestroy, RlsFitPredictInitialize), RlsFitPredictCombine, ANOFOX_GUARDED_FINALIZE(RlsFitPredictFinalize, RlsFitPredictDestroy, RlsFitPredictInitialize), nullptr,
                           RlsFitPredictBind, RlsFitPredictDestroy);
 
     auto map_func =
         AggregateFunction("rls_fit_predict",
                           {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
                           GetRlsFitPredictResultType(), AggregateFunction::StateSize<RlsFitPredictState>,
-                          RlsFitPredictInitialize, RlsFitPredictUpdate, RlsFitPredictCombine, ANOFOX_GUARDED_FINALIZE(RlsFitPredictFinalize, RlsFitPredictDestroy, RlsFitPredictInitialize),
+                          RlsFitPredictInitialize, ANOFOX_GUARDED_UPDATE(RlsFitPredictUpdate, RlsFitPredictDestroy, RlsFitPredictInitialize), RlsFitPredictCombine, ANOFOX_GUARDED_FINALIZE(RlsFitPredictFinalize, RlsFitPredictDestroy, RlsFitPredictInitialize),
                           nullptr, RlsFitPredictBind, RlsFitPredictDestroy);
 
     {

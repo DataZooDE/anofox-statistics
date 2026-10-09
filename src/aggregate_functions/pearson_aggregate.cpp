@@ -244,7 +244,7 @@ void RegisterPearsonAggregateFunction(ExtensionLoader &loader) {
         "pearson_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::ANY},
         LogicalType::ANY,
         AggregateFunction::StateSize<PearsonAggregateState>, PearsonAggInitialize,
-        PearsonAggUpdate, PearsonAggCombine, ANOFOX_GUARDED_FINALIZE(PearsonAggFinalize, PearsonAggDestroy, PearsonAggInitialize),
+        ANOFOX_GUARDED_UPDATE(PearsonAggUpdate, PearsonAggDestroy, PearsonAggInitialize), PearsonAggCombine, ANOFOX_GUARDED_FINALIZE(PearsonAggFinalize, PearsonAggDestroy, PearsonAggInitialize),
         nullptr, PearsonAggBind, PearsonAggDestroy);
     func_set.AddFunction(func_with_opts);
 
@@ -253,7 +253,7 @@ void RegisterPearsonAggregateFunction(ExtensionLoader &loader) {
         "pearson_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE},
         LogicalType::ANY,
         AggregateFunction::StateSize<PearsonAggregateState>, PearsonAggInitialize,
-        PearsonAggUpdate, PearsonAggCombine, ANOFOX_GUARDED_FINALIZE(PearsonAggFinalize, PearsonAggDestroy, PearsonAggInitialize),
+        ANOFOX_GUARDED_UPDATE(PearsonAggUpdate, PearsonAggDestroy, PearsonAggInitialize), PearsonAggCombine, ANOFOX_GUARDED_FINALIZE(PearsonAggFinalize, PearsonAggDestroy, PearsonAggInitialize),
         nullptr, PearsonAggBind, PearsonAggDestroy);
     func_set.AddFunction(func_no_opts);
 

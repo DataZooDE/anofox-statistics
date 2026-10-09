@@ -324,14 +324,14 @@ void RegisterRidgeFitPredictFunction(ExtensionLoader &loader) {
         AggregateFunction("ridge_fit_predict",
                           {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)}, GetRidgeFitPredictResultType(),
                           AggregateFunction::StateSize<RidgeFitPredictState>, RidgeFitPredictInitialize,
-                          RidgeFitPredictUpdate, RidgeFitPredictCombine, ANOFOX_GUARDED_FINALIZE(RidgeFitPredictFinalize, RidgeFitPredictDestroy, RidgeFitPredictInitialize), nullptr,
+                          ANOFOX_GUARDED_UPDATE(RidgeFitPredictUpdate, RidgeFitPredictDestroy, RidgeFitPredictInitialize), RidgeFitPredictCombine, ANOFOX_GUARDED_FINALIZE(RidgeFitPredictFinalize, RidgeFitPredictDestroy, RidgeFitPredictInitialize), nullptr,
                           RidgeFitPredictBind, RidgeFitPredictDestroy);
 
     auto map_func =
         AggregateFunction("ridge_fit_predict",
                           {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
                           GetRidgeFitPredictResultType(), AggregateFunction::StateSize<RidgeFitPredictState>,
-                          RidgeFitPredictInitialize, RidgeFitPredictUpdate, RidgeFitPredictCombine,
+                          RidgeFitPredictInitialize, ANOFOX_GUARDED_UPDATE(RidgeFitPredictUpdate, RidgeFitPredictDestroy, RidgeFitPredictInitialize), RidgeFitPredictCombine,
                           ANOFOX_GUARDED_FINALIZE(RidgeFitPredictFinalize, RidgeFitPredictDestroy, RidgeFitPredictInitialize), nullptr, RidgeFitPredictBind, RidgeFitPredictDestroy);
 
     {

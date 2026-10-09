@@ -255,7 +255,7 @@ void RegisterClarkWestAggregateFunction(ExtensionLoader &loader) {
         {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::ANY},
         LogicalType::ANY,
         AggregateFunction::StateSize<ClarkWestAggregateState>, ClarkWestAggInitialize,
-        ClarkWestAggUpdate, ClarkWestAggCombine, ANOFOX_GUARDED_FINALIZE(ClarkWestAggFinalize, ClarkWestAggDestroy, ClarkWestAggInitialize),
+        ANOFOX_GUARDED_UPDATE(ClarkWestAggUpdate, ClarkWestAggDestroy, ClarkWestAggInitialize), ClarkWestAggCombine, ANOFOX_GUARDED_FINALIZE(ClarkWestAggFinalize, ClarkWestAggDestroy, ClarkWestAggInitialize),
         nullptr, ClarkWestAggBind, ClarkWestAggDestroy);
 
     // Without options: (actual, forecast_restricted, forecast_unrestricted)
@@ -264,7 +264,7 @@ void RegisterClarkWestAggregateFunction(ExtensionLoader &loader) {
         {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::DOUBLE},
         LogicalType::ANY,
         AggregateFunction::StateSize<ClarkWestAggregateState>, ClarkWestAggInitialize,
-        ClarkWestAggUpdate, ClarkWestAggCombine, ANOFOX_GUARDED_FINALIZE(ClarkWestAggFinalize, ClarkWestAggDestroy, ClarkWestAggInitialize),
+        ANOFOX_GUARDED_UPDATE(ClarkWestAggUpdate, ClarkWestAggDestroy, ClarkWestAggInitialize), ClarkWestAggCombine, ANOFOX_GUARDED_FINALIZE(ClarkWestAggFinalize, ClarkWestAggDestroy, ClarkWestAggInitialize),
         nullptr, ClarkWestAggBind, ClarkWestAggDestroy);
 
     {

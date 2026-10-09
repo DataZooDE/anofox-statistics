@@ -235,7 +235,7 @@ void RegisterSpearmanAggregateFunction(ExtensionLoader &loader) {
         "spearman_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::ANY},
         LogicalType::ANY,
         AggregateFunction::StateSize<SpearmanAggregateState>, SpearmanAggInitialize,
-        SpearmanAggUpdate, SpearmanAggCombine, ANOFOX_GUARDED_FINALIZE(SpearmanAggFinalize, SpearmanAggDestroy, SpearmanAggInitialize),
+        ANOFOX_GUARDED_UPDATE(SpearmanAggUpdate, SpearmanAggDestroy, SpearmanAggInitialize), SpearmanAggCombine, ANOFOX_GUARDED_FINALIZE(SpearmanAggFinalize, SpearmanAggDestroy, SpearmanAggInitialize),
         nullptr, SpearmanAggBind, SpearmanAggDestroy);
     func_set.AddFunction(func_with_opts);
 
@@ -243,7 +243,7 @@ void RegisterSpearmanAggregateFunction(ExtensionLoader &loader) {
         "spearman_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE},
         LogicalType::ANY,
         AggregateFunction::StateSize<SpearmanAggregateState>, SpearmanAggInitialize,
-        SpearmanAggUpdate, SpearmanAggCombine, ANOFOX_GUARDED_FINALIZE(SpearmanAggFinalize, SpearmanAggDestroy, SpearmanAggInitialize),
+        ANOFOX_GUARDED_UPDATE(SpearmanAggUpdate, SpearmanAggDestroy, SpearmanAggInitialize), SpearmanAggCombine, ANOFOX_GUARDED_FINALIZE(SpearmanAggFinalize, SpearmanAggDestroy, SpearmanAggInitialize),
         nullptr, SpearmanAggBind, SpearmanAggDestroy);
     func_set.AddFunction(func_no_opts);
 

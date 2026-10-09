@@ -433,13 +433,13 @@ void RegisterPoissonAggregateFunction(ExtensionLoader &loader) {
 
 	auto basic_func = AggregateFunction(
 	    "poisson_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)}, LogicalType::ANY,
-	    AggregateFunction::StateSize<PoissonAggregateState>, PoissonAggInitialize, PoissonAggUpdate, PoissonAggCombine,
+	    AggregateFunction::StateSize<PoissonAggregateState>, PoissonAggInitialize, ANOFOX_GUARDED_UPDATE(PoissonAggUpdate, PoissonAggDestroy, PoissonAggInitialize), PoissonAggCombine,
 	    ANOFOX_GUARDED_FINALIZE(PoissonAggFinalize, PoissonAggDestroy, PoissonAggInitialize), nullptr, PoissonAggBind, PoissonAggDestroy);
 	func_set.AddFunction(basic_func);
 
 	auto map_func = AggregateFunction(
 	    "poisson_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
-	    LogicalType::ANY, AggregateFunction::StateSize<PoissonAggregateState>, PoissonAggInitialize, PoissonAggUpdate,
+	    LogicalType::ANY, AggregateFunction::StateSize<PoissonAggregateState>, PoissonAggInitialize, ANOFOX_GUARDED_UPDATE(PoissonAggUpdate, PoissonAggDestroy, PoissonAggInitialize),
 	    PoissonAggCombine, ANOFOX_GUARDED_FINALIZE(PoissonAggFinalize, PoissonAggDestroy, PoissonAggInitialize), nullptr, PoissonAggBind, PoissonAggDestroy);
 	func_set.AddFunction(map_func);
 

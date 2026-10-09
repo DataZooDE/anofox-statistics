@@ -256,7 +256,7 @@ void RegisterKendallAggregateFunction(ExtensionLoader &loader) {
         "kendall_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::ANY},
         LogicalType::ANY,
         AggregateFunction::StateSize<KendallAggregateState>, KendallAggInitialize,
-        KendallAggUpdate, KendallAggCombine, ANOFOX_GUARDED_FINALIZE(KendallAggFinalize, KendallAggDestroy, KendallAggInitialize),
+        ANOFOX_GUARDED_UPDATE(KendallAggUpdate, KendallAggDestroy, KendallAggInitialize), KendallAggCombine, ANOFOX_GUARDED_FINALIZE(KendallAggFinalize, KendallAggDestroy, KendallAggInitialize),
         nullptr, KendallAggBind, KendallAggDestroy);
     func_set.AddFunction(func_with_opts);
 
@@ -265,7 +265,7 @@ void RegisterKendallAggregateFunction(ExtensionLoader &loader) {
         "kendall_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE},
         LogicalType::ANY,
         AggregateFunction::StateSize<KendallAggregateState>, KendallAggInitialize,
-        KendallAggUpdate, KendallAggCombine, ANOFOX_GUARDED_FINALIZE(KendallAggFinalize, KendallAggDestroy, KendallAggInitialize),
+        ANOFOX_GUARDED_UPDATE(KendallAggUpdate, KendallAggDestroy, KendallAggInitialize), KendallAggCombine, ANOFOX_GUARDED_FINALIZE(KendallAggFinalize, KendallAggDestroy, KendallAggInitialize),
         nullptr, KendallAggBind, KendallAggDestroy);
     func_set.AddFunction(func_no_opts);
 

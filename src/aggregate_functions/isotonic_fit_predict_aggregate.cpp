@@ -425,14 +425,14 @@ void RegisterIsotonicFitPredictAggregateFunction(ExtensionLoader &loader) {
     auto basic_func =
         AggregateFunction("isotonic_fit_predict_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE},
                           LogicalType::ANY, AggregateFunction::StateSize<IsotonicPredictAggState>, IsotonicPredictAggInitialize,
-                          IsotonicPredictAggUpdate, IsotonicPredictAggCombine, ANOFOX_GUARDED_FINALIZE(IsotonicPredictAggFinalize, IsotonicPredictAggDestroy, IsotonicPredictAggInitialize), nullptr, IsotonicPredictAggBind,
+                          ANOFOX_GUARDED_UPDATE(IsotonicPredictAggUpdate, IsotonicPredictAggDestroy, IsotonicPredictAggInitialize), IsotonicPredictAggCombine, ANOFOX_GUARDED_FINALIZE(IsotonicPredictAggFinalize, IsotonicPredictAggDestroy, IsotonicPredictAggInitialize), nullptr, IsotonicPredictAggBind,
                           IsotonicPredictAggDestroy);
     func_set.AddFunction(basic_func);
 
     auto map_func = AggregateFunction(
         "isotonic_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::ANY}, LogicalType::ANY,
-        AggregateFunction::StateSize<IsotonicPredictAggState>, IsotonicPredictAggInitialize, IsotonicPredictAggUpdate,
+        AggregateFunction::StateSize<IsotonicPredictAggState>, IsotonicPredictAggInitialize, ANOFOX_GUARDED_UPDATE(IsotonicPredictAggUpdate, IsotonicPredictAggDestroy, IsotonicPredictAggInitialize),
         IsotonicPredictAggCombine, ANOFOX_GUARDED_FINALIZE(IsotonicPredictAggFinalize, IsotonicPredictAggDestroy, IsotonicPredictAggInitialize), nullptr, IsotonicPredictAggBind, IsotonicPredictAggDestroy);
     func_set.AddFunction(map_func);
 
@@ -440,7 +440,7 @@ void RegisterIsotonicFitPredictAggregateFunction(ExtensionLoader &loader) {
     auto split_func = AggregateFunction(
         "isotonic_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::VARCHAR}, LogicalType::ANY,
-        AggregateFunction::StateSize<IsotonicPredictAggState>, IsotonicPredictAggInitialize, IsotonicPredictAggUpdate,
+        AggregateFunction::StateSize<IsotonicPredictAggState>, IsotonicPredictAggInitialize, ANOFOX_GUARDED_UPDATE(IsotonicPredictAggUpdate, IsotonicPredictAggDestroy, IsotonicPredictAggInitialize),
         IsotonicPredictAggCombine, ANOFOX_GUARDED_FINALIZE(IsotonicPredictAggFinalize, IsotonicPredictAggDestroy, IsotonicPredictAggInitialize), nullptr, IsotonicPredictAggBindWithSplit, IsotonicPredictAggDestroy);
     func_set.AddFunction(split_func);
 
@@ -448,7 +448,7 @@ void RegisterIsotonicFitPredictAggregateFunction(ExtensionLoader &loader) {
     auto split_map_func = AggregateFunction(
         "isotonic_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::VARCHAR, LogicalType::ANY}, LogicalType::ANY,
-        AggregateFunction::StateSize<IsotonicPredictAggState>, IsotonicPredictAggInitialize, IsotonicPredictAggUpdate,
+        AggregateFunction::StateSize<IsotonicPredictAggState>, IsotonicPredictAggInitialize, ANOFOX_GUARDED_UPDATE(IsotonicPredictAggUpdate, IsotonicPredictAggDestroy, IsotonicPredictAggInitialize),
         IsotonicPredictAggCombine, ANOFOX_GUARDED_FINALIZE(IsotonicPredictAggFinalize, IsotonicPredictAggDestroy, IsotonicPredictAggInitialize), nullptr, IsotonicPredictAggBindWithSplit, IsotonicPredictAggDestroy);
     func_set.AddFunction(split_map_func);
 

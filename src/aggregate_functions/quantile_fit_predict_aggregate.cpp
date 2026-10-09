@@ -432,14 +432,14 @@ void RegisterQuantileFitPredictAggregateFunction(ExtensionLoader &loader) {
     auto basic_func =
         AggregateFunction("quantile_fit_predict_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
                           LogicalType::ANY, AggregateFunction::StateSize<QuantilePredictAggState>, QuantilePredictAggInitialize,
-                          QuantilePredictAggUpdate, QuantilePredictAggCombine, ANOFOX_GUARDED_FINALIZE(QuantilePredictAggFinalize, QuantilePredictAggDestroy, QuantilePredictAggInitialize), nullptr, QuantilePredictAggBind,
+                          ANOFOX_GUARDED_UPDATE(QuantilePredictAggUpdate, QuantilePredictAggDestroy, QuantilePredictAggInitialize), QuantilePredictAggCombine, ANOFOX_GUARDED_FINALIZE(QuantilePredictAggFinalize, QuantilePredictAggDestroy, QuantilePredictAggInitialize), nullptr, QuantilePredictAggBind,
                           QuantilePredictAggDestroy);
     func_set.AddFunction(basic_func);
 
     auto map_func = AggregateFunction(
         "quantile_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY}, LogicalType::ANY,
-        AggregateFunction::StateSize<QuantilePredictAggState>, QuantilePredictAggInitialize, QuantilePredictAggUpdate,
+        AggregateFunction::StateSize<QuantilePredictAggState>, QuantilePredictAggInitialize, ANOFOX_GUARDED_UPDATE(QuantilePredictAggUpdate, QuantilePredictAggDestroy, QuantilePredictAggInitialize),
         QuantilePredictAggCombine, ANOFOX_GUARDED_FINALIZE(QuantilePredictAggFinalize, QuantilePredictAggDestroy, QuantilePredictAggInitialize), nullptr, QuantilePredictAggBind, QuantilePredictAggDestroy);
     func_set.AddFunction(map_func);
 
@@ -447,7 +447,7 @@ void RegisterQuantileFitPredictAggregateFunction(ExtensionLoader &loader) {
     auto split_func = AggregateFunction(
         "quantile_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR}, LogicalType::ANY,
-        AggregateFunction::StateSize<QuantilePredictAggState>, QuantilePredictAggInitialize, QuantilePredictAggUpdate,
+        AggregateFunction::StateSize<QuantilePredictAggState>, QuantilePredictAggInitialize, ANOFOX_GUARDED_UPDATE(QuantilePredictAggUpdate, QuantilePredictAggDestroy, QuantilePredictAggInitialize),
         QuantilePredictAggCombine, ANOFOX_GUARDED_FINALIZE(QuantilePredictAggFinalize, QuantilePredictAggDestroy, QuantilePredictAggInitialize), nullptr, QuantilePredictAggBindWithSplit, QuantilePredictAggDestroy);
     func_set.AddFunction(split_func);
 
@@ -455,7 +455,7 @@ void RegisterQuantileFitPredictAggregateFunction(ExtensionLoader &loader) {
     auto split_map_func = AggregateFunction(
         "quantile_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR, LogicalType::ANY}, LogicalType::ANY,
-        AggregateFunction::StateSize<QuantilePredictAggState>, QuantilePredictAggInitialize, QuantilePredictAggUpdate,
+        AggregateFunction::StateSize<QuantilePredictAggState>, QuantilePredictAggInitialize, ANOFOX_GUARDED_UPDATE(QuantilePredictAggUpdate, QuantilePredictAggDestroy, QuantilePredictAggInitialize),
         QuantilePredictAggCombine, ANOFOX_GUARDED_FINALIZE(QuantilePredictAggFinalize, QuantilePredictAggDestroy, QuantilePredictAggInitialize), nullptr, QuantilePredictAggBindWithSplit, QuantilePredictAggDestroy);
     func_set.AddFunction(split_map_func);
 

@@ -220,7 +220,7 @@ void RegisterBrownForsytheAggregateFunction(ExtensionLoader &loader) {
         "brown_forsythe_agg", {LogicalType::DOUBLE, LogicalType::INTEGER},
         LogicalType::ANY,
         AggregateFunction::StateSize<BrownForsytheAggregateState>, BrownForsytheAggInitialize,
-        BrownForsytheAggUpdate, BrownForsytheAggCombine, ANOFOX_GUARDED_FINALIZE(BrownForsytheAggFinalize, BrownForsytheAggDestroy, BrownForsytheAggInitialize),
+        ANOFOX_GUARDED_UPDATE(BrownForsytheAggUpdate, BrownForsytheAggDestroy, BrownForsytheAggInitialize), BrownForsytheAggCombine, ANOFOX_GUARDED_FINALIZE(BrownForsytheAggFinalize, BrownForsytheAggDestroy, BrownForsytheAggInitialize),
         nullptr, BrownForsytheAggBind, BrownForsytheAggDestroy);
     func_set.AddFunction(func);
 

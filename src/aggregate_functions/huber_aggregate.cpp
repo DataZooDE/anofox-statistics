@@ -391,14 +391,14 @@ void RegisterHuberAggregateFunction(ExtensionLoader &loader) {
 
     auto basic_func = AggregateFunction(
         "huber_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
-        LogicalType::ANY, AggregateFunction::StateSize<HuberAggregateState>, HuberAggInitialize, HuberAggUpdate,
+        LogicalType::ANY, AggregateFunction::StateSize<HuberAggregateState>, HuberAggInitialize, ANOFOX_GUARDED_UPDATE(HuberAggUpdate, HuberAggDestroy, HuberAggInitialize),
         HuberAggCombine, ANOFOX_GUARDED_FINALIZE(HuberAggFinalize, HuberAggDestroy, HuberAggInitialize), nullptr, HuberAggBind, HuberAggDestroy);
     func_set.AddFunction(basic_func);
 
     auto map_func = AggregateFunction(
         "huber_fit_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY}, LogicalType::ANY,
-        AggregateFunction::StateSize<HuberAggregateState>, HuberAggInitialize, HuberAggUpdate, HuberAggCombine,
+        AggregateFunction::StateSize<HuberAggregateState>, HuberAggInitialize, ANOFOX_GUARDED_UPDATE(HuberAggUpdate, HuberAggDestroy, HuberAggInitialize), HuberAggCombine,
         ANOFOX_GUARDED_FINALIZE(HuberAggFinalize, HuberAggDestroy, HuberAggInitialize), nullptr, HuberAggBind, HuberAggDestroy);
     func_set.AddFunction(map_func);
 

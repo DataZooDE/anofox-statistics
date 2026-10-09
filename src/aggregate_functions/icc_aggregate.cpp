@@ -293,7 +293,7 @@ void RegisterIccAggregateFunction(ExtensionLoader &loader) {
         "icc_agg", {LogicalType::DOUBLE, LogicalType::BIGINT, LogicalType::BIGINT, LogicalType::ANY},
         LogicalType::ANY,
         AggregateFunction::StateSize<IccAggregateState>, IccAggInitialize,
-        IccAggUpdate, IccAggCombine, ANOFOX_GUARDED_FINALIZE(IccAggFinalize, IccAggDestroy, IccAggInitialize),
+        ANOFOX_GUARDED_UPDATE(IccAggUpdate, IccAggDestroy, IccAggInitialize), IccAggCombine, ANOFOX_GUARDED_FINALIZE(IccAggFinalize, IccAggDestroy, IccAggInitialize),
         nullptr, IccAggBind, IccAggDestroy);
     func_set.AddFunction(func_with_opts);
 
@@ -302,7 +302,7 @@ void RegisterIccAggregateFunction(ExtensionLoader &loader) {
         "icc_agg", {LogicalType::DOUBLE, LogicalType::BIGINT, LogicalType::BIGINT},
         LogicalType::ANY,
         AggregateFunction::StateSize<IccAggregateState>, IccAggInitialize,
-        IccAggUpdate, IccAggCombine, ANOFOX_GUARDED_FINALIZE(IccAggFinalize, IccAggDestroy, IccAggInitialize),
+        ANOFOX_GUARDED_UPDATE(IccAggUpdate, IccAggDestroy, IccAggInitialize), IccAggCombine, ANOFOX_GUARDED_FINALIZE(IccAggFinalize, IccAggDestroy, IccAggInitialize),
         nullptr, IccAggBind, IccAggDestroy);
     func_set.AddFunction(func_no_opts);
 

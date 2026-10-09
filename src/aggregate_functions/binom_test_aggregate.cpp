@@ -232,7 +232,7 @@ void RegisterBinomTestAggregateFunction(ExtensionLoader &loader) {
         "binom_test_agg", {LogicalType::BIGINT, LogicalType::ANY},
         LogicalType::ANY,
         AggregateFunction::StateSize<BinomTestAggregateState>, BinomTestAggInitialize,
-        BinomTestAggUpdate, BinomTestAggCombine, ANOFOX_GUARDED_FINALIZE(BinomTestAggFinalize, BinomTestAggDestroy, BinomTestAggInitialize),
+        ANOFOX_GUARDED_UPDATE(BinomTestAggUpdate, BinomTestAggDestroy, BinomTestAggInitialize), BinomTestAggCombine, ANOFOX_GUARDED_FINALIZE(BinomTestAggFinalize, BinomTestAggDestroy, BinomTestAggInitialize),
         nullptr, BinomTestAggBind, BinomTestAggDestroy);
     func_set.AddFunction(func_with_opts);
 
@@ -241,7 +241,7 @@ void RegisterBinomTestAggregateFunction(ExtensionLoader &loader) {
         "binom_test_agg", {LogicalType::BIGINT},
         LogicalType::ANY,
         AggregateFunction::StateSize<BinomTestAggregateState>, BinomTestAggInitialize,
-        BinomTestAggUpdate, BinomTestAggCombine, ANOFOX_GUARDED_FINALIZE(BinomTestAggFinalize, BinomTestAggDestroy, BinomTestAggInitialize),
+        ANOFOX_GUARDED_UPDATE(BinomTestAggUpdate, BinomTestAggDestroy, BinomTestAggInitialize), BinomTestAggCombine, ANOFOX_GUARDED_FINALIZE(BinomTestAggFinalize, BinomTestAggDestroy, BinomTestAggInitialize),
         nullptr, BinomTestAggBind, BinomTestAggDestroy);
     func_set.AddFunction(func_no_opts);
 

@@ -521,21 +521,21 @@ void RegisterRansacFitPredictAggregateFunction(ExtensionLoader &loader) {
     auto basic_func = AggregateFunction(
         "ransac_fit_predict_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
         LogicalType::ANY, AggregateFunction::StateSize<RansacPredictAggState>, RansacPredictAggInitialize,
-        RansacPredictAggUpdate, RansacPredictAggCombine, ANOFOX_GUARDED_FINALIZE(RansacPredictAggFinalize, RansacPredictAggDestroy, RansacPredictAggInitialize), nullptr,
+        ANOFOX_GUARDED_UPDATE(RansacPredictAggUpdate, RansacPredictAggDestroy, RansacPredictAggInitialize), RansacPredictAggCombine, ANOFOX_GUARDED_FINALIZE(RansacPredictAggFinalize, RansacPredictAggDestroy, RansacPredictAggInitialize), nullptr,
         RansacPredictAggBind, RansacPredictAggDestroy);
     func_set.AddFunction(basic_func);
 
     auto map_func = AggregateFunction(
         "ransac_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY}, LogicalType::ANY,
-        AggregateFunction::StateSize<RansacPredictAggState>, RansacPredictAggInitialize, RansacPredictAggUpdate,
+        AggregateFunction::StateSize<RansacPredictAggState>, RansacPredictAggInitialize, ANOFOX_GUARDED_UPDATE(RansacPredictAggUpdate, RansacPredictAggDestroy, RansacPredictAggInitialize),
         RansacPredictAggCombine, ANOFOX_GUARDED_FINALIZE(RansacPredictAggFinalize, RansacPredictAggDestroy, RansacPredictAggInitialize), nullptr, RansacPredictAggBind, RansacPredictAggDestroy);
     func_set.AddFunction(map_func);
 
     auto split_func = AggregateFunction(
         "ransac_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR}, LogicalType::ANY,
-        AggregateFunction::StateSize<RansacPredictAggState>, RansacPredictAggInitialize, RansacPredictAggUpdate,
+        AggregateFunction::StateSize<RansacPredictAggState>, RansacPredictAggInitialize, ANOFOX_GUARDED_UPDATE(RansacPredictAggUpdate, RansacPredictAggDestroy, RansacPredictAggInitialize),
         RansacPredictAggCombine, ANOFOX_GUARDED_FINALIZE(RansacPredictAggFinalize, RansacPredictAggDestroy, RansacPredictAggInitialize), nullptr, RansacPredictAggBindWithSplit,
         RansacPredictAggDestroy);
     func_set.AddFunction(split_func);
@@ -544,7 +544,7 @@ void RegisterRansacFitPredictAggregateFunction(ExtensionLoader &loader) {
         "ransac_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR, LogicalType::ANY},
         LogicalType::ANY, AggregateFunction::StateSize<RansacPredictAggState>, RansacPredictAggInitialize,
-        RansacPredictAggUpdate, RansacPredictAggCombine, ANOFOX_GUARDED_FINALIZE(RansacPredictAggFinalize, RansacPredictAggDestroy, RansacPredictAggInitialize), nullptr,
+        ANOFOX_GUARDED_UPDATE(RansacPredictAggUpdate, RansacPredictAggDestroy, RansacPredictAggInitialize), RansacPredictAggCombine, ANOFOX_GUARDED_FINALIZE(RansacPredictAggFinalize, RansacPredictAggDestroy, RansacPredictAggInitialize), nullptr,
         RansacPredictAggBindWithSplit, RansacPredictAggDestroy);
     func_set.AddFunction(split_opts_func);
 

@@ -377,7 +377,7 @@ void RegisterElasticNetAggregateFunction(ExtensionLoader &loader) {
     auto basic_func = AggregateFunction(
         "elasticnet_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
         LogicalType::ANY, // Set in bind
-        AggregateFunction::StateSize<ElasticNetAggregateState>, ElasticNetAggInitialize, ElasticNetAggUpdate,
+        AggregateFunction::StateSize<ElasticNetAggregateState>, ElasticNetAggInitialize, ANOFOX_GUARDED_UPDATE(ElasticNetAggUpdate, ElasticNetAggDestroy, ElasticNetAggInitialize),
         ElasticNetAggCombine, ANOFOX_GUARDED_FINALIZE(ElasticNetAggFinalize, ElasticNetAggDestroy, ElasticNetAggInitialize),
         nullptr, // simple_update
         ElasticNetAggBind, ElasticNetAggDestroy);
@@ -388,7 +388,7 @@ void RegisterElasticNetAggregateFunction(ExtensionLoader &loader) {
                                       {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE),
                                        LogicalType::ANY}, // MAP or STRUCT for options
                                       LogicalType::ANY, AggregateFunction::StateSize<ElasticNetAggregateState>,
-                                      ElasticNetAggInitialize, ElasticNetAggUpdate, ElasticNetAggCombine,
+                                      ElasticNetAggInitialize, ANOFOX_GUARDED_UPDATE(ElasticNetAggUpdate, ElasticNetAggDestroy, ElasticNetAggInitialize), ElasticNetAggCombine,
                                       ANOFOX_GUARDED_FINALIZE(ElasticNetAggFinalize, ElasticNetAggDestroy, ElasticNetAggInitialize), nullptr, ElasticNetAggBind, ElasticNetAggDestroy);
     func_set.AddFunction(map_func);
 

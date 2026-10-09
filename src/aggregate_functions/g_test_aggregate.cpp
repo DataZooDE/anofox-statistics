@@ -223,7 +223,7 @@ void RegisterGTestAggregateFunction(ExtensionLoader &loader) {
         "g_test_agg", {LogicalType::BIGINT, LogicalType::BIGINT},
         LogicalType::ANY,
         AggregateFunction::StateSize<GTestAggregateState>, GTestAggInitialize,
-        GTestAggUpdate, GTestAggCombine, ANOFOX_GUARDED_FINALIZE(GTestAggFinalize, GTestAggDestroy, GTestAggInitialize),
+        ANOFOX_GUARDED_UPDATE(GTestAggUpdate, GTestAggDestroy, GTestAggInitialize), GTestAggCombine, ANOFOX_GUARDED_FINALIZE(GTestAggFinalize, GTestAggDestroy, GTestAggInitialize),
         nullptr, GTestAggBind, GTestAggDestroy);
     func_set.AddFunction(func);
 

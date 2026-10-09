@@ -202,7 +202,7 @@ void RegisterCramersVAggregateFunction(ExtensionLoader &loader) {
         "cramers_v_agg", {LogicalType::BIGINT, LogicalType::BIGINT},
         LogicalType::DOUBLE,
         AggregateFunction::StateSize<CramersVAggregateState>, CramersVAggInitialize,
-        CramersVAggUpdate, CramersVAggCombine, ANOFOX_GUARDED_FINALIZE(CramersVAggFinalize, CramersVAggDestroy, CramersVAggInitialize),
+        ANOFOX_GUARDED_UPDATE(CramersVAggUpdate, CramersVAggDestroy, CramersVAggInitialize), CramersVAggCombine, ANOFOX_GUARDED_FINALIZE(CramersVAggFinalize, CramersVAggDestroy, CramersVAggInitialize),
         nullptr, CramersVAggBind, CramersVAggDestroy);
     func_set.AddFunction(func);
 

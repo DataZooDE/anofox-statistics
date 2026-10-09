@@ -401,7 +401,7 @@ void RegisterOlsAggregateFunction(ExtensionLoader &loader) {
     auto basic_func = AggregateFunction(
         "ols_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
         LogicalType::ANY, // Set in bind
-        AggregateFunction::StateSize<OlsAggregateState>, OlsAggInitialize, OlsAggUpdate, OlsAggCombine, ANOFOX_GUARDED_FINALIZE(OlsAggFinalize, OlsAggDestroy, OlsAggInitialize),
+        AggregateFunction::StateSize<OlsAggregateState>, OlsAggInitialize, ANOFOX_GUARDED_UPDATE(OlsAggUpdate, OlsAggDestroy, OlsAggInitialize), OlsAggCombine, ANOFOX_GUARDED_FINALIZE(OlsAggFinalize, OlsAggDestroy, OlsAggInitialize),
         nullptr, // simple_update
         OlsAggBind, OlsAggDestroy);
     func_set.AddFunction(basic_func);
@@ -411,7 +411,7 @@ void RegisterOlsAggregateFunction(ExtensionLoader &loader) {
                                       {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE),
                                        LogicalType::ANY}, // MAP or STRUCT for options
                                       LogicalType::ANY, AggregateFunction::StateSize<OlsAggregateState>,
-                                      OlsAggInitialize, OlsAggUpdate, OlsAggCombine, ANOFOX_GUARDED_FINALIZE(OlsAggFinalize, OlsAggDestroy, OlsAggInitialize), nullptr,
+                                      OlsAggInitialize, ANOFOX_GUARDED_UPDATE(OlsAggUpdate, OlsAggDestroy, OlsAggInitialize), OlsAggCombine, ANOFOX_GUARDED_FINALIZE(OlsAggFinalize, OlsAggDestroy, OlsAggInitialize), nullptr,
                                       OlsAggBind, OlsAggDestroy);
     func_set.AddFunction(map_func);
 

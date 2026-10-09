@@ -339,14 +339,14 @@ void RegisterElasticNetFitPredictFunction(ExtensionLoader &loader) {
     auto basic_func = AggregateFunction(
         "elasticnet_fit_predict", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
         GetElasticNetFitPredictResultType(), AggregateFunction::StateSize<ElasticNetFitPredictState>,
-        ElasticNetFitPredictInitialize, ElasticNetFitPredictUpdate, ElasticNetFitPredictCombine,
+        ElasticNetFitPredictInitialize, ANOFOX_GUARDED_UPDATE(ElasticNetFitPredictUpdate, ElasticNetFitPredictDestroy, ElasticNetFitPredictInitialize), ElasticNetFitPredictCombine,
         ANOFOX_GUARDED_FINALIZE(ElasticNetFitPredictFinalize, ElasticNetFitPredictDestroy, ElasticNetFitPredictInitialize), nullptr, ElasticNetFitPredictBind, ElasticNetFitPredictDestroy);
 
     auto map_func = AggregateFunction(
         "elasticnet_fit_predict",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
         GetElasticNetFitPredictResultType(), AggregateFunction::StateSize<ElasticNetFitPredictState>,
-        ElasticNetFitPredictInitialize, ElasticNetFitPredictUpdate, ElasticNetFitPredictCombine,
+        ElasticNetFitPredictInitialize, ANOFOX_GUARDED_UPDATE(ElasticNetFitPredictUpdate, ElasticNetFitPredictDestroy, ElasticNetFitPredictInitialize), ElasticNetFitPredictCombine,
         ANOFOX_GUARDED_FINALIZE(ElasticNetFitPredictFinalize, ElasticNetFitPredictDestroy, ElasticNetFitPredictInitialize), nullptr, ElasticNetFitPredictBind, ElasticNetFitPredictDestroy);
 
     {

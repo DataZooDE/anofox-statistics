@@ -194,7 +194,7 @@ void RegisterContingencyCoefAggregateFunction(ExtensionLoader &loader) {
         "contingency_coef_agg", {LogicalType::BIGINT, LogicalType::BIGINT},
         LogicalType::DOUBLE,
         AggregateFunction::StateSize<ContingencyCoefAggregateState>, ContingencyCoefAggInitialize,
-        ContingencyCoefAggUpdate, ContingencyCoefAggCombine, ANOFOX_GUARDED_FINALIZE(ContingencyCoefAggFinalize, ContingencyCoefAggDestroy, ContingencyCoefAggInitialize),
+        ANOFOX_GUARDED_UPDATE(ContingencyCoefAggUpdate, ContingencyCoefAggDestroy, ContingencyCoefAggInitialize), ContingencyCoefAggCombine, ANOFOX_GUARDED_FINALIZE(ContingencyCoefAggFinalize, ContingencyCoefAggDestroy, ContingencyCoefAggInitialize),
         nullptr, ContingencyCoefAggBind, ContingencyCoefAggDestroy);
     func_set.AddFunction(func);
 

@@ -245,7 +245,7 @@ void RegisterMannWhitneyAggregateFunction(ExtensionLoader &loader) {
         "mann_whitney_u_agg", {LogicalType::DOUBLE, LogicalType::BIGINT, LogicalType::ANY},
         LogicalType::ANY,
         AggregateFunction::StateSize<MannWhitneyAggregateState>, MannWhitneyAggInitialize,
-        MannWhitneyAggUpdate, MannWhitneyAggCombine, ANOFOX_GUARDED_FINALIZE(MannWhitneyAggFinalize, MannWhitneyAggDestroy, MannWhitneyAggInitialize),
+        ANOFOX_GUARDED_UPDATE(MannWhitneyAggUpdate, MannWhitneyAggDestroy, MannWhitneyAggInitialize), MannWhitneyAggCombine, ANOFOX_GUARDED_FINALIZE(MannWhitneyAggFinalize, MannWhitneyAggDestroy, MannWhitneyAggInitialize),
         nullptr, MannWhitneyAggBind, MannWhitneyAggDestroy);
     func_set.AddFunction(func_with_opts);
     func_with_opts.arguments[1] = LogicalType::VARCHAR;
@@ -255,7 +255,7 @@ void RegisterMannWhitneyAggregateFunction(ExtensionLoader &loader) {
         "mann_whitney_u_agg", {LogicalType::DOUBLE, LogicalType::BIGINT},
         LogicalType::ANY,
         AggregateFunction::StateSize<MannWhitneyAggregateState>, MannWhitneyAggInitialize,
-        MannWhitneyAggUpdate, MannWhitneyAggCombine, ANOFOX_GUARDED_FINALIZE(MannWhitneyAggFinalize, MannWhitneyAggDestroy, MannWhitneyAggInitialize),
+        ANOFOX_GUARDED_UPDATE(MannWhitneyAggUpdate, MannWhitneyAggDestroy, MannWhitneyAggInitialize), MannWhitneyAggCombine, ANOFOX_GUARDED_FINALIZE(MannWhitneyAggFinalize, MannWhitneyAggDestroy, MannWhitneyAggInitialize),
         nullptr, MannWhitneyAggBind, MannWhitneyAggDestroy);
     func_set.AddFunction(func_no_opts);
     func_no_opts.arguments[1] = LogicalType::VARCHAR;

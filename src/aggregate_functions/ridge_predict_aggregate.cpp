@@ -496,14 +496,14 @@ void RegisterRidgeFitPredictAggregateFunction(ExtensionLoader &loader) {
     auto basic_func = AggregateFunction(
         "ridge_fit_predict_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
         LogicalType::ANY, AggregateFunction::StateSize<RidgePredictAggState>, RidgePredictAggInitialize,
-        RidgePredictAggUpdate, RidgePredictAggCombine, ANOFOX_GUARDED_FINALIZE(RidgePredictAggFinalize, RidgePredictAggDestroy, RidgePredictAggInitialize), nullptr, RidgePredictAggBind,
+        ANOFOX_GUARDED_UPDATE(RidgePredictAggUpdate, RidgePredictAggDestroy, RidgePredictAggInitialize), RidgePredictAggCombine, ANOFOX_GUARDED_FINALIZE(RidgePredictAggFinalize, RidgePredictAggDestroy, RidgePredictAggInitialize), nullptr, RidgePredictAggBind,
         RidgePredictAggDestroy);
     func_set.AddFunction(basic_func);
 
     auto map_func = AggregateFunction(
         "ridge_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY}, LogicalType::ANY,
-        AggregateFunction::StateSize<RidgePredictAggState>, RidgePredictAggInitialize, RidgePredictAggUpdate,
+        AggregateFunction::StateSize<RidgePredictAggState>, RidgePredictAggInitialize, ANOFOX_GUARDED_UPDATE(RidgePredictAggUpdate, RidgePredictAggDestroy, RidgePredictAggInitialize),
         RidgePredictAggCombine, ANOFOX_GUARDED_FINALIZE(RidgePredictAggFinalize, RidgePredictAggDestroy, RidgePredictAggInitialize), nullptr, RidgePredictAggBind, RidgePredictAggDestroy);
     func_set.AddFunction(map_func);
 
@@ -511,7 +511,7 @@ void RegisterRidgeFitPredictAggregateFunction(ExtensionLoader &loader) {
     auto split_func = AggregateFunction(
         "ridge_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR}, LogicalType::ANY,
-        AggregateFunction::StateSize<RidgePredictAggState>, RidgePredictAggInitialize, RidgePredictAggUpdate,
+        AggregateFunction::StateSize<RidgePredictAggState>, RidgePredictAggInitialize, ANOFOX_GUARDED_UPDATE(RidgePredictAggUpdate, RidgePredictAggDestroy, RidgePredictAggInitialize),
         RidgePredictAggCombine, ANOFOX_GUARDED_FINALIZE(RidgePredictAggFinalize, RidgePredictAggDestroy, RidgePredictAggInitialize), nullptr, RidgePredictAggBindWithSplit, RidgePredictAggDestroy);
     func_set.AddFunction(split_func);
 
@@ -520,7 +520,7 @@ void RegisterRidgeFitPredictAggregateFunction(ExtensionLoader &loader) {
         "ridge_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR, LogicalType::ANY},
         LogicalType::ANY, AggregateFunction::StateSize<RidgePredictAggState>, RidgePredictAggInitialize,
-        RidgePredictAggUpdate, RidgePredictAggCombine, ANOFOX_GUARDED_FINALIZE(RidgePredictAggFinalize, RidgePredictAggDestroy, RidgePredictAggInitialize), nullptr, RidgePredictAggBindWithSplit,
+        ANOFOX_GUARDED_UPDATE(RidgePredictAggUpdate, RidgePredictAggDestroy, RidgePredictAggInitialize), RidgePredictAggCombine, ANOFOX_GUARDED_FINALIZE(RidgePredictAggFinalize, RidgePredictAggDestroy, RidgePredictAggInitialize), nullptr, RidgePredictAggBindWithSplit,
         RidgePredictAggDestroy);
     func_set.AddFunction(split_opts_func);
 

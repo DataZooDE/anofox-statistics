@@ -413,7 +413,7 @@ void RegisterRidgeAggregateFunction(ExtensionLoader &loader) {
     auto basic_func = AggregateFunction(
         "ridge_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
         LogicalType::ANY, // Set in bind
-        AggregateFunction::StateSize<RidgeAggregateState>, RidgeAggInitialize, RidgeAggUpdate, RidgeAggCombine,
+        AggregateFunction::StateSize<RidgeAggregateState>, RidgeAggInitialize, ANOFOX_GUARDED_UPDATE(RidgeAggUpdate, RidgeAggDestroy, RidgeAggInitialize), RidgeAggCombine,
         ANOFOX_GUARDED_FINALIZE(RidgeAggFinalize, RidgeAggDestroy, RidgeAggInitialize),
         nullptr, // simple_update
         RidgeAggBind, RidgeAggDestroy);
@@ -424,7 +424,7 @@ void RegisterRidgeAggregateFunction(ExtensionLoader &loader) {
                                       {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE),
                                        LogicalType::ANY}, // MAP or STRUCT for options
                                       LogicalType::ANY, AggregateFunction::StateSize<RidgeAggregateState>,
-                                      RidgeAggInitialize, RidgeAggUpdate, RidgeAggCombine, ANOFOX_GUARDED_FINALIZE(RidgeAggFinalize, RidgeAggDestroy, RidgeAggInitialize), nullptr,
+                                      RidgeAggInitialize, ANOFOX_GUARDED_UPDATE(RidgeAggUpdate, RidgeAggDestroy, RidgeAggInitialize), RidgeAggCombine, ANOFOX_GUARDED_FINALIZE(RidgeAggFinalize, RidgeAggDestroy, RidgeAggInitialize), nullptr,
                                       RidgeAggBind, RidgeAggDestroy);
     func_set.AddFunction(map_func);
 

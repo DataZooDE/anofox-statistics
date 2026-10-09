@@ -368,13 +368,13 @@ void RegisterAftAggregateFunction(ExtensionLoader &loader) {
 	auto basic = AggregateFunction("aft_fit_agg",
 	                               {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE},
 	                               LogicalType::ANY, AggregateFunction::StateSize<AftAggregateState>, AftAggInitialize,
-	                               AftAggUpdate, AftAggCombine, ANOFOX_GUARDED_FINALIZE(AftAggFinalize, AftAggDestroy, AftAggInitialize), nullptr, AftAggBind, AftAggDestroy);
+	                               ANOFOX_GUARDED_UPDATE(AftAggUpdate, AftAggDestroy, AftAggInitialize), AftAggCombine, ANOFOX_GUARDED_FINALIZE(AftAggFinalize, AftAggDestroy, AftAggInitialize), nullptr, AftAggBind, AftAggDestroy);
 	func_set.AddFunction(basic);
 
 	auto with_opts = AggregateFunction(
 	    "aft_fit_agg",
 	    {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE, LogicalType::ANY},
-	    LogicalType::ANY, AggregateFunction::StateSize<AftAggregateState>, AftAggInitialize, AftAggUpdate,
+	    LogicalType::ANY, AggregateFunction::StateSize<AftAggregateState>, AftAggInitialize, ANOFOX_GUARDED_UPDATE(AftAggUpdate, AftAggDestroy, AftAggInitialize),
 	    AftAggCombine, ANOFOX_GUARDED_FINALIZE(AftAggFinalize, AftAggDestroy, AftAggInitialize), nullptr, AftAggBind, AftAggDestroy);
 	func_set.AddFunction(with_opts);
 

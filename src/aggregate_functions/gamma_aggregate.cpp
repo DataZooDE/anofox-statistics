@@ -395,12 +395,12 @@ void RegisterGammaAggregateFunction(ExtensionLoader &loader) {
 	auto basic_func =
 	    AggregateFunction("gamma_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
 	                      LogicalType::ANY, AggregateFunction::StateSize<GammaAggregateState>, GammaAggInitialize,
-	                      GammaAggUpdate, GammaAggCombine, ANOFOX_GUARDED_FINALIZE(GammaAggFinalize, GammaAggDestroy, GammaAggInitialize), nullptr, GammaAggBind, GammaAggDestroy);
+	                      ANOFOX_GUARDED_UPDATE(GammaAggUpdate, GammaAggDestroy, GammaAggInitialize), GammaAggCombine, ANOFOX_GUARDED_FINALIZE(GammaAggFinalize, GammaAggDestroy, GammaAggInitialize), nullptr, GammaAggBind, GammaAggDestroy);
 	func_set.AddFunction(basic_func);
 
 	auto map_func = AggregateFunction(
 	    "gamma_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
-	    LogicalType::ANY, AggregateFunction::StateSize<GammaAggregateState>, GammaAggInitialize, GammaAggUpdate,
+	    LogicalType::ANY, AggregateFunction::StateSize<GammaAggregateState>, GammaAggInitialize, ANOFOX_GUARDED_UPDATE(GammaAggUpdate, GammaAggDestroy, GammaAggInitialize),
 	    GammaAggCombine, ANOFOX_GUARDED_FINALIZE(GammaAggFinalize, GammaAggDestroy, GammaAggInitialize), nullptr, GammaAggBind, GammaAggDestroy);
 	func_set.AddFunction(map_func);
 

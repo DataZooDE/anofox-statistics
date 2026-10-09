@@ -184,7 +184,7 @@ void RegisterShapiroWilkAggregateFunction(ExtensionLoader &loader) {
     auto func = AggregateFunction("shapiro_wilk_agg", {LogicalType::DOUBLE},
                                   LogicalType::ANY, // Set in bind
                                   AggregateFunction::StateSize<ShapiroWilkAggregateState>, ShapiroWilkAggInitialize,
-                                  ShapiroWilkAggUpdate, ShapiroWilkAggCombine, ANOFOX_GUARDED_FINALIZE(ShapiroWilkAggFinalize, ShapiroWilkAggDestroy, ShapiroWilkAggInitialize),
+                                  ANOFOX_GUARDED_UPDATE(ShapiroWilkAggUpdate, ShapiroWilkAggDestroy, ShapiroWilkAggInitialize), ShapiroWilkAggCombine, ANOFOX_GUARDED_FINALIZE(ShapiroWilkAggFinalize, ShapiroWilkAggDestroy, ShapiroWilkAggInitialize),
                                   nullptr, // simple_update
                                   ShapiroWilkAggBind, ShapiroWilkAggDestroy);
 

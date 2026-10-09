@@ -2,6 +2,8 @@
 
 #include "duckdb/function/aggregate_function.hpp"
 
+#include <unordered_set>
+
 namespace duckdb {
 
 //! Exception-safe wrapper for an aggregate Finalize callback.
@@ -43,7 +45,45 @@ struct GuardedFinalize {
 	}
 };
 
+//! Exception-safe wrapper for an aggregate Update callback.
+//!
+//! An Update that throws (e.g. a third group label in a two-sample test) aborts
+//! the hash-aggregate sink; DuckDB then never destroys the states that the sink
+//! had already created, so their vectors leak. On exception, destroy every
+//! distinct state touched by this chunk and re-initialize it empty before
+//! rethrowing (the states vector may repeat a pointer, hence the dedupe).
+template <aggregate_update_t UPDATE, aggregate_destructor_t DESTROY, aggregate_initialize_t INIT>
+struct GuardedUpdate {
+	static void Call(Vector inputs[], AggregateInputData &aggr_input_data, idx_t input_count, Vector &state_vector,
+	                 idx_t count) {
+		try {
+			UPDATE(inputs, aggr_input_data, input_count, state_vector, count);
+		} catch (...) {
+			UnifiedVectorFormat sdata;
+			state_vector.ToUnifiedFormat(count, sdata);
+			auto states = reinterpret_cast<data_ptr_t *>(sdata.data);
+			static const AggregateFunction placeholder(
+			    "anofox_update_guard", vector<LogicalType> {}, LogicalType(LogicalTypeId::ANY),
+			    aggregate_size_t(nullptr), aggregate_initialize_t(nullptr), aggregate_update_t(nullptr),
+			    aggregate_combine_t(nullptr), aggregate_finalize_t(nullptr),
+			    FunctionNullHandling::DEFAULT_NULL_HANDLING);
+			std::unordered_set<data_ptr_t> seen;
+			for (idx_t i = 0; i < count; i++) {
+				auto state = states[sdata.sel->get_index(i)];
+				if (!seen.insert(state).second) {
+					continue;
+				}
+				Vector one(Value::POINTER(CastPointerToValue(state)));
+				DESTROY(one, aggr_input_data, 1);
+				INIT(placeholder, state);
+			}
+			throw;
+		}
+	}
+};
+
 } // namespace duckdb
 
 //! Use in place of the Finalize argument of an AggregateFunction registration.
+#define ANOFOX_GUARDED_UPDATE(UPD, DESTROY, INIT) (&::duckdb::GuardedUpdate<UPD, DESTROY, INIT>::Call)
 #define ANOFOX_GUARDED_FINALIZE(FIN, DESTROY, INIT) (&::duckdb::GuardedFinalize<FIN, DESTROY, INIT>::Call)

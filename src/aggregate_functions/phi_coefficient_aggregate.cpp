@@ -202,7 +202,7 @@ void RegisterPhiCoefficientAggregateFunction(ExtensionLoader &loader) {
         "phi_coefficient_agg", {LogicalType::BIGINT, LogicalType::BIGINT},
         LogicalType::DOUBLE,
         AggregateFunction::StateSize<PhiCoefficientAggregateState>, PhiCoefficientAggInitialize,
-        PhiCoefficientAggUpdate, PhiCoefficientAggCombine, ANOFOX_GUARDED_FINALIZE(PhiCoefficientAggFinalize, PhiCoefficientAggDestroy, PhiCoefficientAggInitialize),
+        ANOFOX_GUARDED_UPDATE(PhiCoefficientAggUpdate, PhiCoefficientAggDestroy, PhiCoefficientAggInitialize), PhiCoefficientAggCombine, ANOFOX_GUARDED_FINALIZE(PhiCoefficientAggFinalize, PhiCoefficientAggDestroy, PhiCoefficientAggInitialize),
         nullptr, PhiCoefficientAggBind, PhiCoefficientAggDestroy);
     func_set.AddFunction(func);
 

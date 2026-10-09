@@ -241,7 +241,7 @@ void RegisterMcNemarAggregateFunction(ExtensionLoader &loader) {
         "mcnemar_agg", {LogicalType::BIGINT, LogicalType::BIGINT, LogicalType::ANY},
         LogicalType::ANY,
         AggregateFunction::StateSize<McNemarAggregateState>, McNemarAggInitialize,
-        McNemarAggUpdate, McNemarAggCombine, ANOFOX_GUARDED_FINALIZE(McNemarAggFinalize, McNemarAggDestroy, McNemarAggInitialize),
+        ANOFOX_GUARDED_UPDATE(McNemarAggUpdate, McNemarAggDestroy, McNemarAggInitialize), McNemarAggCombine, ANOFOX_GUARDED_FINALIZE(McNemarAggFinalize, McNemarAggDestroy, McNemarAggInitialize),
         nullptr, McNemarAggBind, McNemarAggDestroy);
     func_set.AddFunction(func_with_opts);
 
@@ -250,7 +250,7 @@ void RegisterMcNemarAggregateFunction(ExtensionLoader &loader) {
         "mcnemar_agg", {LogicalType::BIGINT, LogicalType::BIGINT},
         LogicalType::ANY,
         AggregateFunction::StateSize<McNemarAggregateState>, McNemarAggInitialize,
-        McNemarAggUpdate, McNemarAggCombine, ANOFOX_GUARDED_FINALIZE(McNemarAggFinalize, McNemarAggDestroy, McNemarAggInitialize),
+        ANOFOX_GUARDED_UPDATE(McNemarAggUpdate, McNemarAggDestroy, McNemarAggInitialize), McNemarAggCombine, ANOFOX_GUARDED_FINALIZE(McNemarAggFinalize, McNemarAggDestroy, McNemarAggInitialize),
         nullptr, McNemarAggBind, McNemarAggDestroy);
     func_set.AddFunction(func_no_opts);
 

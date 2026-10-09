@@ -409,13 +409,13 @@ void RegisterNegBinomAggregateFunction(ExtensionLoader &loader) {
 	auto basic_func = AggregateFunction(
 	    "negbinom_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
 	    LogicalType::ANY, AggregateFunction::StateSize<NegBinomAggregateState>, NegBinomAggInitialize,
-	    NegBinomAggUpdate, NegBinomAggCombine, ANOFOX_GUARDED_FINALIZE(NegBinomAggFinalize, NegBinomAggDestroy, NegBinomAggInitialize), nullptr, NegBinomAggBind, NegBinomAggDestroy);
+	    ANOFOX_GUARDED_UPDATE(NegBinomAggUpdate, NegBinomAggDestroy, NegBinomAggInitialize), NegBinomAggCombine, ANOFOX_GUARDED_FINALIZE(NegBinomAggFinalize, NegBinomAggDestroy, NegBinomAggInitialize), nullptr, NegBinomAggBind, NegBinomAggDestroy);
 	func_set.AddFunction(basic_func);
 
 	auto map_func = AggregateFunction("negbinom_fit_agg",
 	                                  {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
 	                                  LogicalType::ANY, AggregateFunction::StateSize<NegBinomAggregateState>,
-	                                  NegBinomAggInitialize, NegBinomAggUpdate, NegBinomAggCombine, ANOFOX_GUARDED_FINALIZE(NegBinomAggFinalize, NegBinomAggDestroy, NegBinomAggInitialize),
+	                                  NegBinomAggInitialize, ANOFOX_GUARDED_UPDATE(NegBinomAggUpdate, NegBinomAggDestroy, NegBinomAggInitialize), NegBinomAggCombine, ANOFOX_GUARDED_FINALIZE(NegBinomAggFinalize, NegBinomAggDestroy, NegBinomAggInitialize),
 	                                  nullptr, NegBinomAggBind, NegBinomAggDestroy);
 	func_set.AddFunction(map_func);
 

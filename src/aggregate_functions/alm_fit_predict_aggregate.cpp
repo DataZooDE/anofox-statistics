@@ -570,7 +570,7 @@ void RegisterAlmFitPredictAggregateFunction(ExtensionLoader &loader) {
     auto basic_func =
         AggregateFunction("alm_fit_predict_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
                           LogicalType::ANY, AggregateFunction::StateSize<AlmFitPredictAggState>, AlmFitPredictAggInitialize,
-                          AlmFitPredictAggUpdate, AlmFitPredictAggCombine, ANOFOX_GUARDED_FINALIZE(AlmFitPredictAggFinalize, AlmFitPredictAggDestroy, AlmFitPredictAggInitialize), nullptr, AlmFitPredictAggBind,
+                          ANOFOX_GUARDED_UPDATE(AlmFitPredictAggUpdate, AlmFitPredictAggDestroy, AlmFitPredictAggInitialize), AlmFitPredictAggCombine, ANOFOX_GUARDED_FINALIZE(AlmFitPredictAggFinalize, AlmFitPredictAggDestroy, AlmFitPredictAggInitialize), nullptr, AlmFitPredictAggBind,
                           AlmFitPredictAggDestroy);
     func_set.AddFunction(basic_func);
 
@@ -578,14 +578,14 @@ void RegisterAlmFitPredictAggregateFunction(ExtensionLoader &loader) {
     auto map_func = AggregateFunction(
         "alm_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY}, LogicalType::ANY,
-        AggregateFunction::StateSize<AlmFitPredictAggState>, AlmFitPredictAggInitialize, AlmFitPredictAggUpdate,
+        AggregateFunction::StateSize<AlmFitPredictAggState>, AlmFitPredictAggInitialize, ANOFOX_GUARDED_UPDATE(AlmFitPredictAggUpdate, AlmFitPredictAggDestroy, AlmFitPredictAggInitialize),
         AlmFitPredictAggCombine, ANOFOX_GUARDED_FINALIZE(AlmFitPredictAggFinalize, AlmFitPredictAggDestroy, AlmFitPredictAggInitialize), nullptr, AlmFitPredictAggBind, AlmFitPredictAggDestroy);
     func_set.AddFunction(map_func);
 
     auto split_func = AggregateFunction(
         "alm_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR}, LogicalType::ANY,
-        AggregateFunction::StateSize<AlmFitPredictAggState>, AlmFitPredictAggInitialize, AlmFitPredictAggUpdate,
+        AggregateFunction::StateSize<AlmFitPredictAggState>, AlmFitPredictAggInitialize, ANOFOX_GUARDED_UPDATE(AlmFitPredictAggUpdate, AlmFitPredictAggDestroy, AlmFitPredictAggInitialize),
         AlmFitPredictAggCombine, ANOFOX_GUARDED_FINALIZE(AlmFitPredictAggFinalize, AlmFitPredictAggDestroy, AlmFitPredictAggInitialize), nullptr, AlmFitPredictAggBindWithSplit, AlmFitPredictAggDestroy);
     func_set.AddFunction(split_func);
 
@@ -593,7 +593,7 @@ void RegisterAlmFitPredictAggregateFunction(ExtensionLoader &loader) {
         "alm_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR, LogicalType::ANY},
         LogicalType::ANY, AggregateFunction::StateSize<AlmFitPredictAggState>, AlmFitPredictAggInitialize,
-        AlmFitPredictAggUpdate, AlmFitPredictAggCombine, ANOFOX_GUARDED_FINALIZE(AlmFitPredictAggFinalize, AlmFitPredictAggDestroy, AlmFitPredictAggInitialize), nullptr, AlmFitPredictAggBindWithSplit,
+        ANOFOX_GUARDED_UPDATE(AlmFitPredictAggUpdate, AlmFitPredictAggDestroy, AlmFitPredictAggInitialize), AlmFitPredictAggCombine, ANOFOX_GUARDED_FINALIZE(AlmFitPredictAggFinalize, AlmFitPredictAggDestroy, AlmFitPredictAggInitialize), nullptr, AlmFitPredictAggBindWithSplit,
         AlmFitPredictAggDestroy);
     func_set.AddFunction(split_opts_func);
 

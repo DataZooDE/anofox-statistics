@@ -378,14 +378,14 @@ void RegisterTheilSenFitPredictFunction(ExtensionLoader &loader) {
     auto basic_func = AggregateFunction(
         "theil_sen_fit_predict", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
         GetTheilSenFitPredictResultType(), AggregateFunction::StateSize<TheilSenFitPredictState>,
-        TheilSenFitPredictInitialize, TheilSenFitPredictUpdate, TheilSenFitPredictCombine,
+        TheilSenFitPredictInitialize, ANOFOX_GUARDED_UPDATE(TheilSenFitPredictUpdate, TheilSenFitPredictDestroy, TheilSenFitPredictInitialize), TheilSenFitPredictCombine,
         ANOFOX_GUARDED_FINALIZE(TheilSenFitPredictFinalize, TheilSenFitPredictDestroy, TheilSenFitPredictInitialize), nullptr, TheilSenFitPredictBind, TheilSenFitPredictDestroy);
 
     auto map_func = AggregateFunction(
         "theil_sen_fit_predict",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
         GetTheilSenFitPredictResultType(), AggregateFunction::StateSize<TheilSenFitPredictState>,
-        TheilSenFitPredictInitialize, TheilSenFitPredictUpdate, TheilSenFitPredictCombine,
+        TheilSenFitPredictInitialize, ANOFOX_GUARDED_UPDATE(TheilSenFitPredictUpdate, TheilSenFitPredictDestroy, TheilSenFitPredictInitialize), TheilSenFitPredictCombine,
         ANOFOX_GUARDED_FINALIZE(TheilSenFitPredictFinalize, TheilSenFitPredictDestroy, TheilSenFitPredictInitialize), nullptr, TheilSenFitPredictBind, TheilSenFitPredictDestroy);
 
     {

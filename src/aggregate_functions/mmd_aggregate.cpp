@@ -251,7 +251,7 @@ void RegisterMmdAggregateFunction(ExtensionLoader &loader) {
         "mmd_agg", {LogicalType::DOUBLE, LogicalType::INTEGER, LogicalType::ANY},
         LogicalType::ANY,
         AggregateFunction::StateSize<MmdAggregateState>, MmdAggInitialize,
-        MmdAggUpdate, MmdAggCombine, ANOFOX_GUARDED_FINALIZE(MmdAggFinalize, MmdAggDestroy, MmdAggInitialize),
+        ANOFOX_GUARDED_UPDATE(MmdAggUpdate, MmdAggDestroy, MmdAggInitialize), MmdAggCombine, ANOFOX_GUARDED_FINALIZE(MmdAggFinalize, MmdAggDestroy, MmdAggInitialize),
         nullptr, MmdAggBind, MmdAggDestroy);
 
     // Without options
@@ -259,7 +259,7 @@ void RegisterMmdAggregateFunction(ExtensionLoader &loader) {
         "mmd_agg", {LogicalType::DOUBLE, LogicalType::INTEGER},
         LogicalType::ANY,
         AggregateFunction::StateSize<MmdAggregateState>, MmdAggInitialize,
-        MmdAggUpdate, MmdAggCombine, ANOFOX_GUARDED_FINALIZE(MmdAggFinalize, MmdAggDestroy, MmdAggInitialize),
+        ANOFOX_GUARDED_UPDATE(MmdAggUpdate, MmdAggDestroy, MmdAggInitialize), MmdAggCombine, ANOFOX_GUARDED_FINALIZE(MmdAggFinalize, MmdAggDestroy, MmdAggInitialize),
         nullptr, MmdAggBind, MmdAggDestroy);
 
     {

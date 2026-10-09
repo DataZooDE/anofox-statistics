@@ -430,14 +430,14 @@ void RegisterPlsFitPredictAggregateFunction(ExtensionLoader &loader) {
     auto basic_func =
         AggregateFunction("pls_fit_predict_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
                           LogicalType::ANY, AggregateFunction::StateSize<PlsPredictAggState>, PlsPredictAggInitialize,
-                          PlsPredictAggUpdate, PlsPredictAggCombine, ANOFOX_GUARDED_FINALIZE(PlsPredictAggFinalize, PlsPredictAggDestroy, PlsPredictAggInitialize), nullptr, PlsPredictAggBind,
+                          ANOFOX_GUARDED_UPDATE(PlsPredictAggUpdate, PlsPredictAggDestroy, PlsPredictAggInitialize), PlsPredictAggCombine, ANOFOX_GUARDED_FINALIZE(PlsPredictAggFinalize, PlsPredictAggDestroy, PlsPredictAggInitialize), nullptr, PlsPredictAggBind,
                           PlsPredictAggDestroy);
     func_set.AddFunction(basic_func);
 
     auto map_func = AggregateFunction(
         "pls_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY}, LogicalType::ANY,
-        AggregateFunction::StateSize<PlsPredictAggState>, PlsPredictAggInitialize, PlsPredictAggUpdate,
+        AggregateFunction::StateSize<PlsPredictAggState>, PlsPredictAggInitialize, ANOFOX_GUARDED_UPDATE(PlsPredictAggUpdate, PlsPredictAggDestroy, PlsPredictAggInitialize),
         PlsPredictAggCombine, ANOFOX_GUARDED_FINALIZE(PlsPredictAggFinalize, PlsPredictAggDestroy, PlsPredictAggInitialize), nullptr, PlsPredictAggBind, PlsPredictAggDestroy);
     func_set.AddFunction(map_func);
 
@@ -445,7 +445,7 @@ void RegisterPlsFitPredictAggregateFunction(ExtensionLoader &loader) {
     auto split_func = AggregateFunction(
         "pls_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR}, LogicalType::ANY,
-        AggregateFunction::StateSize<PlsPredictAggState>, PlsPredictAggInitialize, PlsPredictAggUpdate,
+        AggregateFunction::StateSize<PlsPredictAggState>, PlsPredictAggInitialize, ANOFOX_GUARDED_UPDATE(PlsPredictAggUpdate, PlsPredictAggDestroy, PlsPredictAggInitialize),
         PlsPredictAggCombine, ANOFOX_GUARDED_FINALIZE(PlsPredictAggFinalize, PlsPredictAggDestroy, PlsPredictAggInitialize), nullptr, PlsPredictAggBindWithSplit, PlsPredictAggDestroy);
     func_set.AddFunction(split_func);
 
@@ -453,7 +453,7 @@ void RegisterPlsFitPredictAggregateFunction(ExtensionLoader &loader) {
     auto split_map_func = AggregateFunction(
         "pls_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR, LogicalType::ANY}, LogicalType::ANY,
-        AggregateFunction::StateSize<PlsPredictAggState>, PlsPredictAggInitialize, PlsPredictAggUpdate,
+        AggregateFunction::StateSize<PlsPredictAggState>, PlsPredictAggInitialize, ANOFOX_GUARDED_UPDATE(PlsPredictAggUpdate, PlsPredictAggDestroy, PlsPredictAggInitialize),
         PlsPredictAggCombine, ANOFOX_GUARDED_FINALIZE(PlsPredictAggFinalize, PlsPredictAggDestroy, PlsPredictAggInitialize), nullptr, PlsPredictAggBindWithSplit, PlsPredictAggDestroy);
     func_set.AddFunction(split_map_func);
 

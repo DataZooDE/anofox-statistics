@@ -417,7 +417,7 @@ void RegisterWlsAggregateFunction(ExtensionLoader &loader) {
     auto basic_func = AggregateFunction(
         "wls_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE},
         LogicalType::ANY, // Set in bind
-        AggregateFunction::StateSize<WlsAggregateState>, WlsAggInitialize, WlsAggUpdate, WlsAggCombine, ANOFOX_GUARDED_FINALIZE(WlsAggFinalize, WlsAggDestroy, WlsAggInitialize),
+        AggregateFunction::StateSize<WlsAggregateState>, WlsAggInitialize, ANOFOX_GUARDED_UPDATE(WlsAggUpdate, WlsAggDestroy, WlsAggInitialize), WlsAggCombine, ANOFOX_GUARDED_FINALIZE(WlsAggFinalize, WlsAggDestroy, WlsAggInitialize),
         nullptr, // simple_update
         WlsAggBind, WlsAggDestroy);
     func_set.AddFunction(basic_func);
@@ -427,7 +427,7 @@ void RegisterWlsAggregateFunction(ExtensionLoader &loader) {
                                       {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE,
                                        LogicalType::ANY}, // MAP or STRUCT for options
                                       LogicalType::ANY, AggregateFunction::StateSize<WlsAggregateState>,
-                                      WlsAggInitialize, WlsAggUpdate, WlsAggCombine, ANOFOX_GUARDED_FINALIZE(WlsAggFinalize, WlsAggDestroy, WlsAggInitialize), nullptr,
+                                      WlsAggInitialize, ANOFOX_GUARDED_UPDATE(WlsAggUpdate, WlsAggDestroy, WlsAggInitialize), WlsAggCombine, ANOFOX_GUARDED_FINALIZE(WlsAggFinalize, WlsAggDestroy, WlsAggInitialize), nullptr,
                                       WlsAggBind, WlsAggDestroy);
     func_set.AddFunction(map_func);
 

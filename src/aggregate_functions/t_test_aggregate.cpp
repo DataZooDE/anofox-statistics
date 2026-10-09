@@ -267,7 +267,7 @@ void RegisterTTestAggregateFunction(ExtensionLoader &loader) {
         "t_test_agg", {LogicalType::DOUBLE, LogicalType::BIGINT, LogicalType::ANY},
         LogicalType::ANY,
         AggregateFunction::StateSize<TTestAggregateState>, TTestAggInitialize,
-        TTestAggUpdate, TTestAggCombine, ANOFOX_GUARDED_FINALIZE(TTestAggFinalize, TTestAggDestroy, TTestAggInitialize),
+        ANOFOX_GUARDED_UPDATE(TTestAggUpdate, TTestAggDestroy, TTestAggInitialize), TTestAggCombine, ANOFOX_GUARDED_FINALIZE(TTestAggFinalize, TTestAggDestroy, TTestAggInitialize),
         nullptr, TTestAggBind, TTestAggDestroy);
     func_set.AddFunction(func_with_opts);
     func_with_opts.arguments[1] = LogicalType::VARCHAR;
@@ -278,7 +278,7 @@ void RegisterTTestAggregateFunction(ExtensionLoader &loader) {
         "t_test_agg", {LogicalType::DOUBLE, LogicalType::BIGINT},
         LogicalType::ANY,
         AggregateFunction::StateSize<TTestAggregateState>, TTestAggInitialize,
-        TTestAggUpdate, TTestAggCombine, ANOFOX_GUARDED_FINALIZE(TTestAggFinalize, TTestAggDestroy, TTestAggInitialize),
+        ANOFOX_GUARDED_UPDATE(TTestAggUpdate, TTestAggDestroy, TTestAggInitialize), TTestAggCombine, ANOFOX_GUARDED_FINALIZE(TTestAggFinalize, TTestAggDestroy, TTestAggInitialize),
         nullptr, TTestAggBind, TTestAggDestroy);
     func_set.AddFunction(func_no_opts);
     func_no_opts.arguments[1] = LogicalType::VARCHAR;

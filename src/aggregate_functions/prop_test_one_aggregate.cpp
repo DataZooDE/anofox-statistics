@@ -232,7 +232,7 @@ void RegisterPropTestOneAggregateFunction(ExtensionLoader &loader) {
         "prop_test_one_agg", {LogicalType::BIGINT, LogicalType::ANY},
         LogicalType::ANY,
         AggregateFunction::StateSize<PropTestOneAggregateState>, PropTestOneAggInitialize,
-        PropTestOneAggUpdate, PropTestOneAggCombine, ANOFOX_GUARDED_FINALIZE(PropTestOneAggFinalize, PropTestOneAggDestroy, PropTestOneAggInitialize),
+        ANOFOX_GUARDED_UPDATE(PropTestOneAggUpdate, PropTestOneAggDestroy, PropTestOneAggInitialize), PropTestOneAggCombine, ANOFOX_GUARDED_FINALIZE(PropTestOneAggFinalize, PropTestOneAggDestroy, PropTestOneAggInitialize),
         nullptr, PropTestOneAggBind, PropTestOneAggDestroy);
     func_set.AddFunction(func_with_opts);
 
@@ -241,7 +241,7 @@ void RegisterPropTestOneAggregateFunction(ExtensionLoader &loader) {
         "prop_test_one_agg", {LogicalType::BIGINT},
         LogicalType::ANY,
         AggregateFunction::StateSize<PropTestOneAggregateState>, PropTestOneAggInitialize,
-        PropTestOneAggUpdate, PropTestOneAggCombine, ANOFOX_GUARDED_FINALIZE(PropTestOneAggFinalize, PropTestOneAggDestroy, PropTestOneAggInitialize),
+        ANOFOX_GUARDED_UPDATE(PropTestOneAggUpdate, PropTestOneAggDestroy, PropTestOneAggInitialize), PropTestOneAggCombine, ANOFOX_GUARDED_FINALIZE(PropTestOneAggFinalize, PropTestOneAggDestroy, PropTestOneAggInitialize),
         nullptr, PropTestOneAggBind, PropTestOneAggDestroy);
     func_set.AddFunction(func_no_opts);
 

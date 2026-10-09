@@ -273,7 +273,7 @@ void RegisterFisherExactAggregateFunction(ExtensionLoader &loader) {
         "fisher_exact_agg", {LogicalType::INTEGER, LogicalType::INTEGER, LogicalType::ANY},
         LogicalType::ANY,
         AggregateFunction::StateSize<FisherExactAggregateState>, FisherExactAggInitialize,
-        FisherExactAggUpdate, FisherExactAggCombine, ANOFOX_GUARDED_FINALIZE(FisherExactAggFinalize, FisherExactAggDestroy, FisherExactAggInitialize),
+        ANOFOX_GUARDED_UPDATE(FisherExactAggUpdate, FisherExactAggDestroy, FisherExactAggInitialize), FisherExactAggCombine, ANOFOX_GUARDED_FINALIZE(FisherExactAggFinalize, FisherExactAggDestroy, FisherExactAggInitialize),
         nullptr, FisherExactAggBind, FisherExactAggDestroy);
     func_set.AddFunction(func_with_opts);
 
@@ -282,7 +282,7 @@ void RegisterFisherExactAggregateFunction(ExtensionLoader &loader) {
         "fisher_exact_agg", {LogicalType::INTEGER, LogicalType::INTEGER},
         LogicalType::ANY,
         AggregateFunction::StateSize<FisherExactAggregateState>, FisherExactAggInitialize,
-        FisherExactAggUpdate, FisherExactAggCombine, ANOFOX_GUARDED_FINALIZE(FisherExactAggFinalize, FisherExactAggDestroy, FisherExactAggInitialize),
+        ANOFOX_GUARDED_UPDATE(FisherExactAggUpdate, FisherExactAggDestroy, FisherExactAggInitialize), FisherExactAggCombine, ANOFOX_GUARDED_FINALIZE(FisherExactAggFinalize, FisherExactAggDestroy, FisherExactAggInitialize),
         nullptr, FisherExactAggBind, FisherExactAggDestroy);
     func_set.AddFunction(func_no_opts);
 

@@ -370,14 +370,14 @@ void RegisterHuberFitPredictFunction(ExtensionLoader &loader) {
     auto basic_func = AggregateFunction(
         "huber_fit_predict", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
         GetHuberFitPredictResultType(), AggregateFunction::StateSize<HuberFitPredictState>,
-        HuberFitPredictInitialize, HuberFitPredictUpdate, HuberFitPredictCombine, ANOFOX_GUARDED_FINALIZE(HuberFitPredictFinalize, HuberFitPredictDestroy, HuberFitPredictInitialize), nullptr,
+        HuberFitPredictInitialize, ANOFOX_GUARDED_UPDATE(HuberFitPredictUpdate, HuberFitPredictDestroy, HuberFitPredictInitialize), HuberFitPredictCombine, ANOFOX_GUARDED_FINALIZE(HuberFitPredictFinalize, HuberFitPredictDestroy, HuberFitPredictInitialize), nullptr,
         HuberFitPredictBind, HuberFitPredictDestroy);
 
     auto map_func = AggregateFunction(
         "huber_fit_predict",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
         GetHuberFitPredictResultType(), AggregateFunction::StateSize<HuberFitPredictState>,
-        HuberFitPredictInitialize, HuberFitPredictUpdate, HuberFitPredictCombine, ANOFOX_GUARDED_FINALIZE(HuberFitPredictFinalize, HuberFitPredictDestroy, HuberFitPredictInitialize), nullptr,
+        HuberFitPredictInitialize, ANOFOX_GUARDED_UPDATE(HuberFitPredictUpdate, HuberFitPredictDestroy, HuberFitPredictInitialize), HuberFitPredictCombine, ANOFOX_GUARDED_FINALIZE(HuberFitPredictFinalize, HuberFitPredictDestroy, HuberFitPredictInitialize), nullptr,
         HuberFitPredictBind, HuberFitPredictDestroy);
 
     {

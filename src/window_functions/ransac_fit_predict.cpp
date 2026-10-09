@@ -403,14 +403,14 @@ void RegisterRansacFitPredictFunction(ExtensionLoader &loader) {
     auto basic_func = AggregateFunction(
         "ransac_fit_predict", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
         GetRansacFitPredictResultType(), AggregateFunction::StateSize<RansacFitPredictState>,
-        RansacFitPredictInitialize, RansacFitPredictUpdate, RansacFitPredictCombine, ANOFOX_GUARDED_FINALIZE(RansacFitPredictFinalize, RansacFitPredictDestroy, RansacFitPredictInitialize),
+        RansacFitPredictInitialize, ANOFOX_GUARDED_UPDATE(RansacFitPredictUpdate, RansacFitPredictDestroy, RansacFitPredictInitialize), RansacFitPredictCombine, ANOFOX_GUARDED_FINALIZE(RansacFitPredictFinalize, RansacFitPredictDestroy, RansacFitPredictInitialize),
         nullptr, RansacFitPredictBind, RansacFitPredictDestroy);
 
     auto map_func = AggregateFunction(
         "ransac_fit_predict",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
         GetRansacFitPredictResultType(), AggregateFunction::StateSize<RansacFitPredictState>,
-        RansacFitPredictInitialize, RansacFitPredictUpdate, RansacFitPredictCombine, ANOFOX_GUARDED_FINALIZE(RansacFitPredictFinalize, RansacFitPredictDestroy, RansacFitPredictInitialize),
+        RansacFitPredictInitialize, ANOFOX_GUARDED_UPDATE(RansacFitPredictUpdate, RansacFitPredictDestroy, RansacFitPredictInitialize), RansacFitPredictCombine, ANOFOX_GUARDED_FINALIZE(RansacFitPredictFinalize, RansacFitPredictDestroy, RansacFitPredictInitialize),
         nullptr, RansacFitPredictBind, RansacFitPredictDestroy);
 
     {

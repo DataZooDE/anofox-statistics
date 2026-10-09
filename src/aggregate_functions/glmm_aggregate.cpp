@@ -614,14 +614,14 @@ void RegisterGlmmAggregateFunction(ExtensionLoader &loader) {
 
 	auto basic = AggregateFunction(
 	    "glmm_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
-	    LogicalType::ANY, AggregateFunction::StateSize<GlmmAggregateState>, GlmmAggInitialize, GlmmAggUpdate,
+	    LogicalType::ANY, AggregateFunction::StateSize<GlmmAggregateState>, GlmmAggInitialize, ANOFOX_GUARDED_UPDATE(GlmmAggUpdate, GlmmAggDestroy, GlmmAggInitialize),
 	    GlmmAggCombine, ANOFOX_GUARDED_FINALIZE(GlmmAggFinalize, GlmmAggDestroy, GlmmAggInitialize), nullptr, GlmmAggBind, GlmmAggDestroy);
 	func_set.AddFunction(basic);
 
 	auto with_opts = AggregateFunction(
 	    "glmm_fit_agg",
 	    {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY, LogicalType::ANY},
-	    LogicalType::ANY, AggregateFunction::StateSize<GlmmAggregateState>, GlmmAggInitialize, GlmmAggUpdate,
+	    LogicalType::ANY, AggregateFunction::StateSize<GlmmAggregateState>, GlmmAggInitialize, ANOFOX_GUARDED_UPDATE(GlmmAggUpdate, GlmmAggDestroy, GlmmAggInitialize),
 	    GlmmAggCombine, ANOFOX_GUARDED_FINALIZE(GlmmAggFinalize, GlmmAggDestroy, GlmmAggInitialize), nullptr, GlmmAggBind, GlmmAggDestroy);
 	func_set.AddFunction(with_opts);
 

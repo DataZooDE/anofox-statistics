@@ -518,7 +518,7 @@ void RegisterOlsFitPredictAggregateFunction(ExtensionLoader &loader) {
     auto basic_func =
         AggregateFunction("ols_fit_predict_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
                           LogicalType::ANY, AggregateFunction::StateSize<OlsPredictAggState>, OlsPredictAggInitialize,
-                          OlsPredictAggUpdate, OlsPredictAggCombine, ANOFOX_GUARDED_FINALIZE(OlsPredictAggFinalize, OlsPredictAggDestroy, OlsPredictAggInitialize), nullptr, OlsPredictAggBind,
+                          ANOFOX_GUARDED_UPDATE(OlsPredictAggUpdate, OlsPredictAggDestroy, OlsPredictAggInitialize), OlsPredictAggCombine, ANOFOX_GUARDED_FINALIZE(OlsPredictAggFinalize, OlsPredictAggDestroy, OlsPredictAggInitialize), nullptr, OlsPredictAggBind,
                           OlsPredictAggDestroy);
     func_set.AddFunction(basic_func);
 
@@ -526,7 +526,7 @@ void RegisterOlsFitPredictAggregateFunction(ExtensionLoader &loader) {
     auto map_func = AggregateFunction(
         "ols_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY}, LogicalType::ANY,
-        AggregateFunction::StateSize<OlsPredictAggState>, OlsPredictAggInitialize, OlsPredictAggUpdate,
+        AggregateFunction::StateSize<OlsPredictAggState>, OlsPredictAggInitialize, ANOFOX_GUARDED_UPDATE(OlsPredictAggUpdate, OlsPredictAggDestroy, OlsPredictAggInitialize),
         OlsPredictAggCombine, ANOFOX_GUARDED_FINALIZE(OlsPredictAggFinalize, OlsPredictAggDestroy, OlsPredictAggInitialize), nullptr, OlsPredictAggBind, OlsPredictAggDestroy);
     func_set.AddFunction(map_func);
 
@@ -534,7 +534,7 @@ void RegisterOlsFitPredictAggregateFunction(ExtensionLoader &loader) {
     auto split_func = AggregateFunction(
         "ols_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR}, LogicalType::ANY,
-        AggregateFunction::StateSize<OlsPredictAggState>, OlsPredictAggInitialize, OlsPredictAggUpdate,
+        AggregateFunction::StateSize<OlsPredictAggState>, OlsPredictAggInitialize, ANOFOX_GUARDED_UPDATE(OlsPredictAggUpdate, OlsPredictAggDestroy, OlsPredictAggInitialize),
         OlsPredictAggCombine, ANOFOX_GUARDED_FINALIZE(OlsPredictAggFinalize, OlsPredictAggDestroy, OlsPredictAggInitialize), nullptr, OlsPredictAggBindWithSplit, OlsPredictAggDestroy);
     func_set.AddFunction(split_func);
 
@@ -543,7 +543,7 @@ void RegisterOlsFitPredictAggregateFunction(ExtensionLoader &loader) {
         "ols_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR, LogicalType::ANY},
         LogicalType::ANY, AggregateFunction::StateSize<OlsPredictAggState>, OlsPredictAggInitialize,
-        OlsPredictAggUpdate, OlsPredictAggCombine, ANOFOX_GUARDED_FINALIZE(OlsPredictAggFinalize, OlsPredictAggDestroy, OlsPredictAggInitialize), nullptr, OlsPredictAggBindWithSplit,
+        ANOFOX_GUARDED_UPDATE(OlsPredictAggUpdate, OlsPredictAggDestroy, OlsPredictAggInitialize), OlsPredictAggCombine, ANOFOX_GUARDED_FINALIZE(OlsPredictAggFinalize, OlsPredictAggDestroy, OlsPredictAggInitialize), nullptr, OlsPredictAggBindWithSplit,
         OlsPredictAggDestroy);
     func_set.AddFunction(split_opts_func);
 

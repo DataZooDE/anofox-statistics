@@ -201,7 +201,7 @@ void RegisterChisqGofAggregateFunction(ExtensionLoader &loader) {
         "chisq_gof_agg", {LogicalType::BIGINT, LogicalType::DOUBLE},
         LogicalType::ANY,
         AggregateFunction::StateSize<ChisqGofAggregateState>, ChisqGofAggInitialize,
-        ChisqGofAggUpdate, ChisqGofAggCombine, ANOFOX_GUARDED_FINALIZE(ChisqGofAggFinalize, ChisqGofAggDestroy, ChisqGofAggInitialize),
+        ANOFOX_GUARDED_UPDATE(ChisqGofAggUpdate, ChisqGofAggDestroy, ChisqGofAggInitialize), ChisqGofAggCombine, ANOFOX_GUARDED_FINALIZE(ChisqGofAggFinalize, ChisqGofAggDestroy, ChisqGofAggInitialize),
         nullptr, ChisqGofAggBind, ChisqGofAggDestroy);
     func_set.AddFunction(func);
 

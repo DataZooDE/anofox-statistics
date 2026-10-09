@@ -208,7 +208,7 @@ void RegisterAnovaAggregateFunction(ExtensionLoader &loader) {
         "one_way_anova_agg", {LogicalType::DOUBLE, LogicalType::INTEGER},
         LogicalType::ANY,
         AggregateFunction::StateSize<AnovaAggregateState>, AnovaAggInitialize,
-        AnovaAggUpdate, AnovaAggCombine, ANOFOX_GUARDED_FINALIZE(AnovaAggFinalize, AnovaAggDestroy, AnovaAggInitialize),
+        ANOFOX_GUARDED_UPDATE(AnovaAggUpdate, AnovaAggDestroy, AnovaAggInitialize), AnovaAggCombine, ANOFOX_GUARDED_FINALIZE(AnovaAggFinalize, AnovaAggDestroy, AnovaAggInitialize),
         nullptr, AnovaAggBind, AnovaAggDestroy);
     func_set.AddFunction(func);
 

@@ -266,7 +266,7 @@ void RegisterTostPairedAggregateFunction(ExtensionLoader &loader) {
         "tost_paired_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::ANY},
         LogicalType::ANY,
         AggregateFunction::StateSize<TostPairedAggregateState>, TostPairedAggInitialize,
-        TostPairedAggUpdate, TostPairedAggCombine, ANOFOX_GUARDED_FINALIZE(TostPairedAggFinalize, TostPairedAggDestroy, TostPairedAggInitialize),
+        ANOFOX_GUARDED_UPDATE(TostPairedAggUpdate, TostPairedAggDestroy, TostPairedAggInitialize), TostPairedAggCombine, ANOFOX_GUARDED_FINALIZE(TostPairedAggFinalize, TostPairedAggDestroy, TostPairedAggInitialize),
         nullptr, TostPairedAggBind, TostPairedAggDestroy);
     func_set.AddFunction(func_with_opts);
 
@@ -275,7 +275,7 @@ void RegisterTostPairedAggregateFunction(ExtensionLoader &loader) {
         "tost_paired_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE},
         LogicalType::ANY,
         AggregateFunction::StateSize<TostPairedAggregateState>, TostPairedAggInitialize,
-        TostPairedAggUpdate, TostPairedAggCombine, ANOFOX_GUARDED_FINALIZE(TostPairedAggFinalize, TostPairedAggDestroy, TostPairedAggInitialize),
+        ANOFOX_GUARDED_UPDATE(TostPairedAggUpdate, TostPairedAggDestroy, TostPairedAggInitialize), TostPairedAggCombine, ANOFOX_GUARDED_FINALIZE(TostPairedAggFinalize, TostPairedAggDestroy, TostPairedAggInitialize),
         nullptr, TostPairedAggBind, TostPairedAggDestroy);
     func_set.AddFunction(func_no_opts);
 

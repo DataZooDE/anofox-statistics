@@ -183,7 +183,7 @@ void RegisterDAgostinoK2AggregateFunction(ExtensionLoader &loader) {
     auto func = AggregateFunction("dagostino_k2_agg", {LogicalType::DOUBLE},
                                   LogicalType::ANY,
                                   AggregateFunction::StateSize<DAgostinoK2AggregateState>, DAgostinoK2AggInitialize,
-                                  DAgostinoK2AggUpdate, DAgostinoK2AggCombine, ANOFOX_GUARDED_FINALIZE(DAgostinoK2AggFinalize, DAgostinoK2AggDestroy, DAgostinoK2AggInitialize),
+                                  ANOFOX_GUARDED_UPDATE(DAgostinoK2AggUpdate, DAgostinoK2AggDestroy, DAgostinoK2AggInitialize), DAgostinoK2AggCombine, ANOFOX_GUARDED_FINALIZE(DAgostinoK2AggFinalize, DAgostinoK2AggDestroy, DAgostinoK2AggInitialize),
                                   nullptr, DAgostinoK2AggBind, DAgostinoK2AggDestroy);
 
     {
