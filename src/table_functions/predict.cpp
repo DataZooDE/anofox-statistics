@@ -468,12 +468,19 @@ void RegisterPredictFunction(ExtensionLoader &loader) {
     model_desc.description = "Predicts one row from a fitted model STRUCT (as returned by any *_fit_agg or *_fit "
                              "function). GLM models are mapped to the response scale through their link unless "
                              "{'type': 'link'} is given; isotonic models are interpolated.";
-    model_desc.examples = {"predict(ols_fit_agg(y, [x1, x2]), [1.5, 2.0])",
-                           "predict(model, [x1, x2], {'type': 'link'})"};
+    model_desc.examples = {"predict(ols_fit_agg(y, [x1, x2]), [1.5, 2.0])"};
     model_desc.categories = {"regression", "prediction"};
     model_desc.parameter_names = {"model", "x"};
     model_desc.parameter_types = {LogicalType::ANY, LogicalType::LIST(LogicalType::DOUBLE)};
     info.descriptions.push_back(std::move(model_desc));
+    FunctionDescription model_opts_desc;
+    model_opts_desc.description = "Predicts one row from a fitted model STRUCT with a MAP of options; {'type': "
+                                  "'link'} returns a GLM prediction on the link scale.";
+    model_opts_desc.examples = {"predict(model, [x1, x2], {'type': 'link'})"};
+    model_opts_desc.categories = {"regression", "prediction"};
+    model_opts_desc.parameter_names = {"model", "x", "options"};
+    model_opts_desc.parameter_types = {LogicalType::ANY, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY};
+    info.descriptions.push_back(std::move(model_opts_desc));
     loader.RegisterFunction(std::move(info));
 
     // linear_predict: the column-layout form under an unambiguous name

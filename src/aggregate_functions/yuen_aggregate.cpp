@@ -283,14 +283,14 @@ void RegisterYuenAggregateFunction(ExtensionLoader &loader) {
     d1.examples        = {"yuen_agg(value, group_id, {'trim': 0.2})"};
     d1.categories      = {"hypothesis-testing"};
     d1.parameter_names = {"value", "group_id", "options"};
-    d1.parameter_types = {LogicalType::DOUBLE, LogicalType::BIGINT, LogicalType::ANY};
+    d1.parameter_types = {LogicalType::DOUBLE, LogicalType::ANY, LogicalType::ANY};
     info.descriptions.push_back(std::move(d1));
     FunctionDescription d2;
     d2.description     = "Performs Yuen's trimmed-means t-test, robust to outliers and non-normality, using default options.";
     d2.examples        = {"yuen_agg(value, group_id)"};
     d2.categories      = {"hypothesis-testing"};
     d2.parameter_names = {"value", "group_id"};
-    d2.parameter_types = {LogicalType::DOUBLE, LogicalType::BIGINT};
+    d2.parameter_types = {LogicalType::DOUBLE, LogicalType::ANY};
     info.descriptions.push_back(std::move(d2));
     loader.RegisterFunction(std::move(info));
 

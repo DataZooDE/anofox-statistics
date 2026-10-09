@@ -134,6 +134,7 @@ include_directories(src/include)
 # Extension source files
 set(EXTENSION_SOURCES
     src/anofox_statistics_extension.cpp
+    src/contract.cpp
     src/include/map_options_parser.cpp
     src/table_functions/ols_fit.cpp
     src/table_functions/ridge_fit.cpp

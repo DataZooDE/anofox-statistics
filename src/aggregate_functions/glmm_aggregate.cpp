@@ -626,6 +626,20 @@ void RegisterGlmmAggregateFunction(ExtensionLoader &loader) {
 	func_set.AddFunction(with_opts);
 
 	CreateAggregateFunctionInfo info(func_set);
+	FunctionDescription d1;
+	d1.description = "Fits a generalized linear mixed model with a random intercept per group (one model across all groups); returns fixed effects, variance components and per-group random effects.";
+	d1.examples = {"glmm_fit_agg(y, [x1, x2], store_id)"};
+	d1.categories = {"mixed-models", "regression"};
+	d1.parameter_names = {"y", "x", "group"};
+	d1.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY};
+	info.descriptions.push_back(std::move(d1));
+	FunctionDescription d2;
+	d2.description = "Fits a generalized linear mixed model with a MAP of options (family, reml, random slopes, crossed groups, compute_inference, ...).";
+	d2.examples = {"glmm_fit_agg(y, [x1, x2], store_id, {'family': 'poisson'})"};
+	d2.categories = {"mixed-models", "regression"};
+	d2.parameter_names = {"y", "x", "group", "options"};
+	d2.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY, LogicalType::ANY};
+	info.descriptions.push_back(std::move(d2));
 	loader.RegisterFunction(info);
 
 }

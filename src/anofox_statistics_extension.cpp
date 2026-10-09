@@ -6,6 +6,7 @@
 #include "duckdb/main/extension/extension_loader.hpp"
 #include "telemetry.hpp"
 #include "anofox_statistics_banner.hpp"
+#include "contract.hpp"
 
 // The build stamps EXT_VERSION_ANOFOX_STATISTICS from the git tag; the fallback
 // matches what SetProduct reports below.
@@ -80,6 +81,8 @@ void LoadInternal(ExtensionLoader &loader) {
     telemetry.AssociateGroup("deployment", PostHogTelemetry::GetDistinctId());
     telemetry.CaptureExtensionLoad("anofox_statistics", version);
 #endif // ANOFOX_TELEMETRY_ENABLED
+
+    const auto preexisting = SnapshotSystemFunctionNames(loader);
 
     // Register scalar functions
     RegisterOlsFitFunction(loader);
@@ -216,6 +219,9 @@ void LoadInternal(ExtensionLoader &loader) {
 
     // Register table macros for fit_predict_by functions
     RegisterFitPredictTableMacros(loader);
+
+    RegisterContractVersionFunction(loader);
+    ApplyContractTags(loader, preexisting);
 
     datazoo::RegisterBannerOption(loader);
     // Last, so a load that fails earlier never advertises itself. Silent unless
