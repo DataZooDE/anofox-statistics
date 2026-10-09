@@ -35,7 +35,7 @@
 
 use super::*;
 use crate::models::glm_engine::design::ConstantColumnPolicy;
-use crate::types::PriorSpec;
+use crate::types::{PriorSpec, VcovType};
 use anofox_regression::prelude::*;
 use faer::{Col, Mat};
 

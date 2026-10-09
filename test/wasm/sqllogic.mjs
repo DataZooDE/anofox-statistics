@@ -7,6 +7,12 @@
 //   - `statement error [msg]`    → run SQL, expect failure (optional substring)
 //   - `query <types> [sort]`     → run SQL, compare rows after `----`
 //   - `mode skip` / `mode unskip`→ skip a block of records
+//   - `loop <var> <from> <to>` / `foreach <var> <v1> <v2> ...` … `endloop`
+//                                → expanded up front, substituting `${var}`
+//                                  in every enclosed line (nesting supported)
+//   - `statement error` followed by `----` and an expected message → the error
+//     text must contain the message (or match it with `<REGEX>:` /
+//     `<!REGEX>:` prefixes), exactly as the native runner checks it
 //   - `# ...` comments and blank-line record separators
 //
 // Comparison is intentionally tolerant so it is robust across the DuckDB-Wasm
@@ -26,8 +32,55 @@ export const FLOAT_REL_TOL = 1e-4;
 
 // ---- Parsing -------------------------------------------------------------
 
+// Expand `loop` / `foreach` … `endloop` blocks into plain lines, substituting
+// `${var}` exactly as the native sqllogictest runner does. Iterations are
+// separated by a blank line so each one's records stay distinct.
+export function expandLoops(lines) {
+  const out = [];
+  let i = 0;
+  const expandFrom = () => {
+    // Collect the body up to the matching `endloop` (respecting nesting).
+    const body = [];
+    let depth = 1;
+    while (i < lines.length) {
+      const kw = lines[i].trim().split(/\s+/)[0];
+      if (kw === 'loop' || kw === 'foreach' || kw === 'concurrentloop' || kw === 'concurrentforeach') depth++;
+      else if (kw === 'endloop' && --depth === 0) { i++; return body; }
+      body.push(lines[i]);
+      i++;
+    }
+    throw new Error('unterminated loop/foreach (missing endloop)');
+  };
+  while (i < lines.length) {
+    const tokens = lines[i].trim().split(/\s+/);
+    const kw = tokens[0];
+    if (kw === 'loop' || kw === 'concurrentloop' || kw === 'foreach' || kw === 'concurrentforeach') {
+      i++;
+      const body = expandLoops(expandFrom());
+      const name = tokens[1];
+      let values;
+      if (kw.endsWith('loop')) {
+        const from = parseInt(tokens[2], 10), to = parseInt(tokens[3], 10);
+        values = [];
+        for (let v = from; v < to; v++) values.push(String(v));
+      } else {
+        values = tokens.slice(2);
+      }
+      for (const v of values) {
+        out.push('');
+        for (const l of body) out.push(l.split('${' + name + '}').join(v));
+        out.push('');
+      }
+      continue;
+    }
+    out.push(lines[i]);
+    i++;
+  }
+  return out;
+}
+
 export function parseTest(text) {
-  const lines = text.split(/\r?\n/);
+  const lines = expandLoops(text.split(/\r?\n/));
   const records = [];
   let i = 0;
   let skipMode = false;
@@ -67,9 +120,18 @@ export function parseTest(text) {
       const errorSubstr = tokens[1] === 'error' ? tokens.slice(2).join(' ').trim() : null;
       i++;
       const sql = [];
-      while (i < lines.length && !isBlank(lines[i])) { sql.push(lines[i]); i++; }
+      while (i < lines.length && !isBlank(lines[i]) && lines[i].trim() !== '----') { sql.push(lines[i]); i++; }
+      // `----` separates the SQL from the expected error message (native
+      // sqllogictest semantics); it must never be sent to the engine.
+      let expectedError = null;
+      if (i < lines.length && lines[i].trim() === '----') {
+        i++;
+        const msg = [];
+        while (i < lines.length && !isBlank(lines[i])) { msg.push(lines[i]); i++; }
+        expectedError = msg.join('\n').trim();
+      }
       records.push({
-        type: 'statement', expectOk, errorSubstr,
+        type: 'statement', expectOk, errorSubstr, expectedError,
         sql: sql.join('\n'), skip: skipMode,
       });
       continue;
@@ -196,6 +258,24 @@ export function compareQuery(record, rows) {
 
 // ---- Running -------------------------------------------------------------
 
+// Native runner semantics for an expected error message: substring match, or
+// `<REGEX>:pattern` (must match) / `<!REGEX>:pattern` (must not match).
+export function errorMatches(expected, message) {
+  if (!expected) return true;
+  if (expected.startsWith('<REGEX>:')) return new RegExp(expected.slice(8), 's').test(message);
+  if (expected.startsWith('<!REGEX>:')) return !new RegExp(expected.slice(9), 's').test(message);
+  return message.includes(expected);
+}
+
+// DuckDB-Wasm (wasm_eh) is built without threads, so `SET threads = N` (N > 1)
+// is rejected. That is an engine capability, not an extension behavior: such a
+// statement is reported as skipped and the file's assertions still run, just
+// single-threaded.
+function isThreadsUnsupported(sql, err) {
+  return /^\s*(SET|PRAGMA)\s+threads\b/i.test(sql)
+    && /compiled without threads/i.test(String(err && err.message || err));
+}
+
 // `runQuery(sql)` must return an array of rows, each row an array of cell values.
 export async function runRecords(records, runQuery, { file, log }) {
   const result = { file, passed: 0, failed: 0, skipped: 0, failures: [] };
@@ -213,11 +293,22 @@ export async function runRecords(records, runQuery, { file, log }) {
           result.failures.push({ sql: rec.sql, reason: 'expected error but statement succeeded' });
         }
       } catch (err) {
-        if (!rec.expectOk && (!rec.errorSubstr || String(err.message || err).includes(rec.errorSubstr))) {
+        const msg = String(err.message || err);
+        if (rec.expectOk && isThreadsUnsupported(rec.sql, err)) {
+          result.skipped++;
+          if (log) log(`    ⊘ skipped (DuckDB-Wasm has no threads): ${rec.sql.trim()}`);
+        } else if (!rec.expectOk
+            && (!rec.errorSubstr || msg.includes(rec.errorSubstr))
+            && errorMatches(rec.expectedError, msg)) {
           result.passed++;
         } else {
           result.failed++;
-          result.failures.push({ sql: rec.sql, reason: `unexpected error: ${err.message || err}` });
+          result.failures.push({
+            sql: rec.sql,
+            reason: rec.expectOk || errorMatches(rec.expectedError, msg)
+              ? `unexpected error: ${msg}`
+              : `error message mismatch: expected to contain "${rec.expectedError}", got: ${msg}`,
+          });
         }
       }
       continue;
