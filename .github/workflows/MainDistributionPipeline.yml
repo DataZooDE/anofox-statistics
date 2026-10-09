@@ -51,15 +51,15 @@ jobs:
 
   duckdb-stable-deploy:
     name: Deploy extension binaries (v1.5.6)
-    needs: [duckdb-stable-build, duckdb-stable-smoke-test]
-    # Deploy only artifacts that passed the smoke test. (Previously this was
+    needs: [duckdb-stable-build, duckdb-stable-smoke-test, duckdb-stable-windows-msvc-test]
+    # Deploy only artifacts that passed the smoke test and the Windows suite. (Previously this was
     # `!cancelled()` so a flaky Windows build leg could not block Linux/macOS
     # deploys; Windows is now excluded from this build entirely — see the
-    # separate non-blocking windows-msvc-test job — and `!cancelled()` alone
+    # separate windows-msvc-test job — and `!cancelled()` alone
     # let a FAILED smoke test fall through to deploy, contradicting
     # _extension_smoke_test.yml's contract that a broken artifact blocks
     # distribution.)
-    if: ${{ !cancelled() && needs.duckdb-stable-smoke-test.result == 'success' }}
+    if: ${{ !cancelled() && needs.duckdb-stable-smoke-test.result == 'success' && needs.duckdb-stable-windows-msvc-test.result == 'success' }}
     uses: ./.github/workflows/_extension_deploy.yml
     secrets: inherit
     with:
@@ -107,16 +107,17 @@ jobs:
           node test/wasm/run.mjs --all --ext "$EXT"
 
   duckdb-stable-windows-msvc-test:
-    name: Windows MSVC build + sqllogictests (non-blocking)
+    name: Windows MSVC build + sqllogictests
     # windows_amd64 (MSVC) was excluded from the shipping build in #84/#106
     # because DuckDB's vendored third_party/fmt was flaky on MSVC (DuckDB
     # v1.5.3 era) — a flake, not a deterministic failure. windows_amd64_mingw
     # stays excluded everywhere: its vcpkg openssl port fetches an MSYS2
     # libtool version that no longer exists on any mirror.
-    # This job re-enables MSVC for TESTING ONLY: it builds just windows_amd64
-    # and runs the full sqllogictest suite on it. Nothing `needs` it, so a
-    # flake here never blocks the smoke tests or the deploy, and its artifact
-    # carries a postfix so it can never be picked up by the deploy job.
+    # This job builds just windows_amd64 and runs the full sqllogictest suite
+    # on it. It is BLOCKING: the stable deploy needs it, and it is a required
+    # status check on main. It used to be non-blocking, which let a Windows-only
+    # crash (#162, an MSVC miscompile) stay red unnoticed across several PRs.
+    # Its artifact carries a postfix so the deploy job never picks it up.
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.5-variegata
     with:
       duckdb_version: v1.5.6
