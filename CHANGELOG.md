@@ -12,6 +12,14 @@ Breaking changes are called out explicitly.
 
 ### Added
 
+- anofox integration contract scaffolding (#160): `anofox_contract_version()` returns
+  `'1'` (registered only if no other anofox extension has registered it yet), and every
+  function and table macro is tagged `anofox.family = 'statistics'` in
+  `duckdb_functions().tags`. Contract producers will also carry `anofox.contract` and
+  `anofox.output`. Every overload now has a description and an example, including the
+  `VARCHAR`-group overloads of the two-sample tests, `aft_fit_agg`, `aft_cdf`,
+  `aft_quantile`, `eb_shrink_agg`, `glmm_fit_agg` and `predict(model, x, options)`.
+
 - `glmm_fit_agg` families `negbinom` (θ estimated as `lme4::glmer.nb`, or fixed with
   `'theta'`), `gamma` and `tweedie` (`'power'`), all with the log link; the `offset`
   option; random slopes (`'random'`) together with crossed `'groups'` factors, applied to

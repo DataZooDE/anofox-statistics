@@ -275,14 +275,14 @@ void RegisterBrunnerMunzelAggregateFunction(ExtensionLoader &loader) {
     d1.examples        = {"brunner_munzel_agg(value, group_id, {'alternative': 'two_sided'})"};
     d1.categories      = {"hypothesis-testing"};
     d1.parameter_names = {"value", "group_id", "options"};
-    d1.parameter_types = {LogicalType::DOUBLE, LogicalType::BIGINT, LogicalType::ANY};
+    d1.parameter_types = {LogicalType::DOUBLE, LogicalType::ANY, LogicalType::ANY};
     info.descriptions.push_back(std::move(d1));
     FunctionDescription d2;
     d2.description     = "Performs the Brunner-Munzel test for stochastic equality of two independent samples, using default options.";
     d2.examples        = {"brunner_munzel_agg(value, group_id)"};
     d2.categories      = {"hypothesis-testing"};
     d2.parameter_names = {"value", "group_id"};
-    d2.parameter_types = {LogicalType::DOUBLE, LogicalType::BIGINT};
+    d2.parameter_types = {LogicalType::DOUBLE, LogicalType::ANY};
     info.descriptions.push_back(std::move(d2));
     loader.RegisterFunction(std::move(info));
 

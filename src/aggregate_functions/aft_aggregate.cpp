@@ -379,6 +379,20 @@ void RegisterAftAggregateFunction(ExtensionLoader &loader) {
 	func_set.AddFunction(with_opts);
 
 	CreateAggregateFunctionInfo info(func_set);
+	FunctionDescription d1;
+	d1.description = "Fits an accelerated failure time (AFT) survival model to right-censored durations (event = 1 observed, 0 censored); coefficients are on the log-time scale.";
+	d1.examples = {"aft_fit_agg(duration, [x1, x2], event)"};
+	d1.categories = {"survival", "regression"};
+	d1.parameter_names = {"time", "x", "event"};
+	d1.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE};
+	info.descriptions.push_back(std::move(d1));
+	FunctionDescription d2;
+	d2.description = "Fits an accelerated failure time (AFT) survival model with a MAP of options (distribution, fit_intercept, compute_inference, confidence_level, ...).";
+	d2.examples = {"aft_fit_agg(duration, [x1, x2], event, {'distribution': 'lognormal'})"};
+	d2.categories = {"survival", "regression"};
+	d2.parameter_names = {"time", "x", "event", "options"};
+	d2.parameter_types = {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE, LogicalType::ANY};
+	info.descriptions.push_back(std::move(d2));
 	loader.RegisterFunction(info);
 
 }
@@ -484,12 +498,32 @@ void RegisterAftScalarFunctions(ExtensionLoader &loader) {
 	ScalarFunction cdf("aft_cdf",
 	                   {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::VARCHAR},
 	                   LogicalType::DOUBLE, AftCdfFunction);
-	loader.RegisterFunction(cdf);
+	{
+		CreateScalarFunctionInfo info(cdf);
+		FunctionDescription d;
+		d.description = "Cumulative distribution P(T <= t) of an AFT survival time with linear predictor eta, scale and distribution (weibull, lognormal, loglogistic, exponential).";
+		d.examples = {"aft_cdf(5.0, f.intercept + f.coefficients[1] * x1, f.scale, 'weibull')"};
+		d.categories = {"survival"};
+		d.parameter_names = {"t", "eta", "scale", "distribution"};
+		d.parameter_types = {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::VARCHAR};
+		info.descriptions.push_back(std::move(d));
+		loader.RegisterFunction(std::move(info));
+	}
 
 	ScalarFunction quantile("aft_quantile",
 	                        {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::VARCHAR},
 	                        LogicalType::DOUBLE, AftQuantileFunction);
-	loader.RegisterFunction(quantile);
+	{
+		CreateScalarFunctionInfo info(quantile);
+		FunctionDescription d;
+		d.description = "p-quantile of an AFT survival time with linear predictor eta, scale and distribution (weibull, lognormal, loglogistic, exponential).";
+		d.examples = {"aft_quantile(0.5, f.intercept + f.coefficients[1] * x1, f.scale, 'weibull')"};
+		d.categories = {"survival"};
+		d.parameter_names = {"p", "eta", "scale", "distribution"};
+		d.parameter_types = {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::VARCHAR};
+		info.descriptions.push_back(std::move(d));
+		loader.RegisterFunction(std::move(info));
+	}
 
 
 }

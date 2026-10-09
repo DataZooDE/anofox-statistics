@@ -15,6 +15,7 @@ build/release/test/unittest "test/sql/parallel/*.test_slow"   # slow tests (hidd
 | `test/sql/consistency/` | `*_fit_predict` results equal predictions from the matching `*_fit_agg` coefficients. |
 | `test/sql/parallel/` | Multi-threaded (`PRAGMA verify_parallelism`) results equal single-threaded ones; `.test_slow` files use millions of rows. |
 | `test/sql/window/` | Window-frame semantics of the fit/fit_predict aggregates. |
+| `test/sql/contract/` | anofox integration contract: `anofox_contract_version()`, `duckdb_functions()` tags and metadata, and the column names/types of each contract producer. |
 | `test/sql/edge_cases/` | ±Inf, empty input, n <= p, collinearity, NULLs inside feature lists, invalid options. |
 | other `test/sql/*/` | Functional tests per function family. |
 

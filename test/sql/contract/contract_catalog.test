@@ -1,0 +1,51 @@
+# name: test/sql/contract/contract_catalog.test
+# description: #160 anofox integration contract: version function and duckdb_functions() tags/metadata
+# group: [contract]
+
+require anofox_statistics
+
+query I
+SELECT anofox_contract_version();
+----
+1
+
+# Every function and macro of this extension carries the family tag.
+query I
+SELECT count(*) FROM (
+    SELECT DISTINCT function_name FROM duckdb_functions()
+    WHERE function_name IN ('ols_fit', 'ols_fit_agg', 'ols_fit_predict', 'ols_fit_predict_by', 'predict',
+                            'tidy', 'glance', 't_test_agg', 'glmm_fit_by', 'aid_anomaly_by', 'aft_cdf')
+      AND tags['anofox.family'] = 'statistics');
+----
+11
+
+query I
+SELECT count(DISTINCT function_name) > 100 FROM duckdb_functions() WHERE tags['anofox.family'] = 'statistics';
+----
+true
+
+# DuckDB's own functions are left alone; the shared version function stays untagged,
+# since whichever anofox extension loads first registers it.
+query I
+SELECT count(*) FROM duckdb_functions()
+WHERE function_name IN ('sum', 'regr_slope', 'anofox_contract_version') AND cardinality(tags) > 0;
+----
+0
+
+# Every overload is described and has an example.
+query I
+SELECT count(*) FROM duckdb_functions()
+WHERE tags['anofox.family'] = 'statistics' AND (description IS NULL OR len(examples) = 0);
+----
+0
+
+# A contract producer names a known output schema and the current contract version.
+query I
+SELECT count(*) FROM duckdb_functions()
+WHERE tags['anofox.contract'] IS NOT NULL
+  AND (tags['anofox.contract'] <> anofox_contract_version()
+       OR tags['anofox.output'] NOT IN ('terms', 'obs', 'prediction', 'curve', 'summary', 'test')
+       OR tags['anofox.output'] IS NULL
+       OR tags['anofox.family'] IS DISTINCT FROM 'statistics');
+----
+0

@@ -143,6 +143,7 @@ fitted model struct).
 | `jarque_bera`, `jarque_bera_agg` | Jarque-Bera normality test | [Diagnostics](api/diagnostics/diagnostics.md) |
 | `residuals_diagnostics`, `residuals_diagnostics_agg` | Raw, standardized, studentized residuals, leverage, Cook's distance | [Diagnostics](api/diagnostics/diagnostics.md) |
 | `aid_agg`, `aid_anomaly_agg`, `aid_by`, `aid_anomaly_by` | Demand classification and anomaly flags | [AID](api/aid/aid.md) |
+| `anofox_contract_version` | Version of the anofox integration contract; functions are tagged in `duckdb_functions()` | [Discovery](#anofox_contract_version--function-tags) |
 
 ---
 
@@ -1477,6 +1478,35 @@ SELECT residuals_diagnostics([1.0, 2.0, 3.0, 4.0], [1.1, 1.9, 3.2, 3.8]) AS diag
 WITH fit AS (SELECT ols_fit_agg(y, [x1, x2]) AS f FROM reg_data)
 SELECT (residuals_diagnostics_agg(y, f.intercept + f.coefficients[1] * x1 + f.coefficients[2] * x2, [x1, x2])).leverage[1:3] AS leverage
 FROM reg_data, fit;
+```
+
+### anofox_contract_version / function tags
+
+The anofox extensions (statistics, forecast, visualization, ...) share an
+integration contract: a set of long output schemas (`terms`, `obs`,
+`prediction`, `curve`, `summary`, `test`) that plotting and other tools consume
+directly. `anofox_contract_version()` returns the contract version this
+extension implements (`'1'`); the first anofox extension loaded registers it.
+
+Every function and table macro of this extension carries the tag
+`anofox.family = 'statistics'` in `duckdb_functions().tags`. Functions whose
+output follows a contract schema additionally carry `anofox.contract` (the
+version) and `anofox.output` (the schema name).
+
+```sql
+SELECT anofox_contract_version() AS contract_version;
+
+SELECT function_type, count(DISTINCT function_name) AS functions
+FROM duckdb_functions()
+WHERE tags['anofox.family'] = 'statistics'
+GROUP BY function_type
+ORDER BY function_type;
+
+-- Contract producers across all loaded anofox extensions
+SELECT DISTINCT function_name, tags['anofox.output'] AS output
+FROM duckdb_functions()
+WHERE tags['anofox.contract'] IS NOT NULL
+ORDER BY function_name;
 ```
 
 ---

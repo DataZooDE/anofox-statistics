@@ -249,6 +249,20 @@ void RegisterEbShrinkAggregateFunction(ExtensionLoader &loader) {
 	func_set.AddFunction(with_opts);
 
 	CreateAggregateFunctionInfo info(func_set);
+	FunctionDescription d1;
+	d1.description = "Empirical-Bayes (random-effects) shrinkage of per-group estimates with standard errors toward their precision-weighted mean; returns the shrunken estimates with mu and tau_squared.";
+	d1.examples = {"eb_shrink_agg(estimate, se)"};
+	d1.categories = {"shrinkage"};
+	d1.parameter_names = {"estimate", "se"};
+	d1.parameter_types = {LogicalType::DOUBLE, LogicalType::DOUBLE};
+	info.descriptions.push_back(std::move(d1));
+	FunctionDescription d2;
+	d2.description = "Empirical-Bayes shrinkage of per-group estimates with a MAP of options (tau_squared, tau_method).";
+	d2.examples = {"eb_shrink_agg(estimate, se, {'tau_method': 'dl'})"};
+	d2.categories = {"shrinkage"};
+	d2.parameter_names = {"estimate", "se", "options"};
+	d2.parameter_types = {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::ANY};
+	info.descriptions.push_back(std::move(d2));
 	loader.RegisterFunction(info);
 
 }
