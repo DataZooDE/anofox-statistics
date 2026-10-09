@@ -46,6 +46,11 @@ q1 <- c( 0.79, 0.62, 0.52, 0.61, 0.33, 0.03, -0.64, 0.13, -0.46, 0.44, -0.61, 0.
 ly <- c( 2.908, 2.598, 2.833, 2.186, 2.836, 1.297, 1.428, 2.111, 2.033, 2.697, 1.628, 2.103, 1.85, 2.175, 2.248, 3.405, 2.305, 1.973, 1.916, 3.072, 2.711, 3.107, 2.664, 3.629, 1.759, 3.226, 2.682, 2.574, 1.428, 3.011, 2.793, 3.011, 2.632, 3.328, 2.751, 3.082, 1.538, 3.293, 1.996, 3.168, 2.243, 2.645, 3.567, 2.985, 3.545, 2.863, 2.491, 3.791 )
 pc <- c( 1, 4, 1, 2, 2, 0, 1, 1, 2, 1, 1, 3, 0, 3, 2, 5, 2, 0, 0, 4, 2, 4, 7, 3, 1, 1, 2, 1, 3, 2, 1, 7, 0, 4, 5, 6, 4, 3, 2, 5, 2, 6, 4, 4, 5, 5, 4, 6 )
 bb <- c( 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 1, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 1, 0, 1, 1, 0, 1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1 )
+# Derived GLMM columns: a crossed factor h, overdispersed counts nc, and lc with
+# a per-group slope on q1 plus an h effect (for random slopes with crossed factors).
+h4 <- rep(1:6, 8)
+nc <- round(pc * c(0.3, 2.2, 0.8, 1.7)[(seq_along(pc) %% 4) + 1])
+lc <- round(ly + c(-0.6, 0.4, 0.1, -0.3, 0.7, -0.4)[h4] + 2.5 * c(0.5, -0.4, 0.3, -0.6, 0.2, 0.6, -0.3, 0.1)[g] * q1, 3)
 
 # ----------------------------------------------------------------- helpers ---
 num <- function(v) {
@@ -403,9 +408,9 @@ write_test("glm_fit.test", L)
 # 6. GLMM
 # =============================================================================
 d4_sql <- c("statement ok",
-  "CREATE TABLE d4 (g VARCHAR, q1 DOUBLE, ly DOUBLE, pc DOUBLE, bb DOUBLE);", "",
+  "CREATE TABLE d4 (g VARCHAR, q1 DOUBLE, ly DOUBLE, pc DOUBLE, bb DOUBLE, h DOUBLE, nc DOUBLE, lc DOUBLE);", "",
   "statement ok",
-  paste0("INSERT INTO d4 VALUES\n", values_sql(data.frame(sprintf("'g%d'", g), q1, ly, pc, bb)), ";"), "")
+  paste0("INSERT INTO d4 VALUES\n", values_sql(data.frame(sprintf("'g%d'", g), q1, ly, pc, bb, h4, nc, lc)), ";"), "")
 L <- header("glm_glmm.test", "glmm_fit_agg against lme4::lmer and lme4::glmer(nAGQ = 0)")
 L <- c(L, d4_sql)
 for (reml in c(TRUE, FALSE)) {
@@ -444,6 +449,59 @@ for (fam in c("poisson", "binomial")) {
     checks(sprintf("%s: logLik(glmer(..., nAGQ = 0)), AIC, BIC", fam), src,
       c("r.log_likelihood", "r.aic", "r.bic"), c(as.numeric(logLik(fm)), AIC(fm), BIC(fm)), if (fam == "binomial") 5e-3 else 1e-4))
 }
+gf <- factor(g); hf <- factor(h4)
+fixed_checks <- function(fm) { cc <- coef(summary(fm)); c(cc[, 1], cc[, 2]) }
+fixed_exprs <- c("r.intercept", "r.coefficients[1]", "r.intercept_std_error", "r.std_errors[1]")
+# Negative binomial, theta estimated (glmer.nb) and fixed (negative.binomial(2))
+fnb <- glmer.nb(nc ~ q1 + (1 | gf), nAGQ = 0)
+L <- c(L,
+  "# ---- negative binomial ----",
+  "# theta estimated by maximising the profiled Laplace log-likelihood, as",
+  "# lme4::glmer.nb(nAGQ = 0); lme4 iterates theta.ml to ~1e-4, hence tolerance 1e-3.",
+  "# logLik df counts theta (fixed + variance + theta), so AIC = -2 logLik + 2 * 4.",
+  checks("negbinom: glmer.nb(nc ~ q1 + (1|g), nAGQ = 0): fixef, SEs, var_group, theta, logLik, AIC",
+    "(SELECT glmm_fit_agg(nc, [q1], g, {'family': 'negbinom', 'compute_inference': true}) AS r FROM d4) s",
+    c(fixed_exprs, "r.var_group", "r.nb_theta", "r.log_likelihood", "r.aic"),
+    c(fixed_checks(fnb), as.data.frame(VarCorr(fnb))$vcov, getME(fnb, "glmer.nb.theta"),
+      as.numeric(logLik(fnb)), AIC(fnb)), 1e-3))
+fnf <- glmer(nc ~ q1 + (1 | gf), family = MASS::negative.binomial(2), nAGQ = 0)
+L <- c(L, checks("negbinom, theta fixed: glmer(nc ~ q1 + (1|g), family = negative.binomial(2), nAGQ = 0)",
+    "(SELECT glmm_fit_agg(nc, [q1], g, {'family': 'negbinom', 'theta': 2, 'compute_inference': true}) AS r FROM d4) s",
+    c(fixed_exprs, "r.var_group", "r.nb_theta", "r.log_likelihood", "r.aic"),
+    c(fixed_checks(fnf), as.data.frame(VarCorr(fnf))$vcov, 2, as.numeric(logLik(fnf)), AIC(fnf)), 1e-4))
+# Gamma
+fga <- glmer(ly ~ q1 + (1 | gf), family = Gamma(link = "log"), nAGQ = 0)
+L <- c(L,
+  "# ---- Gamma (log link) ----",
+  "# var_residual = sigma(fit)^2 = pwrss / n; the fixed-effect SEs are scaled by sigma;",
+  "# the log-likelihood uses dispersion deviance / n (R's Gamma()$aic).",
+  checks("gamma: glmer(ly ~ q1 + (1|g), family = Gamma(link = 'log'), nAGQ = 0)",
+    "(SELECT glmm_fit_agg(ly, [q1], g, {'family': 'gamma', 'compute_inference': true}) AS r FROM d4) s",
+    c(fixed_exprs, "r.var_group", "r.var_residual", "r.log_likelihood", "r.aic"),
+    c(fixed_checks(fga), as.data.frame(VarCorr(fga))$vcov[1], sigma(fga)^2, as.numeric(logLik(fga)), AIC(fga)), 1e-4))
+# Offset
+fpo <- glmer(nc ~ q1 + offset(log(ly)) + (1 | gf), family = poisson, nAGQ = 0)
+L <- c(L,
+  "# ---- offset ----",
+  "# 'offset': 2 adds x[2] = ln(ly) to the linear predictor with coefficient 1.",
+  checks("poisson with offset: glmer(nc ~ q1 + offset(log(ly)) + (1|g), family = poisson, nAGQ = 0)",
+    "(SELECT glmm_fit_agg(nc, [q1, ln(ly)], g, {'family': 'poisson', 'offset': 2, 'compute_inference': true}) AS r FROM d4) s",
+    c(fixed_exprs, "r.var_group", "r.log_likelihood"),
+    c(fixed_checks(fpo), as.data.frame(VarCorr(fpo))$vcov, as.numeric(logLik(fpo))), 1e-4))
+# Random slopes on the first of two crossed factors
+fcs <- lmer(lc ~ q1 + (1 + q1 | gf) + (1 | hf), REML = TRUE,
+            control = lmerControl(optimizer = "bobyqa", optCtrl = list(rhoend = 1e-12)))
+vc <- VarCorr(fcs); sg <- vc$gf
+L <- c(L,
+  "# ---- random slopes with crossed factors ----",
+  "# 'random' applies to the positional factor g, 'groups' adds h as a crossed",
+  "# random intercept: (1 + q1 | g) + (1 | h). random_cov is g's 2 x 2 covariance.",
+  checks("crossed slopes: lmer(lc ~ q1 + (1 + q1|g) + (1|h), REML = TRUE): fixef, SEs, covariances, logLik, AIC",
+    "(SELECT glmm_fit_agg(lc, [q1, h], g, {'random': [1], 'groups': [2], 'compute_inference': true}) AS r FROM d4) s",
+    c(fixed_exprs, "r.random_cov[1]", "r.random_cov[2]", "r.random_cov[4]", "r.factors[2].var",
+      "r.var_residual", "r.log_likelihood", "r.aic"),
+    c(fixed_checks(fcs), sg[1, 1], sg[1, 2], sg[2, 2], vc$hf[1, 1], sigma(fcs)^2,
+      as.numeric(logLik(fcs)), AIC(fcs)), 1e-4))
 write_test("glm_glmm.test", L)
 
 # =============================================================================

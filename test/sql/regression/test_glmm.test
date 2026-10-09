@@ -244,6 +244,77 @@ SELECT len((glmm_fit_agg(y, [x], region)).factors) FROM crossed;
 ----
 0
 
+# ---------------------------------------------------------------------------
+# Families negbinom / gamma / tweedie, offset, nb_theta (anofox-regression 0.5.18).
+# Values against lme4 are in test/sql/reference/glm_glmm.test.
+# ---------------------------------------------------------------------------
+statement ok
+CREATE TABLE fam AS SELECT (i % 6)::VARCHAR AS g, (i % 7) / 7.0 AS x, ((i * 7) % 11)::DOUBLE + 1 AS y
+FROM range(60) r(i);
+
+# negbinom estimates theta and reports it in the trailing nb_theta field
+query II
+SELECT (f).nb_theta > 0, (f).converged
+FROM (SELECT glmm_fit_agg(y, [x], g, {'family': 'negbinom'}) AS f FROM fam);
+----
+true	true
+
+# a fixed theta is reported back unchanged
+query I
+SELECT (glmm_fit_agg(y, [x], g, {'family': 'negbinom', 'theta': 3.0})).nb_theta FROM fam;
+----
+3.0
+
+# nb_theta is NULL for the other families
+query III
+SELECT (glmm_fit_agg(y, [x], g, {'family': 'poisson'})).nb_theta IS NULL,
+       (glmm_fit_agg(y, [x], g, {'family': 'gamma'})).nb_theta IS NULL,
+       (glmm_fit_agg(y, [x], g)).nb_theta IS NULL
+FROM fam;
+----
+true	true	true
+
+# gamma and tweedie fit and estimate a residual scale
+query IIII
+SELECT (glmm_fit_agg(y, [x], g, {'family': 'gamma'})).converged,
+       (glmm_fit_agg(y, [x], g, {'family': 'gamma'})).var_residual > 0,
+       (glmm_fit_agg(y, [x], g, {'family': 'tweedie', 'power': 1.5})).converged,
+       (glmm_fit_agg(y, [x], g, {'family': 'tweedie', 'power': 1.5})).var_residual > 0
+FROM fam;
+----
+true	true	true	true
+
+# the offset column is removed from the design
+query I
+SELECT len((glmm_fit_agg(y, [x, ln(y)], g, {'family': 'poisson', 'offset': 2})).coefficients) FROM fam;
+----
+1
+
+statement error
+SELECT glmm_fit_agg(y, [x], g, {'family': 'tweedie', 'power': 2.5}) FROM fam;
+----
+power must be in (1, 2)
+
+statement error
+SELECT glmm_fit_agg(y, [x], g, {'family': 'negbinom', 'theta': -1}) FROM fam;
+----
+theta must be finite and positive
+
+statement error
+SELECT glmm_fit_agg(y, [x, x], g, {'offset': 2, 'groups': [2]}) FROM fam;
+----
+cannot be both the 'offset' and a 'groups' column
+
+# random slopes apply to the positional factor when 'groups' adds crossed factors
+query II
+SELECT len((f).random_cov), (f).random_dim
+FROM (SELECT glmm_fit_agg(y, [x, store], region, {'groups': [2], 'random': [1]}) AS f FROM crossed);
+----
+4	2
+
+statement ok
+DROP TABLE IF EXISTS fam;
+
 statement ok
 DROP TABLE IF EXISTS crossed;
 
