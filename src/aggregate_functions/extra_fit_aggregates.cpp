@@ -377,6 +377,10 @@ void IsotonicFitAggFinalize(Vector &state_vector, AggregateInputData &aggr_input
 //===--------------------------------------------------------------------===//
 template <const char *NAME>
 unique_ptr<FunctionData> ExtraFitBind(ClientContext &context, AggregateFunction &, vector<unique_ptr<Expression>> &args) {
+	// Format messages with this string, never with NAME itself: MSVC miscompiles
+	// a `const char *` template argument bound to the formatter's `const T &`
+	// and dereferences the name's characters as a pointer (#162).
+	const string name(NAME);
 	auto bind = make_uniq<ExtraFitBindData>();
 	if (args.size() >= 3) {
 		// Each function declares the keys it reads; anything else is rejected.
@@ -384,7 +388,6 @@ unique_ptr<FunctionData> ExtraFitBind(ClientContext &context, AggregateFunction 
 		static const vector<string> pls_keys = {"fit_intercept", "n_components"};
 		static const vector<string> quantile_keys = {"fit_intercept", "tau", "max_iterations", "tolerance"};
 		static const vector<string> isotonic_keys = {"increasing"};
-		const string name(NAME);
 		const vector<string> &keys =
 		    name == "pls_fit_agg" ? pls_keys : (name == "quantile_fit_agg" ? quantile_keys : isotonic_keys);
 		auto opts = RegressionMapOptions::ParseFromExpression(context, *args[2], name, keys);
@@ -410,12 +413,12 @@ unique_ptr<FunctionData> ExtraFitBind(ClientContext &context, AggregateFunction 
 		}
 	}
 	if (!(bind->tau > 0.0 && bind->tau < 1.0)) {
-		throw InvalidInputException("%s: tau must be in (0, 1), got %g", NAME, bind->tau);
+		throw InvalidInputException("%s: tau must be in (0, 1), got %g", name, bind->tau);
 	}
 	if (bind->n_components == 0) {
-		throw InvalidInputException("%s: n_components must be at least 1", NAME);
+		throw InvalidInputException("%s: n_components must be at least 1", name);
 	}
-	PostHogTelemetry::Instance().RecordFunctionCall(NAME);
+	PostHogTelemetry::Instance().RecordFunctionCall(name);
 	return std::move(bind);
 }
 
