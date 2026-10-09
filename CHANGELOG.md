@@ -90,7 +90,9 @@ Breaking changes are called out explicitly.
   (`solvers::aid::heuristic`, `solvers::eb_shrink`); results are bit-identical.
 - `glmm_fit_agg` `aic` / `bic` count every random-effect covariance parameter
   (`q(q+1)/2` with random slopes, previously 1), as the df of lme4's `logLik`.
-- Dependency: `anofox-regression` 0.5.16 -> 0.5.19.
+- Dependency: `anofox-regression` 0.5.21 -> 0.5.22. The negative binomial θ estimation
+  (`negbinom_fit_agg` and friends, `glmm_fit_agg` with the `negbinom` family) is much
+  faster (sipemu/anofox-regression#72); results are unchanged.
 - The penalized GLM engine (Poisson, Binomial, Negative Binomial, Tweedie, Gamma, Logistic,
   priors, Laplace curvature) and the AFT survival model are now delegated to
   `anofox_regression::solvers::{penalized_glm, aft}`; the extension keeps only option
