@@ -12,6 +12,12 @@ Breaking changes are called out explicitly.
 
 ### Added
 
+- `glmm_fit_agg` families `negbinom` (θ estimated as `lme4::glmer.nb`, or fixed with
+  `'theta'`), `gamma` and `tweedie` (`'power'`), all with the log link; the `offset`
+  option; random slopes (`'random'`) together with crossed `'groups'` factors, applied to
+  the positional grouping factor. The result struct gains a trailing `nb_theta` field.
+  Validated against `lme4` with `nAGQ = 0` (`test/sql/reference/glm_glmm.test`).
+
 - `pls_fit_agg`, `quantile_fit_agg` and `isotonic_fit_agg`: the fitted models of these
   methods can now be retrieved (previously only `*_fit_predict_agg` / `*_fit_predict_by`).
 - Model-aware `predict(model, x[, {'type': 'response' | 'link'}])` for the STRUCT returned
@@ -82,7 +88,9 @@ Breaking changes are called out explicitly.
 - The AID demand classification (`aid_agg`, `aid_anomaly_agg`) and empirical-Bayes
   shrinkage (`eb_shrink_agg`, `eb_shrink_by`) are delegated to `anofox-regression`
   (`solvers::aid::heuristic`, `solvers::eb_shrink`); results are bit-identical.
-- Dependency: `anofox-regression` 0.5.16 -> 0.5.17.
+- `glmm_fit_agg` `aic` / `bic` count every random-effect covariance parameter
+  (`q(q+1)/2` with random slopes, previously 1), as the df of lme4's `logLik`.
+- Dependency: `anofox-regression` 0.5.16 -> 0.5.18.
 - The penalized GLM engine (Poisson, Binomial, Negative Binomial, Tweedie, Gamma, Logistic,
   priors, Laplace curvature) and the AFT survival model are now delegated to
   `anofox_regression::solvers::{penalized_glm, aft}`; the extension keeps only option
