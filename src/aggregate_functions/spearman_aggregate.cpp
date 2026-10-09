@@ -7,8 +7,12 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/ffi_enum_converters.hpp"
+#include "../include/result_fields.hpp"
+#include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
+#include "aggregate_combine.hpp"
 
 namespace duckdb {
 
@@ -42,6 +46,7 @@ static LogicalType GetSpearmanAggResultType() {
     children.push_back(make_pair("ci_upper", LogicalType::DOUBLE));
     children.push_back(make_pair("n", LogicalType::BIGINT));
     children.push_back(make_pair("method", LogicalType::VARCHAR));
+    children.push_back(make_pair("alternative", LogicalType::VARCHAR));
 
     return LogicalType::STRUCT(std::move(children));
 }
@@ -120,7 +125,7 @@ static void SpearmanAggUpdate(Vector inputs[], AggregateInputData &aggr_input_da
     }
 }
 
-static void SpearmanAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &, idx_t count) {
+static void SpearmanAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &aggr_input_data, idx_t count) {
     UnifiedVectorFormat source_data, target_data;
     source_vector.ToUnifiedFormat(count, source_data);
     target_vector.ToUnifiedFormat(count, target_data);
@@ -137,8 +142,8 @@ static void SpearmanAggCombine(Vector &source_vector, Vector &target_vector, Agg
         }
 
         if (!target.initialized) {
-            target.x_values = std::move(source.x_values);
-            target.y_values = std::move(source.y_values);
+            target.x_values = CombineTake(source.x_values, aggr_input_data);
+            target.y_values = CombineTake(source.y_values, aggr_input_data);
             target.initialized = true;
             continue;
         }
@@ -186,6 +191,7 @@ static void SpearmanAggFinalize(Vector &state_vector, AggregateInputData &aggr_i
         bool success = anofox_spearman_cor(x_array, y_array, options, &cor_result, &error);
 
         if (!success) {
+            ThrowUnlessDegenerate("spearman_agg", error);
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
@@ -200,6 +206,7 @@ static void SpearmanAggFinalize(Vector &state_vector, AggregateInputData &aggr_i
         auto& method_vector = *struct_entries[struct_idx++];
         FlatVector::GetData<string_t>(method_vector)[result_idx] =
             StringVector::AddString(method_vector, cor_result.method ? cor_result.method : "Spearman");
+        SetResultString(*struct_entries[struct_idx++], result_idx, AlternativeName(options.alternative));
 
         anofox_free_correlation_result(&cor_result);
         state.Reset();
@@ -211,9 +218,9 @@ static unique_ptr<FunctionData> SpearmanAggBind(ClientContext &context, Aggregat
     function.return_type = GetSpearmanAggResultType();
     auto bind_data = make_uniq<SpearmanBindData>();
 
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        Value options_val = ExpressionExecutor::EvaluateScalar(context, *arguments[2]);
-        bind_data->options = CorrelationMapOptions::ParseFromValue(options_val);
+    if (arguments.size() >= 3) {
+        Value options_val = EvaluateConstantOptions(context, *arguments[2], "spearman_agg");
+        bind_data->options = CorrelationMapOptions::ParseFromValue(options_val, "spearman_agg");
     }
 
     PostHogTelemetry::Instance().RecordFunctionCall("spearman_agg");

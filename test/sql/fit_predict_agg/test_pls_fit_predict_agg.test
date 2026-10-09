@@ -210,13 +210,13 @@ SELECT LENGTH(pls_fit_predict_agg(y, [x1, x2, x3, x4, x5])) FROM high_dim;
 25
 
 # =============================================================================
-# TEST 13: n_components Cannot Exceed Number of Features (returns NULL)
+# TEST 13: n_components Cannot Exceed Number of Features (invalid option -> error)
 # =============================================================================
 
-query I
-SELECT pls_fit_predict_agg(y, [x1, x2], {'n_components': 10}) IS NULL FROM test_data;
+statement error
+SELECT pls_fit_predict_agg(y, [x1, x2], {'n_components': 10}) FROM test_data;
 ----
-true
+pls_fit_predict_agg: Invalid value for n_components
 
 # =============================================================================
 # TEST 14: Larger Dataset

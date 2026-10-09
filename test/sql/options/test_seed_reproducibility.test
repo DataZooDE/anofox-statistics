@@ -1,0 +1,102 @@
+# name: test/sql/options/test_seed_reproducibility.test
+# description: With a seed (or random_state), resampling aggregates return the
+#              same result whatever the thread count: rows are put in a canonical
+#              order before seeded resampling, so the order in which parallel
+#              threads delivered them does not matter.
+# group: [options]
+
+require anofox_statistics
+
+# 300k rows = 3 row groups, scanned and pre-aggregated in parallel.
+statement ok
+CREATE TABLE big AS
+SELECT i,
+       (CASE WHEN i % 2 = 0 THEN 0.0 ELSE 0.02 END + sin(i * 0.37) + 0.5 * cos(i * 1.91)) AS v,
+       (i % 2)::BIGINT AS g,
+       sin(i * 0.013) * 4.0 AS x1,
+       cos(i * 0.029) * 3.0 AS x2,
+       (1.0 + 2.0 * sin(i * 0.013) * 4.0 - 0.5 * cos(i * 0.029) * 3.0
+            + CASE WHEN i % 97 = 0 THEN 25.0 ELSE 0.3 * sin(i * 7.7) END) AS y
+FROM range(300000) t(i);
+
+statement ok
+SET threads = 1;
+
+statement ok
+CREATE TABLE r1 AS
+SELECT permutation_t_test_agg(v, g, {'n_permutations': 200, 'seed': 42}) AS perm,
+       ransac_fit_agg(y, [x1, x2], {'seed': 7}) AS ransac,
+       theil_sen_fit_agg(y, [x1, x2], {'random_state': 7, 'max_subpopulation': 300}) AS theil,
+       (SELECT energy_distance_agg(v, g::INTEGER, {'n_permutations': 100, 'seed': 3}) FROM big WHERE i % 600 < 2) AS energy,
+       (SELECT mmd_agg(v, g::INTEGER, {'n_permutations': 100, 'random_state': 3}) FROM big WHERE i % 600 < 2) AS mmd,
+       (SELECT distance_cor_agg(x1, y, {'n_permutations': 100, 'seed': 3}) FROM big WHERE i % 600 = 0) AS dcor
+FROM big;
+
+statement ok
+SET threads = 8;
+
+query IIIIII
+SELECT perm = (SELECT perm FROM r1),
+       ransac = (SELECT ransac FROM r1),
+       theil = (SELECT theil FROM r1),
+       energy = (SELECT energy FROM r1),
+       mmd = (SELECT mmd FROM r1),
+       dcor = (SELECT dcor FROM r1)
+FROM (
+    SELECT permutation_t_test_agg(v, g, {'n_permutations': 200, 'seed': 42}) AS perm,
+           ransac_fit_agg(y, [x1, x2], {'seed': 7}) AS ransac,
+           theil_sen_fit_agg(y, [x1, x2], {'random_state': 7, 'max_subpopulation': 300}) AS theil,
+           (SELECT energy_distance_agg(v, g::INTEGER, {'n_permutations': 100, 'seed': 3}) FROM big WHERE i % 600 < 2) AS energy,
+           (SELECT mmd_agg(v, g::INTEGER, {'n_permutations': 100, 'random_state': 3}) FROM big WHERE i % 600 < 2) AS mmd,
+           (SELECT distance_cor_agg(x1, y, {'n_permutations': 100, 'seed': 3}) FROM big WHERE i % 600 = 0) AS dcor
+    FROM big
+);
+----
+true	true	true	true	true	true
+
+# Same seed, repeated: identical; different seed: a different permutation p-value.
+query II
+SELECT (permutation_t_test_agg(v, g, {'n_permutations': 200, 'seed': 42})).p_value = (SELECT (perm).p_value FROM r1),
+       (permutation_t_test_agg(v, g, {'n_permutations': 200, 'seed': 43})) IS NOT NULL
+FROM big;
+----
+true	true
+
+# The fit-predict variants of RANSAC / Theil-Sen are order-independent as well.
+statement ok
+SET threads = 1;
+
+statement ok
+CREATE TABLE p1 AS
+SELECT list_sort(list_transform(ransac_fit_predict_agg(y, [x1, x2], {'seed': 5}), r -> r.yhat)) AS rp,
+       list_sort(list_transform(theil_sen_fit_predict_agg(y, [x1, x2], {'seed': 5, 'max_subpopulation': 300}), r -> r.yhat)) AS tp
+FROM big WHERE i % 50 = 0;
+
+statement ok
+SET threads = 8;
+
+query II
+SELECT list_sort(list_transform(ransac_fit_predict_agg(y, [x1, x2], {'seed': 5}), r -> r.yhat)) = (SELECT rp FROM p1),
+       list_sort(list_transform(theil_sen_fit_predict_agg(y, [x1, x2], {'seed': 5, 'max_subpopulation': 300}), r -> r.yhat)) = (SELECT tp FROM p1)
+FROM big WHERE i % 50 = 0;
+----
+true	true
+
+# Input order never matters with a seed (ORDER BY inside the aggregate permutes
+# the rows deterministically; before the fix RANSAC differed here).
+query IIIIII
+SELECT (ransac_fit_agg(y, [x1, x2], {'seed': 7} ORDER BY i)).coefficients
+     = (ransac_fit_agg(y, [x1, x2], {'seed': 7} ORDER BY -i)).coefficients,
+       (theil_sen_fit_agg(y, [x1, x2], {'seed': 7, 'max_subpopulation': 300} ORDER BY i)).coefficients
+     = (theil_sen_fit_agg(y, [x1, x2], {'seed': 7, 'max_subpopulation': 300} ORDER BY -i)).coefficients,
+       permutation_t_test_agg(v, g, {'n_permutations': 99, 'seed': 1} ORDER BY i)
+     = permutation_t_test_agg(v, g, {'n_permutations': 99, 'seed': 1} ORDER BY -i),
+       energy_distance_agg(v, g::INTEGER, {'n_permutations': 99, 'seed': 1} ORDER BY i)
+     = energy_distance_agg(v, g::INTEGER, {'n_permutations': 99, 'seed': 1} ORDER BY -i),
+       mmd_agg(v, g::INTEGER, {'n_permutations': 99, 'seed': 1} ORDER BY i)
+     = mmd_agg(v, g::INTEGER, {'n_permutations': 99, 'seed': 1} ORDER BY -i),
+       distance_cor_agg(x1, y, {'n_permutations': 99, 'seed': 1} ORDER BY i)
+     = distance_cor_agg(x1, y, {'n_permutations': 99, 'seed': 1} ORDER BY -i)
+FROM big WHERE i < 3000;
+----
+true	true	true	true	true	true

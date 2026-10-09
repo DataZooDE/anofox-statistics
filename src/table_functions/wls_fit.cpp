@@ -74,8 +74,10 @@ static unique_ptr<FunctionData> WlsFitBind(ClientContext &context, ScalarFunctio
     auto result = make_uniq<WlsFitBindData>();
 
     // Parse MAP options if provided as 4th argument (after y, x, weights)
-    if (arguments.size() >= 4 && arguments[3]->IsFoldable()) {
-        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[3]);
+    if (arguments.size() >= 4) {
+        auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[3], "wls_fit",
+            {"fit_intercept", "compute_inference", "confidence_level", "solver", "hc_type"});
         if (opts.fit_intercept.has_value()) {
             result->fit_intercept = opts.fit_intercept.value();
         }
@@ -118,7 +120,18 @@ static vector<double> ExtractDoubleList(Vector &vec, idx_t row_idx) {
 }
 
 // Main WLS fit function
+static void WlsFitFunctionImpl(DataChunk &args, ExpressionState &state, Vector &result);
+
+// Constant inputs must yield a CONSTANT_VECTOR (DuckDB constant folding
+// asserts this in debug builds).
 static void WlsFitFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+	WlsFitFunctionImpl(args, state, result);
+	if (args.AllConstant()) {
+		result.SetVectorType(VectorType::CONSTANT_VECTOR);
+	}
+}
+
+static void WlsFitFunctionImpl(DataChunk &args, ExpressionState &state, Vector &result) {
     auto &bind_data = state.expr.Cast<BoundFunctionExpression>().bind_info->Cast<WlsFitBindData>();
 
     auto &y_vec = args.data[0];       // LIST(DOUBLE)
@@ -184,7 +197,9 @@ static void WlsFitFunction(DataChunk &args, ExpressionState &state, Vector &resu
                                       bind_data.compute_inference ? &inference_result : nullptr, &error);
 
         if (!success) {
-            ThrowFromFfiError("wls_fit", error);
+            ThrowUnlessDegenerate("wls_fit", error);
+            FlatVector::SetNull(result, row, true);
+            continue;
         }
 
         // Build result struct

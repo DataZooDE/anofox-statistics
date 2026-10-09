@@ -1,3 +1,4 @@
+#include <cmath>
 #include <vector>
 
 #include "duckdb.hpp"
@@ -7,9 +8,11 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/error_dispatch.hpp"
 #include "../include/ffi_enum_converters.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
+#include "aggregate_combine.hpp"
 
 namespace duckdb {
 
@@ -173,7 +176,7 @@ static void LarsAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data, 
     }
 }
 
-static void LarsAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &, idx_t count) {
+static void LarsAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &aggr_input_data, idx_t count) {
     UnifiedVectorFormat source_data, target_data;
     source_vector.ToUnifiedFormat(count, source_data);
     target_vector.ToUnifiedFormat(count, target_data);
@@ -190,8 +193,8 @@ static void LarsAggCombine(Vector &source_vector, Vector &target_vector, Aggrega
         }
 
         if (!target.initialized) {
-            target.y_values = std::move(source.y_values);
-            target.x_columns = std::move(source.x_columns);
+            target.y_values = CombineTake(source.y_values, aggr_input_data);
+            target.x_columns = CombineTake(source.x_columns, aggr_input_data);
             target.n_features = source.n_features;
             target.initialized = true;
             target.method_lasso = source.method_lasso;
@@ -270,6 +273,7 @@ static void LarsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input
         bool success = anofox_lars_fit(y_array, x_arrays.data(), x_arrays.size(), options, &core_result, &error);
 
         if (!success) {
+            ThrowUnlessDegenerate("lars_fit_agg", error);
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
@@ -279,8 +283,16 @@ static void LarsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input
                         core_result.coefficients_len);
         FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = core_result.intercept;
         FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = core_result.r_squared;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = core_result.adj_r_squared;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = core_result.residual_std_error;
+        // adj_r_squared / residual_std_error are NaN when n <= df (active coefficients
+        // + intercept); report NULL rather than NaN.
+        for (double v : {core_result.adj_r_squared, core_result.residual_std_error}) {
+            auto &entry = *struct_entries[struct_idx++];
+            if (std::isnan(v)) {
+                FlatVector::SetNull(entry, result_idx, true);
+            } else {
+                FlatVector::GetData<double>(entry)[result_idx] = v;
+            }
+        }
         FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = core_result.n_observations;
         FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = core_result.n_features;
 
@@ -296,14 +308,35 @@ static unique_ptr<FunctionData> LarsAggBind(ClientContext &context, AggregateFun
                                             vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<LarsAggregateBindData>();
 
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[2]);
+    if (arguments.size() >= 3) {
+        auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[2], "lars_fit_agg",
+            {"fit_intercept", "alpha", "lambda", "method", "n_nonzero_coefs", "standardize"});
         if (opts.fit_intercept.has_value()) {
             result->fit_intercept = opts.fit_intercept.value();
         }
         auto reg_strength = opts.GetRegularizationStrength();
         if (reg_strength.has_value()) {
             result->alpha = reg_strength.value();
+        }
+        if (opts.lars_lasso.has_value()) {
+            result->method_lasso = opts.lars_lasso.value();
+        } else if (result->alpha > 0.0) {
+            // alpha is the LassoLars early-stopping penalty; plain LAR ignores it.
+            // Before 'method' was exposed, method_lasso was always false, so a
+            // user-supplied alpha silently had no effect. Requesting a penalty
+            // therefore selects the lasso path unless a method is given.
+            result->method_lasso = true;
+        }
+        if (!result->method_lasso && result->alpha > 0.0) {
+            throw InvalidInputException("lars_fit_agg: 'alpha' only applies to method 'lasso' (plain LAR ignores "
+                                        "it); drop 'alpha' or use {'method': 'lasso'}");
+        }
+        if (opts.n_nonzero_coefs.has_value()) {
+            result->n_nonzero_coefs = opts.n_nonzero_coefs.value();
+        }
+        if (opts.standardize.has_value()) {
+            result->standardize = opts.standardize.value();
         }
     }
 

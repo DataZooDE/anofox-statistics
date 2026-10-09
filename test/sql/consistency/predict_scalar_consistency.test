@@ -1,0 +1,39 @@
+# name: test/sql/consistency/predict_scalar_consistency.test
+# description: predict(x, coefficients, intercept) must equal intercept + coef . x for every row,
+#              regardless of whether its list arguments arrive as flat or constant vectors.
+#              x is column-major: [[feature1 values], [feature2 values]].
+# group: [consistency]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE d AS
+SELECT i AS t,
+       (i % 11)::DOUBLE + 0.1 * i AS x1,
+       ((i * 7) % 13)::DOUBLE AS x2,
+       CASE WHEN i <= 30 THEN 2.0 + 1.5 * ((i % 11) + 0.1 * i) - 0.7 * ((i * 7) % 13) + ((i * 37) % 17 - 8) * 0.25 END AS y
+FROM range(1, 41) r(i);
+
+# The predict() scalar itself must agree with intercept + coef . x, whether the coefficient
+# list is a per-row value or a constant (constant vectors must not be indexed by row).
+query II
+WITH f AS (SELECT ols_fit_agg(y, [x1, x2]) AS m FROM d)
+SELECT count(*), max(abs(predict([[x1], [x2]], (m).coefficients, (m).intercept)[1]
+                         - ((m).intercept + list_dot_product((m).coefficients, [x1, x2])))) < 1e-9
+FROM d, f;
+----
+40	true
+
+query II
+SELECT count(*), max(abs(predict([[x1], [x2]], [1.5, -0.5], 2.0)[1] - (2.0 + 1.5 * x1 - 0.5 * x2))) < 1e-12
+FROM d;
+----
+40	true
+
+# Whole-column form: one call predicting all rows (x given column-major)
+query II
+WITH f AS (SELECT ols_fit_agg(y, [x1, x2]) AS m FROM d),
+     p AS (SELECT predict([list(x1 ORDER BY t), list(x2 ORDER BY t)], any_value((m).coefficients), any_value((m).intercept)) AS yh FROM d, f)
+SELECT len(yh), max(abs(yh[t] - ((m).intercept + list_dot_product((m).coefficients, [x1, x2])))) < 1e-9 FROM p, d, f GROUP BY len(yh);
+----
+40	true

@@ -37,7 +37,7 @@ SELECT
     store_id,
     (pred).y AS actual_visitors,
     ROUND((pred).yhat) AS predicted_visitors,
-    (pred).is_training
+    (pred).is_training AS is_training
 FROM (
     SELECT
         store_id,
@@ -49,7 +49,7 @@ FROM (
     GROUP BY store_id
 ) sub
 WHERE store_id = 1
-ORDER BY (pred).x[1];
+ORDER BY (pred).yhat;
 
 -- ============================================================================
 -- Example 2: Separate Training vs Prediction Results

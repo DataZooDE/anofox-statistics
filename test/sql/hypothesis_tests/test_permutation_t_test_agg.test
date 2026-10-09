@@ -20,27 +20,27 @@ SELECT * FROM (VALUES
 # =============================================================================
 
 query I
-SELECT (permutation_t_test_agg(value, grp)).statistic IS NOT NULL FROM perm_data;
+SELECT (permutation_t_test_agg(value, grp, {'seed': 42})).statistic IS NOT NULL FROM perm_data;
 ----
 true
 
 query I
-SELECT (permutation_t_test_agg(value, grp)).p_value IS NOT NULL FROM perm_data;
+SELECT (permutation_t_test_agg(value, grp, {'seed': 42})).p_value IS NOT NULL FROM perm_data;
 ----
 true
 
 query I
-SELECT (permutation_t_test_agg(value, grp)).n1 IS NOT NULL FROM perm_data;
+SELECT (permutation_t_test_agg(value, grp, {'seed': 42})).n1 IS NOT NULL FROM perm_data;
 ----
 true
 
 query I
-SELECT (permutation_t_test_agg(value, grp)).n2 IS NOT NULL FROM perm_data;
+SELECT (permutation_t_test_agg(value, grp, {'seed': 42})).n2 IS NOT NULL FROM perm_data;
 ----
 true
 
 query I
-SELECT (permutation_t_test_agg(value, grp)).method IS NOT NULL FROM perm_data;
+SELECT (permutation_t_test_agg(value, grp, {'seed': 42})).method IS NOT NULL FROM perm_data;
 ----
 true
 
@@ -49,7 +49,7 @@ true
 # =============================================================================
 
 query I
-SELECT (permutation_t_test_agg(value, grp)).p_value < 0.05 FROM perm_data;
+SELECT (permutation_t_test_agg(value, grp, {'seed': 42})).p_value < 0.05 FROM perm_data;
 ----
 true
 
@@ -58,7 +58,7 @@ true
 # =============================================================================
 
 query II
-SELECT (permutation_t_test_agg(value, grp)).n1, (permutation_t_test_agg(value, grp)).n2 FROM perm_data;
+SELECT (permutation_t_test_agg(value, grp, {'seed': 42})).n1, (permutation_t_test_agg(value, grp, {'seed': 42})).n2 FROM perm_data;
 ----
 6	6
 
@@ -67,7 +67,7 @@ SELECT (permutation_t_test_agg(value, grp)).n1, (permutation_t_test_agg(value, g
 # =============================================================================
 
 query I
-SELECT (permutation_t_test_agg(value, grp)).p_value BETWEEN 0 AND 1 FROM perm_data;
+SELECT (permutation_t_test_agg(value, grp, {'seed': 42})).p_value BETWEEN 0 AND 1 FROM perm_data;
 ----
 true
 
@@ -83,7 +83,7 @@ SELECT * FROM (VALUES
 ) AS t(value, grp);
 
 query I
-SELECT (permutation_t_test_agg(value, grp)).p_value > 0.05 FROM no_diff;
+SELECT (permutation_t_test_agg(value, grp, {'seed': 42})).p_value > 0.05 FROM no_diff;
 ----
 true
 
@@ -101,7 +101,7 @@ SELECT * FROM (VALUES
 ) AS t(category, value, grp);
 
 query TI
-SELECT category, (permutation_t_test_agg(value, grp)).p_value < 0.05 AS significant
+SELECT category, (permutation_t_test_agg(value, grp, {'seed': 42})).p_value < 0.05 AS significant
 FROM grouped_data
 GROUP BY category
 ORDER BY category;
@@ -114,9 +114,30 @@ B	false
 # =============================================================================
 
 query I
-SELECT (permutation_t_test_agg(value, grp)).statistic IS NOT NULL FROM perm_data;
+SELECT (permutation_t_test_agg(value, grp, {'seed': 42})).statistic IS NOT NULL FROM perm_data;
 ----
 true
+
+# =============================================================================
+# Determinism: a fixed seed gives a bit-identical p-value across calls and
+# under parallel / multi-row-group execution; a different seed may differ.
+# =============================================================================
+
+query I
+SELECT (SELECT (permutation_t_test_agg(value, grp, {'seed': 42})).p_value FROM perm_data)
+     = (SELECT (permutation_t_test_agg(value, grp, {'seed': 42})).p_value FROM perm_data);
+----
+true
+
+query I
+SELECT count(DISTINCT p) FROM (
+    SELECT (permutation_t_test_agg(value, grp, {'seed': 42, 'n_permutations': 999})).p_value AS p FROM perm_data
+    UNION ALL
+    SELECT (permutation_t_test_agg(value, grp, {'seed': 42, 'n_permutations': 999})).p_value FROM (SELECT * FROM perm_data ORDER BY value DESC)
+    UNION ALL
+    SELECT (permutation_t_test_agg(value, grp, {'seed': 42, 'n_permutations': 999})).p_value FROM perm_data);
+----
+1
 
 # =============================================================================
 # CLEANUP

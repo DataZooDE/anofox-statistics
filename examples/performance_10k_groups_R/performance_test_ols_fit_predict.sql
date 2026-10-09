@@ -2,7 +2,7 @@
 -- Performance Test: OLS Fit-Predict Window Functions
 -- ============================================================================
 -- This script loads a pre-generated dataset and tests the performance of
--- anofox_stats_ols_fit_predict window functions.
+-- ols_fit_predict window functions.
 --
 -- Dataset characteristics:
 -- - Multiple groups with time-series style sequential data
@@ -19,7 +19,7 @@
 -- 3. Results are saved to examples/performance_10k_groups_R/results/
 -- ============================================================================
 
-LOAD 'build/release/extension/anofox_stats/anofox_stats.duckdb_extension';
+LOAD 'build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension';
 
 -- ============================================================================
 -- STEP 1: Load Performance Data from Parquet File
@@ -63,10 +63,10 @@ SELECT
     obs_id,
     y,
     x1, x2, x3, x4, x5, x6, x7, x8,
-    anofox_stats_ols_fit_predict(
+    ols_fit_predict(
         y,
         [x1, x2, x3, x4, x5, x6, x7, x8],
-        {'intercept': true, 'fit_predict_mode': 'expanding'}
+        {'intercept': true}
     ) OVER (
         PARTITION BY group_id
         ORDER BY obs_id
@@ -101,7 +101,7 @@ ORDER BY obs_id;
 .print '============================================================================'
 .print 'PERFORMANCE TEST 2: Fixed Window (Single Group)'
 .print '============================================================================'
-.print 'Mode: fixed - fits once on training data, predicts all'
+.print 'Mode: fixed - ols_fit_predict_by fits once per group on training data, predicts all rows'
 .timer on
 
 CREATE OR REPLACE TABLE predictions_fixed_single AS
@@ -110,15 +110,10 @@ SELECT
     obs_id,
     y,
     x1, x2, x3, x4, x5, x6, x7, x8,
-    anofox_stats_ols_fit_predict(
-        y,
-        [x1, x2, x3, x4, x5, x6, x7, x8],
-        {'intercept': true, 'fit_predict_mode': 'fixed'}
-    ) OVER (
-        PARTITION BY group_id
-        ORDER BY obs_id
-    ) as pred
-FROM performance_data
+    -- Fixed model: one OLS fit per group on the rows with non-NULL y,
+    -- applied to every row of the group.
+    {'yhat': yhat, 'yhat_lower': yhat_lower, 'yhat_upper': yhat_upper} as pred
+FROM ols_fit_predict_by('performance_data', group_id, y, [x1, x2, x3, x4, x5, x6, x7, x8])
 WHERE group_id = 1;
 
 .timer off
@@ -153,10 +148,10 @@ SELECT
     group_id,
     obs_id,
     y,
-    anofox_stats_ols_fit_predict(
+    ols_fit_predict(
         y,
         [x1, x2, x3, x4, x5, x6, x7, x8],
-        {'intercept': true, 'fit_predict_mode': 'expanding'}
+        {'intercept': true}
     ) OVER (
         PARTITION BY group_id
         ORDER BY obs_id
@@ -191,15 +186,10 @@ SELECT
     group_id,
     obs_id,
     y,
-    anofox_stats_ols_fit_predict(
-        y,
-        [x1, x2, x3, x4, x5, x6, x7, x8],
-        {'intercept': true, 'fit_predict_mode': 'fixed'}
-    ) OVER (
-        PARTITION BY group_id
-        ORDER BY obs_id
-    ) as pred
-FROM performance_data
+    -- Fixed model: one OLS fit per group on the rows with non-NULL y,
+    -- applied to every row of the group.
+    {'yhat': yhat, 'yhat_lower': yhat_lower, 'yhat_upper': yhat_upper} as pred
+FROM ols_fit_predict_by('performance_data', group_id, y, [x1, x2, x3, x4, x5, x6, x7, x8])
 WHERE group_id <= 100;
 
 .timer off
@@ -229,10 +219,10 @@ SELECT
     group_id,
     obs_id,
     y,
-    anofox_stats_ols_fit_predict(
+    ols_fit_predict(
         y,
         [x1, x2, x3, x4, x5, x6, x7, x8],
-        {'intercept': true, 'fit_predict_mode': 'expanding'}
+        {'intercept': true}
     ) OVER (
         PARTITION BY group_id
         ORDER BY obs_id
@@ -268,15 +258,10 @@ SELECT
     group_id,
     obs_id,
     y,
-    anofox_stats_ols_fit_predict(
-        y,
-        [x1, x2, x3, x4, x5, x6, x7, x8],
-        {'intercept': true, 'fit_predict_mode': 'fixed'}
-    ) OVER (
-        PARTITION BY group_id
-        ORDER BY obs_id
-    ) as pred
-FROM performance_data;
+    -- Fixed model: one OLS fit per group on the rows with non-NULL y,
+    -- applied to every row of the group.
+    {'yhat': yhat, 'yhat_lower': yhat_lower, 'yhat_upper': yhat_upper} as pred
+FROM ols_fit_predict_by('performance_data', group_id, y, [x1, x2, x3, x4, x5, x6, x7, x8]);
 
 .timer off
 

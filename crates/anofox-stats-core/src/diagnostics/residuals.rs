@@ -24,6 +24,8 @@ pub struct ResidualsResult {
     pub studentized: Option<Vec<f64>>,
     /// Leverage values (hat diagonal)
     pub leverage: Option<Vec<f64>>,
+    /// Cook's distance (needs leverage and a residual standard error)
+    pub cooks_distance: Option<Vec<f64>>,
 }
 
 /// Compute residuals from y and predicted values
@@ -37,7 +39,7 @@ pub fn compute_residuals(
     let n = y.len();
 
     if n == 0 {
-        return Err(StatsError::InvalidInput("Empty y array".into()));
+        return Err(StatsError::NoValidData);
     }
 
     if y_hat.len() != n {
@@ -50,6 +52,20 @@ pub fn compute_residuals(
 
     // Compute raw residuals
     let raw: Vec<f64> = y.iter().zip(y_hat).map(|(yi, yhi)| yi - yhi).collect();
+
+    // Without an explicit residual standard error but with the design matrix,
+    // estimate it from the residuals assuming y_hat comes from a least-squares
+    // fit on x with an intercept: s = sqrt(RSS / (n - k - 1)), as R's
+    // `summary(lm)$sigma`. Without x the model size is unknown, so s (and hence
+    // the standardized/studentized residuals) stays unavailable.
+    let residual_std_error = residual_std_error.or_else(|| {
+        let k = x.map(|cols| cols.len())?;
+        if k == 0 || n <= k + 1 {
+            return None;
+        }
+        let rss: f64 = raw.iter().map(|e| e * e).sum();
+        Some((rss / (n - k - 1) as f64).sqrt())
+    });
 
     // Compute standardized residuals if we have residual_std_error
     let standardized = residual_std_error.map(|s| {
@@ -67,11 +83,24 @@ pub fn compute_residuals(
         (None, None)
     };
 
+    // Cook's distance, as R's `cooks.distance(lm)`, delegated to anofox-regression:
+    // D_i = e_i^2 / (p * s^2) * h_ii / (1 - h_ii)^2 with p = k + 1 (intercept).
+    let cooks_distance = match (&leverage, residual_std_error, x) {
+        (Some(lev), Some(s), Some(cols)) if s.is_finite() && s > 0.0 => {
+            let e = faer::Col::from_fn(n, |i| raw[i]);
+            let h = faer::Col::from_fn(n, |i| lev[i]);
+            let d = anofox_regression::diagnostics::cooks_distance(&e, &h, s * s, cols.len() + 1);
+            Some((0..n).map(|i| d[i]).collect())
+        }
+        _ => None,
+    };
+
     Ok(ResidualsResult {
         raw,
         standardized,
         studentized,
         leverage,
+        cooks_distance,
     })
 }
 

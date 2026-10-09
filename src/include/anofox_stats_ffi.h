@@ -529,10 +529,12 @@ typedef struct {
 	double *standardized;
 	double *studentized;
 	double *leverage;
+	double *cooks_distance;
 	size_t len;
 	bool has_standardized;
 	bool has_studentized;
 	bool has_leverage;
+	bool has_cooks_distance;
 } AnofoxResidualsResult;
 
 /**
@@ -686,6 +688,70 @@ typedef struct {
 bool anofox_predict_with_interval(const double *coefficients, size_t coefficients_len, double intercept,
                                   const double *x_new, size_t x_len, double residual_std_error, size_t n_observations,
                                   double confidence_level, AnofoxPredictionResult *out_result);
+
+/**
+ * Compute the leverage matrix M for leverage-aware prediction intervals
+ *
+ * The predictive variance factor of a new row x0 (augmented with a leading 1 when
+ * fit_intercept) is x0' M x0. OLS: M = (X'X)^-1; with weights: M = (X'WX)^-1; with
+ * ridge_lambda > 0: M = A X'(W)X A, A = (X'(W)X + lambda*I)^-1, intercept unpenalised
+ * (matches anofox_ridge_fit; pass the effective lambda, i.e. lambda * n under glmnet
+ * scaling). Columns whose coefficient is NaN (aliased/constant) or exactly 0.0 (inactive
+ * in sparse fits such as elastic net) are excluded; their rows/columns are 0. Rows with
+ * a non-finite x value (or non-finite/negative weight) are skipped. Fails with
+ * ANOFOX_ERROR_SINGULAR_MATRIX if the (penalised) Gram matrix is singular.
+ *
+ * @param x Feature arrays (x_count columns of equal length)
+ * @param x_count Number of feature columns
+ * @param coefficients Fitted coefficients (one per column)
+ * @param coefficients_len Must equal x_count
+ * @param fit_intercept Whether the model has an intercept (adds a leading row/column)
+ * @param weights Observation weights, or NULL for unweighted
+ * @param ridge_lambda Effective ridge penalty (0 for none)
+ * @param out_matrix Output: malloc'd row-major dim x dim matrix; free with
+ *                   anofox_free_interval_matrix
+ * @param out_dim Output: dim = x_count + (fit_intercept ? 1 : 0)
+ * @param out_error Output: error information (may be NULL)
+ * @return true on success, false on error
+ */
+bool anofox_interval_matrix(const AnofoxDataArray *x, size_t x_count, const double *coefficients,
+                            size_t coefficients_len, bool fit_intercept, const AnofoxDataArray *weights,
+                            double ridge_lambda, double **out_matrix, size_t *out_dim, AnofoxError *out_error);
+
+/**
+ * Free a matrix returned by anofox_interval_matrix (NULL is a no-op)
+ */
+void anofox_free_interval_matrix(double *matrix);
+
+/**
+ * Point prediction with a leverage-aware interval
+ *
+ * yhat +/- t_{df} * s * sqrt(1 + x0' M x0) for interval_type 0 (prediction interval) or
+ * sqrt(x0' M x0) for interval_type 1 (confidence interval for the mean), with
+ * df = n_observations - n_params_effective (n_params_effective counts the intercept).
+ * If df == 0 or residual_std_error is not positive/finite the bounds are NaN (returns true).
+ *
+ * @param coefficients Fitted coefficients (NaN coefficients contribute nothing to yhat)
+ * @param coefficients_len Number of coefficients
+ * @param intercept Intercept value (NaN if no intercept)
+ * @param x_new New observation feature values
+ * @param x_len Number of features (must equal coefficients_len)
+ * @param matrix Matrix from anofox_interval_matrix (dim x dim, row-major)
+ * @param dim Matrix dimension; must equal x_len + (intercept is not NaN ? 1 : 0)
+ * @param n_observations Number of training observations
+ * @param n_params_effective Number of estimated parameters including the intercept
+ * @param residual_std_error Residual standard error from the fit
+ * @param confidence_level Confidence level in (0, 1)
+ * @param interval_type 0 = prediction interval, 1 = confidence interval
+ * @param out_result Output: prediction with interval
+ * @param out_error Output: error information (may be NULL)
+ * @return true on success, false on error
+ */
+bool anofox_predict_with_interval_matrix(const double *coefficients, size_t coefficients_len, double intercept,
+                                         const double *x_new, size_t x_len, const double *matrix, size_t dim,
+                                         size_t n_observations, size_t n_params_effective,
+                                         double residual_std_error, double confidence_level, int32_t interval_type,
+                                         AnofoxPredictionResult *out_result, AnofoxError *out_error);
 
 /* ============================================================================
  * GLM (Generalized Linear Models) Functions
@@ -1871,9 +1937,22 @@ bool anofox_chisq_test(AnofoxDataArray row_var, AnofoxDataArray col_var, AnofoxC
 
 /**
  * Fisher's exact test (2x2 tables)
+ *
+ * statistic/effect_size = sample odds ratio ad/bc; CI = Woolf (log-odds Wald) interval
+ * at options.confidence_level, which must be in (0, 1) (InvalidInput otherwise).
  */
 bool anofox_fisher_exact(size_t a, size_t b, size_t c, size_t d, AnofoxFisherExactOptions options,
                          AnofoxTestResult *out_result, AnofoxError *out_error);
+
+/**
+ * Fisher's exact test (2x2 tables) with R fisher.test semantics
+ *
+ * statistic/effect_size = conditional maximum-likelihood odds ratio; ci_lower/ci_upper =
+ * exact conditional interval at options.confidence_level (one-sided for less/greater:
+ * [0, U] / [L, Inf)). Valid for any table with n >= 1. confidence_level must be in (0, 1).
+ */
+bool anofox_fisher_exact_conditional(size_t a, size_t b, size_t c, size_t d, AnofoxFisherExactOptions options,
+                                     AnofoxTestResult *out_result, AnofoxError *out_error);
 
 /**
  * Energy distance test
@@ -2004,6 +2083,20 @@ bool anofox_binom_test(size_t successes, size_t trials, double p0, AnofoxAlterna
                        AnofoxPropTestResult *out_result, AnofoxError *out_error);
 
 /**
+ * Proportion / binomial tests with the confidence level of the reported
+ * interval (in (0, 1)); the functions above use 0.95.
+ */
+bool anofox_prop_test_one_with_conf_level(size_t successes, size_t trials, double p0, AnofoxAlternative alternative,
+                                          double confidence_level, AnofoxPropTestResult *out_result,
+                                          AnofoxError *out_error);
+bool anofox_prop_test_two_with_conf_level(size_t successes1, size_t trials1, size_t successes2, size_t trials2,
+                                          AnofoxAlternative alternative, bool correction, double confidence_level,
+                                          AnofoxPropTestResult *out_result, AnofoxError *out_error);
+bool anofox_binom_test_with_conf_level(size_t successes, size_t trials, double p0, AnofoxAlternative alternative,
+                                       double confidence_level, AnofoxPropTestResult *out_result,
+                                       AnofoxError *out_error);
+
+/**
  * Cramer's V effect size for contingency tables
  */
 bool anofox_cramers_v(const size_t *table, const size_t *row_lengths, size_t n_rows, double *out_result,
@@ -2077,6 +2170,15 @@ bool anofox_distance_cor_test(AnofoxDataArray x, AnofoxDataArray y, size_t n_per
                               AnofoxError *out_error);
 
 /**
+ * Distance correlation test with permutations and optional seed
+ *
+ * Same as anofox_distance_cor_test; when has_seed is true the permutation RNG is
+ * seeded with seed so the p-value is reproducible.
+ */
+bool anofox_distance_cor_test_seeded(AnofoxDataArray x, AnofoxDataArray y, size_t n_permutations, uint64_t seed,
+                                     bool has_seed, AnofoxTestResult *out_result, AnofoxError *out_error);
+
+/**
  * ICC type codes
  */
 typedef enum {
@@ -2104,6 +2206,8 @@ typedef struct {
 	size_t n_raters;
 	/** Method name (must be freed) */
 	char *method;
+	/** p-value of the F test of H0: ICC = 0 */
+	double p_value;
 } AnofoxIccResult;
 
 /**

@@ -8,7 +8,10 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/result_fields.hpp"
+#include "../include/error_dispatch.hpp"
 #include "telemetry.hpp"
+#include "aggregate_combine.hpp"
 
 namespace duckdb {
 
@@ -44,6 +47,8 @@ static LogicalType GetAnovaAggResultType() {
     children.push_back(make_pair("n_groups", LogicalType::BIGINT));
     children.push_back(make_pair("n", LogicalType::BIGINT));
     children.push_back(make_pair("method", LogicalType::VARCHAR));
+    children.push_back(make_pair("statistic", LogicalType::DOUBLE));
+    children.push_back(make_pair("alternative", LogicalType::VARCHAR));
 
     return LogicalType::STRUCT(std::move(children));
 }
@@ -102,7 +107,7 @@ static void AnovaAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data,
     }
 }
 
-static void AnovaAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &, idx_t count) {
+static void AnovaAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &aggr_input_data, idx_t count) {
     UnifiedVectorFormat source_data, target_data;
     source_vector.ToUnifiedFormat(count, source_data);
     target_vector.ToUnifiedFormat(count, target_data);
@@ -119,8 +124,8 @@ static void AnovaAggCombine(Vector &source_vector, Vector &target_vector, Aggreg
         }
 
         if (!target.initialized) {
-            target.values = std::move(source.values);
-            target.groups = std::move(source.groups);
+            target.values = CombineTake(source.values, aggr_input_data);
+            target.groups = CombineTake(source.groups, aggr_input_data);
             target.initialized = true;
             continue;
         }
@@ -163,6 +168,7 @@ static void AnovaAggFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
         bool success = anofox_one_way_anova(values_array, groups_array, &anova_result, &error);
 
         if (!success) {
+            ThrowUnlessDegenerate("one_way_anova_agg", error);
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
@@ -179,6 +185,8 @@ static void AnovaAggFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
         auto& method_vector = *struct_entries[struct_idx++];
         FlatVector::GetData<string_t>(method_vector)[result_idx] =
             StringVector::AddString(method_vector, anova_result.method ? anova_result.method : "One-Way ANOVA");
+        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = anova_result.f_statistic;
+        SetResultNull(*struct_entries[struct_idx++], result_idx); // alternative: not applicable
 
         anofox_free_anova_result(&anova_result);
         state.Reset();

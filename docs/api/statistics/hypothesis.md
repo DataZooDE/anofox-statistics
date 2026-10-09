@@ -9,7 +9,7 @@ Comprehensive statistical hypothesis testing functions for comparing groups and 
 Two-sample t-test comparing means of two groups. Supports both Welch's (default) and Student's t-test.
 
 **Signature:**
-```sql
+```text
 t_test_agg(value DOUBLE, group_id INTEGER, [options MAP]) -> STRUCT
 ```
 
@@ -38,13 +38,17 @@ STRUCT(
 
 **Example:**
 ```sql
--- Compare treatment vs control (group_id: 0 = control, 1 = treatment)
-SELECT (t_test_agg(outcome, treatment_group)).*
-FROM experiment;
+CREATE OR REPLACE TABLE experiment AS
+SELECT (i % 2)::INTEGER AS treatment_group,
+       (10 + 1.5 * (i % 2) + ((i * 37) % 11) / 2.0)::DOUBLE AS outcome
+FROM range(80) r(i);
 
--- One-sided test (treatment > control)
-SELECT t_test_agg(score, group, {'alternative': 'greater'})
-FROM test_results;
+-- Compare treatment vs control (group_id: 0 = control, 1 = treatment)
+SELECT unnest(t_test_agg(outcome, treatment_group)) FROM experiment;
+
+-- One-sided test
+SELECT t_test_agg(outcome, treatment_group, {'alternative': 'less'}) AS result
+FROM experiment;
 ```
 
 ### one_way_anova_agg
@@ -52,7 +56,7 @@ FROM test_results;
 One-way Analysis of Variance for comparing means across multiple groups.
 
 **Signature:**
-```sql
+```text
 one_way_anova_agg(value DOUBLE, group_id INTEGER) -> STRUCT
 ```
 
@@ -73,9 +77,11 @@ STRUCT(
 
 **Example:**
 ```sql
--- Compare means across treatment groups
-SELECT (one_way_anova_agg(response, treatment_group)).*
-FROM clinical_trial;
+-- Compare means across three treatment groups
+SELECT unnest(one_way_anova_agg(response, treatment_group))
+FROM (SELECT (i % 3)::INTEGER AS treatment_group,
+             (5 + (i % 3) + ((i * 37) % 7) / 3.0)::DOUBLE AS response
+      FROM range(90) r(i)) clinical_trial;
 ```
 
 ### yuen_agg
@@ -83,7 +89,7 @@ FROM clinical_trial;
 Yuen's trimmed mean test - robust alternative to t-test.
 
 **Signature:**
-```sql
+```text
 yuen_agg(value DOUBLE, group_id INTEGER, [options MAP]) -> STRUCT
 ```
 
@@ -97,7 +103,7 @@ yuen_agg(value DOUBLE, group_id INTEGER, [options MAP]) -> STRUCT
 Brown-Forsythe test for equality of variances.
 
 **Signature:**
-```sql
+```text
 brown_forsythe_agg(value DOUBLE, group_id INTEGER) -> STRUCT
 ```
 
@@ -108,7 +114,7 @@ brown_forsythe_agg(value DOUBLE, group_id INTEGER) -> STRUCT
 Mann-Whitney U test (Wilcoxon rank-sum). Non-parametric alternative to t-test.
 
 **Signature:**
-```sql
+```text
 mann_whitney_u_agg(value DOUBLE, group_id INTEGER, [options MAP]) -> STRUCT
 ```
 
@@ -138,7 +144,7 @@ STRUCT(
 Kruskal-Wallis H test. Non-parametric alternative to ANOVA.
 
 **Signature:**
-```sql
+```text
 kruskal_wallis_agg(value DOUBLE, group_id INTEGER) -> STRUCT
 ```
 
@@ -147,7 +153,7 @@ kruskal_wallis_agg(value DOUBLE, group_id INTEGER) -> STRUCT
 Wilcoxon signed-rank test for paired samples.
 
 **Signature:**
-```sql
+```text
 wilcoxon_signed_rank_agg(x DOUBLE, y DOUBLE, [options MAP]) -> STRUCT
 ```
 
@@ -156,7 +162,7 @@ wilcoxon_signed_rank_agg(x DOUBLE, y DOUBLE, [options MAP]) -> STRUCT
 Brunner-Munzel test - robust to unequal variances and non-normality.
 
 **Signature:**
-```sql
+```text
 brunner_munzel_agg(value DOUBLE, group_id INTEGER, [options MAP]) -> STRUCT
 ```
 
@@ -165,7 +171,7 @@ brunner_munzel_agg(value DOUBLE, group_id INTEGER, [options MAP]) -> STRUCT
 Permutation t-test - exact test without distributional assumptions.
 
 **Signature:**
-```sql
+```text
 permutation_t_test_agg(value DOUBLE, group_id INTEGER, [options MAP]) -> STRUCT
 ```
 
@@ -181,7 +187,7 @@ permutation_t_test_agg(value DOUBLE, group_id INTEGER, [options MAP]) -> STRUCT
 Shapiro-Wilk test for normality.
 
 **Signature:**
-```sql
+```text
 shapiro_wilk_agg(value DOUBLE) -> STRUCT
 ```
 
@@ -200,7 +206,7 @@ STRUCT(
 Jarque-Bera test for normality based on skewness and kurtosis.
 
 **Signature:**
-```sql
+```text
 jarque_bera_agg(value DOUBLE) -> STRUCT
 ```
 
@@ -209,7 +215,7 @@ jarque_bera_agg(value DOUBLE) -> STRUCT
 D'Agostino K² test for normality.
 
 **Signature:**
-```sql
+```text
 dagostino_k2_agg(value DOUBLE) -> STRUCT
 ```
 
@@ -220,15 +226,19 @@ dagostino_k2_agg(value DOUBLE) -> STRUCT
 Two One-Sided Tests (TOST) for equivalence.
 
 **Signature:**
-```sql
+```text
 tost_t_test_agg(value DOUBLE, group_id INTEGER, [options MAP]) -> STRUCT
 ```
 
 **Options:**
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| equivalence_margin | DOUBLE | 0.5 | Equivalence margin |
+| delta (alias `equivalence_bound`) | DOUBLE | — | Symmetric equivalence bounds `[-delta, delta]`; overrides the explicit bounds |
+| bound_lower (aliases `lower`, `low`) | DOUBLE | -1.0 | Lower equivalence bound (used when `delta` is not set) |
+| bound_upper (aliases `upper`, `high`) | DOUBLE | 1.0 | Upper equivalence bound (used when `delta` is not set) |
 | confidence_level | DOUBLE | 0.95 | Confidence level |
+| kind | VARCHAR | 'welch' | `'welch'` or `'student'` |
+| mu | DOUBLE | 0.0 | Hypothesised difference |
 
 ### tost_paired_agg
 
@@ -245,7 +255,7 @@ TOST for correlation equivalence.
 Energy distance between two distributions.
 
 **Signature:**
-```sql
+```text
 energy_distance_agg(value DOUBLE, group_id INTEGER) -> STRUCT
 ```
 
@@ -254,7 +264,7 @@ energy_distance_agg(value DOUBLE, group_id INTEGER) -> STRUCT
 Maximum Mean Discrepancy test.
 
 **Signature:**
-```sql
+```text
 mmd_agg(value DOUBLE, group_id INTEGER, [options MAP]) -> STRUCT
 ```
 
@@ -265,7 +275,7 @@ mmd_agg(value DOUBLE, group_id INTEGER, [options MAP]) -> STRUCT
 Diebold-Mariano test for comparing forecast accuracy.
 
 **Signature:**
-```sql
+```text
 diebold_mariano_agg(actual DOUBLE, forecast1 DOUBLE, forecast2 DOUBLE, [options MAP]) -> STRUCT
 ```
 
@@ -274,7 +284,7 @@ diebold_mariano_agg(actual DOUBLE, forecast1 DOUBLE, forecast2 DOUBLE, [options 
 Clark-West test for nested forecast models.
 
 **Signature:**
-```sql
+```text
 clark_west_agg(actual DOUBLE, forecast1 DOUBLE, forecast2 DOUBLE) -> STRUCT
 ```
 

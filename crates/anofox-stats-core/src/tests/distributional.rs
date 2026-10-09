@@ -138,4 +138,17 @@ mod tests {
         assert!(result.statistic >= 0.0);
         assert!(result.p_value > 0.0 && result.p_value <= 1.0);
     }
+
+    /// R shapiro.test(); small-sample branch (n <= 11) and n >= 12.
+    #[test]
+    #[allow(clippy::excessive_precision)]
+    fn test_shapiro_wilk_matches_r() {
+        let r = shapiro_wilk(&[4.1, 5.3, 3.8, 6.9, 5.0, 4.4, 9.2, 5.7, 4.9, 6.1]).unwrap();
+        assert!((r.statistic - 0.88790406283629908).abs() < 1e-10);
+        assert!((r.p_value - 0.16058545199963783).abs() < 1e-10);
+        let r = shapiro_wilk(&[1.2, 3.4, 2.2, 5.9]).unwrap();
+        assert!((r.p_value - 0.74255791273476768).abs() < 1e-10);
+        let r = shapiro_wilk(&[1.0, 2.0, 4.0]).unwrap();
+        assert!((r.p_value - 0.6368868450289632).abs() < 1e-10);
+    }
 }

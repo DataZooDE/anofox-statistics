@@ -1,0 +1,145 @@
+# name: test/sql/regression/test_zero_variance_features.test
+# description: Zero-variance (constant) and aliased features across regression methods.
+#              Converted from the former ad-hoc scripts test/sql/all_regression_zero_variance_bugs.sql,
+#              test/sql/ols_zero_variance_bugs.sql and test/sql/zero_variance_extended_tests.sql.
+#              Contract: a constant feature gets a NaN coefficient, the remaining coefficients
+#              are fitted on the reduced design, and a NaN coefficient contributes 0 to predictions.
+# group: [regression]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE zv AS SELECT * FROM (VALUES
+    (10.0, [1.0, 0.0, 0.0, 0.0]),
+    (20.0, [2.0, 0.0, 0.0, 0.0]),
+    (30.0, [3.0, 0.0, 0.0, 0.0]),
+    (40.0, [4.0, 0.0, 0.0, 0.0]),
+    (50.0, [5.0, 0.0, 0.0, 0.0])
+) AS t(y, x);
+
+# y = 10 * x1 exactly; x2..x4 are all zero. Only 2 effective parameters (intercept + x1)
+# for 5 rows, so the fit is well determined. The OLS aggregate must not count constant
+# columns towards its minimum-observation check (it currently requires n > 4 + 1 and
+# returns NULL; the Rust core explicitly supports this case).
+query IIIII
+SELECT abs(m.coefficients[1] - 10.0) < 1e-9, isnan(m.coefficients[2]), isnan(m.coefficients[3]),
+       isnan(m.coefficients[4]), abs(m.intercept) < 1e-9
+FROM (SELECT ols_fit_agg(y, x) AS m FROM zv);
+----
+true	true	true	true	true
+
+query IIIII
+SELECT abs(m.coefficients[1] - 10.0) < 1e-9, isnan(m.coefficients[2]), isnan(m.coefficients[3]),
+       isnan(m.coefficients[4]), abs(m.intercept) < 1e-9
+FROM (SELECT wls_fit_agg(y, x, 1.0) AS m FROM zv);
+----
+true	true	true	true	true
+
+query IIII
+SELECT abs(m.coefficients[1] - 10.0) < 1e-9, isnan(m.coefficients[2]), isnan(m.coefficients[3]),
+       isnan(m.coefficients[4])
+FROM (SELECT alm_fit_agg(y, x) AS m FROM zv);
+----
+true	true	true	true
+
+query IIII
+SELECT abs(m.coefficients[1] - 10.0) < 1e-9, isnan(m.coefficients[2]), isnan(m.coefficients[3]),
+       isnan(m.coefficients[4])
+FROM (SELECT bls_fit_agg(y, x) AS m FROM zv);
+----
+true	true	true	true
+
+# Ridge on centered data: slope = Sxy / (Sxx + alpha) = 100 / (10 + 0.1); intercept = ybar - slope * xbar
+query IIII
+SELECT abs(m.coefficients[1] - 100.0 / 10.1) < 1e-9, abs(m.intercept - (30.0 - 3.0 * 100.0 / 10.1)) < 1e-9,
+       isnan(m.coefficients[2]), isnan(m.coefficients[4])
+FROM (SELECT ridge_fit_agg(y, x, {'alpha': 0.1}) AS m FROM zv);
+----
+true	true	true	true
+
+query III
+SELECT NOT isnan(m.coefficients[1]), isnan(m.coefficients[2]), isnan(m.coefficients[4])
+FROM (SELECT elasticnet_fit_agg(y, x, {'alpha': 0.1, 'l1_ratio': 0.5}) AS m FROM zv);
+----
+true	true	true
+
+query III
+SELECT NOT isnan(m.coefficients[1]), isnan(m.coefficients[2]), isnan(m.coefficients[4])
+FROM (SELECT rls_fit_agg(y, x) AS m FROM zv);
+----
+true	true	true
+
+query III
+SELECT NOT isnan(m.coefficients[1]), isnan(m.coefficients[2]), isnan(m.coefficients[4])
+FROM (SELECT poisson_fit_agg((y / 10)::DOUBLE, x) AS m FROM zv);
+----
+true	true	true
+
+# All features constant -> intercept-only model: intercept = mean(y), every coefficient NaN
+query III
+SELECT abs(m.intercept - 30.0) < 1e-9, isnan(m.coefficients[1]), isnan(m.coefficients[2])
+FROM (SELECT ols_fit_agg(y, [x[2], x[3]]) AS m FROM zv);
+----
+true	true	true
+
+# Feature constant in training but non-zero in the prediction rows: the NaN coefficient
+# must contribute 0, so yhat = 1 * x1 for the two test rows.
+query II
+SELECT list_transform(ols_fit_predict_agg(y, x), lambda p: round(p.yhat, 9)), list_transform(ols_fit_predict_agg(y, x), lambda p: p.is_training)
+FROM (VALUES (1.0, [1.0, 0.0]), (2.0, [2.0, 0.0]), (3.0, [3.0, 0.0]), (4.0, [4.0, 0.0]),
+             (NULL, [5.0, 1.0]), (NULL, [6.0, 1.0])) t(y, x);
+----
+[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]	[true, true, true, true, false, false]
+
+# Aliased (indicator) features that sum to the intercept column: fitted values are unique
+# even though the coefficients are not. x=[1,0] rows have mean y 2, x=[0,1] rows mean y 3.
+query II
+SELECT list_transform(ols_fit_predict_agg(y, x), lambda p: round(p.yhat, 9)), list_transform(ols_fit_predict_agg(y, x), lambda p: p.is_training)
+FROM (VALUES (1.0, [1.0, 0.0]), (2.0, [0.0, 1.0]), (3.0, [1.0, 0.0]), (4.0, [0.0, 1.0]),
+             (NULL, [1.0, 0.0]), (NULL, [0.0, 1.0])) t(y, x);
+----
+[2.0, 3.0, 2.0, 3.0, 2.0, 3.0]	[true, true, true, true, false, false]
+
+# Many zero-variance features (changepoint dummies that never fire): 11 features, 9 all-zero,
+# 2 complementary indicators. Must not return NULL; fitted values are the indicator group means.
+query III
+WITH d AS (
+    SELECT y, [i % 2, 1 - i % 2, 0, 0, 0, 0, 0, 0, 0, 0, 0]::DOUBLE[] AS x
+    FROM (SELECT i, i::DOUBLE AS y FROM range(1, 7) t(i))
+), m AS (SELECT ols_fit_agg(y, x) AS m FROM d)
+SELECT m.coefficients IS NOT NULL,
+       abs(m.intercept + list_sum([CASE WHEN isnan(z[1]) THEN 0 ELSE z[1] * z[2] END FOR z IN list_zip(m.coefficients, [1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])]) - 3.0) < 1e-9,
+       abs(m.intercept + list_sum([CASE WHEN isnan(z[1]) THEN 0 ELSE z[1] * z[2] END FOR z IN list_zip(m.coefficients, [0.0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0])]) - 4.0) < 1e-9
+FROM m;
+----
+true	true	true
+
+# Per-group fits with aliased indicator features (3 effective rows per group is enough
+# for intercept + 1 identifiable effect): must not be NULL.
+query IIII
+WITH d AS (
+    SELECT * FROM (VALUES ('A', 1.0, [1.0, 0.0]), ('A', 2.0, [0.0, 1.0]), ('A', 3.0, [1.0, 0.0]), ('A', 5.0, [1.0, 0.0]),
+                          ('B', 10.0, [1.0, 0.0]), ('B', 20.0, [0.0, 1.0]), ('B', 30.0, [1.0, 0.0]), ('B', 50.0, [1.0, 0.0])) t(g, y, x)
+), m AS (SELECT g, ols_fit_agg(y, x) AS m FROM d GROUP BY g)
+SELECT g, m.coefficients IS NOT NULL,
+       round(m.intercept + list_sum([CASE WHEN isnan(z[1]) THEN 0 ELSE z[1] * z[2] END FOR z IN list_zip(m.coefficients, [1.0, 0.0])]), 9),
+       round(m.intercept + list_sum([CASE WHEN isnan(z[1]) THEN 0 ELSE z[1] * z[2] END FOR z IN list_zip(m.coefficients, [0.0, 1.0])]), 9)
+FROM m ORDER BY g;
+----
+A	true	3.0	2.0
+B	true	30.0	20.0
+
+# fit_predict with all-constant training features: every prediction is the training mean,
+# and the prediction interval is that of an intercept-only model (R: predict(lm(y ~ 1),
+# interval = 'prediction') for y = c(1, 2, 6) gives [-10.1448212154569, 16.1448212154569]).
+# The interval must not collapse to zero width.
+query IIII
+SELECT abs(p.yhat - 3.0) < 1e-9, p.yhat_lower < p.yhat, abs(p.yhat_lower - -10.1448212154569) < 1e-6,
+       abs(p.yhat_upper - 16.1448212154569) < 1e-6
+FROM (SELECT unnest(ols_fit_predict_agg(y, x)) AS p
+      FROM (VALUES (1.0, [5.0, 0.0]), (2.0, [5.0, 0.0]), (6.0, [5.0, 0.0]), (NULL, [7.0, 1.0])) t(y, x));
+----
+true	true	true	true
+true	true	true	true
+true	true	true	true
+true	true	true	true

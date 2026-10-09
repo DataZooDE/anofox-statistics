@@ -9,7 +9,7 @@ Correlation coefficients and tests for measuring relationships between variables
 Pearson product-moment correlation with significance test.
 
 **Signature:**
-```sql
+```text
 pearson_agg(x DOUBLE, y DOUBLE, [options MAP]) -> STRUCT
 ```
 
@@ -33,16 +33,20 @@ STRUCT(
 
 **Example:**
 ```sql
+CREATE OR REPLACE TABLE measurements AS
+SELECT 'R' || (i % 3) AS region,
+       (150 + i % 40)::DOUBLE AS height,
+       (50 + 0.6 * (i % 40) + (i * 7) % 9)::DOUBLE AS weight
+FROM range(120) r(i);
+
 -- Test correlation between two variables
-SELECT (pearson_agg(height, weight)).*
-FROM measurements;
+SELECT unnest(pearson_agg(height, weight)) FROM measurements;
 
 -- Per-group correlation with 99% CI
-SELECT
-    region,
-    (pearson_agg(income, spending, {'confidence_level': 0.99})).*
-FROM economic_data
-GROUP BY region;
+SELECT region, unnest(pearson_agg(height, weight, {'confidence_level': 0.99}))
+FROM measurements
+GROUP BY region
+ORDER BY region;
 ```
 
 **Interpretation:**
@@ -57,7 +61,7 @@ GROUP BY region;
 Spearman rank correlation. Robust to outliers and non-linear relationships.
 
 **Signature:**
-```sql
+```text
 spearman_agg(x DOUBLE, y DOUBLE, [options MAP]) -> STRUCT
 ```
 
@@ -71,8 +75,7 @@ spearman_agg(x DOUBLE, y DOUBLE, [options MAP]) -> STRUCT
 **Example:**
 ```sql
 -- Rank correlation for ordinal data
-SELECT (spearman_agg(rank_x, rank_y)).*
-FROM ranked_data;
+SELECT unnest(spearman_agg(height, weight)) FROM measurements;
 ```
 
 **Use Cases:**
@@ -87,7 +90,7 @@ FROM ranked_data;
 Kendall tau correlation. Based on concordant/discordant pairs.
 
 **Signature:**
-```sql
+```text
 kendall_agg(x DOUBLE, y DOUBLE, [options MAP]) -> STRUCT
 ```
 
@@ -98,8 +101,10 @@ kendall_agg(x DOUBLE, y DOUBLE, [options MAP]) -> STRUCT
 
 **Example:**
 ```sql
-SELECT (kendall_agg(x, y)).*
-FROM data;
+SELECT unnest(kendall_agg(height, weight)) FROM measurements;
+
+-- Tau-a instead of the default tau-b
+SELECT (kendall_agg(height, weight, {'variant': 'tau_a'})).tau FROM measurements;
 ```
 
 **Comparison with Spearman:**
@@ -114,7 +119,7 @@ FROM data;
 Distance correlation. Measures both linear and non-linear dependence.
 
 **Signature:**
-```sql
+```text
 distance_cor_agg(x DOUBLE, y DOUBLE) -> STRUCT
 ```
 
@@ -122,18 +127,18 @@ distance_cor_agg(x DOUBLE, y DOUBLE) -> STRUCT
 ```
 STRUCT(
     dcor DOUBLE,          -- Distance correlation (0 to 1)
-    dcov DOUBLE,          -- Distance covariance
+    statistic DOUBLE,     -- Test statistic
     p_value DOUBLE,       -- p-value (permutation test)
     n BIGINT,             -- Sample size
-    method VARCHAR        -- "Distance Correlation"
+    method VARCHAR        -- e.g. "Distance correlation test (1000 permutations)"
 )
 ```
 
 **Example:**
 ```sql
--- Detect non-linear relationships
-SELECT (distance_cor_agg(x, y)).*
-FROM nonlinear_data;
+-- Detect non-linear relationships: y = x^2 has zero Pearson correlation
+SELECT unnest(distance_cor_agg(x, x * x))
+FROM (SELECT (i - 20)::DOUBLE AS x FROM range(41) r(i)) nonlinear_data;
 ```
 
 **Key Properties:**
@@ -148,35 +153,37 @@ FROM nonlinear_data;
 Intraclass Correlation Coefficient for reliability/agreement.
 
 **Signature:**
-```sql
-icc_agg(value DOUBLE, subject_id INTEGER, rater_id INTEGER, [options MAP]) -> STRUCT
+```text
+icc_agg(value DOUBLE, subject_id BIGINT, rater_id BIGINT [, options MAP]) -> STRUCT
 ```
 
-**Options:**
+**Options** (pass as a `MAP {...}` literal):
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| type | VARCHAR | 'icc2' | ICC type: 'icc1', 'icc2', 'icc3' |
-| definition | VARCHAR | 'single' | 'single' or 'average' |
+| type | VARCHAR | 'single' | `'single'` (single-rater ICC) or `'average'` (average of k raters) |
+
+Every subject must be rated by every rater; incomplete data returns `NULL`.
 
 **Returns:**
 ```
 STRUCT(
     icc DOUBLE,           -- ICC value
+    f_statistic DOUBLE,   -- F-statistic
     ci_lower DOUBLE,      -- CI lower bound
     ci_upper DOUBLE,      -- CI upper bound
-    f_value DOUBLE,       -- F-statistic
-    p_value DOUBLE,       -- p-value
-    n BIGINT,             -- Number of subjects
-    k BIGINT,             -- Number of raters
-    method VARCHAR        -- "ICC"
+    n_subjects BIGINT,    -- Number of subjects
+    n_raters BIGINT,      -- Number of raters
+    method VARCHAR        -- e.g. "ICC1"
 )
 ```
 
 **Example:**
 ```sql
--- Inter-rater reliability
-SELECT (icc_agg(score, patient_id, rater_id)).*
-FROM ratings;
+-- Inter-rater reliability: 3 raters scoring 10 patients
+SELECT unnest(icc_agg(score, patient_id, rater_id))
+FROM (SELECT p AS patient_id, r AS rater_id,
+             (p * 2 + r + (p * r) % 3)::DOUBLE AS score
+      FROM range(10) a(p), range(3) b(r)) ratings;
 ```
 
 **Interpretation:**

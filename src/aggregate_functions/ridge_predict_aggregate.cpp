@@ -8,9 +8,13 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/fit_predict_rows.hpp"
+#include "../include/error_dispatch.hpp"
 #include "../include/ffi_enum_converters.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
+#include "aggregate_combine.hpp"
+#include "prediction_interval.hpp"
 
 namespace duckdb {
 
@@ -170,6 +174,10 @@ static void RidgePredictAggUpdate(Vector inputs[], AggregateInputData &aggr_inpu
 
         auto x_idx = x_data.sel->get_index(i);
         if (!x_data.validity.RowIsValid(x_idx)) {
+            // Keep the row (not training, NULL yhat) so output positions line up.
+            auto y_null_idx = y_data.sel->get_index(i);
+            bool y_null_valid = y_data.validity.RowIsValid(y_null_idx);
+            PushNullXRow(state, y_null_valid, y_null_valid ? y_values[y_null_idx] : 0.0);
             continue;
         }
 
@@ -226,6 +234,14 @@ static void RidgePredictAggUpdate(Vector inputs[], AggregateInputData &aggr_inpu
             }
         }
 
+        // A row with a missing (NULL/NaN) feature is not used to fit; report it so.
+        for (auto v : x_row) {
+            if (std::isnan(v)) {
+                row_is_training = false;
+                break;
+            }
+        }
+
         state.y_all.push_back(y_val);
         state.y_is_null.push_back(!y_valid);
         state.is_training.push_back(row_is_training);
@@ -240,7 +256,7 @@ static void RidgePredictAggUpdate(Vector inputs[], AggregateInputData &aggr_inpu
     }
 }
 
-static void RidgePredictAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &, idx_t count) {
+static void RidgePredictAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &aggr_input_data, idx_t count) {
     UnifiedVectorFormat source_data, target_data;
     source_vector.ToUnifiedFormat(count, source_data);
     target_vector.ToUnifiedFormat(count, target_data);
@@ -253,16 +269,19 @@ static void RidgePredictAggCombine(Vector &source_vector, Vector &target_vector,
         auto &target = *targets[target_data.sel->get_index(i)];
 
         if (!source.initialized) {
+            // Only NULL-x rows; keep them.
+            AppendOutputRows(target, source);
             continue;
         }
 
         if (!target.initialized) {
-            target.y_train = std::move(source.y_train);
-            target.x_train = std::move(source.x_train);
-            target.y_all = std::move(source.y_all);
-            target.y_is_null = std::move(source.y_is_null);
-            target.is_training = std::move(source.is_training);
-            target.x_all = std::move(source.x_all);
+            auto pending_rows = TakeOutputRows(target);
+            target.y_train = CombineTake(source.y_train, aggr_input_data);
+            target.x_train = CombineTake(source.x_train, aggr_input_data);
+            target.y_all = CombineTake(source.y_all, aggr_input_data);
+            target.y_is_null = CombineTake(source.y_is_null, aggr_input_data);
+            target.is_training = CombineTake(source.is_training, aggr_input_data);
+            target.x_all = CombineTake(source.x_all, aggr_input_data);
             target.n_features = source.n_features;
             target.initialized = true;
             target.alpha = source.alpha;
@@ -272,6 +291,7 @@ static void RidgePredictAggCombine(Vector &source_vector, Vector &target_vector,
             target.use_split_col = source.use_split_col;
             target.solver = source.solver;
             target.lambda_scaling = source.lambda_scaling;
+            PrependOutputRows(target, std::move(pending_rows));
             continue;
         }
 
@@ -335,10 +355,12 @@ static void RidgePredictAggFinalize(Vector &state_vector, AggregateInputData &ag
         bool success = anofox_ridge_fit(y_array, x_arrays.data(), x_arrays.size(), options, &core_result, nullptr, &error);
 
         if (!success) {
+            ThrowUnlessDegenerate("ridge_fit_predict_agg", error);
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
 
+        PadNullXRows(state);
         idx_t n_rows = state.y_all.size();
         auto list_data = ListVector::GetData(result);
         auto list_offset = ListVector::GetListSize(result);
@@ -358,7 +380,10 @@ static void RidgePredictAggFinalize(Vector &state_vector, AggregateInputData &ag
         auto &yhat_upper_vec = *struct_entries[3];
         auto &is_training_vec = *struct_entries[4];
 
-        for (idx_t row = 0; row < n_rows; row++) {
+        LeverageIntervals intervals(x_arrays, core_result.coefficients, core_result.coefficients_len,
+                                    core_result.intercept, state.fit_intercept, core_result.residual_std_error, core_result.n_observations,
+                                    nullptr, (state.lambda_scaling == LambdaScaling::GLMNET ? state.alpha * (double)core_result.n_observations : state.alpha));
+for (idx_t row = 0; row < n_rows; row++) {
             idx_t child_idx = list_offset + row;
 
             if (state.y_is_null[row]) {
@@ -368,15 +393,12 @@ static void RidgePredictAggFinalize(Vector &state_vector, AggregateInputData &ag
             }
 
             AnofoxPredictionResult pred;
-            bool pred_success = anofox_predict_with_interval(
-                core_result.coefficients, core_result.coefficients_len, core_result.intercept, state.x_all[row].data(),
-                state.n_features, core_result.residual_std_error, core_result.n_observations, state.confidence_level,
-                &pred);
+            bool pred_success = intervals.Predict(state.x_all[row].data(), state.n_features, state.confidence_level, pred);
 
             if (pred_success && std::isfinite(pred.yhat)) {
                 FlatVector::GetData<double>(yhat_vec)[child_idx] = pred.yhat;
-                FlatVector::GetData<double>(yhat_lower_vec)[child_idx] = pred.yhat_lower;
-                FlatVector::GetData<double>(yhat_upper_vec)[child_idx] = pred.yhat_upper;
+                WriteIntervalBound(yhat_lower_vec, child_idx, pred.yhat_lower);
+                WriteIntervalBound(yhat_upper_vec, child_idx, pred.yhat_upper);
             } else {
                 FlatVector::SetNull(yhat_vec, child_idx, true);
                 FlatVector::SetNull(yhat_lower_vec, child_idx, true);
@@ -398,10 +420,12 @@ static unique_ptr<FunctionData> RidgePredictAggBind(ClientContext &context, Aggr
                                                      vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<RidgePredictAggBindData>();
 
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[2]);
-        if (opts.alpha.has_value()) {
-            result->alpha = opts.alpha.value();
+    if (arguments.size() >= 3) {
+        auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[2], "ridge_fit_predict_agg",
+            {"fit_intercept", "confidence_level", "alpha", "lambda", "null_policy", "solver", "lambda_scaling"});
+        if (opts.GetRegularizationStrength().has_value()) {
+            result->alpha = opts.GetRegularizationStrength().value(); // 'alpha' or 'lambda'
         }
         if (opts.fit_intercept.has_value()) {
             result->fit_intercept = opts.fit_intercept.value();
@@ -432,10 +456,12 @@ static unique_ptr<FunctionData> RidgePredictAggBindWithSplit(ClientContext &cont
     result->use_split_col = true;
 
     // Parse MAP options if provided as 4th argument
-    if (arguments.size() >= 4 && arguments[3]->IsFoldable()) {
-        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[3]);
-        if (opts.alpha.has_value()) {
-            result->alpha = opts.alpha.value();
+    if (arguments.size() >= 4) {
+        auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[3], "ridge_fit_predict_agg",
+            {"fit_intercept", "confidence_level", "alpha", "lambda", "null_policy", "solver", "lambda_scaling"});
+        if (opts.GetRegularizationStrength().has_value()) {
+            result->alpha = opts.GetRegularizationStrength().value(); // 'alpha' or 'lambda'
         }
         if (opts.fit_intercept.has_value()) {
             result->fit_intercept = opts.fit_intercept.value();
@@ -501,7 +527,7 @@ void RegisterRidgeFitPredictAggregateFunction(ExtensionLoader &loader) {
     info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
 
     FunctionDescription d1;
-    d1.description = "Fits Ridge regression over a partition and returns per-row predictions with confidence intervals.";
+    d1.description = "Fits Ridge regression over a partition and returns per-row predictions with prediction intervals.";
     d1.examples = {"ridge_fit_predict_agg(y, x)"};
     d1.categories = {"regression", "prediction"};
     d1.parameter_names = {"y", "x"};
@@ -509,7 +535,7 @@ void RegisterRidgeFitPredictAggregateFunction(ExtensionLoader &loader) {
     info.descriptions.push_back(std::move(d1));
 
     FunctionDescription d2;
-    d2.description = "Fits Ridge regression over a partition with a MAP of options and returns per-row predictions with confidence intervals.";
+    d2.description = "Fits Ridge regression over a partition with a MAP of options and returns per-row predictions with prediction intervals.";
     d2.examples = {"ridge_fit_predict_agg(y, x, {'null_policy': 'drop'})"};
     d2.categories = {"regression", "prediction"};
     d2.parameter_names = {"y", "x", "options"};

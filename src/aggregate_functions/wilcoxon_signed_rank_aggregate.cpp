@@ -7,8 +7,12 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/ffi_enum_converters.hpp"
+#include "../include/result_fields.hpp"
+#include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
+#include "aggregate_combine.hpp"
 
 namespace duckdb {
 
@@ -41,6 +45,7 @@ static LogicalType GetWilcoxonSignedRankAggResultType() {
     children.push_back(make_pair("ci_upper", LogicalType::DOUBLE));
     children.push_back(make_pair("n", LogicalType::BIGINT));
     children.push_back(make_pair("method", LogicalType::VARCHAR));
+    children.push_back(make_pair("alternative", LogicalType::VARCHAR));
 
     return LogicalType::STRUCT(std::move(children));
 }
@@ -121,7 +126,7 @@ static void WilcoxonSignedRankAggUpdate(Vector inputs[], AggregateInputData &agg
     }
 }
 
-static void WilcoxonSignedRankAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &, idx_t count) {
+static void WilcoxonSignedRankAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &aggr_input_data, idx_t count) {
     UnifiedVectorFormat source_data, target_data;
     source_vector.ToUnifiedFormat(count, source_data);
     target_vector.ToUnifiedFormat(count, target_data);
@@ -138,8 +143,8 @@ static void WilcoxonSignedRankAggCombine(Vector &source_vector, Vector &target_v
         }
 
         if (!target.initialized) {
-            target.x_values = std::move(source.x_values);
-            target.y_values = std::move(source.y_values);
+            target.x_values = CombineTake(source.x_values, aggr_input_data);
+            target.y_values = CombineTake(source.y_values, aggr_input_data);
             target.initialized = true;
             continue;
         }
@@ -201,6 +206,7 @@ static void WilcoxonSignedRankAggFinalize(Vector &state_vector, AggregateInputDa
         bool success = anofox_wilcoxon_signed_rank(x_array, y_array, options, &test_result, &error);
 
         if (!success) {
+            ThrowUnlessDegenerate("wilcoxon_signed_rank_agg", error);
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
@@ -215,6 +221,7 @@ static void WilcoxonSignedRankAggFinalize(Vector &state_vector, AggregateInputDa
         auto& method_vector = *struct_entries[struct_idx++];
         FlatVector::GetData<string_t>(method_vector)[result_idx] =
             StringVector::AddString(method_vector, test_result.method ? test_result.method : "Wilcoxon signed-rank test");
+        SetResultString(*struct_entries[struct_idx++], result_idx, AlternativeName(options.alternative));
 
         anofox_free_test_result(&test_result);
         state.Reset();
@@ -229,9 +236,9 @@ static unique_ptr<FunctionData> WilcoxonSignedRankAggBind(ClientContext &context
     function.return_type = GetWilcoxonSignedRankAggResultType();
     auto bind_data = make_uniq<WilcoxonSignedRankBindData>();
 
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        Value options_val = ExpressionExecutor::EvaluateScalar(context, *arguments[2]);
-        bind_data->options = WilcoxonMapOptions::ParseFromValue(options_val);
+    if (arguments.size() >= 3) {
+        Value options_val = EvaluateConstantOptions(context, *arguments[2], "wilcoxon_signed_rank_agg");
+        bind_data->options = WilcoxonMapOptions::ParseFromValue(options_val, "wilcoxon_signed_rank_agg");
     }
 
     PostHogTelemetry::Instance().RecordFunctionCall("wilcoxon_signed_rank_agg");

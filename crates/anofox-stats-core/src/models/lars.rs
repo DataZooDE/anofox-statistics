@@ -30,14 +30,7 @@ pub fn fit_lars(y: &[f64], x: &[Vec<f64>], options: &LarsOptions) -> StatsResult
     let n_obs = y.len();
     let n_features = x.len();
 
-    for col in x.iter() {
-        if col.len() != n_obs {
-            return Err(StatsError::DimensionMismatch {
-                y_len: n_obs,
-                x_rows: col.len(),
-            });
-        }
-    }
+    crate::validation::validate_x_columns(n_obs, x)?;
 
     // Drop rows with NaN/inf in y or any feature.
     let valid_indices: Vec<usize> = (0..n_obs)
@@ -56,15 +49,10 @@ pub fn fit_lars(y: &[f64], x: &[Vec<f64>], options: &LarsOptions) -> StatsResult
 
     // Detect zero-variance (constant) columns; they are dropped from the fit
     // and reported as NaN coefficients.
-    let is_constant_column: Vec<bool> = x
-        .iter()
-        .map(|col| {
-            let first_val = col[valid_indices[0]];
-            valid_indices
-                .iter()
-                .all(|&i| (col[i] - first_val).abs() < 1e-10)
-        })
-        .collect();
+    // Constant columns are only dropped when an intercept is fitted (see
+    // `validation::droppable_columns`); without one, a constant column IS the intercept.
+    let is_constant_column: Vec<bool> =
+        crate::validation::droppable_columns(x, &valid_indices, options.fit_intercept);
 
     let n_effective_features = is_constant_column.iter().filter(|&&c| !c).count();
     let min_obs = if options.fit_intercept {
@@ -82,11 +70,17 @@ pub fn fit_lars(y: &[f64], x: &[Vec<f64>], options: &LarsOptions) -> StatsResult
             });
         }
         let y_mean = valid_indices.iter().map(|&i| y[i]).sum::<f64>() / n_valid as f64;
-        let y_var = valid_indices
-            .iter()
-            .map(|&i| (y[i] - y_mean).powi(2))
-            .sum::<f64>()
-            / (n_valid.max(2) - 1) as f64;
+        // The residual variance of an intercept-only fit has n-1 degrees of
+        // freedom; with a single observation it is undefined (NaN), not 0/0.
+        let y_var = if n_valid > 1 {
+            valid_indices
+                .iter()
+                .map(|&i| (y[i] - y_mean).powi(2))
+                .sum::<f64>()
+                / (n_valid - 1) as f64
+        } else {
+            f64::NAN
+        };
         return Ok(FitResult {
             core: FitResultCore {
                 coefficients: vec![f64::NAN; n_features],
@@ -137,7 +131,7 @@ pub fn fit_lars(y: &[f64], x: &[Vec<f64>], options: &LarsOptions) -> StatsResult
     let fitted = builder
         .build()
         .fit(&x_mat, &y_col)
-        .map_err(|e| StatsError::RegressError(format!("{:?}", e)))?;
+        .map_err(StatsError::from)?;
 
     let result = fitted.result();
 

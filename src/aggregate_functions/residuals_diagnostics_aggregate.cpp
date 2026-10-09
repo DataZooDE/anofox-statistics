@@ -7,7 +7,10 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/error_dispatch.hpp"
 #include "telemetry.hpp"
+#include "aggregate_combine.hpp"
+#include "list_input.hpp"
 
 namespace duckdb {
 
@@ -44,6 +47,7 @@ static LogicalType GetResidualsDiagnosticsAggResultType() {
     children.push_back(make_pair("standardized", LogicalType::LIST(LogicalType::DOUBLE)));
     children.push_back(make_pair("studentized", LogicalType::LIST(LogicalType::DOUBLE)));
     children.push_back(make_pair("leverage", LogicalType::LIST(LogicalType::DOUBLE)));
+    children.push_back(make_pair("cooks_distance", LogicalType::LIST(LogicalType::DOUBLE)));
 
     return LogicalType::STRUCT(std::move(children));
 }
@@ -115,6 +119,7 @@ static void ResidualsDiagnosticsAggUpdateFull(Vector inputs[], AggregateInputDat
     auto x_list_data = ListVector::GetData(inputs[2]);
     auto &x_child = ListVector::GetEntry(inputs[2]);
     auto x_child_data = FlatVector::GetData<double>(x_child);
+    auto &x_child_validity = FlatVector::Validity(x_child);
 
     UnifiedVectorFormat sdata;
     state_vector.ToUnifiedFormat(count, sdata);
@@ -138,6 +143,10 @@ static void ResidualsDiagnosticsAggUpdateFull(Vector inputs[], AggregateInputDat
         double y_hat_val = y_hat_values[y_hat_idx];
 
         auto list_entry = x_list_data[x_idx];
+        // A LIST holding a NULL element is itself valid; skip the row like a NULL list.
+        if (ListHasNullElement(x_child_validity, list_entry)) {
+            continue;
+        }
         idx_t n_features = list_entry.length;
 
         // Initialize x_columns on first valid row
@@ -163,7 +172,7 @@ static void ResidualsDiagnosticsAggUpdateFull(Vector inputs[], AggregateInputDat
     }
 }
 
-static void ResidualsDiagnosticsAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &,
+static void ResidualsDiagnosticsAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &aggr_input_data,
                                            idx_t count) {
     UnifiedVectorFormat source_data, target_data;
     source_vector.ToUnifiedFormat(count, source_data);
@@ -181,9 +190,9 @@ static void ResidualsDiagnosticsAggCombine(Vector &source_vector, Vector &target
         }
 
         if (!target.initialized) {
-            target.y_values = std::move(source.y_values);
-            target.y_hat_values = std::move(source.y_hat_values);
-            target.x_columns = std::move(source.x_columns);
+            target.y_values = CombineTake(source.y_values, aggr_input_data);
+            target.y_hat_values = CombineTake(source.y_hat_values, aggr_input_data);
+            target.x_columns = CombineTake(source.x_columns, aggr_input_data);
             target.n_features = source.n_features;
             target.initialized = true;
             target.has_x = source.has_x;
@@ -271,6 +280,7 @@ static void ResidualsDiagnosticsAggFinalize(Vector &state_vector, AggregateInput
                                                 &resid_result, &error);
 
         if (!success) {
+            ThrowUnlessDegenerate("residuals_diagnostics_agg", error);
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
@@ -294,6 +304,13 @@ static void ResidualsDiagnosticsAggFinalize(Vector &state_vector, AggregateInput
 
         if (resid_result.has_leverage) {
             SetListInResult(*struct_entries[struct_idx++], result_idx, resid_result.leverage, resid_result.len);
+        } else {
+            FlatVector::SetNull(*struct_entries[struct_idx++], result_idx, true);
+        }
+
+        // Cook's distance (needs x and a residual standard error)
+        if (resid_result.has_cooks_distance) {
+            SetListInResult(*struct_entries[struct_idx++], result_idx, resid_result.cooks_distance, resid_result.len);
         } else {
             FlatVector::SetNull(*struct_entries[struct_idx++], result_idx, true);
         }
@@ -342,7 +359,7 @@ void RegisterResidualsDiagnosticsAggregateFunction(ExtensionLoader &loader) {
     info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
 
     FunctionDescription d1;
-    d1.description = "Aggregate version of residuals diagnostics: computes raw, standardized, studentized residuals and leverage from predicted and actual values.";
+    d1.description = "Aggregate version of residuals diagnostics: computes raw residuals from predicted and actual values. Standardized and studentized residuals, leverage and Cook's distance need the feature matrix: use residuals_diagnostics_agg(y, y_hat, x).";
     d1.examples = {"residuals_diagnostics_agg(y, y_hat)"};
     d1.categories = {"regression-diagnostics"};
     d1.parameter_names = {"y", "y_hat"};
@@ -350,7 +367,7 @@ void RegisterResidualsDiagnosticsAggregateFunction(ExtensionLoader &loader) {
     info.descriptions.push_back(std::move(d1));
 
     FunctionDescription d2;
-    d2.description = "Aggregate version of residuals diagnostics with feature matrix: computes raw, standardized, studentized residuals and leverage from predicted and actual values.";
+    d2.description = "Aggregate version of residuals diagnostics with feature matrix: computes raw, standardized, studentized residuals, leverage and Cook's distance from predicted and actual values and the feature matrix.";
     d2.examples = {"residuals_diagnostics_agg(y, y_hat, x)"};
     d2.categories = {"regression-diagnostics"};
     d2.parameter_names = {"y", "y_hat", "x"};

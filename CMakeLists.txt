@@ -145,6 +145,7 @@ set(EXTENSION_SOURCES
     src/table_functions/predict.cpp
     src/table_functions/rls_fit.cpp
     src/aggregate_functions/ols_aggregate.cpp
+    src/aggregate_functions/extra_fit_aggregates.cpp
     src/aggregate_functions/ridge_aggregate.cpp
     src/aggregate_functions/elasticnet_aggregate.cpp
     src/aggregate_functions/lars_aggregate.cpp
@@ -218,6 +219,7 @@ set(EXTENSION_SOURCES
     src/aggregate_functions/isotonic_fit_predict_aggregate.cpp
     src/aggregate_functions/quantile_fit_predict_aggregate.cpp
     src/scalar_functions/vif.cpp
+    src/scalar_functions/tidy_glance.cpp
     src/scalar_functions/aic_bic.cpp
     src/scalar_functions/jarque_bera.cpp
     src/scalar_functions/residuals_diagnostics.cpp
@@ -241,6 +243,20 @@ build_loadable_extension(${TARGET_NAME} " " ${EXTENSION_SOURCES})
 # Link to Rust library
 target_link_libraries(${EXTENSION_NAME} anofox_stats_ffi-static datazoo_banner)
 target_link_libraries(${LOADABLE_EXTENSION_NAME} anofox_stats_ffi-static datazoo_banner)
+
+# ELF only: keep the Rust archive's symbols local to whatever shared object the
+# *static* extension ends up in (e.g. libduckdb.so in the test build). faer's
+# GEMM backend (private-gemm-x86) ships hand-written assembly kernels as global
+# symbols that tail-jump into each other and are invoked from inline asm that
+# does not declare r11 as clobbered. Inside a shared library those jumps go
+# through the PLT, and the first (lazily bound) call runs the dynamic-linker
+# resolver, which is allowed to clobber r11 -> pack_lhs reads its MillikernelInfo
+# from garbage -> SIGSEGV (seen in ransac/OLS QR fits). Forcing the symbols
+# local makes the linker bind those jumps directly. The loadable extension
+# already gets this via DuckDB's -Wl,--exclude-libs,ALL.
+if(UNIX AND NOT APPLE AND NOT EMSCRIPTEN)
+    target_link_options(${EXTENSION_NAME} INTERFACE "LINKER:--exclude-libs,libanofox_stats_ffi.a")
+endif()
 
 # Telemetry header is always needed (provides no-op stubs when telemetry is disabled)
 target_include_directories(${EXTENSION_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/posthog-telemetry/include)

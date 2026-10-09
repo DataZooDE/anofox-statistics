@@ -7,8 +7,11 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
+#include "aggregate_combine.hpp"
+#include "list_input.hpp"
 
 namespace duckdb {
 
@@ -149,6 +152,7 @@ static void AlmAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data, i
     auto x_list_data = ListVector::GetData(inputs[1]);
     auto &x_child = ListVector::GetEntry(inputs[1]);
     auto x_child_data = FlatVector::GetData<double>(x_child);
+    auto &x_child_validity = FlatVector::Validity(x_child);
 
     UnifiedVectorFormat sdata;
     state_vector.ToUnifiedFormat(count, sdata);
@@ -179,6 +183,10 @@ static void AlmAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data, i
         }
 
         auto list_entry = x_list_data[x_idx];
+        // A LIST holding a NULL element is itself valid; skip the row like a NULL list.
+        if (ListHasNullElement(x_child_validity, list_entry)) {
+            continue;
+        }
         idx_t n_features = list_entry.length;
 
         if (!state.initialized) {
@@ -201,7 +209,7 @@ static void AlmAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data, i
     }
 }
 
-static void AlmAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &, idx_t count) {
+static void AlmAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &aggr_input_data, idx_t count) {
     UnifiedVectorFormat source_data, target_data;
     source_vector.ToUnifiedFormat(count, source_data);
     target_vector.ToUnifiedFormat(count, target_data);
@@ -218,8 +226,8 @@ static void AlmAggCombine(Vector &source_vector, Vector &target_vector, Aggregat
         }
 
         if (!target.initialized) {
-            target.y_values = std::move(source.y_values);
-            target.x_columns = std::move(source.x_columns);
+            target.y_values = CombineTake(source.y_values, aggr_input_data);
+            target.x_columns = CombineTake(source.x_columns, aggr_input_data);
             target.n_features = source.n_features;
             target.initialized = true;
             target.fit_intercept = source.fit_intercept;
@@ -310,6 +318,7 @@ static void AlmAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
                                       state.compute_inference ? &inference_result : nullptr, &error);
 
         if (!success) {
+            ThrowUnlessDegenerate("alm_fit_agg", error);
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
@@ -356,8 +365,10 @@ static unique_ptr<FunctionData> AlmAggBind(ClientContext &context, AggregateFunc
                                            vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<AlmAggregateBindData>();
 
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[2]);
+    if (arguments.size() >= 3) {
+        auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[2], "alm_fit_agg",
+            {"fit_intercept", "compute_inference", "confidence_level", "max_iterations", "tolerance", "distribution", "loss", "quantile", "role_trim"});
         if (opts.fit_intercept.has_value()) {
             result->fit_intercept = opts.fit_intercept.value();
         }

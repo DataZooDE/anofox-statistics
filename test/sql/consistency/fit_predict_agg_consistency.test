@@ -1,0 +1,197 @@
+# name: test/sql/consistency/fit_predict_agg_consistency.test
+# description: Every *_fit_predict_agg must predict exactly what predict() gives with the
+#              coefficients of the matching *_fit_agg trained on the same rows (y NULL = not trained,
+#              but predicted). Output list order follows the aggregate ORDER BY, checked via the y field.
+# group: [consistency]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE d AS
+SELECT i AS t,
+       (i % 11)::DOUBLE + 0.1 * i AS x1,
+       ((i * 7) % 13)::DOUBLE AS x2,
+       CASE WHEN i <= 30 THEN 2.0 + 1.5 * ((i % 11) + 0.1 * i) - 0.7 * ((i * 7) % 13) + ((i * 37) % 17 - 8) * 0.25 END AS y,
+       CASE WHEN i <= 30 THEN ((i * 13) % 7 + (i % 11) // 3)::DOUBLE END AS yc,
+       1.0 + (i % 4) * 0.5 AS w,
+       CASE WHEN i <= 25 THEN 'train' ELSE 'test' END AS split
+FROM range(1, 41) r(i);
+
+# ols: yhat from ols_fit_predict_agg(y, [x1, x2] ORDER BY t) must equal
+# intercept + coef . x (intercept is NaN when not fitted) with the coefficients of ols_fit_agg(y, [x1, x2])
+query III
+WITH f AS (SELECT ols_fit_agg(y, [x1, x2]) AS m FROM d),
+     fp AS (SELECT ols_fit_predict_agg(y, [x1, x2] ORDER BY t) AS l FROM d),
+     u AS (SELECT unnest(l) AS p, generate_subscripts(l, 1) AS i FROM fp)
+SELECT count(*), count(*) FILTER ((p).y IS DISTINCT FROM d.y),
+       max(abs((p).yhat - ((m).intercept + list_dot_product((m).coefficients, [x1, x2])))) < 1e-9
+FROM u JOIN d ON d.t = u.i, f;
+----
+40	0	true
+
+# ols_no_intercept: yhat from ols_fit_predict_agg(y, [x1, x2], {'intercept': false} ORDER BY t) must equal
+# intercept + coef . x (intercept is NaN when not fitted) with the coefficients of ols_fit_agg(y, [x1, x2], {'intercept': false})
+query III
+WITH f AS (SELECT ols_fit_agg(y, [x1, x2], {'intercept': false}) AS m FROM d),
+     fp AS (SELECT ols_fit_predict_agg(y, [x1, x2], {'intercept': false} ORDER BY t) AS l FROM d),
+     u AS (SELECT unnest(l) AS p, generate_subscripts(l, 1) AS i FROM fp)
+SELECT count(*), count(*) FILTER ((p).y IS DISTINCT FROM d.y),
+       max(abs((p).yhat - list_dot_product((m).coefficients, [x1, x2]))) < 1e-9
+FROM u JOIN d ON d.t = u.i, f;
+----
+40	0	true
+
+# wls: yhat from wls_fit_predict_agg(y, [x1, x2], w ORDER BY t) must equal
+# intercept + coef . x (intercept is NaN when not fitted) with the coefficients of wls_fit_agg(y, [x1, x2], w)
+query III
+WITH f AS (SELECT wls_fit_agg(y, [x1, x2], w) AS m FROM d),
+     fp AS (SELECT wls_fit_predict_agg(y, [x1, x2], w ORDER BY t) AS l FROM d),
+     u AS (SELECT unnest(l) AS p, generate_subscripts(l, 1) AS i FROM fp)
+SELECT count(*), count(*) FILTER ((p).y IS DISTINCT FROM d.y),
+       max(abs((p).yhat - ((m).intercept + list_dot_product((m).coefficients, [x1, x2])))) < 1e-9
+FROM u JOIN d ON d.t = u.i, f;
+----
+40	0	true
+
+# ridge: yhat from ridge_fit_predict_agg(y, [x1, x2], {'alpha': 0.5} ORDER BY t) must equal
+# intercept + coef . x (intercept is NaN when not fitted) with the coefficients of ridge_fit_agg(y, [x1, x2], {'alpha': 0.5})
+query III
+WITH f AS (SELECT ridge_fit_agg(y, [x1, x2], {'alpha': 0.5}) AS m FROM d),
+     fp AS (SELECT ridge_fit_predict_agg(y, [x1, x2], {'alpha': 0.5} ORDER BY t) AS l FROM d),
+     u AS (SELECT unnest(l) AS p, generate_subscripts(l, 1) AS i FROM fp)
+SELECT count(*), count(*) FILTER ((p).y IS DISTINCT FROM d.y),
+       max(abs((p).yhat - ((m).intercept + list_dot_product((m).coefficients, [x1, x2])))) < 1e-9
+FROM u JOIN d ON d.t = u.i, f;
+----
+40	0	true
+
+# elasticnet: yhat from elasticnet_fit_predict_agg(y, [x1, x2], {'alpha': 0.1, 'l1_ratio': 0.5} ORDER BY t) must equal
+# intercept + coef . x (intercept is NaN when not fitted) with the coefficients of elasticnet_fit_agg(y, [x1, x2], {'alpha': 0.1, 'l1_ratio': 0.5})
+query III
+WITH f AS (SELECT elasticnet_fit_agg(y, [x1, x2], {'alpha': 0.1, 'l1_ratio': 0.5}) AS m FROM d),
+     fp AS (SELECT elasticnet_fit_predict_agg(y, [x1, x2], {'alpha': 0.1, 'l1_ratio': 0.5} ORDER BY t) AS l FROM d),
+     u AS (SELECT unnest(l) AS p, generate_subscripts(l, 1) AS i FROM fp)
+SELECT count(*), count(*) FILTER ((p).y IS DISTINCT FROM d.y),
+       max(abs((p).yhat - ((m).intercept + list_dot_product((m).coefficients, [x1, x2])))) < 1e-9
+FROM u JOIN d ON d.t = u.i, f;
+----
+40	0	true
+
+# rls: yhat from rls_fit_predict_agg(y, [x1, x2], {'forgetting_factor': 0.98} ORDER BY t) must equal
+# intercept + coef . x (intercept is NaN when not fitted) with the coefficients of rls_fit_agg(y, [x1, x2], {'forgetting_factor': 0.98} ORDER BY t)
+query III
+WITH f AS (SELECT rls_fit_agg(y, [x1, x2], {'forgetting_factor': 0.98} ORDER BY t) AS m FROM d),
+     fp AS (SELECT rls_fit_predict_agg(y, [x1, x2], {'forgetting_factor': 0.98} ORDER BY t) AS l FROM d),
+     u AS (SELECT unnest(l) AS p, generate_subscripts(l, 1) AS i FROM fp)
+SELECT count(*), count(*) FILTER ((p).y IS DISTINCT FROM d.y),
+       max(abs((p).yhat - ((m).intercept + list_dot_product((m).coefficients, [x1, x2])))) < 1e-9
+FROM u JOIN d ON d.t = u.i, f;
+----
+40	0	true
+
+# bls: yhat from bls_fit_predict_agg(y, [x1, x2], {'intercept': true, 'lower_bound': 0.0} ORDER BY t) must equal
+# intercept + coef . x (intercept is NaN when not fitted) with the coefficients of bls_fit_agg(y, [x1, x2], {'intercept': true, 'lower_bound': 0.0})
+query III
+WITH f AS (SELECT bls_fit_agg(y, [x1, x2], {'intercept': true, 'lower_bound': 0.0}) AS m FROM d),
+     fp AS (SELECT bls_fit_predict_agg(y, [x1, x2], {'intercept': true, 'lower_bound': 0.0} ORDER BY t) AS l FROM d),
+     u AS (SELECT unnest(l) AS p, generate_subscripts(l, 1) AS i FROM fp)
+SELECT count(*), count(*) FILTER ((p).y IS DISTINCT FROM d.y),
+       max(abs((p).yhat - ((m).intercept + list_dot_product((m).coefficients, [x1, x2])))) < 1e-9
+FROM u JOIN d ON d.t = u.i, f;
+----
+40	0	true
+
+# huber: yhat from huber_fit_predict_agg(y, [x1, x2] ORDER BY t) must equal
+# intercept + coef . x (intercept is NaN when not fitted) with the coefficients of huber_fit_agg(y, [x1, x2])
+query III
+WITH f AS (SELECT huber_fit_agg(y, [x1, x2]) AS m FROM d),
+     fp AS (SELECT huber_fit_predict_agg(y, [x1, x2] ORDER BY t) AS l FROM d),
+     u AS (SELECT unnest(l) AS p, generate_subscripts(l, 1) AS i FROM fp)
+SELECT count(*), count(*) FILTER ((p).y IS DISTINCT FROM d.y),
+       max(abs((p).yhat - ((m).intercept + list_dot_product((m).coefficients, [x1, x2])))) < 1e-9
+FROM u JOIN d ON d.t = u.i, f;
+----
+40	0	true
+
+# theil_sen: yhat from theil_sen_fit_predict_agg(y, [x1, x2], {'seed': 42} ORDER BY t) must equal
+# intercept + coef . x (intercept is NaN when not fitted) with the coefficients of theil_sen_fit_agg(y, [x1, x2], {'seed': 42})
+query III
+WITH f AS (SELECT theil_sen_fit_agg(y, [x1, x2], {'seed': 42}) AS m FROM d),
+     fp AS (SELECT theil_sen_fit_predict_agg(y, [x1, x2], {'seed': 42} ORDER BY t) AS l FROM d),
+     u AS (SELECT unnest(l) AS p, generate_subscripts(l, 1) AS i FROM fp)
+SELECT count(*), count(*) FILTER ((p).y IS DISTINCT FROM d.y),
+       max(abs((p).yhat - ((m).intercept + list_dot_product((m).coefficients, [x1, x2])))) < 1e-9
+FROM u JOIN d ON d.t = u.i, f;
+----
+40	0	true
+
+# ransac: yhat from ransac_fit_predict_agg(y, [x1, x2], {'seed': 42} ORDER BY t) must equal
+# intercept + coef . x (intercept is NaN when not fitted) with the coefficients of ransac_fit_agg(y, [x1, x2], {'seed': 42} ORDER BY t)
+query III
+WITH f AS (SELECT ransac_fit_agg(y, [x1, x2], {'seed': 42} ORDER BY t) AS m FROM d),
+     fp AS (SELECT ransac_fit_predict_agg(y, [x1, x2], {'seed': 42} ORDER BY t) AS l FROM d),
+     u AS (SELECT unnest(l) AS p, generate_subscripts(l, 1) AS i FROM fp)
+SELECT count(*), count(*) FILTER ((p).y IS DISTINCT FROM d.y),
+       max(abs((p).yhat - ((m).intercept + list_dot_product((m).coefficients, [x1, x2])))) < 1e-9
+FROM u JOIN d ON d.t = u.i, f;
+----
+40	0	true
+
+# alm: yhat from alm_fit_predict_agg(y, [x1, x2] ORDER BY t) must equal
+# intercept + coef . x (intercept is NaN when not fitted) with the coefficients of alm_fit_agg(y, [x1, x2])
+query III
+WITH f AS (SELECT alm_fit_agg(y, [x1, x2]) AS m FROM d),
+     fp AS (SELECT alm_fit_predict_agg(y, [x1, x2] ORDER BY t) AS l FROM d),
+     u AS (SELECT unnest(l) AS p, generate_subscripts(l, 1) AS i FROM fp)
+SELECT count(*), count(*) FILTER ((p).y IS DISTINCT FROM d.y),
+       max(abs((p).yhat - ((m).intercept + list_dot_product((m).coefficients, [x1, x2])))) < 1e-9
+FROM u JOIN d ON d.t = u.i, f;
+----
+40	0	true
+
+# poisson: yhat from poisson_fit_predict_agg(yc, [x1, x2] ORDER BY t) must equal
+# intercept + coef . x (intercept is NaN when not fitted) with the coefficients of poisson_fit_agg(yc, [x1, x2])
+query III
+WITH f AS (SELECT poisson_fit_agg(yc, [x1, x2]) AS m FROM d),
+     fp AS (SELECT poisson_fit_predict_agg(yc, [x1, x2] ORDER BY t) AS l FROM d),
+     u AS (SELECT unnest(l) AS p, generate_subscripts(l, 1) AS i FROM fp)
+SELECT count(*), count(*) FILTER ((p).y IS DISTINCT FROM d.yc),
+       max(abs((p).yhat - exp(((m).intercept + list_dot_product((m).coefficients, [x1, x2]))))) < 1e-9
+FROM u JOIN d ON d.t = u.i, f;
+----
+40	0	true
+
+# bls without intercept (the default): intercept is reported as NaN, coefficients alone predict
+query II
+WITH f AS (SELECT bls_fit_agg(y, [x1, x2], {'lower_bound': 0.0}) AS m FROM d),
+     fp AS (SELECT bls_fit_predict_agg(y, [x1, x2], {'lower_bound': 0.0} ORDER BY t) AS l FROM d),
+     u AS (SELECT unnest(l) AS p, generate_subscripts(l, 1) AS i FROM fp)
+SELECT count(*), max(abs((p).yhat - list_dot_product((m).coefficients, [x1, x2]))) < 1e-9
+FROM u JOIN d ON d.t = u.i, f;
+----
+40	true
+
+# split_col variant: only 'train' rows (t <= 25) are fitted even though y is known for t <= 30
+query III
+WITH f AS (SELECT ols_fit_agg(y, [x1, x2]) FILTER (WHERE split = 'train') AS m FROM d),
+     fp AS (SELECT ols_fit_predict_agg(y, [x1, x2], split ORDER BY t) AS l FROM d),
+     u AS (SELECT unnest(l) AS p, generate_subscripts(l, 1) AS i FROM fp)
+SELECT count(*), count(*) FILTER ((p).is_training) ,
+       max(abs((p).yhat - ((m).intercept + list_dot_product((m).coefficients, [x1, x2])))) < 1e-9
+FROM u JOIN d ON d.t = u.i, f;
+----
+40	25	true
+
+# GROUP BY: each group predicted with its own fit
+query II
+WITH g AS (SELECT t % 2 AS grp, * FROM d),
+     f AS (SELECT grp, ols_fit_agg(y, [x1, x2]) AS m FROM g GROUP BY grp),
+     fp AS (SELECT grp, ols_fit_predict_agg(y, [x1, x2] ORDER BY t) AS l, list(t ORDER BY t) AS ts FROM g GROUP BY grp),
+     u AS (SELECT grp, unnest(l) AS p, unnest(ts) AS t FROM fp)
+SELECT count(*), max(abs((p).yhat - ((m).intercept + list_dot_product((m).coefficients, [x1, x2])))) < 1e-9
+FROM u JOIN d USING (t) JOIN f USING (grp);
+----
+40	true
+
+# isotonic_fit_predict_agg, pls_fit_predict_agg and quantile_fit_predict_agg have no matching
+# *_fit_agg, so they are not covered here (see test/sql/reference for quantile vs quantreg::rq).

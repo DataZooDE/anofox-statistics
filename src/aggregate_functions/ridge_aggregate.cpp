@@ -7,9 +7,12 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/error_dispatch.hpp"
 #include "../include/ffi_enum_converters.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
+#include "aggregate_combine.hpp"
+#include "list_input.hpp"
 
 namespace duckdb {
 
@@ -134,6 +137,7 @@ static void RidgeAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data,
     auto x_list_data = ListVector::GetData(inputs[1]);
     auto &x_child = ListVector::GetEntry(inputs[1]);
     auto x_child_data = FlatVector::GetData<double>(x_child);
+    auto &x_child_validity = FlatVector::Validity(x_child);
 
     UnifiedVectorFormat sdata;
     state_vector.ToUnifiedFormat(count, sdata);
@@ -164,6 +168,10 @@ static void RidgeAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data,
         }
 
         auto list_entry = x_list_data[x_idx];
+        // A LIST holding a NULL element is itself valid; skip the row like a NULL list.
+        if (ListHasNullElement(x_child_validity, list_entry)) {
+            continue;
+        }
         idx_t n_features = list_entry.length;
 
         // Initialize x_columns on first valid row
@@ -191,7 +199,7 @@ static void RidgeAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data,
 }
 
 // Combine: merge two states
-static void RidgeAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &, idx_t count) {
+static void RidgeAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &aggr_input_data, idx_t count) {
     UnifiedVectorFormat source_data, target_data;
     source_vector.ToUnifiedFormat(count, source_data);
     target_vector.ToUnifiedFormat(count, target_data);
@@ -209,8 +217,8 @@ static void RidgeAggCombine(Vector &source_vector, Vector &target_vector, Aggreg
 
         if (!target.initialized) {
             // Copy source to target
-            target.y_values = std::move(source.y_values);
-            target.x_columns = std::move(source.x_columns);
+            target.y_values = CombineTake(source.y_values, aggr_input_data);
+            target.x_columns = CombineTake(source.x_columns, aggr_input_data);
             target.n_features = source.n_features;
             target.initialized = true;
             target.alpha = source.alpha;
@@ -303,6 +311,7 @@ static void RidgeAggFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
                                         state.compute_inference ? &inference_result : nullptr, &error);
 
         if (!success) {
+            ThrowUnlessDegenerate("ridge_fit_agg", error);
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
@@ -335,6 +344,15 @@ static void RidgeAggFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
             FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = inference_result.f_pvalue;
 
             anofox_free_result_inference(&inference_result);
+
+            // alpha > 0: classical inference on shrunken coefficients is not
+            // valid, so the seven inference fields above are NULL (the Rust core
+            // reports NaN for them). alpha == 0 is OLS and keeps its inference.
+            if (state.alpha > 0) {
+                for (idx_t k = struct_idx - 7; k < struct_idx; k++) {
+                    FlatVector::SetNull(*struct_entries[k], result_idx, true);
+                }
+            }
         }
 
         anofox_free_result_core(&core_result);
@@ -352,8 +370,10 @@ static unique_ptr<FunctionData> RidgeAggBind(ClientContext &context, AggregateFu
     auto result = make_uniq<RidgeAggregateBindData>();
 
     // Parse MAP options if provided as 3rd argument
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[2]);
+    if (arguments.size() >= 3) {
+        auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[2], "ridge_fit_agg",
+            {"fit_intercept", "compute_inference", "confidence_level", "alpha", "lambda", "solver", "lambda_scaling"});
         if (opts.fit_intercept.has_value()) {
             result->fit_intercept = opts.fit_intercept.value();
         }

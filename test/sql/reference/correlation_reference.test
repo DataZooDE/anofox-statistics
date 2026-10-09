@@ -1,0 +1,70 @@
+# name: test/sql/reference/correlation_reference.test
+# description: Pearson / Spearman / Kendall correlation vs R cor.test and scipy
+# group: [reference]
+#
+# Reference values: validation/generators/make_reference_tests.R / make_reference_tests.py.
+# Conventions (checked against the matching reference):
+#  * spearman_agg: p-value from the t approximation (= R cor.test(exact = FALSE));
+#    CI = Fisher z with se = 1/sqrt(n - 3).
+#  * kendall_agg: normal approximation (= R cor.test(method = "kendall", exact = FALSE)).
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE co AS SELECT unnest([1.2, 2.4, 3.1, 4.8, 5.0, 6.3, 7.7, 8.1, 9.6, 10.2, 11.5, 12.9])::DOUBLE AS x,
+                          unnest([2.0, 2.9, 4.4, 4.1, 6.2, 5.8, 8.9, 7.5, 9.1, 12.0, 10.8, 13.3])::DOUBLE AS y;
+
+statement ok
+CREATE TABLE kt AS SELECT unnest([1, 2, 2, 3, 4, 4, 4, 5, 6, 7, 8, 8])::DOUBLE AS x,
+                          unnest([2, 1, 3, 3, 5, 4, 6, 6, 5, 8, 7, 9])::DOUBLE AS y;
+
+# R: cor.test(cx, cy, method = "pearson")
+query IIIIII
+SELECT abs(r.r - 0.96938557908082257) < 1e-12, abs(r.statistic - 12.484413754171511) < 1e-9,
+       abs(r.p_value - 2.011829883722783e-07) < 1e-15, abs(r.ci_lower - 0.8913960860280723) < 1e-9,
+       abs(r.ci_upper - 0.9916182693296568) < 1e-9, r.n = 12
+FROM (SELECT pearson_agg(x, y) AS r FROM co);
+----
+true	true	true	true	true	true
+
+# R: cor.test(cx, cy, method = "spearman", exact = FALSE); CI from scipy generator
+query IIIII
+SELECT abs(r.r - 0.9720279720279722) < 1e-12, abs(r.statistic - 13.087607153063122) < 1e-9,
+       abs(r.p_value - 1.2868115751494757e-07) < 1e-15, abs(r.ci_lower - 0.9004295754255864) < 1e-9,
+       abs(r.ci_upper - 0.9923491684447064) < 1e-9
+FROM (SELECT spearman_agg(x, y) AS r FROM co);
+----
+true	true	true	true	true
+
+# R: cor.test(cx, cy, method = "kendall", exact = FALSE) — no ties
+query III
+SELECT abs(r.tau - 0.87878787878787878) < 1e-12, abs(r.statistic - 3.9772077916777016) < 1e-9,
+       abs(r.p_value - 6.9729229136863559e-05) < 1e-12
+FROM (SELECT kendall_agg(x, y) AS r FROM co);
+----
+true	true	true
+
+# With ties. tau-b: R cor.test(kx, ky, method = "kendall", exact = FALSE)
+#   tau_b = 0.80655653082637868, z = 3.4987518043922514, p = 0.00046744148056981807
+# (scipy.stats.kendalltau(variant='b'/'c', method='asymptotic') gives the same p for b and c.)
+query I
+SELECT abs((kendall_agg(x, y)).tau - 0.80655653082637868) < 1e-12 FROM kt;
+----
+true
+
+query I
+SELECT abs((kendall_agg(x, y, {'variant': 'tau_c'})).tau - 0.7936507936507936) < 1e-12 FROM kt;
+----
+true
+
+query I
+SELECT abs((kendall_agg(x, y, {'variant': 'tau_a'})).tau - 0.7575757575757576) < 1e-12 FROM kt;
+----
+true
+
+# Tie-corrected variance of S.
+query II
+SELECT abs(r.statistic - 3.4987518043922514) < 1e-9, abs(r.p_value - 0.00046744148056981807) < 1e-12
+FROM (SELECT kendall_agg(x, y) AS r FROM kt);
+----
+true	true

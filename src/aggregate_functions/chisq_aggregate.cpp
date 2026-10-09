@@ -8,8 +8,11 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/result_fields.hpp"
+#include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
+#include "aggregate_combine.hpp"
 
 namespace duckdb {
 
@@ -40,6 +43,8 @@ static LogicalType GetChiSquareAggResultType() {
     children.push_back(make_pair("p_value", LogicalType::DOUBLE));
     children.push_back(make_pair("df", LogicalType::BIGINT));
     children.push_back(make_pair("method", LogicalType::VARCHAR));
+    children.push_back(make_pair("n", LogicalType::BIGINT));
+    children.push_back(make_pair("alternative", LogicalType::VARCHAR));
 
     return LogicalType::STRUCT(std::move(children));
 }
@@ -114,7 +119,7 @@ static void ChiSquareAggUpdate(Vector inputs[], AggregateInputData &aggr_input_d
     }
 }
 
-static void ChiSquareAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &, idx_t count) {
+static void ChiSquareAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &aggr_input_data, idx_t count) {
     UnifiedVectorFormat source_data, target_data;
     source_vector.ToUnifiedFormat(count, source_data);
     target_vector.ToUnifiedFormat(count, target_data);
@@ -131,8 +136,8 @@ static void ChiSquareAggCombine(Vector &source_vector, Vector &target_vector, Ag
         }
 
         if (!target.initialized) {
-            target.row_var = std::move(source.row_var);
-            target.col_var = std::move(source.col_var);
+            target.row_var = CombineTake(source.row_var, aggr_input_data);
+            target.col_var = CombineTake(source.col_var, aggr_input_data);
             target.initialized = true;
             continue;
         }
@@ -179,6 +184,7 @@ static void ChiSquareAggFinalize(Vector &state_vector, AggregateInputData &aggr_
         bool success = anofox_chisq_test(row_array, col_array, options, &chisq_result, &error);
 
         if (!success) {
+            ThrowUnlessDegenerate("chisq_test_agg", error);
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
@@ -190,6 +196,8 @@ static void ChiSquareAggFinalize(Vector &state_vector, AggregateInputData &aggr_
         auto& method_vector = *struct_entries[struct_idx++];
         FlatVector::GetData<string_t>(method_vector)[result_idx] =
             StringVector::AddString(method_vector, chisq_result.method ? chisq_result.method : "Chi-Square");
+        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = static_cast<int64_t>(state.row_var.size());
+        SetResultNull(*struct_entries[struct_idx++], result_idx); // alternative: not applicable
 
         anofox_free_chisq_result(&chisq_result);
         state.Reset();
@@ -201,9 +209,9 @@ static unique_ptr<FunctionData> ChiSquareAggBind(ClientContext &context, Aggrega
     function.return_type = GetChiSquareAggResultType();
     auto bind_data = make_uniq<ChiSquareBindData>();
 
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        Value options_val = ExpressionExecutor::EvaluateScalar(context, *arguments[2]);
-        bind_data->options = ChiSquareMapOptions::ParseFromValue(options_val);
+    if (arguments.size() >= 3) {
+        Value options_val = EvaluateConstantOptions(context, *arguments[2], "chisq_test_agg");
+        bind_data->options = ChiSquareMapOptions::ParseFromValue(options_val, "chisq_test_agg");
     }
 
     PostHogTelemetry::Instance().RecordFunctionCall("chisq_test_agg");

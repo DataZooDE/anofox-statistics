@@ -77,18 +77,10 @@ pub fn fit_bls(y: &[f64], x: &[Vec<f64>], options: &BlsOptions) -> StatsResult<B
     }
 
     // Detect zero-variance (constant) columns BEFORE min_obs check
-    let is_constant_column: Vec<bool> = x
-        .iter()
-        .map(|col| {
-            if valid_indices.is_empty() {
-                return true;
-            }
-            let first_val = col[valid_indices[0]];
-            valid_indices
-                .iter()
-                .all(|&i| (col[i] - first_val).abs() < 1e-10)
-        })
-        .collect();
+    // Constant columns are only dropped when an intercept is fitted (see
+    // `validation::droppable_columns`); without one, a constant column IS the intercept.
+    let is_constant_column: Vec<bool> =
+        crate::validation::droppable_columns(x, &valid_indices, options.fit_intercept);
 
     // Count non-constant features for min_obs calculation
     let n_effective_features = is_constant_column.iter().filter(|&&c| !c).count();
@@ -100,7 +92,8 @@ pub fn fit_bls(y: &[f64], x: &[Vec<f64>], options: &BlsOptions) -> StatsResult<B
         n_effective_features
     };
 
-    // If ALL columns are constant, we can still fit (intercept-only model if fit_intercept=true)
+    // All columns constant: upstream fits the intercept-only model; only the
+    // single-row case (upstream needs two rows) is answered here.
     if n_effective_features == 0 {
         if !options.fit_intercept {
             return Err(StatsError::InsufficientData {
@@ -108,20 +101,19 @@ pub fn fit_bls(y: &[f64], x: &[Vec<f64>], options: &BlsOptions) -> StatsResult<B
                 cols: n_features,
             });
         }
-        // Intercept-only model: compute mean of y as intercept
-        let y_mean = valid_indices.iter().map(|&i| y[i]).sum::<f64>() / n_valid as f64;
-
-        return Ok(BlsFitResult {
-            coefficients: vec![f64::NAN; n_features],
-            intercept: Some(y_mean),
-            ssr: f64::NAN,
-            r_squared: 0.0,
-            n_observations: n_valid,
-            n_features,
-            n_active_constraints: 0,
-            at_lower_bound: vec![false; n_features],
-            at_upper_bound: vec![false; n_features],
-        });
+        if n_valid == 1 {
+            return Ok(BlsFitResult {
+                coefficients: vec![f64::NAN; n_features],
+                intercept: Some(y[valid_indices[0]]),
+                ssr: f64::NAN,
+                r_squared: 0.0,
+                n_observations: n_valid,
+                n_features,
+                n_active_constraints: 0,
+                at_lower_bound: vec![false; n_features],
+                at_upper_bound: vec![false; n_features],
+            });
+        }
     }
 
     if n_valid < min_obs {
@@ -129,6 +121,21 @@ pub fn fit_bls(y: &[f64], x: &[Vec<f64>], options: &BlsOptions) -> StatsResult<B
             rows: n_valid,
             cols: n_features,
         });
+    }
+
+    // Bounds are either one value for all coefficients or one per feature.
+    for (name, bounds) in [
+        ("lower_bounds", &options.lower_bounds),
+        ("upper_bounds", &options.upper_bounds),
+    ] {
+        if let Some(b) = bounds {
+            if b.len() != 1 && b.len() != n_features {
+                return Err(StatsError::InvalidInput(format!(
+                    "{name} must have 1 or {n_features} values, got {}",
+                    b.len()
+                )));
+            }
+        }
     }
 
     // Build reduced X matrix (only non-constant columns)
@@ -153,7 +160,7 @@ pub fn fit_bls(y: &[f64], x: &[Vec<f64>], options: &BlsOptions) -> StatsResult<B
             .tolerance(options.tolerance)
             .build()
             .fit(&x_mat, &y_col)
-            .map_err(|e| StatsError::RegressError(format!("{:?}", e)))?
+            .map_err(StatsError::from)?
     } else {
         // Custom bounds
         let mut builder = BlsRegressor::builder()
@@ -166,7 +173,10 @@ pub fn fit_bls(y: &[f64], x: &[Vec<f64>], options: &BlsOptions) -> StatsResult<B
                 // Single value = apply to all
                 builder = builder.lower_bound_all(lower[0]);
             } else {
-                builder = builder.lower_bounds(lower.clone());
+                // Per-feature bounds follow the original columns; pass only those of
+                // the columns that remain after dropping constant ones.
+                builder =
+                    builder.lower_bounds(non_constant_indices.iter().map(|&i| lower[i]).collect());
             }
         }
 
@@ -175,14 +185,15 @@ pub fn fit_bls(y: &[f64], x: &[Vec<f64>], options: &BlsOptions) -> StatsResult<B
                 // Single value = apply to all
                 builder = builder.upper_bound_all(upper[0]);
             } else {
-                builder = builder.upper_bounds(upper.clone());
+                builder =
+                    builder.upper_bounds(non_constant_indices.iter().map(|&i| upper[i]).collect());
             }
         }
 
         builder
             .build()
             .fit(&x_mat, &y_col)
-            .map_err(|e| StatsError::RegressError(format!("{:?}", e)))?
+            .map_err(StatsError::from)?
     };
 
     // Extract results
@@ -372,5 +383,39 @@ mod tests {
 
         let result = fit_nnls(&y, &x);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_bls_per_feature_bounds_follow_original_columns() {
+        // Column 0 is constant (dropped with an intercept); the bounds of columns 1 and 2
+        // must still apply to columns 1 and 2. y = 1 + 2*x1 + 3*x2, upper bound 2.5 on x2.
+        let x1 = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+        let x2 = vec![2.0, 1.0, 4.0, 3.0, 6.0, 5.0, 8.0, 7.0];
+        let y: Vec<f64> = x1
+            .iter()
+            .zip(&x2)
+            .map(|(a, b)| 1.0 + 2.0 * a + 3.0 * b)
+            .collect();
+        let x = vec![vec![5.0; 8], x1, x2];
+        let options = BlsOptions {
+            fit_intercept: true,
+            lower_bounds: Some(vec![
+                f64::NEG_INFINITY,
+                f64::NEG_INFINITY,
+                f64::NEG_INFINITY,
+            ]),
+            upper_bounds: Some(vec![f64::INFINITY, f64::INFINITY, 2.5]),
+            ..Default::default()
+        };
+        let result = fit_bls(&y, &x, &options).unwrap();
+        assert!(result.coefficients[0].is_nan());
+        assert!(result.coefficients[2] <= 2.5 + 1e-9);
+        assert!(result.coefficients[1].is_finite());
+
+        let bad = BlsOptions {
+            upper_bounds: Some(vec![1.0, 2.0]),
+            ..options
+        };
+        assert!(fit_bls(&y, &x, &bad).is_err());
     }
 }

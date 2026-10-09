@@ -8,9 +8,14 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/error_dispatch.hpp"
+#include "../include/min_obs_guard.hpp"
 #include "../include/ffi_enum_converters.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
+#include "aggregate_combine.hpp"
+#include "list_input.hpp"
+#include "prediction_interval.hpp"
 
 namespace duckdb {
 
@@ -113,6 +118,7 @@ static void ElasticNetFitPredictUpdate(Vector inputs[], AggregateInputData &aggr
     auto x_list_data = ListVector::GetData(inputs[1]);
     auto &x_child = ListVector::GetEntry(inputs[1]);
     auto x_child_data = FlatVector::GetData<double>(x_child);
+    auto &x_child_validity = FlatVector::Validity(x_child);
 
     UnifiedVectorFormat sdata;
     state_vector.ToUnifiedFormat(count, sdata);
@@ -151,13 +157,13 @@ static void ElasticNetFitPredictUpdate(Vector inputs[], AggregateInputData &aggr
 
         state.current_x.resize(n_features);
         for (idx_t j = 0; j < n_features; j++) {
-            state.current_x[j] = x_child_data[list_entry.offset + j];
+            state.current_x[j] = ListChildValue(x_child_data, x_child_validity, list_entry.offset + j);
         }
         state.has_current_x = true;
 
         auto y_idx = y_data.sel->get_index(i);
         bool y_valid = y_data.validity.RowIsValid(y_idx);
-        bool use_for_training = y_valid;
+        bool use_for_training = y_valid && !ListHasNullElement(x_child_validity, list_entry);
 
         if (use_for_training && state.null_policy == NullPolicy::DROP_Y_ZERO_X) {
             for (idx_t j = 0; j < n_features; j++) {
@@ -177,7 +183,7 @@ static void ElasticNetFitPredictUpdate(Vector inputs[], AggregateInputData &aggr
     }
 }
 
-static void ElasticNetFitPredictCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &,
+static void ElasticNetFitPredictCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &aggr_input_data,
                                          idx_t count) {
     UnifiedVectorFormat source_data, target_data;
     source_vector.ToUnifiedFormat(count, source_data);
@@ -194,11 +200,11 @@ static void ElasticNetFitPredictCombine(Vector &source_vector, Vector &target_ve
             continue;
 
         if (!target.initialized) {
-            target.y_values = std::move(source.y_values);
-            target.x_columns = std::move(source.x_columns);
+            target.y_values = CombineTake(source.y_values, aggr_input_data);
+            target.x_columns = CombineTake(source.x_columns, aggr_input_data);
             target.n_features = source.n_features;
             target.initialized = true;
-            target.current_x = std::move(source.current_x);
+            target.current_x = CombineTake(source.current_x, aggr_input_data);
             target.has_current_x = source.has_current_x;
             target.fit_intercept = source.fit_intercept;
             target.confidence_level = source.confidence_level;
@@ -222,7 +228,7 @@ static void ElasticNetFitPredictCombine(Vector &source_vector, Vector &target_ve
         }
 
         if (source.has_current_x) {
-            target.current_x = std::move(source.current_x);
+            target.current_x = CombineTake(source.current_x, aggr_input_data);
             target.has_current_x = true;
         }
     }
@@ -244,7 +250,7 @@ static void ElasticNetFitPredictFinalize(Vector &state_vector, AggregateInputDat
             continue;
         }
 
-        idx_t min_obs = state.fit_intercept ? state.n_features + 1 : state.n_features;
+        idx_t min_obs = MinObsForFit(state.x_columns, state.fit_intercept);
         if (state.y_values.size() <= min_obs) {
             FlatVector::SetNull(result, result_idx, true);
             continue;
@@ -269,15 +275,17 @@ static void ElasticNetFitPredictFinalize(Vector &state_vector, AggregateInputDat
         bool success = anofox_elasticnet_fit(y_array, x_arrays.data(), x_arrays.size(), options, &core_result, &error);
 
         if (!success) {
+            ThrowUnlessDegenerate("elasticnet_fit_predict", error);
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
 
         AnofoxPredictionResult pred_result;
+        LeverageIntervals intervals(x_arrays, core_result.coefficients, core_result.coefficients_len,
+                                    core_result.intercept, state.fit_intercept, core_result.residual_std_error, core_result.n_observations,
+                                    nullptr, 0.0);
         bool pred_success =
-            anofox_predict_with_interval(core_result.coefficients, core_result.coefficients_len, core_result.intercept,
-                                         state.current_x.data(), state.current_x.size(), core_result.residual_std_error,
-                                         core_result.n_observations, state.confidence_level, &pred_result);
+            intervals.Predict(state.current_x.data(), state.current_x.size(), state.confidence_level, pred_result);
 
         anofox_free_result_core(&core_result);
 
@@ -287,8 +295,8 @@ static void ElasticNetFitPredictFinalize(Vector &state_vector, AggregateInputDat
         }
 
         FlatVector::GetData<double>(*struct_entries[0])[result_idx] = pred_result.yhat;
-        FlatVector::GetData<double>(*struct_entries[1])[result_idx] = pred_result.yhat_lower;
-        FlatVector::GetData<double>(*struct_entries[2])[result_idx] = pred_result.yhat_upper;
+        WriteIntervalBound(*struct_entries[1], result_idx, pred_result.yhat_lower);
+        WriteIntervalBound(*struct_entries[2], result_idx, pred_result.yhat_upper);
 
         state.Reset();
     }
@@ -298,8 +306,10 @@ static unique_ptr<FunctionData> ElasticNetFitPredictBind(ClientContext &context,
                                                           vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<ElasticNetFitPredictBindData>();
 
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[2]);
+    if (arguments.size() >= 3) {
+        auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[2], "elasticnet_fit_predict",
+            {"fit_intercept", "confidence_level", "alpha", "lambda", "l1_ratio", "max_iterations", "tolerance", "null_policy", "lambda_scaling"});
         if (opts.fit_intercept.has_value())
             result->fit_intercept = opts.fit_intercept.value();
         if (opts.confidence_level.has_value())
@@ -346,7 +356,7 @@ void RegisterElasticNetFitPredictFunction(ExtensionLoader &loader) {
         info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
 
         FunctionDescription d1;
-        d1.description     = "Fits an ElasticNet regression model over a window partition and returns predictions with confidence intervals.";
+        d1.description     = "Window aggregate: fits an ElasticNet regression on the rows of the window frame and returns the prediction (with interval) for the LAST row of the frame. Use frames ending at CURRENT ROW over a unique ordering; for per-row predictions over a whole group use elasticnet_fit_predict_agg.";
         d1.examples        = {"elasticnet_fit_predict(y, x)"};
         d1.categories      = {"regression", "prediction"};
         d1.parameter_names = {"y", "x"};
@@ -354,7 +364,7 @@ void RegisterElasticNetFitPredictFunction(ExtensionLoader &loader) {
         info.descriptions.push_back(std::move(d1));
 
         FunctionDescription d2;
-        d2.description     = "Fits an ElasticNet regression model over a window partition and returns predictions with confidence intervals.";
+        d2.description     = "Window aggregate: fits an ElasticNet regression on the rows of the window frame and returns the prediction (with interval) for the LAST row of the frame. Use frames ending at CURRENT ROW over a unique ordering; for per-row predictions over a whole group use elasticnet_fit_predict_agg.";
         d2.examples        = {"elasticnet_fit_predict(y, x, {'null_policy': 'drop'})"};
         d2.categories      = {"regression", "prediction"};
         d2.parameter_names = {"y", "x", "options"};

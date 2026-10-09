@@ -1,0 +1,114 @@
+# name: test/sql/edge_cases/tests_degenerate.test
+# description: Degenerate inputs for hypothesis tests, normality tests, correlations and
+#              categorical tests: empty input, a single row, constant data, +-Inf values,
+#              a single group / a 1 x K table. Contract: never an error; either a NULL
+#              result or a p-value that is NULL, NaN or within [0, 1].
+# group: [edge_cases]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE d AS
+SELECT i,
+       (i * 1.3 + (i * 7) % 5)::DOUBLE AS v,
+       (i % 2)::INTEGER AS g,
+       (i * 0.5 + (i * 3) % 4)::DOUBLE AS v2,
+       (i % 3)::INTEGER AS c1,
+       ((i * 5) % 3)::INTEGER AS c2
+FROM range(1, 31) t(i);
+
+statement ok
+CREATE TABLE d_const AS SELECT * REPLACE (5.0::DOUBLE AS v, 5.0::DOUBLE AS v2) FROM d;
+
+statement ok
+CREATE TABLE d_inf AS SELECT * REPLACE (CASE WHEN i = 4 THEN 'inf'::DOUBLE WHEN i = 9 THEN '-inf'::DOUBLE ELSE v END AS v) FROM d;
+
+# =============================================================================
+# Empty input and a single row -> NULL
+# =============================================================================
+
+foreach call t_test_agg(v,g) mann_whitney_u_agg(v,g) brunner_munzel_agg(v,g) yuen_agg(v,g) wilcoxon_signed_rank_agg(v,v2) one_way_anova_agg(v,c1) kruskal_wallis_agg(v,c1) brown_forsythe_agg(v,c1) shapiro_wilk_agg(v) jarque_bera_agg(v) dagostino_k2_agg(v) pearson_agg(v,v2) spearman_agg(v,v2) kendall_agg(v,v2) chisq_test_agg(c1,c2) g_test_agg(c1,c2) mcnemar_agg(g,c1%2) cramers_v_agg(c1,c2)
+
+query II
+SELECT (SELECT ${call} FROM d WHERE false) IS NULL,
+       (SELECT ${call} FROM d WHERE i = 1) IS NULL;
+----
+true	true
+
+endloop
+
+# fisher_exact_agg: the conditional exact test is defined for any non-empty
+# 2 x 2 table (R fisher.test on a single observation gives p = 1), so only the
+# empty input is NULL.
+query II
+SELECT (SELECT fisher_exact_agg(g,c1%2) FROM d WHERE false) IS NULL,
+       (SELECT (fisher_exact_agg(g,c1%2)).p_value FROM d WHERE i = 1);
+----
+true	1.0
+
+# =============================================================================
+# Constant data and +-Inf values: no error, and a sane p-value
+# =============================================================================
+
+foreach call t_test_agg(v,g) mann_whitney_u_agg(v,g) brunner_munzel_agg(v,g) yuen_agg(v,g) wilcoxon_signed_rank_agg(v,v2) one_way_anova_agg(v,c1) kruskal_wallis_agg(v,c1) brown_forsythe_agg(v,c1) shapiro_wilk_agg(v) jarque_bera_agg(v) dagostino_k2_agg(v) pearson_agg(v,v2) spearman_agg(v,v2) kendall_agg(v,v2) chisq_test_agg(c1,c2) g_test_agg(c1,c2) fisher_exact_agg(g,c1%2) mcnemar_agg(g,c1%2)
+
+query II
+SELECT (SELECT r IS NULL OR r.p_value IS NULL OR isnan(r.p_value) OR r.p_value BETWEEN 0 AND 1
+        FROM (SELECT ${call} AS r FROM d_const)),
+       (SELECT r IS NULL OR r.p_value IS NULL OR isnan(r.p_value) OR r.p_value BETWEEN 0 AND 1
+        FROM (SELECT ${call} AS r FROM d_inf));
+----
+true	true
+
+endloop
+
+# Mann-Whitney with every observation tied: Var(U) = 0 and U equals its null
+# expectation, so there is no evidence of a shift: p = 1
+# (scipy.stats.mannwhitneyu([5.0]*15, [5.0]*15).pvalue == 1.0; R's normal
+# approximation gives NaN (0/0) two-sided and 1 one-sided).
+query I
+SELECT r.p_value = 1.0
+FROM (SELECT mann_whitney_u_agg(v, g) AS r FROM d_const);
+----
+true
+
+# Wilcoxon signed-rank with all differences zero: p = 1 (or undefined)
+query I
+SELECT r IS NULL OR isnan(r.p_value) OR r.p_value = 1.0
+FROM (SELECT wilcoxon_signed_rank_agg(v, v2) AS r FROM d_const);
+----
+true
+
+# A single group: two-sample and k-sample tests have nothing to compare -> NULL
+foreach call t_test_agg(v,g) mann_whitney_u_agg(v,g) brunner_munzel_agg(v,g) yuen_agg(v,g) one_way_anova_agg(v,c1) kruskal_wallis_agg(v,c1) brown_forsythe_agg(v,c1)
+
+query I
+SELECT ${call} IS NULL FROM d WHERE g = 1 AND c1 = 1;
+----
+true
+
+endloop
+
+# A 1 x K contingency table (one level of the row variable) has df = 0: no test of
+# independence. g_test_agg and cramers_v_agg return NULL; chisq_test_agg agrees
+# (R's chisq.test would silently switch to a goodness-of-fit test on the vector;
+# use chisq_gof_agg for that).
+foreach call chisq_test_agg(c1,c2) g_test_agg(c1,c2) cramers_v_agg(c1,c2)
+
+query I
+SELECT ${call} IS NULL FROM d WHERE c1 = 1;
+----
+true
+
+endloop
+
+# Category codes are labels, not indices: codes that do not start at 0 (or are
+# negative) must give the same table as 0-based codes. R: chisq.test(matrix(c(20, 15,
+# 25, 30, 10, 12), 2, byrow = TRUE)) -> X-squared = 7.0320166320166297, df = 2
+query III
+SELECT abs(r.statistic - 7.0320166320166297) < 1e-9, r.df = 2, abs(r.p_value - 0.029717822885398398) < 1e-12
+FROM (SELECT chisq_test_agg(r * 5 - 3, c + 10) AS r
+      FROM (VALUES (0,0,20),(0,1,15),(0,2,25),(1,0,30),(1,1,10),(1,2,12)) t(r, c, n), range(n));
+----
+true	true	true
+

@@ -7,8 +7,11 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
+#include "aggregate_combine.hpp"
+#include "list_input.hpp"
 
 namespace duckdb {
 
@@ -112,6 +115,7 @@ static void RlsAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data, i
     auto x_list_data = ListVector::GetData(inputs[1]);
     auto &x_child = ListVector::GetEntry(inputs[1]);
     auto x_child_data = FlatVector::GetData<double>(x_child);
+    auto &x_child_validity = FlatVector::Validity(x_child);
 
     UnifiedVectorFormat sdata;
     state_vector.ToUnifiedFormat(count, sdata);
@@ -139,6 +143,10 @@ static void RlsAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data, i
         }
 
         auto list_entry = x_list_data[x_idx];
+        // A LIST holding a NULL element is itself valid; skip the row like a NULL list.
+        if (ListHasNullElement(x_child_validity, list_entry)) {
+            continue;
+        }
         idx_t n_features = list_entry.length;
 
         // Initialize x_columns on first valid row
@@ -166,7 +174,7 @@ static void RlsAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data, i
 }
 
 // Combine: merge two states
-static void RlsAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &, idx_t count) {
+static void RlsAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &aggr_input_data, idx_t count) {
     UnifiedVectorFormat source_data, target_data;
     source_vector.ToUnifiedFormat(count, source_data);
     target_vector.ToUnifiedFormat(count, target_data);
@@ -184,8 +192,8 @@ static void RlsAggCombine(Vector &source_vector, Vector &target_vector, Aggregat
 
         if (!target.initialized) {
             // Copy source to target
-            target.y_values = std::move(source.y_values);
-            target.x_columns = std::move(source.x_columns);
+            target.y_values = CombineTake(source.y_values, aggr_input_data);
+            target.x_columns = CombineTake(source.x_columns, aggr_input_data);
             target.n_features = source.n_features;
             target.initialized = true;
             target.forgetting_factor = source.forgetting_factor;
@@ -270,6 +278,7 @@ static void RlsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
         bool success = anofox_rls_fit(y_array, x_arrays.data(), x_arrays.size(), options, &core_result, &error);
 
         if (!success) {
+            ThrowUnlessDegenerate("rls_fit_agg", error);
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
@@ -304,8 +313,10 @@ static unique_ptr<FunctionData> RlsAggBind(ClientContext &context, AggregateFunc
     auto result = make_uniq<RlsAggregateBindData>();
 
     // Parse MAP options if provided as 3rd argument
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[2]);
+    if (arguments.size() >= 3) {
+        auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[2], "rls_fit_agg",
+            {"fit_intercept", "forgetting_factor", "initial_p_diagonal"});
         if (opts.fit_intercept.has_value()) {
             result->fit_intercept = opts.fit_intercept.value();
         }
@@ -337,6 +348,9 @@ void RegisterRlsAggregateFunction(ExtensionLoader &loader) {
         AggregateFunction::StateSize<RlsAggregateState>, RlsAggInitialize, RlsAggUpdate, RlsAggCombine, RlsAggFinalize,
         nullptr, // simple_update
         RlsAggBind, RlsAggDestroy);
+    // Row order is part of the input (sequential / time-series estimator):
+    // declare it so DuckDB honours `agg(... ORDER BY t)`.
+    basic_func.order_dependent = AggregateOrderDependent::ORDER_DEPENDENT; // field form works on DuckDB v1.4 LTS and v1.5
     func_set.AddFunction(basic_func);
 
     // Version with MAP options: rls_fit_agg(y, x, {'forgetting_factor': 0.99, ...})
@@ -346,6 +360,7 @@ void RegisterRlsAggregateFunction(ExtensionLoader &loader) {
                                       LogicalType::ANY, AggregateFunction::StateSize<RlsAggregateState>,
                                       RlsAggInitialize, RlsAggUpdate, RlsAggCombine, RlsAggFinalize, nullptr,
                                       RlsAggBind, RlsAggDestroy);
+    map_func.order_dependent = AggregateOrderDependent::ORDER_DEPENDENT; // field form works on DuckDB v1.4 LTS and v1.5
     func_set.AddFunction(map_func);
 
     CreateAggregateFunctionInfo info(std::move(func_set));

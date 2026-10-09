@@ -8,7 +8,9 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/error_dispatch.hpp"
 #include "telemetry.hpp"
+#include "aggregate_combine.hpp"
 
 namespace duckdb {
 
@@ -84,7 +86,7 @@ static void CramersVAggUpdate(Vector inputs[], AggregateInputData &aggr_input_da
     }
 }
 
-static void CramersVAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &, idx_t count) {
+static void CramersVAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &aggr_input_data, idx_t count) {
     UnifiedVectorFormat source_data, target_data;
     source_vector.ToUnifiedFormat(count, source_data);
     target_vector.ToUnifiedFormat(count, target_data);
@@ -101,8 +103,8 @@ static void CramersVAggCombine(Vector &source_vector, Vector &target_vector, Agg
         }
 
         if (!target.initialized) {
-            target.row_values = std::move(source.row_values);
-            target.col_values = std::move(source.col_values);
+            target.row_values = CombineTake(source.row_values, aggr_input_data);
+            target.col_values = CombineTake(source.col_values, aggr_input_data);
             target.initialized = true;
             continue;
         }
@@ -168,6 +170,7 @@ static void CramersVAggFinalize(Vector &state_vector, AggregateInputData &aggr_i
                                          &cramers_v, &error);
 
         if (!success) {
+            ThrowUnlessDegenerate("cramers_v_agg", error);
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }

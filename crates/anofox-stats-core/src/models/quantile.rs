@@ -43,14 +43,7 @@ pub fn fit_quantile(
     let n_features = x.len();
 
     // Check all feature vectors have same length as y
-    for col in x.iter() {
-        if col.len() != n_obs {
-            return Err(StatsError::DimensionMismatch {
-                y_len: n_obs,
-                x_rows: col.len(),
-            });
-        }
-    }
+    crate::validation::validate_x_columns(n_obs, x)?;
 
     // Filter out rows with NaN values
     let valid_indices: Vec<usize> = (0..n_obs)
@@ -89,7 +82,7 @@ pub fn fit_quantile(
     // Build and fit the Quantile model
     let fitted = QuantileRegressor::new(options.tau)
         .fit(&x_mat, &y_col)
-        .map_err(|e| StatsError::RegressError(format!("{:?}", e)))?;
+        .map_err(StatsError::from)?;
 
     // Extract results
     let result = fitted.result();

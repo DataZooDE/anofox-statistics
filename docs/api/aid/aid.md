@@ -11,6 +11,23 @@ AID provides demand pattern classification and anomaly detection for time series
 | `aid_agg` | Aggregate | Classify demand patterns and detect anomalies |
 | `aid_anomaly_agg` | Aggregate | Per-observation anomaly flags |
 
+The examples on this page use this table:
+
+```sql
+-- 52 weeks of demand for four SKUs with different patterns
+CREATE OR REPLACE TABLE sales AS
+SELECT sku, period,
+       CASE sku
+           WHEN 'WIDGET001' THEN 20 + (period * 7) % 9                     -- regular
+           WHEN 'WIDGET002' THEN CASE WHEN period % 4 = 0 THEN 6 ELSE 0 END -- intermittent
+           WHEN 'WIDGET003' THEN CASE WHEN period < 20 THEN 0 ELSE 15 + period % 5 END  -- new product
+           ELSE CASE WHEN period IN (10, 11) THEN 0                        -- stockouts
+                     WHEN period = 30 THEN 200 ELSE 30 + period % 6 END    -- and a spike
+       END::DOUBLE AS demand
+FROM (VALUES ('WIDGET001'), ('WIDGET002'), ('WIDGET003'), ('WIDGET004')) s(sku),
+     range(1, 53) r(period);
+```
+
 ## Table Macros (Recommended Entry Point)
 
 Table macros are the easiest way to use AID functions. They handle the GROUP BY, column extraction, and result formatting automatically.
@@ -20,7 +37,7 @@ Table macros are the easiest way to use AID functions. They handle the GROUP BY,
 Classifies demand patterns for each group, returning one row per group with flat columns.
 
 **Signature:**
-```sql
+```text
 aid_by(
     source VARCHAR,           -- Table name (as string)
     group_col COLUMN,         -- Column to group by
@@ -74,7 +91,7 @@ ORDER BY stockout_count DESC;
 Per-observation anomaly detection for each group, returning one row per observation.
 
 **Signature:**
-```sql
+```text
 aid_anomaly_by(
     source VARCHAR,           -- Table name
     group_col COLUMN,         -- Column to group by
@@ -97,12 +114,12 @@ aid_anomaly_by(
 
 **Example:**
 ```sql
--- Get anomaly flags per product with dates
-SELECT * FROM aid_anomaly_by('sales_data', product_id, sale_date, quantity, NULL);
+-- Get anomaly flags per SKU and week
+SELECT * FROM aid_anomaly_by('sales', sku, period, demand) LIMIT 5;
 
 -- Filter to stockouts only (using actual column names)
 SELECT sku, period
-FROM aid_anomaly_by('inventory', sku, period, demand, NULL)
+FROM aid_anomaly_by('sales', sku, period, demand)
 WHERE stockout;
 ```
 
@@ -110,13 +127,13 @@ WHERE stockout;
 
 ## Aggregate Functions
 
-### aid_agg / anofox_stats_aid_agg
+### aid_agg
 
 Classifies demand patterns as regular or intermittent, identifies best-fit distribution, and detects various anomaly patterns.
 
 **Signature:**
-```sql
-aid_agg(y DOUBLE, [options MAP]) -> STRUCT
+```text
+aid_agg(y DOUBLE [, options MAP]) -> STRUCT
 ```
 
 **Options:**
@@ -126,7 +143,7 @@ aid_agg(y DOUBLE, [options MAP]) -> STRUCT
 | outlier_method | VARCHAR | 'zscore' | Outlier detection: 'zscore' (mean±3σ) or 'iqr' (1.5×IQR) |
 
 **Returns:**
-```
+```text
 STRUCT(
     demand_type VARCHAR,           -- 'regular' or 'intermittent'
     is_intermittent BOOLEAN,       -- True if zero_proportion >= threshold
@@ -153,11 +170,9 @@ STRUCT(
 **Example:**
 ```sql
 -- Classify demand pattern for each SKU
-SELECT
-    sku,
-    (aid_agg(demand)).*
-FROM sales
-GROUP BY sku;
+SELECT sku, unnest(result)
+FROM (SELECT sku, aid_agg(demand) AS result FROM sales GROUP BY sku)
+ORDER BY sku;
 
 -- With custom threshold
 SELECT aid_agg(demand, {'intermittent_threshold': 0.4})
@@ -165,18 +180,24 @@ FROM sales
 WHERE sku = 'WIDGET001';
 
 -- Using IQR-based outlier detection
-SELECT aid_agg(demand, {'outlier_method': 'iqr'})
-FROM inventory_data;
+SELECT sku, (aid_agg(demand, {'outlier_method': 'iqr'})).high_outlier_count
+FROM sales
+GROUP BY sku
+ORDER BY sku;
 ```
 
-### aid_anomaly_agg / anofox_stats_aid_anomaly_agg
+### aid_anomaly_agg
 
 Returns per-observation anomaly flags for demand analysis. Maintains input order.
 
 **Signature:**
-```sql
-aid_anomaly_agg(y DOUBLE, [options MAP]) -> LIST(STRUCT)
+```text
+aid_anomaly_agg(y DOUBLE [, options MAP]) -> LIST(STRUCT)
 ```
+
+The flags follow the order in which rows reach the aggregate, so pass an
+`ORDER BY` inside the call (e.g. `aid_anomaly_agg(demand ORDER BY period)`)
+when the order matters.
 
 **Options:**
 | Key | Type | Default | Description |
@@ -185,7 +206,7 @@ aid_anomaly_agg(y DOUBLE, [options MAP]) -> LIST(STRUCT)
 | outlier_method | VARCHAR | 'zscore' | Outlier detection: 'zscore' or 'iqr' |
 
 **Returns:**
-```
+```text
 LIST(STRUCT(
     stockout BOOLEAN,              -- Unexpected zero in positive demand
     new_product BOOLEAN,           -- Leading zeros pattern
@@ -207,8 +228,8 @@ LIST(STRUCT(
 **Example:**
 ```sql
 -- Get anomaly flags for demand series
-SELECT aid_anomaly_agg(demand)
-FROM (VALUES (0), (0), (5), (0), (8), (0), (0)) AS t(demand);
+SELECT aid_anomaly_agg(demand ORDER BY t)
+FROM (VALUES (1, 0), (2, 0), (3, 5), (4, 0), (5, 8), (6, 0), (7, 0)) AS v(t, demand);
 -- Returns: [
 --   {stockout: false, new_product: true, ...},   -- Leading zero
 --   {stockout: false, new_product: true, ...},   -- Leading zero
@@ -232,6 +253,12 @@ ORDER BY result.stockout_count DESC;
 ```
 
 ---
+
+## NULL Handling
+
+A NULL `y` is kept as a missing value (NaN) so that positions are preserved:
+`aid_anomaly_agg` returns one entry per input row, and `aid_anomaly_by` stays
+aligned with the source rows. An empty group returns `NULL`.
 
 ## Use Cases
 

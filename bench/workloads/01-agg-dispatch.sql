@@ -1,4 +1,4 @@
--- W1: Aggregate dispatch over many GROUP BY groups (scaled: 10K groups / 1M rows).
+-- Aggregate dispatch over many GROUP BY groups (scaled: 10K groups / 1M rows).
 -- Exercises the aggregate-function dispatch path: one OLS fit per group.
 -- The harness loads the extension; this file must contain no LOAD statement.
 .timer on

@@ -8,9 +8,13 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/fit_predict_rows.hpp"
+#include "../include/error_dispatch.hpp"
 #include "../include/ffi_enum_converters.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
+#include "aggregate_combine.hpp"
+#include "prediction_interval.hpp"
 
 namespace duckdb {
 
@@ -181,6 +185,10 @@ static void HuberPredictAggUpdate(Vector inputs[], AggregateInputData &aggr_inpu
 
         auto x_idx = x_data.sel->get_index(i);
         if (!x_data.validity.RowIsValid(x_idx)) {
+            // Keep the row (not training, NULL yhat) so output positions line up.
+            auto y_null_idx = y_data.sel->get_index(i);
+            bool y_null_valid = y_data.validity.RowIsValid(y_null_idx);
+            PushNullXRow(state, y_null_valid, y_null_valid ? y_values[y_null_idx] : 0.0);
             continue;
         }
 
@@ -236,6 +244,14 @@ static void HuberPredictAggUpdate(Vector inputs[], AggregateInputData &aggr_inpu
             }
         }
 
+        // A row with a missing (NULL/NaN) feature is not used to fit; report it so.
+        for (auto v : x_row) {
+            if (std::isnan(v)) {
+                row_is_training = false;
+                break;
+            }
+        }
+
         state.y_all.push_back(y_val);
         state.y_is_null.push_back(!y_valid);
         state.is_training.push_back(row_is_training);
@@ -250,7 +266,7 @@ static void HuberPredictAggUpdate(Vector inputs[], AggregateInputData &aggr_inpu
     }
 }
 
-static void HuberPredictAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &, idx_t count) {
+static void HuberPredictAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &aggr_input_data, idx_t count) {
     UnifiedVectorFormat source_data, target_data;
     source_vector.ToUnifiedFormat(count, source_data);
     target_vector.ToUnifiedFormat(count, target_data);
@@ -263,16 +279,19 @@ static void HuberPredictAggCombine(Vector &source_vector, Vector &target_vector,
         auto &target = *targets[target_data.sel->get_index(i)];
 
         if (!source.initialized) {
+            // Only NULL-x rows; keep them.
+            AppendOutputRows(target, source);
             continue;
         }
 
         if (!target.initialized) {
-            target.y_train = std::move(source.y_train);
-            target.x_train = std::move(source.x_train);
-            target.y_all = std::move(source.y_all);
-            target.y_is_null = std::move(source.y_is_null);
-            target.is_training = std::move(source.is_training);
-            target.x_all = std::move(source.x_all);
+            auto pending_rows = TakeOutputRows(target);
+            target.y_train = CombineTake(source.y_train, aggr_input_data);
+            target.x_train = CombineTake(source.x_train, aggr_input_data);
+            target.y_all = CombineTake(source.y_all, aggr_input_data);
+            target.y_is_null = CombineTake(source.y_is_null, aggr_input_data);
+            target.is_training = CombineTake(source.is_training, aggr_input_data);
+            target.x_all = CombineTake(source.x_all, aggr_input_data);
             target.n_features = source.n_features;
             target.initialized = true;
             target.fit_intercept = source.fit_intercept;
@@ -283,6 +302,7 @@ static void HuberPredictAggCombine(Vector &source_vector, Vector &target_vector,
             target.tolerance = source.tolerance;
             target.null_policy = source.null_policy;
             target.use_split_col = source.use_split_col;
+            PrependOutputRows(target, std::move(pending_rows));
             continue;
         }
 
@@ -351,10 +371,12 @@ static void HuberPredictAggFinalize(Vector &state_vector, AggregateInputData &ag
                                         nullptr, nullptr, &error);
 
         if (!success) {
+            ThrowUnlessDegenerate("huber_fit_predict_agg", error);
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
 
+        PadNullXRows(state);
         idx_t n_rows = state.y_all.size();
         auto *list_data = ListVector::GetData(result);
         auto list_offset = ListVector::GetListSize(result);
@@ -374,7 +396,10 @@ static void HuberPredictAggFinalize(Vector &state_vector, AggregateInputData &ag
         auto &yhat_upper_vec = *struct_entries[3];
         auto &is_training_vec = *struct_entries[4];
 
-        for (idx_t row = 0; row < n_rows; row++) {
+        LeverageIntervals intervals(x_arrays, core_result.coefficients, core_result.coefficients_len,
+                                    core_result.intercept, state.fit_intercept, core_result.residual_std_error, core_result.n_observations,
+                                    nullptr, 0.0);
+for (idx_t row = 0; row < n_rows; row++) {
             idx_t child_idx = list_offset + row;
 
             if (state.y_is_null[row]) {
@@ -384,15 +409,12 @@ static void HuberPredictAggFinalize(Vector &state_vector, AggregateInputData &ag
             }
 
             AnofoxPredictionResult pred;
-            bool pred_success = anofox_predict_with_interval(
-                core_result.coefficients, core_result.coefficients_len, core_result.intercept,
-                state.x_all[row].data(), state.n_features, core_result.residual_std_error,
-                core_result.n_observations, state.confidence_level, &pred);
+            bool pred_success = intervals.Predict(state.x_all[row].data(), state.n_features, state.confidence_level, pred);
 
             if (pred_success && std::isfinite(pred.yhat)) {
                 FlatVector::GetData<double>(yhat_vec)[child_idx] = pred.yhat;
-                FlatVector::GetData<double>(yhat_lower_vec)[child_idx] = pred.yhat_lower;
-                FlatVector::GetData<double>(yhat_upper_vec)[child_idx] = pred.yhat_upper;
+                WriteIntervalBound(yhat_lower_vec, child_idx, pred.yhat_lower);
+                WriteIntervalBound(yhat_upper_vec, child_idx, pred.yhat_upper);
             } else {
                 FlatVector::SetNull(yhat_vec, child_idx, true);
                 FlatVector::SetNull(yhat_lower_vec, child_idx, true);
@@ -415,7 +437,9 @@ static void HuberPredictAggFinalize(Vector &state_vector, AggregateInputData &ag
 // already covers every Huber knob (epsilon was added in #69; alpha/max_iterations/
 // tolerance/fit_intercept/confidence_level were pre-existing).
 static void ExtractHuberOptions(ClientContext &context, Expression &opts_expr, HuberPredictAggBindData &result) {
-    auto opts = RegressionMapOptions::ParseFromExpression(context, opts_expr);
+    auto opts = RegressionMapOptions::ParseFromExpression(
+            context, opts_expr, "huber_fit_predict_agg",
+            {"fit_intercept", "confidence_level", "alpha", "max_iterations", "tolerance", "epsilon", "null_policy"});
     if (opts.fit_intercept.has_value()) {
         result.fit_intercept = opts.fit_intercept.value();
     }
@@ -443,7 +467,7 @@ static unique_ptr<FunctionData> HuberPredictAggBind(ClientContext &context, Aggr
                                                     vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<HuberPredictAggBindData>();
 
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
+    if (arguments.size() >= 3) {
         ExtractHuberOptions(context, *arguments[2], *result);
     }
 
@@ -457,7 +481,7 @@ static unique_ptr<FunctionData> HuberPredictAggBindWithSplit(ClientContext &cont
     auto result = make_uniq<HuberPredictAggBindData>();
     result->use_split_col = true;
 
-    if (arguments.size() >= 4 && arguments[3]->IsFoldable()) {
+    if (arguments.size() >= 4) {
         ExtractHuberOptions(context, *arguments[3], *result);
     }
 
@@ -508,7 +532,7 @@ void RegisterHuberFitPredictAggregateFunction(ExtensionLoader &loader) {
     FunctionDescription d1;
     d1.description =
         "Fits a Huber M-estimator robust regression over a partition and returns per-row predictions with "
-        "confidence intervals.";
+        "prediction intervals.";
     d1.examples = {"huber_fit_predict_agg(y, x)"};
     d1.categories = {"regression", "prediction"};
     d1.parameter_names = {"y", "x"};
@@ -517,7 +541,7 @@ void RegisterHuberFitPredictAggregateFunction(ExtensionLoader &loader) {
 
     FunctionDescription d2;
     d2.description = "Fits Huber regression over a partition with a MAP of options and returns per-row "
-                     "predictions with confidence intervals.";
+                     "predictions with prediction intervals.";
     d2.examples = {"huber_fit_predict_agg(y, x, {'epsilon': 1.35, 'null_policy': 'drop'})"};
     d2.categories = {"regression", "prediction"};
     d2.parameter_names = {"y", "x", "options"};

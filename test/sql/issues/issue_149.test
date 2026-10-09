@@ -1,0 +1,36 @@
+# name: test/sql/issues/issue_149.test
+# description: #149 per-function option keys, interval_type, and MAP-of-strings options
+# group: [issues]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE d AS
+SELECT i, chr(65 + (i % 2)::INT) AS grp, i / 10.0 AS x1, sin(i) AS x2,
+       2 + 1.5 * (i / 10.0) - 0.8 * sin(i) + 0.3 * cos(i * 7) AS y
+FROM range(60) t(i);
+
+# 1. Keys that do not apply to the function are rejected.
+statement error
+SELECT ols_fit_agg(y, [x1, x2], {'alpha': 1}).r_squared FROM d;
+----
+unsupported option 'alpha'
+
+# 2. interval_type is not an option (docs/API_CONVENTIONS.md says so); clear error.
+statement error
+SELECT ols_fit_agg(y, [x1, x2], {'interval_type': 'prediction'}).r_squared FROM d;
+----
+unknown option 'interval_type'
+
+# 3. MAP-of-strings options (anofox-forecast style) are accepted.
+query II
+SELECT round((ols_fit_agg(y, [x1, x2], MAP {'compute_inference': 'true'})).std_errors[1], 8),
+       round((ols_fit_agg(y, [x1, x2], {'compute_inference': true})).std_errors[1], 8)
+FROM d;
+----
+0.01612136	0.01612136
+
+query I
+SELECT (ols_fit_agg(y, [x1, x2], MAP {'fit_intercept': 'false', 'confidence_level': '0.9'})).intercept FROM d;
+----
+nan

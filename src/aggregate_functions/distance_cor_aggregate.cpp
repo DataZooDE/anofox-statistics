@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <vector>
 
 #include "duckdb.hpp"
@@ -7,12 +8,13 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
+#include "../include/result_fields.hpp"
+#include "../include/ffi_enum_converters.hpp"
 #include "telemetry.hpp"
+#include "aggregate_combine.hpp"
 
-#ifdef _WIN32
-#define strcasecmp _stricmp
-#endif
 
 namespace duckdb {
 
@@ -44,6 +46,7 @@ static LogicalType GetDistanceCorAggResultType() {
     children.push_back(make_pair("p_value", LogicalType::DOUBLE));
     children.push_back(make_pair("n", LogicalType::BIGINT));
     children.push_back(make_pair("method", LogicalType::VARCHAR));
+    children.push_back(make_pair("alternative", LogicalType::VARCHAR));
 
     return LogicalType::STRUCT(std::move(children));
 }
@@ -53,18 +56,22 @@ static LogicalType GetDistanceCorAggResultType() {
 //===--------------------------------------------------------------------===//
 struct DistanceCorBindData : public FunctionData {
     uint32_t n_permutations;
+    uint64_t seed;
+    bool has_seed;
 
-    DistanceCorBindData() : n_permutations(1000) {}
+    DistanceCorBindData() : n_permutations(1000), seed(0), has_seed(false) {}
 
     unique_ptr<FunctionData> Copy() const override {
         auto copy = make_uniq<DistanceCorBindData>();
         copy->n_permutations = n_permutations;
+        copy->seed = seed;
+        copy->has_seed = has_seed;
         return copy;
     }
 
     bool Equals(const FunctionData &other_p) const override {
         auto &other = other_p.Cast<DistanceCorBindData>();
-        return n_permutations == other.n_permutations;
+        return n_permutations == other.n_permutations && seed == other.seed && has_seed == other.has_seed;
     }
 };
 
@@ -122,7 +129,7 @@ static void DistanceCorAggUpdate(Vector inputs[], AggregateInputData &aggr_input
     }
 }
 
-static void DistanceCorAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &, idx_t count) {
+static void DistanceCorAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &aggr_input_data, idx_t count) {
     UnifiedVectorFormat source_data, target_data;
     source_vector.ToUnifiedFormat(count, source_data);
     target_vector.ToUnifiedFormat(count, target_data);
@@ -139,8 +146,8 @@ static void DistanceCorAggCombine(Vector &source_vector, Vector &target_vector, 
         }
 
         if (!target.initialized) {
-            target.x_values = std::move(source.x_values);
-            target.y_values = std::move(source.y_values);
+            target.x_values = CombineTake(source.x_values, aggr_input_data);
+            target.y_values = CombineTake(source.y_values, aggr_input_data);
             target.initialized = true;
             continue;
         }
@@ -168,6 +175,20 @@ static void DistanceCorAggFinalize(Vector &state_vector, AggregateInputData &agg
             continue;
         }
 
+        if (bind_data.has_seed) {
+            // Make the seeded result independent of the row order threads
+            // delivered: sort the (x, y) pairs canonically.
+            vector<std::pair<double, double>> pairs(state.x_values.size());
+            for (idx_t k = 0; k < pairs.size(); k++) {
+                pairs[k] = std::make_pair(state.x_values[k], state.y_values[k]);
+            }
+            std::sort(pairs.begin(), pairs.end());
+            for (idx_t k = 0; k < pairs.size(); k++) {
+                state.x_values[k] = pairs[k].first;
+                state.y_values[k] = pairs[k].second;
+            }
+        }
+
         // First compute distance correlation
         AnofoxDataArray x_array;
         x_array.data = state.x_values.data();
@@ -184,15 +205,18 @@ static void DistanceCorAggFinalize(Vector &state_vector, AggregateInputData &agg
 
         bool dcor_success = anofox_distance_cor(x_array, y_array, &dcor_result, &error);
         if (!dcor_success) {
+            ThrowUnlessDegenerate("distance_cor_agg", error);
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
 
         // Then compute the test with permutations
         AnofoxTestResult test_result;
-        bool test_success = anofox_distance_cor_test(x_array, y_array, bind_data.n_permutations, &test_result, &error);
+        bool test_success = anofox_distance_cor_test_seeded(x_array, y_array, bind_data.n_permutations, bind_data.seed,
+                                                            bind_data.has_seed, &test_result, &error);
 
         if (!test_success) {
+            ThrowUnlessDegenerate("distance_cor_agg", error);
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
@@ -206,6 +230,7 @@ static void DistanceCorAggFinalize(Vector &state_vector, AggregateInputData &agg
         auto& method_vector = *struct_entries[struct_idx++];
         FlatVector::GetData<string_t>(method_vector)[result_idx] =
             StringVector::AddString(method_vector, test_result.method ? test_result.method : "Distance correlation test");
+        SetResultNull(*struct_entries[struct_idx++], result_idx); // alternative: omnibus test
 
         anofox_free_test_result(&test_result);
         state.Reset();
@@ -221,19 +246,15 @@ static unique_ptr<FunctionData> DistanceCorAggBind(ClientContext &context, Aggre
     auto bind_data = make_uniq<DistanceCorBindData>();
 
     // Parse n_permutations from options if provided
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        Value options_val = ExpressionExecutor::EvaluateScalar(context, *arguments[2]);
-        if (options_val.type().id() == LogicalTypeId::MAP) {
-            auto &map_children = MapValue::GetChildren(options_val);
-            for (auto &entry : map_children) {
-                auto &key_list = StructValue::GetChildren(entry);
-                if (key_list.size() >= 2) {
-                    auto key = StringValue::Get(key_list[0]).c_str();
-                    if (strcasecmp(key, "n_permutations") == 0 || strcasecmp(key, "permutations") == 0) {
-                        bind_data->n_permutations = static_cast<uint32_t>(key_list[1].GetValue<int64_t>());
-                    }
-                }
-            }
+    if (arguments.size() >= 3) {
+        Value options_val = EvaluateConstantOptions(context, *arguments[2], "distance_cor_agg");
+        auto opts = DistanceCorMapOptions::ParseFromValue(options_val, "distance_cor_agg");
+        if (opts.n_permutations.has_value()) {
+            bind_data->n_permutations = opts.n_permutations.value();
+        }
+        if (opts.seed.has_value()) {
+            bind_data->seed = opts.seed.value();
+            bind_data->has_seed = true;
         }
     }
 

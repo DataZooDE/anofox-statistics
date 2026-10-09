@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <vector>
 
 #include "duckdb.hpp"
@@ -7,8 +8,11 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
+#include "../include/result_fields.hpp"
 #include "telemetry.hpp"
+#include "aggregate_combine.hpp"
 
 namespace duckdb {
 
@@ -40,6 +44,8 @@ static LogicalType GetMmdAggResultType() {
     children.push_back(make_pair("n1", LogicalType::BIGINT));
     children.push_back(make_pair("n2", LogicalType::BIGINT));
     children.push_back(make_pair("method", LogicalType::VARCHAR));
+    children.push_back(make_pair("n", LogicalType::BIGINT));
+    children.push_back(make_pair("alternative", LogicalType::VARCHAR));
 
     return LogicalType::STRUCT(std::move(children));
 }
@@ -60,7 +66,7 @@ struct MmdBindData : public FunctionData {
 
     bool Equals(const FunctionData &other_p) const override {
         auto &other = other_p.Cast<MmdBindData>();
-        return options.n_permutations == other.options.n_permutations &&
+        return options.n_permutations == other.options.n_permutations && options.seed == other.options.seed &&
                options.bandwidth == other.options.bandwidth;
     }
 };
@@ -122,7 +128,7 @@ static void MmdAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data, i
     }
 }
 
-static void MmdAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &, idx_t count) {
+static void MmdAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &aggr_input_data, idx_t count) {
     UnifiedVectorFormat source_data, target_data;
     source_vector.ToUnifiedFormat(count, source_data);
     target_vector.ToUnifiedFormat(count, target_data);
@@ -139,8 +145,8 @@ static void MmdAggCombine(Vector &source_vector, Vector &target_vector, Aggregat
         }
 
         if (!target.initialized) {
-            target.group1 = std::move(source.group1);
-            target.group2 = std::move(source.group2);
+            target.group1 = CombineTake(source.group1, aggr_input_data);
+            target.group2 = CombineTake(source.group2, aggr_input_data);
             target.initialized = true;
             continue;
         }
@@ -168,7 +174,12 @@ static void MmdAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
             continue;
         }
 
-        // Prepare FFI data
+        if (bind_data.options.seed.has_value()) {
+            // Make the seeded result independent of the row order threads delivered.
+            std::sort(state.group1.begin(), state.group1.end());
+            std::sort(state.group2.begin(), state.group2.end());
+        }
+
         AnofoxDataArray group1_array;
         group1_array.data = state.group1.data();
         group1_array.validity = nullptr;
@@ -181,8 +192,8 @@ static void MmdAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
 
         AnofoxMmdOptions options;
         options.n_permutations = bind_data.options.n_permutations.value_or(1000);
-        options.seed = 0;
-        options.has_seed = false;
+        options.seed = bind_data.options.seed.value_or(0);
+        options.has_seed = bind_data.options.seed.has_value();
 
         AnofoxTestResult test_result;
         AnofoxError error;
@@ -190,6 +201,7 @@ static void MmdAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
         bool success = anofox_mmd(group1_array, group2_array, options, &test_result, &error);
 
         if (!success) {
+            ThrowUnlessDegenerate("mmd_agg", error);
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
@@ -203,6 +215,9 @@ static void MmdAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
         auto& method_vector = *struct_entries[struct_idx++];
         FlatVector::GetData<string_t>(method_vector)[result_idx] =
             StringVector::AddString(method_vector, test_result.method ? test_result.method : "MMD Test");
+        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] =
+            static_cast<int64_t>(test_result.n1 + test_result.n2);
+        SetResultNull(*struct_entries[struct_idx++], result_idx); // alternative: omnibus test
 
         anofox_free_test_result(&test_result);
         state.Reset();
@@ -217,9 +232,9 @@ static unique_ptr<FunctionData> MmdAggBind(ClientContext &context, AggregateFunc
     function.return_type = GetMmdAggResultType();
     auto bind_data = make_uniq<MmdBindData>();
 
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        Value options_val = ExpressionExecutor::EvaluateScalar(context, *arguments[2]);
-        bind_data->options = MmdMapOptions::ParseFromValue(options_val);
+    if (arguments.size() >= 3) {
+        Value options_val = EvaluateConstantOptions(context, *arguments[2], "mmd_agg");
+        bind_data->options = MmdMapOptions::ParseFromValue(options_val, "mmd_agg");
     }
 
     PostHogTelemetry::Instance().RecordFunctionCall("mmd_agg");

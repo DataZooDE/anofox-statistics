@@ -8,9 +8,11 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
 #include "../include/glm_prior_options.hpp"
 #include "telemetry.hpp"
+#include "aggregate_combine.hpp"
 
 namespace duckdb {
 
@@ -118,6 +120,11 @@ static LogicalType GetBinomialAggResultType(bool compute_inference) {
 		children.push_back(make_pair("ci_upper", LogicalType::LIST(LogicalType::DOUBLE)));
 	}
 
+	// Appended last so existing field positions are unchanged. predict(model, x)
+	// reads them to apply the inverse link.
+	children.push_back(make_pair("family", LogicalType::VARCHAR));
+	children.push_back(make_pair("link", LogicalType::VARCHAR));
+
 	return LogicalType::STRUCT(std::move(children));
 }
 
@@ -207,7 +214,7 @@ static void BinomialAggUpdate(Vector inputs[], AggregateInputData &aggr_input_da
 	}
 }
 
-static void BinomialAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &, idx_t count) {
+static void BinomialAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &aggr_input_data, idx_t count) {
 	UnifiedVectorFormat source_data, target_data;
 	source_vector.ToUnifiedFormat(count, source_data);
 	target_vector.ToUnifiedFormat(count, target_data);
@@ -224,14 +231,14 @@ static void BinomialAggCombine(Vector &source_vector, Vector &target_vector, Agg
 		}
 
 		if (!target.initialized) {
-			target.y_values = std::move(source.y_values);
-			target.x_columns = std::move(source.x_columns);
+			target.y_values = CombineTake(source.y_values, aggr_input_data);
+			target.x_columns = CombineTake(source.x_columns, aggr_input_data);
 			target.n_features = source.n_features;
 			target.initialized = true;
 			target.fit_intercept = source.fit_intercept;
 			// Resolved priors are part of the option set and must travel with it,
 			// otherwise a parallel aggregation finalises a state that has none.
-			target.prior_state = std::move(source.prior_state);
+			target.prior_state = CombineTake(source.prior_state, aggr_input_data);
 			target.link = source.link;
 			target.max_iterations = source.max_iterations;
 			target.tolerance = source.tolerance;
@@ -318,6 +325,7 @@ static void BinomialAggFinalize(Vector &state_vector, AggregateInputData &aggr_i
 		                                   state.compute_inference ? &inference_result : nullptr, &error);
 
 		if (!success) {
+			ThrowUnlessDegenerate("binomial_fit_agg", error);
 			FlatVector::SetNull(result, result_idx, true);
 			continue;
 		}
@@ -340,6 +348,12 @@ static void BinomialAggFinalize(Vector &state_vector, AggregateInputData &aggr_i
 		FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = core_result.n_features;
 		FlatVector::GetData<int32_t>(*struct_entries[struct_idx++])[result_idx] = core_result.iterations;
 		FlatVector::GetData<bool>(*struct_entries[struct_idx++])[result_idx] = core_result.converged;
+		{
+			auto &family_vec = *struct_entries[struct_entries.size() - 2];
+			auto &link_vec = *struct_entries[struct_entries.size() - 1];
+			FlatVector::GetData<string_t>(family_vec)[result_idx] = StringVector::AddString(family_vec, "binomial");
+			FlatVector::GetData<string_t>(link_vec)[result_idx] = StringVector::AddString(link_vec, (state.link == ANOFOX_BINOMIAL_LINK_PROBIT ? "probit" : state.link == ANOFOX_BINOMIAL_LINK_CLOGLOG ? "cloglog" : "logit"));
+		}
 
 		if (state.compute_inference) {
 			SetListInResult(*struct_entries[struct_idx++], result_idx, inference_result.std_errors,
@@ -362,8 +376,10 @@ static unique_ptr<FunctionData> BinomialAggBind(ClientContext &context, Aggregat
                                                 vector<unique_ptr<Expression>> &arguments) {
 	auto result = make_uniq<BinomialAggregateBindData>();
 
-	if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-		auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[2]);
+	if (arguments.size() >= 3) {
+		auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[2], "binomial_fit_agg",
+            {"fit_intercept", "compute_inference", "confidence_level", "max_iterations", "tolerance", "binomial_link", "offset", "glm_lambda", "feature_names", "prior", "vcov"});
 		result->prior_opts.LoadFrom(opts);
 		if (opts.fit_intercept.has_value()) {
 			result->fit_intercept = opts.fit_intercept.value();

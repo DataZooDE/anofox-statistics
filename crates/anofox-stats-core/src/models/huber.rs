@@ -5,7 +5,7 @@
 //! carrying the MAD-based scale estimate and outlier mask.
 
 use crate::errors::{StatsError, StatsResult};
-use crate::types::{FitResult, FitResultCore, FitResultInference, HuberOptions};
+use crate::types::{FitResult, FitResultCore, HuberOptions};
 use anofox_regression::solvers::{FittedRegressor, HuberRegressor, Regressor};
 use faer::{Col, Mat};
 
@@ -48,14 +48,7 @@ pub fn fit_huber(y: &[f64], x: &[Vec<f64>], options: &HuberOptions) -> StatsResu
     let n_obs = y.len();
     let n_features = x.len();
 
-    for col in x.iter() {
-        if col.len() != n_obs {
-            return Err(StatsError::DimensionMismatch {
-                y_len: n_obs,
-                x_rows: col.len(),
-            });
-        }
-    }
+    crate::validation::validate_x_columns(n_obs, x)?;
 
     // NaN / infinite filtering — identical policy to OLS so per-group
     // call sites can swap estimators transparently.
@@ -94,9 +87,11 @@ pub fn fit_huber(y: &[f64], x: &[Vec<f64>], options: &HuberOptions) -> StatsResu
         .with_intercept(options.fit_intercept)
         .max_iterations(options.max_iterations as usize)
         .tolerance(options.tolerance)
+        .compute_inference(options.compute_inference)
+        .confidence_level(options.confidence_level)
         .build()
         .fit(&x_mat, &y_col)
-        .map_err(|e| StatsError::RegressError(format!("{:?}", e)))?;
+        .map_err(StatsError::from)?;
 
     let result = fitted.result();
 
@@ -117,36 +112,11 @@ pub fn fit_huber(y: &[f64], x: &[Vec<f64>], options: &HuberOptions) -> StatsResu
         n_features,
     };
 
-    let inference = if options.compute_inference {
-        result.std_errors.as_ref().map(|se| FitResultInference {
-            std_errors: se.iter().copied().collect(),
-            t_values: result
-                .t_statistics
-                .as_ref()
-                .map(|c| c.iter().copied().collect())
-                .unwrap_or_else(|| vec![f64::NAN; n_features]),
-            p_values: result
-                .p_values
-                .as_ref()
-                .map(|c| c.iter().copied().collect())
-                .unwrap_or_else(|| vec![f64::NAN; n_features]),
-            ci_lower: result
-                .conf_interval_lower
-                .as_ref()
-                .map(|c| c.iter().copied().collect())
-                .unwrap_or_else(|| vec![f64::NAN; n_features]),
-            ci_upper: result
-                .conf_interval_upper
-                .as_ref()
-                .map(|c| c.iter().copied().collect())
-                .unwrap_or_else(|| vec![f64::NAN; n_features]),
-            confidence_level: options.confidence_level,
-            f_statistic: Some(result.f_statistic),
-            f_pvalue: Some(result.f_pvalue),
-        })
-    } else {
-        None
-    };
+    // MASS `summary.rlm(method = "XtX")` covariance, computed upstream; NaN
+    // (NULL in SQL) where it is unavailable.
+    let inference = options
+        .compute_inference
+        .then(|| super::inference_from_result(result, n_features, options.confidence_level));
 
     let outliers = fitted.outliers().to_vec();
     let n_outliers = fitted.n_outliers();
@@ -239,5 +209,36 @@ mod tests {
             StatsError::DimensionMismatch { .. } => {}
             other => panic!("expected DimensionMismatch, got {:?}", other),
         }
+    }
+
+    /// Coefficients, scale and standard errors against R:
+    /// `MASS::rlm(y ~ x, psi = psi.huber, k = 1.35, scale.est = "MAD")` and
+    /// `summary(fit, method = "XtX")`.
+    #[test]
+    fn inference_matches_mass_rlm() {
+        let xs: Vec<f64> = (1..=20).map(|i| i as f64).collect();
+        let mut y: Vec<f64> = xs
+            .iter()
+            .map(|&x| 1.0 + 2.0 * x + (((x as i64 * 7) % 5) as f64 - 2.0) * 0.4)
+            .collect();
+        y[5] = 40.0;
+        y[14] = 5.0;
+        let opts = HuberOptions {
+            alpha: 0.0,
+            max_iterations: 500,
+            tolerance: 1e-12,
+            compute_inference: true,
+            ..HuberOptions::default()
+        };
+        let r = fit_huber(&y, &[xs], &opts).unwrap();
+        let inf = r.fit.inference.as_ref().unwrap();
+        eprintln!(
+            "coef {:?} icpt {:?} scale {} se {:?}",
+            r.fit.core.coefficients, r.fit.core.intercept, r.scale, inf.std_errors
+        );
+        assert!(approx(r.fit.core.coefficients[0], 1.97692968311, 1e-6));
+        assert!(approx(r.fit.core.intercept.unwrap(), 1.28668277180, 1e-5));
+        assert!(approx(inf.std_errors[0], 0.0296479346015, 1e-6));
+        assert!(approx(inf.t_values[0], 66.68018226841, 1e-2));
     }
 }

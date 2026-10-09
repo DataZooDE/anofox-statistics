@@ -1,7 +1,7 @@
 # API Conventions
 
-**Applies to:** anofox-statistics v0.3.0 and later
-**Status:** Authoritative — Phase 6 doc-SQL validation checks examples against this document
+**Applies to:** anofox-statistics v0.10.0 and later
+**Status:** Authoritative. The runnable SQL examples in this document are executed against the extension in CI by `scripts/validate_docs_sql.py`.
 
 ---
 
@@ -13,7 +13,7 @@
 {model}_{verb}[_{suffix}]
 ```
 
-All functions are **unprefixed and uniform**. The `anofox_stats_` prefix that existed in pre-v0.3.0 versions has been dropped (breaking change — see §5).
+All functions are **unprefixed and uniform**. The `anofox_stats_` prefix that existed up to v0.9.x was removed in v0.10.0 (breaking change, see §5 and [MIGRATION.md](MIGRATION.md)).
 
 ### Model component
 
@@ -24,252 +24,263 @@ The statistical model or family name, using snake_case:
 | `ols` | Ordinary Least Squares |
 | `ridge` | Ridge (L2-penalized) regression |
 | `elasticnet` | Elastic-net (L1+L2) regression |
+| `lars` | Least Angle Regression |
 | `wls` | Weighted Least Squares |
 | `huber` | Huber robust regression |
 | `ransac` | RANSAC robust regression |
+| `theil_sen` | Theil-Sen robust regression (was `theilsen` up to v0.9.x) |
 | `rls` | Recursive Least Squares |
 | `bls` | Bounded Least Squares |
 | `nnls` | Non-Negative Least Squares |
-| `theil_sen` | Theil-Sen robust regression (note: was `theilsen` pre-v0.3.0) |
-| `glm` | Generalized Linear Model |
+| `pls` | Partial Least Squares |
+| `isotonic` | Isotonic (monotonic) regression |
+| `quantile` | Quantile regression |
 | `poisson` | GLM with Poisson family |
-| `logistic` | GLM with Binomial/Logistic family |
+| `binomial` | GLM with Binomial family (logit / probit / cloglog link) |
+| `logistic` | Binary classification (Binomial GLM, logit link) |
+| `negbinom` | GLM with Negative Binomial family |
 | `gamma` | GLM with Gamma family |
-| `nb` | GLM with Negative Binomial family |
+| `tweedie` | GLM with Tweedie family |
+| `alm` | Augmented Linear Model (24 error distributions) |
 | `aft` | Accelerated Failure Time (survival) |
-| `aid` | Anomaly / Influence Detection |
-| `t_test` | Student's t-test |
-| `pearson` | Pearson correlation |
-| `spearman` | Spearman correlation |
-| `kendall` | Kendall correlation |
-| `distance_cor` | Distance correlation |
-| `icc` | Intraclass correlation |
-| `chisq_test` | Chi-squared test |
-| `chisq_gof` | Chi-squared goodness-of-fit |
-| `fisher_exact` | Fisher's exact test |
-| `g_test` | G-test (likelihood ratio) |
-| `mcnemar` | McNemar's test |
-| `tost` | Two One-Sided Tests (equivalence) |
+| `glmm` | Generalized linear mixed model |
+| `eb_shrink` | Empirical-Bayes shrinkage |
+| `aid` | Automatic Identification of Demand (demand-pattern classification and anomaly flags) |
+| `t_test`, `pearson`, `spearman`, `kendall`, … | Hypothesis tests and correlation measures |
 | `vif` | Variance Inflation Factor |
 
 ### Verb component
 
-The verb describes what the function does:
-
 | Verb | Description |
 |------|-------------|
 | `fit` | Fit a model, returning a STRUCT with coefficients and diagnostics |
-| `fit_predict` | Fit and return predictions (in-sample or with new X) |
-| `predict` | Predict from previously computed coefficients |
-| `test` | Hypothesis test, returning a result STRUCT |
+| `fit_predict` | Fit and return predictions |
+| `predict` | Predict from a fitted model struct (`predict(model, x)`) or from coefficients (`predict(x_new, coefficients, intercept)`, also `linear_predict`); see [Model tools](api/regression/model_tools.md) |
+| `fit_by`, `fit_predict_by` | Table macro that runs a fit per group of a table |
+
+Hypothesis tests are named after the test itself (`t_test_agg`, `chisq_test_agg`, `mann_whitney_u_agg`).
 
 ### Suffix component
 
 | Suffix | When used |
 |--------|-----------|
-| `_agg` | DuckDB aggregate function (use with GROUP BY or OVER) |
-| (none) | Scalar or table function |
+| `_agg` | DuckDB aggregate function (use with `GROUP BY`, or with `OVER (...)` where noted) |
+| `_by` | Table macro taking a table name |
+| (none) | Scalar function, or window aggregate (`*_fit_predict`) |
 
 ### Full examples
 
 | Function | Type | Description |
 |----------|------|-------------|
-| `ols_fit(y, X)` | Scalar | OLS fit on literal arrays |
-| `ols_fit_agg(y, x_col)` | Aggregate | OLS fit across groups |
-| `ols_fit_predict(y, X, X_new)` | Table | OLS fit + predict from table-function call |
-| `ols_fit_predict_agg(y, x_col)` | Window aggregate | Rolling OLS predictions |
-| `theil_sen_fit(y, X)` | Scalar | Theil-Sen fit on literal arrays |
-| `theil_sen_fit_agg(y, x_col)` | Aggregate | Theil-Sen fit across groups |
-| `poisson_fit_agg(y, x_col)` | Aggregate | GLM Poisson fit |
-| `t_test_agg(x, y)` | Aggregate | Two-sample t-test |
-| `vif(y, X)` | Scalar | Variance Inflation Factors |
-| `bls_fit_agg(y, x_col)` | Aggregate | Bounded Least Squares fit |
-| `nnls_fit_agg(y, x_col)` | Aggregate | Non-Negative Least Squares fit |
+| `ols_fit(y, X[, options])` | Scalar | OLS fit on literal arrays (`X` is column-major: one inner array per feature) |
+| `ols_fit_agg(y, [x1, x2][, options])` | Aggregate | OLS fit over the rows of a table or group |
+| `ols_fit_predict(y, [x1, x2][, options]) OVER (ORDER BY t ROWS BETWEEN ... AND CURRENT ROW)` | Window aggregate | Fits on the window frame and returns `{yhat, yhat_lower, yhat_upper}` for the last row of the frame |
+| `ols_fit_predict_agg(y, [x1, x2][, options])` | Aggregate | Fits on rows with non-NULL `y`; returns a LIST of per-row predictions |
+| `ols_fit_predict_by('table', group_col, y_col, [x1, x2][, options])` | Table macro | Per-group fit + predict, one output row per input row |
+| `wls_fit_agg(y, [x1, x2], weight[, options])` | Aggregate | Weighted fit; the weight is a positional argument |
+| `theil_sen_fit_agg(y, [x])` | Aggregate | Theil-Sen fit |
+| `poisson_fit_agg(y, [x1, x2][, options])` | Aggregate | Poisson GLM fit |
+| `t_test_agg(value, group[, options])` | Aggregate | Two-sample t-test |
+| `vif(X)` | Scalar | Variance Inflation Factors |
+| `nnls_fit_agg(y, [x1, x2])` | Aggregate | Non-Negative Least Squares fit |
 
 ---
 
 ## 2. Option-Map Keys
 
-Options are passed as a DuckDB `MAP` literal, e.g.:
+Options are passed as a constant MAP or STRUCT literal as the last argument:
 
-```sql skip
-SELECT ols_fit_agg(y, [x1, x2], {'fit_intercept': true, 'compute_inference': true}) FROM tbl;
+```sql
+SELECT (ols_fit_agg(y, [x], {'fit_intercept': true, 'compute_inference': true})).p_values
+FROM (VALUES (1.0, 1.0), (2.1, 2.0), (2.9, 3.0), (4.2, 4.0)) t(y, x);
 ```
 
 ### Key convention
 
-All option keys are `snake_case` matching the Rust core. Unknown keys are rejected at bind time:
+Option keys are `snake_case` and case-insensitive. Keys that a function does not support raise an `InvalidInputException` at bind time instead of being silently ignored:
 
 ```sql skip
--- This raises: "unknown option 'intercept_mode'; valid keys: fit_intercept, ..."
+-- Raises: "unknown option 'intercept_mode'; valid keys: ..."
 SELECT ols_fit_agg(y, [x], {'intercept_mode': true}) FROM tbl;
 ```
 
 ### Common option keys
 
-| Key | Type | Default | Applies to | Description |
-|-----|------|---------|-----------|-------------|
-| `fit_intercept` | BOOLEAN | `true` | All regression | Fit a constant intercept term |
-| `intercept` | BOOLEAN | — | All regression | Accepted alias for `fit_intercept` |
-| `compute_inference` | BOOLEAN | `false` | OLS, Ridge, WLS | Compute std errors, t-values, p-values |
-| `confidence_level` | DOUBLE | `0.95` | All with CIs | Confidence level for intervals; must be in (0, 1) |
-| `alpha` | DOUBLE | — | Ridge, Elastic-net | Regularization strength (L2 penalty); must be > 0 |
-| `l1_ratio` | DOUBLE | `0.5` | Elastic-net | Mix of L1 vs L2; must be in [0, 1] |
-| `lambda` | DOUBLE | — | Ridge | Alias for `alpha` |
-| `max_iterations` | INTEGER | — | Iterative solvers | Maximum iterations |
-| `tolerance` | DOUBLE | — | Iterative solvers | Convergence tolerance |
-| `hc_type` | VARCHAR | `'HC3'` | OLS robust SEs | Heteroscedasticity-consistent SE type |
-| `weight_col` | VARCHAR | — | WLS | Column name for observation weights |
-| `huber_epsilon` | DOUBLE | `1.35` | Huber | Epsilon threshold |
-| `max_trials` | INTEGER | `100` | RANSAC | Maximum RANSAC trials |
-| `residual_threshold` | DOUBLE | — | RANSAC | Inlier threshold |
-| `min_samples` | INTEGER | — | RANSAC | Minimum inlier sample size |
-| `link` | VARCHAR | — | GLM | Link function override |
-| `family` | VARCHAR | — | GLM | Distribution family |
-| `distribution` | VARCHAR | — | AFT | Survival distribution |
-| `interval_type` | VARCHAR | `'confidence'` | Prediction | `'confidence'` or `'prediction'` |
+The table lists the most common keys; each reference page in [docs/api/](api/) lists exactly the keys that function reads.
 
-Option value ranges are enforced at bind time. Providing a value outside the documented range raises `InvalidInputException` immediately.
+| Key (aliases) | Type | Default | Applies to | Description |
+|-----|------|---------|-----------|-------------|
+| `fit_intercept` (`intercept`) | BOOLEAN | `true` | All regression | Fit a constant intercept term |
+| `compute_inference` (`inference`) | BOOLEAN | `false` | OLS, Ridge, WLS, Huber, RANSAC, Theil-Sen, GLMs, ALM, AFT, GLMM | Add `std_errors`, `t_values`/`z_values`, `p_values`, `ci_lower`, `ci_upper` to the result |
+| `confidence_level` (`confidence`) | DOUBLE | `0.95` | Functions with intervals | Confidence level for intervals |
+| `alpha` (`lambda`) | DOUBLE | `1.0` (Ridge, Elastic Net), `0.0` (LARS) | Ridge, Elastic Net, LARS | Regularization strength; `alpha = 0` gives the unpenalized fit |
+| `l1_ratio` | DOUBLE | `0.5` | Elastic Net | Mix of L1 vs L2, in [0, 1] |
+| `lambda_scaling` | VARCHAR | `'raw'` | Ridge, Elastic Net | `'raw'` or `'glmnet'` (divide penalty by n) |
+| `solver` | VARCHAR | `'svd'` | OLS, WLS, Ridge | `'qr'`, `'svd'` or `'cholesky'` |
+| `hc_type` | VARCHAR | `'none'` | OLS, WLS | Heteroscedasticity-consistent SEs: `'none'`, `'hc0'`, `'hc1'`, `'hc2'`, `'hc3'` |
+| `max_iterations` (`max_iter`) | INTEGER | function-specific | Iterative solvers | Maximum iterations |
+| `tolerance` (`tol`) | DOUBLE | function-specific | Iterative solvers | Convergence tolerance |
+| `epsilon` | DOUBLE | `1.35` | Huber | Huber threshold |
+| `max_trials` | INTEGER | `100` | RANSAC | Maximum RANSAC trials |
+| `residual_threshold` | DOUBLE | MAD of `y` | RANSAC | Inlier threshold |
+| `min_samples` | INTEGER | `n_features + 1` | RANSAC | Sample size per trial |
+| `random_state` (`seed`) | INTEGER | — | RANSAC, Theil-Sen | Seed for reproducible subsampling |
+| `forgetting_factor` | DOUBLE | `1.0` | RLS | Exponential forgetting factor |
+| `link` (`poisson_link`) | VARCHAR | `'log'` | Poisson | `'log'`, `'identity'`, `'sqrt'` |
+| `binomial_link` | VARCHAR | `'logit'` | Binomial | `'logit'`, `'probit'`, `'cloglog'` |
+| `power` (`tweedie_power`) | DOUBLE | `1.5` | Tweedie | Tweedie variance power |
+| `threshold` | DOUBLE | `0.5` | Logistic | Classification threshold used for `accuracy` |
+| `glm_lambda` | DOUBLE | `0.0` | GLMs | L2 penalty on GLM coefficients |
+| `prior`, `feature_names` | MAP / LIST | — | GLMs | Coefficient priors, see [api/glm/priors.md](api/glm/priors.md) |
+| `family` | VARCHAR | `'gaussian'` | GLMM only | `'gaussian'`, `'poisson'`, `'binomial'`, `'negbinomial'`, `'gamma'`, `'tweedie'` |
+| `distribution` (`dist`) | VARCHAR | model-specific | ALM, AFT | Error / survival distribution |
+| `null_policy` | VARCHAR | `'drop'` | `*_fit_predict`, `*_fit_predict_agg` | `'drop'` or `'drop_y_zero_x'`, see [NULL_SEMANTICS.md](NULL_SEMANTICS.md) |
+
+There is no `family` key for the single-family GLM aggregates: the family is chosen by the function (`poisson_fit_agg`, `binomial_fit_agg`, `negbinom_fit_agg`, `gamma_fit_agg`, `tweedie_fit_agg`, `logistic_fit_agg`). WLS weights are a positional argument (`wls_fit_agg(y, x, weight)`), and the `wls_fit_predict_by` macro takes a `weight_col` argument; neither is an option key. Prediction intervals from the fit-predict functions always use `confidence_level`; there is no `interval_type` option.
+
+Option values outside their valid range raise `InvalidInputException`.
 
 ---
 
 ## 3. Return-Struct Field Names
 
-Result structs use `snake_case` field names. The **standard field set** for regression families is:
+Result structs use `snake_case` field names. The **standard field set** for linear regression families (OLS, Ridge, WLS, Huber, RANSAC, Theil-Sen) is:
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `coefficients` | DOUBLE[] | Fitted coefficients (excluding intercept) |
-| `intercept` | DOUBLE | Intercept term (or 0 if `fit_intercept: false`) |
-| `std_errors` | DOUBLE[] | Standard errors of coefficients (when `compute_inference: true`) |
-| `t_values` | DOUBLE[] | t-statistics for each coefficient |
-| `p_values` | DOUBLE[] | Two-sided p-values |
+| `intercept` | DOUBLE | Intercept term (0 if `fit_intercept: false`) |
 | `r_squared` | DOUBLE | Coefficient of determination R² |
 | `adj_r_squared` | DOUBLE | Adjusted R² |
-| `f_statistic` | DOUBLE | Overall F-statistic for the fitted model |
-| `f_pvalue` | DOUBLE | p-value of the overall F-statistic |
 | `residual_std_error` | DOUBLE | Residual standard error |
-| `n_obs` | BIGINT | Number of observations used |
+| `n_observations` | BIGINT | Number of observations used |
 | `n_features` | BIGINT | Number of features (predictors) |
-| `ci_lower` | DOUBLE[] | Lower confidence-interval bounds |
-| `ci_upper` | DOUBLE[] | Upper confidence-interval bounds |
+| `std_errors` | DOUBLE[] | Standard errors (only with `compute_inference: true`) |
+| `t_values` | DOUBLE[] | t-statistics (only with `compute_inference: true`) |
+| `p_values` | DOUBLE[] | Two-sided p-values (only with `compute_inference: true`) |
+| `ci_lower`, `ci_upper` | DOUBLE[] | Confidence-interval bounds (only with `compute_inference: true`) |
+| `f_statistic`, `f_pvalue` | DOUBLE | Overall F-test (only with `compute_inference: true`) |
+
+Elastic Net, LARS and RLS return only the first seven fields. Robust models add their own fields (`scale`, `n_outliers` for Huber; `residual_threshold`, `n_inliers`, `n_trials` for RANSAC). Coefficients of constant (zero-variance) or aliased columns are reported as `NaN`, see [NULL_SEMANTICS.md](NULL_SEMANTICS.md).
 
 ### Per-family exceptions (intentional — do NOT force z → t)
 
-**GLM families (Poisson, Logistic, Gamma, Negative Binomial):**
+**GLM families (Poisson, Binomial, Logistic, Negative Binomial, Gamma, Tweedie):**
 
-GLM uses `z_values` instead of `t_values` because the Wald statistic under GLM asymptotic theory follows a standard-normal (z) distribution, not a t distribution. This is the correct statistical convention for these families.
+GLMs use `z_values` instead of `t_values` because the Wald statistic under GLM asymptotic theory follows a standard-normal distribution.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `z_values` | DOUBLE[] | Wald z-statistics (replaces `t_values`) |
-| `log_likelihood` | DOUBLE | Log-likelihood at convergence |
-| `deviance` | DOUBLE | Model deviance |
+| `coefficients`, `intercept` | DOUBLE[], DOUBLE | Coefficients on the link scale |
+| `deviance` | DOUBLE | Residual deviance |
 | `null_deviance` | DOUBLE | Null-model deviance |
+| `pseudo_r_squared` | DOUBLE | Deviance-based pseudo R² (`1 - deviance / null_deviance`) |
 | `aic` | DOUBLE | Akaike Information Criterion |
-| `bic` | DOUBLE | Bayesian Information Criterion |
-| `n_iterations` | INTEGER | Iterations to convergence |
+| `dispersion` | DOUBLE | Dispersion estimate (Negative Binomial: the overdispersion `alpha`) |
+| `n_observations`, `n_features` | BIGINT | Counts |
+| `iterations` | INTEGER | IRLS iterations used |
+| `converged` | BOOLEAN | Whether IRLS converged |
+| `std_errors`, `z_values`, `p_values`, `ci_lower`, `ci_upper` | DOUBLE[] | Only with `compute_inference: true` |
 
-Note: GLM does **not** include `r_squared` (not a meaningful statistic for non-Gaussian families).
+GLM results do not include `r_squared`, `log_likelihood` or `bic`. `logistic_fit_agg` replaces `dispersion` with `accuracy` and `threshold`.
 
 **AFT survival models:**
 
-AFT survival analysis uses `z_values` for Wald statistics (survival convention) and omits `r_squared`.
-
 | Field | Type | Description |
 |-------|------|-------------|
-| `z_values` | DOUBLE[] | Wald z-statistics |
-| `log_likelihood` | DOUBLE | Log-likelihood at convergence |
-| `aic` | DOUBLE | Akaike Information Criterion |
 | `scale` | DOUBLE | Scale parameter |
+| `log_likelihood`, `null_log_likelihood` | DOUBLE | Log-likelihood of the fitted and intercept-only model |
+| `aic`, `bic` | DOUBLE | Information criteria |
+| `n_observations`, `n_events`, `n_censored`, `n_features` | BIGINT | Counts |
+| `iterations`, `converged` | INTEGER, BOOLEAN | Optimizer status |
+| `z_values` (and `std_errors`, `p_values`, `ci_lower`, `ci_upper`, `intercept_std_error`, `log_scale_std_error`) | | Only with `compute_inference: true` |
 
-**ALM / Additive models:**
+**ALM (Augmented Linear Model):**
 
-ALM (Additive Linear Models) uses a different core field set: omits `r_squared`, carries `log_likelihood`, `aic`, `bic`, and `scale`.
+ALM returns `coefficients`, `intercept`, `log_likelihood`, `aic`, `bic`, `scale`, `n_observations`, `n_features`, `iterations`, and with `compute_inference: true` also `std_errors`, `t_values`, `p_values`, `ci_lower`, `ci_upper`. It has no `r_squared`.
 
 ---
 
 ## 4. Error Messages
 
-When a function receives invalid input, it throws an exception with the format:
+Errors always name the function:
 
 ```
-{function_name}: {problem}; expected {shape} (got {actual})
+{function_name}: {problem}
 ```
 
 ### Exception taxonomy
 
 | Exception class | Raised when |
 |----------------|------------|
-| `InvalidInputException` | User data/shape problems — dimension mismatch, insufficient rows (`n < n_features + 1`), all-non-finite input, constant/zero-variance column, unknown option key, option value out of range |
-| `FunctionException` | Numerical failures — singular matrix (non-invertible), convergence failure, internal panic |
+| `InvalidInputException` | User data, shape or option problems: dimension mismatch, all-non-finite input, unsupported option key, option value out of range |
+| `InternalException` | Numerical failures: singular matrix, convergence failure, allocation failure |
 
-### Unknown option keys
+Aggregates over too few rows to fit (for example fewer than `n_features + 1` rows in a group) return `NULL` for that group rather than raising, so one degenerate group does not abort a `GROUP BY` query.
 
-Unknown option-map keys are rejected at bind time:
+### Unsupported option keys
 
 ```sql skip
--- Raises: "unknown option 'typo_key'; valid keys: fit_intercept, compute_inference, ..."
+-- Raises: "unknown option 'typo_key'; valid keys: ..."
 SELECT ols_fit_agg(y, [x], {'typo_key': true}) FROM tbl;
 ```
 
-### Degenerate window frames
+### Window frames
 
-When a `_fit_predict_agg` function is used with `OVER (... ROWS BETWEEN ...)` and the window frame has fewer than `n_features + 1` rows, the function returns `NULL` for that row (rather than raising an error). This is standard rolling-regression behavior — degenerate frames at the start of a partition simply have insufficient data to fit.
+A `*_fit_predict` window function fits on the rows of the window frame and predicts for the **last row of the frame**. Use frames that end at `CURRENT ROW` over a unique ordering (`ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW` or `ROWS BETWEEN k PRECEDING AND CURRENT ROW`). Frames ending before the current row (`... AND 1 PRECEDING`) do not produce a one-step-ahead forecast, `OVER (PARTITION BY g)` without `ORDER BY` gives every row the same prediction, and `RANGE` frames with ties are not supported. For one prediction per row of a whole group, use `*_fit_predict_agg` or `*_fit_predict_by`.
+
+When the frame has too few rows to fit, the function returns `NULL` for that row rather than raising an error: the first rows of an expanding window have insufficient data.
 
 ---
 
-## 5. Breaking Changes in v0.3.0
+## 5. Breaking Changes in v0.10.0
+
+See [MIGRATION.md](MIGRATION.md) for the complete list.
 
 ### Dropped `anofox_stats_` prefix
 
-All functions previously registered under the `anofox_stats_` prefix are now registered under unprefixed names only. There are no deprecated aliases.
+Up to v0.9.x every function was registered both with and without the `anofox_stats_` prefix. From v0.10.0 only the unprefixed names exist.
 
-**Migration:** Remove the `anofox_stats_` prefix from every function call.
+**Migration:** remove the `anofox_stats_` prefix from every function call.
 
 ```sql skip
--- Before (v0.2.x):
+-- Before (v0.9.x):
 SELECT anofox_stats_ols_fit_agg(y, [x1, x2]) FROM tbl;
 
--- After (v0.3.0+):
+-- After (v0.10.0+):
 SELECT ols_fit_agg(y, [x1, x2]) FROM tbl;
 ```
 
 ### `theilsen` renamed to `theil_sen`
 
-The Theil-Sen estimator functions were previously named `theilsen_*`. They are now `theil_sen_*` (underscore inserted for consistency).
-
 ```sql skip
--- Before:
-SELECT anofox_stats_theilsen_fit_agg(y, [x]) FROM tbl;
+-- Before (v0.9.x):
+SELECT theilsen_fit_agg(y, [x]) FROM tbl;
 
--- After:
+-- After (v0.10.0+):
 SELECT theil_sen_fit_agg(y, [x]) FROM tbl;
 ```
 
-### `.r2` field removed; use `.r_squared`
+### Use `.r_squared`, not `.r2`
 
-The return-struct field was always named `r_squared` in the C++ type builder; some older test examples used `.r2` which was not a valid field path. The correct field is `.r_squared`.
+The return-struct field is named `r_squared`; `.r2` is not a valid field path.
 
 ```sql
--- Correct:
-SELECT (ols_fit([1.0, 2.0, 3.0], [[1.0, 2.0, 3.0]])).r_squared;
+SELECT (ols_fit([1.0, 2.0, 3.1, 3.9], [[1.0, 2.0, 3.0, 4.0]])).r_squared;
 ```
 
 ### No deprecated aliases
 
-No backward-compatibility aliases are provided. All callers must update to the new names.
+No backward-compatibility aliases are provided for the removed names.
 
 ---
 
-## 6. Validation Rules
+## 6. Documentation Rules
 
-### Phase 6 doc-SQL validation checks
+`scripts/validate_docs_sql.py` executes every fenced `sql` block in `README.md`, `guides/*.md`, `docs/*.md` and `docs/api/**/*.md` against the built extension (blocks marked `sql skip` are excluded). Examples must:
 
-When Phase 6's documentation-SQL validator runs, it checks every SQL example in `docs/` against the live extension. Examples must:
-
-1. Use unprefixed function names (no `anofox_stats_` prefix).
+1. Use unprefixed function names.
 2. Use `r_squared` (not `r2`) for the coefficient of determination.
 3. Use `theil_sen_*` (not `theilsen_*`).
 4. Use `z_values` for GLM and AFT results (not `t_values`).
-5. Pass only known option keys (no typos silently ignored).
+5. Pass only option keys the function supports.

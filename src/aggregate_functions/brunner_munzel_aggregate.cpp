@@ -7,8 +7,13 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/ffi_enum_converters.hpp"
+#include "../include/result_fields.hpp"
+#include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
+#include "aggregate_combine.hpp"
+#include "two_group.hpp"
 
 namespace duckdb {
 
@@ -16,15 +21,13 @@ namespace duckdb {
 // Brunner-Munzel Aggregate State
 //===--------------------------------------------------------------------===//
 struct BrunnerMunzelAggregateState {
-    vector<double> group1;
-    vector<double> group2;
+    TwoGroupSamples samples;
     bool initialized;
 
     BrunnerMunzelAggregateState() : initialized(false) {}
 
     void Reset() {
-        group1.clear();
-        group2.clear();
+        samples.Clear();
         initialized = false;
     }
 };
@@ -44,6 +47,8 @@ static LogicalType GetBrunnerMunzelAggResultType() {
     children.push_back(make_pair("n1", LogicalType::BIGINT));
     children.push_back(make_pair("n2", LogicalType::BIGINT));
     children.push_back(make_pair("method", LogicalType::VARCHAR));
+    children.push_back(make_pair("n", LogicalType::BIGINT));
+    children.push_back(make_pair("alternative", LogicalType::VARCHAR));
 
     return LogicalType::STRUCT(std::move(children));
 }
@@ -94,7 +99,7 @@ static void BrunnerMunzelAggUpdate(Vector inputs[], AggregateInputData &aggr_inp
     inputs[0].ToUnifiedFormat(count, value_data);
     inputs[1].ToUnifiedFormat(count, group_data);
     auto values = UnifiedVectorFormat::GetData<double>(value_data);
-    auto groups = UnifiedVectorFormat::GetData<int32_t>(group_data);
+    const bool group_is_string = inputs[1].GetType().id() == LogicalTypeId::VARCHAR;
 
     UnifiedVectorFormat sdata;
     state_vector.ToUnifiedFormat(count, sdata);
@@ -112,21 +117,17 @@ static void BrunnerMunzelAggUpdate(Vector inputs[], AggregateInputData &aggr_inp
         }
 
         double val = values[val_idx];
-        int32_t group = groups[grp_idx];
+        auto group = ReadGroupLabel(group_data, grp_idx, group_is_string);
 
         if (std::isnan(val)) {
             continue;
         }
 
-        if (group == 0) {
-            state.group1.push_back(val);
-        } else {
-            state.group2.push_back(val);
-        }
+        state.samples.Add(group, val, "brunner_munzel_agg");
     }
 }
 
-static void BrunnerMunzelAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &, idx_t count) {
+static void BrunnerMunzelAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &aggr_input_data, idx_t count) {
     UnifiedVectorFormat source_data, target_data;
     source_vector.ToUnifiedFormat(count, source_data);
     target_vector.ToUnifiedFormat(count, target_data);
@@ -143,14 +144,12 @@ static void BrunnerMunzelAggCombine(Vector &source_vector, Vector &target_vector
         }
 
         if (!target.initialized) {
-            target.group1 = std::move(source.group1);
-            target.group2 = std::move(source.group2);
+            target.samples.Merge(source.samples, aggr_input_data, "brunner_munzel_agg");
             target.initialized = true;
             continue;
         }
 
-        target.group1.insert(target.group1.end(), source.group1.begin(), source.group1.end());
-        target.group2.insert(target.group2.end(), source.group2.begin(), source.group2.end());
+        target.samples.Merge(source.samples, aggr_input_data, "brunner_munzel_agg");
     }
 }
 
@@ -167,21 +166,21 @@ static void BrunnerMunzelAggFinalize(Vector &state_vector, AggregateInputData &a
         auto &state = *states[sdata.sel->get_index(i)];
         idx_t result_idx = i + offset;
 
-        if (!state.initialized || state.group1.size() < 2 || state.group2.size() < 2) {
+        if (!state.initialized || state.samples.Group1().size() < 2 || state.samples.Group2().size() < 2) {
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
 
         // Prepare FFI data
         AnofoxDataArray group1_array;
-        group1_array.data = state.group1.data();
+        group1_array.data = state.samples.Group1().data();
         group1_array.validity = nullptr;
-        group1_array.len = state.group1.size();
+        group1_array.len = state.samples.Group1().size();
 
         AnofoxDataArray group2_array;
-        group2_array.data = state.group2.data();
+        group2_array.data = state.samples.Group2().data();
         group2_array.validity = nullptr;
-        group2_array.len = state.group2.size();
+        group2_array.len = state.samples.Group2().size();
 
         AnofoxBrunnerMunzelOptions options;
         options.alternative = bind_data.options.alternative.value_or(Alternative::TWO_SIDED) == Alternative::TWO_SIDED
@@ -197,6 +196,7 @@ static void BrunnerMunzelAggFinalize(Vector &state_vector, AggregateInputData &a
         bool success = anofox_brunner_munzel(group1_array, group2_array, options, &test_result, &error);
 
         if (!success) {
+            ThrowUnlessDegenerate("brunner_munzel_agg", error);
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
@@ -214,6 +214,8 @@ static void BrunnerMunzelAggFinalize(Vector &state_vector, AggregateInputData &a
         auto& method_vector = *struct_entries[struct_idx++];
         FlatVector::GetData<string_t>(method_vector)[result_idx] =
             StringVector::AddString(method_vector, test_result.method ? test_result.method : "Brunner-Munzel");
+        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = static_cast<int64_t>(test_result.n1 + test_result.n2);
+        SetResultString(*struct_entries[struct_idx++], result_idx, AlternativeName(options.alternative));
 
         anofox_free_test_result(&test_result);
         state.Reset();
@@ -228,9 +230,9 @@ static unique_ptr<FunctionData> BrunnerMunzelAggBind(ClientContext &context, Agg
     function.return_type = GetBrunnerMunzelAggResultType();
     auto bind_data = make_uniq<BrunnerMunzelBindData>();
 
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        Value options_val = ExpressionExecutor::EvaluateScalar(context, *arguments[2]);
-        bind_data->options = BrunnerMunzelMapOptions::ParseFromValue(options_val);
+    if (arguments.size() >= 3) {
+        Value options_val = EvaluateConstantOptions(context, *arguments[2], "brunner_munzel_agg");
+        bind_data->options = BrunnerMunzelMapOptions::ParseFromValue(options_val, "brunner_munzel_agg");
     }
 
     PostHogTelemetry::Instance().RecordFunctionCall("brunner_munzel_agg");
@@ -245,20 +247,24 @@ void RegisterBrunnerMunzelAggregateFunction(ExtensionLoader &loader) {
 
     // With options
     auto func_with_opts = AggregateFunction(
-        "brunner_munzel_agg", {LogicalType::DOUBLE, LogicalType::INTEGER, LogicalType::ANY},
+        "brunner_munzel_agg", {LogicalType::DOUBLE, LogicalType::BIGINT, LogicalType::ANY},
         LogicalType::ANY,
         AggregateFunction::StateSize<BrunnerMunzelAggregateState>, BrunnerMunzelAggInitialize,
         BrunnerMunzelAggUpdate, BrunnerMunzelAggCombine, BrunnerMunzelAggFinalize,
         nullptr, BrunnerMunzelAggBind, BrunnerMunzelAggDestroy);
     func_set.AddFunction(func_with_opts);
+    func_with_opts.arguments[1] = LogicalType::VARCHAR;
+    func_set.AddFunction(func_with_opts);
 
     // Without options
     auto func_no_opts = AggregateFunction(
-        "brunner_munzel_agg", {LogicalType::DOUBLE, LogicalType::INTEGER},
+        "brunner_munzel_agg", {LogicalType::DOUBLE, LogicalType::BIGINT},
         LogicalType::ANY,
         AggregateFunction::StateSize<BrunnerMunzelAggregateState>, BrunnerMunzelAggInitialize,
         BrunnerMunzelAggUpdate, BrunnerMunzelAggCombine, BrunnerMunzelAggFinalize,
         nullptr, BrunnerMunzelAggBind, BrunnerMunzelAggDestroy);
+    func_set.AddFunction(func_no_opts);
+    func_no_opts.arguments[1] = LogicalType::VARCHAR;
     func_set.AddFunction(func_no_opts);
 
     CreateAggregateFunctionInfo info(std::move(func_set));
@@ -268,14 +274,14 @@ void RegisterBrunnerMunzelAggregateFunction(ExtensionLoader &loader) {
     d1.examples        = {"brunner_munzel_agg(value, group_id, {'alternative': 'two_sided'})"};
     d1.categories      = {"hypothesis-testing"};
     d1.parameter_names = {"value", "group_id", "options"};
-    d1.parameter_types = {LogicalType::DOUBLE, LogicalType::INTEGER, LogicalType::ANY};
+    d1.parameter_types = {LogicalType::DOUBLE, LogicalType::BIGINT, LogicalType::ANY};
     info.descriptions.push_back(std::move(d1));
     FunctionDescription d2;
     d2.description     = "Performs the Brunner-Munzel test for stochastic equality of two independent samples, using default options.";
     d2.examples        = {"brunner_munzel_agg(value, group_id)"};
     d2.categories      = {"hypothesis-testing"};
     d2.parameter_names = {"value", "group_id"};
-    d2.parameter_types = {LogicalType::DOUBLE, LogicalType::INTEGER};
+    d2.parameter_types = {LogicalType::DOUBLE, LogicalType::BIGINT};
     info.descriptions.push_back(std::move(d2));
     loader.RegisterFunction(std::move(info));
 

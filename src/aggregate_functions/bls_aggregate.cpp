@@ -7,9 +7,12 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/min_obs_guard.hpp"
 #include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
+#include "aggregate_combine.hpp"
+#include "list_input.hpp"
 
 namespace duckdb {
 
@@ -127,6 +130,7 @@ static void BlsAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data, i
     auto x_list_data = ListVector::GetData(inputs[1]);
     auto &x_child = ListVector::GetEntry(inputs[1]);
     auto x_child_data = FlatVector::GetData<double>(x_child);
+    auto &x_child_validity = FlatVector::Validity(x_child);
 
     UnifiedVectorFormat sdata;
     state_vector.ToUnifiedFormat(count, sdata);
@@ -155,6 +159,10 @@ static void BlsAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data, i
         }
 
         auto list_entry = x_list_data[x_idx];
+        // A LIST holding a NULL element is itself valid; skip the row like a NULL list.
+        if (ListHasNullElement(x_child_validity, list_entry)) {
+            continue;
+        }
         idx_t n_features = list_entry.length;
 
         if (!state.initialized) {
@@ -177,7 +185,7 @@ static void BlsAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data, i
     }
 }
 
-static void BlsAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &, idx_t count) {
+static void BlsAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &aggr_input_data, idx_t count) {
     UnifiedVectorFormat source_data, target_data;
     source_vector.ToUnifiedFormat(count, source_data);
     target_vector.ToUnifiedFormat(count, target_data);
@@ -194,8 +202,8 @@ static void BlsAggCombine(Vector &source_vector, Vector &target_vector, Aggregat
         }
 
         if (!target.initialized) {
-            target.y_values = std::move(source.y_values);
-            target.x_columns = std::move(source.x_columns);
+            target.y_values = CombineTake(source.y_values, aggr_input_data);
+            target.x_columns = CombineTake(source.x_columns, aggr_input_data);
             target.n_features = source.n_features;
             target.initialized = true;
             target.fit_intercept = source.fit_intercept;
@@ -265,7 +273,7 @@ static void BlsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
-        idx_t min_obs = state.fit_intercept ? state.n_features + 1 : state.n_features;
+        idx_t min_obs = MinObsForFit(state.x_columns, state.fit_intercept);
         if (state.y_values.size() <= min_obs) {
             FlatVector::SetNull(result, result_idx, true);
             continue;
@@ -314,7 +322,9 @@ static void BlsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
         bool success = anofox_bls_fit(y_array, x_arrays.data(), x_arrays.size(), options, &core_result, &error);
 
         if (!success) {
-            ThrowFromFfiError("bls_fit_agg", error);
+            ThrowUnlessDegenerate("bls_fit_agg", error);
+            FlatVector::SetNull(result, result_idx, true);
+            continue;
         }
 
         idx_t struct_idx = 0;
@@ -347,8 +357,10 @@ static unique_ptr<FunctionData> BlsAggBind(ClientContext &context, AggregateFunc
                                            vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<BlsAggregateBindData>();
 
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[2]);
+    if (arguments.size() >= 3) {
+        auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[2], "bls_fit_agg",
+            {"fit_intercept", "max_iterations", "tolerance", "lower_bound", "upper_bound"});
         if (opts.fit_intercept.has_value()) {
             result->fit_intercept = opts.fit_intercept.value();
         }
@@ -386,8 +398,10 @@ static unique_ptr<FunctionData> NnlsAggBind(ClientContext &context, AggregateFun
     result->has_lower_bound = false;
     result->has_upper_bound = false;
 
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[2]);
+    if (arguments.size() >= 3) {
+        auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[2], "nnls_fit_agg",
+            {"fit_intercept", "max_iterations", "tolerance"});
         if (opts.fit_intercept.has_value()) {
             result->fit_intercept = opts.fit_intercept.value();
         }

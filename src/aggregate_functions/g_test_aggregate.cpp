@@ -8,8 +8,11 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/result_fields.hpp"
+#include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
+#include "aggregate_combine.hpp"
 
 namespace duckdb {
 
@@ -40,6 +43,8 @@ static LogicalType GetGTestAggResultType() {
     children.push_back(make_pair("p_value", LogicalType::DOUBLE));
     children.push_back(make_pair("df", LogicalType::BIGINT));
     children.push_back(make_pair("method", LogicalType::VARCHAR));
+    children.push_back(make_pair("n", LogicalType::BIGINT));
+    children.push_back(make_pair("alternative", LogicalType::VARCHAR));
 
     return LogicalType::STRUCT(std::move(children));
 }
@@ -92,7 +97,7 @@ static void GTestAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data,
     }
 }
 
-static void GTestAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &, idx_t count) {
+static void GTestAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &aggr_input_data, idx_t count) {
     UnifiedVectorFormat source_data, target_data;
     source_vector.ToUnifiedFormat(count, source_data);
     target_vector.ToUnifiedFormat(count, target_data);
@@ -109,8 +114,8 @@ static void GTestAggCombine(Vector &source_vector, Vector &target_vector, Aggreg
         }
 
         if (!target.initialized) {
-            target.row_values = std::move(source.row_values);
-            target.col_values = std::move(source.col_values);
+            target.row_values = CombineTake(source.row_values, aggr_input_data);
+            target.col_values = CombineTake(source.col_values, aggr_input_data);
             target.initialized = true;
             continue;
         }
@@ -176,6 +181,7 @@ static void GTestAggFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
                                       &g_result, &error);
 
         if (!success) {
+            ThrowUnlessDegenerate("g_test_agg", error);
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
@@ -187,6 +193,8 @@ static void GTestAggFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
         auto& method_vector = *struct_entries[struct_idx++];
         FlatVector::GetData<string_t>(method_vector)[result_idx] =
             StringVector::AddString(method_vector, g_result.method ? g_result.method : "G-test");
+        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = static_cast<int64_t>(state.row_values.size());
+        SetResultNull(*struct_entries[struct_idx++], result_idx); // alternative: not applicable
 
         anofox_free_chisq_result(&g_result);
         state.Reset();

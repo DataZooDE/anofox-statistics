@@ -7,12 +7,14 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
+#include "../include/ffi_enum_converters.hpp"
+#include "../include/result_fields.hpp"
 #include "telemetry.hpp"
+#include "aggregate_combine.hpp"
+#include "two_group.hpp"
 
-#ifdef _WIN32
-#define strcasecmp _stricmp
-#endif
 
 namespace duckdb {
 
@@ -20,15 +22,13 @@ namespace duckdb {
 // Permutation T-Test Aggregate State
 //===--------------------------------------------------------------------===//
 struct PermutationTTestAggregateState {
-    vector<double> group1;
-    vector<double> group2;
+    TwoGroupSamples samples;
     bool initialized;
 
     PermutationTTestAggregateState() : initialized(false) {}
 
     void Reset() {
-        group1.clear();
-        group2.clear();
+        samples.Clear();
         initialized = false;
     }
 };
@@ -44,6 +44,8 @@ static LogicalType GetPermutationTTestAggResultType() {
     children.push_back(make_pair("n1", LogicalType::BIGINT));
     children.push_back(make_pair("n2", LogicalType::BIGINT));
     children.push_back(make_pair("method", LogicalType::VARCHAR));
+    children.push_back(make_pair("n", LogicalType::BIGINT));
+    children.push_back(make_pair("alternative", LogicalType::VARCHAR));
 
     return LogicalType::STRUCT(std::move(children));
 }
@@ -54,19 +56,25 @@ static LogicalType GetPermutationTTestAggResultType() {
 struct PermutationTTestBindData : public FunctionData {
     AnofoxAlternative alternative;
     size_t n_permutations;
+    uint64_t seed;
+    bool has_seed;
 
-    PermutationTTestBindData() : alternative(ANOFOX_ALTERNATIVE_TWO_SIDED), n_permutations(10000) {}
+    PermutationTTestBindData()
+        : alternative(ANOFOX_ALTERNATIVE_TWO_SIDED), n_permutations(10000), seed(0), has_seed(false) {}
 
     unique_ptr<FunctionData> Copy() const override {
         auto copy = make_uniq<PermutationTTestBindData>();
         copy->alternative = alternative;
         copy->n_permutations = n_permutations;
+        copy->seed = seed;
+        copy->has_seed = has_seed;
         return copy;
     }
 
     bool Equals(const FunctionData &other_p) const override {
         auto &other = other_p.Cast<PermutationTTestBindData>();
-        return alternative == other.alternative && n_permutations == other.n_permutations;
+        return alternative == other.alternative && n_permutations == other.n_permutations && seed == other.seed &&
+               has_seed == other.has_seed;
     }
 };
 
@@ -95,7 +103,7 @@ static void PermutationTTestAggUpdate(Vector inputs[], AggregateInputData &aggr_
     inputs[0].ToUnifiedFormat(count, value_data);
     inputs[1].ToUnifiedFormat(count, group_data);
     auto values = UnifiedVectorFormat::GetData<double>(value_data);
-    auto groups = UnifiedVectorFormat::GetData<int32_t>(group_data);
+    const bool group_is_string = inputs[1].GetType().id() == LogicalTypeId::VARCHAR;
 
     UnifiedVectorFormat sdata;
     state_vector.ToUnifiedFormat(count, sdata);
@@ -113,21 +121,17 @@ static void PermutationTTestAggUpdate(Vector inputs[], AggregateInputData &aggr_
         }
 
         double val = values[val_idx];
-        int32_t group = groups[grp_idx];
+        auto group = ReadGroupLabel(group_data, grp_idx, group_is_string);
 
         if (std::isnan(val)) {
             continue;
         }
 
-        if (group == 0) {
-            state.group1.push_back(val);
-        } else {
-            state.group2.push_back(val);
-        }
+        state.samples.Add(group, val, "permutation_t_test_agg");
     }
 }
 
-static void PermutationTTestAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &, idx_t count) {
+static void PermutationTTestAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &aggr_input_data, idx_t count) {
     UnifiedVectorFormat source_data, target_data;
     source_vector.ToUnifiedFormat(count, source_data);
     target_vector.ToUnifiedFormat(count, target_data);
@@ -144,14 +148,12 @@ static void PermutationTTestAggCombine(Vector &source_vector, Vector &target_vec
         }
 
         if (!target.initialized) {
-            target.group1 = std::move(source.group1);
-            target.group2 = std::move(source.group2);
+            target.samples.Merge(source.samples, aggr_input_data, "permutation_t_test_agg");
             target.initialized = true;
             continue;
         }
 
-        target.group1.insert(target.group1.end(), source.group1.begin(), source.group1.end());
-        target.group2.insert(target.group2.end(), source.group2.begin(), source.group2.end());
+        target.samples.Merge(source.samples, aggr_input_data, "permutation_t_test_agg");
     }
 }
 
@@ -168,30 +170,36 @@ static void PermutationTTestAggFinalize(Vector &state_vector, AggregateInputData
         auto &state = *states[sdata.sel->get_index(i)];
         idx_t result_idx = i + offset;
 
-        if (!state.initialized || state.group1.size() < 2 || state.group2.size() < 2) {
+        if (!state.initialized || state.samples.Group1().size() < 2 || state.samples.Group2().size() < 2) {
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
 
+        if (bind_data.has_seed) {
+            // Make the seeded result independent of the row order threads delivered.
+            state.samples.SortValues();
+        }
+
         AnofoxDataArray group1_array;
-        group1_array.data = state.group1.data();
+        group1_array.data = state.samples.Group1().data();
         group1_array.validity = nullptr;
-        group1_array.len = state.group1.size();
+        group1_array.len = state.samples.Group1().size();
 
         AnofoxDataArray group2_array;
-        group2_array.data = state.group2.data();
+        group2_array.data = state.samples.Group2().data();
         group2_array.validity = nullptr;
-        group2_array.len = state.group2.size();
+        group2_array.len = state.samples.Group2().size();
 
         AnofoxTestResult test_result;
         AnofoxError error;
 
         bool success = anofox_permutation_t_test(group1_array, group2_array,
                                                   bind_data.alternative, bind_data.n_permutations,
-                                                  0, false,  // No seed
+                                                  bind_data.seed, bind_data.has_seed,
                                                   &test_result, &error);
 
         if (!success) {
+            ThrowUnlessDegenerate("permutation_t_test_agg", error);
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
@@ -204,6 +212,9 @@ static void PermutationTTestAggFinalize(Vector &state_vector, AggregateInputData
         auto& method_vector = *struct_entries[struct_idx++];
         FlatVector::GetData<string_t>(method_vector)[result_idx] =
             StringVector::AddString(method_vector, test_result.method ? test_result.method : "Permutation t-test");
+        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] =
+            static_cast<int64_t>(test_result.n1 + test_result.n2);
+        SetResultString(*struct_entries[struct_idx++], result_idx, AlternativeName(bind_data.alternative));
 
         anofox_free_test_result(&test_result);
         state.Reset();
@@ -218,26 +229,18 @@ static unique_ptr<FunctionData> PermutationTTestAggBind(ClientContext &context, 
     function.return_type = GetPermutationTTestAggResultType();
     auto bind_data = make_uniq<PermutationTTestBindData>();
 
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        Value options_val = ExpressionExecutor::EvaluateScalar(context, *arguments[2]);
-        if (options_val.type().id() == LogicalTypeId::MAP) {
-            auto &map_children = MapValue::GetChildren(options_val);
-            for (auto &entry : map_children) {
-                auto &key_list = StructValue::GetChildren(entry);
-                if (key_list.size() >= 2) {
-                    auto key = StringValue::Get(key_list[0]).c_str();
-                    if (strcasecmp(key, "alternative") == 0) {
-                        auto alt_str = StringValue::Get(key_list[1]);
-                        if (strcasecmp(alt_str.c_str(), "less") == 0) {
-                            bind_data->alternative = ANOFOX_ALTERNATIVE_LESS;
-                        } else if (strcasecmp(alt_str.c_str(), "greater") == 0) {
-                            bind_data->alternative = ANOFOX_ALTERNATIVE_GREATER;
-                        }
-                    } else if (strcasecmp(key, "n_permutations") == 0 || strcasecmp(key, "permutations") == 0) {
-                        bind_data->n_permutations = static_cast<size_t>(key_list[1].GetValue<int64_t>());
-                    }
-                }
-            }
+    if (arguments.size() >= 3) {
+        Value options_val = EvaluateConstantOptions(context, *arguments[2], "permutation_t_test_agg");
+        auto opts = PermutationMapOptions::ParseFromValue(options_val, "permutation_t_test_agg");
+        if (opts.alternative.has_value()) {
+            bind_data->alternative = ConvertAlternative(opts.alternative.value());
+        }
+        if (opts.n_permutations.has_value()) {
+            bind_data->n_permutations = opts.n_permutations.value();
+        }
+        if (opts.seed.has_value()) {
+            bind_data->seed = opts.seed.value();
+            bind_data->has_seed = true;
         }
     }
 
@@ -253,20 +256,24 @@ void RegisterPermutationTTestAggregateFunction(ExtensionLoader &loader) {
 
     // With options: (value, group_id, options)
     auto func_with_opts = AggregateFunction(
-        "permutation_t_test_agg", {LogicalType::DOUBLE, LogicalType::INTEGER, LogicalType::ANY},
+        "permutation_t_test_agg", {LogicalType::DOUBLE, LogicalType::BIGINT, LogicalType::ANY},
         LogicalType::ANY,
         AggregateFunction::StateSize<PermutationTTestAggregateState>, PermutationTTestAggInitialize,
         PermutationTTestAggUpdate, PermutationTTestAggCombine, PermutationTTestAggFinalize,
         nullptr, PermutationTTestAggBind, PermutationTTestAggDestroy);
     func_set.AddFunction(func_with_opts);
+    func_with_opts.arguments[1] = LogicalType::VARCHAR;
+    func_set.AddFunction(func_with_opts);
 
     // Without options: (value, group_id)
     auto func_no_opts = AggregateFunction(
-        "permutation_t_test_agg", {LogicalType::DOUBLE, LogicalType::INTEGER},
+        "permutation_t_test_agg", {LogicalType::DOUBLE, LogicalType::BIGINT},
         LogicalType::ANY,
         AggregateFunction::StateSize<PermutationTTestAggregateState>, PermutationTTestAggInitialize,
         PermutationTTestAggUpdate, PermutationTTestAggCombine, PermutationTTestAggFinalize,
         nullptr, PermutationTTestAggBind, PermutationTTestAggDestroy);
+    func_set.AddFunction(func_no_opts);
+    func_no_opts.arguments[1] = LogicalType::VARCHAR;
     func_set.AddFunction(func_no_opts);
 
     CreateAggregateFunctionInfo info(std::move(func_set));
@@ -276,14 +283,14 @@ void RegisterPermutationTTestAggregateFunction(ExtensionLoader &loader) {
     d1.examples        = {"permutation_t_test_agg(value, group_id, {'alternative': 'two_sided', 'n_permutations': 10000})"};
     d1.categories      = {"hypothesis-testing", "nonparametric"};
     d1.parameter_names = {"value", "group_id", "options"};
-    d1.parameter_types = {LogicalType::DOUBLE, LogicalType::INTEGER, LogicalType::ANY};
+    d1.parameter_types = {LogicalType::DOUBLE, LogicalType::BIGINT, LogicalType::ANY};
     info.descriptions.push_back(std::move(d1));
     FunctionDescription d2;
     d2.description     = "Performs a permutation-based two-sample t-test using resampling, using default options.";
     d2.examples        = {"permutation_t_test_agg(value, group_id)"};
     d2.categories      = {"hypothesis-testing", "nonparametric"};
     d2.parameter_names = {"value", "group_id"};
-    d2.parameter_types = {LogicalType::DOUBLE, LogicalType::INTEGER};
+    d2.parameter_types = {LogicalType::DOUBLE, LogicalType::BIGINT};
     info.descriptions.push_back(std::move(d2));
     loader.RegisterFunction(std::move(info));
 

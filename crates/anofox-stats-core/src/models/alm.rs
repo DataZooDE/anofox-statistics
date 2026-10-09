@@ -142,18 +142,10 @@ pub fn fit_alm(y: &[f64], x: &[Vec<f64>], options: &AlmOptions) -> StatsResult<A
     }
 
     // Detect zero-variance (constant) columns BEFORE min_obs check
-    let is_constant_column: Vec<bool> = x
-        .iter()
-        .map(|col| {
-            if valid_indices.is_empty() {
-                return true;
-            }
-            let first_val = col[valid_indices[0]];
-            valid_indices
-                .iter()
-                .all(|&i| (col[i] - first_val).abs() < 1e-10)
-        })
-        .collect();
+    // Constant columns are only dropped when an intercept is fitted (see
+    // `validation::droppable_columns`); without one, a constant column IS the intercept.
+    let is_constant_column: Vec<bool> =
+        crate::validation::droppable_columns(x, &valid_indices, options.fit_intercept);
 
     // Count non-constant features for min_obs calculation
     let n_effective_features = is_constant_column.iter().filter(|&&c| !c).count();
@@ -233,7 +225,7 @@ pub fn fit_alm(y: &[f64], x: &[Vec<f64>], options: &AlmOptions) -> StatsResult<A
     let fitted = builder
         .build()
         .fit(&x_mat, &y_col)
-        .map_err(|e| StatsError::RegressError(format!("{:?}", e)))?;
+        .map_err(StatsError::from)?;
 
     // Extract results
     let result = fitted.result();

@@ -34,7 +34,9 @@ pub fn compute_vif(x: &[Vec<f64>]) -> StatsResult<Vec<f64>> {
 
     let n_obs = x[0].len();
     if n_obs == 0 {
-        return Err(StatsError::InvalidInput("Empty feature arrays".into()));
+        return Err(StatsError::InsufficientDataMsg(
+            "Empty feature arrays".into(),
+        ));
     }
 
     // Check all features have same length
@@ -47,6 +49,12 @@ pub fn compute_vif(x: &[Vec<f64>]) -> StatsResult<Vec<f64>> {
                 n_obs
             )));
         }
+    }
+
+    // Without a single complete row every auxiliary regression fails and the
+    // result would be a misleading vector of +inf.
+    if !(0..n_obs).any(|i| x.iter().all(|col| col[i].is_finite())) {
+        return Err(StatsError::NoValidData);
     }
 
     let mut vif_values = Vec::with_capacity(n_features);

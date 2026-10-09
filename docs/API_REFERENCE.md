@@ -1,667 +1,651 @@
 # Anofox Statistics Extension - API Reference
 
-**Version:** 0.6.0
-**DuckDB Version:** 1.5.1+
-**Backend:** Rust (anofox-regression 0.5.2, anofox-statistics 0.4.0, faer)
+**Version:** 0.10.0
+**DuckDB versions:** v1.4.5 (LTS) and v1.5.x
+**Backend:** Rust (anofox-regression 0.5, anofox-statistics 0.4, faer)
 
 ## Overview
 
-The Anofox Statistics Extension provides comprehensive regression analysis capabilities for DuckDB. Built with Rust for performance and reliability, it supports multiple regression methods including linear models, generalized linear models (GLM), augmented linear models (ALM), and constrained optimization (BLS/NNLS).
+The Anofox Statistics extension brings regression, generalized linear models,
+survival models, mixed models, demand classification and statistical hypothesis
+tests to DuckDB. The numerical work is done in Rust; every function is exposed
+as plain SQL.
+
+This page is the complete function reference. Each family also has a dedicated
+page under [`docs/api/`](#detailed-documentation) with longer explanations.
+
+> **Function names:** as of v0.10.0 all functions use short names such as
+> `ols_fit_agg`. The `anofox_stats_` prefix was removed in v0.10.0; see
+> [MIGRATION.md](MIGRATION.md) for upgrading from v0.9.
+
+## Contents
+
+- [Conventions](#conventions)
+- [Quick Reference](#quick-reference)
+- [Sample Data](#sample-data)
+- [Linear Regression](#linear-regression)
+- [Robust Regression](#robust-regression)
+- [Constrained Regression (BLS/NNLS)](#constrained-regression-blsnnls)
+- [PLS, Isotonic and Quantile Regression](#pls-isotonic-and-quantile-regression)
+- [Generalized Linear Models](#generalized-linear-models)
+- [ALM](#alm)
+- [AFT Survival Regression](#aft-survival-regression)
+- [Mixed-Effects GLMs](#mixed-effects-glms)
+- [Empirical-Bayes Shrinkage](#empirical-bayes-shrinkage)
+- [AID Demand Classification](#aid-demand-classification)
+- [Statistical Hypothesis Tests](#statistical-hypothesis-tests)
+- [Fit-Predict Window Functions](#fit-predict-window-functions)
+- [Fit-Predict Aggregate Functions](#fit-predict-aggregate-functions)
+- [Fit-Predict Table Macros](#fit-predict-table-macros)
+- [Predict and Diagnostics](#predict-and-diagnostics)
+- [Common Options](#common-options)
+- [Return Types](#return-types)
+- [Error and NULL Handling](#error-and-null-handling)
+- [Detailed Documentation](#detailed-documentation)
+
+---
+
+## Conventions
+
+**Calling convention.** Every regression and GLM fit takes the response first,
+the features as a list second, and an optional options map last:
+
+```sql skip
+-- Aggregate (one row per observation)
+<method>_fit_agg(y DOUBLE, x LIST(DOUBLE) [, options])
+
+-- Scalar (whole arrays in one call; x is a list of feature columns)
+<method>_fit(y LIST(DOUBLE), x LIST(LIST(DOUBLE)) [, options])
+```
+
+The only extra positional arguments are data columns: the weight column for WLS
+(`wls_fit_agg(y, x, weight)`), the event indicator for AFT
+(`aft_fit_agg(time, x, event)`) and the grouping key for GLMMs
+(`glmm_fit_agg(y, x, group)`). Hyperparameters such as `alpha` or
+`fit_intercept` are always passed through `options`, never positionally.
+
+**Options.** Write options as a struct literal, `{'alpha': 0.5, 'fit_intercept': false}`.
+Keys are case-insensitive. Option keys a function does not support raise an
+error rather than being silently ignored. Option values must be constants.
+
+**Results.** Fits return a `STRUCT`. Read a field with `(result).field`; expand all fields into columns with `unnest(result)`.
+
+---
 
 ## Quick Reference
 
-### Regression Methods
+### Regression
 
-| Method | Scalar | Aggregate | Documentation |
-|--------|--------|-----------|---------------|
-| OLS | `ols_fit` | `ols_fit_agg` | [OLS](api/regression/ols.md) |
-| Ridge | `ridge_fit` | `ridge_fit_agg` | [Ridge](api/regression/ridge.md) |
-| Elastic Net | `elasticnet_fit` | `elasticnet_fit_agg` | [Elastic Net](api/regression/elasticnet.md) |
-| WLS | `wls_fit` | `wls_fit_agg` | [WLS](api/regression/wls.md) |
-| RLS | `rls_fit` | `rls_fit_agg` | [RLS](api/regression/rls.md) |
-| BLS | - | `bls_fit_agg` | [BLS/NNLS](api/regression/bls.md) |
-| NNLS | - | `nnls_fit_agg` | [BLS/NNLS](api/regression/bls.md) |
-| PLS | `pls_fit` | `pls_fit_agg` | [PLS](api/regression/pls.md) |
-| Isotonic | `isotonic_fit` | `isotonic_fit_agg` | [Isotonic](api/regression/isotonic.md) |
-| Quantile | `quantile_fit` | `quantile_fit_agg` | [Quantile](api/regression/quantile.md) |
+| Method | Scalar | Aggregate | Window | Fit-predict agg | Table macro | Page |
+|--------|--------|-----------|--------|-----------------|-------------|------|
+| OLS | `ols_fit` | `ols_fit_agg` | `ols_fit_predict` | `ols_fit_predict_agg` | `ols_fit_predict_by` | [OLS](api/regression/ols.md) |
+| Ridge | `ridge_fit` | `ridge_fit_agg` | `ridge_fit_predict` | `ridge_fit_predict_agg` | `ridge_fit_predict_by` | [Ridge](api/regression/ridge.md) |
+| Elastic Net | `elasticnet_fit` | `elasticnet_fit_agg` | `elasticnet_fit_predict` | `elasticnet_fit_predict_agg` | `elasticnet_fit_predict_by` | [Elastic Net](api/regression/elasticnet.md) |
+| WLS | `wls_fit` | `wls_fit_agg` | `wls_fit_predict` | `wls_fit_predict_agg` | `wls_fit_predict_by` | [WLS](api/regression/wls.md) |
+| RLS | `rls_fit` | `rls_fit_agg` | `rls_fit_predict` | `rls_fit_predict_agg` | `rls_fit_predict_by` | [RLS](api/regression/rls.md) |
+| Huber | `huber_fit` | `huber_fit_agg` | `huber_fit_predict` | `huber_fit_predict_agg` | `huber_fit_predict_by` | [Huber](api/regression/huber.md) |
+| RANSAC | `ransac_fit` | `ransac_fit_agg` | `ransac_fit_predict` | `ransac_fit_predict_agg` | `ransac_fit_predict_by` | [RANSAC](api/regression/ransac.md) |
+| Theil-Sen | `theil_sen_fit` | `theil_sen_fit_agg` | `theil_sen_fit_predict` | `theil_sen_fit_predict_agg` | `theil_sen_fit_predict_by` | [Theil-Sen](api/regression/theil_sen.md) |
+| LARS | - | `lars_fit_agg` | - | - | - | [LARS](api/regression/lars.md) |
+| BLS | - | `bls_fit_agg` | - | `bls_fit_predict_agg` | `bls_fit_predict_by` | [BLS/NNLS](api/regression/bls.md) |
+| NNLS | - | `nnls_fit_agg` | - | - | - | [BLS/NNLS](api/regression/bls.md) |
+| PLS | - | `pls_fit_agg` | - | `pls_fit_predict_agg` | `pls_fit_predict_by` | [PLS](api/regression/pls.md) |
+| Isotonic | - | `isotonic_fit_agg` | - | `isotonic_fit_predict_agg` | `isotonic_fit_predict_by` | [Isotonic](api/regression/isotonic.md) |
+| Quantile | - | `quantile_fit_agg` | - | `quantile_fit_predict_agg` | `quantile_fit_predict_by` | [Quantile](api/regression/quantile.md) |
 
-### GLM Functions
+Overview pages: [window functions](api/regression/fit_predict_window.md),
+[fit-predict aggregates](api/regression/fit_predict_agg.md),
+[table macros](api/macros/table_macros.md),
+[model tools](api/regression/model_tools.md) (`predict`, `tidy`, `glance` on any
+fitted model struct).
 
-| Method | Aggregate | Documentation |
-|--------|-----------|---------------|
-| Poisson | `poisson_fit_agg` | [Poisson](api/glm/poisson.md) |
-| ALM | `alm_fit_agg` | [ALM](api/glm/alm.md) |
-| Negative Binomial | `negbinom_fit_agg` | [Negative Binomial](api/glm/negbinom.md) |
-| Binomial | `binomial_fit_agg` | [Priors](api/glm/priors.md) |
-| Tweedie | `tweedie_fit_agg` | [Priors](api/glm/priors.md) |
-| Gamma | `gamma_fit_agg` | [Priors](api/glm/priors.md) |
-| Logistic | `logistic_fit_agg` | [Priors](api/glm/priors.md) |
-| AFT survival | `aft_fit_agg` | [AFT](api/survival/aft.md) |
-| EB shrinkage | `eb_shrink_agg` | [EB shrinkage](api/glm/eb_shrink.md) |
-| Mixed effects | `glmm_fit_agg` | [Mixed-effects GLMs](api/glm/glmm.md) |
-| Explicit priors | *(options on any GLM)* | [Priors](api/glm/priors.md) |
+### GLMs and Related Models
 
-### Statistical Hypothesis Tests
+| Method | Aggregate | Other forms | Page |
+|--------|-----------|-------------|------|
+| Poisson | `poisson_fit_agg` | `poisson_fit_predict_agg`, `poisson_fit_predict_by` | [Poisson](api/glm/poisson.md) |
+| Binomial | `binomial_fit_agg` | `binomial_fit_predict_by` | [Binomial](api/glm/binomial.md) |
+| Logistic | `logistic_fit_agg` | `logistic_fit_predict_by` | [Logistic](api/glm/logistic.md) |
+| Negative Binomial | `negbinom_fit_agg` | `negbinom_fit_predict_by` | [Negative Binomial](api/glm/negbinom.md) |
+| Gamma | `gamma_fit_agg` | `gamma_fit_predict_by` | [Gamma](api/glm/gamma.md) |
+| Tweedie | `tweedie_fit_agg` | `tweedie_fit_predict_by` | [Tweedie](api/glm/tweedie.md) |
+| ALM (24 distributions) | `alm_fit_agg` | `alm_fit_predict_agg`, `alm_fit_predict_by` | [ALM](api/glm/alm.md) |
+| AFT survival | `aft_fit_agg` | scalars `aft_cdf`, `aft_quantile` | [AFT](api/survival/aft.md) |
+| Mixed effects | `glmm_fit_agg` | `glmm_fit_by` | [Mixed-effects GLMs](api/glm/glmm.md) |
+| Empirical-Bayes shrinkage | `eb_shrink_agg` | `eb_shrink_by` | [EB shrinkage](api/glm/eb_shrink.md) |
+| Explicit priors | options on the GLM and AFT aggregates | - | [Priors](api/glm/priors.md) |
 
-| Category | Function | Documentation |
-|----------|----------|---------------|
-| Parametric | `t_test_agg`, `one_way_anova_agg` | [Hypothesis Tests](api/statistics/hypothesis.md) |
-| Nonparametric | `mann_whitney_u_agg`, `kruskal_wallis_agg` | [Hypothesis Tests](api/statistics/hypothesis.md) |
-| Normality | `shapiro_wilk_agg`, `jarque_bera_agg` | [Hypothesis Tests](api/statistics/hypothesis.md) |
-| Equivalence | `tost_t_test_agg`, `tost_paired_agg` | [Hypothesis Tests](api/statistics/hypothesis.md) |
+### Statistical Tests
 
-### Correlation Tests
+| Category | Functions | Page |
+|----------|-----------|------|
+| Normality | `shapiro_wilk_agg`, `jarque_bera_agg`, `dagostino_k2_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
+| Parametric | `t_test_agg`, `one_way_anova_agg`, `yuen_agg`, `brown_forsythe_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
+| Nonparametric | `mann_whitney_u_agg`, `kruskal_wallis_agg`, `wilcoxon_signed_rank_agg`, `brunner_munzel_agg`, `permutation_t_test_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
+| Distribution comparison | `energy_distance_agg`, `mmd_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
+| Equivalence (TOST) | `tost_t_test_agg`, `tost_paired_agg`, `tost_correlation_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
+| Forecast comparison | `diebold_mariano_agg`, `clark_west_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
+| Correlation | `pearson_agg`, `spearman_agg`, `kendall_agg`, `distance_cor_agg`, `icc_agg` | [Correlation](api/statistics/correlation.md) |
+| Categorical | `chisq_test_agg`, `chisq_gof_agg`, `g_test_agg`, `fisher_exact_agg`, `mcnemar_agg` | [Categorical](api/statistics/categorical.md) |
+| Effect sizes | `cramers_v_agg`, `phi_coefficient_agg`, `contingency_coef_agg`, `cohen_kappa_agg` | [Categorical](api/statistics/categorical.md) |
+| Proportions | `prop_test_one_agg`, `prop_test_two_agg`, `binom_test_agg` | [Categorical](api/statistics/categorical.md) |
 
-| Function | Description | Documentation |
-|----------|-------------|---------------|
-| `pearson_agg` | Pearson correlation | [Correlation](api/statistics/correlation.md) |
-| `spearman_agg` | Spearman rank correlation | [Correlation](api/statistics/correlation.md) |
-| `kendall_agg` | Kendall tau correlation | [Correlation](api/statistics/correlation.md) |
-| `distance_cor_agg` | Distance correlation | [Correlation](api/statistics/correlation.md) |
-| `icc_agg` | Intraclass correlation | [Correlation](api/statistics/correlation.md) |
+### Diagnostics and Utilities
 
-### Categorical Tests
-
-| Function | Description | Documentation |
-|----------|-------------|---------------|
-| `chisq_test_agg` | Chi-square independence | [Categorical](api/statistics/categorical.md) |
-| `fisher_exact_agg` | Fisher's exact test | [Categorical](api/statistics/categorical.md) |
-| `mcnemar_agg` | McNemar's test | [Categorical](api/statistics/categorical.md) |
-| `cramers_v_agg` | Cramér's V | [Categorical](api/statistics/categorical.md) |
-| `cohen_kappa_agg` | Cohen's kappa | [Categorical](api/statistics/categorical.md) |
-
-### Diagnostics & Utilities
-
-| Function | Description | Documentation |
-|----------|-------------|---------------|
-| `vif`, `vif_agg` | Variance Inflation Factor | [Diagnostics](api/diagnostics/diagnostics.md) |
-| `aic`, `bic` | Model selection criteria | [Diagnostics](api/diagnostics/diagnostics.md) |
-| `residuals_diagnostics_agg` | Residual analysis | [Diagnostics](api/diagnostics/diagnostics.md) |
-| `aid_agg`, `aid_anomaly_agg` | Demand classification | [AID](api/aid/aid.md) |
-
-### Table Macros
-
-| Macro | Description | Documentation |
-|-------|-------------|---------------|
-| `ols_fit_predict_by` | Per-group OLS predictions | [Table Macros](api/macros/table_macros.md) |
-| `ridge_fit_predict_by` | Per-group Ridge predictions | [Table Macros](api/macros/table_macros.md) |
-| `elasticnet_fit_predict_by` | Per-group Elastic Net | [Table Macros](api/macros/table_macros.md) |
-| `wls_fit_predict_by` | Per-group WLS | [Table Macros](api/macros/table_macros.md) |
-| `rls_fit_predict_by` | Per-group RLS | [Table Macros](api/macros/table_macros.md) |
-| `bls_fit_predict_by` | Per-group BLS | [Table Macros](api/macros/table_macros.md) |
-| `alm_fit_predict_by` | Per-group ALM | [Table Macros](api/macros/table_macros.md) |
-| `poisson_fit_predict_by` | Per-group Poisson | [Table Macros](api/macros/table_macros.md) |
-| `aid_anomaly_by` | Grouped anomaly detection | [Table Macros](api/macros/table_macros.md) |
-
-> **Deprecation Notice:** The old `*_predict_agg` names (`ols_predict_agg`, etc.) are deprecated
-> but still work for backwards compatibility. Use `*_fit_predict_agg` instead.
+| Function | Description | Page |
+|----------|-------------|------|
+| `predict` | Prediction from any fitted model struct (`predict(model, x)`), or column-layout linear prediction (`predict(x, coefficients, intercept)`) | [Model tools](api/regression/model_tools.md) |
+| `linear_predict` | Column-layout linear prediction (same as the 3-argument `predict`) | [Model tools](api/regression/model_tools.md) |
+| `tidy` | Per-term table (estimate, std. error, statistic, p-value, CI) of a fitted model | [Model tools](api/regression/model_tools.md) |
+| `glance` | One-row summary (scalar fields) of a fitted model | [Model tools](api/regression/model_tools.md) |
+| `vif`, `vif_agg` | Variance inflation factors | [Diagnostics](api/diagnostics/diagnostics.md) |
+| `aic`, `bic` | Information criteria from RSS | [Diagnostics](api/diagnostics/diagnostics.md) |
+| `jarque_bera`, `jarque_bera_agg` | Jarque-Bera normality test | [Diagnostics](api/diagnostics/diagnostics.md) |
+| `residuals_diagnostics`, `residuals_diagnostics_agg` | Raw, standardized, studentized residuals, leverage, Cook's distance | [Diagnostics](api/diagnostics/diagnostics.md) |
+| `aid_agg`, `aid_anomaly_agg`, `aid_by`, `aid_anomaly_by` | Demand classification and anomaly flags | [AID](api/aid/aid.md) |
 
 ---
 
-## Function Types
+## Sample Data
 
-### Scalar Functions (Array-based)
-Process complete arrays of data in a single call. Best for batch operations.
-```sql skip
-SELECT ols_fit(y_array, x_arrays);
-```
+The examples on this page are runnable. They use the tables created here:
+`reg_data` (60 rows of regression, count, binary, positive and survival
+responses) and `demand` (weekly demand for three SKUs, with zeros).
 
-### Aggregate Functions (Streaming)
-Accumulate data row-by-row. Support `GROUP BY` and window functions via `OVER`.
-```sql skip
-SELECT ols_fit_agg(y, [x1, x2]) FROM table GROUP BY category;
-```
+```sql
+CREATE OR REPLACE TABLE reg_data AS
+SELECT
+    i AS id,
+    CASE WHEN i % 2 = 0 THEN 'A' ELSE 'B' END AS category,
+    (i % 7)::DOUBLE + i * 0.1 AS x1,
+    ((i * 3) % 11)::DOUBLE AS x2,
+    ((i * 5) % 13)::DOUBLE / 2 AS x3,
+    (1 + i % 3)::DOUBLE AS weight,
+    2.0 + 1.5 * x1 - 0.8 * x2 + 0.3 * x3 + sin(i) AS y,
+    round(exp(0.3 + 0.15 * x1 - 0.05 * x2) + i % 3)::DOUBLE AS y_count,
+    (CASE WHEN sin(i * 1.7) + 0.3 * x1 - 0.2 * x2 > 0 THEN 1 ELSE 0 END)::DOUBLE AS y_binary,
+    exp(0.5 + 0.1 * x1 + 0.2 * abs(sin(i))) AS y_positive,
+    exp(1.0 + 0.1 * x1 + 0.3 * sin(i)) AS duration,
+    (CASE WHEN i % 5 = 0 THEN 0 ELSE 1 END)::DOUBLE AS event,
+    'store_' || (i % 6) AS store,
+    (i % 2)::INTEGER AS grp2,
+    (i % 3)::INTEGER AS grp3
+FROM range(1, 61) t(i);
 
-### Table Macros
-Convenience wrappers for per-group regression. All source columns are passed through to the output alongside predictions.
-```sql skip
-SELECT * FROM ols_fit_predict_by('sales', region, revenue, [ads, price]);
+CREATE OR REPLACE TABLE demand AS
+SELECT
+    sku,
+    week,
+    CASE
+        WHEN sku = 'steady' THEN 10.0 + (week % 4)
+        WHEN sku = 'sparse' THEN CASE WHEN week % 3 = 0 THEN 5.0 ELSE 0.0 END
+        ELSE CASE WHEN week <= 4 THEN 0.0 ELSE 8.0 + (week % 2) END   -- new product
+    END AS qty
+FROM (VALUES ('steady'), ('sparse'), ('launch')) s(sku), range(1, 21) w(week);
 ```
 
 ---
 
-## OLS Functions
+## Linear Regression
 
-### anofox_stats_ols_fit
-Ordinary Least Squares regression using SVD decomposition.
+All linear fits return the [FitResult](#fitresult-structure) struct.
 
-**Signature:**
+### ols_fit / ols_fit_agg
+
+Ordinary least squares.
+
+**Signatures:**
+
 ```sql skip
-anofox_stats_ols_fit(
-    y LIST(DOUBLE),
-    x LIST(LIST(DOUBLE)),
-    [fit_intercept BOOLEAN DEFAULT true],
-    [compute_inference BOOLEAN DEFAULT false],
-    [confidence_level DOUBLE DEFAULT 0.95]
-) -> STRUCT
+ols_fit(y LIST(DOUBLE), x LIST(LIST(DOUBLE)) [, options]) -> STRUCT
+ols_fit_agg(y DOUBLE, x LIST(DOUBLE) [, options]) -> STRUCT
 ```
 
-**Parameters:**
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| y | LIST(DOUBLE) | Response variable values |
-| x | LIST(LIST(DOUBLE)) | Feature arrays (each inner list is one feature) |
-| fit_intercept | BOOLEAN | Include intercept term (default: true) |
-| compute_inference | BOOLEAN | Compute t-tests, p-values, CIs (default: false) |
-| confidence_level | DOUBLE | CI confidence level (default: 0.95) |
+**Options:**
 
-**Returns:** [FitResult](#fitresult-structure) STRUCT
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| fit_intercept | BOOLEAN | true | Include an intercept term |
+| compute_inference | BOOLEAN | false | Add standard errors, t-tests, p-values, confidence intervals, F-test |
+| confidence_level | DOUBLE | 0.95 | Confidence level for the intervals |
+| solver | VARCHAR | 'svd' | `'svd'`, `'qr'` or `'cholesky'` (see [solver](#solver)) |
+| hc_type | VARCHAR | 'none' | Heteroscedasticity-consistent standard errors (see [hc_type](#hc_type)) |
 
-**Example:**
-```sql skip
--- Simple regression: y = 2x + 1
-SELECT anofox_stats_ols_fit(
-    [3.0, 5.0, 7.0, 9.0, 11.0],
-    [[1.0, 2.0, 3.0, 4.0, 5.0]]
-);
+**Examples:**
 
--- With inference
-SELECT anofox_stats_ols_fit(
-    [3.0, 5.0, 7.0, 9.0, 11.0],
+```sql
+-- Scalar: y = 2.1 x + 0.8
+SELECT ols_fit(
+    [3.0, 5.0, 7.0, 9.0, 11.5],
     [[1.0, 2.0, 3.0, 4.0, 5.0]],
-    true, true, 0.95
-);
+    {'compute_inference': true}
+) AS fit;
+
+-- Aggregate: one model per category
+SELECT category, (ols_fit_agg(y, [x1, x2])).r_squared AS r2
+FROM reg_data
+GROUP BY category
+ORDER BY category;
+
+-- Rolling coefficient via the aggregate used as a window function
+SELECT id,
+       (ols_fit_agg(y, [x1]) OVER (ORDER BY id ROWS BETWEEN 19 PRECEDING AND CURRENT ROW)).coefficients[1] AS rolling_beta
+FROM reg_data
+ORDER BY id
+LIMIT 5;
 ```
 
-### anofox_stats_ols_fit_agg
-Streaming OLS regression aggregate function.
+### ridge_fit / ridge_fit_agg
 
-**Signature:**
+Ridge regression (L2 penalty).
+
+**Signatures:**
+
 ```sql skip
-anofox_stats_ols_fit_agg(
-    y DOUBLE,
-    x LIST(DOUBLE),
-    [fit_intercept BOOLEAN DEFAULT true],
-    [compute_inference BOOLEAN DEFAULT false],
-    [confidence_level DOUBLE DEFAULT 0.95]
-) -> STRUCT
+ridge_fit(y LIST(DOUBLE), x LIST(LIST(DOUBLE)) [, options]) -> STRUCT
+ridge_fit_agg(y DOUBLE, x LIST(DOUBLE) [, options]) -> STRUCT
 ```
 
-**Example:**
-```sql skip
--- Per-group regression
-SELECT
-    category,
-    (anofox_stats_ols_fit_agg(sales, [price, ads])).r_squared
-FROM data
-GROUP BY category;
+**Options:** all OLS options except `hc_type`, plus:
 
--- Rolling regression (window function)
-SELECT
-    date,
-    (anofox_stats_ols_fit_agg(y, [x]) OVER (
-        ORDER BY date ROWS BETWEEN 9 PRECEDING AND CURRENT ROW
-    )).coefficients[1] as rolling_beta
-FROM time_series;
-```
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| alpha (alias `lambda`) | DOUBLE | 1.0 | L2 penalty strength (>= 0) |
+| lambda_scaling | VARCHAR | 'raw' | `'raw'` or `'glmnet'` (see [lambda_scaling](#lambda_scaling)) |
 
----
-
-## Ridge Functions
-
-### anofox_stats_ridge_fit
-Ridge regression with L2 regularization.
-
-**Signature:**
-```sql skip
-anofox_stats_ridge_fit(
-    y LIST(DOUBLE),
-    x LIST(LIST(DOUBLE)),
-    alpha DOUBLE,
-    [fit_intercept BOOLEAN DEFAULT true],
-    [compute_inference BOOLEAN DEFAULT false],
-    [confidence_level DOUBLE DEFAULT 0.95]
-) -> STRUCT
-```
-
-**Parameters:**
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| alpha | DOUBLE | L2 regularization strength (>= 0) |
-
-**Example:**
 ```sql
 SELECT ridge_fit(
     [2.1, 4.0, 5.9, 8.1, 10.0],
     [[1.0, 2.0, 3.0, 4.0, 5.0]],
     {'alpha': 0.1}
-);
+) AS fit;
+
+SELECT (ridge_fit_agg(y, [x1, x2, x3], {'alpha': 0.5})).coefficients AS coefficients
+FROM reg_data;
 ```
 
-### anofox_stats_ridge_fit_agg
-Streaming Ridge regression aggregate function.
+### elasticnet_fit / elasticnet_fit_agg
+
+Elastic Net (combined L1/L2 penalty, coordinate descent). No inference fields.
+
+**Signatures:**
 
 ```sql skip
-SELECT
-    (anofox_stats_ridge_fit_agg(y, [x1, x2], 0.5)).coefficients
-FROM data;
+elasticnet_fit(y LIST(DOUBLE), x LIST(LIST(DOUBLE)) [, options]) -> STRUCT
+elasticnet_fit_agg(y DOUBLE, x LIST(DOUBLE) [, options]) -> STRUCT
 ```
 
----
+**Options:**
 
-## Elastic Net Functions
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| alpha (alias `lambda`) | DOUBLE | 1.0 | Overall penalty strength |
+| l1_ratio | DOUBLE | 0.5 | Share of L1 penalty: 0 = ridge, 1 = lasso |
+| fit_intercept | BOOLEAN | true | Include an intercept term |
+| max_iterations | INTEGER | 1000 | Coordinate-descent iterations |
+| tolerance | DOUBLE | 1e-6 | Convergence tolerance |
+| lambda_scaling | VARCHAR | 'raw' | `'raw'` or `'glmnet'` |
 
-### anofox_stats_elasticnet_fit
-Elastic Net regression with combined L1/L2 regularization.
-
-**Signature:**
-```sql skip
-anofox_stats_elasticnet_fit(
-    y LIST(DOUBLE),
-    x LIST(LIST(DOUBLE)),
-    alpha DOUBLE,
-    l1_ratio DOUBLE,
-    [fit_intercept BOOLEAN DEFAULT true],
-    [max_iterations INTEGER DEFAULT 1000],
-    [tolerance DOUBLE DEFAULT 1e-6]
-) -> STRUCT
-```
-
-**Parameters:**
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| alpha | DOUBLE | Regularization strength (>= 0) |
-| l1_ratio | DOUBLE | L1 ratio: 0=Ridge, 1=Lasso (range: 0-1) |
-| max_iterations | INTEGER | Max coordinate descent iterations |
-| tolerance | DOUBLE | Convergence tolerance |
-
-**Example:**
-```sql skip
-SELECT anofox_stats_elasticnet_fit(
+```sql
+SELECT elasticnet_fit(
     [2.1, 4.0, 5.9, 8.1, 10.0],
     [[1.0, 2.0, 3.0, 4.0, 5.0]],
-    0.1,  -- alpha
-    0.5   -- l1_ratio (50% L1, 50% L2)
-);
+    {'alpha': 0.1, 'l1_ratio': 0.5}
+) AS fit;
+
+SELECT (elasticnet_fit_agg(y, [x1, x2, x3], {'alpha': 0.1, 'l1_ratio': 0.9})).coefficients AS coefficients
+FROM reg_data;
 ```
 
-### anofox_stats_elasticnet_fit_agg
-Streaming Elastic Net aggregate function.
+### wls_fit / wls_fit_agg
 
----
+Weighted least squares. The weight is a data argument, not an option.
 
-## WLS Functions
+**Signatures:**
 
-### anofox_stats_wls_fit
-Weighted Least Squares regression.
-
-**Signature:**
 ```sql skip
-anofox_stats_wls_fit(
-    y LIST(DOUBLE),
-    x LIST(LIST(DOUBLE)),
-    weights LIST(DOUBLE),
-    [fit_intercept BOOLEAN DEFAULT true],
-    [compute_inference BOOLEAN DEFAULT false],
-    [confidence_level DOUBLE DEFAULT 0.95]
-) -> STRUCT
+wls_fit(y LIST(DOUBLE), x LIST(LIST(DOUBLE)), weights LIST(DOUBLE) [, options]) -> STRUCT
+wls_fit_agg(y DOUBLE, x LIST(DOUBLE), weight DOUBLE [, options]) -> STRUCT
 ```
 
-**Parameters:**
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| weights | LIST(DOUBLE) | Observation weights (same length as y) |
+**Options:** same as OLS (`fit_intercept`, `compute_inference`, `confidence_level`, `solver`, `hc_type`).
 
-**Example:**
 ```sql
 SELECT wls_fit(
-    [3.0, 5.0, 7.0, 9.0, 11.0],
+    [3.0, 5.0, 7.0, 9.0, 11.5],
     [[1.0, 2.0, 3.0, 4.0, 5.0]],
-    [1.0, 2.0, 3.0, 2.0, 1.0]  -- higher weight for middle observations
-);
+    [1.0, 2.0, 3.0, 2.0, 1.0]
+) AS fit;
+
+SELECT (wls_fit_agg(y, [x1, x2], weight, {'compute_inference': true})).p_values AS p_values
+FROM reg_data;
 ```
 
-### anofox_stats_wls_fit_agg
-Streaming WLS aggregate function.
+### rls_fit / rls_fit_agg
+
+Recursive least squares with optional exponential forgetting. No inference fields.
+
+**Signatures:**
 
 ```sql skip
-SELECT anofox_stats_wls_fit_agg(y, [x], weight) FROM data;
+rls_fit(y LIST(DOUBLE), x LIST(LIST(DOUBLE)) [, options]) -> STRUCT
+rls_fit_agg(y DOUBLE, x LIST(DOUBLE) [, options]) -> STRUCT
 ```
 
----
+**Options:**
 
-## RLS Functions
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| forgetting_factor | DOUBLE | 1.0 | 1.0 = no forgetting; 0.95-0.99 adapts to recent data |
+| initial_p_diagonal (alias `p_diagonal`) | DOUBLE | 100.0 | Initial covariance diagonal |
+| fit_intercept | BOOLEAN | true | Include an intercept term |
 
-### anofox_stats_rls_fit
-Recursive Least Squares for online/adaptive regression.
-
-**Signature:**
-```sql skip
-anofox_stats_rls_fit(
-    y LIST(DOUBLE),
-    x LIST(LIST(DOUBLE)),
-    [forgetting_factor DOUBLE DEFAULT 1.0],
-    [fit_intercept BOOLEAN DEFAULT true],
-    [initial_p_diagonal DOUBLE DEFAULT 100.0]
-) -> STRUCT
-```
-
-**Parameters:**
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| forgetting_factor | DOUBLE | Exponential forgetting (0.95-1.0 typical) |
-| initial_p_diagonal | DOUBLE | Initial covariance matrix diagonal |
-
-**Example:**
 ```sql
 SELECT rls_fit(
     [3.0, 5.0, 7.0, 9.0, 11.0],
     [[1.0, 2.0, 3.0, 4.0, 5.0]],
-    {'forgetting_factor': 0.99, 'fit_intercept': true, 'initial_p_diagonal': 100.0}
-);
+    {'forgetting_factor': 0.99}
+) AS fit;
+
+SELECT (rls_fit_agg(y, [x1, x2], {'forgetting_factor': 0.95})).coefficients AS coefficients
+FROM reg_data;
 ```
 
-### anofox_stats_rls_fit_agg
-Streaming RLS aggregate function. Ideal for adaptive/online learning.
+### lars_fit_agg
+
+Least Angle Regression. Returns the [FitResult](#fitresult-structure) struct
+without inference fields. Aggregate only.
 
 ```sql skip
--- Adaptive regression with exponential forgetting
-SELECT anofox_stats_rls_fit_agg(y, [x], 0.95) FROM streaming_data;
+lars_fit_agg(y DOUBLE, x LIST(DOUBLE) [, options]) -> STRUCT
+```
+
+**Options:**
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| fit_intercept | BOOLEAN | true | Include an intercept term |
+
+```sql
+SELECT (lars_fit_agg(y, [x1, x2, x3])).coefficients AS coefficients
+FROM reg_data;
 ```
 
 ---
 
-## PLS Functions
+## Robust Regression
 
-Partial Least Squares regression for high-dimensional data and multicollinearity.
+Huber, RANSAC and Theil-Sen resist outliers. They have scalar, aggregate,
+window, fit-predict aggregate and table-macro forms with the same calling
+convention as OLS. All accept `fit_intercept`, `compute_inference` and
+`confidence_level`, and return the [FitResult](#fitresult-structure) fields plus
+the method-specific fields listed below.
 
-### anofox_stats_pls_fit / pls_fit
-PLS regression using the SIMPLS algorithm to find latent components that maximize covariance between X scores and y.
+### huber_fit / huber_fit_agg
 
-**Signature:**
+Huber M-estimator.
+
 ```sql skip
-anofox_stats_pls_fit(
-    y LIST(DOUBLE),
-    x LIST(LIST(DOUBLE)),
-    [options MAP]
-) -> STRUCT
+huber_fit(y LIST(DOUBLE), x LIST(LIST(DOUBLE)) [, options]) -> STRUCT
+huber_fit_agg(y DOUBLE, x LIST(DOUBLE) [, options]) -> STRUCT
 ```
 
-**Options MAP:**
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| n_components | INTEGER | 2 | Number of latent components to extract |
-| fit_intercept | BOOLEAN | true | Include intercept term |
+| epsilon | DOUBLE | 1.35 | Huber threshold; smaller is more robust |
+| alpha | DOUBLE | 0.0001 | L2 regularization strength |
+| max_iterations | INTEGER | 100 | IRLS iterations |
+| tolerance | DOUBLE | 1e-5 | Convergence tolerance |
 
-**Returns:**
-```
-STRUCT(
-    coefficients LIST(DOUBLE),  -- Regression coefficients
-    intercept DOUBLE,           -- Intercept term (if fitted)
-    r_squared DOUBLE,           -- Coefficient of determination
-    n_components INTEGER,       -- Number of components used
-    n_observations BIGINT,      -- Number of observations
-    n_features INTEGER          -- Number of features
-)
+Extra result fields: `scale DOUBLE` (robust scale estimate), `n_outliers BIGINT`.
+
+```sql
+SELECT unnest(huber_fit_agg(y, [x1, x2], {'epsilon': 1.35})) FROM reg_data;
 ```
 
-**Example:**
-```sql skip
--- PLS with 3 components for high-dimensional data
-SELECT pls_fit(
-    [y1, y2, y3, y4, y5],
-    [[x1_1, x1_2, x1_3, x1_4, x1_5],
-     [x2_1, x2_2, x2_3, x2_4, x2_5],
-     [x3_1, x3_2, x3_3, x3_4, x3_5]],
-    {'n_components': 2}
-);
+### ransac_fit / ransac_fit_agg
 
--- Per-group PLS regression
-SELECT
-    category,
-    (pls_fit_agg(y, [x1, x2, x3, x4, x5], {'n_components': 2})).r_squared
-FROM high_dim_data
-GROUP BY category;
-```
-
-**Use Cases:**
-- High-dimensional data (more features than observations)
-- Multicollinearity in predictors
-- Chemometrics and spectroscopy
-- Genomics and bioinformatics
-
-### anofox_stats_pls_fit_agg / pls_fit_agg
-Streaming PLS regression aggregate function.
+RANSAC: repeatedly fits random subsets and keeps the model with most inliers.
 
 ```sql skip
-SELECT pls_fit_agg(y, [x1, x2, x3], {'n_components': 2}) FROM data;
+ransac_fit(y LIST(DOUBLE), x LIST(LIST(DOUBLE)) [, options]) -> STRUCT
+ransac_fit_agg(y DOUBLE, x LIST(DOUBLE) [, options]) -> STRUCT
+```
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| max_trials | INTEGER | 100 | Maximum random subsets |
+| min_samples | INTEGER | automatic | Rows per subset |
+| residual_threshold | DOUBLE | automatic | Absolute residual below which a row is an inlier |
+| stop_probability | DOUBLE | 0.99 | Stop once this confidence of an outlier-free subset is reached |
+| stop_n_inliers | INTEGER | unset | Stop once this many inliers are found |
+| random_state (alias `seed`) | INTEGER | 0 | Random seed (results are reproducible) |
+
+Extra result fields: `residual_threshold DOUBLE`, `n_inliers BIGINT`, `n_trials BIGINT`.
+
+```sql
+SELECT (ransac_fit_agg(y, [x1, x2], {'max_trials': 200, 'random_state': 42})).n_inliers AS n_inliers
+FROM reg_data;
+```
+
+### theil_sen_fit / theil_sen_fit_agg
+
+Theil-Sen estimator (median of subset slopes).
+
+```sql skip
+theil_sen_fit(y LIST(DOUBLE), x LIST(LIST(DOUBLE)) [, options]) -> STRUCT
+theil_sen_fit_agg(y DOUBLE, x LIST(DOUBLE) [, options]) -> STRUCT
+```
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| max_subpopulation | INTEGER | 10000 | Maximum number of subsets considered |
+| n_subsamples | INTEGER | automatic | Rows per subset |
+| max_iterations | INTEGER | 300 | Iterations of the spatial-median solver |
+| tolerance | DOUBLE | 1e-3 | Convergence tolerance |
+| random_state (alias `seed`) | INTEGER | 0 | Random seed |
+
+```sql
+SELECT theil_sen_fit(
+    [1.0, 2.1, 2.9, 4.2, 25.0, 6.1],
+    [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]]
+) AS fit;
 ```
 
 ---
 
-## Isotonic Functions
+## Constrained Regression (BLS/NNLS)
 
-Isotonic regression for monotonic constraints.
+### bls_fit_agg
 
-### anofox_stats_isotonic_fit / isotonic_fit
-Fits a monotonic (non-decreasing or non-increasing) function to the data using pool adjacent violators algorithm (PAVA).
+Bounded least squares: box constraints on the coefficients. Without any bound
+option the lower bound defaults to 0, which makes it equivalent to NNLS.
 
-**Signature:**
 ```sql skip
-anofox_stats_isotonic_fit(
-    x LIST(DOUBLE),
-    y LIST(DOUBLE),
-    [options MAP]
-) -> STRUCT
+bls_fit_agg(y DOUBLE, x LIST(DOUBLE) [, options]) -> STRUCT
 ```
 
-**Options MAP:**
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| increasing | BOOLEAN | true | Fit increasing (true) or decreasing (false) function |
-
-**Returns:**
-```
-STRUCT(
-    fitted_values LIST(DOUBLE),  -- Monotonic fitted values
-    r_squared DOUBLE,            -- Coefficient of determination
-    n_observations BIGINT,       -- Number of observations
-    increasing BOOLEAN           -- Direction of monotonicity
-)
-```
-
-**Example:**
-```sql skip
--- Fit increasing monotonic function (e.g., dose-response curve)
-SELECT isotonic_fit(
-    [1.0, 2.0, 3.0, 4.0, 5.0],
-    [1.5, 2.0, 1.8, 3.5, 4.0],  -- Noisy but generally increasing
-    {'increasing': true}
-);
-
--- Decreasing isotonic regression (e.g., decay curve)
-SELECT isotonic_fit(
-    dose_levels,
-    response_values,
-    {'increasing': false}
-);
-```
-
-**Use Cases:**
-- Dose-response modeling in pharmacology
-- Calibration curves
-- Monotonic trend estimation
-- Quality control thresholds
-
-### anofox_stats_isotonic_fit_agg / isotonic_fit_agg
-Streaming isotonic regression aggregate function.
-
-```sql skip
-SELECT isotonic_fit_agg(x, y, {'increasing': true}) FROM calibration_data;
-```
-
----
-
-## Quantile Functions
-
-Quantile regression for estimating conditional quantiles.
-
-### anofox_stats_quantile_fit / quantile_fit
-Quantile regression estimates conditional quantiles of the response variable distribution, rather than the conditional mean. Robust to outliers.
-
-**Signature:**
-```sql skip
-anofox_stats_quantile_fit(
-    y LIST(DOUBLE),
-    x LIST(LIST(DOUBLE)),
-    [options MAP]
-) -> STRUCT
-```
-
-**Options MAP:**
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| tau | DOUBLE | 0.5 | Quantile to estimate (0 < tau < 1) |
-| fit_intercept | BOOLEAN | true | Include intercept term |
+| lower_bound (alias `lower`) | DOUBLE | 0 when no bound is given | Lower bound for every coefficient |
+| upper_bound (alias `upper`) | DOUBLE | unbounded | Upper bound for every coefficient |
+| fit_intercept | BOOLEAN | false | Include an (unconstrained) intercept |
 | max_iterations | INTEGER | 1000 | Maximum iterations |
-| tolerance | DOUBLE | 1e-6 | Convergence tolerance |
+| tolerance | DOUBLE | 1e-10 | Convergence tolerance |
 
-**Returns:**
-```
-STRUCT(
-    coefficients LIST(DOUBLE),  -- Regression coefficients
-    intercept DOUBLE,           -- Intercept term (if fitted)
-    tau DOUBLE,                 -- Quantile estimated
-    n_observations BIGINT,      -- Number of observations
-    n_features INTEGER          -- Number of features
-)
+**Returns:** the [BlsFitResult](#blsfitresult-structure) struct.
+
+```sql
+SELECT unnest(bls_fit_agg(y, [x1, x2, x3], {'lower_bound': 0.0, 'upper_bound': 1.0})) FROM reg_data;
 ```
 
-**Example:**
-```sql skip
--- Median regression (tau = 0.5) - robust to outliers
-SELECT quantile_fit(
-    [y1, y2, y3, y4, y5],
-    [[x1, x2, x3, x4, x5]],
-    {'tau': 0.5}
-);
+### nnls_fit_agg
 
--- 90th percentile regression (upper bound estimation)
-SELECT quantile_fit(
-    prices,
-    [size, location_score],
-    {'tau': 0.9}
-);
+Non-negative least squares: every coefficient is constrained to be >= 0.
+Options: `fit_intercept` (default false), `max_iterations`, `tolerance`.
+Returns the [BlsFitResult](#blsfitresult-structure) struct.
 
--- Compare different quantiles
-SELECT
-    0.25 as quantile, (quantile_fit(y, [x], {'tau': 0.25})).coefficients[1] as coef
-UNION ALL
-SELECT
-    0.50 as quantile, (quantile_fit(y, [x], {'tau': 0.50})).coefficients[1] as coef
-UNION ALL
-SELECT
-    0.75 as quantile, (quantile_fit(y, [x], {'tau': 0.75})).coefficients[1] as coef;
-```
-
-**Use Cases:**
-- Robust regression (outlier resistant)
-- Understanding full response distribution
-- Risk analysis (VaR, conditional tail expectations)
-- Heteroscedastic data analysis
-
-### anofox_stats_quantile_fit_agg / quantile_fit_agg
-Streaming quantile regression aggregate function.
-
-```sql skip
--- Per-group median regression
-SELECT
-    region,
-    (quantile_fit_agg(price, [sqft, bedrooms], {'tau': 0.5})).coefficients
-FROM housing
-GROUP BY region;
+```sql
+SELECT category, (nnls_fit_agg(y, [x1, x2])).coefficients AS coefficients
+FROM reg_data
+GROUP BY category
+ORDER BY category;
 ```
 
 ---
 
-## GLM Functions
+## PLS, Isotonic and Quantile Regression
 
-Generalized Linear Models for count data and other non-normal response distributions.
+These three methods have a `*_fit_agg` aggregate that returns the fitted model,
+fit-predict aggregates (`pls_fit_predict_agg`, `isotonic_fit_predict_agg`,
+`quantile_fit_predict_agg`) and table macros (`*_fit_predict_by`); see
+[Fit-Predict Aggregate Functions](#fit-predict-aggregate-functions).
 
-### anofox_stats_poisson_fit_agg / poisson_fit_agg
-Poisson regression for count data using maximum likelihood estimation.
+| Method | Options (default) | Notes |
+|--------|-------------------|-------|
+| PLS | `n_components` (1), `fit_intercept` (true) | SIMPLS latent components; for collinear or wide data |
+| Isotonic | `increasing` (true) | Monotone fit (PAVA); `x` is a single `DOUBLE`, not a list |
+| Quantile | `tau` (alias `quantile`, 0.5), `fit_intercept` (true), `max_iterations` (1000), `tolerance` (1e-6) | Conditional quantile; `tau = 0.5` is median regression |
 
-**Signature:**
-```sql skip
-anofox_stats_poisson_fit_agg(
-    y DOUBLE,
-    x LIST(DOUBLE),
-    [options MAP]
-) -> STRUCT
+```sql
+SELECT
+    (p).y,
+    round((p).yhat, 3) AS yhat
+FROM (
+    SELECT unnest(quantile_fit_predict_agg(y, [x1, x2], {'tau': 0.9})) AS p
+    FROM reg_data
+)
+LIMIT 3;
 ```
 
-**Options MAP:**
+**Model aggregates.**
+
+```text
+pls_fit_agg(y DOUBLE, x LIST(DOUBLE) [, options])
+    -> STRUCT(coefficients, intercept, r_squared, n_components, n_observations, n_features)
+quantile_fit_agg(y DOUBLE, x LIST(DOUBLE) [, options])
+    -> STRUCT(coefficients, intercept, tau, n_observations, n_features)
+isotonic_fit_agg(y DOUBLE, x DOUBLE [, options])
+    -> STRUCT(x DOUBLE[], fitted DOUBLE[], increasing, r_squared, n_observations)
+```
+
+The isotonic model is a monotone function given by its knots (`x`) and the
+fitted value at each knot (`fitted`); `predict(model, [x])` interpolates
+between knots and clamps outside the training range. All three models work
+with [`predict`](#predict); PLS and quantile models also work with
+[`tidy`](#tidy) (estimates only, no inference). A group with too few usable
+rows returns NULL.
+
+```sql
+SELECT unnest(pls_fit_agg(y, [x1, x2, x3], {'n_components': 2})) FROM reg_data;
+SELECT unnest(quantile_fit_agg(y, [x1, x2], {'tau': 0.5})) FROM reg_data;
+SELECT (isotonic_fit_agg(y, x1, {'increasing': true})).r_squared AS r2 FROM reg_data;
+
+-- Median prediction for a new row
+SELECT round(predict(quantile_fit_agg(y, [x1, x2], {'tau': 0.5}), [5.0, 3.0]), 3) AS median_yhat
+FROM reg_data;
+```
+
+---
+
+## Generalized Linear Models
+
+`poisson_fit_agg`, `binomial_fit_agg`, `logistic_fit_agg`, `negbinom_fit_agg`,
+`gamma_fit_agg` and `tweedie_fit_agg` are fitted by IRLS and share one
+signature and most options:
+
+```sql skip
+<family>_fit_agg(y DOUBLE, x LIST(DOUBLE) [, options]) -> STRUCT
+```
+
+**Shared options:**
+
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| fit_intercept | BOOLEAN | true | Include intercept term |
-| link | VARCHAR | 'log' | Link function: 'log', 'identity', 'sqrt' |
+| fit_intercept | BOOLEAN | true | Include an intercept term |
 | max_iterations | INTEGER | 100 | Maximum IRLS iterations |
 | tolerance | DOUBLE | 1e-8 | Convergence tolerance |
-| compute_inference | BOOLEAN | false | Compute z-tests, p-values, CIs |
-| confidence_level | DOUBLE | 0.95 | CI confidence level |
-| offset | INTEGER | (none) | 1-based index into `x` of an offset column, added to the linear predictor with coefficient fixed at 1 and removed from the design. Used as-is (take logs upstream if the link requires it). Applies to all six GLM aggregates. |
+| compute_inference | BOOLEAN | false | Add standard errors, z-tests, p-values, confidence intervals |
+| confidence_level | DOUBLE | 0.95 | Confidence level for the intervals |
+| glm_lambda | DOUBLE | 0.0 | L2 regularization (see [glm_lambda](#glm_lambda)) |
+| offset | INTEGER | none | 1-based index into `x` of an offset column; added to the linear predictor with coefficient 1 and removed from the design. Used as-is, so take logs upstream when the link needs it. |
+| feature_names, prior, vcov | | | Explicit priors and interval type; see [Priors](api/glm/priors.md) |
 
-**Returns:** [GlmFitResult](#glmfitresult-structure) STRUCT
+**Family-specific options:**
 
-**Example:**
-```sql skip
--- Basic Poisson regression for count data
-SELECT poisson_fit_agg(count, [x1, x2])
-FROM event_counts;
+| Function | Key | Default | Description |
+|----------|-----|---------|-------------|
+| `poisson_fit_agg` | link (alias `poisson_link`) | 'log' | `'log'`, `'identity'`, `'sqrt'` |
+| `binomial_fit_agg` | binomial_link | 'logit' | `'logit'`, `'probit'`, `'cloglog'` |
+| `logistic_fit_agg` | threshold | 0.5 | Classification threshold used for `accuracy` |
+| `negbinom_fit_agg` | theta (aliases `nb_theta`, `dispersion`) | estimated | Fix the NB dispersion instead of estimating it |
+| `tweedie_fit_agg` | power (alias `tweedie_power`) | 1.5 | Variance power, typically between 1 and 2 |
+| `gamma_fit_agg` | - | - | Log link, variance power fixed at 2 |
 
--- With inference and custom link
-SELECT poisson_fit_agg(
-    accidents,
-    [traffic_volume, weather_score],
-    {'compute_inference': true, 'link': 'log'}
-)
-FROM daily_accidents;
+**Returns:** the [GlmFitResult](#glmfitresult-structure) struct;
+`logistic_fit_agg` replaces `dispersion` with `accuracy` and `threshold`. Every
+GLM struct ends with `family` and `link` (VARCHAR), so
+[`predict(model, x)`](#predict) can map predictions to the response scale.
 
--- Per-group Poisson regression
-SELECT
-    region,
-    (poisson_fit_agg(sales_count, [price, ads])).coefficients
-FROM sales_data
-GROUP BY region;
+**Per-group prediction.** `poisson_fit_predict_by`, `binomial_fit_predict_by`,
+`logistic_fit_predict_by`, `negbinom_fit_predict_by`, `gamma_fit_predict_by` and
+`tweedie_fit_predict_by` fit one model per group and append `yhat` (response
+scale) to every source row; see [Fit-Predict Table Macros](#fit-predict-table-macros).
+
+**Examples:**
+
+```sql
+-- Count data
+SELECT unnest(poisson_fit_agg(y_count, [x1, x2], {'compute_inference': true})) FROM reg_data;
+
+-- Binary outcome with a probit link
+SELECT (binomial_fit_agg(y_binary, [x1, x2], {'binomial_link': 'probit'})).coefficients AS coefficients
+FROM reg_data;
+
+-- Logistic regression with in-sample accuracy
+SELECT (logistic_fit_agg(y_binary, [x1, x2])).accuracy AS accuracy FROM reg_data;
+
+-- Over-dispersed counts
+SELECT (negbinom_fit_agg(y_count, [x1, x2])).dispersion AS dispersion FROM reg_data;
+
+-- Positive continuous outcomes
+SELECT (gamma_fit_agg(y_positive, [x1, x2])).coefficients AS gamma_coef,
+       (tweedie_fit_agg(y_positive, [x1, x2], {'power': 1.5})).coefficients AS tweedie_coef
+FROM reg_data;
+
+-- Predicted probability (response scale) and log-odds (link scale) for a new row
+WITH fit AS (SELECT logistic_fit_agg(y_binary, [x1, x2]) AS m FROM reg_data)
+SELECT m.family, m.link,
+       round(predict(m, [4.0, 5.0]), 4) AS probability,
+       round(predict(m, [4.0, 5.0], {'type': 'link'}), 4) AS log_odds
+FROM fit;
 ```
-
-**Use Cases:**
-- Modeling count data (events, occurrences, frequencies)
-- Rate modeling with exposure offsets
-- Insurance claims, website visits, defect counts
 
 ---
 
-## ALM Functions
+## ALM
 
-Augmented Linear Models with 24 error distribution families for flexible regression.
+### alm_fit_agg
 
-### anofox_stats_alm_fit_agg / alm_fit_agg
-Fit an Augmented Linear Model with choice of distribution and loss function.
+Augmented Linear Model: likelihood-based regression with a choice of 24 error
+distributions and several loss functions.
 
-**Signature:**
 ```sql skip
-anofox_stats_alm_fit_agg(
-    y DOUBLE,
-    x LIST(DOUBLE),
-    [options MAP]
-) -> STRUCT
+alm_fit_agg(y DOUBLE, x LIST(DOUBLE) [, options]) -> STRUCT
 ```
 
-**Options MAP:**
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| fit_intercept | BOOLEAN | true | Include intercept term |
-| distribution | VARCHAR | 'normal' | Error distribution (see below) |
-| loss | VARCHAR | 'likelihood' | Loss function: 'likelihood', 'mse', 'mae', 'ham', 'role' |
+| distribution (alias `dist`) | VARCHAR | 'normal' | Error distribution (table below) |
+| loss | VARCHAR | 'likelihood' | `'likelihood'`, `'mse'`, `'mae'`, `'ham'`, `'role'` |
+| quantile | DOUBLE | 0.5 | Quantile for `asymmetric_laplace` |
+| role_trim | DOUBLE | 0.05 | Trim share for the ROLE loss |
+| fit_intercept | BOOLEAN | true | Include an intercept term |
 | max_iterations | INTEGER | 100 | Maximum iterations |
 | tolerance | DOUBLE | 1e-8 | Convergence tolerance |
-| quantile | DOUBLE | 0.5 | Quantile for asymmetric_laplace |
-| role_trim | DOUBLE | 0.05 | Trim parameter for ROLE loss |
-| compute_inference | BOOLEAN | false | Compute t-tests, p-values, CIs |
-| confidence_level | DOUBLE | 0.95 | CI confidence level |
+| compute_inference | BOOLEAN | false | Add standard errors, t-tests, p-values, intervals |
+| confidence_level | DOUBLE | 0.95 | Confidence level for the intervals |
 
-**Supported Distributions:**
 | Category | Distributions |
 |----------|--------------|
 | Continuous (unbounded) | `normal`, `laplace`, `student_t`, `logistic`, `asymmetric_laplace`, `generalised_normal`, `s` |
@@ -670,2278 +654,889 @@ anofox_stats_alm_fit_agg(
 | Count | `poisson`, `negative_binomial`, `binomial`, `geometric` |
 | Ordinal | `cumulative_logistic`, `cumulative_normal` |
 
-**Returns:** [AlmFitResult](#almfitresult-structure) STRUCT
+**Returns:** the [AlmFitResult](#almfitresult-structure) struct.
 
-**Example:**
-```sql skip
--- Robust regression with Laplace distribution (median regression)
-SELECT alm_fit_agg(y, [x1, x2], {'distribution': 'laplace'})
-FROM data_with_outliers;
-
--- Quantile regression (75th percentile)
-SELECT alm_fit_agg(
-    price,
-    [sqft, bedrooms],
-    {'distribution': 'asymmetric_laplace', 'quantile': 0.75}
-)
-FROM housing;
-
--- Gamma regression for positive data
-SELECT alm_fit_agg(
-    claim_amount,
-    [age, risk_score],
-    {'distribution': 'gamma', 'compute_inference': true}
-)
-FROM insurance_claims;
-
--- Beta regression for proportions (0-1)
-SELECT alm_fit_agg(
-    conversion_rate,
-    [ad_spend, page_views],
-    {'distribution': 'beta'}
-)
-FROM marketing_data;
-```
-
-**Use Cases:**
-- Robust regression (Laplace, Student-t)
-- Quantile regression (asymmetric_laplace)
-- Positive outcomes (gamma, log_normal)
-- Proportions/rates (beta, logit_normal)
-- Count data alternatives (negative_binomial)
-
----
-
-## BLS/NNLS Functions
-
-Bounded Least Squares and Non-Negative Least Squares for constrained optimization.
-
-### anofox_stats_bls_fit_agg / bls_fit_agg
-Bounded Least Squares with box constraints on coefficients.
-
-**Signature:**
-```sql skip
-anofox_stats_bls_fit_agg(
-    y DOUBLE,
-    x LIST(DOUBLE),
-    [options MAP]
-) -> STRUCT
-```
-
-**Options MAP:**
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| fit_intercept | BOOLEAN | false | Include intercept term |
-| lower_bound | DOUBLE | - | Lower bound for all coefficients |
-| upper_bound | DOUBLE | - | Upper bound for all coefficients |
-| max_iterations | INTEGER | 1000 | Maximum iterations |
-| tolerance | DOUBLE | 1e-10 | Convergence tolerance |
-
-**Returns:** [BlsFitResult](#blsfitresult-structure) STRUCT
-
-**Example:**
-```sql skip
--- Coefficients bounded between 0 and 1
-SELECT bls_fit_agg(
-    y,
-    [x1, x2, x3],
-    {'lower_bound': 0.0, 'upper_bound': 1.0}
-)
-FROM portfolio_data;
-
--- Only lower bound (coefficients >= 0)
-SELECT bls_fit_agg(
-    y,
-    [x1, x2],
-    {'lower_bound': 0.0}
-)
-FROM data;
-```
-
-### anofox_stats_nnls_fit_agg / nnls_fit_agg
-Non-Negative Least Squares - all coefficients constrained to be >= 0.
-
-**Signature:**
-```sql skip
-anofox_stats_nnls_fit_agg(
-    y DOUBLE,
-    x LIST(DOUBLE),
-    [options MAP]
-) -> STRUCT
-```
-
-**Options MAP:**
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| fit_intercept | BOOLEAN | false | Include intercept term |
-| max_iterations | INTEGER | 1000 | Maximum iterations |
-| tolerance | DOUBLE | 1e-10 | Convergence tolerance |
-
-**Returns:** [BlsFitResult](#blsfitresult-structure) STRUCT
-
-**Example:**
-```sql skip
--- Non-negative coefficients (e.g., mixture models)
-SELECT nnls_fit_agg(spectrum, [component1, component2, component3])
-FROM spectral_data;
-
--- Portfolio weights (no short selling)
-SELECT nnls_fit_agg(returns, [stock1, stock2, stock3])
-FROM portfolio_data;
-
--- Per-group NNLS
-SELECT
-    category,
-    (nnls_fit_agg(y, [x1, x2])).coefficients
-FROM data
-GROUP BY category;
-```
-
-**Use Cases:**
-- Spectral unmixing / mixture models
-- Portfolio optimization without short selling
-- Physical constraints (concentrations, weights must be positive)
-- Image processing (non-negative matrix factorization)
-
----
-
-## AID Functions
-
-AID (Automatic Identification of Demand) provides demand pattern classification and anomaly detection for time series data. Useful for inventory management, supply chain analysis, and demand forecasting.
-
-### anofox_stats_aid_agg / aid_agg
-
-Classifies demand patterns as regular or intermittent, identifies best-fit distribution, and detects various anomaly patterns.
-
-**Signature:**
-```sql skip
-anofox_stats_aid_agg(
-    y DOUBLE,
-    [options MAP]
-) -> STRUCT
-```
-
-**Options MAP:**
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| intermittent_threshold | DOUBLE | 0.3 | Zero proportion cutoff for intermittent classification |
-| outlier_method | VARCHAR | 'zscore' | Outlier detection: 'zscore' (mean±3σ) or 'iqr' (1.5×IQR) |
-
-**Returns:**
-```
-STRUCT(
-    demand_type VARCHAR,           -- 'regular' or 'intermittent'
-    is_intermittent BOOLEAN,       -- True if zero_proportion >= threshold
-    distribution VARCHAR,          -- Best-fit distribution name
-    mean DOUBLE,                   -- Mean of values
-    variance DOUBLE,               -- Variance of values
-    zero_proportion DOUBLE,        -- Proportion of zero values
-    n_observations BIGINT,         -- Number of observations
-    has_stockouts BOOLEAN,         -- True if stockouts detected
-    is_new_product BOOLEAN,        -- True if new product pattern (leading zeros)
-    is_obsolete_product BOOLEAN,   -- True if obsolete pattern (trailing zeros)
-    stockout_count BIGINT,         -- Number of stockout observations
-    new_product_count BIGINT,      -- Number of leading zero observations
-    obsolete_product_count BIGINT, -- Number of trailing zero observations
-    high_outlier_count BIGINT,     -- Number of unusually high values
-    low_outlier_count BIGINT       -- Number of unusually low values
-)
-```
-
-**Distribution Selection:**
-- Count-like data: `poisson`, `negative_binomial`, `geometric`
-- Continuous data: `normal`, `gamma`, `lognormal`, `rectified_normal`
-
-**Example:**
-```sql skip
--- Classify demand pattern for each SKU
-SELECT
-    sku,
-    (aid_agg(demand)).*
-FROM sales
-GROUP BY sku;
-
--- With custom threshold
-SELECT aid_agg(demand, {'intermittent_threshold': 0.4})
-FROM sales
-WHERE sku = 'WIDGET001';
-
--- Using IQR-based outlier detection
-SELECT aid_agg(demand, {'outlier_method': 'iqr'})
-FROM inventory_data;
-```
-
-### anofox_stats_aid_anomaly_agg / aid_anomaly_agg
-
-Returns per-observation anomaly flags for demand analysis. Maintains input order.
-
-**Signature:**
-```sql skip
-anofox_stats_aid_anomaly_agg(
-    y DOUBLE,
-    [options MAP]
-) -> LIST(STRUCT)
-```
-
-**Options MAP:**
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| intermittent_threshold | DOUBLE | 0.3 | Zero proportion cutoff |
-| outlier_method | VARCHAR | 'zscore' | Outlier detection: 'zscore' or 'iqr' |
-
-**Returns:**
-```
-LIST(STRUCT(
-    stockout BOOLEAN,              -- Unexpected zero in positive demand
-    new_product BOOLEAN,           -- Leading zeros pattern
-    obsolete_product BOOLEAN,      -- Trailing zeros pattern
-    high_outlier BOOLEAN,          -- Unusually high value
-    low_outlier BOOLEAN            -- Unusually low value
-))
-```
-
-**Anomaly Definitions:**
-- **Stockout**: Zero value occurring between non-zero values (not at start or end)
-- **New Product**: Leading sequence of zeros (before first non-zero)
-- **Obsolete Product**: Trailing sequence of zeros (after last non-zero)
-- **High Outlier**: Value > mean + 3*std (zscore) or > Q3 + 1.5*IQR (iqr)
-- **Low Outlier**: Non-zero value < mean - 3*std (zscore) or < Q1 - 1.5*IQR (iqr)
-
-**Example:**
 ```sql
--- Get anomaly flags for demand series
-SELECT aid_anomaly_agg(demand::DOUBLE)
-FROM (VALUES (0), (0), (5), (0), (8), (0), (0)) AS t(demand);
+-- Laplace errors (median regression, robust to outliers)
+SELECT unnest(alm_fit_agg(y, [x1, x2], {'distribution': 'laplace'})) FROM reg_data;
+
+-- 75th percentile via the asymmetric Laplace distribution
+SELECT (alm_fit_agg(y, [x1, x2], {'distribution': 'asymmetric_laplace', 'quantile': 0.75})).coefficients AS coefficients
+FROM reg_data;
 ```
+
+---
+
+## AFT Survival Regression
+
+### aft_fit_agg
+
+Accelerated failure time model for right-censored durations.
 
 ```sql skip
--- Identify problematic SKUs with stockouts (illustrative — requires a sales table)
-WITH anomalies AS (
-    SELECT sku, aid_agg(demand) as result
-    FROM sales
-    GROUP BY sku
-)
-SELECT sku, result.stockout_count
-FROM anomalies
-WHERE result.has_stockouts
-ORDER BY result.stockout_count DESC;
+aft_fit_agg(time DOUBLE, x LIST(DOUBLE), event DOUBLE [, options]) -> STRUCT
 ```
 
-**Use Cases:**
-- Inventory management: Identify stockout patterns
-- Product lifecycle: Detect new/obsolete products
-- Demand forecasting: Choose appropriate models based on pattern type
-- Data quality: Find outliers in demand data
-- Supply chain: Monitor for demand anomalies
+`event` is 1 when the event was observed and 0 when the row is right-censored.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| distribution (alias `dist`) | VARCHAR | 'weibull' | `'weibull'`, `'lognormal'`, `'loglogistic'`, `'exponential'` |
+| fit_intercept | BOOLEAN | true | Include an intercept term |
+| max_iterations | INTEGER | 100 | Newton iterations |
+| tolerance | DOUBLE | see [AFT](api/survival/aft.md) | Convergence tolerance |
+| compute_inference | BOOLEAN | false | Add standard errors, z-tests, intervals |
+| confidence_level | DOUBLE | 0.95 | Confidence level for the intervals |
+| feature_names, prior, vcov | | | See [Priors](api/glm/priors.md) |
+
+**Returns:**
+
+```text
+STRUCT(coefficients DOUBLE[], intercept DOUBLE, scale DOUBLE,
+       log_likelihood DOUBLE, null_log_likelihood DOUBLE, aic DOUBLE, bic DOUBLE,
+       n_observations BIGINT, n_events BIGINT, n_censored BIGINT,
+       n_features BIGINT, iterations INTEGER, converged BOOLEAN
+     [, std_errors DOUBLE[], z_values DOUBLE[], p_values DOUBLE[],
+        ci_lower DOUBLE[], ci_upper DOUBLE[],
+        intercept_std_error DOUBLE, log_scale_std_error DOUBLE])
+```
+
+Coefficients are on the log-time scale.
+
+```sql
+SELECT unnest(aft_fit_agg(duration, [x1, x2], event, {'dist': 'weibull'})) FROM reg_data;
+```
+
+### aft_cdf / aft_quantile
+
+Stateless scalar helpers for a fitted AFT model.
+
+```sql skip
+aft_cdf(t DOUBLE, eta DOUBLE, scale DOUBLE, distribution VARCHAR) -> DOUBLE       -- P(T <= t)
+aft_quantile(p DOUBLE, eta DOUBLE, scale DOUBLE, distribution VARCHAR) -> DOUBLE  -- p-quantile of T
+```
+
+`eta` is the linear predictor `intercept + x'beta` and `scale` the fitted
+`scale`. Any `NULL` argument gives `NULL`.
+
+```sql
+WITH fit AS (
+    SELECT aft_fit_agg(duration, [x1, x2], event, {'dist': 'weibull'}) AS f FROM reg_data
+)
+SELECT
+    aft_cdf(5.0, f.intercept + f.coefficients[1] * 3.0 + f.coefficients[2] * 2.0, f.scale, 'weibull') AS p_within_5,
+    aft_quantile(0.5, f.intercept + f.coefficients[1] * 3.0 + f.coefficients[2] * 2.0, f.scale, 'weibull') AS median_time
+FROM fit;
+```
+
+---
+
+## Mixed-Effects GLMs
+
+### glmm_fit_agg
+
+One model fitted jointly across groups with a random intercept per group.
+
+```sql skip
+glmm_fit_agg(y DOUBLE, x LIST(DOUBLE), group ANY [, options]) -> STRUCT
+```
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| family | VARCHAR | 'gaussian' | `'gaussian'`, `'poisson'`, `'binomial'` (see [GLMM](api/glm/glmm.md) for others) |
+| reml | BOOLEAN | true | REML rather than ML for Gaussian variance components |
+| random (alias `random_slopes`) | INTEGER[] | none | 1-based indices into `x` that also get a random slope |
+| groups (alias `crossed`) | INTEGER[] | none | 1-based indices into `x` of extra crossed grouping columns |
+| fit_intercept | BOOLEAN | true | Include a fixed intercept |
+| max_iterations | INTEGER | 100 | Inner iterations |
+| tolerance | DOUBLE | 1e-8 | Convergence tolerance |
+| compute_inference | BOOLEAN | false | Fixed-effect standard errors, z-tests, intervals |
+| confidence_level | DOUBLE | 0.95 | Confidence level for the intervals |
+
+**Returns:**
+
+```text
+STRUCT(coefficients DOUBLE[], intercept DOUBLE,
+       var_group DOUBLE, var_residual DOUBLE, icc DOUBLE,
+       log_likelihood DOUBLE, aic DOUBLE, bic DOUBLE, deviance DOUBLE,
+       n_observations BIGINT, n_groups BIGINT, n_features BIGINT,
+       iterations INTEGER, converged BOOLEAN,
+       random_cov DOUBLE[], random_dim INTEGER,
+       factors STRUCT(n_levels BIGINT, var DOUBLE)[]
+     [, std_errors DOUBLE[], z_values DOUBLE[], p_values DOUBLE[],
+        ci_lower DOUBLE[], ci_upper DOUBLE[], intercept_std_error DOUBLE],
+       ranef STRUCT("group" VARCHAR, intercept DOUBLE, se DOUBLE, n BIGINT)[])
+```
+
+```sql
+SELECT (glmm_fit_agg(y, [x1, x2], store)).icc AS icc FROM reg_data;
+```
+
+### glmm_fit_by
+
+Table macro: fits one GLMM over the whole table and returns one row per group
+with its random effect.
+
+```sql skip
+glmm_fit_by(source VARCHAR, group_col, y_col, x_cols [, options]) -> TABLE
+```
+
+Output columns: `group`, `ranef`, `ranef_se`, `n`, `fixed_intercept`,
+`fixed_coefficients`, `var_group`, `var_residual`, `icc`.
+
+```sql
+SELECT * FROM glmm_fit_by('reg_data', store, y, [x1, x2]);
+```
+
+---
+
+## Empirical-Bayes Shrinkage
+
+### eb_shrink_agg
+
+Shrinks a set of per-group estimates toward their precision-weighted mean.
+
+```sql skip
+eb_shrink_agg(estimate DOUBLE, se DOUBLE [, options]) -> STRUCT
+```
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| tau_squared (alias `tau2`) | DOUBLE | estimated | Fix the between-group variance |
+| tau_method (alias `shrinkage`) | VARCHAR | 'dl' | `'dl'` (DerSimonian-Laird) or `'none'` (complete pooling) |
+
+**Returns:**
+
+```text
+STRUCT(mu DOUBLE, mu_se DOUBLE, tau_squared DOUBLE, i_squared DOUBLE, q DOUBLE,
+       n_groups BIGINT,
+       shrunken STRUCT(estimate DOUBLE, se DOUBLE, shrunken DOUBLE,
+                       shrunken_se DOUBLE, weight DOUBLE)[])   -- input order
+```
+
+```sql
+CREATE OR REPLACE TABLE store_slopes AS
+SELECT store,
+       (ols_fit_agg(y, [x1], {'compute_inference': true})).coefficients[1] AS est,
+       (ols_fit_agg(y, [x1], {'compute_inference': true})).std_errors[1] AS se
+FROM reg_data
+GROUP BY store;
+
+SELECT (eb_shrink_agg(est, se)).tau_squared AS tau_squared FROM store_slopes;
+```
+
+### eb_shrink_by
+
+Table macro over a table of estimates. Returns every source column plus
+`shrunken`, `shrunken_se`, `weight`, `mu` and `tau_squared`.
+
+```sql skip
+eb_shrink_by(source VARCHAR, estimate_col, se_col [, options]) -> TABLE
+```
+
+```sql
+SELECT store, est, shrunken FROM eb_shrink_by('store_slopes', est, se) ORDER BY store;
+```
+
+---
+
+## AID Demand Classification
+
+AID (Automatic Identification of Demand) classifies demand series as regular or
+intermittent, picks a best-fit distribution and flags stockouts, product
+launches, obsolescence and outliers.
+
+**Options (all AID functions):**
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| intermittent_threshold | DOUBLE | 0.3 | Zero share at or above which a series is intermittent |
+| outlier_method | VARCHAR | 'zscore' | `'zscore'` (mean ± 3 sd) or `'iqr'` (1.5 × IQR) |
+
+### aid_agg
+
+```sql skip
+aid_agg(y DOUBLE [, options]) -> STRUCT
+```
+
+**Returns:**
+
+```text
+STRUCT(demand_type VARCHAR, is_intermittent BOOLEAN, distribution VARCHAR,
+       mean DOUBLE, variance DOUBLE, zero_proportion DOUBLE, n_observations BIGINT,
+       has_stockouts BOOLEAN, is_new_product BOOLEAN, is_obsolete_product BOOLEAN,
+       stockout_count BIGINT, new_product_count BIGINT, obsolete_product_count BIGINT,
+       high_outlier_count BIGINT, low_outlier_count BIGINT)
+```
+
+```sql
+SELECT sku, unnest(aid_agg(qty ORDER BY week))
+FROM demand
+GROUP BY sku
+ORDER BY sku;
+```
+
+### aid_anomaly_agg
+
+Per-observation anomaly flags, in input order (use `ORDER BY` inside the call).
+
+```sql skip
+aid_anomaly_agg(y DOUBLE [, options]) -> STRUCT(stockout BOOLEAN, new_product BOOLEAN,
+    obsolete_product BOOLEAN, high_outlier BOOLEAN, low_outlier BOOLEAN)[]
+```
+
+- **Stockout:** a zero between non-zero values.
+- **New product:** the leading run of zeros.
+- **Obsolete product:** the trailing run of zeros.
+- **High / low outlier:** beyond the `outlier_method` limits.
+
+```sql
+SELECT aid_anomaly_agg(demand ORDER BY t)
+FROM (VALUES (1, 0.0), (2, 0.0), (3, 5.0), (4, 0.0), (5, 8.0), (6, 0.0), (7, 0.0)) AS v(t, demand);
+```
 
 ### aid_by
 
-Table macro that classifies demand patterns for each group, returning one row per group with flat columns.
+Table macro: one row per group with the `aid_agg` fields as columns (the group
+column keeps its name).
 
-**Signature:**
 ```sql skip
-aid_by(
-    source VARCHAR,           -- Table name (as string)
-    group_col COLUMN,         -- Column to group by
-    y_col COLUMN,             -- Demand/value column
-    [options MAP]             -- Optional configuration (default: NULL)
-) -> TABLE
+aid_by(source VARCHAR, group_col, y_col [, options]) -> TABLE
 ```
 
-**Options:**
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| intermittent_threshold | DOUBLE | 0.3 | Zero proportion cutoff for intermittent classification |
-| outlier_method | VARCHAR | 'zscore' | Outlier detection: 'zscore' (mean±3σ) or 'iqr' (1.5×IQR) |
+```sql
+SELECT sku, demand_type, is_new_product FROM aid_by('demand', sku, qty);
+```
 
-**Returns:**
-| Column | Type | Description |
-|--------|------|-------------|
-| group_id | ANY | Group identifier (same type as group_col) |
-| demand_type | VARCHAR | 'regular' or 'intermittent' |
-| is_intermittent | BOOLEAN | True if zero_proportion >= threshold |
-| distribution | VARCHAR | Best-fit distribution name |
-| mean | DOUBLE | Mean of values |
-| variance | DOUBLE | Variance of values |
-| zero_proportion | DOUBLE | Proportion of zero values (0.0 to 1.0) |
-| n_observations | BIGINT | Number of observations |
-| has_stockouts | BOOLEAN | True if stockouts detected |
-| is_new_product | BOOLEAN | True if new product pattern (leading zeros) |
-| is_obsolete_product | BOOLEAN | True if obsolete pattern (trailing zeros) |
-| stockout_count | BIGINT | Number of stockout observations |
-| new_product_count | BIGINT | Number of leading zero observations |
-| obsolete_product_count | BIGINT | Number of trailing zero observations |
-| high_outlier_count | BIGINT | Number of unusually high values |
-| low_outlier_count | BIGINT | Number of unusually low values |
+### aid_anomaly_by
 
-**Example:**
+Table macro: one row per observation with the five anomaly flags, ordered by
+`order_col` within each group.
+
 ```sql skip
--- Classify demand pattern for each SKU
-SELECT * FROM aid_by('sales', sku, demand);
+aid_anomaly_by(source VARCHAR, group_col, order_col, y_col [, options]) -> TABLE
+```
 
--- With custom intermittent threshold
-SELECT * FROM aid_by('sales', sku, demand, {'intermittent_threshold': 0.4});
-
--- Find products with stockout issues
-SELECT * FROM aid_by('sales', sku, demand)
-WHERE has_stockouts
-ORDER BY stockout_count DESC;
+```sql
+SELECT * FROM aid_anomaly_by('demand', sku, week, qty) WHERE sku = 'launch' LIMIT 6;
 ```
 
 ---
 
-## Statistical Hypothesis Testing Functions
+## Statistical Hypothesis Tests
 
-Comprehensive statistical hypothesis testing powered by the `anofox-statistics` crate. All tests are implemented as aggregate functions that collect data and compute test results.
+All tests are aggregates. Two-sample tests take a value and an `INTEGER` group
+indicator with two distinct values; paired tests take two `DOUBLE` columns.
+Unless noted, tests return `statistic`, `p_value` and a `method` label.
 
-### Distributional Tests
+> **Option syntax.** Most tests read options from a struct literal
+> (`{'alternative': 'less'}`). The functions marked **MAP** in the tables below
+> currently read options only from a `MAP` literal (`MAP {'trim': 0.1}`).
 
-#### shapiro_wilk_agg / anofox_stats_shapiro_wilk_agg
+### Normality
 
-Shapiro-Wilk test for normality. Tests whether a sample comes from a normal distribution.
+| Function | Signature | Returns |
+|----------|-----------|---------|
+| `shapiro_wilk_agg` | `(value DOUBLE)` | `statistic, p_value, n, method` |
+| `jarque_bera_agg` | `(value DOUBLE)` | `statistic, p_value, skewness, kurtosis, n` |
+| `dagostino_k2_agg` | `(value DOUBLE)` | `statistic, p_value, n, method` |
 
-**Signature:**
-```sql skip
-shapiro_wilk_agg(value DOUBLE) -> STRUCT
-```
-
-**Returns:**
-```
-STRUCT(
-    statistic DOUBLE,    -- W statistic (closer to 1 = more normal)
-    p_value DOUBLE,      -- p-value (low = reject normality)
-    n BIGINT,            -- Sample size
-    method VARCHAR       -- "Shapiro-Wilk"
-)
-```
-
-**Example:**
-```sql skip
--- Test normality of residuals
-SELECT (shapiro_wilk_agg(residual)).p_value as normality_p
-FROM model_diagnostics;
-
--- Per-group normality test
-SELECT
-    category,
-    (shapiro_wilk_agg(value)).*
-FROM data
-GROUP BY category;
+```sql
+SELECT (shapiro_wilk_agg(y)).p_value AS sw_p,
+       (jarque_bera_agg(y)).p_value AS jb_p,
+       (dagostino_k2_agg(y)).p_value AS k2_p
+FROM reg_data;
 ```
 
 ### Parametric Tests
 
-#### t_test_agg / anofox_stats_t_test_agg
+| Function | Signature | Options | Returns |
+|----------|-----------|---------|---------|
+| `t_test_agg` | `(value DOUBLE, group_id INTEGER [, options])` | `alternative` ('two_sided'), `confidence_level` (0.95), `kind` ('welch'; or 'student', alias `var_equal`), `mu` (0) | `statistic, p_value, df, effect_size, ci_lower, ci_upper, n1, n2, method` |
+| `one_way_anova_agg` | `(value DOUBLE, group_id INTEGER)` | - | `f_statistic, p_value, df_between, df_within, ss_between, ss_within, n_groups, n, method` |
+| `yuen_agg` **MAP** | `(value DOUBLE, group_id INTEGER [, options])` | `trim` (0.2), `alternative`, `confidence_level` (0.95) | `statistic, p_value, df, effect_size, ci_lower, ci_upper, n1, n2, method` |
+| `brown_forsythe_agg` | `(value DOUBLE, group_id INTEGER)` | - | `statistic, p_value, df, n, method` |
 
-Two-sample t-test comparing means of two groups. Supports both Student's t-test (equal variances) and Welch's t-test (unequal variances).
-
-**Signature:**
-```sql skip
-t_test_agg(value DOUBLE, group_id INTEGER, [options MAP]) -> STRUCT
-```
-
-**Options MAP:**
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| alternative | VARCHAR | 'two_sided' | 'two_sided', 'less', 'greater' |
-| confidence_level | DOUBLE | 0.95 | Confidence level for CI |
-| kind | VARCHAR | 'welch' | 'welch' (default) or 'student' (var_equal=true) |
-| mu | DOUBLE | 0.0 | Hypothesized mean difference |
-
-**Returns:**
-```
-STRUCT(
-    statistic DOUBLE,     -- t-statistic
-    p_value DOUBLE,       -- p-value
-    df DOUBLE,            -- Degrees of freedom
-    effect_size DOUBLE,   -- Cohen's d
-    ci_lower DOUBLE,      -- CI lower bound
-    ci_upper DOUBLE,      -- CI upper bound
-    n1 BIGINT,            -- Group 1 sample size
-    n2 BIGINT,            -- Group 2 sample size
-    method VARCHAR        -- "Welch's t-test" or "Student's t-test"
-)
-```
-
-**Example:**
-```sql skip
--- Compare treatment vs control (group_id: 0 = control, 1 = treatment)
-SELECT (t_test_agg(outcome, treatment_group)).*
-FROM experiment;
-
--- One-sided test (treatment > control)
-SELECT t_test_agg(score, group, {'alternative': 'greater'})
-FROM test_results;
-
--- Student's t-test (assuming equal variances)
-SELECT t_test_agg(value, group, {'kind': 'student'})
-FROM data;
-```
-
-#### one_way_anova_agg / anofox_stats_one_way_anova_agg
-
-One-way Analysis of Variance for comparing means across multiple groups.
-
-**Signature:**
-```sql skip
-one_way_anova_agg(value DOUBLE, group_id INTEGER) -> STRUCT
-```
-
-**Returns:**
-```
-STRUCT(
-    f_statistic DOUBLE,   -- F-statistic
-    p_value DOUBLE,       -- p-value
-    df_between BIGINT,    -- Between-groups degrees of freedom
-    df_within BIGINT,     -- Within-groups degrees of freedom
-    ss_between DOUBLE,    -- Between-groups sum of squares
-    ss_within DOUBLE,     -- Within-groups sum of squares
-    n_groups BIGINT,      -- Number of groups
-    n BIGINT,             -- Total sample size
-    method VARCHAR        -- "One-Way ANOVA"
-)
-```
-
-**Example:**
-```sql skip
--- Compare means across multiple treatment groups
-SELECT (one_way_anova_agg(response, treatment_group)).*
-FROM clinical_trial;
-
--- Per-study ANOVA
-SELECT
-    study_id,
-    (one_way_anova_agg(value, condition)).p_value as anova_p
-FROM multi_study_data
-GROUP BY study_id;
+```sql
+SELECT (t_test_agg(y, grp2)).p_value AS welch_p,
+       (t_test_agg(y, grp2, {'kind': 'student', 'alternative': 'less'})).p_value AS student_less_p,
+       (one_way_anova_agg(y, grp3)).p_value AS anova_p,
+       (yuen_agg(y, grp2, MAP {'trim': 0.1})).p_value AS yuen_p,
+       (brown_forsythe_agg(y, grp3)).p_value AS bf_p
+FROM reg_data;
 ```
 
 ### Nonparametric Tests
 
-#### mann_whitney_u_agg / anofox_stats_mann_whitney_u_agg
-
-Mann-Whitney U test (Wilcoxon rank-sum test). Non-parametric alternative to independent t-test.
-
-**Signature:**
-```sql skip
-mann_whitney_u_agg(value DOUBLE, group_id INTEGER, [options MAP]) -> STRUCT
-```
-
-**Options MAP:**
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| alternative | VARCHAR | 'two_sided' | 'two_sided', 'less', 'greater' |
-| confidence_level | DOUBLE | 0.95 | Confidence level for CI |
-| correction | BOOLEAN | true | Apply continuity correction |
-
-**Returns:**
-```
-STRUCT(
-    statistic DOUBLE,     -- U statistic
-    p_value DOUBLE,       -- p-value
-    effect_size DOUBLE,   -- Rank-biserial correlation
-    ci_lower DOUBLE,      -- CI lower bound
-    ci_upper DOUBLE,      -- CI upper bound
-    n1 BIGINT,            -- Group 1 sample size
-    n2 BIGINT,            -- Group 2 sample size
-    method VARCHAR        -- "Mann-Whitney U"
-)
-```
-
-**Example:**
-```sql skip
--- Non-parametric comparison of two groups
-SELECT (mann_whitney_u_agg(score, group)).*
-FROM non_normal_data;
-
--- One-sided test
-SELECT mann_whitney_u_agg(rating, condition, {'alternative': 'greater'})
-FROM survey_results;
-```
-
-#### kruskal_wallis_agg / anofox_stats_kruskal_wallis_agg
-
-Kruskal-Wallis H test. Non-parametric alternative to one-way ANOVA.
-
-**Signature:**
-```sql skip
-kruskal_wallis_agg(value DOUBLE, group_id INTEGER) -> STRUCT
-```
-
-**Returns:**
-```
-STRUCT(
-    statistic DOUBLE,    -- H statistic
-    p_value DOUBLE,      -- p-value
-    df DOUBLE,           -- Degrees of freedom (k-1)
-    n BIGINT,            -- Total sample size
-    method VARCHAR       -- "Kruskal-Wallis"
-)
-```
-
-**Example:**
-```sql skip
--- Non-parametric comparison of multiple groups
-SELECT (kruskal_wallis_agg(satisfaction, department)).*
-FROM employee_survey;
-```
-
-### Correlation Tests
-
-#### pearson_agg / anofox_stats_pearson_agg
-
-Pearson product-moment correlation with significance test.
-
-**Signature:**
-```sql skip
-pearson_agg(x DOUBLE, y DOUBLE, [options MAP]) -> STRUCT
-```
-
-**Options MAP:**
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| confidence_level | DOUBLE | 0.95 | Confidence level for CI |
-
-**Returns:**
-```
-STRUCT(
-    r DOUBLE,             -- Correlation coefficient (-1 to 1)
-    statistic DOUBLE,     -- t-statistic
-    p_value DOUBLE,       -- p-value (test r ≠ 0)
-    ci_lower DOUBLE,      -- CI lower bound (Fisher z-transformed)
-    ci_upper DOUBLE,      -- CI upper bound
-    n BIGINT,             -- Sample size
-    method VARCHAR        -- "Pearson"
-)
-```
-
-**Example:**
-```sql skip
--- Test correlation between two variables
-SELECT (pearson_agg(height, weight)).*
-FROM measurements;
-
--- Per-group correlation with 99% CI
-SELECT
-    region,
-    (pearson_agg(income, spending, {'confidence_level': 0.99})).*
-FROM economic_data
-GROUP BY region;
-```
-
-#### spearman_agg / anofox_stats_spearman_agg
-
-Spearman rank correlation with significance test. Robust to outliers and non-linear relationships.
-
-**Signature:**
-```sql skip
-spearman_agg(x DOUBLE, y DOUBLE, [options MAP]) -> STRUCT
-```
-
-**Options MAP:**
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| confidence_level | DOUBLE | 0.95 | Confidence level for CI |
-
-**Returns:** Same structure as pearson_agg with method "Spearman"
-
-**Example:**
-```sql skip
--- Rank correlation for ordinal data
-SELECT (spearman_agg(rank_x, rank_y)).*
-FROM ranked_data;
-```
-
-### Categorical Tests
-
-#### chisq_test_agg / anofox_stats_chisq_test_agg
-
-Chi-square test of independence for categorical variables.
-
-**Signature:**
-```sql skip
-chisq_test_agg(row_var INTEGER, col_var INTEGER, [options MAP]) -> STRUCT
-```
-
-**Options MAP:**
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| correction | BOOLEAN | false | Apply Yates' continuity correction |
-
-**Returns:**
-```
-STRUCT(
-    statistic DOUBLE,    -- Chi-square statistic
-    p_value DOUBLE,      -- p-value
-    df BIGINT,           -- Degrees of freedom
-    method VARCHAR       -- "Chi-Square"
-)
-```
-
-**Example:**
-```sql skip
--- Test independence of two categorical variables
-SELECT (chisq_test_agg(gender, preference)).*
-FROM survey;
-
--- With Yates correction for 2x2 tables
-SELECT chisq_test_agg(group, outcome, {'correction': true})
-FROM clinical_data;
-```
-
-#### chisq_gof_agg / anofox_stats_chisq_gof_agg
-
-Chi-square goodness of fit test. Tests whether observed frequencies match expected frequencies.
-
-**Signature:**
-```sql skip
-chisq_gof_agg(observed INTEGER, expected DOUBLE) -> STRUCT
-```
-
-**Returns:**
-```
-STRUCT(
-    statistic DOUBLE,    -- Chi-square statistic
-    p_value DOUBLE,      -- p-value
-    df BIGINT,           -- Degrees of freedom
-    method VARCHAR       -- "Chi-Square Goodness of Fit"
-)
-```
-
-**Example:**
-```sql skip
--- Test if observed frequencies match expected
-SELECT (chisq_gof_agg(observed_count, expected_count)).*
-FROM frequency_data;
-```
-
-#### g_test_agg / anofox_stats_g_test_agg
-
-G-test (log-likelihood ratio test) for contingency tables.
-
-**Signature:**
-```sql skip
-g_test_agg(row_var INTEGER, col_var INTEGER) -> STRUCT
-```
-
-**Returns:**
-```
-STRUCT(
-    statistic DOUBLE,    -- G statistic
-    p_value DOUBLE,      -- p-value
-    df BIGINT,           -- Degrees of freedom
-    method VARCHAR       -- "G-test"
-)
-```
-
-**Example:**
-```sql skip
--- G-test for independence
-SELECT (g_test_agg(category_a, category_b)).*
-FROM contingency_data;
-```
-
-#### fisher_exact_agg / anofox_stats_fisher_exact_agg
-
-Fisher's exact test for 2x2 contingency tables.
-
-**Signature:**
-```sql skip
-fisher_exact_agg(row_var INTEGER, col_var INTEGER, [options MAP]) -> STRUCT
-```
-
-**Options MAP:**
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| alternative | VARCHAR | 'two_sided' | 'two_sided', 'less', 'greater' |
-
-**Returns:**
-```
-STRUCT(
-    odds_ratio DOUBLE,   -- Odds ratio
-    p_value DOUBLE,      -- p-value
-    ci_lower DOUBLE,     -- CI lower bound
-    ci_upper DOUBLE,     -- CI upper bound
-    method VARCHAR       -- "Fisher's Exact Test"
-)
-```
-
-**Example:**
-```sql skip
--- Fisher's exact test for small samples
-SELECT (fisher_exact_agg(treatment, outcome)).*
-FROM small_study;
-```
-
-#### mcnemar_agg / anofox_stats_mcnemar_agg
-
-McNemar's test for paired nominal data.
-
-**Signature:**
-```sql skip
-mcnemar_agg(var1 INTEGER, var2 INTEGER, [options MAP]) -> STRUCT
-```
-
-**Options MAP:**
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| correction | BOOLEAN | true | Apply continuity correction |
-
-**Returns:**
-```
-STRUCT(
-    statistic DOUBLE,    -- Chi-square statistic
-    p_value DOUBLE,      -- p-value
-    df BIGINT,           -- Degrees of freedom
-    method VARCHAR       -- "McNemar's test"
-)
-```
-
-**Example:**
-```sql skip
--- Compare paired binary outcomes (before/after)
-SELECT (mcnemar_agg(before_treatment, after_treatment)).*
-FROM paired_study;
-```
-
-### Effect Size Measures
-
-#### cramers_v_agg / anofox_stats_cramers_v_agg
-
-Cramér's V effect size for categorical association.
-
-**Signature:**
-```sql skip
-cramers_v_agg(row_var INTEGER, col_var INTEGER) -> DOUBLE
-```
-
-**Returns:** Cramér's V coefficient (0 to 1)
-
-**Example:**
-```sql skip
--- Measure association strength
-SELECT cramers_v_agg(category_a, category_b) as effect_size
-FROM survey_data;
-```
-
-#### phi_coefficient_agg / anofox_stats_phi_coefficient_agg
-
-Phi coefficient for 2x2 contingency tables.
-
-**Signature:**
-```sql skip
-phi_coefficient_agg(row_var INTEGER, col_var INTEGER) -> DOUBLE
-```
-
-**Returns:** Phi coefficient (-1 to 1)
-
-**Example:**
-```sql skip
--- Phi coefficient for binary variables
-SELECT phi_coefficient_agg(gender, preference) as phi
-FROM binary_data;
-```
-
-#### contingency_coef_agg / anofox_stats_contingency_coef_agg
-
-Pearson's contingency coefficient.
-
-**Signature:**
-```sql skip
-contingency_coef_agg(row_var INTEGER, col_var INTEGER) -> DOUBLE
-```
-
-**Returns:** Contingency coefficient (0 to 1)
-
-**Example:**
-```sql skip
-SELECT contingency_coef_agg(row_category, col_category) as c_coef
-FROM categorical_data;
-```
-
-#### cohen_kappa_agg / anofox_stats_cohen_kappa_agg
-
-Cohen's kappa for inter-rater agreement.
-
-**Signature:**
-```sql skip
-cohen_kappa_agg(rater1 INTEGER, rater2 INTEGER) -> STRUCT
-```
-
-**Returns:**
-```
-STRUCT(
-    kappa DOUBLE,        -- Kappa coefficient
-    std_error DOUBLE,    -- Standard error
-    z_value DOUBLE,      -- Z statistic
-    p_value DOUBLE,      -- p-value
-    ci_lower DOUBLE,     -- CI lower bound
-    ci_upper DOUBLE,     -- CI upper bound
-    method VARCHAR       -- "Cohen's Kappa"
-)
-```
-
-**Example:**
-```sql skip
--- Measure agreement between two raters
-SELECT (cohen_kappa_agg(rater1_score, rater2_score)).*
-FROM ratings;
-```
-
-### Proportion Tests
-
-#### prop_test_one_agg / anofox_stats_prop_test_one_agg
-
-One-sample proportion test.
-
-**Signature:**
-```sql skip
-prop_test_one_agg(successes INTEGER, trials INTEGER, p0 DOUBLE, [options MAP]) -> STRUCT
-```
-
-**Options MAP:**
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| alternative | VARCHAR | 'two_sided' | 'two_sided', 'less', 'greater' |
-| confidence_level | DOUBLE | 0.95 | Confidence level for CI |
-
-**Returns:**
-```
-STRUCT(
-    statistic DOUBLE,    -- Z statistic
-    p_value DOUBLE,      -- p-value
-    estimate DOUBLE,     -- Sample proportion
-    ci_lower DOUBLE,     -- CI lower bound
-    ci_upper DOUBLE,     -- CI upper bound
-    method VARCHAR       -- "One-sample proportion test"
-)
-```
-
-**Example:**
-```sql skip
--- Test if success rate differs from 50%
-SELECT (prop_test_one_agg(successes, total, 0.5)).*
-FROM experiment_results;
-```
-
-#### prop_test_two_agg / anofox_stats_prop_test_two_agg
-
-Two-sample proportion test.
-
-**Signature:**
-```sql skip
-prop_test_two_agg(successes INTEGER, trials INTEGER, group_id INTEGER, [options MAP]) -> STRUCT
-```
-
-**Returns:**
-```
-STRUCT(
-    statistic DOUBLE,    -- Z statistic
-    p_value DOUBLE,      -- p-value
-    estimate1 DOUBLE,    -- Group 1 proportion
-    estimate2 DOUBLE,    -- Group 2 proportion
-    ci_lower DOUBLE,     -- CI lower bound for difference
-    ci_upper DOUBLE,     -- CI upper bound for difference
-    method VARCHAR       -- "Two-sample proportion test"
-)
-```
-
-**Example:**
-```sql skip
--- Compare conversion rates between groups
-SELECT (prop_test_two_agg(conversions, visitors, ab_group)).*
-FROM ab_test;
-```
-
-#### binom_test_agg / anofox_stats_binom_test_agg
-
-Exact binomial test.
-
-**Signature:**
-```sql skip
-binom_test_agg(successes INTEGER, trials INTEGER, p0 DOUBLE, [options MAP]) -> STRUCT
-```
-
-**Returns:**
-```
-STRUCT(
-    p_value DOUBLE,      -- Exact p-value
-    estimate DOUBLE,     -- Sample proportion
-    ci_lower DOUBLE,     -- CI lower bound (Clopper-Pearson)
-    ci_upper DOUBLE,     -- CI upper bound
-    method VARCHAR       -- "Exact Binomial Test"
-)
-```
-
-**Example:**
-```sql skip
--- Exact test for small samples
-SELECT (binom_test_agg(heads, flips, 0.5)).*
-FROM coin_flip_data;
-```
-
-### Additional Correlation Tests
-
-#### kendall_agg / anofox_stats_kendall_agg
-
-Kendall's tau rank correlation with significance test.
-
-**Signature:**
-```sql skip
-kendall_agg(x DOUBLE, y DOUBLE, [options MAP]) -> STRUCT
-```
-
-**Options MAP:**
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| confidence_level | DOUBLE | 0.95 | Confidence level for CI |
-
-**Returns:**
-```
-STRUCT(
-    tau DOUBLE,          -- Kendall's tau coefficient
-    statistic DOUBLE,    -- Z statistic
-    p_value DOUBLE,      -- p-value
-    n BIGINT,            -- Sample size
-    method VARCHAR       -- "Kendall"
-)
-```
-
-**Example:**
-```sql skip
--- Kendall correlation for ordinal data
-SELECT (kendall_agg(rank_x, rank_y)).*
-FROM ranked_data;
-```
-
-#### distance_cor_agg / anofox_stats_distance_cor_agg
-
-Distance correlation for detecting nonlinear dependencies.
-
-**Signature:**
-```sql skip
-distance_cor_agg(x DOUBLE, y DOUBLE) -> STRUCT
-```
-
-**Returns:**
-```
-STRUCT(
-    dcor DOUBLE,         -- Distance correlation (0 to 1)
-    dcov DOUBLE,         -- Distance covariance
-    dvar_x DOUBLE,       -- Distance variance of x
-    dvar_y DOUBLE,       -- Distance variance of y
-    n BIGINT,            -- Sample size
-    method VARCHAR       -- "Distance Correlation"
-)
-```
-
-**Example:**
-```sql skip
--- Detect nonlinear relationships
-SELECT (distance_cor_agg(x, y)).*
-FROM complex_relationships;
-```
-
-#### icc_agg / anofox_stats_icc_agg
-
-Intraclass correlation coefficient.
-
-**Signature:**
-```sql skip
-icc_agg(value DOUBLE, rater_id INTEGER, subject_id INTEGER, [options MAP]) -> STRUCT
-```
-
-**Returns:**
-```
-STRUCT(
-    icc DOUBLE,          -- ICC value
-    f_value DOUBLE,      -- F statistic
-    df1 BIGINT,          -- Numerator df
-    df2 BIGINT,          -- Denominator df
-    p_value DOUBLE,      -- p-value
-    ci_lower DOUBLE,     -- CI lower bound
-    ci_upper DOUBLE,     -- CI upper bound
-    method VARCHAR       -- "ICC"
-)
-```
-
-**Example:**
-```sql skip
--- Measure reliability across raters
-SELECT (icc_agg(score, rater_id, subject_id)).*
-FROM reliability_study;
-```
-
-### Additional Parametric Tests
-
-#### yuen_agg / anofox_stats_yuen_agg
-
-Yuen's trimmed mean test (robust alternative to t-test).
-
-**Signature:**
-```sql skip
-yuen_agg(value DOUBLE, group_id INTEGER, [options MAP]) -> STRUCT
-```
-
-**Options MAP:**
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| trim | DOUBLE | 0.2 | Proportion to trim from each tail |
-| alternative | VARCHAR | 'two_sided' | 'two_sided', 'less', 'greater' |
-
-**Returns:**
-```
-STRUCT(
-    statistic DOUBLE,    -- Test statistic
-    p_value DOUBLE,      -- p-value
-    df DOUBLE,           -- Degrees of freedom
-    trimmed_mean1 DOUBLE,-- Group 1 trimmed mean
-    trimmed_mean2 DOUBLE,-- Group 2 trimmed mean
-    method VARCHAR       -- "Yuen's Trimmed Mean Test"
-)
-```
-
-**Example:**
-```sql skip
--- Robust comparison with outliers
-SELECT (yuen_agg(score, treatment_group, {'trim': 0.1})).*
-FROM data_with_outliers;
-```
-
-#### brown_forsythe_agg / anofox_stats_brown_forsythe_agg
-
-Brown-Forsythe test for equality of variances.
-
-**Signature:**
-```sql skip
-brown_forsythe_agg(value DOUBLE, group_id INTEGER) -> STRUCT
-```
-
-**Returns:**
-```
-STRUCT(
-    statistic DOUBLE,    -- F statistic
-    p_value DOUBLE,      -- p-value
-    df1 BIGINT,          -- Numerator df
-    df2 BIGINT,          -- Denominator df
-    method VARCHAR       -- "Brown-Forsythe Test"
-)
-```
-
-**Example:**
-```sql skip
--- Test homogeneity of variances
-SELECT (brown_forsythe_agg(measurement, group)).*
-FROM multi_group_data;
-```
-
-### Additional Nonparametric Tests
-
-#### wilcoxon_signed_rank_agg / anofox_stats_wilcoxon_signed_rank_agg
-
-Wilcoxon signed-rank test for paired samples.
-
-**Signature:**
-```sql skip
-wilcoxon_signed_rank_agg(value1 DOUBLE, value2 DOUBLE, [options MAP]) -> STRUCT
-```
-
-**Options MAP:**
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| alternative | VARCHAR | 'two_sided' | 'two_sided', 'less', 'greater' |
-| correction | BOOLEAN | true | Apply continuity correction |
-
-**Returns:**
-```
-STRUCT(
-    statistic DOUBLE,    -- W statistic
-    p_value DOUBLE,      -- p-value
-    n BIGINT,            -- Number of pairs
-    method VARCHAR       -- "Wilcoxon Signed-Rank"
-)
-```
-
-**Example:**
-```sql skip
--- Paired nonparametric test (before/after)
-SELECT (wilcoxon_signed_rank_agg(before, after)).*
-FROM paired_measurements;
-```
-
-#### brunner_munzel_agg / anofox_stats_brunner_munzel_agg
-
-Brunner-Munzel test (generalized Wilcoxon test).
-
-**Signature:**
-```sql skip
-brunner_munzel_agg(value DOUBLE, group_id INTEGER, [options MAP]) -> STRUCT
-```
-
-**Returns:**
-```
-STRUCT(
-    statistic DOUBLE,    -- Test statistic
-    p_value DOUBLE,      -- p-value
-    df DOUBLE,           -- Degrees of freedom
-    estimate DOUBLE,     -- Probability estimate P(X < Y)
-    method VARCHAR       -- "Brunner-Munzel"
-)
-```
-
-**Example:**
-```sql skip
--- Robust rank test
-SELECT (brunner_munzel_agg(outcome, treatment_group)).*
-FROM clinical_trial;
-```
-
-#### permutation_t_test_agg / anofox_stats_permutation_t_test_agg
-
-Permutation t-test (resampling-based).
-
-**Signature:**
-```sql skip
-permutation_t_test_agg(value DOUBLE, group_id INTEGER, [options MAP]) -> STRUCT
-```
-
-**Options MAP:**
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| n_permutations | INTEGER | 10000 | Number of permutations |
-| alternative | VARCHAR | 'two_sided' | 'two_sided', 'less', 'greater' |
-
-**Returns:**
-```
-STRUCT(
-    statistic DOUBLE,    -- t statistic
-    p_value DOUBLE,      -- Permutation p-value
-    n_permutations BIGINT,
-    method VARCHAR       -- "Permutation t-test"
-)
-```
-
-**Example:**
-```sql skip
--- Exact test via permutation
-SELECT (permutation_t_test_agg(score, group, {'n_permutations': 5000})).*
-FROM small_sample_data;
-```
-
-### Normality Tests
-
-#### dagostino_k2_agg / anofox_stats_dagostino_k2_agg
-
-D'Agostino K² test for normality (based on skewness and kurtosis).
-
-**Signature:**
-```sql skip
-dagostino_k2_agg(value DOUBLE) -> STRUCT
-```
-
-**Returns:**
-```
-STRUCT(
-    statistic DOUBLE,    -- K² statistic
-    p_value DOUBLE,      -- p-value
-    skewness DOUBLE,     -- Sample skewness
-    kurtosis DOUBLE,     -- Sample kurtosis
-    n BIGINT,            -- Sample size
-    method VARCHAR       -- "D'Agostino K²"
-)
-```
-
-**Example:**
-```sql skip
--- Test normality using skewness/kurtosis
-SELECT (dagostino_k2_agg(residual)).*
-FROM model_diagnostics;
+| Function | Signature | Options | Returns |
+|----------|-----------|---------|---------|
+| `mann_whitney_u_agg` | `(value DOUBLE, group_id INTEGER [, options])` | `alternative`, `confidence_level`, `continuity_correction` (alias `correction`) | `statistic, p_value, effect_size, ci_lower, ci_upper, n1, n2, method` |
+| `kruskal_wallis_agg` | `(value DOUBLE, group_id INTEGER)` | - | `statistic, p_value, df, n, method` |
+| `wilcoxon_signed_rank_agg` | `(x DOUBLE, y DOUBLE [, options])` | `alternative`, `confidence_level`, `continuity_correction` | `statistic, p_value, ci_lower, ci_upper, n, method` |
+| `brunner_munzel_agg` | `(value DOUBLE, group_id INTEGER [, options])` | `alternative`, `confidence_level` | `statistic, p_value, df, effect_size, ci_lower, ci_upper, n1, n2, method` |
+| `permutation_t_test_agg` **MAP** | `(value DOUBLE, group_id INTEGER [, options])` | `alternative`, `n_permutations` (10000) | `statistic, p_value, n1, n2, method` |
+
+```sql
+SELECT (mann_whitney_u_agg(y, grp2, {'alternative': 'greater'})).p_value AS mw_p,
+       (kruskal_wallis_agg(y, grp3)).p_value AS kw_p,
+       (wilcoxon_signed_rank_agg(y, x1)).p_value AS wsr_p,
+       (brunner_munzel_agg(y, grp2)).p_value AS bm_p,
+       (permutation_t_test_agg(y, grp2, MAP {'n_permutations': 2000})).p_value AS perm_p
+FROM reg_data;
 ```
 
 ### Distribution Comparison
 
-#### energy_distance_agg / anofox_stats_energy_distance_agg
+| Function | Signature | Options | Returns |
+|----------|-----------|---------|---------|
+| `energy_distance_agg` | `(value DOUBLE, group_id INTEGER [, options])` | `n_permutations` (alias `permutations`) | `statistic, p_value, n1, n2, method` |
+| `mmd_agg` | `(value DOUBLE, group_id INTEGER [, options])` | `bandwidth` (alias `sigma`), `n_permutations` | `statistic, p_value, n1, n2, method` |
 
-Energy distance for comparing distributions.
-
-**Signature:**
-```sql skip
-energy_distance_agg(value DOUBLE, group_id INTEGER) -> STRUCT
-```
-
-**Returns:**
-```
-STRUCT(
-    distance DOUBLE,     -- Energy distance
-    statistic DOUBLE,    -- Test statistic
-    p_value DOUBLE,      -- p-value (permutation-based)
-    method VARCHAR       -- "Energy Distance"
-)
-```
-
-**Example:**
-```sql skip
--- Compare two distributions
-SELECT (energy_distance_agg(measurement, group)).*
-FROM two_sample_data;
-```
-
-#### mmd_agg / anofox_stats_mmd_agg
-
-Maximum Mean Discrepancy for distribution comparison.
-
-**Signature:**
-```sql skip
-mmd_agg(value DOUBLE, group_id INTEGER, [options MAP]) -> STRUCT
-```
-
-**Options MAP:**
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| kernel | VARCHAR | 'rbf' | Kernel type: 'rbf', 'linear' |
-| bandwidth | DOUBLE | auto | RBF kernel bandwidth |
-
-**Returns:**
-```
-STRUCT(
-    mmd DOUBLE,          -- MMD value
-    mmd_squared DOUBLE,  -- MMD²
-    p_value DOUBLE,      -- p-value
-    method VARCHAR       -- "MMD"
-)
-```
-
-**Example:**
-```sql skip
--- Two-sample test using kernel methods
-SELECT (mmd_agg(feature, sample_group)).*
-FROM kernel_comparison;
+```sql
+SELECT (energy_distance_agg(y, grp2, {'n_permutations': 199})).p_value AS energy_p,
+       (mmd_agg(y, grp2, {'n_permutations': 199})).p_value AS mmd_p
+FROM reg_data;
 ```
 
 ### Equivalence Tests (TOST)
 
-#### tost_t_test_agg / anofox_stats_tost_t_test_agg
+| Function | Signature | Options | Returns |
+|----------|-----------|---------|---------|
+| `tost_t_test_agg` | `(value DOUBLE, group_id INTEGER [, options])` | `delta` (symmetric bound), `bound_lower`, `bound_upper`, `confidence_level`, `kind` | `t_lower, t_upper, p_lower, p_upper, p_value, df, estimate, ci_lower, ci_upper, bound_lower, bound_upper, equivalent, n, method` |
+| `tost_paired_agg` **MAP** | `(x DOUBLE, y DOUBLE [, options])` | `delta`, `bound_lower` (-0.5), `bound_upper` (0.5), `alpha` (0.05) | `estimate, ci_lower, ci_upper, p_value, equivalent, n, method` |
+| `tost_correlation_agg` **MAP** | `(x DOUBLE, y DOUBLE [, options])` | `rho_null` (0), `delta`, `bound_lower` (-0.1), `bound_upper` (0.1), `alpha`, `method` ('pearson' or 'spearman') | `estimate, ci_lower, ci_upper, p_value, equivalent, n, method` |
 
-Two One-Sided Tests (TOST) for equivalence.
-
-**Signature:**
-```sql skip
-tost_t_test_agg(value DOUBLE, group_id INTEGER, delta DOUBLE, [options MAP]) -> STRUCT
+```sql
+SELECT (tost_t_test_agg(y, grp2, {'delta': 2.0})).equivalent AS equivalent_means,
+       (tost_paired_agg(y, x1, MAP {'delta': 5.0})).p_value AS paired_p,
+       (tost_correlation_agg(x1, y, MAP {'delta': 0.3})).equivalent AS equivalent_corr
+FROM reg_data;
 ```
 
-**Parameters:**
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| delta | DOUBLE | Equivalence margin (symmetric bounds) |
+### Forecast Comparison
 
-**Returns:**
-```
-STRUCT(
-    p_value DOUBLE,      -- TOST p-value (max of two one-sided)
-    ci_lower DOUBLE,     -- 90% CI lower bound
-    ci_upper DOUBLE,     -- 90% CI upper bound
-    equivalent BOOLEAN,  -- True if equivalence established
-    method VARCHAR       -- "TOST t-test"
-)
+| Function | Signature | Options | Returns |
+|----------|-----------|---------|---------|
+| `diebold_mariano_agg` **MAP** | `(actual DOUBLE, forecast1 DOUBLE, forecast2 DOUBLE [, options])` | `loss` (squared; `'absolute'`), `horizon` (1), `var_estimator` (`'bartlett'`), `alternative` | `statistic, p_value, n, method` |
+| `clark_west_agg` **MAP** | `(actual DOUBLE, forecast_restricted DOUBLE, forecast_unrestricted DOUBLE [, options])` | `horizon` (1) | `statistic, p_value, n, method` |
+
+```sql
+SELECT (diebold_mariano_agg(y, y + sin(id), y + 2 * cos(id))).p_value AS dm_p,
+       (clark_west_agg(y, y + sin(id), y + 0.5 * cos(id))).p_value AS cw_p
+FROM reg_data;
 ```
 
-**Example:**
-```sql skip
--- Test equivalence within ±0.5
-SELECT (tost_t_test_agg(outcome, treatment_group, 0.5)).*
-FROM bioequivalence_study;
+### Correlation Tests
+
+| Function | Signature | Options | Returns |
+|----------|-----------|---------|---------|
+| `pearson_agg` | `(x DOUBLE, y DOUBLE [, options])` | `confidence_level` (0.95) | `r, statistic, p_value, ci_lower, ci_upper, n, method` |
+| `spearman_agg` | `(x DOUBLE, y DOUBLE [, options])` | `confidence_level` | `r, statistic, p_value, ci_lower, ci_upper, n, method` |
+| `kendall_agg` | `(x DOUBLE, y DOUBLE [, options])` | `confidence_level`, `variant` ('tau_a', 'tau_b', 'tau_c') | `tau, statistic, p_value, ci_lower, ci_upper, n, method` |
+| `distance_cor_agg` **MAP** | `(x DOUBLE, y DOUBLE [, options])` | `n_permutations` (1000) | `dcor, statistic, p_value, n, method` |
+| `icc_agg` **MAP** | `(value DOUBLE, subject_id BIGINT, rater_id BIGINT [, options])` | `type` ('single' or 'average') | `icc, f_statistic, ci_lower, ci_upper, n_subjects, n_raters, method` |
+
+```sql
+SELECT (pearson_agg(x1, y)).r AS pearson_r,
+       (spearman_agg(x1, y, {'confidence_level': 0.99})).ci_lower AS spearman_ci_lower,
+       (kendall_agg(x1, y)).tau AS kendall_tau,
+       (distance_cor_agg(x1, y, MAP {'n_permutations': 199})).dcor AS dcor
+FROM reg_data;
+
+-- ICC: 10 subjects rated by 3 raters
+SELECT (icc_agg(score, subject, rater)).icc AS icc
+FROM (
+    SELECT s::BIGINT AS subject, r::BIGINT AS rater, s * 1.0 + r * 0.2 + sin(s * r) AS score
+    FROM range(1, 11) a(s), range(1, 4) b(r)
+);
 ```
 
-#### tost_paired_agg / anofox_stats_tost_paired_agg
+### Categorical Tests
 
-TOST for paired samples.
+| Function | Signature | Options | Returns |
+|----------|-----------|---------|---------|
+| `chisq_test_agg` | `(row_var INTEGER, col_var INTEGER [, options])` | `continuity_correction` (aliases `correction`, `yates`) | `statistic, p_value, df, method` |
+| `chisq_gof_agg` | `(observed BIGINT, expected_prob DOUBLE)` | - | `statistic, p_value, df, method` |
+| `g_test_agg` | `(row_var BIGINT, col_var BIGINT)` | - | `statistic, p_value, df, method` |
+| `fisher_exact_agg` | `(row_var INTEGER, col_var INTEGER [, options])` | `alternative` | `statistic, p_value, odds_ratio, ci_lower, ci_upper, n, method` |
+| `mcnemar_agg` **MAP** | `(var1 BIGINT, var2 BIGINT [, options])` | `correction` (true) | `statistic, p_value, df, method` |
 
-**Signature:**
-```sql skip
-tost_paired_agg(value1 DOUBLE, value2 DOUBLE, delta DOUBLE, [options MAP]) -> STRUCT
+```sql
+SELECT (chisq_test_agg(grp2, grp3)).p_value AS chisq_p,
+       (g_test_agg(grp2::BIGINT, grp3::BIGINT)).p_value AS g_p,
+       (fisher_exact_agg(grp2, (y_binary)::INTEGER)).odds_ratio AS odds_ratio,
+       (mcnemar_agg(grp2::BIGINT, y_binary::BIGINT)).p_value AS mcnemar_p
+FROM reg_data;
+
+-- Goodness of fit: observed counts against expected proportions
+SELECT unnest(chisq_gof_agg(observed, expected_prob))
+FROM (VALUES (18::BIGINT, 0.25), (22::BIGINT, 0.25), (31::BIGINT, 0.25), (29::BIGINT, 0.25)) AS v(observed, expected_prob);
 ```
 
-**Returns:** Same structure as tost_t_test_agg
+### Effect Sizes
 
-**Example:**
-```sql skip
--- Paired equivalence test
-SELECT (tost_paired_agg(method_a, method_b, 0.1)).*
-FROM method_comparison;
+| Function | Signature | Options | Returns |
+|----------|-----------|---------|---------|
+| `cramers_v_agg` | `(row_var BIGINT, col_var BIGINT)` | - | `DOUBLE` (0 to 1) |
+| `phi_coefficient_agg` | `(row_var BIGINT, col_var BIGINT)` | - | `DOUBLE` (-1 to 1) |
+| `contingency_coef_agg` | `(row_var BIGINT, col_var BIGINT)` | - | `DOUBLE` |
+| `cohen_kappa_agg` **MAP** | `(rater1 BIGINT, rater2 BIGINT [, options])` | `weighted` (false) | `kappa, se, ci_lower, ci_upper, z, p_value` |
+
+```sql
+SELECT cramers_v_agg(grp2::BIGINT, grp3::BIGINT) AS cramers_v,
+       phi_coefficient_agg(grp2::BIGINT, y_binary::BIGINT) AS phi,
+       contingency_coef_agg(grp2::BIGINT, grp3::BIGINT) AS contingency,
+       (cohen_kappa_agg(grp3::BIGINT, ((id + id % 2) % 3)::BIGINT)).kappa AS kappa
+FROM reg_data;
 ```
 
-#### tost_correlation_agg / anofox_stats_tost_correlation_agg
+### Proportion Tests
 
-TOST for testing correlation equivalence to a reference value.
+The input is a 0/1 success indicator, one row per trial.
 
-**Signature:**
-```sql skip
-tost_correlation_agg(x DOUBLE, y DOUBLE, rho0 DOUBLE, delta DOUBLE) -> STRUCT
+| Function | Signature | Options | Returns |
+|----------|-----------|---------|---------|
+| `prop_test_one_agg` **MAP** | `(value BIGINT [, options])` | `p0` (alias `p`; 0.5), `alternative` | `statistic, p_value, estimate, ci_lower, ci_upper, n, method` |
+| `prop_test_two_agg` **MAP** | `(value BIGINT, group_id BIGINT [, options])` | `alternative`, `correction` (true) | `statistic, p_value, estimate, ci_lower, ci_upper, n, method` |
+| `binom_test_agg` **MAP** | `(value BIGINT [, options])` | `p0` (alias `p`; 0.5), `alternative` | `statistic, p_value, estimate, ci_lower, ci_upper, n, method` |
+
+```sql
+SELECT (prop_test_one_agg(y_binary::BIGINT, MAP {'p0': 0.4})).p_value AS prop_p,
+       (prop_test_two_agg(y_binary::BIGINT, grp2::BIGINT)).p_value AS prop2_p,
+       (binom_test_agg(y_binary::BIGINT)).estimate AS share
+FROM reg_data;
 ```
-
-**Parameters:**
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| rho0 | DOUBLE | Reference correlation (typically 0) |
-| delta | DOUBLE | Equivalence margin around rho0 |
-
-**Returns:**
-```
-STRUCT(
-    r DOUBLE,            -- Sample correlation
-    p_value DOUBLE,      -- TOST p-value
-    ci_lower DOUBLE,     -- CI lower bound
-    ci_upper DOUBLE,     -- CI upper bound
-    equivalent BOOLEAN,  -- True if equivalence established
-    method VARCHAR       -- "TOST Correlation"
-)
-```
-
-**Example:**
-```sql skip
--- Test if correlation is equivalent to zero (negligible relationship)
-SELECT (tost_correlation_agg(x, y, 0.0, 0.1)).*
-FROM correlation_study;
-```
-
-### Forecast Evaluation
-
-#### diebold_mariano_agg / anofox_stats_diebold_mariano_agg
-
-Diebold-Mariano test for comparing forecast accuracy.
-
-**Signature:**
-```sql skip
-diebold_mariano_agg(actual DOUBLE, forecast1 DOUBLE, forecast2 DOUBLE, [options MAP]) -> STRUCT
-```
-
-**Options MAP:**
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| loss | VARCHAR | 'mse' | Loss function: 'mse', 'mae', 'mape' |
-| alternative | VARCHAR | 'two_sided' | 'two_sided', 'less', 'greater' |
-
-**Returns:**
-```
-STRUCT(
-    statistic DOUBLE,    -- DM statistic
-    p_value DOUBLE,      -- p-value
-    loss1 DOUBLE,        -- Mean loss for forecast 1
-    loss2 DOUBLE,        -- Mean loss for forecast 2
-    method VARCHAR       -- "Diebold-Mariano"
-)
-```
-
-**Example:**
-```sql skip
--- Compare two forecasting models
-SELECT (diebold_mariano_agg(actual, model1_pred, model2_pred)).*
-FROM forecast_comparison;
-```
-
-#### clark_west_agg / anofox_stats_clark_west_agg
-
-Clark-West test for nested model comparison.
-
-**Signature:**
-```sql skip
-clark_west_agg(actual DOUBLE, forecast1 DOUBLE, forecast2 DOUBLE) -> STRUCT
-```
-
-**Returns:**
-```
-STRUCT(
-    statistic DOUBLE,    -- CW statistic
-    p_value DOUBLE,      -- p-value
-    mspe_adj DOUBLE,     -- Adjusted MSPE difference
-    method VARCHAR       -- "Clark-West"
-)
-```
-
-**Example:**
-```sql skip
--- Compare nested forecasting models
-SELECT (clark_west_agg(actual, restricted_model, unrestricted_model)).*
-FROM nested_model_comparison;
-```
-
-### Statistical Test Aliases
-
-| Full Name | Short Alias |
-|-----------|-------------|
-| anofox_stats_shapiro_wilk_agg | shapiro_wilk_agg |
-| anofox_stats_jarque_bera_agg | jarque_bera_agg |
-| anofox_stats_dagostino_k2_agg | dagostino_k2_agg |
-| anofox_stats_t_test_agg | t_test_agg |
-| anofox_stats_one_way_anova_agg | one_way_anova_agg |
-| anofox_stats_yuen_agg | yuen_agg |
-| anofox_stats_brown_forsythe_agg | brown_forsythe_agg |
-| anofox_stats_mann_whitney_u_agg | mann_whitney_u_agg |
-| anofox_stats_kruskal_wallis_agg | kruskal_wallis_agg |
-| anofox_stats_wilcoxon_signed_rank_agg | wilcoxon_signed_rank_agg |
-| anofox_stats_brunner_munzel_agg | brunner_munzel_agg |
-| anofox_stats_permutation_t_test_agg | permutation_t_test_agg |
-| anofox_stats_pearson_agg | pearson_agg |
-| anofox_stats_spearman_agg | spearman_agg |
-| anofox_stats_kendall_agg | kendall_agg |
-| anofox_stats_distance_cor_agg | distance_cor_agg |
-| anofox_stats_icc_agg | icc_agg |
-| anofox_stats_chisq_test_agg | chisq_test_agg |
-| anofox_stats_chisq_gof_agg | chisq_gof_agg |
-| anofox_stats_g_test_agg | g_test_agg |
-| anofox_stats_fisher_exact_agg | fisher_exact_agg |
-| anofox_stats_mcnemar_agg | mcnemar_agg |
-| anofox_stats_cramers_v_agg | cramers_v_agg |
-| anofox_stats_phi_coefficient_agg | phi_coefficient_agg |
-| anofox_stats_contingency_coef_agg | contingency_coef_agg |
-| anofox_stats_cohen_kappa_agg | cohen_kappa_agg |
-| anofox_stats_prop_test_one_agg | prop_test_one_agg |
-| anofox_stats_prop_test_two_agg | prop_test_two_agg |
-| anofox_stats_binom_test_agg | binom_test_agg |
-| anofox_stats_tost_t_test_agg | tost_t_test_agg |
-| anofox_stats_tost_paired_agg | tost_paired_agg |
-| anofox_stats_tost_correlation_agg | tost_correlation_agg |
-| anofox_stats_energy_distance_agg | energy_distance_agg |
-| anofox_stats_mmd_agg | mmd_agg |
-| anofox_stats_diebold_mariano_agg | diebold_mariano_agg |
-| anofox_stats_clark_west_agg | clark_west_agg |
 
 ---
 
 ## Fit-Predict Window Functions
 
-Window-based aggregate functions that fit a model incrementally and predict for each row. Use with `OVER` clause for rolling/expanding window regression.
+Eight window aggregates fit a model over the window frame and return a
+prediction for the current row:
 
-### anofox_stats_ols_fit_predict / ols_fit_predict
-OLS regression with per-row predictions using window semantics.
-
-**Signature:**
-```sql skip
-anofox_stats_ols_fit_predict(
-    y DOUBLE,
-    x LIST(DOUBLE),
-    [options MAP]
-) OVER (window_spec) -> STRUCT
-```
-
-**Options MAP:**
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| fit_intercept | BOOLEAN | true | Include intercept term |
-| confidence_level | DOUBLE | 0.95 | Prediction interval confidence |
-| null_policy | VARCHAR | 'drop' | NULL handling: 'drop' or 'drop_y_zero_x' |
-
-**Returns:**
-```
-STRUCT(
-    yhat DOUBLE,        -- Predicted value
-    yhat_lower DOUBLE,  -- Lower prediction interval bound
-    yhat_upper DOUBLE   -- Upper prediction interval bound
-)
-```
-
-**Example:**
-```sql skip
--- Expanding window: train on all previous rows, predict current
-SELECT
-    date,
-    y,
-    pred.yhat,
-    pred.yhat_lower,
-    pred.yhat_upper
-FROM (
-    SELECT
-        date, y,
-        ols_fit_predict(y, [x1, x2]) OVER (
-            ORDER BY date
-            ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
-        ) as pred
-    FROM time_series
-);
-
--- Rolling 30-day window
-SELECT
-    date,
-    ols_fit_predict(y, [x]) OVER (
-        ORDER BY date
-        ROWS BETWEEN 29 PRECEDING AND CURRENT ROW
-    ) as pred
-FROM daily_data;
-
--- Per-group expanding regression
-SELECT
-    category,
-    date,
-    ols_fit_predict(y, [x], {'confidence_level': 0.99}) OVER (
-        PARTITION BY category
-        ORDER BY date
-    ) as pred
-FROM grouped_data;
-```
-
-### anofox_stats_ridge_fit_predict / ridge_fit_predict
-Ridge regression with per-row predictions.
-
-**Additional Options:**
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| alpha | DOUBLE | 1.0 | L2 regularization strength |
+`ols_fit_predict`, `ridge_fit_predict`, `elasticnet_fit_predict`,
+`wls_fit_predict`, `rls_fit_predict`, `huber_fit_predict`,
+`ransac_fit_predict`, `theil_sen_fit_predict`.
 
 ```sql skip
-SELECT ridge_fit_predict(y, [x], {'alpha': 0.5}) OVER (ORDER BY date) FROM data;
+<method>_fit_predict(y DOUBLE, x LIST(DOUBLE) [, options]) OVER (window) -> STRUCT
+wls_fit_predict(y DOUBLE, x LIST(DOUBLE), weight DOUBLE [, options]) OVER (window) -> STRUCT
 ```
 
-### anofox_stats_wls_fit_predict / wls_fit_predict
-Weighted Least Squares with per-row predictions.
+**Returns:** `STRUCT(yhat DOUBLE, yhat_lower DOUBLE, yhat_upper DOUBLE)`. The
+result is `NULL` while the frame holds too few training rows.
 
-**Signature:**
-```sql skip
-wls_fit_predict(y DOUBLE, x LIST(DOUBLE), weight DOUBLE, [options MAP]) OVER (...)
+**Semantics.** The model is fitted on the rows of the window frame and the
+prediction is made for the **last row of the frame**. Use these functions for
+rolling or expanding in-sample fits whose frame ends at `CURRENT ROW` over a
+unique ordering, for example
+`OVER (ORDER BY t ROWS BETWEEN 29 PRECEDING AND CURRENT ROW)`.
+
+Not supported (the result is not a prediction for the current row):
+
+- frames that end before the current row, such as `... AND 1 PRECEDING`;
+- `OVER (PARTITION BY g)` without `ORDER BY`, where every row gets the same prediction;
+- `RANGE` frames over an ordering with ties.
+
+For a prediction for every row of a group, use the
+[fit-predict aggregates](#fit-predict-aggregate-functions) or
+[table macros](#fit-predict-table-macros) instead.
+
+**Options:** the method's own options (see its section above) plus
+`confidence_level` (0.95, prediction interval level) and
+[`null_policy`](#null_policy).
+
+See [window functions](api/regression/fit_predict_window.md) for details.
+
+```sql
+-- Rolling 30-row in-sample fit
+SELECT id, y,
+       round((ols_fit_predict(y, [x1, x2]) OVER (
+           ORDER BY id ROWS BETWEEN 29 PRECEDING AND CURRENT ROW
+       )).yhat, 3) AS yhat
+FROM reg_data
+ORDER BY id
+LIMIT 8;
+
+-- Rolling 20-row window, per category, with a robust method
+SELECT category, id,
+       (huber_fit_predict(y, [x1, x2]) OVER (
+           PARTITION BY category ORDER BY id ROWS BETWEEN 19 PRECEDING AND CURRENT ROW
+       )).yhat AS yhat
+FROM reg_data
+ORDER BY category, id
+LIMIT 5;
+
+-- Weighted variant, expanding window ending at the current row
+SELECT id, (wls_fit_predict(y, [x1], weight) OVER (
+           ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+       )).yhat AS yhat
+FROM reg_data
+ORDER BY id
+LIMIT 5;
 ```
 
-```sql skip
-SELECT wls_fit_predict(y, [x], weight) OVER (ORDER BY date) FROM data;
+**One-step-ahead forecasts.** To predict each row from a model trained only on
+earlier rows, fit with `ols_fit_agg` over a frame ending at `1 PRECEDING` and
+evaluate the fitted model on the current row with the model-aware
+[`predict(model, x)`](#predict). While the frame is too small to fit, the model
+and the prediction are NULL.
+
+```sql
+SELECT id, y,
+       round(predict((ols_fit_agg(y, [x1, x2]) OVER (
+           ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+       )), [x1, x2]), 3) AS yhat_next
+FROM reg_data
+ORDER BY id
+LIMIT 8;
 ```
 
-### anofox_stats_rls_fit_predict / rls_fit_predict
-Recursive Least Squares with per-row predictions.
-
-**Additional Options:**
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| forgetting_factor | DOUBLE | 1.0 | Exponential forgetting (0.95-1.0) |
-| initial_p_diagonal | DOUBLE | 100.0 | Initial covariance diagonal |
-
-```sql skip
-SELECT rls_fit_predict(y, [x], {'forgetting_factor': 0.99}) OVER (ORDER BY date) FROM data;
-```
-
-### anofox_stats_elasticnet_fit_predict / elasticnet_fit_predict
-Elastic Net with per-row predictions.
-
-**Additional Options:**
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| alpha | DOUBLE | 1.0 | Regularization strength |
-| l1_ratio | DOUBLE | 0.5 | L1 ratio (0=Ridge, 1=Lasso) |
-| max_iterations | INTEGER | 1000 | Max iterations |
-| tolerance | DOUBLE | 1e-6 | Convergence tolerance |
-
-```sql skip
-SELECT elasticnet_fit_predict(y, [x], {'alpha': 0.1, 'l1_ratio': 0.7}) OVER (ORDER BY date) FROM data;
-```
+**Prediction intervals.** `yhat_lower`/`yhat_upper` are leverage-aware
+prediction intervals for the frame's last row (see
+[Methodology](METHODOLOGY.md#prediction-intervals)); they are NULL when no
+interval exists (zero residual degrees of freedom, singular design).
 
 ---
 
 ## Fit-Predict Aggregate Functions
 
-Non-rolling aggregate functions that fit a model once on training data (rows where y IS NOT NULL) and return predictions for ALL rows including out-of-sample predictions.
+These aggregates fit once on the training rows and return a prediction for
+**every** row, including rows whose `y` is `NULL` (out-of-sample rows):
 
-> **Deprecation Notice:** The old `*_predict_agg` names (`ols_predict_agg`, `ridge_predict_agg`, etc.) are deprecated
-> but still work for backwards compatibility. Use `*_fit_predict_agg` instead.
+`ols_fit_predict_agg`, `ridge_fit_predict_agg`, `elasticnet_fit_predict_agg`,
+`wls_fit_predict_agg`, `rls_fit_predict_agg`, `huber_fit_predict_agg`,
+`ransac_fit_predict_agg`, `theil_sen_fit_predict_agg`, `bls_fit_predict_agg`,
+`alm_fit_predict_agg`, `poisson_fit_predict_agg`, `pls_fit_predict_agg`,
+`isotonic_fit_predict_agg`, `quantile_fit_predict_agg`.
 
-### anofox_stats_ols_fit_predict_agg / ols_fit_predict_agg
-Fit OLS on training rows, predict all rows.
-
-**Signature:**
 ```sql skip
-anofox_stats_ols_fit_predict_agg(
-    y DOUBLE,
-    x LIST(DOUBLE),
-    [options MAP]
-) -> LIST(STRUCT)
+<method>_fit_predict_agg(y DOUBLE, x LIST(DOUBLE) [, split_col VARCHAR] [, options]) -> LIST(STRUCT)
+wls_fit_predict_agg(y DOUBLE, x LIST(DOUBLE), weights DOUBLE [, split_col VARCHAR] [, options]) -> LIST(STRUCT)
+isotonic_fit_predict_agg(y DOUBLE, x DOUBLE [, split_col VARCHAR] [, options]) -> LIST(STRUCT)
 ```
 
-**Options MAP:**
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| fit_intercept | BOOLEAN | true | Include intercept term |
-| confidence_level | DOUBLE | 0.95 | Prediction interval confidence |
-| null_policy | VARCHAR | 'drop' | NULL handling: 'drop' or 'drop_y_zero_x' |
+**Training rows.** By default a row trains the model when `y` is not `NULL`.
+With `split_col`, a row trains only when its split value is `'train'` or
+`'training'` (case-insensitive) and `y` is not `NULL`; every other row is
+predicted.
 
-**Returns:**
-```
-LIST(STRUCT(
-    y DOUBLE,           -- Original y value (NULL for out-of-sample)
-    x LIST(DOUBLE),     -- Original x values
-    yhat DOUBLE,        -- Predicted value
-    yhat_lower DOUBLE,  -- Lower prediction interval bound
-    yhat_upper DOUBLE,  -- Upper prediction interval bound
-    is_training BOOLEAN -- True if row was used for training
-))
-```
+**Returns:** one struct per input row, in input order:
 
-**Example:**
+| Function group | Struct fields |
+|----------------|---------------|
+| ols, ridge, elasticnet, wls, rls, huber, ransac, theil_sen, bls, alm, poisson | `y, yhat, yhat_lower, yhat_upper, is_training` |
+| pls, isotonic, quantile | `y, yhat, is_training` |
+
+**Options:** the method's options from its section above, plus
+`confidence_level` (0.95) and [`null_policy`](#null_policy) where intervals are
+produced. PLS takes `n_components` and `fit_intercept`; isotonic takes
+`increasing`; quantile takes `tau` and `fit_intercept`.
+
+See [fit-predict aggregates](api/regression/fit_predict_agg.md) for details.
+
 ```sql
--- Basic usage: fit on rows where y IS NOT NULL, predict all
-CREATE OR REPLACE TABLE data AS
-SELECT
-    CASE WHEN i <= 80 THEN i * 2.0 ELSE NULL END as y,
-    i::DOUBLE as x,
-    i as id
-FROM range(1, 101) t(i);
-
--- Get predictions with training indicator
-SELECT
-    (p).y as original_y,
-    (p).yhat as predicted,
-    (p).is_training
+-- Hold out the last 10 rows by nulling y; they still get predictions
+SELECT (p).y, round((p).yhat, 3) AS yhat, (p).is_training
 FROM (
-    SELECT UNNEST(ols_fit_predict_agg(y, [x])) AS p
-    FROM data
+    SELECT unnest(ols_fit_predict_agg(CASE WHEN id <= 50 THEN y END, [x1, x2])) AS p
+    FROM reg_data
+)
+WHERE NOT (p).is_training;
+
+-- Explicit split column
+SELECT count(*) FILTER (WHERE (p).is_training) AS n_train,
+       count(*) FILTER (WHERE NOT (p).is_training) AS n_predicted
+FROM (
+    SELECT unnest(ridge_fit_predict_agg(y, [x1, x2], CASE WHEN id % 4 = 0 THEN 'test' ELSE 'train' END,
+                                        {'alpha': 0.5})) AS p
+    FROM reg_data
 );
-```
 
-```sql skip
--- Per-group predictions (illustrative — requires a sales_data table with segment, y, x1, x2 columns)
-SELECT
-    segment,
-    UNNEST(ols_fit_predict_agg(y, [x1, x2], {'confidence_level': 0.99})) AS pred
-FROM sales_data
-GROUP BY segment;
-```
+-- Per group, with other methods
+SELECT category, unnest(poisson_fit_predict_agg(y_count, [x1, x2])) AS p
+FROM reg_data
+GROUP BY category
+LIMIT 3;
 
-### anofox_stats_ridge_fit_predict_agg / ridge_fit_predict_agg
-Ridge regression fit-predict aggregate.
-
-**Additional Options:**
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| alpha | DOUBLE | 1.0 | L2 regularization strength |
-
-```sql skip
-SELECT UNNEST(ridge_fit_predict_agg(y, [x], {'alpha': 0.5})) FROM data;
-```
-
-### anofox_stats_wls_fit_predict_agg / wls_fit_predict_agg
-Weighted Least Squares fit-predict aggregate.
-
-**Signature:**
-```sql skip
-wls_fit_predict_agg(y DOUBLE, x LIST(DOUBLE), weight DOUBLE, [options MAP]) -> LIST(STRUCT)
-```
-
-```sql skip
-SELECT UNNEST(wls_fit_predict_agg(y, [x], weight)) FROM data;
-```
-
-### anofox_stats_rls_fit_predict_agg / rls_fit_predict_agg
-Recursive Least Squares fit-predict aggregate.
-
-**Additional Options:**
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| forgetting_factor | DOUBLE | 1.0 | Exponential forgetting |
-| initial_p_diagonal | DOUBLE | 100.0 | Initial covariance diagonal |
-
-```sql skip
-SELECT UNNEST(rls_fit_predict_agg(y, [x], {'forgetting_factor': 0.99})) FROM data;
-```
-
-### anofox_stats_elasticnet_fit_predict_agg / elasticnet_fit_predict_agg
-Elastic Net fit-predict aggregate.
-
-**Additional Options:**
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| alpha | DOUBLE | 1.0 | Regularization strength |
-| l1_ratio | DOUBLE | 0.5 | L1 ratio (0=Ridge, 1=Lasso) |
-| max_iterations | INTEGER | 1000 | Max iterations |
-| tolerance | DOUBLE | 1e-6 | Convergence tolerance |
-
-```sql skip
-SELECT UNNEST(elasticnet_fit_predict_agg(y, [x], {'alpha': 0.1, 'l1_ratio': 0.5})) FROM data;
-```
-
-### anofox_stats_bls_fit_predict_agg / bls_fit_predict_agg
-Bounded Least Squares (BLS/NNLS) fit-predict aggregate with coefficient constraints.
-
-**Signature:**
-```sql skip
-bls_fit_predict_agg(y DOUBLE, x LIST(DOUBLE), [options MAP]) -> LIST(STRUCT)
-```
-
-**Options MAP:**
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| lower_bound | DOUBLE | 0.0 | Lower bound for coefficients |
-| upper_bound | DOUBLE | +inf | Upper bound for coefficients |
-| intercept | BOOLEAN | false | Include intercept term |
-| max_iterations | INTEGER | 1000 | Maximum iterations |
-| tolerance | DOUBLE | 1e-6 | Convergence tolerance |
-| confidence_level | DOUBLE | 0.95 | Prediction interval confidence |
-| null_policy | VARCHAR | 'drop' | NULL handling: 'drop' or 'drop_y_zero_x' |
-
-**Example:**
-```sql
--- NNLS (Non-Negative Least Squares) with out-of-sample predictions
-CREATE TABLE bounded_data AS
-SELECT
-    group_id, week, x,
-    CASE WHEN week <= 10 THEN 5.0 + 2.0*x + RANDOM() ELSE NULL END AS y
-FROM (VALUES (1), (2)) AS g(group_id),
-     generate_series(1, 14) AS w(week),
-     LATERAL (SELECT week * 1.5 AS x);
-
-SELECT
-    group_id,
-    (pred).y AS actual,
-    ROUND((pred).yhat, 2) AS predicted,
-    (pred).is_training
-FROM (
-    SELECT group_id, UNNEST(bls_fit_predict_agg(y, [x], {'lower_bound': 0})) AS pred
-    FROM bounded_data GROUP BY group_id
-) sub;
-```
-
-### anofox_stats_alm_fit_predict_agg / alm_fit_predict_agg
-Augmented Linear Model fit-predict aggregate with robust error distributions.
-
-**Signature:**
-```sql skip
-alm_fit_predict_agg(y DOUBLE, x LIST(DOUBLE), [options MAP]) -> LIST(STRUCT)
-```
-
-**Options MAP:**
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| distribution | VARCHAR | 'normal' | Error distribution (see below) |
-| intercept | BOOLEAN | true | Include intercept term |
-| max_iterations | INTEGER | 1000 | Maximum iterations |
-| tolerance | DOUBLE | 1e-6 | Convergence tolerance |
-| confidence_level | DOUBLE | 0.95 | Prediction interval confidence |
-| null_policy | VARCHAR | 'drop' | NULL handling: 'drop' or 'drop_y_zero_x' |
-
-**Distributions:**
-`normal`, `laplace`, `studentt`, `cauchy`, `huber`, `tukey`, `quantile`, `expectile`, `trimmed`, `winsorized`
-
-**Example:**
-```sql
--- Robust regression with Laplace distribution (robust to outliers)
-CREATE TABLE robust_data AS
-SELECT
-    group_id, x,
-    CASE WHEN id <= 10 THEN
-        CASE WHEN id = 5 THEN 100.0  -- Outlier
-             ELSE 10.0 + 3.0*x + RANDOM()
-        END
-    ELSE NULL END AS y
-FROM (VALUES (1), (2)) AS g(group_id),
-     generate_series(1, 14) AS t(id),
-     LATERAL (SELECT id * 2.0 AS x);
-
-SELECT
-    group_id,
-    ROUND((pred).yhat, 2) AS predicted,
-    (pred).is_training
-FROM (
-    SELECT group_id, UNNEST(alm_fit_predict_agg(y, [x], {'distribution': 'laplace'})) AS pred
-    FROM robust_data GROUP BY group_id
-) sub;
-```
-
-### anofox_stats_poisson_fit_predict_agg / poisson_fit_predict_agg
-Poisson GLM fit-predict aggregate for count data.
-
-**Signature:**
-```sql skip
-poisson_fit_predict_agg(y DOUBLE, x LIST(DOUBLE), [options MAP]) -> LIST(STRUCT)
-```
-
-**Options MAP:**
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| link | VARCHAR | 'log' | Link function: 'log', 'identity', 'sqrt' |
-| intercept | BOOLEAN | true | Include intercept term |
-| max_iterations | INTEGER | 100 | Maximum IRLS iterations |
-| tolerance | DOUBLE | 1e-8 | Convergence tolerance |
-| confidence_level | DOUBLE | 0.95 | Prediction interval confidence |
-| null_policy | VARCHAR | 'drop' | NULL handling: 'drop' or 'drop_y_zero_x' |
-
-**Example:**
-```sql
--- Poisson regression for visitor count prediction
-CREATE TABLE visitor_data AS
-SELECT
-    store_id, week, marketing_spend,
-    CASE WHEN week <= 10 THEN
-        ROUND(EXP(2.0 + 0.05*marketing_spend) + RANDOM()*5)::INTEGER
-    ELSE NULL END AS visitors
-FROM (VALUES (1), (2), (3)) AS s(store_id),
-     generate_series(1, 14) AS w(week),
-     LATERAL (SELECT 20.0 + week*5.0 AS marketing_spend);
-
-SELECT
-    store_id,
-    (pred).y AS actual_visitors,
-    ROUND((pred).yhat) AS predicted_visitors,
-    (pred).is_training
-FROM (
-    SELECT store_id, UNNEST(poisson_fit_predict_agg(visitors, [marketing_spend], {'link': 'log'})) AS pred
-    FROM visitor_data GROUP BY store_id
-) sub
-WHERE store_id = 1;
+SELECT unnest(bls_fit_predict_agg(y, [x1, x3], {'lower_bound': 0.0})) AS p FROM reg_data LIMIT 2;
+SELECT unnest(alm_fit_predict_agg(y, [x1, x2], {'distribution': 'laplace'})) AS p FROM reg_data LIMIT 2;
+SELECT unnest(isotonic_fit_predict_agg(y, x1)) AS p FROM reg_data LIMIT 2;
+SELECT unnest(pls_fit_predict_agg(y, [x1, x2, x3], {'n_components': 2})) AS p FROM reg_data LIMIT 2;
 ```
 
 ---
 
 ## Fit-Predict Table Macros
 
-Table macros that wrap `*_fit_predict_agg` functions for easy per-group regression with long-format output. All source columns are **passed through** to the output, so you retain the original data alongside predictions.
+Table macros wrap the fit-predict aggregates for per-group fitting. All source
+columns are passed through and prediction columns are appended.
 
-All table macros accept an optional `options` MAP parameter to configure method-specific settings. When not provided, defaults are used.
+| Macro | Signature | Appended columns |
+|-------|-----------|------------------|
+| `ols_fit_predict_by`, `ridge_fit_predict_by`, `elasticnet_fit_predict_by`, `rls_fit_predict_by`, `huber_fit_predict_by`, `ransac_fit_predict_by`, `theil_sen_fit_predict_by`, `bls_fit_predict_by`, `alm_fit_predict_by`, `poisson_fit_predict_by` | `(source, group_col, y_col, x_cols [, options] [, split] [, order_by])` | `yhat, yhat_lower, yhat_upper, is_training` |
+| `wls_fit_predict_by` | `(source, group_col, y_col, x_cols, weight_col [, options] [, split] [, order_by])` | `yhat, yhat_lower, yhat_upper, is_training` |
+| `pls_fit_predict_by`, `quantile_fit_predict_by` | `(source, group_col, y_col, x_cols [, options] [, split] [, order_by])` | `yhat, is_training` |
+| `isotonic_fit_predict_by` | `(source, group_col, y_col, x_col [, options] [, split] [, order_by])` | `yhat, is_training` |
+| `binomial_fit_predict_by`, `logistic_fit_predict_by`, `negbinom_fit_predict_by`, `gamma_fit_predict_by`, `tweedie_fit_predict_by` | `(source, group_col, y_col, x_cols [, options] [, split])` | `yhat` (response scale), `yhat_lower`, `yhat_upper` (both NULL), `is_training` |
 
-### ols_fit_predict_by
-OLS regression per group with predictions in long format.
+- `source` is the table name as a string; the other arguments are column references.
+- `options` takes the same keys as the underlying aggregate.
+- `split` is an optional expression; rows whose value is neither `'train'` nor
+  NULL are predicted but not used for training. Pass it by name: `split := ...`.
+- `order_by` (by name: `order_by := col`) orders the rows of each group, so the
+  alignment of predictions to rows is deterministic; it also sets the row order
+  for order-dependent fits such as RLS. The GLM macros (binomial, logistic,
+  negbinom, gamma, tweedie) fit each group's model and apply
+  [`predict`](#predict) to every row, so they do not take `order_by`.
+- Rows with a `NULL` `y` are predicted but not used for training.
+- Prediction intervals are leverage-aware (see
+  [Methodology](METHODOLOGY.md#prediction-intervals)) and NULL where no
+  interval exists.
 
-**Signature:**
-```sql skip
-ols_fit_predict_by(
-    source VARCHAR,           -- Table name (as string)
-    group_col COLUMN,         -- Column to group by
-    y_col COLUMN,             -- Response variable column
-    x_cols LIST(COLUMN),      -- Feature columns as list
-    [options STRUCT],         -- Optional configuration (default: NULL)
-    [split COLUMN]            -- Optional train/test split column (default: NULL)
-) -> TABLE
+Other table macros on this page: [`glmm_fit_by`](#glmm_fit_by),
+[`eb_shrink_by`](#eb_shrink_by), [`aid_by`](#aid_by),
+[`aid_anomaly_by`](#aid_anomaly_by). See also [Table Macros](api/macros/table_macros.md).
+
+```sql
+-- Per-category OLS with 99% prediction intervals
+SELECT category, id, y, yhat, yhat_lower, yhat_upper
+FROM ols_fit_predict_by('reg_data', category, y, [x1, x2], {'confidence_level': 0.99})
+LIMIT 3;
+
+-- Train/test split
+SELECT category, count(*) AS n_test
+FROM ols_fit_predict_by('reg_data', category, y, [x1, x2],
+                        split := CASE WHEN id > 50 THEN 'test' ELSE 'train' END)
+WHERE NOT is_training
+GROUP BY category
+ORDER BY category;
+
+-- Weighted, regularized and robust variants
+SELECT count(*) AS n FROM wls_fit_predict_by('reg_data', category, y, [x1, x2], weight);
+SELECT count(*) AS n FROM ridge_fit_predict_by('reg_data', category, y, [x1, x2], {'alpha': 0.5});
+SELECT count(*) AS n FROM huber_fit_predict_by('reg_data', category, y, [x1, x2]);
+SELECT count(*) AS n FROM poisson_fit_predict_by('reg_data', category, y_count, [x1, x2]);
+SELECT count(*) AS n FROM isotonic_fit_predict_by('reg_data', category, y, x1);
+
+-- Order-dependent RLS, rows fed in id order within each category
+SELECT count(*) AS n FROM rls_fit_predict_by('reg_data', category, y, [x1, x2], order_by := id);
+
+-- GLM macros: predictions on the response scale
+SELECT category, id, y_binary, round(yhat, 3) AS p_hat
+FROM logistic_fit_predict_by('reg_data', category, y_binary, [x1, x2])
+ORDER BY category, id
+LIMIT 3;
+SELECT count(*) AS n FROM gamma_fit_predict_by('reg_data', category, y_positive, [x1, x2]);
 ```
-
-**Options:**
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| fit_intercept | BOOLEAN | true | Include intercept term |
-| confidence_level | DOUBLE | 0.95 | Prediction interval confidence |
-| null_policy | VARCHAR | 'drop' | NULL handling: 'drop' or 'drop_y_zero_x' |
-
-**Returns:**
-
-All columns from the source table are preserved in the output (including the group column, y column, and all feature columns with their original names). The following prediction columns are appended:
-
-| Column | Type | Description |
-|--------|------|-------------|
-| yhat | DOUBLE | Predicted value |
-| yhat_lower | DOUBLE | Lower prediction interval bound |
-| yhat_upper | DOUBLE | Upper prediction interval bound |
-| is_training | BOOLEAN | True if row was used for training |
-
-> **Note:** Column names in the output preserve the original names from the source table.
-
-**Example:**
-```sql skip
--- Per-group OLS regression
-SELECT * FROM ols_fit_predict_by('sales_data', region, revenue, [advertising, price]);
-
--- With 99% prediction intervals
-SELECT * FROM ols_fit_predict_by('sales_data', region, revenue, [advertising, price],
-    {'confidence_level': 0.99});
-
--- Filter to out-of-sample predictions only
-SELECT * FROM ols_fit_predict_by('forecast_data', store_id, sales, [inventory, promotions])
-WHERE NOT is_training;
-```
-
-### ridge_fit_predict_by
-Ridge regression per group with predictions in long format.
-
-**Options:**
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| alpha | DOUBLE | 1.0 | L2 regularization strength |
-| fit_intercept | BOOLEAN | true | Include intercept term |
-| confidence_level | DOUBLE | 0.95 | Prediction interval confidence |
-| null_policy | VARCHAR | 'drop' | NULL handling |
-
-**Example:**
-```sql skip
--- Ridge with default alpha
-SELECT * FROM ridge_fit_predict_by('data', category, y, [x1, x2]);
-
--- Ridge with custom regularization
-SELECT * FROM ridge_fit_predict_by('data', category, y, [x1, x2],
-    {'alpha': 0.5});
-
--- Strong regularization
-SELECT * FROM ridge_fit_predict_by('data', category, y, [x1, x2],
-    {'alpha': 10.0, 'confidence_level': 0.99});
-```
-
-### elasticnet_fit_predict_by
-Elastic Net regression per group with predictions in long format.
-
-**Options:**
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| alpha | DOUBLE | 1.0 | Regularization strength |
-| l1_ratio | DOUBLE | 0.5 | L1 ratio: 0=Ridge, 1=Lasso |
-| max_iterations | INTEGER | 1000 | Max coordinate descent iterations |
-| tolerance | DOUBLE | 1e-6 | Convergence tolerance |
-| fit_intercept | BOOLEAN | true | Include intercept term |
-| confidence_level | DOUBLE | 0.95 | Prediction interval confidence |
-| null_policy | VARCHAR | 'drop' | NULL handling |
-
-**Example:**
-```sql skip
--- ElasticNet with default settings
-SELECT * FROM elasticnet_fit_predict_by('data', category, y, [x1, x2]);
-
--- More Lasso-like (70% L1)
-SELECT * FROM elasticnet_fit_predict_by('data', category, y, [x1, x2],
-    {'alpha': 0.1, 'l1_ratio': 0.7});
-```
-
-### wls_fit_predict_by
-Weighted Least Squares per group with predictions in long format.
-
-**Signature:**
-```sql skip
-wls_fit_predict_by(
-    source VARCHAR,
-    group_col COLUMN,
-    y_col COLUMN,
-    x_cols LIST(COLUMN),
-    weight_col COLUMN,        -- Weight column (required)
-    [options STRUCT]          -- Optional configuration (default: NULL)
-) -> TABLE
-```
-
-**Options:**
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| fit_intercept | BOOLEAN | true | Include intercept term |
-| confidence_level | DOUBLE | 0.95 | Prediction interval confidence |
-| null_policy | VARCHAR | 'drop' | NULL handling |
-
-**Example:**
-```sql skip
--- WLS with weight column
-SELECT * FROM wls_fit_predict_by('weighted_data', segment, y, [x1, x2], weight);
-
--- WLS with custom confidence level
-SELECT * FROM wls_fit_predict_by('weighted_data', segment, y, [x1, x2], weight,
-    {'confidence_level': 0.99});
-```
-
-### rls_fit_predict_by
-Recursive Least Squares per group with predictions in long format.
-
-**Options:**
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| forgetting_factor | DOUBLE | 1.0 | Exponential forgetting (0.95-1.0 typical) |
-| initial_p_diagonal | DOUBLE | 100.0 | Initial covariance diagonal |
-| fit_intercept | BOOLEAN | true | Include intercept term |
-| confidence_level | DOUBLE | 0.95 | Prediction interval confidence |
-| null_policy | VARCHAR | 'drop' | NULL handling |
-
-**Example:**
-```sql skip
--- RLS with default settings
-SELECT * FROM rls_fit_predict_by('streaming_data', sensor_id, reading, [temp, pressure]);
-
--- RLS with forgetting (adapts to recent data)
-SELECT * FROM rls_fit_predict_by('streaming_data', sensor_id, reading, [temp, pressure],
-    {'forgetting_factor': 0.95});
-```
-
-### bls_fit_predict_by
-Bounded Least Squares per group with predictions in long format.
-
-**Options:**
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| lower_bound | DOUBLE | 0.0 | Lower bound for coefficients |
-| upper_bound | DOUBLE | +inf | Upper bound for coefficients |
-| intercept | BOOLEAN | false | Include intercept term |
-| max_iterations | INTEGER | 1000 | Maximum iterations |
-| tolerance | DOUBLE | 1e-6 | Convergence tolerance |
-| confidence_level | DOUBLE | 0.95 | Prediction interval confidence |
-| null_policy | VARCHAR | 'drop' | NULL handling |
-
-**Example:**
-```sql skip
--- BLS with default (non-negative coefficients)
-SELECT * FROM bls_fit_predict_by('constrained_data', portfolio_id, returns, [factor1, factor2]);
-
--- Box constraints (coefficients between 0 and 1)
-SELECT * FROM bls_fit_predict_by('portfolio_data', asset_class, returns, [factors],
-    {'lower_bound': 0.0, 'upper_bound': 1.0});
-```
-
-### alm_fit_predict_by
-Augmented Linear Model per group with predictions in long format.
-
-**Options:**
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| distribution | VARCHAR | 'normal' | Error distribution (see below) |
-| intercept | BOOLEAN | true | Include intercept term |
-| max_iterations | INTEGER | 1000 | Maximum iterations |
-| tolerance | DOUBLE | 1e-6 | Convergence tolerance |
-| confidence_level | DOUBLE | 0.95 | Prediction interval confidence |
-| null_policy | VARCHAR | 'drop' | NULL handling |
-
-**Distributions:** `normal`, `laplace`, `studentt`, `cauchy`, `huber`, `tukey`, `quantile`, `expectile`, `trimmed`, `winsorized`
-
-**Example:**
-```sql skip
--- ALM with default (normal distribution)
-SELECT * FROM alm_fit_predict_by('robust_data', group_id, y, [x1, x2]);
-
--- Robust regression with Laplace (median regression)
-SELECT * FROM alm_fit_predict_by('data_with_outliers', group_id, y, [x1, x2],
-    {'distribution': 'laplace'});
-
--- Student-t for heavy tails
-SELECT * FROM alm_fit_predict_by('heavy_tailed_data', group_id, y, [x1, x2],
-    {'distribution': 'studentt'});
-```
-
-### poisson_fit_predict_by
-Poisson GLM per group with predictions in long format.
-
-**Options:**
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| link | VARCHAR | 'log' | Link function: 'log', 'identity', 'sqrt' |
-| intercept | BOOLEAN | true | Include intercept term |
-| max_iterations | INTEGER | 100 | Maximum IRLS iterations |
-| tolerance | DOUBLE | 1e-8 | Convergence tolerance |
-| confidence_level | DOUBLE | 0.95 | Prediction interval confidence |
-| null_policy | VARCHAR | 'drop' | NULL handling |
-
-**Example:**
-```sql skip
--- Poisson with default log link
-SELECT * FROM poisson_fit_predict_by('count_data', store_id, visitor_count, [marketing_spend]);
-
--- Poisson with identity link
-SELECT * FROM poisson_fit_predict_by('count_data', store_id, visitor_count, [marketing_spend],
-    {'link': 'identity'});
-
--- Poisson with custom iterations
-SELECT * FROM poisson_fit_predict_by('count_data', store_id, visitor_count, [marketing_spend],
-    {'link': 'log', 'max_iterations': 200});
-```
-
-### Table Macro Aliases
-
-| Macro | Underlying Aggregate | Method-Specific Options |
-|-------|---------------------|------------------------|
-| ols_fit_predict_by | ols_fit_predict_agg | (common only) |
-| ridge_fit_predict_by | ridge_fit_predict_agg | alpha |
-| elasticnet_fit_predict_by | elasticnet_fit_predict_agg | alpha, l1_ratio, max_iterations, tolerance |
-| wls_fit_predict_by | wls_fit_predict_agg | (common only) |
-| rls_fit_predict_by | rls_fit_predict_agg | forgetting_factor, initial_p_diagonal |
-| bls_fit_predict_by | bls_fit_predict_agg | lower_bound, upper_bound, intercept, max_iterations, tolerance |
-| alm_fit_predict_by | alm_fit_predict_agg | distribution, intercept, max_iterations, tolerance |
-| poisson_fit_predict_by | poisson_fit_predict_agg | link, intercept, max_iterations, tolerance |
 
 ---
 
-## Predict Function
+## Predict and Diagnostics
 
-### anofox_stats_predict
-Generate predictions using fitted coefficients.
+### predict
 
-**Signature:**
+Two forms; see [Model tools](api/regression/model_tools.md) for details.
+
 ```sql skip
-anofox_stats_predict(
-    x LIST(LIST(DOUBLE)),
-    coefficients LIST(DOUBLE),
-    intercept DOUBLE
-) -> LIST(DOUBLE)
+predict(model STRUCT, x LIST(DOUBLE) [, {'type': 'response' | 'link'}]) -> DOUBLE
+predict(x LIST(LIST(DOUBLE)), coefficients LIST(DOUBLE), intercept DOUBLE) -> LIST(DOUBLE)
+linear_predict(x LIST(LIST(DOUBLE)), coefficients LIST(DOUBLE), intercept DOUBLE) -> LIST(DOUBLE)
 ```
 
-**Example:**
-```sql skip
--- First fit a model
-WITH model AS (
-    SELECT anofox_stats_ols_fit(y_values, x_values) as fit FROM training_data
+**Model-aware form.** `model` is the struct returned by any `*_fit_agg` or
+`*_fit` function and `x` holds one row's features. Linear models give
+`intercept + coefficients · x`. GLMs map the linear predictor through their
+`link` to the response scale (default) or return it unchanged with
+`{'type': 'link'}`. Isotonic models interpolate between knots and clamp at the
+ends. A NULL model or NULL feature gives NULL; a feature count that does not
+match the coefficients raises an error.
+
+**Column-layout form.** `x` is a list of feature columns, like the scalar fit
+functions; returns one prediction per position. Also available as
+`linear_predict`.
+
+```sql
+-- Score every row with its category's model
+WITH models AS (
+    SELECT category, ols_fit_agg(y, [x1, x2]) AS m FROM reg_data GROUP BY category
 )
--- Then predict
-SELECT anofox_stats_predict(
-    [[6.0, 7.0, 8.0]],  -- new x values
-    model.fit.coefficients,
-    model.fit.intercept
-) as predictions
+SELECT r.id, r.category, round(predict(m.m, [r.x1, r.x2]), 3) AS yhat
+FROM reg_data r JOIN models m USING (category)
+ORDER BY r.id
+LIMIT 4;
+
+-- Column layout
+WITH model AS (
+    SELECT ols_fit([3.0, 5.0, 7.0, 9.0, 11.0], [[1.0, 2.0, 3.0, 4.0, 5.0]]) AS fit
+)
+SELECT predict([[6.0, 7.0, 8.0]], fit.coefficients, fit.intercept) AS predictions,
+       linear_predict([[6.0, 7.0, 8.0]], fit.coefficients, fit.intercept) AS same
 FROM model;
 ```
 
----
-
-## Diagnostic Functions
-
-### anofox_stats_vif / vif
-Compute Variance Inflation Factor for multicollinearity detection.
-
-**Signature:**
-```sql skip
-anofox_stats_vif(x LIST(LIST(DOUBLE))) -> LIST(DOUBLE)
-```
-
-**Interpretation:**
-- VIF = 1: No correlation
-- VIF > 5: Moderate correlation (warning)
-- VIF > 10: High correlation (problematic)
-
-**Example:**
-```sql skip
-SELECT vif([[x1_vals], [x2_vals], [x3_vals]]) as vif_values;
-```
-
-### anofox_stats_vif_agg / vif_agg
-Streaming VIF aggregate function.
+### tidy
 
 ```sql skip
-SELECT vif_agg([x1, x2, x3]) FROM data;
+tidy(model STRUCT [, names LIST(VARCHAR)])
+    -> LIST(STRUCT(term, estimate, std_error, statistic, p_value, conf_low, conf_high))
 ```
 
-### anofox_stats_aic / aic
-Compute Akaike Information Criterion.
+One entry per term, intercept first (`'(Intercept)'`), then the slopes named
+`x1 .. xk` or by `names`. The inference columns come from the model's
+`std_errors`, `t_values`/`z_values`, `p_values`, `ci_lower`, `ci_upper` and are
+NULL when the model has none (e.g. no `compute_inference`). `ols_fit_agg`
+reports inference for the slopes only, so its intercept row has NULL inference.
 
-**Signature:**
-```sql skip
-anofox_stats_aic(rss DOUBLE, n BIGINT, k BIGINT) -> DOUBLE
-```
-
-**Parameters:**
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| rss | DOUBLE | Residual Sum of Squares |
-| n | BIGINT | Number of observations |
-| k | BIGINT | Number of parameters (including intercept) |
-
-**Example:**
 ```sql
-SELECT aic(100.0, 50, 3) as aic_value;
+SELECT category,
+       unnest(tidy(ols_fit_agg(y, [x1, x2], {'compute_inference': true}), ['x1', 'x2']),
+              recursive := true)
+FROM reg_data
+GROUP BY category
+ORDER BY category;
 ```
 
-### anofox_stats_bic / bic
-Compute Bayesian Information Criterion.
+### glance
 
-**Signature:**
 ```sql skip
-anofox_stats_bic(rss DOUBLE, n BIGINT, k BIGINT) -> DOUBLE
+glance(model STRUCT) -> STRUCT
 ```
 
-**Example:**
+The model's scalar fields (fit statistics; for GLMs also `family` and `link`),
+without list fields such as `coefficients`. Expand with `unnest(glance(...))`.
+
 ```sql
-SELECT bic(100.0, 50, 3) as bic_value;
+SELECT category, unnest(glance(poisson_fit_agg(y_count, [x1, x2])))
+FROM reg_data
+GROUP BY category
+ORDER BY category;
 ```
 
-### anofox_stats_jarque_bera / jarque_bera
-Jarque-Bera test for normality of residuals.
+### vif / vif_agg
 
-**Signature:**
-```sql skip
-anofox_stats_jarque_bera(data LIST(DOUBLE)) -> STRUCT
-```
-
-**Returns:**
-```
-STRUCT(
-    statistic DOUBLE,
-    p_value DOUBLE,
-    skewness DOUBLE,
-    kurtosis DOUBLE,
-    n BIGINT
-)
-```
-
-**Example:**
-```sql skip
-SELECT jarque_bera(residuals).p_value as normality_pvalue;
-```
-
-### anofox_stats_jarque_bera_agg / jarque_bera_agg
-Streaming Jarque-Bera aggregate function.
+Variance inflation factor per feature. Rule of thumb: above 5 is a warning,
+above 10 is severe multicollinearity.
 
 ```sql skip
-SELECT jarque_bera_agg(residual) FROM fitted_data;
+vif(x LIST(LIST(DOUBLE))) -> LIST(DOUBLE)    -- x is a list of feature columns
+vif_agg(x LIST(DOUBLE)) -> LIST(DOUBLE)      -- one row per observation
 ```
 
-### anofox_stats_residuals_diagnostics / residuals_diagnostics
-Compute comprehensive residual diagnostics.
+```sql
+SELECT vif([[1.0, 2.0, 3.0, 4.0, 5.0], [2.0, 1.0, 4.0, 3.0, 6.0]]) AS vif_values;
+SELECT vif_agg([x1, x2, x3]) AS vif_values FROM reg_data;
+```
 
-**Signature:**
+### aic / bic
+
+Information criteria from the residual sum of squares.
+
 ```sql skip
-anofox_stats_residuals_diagnostics(
-    y LIST(DOUBLE),
-    y_hat LIST(DOUBLE),
-    [x LIST(LIST(DOUBLE))],
-    [residual_std_error DOUBLE],
-    [include_studentized BOOLEAN]
-) -> STRUCT
+aic(rss DOUBLE, n BIGINT, k BIGINT) -> DOUBLE
+bic(rss DOUBLE, n BIGINT, k BIGINT) -> DOUBLE
 ```
 
-**Returns:**
-```
-STRUCT(
-    raw LIST(DOUBLE),
-    standardized LIST(DOUBLE),
-    studentized LIST(DOUBLE),
-    leverage LIST(DOUBLE)
-)
+`k` counts all parameters, including the intercept.
+
+```sql
+SELECT aic(100.0, 50, 3) AS aic_value, bic(100.0, 50, 3) AS bic_value;
 ```
 
-**Example:**
+### jarque_bera / jarque_bera_agg
+
+Jarque-Bera normality test on an array or a column.
+
 ```sql skip
-SELECT residuals_diagnostics(
-    actual_values,
-    predicted_values
-) as diagnostics;
+jarque_bera(values LIST(DOUBLE)) -> STRUCT(statistic DOUBLE, p_value DOUBLE, skewness DOUBLE, kurtosis DOUBLE, n BIGINT)
+jarque_bera_agg(value DOUBLE) -> STRUCT(...)   -- same fields
 ```
 
-### anofox_stats_residuals_diagnostics_agg / residuals_diagnostics_agg
-Streaming residuals diagnostics aggregate function.
+```sql
+SELECT (jarque_bera([1.0, 2.0, 3.5, 2.2, 4.1, 0.3, 2.9])).p_value AS p_value;
+SELECT unnest(jarque_bera_agg(y)) FROM reg_data;
+```
+
+### residuals_diagnostics / residuals_diagnostics_agg
+
+Raw, standardized and studentized residuals and leverage.
+
+```sql skip
+residuals_diagnostics(y LIST(DOUBLE), y_hat LIST(DOUBLE)) -> STRUCT
+residuals_diagnostics(y LIST(DOUBLE), y_hat LIST(DOUBLE), x LIST(LIST(DOUBLE)),
+                      residual_std_error DOUBLE, include_studentized BOOLEAN) -> STRUCT
+residuals_diagnostics_agg(y DOUBLE, y_hat DOUBLE [, x LIST(DOUBLE)]) -> STRUCT
+```
+
+**Returns:** `STRUCT(raw DOUBLE[], standardized DOUBLE[], studentized DOUBLE[], leverage DOUBLE[])`.
+Fields that need `x` (leverage, studentized residuals) are `NULL` without it.
+
+```sql
+SELECT residuals_diagnostics([1.0, 2.0, 3.0, 4.0], [1.1, 1.9, 3.2, 3.8]) AS diagnostics;
+
+WITH fit AS (SELECT ols_fit_agg(y, [x1, x2]) AS f FROM reg_data)
+SELECT (residuals_diagnostics_agg(y, f.intercept + f.coefficients[1] * x1 + f.coefficients[2] * x2, [x1, x2])).leverage[1:3] AS leverage
+FROM reg_data, fit;
+```
 
 ---
 
 ## Common Options
 
-### null_policy Parameter
+### null_policy
 
-The `null_policy` option controls how NULL values are handled during model training.
+Used by the window and fit-predict functions.
 
-| Value | Training Set | Predictions |
-|-------|--------------|-------------|
-| `'drop'` (default) | Rows where y IS NOT NULL | All rows get predictions |
-| `'drop_y_zero_x'` | Rows where y IS NOT NULL AND all x != 0 | All rows get predictions |
+| Value | Training rows | Predictions |
+|-------|---------------|-------------|
+| `'drop'` (default) | Rows where `y` is not `NULL` | Every row |
+| `'drop_y_zero_x'` | Rows where `y` is not `NULL` and no feature is 0 | Every row |
 
-### solver Parameter
+### solver
 
-Controls the matrix decomposition method for OLS, Ridge, and WLS.
-
-| Value | Description | Best for |
-|-------|-------------|----------|
-| `'svd'` (default) | Singular Value Decomposition | Most robust, handles rank-deficient matrices |
-| `'qr'` | QR Decomposition | Faster for well-conditioned problems |
-| `'cholesky'` | Cholesky Decomposition | Fastest for positive-definite X'X |
-
-### hc_type Parameter
-
-Heteroscedasticity-consistent standard errors for OLS and WLS. Requires `compute_inference: true`.
+Matrix decomposition for OLS, WLS and Ridge.
 
 | Value | Description |
 |-------|-------------|
-| `'none'` (default) | Classical (homoscedastic) standard errors |
+| `'svd'` (default) | Most robust; handles rank-deficient designs |
+| `'qr'` | Faster for well-conditioned problems |
+| `'cholesky'` | Fastest when `X'X` is positive definite |
+
+### hc_type
+
+Heteroscedasticity-consistent standard errors for OLS and WLS; needs
+`compute_inference: true`. See [METHODOLOGY.md](METHODOLOGY.md).
+
+| Value | Description |
+|-------|-------------|
+| `'none'` (default) | Classical standard errors |
 | `'hc0'` | White's estimator |
-| `'hc1'` | HC0 with degrees-of-freedom correction |
-| `'hc2'` | HC0 with leverage adjustment |
-| `'hc3'` | HC0 with squared leverage adjustment (most conservative) |
+| `'hc1'` | HC0 with a degrees-of-freedom correction |
+| `'hc2'` | HC0 with a leverage adjustment |
+| `'hc3'` | HC0 with a squared-leverage adjustment (most conservative) |
 
-### lambda_scaling Parameter
+```sql
+SELECT (ols_fit_agg(y, [x1, x2], {'compute_inference': true, 'hc_type': 'hc3'})).std_errors AS robust_se
+FROM reg_data;
+```
 
-Controls the lambda scaling convention for Ridge and Elastic Net.
+### lambda_scaling
+
+Penalty convention for Ridge and Elastic Net.
 
 | Value | Description |
 |-------|-------------|
-| `'raw'` (default) | Lambda is used as-is in the penalty term |
-| `'glmnet'` | Lambda is scaled by 1/(2n) to match glmnet convention |
+| `'raw'` (default) | The penalty is used as given |
+| `'glmnet'` | The penalty is scaled to match R's glmnet convention |
 
-### glm_lambda Parameter
+### glm_lambda
 
-L2 regularization for Poisson GLM. Set to 0.0 (default) for no regularization.
+L2 regularization for the GLM aggregates. 0.0 (default) means none.
+
+### Priors
+
+The GLM and AFT aggregates accept `feature_names`, `prior` and `vcov` for
+explicit coefficient priors and Laplace intervals. See [Priors](api/glm/priors.md).
 
 ---
 
@@ -2949,145 +1544,149 @@ L2 regularization for Poisson GLM. Set to 0.0 (default) for no regularization.
 
 ### FitResult Structure
 
-Standard return type for linear regression functions.
+Returned by the linear and robust fits (`ols`, `ridge`, `elasticnet`, `wls`,
+`rls`, `lars`, `huber`, `ransac`, `theil_sen`; scalar and aggregate forms).
 
-```
+```text
 STRUCT(
-    coefficients LIST(DOUBLE),
-    intercept DOUBLE,
+    coefficients DOUBLE[],      -- one per feature, intercept excluded
+    intercept DOUBLE,           -- NaN when fit_intercept = false
     r_squared DOUBLE,
     adj_r_squared DOUBLE,
-    mse DOUBLE,
-    rmse DOUBLE,
-    mae DOUBLE,
-    rss DOUBLE,
-    tss DOUBLE,
+    residual_std_error DOUBLE,
     n_observations BIGINT,
-    n_features INTEGER,
-    -- When compute_inference=true:
-    t_statistics LIST(DOUBLE),
-    p_values LIST(DOUBLE),
-    std_errors LIST(DOUBLE),
-    conf_int_lower LIST(DOUBLE),
-    conf_int_upper LIST(DOUBLE)
+    n_features BIGINT,
+    -- huber adds: scale DOUBLE, n_outliers BIGINT
+    -- ransac adds: residual_threshold DOUBLE, n_inliers BIGINT, n_trials BIGINT
+    -- with compute_inference = true (ols, ridge, wls, huber, ransac, theil_sen):
+    std_errors DOUBLE[],
+    t_values DOUBLE[],
+    p_values DOUBLE[],
+    ci_lower DOUBLE[],
+    ci_upper DOUBLE[],
+    f_statistic DOUBLE,
+    f_pvalue DOUBLE
 )
 ```
 
 ### GlmFitResult Structure
 
-Return type for the GLM aggregates (`poisson_fit_agg`, `binomial_fit_agg`,
-`negbinom_fit_agg`, `tweedie_fit_agg`, `gamma_fit_agg`, `logistic_fit_agg`).
+Returned by `poisson_fit_agg`, `binomial_fit_agg`, `negbinom_fit_agg`,
+`gamma_fit_agg`, `tweedie_fit_agg` and `logistic_fit_agg`.
 
-```
+```text
 STRUCT(
-    coefficients LIST(DOUBLE),
+    coefficients DOUBLE[],
     intercept DOUBLE,
     deviance DOUBLE,
     null_deviance DOUBLE,
     pseudo_r_squared DOUBLE,
     aic DOUBLE,
-    dispersion DOUBLE,
+    dispersion DOUBLE,          -- logistic_fit_agg: accuracy DOUBLE, threshold DOUBLE instead
     n_observations BIGINT,
     n_features BIGINT,
     iterations INTEGER,
-    converged BOOLEAN,       -- whether IRLS reached the convergence tolerance
-    -- When compute_inference=true:
-    std_errors LIST(DOUBLE),
-    z_values LIST(DOUBLE),
-    p_values LIST(DOUBLE),
-    ci_lower LIST(DOUBLE),
-    ci_upper LIST(DOUBLE)
+    converged BOOLEAN,          -- whether IRLS reached the tolerance
+    -- with compute_inference = true:
+    std_errors DOUBLE[],
+    z_values DOUBLE[],
+    p_values DOUBLE[],
+    ci_lower DOUBLE[],
+    ci_upper DOUBLE[],
+    -- always last:
+    family VARCHAR,             -- 'poisson', 'binomial', 'negbinom', 'gamma', 'tweedie'
+    link VARCHAR                -- e.g. 'log', 'logit', 'probit', 'cloglog', 'sqrt', 'identity'
 )
 ```
 
-> Note: `converged` was added as a first-class field so non-convergence is
-> reported rather than surfacing only as a NULL result. When an `offset` is
-> supplied, the offset column is dropped from the design, so `coefficients` and
-> `n_features` count one fewer than the input feature list.
+`logistic_fit_agg` reports `family = 'binomial'` and `link = 'logit'`.
+
+When an `offset` column is given it is removed from the design, so
+`coefficients` and `n_features` count one fewer than the input feature list.
+
+### AlmFitResult Structure
+
+Returned by `alm_fit_agg`.
+
+```text
+STRUCT(
+    coefficients DOUBLE[],
+    intercept DOUBLE,
+    log_likelihood DOUBLE,
+    aic DOUBLE,
+    bic DOUBLE,
+    scale DOUBLE,
+    n_observations BIGINT,
+    n_features BIGINT,
+    iterations INTEGER,
+    -- with compute_inference = true:
+    std_errors DOUBLE[],
+    t_values DOUBLE[],
+    p_values DOUBLE[],
+    ci_lower DOUBLE[],
+    ci_upper DOUBLE[]
+)
+```
+
+### BlsFitResult Structure
+
+Returned by `bls_fit_agg` and `nnls_fit_agg`.
+
+```text
+STRUCT(
+    coefficients DOUBLE[],
+    intercept DOUBLE,
+    ssr DOUBLE,                    -- residual sum of squares
+    r_squared DOUBLE,
+    n_observations BIGINT,
+    n_features BIGINT,
+    n_active_constraints BIGINT,   -- coefficients sitting on a bound
+    at_lower_bound BOOLEAN[],
+    at_upper_bound BOOLEAN[]
+)
+```
 
 ### Accessing Results
 
-```sql skip
--- Extract specific fields
-SELECT
-    (result).r_squared,
-    (result).coefficients[1] as beta1,
-    (result).coefficients[2] as beta2
-FROM (SELECT ols_fit_agg(y, [x1, x2]) as result FROM data);
+```sql
+-- Individual fields
+SELECT (fit).r_squared, (fit).coefficients[1] AS beta1, (fit).coefficients[2] AS beta2
+FROM (SELECT ols_fit_agg(y, [x1, x2]) AS fit FROM reg_data);
 
--- Expand all fields
-SELECT (ols_fit_agg(y, [x1, x2])).* FROM data;
+-- All fields as columns
+SELECT unnest(ols_fit_agg(y, [x1, x2])) FROM reg_data;
 ```
 
 ---
 
-## Short Aliases
+## Error and NULL Handling
 
-Most functions have short aliases without the `anofox_stats_` prefix:
+- **Invalid options** (unsupported keys, bad values such as an unknown `solver`)
+  raise an error when the query is bound.
+- **Degenerate data** (too few rows for the number of parameters, a singular
+  design, a model that cannot be identified) returns `NULL` instead of failing
+  the query.
+- **NULL inputs:** rows with a `NULL` response or feature are skipped by the fit
+  aggregates. The window and fit-predict functions use `NULL` responses to mark
+  rows to predict; see [`null_policy`](#null_policy) and
+  [NULL_SEMANTICS.md](NULL_SEMANTICS.md).
 
-| Full Name | Alias |
-|-----------|-------|
-| `anofox_stats_ols_fit` | `ols_fit` |
-| `anofox_stats_ridge_fit` | `ridge_fit` |
-| `anofox_stats_t_test_agg` | `t_test_agg` |
-| `anofox_stats_pearson_agg` | `pearson_agg` |
-| ... | ... |
+```sql
+-- One row is not enough to fit an intercept and a slope: the result is NULL
+SELECT ols_fit_agg(y, [x]) IS NULL AS is_null FROM (VALUES (1.0, 2.0)) AS t(y, x);
+```
 
 ---
 
 ## Detailed Documentation
 
-For comprehensive documentation on each function category:
+- **Regression:** [OLS](api/regression/ols.md) | [Ridge](api/regression/ridge.md) | [Elastic Net](api/regression/elasticnet.md) | [WLS](api/regression/wls.md) | [RLS](api/regression/rls.md) | [Huber](api/regression/huber.md) | [RANSAC](api/regression/ransac.md) | [Theil-Sen](api/regression/theil_sen.md) | [LARS](api/regression/lars.md) | [BLS/NNLS](api/regression/bls.md) | [PLS](api/regression/pls.md) | [Isotonic](api/regression/isotonic.md) | [Quantile](api/regression/quantile.md)
+- **Prediction:** [Window functions](api/regression/fit_predict_window.md) | [Fit-predict aggregates](api/regression/fit_predict_agg.md) | [Table macros](api/macros/table_macros.md) | [Model tools (predict, tidy, glance)](api/regression/model_tools.md)
+- **GLM:** [Poisson](api/glm/poisson.md) | [Binomial](api/glm/binomial.md) | [Logistic](api/glm/logistic.md) | [Negative Binomial](api/glm/negbinom.md) | [Gamma](api/glm/gamma.md) | [Tweedie](api/glm/tweedie.md) | [ALM](api/glm/alm.md) | [Priors](api/glm/priors.md) | [GLMM](api/glm/glmm.md) | [EB shrinkage](api/glm/eb_shrink.md)
+- **Survival:** [AFT](api/survival/aft.md)
+- **Statistics:** [Hypothesis tests](api/statistics/hypothesis.md) | [Correlation](api/statistics/correlation.md) | [Categorical](api/statistics/categorical.md)
+- **Demand:** [AID](api/aid/aid.md)
+- **Diagnostics:** [Model diagnostics](api/diagnostics/diagnostics.md)
+- **Background:** [API conventions](API_CONVENTIONS.md) | [Methodology](METHODOLOGY.md) | [NULL semantics](NULL_SEMANTICS.md) | [Migration from v0.9](MIGRATION.md)
 
-- **Regression**: [OLS](api/regression/ols.md) | [Ridge](api/regression/ridge.md) | [Elastic Net](api/regression/elasticnet.md) | [WLS](api/regression/wls.md) | [RLS](api/regression/rls.md) | [BLS/NNLS](api/regression/bls.md) | [PLS](api/regression/pls.md) | [Isotonic](api/regression/isotonic.md) | [Quantile](api/regression/quantile.md)
-- **GLM**: [Poisson](api/glm/poisson.md) | [ALM](api/glm/alm.md)
-- **Statistics**: [Hypothesis Tests](api/statistics/hypothesis.md) | [Correlation](api/statistics/correlation.md) | [Categorical](api/statistics/categorical.md)
-- **AID**: [Demand Classification](api/aid/aid.md)
-- **Diagnostics**: [Model Diagnostics](api/diagnostics/diagnostics.md)
-- **Table Macros**: [Table Macros](api/macros/table_macros.md)
-
----
-
-## Error Handling
-
-All functions return NULL on error conditions:
-- Invalid input types
-- Empty arrays
-- Singular matrices (insufficient data variation)
-
-Check for NULL results when using these functions:
-```sql skip
-SELECT COALESCE((ols_fit_agg(y, [x])).r_squared, 0.0) as r_squared
-FROM data;
-```
-
----
-
-## Performance Notes
-
-- **Aggregate functions** are generally preferred for large datasets as they process data in a streaming fashion
-- **Scalar functions** may be faster for small, pre-aggregated arrays
-- Use **table macros** for the simplest syntax when doing per-group predictions
-- VIF computation is O(k³) where k is the number of features
-
----
-
-## Version History
-
-- **0.6.0**: Added aid_anomaly_by table macro, reorganized documentation
-- **0.5.0**: Added PLS, Isotonic, Quantile regression
-- **0.4.0**: Added ALM with 24 distributions
-- **0.3.0**: Added comprehensive hypothesis testing
-- **0.2.0**: Added BLS/NNLS, RLS
-- **0.1.0**: Initial release with OLS, Ridge, Elastic Net, WLS
-
-
-## Issue #107 additions
-
-| Topic | Page |
-|-------|------|
-| Explicit priors and Laplace intervals | [api/glm/priors.md](api/glm/priors.md) |
-| AFT survival regression | [api/survival/aft.md](api/survival/aft.md) |
-| Empirical-Bayes shrinkage | [api/glm/eb_shrink.md](api/glm/eb_shrink.md) |
-| Mixed-effects GLMs | [api/glm/glmm.md](api/glm/glmm.md) |
-| Negative Binomial GLM | [api/glm/negbinom.md](api/glm/negbinom.md) |
+For the release history see [CHANGELOG.md](../CHANGELOG.md).

@@ -1,91 +1,129 @@
 # PLS (Partial Least Squares)
 
-Partial Least Squares regression for high-dimensional data and multicollinearity using the SIMPLS algorithm.
+Partial least squares regression (SIMPLS) for high-dimensional or strongly
+collinear predictors. PLS extracts a small number of latent components that
+maximise the covariance between the feature scores and `y`, then regresses `y`
+on those components.
 
 ## Functions
 
 | Function | Type | Description |
 |----------|------|-------------|
-| `pls_fit` | Scalar | Process complete arrays in a single call |
-| `pls_fit_agg` | Aggregate | Streaming row-by-row accumulation |
-| `pls_fit_predict_agg` | Aggregate | Fit and predict with GROUP BY support |
+| `pls_fit_agg` | Aggregate | Fit a PLS model per group |
+| `pls_fit_predict_agg` | Aggregate | Fit and predict every row of a group |
+| `pls_fit_predict_by` | Table macro | Per-group fit and predict in long format, see [Table macros](../macros/table_macros.md#pls_fit_predict_by) |
 
-## anofox_stats_pls_fit / pls_fit
-
-PLS regression using the SIMPLS algorithm to find latent components that maximize covariance between X scores and y.
+## pls_fit_agg
 
 **Signature:**
-```sql
-anofox_stats_pls_fit(
-    y LIST(DOUBLE),
-    x LIST(LIST(DOUBLE)),
-    [options MAP]
-) -> STRUCT
+
+```text
+pls_fit_agg(y DOUBLE, x DOUBLE[] [, options MAP]) -> STRUCT
 ```
 
-**Options MAP:**
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| n_components | INTEGER | 2 | Number of latent components to extract |
-| fit_intercept | BOOLEAN | true | Include intercept term |
+Options: `n_components`, `fit_intercept` (see [Options](#options)).
 
 **Returns:**
-```
-STRUCT(
-    coefficients LIST(DOUBLE),  -- Regression coefficients
-    intercept DOUBLE,           -- Intercept term (if fitted)
-    r_squared DOUBLE,           -- Coefficient of determination
-    n_components INTEGER,       -- Number of components used
-    n_observations BIGINT,      -- Number of observations
-    n_features INTEGER          -- Number of features
-)
-```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `coefficients` | `DOUBLE[]` | Coefficients on the original feature scale, one per feature |
+| `intercept` | `DOUBLE` | Intercept (0 when `fit_intercept` is false) |
+| `r_squared` | `DOUBLE` | In-sample R² |
+| `n_components` | `BIGINT` | Number of latent components used |
+| `n_observations` | `BIGINT` | Rows used in the fit |
+| `n_features` | `BIGINT` | Number of features |
+
+Rows with a NULL `y`, a NULL `x` or a NULL list element are skipped. A group
+with too few usable rows returns NULL. Apply the model to new rows with
+[`predict(model, x)`](model_tools.md#predict), and get a per-term table with
+[`tidy`](model_tools.md#tidy) (PLS has no inference, so only `estimate` is
+filled).
 
 **Example:**
-```sql
--- PLS with 3 components for high-dimensional data
-SELECT pls_fit(
-    [y1, y2, y3, y4, y5],
-    [[x1_1, x1_2, x1_3, x1_4, x1_5],
-     [x2_1, x2_2, x2_3, x2_4, x2_5],
-     [x3_1, x3_2, x3_3, x3_4, x3_5]],
-    {'n_components': 2}
-);
 
--- Per-group PLS regression
+```sql
+CREATE OR REPLACE TABLE pls_fit_demo AS
 SELECT
-    category,
-    (pls_fit_agg(y, [x1, x2, x3, x4, x5], {'n_components': 2})).r_squared
-FROM high_dim_data
-GROUP BY category;
+    i::DOUBLE AS x1,
+    i::DOUBLE * 0.98 + (i % 3) * 0.1 AS x2,    -- strongly collinear with x1
+    (i % 4)::DOUBLE AS x3,
+    1.0 + 0.5 * i + 0.3 * (i % 4) AS y
+FROM range(1, 26) t(i);
+
+SELECT
+    m.n_components,
+    round(m.r_squared, 4) AS r2,
+    round(predict(m, [26.0, 25.5, 2.0]), 3) AS yhat_new
+FROM (SELECT pls_fit_agg(y, [x1, x2, x3], {'n_components': 2}) AS m FROM pls_fit_demo);
 ```
 
-## anofox_stats_pls_fit_agg / pls_fit_agg
+## pls_fit_predict_agg
 
-Streaming PLS regression aggregate function.
+**Signature:**
+
+```text
+pls_fit_predict_agg(y DOUBLE, x DOUBLE[] [, options MAP]) -> STRUCT(y DOUBLE, yhat DOUBLE, is_training BOOLEAN)[]
+pls_fit_predict_agg(y DOUBLE, x DOUBLE[], split_col VARCHAR [, options MAP]) -> STRUCT(y DOUBLE, yhat DOUBLE, is_training BOOLEAN)[]
+```
+
+Rows with a NULL `y` (or, with the split form, rows whose `split_col` is not
+`'train'`/`'training'`) are not used for fitting but still receive a
+prediction. PLS returns point predictions only; there are no `yhat_lower` /
+`yhat_upper` fields. See [Fit-predict aggregates](fit_predict_agg.md) for the
+general behaviour.
+
+**Example:**
 
 ```sql
-SELECT pls_fit_agg(y, [x1, x2, x3], {'n_components': 2}) FROM data;
+CREATE OR REPLACE TABLE pls_demo AS
+SELECT
+    i AS id,
+    i::DOUBLE AS x1,
+    i::DOUBLE * 0.98 + (i % 3) * 0.1 AS x2,    -- strongly collinear with x1
+    (i % 4)::DOUBLE AS x3,
+    CASE WHEN i <= 25 THEN 1.0 + 0.5 * i + 0.3 * (i % 4) END AS y   -- last 5 rows unknown
+FROM range(1, 31) t(i);
+
+SELECT p.y, round(p.yhat, 3) AS yhat, p.is_training
+FROM (
+    SELECT unnest(pls_fit_predict_agg(y, [x1, x2, x3], {'n_components': 2} ORDER BY id)) AS p
+    FROM pls_demo
+)
+WHERE NOT p.is_training;
 ```
+
+## Options
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `n_components` (alias `components`) | INTEGER | `1` | Number of latent components to extract |
+| `fit_intercept` (alias `intercept`) | BOOLEAN | `true` | Include an intercept term |
+
+Option keys the function does not support raise an error.
 
 ## Choosing n_components
 
-- **n_components = 1**: Maximum explained variance in one direction
-- **n_components = 2-3**: Typical for moderate-dimensional data
-- **n_components = min(n, p)**: Maximum extractable components
+- **1**: a single direction of maximal covariance (default)
+- **2-3**: typical for moderate-dimensional data
+- At most `min(n_observations - 1, n_features)`
 
-Use cross-validation to select optimal number of components.
+Use hold-out validation (the `split_col` form) to choose the number of
+components.
+
+## NULL handling
+
+Rows where `x` is NULL are skipped. Rows with NULL `y` are prediction rows.
 
 ## Use Cases
 
-- **High-dimensional data**: More features than observations
-- **Multicollinearity**: Correlated predictors
-- **Chemometrics and spectroscopy**: NIR, Raman spectral analysis
-- **Genomics and bioinformatics**: Gene expression data
-- **Dimension reduction**: When features outnumber samples
+- More features than observations
+- Strongly correlated predictors
+- Chemometrics and spectroscopy (NIR, Raman)
+- Gene expression and other wide data
 
 ## See Also
 
-- [OLS](ols.md) - Standard regression
 - [Ridge](ridge.md) - L2 regularization alternative
 - [Elastic Net](elasticnet.md) - L1+L2 regularization
+- [Fit-predict aggregates](fit_predict_agg.md)

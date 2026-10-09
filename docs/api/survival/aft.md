@@ -13,27 +13,47 @@ attenuates covariate effects and understates the spread.
 | Function | Type | Description |
 |----------|------|-------------|
 | `aft_fit_agg` | Aggregate | Fit an AFT model with right censoring |
-| `anofox_stats_aft_cdf` | Scalar | `P(T <= t)` for a fitted model |
-| `anofox_stats_aft_quantile` | Scalar | The `p`-quantile of `T` |
+| `aft_cdf` | Scalar | `P(T <= t)` for a fitted model |
+| `aft_quantile` | Scalar | The `p`-quantile of `T` |
 
-## anofox_stats_aft_fit_agg / aft_fit_agg
+The examples on this page use this table:
+
+```sql
+-- Purchase-order lead times, observed until day 15; open orders are censored
+CREATE OR REPLACE TABLE po_lines AS
+SELECT order_id, supplier_rating, order_qty,
+       least(raw_days, 15.0) AS days,
+       CASE WHEN raw_days > 15 THEN 0.0 ELSE 1.0 END AS delivered
+FROM (
+    SELECT i AS order_id,
+           (1 + i % 5)::DOUBLE AS supplier_rating,
+           (10 + (i % 7) * 5)::DOUBLE AS order_qty,
+           exp(1.5 + 0.2 * (1 + i % 5) + 0.01 * (10 + (i % 7) * 5))
+               * (0.4 + ((i * 37) % 100) / 80.0) AS raw_days
+    FROM range(300) r(i)
+);
+```
+
+## aft_fit_agg
 
 **Signature:**
 
-```sql
-anofox_stats_aft_fit_agg(
-    time DOUBLE,        -- event or censoring time, strictly positive
-    x LIST(DOUBLE),
-    event DOUBLE,       -- 1 = event observed, 0 = right-censored
-    [options MAP]
-) -> STRUCT
+```text
+aft_fit_agg(time DOUBLE, x DOUBLE[], event DOUBLE [, options MAP]) -> STRUCT
 ```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `time` | DOUBLE | Event or censoring time, strictly positive |
+| `x` | DOUBLE[] | Feature values for the row |
+| `event` | DOUBLE | 1 = event observed, 0 = right-censored |
+| `options` | MAP/STRUCT | Optional; must be a constant |
 
 **Options MAP:**
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| dist | VARCHAR | 'weibull' | `weibull`, `lognormal`, `loglogistic`, `exponential` |
+| dist (alias `distribution`) | VARCHAR | 'weibull' | `weibull`, `lognormal`, `loglogistic`, `exponential` |
 | fit_intercept | BOOLEAN | true | Include an intercept |
 | max_iterations | INTEGER | 100 | Newton iterations |
 | tolerance | DOUBLE | 1e-9 | Convergence tolerance |
@@ -43,7 +63,7 @@ anofox_stats_aft_fit_agg(
 
 **Returns:**
 
-```
+```text
 STRUCT(coefficients DOUBLE[], intercept DOUBLE, scale DOUBLE,
        log_likelihood DOUBLE, null_log_likelihood DOUBLE, aic DOUBLE, bic DOUBLE,
        n_observations BIGINT, n_events BIGINT, n_censored BIGINT,
@@ -60,7 +80,8 @@ STRUCT(coefficients DOUBLE[], intercept DOUBLE, scale DOUBLE,
 SELECT aft_fit_agg(days, [supplier_rating, order_qty], delivered, {
     'dist': 'weibull',
     'compute_inference': true
-}) FROM po_lines;
+}) AS fit
+FROM po_lines;
 ```
 
 ## The model
@@ -90,25 +111,51 @@ one-unit increase in that feature multiplies the expected duration by
 fitted median. It is exactly 1.0 for `exponential`, where it is not estimated,
 and `log_scale_std_error` is `NaN` there.
 
-## Prediction
+## aft_cdf / aft_quantile
 
-The helpers are stateless, so they compose with `anofox_stats_predict` for the
-linear predictor:
+Stateless scalar helpers that evaluate a fitted AFT model at a given linear
+predictor.
+
+**Signatures:**
+
+```text
+aft_cdf(t DOUBLE, eta DOUBLE, scale DOUBLE, dist VARCHAR) -> DOUBLE
+aft_quantile(p DOUBLE, eta DOUBLE, scale DOUBLE, dist VARCHAR) -> DOUBLE
+```
+
+| Parameter | Description |
+|-----------|-------------|
+| `t` | Time at which to evaluate `P(T <= t)` |
+| `p` | Probability in (0, 1) for the quantile |
+| `eta` | Linear predictor `intercept + x'beta` from `aft_fit_agg` |
+| `scale` | `scale` field from `aft_fit_agg` |
+| `dist` | Distribution used for the fit: `weibull`, `lognormal`, `loglogistic`, `exponential` |
+
+A NULL in any argument returns NULL; an unknown distribution name raises an
+error.
 
 ```sql
--- P(delivery within 30 days) for each row
-WITH fit AS (SELECT aft_fit_agg(days, [rating, qty], delivered) AS f FROM po_lines)
+-- P(delivery within 10 days) and the median predicted duration per order
+WITH fit AS (
+    SELECT aft_fit_agg(days, [supplier_rating, order_qty], delivered) AS f
+    FROM po_lines
+)
 SELECT p.order_id,
-       anofox_stats_aft_cdf(
-           30.0,
-           (SELECT f.intercept FROM fit) + (SELECT f.coefficients[1] FROM fit) * p.rating
-                                          + (SELECT f.coefficients[2] FROM fit) * p.qty,
-           (SELECT f.scale FROM fit),
-           'weibull') AS p_within_30
-FROM po_lines p;
+       aft_cdf(10.0,
+               f.intercept + f.coefficients[1] * p.supplier_rating
+                           + f.coefficients[2] * p.order_qty,
+               f.scale, 'weibull') AS p_within_10,
+       aft_quantile(0.5,
+               f.intercept + f.coefficients[1] * p.supplier_rating
+                           + f.coefficients[2] * p.order_qty,
+               f.scale, 'weibull') AS median_days
+FROM po_lines p, fit
+ORDER BY p.order_id
+LIMIT 5;
 
--- median predicted duration
-SELECT anofox_stats_aft_quantile(0.5, eta, scale, 'weibull');
+-- Direct evaluation
+SELECT aft_cdf(30.0, 2.5, 0.5, 'weibull') AS cdf,
+       aft_quantile(0.5, 2.5, 0.5, 'weibull') AS median;
 ```
 
 ## Degenerate inputs
@@ -136,4 +183,4 @@ dropped from the fit; `n_observations` reports how many were actually used.
 ## See Also
 
 - [Explicit priors](../glm/priors.md) — priors and `vcov` work on AFT coefficients
-- [Gamma GLM](../glm/poisson.md) — for positive durations with no censoring
+- [Gamma GLM](../glm/gamma.md) — for positive durations with no censoring

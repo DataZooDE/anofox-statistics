@@ -9,9 +9,12 @@
 #include "duckdb/parser/parsed_data/create_scalar_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/error_dispatch.hpp"
 #include "../include/glm_prior_options.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
+#include "aggregate_combine.hpp"
+#include "list_input.hpp"
 
 namespace duckdb {
 
@@ -139,6 +142,7 @@ static void AftAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data, i
 	auto x_list_data = ListVector::GetData(inputs[1]);
 	auto &x_child = ListVector::GetEntry(inputs[1]);
 	auto x_child_data = FlatVector::GetData<double>(x_child);
+	auto &x_child_validity = FlatVector::Validity(x_child);
 
 	UnifiedVectorFormat sdata;
 	state_vector.ToUnifiedFormat(count, sdata);
@@ -163,6 +167,10 @@ static void AftAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data, i
 		}
 
 		auto list_entry = x_list_data[x_idx];
+		// A LIST holding a NULL element is itself valid; skip the row like a NULL list.
+		if (ListHasNullElement(x_child_validity, list_entry)) {
+			continue;
+		}
 		idx_t n_features = list_entry.length;
 
 		if (!state.initialized) {
@@ -184,7 +192,7 @@ static void AftAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data, i
 	}
 }
 
-static void AftAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &, idx_t count) {
+static void AftAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &aggr_input_data, idx_t count) {
 	UnifiedVectorFormat source_data, target_data;
 	source_vector.ToUnifiedFormat(count, source_data);
 	target_vector.ToUnifiedFormat(count, target_data);
@@ -201,13 +209,13 @@ static void AftAggCombine(Vector &source_vector, Vector &target_vector, Aggregat
 		}
 
 		if (!target.initialized) {
-			target.time_values = std::move(source.time_values);
-			target.event_values = std::move(source.event_values);
-			target.x_columns = std::move(source.x_columns);
+			target.time_values = CombineTake(source.time_values, aggr_input_data);
+			target.event_values = CombineTake(source.event_values, aggr_input_data);
+			target.x_columns = CombineTake(source.x_columns, aggr_input_data);
 			target.n_features = source.n_features;
 			target.initialized = true;
 			// Options travel with the data, priors included.
-			target.prior_state = std::move(source.prior_state);
+			target.prior_state = CombineTake(source.prior_state, aggr_input_data);
 			target.dist = source.dist;
 			target.fit_intercept = source.fit_intercept;
 			target.max_iterations = source.max_iterations;
@@ -282,6 +290,7 @@ static void AftAggFinalize(Vector &state_vector, AggregateInputData &, Vector &r
 		bool success = anofox_aft_fit(time_array, x_arrays.data(), x_arrays.size(), event_array, options, &core,
 		                              state.compute_inference ? &inference : nullptr, &error);
 		if (!success) {
+			ThrowUnlessDegenerate("aft_fit_agg", error);
 			FlatVector::SetNull(result, row, true);
 			state.Reset();
 			continue;
@@ -322,8 +331,10 @@ static unique_ptr<FunctionData> AftAggBind(ClientContext &context, AggregateFunc
                                            vector<unique_ptr<Expression>> &arguments) {
 	auto result = make_uniq<AftAggregateBindData>();
 
-	if (arguments.size() >= 4 && arguments[3]->IsFoldable()) {
-		auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[3]);
+	if (arguments.size() >= 4) {
+		auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[3], "aft_fit_agg",
+            {"fit_intercept", "compute_inference", "confidence_level", "max_iterations", "tolerance", "distribution", "feature_names", "prior", "vcov"});
 		result->prior_opts.LoadFrom(opts);
 		if (opts.aft_dist.has_value()) {
 			result->dist = (AnofoxAftDistribution)opts.aft_dist.value();
@@ -430,13 +441,35 @@ static void AftScalarDriver(DataChunk &args, Vector &result, FN &&fn) {
 	}
 }
 
-static void AftCdfFunction(DataChunk &args, ExpressionState &, Vector &result) {
+static void AftCdfFunctionImpl(DataChunk &args, ExpressionState &state, Vector &result);
+
+// Constant inputs must yield a CONSTANT_VECTOR (DuckDB constant folding
+// asserts this in debug builds).
+static void AftCdfFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+	AftCdfFunctionImpl(args, state, result);
+	if (args.AllConstant()) {
+		result.SetVectorType(VectorType::CONSTANT_VECTOR);
+	}
+}
+
+static void AftCdfFunctionImpl(DataChunk &args, ExpressionState &state, Vector &result) {
 	AftScalarDriver(args, result, [](double t, double eta, double scale, AnofoxAftDistribution d) {
 		return anofox_aft_cdf(t, eta, scale, d);
 	});
 }
 
-static void AftQuantileFunction(DataChunk &args, ExpressionState &, Vector &result) {
+static void AftQuantileFunctionImpl(DataChunk &args, ExpressionState &state, Vector &result);
+
+// Constant inputs must yield a CONSTANT_VECTOR (DuckDB constant folding
+// asserts this in debug builds).
+static void AftQuantileFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+	AftQuantileFunctionImpl(args, state, result);
+	if (args.AllConstant()) {
+		result.SetVectorType(VectorType::CONSTANT_VECTOR);
+	}
+}
+
+static void AftQuantileFunctionImpl(DataChunk &args, ExpressionState &state, Vector &result) {
 	AftScalarDriver(args, result, [](double p, double eta, double scale, AnofoxAftDistribution d) {
 		return anofox_aft_quantile(p, eta, scale, d);
 	});

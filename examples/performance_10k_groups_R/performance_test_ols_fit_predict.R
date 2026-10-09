@@ -5,7 +5,7 @@
 # This script loads the same dataset used by SQL tests and performs
 # equivalent OLS fit-predict operations using R's lm() function.
 #
-# Equivalent to: anofox_statistics_ols_fit_predict window functions
+# Equivalent to: ols_fit_predict window functions and ols_fit_predict_by
 #
 # Prerequisites:
 # 1. Run generate_test_data.sql first to create the parquet file
@@ -42,7 +42,7 @@ cat("\nDataset loaded successfully!\n\n")
 # ============================================================================
 
 # Function to perform OLS fit-predict with expanding window
-# Equivalent to: anofox_statistics_ols_fit_predict with 'expanding' mode
+# Equivalent to: ols_fit_predict over an expanding window
 ols_fit_predict_expanding <- function(data, confidence_level = 0.95) {
   n <- nrow(data)
   results <- data.frame(
@@ -77,7 +77,7 @@ ols_fit_predict_expanding <- function(data, confidence_level = 0.95) {
 }
 
 # Function to perform OLS fit-predict with fixed window
-# Equivalent to: anofox_statistics_ols_fit_predict with 'fixed' mode
+# Equivalent to: ols_fit_predict_by (one fit per group, predict all rows)
 ols_fit_predict_fixed <- function(data, confidence_level = 0.95) {
   n <- nrow(data)
   results <- data.frame(

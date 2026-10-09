@@ -35,7 +35,7 @@
 
 use super::*;
 use crate::models::glm_engine::design::ConstantColumnPolicy;
-use crate::types::PriorSpec;
+use crate::types::{PriorSpec, VcovType};
 use anofox_regression::prelude::*;
 use faer::{Col, Mat};
 
@@ -294,7 +294,7 @@ fn negbinomial_matches_upstream_on_a_sound_design() {
 
     // Upstream estimates theta; feed its estimate back so the comparison is
     // like-for-like.
-    let theta = upstream.dispersion;
+    let theta = upstream.theta;
     let fit = fit(
         &NegativeBinomialFamily::new(theta),
         &y,

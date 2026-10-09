@@ -7,12 +7,13 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/result_fields.hpp"
+#include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
+#include "../include/ffi_enum_converters.hpp"
 #include "telemetry.hpp"
+#include "aggregate_combine.hpp"
 
-#ifdef _WIN32
-#define strcasecmp _stricmp
-#endif
 
 namespace duckdb {
 
@@ -45,6 +46,7 @@ static LogicalType GetDieboldMarianoAggResultType() {
     children.push_back(make_pair("p_value", LogicalType::DOUBLE));
     children.push_back(make_pair("n", LogicalType::BIGINT));
     children.push_back(make_pair("method", LogicalType::VARCHAR));
+    children.push_back(make_pair("alternative", LogicalType::VARCHAR));
 
     return LogicalType::STRUCT(std::move(children));
 }
@@ -143,7 +145,7 @@ static void DieboldMarianoAggUpdate(Vector inputs[], AggregateInputData &aggr_in
     }
 }
 
-static void DieboldMarianoAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &, idx_t count) {
+static void DieboldMarianoAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &aggr_input_data, idx_t count) {
     UnifiedVectorFormat source_data, target_data;
     source_vector.ToUnifiedFormat(count, source_data);
     target_vector.ToUnifiedFormat(count, target_data);
@@ -160,9 +162,9 @@ static void DieboldMarianoAggCombine(Vector &source_vector, Vector &target_vecto
         }
 
         if (!target.initialized) {
-            target.actual = std::move(source.actual);
-            target.forecast1 = std::move(source.forecast1);
-            target.forecast2 = std::move(source.forecast2);
+            target.actual = CombineTake(source.actual, aggr_input_data);
+            target.forecast1 = CombineTake(source.forecast1, aggr_input_data);
+            target.forecast2 = CombineTake(source.forecast2, aggr_input_data);
             target.initialized = true;
             continue;
         }
@@ -215,6 +217,7 @@ static void DieboldMarianoAggFinalize(Vector &state_vector, AggregateInputData &
                                                &test_result, &error);
 
         if (!success) {
+            ThrowUnlessDegenerate("diebold_mariano_agg", error);
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
@@ -226,6 +229,7 @@ static void DieboldMarianoAggFinalize(Vector &state_vector, AggregateInputData &
         auto& method_vector = *struct_entries[struct_idx++];
         FlatVector::GetData<string_t>(method_vector)[result_idx] =
             StringVector::AddString(method_vector, test_result.method ? test_result.method : "Diebold-Mariano test");
+        SetResultString(*struct_entries[struct_idx++], result_idx, AlternativeName(bind_data.alternative));
 
         anofox_free_test_result(&test_result);
         state.Reset();
@@ -240,36 +244,20 @@ static unique_ptr<FunctionData> DieboldMarianoAggBind(ClientContext &context, Ag
     function.return_type = GetDieboldMarianoAggResultType();
     auto bind_data = make_uniq<DieboldMarianoBindData>();
 
-    if (arguments.size() >= 4 && arguments[3]->IsFoldable()) {
-        Value options_val = ExpressionExecutor::EvaluateScalar(context, *arguments[3]);
-        if (options_val.type().id() == LogicalTypeId::MAP) {
-            auto &map_children = MapValue::GetChildren(options_val);
-            for (auto &entry : map_children) {
-                auto &key_list = StructValue::GetChildren(entry);
-                if (key_list.size() >= 2) {
-                    auto key = StringValue::Get(key_list[0]).c_str();
-                    if (strcasecmp(key, "loss") == 0) {
-                        auto loss_str = StringValue::Get(key_list[1]);
-                        if (strcasecmp(loss_str.c_str(), "absolute") == 0) {
-                            bind_data->loss = ANOFOX_FORECAST_LOSS_ABSOLUTE;
-                        }
-                    } else if (strcasecmp(key, "var_estimator") == 0) {
-                        auto var_str = StringValue::Get(key_list[1]);
-                        if (strcasecmp(var_str.c_str(), "bartlett") == 0) {
-                            bind_data->var_estimator = ANOFOX_FORECAST_VAR_BARTLETT;
-                        }
-                    } else if (strcasecmp(key, "horizon") == 0) {
-                        bind_data->horizon = static_cast<size_t>(key_list[1].GetValue<int64_t>());
-                    } else if (strcasecmp(key, "alternative") == 0) {
-                        auto alt_str = StringValue::Get(key_list[1]);
-                        if (strcasecmp(alt_str.c_str(), "less") == 0) {
-                            bind_data->alternative = ANOFOX_ALTERNATIVE_LESS;
-                        } else if (strcasecmp(alt_str.c_str(), "greater") == 0) {
-                            bind_data->alternative = ANOFOX_ALTERNATIVE_GREATER;
-                        }
-                    }
-                }
-            }
+    if (arguments.size() >= 4) {
+        Value options_val = EvaluateConstantOptions(context, *arguments[3], "diebold_mariano_agg");
+        auto opts = DieboldMarianoMapOptions::ParseFromValue(options_val, "diebold_mariano_agg");
+        if (opts.absolute_loss.has_value()) {
+            bind_data->loss = opts.absolute_loss.value() ? ANOFOX_FORECAST_LOSS_ABSOLUTE : ANOFOX_FORECAST_LOSS_SQUARED;
+        }
+        if (opts.bartlett.has_value()) {
+            bind_data->var_estimator = opts.bartlett.value() ? ANOFOX_FORECAST_VAR_BARTLETT : ANOFOX_FORECAST_VAR_ACF;
+        }
+        if (opts.horizon.has_value()) {
+            bind_data->horizon = opts.horizon.value();
+        }
+        if (opts.alternative.has_value()) {
+            bind_data->alternative = ConvertAlternative(opts.alternative.value());
         }
     }
 
@@ -301,7 +289,11 @@ void RegisterDieboldMarianoAggregateFunction(ExtensionLoader &loader) {
 
     {
         AggregateFunctionSet func_set("diebold_mariano_agg");
+        // Row order is part of the input (sequential / time-series estimator):
+        // declare it so DuckDB honours `agg(... ORDER BY t)`.
+        func_with_opts.order_dependent = AggregateOrderDependent::ORDER_DEPENDENT; // field form works on DuckDB v1.4 LTS and v1.5
         func_set.AddFunction(func_with_opts);
+        func_no_opts.order_dependent = AggregateOrderDependent::ORDER_DEPENDENT; // field form works on DuckDB v1.4 LTS and v1.5
         func_set.AddFunction(func_no_opts);
         CreateAggregateFunctionInfo info(std::move(func_set));
         info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;

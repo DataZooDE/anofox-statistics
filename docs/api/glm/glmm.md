@@ -13,24 +13,34 @@ This is "lme4 in SQL" for a random intercept over one grouping factor.
 | `glmm_fit_agg` | Aggregate | Fit a mixed-effects GLM |
 | `glmm_fit_by` | Table Macro | Same, returning one row per group with its BLUP |
 
-## anofox_stats_glmm_fit_agg / glmm_fit_agg
+The examples on this page use this table:
+
+```sql
+-- 12 SKUs, 30 weeks each
+CREATE OR REPLACE TABLE demand AS
+SELECT i AS week,
+       'SKU-' || (i % 12) AS sku,
+       (i % 2)::DOUBLE AS promo,
+       (i % 3)::DOUBLE AS region,
+       (((i * 7) % 11) + 3 * (i % 2) + (i % 12) % 4)::DOUBLE AS qty
+FROM range(360) r(i);
+```
+
+## glmm_fit_agg
 
 **Signature:**
 
-```sql
-anofox_stats_glmm_fit_agg(
-    y DOUBLE,
-    x LIST(DOUBLE),
-    group ANY,          -- grouping key; any type
-    [options MAP]
-) -> STRUCT
+```text
+glmm_fit_agg(y DOUBLE, x DOUBLE[], group ANY [, options MAP]) -> STRUCT
 ```
+
+`group` is the grouping key and may be of any type.
 
 **Options MAP:**
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| family | VARCHAR | 'gaussian' | `gaussian`, `poisson`, or `binomial` |
+| family | VARCHAR | 'gaussian' | `gaussian` (aliases `normal`, `lmm`), `poisson`, or `binomial` (alias `logistic`). `negbinomial`, `gamma` and `tweedie` are recognised but not yet supported and return `NULL`. |
 | fit_intercept | BOOLEAN | true | Include a fixed intercept |
 | reml | BOOLEAN | true | REML rather than ML for the Gaussian variance components |
 | random | INTEGER[] | — | 1-based indices into `x` of feature columns that also get a **random slope** (unstructured covariance with the intercept) |
@@ -44,11 +54,12 @@ anofox_stats_glmm_fit_agg(
 > Not yet available (tracked upstream, [anofox-regression#29](https://github.com/sipemu/anofox-regression/issues/29)):
 > NegBinomial/Gamma/Tweedie mixed-effects families, an `offset`, per-group BLUP
 > standard errors, and random slopes combined with multiple grouping factors.
-> Requesting an unsupported combination returns a clear error / `NULL`.
+> Requesting an unsupported combination returns `NULL`. The `offset`, `theta`
+> and `power` keys are parsed but currently lead to a `NULL` result.
 
 **Returns:**
 
-```
+```text
 STRUCT(coefficients DOUBLE[], intercept DOUBLE,
        var_group DOUBLE, var_residual DOUBLE, icc DOUBLE,
        log_likelihood DOUBLE, aic DOUBLE, bic DOUBLE, deviance DOUBLE,
@@ -66,19 +77,57 @@ STRUCT(coefficients DOUBLE[], intercept DOUBLE,
 
 ```sql
 -- Random intercept over SKUs (Poisson counts)
-SELECT glmm_fit_agg(qty, [promo], sku, {
-    'family': 'poisson',
-    'compute_inference': true
-}) FROM demand;
+SELECT (fit).coefficients, (fit).var_group, (fit).icc, (fit).p_values
+FROM (
+    SELECT glmm_fit_agg(qty, [promo], sku, {
+        'family': 'poisson',
+        'compute_inference': true
+    }) AS fit
+    FROM demand
+);
 
 -- Random intercept + random slope on promo (x-column 1); read Sigma from random_cov
-SELECT glmm_fit_agg(qty, [promo], sku, {'random': [1]}) FROM demand;
+SELECT (glmm_fit_agg(qty, [promo], sku, {'random': [1]})).random_cov FROM demand;
 
 -- Crossed factors: sku (positional) and region (x-column 2, named in 'groups')
-SELECT glmm_fit_agg(qty, [promo, region], sku, {'groups': [2]}) FROM demand;
+SELECT (glmm_fit_agg(qty, [promo, region], sku, {'groups': [2]})).factors FROM demand;
+```
 
+## glmm_fit_by
+
+Table macro that fits **one** mixed model across all groups of a table and
+returns one row per group with its random effect (BLUP) and the shared fixed
+effects. This differs from the `*_fit_predict_by` macros, which fit independent
+models per group.
+
+**Signature:**
+
+```text
+glmm_fit_by(source VARCHAR, group_col, y_col, x_cols [, options MAP]) -> TABLE
+```
+
+Options are the `glmm_fit_agg` options.
+
+**Returns:**
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `group` | VARCHAR | Group key (rendered as text) |
+| `ranef` | DOUBLE | The group's random-intercept BLUP |
+| `ranef_se` | DOUBLE | Its conditional SE (currently `NaN`, see below) |
+| `n` | BIGINT | Observations in the group |
+| `fixed_intercept` | DOUBLE | Shared fixed intercept |
+| `fixed_coefficients` | DOUBLE[] | Shared fixed-effect coefficients |
+| `var_group` | DOUBLE | Between-group variance |
+| `var_residual` | DOUBLE | Residual variance |
+| `icc` | DOUBLE | Intra-class correlation |
+
+Rows are ordered by `group`.
+
+```sql
 -- One row per SKU, with its shrunken effect
-SELECT * FROM glmm_fit_by('demand', sku, qty, [promo]);
+SELECT "group", round(ranef, 3) AS ranef, n, round(icc, 3) AS icc
+FROM glmm_fit_by('demand', sku, qty, [promo], {'family': 'poisson'});
 ```
 
 ## The model
@@ -110,20 +159,21 @@ The BLUPs are labelled with the original grouping key, whatever its type.
 ```sql
 -- Random slope on x-column 1 (unstructured covariance with the intercept).
 -- random_dim = 2 and random_cov holds the 2x2 Sigma.
-SELECT glmm_fit_agg(y, [x], grp, {'random': [1]}) FROM t;
+SELECT (fit).random_dim, (fit).random_cov
+FROM (SELECT glmm_fit_agg(qty, [promo], sku, {'random': [1]}) AS fit FROM demand);
 
--- Crossed factors: grp is the positional factor; the second x-column is a
+-- Crossed factors: sku is the positional factor; the second x-column is a
 -- second, independent random intercept named by its 1-based index in 'groups'.
 -- It is dictionary-encoded and removed from the design; per-factor variances
 -- come back in `factors`.
-SELECT glmm_fit_agg(y, [x, region], grp, {'groups': [2]}) FROM t;
+SELECT (glmm_fit_agg(qty, [promo, region], sku, {'groups': [2]})).factors FROM demand;
 ```
 
 Nesting `(1|a/b)` is expressed by passing the composed `a:b` key as a factor
 column. Random slopes combined with multiple grouping factors is not yet
 supported (tracked upstream, anofox-regression#29).
 
-## Degenerate inputs
+## Degenerate inputs and NULL handling
 
 | Situation | Result |
 |-----------|--------|

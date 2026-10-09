@@ -17,21 +17,21 @@ SELECT aft_fit_agg(days, [x], 0.0::DOUBLE) IS NULL FROM aft_edge;
 ----
 true
 
-# ==== TEST 2: a non-positive time returns NULL rather than NaN ====
+# ==== TEST 2: a non-positive time is invalid input: an error, never NaN ====
 statement ok
 CREATE TABLE aft_zero AS SELECT x, 0.0::DOUBLE AS days, delivered FROM aft_edge
 UNION ALL SELECT x, days, delivered FROM aft_edge;
 
-query I
-SELECT aft_fit_agg(days, [x], delivered) IS NULL FROM aft_zero;
+statement error
+SELECT aft_fit_agg(days, [x], delivered) FROM aft_zero;
 ----
-true
+aft_fit_agg: Invalid value for time: AFT regression requires strictly positive times
 
-# ==== TEST 3: a non-binary event indicator returns NULL ====
-query I
-SELECT aft_fit_agg(days, [x], 0.5::DOUBLE) IS NULL FROM aft_edge;
+# ==== TEST 3: a non-binary event indicator is invalid input ====
+statement error
+SELECT aft_fit_agg(days, [x], 0.5::DOUBLE) FROM aft_edge;
 ----
-true
+aft_fit_agg: Invalid value for event
 
 # ==== TEST 4: too few observations returns NULL ====
 query I

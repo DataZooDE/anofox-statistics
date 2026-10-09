@@ -1,0 +1,367 @@
+# name: test/sql/options/test_regression_option_keys.test
+# description: Per-function option keys for the regression family: keys a function
+#              does not read are rejected (naming the function and its supported
+#              keys), context-dependent aliases resolve per function, and options
+#              are validated at bind time.
+# group: [options]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE d AS
+SELECT i,
+       (i % 17)::DOUBLE / 3.0 AS x1,
+       ((i * 7) % 11)::DOUBLE / 2.0 AS x2,
+       (1.0 + 0.5 * ((i % 17)::DOUBLE / 3.0) - 0.3 * (((i * 7) % 11)::DOUBLE / 2.0) + sin(i)) AS y,
+       ((i * 13) % 5)::DOUBLE AS cnt,
+       (CASE WHEN sin(i * 1.7) + 0.2 * ((i % 17)::DOUBLE / 3.0) > 0.4 THEN 1.0 ELSE 0.0 END) AS bin,
+       (1.0 + ((i * 3) % 7)::DOUBLE) AS pos
+FROM range(100) t(i);
+
+# Overdispersed counts for the Negative Binomial GLM (fixture from test_negbinom_basic).
+statement ok
+CREATE TABLE nbd AS
+SELECT CAST(ROUND(EXP(0.5 + 0.3 * (i % 10)) + ((i * 7) % 5)) AS DOUBLE) AS y, (i % 10)::DOUBLE AS x
+FROM range(0, 100) t(i);
+
+# =============================================================================
+# Valid keys that a function does not use are rejected (they used to be ignored)
+# =============================================================================
+
+statement error
+SELECT ols_fit_agg(y, [x1, x2], {'alpha': 1.0}) FROM d;
+----
+ols_fit_agg: unsupported option 'alpha'. Supported options: fit_intercept (alias: intercept), compute_inference (alias: inference), confidence_level (alias: confidence), solver, hc_type
+
+statement error
+SELECT ols_fit([1.0, 2.0, 3.0, 4.0], [[1.0, 2.0, 3.0, 5.0]], {'l1_ratio': 0.5});
+----
+ols_fit: unsupported option 'l1_ratio'
+
+statement error
+SELECT logistic_fit_agg(bin, [x1], {'link': 'probit'}) FROM d;
+----
+logistic_fit_agg: unsupported option 'link'
+
+statement error
+SELECT poisson_fit_agg(cnt, [x1], {'binomial_link': 'logit'}) FROM d;
+----
+poisson_fit_agg: unsupported option 'binomial_link'
+
+statement error
+SELECT quantile_fit_predict_agg(y, [x1], {'alpha': 0.5}) FROM d;
+----
+quantile_fit_predict_agg: unsupported option 'alpha'
+
+statement error
+SELECT ols_fit_predict(y, [x1], {'compute_inference': true}) OVER (ORDER BY i) FROM d;
+----
+ols_fit_predict: unsupported option 'compute_inference'
+
+statement error
+SELECT ols_fit_predict_agg(y, [x1], {'max_iterations': 5}) FROM d;
+----
+ols_fit_predict_agg: unsupported option 'max_iterations'
+
+statement error
+SELECT glmm_fit_agg(y, [x1], i % 5, {'glm_lambda': 1.0}) FROM d;
+----
+glmm_fit_agg: unsupported option 'glm_lambda'
+
+# Typos are still unknown options, now naming the function's supported keys.
+statement error
+SELECT ridge_fit_agg(y, [x1], {'alhpa': 1.0}) FROM d;
+----
+ridge_fit_agg: unknown option 'alhpa'. Supported options: fit_intercept (alias: intercept), compute_inference (alias: inference), confidence_level (alias: confidence), alpha, lambda, solver, lambda_scaling
+
+# The supported list shows the context-dependent aliases of a GLM.
+statement error
+SELECT poisson_fit_agg(cnt, [x1], {'bogus': 1}) FROM d;
+----
+poisson_link (alias: link), offset, glm_lambda (alias: lambda, alpha)
+
+# =============================================================================
+# link means the link of whichever family is fitted
+# =============================================================================
+
+query I
+SELECT (binomial_fit_agg(bin, [x1], {'link': 'probit'})).coefficients
+     = (binomial_fit_agg(bin, [x1], {'binomial_link': 'probit'})).coefficients
+FROM d;
+----
+true
+
+query I
+SELECT (binomial_fit_agg(bin, [x1], {'link': 'cloglog'})).coefficients
+    != (binomial_fit_agg(bin, [x1])).coefficients
+FROM d;
+----
+true
+
+query I
+SELECT (poisson_fit_agg(cnt, [x1], {'link': 'sqrt'})).coefficients
+     = (poisson_fit_agg(cnt, [x1], {'poisson_link': 'sqrt'})).coefficients
+FROM d;
+----
+true
+
+statement error
+SELECT binomial_fit_agg(bin, [x1], {'link': 'sqrt'}) FROM d;
+----
+Invalid binomial link: 'sqrt'
+
+# An explicit family-specific key wins over the generic alias.
+query I
+SELECT (binomial_fit_agg(bin, [x1], {'link': 'probit', 'binomial_link': 'logit'})).coefficients
+     = (binomial_fit_agg(bin, [x1])).coefficients
+FROM d;
+----
+true
+
+query I
+SELECT list_transform(poisson_fit_predict_agg(cnt, [x1], {'link': 'identity'}), r -> r.yhat)
+     = list_transform(poisson_fit_predict_agg(cnt, [x1], {'poisson_link': 'identity'}), r -> r.yhat)
+FROM d;
+----
+true
+
+# =============================================================================
+# GLM penalty: lambda and alpha are aliases of glm_lambda on GLMs only
+# =============================================================================
+
+query I
+SELECT (poisson_fit_agg(cnt, [x1], {'lambda': 2.0})).coefficients
+     = (poisson_fit_agg(cnt, [x1], {'glm_lambda': 2.0})).coefficients
+   AND (poisson_fit_agg(cnt, [x1], {'alpha': 2.0})).coefficients
+     = (poisson_fit_agg(cnt, [x1], {'glm_lambda': 2.0})).coefficients
+   AND (poisson_fit_agg(cnt, [x1], {'lambda': 2.0})).coefficients
+    != (poisson_fit_agg(cnt, [x1])).coefficients
+FROM d;
+----
+true
+
+query I
+SELECT (binomial_fit_agg(bin, [x1], {'alpha': 1.0})).coefficients
+     = (binomial_fit_agg(bin, [x1], {'glm_lambda': 1.0})).coefficients
+   AND (logistic_fit_agg(bin, [x1], {'lambda': 1.0})).coefficients
+     = (logistic_fit_agg(bin, [x1], {'glm_lambda': 1.0})).coefficients
+   AND (gamma_fit_agg(pos, [x1], {'alpha': 1.0})).coefficients
+     = (gamma_fit_agg(pos, [x1], {'glm_lambda': 1.0})).coefficients
+   AND (tweedie_fit_agg(pos, [x1], {'lambda': 1.0})).coefficients
+     = (tweedie_fit_agg(pos, [x1], {'glm_lambda': 1.0})).coefficients
+FROM d;
+----
+true
+
+query I
+SELECT (negbinom_fit_agg(y, [x], {'lambda': 1.0})).coefficients
+     = (negbinom_fit_agg(y, [x], {'glm_lambda': 1.0})).coefficients
+   AND (negbinom_fit_agg(y, [x], {'alpha': 1.0})).coefficients
+     = (negbinom_fit_agg(y, [x], {'glm_lambda': 1.0})).coefficients
+   AND (negbinom_fit_agg(y, [x], {'glm_lambda': 1.0})).coefficients IS NOT NULL
+FROM nbd;
+----
+true
+
+query I
+SELECT list_transform(poisson_fit_predict_agg(cnt, [x1], {'lambda': 1.0}), r -> r.yhat)
+     = list_transform(poisson_fit_predict_agg(cnt, [x1], {'glm_lambda': 1.0}), r -> r.yhat)
+FROM d;
+----
+true
+
+# glm_lambda wins over the aliases; lambda wins over alpha.
+query I
+SELECT (poisson_fit_agg(cnt, [x1], {'glm_lambda': 2.0, 'lambda': 9.0})).coefficients
+     = (poisson_fit_agg(cnt, [x1], {'glm_lambda': 2.0})).coefficients
+   AND (poisson_fit_agg(cnt, [x1], {'lambda': 2.0, 'alpha': 9.0})).coefficients
+     = (poisson_fit_agg(cnt, [x1], {'glm_lambda': 2.0})).coefficients
+FROM d;
+----
+true
+
+# =============================================================================
+# tau <-> quantile
+# =============================================================================
+
+query I
+SELECT (alm_fit_agg(y, [x1], {'distribution': 'asymmetric_laplace', 'tau': 0.8})).coefficients
+     = (alm_fit_agg(y, [x1], {'distribution': 'asymmetric_laplace', 'quantile': 0.8})).coefficients
+FROM d;
+----
+true
+
+query I
+SELECT list_transform(quantile_fit_predict_agg(y, [x1], {'quantile': 0.9}), r -> r.yhat)
+     = list_transform(quantile_fit_predict_agg(y, [x1], {'tau': 0.9}), r -> r.yhat)
+FROM d;
+----
+true
+
+# 'quantile' is no longer ignored by quantile regression.
+query I
+SELECT list_transform(quantile_fit_predict_agg(y, [x1], {'quantile': 0.9}), r -> r.yhat)
+    != list_transform(quantile_fit_predict_agg(y, [x1]), r -> r.yhat)
+FROM d;
+----
+true
+
+# =============================================================================
+# Other aliases
+# =============================================================================
+
+# Ridge / ElasticNet fit-predict accept 'lambda' like the fit aggregates do.
+query I
+SELECT list_transform(ridge_fit_predict_agg(y, [x1, x2], {'lambda': 3.0}), r -> r.yhat)
+     = list_transform(ridge_fit_predict_agg(y, [x1, x2], {'alpha': 3.0}), r -> r.yhat)
+FROM d;
+----
+true
+
+query I
+SELECT list_transform(elasticnet_fit_predict_agg(y, [x1, x2], {'lambda': 0.3, 'l1_ratio': 0.5}), r -> r.yhat)
+     = list_transform(elasticnet_fit_predict_agg(y, [x1, x2], {'alpha': 0.3, 'l1_ratio': 0.5}), r -> r.yhat)
+FROM d;
+----
+true
+
+# RLS: lambda is the conventional symbol of the forgetting factor.
+query I
+SELECT (rls_fit_agg(y, [x1, x2], {'lambda': 0.95})).coefficients
+     = (rls_fit_agg(y, [x1, x2], {'forgetting_factor': 0.95})).coefficients
+   AND (rls_fit_agg(y, [x1, x2], {'lambda': 0.95})).coefficients
+    != (rls_fit_agg(y, [x1, x2])).coefficients
+FROM d;
+----
+true
+
+# seed / random_state
+query I
+SELECT (ransac_fit_agg(y, [x1, x2], {'seed': 7})).coefficients
+     = (ransac_fit_agg(y, [x1, x2], {'random_state': 7})).coefficients
+   AND (theil_sen_fit_agg(y, [x1, x2], {'seed': 7, 'max_subpopulation': 50})).coefficients
+     = (theil_sen_fit_agg(y, [x1, x2], {'random_state': 7, 'max_subpopulation': 50})).coefficients
+FROM d;
+----
+true
+
+# =============================================================================
+# Bind-time validation
+# =============================================================================
+
+statement error
+SELECT ols_fit_agg(y, [x1], {'confidence_level': 1.0}) FROM d;
+----
+confidence_level must be in (0, 1), got 1.0
+
+statement error
+SELECT ols_fit_agg(y, [x1], {'confidence_level': 0}) FROM d;
+----
+confidence_level must be in (0, 1)
+
+statement error
+SELECT ridge_fit_predict_agg(y, [x1], {'confidence_level': 95}) FROM d;
+----
+confidence_level must be in (0, 1), got 95
+
+statement error
+SELECT ransac_fit_agg(y, [x1], {'max_trials': -5}) FROM d;
+----
+Expected a non-negative integer, got -5
+
+statement error
+SELECT ransac_fit_agg(y, [x1], {'max_trials': 5000000000}) FROM d;
+----
+is too large (maximum 4294967295)
+
+statement error
+SELECT elasticnet_fit_agg(y, [x1], {'max_iterations': 2.5}) FROM d;
+----
+Expected an integer, got 2.5
+
+statement error
+SELECT ransac_fit_agg(y, [x1], {'seed': -1}) FROM d;
+----
+Expected a non-negative integer, got -1
+
+# Options must be a constant; a per-row expression used to be skipped silently.
+statement error
+SELECT ols_fit_agg(y, [x1], {'fit_intercept': x1 > 1}) FROM d;
+----
+ols_fit_agg: options must be a constant expression
+
+statement error
+SELECT poisson_fit_agg(cnt, [x1], {'glm_lambda': x2}) FROM d;
+----
+poisson_fit_agg: options must be a constant expression
+
+# A constant expression that folds is fine.
+query I
+SELECT (ols_fit_agg(y, [x1], {'fit_intercept': 1 = 1})).intercept IS NOT NULL FROM d;
+----
+true
+
+# NULL options mean "use defaults".
+query I
+SELECT (ols_fit_agg(y, [x1], NULL)).coefficients = (ols_fit_agg(y, [x1])).coefficients FROM d;
+----
+true
+
+# MAP and STRUCT literals are equivalent.
+query I
+SELECT (ridge_fit_agg(y, [x1], MAP {'alpha': 2.0})).coefficients
+     = (ridge_fit_agg(y, [x1], {'alpha': 2.0})).coefficients
+FROM d;
+----
+true
+
+# =============================================================================
+# LARS options
+# =============================================================================
+
+statement ok
+CREATE TABLE ld AS
+SELECT (3.0 * a - 2.0 * b + 0.5 * c + 0.01 * sin(i * 3.1)) AS y, [a, b, c] AS x
+FROM (SELECT i, sin(i * 0.7) AS a, cos(i * 1.3) AS b, sin(i * 2.9 + 1.0) AS c FROM range(200) t(i));
+
+# n_nonzero_coefs caps the active set.
+query I
+SELECT list_count(list_filter((lars_fit_agg(y, x, {'n_nonzero_coefs': 1})).coefficients, c -> c != 0)) FROM ld;
+----
+1
+
+# alpha now has an effect: it selects the LassoLars path and shrinks.
+query I
+SELECT (lars_fit_agg(y, x, {'alpha': 0.1})).coefficients != (lars_fit_agg(y, x)).coefficients
+   AND (lars_fit_agg(y, x, {'alpha': 0.1})).coefficients
+     = (lars_fit_agg(y, x, {'method': 'lasso', 'alpha': 0.1})).coefficients
+FROM ld;
+----
+true
+
+query I
+SELECT list_sum(list_transform((lars_fit_agg(y, x, {'method': 'lasso', 'alpha': 0.1})).coefficients, c -> abs(c)))
+     < list_sum(list_transform((lars_fit_agg(y, x, {'method': 'lar'})).coefficients, c -> abs(c)))
+FROM ld;
+----
+true
+
+query I
+SELECT (lars_fit_agg(y, x, {'standardize': false})).coefficients IS NOT NULL FROM ld;
+----
+true
+
+statement error
+SELECT lars_fit_agg(y, x, {'method': 'lar', 'alpha': 0.1}) FROM ld;
+----
+lars_fit_agg: 'alpha' only applies to method 'lasso'
+
+statement error
+SELECT lars_fit_agg(y, x, {'method': 'forward'}) FROM ld;
+----
+Invalid method: 'forward'. Valid values are 'lar', 'lasso'
+
+statement error
+SELECT lars_fit_agg(y, x, {'n_nonzero_coefs': -1}) FROM ld;
+----
+n_nonzero_coefs must be >= 0

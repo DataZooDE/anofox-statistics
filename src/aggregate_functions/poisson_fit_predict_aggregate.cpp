@@ -8,8 +8,11 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/fit_predict_rows.hpp"
+#include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
+#include "aggregate_combine.hpp"
 
 namespace duckdb {
 
@@ -225,7 +228,11 @@ static void PoissonFitPredictAggUpdate(Vector inputs[], AggregateInputData &aggr
 		// Get x values
 		auto x_idx = x_data.sel->get_index(i);
 		if (!x_data.validity.RowIsValid(x_idx)) {
-			continue; // Skip rows with NULL x
+			// Keep the row (not training, NULL yhat) so output positions line up.
+			auto y_null_idx = y_data.sel->get_index(i);
+			bool y_null_valid = y_data.validity.RowIsValid(y_null_idx);
+			PushNullXRow(state, y_null_valid, y_null_valid ? y_values[y_null_idx] : 0.0);
+			continue;
 		}
 
 		auto list_entry = x_list_data[x_idx];
@@ -290,6 +297,14 @@ static void PoissonFitPredictAggUpdate(Vector inputs[], AggregateInputData &aggr
 		}
 
 		// Store ALL row data for output (including training flag)
+		// A row with a missing (NULL/NaN) feature is not used to fit; report it so.
+		for (auto v : x_row) {
+			if (std::isnan(v)) {
+				row_is_training = false;
+				break;
+			}
+		}
+
 		state.y_all.push_back(y_val);
 		state.y_is_null.push_back(!y_valid);
 		state.is_training.push_back(row_is_training);
@@ -306,7 +321,7 @@ static void PoissonFitPredictAggUpdate(Vector inputs[], AggregateInputData &aggr
 }
 
 // Combine: merge two states
-static void PoissonFitPredictAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &,
+static void PoissonFitPredictAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &aggr_input_data,
                                         idx_t count) {
 	UnifiedVectorFormat source_data, target_data;
 	source_vector.ToUnifiedFormat(count, source_data);
@@ -320,16 +335,19 @@ static void PoissonFitPredictAggCombine(Vector &source_vector, Vector &target_ve
 		auto &target = *targets[target_data.sel->get_index(i)];
 
 		if (!source.initialized) {
+			// Only NULL-x rows; keep them.
+			AppendOutputRows(target, source);
 			continue;
 		}
 
 		if (!target.initialized) {
-			target.y_train = std::move(source.y_train);
-			target.x_train = std::move(source.x_train);
-			target.y_all = std::move(source.y_all);
-			target.y_is_null = std::move(source.y_is_null);
-			target.is_training = std::move(source.is_training);
-			target.x_all = std::move(source.x_all);
+			auto pending_rows = TakeOutputRows(target);
+			target.y_train = CombineTake(source.y_train, aggr_input_data);
+			target.x_train = CombineTake(source.x_train, aggr_input_data);
+			target.y_all = CombineTake(source.y_all, aggr_input_data);
+			target.y_is_null = CombineTake(source.y_is_null, aggr_input_data);
+			target.is_training = CombineTake(source.is_training, aggr_input_data);
+			target.x_all = CombineTake(source.x_all, aggr_input_data);
 			target.n_features = source.n_features;
 			target.initialized = true;
 			target.fit_intercept = source.fit_intercept;
@@ -339,6 +357,7 @@ static void PoissonFitPredictAggCombine(Vector &source_vector, Vector &target_ve
 			target.confidence_level = source.confidence_level;
 			target.glm_lambda = source.glm_lambda;
 			target.null_policy = source.null_policy;
+			PrependOutputRows(target, std::move(pending_rows));
 			continue;
 		}
 
@@ -411,11 +430,13 @@ static void PoissonFitPredictAggFinalize(Vector &state_vector, AggregateInputDat
 		    anofox_poisson_fit(y_array, x_arrays.data(), x_arrays.size(), options, &core_result, nullptr, &error);
 
 		if (!success) {
+			ThrowUnlessDegenerate("poisson_fit_predict_agg", error);
 			FlatVector::SetNull(result, result_idx, true);
 			continue;
 		}
 
 		// Build LIST result with predictions for ALL rows
+		PadNullXRows(state);
 		idx_t n_rows = state.y_all.size();
 		auto *list_data = ListVector::GetData(result);
 		auto list_offset = ListVector::GetListSize(result);
@@ -524,8 +545,10 @@ static unique_ptr<FunctionData> PoissonFitPredictAggBind(ClientContext &context,
 	auto result = make_uniq<PoissonFitPredictAggBindData>();
 
 	// Parse MAP options if provided as 3rd argument
-	if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-		auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[2]);
+	if (arguments.size() >= 3) {
+		auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[2], "poisson_fit_predict_agg",
+            {"fit_intercept", "confidence_level", "max_iterations", "tolerance", "null_policy", "poisson_link", "glm_lambda"});
 		if (opts.fit_intercept.has_value()) {
 			result->fit_intercept = opts.fit_intercept.value();
 		}
@@ -561,8 +584,10 @@ static unique_ptr<FunctionData> PoissonFitPredictAggBindWithSplit(ClientContext 
 	result->use_split_col = true;
 
 	// Parse MAP options if provided as 4th argument (y, x, split, options)
-	if (arguments.size() >= 4 && arguments[3]->IsFoldable()) {
-		auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[3]);
+	if (arguments.size() >= 4) {
+		auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[3], "poisson_fit_predict_agg",
+            {"fit_intercept", "confidence_level", "max_iterations", "tolerance", "null_policy", "poisson_link", "glm_lambda"});
 		if (opts.fit_intercept.has_value()) {
 			result->fit_intercept = opts.fit_intercept.value();
 		}

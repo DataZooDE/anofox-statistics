@@ -67,8 +67,10 @@ static unique_ptr<FunctionData> ElasticNetFitBind(ClientContext &context, Scalar
     auto result = make_uniq<ElasticNetFitBindData>();
 
     // Parse MAP options if provided as 3rd argument
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[2]);
+    if (arguments.size() >= 3) {
+        auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[2], "elasticnet_fit",
+            {"fit_intercept", "alpha", "lambda", "l1_ratio", "max_iterations", "tolerance", "lambda_scaling"});
         if (opts.fit_intercept.has_value()) {
             result->fit_intercept = opts.fit_intercept.value();
         }
@@ -115,7 +117,18 @@ static vector<double> ExtractDoubleList(Vector &vec, idx_t row_idx) {
 }
 
 // Main Elastic Net fit function
+static void ElasticNetFitFunctionImpl(DataChunk &args, ExpressionState &state, Vector &result);
+
+// Constant inputs must yield a CONSTANT_VECTOR (DuckDB constant folding
+// asserts this in debug builds).
 static void ElasticNetFitFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+	ElasticNetFitFunctionImpl(args, state, result);
+	if (args.AllConstant()) {
+		result.SetVectorType(VectorType::CONSTANT_VECTOR);
+	}
+}
+
+static void ElasticNetFitFunctionImpl(DataChunk &args, ExpressionState &state, Vector &result) {
     auto &bind_data = state.expr.Cast<BoundFunctionExpression>().bind_info->Cast<ElasticNetFitBindData>();
 
     auto &y_vec = args.data[0]; // LIST(DOUBLE)
@@ -171,7 +184,9 @@ static void ElasticNetFitFunction(DataChunk &args, ExpressionState &state, Vecto
         bool success = anofox_elasticnet_fit(y_array, x_arrays.data(), x_arrays.size(), options, &core_result, &error);
 
         if (!success) {
-            ThrowFromFfiError("elasticnet_fit", error);
+            ThrowUnlessDegenerate("elasticnet_fit", error);
+            FlatVector::SetNull(result, row, true);
+            continue;
         }
 
         // Build result struct

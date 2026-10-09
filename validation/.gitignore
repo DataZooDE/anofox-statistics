@@ -1,8 +1,3 @@
-# R package library
-legacy/R_libs/
-
-# Test results
+# Local R package library and ad-hoc result dumps
+R_libs/
 **/results/
-
-# Duplicate validation directory
-validation/

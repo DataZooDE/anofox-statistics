@@ -46,14 +46,7 @@ pub fn fit_ols(y: &[f64], x: &[Vec<f64>], options: &OlsOptions) -> StatsResult<F
     let n_features = x.len();
 
     // Check all feature vectors have same length as y
-    for col in x.iter() {
-        if col.len() != n_obs {
-            return Err(StatsError::DimensionMismatch {
-                y_len: n_obs,
-                x_rows: col.len(),
-            });
-        }
-    }
+    crate::validation::validate_x_columns(n_obs, x)?;
 
     // Filter out rows with NaN values
     let valid_indices: Vec<usize> = (0..n_obs)
@@ -71,57 +64,36 @@ pub fn fit_ols(y: &[f64], x: &[Vec<f64>], options: &OlsOptions) -> StatsResult<F
 
     let n_valid = valid_indices.len();
 
-    // Detect zero-variance (constant) columns BEFORE min_obs check
-    // A column is constant if all values in valid rows are the same
-    let is_constant_column: Vec<bool> = x
-        .iter()
-        .map(|col| {
-            if valid_indices.is_empty() {
-                return true;
-            }
-            let first_val = col[valid_indices[0]];
-            valid_indices
-                .iter()
-                .all(|&i| (col[i] - first_val).abs() < 1e-10)
-        })
-        .collect();
-
-    // Count non-constant features for min_obs calculation
-    let n_effective_features = is_constant_column.iter().filter(|&&c| !c).count();
-
-    // Check we have enough observations for the effective (non-constant) features
-    let min_obs = if options.fit_intercept {
-        n_effective_features + 1
-    } else {
-        n_effective_features
-    };
-
-    // If ALL columns are constant, we can still fit (intercept-only model if fit_intercept=true)
-    // or return error if fit_intercept=false and no features
-    if n_effective_features == 0 {
-        if !options.fit_intercept {
-            return Err(StatsError::InsufficientData {
-                rows: n_valid,
-                cols: n_features,
-            });
-        }
-        // Intercept-only model: compute mean of y as intercept
-        let y_mean = valid_indices.iter().map(|&i| y[i]).sum::<f64>() / n_valid as f64;
-        let y_var = valid_indices
-            .iter()
-            .map(|&i| (y[i] - y_mean).powi(2))
-            .sum::<f64>()
-            / (n_valid - 1) as f64;
-        let rmse = y_var.sqrt();
-
+    // Columns that cannot be estimated (constant with an intercept, all-zero
+    // without) are left out of the design so they do not count against the
+    // observation requirement; they are reported as NaN. Everything else —
+    // aliasing, the no-intercept (uncentered) R²/F, intercept-only fits — is
+    // upstream's.
+    let dropped = crate::validation::droppable_columns(x, &valid_indices, options.fit_intercept);
+    let kept: Vec<usize> = (0..n_features).filter(|&j| !dropped[j]).collect();
+    if kept.is_empty() && !options.fit_intercept {
+        return Err(StatsError::InsufficientData {
+            rows: n_valid,
+            cols: n_features,
+        });
+    }
+    if n_valid < kept.len() + usize::from(options.fit_intercept) {
+        return Err(StatsError::InsufficientData {
+            rows: n_valid,
+            cols: n_features,
+        });
+    }
+    if kept.is_empty() && n_valid == 1 {
+        // A single observation: the intercept is that value, its residual
+        // variance is undefined (upstream needs two rows).
         return Ok(FitResult {
             core: FitResultCore {
-                coefficients: vec![f64::NAN; n_features], // All NaN for constant columns
-                intercept: Some(y_mean),
+                coefficients: vec![f64::NAN; n_features],
+                intercept: Some(y[valid_indices[0]]),
                 r_squared: 0.0,
                 adj_r_squared: 0.0,
-                residual_std_error: rmse,
-                n_observations: n_valid,
+                residual_std_error: f64::NAN,
+                n_observations: 1,
                 n_features,
             },
             inference: None,
@@ -129,135 +101,90 @@ pub fn fit_ols(y: &[f64], x: &[Vec<f64>], options: &OlsOptions) -> StatsResult<F
         });
     }
 
-    // Allow n == min_obs (fitting with 0 degrees of freedom for residuals)
-    // This enables exact fits and models with many zero-variance features
-    if n_valid < min_obs {
-        return Err(StatsError::InsufficientData {
-            rows: n_valid,
-            cols: n_features,
-        });
-    }
-
-    // Build reduced X matrix (only non-constant columns)
-    let non_constant_indices: Vec<usize> = is_constant_column
-        .iter()
-        .enumerate()
-        .filter_map(|(i, &is_const)| if !is_const { Some(i) } else { None })
-        .collect();
-
-    // Convert to faer types (only non-constant columns)
     let y_col = Col::from_fn(n_valid, |i| y[valid_indices[i]]);
-    let x_mat = Mat::from_fn(n_valid, n_effective_features, |i, j| {
-        x[non_constant_indices[j]][valid_indices[i]]
-    });
+    let x_mat = Mat::from_fn(n_valid, kept.len(), |i, j| x[kept[j]][valid_indices[i]]);
 
-    // Build and fit the model
     let fitted = OlsRegressor::builder()
         .with_intercept(options.fit_intercept)
+        .compute_inference(options.compute_inference && options.hc_type.is_none())
         .confidence_level(options.confidence_level)
         .solve_method(convert_solver(options.solver))
         .build()
         .fit(&x_mat, &y_col)
-        .map_err(|e| StatsError::RegressError(format!("{:?}", e)))?;
-
-    // Extract results
+        .map_err(StatsError::from)?;
     let result = fitted.result();
 
-    // Reconstruct full coefficient vector with NaN for constant columns
-    let reduced_coefficients: Vec<f64> = result.coefficients.iter().copied().collect();
-    let mut coefficients = vec![f64::NAN; n_features];
-    for (reduced_idx, &orig_idx) in non_constant_indices.iter().enumerate() {
-        coefficients[orig_idx] = reduced_coefficients[reduced_idx];
-    }
-    let intercept = if options.fit_intercept {
-        result.intercept
-    } else {
-        None
+    // Scatter a reduced (kept-columns) vector back to full width, NaN elsewhere.
+    let expand = |reduced: Option<&Col<f64>>| -> Vec<f64> {
+        let mut full = vec![f64::NAN; n_features];
+        if let Some(col) = reduced {
+            for (r, &j) in kept.iter().enumerate() {
+                full[j] = col[r];
+            }
+        }
+        full
     };
 
     let core = FitResultCore {
-        coefficients,
-        intercept,
+        coefficients: expand(Some(&result.coefficients)),
+        intercept: result.intercept,
         r_squared: result.r_squared,
         adj_r_squared: result.adj_r_squared,
-        residual_std_error: result.rmse, // rmse is the residual standard error
+        residual_std_error: result.rmse,
         n_observations: n_valid,
         n_features,
     };
 
-    // Build inference results if requested
-    let inference = if options.compute_inference {
-        // Helper to reconstruct reduced vector to full size with NaN for constant columns
-        let reconstruct = |reduced: Option<&faer::Col<f64>>| -> Vec<f64> {
-            let mut full = vec![f64::NAN; n_features];
-            if let Some(col) = reduced {
-                for (reduced_idx, &orig_idx) in non_constant_indices.iter().enumerate() {
-                    full[orig_idx] = col[reduced_idx];
-                }
-            }
-            full
-        };
-        let reconstruct_col = |col: &faer::Col<f64>| -> Vec<f64> {
-            let mut full = vec![f64::NAN; n_features];
-            for (reduced_idx, &orig_idx) in non_constant_indices.iter().enumerate() {
-                full[orig_idx] = col[reduced_idx];
-            }
-            full
-        };
-
-        // If HC inference is requested, use heteroscedasticity-consistent standard errors
-        if let Some(hc_type) = options.hc_type {
-            let hc_result = anofox_regression::inference::compute_hc_inference(
-                &x_mat,
-                &result.coefficients,
-                result.intercept,
-                &result.residuals,
-                &result.aliased,
-                options.fit_intercept,
-                convert_hc_type(hc_type),
-                options.confidence_level,
-            );
-
-            match hc_result {
-                Ok(hc) => Some(FitResultInference {
-                    std_errors: reconstruct_col(&hc.std_errors),
-                    t_values: reconstruct_col(&hc.t_statistics),
-                    p_values: reconstruct_col(&hc.p_values),
-                    ci_lower: reconstruct_col(&hc.conf_interval_lower),
-                    ci_upper: reconstruct_col(&hc.conf_interval_upper),
-                    confidence_level: hc.confidence_level,
-                    f_statistic: Some(result.f_statistic),
-                    f_pvalue: Some(result.f_pvalue),
-                }),
-                Err(_) => {
-                    // Fall back to classical inference if HC fails
-                    Some(FitResultInference {
-                        std_errors: reconstruct(result.std_errors.as_ref()),
-                        t_values: reconstruct(result.t_statistics.as_ref()),
-                        p_values: reconstruct(result.p_values.as_ref()),
-                        ci_lower: reconstruct(result.conf_interval_lower.as_ref()),
-                        ci_upper: reconstruct(result.conf_interval_upper.as_ref()),
-                        confidence_level: options.confidence_level,
-                        f_statistic: Some(result.f_statistic),
-                        f_pvalue: Some(result.f_pvalue),
-                    })
-                }
-            }
-        } else {
-            // Classical inference
-            Some(FitResultInference {
-                std_errors: reconstruct(result.std_errors.as_ref()),
-                t_values: reconstruct(result.t_statistics.as_ref()),
-                p_values: reconstruct(result.p_values.as_ref()),
-                ci_lower: reconstruct(result.conf_interval_lower.as_ref()),
-                ci_upper: reconstruct(result.conf_interval_upper.as_ref()),
+    let inference = if !options.compute_inference {
+        None
+    } else if let Some(hc_type) = options.hc_type {
+        match anofox_regression::inference::compute_hc_inference(
+            &x_mat,
+            &result.coefficients,
+            result.intercept,
+            &result.residuals,
+            &result.aliased,
+            options.fit_intercept,
+            convert_hc_type(hc_type),
+            options.confidence_level,
+        ) {
+            Ok(hc) => Some(FitResultInference {
+                std_errors: expand(Some(&hc.std_errors)),
+                t_values: expand(Some(&hc.t_statistics)),
+                p_values: expand(Some(&hc.p_values)),
+                ci_lower: expand(Some(&hc.conf_interval_lower)),
+                ci_upper: expand(Some(&hc.conf_interval_upper)),
+                confidence_level: hc.confidence_level,
+                f_statistic: Some(result.f_statistic),
+                f_pvalue: Some(result.f_pvalue),
+            }),
+            // The requested HC estimator is not available for this fit (e.g. a
+            // leverage-1 observation for HC2/HC3). Substituting classical
+            // standard errors would hand back numbers the caller did not ask
+            // for, so the coefficient inference is NaN (NULL in SQL); the F
+            // test does not depend on the HC estimator and is kept.
+            Err(_) => Some(FitResultInference {
+                std_errors: vec![f64::NAN; n_features],
+                t_values: vec![f64::NAN; n_features],
+                p_values: vec![f64::NAN; n_features],
+                ci_lower: vec![f64::NAN; n_features],
+                ci_upper: vec![f64::NAN; n_features],
                 confidence_level: options.confidence_level,
                 f_statistic: Some(result.f_statistic),
                 f_pvalue: Some(result.f_pvalue),
-            })
+            }),
         }
     } else {
-        None
+        Some(FitResultInference {
+            std_errors: expand(result.std_errors.as_ref()),
+            t_values: expand(result.t_statistics.as_ref()),
+            p_values: expand(result.p_values.as_ref()),
+            ci_lower: expand(result.conf_interval_lower.as_ref()),
+            ci_upper: expand(result.conf_interval_upper.as_ref()),
+            confidence_level: options.confidence_level,
+            f_statistic: Some(result.f_statistic),
+            f_pvalue: Some(result.f_pvalue),
+        })
     };
 
     Ok(FitResult {
@@ -422,6 +349,28 @@ mod tests {
         assert!(inf.p_values[0] < 0.05);
     }
 
+    /// A saturated fit (n == p) has no HC covariance. The requested estimator
+    /// must not be silently replaced by classical standard errors: coefficient
+    /// inference is NaN instead.
+    #[test]
+    fn test_ols_hc_failure_reports_nan_not_classical() {
+        let x = vec![vec![1.0, 2.0]];
+        let y = vec![3.0, 5.5];
+        let options = OlsOptions {
+            fit_intercept: true,
+            compute_inference: true,
+            hc_type: Some(HcType::HC1),
+            ..Default::default()
+        };
+        let result = fit_ols(&y, &x, &options).unwrap();
+        let inf = result.inference.unwrap();
+        assert!(inf.std_errors.iter().all(|v| v.is_nan()));
+        assert!(inf.t_values.iter().all(|v| v.is_nan()));
+        assert!(inf.p_values.iter().all(|v| v.is_nan()));
+        assert!(inf.ci_lower.iter().all(|v| v.is_nan()));
+        assert!(inf.ci_upper.iter().all(|v| v.is_nan()));
+    }
+
     #[test]
     fn test_ols_hc3_inference() {
         // HC3 (jackknife-like) should produce larger SE than classical
@@ -450,5 +399,69 @@ mod tests {
         assert!(se_hc3.is_finite() && se_hc3 > 0.0);
         // HC3 and classical should differ (HC3 is typically larger but not guaranteed)
         assert!((se_hc3 - se_classical).abs() > 1e-15);
+    }
+
+    #[test]
+    fn test_no_intercept_ones_column_reproduces_intercept_model() {
+        let x1 = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+        let y = vec![2.1, 3.9, 6.2, 7.8, 10.1, 12.2, 13.8, 16.1];
+
+        let with_int = fit_ols(&y, std::slice::from_ref(&x1), &OlsOptions::default()).unwrap();
+
+        // No intercept, but an explicit all-ones column: it must NOT be dropped.
+        let opts = OlsOptions {
+            fit_intercept: false,
+            ..Default::default()
+        };
+        let no_int = fit_ols(&y, &[vec![1.0; 8], x1], &opts).unwrap();
+
+        assert!(no_int.core.intercept.is_none());
+        let b0 = no_int.core.coefficients[0];
+        let b1 = no_int.core.coefficients[1];
+        assert!(b0.is_finite(), "ones column was dropped");
+        assert!((b0 - with_int.core.intercept.unwrap()).abs() < 1e-10);
+        assert!((b1 - with_int.core.coefficients[0]).abs() < 1e-10);
+        assert!((no_int.core.residual_std_error - with_int.core.residual_std_error).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_no_intercept_all_constant_columns_fit_normally() {
+        // Only a constant column and no intercept: it is the intercept → mean(y).
+        let y = vec![1.0, 2.0, 3.0, 6.0];
+        let opts = OlsOptions {
+            fit_intercept: false,
+            ..Default::default()
+        };
+        let r = fit_ols(&y, &[vec![2.0; 4]], &opts).unwrap();
+        assert!((r.core.coefficients[0] - 1.5).abs() < 1e-10); // 2 * 1.5 = mean 3
+    }
+
+    #[test]
+    fn test_tiny_unit_column_is_not_dropped() {
+        // Values on the order of 1e-8 vary in relative terms; must be kept.
+        let x = vec![vec![1e-8, 2e-8, 3e-8, 4e-8, 5e-8]];
+        let y = vec![3.0, 5.0, 7.0, 9.0, 11.0]; // y = 2e8 * x + 1
+        let r = fit_ols(&y, &x, &OlsOptions::default()).unwrap();
+        assert!(
+            r.core.coefficients[0].is_finite(),
+            "tiny-unit column dropped"
+        );
+        assert!((r.core.coefficients[0] / 2e8 - 1.0).abs() < 1e-8);
+        assert!((r.core.intercept.unwrap() - 1.0).abs() < 1e-8);
+    }
+
+    #[test]
+    fn test_intercept_only_single_observation() {
+        let r = fit_ols(&[4.0], &[vec![1.0]], &OlsOptions::default()).unwrap();
+        assert_eq!(r.core.intercept, Some(4.0));
+        assert!(r.core.residual_std_error.is_nan());
+    }
+
+    #[test]
+    fn test_ols_mismatched_second_column() {
+        let y = vec![1.0, 2.0, 3.0];
+        let x = vec![vec![1.0, 2.0, 3.0], vec![1.0, 2.0]];
+        let r = fit_ols(&y, &x, &OlsOptions::default());
+        assert!(matches!(r, Err(StatsError::DimensionMismatch { .. })));
     }
 }

@@ -14,9 +14,9 @@ WITH test_data AS (
     FROM generate_series(1, 100000000) t(i)
 )
 SELECT COUNT(*) AS total_predictions FROM (
-    SELECT anofox_stats_elasticnet_fit_predict(y, [x1, x2, x3], {'alpha': 1.0, 'l1_ratio': 0.5}) OVER (
+    SELECT elasticnet_fit_predict(y, [x1, x2, x3], {'alpha': 1.0, 'l1_ratio': 0.5}) OVER (
         PARTITION BY group_id ORDER BY row_num
-        ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
     ) AS pred
     FROM test_data
 ) t WHERE pred IS NOT NULL;

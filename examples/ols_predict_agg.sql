@@ -1,10 +1,10 @@
 -- ============================================================================
 -- OLS Predict Aggregate Examples
 -- ============================================================================
--- Demonstrates the predict_agg function: fit once per group, predict all rows.
+-- Demonstrates ols_fit_predict_agg: fit once per group, predict all rows.
 -- Use case: Train on historical data (y not null), predict future (y null)
 --
--- Run: ./build/release/duckdb < examples/ols_predict_agg.sql
+-- Run: ./build/release/duckdb < examples/ols_fit_predict_agg.sql
 
 LOAD 'anofox_statistics';
 
@@ -22,7 +22,8 @@ SELECT
         100.0 + 2.5 * marketing_spend + store_id * 20.0 + (RANDOM() * 20 - 10)
     ELSE NULL END AS sales
 FROM (VALUES (1), (2), (3)) AS s(store_id),
-     generate_series(1, 14) AS w(week);
+     generate_series(1, 14) AS w(week),
+     LATERAL (SELECT (10.0 + week * 5.0 + store_id * 2.0)::DOUBLE AS marketing_spend) m;
 
 -- ============================================================================
 -- Example 1: Basic predict_agg Usage
@@ -38,7 +39,7 @@ SELECT
 FROM (
     SELECT
         store_id,
-        UNNEST(ols_predict_agg(sales, [marketing_spend])) AS pred
+        UNNEST(ols_fit_predict_agg(sales, [marketing_spend])) AS pred
     FROM sales_forecast
     GROUP BY store_id
 ) sub
@@ -55,7 +56,6 @@ WITH predictions AS (
     SELECT
         store_id,
         (pred).y AS actual,
-        (pred).x AS features,
         (pred).yhat AS predicted,
         (pred).yhat_lower AS ci_lower,
         (pred).yhat_upper AS ci_upper,
@@ -63,7 +63,7 @@ WITH predictions AS (
     FROM (
         SELECT
             store_id,
-            UNNEST(ols_predict_agg(
+            UNNEST(ols_fit_predict_agg(
                 sales,
                 [marketing_spend],
                 {'intercept': true, 'confidence_level': 0.95}
@@ -96,7 +96,7 @@ SELECT
 FROM (
     SELECT
         store_id,
-        UNNEST(ols_predict_agg(
+        UNNEST(ols_fit_predict_agg(
             sales,
             [marketing_spend],
             {'intercept': true, 'confidence_level': 0.95}
@@ -121,7 +121,7 @@ SELECT
 FROM (
     SELECT
         store_id,
-        UNNEST(ols_predict_agg(sales, [marketing_spend])) AS pred
+        UNNEST(ols_fit_predict_agg(sales, [marketing_spend])) AS pred
     FROM sales_forecast
     GROUP BY store_id
 ) sub
@@ -148,16 +148,16 @@ SELECT
         ELSE NULL
     END AS sales
 FROM (VALUES (1)) AS s(store_id),
-     generate_series(1, 14) AS w(week);
+     generate_series(1, 14) AS w(week),
+     LATERAL (SELECT (10.0 + week * 5.0)::DOUBLE AS marketing_spend) m;
 
 SELECT
     (pred).y AS actual,
-    (pred).x[1] AS marketing,
     ROUND((pred).yhat, 2) AS predicted,
     (pred).is_training AS is_training
 FROM (
     SELECT
-        UNNEST(ols_predict_agg(
+        UNNEST(ols_fit_predict_agg(
             sales,
             [marketing_spend],
             {'intercept': true, 'null_policy': 'drop'}
@@ -195,7 +195,7 @@ SELECT
     'drop' AS policy,
     SUM(CASE WHEN (pred).is_training THEN 1 ELSE 0 END) AS training_rows
 FROM (
-    SELECT UNNEST(ols_predict_agg(y, [x1, x2], {'null_policy': 'drop'})) AS pred
+    SELECT UNNEST(ols_fit_predict_agg(y, [x1, x2], {'null_policy': 'drop'})) AS pred
     FROM zero_features
 ) sub;
 
@@ -204,7 +204,7 @@ SELECT
     'drop_y_zero_x' AS policy,
     SUM(CASE WHEN (pred).is_training THEN 1 ELSE 0 END) AS training_rows
 FROM (
-    SELECT UNNEST(ols_predict_agg(y, [x1, x2], {'null_policy': 'drop_y_zero_x'})) AS pred
+    SELECT UNNEST(ols_fit_predict_agg(y, [x1, x2], {'null_policy': 'drop_y_zero_x'})) AS pred
     FROM zero_features
 ) sub;
 
@@ -222,7 +222,7 @@ SELECT
 FROM (
     SELECT
         store_id,
-        UNNEST(ols_predict_agg(
+        UNNEST(ols_fit_predict_agg(
             sales,
             [marketing_spend],
             {'intercept': true}
@@ -240,40 +240,18 @@ ORDER BY store_id;
 
 SELECT '=== Example 8: Join Predictions with Original Data ===' AS section;
 
-WITH preds AS (
-    SELECT
-        store_id,
-        ROW_NUMBER() OVER (PARTITION BY store_id ORDER BY (pred).x[1]) AS rn,
-        (pred).yhat AS predicted,
-        (pred).is_training
-    FROM (
-        SELECT
-            store_id,
-            UNNEST(ols_predict_agg(sales, [marketing_spend])) AS pred
-        FROM sales_forecast
-        GROUP BY store_id
-    ) sub
-),
-original AS (
-    SELECT
-        store_id,
-        week,
-        marketing_spend,
-        sales,
-        ROW_NUMBER() OVER (PARTITION BY store_id ORDER BY marketing_spend) AS rn
-    FROM sales_forecast
-)
+-- ols_fit_predict_by returns every source row with its prediction attached,
+-- so no manual join is needed.
 SELECT
-    o.store_id,
-    o.week,
-    o.marketing_spend,
-    o.sales AS actual,
-    ROUND(p.predicted, 2) AS predicted,
-    CASE WHEN p.is_training THEN 'Train' ELSE 'Predict' END AS type
-FROM original o
-JOIN preds p ON o.store_id = p.store_id AND o.rn = p.rn
-WHERE o.store_id = 1
-ORDER BY o.week;
+    store_id,
+    week,
+    marketing_spend,
+    sales AS actual,
+    ROUND(yhat, 2) AS predicted,
+    CASE WHEN is_training THEN 'Train' ELSE 'Predict' END AS type
+FROM ols_fit_predict_by('sales_forecast', store_id, sales, [marketing_spend])
+WHERE store_id = 1
+ORDER BY week;
 
 -- ============================================================================
 -- Example 9: Evaluate Model on Training Data
@@ -290,7 +268,7 @@ WITH results AS (
     FROM (
         SELECT
             store_id,
-            UNNEST(ols_predict_agg(sales, [marketing_spend])) AS pred
+            UNNEST(ols_fit_predict_agg(sales, [marketing_spend])) AS pred
         FROM sales_forecast
         GROUP BY store_id
     ) sub
@@ -341,7 +319,7 @@ SELECT
 FROM (
     SELECT
         product_id,
-        UNNEST(ols_predict_agg(
+        UNNEST(ols_fit_predict_agg(
             sales,
             [price, advertising],
             {'intercept': true, 'confidence_level': 0.95}

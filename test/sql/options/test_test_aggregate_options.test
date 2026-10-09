@@ -1,0 +1,409 @@
+# name: test/sql/options/test_test_aggregate_options.test
+# description: Hypothesis-test aggregates accept options as MAP {...} or STRUCT
+#              {'k': v} literals, reject unknown keys and invalid enum values,
+#              validate confidence_level / integers at bind time and require
+#              constant options.
+# group: [options]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE tg AS
+SELECT (CASE WHEN i % 2 = 0 THEN 10.0 ELSE 10.8 END + sin(i * 1.3) * 2.0) AS v, (i % 2)::BIGINT AS g
+FROM range(60) t(i);
+
+statement ok
+CREATE TABLE pr AS
+SELECT (5.0 + sin(i * 0.9)) AS x, (5.05 + sin(i * 0.9) + 0.2 * cos(i * 2.1)) AS y
+FROM range(60) t(i);
+
+statement ok
+CREATE TABLE fc AS
+SELECT sin(i * 0.3) * 3.0 AS actual,
+       sin(i * 0.3) * 3.0 + 0.8 * cos(i * 1.7) AS f1,
+       sin(i * 0.3) * 3.0 + 0.5 * cos(i * 2.3 + 1.0) AS f2
+FROM range(80) t(i);
+
+statement ok
+CREATE TABLE bn AS
+SELECT (CASE WHEN (i * 7) % 10 < 6 THEN 1 ELSE 0 END)::BIGINT AS s, (i % 2)::BIGINT AS g
+FROM range(80) t(i);
+
+statement ok
+CREATE TABLE rt AS
+SELECT (s * 1.0 + r * 0.3 + sin(s * 7 + r)) AS rating, s::BIGINT AS subject, r::BIGINT AS rater
+FROM range(12) a(s), range(3) b(r);
+
+statement ok
+CREATE TABLE kp AS
+SELECT (i % 3)::BIGINT AS r1, (CASE WHEN i % 7 = 0 THEN (i + 1) % 3 ELSE i % 3 END)::BIGINT AS r2,
+       (i % 2)::BIGINT AS b1, (CASE WHEN i % 5 = 0 THEN 1 - i % 2 ELSE i % 2 END)::BIGINT AS b2
+FROM range(60) t(i);
+
+# =============================================================================
+# MAP and STRUCT literals give the same result
+# =============================================================================
+
+query I
+SELECT yuen_agg(v, g, MAP {'trim': 0.1}) = yuen_agg(v, g, {'trim': 0.1})
+   AND yuen_agg(v, g, MAP {'trim': 0.1}) != yuen_agg(v, g)
+FROM tg;
+----
+true
+
+query I
+SELECT permutation_t_test_agg(v, g, MAP {'n_permutations': 200, 'seed': 3})
+     = permutation_t_test_agg(v, g, {'n_permutations': 200, 'seed': 3})
+FROM tg;
+----
+true
+
+query I
+SELECT tost_paired_agg(x, y, MAP {'delta': 0.3}) = tost_paired_agg(x, y, {'delta': 0.3}) FROM pr;
+----
+true
+
+query I
+SELECT tost_correlation_agg(x, y, MAP {'method': 'spearman'}) = tost_correlation_agg(x, y, {'method': 'spearman'})
+   AND (tost_correlation_agg(x, y, {'method': 'spearman'})).method != (tost_correlation_agg(x, y)).method
+FROM pr;
+----
+true
+
+query I
+SELECT diebold_mariano_agg(actual, f1, f2, MAP {'loss': 'absolute', 'horizon': '2'})
+     = diebold_mariano_agg(actual, f1, f2, {'loss': 'absolute', 'horizon': 2})
+FROM fc;
+----
+true
+
+query I
+SELECT clark_west_agg(actual, f1, f2, MAP {'horizon': 2}) = clark_west_agg(actual, f1, f2, {'horizon': 2}) FROM fc;
+----
+true
+
+query I
+SELECT binom_test_agg(s, MAP {'p0': 0.4}) = binom_test_agg(s, {'p0': 0.4})
+   AND prop_test_one_agg(s, MAP {'p': 0.4}) = prop_test_one_agg(s, {'p0': 0.4})
+FROM bn;
+----
+true
+
+query I
+SELECT prop_test_two_agg(s, g, MAP {'correction': false}) = prop_test_two_agg(s, g, {'correction': false})
+   AND prop_test_two_agg(s, g, MAP {'correction': 'false'}) = prop_test_two_agg(s, g, {'correction': false})
+FROM bn;
+----
+true
+
+query I
+SELECT icc_agg(rating, subject, rater, MAP {'type': 'average'}) = icc_agg(rating, subject, rater, {'type': 'average'})
+   AND (icc_agg(rating, subject, rater, {'type': 'average'})).icc != (icc_agg(rating, subject, rater)).icc
+FROM rt;
+----
+true
+
+query I
+SELECT mcnemar_agg(b1, b2, MAP {'correction': false}) = mcnemar_agg(b1, b2, {'correction': false})
+   AND cohen_kappa_agg(r1, r2, MAP {'weighted': true}) = cohen_kappa_agg(r1, r2, {'weighted': true})
+FROM kp;
+----
+true
+
+query I
+SELECT distance_cor_agg(x, y, MAP {'n_permutations': 99, 'seed': 1})
+     = distance_cor_agg(x, y, {'n_permutations': 99, 'seed': 1})
+FROM pr;
+----
+true
+
+# The shared parsers used to throw "Invalid MAP structure" for MAP literals.
+query I
+SELECT (t_test_agg(v, g, MAP {'alternative': 'less'})).p_value
+     = (t_test_agg(v, g, {'alternative': 'less'})).p_value
+   AND (mann_whitney_u_agg(v, g, MAP {'alternative': 'greater'})).p_value
+     = (mann_whitney_u_agg(v, g, {'alternative': 'greater'})).p_value
+   AND (brunner_munzel_agg(v, g, MAP {'confidence_level': 0.9})).ci_lower
+     = (brunner_munzel_agg(v, g, {'confidence_level': 0.9})).ci_lower
+   AND (energy_distance_agg(v, g::INTEGER, MAP {'n_permutations': 50, 'seed': 2}))
+     = (energy_distance_agg(v, g::INTEGER, {'n_permutations': 50, 'seed': 2}))
+   AND (mmd_agg(v, g::INTEGER, MAP {'n_permutations': 50, 'seed': 2}))
+     = (mmd_agg(v, g::INTEGER, {'n_permutations': 50, 'seed': 2}))
+   AND (tost_t_test_agg(v, g::INTEGER, MAP {'delta': 2.0})) = (tost_t_test_agg(v, g::INTEGER, {'delta': 2.0}))
+FROM tg;
+----
+true
+
+query I
+SELECT (pearson_agg(x, y, MAP {'confidence_level': 0.9})).ci_lower = (pearson_agg(x, y, {'confidence_level': 0.9})).ci_lower
+   AND (spearman_agg(x, y, MAP {'confidence_level': 0.9})).ci_lower = (spearman_agg(x, y, {'confidence_level': 0.9})).ci_lower
+   AND (kendall_agg(x, y, MAP {'variant': 'tau_a'})).tau = (kendall_agg(x, y, {'variant': 'tau_a'})).tau
+   AND (wilcoxon_signed_rank_agg(x, y, MAP {'alternative': 'less'})).p_value
+     = (wilcoxon_signed_rank_agg(x, y, {'alternative': 'less'})).p_value
+FROM pr;
+----
+true
+
+query I
+SELECT (chisq_test_agg(r1::INTEGER, r2::INTEGER, MAP {'correction': true})).statistic
+     = (chisq_test_agg(r1::INTEGER, r2::INTEGER, {'correction': true})).statistic
+   AND (fisher_exact_agg(b1::INTEGER, b2::INTEGER, MAP {'alternative': 'less'})).p_value
+     = (fisher_exact_agg(b1::INTEGER, b2::INTEGER, {'alternative': 'less'})).p_value
+FROM kp;
+----
+true
+
+# =============================================================================
+# Unknown keys are rejected (they used to be ignored), naming the function
+# =============================================================================
+
+statement error
+SELECT yuen_agg(v, g, {'trimm': 0.1}) FROM tg;
+----
+yuen_agg: unknown option 'trimm'. Supported options: alternative, confidence_level (alias: confidence), trim (alias: trim_proportion)
+
+statement error
+SELECT permutation_t_test_agg(v, g, {'alpha': 0.05}) FROM tg;
+----
+permutation_t_test_agg: unknown option 'alpha'
+
+statement error
+SELECT tost_paired_agg(x, y, {'mu': 0.0}) FROM pr;
+----
+tost_paired_agg: unknown option 'mu'
+
+statement error
+SELECT tost_correlation_agg(x, y, {'kind': 'welch'}) FROM pr;
+----
+tost_correlation_agg: unknown option 'kind'
+
+statement error
+SELECT diebold_mariano_agg(actual, f1, f2, {'lag': 2}) FROM fc;
+----
+diebold_mariano_agg: unknown option 'lag'
+
+statement error
+SELECT clark_west_agg(actual, f1, f2, {'alternative': 'less'}) FROM fc;
+----
+clark_west_agg: unknown option 'alternative'
+
+statement error
+SELECT binom_test_agg(s, {'conf': 0.9}) FROM bn;
+----
+binom_test_agg: unknown option 'conf'. Supported options: p0 (alias: p), alternative, confidence_level (alias: confidence)
+
+statement error
+SELECT prop_test_one_agg(s, {'correction': true}) FROM bn;
+----
+prop_test_one_agg: unknown option 'correction'
+
+statement error
+SELECT prop_test_two_agg(s, g, {'p0': 0.5}) FROM bn;
+----
+prop_test_two_agg: unknown option 'p0'
+
+statement error
+SELECT icc_agg(rating, subject, rater, {'model': 'twoway'}) FROM rt;
+----
+icc_agg: unknown option 'model'
+
+statement error
+SELECT mcnemar_agg(b1, b2, {'alternative': 'less'}) FROM kp;
+----
+mcnemar_agg: unknown option 'alternative'
+
+statement error
+SELECT cohen_kappa_agg(r1, r2, {'weights': 'linear'}) FROM kp;
+----
+cohen_kappa_agg: unknown option 'weights'
+
+statement error
+SELECT distance_cor_agg(x, y, {'index': 1.0}) FROM pr;
+----
+distance_cor_agg: unknown option 'index'
+
+statement error
+SELECT t_test_agg(v, g, MAP {'unknown_key': 'x'}) FROM tg;
+----
+t_test_agg: unknown option 'unknown_key'
+
+# tost_t_test_agg used to accept and ignore these.
+statement error
+SELECT tost_t_test_agg(v, g::INTEGER, {'mu': 1.0}) FROM tg;
+----
+tost_t_test_agg: unknown option 'mu'
+
+statement error
+SELECT tost_t_test_agg(v, g::INTEGER, {'alternative': 'less'}) FROM tg;
+----
+tost_t_test_agg: unknown option 'alternative'
+
+statement error
+SELECT mmd_agg(v, g::INTEGER, {'bandwidth': 1.0}) FROM tg;
+----
+mmd_agg: unknown option 'bandwidth'
+
+# =============================================================================
+# Invalid enum values are rejected instead of falling back to a default
+# =============================================================================
+
+statement error
+SELECT yuen_agg(v, g, {'alternative': 'sideways'}) FROM tg;
+----
+Invalid alternative: 'sideways'. Valid values are 'two_sided', 'less', 'greater'
+
+statement error
+SELECT permutation_t_test_agg(v, g, MAP {'alternative': 'sideways'}) FROM tg;
+----
+Invalid alternative: 'sideways'
+
+statement error
+SELECT binom_test_agg(s, {'alternative': 'sideways'}) FROM bn;
+----
+Invalid alternative: 'sideways'
+
+statement error
+SELECT prop_test_one_agg(s, {'alternative': 'both'}) FROM bn;
+----
+Invalid alternative: 'both'
+
+statement error
+SELECT prop_test_two_agg(s, g, {'alternative': 'up'}) FROM bn;
+----
+Invalid alternative: 'up'
+
+statement error
+SELECT diebold_mariano_agg(actual, f1, f2, {'loss': 'huber'}) FROM fc;
+----
+Invalid loss: 'huber'. Valid values are 'squared', 'absolute'
+
+statement error
+SELECT diebold_mariano_agg(actual, f1, f2, {'var_estimator': 'newey'}) FROM fc;
+----
+Invalid var_estimator: 'newey'. Valid values are 'acf', 'bartlett'
+
+statement error
+SELECT diebold_mariano_agg(actual, f1, f2, {'alternative': 'sideways'}) FROM fc;
+----
+Invalid alternative: 'sideways'
+
+statement error
+SELECT tost_correlation_agg(x, y, {'method': 'kendall'}) FROM pr;
+----
+Invalid method: 'kendall'. Valid values are 'pearson', 'spearman'
+
+statement error
+SELECT icc_agg(rating, subject, rater, {'type': 'double'}) FROM rt;
+----
+Invalid type: 'double'. Valid values are 'single', 'average'
+
+statement error
+SELECT t_test_agg(v, g, {'alternative': 'sideways'}) FROM tg;
+----
+Invalid alternative: 'sideways'
+
+statement error
+SELECT kendall_agg(x, y, {'variant': 'tau_z'}) FROM pr;
+----
+Invalid kendall variant: 'tau_z'
+
+# =============================================================================
+# confidence_level must be in (0, 1); integers must be non-negative and fit
+# =============================================================================
+
+statement error
+SELECT t_test_agg(v, g, {'confidence_level': 1.0}) FROM tg;
+----
+confidence_level must be in (0, 1), got 1.0
+
+statement error
+SELECT yuen_agg(v, g, {'confidence_level': 0.0}) FROM tg;
+----
+confidence_level must be in (0, 1)
+
+statement error
+SELECT pearson_agg(x, y, {'confidence_level': 95}) FROM pr;
+----
+confidence_level must be in (0, 1), got 95
+
+statement error
+SELECT fisher_exact_agg(b1::INTEGER, b2::INTEGER, {'confidence_level': -0.5}) FROM kp;
+----
+confidence_level must be in (0, 1)
+
+statement error
+SELECT tost_paired_agg(x, y, {'confidence_level': 1.5}) FROM pr;
+----
+confidence_level must be in (0, 1)
+
+statement error
+SELECT permutation_t_test_agg(v, g, {'n_permutations': -5}) FROM tg;
+----
+Expected a non-negative integer, got -5
+
+statement error
+SELECT distance_cor_agg(x, y, {'n_permutations': -5}) FROM pr;
+----
+Expected a non-negative integer, got -5
+
+statement error
+SELECT energy_distance_agg(v, g::INTEGER, {'n_permutations': 10000000000}) FROM tg;
+----
+is too large (maximum 4294967295)
+
+statement error
+SELECT diebold_mariano_agg(actual, f1, f2, {'horizon': -1}) FROM fc;
+----
+Expected a non-negative integer, got -1
+
+statement error
+SELECT mmd_agg(v, g::INTEGER, {'seed': -3}) FROM tg;
+----
+Expected a non-negative integer, got -3
+
+# =============================================================================
+# Options must be constant
+# =============================================================================
+
+statement error
+SELECT yuen_agg(v, g, {'trim': v / 100}) FROM tg;
+----
+yuen_agg: options must be a constant expression
+
+statement error
+SELECT t_test_agg(v, g, {'mu': v}) FROM tg;
+----
+t_test_agg: options must be a constant expression
+
+statement error
+SELECT binom_test_agg(s, {'p0': s / 2}) FROM bn;
+----
+binom_test_agg: options must be a constant expression
+
+# =============================================================================
+# t_test_agg: paired is not silently ignored; mu is applied
+# =============================================================================
+
+statement error
+SELECT t_test_agg(v, g, {'paired': true}) FROM tg;
+----
+t_test_agg: 'paired': true is not supported
+
+query I
+SELECT (t_test_agg(v, g, {'paired': false})).p_value = (t_test_agg(v, g)).p_value FROM tg;
+----
+true
+
+query I
+SELECT (t_test_agg(v, g, {'mu': -0.8})).statistic != (t_test_agg(v, g)).statistic FROM tg;
+----
+true
+
+# =============================================================================
+# McNemar exact option
+# =============================================================================
+
+query II
+SELECT (mcnemar_agg(b1, b2, {'exact': true})).method, (mcnemar_agg(b1, b2)).method FROM kp;
+----
+McNemar's exact test	McNemar's test

@@ -58,6 +58,13 @@ pub fn pearson(x: &[f64], y: &[f64], options: &PearsonOptions) -> StatsResult<Co
 
     let result =
         lib_pearson(&x_filtered, &y_filtered, options.confidence_level).map_err(convert_error)?;
+    // A constant variable has an undefined correlation: upstream reports NaN
+    // (R `NA`); surface it as degenerate data (SQL NULL), as before.
+    if result.estimate.is_nan() {
+        return Err(StatsError::InsufficientDataMsg(
+            "Pearson correlation is undefined for a constant variable (zero variance)".into(),
+        ));
+    }
 
     Ok(CorrelationResult {
         r: result.estimate,
@@ -524,5 +531,16 @@ mod tests {
         let result = kendall(&x, &y, &opts).unwrap();
 
         assert_relative_eq!(result.r, 1.0, epsilon = 1e-10);
+    }
+
+    /// R cor.test(x, y, method = "kendall", exact = FALSE) with ties.
+    #[test]
+    #[allow(clippy::excessive_precision)]
+    fn test_kendall_ties_matches_r() {
+        let x = [1.0, 2.0, 2.0, 3.0, 4.0, 4.0, 4.0, 5.0, 6.0, 7.0, 8.0, 8.0];
+        let y = [2.0, 1.0, 3.0, 3.0, 5.0, 4.0, 6.0, 6.0, 5.0, 8.0, 7.0, 9.0];
+        let r = kendall(&x, &y, &KendallOptions::default()).unwrap();
+        assert!((r.statistic - 3.4987518043922514).abs() < 1e-10);
+        assert!((r.p_value - 0.00046744148056981807).abs() < 1e-12);
     }
 }

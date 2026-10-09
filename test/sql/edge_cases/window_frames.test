@@ -1,0 +1,245 @@
+# name: test/sql/edge_cases/window_frames.test
+# description: Window *_fit_predict with RANGE frames, frames holding fewer rows than
+#              parameters, and the start of expanding windows. A window fit_predict
+#              predicts for the LAST row of its frame (by design: a window aggregate
+#              cannot see the current row), so every frame here ends at CURRENT ROW
+#              over a unique ORDER BY key, making "last row of frame" = current row.
+# group: [edge_cases]
+
+require anofox_statistics
+
+# t has gaps (every 5th step jumps by 4), so RANGE frames differ from ROWS frames.
+statement ok
+CREATE TABLE ts AS
+SELECT (i + (i // 5) * 3)::INTEGER AS t,
+       ((i % 7) + 0.5)::DOUBLE AS x1,
+       (((i * 3) % 11) / 2.0)::DOUBLE AS x2,
+       (3.0 + 0.8 * ((i % 7) + 0.5) - 0.3 * (((i * 3) % 11) / 2.0) + ((i * 37) % 13) / 13.0 - 0.5)::DOUBLE AS y,
+       (1 + (i % 4))::DOUBLE AS w
+FROM range(1, 61) t(i);
+
+# =============================================================================
+# RANGE BETWEEN 6 PRECEDING AND CURRENT ROW == fit on {s : t - 6 <= s.t <= t},
+# evaluated at the current row's x. Frames with >= p + 2 rows must agree on NULL-ness;
+# for smaller frames the window min-obs guard may be stricter than the aggregate's.
+# An aliased (NaN) coefficient contributes nothing to yhat, as R's predict.lm.
+# =============================================================================
+
+# ols_fit_predict
+query II
+WITH win AS (
+    SELECT t, x1, x2, (ols_fit_predict(y, [x1, x2]) OVER (ORDER BY t RANGE BETWEEN 6 PRECEDING AND CURRENT ROW)).yhat AS yhat
+    FROM ts),
+ref AS (
+    SELECT o.t, ols_fit_agg(i.y, [i.x1, i.x2]) AS r, count(*) AS n
+    FROM ts o JOIN ts i ON i.t BETWEEN o.t - 6 AND o.t
+    GROUP BY o.t)
+SELECT count(*) FILTER (WHERE ref.n >= 4 AND (win.yhat IS NULL) <> (ref.r IS NULL)),
+       count(*) FILTER (WHERE ref.r IS NOT NULL
+                          AND abs(win.yhat - (ref.r.intercept + coalesce(nullif(ref.r.coefficients[1], 'nan'::DOUBLE), 0) * win.x1 + coalesce(nullif(ref.r.coefficients[2], 'nan'::DOUBLE), 0) * win.x2)) > 1e-6)
+FROM win JOIN ref USING (t);
+----
+0	0
+
+# ridge_fit_predict
+query II
+WITH win AS (
+    SELECT t, x1, x2, (ridge_fit_predict(y, [x1, x2], {'alpha': 0.5}) OVER (ORDER BY t RANGE BETWEEN 6 PRECEDING AND CURRENT ROW)).yhat AS yhat
+    FROM ts),
+ref AS (
+    SELECT o.t, ridge_fit_agg(i.y, [i.x1, i.x2], {'alpha': 0.5}) AS r, count(*) AS n
+    FROM ts o JOIN ts i ON i.t BETWEEN o.t - 6 AND o.t
+    GROUP BY o.t)
+SELECT count(*) FILTER (WHERE ref.n >= 4 AND (win.yhat IS NULL) <> (ref.r IS NULL)),
+       count(*) FILTER (WHERE ref.r IS NOT NULL
+                          AND abs(win.yhat - (ref.r.intercept + coalesce(nullif(ref.r.coefficients[1], 'nan'::DOUBLE), 0) * win.x1 + coalesce(nullif(ref.r.coefficients[2], 'nan'::DOUBLE), 0) * win.x2)) > 1e-6)
+FROM win JOIN ref USING (t);
+----
+0	0
+
+# elasticnet_fit_predict
+query II
+WITH win AS (
+    SELECT t, x1, x2, (elasticnet_fit_predict(y, [x1, x2], {'alpha': 0.1, 'l1_ratio': 0.5}) OVER (ORDER BY t RANGE BETWEEN 6 PRECEDING AND CURRENT ROW)).yhat AS yhat
+    FROM ts),
+ref AS (
+    SELECT o.t, elasticnet_fit_agg(i.y, [i.x1, i.x2], {'alpha': 0.1, 'l1_ratio': 0.5}) AS r, count(*) AS n
+    FROM ts o JOIN ts i ON i.t BETWEEN o.t - 6 AND o.t
+    GROUP BY o.t)
+SELECT count(*) FILTER (WHERE ref.n >= 4 AND (win.yhat IS NULL) <> (ref.r IS NULL)),
+       count(*) FILTER (WHERE ref.r IS NOT NULL
+                          AND abs(win.yhat - (ref.r.intercept + coalesce(nullif(ref.r.coefficients[1], 'nan'::DOUBLE), 0) * win.x1 + coalesce(nullif(ref.r.coefficients[2], 'nan'::DOUBLE), 0) * win.x2)) > 1e-6)
+FROM win JOIN ref USING (t);
+----
+0	0
+
+# wls_fit_predict
+query II
+WITH win AS (
+    SELECT t, x1, x2, (wls_fit_predict(y, [x1, x2], w) OVER (ORDER BY t RANGE BETWEEN 6 PRECEDING AND CURRENT ROW)).yhat AS yhat
+    FROM ts),
+ref AS (
+    SELECT o.t, wls_fit_agg(i.y, [i.x1, i.x2], i.w) AS r, count(*) AS n
+    FROM ts o JOIN ts i ON i.t BETWEEN o.t - 6 AND o.t
+    GROUP BY o.t)
+SELECT count(*) FILTER (WHERE ref.n >= 4 AND (win.yhat IS NULL) <> (ref.r IS NULL)),
+       count(*) FILTER (WHERE ref.r IS NOT NULL
+                          AND abs(win.yhat - (ref.r.intercept + coalesce(nullif(ref.r.coefficients[1], 'nan'::DOUBLE), 0) * win.x1 + coalesce(nullif(ref.r.coefficients[2], 'nan'::DOUBLE), 0) * win.x2)) > 1e-6)
+FROM win JOIN ref USING (t);
+----
+0	0
+
+# rls_fit_predict
+query II
+WITH win AS (
+    SELECT t, x1, x2, (rls_fit_predict(y, [x1, x2]) OVER (ORDER BY t RANGE BETWEEN 6 PRECEDING AND CURRENT ROW)).yhat AS yhat
+    FROM ts),
+ref AS (
+    SELECT o.t, rls_fit_agg(i.y, [i.x1, i.x2] ORDER BY i.t) AS r, count(*) AS n
+    FROM ts o JOIN ts i ON i.t BETWEEN o.t - 6 AND o.t
+    GROUP BY o.t)
+SELECT count(*) FILTER (WHERE ref.n >= 4 AND (win.yhat IS NULL) <> (ref.r IS NULL)),
+       count(*) FILTER (WHERE ref.r IS NOT NULL
+                          AND abs(win.yhat - (ref.r.intercept + coalesce(nullif(ref.r.coefficients[1], 'nan'::DOUBLE), 0) * win.x1 + coalesce(nullif(ref.r.coefficients[2], 'nan'::DOUBLE), 0) * win.x2)) > 1e-6)
+FROM win JOIN ref USING (t);
+----
+0	0
+
+# huber_fit_predict
+query II
+WITH win AS (
+    SELECT t, x1, x2, (huber_fit_predict(y, [x1, x2]) OVER (ORDER BY t RANGE BETWEEN 6 PRECEDING AND CURRENT ROW)).yhat AS yhat
+    FROM ts),
+ref AS (
+    SELECT o.t, huber_fit_agg(i.y, [i.x1, i.x2]) AS r, count(*) AS n
+    FROM ts o JOIN ts i ON i.t BETWEEN o.t - 6 AND o.t
+    GROUP BY o.t)
+SELECT count(*) FILTER (WHERE ref.n >= 4 AND (win.yhat IS NULL) <> (ref.r IS NULL)),
+       count(*) FILTER (WHERE ref.r IS NOT NULL
+                          AND abs(win.yhat - (ref.r.intercept + coalesce(nullif(ref.r.coefficients[1], 'nan'::DOUBLE), 0) * win.x1 + coalesce(nullif(ref.r.coefficients[2], 'nan'::DOUBLE), 0) * win.x2)) > 1e-6)
+FROM win JOIN ref USING (t);
+----
+0	0
+
+# theil_sen_fit_predict (a column that is collinear within a frame is aliased: its
+# coefficient is NaN, as in R's lm, and contributes nothing to the prediction)
+query II
+WITH win AS (
+    SELECT t, x1, x2, (theil_sen_fit_predict(y, [x1, x2]) OVER (ORDER BY t RANGE BETWEEN 6 PRECEDING AND CURRENT ROW)).yhat AS yhat
+    FROM ts),
+ref AS (
+    SELECT o.t, theil_sen_fit_agg(i.y, [i.x1, i.x2] ORDER BY i.t) AS r, count(*) AS n
+    FROM ts o JOIN ts i ON i.t BETWEEN o.t - 6 AND o.t
+    GROUP BY o.t)
+SELECT count(*) FILTER (WHERE ref.n >= 4 AND (win.yhat IS NULL) <> (ref.r IS NULL)),
+       count(*) FILTER (WHERE ref.r IS NOT NULL
+                          AND abs(win.yhat - (ref.r.intercept
+                                              + CASE WHEN isnan(ref.r.coefficients[1]) THEN 0 ELSE ref.r.coefficients[1] * win.x1 END
+                                              + CASE WHEN isnan(ref.r.coefficients[2]) THEN 0 ELSE ref.r.coefficients[2] * win.x2 END)) > 1e-6)
+FROM win JOIN ref USING (t);
+----
+0	0
+
+# ransac_fit_predict
+# The final RANSAC model is the OLS fit on the inliers; when the inliers are
+# collinear (4-row frames where x2 = 1.5 x1 - 1.75) a column is aliased and its
+# coefficient is NaN (R: NA), contributing nothing to the prediction.
+query II
+WITH win AS (
+    SELECT t, x1, x2, (ransac_fit_predict(y, [x1, x2], {'random_state': 42}) OVER (ORDER BY t RANGE BETWEEN 6 PRECEDING AND CURRENT ROW)).yhat AS yhat
+    FROM ts),
+ref AS (
+    SELECT o.t, ransac_fit_agg(i.y, [i.x1, i.x2], {'random_state': 42} ORDER BY i.t) AS r, count(*) AS n
+    FROM ts o JOIN ts i ON i.t BETWEEN o.t - 6 AND o.t
+    GROUP BY o.t)
+SELECT count(*) FILTER (WHERE ref.n >= 4 AND (win.yhat IS NULL) <> (ref.r IS NULL)),
+       count(*) FILTER (WHERE ref.r IS NOT NULL
+                          AND abs(win.yhat - (ref.r.intercept
+                                              + CASE WHEN isnan(ref.r.coefficients[1]) THEN 0 ELSE ref.r.coefficients[1] * win.x1 END
+                                              + CASE WHEN isnan(ref.r.coefficients[2]) THEN 0 ELSE ref.r.coefficients[2] * win.x2 END)) > 1e-6)
+FROM win JOIN ref USING (t);
+----
+0	0
+
+# =============================================================================
+# Frames that hold fewer rows than parameters (2 rows, 2 features + intercept):
+# every prediction is NULL, no error.
+# =============================================================================
+
+query II
+SELECT count(*), count(yhat) FROM (
+    SELECT (ols_fit_predict(y, [x1, x2]) OVER (ORDER BY t ROWS BETWEEN 1 PRECEDING AND CURRENT ROW)).yhat AS yhat FROM ts);
+----
+60	0
+
+query II
+SELECT count(*), count(yhat) FROM (
+    SELECT (ridge_fit_predict(y, [x1, x2], {'alpha': 0.5}) OVER (ORDER BY t ROWS BETWEEN 1 PRECEDING AND CURRENT ROW)).yhat AS yhat FROM ts);
+----
+60	0
+
+query II
+SELECT count(*), count(yhat) FROM (
+    SELECT (elasticnet_fit_predict(y, [x1, x2], {'alpha': 0.1, 'l1_ratio': 0.5}) OVER (ORDER BY t ROWS BETWEEN 1 PRECEDING AND CURRENT ROW)).yhat AS yhat FROM ts);
+----
+60	0
+
+query II
+SELECT count(*), count(yhat) FROM (
+    SELECT (wls_fit_predict(y, [x1, x2], w) OVER (ORDER BY t ROWS BETWEEN 1 PRECEDING AND CURRENT ROW)).yhat AS yhat FROM ts);
+----
+60	0
+
+query II
+SELECT count(*), count(yhat) FROM (
+    SELECT (huber_fit_predict(y, [x1, x2]) OVER (ORDER BY t ROWS BETWEEN 1 PRECEDING AND CURRENT ROW)).yhat AS yhat FROM ts);
+----
+60	0
+
+query II
+SELECT count(*), count(yhat) FROM (
+    SELECT (theil_sen_fit_predict(y, [x1, x2]) OVER (ORDER BY t ROWS BETWEEN 1 PRECEDING AND CURRENT ROW)).yhat AS yhat FROM ts);
+----
+60	0
+
+query II
+SELECT count(*), count(yhat) FROM (
+    SELECT (ransac_fit_predict(y, [x1, x2], {'random_state': 42}) OVER (ORDER BY t ROWS BETWEEN 1 PRECEDING AND CURRENT ROW)).yhat AS yhat FROM ts);
+----
+60	0
+
+# =============================================================================
+# Expanding window: the first rows (frame smaller than the min-obs guard) are
+# NULL, later rows are populated, and nothing errors. OLS needs n >= p + 2 here.
+# =============================================================================
+
+query III
+SELECT count(*) FILTER (WHERE rn <= 3 AND yhat IS NOT NULL),
+       count(*) FILTER (WHERE rn >= 5 AND yhat IS NULL),
+       count(*)
+FROM (SELECT row_number() OVER (ORDER BY t) AS rn,
+             (ols_fit_predict(y, [x1, x2]) OVER (ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)).yhat AS yhat
+      FROM ts);
+----
+0	0	60
+
+# Expanding window equals a per-row fit on all rows up to t, at the current x.
+query I
+WITH win AS (
+    SELECT t, x1, x2, (ols_fit_predict(y, [x1, x2]) OVER (ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)).yhat AS yhat
+    FROM ts),
+ref AS (
+    SELECT o.t, ols_fit_agg(i.y, [i.x1, i.x2]) AS r FROM ts o JOIN ts i ON i.t <= o.t GROUP BY o.t)
+SELECT count(*) FILTER (WHERE ref.r IS NOT NULL
+                          AND abs(win.yhat - (ref.r.intercept + coalesce(nullif(ref.r.coefficients[1], 'nan'::DOUBLE), 0) * win.x1 + coalesce(nullif(ref.r.coefficients[2], 'nan'::DOUBLE), 0) * win.x2)) > 1e-6)
+FROM win JOIN ref USING (t);
+----
+0
+
+# Empty frame (ROWS BETWEEN 2 PRECEDING AND 1 PRECEDING on the first row, plus a
+# frame that is always empty) -> NULL, no error.
+query II
+SELECT count(*), count(yhat) FROM (
+    SELECT (ols_fit_predict(y, [x1, x2]) OVER (ORDER BY t ROWS BETWEEN 3 FOLLOWING AND 2 FOLLOWING)).yhat AS yhat FROM ts);
+----
+60	0

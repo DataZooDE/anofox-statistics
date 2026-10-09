@@ -20,27 +20,27 @@ SELECT * FROM (VALUES
 # =============================================================================
 
 query I
-SELECT (distance_cor_agg(x, y)).dcor IS NOT NULL FROM dcor_data;
+SELECT (distance_cor_agg(x, y, {'seed': 42})).dcor IS NOT NULL FROM dcor_data;
 ----
 true
 
 query I
-SELECT (distance_cor_agg(x, y)).statistic IS NOT NULL FROM dcor_data;
+SELECT (distance_cor_agg(x, y, {'seed': 42})).statistic IS NOT NULL FROM dcor_data;
 ----
 true
 
 query I
-SELECT (distance_cor_agg(x, y)).p_value IS NOT NULL FROM dcor_data;
+SELECT (distance_cor_agg(x, y, {'seed': 42})).p_value IS NOT NULL FROM dcor_data;
 ----
 true
 
 query I
-SELECT (distance_cor_agg(x, y)).n IS NOT NULL FROM dcor_data;
+SELECT (distance_cor_agg(x, y, {'seed': 42})).n IS NOT NULL FROM dcor_data;
 ----
 true
 
 query I
-SELECT (distance_cor_agg(x, y)).method IS NOT NULL FROM dcor_data;
+SELECT (distance_cor_agg(x, y, {'seed': 42})).method IS NOT NULL FROM dcor_data;
 ----
 true
 
@@ -49,7 +49,7 @@ true
 # =============================================================================
 
 query I
-SELECT (distance_cor_agg(x, y)).dcor BETWEEN 0 AND 1 FROM dcor_data;
+SELECT (distance_cor_agg(x, y, {'seed': 42})).dcor BETWEEN 0 AND 1 FROM dcor_data;
 ----
 true
 
@@ -58,7 +58,7 @@ true
 # =============================================================================
 
 query I
-SELECT (distance_cor_agg(x, y)).dcor > 0.9 FROM dcor_data;
+SELECT (distance_cor_agg(x, y, {'seed': 42})).dcor > 0.9 FROM dcor_data;
 ----
 true
 
@@ -67,7 +67,7 @@ true
 # =============================================================================
 
 query I
-SELECT (distance_cor_agg(x, y)).n = 10 FROM dcor_data;
+SELECT (distance_cor_agg(x, y, {'seed': 42})).n = 10 FROM dcor_data;
 ----
 true
 
@@ -84,7 +84,7 @@ SELECT * FROM (VALUES
 
 # Perfect linear relationship should have dcor close to 1
 query I
-SELECT (distance_cor_agg(x, y)).dcor > 0.99 FROM linear_data;
+SELECT (distance_cor_agg(x, y, {'seed': 42})).dcor > 0.99 FROM linear_data;
 ----
 true
 
@@ -100,7 +100,7 @@ SELECT * FROM (VALUES
 ) AS t(x, y);
 
 query I
-SELECT (distance_cor_agg(x, y)).dcor < 0.5 FROM independent_data;
+SELECT (distance_cor_agg(x, y, {'seed': 42})).dcor < 0.5 FROM independent_data;
 ----
 true
 
@@ -116,7 +116,7 @@ SELECT * FROM (VALUES
 ) AS t(category, x, y);
 
 query TI
-SELECT category, (distance_cor_agg(x, y)).dcor > 0.9 AS high_dcor
+SELECT category, (distance_cor_agg(x, y, {'seed': 42})).dcor > 0.9 AS high_dcor
 FROM grouped_data
 GROUP BY category
 ORDER BY category;
@@ -129,7 +129,18 @@ quadratic	true
 # =============================================================================
 
 query I
-SELECT (distance_cor_agg(x, y)).dcor IS NOT NULL FROM dcor_data;
+SELECT (distance_cor_agg(x, y, {'seed': 42})).dcor IS NOT NULL FROM dcor_data;
+----
+true
+
+# =============================================================================
+# Determinism: a fixed seed gives a bit-identical permutation p-value across
+# calls and regardless of input row order.
+# =============================================================================
+
+query I
+SELECT (SELECT (distance_cor_agg(x, y, {'seed': 42})).p_value FROM independent_data)
+     = (SELECT (distance_cor_agg(x, y, {'seed': 42})).p_value FROM (SELECT * FROM independent_data ORDER BY y DESC));
 ----
 true
 

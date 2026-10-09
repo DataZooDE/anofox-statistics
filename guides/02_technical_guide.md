@@ -359,7 +359,7 @@ rm -rf build && make release
 
 ```cmake
 set(EXTENSION_SOURCES
-    src/anofox_stats_extension.cpp
+    src/anofox_statistics_extension.cpp
     src/table_functions/ols_fit.cpp
     src/aggregate_functions/ols_aggregate.cpp
     # ...
@@ -379,7 +379,7 @@ target_link_libraries(${TARGET_NAME}_loadable_extension ${RUST_LIB_PATH})
 2. **Add FFI bindings** (`crates/anofox-stats-ffi/src/lib.rs`)
 3. **Update C header** (`src/include/anofox_stats_ffi.h`)
 4. **Create C++ wrapper** (`src/table_functions/` or `src/aggregate_functions/`)
-5. **Register function** (`src/anofox_stats_extension.cpp`)
+5. **Register function** (`src/anofox_statistics_extension.cpp`)
 6. **Add to CMakeLists.txt**
 7. **Write tests** (`test/sql/`)
 

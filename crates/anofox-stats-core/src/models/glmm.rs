@@ -26,7 +26,6 @@
 use crate::errors::{StatsError, StatsResult};
 use anofox_regression::solvers::GlmmRegressor;
 use faer::{Col, Mat};
-use statrs::distribution::{ContinuousCDF, Normal};
 
 /// Which response family the mixed model uses.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -242,12 +241,11 @@ pub fn fit_glmm(
     }
     let n_groups = orig.len();
     if n_groups < 2 {
-        return Err(StatsError::InvalidValue {
-            field: "group",
-            message: "a mixed-effects model needs at least two groups; with one group the \
+        return Err(StatsError::InsufficientDataMsg(
+            "a mixed-effects model needs at least two groups; with one group the \
                       random intercept is not separable from the fixed intercept"
                 .to_string(),
-        });
+        ));
     }
     if n <= n_fixed + 1 {
         return Err(StatsError::InsufficientData {
@@ -260,12 +258,11 @@ pub fn fit_glmm(
         group_sizes[g] += 1;
     }
     if group_sizes.iter().all(|&s| s <= 1) {
-        return Err(StatsError::InvalidValue {
-            field: "group",
-            message: "every group has a single observation, so the between-group variance is \
+        return Err(StatsError::InsufficientDataMsg(
+            "every group has a single observation, so the between-group variance is \
                       not identified"
                 .to_string(),
-        });
+        ));
     }
 
     // Dense design (no intercept column; the builder adds one) and response.
@@ -293,9 +290,7 @@ pub fn fit_glmm(
         .reml(options.reml)
         .build();
 
-    let fit = reg
-        .fit(&xm, &yv, &groups)
-        .map_err(|e| StatsError::RegressError(format!("{e:?}")))?;
+    let fit = reg.fit(&xm, &yv, &groups).map_err(StatsError::from)?;
 
     // Fixed effects: element 0 is the intercept when one is fitted.
     let (coefficients, intercept) = if options.fit_intercept {
@@ -304,47 +299,9 @@ pub fn fit_glmm(
         (fit.fixed_effects().to_vec(), None)
     };
 
-    // Inference derived from the reported fixed-effect standard errors.
     let (std_errors, z_values, p_values, ci_lower, ci_upper, intercept_std_error) =
         if options.compute_inference {
-            let se = fit.std_errors();
-            let normal = Normal::new(0.0, 1.0).ok();
-            let z_crit = normal
-                .as_ref()
-                .map(|nrm| nrm.inverse_cdf(0.5 + options.confidence_level / 2.0))
-                .unwrap_or(1.959_963_984_540_054);
-            let int_off = usize::from(options.fit_intercept);
-            let mut se_v = Vec::with_capacity(coefficients.len());
-            let mut z_v = Vec::with_capacity(coefficients.len());
-            let mut p_v = Vec::with_capacity(coefficients.len());
-            let mut lo_v = Vec::with_capacity(coefficients.len());
-            let mut hi_v = Vec::with_capacity(coefficients.len());
-            for (k, &b) in coefficients.iter().enumerate() {
-                let s = se.get(int_off + k).copied().unwrap_or(f64::NAN);
-                let z = if s > 0.0 { b / s } else { f64::NAN };
-                let p = match &normal {
-                    Some(nrm) if z.is_finite() => 2.0 * (1.0 - nrm.cdf(z.abs())),
-                    _ => f64::NAN,
-                };
-                se_v.push(s);
-                z_v.push(z);
-                p_v.push(p);
-                lo_v.push(b - z_crit * s);
-                hi_v.push(b + z_crit * s);
-            }
-            let icpt_se = if options.fit_intercept {
-                Some(se.first().copied().unwrap_or(f64::NAN))
-            } else {
-                None
-            };
-            (
-                Some(se_v),
-                Some(z_v),
-                Some(p_v),
-                Some(lo_v),
-                Some(hi_v),
-                icpt_se,
-            )
+            fixed_effect_inference(&fit, options.fit_intercept, options.confidence_level)
         } else {
             (None, None, None, None, None, None)
         };
@@ -384,6 +341,7 @@ pub fn fit_glmm(
             options.family,
             GlmmFamily::Poisson | GlmmFamily::Binomial
         ));
+    // Upstream reports lme4's logLik(glmer) (saturated term included).
     let ll = fit.log_likelihood();
 
     Ok(GlmmResult {
@@ -520,10 +478,9 @@ pub fn fit_glmm_crossed(
             ids.push(id);
         }
         if next < 2 {
-            return Err(StatsError::InvalidValue {
-                field: "group",
-                message: "each grouping factor needs at least two levels".to_string(),
-            });
+            return Err(StatsError::InsufficientDataMsg(
+                "each grouping factor needs at least two levels".to_string(),
+            ));
         }
         factor_ids.push(ids);
     }
@@ -541,7 +498,7 @@ pub fn fit_glmm_crossed(
     let group_refs: Vec<&[usize]> = factor_ids.iter().map(|v| v.as_slice()).collect();
     let fit = reg
         .fit_crossed(&xm, &yv, &group_refs)
-        .map_err(|e| StatsError::RegressError(format!("{e:?}")))?;
+        .map_err(StatsError::from)?;
 
     let (coefficients, intercept) = if options.fit_intercept {
         (fit.slopes().to_vec(), fit.intercept())
@@ -551,41 +508,7 @@ pub fn fit_glmm_crossed(
 
     let (std_errors, z_values, p_values, ci_lower, ci_upper, intercept_std_error) =
         if options.compute_inference {
-            let se = fit.std_errors();
-            let normal = Normal::new(0.0, 1.0).ok();
-            let z_crit = normal
-                .as_ref()
-                .map(|nrm| nrm.inverse_cdf(0.5 + options.confidence_level / 2.0))
-                .unwrap_or(1.959_963_984_540_054);
-            let int_off = usize::from(options.fit_intercept);
-            let (mut se_v, mut z_v, mut p_v, mut lo_v, mut hi_v) =
-                (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
-            for (k, &b) in coefficients.iter().enumerate() {
-                let s = se.get(int_off + k).copied().unwrap_or(f64::NAN);
-                let z = if s > 0.0 { b / s } else { f64::NAN };
-                let p = match &normal {
-                    Some(nrm) if z.is_finite() => 2.0 * (1.0 - nrm.cdf(z.abs())),
-                    _ => f64::NAN,
-                };
-                se_v.push(s);
-                z_v.push(z);
-                p_v.push(p);
-                lo_v.push(b - z_crit * s);
-                hi_v.push(b + z_crit * s);
-            }
-            let icpt_se = if options.fit_intercept {
-                Some(se.first().copied().unwrap_or(f64::NAN))
-            } else {
-                None
-            };
-            (
-                Some(se_v),
-                Some(z_v),
-                Some(p_v),
-                Some(lo_v),
-                Some(hi_v),
-                icpt_se,
-            )
+            fixed_effect_inference(&fit, options.fit_intercept, options.confidence_level)
         } else {
             (None, None, None, None, None, None)
         };
@@ -614,6 +537,7 @@ pub fn fit_glmm_crossed(
             options.family,
             GlmmFamily::Poisson | GlmmFamily::Binomial
         ));
+    // Upstream reports lme4's logLik(glmer) (saturated term included).
     let ll = fit.log_likelihood();
 
     Ok(GlmmResult {
@@ -642,6 +566,37 @@ pub fn fit_glmm_crossed(
         ranef: Vec::new(),
         factors,
     })
+}
+
+/// Slope inference (standard errors, z, p, Wald interval) and the intercept's
+/// standard error, all from upstream. Upstream vectors cover every fixed effect,
+/// intercept first.
+type FixedEffectInference = (
+    Option<Vec<f64>>,
+    Option<Vec<f64>>,
+    Option<Vec<f64>>,
+    Option<Vec<f64>>,
+    Option<Vec<f64>>,
+    Option<f64>,
+);
+
+fn fixed_effect_inference(
+    fit: &anofox_regression::solvers::FittedGlmm,
+    fit_intercept: bool,
+    confidence_level: f64,
+) -> FixedEffectInference {
+    let off = usize::from(fit_intercept);
+    let slopes = |v: &[f64]| v.get(off..).map(<[f64]>::to_vec).unwrap_or_default();
+    let se = fit.std_errors();
+    let (lo, hi) = fit.conf_int(confidence_level);
+    (
+        Some(slopes(se)),
+        Some(slopes(&fit.z_values())),
+        Some(slopes(&fit.p_values())),
+        Some(slopes(&lo)),
+        Some(slopes(&hi)),
+        fit_intercept.then(|| se.first().copied().unwrap_or(f64::NAN)),
+    )
 }
 
 #[cfg(test)]
@@ -911,7 +866,7 @@ mod tests {
         let g = vec![0i32; 6];
         assert!(matches!(
             fit_glmm(&y, &x, &g, &GlmmOptions::default()),
-            Err(StatsError::InvalidValue { field: "group", .. })
+            Err(StatsError::InsufficientDataMsg(_))
         ));
     }
 
@@ -922,7 +877,7 @@ mod tests {
         let g: Vec<i32> = (0..6).collect();
         assert!(matches!(
             fit_glmm(&y, &x, &g, &GlmmOptions::default()),
-            Err(StatsError::InvalidValue { field: "group", .. })
+            Err(StatsError::InsufficientDataMsg(_))
         ));
     }
 

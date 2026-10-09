@@ -63,14 +63,7 @@ pub fn fit_wls(
     }
 
     // Check all feature vectors have same length as y
-    for col in x.iter() {
-        if col.len() != n_obs {
-            return Err(StatsError::DimensionMismatch {
-                y_len: n_obs,
-                x_rows: col.len(),
-            });
-        }
-    }
+    crate::validation::validate_x_columns(n_obs, x)?;
 
     // Filter out rows with NaN/Inf values or non-positive weights
     let valid_indices: Vec<usize> = (0..n_obs)
@@ -91,57 +84,30 @@ pub fn fit_wls(
 
     let n_valid = valid_indices.len();
 
-    // Detect zero-variance (constant) columns BEFORE min_obs check
-    let is_constant_column: Vec<bool> = x
-        .iter()
-        .map(|col| {
-            if valid_indices.is_empty() {
-                return true;
-            }
-            let first_val = col[valid_indices[0]];
-            valid_indices
-                .iter()
-                .all(|&i| (col[i] - first_val).abs() < 1e-10)
-        })
-        .collect();
-
-    // Count non-constant features for min_obs calculation
-    let n_effective_features = is_constant_column.iter().filter(|&&c| !c).count();
-
-    // Check we have enough observations for the effective (non-constant) features
-    let min_obs = if options.fit_intercept {
-        n_effective_features + 1
-    } else {
-        n_effective_features
-    };
-
-    // If ALL columns are constant, we can still fit (intercept-only model if fit_intercept=true)
-    if n_effective_features == 0 {
-        if !options.fit_intercept {
-            return Err(StatsError::InsufficientData {
-                rows: n_valid,
-                cols: n_features,
-            });
-        }
-        // Intercept-only model: compute weighted mean of y as intercept
-        let sum_wy: f64 = valid_indices.iter().map(|&i| weights[i] * y[i]).sum();
-        let sum_w: f64 = valid_indices.iter().map(|&i| weights[i]).sum();
-        let y_mean = sum_wy / sum_w;
-        let y_var = valid_indices
-            .iter()
-            .map(|&i| weights[i] * (y[i] - y_mean).powi(2))
-            .sum::<f64>()
-            / sum_w;
-        let rmse = y_var.sqrt();
-
+    // Non-estimable columns (constant with an intercept, all-zero without) are
+    // left out of the design and reported as NaN; aliasing, the no-intercept
+    // (uncentered) R²/F and intercept-only fits are upstream's.
+    let dropped = crate::validation::droppable_columns(x, &valid_indices, options.fit_intercept);
+    let kept: Vec<usize> = (0..n_features).filter(|&j| !dropped[j]).collect();
+    if (kept.is_empty() && !options.fit_intercept)
+        || n_valid < kept.len() + usize::from(options.fit_intercept)
+    {
+        return Err(StatsError::InsufficientData {
+            rows: n_valid,
+            cols: n_features,
+        });
+    }
+    if kept.is_empty() && n_valid == 1 {
+        // A single observation: the intercept is that value, its residual
+        // variance is undefined (upstream needs two rows).
         return Ok(FitResult {
             core: FitResultCore {
                 coefficients: vec![f64::NAN; n_features],
-                intercept: Some(y_mean),
+                intercept: Some(y[valid_indices[0]]),
                 r_squared: 0.0,
                 adj_r_squared: 0.0,
-                residual_std_error: rmse,
-                n_observations: n_valid,
+                residual_std_error: f64::NAN,
+                n_observations: 1,
                 n_features,
             },
             inference: None,
@@ -149,56 +115,35 @@ pub fn fit_wls(
         });
     }
 
-    if n_valid < min_obs {
-        return Err(StatsError::InsufficientData {
-            rows: n_valid,
-            cols: n_features,
-        });
-    }
-
-    // Build reduced X matrix (only non-constant columns)
-    let non_constant_indices: Vec<usize> = is_constant_column
-        .iter()
-        .enumerate()
-        .filter_map(|(i, &is_const)| if !is_const { Some(i) } else { None })
-        .collect();
-
-    // Convert to faer types (only non-constant columns, only valid rows)
     let y_col = Col::from_fn(n_valid, |i| y[valid_indices[i]]);
-    let x_mat = Mat::from_fn(n_valid, n_effective_features, |i, j| {
-        x[non_constant_indices[j]][valid_indices[i]]
-    });
+    let x_mat = Mat::from_fn(n_valid, kept.len(), |i, j| x[kept[j]][valid_indices[i]]);
     let w_col = Col::from_fn(n_valid, |i| weights[valid_indices[i]]);
 
-    // Build and fit the model using native WlsRegressor
     let fitted = WlsRegressor::builder()
         .with_intercept(options.fit_intercept)
         .weights(w_col)
-        .compute_inference(options.compute_inference || options.hc_type.is_some())
+        .compute_inference(options.compute_inference)
         .confidence_level(options.confidence_level)
         .solve_method(convert_solver(options.solver))
         .build()
         .fit(&x_mat, &y_col)
-        .map_err(|e| StatsError::RegressError(format!("{:?}", e)))?;
-
-    // Extract results
+        .map_err(StatsError::from)?;
     let result = fitted.result();
 
-    // Reconstruct full coefficient vector with NaN for constant columns
-    let reduced_coefficients: Vec<f64> = result.coefficients.iter().copied().collect();
-    let mut coefficients = vec![f64::NAN; n_features];
-    for (reduced_idx, &orig_idx) in non_constant_indices.iter().enumerate() {
-        coefficients[orig_idx] = reduced_coefficients[reduced_idx];
-    }
-    let intercept = if options.fit_intercept {
-        result.intercept
-    } else {
-        None
+    // Scatter a reduced (kept-columns) vector back to full width, NaN elsewhere.
+    let expand = |reduced: Option<&Col<f64>>| -> Vec<f64> {
+        let mut full = vec![f64::NAN; n_features];
+        if let Some(col) = reduced {
+            for (r, &j) in kept.iter().enumerate() {
+                full[j] = col[r];
+            }
+        }
+        full
     };
 
     let core = FitResultCore {
-        coefficients,
-        intercept,
+        coefficients: expand(Some(&result.coefficients)),
+        intercept: result.intercept,
         r_squared: result.r_squared,
         adj_r_squared: result.adj_r_squared,
         residual_std_error: result.rmse,
@@ -206,79 +151,44 @@ pub fn fit_wls(
         n_features,
     };
 
-    // Build inference results if requested
-    let inference = if options.compute_inference {
-        // Helper to reconstruct reduced vector to full size with NaN for constant columns
-        let reconstruct = |reduced: Option<&faer::Col<f64>>| -> Vec<f64> {
-            let mut full = vec![f64::NAN; n_features];
-            if let Some(col) = reduced {
-                for (reduced_idx, &orig_idx) in non_constant_indices.iter().enumerate() {
-                    full[orig_idx] = col[reduced_idx];
-                }
-            }
-            full
-        };
-        let reconstruct_col = |col: &faer::Col<f64>| -> Vec<f64> {
-            let mut full = vec![f64::NAN; n_features];
-            for (reduced_idx, &orig_idx) in non_constant_indices.iter().enumerate() {
-                full[orig_idx] = col[reduced_idx];
-            }
-            full
-        };
-
-        // If HC inference is requested, use heteroscedasticity-consistent standard errors
-        if let Some(hc_type) = options.hc_type {
-            let hc_result = anofox_regression::inference::compute_hc_inference(
-                &x_mat,
-                &result.coefficients,
-                result.intercept,
-                &result.residuals,
-                &result.aliased,
-                options.fit_intercept,
-                convert_hc_type(hc_type),
-                options.confidence_level,
-            );
-
-            match hc_result {
-                Ok(hc) => Some(FitResultInference {
-                    std_errors: reconstruct_col(&hc.std_errors),
-                    t_values: reconstruct_col(&hc.t_statistics),
-                    p_values: reconstruct_col(&hc.p_values),
-                    ci_lower: reconstruct_col(&hc.conf_interval_lower),
-                    ci_upper: reconstruct_col(&hc.conf_interval_upper),
-                    confidence_level: hc.confidence_level,
-                    f_statistic: Some(result.f_statistic),
-                    f_pvalue: Some(result.f_pvalue),
-                }),
-                Err(_) => {
-                    // Fall back to classical inference if HC fails
-                    Some(FitResultInference {
-                        std_errors: reconstruct(result.std_errors.as_ref()),
-                        t_values: reconstruct(result.t_statistics.as_ref()),
-                        p_values: reconstruct(result.p_values.as_ref()),
-                        ci_lower: reconstruct(result.conf_interval_lower.as_ref()),
-                        ci_upper: reconstruct(result.conf_interval_upper.as_ref()),
-                        confidence_level: options.confidence_level,
-                        f_statistic: Some(result.f_statistic),
-                        f_pvalue: Some(result.f_pvalue),
-                    })
-                }
-            }
-        } else {
-            // Classical inference from the native WLS fit
-            Some(FitResultInference {
-                std_errors: reconstruct(result.std_errors.as_ref()),
-                t_values: reconstruct(result.t_statistics.as_ref()),
-                p_values: reconstruct(result.p_values.as_ref()),
-                ci_lower: reconstruct(result.conf_interval_lower.as_ref()),
-                ci_upper: reconstruct(result.conf_interval_upper.as_ref()),
-                confidence_level: options.confidence_level,
+    let classical = || FitResultInference {
+        std_errors: expand(result.std_errors.as_ref()),
+        t_values: expand(result.t_statistics.as_ref()),
+        p_values: expand(result.p_values.as_ref()),
+        ci_lower: expand(result.conf_interval_lower.as_ref()),
+        ci_upper: expand(result.conf_interval_upper.as_ref()),
+        confidence_level: options.confidence_level,
+        f_statistic: Some(result.f_statistic),
+        f_pvalue: Some(result.f_pvalue),
+    };
+    let inference = if !options.compute_inference {
+        None
+    } else if let Some(hc_type) = options.hc_type {
+        match anofox_regression::inference::compute_hc_inference(
+            &x_mat,
+            &result.coefficients,
+            result.intercept,
+            &result.residuals,
+            &result.aliased,
+            options.fit_intercept,
+            convert_hc_type(hc_type),
+            options.confidence_level,
+        ) {
+            Ok(hc) => Some(FitResultInference {
+                std_errors: expand(Some(&hc.std_errors)),
+                t_values: expand(Some(&hc.t_statistics)),
+                p_values: expand(Some(&hc.p_values)),
+                ci_lower: expand(Some(&hc.conf_interval_lower)),
+                ci_upper: expand(Some(&hc.conf_interval_upper)),
+                confidence_level: hc.confidence_level,
                 f_statistic: Some(result.f_statistic),
                 f_pvalue: Some(result.f_pvalue),
-            })
+            }),
+            // Fall back to classical inference if HC fails
+            Err(_) => Some(classical()),
         }
     } else {
-        None
+        Some(classical())
     };
 
     Ok(FitResult {
@@ -427,5 +337,30 @@ mod tests {
         let result = fit_wls(&y, &x, &weights, &options).unwrap();
         assert!((result.core.coefficients[0] - 2.0).abs() < 0.1);
         assert!(result.core.r_squared > 0.99);
+    }
+
+    #[test]
+    fn test_wls_no_intercept_ones_column_matches_intercept_model() {
+        let x1 = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+        let y = vec![2.1, 3.9, 6.2, 7.8, 10.1, 12.2, 13.8, 16.1];
+        let w = vec![1.0; 8];
+        let opts_int = WlsOptions {
+            compute_inference: true,
+            ..Default::default()
+        };
+        let with_int = fit_wls(&y, std::slice::from_ref(&x1), &w, &opts_int).unwrap();
+        let opts = WlsOptions {
+            fit_intercept: false,
+            compute_inference: true,
+            ..Default::default()
+        };
+        // Constant column of 2s: its coefficient is intercept / 2.
+        let no_int = fit_wls(&y, &[vec![2.0; 8], x1], &w, &opts).unwrap();
+        let b0 = no_int.core.coefficients[0];
+        assert!((b0 * 2.0 - with_int.core.intercept.unwrap()).abs() < 1e-10);
+        assert!((no_int.core.coefficients[1] - with_int.core.coefficients[0]).abs() < 1e-10);
+        let inf = no_int.inference.unwrap();
+        assert!(inf.std_errors[0].is_finite() && inf.std_errors[0] > 0.0);
+        assert!(inf.ci_lower[0] < b0 && b0 < inf.ci_upper[0]);
     }
 }

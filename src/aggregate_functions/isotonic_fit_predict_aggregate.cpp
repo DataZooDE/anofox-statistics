@@ -9,8 +9,11 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/fit_predict_rows.hpp"
+#include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
+#include "aggregate_combine.hpp"
 
 namespace duckdb {
 
@@ -147,6 +150,13 @@ static void IsotonicPredictAggUpdate(Vector inputs[], AggregateInputData &aggr_i
 
         auto x_idx = x_data.sel->get_index(i);
         if (!x_data.validity.RowIsValid(x_idx)) {
+            // Keep the row (not training, NULL yhat) so output positions line up.
+            auto y_null_idx = y_data.sel->get_index(i);
+            bool y_null_valid = y_data.validity.RowIsValid(y_null_idx);
+            state.y_all.push_back(y_null_valid ? y_values[y_null_idx] : std::nan(""));
+            state.y_is_null.push_back(!y_null_valid);
+            state.is_training.push_back(false);
+            state.x_all.push_back(std::nan(""));
             continue;
         }
 
@@ -188,7 +198,7 @@ static void IsotonicPredictAggUpdate(Vector inputs[], AggregateInputData &aggr_i
     }
 }
 
-static void IsotonicPredictAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &, idx_t count) {
+static void IsotonicPredictAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &aggr_input_data, idx_t count) {
     UnifiedVectorFormat source_data, target_data;
     source_vector.ToUnifiedFormat(count, source_data);
     target_vector.ToUnifiedFormat(count, target_data);
@@ -201,18 +211,22 @@ static void IsotonicPredictAggCombine(Vector &source_vector, Vector &target_vect
         auto &target = *targets[target_data.sel->get_index(i)];
 
         if (!source.initialized) {
+            // Only NULL-x rows; keep them.
+            AppendOutputRows(target, source);
             continue;
         }
 
         if (!target.initialized) {
-            target.x_train = std::move(source.x_train);
-            target.y_train = std::move(source.y_train);
-            target.x_all = std::move(source.x_all);
-            target.y_all = std::move(source.y_all);
-            target.y_is_null = std::move(source.y_is_null);
-            target.is_training = std::move(source.is_training);
+            auto pending_rows = TakeOutputRows(target);
+            target.x_train = CombineTake(source.x_train, aggr_input_data);
+            target.y_train = CombineTake(source.y_train, aggr_input_data);
+            target.x_all = CombineTake(source.x_all, aggr_input_data);
+            target.y_all = CombineTake(source.y_all, aggr_input_data);
+            target.y_is_null = CombineTake(source.y_is_null, aggr_input_data);
+            target.is_training = CombineTake(source.is_training, aggr_input_data);
             target.initialized = true;
             target.increasing = source.increasing;
+            PrependOutputRows(target, std::move(pending_rows));
             continue;
         }
 
@@ -294,6 +308,7 @@ static void IsotonicPredictAggFinalize(Vector &state_vector, AggregateInputData 
         bool success = anofox_isotonic_fit(x_array, y_array, options, &core_result, &error);
 
         if (!success) {
+            ThrowUnlessDegenerate("isotonic_fit_predict_agg", error);
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
@@ -341,8 +356,13 @@ static void IsotonicPredictAggFinalize(Vector &state_vector, AggregateInputData 
             }
 
             // Predict using isotonic model
-            double yhat = IsotonicPredict(state.sorted_x, state.fitted_y, state.x_all[row]);
-            FlatVector::GetData<double>(yhat_vec)[child_idx] = yhat;
+            // A NULL x (stored as NaN) has no prediction.
+            if (std::isnan(state.x_all[row])) {
+                FlatVector::SetNull(yhat_vec, child_idx, true);
+            } else {
+                double yhat = IsotonicPredict(state.sorted_x, state.fitted_y, state.x_all[row]);
+                FlatVector::GetData<double>(yhat_vec)[child_idx] = yhat;
+            }
 
             FlatVector::GetData<bool>(is_training_vec)[child_idx] = state.is_training[row];
         }
@@ -359,8 +379,10 @@ static unique_ptr<FunctionData> IsotonicPredictAggBind(ClientContext &context, A
                                                         vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<IsotonicPredictAggBindData>();
 
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[2]);
+    if (arguments.size() >= 3) {
+        auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[2], "isotonic_fit_predict_agg",
+            {"increasing"});
         if (opts.increasing.has_value()) {
             result->increasing = opts.increasing.value();
         }
@@ -378,8 +400,10 @@ static unique_ptr<FunctionData> IsotonicPredictAggBindWithSplit(ClientContext &c
     result->use_split_col = true;
 
     // Parse MAP options if provided as 4th argument (y, x, split, options)
-    if (arguments.size() >= 4 && arguments[3]->IsFoldable()) {
-        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[3]);
+    if (arguments.size() >= 4) {
+        auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[3], "isotonic_fit_predict_agg",
+            {"increasing"});
         if (opts.increasing.has_value()) {
             result->increasing = opts.increasing.value();
         }

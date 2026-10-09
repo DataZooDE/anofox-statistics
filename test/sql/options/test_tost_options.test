@@ -1,0 +1,121 @@
+# name: test/sql/options/test_tost_options.test
+# description: TOST significance and bound keys are accepted consistently by
+#              tost_t_test_agg, tost_paired_agg and tost_correlation_agg.
+#              alpha = 1 - confidence_level (tost_t_test_agg's long-standing
+#              mapping); a TOST at level alpha reports a (1 - 2*alpha) CI.
+# group: [options]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE tg AS
+SELECT (CASE WHEN i % 2 = 0 THEN 10.0 ELSE 10.2 END + sin(i * 1.3)) AS v, (i % 2)::INTEGER AS g
+FROM range(80) t(i);
+
+statement ok
+CREATE TABLE pr AS
+SELECT (5.0 + sin(i * 0.9)) AS x, (5.05 + sin(i * 0.9) + 0.2 * cos(i * 2.1)) AS y
+FROM range(80) t(i);
+
+# =============================================================================
+# alpha and confidence_level on all three
+# =============================================================================
+
+query I
+SELECT tost_t_test_agg(v, g, {'delta': 1.0, 'alpha': 0.1}) = tost_t_test_agg(v, g, {'delta': 1.0, 'confidence_level': 0.9})
+   AND tost_t_test_agg(v, g, {'delta': 1.0, 'alpha': 0.05}) = tost_t_test_agg(v, g, {'delta': 1.0})
+   AND (tost_t_test_agg(v, g, {'delta': 1.0, 'alpha': 0.1})).ci_lower
+    != (tost_t_test_agg(v, g, {'delta': 1.0})).ci_lower
+FROM tg;
+----
+true
+
+query I
+SELECT tost_paired_agg(x, y, {'alpha': 0.1}) = tost_paired_agg(x, y, {'confidence_level': 0.9})
+   AND tost_paired_agg(x, y, {'confidence_level': 0.95}) = tost_paired_agg(x, y)
+   AND (tost_paired_agg(x, y, {'confidence_level': 0.9})).ci_lower != (tost_paired_agg(x, y)).ci_lower
+FROM pr;
+----
+true
+
+query I
+SELECT tost_correlation_agg(x, y, {'alpha': 0.1}) = tost_correlation_agg(x, y, {'confidence_level': 0.9})
+   AND tost_correlation_agg(x, y, {'confidence_level': 0.95}) = tost_correlation_agg(x, y)
+FROM pr;
+----
+true
+
+# Consistent values may be given together.
+query I
+SELECT tost_paired_agg(x, y, {'alpha': 0.1, 'confidence_level': 0.9}) = tost_paired_agg(x, y, {'alpha': 0.1}) FROM pr;
+----
+true
+
+statement error
+SELECT tost_paired_agg(x, y, {'alpha': 0.1, 'confidence_level': 0.95}) FROM pr;
+----
+tost_paired_agg: alpha (0.1) and confidence_level (0.95) are inconsistent
+
+statement error
+SELECT tost_t_test_agg(v, g, {'alpha': 0.05, 'confidence_level': 0.9}) FROM tg;
+----
+tost_t_test_agg: alpha (0.05) and confidence_level (0.9) are inconsistent
+
+statement error
+SELECT tost_correlation_agg(x, y, {'alpha': 0.6}) FROM pr;
+----
+alpha must be strictly between 0 and 0.5, got 0.6
+
+statement error
+SELECT tost_t_test_agg(v, g, {'alpha': 0}) FROM tg;
+----
+alpha must be strictly between 0 and 0.5
+
+# =============================================================================
+# Bounds: bound_lower/bound_upper, lower/upper and delta
+# =============================================================================
+
+query I
+SELECT tost_paired_agg(x, y, {'lower': -0.3, 'upper': 0.3}) = tost_paired_agg(x, y, {'bound_lower': -0.3, 'bound_upper': 0.3})
+   AND tost_paired_agg(x, y, {'delta': 0.3}) = tost_paired_agg(x, y, {'bound_lower': -0.3, 'bound_upper': 0.3})
+   AND tost_paired_agg(x, y, {'delta': 0.3}) != tost_paired_agg(x, y)
+FROM pr;
+----
+true
+
+query I
+SELECT tost_correlation_agg(x, y, {'lower': -0.95, 'upper': 0.99}) = tost_correlation_agg(x, y, {'bound_lower': -0.95, 'bound_upper': 0.99})
+   AND tost_correlation_agg(x, y, {'low': -0.95, 'high': 0.99}) = tost_correlation_agg(x, y, {'bound_lower': -0.95, 'bound_upper': 0.99})
+FROM pr;
+----
+true
+
+query I
+SELECT tost_t_test_agg(v, g, {'lower': -1.0, 'upper': 0.5}) = tost_t_test_agg(v, g, {'bound_lower': -1.0, 'bound_upper': 0.5})
+   AND (tost_t_test_agg(v, g, {'lower': -1.0, 'upper': 0.5})).bound_upper = 0.5
+FROM tg;
+----
+true
+
+# delta takes precedence over explicit bounds on all three (as in tost_t_test_agg).
+query I
+SELECT tost_paired_agg(x, y, {'delta': 0.3, 'bound_lower': -9.0}) = tost_paired_agg(x, y, {'delta': 0.3})
+   AND tost_t_test_agg(x, (x > 5)::INTEGER, {'delta': 0.3, 'bound_lower': -9.0}) = tost_t_test_agg(x, (x > 5)::INTEGER, {'delta': 0.3})
+FROM pr;
+----
+true
+
+# =============================================================================
+# statistic: the statistic of the one-sided test that determines the p-value
+# =============================================================================
+
+query I
+SELECT r.statistic = CASE WHEN r.p_lower >= r.p_upper THEN r.t_lower ELSE r.t_upper END
+FROM (SELECT tost_t_test_agg(v, g, {'delta': 1.0}) AS r FROM tg);
+----
+true
+
+query II
+SELECT (tost_paired_agg(x, y)).statistic IS NOT NULL, (tost_correlation_agg(x, y)).statistic IS NOT NULL FROM pr;
+----
+true	true

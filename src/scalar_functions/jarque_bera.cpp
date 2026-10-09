@@ -8,6 +8,8 @@
 #include "duckdb/parser/parsed_data/create_scalar_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/result_fields.hpp"
+#include "../include/error_dispatch.hpp"
 #include "telemetry.hpp"
 
 namespace duckdb {
@@ -21,6 +23,8 @@ static LogicalType GetJarqueBeraResultType() {
     children.push_back(make_pair("skewness", LogicalType::DOUBLE));
     children.push_back(make_pair("kurtosis", LogicalType::DOUBLE));
     children.push_back(make_pair("n", LogicalType::BIGINT));
+    children.push_back(make_pair("method", LogicalType::VARCHAR));
+    children.push_back(make_pair("alternative", LogicalType::VARCHAR));
 
     return LogicalType::STRUCT(std::move(children));
 }
@@ -51,7 +55,18 @@ static vector<double> ExtractDoubleList(Vector &vec, idx_t row_idx) {
 }
 
 // Main Jarque-Bera function
+static void JarqueBeraFunctionImpl(DataChunk &args, ExpressionState &state, Vector &result);
+
+// Constant inputs must yield a CONSTANT_VECTOR (DuckDB constant folding
+// asserts this in debug builds).
 static void JarqueBeraFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+	JarqueBeraFunctionImpl(args, state, result);
+	if (args.AllConstant()) {
+		result.SetVectorType(VectorType::CONSTANT_VECTOR);
+	}
+}
+
+static void JarqueBeraFunctionImpl(DataChunk &args, ExpressionState &state, Vector &result) {
     auto &data_vec = args.data[0]; // LIST(DOUBLE)
 
     idx_t count = args.size();
@@ -80,6 +95,7 @@ static void JarqueBeraFunction(DataChunk &args, ExpressionState &state, Vector &
         bool success = anofox_jarque_bera(data_array, &jb_result, &error);
 
         if (!success) {
+            ThrowUnlessDegenerate("jarque_bera", error);
             FlatVector::SetNull(result, row, true);
             continue;
         }
@@ -91,6 +107,8 @@ static void JarqueBeraFunction(DataChunk &args, ExpressionState &state, Vector &
         FlatVector::GetData<double>(*struct_entries[struct_idx++])[row] = jb_result.skewness;
         FlatVector::GetData<double>(*struct_entries[struct_idx++])[row] = jb_result.kurtosis;
         FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[row] = jb_result.n;
+        SetResultString(*struct_entries[struct_idx++], row, "Jarque-Bera test");
+        SetResultNull(*struct_entries[struct_idx++], row); // alternative: not applicable
     }
 }
 

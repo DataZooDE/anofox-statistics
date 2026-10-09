@@ -1,0 +1,274 @@
+# name: test/sql/edge_cases/invalid_options.test
+# description: Invalid options must fail loudly with an actionable message, for aggregates
+#              as well as scalar fits. Message texts come from
+#              src/include/map_options_parser.cpp and crates/anofox-stats-core (errors.rs,
+#              models/*.rs). ERGO-01 (test/sql/ergo01_clear_errors.test) states that a
+#              genuine FFI failure in an aggregate throws instead of silently NULL-ing; a
+#              bad option value is such a failure (only degenerate data may yield NULL).
+# group: [edge_cases]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE d AS
+SELECT i::DOUBLE AS x, (2 * i + 1 + (i % 3))::DOUBLE AS y, (i % 2)::INTEGER AS g, (1 + i % 4)::DOUBLE AS w
+FROM range(1, 21) t(i);
+
+# =============================================================================
+# Option parsing (bind time)
+# =============================================================================
+
+statement error
+SELECT ols_fit_agg(y, [x], {'bogus': 1}) FROM d;
+----
+ols_fit_agg: unknown option 'bogus'. Supported options: fit_intercept
+
+statement error
+SELECT ols_fit_agg(y, [x], MAP {'bogus': '1'}) FROM d;
+----
+unknown option 'bogus'
+
+statement error
+SELECT ridge_fit([1.0, 2.0, 3.0, 4.0], [[1.0, 2.0, 3.0, 5.0]], {'bogus': 1});
+----
+unknown option 'bogus'
+
+statement error
+SELECT ols_fit_agg(y, [x], 'fit_intercept') FROM d;
+----
+Expected MAP or STRUCT type for options, got VARCHAR
+
+statement error
+SELECT ols_fit_agg(y, [x], {'fit_intercept': 'maybe'}) FROM d;
+----
+Cannot convert 'maybe' to boolean
+
+statement error
+SELECT ridge_fit_agg(y, [x], {'alpha': 'abc'}) FROM d;
+----
+Could not convert string 'abc' to DOUBLE
+
+statement error
+SELECT ransac_fit_agg(y, [x], {'max_trials': -3}) FROM d;
+----
+Expected a non-negative integer, got -3
+
+statement error
+SELECT ols_fit_agg(y, [x], {'solver': 'lu'}) FROM d;
+----
+Invalid solver: 'lu'. Valid values are 'qr', 'svd', 'cholesky'
+
+statement error
+SELECT ols_fit_agg(y, [x], {'hc_type': 'hc9'}) FROM d;
+----
+Invalid hc_type: 'hc9'. Valid values are 'none', 'hc0', 'hc1', 'hc2', 'hc3'
+
+statement error
+SELECT ols_fit_predict_agg(y, [x], {'null_policy': 'keep'}) FROM d;
+----
+Invalid null_policy: 'keep'. Valid values are 'drop', 'drop_y_zero_x'
+
+statement error
+SELECT poisson_fit_agg(y, [x], {'link': 'cauchit'}) FROM d;
+----
+Invalid poisson link: 'cauchit'. Valid values are 'log', 'identity', 'sqrt'
+
+statement error
+SELECT binomial_fit_agg(g::DOUBLE, [x], {'binomial_link': 'cauchit'}) FROM d;
+----
+Invalid binomial link: 'cauchit'. Valid values are 'logit', 'probit', 'cloglog'
+
+statement error
+SELECT aft_fit_agg(y, [x], 1.0, {'distribution': 'cauchy'}) FROM d;
+----
+Unknown distribution: 'cauchy'
+
+statement error
+SELECT glmm_fit_agg(y, [x], g, {'family': 'weird'}) FROM d;
+----
+Unknown GLMM family 'weird'
+
+statement error
+SELECT poisson_fit_agg(y, [x], {'vcov': 'xx'}) FROM d;
+----
+Unknown vcov type 'xx'. Expected 'laplace', 'sandwich' or 'naive'.
+
+statement error
+SELECT eb_shrink_agg(y, x, {'tau_method': 'zz'}) FROM d;
+----
+Unknown tau_method 'zz'. Expected 'dl' or 'none'.
+
+statement error
+SELECT t_test_agg(y, g, {'alternative': 'sideways'}) FROM d;
+----
+Invalid alternative: 'sideways'. Valid values are 'two_sided', 'less', 'greater'
+
+statement error
+SELECT t_test_agg(y, g, {'kind': 'bogus'}) FROM d;
+----
+Invalid t-test kind: 'bogus'. Valid values are 'student', 'welch'
+
+statement error
+SELECT t_test_agg(y, g, {'foo': 1}) FROM d;
+----
+t_test_agg: unknown option 'foo'. Supported options: alternative, confidence_level (alias: confidence), kind (alias: var_equal), paired, mu
+
+statement error
+SELECT mann_whitney_u_agg(y, g, {'foo': 1}) FROM d;
+----
+mann_whitney_u_agg: unknown option 'foo'. Supported options: alternative, confidence_level (alias: confidence), continuity_correction (alias: correction), exact, mu
+
+statement error
+SELECT pearson_agg(x, y, {'foo': 1}) FROM d;
+----
+unknown option 'foo'. Supported options: confidence_level (alias: confidence)
+
+statement error
+SELECT spearman_agg(x, y, {'foo': 1}) FROM d;
+----
+unknown option 'foo'. Supported options: confidence_level (alias: confidence)
+
+statement error
+SELECT kendall_agg(x, y, {'variant': 'tau_z'}) FROM d;
+----
+Invalid kendall variant: 'tau_z'. Valid values are 'tau_a', 'tau_b', 'tau_c'
+
+statement error
+SELECT chisq_test_agg(g, g, {'foo': 1}) FROM d;
+----
+chisq_test_agg: unknown option 'foo'. Supported options: continuity_correction (alias: correction, yates)
+
+statement error
+SELECT mmd_agg(y, g, {'foo': 1}) FROM d;
+----
+mmd_agg: unknown option 'foo'. Supported options: n_permutations (alias: permutations), seed (alias: random_state)
+
+# permutation_t_test_agg must reject unknown keys like every other test aggregate
+# (currently the key is silently ignored).
+statement error
+SELECT permutation_t_test_agg(y, g, {'foo': 1}) FROM d;
+----
+unknown option 'foo'
+
+# =============================================================================
+# Out-of-range option values. The scalar fits already raise the core error;
+# the aggregates must raise the same error instead of returning NULL.
+# =============================================================================
+
+statement error
+SELECT ridge_fit([3.0, 6.0, 8.0, 9.0, 12.0, 14.0], [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]], {'alpha': -1.0});
+----
+ridge_fit: Invalid alpha parameter: -1 (must be >= 0)
+
+statement error
+SELECT ridge_fit_agg(y, [x], {'alpha': -1.0}) FROM d;
+----
+Invalid alpha parameter: -1 (must be >= 0)
+
+statement error
+SELECT elasticnet_fit([3.0, 6.0, 8.0, 9.0, 12.0, 14.0], [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]], {'alpha': 0.1, 'l1_ratio': 1.5});
+----
+elasticnet_fit: Invalid L1 ratio: 1.5 (must be in [0, 1])
+
+statement error
+SELECT elasticnet_fit_agg(y, [x], {'alpha': 0.1, 'l1_ratio': 1.5}) FROM d;
+----
+Invalid L1 ratio: 1.5 (must be in [0, 1])
+
+statement error
+SELECT huber_fit([3.0, 6.0, 8.0, 9.0, 12.0, 14.0], [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]], {'epsilon': 0.5});
+----
+huber_fit: Invalid input: epsilon must be > 1.0, got 0.5
+
+statement error
+SELECT huber_fit_agg(y, [x], {'epsilon': 0.5}) FROM d;
+----
+epsilon must be > 1.0, got 0.5
+
+statement error
+SELECT ransac_fit([3.0, 6.0, 8.0, 9.0, 12.0, 14.0], [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]], {'stop_probability': 2.0});
+----
+ransac_fit: Invalid input: stop_probability must be in [0, 1], got 2
+
+statement error
+SELECT ransac_fit([3.0, 6.0, 8.0, 9.0, 12.0, 14.0], [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]], {'max_trials': 0});
+----
+ransac_fit: Invalid input: max_trials must be > 0
+
+statement error
+SELECT ransac_fit([3.0, 6.0, 8.0, 9.0, 12.0, 14.0], [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]], {'residual_threshold': -1.0});
+----
+ransac_fit: Invalid input: residual_threshold must be finite and positive, got -1
+
+statement error
+SELECT ransac_fit_agg(y, [x], {'stop_probability': 2.0}) FROM d;
+----
+stop_probability must be in [0, 1], got 2
+
+statement error
+SELECT theil_sen_fit([3.0, 6.0, 8.0, 9.0, 12.0, 14.0], [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]], {'max_subpopulation': 0});
+----
+theil_sen_fit: Invalid input: max_subpopulation must be > 0
+
+statement error
+SELECT theil_sen_fit([3.0, 6.0, 8.0, 9.0, 12.0, 14.0], [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]], {'tolerance': -1.0});
+----
+theil_sen_fit: Invalid input: tolerance must be finite and positive, got -1
+
+statement error
+SELECT theil_sen_fit_agg(y, [x], {'max_subpopulation': 0}) FROM d;
+----
+max_subpopulation must be > 0
+
+statement error
+SELECT rls_fit([3.0, 6.0, 8.0, 9.0, 12.0, 14.0], [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]], {'forgetting_factor': 0.0});
+----
+forgetting_factor must be in (0, 1]
+
+statement error
+SELECT rls_fit_agg(y, [x], {'forgetting_factor': 0.0}) FROM d;
+----
+forgetting_factor must be in (0, 1]
+
+statement error
+SELECT quantile_fit_predict_agg(y, [x], {'tau': 1.5}) FROM d;
+----
+tau must be in (0, 1)
+
+statement error
+SELECT pls_fit_predict_agg(y, [x], {'n_components': 0}) FROM d;
+----
+n_components must be at least 1
+
+statement error
+SELECT tweedie_fit_agg(y, [x], {'power': 3.0}) FROM d;
+----
+Tweedie power parameter must be in [1, 2]
+
+statement error
+SELECT negbinom_fit_agg(y, [x], {'theta': -1.0}) FROM d;
+----
+Negative Binomial alpha (theta) must be finite and positive
+
+statement error
+SELECT t_test_agg(y, g, {'confidence_level': 1.5}) FROM d;
+----
+confidence_level
+
+statement error
+SELECT pearson_agg(x, y, {'confidence_level': 1.5}) FROM d;
+----
+confidence_level
+
+# Last on purpose: today this trips a Rust assertion inside statrs (students_t
+# inverse_cdf), surfacing as an INTERNAL error that invalidates the database.
+# It must be a plain Invalid Input error naming the option.
+statement error
+SELECT ols_fit_agg(y, [x], {'confidence_level': 1.5, 'compute_inference': true}) FROM d;
+----
+Invalid Input Error
+
+statement error
+SELECT ols_fit([3.0, 6.0, 8.0, 9.0, 12.0, 14.0], [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]], {'confidence_level': 1.5, 'compute_inference': true});
+----
+Invalid Input Error

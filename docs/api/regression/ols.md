@@ -1,120 +1,148 @@
 # OLS (Ordinary Least Squares)
 
-Ordinary Least Squares regression. Supports SVD, QR, and Cholesky decomposition with optional heteroscedasticity-consistent standard errors.
+Ordinary least squares regression with a choice of SVD, QR or Cholesky solver
+and optional heteroscedasticity-consistent (HC0-HC3) standard errors.
 
 ## Functions
 
 | Function | Type | Description |
 |----------|------|-------------|
-| `ols_fit` | Scalar | Process complete arrays in a single call |
-| `ols_fit_agg` | Aggregate | Streaming row-by-row accumulation |
-| `ols_fit_predict` | Window | Fit and predict in a single pass |
-| `ols_fit_predict_agg` | Aggregate | Fit and predict with GROUP BY support |
-| `ols_fit_predict_by` | Table Macro | Per-group regression with long-format output |
+| `ols_fit` | Scalar | Fit on complete arrays in a single call |
+| `ols_fit_agg` | Aggregate | Row-by-row accumulation; works with `GROUP BY` |
+| `ols_fit_predict` | Window aggregate | Fit and predict per window frame, see [Window fit-predict](fit_predict_window.md) |
+| `ols_fit_predict_agg` | Aggregate | Fit and predict every row of a group, see [Fit-predict aggregates](fit_predict_agg.md) |
+| `ols_fit_predict_by` | Table macro | Per-group fit and predict in long format, see [Table macros](../macros/table_macros.md#ols_fit_predict_by) |
 
-## anofox_stats_ols_fit
+## ols_fit
 
 **Signature:**
-```sql
-anofox_stats_ols_fit(
-    y LIST(DOUBLE),
-    x LIST(LIST(DOUBLE)),
-    [fit_intercept BOOLEAN DEFAULT true],
-    [compute_inference BOOLEAN DEFAULT false],
-    [confidence_level DOUBLE DEFAULT 0.95]
-) -> STRUCT
+
+```text
+ols_fit(y DOUBLE[], x DOUBLE[][] [, options MAP]) -> STRUCT
 ```
 
 **Parameters:**
+
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| y | LIST(DOUBLE) | Response variable values |
-| x | LIST(LIST(DOUBLE)) | Feature arrays (each inner list is one feature) |
-| fit_intercept | BOOLEAN | Include intercept term (default: true) |
-| compute_inference | BOOLEAN | Compute t-tests, p-values, CIs (default: false) |
-| confidence_level | DOUBLE | CI confidence level (default: 0.95) |
-
-**Returns:** [FitResult](../reference/return_types.md#fitresult-structure) STRUCT
+| `y` | `DOUBLE[]` | Response values |
+| `x` | `DOUBLE[][]` | Feature columns: each inner list is one feature, the same length as `y` |
+| `options` | `MAP` / `STRUCT` | Optional settings, see [Options](#options) |
 
 **Example:**
+
 ```sql
--- Simple regression: y = 2x + 1
-SELECT anofox_stats_ols_fit(
-    [3.0, 5.0, 7.0, 9.0, 11.0],
+-- Simple regression: y = 2x + 1 (plus noise)
+SELECT ols_fit(
+    [3.1, 4.9, 7.2, 8.8, 11.1],
     [[1.0, 2.0, 3.0, 4.0, 5.0]]
-);
+) AS fit;
 
 -- With inference
-SELECT anofox_stats_ols_fit(
-    [3.0, 5.0, 7.0, 9.0, 11.0],
+SELECT (ols_fit(
+    [3.1, 4.9, 7.2, 8.8, 11.1],
     [[1.0, 2.0, 3.0, 4.0, 5.0]],
-    true, true, 0.95
-);
+    {'compute_inference': true, 'confidence_level': 0.99}
+)).p_values AS p_values;
 ```
 
-## anofox_stats_ols_fit_agg
+## ols_fit_agg
 
-Streaming OLS regression aggregate function. Supports `GROUP BY` and window functions via `OVER`.
+Aggregate form. Each input row contributes one observation.
 
 **Signature:**
-```sql
-anofox_stats_ols_fit_agg(
-    y DOUBLE,
-    x LIST(DOUBLE),
-    [fit_intercept BOOLEAN DEFAULT true],
-    [compute_inference BOOLEAN DEFAULT false],
-    [confidence_level DOUBLE DEFAULT 0.95]
-) -> STRUCT
+
+```text
+ols_fit_agg(y DOUBLE, x DOUBLE[] [, options MAP]) -> STRUCT
 ```
 
 **Example:**
-```sql
--- Per-group regression
-SELECT
-    category,
-    (anofox_stats_ols_fit_agg(sales, [price, ads])).r_squared
-FROM data
-GROUP BY category;
 
--- Rolling regression (window function)
+```sql
+CREATE OR REPLACE TABLE ols_demo AS
 SELECT
-    date,
-    (anofox_stats_ols_fit_agg(y, [x]) OVER (
-        ORDER BY date ROWS BETWEEN 9 PRECEDING AND CURRENT ROW
-    )).coefficients[1] as rolling_beta
-FROM time_series;
+    CASE WHEN i % 2 = 0 THEN 'north' ELSE 'south' END AS region,
+    i::DOUBLE AS price,
+    (i % 5)::DOUBLE AS ads,
+    10.0 + 2.0 * i + 0.5 * (i % 5) + sin(i) AS sales
+FROM range(1, 41) t(i);
+
+-- One model per group
+SELECT
+    region,
+    (ols_fit_agg(sales, [price, ads])).coefficients AS coefficients,
+    (ols_fit_agg(sales, [price, ads])).r_squared AS r_squared
+FROM ols_demo
+GROUP BY region
+ORDER BY region;
 ```
 
-## MAP Options
-
-All OLS functions accept an optional MAP parameter for advanced configuration:
+## Options
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `fit_intercept` | BOOLEAN | `true` | Include intercept term |
-| `compute_inference` | BOOLEAN | `false` | Compute t-tests, p-values, CIs |
-| `confidence_level` | DOUBLE | `0.95` | CI confidence level |
-| `solver` | VARCHAR | `'svd'` | Decomposition method: `'qr'`, `'svd'`, `'cholesky'` |
-| `hc_type` | VARCHAR | `'none'` | Heteroscedasticity-consistent SEs: `'none'`, `'hc0'`, `'hc1'`, `'hc2'`, `'hc3'` |
+| `fit_intercept` (alias `intercept`) | BOOLEAN | `true` | Include an intercept term |
+| `compute_inference` (alias `inference`) | BOOLEAN | `false` | Add standard errors, t-values, p-values, confidence intervals and the F-test |
+| `confidence_level` (alias `confidence`) | DOUBLE | `0.95` | Level of the coefficient confidence intervals |
+| `solver` | VARCHAR | `'svd'` | `'svd'`, `'qr'` or `'cholesky'` |
+| `hc_type` | VARCHAR | `'none'` | Robust standard errors: `'none'`, `'hc0'`, `'hc1'`, `'hc2'`, `'hc3'` |
 
-**Example with MAP options:**
+Option keys the function does not support raise an error.
+
 ```sql
--- OLS with QR decomposition and HC3 robust standard errors
-SELECT ols_fit_agg(
-    y, [x1, x2],
+-- QR solver with HC3 robust standard errors
+SELECT (ols_fit_agg(
+    sales, [price, ads],
     {'solver': 'qr', 'hc_type': 'hc3', 'compute_inference': true}
-) FROM data;
+)).std_errors AS robust_se
+FROM ols_demo;
 ```
+
+## Returns
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `coefficients` | `DOUBLE[]` | One coefficient per feature (intercept excluded) |
+| `intercept` | `DOUBLE` | Intercept (NaN when `fit_intercept` is false) |
+| `r_squared` | `DOUBLE` | Coefficient of determination (uncentered, `1 - RSS/Σy²`, when `intercept` is false, as R's `summary.lm`) |
+| `adj_r_squared` | `DOUBLE` | Adjusted R² |
+| `residual_std_error` | `DOUBLE` | Residual standard error |
+| `n_observations` | `BIGINT` | Rows used in the fit |
+| `n_features` | `BIGINT` | Number of features |
+
+With `compute_inference = true` these fields are added:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `std_errors` | `DOUBLE[]` | Coefficient standard errors (HC-adjusted if `hc_type` is set) |
+| `t_values` | `DOUBLE[]` | t-statistics |
+| `p_values` | `DOUBLE[]` | Two-sided p-values |
+| `ci_lower` | `DOUBLE[]` | Lower confidence bounds |
+| `ci_upper` | `DOUBLE[]` | Upper confidence bounds |
+| `f_statistic` | `DOUBLE` | Overall F-statistic |
+| `f_pvalue` | `DOUBLE` | p-value of the F-test |
+
+The inference lists cover the feature coefficients only, in the same order as
+`coefficients`.
+
+## NULL handling
+
+- `ols_fit_agg`: rows where `y` or `x` is NULL, or where `x` contains a NULL
+  element, are skipped.
+- `ols_fit`: rows (array positions) with NaN or infinite values are dropped
+  before fitting.
+- A feature that is constant over the fitted rows cannot be estimated; its
+  coefficient is returned as NaN (aliased) rather than failing the whole fit.
 
 ## Use Cases
 
-- Standard linear regression
-- Baseline model before trying regularization
-- Small to medium datasets with well-conditioned features
+- Standard linear regression and baseline models
 - When inference (p-values, confidence intervals) is needed
+- Robust inference under heteroscedasticity via `hc_type`
 
 ## See Also
 
 - [Ridge](ridge.md) - L2 regularization for multicollinearity
-- [Elastic Net](elasticnet.md) - Combined L1+L2 regularization
-- [Table Macros](../macros/table_macros.md#ols_fit_predict_by) - Per-group predictions
+- [WLS](wls.md) - Weighted least squares
+- [Huber](huber.md), [RANSAC](ransac.md), [Theil-Sen](theil_sen.md) - Robust alternatives
+- [Table macros](../macros/table_macros.md#ols_fit_predict_by) - Per-group predictions

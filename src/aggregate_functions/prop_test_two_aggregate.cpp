@@ -7,12 +7,12 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/result_fields.hpp"
+#include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
+#include "../include/ffi_enum_converters.hpp"
 #include "telemetry.hpp"
 
-#ifdef _WIN32
-#define strcasecmp _stricmp
-#endif
 
 namespace duckdb {
 
@@ -50,6 +50,7 @@ static LogicalType GetPropTestTwoAggResultType() {
     children.push_back(make_pair("ci_upper", LogicalType::DOUBLE));
     children.push_back(make_pair("n", LogicalType::BIGINT));
     children.push_back(make_pair("method", LogicalType::VARCHAR));
+    children.push_back(make_pair("alternative", LogicalType::VARCHAR));
 
     return LogicalType::STRUCT(std::move(children));
 }
@@ -60,19 +61,22 @@ static LogicalType GetPropTestTwoAggResultType() {
 struct PropTestTwoBindData : public FunctionData {
     AnofoxAlternative alternative;
     bool correction;
+    double confidence_level;
 
-    PropTestTwoBindData() : alternative(ANOFOX_ALTERNATIVE_TWO_SIDED), correction(true) {}
+    PropTestTwoBindData() : alternative(ANOFOX_ALTERNATIVE_TWO_SIDED), correction(true), confidence_level(0.95) {}
 
     unique_ptr<FunctionData> Copy() const override {
         auto copy = make_uniq<PropTestTwoBindData>();
         copy->alternative = alternative;
         copy->correction = correction;
+        copy->confidence_level = confidence_level;
         return copy;
     }
 
     bool Equals(const FunctionData &other_p) const override {
         auto &other = other_p.Cast<PropTestTwoBindData>();
-        return alternative == other.alternative && correction == other.correction;
+        return alternative == other.alternative && correction == other.correction &&
+               confidence_level == other.confidence_level;
     }
 };
 
@@ -181,12 +185,13 @@ static void PropTestTwoAggFinalize(Vector &state_vector, AggregateInputData &agg
         AnofoxPropTestResult prop_result;
         AnofoxError error;
 
-        bool success = anofox_prop_test_two(state.successes1, state.trials1,
-                                             state.successes2, state.trials2,
-                                             bind_data.alternative, bind_data.correction,
-                                             &prop_result, &error);
+        bool success = anofox_prop_test_two_with_conf_level(state.successes1, state.trials1, state.successes2,
+                                                            state.trials2, bind_data.alternative,
+                                                            bind_data.correction, bind_data.confidence_level,
+                                                            &prop_result, &error);
 
         if (!success) {
+            ThrowUnlessDegenerate("prop_test_two_agg", error);
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
@@ -201,6 +206,7 @@ static void PropTestTwoAggFinalize(Vector &state_vector, AggregateInputData &agg
         auto& method_vector = *struct_entries[struct_idx++];
         FlatVector::GetData<string_t>(method_vector)[result_idx] =
             StringVector::AddString(method_vector, prop_result.method ? prop_result.method : "Two-sample proportion test");
+        SetResultString(*struct_entries[struct_idx++], result_idx, AlternativeName(bind_data.alternative));
 
         anofox_free_prop_test_result(&prop_result);
         state.Reset();
@@ -215,28 +221,17 @@ static unique_ptr<FunctionData> PropTestTwoAggBind(ClientContext &context, Aggre
     function.return_type = GetPropTestTwoAggResultType();
     auto bind_data = make_uniq<PropTestTwoBindData>();
 
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        Value options_val = ExpressionExecutor::EvaluateScalar(context, *arguments[2]);
-        if (options_val.type().id() == LogicalTypeId::MAP) {
-            auto &map_children = MapValue::GetChildren(options_val);
-            for (auto &entry : map_children) {
-                auto &key_list = StructValue::GetChildren(entry);
-                if (key_list.size() >= 2) {
-                    auto key = StringValue::Get(key_list[0]).c_str();
-                    if (strcasecmp(key, "alternative") == 0) {
-                        auto alt_str = StringValue::Get(key_list[1]);
-                        if (strcasecmp(alt_str.c_str(), "less") == 0) {
-                            bind_data->alternative = ANOFOX_ALTERNATIVE_LESS;
-                        } else if (strcasecmp(alt_str.c_str(), "greater") == 0) {
-                            bind_data->alternative = ANOFOX_ALTERNATIVE_GREATER;
-                        } else {
-                            bind_data->alternative = ANOFOX_ALTERNATIVE_TWO_SIDED;
-                        }
-                    } else if (strcasecmp(key, "correction") == 0) {
-                        bind_data->correction = key_list[1].GetValue<bool>();
-                    }
-                }
-            }
+    if (arguments.size() >= 3) {
+        Value options_val = EvaluateConstantOptions(context, *arguments[2], "prop_test_two_agg");
+        auto opts = PropTestTwoMapOptions::ParseFromValue(options_val, "prop_test_two_agg");
+        if (opts.alternative.has_value()) {
+            bind_data->alternative = ConvertAlternative(opts.alternative.value());
+        }
+        if (opts.correction.has_value()) {
+            bind_data->correction = opts.correction.value();
+        }
+        if (opts.confidence_level.has_value()) {
+            bind_data->confidence_level = opts.confidence_level.value();
         }
     }
 

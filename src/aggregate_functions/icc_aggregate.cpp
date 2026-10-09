@@ -8,12 +8,13 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/result_fields.hpp"
+#include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
+#include "../include/ffi_enum_converters.hpp"
 #include "telemetry.hpp"
+#include "aggregate_combine.hpp"
 
-#ifdef _WIN32
-#define strcasecmp _stricmp
-#endif
 
 namespace duckdb {
 
@@ -49,6 +50,10 @@ static LogicalType GetIccAggResultType() {
     children.push_back(make_pair("n_subjects", LogicalType::BIGINT));
     children.push_back(make_pair("n_raters", LogicalType::BIGINT));
     children.push_back(make_pair("method", LogicalType::VARCHAR));
+    children.push_back(make_pair("statistic", LogicalType::DOUBLE));
+    children.push_back(make_pair("p_value", LogicalType::DOUBLE));
+    children.push_back(make_pair("n", LogicalType::BIGINT));
+    children.push_back(make_pair("alternative", LogicalType::VARCHAR));
 
     return LogicalType::STRUCT(std::move(children));
 }
@@ -131,7 +136,7 @@ static void IccAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data, i
     }
 }
 
-static void IccAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &, idx_t count) {
+static void IccAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &aggr_input_data, idx_t count) {
     UnifiedVectorFormat source_data, target_data;
     source_vector.ToUnifiedFormat(count, source_data);
     target_vector.ToUnifiedFormat(count, target_data);
@@ -148,9 +153,9 @@ static void IccAggCombine(Vector &source_vector, Vector &target_vector, Aggregat
         }
 
         if (!target.initialized) {
-            target.values = std::move(source.values);
-            target.subject_ids = std::move(source.subject_ids);
-            target.rater_ids = std::move(source.rater_ids);
+            target.values = CombineTake(source.values, aggr_input_data);
+            target.subject_ids = CombineTake(source.subject_ids, aggr_input_data);
+            target.rater_ids = CombineTake(source.rater_ids, aggr_input_data);
             target.initialized = true;
             continue;
         }
@@ -230,6 +235,7 @@ static void IccAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
                                    bind_data.icc_type, &icc_result, &error);
 
         if (!success) {
+            ThrowUnlessDegenerate("icc_agg", error);
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
@@ -244,6 +250,11 @@ static void IccAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
         auto& method_vector = *struct_entries[struct_idx++];
         FlatVector::GetData<string_t>(method_vector)[result_idx] =
             StringVector::AddString(method_vector, icc_result.method ? icc_result.method : "ICC");
+        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = icc_result.f_statistic; // statistic
+        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = icc_result.p_value; // F test, H0: ICC = 0
+        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] =
+            static_cast<int64_t>(icc_result.n_subjects * icc_result.n_raters);
+        SetResultNull(*struct_entries[struct_idx++], result_idx); // alternative: not applicable
 
         anofox_free_icc_result(&icc_result);
         state.Reset();
@@ -258,24 +269,11 @@ static unique_ptr<FunctionData> IccAggBind(ClientContext &context, AggregateFunc
     function.return_type = GetIccAggResultType();
     auto bind_data = make_uniq<IccBindData>();
 
-    if (arguments.size() >= 4 && arguments[3]->IsFoldable()) {
-        Value options_val = ExpressionExecutor::EvaluateScalar(context, *arguments[3]);
-        if (options_val.type().id() == LogicalTypeId::MAP) {
-            auto &map_children = MapValue::GetChildren(options_val);
-            for (auto &entry : map_children) {
-                auto &key_list = StructValue::GetChildren(entry);
-                if (key_list.size() >= 2) {
-                    auto key = StringValue::Get(key_list[0]).c_str();
-                    if (strcasecmp(key, "type") == 0) {
-                        auto type_str = StringValue::Get(key_list[1]);
-                        if (strcasecmp(type_str.c_str(), "average") == 0) {
-                            bind_data->icc_type = ANOFOX_ICC_AVERAGE;
-                        } else {
-                            bind_data->icc_type = ANOFOX_ICC_SINGLE;
-                        }
-                    }
-                }
-            }
+    if (arguments.size() >= 4) {
+        Value options_val = EvaluateConstantOptions(context, *arguments[3], "icc_agg");
+        auto opts = IccMapOptions::ParseFromValue(options_val, "icc_agg");
+        if (opts.average.has_value()) {
+            bind_data->icc_type = opts.average.value() ? ANOFOX_ICC_AVERAGE : ANOFOX_ICC_SINGLE;
         }
     }
 

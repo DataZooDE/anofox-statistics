@@ -80,6 +80,11 @@ impl DataArray {
         if self.len == 0 {
             return Vec::new();
         }
+        // Defensive: a NULL data pointer with a non-zero length would be UB in
+        // `from_raw_parts`; treat every element as NULL (NaN) instead.
+        if self.data.is_null() {
+            return vec![f64::NAN; self.len];
+        }
         // Fast path: no validity mask means every value is valid (the common case
         // for dense/non-nullable columns). Bulk-copy the slice instead of the
         // per-element validity branch + push. This returns the same owned
@@ -113,7 +118,7 @@ impl DataArray {
 /// on musl targets (WASM, some CI) the Rust global allocator and libc's malloc
 /// can differ, so freeing a `Box`/`Vec` pointer with C `free()` is undefined
 /// behavior. Changing the allocator here is a published-ABI break — it would
-/// require changing every C++ `free` site. See PERF-04 / phase-04 CONTEXT.
+/// require changing every C++ `free` site.
 pub struct FfiVec<T> {
     ptr: *mut T,
     len: usize,
@@ -2045,6 +2050,8 @@ pub struct IccResultFFI {
     pub n_raters: usize,
     /// Method name (must be freed)
     pub method: *mut c_char,
+    /// p-value of the F test of H0: ICC = 0 (appended; keep last for ABI order)
+    pub p_value: f64,
 }
 
 impl Default for IccResultFFI {
@@ -2058,6 +2065,7 @@ impl Default for IccResultFFI {
             n_subjects: 0,
             n_raters: 0,
             method: std::ptr::null_mut(),
+            p_value: f64::NAN,
         }
     }
 }

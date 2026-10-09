@@ -64,7 +64,7 @@ This creates two parquet files in `examples/performance_10k_groups_R/data/`:
 
 #### Fit-Predict Window Functions
 
-Tests `anofox_statistics_ols_fit_predict` with both expanding and fixed windows:
+Tests `ols_fit_predict` (expanding window) and `ols_fit_predict_by` (fixed model per group):
 
 ```bash
 duckdb < examples/performance_10k_groups_R/performance_test_ols_fit_predict.sql
@@ -86,7 +86,7 @@ duckdb < examples/performance_10k_groups_R/performance_test_ols_fit_predict.sql
 
 #### Aggregate Functions with GROUP BY
 
-Tests `anofox_statistics_ols_fit_agg` with GROUP BY:
+Tests `ols_fit_agg` with GROUP BY:
 
 ```bash
 duckdb < examples/performance_10k_groups_R/performance_test_ols_aggregate.sql

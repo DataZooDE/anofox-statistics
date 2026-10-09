@@ -10,6 +10,7 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
 
@@ -34,8 +35,10 @@ struct GlmmAggregateState {
 	vector<double> y_values;
 	vector<vector<double>> x_columns;
 	vector<int32_t> group_ids;
-	//! Group key -> dense index, in first-seen order.
-	unordered_map<string, int32_t> group_index;
+	//! Group key -> dense index, in first-seen order. Held behind a pointer because
+	//! DuckDB relocates aggregate states with a raw memory copy, and libstdc++'s
+	//! unordered_map keeps pointers into its own object.
+	unique_ptr<unordered_map<string, int32_t>> group_index;
 	//! Dense index -> the original key, for labelling the random effects.
 	vector<string> group_labels;
 	idx_t n_features;
@@ -77,12 +80,15 @@ struct GlmmAggregateState {
 	}
 
 	int32_t Intern(const string &key) {
-		auto it = group_index.find(key);
-		if (it != group_index.end()) {
+		if (!group_index) {
+			group_index = make_uniq<unordered_map<string, int32_t>>();
+		}
+		auto it = group_index->find(key);
+		if (it != group_index->end()) {
 			return it->second;
 		}
 		auto id = (int32_t)group_labels.size();
-		group_index.emplace(key, id);
+		group_index->emplace(key, id);
 		group_labels.push_back(key);
 		return id;
 	}
@@ -91,7 +97,7 @@ struct GlmmAggregateState {
 		y_values.clear();
 		x_columns.clear();
 		group_ids.clear();
-		group_index.clear();
+		group_index.reset();
 		group_labels.clear();
 		n_features = 0;
 		initialized = false;
@@ -421,6 +427,7 @@ static void GlmmAggFinalize(Vector &state_vector, AggregateInputData &, Vector &
 		                          state.group_ids.size(), extra_ptrs.empty() ? nullptr : extra_ptrs.data(),
 		                          extra_ptrs.size(), options, &res, &error);
 		if (!ok) {
+			ThrowUnlessDegenerate("glmm_fit_agg", error);
 			FlatVector::SetNull(result, row, true);
 			state.Reset();
 			continue;
@@ -506,8 +513,10 @@ static unique_ptr<FunctionData> GlmmAggBind(ClientContext &context, AggregateFun
                                             vector<unique_ptr<Expression>> &arguments) {
 	auto result = make_uniq<GlmmAggregateBindData>();
 
-	if (arguments.size() >= 4 && arguments[3]->IsFoldable()) {
-		auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[3]);
+	if (arguments.size() >= 4) {
+		auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[3], "glmm_fit_agg",
+            {"fit_intercept", "compute_inference", "confidence_level", "max_iterations", "tolerance", "power", "family", "reml", "offset", "random", "groups", "theta"});
 		if (opts.glmm_family.has_value()) {
 			result->family = (AnofoxGlmmFamily)opts.glmm_family.value();
 		}

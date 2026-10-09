@@ -4,6 +4,9 @@
 
 mod types;
 
+#[cfg(test)]
+mod tests;
+
 pub use types::*;
 
 use anofox_stats_core::{
@@ -23,8 +26,63 @@ use anofox_stats_core::{
     QuantileOptions, RansacOptions, RidgeOptions, SolverType, StatsError, TheilSenOptions,
     TweedieOptions, WlsOptions,
 };
-use statrs::distribution::{ContinuousCDF, StudentsT};
 use std::slice;
+
+/// Validate a confidence level: must be finite and strictly inside (0, 1).
+/// On failure sets `out_error` to `InvalidInput` and returns `false`.
+unsafe fn check_confidence_level(confidence_level: f64, out_error: *mut AnofoxError) -> bool {
+    if confidence_level.is_finite() && confidence_level > 0.0 && confidence_level < 1.0 {
+        return true;
+    }
+    if !out_error.is_null() {
+        (*out_error).set(
+            ErrorCode::InvalidInput,
+            &format!("confidence_level must be in (0, 1), got {confidence_level}"),
+        );
+    }
+    false
+}
+
+/// Like [`check_confidence_level`], but `<= 0` is accepted as the documented
+/// "no confidence interval requested" sentinel (Mann-Whitney, Wilcoxon).
+unsafe fn check_optional_confidence_level(
+    confidence_level: f64,
+    out_error: *mut AnofoxError,
+) -> bool {
+    confidence_level <= 0.0 || check_confidence_level(confidence_level, out_error)
+}
+
+/// Panic guard for every `extern "C"` export.
+///
+/// Unwinding a Rust panic across a C ABI boundary is undefined behaviour, so
+/// EVERY exported function runs its entire body — including input conversion
+/// (`DataArray::to_vec`, `slice::from_raw_parts(..).to_vec()`), option
+/// translation and result marshalling — inside this guard. On panic the guard
+/// sets `out_error` (when non-NULL) to [`ErrorCode::InternalError`] and returns
+/// `on_panic` (`false` for fallible exports, `NaN` for scalar exports, `()` for
+/// free functions, NULL for pointer returns).
+///
+/// Note: memory already handed to output pointers before the panic may leak;
+/// this is preferred over UB/abort at the boundary.
+#[inline]
+fn ffi_guard<R>(out_error: *mut AnofoxError, on_panic: R, body: impl FnOnce() -> R) -> R {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(body)) {
+        Ok(r) => r,
+        Err(_) => {
+            if !out_error.is_null() {
+                // SAFETY: callers pass either NULL or a valid `AnofoxError` pointer
+                // (the same contract every export documents for `out_error`).
+                unsafe {
+                    (*out_error).set(
+                        ErrorCode::InternalError,
+                        "Internal panic caught at FFI boundary",
+                    );
+                }
+            }
+            on_panic
+        }
+    }
+}
 
 /// Marshal the 5-array inference block (std_errors / t_values / p_values /
 /// ci_lower / ci_upper) into `*out_inference` using [`FfiVec`] RAII allocations.
@@ -141,12 +199,15 @@ fn error_to_code(err: &StatsError) -> ErrorCode {
         StatsError::NoValidData => ErrorCode::NoValidData,
         StatsError::DimensionMismatch { .. } => ErrorCode::DimensionMismatch,
         StatsError::DimensionMismatchMsg(_) => ErrorCode::DimensionMismatch,
-        StatsError::EmptyInput { .. } => ErrorCode::InvalidInput,
+        // An empty list is "no data" (like an aggregate over zero rows), not a
+        // malformed argument.
+        StatsError::EmptyInput { .. } => ErrorCode::InsufficientData,
         StatsError::InvalidInput(_) => ErrorCode::InvalidInput,
         StatsError::InvalidValue { .. } => ErrorCode::InvalidInput,
         StatsError::SingularMatrix => ErrorCode::SingularMatrix,
         StatsError::CholeskyFailed | StatsError::QrFailed => ErrorCode::SingularMatrix,
         StatsError::ConvergenceFailure { .. } => ErrorCode::ConvergenceFailure,
+        StatsError::NumericalFailure(_) => ErrorCode::ConvergenceFailure,
         StatsError::AllocationFailure => ErrorCode::AllocationFailure,
         StatsError::SerializationError(_) => ErrorCode::SerializationError,
         StatsError::RegressError(_) => ErrorCode::InternalError,
@@ -174,111 +235,123 @@ pub unsafe extern "C" fn anofox_ols_fit(
     out_inference: *mut FitResultInference,
     out_error: *mut AnofoxError,
 ) -> bool {
-    // Initialize error
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-
-    // Validate inputs
-    if out_core.is_null() {
+    ffi_guard(out_error, false, || {
+        // Initialize error
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_core is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
-
-    if x.is_null() || x_count == 0 {
-        if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
+        if !check_confidence_level(options.confidence_level, out_error) {
+            return false;
         }
-        return false;
-    }
 
-    // Convert y to Vec
-    let y_vec = y.to_vec();
-
-    // Convert x arrays to Vec<Vec<f64>>
-    let x_arrays = slice::from_raw_parts(x, x_count);
-    let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
-
-    // Convert options
-    let opts = OlsOptions {
-        fit_intercept: options.fit_intercept,
-        compute_inference: options.compute_inference,
-        confidence_level: options.confidence_level,
-        solver: convert_solver_ffi(options.solver),
-        hc_type: convert_hc_type_ffi(options.hc_type),
-    };
-
-    // Call the core function with panic catching
-    let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        fit_ols(&y_vec, &x_vecs, &opts)
-    }));
-
-    let fit_result = match fit_result {
-        Ok(r) => r,
-        Err(_) => {
+        // Validate inputs
+        if out_core.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InternalError, "Internal panic in OLS fit");
+                (*out_error).set(ErrorCode::InvalidInput, "out_core is NULL");
             }
             return false;
         }
-    };
 
-    match fit_result {
-        Ok(result) => {
-            // Fill core results
-            let n_coef = result.core.coefficients.len();
+        if x.is_null() || x_count == 0 {
+            if !out_error.is_null() {
+                (*out_error).set(
+                    if x_count == 0 {
+                        ErrorCode::InsufficientData
+                    } else {
+                        ErrorCode::InvalidInput
+                    },
+                    "x is NULL or empty",
+                );
+            }
+            return false;
+        }
 
-            // Allocate and copy coefficients
-            let coef_ptr = libc::malloc(n_coef * std::mem::size_of::<f64>()) as *mut f64;
-            if coef_ptr.is_null() && n_coef > 0 {
+        // Convert y to Vec
+        let y_vec = y.to_vec();
+
+        // Convert x arrays to Vec<Vec<f64>>
+        let x_arrays = slice::from_raw_parts(x, x_count);
+        let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
+
+        // Convert options
+        let opts = OlsOptions {
+            fit_intercept: options.fit_intercept,
+            compute_inference: options.compute_inference,
+            confidence_level: options.confidence_level,
+            solver: convert_solver_ffi(options.solver),
+            hc_type: convert_hc_type_ffi(options.hc_type),
+        };
+
+        // Call the core function with panic catching
+        let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            fit_ols(&y_vec, &x_vecs, &opts)
+        }));
+
+        let fit_result = match fit_result {
+            Ok(r) => r,
+            Err(_) => {
                 if !out_error.is_null() {
-                    (*out_error).set(
-                        ErrorCode::AllocationFailure,
-                        "Failed to allocate coefficients",
-                    );
+                    (*out_error).set(ErrorCode::InternalError, "Internal panic in OLS fit");
                 }
                 return false;
             }
-            std::ptr::copy_nonoverlapping(result.core.coefficients.as_ptr(), coef_ptr, n_coef);
+        };
 
-            (*out_core) = FitResultCore {
-                coefficients: coef_ptr,
-                coefficients_len: n_coef,
-                intercept: result.core.intercept.unwrap_or(f64::NAN),
-                r_squared: result.core.r_squared,
-                adj_r_squared: result.core.adj_r_squared,
-                residual_std_error: result.core.residual_std_error,
-                n_observations: result.core.n_observations,
-                n_features: result.core.n_features,
-            };
+        match fit_result {
+            Ok(result) => {
+                // Fill core results
+                let n_coef = result.core.coefficients.len();
 
-            // Fill inference results if requested and available
-            if !out_inference.is_null() {
-                if let Some(inf) = result.inference {
-                    alloc_inference_arrays!(inf, out_inference, out_error, {
-                        libc::free(coef_ptr as *mut libc::c_void);
-                        // CR-01: null the just-written coefficients pointer so a caller
-                        // that inspects *out_core after the `false` return cannot see a
-                        // dangling/freed pointer. Callers currently ignore *out_core on
-                        // failure; this is defense-in-depth at the FFI boundary.
-                        *out_core = FitResultCore::default();
-                    });
-                } else {
-                    (*out_inference) = FitResultInference::default();
+                // Allocate and copy coefficients
+                let coef_ptr = libc::malloc(n_coef * std::mem::size_of::<f64>()) as *mut f64;
+                if coef_ptr.is_null() && n_coef > 0 {
+                    if !out_error.is_null() {
+                        (*out_error).set(
+                            ErrorCode::AllocationFailure,
+                            "Failed to allocate coefficients",
+                        );
+                    }
+                    return false;
                 }
-            }
+                std::ptr::copy_nonoverlapping(result.core.coefficients.as_ptr(), coef_ptr, n_coef);
 
-            true
-        }
-        Err(e) => {
-            if !out_error.is_null() {
-                (*out_error).set(error_to_code(&e), &e.to_string());
+                (*out_core) = FitResultCore {
+                    coefficients: coef_ptr,
+                    coefficients_len: n_coef,
+                    intercept: result.core.intercept.unwrap_or(f64::NAN),
+                    r_squared: result.core.r_squared,
+                    adj_r_squared: result.core.adj_r_squared,
+                    residual_std_error: result.core.residual_std_error,
+                    n_observations: result.core.n_observations,
+                    n_features: result.core.n_features,
+                };
+
+                // Fill inference results if requested and available
+                if !out_inference.is_null() {
+                    if let Some(inf) = result.inference {
+                        alloc_inference_arrays!(inf, out_inference, out_error, {
+                            libc::free(coef_ptr as *mut libc::c_void);
+                            // CR-01: null the just-written coefficients pointer so a caller
+                            // that inspects *out_core after the `false` return cannot see a
+                            // dangling/freed pointer. Callers currently ignore *out_core on
+                            // failure; this is defense-in-depth at the FFI boundary.
+                            *out_core = FitResultCore::default();
+                        });
+                    } else {
+                        (*out_inference) = FitResultInference::default();
+                    }
+                }
+
+                true
             }
-            false
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
         }
-    }
+    })
 }
 
 /// Free memory allocated by anofox_ols_fit for core results
@@ -287,13 +360,15 @@ pub unsafe extern "C" fn anofox_ols_fit(
 /// `result` must be a pointer to a FitResultCore previously filled by anofox_ols_fit
 #[no_mangle]
 pub unsafe extern "C" fn anofox_free_result_core(result: *mut FitResultCore) {
-    if result.is_null() {
-        return;
-    }
-    if !(*result).coefficients.is_null() {
-        libc::free((*result).coefficients as *mut libc::c_void);
-        (*result).coefficients = std::ptr::null_mut();
-    }
+    ffi_guard(std::ptr::null_mut(), (), || {
+        if result.is_null() {
+            return;
+        }
+        if !(*result).coefficients.is_null() {
+            libc::free((*result).coefficients as *mut libc::c_void);
+            (*result).coefficients = std::ptr::null_mut();
+        }
+    })
 }
 
 /// Free memory allocated by anofox_ols_fit for inference results
@@ -302,29 +377,31 @@ pub unsafe extern "C" fn anofox_free_result_core(result: *mut FitResultCore) {
 /// `result` must be a pointer to a FitResultInference previously filled by anofox_ols_fit
 #[no_mangle]
 pub unsafe extern "C" fn anofox_free_result_inference(result: *mut FitResultInference) {
-    if result.is_null() {
-        return;
-    }
-    if !(*result).std_errors.is_null() {
-        libc::free((*result).std_errors as *mut libc::c_void);
-        (*result).std_errors = std::ptr::null_mut();
-    }
-    if !(*result).t_values.is_null() {
-        libc::free((*result).t_values as *mut libc::c_void);
-        (*result).t_values = std::ptr::null_mut();
-    }
-    if !(*result).p_values.is_null() {
-        libc::free((*result).p_values as *mut libc::c_void);
-        (*result).p_values = std::ptr::null_mut();
-    }
-    if !(*result).ci_lower.is_null() {
-        libc::free((*result).ci_lower as *mut libc::c_void);
-        (*result).ci_lower = std::ptr::null_mut();
-    }
-    if !(*result).ci_upper.is_null() {
-        libc::free((*result).ci_upper as *mut libc::c_void);
-        (*result).ci_upper = std::ptr::null_mut();
-    }
+    ffi_guard(std::ptr::null_mut(), (), || {
+        if result.is_null() {
+            return;
+        }
+        if !(*result).std_errors.is_null() {
+            libc::free((*result).std_errors as *mut libc::c_void);
+            (*result).std_errors = std::ptr::null_mut();
+        }
+        if !(*result).t_values.is_null() {
+            libc::free((*result).t_values as *mut libc::c_void);
+            (*result).t_values = std::ptr::null_mut();
+        }
+        if !(*result).p_values.is_null() {
+            libc::free((*result).p_values as *mut libc::c_void);
+            (*result).p_values = std::ptr::null_mut();
+        }
+        if !(*result).ci_lower.is_null() {
+            libc::free((*result).ci_lower as *mut libc::c_void);
+            (*result).ci_lower = std::ptr::null_mut();
+        }
+        if !(*result).ci_upper.is_null() {
+            libc::free((*result).ci_upper as *mut libc::c_void);
+            (*result).ci_upper = std::ptr::null_mut();
+        }
+    })
 }
 
 /// Fit a Huber M-estimator robust regression model.
@@ -357,138 +434,150 @@ pub unsafe extern "C" fn anofox_huber_fit(
     out_extras: *mut HuberFitExtras,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-
-    if out_core.is_null() {
+    ffi_guard(out_error, false, || {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_core is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
-
-    if x.is_null() || x_count == 0 {
-        if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
+        if !check_confidence_level(options.confidence_level, out_error) {
+            return false;
         }
-        return false;
-    }
 
-    let y_vec = y.to_vec();
-    let x_arrays = slice::from_raw_parts(x, x_count);
-    let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
-
-    let opts = HuberOptions {
-        epsilon: options.epsilon,
-        alpha: options.alpha,
-        fit_intercept: options.fit_intercept,
-        max_iterations: options.max_iterations,
-        tolerance: options.tolerance,
-        compute_inference: options.compute_inference,
-        confidence_level: options.confidence_level,
-    };
-
-    let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        fit_huber(&y_vec, &x_vecs, &opts)
-    }));
-
-    let fit_result = match fit_result {
-        Ok(r) => r,
-        Err(_) => {
+        if out_core.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InternalError, "Internal panic in Huber fit");
+                (*out_error).set(ErrorCode::InvalidInput, "out_core is NULL");
             }
             return false;
         }
-    };
 
-    match fit_result {
-        Ok(huber) => {
-            let result = huber.fit;
-            let n_coef = result.core.coefficients.len();
+        if x.is_null() || x_count == 0 {
+            if !out_error.is_null() {
+                (*out_error).set(
+                    if x_count == 0 {
+                        ErrorCode::InsufficientData
+                    } else {
+                        ErrorCode::InvalidInput
+                    },
+                    "x is NULL or empty",
+                );
+            }
+            return false;
+        }
 
-            let coef_ptr = libc::malloc(n_coef * std::mem::size_of::<f64>()) as *mut f64;
-            if coef_ptr.is_null() && n_coef > 0 {
+        let y_vec = y.to_vec();
+        let x_arrays = slice::from_raw_parts(x, x_count);
+        let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
+
+        let opts = HuberOptions {
+            epsilon: options.epsilon,
+            alpha: options.alpha,
+            fit_intercept: options.fit_intercept,
+            max_iterations: options.max_iterations,
+            tolerance: options.tolerance,
+            compute_inference: options.compute_inference,
+            confidence_level: options.confidence_level,
+        };
+
+        let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            fit_huber(&y_vec, &x_vecs, &opts)
+        }));
+
+        let fit_result = match fit_result {
+            Ok(r) => r,
+            Err(_) => {
                 if !out_error.is_null() {
-                    (*out_error).set(
-                        ErrorCode::AllocationFailure,
-                        "Failed to allocate coefficients",
-                    );
+                    (*out_error).set(ErrorCode::InternalError, "Internal panic in Huber fit");
                 }
                 return false;
             }
-            std::ptr::copy_nonoverlapping(result.core.coefficients.as_ptr(), coef_ptr, n_coef);
+        };
 
-            (*out_core) = FitResultCore {
-                coefficients: coef_ptr,
-                coefficients_len: n_coef,
-                intercept: result.core.intercept.unwrap_or(f64::NAN),
-                r_squared: result.core.r_squared,
-                adj_r_squared: result.core.adj_r_squared,
-                residual_std_error: result.core.residual_std_error,
-                n_observations: result.core.n_observations,
-                n_features: result.core.n_features,
-            };
+        match fit_result {
+            Ok(huber) => {
+                let result = huber.fit;
+                let n_coef = result.core.coefficients.len();
 
-            if !out_inference.is_null() {
-                if let Some(inf) = result.inference {
-                    alloc_inference_arrays!(inf, out_inference, out_error, {
-                        libc::free(coef_ptr as *mut libc::c_void);
-                        // CR-01: null the just-written coefficients pointer so a caller
-                        // that inspects *out_core after the `false` return cannot see a
-                        // dangling/freed pointer. Callers currently ignore *out_core on
-                        // failure; this is defense-in-depth at the FFI boundary.
-                        *out_core = FitResultCore::default();
-                    });
-                } else {
-                    (*out_inference) = FitResultInference::default();
+                let coef_ptr = libc::malloc(n_coef * std::mem::size_of::<f64>()) as *mut f64;
+                if coef_ptr.is_null() && n_coef > 0 {
+                    if !out_error.is_null() {
+                        (*out_error).set(
+                            ErrorCode::AllocationFailure,
+                            "Failed to allocate coefficients",
+                        );
+                    }
+                    return false;
                 }
-            }
+                std::ptr::copy_nonoverlapping(result.core.coefficients.as_ptr(), coef_ptr, n_coef);
 
-            if !out_extras.is_null() {
-                let n_out = huber.outliers.len();
-                let outliers_ptr = if n_out > 0 {
-                    let p = libc::malloc(n_out) as *mut u8;
-                    if p.is_null() {
-                        libc::free(coef_ptr as *mut libc::c_void);
-                        if !out_inference.is_null() {
-                            anofox_free_result_inference(out_inference);
-                        }
-                        if !out_error.is_null() {
-                            (*out_error).set(
-                                ErrorCode::AllocationFailure,
-                                "Failed to allocate Huber outlier mask",
-                            );
-                        }
-                        return false;
-                    }
-                    for (i, &flag) in huber.outliers.iter().enumerate() {
-                        *p.add(i) = u8::from(flag);
-                    }
-                    p
-                } else {
-                    std::ptr::null_mut()
+                (*out_core) = FitResultCore {
+                    coefficients: coef_ptr,
+                    coefficients_len: n_coef,
+                    intercept: result.core.intercept.unwrap_or(f64::NAN),
+                    r_squared: result.core.r_squared,
+                    adj_r_squared: result.core.adj_r_squared,
+                    residual_std_error: result.core.residual_std_error,
+                    n_observations: result.core.n_observations,
+                    n_features: result.core.n_features,
                 };
 
-                (*out_extras) = HuberFitExtras {
-                    scale: huber.scale,
-                    epsilon: huber.epsilon,
-                    outliers: outliers_ptr,
-                    outliers_len: n_out,
-                    n_outliers: huber.n_outliers,
-                };
-            }
+                if !out_inference.is_null() {
+                    if let Some(inf) = result.inference {
+                        alloc_inference_arrays!(inf, out_inference, out_error, {
+                            libc::free(coef_ptr as *mut libc::c_void);
+                            // CR-01: null the just-written coefficients pointer so a caller
+                            // that inspects *out_core after the `false` return cannot see a
+                            // dangling/freed pointer. Callers currently ignore *out_core on
+                            // failure; this is defense-in-depth at the FFI boundary.
+                            *out_core = FitResultCore::default();
+                        });
+                    } else {
+                        (*out_inference) = FitResultInference::default();
+                    }
+                }
 
-            true
-        }
-        Err(e) => {
-            if !out_error.is_null() {
-                (*out_error).set(error_to_code(&e), &e.to_string());
+                if !out_extras.is_null() {
+                    let n_out = huber.outliers.len();
+                    let outliers_ptr = if n_out > 0 {
+                        let p = libc::malloc(n_out) as *mut u8;
+                        if p.is_null() {
+                            libc::free(coef_ptr as *mut libc::c_void);
+                            if !out_inference.is_null() {
+                                anofox_free_result_inference(out_inference);
+                            }
+                            if !out_error.is_null() {
+                                (*out_error).set(
+                                    ErrorCode::AllocationFailure,
+                                    "Failed to allocate Huber outlier mask",
+                                );
+                            }
+                            return false;
+                        }
+                        for (i, &flag) in huber.outliers.iter().enumerate() {
+                            *p.add(i) = u8::from(flag);
+                        }
+                        p
+                    } else {
+                        std::ptr::null_mut()
+                    };
+
+                    (*out_extras) = HuberFitExtras {
+                        scale: huber.scale,
+                        epsilon: huber.epsilon,
+                        outliers: outliers_ptr,
+                        outliers_len: n_out,
+                        n_outliers: huber.n_outliers,
+                    };
+                }
+
+                true
             }
-            false
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
         }
-    }
+    })
 }
 
 /// Free the outliers array inside a HuberFitExtras previously filled by
@@ -499,14 +588,16 @@ pub unsafe extern "C" fn anofox_huber_fit(
 /// anofox_huber_fit, or NULL.
 #[no_mangle]
 pub unsafe extern "C" fn anofox_free_huber_extras(extras: *mut HuberFitExtras) {
-    if extras.is_null() {
-        return;
-    }
-    if !(*extras).outliers.is_null() {
-        libc::free((*extras).outliers as *mut libc::c_void);
-        (*extras).outliers = std::ptr::null_mut();
-        (*extras).outliers_len = 0;
-    }
+    ffi_guard(std::ptr::null_mut(), (), || {
+        if extras.is_null() {
+            return;
+        }
+        if !(*extras).outliers.is_null() {
+            libc::free((*extras).outliers as *mut libc::c_void);
+            (*extras).outliers = std::ptr::null_mut();
+            (*extras).outliers_len = 0;
+        }
+    })
 }
 
 /// Fit a RANSAC robust regression model.
@@ -539,152 +630,164 @@ pub unsafe extern "C" fn anofox_ransac_fit(
     out_extras: *mut RansacFitExtras,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-
-    if out_core.is_null() {
+    ffi_guard(out_error, false, || {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_core is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
-
-    if x.is_null() || x_count == 0 {
-        if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
+        if !check_confidence_level(options.confidence_level, out_error) {
+            return false;
         }
-        return false;
-    }
 
-    let y_vec = y.to_vec();
-    let x_arrays = slice::from_raw_parts(x, x_count);
-    let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
-
-    let opts = RansacOptions {
-        fit_intercept: options.fit_intercept,
-        min_samples: if options.min_samples_set {
-            Some(options.min_samples_value)
-        } else {
-            None
-        },
-        residual_threshold: if options.residual_threshold_set {
-            Some(options.residual_threshold_value)
-        } else {
-            None
-        },
-        max_trials: options.max_trials,
-        stop_probability: options.stop_probability,
-        stop_n_inliers: if options.stop_n_inliers_set {
-            Some(options.stop_n_inliers_value)
-        } else {
-            None
-        },
-        random_state: options.random_state,
-        compute_inference: options.compute_inference,
-        confidence_level: options.confidence_level,
-    };
-
-    let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        fit_ransac(&y_vec, &x_vecs, &opts)
-    }));
-
-    let fit_result = match fit_result {
-        Ok(r) => r,
-        Err(_) => {
+        if out_core.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InternalError, "Internal panic in RANSAC fit");
+                (*out_error).set(ErrorCode::InvalidInput, "out_core is NULL");
             }
             return false;
         }
-    };
 
-    match fit_result {
-        Ok(ransac) => {
-            let result = ransac.fit;
-            let n_coef = result.core.coefficients.len();
+        if x.is_null() || x_count == 0 {
+            if !out_error.is_null() {
+                (*out_error).set(
+                    if x_count == 0 {
+                        ErrorCode::InsufficientData
+                    } else {
+                        ErrorCode::InvalidInput
+                    },
+                    "x is NULL or empty",
+                );
+            }
+            return false;
+        }
 
-            let coef_ptr = libc::malloc(n_coef * std::mem::size_of::<f64>()) as *mut f64;
-            if coef_ptr.is_null() && n_coef > 0 {
+        let y_vec = y.to_vec();
+        let x_arrays = slice::from_raw_parts(x, x_count);
+        let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
+
+        let opts = RansacOptions {
+            fit_intercept: options.fit_intercept,
+            min_samples: if options.min_samples_set {
+                Some(options.min_samples_value)
+            } else {
+                None
+            },
+            residual_threshold: if options.residual_threshold_set {
+                Some(options.residual_threshold_value)
+            } else {
+                None
+            },
+            max_trials: options.max_trials,
+            stop_probability: options.stop_probability,
+            stop_n_inliers: if options.stop_n_inliers_set {
+                Some(options.stop_n_inliers_value)
+            } else {
+                None
+            },
+            random_state: options.random_state,
+            compute_inference: options.compute_inference,
+            confidence_level: options.confidence_level,
+        };
+
+        let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            fit_ransac(&y_vec, &x_vecs, &opts)
+        }));
+
+        let fit_result = match fit_result {
+            Ok(r) => r,
+            Err(_) => {
                 if !out_error.is_null() {
-                    (*out_error).set(
-                        ErrorCode::AllocationFailure,
-                        "Failed to allocate coefficients",
-                    );
+                    (*out_error).set(ErrorCode::InternalError, "Internal panic in RANSAC fit");
                 }
                 return false;
             }
-            std::ptr::copy_nonoverlapping(result.core.coefficients.as_ptr(), coef_ptr, n_coef);
+        };
 
-            (*out_core) = FitResultCore {
-                coefficients: coef_ptr,
-                coefficients_len: n_coef,
-                intercept: result.core.intercept.unwrap_or(f64::NAN),
-                r_squared: result.core.r_squared,
-                adj_r_squared: result.core.adj_r_squared,
-                residual_std_error: result.core.residual_std_error,
-                n_observations: result.core.n_observations,
-                n_features: result.core.n_features,
-            };
+        match fit_result {
+            Ok(ransac) => {
+                let result = ransac.fit;
+                let n_coef = result.core.coefficients.len();
 
-            if !out_inference.is_null() {
-                if let Some(inf) = result.inference {
-                    alloc_inference_arrays!(inf, out_inference, out_error, {
-                        libc::free(coef_ptr as *mut libc::c_void);
-                        // CR-01: null the just-written coefficients pointer so a caller
-                        // that inspects *out_core after the `false` return cannot see a
-                        // dangling/freed pointer. Callers currently ignore *out_core on
-                        // failure; this is defense-in-depth at the FFI boundary.
-                        *out_core = FitResultCore::default();
-                    });
-                } else {
-                    (*out_inference) = FitResultInference::default();
+                let coef_ptr = libc::malloc(n_coef * std::mem::size_of::<f64>()) as *mut f64;
+                if coef_ptr.is_null() && n_coef > 0 {
+                    if !out_error.is_null() {
+                        (*out_error).set(
+                            ErrorCode::AllocationFailure,
+                            "Failed to allocate coefficients",
+                        );
+                    }
+                    return false;
                 }
-            }
+                std::ptr::copy_nonoverlapping(result.core.coefficients.as_ptr(), coef_ptr, n_coef);
 
-            if !out_extras.is_null() {
-                let n_in = ransac.inliers.len();
-                let inliers_ptr = if n_in > 0 {
-                    let p = libc::malloc(n_in) as *mut u8;
-                    if p.is_null() {
-                        libc::free(coef_ptr as *mut libc::c_void);
-                        if !out_inference.is_null() {
-                            anofox_free_result_inference(out_inference);
-                        }
-                        if !out_error.is_null() {
-                            (*out_error).set(
-                                ErrorCode::AllocationFailure,
-                                "Failed to allocate RANSAC inlier mask",
-                            );
-                        }
-                        return false;
-                    }
-                    for (i, &flag) in ransac.inliers.iter().enumerate() {
-                        *p.add(i) = u8::from(flag);
-                    }
-                    p
-                } else {
-                    std::ptr::null_mut()
+                (*out_core) = FitResultCore {
+                    coefficients: coef_ptr,
+                    coefficients_len: n_coef,
+                    intercept: result.core.intercept.unwrap_or(f64::NAN),
+                    r_squared: result.core.r_squared,
+                    adj_r_squared: result.core.adj_r_squared,
+                    residual_std_error: result.core.residual_std_error,
+                    n_observations: result.core.n_observations,
+                    n_features: result.core.n_features,
                 };
 
-                (*out_extras) = RansacFitExtras {
-                    residual_threshold: ransac.residual_threshold,
-                    inliers: inliers_ptr,
-                    inliers_len: n_in,
-                    n_inliers: ransac.n_inliers,
-                    n_trials: ransac.n_trials,
-                };
-            }
+                if !out_inference.is_null() {
+                    if let Some(inf) = result.inference {
+                        alloc_inference_arrays!(inf, out_inference, out_error, {
+                            libc::free(coef_ptr as *mut libc::c_void);
+                            // CR-01: null the just-written coefficients pointer so a caller
+                            // that inspects *out_core after the `false` return cannot see a
+                            // dangling/freed pointer. Callers currently ignore *out_core on
+                            // failure; this is defense-in-depth at the FFI boundary.
+                            *out_core = FitResultCore::default();
+                        });
+                    } else {
+                        (*out_inference) = FitResultInference::default();
+                    }
+                }
 
-            true
-        }
-        Err(e) => {
-            if !out_error.is_null() {
-                (*out_error).set(error_to_code(&e), &e.to_string());
+                if !out_extras.is_null() {
+                    let n_in = ransac.inliers.len();
+                    let inliers_ptr = if n_in > 0 {
+                        let p = libc::malloc(n_in) as *mut u8;
+                        if p.is_null() {
+                            libc::free(coef_ptr as *mut libc::c_void);
+                            if !out_inference.is_null() {
+                                anofox_free_result_inference(out_inference);
+                            }
+                            if !out_error.is_null() {
+                                (*out_error).set(
+                                    ErrorCode::AllocationFailure,
+                                    "Failed to allocate RANSAC inlier mask",
+                                );
+                            }
+                            return false;
+                        }
+                        for (i, &flag) in ransac.inliers.iter().enumerate() {
+                            *p.add(i) = u8::from(flag);
+                        }
+                        p
+                    } else {
+                        std::ptr::null_mut()
+                    };
+
+                    (*out_extras) = RansacFitExtras {
+                        residual_threshold: ransac.residual_threshold,
+                        inliers: inliers_ptr,
+                        inliers_len: n_in,
+                        n_inliers: ransac.n_inliers,
+                        n_trials: ransac.n_trials,
+                    };
+                }
+
+                true
             }
-            false
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
         }
-    }
+    })
 }
 
 /// Free the inliers array inside a RansacFitExtras previously filled by
@@ -695,14 +798,16 @@ pub unsafe extern "C" fn anofox_ransac_fit(
 /// anofox_ransac_fit, or NULL.
 #[no_mangle]
 pub unsafe extern "C" fn anofox_free_ransac_extras(extras: *mut RansacFitExtras) {
-    if extras.is_null() {
-        return;
-    }
-    if !(*extras).inliers.is_null() {
-        libc::free((*extras).inliers as *mut libc::c_void);
-        (*extras).inliers = std::ptr::null_mut();
-        (*extras).inliers_len = 0;
-    }
+    ffi_guard(std::ptr::null_mut(), (), || {
+        if extras.is_null() {
+            return;
+        }
+        if !(*extras).inliers.is_null() {
+            libc::free((*extras).inliers as *mut libc::c_void);
+            (*extras).inliers = std::ptr::null_mut();
+            (*extras).inliers_len = 0;
+        }
+    })
 }
 
 /// Fit a Theil-Sen robust regression model.
@@ -731,109 +836,121 @@ pub unsafe extern "C" fn anofox_theilsen_fit(
     out_inference: *mut FitResultInference,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-
-    if out_core.is_null() {
+    ffi_guard(out_error, false, || {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_core is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
-
-    if x.is_null() || x_count == 0 {
-        if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
+        if !check_confidence_level(options.confidence_level, out_error) {
+            return false;
         }
-        return false;
-    }
 
-    let y_vec = y.to_vec();
-    let x_arrays = slice::from_raw_parts(x, x_count);
-    let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
-
-    let opts = TheilSenOptions {
-        fit_intercept: options.fit_intercept,
-        max_subpopulation: options.max_subpopulation,
-        n_subsamples: if options.n_subsamples_set {
-            Some(options.n_subsamples_value)
-        } else {
-            None
-        },
-        max_iterations: options.max_iterations,
-        tolerance: options.tolerance,
-        random_state: options.random_state,
-        compute_inference: options.compute_inference,
-        confidence_level: options.confidence_level,
-    };
-
-    let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        fit_theilsen(&y_vec, &x_vecs, &opts)
-    }));
-
-    let fit_result = match fit_result {
-        Ok(r) => r,
-        Err(_) => {
+        if out_core.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InternalError, "Internal panic in Theil-Sen fit");
+                (*out_error).set(ErrorCode::InvalidInput, "out_core is NULL");
             }
             return false;
         }
-    };
 
-    match fit_result {
-        Ok(ts) => {
-            let result = ts.fit;
-            let n_coef = result.core.coefficients.len();
+        if x.is_null() || x_count == 0 {
+            if !out_error.is_null() {
+                (*out_error).set(
+                    if x_count == 0 {
+                        ErrorCode::InsufficientData
+                    } else {
+                        ErrorCode::InvalidInput
+                    },
+                    "x is NULL or empty",
+                );
+            }
+            return false;
+        }
 
-            let coef_ptr = libc::malloc(n_coef * std::mem::size_of::<f64>()) as *mut f64;
-            if coef_ptr.is_null() && n_coef > 0 {
+        let y_vec = y.to_vec();
+        let x_arrays = slice::from_raw_parts(x, x_count);
+        let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
+
+        let opts = TheilSenOptions {
+            fit_intercept: options.fit_intercept,
+            max_subpopulation: options.max_subpopulation,
+            n_subsamples: if options.n_subsamples_set {
+                Some(options.n_subsamples_value)
+            } else {
+                None
+            },
+            max_iterations: options.max_iterations,
+            tolerance: options.tolerance,
+            random_state: options.random_state,
+            compute_inference: options.compute_inference,
+            confidence_level: options.confidence_level,
+        };
+
+        let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            fit_theilsen(&y_vec, &x_vecs, &opts)
+        }));
+
+        let fit_result = match fit_result {
+            Ok(r) => r,
+            Err(_) => {
                 if !out_error.is_null() {
-                    (*out_error).set(
-                        ErrorCode::AllocationFailure,
-                        "Failed to allocate coefficients",
-                    );
+                    (*out_error).set(ErrorCode::InternalError, "Internal panic in Theil-Sen fit");
                 }
                 return false;
             }
-            std::ptr::copy_nonoverlapping(result.core.coefficients.as_ptr(), coef_ptr, n_coef);
+        };
 
-            (*out_core) = FitResultCore {
-                coefficients: coef_ptr,
-                coefficients_len: n_coef,
-                intercept: result.core.intercept.unwrap_or(f64::NAN),
-                r_squared: result.core.r_squared,
-                adj_r_squared: result.core.adj_r_squared,
-                residual_std_error: result.core.residual_std_error,
-                n_observations: result.core.n_observations,
-                n_features: result.core.n_features,
-            };
+        match fit_result {
+            Ok(ts) => {
+                let result = ts.fit;
+                let n_coef = result.core.coefficients.len();
 
-            if !out_inference.is_null() {
-                if let Some(inf) = result.inference {
-                    alloc_inference_arrays!(inf, out_inference, out_error, {
-                        libc::free(coef_ptr as *mut libc::c_void);
-                        // CR-01: null the just-written coefficients pointer so a caller
-                        // that inspects *out_core after the `false` return cannot see a
-                        // dangling/freed pointer. Callers currently ignore *out_core on
-                        // failure; this is defense-in-depth at the FFI boundary.
-                        *out_core = FitResultCore::default();
-                    });
-                } else {
-                    (*out_inference) = FitResultInference::default();
+                let coef_ptr = libc::malloc(n_coef * std::mem::size_of::<f64>()) as *mut f64;
+                if coef_ptr.is_null() && n_coef > 0 {
+                    if !out_error.is_null() {
+                        (*out_error).set(
+                            ErrorCode::AllocationFailure,
+                            "Failed to allocate coefficients",
+                        );
+                    }
+                    return false;
                 }
-            }
+                std::ptr::copy_nonoverlapping(result.core.coefficients.as_ptr(), coef_ptr, n_coef);
 
-            true
-        }
-        Err(e) => {
-            if !out_error.is_null() {
-                (*out_error).set(error_to_code(&e), &e.to_string());
+                (*out_core) = FitResultCore {
+                    coefficients: coef_ptr,
+                    coefficients_len: n_coef,
+                    intercept: result.core.intercept.unwrap_or(f64::NAN),
+                    r_squared: result.core.r_squared,
+                    adj_r_squared: result.core.adj_r_squared,
+                    residual_std_error: result.core.residual_std_error,
+                    n_observations: result.core.n_observations,
+                    n_features: result.core.n_features,
+                };
+
+                if !out_inference.is_null() {
+                    if let Some(inf) = result.inference {
+                        alloc_inference_arrays!(inf, out_inference, out_error, {
+                            libc::free(coef_ptr as *mut libc::c_void);
+                            // CR-01: null the just-written coefficients pointer so a caller
+                            // that inspects *out_core after the `false` return cannot see a
+                            // dangling/freed pointer. Callers currently ignore *out_core on
+                            // failure; this is defense-in-depth at the FFI boundary.
+                            *out_core = FitResultCore::default();
+                        });
+                    } else {
+                        (*out_inference) = FitResultInference::default();
+                    }
+                }
+
+                true
             }
-            false
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
         }
-    }
+    })
 }
 
 /// Fit a Ridge regression model
@@ -857,115 +974,127 @@ pub unsafe extern "C" fn anofox_ridge_fit(
     out_inference: *mut FitResultInference,
     out_error: *mut AnofoxError,
 ) -> bool {
-    // Initialize error
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-
-    // Validate inputs
-    if out_core.is_null() {
+    ffi_guard(out_error, false, || {
+        // Initialize error
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_core is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
-
-    if x.is_null() || x_count == 0 {
-        if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
+        if !check_confidence_level(options.confidence_level, out_error) {
+            return false;
         }
-        return false;
-    }
 
-    // Convert y to Vec
-    let y_vec = y.to_vec();
+        // Validate inputs
+        if out_core.is_null() {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InvalidInput, "out_core is NULL");
+            }
+            return false;
+        }
 
-    // Convert x arrays to Vec<Vec<f64>>
-    let x_arrays = slice::from_raw_parts(x, x_count);
-    let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
-
-    // Convert options
-    let opts = RidgeOptions {
-        alpha: options.alpha,
-        fit_intercept: options.fit_intercept,
-        compute_inference: options.compute_inference,
-        confidence_level: options.confidence_level,
-        solver: convert_solver_ffi(options.solver),
-        lambda_scaling: convert_lambda_scaling_ffi(options.lambda_scaling),
-    };
-
-    // Call the core function with panic catching for regress-rs issues
-    let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        fit_ridge(&y_vec, &x_vecs, &opts)
-    }));
-
-    let fit_result = match fit_result {
-        Ok(r) => r,
-        Err(_) => {
+        if x.is_null() || x_count == 0 {
             if !out_error.is_null() {
                 (*out_error).set(
-                    ErrorCode::InternalError,
-                    "Internal panic in Ridge fit (possibly perfect fit or numerical issue)",
+                    if x_count == 0 {
+                        ErrorCode::InsufficientData
+                    } else {
+                        ErrorCode::InvalidInput
+                    },
+                    "x is NULL or empty",
                 );
             }
             return false;
         }
-    };
 
-    match fit_result {
-        Ok(result) => {
-            // Fill core results
-            let n_coef = result.core.coefficients.len();
+        // Convert y to Vec
+        let y_vec = y.to_vec();
 
-            // Allocate and copy coefficients
-            let coef_ptr = libc::malloc(n_coef * std::mem::size_of::<f64>()) as *mut f64;
-            if coef_ptr.is_null() && n_coef > 0 {
+        // Convert x arrays to Vec<Vec<f64>>
+        let x_arrays = slice::from_raw_parts(x, x_count);
+        let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
+
+        // Convert options
+        let opts = RidgeOptions {
+            alpha: options.alpha,
+            fit_intercept: options.fit_intercept,
+            compute_inference: options.compute_inference,
+            confidence_level: options.confidence_level,
+            solver: convert_solver_ffi(options.solver),
+            lambda_scaling: convert_lambda_scaling_ffi(options.lambda_scaling),
+        };
+
+        // Call the core function with panic catching for regress-rs issues
+        let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            fit_ridge(&y_vec, &x_vecs, &opts)
+        }));
+
+        let fit_result = match fit_result {
+            Ok(r) => r,
+            Err(_) => {
                 if !out_error.is_null() {
                     (*out_error).set(
-                        ErrorCode::AllocationFailure,
-                        "Failed to allocate coefficients",
+                        ErrorCode::InternalError,
+                        "Internal panic in Ridge fit (possibly perfect fit or numerical issue)",
                     );
                 }
                 return false;
             }
-            std::ptr::copy_nonoverlapping(result.core.coefficients.as_ptr(), coef_ptr, n_coef);
+        };
 
-            (*out_core) = FitResultCore {
-                coefficients: coef_ptr,
-                coefficients_len: n_coef,
-                intercept: result.core.intercept.unwrap_or(f64::NAN),
-                r_squared: result.core.r_squared,
-                adj_r_squared: result.core.adj_r_squared,
-                residual_std_error: result.core.residual_std_error,
-                n_observations: result.core.n_observations,
-                n_features: result.core.n_features,
-            };
+        match fit_result {
+            Ok(result) => {
+                // Fill core results
+                let n_coef = result.core.coefficients.len();
 
-            // Fill inference results if requested and available
-            if !out_inference.is_null() {
-                if let Some(inf) = result.inference {
-                    alloc_inference_arrays!(inf, out_inference, out_error, {
-                        libc::free(coef_ptr as *mut libc::c_void);
-                        // CR-01: null the just-written coefficients pointer so a caller
-                        // that inspects *out_core after the `false` return cannot see a
-                        // dangling/freed pointer. Callers currently ignore *out_core on
-                        // failure; this is defense-in-depth at the FFI boundary.
-                        *out_core = FitResultCore::default();
-                    });
-                } else {
-                    (*out_inference) = FitResultInference::default();
+                // Allocate and copy coefficients
+                let coef_ptr = libc::malloc(n_coef * std::mem::size_of::<f64>()) as *mut f64;
+                if coef_ptr.is_null() && n_coef > 0 {
+                    if !out_error.is_null() {
+                        (*out_error).set(
+                            ErrorCode::AllocationFailure,
+                            "Failed to allocate coefficients",
+                        );
+                    }
+                    return false;
                 }
-            }
+                std::ptr::copy_nonoverlapping(result.core.coefficients.as_ptr(), coef_ptr, n_coef);
 
-            true
-        }
-        Err(e) => {
-            if !out_error.is_null() {
-                (*out_error).set(error_to_code(&e), &e.to_string());
+                (*out_core) = FitResultCore {
+                    coefficients: coef_ptr,
+                    coefficients_len: n_coef,
+                    intercept: result.core.intercept.unwrap_or(f64::NAN),
+                    r_squared: result.core.r_squared,
+                    adj_r_squared: result.core.adj_r_squared,
+                    residual_std_error: result.core.residual_std_error,
+                    n_observations: result.core.n_observations,
+                    n_features: result.core.n_features,
+                };
+
+                // Fill inference results if requested and available
+                if !out_inference.is_null() {
+                    if let Some(inf) = result.inference {
+                        alloc_inference_arrays!(inf, out_inference, out_error, {
+                            libc::free(coef_ptr as *mut libc::c_void);
+                            // CR-01: null the just-written coefficients pointer so a caller
+                            // that inspects *out_core after the `false` return cannot see a
+                            // dangling/freed pointer. Callers currently ignore *out_core on
+                            // failure; this is defense-in-depth at the FFI boundary.
+                            *out_core = FitResultCore::default();
+                        });
+                    } else {
+                        (*out_inference) = FitResultInference::default();
+                    }
+                }
+
+                true
             }
-            false
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
         }
-    }
+    })
 }
 
 /// Fit an Elastic Net regression model
@@ -987,99 +1116,108 @@ pub unsafe extern "C" fn anofox_elasticnet_fit(
     out_core: *mut FitResultCore,
     out_error: *mut AnofoxError,
 ) -> bool {
-    // Initialize error
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-
-    // Validate inputs
-    if out_core.is_null() {
+    ffi_guard(out_error, false, || {
+        // Initialize error
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_core is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
 
-    if x.is_null() || x_count == 0 {
-        if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
+        // Validate inputs
+        if out_core.is_null() {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InvalidInput, "out_core is NULL");
+            }
+            return false;
         }
-        return false;
-    }
 
-    // Convert y to Vec
-    let y_vec = y.to_vec();
-
-    // Convert x arrays to Vec<Vec<f64>>
-    let x_arrays = slice::from_raw_parts(x, x_count);
-    let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
-
-    // Convert options
-    let opts = ElasticNetOptions {
-        alpha: options.alpha,
-        l1_ratio: options.l1_ratio,
-        fit_intercept: options.fit_intercept,
-        max_iterations: options.max_iterations,
-        tolerance: options.tolerance,
-        lambda_scaling: convert_lambda_scaling_ffi(options.lambda_scaling),
-    };
-
-    // Call the core function with panic catching
-    let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        fit_elasticnet(&y_vec, &x_vecs, &opts)
-    }));
-
-    let fit_result = match fit_result {
-        Ok(r) => r,
-        Err(_) => {
+        if x.is_null() || x_count == 0 {
             if !out_error.is_null() {
                 (*out_error).set(
-                    ErrorCode::InternalError,
-                    "Internal panic in Elastic Net fit",
+                    if x_count == 0 {
+                        ErrorCode::InsufficientData
+                    } else {
+                        ErrorCode::InvalidInput
+                    },
+                    "x is NULL or empty",
                 );
             }
             return false;
         }
-    };
 
-    match fit_result {
-        Ok(result) => {
-            // Fill core results
-            let n_coef = result.core.coefficients.len();
+        // Convert y to Vec
+        let y_vec = y.to_vec();
 
-            // Allocate and copy coefficients
-            let coef_ptr = libc::malloc(n_coef * std::mem::size_of::<f64>()) as *mut f64;
-            if coef_ptr.is_null() && n_coef > 0 {
+        // Convert x arrays to Vec<Vec<f64>>
+        let x_arrays = slice::from_raw_parts(x, x_count);
+        let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
+
+        // Convert options
+        let opts = ElasticNetOptions {
+            alpha: options.alpha,
+            l1_ratio: options.l1_ratio,
+            fit_intercept: options.fit_intercept,
+            max_iterations: options.max_iterations,
+            tolerance: options.tolerance,
+            lambda_scaling: convert_lambda_scaling_ffi(options.lambda_scaling),
+        };
+
+        // Call the core function with panic catching
+        let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            fit_elasticnet(&y_vec, &x_vecs, &opts)
+        }));
+
+        let fit_result = match fit_result {
+            Ok(r) => r,
+            Err(_) => {
                 if !out_error.is_null() {
                     (*out_error).set(
-                        ErrorCode::AllocationFailure,
-                        "Failed to allocate coefficients",
+                        ErrorCode::InternalError,
+                        "Internal panic in Elastic Net fit",
                     );
                 }
                 return false;
             }
-            std::ptr::copy_nonoverlapping(result.core.coefficients.as_ptr(), coef_ptr, n_coef);
+        };
 
-            (*out_core) = FitResultCore {
-                coefficients: coef_ptr,
-                coefficients_len: n_coef,
-                intercept: result.core.intercept.unwrap_or(f64::NAN),
-                r_squared: result.core.r_squared,
-                adj_r_squared: result.core.adj_r_squared,
-                residual_std_error: result.core.residual_std_error,
-                n_observations: result.core.n_observations,
-                n_features: result.core.n_features,
-            };
+        match fit_result {
+            Ok(result) => {
+                // Fill core results
+                let n_coef = result.core.coefficients.len();
 
-            true
-        }
-        Err(e) => {
-            if !out_error.is_null() {
-                (*out_error).set(error_to_code(&e), &e.to_string());
+                // Allocate and copy coefficients
+                let coef_ptr = libc::malloc(n_coef * std::mem::size_of::<f64>()) as *mut f64;
+                if coef_ptr.is_null() && n_coef > 0 {
+                    if !out_error.is_null() {
+                        (*out_error).set(
+                            ErrorCode::AllocationFailure,
+                            "Failed to allocate coefficients",
+                        );
+                    }
+                    return false;
+                }
+                std::ptr::copy_nonoverlapping(result.core.coefficients.as_ptr(), coef_ptr, n_coef);
+
+                (*out_core) = FitResultCore {
+                    coefficients: coef_ptr,
+                    coefficients_len: n_coef,
+                    intercept: result.core.intercept.unwrap_or(f64::NAN),
+                    r_squared: result.core.r_squared,
+                    adj_r_squared: result.core.adj_r_squared,
+                    residual_std_error: result.core.residual_std_error,
+                    n_observations: result.core.n_observations,
+                    n_features: result.core.n_features,
+                };
+
+                true
             }
-            false
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
         }
-    }
+    })
 }
 
 /// Fit a Least Angle Regression model (LARS / LassoLars)
@@ -1101,85 +1239,94 @@ pub unsafe extern "C" fn anofox_lars_fit(
     out_core: *mut FitResultCore,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-
-    if out_core.is_null() {
+    ffi_guard(out_error, false, || {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_core is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
 
-    if x.is_null() || x_count == 0 {
-        if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
-        }
-        return false;
-    }
-
-    let y_vec = y.to_vec();
-    let x_arrays = slice::from_raw_parts(x, x_count);
-    let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
-
-    let opts = LarsOptions {
-        method_lasso: options.method_lasso,
-        fit_intercept: options.fit_intercept,
-        alpha: options.alpha,
-        n_nonzero_coefs: options.n_nonzero_coefs,
-        standardize: options.standardize,
-    };
-
-    let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        fit_lars(&y_vec, &x_vecs, &opts)
-    }));
-
-    let fit_result = match fit_result {
-        Ok(r) => r,
-        Err(_) => {
+        if out_core.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InternalError, "Internal panic in LARS fit");
+                (*out_error).set(ErrorCode::InvalidInput, "out_core is NULL");
             }
             return false;
         }
-    };
 
-    match fit_result {
-        Ok(result) => {
-            let n_coef = result.core.coefficients.len();
-            let coef_ptr = libc::malloc(n_coef * std::mem::size_of::<f64>()) as *mut f64;
-            if coef_ptr.is_null() && n_coef > 0 {
+        if x.is_null() || x_count == 0 {
+            if !out_error.is_null() {
+                (*out_error).set(
+                    if x_count == 0 {
+                        ErrorCode::InsufficientData
+                    } else {
+                        ErrorCode::InvalidInput
+                    },
+                    "x is NULL or empty",
+                );
+            }
+            return false;
+        }
+
+        let y_vec = y.to_vec();
+        let x_arrays = slice::from_raw_parts(x, x_count);
+        let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
+
+        let opts = LarsOptions {
+            method_lasso: options.method_lasso,
+            fit_intercept: options.fit_intercept,
+            alpha: options.alpha,
+            n_nonzero_coefs: options.n_nonzero_coefs,
+            standardize: options.standardize,
+        };
+
+        let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            fit_lars(&y_vec, &x_vecs, &opts)
+        }));
+
+        let fit_result = match fit_result {
+            Ok(r) => r,
+            Err(_) => {
                 if !out_error.is_null() {
-                    (*out_error).set(
-                        ErrorCode::AllocationFailure,
-                        "Failed to allocate coefficients",
-                    );
+                    (*out_error).set(ErrorCode::InternalError, "Internal panic in LARS fit");
                 }
                 return false;
             }
-            std::ptr::copy_nonoverlapping(result.core.coefficients.as_ptr(), coef_ptr, n_coef);
+        };
 
-            (*out_core) = FitResultCore {
-                coefficients: coef_ptr,
-                coefficients_len: n_coef,
-                intercept: result.core.intercept.unwrap_or(f64::NAN),
-                r_squared: result.core.r_squared,
-                adj_r_squared: result.core.adj_r_squared,
-                residual_std_error: result.core.residual_std_error,
-                n_observations: result.core.n_observations,
-                n_features: result.core.n_features,
-            };
+        match fit_result {
+            Ok(result) => {
+                let n_coef = result.core.coefficients.len();
+                let coef_ptr = libc::malloc(n_coef * std::mem::size_of::<f64>()) as *mut f64;
+                if coef_ptr.is_null() && n_coef > 0 {
+                    if !out_error.is_null() {
+                        (*out_error).set(
+                            ErrorCode::AllocationFailure,
+                            "Failed to allocate coefficients",
+                        );
+                    }
+                    return false;
+                }
+                std::ptr::copy_nonoverlapping(result.core.coefficients.as_ptr(), coef_ptr, n_coef);
 
-            true
-        }
-        Err(e) => {
-            if !out_error.is_null() {
-                (*out_error).set(error_to_code(&e), &e.to_string());
+                (*out_core) = FitResultCore {
+                    coefficients: coef_ptr,
+                    coefficients_len: n_coef,
+                    intercept: result.core.intercept.unwrap_or(f64::NAN),
+                    r_squared: result.core.r_squared,
+                    adj_r_squared: result.core.adj_r_squared,
+                    residual_std_error: result.core.residual_std_error,
+                    n_observations: result.core.n_observations,
+                    n_features: result.core.n_features,
+                };
+
+                true
             }
-            false
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
         }
-    }
+    })
 }
 
 /// Fit a Weighted Least Squares regression model
@@ -1205,114 +1352,126 @@ pub unsafe extern "C" fn anofox_wls_fit(
     out_inference: *mut FitResultInference,
     out_error: *mut AnofoxError,
 ) -> bool {
-    // Initialize error
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-
-    // Validate inputs
-    if out_core.is_null() {
+    ffi_guard(out_error, false, || {
+        // Initialize error
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_core is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
-
-    if x.is_null() || x_count == 0 {
-        if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
+        if !check_confidence_level(options.confidence_level, out_error) {
+            return false;
         }
-        return false;
-    }
 
-    // Convert y to Vec
-    let y_vec = y.to_vec();
-
-    // Convert weights to Vec
-    let weights_vec = weights.to_vec();
-
-    // Convert x arrays to Vec<Vec<f64>>
-    let x_arrays = slice::from_raw_parts(x, x_count);
-    let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
-
-    // Convert options
-    let opts = WlsOptions {
-        fit_intercept: options.fit_intercept,
-        compute_inference: options.compute_inference,
-        confidence_level: options.confidence_level,
-        solver: convert_solver_ffi(options.solver),
-        hc_type: convert_hc_type_ffi(options.hc_type),
-    };
-
-    // Call the core function with panic catching
-    let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        fit_wls(&y_vec, &x_vecs, &weights_vec, &opts)
-    }));
-
-    let fit_result = match fit_result {
-        Ok(r) => r,
-        Err(_) => {
+        // Validate inputs
+        if out_core.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InternalError, "Internal panic in WLS fit");
+                (*out_error).set(ErrorCode::InvalidInput, "out_core is NULL");
             }
             return false;
         }
-    };
 
-    match fit_result {
-        Ok(result) => {
-            // Fill core results
-            let n_coef = result.core.coefficients.len();
+        if x.is_null() || x_count == 0 {
+            if !out_error.is_null() {
+                (*out_error).set(
+                    if x_count == 0 {
+                        ErrorCode::InsufficientData
+                    } else {
+                        ErrorCode::InvalidInput
+                    },
+                    "x is NULL or empty",
+                );
+            }
+            return false;
+        }
 
-            // Allocate and copy coefficients
-            let coef_ptr = libc::malloc(n_coef * std::mem::size_of::<f64>()) as *mut f64;
-            if coef_ptr.is_null() && n_coef > 0 {
+        // Convert y to Vec
+        let y_vec = y.to_vec();
+
+        // Convert weights to Vec
+        let weights_vec = weights.to_vec();
+
+        // Convert x arrays to Vec<Vec<f64>>
+        let x_arrays = slice::from_raw_parts(x, x_count);
+        let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
+
+        // Convert options
+        let opts = WlsOptions {
+            fit_intercept: options.fit_intercept,
+            compute_inference: options.compute_inference,
+            confidence_level: options.confidence_level,
+            solver: convert_solver_ffi(options.solver),
+            hc_type: convert_hc_type_ffi(options.hc_type),
+        };
+
+        // Call the core function with panic catching
+        let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            fit_wls(&y_vec, &x_vecs, &weights_vec, &opts)
+        }));
+
+        let fit_result = match fit_result {
+            Ok(r) => r,
+            Err(_) => {
                 if !out_error.is_null() {
-                    (*out_error).set(
-                        ErrorCode::AllocationFailure,
-                        "Failed to allocate coefficients",
-                    );
+                    (*out_error).set(ErrorCode::InternalError, "Internal panic in WLS fit");
                 }
                 return false;
             }
-            std::ptr::copy_nonoverlapping(result.core.coefficients.as_ptr(), coef_ptr, n_coef);
+        };
 
-            (*out_core) = FitResultCore {
-                coefficients: coef_ptr,
-                coefficients_len: n_coef,
-                intercept: result.core.intercept.unwrap_or(f64::NAN),
-                r_squared: result.core.r_squared,
-                adj_r_squared: result.core.adj_r_squared,
-                residual_std_error: result.core.residual_std_error,
-                n_observations: result.core.n_observations,
-                n_features: result.core.n_features,
-            };
+        match fit_result {
+            Ok(result) => {
+                // Fill core results
+                let n_coef = result.core.coefficients.len();
 
-            // Fill inference results if requested and available
-            if !out_inference.is_null() {
-                if let Some(inf) = result.inference {
-                    alloc_inference_arrays!(inf, out_inference, out_error, {
-                        libc::free(coef_ptr as *mut libc::c_void);
-                        // CR-01: null the just-written coefficients pointer so a caller
-                        // that inspects *out_core after the `false` return cannot see a
-                        // dangling/freed pointer. Callers currently ignore *out_core on
-                        // failure; this is defense-in-depth at the FFI boundary.
-                        *out_core = FitResultCore::default();
-                    });
-                } else {
-                    (*out_inference) = FitResultInference::default();
+                // Allocate and copy coefficients
+                let coef_ptr = libc::malloc(n_coef * std::mem::size_of::<f64>()) as *mut f64;
+                if coef_ptr.is_null() && n_coef > 0 {
+                    if !out_error.is_null() {
+                        (*out_error).set(
+                            ErrorCode::AllocationFailure,
+                            "Failed to allocate coefficients",
+                        );
+                    }
+                    return false;
                 }
-            }
+                std::ptr::copy_nonoverlapping(result.core.coefficients.as_ptr(), coef_ptr, n_coef);
 
-            true
-        }
-        Err(e) => {
-            if !out_error.is_null() {
-                (*out_error).set(error_to_code(&e), &e.to_string());
+                (*out_core) = FitResultCore {
+                    coefficients: coef_ptr,
+                    coefficients_len: n_coef,
+                    intercept: result.core.intercept.unwrap_or(f64::NAN),
+                    r_squared: result.core.r_squared,
+                    adj_r_squared: result.core.adj_r_squared,
+                    residual_std_error: result.core.residual_std_error,
+                    n_observations: result.core.n_observations,
+                    n_features: result.core.n_features,
+                };
+
+                // Fill inference results if requested and available
+                if !out_inference.is_null() {
+                    if let Some(inf) = result.inference {
+                        alloc_inference_arrays!(inf, out_inference, out_error, {
+                            libc::free(coef_ptr as *mut libc::c_void);
+                            // CR-01: null the just-written coefficients pointer so a caller
+                            // that inspects *out_core after the `false` return cannot see a
+                            // dangling/freed pointer. Callers currently ignore *out_core on
+                            // failure; this is defense-in-depth at the FFI boundary.
+                            *out_core = FitResultCore::default();
+                        });
+                    } else {
+                        (*out_inference) = FitResultInference::default();
+                    }
+                }
+
+                true
             }
-            false
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
         }
-    }
+    })
 }
 
 /// Make predictions using fitted model coefficients
@@ -1336,85 +1495,101 @@ pub unsafe extern "C" fn anofox_predict(
     out_predictions_len: *mut usize,
     out_error: *mut AnofoxError,
 ) -> bool {
-    // Initialize error
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-
-    // Validate inputs
-    if x.is_null() || x_count == 0 {
+    ffi_guard(out_error, false, || {
+        // Initialize error
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
 
-    if coefficients.is_null() || coefficients_len == 0 {
-        if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "coefficients is NULL or empty");
-        }
-        return false;
-    }
-
-    if out_predictions.is_null() || out_predictions_len.is_null() {
-        if !out_error.is_null() {
-            (*out_error).set(
-                ErrorCode::InvalidInput,
-                "out_predictions or out_predictions_len is NULL",
-            );
-        }
-        return false;
-    }
-
-    // Convert x arrays to Vec<Vec<f64>>
-    let x_arrays = slice::from_raw_parts(x, x_count);
-    let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
-
-    // Convert coefficients to slice
-    let coef_slice = slice::from_raw_parts(coefficients, coefficients_len);
-    let coef_vec: Vec<f64> = coef_slice.to_vec();
-
-    // Handle intercept (NaN means no intercept)
-    let intercept_opt = if intercept.is_nan() {
-        None
-    } else {
-        Some(intercept)
-    };
-
-    // Call the core function
-    let result = predict(&x_vecs, &coef_vec, intercept_opt);
-
-    match result {
-        Ok(predictions) => {
-            let n = predictions.len();
-
-            // Allocate output array
-            let pred_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-            if pred_ptr.is_null() && n > 0 {
-                if !out_error.is_null() {
-                    (*out_error).set(
-                        ErrorCode::AllocationFailure,
-                        "Failed to allocate predictions",
-                    );
-                }
-                return false;
-            }
-
-            // Copy predictions
-            std::ptr::copy_nonoverlapping(predictions.as_ptr(), pred_ptr, n);
-
-            *out_predictions = pred_ptr;
-            *out_predictions_len = n;
-
-            true
-        }
-        Err(e) => {
+        // Validate inputs
+        if x.is_null() || x_count == 0 {
             if !out_error.is_null() {
-                (*out_error).set(error_to_code(&e), &e.to_string());
+                (*out_error).set(
+                    if x_count == 0 {
+                        ErrorCode::InsufficientData
+                    } else {
+                        ErrorCode::InvalidInput
+                    },
+                    "x is NULL or empty",
+                );
             }
-            false
+            return false;
         }
-    }
+
+        if coefficients.is_null() || coefficients_len == 0 {
+            if !out_error.is_null() {
+                (*out_error).set(
+                    if coefficients_len == 0 {
+                        ErrorCode::InsufficientData
+                    } else {
+                        ErrorCode::InvalidInput
+                    },
+                    "coefficients is NULL or empty",
+                );
+            }
+            return false;
+        }
+
+        if out_predictions.is_null() || out_predictions_len.is_null() {
+            if !out_error.is_null() {
+                (*out_error).set(
+                    ErrorCode::InvalidInput,
+                    "out_predictions or out_predictions_len is NULL",
+                );
+            }
+            return false;
+        }
+
+        // Convert x arrays to Vec<Vec<f64>>
+        let x_arrays = slice::from_raw_parts(x, x_count);
+        let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
+
+        // Convert coefficients to slice
+        let coef_slice = slice::from_raw_parts(coefficients, coefficients_len);
+        let coef_vec: Vec<f64> = coef_slice.to_vec();
+
+        // Handle intercept (NaN means no intercept)
+        let intercept_opt = if intercept.is_nan() {
+            None
+        } else {
+            Some(intercept)
+        };
+
+        // Call the core function
+        let result = predict(&x_vecs, &coef_vec, intercept_opt);
+
+        match result {
+            Ok(predictions) => {
+                let n = predictions.len();
+
+                // Allocate output array
+                let pred_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                if pred_ptr.is_null() && n > 0 {
+                    if !out_error.is_null() {
+                        (*out_error).set(
+                            ErrorCode::AllocationFailure,
+                            "Failed to allocate predictions",
+                        );
+                    }
+                    return false;
+                }
+
+                // Copy predictions
+                std::ptr::copy_nonoverlapping(predictions.as_ptr(), pred_ptr, n);
+
+                *out_predictions = pred_ptr;
+                *out_predictions_len = n;
+
+                true
+            }
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
+        }
+    })
 }
 
 /// Free memory allocated by anofox_predict
@@ -1423,15 +1598,19 @@ pub unsafe extern "C" fn anofox_predict(
 /// `predictions` must be a pointer previously returned by anofox_predict
 #[no_mangle]
 pub unsafe extern "C" fn anofox_free_predictions(predictions: *mut f64) {
-    if !predictions.is_null() {
-        libc::free(predictions as *mut libc::c_void);
-    }
+    ffi_guard(std::ptr::null_mut(), (), || {
+        if !predictions.is_null() {
+            libc::free(predictions as *mut libc::c_void);
+        }
+    })
 }
 
 /// Get library version string
 #[no_mangle]
 pub extern "C" fn anofox_version() -> *const libc::c_char {
-    concat!(env!("CARGO_PKG_VERSION"), "\0").as_ptr() as *const libc::c_char
+    ffi_guard(std::ptr::null_mut(), std::ptr::null(), || {
+        concat!(env!("CARGO_PKG_VERSION"), "\0").as_ptr() as *const libc::c_char
+    })
 }
 
 // ============================================================================
@@ -1453,50 +1632,60 @@ pub unsafe extern "C" fn anofox_compute_vif(
     out_vif_len: *mut usize,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-
-    if x.is_null() || x_count == 0 {
+    ffi_guard(out_error, false, || {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
 
-    if out_vif.is_null() || out_vif_len.is_null() {
-        if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_vif or out_vif_len is NULL");
-        }
-        return false;
-    }
-
-    // Convert x arrays to Vec<Vec<f64>>
-    let x_arrays = slice::from_raw_parts(x, x_count);
-    let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
-
-    match compute_vif(&x_vecs) {
-        Ok(vif_values) => {
-            let n = vif_values.len();
-            let ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-            if ptr.is_null() && n > 0 {
-                if !out_error.is_null() {
-                    (*out_error).set(ErrorCode::AllocationFailure, "Failed to allocate VIF array");
-                }
-                return false;
-            }
-            std::ptr::copy_nonoverlapping(vif_values.as_ptr(), ptr, n);
-            *out_vif = ptr;
-            *out_vif_len = n;
-            true
-        }
-        Err(e) => {
+        if x.is_null() || x_count == 0 {
             if !out_error.is_null() {
-                (*out_error).set(error_to_code(&e), &e.to_string());
+                (*out_error).set(
+                    if x_count == 0 {
+                        ErrorCode::InsufficientData
+                    } else {
+                        ErrorCode::InvalidInput
+                    },
+                    "x is NULL or empty",
+                );
             }
-            false
+            return false;
         }
-    }
+
+        if out_vif.is_null() || out_vif_len.is_null() {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InvalidInput, "out_vif or out_vif_len is NULL");
+            }
+            return false;
+        }
+
+        // Convert x arrays to Vec<Vec<f64>>
+        let x_arrays = slice::from_raw_parts(x, x_count);
+        let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
+
+        match compute_vif(&x_vecs) {
+            Ok(vif_values) => {
+                let n = vif_values.len();
+                let ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                if ptr.is_null() && n > 0 {
+                    if !out_error.is_null() {
+                        (*out_error)
+                            .set(ErrorCode::AllocationFailure, "Failed to allocate VIF array");
+                    }
+                    return false;
+                }
+                std::ptr::copy_nonoverlapping(vif_values.as_ptr(), ptr, n);
+                *out_vif = ptr;
+                *out_vif_len = n;
+                true
+            }
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
+        }
+    })
 }
 
 /// Free memory allocated by anofox_compute_vif
@@ -1505,9 +1694,11 @@ pub unsafe extern "C" fn anofox_compute_vif(
 /// - `vif` must have been allocated by `anofox_compute_vif`
 #[no_mangle]
 pub unsafe extern "C" fn anofox_free_vif(vif: *mut f64) {
-    if !vif.is_null() {
-        libc::free(vif as *mut libc::c_void);
-    }
+    ffi_guard(std::ptr::null_mut(), (), || {
+        if !vif.is_null() {
+            libc::free(vif as *mut libc::c_void);
+        }
+    })
 }
 
 /// Result structure for residuals computation
@@ -1517,10 +1708,12 @@ pub struct ResidualsResult {
     pub standardized: *mut f64,
     pub studentized: *mut f64,
     pub leverage: *mut f64,
+    pub cooks_distance: *mut f64,
     pub len: usize,
     pub has_standardized: bool,
     pub has_studentized: bool,
     pub has_leverage: bool,
+    pub has_cooks_distance: bool,
 }
 
 impl Default for ResidualsResult {
@@ -1530,10 +1723,12 @@ impl Default for ResidualsResult {
             standardized: std::ptr::null_mut(),
             studentized: std::ptr::null_mut(),
             leverage: std::ptr::null_mut(),
+            cooks_distance: std::ptr::null_mut(),
             len: 0,
             has_standardized: false,
             has_studentized: false,
             has_leverage: false,
+            has_cooks_distance: false,
         }
     }
 }
@@ -1555,103 +1750,117 @@ pub unsafe extern "C" fn anofox_compute_residuals(
     out_result: *mut ResidualsResult,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-
-    if out_result.is_null() {
+    ffi_guard(out_error, false, || {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
 
-    let y_vec = y.to_vec();
-    let y_hat_vec = y_hat.to_vec();
-
-    // Convert x if provided
-    let x_vecs: Option<Vec<Vec<f64>>> = if !x.is_null() && x_count > 0 {
-        let x_arrays = slice::from_raw_parts(x, x_count);
-        Some(x_arrays.iter().map(|arr| arr.to_vec()).collect())
-    } else {
-        None
-    };
-
-    let x_ref = x_vecs.as_deref();
-    let rse = if residual_std_error.is_nan() {
-        None
-    } else {
-        Some(residual_std_error)
-    };
-
-    match compute_residuals(&y_vec, &y_hat_vec, x_ref, rse, include_studentized) {
-        Ok(result) => {
-            let n = result.raw.len();
-
-            // Allocate and copy raw residuals
-            let raw_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-            if raw_ptr.is_null() && n > 0 {
-                if !out_error.is_null() {
-                    (*out_error).set(
-                        ErrorCode::AllocationFailure,
-                        "Failed to allocate raw residuals",
-                    );
-                }
-                return false;
-            }
-            std::ptr::copy_nonoverlapping(result.raw.as_ptr(), raw_ptr, n);
-
-            // Handle optional arrays
-            let (std_ptr, has_std) = if let Some(ref std_resid) = result.standardized {
-                let ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-                if !ptr.is_null() {
-                    std::ptr::copy_nonoverlapping(std_resid.as_ptr(), ptr, n);
-                }
-                (ptr, true)
-            } else {
-                (std::ptr::null_mut(), false)
-            };
-
-            let (stud_ptr, has_stud) = if let Some(ref stud_resid) = result.studentized {
-                let ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-                if !ptr.is_null() {
-                    std::ptr::copy_nonoverlapping(stud_resid.as_ptr(), ptr, n);
-                }
-                (ptr, true)
-            } else {
-                (std::ptr::null_mut(), false)
-            };
-
-            let (lev_ptr, has_lev) = if let Some(ref leverage) = result.leverage {
-                let ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-                if !ptr.is_null() {
-                    std::ptr::copy_nonoverlapping(leverage.as_ptr(), ptr, n);
-                }
-                (ptr, true)
-            } else {
-                (std::ptr::null_mut(), false)
-            };
-
-            *out_result = ResidualsResult {
-                raw: raw_ptr,
-                standardized: std_ptr,
-                studentized: stud_ptr,
-                leverage: lev_ptr,
-                len: n,
-                has_standardized: has_std,
-                has_studentized: has_stud,
-                has_leverage: has_lev,
-            };
-
-            true
-        }
-        Err(e) => {
+        if out_result.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(error_to_code(&e), &e.to_string());
+                (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
             }
-            false
+            return false;
         }
-    }
+
+        let y_vec = y.to_vec();
+        let y_hat_vec = y_hat.to_vec();
+
+        // Convert x if provided
+        let x_vecs: Option<Vec<Vec<f64>>> = if !x.is_null() && x_count > 0 {
+            let x_arrays = slice::from_raw_parts(x, x_count);
+            Some(x_arrays.iter().map(|arr| arr.to_vec()).collect())
+        } else {
+            None
+        };
+
+        let x_ref = x_vecs.as_deref();
+        let rse = if residual_std_error.is_nan() {
+            None
+        } else {
+            Some(residual_std_error)
+        };
+
+        match compute_residuals(&y_vec, &y_hat_vec, x_ref, rse, include_studentized) {
+            Ok(result) => {
+                let n = result.raw.len();
+
+                // Allocate and copy raw residuals
+                let raw_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                if raw_ptr.is_null() && n > 0 {
+                    if !out_error.is_null() {
+                        (*out_error).set(
+                            ErrorCode::AllocationFailure,
+                            "Failed to allocate raw residuals",
+                        );
+                    }
+                    return false;
+                }
+                std::ptr::copy_nonoverlapping(result.raw.as_ptr(), raw_ptr, n);
+
+                // Handle optional arrays
+                let (std_ptr, has_std) = if let Some(ref std_resid) = result.standardized {
+                    let ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                    if !ptr.is_null() {
+                        std::ptr::copy_nonoverlapping(std_resid.as_ptr(), ptr, n);
+                    }
+                    (ptr, true)
+                } else {
+                    (std::ptr::null_mut(), false)
+                };
+
+                let (stud_ptr, has_stud) = if let Some(ref stud_resid) = result.studentized {
+                    let ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                    if !ptr.is_null() {
+                        std::ptr::copy_nonoverlapping(stud_resid.as_ptr(), ptr, n);
+                    }
+                    (ptr, true)
+                } else {
+                    (std::ptr::null_mut(), false)
+                };
+
+                let (lev_ptr, has_lev) = if let Some(ref leverage) = result.leverage {
+                    let ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                    if !ptr.is_null() {
+                        std::ptr::copy_nonoverlapping(leverage.as_ptr(), ptr, n);
+                    }
+                    (ptr, true)
+                } else {
+                    (std::ptr::null_mut(), false)
+                };
+
+                let (cook_ptr, has_cook) = if let Some(ref cooks) = result.cooks_distance {
+                    let ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                    if !ptr.is_null() {
+                        std::ptr::copy_nonoverlapping(cooks.as_ptr(), ptr, n);
+                    }
+                    (ptr, !ptr.is_null() || n == 0)
+                } else {
+                    (std::ptr::null_mut(), false)
+                };
+
+                *out_result = ResidualsResult {
+                    raw: raw_ptr,
+                    standardized: std_ptr,
+                    studentized: stud_ptr,
+                    leverage: lev_ptr,
+                    cooks_distance: cook_ptr,
+                    len: n,
+                    has_standardized: has_std,
+                    has_studentized: has_stud,
+                    has_leverage: has_lev,
+                    has_cooks_distance: has_cook,
+                };
+
+                true
+            }
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
+        }
+    })
 }
 
 /// Free memory allocated by anofox_compute_residuals
@@ -1660,21 +1869,26 @@ pub unsafe extern "C" fn anofox_compute_residuals(
 /// - `result` must have been allocated by `anofox_compute_residuals`
 #[no_mangle]
 pub unsafe extern "C" fn anofox_free_residuals(result: *mut ResidualsResult) {
-    if result.is_null() {
-        return;
-    }
-    if !(*result).raw.is_null() {
-        libc::free((*result).raw as *mut libc::c_void);
-    }
-    if !(*result).standardized.is_null() {
-        libc::free((*result).standardized as *mut libc::c_void);
-    }
-    if !(*result).studentized.is_null() {
-        libc::free((*result).studentized as *mut libc::c_void);
-    }
-    if !(*result).leverage.is_null() {
-        libc::free((*result).leverage as *mut libc::c_void);
-    }
+    ffi_guard(std::ptr::null_mut(), (), || {
+        if result.is_null() {
+            return;
+        }
+        if !(*result).raw.is_null() {
+            libc::free((*result).raw as *mut libc::c_void);
+        }
+        if !(*result).standardized.is_null() {
+            libc::free((*result).standardized as *mut libc::c_void);
+        }
+        if !(*result).studentized.is_null() {
+            libc::free((*result).studentized as *mut libc::c_void);
+        }
+        if !(*result).leverage.is_null() {
+            libc::free((*result).leverage as *mut libc::c_void);
+        }
+        if !(*result).cooks_distance.is_null() {
+            libc::free((*result).cooks_distance as *mut libc::c_void);
+        }
+    })
 }
 
 /// Compute AIC (Akaike Information Criterion)
@@ -1697,29 +1911,31 @@ pub unsafe extern "C" fn anofox_compute_aic(
     out_aic: *mut f64,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-
-    if out_aic.is_null() {
+    ffi_guard(out_error, false, || {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_aic is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
 
-    match compute_aic(rss, n, k) {
-        Ok(aic) => {
-            *out_aic = aic;
-            true
-        }
-        Err(e) => {
+        if out_aic.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(error_to_code(&e), &e.to_string());
+                (*out_error).set(ErrorCode::InvalidInput, "out_aic is NULL");
             }
-            false
+            return false;
         }
-    }
+
+        match compute_aic(rss, n, k) {
+            Ok(aic) => {
+                *out_aic = aic;
+                true
+            }
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
+        }
+    })
 }
 
 /// Compute BIC (Bayesian Information Criterion)
@@ -1742,29 +1958,31 @@ pub unsafe extern "C" fn anofox_compute_bic(
     out_bic: *mut f64,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-
-    if out_bic.is_null() {
+    ffi_guard(out_error, false, || {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_bic is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
 
-    match compute_bic(rss, n, k) {
-        Ok(bic) => {
-            *out_bic = bic;
-            true
-        }
-        Err(e) => {
+        if out_bic.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(error_to_code(&e), &e.to_string());
+                (*out_error).set(ErrorCode::InvalidInput, "out_bic is NULL");
             }
-            false
+            return false;
         }
-    }
+
+        match compute_bic(rss, n, k) {
+            Ok(bic) => {
+                *out_bic = bic;
+                true
+            }
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
+        }
+    })
 }
 
 // ============================================================================
@@ -1811,79 +2029,89 @@ pub unsafe extern "C" fn anofox_rls_fit(
     out_core: *mut FitResultCore,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-
-    if out_core.is_null() {
+    ffi_guard(out_error, false, || {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_core is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
 
-    if x.is_null() || x_count == 0 {
-        if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
-        }
-        return false;
-    }
-
-    // Convert y to Vec
-    let y_vec = y.to_vec();
-
-    // Convert x arrays to Vec<Vec<f64>>
-    let x_arrays = slice::from_raw_parts(x, x_count);
-    let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
-
-    // Convert options
-    let opts = RlsOptions {
-        forgetting_factor: options.forgetting_factor,
-        fit_intercept: options.fit_intercept,
-        initial_p_diagonal: options.initial_p_diagonal,
-    };
-
-    // Call the core function
-    let result = fit_rls(&y_vec, &x_vecs, &opts);
-
-    match result {
-        Ok(state) => {
-            let coefficients = state.get_coefficients();
-            let n_coef = coefficients.len();
-
-            // Allocate and copy coefficients
-            let coef_ptr = libc::malloc(n_coef * std::mem::size_of::<f64>()) as *mut f64;
-            if coef_ptr.is_null() && n_coef > 0 {
-                if !out_error.is_null() {
-                    (*out_error).set(
-                        ErrorCode::AllocationFailure,
-                        "Failed to allocate coefficients",
-                    );
-                }
-                return false;
-            }
-            std::ptr::copy_nonoverlapping(coefficients.as_ptr(), coef_ptr, n_coef);
-
-            (*out_core) = FitResultCore {
-                coefficients: coef_ptr,
-                coefficients_len: n_coef,
-                intercept: state.get_intercept().unwrap_or(f64::NAN),
-                r_squared: f64::NAN, // RLS doesn't compute R² during fitting
-                adj_r_squared: f64::NAN,
-                residual_std_error: f64::NAN,
-                n_observations: state.n_observations,
-                n_features: state.n_features,
-            };
-
-            true
-        }
-        Err(e) => {
+        if out_core.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(error_to_code(&e), &e.to_string());
+                (*out_error).set(ErrorCode::InvalidInput, "out_core is NULL");
             }
-            false
+            return false;
         }
-    }
+
+        if x.is_null() || x_count == 0 {
+            if !out_error.is_null() {
+                (*out_error).set(
+                    if x_count == 0 {
+                        ErrorCode::InsufficientData
+                    } else {
+                        ErrorCode::InvalidInput
+                    },
+                    "x is NULL or empty",
+                );
+            }
+            return false;
+        }
+
+        // Convert y to Vec
+        let y_vec = y.to_vec();
+
+        // Convert x arrays to Vec<Vec<f64>>
+        let x_arrays = slice::from_raw_parts(x, x_count);
+        let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
+
+        // Convert options
+        let opts = RlsOptions {
+            forgetting_factor: options.forgetting_factor,
+            fit_intercept: options.fit_intercept,
+            initial_p_diagonal: options.initial_p_diagonal,
+        };
+
+        // Call the core function
+        let result = fit_rls(&y_vec, &x_vecs, &opts);
+
+        match result {
+            Ok(fit) => {
+                let core = fit.core;
+                let coefficients = core.coefficients;
+                let n_coef = coefficients.len();
+
+                // Allocate and copy coefficients
+                let coef_ptr = libc::malloc(n_coef * std::mem::size_of::<f64>()) as *mut f64;
+                if coef_ptr.is_null() && n_coef > 0 {
+                    if !out_error.is_null() {
+                        (*out_error).set(
+                            ErrorCode::AllocationFailure,
+                            "Failed to allocate coefficients",
+                        );
+                    }
+                    return false;
+                }
+                std::ptr::copy_nonoverlapping(coefficients.as_ptr(), coef_ptr, n_coef);
+
+                (*out_core) = FitResultCore {
+                    coefficients: coef_ptr,
+                    coefficients_len: n_coef,
+                    intercept: core.intercept.unwrap_or(f64::NAN),
+                    r_squared: core.r_squared,
+                    adj_r_squared: core.adj_r_squared,
+                    residual_std_error: core.residual_std_error,
+                    n_observations: core.n_observations,
+                    n_features: core.n_features,
+                };
+
+                true
+            }
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
+        }
+    })
 }
 
 // ============================================================================
@@ -1929,37 +2157,39 @@ pub unsafe extern "C" fn anofox_jarque_bera(
     out_result: *mut JarqueBeraResultFFI,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-
-    if out_result.is_null() {
+    ffi_guard(out_error, false, || {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
 
-    let data_vec = data.to_vec();
-
-    match jarque_bera(&data_vec) {
-        Ok(result) => {
-            *out_result = JarqueBeraResultFFI {
-                statistic: result.statistic,
-                p_value: result.p_value,
-                skewness: result.skewness,
-                kurtosis: result.kurtosis,
-                n: result.n,
-            };
-            true
-        }
-        Err(e) => {
+        if out_result.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(error_to_code(&e), &e.to_string());
+                (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
             }
-            false
+            return false;
         }
-    }
+
+        let data_vec = data.to_vec();
+
+        match jarque_bera(&data_vec) {
+            Ok(result) => {
+                *out_result = JarqueBeraResultFFI {
+                    statistic: result.statistic,
+                    p_value: result.p_value,
+                    skewness: result.skewness,
+                    kurtosis: result.kurtosis,
+                    n: result.n,
+                };
+                true
+            }
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
+        }
+    })
 }
 
 // ============================================================================
@@ -1976,19 +2206,9 @@ pub unsafe extern "C" fn anofox_jarque_bera(
 /// The t-critical value, or NaN if invalid inputs
 #[no_mangle]
 pub extern "C" fn anofox_t_critical(confidence_level: f64, df: usize) -> f64 {
-    if df == 0 || confidence_level <= 0.0 || confidence_level >= 1.0 {
-        return f64::NAN;
-    }
-
-    // Create t-distribution with given degrees of freedom
-    let t_dist = match StudentsT::new(0.0, 1.0, df as f64) {
-        Ok(dist) => dist,
-        Err(_) => return f64::NAN,
-    };
-
-    // Two-tailed critical value: need quantile at (1 + confidence_level) / 2
-    let alpha = (1.0 + confidence_level) / 2.0;
-    t_dist.inverse_cdf(alpha)
+    ffi_guard(std::ptr::null_mut(), f64::NAN, || {
+        anofox_stats_core::models::t_critical(confidence_level, df)
+    })
 }
 
 /// Prediction result with confidence interval
@@ -2012,12 +2232,14 @@ impl Default for PredictionResult {
     }
 }
 
-/// Compute prediction with confidence interval for a single new observation
+/// Compute prediction with a prediction interval for a single new observation
+/// when the training design is not available.
 ///
-/// For OLS, the prediction interval is: yhat ± t_critical * se_pred
-/// where se_pred = residual_std_error * sqrt(1 + 1/n + distance_from_mean)
-///
-/// For simplicity, this function uses a simplified formula assuming average leverage.
+/// The interval assumes the new row sits at the centroid of the training data
+/// (leverage `1/n`): `yhat ± t_{df} * s * sqrt(1 + 1/n)`, `df = n - p`. Use
+/// `anofox_interval_matrix` + `anofox_predict_with_interval_matrix` for
+/// leverage-aware intervals. When no interval can be formed the bounds equal
+/// `yhat`.
 ///
 /// # Safety
 /// - `coefficients` must point to `coefficients_len` valid doubles
@@ -2035,79 +2257,234 @@ pub unsafe extern "C" fn anofox_predict_with_interval(
     confidence_level: f64,
     out_result: *mut PredictionResult,
 ) -> bool {
-    if out_result.is_null() {
-        return false;
-    }
-
-    // Initialize with NaN
-    *out_result = PredictionResult::default();
-
-    // Validate inputs
-    if coefficients.is_null() || coefficients_len == 0 {
-        return false;
-    }
-    if x_new.is_null() || x_len != coefficients_len {
-        return false;
-    }
-
-    // Compute prediction: yhat = intercept + sum(coefficients[i] * x_new[i])
-    // NaN coefficients contribute 0 (skip them to avoid NaN propagation)
-    let coef_slice = slice::from_raw_parts(coefficients, coefficients_len);
-    let x_slice = slice::from_raw_parts(x_new, x_len);
-
-    let intercept_val = if intercept.is_nan() { 0.0 } else { intercept };
-    let mut yhat = intercept_val;
-    for (coef, x_val) in coef_slice.iter().zip(x_slice.iter()) {
-        if !coef.is_nan() {
-            yhat += coef * x_val;
+    ffi_guard(std::ptr::null_mut(), false, || {
+        if out_result.is_null() {
+            return false;
         }
-    }
+        *out_result = PredictionResult::default();
+        if coefficients.is_null() || coefficients_len == 0 {
+            return false;
+        }
+        if x_new.is_null() || x_len != coefficients_len {
+            return false;
+        }
+        let coef_slice = slice::from_raw_parts(coefficients, coefficients_len);
+        let x_slice = slice::from_raw_parts(x_new, x_len);
+        let (yhat, lo, hi) = anofox_stats_core::models::predict_with_centroid_interval(
+            coef_slice,
+            intercept,
+            x_slice,
+            residual_std_error,
+            n_observations,
+            confidence_level,
+        );
+        *out_result = PredictionResult {
+            yhat,
+            yhat_lower: lo,
+            yhat_upper: hi,
+        };
+        true
+    })
+}
 
-    (*out_result).yhat = yhat;
+/// Compute the leverage matrix `M` for leverage-aware prediction intervals.
+///
+/// The predictive variance factor of a new row `x0` (augmented with a leading
+/// 1 when `fit_intercept`) is `x0' M x0`:
+/// OLS `M = (X'X)^-1`; with `weights` `M = (X'WX)^-1`; with `ridge_lambda > 0`
+/// `M = A X'(W)X A`, `A = (X'(W)X + lambda*I)^-1` with the intercept unpenalised
+/// (matches `anofox_ridge_fit`; pass the *effective* lambda, i.e. `lambda * n`
+/// under glmnet scaling). Columns whose coefficient is NaN (aliased/constant)
+/// or exactly 0.0 (inactive in sparse fits) are excluded and their rows/columns
+/// are 0. Rows with a non-finite x value (or non-finite/negative weight) are
+/// skipped.
+///
+/// On success `*out_matrix` receives a malloc'd row-major `dim x dim` matrix
+/// (`dim = x_count + fit_intercept`) that must be released with
+/// `anofox_free_interval_matrix`, and `*out_dim = dim`.
+///
+/// # Safety
+/// - `x` must point to `x_count` valid DataArrays of equal length
+/// - `coefficients` must point to `coefficients_len` doubles (`== x_count`)
+/// - `weights` may be NULL; otherwise a valid DataArray of the same length
+/// - `out_matrix`, `out_dim` must be valid pointers; `out_error` may be NULL
+#[no_mangle]
+pub unsafe extern "C" fn anofox_interval_matrix(
+    x: *const DataArray,
+    x_count: usize,
+    coefficients: *const f64,
+    coefficients_len: usize,
+    fit_intercept: bool,
+    weights: *const DataArray,
+    ridge_lambda: f64,
+    out_matrix: *mut *mut f64,
+    out_dim: *mut usize,
+    out_error: *mut AnofoxError,
+) -> bool {
+    ffi_guard(out_error, false, || {
+        if !out_error.is_null() {
+            *out_error = AnofoxError::success();
+        }
+        let fail = |code: ErrorCode, msg: &str| {
+            if !out_error.is_null() {
+                (*out_error).set(code, msg);
+            }
+            false
+        };
+        if out_matrix.is_null() || out_dim.is_null() {
+            return fail(ErrorCode::InvalidInput, "out_matrix or out_dim is NULL");
+        }
+        *out_matrix = std::ptr::null_mut();
+        *out_dim = 0;
+        if x_count == 0 || x.is_null() {
+            return fail(ErrorCode::InvalidInput, "x is NULL or empty");
+        }
+        if coefficients.is_null() || coefficients_len != x_count {
+            return fail(
+                ErrorCode::DimensionMismatch,
+                "coefficients is NULL or coefficients_len != x_count",
+            );
+        }
 
-    // Compute prediction interval if we have valid std error
-    if residual_std_error.is_nan()
-        || residual_std_error <= 0.0
-        || n_observations <= coefficients_len + 1
-    {
-        // No valid interval, just return yhat with same bounds
-        (*out_result).yhat_lower = yhat;
-        (*out_result).yhat_upper = yhat;
-        return true;
-    }
+        let x_vecs: Vec<Vec<f64>> = slice::from_raw_parts(x, x_count)
+            .iter()
+            .map(|arr| arr.to_vec())
+            .collect();
+        let coef = slice::from_raw_parts(coefficients, coefficients_len);
+        let w_vec = if weights.is_null() {
+            None
+        } else {
+            Some((*weights).to_vec())
+        };
 
-    // Degrees of freedom
-    let has_intercept = !intercept.is_nan();
-    let df = if has_intercept {
-        n_observations.saturating_sub(coefficients_len + 1)
-    } else {
-        n_observations.saturating_sub(coefficients_len)
-    };
+        match anofox_stats_core::models::interval_matrix(
+            &x_vecs,
+            coef,
+            fit_intercept,
+            w_vec.as_deref(),
+            ridge_lambda,
+        ) {
+            Ok((m, dim)) => match FfiVec::<f64>::alloc(m.len()) {
+                Some(buf) => {
+                    buf.copy_from_slice(&m);
+                    *out_matrix = buf.into_raw();
+                    *out_dim = dim;
+                    true
+                }
+                None => fail(ErrorCode::AllocationFailure, "Failed to allocate matrix"),
+            },
+            Err(e) => fail(error_to_code(&e), &e.to_string()),
+        }
+    })
+}
 
-    if df == 0 {
-        (*out_result).yhat_lower = yhat;
-        (*out_result).yhat_upper = yhat;
-        return true;
-    }
+/// Free a matrix returned by `anofox_interval_matrix`.
+///
+/// # Safety
+/// `matrix` must be NULL or a pointer returned by `anofox_interval_matrix`.
+#[no_mangle]
+pub unsafe extern "C" fn anofox_free_interval_matrix(matrix: *mut f64) {
+    ffi_guard(std::ptr::null_mut(), (), || {
+        if !matrix.is_null() {
+            libc::free(matrix as *mut libc::c_void);
+        }
+    })
+}
 
-    // Get t-critical value
-    let t_crit = anofox_t_critical(confidence_level, df);
-    if t_crit.is_nan() {
-        (*out_result).yhat_lower = yhat;
-        (*out_result).yhat_upper = yhat;
-        return true;
-    }
-
-    // Simplified prediction interval formula: yhat ± t * se * sqrt(1 + 1/n)
-    // This ignores the leverage term for simplicity (assumes average leverage)
-    let n = n_observations as f64;
-    let se_pred = residual_std_error * (1.0 + 1.0 / n).sqrt();
-    let margin = t_crit * se_pred;
-
-    (*out_result).yhat_lower = yhat - margin;
-    (*out_result).yhat_upper = yhat + margin;
-
-    true
+/// Point prediction with a leverage-aware interval.
+///
+/// `yhat ± t_{df} * s * sqrt(1 + x0' M x0)` for `interval_type == 0`
+/// (prediction interval) or `sqrt(x0' M x0)` for `interval_type == 1`
+/// (confidence interval for the mean), with `df = n_observations -
+/// n_params_effective` (`n_params_effective` counts the intercept). `matrix`,
+/// `dim` come from `anofox_interval_matrix`; `dim` must equal
+/// `x_len + (intercept is not NaN)`. If `df == 0` or `residual_std_error` is not
+/// a positive finite number the bounds are NaN (still returns true).
+///
+/// # Safety
+/// - `coefficients`, `x_new` must point to `coefficients_len` / `x_len` doubles
+/// - `matrix` must point to `dim * dim` doubles
+/// - `out_result` must be valid; `out_error` may be NULL
+#[no_mangle]
+pub unsafe extern "C" fn anofox_predict_with_interval_matrix(
+    coefficients: *const f64,
+    coefficients_len: usize,
+    intercept: f64,
+    x_new: *const f64,
+    x_len: usize,
+    matrix: *const f64,
+    dim: usize,
+    n_observations: usize,
+    n_params_effective: usize,
+    residual_std_error: f64,
+    confidence_level: f64,
+    interval_type: i32,
+    out_result: *mut PredictionResult,
+    out_error: *mut AnofoxError,
+) -> bool {
+    ffi_guard(out_error, false, || {
+        if !out_error.is_null() {
+            *out_error = AnofoxError::success();
+        }
+        let fail = |code: ErrorCode, msg: &str| {
+            if !out_error.is_null() {
+                (*out_error).set(code, msg);
+            }
+            false
+        };
+        if out_result.is_null() {
+            return fail(ErrorCode::InvalidInput, "out_result is NULL");
+        }
+        *out_result = PredictionResult::default();
+        let kind = match interval_type {
+            0 => anofox_stats_core::models::IntervalType::Prediction,
+            1 => anofox_stats_core::models::IntervalType::Confidence,
+            _ => return fail(ErrorCode::InvalidInput, "interval_type must be 0 or 1"),
+        };
+        if (coefficients.is_null() && coefficients_len > 0)
+            || (x_new.is_null() && x_len > 0)
+            || matrix.is_null()
+        {
+            return fail(ErrorCode::InvalidInput, "NULL input pointer");
+        }
+        let n_m = match dim.checked_mul(dim) {
+            Some(v) if v > 0 => v,
+            _ => return fail(ErrorCode::InvalidInput, "invalid matrix dim"),
+        };
+        let coef: &[f64] = if coefficients_len == 0 {
+            &[]
+        } else {
+            slice::from_raw_parts(coefficients, coefficients_len)
+        };
+        let xs: &[f64] = if x_len == 0 {
+            &[]
+        } else {
+            slice::from_raw_parts(x_new, x_len)
+        };
+        let m = slice::from_raw_parts(matrix, n_m);
+        match anofox_stats_core::models::predict_with_interval_matrix(
+            coef,
+            intercept,
+            xs,
+            m,
+            dim,
+            n_observations,
+            n_params_effective,
+            residual_std_error,
+            confidence_level,
+            kind,
+        ) {
+            Ok((yhat, lo, hi)) => {
+                *out_result = PredictionResult {
+                    yhat,
+                    yhat_lower: lo,
+                    yhat_upper: hi,
+                };
+                true
+            }
+            Err(e) => fail(error_to_code(&e), &e.to_string()),
+        }
+    })
 }
 
 // =============================================================================
@@ -2131,144 +2508,156 @@ pub unsafe extern "C" fn anofox_poisson_fit(
     out_inference: *mut FitResultInference,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-
-    if out_result.is_null() {
+    ffi_guard(out_error, false, || {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
-
-    if x.is_null() || x_count == 0 {
-        if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
+        if !check_confidence_level(options.confidence_level, out_error) {
+            return false;
         }
-        return false;
-    }
 
-    let y_vec = y.to_vec();
-    let x_arrays = slice::from_raw_parts(x, x_count);
-    let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
-
-    // Convert FFI options to core options
-    let link = match options.link {
-        PoissonLinkFFI::Log => PoissonLink::Log,
-        PoissonLinkFFI::Identity => PoissonLink::Identity,
-        PoissonLinkFFI::Sqrt => PoissonLink::Sqrt,
-    };
-
-    let opts = PoissonOptions {
-        fit_intercept: options.fit_intercept,
-        link,
-        max_iterations: options.max_iterations,
-        tolerance: options.tolerance,
-        compute_inference: options.compute_inference,
-        confidence_level: options.confidence_level,
-        lambda: options.lambda,
-        prior_opts: GlmPriorOptions {
-            priors: priors_from_ffi(options.priors, options.priors_len),
-            vcov: vcov_from_ffi(options.vcov),
-        },
-        offset_column: if options.offset_column == 0 {
-            None
-        } else {
-            Some(options.offset_column)
-        },
-    };
-
-    let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        fit_poisson(&y_vec, &x_vecs, &opts)
-    }));
-
-    let fit_result = match fit_result {
-        Ok(r) => r,
-        Err(_) => {
+        if out_result.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InternalError, "Internal panic in Poisson fit");
+                (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
             }
             return false;
         }
-    };
 
-    match fit_result {
-        Ok(result) => {
-            let n_coef = result.core.coefficients.len();
-            let coef_ptr = libc::malloc(n_coef * std::mem::size_of::<f64>()) as *mut f64;
-            if coef_ptr.is_null() && n_coef > 0 {
+        if x.is_null() || x_count == 0 {
+            if !out_error.is_null() {
+                (*out_error).set(
+                    if x_count == 0 {
+                        ErrorCode::InsufficientData
+                    } else {
+                        ErrorCode::InvalidInput
+                    },
+                    "x is NULL or empty",
+                );
+            }
+            return false;
+        }
+
+        let y_vec = y.to_vec();
+        let x_arrays = slice::from_raw_parts(x, x_count);
+        let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
+
+        // Convert FFI options to core options
+        let link = match options.link {
+            PoissonLinkFFI::Log => PoissonLink::Log,
+            PoissonLinkFFI::Identity => PoissonLink::Identity,
+            PoissonLinkFFI::Sqrt => PoissonLink::Sqrt,
+        };
+
+        let opts = PoissonOptions {
+            fit_intercept: options.fit_intercept,
+            link,
+            max_iterations: options.max_iterations,
+            tolerance: options.tolerance,
+            compute_inference: options.compute_inference,
+            confidence_level: options.confidence_level,
+            lambda: options.lambda,
+            prior_opts: GlmPriorOptions {
+                priors: priors_from_ffi(options.priors, options.priors_len),
+                vcov: vcov_from_ffi(options.vcov),
+            },
+            offset_column: if options.offset_column == 0 {
+                None
+            } else {
+                Some(options.offset_column)
+            },
+        };
+
+        let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            fit_poisson(&y_vec, &x_vecs, &opts)
+        }));
+
+        let fit_result = match fit_result {
+            Ok(r) => r,
+            Err(_) => {
                 if !out_error.is_null() {
-                    (*out_error).set(
-                        ErrorCode::AllocationFailure,
-                        "Failed to allocate coefficients",
-                    );
+                    (*out_error).set(ErrorCode::InternalError, "Internal panic in Poisson fit");
                 }
                 return false;
             }
-            std::ptr::copy_nonoverlapping(result.core.coefficients.as_ptr(), coef_ptr, n_coef);
+        };
 
-            (*out_result) = GlmFitResultCore {
-                coefficients: coef_ptr,
-                coefficients_len: n_coef,
-                intercept: result.core.intercept.unwrap_or(f64::NAN),
-                deviance: result.core.residual_deviance,
-                null_deviance: result.core.null_deviance,
-                pseudo_r_squared: result.core.pseudo_r_squared,
-                aic: result.core.aic,
-                dispersion: result.core.dispersion.unwrap_or(f64::NAN),
-                n_observations: result.core.n_observations,
-                n_features: result.core.n_features,
-                iterations: result.core.iterations,
-                converged: result.core.converged,
-            };
-
-            // Fill inference if available
-            if !out_inference.is_null() {
-                if let Some(inf) = result.inference {
-                    // NOTE: hand-written (not the alloc_inference_arrays! macro) — this GLM fit maps
-                    // `z_values` onto the t_values field and uses a lenient OOM path, a different
-                    // inference contract than the strict linear-model pattern the macro encodes.
-                    let n = inf.std_errors.len();
-                    let std_err_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-                    let t_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-                    let p_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-                    let ci_lo_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-                    let ci_hi_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-
-                    if n > 0 && !std_err_ptr.is_null() {
-                        std::ptr::copy_nonoverlapping(inf.std_errors.as_ptr(), std_err_ptr, n);
-                        std::ptr::copy_nonoverlapping(inf.z_values.as_ptr(), t_val_ptr, n);
-                        std::ptr::copy_nonoverlapping(inf.p_values.as_ptr(), p_val_ptr, n);
-                        std::ptr::copy_nonoverlapping(inf.ci_lower.as_ptr(), ci_lo_ptr, n);
-                        std::ptr::copy_nonoverlapping(inf.ci_upper.as_ptr(), ci_hi_ptr, n);
+        match fit_result {
+            Ok(result) => {
+                let n_coef = result.core.coefficients.len();
+                let coef_ptr = libc::malloc(n_coef * std::mem::size_of::<f64>()) as *mut f64;
+                if coef_ptr.is_null() && n_coef > 0 {
+                    if !out_error.is_null() {
+                        (*out_error).set(
+                            ErrorCode::AllocationFailure,
+                            "Failed to allocate coefficients",
+                        );
                     }
-
-                    (*out_inference) = FitResultInference {
-                        std_errors: std_err_ptr,
-                        t_values: t_val_ptr,
-                        p_values: p_val_ptr,
-                        ci_lower: ci_lo_ptr,
-                        ci_upper: ci_hi_ptr,
-                        len: n,
-                        confidence_level: inf.confidence_level,
-                        f_statistic: f64::NAN,
-                        f_pvalue: f64::NAN,
-                    };
-                } else {
-                    (*out_inference) = FitResultInference::default();
+                    return false;
                 }
-            }
+                std::ptr::copy_nonoverlapping(result.core.coefficients.as_ptr(), coef_ptr, n_coef);
 
-            true
-        }
-        Err(e) => {
-            if !out_error.is_null() {
-                (*out_error).set(error_to_code(&e), &e.to_string());
+                (*out_result) = GlmFitResultCore {
+                    coefficients: coef_ptr,
+                    coefficients_len: n_coef,
+                    intercept: result.core.intercept.unwrap_or(f64::NAN),
+                    deviance: result.core.residual_deviance,
+                    null_deviance: result.core.null_deviance,
+                    pseudo_r_squared: result.core.pseudo_r_squared,
+                    aic: result.core.aic,
+                    dispersion: result.core.dispersion.unwrap_or(f64::NAN),
+                    n_observations: result.core.n_observations,
+                    n_features: result.core.n_features,
+                    iterations: result.core.iterations,
+                    converged: result.core.converged,
+                };
+
+                // Fill inference if available
+                if !out_inference.is_null() {
+                    if let Some(inf) = result.inference {
+                        // NOTE: hand-written (not the alloc_inference_arrays! macro) — this GLM fit maps
+                        // `z_values` onto the t_values field and uses a lenient OOM path, a different
+                        // inference contract than the strict linear-model pattern the macro encodes.
+                        let n = inf.std_errors.len();
+                        let std_err_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                        let t_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                        let p_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                        let ci_lo_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                        let ci_hi_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+
+                        if n > 0 && !std_err_ptr.is_null() {
+                            std::ptr::copy_nonoverlapping(inf.std_errors.as_ptr(), std_err_ptr, n);
+                            std::ptr::copy_nonoverlapping(inf.z_values.as_ptr(), t_val_ptr, n);
+                            std::ptr::copy_nonoverlapping(inf.p_values.as_ptr(), p_val_ptr, n);
+                            std::ptr::copy_nonoverlapping(inf.ci_lower.as_ptr(), ci_lo_ptr, n);
+                            std::ptr::copy_nonoverlapping(inf.ci_upper.as_ptr(), ci_hi_ptr, n);
+                        }
+
+                        (*out_inference) = FitResultInference {
+                            std_errors: std_err_ptr,
+                            t_values: t_val_ptr,
+                            p_values: p_val_ptr,
+                            ci_lower: ci_lo_ptr,
+                            ci_upper: ci_hi_ptr,
+                            len: n,
+                            confidence_level: inf.confidence_level,
+                            f_statistic: f64::NAN,
+                            f_pvalue: f64::NAN,
+                        };
+                    } else {
+                        (*out_inference) = FitResultInference::default();
+                    }
+                }
+
+                true
             }
-            false
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
         }
-    }
+    })
 }
 
 /// Fit a Binomial (logistic) regression model
@@ -2289,142 +2678,154 @@ pub unsafe extern "C" fn anofox_binomial_fit(
     out_inference: *mut FitResultInference,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-
-    if out_result.is_null() {
+    ffi_guard(out_error, false, || {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
-
-    if x.is_null() || x_count == 0 {
-        if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
+        if !check_confidence_level(options.confidence_level, out_error) {
+            return false;
         }
-        return false;
-    }
 
-    let y_vec = y.to_vec();
-    let x_arrays = slice::from_raw_parts(x, x_count);
-    let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
-
-    let link = match options.link {
-        BinomialLinkFFI::Logit => BinomialLink::Logit,
-        BinomialLinkFFI::Probit => BinomialLink::Probit,
-        BinomialLinkFFI::Cloglog => BinomialLink::Cloglog,
-    };
-
-    let opts = BinomialOptions {
-        fit_intercept: options.fit_intercept,
-        link,
-        max_iterations: options.max_iterations,
-        tolerance: options.tolerance,
-        compute_inference: options.compute_inference,
-        confidence_level: options.confidence_level,
-        lambda: options.lambda,
-        prior_opts: GlmPriorOptions {
-            priors: priors_from_ffi(options.priors, options.priors_len),
-            vcov: vcov_from_ffi(options.vcov),
-        },
-        offset_column: if options.offset_column == 0 {
-            None
-        } else {
-            Some(options.offset_column)
-        },
-    };
-
-    let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        fit_binomial(&y_vec, &x_vecs, &opts)
-    }));
-
-    let fit_result = match fit_result {
-        Ok(r) => r,
-        Err(_) => {
+        if out_result.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InternalError, "Internal panic in Binomial fit");
+                (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
             }
             return false;
         }
-    };
 
-    match fit_result {
-        Ok(result) => {
-            let n_coef = result.core.coefficients.len();
-            let coef_ptr = libc::malloc(n_coef * std::mem::size_of::<f64>()) as *mut f64;
-            if coef_ptr.is_null() && n_coef > 0 {
+        if x.is_null() || x_count == 0 {
+            if !out_error.is_null() {
+                (*out_error).set(
+                    if x_count == 0 {
+                        ErrorCode::InsufficientData
+                    } else {
+                        ErrorCode::InvalidInput
+                    },
+                    "x is NULL or empty",
+                );
+            }
+            return false;
+        }
+
+        let y_vec = y.to_vec();
+        let x_arrays = slice::from_raw_parts(x, x_count);
+        let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
+
+        let link = match options.link {
+            BinomialLinkFFI::Logit => BinomialLink::Logit,
+            BinomialLinkFFI::Probit => BinomialLink::Probit,
+            BinomialLinkFFI::Cloglog => BinomialLink::Cloglog,
+        };
+
+        let opts = BinomialOptions {
+            fit_intercept: options.fit_intercept,
+            link,
+            max_iterations: options.max_iterations,
+            tolerance: options.tolerance,
+            compute_inference: options.compute_inference,
+            confidence_level: options.confidence_level,
+            lambda: options.lambda,
+            prior_opts: GlmPriorOptions {
+                priors: priors_from_ffi(options.priors, options.priors_len),
+                vcov: vcov_from_ffi(options.vcov),
+            },
+            offset_column: if options.offset_column == 0 {
+                None
+            } else {
+                Some(options.offset_column)
+            },
+        };
+
+        let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            fit_binomial(&y_vec, &x_vecs, &opts)
+        }));
+
+        let fit_result = match fit_result {
+            Ok(r) => r,
+            Err(_) => {
                 if !out_error.is_null() {
-                    (*out_error).set(
-                        ErrorCode::AllocationFailure,
-                        "Failed to allocate coefficients",
-                    );
+                    (*out_error).set(ErrorCode::InternalError, "Internal panic in Binomial fit");
                 }
                 return false;
             }
-            std::ptr::copy_nonoverlapping(result.core.coefficients.as_ptr(), coef_ptr, n_coef);
+        };
 
-            (*out_result) = GlmFitResultCore {
-                coefficients: coef_ptr,
-                coefficients_len: n_coef,
-                intercept: result.core.intercept.unwrap_or(f64::NAN),
-                deviance: result.core.residual_deviance,
-                null_deviance: result.core.null_deviance,
-                pseudo_r_squared: result.core.pseudo_r_squared,
-                aic: result.core.aic,
-                dispersion: result.core.dispersion.unwrap_or(f64::NAN),
-                n_observations: result.core.n_observations,
-                n_features: result.core.n_features,
-                iterations: result.core.iterations,
-                converged: result.core.converged,
-            };
-
-            if !out_inference.is_null() {
-                if let Some(inf) = result.inference {
-                    // NOTE: hand-written (not the alloc_inference_arrays! macro) — this GLM fit maps
-                    // `z_values` onto the t_values field and uses a lenient OOM path, a different
-                    // inference contract than the strict linear-model pattern the macro encodes.
-                    let n = inf.std_errors.len();
-                    let std_err_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-                    let t_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-                    let p_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-                    let ci_lo_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-                    let ci_hi_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-
-                    if n > 0 && !std_err_ptr.is_null() {
-                        std::ptr::copy_nonoverlapping(inf.std_errors.as_ptr(), std_err_ptr, n);
-                        std::ptr::copy_nonoverlapping(inf.z_values.as_ptr(), t_val_ptr, n);
-                        std::ptr::copy_nonoverlapping(inf.p_values.as_ptr(), p_val_ptr, n);
-                        std::ptr::copy_nonoverlapping(inf.ci_lower.as_ptr(), ci_lo_ptr, n);
-                        std::ptr::copy_nonoverlapping(inf.ci_upper.as_ptr(), ci_hi_ptr, n);
+        match fit_result {
+            Ok(result) => {
+                let n_coef = result.core.coefficients.len();
+                let coef_ptr = libc::malloc(n_coef * std::mem::size_of::<f64>()) as *mut f64;
+                if coef_ptr.is_null() && n_coef > 0 {
+                    if !out_error.is_null() {
+                        (*out_error).set(
+                            ErrorCode::AllocationFailure,
+                            "Failed to allocate coefficients",
+                        );
                     }
-
-                    (*out_inference) = FitResultInference {
-                        std_errors: std_err_ptr,
-                        t_values: t_val_ptr,
-                        p_values: p_val_ptr,
-                        ci_lower: ci_lo_ptr,
-                        ci_upper: ci_hi_ptr,
-                        len: n,
-                        confidence_level: inf.confidence_level,
-                        f_statistic: f64::NAN,
-                        f_pvalue: f64::NAN,
-                    };
-                } else {
-                    (*out_inference) = FitResultInference::default();
+                    return false;
                 }
-            }
+                std::ptr::copy_nonoverlapping(result.core.coefficients.as_ptr(), coef_ptr, n_coef);
 
-            true
-        }
-        Err(e) => {
-            if !out_error.is_null() {
-                (*out_error).set(error_to_code(&e), &e.to_string());
+                (*out_result) = GlmFitResultCore {
+                    coefficients: coef_ptr,
+                    coefficients_len: n_coef,
+                    intercept: result.core.intercept.unwrap_or(f64::NAN),
+                    deviance: result.core.residual_deviance,
+                    null_deviance: result.core.null_deviance,
+                    pseudo_r_squared: result.core.pseudo_r_squared,
+                    aic: result.core.aic,
+                    dispersion: result.core.dispersion.unwrap_or(f64::NAN),
+                    n_observations: result.core.n_observations,
+                    n_features: result.core.n_features,
+                    iterations: result.core.iterations,
+                    converged: result.core.converged,
+                };
+
+                if !out_inference.is_null() {
+                    if let Some(inf) = result.inference {
+                        // NOTE: hand-written (not the alloc_inference_arrays! macro) — this GLM fit maps
+                        // `z_values` onto the t_values field and uses a lenient OOM path, a different
+                        // inference contract than the strict linear-model pattern the macro encodes.
+                        let n = inf.std_errors.len();
+                        let std_err_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                        let t_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                        let p_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                        let ci_lo_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                        let ci_hi_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+
+                        if n > 0 && !std_err_ptr.is_null() {
+                            std::ptr::copy_nonoverlapping(inf.std_errors.as_ptr(), std_err_ptr, n);
+                            std::ptr::copy_nonoverlapping(inf.z_values.as_ptr(), t_val_ptr, n);
+                            std::ptr::copy_nonoverlapping(inf.p_values.as_ptr(), p_val_ptr, n);
+                            std::ptr::copy_nonoverlapping(inf.ci_lower.as_ptr(), ci_lo_ptr, n);
+                            std::ptr::copy_nonoverlapping(inf.ci_upper.as_ptr(), ci_hi_ptr, n);
+                        }
+
+                        (*out_inference) = FitResultInference {
+                            std_errors: std_err_ptr,
+                            t_values: t_val_ptr,
+                            p_values: p_val_ptr,
+                            ci_lower: ci_lo_ptr,
+                            ci_upper: ci_hi_ptr,
+                            len: n,
+                            confidence_level: inf.confidence_level,
+                            f_statistic: f64::NAN,
+                            f_pvalue: f64::NAN,
+                        };
+                    } else {
+                        (*out_inference) = FitResultInference::default();
+                    }
+                }
+
+                true
             }
-            false
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
         }
-    }
+    })
 }
 
 /// Fit a Negative Binomial regression model
@@ -2445,144 +2846,156 @@ pub unsafe extern "C" fn anofox_negbinomial_fit(
     out_inference: *mut FitResultInference,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-
-    if out_result.is_null() {
+    ffi_guard(out_error, false, || {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
-
-    if x.is_null() || x_count == 0 {
-        if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
+        if !check_confidence_level(options.confidence_level, out_error) {
+            return false;
         }
-        return false;
-    }
 
-    let y_vec = y.to_vec();
-    let x_arrays = slice::from_raw_parts(x, x_count);
-    let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
+        if out_result.is_null() {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+            }
+            return false;
+        }
 
-    let opts = NegBinomialOptions {
-        fit_intercept: options.fit_intercept,
-        // NaN on the wire means "estimate theta from the data".
-        alpha: if options.alpha.is_nan() {
-            None
-        } else {
-            Some(options.alpha)
-        },
-        max_iterations: options.max_iterations,
-        tolerance: options.tolerance,
-        compute_inference: options.compute_inference,
-        confidence_level: options.confidence_level,
-        lambda: options.lambda,
-        prior_opts: GlmPriorOptions {
-            priors: priors_from_ffi(options.priors, options.priors_len),
-            vcov: vcov_from_ffi(options.vcov),
-        },
-        offset_column: if options.offset_column == 0 {
-            None
-        } else {
-            Some(options.offset_column)
-        },
-    };
-
-    let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        fit_negbinomial(&y_vec, &x_vecs, &opts)
-    }));
-
-    let fit_result = match fit_result {
-        Ok(r) => r,
-        Err(_) => {
+        if x.is_null() || x_count == 0 {
             if !out_error.is_null() {
                 (*out_error).set(
-                    ErrorCode::InternalError,
-                    "Internal panic in NegBinomial fit",
+                    if x_count == 0 {
+                        ErrorCode::InsufficientData
+                    } else {
+                        ErrorCode::InvalidInput
+                    },
+                    "x is NULL or empty",
                 );
             }
             return false;
         }
-    };
 
-    match fit_result {
-        Ok(result) => {
-            let n_coef = result.core.coefficients.len();
-            let coef_ptr = libc::malloc(n_coef * std::mem::size_of::<f64>()) as *mut f64;
-            if coef_ptr.is_null() && n_coef > 0 {
+        let y_vec = y.to_vec();
+        let x_arrays = slice::from_raw_parts(x, x_count);
+        let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
+
+        let opts = NegBinomialOptions {
+            fit_intercept: options.fit_intercept,
+            // NaN on the wire means "estimate theta from the data".
+            alpha: if options.alpha.is_nan() {
+                None
+            } else {
+                Some(options.alpha)
+            },
+            max_iterations: options.max_iterations,
+            tolerance: options.tolerance,
+            compute_inference: options.compute_inference,
+            confidence_level: options.confidence_level,
+            lambda: options.lambda,
+            prior_opts: GlmPriorOptions {
+                priors: priors_from_ffi(options.priors, options.priors_len),
+                vcov: vcov_from_ffi(options.vcov),
+            },
+            offset_column: if options.offset_column == 0 {
+                None
+            } else {
+                Some(options.offset_column)
+            },
+        };
+
+        let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            fit_negbinomial(&y_vec, &x_vecs, &opts)
+        }));
+
+        let fit_result = match fit_result {
+            Ok(r) => r,
+            Err(_) => {
                 if !out_error.is_null() {
                     (*out_error).set(
-                        ErrorCode::AllocationFailure,
-                        "Failed to allocate coefficients",
+                        ErrorCode::InternalError,
+                        "Internal panic in NegBinomial fit",
                     );
                 }
                 return false;
             }
-            std::ptr::copy_nonoverlapping(result.core.coefficients.as_ptr(), coef_ptr, n_coef);
+        };
 
-            (*out_result) = GlmFitResultCore {
-                coefficients: coef_ptr,
-                coefficients_len: n_coef,
-                intercept: result.core.intercept.unwrap_or(f64::NAN),
-                deviance: result.core.residual_deviance,
-                null_deviance: result.core.null_deviance,
-                pseudo_r_squared: result.core.pseudo_r_squared,
-                aic: result.core.aic,
-                dispersion: result.core.dispersion.unwrap_or(f64::NAN),
-                n_observations: result.core.n_observations,
-                n_features: result.core.n_features,
-                iterations: result.core.iterations,
-                converged: result.core.converged,
-            };
-
-            if !out_inference.is_null() {
-                if let Some(inf) = result.inference {
-                    // NOTE: hand-written (not the alloc_inference_arrays! macro) — this GLM fit maps
-                    // `z_values` onto the t_values field and uses a lenient OOM path, a different
-                    // inference contract than the strict linear-model pattern the macro encodes.
-                    let n = inf.std_errors.len();
-                    let std_err_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-                    let t_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-                    let p_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-                    let ci_lo_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-                    let ci_hi_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-
-                    if n > 0 && !std_err_ptr.is_null() {
-                        std::ptr::copy_nonoverlapping(inf.std_errors.as_ptr(), std_err_ptr, n);
-                        std::ptr::copy_nonoverlapping(inf.z_values.as_ptr(), t_val_ptr, n);
-                        std::ptr::copy_nonoverlapping(inf.p_values.as_ptr(), p_val_ptr, n);
-                        std::ptr::copy_nonoverlapping(inf.ci_lower.as_ptr(), ci_lo_ptr, n);
-                        std::ptr::copy_nonoverlapping(inf.ci_upper.as_ptr(), ci_hi_ptr, n);
+        match fit_result {
+            Ok(result) => {
+                let n_coef = result.core.coefficients.len();
+                let coef_ptr = libc::malloc(n_coef * std::mem::size_of::<f64>()) as *mut f64;
+                if coef_ptr.is_null() && n_coef > 0 {
+                    if !out_error.is_null() {
+                        (*out_error).set(
+                            ErrorCode::AllocationFailure,
+                            "Failed to allocate coefficients",
+                        );
                     }
-
-                    (*out_inference) = FitResultInference {
-                        std_errors: std_err_ptr,
-                        t_values: t_val_ptr,
-                        p_values: p_val_ptr,
-                        ci_lower: ci_lo_ptr,
-                        ci_upper: ci_hi_ptr,
-                        len: n,
-                        confidence_level: inf.confidence_level,
-                        f_statistic: f64::NAN,
-                        f_pvalue: f64::NAN,
-                    };
-                } else {
-                    (*out_inference) = FitResultInference::default();
+                    return false;
                 }
-            }
+                std::ptr::copy_nonoverlapping(result.core.coefficients.as_ptr(), coef_ptr, n_coef);
 
-            true
-        }
-        Err(e) => {
-            if !out_error.is_null() {
-                (*out_error).set(error_to_code(&e), &e.to_string());
+                (*out_result) = GlmFitResultCore {
+                    coefficients: coef_ptr,
+                    coefficients_len: n_coef,
+                    intercept: result.core.intercept.unwrap_or(f64::NAN),
+                    deviance: result.core.residual_deviance,
+                    null_deviance: result.core.null_deviance,
+                    pseudo_r_squared: result.core.pseudo_r_squared,
+                    aic: result.core.aic,
+                    dispersion: result.core.dispersion.unwrap_or(f64::NAN),
+                    n_observations: result.core.n_observations,
+                    n_features: result.core.n_features,
+                    iterations: result.core.iterations,
+                    converged: result.core.converged,
+                };
+
+                if !out_inference.is_null() {
+                    if let Some(inf) = result.inference {
+                        // NOTE: hand-written (not the alloc_inference_arrays! macro) — this GLM fit maps
+                        // `z_values` onto the t_values field and uses a lenient OOM path, a different
+                        // inference contract than the strict linear-model pattern the macro encodes.
+                        let n = inf.std_errors.len();
+                        let std_err_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                        let t_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                        let p_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                        let ci_lo_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                        let ci_hi_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+
+                        if n > 0 && !std_err_ptr.is_null() {
+                            std::ptr::copy_nonoverlapping(inf.std_errors.as_ptr(), std_err_ptr, n);
+                            std::ptr::copy_nonoverlapping(inf.z_values.as_ptr(), t_val_ptr, n);
+                            std::ptr::copy_nonoverlapping(inf.p_values.as_ptr(), p_val_ptr, n);
+                            std::ptr::copy_nonoverlapping(inf.ci_lower.as_ptr(), ci_lo_ptr, n);
+                            std::ptr::copy_nonoverlapping(inf.ci_upper.as_ptr(), ci_hi_ptr, n);
+                        }
+
+                        (*out_inference) = FitResultInference {
+                            std_errors: std_err_ptr,
+                            t_values: t_val_ptr,
+                            p_values: p_val_ptr,
+                            ci_lower: ci_lo_ptr,
+                            ci_upper: ci_hi_ptr,
+                            len: n,
+                            confidence_level: inf.confidence_level,
+                            f_statistic: f64::NAN,
+                            f_pvalue: f64::NAN,
+                        };
+                    } else {
+                        (*out_inference) = FitResultInference::default();
+                    }
+                }
+
+                true
             }
-            false
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
         }
-    }
+    })
 }
 
 /// Fit a Tweedie regression model
@@ -2603,136 +3016,148 @@ pub unsafe extern "C" fn anofox_tweedie_fit(
     out_inference: *mut FitResultInference,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-
-    if out_result.is_null() {
+    ffi_guard(out_error, false, || {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
-
-    if x.is_null() || x_count == 0 {
-        if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
+        if !check_confidence_level(options.confidence_level, out_error) {
+            return false;
         }
-        return false;
-    }
 
-    let y_vec = y.to_vec();
-    let x_arrays = slice::from_raw_parts(x, x_count);
-    let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
-
-    let opts = TweedieOptions {
-        fit_intercept: options.fit_intercept,
-        power: options.power,
-        max_iterations: options.max_iterations,
-        tolerance: options.tolerance,
-        compute_inference: options.compute_inference,
-        confidence_level: options.confidence_level,
-        lambda: options.lambda,
-        prior_opts: GlmPriorOptions {
-            priors: priors_from_ffi(options.priors, options.priors_len),
-            vcov: vcov_from_ffi(options.vcov),
-        },
-        offset_column: if options.offset_column == 0 {
-            None
-        } else {
-            Some(options.offset_column)
-        },
-    };
-
-    let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        fit_tweedie(&y_vec, &x_vecs, &opts)
-    }));
-
-    let fit_result = match fit_result {
-        Ok(r) => r,
-        Err(_) => {
+        if out_result.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InternalError, "Internal panic in Tweedie fit");
+                (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
             }
             return false;
         }
-    };
 
-    match fit_result {
-        Ok(result) => {
-            let n_coef = result.core.coefficients.len();
-            let coef_ptr = libc::malloc(n_coef * std::mem::size_of::<f64>()) as *mut f64;
-            if coef_ptr.is_null() && n_coef > 0 {
+        if x.is_null() || x_count == 0 {
+            if !out_error.is_null() {
+                (*out_error).set(
+                    if x_count == 0 {
+                        ErrorCode::InsufficientData
+                    } else {
+                        ErrorCode::InvalidInput
+                    },
+                    "x is NULL or empty",
+                );
+            }
+            return false;
+        }
+
+        let y_vec = y.to_vec();
+        let x_arrays = slice::from_raw_parts(x, x_count);
+        let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
+
+        let opts = TweedieOptions {
+            fit_intercept: options.fit_intercept,
+            power: options.power,
+            max_iterations: options.max_iterations,
+            tolerance: options.tolerance,
+            compute_inference: options.compute_inference,
+            confidence_level: options.confidence_level,
+            lambda: options.lambda,
+            prior_opts: GlmPriorOptions {
+                priors: priors_from_ffi(options.priors, options.priors_len),
+                vcov: vcov_from_ffi(options.vcov),
+            },
+            offset_column: if options.offset_column == 0 {
+                None
+            } else {
+                Some(options.offset_column)
+            },
+        };
+
+        let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            fit_tweedie(&y_vec, &x_vecs, &opts)
+        }));
+
+        let fit_result = match fit_result {
+            Ok(r) => r,
+            Err(_) => {
                 if !out_error.is_null() {
-                    (*out_error).set(
-                        ErrorCode::AllocationFailure,
-                        "Failed to allocate coefficients",
-                    );
+                    (*out_error).set(ErrorCode::InternalError, "Internal panic in Tweedie fit");
                 }
                 return false;
             }
-            std::ptr::copy_nonoverlapping(result.core.coefficients.as_ptr(), coef_ptr, n_coef);
+        };
 
-            (*out_result) = GlmFitResultCore {
-                coefficients: coef_ptr,
-                coefficients_len: n_coef,
-                intercept: result.core.intercept.unwrap_or(f64::NAN),
-                deviance: result.core.residual_deviance,
-                null_deviance: result.core.null_deviance,
-                pseudo_r_squared: result.core.pseudo_r_squared,
-                aic: result.core.aic,
-                dispersion: result.core.dispersion.unwrap_or(f64::NAN),
-                n_observations: result.core.n_observations,
-                n_features: result.core.n_features,
-                iterations: result.core.iterations,
-                converged: result.core.converged,
-            };
-
-            if !out_inference.is_null() {
-                if let Some(inf) = result.inference {
-                    // NOTE: hand-written (not the alloc_inference_arrays! macro) — this GLM fit maps
-                    // `z_values` onto the t_values field and uses a lenient OOM path, a different
-                    // inference contract than the strict linear-model pattern the macro encodes.
-                    let n = inf.std_errors.len();
-                    let std_err_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-                    let t_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-                    let p_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-                    let ci_lo_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-                    let ci_hi_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-
-                    if n > 0 && !std_err_ptr.is_null() {
-                        std::ptr::copy_nonoverlapping(inf.std_errors.as_ptr(), std_err_ptr, n);
-                        std::ptr::copy_nonoverlapping(inf.z_values.as_ptr(), t_val_ptr, n);
-                        std::ptr::copy_nonoverlapping(inf.p_values.as_ptr(), p_val_ptr, n);
-                        std::ptr::copy_nonoverlapping(inf.ci_lower.as_ptr(), ci_lo_ptr, n);
-                        std::ptr::copy_nonoverlapping(inf.ci_upper.as_ptr(), ci_hi_ptr, n);
+        match fit_result {
+            Ok(result) => {
+                let n_coef = result.core.coefficients.len();
+                let coef_ptr = libc::malloc(n_coef * std::mem::size_of::<f64>()) as *mut f64;
+                if coef_ptr.is_null() && n_coef > 0 {
+                    if !out_error.is_null() {
+                        (*out_error).set(
+                            ErrorCode::AllocationFailure,
+                            "Failed to allocate coefficients",
+                        );
                     }
-
-                    (*out_inference) = FitResultInference {
-                        std_errors: std_err_ptr,
-                        t_values: t_val_ptr,
-                        p_values: p_val_ptr,
-                        ci_lower: ci_lo_ptr,
-                        ci_upper: ci_hi_ptr,
-                        len: n,
-                        confidence_level: inf.confidence_level,
-                        f_statistic: f64::NAN,
-                        f_pvalue: f64::NAN,
-                    };
-                } else {
-                    (*out_inference) = FitResultInference::default();
+                    return false;
                 }
-            }
+                std::ptr::copy_nonoverlapping(result.core.coefficients.as_ptr(), coef_ptr, n_coef);
 
-            true
-        }
-        Err(e) => {
-            if !out_error.is_null() {
-                (*out_error).set(error_to_code(&e), &e.to_string());
+                (*out_result) = GlmFitResultCore {
+                    coefficients: coef_ptr,
+                    coefficients_len: n_coef,
+                    intercept: result.core.intercept.unwrap_or(f64::NAN),
+                    deviance: result.core.residual_deviance,
+                    null_deviance: result.core.null_deviance,
+                    pseudo_r_squared: result.core.pseudo_r_squared,
+                    aic: result.core.aic,
+                    dispersion: result.core.dispersion.unwrap_or(f64::NAN),
+                    n_observations: result.core.n_observations,
+                    n_features: result.core.n_features,
+                    iterations: result.core.iterations,
+                    converged: result.core.converged,
+                };
+
+                if !out_inference.is_null() {
+                    if let Some(inf) = result.inference {
+                        // NOTE: hand-written (not the alloc_inference_arrays! macro) — this GLM fit maps
+                        // `z_values` onto the t_values field and uses a lenient OOM path, a different
+                        // inference contract than the strict linear-model pattern the macro encodes.
+                        let n = inf.std_errors.len();
+                        let std_err_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                        let t_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                        let p_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                        let ci_lo_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                        let ci_hi_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+
+                        if n > 0 && !std_err_ptr.is_null() {
+                            std::ptr::copy_nonoverlapping(inf.std_errors.as_ptr(), std_err_ptr, n);
+                            std::ptr::copy_nonoverlapping(inf.z_values.as_ptr(), t_val_ptr, n);
+                            std::ptr::copy_nonoverlapping(inf.p_values.as_ptr(), p_val_ptr, n);
+                            std::ptr::copy_nonoverlapping(inf.ci_lower.as_ptr(), ci_lo_ptr, n);
+                            std::ptr::copy_nonoverlapping(inf.ci_upper.as_ptr(), ci_hi_ptr, n);
+                        }
+
+                        (*out_inference) = FitResultInference {
+                            std_errors: std_err_ptr,
+                            t_values: t_val_ptr,
+                            p_values: p_val_ptr,
+                            ci_lower: ci_lo_ptr,
+                            ci_upper: ci_hi_ptr,
+                            len: n,
+                            confidence_level: inf.confidence_level,
+                            f_statistic: f64::NAN,
+                            f_pvalue: f64::NAN,
+                        };
+                    } else {
+                        (*out_inference) = FitResultInference::default();
+                    }
+                }
+
+                true
             }
-            false
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
         }
-    }
+    })
 }
 
 /// Fit a Gamma GLM (var_power = 2.0 baked in; log link).
@@ -2753,135 +3178,147 @@ pub unsafe extern "C" fn anofox_gamma_fit(
     out_inference: *mut FitResultInference,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-
-    if out_result.is_null() {
+    ffi_guard(out_error, false, || {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
-
-    if x.is_null() || x_count == 0 {
-        if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
+        if !check_confidence_level(options.confidence_level, out_error) {
+            return false;
         }
-        return false;
-    }
 
-    let y_vec = y.to_vec();
-    let x_arrays = slice::from_raw_parts(x, x_count);
-    let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
-
-    let opts = GammaOptions {
-        fit_intercept: options.fit_intercept,
-        max_iterations: options.max_iterations,
-        tolerance: options.tolerance,
-        compute_inference: options.compute_inference,
-        confidence_level: options.confidence_level,
-        lambda: options.lambda,
-        prior_opts: GlmPriorOptions {
-            priors: priors_from_ffi(options.priors, options.priors_len),
-            vcov: vcov_from_ffi(options.vcov),
-        },
-        offset_column: if options.offset_column == 0 {
-            None
-        } else {
-            Some(options.offset_column)
-        },
-    };
-
-    let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        fit_gamma(&y_vec, &x_vecs, &opts)
-    }));
-
-    let fit_result = match fit_result {
-        Ok(r) => r,
-        Err(_) => {
+        if out_result.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InternalError, "Internal panic in Gamma fit");
+                (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
             }
             return false;
         }
-    };
 
-    match fit_result {
-        Ok(result) => {
-            let n_coef = result.core.coefficients.len();
-            let coef_ptr = libc::malloc(n_coef * std::mem::size_of::<f64>()) as *mut f64;
-            if coef_ptr.is_null() && n_coef > 0 {
+        if x.is_null() || x_count == 0 {
+            if !out_error.is_null() {
+                (*out_error).set(
+                    if x_count == 0 {
+                        ErrorCode::InsufficientData
+                    } else {
+                        ErrorCode::InvalidInput
+                    },
+                    "x is NULL or empty",
+                );
+            }
+            return false;
+        }
+
+        let y_vec = y.to_vec();
+        let x_arrays = slice::from_raw_parts(x, x_count);
+        let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
+
+        let opts = GammaOptions {
+            fit_intercept: options.fit_intercept,
+            max_iterations: options.max_iterations,
+            tolerance: options.tolerance,
+            compute_inference: options.compute_inference,
+            confidence_level: options.confidence_level,
+            lambda: options.lambda,
+            prior_opts: GlmPriorOptions {
+                priors: priors_from_ffi(options.priors, options.priors_len),
+                vcov: vcov_from_ffi(options.vcov),
+            },
+            offset_column: if options.offset_column == 0 {
+                None
+            } else {
+                Some(options.offset_column)
+            },
+        };
+
+        let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            fit_gamma(&y_vec, &x_vecs, &opts)
+        }));
+
+        let fit_result = match fit_result {
+            Ok(r) => r,
+            Err(_) => {
                 if !out_error.is_null() {
-                    (*out_error).set(
-                        ErrorCode::AllocationFailure,
-                        "Failed to allocate coefficients",
-                    );
+                    (*out_error).set(ErrorCode::InternalError, "Internal panic in Gamma fit");
                 }
                 return false;
             }
-            std::ptr::copy_nonoverlapping(result.core.coefficients.as_ptr(), coef_ptr, n_coef);
+        };
 
-            (*out_result) = GlmFitResultCore {
-                coefficients: coef_ptr,
-                coefficients_len: n_coef,
-                intercept: result.core.intercept.unwrap_or(f64::NAN),
-                deviance: result.core.residual_deviance,
-                null_deviance: result.core.null_deviance,
-                pseudo_r_squared: result.core.pseudo_r_squared,
-                aic: result.core.aic,
-                dispersion: result.core.dispersion.unwrap_or(f64::NAN),
-                n_observations: result.core.n_observations,
-                n_features: result.core.n_features,
-                iterations: result.core.iterations,
-                converged: result.core.converged,
-            };
-
-            if !out_inference.is_null() {
-                if let Some(inf) = result.inference {
-                    // NOTE: hand-written (not the alloc_inference_arrays! macro) — this GLM fit maps
-                    // `z_values` onto the t_values field and uses a lenient OOM path, a different
-                    // inference contract than the strict linear-model pattern the macro encodes.
-                    let n = inf.std_errors.len();
-                    let std_err_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-                    let t_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-                    let p_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-                    let ci_lo_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-                    let ci_hi_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-
-                    if n > 0 && !std_err_ptr.is_null() {
-                        std::ptr::copy_nonoverlapping(inf.std_errors.as_ptr(), std_err_ptr, n);
-                        std::ptr::copy_nonoverlapping(inf.z_values.as_ptr(), t_val_ptr, n);
-                        std::ptr::copy_nonoverlapping(inf.p_values.as_ptr(), p_val_ptr, n);
-                        std::ptr::copy_nonoverlapping(inf.ci_lower.as_ptr(), ci_lo_ptr, n);
-                        std::ptr::copy_nonoverlapping(inf.ci_upper.as_ptr(), ci_hi_ptr, n);
+        match fit_result {
+            Ok(result) => {
+                let n_coef = result.core.coefficients.len();
+                let coef_ptr = libc::malloc(n_coef * std::mem::size_of::<f64>()) as *mut f64;
+                if coef_ptr.is_null() && n_coef > 0 {
+                    if !out_error.is_null() {
+                        (*out_error).set(
+                            ErrorCode::AllocationFailure,
+                            "Failed to allocate coefficients",
+                        );
                     }
-
-                    (*out_inference) = FitResultInference {
-                        std_errors: std_err_ptr,
-                        t_values: t_val_ptr,
-                        p_values: p_val_ptr,
-                        ci_lower: ci_lo_ptr,
-                        ci_upper: ci_hi_ptr,
-                        len: n,
-                        confidence_level: inf.confidence_level,
-                        f_statistic: f64::NAN,
-                        f_pvalue: f64::NAN,
-                    };
-                } else {
-                    (*out_inference) = FitResultInference::default();
+                    return false;
                 }
-            }
+                std::ptr::copy_nonoverlapping(result.core.coefficients.as_ptr(), coef_ptr, n_coef);
 
-            true
-        }
-        Err(e) => {
-            if !out_error.is_null() {
-                (*out_error).set(error_to_code(&e), &e.to_string());
+                (*out_result) = GlmFitResultCore {
+                    coefficients: coef_ptr,
+                    coefficients_len: n_coef,
+                    intercept: result.core.intercept.unwrap_or(f64::NAN),
+                    deviance: result.core.residual_deviance,
+                    null_deviance: result.core.null_deviance,
+                    pseudo_r_squared: result.core.pseudo_r_squared,
+                    aic: result.core.aic,
+                    dispersion: result.core.dispersion.unwrap_or(f64::NAN),
+                    n_observations: result.core.n_observations,
+                    n_features: result.core.n_features,
+                    iterations: result.core.iterations,
+                    converged: result.core.converged,
+                };
+
+                if !out_inference.is_null() {
+                    if let Some(inf) = result.inference {
+                        // NOTE: hand-written (not the alloc_inference_arrays! macro) — this GLM fit maps
+                        // `z_values` onto the t_values field and uses a lenient OOM path, a different
+                        // inference contract than the strict linear-model pattern the macro encodes.
+                        let n = inf.std_errors.len();
+                        let std_err_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                        let t_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                        let p_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                        let ci_lo_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                        let ci_hi_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+
+                        if n > 0 && !std_err_ptr.is_null() {
+                            std::ptr::copy_nonoverlapping(inf.std_errors.as_ptr(), std_err_ptr, n);
+                            std::ptr::copy_nonoverlapping(inf.z_values.as_ptr(), t_val_ptr, n);
+                            std::ptr::copy_nonoverlapping(inf.p_values.as_ptr(), p_val_ptr, n);
+                            std::ptr::copy_nonoverlapping(inf.ci_lower.as_ptr(), ci_lo_ptr, n);
+                            std::ptr::copy_nonoverlapping(inf.ci_upper.as_ptr(), ci_hi_ptr, n);
+                        }
+
+                        (*out_inference) = FitResultInference {
+                            std_errors: std_err_ptr,
+                            t_values: t_val_ptr,
+                            p_values: p_val_ptr,
+                            ci_lower: ci_lo_ptr,
+                            ci_upper: ci_hi_ptr,
+                            len: n,
+                            confidence_level: inf.confidence_level,
+                            f_statistic: f64::NAN,
+                            f_pvalue: f64::NAN,
+                        };
+                    } else {
+                        (*out_inference) = FitResultInference::default();
+                    }
+                }
+
+                true
             }
-            false
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
         }
-    }
+    })
 }
 
 /// Fit a binary Logistic regression (logit link; classifier-oriented).
@@ -2904,144 +3341,156 @@ pub unsafe extern "C" fn anofox_logistic_fit(
     out_extras: *mut LogisticFitExtras,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-
-    if out_result.is_null() {
+    ffi_guard(out_error, false, || {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
-
-    if x.is_null() || x_count == 0 {
-        if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
+        if !check_confidence_level(options.confidence_level, out_error) {
+            return false;
         }
-        return false;
-    }
 
-    let y_vec = y.to_vec();
-    let x_arrays = slice::from_raw_parts(x, x_count);
-    let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
-
-    let opts = LogisticOptions {
-        fit_intercept: options.fit_intercept,
-        lambda: options.lambda,
-        threshold: options.threshold,
-        max_iterations: options.max_iterations,
-        tolerance: options.tolerance,
-        compute_inference: options.compute_inference,
-        confidence_level: options.confidence_level,
-        prior_opts: GlmPriorOptions {
-            priors: priors_from_ffi(options.priors, options.priors_len),
-            vcov: vcov_from_ffi(options.vcov),
-        },
-        offset_column: if options.offset_column == 0 {
-            None
-        } else {
-            Some(options.offset_column)
-        },
-    };
-
-    let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        fit_logistic(&y_vec, &x_vecs, &opts)
-    }));
-
-    let fit_result = match fit_result {
-        Ok(r) => r,
-        Err(_) => {
+        if out_result.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InternalError, "Internal panic in Logistic fit");
+                (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
             }
             return false;
         }
-    };
 
-    match fit_result {
-        Ok(logistic) => {
-            let result = logistic.fit;
-            let n_coef = result.core.coefficients.len();
-            let coef_ptr = libc::malloc(n_coef * std::mem::size_of::<f64>()) as *mut f64;
-            if coef_ptr.is_null() && n_coef > 0 {
+        if x.is_null() || x_count == 0 {
+            if !out_error.is_null() {
+                (*out_error).set(
+                    if x_count == 0 {
+                        ErrorCode::InsufficientData
+                    } else {
+                        ErrorCode::InvalidInput
+                    },
+                    "x is NULL or empty",
+                );
+            }
+            return false;
+        }
+
+        let y_vec = y.to_vec();
+        let x_arrays = slice::from_raw_parts(x, x_count);
+        let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
+
+        let opts = LogisticOptions {
+            fit_intercept: options.fit_intercept,
+            lambda: options.lambda,
+            threshold: options.threshold,
+            max_iterations: options.max_iterations,
+            tolerance: options.tolerance,
+            compute_inference: options.compute_inference,
+            confidence_level: options.confidence_level,
+            prior_opts: GlmPriorOptions {
+                priors: priors_from_ffi(options.priors, options.priors_len),
+                vcov: vcov_from_ffi(options.vcov),
+            },
+            offset_column: if options.offset_column == 0 {
+                None
+            } else {
+                Some(options.offset_column)
+            },
+        };
+
+        let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            fit_logistic(&y_vec, &x_vecs, &opts)
+        }));
+
+        let fit_result = match fit_result {
+            Ok(r) => r,
+            Err(_) => {
                 if !out_error.is_null() {
-                    (*out_error).set(
-                        ErrorCode::AllocationFailure,
-                        "Failed to allocate coefficients",
-                    );
+                    (*out_error).set(ErrorCode::InternalError, "Internal panic in Logistic fit");
                 }
                 return false;
             }
-            std::ptr::copy_nonoverlapping(result.core.coefficients.as_ptr(), coef_ptr, n_coef);
+        };
 
-            (*out_result) = GlmFitResultCore {
-                coefficients: coef_ptr,
-                coefficients_len: n_coef,
-                intercept: result.core.intercept.unwrap_or(f64::NAN),
-                deviance: result.core.residual_deviance,
-                null_deviance: result.core.null_deviance,
-                pseudo_r_squared: result.core.pseudo_r_squared,
-                aic: result.core.aic,
-                dispersion: result.core.dispersion.unwrap_or(f64::NAN),
-                n_observations: result.core.n_observations,
-                n_features: result.core.n_features,
-                iterations: result.core.iterations,
-                converged: result.core.converged,
-            };
-
-            if !out_inference.is_null() {
-                if let Some(inf) = result.inference {
-                    // NOTE: hand-written (not the alloc_inference_arrays! macro) — this GLM fit maps
-                    // `z_values` onto the t_values field and uses a lenient OOM path, a different
-                    // inference contract than the strict linear-model pattern the macro encodes.
-                    let n = inf.std_errors.len();
-                    let std_err_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-                    let t_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-                    let p_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-                    let ci_lo_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-                    let ci_hi_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-
-                    if n > 0 && !std_err_ptr.is_null() {
-                        std::ptr::copy_nonoverlapping(inf.std_errors.as_ptr(), std_err_ptr, n);
-                        std::ptr::copy_nonoverlapping(inf.z_values.as_ptr(), t_val_ptr, n);
-                        std::ptr::copy_nonoverlapping(inf.p_values.as_ptr(), p_val_ptr, n);
-                        std::ptr::copy_nonoverlapping(inf.ci_lower.as_ptr(), ci_lo_ptr, n);
-                        std::ptr::copy_nonoverlapping(inf.ci_upper.as_ptr(), ci_hi_ptr, n);
+        match fit_result {
+            Ok(logistic) => {
+                let result = logistic.fit;
+                let n_coef = result.core.coefficients.len();
+                let coef_ptr = libc::malloc(n_coef * std::mem::size_of::<f64>()) as *mut f64;
+                if coef_ptr.is_null() && n_coef > 0 {
+                    if !out_error.is_null() {
+                        (*out_error).set(
+                            ErrorCode::AllocationFailure,
+                            "Failed to allocate coefficients",
+                        );
                     }
-
-                    (*out_inference) = FitResultInference {
-                        std_errors: std_err_ptr,
-                        t_values: t_val_ptr,
-                        p_values: p_val_ptr,
-                        ci_lower: ci_lo_ptr,
-                        ci_upper: ci_hi_ptr,
-                        len: n,
-                        confidence_level: inf.confidence_level,
-                        f_statistic: f64::NAN,
-                        f_pvalue: f64::NAN,
-                    };
-                } else {
-                    (*out_inference) = FitResultInference::default();
+                    return false;
                 }
-            }
+                std::ptr::copy_nonoverlapping(result.core.coefficients.as_ptr(), coef_ptr, n_coef);
 
-            if !out_extras.is_null() {
-                (*out_extras) = LogisticFitExtras {
-                    accuracy: logistic.accuracy,
-                    threshold: logistic.threshold,
+                (*out_result) = GlmFitResultCore {
+                    coefficients: coef_ptr,
+                    coefficients_len: n_coef,
+                    intercept: result.core.intercept.unwrap_or(f64::NAN),
+                    deviance: result.core.residual_deviance,
+                    null_deviance: result.core.null_deviance,
+                    pseudo_r_squared: result.core.pseudo_r_squared,
+                    aic: result.core.aic,
+                    dispersion: result.core.dispersion.unwrap_or(f64::NAN),
+                    n_observations: result.core.n_observations,
+                    n_features: result.core.n_features,
+                    iterations: result.core.iterations,
+                    converged: result.core.converged,
                 };
-            }
 
-            true
-        }
-        Err(e) => {
-            if !out_error.is_null() {
-                (*out_error).set(error_to_code(&e), &e.to_string());
+                if !out_inference.is_null() {
+                    if let Some(inf) = result.inference {
+                        // NOTE: hand-written (not the alloc_inference_arrays! macro) — this GLM fit maps
+                        // `z_values` onto the t_values field and uses a lenient OOM path, a different
+                        // inference contract than the strict linear-model pattern the macro encodes.
+                        let n = inf.std_errors.len();
+                        let std_err_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                        let t_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                        let p_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                        let ci_lo_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                        let ci_hi_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+
+                        if n > 0 && !std_err_ptr.is_null() {
+                            std::ptr::copy_nonoverlapping(inf.std_errors.as_ptr(), std_err_ptr, n);
+                            std::ptr::copy_nonoverlapping(inf.z_values.as_ptr(), t_val_ptr, n);
+                            std::ptr::copy_nonoverlapping(inf.p_values.as_ptr(), p_val_ptr, n);
+                            std::ptr::copy_nonoverlapping(inf.ci_lower.as_ptr(), ci_lo_ptr, n);
+                            std::ptr::copy_nonoverlapping(inf.ci_upper.as_ptr(), ci_hi_ptr, n);
+                        }
+
+                        (*out_inference) = FitResultInference {
+                            std_errors: std_err_ptr,
+                            t_values: t_val_ptr,
+                            p_values: p_val_ptr,
+                            ci_lower: ci_lo_ptr,
+                            ci_upper: ci_hi_ptr,
+                            len: n,
+                            confidence_level: inf.confidence_level,
+                            f_statistic: f64::NAN,
+                            f_pvalue: f64::NAN,
+                        };
+                    } else {
+                        (*out_inference) = FitResultInference::default();
+                    }
+                }
+
+                if !out_extras.is_null() {
+                    (*out_extras) = LogisticFitExtras {
+                        accuracy: logistic.accuracy,
+                        threshold: logistic.threshold,
+                    };
+                }
+
+                true
             }
-            false
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
         }
-    }
+    })
 }
 
 /// Free memory allocated by GLM fit functions
@@ -3051,13 +3500,15 @@ pub unsafe extern "C" fn anofox_logistic_fit(
 /// - Must only be called once per result (double-free is undefined behavior)
 #[no_mangle]
 pub unsafe extern "C" fn anofox_free_glm_result(result: *mut GlmFitResultCore) {
-    if result.is_null() {
-        return;
-    }
-    if !(*result).coefficients.is_null() {
-        libc::free((*result).coefficients as *mut libc::c_void);
-        (*result).coefficients = std::ptr::null_mut();
-    }
+    ffi_guard(std::ptr::null_mut(), (), || {
+        if result.is_null() {
+            return;
+        }
+        if !(*result).coefficients.is_null() {
+            libc::free((*result).coefficients as *mut libc::c_void);
+            (*result).coefficients = std::ptr::null_mut();
+        }
+    })
 }
 
 // =============================================================================
@@ -3124,127 +3575,151 @@ pub unsafe extern "C" fn anofox_alm_fit(
     out_inference: *mut FitResultInference,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-
-    if out_result.is_null() {
+    ffi_guard(out_error, false, || {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
-
-    if x.is_null() || x_count == 0 {
-        if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
+        if !check_confidence_level(options.confidence_level, out_error) {
+            return false;
         }
-        return false;
-    }
 
-    let y_vec = y.to_vec();
-    let x_arrays = slice::from_raw_parts(x, x_count);
-    let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
-
-    let opts = AlmOptions {
-        fit_intercept: options.fit_intercept,
-        distribution: convert_alm_distribution(options.distribution),
-        loss: convert_alm_loss(options.loss),
-        max_iterations: options.max_iterations,
-        tolerance: options.tolerance,
-        quantile: options.quantile,
-        role_trim: options.role_trim,
-        compute_inference: options.compute_inference,
-        confidence_level: options.confidence_level,
-    };
-
-    let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        fit_alm(&y_vec, &x_vecs, &opts)
-    }));
-
-    let fit_result = match fit_result {
-        Ok(r) => r,
-        Err(_) => {
+        if out_result.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InternalError, "Internal panic in ALM fit");
+                (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
             }
             return false;
         }
-    };
 
-    match fit_result {
-        Ok(result) => {
-            let n_coef = result.core.coefficients.len();
-            let coef_ptr = libc::malloc(n_coef * std::mem::size_of::<f64>()) as *mut f64;
-            if coef_ptr.is_null() && n_coef > 0 {
+        if x.is_null() || x_count == 0 {
+            if !out_error.is_null() {
+                (*out_error).set(
+                    if x_count == 0 {
+                        ErrorCode::InsufficientData
+                    } else {
+                        ErrorCode::InvalidInput
+                    },
+                    "x is NULL or empty",
+                );
+            }
+            return false;
+        }
+
+        let y_vec = y.to_vec();
+        let x_arrays = slice::from_raw_parts(x, x_count);
+        let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
+
+        let opts = AlmOptions {
+            fit_intercept: options.fit_intercept,
+            distribution: convert_alm_distribution(options.distribution),
+            loss: convert_alm_loss(options.loss),
+            max_iterations: options.max_iterations,
+            tolerance: options.tolerance,
+            quantile: options.quantile,
+            role_trim: options.role_trim,
+            compute_inference: options.compute_inference,
+            confidence_level: options.confidence_level,
+        };
+
+        let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            fit_alm(&y_vec, &x_vecs, &opts)
+        }));
+
+        let fit_result = match fit_result {
+            Ok(r) => r,
+            Err(_) => {
                 if !out_error.is_null() {
-                    (*out_error).set(
-                        ErrorCode::AllocationFailure,
-                        "Failed to allocate coefficients",
-                    );
+                    (*out_error).set(ErrorCode::InternalError, "Internal panic in ALM fit");
                 }
                 return false;
             }
-            std::ptr::copy_nonoverlapping(result.core.coefficients.as_ptr(), coef_ptr, n_coef);
+        };
 
-            (*out_result) = AlmFitResultCore {
-                coefficients: coef_ptr,
-                coefficients_len: n_coef,
-                intercept: result.core.intercept.unwrap_or(f64::NAN),
-                log_likelihood: result.core.log_likelihood,
-                aic: result.core.aic,
-                bic: result.core.bic,
-                scale: result.core.scale,
-                n_observations: result.core.n_observations,
-                n_features: result.core.n_features,
-                iterations: result.core.iterations,
-            };
-
-            if !out_inference.is_null() {
-                if let Some(inf) = result.inference {
-                    // NOTE: hand-written (not the alloc_inference_arrays! macro) — this fit uses the
-                    // `standard_errors` / `conf_int_*` field names and a lenient OOM path, a different
-                    // inference contract than the strict linear-model pattern the macro encodes.
-                    let n = inf.standard_errors.len();
-                    let std_err_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-                    let t_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-                    let p_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-                    let ci_lo_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-                    let ci_hi_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
-
-                    if n > 0 && !std_err_ptr.is_null() {
-                        std::ptr::copy_nonoverlapping(inf.standard_errors.as_ptr(), std_err_ptr, n);
-                        std::ptr::copy_nonoverlapping(inf.t_values.as_ptr(), t_val_ptr, n);
-                        std::ptr::copy_nonoverlapping(inf.p_values.as_ptr(), p_val_ptr, n);
-                        std::ptr::copy_nonoverlapping(inf.conf_int_lower.as_ptr(), ci_lo_ptr, n);
-                        std::ptr::copy_nonoverlapping(inf.conf_int_upper.as_ptr(), ci_hi_ptr, n);
+        match fit_result {
+            Ok(result) => {
+                let n_coef = result.core.coefficients.len();
+                let coef_ptr = libc::malloc(n_coef * std::mem::size_of::<f64>()) as *mut f64;
+                if coef_ptr.is_null() && n_coef > 0 {
+                    if !out_error.is_null() {
+                        (*out_error).set(
+                            ErrorCode::AllocationFailure,
+                            "Failed to allocate coefficients",
+                        );
                     }
-
-                    (*out_inference) = FitResultInference {
-                        std_errors: std_err_ptr,
-                        t_values: t_val_ptr,
-                        p_values: p_val_ptr,
-                        ci_lower: ci_lo_ptr,
-                        ci_upper: ci_hi_ptr,
-                        len: n,
-                        confidence_level: opts.confidence_level,
-                        f_statistic: f64::NAN,
-                        f_pvalue: f64::NAN,
-                    };
-                } else {
-                    (*out_inference) = FitResultInference::default();
+                    return false;
                 }
-            }
+                std::ptr::copy_nonoverlapping(result.core.coefficients.as_ptr(), coef_ptr, n_coef);
 
-            true
-        }
-        Err(e) => {
-            if !out_error.is_null() {
-                (*out_error).set(error_to_code(&e), &e.to_string());
+                (*out_result) = AlmFitResultCore {
+                    coefficients: coef_ptr,
+                    coefficients_len: n_coef,
+                    intercept: result.core.intercept.unwrap_or(f64::NAN),
+                    log_likelihood: result.core.log_likelihood,
+                    aic: result.core.aic,
+                    bic: result.core.bic,
+                    scale: result.core.scale,
+                    n_observations: result.core.n_observations,
+                    n_features: result.core.n_features,
+                    iterations: result.core.iterations,
+                };
+
+                if !out_inference.is_null() {
+                    if let Some(inf) = result.inference {
+                        // NOTE: hand-written (not the alloc_inference_arrays! macro) — this fit uses the
+                        // `standard_errors` / `conf_int_*` field names and a lenient OOM path, a different
+                        // inference contract than the strict linear-model pattern the macro encodes.
+                        let n = inf.standard_errors.len();
+                        let std_err_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                        let t_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                        let p_val_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                        let ci_lo_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+                        let ci_hi_ptr = libc::malloc(n * std::mem::size_of::<f64>()) as *mut f64;
+
+                        if n > 0 && !std_err_ptr.is_null() {
+                            std::ptr::copy_nonoverlapping(
+                                inf.standard_errors.as_ptr(),
+                                std_err_ptr,
+                                n,
+                            );
+                            std::ptr::copy_nonoverlapping(inf.t_values.as_ptr(), t_val_ptr, n);
+                            std::ptr::copy_nonoverlapping(inf.p_values.as_ptr(), p_val_ptr, n);
+                            std::ptr::copy_nonoverlapping(
+                                inf.conf_int_lower.as_ptr(),
+                                ci_lo_ptr,
+                                n,
+                            );
+                            std::ptr::copy_nonoverlapping(
+                                inf.conf_int_upper.as_ptr(),
+                                ci_hi_ptr,
+                                n,
+                            );
+                        }
+
+                        (*out_inference) = FitResultInference {
+                            std_errors: std_err_ptr,
+                            t_values: t_val_ptr,
+                            p_values: p_val_ptr,
+                            ci_lower: ci_lo_ptr,
+                            ci_upper: ci_hi_ptr,
+                            len: n,
+                            confidence_level: opts.confidence_level,
+                            f_statistic: f64::NAN,
+                            f_pvalue: f64::NAN,
+                        };
+                    } else {
+                        (*out_inference) = FitResultInference::default();
+                    }
+                }
+
+                true
             }
-            false
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
         }
-    }
+    })
 }
 
 /// Free memory allocated by ALM fit function
@@ -3254,13 +3729,15 @@ pub unsafe extern "C" fn anofox_alm_fit(
 /// - Must only be called once per result (double-free is undefined behavior)
 #[no_mangle]
 pub unsafe extern "C" fn anofox_free_alm_result(result: *mut AlmFitResultCore) {
-    if result.is_null() {
-        return;
-    }
-    if !(*result).coefficients.is_null() {
-        libc::free((*result).coefficients as *mut libc::c_void);
-        (*result).coefficients = std::ptr::null_mut();
-    }
+    ffi_guard(std::ptr::null_mut(), (), || {
+        if result.is_null() {
+            return;
+        }
+        if !(*result).coefficients.is_null() {
+            libc::free((*result).coefficients as *mut libc::c_void);
+            (*result).coefficients = std::ptr::null_mut();
+        }
+    })
 }
 
 // =============================================================================
@@ -3285,111 +3762,128 @@ pub unsafe extern "C" fn anofox_bls_fit(
     out_result: *mut BlsFitResultCore,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-
-    if out_result.is_null() {
+    ffi_guard(out_error, false, || {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
 
-    if x.is_null() || x_count == 0 {
-        if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
-        }
-        return false;
-    }
-
-    let y_vec = y.to_vec();
-    let x_arrays = slice::from_raw_parts(x, x_count);
-    let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
-
-    // Convert bounds
-    let lower_bounds = if options.lower_bounds.is_null() || options.lower_bounds_len == 0 {
-        None
-    } else {
-        Some(slice::from_raw_parts(options.lower_bounds, options.lower_bounds_len).to_vec())
-    };
-
-    let upper_bounds = if options.upper_bounds.is_null() || options.upper_bounds_len == 0 {
-        None
-    } else {
-        Some(slice::from_raw_parts(options.upper_bounds, options.upper_bounds_len).to_vec())
-    };
-
-    let opts = BlsOptions {
-        fit_intercept: options.fit_intercept,
-        lower_bounds,
-        upper_bounds,
-        max_iterations: options.max_iterations,
-        tolerance: options.tolerance,
-    };
-
-    let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        fit_bls(&y_vec, &x_vecs, &opts)
-    }));
-
-    let fit_result = match fit_result {
-        Ok(r) => r,
-        Err(_) => {
+        if out_result.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InternalError, "Internal panic in BLS fit");
+                (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
             }
             return false;
         }
-    };
 
-    match fit_result {
-        Ok(result) => {
-            let n_coef = result.coefficients.len();
+        if x.is_null() || x_count == 0 {
+            if !out_error.is_null() {
+                (*out_error).set(
+                    if x_count == 0 {
+                        ErrorCode::InsufficientData
+                    } else {
+                        ErrorCode::InvalidInput
+                    },
+                    "x is NULL or empty",
+                );
+            }
+            return false;
+        }
 
-            // Allocate coefficients
-            let coef_ptr = libc::malloc(n_coef * std::mem::size_of::<f64>()) as *mut f64;
-            if coef_ptr.is_null() && n_coef > 0 {
+        let y_vec = y.to_vec();
+        let x_arrays = slice::from_raw_parts(x, x_count);
+        let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
+
+        // Convert bounds
+        let lower_bounds = if options.lower_bounds.is_null() || options.lower_bounds_len == 0 {
+            None
+        } else {
+            Some(slice::from_raw_parts(options.lower_bounds, options.lower_bounds_len).to_vec())
+        };
+
+        let upper_bounds = if options.upper_bounds.is_null() || options.upper_bounds_len == 0 {
+            None
+        } else {
+            Some(slice::from_raw_parts(options.upper_bounds, options.upper_bounds_len).to_vec())
+        };
+
+        let opts = BlsOptions {
+            fit_intercept: options.fit_intercept,
+            lower_bounds,
+            upper_bounds,
+            max_iterations: options.max_iterations,
+            tolerance: options.tolerance,
+        };
+
+        let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            fit_bls(&y_vec, &x_vecs, &opts)
+        }));
+
+        let fit_result = match fit_result {
+            Ok(r) => r,
+            Err(_) => {
                 if !out_error.is_null() {
-                    (*out_error).set(
-                        ErrorCode::AllocationFailure,
-                        "Failed to allocate coefficients",
-                    );
+                    (*out_error).set(ErrorCode::InternalError, "Internal panic in BLS fit");
                 }
                 return false;
             }
-            std::ptr::copy_nonoverlapping(result.coefficients.as_ptr(), coef_ptr, n_coef);
+        };
 
-            // Allocate bound flags
-            let lower_ptr = libc::malloc(n_coef * std::mem::size_of::<bool>()) as *mut bool;
-            let upper_ptr = libc::malloc(n_coef * std::mem::size_of::<bool>()) as *mut bool;
+        match fit_result {
+            Ok(result) => {
+                let n_coef = result.coefficients.len();
 
-            if n_coef > 0 && !lower_ptr.is_null() && !upper_ptr.is_null() {
-                std::ptr::copy_nonoverlapping(result.at_lower_bound.as_ptr(), lower_ptr, n_coef);
-                std::ptr::copy_nonoverlapping(result.at_upper_bound.as_ptr(), upper_ptr, n_coef);
+                // Allocate coefficients
+                let coef_ptr = libc::malloc(n_coef * std::mem::size_of::<f64>()) as *mut f64;
+                if coef_ptr.is_null() && n_coef > 0 {
+                    if !out_error.is_null() {
+                        (*out_error).set(
+                            ErrorCode::AllocationFailure,
+                            "Failed to allocate coefficients",
+                        );
+                    }
+                    return false;
+                }
+                std::ptr::copy_nonoverlapping(result.coefficients.as_ptr(), coef_ptr, n_coef);
+
+                // Allocate bound flags
+                let lower_ptr = libc::malloc(n_coef * std::mem::size_of::<bool>()) as *mut bool;
+                let upper_ptr = libc::malloc(n_coef * std::mem::size_of::<bool>()) as *mut bool;
+
+                if n_coef > 0 && !lower_ptr.is_null() && !upper_ptr.is_null() {
+                    std::ptr::copy_nonoverlapping(
+                        result.at_lower_bound.as_ptr(),
+                        lower_ptr,
+                        n_coef,
+                    );
+                    std::ptr::copy_nonoverlapping(
+                        result.at_upper_bound.as_ptr(),
+                        upper_ptr,
+                        n_coef,
+                    );
+                }
+
+                (*out_result) = BlsFitResultCore {
+                    coefficients: coef_ptr,
+                    coefficients_len: n_coef,
+                    intercept: result.intercept.unwrap_or(f64::NAN),
+                    ssr: result.ssr,
+                    r_squared: result.r_squared,
+                    n_observations: result.n_observations,
+                    n_features: result.n_features,
+                    n_active_constraints: result.n_active_constraints,
+                    at_lower_bound: lower_ptr,
+                    at_upper_bound: upper_ptr,
+                };
+
+                true
             }
-
-            (*out_result) = BlsFitResultCore {
-                coefficients: coef_ptr,
-                coefficients_len: n_coef,
-                intercept: result.intercept.unwrap_or(f64::NAN),
-                ssr: result.ssr,
-                r_squared: result.r_squared,
-                n_observations: result.n_observations,
-                n_features: result.n_features,
-                n_active_constraints: result.n_active_constraints,
-                at_lower_bound: lower_ptr,
-                at_upper_bound: upper_ptr,
-            };
-
-            true
-        }
-        Err(e) => {
-            if !out_error.is_null() {
-                (*out_error).set(error_to_code(&e), &e.to_string());
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
             }
-            false
         }
-    }
+    })
 }
 
 /// Fit NNLS (Non-Negative Least Squares) - convenience function
@@ -3407,17 +3901,19 @@ pub unsafe extern "C" fn anofox_nnls_fit(
     out_result: *mut BlsFitResultCore,
     out_error: *mut AnofoxError,
 ) -> bool {
-    // Use BLS with default NNLS options (all lower bounds = 0)
-    let options = BlsOptionsFFI {
-        fit_intercept: false,
-        lower_bounds: std::ptr::null(),
-        lower_bounds_len: 0,
-        upper_bounds: std::ptr::null(),
-        upper_bounds_len: 0,
-        max_iterations: 1000,
-        tolerance: 1e-10,
-    };
-    anofox_bls_fit(y, x, x_count, options, out_result, out_error)
+    ffi_guard(out_error, false, || {
+        // Use BLS with default NNLS options (all lower bounds = 0)
+        let options = BlsOptionsFFI {
+            fit_intercept: false,
+            lower_bounds: std::ptr::null(),
+            lower_bounds_len: 0,
+            upper_bounds: std::ptr::null(),
+            upper_bounds_len: 0,
+            max_iterations: 1000,
+            tolerance: 1e-10,
+        };
+        anofox_bls_fit(y, x, x_count, options, out_result, out_error)
+    })
 }
 
 /// Free memory allocated by BLS fit function
@@ -3427,21 +3923,23 @@ pub unsafe extern "C" fn anofox_nnls_fit(
 /// - Must only be called once per result (double-free is undefined behavior)
 #[no_mangle]
 pub unsafe extern "C" fn anofox_free_bls_result(result: *mut BlsFitResultCore) {
-    if result.is_null() {
-        return;
-    }
-    if !(*result).coefficients.is_null() {
-        libc::free((*result).coefficients as *mut libc::c_void);
-        (*result).coefficients = std::ptr::null_mut();
-    }
-    if !(*result).at_lower_bound.is_null() {
-        libc::free((*result).at_lower_bound as *mut libc::c_void);
-        (*result).at_lower_bound = std::ptr::null_mut();
-    }
-    if !(*result).at_upper_bound.is_null() {
-        libc::free((*result).at_upper_bound as *mut libc::c_void);
-        (*result).at_upper_bound = std::ptr::null_mut();
-    }
+    ffi_guard(std::ptr::null_mut(), (), || {
+        if result.is_null() {
+            return;
+        }
+        if !(*result).coefficients.is_null() {
+            libc::free((*result).coefficients as *mut libc::c_void);
+            (*result).coefficients = std::ptr::null_mut();
+        }
+        if !(*result).at_lower_bound.is_null() {
+            libc::free((*result).at_lower_bound as *mut libc::c_void);
+            (*result).at_lower_bound = std::ptr::null_mut();
+        }
+        if !(*result).at_upper_bound.is_null() {
+            libc::free((*result).at_upper_bound as *mut libc::c_void);
+            (*result).at_upper_bound = std::ptr::null_mut();
+        }
+    })
 }
 
 // =============================================================================
@@ -3467,88 +3965,97 @@ pub unsafe extern "C" fn anofox_pls_fit(
     out_core: *mut PlsFitResultCore,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-
-    if out_core.is_null() {
+    ffi_guard(out_error, false, || {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_core is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
 
-    if x.is_null() || x_count == 0 {
-        if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
-        }
-        return false;
-    }
-
-    // Convert y to Vec
-    let y_vec = y.to_vec();
-
-    // Convert x arrays to Vec<Vec<f64>>
-    let x_arrays = slice::from_raw_parts(x, x_count);
-    let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
-
-    // Convert options
-    let opts = PlsOptions {
-        n_components: options.n_components,
-        fit_intercept: options.fit_intercept,
-    };
-
-    // Call the core function with panic catching
-    let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        fit_pls(&y_vec, &x_vecs, &opts)
-    }));
-
-    let fit_result = match fit_result {
-        Ok(r) => r,
-        Err(_) => {
+        if out_core.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InternalError, "Internal panic in PLS fit");
+                (*out_error).set(ErrorCode::InvalidInput, "out_core is NULL");
             }
             return false;
         }
-    };
 
-    match fit_result {
-        Ok(result) => {
-            let n_coef = result.coefficients.len();
+        if x.is_null() || x_count == 0 {
+            if !out_error.is_null() {
+                (*out_error).set(
+                    if x_count == 0 {
+                        ErrorCode::InsufficientData
+                    } else {
+                        ErrorCode::InvalidInput
+                    },
+                    "x is NULL or empty",
+                );
+            }
+            return false;
+        }
 
-            // Allocate and copy coefficients
-            let coef_ptr = libc::malloc(n_coef * std::mem::size_of::<f64>()) as *mut f64;
-            if coef_ptr.is_null() && n_coef > 0 {
+        // Convert y to Vec
+        let y_vec = y.to_vec();
+
+        // Convert x arrays to Vec<Vec<f64>>
+        let x_arrays = slice::from_raw_parts(x, x_count);
+        let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
+
+        // Convert options
+        let opts = PlsOptions {
+            n_components: options.n_components,
+            fit_intercept: options.fit_intercept,
+        };
+
+        // Call the core function with panic catching
+        let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            fit_pls(&y_vec, &x_vecs, &opts)
+        }));
+
+        let fit_result = match fit_result {
+            Ok(r) => r,
+            Err(_) => {
                 if !out_error.is_null() {
-                    (*out_error).set(
-                        ErrorCode::AllocationFailure,
-                        "Failed to allocate coefficients",
-                    );
+                    (*out_error).set(ErrorCode::InternalError, "Internal panic in PLS fit");
                 }
                 return false;
             }
-            std::ptr::copy_nonoverlapping(result.coefficients.as_ptr(), coef_ptr, n_coef);
+        };
 
-            (*out_core) = PlsFitResultCore {
-                coefficients: coef_ptr,
-                coefficients_len: n_coef,
-                intercept: result.intercept.unwrap_or(f64::NAN),
-                r_squared: result.r_squared,
-                n_components: result.n_components,
-                n_observations: result.n_observations,
-                n_features: result.n_features,
-            };
+        match fit_result {
+            Ok(result) => {
+                let n_coef = result.coefficients.len();
 
-            true
-        }
-        Err(e) => {
-            if !out_error.is_null() {
-                (*out_error).set(error_to_code(&e), &e.to_string());
+                // Allocate and copy coefficients
+                let coef_ptr = libc::malloc(n_coef * std::mem::size_of::<f64>()) as *mut f64;
+                if coef_ptr.is_null() && n_coef > 0 {
+                    if !out_error.is_null() {
+                        (*out_error).set(
+                            ErrorCode::AllocationFailure,
+                            "Failed to allocate coefficients",
+                        );
+                    }
+                    return false;
+                }
+                std::ptr::copy_nonoverlapping(result.coefficients.as_ptr(), coef_ptr, n_coef);
+
+                (*out_core) = PlsFitResultCore {
+                    coefficients: coef_ptr,
+                    coefficients_len: n_coef,
+                    intercept: result.intercept.unwrap_or(f64::NAN),
+                    r_squared: result.r_squared,
+                    n_components: result.n_components,
+                    n_observations: result.n_observations,
+                    n_features: result.n_features,
+                };
+
+                true
             }
-            false
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
         }
-    }
+    })
 }
 
 /// Free memory allocated by PLS fit function
@@ -3557,13 +4064,15 @@ pub unsafe extern "C" fn anofox_pls_fit(
 /// - `result` must be NULL or a valid pointer to a PlsFitResultCore
 #[no_mangle]
 pub unsafe extern "C" fn anofox_free_pls_result(result: *mut PlsFitResultCore) {
-    if result.is_null() {
-        return;
-    }
-    if !(*result).coefficients.is_null() {
-        libc::free((*result).coefficients as *mut libc::c_void);
-        (*result).coefficients = std::ptr::null_mut();
-    }
+    ffi_guard(std::ptr::null_mut(), (), || {
+        if result.is_null() {
+            return;
+        }
+        if !(*result).coefficients.is_null() {
+            libc::free((*result).coefficients as *mut libc::c_void);
+            (*result).coefficients = std::ptr::null_mut();
+        }
+    })
 }
 
 // =============================================================================
@@ -3588,75 +4097,77 @@ pub unsafe extern "C" fn anofox_isotonic_fit(
     out_core: *mut IsotonicFitResultCore,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-
-    if out_core.is_null() {
+    ffi_guard(out_error, false, || {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_core is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
 
-    // Convert to Vec
-    let x_vec = x.to_vec();
-    let y_vec = y.to_vec();
-
-    // Convert options
-    let opts = IsotonicOptions {
-        increasing: options.increasing,
-    };
-
-    // Call the core function with panic catching
-    let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        fit_isotonic(&x_vec, &y_vec, &opts)
-    }));
-
-    let fit_result = match fit_result {
-        Ok(r) => r,
-        Err(_) => {
+        if out_core.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InternalError, "Internal panic in Isotonic fit");
+                (*out_error).set(ErrorCode::InvalidInput, "out_core is NULL");
             }
             return false;
         }
-    };
 
-    match fit_result {
-        Ok(result) => {
-            let n_values = result.fitted_values.len();
+        // Convert to Vec
+        let x_vec = x.to_vec();
+        let y_vec = y.to_vec();
 
-            // Allocate and copy fitted values
-            let fitted_ptr = libc::malloc(n_values * std::mem::size_of::<f64>()) as *mut f64;
-            if fitted_ptr.is_null() && n_values > 0 {
+        // Convert options
+        let opts = IsotonicOptions {
+            increasing: options.increasing,
+        };
+
+        // Call the core function with panic catching
+        let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            fit_isotonic(&x_vec, &y_vec, &opts)
+        }));
+
+        let fit_result = match fit_result {
+            Ok(r) => r,
+            Err(_) => {
                 if !out_error.is_null() {
-                    (*out_error).set(
-                        ErrorCode::AllocationFailure,
-                        "Failed to allocate fitted values",
-                    );
+                    (*out_error).set(ErrorCode::InternalError, "Internal panic in Isotonic fit");
                 }
                 return false;
             }
-            std::ptr::copy_nonoverlapping(result.fitted_values.as_ptr(), fitted_ptr, n_values);
+        };
 
-            (*out_core) = IsotonicFitResultCore {
-                fitted_values: fitted_ptr,
-                fitted_values_len: n_values,
-                r_squared: result.r_squared,
-                n_observations: result.n_observations,
-                increasing: result.increasing,
-            };
+        match fit_result {
+            Ok(result) => {
+                let n_values = result.fitted_values.len();
 
-            true
-        }
-        Err(e) => {
-            if !out_error.is_null() {
-                (*out_error).set(error_to_code(&e), &e.to_string());
+                // Allocate and copy fitted values
+                let fitted_ptr = libc::malloc(n_values * std::mem::size_of::<f64>()) as *mut f64;
+                if fitted_ptr.is_null() && n_values > 0 {
+                    if !out_error.is_null() {
+                        (*out_error).set(
+                            ErrorCode::AllocationFailure,
+                            "Failed to allocate fitted values",
+                        );
+                    }
+                    return false;
+                }
+                std::ptr::copy_nonoverlapping(result.fitted_values.as_ptr(), fitted_ptr, n_values);
+
+                (*out_core) = IsotonicFitResultCore {
+                    fitted_values: fitted_ptr,
+                    fitted_values_len: n_values,
+                    r_squared: result.r_squared,
+                    n_observations: result.n_observations,
+                    increasing: result.increasing,
+                };
+
+                true
             }
-            false
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
         }
-    }
+    })
 }
 
 /// Free memory allocated by Isotonic fit function
@@ -3665,13 +4176,15 @@ pub unsafe extern "C" fn anofox_isotonic_fit(
 /// - `result` must be NULL or a valid pointer to an IsotonicFitResultCore
 #[no_mangle]
 pub unsafe extern "C" fn anofox_free_isotonic_result(result: *mut IsotonicFitResultCore) {
-    if result.is_null() {
-        return;
-    }
-    if !(*result).fitted_values.is_null() {
-        libc::free((*result).fitted_values as *mut libc::c_void);
-        (*result).fitted_values = std::ptr::null_mut();
-    }
+    ffi_guard(std::ptr::null_mut(), (), || {
+        if result.is_null() {
+            return;
+        }
+        if !(*result).fitted_values.is_null() {
+            libc::free((*result).fitted_values as *mut libc::c_void);
+            (*result).fitted_values = std::ptr::null_mut();
+        }
+    })
 }
 
 // =============================================================================
@@ -3697,89 +4210,98 @@ pub unsafe extern "C" fn anofox_quantile_fit(
     out_core: *mut QuantileFitResultCore,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-
-    if out_core.is_null() {
+    ffi_guard(out_error, false, || {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_core is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
 
-    if x.is_null() || x_count == 0 {
-        if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
-        }
-        return false;
-    }
-
-    // Convert y to Vec
-    let y_vec = y.to_vec();
-
-    // Convert x arrays to Vec<Vec<f64>>
-    let x_arrays = slice::from_raw_parts(x, x_count);
-    let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
-
-    // Convert options
-    let opts = QuantileOptions {
-        tau: options.tau,
-        fit_intercept: options.fit_intercept,
-        max_iterations: options.max_iterations,
-        tolerance: options.tolerance,
-    };
-
-    // Call the core function with panic catching
-    let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        fit_quantile(&y_vec, &x_vecs, &opts)
-    }));
-
-    let fit_result = match fit_result {
-        Ok(r) => r,
-        Err(_) => {
+        if out_core.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InternalError, "Internal panic in Quantile fit");
+                (*out_error).set(ErrorCode::InvalidInput, "out_core is NULL");
             }
             return false;
         }
-    };
 
-    match fit_result {
-        Ok(result) => {
-            let n_coef = result.coefficients.len();
+        if x.is_null() || x_count == 0 {
+            if !out_error.is_null() {
+                (*out_error).set(
+                    if x_count == 0 {
+                        ErrorCode::InsufficientData
+                    } else {
+                        ErrorCode::InvalidInput
+                    },
+                    "x is NULL or empty",
+                );
+            }
+            return false;
+        }
 
-            // Allocate and copy coefficients
-            let coef_ptr = libc::malloc(n_coef * std::mem::size_of::<f64>()) as *mut f64;
-            if coef_ptr.is_null() && n_coef > 0 {
+        // Convert y to Vec
+        let y_vec = y.to_vec();
+
+        // Convert x arrays to Vec<Vec<f64>>
+        let x_arrays = slice::from_raw_parts(x, x_count);
+        let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
+
+        // Convert options
+        let opts = QuantileOptions {
+            tau: options.tau,
+            fit_intercept: options.fit_intercept,
+            max_iterations: options.max_iterations,
+            tolerance: options.tolerance,
+        };
+
+        // Call the core function with panic catching
+        let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            fit_quantile(&y_vec, &x_vecs, &opts)
+        }));
+
+        let fit_result = match fit_result {
+            Ok(r) => r,
+            Err(_) => {
                 if !out_error.is_null() {
-                    (*out_error).set(
-                        ErrorCode::AllocationFailure,
-                        "Failed to allocate coefficients",
-                    );
+                    (*out_error).set(ErrorCode::InternalError, "Internal panic in Quantile fit");
                 }
                 return false;
             }
-            std::ptr::copy_nonoverlapping(result.coefficients.as_ptr(), coef_ptr, n_coef);
+        };
 
-            (*out_core) = QuantileFitResultCore {
-                coefficients: coef_ptr,
-                coefficients_len: n_coef,
-                intercept: result.intercept.unwrap_or(f64::NAN),
-                tau: result.tau,
-                n_observations: result.n_observations,
-                n_features: result.n_features,
-            };
+        match fit_result {
+            Ok(result) => {
+                let n_coef = result.coefficients.len();
 
-            true
-        }
-        Err(e) => {
-            if !out_error.is_null() {
-                (*out_error).set(error_to_code(&e), &e.to_string());
+                // Allocate and copy coefficients
+                let coef_ptr = libc::malloc(n_coef * std::mem::size_of::<f64>()) as *mut f64;
+                if coef_ptr.is_null() && n_coef > 0 {
+                    if !out_error.is_null() {
+                        (*out_error).set(
+                            ErrorCode::AllocationFailure,
+                            "Failed to allocate coefficients",
+                        );
+                    }
+                    return false;
+                }
+                std::ptr::copy_nonoverlapping(result.coefficients.as_ptr(), coef_ptr, n_coef);
+
+                (*out_core) = QuantileFitResultCore {
+                    coefficients: coef_ptr,
+                    coefficients_len: n_coef,
+                    intercept: result.intercept.unwrap_or(f64::NAN),
+                    tau: result.tau,
+                    n_observations: result.n_observations,
+                    n_features: result.n_features,
+                };
+
+                true
             }
-            false
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
         }
-    }
+    })
 }
 
 /// Free memory allocated by Quantile fit function
@@ -3788,13 +4310,15 @@ pub unsafe extern "C" fn anofox_quantile_fit(
 /// - `result` must be NULL or a valid pointer to a QuantileFitResultCore
 #[no_mangle]
 pub unsafe extern "C" fn anofox_free_quantile_result(result: *mut QuantileFitResultCore) {
-    if result.is_null() {
-        return;
-    }
-    if !(*result).coefficients.is_null() {
-        libc::free((*result).coefficients as *mut libc::c_void);
-        (*result).coefficients = std::ptr::null_mut();
-    }
+    ffi_guard(std::ptr::null_mut(), (), || {
+        if result.is_null() {
+            return;
+        }
+        if !(*result).coefficients.is_null() {
+            libc::free((*result).coefficients as *mut libc::c_void);
+            (*result).coefficients = std::ptr::null_mut();
+        }
+    })
 }
 
 // =============================================================================
@@ -3817,111 +4341,115 @@ pub unsafe extern "C" fn anofox_aid(
     out_result: *mut AidResultFFI,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-
-    if out_result.is_null() {
+    ffi_guard(out_error, false, || {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
 
-    // Convert y to Vec
-    let y_vec = y.to_vec();
-
-    // Convert options
-    let opts = AidOptions {
-        intermittent_threshold: options.intermittent_threshold,
-        outlier_method: match options.outlier_method {
-            OutlierMethodFFI::ZScore => OutlierMethod::ZScore,
-            OutlierMethodFFI::Iqr => OutlierMethod::Iqr,
-        },
-    };
-
-    // Call the core function with panic catching
-    let result =
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| compute_aid(&y_vec, &opts)));
-
-    let result = match result {
-        Ok(r) => r,
-        Err(_) => {
+        if out_result.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InternalError, "Internal panic in AID");
+                (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
             }
             return false;
         }
-    };
 
-    match result {
-        Ok(aid_result) => {
-            // Allocate and copy demand_type string
-            let demand_type_bytes = aid_result.demand_type.as_bytes();
-            let demand_type_ptr = libc::malloc(demand_type_bytes.len() + 1) as *mut libc::c_char;
-            if demand_type_ptr.is_null() {
+        // Convert y to Vec
+        let y_vec = y.to_vec();
+
+        // Convert options
+        let opts = AidOptions {
+            intermittent_threshold: options.intermittent_threshold,
+            outlier_method: match options.outlier_method {
+                OutlierMethodFFI::ZScore => OutlierMethod::ZScore,
+                OutlierMethodFFI::Iqr => OutlierMethod::Iqr,
+            },
+        };
+
+        // Call the core function with panic catching
+        let result =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| compute_aid(&y_vec, &opts)));
+
+        let result = match result {
+            Ok(r) => r,
+            Err(_) => {
                 if !out_error.is_null() {
-                    (*out_error).set(
-                        ErrorCode::AllocationFailure,
-                        "Failed to allocate demand_type",
-                    );
+                    (*out_error).set(ErrorCode::InternalError, "Internal panic in AID");
                 }
                 return false;
             }
-            std::ptr::copy_nonoverlapping(
-                demand_type_bytes.as_ptr(),
-                demand_type_ptr as *mut u8,
-                demand_type_bytes.len(),
-            );
-            *demand_type_ptr.add(demand_type_bytes.len()) = 0;
+        };
 
-            // Allocate and copy distribution string
-            let distribution_bytes = aid_result.distribution.as_bytes();
-            let distribution_ptr = libc::malloc(distribution_bytes.len() + 1) as *mut libc::c_char;
-            if distribution_ptr.is_null() {
-                libc::free(demand_type_ptr as *mut libc::c_void);
-                if !out_error.is_null() {
-                    (*out_error).set(
-                        ErrorCode::AllocationFailure,
-                        "Failed to allocate distribution",
-                    );
+        match result {
+            Ok(aid_result) => {
+                // Allocate and copy demand_type string
+                let demand_type_bytes = aid_result.demand_type.as_bytes();
+                let demand_type_ptr =
+                    libc::malloc(demand_type_bytes.len() + 1) as *mut libc::c_char;
+                if demand_type_ptr.is_null() {
+                    if !out_error.is_null() {
+                        (*out_error).set(
+                            ErrorCode::AllocationFailure,
+                            "Failed to allocate demand_type",
+                        );
+                    }
+                    return false;
                 }
-                return false;
-            }
-            std::ptr::copy_nonoverlapping(
-                distribution_bytes.as_ptr(),
-                distribution_ptr as *mut u8,
-                distribution_bytes.len(),
-            );
-            *distribution_ptr.add(distribution_bytes.len()) = 0;
+                std::ptr::copy_nonoverlapping(
+                    demand_type_bytes.as_ptr(),
+                    demand_type_ptr as *mut u8,
+                    demand_type_bytes.len(),
+                );
+                *demand_type_ptr.add(demand_type_bytes.len()) = 0;
 
-            (*out_result) = AidResultFFI {
-                demand_type: demand_type_ptr,
-                is_intermittent: aid_result.is_intermittent,
-                distribution: distribution_ptr,
-                mean: aid_result.mean,
-                variance: aid_result.variance,
-                zero_proportion: aid_result.zero_proportion,
-                n_observations: aid_result.n_observations,
-                has_stockouts: aid_result.has_stockouts,
-                is_new_product: aid_result.is_new_product,
-                is_obsolete_product: aid_result.is_obsolete_product,
-                stockout_count: aid_result.stockout_count,
-                new_product_count: aid_result.new_product_count,
-                obsolete_product_count: aid_result.obsolete_product_count,
-                high_outlier_count: aid_result.high_outlier_count,
-                low_outlier_count: aid_result.low_outlier_count,
-            };
+                // Allocate and copy distribution string
+                let distribution_bytes = aid_result.distribution.as_bytes();
+                let distribution_ptr =
+                    libc::malloc(distribution_bytes.len() + 1) as *mut libc::c_char;
+                if distribution_ptr.is_null() {
+                    libc::free(demand_type_ptr as *mut libc::c_void);
+                    if !out_error.is_null() {
+                        (*out_error).set(
+                            ErrorCode::AllocationFailure,
+                            "Failed to allocate distribution",
+                        );
+                    }
+                    return false;
+                }
+                std::ptr::copy_nonoverlapping(
+                    distribution_bytes.as_ptr(),
+                    distribution_ptr as *mut u8,
+                    distribution_bytes.len(),
+                );
+                *distribution_ptr.add(distribution_bytes.len()) = 0;
 
-            true
-        }
-        Err(e) => {
-            if !out_error.is_null() {
-                (*out_error).set(error_to_code(&e), &e.to_string());
+                (*out_result) = AidResultFFI {
+                    demand_type: demand_type_ptr,
+                    is_intermittent: aid_result.is_intermittent,
+                    distribution: distribution_ptr,
+                    mean: aid_result.mean,
+                    variance: aid_result.variance,
+                    zero_proportion: aid_result.zero_proportion,
+                    n_observations: aid_result.n_observations,
+                    has_stockouts: aid_result.has_stockouts,
+                    is_new_product: aid_result.is_new_product,
+                    is_obsolete_product: aid_result.is_obsolete_product,
+                    stockout_count: aid_result.stockout_count,
+                    new_product_count: aid_result.new_product_count,
+                    obsolete_product_count: aid_result.obsolete_product_count,
+                    high_outlier_count: aid_result.high_outlier_count,
+                    low_outlier_count: aid_result.low_outlier_count,
+                };
+
+                true
             }
-            false
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
         }
-    }
+    })
 }
 
 /// Compute AID per-observation anomaly flags
@@ -3940,86 +4468,88 @@ pub unsafe extern "C" fn anofox_aid_anomaly(
     out_result: *mut AidAnomalyResultFFI,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-
-    if out_result.is_null() {
+    ffi_guard(out_error, false, || {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
 
-    // Convert y to Vec
-    let y_vec = y.to_vec();
-
-    // Convert options
-    let opts = AidOptions {
-        intermittent_threshold: options.intermittent_threshold,
-        outlier_method: match options.outlier_method {
-            OutlierMethodFFI::ZScore => OutlierMethod::ZScore,
-            OutlierMethodFFI::Iqr => OutlierMethod::Iqr,
-        },
-    };
-
-    // Call the core function with panic catching
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        compute_aid_anomalies(&y_vec, &opts)
-    }));
-
-    let result = match result {
-        Ok(r) => r,
-        Err(_) => {
+        if out_result.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InternalError, "Internal panic in AID anomaly");
+                (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
             }
             return false;
         }
-    };
 
-    match result {
-        Ok(flags) => {
-            let n = flags.len();
+        // Convert y to Vec
+        let y_vec = y.to_vec();
 
-            // Allocate array for anomaly flags
-            let flags_ptr = libc::malloc(n * std::mem::size_of::<AidAnomalyFlagsFFI>())
-                as *mut AidAnomalyFlagsFFI;
-            if flags_ptr.is_null() && n > 0 {
+        // Convert options
+        let opts = AidOptions {
+            intermittent_threshold: options.intermittent_threshold,
+            outlier_method: match options.outlier_method {
+                OutlierMethodFFI::ZScore => OutlierMethod::ZScore,
+                OutlierMethodFFI::Iqr => OutlierMethod::Iqr,
+            },
+        };
+
+        // Call the core function with panic catching
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            compute_aid_anomalies(&y_vec, &opts)
+        }));
+
+        let result = match result {
+            Ok(r) => r,
+            Err(_) => {
                 if !out_error.is_null() {
-                    (*out_error).set(
-                        ErrorCode::AllocationFailure,
-                        "Failed to allocate anomaly flags",
-                    );
+                    (*out_error).set(ErrorCode::InternalError, "Internal panic in AID anomaly");
                 }
                 return false;
             }
+        };
 
-            // Copy flags
-            for (i, flag) in flags.iter().enumerate() {
-                *flags_ptr.add(i) = AidAnomalyFlagsFFI {
-                    stockout: flag.stockout,
-                    new_product: flag.new_product,
-                    obsolete_product: flag.obsolete_product,
-                    high_outlier: flag.high_outlier,
-                    low_outlier: flag.low_outlier,
+        match result {
+            Ok(flags) => {
+                let n = flags.len();
+
+                // Allocate array for anomaly flags
+                let flags_ptr = libc::malloc(n * std::mem::size_of::<AidAnomalyFlagsFFI>())
+                    as *mut AidAnomalyFlagsFFI;
+                if flags_ptr.is_null() && n > 0 {
+                    if !out_error.is_null() {
+                        (*out_error).set(
+                            ErrorCode::AllocationFailure,
+                            "Failed to allocate anomaly flags",
+                        );
+                    }
+                    return false;
+                }
+
+                // Copy flags
+                for (i, flag) in flags.iter().enumerate() {
+                    *flags_ptr.add(i) = AidAnomalyFlagsFFI {
+                        stockout: flag.stockout,
+                        new_product: flag.new_product,
+                        obsolete_product: flag.obsolete_product,
+                        high_outlier: flag.high_outlier,
+                        low_outlier: flag.low_outlier,
+                    };
+                }
+
+                (*out_result) = AidAnomalyResultFFI {
+                    flags: flags_ptr,
+                    len: n,
                 };
-            }
 
-            (*out_result) = AidAnomalyResultFFI {
-                flags: flags_ptr,
-                len: n,
-            };
-
-            true
-        }
-        Err(e) => {
-            if !out_error.is_null() {
-                (*out_error).set(error_to_code(&e), &e.to_string());
+                true
             }
-            false
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
         }
-    }
+    })
 }
 
 /// Free memory allocated by AID function
@@ -4029,17 +4559,19 @@ pub unsafe extern "C" fn anofox_aid_anomaly(
 /// - Must only be called once per result (double-free is undefined behavior)
 #[no_mangle]
 pub unsafe extern "C" fn anofox_free_aid_result(result: *mut AidResultFFI) {
-    if result.is_null() {
-        return;
-    }
-    if !(*result).demand_type.is_null() {
-        libc::free((*result).demand_type as *mut libc::c_void);
-        (*result).demand_type = std::ptr::null_mut();
-    }
-    if !(*result).distribution.is_null() {
-        libc::free((*result).distribution as *mut libc::c_void);
-        (*result).distribution = std::ptr::null_mut();
-    }
+    ffi_guard(std::ptr::null_mut(), (), || {
+        if result.is_null() {
+            return;
+        }
+        if !(*result).demand_type.is_null() {
+            libc::free((*result).demand_type as *mut libc::c_void);
+            (*result).demand_type = std::ptr::null_mut();
+        }
+        if !(*result).distribution.is_null() {
+            libc::free((*result).distribution as *mut libc::c_void);
+            (*result).distribution = std::ptr::null_mut();
+        }
+    })
 }
 
 /// Free memory allocated by AID anomaly function
@@ -4049,13 +4581,15 @@ pub unsafe extern "C" fn anofox_free_aid_result(result: *mut AidResultFFI) {
 /// - Must only be called once per result (double-free is undefined behavior)
 #[no_mangle]
 pub unsafe extern "C" fn anofox_free_aid_anomaly_result(result: *mut AidAnomalyResultFFI) {
-    if result.is_null() {
-        return;
-    }
-    if !(*result).flags.is_null() {
-        libc::free((*result).flags as *mut libc::c_void);
-        (*result).flags = std::ptr::null_mut();
-    }
+    ffi_guard(std::ptr::null_mut(), (), || {
+        if result.is_null() {
+            return;
+        }
+        if !(*result).flags.is_null() {
+            libc::free((*result).flags as *mut libc::c_void);
+            (*result).flags = std::ptr::null_mut();
+        }
+    })
 }
 
 // =============================================================================
@@ -4065,8 +4599,9 @@ pub unsafe extern "C" fn anofox_free_aid_anomaly_result(result: *mut AidAnomalyR
 use anofox_stats_core::tests::{
     categorical::{
         binom_test, chisq_goodness_of_fit, chisq_test, cohen_kappa, contingency_coef, cramers_v,
-        fisher_exact, g_test, mcnemar_test, phi_coefficient, prop_test_one, prop_test_two,
-        ChiSquareOptions, FisherExactOptions, McNemarOptions, PropTestOptions,
+        fisher_exact, fisher_exact_conditional, g_test, mcnemar_test, phi_coefficient,
+        prop_test_one, prop_test_two, ChiSquareOptions, FisherExactOptions, McNemarOptions,
+        PropTestOptions,
     },
     correlation::{
         distance_cor, distance_cor_test, icc, kendall, pearson, spearman, DistanceCorTestOptions,
@@ -4118,71 +4653,77 @@ pub unsafe extern "C" fn anofox_t_test(
     out_result: *mut TestResultFFI,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-
-    if out_result.is_null() {
+    ffi_guard(out_error, false, || {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
+        if !check_confidence_level(options.confidence_level, out_error) {
+            return false;
+        }
 
-    let g1 = group1.to_vec();
-    let g2 = group2.to_vec();
-
-    // Map var_equal to TTestKind
-    let kind = if options.var_equal {
-        TTestKind::Student
-    } else {
-        TTestKind::Welch
-    };
-
-    let opts = TTestOptions {
-        alternative: options.alternative.into(),
-        kind,
-        confidence_level: Some(options.confidence_level),
-        mu: options.mu,
-    };
-
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| t_test(&g1, &g2, &opts)));
-
-    let result = match result {
-        Ok(r) => r,
-        Err(_) => {
+        if out_result.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InternalError, "Internal panic in t-test");
+                (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
             }
             return false;
         }
-    };
 
-    match result {
-        Ok(r) => {
-            (*out_result) = TestResultFFI {
-                statistic: r.statistic,
-                p_value: r.p_value,
-                df: r.df,
-                effect_size: r.effect_size,
-                ci_lower: r.ci_lower,
-                ci_upper: r.ci_upper,
-                confidence_level: r.confidence_level,
-                n: r.n,
-                n1: r.n1,
-                n2: r.n2,
-                alternative: r.alternative.into(),
-                method: alloc_string(&r.method),
-            };
-            true
-        }
-        Err(e) => {
-            if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+        let g1 = group1.to_vec();
+        let g2 = group2.to_vec();
+
+        // Map var_equal to TTestKind
+        let kind = if options.var_equal {
+            TTestKind::Student
+        } else {
+            TTestKind::Welch
+        };
+
+        let opts = TTestOptions {
+            alternative: options.alternative.into(),
+            kind,
+            confidence_level: Some(options.confidence_level),
+            mu: options.mu,
+        };
+
+        let result =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| t_test(&g1, &g2, &opts)));
+
+        let result = match result {
+            Ok(r) => r,
+            Err(_) => {
+                if !out_error.is_null() {
+                    (*out_error).set(ErrorCode::InternalError, "Internal panic in t-test");
+                }
+                return false;
             }
-            false
+        };
+
+        match result {
+            Ok(r) => {
+                (*out_result) = TestResultFFI {
+                    statistic: r.statistic,
+                    p_value: r.p_value,
+                    df: r.df,
+                    effect_size: r.effect_size,
+                    ci_lower: r.ci_lower,
+                    ci_upper: r.ci_upper,
+                    confidence_level: r.confidence_level,
+                    n: r.n,
+                    n1: r.n1,
+                    n2: r.n2,
+                    alternative: r.alternative.into(),
+                    method: alloc_string(&r.method),
+                };
+                true
+            }
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
         }
-    }
+    })
 }
 
 /// Shapiro-Wilk test for normality
@@ -4197,56 +4738,59 @@ pub unsafe extern "C" fn anofox_shapiro_wilk(
     out_result: *mut TestResultFFI,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-
-    if out_result.is_null() {
+    ffi_guard(out_error, false, || {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
 
-    let data_vec = data.to_vec();
-
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| shapiro_wilk(&data_vec)));
-
-    let result = match result {
-        Ok(r) => r,
-        Err(_) => {
+        if out_result.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InternalError, "Internal panic in Shapiro-Wilk");
+                (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
             }
             return false;
         }
-    };
 
-    match result {
-        Ok(r) => {
-            (*out_result) = TestResultFFI {
-                statistic: r.statistic,
-                p_value: r.p_value,
-                df: r.df,
-                effect_size: r.effect_size,
-                ci_lower: r.ci_lower,
-                ci_upper: r.ci_upper,
-                confidence_level: r.confidence_level,
-                n: r.n,
-                n1: r.n1,
-                n2: r.n2,
-                alternative: r.alternative.into(),
-                method: alloc_string(&r.method),
-            };
-            true
-        }
-        Err(e) => {
-            if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+        let data_vec = data.to_vec();
+
+        let result =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| shapiro_wilk(&data_vec)));
+
+        let result = match result {
+            Ok(r) => r,
+            Err(_) => {
+                if !out_error.is_null() {
+                    (*out_error).set(ErrorCode::InternalError, "Internal panic in Shapiro-Wilk");
+                }
+                return false;
             }
-            false
+        };
+
+        match result {
+            Ok(r) => {
+                (*out_result) = TestResultFFI {
+                    statistic: r.statistic,
+                    p_value: r.p_value,
+                    df: r.df,
+                    effect_size: r.effect_size,
+                    ci_lower: r.ci_lower,
+                    ci_upper: r.ci_upper,
+                    confidence_level: r.confidence_level,
+                    n: r.n,
+                    n1: r.n1,
+                    n2: r.n2,
+                    alternative: r.alternative.into(),
+                    method: alloc_string(&r.method),
+                };
+                true
+            }
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
         }
-    }
+    })
 }
 
 /// D'Agostino K-squared test for normality
@@ -4261,58 +4805,60 @@ pub unsafe extern "C" fn anofox_dagostino_k2(
     out_result: *mut TestResultFFI,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-
-    if out_result.is_null() {
+    ffi_guard(out_error, false, || {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
 
-    let data_vec = data.to_vec();
-
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        dagostino_k_squared(&data_vec)
-    }));
-
-    let result = match result {
-        Ok(r) => r,
-        Err(_) => {
+        if out_result.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InternalError, "Internal panic in D'Agostino");
+                (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
             }
             return false;
         }
-    };
 
-    match result {
-        Ok(r) => {
-            (*out_result) = TestResultFFI {
-                statistic: r.statistic,
-                p_value: r.p_value,
-                df: r.df,
-                effect_size: r.effect_size,
-                ci_lower: r.ci_lower,
-                ci_upper: r.ci_upper,
-                confidence_level: r.confidence_level,
-                n: r.n,
-                n1: r.n1,
-                n2: r.n2,
-                alternative: r.alternative.into(),
-                method: alloc_string(&r.method),
-            };
-            true
-        }
-        Err(e) => {
-            if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+        let data_vec = data.to_vec();
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            dagostino_k_squared(&data_vec)
+        }));
+
+        let result = match result {
+            Ok(r) => r,
+            Err(_) => {
+                if !out_error.is_null() {
+                    (*out_error).set(ErrorCode::InternalError, "Internal panic in D'Agostino");
+                }
+                return false;
             }
-            false
+        };
+
+        match result {
+            Ok(r) => {
+                (*out_result) = TestResultFFI {
+                    statistic: r.statistic,
+                    p_value: r.p_value,
+                    df: r.df,
+                    effect_size: r.effect_size,
+                    ci_lower: r.ci_lower,
+                    ci_upper: r.ci_upper,
+                    confidence_level: r.confidence_level,
+                    n: r.n,
+                    n1: r.n1,
+                    n2: r.n2,
+                    alternative: r.alternative.into(),
+                    method: alloc_string(&r.method),
+                };
+                true
+            }
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
         }
-    }
+    })
 }
 
 /// Pearson correlation test
@@ -4329,59 +4875,64 @@ pub unsafe extern "C" fn anofox_pearson_cor(
     out_result: *mut CorrelationResultFFI,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-
-    if out_result.is_null() {
+    ffi_guard(out_error, false, || {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
+        if !check_confidence_level(options.confidence_level, out_error) {
+            return false;
+        }
 
-    let x_vec = x.to_vec();
-    let y_vec = y.to_vec();
-
-    let opts = PearsonOptions {
-        confidence_level: Some(options.confidence_level),
-    };
-
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        pearson(&x_vec, &y_vec, &opts)
-    }));
-
-    let result = match result {
-        Ok(r) => r,
-        Err(_) => {
+        if out_result.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InternalError, "Internal panic in Pearson");
+                (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
             }
             return false;
         }
-    };
 
-    match result {
-        Ok(r) => {
-            (*out_result) = CorrelationResultFFI {
-                r: r.r,
-                statistic: r.statistic,
-                p_value: r.p_value,
-                ci_lower: r.ci_lower,
-                ci_upper: r.ci_upper,
-                confidence_level: r.confidence_level,
-                n: r.n,
-                method: alloc_string(&r.method),
-            };
-            true
-        }
-        Err(e) => {
-            if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+        let x_vec = x.to_vec();
+        let y_vec = y.to_vec();
+
+        let opts = PearsonOptions {
+            confidence_level: Some(options.confidence_level),
+        };
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            pearson(&x_vec, &y_vec, &opts)
+        }));
+
+        let result = match result {
+            Ok(r) => r,
+            Err(_) => {
+                if !out_error.is_null() {
+                    (*out_error).set(ErrorCode::InternalError, "Internal panic in Pearson");
+                }
+                return false;
             }
-            false
+        };
+
+        match result {
+            Ok(r) => {
+                (*out_result) = CorrelationResultFFI {
+                    r: r.r,
+                    statistic: r.statistic,
+                    p_value: r.p_value,
+                    ci_lower: r.ci_lower,
+                    ci_upper: r.ci_upper,
+                    confidence_level: r.confidence_level,
+                    n: r.n,
+                    method: alloc_string(&r.method),
+                };
+                true
+            }
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
         }
-    }
+    })
 }
 
 /// Spearman correlation test
@@ -4398,59 +4949,64 @@ pub unsafe extern "C" fn anofox_spearman_cor(
     out_result: *mut CorrelationResultFFI,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-
-    if out_result.is_null() {
+    ffi_guard(out_error, false, || {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
+        if !check_confidence_level(options.confidence_level, out_error) {
+            return false;
+        }
 
-    let x_vec = x.to_vec();
-    let y_vec = y.to_vec();
-
-    let opts = SpearmanOptions {
-        confidence_level: Some(options.confidence_level),
-    };
-
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        spearman(&x_vec, &y_vec, &opts)
-    }));
-
-    let result = match result {
-        Ok(r) => r,
-        Err(_) => {
+        if out_result.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InternalError, "Internal panic in Spearman");
+                (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
             }
             return false;
         }
-    };
 
-    match result {
-        Ok(r) => {
-            (*out_result) = CorrelationResultFFI {
-                r: r.r,
-                statistic: r.statistic,
-                p_value: r.p_value,
-                ci_lower: r.ci_lower,
-                ci_upper: r.ci_upper,
-                confidence_level: r.confidence_level,
-                n: r.n,
-                method: alloc_string(&r.method),
-            };
-            true
-        }
-        Err(e) => {
-            if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+        let x_vec = x.to_vec();
+        let y_vec = y.to_vec();
+
+        let opts = SpearmanOptions {
+            confidence_level: Some(options.confidence_level),
+        };
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            spearman(&x_vec, &y_vec, &opts)
+        }));
+
+        let result = match result {
+            Ok(r) => r,
+            Err(_) => {
+                if !out_error.is_null() {
+                    (*out_error).set(ErrorCode::InternalError, "Internal panic in Spearman");
+                }
+                return false;
             }
-            false
+        };
+
+        match result {
+            Ok(r) => {
+                (*out_result) = CorrelationResultFFI {
+                    r: r.r,
+                    statistic: r.statistic,
+                    p_value: r.p_value,
+                    ci_lower: r.ci_lower,
+                    ci_upper: r.ci_upper,
+                    confidence_level: r.confidence_level,
+                    n: r.n,
+                    method: alloc_string(&r.method),
+                };
+                true
+            }
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
         }
-    }
+    })
 }
 
 /// Kendall correlation test
@@ -4467,63 +5023,65 @@ pub unsafe extern "C" fn anofox_kendall_cor(
     out_result: *mut CorrelationResultFFI,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-
-    if out_result.is_null() {
+    ffi_guard(out_error, false, || {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
 
-    let x_vec = x.to_vec();
-    let y_vec = y.to_vec();
-
-    let variant = match options.tau_type {
-        KendallTypeFFI::TauA => KendallVariant::TauA,
-        KendallTypeFFI::TauB => KendallVariant::TauB,
-        KendallTypeFFI::TauC => KendallVariant::TauC,
-    };
-
-    let opts = KendallOptions { variant };
-
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        kendall(&x_vec, &y_vec, &opts)
-    }));
-
-    let result = match result {
-        Ok(r) => r,
-        Err(_) => {
+        if out_result.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InternalError, "Internal panic in Kendall");
+                (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
             }
             return false;
         }
-    };
 
-    match result {
-        Ok(r) => {
-            (*out_result) = CorrelationResultFFI {
-                r: r.r,
-                statistic: r.statistic,
-                p_value: r.p_value,
-                ci_lower: r.ci_lower,
-                ci_upper: r.ci_upper,
-                confidence_level: r.confidence_level,
-                n: r.n,
-                method: alloc_string(&r.method),
-            };
-            true
-        }
-        Err(e) => {
-            if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+        let x_vec = x.to_vec();
+        let y_vec = y.to_vec();
+
+        let variant = match options.tau_type {
+            KendallTypeFFI::TauA => KendallVariant::TauA,
+            KendallTypeFFI::TauB => KendallVariant::TauB,
+            KendallTypeFFI::TauC => KendallVariant::TauC,
+        };
+
+        let opts = KendallOptions { variant };
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            kendall(&x_vec, &y_vec, &opts)
+        }));
+
+        let result = match result {
+            Ok(r) => r,
+            Err(_) => {
+                if !out_error.is_null() {
+                    (*out_error).set(ErrorCode::InternalError, "Internal panic in Kendall");
+                }
+                return false;
             }
-            false
+        };
+
+        match result {
+            Ok(r) => {
+                (*out_result) = CorrelationResultFFI {
+                    r: r.r,
+                    statistic: r.statistic,
+                    p_value: r.p_value,
+                    ci_lower: r.ci_lower,
+                    ci_upper: r.ci_upper,
+                    confidence_level: r.confidence_level,
+                    n: r.n,
+                    method: alloc_string(&r.method),
+                };
+                true
+            }
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
         }
-    }
+    })
 }
 
 /// Mann-Whitney U test
@@ -4540,75 +5098,80 @@ pub unsafe extern "C" fn anofox_mann_whitney_u(
     out_result: *mut TestResultFFI,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-
-    if out_result.is_null() {
+    ffi_guard(out_error, false, || {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
+        if !check_optional_confidence_level(options.confidence_level, out_error) {
+            return false;
+        }
 
-    let g1 = group1.to_vec();
-    let g2 = group2.to_vec();
-
-    let opts = MannWhitneyOptions {
-        alternative: options.alternative.into(),
-        exact: options.exact,
-        continuity_correction: options.continuity_correction,
-        confidence_level: if options.confidence_level > 0.0 {
-            Some(options.confidence_level)
-        } else {
-            None
-        },
-        mu: if options.mu.is_nan() || options.mu == 0.0 {
-            None
-        } else {
-            Some(options.mu)
-        },
-    };
-
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        mann_whitney_u(&g1, &g2, &opts)
-    }));
-
-    let result = match result {
-        Ok(r) => r,
-        Err(_) => {
+        if out_result.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InternalError, "Internal panic in Mann-Whitney");
+                (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
             }
             return false;
         }
-    };
 
-    match result {
-        Ok(r) => {
-            (*out_result) = TestResultFFI {
-                statistic: r.statistic,
-                p_value: r.p_value,
-                df: r.df,
-                effect_size: r.effect_size,
-                ci_lower: r.ci_lower,
-                ci_upper: r.ci_upper,
-                confidence_level: r.confidence_level,
-                n: r.n,
-                n1: r.n1,
-                n2: r.n2,
-                alternative: r.alternative.into(),
-                method: alloc_string(&r.method),
-            };
-            true
-        }
-        Err(e) => {
-            if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+        let g1 = group1.to_vec();
+        let g2 = group2.to_vec();
+
+        let opts = MannWhitneyOptions {
+            alternative: options.alternative.into(),
+            exact: options.exact,
+            continuity_correction: options.continuity_correction,
+            confidence_level: if options.confidence_level > 0.0 {
+                Some(options.confidence_level)
+            } else {
+                None
+            },
+            mu: if options.mu.is_nan() || options.mu == 0.0 {
+                None
+            } else {
+                Some(options.mu)
+            },
+        };
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            mann_whitney_u(&g1, &g2, &opts)
+        }));
+
+        let result = match result {
+            Ok(r) => r,
+            Err(_) => {
+                if !out_error.is_null() {
+                    (*out_error).set(ErrorCode::InternalError, "Internal panic in Mann-Whitney");
+                }
+                return false;
             }
-            false
+        };
+
+        match result {
+            Ok(r) => {
+                (*out_result) = TestResultFFI {
+                    statistic: r.statistic,
+                    p_value: r.p_value,
+                    df: r.df,
+                    effect_size: r.effect_size,
+                    ci_lower: r.ci_lower,
+                    ci_upper: r.ci_upper,
+                    confidence_level: r.confidence_level,
+                    n: r.n,
+                    n1: r.n1,
+                    n2: r.n2,
+                    alternative: r.alternative.into(),
+                    method: alloc_string(&r.method),
+                };
+                true
+            }
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
         }
-    }
+    })
 }
 
 /// Brunner-Munzel test
@@ -4625,64 +5188,69 @@ pub unsafe extern "C" fn anofox_brunner_munzel(
     out_result: *mut TestResultFFI,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-
-    if out_result.is_null() {
+    ffi_guard(out_error, false, || {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
+        if !check_confidence_level(options.confidence_level, out_error) {
+            return false;
+        }
 
-    let g1 = group1.to_vec();
-    let g2 = group2.to_vec();
-
-    let opts = BrunnerMunzelOptions {
-        alternative: options.alternative.into(),
-        confidence_level: options.confidence_level,
-    };
-
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        brunner_munzel(&g1, &g2, &opts)
-    }));
-
-    let result = match result {
-        Ok(r) => r,
-        Err(_) => {
+        if out_result.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InternalError, "Internal panic in Brunner-Munzel");
+                (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
             }
             return false;
         }
-    };
 
-    match result {
-        Ok(r) => {
-            (*out_result) = TestResultFFI {
-                statistic: r.statistic,
-                p_value: r.p_value,
-                df: r.df,
-                effect_size: r.effect_size,
-                ci_lower: r.ci_lower,
-                ci_upper: r.ci_upper,
-                confidence_level: r.confidence_level,
-                n: r.n,
-                n1: r.n1,
-                n2: r.n2,
-                alternative: r.alternative.into(),
-                method: alloc_string(&r.method),
-            };
-            true
-        }
-        Err(e) => {
-            if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+        let g1 = group1.to_vec();
+        let g2 = group2.to_vec();
+
+        let opts = BrunnerMunzelOptions {
+            alternative: options.alternative.into(),
+            confidence_level: options.confidence_level,
+        };
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            brunner_munzel(&g1, &g2, &opts)
+        }));
+
+        let result = match result {
+            Ok(r) => r,
+            Err(_) => {
+                if !out_error.is_null() {
+                    (*out_error).set(ErrorCode::InternalError, "Internal panic in Brunner-Munzel");
+                }
+                return false;
             }
-            false
+        };
+
+        match result {
+            Ok(r) => {
+                (*out_result) = TestResultFFI {
+                    statistic: r.statistic,
+                    p_value: r.p_value,
+                    df: r.df,
+                    effect_size: r.effect_size,
+                    ci_lower: r.ci_lower,
+                    ci_upper: r.ci_upper,
+                    confidence_level: r.confidence_level,
+                    n: r.n,
+                    n1: r.n1,
+                    n2: r.n2,
+                    alternative: r.alternative.into(),
+                    method: alloc_string(&r.method),
+                };
+                true
+            }
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
         }
-    }
+    })
 }
 
 /// One-way ANOVA
@@ -4698,68 +5266,71 @@ pub unsafe extern "C" fn anofox_one_way_anova(
     out_result: *mut AnovaResultFFI,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-
-    if out_result.is_null() {
+    ffi_guard(out_error, false, || {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
 
-    let values_vec = values.to_vec();
-    let groups_vec = groups.to_vec();
-
-    // Convert groups to integers and organize data
-    let mut group_data: std::collections::HashMap<i64, Vec<f64>> = std::collections::HashMap::new();
-    for (v, g) in values_vec.iter().zip(groups_vec.iter()) {
-        if !v.is_nan() && !g.is_nan() {
-            let group_id = *g as i64;
-            group_data.entry(group_id).or_default().push(*v);
-        }
-    }
-
-    let groups_list: Vec<Vec<f64>> = group_data.into_values().collect();
-    let opts = AnovaOptions::default();
-
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        one_way_anova(&groups_list, &opts)
-    }));
-
-    let result = match result {
-        Ok(r) => r,
-        Err(_) => {
+        if out_result.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InternalError, "Internal panic in ANOVA");
+                (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
             }
             return false;
         }
-    };
 
-    match result {
-        Ok(r) => {
-            (*out_result) = AnovaResultFFI {
-                f_statistic: r.f_statistic,
-                p_value: r.p_value,
-                df_between: r.df_between,
-                df_within: r.df_within,
-                ss_between: r.ss_between,
-                ss_within: r.ss_within,
-                n_groups: r.n_groups,
-                n: r.n,
-                method: alloc_string(&r.method),
-            };
-            true
-        }
-        Err(e) => {
-            if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+        let values_vec = values.to_vec();
+        let groups_vec = groups.to_vec();
+
+        // Convert groups to integers and organize data
+        let mut group_data: std::collections::HashMap<i64, Vec<f64>> =
+            std::collections::HashMap::new();
+        for (v, g) in values_vec.iter().zip(groups_vec.iter()) {
+            if !v.is_nan() && !g.is_nan() {
+                let group_id = *g as i64;
+                group_data.entry(group_id).or_default().push(*v);
             }
-            false
         }
-    }
+
+        let groups_list: Vec<Vec<f64>> = group_data.into_values().collect();
+        let opts = AnovaOptions::default();
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            one_way_anova(&groups_list, &opts)
+        }));
+
+        let result = match result {
+            Ok(r) => r,
+            Err(_) => {
+                if !out_error.is_null() {
+                    (*out_error).set(ErrorCode::InternalError, "Internal panic in ANOVA");
+                }
+                return false;
+            }
+        };
+
+        match result {
+            Ok(r) => {
+                (*out_result) = AnovaResultFFI {
+                    f_statistic: r.f_statistic,
+                    p_value: r.p_value,
+                    df_between: r.df_between,
+                    df_within: r.df_within,
+                    ss_between: r.ss_between,
+                    ss_within: r.ss_within,
+                    n_groups: r.n_groups,
+                    n: r.n,
+                    method: alloc_string(&r.method),
+                };
+                true
+            }
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
+        }
+    })
 }
 
 /// Kruskal-Wallis H test
@@ -4775,70 +5346,73 @@ pub unsafe extern "C" fn anofox_kruskal_wallis(
     out_result: *mut TestResultFFI,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-
-    if out_result.is_null() {
+    ffi_guard(out_error, false, || {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
 
-    let values_vec = values.to_vec();
-    let groups_vec = groups.to_vec();
-
-    // Convert groups to integers and organize data
-    let mut group_data: std::collections::HashMap<i64, Vec<f64>> = std::collections::HashMap::new();
-    for (v, g) in values_vec.iter().zip(groups_vec.iter()) {
-        if !v.is_nan() && !g.is_nan() {
-            let group_id = *g as i64;
-            group_data.entry(group_id).or_default().push(*v);
-        }
-    }
-
-    let groups_list: Vec<Vec<f64>> = group_data.into_values().collect();
-
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        kruskal_wallis(&groups_list)
-    }));
-
-    let result = match result {
-        Ok(r) => r,
-        Err(_) => {
+        if out_result.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InternalError, "Internal panic in Kruskal-Wallis");
+                (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
             }
             return false;
         }
-    };
 
-    match result {
-        Ok(r) => {
-            (*out_result) = TestResultFFI {
-                statistic: r.statistic,
-                p_value: r.p_value,
-                df: r.df,
-                effect_size: r.effect_size,
-                ci_lower: r.ci_lower,
-                ci_upper: r.ci_upper,
-                confidence_level: r.confidence_level,
-                n: r.n,
-                n1: r.n1,
-                n2: r.n2,
-                alternative: r.alternative.into(),
-                method: alloc_string(&r.method),
-            };
-            true
-        }
-        Err(e) => {
-            if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+        let values_vec = values.to_vec();
+        let groups_vec = groups.to_vec();
+
+        // Convert groups to integers and organize data
+        let mut group_data: std::collections::HashMap<i64, Vec<f64>> =
+            std::collections::HashMap::new();
+        for (v, g) in values_vec.iter().zip(groups_vec.iter()) {
+            if !v.is_nan() && !g.is_nan() {
+                let group_id = *g as i64;
+                group_data.entry(group_id).or_default().push(*v);
             }
-            false
         }
-    }
+
+        let groups_list: Vec<Vec<f64>> = group_data.into_values().collect();
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            kruskal_wallis(&groups_list)
+        }));
+
+        let result = match result {
+            Ok(r) => r,
+            Err(_) => {
+                if !out_error.is_null() {
+                    (*out_error).set(ErrorCode::InternalError, "Internal panic in Kruskal-Wallis");
+                }
+                return false;
+            }
+        };
+
+        match result {
+            Ok(r) => {
+                (*out_result) = TestResultFFI {
+                    statistic: r.statistic,
+                    p_value: r.p_value,
+                    df: r.df,
+                    effect_size: r.effect_size,
+                    ci_lower: r.ci_lower,
+                    ci_upper: r.ci_upper,
+                    confidence_level: r.confidence_level,
+                    n: r.n,
+                    n1: r.n1,
+                    n2: r.n2,
+                    alternative: r.alternative.into(),
+                    method: alloc_string(&r.method),
+                };
+                true
+            }
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
+        }
+    })
 }
 
 /// Chi-square test for independence
@@ -4855,6 +5429,117 @@ pub unsafe extern "C" fn anofox_chisq_test(
     out_result: *mut ChiSquareResultFFI,
     out_error: *mut AnofoxError,
 ) -> bool {
+    ffi_guard(out_error, false, || {
+        if !out_error.is_null() {
+            *out_error = AnofoxError::success();
+        }
+
+        if out_result.is_null() {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+            }
+            return false;
+        }
+
+        let row_vec = row_var.to_vec();
+        let col_vec = col_var.to_vec();
+
+        // Keep complete pairs. Categories are compacted to dense indices over the
+        // levels actually observed (like R's table()); using the raw codes as
+        // indices added empty rows/columns (wrong df) for codes not starting at
+        // 0, and merged negative codes into 0.
+        let pairs: Vec<(f64, f64)> = row_vec
+            .iter()
+            .zip(col_vec.iter())
+            .filter(|(r, c)| r.is_finite() && c.is_finite())
+            .map(|(r, c)| (*r, *c))
+            .collect();
+
+        if pairs.is_empty() {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InsufficientData, "No valid data pairs");
+            }
+            return false;
+        }
+
+        let levels = |vals: Vec<f64>| -> Vec<f64> {
+            let mut v = vals;
+            v.sort_by(|a, b| a.total_cmp(b));
+            v.dedup();
+            v
+        };
+        let row_levels = levels(pairs.iter().map(|(r, _)| *r).collect());
+        let col_levels = levels(pairs.iter().map(|(_, c)| *c).collect());
+
+        // A 1 x K (or K x 1) table has df = 0: there is no independence test.
+        // (R's chisq.test would silently switch to a goodness-of-fit test on
+        // the vector; use chisq_gof_agg for that.) Return NULL, like g_test_agg.
+        if row_levels.len() < 2 || col_levels.len() < 2 {
+            if !out_error.is_null() {
+                (*out_error).set(
+                    ErrorCode::InsufficientData,
+                    "chi-square test of independence needs at least 2 row and 2 column \
+                     categories (a 1 x K table has df = 0; use chisq_gof_agg for goodness of fit)",
+                );
+            }
+            return false;
+        }
+
+        let index_of = |levels: &[f64], v: f64| -> usize {
+            levels
+                .binary_search_by(|probe| probe.total_cmp(&v))
+                .unwrap_or(0)
+        };
+        let mut table: Vec<Vec<usize>> = vec![vec![0; col_levels.len()]; row_levels.len()];
+        for (r, c) in &pairs {
+            table[index_of(&row_levels, *r)][index_of(&col_levels, *c)] += 1;
+        }
+
+        let opts = ChiSquareOptions {
+            correction: options.correction,
+        };
+
+        let result =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| chisq_test(&table, &opts)));
+
+        let result = match result {
+            Ok(r) => r,
+            Err(_) => {
+                if !out_error.is_null() {
+                    (*out_error).set(ErrorCode::InternalError, "Internal panic in chi-square");
+                }
+                return false;
+            }
+        };
+
+        match result {
+            Ok(r) => {
+                (*out_result) = ChiSquareResultFFI {
+                    statistic: r.statistic,
+                    p_value: r.p_value,
+                    df: r.df,
+                    method: alloc_string(&r.method),
+                };
+                true
+            }
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
+        }
+    })
+}
+
+/// Shared body of [`anofox_fisher_exact`] / [`anofox_fisher_exact_conditional`].
+unsafe fn fisher_exact_ffi_impl(
+    table: [[usize; 2]; 2],
+    options: FisherExactOptionsFFI,
+    conditional: bool,
+    out_result: *mut TestResultFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
     if !out_error.is_null() {
         *out_error = AnofoxError::success();
     }
@@ -4865,64 +5550,59 @@ pub unsafe extern "C" fn anofox_chisq_test(
         }
         return false;
     }
-
-    let row_vec = row_var.to_vec();
-    let col_vec = col_var.to_vec();
-
-    // Filter valid pairs and convert to usize
-    let pairs: Vec<(usize, usize)> = row_vec
-        .iter()
-        .zip(col_vec.iter())
-        .filter(|(r, c)| !r.is_nan() && !c.is_nan())
-        .map(|(r, c)| (*r as usize, *c as usize))
-        .collect();
-
-    if pairs.is_empty() {
-        if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InsufficientData, "No valid data pairs");
-        }
+    if !check_confidence_level(options.confidence_level, out_error) {
         return false;
     }
-
-    // Build contingency table
-    let max_row = pairs.iter().map(|(r, _)| *r).max().unwrap_or(0);
-    let max_col = pairs.iter().map(|(_, c)| *c).max().unwrap_or(0);
-
-    let mut table: Vec<Vec<usize>> = vec![vec![0; max_col + 1]; max_row + 1];
-    for (r, c) in &pairs {
-        table[*r][*c] += 1;
-    }
-
-    let opts = ChiSquareOptions {
-        correction: options.correction,
-    };
-
-    let result =
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| chisq_test(&table, &opts)));
-
-    let result = match result {
-        Ok(r) => r,
-        Err(_) => {
+    let [[a, b], [c, d]] = table;
+    let n = match a
+        .checked_add(b)
+        .and_then(|v| v.checked_add(c))
+        .and_then(|v| v.checked_add(d))
+    {
+        Some(n) => n,
+        None => {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InternalError, "Internal panic in chi-square");
+                (*out_error).set(ErrorCode::InvalidInput, "table counts overflow");
             }
             return false;
         }
     };
 
+    let opts = FisherExactOptions {
+        alternative: options.alternative.into(),
+        confidence_level: options.confidence_level,
+    };
+    let result = if conditional {
+        fisher_exact_conditional(&table, &opts)
+    } else {
+        fisher_exact(&table, &opts)
+    };
+
     match result {
         Ok(r) => {
-            (*out_result) = ChiSquareResultFFI {
-                statistic: r.statistic,
+            (*out_result) = TestResultFFI {
+                statistic: r.odds_ratio,
                 p_value: r.p_value,
-                df: r.df,
-                method: alloc_string(&r.method),
+                df: f64::NAN,
+                effect_size: r.odds_ratio,
+                ci_lower: r.ci_lower,
+                ci_upper: r.ci_upper,
+                confidence_level: options.confidence_level,
+                n,
+                n1: 0,
+                n2: 0,
+                alternative: r.alternative.into(),
+                method: alloc_string(if conditional {
+                    "Fisher's exact test (conditional MLE)"
+                } else {
+                    "Fisher's exact test"
+                }),
             };
             true
         }
         Err(e) => {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+                (*out_error).set(error_to_code(&e), &e.to_string());
             }
             false
         }
@@ -4930,6 +5610,10 @@ pub unsafe extern "C" fn anofox_chisq_test(
 }
 
 /// Fisher's exact test (2x2 tables only)
+///
+/// `statistic`/`effect_size` hold the sample odds ratio `ad/bc`; the CI is the
+/// Woolf (log-odds Wald) interval at `options.confidence_level` (previously a
+/// hardcoded 95%). `confidence_level` must be in (0, 1).
 ///
 /// # Safety
 /// - `a`, `b`, `c`, `d` are the four cells of the 2x2 table
@@ -4945,60 +5629,33 @@ pub unsafe extern "C" fn anofox_fisher_exact(
     out_result: *mut TestResultFFI,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
+    ffi_guard(out_error, false, || {
+        fisher_exact_ffi_impl([[a, b], [c, d]], options, false, out_result, out_error)
+    })
+}
 
-    if out_result.is_null() {
-        if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
-        }
-        return false;
-    }
-
-    let opts = FisherExactOptions {
-        alternative: options.alternative.into(),
-    };
-    let table = [[a, b], [c, d]];
-
-    let result =
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| fisher_exact(&table, &opts)));
-
-    let result = match result {
-        Ok(r) => r,
-        Err(_) => {
-            if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InternalError, "Internal panic in Fisher exact");
-            }
-            return false;
-        }
-    };
-
-    match result {
-        Ok(r) => {
-            (*out_result) = TestResultFFI {
-                statistic: r.odds_ratio,
-                p_value: r.p_value,
-                df: f64::NAN,
-                effect_size: r.odds_ratio,
-                ci_lower: r.ci_lower,
-                ci_upper: r.ci_upper,
-                confidence_level: options.confidence_level, // From options, not result
-                n: a + b + c + d,
-                n1: 0,
-                n2: 0,
-                alternative: r.alternative.into(),
-                method: alloc_string("Fisher's exact test"),
-            };
-            true
-        }
-        Err(e) => {
-            if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
-            }
-            false
-        }
-    }
+/// Fisher's exact test (2x2 tables) with R `fisher.test` semantics.
+///
+/// `statistic`/`effect_size` hold the conditional maximum-likelihood odds ratio
+/// and `ci_lower`/`ci_upper` the exact conditional interval at
+/// `options.confidence_level` (one-sided for `less`/`greater`). Valid for any
+/// table with n >= 1.
+///
+/// # Safety
+/// - `out_result` must be a valid pointer; `out_error` may be NULL
+#[no_mangle]
+pub unsafe extern "C" fn anofox_fisher_exact_conditional(
+    a: usize,
+    b: usize,
+    c: usize,
+    d: usize,
+    options: FisherExactOptionsFFI,
+    out_result: *mut TestResultFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    ffi_guard(out_error, false, || {
+        fisher_exact_ffi_impl([[a, b], [c, d]], options, true, out_result, out_error)
+    })
 }
 
 /// Energy distance test
@@ -5015,71 +5672,73 @@ pub unsafe extern "C" fn anofox_energy_distance(
     out_result: *mut TestResultFFI,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-
-    if out_result.is_null() {
+    ffi_guard(out_error, false, || {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
 
-    let g1 = group1.to_vec();
-    let g2 = group2.to_vec();
-
-    let opts = EnergyDistanceOptions {
-        n_permutations: options.n_permutations,
-        seed: if options.has_seed {
-            Some(options.seed)
-        } else {
-            None
-        },
-    };
-
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        energy_distance_test(&g1, &g2, &opts)
-    }));
-
-    let result = match result {
-        Ok(r) => r,
-        Err(_) => {
+        if out_result.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(
-                    ErrorCode::InternalError,
-                    "Internal panic in energy distance",
-                );
+                (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
             }
             return false;
         }
-    };
 
-    match result {
-        Ok(r) => {
-            (*out_result) = TestResultFFI {
-                statistic: r.statistic,
-                p_value: r.p_value,
-                df: r.df,
-                effect_size: r.effect_size,
-                ci_lower: r.ci_lower,
-                ci_upper: r.ci_upper,
-                confidence_level: r.confidence_level,
-                n: r.n,
-                n1: r.n1,
-                n2: r.n2,
-                alternative: r.alternative.into(),
-                method: alloc_string(&r.method),
-            };
-            true
-        }
-        Err(e) => {
-            if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+        let g1 = group1.to_vec();
+        let g2 = group2.to_vec();
+
+        let opts = EnergyDistanceOptions {
+            n_permutations: options.n_permutations,
+            seed: if options.has_seed {
+                Some(options.seed)
+            } else {
+                None
+            },
+        };
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            energy_distance_test(&g1, &g2, &opts)
+        }));
+
+        let result = match result {
+            Ok(r) => r,
+            Err(_) => {
+                if !out_error.is_null() {
+                    (*out_error).set(
+                        ErrorCode::InternalError,
+                        "Internal panic in energy distance",
+                    );
+                }
+                return false;
             }
-            false
+        };
+
+        match result {
+            Ok(r) => {
+                (*out_result) = TestResultFFI {
+                    statistic: r.statistic,
+                    p_value: r.p_value,
+                    df: r.df,
+                    effect_size: r.effect_size,
+                    ci_lower: r.ci_lower,
+                    ci_upper: r.ci_upper,
+                    confidence_level: r.confidence_level,
+                    n: r.n,
+                    n1: r.n1,
+                    n2: r.n2,
+                    alternative: r.alternative.into(),
+                    method: alloc_string(&r.method),
+                };
+                true
+            }
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
         }
-    }
+    })
 }
 
 /// MMD (Maximum Mean Discrepancy) test
@@ -5096,67 +5755,69 @@ pub unsafe extern "C" fn anofox_mmd(
     out_result: *mut TestResultFFI,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-
-    if out_result.is_null() {
+    ffi_guard(out_error, false, || {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
 
-    let g1 = group1.to_vec();
-    let g2 = group2.to_vec();
-
-    let opts = MmdOptions {
-        n_permutations: options.n_permutations,
-        seed: if options.has_seed {
-            Some(options.seed)
-        } else {
-            None
-        },
-    };
-
-    let result =
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| mmd_test(&g1, &g2, &opts)));
-
-    let result = match result {
-        Ok(r) => r,
-        Err(_) => {
+        if out_result.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InternalError, "Internal panic in MMD");
+                (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
             }
             return false;
         }
-    };
 
-    match result {
-        Ok(r) => {
-            (*out_result) = TestResultFFI {
-                statistic: r.statistic,
-                p_value: r.p_value,
-                df: r.df,
-                effect_size: r.effect_size,
-                ci_lower: r.ci_lower,
-                ci_upper: r.ci_upper,
-                confidence_level: r.confidence_level,
-                n: r.n,
-                n1: r.n1,
-                n2: r.n2,
-                alternative: r.alternative.into(),
-                method: alloc_string(&r.method),
-            };
-            true
-        }
-        Err(e) => {
-            if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+        let g1 = group1.to_vec();
+        let g2 = group2.to_vec();
+
+        let opts = MmdOptions {
+            n_permutations: options.n_permutations,
+            seed: if options.has_seed {
+                Some(options.seed)
+            } else {
+                None
+            },
+        };
+
+        let result =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| mmd_test(&g1, &g2, &opts)));
+
+        let result = match result {
+            Ok(r) => r,
+            Err(_) => {
+                if !out_error.is_null() {
+                    (*out_error).set(ErrorCode::InternalError, "Internal panic in MMD");
+                }
+                return false;
             }
-            false
+        };
+
+        match result {
+            Ok(r) => {
+                (*out_result) = TestResultFFI {
+                    statistic: r.statistic,
+                    p_value: r.p_value,
+                    df: r.df,
+                    effect_size: r.effect_size,
+                    ci_lower: r.ci_lower,
+                    ci_upper: r.ci_upper,
+                    confidence_level: r.confidence_level,
+                    n: r.n,
+                    n1: r.n1,
+                    n2: r.n2,
+                    alternative: r.alternative.into(),
+                    method: alloc_string(&r.method),
+                };
+                true
+            }
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
         }
-    }
+    })
 }
 
 /// TOST two-sample t-test for equivalence
@@ -5173,70 +5834,72 @@ pub unsafe extern "C" fn anofox_tost_t_test(
     out_result: *mut TostResultFFI,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-
-    if out_result.is_null() {
+    ffi_guard(out_error, false, || {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
 
-    let g1 = group1.to_vec();
-    let g2 = group2.to_vec();
-
-    let opts = TostTTestOptions {
-        bounds: TostBounds::Raw {
-            lower: options.bound_lower,
-            upper: options.bound_upper,
-        },
-        alpha: options.alpha,
-        pooled: options.pooled,
-    };
-
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        tost_t_test_two_sample(&g1, &g2, &opts)
-    }));
-
-    let result = match result {
-        Ok(r) => r,
-        Err(_) => {
+        if out_result.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InternalError, "Internal panic in TOST");
+                (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
             }
             return false;
         }
-    };
 
-    match result {
-        Ok(r) => {
-            (*out_result) = TostResultFFI {
-                t_lower: r.statistic_lower,
-                t_upper: r.statistic_upper,
-                p_lower: r.p_value_lower,
-                p_upper: r.p_value_upper,
-                p_value: r.p_value,
-                df: r.df,
-                estimate: r.estimate,
-                ci_lower: r.ci_lower,
-                ci_upper: r.ci_upper,
-                bound_lower: r.bounds_lower,
-                bound_upper: r.bounds_upper,
-                equivalent: r.equivalent,
-                n: r.n,
-                method: alloc_string(&r.method),
-            };
-            true
-        }
-        Err(e) => {
-            if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+        let g1 = group1.to_vec();
+        let g2 = group2.to_vec();
+
+        let opts = TostTTestOptions {
+            bounds: TostBounds::Raw {
+                lower: options.bound_lower,
+                upper: options.bound_upper,
+            },
+            alpha: options.alpha,
+            pooled: options.pooled,
+        };
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            tost_t_test_two_sample(&g1, &g2, &opts)
+        }));
+
+        let result = match result {
+            Ok(r) => r,
+            Err(_) => {
+                if !out_error.is_null() {
+                    (*out_error).set(ErrorCode::InternalError, "Internal panic in TOST");
+                }
+                return false;
             }
-            false
+        };
+
+        match result {
+            Ok(r) => {
+                (*out_result) = TostResultFFI {
+                    t_lower: r.statistic_lower,
+                    t_upper: r.statistic_upper,
+                    p_lower: r.p_value_lower,
+                    p_upper: r.p_value_upper,
+                    p_value: r.p_value,
+                    df: r.df,
+                    estimate: r.estimate,
+                    ci_lower: r.ci_lower,
+                    ci_upper: r.ci_upper,
+                    bound_lower: r.bounds_lower,
+                    bound_upper: r.bounds_upper,
+                    equivalent: r.equivalent,
+                    n: r.n,
+                    method: alloc_string(&r.method),
+                };
+                true
+            }
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
         }
-    }
+    })
 }
 
 /// TOST paired t-test for equivalence
@@ -5253,70 +5916,72 @@ pub unsafe extern "C" fn anofox_tost_t_test_paired(
     out_result: *mut TostResultFFI,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-
-    if out_result.is_null() {
+    ffi_guard(out_error, false, || {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
 
-    let x_vec = x.to_vec();
-    let y_vec = y.to_vec();
-
-    let opts = TostTTestOptions {
-        bounds: TostBounds::Raw {
-            lower: options.bound_lower,
-            upper: options.bound_upper,
-        },
-        alpha: options.alpha,
-        pooled: options.pooled,
-    };
-
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        tost_t_test_paired(&x_vec, &y_vec, &opts)
-    }));
-
-    let result = match result {
-        Ok(r) => r,
-        Err(_) => {
+        if out_result.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InternalError, "Internal panic in TOST paired");
+                (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
             }
             return false;
         }
-    };
 
-    match result {
-        Ok(r) => {
-            (*out_result) = TostResultFFI {
-                t_lower: r.statistic_lower,
-                t_upper: r.statistic_upper,
-                p_lower: r.p_value_lower,
-                p_upper: r.p_value_upper,
-                p_value: r.p_value,
-                df: r.df,
-                estimate: r.estimate,
-                ci_lower: r.ci_lower,
-                ci_upper: r.ci_upper,
-                bound_lower: r.bounds_lower,
-                bound_upper: r.bounds_upper,
-                equivalent: r.equivalent,
-                n: r.n,
-                method: alloc_string(&r.method),
-            };
-            true
-        }
-        Err(e) => {
-            if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+        let x_vec = x.to_vec();
+        let y_vec = y.to_vec();
+
+        let opts = TostTTestOptions {
+            bounds: TostBounds::Raw {
+                lower: options.bound_lower,
+                upper: options.bound_upper,
+            },
+            alpha: options.alpha,
+            pooled: options.pooled,
+        };
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            tost_t_test_paired(&x_vec, &y_vec, &opts)
+        }));
+
+        let result = match result {
+            Ok(r) => r,
+            Err(_) => {
+                if !out_error.is_null() {
+                    (*out_error).set(ErrorCode::InternalError, "Internal panic in TOST paired");
+                }
+                return false;
             }
-            false
+        };
+
+        match result {
+            Ok(r) => {
+                (*out_result) = TostResultFFI {
+                    t_lower: r.statistic_lower,
+                    t_upper: r.statistic_upper,
+                    p_lower: r.p_value_lower,
+                    p_upper: r.p_value_upper,
+                    p_value: r.p_value,
+                    df: r.df,
+                    estimate: r.estimate,
+                    ci_lower: r.ci_lower,
+                    ci_upper: r.ci_upper,
+                    bound_lower: r.bounds_lower,
+                    bound_upper: r.bounds_upper,
+                    equivalent: r.equivalent,
+                    n: r.n,
+                    method: alloc_string(&r.method),
+                };
+                true
+            }
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
         }
-    }
+    })
 }
 
 /// Correlation method for TOST
@@ -5354,74 +6019,76 @@ pub unsafe extern "C" fn anofox_tost_correlation(
     out_result: *mut TostResultFFI,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-
-    if out_result.is_null() {
+    ffi_guard(out_error, false, || {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
 
-    let x_vec = x.to_vec();
-    let y_vec = y.to_vec();
-
-    let opts = TostCorrelationOptions {
-        rho_null,
-        bounds: TostBounds::Raw {
-            lower: bound_lower,
-            upper: bound_upper,
-        },
-        method: method.into(),
-        alpha,
-    };
-
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        tost_correlation(&x_vec, &y_vec, &opts)
-    }));
-
-    let result = match result {
-        Ok(r) => r,
-        Err(_) => {
+        if out_result.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(
-                    ErrorCode::InternalError,
-                    "Internal panic in TOST correlation",
-                );
+                (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
             }
             return false;
         }
-    };
 
-    match result {
-        Ok(r) => {
-            (*out_result) = TostResultFFI {
-                t_lower: r.statistic_lower,
-                t_upper: r.statistic_upper,
-                p_lower: r.p_value_lower,
-                p_upper: r.p_value_upper,
-                p_value: r.p_value,
-                df: r.df,
-                estimate: r.estimate,
-                ci_lower: r.ci_lower,
-                ci_upper: r.ci_upper,
-                bound_lower: r.bounds_lower,
-                bound_upper: r.bounds_upper,
-                equivalent: r.equivalent,
-                n: r.n,
-                method: alloc_string(&r.method),
-            };
-            true
-        }
-        Err(e) => {
-            if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+        let x_vec = x.to_vec();
+        let y_vec = y.to_vec();
+
+        let opts = TostCorrelationOptions {
+            rho_null,
+            bounds: TostBounds::Raw {
+                lower: bound_lower,
+                upper: bound_upper,
+            },
+            method: method.into(),
+            alpha,
+        };
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            tost_correlation(&x_vec, &y_vec, &opts)
+        }));
+
+        let result = match result {
+            Ok(r) => r,
+            Err(_) => {
+                if !out_error.is_null() {
+                    (*out_error).set(
+                        ErrorCode::InternalError,
+                        "Internal panic in TOST correlation",
+                    );
+                }
+                return false;
             }
-            false
+        };
+
+        match result {
+            Ok(r) => {
+                (*out_result) = TostResultFFI {
+                    t_lower: r.statistic_lower,
+                    t_upper: r.statistic_upper,
+                    p_lower: r.p_value_lower,
+                    p_upper: r.p_value_upper,
+                    p_value: r.p_value,
+                    df: r.df,
+                    estimate: r.estimate,
+                    ci_lower: r.ci_lower,
+                    ci_upper: r.ci_upper,
+                    bound_lower: r.bounds_lower,
+                    bound_upper: r.bounds_upper,
+                    equivalent: r.equivalent,
+                    n: r.n,
+                    method: alloc_string(&r.method),
+                };
+                true
+            }
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
         }
-    }
+    })
 }
 
 /// Wilcoxon signed-rank test for paired samples
@@ -5438,78 +6105,83 @@ pub unsafe extern "C" fn anofox_wilcoxon_signed_rank(
     out_result: *mut TestResultFFI,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-
-    if out_result.is_null() {
+    ffi_guard(out_error, false, || {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
+        if !check_optional_confidence_level(options.confidence_level, out_error) {
+            return false;
+        }
 
-    let x_vec = x.to_vec();
-    let y_vec = y.to_vec();
-
-    let opts = WilcoxonOptions {
-        alternative: options.alternative.into(),
-        exact: options.exact,
-        continuity_correction: options.continuity_correction,
-        confidence_level: if options.confidence_level > 0.0 {
-            Some(options.confidence_level)
-        } else {
-            None
-        },
-        mu: if options.mu != 0.0 {
-            Some(options.mu)
-        } else {
-            None
-        },
-    };
-
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        wilcoxon_signed_rank(&x_vec, &y_vec, &opts)
-    }));
-
-    let result = match result {
-        Ok(r) => r,
-        Err(_) => {
+        if out_result.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(
-                    ErrorCode::InternalError,
-                    "Internal panic in Wilcoxon signed-rank",
-                );
+                (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
             }
             return false;
         }
-    };
 
-    match result {
-        Ok(r) => {
-            (*out_result) = TestResultFFI {
-                statistic: r.statistic,
-                p_value: r.p_value,
-                df: r.df,
-                effect_size: r.effect_size,
-                ci_lower: r.ci_lower,
-                ci_upper: r.ci_upper,
-                confidence_level: r.confidence_level,
-                n: r.n,
-                n1: r.n1,
-                n2: r.n2,
-                alternative: r.alternative.into(),
-                method: alloc_string(&r.method),
-            };
-            true
-        }
-        Err(e) => {
-            if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+        let x_vec = x.to_vec();
+        let y_vec = y.to_vec();
+
+        let opts = WilcoxonOptions {
+            alternative: options.alternative.into(),
+            exact: options.exact,
+            continuity_correction: options.continuity_correction,
+            confidence_level: if options.confidence_level > 0.0 {
+                Some(options.confidence_level)
+            } else {
+                None
+            },
+            mu: if options.mu != 0.0 {
+                Some(options.mu)
+            } else {
+                None
+            },
+        };
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            wilcoxon_signed_rank(&x_vec, &y_vec, &opts)
+        }));
+
+        let result = match result {
+            Ok(r) => r,
+            Err(_) => {
+                if !out_error.is_null() {
+                    (*out_error).set(
+                        ErrorCode::InternalError,
+                        "Internal panic in Wilcoxon signed-rank",
+                    );
+                }
+                return false;
             }
-            false
+        };
+
+        match result {
+            Ok(r) => {
+                (*out_result) = TestResultFFI {
+                    statistic: r.statistic,
+                    p_value: r.p_value,
+                    df: r.df,
+                    effect_size: r.effect_size,
+                    ci_lower: r.ci_lower,
+                    ci_upper: r.ci_upper,
+                    confidence_level: r.confidence_level,
+                    n: r.n,
+                    n1: r.n1,
+                    n2: r.n2,
+                    alternative: r.alternative.into(),
+                    method: alloc_string(&r.method),
+                };
+                true
+            }
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
         }
-    }
+    })
 }
 
 // =============================================================================
@@ -5531,68 +6203,70 @@ pub unsafe extern "C" fn anofox_chisq_goodness_of_fit(
     out_result: *mut ChiSquareResultFFI,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-
-    if out_result.is_null() {
+    ffi_guard(out_error, false, || {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
 
-    if observed.is_null() || observed_len == 0 {
-        if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "observed is NULL or empty");
-        }
-        return false;
-    }
-
-    if expected.is_null() || expected_len != observed_len {
-        if !out_error.is_null() {
-            (*out_error).set(
-                ErrorCode::DimensionMismatch,
-                "expected must have same length as observed",
-            );
-        }
-        return false;
-    }
-
-    let obs = std::slice::from_raw_parts(observed, observed_len).to_vec();
-    let exp = std::slice::from_raw_parts(expected, expected_len).to_vec();
-
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        chisq_goodness_of_fit(&obs, &exp)
-    }));
-
-    let result = match result {
-        Ok(r) => r,
-        Err(_) => {
+        if out_result.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InternalError, "Internal panic in chi-square GOF");
+                (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
             }
             return false;
         }
-    };
 
-    match result {
-        Ok(r) => {
-            (*out_result) = ChiSquareResultFFI {
-                statistic: r.statistic,
-                p_value: r.p_value,
-                df: r.df,
-                method: alloc_string(&r.method),
-            };
-            true
-        }
-        Err(e) => {
+        if observed.is_null() || observed_len == 0 {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+                (*out_error).set(ErrorCode::InsufficientData, "observed is NULL or empty");
             }
-            false
+            return false;
         }
-    }
+
+        if expected.is_null() || expected_len != observed_len {
+            if !out_error.is_null() {
+                (*out_error).set(
+                    ErrorCode::DimensionMismatch,
+                    "expected must have same length as observed",
+                );
+            }
+            return false;
+        }
+
+        let obs = std::slice::from_raw_parts(observed, observed_len).to_vec();
+        let exp = std::slice::from_raw_parts(expected, expected_len).to_vec();
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            chisq_goodness_of_fit(&obs, &exp)
+        }));
+
+        let result = match result {
+            Ok(r) => r,
+            Err(_) => {
+                if !out_error.is_null() {
+                    (*out_error).set(ErrorCode::InternalError, "Internal panic in chi-square GOF");
+                }
+                return false;
+            }
+        };
+
+        match result {
+            Ok(r) => {
+                (*out_result) = ChiSquareResultFFI {
+                    statistic: r.statistic,
+                    p_value: r.p_value,
+                    df: r.df,
+                    method: alloc_string(&r.method),
+                };
+                true
+            }
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
+        }
+    })
 }
 
 /// One-sample proportion z-test
@@ -5609,57 +6283,89 @@ pub unsafe extern "C" fn anofox_prop_test_one(
     out_result: *mut PropTestResultFFI,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
+    anofox_prop_test_one_with_conf_level(
+        successes,
+        trials,
+        p0,
+        alternative,
+        0.95,
+        out_result,
+        out_error,
+    )
+}
 
-    if out_result.is_null() {
+/// One-sample proportion z-test
+///
+/// Same as `anofox_prop_test_one` with the confidence level of the reported interval
+/// (must be in (0, 1)).
+///
+/// # Safety
+/// - `out_result` must be a valid pointer
+/// - `out_error` must be a valid pointer
+#[no_mangle]
+pub unsafe extern "C" fn anofox_prop_test_one_with_conf_level(
+    successes: usize,
+    trials: usize,
+    p0: f64,
+    alternative: AlternativeFFI,
+    confidence_level: f64,
+    out_result: *mut PropTestResultFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    ffi_guard(out_error, false, || {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
 
-    let opts = PropTestOptions {
-        alternative: alternative.into(),
-        correction: true,
-    };
-
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        prop_test_one(successes, trials, p0, &opts)
-    }));
-
-    let result = match result {
-        Ok(r) => r,
-        Err(_) => {
+        if out_result.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InternalError, "Internal panic in prop_test_one");
+                (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
             }
             return false;
         }
-    };
 
-    match result {
-        Ok(r) => {
-            (*out_result) = PropTestResultFFI {
-                statistic: r.statistic,
-                p_value: r.p_value,
-                estimate: r.estimate.first().copied().unwrap_or(f64::NAN),
-                ci_lower: r.ci_lower,
-                ci_upper: r.ci_upper,
-                n: trials,
-                alternative: r.alternative.into(),
-                method: alloc_string("One-sample proportion z-test"),
-            };
-            true
-        }
-        Err(e) => {
-            if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+        let opts = PropTestOptions {
+            alternative: alternative.into(),
+            correction: true,
+            confidence_level,
+        };
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            prop_test_one(successes, trials, p0, &opts)
+        }));
+
+        let result = match result {
+            Ok(r) => r,
+            Err(_) => {
+                if !out_error.is_null() {
+                    (*out_error).set(ErrorCode::InternalError, "Internal panic in prop_test_one");
+                }
+                return false;
             }
-            false
+        };
+
+        match result {
+            Ok(r) => {
+                (*out_result) = PropTestResultFFI {
+                    statistic: r.statistic,
+                    p_value: r.p_value,
+                    estimate: r.estimate.first().copied().unwrap_or(f64::NAN),
+                    ci_lower: r.ci_lower,
+                    ci_upper: r.ci_upper,
+                    n: trials,
+                    alternative: r.alternative.into(),
+                    method: alloc_string("One-sample proportion z-test"),
+                };
+                true
+            }
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
         }
-    }
+    })
 }
 
 /// Two-sample proportion z-test
@@ -5678,57 +6384,93 @@ pub unsafe extern "C" fn anofox_prop_test_two(
     out_result: *mut PropTestResultFFI,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-
-    if out_result.is_null() {
-        if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
-        }
-        return false;
-    }
-
-    let opts = PropTestOptions {
-        alternative: alternative.into(),
+    anofox_prop_test_two_with_conf_level(
+        successes1,
+        trials1,
+        successes2,
+        trials2,
+        alternative,
         correction,
-    };
+        0.95,
+        out_result,
+        out_error,
+    )
+}
 
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        prop_test_two(successes1, trials1, successes2, trials2, &opts)
-    }));
+/// Two-sample proportion z-test
+///
+/// Same as `anofox_prop_test_two` with the confidence level of the reported interval
+/// (must be in (0, 1)).
+///
+/// # Safety
+/// - `out_result` must be a valid pointer
+/// - `out_error` must be a valid pointer
+#[no_mangle]
+pub unsafe extern "C" fn anofox_prop_test_two_with_conf_level(
+    successes1: usize,
+    trials1: usize,
+    successes2: usize,
+    trials2: usize,
+    alternative: AlternativeFFI,
+    correction: bool,
+    confidence_level: f64,
+    out_result: *mut PropTestResultFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    ffi_guard(out_error, false, || {
+        if !out_error.is_null() {
+            *out_error = AnofoxError::success();
+        }
 
-    let result = match result {
-        Ok(r) => r,
-        Err(_) => {
+        if out_result.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InternalError, "Internal panic in prop_test_two");
+                (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
             }
             return false;
         }
-    };
 
-    match result {
-        Ok(r) => {
-            (*out_result) = PropTestResultFFI {
-                statistic: r.statistic,
-                p_value: r.p_value,
-                estimate: r.estimate.first().copied().unwrap_or(f64::NAN),
-                ci_lower: r.ci_lower,
-                ci_upper: r.ci_upper,
-                n: trials1 + trials2,
-                alternative: r.alternative.into(),
-                method: alloc_string("Two-sample proportion z-test"),
-            };
-            true
-        }
-        Err(e) => {
-            if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+        let opts = PropTestOptions {
+            alternative: alternative.into(),
+            correction,
+            confidence_level,
+        };
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            prop_test_two(successes1, trials1, successes2, trials2, &opts)
+        }));
+
+        let result = match result {
+            Ok(r) => r,
+            Err(_) => {
+                if !out_error.is_null() {
+                    (*out_error).set(ErrorCode::InternalError, "Internal panic in prop_test_two");
+                }
+                return false;
             }
-            false
+        };
+
+        match result {
+            Ok(r) => {
+                (*out_result) = PropTestResultFFI {
+                    statistic: r.statistic,
+                    p_value: r.p_value,
+                    estimate: r.estimate.first().copied().unwrap_or(f64::NAN),
+                    ci_lower: r.ci_lower,
+                    ci_upper: r.ci_upper,
+                    n: trials1 + trials2,
+                    alternative: r.alternative.into(),
+                    method: alloc_string("Two-sample proportion z-test"),
+                };
+                true
+            }
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
         }
-    }
+    })
 }
 
 /// Exact binomial test
@@ -5745,57 +6487,89 @@ pub unsafe extern "C" fn anofox_binom_test(
     out_result: *mut PropTestResultFFI,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
+    anofox_binom_test_with_conf_level(
+        successes,
+        trials,
+        p0,
+        alternative,
+        0.95,
+        out_result,
+        out_error,
+    )
+}
 
-    if out_result.is_null() {
+/// Exact binomial test
+///
+/// Same as `anofox_binom_test` with the confidence level of the reported interval
+/// (must be in (0, 1)).
+///
+/// # Safety
+/// - `out_result` must be a valid pointer
+/// - `out_error` must be a valid pointer
+#[no_mangle]
+pub unsafe extern "C" fn anofox_binom_test_with_conf_level(
+    successes: usize,
+    trials: usize,
+    p0: f64,
+    alternative: AlternativeFFI,
+    confidence_level: f64,
+    out_result: *mut PropTestResultFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    ffi_guard(out_error, false, || {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
 
-    let opts = PropTestOptions {
-        alternative: alternative.into(),
-        correction: false,
-    };
-
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        binom_test(successes, trials, p0, &opts)
-    }));
-
-    let result = match result {
-        Ok(r) => r,
-        Err(_) => {
+        if out_result.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InternalError, "Internal panic in binom_test");
+                (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
             }
             return false;
         }
-    };
 
-    match result {
-        Ok(r) => {
-            (*out_result) = PropTestResultFFI {
-                statistic: r.statistic,
-                p_value: r.p_value,
-                estimate: r.estimate.first().copied().unwrap_or(f64::NAN),
-                ci_lower: r.ci_lower,
-                ci_upper: r.ci_upper,
-                n: trials,
-                alternative: r.alternative.into(),
-                method: alloc_string("Exact binomial test"),
-            };
-            true
-        }
-        Err(e) => {
-            if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+        let opts = PropTestOptions {
+            alternative: alternative.into(),
+            correction: false,
+            confidence_level,
+        };
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            binom_test(successes, trials, p0, &opts)
+        }));
+
+        let result = match result {
+            Ok(r) => r,
+            Err(_) => {
+                if !out_error.is_null() {
+                    (*out_error).set(ErrorCode::InternalError, "Internal panic in binom_test");
+                }
+                return false;
             }
-            false
+        };
+
+        match result {
+            Ok(r) => {
+                (*out_result) = PropTestResultFFI {
+                    statistic: r.statistic,
+                    p_value: r.p_value,
+                    estimate: r.estimate.first().copied().unwrap_or(f64::NAN),
+                    ci_lower: r.ci_lower,
+                    ci_upper: r.ci_upper,
+                    n: trials,
+                    alternative: r.alternative.into(),
+                    method: alloc_string("Exact binomial test"),
+                };
+                true
+            }
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
         }
-    }
+    })
 }
 
 /// Cramer's V effect size for contingency tables
@@ -5811,58 +6585,61 @@ pub unsafe extern "C" fn anofox_cramers_v(
     out_result: *mut f64,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-
-    if out_result.is_null() {
+    ffi_guard(out_error, false, || {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
 
-    if table.is_null() || row_lengths.is_null() || n_rows == 0 {
-        if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "Invalid table data");
-        }
-        return false;
-    }
-
-    // Reconstruct the 2D table from flat array
-    let lengths = std::slice::from_raw_parts(row_lengths, n_rows);
-    let mut table_vec: Vec<Vec<usize>> = Vec::with_capacity(n_rows);
-    let mut offset = 0;
-    for &len in lengths {
-        let row = std::slice::from_raw_parts(table.add(offset), len).to_vec();
-        table_vec.push(row);
-        offset += len;
-    }
-
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| cramers_v(&table_vec)));
-
-    let result = match result {
-        Ok(r) => r,
-        Err(_) => {
+        if out_result.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InternalError, "Internal panic in cramers_v");
+                (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
             }
             return false;
         }
-    };
 
-    match result {
-        Ok(v) => {
-            *out_result = v;
-            true
-        }
-        Err(e) => {
+        if table.is_null() || row_lengths.is_null() || n_rows == 0 {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+                (*out_error).set(ErrorCode::InvalidInput, "Invalid table data");
             }
-            false
+            return false;
         }
-    }
+
+        // Reconstruct the 2D table from flat array
+        let lengths = std::slice::from_raw_parts(row_lengths, n_rows);
+        let mut table_vec: Vec<Vec<usize>> = Vec::with_capacity(n_rows);
+        let mut offset = 0;
+        for &len in lengths {
+            let row = std::slice::from_raw_parts(table.add(offset), len).to_vec();
+            table_vec.push(row);
+            offset += len;
+        }
+
+        let result =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| cramers_v(&table_vec)));
+
+        let result = match result {
+            Ok(r) => r,
+            Err(_) => {
+                if !out_error.is_null() {
+                    (*out_error).set(ErrorCode::InternalError, "Internal panic in cramers_v");
+                }
+                return false;
+            }
+        };
+
+        match result {
+            Ok(v) => {
+                *out_result = v;
+                true
+            }
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
+        }
+    })
 }
 
 /// Cohen's kappa for inter-rater agreement
@@ -5879,67 +6656,69 @@ pub unsafe extern "C" fn anofox_cohen_kappa(
     out_result: *mut KappaResultFFI,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-
-    if out_result.is_null() {
+    ffi_guard(out_error, false, || {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
 
-    if table.is_null() || row_lengths.is_null() || n_rows == 0 {
-        if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "Invalid table data");
-        }
-        return false;
-    }
-
-    // Reconstruct the 2D table from flat array
-    let lengths = std::slice::from_raw_parts(row_lengths, n_rows);
-    let mut table_vec: Vec<Vec<usize>> = Vec::with_capacity(n_rows);
-    let mut offset = 0;
-    for &len in lengths {
-        let row = std::slice::from_raw_parts(table.add(offset), len).to_vec();
-        table_vec.push(row);
-        offset += len;
-    }
-
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        cohen_kappa(&table_vec, weighted)
-    }));
-
-    let result = match result {
-        Ok(r) => r,
-        Err(_) => {
+        if out_result.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InternalError, "Internal panic in cohen_kappa");
+                (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
             }
             return false;
         }
-    };
 
-    match result {
-        Ok(r) => {
-            (*out_result) = KappaResultFFI {
-                kappa: r.kappa,
-                se: r.se,
-                ci_lower: r.ci_lower,
-                ci_upper: r.ci_upper,
-                z: r.z,
-                p_value: r.p_value,
-            };
-            true
-        }
-        Err(e) => {
+        if table.is_null() || row_lengths.is_null() || n_rows == 0 {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+                (*out_error).set(ErrorCode::InvalidInput, "Invalid table data");
             }
-            false
+            return false;
         }
-    }
+
+        // Reconstruct the 2D table from flat array
+        let lengths = std::slice::from_raw_parts(row_lengths, n_rows);
+        let mut table_vec: Vec<Vec<usize>> = Vec::with_capacity(n_rows);
+        let mut offset = 0;
+        for &len in lengths {
+            let row = std::slice::from_raw_parts(table.add(offset), len).to_vec();
+            table_vec.push(row);
+            offset += len;
+        }
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            cohen_kappa(&table_vec, weighted)
+        }));
+
+        let result = match result {
+            Ok(r) => r,
+            Err(_) => {
+                if !out_error.is_null() {
+                    (*out_error).set(ErrorCode::InternalError, "Internal panic in cohen_kappa");
+                }
+                return false;
+            }
+        };
+
+        match result {
+            Ok(r) => {
+                (*out_result) = KappaResultFFI {
+                    kappa: r.kappa,
+                    se: r.se,
+                    ci_lower: r.ci_lower,
+                    ci_upper: r.ci_upper,
+                    z: r.z,
+                    p_value: r.p_value,
+                };
+                true
+            }
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
+        }
+    })
 }
 
 /// G-test (log-likelihood ratio test) for contingency tables
@@ -5957,63 +6736,65 @@ pub unsafe extern "C" fn anofox_g_test(
     out_result: *mut ChiSquareResultFFI,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-
-    if out_result.is_null() {
+    ffi_guard(out_error, false, || {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
 
-    if table.is_null() || row_lengths.is_null() || n_rows == 0 {
-        if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "Invalid table data");
-        }
-        return false;
-    }
-
-    // Reconstruct the 2D table from flat array
-    let lengths = std::slice::from_raw_parts(row_lengths, n_rows);
-    let mut table_vec: Vec<Vec<usize>> = Vec::with_capacity(n_rows);
-    let mut offset = 0;
-    for &len in lengths {
-        let row = std::slice::from_raw_parts(table.add(offset), len).to_vec();
-        table_vec.push(row);
-        offset += len;
-    }
-
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| g_test(&table_vec)));
-
-    let result = match result {
-        Ok(r) => r,
-        Err(_) => {
+        if out_result.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InternalError, "Internal panic in g_test");
+                (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
             }
             return false;
         }
-    };
 
-    match result {
-        Ok(r) => {
-            (*out_result) = ChiSquareResultFFI {
-                statistic: r.statistic,
-                p_value: r.p_value,
-                df: r.df,
-                method: alloc_string(&r.method),
-            };
-            true
-        }
-        Err(e) => {
+        if table.is_null() || row_lengths.is_null() || n_rows == 0 {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+                (*out_error).set(ErrorCode::InvalidInput, "Invalid table data");
             }
-            false
+            return false;
         }
-    }
+
+        // Reconstruct the 2D table from flat array
+        let lengths = std::slice::from_raw_parts(row_lengths, n_rows);
+        let mut table_vec: Vec<Vec<usize>> = Vec::with_capacity(n_rows);
+        let mut offset = 0;
+        for &len in lengths {
+            let row = std::slice::from_raw_parts(table.add(offset), len).to_vec();
+            table_vec.push(row);
+            offset += len;
+        }
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| g_test(&table_vec)));
+
+        let result = match result {
+            Ok(r) => r,
+            Err(_) => {
+                if !out_error.is_null() {
+                    (*out_error).set(ErrorCode::InternalError, "Internal panic in g_test");
+                }
+                return false;
+            }
+        };
+
+        match result {
+            Ok(r) => {
+                (*out_result) = ChiSquareResultFFI {
+                    statistic: r.statistic,
+                    p_value: r.p_value,
+                    df: r.df,
+                    method: alloc_string(&r.method),
+                };
+                true
+            }
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
+        }
+    })
 }
 
 /// McNemar's test for paired categorical data
@@ -6034,50 +6815,52 @@ pub unsafe extern "C" fn anofox_mcnemar_test(
     out_result: *mut ChiSquareResultFFI,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-
-    if out_result.is_null() {
+    ffi_guard(out_error, false, || {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
 
-    let table: [[usize; 2]; 2] = [[a, b], [c, d]];
-    let opts = McNemarOptions { correction, exact };
-
-    let result =
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| mcnemar_test(&table, &opts)));
-
-    let result = match result {
-        Ok(r) => r,
-        Err(_) => {
+        if out_result.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InternalError, "Internal panic in mcnemar_test");
+                (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
             }
             return false;
         }
-    };
 
-    match result {
-        Ok(r) => {
-            (*out_result) = ChiSquareResultFFI {
-                statistic: r.statistic,
-                p_value: r.p_value,
-                df: r.df,
-                method: alloc_string(&r.method),
-            };
-            true
-        }
-        Err(e) => {
-            if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+        let table: [[usize; 2]; 2] = [[a, b], [c, d]];
+        let opts = McNemarOptions { correction, exact };
+
+        let result =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| mcnemar_test(&table, &opts)));
+
+        let result = match result {
+            Ok(r) => r,
+            Err(_) => {
+                if !out_error.is_null() {
+                    (*out_error).set(ErrorCode::InternalError, "Internal panic in mcnemar_test");
+                }
+                return false;
             }
-            false
+        };
+
+        match result {
+            Ok(r) => {
+                (*out_result) = ChiSquareResultFFI {
+                    statistic: r.statistic,
+                    p_value: r.p_value,
+                    df: r.df,
+                    method: alloc_string(&r.method),
+                };
+                true
+            }
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
         }
-    }
+    })
 }
 
 /// Phi coefficient for 2x2 contingency tables
@@ -6096,46 +6879,49 @@ pub unsafe extern "C" fn anofox_phi_coefficient(
     out_result: *mut f64,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-
-    if out_result.is_null() {
+    ffi_guard(out_error, false, || {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
 
-    let table: [[usize; 2]; 2] = [[a, b], [c, d]];
-
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| phi_coefficient(&table)));
-
-    let result = match result {
-        Ok(r) => r,
-        Err(_) => {
+        if out_result.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(
-                    ErrorCode::InternalError,
-                    "Internal panic in phi_coefficient",
-                );
+                (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
             }
             return false;
         }
-    };
 
-    match result {
-        Ok(r) => {
-            *out_result = r;
-            true
-        }
-        Err(e) => {
-            if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+        let table: [[usize; 2]; 2] = [[a, b], [c, d]];
+
+        let result =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| phi_coefficient(&table)));
+
+        let result = match result {
+            Ok(r) => r,
+            Err(_) => {
+                if !out_error.is_null() {
+                    (*out_error).set(
+                        ErrorCode::InternalError,
+                        "Internal panic in phi_coefficient",
+                    );
+                }
+                return false;
             }
-            false
+        };
+
+        match result {
+            Ok(r) => {
+                *out_result = r;
+                true
+            }
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
         }
-    }
+    })
 }
 
 /// Contingency coefficient (Pearson's C)
@@ -6151,63 +6937,65 @@ pub unsafe extern "C" fn anofox_contingency_coef(
     out_result: *mut f64,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-
-    if out_result.is_null() {
+    ffi_guard(out_error, false, || {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
 
-    if table.is_null() || row_lengths.is_null() || n_rows == 0 {
-        if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "Invalid table data");
-        }
-        return false;
-    }
-
-    // Reconstruct the 2D table from flat array
-    let lengths = std::slice::from_raw_parts(row_lengths, n_rows);
-    let mut table_vec: Vec<Vec<usize>> = Vec::with_capacity(n_rows);
-    let mut offset = 0;
-    for &len in lengths {
-        let row = std::slice::from_raw_parts(table.add(offset), len).to_vec();
-        table_vec.push(row);
-        offset += len;
-    }
-
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        contingency_coef(&table_vec)
-    }));
-
-    let result = match result {
-        Ok(r) => r,
-        Err(_) => {
+        if out_result.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(
-                    ErrorCode::InternalError,
-                    "Internal panic in contingency_coef",
-                );
+                (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
             }
             return false;
         }
-    };
 
-    match result {
-        Ok(r) => {
-            *out_result = r;
-            true
-        }
-        Err(e) => {
+        if table.is_null() || row_lengths.is_null() || n_rows == 0 {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+                (*out_error).set(ErrorCode::InvalidInput, "Invalid table data");
             }
-            false
+            return false;
         }
-    }
+
+        // Reconstruct the 2D table from flat array
+        let lengths = std::slice::from_raw_parts(row_lengths, n_rows);
+        let mut table_vec: Vec<Vec<usize>> = Vec::with_capacity(n_rows);
+        let mut offset = 0;
+        for &len in lengths {
+            let row = std::slice::from_raw_parts(table.add(offset), len).to_vec();
+            table_vec.push(row);
+            offset += len;
+        }
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            contingency_coef(&table_vec)
+        }));
+
+        let result = match result {
+            Ok(r) => r,
+            Err(_) => {
+                if !out_error.is_null() {
+                    (*out_error).set(
+                        ErrorCode::InternalError,
+                        "Internal panic in contingency_coef",
+                    );
+                }
+                return false;
+            }
+        };
+
+        match result {
+            Ok(r) => {
+                *out_result = r;
+                true
+            }
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
+        }
+    })
 }
 
 // =============================================================================
@@ -6230,64 +7018,69 @@ pub unsafe extern "C" fn anofox_yuen_test(
     out_result: *mut TestResultFFI,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-
-    if out_result.is_null() {
+    ffi_guard(out_error, false, || {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
+        if !check_confidence_level(confidence_level, out_error) {
+            return false;
+        }
 
-    let g1 = group1.to_vec();
-    let g2 = group2.to_vec();
-
-    let opts = YuenOptions {
-        alternative: alternative.into(),
-        trim,
-        confidence_level: Some(confidence_level),
-    };
-
-    let result =
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| yuen_test(&g1, &g2, &opts)));
-
-    let result = match result {
-        Ok(r) => r,
-        Err(_) => {
+        if out_result.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InternalError, "Internal panic in Yuen test");
+                (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
             }
             return false;
         }
-    };
 
-    match result {
-        Ok(r) => {
-            (*out_result) = TestResultFFI {
-                statistic: r.statistic,
-                p_value: r.p_value,
-                df: r.df,
-                effect_size: r.effect_size,
-                ci_lower: r.ci_lower,
-                ci_upper: r.ci_upper,
-                confidence_level: r.confidence_level,
-                n: r.n,
-                n1: r.n1,
-                n2: r.n2,
-                alternative: r.alternative.into(),
-                method: alloc_string(&r.method),
-            };
-            true
-        }
-        Err(e) => {
-            if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+        let g1 = group1.to_vec();
+        let g2 = group2.to_vec();
+
+        let opts = YuenOptions {
+            alternative: alternative.into(),
+            trim,
+            confidence_level: Some(confidence_level),
+        };
+
+        let result =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| yuen_test(&g1, &g2, &opts)));
+
+        let result = match result {
+            Ok(r) => r,
+            Err(_) => {
+                if !out_error.is_null() {
+                    (*out_error).set(ErrorCode::InternalError, "Internal panic in Yuen test");
+                }
+                return false;
             }
-            false
+        };
+
+        match result {
+            Ok(r) => {
+                (*out_result) = TestResultFFI {
+                    statistic: r.statistic,
+                    p_value: r.p_value,
+                    df: r.df,
+                    effect_size: r.effect_size,
+                    ci_lower: r.ci_lower,
+                    ci_upper: r.ci_upper,
+                    confidence_level: r.confidence_level,
+                    n: r.n,
+                    n1: r.n1,
+                    n2: r.n2,
+                    alternative: r.alternative.into(),
+                    method: alloc_string(&r.method),
+                };
+                true
+            }
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
         }
-    }
+    })
 }
 
 /// Brown-Forsythe test for homogeneity of variances
@@ -6303,81 +7096,84 @@ pub unsafe extern "C" fn anofox_brown_forsythe(
     out_result: *mut TestResultFFI,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-
-    if out_result.is_null() {
+    ffi_guard(out_error, false, || {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
 
-    let vals = values.to_vec();
-    let grps = groups.to_vec();
-
-    if vals.len() != grps.len() {
-        if !out_error.is_null() {
-            (*out_error).set(
-                ErrorCode::DimensionMismatch,
-                "values and groups must have same length",
-            );
-        }
-        return false;
-    }
-
-    // Group values by their group ID
-    let mut grouped: std::collections::HashMap<i64, Vec<f64>> = std::collections::HashMap::new();
-    for (val, grp) in vals.iter().zip(grps.iter()) {
-        if val.is_nan() || grp.is_nan() {
-            continue;
-        }
-        let group_id = *grp as i64;
-        grouped.entry(group_id).or_default().push(*val);
-    }
-
-    let mut groups_vec: Vec<Vec<f64>> = grouped.into_values().collect();
-    groups_vec.sort_by_key(|g| g.len()); // Sort by size for determinism
-
-    let result =
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| brown_forsythe(&groups_vec)));
-
-    let result = match result {
-        Ok(r) => r,
-        Err(_) => {
+        if out_result.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InternalError, "Internal panic in Brown-Forsythe");
+                (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
             }
             return false;
         }
-    };
 
-    match result {
-        Ok(r) => {
-            (*out_result) = TestResultFFI {
-                statistic: r.statistic,
-                p_value: r.p_value,
-                df: r.df,
-                effect_size: r.effect_size,
-                ci_lower: r.ci_lower,
-                ci_upper: r.ci_upper,
-                confidence_level: r.confidence_level,
-                n: r.n,
-                n1: r.n1,
-                n2: r.n2,
-                alternative: r.alternative.into(),
-                method: alloc_string(&r.method),
-            };
-            true
-        }
-        Err(e) => {
+        let vals = values.to_vec();
+        let grps = groups.to_vec();
+
+        if vals.len() != grps.len() {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+                (*out_error).set(
+                    ErrorCode::DimensionMismatch,
+                    "values and groups must have same length",
+                );
             }
-            false
+            return false;
         }
-    }
+
+        // Group values by their group ID
+        let mut grouped: std::collections::HashMap<i64, Vec<f64>> =
+            std::collections::HashMap::new();
+        for (val, grp) in vals.iter().zip(grps.iter()) {
+            if val.is_nan() || grp.is_nan() {
+                continue;
+            }
+            let group_id = *grp as i64;
+            grouped.entry(group_id).or_default().push(*val);
+        }
+
+        let mut groups_vec: Vec<Vec<f64>> = grouped.into_values().collect();
+        groups_vec.sort_by_key(|g| g.len()); // Sort by size for determinism
+
+        let result =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| brown_forsythe(&groups_vec)));
+
+        let result = match result {
+            Ok(r) => r,
+            Err(_) => {
+                if !out_error.is_null() {
+                    (*out_error).set(ErrorCode::InternalError, "Internal panic in Brown-Forsythe");
+                }
+                return false;
+            }
+        };
+
+        match result {
+            Ok(r) => {
+                (*out_result) = TestResultFFI {
+                    statistic: r.statistic,
+                    p_value: r.p_value,
+                    df: r.df,
+                    effect_size: r.effect_size,
+                    ci_lower: r.ci_lower,
+                    ci_upper: r.ci_upper,
+                    confidence_level: r.confidence_level,
+                    n: r.n,
+                    n1: r.n1,
+                    n2: r.n2,
+                    alternative: r.alternative.into(),
+                    method: alloc_string(&r.method),
+                };
+                true
+            }
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
+        }
+    })
 }
 
 // =============================================================================
@@ -6397,52 +7193,54 @@ pub unsafe extern "C" fn anofox_distance_cor(
     out_result: *mut DistanceCorResultFFI,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-
-    if out_result.is_null() {
+    ffi_guard(out_error, false, || {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
 
-    let x_vec = x.to_vec();
-    let y_vec = y.to_vec();
-
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        distance_cor(&x_vec, &y_vec)
-    }));
-
-    let result = match result {
-        Ok(r) => r,
-        Err(_) => {
+        if out_result.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InternalError, "Internal panic in distance_cor");
+                (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
             }
             return false;
         }
-    };
 
-    match result {
-        Ok(r) => {
-            (*out_result) = DistanceCorResultFFI {
-                dcor: r.dcor,
-                dcov: r.dcov,
-                dvar_x: r.dvar_x,
-                dvar_y: r.dvar_y,
-                n: r.n,
-            };
-            true
-        }
-        Err(e) => {
-            if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+        let x_vec = x.to_vec();
+        let y_vec = y.to_vec();
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            distance_cor(&x_vec, &y_vec)
+        }));
+
+        let result = match result {
+            Ok(r) => r,
+            Err(_) => {
+                if !out_error.is_null() {
+                    (*out_error).set(ErrorCode::InternalError, "Internal panic in distance_cor");
+                }
+                return false;
             }
-            false
+        };
+
+        match result {
+            Ok(r) => {
+                (*out_result) = DistanceCorResultFFI {
+                    dcor: r.dcor,
+                    dcov: r.dcov,
+                    dvar_x: r.dvar_x,
+                    dvar_y: r.dvar_y,
+                    n: r.n,
+                };
+                true
+            }
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
         }
-    }
+    })
 }
 
 /// Distance correlation test with permutations
@@ -6459,67 +7257,90 @@ pub unsafe extern "C" fn anofox_distance_cor_test(
     out_result: *mut TestResultFFI,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
+    anofox_distance_cor_test_seeded(x, y, n_permutations, 0, false, out_result, out_error)
+}
 
-    if out_result.is_null() {
+/// Distance correlation test with permutations and an optional RNG seed
+///
+/// Same as [`anofox_distance_cor_test`], but when `has_seed` is true the
+/// permutation RNG is seeded with `seed`, making the p-value reproducible.
+///
+/// # Safety
+/// - `x` and `y` must be valid DataArrays of equal length
+/// - `out_result` must be a valid pointer; `out_error` may be NULL
+#[no_mangle]
+pub unsafe extern "C" fn anofox_distance_cor_test_seeded(
+    x: DataArray,
+    y: DataArray,
+    n_permutations: usize,
+    seed: u64,
+    has_seed: bool,
+    out_result: *mut TestResultFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    ffi_guard(out_error, false, || {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
 
-    let x_vec = x.to_vec();
-    let y_vec = y.to_vec();
-
-    let opts = DistanceCorTestOptions {
-        n_permutations,
-        seed: None,
-    };
-
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        distance_cor_test(&x_vec, &y_vec, &opts)
-    }));
-
-    let result = match result {
-        Ok(r) => r,
-        Err(_) => {
+        if out_result.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(
-                    ErrorCode::InternalError,
-                    "Internal panic in distance_cor_test",
-                );
+                (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
             }
             return false;
         }
-    };
 
-    match result {
-        Ok(r) => {
-            (*out_result) = TestResultFFI {
-                statistic: r.statistic,
-                p_value: r.p_value,
-                df: r.df,
-                effect_size: r.effect_size,
-                ci_lower: r.ci_lower,
-                ci_upper: r.ci_upper,
-                confidence_level: r.confidence_level,
-                n: r.n,
-                n1: r.n1,
-                n2: r.n2,
-                alternative: r.alternative.into(),
-                method: alloc_string(&r.method),
-            };
-            true
-        }
-        Err(e) => {
-            if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+        let x_vec = x.to_vec();
+        let y_vec = y.to_vec();
+
+        let opts = DistanceCorTestOptions {
+            n_permutations,
+            seed: if has_seed { Some(seed) } else { None },
+        };
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            distance_cor_test(&x_vec, &y_vec, &opts)
+        }));
+
+        let result = match result {
+            Ok(r) => r,
+            Err(_) => {
+                if !out_error.is_null() {
+                    (*out_error).set(
+                        ErrorCode::InternalError,
+                        "Internal panic in distance_cor_test",
+                    );
+                }
+                return false;
             }
-            false
+        };
+
+        match result {
+            Ok(r) => {
+                (*out_result) = TestResultFFI {
+                    statistic: r.statistic,
+                    p_value: r.p_value,
+                    df: r.df,
+                    effect_size: r.effect_size,
+                    ci_lower: r.ci_lower,
+                    ci_upper: r.ci_upper,
+                    confidence_level: r.confidence_level,
+                    n: r.n,
+                    n1: r.n1,
+                    n2: r.n2,
+                    alternative: r.alternative.into(),
+                    method: alloc_string(&r.method),
+                };
+                true
+            }
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
         }
-    }
+    })
 }
 
 /// Intraclass correlation coefficient (ICC)
@@ -6537,70 +7358,73 @@ pub unsafe extern "C" fn anofox_icc(
     out_result: *mut IccResultFFI,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-
-    if out_result.is_null() {
+    ffi_guard(out_error, false, || {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
 
-    if data.is_null() || n_subjects == 0 || n_raters < 2 {
-        if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "Invalid data dimensions");
-        }
-        return false;
-    }
-
-    // Convert flat array to Vec<Vec<f64>> (subjects x raters)
-    let data_slice = std::slice::from_raw_parts(data, n_subjects * n_raters);
-    let data_vec: Vec<Vec<f64>> = (0..n_subjects)
-        .map(|i| data_slice[i * n_raters..(i + 1) * n_raters].to_vec())
-        .collect();
-
-    let icc_type_rust = match icc_type {
-        IccTypeFFI::Single => anofox_tests::ICCType::ICC1,
-        IccTypeFFI::Average => anofox_tests::ICCType::ICC1k,
-    };
-
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        icc(&data_vec, icc_type_rust)
-    }));
-
-    let result = match result {
-        Ok(r) => r,
-        Err(_) => {
+        if out_result.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InternalError, "Internal panic in icc");
+                (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
             }
             return false;
         }
-    };
 
-    match result {
-        Ok(r) => {
-            (*out_result) = IccResultFFI {
-                icc: r.icc,
-                f_statistic: r.f_statistic,
-                ci_lower: r.ci_lower,
-                ci_upper: r.ci_upper,
-                confidence_level: 0.95,
-                n_subjects,
-                n_raters,
-                method: alloc_string(&r.icc_type),
-            };
-            true
-        }
-        Err(e) => {
+        if data.is_null() || n_subjects == 0 || n_raters < 2 {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+                (*out_error).set(ErrorCode::InvalidInput, "Invalid data dimensions");
             }
-            false
+            return false;
         }
-    }
+
+        // Convert flat array to Vec<Vec<f64>> (subjects x raters)
+        let data_slice = std::slice::from_raw_parts(data, n_subjects * n_raters);
+        let data_vec: Vec<Vec<f64>> = (0..n_subjects)
+            .map(|i| data_slice[i * n_raters..(i + 1) * n_raters].to_vec())
+            .collect();
+
+        let icc_type_rust = match icc_type {
+            IccTypeFFI::Single => anofox_tests::ICCType::ICC1,
+            IccTypeFFI::Average => anofox_tests::ICCType::ICC1k,
+        };
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            icc(&data_vec, icc_type_rust)
+        }));
+
+        let result = match result {
+            Ok(r) => r,
+            Err(_) => {
+                if !out_error.is_null() {
+                    (*out_error).set(ErrorCode::InternalError, "Internal panic in icc");
+                }
+                return false;
+            }
+        };
+
+        match result {
+            Ok(r) => {
+                (*out_result) = IccResultFFI {
+                    icc: r.icc,
+                    f_statistic: r.f_statistic,
+                    ci_lower: r.ci_lower,
+                    ci_upper: r.ci_upper,
+                    confidence_level: 0.95,
+                    n_subjects,
+                    n_raters,
+                    method: alloc_string(&r.icc_type),
+                    p_value: r.p_value,
+                };
+                true
+            }
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
+        }
+    })
 }
 
 // =============================================================================
@@ -6659,70 +7483,72 @@ pub unsafe extern "C" fn anofox_diebold_mariano(
     out_result: *mut TestResultFFI,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-
-    if out_result.is_null() {
+    ffi_guard(out_error, false, || {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
 
-    let actual_vec = actual.to_vec();
-    let f1_vec = forecast1.to_vec();
-    let f2_vec = forecast2.to_vec();
-
-    let opts = DieboldMarianoOptions {
-        alternative: alternative.into(),
-        loss: loss.into(),
-        var_estimator: var_estimator.into(),
-        horizon,
-    };
-
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        diebold_mariano(&actual_vec, &f1_vec, &f2_vec, &opts)
-    }));
-
-    let result = match result {
-        Ok(r) => r,
-        Err(_) => {
+        if out_result.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(
-                    ErrorCode::InternalError,
-                    "Internal panic in Diebold-Mariano",
-                );
+                (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
             }
             return false;
         }
-    };
 
-    match result {
-        Ok(r) => {
-            (*out_result) = TestResultFFI {
-                statistic: r.statistic,
-                p_value: r.p_value,
-                df: r.df,
-                effect_size: r.effect_size,
-                ci_lower: r.ci_lower,
-                ci_upper: r.ci_upper,
-                confidence_level: r.confidence_level,
-                n: r.n,
-                n1: r.n1,
-                n2: r.n2,
-                alternative: r.alternative.into(),
-                method: alloc_string(&r.method),
-            };
-            true
-        }
-        Err(e) => {
-            if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+        let actual_vec = actual.to_vec();
+        let f1_vec = forecast1.to_vec();
+        let f2_vec = forecast2.to_vec();
+
+        let opts = DieboldMarianoOptions {
+            alternative: alternative.into(),
+            loss: loss.into(),
+            var_estimator: var_estimator.into(),
+            horizon,
+        };
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            diebold_mariano(&actual_vec, &f1_vec, &f2_vec, &opts)
+        }));
+
+        let result = match result {
+            Ok(r) => r,
+            Err(_) => {
+                if !out_error.is_null() {
+                    (*out_error).set(
+                        ErrorCode::InternalError,
+                        "Internal panic in Diebold-Mariano",
+                    );
+                }
+                return false;
             }
-            false
+        };
+
+        match result {
+            Ok(r) => {
+                (*out_result) = TestResultFFI {
+                    statistic: r.statistic,
+                    p_value: r.p_value,
+                    df: r.df,
+                    effect_size: r.effect_size,
+                    ci_lower: r.ci_lower,
+                    ci_upper: r.ci_upper,
+                    confidence_level: r.confidence_level,
+                    n: r.n,
+                    n1: r.n1,
+                    n2: r.n2,
+                    alternative: r.alternative.into(),
+                    method: alloc_string(&r.method),
+                };
+                true
+            }
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
         }
-    }
+    })
 }
 
 /// Clark-West test for nested model comparison
@@ -6740,60 +7566,62 @@ pub unsafe extern "C" fn anofox_clark_west(
     out_result: *mut TestResultFFI,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-
-    if out_result.is_null() {
+    ffi_guard(out_error, false, || {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
 
-    let actual_vec = actual.to_vec();
-    let f_r_vec = forecast_restricted.to_vec();
-    let f_u_vec = forecast_unrestricted.to_vec();
-
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        clark_west(&actual_vec, &f_r_vec, &f_u_vec, horizon)
-    }));
-
-    let result = match result {
-        Ok(r) => r,
-        Err(_) => {
+        if out_result.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InternalError, "Internal panic in Clark-West");
+                (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
             }
             return false;
         }
-    };
 
-    match result {
-        Ok(r) => {
-            (*out_result) = TestResultFFI {
-                statistic: r.statistic,
-                p_value: r.p_value,
-                df: r.df,
-                effect_size: r.effect_size,
-                ci_lower: r.ci_lower,
-                ci_upper: r.ci_upper,
-                confidence_level: r.confidence_level,
-                n: r.n,
-                n1: r.n1,
-                n2: r.n2,
-                alternative: r.alternative.into(),
-                method: alloc_string(&r.method),
-            };
-            true
-        }
-        Err(e) => {
-            if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+        let actual_vec = actual.to_vec();
+        let f_r_vec = forecast_restricted.to_vec();
+        let f_u_vec = forecast_unrestricted.to_vec();
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            clark_west(&actual_vec, &f_r_vec, &f_u_vec, horizon)
+        }));
+
+        let result = match result {
+            Ok(r) => r,
+            Err(_) => {
+                if !out_error.is_null() {
+                    (*out_error).set(ErrorCode::InternalError, "Internal panic in Clark-West");
+                }
+                return false;
             }
-            false
+        };
+
+        match result {
+            Ok(r) => {
+                (*out_result) = TestResultFFI {
+                    statistic: r.statistic,
+                    p_value: r.p_value,
+                    df: r.df,
+                    effect_size: r.effect_size,
+                    ci_lower: r.ci_lower,
+                    ci_upper: r.ci_upper,
+                    confidence_level: r.confidence_level,
+                    n: r.n,
+                    n1: r.n1,
+                    n2: r.n2,
+                    alternative: r.alternative.into(),
+                    method: alloc_string(&r.method),
+                };
+                true
+            }
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
         }
-    }
+    })
 }
 
 // =============================================================================
@@ -6819,68 +7647,70 @@ pub unsafe extern "C" fn anofox_permutation_t_test(
     out_result: *mut TestResultFFI,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-
-    if out_result.is_null() {
+    ffi_guard(out_error, false, || {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
 
-    let g1 = group1.to_vec();
-    let g2 = group2.to_vec();
-
-    let opts = PermutationTTestOptions {
-        alternative: alternative.into(),
-        n_permutations,
-        seed: if has_seed { Some(seed) } else { None },
-    };
-
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        permutation_t_test(&g1, &g2, &opts)
-    }));
-
-    let result = match result {
-        Ok(r) => r,
-        Err(_) => {
+        if out_result.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(
-                    ErrorCode::InternalError,
-                    "Internal panic in permutation t-test",
-                );
+                (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
             }
             return false;
         }
-    };
 
-    match result {
-        Ok(r) => {
-            (*out_result) = TestResultFFI {
-                statistic: r.statistic,
-                p_value: r.p_value,
-                df: r.df,
-                effect_size: r.effect_size,
-                ci_lower: r.ci_lower,
-                ci_upper: r.ci_upper,
-                confidence_level: r.confidence_level,
-                n: r.n,
-                n1: r.n1,
-                n2: r.n2,
-                alternative: r.alternative.into(),
-                method: alloc_string(&r.method),
-            };
-            true
-        }
-        Err(e) => {
-            if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InvalidInput, &e.to_string());
+        let g1 = group1.to_vec();
+        let g2 = group2.to_vec();
+
+        let opts = PermutationTTestOptions {
+            alternative: alternative.into(),
+            n_permutations,
+            seed: if has_seed { Some(seed) } else { None },
+        };
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            permutation_t_test(&g1, &g2, &opts)
+        }));
+
+        let result = match result {
+            Ok(r) => r,
+            Err(_) => {
+                if !out_error.is_null() {
+                    (*out_error).set(
+                        ErrorCode::InternalError,
+                        "Internal panic in permutation t-test",
+                    );
+                }
+                return false;
             }
-            false
+        };
+
+        match result {
+            Ok(r) => {
+                (*out_result) = TestResultFFI {
+                    statistic: r.statistic,
+                    p_value: r.p_value,
+                    df: r.df,
+                    effect_size: r.effect_size,
+                    ci_lower: r.ci_lower,
+                    ci_upper: r.ci_upper,
+                    confidence_level: r.confidence_level,
+                    n: r.n,
+                    n1: r.n1,
+                    n2: r.n2,
+                    alternative: r.alternative.into(),
+                    method: alloc_string(&r.method),
+                };
+                true
+            }
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
         }
-    }
+    })
 }
 
 /// Free memory allocated by test result functions
@@ -6889,13 +7719,15 @@ pub unsafe extern "C" fn anofox_permutation_t_test(
 /// - `result` must be NULL or a valid pointer to a TestResultFFI
 #[no_mangle]
 pub unsafe extern "C" fn anofox_free_test_result(result: *mut TestResultFFI) {
-    if result.is_null() {
-        return;
-    }
-    if !(*result).method.is_null() {
-        libc::free((*result).method as *mut libc::c_void);
-        (*result).method = std::ptr::null_mut();
-    }
+    ffi_guard(std::ptr::null_mut(), (), || {
+        if result.is_null() {
+            return;
+        }
+        if !(*result).method.is_null() {
+            libc::free((*result).method as *mut libc::c_void);
+            (*result).method = std::ptr::null_mut();
+        }
+    })
 }
 
 /// Free memory allocated by ANOVA result functions
@@ -6904,13 +7736,15 @@ pub unsafe extern "C" fn anofox_free_test_result(result: *mut TestResultFFI) {
 /// - `result` must be NULL or a valid pointer to an AnovaResultFFI
 #[no_mangle]
 pub unsafe extern "C" fn anofox_free_anova_result(result: *mut AnovaResultFFI) {
-    if result.is_null() {
-        return;
-    }
-    if !(*result).method.is_null() {
-        libc::free((*result).method as *mut libc::c_void);
-        (*result).method = std::ptr::null_mut();
-    }
+    ffi_guard(std::ptr::null_mut(), (), || {
+        if result.is_null() {
+            return;
+        }
+        if !(*result).method.is_null() {
+            libc::free((*result).method as *mut libc::c_void);
+            (*result).method = std::ptr::null_mut();
+        }
+    })
 }
 
 /// Free memory allocated by correlation result functions
@@ -6919,13 +7753,15 @@ pub unsafe extern "C" fn anofox_free_anova_result(result: *mut AnovaResultFFI) {
 /// - `result` must be NULL or a valid pointer to a CorrelationResultFFI
 #[no_mangle]
 pub unsafe extern "C" fn anofox_free_correlation_result(result: *mut CorrelationResultFFI) {
-    if result.is_null() {
-        return;
-    }
-    if !(*result).method.is_null() {
-        libc::free((*result).method as *mut libc::c_void);
-        (*result).method = std::ptr::null_mut();
-    }
+    ffi_guard(std::ptr::null_mut(), (), || {
+        if result.is_null() {
+            return;
+        }
+        if !(*result).method.is_null() {
+            libc::free((*result).method as *mut libc::c_void);
+            (*result).method = std::ptr::null_mut();
+        }
+    })
 }
 
 /// Free memory allocated by chi-square result functions
@@ -6934,13 +7770,15 @@ pub unsafe extern "C" fn anofox_free_correlation_result(result: *mut Correlation
 /// - `result` must be NULL or a valid pointer to a ChiSquareResultFFI
 #[no_mangle]
 pub unsafe extern "C" fn anofox_free_chisq_result(result: *mut ChiSquareResultFFI) {
-    if result.is_null() {
-        return;
-    }
-    if !(*result).method.is_null() {
-        libc::free((*result).method as *mut libc::c_void);
-        (*result).method = std::ptr::null_mut();
-    }
+    ffi_guard(std::ptr::null_mut(), (), || {
+        if result.is_null() {
+            return;
+        }
+        if !(*result).method.is_null() {
+            libc::free((*result).method as *mut libc::c_void);
+            (*result).method = std::ptr::null_mut();
+        }
+    })
 }
 
 /// Free memory allocated by proportion test result functions
@@ -6949,13 +7787,15 @@ pub unsafe extern "C" fn anofox_free_chisq_result(result: *mut ChiSquareResultFF
 /// - `result` must be NULL or a valid pointer to a PropTestResultFFI
 #[no_mangle]
 pub unsafe extern "C" fn anofox_free_prop_test_result(result: *mut PropTestResultFFI) {
-    if result.is_null() {
-        return;
-    }
-    if !(*result).method.is_null() {
-        libc::free((*result).method as *mut libc::c_void);
-        (*result).method = std::ptr::null_mut();
-    }
+    ffi_guard(std::ptr::null_mut(), (), || {
+        if result.is_null() {
+            return;
+        }
+        if !(*result).method.is_null() {
+            libc::free((*result).method as *mut libc::c_void);
+            (*result).method = std::ptr::null_mut();
+        }
+    })
 }
 
 /// Free memory allocated by TOST result functions
@@ -6964,13 +7804,15 @@ pub unsafe extern "C" fn anofox_free_prop_test_result(result: *mut PropTestResul
 /// - `result` must be NULL or a valid pointer to a TostResultFFI
 #[no_mangle]
 pub unsafe extern "C" fn anofox_free_tost_result(result: *mut TostResultFFI) {
-    if result.is_null() {
-        return;
-    }
-    if !(*result).method.is_null() {
-        libc::free((*result).method as *mut libc::c_void);
-        (*result).method = std::ptr::null_mut();
-    }
+    ffi_guard(std::ptr::null_mut(), (), || {
+        if result.is_null() {
+            return;
+        }
+        if !(*result).method.is_null() {
+            libc::free((*result).method as *mut libc::c_void);
+            (*result).method = std::ptr::null_mut();
+        }
+    })
 }
 
 /// Free memory allocated by ICC result functions
@@ -6979,13 +7821,15 @@ pub unsafe extern "C" fn anofox_free_tost_result(result: *mut TostResultFFI) {
 /// - `result` must be NULL or a valid pointer to an IccResultFFI
 #[no_mangle]
 pub unsafe extern "C" fn anofox_free_icc_result(result: *mut IccResultFFI) {
-    if result.is_null() {
-        return;
-    }
-    if !(*result).method.is_null() {
-        libc::free((*result).method as *mut libc::c_void);
-        (*result).method = std::ptr::null_mut();
-    }
+    ffi_guard(std::ptr::null_mut(), (), || {
+        if result.is_null() {
+            return;
+        }
+        if !(*result).method.is_null() {
+            libc::free((*result).method as *mut libc::c_void);
+            (*result).method = std::ptr::null_mut();
+        }
+    })
 }
 
 // ============================================================================
@@ -7008,76 +7852,108 @@ pub unsafe extern "C" fn anofox_fit_lm_dynamic(
     result: *mut LmDynamicFitResultFFI,
     error: *mut AnofoxError,
 ) {
-    *error = AnofoxError::success();
-    *result = LmDynamicFitResultFFI::default();
+    ffi_guard(error, (), || {
+        if error.is_null() || result.is_null() {
+            return;
+        }
+        *error = AnofoxError::success();
+        *result = LmDynamicFitResultFFI::default();
 
-    let y_slice = slice::from_raw_parts(y, y_len);
-    let x_slice = slice::from_raw_parts(x_flat, y_len * n_features);
-
-    // Convert column-major flat array to Vec<Vec<f64>>
-    let mut x_cols: Vec<Vec<f64>> = Vec::with_capacity(n_features);
-    for j in 0..n_features {
-        let col: Vec<f64> = (0..y_len).map(|i| x_slice[j * y_len + i]).collect();
-        x_cols.push(col);
-    }
-
-    let opts = &*options;
-    let core_options = LmDynamicOptions {
-        fit_intercept: opts.fit_intercept,
-        ic: convert_ic_ffi(opts.ic),
-        distribution: convert_alm_distribution(opts.distribution),
-        lowess_span: if opts.lowess_span > 0.0 {
-            Some(opts.lowess_span)
-        } else {
-            None
-        },
-        max_models: if opts.max_models > 0 {
-            Some(opts.max_models as usize)
-        } else {
-            None
-        },
-        confidence_level: opts.confidence_level,
-    };
-
-    match fit_lm_dynamic(y_slice, &x_cols, &core_options) {
-        Ok(fit_result) => {
-            // Allocate and copy coefficients
-            let n_coefs = fit_result.coefficients.len();
-            let coefs_ptr = libc::malloc(n_coefs * std::mem::size_of::<f64>()) as *mut f64;
-            if !coefs_ptr.is_null() {
-                std::ptr::copy_nonoverlapping(fit_result.coefficients.as_ptr(), coefs_ptr, n_coefs);
+        let x_total = match y_len.checked_mul(n_features) {
+            Some(t) => t,
+            None => {
+                (*error).set(ErrorCode::InvalidInput, "y_len * n_features overflows");
+                return;
             }
+        };
+        if options.is_null() || (y.is_null() && y_len > 0) || (x_flat.is_null() && x_total > 0) {
+            (*error).set(ErrorCode::InvalidInput, "NULL input pointer");
+            return;
+        }
+        if !check_confidence_level((*options).confidence_level, error) {
+            return;
+        }
 
-            (*result).coefficients = coefs_ptr;
-            (*result).coefficients_len = n_coefs;
-            (*result).intercept = fit_result.intercept.unwrap_or(f64::NAN);
-            (*result).r_squared = fit_result.r_squared;
-            (*result).adj_r_squared = fit_result.adj_r_squared;
-            (*result).rmse = fit_result.rmse;
-            (*result).n_observations = fit_result.n_observations;
-            (*result).n_features = fit_result.n_features;
+        let y_slice = if y_len == 0 {
+            &[][..]
+        } else {
+            slice::from_raw_parts(y, y_len)
+        };
+        let x_slice = if x_total == 0 {
+            &[][..]
+        } else {
+            slice::from_raw_parts(x_flat, x_total)
+        };
 
-            // Flatten and copy dynamic coefficients
-            if !fit_result.dynamic_coefficients.is_empty() {
-                let n_obs = fit_result.dynamic_coefficients.len();
-                let n_coefs_per_obs = fit_result.dynamic_coefficients[0].len();
-                let total = n_obs * n_coefs_per_obs;
-                let dyn_ptr = libc::malloc(total * std::mem::size_of::<f64>()) as *mut f64;
-                if !dyn_ptr.is_null() {
-                    for (i, row) in fit_result.dynamic_coefficients.iter().enumerate() {
-                        for (j, &val) in row.iter().enumerate() {
-                            *dyn_ptr.add(i * n_coefs_per_obs + j) = val;
+        // Convert column-major flat array to Vec<Vec<f64>>
+        let mut x_cols: Vec<Vec<f64>> = Vec::with_capacity(n_features);
+        for j in 0..n_features {
+            let col: Vec<f64> = (0..y_len).map(|i| x_slice[j * y_len + i]).collect();
+            x_cols.push(col);
+        }
+
+        let opts = &*options;
+        let core_options = LmDynamicOptions {
+            fit_intercept: opts.fit_intercept,
+            ic: convert_ic_ffi(opts.ic),
+            distribution: convert_alm_distribution(opts.distribution),
+            lowess_span: if opts.lowess_span > 0.0 {
+                Some(opts.lowess_span)
+            } else {
+                None
+            },
+            max_models: if opts.max_models > 0 {
+                Some(opts.max_models as usize)
+            } else {
+                None
+            },
+            confidence_level: opts.confidence_level,
+        };
+
+        match fit_lm_dynamic(y_slice, &x_cols, &core_options) {
+            Ok(fit_result) => {
+                // Allocate and copy coefficients
+                let n_coefs = fit_result.coefficients.len();
+                let coefs_ptr = libc::malloc(n_coefs * std::mem::size_of::<f64>()) as *mut f64;
+                if !coefs_ptr.is_null() {
+                    std::ptr::copy_nonoverlapping(
+                        fit_result.coefficients.as_ptr(),
+                        coefs_ptr,
+                        n_coefs,
+                    );
+                }
+
+                (*result).coefficients = coefs_ptr;
+                (*result).coefficients_len = n_coefs;
+                (*result).intercept = fit_result.intercept.unwrap_or(f64::NAN);
+                (*result).r_squared = fit_result.r_squared;
+                (*result).adj_r_squared = fit_result.adj_r_squared;
+                (*result).rmse = fit_result.rmse;
+                (*result).n_observations = fit_result.n_observations;
+                (*result).n_features = fit_result.n_features;
+
+                // Flatten and copy dynamic coefficients
+                if !fit_result.dynamic_coefficients.is_empty() {
+                    let n_obs = fit_result.dynamic_coefficients.len();
+                    let n_coefs_per_obs = fit_result.dynamic_coefficients[0].len();
+                    let total = n_obs * n_coefs_per_obs;
+                    let dyn_ptr = libc::malloc(total * std::mem::size_of::<f64>()) as *mut f64;
+                    if !dyn_ptr.is_null() {
+                        for (i, row) in fit_result.dynamic_coefficients.iter().enumerate() {
+                            for (j, &val) in row.iter().enumerate() {
+                                *dyn_ptr.add(i * n_coefs_per_obs + j) = val;
+                            }
                         }
                     }
+                    (*result).dynamic_coefficients = dyn_ptr;
+                    (*result).n_coefs_per_obs = n_coefs_per_obs;
                 }
-                (*result).dynamic_coefficients = dyn_ptr;
-                (*result).n_coefs_per_obs = n_coefs_per_obs;
+            }
+            Err(e) => {
+                (*error).set(error_to_code(&e), &format!("{}", e));
             }
         }
-        Err(e) => {
-            (*error).set(error_to_code(&e), &format!("{}", e));
-        }
-    }
+    })
 }
 
 /// Free memory allocated by LmDynamic result
@@ -7086,17 +7962,19 @@ pub unsafe extern "C" fn anofox_fit_lm_dynamic(
 /// - `result` must be NULL or a valid pointer to a LmDynamicFitResultFFI
 #[no_mangle]
 pub unsafe extern "C" fn anofox_free_lm_dynamic_result(result: *mut LmDynamicFitResultFFI) {
-    if result.is_null() {
-        return;
-    }
-    if !(*result).coefficients.is_null() {
-        libc::free((*result).coefficients as *mut libc::c_void);
-        (*result).coefficients = std::ptr::null_mut();
-    }
-    if !(*result).dynamic_coefficients.is_null() {
-        libc::free((*result).dynamic_coefficients as *mut libc::c_void);
-        (*result).dynamic_coefficients = std::ptr::null_mut();
-    }
+    ffi_guard(std::ptr::null_mut(), (), || {
+        if result.is_null() {
+            return;
+        }
+        if !(*result).coefficients.is_null() {
+            libc::free((*result).coefficients as *mut libc::c_void);
+            (*result).coefficients = std::ptr::null_mut();
+        }
+        if !(*result).dynamic_coefficients.is_null() {
+            libc::free((*result).dynamic_coefficients as *mut libc::c_void);
+            (*result).dynamic_coefficients = std::ptr::null_mut();
+        }
+    })
 }
 
 // =============================================================================
@@ -7132,113 +8010,125 @@ pub unsafe extern "C" fn anofox_aft_fit(
     out_inference: *mut AftInferenceFFI,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-    if out_core.is_null() {
+    ffi_guard(out_error, false, || {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_core is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
-    if x.is_null() || x_count == 0 {
-        if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
+        if !check_confidence_level(options.confidence_level, out_error) {
+            return false;
         }
-        return false;
-    }
-
-    let time_vec = time.to_vec();
-    let event_vec = event.to_vec();
-    let x_arrays = slice::from_raw_parts(x, x_count);
-    let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
-
-    let dist = match options.dist {
-        AftDistributionFFI::Weibull => AftDistribution::Weibull,
-        AftDistributionFFI::LogNormal => AftDistribution::LogNormal,
-        AftDistributionFFI::LogLogistic => AftDistribution::LogLogistic,
-        AftDistributionFFI::Exponential => AftDistribution::Exponential,
-    };
-
-    let opts = AftOptions {
-        dist,
-        fit_intercept: options.fit_intercept,
-        max_iterations: options.max_iterations,
-        tolerance: options.tolerance,
-        compute_inference: options.compute_inference,
-        confidence_level: options.confidence_level,
-        priors: priors_from_ffi(options.priors, options.priors_len),
-        vcov: vcov_from_ffi(options.vcov),
-    };
-
-    let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        fit_aft(&time_vec, &x_vecs, &event_vec, &opts)
-    }));
-
-    let fit_result = match fit_result {
-        Ok(r) => r,
-        Err(_) => {
+        if out_core.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InternalError, "Internal panic in AFT fit");
+                (*out_error).set(ErrorCode::InvalidInput, "out_core is NULL");
             }
             return false;
         }
-    };
+        if x.is_null() || x_count == 0 {
+            if !out_error.is_null() {
+                (*out_error).set(
+                    if x_count == 0 {
+                        ErrorCode::InsufficientData
+                    } else {
+                        ErrorCode::InvalidInput
+                    },
+                    "x is NULL or empty",
+                );
+            }
+            return false;
+        }
 
-    match fit_result {
-        Ok(result) => {
-            let coef_ptr = alloc_f64(&result.core.coefficients);
-            if coef_ptr.is_null() && !result.core.coefficients.is_empty() {
+        let time_vec = time.to_vec();
+        let event_vec = event.to_vec();
+        let x_arrays = slice::from_raw_parts(x, x_count);
+        let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
+
+        let dist = match options.dist {
+            AftDistributionFFI::Weibull => AftDistribution::Weibull,
+            AftDistributionFFI::LogNormal => AftDistribution::LogNormal,
+            AftDistributionFFI::LogLogistic => AftDistribution::LogLogistic,
+            AftDistributionFFI::Exponential => AftDistribution::Exponential,
+        };
+
+        let opts = AftOptions {
+            dist,
+            fit_intercept: options.fit_intercept,
+            max_iterations: options.max_iterations,
+            tolerance: options.tolerance,
+            compute_inference: options.compute_inference,
+            confidence_level: options.confidence_level,
+            priors: priors_from_ffi(options.priors, options.priors_len),
+            vcov: vcov_from_ffi(options.vcov),
+        };
+
+        let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            fit_aft(&time_vec, &x_vecs, &event_vec, &opts)
+        }));
+
+        let fit_result = match fit_result {
+            Ok(r) => r,
+            Err(_) => {
                 if !out_error.is_null() {
-                    (*out_error).set(
-                        ErrorCode::AllocationFailure,
-                        "Failed to allocate AFT coefficients",
-                    );
+                    (*out_error).set(ErrorCode::InternalError, "Internal panic in AFT fit");
                 }
                 return false;
             }
+        };
 
-            (*out_core) = AftFitResultCore {
-                coefficients: coef_ptr,
-                coefficients_len: result.core.coefficients.len(),
-                intercept: result.core.intercept.unwrap_or(f64::NAN),
-                scale: result.core.scale,
-                log_likelihood: result.core.log_likelihood,
-                null_log_likelihood: result.core.null_log_likelihood,
-                aic: result.core.aic,
-                bic: result.core.bic,
-                n_observations: result.core.n_observations,
-                n_events: result.core.n_events,
-                n_censored: result.core.n_censored,
-                n_features: result.core.n_features,
-                iterations: result.core.iterations,
-                converged: result.core.converged,
-            };
-
-            if !out_inference.is_null() {
-                if let Some(inf) = result.inference {
-                    (*out_inference) = AftInferenceFFI {
-                        std_errors: alloc_f64(&inf.std_errors),
-                        z_values: alloc_f64(&inf.z_values),
-                        p_values: alloc_f64(&inf.p_values),
-                        ci_lower: alloc_f64(&inf.ci_lower),
-                        ci_upper: alloc_f64(&inf.ci_upper),
-                        len: inf.std_errors.len(),
-                        confidence_level: inf.confidence_level,
-                        intercept_std_error: inf.intercept_std_error.unwrap_or(f64::NAN),
-                        log_scale_std_error: inf.log_scale_std_error.unwrap_or(f64::NAN),
-                    };
+        match fit_result {
+            Ok(result) => {
+                let coef_ptr = alloc_f64(&result.core.coefficients);
+                if coef_ptr.is_null() && !result.core.coefficients.is_empty() {
+                    if !out_error.is_null() {
+                        (*out_error).set(
+                            ErrorCode::AllocationFailure,
+                            "Failed to allocate AFT coefficients",
+                        );
+                    }
+                    return false;
                 }
+
+                (*out_core) = AftFitResultCore {
+                    coefficients: coef_ptr,
+                    coefficients_len: result.core.coefficients.len(),
+                    intercept: result.core.intercept.unwrap_or(f64::NAN),
+                    scale: result.core.scale,
+                    log_likelihood: result.core.log_likelihood,
+                    null_log_likelihood: result.core.null_log_likelihood,
+                    aic: result.core.aic,
+                    bic: result.core.bic,
+                    n_observations: result.core.n_observations,
+                    n_events: result.core.n_events,
+                    n_censored: result.core.n_censored,
+                    n_features: result.core.n_features,
+                    iterations: result.core.iterations,
+                    converged: result.core.converged,
+                };
+
+                if !out_inference.is_null() {
+                    if let Some(inf) = result.inference {
+                        (*out_inference) = AftInferenceFFI {
+                            std_errors: alloc_f64(&inf.std_errors),
+                            z_values: alloc_f64(&inf.z_values),
+                            p_values: alloc_f64(&inf.p_values),
+                            ci_lower: alloc_f64(&inf.ci_lower),
+                            ci_upper: alloc_f64(&inf.ci_upper),
+                            len: inf.std_errors.len(),
+                            confidence_level: inf.confidence_level,
+                            intercept_std_error: inf.intercept_std_error.unwrap_or(f64::NAN),
+                            log_scale_std_error: inf.log_scale_std_error.unwrap_or(f64::NAN),
+                        };
+                    }
+                }
+                true
             }
-            true
-        }
-        Err(e) => {
-            if !out_error.is_null() {
-                (*out_error).set(error_to_code(&e), &e.to_string());
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
             }
-            false
         }
-    }
+    })
 }
 
 /// Release the arrays owned by an `AftFitResultCore`.
@@ -7247,13 +8137,15 @@ pub unsafe extern "C" fn anofox_aft_fit(
 /// `result` must come from a successful `anofox_aft_fit`. Safe to call once.
 #[no_mangle]
 pub unsafe extern "C" fn anofox_free_aft_result(result: *mut AftFitResultCore) {
-    if result.is_null() {
-        return;
-    }
-    if !(*result).coefficients.is_null() {
-        libc::free((*result).coefficients as *mut libc::c_void);
-        (*result).coefficients = std::ptr::null_mut();
-    }
+    ffi_guard(std::ptr::null_mut(), (), || {
+        if result.is_null() {
+            return;
+        }
+        if !(*result).coefficients.is_null() {
+            libc::free((*result).coefficients as *mut libc::c_void);
+            (*result).coefficients = std::ptr::null_mut();
+        }
+    })
 }
 
 /// Release the arrays owned by an `AftInferenceFFI`.
@@ -7262,21 +8154,23 @@ pub unsafe extern "C" fn anofox_free_aft_result(result: *mut AftFitResultCore) {
 /// `inf` must come from a successful `anofox_aft_fit` that requested inference.
 #[no_mangle]
 pub unsafe extern "C" fn anofox_free_aft_inference(inf: *mut AftInferenceFFI) {
-    if inf.is_null() {
-        return;
-    }
-    for p in [
-        &mut (*inf).std_errors,
-        &mut (*inf).z_values,
-        &mut (*inf).p_values,
-        &mut (*inf).ci_lower,
-        &mut (*inf).ci_upper,
-    ] {
-        if !p.is_null() {
-            libc::free(*p as *mut libc::c_void);
-            *p = std::ptr::null_mut();
+    ffi_guard(std::ptr::null_mut(), (), || {
+        if inf.is_null() {
+            return;
         }
-    }
+        for p in [
+            &mut (*inf).std_errors,
+            &mut (*inf).z_values,
+            &mut (*inf).p_values,
+            &mut (*inf).ci_lower,
+            &mut (*inf).ci_upper,
+        ] {
+            if !p.is_null() {
+                libc::free(*p as *mut libc::c_void);
+                *p = std::ptr::null_mut();
+            }
+        }
+    })
 }
 
 /// `P(T <= t)` for a fitted AFT model.
@@ -7292,13 +8186,15 @@ pub unsafe extern "C" fn anofox_aft_cdf(
     scale: f64,
     dist: AftDistributionFFI,
 ) -> f64 {
-    let d = match dist {
-        AftDistributionFFI::Weibull => AftDistribution::Weibull,
-        AftDistributionFFI::LogNormal => AftDistribution::LogNormal,
-        AftDistributionFFI::LogLogistic => AftDistribution::LogLogistic,
-        AftDistributionFFI::Exponential => AftDistribution::Exponential,
-    };
-    d.cdf_time(t, eta, scale)
+    ffi_guard(std::ptr::null_mut(), f64::NAN, || {
+        let d = match dist {
+            AftDistributionFFI::Weibull => AftDistribution::Weibull,
+            AftDistributionFFI::LogNormal => AftDistribution::LogNormal,
+            AftDistributionFFI::LogLogistic => AftDistribution::LogLogistic,
+            AftDistributionFFI::Exponential => AftDistribution::Exponential,
+        };
+        d.cdf_time(t, eta, scale)
+    })
 }
 
 /// The `p`-quantile of `T` for a fitted AFT model.
@@ -7312,13 +8208,15 @@ pub unsafe extern "C" fn anofox_aft_quantile(
     scale: f64,
     dist: AftDistributionFFI,
 ) -> f64 {
-    let d = match dist {
-        AftDistributionFFI::Weibull => AftDistribution::Weibull,
-        AftDistributionFFI::LogNormal => AftDistribution::LogNormal,
-        AftDistributionFFI::LogLogistic => AftDistribution::LogLogistic,
-        AftDistributionFFI::Exponential => AftDistribution::Exponential,
-    };
-    d.quantile_time(p, eta, scale)
+    ffi_guard(std::ptr::null_mut(), f64::NAN, || {
+        let d = match dist {
+            AftDistributionFFI::Weibull => AftDistribution::Weibull,
+            AftDistributionFFI::LogNormal => AftDistribution::LogNormal,
+            AftDistributionFFI::LogLogistic => AftDistribution::LogLogistic,
+            AftDistributionFFI::Exponential => AftDistribution::Exponential,
+        };
+        d.quantile_time(p, eta, scale)
+    })
 }
 
 // =============================================================================
@@ -7338,76 +8236,78 @@ pub unsafe extern "C" fn anofox_eb_shrink(
     out_result: *mut EbShrinkResultFFI,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-    if out_result.is_null() {
+    ffi_guard(out_error, false, || {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
-
-    let est_vec = estimate.to_vec();
-    let se_vec = se.to_vec();
-
-    let opts = EbShrinkOptions {
-        method: match options.method {
-            TauMethodFFI::DerSimonianLaird => TauMethod::DerSimonianLaird,
-            TauMethodFFI::None => TauMethod::None,
-        },
-        tau_squared: if options.tau_squared.is_nan() {
-            None
-        } else {
-            Some(options.tau_squared)
-        },
-    };
-
-    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        eb_shrink(&est_vec, &se_vec, &opts)
-    }));
-
-    let outcome = match outcome {
-        Ok(r) => r,
-        Err(_) => {
+        if out_result.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InternalError, "Internal panic in eb_shrink");
+                (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
             }
             return false;
         }
-    };
 
-    match outcome {
-        Ok(r) => {
-            let estimates: Vec<f64> = r.groups.iter().map(|g| g.estimate).collect();
-            let ses: Vec<f64> = r.groups.iter().map(|g| g.se).collect();
-            let shrunken: Vec<f64> = r.groups.iter().map(|g| g.shrunken).collect();
-            let shrunken_se: Vec<f64> = r.groups.iter().map(|g| g.shrunken_se).collect();
-            let weight: Vec<f64> = r.groups.iter().map(|g| g.weight).collect();
+        let est_vec = estimate.to_vec();
+        let se_vec = se.to_vec();
 
-            (*out_result) = EbShrinkResultFFI {
-                mu: r.mu,
-                mu_se: r.mu_se,
-                tau_squared: r.tau_squared,
-                i_squared: r.i_squared,
-                q: r.q,
-                n_groups: r.n_groups,
-                estimate: alloc_f64(&estimates),
-                se: alloc_f64(&ses),
-                shrunken: alloc_f64(&shrunken),
-                shrunken_se: alloc_f64(&shrunken_se),
-                weight: alloc_f64(&weight),
-                len: r.groups.len(),
-            };
-            true
-        }
-        Err(e) => {
-            if !out_error.is_null() {
-                (*out_error).set(error_to_code(&e), &e.to_string());
+        let opts = EbShrinkOptions {
+            method: match options.method {
+                TauMethodFFI::DerSimonianLaird => TauMethod::DerSimonianLaird,
+                TauMethodFFI::None => TauMethod::None,
+            },
+            tau_squared: if options.tau_squared.is_nan() {
+                None
+            } else {
+                Some(options.tau_squared)
+            },
+        };
+
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            eb_shrink(&est_vec, &se_vec, &opts)
+        }));
+
+        let outcome = match outcome {
+            Ok(r) => r,
+            Err(_) => {
+                if !out_error.is_null() {
+                    (*out_error).set(ErrorCode::InternalError, "Internal panic in eb_shrink");
+                }
+                return false;
             }
-            false
+        };
+
+        match outcome {
+            Ok(r) => {
+                let estimates: Vec<f64> = r.groups.iter().map(|g| g.estimate).collect();
+                let ses: Vec<f64> = r.groups.iter().map(|g| g.se).collect();
+                let shrunken: Vec<f64> = r.groups.iter().map(|g| g.shrunken).collect();
+                let shrunken_se: Vec<f64> = r.groups.iter().map(|g| g.shrunken_se).collect();
+                let weight: Vec<f64> = r.groups.iter().map(|g| g.weight).collect();
+
+                (*out_result) = EbShrinkResultFFI {
+                    mu: r.mu,
+                    mu_se: r.mu_se,
+                    tau_squared: r.tau_squared,
+                    i_squared: r.i_squared,
+                    q: r.q,
+                    n_groups: r.n_groups,
+                    estimate: alloc_f64(&estimates),
+                    se: alloc_f64(&ses),
+                    shrunken: alloc_f64(&shrunken),
+                    shrunken_se: alloc_f64(&shrunken_se),
+                    weight: alloc_f64(&weight),
+                    len: r.groups.len(),
+                };
+                true
+            }
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
         }
-    }
+    })
 }
 
 /// Release the arrays owned by an `EbShrinkResultFFI`.
@@ -7416,21 +8316,23 @@ pub unsafe extern "C" fn anofox_eb_shrink(
 /// `result` must come from a successful `anofox_eb_shrink`. Safe to call once.
 #[no_mangle]
 pub unsafe extern "C" fn anofox_free_eb_shrink_result(result: *mut EbShrinkResultFFI) {
-    if result.is_null() {
-        return;
-    }
-    for p in [
-        &mut (*result).estimate,
-        &mut (*result).se,
-        &mut (*result).shrunken,
-        &mut (*result).shrunken_se,
-        &mut (*result).weight,
-    ] {
-        if !p.is_null() {
-            libc::free(*p as *mut libc::c_void);
-            *p = std::ptr::null_mut();
+    ffi_guard(std::ptr::null_mut(), (), || {
+        if result.is_null() {
+            return;
         }
-    }
+        for p in [
+            &mut (*result).estimate,
+            &mut (*result).se,
+            &mut (*result).shrunken,
+            &mut (*result).shrunken_se,
+            &mut (*result).weight,
+        ] {
+            if !p.is_null() {
+                libc::free(*p as *mut libc::c_void);
+                *p = std::ptr::null_mut();
+            }
+        }
+    })
 }
 
 // =============================================================================
@@ -7477,160 +8379,168 @@ pub unsafe extern "C" fn anofox_glmm_fit(
     out_result: *mut GlmmResultFFI,
     out_error: *mut AnofoxError,
 ) -> bool {
-    if !out_error.is_null() {
-        *out_error = AnofoxError::success();
-    }
-    if out_result.is_null() {
+    ffi_guard(out_error, false, || {
         if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+            *out_error = AnofoxError::success();
         }
-        return false;
-    }
-    if x.is_null() || x_count == 0 || group_ids.is_null() {
-        if !out_error.is_null() {
-            (*out_error).set(ErrorCode::InvalidInput, "x or group_ids is NULL or empty");
+        if !check_confidence_level(options.confidence_level, out_error) {
+            return false;
         }
-        return false;
-    }
-
-    let y_vec = y.to_vec();
-    let x_arrays = slice::from_raw_parts(x, x_count);
-    let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
-    let groups = slice::from_raw_parts(group_ids, n_obs).to_vec();
-
-    let family = match options.family {
-        GlmmFamilyFFI::Gaussian => GlmmFamily::Gaussian,
-        GlmmFamilyFFI::Poisson => GlmmFamily::Poisson,
-        GlmmFamilyFFI::Binomial => GlmmFamily::Binomial,
-        GlmmFamilyFFI::NegativeBinomial => GlmmFamily::NegativeBinomial {
-            theta: options.theta,
-        },
-        GlmmFamilyFFI::Gamma => GlmmFamily::Gamma,
-        GlmmFamilyFFI::Tweedie => GlmmFamily::Tweedie {
-            power: options.power,
-        },
-    };
-
-    let random_slopes: Vec<usize> =
-        if options.random_slopes.is_null() || options.random_slopes_len == 0 {
-            Vec::new()
-        } else {
-            slice::from_raw_parts(options.random_slopes, options.random_slopes_len).to_vec()
-        };
-
-    let opts = GlmmOptions {
-        family,
-        fit_intercept: options.fit_intercept,
-        max_iterations: options.max_iterations,
-        tolerance: options.tolerance,
-        compute_inference: options.compute_inference,
-        confidence_level: options.confidence_level,
-        reml: options.reml,
-        offset_column: if options.offset_column == 0 {
-            None
-        } else {
-            Some(options.offset_column)
-        },
-        random_slopes,
-    };
-
-    // Additional crossed/nested grouping factors, if any.
-    let extra_factors: Vec<Vec<i32>> = if n_extra_factors == 0 || extra_group_ids.is_null() {
-        Vec::new()
-    } else {
-        slice::from_raw_parts(extra_group_ids, n_extra_factors)
-            .iter()
-            .map(|&p| slice::from_raw_parts(p, n_obs).to_vec())
-            .collect()
-    };
-
-    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        if extra_factors.is_empty() {
-            fit_glmm(&y_vec, &x_vecs, &groups, &opts)
-        } else {
-            let mut factors: Vec<&[i32]> = Vec::with_capacity(1 + extra_factors.len());
-            factors.push(&groups);
-            for e in &extra_factors {
-                factors.push(e.as_slice());
-            }
-            fit_glmm_crossed(&y_vec, &x_vecs, &factors, &opts)
-        }
-    }));
-
-    let outcome = match outcome {
-        Ok(r) => r,
-        Err(_) => {
+        if out_result.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(ErrorCode::InternalError, "Internal panic in GLMM fit");
+                (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
             }
             return false;
         }
-    };
-
-    match outcome {
-        Ok(r) => {
-            let empty: Vec<f64> = Vec::new();
-            let ranef_group: Vec<i32> = r.ranef.iter().map(|e| e.group).collect();
-            let ranef_value: Vec<f64> = r.ranef.iter().map(|e| e.value).collect();
-            let ranef_se: Vec<f64> = r.ranef.iter().map(|e| e.se).collect();
-            let ranef_n: Vec<i64> = r.ranef.iter().map(|e| e.n as i64).collect();
-            let random_dim = r.random_cov.len();
-            let random_cov_flat: Vec<f64> = r.random_cov.iter().flatten().copied().collect();
-            let ranef_effects_flat: Vec<f64> = r
-                .ranef
-                .iter()
-                .flat_map(|e| e.effects.iter().copied())
-                .collect();
-            let factor_var: Vec<f64> = r.factors.iter().map(|f| f.var).collect();
-            let factor_levels: Vec<i64> = r.factors.iter().map(|f| f.n_levels as i64).collect();
-
-            let inference_len = r.std_errors.as_ref().map_or(0, |v| v.len());
-
-            (*out_result) = GlmmResultFFI {
-                coefficients: alloc_f64(&r.coefficients),
-                coefficients_len: r.coefficients.len(),
-                intercept: r.intercept.unwrap_or(f64::NAN),
-                std_errors: alloc_f64(r.std_errors.as_ref().unwrap_or(&empty)),
-                z_values: alloc_f64(r.z_values.as_ref().unwrap_or(&empty)),
-                p_values: alloc_f64(r.p_values.as_ref().unwrap_or(&empty)),
-                ci_lower: alloc_f64(r.ci_lower.as_ref().unwrap_or(&empty)),
-                ci_upper: alloc_f64(r.ci_upper.as_ref().unwrap_or(&empty)),
-                inference_len,
-                intercept_std_error: r.intercept_std_error.unwrap_or(f64::NAN),
-                confidence_level: r.confidence_level,
-                var_group: r.var_group,
-                var_residual: r.var_residual,
-                icc: r.icc,
-                log_likelihood: r.log_likelihood,
-                aic: r.aic,
-                bic: r.bic,
-                deviance: r.deviance,
-                n_observations: r.n_observations,
-                n_groups: r.n_groups,
-                n_features: r.n_features,
-                iterations: r.iterations,
-                converged: r.converged,
-                ranef_group: alloc_i32(&ranef_group),
-                ranef_value: alloc_f64(&ranef_value),
-                ranef_se: alloc_f64(&ranef_se),
-                ranef_n: alloc_i64(&ranef_n),
-                ranef_len: r.ranef.len(),
-                random_cov: alloc_f64(&random_cov_flat),
-                random_dim,
-                ranef_effects: alloc_f64(&ranef_effects_flat),
-                factor_var: alloc_f64(&factor_var),
-                factor_n_levels: alloc_i64(&factor_levels),
-                factor_len: r.factors.len(),
-            };
-            true
-        }
-        Err(e) => {
+        if x.is_null() || x_count == 0 || group_ids.is_null() {
             if !out_error.is_null() {
-                (*out_error).set(error_to_code(&e), &e.to_string());
+                (*out_error).set(
+                    ErrorCode::InsufficientData,
+                    "x or group_ids is NULL or empty",
+                );
             }
-            false
+            return false;
         }
-    }
+
+        let y_vec = y.to_vec();
+        let x_arrays = slice::from_raw_parts(x, x_count);
+        let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
+        let groups = slice::from_raw_parts(group_ids, n_obs).to_vec();
+
+        let family = match options.family {
+            GlmmFamilyFFI::Gaussian => GlmmFamily::Gaussian,
+            GlmmFamilyFFI::Poisson => GlmmFamily::Poisson,
+            GlmmFamilyFFI::Binomial => GlmmFamily::Binomial,
+            GlmmFamilyFFI::NegativeBinomial => GlmmFamily::NegativeBinomial {
+                theta: options.theta,
+            },
+            GlmmFamilyFFI::Gamma => GlmmFamily::Gamma,
+            GlmmFamilyFFI::Tweedie => GlmmFamily::Tweedie {
+                power: options.power,
+            },
+        };
+
+        let random_slopes: Vec<usize> =
+            if options.random_slopes.is_null() || options.random_slopes_len == 0 {
+                Vec::new()
+            } else {
+                slice::from_raw_parts(options.random_slopes, options.random_slopes_len).to_vec()
+            };
+
+        let opts = GlmmOptions {
+            family,
+            fit_intercept: options.fit_intercept,
+            max_iterations: options.max_iterations,
+            tolerance: options.tolerance,
+            compute_inference: options.compute_inference,
+            confidence_level: options.confidence_level,
+            reml: options.reml,
+            offset_column: if options.offset_column == 0 {
+                None
+            } else {
+                Some(options.offset_column)
+            },
+            random_slopes,
+        };
+
+        // Additional crossed/nested grouping factors, if any.
+        let extra_factors: Vec<Vec<i32>> = if n_extra_factors == 0 || extra_group_ids.is_null() {
+            Vec::new()
+        } else {
+            slice::from_raw_parts(extra_group_ids, n_extra_factors)
+                .iter()
+                .map(|&p| slice::from_raw_parts(p, n_obs).to_vec())
+                .collect()
+        };
+
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            if extra_factors.is_empty() {
+                fit_glmm(&y_vec, &x_vecs, &groups, &opts)
+            } else {
+                let mut factors: Vec<&[i32]> = Vec::with_capacity(1 + extra_factors.len());
+                factors.push(&groups);
+                for e in &extra_factors {
+                    factors.push(e.as_slice());
+                }
+                fit_glmm_crossed(&y_vec, &x_vecs, &factors, &opts)
+            }
+        }));
+
+        let outcome = match outcome {
+            Ok(r) => r,
+            Err(_) => {
+                if !out_error.is_null() {
+                    (*out_error).set(ErrorCode::InternalError, "Internal panic in GLMM fit");
+                }
+                return false;
+            }
+        };
+
+        match outcome {
+            Ok(r) => {
+                let empty: Vec<f64> = Vec::new();
+                let ranef_group: Vec<i32> = r.ranef.iter().map(|e| e.group).collect();
+                let ranef_value: Vec<f64> = r.ranef.iter().map(|e| e.value).collect();
+                let ranef_se: Vec<f64> = r.ranef.iter().map(|e| e.se).collect();
+                let ranef_n: Vec<i64> = r.ranef.iter().map(|e| e.n as i64).collect();
+                let random_dim = r.random_cov.len();
+                let random_cov_flat: Vec<f64> = r.random_cov.iter().flatten().copied().collect();
+                let ranef_effects_flat: Vec<f64> = r
+                    .ranef
+                    .iter()
+                    .flat_map(|e| e.effects.iter().copied())
+                    .collect();
+                let factor_var: Vec<f64> = r.factors.iter().map(|f| f.var).collect();
+                let factor_levels: Vec<i64> = r.factors.iter().map(|f| f.n_levels as i64).collect();
+
+                let inference_len = r.std_errors.as_ref().map_or(0, |v| v.len());
+
+                (*out_result) = GlmmResultFFI {
+                    coefficients: alloc_f64(&r.coefficients),
+                    coefficients_len: r.coefficients.len(),
+                    intercept: r.intercept.unwrap_or(f64::NAN),
+                    std_errors: alloc_f64(r.std_errors.as_ref().unwrap_or(&empty)),
+                    z_values: alloc_f64(r.z_values.as_ref().unwrap_or(&empty)),
+                    p_values: alloc_f64(r.p_values.as_ref().unwrap_or(&empty)),
+                    ci_lower: alloc_f64(r.ci_lower.as_ref().unwrap_or(&empty)),
+                    ci_upper: alloc_f64(r.ci_upper.as_ref().unwrap_or(&empty)),
+                    inference_len,
+                    intercept_std_error: r.intercept_std_error.unwrap_or(f64::NAN),
+                    confidence_level: r.confidence_level,
+                    var_group: r.var_group,
+                    var_residual: r.var_residual,
+                    icc: r.icc,
+                    log_likelihood: r.log_likelihood,
+                    aic: r.aic,
+                    bic: r.bic,
+                    deviance: r.deviance,
+                    n_observations: r.n_observations,
+                    n_groups: r.n_groups,
+                    n_features: r.n_features,
+                    iterations: r.iterations,
+                    converged: r.converged,
+                    ranef_group: alloc_i32(&ranef_group),
+                    ranef_value: alloc_f64(&ranef_value),
+                    ranef_se: alloc_f64(&ranef_se),
+                    ranef_n: alloc_i64(&ranef_n),
+                    ranef_len: r.ranef.len(),
+                    random_cov: alloc_f64(&random_cov_flat),
+                    random_dim,
+                    ranef_effects: alloc_f64(&ranef_effects_flat),
+                    factor_var: alloc_f64(&factor_var),
+                    factor_n_levels: alloc_i64(&factor_levels),
+                    factor_len: r.factors.len(),
+                };
+                true
+            }
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
+        }
+    })
 }
 
 /// Release the arrays owned by a `GlmmResultFFI`.
@@ -7639,37 +8549,39 @@ pub unsafe extern "C" fn anofox_glmm_fit(
 /// `result` must come from a successful `anofox_glmm_fit`. Safe to call once.
 #[no_mangle]
 pub unsafe extern "C" fn anofox_free_glmm_result(result: *mut GlmmResultFFI) {
-    if result.is_null() {
-        return;
-    }
-    for p in [
-        &mut (*result).coefficients,
-        &mut (*result).std_errors,
-        &mut (*result).z_values,
-        &mut (*result).p_values,
-        &mut (*result).ci_lower,
-        &mut (*result).ci_upper,
-        &mut (*result).ranef_value,
-        &mut (*result).ranef_se,
-        &mut (*result).random_cov,
-        &mut (*result).ranef_effects,
-        &mut (*result).factor_var,
-    ] {
-        if !p.is_null() {
-            libc::free(*p as *mut libc::c_void);
-            *p = std::ptr::null_mut();
+    ffi_guard(std::ptr::null_mut(), (), || {
+        if result.is_null() {
+            return;
         }
-    }
-    if !(*result).factor_n_levels.is_null() {
-        libc::free((*result).factor_n_levels as *mut libc::c_void);
-        (*result).factor_n_levels = std::ptr::null_mut();
-    }
-    if !(*result).ranef_group.is_null() {
-        libc::free((*result).ranef_group as *mut libc::c_void);
-        (*result).ranef_group = std::ptr::null_mut();
-    }
-    if !(*result).ranef_n.is_null() {
-        libc::free((*result).ranef_n as *mut libc::c_void);
-        (*result).ranef_n = std::ptr::null_mut();
-    }
+        for p in [
+            &mut (*result).coefficients,
+            &mut (*result).std_errors,
+            &mut (*result).z_values,
+            &mut (*result).p_values,
+            &mut (*result).ci_lower,
+            &mut (*result).ci_upper,
+            &mut (*result).ranef_value,
+            &mut (*result).ranef_se,
+            &mut (*result).random_cov,
+            &mut (*result).ranef_effects,
+            &mut (*result).factor_var,
+        ] {
+            if !p.is_null() {
+                libc::free(*p as *mut libc::c_void);
+                *p = std::ptr::null_mut();
+            }
+        }
+        if !(*result).factor_n_levels.is_null() {
+            libc::free((*result).factor_n_levels as *mut libc::c_void);
+            (*result).factor_n_levels = std::ptr::null_mut();
+        }
+        if !(*result).ranef_group.is_null() {
+            libc::free((*result).ranef_group as *mut libc::c_void);
+            (*result).ranef_group = std::ptr::null_mut();
+        }
+        if !(*result).ranef_n.is_null() {
+            libc::free((*result).ranef_n as *mut libc::c_void);
+            (*result).ranef_n = std::ptr::null_mut();
+        }
+    })
 }

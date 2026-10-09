@@ -7,7 +7,10 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/result_fields.hpp"
+#include "../include/error_dispatch.hpp"
 #include "telemetry.hpp"
+#include "aggregate_combine.hpp"
 
 namespace duckdb {
 
@@ -37,6 +40,8 @@ static LogicalType GetJarqueBeraAggResultType() {
     children.push_back(make_pair("skewness", LogicalType::DOUBLE));
     children.push_back(make_pair("kurtosis", LogicalType::DOUBLE));
     children.push_back(make_pair("n", LogicalType::BIGINT));
+    children.push_back(make_pair("method", LogicalType::VARCHAR));
+    children.push_back(make_pair("alternative", LogicalType::VARCHAR));
 
     return LogicalType::STRUCT(std::move(children));
 }
@@ -86,7 +91,7 @@ static void JarqueBeraAggUpdate(Vector inputs[], AggregateInputData &aggr_input_
     }
 }
 
-static void JarqueBeraAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &, idx_t count) {
+static void JarqueBeraAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &aggr_input_data, idx_t count) {
     UnifiedVectorFormat source_data, target_data;
     source_vector.ToUnifiedFormat(count, source_data);
     target_vector.ToUnifiedFormat(count, target_data);
@@ -103,7 +108,7 @@ static void JarqueBeraAggCombine(Vector &source_vector, Vector &target_vector, A
         }
 
         if (!target.initialized) {
-            target.values = std::move(source.values);
+            target.values = CombineTake(source.values, aggr_input_data);
             target.initialized = true;
             continue;
         }
@@ -141,6 +146,7 @@ static void JarqueBeraAggFinalize(Vector &state_vector, AggregateInputData &aggr
         bool success = anofox_jarque_bera(data_array, &jb_result, &error);
 
         if (!success) {
+            ThrowUnlessDegenerate("jarque_bera_agg", error);
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
@@ -152,6 +158,8 @@ static void JarqueBeraAggFinalize(Vector &state_vector, AggregateInputData &aggr
         FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = jb_result.skewness;
         FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = jb_result.kurtosis;
         FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = jb_result.n;
+        SetResultString(*struct_entries[struct_idx++], result_idx, "Jarque-Bera test");
+        SetResultNull(*struct_entries[struct_idx++], result_idx); // alternative: not applicable
 
         state.Reset();
     }

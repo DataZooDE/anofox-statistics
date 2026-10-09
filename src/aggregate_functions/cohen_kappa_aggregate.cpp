@@ -8,12 +8,13 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/result_fields.hpp"
+#include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
+#include "../include/ffi_enum_converters.hpp"
 #include "telemetry.hpp"
+#include "aggregate_combine.hpp"
 
-#ifdef _WIN32
-#define strcasecmp _stricmp
-#endif
 
 namespace duckdb {
 
@@ -46,6 +47,10 @@ static LogicalType GetCohenKappaAggResultType() {
     children.push_back(make_pair("ci_upper", LogicalType::DOUBLE));
     children.push_back(make_pair("z", LogicalType::DOUBLE));
     children.push_back(make_pair("p_value", LogicalType::DOUBLE));
+    children.push_back(make_pair("statistic", LogicalType::DOUBLE));
+    children.push_back(make_pair("n", LogicalType::BIGINT));
+    children.push_back(make_pair("method", LogicalType::VARCHAR));
+    children.push_back(make_pair("alternative", LogicalType::VARCHAR));
 
     return LogicalType::STRUCT(std::move(children));
 }
@@ -117,7 +122,7 @@ static void CohenKappaAggUpdate(Vector inputs[], AggregateInputData &aggr_input_
     }
 }
 
-static void CohenKappaAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &, idx_t count) {
+static void CohenKappaAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &aggr_input_data, idx_t count) {
     UnifiedVectorFormat source_data, target_data;
     source_vector.ToUnifiedFormat(count, source_data);
     target_vector.ToUnifiedFormat(count, target_data);
@@ -134,8 +139,8 @@ static void CohenKappaAggCombine(Vector &source_vector, Vector &target_vector, A
         }
 
         if (!target.initialized) {
-            target.rater1_values = std::move(source.rater1_values);
-            target.rater2_values = std::move(source.rater2_values);
+            target.rater1_values = CombineTake(source.rater1_values, aggr_input_data);
+            target.rater2_values = CombineTake(source.rater2_values, aggr_input_data);
             target.initialized = true;
             continue;
         }
@@ -201,6 +206,7 @@ static void CohenKappaAggFinalize(Vector &state_vector, AggregateInputData &aggr
                                            bind_data.weighted, &kappa_result, &error);
 
         if (!success) {
+            ThrowUnlessDegenerate("cohen_kappa_agg", error);
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
@@ -212,6 +218,13 @@ static void CohenKappaAggFinalize(Vector &state_vector, AggregateInputData &aggr
         FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = kappa_result.ci_upper;
         FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = kappa_result.z;
         FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = kappa_result.p_value;
+        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = kappa_result.z; // statistic
+        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] =
+            static_cast<int64_t>(state.rater1_values.size());
+        SetResultString(*struct_entries[struct_idx++], result_idx,
+                        bind_data.weighted ? "Weighted Cohen's kappa" : "Cohen's kappa");
+        // The core's z-test p-value is two-sided.
+        SetResultString(*struct_entries[struct_idx++], result_idx, "two_sided");
 
         state.Reset();
     }
@@ -225,19 +238,11 @@ static unique_ptr<FunctionData> CohenKappaAggBind(ClientContext &context, Aggreg
     function.return_type = GetCohenKappaAggResultType();
     auto bind_data = make_uniq<CohenKappaBindData>();
 
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        Value options_val = ExpressionExecutor::EvaluateScalar(context, *arguments[2]);
-        if (options_val.type().id() == LogicalTypeId::MAP) {
-            auto &map_children = MapValue::GetChildren(options_val);
-            for (auto &entry : map_children) {
-                auto &key_list = StructValue::GetChildren(entry);
-                if (key_list.size() >= 2) {
-                    auto key = StringValue::Get(key_list[0]).c_str();
-                    if (strcasecmp(key, "weighted") == 0) {
-                        bind_data->weighted = key_list[1].GetValue<bool>();
-                    }
-                }
-            }
+    if (arguments.size() >= 3) {
+        Value options_val = EvaluateConstantOptions(context, *arguments[2], "cohen_kappa_agg");
+        auto opts = CohenKappaMapOptions::ParseFromValue(options_val, "cohen_kappa_agg");
+        if (opts.weighted.has_value()) {
+            bind_data->weighted = opts.weighted.value();
         }
     }
 

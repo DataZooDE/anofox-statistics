@@ -1,6 +1,6 @@
 -- ============================================================================
 -- MODEL FIT AND PREDICT DEMONSTRATION
--- Using anofox_stats_ols_fit_agg and anofox_stats_predict
+-- Using ols_fit_agg and predict
 --
 -- Run with: ./build/release/duckdb < examples/model_prediction_demo.sql
 -- ============================================================================
@@ -37,7 +37,7 @@ SELECT
     (fit).residual_std_error as residual_std_error,
     (fit).n_observations as n_obs
 FROM (
-    SELECT anofox_stats_ols_fit_agg(sales, [price, advertising]) as fit
+    SELECT ols_fit_agg(sales, [price, advertising]) as fit
     FROM training_data
 );
 
@@ -101,18 +101,19 @@ SELECT
     round(advertising, 1) as ad_spend,
     round(sales, 1) as actual,
     round((pred).yhat, 1) as predicted,
-    round((pred).std_error, 3) as std_error
+    round((pred).yhat_lower, 1) as lower_95,
+    round((pred).yhat_upper, 1) as upper_95
 FROM (
     SELECT
-        row_number() OVER () as id,
+        row_number() OVER (ORDER BY price, advertising) as id,
         price,
         advertising,
         sales,
-        anofox_stats_ols_fit_predict(
+        ols_fit_predict(
             sales,
             [price, advertising],
             {'fit_intercept': true}
-        ) OVER (ORDER BY price ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) as pred
+        ) OVER (ORDER BY price, advertising ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred
     FROM training_data
 )
 WHERE pred IS NOT NULL
@@ -124,8 +125,8 @@ LIMIT 10;
 .print 'SUMMARY'
 .print '================================================================================'
 .print 'Functions demonstrated:'
-.print '  - anofox_stats_ols_fit_agg: Fit OLS model via GROUP BY aggregation'
-.print '  - anofox_stats_ols_fit_predict: Window function for expanding/rolling fit'
+.print '  - ols_fit_agg: Fit OLS model via GROUP BY aggregation'
+.print '  - ols_fit_predict: Window function for expanding/rolling in-sample fits (predicts the last row of each frame)'
 .print ''
 .print 'Prediction from stored coefficients: intercept + coef[1]*x1 + coef[2]*x2 + ...'
 .print '================================================================================'

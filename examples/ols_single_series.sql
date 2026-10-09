@@ -24,7 +24,7 @@ SELECT
     result.intercept,
     ROUND(result.r_squared, 4) AS r_squared
 FROM (
-    SELECT anofox_stats_ols_fit(
+    SELECT ols_fit(
         [10.0, 15.0, 20.0, 25.0, 30.0]::DOUBLE[],  -- y values
         [[1.0, 2.0, 3.0, 4.0, 5.0]]::DOUBLE[][],   -- x values (one feature)
         {'intercept': true}
@@ -46,7 +46,7 @@ SELECT
     result.n_observations,
     result.n_features
 FROM (
-    SELECT anofox_stats_ols_fit(
+    SELECT ols_fit(
         [15.0, 22.0, 31.0, 38.0, 45.0, 54.0, 61.0, 70.0]::DOUBLE[],  -- y
         [
             [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],      -- x1 values
@@ -66,16 +66,13 @@ SELECT '=== Example 3: Full Inference Output ===' AS section;
 SELECT
     result.coefficients,
     result.intercept,
-    result.coefficient_std_errors,
-    result.intercept_std_error,
-    result.coefficient_t_values,
-    result.intercept_t_value,
-    result.coefficient_p_values,
-    result.intercept_p_value,
+    result.std_errors,
+    result.t_values,
+    result.p_values,
     result.f_statistic,
-    result.f_statistic_pvalue
+    result.f_pvalue
 FROM (
-    SELECT anofox_stats_ols_fit(
+    SELECT ols_fit(
         [10.0, 15.0, 20.0, 25.0, 30.0, 35.0, 40.0, 45.0, 50.0, 55.0]::DOUBLE[],
         [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]]::DOUBLE[][],
         {'intercept': true, 'compute_inference': true, 'confidence_level': 0.95}
@@ -95,7 +92,7 @@ SELECT
     result.n_observations AS observations,
     result.n_features AS features
 FROM (
-    SELECT anofox_stats_ols_fit(
+    SELECT ols_fit(
         [12.5, 17.2, 21.8, 26.1, 31.5, 35.9, 41.2, 45.8]::DOUBLE[],
         [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]]::DOUBLE[][],
         {'intercept': true}
@@ -110,7 +107,7 @@ FROM (
 SELECT '=== Example 5: Prediction Using Fitted Coefficients ===' AS section;
 
 WITH fitted AS (
-    SELECT anofox_stats_ols_fit(
+    SELECT ols_fit(
         [10.0, 20.0, 30.0, 40.0, 50.0]::DOUBLE[],
         [[1.0, 2.0, 3.0, 4.0, 5.0]]::DOUBLE[][],
         {'intercept': true}
@@ -137,7 +134,7 @@ SELECT
     ROUND(result.coefficients[1], 4) AS slope,
     ROUND(result.r_squared, 4) AS r_squared
 FROM (
-    SELECT anofox_stats_ols_fit(
+    SELECT ols_fit(
         [5.0, 10.0, 15.0, 20.0, 25.0]::DOUBLE[],
         [[1.0, 2.0, 3.0, 4.0, 5.0]]::DOUBLE[][],
         {'intercept': true}
@@ -150,7 +147,7 @@ SELECT
     ROUND(result.coefficients[1], 4) AS slope,
     ROUND(result.r_squared, 4) AS r_squared
 FROM (
-    SELECT anofox_stats_ols_fit(
+    SELECT ols_fit(
         [5.0, 10.0, 15.0, 20.0, 25.0]::DOUBLE[],
         [[1.0, 2.0, 3.0, 4.0, 5.0]]::DOUBLE[][],
         {'intercept': false}
@@ -183,7 +180,7 @@ SELECT
     ROUND(result.coefficients[1], 2) AS slope,
     ROUND(result.r_squared, 4) AS r_squared,
     result.n_observations AS n_obs
-FROM arrays, LATERAL (SELECT anofox_stats_ols_fit(y_arr, x_arr, {'intercept': true}) AS result);
+FROM arrays, LATERAL (SELECT ols_fit(y_arr, x_arr, {'intercept': true}) AS result);
 
 -- ============================================================================
 -- Example 8: Comparing Different Confidence Levels
@@ -193,11 +190,11 @@ SELECT '=== Example 8: Different Confidence Levels ===' AS section;
 
 SELECT
     '90%' AS confidence_level,
-    ROUND(result.coefficient_ci_lower[1], 4) AS ci_lower,
-    ROUND(result.coefficient_ci_upper[1], 4) AS ci_upper,
-    ROUND(result.coefficient_ci_upper[1] - result.coefficient_ci_lower[1], 4) AS ci_width
+    ROUND(result.ci_lower[1], 4) AS ci_lower,
+    ROUND(result.ci_upper[1], 4) AS ci_upper,
+    ROUND(result.ci_upper[1] - result.ci_lower[1], 4) AS ci_width
 FROM (
-    SELECT anofox_stats_ols_fit(
+    SELECT ols_fit(
         [10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0]::DOUBLE[],
         [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]]::DOUBLE[][],
         {'intercept': true, 'compute_inference': true, 'confidence_level': 0.90}
@@ -206,11 +203,11 @@ FROM (
 UNION ALL
 SELECT
     '95%' AS confidence_level,
-    ROUND(result.coefficient_ci_lower[1], 4) AS ci_lower,
-    ROUND(result.coefficient_ci_upper[1], 4) AS ci_upper,
-    ROUND(result.coefficient_ci_upper[1] - result.coefficient_ci_lower[1], 4) AS ci_width
+    ROUND(result.ci_lower[1], 4) AS ci_lower,
+    ROUND(result.ci_upper[1], 4) AS ci_upper,
+    ROUND(result.ci_upper[1] - result.ci_lower[1], 4) AS ci_width
 FROM (
-    SELECT anofox_stats_ols_fit(
+    SELECT ols_fit(
         [10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0]::DOUBLE[],
         [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]]::DOUBLE[][],
         {'intercept': true, 'compute_inference': true, 'confidence_level': 0.95}
@@ -219,11 +216,11 @@ FROM (
 UNION ALL
 SELECT
     '99%' AS confidence_level,
-    ROUND(result.coefficient_ci_lower[1], 4) AS ci_lower,
-    ROUND(result.coefficient_ci_upper[1], 4) AS ci_upper,
-    ROUND(result.coefficient_ci_upper[1] - result.coefficient_ci_lower[1], 4) AS ci_width
+    ROUND(result.ci_lower[1], 4) AS ci_lower,
+    ROUND(result.ci_upper[1], 4) AS ci_upper,
+    ROUND(result.ci_upper[1] - result.ci_lower[1], 4) AS ci_width
 FROM (
-    SELECT anofox_stats_ols_fit(
+    SELECT ols_fit(
         [10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0]::DOUBLE[],
         [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]]::DOUBLE[][],
         {'intercept': true, 'compute_inference': true, 'confidence_level': 0.99}

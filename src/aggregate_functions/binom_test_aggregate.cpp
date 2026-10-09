@@ -7,12 +7,12 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/result_fields.hpp"
+#include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
+#include "../include/ffi_enum_converters.hpp"
 #include "telemetry.hpp"
 
-#ifdef _WIN32
-#define strcasecmp _stricmp
-#endif
 
 namespace duckdb {
 
@@ -46,6 +46,7 @@ static LogicalType GetBinomTestAggResultType() {
     children.push_back(make_pair("ci_upper", LogicalType::DOUBLE));
     children.push_back(make_pair("n", LogicalType::BIGINT));
     children.push_back(make_pair("method", LogicalType::VARCHAR));
+    children.push_back(make_pair("alternative", LogicalType::VARCHAR));
 
     return LogicalType::STRUCT(std::move(children));
 }
@@ -56,19 +57,21 @@ static LogicalType GetBinomTestAggResultType() {
 struct BinomTestBindData : public FunctionData {
     double p0;
     AnofoxAlternative alternative;
+    double confidence_level;
 
-    BinomTestBindData() : p0(0.5), alternative(ANOFOX_ALTERNATIVE_TWO_SIDED) {}
+    BinomTestBindData() : p0(0.5), alternative(ANOFOX_ALTERNATIVE_TWO_SIDED), confidence_level(0.95) {}
 
     unique_ptr<FunctionData> Copy() const override {
         auto copy = make_uniq<BinomTestBindData>();
         copy->p0 = p0;
         copy->alternative = alternative;
+        copy->confidence_level = confidence_level;
         return copy;
     }
 
     bool Equals(const FunctionData &other_p) const override {
         auto &other = other_p.Cast<BinomTestBindData>();
-        return p0 == other.p0 && alternative == other.alternative;
+        return p0 == other.p0 && alternative == other.alternative && confidence_level == other.confidence_level;
     }
 };
 
@@ -164,10 +167,12 @@ static void BinomTestAggFinalize(Vector &state_vector, AggregateInputData &aggr_
         AnofoxPropTestResult binom_result;
         AnofoxError error;
 
-        bool success = anofox_binom_test(state.successes, state.trials, bind_data.p0,
-                                          bind_data.alternative, &binom_result, &error);
+        bool success = anofox_binom_test_with_conf_level(state.successes, state.trials, bind_data.p0,
+                                                         bind_data.alternative, bind_data.confidence_level,
+                                                         &binom_result, &error);
 
         if (!success) {
+            ThrowUnlessDegenerate("binom_test_agg", error);
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
@@ -182,6 +187,7 @@ static void BinomTestAggFinalize(Vector &state_vector, AggregateInputData &aggr_
         auto& method_vector = *struct_entries[struct_idx++];
         FlatVector::GetData<string_t>(method_vector)[result_idx] =
             StringVector::AddString(method_vector, binom_result.method ? binom_result.method : "Exact binomial test");
+        SetResultString(*struct_entries[struct_idx++], result_idx, AlternativeName(bind_data.alternative));
 
         anofox_free_prop_test_result(&binom_result);
         state.Reset();
@@ -196,28 +202,17 @@ static unique_ptr<FunctionData> BinomTestAggBind(ClientContext &context, Aggrega
     function.return_type = GetBinomTestAggResultType();
     auto bind_data = make_uniq<BinomTestBindData>();
 
-    if (arguments.size() >= 2 && arguments[1]->IsFoldable()) {
-        Value options_val = ExpressionExecutor::EvaluateScalar(context, *arguments[1]);
-        if (options_val.type().id() == LogicalTypeId::MAP) {
-            auto &map_children = MapValue::GetChildren(options_val);
-            for (auto &entry : map_children) {
-                auto &key_list = StructValue::GetChildren(entry);
-                if (key_list.size() >= 2) {
-                    auto key = StringValue::Get(key_list[0]).c_str();
-                    if (strcasecmp(key, "p0") == 0 || strcasecmp(key, "p") == 0) {
-                        bind_data->p0 = key_list[1].GetValue<double>();
-                    } else if (strcasecmp(key, "alternative") == 0) {
-                        auto alt_str = StringValue::Get(key_list[1]);
-                        if (strcasecmp(alt_str.c_str(), "less") == 0) {
-                            bind_data->alternative = ANOFOX_ALTERNATIVE_LESS;
-                        } else if (strcasecmp(alt_str.c_str(), "greater") == 0) {
-                            bind_data->alternative = ANOFOX_ALTERNATIVE_GREATER;
-                        } else {
-                            bind_data->alternative = ANOFOX_ALTERNATIVE_TWO_SIDED;
-                        }
-                    }
-                }
-            }
+    if (arguments.size() >= 2) {
+        Value options_val = EvaluateConstantOptions(context, *arguments[1], "binom_test_agg");
+        auto opts = ProportionMapOptions::ParseFromValue(options_val, "binom_test_agg");
+        if (opts.p0.has_value()) {
+            bind_data->p0 = opts.p0.value();
+        }
+        if (opts.alternative.has_value()) {
+            bind_data->alternative = ConvertAlternative(opts.alternative.value());
+        }
+        if (opts.confidence_level.has_value()) {
+            bind_data->confidence_level = opts.confidence_level.value();
         }
     }
 

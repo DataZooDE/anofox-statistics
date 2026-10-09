@@ -74,8 +74,10 @@ static unique_ptr<FunctionData> OlsFitBind(ClientContext &context, ScalarFunctio
     auto result = make_uniq<OlsFitBindData>();
 
     // Parse MAP options if provided as 3rd argument
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[2]);
+    if (arguments.size() >= 3) {
+        auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[2], "ols_fit",
+            {"fit_intercept", "compute_inference", "confidence_level", "solver", "hc_type"});
         if (opts.fit_intercept.has_value()) {
             result->fit_intercept = opts.fit_intercept.value();
         }
@@ -118,7 +120,18 @@ static vector<double> ExtractDoubleList(Vector &vec, idx_t row_idx) {
 }
 
 // Main OLS fit function
+static void OlsFitFunctionImpl(DataChunk &args, ExpressionState &state, Vector &result);
+
+// Constant inputs must yield a CONSTANT_VECTOR (DuckDB constant folding
+// asserts this in debug builds).
 static void OlsFitFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+	OlsFitFunctionImpl(args, state, result);
+	if (args.AllConstant()) {
+		result.SetVectorType(VectorType::CONSTANT_VECTOR);
+	}
+}
+
+static void OlsFitFunctionImpl(DataChunk &args, ExpressionState &state, Vector &result) {
     auto &bind_data = state.expr.Cast<BoundFunctionExpression>().bind_info->Cast<OlsFitBindData>();
 
     auto &y_vec = args.data[0]; // LIST(DOUBLE)
@@ -175,7 +188,9 @@ static void OlsFitFunction(DataChunk &args, ExpressionState &state, Vector &resu
                                       bind_data.compute_inference ? &inference_result : nullptr, &error);
 
         if (!success) {
-            ThrowFromFfiError("ols_fit", error);
+            ThrowUnlessDegenerate("ols_fit", error);
+            FlatVector::SetNull(result, row, true);
+            continue;
         }
 
         // Build result struct

@@ -217,13 +217,12 @@ pub fn build(spec: &DesignSpec<'_>) -> StatsResult<Design> {
     }
     let n_valid = valid_rows.len();
 
-    // Constant-column detection over the retained rows only.
+    // Constant-column detection over the retained rows only. Without an
+    // intercept a constant non-zero column IS the intercept and is kept; only
+    // identically-zero columns are droppable then (see `validation`).
     let is_constant: Vec<bool> = feature_indices
         .iter()
-        .map(|&ci| {
-            let first = x[ci][valid_rows[0]];
-            valid_rows.iter().all(|&i| (x[ci][i] - first).abs() < 1e-10)
-        })
+        .map(|&ci| crate::validation::is_droppable_column(&x[ci], &valid_rows, fit_intercept))
         .collect();
 
     let retained_columns: Vec<usize> = match constant_policy {

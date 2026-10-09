@@ -1,5 +1,6 @@
 #include "map_options_parser.hpp"
 
+#include <cmath>
 #include <limits>
 #include <unordered_map>
 #include "duckdb/common/types/value.hpp"
@@ -39,6 +40,18 @@ static std::optional<bool> ExtractBool(const Value &val) {
 	case LogicalTypeId::DOUBLE:
 	case LogicalTypeId::DECIMAL:
 		return val.GetValue<double>() != 0.0;
+	case LogicalTypeId::VARCHAR: {
+		// A MAP literal coerces all values to one type, so booleans mixed with
+		// strings arrive as 'true' / 'false'.
+		string str = ToLower(StringValue::Get(val));
+		if (str == "true" || str == "t" || str == "1") {
+			return true;
+		}
+		if (str == "false" || str == "f" || str == "0") {
+			return false;
+		}
+		throw InvalidInputException("Cannot convert '%s' to boolean", StringValue::Get(val));
+	}
 	default:
 		throw InvalidInputException("Cannot convert value of type %s to boolean", val.type().ToString());
 	}
@@ -52,29 +65,79 @@ static std::optional<double> ExtractDouble(const Value &val) {
 	return val.GetValue<double>();
 }
 
-// Helper to extract uint32 from Value
-static std::optional<uint32_t> ExtractUInt32(const Value &val) {
-	if (val.IsNull()) {
-		return std::nullopt;
+// confidence_level must lie strictly inside (0, 1).
+static std::optional<double> ExtractConfidenceLevel(const Value &val, const string &function_name = string()) {
+	auto v = ExtractDouble(val);
+	if (v.has_value() && !(v.value() > 0.0 && v.value() < 1.0)) {
+		if (function_name.empty()) {
+			throw InvalidInputException("confidence_level must be in (0, 1), got %s", val.ToString());
+		}
+		throw InvalidInputException("%s: confidence_level must be in (0, 1), got %s", function_name, val.ToString());
 	}
-	auto v = val.GetValue<int64_t>();
-	if (v < 0) {
-		throw InvalidInputException("Expected non-negative integer, got %lld", v);
-	}
-	return static_cast<uint32_t>(v);
+	return v;
 }
 
-// Helper to extract uint64 from Value (used for seeds; accepts any non-negative
-// integer that fits in int64).
-static std::optional<uint64_t> ExtractUInt64(const Value &val) {
+// Extract a non-negative integer no larger than `max_value`. Negative,
+// fractional or overflowing values raise instead of being truncated.
+static std::optional<uint64_t> ExtractBoundedUInt(const Value &val, uint64_t max_value) {
 	if (val.IsNull()) {
 		return std::nullopt;
 	}
-	auto v = val.GetValue<int64_t>();
-	if (v < 0) {
-		throw InvalidInputException("Expected non-negative integer, got %lld", v);
+	uint64_t result;
+	switch (val.type().id()) {
+	case LogicalTypeId::UTINYINT:
+	case LogicalTypeId::USMALLINT:
+	case LogicalTypeId::UINTEGER:
+	case LogicalTypeId::UBIGINT:
+		result = val.GetValue<uint64_t>();
+		break;
+	case LogicalTypeId::HUGEINT:
+	case LogicalTypeId::UHUGEINT:
+	case LogicalTypeId::FLOAT:
+	case LogicalTypeId::DOUBLE:
+	case LogicalTypeId::DECIMAL: {
+		auto d = val.GetValue<double>();
+		if (d < 0) {
+			throw InvalidInputException("Expected a non-negative integer, got %s", val.ToString());
+		}
+		if (d != std::floor(d)) {
+			throw InvalidInputException("Expected an integer, got %s", val.ToString());
+		}
+		if (d > static_cast<double>(max_value)) {
+			throw InvalidInputException("Integer value %s is too large (maximum %llu)", val.ToString(),
+			                            (unsigned long long)max_value);
+		}
+		result = static_cast<uint64_t>(d);
+		break;
 	}
-	return static_cast<uint64_t>(v);
+	default: {
+		auto v = val.GetValue<int64_t>();
+		if (v < 0) {
+			throw InvalidInputException("Expected a non-negative integer, got %lld", (long long)v);
+		}
+		result = static_cast<uint64_t>(v);
+		break;
+	}
+	}
+	if (result > max_value) {
+		throw InvalidInputException("Integer value %s is too large (maximum %llu)", val.ToString(),
+		                            (unsigned long long)max_value);
+	}
+	return result;
+}
+
+// Helper to extract uint32 from Value
+static std::optional<uint32_t> ExtractUInt32(const Value &val) {
+	auto v = ExtractBoundedUInt(val, std::numeric_limits<uint32_t>::max());
+	if (!v.has_value()) {
+		return std::nullopt;
+	}
+	return static_cast<uint32_t>(v.value());
+}
+
+// Helper to extract uint64 from Value (used for seeds).
+static std::optional<uint64_t> ExtractUInt64(const Value &val) {
+	return ExtractBoundedUInt(val, std::numeric_limits<uint64_t>::max());
 }
 
 // Helper to extract NullPolicy from Value
@@ -316,9 +379,9 @@ static std::optional<TTestKind> ExtractTTestKind(const Value &val) {
 		return val.GetValue<int64_t>() != 0 ? TTestKind::STUDENT : TTestKind::WELCH;
 	case LogicalTypeId::VARCHAR: {
 		string str = ToLower(StringValue::Get(val));
-		if (str == "student" || str == "equal")
+		if (str == "student" || str == "equal" || str == "true")
 			return TTestKind::STUDENT;
-		if (str == "welch" || str == "unequal")
+		if (str == "welch" || str == "unequal" || str == "false")
 			return TTestKind::WELCH;
 		throw InvalidInputException("Invalid t-test kind: '%s'. Valid values are 'student', 'welch'", str);
 	}
@@ -606,9 +669,8 @@ vector<PriorSpecOpt> RegressionMapOptions::ResolvePriors(idx_t n_features, bool 
 
 		auto it = index_of.find(key);
 		if (it == index_of.end()) {
-			// Deliberately louder than the rest of the parser, which ignores
-			// unknown keys for forward compatibility. A silently dropped prior
-			// changes the estimate without any signal, so it is an error.
+			// A silently dropped prior changes the estimate without any signal,
+			// so an unresolvable name is an error.
 			if (!feature_names.has_value()) {
 				throw InvalidInputException("Prior given for '%s' but no feature_names option was supplied, so "
 				                            "names cannot be resolved to columns. Add "
@@ -634,25 +696,217 @@ vector<PriorSpecOpt> RegressionMapOptions::ResolvePriors(idx_t n_features, bool 
 	return resolved;
 }
 
-RegressionMapOptions RegressionMapOptions::ParseFromValue(const Value &map_value) {
-	RegressionMapOptions result;
+// ----------------------------------------------------------------------------
+// Option key tables
+// ----------------------------------------------------------------------------
+//
+// Each option has one canonical key plus fixed aliases. Functions declare the
+// canonical keys they read; anything else is rejected with an error naming the
+// function and listing what it supports.
 
-	VisitOptionEntries(map_value, [&](const string &key, const Value &val) {
-		if (key == "intercept" || key == "fit_intercept") {
+struct OptionKeyDef {
+	const char *canonical;
+	vector<const char *> aliases;
+};
+
+static const OptionKeyDef *FindOptionKey(const vector<OptionKeyDef> &table, const string &key) {
+	for (auto &def : table) {
+		if (key == def.canonical) {
+			return &def;
+		}
+		for (auto alias : def.aliases) {
+			if (key == alias) {
+				return &def;
+			}
+		}
+	}
+	return nullptr;
+}
+
+static string DescribeOptionKey(const string &canonical, const vector<string> &aliases) {
+	if (aliases.empty()) {
+		return canonical;
+	}
+	return canonical + " (alias: " + StringUtil::Join(aliases, ", ") + ")";
+}
+
+static string DescribeAllKeys(const vector<OptionKeyDef> &table) {
+	vector<string> parts;
+	for (auto &def : table) {
+		vector<string> aliases(def.aliases.begin(), def.aliases.end());
+		parts.push_back(DescribeOptionKey(def.canonical, aliases));
+	}
+	return StringUtil::Join(parts, ", ");
+}
+
+static const vector<OptionKeyDef> &RegressionKeyTable() {
+	static const vector<OptionKeyDef> table = {
+	    {"fit_intercept", {"intercept"}},
+	    {"compute_inference", {"inference"}},
+	    {"confidence_level", {"confidence"}},
+	    {"alpha", {}},
+	    {"lambda", {}},
+	    {"l1_ratio", {}},
+	    {"max_iterations", {"max_iter"}},
+	    {"tolerance", {"tol"}},
+	    {"epsilon", {}},
+	    {"residual_threshold", {}},
+	    {"max_trials", {}},
+	    {"stop_probability", {}},
+	    {"stop_n_inliers", {}},
+	    {"min_samples", {}},
+	    {"random_state", {"seed"}},
+	    {"max_subpopulation", {}},
+	    {"n_subsamples", {}},
+	    {"forgetting_factor", {}},
+	    {"initial_p_diagonal", {"p_diagonal"}},
+	    {"null_policy", {}},
+	    {"link", {}},
+	    {"poisson_link", {}},
+	    {"binomial_link", {}},
+	    {"power", {"tweedie_power"}},
+	    {"distribution", {"dist"}},
+	    {"loss", {}},
+	    {"quantile", {}},
+	    {"role_trim", {}},
+	    {"lower_bound", {"lower"}},
+	    {"upper_bound", {"upper"}},
+	    {"intermittent_threshold", {}},
+	    {"outlier_method", {}},
+	    {"n_components", {"components"}},
+	    {"tau", {}},
+	    {"increasing", {}},
+	    {"solver", {}},
+	    {"hc_type", {}},
+	    {"lambda_scaling", {}},
+	    {"glm_lambda", {}},
+	    {"threshold", {}},
+	    {"feature_names", {"features"}},
+	    {"prior", {"priors"}},
+	    {"family", {}},
+	    {"reml", {}},
+	    {"offset", {}},
+	    {"random", {"random_slopes"}},
+	    {"groups", {"crossed"}},
+	    {"vcov", {"vcov_type"}},
+	    {"tau_squared", {"tau2"}},
+	    {"tau_method", {"shrinkage"}},
+	    {"theta", {"nb_theta", "dispersion"}},
+	    {"method", {}},
+	    {"n_nonzero_coefs", {}},
+	    {"standardize", {}},
+	};
+	return table;
+}
+
+// Context-dependent aliases: a key whose meaning depends on which canonical
+// keys the function supports. The first supported target wins. A key that the
+// function supports under its own name is never redirected.
+struct ContextualAlias {
+	const char *source;
+	vector<const char *> targets;
+};
+
+static const vector<ContextualAlias> &RegressionContextualAliases() {
+	static const vector<ContextualAlias> aliases = {
+	    {"link", {"poisson_link", "binomial_link"}},
+	    // GLM penalty; for RLS the conventional symbol of the forgetting factor.
+	    {"lambda", {"glm_lambda", "forgetting_factor"}},
+	    {"alpha", {"glm_lambda"}},
+	    {"tau", {"quantile"}},
+	    {"quantile", {"tau"}},
+	};
+	return aliases;
+}
+
+static bool Contains(const vector<string> &keys, const string &key) {
+	for (auto &k : keys) {
+		if (k == key) {
+			return true;
+		}
+	}
+	return false;
+}
+
+// Resolve a contextual-alias source key to the canonical key the function
+// supports, or "" when it does not apply.
+static string ResolveContextualAlias(const string &source, const vector<string> &supported) {
+	for (auto &ca : RegressionContextualAliases()) {
+		if (source != ca.source) {
+			continue;
+		}
+		for (auto target : ca.targets) {
+			if (Contains(supported, target)) {
+				return target;
+			}
+		}
+	}
+	return string();
+}
+
+static string DescribeSupportedRegressionKeys(const vector<string> &supported) {
+	vector<string> parts;
+	for (auto &canonical : supported) {
+		auto def = FindOptionKey(RegressionKeyTable(), canonical);
+		vector<string> aliases;
+		if (def) {
+			aliases.assign(def->aliases.begin(), def->aliases.end());
+		}
+		for (auto &ca : RegressionContextualAliases()) {
+			if (!Contains(supported, ca.source) && ResolveContextualAlias(ca.source, supported) == canonical) {
+				aliases.push_back(ca.source);
+			}
+		}
+		parts.push_back(DescribeOptionKey(canonical, aliases));
+	}
+	if (parts.empty()) {
+		return "(none)";
+	}
+	return StringUtil::Join(parts, ", ");
+}
+
+RegressionMapOptions RegressionMapOptions::ParseFromValue(const Value &map_value, const string &function_name,
+                                                          const vector<string> &supported_keys) {
+#ifdef DEBUG
+	for (auto &k : supported_keys) {
+		D_ASSERT(FindOptionKey(RegressionKeyTable(), k) != nullptr);
+	}
+#endif
+	RegressionMapOptions result;
+	// (contextual source, raw value) pairs resolved after the main pass.
+	vector<std::pair<string, Value>> contextual;
+
+	VisitOptionEntries(map_value, [&](const string &user_key, const Value &val) {
+		auto def = FindOptionKey(RegressionKeyTable(), user_key);
+		if (!def) {
+			throw InvalidInputException("%s: unknown option '%s'. Supported options: %s", function_name, user_key,
+			                            DescribeSupportedRegressionKeys(supported_keys));
+		}
+		const string key = def->canonical;
+		if (!Contains(supported_keys, key)) {
+			if (!ResolveContextualAlias(key, supported_keys).empty()) {
+				contextual.emplace_back(key, val);
+				return;
+			}
+			throw InvalidInputException("%s: unsupported option '%s'. Supported options: %s", function_name,
+			                            user_key, DescribeSupportedRegressionKeys(supported_keys));
+		}
+
+		if (key == "fit_intercept") {
 			result.fit_intercept = ExtractBool(val);
-		} else if (key == "compute_inference" || key == "inference") {
+		} else if (key == "compute_inference") {
 			result.compute_inference = ExtractBool(val);
-		} else if (key == "confidence_level" || key == "confidence") {
-			result.confidence_level = ExtractDouble(val);
+		} else if (key == "confidence_level") {
+			result.confidence_level = ExtractConfidenceLevel(val, function_name);
 		} else if (key == "alpha") {
 			result.alpha = ExtractDouble(val);
 		} else if (key == "lambda") {
 			result.lambda = ExtractDouble(val);
 		} else if (key == "l1_ratio") {
 			result.l1_ratio = ExtractDouble(val);
-		} else if (key == "max_iterations" || key == "max_iter") {
+		} else if (key == "max_iterations") {
 			result.max_iterations = ExtractUInt32(val);
-		} else if (key == "tolerance" || key == "tol") {
+		} else if (key == "tolerance") {
 			result.tolerance = ExtractDouble(val);
 		} else if (key == "epsilon") {
 			result.epsilon = ExtractDouble(val);
@@ -666,7 +920,7 @@ RegressionMapOptions RegressionMapOptions::ParseFromValue(const Value &map_value
 			result.stop_n_inliers = ExtractUInt32(val);
 		} else if (key == "min_samples") {
 			result.min_samples = ExtractUInt32(val);
-		} else if (key == "random_state" || key == "seed") {
+		} else if (key == "random_state") {
 			result.random_state = ExtractUInt64(val);
 		} else if (key == "max_subpopulation") {
 			result.max_subpopulation = ExtractUInt32(val);
@@ -674,21 +928,21 @@ RegressionMapOptions RegressionMapOptions::ParseFromValue(const Value &map_value
 			result.n_subsamples = ExtractUInt32(val);
 		} else if (key == "forgetting_factor") {
 			result.forgetting_factor = ExtractDouble(val);
-		} else if (key == "initial_p_diagonal" || key == "p_diagonal") {
+		} else if (key == "initial_p_diagonal") {
 			result.initial_p_diagonal = ExtractDouble(val);
 		} else if (key == "null_policy") {
 			result.null_policy = ExtractNullPolicy(val);
-		}
-		// GLM options
-		else if (key == "link" || key == "poisson_link") {
+		} else if (key == "link") {
+			// Only reachable if a function lists 'link' itself; normally resolved
+			// contextually below.
+			result.link_value = val;
+		} else if (key == "poisson_link") {
 			result.poisson_link = ExtractPoissonLink(val);
 		} else if (key == "binomial_link") {
 			result.binomial_link = ExtractBinomialLink(val);
-		} else if (key == "power" || key == "tweedie_power") {
+		} else if (key == "power") {
 			result.tweedie_power = ExtractDouble(val);
-		}
-		// ALM options
-		else if (key == "distribution" || key == "dist") {
+		} else if (key == "distribution") {
 			// Shared key. ALM and AFT have overlapping distribution vocabularies --
 			// "lognormal" and "gamma" name a valid distribution in both -- so set
 			// whichever matches, possibly both, and let each function read the
@@ -712,59 +966,36 @@ RegressionMapOptions RegressionMapOptions::ParseFromValue(const Value &map_value
 			result.quantile = ExtractDouble(val);
 		} else if (key == "role_trim") {
 			result.role_trim = ExtractDouble(val);
-		}
-		// BLS options
-		else if (key == "lower_bound" || key == "lower") {
+		} else if (key == "lower_bound") {
 			result.lower_bound = ExtractDouble(val);
-		} else if (key == "upper_bound" || key == "upper") {
+		} else if (key == "upper_bound") {
 			result.upper_bound = ExtractDouble(val);
-		}
-		// AID options
-		else if (key == "intermittent_threshold") {
+		} else if (key == "intermittent_threshold") {
 			result.intermittent_threshold = ExtractDouble(val);
 		} else if (key == "outlier_method") {
 			result.outlier_method = ExtractAidOutlierMethod(val);
-		}
-		// PLS options
-		else if (key == "n_components" || key == "components") {
+		} else if (key == "n_components") {
 			auto v = ExtractUInt32(val);
 			if (v.has_value()) {
 				result.n_components = static_cast<size_t>(v.value());
 			}
-		}
-		// Quantile options
-		else if (key == "tau") {
+		} else if (key == "tau") {
 			result.tau = ExtractDouble(val);
-		}
-		// Isotonic options
-		else if (key == "increasing") {
+		} else if (key == "increasing") {
 			result.increasing = ExtractBool(val);
-		}
-		// Solver/inference options
-		else if (key == "solver") {
+		} else if (key == "solver") {
 			result.solver = ExtractSolverType(val);
 		} else if (key == "hc_type") {
 			result.hc_type = ExtractHcType(val);
-		}
-		// Lambda scaling
-		else if (key == "lambda_scaling") {
+		} else if (key == "lambda_scaling") {
 			result.lambda_scaling = ExtractLambdaScaling(val);
-		}
-		// GLM regularization
-		else if (key == "glm_lambda") {
+		} else if (key == "glm_lambda") {
 			result.glm_lambda = ExtractDouble(val);
-		}
-		// Classification (Logistic)
-		else if (key == "threshold") {
+		} else if (key == "threshold") {
 			result.threshold = ExtractDouble(val);
-		}
-		// Priors, feature names and covariance type. Unlike the keys above, an
-		// unrecognised *prior* key is an error rather than a silent no-op: a
-		// dropped prior changes the estimate, so failing loudly is the safer
-		// default. See ParsePriorMap.
-		else if (key == "feature_names" || key == "features") {
+		} else if (key == "feature_names") {
 			result.feature_names = ExtractStringList(val);
-		} else if (key == "prior" || key == "priors") {
+		} else if (key == "prior") {
 			result.prior_value = val;
 		} else if (key == "family") {
 			result.glmm_family = ParseGlmmFamily(val);
@@ -775,13 +1006,13 @@ RegressionMapOptions RegressionMapOptions::ParseFromValue(const Value &map_value
 			if (v.has_value()) {
 				result.offset_column = (idx_t)v.value();
 			}
-		} else if (key == "random" || key == "random_slopes") {
+		} else if (key == "random") {
 			result.random_slopes = ExtractIndexList(val);
-		} else if (key == "groups" || key == "crossed") {
+		} else if (key == "groups") {
 			result.group_columns = ExtractIndexList(val);
-		} else if (key == "tau_squared" || key == "tau2") {
+		} else if (key == "tau_squared") {
 			result.tau_squared = ExtractDouble(val);
-		} else if (key == "tau_method" || key == "shrinkage") {
+		} else if (key == "tau_method") {
 			const string m = ToLower(val.IsNull() ? string() : val.ToString());
 			if (m == "dl" || m == "dersimonian_laird" || m == "dersimonian-laird") {
 				result.tau_method = false;
@@ -790,315 +1021,502 @@ RegressionMapOptions RegressionMapOptions::ParseFromValue(const Value &map_value
 			} else {
 				throw InvalidInputException("Unknown tau_method '%s'. Expected 'dl' or 'none'.", m);
 			}
-		} else if (key == "theta" || key == "nb_theta" || key == "dispersion") {
+		} else if (key == "theta") {
 			result.nb_theta = ExtractDouble(val);
-		} else if (key == "vcov" || key == "vcov_type") {
+		} else if (key == "vcov") {
 			result.vcov = ExtractVcovType(val);
+		} else if (key == "method") {
+			if (!val.IsNull()) {
+				const string m = ToLower(val.ToString());
+				if (m == "lar" || m == "lars") {
+					result.lars_lasso = false;
+				} else if (m == "lasso" || m == "lasso_lars" || m == "lassolars") {
+					result.lars_lasso = true;
+				} else {
+					throw InvalidInputException("Invalid method: '%s'. Valid values are 'lar', 'lasso'", m);
+				}
+			}
+		} else if (key == "n_nonzero_coefs") {
+			if (!val.IsNull()) {
+				auto v = val.GetValue<int64_t>();
+				if (v < 0) {
+					throw InvalidInputException("n_nonzero_coefs must be >= 0 (0 = unlimited), got %lld",
+					                            (long long)v);
+				}
+				result.n_nonzero_coefs = v;
+			}
+		} else if (key == "standardize") {
+			result.standardize = ExtractBool(val);
 		} else {
-			throw InvalidInputException(
-			    "unknown option '%s'; valid keys: fit_intercept (alias: intercept), "
-			    "compute_inference (alias: inference), confidence_level (alias: confidence), "
-			    "alpha, lambda, l1_ratio, max_iterations (alias: max_iter), "
-			    "tolerance (alias: tol), epsilon, residual_threshold, max_trials, "
-			    "stop_probability, stop_n_inliers, min_samples, "
-			    "random_state (alias: seed), max_subpopulation, n_subsamples, "
-			    "forgetting_factor, initial_p_diagonal (alias: p_diagonal), "
-			    "null_policy, link (alias: poisson_link), binomial_link, "
-			    "power (alias: tweedie_power), distribution (alias: dist), "
-			    "loss, quantile, role_trim, lower_bound (alias: lower), "
-			    "upper_bound (alias: upper), intermittent_threshold, outlier_method, "
-			    "n_components (alias: components), tau, increasing, "
-			    "solver, hc_type, lambda_scaling, glm_lambda, threshold, "
-			    "feature_names (alias: features), prior (alias: priors), "
-			    "family, reml, offset, random (alias: random_slopes), "
-			    "groups (alias: crossed), vcov (alias: vcov_type), "
-			    "tau_squared (alias: tau2), tau_method (alias: shrinkage), "
-			    "theta (alias: nb_theta, dispersion)",
-			    key.c_str());
+			throw InternalException("RegressionMapOptions: unhandled option key '%s'", key);
 		}
 	});
+
+	// Context-dependent aliases. An explicitly given canonical key wins over its
+	// alias (e.g. 'glm_lambda' over 'lambda'/'alpha', 'poisson_link' over 'link').
+	// Within the GLM penalty aliases 'lambda' wins over 'alpha'.
+	std::optional<double> glm_from_lambda;
+	std::optional<double> glm_from_alpha;
+	for (auto &entry : contextual) {
+		const string &source = entry.first;
+		const Value &val = entry.second;
+		const string target = ResolveContextualAlias(source, supported_keys);
+		if (target == "poisson_link") {
+			if (!result.poisson_link.has_value()) {
+				result.poisson_link = ExtractPoissonLink(val);
+			}
+		} else if (target == "binomial_link") {
+			if (!result.binomial_link.has_value()) {
+				result.binomial_link = ExtractBinomialLink(val);
+			}
+		} else if (target == "glm_lambda") {
+			(source == "lambda" ? glm_from_lambda : glm_from_alpha) = ExtractDouble(val);
+		} else if (target == "forgetting_factor") {
+			if (!result.forgetting_factor.has_value()) {
+				result.forgetting_factor = ExtractDouble(val);
+			}
+		} else if (target == "quantile") {
+			if (!result.quantile.has_value()) {
+				result.quantile = ExtractDouble(val);
+			}
+		} else if (target == "tau") {
+			if (!result.tau.has_value()) {
+				result.tau = ExtractDouble(val);
+			}
+		}
+	}
+	if (!result.glm_lambda.has_value()) {
+		result.glm_lambda = glm_from_lambda.has_value() ? glm_from_lambda : glm_from_alpha;
+	}
 
 	return result;
 }
 
-RegressionMapOptions RegressionMapOptions::ParseFromExpression(ClientContext &context, Expression &expr) {
+RegressionMapOptions RegressionMapOptions::ParseFromExpression(ClientContext &context, Expression &expr,
+                                                               const string &function_name,
+                                                               const vector<string> &supported_keys) {
+	Value val = EvaluateConstantOptions(context, expr, function_name);
+	return ParseFromValue(val, function_name, supported_keys);
+}
+
+Value EvaluateConstantOptions(ClientContext &context, Expression &expr, const string &function_name) {
 	if (!expr.IsFoldable()) {
-		throw InvalidInputException("Options parameter must be a constant expression");
+		throw InvalidInputException("%s: options must be a constant expression (a MAP or STRUCT literal), not a "
+		                            "value that varies per row",
+		                            function_name);
 	}
-	Value val = ExpressionExecutor::EvaluateScalar(context, expr);
-	return ParseFromValue(val);
+	return ExpressionExecutor::EvaluateScalar(context, expr);
+}
+
+double ResolveTostAlpha(const string &function_name, const std::optional<double> &alpha,
+                        const std::optional<double> &confidence_level, double default_alpha) {
+	if (alpha.has_value() && !(alpha.value() > 0.0 && alpha.value() < 0.5)) {
+		throw InvalidInputException("%s: alpha must be strictly between 0 and 0.5, got %g", function_name,
+		                            alpha.value());
+	}
+	if (alpha.has_value() && confidence_level.has_value()) {
+		if (std::fabs(alpha.value() - (1.0 - confidence_level.value())) > 1e-12) {
+			throw InvalidInputException("%s: alpha (%g) and confidence_level (%g) are inconsistent; for TOST "
+			                            "alpha = 1 - confidence_level. Supply only one of them.",
+			                            function_name, alpha.value(), confidence_level.value());
+		}
+	}
+	if (alpha.has_value()) {
+		return alpha.value();
+	}
+	if (confidence_level.has_value()) {
+		return 1.0 - confidence_level.value();
+	}
+	return default_alpha;
 }
 
 // ============================================================================
 // Statistical Test Option Parsers
 // ============================================================================
 
-// Generic helper template for extracting options from MAP/STRUCT
+// Shared driver: walks MAP or STRUCT entries, maps aliases to the canonical key
+// and rejects keys outside `keys`.
 template <typename T, typename Callback>
-static T ParseTestOptions(const Value &map_value, Callback callback) {
+static T ParseTestOptions(const Value &map_value, const string &function_name, const vector<OptionKeyDef> &keys,
+                          Callback callback) {
 	T result;
-
-	if (map_value.IsNull()) {
-		return result;
-	}
-
-	if (map_value.type().id() == LogicalTypeId::MAP) {
-		auto &children = StructValue::GetChildren(map_value);
-		if (children.size() != 2) {
-			throw InvalidInputException("Invalid MAP structure");
+	VisitOptionEntries(map_value, [&](const string &user_key, const Value &val) {
+		auto def = FindOptionKey(keys, user_key);
+		if (!def) {
+			throw InvalidInputException("%s: unknown option '%s'. Supported options: %s", function_name, user_key,
+			                            DescribeAllKeys(keys));
 		}
-
-		auto &keys = ListValue::GetChildren(children[0]);
-		auto &values = ListValue::GetChildren(children[1]);
-
-		if (keys.size() != values.size()) {
-			throw InvalidInputException("MAP keys and values have different lengths");
+		const string canonical(def->canonical);
+		if (canonical == "confidence_level") {
+			ExtractConfidenceLevel(val, function_name); // validate with the function name in the message
 		}
-
-		for (idx_t i = 0; i < keys.size(); i++) {
-			string key = ToLower(StringValue::Get(keys[i]));
-			const Value &val = values[i];
-			callback(result, key, val);
-		}
-	} else if (map_value.type().id() == LogicalTypeId::STRUCT) {
-		auto &struct_type = map_value.type();
-		auto &children = StructValue::GetChildren(map_value);
-		auto &child_types = StructType::GetChildTypes(struct_type);
-
-		for (idx_t i = 0; i < child_types.size(); i++) {
-			string key = ToLower(child_types[i].first);
-			const Value &val = children[i];
-			callback(result, key, val);
-		}
-	} else {
-		throw InvalidInputException("Expected MAP or STRUCT type for options, got %s", map_value.type().ToString());
-	}
-
+		callback(result, canonical, val);
+	});
 	return result;
 }
 
-TTestMapOptions TTestMapOptions::ParseFromValue(const Value &map_value) {
-	return ParseTestOptions<TTestMapOptions>(map_value,
+static const OptionKeyDef KEY_ALTERNATIVE = {"alternative", {}};
+static const OptionKeyDef KEY_CONFIDENCE = {"confidence_level", {"confidence"}};
+static const OptionKeyDef KEY_SEED = {"seed", {"random_state"}};
+static const OptionKeyDef KEY_PERMUTATIONS = {"n_permutations", {"permutations"}};
+
+// Strict enum helper for small string-valued options.
+static string ExtractChoice(const Value &val, const string &option, const vector<string> &choices) {
+	string str = ToLower(val.ToString());
+	for (auto &c : choices) {
+		if (str == c) {
+			return str;
+		}
+	}
+	throw InvalidInputException("Invalid %s: '%s'. Valid values are '%s'", option, val.ToString(),
+	                            StringUtil::Join(choices, "', '"));
+}
+
+TTestMapOptions TTestMapOptions::ParseFromValue(const Value &map_value, const string &function_name) {
+	static const vector<OptionKeyDef> keys = {
+	    KEY_ALTERNATIVE, KEY_CONFIDENCE, {"kind", {"var_equal"}}, {"paired", {}}, {"mu", {}}};
+	return ParseTestOptions<TTestMapOptions>(map_value, function_name, keys,
 	                                         [](TTestMapOptions &result, const string &key, const Value &val) {
 		                                         if (key == "alternative") {
 			                                         result.alternative = ExtractAlternative(val);
-		                                         } else if (key == "confidence_level" || key == "confidence") {
-			                                         result.confidence_level = ExtractDouble(val);
-		                                         } else if (key == "kind" || key == "var_equal") {
+		                                         } else if (key == "confidence_level") {
+			                                         result.confidence_level = ExtractConfidenceLevel(val);
+		                                         } else if (key == "kind") {
 			                                         result.kind = ExtractTTestKind(val);
 		                                         } else if (key == "paired") {
 			                                         result.paired = ExtractBool(val);
 		                                         } else if (key == "mu") {
 			                                         result.mu = ExtractDouble(val);
-		                                         } else {
-			                                         throw InvalidInputException(
-			                                             "unknown option '%s'; valid keys: "
-			                                             "alternative, confidence_level (alias: confidence), "
-			                                             "kind (alias: var_equal), paired, mu",
-			                                             key.c_str());
 		                                         }
 	                                         });
 }
 
-MannWhitneyMapOptions MannWhitneyMapOptions::ParseFromValue(const Value &map_value) {
+MannWhitneyMapOptions MannWhitneyMapOptions::ParseFromValue(const Value &map_value, const string &function_name) {
+	static const vector<OptionKeyDef> keys = {
+	    KEY_ALTERNATIVE, KEY_CONFIDENCE, {"continuity_correction", {"correction"}}, {"exact", {}}, {"mu", {}}};
 	return ParseTestOptions<MannWhitneyMapOptions>(
-	    map_value, [](MannWhitneyMapOptions &result, const string &key, const Value &val) {
+	    map_value, function_name, keys, [](MannWhitneyMapOptions &result, const string &key, const Value &val) {
 		    if (key == "alternative") {
 			    result.alternative = ExtractAlternative(val);
-		    } else if (key == "confidence_level" || key == "confidence") {
-			    result.confidence_level = ExtractDouble(val);
-		    } else if (key == "continuity_correction" || key == "correction") {
+		    } else if (key == "confidence_level") {
+			    result.confidence_level = ExtractConfidenceLevel(val);
+		    } else if (key == "continuity_correction") {
 			    result.continuity_correction = ExtractBool(val);
-		    } else {
-			    throw InvalidInputException(
-			        "unknown option '%s'; valid keys: "
-			        "alternative, confidence_level (alias: confidence), "
-			        "continuity_correction (alias: correction)",
-			        key.c_str());
+		    } else if (key == "exact") {
+			    result.exact = ExtractBool(val);
+		    } else if (key == "mu") {
+			    result.mu = ExtractDouble(val);
 		    }
 	    });
 }
 
-WilcoxonMapOptions WilcoxonMapOptions::ParseFromValue(const Value &map_value) {
-	return ParseTestOptions<WilcoxonMapOptions>(map_value,
-	                                            [](WilcoxonMapOptions &result, const string &key, const Value &val) {
-		                                            if (key == "alternative") {
-			                                            result.alternative = ExtractAlternative(val);
-		                                            } else if (key == "confidence_level" || key == "confidence") {
-			                                            result.confidence_level = ExtractDouble(val);
-		                                            } else if (key == "continuity_correction" || key == "correction") {
-			                                            result.continuity_correction = ExtractBool(val);
-		                                            } else {
-			                                            throw InvalidInputException(
-			                                                "unknown option '%s'; valid keys: "
-			                                                "alternative, confidence_level (alias: confidence), "
-			                                                "continuity_correction (alias: correction)",
-			                                                key.c_str());
-		                                            }
-	                                            });
-}
-
-BrunnerMunzelMapOptions BrunnerMunzelMapOptions::ParseFromValue(const Value &map_value) {
-	return ParseTestOptions<BrunnerMunzelMapOptions>(
-	    map_value, [](BrunnerMunzelMapOptions &result, const string &key, const Value &val) {
+WilcoxonMapOptions WilcoxonMapOptions::ParseFromValue(const Value &map_value, const string &function_name) {
+	static const vector<OptionKeyDef> keys = {KEY_ALTERNATIVE, KEY_CONFIDENCE,
+	                                          {"continuity_correction", {"correction"}}};
+	return ParseTestOptions<WilcoxonMapOptions>(
+	    map_value, function_name, keys, [](WilcoxonMapOptions &result, const string &key, const Value &val) {
 		    if (key == "alternative") {
 			    result.alternative = ExtractAlternative(val);
-		    } else if (key == "confidence_level" || key == "confidence") {
-			    result.confidence_level = ExtractDouble(val);
-		    } else {
-			    throw InvalidInputException(
-			        "unknown option '%s'; valid keys: "
-			        "alternative, confidence_level (alias: confidence)",
-			        key.c_str());
+		    } else if (key == "confidence_level") {
+			    result.confidence_level = ExtractConfidenceLevel(val);
+		    } else if (key == "continuity_correction") {
+			    result.continuity_correction = ExtractBool(val);
 		    }
 	    });
 }
 
-CorrelationMapOptions CorrelationMapOptions::ParseFromValue(const Value &map_value) {
+BrunnerMunzelMapOptions BrunnerMunzelMapOptions::ParseFromValue(const Value &map_value, const string &function_name) {
+	static const vector<OptionKeyDef> keys = {KEY_ALTERNATIVE, KEY_CONFIDENCE};
+	return ParseTestOptions<BrunnerMunzelMapOptions>(
+	    map_value, function_name, keys, [](BrunnerMunzelMapOptions &result, const string &key, const Value &val) {
+		    if (key == "alternative") {
+			    result.alternative = ExtractAlternative(val);
+		    } else if (key == "confidence_level") {
+			    result.confidence_level = ExtractConfidenceLevel(val);
+		    }
+	    });
+}
+
+CorrelationMapOptions CorrelationMapOptions::ParseFromValue(const Value &map_value, const string &function_name) {
+	static const vector<OptionKeyDef> keys = {KEY_CONFIDENCE};
 	return ParseTestOptions<CorrelationMapOptions>(
-	    map_value, [](CorrelationMapOptions &result, const string &key, const Value &val) {
-		    if (key == "confidence_level" || key == "confidence") {
-			    result.confidence_level = ExtractDouble(val);
-		    } else {
-			    throw InvalidInputException(
-			        "unknown option '%s'; valid keys: confidence_level (alias: confidence)",
-			        key.c_str());
+	    map_value, function_name, keys, [](CorrelationMapOptions &result, const string &key, const Value &val) {
+		    if (key == "confidence_level") {
+			    result.confidence_level = ExtractConfidenceLevel(val);
 		    }
 	    });
 }
 
-KendallMapOptions KendallMapOptions::ParseFromValue(const Value &map_value) {
-	return ParseTestOptions<KendallMapOptions>(map_value,
+KendallMapOptions KendallMapOptions::ParseFromValue(const Value &map_value, const string &function_name) {
+	static const vector<OptionKeyDef> keys = {KEY_CONFIDENCE, {"variant", {"tau_type", "type"}}};
+	return ParseTestOptions<KendallMapOptions>(map_value, function_name, keys,
 	                                           [](KendallMapOptions &result, const string &key, const Value &val) {
-		                                           if (key == "confidence_level" || key == "confidence") {
-			                                           result.confidence_level = ExtractDouble(val);
-		                                           } else if (key == "variant" || key == "tau_type" || key == "type") {
+		                                           if (key == "confidence_level") {
+			                                           result.confidence_level = ExtractConfidenceLevel(val);
+		                                           } else if (key == "variant") {
 			                                           result.variant = ExtractKendallType(val);
-		                                           } else {
-			                                           throw InvalidInputException(
-			                                               "unknown option '%s'; valid keys: "
-			                                               "confidence_level (alias: confidence), "
-			                                               "variant (alias: tau_type, type)",
-			                                               key.c_str());
 		                                           }
 	                                           });
 }
 
-ChiSquareMapOptions ChiSquareMapOptions::ParseFromValue(const Value &map_value) {
+ChiSquareMapOptions ChiSquareMapOptions::ParseFromValue(const Value &map_value, const string &function_name) {
+	static const vector<OptionKeyDef> keys = {{"continuity_correction", {"correction", "yates"}}};
 	return ParseTestOptions<ChiSquareMapOptions>(
-	    map_value, [](ChiSquareMapOptions &result, const string &key, const Value &val) {
-		    if (key == "continuity_correction" || key == "correction" || key == "yates") {
+	    map_value, function_name, keys, [](ChiSquareMapOptions &result, const string &key, const Value &val) {
+		    if (key == "continuity_correction") {
 			    result.continuity_correction = ExtractBool(val);
-		    } else {
-			    throw InvalidInputException(
-			        "unknown option '%s'; valid keys: "
-			        "continuity_correction (alias: correction, yates)",
-			        key.c_str());
 		    }
 	    });
 }
 
-FisherExactMapOptions FisherExactMapOptions::ParseFromValue(const Value &map_value) {
+FisherExactMapOptions FisherExactMapOptions::ParseFromValue(const Value &map_value, const string &function_name) {
+	static const vector<OptionKeyDef> keys = {KEY_ALTERNATIVE, KEY_CONFIDENCE};
 	return ParseTestOptions<FisherExactMapOptions>(
-	    map_value, [](FisherExactMapOptions &result, const string &key, const Value &val) {
+	    map_value, function_name, keys, [](FisherExactMapOptions &result, const string &key, const Value &val) {
 		    if (key == "alternative") {
 			    result.alternative = ExtractAlternative(val);
-		    } else {
-			    throw InvalidInputException(
-			        "unknown option '%s'; valid keys: alternative",
-			        key.c_str());
+		    } else if (key == "confidence_level") {
+			    result.confidence_level = ExtractConfidenceLevel(val);
 		    }
 	    });
 }
 
-EnergyDistanceMapOptions EnergyDistanceMapOptions::ParseFromValue(const Value &map_value) {
+EnergyDistanceMapOptions EnergyDistanceMapOptions::ParseFromValue(const Value &map_value,
+                                                                  const string &function_name) {
+	static const vector<OptionKeyDef> keys = {KEY_PERMUTATIONS, KEY_SEED};
 	return ParseTestOptions<EnergyDistanceMapOptions>(
-	    map_value, [](EnergyDistanceMapOptions &result, const string &key, const Value &val) {
-		    if (key == "n_permutations" || key == "permutations") {
+	    map_value, function_name, keys, [](EnergyDistanceMapOptions &result, const string &key, const Value &val) {
+		    if (key == "n_permutations") {
 			    result.n_permutations = ExtractUInt32(val);
-		    } else {
-			    throw InvalidInputException(
-			        "unknown option '%s'; valid keys: n_permutations (alias: permutations)",
-			        key.c_str());
+		    } else if (key == "seed") {
+			    result.seed = ExtractUInt64(val);
 		    }
 	    });
 }
 
-MmdMapOptions MmdMapOptions::ParseFromValue(const Value &map_value) {
-	return ParseTestOptions<MmdMapOptions>(map_value, [](MmdMapOptions &result, const string &key, const Value &val) {
-		if (key == "bandwidth" || key == "sigma") {
-			result.bandwidth = ExtractDouble(val);
-		} else if (key == "n_permutations" || key == "permutations") {
-			result.n_permutations = ExtractUInt32(val);
-		} else {
-			throw InvalidInputException(
-			    "unknown option '%s'; valid keys: "
-			    "bandwidth (alias: sigma), n_permutations (alias: permutations)",
-			    key.c_str());
-		}
-	});
+MmdMapOptions MmdMapOptions::ParseFromValue(const Value &map_value, const string &function_name) {
+	// 'bandwidth'/'sigma' used to be accepted and silently ignored: the core
+	// always uses the median heuristic. They are now rejected.
+	static const vector<OptionKeyDef> keys = {KEY_PERMUTATIONS, KEY_SEED};
+	return ParseTestOptions<MmdMapOptions>(map_value, function_name, keys,
+	                                       [](MmdMapOptions &result, const string &key, const Value &val) {
+		                                       if (key == "n_permutations") {
+			                                       result.n_permutations = ExtractUInt32(val);
+		                                       } else if (key == "seed") {
+			                                       result.seed = ExtractUInt64(val);
+		                                       }
+	                                       });
 }
 
-TostMapOptions TostMapOptions::ParseFromValue(const Value &map_value) {
-	return ParseTestOptions<TostMapOptions>(map_value, [](TostMapOptions &result, const string &key, const Value &val) {
-		if (key == "alternative") {
-			result.alternative = ExtractAlternative(val);
-		} else if (key == "confidence_level" || key == "confidence") {
-			result.confidence_level = ExtractDouble(val);
-		} else if (key == "kind" || key == "var_equal") {
-			result.kind = ExtractTTestKind(val);
-		} else if (key == "paired") {
-			result.paired = ExtractBool(val);
-		} else if (key == "mu") {
-			result.mu = ExtractDouble(val);
-		} else if (key == "delta" || key == "equivalence_bound") {
-			result.delta = ExtractDouble(val);
-		} else if (key == "bound_lower" || key == "lower" || key == "low") {
-			result.bound_lower = ExtractDouble(val);
-		} else if (key == "bound_upper" || key == "upper" || key == "high") {
-			result.bound_upper = ExtractDouble(val);
-		} else {
-			throw InvalidInputException(
-			    "unknown option '%s'; valid keys: "
-			    "alternative, confidence_level (alias: confidence), "
-			    "kind (alias: var_equal), paired, mu, "
-			    "delta (alias: equivalence_bound), "
-			    "bound_lower (alias: lower, low), bound_upper (alias: upper, high)",
-			    key.c_str());
-		}
-	});
+// TOST keys shared by the three TOST aggregates.
+static const OptionKeyDef KEY_TOST_ALPHA = {"alpha", {}};
+static const OptionKeyDef KEY_TOST_DELTA = {"delta", {"equivalence_bound"}};
+static const OptionKeyDef KEY_TOST_LOWER = {"bound_lower", {"lower", "low"}};
+static const OptionKeyDef KEY_TOST_UPPER = {"bound_upper", {"upper", "high"}};
+
+static std::optional<double> ExtractTostAlpha(const Value &val) {
+	auto v = ExtractDouble(val);
+	if (v.has_value() && !(v.value() > 0.0 && v.value() < 0.5)) {
+		throw InvalidInputException("alpha must be strictly between 0 and 0.5, got %s", val.ToString());
+	}
+	return v;
 }
 
-YuenMapOptions YuenMapOptions::ParseFromValue(const Value &map_value) {
-	return ParseTestOptions<YuenMapOptions>(map_value, [](YuenMapOptions &result, const string &key, const Value &val) {
-		if (key == "alternative") {
-			result.alternative = ExtractAlternative(val);
-		} else if (key == "confidence_level" || key == "confidence") {
-			result.confidence_level = ExtractDouble(val);
-		} else if (key == "trim" || key == "trim_proportion") {
-			result.trim = ExtractDouble(val);
-		} else {
-			throw InvalidInputException(
-			    "unknown option '%s'; valid keys: "
-			    "alternative, confidence_level (alias: confidence), "
-			    "trim (alias: trim_proportion)",
-			    key.c_str());
-		}
-	});
+TostMapOptions TostMapOptions::ParseFromValue(const Value &map_value, const string &function_name) {
+	// 'alternative', 'paired' and 'mu' were accepted and ignored before; TOST is
+	// two one-sided tests by construction and this aggregate is two-sample.
+	static const vector<OptionKeyDef> keys = {KEY_CONFIDENCE, KEY_TOST_ALPHA,      {"kind", {"var_equal"}},
+	                                          KEY_TOST_DELTA, KEY_TOST_LOWER, KEY_TOST_UPPER};
+	return ParseTestOptions<TostMapOptions>(map_value, function_name, keys,
+	                                        [](TostMapOptions &result, const string &key, const Value &val) {
+		                                        if (key == "confidence_level") {
+			                                        result.confidence_level = ExtractConfidenceLevel(val);
+		                                        } else if (key == "alpha") {
+			                                        result.alpha = ExtractTostAlpha(val);
+		                                        } else if (key == "kind") {
+			                                        result.kind = ExtractTTestKind(val);
+		                                        } else if (key == "delta") {
+			                                        result.delta = ExtractDouble(val);
+		                                        } else if (key == "bound_lower") {
+			                                        result.bound_lower = ExtractDouble(val);
+		                                        } else if (key == "bound_upper") {
+			                                        result.bound_upper = ExtractDouble(val);
+		                                        }
+	                                        });
 }
 
-PermutationMapOptions PermutationMapOptions::ParseFromValue(const Value &map_value) {
+TostPairedMapOptions TostPairedMapOptions::ParseFromValue(const Value &map_value, const string &function_name) {
+	static const vector<OptionKeyDef> keys = {KEY_CONFIDENCE, KEY_TOST_ALPHA, KEY_TOST_DELTA, KEY_TOST_LOWER,
+	                                          KEY_TOST_UPPER};
+	return ParseTestOptions<TostPairedMapOptions>(
+	    map_value, function_name, keys, [](TostPairedMapOptions &result, const string &key, const Value &val) {
+		    if (key == "confidence_level") {
+			    result.confidence_level = ExtractConfidenceLevel(val);
+		    } else if (key == "alpha") {
+			    result.alpha = ExtractTostAlpha(val);
+		    } else if (key == "delta") {
+			    result.delta = ExtractDouble(val);
+		    } else if (key == "bound_lower") {
+			    result.bound_lower = ExtractDouble(val);
+		    } else if (key == "bound_upper") {
+			    result.bound_upper = ExtractDouble(val);
+		    }
+	    });
+}
+
+TostCorrelationMapOptions TostCorrelationMapOptions::ParseFromValue(const Value &map_value,
+                                                                    const string &function_name) {
+	static const vector<OptionKeyDef> keys = {KEY_CONFIDENCE, KEY_TOST_ALPHA,      KEY_TOST_DELTA,
+	                                          KEY_TOST_LOWER, KEY_TOST_UPPER,      {"rho_null", {"rho"}},
+	                                          {"method", {}}};
+	return ParseTestOptions<TostCorrelationMapOptions>(
+	    map_value, function_name, keys, [](TostCorrelationMapOptions &result, const string &key, const Value &val) {
+		    if (key == "confidence_level") {
+			    result.confidence_level = ExtractConfidenceLevel(val);
+		    } else if (key == "alpha") {
+			    result.alpha = ExtractTostAlpha(val);
+		    } else if (key == "delta") {
+			    result.delta = ExtractDouble(val);
+		    } else if (key == "bound_lower") {
+			    result.bound_lower = ExtractDouble(val);
+		    } else if (key == "bound_upper") {
+			    result.bound_upper = ExtractDouble(val);
+		    } else if (key == "rho_null") {
+			    result.rho_null = ExtractDouble(val);
+		    } else if (key == "method" && !val.IsNull()) {
+			    result.spearman = ExtractChoice(val, "method", {"pearson", "spearman"}) == "spearman";
+		    }
+	    });
+}
+
+YuenMapOptions YuenMapOptions::ParseFromValue(const Value &map_value, const string &function_name) {
+	static const vector<OptionKeyDef> keys = {KEY_ALTERNATIVE, KEY_CONFIDENCE, {"trim", {"trim_proportion"}}};
+	return ParseTestOptions<YuenMapOptions>(map_value, function_name, keys,
+	                                        [](YuenMapOptions &result, const string &key, const Value &val) {
+		                                        if (key == "alternative") {
+			                                        result.alternative = ExtractAlternative(val);
+		                                        } else if (key == "confidence_level") {
+			                                        result.confidence_level = ExtractConfidenceLevel(val);
+		                                        } else if (key == "trim") {
+			                                        result.trim = ExtractDouble(val);
+		                                        }
+	                                        });
+}
+
+PermutationMapOptions PermutationMapOptions::ParseFromValue(const Value &map_value, const string &function_name) {
+	static const vector<OptionKeyDef> keys = {KEY_ALTERNATIVE, KEY_PERMUTATIONS, KEY_SEED};
 	return ParseTestOptions<PermutationMapOptions>(
-	    map_value, [](PermutationMapOptions &result, const string &key, const Value &val) {
+	    map_value, function_name, keys, [](PermutationMapOptions &result, const string &key, const Value &val) {
 		    if (key == "alternative") {
 			    result.alternative = ExtractAlternative(val);
-		    } else if (key == "n_permutations" || key == "permutations") {
+		    } else if (key == "n_permutations") {
 			    result.n_permutations = ExtractUInt32(val);
-		    } else {
-			    throw InvalidInputException(
-			        "unknown option '%s'; valid keys: "
-			        "alternative, n_permutations (alias: permutations)",
-			        key.c_str());
+		    } else if (key == "seed") {
+			    result.seed = ExtractUInt64(val);
+		    }
+	    });
+}
+
+DistanceCorMapOptions DistanceCorMapOptions::ParseFromValue(const Value &map_value, const string &function_name) {
+	static const vector<OptionKeyDef> keys = {KEY_PERMUTATIONS, KEY_SEED};
+	return ParseTestOptions<DistanceCorMapOptions>(
+	    map_value, function_name, keys, [](DistanceCorMapOptions &result, const string &key, const Value &val) {
+		    if (key == "n_permutations") {
+			    result.n_permutations = ExtractUInt32(val);
+		    } else if (key == "seed") {
+			    result.seed = ExtractUInt64(val);
+		    }
+	    });
+}
+
+DieboldMarianoMapOptions DieboldMarianoMapOptions::ParseFromValue(const Value &map_value,
+                                                                  const string &function_name) {
+	static const vector<OptionKeyDef> keys = {
+	    {"loss", {}}, {"var_estimator", {}}, {"horizon", {"h"}}, KEY_ALTERNATIVE};
+	return ParseTestOptions<DieboldMarianoMapOptions>(
+	    map_value, function_name, keys, [](DieboldMarianoMapOptions &result, const string &key, const Value &val) {
+		    if (val.IsNull()) {
+			    return;
+		    }
+		    if (key == "loss") {
+			    result.absolute_loss = ExtractChoice(val, "loss", {"squared", "absolute"}) == "absolute";
+		    } else if (key == "var_estimator") {
+			    result.bartlett = ExtractChoice(val, "var_estimator", {"acf", "bartlett"}) == "bartlett";
+		    } else if (key == "horizon") {
+			    result.horizon = ExtractUInt32(val);
+		    } else if (key == "alternative") {
+			    result.alternative = ExtractAlternative(val);
+		    }
+	    });
+}
+
+ClarkWestMapOptions ClarkWestMapOptions::ParseFromValue(const Value &map_value, const string &function_name) {
+	static const vector<OptionKeyDef> keys = {{"horizon", {"h"}}};
+	return ParseTestOptions<ClarkWestMapOptions>(
+	    map_value, function_name, keys, [](ClarkWestMapOptions &result, const string &key, const Value &val) {
+		    if (key == "horizon") {
+			    result.horizon = ExtractUInt32(val);
+		    }
+	    });
+}
+
+ProportionMapOptions ProportionMapOptions::ParseFromValue(const Value &map_value, const string &function_name) {
+	static const vector<OptionKeyDef> keys = {{"p0", {"p"}}, KEY_ALTERNATIVE, KEY_CONFIDENCE};
+	return ParseTestOptions<ProportionMapOptions>(
+	    map_value, function_name, keys, [](ProportionMapOptions &result, const string &key, const Value &val) {
+		    if (key == "p0") {
+			    result.p0 = ExtractDouble(val);
+		    } else if (key == "alternative") {
+			    result.alternative = ExtractAlternative(val);
+		    } else if (key == "confidence_level") {
+			    result.confidence_level = ExtractConfidenceLevel(val);
+		    }
+	    });
+}
+
+PropTestTwoMapOptions PropTestTwoMapOptions::ParseFromValue(const Value &map_value, const string &function_name) {
+	static const vector<OptionKeyDef> keys = {KEY_ALTERNATIVE, {"correction", {"continuity_correction"}}, KEY_CONFIDENCE};
+	return ParseTestOptions<PropTestTwoMapOptions>(
+	    map_value, function_name, keys, [](PropTestTwoMapOptions &result, const string &key, const Value &val) {
+		    if (key == "alternative") {
+			    result.alternative = ExtractAlternative(val);
+		    } else if (key == "correction") {
+			    result.correction = ExtractBool(val);
+		    } else if (key == "confidence_level") {
+			    result.confidence_level = ExtractConfidenceLevel(val);
+		    }
+	    });
+}
+
+IccMapOptions IccMapOptions::ParseFromValue(const Value &map_value, const string &function_name) {
+	static const vector<OptionKeyDef> keys = {{"type", {}}};
+	return ParseTestOptions<IccMapOptions>(map_value, function_name, keys,
+	                                       [](IccMapOptions &result, const string &key, const Value &val) {
+		                                       if (key == "type" && !val.IsNull()) {
+			                                       result.average =
+			                                           ExtractChoice(val, "type", {"single", "average"}) == "average";
+		                                       }
+	                                       });
+}
+
+McNemarMapOptions McNemarMapOptions::ParseFromValue(const Value &map_value, const string &function_name) {
+	static const vector<OptionKeyDef> keys = {{"correction", {"continuity_correction"}}, {"exact", {}}};
+	return ParseTestOptions<McNemarMapOptions>(map_value, function_name, keys,
+	                                           [](McNemarMapOptions &result, const string &key, const Value &val) {
+		                                           if (key == "correction") {
+			                                           result.correction = ExtractBool(val);
+		                                           } else if (key == "exact") {
+			                                           result.exact = ExtractBool(val);
+		                                           }
+	                                           });
+}
+
+CohenKappaMapOptions CohenKappaMapOptions::ParseFromValue(const Value &map_value, const string &function_name) {
+	static const vector<OptionKeyDef> keys = {{"weighted", {}}};
+	return ParseTestOptions<CohenKappaMapOptions>(
+	    map_value, function_name, keys, [](CohenKappaMapOptions &result, const string &key, const Value &val) {
+		    if (key == "weighted") {
+			    result.weighted = ExtractBool(val);
 		    }
 	    });
 }

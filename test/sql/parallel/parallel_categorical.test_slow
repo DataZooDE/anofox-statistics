@@ -1,0 +1,129 @@
+# name: test/sql/parallel/parallel_categorical.test_slow
+# description: 2M-row parallel (threads=8) vs single-threaded results for the categorical aggregates, grouped (8 groups, interleaved so every scan task touches every group) and ungrouped (over a subset). Exercises per-thread states + Combine.
+#              Tolerances: 1e-9 relative for closed-form / exact algorithms (only summation order differs),
+#              1e-6 for iterative fits that stop at a convergence tolerance.
+# group: [parallel]
+
+require anofox_statistics
+
+# .test_slow files are still matched by `unittest "test/*"` (make test), so gate on an env var:
+#   ANOFOX_SLOW_TESTS=1 build/release/test/unittest "test/sql/parallel/*"
+require-env ANOFOX_SLOW_TESTS
+
+statement ok
+CREATE TABLE big AS
+SELECT i, g, x1, x2, e, w,
+       1.0 + g + 2.0 * x1 - 0.5 * x2 + e AS y,
+       -- exact line plus ~5% gross outliers (RANSAC recovers the line exactly, independent of sampling order)
+       1.0 + 2.0 * x1 - 0.5 * x2 + CASE WHEN u12 < 0.05 THEN 40.0 ELSE 0.0 END AS y_clean,
+       floor(exp(0.2 + 0.08 * x1 - 0.1 * x2) * (0.5 + u8) * 2.0) AS cnt,
+       (u8 < 1.0 / (1.0 + exp(-(-1.0 + 0.2 * x1 + 0.3 * x2))))::INT::DOUBLE AS bin,
+       exp(0.5 + 0.1 * x1 + 0.3 * e) AS pos,
+       (u9 * 4)::INT % 4 AS c1,
+       ((u9 + u10) * 1.5)::INT % 3 AS c2,
+       (u11 < 0.5)::INT AS g2,
+       (u10 < 0.3)::INT::BIGINT AS b1,
+       ((u10 + u11) < 0.6)::INT::BIGINT AS b2,
+       x1 + 0.3 * e AS v2,
+       exp(1.5 + 0.1 * x1 + 0.4 * e) AS surv_t,
+       (u13 < 0.8)::INT::DOUBLE AS event,
+       (i // 50) % 40 AS subj
+FROM (
+    SELECT i, (i % 8)::INT AS g,
+           ((hash(i * 16 + 1) % 1000003) / 1000003.0) * 10.0 AS x1,
+           ((hash(i * 16 + 2) % 1000003) / 1000003.0) * 5.0 - 2.5 AS x2,
+           (((hash(i * 16 + 3) % 1000003) / 1000003.0) + ((hash(i * 16 + 4) % 1000003) / 1000003.0) + ((hash(i * 16 + 5) % 1000003) / 1000003.0) + ((hash(i * 16 + 6) % 1000003) / 1000003.0) - 2.0) AS e,
+           0.5 + ((hash(i * 16 + 7) % 1000003) / 1000003.0) AS w,
+           ((hash(i * 16 + 8) % 1000003) / 1000003.0) AS u8, ((hash(i * 16 + 9) % 1000003) / 1000003.0) AS u9, ((hash(i * 16 + 10) % 1000003) / 1000003.0) AS u10, ((hash(i * 16 + 11) % 1000003) / 1000003.0) AS u11, ((hash(i * 16 + 12) % 1000003) / 1000003.0) AS u12, ((hash(i * 16 + 13) % 1000003) / 1000003.0) AS u13
+    FROM range(0, 2000000) r(i)
+);
+
+# small subset for O(n^2) / small-n aggregates; still spread over the whole table so a parallel scan splits it
+statement ok
+CREATE VIEW small AS SELECT * FROM big WHERE i % 401 = 0;
+
+# tiny subset for permutation-based aggregates (cost ~ n_permutations * n^2)
+statement ok
+CREATE VIEW tiny AS SELECT * FROM big WHERE i % 2005 = 0;
+
+# relative closeness of two DOUBLE[] (NULL/NaN/Inf must match exactly)
+statement ok
+CREATE MACRO vclose(a, b, tol) AS
+    len(a) = len(b) AND coalesce(list_max(list_transform(range(1, len(a) + 1), k ->
+        CASE WHEN a[k] IS NULL AND b[k] IS NULL THEN 0.0
+             WHEN a[k] IS NULL OR b[k] IS NULL THEN 1e300
+             WHEN isnan(a[k]) AND isnan(b[k]) THEN 0.0
+             WHEN isnan(a[k]) OR isnan(b[k]) THEN 1e300
+             WHEN isinf(a[k]) OR isinf(b[k]) THEN CASE WHEN a[k] = b[k] THEN 0.0 ELSE 1e300 END
+             ELSE abs(a[k] - b[k]) / greatest(1.0, abs(b[k])) END)), 0.0) <= tol;
+
+statement ok
+CREATE VIEW results AS
+    SELECT 'chisq_test_agg' AS fn, g, 1e-9::DOUBLE AS tol, [(chisq_test_agg(c1, c2)).statistic, (chisq_test_agg(c1, c2)).p_value]::DOUBLE[] AS vals FROM big GROUP BY g
+    UNION ALL
+    SELECT 'chisq_test_agg' AS fn, -1 AS g, 1e-9::DOUBLE AS tol, [(chisq_test_agg(c1, c2)).statistic, (chisq_test_agg(c1, c2)).p_value]::DOUBLE[] AS vals FROM small
+    UNION ALL
+    SELECT 'g_test_agg' AS fn, g, 1e-9::DOUBLE AS tol, [(g_test_agg(c1, c2)).statistic, (g_test_agg(c1, c2)).p_value]::DOUBLE[] AS vals FROM big GROUP BY g
+    UNION ALL
+    SELECT 'g_test_agg' AS fn, -1 AS g, 1e-9::DOUBLE AS tol, [(g_test_agg(c1, c2)).statistic, (g_test_agg(c1, c2)).p_value]::DOUBLE[] AS vals FROM small
+    UNION ALL
+    SELECT 'fisher_exact_agg' AS fn, g, 1e-9::DOUBLE AS tol, [(fisher_exact_agg(b1::INT, b2::INT)).p_value, (fisher_exact_agg(b1::INT, b2::INT)).odds_ratio]::DOUBLE[] AS vals FROM small GROUP BY g
+    UNION ALL
+    SELECT 'fisher_exact_agg' AS fn, -1 AS g, 1e-9::DOUBLE AS tol, [(fisher_exact_agg(b1::INT, b2::INT)).p_value, (fisher_exact_agg(b1::INT, b2::INT)).odds_ratio]::DOUBLE[] AS vals FROM small
+    UNION ALL
+    SELECT 'mcnemar_agg' AS fn, g, 1e-9::DOUBLE AS tol, [(mcnemar_agg(b1, b2)).statistic, (mcnemar_agg(b1, b2)).p_value]::DOUBLE[] AS vals FROM big GROUP BY g
+    UNION ALL
+    SELECT 'mcnemar_agg' AS fn, -1 AS g, 1e-9::DOUBLE AS tol, [(mcnemar_agg(b1, b2)).statistic, (mcnemar_agg(b1, b2)).p_value]::DOUBLE[] AS vals FROM small
+    UNION ALL
+    SELECT 'cramers_v_agg' AS fn, g, 1e-9::DOUBLE AS tol, [cramers_v_agg(c1, c2)]::DOUBLE[] AS vals FROM big GROUP BY g
+    UNION ALL
+    SELECT 'cramers_v_agg' AS fn, -1 AS g, 1e-9::DOUBLE AS tol, [cramers_v_agg(c1, c2)]::DOUBLE[] AS vals FROM small
+    UNION ALL
+    SELECT 'phi_coefficient_agg' AS fn, g, 1e-9::DOUBLE AS tol, [phi_coefficient_agg(b1, b2)]::DOUBLE[] AS vals FROM big GROUP BY g
+    UNION ALL
+    SELECT 'phi_coefficient_agg' AS fn, -1 AS g, 1e-9::DOUBLE AS tol, [phi_coefficient_agg(b1, b2)]::DOUBLE[] AS vals FROM small
+    UNION ALL
+    SELECT 'contingency_coef_agg' AS fn, g, 1e-9::DOUBLE AS tol, [contingency_coef_agg(c1, c2)]::DOUBLE[] AS vals FROM big GROUP BY g
+    UNION ALL
+    SELECT 'contingency_coef_agg' AS fn, -1 AS g, 1e-9::DOUBLE AS tol, [contingency_coef_agg(c1, c2)]::DOUBLE[] AS vals FROM small
+    UNION ALL
+    SELECT 'cohen_kappa_agg' AS fn, g, 1e-9::DOUBLE AS tol, [(cohen_kappa_agg(c1, c2)).kappa, (cohen_kappa_agg(c1, c2)).se]::DOUBLE[] AS vals FROM big GROUP BY g
+    UNION ALL
+    SELECT 'cohen_kappa_agg' AS fn, -1 AS g, 1e-9::DOUBLE AS tol, [(cohen_kappa_agg(c1, c2)).kappa, (cohen_kappa_agg(c1, c2)).se]::DOUBLE[] AS vals FROM small
+
+# single-threaded reference
+statement ok
+SET threads = 1;
+
+statement ok
+CREATE TABLE ref AS SELECT * FROM results;
+
+# parallel run: 8 threads
+statement ok
+SET threads = 8;
+
+statement ok
+CREATE TABLE par AS SELECT * FROM results;
+
+# sanity: the reference results are real numbers (a NULL/NaN result would compare equal trivially)
+query I
+SELECT DISTINCT fn FROM ref
+WHERE vals IS NULL OR len(vals) = 0 OR list_count(list_filter(vals, v -> v IS NULL OR isnan(v))) > 0
+ORDER BY fn;
+----
+
+# per function: 8 groups + ungrouped (over the subset) must all match the single-threaded result
+query III
+SELECT fn, count(*), bool_and(vclose(par.vals, ref.vals, ref.tol))
+FROM ref JOIN par USING (fn, g)
+GROUP BY fn
+ORDER BY fn;
+----
+chisq_test_agg	9	true
+cohen_kappa_agg	9	true
+contingency_coef_agg	9	true
+cramers_v_agg	9	true
+fisher_exact_agg	9	true
+g_test_agg	9	true
+mcnemar_agg	9	true
+phi_coefficient_agg	9	true

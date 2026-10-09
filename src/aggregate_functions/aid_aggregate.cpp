@@ -7,8 +7,10 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
+#include "aggregate_combine.hpp"
 
 namespace duckdb {
 
@@ -144,7 +146,7 @@ static void AidAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data, i
     }
 }
 
-static void AidAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &, idx_t count) {
+static void AidAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &aggr_input_data, idx_t count) {
     UnifiedVectorFormat source_data, target_data;
     source_vector.ToUnifiedFormat(count, source_data);
     target_vector.ToUnifiedFormat(count, target_data);
@@ -161,7 +163,7 @@ static void AidAggCombine(Vector &source_vector, Vector &target_vector, Aggregat
         }
 
         if (!target.initialized) {
-            target.y_values = std::move(source.y_values);
+            target.y_values = CombineTake(source.y_values, aggr_input_data);
             target.initialized = true;
             target.intermittent_threshold = source.intermittent_threshold;
             target.outlier_method = source.outlier_method;
@@ -204,6 +206,7 @@ static void AidAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
         bool success = anofox_aid(y_array, options, &aid_result, &error);
 
         if (!success) {
+            ThrowUnlessDegenerate("aid_agg", error);
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
@@ -285,6 +288,7 @@ static void AidAnomalyAggFinalize(Vector &state_vector, AggregateInputData &aggr
         bool success = anofox_aid_anomaly(y_array, options, &anomaly_result, &error);
 
         if (!success) {
+            ThrowUnlessDegenerate("aid_anomaly_agg", error);
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
@@ -325,8 +329,10 @@ static unique_ptr<FunctionData> AidAggBind(ClientContext &context, AggregateFunc
                                            vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<AidAggregateBindData>();
 
-    if (arguments.size() >= 2 && arguments[1]->IsFoldable()) {
-        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[1]);
+    if (arguments.size() >= 2) {
+        auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[1], "aid_agg",
+            {"intermittent_threshold", "outlier_method"});
         if (opts.intermittent_threshold.has_value()) {
             result->intermittent_threshold = opts.intermittent_threshold.value();
         }
@@ -347,8 +353,10 @@ static unique_ptr<FunctionData> AidAnomalyAggBind(ClientContext &context, Aggreg
                                                   vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<AidAggregateBindData>();
 
-    if (arguments.size() >= 2 && arguments[1]->IsFoldable()) {
-        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[1]);
+    if (arguments.size() >= 2) {
+        auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[1], "aid_anomaly_agg",
+            {"intermittent_threshold", "outlier_method"});
         if (opts.intermittent_threshold.has_value()) {
             result->intermittent_threshold = opts.intermittent_threshold.value();
         }
@@ -376,11 +384,15 @@ void RegisterAidAggregateFunction(ExtensionLoader &loader) {
         AggregateFunction("aid_agg", {LogicalType::DOUBLE}, LogicalType::ANY,
                           AggregateFunction::StateSize<AidAggregateState>, AidAggInitialize, AidAggUpdate, AidAggCombine,
                           AidAggFinalize, nullptr, AidAggBind, AidAggDestroy);
+    // Row order is part of the input (sequential / time-series estimator):
+    // declare it so DuckDB honours `agg(... ORDER BY t)`.
+    aid_basic.order_dependent = AggregateOrderDependent::ORDER_DEPENDENT; // field form works on DuckDB v1.4 LTS and v1.5
     aid_set.AddFunction(aid_basic);
 
     auto aid_map = AggregateFunction("aid_agg", {LogicalType::DOUBLE, LogicalType::ANY}, LogicalType::ANY,
                                      AggregateFunction::StateSize<AidAggregateState>, AidAggInitialize, AidAggUpdate,
                                      AidAggCombine, AidAggFinalize, nullptr, AidAggBind, AidAggDestroy);
+    aid_map.order_dependent = AggregateOrderDependent::ORDER_DEPENDENT; // field form works on DuckDB v1.4 LTS and v1.5
     aid_set.AddFunction(aid_map);
 
     {
@@ -414,12 +426,14 @@ void RegisterAidAggregateFunction(ExtensionLoader &loader) {
         "aid_anomaly_agg", {LogicalType::DOUBLE}, LogicalType::ANY,
         AggregateFunction::StateSize<AidAggregateState>, AidAggInitialize, AidAggUpdate, AidAggCombine,
         AidAnomalyAggFinalize, nullptr, AidAnomalyAggBind, AidAggDestroy);
+    aid_anomaly_basic.order_dependent = AggregateOrderDependent::ORDER_DEPENDENT; // field form works on DuckDB v1.4 LTS and v1.5
     aid_anomaly_set.AddFunction(aid_anomaly_basic);
 
     auto aid_anomaly_map = AggregateFunction(
         "aid_anomaly_agg", {LogicalType::DOUBLE, LogicalType::ANY}, LogicalType::ANY,
         AggregateFunction::StateSize<AidAggregateState>, AidAggInitialize, AidAggUpdate, AidAggCombine,
         AidAnomalyAggFinalize, nullptr, AidAnomalyAggBind, AidAggDestroy);
+    aid_anomaly_map.order_dependent = AggregateOrderDependent::ORDER_DEPENDENT; // field form works on DuckDB v1.4 LTS and v1.5
     aid_anomaly_set.AddFunction(aid_anomaly_map);
 
     {

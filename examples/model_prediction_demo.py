@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Model Fit and Predict Demonstration
-Using anofox_stats_ols_fit_agg and anofox_stats_predict
+Using ols_fit_agg and predict
 
 Usage: uv run examples/model_prediction_demo.py
 """
@@ -45,7 +45,7 @@ def main():
             (fit).residual_std_error as std_error,
             (fit).n_observations as n_obs
         FROM (
-            SELECT anofox_stats_ols_fit_agg(sales, [price, advertising]) as fit
+            SELECT ols_fit_agg(sales, [price, advertising]) as fit
             FROM training_data
         )
     """)
@@ -110,15 +110,15 @@ def main():
             round((pred).yhat, 1) as predicted
         FROM (
             SELECT
-                row_number() OVER () as id,
+                row_number() OVER (ORDER BY price, advertising) as id,
                 price,
                 advertising,
                 sales,
-                anofox_stats_ols_fit_predict(
+                ols_fit_predict(
                     sales,
                     [price, advertising],
                     {'fit_intercept': true}
-                ) OVER (ORDER BY price ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) as pred
+                ) OVER (ORDER BY price, advertising ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as pred
             FROM training_data
         )
         WHERE pred IS NOT NULL
@@ -132,8 +132,8 @@ def main():
     print("\n" + "=" * 80)
     print("FUNCTIONS DEMONSTRATED:")
     print("=" * 80)
-    print("  - anofox_stats_ols_fit_agg: Fit OLS model via GROUP BY aggregation")
-    print("  - anofox_stats_ols_fit_predict: Window function for expanding/rolling fit")
+    print("  - ols_fit_agg: Fit OLS model via GROUP BY aggregation")
+    print("  - ols_fit_predict: Window function for expanding/rolling in-sample fits (predicts the last row of each frame)")
     print("")
     print("Prediction from stored coefficients: intercept + coef[1]*x1 + coef[2]*x2 + ...")
     print("=" * 80)

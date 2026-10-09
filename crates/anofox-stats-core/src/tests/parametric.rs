@@ -8,8 +8,9 @@
 use super::{convert_error, filter_nan, AnovaResult, TestResult};
 use crate::{StatsError, StatsResult};
 use anofox_tests::{
-    brown_forsythe as lib_brown_forsythe, one_way_anova as lib_one_way_anova, t_test as lib_t_test,
-    yuen_test as lib_yuen_test, Alternative, AnovaKind, TTestKind,
+    brown_forsythe as lib_brown_forsythe, cohens_d as lib_cohens_d,
+    one_way_anova as lib_one_way_anova, t_test as lib_t_test, yuen_test as lib_yuen_test,
+    Alternative, AnovaKind, TTestKind,
 };
 
 /// Options for t-test
@@ -76,7 +77,9 @@ pub fn t_test(group1: &[f64], group2: &[f64], options: &TTestOptions) -> StatsRe
         statistic: result.statistic,
         p_value: result.p_value,
         df: result.df,
-        effect_size: f64::NAN, // TTestResult doesn't include effect size
+        // Cohen's d (R effectsize::cohens_d): pooled SD for Student, average
+        // variance for Welch, d_z for paired samples.
+        effect_size: lib_cohens_d(&g1, &g2, options.kind, options.mu).unwrap_or(f64::NAN),
         ci_lower: result
             .conf_int
             .as_ref()

@@ -163,14 +163,19 @@ pub fn solve_weighted_ls_qr(
         zw[i] = s * z[i];
     }
 
+    // Thin factorisation: Q is n x k and R is k x p (k = min(n, p)). The full
+    // n x n Q is never needed and is prohibitive for large n.
     let qr = xw.col_piv_qr();
-    let q = qr.compute_Q();
-    let r = qr.R();
+    let q = qr.compute_thin_Q();
+    let r = qr.thin_R();
     let perm = qr.P();
     let qtz = q.transpose() * zw;
+    let k = q.ncols();
 
+    // Rows of R beyond k do not exist (p > n): those pivoted coefficients are
+    // not identifiable and stay 0, as for a negligible diagonal.
     let mut beta_perm: Col<f64> = Col::zeros(p);
-    for i in (0..p).rev() {
+    for i in (0..k).rev() {
         let mut sum = qtz[i];
         for j in (i + 1)..p {
             sum -= r[(i, j)] * beta_perm[j];

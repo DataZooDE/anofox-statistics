@@ -7,12 +7,13 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/result_fields.hpp"
+#include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
+#include "../include/ffi_enum_converters.hpp"
 #include "telemetry.hpp"
+#include "aggregate_combine.hpp"
 
-#ifdef _WIN32
-#define strcasecmp _stricmp
-#endif
 
 namespace duckdb {
 
@@ -46,6 +47,8 @@ static LogicalType GetTostPairedAggResultType() {
     children.push_back(make_pair("equivalent", LogicalType::BOOLEAN));
     children.push_back(make_pair("n", LogicalType::BIGINT));
     children.push_back(make_pair("method", LogicalType::VARCHAR));
+    children.push_back(make_pair("statistic", LogicalType::DOUBLE));
+    children.push_back(make_pair("alternative", LogicalType::VARCHAR));
 
     return LogicalType::STRUCT(std::move(children));
 }
@@ -130,7 +133,7 @@ static void TostPairedAggUpdate(Vector inputs[], AggregateInputData &aggr_input_
     }
 }
 
-static void TostPairedAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &, idx_t count) {
+static void TostPairedAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &aggr_input_data, idx_t count) {
     UnifiedVectorFormat source_data, target_data;
     source_vector.ToUnifiedFormat(count, source_data);
     target_vector.ToUnifiedFormat(count, target_data);
@@ -147,8 +150,8 @@ static void TostPairedAggCombine(Vector &source_vector, Vector &target_vector, A
         }
 
         if (!target.initialized) {
-            target.x_values = std::move(source.x_values);
-            target.y_values = std::move(source.y_values);
+            target.x_values = CombineTake(source.x_values, aggr_input_data);
+            target.y_values = CombineTake(source.y_values, aggr_input_data);
             target.initialized = true;
             continue;
         }
@@ -198,6 +201,7 @@ static void TostPairedAggFinalize(Vector &state_vector, AggregateInputData &aggr
         bool success = anofox_tost_t_test_paired(x_array, y_array, options, &tost_result, &error);
 
         if (!success) {
+            ThrowUnlessDegenerate("tost_paired_agg", error);
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
@@ -212,6 +216,9 @@ static void TostPairedAggFinalize(Vector &state_vector, AggregateInputData &aggr
         auto& method_vector = *struct_entries[struct_idx++];
         FlatVector::GetData<string_t>(method_vector)[result_idx] =
             StringVector::AddString(method_vector, tost_result.method ? tost_result.method : "TOST paired t-test");
+        // statistic of the one-sided test that determines the TOST p-value
+        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = tost_result.p_lower >= tost_result.p_upper ? tost_result.t_lower : tost_result.t_upper;
+        SetResultNull(*struct_entries[struct_idx++], result_idx); // alternative: not applicable
 
         anofox_free_tost_result(&tost_result);
         state.Reset();
@@ -226,30 +233,21 @@ static unique_ptr<FunctionData> TostPairedAggBind(ClientContext &context, Aggreg
     function.return_type = GetTostPairedAggResultType();
     auto bind_data = make_uniq<TostPairedBindData>();
 
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        Value options_val = ExpressionExecutor::EvaluateScalar(context, *arguments[2]);
-        if (options_val.type().id() == LogicalTypeId::MAP) {
-            auto &map_children = MapValue::GetChildren(options_val);
-            for (auto &entry : map_children) {
-                auto &key_list = StructValue::GetChildren(entry);
-                if (key_list.size() >= 2) {
-                    auto key = StringValue::Get(key_list[0]).c_str();
-                    if (strcasecmp(key, "bound_lower") == 0 || strcasecmp(key, "delta") == 0) {
-                        double val = key_list[1].GetValue<double>();
-                        if (strcasecmp(key, "delta") == 0) {
-                            bind_data->bound_lower = -val;
-                            bind_data->bound_upper = val;
-                        } else {
-                            bind_data->bound_lower = val;
-                        }
-                    } else if (strcasecmp(key, "bound_upper") == 0) {
-                        bind_data->bound_upper = key_list[1].GetValue<double>();
-                    } else if (strcasecmp(key, "alpha") == 0) {
-                        bind_data->alpha = key_list[1].GetValue<double>();
-                    }
-                }
-            }
+    if (arguments.size() >= 3) {
+        Value options_val = EvaluateConstantOptions(context, *arguments[2], "tost_paired_agg");
+        auto opts = TostPairedMapOptions::ParseFromValue(options_val, "tost_paired_agg");
+        if (opts.bound_lower.has_value()) {
+            bind_data->bound_lower = opts.bound_lower.value();
         }
+        if (opts.bound_upper.has_value()) {
+            bind_data->bound_upper = opts.bound_upper.value();
+        }
+        // A symmetric delta takes precedence over explicit bounds, as in tost_t_test_agg.
+        if (opts.delta.has_value()) {
+            bind_data->bound_lower = -opts.delta.value();
+            bind_data->bound_upper = opts.delta.value();
+        }
+        bind_data->alpha = ResolveTostAlpha("tost_paired_agg", opts.alpha, opts.confidence_level);
     }
 
     PostHogTelemetry::Instance().RecordFunctionCall("tost_paired_agg");

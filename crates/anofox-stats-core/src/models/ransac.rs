@@ -5,7 +5,7 @@
 //! diagnostics (inlier mask, trial count, residual threshold actually used).
 
 use crate::errors::{StatsError, StatsResult};
-use crate::types::{FitResult, FitResultCore, FitResultInference, RansacOptions};
+use crate::types::{FitResult, FitResultCore, RansacOptions};
 use anofox_regression::solvers::{FittedRegressor, RansacRegressor, Regressor};
 use faer::{Col, Mat};
 
@@ -59,14 +59,7 @@ pub fn fit_ransac(y: &[f64], x: &[Vec<f64>], options: &RansacOptions) -> StatsRe
     let n_obs = y.len();
     let n_features = x.len();
 
-    for col in x.iter() {
-        if col.len() != n_obs {
-            return Err(StatsError::DimensionMismatch {
-                y_len: n_obs,
-                x_rows: col.len(),
-            });
-        }
-    }
+    crate::validation::validate_x_columns(n_obs, x)?;
 
     // Same NaN/infinite filtering policy as OLS/Huber so per-group call
     // sites can swap estimators transparently.
@@ -108,7 +101,9 @@ pub fn fit_ransac(y: &[f64], x: &[Vec<f64>], options: &RansacOptions) -> StatsRe
         .with_intercept(options.fit_intercept)
         .max_trials(options.max_trials as usize)
         .stop_probability(options.stop_probability)
-        .random_state(options.random_state);
+        .random_state(options.random_state)
+        .compute_inference(options.compute_inference)
+        .confidence_level(options.confidence_level);
     if let Some(s) = options.min_samples {
         builder = builder.min_samples(s);
     }
@@ -122,7 +117,7 @@ pub fn fit_ransac(y: &[f64], x: &[Vec<f64>], options: &RansacOptions) -> StatsRe
     let fitted = builder
         .build()
         .fit(&x_mat, &y_col)
-        .map_err(|e| StatsError::RegressError(format!("{:?}", e)))?;
+        .map_err(StatsError::from)?;
 
     let result = fitted.result();
 
@@ -133,6 +128,12 @@ pub fn fit_ransac(y: &[f64], x: &[Vec<f64>], options: &RansacOptions) -> StatsRe
         None
     };
 
+    let inliers = fitted.inlier_mask().to_vec();
+
+    // The final model is the OLS fit on the inliers; upstream reports its
+    // statistics (and, if requested, inference) in `result`. The inference
+    // ignores that the inliers were selected from the data, so it is
+    // optimistic (see CHANGELOG).
     let core = FitResultCore {
         coefficients,
         intercept,
@@ -143,41 +144,10 @@ pub fn fit_ransac(y: &[f64], x: &[Vec<f64>], options: &RansacOptions) -> StatsRe
         n_features,
     };
 
-    // RANSAC's predict_with_interval returns point-only — inference here
-    // mirrors what the upstream RegressionResult exposes (asymptotic SEs on
-    // the inlier-only OLS final fit, when populated).
-    let inference = if options.compute_inference {
-        result.std_errors.as_ref().map(|se| FitResultInference {
-            std_errors: se.iter().copied().collect(),
-            t_values: result
-                .t_statistics
-                .as_ref()
-                .map(|c| c.iter().copied().collect())
-                .unwrap_or_else(|| vec![f64::NAN; n_features]),
-            p_values: result
-                .p_values
-                .as_ref()
-                .map(|c| c.iter().copied().collect())
-                .unwrap_or_else(|| vec![f64::NAN; n_features]),
-            ci_lower: result
-                .conf_interval_lower
-                .as_ref()
-                .map(|c| c.iter().copied().collect())
-                .unwrap_or_else(|| vec![f64::NAN; n_features]),
-            ci_upper: result
-                .conf_interval_upper
-                .as_ref()
-                .map(|c| c.iter().copied().collect())
-                .unwrap_or_else(|| vec![f64::NAN; n_features]),
-            confidence_level: options.confidence_level,
-            f_statistic: Some(result.f_statistic),
-            f_pvalue: Some(result.f_pvalue),
-        })
-    } else {
-        None
-    };
+    let inference = options
+        .compute_inference
+        .then(|| super::inference_from_result(result, n_features, options.confidence_level));
 
-    let inliers = fitted.inlier_mask().to_vec();
     let n_inliers = fitted.n_inliers();
     let n_trials = fitted.n_trials();
     let residual_threshold = fitted.residual_threshold();

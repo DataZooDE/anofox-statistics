@@ -7,6 +7,7 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
 
@@ -167,6 +168,7 @@ static void EbShrinkFinalize(Vector &state_vector, AggregateInputData &, Vector 
 		AnofoxEbShrinkResult res {};
 		AnofoxError error;
 		if (!anofox_eb_shrink(est_array, se_array, options, &res, &error)) {
+			ThrowUnlessDegenerate("eb_shrink_agg", error);
 			FlatVector::SetNull(result, row, true);
 			state.Reset();
 			continue;
@@ -213,8 +215,10 @@ static unique_ptr<FunctionData> EbShrinkBind(ClientContext &context, AggregateFu
                                              vector<unique_ptr<Expression>> &arguments) {
 	auto result = make_uniq<EbShrinkBindData>();
 
-	if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-		auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[2]);
+	if (arguments.size() >= 3) {
+		auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[2], "eb_shrink_agg",
+            {"tau_squared", "tau_method"});
 		if (opts.tau_squared.has_value()) {
 			result->tau_squared = opts.tau_squared.value();
 		}

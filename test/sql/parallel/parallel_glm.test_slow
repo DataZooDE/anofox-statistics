@@ -1,0 +1,135 @@
+# name: test/sql/parallel/parallel_glm.test_slow
+# description: 2M-row parallel (threads=8) vs single-threaded results for the glm aggregates, grouped (8 groups, interleaved so every scan task touches every group) and ungrouped (over a subset). Exercises per-thread states + Combine.
+#              Tolerances: 1e-9 relative for closed-form / exact algorithms (only summation order differs),
+#              1e-6 for iterative fits that stop at a convergence tolerance.
+# group: [parallel]
+
+require anofox_statistics
+
+# .test_slow files are still matched by `unittest "test/*"` (make test), so gate on an env var:
+#   ANOFOX_SLOW_TESTS=1 build/release/test/unittest "test/sql/parallel/*"
+require-env ANOFOX_SLOW_TESTS
+
+statement ok
+CREATE TABLE big AS
+SELECT i, g, x1, x2, e, w,
+       1.0 + g + 2.0 * x1 - 0.5 * x2 + e AS y,
+       -- exact line plus ~5% gross outliers (RANSAC recovers the line exactly, independent of sampling order)
+       1.0 + 2.0 * x1 - 0.5 * x2 + CASE WHEN u12 < 0.05 THEN 40.0 ELSE 0.0 END AS y_clean,
+       floor(exp(0.2 + 0.08 * x1 - 0.1 * x2) * (0.5 + u8) * 2.0) AS cnt,
+       (u8 < 1.0 / (1.0 + exp(-(-1.0 + 0.2 * x1 + 0.3 * x2))))::INT::DOUBLE AS bin,
+       exp(0.5 + 0.1 * x1 + 0.3 * e) AS pos,
+       (u9 * 4)::INT % 4 AS c1,
+       ((u9 + u10) * 1.5)::INT % 3 AS c2,
+       (u11 < 0.5)::INT AS g2,
+       (u10 < 0.3)::INT::BIGINT AS b1,
+       ((u10 + u11) < 0.6)::INT::BIGINT AS b2,
+       x1 + 0.3 * e AS v2,
+       exp(1.5 + 0.1 * x1 + 0.4 * e) AS surv_t,
+       (u13 < 0.8)::INT::DOUBLE AS event,
+       (i // 50) % 40 AS subj
+FROM (
+    SELECT i, (i % 8)::INT AS g,
+           ((hash(i * 16 + 1) % 1000003) / 1000003.0) * 10.0 AS x1,
+           ((hash(i * 16 + 2) % 1000003) / 1000003.0) * 5.0 - 2.5 AS x2,
+           (((hash(i * 16 + 3) % 1000003) / 1000003.0) + ((hash(i * 16 + 4) % 1000003) / 1000003.0) + ((hash(i * 16 + 5) % 1000003) / 1000003.0) + ((hash(i * 16 + 6) % 1000003) / 1000003.0) - 2.0) AS e,
+           0.5 + ((hash(i * 16 + 7) % 1000003) / 1000003.0) AS w,
+           ((hash(i * 16 + 8) % 1000003) / 1000003.0) AS u8, ((hash(i * 16 + 9) % 1000003) / 1000003.0) AS u9, ((hash(i * 16 + 10) % 1000003) / 1000003.0) AS u10, ((hash(i * 16 + 11) % 1000003) / 1000003.0) AS u11, ((hash(i * 16 + 12) % 1000003) / 1000003.0) AS u12, ((hash(i * 16 + 13) % 1000003) / 1000003.0) AS u13
+    FROM range(0, 2000000) r(i)
+);
+
+# small subset for O(n^2) / small-n aggregates; still spread over the whole table so a parallel scan splits it
+statement ok
+CREATE VIEW small AS SELECT * FROM big WHERE i % 401 = 0;
+
+# tiny subset for permutation-based aggregates (cost ~ n_permutations * n^2)
+statement ok
+CREATE VIEW tiny AS SELECT * FROM big WHERE i % 2005 = 0;
+
+# relative closeness of two DOUBLE[] (NULL/NaN/Inf must match exactly)
+statement ok
+CREATE MACRO vclose(a, b, tol) AS
+    len(a) = len(b) AND coalesce(list_max(list_transform(range(1, len(a) + 1), k ->
+        CASE WHEN a[k] IS NULL AND b[k] IS NULL THEN 0.0
+             WHEN a[k] IS NULL OR b[k] IS NULL THEN 1e300
+             WHEN isnan(a[k]) AND isnan(b[k]) THEN 0.0
+             WHEN isnan(a[k]) OR isnan(b[k]) THEN 1e300
+             WHEN isinf(a[k]) OR isinf(b[k]) THEN CASE WHEN a[k] = b[k] THEN 0.0 ELSE 1e300 END
+             ELSE abs(a[k] - b[k]) / greatest(1.0, abs(b[k])) END)), 0.0) <= tol;
+
+statement ok
+CREATE VIEW results AS
+    -- IRLS to tolerance
+    SELECT 'poisson_fit_agg' AS fn, g, 1e-6::DOUBLE AS tol, list_concat([(poisson_fit_agg(cnt, [x1, x2])).intercept, (poisson_fit_agg(cnt, [x1, x2])).deviance], (poisson_fit_agg(cnt, [x1, x2])).coefficients, [(poisson_fit_agg(cnt, [x1, x2])).n_observations::DOUBLE])::DOUBLE[] AS vals FROM big GROUP BY g
+    UNION ALL
+    SELECT 'poisson_fit_agg' AS fn, -1 AS g, 1e-6::DOUBLE AS tol, list_concat([(poisson_fit_agg(cnt, [x1, x2])).intercept, (poisson_fit_agg(cnt, [x1, x2])).deviance], (poisson_fit_agg(cnt, [x1, x2])).coefficients, [(poisson_fit_agg(cnt, [x1, x2])).n_observations::DOUBLE])::DOUBLE[] AS vals FROM small
+    UNION ALL
+    SELECT 'binomial_fit_agg' AS fn, g, 1e-6::DOUBLE AS tol, list_concat([(binomial_fit_agg(bin, [x1, x2])).intercept, (binomial_fit_agg(bin, [x1, x2])).deviance], (binomial_fit_agg(bin, [x1, x2])).coefficients, [(binomial_fit_agg(bin, [x1, x2])).n_observations::DOUBLE])::DOUBLE[] AS vals FROM big GROUP BY g
+    UNION ALL
+    SELECT 'binomial_fit_agg' AS fn, -1 AS g, 1e-6::DOUBLE AS tol, list_concat([(binomial_fit_agg(bin, [x1, x2])).intercept, (binomial_fit_agg(bin, [x1, x2])).deviance], (binomial_fit_agg(bin, [x1, x2])).coefficients, [(binomial_fit_agg(bin, [x1, x2])).n_observations::DOUBLE])::DOUBLE[] AS vals FROM small
+    UNION ALL
+    SELECT 'binomial_fit_agg_probit' AS fn, g, 1e-6::DOUBLE AS tol, list_concat([(binomial_fit_agg(bin, [x1, x2], {'binomial_link': 'probit'})).intercept, (binomial_fit_agg(bin, [x1, x2], {'binomial_link': 'probit'})).deviance], (binomial_fit_agg(bin, [x1, x2], {'binomial_link': 'probit'})).coefficients, [(binomial_fit_agg(bin, [x1, x2], {'binomial_link': 'probit'})).n_observations::DOUBLE])::DOUBLE[] AS vals FROM big GROUP BY g
+    UNION ALL
+    SELECT 'binomial_fit_agg_probit' AS fn, -1 AS g, 1e-6::DOUBLE AS tol, list_concat([(binomial_fit_agg(bin, [x1, x2], {'binomial_link': 'probit'})).intercept, (binomial_fit_agg(bin, [x1, x2], {'binomial_link': 'probit'})).deviance], (binomial_fit_agg(bin, [x1, x2], {'binomial_link': 'probit'})).coefficients, [(binomial_fit_agg(bin, [x1, x2], {'binomial_link': 'probit'})).n_observations::DOUBLE])::DOUBLE[] AS vals FROM small
+    UNION ALL
+    SELECT 'logistic_fit_agg' AS fn, g, 1e-6::DOUBLE AS tol, list_concat([(logistic_fit_agg(bin, [x1, x2])).intercept, (logistic_fit_agg(bin, [x1, x2])).deviance], (logistic_fit_agg(bin, [x1, x2])).coefficients, [(logistic_fit_agg(bin, [x1, x2])).n_observations::DOUBLE])::DOUBLE[] AS vals FROM big GROUP BY g
+    UNION ALL
+    SELECT 'logistic_fit_agg' AS fn, -1 AS g, 1e-6::DOUBLE AS tol, list_concat([(logistic_fit_agg(bin, [x1, x2])).intercept, (logistic_fit_agg(bin, [x1, x2])).deviance], (logistic_fit_agg(bin, [x1, x2])).coefficients, [(logistic_fit_agg(bin, [x1, x2])).n_observations::DOUBLE])::DOUBLE[] AS vals FROM small
+    UNION ALL
+    SELECT 'negbinom_fit_agg' AS fn, g, 1e-6::DOUBLE AS tol, list_concat([(negbinom_fit_agg(cnt, [x1, x2])).intercept, (negbinom_fit_agg(cnt, [x1, x2])).deviance], (negbinom_fit_agg(cnt, [x1, x2])).coefficients, [(negbinom_fit_agg(cnt, [x1, x2])).n_observations::DOUBLE])::DOUBLE[] AS vals FROM big GROUP BY g
+    UNION ALL
+    SELECT 'negbinom_fit_agg' AS fn, -1 AS g, 1e-6::DOUBLE AS tol, list_concat([(negbinom_fit_agg(cnt, [x1, x2])).intercept, (negbinom_fit_agg(cnt, [x1, x2])).deviance], (negbinom_fit_agg(cnt, [x1, x2])).coefficients, [(negbinom_fit_agg(cnt, [x1, x2])).n_observations::DOUBLE])::DOUBLE[] AS vals FROM small
+    UNION ALL
+    SELECT 'gamma_fit_agg' AS fn, g, 1e-6::DOUBLE AS tol, list_concat([(gamma_fit_agg(pos, [x1, x2])).intercept, (gamma_fit_agg(pos, [x1, x2])).deviance], (gamma_fit_agg(pos, [x1, x2])).coefficients, [(gamma_fit_agg(pos, [x1, x2])).n_observations::DOUBLE])::DOUBLE[] AS vals FROM big GROUP BY g
+    UNION ALL
+    SELECT 'gamma_fit_agg' AS fn, -1 AS g, 1e-6::DOUBLE AS tol, list_concat([(gamma_fit_agg(pos, [x1, x2])).intercept, (gamma_fit_agg(pos, [x1, x2])).deviance], (gamma_fit_agg(pos, [x1, x2])).coefficients, [(gamma_fit_agg(pos, [x1, x2])).n_observations::DOUBLE])::DOUBLE[] AS vals FROM small
+    UNION ALL
+    SELECT 'tweedie_fit_agg' AS fn, g, 1e-6::DOUBLE AS tol, list_concat([(tweedie_fit_agg(cnt, [x1, x2], {'power': 1.5})).intercept, (tweedie_fit_agg(cnt, [x1, x2], {'power': 1.5})).deviance], (tweedie_fit_agg(cnt, [x1, x2], {'power': 1.5})).coefficients, [(tweedie_fit_agg(cnt, [x1, x2], {'power': 1.5})).n_observations::DOUBLE])::DOUBLE[] AS vals FROM big GROUP BY g
+    UNION ALL
+    SELECT 'tweedie_fit_agg' AS fn, -1 AS g, 1e-6::DOUBLE AS tol, list_concat([(tweedie_fit_agg(cnt, [x1, x2], {'power': 1.5})).intercept, (tweedie_fit_agg(cnt, [x1, x2], {'power': 1.5})).deviance], (tweedie_fit_agg(cnt, [x1, x2], {'power': 1.5})).coefficients, [(tweedie_fit_agg(cnt, [x1, x2], {'power': 1.5})).n_observations::DOUBLE])::DOUBLE[] AS vals FROM small
+    UNION ALL
+    SELECT 'aft_fit_agg' AS fn, g, 1e-6::DOUBLE AS tol, list_concat([(aft_fit_agg(surv_t, [x1], event, {'dist': 'weibull'})).intercept, (aft_fit_agg(surv_t, [x1], event, {'dist': 'weibull'})).scale], (aft_fit_agg(surv_t, [x1], event, {'dist': 'weibull'})).coefficients)::DOUBLE[] AS vals FROM big GROUP BY g
+    UNION ALL
+    SELECT 'aft_fit_agg' AS fn, -1 AS g, 1e-6::DOUBLE AS tol, list_concat([(aft_fit_agg(surv_t, [x1], event, {'dist': 'weibull'})).intercept, (aft_fit_agg(surv_t, [x1], event, {'dist': 'weibull'})).scale], (aft_fit_agg(surv_t, [x1], event, {'dist': 'weibull'})).coefficients)::DOUBLE[] AS vals FROM small
+    UNION ALL
+    SELECT 'glmm_fit_agg' AS fn, g, 1e-6::DOUBLE AS tol, list_concat([(glmm_fit_agg(y, [x1], subj)).intercept, (glmm_fit_agg(y, [x1], subj)).var_group], (glmm_fit_agg(y, [x1], subj)).coefficients)::DOUBLE[] AS vals FROM small GROUP BY g
+    UNION ALL
+    SELECT 'glmm_fit_agg' AS fn, -1 AS g, 1e-6::DOUBLE AS tol, list_concat([(glmm_fit_agg(y, [x1], subj)).intercept, (glmm_fit_agg(y, [x1], subj)).var_group], (glmm_fit_agg(y, [x1], subj)).coefficients)::DOUBLE[] AS vals FROM small;
+
+# single-threaded reference
+statement ok
+SET threads = 1;
+
+statement ok
+CREATE TABLE ref AS SELECT * FROM results;
+
+# parallel run: 8 threads
+statement ok
+SET threads = 8;
+
+statement ok
+CREATE TABLE par AS SELECT * FROM results;
+
+# sanity: the reference results are real numbers (a NULL/NaN result would compare equal trivially)
+query I
+SELECT DISTINCT fn FROM ref
+WHERE vals IS NULL OR len(vals) = 0 OR list_count(list_filter(vals, v -> v IS NULL OR isnan(v))) > 0
+ORDER BY fn;
+----
+
+# per function: 8 groups + ungrouped (over the subset) must all match the single-threaded result
+query III
+SELECT fn, count(*), bool_and(vclose(par.vals, ref.vals, ref.tol))
+FROM ref JOIN par USING (fn, g)
+GROUP BY fn
+ORDER BY fn;
+----
+aft_fit_agg	9	true
+binomial_fit_agg	9	true
+binomial_fit_agg_probit	9	true
+gamma_fit_agg	9	true
+glmm_fit_agg	9	true
+logistic_fit_agg	9	true
+negbinom_fit_agg	9	true
+poisson_fit_agg	9	true
+tweedie_fit_agg	9	true

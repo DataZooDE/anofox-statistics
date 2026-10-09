@@ -7,10 +7,13 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/min_obs_guard.hpp"
 #include "../include/error_dispatch.hpp"
 #include "../include/ffi_enum_converters.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
+#include "aggregate_combine.hpp"
+#include "list_input.hpp"
 
 namespace duckdb {
 
@@ -131,6 +134,7 @@ static void OlsAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data, i
     auto x_list_data = ListVector::GetData(inputs[1]);
     auto &x_child = ListVector::GetEntry(inputs[1]);
     auto x_child_data = FlatVector::GetData<double>(x_child);
+    auto &x_child_validity = FlatVector::Validity(x_child);
 
     UnifiedVectorFormat sdata;
     state_vector.ToUnifiedFormat(count, sdata);
@@ -160,6 +164,10 @@ static void OlsAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data, i
         }
 
         auto list_entry = x_list_data[x_idx];
+        // A LIST holding a NULL element is itself valid; skip the row like a NULL list.
+        if (ListHasNullElement(x_child_validity, list_entry)) {
+            continue;
+        }
         idx_t n_features = list_entry.length;
 
         // Initialize x_columns on first valid row
@@ -187,7 +195,7 @@ static void OlsAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data, i
 }
 
 // Combine: merge two states (vectorized version for new API)
-static void OlsAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &, idx_t count) {
+static void OlsAggCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &aggr_input_data, idx_t count) {
     UnifiedVectorFormat source_data, target_data;
     source_vector.ToUnifiedFormat(count, source_data);
     target_vector.ToUnifiedFormat(count, target_data);
@@ -205,8 +213,8 @@ static void OlsAggCombine(Vector &source_vector, Vector &target_vector, Aggregat
 
         if (!target.initialized) {
             // Copy source to target
-            target.y_values = std::move(source.y_values);
-            target.x_columns = std::move(source.x_columns);
+            target.y_values = CombineTake(source.y_values, aggr_input_data);
+            target.x_columns = CombineTake(source.x_columns, aggr_input_data);
             target.n_features = source.n_features;
             target.initialized = true;
             target.fit_intercept = source.fit_intercept;
@@ -260,15 +268,15 @@ static void OlsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
         idx_t result_idx = i + offset;
 
         // Check if we have enough data to attempt a fit.
-        // Use the scaling min_obs guard: need strictly more than n_features+1
-        // observations (with intercept) or n_features (without) to avoid fitting a
-        // perfectly-determined/degenerate system that produces NaN adj_r_squared
-        // and undefined std_errors. Matches the guard in ols_fit_predict.cpp:264-268.
+        // Need strictly more rows than estimable parameters (intercept + non-constant
+        // features) to avoid a perfectly determined system with NaN adj_r_squared and
+        // undefined std_errors. Constant (e.g. all-zero) columns are aliased by the
+        // Rust core and do not count (MinObsForFit). Same guard as ols_fit_predict.cpp.
         if (!state.initialized) {
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
-        idx_t min_obs = state.fit_intercept ? state.n_features + 1 : state.n_features;
+        idx_t min_obs = MinObsForFit(state.x_columns, state.fit_intercept);
         if (state.y_values.size() <= min_obs) {
             FlatVector::SetNull(result, result_idx, true);
             continue;
@@ -304,7 +312,9 @@ static void OlsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
                                       state.compute_inference ? &inference_result : nullptr, &error);
 
         if (!success) {
-            ThrowFromFfiError("ols_fit_agg", error);
+            ThrowUnlessDegenerate("ols_fit_agg", error);
+            FlatVector::SetNull(result, result_idx, true);
+            continue;
         }
 
         // Fill STRUCT result
@@ -352,8 +362,10 @@ static unique_ptr<FunctionData> OlsAggBind(ClientContext &context, AggregateFunc
     auto result = make_uniq<OlsAggregateBindData>();
 
     // Parse MAP options if provided as 3rd argument
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[2]);
+    if (arguments.size() >= 3) {
+        auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[2], "ols_fit_agg",
+            {"fit_intercept", "compute_inference", "confidence_level", "solver", "hc_type"});
         if (opts.fit_intercept.has_value()) {
             result->fit_intercept = opts.fit_intercept.value();
         }

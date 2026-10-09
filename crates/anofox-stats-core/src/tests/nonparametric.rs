@@ -9,8 +9,8 @@ use super::{convert_error, filter_nan, TestResult};
 use crate::{StatsError, StatsResult};
 use anofox_tests::{
     brunner_munzel as lib_brunner_munzel, kruskal_wallis as lib_kruskal_wallis,
-    mann_whitney_u as lib_mann_whitney_u, wilcoxon_signed_rank as lib_wilcoxon_signed_rank,
-    Alternative,
+    mann_whitney_u as lib_mann_whitney_u, rank_biserial_from_u as lib_rank_biserial_from_u,
+    wilcoxon_signed_rank as lib_wilcoxon_signed_rank, Alternative,
 };
 
 /// Options for Mann-Whitney U test
@@ -72,7 +72,10 @@ pub fn mann_whitney_u(
         statistic: result.statistic,
         p_value: result.p_value,
         df: f64::NAN,
-        effect_size: f64::NAN, // Not provided by library
+        // Rank-biserial correlation r = 1 - 2*U1 / (n1*n2) from the reported
+        // U1 (R's W, after any `mu` shift): r > 0 when group 2 tends to be
+        // larger than group 1, r < 0 when group 1 tends to be larger.
+        effect_size: lib_rank_biserial_from_u(result.statistic, g1.len(), g2.len()),
         ci_lower: result
             .conf_int
             .as_ref()
@@ -270,7 +273,8 @@ pub fn brunner_munzel(
         &g1,
         &g2,
         options.alternative,
-        Some(options.confidence_level),
+        // The library takes alpha (CI level = 1 - alpha), not the confidence level.
+        Some(1.0 - options.confidence_level),
     )
     .map_err(convert_error)?;
 
@@ -310,6 +314,19 @@ mod tests {
         let result = mann_whitney_u(&g1, &g2, &opts).unwrap();
 
         assert!(result.p_value < 0.05); // Should be significant
+                                        // Complete separation with group 2 larger: U1 = 0 -> r = +1.
+        assert!((result.effect_size - 1.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_mann_whitney_rank_biserial() {
+        // Pairs (g1 > g2): only 3 > 2 -> U1 = 1; r = 1 - 2*1/(2*2) = 0.5.
+        let r = mann_whitney_u(&[1.0, 3.0], &[2.0, 4.0], &MannWhitneyOptions::default()).unwrap();
+        assert!((r.statistic - 1.0).abs() < 1e-12);
+        assert!((r.effect_size - 0.5).abs() < 1e-12);
+        // Swapping the groups flips the sign.
+        let r = mann_whitney_u(&[2.0, 4.0], &[1.0, 3.0], &MannWhitneyOptions::default()).unwrap();
+        assert!((r.effect_size + 0.5).abs() < 1e-12);
     }
 
     #[test]
@@ -332,5 +349,34 @@ mod tests {
         let result = kruskal_wallis(&groups).unwrap();
 
         assert!(result.p_value < 0.05); // Should be significant
+    }
+
+    #[test]
+    #[allow(clippy::excessive_precision)]
+    fn test_brunner_munzel_ci_level() {
+        // lawstat::brunner.munzel.test: p_hat -/+ qt(0.975, df) * se
+        let g1 = [5.1, 4.9, 6.2, 5.8, 6.05, 5.5, 5.3, 6.1];
+        let g2 = [6.5, 7.1, 6.8, 7.4, 6.0, 7.9, 6.6, 7.2, 6.9, 7.05];
+        let r = brunner_munzel(&g1, &g2, &BrunnerMunzelOptions::default()).unwrap();
+        assert!((r.ci_lower - 0.8722553373834635).abs() < 1e-9);
+        assert!((r.ci_upper - 1.0527446626165362).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_mann_whitney_all_tied_and_center() {
+        let opts = MannWhitneyOptions::default();
+        let r = mann_whitney_u(&[5.0; 6], &[5.0; 7], &opts).unwrap();
+        assert_eq!(r.p_value, 1.0);
+        // R: wilcox.test(c(1, 4), c(2, 3), exact = FALSE)$p.value == 1
+        let r = mann_whitney_u(&[1.0, 4.0], &[2.0, 3.0], &opts).unwrap();
+        assert_eq!(r.p_value, 1.0);
+        // R: wilcox.test(1:4, 4:1, paired = TRUE, exact = FALSE)$p.value == 1
+        let r = wilcoxon_signed_rank(
+            &[1.0, 2.0, 3.0, 4.0],
+            &[4.0, 3.0, 2.0, 1.0],
+            &WilcoxonOptions::default(),
+        )
+        .unwrap();
+        assert_eq!(r.p_value, 1.0);
     }
 }

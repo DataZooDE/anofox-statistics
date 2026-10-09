@@ -1,0 +1,84 @@
+# name: test/sql/regression/test_intercept_option.test
+# description: {'intercept': true/false} across linear regression aggregates, against R.
+#              Converted from the former ad-hoc script test/sql/intercept_validation.sql
+#              (which used random() data and had no assertions).
+#              Data: i = 1..30, x1 = i, x2 = i %% 7, y = 10 + 3 i + 0.5 (i %% 7) + sin(i), w = 1 + 0.05 i
+#              Reference: R 4.x
+#                lm(y ~ x1 + x2)                 -> 10.408503304058037, 2.988649417870103, 0.423022665803822,
+#                                                   r2 0.999273913825614, adj 0.999220129664549, sigma 0.734769900099868
+#                lm(y ~ x1 + x2 - 1)             -> 3.326762482010785, 1.653805448528050, sigma 4.283317746419940
+#                lm(y ~ x1 + x2 - 1, weights = w) -> 3.329418140219547, 1.496860989676264, sigma 5.146761727262540
+# group: [regression]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE d AS SELECT i::DOUBLE AS x1, (i % 7)::DOUBLE AS x2, 10 + 3 * i + 0.5 * (i % 7) + sin(i) AS y,
+       1 + 0.05 * i AS w
+FROM range(1, 31) t(i);
+
+query IIIIII
+SELECT abs(m.intercept - 10.408503304058037) < 1e-9, abs(m.coefficients[1] - 2.988649417870103) < 1e-9,
+       abs(m.coefficients[2] - 0.423022665803822) < 1e-9, abs(m.r_squared - 0.999273913825614) < 1e-9,
+       abs(m.adj_r_squared - 0.999220129664549) < 1e-9, abs(m.residual_std_error - 0.734769900099868) < 1e-9
+FROM (SELECT ols_fit_agg(y, [x1, x2], {'intercept': true}) AS m FROM d);
+----
+true	true	true	true	true	true
+
+# intercept = false: the intercept field is NaN (docs/NULL_SEMANTICS.md), coefficients and sigma match R.
+# Without an intercept r_squared uses R's summary.lm convention, the UNCENTERED total sum of
+# squares sum(y^2): summary(lm(y ~ x1 + x2 - 1))$r.squared = 0.995749348728282,
+# $adj.r.squared = 0.995445730780302.
+query IIIIII
+SELECT isnan(m.intercept), abs(m.coefficients[1] - 3.326762482010785) < 1e-9,
+       abs(m.coefficients[2] - 1.653805448528050) < 1e-9, abs(m.residual_std_error - 4.283317746419940) < 1e-9,
+       abs(m.r_squared - 0.995749348728282) < 1e-9, abs(m.adj_r_squared - 0.995445730780302) < 1e-9
+FROM (SELECT ols_fit_agg(y, [x1, x2], {'intercept': false}) AS m FROM d);
+----
+true	true	true	true	true	true
+
+# Weighted, no intercept: summary(lm(y ~ x1 + x2 - 1, weights = w))$r.squared
+#   = 1 - sum(w r^2) / sum(w y^2) = 0.997072485194598
+query IIIII
+SELECT isnan(m.intercept), abs(m.coefficients[1] - 3.329418140219547) < 1e-9,
+       abs(m.coefficients[2] - 1.496860989676264) < 1e-9, abs(m.residual_std_error - 5.146761727262540) < 1e-9,
+       abs(m.r_squared - 0.997072485194598) < 1e-9
+FROM (SELECT wls_fit_agg(y, [x1, x2], w, {'intercept': false}) AS m FROM d);
+----
+true	true	true	true	true
+
+# Ridge / elastic net with zero penalty reduce to OLS
+query III
+SELECT isnan(m.intercept), abs(m.coefficients[1] - 3.326762482010785) < 1e-9,
+       abs(m.coefficients[2] - 1.653805448528050) < 1e-9
+FROM (SELECT ridge_fit_agg(y, [x1, x2], {'alpha': 0.0, 'intercept': false}) AS m FROM d);
+----
+true	true	true
+
+query III
+SELECT isnan(m.intercept), abs(m.coefficients[1] - 3.326762482010785) < 1e-8,
+       abs(m.coefficients[2] - 1.653805448528050) < 1e-8
+FROM (SELECT elasticnet_fit_agg(y, [x1, x2], {'alpha': 0.0, 'intercept': false}) AS m FROM d);
+----
+true	true	true
+
+# RLS with forgetting_factor = 1 and P0 = initial_p_diagonal * I, starting from theta = 0, is
+# algebraically identical to ridge with penalty 1 / P0 on ALL parameters (intercept included):
+#   R: solve(crossprod(X) + 0.01 * diag(ncol(X)), crossprod(X, y))
+#   with intercept:    10.386279910191746, 2.989368195735356, 0.425650336028468
+#   without intercept:  3.32676822515521,   1.65373985368701
+# (Regression guard: an in-place update of the P matrix that reads already-overwritten rows
+#  produced e.g. intercept 19.50 / slopes 2.63, 0.88 here.)
+query III
+SELECT abs(m.intercept - 10.386279910191746) < 1e-6, abs(m.coefficients[1] - 2.989368195735356) < 1e-6,
+       abs(m.coefficients[2] - 0.425650336028468) < 1e-6
+FROM (SELECT rls_fit_agg(y, [x1, x2], {'forgetting_factor': 1.0, 'initial_p_diagonal': 100.0}) AS m FROM d);
+----
+true	true	true
+
+query III
+SELECT isnan(m.intercept), abs(m.coefficients[1] - 3.32676822515521) < 1e-6,
+       abs(m.coefficients[2] - 1.65373985368701) < 1e-6
+FROM (SELECT rls_fit_agg(y, [x1, x2], {'intercept': false}) AS m FROM d);
+----
+true	true	true

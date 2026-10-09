@@ -8,9 +8,14 @@
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
 #include "../include/anofox_stats_ffi.h"
+#include "../include/error_dispatch.hpp"
+#include "../include/min_obs_guard.hpp"
 #include "../include/ffi_enum_converters.hpp"
 #include "../include/map_options_parser.hpp"
 #include "telemetry.hpp"
+#include "aggregate_combine.hpp"
+#include "list_input.hpp"
+#include "prediction_interval.hpp"
 
 namespace duckdb {
 
@@ -121,6 +126,7 @@ static void OlsFitPredictUpdate(Vector inputs[], AggregateInputData &aggr_input_
     auto x_list_data = ListVector::GetData(inputs[1]);
     auto &x_child = ListVector::GetEntry(inputs[1]);
     auto x_child_data = FlatVector::GetData<double>(x_child);
+    auto &x_child_validity = FlatVector::Validity(x_child);
 
     UnifiedVectorFormat sdata;
     state_vector.ToUnifiedFormat(count, sdata);
@@ -161,14 +167,14 @@ static void OlsFitPredictUpdate(Vector inputs[], AggregateInputData &aggr_input_
         // Store current x for prediction
         state.current_x.resize(n_features);
         for (idx_t j = 0; j < n_features; j++) {
-            state.current_x[j] = x_child_data[list_entry.offset + j];
+            state.current_x[j] = ListChildValue(x_child_data, x_child_validity, list_entry.offset + j);
         }
         state.has_current_x = true;
 
         // Determine if this row should be used for training
         auto y_idx = y_data.sel->get_index(i);
         bool y_valid = y_data.validity.RowIsValid(y_idx);
-        bool use_for_training = y_valid;
+        bool use_for_training = y_valid && !ListHasNullElement(x_child_validity, list_entry);
 
         // Apply null_policy for drop_y_zero_x
         if (use_for_training && state.null_policy == NullPolicy::DROP_Y_ZERO_X) {
@@ -193,7 +199,7 @@ static void OlsFitPredictUpdate(Vector inputs[], AggregateInputData &aggr_input_
 }
 
 // Combine: merge two states
-static void OlsFitPredictCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &, idx_t count) {
+static void OlsFitPredictCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &aggr_input_data, idx_t count) {
     UnifiedVectorFormat source_data, target_data;
     source_vector.ToUnifiedFormat(count, source_data);
     target_vector.ToUnifiedFormat(count, target_data);
@@ -210,11 +216,11 @@ static void OlsFitPredictCombine(Vector &source_vector, Vector &target_vector, A
         }
 
         if (!target.initialized) {
-            target.y_values = std::move(source.y_values);
-            target.x_columns = std::move(source.x_columns);
+            target.y_values = CombineTake(source.y_values, aggr_input_data);
+            target.x_columns = CombineTake(source.x_columns, aggr_input_data);
             target.n_features = source.n_features;
             target.initialized = true;
-            target.current_x = std::move(source.current_x);
+            target.current_x = CombineTake(source.current_x, aggr_input_data);
             target.has_current_x = source.has_current_x;
             target.fit_intercept = source.fit_intercept;
             target.confidence_level = source.confidence_level;
@@ -236,7 +242,7 @@ static void OlsFitPredictCombine(Vector &source_vector, Vector &target_vector, A
 
         // Keep current_x from source if it has one
         if (source.has_current_x) {
-            target.current_x = std::move(source.current_x);
+            target.current_x = CombineTake(source.current_x, aggr_input_data);
             target.has_current_x = true;
         }
     }
@@ -262,7 +268,7 @@ static void OlsFitPredictFinalize(Vector &state_vector, AggregateInputData &, Ve
         }
 
         // Need minimum data to fit
-        idx_t min_obs = state.fit_intercept ? state.n_features + 1 : state.n_features;
+        idx_t min_obs = MinObsForFit(state.x_columns, state.fit_intercept);
         if (state.y_values.size() <= min_obs) {
             FlatVector::SetNull(result, result_idx, true);
             continue;
@@ -296,16 +302,18 @@ static void OlsFitPredictFinalize(Vector &state_vector, AggregateInputData &, Ve
         bool success = anofox_ols_fit(y_array, x_arrays.data(), x_arrays.size(), options, &core_result, nullptr, &error);
 
         if (!success) {
+            ThrowUnlessDegenerate("ols_fit_predict", error);
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
 
         // Make prediction with interval
         AnofoxPredictionResult pred_result;
+        LeverageIntervals intervals(x_arrays, core_result.coefficients, core_result.coefficients_len,
+                                    core_result.intercept, state.fit_intercept, core_result.residual_std_error, core_result.n_observations,
+                                    nullptr, 0.0);
         bool pred_success =
-            anofox_predict_with_interval(core_result.coefficients, core_result.coefficients_len, core_result.intercept,
-                                         state.current_x.data(), state.current_x.size(), core_result.residual_std_error,
-                                         core_result.n_observations, state.confidence_level, &pred_result);
+            intervals.Predict(state.current_x.data(), state.current_x.size(), state.confidence_level, pred_result);
 
         anofox_free_result_core(&core_result);
 
@@ -316,8 +324,8 @@ static void OlsFitPredictFinalize(Vector &state_vector, AggregateInputData &, Ve
 
         // Fill result
         FlatVector::GetData<double>(*struct_entries[0])[result_idx] = pred_result.yhat;
-        FlatVector::GetData<double>(*struct_entries[1])[result_idx] = pred_result.yhat_lower;
-        FlatVector::GetData<double>(*struct_entries[2])[result_idx] = pred_result.yhat_upper;
+        WriteIntervalBound(*struct_entries[1], result_idx, pred_result.yhat_lower);
+        WriteIntervalBound(*struct_entries[2], result_idx, pred_result.yhat_upper);
 
         state.Reset();
     }
@@ -330,8 +338,10 @@ static unique_ptr<FunctionData> OlsFitPredictBind(ClientContext &context, Aggreg
                                                    vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<OlsFitPredictBindData>();
 
-    if (arguments.size() >= 3 && arguments[2]->IsFoldable()) {
-        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[2]);
+    if (arguments.size() >= 3) {
+        auto opts = RegressionMapOptions::ParseFromExpression(
+            context, *arguments[2], "ols_fit_predict",
+            {"fit_intercept", "confidence_level", "null_policy", "solver", "hc_type"});
         if (opts.fit_intercept.has_value()) {
             result->fit_intercept = opts.fit_intercept.value();
         }
@@ -380,7 +390,7 @@ void RegisterOlsFitPredictFunction(ExtensionLoader &loader) {
         info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
 
         FunctionDescription d1;
-        d1.description     = "Fits an OLS model over a window partition and returns predictions for each row, including confidence intervals.";
+        d1.description     = "Window aggregate: fits an OLS regression on the rows of the window frame and returns the prediction (with interval) for the LAST row of the frame. Use frames ending at CURRENT ROW over a unique ordering; for per-row predictions over a whole group use ols_fit_predict_agg.";
         d1.examples        = {"ols_fit_predict(y, x)"};
         d1.categories      = {"regression", "prediction"};
         d1.parameter_names = {"y", "x"};
@@ -388,7 +398,7 @@ void RegisterOlsFitPredictFunction(ExtensionLoader &loader) {
         info.descriptions.push_back(std::move(d1));
 
         FunctionDescription d2;
-        d2.description     = "Fits an OLS model over a window partition and returns predictions for each row, including confidence intervals.";
+        d2.description     = "Window aggregate: fits an OLS regression on the rows of the window frame and returns the prediction (with interval) for the LAST row of the frame. Use frames ending at CURRENT ROW over a unique ordering; for per-row predictions over a whole group use ols_fit_predict_agg.";
         d2.examples        = {"ols_fit_predict(y, x, {'null_policy': 'drop'})"};
         d2.categories      = {"regression", "prediction"};
         d2.parameter_names = {"y", "x", "options"};

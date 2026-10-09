@@ -5,7 +5,10 @@
 
 use super::{convert_error, filter_nan, TestResult};
 use crate::{StatsError, StatsResult};
-use anofox_tests::{permutation_t_test as lib_permutation_t_test, Alternative};
+use anofox_tests::{
+    bootstrap_mean_ci as lib_bootstrap_mean_ci, permutation_t_test as lib_permutation_t_test,
+    Alternative,
+};
 
 /// Options for permutation t-test
 #[derive(Debug, Clone)]
@@ -124,14 +127,14 @@ impl Default for BootstrapOptions {
 
 /// Bootstrap mean confidence interval
 ///
-/// Uses percentile method for CI estimation.
+/// Percentile bootstrap (delegates to `anofox_statistics::bootstrap_mean_ci`):
+/// IID resampling for `block_length == 0`, stationary bootstrap for 1,
+/// circular block bootstrap for larger block lengths.
 ///
 /// # Arguments
 /// * `data` - Sample data
 /// * `options` - Bootstrap options
 pub fn bootstrap_mean(data: &[f64], options: &BootstrapOptions) -> StatsResult<BootstrapResult> {
-    use anofox_tests::{CircularBlockBootstrap, StationaryBootstrap};
-
     let filtered = filter_nan(data);
 
     if filtered.len() < 2 {
@@ -140,68 +143,34 @@ pub fn bootstrap_mean(data: &[f64], options: &BootstrapOptions) -> StatsResult<B
         ));
     }
 
-    // Compute original mean
-    let original_mean: f64 = filtered.iter().sum::<f64>() / filtered.len() as f64;
-    let mut bootstrap_means: Vec<f64> = Vec::with_capacity(options.n_bootstrap);
-
-    if options.block_length > 0 {
-        // Block bootstrap for dependent data
-        if options.block_length > 1 {
-            // Circular block bootstrap
-            let mut cb = CircularBlockBootstrap::new(options.block_length, options.seed);
-            let samples = cb.samples(&filtered, filtered.len(), options.n_bootstrap);
-            for sample in samples {
-                let sample_mean = sample.iter().sum::<f64>() / sample.len() as f64;
-                bootstrap_means.push(sample_mean);
-            }
-        } else {
-            // Stationary bootstrap with expected block length = 1
-            let mut sb = StationaryBootstrap::new(1.0, options.seed);
-            let samples = sb.samples(&filtered, filtered.len(), options.n_bootstrap);
-            for sample in samples {
-                let sample_mean = sample.iter().sum::<f64>() / sample.len() as f64;
-                bootstrap_means.push(sample_mean);
-            }
-        }
-    } else {
-        // IID bootstrap
-        use rand::prelude::*;
-        let mut rng = match options.seed {
-            Some(s) => StdRng::seed_from_u64(s),
-            None => StdRng::from_entropy(),
-        };
-        for _ in 0..options.n_bootstrap {
-            let sample: Vec<f64> = (0..filtered.len())
-                .map(|_| filtered[rng.gen_range(0..filtered.len())])
-                .collect();
-            let sample_mean = sample.iter().sum::<f64>() / sample.len() as f64;
-            bootstrap_means.push(sample_mean);
-        }
+    if options.n_bootstrap < 2 {
+        return Err(StatsError::InvalidInput(format!(
+            "n_bootstrap must be >= 2, got {}",
+            options.n_bootstrap
+        )));
+    }
+    if !(options.confidence_level > 0.0 && options.confidence_level < 1.0) {
+        return Err(StatsError::InvalidInput(format!(
+            "confidence_level must be in (0, 1), got {}",
+            options.confidence_level
+        )));
     }
 
-    // Sort for percentile method
-    bootstrap_means.sort_by(|a, b| a.partial_cmp(b).unwrap());
-
-    let alpha = 1.0 - options.confidence_level;
-    let lower_idx = ((alpha / 2.0) * options.n_bootstrap as f64).floor() as usize;
-    let upper_idx = ((1.0 - alpha / 2.0) * options.n_bootstrap as f64).ceil() as usize;
-
-    let se = {
-        let mean_of_means = bootstrap_means.iter().sum::<f64>() / options.n_bootstrap as f64;
-        let variance = bootstrap_means
-            .iter()
-            .map(|x| (x - mean_of_means).powi(2))
-            .sum::<f64>()
-            / (options.n_bootstrap - 1) as f64;
-        variance.sqrt()
-    };
+    let result = lib_bootstrap_mean_ci(
+        &filtered,
+        options.n_bootstrap,
+        options.confidence_level,
+        options.block_length,
+        options.seed,
+    )
+    .map_err(convert_error)?;
 
     Ok(BootstrapResult {
-        statistic: original_mean,
-        se,
-        ci_lower: bootstrap_means[lower_idx.min(bootstrap_means.len() - 1)],
-        ci_upper: bootstrap_means[upper_idx.min(bootstrap_means.len() - 1)],
-        n_bootstrap: options.n_bootstrap,
+        statistic: result.estimate,
+        se: result.se,
+        ci_lower: result.conf_int_lower,
+        ci_upper: result.conf_int_upper,
+        n_bootstrap: result.n_bootstrap,
     })
 }
 
@@ -235,5 +204,38 @@ mod tests {
 
         assert!((result.statistic - 5.5).abs() < 0.01); // Mean should be 5.5
         assert!(result.ci_lower < 5.5 && result.ci_upper > 5.5);
+    }
+
+    #[test]
+    fn test_bootstrap_rejects_degenerate_options() {
+        let data = vec![1.0, 2.0, 3.0, 4.0];
+        for n_bootstrap in [0, 1] {
+            let opts = BootstrapOptions {
+                n_bootstrap,
+                seed: Some(1),
+                ..Default::default()
+            };
+            assert!(bootstrap_mean(&data, &opts).is_err());
+        }
+        for cl in [0.0, 1.0, f64::NAN, 1.5] {
+            let opts = BootstrapOptions {
+                n_bootstrap: 100,
+                confidence_level: cl,
+                seed: Some(1),
+                ..Default::default()
+            };
+            assert!(bootstrap_mean(&data, &opts).is_err());
+        }
+    }
+
+    #[test]
+    fn test_bootstrap_with_infinities_does_not_panic() {
+        let data = vec![f64::INFINITY, f64::NEG_INFINITY, 1.0, 2.0];
+        let opts = BootstrapOptions {
+            n_bootstrap: 200,
+            seed: Some(7),
+            ..Default::default()
+        };
+        assert!(bootstrap_mean(&data, &opts).is_ok());
     }
 }
