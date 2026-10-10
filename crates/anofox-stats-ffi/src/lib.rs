@@ -324,6 +324,7 @@ pub unsafe extern "C" fn anofox_ols_fit(
                     residual_std_error: result.core.residual_std_error,
                     n_observations: result.core.n_observations,
                     n_features: result.core.n_features,
+                    summary: ModelSummaryFFI::from(&result.summary),
                 };
 
                 // Fill inference results if requested and available
@@ -517,6 +518,7 @@ pub unsafe extern "C" fn anofox_huber_fit(
                     residual_std_error: result.core.residual_std_error,
                     n_observations: result.core.n_observations,
                     n_features: result.core.n_features,
+                    summary: ModelSummaryFFI::from(&result.summary),
                 };
 
                 if !out_inference.is_null() {
@@ -727,6 +729,7 @@ pub unsafe extern "C" fn anofox_ransac_fit(
                     residual_std_error: result.core.residual_std_error,
                     n_observations: result.core.n_observations,
                     n_features: result.core.n_features,
+                    summary: ModelSummaryFFI::from(&result.summary),
                 };
 
                 if !out_inference.is_null() {
@@ -924,6 +927,7 @@ pub unsafe extern "C" fn anofox_theilsen_fit(
                     residual_std_error: result.core.residual_std_error,
                     n_observations: result.core.n_observations,
                     n_features: result.core.n_features,
+                    summary: ModelSummaryFFI::from(&result.summary),
                 };
 
                 if !out_inference.is_null() {
@@ -1067,6 +1071,7 @@ pub unsafe extern "C" fn anofox_ridge_fit(
                     residual_std_error: result.core.residual_std_error,
                     n_observations: result.core.n_observations,
                     n_features: result.core.n_features,
+                    summary: ModelSummaryFFI::from(&result.summary),
                 };
 
                 // Fill inference results if requested and available
@@ -1206,6 +1211,7 @@ pub unsafe extern "C" fn anofox_elasticnet_fit(
                     residual_std_error: result.core.residual_std_error,
                     n_observations: result.core.n_observations,
                     n_features: result.core.n_features,
+                    summary: ModelSummaryFFI::from(&result.summary),
                 };
 
                 true
@@ -1315,6 +1321,7 @@ pub unsafe extern "C" fn anofox_lars_fit(
                     residual_std_error: result.core.residual_std_error,
                     n_observations: result.core.n_observations,
                     n_features: result.core.n_features,
+                    summary: ModelSummaryFFI::from(&result.summary),
                 };
 
                 true
@@ -1444,6 +1451,7 @@ pub unsafe extern "C" fn anofox_wls_fit(
                     residual_std_error: result.core.residual_std_error,
                     n_observations: result.core.n_observations,
                     n_features: result.core.n_features,
+                    summary: ModelSummaryFFI::from(&result.summary),
                 };
 
                 // Fill inference results if requested and available
@@ -2100,6 +2108,7 @@ pub unsafe extern "C" fn anofox_rls_fit(
                     residual_std_error: core.residual_std_error,
                     n_observations: core.n_observations,
                     n_features: core.n_features,
+                    summary: ModelSummaryFFI::from(&fit.summary),
                 };
 
                 true

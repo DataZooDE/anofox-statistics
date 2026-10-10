@@ -50,6 +50,28 @@ typedef struct {
 	size_t len;
 } AnofoxDataArray;
 
+#define ANOFOX_MODEL_NAME_LEN 32
+
+/**
+ * What was fitted, its likelihood-based fit statistics and the intercept's
+ * inference (#152). Names are NUL-terminated; an empty family means the
+ * estimator has no likelihood (NULL in SQL). Statistics that do not apply or
+ * were not computed are NaN.
+ */
+typedef struct {
+	char model_type[ANOFOX_MODEL_NAME_LEN];
+	char family[ANOFOX_MODEL_NAME_LEN];
+	char link[ANOFOX_MODEL_NAME_LEN];
+	double log_likelihood;
+	double aic;
+	double bic;
+	double intercept_std_error;
+	double intercept_statistic;
+	double intercept_p_value;
+	double intercept_conf_low;
+	double intercept_conf_high;
+} AnofoxModelSummaryFFI;
+
 /**
  * Core fit result (always returned)
  */
@@ -70,6 +92,8 @@ typedef struct {
 	size_t n_observations;
 	/** Number of features */
 	size_t n_features;
+	/** Model description, fit statistics and intercept inference */
+	AnofoxModelSummaryFFI summary;
 } AnofoxFitResultCore;
 
 /**

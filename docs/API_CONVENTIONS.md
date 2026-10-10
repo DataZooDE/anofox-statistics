@@ -155,13 +155,21 @@ Result structs use `snake_case` field names. The **standard field set** for line
 | `residual_std_error` | DOUBLE | Residual standard error |
 | `n_observations` | BIGINT | Number of observations used |
 | `n_features` | BIGINT | Number of features (predictors) |
-| `std_errors` | DOUBLE[] | Standard errors (only with `compute_inference: true`) |
-| `t_values` | DOUBLE[] | t-statistics (only with `compute_inference: true`) |
-| `p_values` | DOUBLE[] | Two-sided p-values (only with `compute_inference: true`) |
-| `ci_lower`, `ci_upper` | DOUBLE[] | Confidence-interval bounds (only with `compute_inference: true`) |
-| `f_statistic`, `f_pvalue` | DOUBLE | Overall F-test (only with `compute_inference: true`) |
+| `std_errors` | DOUBLE[] | Standard errors (NULL without `compute_inference: true`) |
+| `t_values` | DOUBLE[] | t-statistics (NULL without `compute_inference: true`) |
+| `p_values` | DOUBLE[] | Two-sided p-values (NULL without `compute_inference: true`) |
+| `ci_lower`, `ci_upper` | DOUBLE[] | Deprecated aliases of `conf_low`, `conf_high` |
+| `f_statistic`, `f_pvalue` | DOUBLE | Overall F-test (NULL without `compute_inference: true`) |
+| `conf_low`, `conf_high` | DOUBLE[] | Confidence-interval bounds (NULL without `compute_inference: true`) |
+| `conf_level` | DOUBLE | Confidence level of the intervals |
+| `intercept_std_error`, `intercept_statistic`, `intercept_p_value`, `intercept_conf_low`, `intercept_conf_high` | DOUBLE | The intercept's inference |
+| `log_likelihood`, `aic`, `bic` | DOUBLE | As R's `logLik`, `AIC`, `BIC`; NULL for Huber, RANSAC, Theil-Sen (no likelihood) |
+| `model_type`, `family`, `link` | VARCHAR | What was fitted, e.g. `'ols'`, `'gaussian'`, `'identity'`; `family` is NULL without a likelihood |
 
-Elastic Net, LARS and RLS return only the first seven fields. Robust models add their own fields (`scale`, `n_outliers` for Huber; `residual_threshold`, `n_inliers`, `n_trials` for RANSAC). Coefficients of constant (zero-variance) or aliased columns are reported as `NaN`, see [NULL_SEMANTICS.md](NULL_SEMANTICS.md).
+The shape of the struct does not depend on the options (#152): fields that were
+not computed are NULL. Elastic Net, LARS and RLS have no coefficient inference
+(their inference fields are always NULL, and they have no `ci_lower`,
+`ci_upper`, `f_statistic`, `f_pvalue`). Robust models add their own fields (`scale`, `n_outliers` for Huber; `residual_threshold`, `n_inliers`, `n_trials` for RANSAC). Coefficients of constant (zero-variance) or aliased columns are reported as `NaN`, see [NULL_SEMANTICS.md](NULL_SEMANTICS.md).
 
 ### Per-family exceptions (intentional — do NOT force z → t)
 

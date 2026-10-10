@@ -10,6 +10,7 @@
 #include "../include/error_dispatch.hpp"
 #include "../include/ffi_enum_converters.hpp"
 #include "../include/map_options_parser.hpp"
+#include "../include/model_struct.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 #include "list_input.hpp"
@@ -77,7 +78,7 @@ struct WlsAggregateBindData : public FunctionData {
 //===--------------------------------------------------------------------===//
 // Result type definition
 //===--------------------------------------------------------------------===//
-static LogicalType GetWlsAggResultType(bool compute_inference) {
+static LogicalType GetWlsAggResultType() {
     child_list_t<LogicalType> children;
 
     children.push_back(make_pair("coefficients", LogicalType::LIST(LogicalType::DOUBLE)));
@@ -88,15 +89,10 @@ static LogicalType GetWlsAggResultType(bool compute_inference) {
     children.push_back(make_pair("n_observations", LogicalType::BIGINT));
     children.push_back(make_pair("n_features", LogicalType::BIGINT));
 
-    if (compute_inference) {
-        children.push_back(make_pair("std_errors", LogicalType::LIST(LogicalType::DOUBLE)));
-        children.push_back(make_pair("t_values", LogicalType::LIST(LogicalType::DOUBLE)));
-        children.push_back(make_pair("p_values", LogicalType::LIST(LogicalType::DOUBLE)));
-        children.push_back(make_pair("ci_lower", LogicalType::LIST(LogicalType::DOUBLE)));
-        children.push_back(make_pair("ci_upper", LogicalType::LIST(LogicalType::DOUBLE)));
-        children.push_back(make_pair("f_statistic", LogicalType::DOUBLE));
-        children.push_back(make_pair("f_pvalue", LogicalType::DOUBLE));
-    }
+    // Stable shape (#152): the inference fields are always present, NULL
+    // without compute_inference.
+    AppendCoefficientInferenceFields(children);
+    AppendModelSummaryFields(children);
 
     return LogicalType::STRUCT(std::move(children));
 }
@@ -281,6 +277,7 @@ static void WlsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
     auto states = (WlsAggregateState **)sdata.data;
 
     auto &struct_entries = StructVector::GetEntries(result);
+    ModelStructWriter writer(result);
 
     for (idx_t i = 0; i < count; i++) {
         auto &state = *states[sdata.sel->get_index(i)];
@@ -349,18 +346,10 @@ static void WlsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
         FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = core_result.n_observations;
         FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = core_result.n_features;
 
-        // Inference results
+        // Inference (NULL unless requested), CI fields and the model summary
+        writer.WriteInference(result_idx, state.compute_inference ? &inference_result : nullptr);
+        writer.WriteSummary(result_idx, core_result.summary);
         if (state.compute_inference) {
-            SetListInResult(*struct_entries[struct_idx++], result_idx, inference_result.std_errors,
-                            inference_result.len);
-            SetListInResult(*struct_entries[struct_idx++], result_idx, inference_result.t_values, inference_result.len);
-            SetListInResult(*struct_entries[struct_idx++], result_idx, inference_result.p_values, inference_result.len);
-            SetListInResult(*struct_entries[struct_idx++], result_idx, inference_result.ci_lower, inference_result.len);
-            SetListInResult(*struct_entries[struct_idx++], result_idx, inference_result.ci_upper, inference_result.len);
-
-            FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = inference_result.f_statistic;
-            FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = inference_result.f_pvalue;
-
             anofox_free_result_inference(&inference_result);
         }
 
@@ -401,7 +390,7 @@ static unique_ptr<FunctionData> WlsAggBind(ClientContext &context, AggregateFunc
     }
 
     // Set return type based on options
-    function.return_type = GetWlsAggResultType(result->compute_inference);
+    function.return_type = GetWlsAggResultType();
 
     PostHogTelemetry::Instance().RecordFunctionCall("wls_fit_agg");
     return std::move(result);

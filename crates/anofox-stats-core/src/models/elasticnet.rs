@@ -1,7 +1,8 @@
 //! Elastic Net Regression (combined L1+L2 regularization) wrapper
 
 use crate::errors::{StatsError, StatsResult};
-use crate::types::{ElasticNetOptions, FitResult, FitResultCore, LambdaScaling};
+use crate::types::{ElasticNetOptions, FitResult, FitResultCore, LambdaScaling, ModelSummary};
+use anofox_regression::core::{HasModelInfo, ModelInfo};
 use anofox_regression::prelude::*;
 use faer::{Col, Mat};
 
@@ -109,6 +110,7 @@ pub fn fit_elasticnet(
                 },
                 inference: None,
                 diagnostics: None,
+                summary: ModelSummary::new(ModelInfo::gaussian("elastic_net")),
             });
         }
     }
@@ -179,6 +181,7 @@ pub fn fit_elasticnet(
         core,
         inference: None,
         diagnostics: None,
+        summary: ModelSummary::from_result(fitted.model_info(), result, false),
     })
 }
 

@@ -11,6 +11,7 @@
 #include <string>
 
 #include "duckdb.hpp"
+#include "duckdb/common/vector_operations/vector_operations.hpp"
 #include "duckdb/function/scalar_function.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
 #include "duckdb/parser/parsed_data/create_scalar_function_info.hpp"
@@ -27,7 +28,8 @@ constexpr idx_t kNone = DConstants::INVALID_INDEX;
 
 struct TidyBindData : public FunctionData {
 	idx_t coef = kNone, intercept = kNone, std_errors = kNone, statistic = kNone, p_values = kNone,
-	      ci_lower = kNone, ci_upper = kNone, intercept_se = kNone;
+	      ci_lower = kNone, ci_upper = kNone, intercept_se = kNone, intercept_statistic = kNone,
+	      intercept_p_value = kNone, intercept_conf_low = kNone, intercept_conf_high = kNone, conf_level = kNone;
 
 	unique_ptr<FunctionData> Copy() const override {
 		return make_uniq<TidyBindData>(*this);
@@ -36,7 +38,10 @@ struct TidyBindData : public FunctionData {
 		auto &o = other_p.Cast<TidyBindData>();
 		return coef == o.coef && intercept == o.intercept && std_errors == o.std_errors &&
 		       statistic == o.statistic && p_values == o.p_values && ci_lower == o.ci_lower &&
-		       ci_upper == o.ci_upper && intercept_se == o.intercept_se;
+		       ci_upper == o.ci_upper && intercept_se == o.intercept_se &&
+		       intercept_statistic == o.intercept_statistic && intercept_p_value == o.intercept_p_value &&
+		       intercept_conf_low == o.intercept_conf_low && intercept_conf_high == o.intercept_conf_high &&
+		       conf_level == o.conf_level;
 	}
 };
 
@@ -63,6 +68,11 @@ LogicalType TidyRowType() {
 	c.push_back(make_pair("p_value", LogicalType::DOUBLE));
 	c.push_back(make_pair("conf_low", LogicalType::DOUBLE));
 	c.push_back(make_pair("conf_high", LogicalType::DOUBLE));
+	// integration contract `terms`: the CI level, and the index of a coefficient
+	// path / process (lambda, tau, window_end, ...), NULL for a single fit.
+	c.push_back(make_pair("conf_level", LogicalType::DOUBLE));
+	c.push_back(make_pair("index_name", LogicalType::VARCHAR));
+	c.push_back(make_pair("index_value", LogicalType::DOUBLE));
 	return LogicalType::STRUCT(std::move(c));
 }
 
@@ -82,9 +92,9 @@ unique_ptr<FunctionData> TidyBind(ClientContext &, ScalarFunction &, vector<uniq
 				data->statistic = i;
 			} else if (name == "p_values") {
 				data->p_values = i;
-			} else if (name == "ci_lower") {
+			} else if (name == "conf_low" || (name == "ci_lower" && data->ci_lower == kNone)) {
 				data->ci_lower = i;
-			} else if (name == "ci_upper") {
+			} else if (name == "conf_high" || (name == "ci_upper" && data->ci_upper == kNone)) {
 				data->ci_upper = i;
 			}
 		} else if (t.id() == LogicalTypeId::DOUBLE) {
@@ -92,6 +102,16 @@ unique_ptr<FunctionData> TidyBind(ClientContext &, ScalarFunction &, vector<uniq
 				data->intercept = i;
 			} else if (name == "intercept_std_error") {
 				data->intercept_se = i;
+			} else if (name == "intercept_statistic") {
+				data->intercept_statistic = i;
+			} else if (name == "intercept_p_value") {
+				data->intercept_p_value = i;
+			} else if (name == "intercept_conf_low") {
+				data->intercept_conf_low = i;
+			} else if (name == "intercept_conf_high") {
+				data->intercept_conf_high = i;
+			} else if (name == "conf_level") {
+				data->conf_level = i;
 			}
 		}
 	}
@@ -188,6 +208,8 @@ static void TidyFunctionImpl(DataChunk &args, ExpressionState &state, Vector &re
 		DoubleListView se(entries, bind.std_errors, row), stat(entries, bind.statistic, row),
 		    pv(entries, bind.p_values, row), lo(entries, bind.ci_lower, row), hi(entries, bind.ci_upper, row);
 		double intercept = ScalarField(entries, bind.intercept, row);
+		// conf_level only describes rows that have an interval.
+		double conf_level = lo.present ? ScalarField(entries, bind.conf_level, row) : std::nan("");
 		bool has_intercept = std::isfinite(intercept);
 		idx_t k = coef.length;
 		// Inference lists either cover the slopes only, or the intercept first and then the slopes.
@@ -220,12 +242,19 @@ static void TidyFunctionImpl(DataChunk &args, ExpressionState &state, Vector &re
 		if (has_intercept) {
 			fields[0]->SetValue(out, Value("(Intercept)"));
 			WriteDouble(*fields[1], out, intercept);
-			double i_se = inference_has_intercept ? se.At(0) : ScalarField(entries, bind.intercept_se, row);
-			WriteDouble(*fields[2], out, i_se);
-			WriteDouble(*fields[3], out, inference_has_intercept ? stat.At(0) : std::nan(""));
-			WriteDouble(*fields[4], out, inference_has_intercept ? pv.At(0) : std::nan(""));
-			WriteDouble(*fields[5], out, inference_has_intercept ? lo.At(0) : std::nan(""));
-			WriteDouble(*fields[6], out, inference_has_intercept ? hi.At(0) : std::nan(""));
+			// The intercept's inference is either the first entry of the inference
+			// lists or its own intercept_* fields (#152).
+			auto intercept_field = [&](idx_t field, const DoubleListView &list) {
+				return inference_has_intercept ? list.At(0) : ScalarField(entries, field, row);
+			};
+			WriteDouble(*fields[2], out, intercept_field(bind.intercept_se, se));
+			WriteDouble(*fields[3], out, intercept_field(bind.intercept_statistic, stat));
+			WriteDouble(*fields[4], out, intercept_field(bind.intercept_p_value, pv));
+			WriteDouble(*fields[5], out, intercept_field(bind.intercept_conf_low, lo));
+			WriteDouble(*fields[6], out, intercept_field(bind.intercept_conf_high, hi));
+			WriteDouble(*fields[7], out, conf_level);
+			FlatVector::SetNull(*fields[8], out, true);
+			FlatVector::SetNull(*fields[9], out, true);
 			out++;
 		}
 		for (idx_t j = 0; j < k; j++, out++) {
@@ -236,6 +265,9 @@ static void TidyFunctionImpl(DataChunk &args, ExpressionState &state, Vector &re
 			WriteDouble(*fields[4], out, pv.At(j + shift));
 			WriteDouble(*fields[5], out, lo.At(j + shift));
 			WriteDouble(*fields[6], out, hi.At(j + shift));
+			WriteDouble(*fields[7], out, conf_level);
+			FlatVector::SetNull(*fields[8], out, true);
+			FlatVector::SetNull(*fields[9], out, true);
 		}
 		result_lists[row] = {list_offset, n_terms};
 		ListVector::SetListSize(result, list_offset + n_terms);
@@ -244,38 +276,68 @@ static void TidyFunctionImpl(DataChunk &args, ExpressionState &state, Vector &re
 }
 
 //===--------------------------------------------------------------------===//
-// glance: the model's scalar (non-LIST, non-STRUCT) fields
+// glance: one fixed set of model-level fields for every model (#152, the
+// integration contract's `summary` schema in wide form). Fields a model does not
+// have are NULL; model-specific scalars (Huber's scale, ...) stay on the model.
 //===--------------------------------------------------------------------===//
+struct GlanceField {
+	const char *name;
+	LogicalTypeId type;
+};
+
+const GlanceField GLANCE_FIELDS[] = {
+    {"model_type", LogicalTypeId::VARCHAR},   {"family", LogicalTypeId::VARCHAR},
+    {"link", LogicalTypeId::VARCHAR},         {"n_observations", LogicalTypeId::BIGINT},
+    {"n_features", LogicalTypeId::BIGINT},    {"r_squared", LogicalTypeId::DOUBLE},
+    {"adj_r_squared", LogicalTypeId::DOUBLE}, {"residual_std_error", LogicalTypeId::DOUBLE},
+    {"f_statistic", LogicalTypeId::DOUBLE},   {"f_pvalue", LogicalTypeId::DOUBLE},
+    {"log_likelihood", LogicalTypeId::DOUBLE}, {"aic", LogicalTypeId::DOUBLE},
+    {"bic", LogicalTypeId::DOUBLE},           {"deviance", LogicalTypeId::DOUBLE},
+    {"null_deviance", LogicalTypeId::DOUBLE}, {"pseudo_r_squared", LogicalTypeId::DOUBLE},
+    {"dispersion", LogicalTypeId::DOUBLE},    {"iterations", LogicalTypeId::BIGINT},
+    {"converged", LogicalTypeId::BOOLEAN},
+};
+
+LogicalType GlanceType() {
+	child_list_t<LogicalType> out;
+	for (auto &f : GLANCE_FIELDS) {
+		out.push_back(make_pair(f.name, LogicalType(f.type)));
+	}
+	return LogicalType::STRUCT(std::move(out));
+}
+
 struct GlanceBindData : public FunctionData {
-	vector<idx_t> fields;
+	//! Per output field: the model field it comes from, or kNone.
+	vector<idx_t> sources;
 
 	unique_ptr<FunctionData> Copy() const override {
 		return make_uniq<GlanceBindData>(*this);
 	}
 	bool Equals(const FunctionData &other_p) const override {
-		return fields == other_p.Cast<GlanceBindData>().fields;
+		return sources == other_p.Cast<GlanceBindData>().sources;
 	}
 };
 
-unique_ptr<FunctionData> GlanceBind(ClientContext &, ScalarFunction &bound_function,
-                                    vector<unique_ptr<Expression>> &arguments) {
+bool IsScalarType(const LogicalType &t) {
+	auto id = t.id();
+	return id != LogicalTypeId::LIST && id != LogicalTypeId::STRUCT && id != LogicalTypeId::MAP &&
+	       id != LogicalTypeId::ARRAY;
+}
+
+unique_ptr<FunctionData> GlanceBind(ClientContext &, ScalarFunction &, vector<unique_ptr<Expression>> &arguments) {
 	auto &type = RequireModelStruct("glance", arguments[0]);
 	auto data = make_uniq<GlanceBindData>();
-	child_list_t<LogicalType> out;
 	auto &children = StructType::GetChildTypes(type);
-	for (idx_t i = 0; i < children.size(); i++) {
-		auto id = children[i].second.id();
-		if (id == LogicalTypeId::LIST || id == LogicalTypeId::STRUCT || id == LogicalTypeId::MAP ||
-		    id == LogicalTypeId::ARRAY) {
-			continue;
+	for (auto &f : GLANCE_FIELDS) {
+		idx_t source = kNone;
+		for (idx_t i = 0; i < children.size(); i++) {
+			if (children[i].first == f.name && IsScalarType(children[i].second)) {
+				source = i;
+				break;
+			}
 		}
-		data->fields.push_back(i);
-		out.push_back(children[i]);
+		data->sources.push_back(source);
 	}
-	if (out.empty()) {
-		throw InvalidInputException("glance(model): model has no scalar fields");
-	}
-	bound_function.return_type = LogicalType::STRUCT(std::move(out));
 	PostHogTelemetry::Instance().RecordFunctionCall("glance");
 	return std::move(data);
 }
@@ -300,8 +362,16 @@ static void GlanceFunctionImpl(DataChunk &args, ExpressionState &state, Vector &
 	auto &model = args.data[0];
 	auto &entries = StructVector::GetEntries(model);
 	auto &out = StructVector::GetEntries(result);
-	for (idx_t k = 0; k < bind.fields.size(); k++) {
-		out[k]->Reference(*entries[bind.fields[k]]);
+	for (idx_t k = 0; k < bind.sources.size(); k++) {
+		auto source = bind.sources[k];
+		if (source == kNone) {
+			out[k]->SetVectorType(VectorType::FLAT_VECTOR);
+			FlatVector::Validity(*out[k]).SetAllInvalid(count);
+		} else if (entries[source]->GetType() == out[k]->GetType()) {
+			out[k]->Reference(*entries[source]);
+		} else {
+			VectorOperations::DefaultCast(*entries[source], *out[k], count);
+		}
 	}
 	auto &validity = FlatVector::Validity(result);
 	for (idx_t row = 0; row < count; row++) {
@@ -328,8 +398,8 @@ void RegisterTidyGlanceFunctions(ExtensionLoader &loader) {
 	tidy_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
 	FunctionDescription td;
 	td.description = "One entry per model term (intercept first): term, estimate, std_error, statistic, p_value, "
-	                 "conf_low, conf_high. Unnest it to get a coefficient table; pass term names as a second "
-	                 "argument.";
+	                 "conf_low, conf_high, conf_level, index_name, index_value (the integration contract's terms "
+	                 "schema). Unnest it to get a coefficient table; pass term names as a second argument.";
 	td.examples = {"unnest(tidy(ols_fit_agg(y, [x1, x2], {'compute_inference': true})), recursive := true)",
 	               "tidy(model, ['price', 'promo'])"};
 	td.categories = {"regression"};
@@ -338,14 +408,16 @@ void RegisterTidyGlanceFunctions(ExtensionLoader &loader) {
 	tidy_info.descriptions.push_back(std::move(td));
 	loader.RegisterFunction(std::move(tidy_info));
 
-	ScalarFunction glance("glance", {LogicalType::ANY}, LogicalType::ANY, DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, GlanceFunction),
-	                      GlanceBind);
+	ScalarFunction glance("glance", {LogicalType::ANY}, GlanceType(),
+	                      DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, GlanceFunction), GlanceBind);
 	glance.null_handling = FunctionNullHandling::SPECIAL_HANDLING;
 	CreateScalarFunctionInfo glance_info(glance);
 	glance_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
 	FunctionDescription gd;
-	gd.description = "Model-level summary: the scalar fields of a fitted model STRUCT (r_squared, aic, "
-	                 "n_observations, ...), without the per-coefficient lists.";
+	gd.description = "Model-level summary with the same fields for every model: model_type, family, link, "
+	                 "n_observations, n_features, r_squared, adj_r_squared, residual_std_error, f_statistic, "
+	                 "f_pvalue, log_likelihood, aic, bic, deviance, null_deviance, pseudo_r_squared, dispersion, "
+	                 "iterations, converged. Fields a model does not have are NULL.";
 	gd.examples = {"glance(ols_fit_agg(y, [x1, x2])).*"};
 	gd.categories = {"regression"};
 	gd.parameter_names = {"model"};

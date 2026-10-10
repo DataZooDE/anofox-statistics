@@ -110,20 +110,40 @@ FROM ols_demo;
 | `n_observations` | `BIGINT` | Rows used in the fit |
 | `n_features` | `BIGINT` | Number of features |
 
-With `compute_inference = true` these fields are added:
+Coefficient inference; the fields are always present and NULL unless
+`compute_inference = true`:
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `std_errors` | `DOUBLE[]` | Coefficient standard errors (HC-adjusted if `hc_type` is set) |
 | `t_values` | `DOUBLE[]` | t-statistics |
 | `p_values` | `DOUBLE[]` | Two-sided p-values |
-| `ci_lower` | `DOUBLE[]` | Lower confidence bounds |
-| `ci_upper` | `DOUBLE[]` | Upper confidence bounds |
+| `ci_lower` | `DOUBLE[]` | Deprecated alias of `conf_low` |
+| `ci_upper` | `DOUBLE[]` | Deprecated alias of `conf_high` |
 | `f_statistic` | `DOUBLE` | Overall F-statistic |
 | `f_pvalue` | `DOUBLE` | p-value of the F-test |
+| `conf_low` | `DOUBLE[]` | Lower confidence bounds |
+| `conf_high` | `DOUBLE[]` | Upper confidence bounds |
+| `conf_level` | `DOUBLE` | Confidence level of the intervals |
+| `intercept_std_error` | `DOUBLE` | Intercept standard error (HC-adjusted if `hc_type` is set) |
+| `intercept_statistic` | `DOUBLE` | Intercept t-statistic |
+| `intercept_p_value` | `DOUBLE` | Intercept p-value |
+| `intercept_conf_low` | `DOUBLE` | Intercept lower confidence bound |
+| `intercept_conf_high` | `DOUBLE` | Intercept upper confidence bound |
 
-The inference lists cover the feature coefficients only, in the same order as
-`coefficients`.
+The inference lists cover the feature coefficients, in the same order as
+`coefficients`; the intercept has its own `intercept_*` fields.
+
+Always present:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `log_likelihood` | `DOUBLE` | Gaussian log-likelihood, as R's `logLik(lm(...))` |
+| `aic` | `DOUBLE` | AIC, as R's `AIC` (the residual variance counts as a parameter) |
+| `bic` | `DOUBLE` | BIC, as R's `BIC` |
+| `model_type` | `VARCHAR` | `'ols'` |
+| `family` | `VARCHAR` | `'gaussian'` |
+| `link` | `VARCHAR` | `'identity'` |
 
 ## NULL handling
 

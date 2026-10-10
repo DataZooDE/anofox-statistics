@@ -12,12 +12,13 @@
 #include "../include/error_dispatch.hpp"
 #include "../include/ffi_enum_converters.hpp"
 #include "../include/map_options_parser.hpp"
+#include "../include/model_struct.hpp"
 #include "telemetry.hpp"
 #include "anofox_statistics_banner.hpp"
 
 namespace duckdb {
 
-static LogicalType GetRansacResultType(bool compute_inference) {
+static LogicalType GetRansacResultType() {
     child_list_t<LogicalType> children;
 
     children.push_back(make_pair("coefficients", LogicalType::LIST(LogicalType::DOUBLE)));
@@ -31,15 +32,10 @@ static LogicalType GetRansacResultType(bool compute_inference) {
     children.push_back(make_pair("n_inliers", LogicalType::BIGINT));
     children.push_back(make_pair("n_trials", LogicalType::BIGINT));
 
-    if (compute_inference) {
-        children.push_back(make_pair("std_errors", LogicalType::LIST(LogicalType::DOUBLE)));
-        children.push_back(make_pair("t_values", LogicalType::LIST(LogicalType::DOUBLE)));
-        children.push_back(make_pair("p_values", LogicalType::LIST(LogicalType::DOUBLE)));
-        children.push_back(make_pair("ci_lower", LogicalType::LIST(LogicalType::DOUBLE)));
-        children.push_back(make_pair("ci_upper", LogicalType::LIST(LogicalType::DOUBLE)));
-        children.push_back(make_pair("f_statistic", LogicalType::DOUBLE));
-        children.push_back(make_pair("f_pvalue", LogicalType::DOUBLE));
-    }
+    // Stable shape (#152): the inference fields are always present, NULL
+    // without compute_inference.
+    AppendCoefficientInferenceFields(children);
+    AppendModelSummaryFields(children);
 
     return LogicalType::STRUCT(std::move(children));
 }
@@ -128,7 +124,7 @@ static unique_ptr<FunctionData> RansacFitBind(ClientContext &context, ScalarFunc
         }
     }
 
-    bound_function.return_type = GetRansacResultType(result->compute_inference);
+    bound_function.return_type = GetRansacResultType();
 
     PostHogTelemetry::Instance().RecordFunctionCall("ransac_fit");
     return std::move(result);
@@ -229,6 +225,7 @@ static void RansacFitFunctionImpl(DataChunk &args, ExpressionState &state, Vecto
         }
 
         auto &struct_vec = StructVector::GetEntries(result);
+        ModelStructWriter writer(result);
         idx_t struct_idx = 0;
 
         auto &coef_list = *struct_vec[struct_idx++];
@@ -251,27 +248,10 @@ static void RansacFitFunctionImpl(DataChunk &args, ExpressionState &state, Vecto
         FlatVector::GetData<int64_t>(*struct_vec[struct_idx++])[row] = (int64_t)extras_result.n_inliers;
         FlatVector::GetData<int64_t>(*struct_vec[struct_idx++])[row] = (int64_t)extras_result.n_trials;
 
+        // Inference (NULL unless requested), CI fields and the model summary
+        writer.WriteInference(row, bind_data.compute_inference ? &inference_result : nullptr);
+        writer.WriteSummary(row, core_result.summary);
         if (bind_data.compute_inference) {
-            auto set_list = [&](Vector &list_vec, double *data, size_t len) {
-                auto &child = ListVector::GetEntry(list_vec);
-                auto offset = ListVector::GetListSize(list_vec);
-                ListVector::SetListSize(list_vec, offset + len);
-                auto vec_data = FlatVector::GetData<double>(child);
-                for (size_t i = 0; i < len; i++) {
-                    vec_data[offset + i] = data[i];
-                }
-                ListVector::GetData(list_vec)[row] = {offset, len};
-            };
-
-            set_list(*struct_vec[struct_idx++], inference_result.std_errors, inference_result.len);
-            set_list(*struct_vec[struct_idx++], inference_result.t_values, inference_result.len);
-            set_list(*struct_vec[struct_idx++], inference_result.p_values, inference_result.len);
-            set_list(*struct_vec[struct_idx++], inference_result.ci_lower, inference_result.len);
-            set_list(*struct_vec[struct_idx++], inference_result.ci_upper, inference_result.len);
-
-            FlatVector::GetData<double>(*struct_vec[struct_idx++])[row] = inference_result.f_statistic;
-            FlatVector::GetData<double>(*struct_vec[struct_idx++])[row] = inference_result.f_pvalue;
-
             anofox_free_result_inference(&inference_result);
         }
 

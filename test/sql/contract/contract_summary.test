@@ -1,0 +1,54 @@
+# name: test/sql/contract/contract_summary.test
+# description: integration contract `summary` schema: column names and types of every <model>_glance_by
+# group: [contract]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE d AS SELECT range::DOUBLE AS x1, (range % 7)::DOUBLE AS x2,
+    (2 * range + (range % 7) + (range % 3) * 1.5 + sin(range))::DOUBLE AS y, 1.0 + (range % 4) AS w,
+    (range % 2)::VARCHAR AS g
+FROM range(40);
+
+query II
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM ols_glance_by('d', g, y, [x1, x2]))
+----
+g	VARCHAR
+model_id	VARCHAR
+model_type	VARCHAR
+metric	VARCHAR
+value	DOUBLE
+
+query I
+SELECT count(DISTINCT cols) FROM (
+    SELECT string_agg(column_name || ' ' || column_type, ', ') cols FROM (DESCRIBE SELECT * FROM ols_glance_by('d', g, y, [x1, x2]))
+    UNION ALL SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM wls_glance_by('d', g, y, [x1, x2], w))
+    UNION ALL SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM ridge_glance_by('d', g, y, [x1, x2]))
+    UNION ALL SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM elasticnet_glance_by('d', g, y, [x1, x2]))
+    UNION ALL SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM huber_glance_by('d', g, y, [x1, x2]))
+    UNION ALL SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM ransac_glance_by('d', g, y, [x1, x2]))
+    UNION ALL SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM theil_sen_glance_by('d', g, y, [x1, x2]))
+    UNION ALL SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM rls_glance_by('d', g, y, [x1, x2]))
+    UNION ALL SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM lars_glance_by('d', g, y, [x1, x2]))
+)
+----
+1
+
+# Long form: one row per available metric; models compare with a UNION.
+# ols aic vs R: i <- seq(0, 39, 2); AIC(lm(2*i + i %% 7 + (i %% 3)*1.5 + sin(i) ~ i + I(i %% 7)))
+query III
+SELECT model_type, metric, round(value, 4) FROM (
+    SELECT * FROM ols_glance_by('d', g, y, [x1, x2])
+    UNION ALL SELECT * FROM huber_glance_by('d', g, y, [x1, x2])
+) WHERE g = '0' AND metric IN ('aic', 'n_observations')
+ORDER BY model_type, metric
+----
+huber	n_observations	20.0
+ols	aic	89.9956
+ols	n_observations	20.0
+
+query I
+SELECT count(DISTINCT function_name) FROM duckdb_functions()
+WHERE function_name LIKE '%\_glance\_by' ESCAPE '\' AND tags['anofox.output'] = 'summary' AND tags['anofox.contract'] = '1'
+----
+9

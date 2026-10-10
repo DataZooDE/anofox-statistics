@@ -11,6 +11,7 @@
 #include "../include/error_dispatch.hpp"
 #include "../include/ffi_enum_converters.hpp"
 #include "../include/map_options_parser.hpp"
+#include "../include/model_struct.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 #include "aggregate_finalize_guard.hpp"
@@ -86,6 +87,11 @@ static LogicalType GetLarsAggResultType() {
     children.push_back(make_pair("residual_std_error", LogicalType::DOUBLE));
     children.push_back(make_pair("n_observations", LogicalType::BIGINT));
     children.push_back(make_pair("n_features", LogicalType::BIGINT));
+
+    // Stable shape (#152): no coefficient inference for this model, the
+    // inference fields are NULL.
+    AppendCoefficientInferenceFields(children, "t_values", false, false);
+    AppendModelSummaryFields(children);
 
     return LogicalType::STRUCT(std::move(children));
 }
@@ -237,6 +243,7 @@ static void LarsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input
     auto states = (LarsAggregateState **)sdata.data;
 
     auto &struct_entries = StructVector::GetEntries(result);
+    ModelStructWriter writer(result);
 
     for (idx_t i = 0; i < count; i++) {
         auto &state = *states[sdata.sel->get_index(i)];
@@ -297,6 +304,8 @@ static void LarsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input
         FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = core_result.n_observations;
         FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = core_result.n_features;
 
+        writer.WriteInference(result_idx, nullptr);
+        writer.WriteSummary(result_idx, core_result.summary);
         anofox_free_result_core(&core_result);
         state.Reset();
     }

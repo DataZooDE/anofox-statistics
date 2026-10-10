@@ -219,6 +219,8 @@ void LoadInternal(ExtensionLoader &loader) {
 
     // Register table macros for fit_predict_by functions
     RegisterFitPredictTableMacros(loader);
+    // <model>_tidy_by / <model>_glance_by (#152)
+    RegisterModelOutputMacros(loader);
 
     RegisterContractVersionFunction(loader);
     ApplyContractTags(loader, preexisting);

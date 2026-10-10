@@ -5,7 +5,8 @@
 //! carrying the MAD-based scale estimate and outlier mask.
 
 use crate::errors::{StatsError, StatsResult};
-use crate::types::{FitResult, FitResultCore, HuberOptions};
+use crate::types::{FitResult, FitResultCore, HuberOptions, ModelSummary};
+use anofox_regression::core::HasModelInfo;
 use anofox_regression::solvers::{FittedRegressor, HuberRegressor, Regressor};
 use faer::{Col, Mat};
 
@@ -128,6 +129,11 @@ pub fn fit_huber(y: &[f64], x: &[Vec<f64>], options: &HuberOptions) -> StatsResu
             core,
             inference,
             diagnostics: None,
+            summary: ModelSummary::from_result(
+                fitted.model_info(),
+                result,
+                options.compute_inference,
+            ),
         },
         scale,
         epsilon,
