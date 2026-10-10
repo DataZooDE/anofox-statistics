@@ -5,7 +5,8 @@
 //! diagnostics (inlier mask, trial count, residual threshold actually used).
 
 use crate::errors::{StatsError, StatsResult};
-use crate::types::{FitResult, FitResultCore, RansacOptions};
+use crate::types::{FitResult, FitResultCore, ModelSummary, RansacOptions};
+use anofox_regression::core::HasModelInfo;
 use anofox_regression::solvers::{FittedRegressor, RansacRegressor, Regressor};
 use faer::{Col, Mat};
 
@@ -157,6 +158,11 @@ pub fn fit_ransac(y: &[f64], x: &[Vec<f64>], options: &RansacOptions) -> StatsRe
             core,
             inference,
             diagnostics: None,
+            summary: ModelSummary::from_result(
+                fitted.model_info(),
+                result,
+                options.compute_inference,
+            ),
         },
         inliers,
         n_inliers,

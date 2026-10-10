@@ -11,6 +11,7 @@
 #include "../include/ffi_enum_converters.hpp"
 #include "../include/map_options_parser.hpp"
 #include "../include/canonical_order.hpp"
+#include "../include/model_struct.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 #include "list_input.hpp"
@@ -109,7 +110,7 @@ struct RansacAggregateBindData : public FunctionData {
 // diagnostics (residual_threshold echoed, n_inliers, n_trials). The per-
 // observation inlier mask isn't surfaced here (per-row concept; lives in
 // the fit_predict surface).
-static LogicalType GetRansacAggResultType(bool compute_inference) {
+static LogicalType GetRansacAggResultType() {
     child_list_t<LogicalType> children;
 
     children.push_back(make_pair("coefficients", LogicalType::LIST(LogicalType::DOUBLE)));
@@ -123,15 +124,10 @@ static LogicalType GetRansacAggResultType(bool compute_inference) {
     children.push_back(make_pair("n_inliers", LogicalType::BIGINT));
     children.push_back(make_pair("n_trials", LogicalType::BIGINT));
 
-    if (compute_inference) {
-        children.push_back(make_pair("std_errors", LogicalType::LIST(LogicalType::DOUBLE)));
-        children.push_back(make_pair("t_values", LogicalType::LIST(LogicalType::DOUBLE)));
-        children.push_back(make_pair("p_values", LogicalType::LIST(LogicalType::DOUBLE)));
-        children.push_back(make_pair("ci_lower", LogicalType::LIST(LogicalType::DOUBLE)));
-        children.push_back(make_pair("ci_upper", LogicalType::LIST(LogicalType::DOUBLE)));
-        children.push_back(make_pair("f_statistic", LogicalType::DOUBLE));
-        children.push_back(make_pair("f_pvalue", LogicalType::DOUBLE));
-    }
+    // Stable shape (#152): the inference fields are always present, NULL
+    // without compute_inference.
+    AppendCoefficientInferenceFields(children);
+    AppendModelSummaryFields(children);
 
     return LogicalType::STRUCT(std::move(children));
 }
@@ -290,6 +286,7 @@ static void RansacAggFinalize(Vector &state_vector, AggregateInputData &aggr_inp
     auto states = (RansacAggregateState **)sdata.data;
 
     auto &struct_entries = StructVector::GetEntries(result);
+    ModelStructWriter writer(result);
 
     for (idx_t i = 0; i < count; i++) {
         auto &state = *states[sdata.sel->get_index(i)];
@@ -363,17 +360,10 @@ static void RansacAggFinalize(Vector &state_vector, AggregateInputData &aggr_inp
         FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = (int64_t)extras_result.n_inliers;
         FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = (int64_t)extras_result.n_trials;
 
+        // Inference (NULL unless requested), CI fields and the model summary
+        writer.WriteInference(result_idx, state.compute_inference ? &inference_result : nullptr);
+        writer.WriteSummary(result_idx, core_result.summary);
         if (state.compute_inference) {
-            SetListInResult(*struct_entries[struct_idx++], result_idx, inference_result.std_errors,
-                            inference_result.len);
-            SetListInResult(*struct_entries[struct_idx++], result_idx, inference_result.t_values, inference_result.len);
-            SetListInResult(*struct_entries[struct_idx++], result_idx, inference_result.p_values, inference_result.len);
-            SetListInResult(*struct_entries[struct_idx++], result_idx, inference_result.ci_lower, inference_result.len);
-            SetListInResult(*struct_entries[struct_idx++], result_idx, inference_result.ci_upper, inference_result.len);
-
-            FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = inference_result.f_statistic;
-            FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = inference_result.f_pvalue;
-
             anofox_free_result_inference(&inference_result);
         }
 
@@ -429,7 +419,7 @@ static unique_ptr<FunctionData> RansacAggBind(ClientContext &context, AggregateF
         ExtractRansacOptions(context, *arguments[2], *result);
     }
 
-    function.return_type = GetRansacAggResultType(result->compute_inference);
+    function.return_type = GetRansacAggResultType();
 
     PostHogTelemetry::Instance().RecordFunctionCall("ransac_fit_agg");
     return std::move(result);

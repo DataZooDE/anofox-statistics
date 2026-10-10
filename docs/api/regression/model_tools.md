@@ -10,7 +10,8 @@ be fitted once per group and then applied, summarised or reported in plain SQL.
 | [`predict(x, coefficients, intercept)`](#linear_predict) | `DOUBLE[]` | Column-layout linear prediction (also `linear_predict`) |
 | [`linear_predict(x, coefficients, intercept)`](#linear_predict) | `DOUBLE[]` | Same as the column-layout `predict` |
 | [`tidy(model [, names])`](#tidy) | `STRUCT(...)[]` | One entry per term: estimate and inference |
-| [`glance(model)`](#glance) | `STRUCT` | The model's scalar fields (fit statistics) |
+| [`glance(model)`](#glance) | `STRUCT` | Model-level summary, the same fields for every model |
+| [`<model>_tidy_by`, `<model>_glance_by`](#tidy_by-and-glance_by) | table | Per-group coefficient table and fit statistics |
 
 The examples on this page use this table:
 
@@ -131,7 +132,8 @@ FROM model;
 ```text
 tidy(model STRUCT [, names VARCHAR[]])
     -> STRUCT(term VARCHAR, estimate DOUBLE, std_error DOUBLE, statistic DOUBLE,
-              p_value DOUBLE, conf_low DOUBLE, conf_high DOUBLE)[]
+              p_value DOUBLE, conf_low DOUBLE, conf_high DOUBLE, conf_level DOUBLE,
+              index_name VARCHAR, index_value DOUBLE)[]
 ```
 
 One entry per term, in the style of R's `broom::tidy`:
@@ -141,11 +143,13 @@ One entry per term, in the style of R's `broom::tidy`:
   given.
 - `std_error`, `statistic` (t or z), `p_value`, `conf_low` and `conf_high`
   come from the model's inference fields (`std_errors`, `t_values` /
-  `z_values`, `p_values`, `ci_lower`, `ci_upper`). They are NULL when the
-  model has no inference, for example a fit without `compute_inference`, or
-  PLS, Quantile and LARS, which do not compute it.
-- Models such as `ols_fit_agg` report inference for the slopes only, so the
-  intercept row's inference columns are NULL.
+  `z_values`, `p_values`, `conf_low`, `conf_high`; for the intercept its
+  `intercept_*` fields). They are NULL when the model has no inference, for
+  example a fit without `compute_inference`, or PLS, Quantile and LARS, which
+  do not compute it.
+- `conf_level` is the confidence level of the interval; `index_name` and
+  `index_value` identify a point on a coefficient path or process (lambda,
+  tau, ...) and are NULL for a single fit.
 
 Use `unnest(..., recursive := true)` to turn the list into rows and columns:
 
@@ -173,13 +177,16 @@ supported.
 **Signature:**
 
 ```text
-glance(model STRUCT) -> STRUCT
+glance(model STRUCT) -> STRUCT(model_type, family, link, n_observations, n_features,
+    r_squared, adj_r_squared, residual_std_error, f_statistic, f_pvalue,
+    log_likelihood, aic, bic, deviance, null_deviance, pseudo_r_squared,
+    dispersion, iterations, converged)
 ```
 
-Returns a struct with the model's scalar fields (fit statistics such as
-`r_squared`, `aic`, `n_observations`, and for GLMs `family` and `link`); list
-fields such as `coefficients` are dropped. Expand it into columns with
-`unnest`, or pick a field with dot notation:
+Returns the same fields for every model, in the style of R's `broom::glance`;
+fields a model does not have are NULL. Model-specific values (Huber's `scale`,
+RANSAC's `n_inliers`, ...) stay on the model struct. Expand it into columns
+with `unnest`, or pick a field with dot notation:
 
 ```sql
 SELECT unnest(glance(ols_fit_agg(y, [x1, x2]))) FROM mt_demo;
@@ -195,13 +202,30 @@ GROUP BY grp
 ORDER BY grp;
 ```
 
+## tidy_by and glance_by
+
+`<model>_tidy_by(source, group_col, y_col, x_cols [, weight_col] [, options := ..., names := [...]])`
+and `<model>_glance_by(source, group_col, y_col, x_cols [, weight_col] [, options := ...])`
+fit one model per group and return long tables (for `ols`, `wls`, `ridge`,
+`elasticnet`, `huber`, `ransac`, `theil_sen`, `rls`, `lars`; `wls` takes
+`weight_col`):
+
+- `_tidy_by`: the group column, `model_id`, and the `tidy` columns, one row per
+  term. Inference is computed by default for models that have it.
+- `_glance_by`: the group column, `model_id`, `model_type`, `metric`, `value`,
+  one row per available numeric metric.
+
 ```sql
--- GLM summary, including the family and link
-SELECT unnest(glance(poisson_fit_agg(y_count, [x1]))) FROM mt_demo;
+SELECT * FROM ols_tidy_by('mt_demo', grp, y, [x1, x2], names := ['trend', 'cycle']);
 ```
 
-A NULL model gives a NULL result.
-
+```sql
+-- Compare two models per group
+SELECT * FROM ols_glance_by('mt_demo', grp, y, [x1, x2])
+UNION ALL
+SELECT * FROM huber_glance_by('mt_demo', grp, y, [x1, x2])
+ORDER BY grp, metric, model_type;
+```
 ## See Also
 
 - [Window fit-predict](fit_predict_window.md) - predictions per window frame

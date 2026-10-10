@@ -230,6 +230,100 @@ mod ffi_vec_tests {
     }
 }
 
+/// Length of the NUL-terminated name buffers in [`ModelSummaryFFI`].
+pub const MODEL_NAME_LEN: usize = 32;
+
+/// What was fitted, its likelihood-based fit statistics and the intercept's
+/// inference (#152). Names are NUL-terminated; an empty `family` means the
+/// estimator has no likelihood (NULL in SQL). Statistics that do not apply or
+/// were not computed are NaN.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct ModelSummaryFFI {
+    pub model_type: [c_char; MODEL_NAME_LEN],
+    pub family: [c_char; MODEL_NAME_LEN],
+    pub link: [c_char; MODEL_NAME_LEN],
+    pub log_likelihood: f64,
+    pub aic: f64,
+    pub bic: f64,
+    pub intercept_std_error: f64,
+    pub intercept_statistic: f64,
+    pub intercept_p_value: f64,
+    pub intercept_conf_low: f64,
+    pub intercept_conf_high: f64,
+}
+
+/// Copy `name` into a NUL-terminated buffer, truncating to fit.
+fn name_buffer(name: &str) -> [c_char; MODEL_NAME_LEN] {
+    let mut buf = [0 as c_char; MODEL_NAME_LEN];
+    for (dst, &b) in buf
+        .iter_mut()
+        .zip(name.as_bytes().iter().take(MODEL_NAME_LEN - 1))
+    {
+        *dst = b as c_char;
+    }
+    buf
+}
+
+impl Default for ModelSummaryFFI {
+    fn default() -> Self {
+        Self {
+            model_type: [0; MODEL_NAME_LEN],
+            family: [0; MODEL_NAME_LEN],
+            link: [0; MODEL_NAME_LEN],
+            log_likelihood: f64::NAN,
+            aic: f64::NAN,
+            bic: f64::NAN,
+            intercept_std_error: f64::NAN,
+            intercept_statistic: f64::NAN,
+            intercept_p_value: f64::NAN,
+            intercept_conf_low: f64::NAN,
+            intercept_conf_high: f64::NAN,
+        }
+    }
+}
+
+impl From<&anofox_stats_core::ModelSummary> for ModelSummaryFFI {
+    fn from(s: &anofox_stats_core::ModelSummary) -> Self {
+        Self {
+            model_type: name_buffer(s.model_type),
+            family: name_buffer(s.family.unwrap_or("")),
+            link: name_buffer(s.link),
+            log_likelihood: s.log_likelihood,
+            aic: s.aic,
+            bic: s.bic,
+            intercept_std_error: s.intercept_std_error,
+            intercept_statistic: s.intercept_statistic,
+            intercept_p_value: s.intercept_p_value,
+            intercept_conf_low: s.intercept_conf_low,
+            intercept_conf_high: s.intercept_conf_high,
+        }
+    }
+}
+
+#[cfg(test)]
+mod layout_tests {
+    use super::{FitResultCore, ModelSummaryFFI, MODEL_NAME_LEN};
+
+    /// Mirrors the static_asserts in src/include/model_struct.cpp, which pin the
+    /// hand-written C header to these layouts.
+    #[test]
+    fn model_summary_layout_matches_c_header() {
+        use std::mem::size_of;
+        assert_eq!(
+            size_of::<ModelSummaryFFI>(),
+            3 * MODEL_NAME_LEN + 8 * size_of::<f64>()
+        );
+        assert_eq!(
+            size_of::<FitResultCore>(),
+            size_of::<*mut f64>()
+                + 3 * size_of::<usize>()
+                + 4 * size_of::<f64>()
+                + size_of::<ModelSummaryFFI>()
+        );
+    }
+}
+
 /// Core fit result (always returned)
 #[repr(C)]
 pub struct FitResultCore {
@@ -249,6 +343,8 @@ pub struct FitResultCore {
     pub n_observations: usize,
     /// Number of features
     pub n_features: usize,
+    /// Model description, fit statistics and intercept inference
+    pub summary: ModelSummaryFFI,
 }
 
 impl Default for FitResultCore {
@@ -262,6 +358,7 @@ impl Default for FitResultCore {
             residual_std_error: f64::NAN,
             n_observations: 0,
             n_features: 0,
+            summary: ModelSummaryFFI::default(),
         }
     }
 }

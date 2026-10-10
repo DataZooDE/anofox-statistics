@@ -97,7 +97,7 @@ FROM (VALUES (1.0, 1.0), (2.1, 2.0), (2.9, 3.0), (4.2, 4.0), (5.0, 5.0)) t(y, x)
 ```
 
 Predictions treat a `NaN` coefficient as contributing 0. The inference arrays
-(`std_errors`, `t_values`, `p_values`, `ci_lower`, `ci_upper`) hold `NaN` in the
+(`std_errors`, `t_values`, `p_values`, `conf_low`, `conf_high`) hold `NaN` in the
 same positions.
 
 When `fit_intercept` is `false`, the `intercept` field is `NaN`, not NULL.

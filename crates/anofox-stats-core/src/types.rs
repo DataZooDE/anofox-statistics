@@ -57,6 +57,90 @@ pub struct FitResult {
     pub core: FitResultCore,
     pub inference: Option<FitResultInference>,
     pub diagnostics: Option<FitResultDiagnostics>,
+    /// Model description, likelihood-based fit statistics and intercept inference.
+    pub summary: ModelSummary,
+}
+
+/// What was fitted (upstream `HasModelInfo`), its likelihood-based fit statistics
+/// and the intercept's inference, shared by every fitted model (#152).
+/// Values that do not apply or were not computed are NaN (NULL in SQL).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ModelSummary {
+    /// Estimator, e.g. "ols", "ridge", "poisson" (upstream `ModelInfo::model_type`).
+    pub model_type: &'static str,
+    /// Error family in R naming; `None` for estimators without a likelihood.
+    pub family: Option<&'static str>,
+    /// Link between the linear predictor and the mean.
+    pub link: &'static str,
+    pub log_likelihood: f64,
+    pub aic: f64,
+    pub bic: f64,
+    pub intercept_std_error: f64,
+    pub intercept_statistic: f64,
+    pub intercept_p_value: f64,
+    pub intercept_conf_low: f64,
+    pub intercept_conf_high: f64,
+}
+
+impl ModelSummary {
+    /// A summary that only describes the model; every statistic is NaN.
+    pub fn new(info: anofox_regression::core::ModelInfo) -> Self {
+        Self {
+            model_type: info.model_type,
+            family: info.family,
+            link: info.link,
+            log_likelihood: f64::NAN,
+            aic: f64::NAN,
+            bic: f64::NAN,
+            intercept_std_error: f64::NAN,
+            intercept_statistic: f64::NAN,
+            intercept_p_value: f64::NAN,
+            intercept_conf_low: f64::NAN,
+            intercept_conf_high: f64::NAN,
+        }
+    }
+
+    /// Fit statistics from an upstream result. The intercept inference is taken
+    /// only when `with_inference` is set, so it follows `compute_inference` like
+    /// the coefficient inference does.
+    pub fn from_result(
+        info: anofox_regression::core::ModelInfo,
+        result: &anofox_regression::core::RegressionResult,
+        with_inference: bool,
+    ) -> Self {
+        let mut s = Self::new(info);
+        // Estimators without a likelihood (family None: Huber, RANSAC, ...) get
+        // no log-likelihood or information criteria.
+        if info.family.is_some() {
+            s.log_likelihood = result.log_likelihood;
+            s.aic = result.aic;
+            s.bic = result.bic;
+        }
+        if with_inference {
+            s.set_intercept_inference(
+                result.intercept_std_error,
+                result.intercept_t_statistic,
+                result.intercept_p_value,
+                result.intercept_conf_interval,
+            );
+        }
+        s
+    }
+
+    pub fn set_intercept_inference(
+        &mut self,
+        std_error: Option<f64>,
+        statistic: Option<f64>,
+        p_value: Option<f64>,
+        conf_interval: Option<(f64, f64)>,
+    ) {
+        self.intercept_std_error = std_error.unwrap_or(f64::NAN);
+        self.intercept_statistic = statistic.unwrap_or(f64::NAN);
+        self.intercept_p_value = p_value.unwrap_or(f64::NAN);
+        let (lo, hi) = conf_interval.unwrap_or((f64::NAN, f64::NAN));
+        self.intercept_conf_low = lo;
+        self.intercept_conf_high = hi;
+    }
 }
 
 /// Condition number severity classification

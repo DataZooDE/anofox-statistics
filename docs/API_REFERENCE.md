@@ -137,7 +137,8 @@ fitted model struct).
 | `predict` | Prediction from any fitted model struct (`predict(model, x)`), or column-layout linear prediction (`predict(x, coefficients, intercept)`) | [Model tools](api/regression/model_tools.md) |
 | `linear_predict` | Column-layout linear prediction (same as the 3-argument `predict`) | [Model tools](api/regression/model_tools.md) |
 | `tidy` | Per-term table (estimate, std. error, statistic, p-value, CI) of a fitted model | [Model tools](api/regression/model_tools.md) |
-| `glance` | One-row summary (scalar fields) of a fitted model | [Model tools](api/regression/model_tools.md) |
+| `glance` | One-row summary of a fitted model, the same fields for every model | [Model tools](api/regression/model_tools.md) |
+| `<model>_tidy_by`, `<model>_glance_by` | Per-group coefficient table / fit statistics in long form | [Model output macros](#model-output-table-macros) |
 | `vif`, `vif_agg` | Variance inflation factors | [Diagnostics](api/diagnostics/diagnostics.md) |
 | `aic`, `bic` | Information criteria from RSS | [Diagnostics](api/diagnostics/diagnostics.md) |
 | `jarque_bera`, `jarque_bera_agg` | Jarque-Bera normality test | [Diagnostics](api/diagnostics/diagnostics.md) |
@@ -1380,14 +1381,16 @@ FROM model;
 
 ```sql skip
 tidy(model STRUCT [, names LIST(VARCHAR)])
-    -> LIST(STRUCT(term, estimate, std_error, statistic, p_value, conf_low, conf_high))
+    -> LIST(STRUCT(term, estimate, std_error, statistic, p_value, conf_low, conf_high,
+                   conf_level, index_name, index_value))
 ```
 
 One entry per term, intercept first (`'(Intercept)'`), then the slopes named
 `x1 .. xk` or by `names`. The inference columns come from the model's
-`std_errors`, `t_values`/`z_values`, `p_values`, `ci_lower`, `ci_upper` and are
-NULL when the model has none (e.g. no `compute_inference`). `ols_fit_agg`
-reports inference for the slopes only, so its intercept row has NULL inference.
+inference fields (the intercept's from its `intercept_*` fields) and are NULL
+when the model has none (e.g. no `compute_inference`). `index_name` and
+`index_value` identify a point on a coefficient path or process (lambda, tau,
+...) and are NULL for a single fit.
 
 ```sql
 SELECT category,
@@ -1401,17 +1404,49 @@ ORDER BY category;
 ### glance
 
 ```sql skip
-glance(model STRUCT) -> STRUCT
+glance(model STRUCT) -> STRUCT(model_type, family, link, n_observations, n_features,
+    r_squared, adj_r_squared, residual_std_error, f_statistic, f_pvalue, log_likelihood,
+    aic, bic, deviance, null_deviance, pseudo_r_squared, dispersion, iterations, converged)
 ```
 
-The model's scalar fields (fit statistics; for GLMs also `family` and `link`),
-without list fields such as `coefficients`. Expand with `unnest(glance(...))`.
+The same fields for every model; those a model does not have are NULL.
+Model-specific values (Huber's `scale`, a GLM's `theta`, ...) stay on the model
+struct. Expand with `unnest(glance(...))`.
 
 ```sql
 SELECT category, unnest(glance(poisson_fit_agg(y_count, [x1, x2])))
 FROM reg_data
 GROUP BY category
 ORDER BY category;
+```
+
+### Model output table macros
+
+```sql skip
+<model>_tidy_by(source, group_col, y_col, x_cols [, weight_col]
+                [, options := ..., names := [...]])
+<model>_glance_by(source, group_col, y_col, x_cols [, weight_col] [, options := ...])
+```
+
+For `ols`, `wls` (with `weight_col`), `ridge`, `elasticnet`, `huber`, `ransac`,
+`theil_sen`, `rls` and `lars`. They fit one model per group with
+`<model>_fit_agg` and return long tables in the anofox integration contract's
+`terms` and `summary` schemas:
+
+- `_tidy_by`: the group column, `model_id`, then `term, estimate, std_error,
+  statistic, p_value, conf_low, conf_high, conf_level, index_name,
+  index_value`, one row per term. Inference is computed by default (options
+  `{'compute_inference': true}`) for models that have it.
+- `_glance_by`: the group column, `model_id`, `model_type, metric, value`, one
+  row per available numeric metric, so several models compare with a `UNION`.
+
+```sql
+SELECT * FROM ols_tidy_by('reg_data', category, y, [x1, x2], names := ['x1', 'x2']);
+
+SELECT * FROM ols_glance_by('reg_data', category, y, [x1, x2])
+UNION ALL
+SELECT * FROM huber_glance_by('reg_data', category, y, [x1, x2])
+ORDER BY category, metric, model_type;
 ```
 
 ### vif / vif_agg
@@ -1576,6 +1611,8 @@ explicit coefficient priors and Laplace intervals. See [Priors](api/glm/priors.m
 
 Returned by the linear and robust fits (`ols`, `ridge`, `elasticnet`, `wls`,
 `rls`, `lars`, `huber`, `ransac`, `theil_sen`; scalar and aggregate forms).
+The shape does not depend on the options: fields that were not computed are
+NULL.
 
 ```text
 STRUCT(
@@ -1588,16 +1625,36 @@ STRUCT(
     n_features BIGINT,
     -- huber adds: scale DOUBLE, n_outliers BIGINT
     -- ransac adds: residual_threshold DOUBLE, n_inliers BIGINT, n_trials BIGINT
-    -- with compute_inference = true (ols, ridge, wls, huber, ransac, theil_sen):
+    -- coefficient inference, NULL without compute_inference = true
+    -- (and always NULL for elasticnet, rls, lars and ridge with alpha > 0):
     std_errors DOUBLE[],
     t_values DOUBLE[],
     p_values DOUBLE[],
-    ci_lower DOUBLE[],
-    ci_upper DOUBLE[],
-    f_statistic DOUBLE,
-    f_pvalue DOUBLE
+    ci_lower DOUBLE[],          -- deprecated alias of conf_low
+    ci_upper DOUBLE[],          -- deprecated alias of conf_high
+    f_statistic DOUBLE,         -- not for elasticnet, rls, lars
+    f_pvalue DOUBLE,
+    -- the same for every model:
+    conf_low DOUBLE[],          -- confidence intervals of the coefficients
+    conf_high DOUBLE[],
+    conf_level DOUBLE,
+    intercept_std_error DOUBLE, -- the intercept's inference
+    intercept_statistic DOUBLE,
+    intercept_p_value DOUBLE,
+    intercept_conf_low DOUBLE,
+    intercept_conf_high DOUBLE,
+    log_likelihood DOUBLE,      -- NULL for estimators without a likelihood
+    aic DOUBLE,                 --   (huber, ransac, theil_sen)
+    bic DOUBLE,
+    model_type VARCHAR,         -- 'ols', 'wls', 'ridge', 'elastic_net', 'lars', 'rls',
+                                -- 'huber', 'ransac', 'theil_sen'
+    family VARCHAR,             -- 'gaussian', or NULL without a likelihood
+    link VARCHAR                -- 'identity'
 )
 ```
+
+Log-likelihood, AIC and BIC follow R (`logLik`, `AIC`, `BIC` of `lm`, which
+count the residual variance as a parameter).
 
 ### GlmFitResult Structure
 

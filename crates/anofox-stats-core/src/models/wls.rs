@@ -1,7 +1,10 @@
 //! Weighted Least Squares (WLS) regression using native WlsRegressor
 
 use crate::errors::{StatsError, StatsResult};
-use crate::types::{FitResult, FitResultCore, FitResultInference, HcType, SolverType, WlsOptions};
+use crate::types::{
+    FitResult, FitResultCore, FitResultInference, HcType, ModelSummary, SolverType, WlsOptions,
+};
+use anofox_regression::core::{HasModelInfo, ModelInfo};
 use anofox_regression::prelude::*;
 use faer::{Col, Mat};
 
@@ -112,6 +115,7 @@ pub fn fit_wls(
             },
             inference: None,
             diagnostics: None,
+            summary: ModelSummary::new(ModelInfo::gaussian("wls")),
         });
     }
 
@@ -161,6 +165,11 @@ pub fn fit_wls(
         f_statistic: Some(result.f_statistic),
         f_pvalue: Some(result.f_pvalue),
     };
+    let mut summary = ModelSummary::from_result(
+        fitted.model_info(),
+        result,
+        options.compute_inference && options.hc_type.is_none(),
+    );
     let inference = if !options.compute_inference {
         None
     } else if let Some(hc_type) = options.hc_type {
@@ -174,18 +183,32 @@ pub fn fit_wls(
             convert_hc_type(hc_type),
             options.confidence_level,
         ) {
-            Ok(hc) => Some(FitResultInference {
-                std_errors: expand(Some(&hc.std_errors)),
-                t_values: expand(Some(&hc.t_statistics)),
-                p_values: expand(Some(&hc.p_values)),
-                ci_lower: expand(Some(&hc.conf_interval_lower)),
-                ci_upper: expand(Some(&hc.conf_interval_upper)),
-                confidence_level: hc.confidence_level,
-                f_statistic: Some(result.f_statistic),
-                f_pvalue: Some(result.f_pvalue),
-            }),
-            // Fall back to classical inference if HC fails
-            Err(_) => Some(classical()),
+            Ok(hc) => {
+                if let Some(i) = &hc.intercept {
+                    summary.set_intercept_inference(
+                        Some(i.std_error),
+                        Some(i.t_statistic),
+                        Some(i.p_value),
+                        Some(i.conf_interval),
+                    );
+                }
+                Some(FitResultInference {
+                    std_errors: expand(Some(&hc.std_errors)),
+                    t_values: expand(Some(&hc.t_statistics)),
+                    p_values: expand(Some(&hc.p_values)),
+                    ci_lower: expand(Some(&hc.conf_interval_lower)),
+                    ci_upper: expand(Some(&hc.conf_interval_upper)),
+                    confidence_level: hc.confidence_level,
+                    f_statistic: Some(result.f_statistic),
+                    f_pvalue: Some(result.f_pvalue),
+                })
+            }
+            // Fall back to classical inference if HC fails; the intercept
+            // inference then is the classical one too.
+            Err(_) => {
+                summary = ModelSummary::from_result(fitted.model_info(), result, true);
+                Some(classical())
+            }
         }
     } else {
         Some(classical())
@@ -195,6 +218,7 @@ pub fn fit_wls(
         core,
         inference,
         diagnostics: None,
+        summary,
     })
 }
 

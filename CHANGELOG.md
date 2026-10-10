@@ -12,6 +12,18 @@ Breaking changes are called out explicitly.
 
 ### Added
 
+- Stable model outputs for the linear and robust fits (#152; `ols`, `wls`, `ridge`,
+  `elasticnet`, `lars`, `rls`, `huber`, `ransac`, `theil_sen`, aggregate and scalar):
+  every model struct now ends with `conf_low`, `conf_high`, `conf_level`, the
+  intercept's inference (`intercept_std_error`, `intercept_statistic`,
+  `intercept_p_value`, `intercept_conf_low`, `intercept_conf_high`), `log_likelihood`,
+  `aic`, `bic` (as R's `logLik`/`AIC`/`BIC`; NULL for estimators without a likelihood)
+  and `model_type`, `family`, `link` (from upstream `HasModelInfo`). Validated against R
+  `lm` (OLS, WLS, HC3).
+- `<model>_tidy_by` and `<model>_glance_by` table macros for the same models: per-group
+  coefficient tables and long-form fit statistics in the integration contract's `terms`
+  and `summary` schemas, tagged `anofox.output = 'terms' | 'summary'`.
+
 - anofox integration contract scaffolding (#160): `anofox_contract_version()` returns
   `'1'` (registered only if no other anofox extension has registered it yet), and every
   function and table macro is tagged `anofox.family = 'statistics'` in
@@ -77,6 +89,21 @@ Breaking changes are called out explicitly.
   gain `method`.
 
 ### Changed
+
+- **Model structs have a stable shape (#152).** The coefficient inference fields
+  (`std_errors`, `t_values`, `p_values`, `ci_lower`, `ci_upper`, `f_statistic`,
+  `f_pvalue`) are always present and NULL without `compute_inference`, instead of being
+  added only when it is set. Elastic Net, LARS and RLS gain `std_errors`, `t_values`,
+  `p_values` (always NULL). Existing fields keep their names and order.
+- **`glance(model)` returns one fixed set of fields for every model** (`model_type`,
+  `family`, `link`, `n_observations`, `n_features`, `r_squared`, `adj_r_squared`,
+  `residual_std_error`, `f_statistic`, `f_pvalue`, `log_likelihood`, `aic`, `bic`,
+  `deviance`, `null_deviance`, `pseudo_r_squared`, `dispersion`, `iterations`,
+  `converged`), NULL where a model has no such value. Model-specific scalars such as
+  Huber's `scale` are no longer in `glance`; read them from the model struct.
+- `tidy(model)` rows gain `conf_level`, `index_name` and `index_value`, and the intercept
+  row carries the intercept's inference where the model reports it.
+
 
 - **Behaviour change (Poisson inference).** `poisson_fit_agg` and the other Poisson
   aggregates compute standard errors at dispersion 1, exactly R's `glm(family = poisson)` /
@@ -238,6 +265,11 @@ Breaking changes are called out explicitly.
   adjusted with `n/(n - p)`, F on `p` and `n - p` df). Previously the centered TSS was
   used, which compares the model with an intercept-only model it does not nest. Other
   estimators (ridge, elastic net, ...) are unchanged.
+
+### Deprecated
+
+- `ci_lower` / `ci_upper` in the model structs of the linear and robust fits: use
+  `conf_low` / `conf_high`. The aliases are removed in the next minor release.
 
 ### Fixed
 

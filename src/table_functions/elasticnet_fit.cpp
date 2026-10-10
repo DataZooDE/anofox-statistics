@@ -13,6 +13,7 @@
 #include "../include/error_dispatch.hpp"
 #include "../include/ffi_enum_converters.hpp"
 #include "../include/map_options_parser.hpp"
+#include "../include/model_struct.hpp"
 #include "telemetry.hpp"
 #include "anofox_statistics_banner.hpp"
 
@@ -29,6 +30,11 @@ static LogicalType GetElasticNetResultType() {
     children.push_back(make_pair("residual_std_error", LogicalType::DOUBLE));
     children.push_back(make_pair("n_observations", LogicalType::BIGINT));
     children.push_back(make_pair("n_features", LogicalType::BIGINT));
+
+    // Stable shape (#152): no coefficient inference for this model, the
+    // inference fields are NULL.
+    AppendCoefficientInferenceFields(children, "t_values", false, false);
+    AppendModelSummaryFields(children);
 
     return LogicalType::STRUCT(std::move(children));
 }
@@ -193,6 +199,7 @@ static void ElasticNetFitFunctionImpl(DataChunk &args, ExpressionState &state, V
 
         // Build result struct
         auto &struct_vec = StructVector::GetEntries(result);
+        ModelStructWriter writer(result);
         idx_t struct_idx = 0;
 
         // Coefficients
@@ -215,6 +222,8 @@ static void ElasticNetFitFunctionImpl(DataChunk &args, ExpressionState &state, V
         FlatVector::GetData<int64_t>(*struct_vec[struct_idx++])[row] = core_result.n_features;
 
         // Free core result
+        writer.WriteInference(row, nullptr);
+        writer.WriteSummary(row, core_result.summary);
         anofox_free_result_core(&core_result);
     }
 

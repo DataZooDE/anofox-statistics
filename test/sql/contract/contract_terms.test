@@ -1,0 +1,63 @@
+# name: test/sql/contract/contract_terms.test
+# description: integration contract `terms` schema: column names and types of every <model>_tidy_by
+# group: [contract]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE d AS SELECT range::DOUBLE AS x1, (range % 7)::DOUBLE AS x2,
+    (2 * range + (range % 7) + (range % 3) * 1.5 + sin(range))::DOUBLE AS y, 1.0 + (range % 4) AS w,
+    (range % 2)::VARCHAR AS g
+FROM range(40);
+
+# The user's group column, then model_id and the terms columns
+query II
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM ols_tidy_by('d', g, y, [x1, x2]))
+----
+g	VARCHAR
+model_id	VARCHAR
+term	VARCHAR
+estimate	DOUBLE
+std_error	DOUBLE
+statistic	DOUBLE
+p_value	DOUBLE
+conf_low	DOUBLE
+conf_high	DOUBLE
+conf_level	DOUBLE
+index_name	VARCHAR
+index_value	DOUBLE
+
+# Every tidy_by has exactly the same columns
+query I
+SELECT count(DISTINCT cols) FROM (
+    SELECT string_agg(column_name || ' ' || column_type, ', ') cols FROM (DESCRIBE SELECT * FROM ols_tidy_by('d', g, y, [x1, x2]))
+    UNION ALL SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM wls_tidy_by('d', g, y, [x1, x2], w))
+    UNION ALL SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM ridge_tidy_by('d', g, y, [x1, x2]))
+    UNION ALL SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM elasticnet_tidy_by('d', g, y, [x1, x2]))
+    UNION ALL SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM huber_tidy_by('d', g, y, [x1, x2]))
+    UNION ALL SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM ransac_tidy_by('d', g, y, [x1, x2]))
+    UNION ALL SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM theil_sen_tidy_by('d', g, y, [x1, x2]))
+    UNION ALL SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM rls_tidy_by('d', g, y, [x1, x2]))
+    UNION ALL SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM lars_tidy_by('d', g, y, [x1, x2]))
+)
+----
+1
+
+# One row per term and group, intercept with inference, names label the terms
+query IIII
+SELECT g, term, std_error IS NOT NULL, conf_level FROM ols_tidy_by('d', g, y, [x1, x2], names := ['x1', 'x2'])
+ORDER BY g, term
+----
+0	(Intercept)	true	0.95
+0	x1	true	0.95
+0	x2	true	0.95
+1	(Intercept)	true	0.95
+1	x1	true	0.95
+1	x2	true	0.95
+
+# Every tidy_by is tagged as a terms producer
+query I
+SELECT count(DISTINCT function_name) FROM duckdb_functions()
+WHERE function_name LIKE '%\_tidy\_by' ESCAPE '\' AND tags['anofox.output'] = 'terms' AND tags['anofox.contract'] = '1'
+----
+9

@@ -20,6 +20,15 @@ static const struct {
 	const char *name;
 	const char *output;
 } CONTRACT_PRODUCERS[] = {
+    {"ols_tidy_by", "terms"}, {"ols_glance_by", "summary"},
+    {"wls_tidy_by", "terms"}, {"wls_glance_by", "summary"},
+    {"ridge_tidy_by", "terms"}, {"ridge_glance_by", "summary"},
+    {"elasticnet_tidy_by", "terms"}, {"elasticnet_glance_by", "summary"},
+    {"huber_tidy_by", "terms"}, {"huber_glance_by", "summary"},
+    {"ransac_tidy_by", "terms"}, {"ransac_glance_by", "summary"},
+    {"theil_sen_tidy_by", "terms"}, {"theil_sen_glance_by", "summary"},
+    {"rls_tidy_by", "terms"}, {"rls_glance_by", "summary"},
+    {"lars_tidy_by", "terms"}, {"lars_glance_by", "summary"},
     {nullptr, nullptr}
 };
 // clang-format on
