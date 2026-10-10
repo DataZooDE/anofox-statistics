@@ -140,7 +140,7 @@ ols	40	149.5612	true
 
 # GLMs keep their own fields in glance (deviance, converged, ...)
 query III
-SELECT g.model_type IS NULL, g.family, g.deviance IS NOT NULL
+SELECT g.model_type, g.family, g.deviance IS NOT NULL
 FROM (SELECT glance(poisson_fit_agg(round(y)::DOUBLE, [x2])) g FROM d)
 ----
-true	poisson	true
+glm	poisson	true

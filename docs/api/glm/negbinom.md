@@ -55,7 +55,7 @@ for the field descriptions):
 | `iterations` | INTEGER |
 | `converged` | BOOLEAN |
 | `std_errors`, `z_values`, `p_values`, `ci_lower`, `ci_upper` | DOUBLE[] — only with `compute_inference` |
-| `family` | VARCHAR — `'negbinom'` |
+| `family` | VARCHAR — `'negative_binomial'` |
 | `link` | VARCHAR — `'log'` |
 
 **Example:**

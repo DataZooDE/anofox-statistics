@@ -10,13 +10,16 @@ use anofox_regression::solvers::{
 use faer::{Col, Mat};
 
 use crate::errors::{StatsError, StatsResult};
-use crate::types::{AlmDistribution, AlmFitResult, AlmLoss, AlmOptions};
+use crate::types::{AlmDistribution, AlmFitResult, AlmLoss, AlmOptions, ModelSummary};
+use anofox_regression::core::{HasModelInfo, ModelInfo};
 
 /// Result from ALM fitting including optional inference
 #[derive(Debug, Clone)]
 pub struct AlmResult {
     pub core: AlmFitResult,
     pub inference: Option<AlmInferenceResult>,
+    /// Model description, fit statistics and intercept inference (#152).
+    pub summary: ModelSummary,
 }
 
 /// Inference results for ALM
@@ -181,9 +184,15 @@ pub fn fit_alm(y: &[f64], x: &[Vec<f64>], options: &AlmOptions) -> StatsResult<A
             converged: true,
         };
 
+        let dist = convert_distribution(options.distribution);
         return Ok(AlmResult {
             core,
             inference: None,
+            summary: ModelSummary::new(ModelInfo::new(
+                "alm",
+                Some(dist.as_str()),
+                dist.canonical_link().as_str(),
+            )),
         });
     }
 
@@ -263,7 +272,11 @@ pub fn fit_alm(y: &[f64], x: &[Vec<f64>], options: &AlmOptions) -> StatsResult<A
         None
     };
 
-    Ok(AlmResult { core, inference })
+    Ok(AlmResult {
+        core,
+        inference,
+        summary: ModelSummary::from_result(fitted.model_info(), result, options.compute_inference),
+    })
 }
 
 /// Extract inference statistics from regression result with NaN for constant columns

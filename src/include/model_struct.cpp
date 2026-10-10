@@ -1,6 +1,7 @@
 #include "model_struct.hpp"
 
 #include <cmath>
+#include <cstddef>
 
 namespace duckdb {
 
@@ -11,6 +12,33 @@ static_assert(sizeof(AnofoxModelSummaryFFI) == 3 * ANOFOX_MODEL_NAME_LEN + 8 * s
 static_assert(sizeof(AnofoxFitResultCore) ==
                   sizeof(double *) + 3 * sizeof(size_t) + 4 * sizeof(double) + sizeof(AnofoxModelSummaryFFI),
               "AnofoxFitResultCore must match FitResultCore in crates/anofox-stats-ffi/src/types.rs");
+
+// The summary is appended last to these result structs (after padding).
+static_assert(sizeof(AnofoxGlmFitResultCore) ==
+                  offsetof(AnofoxGlmFitResultCore, summary) + sizeof(AnofoxModelSummaryFFI),
+              "AnofoxGlmFitResultCore must end with its summary, as GlmFitResultCore does");
+static_assert(sizeof(AnofoxAftFitResultCore) ==
+                  offsetof(AnofoxAftFitResultCore, summary) + sizeof(AnofoxModelSummaryFFI),
+              "AnofoxAftFitResultCore must end with its summary, as AftFitResultCore does");
+static_assert(sizeof(AnofoxGlmmResult) == offsetof(AnofoxGlmmResult, summary) + sizeof(AnofoxModelSummaryFFI),
+              "AnofoxGlmmResult must end with its summary, as GlmmResultFFI does");
+
+static_assert(sizeof(AnofoxAlmFitResultCore) ==
+                  offsetof(AnofoxAlmFitResultCore, summary) + sizeof(AnofoxModelSummaryFFI),
+              "AnofoxAlmFitResultCore must end with its summary, as AlmFitResultCore does");
+
+static_assert(sizeof(AnofoxBlsFitResultCore) ==
+                  offsetof(AnofoxBlsFitResultCore, summary) + sizeof(AnofoxModelSummaryFFI),
+              "AnofoxBlsFitResultCore must end with its summary, as BlsFitResultCore does");
+static_assert(sizeof(AnofoxPlsFitResultCore) ==
+                  offsetof(AnofoxPlsFitResultCore, summary) + sizeof(AnofoxModelSummaryFFI),
+              "AnofoxPlsFitResultCore must end with its summary, as PlsFitResultCore does");
+static_assert(sizeof(AnofoxIsotonicFitResultCore) ==
+                  offsetof(AnofoxIsotonicFitResultCore, summary) + sizeof(AnofoxModelSummaryFFI),
+              "AnofoxIsotonicFitResultCore must end with its summary, as IsotonicFitResultCore does");
+static_assert(sizeof(AnofoxQuantileFitResultCore) ==
+                  offsetof(AnofoxQuantileFitResultCore, summary) + sizeof(AnofoxModelSummaryFFI),
+              "AnofoxQuantileFitResultCore must end with its summary, as QuantileFitResultCore does");
 
 static bool HasField(const child_list_t<LogicalType> &children, const string &name) {
 	for (auto &child : children) {

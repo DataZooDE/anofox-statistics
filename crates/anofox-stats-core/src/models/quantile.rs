@@ -1,7 +1,8 @@
 //! Quantile regression wrapper
 
 use crate::errors::{StatsError, StatsResult};
-use crate::types::{QuantileFitResult, QuantileOptions};
+use crate::types::{ModelSummary, QuantileFitResult, QuantileOptions};
+use anofox_regression::core::HasModelInfo;
 use anofox_regression::prelude::*;
 use faer::{Col, Mat};
 
@@ -99,6 +100,7 @@ pub fn fit_quantile(
         tau: options.tau,
         n_observations: n_valid,
         n_features,
+        summary: ModelSummary::from_result(fitted.model_info(), result, false),
     })
 }
 

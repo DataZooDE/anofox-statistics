@@ -17,6 +17,7 @@
 
 #include "../include/anofox_stats_ffi.h"
 #include "../include/map_options_parser.hpp"
+#include "../include/model_struct.hpp"
 #include "aggregate_combine.hpp"
 #include "error_dispatch.hpp"
 #include "list_input.hpp"
@@ -225,6 +226,10 @@ LogicalType PlsFitAggResultType() {
 	c.push_back(make_pair("n_components", LogicalType::BIGINT));
 	c.push_back(make_pair("n_observations", LogicalType::BIGINT));
 	c.push_back(make_pair("n_features", LogicalType::BIGINT));
+	// Stable shape (#152): no coefficient inference for this model, the
+	// inference fields are NULL.
+	AppendCoefficientInferenceFields(c, "t_values", false, false);
+	AppendModelSummaryFields(c);
 	return LogicalType::STRUCT(std::move(c));
 }
 
@@ -233,6 +238,7 @@ void PlsFitAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_data
 	auto &bind = aggr_input_data.bind_data->Cast<ExtraFitBindData>();
 	StatePointers states(state_vector, count);
 	auto &entries = StructVector::GetEntries(result);
+	ModelStructWriter writer(result);
 	for (idx_t i = 0; i < count; i++) {
 		auto &state = states[i];
 		idx_t row = i + offset;
@@ -258,6 +264,8 @@ void PlsFitAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_data
 		FlatVector::GetData<int64_t>(*entries[3])[row] = (int64_t)fit.n_components;
 		FlatVector::GetData<int64_t>(*entries[4])[row] = (int64_t)fit.n_observations;
 		FlatVector::GetData<int64_t>(*entries[5])[row] = (int64_t)fit.n_features;
+		writer.WriteInference(row, nullptr);
+		writer.WriteSummary(row, fit.summary);
 		anofox_free_pls_result(&fit);
 	}
 }
@@ -272,6 +280,10 @@ LogicalType QuantileFitAggResultType() {
 	c.push_back(make_pair("tau", LogicalType::DOUBLE));
 	c.push_back(make_pair("n_observations", LogicalType::BIGINT));
 	c.push_back(make_pair("n_features", LogicalType::BIGINT));
+	// Stable shape (#152): no coefficient inference for this model, the
+	// inference fields are NULL.
+	AppendCoefficientInferenceFields(c, "t_values", false, false);
+	AppendModelSummaryFields(c);
 	return LogicalType::STRUCT(std::move(c));
 }
 
@@ -280,6 +292,7 @@ void QuantileFitAggFinalize(Vector &state_vector, AggregateInputData &aggr_input
 	auto &bind = aggr_input_data.bind_data->Cast<ExtraFitBindData>();
 	StatePointers states(state_vector, count);
 	auto &entries = StructVector::GetEntries(result);
+	ModelStructWriter writer(result);
 	for (idx_t i = 0; i < count; i++) {
 		auto &state = states[i];
 		idx_t row = i + offset;
@@ -306,6 +319,8 @@ void QuantileFitAggFinalize(Vector &state_vector, AggregateInputData &aggr_input
 		SetDouble(*entries[2], row, fit.tau);
 		FlatVector::GetData<int64_t>(*entries[3])[row] = (int64_t)fit.n_observations;
 		FlatVector::GetData<int64_t>(*entries[4])[row] = (int64_t)fit.n_features;
+		writer.WriteInference(row, nullptr);
+		writer.WriteSummary(row, fit.summary);
 		anofox_free_quantile_result(&fit);
 	}
 }
@@ -322,6 +337,7 @@ LogicalType IsotonicFitAggResultType() {
 	c.push_back(make_pair("increasing", LogicalType::BOOLEAN));
 	c.push_back(make_pair("r_squared", LogicalType::DOUBLE));
 	c.push_back(make_pair("n_observations", LogicalType::BIGINT));
+	AppendModelSummaryFields(c);
 	return LogicalType::STRUCT(std::move(c));
 }
 
@@ -330,6 +346,7 @@ void IsotonicFitAggFinalize(Vector &state_vector, AggregateInputData &aggr_input
 	auto &bind = aggr_input_data.bind_data->Cast<ExtraFitBindData>();
 	StatePointers states(state_vector, count);
 	auto &entries = StructVector::GetEntries(result);
+	ModelStructWriter writer(result);
 	for (idx_t i = 0; i < count; i++) {
 		auto &state = states[i];
 		idx_t row = i + offset;
@@ -368,6 +385,8 @@ void IsotonicFitAggFinalize(Vector &state_vector, AggregateInputData &aggr_input
 		FlatVector::GetData<bool>(*entries[2])[row] = fit.increasing;
 		SetDouble(*entries[3], row, fit.r_squared);
 		FlatVector::GetData<int64_t>(*entries[4])[row] = (int64_t)fit.n_observations;
+		writer.WriteInference(row, nullptr);
+		writer.WriteSummary(row, fit.summary);
 		anofox_free_isotonic_result(&fit);
 	}
 }

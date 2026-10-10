@@ -828,6 +828,8 @@ typedef struct {
 	/** Whether the IRLS solver reached the convergence tolerance. Appended last
 	    to preserve the ABI; every construction site must value-initialise. */
 	bool converged;
+	/** Model description, fit statistics and intercept inference (#152) */
+	AnofoxModelSummaryFFI summary;
 } AnofoxGlmFitResultCore;
 
 /*
@@ -1242,6 +1244,8 @@ typedef struct {
 	size_t n_features;
 	/** Number of iterations to converge */
 	uint32_t iterations;
+	/** Model description, fit statistics and intercept inference (#152) */
+	AnofoxModelSummaryFFI summary;
 } AnofoxAlmFitResultCore;
 
 /**
@@ -1314,6 +1318,8 @@ typedef struct {
 	bool *at_lower_bound;
 	/** Pointer to at_upper_bound flags */
 	bool *at_upper_bound;
+	/** Model description and fit statistics (#152) */
+	AnofoxModelSummaryFFI summary;
 } AnofoxBlsFitResultCore;
 
 /**
@@ -1384,6 +1390,8 @@ typedef struct {
 	size_t n_observations;
 	/** Number of features */
 	size_t n_features;
+	/** Model description and fit statistics (#152) */
+	AnofoxModelSummaryFFI summary;
 } AnofoxPlsFitResultCore;
 
 /**
@@ -1431,6 +1439,8 @@ typedef struct {
 	size_t n_observations;
 	/** Whether increasing constraint was used */
 	bool increasing;
+	/** Model description and fit statistics (#152) */
+	AnofoxModelSummaryFFI summary;
 } AnofoxIsotonicFitResultCore;
 
 /**
@@ -1485,6 +1495,8 @@ typedef struct {
 	size_t n_observations;
 	/** Number of features */
 	size_t n_features;
+	/** Model description and fit statistics (#152) */
+	AnofoxModelSummaryFFI summary;
 } AnofoxQuantileFitResultCore;
 
 /**
@@ -2462,6 +2474,8 @@ typedef struct {
 	size_t n_features;
 	uint32_t iterations;
 	bool converged;
+	/** Model description, fit statistics and intercept inference (#152) */
+	AnofoxModelSummaryFFI summary;
 } AnofoxAftFitResultCore;
 
 /**
@@ -2632,6 +2646,8 @@ typedef struct {
 	size_t factor_len;
 	/** Negative-binomial size theta (estimated or fixed); NaN for other families. */
 	double nb_theta;
+	/** Model description, fit statistics and intercept inference (#152) */
+	AnofoxModelSummaryFFI summary;
 } AnofoxGlmmResult;
 
 /**

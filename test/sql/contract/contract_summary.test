@@ -7,6 +7,7 @@ require anofox_statistics
 statement ok
 CREATE TABLE d AS SELECT range::DOUBLE AS x1, (range % 7)::DOUBLE AS x2,
     (2 * range + (range % 7) + (range % 3) * 1.5 + sin(range))::DOUBLE AS y, 1.0 + (range % 4) AS w,
+    ((range * 7 + 3) % 9)::DOUBLE AS cnt, (range % 4 <> 0)::DOUBLE AS ev,
     (range % 2)::VARCHAR AS g
 FROM range(40);
 
@@ -30,6 +31,11 @@ SELECT count(DISTINCT cols) FROM (
     UNION ALL SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM theil_sen_glance_by('d', g, y, [x1, x2]))
     UNION ALL SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM rls_glance_by('d', g, y, [x1, x2]))
     UNION ALL SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM lars_glance_by('d', g, y, [x1, x2]))
+    UNION ALL SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM poisson_glance_by('d', g, cnt, [x1, x2]))
+    UNION ALL SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM alm_glance_by('d', g, y, [x1, x2]))
+    UNION ALL SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM aft_glance_by('d', g, y, [x1, x2], ev))
+    UNION ALL SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM bls_glance_by('d', g, y, [x1, x2]))
+    UNION ALL SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM quantile_glance_by('d', g, y, [x1, x2]))
 )
 ----
 1
@@ -51,4 +57,4 @@ query I
 SELECT count(DISTINCT function_name) FROM duckdb_functions()
 WHERE function_name LIKE '%\_glance\_by' ESCAPE '\' AND tags['anofox.output'] = 'summary' AND tags['anofox.contract'] = '1'
 ----
-9
+21

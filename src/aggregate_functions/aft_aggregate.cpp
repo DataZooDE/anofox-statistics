@@ -1,3 +1,4 @@
+#include <cmath>
 #include <limits>
 #include <vector>
 
@@ -12,6 +13,7 @@
 #include "../include/error_dispatch.hpp"
 #include "../include/glm_prior_options.hpp"
 #include "../include/map_options_parser.hpp"
+#include "../include/model_struct.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 #include "list_input.hpp"
@@ -86,7 +88,7 @@ struct AftAggregateBindData : public FunctionData {
 	}
 };
 
-static LogicalType GetAftAggResultType(bool compute_inference) {
+static LogicalType GetAftAggResultType() {
 	child_list_t<LogicalType> children;
 
 	children.push_back(make_pair("coefficients", LogicalType::LIST(LogicalType::DOUBLE)));
@@ -103,15 +105,12 @@ static LogicalType GetAftAggResultType(bool compute_inference) {
 	children.push_back(make_pair("iterations", LogicalType::INTEGER));
 	children.push_back(make_pair("converged", LogicalType::BOOLEAN));
 
-	if (compute_inference) {
-		children.push_back(make_pair("std_errors", LogicalType::LIST(LogicalType::DOUBLE)));
-		children.push_back(make_pair("z_values", LogicalType::LIST(LogicalType::DOUBLE)));
-		children.push_back(make_pair("p_values", LogicalType::LIST(LogicalType::DOUBLE)));
-		children.push_back(make_pair("ci_lower", LogicalType::LIST(LogicalType::DOUBLE)));
-		children.push_back(make_pair("ci_upper", LogicalType::LIST(LogicalType::DOUBLE)));
-		children.push_back(make_pair("intercept_std_error", LogicalType::DOUBLE));
-		children.push_back(make_pair("log_scale_std_error", LogicalType::DOUBLE));
-	}
+	// Stable shape (#152): the inference fields are always present, NULL
+	// without compute_inference.
+	AppendCoefficientInferenceFields(children, "z_values", false);
+	children.push_back(make_pair("intercept_std_error", LogicalType::DOUBLE));
+	children.push_back(make_pair("log_scale_std_error", LogicalType::DOUBLE));
+	AppendModelSummaryFields(children);
 
 	return LogicalType::STRUCT(std::move(children));
 }
@@ -257,6 +256,16 @@ static void AftAggFinalize(Vector &state_vector, AggregateInputData &, Vector &r
 	state_vector.ToUnifiedFormat(count, sdata);
 	auto states = (AftAggregateState **)sdata.data;
 	auto &struct_entries = StructVector::GetEntries(result);
+	ModelStructWriter writer(result);
+	Vector *log_scale_se = nullptr;
+	{
+		auto &types = StructType::GetChildTypes(result.GetType());
+		for (idx_t k = 0; k < types.size(); k++) {
+			if (types[k].first == "log_scale_std_error") {
+				log_scale_se = struct_entries[k].get();
+			}
+		}
+	}
 
 	for (idx_t i = 0; i < count; i++) {
 		auto &state = *states[sdata.sel->get_index(i)];
@@ -312,14 +321,20 @@ static void AftAggFinalize(Vector &state_vector, AggregateInputData &, Vector &r
 		FlatVector::GetData<int32_t>(*struct_entries[c++])[row] = (int32_t)core.iterations;
 		FlatVector::GetData<bool>(*struct_entries[c++])[row] = core.converged;
 
+		// Inference (NULL unless requested), CI fields and the model summary
 		if (state.compute_inference) {
-			SetDoubleList(*struct_entries[c++], row, inference.std_errors, inference.len);
-			SetDoubleList(*struct_entries[c++], row, inference.z_values, inference.len);
-			SetDoubleList(*struct_entries[c++], row, inference.p_values, inference.len);
-			SetDoubleList(*struct_entries[c++], row, inference.ci_lower, inference.len);
-			SetDoubleList(*struct_entries[c++], row, inference.ci_upper, inference.len);
-			FlatVector::GetData<double>(*struct_entries[c++])[row] = inference.intercept_std_error;
-			FlatVector::GetData<double>(*struct_entries[c++])[row] = inference.log_scale_std_error;
+			// AFT has its own inference struct; view it in the shared layout.
+			AnofoxFitResultInference view = {inference.std_errors, inference.z_values, inference.p_values,
+			                                  inference.ci_lower,  inference.ci_upper, inference.len,
+			                                  inference.confidence_level, NAN, NAN};
+			writer.WriteInference(row, &view);
+			FlatVector::GetData<double>(*log_scale_se)[row] = inference.log_scale_std_error;
+		} else {
+			writer.WriteInference(row, nullptr);
+			FlatVector::SetNull(*log_scale_se, row, true);
+		}
+		writer.WriteSummary(row, core.summary);
+		if (state.compute_inference) {
 			anofox_free_aft_inference(&inference);
 		}
 
@@ -357,7 +372,7 @@ static unique_ptr<FunctionData> AftAggBind(ClientContext &context, AggregateFunc
 		}
 	}
 
-	function.return_type = GetAftAggResultType(result->compute_inference);
+	function.return_type = GetAftAggResultType();
 	PostHogTelemetry::Instance().RecordFunctionCall("aft_fit_agg");
 	return std::move(result);
 }

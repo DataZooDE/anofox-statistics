@@ -303,10 +303,52 @@ impl From<&anofox_stats_core::ModelSummary> for ModelSummaryFFI {
 
 #[cfg(test)]
 mod layout_tests {
-    use super::{FitResultCore, ModelSummaryFFI, MODEL_NAME_LEN};
+    use super::{
+        AftFitResultCore, AlmFitResultCore, BlsFitResultCore, FitResultCore, GlmFitResultCore,
+        GlmmResultFFI, IsotonicFitResultCore, ModelSummaryFFI, PlsFitResultCore,
+        QuantileFitResultCore, MODEL_NAME_LEN,
+    };
 
     /// Mirrors the static_asserts in src/include/model_struct.cpp, which pin the
     /// hand-written C header to these layouts.
+    /// The summary is the last field of the other result structs (after padding).
+    #[test]
+    fn summary_is_last() {
+        use std::mem::{offset_of, size_of};
+        assert_eq!(
+            size_of::<GlmFitResultCore>(),
+            offset_of!(GlmFitResultCore, summary) + size_of::<ModelSummaryFFI>()
+        );
+        assert_eq!(
+            size_of::<AftFitResultCore>(),
+            offset_of!(AftFitResultCore, summary) + size_of::<ModelSummaryFFI>()
+        );
+        assert_eq!(
+            size_of::<AlmFitResultCore>(),
+            offset_of!(AlmFitResultCore, summary) + size_of::<ModelSummaryFFI>()
+        );
+        assert_eq!(
+            size_of::<BlsFitResultCore>(),
+            offset_of!(BlsFitResultCore, summary) + size_of::<ModelSummaryFFI>()
+        );
+        assert_eq!(
+            size_of::<PlsFitResultCore>(),
+            offset_of!(PlsFitResultCore, summary) + size_of::<ModelSummaryFFI>()
+        );
+        assert_eq!(
+            size_of::<IsotonicFitResultCore>(),
+            offset_of!(IsotonicFitResultCore, summary) + size_of::<ModelSummaryFFI>()
+        );
+        assert_eq!(
+            size_of::<QuantileFitResultCore>(),
+            offset_of!(QuantileFitResultCore, summary) + size_of::<ModelSummaryFFI>()
+        );
+        assert_eq!(
+            size_of::<GlmmResultFFI>(),
+            offset_of!(GlmmResultFFI, summary) + size_of::<ModelSummaryFFI>()
+        );
+    }
+
     #[test]
     fn model_summary_layout_matches_c_header() {
         use std::mem::size_of;
@@ -1200,6 +1242,8 @@ pub struct GlmFitResultCore {
     /// Whether the IRLS solver reached the convergence tolerance. Appended last to
     /// preserve the ABI; every construction site must set it explicitly.
     pub converged: bool,
+    /// Model description, fit statistics and intercept inference (#152)
+    pub summary: ModelSummaryFFI,
 }
 
 impl Default for GlmFitResultCore {
@@ -1217,6 +1261,7 @@ impl Default for GlmFitResultCore {
             n_features: 0,
             iterations: 0,
             converged: false,
+            summary: ModelSummaryFFI::default(),
         }
     }
 }
@@ -1329,6 +1374,8 @@ pub struct AlmFitResultCore {
     pub n_features: usize,
     /// Number of iterations to converge
     pub iterations: u32,
+    /// Model description, fit statistics and intercept inference (#152)
+    pub summary: ModelSummaryFFI,
 }
 
 impl Default for AlmFitResultCore {
@@ -1344,6 +1391,7 @@ impl Default for AlmFitResultCore {
             n_observations: 0,
             n_features: 0,
             iterations: 0,
+            summary: ModelSummaryFFI::default(),
         }
     }
 }
@@ -1408,6 +1456,8 @@ pub struct BlsFitResultCore {
     pub at_lower_bound: *mut bool,
     /// Pointer to at_upper_bound flags
     pub at_upper_bound: *mut bool,
+    /// Model description and fit statistics (#152)
+    pub summary: ModelSummaryFFI,
 }
 
 impl Default for BlsFitResultCore {
@@ -1423,6 +1473,7 @@ impl Default for BlsFitResultCore {
             n_active_constraints: 0,
             at_lower_bound: std::ptr::null_mut(),
             at_upper_bound: std::ptr::null_mut(),
+            summary: ModelSummaryFFI::default(),
         }
     }
 }
@@ -2307,6 +2358,8 @@ pub struct PlsFitResultCore {
     pub n_observations: usize,
     /// Number of features
     pub n_features: usize,
+    /// Model description and fit statistics (#152)
+    pub summary: ModelSummaryFFI,
 }
 
 impl Default for PlsFitResultCore {
@@ -2319,6 +2372,7 @@ impl Default for PlsFitResultCore {
             n_components: 0,
             n_observations: 0,
             n_features: 0,
+            summary: ModelSummaryFFI::default(),
         }
     }
 }
@@ -2353,6 +2407,8 @@ pub struct IsotonicFitResultCore {
     pub n_observations: usize,
     /// Whether increasing constraint was used
     pub increasing: bool,
+    /// Model description and fit statistics (#152)
+    pub summary: ModelSummaryFFI,
 }
 
 impl Default for IsotonicFitResultCore {
@@ -2363,6 +2419,7 @@ impl Default for IsotonicFitResultCore {
             r_squared: f64::NAN,
             n_observations: 0,
             increasing: true,
+            summary: ModelSummaryFFI::default(),
         }
     }
 }
@@ -2410,6 +2467,8 @@ pub struct QuantileFitResultCore {
     pub n_observations: usize,
     /// Number of features
     pub n_features: usize,
+    /// Model description and fit statistics (#152)
+    pub summary: ModelSummaryFFI,
 }
 
 impl Default for QuantileFitResultCore {
@@ -2421,6 +2480,7 @@ impl Default for QuantileFitResultCore {
             tau: f64::NAN,
             n_observations: 0,
             n_features: 0,
+            summary: ModelSummaryFFI::default(),
         }
     }
 }
@@ -2581,6 +2641,8 @@ pub struct AftFitResultCore {
     pub n_features: usize,
     pub iterations: u32,
     pub converged: bool,
+    /// Model description, fit statistics and intercept inference (#152)
+    pub summary: ModelSummaryFFI,
 }
 
 /// Inference for an AFT fit. All arrays are caller-owned and released with
@@ -2805,4 +2867,6 @@ pub struct GlmmResultFFI {
     pub factor_len: usize,
     /// Negative-binomial size theta (estimated or fixed); NaN for other families.
     pub nb_theta: f64,
+    /// Model description, fit statistics and intercept inference (#152)
+    pub summary: ModelSummaryFFI,
 }

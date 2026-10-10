@@ -1,7 +1,8 @@
 //! Partial Least Squares (PLS) regression wrapper
 
 use crate::errors::{StatsError, StatsResult};
-use crate::types::{PlsFitResult, PlsOptions};
+use crate::types::{ModelSummary, PlsFitResult, PlsOptions};
+use anofox_regression::core::HasModelInfo;
 use anofox_regression::prelude::*;
 use faer::{Col, Mat};
 
@@ -99,6 +100,7 @@ pub fn fit_pls(y: &[f64], x: &[Vec<f64>], options: &PlsOptions) -> StatsResult<P
         n_components: options.n_components,
         n_observations: n_valid,
         n_features,
+        summary: ModelSummary::from_result(fitted.model_info(), result, false),
     })
 }
 

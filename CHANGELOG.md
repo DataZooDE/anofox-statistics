@@ -12,15 +12,19 @@ Breaking changes are called out explicitly.
 
 ### Added
 
-- Stable model outputs for the linear and robust fits (#152; `ols`, `wls`, `ridge`,
-  `elasticnet`, `lars`, `rls`, `huber`, `ransac`, `theil_sen`, aggregate and scalar):
+- Stable model outputs for every fit (#152): the linear and robust fits (`ols`, `wls`,
+  `ridge`, `elasticnet`, `lars`, `rls`, `huber`, `ransac`, `theil_sen`, aggregate and
+  scalar), the GLMs (`poisson`, `binomial`, `logistic`, `negbinom`, `gamma`, `tweedie`),
+  `alm`, `aft`, `glmm`, `bls`/`nnls`, `pls`, `quantile` and `isotonic`:
   every model struct now ends with `conf_low`, `conf_high`, `conf_level`, the
   intercept's inference (`intercept_std_error`, `intercept_statistic`,
   `intercept_p_value`, `intercept_conf_low`, `intercept_conf_high`), `log_likelihood`,
   `aic`, `bic` (as R's `logLik`/`AIC`/`BIC`; NULL for estimators without a likelihood)
-  and `model_type`, `family`, `link` (from upstream `HasModelInfo`). Validated against R
-  `lm` (OLS, WLS, HC3).
-- `<model>_tidy_by` and `<model>_glance_by` table macros for the same models: per-group
+  and `model_type`, `family`, `link` (from upstream `HasModelInfo`; GLMs report
+  `model_type = 'glm'`). Validated against R `lm` (OLS, WLS, HC3), `glm` (Poisson,
+  logistic), `survival::survreg` (AFT) and lme4 (GLMM). Requires anofox-regression 0.5.24.
+- `<model>_tidy_by` and `<model>_glance_by` table macros for 21 models (not `glmm`,
+  `isotonic`; `wls` takes `weight_col`, `aft` `event_col`): per-group
   coefficient tables and long-form fit statistics in the integration contract's `terms`
   and `summary` schemas, tagged `anofox.output = 'terms' | 'summary'`.
 
@@ -103,6 +107,10 @@ Breaking changes are called out explicitly.
   Huber's `scale` are no longer in `glance`; read them from the model struct.
 - `tidy(model)` rows gain `conf_level`, `index_name` and `index_value`, and the intercept
   row carries the intercept's inference where the model reports it.
+- `negbinom_fit_agg` reports `family = 'negative_binomial'` (was `'negbinom'`), the
+  upstream / R name. `family` and `link` of every GLM now come from upstream.
+- `glmm_fit_agg`'s `aic` / `bic` come from upstream (`FittedGlmm::aic` / `bic`, lme4's
+  parameter count) instead of being computed in the extension; the values are unchanged.
 
 
 - **Behaviour change (Poisson inference).** `poisson_fit_agg` and the other Poisson
@@ -268,8 +276,7 @@ Breaking changes are called out explicitly.
 
 ### Deprecated
 
-- `ci_lower` / `ci_upper` in the model structs of the linear and robust fits: use
-  `conf_low` / `conf_high`. The aliases are removed in the next minor release.
+- `ci_lower` / `ci_upper` in the model structs: use `conf_low` / `conf_high`. The aliases are removed in the next minor release.
 
 ### Fixed
 

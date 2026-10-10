@@ -13,6 +13,7 @@
 #include "../include/anofox_stats_ffi.h"
 #include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
+#include "../include/model_struct.hpp"
 #include "telemetry.hpp"
 #include "aggregate_finalize_guard.hpp"
 
@@ -165,7 +166,7 @@ struct GlmmAggregateBindData : public FunctionData {
 	}
 };
 
-static LogicalType GetGlmmResultType(bool compute_inference) {
+static LogicalType GetGlmmResultType() {
 	child_list_t<LogicalType> ranef_children;
 	ranef_children.push_back(make_pair("group", LogicalType::VARCHAR));
 	ranef_children.push_back(make_pair("intercept", LogicalType::DOUBLE));
@@ -197,18 +198,15 @@ static LogicalType GetGlmmResultType(bool compute_inference) {
 	factor_children.push_back(make_pair("var", LogicalType::DOUBLE));
 	children.push_back(make_pair("factors", LogicalType::LIST(LogicalType::STRUCT(std::move(factor_children)))));
 
-	if (compute_inference) {
-		children.push_back(make_pair("std_errors", LogicalType::LIST(LogicalType::DOUBLE)));
-		children.push_back(make_pair("z_values", LogicalType::LIST(LogicalType::DOUBLE)));
-		children.push_back(make_pair("p_values", LogicalType::LIST(LogicalType::DOUBLE)));
-		children.push_back(make_pair("ci_lower", LogicalType::LIST(LogicalType::DOUBLE)));
-		children.push_back(make_pair("ci_upper", LogicalType::LIST(LogicalType::DOUBLE)));
-		children.push_back(make_pair("intercept_std_error", LogicalType::DOUBLE));
-	}
+	// Stable shape (#152): the inference fields are always present, NULL
+	// without compute_inference.
+	AppendCoefficientInferenceFields(children, "z_values", false);
+	children.push_back(make_pair("intercept_std_error", LogicalType::DOUBLE));
 
 	children.push_back(make_pair("ranef", LogicalType::LIST(ranef_type)));
 	// Negative-binomial size theta (estimated or fixed); NULL for other families.
 	children.push_back(make_pair("nb_theta", LogicalType::DOUBLE));
+	AppendModelSummaryFields(children);
 	return LogicalType::STRUCT(std::move(children));
 }
 
@@ -366,6 +364,7 @@ static void GlmmAggFinalize(Vector &state_vector, AggregateInputData &, Vector &
 	state_vector.ToUnifiedFormat(count, sdata);
 	auto states = (GlmmAggregateState **)sdata.data;
 	auto &struct_entries = StructVector::GetEntries(result);
+	ModelStructWriter writer(result);
 
 	for (idx_t i = 0; i < count; i++) {
 		auto &state = *states[sdata.sel->get_index(i)];
@@ -493,14 +492,19 @@ static void GlmmAggFinalize(Vector &state_vector, AggregateInputData &, Vector &
 			fac_list[row].length = res.factor_len;
 		}
 
+		// Inference (NULL unless requested), CI fields and the model summary
 		if (state.compute_inference) {
-			SetDoubleListG(*struct_entries[c++], row, res.std_errors, res.inference_len);
-			SetDoubleListG(*struct_entries[c++], row, res.z_values, res.inference_len);
-			SetDoubleListG(*struct_entries[c++], row, res.p_values, res.inference_len);
-			SetDoubleListG(*struct_entries[c++], row, res.ci_lower, res.inference_len);
-			SetDoubleListG(*struct_entries[c++], row, res.ci_upper, res.inference_len);
-			FlatVector::GetData<double>(*struct_entries[c++])[row] = res.intercept_std_error;
+			// GLMM has its own result struct; view its inference in the shared layout.
+			AnofoxFitResultInference view = {res.std_errors, res.z_values,   res.p_values,         res.ci_lower,
+			                                  res.ci_upper,   res.inference_len, res.confidence_level, NAN,
+			                                  NAN};
+			writer.WriteInference(row, &view);
+		} else {
+			writer.WriteInference(row, nullptr);
 		}
+		writer.WriteSummary(row, res.summary);
+		// std_errors, z_values, p_values, ci_lower, ci_upper, intercept_std_error
+		c += 6;
 
 		// The random-effects LIST(STRUCT(group, intercept, se, n)).
 		auto &ranef_vec = *struct_entries[c];
@@ -604,7 +608,7 @@ static unique_ptr<FunctionData> GlmmAggBind(ClientContext &context, AggregateFun
 		}
 	}
 
-	function.return_type = GetGlmmResultType(result->compute_inference);
+	function.return_type = GetGlmmResultType();
 	PostHogTelemetry::Instance().RecordFunctionCall("glmm_fit_agg");
 	return std::move(result);
 }

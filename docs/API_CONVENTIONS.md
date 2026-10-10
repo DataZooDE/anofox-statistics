@@ -188,9 +188,11 @@ GLMs use `z_values` instead of `t_values` because the Wald statistic under GLM a
 | `n_observations`, `n_features` | BIGINT | Counts |
 | `iterations` | INTEGER | IRLS iterations used |
 | `converged` | BOOLEAN | Whether IRLS converged |
-| `std_errors`, `z_values`, `p_values`, `ci_lower`, `ci_upper` | DOUBLE[] | Only with `compute_inference: true` |
+| `std_errors`, `z_values`, `p_values`, `ci_lower`, `ci_upper` | DOUBLE[] | NULL without `compute_inference: true` (`ci_lower`/`ci_upper` are deprecated aliases of `conf_low`/`conf_high`) |
+| `family`, `link` | VARCHAR | e.g. `'poisson'`, `'log'` |
+| shared fields | | `conf_low`, `conf_high`, `conf_level`, `intercept_*` inference, `log_likelihood`, `bic`, `model_type` (`'glm'`), as in the linear models |
 
-GLM results do not include `r_squared`, `log_likelihood` or `bic`. `logistic_fit_agg` replaces `dispersion` with `accuracy` and `threshold`.
+GLM results do not include `r_squared`. `logistic_fit_agg` replaces `dispersion` with `accuracy` and `threshold`.
 
 **AFT survival models:**
 
@@ -201,11 +203,12 @@ GLM results do not include `r_squared`, `log_likelihood` or `bic`. `logistic_fit
 | `aic`, `bic` | DOUBLE | Information criteria |
 | `n_observations`, `n_events`, `n_censored`, `n_features` | BIGINT | Counts |
 | `iterations`, `converged` | INTEGER, BOOLEAN | Optimizer status |
-| `z_values` (and `std_errors`, `p_values`, `ci_lower`, `ci_upper`, `intercept_std_error`, `log_scale_std_error`) | | Only with `compute_inference: true` |
+| `z_values` (and `std_errors`, `p_values`, `ci_lower`, `ci_upper`, `intercept_std_error`, `log_scale_std_error`) | | NULL without `compute_inference: true` |
+| shared fields | | `conf_low`, `conf_high`, `conf_level`, the other `intercept_*` inference, `model_type` (`'aft'`), `family` (the distribution), `link` (`'log'`) |
 
 **ALM (Augmented Linear Model):**
 
-ALM returns `coefficients`, `intercept`, `log_likelihood`, `aic`, `bic`, `scale`, `n_observations`, `n_features`, `iterations`, and with `compute_inference: true` also `std_errors`, `t_values`, `p_values`, `ci_lower`, `ci_upper`. It has no `r_squared`.
+ALM returns `coefficients`, `intercept`, `log_likelihood`, `aic`, `bic`, `scale`, `n_observations`, `n_features`, `iterations`, `std_errors`, `t_values`, `p_values`, `ci_lower`, `ci_upper` (NULL without `compute_inference: true`) and the shared fields (`model_type` `'alm'`, `family` = the distribution). It has no `r_squared`.
 
 ---
 

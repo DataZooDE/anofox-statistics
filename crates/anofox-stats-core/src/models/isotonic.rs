@@ -1,7 +1,8 @@
 //! Isotonic regression wrapper
 
 use crate::errors::{StatsError, StatsResult};
-use crate::types::{IsotonicFitResult, IsotonicOptions};
+use crate::types::{IsotonicFitResult, IsotonicOptions, ModelSummary};
+use anofox_regression::core::HasModelInfo;
 use anofox_regression::prelude::*;
 use faer::Col;
 
@@ -78,6 +79,7 @@ pub fn fit_isotonic(
         r_squared,
         n_observations: n_valid,
         increasing: options.increasing,
+        summary: ModelSummary::from_result(fitted.model_info(), fitted.result(), false),
     })
 }
 

@@ -8,7 +8,8 @@ use anofox_regression::solvers::{BlsRegressor, FittedRegressor, Regressor};
 use faer::{Col, Mat};
 
 use crate::errors::{StatsError, StatsResult};
-use crate::types::{BlsFitResult, BlsOptions};
+use crate::types::{BlsFitResult, BlsOptions, ModelSummary};
+use anofox_regression::core::{HasModelInfo, ModelInfo};
 
 /// Validate input arrays for BLS
 fn validate_inputs(y: &[f64], x: &[Vec<f64>]) -> StatsResult<()> {
@@ -112,6 +113,7 @@ pub fn fit_bls(y: &[f64], x: &[Vec<f64>], options: &BlsOptions) -> StatsResult<B
                 n_active_constraints: 0,
                 at_lower_bound: vec![false; n_features],
                 at_upper_bound: vec![false; n_features],
+                summary: ModelSummary::new(ModelInfo::gaussian("bls")),
             });
         }
     }
@@ -250,6 +252,7 @@ pub fn fit_bls(y: &[f64], x: &[Vec<f64>], options: &BlsOptions) -> StatsResult<B
         n_active_constraints: n_active,
         at_lower_bound,
         at_upper_bound,
+        summary: ModelSummary::from_result(fitted.model_info(), result, false),
     })
 }
 
