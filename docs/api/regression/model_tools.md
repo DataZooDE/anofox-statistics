@@ -207,8 +207,10 @@ ORDER BY grp;
 `<model>_tidy_by(source, group_col, y_col, x_cols [, weight_col] [, options := ..., names := [...]])`
 and `<model>_glance_by(source, group_col, y_col, x_cols [, weight_col] [, options := ...])`
 fit one model per group and return long tables (for `ols`, `wls`, `ridge`,
-`elasticnet`, `huber`, `ransac`, `theil_sen`, `rls`, `lars`; `wls` takes
-`weight_col`):
+`elasticnet`, `huber`, `ransac`, `theil_sen`, `rls`, `lars`, `bls`, `nnls`,
+`pls`, `quantile`, the GLMs `poisson`, `binomial`, `logistic`, `negbinom`,
+`gamma`, `tweedie`, and `alm`, `aft`; `wls` takes `weight_col`, `aft`
+`event_col`):
 
 - `_tidy_by`: the group column, `model_id`, and the `tidy` columns, one row per
   term. Inference is computed by default for models that have it.

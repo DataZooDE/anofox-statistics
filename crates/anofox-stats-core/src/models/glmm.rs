@@ -24,6 +24,8 @@
 //! Per-group BLUP standard errors are not exposed upstream (`se` is NaN).
 
 use crate::errors::{StatsError, StatsResult};
+use crate::types::ModelSummary;
+use anofox_regression::core::HasModelInfo;
 use anofox_regression::solvers::{GlmmRegressor, GlmmRegressorBuilder};
 use faer::{Col, Mat};
 
@@ -146,6 +148,8 @@ pub struct GlmmResult {
     pub log_likelihood: f64,
     pub aic: f64,
     pub bic: f64,
+    /// Model description, fit statistics and intercept inference (#152).
+    pub summary: ModelSummary,
     pub deviance: f64,
     pub n_observations: usize,
     pub n_groups: usize,
@@ -228,19 +232,6 @@ fn design_layout(
         });
     }
     Ok((design, offset, slopes))
-}
-
-/// AIC/BIC parameter count: fixed effects, random-effect covariance parameters,
-/// and one scale parameter (residual variance, Gamma/Tweedie dispersion or the
-/// negative-binomial θ) for every family but Poisson and binomial, as the df of
-/// lme4's `logLik` (`glmer.nb` and a fixed `negative.binomial(θ)` both count θ).
-fn n_params(n_fixed: usize, n_cov: usize, family: GlmmFamily) -> usize {
-    n_fixed
-        + n_cov
-        + usize::from(!matches!(
-            family,
-            GlmmFamily::Poisson | GlmmFamily::Binomial
-        ))
 }
 
 /// Fit a mixed-effects GLM with a random intercept over one grouping factor.
@@ -388,11 +379,10 @@ pub fn fit_glmm(
         0.0
     };
 
-    // Covariance parameters of Sigma (q(q+1)/2) plus the residual scale.
-    let q = random_cov.len().max(1);
-    let k = n_params(n_fixed, q * (q + 1) / 2, options.family);
-    // Upstream reports lme4's logLik(glmer) (saturated term included).
+    // Upstream reports lme4's logLik(glmer) (saturated term included) and its
+    // AIC / BIC with lme4's parameter count.
     let ll = fit.log_likelihood();
+    let summary = glmm_summary(&fit, options);
 
     Ok(GlmmResult {
         coefficients,
@@ -409,8 +399,9 @@ pub fn fit_glmm(
         icc,
         random_cov,
         log_likelihood: ll,
-        aic: 2.0 * k as f64 - 2.0 * ll,
-        bic: k as f64 * (n as f64).ln() - 2.0 * ll,
+        aic: fit.aic(),
+        bic: fit.bic(),
+        summary,
         deviance: fit.deviance(),
         n_observations: n,
         n_groups,
@@ -573,15 +564,10 @@ pub fn fit_glmm_crossed(
     } else {
         Vec::new()
     };
-    // k: fixed effects + covariance parameters per factor + residual scale.
-    let q0 = random_cov.len().max(1);
-    let k = n_params(
-        n_fixed,
-        q0 * (q0 + 1) / 2 + factors.len() - 1,
-        options.family,
-    );
-    // Upstream reports lme4's logLik(glmer) (saturated term included).
+    // Upstream reports lme4's logLik(glmer) (saturated term included) and its
+    // AIC / BIC with lme4's parameter count.
     let ll = fit.log_likelihood();
+    let summary = glmm_summary(&fit, options);
 
     Ok(GlmmResult {
         coefficients,
@@ -598,8 +584,9 @@ pub fn fit_glmm_crossed(
         icc,
         random_cov,
         log_likelihood: ll,
-        aic: 2.0 * k as f64 - 2.0 * ll,
-        bic: k as f64 * (n as f64).ln() - 2.0 * ll,
+        aic: fit.aic(),
+        bic: fit.bic(),
+        summary,
         deviance: fit.deviance(),
         n_observations: n,
         n_groups: fit.n_groups(),
@@ -623,6 +610,28 @@ type FixedEffectInference = (
     Option<Vec<f64>>,
     Option<f64>,
 );
+
+/// Model description, fit statistics and, with inference, the intercept's
+/// inference (the first fixed effect), all from upstream.
+fn glmm_summary(
+    fit: &anofox_regression::solvers::FittedGlmm,
+    options: &GlmmOptions,
+) -> ModelSummary {
+    let mut summary = ModelSummary::new(fit.model_info());
+    summary.log_likelihood = fit.log_likelihood();
+    summary.aic = fit.aic();
+    summary.bic = fit.bic();
+    if options.compute_inference && options.fit_intercept {
+        let (lo, hi) = fit.conf_int(options.confidence_level);
+        summary.set_intercept_inference(
+            fit.std_errors().first().copied(),
+            fit.z_values().first().copied(),
+            fit.p_values().first().copied(),
+            lo.first().copied().zip(hi.first().copied()),
+        );
+    }
+    summary
+}
 
 fn fixed_effect_inference(
     fit: &anofox_regression::solvers::FittedGlmm,

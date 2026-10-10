@@ -10,6 +10,7 @@
 #include "../include/min_obs_guard.hpp"
 #include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
+#include "../include/model_struct.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 #include "list_input.hpp"
@@ -95,6 +96,11 @@ static LogicalType GetBlsAggResultType() {
     children.push_back(make_pair("n_active_constraints", LogicalType::BIGINT));
     children.push_back(make_pair("at_lower_bound", LogicalType::LIST(LogicalType::BOOLEAN)));
     children.push_back(make_pair("at_upper_bound", LogicalType::LIST(LogicalType::BOOLEAN)));
+
+    // Stable shape (#152): no coefficient inference for this model, the
+    // inference fields are NULL.
+    AppendCoefficientInferenceFields(children, "t_values", false, false);
+    AppendModelSummaryFields(children);
 
     return LogicalType::STRUCT(std::move(children));
 }
@@ -260,6 +266,7 @@ static void BlsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
     auto states = (BlsAggregateState **)sdata.data;
 
     auto &struct_entries = StructVector::GetEntries(result);
+    ModelStructWriter writer(result);
 
     for (idx_t i = 0; i < count; i++) {
         auto &state = *states[sdata.sel->get_index(i)];
@@ -345,6 +352,8 @@ static void BlsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
         SetBoolListInResult(*struct_entries[struct_idx++], result_idx, core_result.at_upper_bound,
                             core_result.coefficients_len);
 
+        writer.WriteInference(result_idx, nullptr);
+        writer.WriteSummary(result_idx, core_result.summary);
         anofox_free_bls_result(&core_result);
 
         state.Reset();
