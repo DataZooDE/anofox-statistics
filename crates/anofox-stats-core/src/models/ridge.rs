@@ -2,8 +2,10 @@
 
 use crate::errors::{StatsError, StatsResult};
 use crate::types::{
-    FitResult, FitResultCore, FitResultInference, LambdaScaling, RidgeOptions, SolverType,
+    FitResult, FitResultCore, FitResultInference, LambdaScaling, ModelSummary, RidgeOptions,
+    SolverType,
 };
+use anofox_regression::core::{HasModelInfo, ModelInfo};
 use anofox_regression::prelude::*;
 use faer::{Col, Mat};
 
@@ -97,6 +99,7 @@ pub fn fit_ridge(y: &[f64], x: &[Vec<f64>], options: &RidgeOptions) -> StatsResu
             },
             inference: None,
             diagnostics: None,
+            summary: ModelSummary::new(ModelInfo::gaussian("ridge")),
         });
     }
 
@@ -156,6 +159,12 @@ pub fn fit_ridge(y: &[f64], x: &[Vec<f64>], options: &RidgeOptions) -> StatsResu
         core,
         inference,
         diagnostics: None,
+        // Intercept inference follows the coefficient inference: none for alpha > 0.
+        summary: ModelSummary::from_result(
+            fitted.model_info(),
+            result,
+            options.compute_inference && options.alpha == 0.0,
+        ),
     })
 }
 

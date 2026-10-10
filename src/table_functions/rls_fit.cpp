@@ -12,6 +12,7 @@
 #include "../include/anofox_stats_ffi.h"
 #include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
+#include "../include/model_struct.hpp"
 #include "telemetry.hpp"
 #include "anofox_statistics_banner.hpp"
 
@@ -28,6 +29,11 @@ static LogicalType GetRlsResultType() {
     children.push_back(make_pair("residual_std_error", LogicalType::DOUBLE));
     children.push_back(make_pair("n_observations", LogicalType::BIGINT));
     children.push_back(make_pair("n_features", LogicalType::BIGINT));
+
+    // Stable shape (#152): no coefficient inference for this model, the
+    // inference fields are NULL.
+    AppendCoefficientInferenceFields(children, "t_values", false, false);
+    AppendModelSummaryFields(children);
 
     return LogicalType::STRUCT(std::move(children));
 }
@@ -132,6 +138,7 @@ static void RlsFitFunctionImpl(DataChunk &args, ExpressionState &state, Vector &
 
     idx_t count = args.size();
     auto &struct_entries = StructVector::GetEntries(result);
+    ModelStructWriter writer(result);
 
     // Process each row
     for (idx_t row = 0; row < count; row++) {
@@ -197,6 +204,8 @@ static void RlsFitFunctionImpl(DataChunk &args, ExpressionState &state, Vector &
         FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[row] = core_result.n_observations;
         FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[row] = core_result.n_features;
 
+        writer.WriteInference(row, nullptr);
+        writer.WriteSummary(row, core_result.summary);
         anofox_free_result_core(&core_result);
     }
 }

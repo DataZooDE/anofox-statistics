@@ -1,7 +1,10 @@
 //! Ordinary Least Squares (OLS) regression wrapper
 
 use crate::errors::{StatsError, StatsResult};
-use crate::types::{FitResult, FitResultCore, FitResultInference, HcType, OlsOptions, SolverType};
+use crate::types::{
+    FitResult, FitResultCore, FitResultInference, HcType, ModelSummary, OlsOptions, SolverType,
+};
+use anofox_regression::core::{HasModelInfo, ModelInfo};
 use anofox_regression::prelude::*;
 use faer::{Col, Mat};
 
@@ -98,6 +101,7 @@ pub fn fit_ols(y: &[f64], x: &[Vec<f64>], options: &OlsOptions) -> StatsResult<F
             },
             inference: None,
             diagnostics: None,
+            summary: ModelSummary::new(ModelInfo::gaussian("ols")),
         });
     }
 
@@ -135,6 +139,12 @@ pub fn fit_ols(y: &[f64], x: &[Vec<f64>], options: &OlsOptions) -> StatsResult<F
         n_features,
     };
 
+    let mut summary = ModelSummary::from_result(
+        fitted.model_info(),
+        result,
+        options.compute_inference && options.hc_type.is_none(),
+    );
+
     let inference = if !options.compute_inference {
         None
     } else if let Some(hc_type) = options.hc_type {
@@ -148,16 +158,26 @@ pub fn fit_ols(y: &[f64], x: &[Vec<f64>], options: &OlsOptions) -> StatsResult<F
             convert_hc_type(hc_type),
             options.confidence_level,
         ) {
-            Ok(hc) => Some(FitResultInference {
-                std_errors: expand(Some(&hc.std_errors)),
-                t_values: expand(Some(&hc.t_statistics)),
-                p_values: expand(Some(&hc.p_values)),
-                ci_lower: expand(Some(&hc.conf_interval_lower)),
-                ci_upper: expand(Some(&hc.conf_interval_upper)),
-                confidence_level: hc.confidence_level,
-                f_statistic: Some(result.f_statistic),
-                f_pvalue: Some(result.f_pvalue),
-            }),
+            Ok(hc) => {
+                if let Some(i) = &hc.intercept {
+                    summary.set_intercept_inference(
+                        Some(i.std_error),
+                        Some(i.t_statistic),
+                        Some(i.p_value),
+                        Some(i.conf_interval),
+                    );
+                }
+                Some(FitResultInference {
+                    std_errors: expand(Some(&hc.std_errors)),
+                    t_values: expand(Some(&hc.t_statistics)),
+                    p_values: expand(Some(&hc.p_values)),
+                    ci_lower: expand(Some(&hc.conf_interval_lower)),
+                    ci_upper: expand(Some(&hc.conf_interval_upper)),
+                    confidence_level: hc.confidence_level,
+                    f_statistic: Some(result.f_statistic),
+                    f_pvalue: Some(result.f_pvalue),
+                })
+            }
             // The requested HC estimator is not available for this fit (e.g. a
             // leverage-1 observation for HC2/HC3). Substituting classical
             // standard errors would hand back numbers the caller did not ask
@@ -191,6 +211,7 @@ pub fn fit_ols(y: &[f64], x: &[Vec<f64>], options: &OlsOptions) -> StatsResult<F
         core,
         inference,
         diagnostics: None,
+        summary,
     })
 }
 

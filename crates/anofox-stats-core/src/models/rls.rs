@@ -5,7 +5,8 @@
 //! reshapes the upstream result into the workspace-local `FitResult`.
 
 use crate::errors::{StatsError, StatsResult};
-use crate::types::{FitResult, FitResultCore};
+use crate::types::{FitResult, FitResultCore, ModelSummary};
+use anofox_regression::core::HasModelInfo;
 use anofox_regression::solvers::{FittedRegressor, Regressor, RlsRegressor};
 use faer::{Col, Mat};
 
@@ -100,6 +101,7 @@ pub fn fit_rls(y: &[f64], x: &[Vec<f64>], options: &RlsOptions) -> StatsResult<F
         },
         inference: None,
         diagnostics: None,
+        summary: ModelSummary::from_result(fitted.model_info(), result, false),
     })
 }
 

@@ -1,7 +1,8 @@
 //! Least Angle Regression (LARS) and its Lasso variant (LassoLars) wrapper
 
 use crate::errors::{StatsError, StatsResult};
-use crate::types::{FitResult, FitResultCore, LarsOptions};
+use crate::types::{FitResult, FitResultCore, LarsOptions, ModelSummary};
+use anofox_regression::core::{HasModelInfo, ModelInfo};
 use anofox_regression::prelude::*;
 use anofox_regression::solvers::{LarsMethod, LarsRegressor};
 use faer::{Col, Mat};
@@ -93,6 +94,7 @@ pub fn fit_lars(y: &[f64], x: &[Vec<f64>], options: &LarsOptions) -> StatsResult
             },
             inference: None,
             diagnostics: None,
+            summary: ModelSummary::new(ModelInfo::gaussian("lars")),
         });
     }
 
@@ -159,6 +161,7 @@ pub fn fit_lars(y: &[f64], x: &[Vec<f64>], options: &LarsOptions) -> StatsResult
         },
         inference: None,
         diagnostics: None,
+        summary: ModelSummary::from_result(fitted.model_info(), result, false),
     })
 }
 

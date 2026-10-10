@@ -7,7 +7,8 @@
 //! and a `with_intercept` flag.
 
 use crate::errors::{StatsError, StatsResult};
-use crate::types::{FitResult, FitResultCore, TheilSenOptions};
+use crate::types::{FitResult, FitResultCore, ModelSummary, TheilSenOptions};
+use anofox_regression::core::HasModelInfo;
 use anofox_regression::solvers::{FittedRegressor, Regressor, TheilSenRegressor};
 use faer::{Col, Mat};
 
@@ -129,6 +130,11 @@ pub fn fit_theilsen(
             core,
             inference,
             diagnostics: None,
+            summary: ModelSummary::from_result(
+                fitted.model_info(),
+                result,
+                options.compute_inference,
+            ),
         },
     })
 }

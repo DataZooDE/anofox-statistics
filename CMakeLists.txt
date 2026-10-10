@@ -136,6 +136,7 @@ set(EXTENSION_SOURCES
     src/anofox_statistics_extension.cpp
     src/contract.cpp
     src/include/map_options_parser.cpp
+    src/include/model_struct.cpp
     src/table_functions/ols_fit.cpp
     src/table_functions/ridge_fit.cpp
     src/table_functions/elasticnet_fit.cpp
@@ -233,6 +234,7 @@ set(EXTENSION_SOURCES
     src/window_functions/rls_fit_predict.cpp
     src/window_functions/elasticnet_fit_predict.cpp
     src/macros/fit_predict_macros.cpp
+    src/macros/model_output_macros.cpp
 )
 
 # Build static extension

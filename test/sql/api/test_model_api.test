@@ -130,12 +130,13 @@ SELECT count(*) FROM (SELECT unnest(tidy(ols_fit_agg(y2, [x2, z], {'compute_infe
 ----
 3
 
+# The intercept has its own inference (#152)
 query IIII
 SELECT t.term, t.std_error IS NOT NULL, t.p_value IS NOT NULL, t.conf_low < t.estimate
 FROM (SELECT unnest(tidy(ols_fit_agg(y2, [x2, z], {'compute_inference': true}), ['x2', 'z'])) t FROM d)
 ORDER BY t.term
 ----
-(Intercept)	false	false	NULL
+(Intercept)	true	true	true
 x2	true	true	true
 z	true	true	true
 

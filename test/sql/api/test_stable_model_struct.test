@@ -1,0 +1,146 @@
+# name: test/sql/api/test_stable_model_struct.test
+# description: #152 stable model STRUCT: inference fields always present, model_type/family/link, log-likelihood/AIC/BIC, intercept inference, conf_low/conf_high
+# group: [api]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE d AS SELECT range::DOUBLE AS x1, (range % 7)::DOUBLE AS x2,
+    (2 * range + (range % 7) + (range % 3) * 1.5 + sin(range))::DOUBLE AS y, 1.0 + (range % 4) AS w
+FROM range(40);
+
+# The struct has the same shape with and without compute_inference
+query I
+SELECT bool_and(a = b) FROM (
+    SELECT typeof(ols_fit_agg(y, [x1, x2])) a, typeof(ols_fit_agg(y, [x1, x2], {'compute_inference': true})) b FROM d
+    UNION ALL SELECT typeof(wls_fit_agg(y, [x1, x2], w)), typeof(wls_fit_agg(y, [x1, x2], w, {'compute_inference': true})) FROM d
+    UNION ALL SELECT typeof(ridge_fit_agg(y, [x1, x2])), typeof(ridge_fit_agg(y, [x1, x2], {'compute_inference': true})) FROM d
+    UNION ALL SELECT typeof(huber_fit_agg(y, [x1, x2])), typeof(huber_fit_agg(y, [x1, x2], {'compute_inference': true})) FROM d
+    UNION ALL SELECT typeof(ransac_fit_agg(y, [x1, x2])), typeof(ransac_fit_agg(y, [x1, x2], {'compute_inference': true})) FROM d
+    UNION ALL SELECT typeof(theil_sen_fit_agg(y, [x1, x2])), typeof(theil_sen_fit_agg(y, [x1, x2], {'compute_inference': true})) FROM d
+    UNION ALL SELECT typeof(ols_fit(list(y), [list(x1), list(x2)])), typeof(ols_fit(list(y), [list(x1), list(x2)], {'compute_inference': true})) FROM d
+)
+----
+true
+
+# Every linear model names itself (upstream HasModelInfo)
+query IIII
+SELECT * FROM (
+    SELECT 1 k, m.model_type, m.family, m.link FROM (SELECT ols_fit_agg(y, [x1, x2]) m FROM d)
+    UNION ALL SELECT 2, m.model_type, m.family, m.link FROM (SELECT wls_fit_agg(y, [x1, x2], w) m FROM d)
+    UNION ALL SELECT 3, m.model_type, m.family, m.link FROM (SELECT ridge_fit_agg(y, [x1, x2]) m FROM d)
+    UNION ALL SELECT 4, m.model_type, m.family, m.link FROM (SELECT elasticnet_fit_agg(y, [x1, x2]) m FROM d)
+    UNION ALL SELECT 5, m.model_type, m.family, m.link FROM (SELECT lars_fit_agg(y, [x1, x2]) m FROM d)
+    UNION ALL SELECT 6, m.model_type, m.family, m.link FROM (SELECT rls_fit_agg(y, [x1, x2]) m FROM d)
+    UNION ALL SELECT 7, m.model_type, m.family, m.link FROM (SELECT huber_fit_agg(y, [x1, x2]) m FROM d)
+    UNION ALL SELECT 8, m.model_type, m.family, m.link FROM (SELECT ransac_fit_agg(y, [x1, x2]) m FROM d)
+    UNION ALL SELECT 9, m.model_type, m.family, m.link FROM (SELECT theil_sen_fit_agg(y, [x1, x2]) m FROM d)
+) ORDER BY k
+----
+1	ols	gaussian	identity
+2	wls	gaussian	identity
+3	ridge	gaussian	identity
+4	elastic_net	gaussian	identity
+5	lars	gaussian	identity
+6	rls	gaussian	identity
+7	huber	NULL	identity
+8	ransac	NULL	identity
+9	theil_sen	NULL	identity
+
+# Without compute_inference the inference fields are NULL; fit statistics are always there
+query IIIIII
+SELECT m.std_errors IS NULL, m.p_values IS NULL, m.conf_low IS NULL, m.conf_level IS NULL,
+       m.intercept_std_error IS NULL, m.aic IS NOT NULL
+FROM (SELECT ols_fit_agg(y, [x1, x2]) m FROM d)
+----
+true	true	true	true	true	true
+
+# OLS vs R: m <- lm(y ~ x1 + x2); logLik(m); AIC(m); BIC(m); coef(summary(m))[1, ]; confint(m)[1, ]
+query IIIIIIIIII
+SELECT round(m.log_likelihood, 4), round(m.aic, 4), round(m.bic, 4), round(m.intercept, 6),
+       round(m.intercept_std_error, 6), round(m.intercept_statistic, 4), round(m.intercept_p_value, 6),
+       round(m.intercept_conf_low, 6), round(m.intercept_conf_high, 6), m.conf_level
+FROM (SELECT ols_fit_agg(y, [x1, x2], {'compute_inference': true}) m FROM d)
+----
+-70.7806	149.5612	156.3168	1.57523	0.55617	2.8323	0.007435	0.448322	2.702139	0.95
+
+# conf_low / conf_high are the confidence intervals; ci_lower / ci_upper are their deprecated aliases
+query II
+SELECT m.conf_low = m.ci_lower, m.conf_high = m.ci_upper
+FROM (SELECT ols_fit_agg(y, [x1, x2], {'compute_inference': true}) m FROM d)
+----
+true	true
+
+# HC3 intercept SE vs R: sqrt(diag(sandwich::vcovHC(m, type = "HC3")))[1]
+query I
+SELECT round((ols_fit_agg(y, [x1, x2], {'compute_inference': true, 'hc_type': 'hc3'})).intercept_std_error, 6) FROM d
+----
+0.593919
+
+# WLS vs R: lm(y ~ x1 + x2, weights = w)
+query IIIII
+SELECT round(m.log_likelihood, 6), round(m.aic, 6), round(m.bic, 6), round(m.intercept_std_error, 6),
+       round(m.intercept_p_value, 6)
+FROM (SELECT wls_fit_agg(y, [x1, x2], w, {'compute_inference': true}) m FROM d)
+----
+-69.686197	147.372395	154.127912	0.514749	0.001624
+
+# The scalar ols_fit carries the same fields as ols_fit_agg
+query I
+SELECT round((ols_fit(list(y), [list(x1), list(x2)], {'compute_inference': true})).intercept_std_error, 6) FROM d
+----
+0.55617
+
+# Ridge: no inference on shrunken coefficients (alpha > 0), OLS inference at alpha = 0
+query III
+SELECT (ridge_fit_agg(y, [x1, x2], {'alpha': 1.0, 'compute_inference': true})).intercept_std_error IS NULL,
+       (ridge_fit_agg(y, [x1, x2], {'alpha': 1.0, 'compute_inference': true})).p_values IS NULL,
+       round((ridge_fit_agg(y, [x1, x2], {'alpha': 0.0, 'compute_inference': true})).intercept_std_error, 5)
+FROM d
+----
+true	true	0.55617
+
+# Estimators without a likelihood have no log-likelihood or information criteria
+query III
+SELECT m.log_likelihood IS NULL, m.aic IS NULL, m.bic IS NULL FROM (SELECT huber_fit_agg(y, [x1, x2]) m FROM d)
+----
+true	true	true
+
+# Models without coefficient inference still have the (NULL) inference fields
+query III
+SELECT m.std_errors IS NULL, m.p_values IS NULL, m.conf_low IS NULL
+FROM (SELECT elasticnet_fit_agg(y, [x1, x2]) m FROM d)
+----
+true	true	true
+
+# tidy(): the intercept row has inference; conf_level, index_name, index_value columns
+query IIIIII
+SELECT t.term, round(t.std_error, 5), round(t.p_value, 6), round(t.conf_low, 5), t.conf_level, t.index_name
+FROM (SELECT unnest(tidy(ols_fit_agg(y, [x1, x2], {'compute_inference': true}), ['x1', 'x2'])) t FROM d)
+WHERE t.term = '(Intercept)'
+----
+(Intercept)	0.55617	0.007435	0.44832	0.95	NULL
+
+# glance(): the same fields for every model
+query I
+SELECT count(DISTINCT t) FROM (
+    SELECT typeof(glance(ols_fit_agg(y, [x1, x2]))) t FROM d
+    UNION ALL SELECT typeof(glance(huber_fit_agg(y, [x1, x2]))) FROM d
+    UNION ALL SELECT typeof(glance(poisson_fit_agg(round(y)::DOUBLE, [x2]))) FROM d
+    UNION ALL SELECT typeof(glance(lars_fit_agg(y, [x1, x2]))) FROM d
+)
+----
+1
+
+query IIII
+SELECT g.model_type, g.n_observations, round(g.aic, 4), g.deviance IS NULL
+FROM (SELECT glance(ols_fit_agg(y, [x1, x2])) g FROM d)
+----
+ols	40	149.5612	true
+
+# GLMs keep their own fields in glance (deviance, converged, ...)
+query III
+SELECT g.model_type IS NULL, g.family, g.deviance IS NOT NULL
+FROM (SELECT glance(poisson_fit_agg(round(y)::DOUBLE, [x2])) g FROM d)
+----
+true	poisson	true
