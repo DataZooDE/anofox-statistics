@@ -127,6 +127,42 @@ impl ModelSummary {
         s
     }
 
+    /// Summary of a GLM family-function fit (Poisson, Binomial, Logistic,
+    /// Negative Binomial, Gamma, Tweedie). The intercept inference is present
+    /// when inference was requested.
+    pub fn from_glm(result: &anofox_regression::solvers::penalized_glm::GlmResult) -> Self {
+        let mut s = Self::new(result.model_info);
+        s.log_likelihood = result.log_likelihood;
+        s.aic = result.core.aic;
+        s.bic = result.bic;
+        if let Some(inf) = &result.inference {
+            s.set_intercept_inference(
+                inf.intercept_std_error,
+                inf.intercept_z_value,
+                inf.intercept_p_value,
+                inf.intercept_ci_lower.zip(inf.intercept_ci_upper),
+            );
+        }
+        s
+    }
+
+    /// Summary of an AFT fit.
+    pub fn from_aft(result: &anofox_regression::solvers::aft::AftResult) -> Self {
+        let mut s = Self::new(result.model_info);
+        s.log_likelihood = result.core.log_likelihood;
+        s.aic = result.core.aic;
+        s.bic = result.core.bic;
+        if let Some(inf) = &result.inference {
+            s.set_intercept_inference(
+                inf.intercept_std_error,
+                inf.intercept_z_value,
+                inf.intercept_p_value,
+                inf.intercept_ci_lower.zip(inf.intercept_ci_upper),
+            );
+        }
+        s
+    }
+
     pub fn set_intercept_inference(
         &mut self,
         std_error: Option<f64>,
@@ -767,6 +803,8 @@ pub struct BlsFitResult {
     pub at_lower_bound: Vec<bool>,
     /// Which coefficients are at their upper bound
     pub at_upper_bound: Vec<bool>,
+    /// Model description and fit statistics (#152).
+    pub summary: ModelSummary,
 }
 
 // ============================================================================
@@ -816,6 +854,8 @@ pub struct PlsFitResult {
     pub n_observations: usize,
     /// Number of features (excluding intercept)
     pub n_features: usize,
+    /// Model description and fit statistics (#152).
+    pub summary: ModelSummary,
 }
 
 // ============================================================================
@@ -846,6 +886,8 @@ pub struct IsotonicFitResult {
     pub n_observations: usize,
     /// Whether the fit is increasing
     pub increasing: bool,
+    /// Model description and fit statistics (#152).
+    pub summary: ModelSummary,
 }
 
 // ============================================================================
@@ -889,6 +931,8 @@ pub struct QuantileFitResult {
     pub n_observations: usize,
     /// Number of features (excluding intercept)
     pub n_features: usize,
+    /// Model description and fit statistics (#152).
+    pub summary: ModelSummary,
 }
 
 // ============================================================================

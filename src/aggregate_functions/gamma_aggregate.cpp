@@ -11,6 +11,7 @@
 #include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
 #include "../include/glm_prior_options.hpp"
+#include "../include/model_struct.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 #include "aggregate_finalize_guard.hpp"
@@ -81,7 +82,7 @@ struct GammaAggregateBindData : public FunctionData {
 	}
 };
 
-static LogicalType GetGammaAggResultType(bool compute_inference) {
+static LogicalType GetGammaAggResultType() {
 	child_list_t<LogicalType> children;
 
 	children.push_back(make_pair("coefficients", LogicalType::LIST(LogicalType::DOUBLE)));
@@ -96,18 +97,16 @@ static LogicalType GetGammaAggResultType(bool compute_inference) {
 	children.push_back(make_pair("iterations", LogicalType::INTEGER));
 	children.push_back(make_pair("converged", LogicalType::BOOLEAN));
 
-	if (compute_inference) {
-		children.push_back(make_pair("std_errors", LogicalType::LIST(LogicalType::DOUBLE)));
-		children.push_back(make_pair("z_values", LogicalType::LIST(LogicalType::DOUBLE)));
-		children.push_back(make_pair("p_values", LogicalType::LIST(LogicalType::DOUBLE)));
-		children.push_back(make_pair("ci_lower", LogicalType::LIST(LogicalType::DOUBLE)));
-		children.push_back(make_pair("ci_upper", LogicalType::LIST(LogicalType::DOUBLE)));
-	}
+	// Stable shape (#152): the inference fields are always present, NULL
+	// without compute_inference.
+	AppendCoefficientInferenceFields(children, "z_values", false);
 
 	// Appended last so existing field positions are unchanged. predict(model, x)
 	// reads them to apply the inverse link.
 	children.push_back(make_pair("family", LogicalType::VARCHAR));
 	children.push_back(make_pair("link", LogicalType::VARCHAR));
+
+	AppendModelSummaryFields(children);
 
 	return LogicalType::STRUCT(std::move(children));
 }
@@ -263,6 +262,7 @@ static void GammaAggFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
 	auto states = (GammaAggregateState **)sdata.data;
 
 	auto &struct_entries = StructVector::GetEntries(result);
+	ModelStructWriter writer(result);
 
 	for (idx_t i = 0; i < count; i++) {
 		auto &state = *states[sdata.sel->get_index(i)];
@@ -327,21 +327,12 @@ static void GammaAggFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
 		FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = core_result.n_features;
 		FlatVector::GetData<int32_t>(*struct_entries[struct_idx++])[result_idx] = core_result.iterations;
 		FlatVector::GetData<bool>(*struct_entries[struct_idx++])[result_idx] = core_result.converged;
-		{
-			auto &family_vec = *struct_entries[struct_entries.size() - 2];
-			auto &link_vec = *struct_entries[struct_entries.size() - 1];
-			FlatVector::GetData<string_t>(family_vec)[result_idx] = StringVector::AddString(family_vec, "gamma");
-			FlatVector::GetData<string_t>(link_vec)[result_idx] = StringVector::AddString(link_vec, "log");
-		}
 
+		// Inference (NULL unless requested), CI fields and the model summary
+		// (family and link come from upstream).
+		writer.WriteInference(result_idx, state.compute_inference ? &inference_result : nullptr);
+		writer.WriteSummary(result_idx, core_result.summary);
 		if (state.compute_inference) {
-			SetListInResult(*struct_entries[struct_idx++], result_idx, inference_result.std_errors,
-			                inference_result.len);
-			SetListInResult(*struct_entries[struct_idx++], result_idx, inference_result.t_values, inference_result.len);
-			SetListInResult(*struct_entries[struct_idx++], result_idx, inference_result.p_values, inference_result.len);
-			SetListInResult(*struct_entries[struct_idx++], result_idx, inference_result.ci_lower, inference_result.len);
-			SetListInResult(*struct_entries[struct_idx++], result_idx, inference_result.ci_upper, inference_result.len);
-
 			anofox_free_result_inference(&inference_result);
 		}
 
@@ -383,7 +374,7 @@ static unique_ptr<FunctionData> GammaAggBind(ClientContext &context, AggregateFu
 		}
 	}
 
-	function.return_type = GetGammaAggResultType(result->compute_inference);
+	function.return_type = GetGammaAggResultType();
 
 	PostHogTelemetry::Instance().RecordFunctionCall("gamma_fit_agg");
 	return std::move(result);

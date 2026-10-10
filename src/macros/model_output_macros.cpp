@@ -24,8 +24,8 @@ struct ModelOutputModel {
 	const char *prefix;
 	//! Human-readable model name for the descriptions.
 	const char *label;
-	//! Whether <prefix>_fit_agg takes a weight column after x (WLS).
-	bool weighted;
+	//! Extra column <prefix>_fit_agg takes after x (WLS weights, AFT event), or nullptr.
+	const char *extra_col;
 	//! Whether the model has coefficient inference (accepts compute_inference);
 	//! <prefix>_tidy_by then computes it by default.
 	bool inference;
@@ -33,15 +33,27 @@ struct ModelOutputModel {
 
 // clang-format off
 const ModelOutputModel MODEL_OUTPUT_MODELS[] = {
-    {"ols", "an OLS regression", false, true},
-    {"wls", "a weighted least squares regression", true, true},
-    {"ridge", "a Ridge regression", false, true},
-    {"elasticnet", "an Elastic Net regression", false, false},
-    {"huber", "a Huber M-estimator regression", false, true},
-    {"ransac", "a RANSAC regression", false, true},
-    {"theil_sen", "a Theil-Sen regression", false, true},
-    {"rls", "a recursive least squares regression", false, false},
-    {"lars", "a LARS / Lasso-LARS regression", false, false},
+    {"ols", "an OLS regression", nullptr, true},
+    {"wls", "a weighted least squares regression", "weight_col", true},
+    {"ridge", "a Ridge regression", nullptr, true},
+    {"elasticnet", "an Elastic Net regression", nullptr, false},
+    {"huber", "a Huber M-estimator regression", nullptr, true},
+    {"ransac", "a RANSAC regression", nullptr, true},
+    {"theil_sen", "a Theil-Sen regression", nullptr, true},
+    {"rls", "a recursive least squares regression", nullptr, false},
+    {"lars", "a LARS / Lasso-LARS regression", nullptr, false},
+    {"bls", "a bounded least squares regression", nullptr, false},
+    {"nnls", "a non-negative least squares regression", nullptr, false},
+    {"pls", "a partial least squares regression", nullptr, false},
+    {"quantile", "a quantile regression", nullptr, false},
+    {"poisson", "a Poisson GLM", nullptr, true},
+    {"binomial", "a binomial GLM", nullptr, true},
+    {"logistic", "a logistic regression", nullptr, true},
+    {"negbinom", "a negative binomial GLM", nullptr, true},
+    {"gamma", "a Gamma GLM", nullptr, true},
+    {"tweedie", "a Tweedie GLM", nullptr, true},
+    {"alm", "an augmented linear model (ALM)", nullptr, true},
+    {"aft", "an accelerated failure time (AFT) survival model", "event_col", true},
 };
 // clang-format on
 
@@ -52,7 +64,8 @@ const char *const GLANCE_METRICS[] = {"n_observations", "n_features",     "r_squ
                                       "pseudo_r_squared", "dispersion",   "iterations"};
 
 string FitCall(const ModelOutputModel &m) {
-	return string(m.prefix) + "_fit_agg(y_col, x_cols" + (m.weighted ? ", weight_col" : "") + ", options)";
+	return string(m.prefix) + "_fit_agg(y_col, x_cols" + (m.extra_col ? string(", ") + m.extra_col : string()) +
+	       ", options)";
 }
 
 string TidySql(const ModelOutputModel &m) {
@@ -122,10 +135,11 @@ unique_ptr<CreateMacroInfo> CreateTableMacro(const string &name, const vector<st
 void RegisterModelOutputMacros(ExtensionLoader &loader) {
 	for (auto &m : MODEL_OUTPUT_MODELS) {
 		vector<string> params = {"source", "group_col", "y_col", "x_cols"};
-		if (m.weighted) {
-			params.push_back("weight_col");
+		if (m.extra_col) {
+			params.push_back(m.extra_col);
 		}
-		string args = m.weighted ? "'my_table', group_col, y, [x1, x2], w" : "'my_table', group_col, y, [x1, x2]";
+		string args = string("'my_table', group_col, y, [x1, x2]") +
+		              (!m.extra_col ? "" : string(m.extra_col) == "weight_col" ? ", w" : ", event");
 		string prefix = m.prefix;
 
 		auto tidy = CreateTableMacro(

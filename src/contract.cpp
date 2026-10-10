@@ -29,6 +29,18 @@ static const struct {
     {"theil_sen_tidy_by", "terms"}, {"theil_sen_glance_by", "summary"},
     {"rls_tidy_by", "terms"}, {"rls_glance_by", "summary"},
     {"lars_tidy_by", "terms"}, {"lars_glance_by", "summary"},
+    {"bls_tidy_by", "terms"}, {"bls_glance_by", "summary"},
+    {"nnls_tidy_by", "terms"}, {"nnls_glance_by", "summary"},
+    {"pls_tidy_by", "terms"}, {"pls_glance_by", "summary"},
+    {"quantile_tidy_by", "terms"}, {"quantile_glance_by", "summary"},
+    {"poisson_tidy_by", "terms"}, {"poisson_glance_by", "summary"},
+    {"binomial_tidy_by", "terms"}, {"binomial_glance_by", "summary"},
+    {"logistic_tidy_by", "terms"}, {"logistic_glance_by", "summary"},
+    {"negbinom_tidy_by", "terms"}, {"negbinom_glance_by", "summary"},
+    {"gamma_tidy_by", "terms"}, {"gamma_glance_by", "summary"},
+    {"tweedie_tidy_by", "terms"}, {"tweedie_glance_by", "summary"},
+    {"alm_tidy_by", "terms"}, {"alm_glance_by", "summary"},
+    {"aft_tidy_by", "terms"}, {"aft_glance_by", "summary"},
     {nullptr, nullptr}
 };
 // clang-format on

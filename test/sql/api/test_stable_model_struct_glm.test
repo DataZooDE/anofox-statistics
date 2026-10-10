@@ -1,0 +1,135 @@
+# name: test/sql/api/test_stable_model_struct_glm.test
+# description: #152 stable model STRUCT for GLMs, ALM, AFT, GLMM, BLS/NNLS, PLS, quantile, isotonic: model_type/family/link, log-likelihood/AIC/BIC and intercept inference vs R
+# group: [api]
+
+require anofox_statistics
+
+# R: i <- 0:59; x <- (i %% 7) / 2; z <- (i %% 5) - 2; g <- factor(i %% 6)
+#    cnt <- (i * 7 + 3) %% 9; yb <- as.numeric(((i * 5 + 2) %% 7) < 3 + (x > 1.5))
+#    tt <- 1 + cnt + x; ev <- as.numeric(i %% 4 != 0)
+statement ok
+CREATE TABLE d AS SELECT range AS i, (range % 7) / 2.0 AS x, ((range % 5) - 2)::DOUBLE AS z, range % 6 AS g,
+    ((range * 7 + 3) % 9)::DOUBLE AS cnt,
+    (((range * 5 + 2) % 7) < 3 + ((range % 7) / 2.0 > 1.5)::INT)::DOUBLE AS yb,
+    1 + ((range * 7 + 3) % 9) + (range % 7) / 2.0 AS tt, (range % 4 <> 0)::DOUBLE AS ev
+FROM range(60);
+
+# The struct has the same shape with and without compute_inference
+query I
+SELECT bool_and(a = b) FROM (
+    SELECT typeof(poisson_fit_agg(cnt, [x, z])) a, typeof(poisson_fit_agg(cnt, [x, z], {'compute_inference': true})) b FROM d
+    UNION ALL SELECT typeof(logistic_fit_agg(yb, [x, z])), typeof(logistic_fit_agg(yb, [x, z], {'compute_inference': true})) FROM d
+    UNION ALL SELECT typeof(negbinom_fit_agg(cnt, [x, z])), typeof(negbinom_fit_agg(cnt, [x, z], {'compute_inference': true})) FROM d
+    UNION ALL SELECT typeof(gamma_fit_agg(tt, [x, z])), typeof(gamma_fit_agg(tt, [x, z], {'compute_inference': true})) FROM d
+    UNION ALL SELECT typeof(alm_fit_agg(tt, [x, z])), typeof(alm_fit_agg(tt, [x, z], {'compute_inference': true})) FROM d
+    UNION ALL SELECT typeof(aft_fit_agg(tt, [x, z], ev)), typeof(aft_fit_agg(tt, [x, z], ev, {'compute_inference': true})) FROM d
+    UNION ALL SELECT typeof(glmm_fit_agg(cnt, [x], g, {'family': 'poisson'})), typeof(glmm_fit_agg(cnt, [x], g, {'family': 'poisson', 'compute_inference': true})) FROM d
+)
+----
+true
+
+# Every model names itself (upstream HasModelInfo). bls_fit_agg without bounds is NNLS.
+query IIII
+SELECT * FROM (
+    SELECT 1 k, m.model_type, m.family, m.link FROM (SELECT poisson_fit_agg(cnt, [x, z]) m FROM d)
+    UNION ALL SELECT 2, m.model_type, m.family, m.link FROM (SELECT binomial_fit_agg(yb, [x, z]) m FROM d)
+    UNION ALL SELECT 3, m.model_type, m.family, m.link FROM (SELECT logistic_fit_agg(yb, [x, z]) m FROM d)
+    UNION ALL SELECT 4, m.model_type, m.family, m.link FROM (SELECT negbinom_fit_agg(cnt, [x, z]) m FROM d)
+    UNION ALL SELECT 5, m.model_type, m.family, m.link FROM (SELECT gamma_fit_agg(tt, [x, z]) m FROM d)
+    UNION ALL SELECT 6, m.model_type, m.family, m.link FROM (SELECT tweedie_fit_agg(tt, [x, z], {'power': 1.5}) m FROM d)
+    UNION ALL SELECT 7, m.model_type, m.family, m.link FROM (SELECT alm_fit_agg(tt, [x, z]) m FROM d)
+    UNION ALL SELECT 8, m.model_type, m.family, m.link FROM (SELECT aft_fit_agg(tt, [x, z], ev) m FROM d)
+    UNION ALL SELECT 9, m.model_type, m.family, m.link FROM (SELECT glmm_fit_agg(cnt, [x], g, {'family': 'poisson'}) m FROM d)
+    UNION ALL SELECT 10, m.model_type, m.family, m.link FROM (SELECT bls_fit_agg(tt, [x, z], {'lower_bound': -10.0}) m FROM d)
+    UNION ALL SELECT 11, m.model_type, m.family, m.link FROM (SELECT nnls_fit_agg(tt, [x, z]) m FROM d)
+    UNION ALL SELECT 12, m.model_type, m.family, m.link FROM (SELECT pls_fit_agg(tt, [x, z]) m FROM d)
+    UNION ALL SELECT 13, m.model_type, m.family, m.link FROM (SELECT quantile_fit_agg(tt, [x, z]) m FROM d)
+    UNION ALL SELECT 14, m.model_type, m.family, m.link FROM (SELECT isotonic_fit_agg(tt, x) m FROM d)
+) ORDER BY k
+----
+1	glm	poisson	log
+2	glm	binomial	logit
+3	glm	binomial	logit
+4	glm	negative_binomial	log
+5	glm	gamma	log
+6	glm	tweedie	log
+7	alm	normal	identity
+8	aft	weibull	log
+9	glmm	poisson	log
+10	bls	gaussian	identity
+11	nnls	gaussian	identity
+12	pls	gaussian	identity
+13	quantile	NULL	identity
+14	isotonic	NULL	identity
+
+# Poisson vs R: m <- glm(cnt ~ x + z, family = poisson); logLik, AIC, BIC; summary(m)$coef[1, ]; confint.default(m)[1, ]
+query IIIIIIII
+SELECT round(m.log_likelihood, 6), round(m.aic, 6), round(m.bic, 6), round(m.intercept_std_error, 6),
+       round(m.intercept_statistic, 4), round(m.intercept_conf_low, 6), round(m.intercept_conf_high, 6), m.conf_level
+FROM (SELECT poisson_fit_agg(cnt, [x, z], {'compute_inference': true}) m FROM d)
+----
+-146.929163	299.858326	306.141359	0.11373	12.321	1.178364	1.624177	0.95
+
+# Logistic vs R: glm(yb ~ x + z, family = binomial)
+query IIIIIII
+SELECT round(m.log_likelihood, 6), round(m.aic, 6), round(m.bic, 6), round(m.intercept_std_error, 6),
+       round(m.intercept_p_value, 6), round(m.intercept_conf_low, 6), round(m.intercept_conf_high, 6)
+FROM (SELECT logistic_fit_agg(yb, [x, z], {'compute_inference': true}) m FROM d)
+----
+-29.466698	64.933395	71.216429	0.601251	0.00216	0.665818	3.022678
+
+# AFT vs R: survreg(Surv(tt, ev) ~ x + z, dist = "weibull"); sqrt(vcov(m)[1, 1])
+query IIII
+SELECT round(m.log_likelihood, 5), round(m.aic, 5), round(m.bic, 5), round(m.intercept_std_error, 5)
+FROM (SELECT aft_fit_agg(tt, [x, z], ev, {'compute_inference': true}) m FROM d)
+----
+-121.63508	251.27017	259.64754	0.10537
+
+# GLMM vs lme4: glmer(cnt ~ x + (1 | g), family = poisson, nAGQ = 0); df = 3
+query III
+SELECT round(m.log_likelihood, 3), round(m.aic, 3), round(m.bic, 3)
+FROM (SELECT glmm_fit_agg(cnt, [x], g, {'family': 'poisson'}) m FROM d)
+----
+-146.739	299.477	305.76
+
+# Without compute_inference the inference fields are NULL; fit statistics are always there
+query IIIII
+SELECT m.std_errors IS NULL, m.z_values IS NULL, m.conf_low IS NULL, m.intercept_std_error IS NULL, m.bic IS NOT NULL
+FROM (SELECT poisson_fit_agg(cnt, [x, z]) m FROM d)
+----
+true	true	true	true	true
+
+# conf_low / conf_high are the confidence intervals; ci_lower / ci_upper are their deprecated aliases
+query II
+SELECT m.conf_low = m.ci_lower, m.conf_high = m.ci_upper
+FROM (SELECT poisson_fit_agg(cnt, [x, z], {'compute_inference': true}) m FROM d)
+----
+true	true
+
+# Estimators without a likelihood have no log-likelihood or information criteria
+query III
+SELECT m.log_likelihood IS NULL, m.aic IS NULL, m.bic IS NULL FROM (SELECT quantile_fit_agg(tt, [x, z]) m FROM d)
+----
+true	true	true
+
+# predict() still applies the inverse link (family/link now come from upstream)
+query I
+SELECT abs(predict(m, [1.0, 0.0]) - exp(m.intercept + m.coefficients[1])) < 1e-12
+FROM (SELECT poisson_fit_agg(cnt, [x, z]) m FROM d)
+----
+true
+
+# tidy(): the GLM intercept row has inference
+query IIII
+SELECT t.term, round(t.std_error, 5), round(t.conf_low, 5), t.conf_level
+FROM (SELECT unnest(tidy(poisson_fit_agg(cnt, [x, z], {'compute_inference': true}), ['x', 'z'])) t FROM d)
+WHERE t.term = '(Intercept)'
+----
+(Intercept)	0.11373	1.17836	0.95
+
+# glance(): GLMs fill their own fields in the fixed shape
+query IIIII
+SELECT g.model_type, g.family, g.link, round(g.bic, 4), g.converged
+FROM (SELECT glance(poisson_fit_agg(cnt, [x, z])) g FROM d)
+----
+glm	poisson	log	306.1414	true

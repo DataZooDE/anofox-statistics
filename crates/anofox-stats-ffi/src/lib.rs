@@ -2620,6 +2620,9 @@ pub unsafe extern "C" fn anofox_poisson_fit(
                     n_features: result.core.n_features,
                     iterations: result.core.iterations,
                     converged: result.core.converged,
+                    summary: ModelSummaryFFI::from(&anofox_stats_core::ModelSummary::from_glm(
+                        &result,
+                    )),
                 };
 
                 // Fill inference if available
@@ -2789,6 +2792,9 @@ pub unsafe extern "C" fn anofox_binomial_fit(
                     n_features: result.core.n_features,
                     iterations: result.core.iterations,
                     converged: result.core.converged,
+                    summary: ModelSummaryFFI::from(&anofox_stats_core::ModelSummary::from_glm(
+                        &result,
+                    )),
                 };
 
                 if !out_inference.is_null() {
@@ -2959,6 +2965,9 @@ pub unsafe extern "C" fn anofox_negbinomial_fit(
                     n_features: result.core.n_features,
                     iterations: result.core.iterations,
                     converged: result.core.converged,
+                    summary: ModelSummaryFFI::from(&anofox_stats_core::ModelSummary::from_glm(
+                        &result,
+                    )),
                 };
 
                 if !out_inference.is_null() {
@@ -3121,6 +3130,9 @@ pub unsafe extern "C" fn anofox_tweedie_fit(
                     n_features: result.core.n_features,
                     iterations: result.core.iterations,
                     converged: result.core.converged,
+                    summary: ModelSummaryFFI::from(&anofox_stats_core::ModelSummary::from_glm(
+                        &result,
+                    )),
                 };
 
                 if !out_inference.is_null() {
@@ -3282,6 +3294,9 @@ pub unsafe extern "C" fn anofox_gamma_fit(
                     n_features: result.core.n_features,
                     iterations: result.core.iterations,
                     converged: result.core.converged,
+                    summary: ModelSummaryFFI::from(&anofox_stats_core::ModelSummary::from_glm(
+                        &result,
+                    )),
                 };
 
                 if !out_inference.is_null() {
@@ -3447,6 +3462,9 @@ pub unsafe extern "C" fn anofox_logistic_fit(
                     n_features: result.core.n_features,
                     iterations: result.core.iterations,
                     converged: result.core.converged,
+                    summary: ModelSummaryFFI::from(&anofox_stats_core::ModelSummary::from_glm(
+                        &result,
+                    )),
                 };
 
                 if !out_inference.is_null() {
@@ -3671,6 +3689,7 @@ pub unsafe extern "C" fn anofox_alm_fit(
                     n_observations: result.core.n_observations,
                     n_features: result.core.n_features,
                     iterations: result.core.iterations,
+                    summary: ModelSummaryFFI::from(&result.summary),
                 };
 
                 if !out_inference.is_null() {
@@ -3883,6 +3902,7 @@ pub unsafe extern "C" fn anofox_bls_fit(
                     n_active_constraints: result.n_active_constraints,
                     at_lower_bound: lower_ptr,
                     at_upper_bound: upper_ptr,
+                    summary: ModelSummaryFFI::from(&result.summary),
                 };
 
                 true
@@ -4055,6 +4075,7 @@ pub unsafe extern "C" fn anofox_pls_fit(
                     n_components: result.n_components,
                     n_observations: result.n_observations,
                     n_features: result.n_features,
+                    summary: ModelSummaryFFI::from(&result.summary),
                 };
 
                 true
@@ -4167,6 +4188,7 @@ pub unsafe extern "C" fn anofox_isotonic_fit(
                     r_squared: result.r_squared,
                     n_observations: result.n_observations,
                     increasing: result.increasing,
+                    summary: ModelSummaryFFI::from(&result.summary),
                 };
 
                 true
@@ -4301,6 +4323,7 @@ pub unsafe extern "C" fn anofox_quantile_fit(
                     tau: result.tau,
                     n_observations: result.n_observations,
                     n_features: result.n_features,
+                    summary: ModelSummaryFFI::from(&result.summary),
                 };
 
                 true
@@ -8113,6 +8136,9 @@ pub unsafe extern "C" fn anofox_aft_fit(
                     n_features: result.core.n_features,
                     iterations: result.core.iterations,
                     converged: result.core.converged,
+                    summary: ModelSummaryFFI::from(&anofox_stats_core::ModelSummary::from_aft(
+                        &result,
+                    )),
                 };
 
                 if !out_inference.is_null() {
@@ -8543,6 +8569,7 @@ pub unsafe extern "C" fn anofox_glmm_fit(
                     factor_n_levels: alloc_i64(&factor_levels),
                     factor_len: r.factors.len(),
                     nb_theta: r.nb_theta.unwrap_or(f64::NAN),
+                    summary: ModelSummaryFFI::from(&r.summary),
                 };
                 true
             }

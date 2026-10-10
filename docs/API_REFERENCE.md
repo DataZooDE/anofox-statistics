@@ -1429,7 +1429,9 @@ ORDER BY category;
 ```
 
 For `ols`, `wls` (with `weight_col`), `ridge`, `elasticnet`, `huber`, `ransac`,
-`theil_sen`, `rls` and `lars`. They fit one model per group with
+`theil_sen`, `rls`, `lars`, `bls`, `nnls`, `pls`, `quantile`, `poisson`,
+`binomial`, `logistic`, `negbinom`, `gamma`, `tweedie`, `alm` and `aft` (with
+`event_col`). They fit one model per group with
 `<model>_fit_agg` and return long tables in the anofox integration contract's
 `terms` and `summary` schemas:
 
@@ -1659,7 +1661,8 @@ count the residual variance as a parameter).
 ### GlmFitResult Structure
 
 Returned by `poisson_fit_agg`, `binomial_fit_agg`, `negbinom_fit_agg`,
-`gamma_fit_agg`, `tweedie_fit_agg` and `logistic_fit_agg`.
+`gamma_fit_agg`, `tweedie_fit_agg` and `logistic_fit_agg`. The shape does not
+depend on the options: fields that were not computed are NULL.
 
 ```text
 STRUCT(
@@ -1674,22 +1677,38 @@ STRUCT(
     n_features BIGINT,
     iterations INTEGER,
     converged BOOLEAN,          -- whether IRLS reached the tolerance
-    -- with compute_inference = true:
+    -- coefficient inference, NULL without compute_inference = true:
     std_errors DOUBLE[],
     z_values DOUBLE[],
     p_values DOUBLE[],
-    ci_lower DOUBLE[],
-    ci_upper DOUBLE[],
-    -- always last:
-    family VARCHAR,             -- 'poisson', 'binomial', 'negbinom', 'gamma', 'tweedie'
-    link VARCHAR                -- e.g. 'log', 'logit', 'probit', 'cloglog', 'sqrt', 'identity'
+    ci_lower DOUBLE[],          -- deprecated alias of conf_low
+    ci_upper DOUBLE[],          -- deprecated alias of conf_high
+    family VARCHAR,             -- 'poisson', 'binomial', 'negative_binomial', 'gamma', 'tweedie'
+    link VARCHAR,               -- e.g. 'log', 'logit', 'probit', 'cloglog', 'sqrt', 'identity'
+    -- the same for every model (see FitResult):
+    conf_low DOUBLE[], conf_high DOUBLE[], conf_level DOUBLE,
+    intercept_std_error DOUBLE, intercept_statistic DOUBLE, intercept_p_value DOUBLE,
+    intercept_conf_low DOUBLE, intercept_conf_high DOUBLE,
+    log_likelihood DOUBLE, bic DOUBLE,
+    model_type VARCHAR          -- 'glm'
 )
 ```
 
-`logistic_fit_agg` reports `family = 'binomial'` and `link = 'logit'`.
+`logistic_fit_agg` reports `family = 'binomial'` and `link = 'logit'`. A Tweedie
+power of 1 or 2 reports `'poisson'` / `'gamma'`. Log-likelihood, AIC and BIC
+follow R's `logLik`, `AIC`, `BIC` of `glm` (`MASS::glm.nb` for the negative
+binomial); the intervals are Wald intervals, as `confint.default`.
 
 When an `offset` column is given it is removed from the design, so
 `coefficients` and `n_features` count one fewer than the input feature list.
+
+The AFT, ALM, GLMM, BLS/NNLS, PLS, quantile and isotonic structs end with the
+same shared fields. `model_type` is `'aft'` (family = the distribution, link
+`'log'`), `'alm'` (family = the distribution), `'glmm'`, `'bls'` / `'nnls'`,
+`'pls'`, `'quantile'` or `'isotonic'`. Quantile and isotonic regression have
+no likelihood: `family`, `log_likelihood`, `aic` and `bic` are NULL. The GLMM's
+AIC and BIC count parameters as lme4's `logLik` (fixed effects, covariance
+parameters, and the dispersion, including a fixed negative-binomial θ).
 
 ### AlmFitResult Structure
 
