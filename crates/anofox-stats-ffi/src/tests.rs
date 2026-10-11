@@ -1142,3 +1142,52 @@ fn interval_matrix_invalid_inputs() {
         assert_eq!(e.code, ErrorCode::DimensionMismatch);
     }
 }
+
+#[test]
+fn augment_round_trip_and_null_out() {
+    let y = [1.1, 2.3, 2.9, 4.2, f64::NAN, 6.1, 9.7];
+    let x0 = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 10.0];
+    let xs = [arr(&x0)];
+    let mut e = err();
+    unsafe {
+        assert!(!anofox_ols_augment(
+            arr(&y),
+            xs.as_ptr(),
+            1,
+            OlsOptionsFFI::default(),
+            ptr::null_mut(),
+            &mut e
+        ));
+        let mut out = AugmentResultFFI::default();
+        assert!(anofox_ols_augment(
+            arr(&y),
+            xs.as_ptr(),
+            1,
+            OlsOptionsFFI::default(),
+            &mut out,
+            &mut e
+        ));
+        assert_eq!(out.len, 7);
+        assert_eq!(out.n_params, 2);
+        assert!(!*out.used.add(4));
+        assert!((*out.leverage.add(4)).is_nan());
+        assert!((*out.fitted.add(4)).is_finite());
+        anofox_free_augment_result(&mut out);
+        anofox_free_augment_result(&mut out);
+        assert!(out.fitted.is_null());
+
+        let w = [1.0, 2.0, 1.0, 0.5, 1.0, 3.0, 1.0];
+        let mut out = AugmentResultFFI::default();
+        assert!(anofox_wls_augment(
+            arr(&y),
+            xs.as_ptr(),
+            1,
+            arr(&w),
+            WlsOptionsFFI::default(),
+            &mut out,
+            &mut e
+        ));
+        assert_eq!(out.len, 7);
+        anofox_free_augment_result(&mut out);
+    }
+}

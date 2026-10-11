@@ -12,12 +12,12 @@ pub use types::*;
 use anofox_stats_core::{
     diagnostics::{compute_aic, compute_bic, compute_residuals, compute_vif, jarque_bera},
     models::{
-        compute_aid, compute_aid_anomalies, eb_shrink, fit_aft, fit_alm, fit_binomial, fit_bls,
-        fit_elasticnet, fit_gamma, fit_glmm, fit_glmm_crossed, fit_huber, fit_isotonic, fit_lars,
-        fit_lm_dynamic, fit_logistic, fit_negbinomial, fit_ols, fit_pls, fit_poisson, fit_quantile,
-        fit_ransac, fit_ridge, fit_rls, fit_theilsen, fit_tweedie, fit_wls, predict,
-        AftDistribution, AftOptions, EbShrinkOptions, GlmmFamily, GlmmOptions, RlsOptions,
-        TauMethod,
+        augment_ols, augment_wls, compute_aid, compute_aid_anomalies, eb_shrink, fit_aft, fit_alm,
+        fit_binomial, fit_bls, fit_elasticnet, fit_gamma, fit_glmm, fit_glmm_crossed, fit_huber,
+        fit_isotonic, fit_lars, fit_lm_dynamic, fit_logistic, fit_negbinomial, fit_ols, fit_pls,
+        fit_poisson, fit_quantile, fit_ransac, fit_ridge, fit_rls, fit_theilsen, fit_tweedie,
+        fit_wls, predict, AftDistribution, AftOptions, EbShrinkOptions, GlmmFamily, GlmmOptions,
+        RlsOptions, TauMethod,
     },
     AidOptions, AlmDistribution, AlmLoss, AlmOptions, BinomialLink, BinomialOptions, BlsOptions,
     ElasticNetOptions, GammaOptions, GlmPriorOptions, HcType, HuberOptions, InformationCriterion,
@@ -8623,5 +8623,216 @@ pub unsafe extern "C" fn anofox_free_glmm_result(result: *mut GlmmResultFFI) {
             libc::free((*result).ranef_n as *mut libc::c_void);
             (*result).ranef_n = std::ptr::null_mut();
         }
+    })
+}
+
+// =============================================================================
+// Per-observation diagnostics (broom `augment`) — issue #151
+// =============================================================================
+
+/// Move an `AugmentResult` into caller-owned arrays. On allocation failure
+/// everything allocated so far is released and `false` is returned.
+unsafe fn write_augment_result(
+    r: &anofox_stats_core::models::AugmentResult,
+    out_result: *mut AugmentResultFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    let n = r.fitted.len();
+    let used_ptr = if n == 0 {
+        std::ptr::null_mut()
+    } else {
+        let p = libc::malloc(n * std::mem::size_of::<bool>()) as *mut bool;
+        if !p.is_null() {
+            std::ptr::copy_nonoverlapping(r.used.as_ptr(), p, n);
+        }
+        p
+    };
+    let mut res = AugmentResultFFI {
+        fitted: alloc_f64(&r.fitted),
+        residual: alloc_f64(&r.residual),
+        std_residual: alloc_f64(&r.std_residual),
+        stud_residual: alloc_f64(&r.stud_residual),
+        leverage: alloc_f64(&r.leverage),
+        cooks_d: alloc_f64(&r.cooks_d),
+        dffits: alloc_f64(&r.dffits),
+        used: used_ptr,
+        len: n,
+        n_params: r.n_params,
+        resid_type: name_buffer(r.resid_type),
+    };
+    let complete = n == 0
+        || !(res.fitted.is_null()
+            || res.residual.is_null()
+            || res.std_residual.is_null()
+            || res.stud_residual.is_null()
+            || res.leverage.is_null()
+            || res.cooks_d.is_null()
+            || res.dffits.is_null()
+            || res.used.is_null());
+    if !complete {
+        anofox_free_augment_result(&mut res);
+        if !out_error.is_null() {
+            (*out_error).set(
+                ErrorCode::AllocationFailure,
+                "Failed to allocate augment result",
+            );
+        }
+        return false;
+    }
+    *out_result = res;
+    true
+}
+
+/// Shared body of the augment entry points: validation, panic catching and
+/// error mapping around `compute`.
+unsafe fn augment_entry(
+    label: &str,
+    out_result: *mut AugmentResultFFI,
+    out_error: *mut AnofoxError,
+    compute: impl FnOnce() -> Result<anofox_stats_core::models::AugmentResult, StatsError>,
+) -> bool {
+    if !out_error.is_null() {
+        *out_error = AnofoxError::success();
+    }
+    if out_result.is_null() {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+        }
+        return false;
+    }
+    *out_result = AugmentResultFFI::default();
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(compute)) {
+        Err(_) => {
+            if !out_error.is_null() {
+                (*out_error).set(
+                    ErrorCode::InternalError,
+                    &format!("Internal panic in {label}"),
+                );
+            }
+            false
+        }
+        Ok(Err(e)) => {
+            if !out_error.is_null() {
+                (*out_error).set(error_to_code(&e), &e.to_string());
+            }
+            false
+        }
+        Ok(Ok(r)) => write_augment_result(&r, out_result, out_error),
+    }
+}
+
+/// Fit OLS on the usable rows (finite y and features; pass NaN as y for rows
+/// that should only be predicted) and return per-row diagnostics for every
+/// input row, computed by `anofox_regression::diagnostics::augment`.
+///
+/// # Safety
+/// All pointers must be valid for the lengths implied by `x_count` and the
+/// `AnofoxDataArray` headers. `out_result` is required.
+#[no_mangle]
+pub unsafe extern "C" fn anofox_ols_augment(
+    y: DataArray,
+    x: *const DataArray,
+    x_count: usize,
+    options: OlsOptionsFFI,
+    out_result: *mut AugmentResultFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    ffi_guard(out_error, false, || {
+        if x.is_null() || x_count == 0 {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
+            }
+            return false;
+        }
+        let y_vec = y.to_vec();
+        let x_vecs: Vec<Vec<f64>> = slice::from_raw_parts(x, x_count)
+            .iter()
+            .map(|arr| arr.to_vec())
+            .collect();
+        let opts = OlsOptions {
+            fit_intercept: options.fit_intercept,
+            compute_inference: false,
+            confidence_level: options.confidence_level,
+            solver: convert_solver_ffi(options.solver),
+            hc_type: None,
+        };
+        augment_entry("OLS augment", out_result, out_error, || {
+            augment_ols(&y_vec, &x_vecs, &opts)
+        })
+    })
+}
+
+/// Fit WLS on the usable rows (finite y, features and positive weight) and
+/// return per-row diagnostics for every input row, computed by
+/// `anofox_regression::diagnostics::augment`.
+///
+/// # Safety
+/// As [`anofox_ols_augment`]; `weights` must have the length of `y`.
+#[no_mangle]
+pub unsafe extern "C" fn anofox_wls_augment(
+    y: DataArray,
+    x: *const DataArray,
+    x_count: usize,
+    weights: DataArray,
+    options: WlsOptionsFFI,
+    out_result: *mut AugmentResultFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    ffi_guard(out_error, false, || {
+        if x.is_null() || x_count == 0 {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
+            }
+            return false;
+        }
+        let y_vec = y.to_vec();
+        let w_vec = weights.to_vec();
+        let x_vecs: Vec<Vec<f64>> = slice::from_raw_parts(x, x_count)
+            .iter()
+            .map(|arr| arr.to_vec())
+            .collect();
+        let opts = WlsOptions {
+            fit_intercept: options.fit_intercept,
+            compute_inference: false,
+            confidence_level: options.confidence_level,
+            solver: convert_solver_ffi(options.solver),
+            hc_type: None,
+        };
+        augment_entry("WLS augment", out_result, out_error, || {
+            augment_wls(&y_vec, &x_vecs, &w_vec, &opts)
+        })
+    })
+}
+
+/// Release the arrays owned by an `AugmentResultFFI`.
+///
+/// # Safety
+/// `result` must come from a successful `anofox_ols_augment` /
+/// `anofox_wls_augment`. Safe to call more than once.
+#[no_mangle]
+pub unsafe extern "C" fn anofox_free_augment_result(result: *mut AugmentResultFFI) {
+    ffi_guard(std::ptr::null_mut(), (), || {
+        if result.is_null() {
+            return;
+        }
+        for p in [
+            &mut (*result).fitted,
+            &mut (*result).residual,
+            &mut (*result).std_residual,
+            &mut (*result).stud_residual,
+            &mut (*result).leverage,
+            &mut (*result).cooks_d,
+            &mut (*result).dffits,
+        ] {
+            if !p.is_null() {
+                libc::free(*p as *mut libc::c_void);
+                *p = std::ptr::null_mut();
+            }
+        }
+        if !(*result).used.is_null() {
+            libc::free((*result).used as *mut libc::c_void);
+            (*result).used = std::ptr::null_mut();
+        }
+        (*result).len = 0;
     })
 }

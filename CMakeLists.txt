@@ -165,6 +165,7 @@ set(EXTENSION_SOURCES
     src/aggregate_functions/theil_sen_predict_aggregate.cpp
     src/aggregate_functions/ridge_predict_aggregate.cpp
     src/aggregate_functions/wls_predict_aggregate.cpp
+    src/aggregate_functions/augment_aggregate.cpp
     src/aggregate_functions/rls_predict_aggregate.cpp
     src/aggregate_functions/elasticnet_predict_aggregate.cpp
     src/aggregate_functions/poisson_aggregate.cpp

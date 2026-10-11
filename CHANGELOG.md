@@ -28,6 +28,15 @@ Breaking changes are called out explicitly.
   coefficient tables and long-form fit statistics in the integration contract's `terms`
   and `summary` schemas, tagged `anofox.output = 'terms' | 'summary'`.
 
+- `ols_augment_by` and `wls_augment_by` table macros (#151), broom `augment` style:
+  every source row with `model_id, row_id, fitted, residual, resid_type, std_residual,
+  stud_residual, leverage, cooks_d, dffits, weight, is_training, n_params` in the
+  integration contract's `obs` schema (tagged `anofox.output = 'obs'`). Non-training
+  rows (`split` other than `'train'`, NULL y) get the prediction and NULL diagnostics.
+  Backed by the window aggregates `ols_augment_agg` / `wls_augment_agg` and computed by
+  `anofox_regression::diagnostics::augment`; validated against R `lm` (`rstandard`,
+  `rstudent`, `hatvalues`, `cooks.distance`, `dffits`).
+
 - anofox integration contract scaffolding (#160): `anofox_contract_version()` returns
   `'1'` (registered only if no other anofox extension has registered it yet), and every
   function and table macro is tagged `anofox.family = 'statistics'` in

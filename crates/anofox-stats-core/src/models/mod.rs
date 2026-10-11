@@ -3,6 +3,7 @@
 mod aft;
 mod aid;
 mod alm;
+mod augment;
 mod bls;
 mod eb_shrink;
 mod elasticnet;
@@ -27,6 +28,7 @@ mod wls;
 pub use aft::{fit_aft, AftDistribution, AftFitResult, AftInference, AftOptions, AftResult};
 pub use aid::{compute_aid, compute_aid_anomalies};
 pub use alm::{fit_alm, AlmInferenceResult, AlmResult};
+pub use augment::{augment_ols, augment_wls, AugmentResult};
 pub use bls::{fit_bls, fit_nnls};
 pub use eb_shrink::{eb_shrink, EbShrinkOptions, EbShrinkResult, ShrunkenGroup, TauMethod};
 pub use elasticnet::fit_elasticnet;

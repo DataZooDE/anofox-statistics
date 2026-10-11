@@ -44,6 +44,8 @@ void RegisterRansacFitPredictAggregateFunction(ExtensionLoader &loader);
 void RegisterTheilSenFitPredictAggregateFunction(ExtensionLoader &loader);
 void RegisterRidgeFitPredictAggregateFunction(ExtensionLoader &loader);
 void RegisterWlsFitPredictAggregateFunction(ExtensionLoader &loader);
+// ols_augment_agg / wls_augment_agg: per-row diagnostics (#151)
+void RegisterAugmentAggregateFunctions(ExtensionLoader &loader);
 void RegisterRlsFitPredictAggregateFunction(ExtensionLoader &loader);
 void RegisterElasticNetFitPredictAggregateFunction(ExtensionLoader &loader);
 void RegisterBlsFitPredictAggregateFunction(ExtensionLoader &loader);

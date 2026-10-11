@@ -1,0 +1,262 @@
+# name: test/sql/macros/test_augment_by.test
+# description: ols_augment_by / wls_augment_by (#151, contract `obs` schema) against R lm():
+#              fitted, residuals, rstandard, rstudent, hatvalues, cooks.distance, dffits;
+#              row alignment, non-training rows (split = 'test', NULL y), weight, n_params, model_id.
+# group: [macros]
+
+require anofox_statistics
+
+# Reference values from R 4.x (stats::lm), produced by:
+#   i <- 1:15
+#   a <- data.frame(g = "a", x1 = as.numeric(i), x2 = as.numeric((i * 7) %% 11))
+#   a$x1[15] <- 40                                   # high-leverage row
+#   a$y <- round(1 + 0.5 * a$x1 - 0.3 * a$x2 + sin(i * 1.3), 3)
+#   b <- data.frame(g = "b", x1 = i * 0.5, x2 = as.numeric((i * 5) %% 13))
+#   b$y <- round(3 - 0.2 * b$x1 + 0.8 * b$x2 + cos(i * 0.7), 3)
+#   d <- rbind(a, b)
+#   d$w <- 1 + (rep(i, 2) %% 3)
+#   d$row_id <- seq_len(nrow(d))
+#   d$row_id[d$g == "b"] <- d$row_id[d$g == "b"] + 1   # a test row is inserted after group a
+#   out <- NULL
+#   for (grp in c("a", "b")) {
+#     s <- d[d$g == grp, ]
+#     for (m in c("ols", "wls")) {
+#       f <- if (m == "ols") lm(y ~ x1 + x2, data = s) else lm(y ~ x1 + x2, data = s, weights = w)
+#       out <- rbind(out, data.frame(model = m, row_id = s$row_id, fitted = fitted(f), residual = residuals(f),
+#         std_residual = rstandard(f), stud_residual = rstudent(f), leverage = hatvalues(f),
+#         cooks_d = cooks.distance(f), dffits = dffits(f)))
+#       if (grp == "a") cat(m, "pred test row a:", sprintf("%.12f", predict(f, data.frame(x1 = 7.5, x2 = 3))), "\n")
+#       if (grp == "b") cat(m, "pred null row b:", sprintf("%.12f", predict(f, data.frame(x1 = 4.2, x2 = 6))), "\n")
+#     }
+#   }
+#   cat("DATA\n")
+#   for (k in seq_len(nrow(d))) cat(sprintf("(%d, '%s', %s, %s, %s, %s, 'train'),\n", d$row_id[k], d$g[k], format(d$x1[k]), format(d$x2[k]), format(d$y[k]), format(d$w[k])))
+#   cat("REF\n")
+#   for (k in seq_len(nrow(out))) with(out[k, ], cat(sprintf("('%s', %d, %.12g, %.12g, %.12g, %.12g, %.12g, %.12g, %.12g),\n", model, row_id, fitted, residual, std_residual, stud_residual, leverage, cooks_d, dffits)))
+# Row 16 (group a, split = 'test') and row 32 (group b, NULL y) are not used by the fits;
+# R's predict() at them: ols a 3.948740062408, wls a 3.958489688248,
+#                        ols b 6.817528835568, wls b 6.818672849240.
+
+statement ok
+CREATE TABLE d (id INTEGER, g VARCHAR, x1 DOUBLE, x2 DOUBLE, y DOUBLE, w DOUBLE, split VARCHAR);
+
+statement ok
+INSERT INTO d VALUES
+(1, 'a', 1, 7, 0.364, 2, 'train'),
+(2, 'a', 2, 3, 1.616, 3, 'train'),
+(3, 'a', 3, 10, -1.188, 1, 'train'),
+(4, 'a', 4, 6, 0.317, 2, 'train'),
+(5, 'a', 5, 2, 3.115, 3, 'train'),
+(6, 'a', 6, 9, 2.299, 1, 'train'),
+(7, 'a', 7, 5, 3.319, 2, 'train'),
+(8, 'a', 8, 1, 3.872, 3, 'train'),
+(9, 'a', 9, 8, 2.338, 1, 'train'),
+(10, 'a', 10, 4, 5.22, 2, 'train'),
+(11, 'a', 11, 0, 7.487, 3, 'train'),
+(12, 'a', 12, 7, 5.008, 1, 'train'),
+(13, 'a', 13, 3, 5.671, 2, 'train'),
+(14, 'a', 14, 10, 4.395, 3, 'train'),
+(15, 'a', 40, 6, 19.806, 1, 'train'),
+(16, 'a', 7.5, 3, 5.0, 1, 'test'),
+(17, 'b', 0.5, 5, 7.665, 2, 'train'),
+(18, 'b', 1, 10, 10.97, 3, 'train'),
+(19, 'b', 1.5, 2, 3.795, 1, 'train'),
+(20, 'b', 2, 7, 7.258, 2, 'train'),
+(21, 'b', 2.5, 12, 11.164, 3, 'train'),
+(22, 'b', 3, 4, 5.11, 1, 'train'),
+(23, 'b', 3.5, 9, 9.687, 2, 'train'),
+(24, 'b', 4, 1, 3.776, 3, 'train'),
+(25, 'b', 4.5, 6, 7.9, 1, 'train'),
+(26, 'b', 5, 11, 11.554, 2, 'train'),
+(27, 'b', 5.5, 3, 4.453, 3, 'train'),
+(28, 'b', 6, 8, 7.681, 1, 'train'),
+(29, 'b', 6.5, 0, 0.752, 2, 'train'),
+(30, 'b', 7, 5, 4.67, 3, 'train'),
+(31, 'b', 7.5, 10, 9.024, 1, 'train'),
+(32, 'b', 4.2, 6, NULL, 2, 'train');
+
+statement ok
+CREATE TABLE ref (model VARCHAR, row_id BIGINT, fitted DOUBLE, residual DOUBLE, std_residual DOUBLE,
+    stud_residual DOUBLE, leverage DOUBLE, cooks_d DOUBLE, dffits DOUBLE);
+
+statement ok
+INSERT INTO ref VALUES
+('ols', 1, -0.685655349339, 1.04965534934, 1.44983057858, 1.52841068142, 0.14763601363, 0.121361371049, 0.636097477402),
+('ols', 2, 1.16142118622, 0.454578813776, 0.630435825108, 0.613847498081, 0.154521109378, 0.0242128305466, 0.262423675783),
+('ols', 3, -0.677303312919, -0.510696687081, -0.754471180335, -0.740118385749, 0.254913101864, 0.0649156315042, -0.432906202657),
+('ols', 4, 1.16977322264, -0.852773222644, -1.1437014825, -1.16006047407, 0.0959178445847, 0.0462589346874, -0.377856055386),
+('ols', 5, 3.01684975821, 0.0981502417934, 0.136985451945, 0.13125625127, 0.165166228101, 0.00123751046588, 0.0583822216236),
+('ols', 6, 1.17812525906, 1.12087474094, 1.56912564077, 1.68511264623, 0.170216333279, 0.168356749652, 0.763215377869),
+('ols', 7, 3.02520179463, 0.293798205373, 0.389250588782, 0.375054368131, 0.073584363769, 0.00401159391828, 0.105702207977),
+('ols', 8, 4.87227833019, -1.00027833019, -1.4307835086, -1.5041680249, 0.205196035054, 0.17617145315, -0.764277056403),
+('ols', 9, 3.03355383105, -0.695553831047, -0.942798098285, -0.938071392463, 0.114904252924, 0.0384646681923, -0.337993864402),
+('ols', 10, 4.88063036661, 0.33936963339, 0.451348713465, 0.435848880998, 0.0806355711835, 0.00595582780913, 0.129078948948),
+('ols', 11, 6.72770690217, 0.759293097827, 1.13685979109, 1.15228045981, 0.274610530238, 0.163094192979, 0.708975401476),
+('ols', 12, 4.88898240303, 0.11901759697, 0.159011872306, 0.152402923073, 0.0889768608, 0.000823162389722, 0.0476285250466),
+('ols', 13, 6.73605893859, -1.06505893859, -1.44541961306, -1.52277858054, 0.117071466828, 0.0923404826014, -0.554497398992),
+('ols', 14, 4.89733443945, -0.502334439451, -0.730117390513, -0.715097865012, 0.230219903904, 0.053142296962, -0.391069167462),
+('ols', 15, 19.4140422304, 0.391957769602, 1.19973548617, 1.22443810307, 0.826430384463, 2.28445353629, 2.67179494072),
+('wls', 1, -0.657158964737, 1.02115896474, 1.46708676, 1.55054971669, 0.193285438206, 0.171897507962, 0.758971234086),
+('wls', 2, 1.22634798439, 0.389652015611, 0.690579873575, 0.674723140002, 0.204826199617, 0.0409477482026, 0.342442238367),
+('wls', 3, -0.703718324653, -0.484281675347, -0.481923630272, -0.465937703327, 0.159274120165, 0.0146664831277, -0.202802476396),
+('wls', 4, 1.17978862447, -0.862788624474, -1.18164540753, -1.20352331657, 0.112273343097, 0.0588640963706, -0.42800929955),
+('wls', 5, 3.0632955736, 0.0517044263995, 0.0905311258982, 0.0867065689651, 0.185303879852, 0.000621388845329, 0.0413519918445),
+('wls', 6, 1.13322926456, 1.16577073544, 1.12439289062, 1.13814718422, 0.10503736571, 0.0494599696017, 0.389913154504),
+('wls', 7, 3.01673621369, 0.302263786315, 0.404843375718, 0.390282459716, 0.0717970494522, 0.00422587330714, 0.108545259091),
+('wls', 8, 4.90024316281, -1.02824316281, -1.84781134724, -2.09155273074, 0.226585262282, 0.333436562522, -1.13208340924),
+('wls', 9, 2.97017685377, -0.63217685377, -0.598486201966, -0.581755036302, 0.0710685119868, 0.00913441140162, -0.160911439749),
+('wls', 10, 4.8536838029, 0.366316197104, 0.490649050913, 0.474544828037, 0.0718565572705, 0.00621257974716, 0.132039203846),
+('wls', 11, 6.73719075202, 0.749809247977, 1.44627506391, 1.52387000423, 0.328670346907, 0.341354187198, 1.06625300162),
+('wls', 12, 4.80712444298, 0.200875557019, 0.188783179718, 0.18101513423, 0.0573675589951, 0.00072298506771, 0.0446556978999),
+('wls', 13, 6.69063139211, -1.01963139211, -1.39659226373, -1.46114426573, 0.112451866552, 0.0823744945546, -0.520092360744),
+('wls', 14, 4.76056508307, -0.365565083065, -0.758308851539, -0.744072027062, 0.419538785521, 0.138538316754, -0.632578508713),
+('wls', 15, 19.0628979588, 0.743102041176, 1.19986314358, 1.22458614952, 0.680663714386, 1.02288427375, 1.78785176699),
+('ols', 17, 7.00286788991, 0.662132110092, 1.01872432029, 1.02047916265, 0.25504587156, 0.118435217129, 0.59710199819),
+('ols', 18, 10.8660678899, 0.103932110092, 0.159904899031, 0.153260655823, 0.25504587156, 0.00291803872416, 0.0896757593741),
+('ols', 19, 4.33901100917, -0.544011009174, -0.839058125849, -0.827992503489, 0.25871559633, 0.0819031468119, -0.489153627497),
+('ols', 20, 8.20221100917, -0.944211009174, -1.34071574634, -1.39213114345, 0.125382262997, 0.0858954163305, -0.52709519961),
+('ols', 21, 12.0654110092, -0.901411009174, -1.39029581979, -1.45328855315, 0.25871559633, 0.224869692889, -0.85856014949),
+('ols', 22, 5.53835412844, -0.42835412844, -0.602365186379, -0.585642755002, 0.108256880734, 0.0146829802798, -0.204051901494),
+('ols', 23, 9.40155412844, 0.28544587156, 0.401403054639, 0.386920541895, 0.108256880734, 0.0065201236791, 0.134812343577),
+('ols', 24, 2.87449724771, 0.901502752294, 1.34152025358, 1.39311383615, 0.203669724771, 0.153428649443, 0.704536066281),
+('ols', 25, 6.73769724771, 1.16230275229, 1.60078549781, 1.72822915921, 0.0703363914373, 0.0646248101209, 0.475366370532),
+('ols', 26, 10.6008972477, 0.953102752294, 1.41830587061, 1.48839463612, 0.203669724771, 0.171495131511, 0.752722193117),
+('ols', 27, 4.07384036697, 0.379159633028, 0.544507890489, 0.527888782376, 0.14495412844, 0.0167543766678, 0.217351689645),
+('ols', 28, 7.93704036697, -0.256040366972, -0.367697370596, -0.354043545043, 0.14495412844, 0.0076401338706, -0.145773059198),
+('ols', 29, 1.40998348624, -0.657983486239, -1.06915173193, -1.076173952, 0.332110091743, 0.189467456123, -0.758876442958),
+('ols', 30, 5.27318348624, -0.603183486239, -0.894848396453, -0.886852527016, 0.19877675841, 0.0662200857777, -0.441730554568),
+('ols', 31, 9.13638348624, -0.112383486239, -0.182610964356, -0.1750801215, 0.332110091743, 0.00552725672057, -0.123459761863),
+('wls', 17, 7.14529740096, 0.519702599041, 0.820857311639, 0.808950651985, 0.282311380267, 0.0883499713017, 0.507362298508),
+('wls', 18, 10.8322140298, 0.137785970225, 0.273809162866, 0.262975086383, 0.319909159727, 0.0117553198319, 0.180361766893),
+('wls', 19, 4.5489223568, -0.7539223568, -0.774483334385, -0.760768723426, 0.151678021701, 0.0357490772106, -0.321687079625),
+('wls', 20, 8.23583898562, -0.977838985617, -1.39483157007, -1.45894547718, 0.120060560182, 0.0884850425167, -0.538905793943),
+('wls', 21, 11.9227556144, -0.758755614434, -1.51874718269, -1.617869933, 0.329674489023, 0.378137117877, -1.1346016242),
+('wls', 22, 5.63946394146, -0.529463941458, -0.516119591408, -0.49972452891, 0.057885440323, 0.00545563190546, -0.123869242027),
+('wls', 23, 9.32638057028, 0.360619429725, 0.508987604183, 0.492665633936, 0.101236437043, 0.00972712622291, 0.165347626951),
+('wls', 24, 3.0430888973, 0.7329111027, 1.43620577145, 1.51104892419, 0.300605601817, 0.295520083279, 0.990640287535),
+('wls', 25, 6.73000552612, 1.16999447388, 1.12737255781, 1.14152006402, 0.0358062074186, 0.0157328591813, 0.219978656483),
+('wls', 26, 10.4169221549, 1.13707784507, 1.72924038026, 1.91071484594, 0.22583901085, 0.290775065404, 1.03200004929),
+('wls', 27, 4.13363048196, 0.319369518042, 0.583835983613, 0.567092658929, 0.196366389099, 0.0277632001459, 0.280322886382),
+('wls', 28, 7.82054711077, -0.139547110775, -0.138064059465, -0.132291385591, 0.0854403229876, 0.000593595848239, -0.0404349565905),
+('wls', 29, 1.5372554378, -0.7852554378, -1.23755321336, -1.26858269667, 0.279131970729, 0.197678904929, -0.789397400363),
+('wls', 30, 5.22417206662, -0.554172066616, -1.09115941388, -1.10073894458, 0.307267221802, 0.176037685102, -0.733093856853),
+('wls', 31, 8.91108869543, 0.112911304567, 0.119952289954, 0.114914488582, 0.20678778703, 0.00125034921303, 0.0586735729043);
+
+statement ok
+CREATE TABLE aug AS
+    SELECT 'ols' AS model, * FROM ols_augment_by('d', g, y, [x1, x2], split := split)
+    UNION ALL BY NAME
+    SELECT 'wls' AS model, * FROM wls_augment_by('d', g, y, [x1, x2], w, split := split);
+
+# Every source row comes back once per model, row_id is the source row number
+query II
+SELECT count(*), count(*) FILTER (WHERE row_id = id) FROM aug
+----
+64	64
+
+# All seven measures match R to 1e-8 on all 60 training rows
+query IIIIIIII
+SELECT count(*),
+    max(abs(a.fitted - r.fitted)) < 1e-8,
+    max(abs(a.residual - r.residual)) < 1e-8,
+    max(abs(a.std_residual - r.std_residual)) < 1e-8,
+    max(abs(a.stud_residual - r.stud_residual)) < 1e-8,
+    max(abs(a.leverage - r.leverage)) < 1e-8,
+    max(abs(a.cooks_d - r.cooks_d)) < 1e-8,
+    max(abs(a.dffits - r.dffits)) < 1e-8
+FROM aug a JOIN ref r USING (model, row_id)
+----
+60	true	true	true	true	true	true	true
+
+# The high-leverage row (x1 = 40) is flagged by leverage and Cook's distance
+query IIII
+SELECT model, row_id, round(leverage, 6), round(cooks_d, 6) FROM aug WHERE g = 'a' AND cooks_d = (SELECT max(cooks_d) FROM aug a2 WHERE a2.model = aug.model AND a2.g = 'a') ORDER BY model
+----
+ols	15	0.82643	2.284454
+wls	15	0.680664	1.022884
+
+# Non-training rows: prediction as fitted, NULL diagnostics, is_training false
+query IIIIIIIIIII
+SELECT model, row_id, round(fitted, 9), residual, std_residual, stud_residual, leverage, cooks_d, dffits, is_training, weight
+FROM aug WHERE row_id IN (16, 32) ORDER BY model, row_id
+----
+ols	16	3.948740062	NULL	NULL	NULL	NULL	NULL	NULL	false	1.0
+ols	32	6.817528836	NULL	NULL	NULL	NULL	NULL	NULL	false	1.0
+wls	16	3.958489688	NULL	NULL	NULL	NULL	NULL	NULL	false	1.0
+wls	32	6.81867285	NULL	NULL	NULL	NULL	NULL	NULL	false	2.0
+
+# model_id, resid_type, n_params, is_training; OLS weight is 1, WLS weight is the prior weight
+query IIIIIII
+SELECT model, model_id, any_value(resid_type), min(n_params), max(n_params), count(*) FILTER (WHERE is_training),
+    bool_and(CASE WHEN model = 'ols' THEN weight = 1.0 ELSE weight = w END)
+FROM aug GROUP BY model, model_id ORDER BY model, model_id
+----
+ols	a	response	3	3	15	true
+ols	b	response	3	3	15	true
+wls	a	response	3	3	15	true
+wls	b	response	3	3	15	true
+
+# Output is ordered by group, then source row; the source columns come first
+query IIII
+SELECT g, id, row_id, y FROM ols_augment_by('d', g, y, [x1, x2], split := split) LIMIT 3
+----
+a	1	1	0.364
+a	2	2	1.616
+a	3	3	-1.188
+
+# Without split the 'test' row is a training row (y is present)
+query II
+SELECT is_training, leverage IS NOT NULL FROM ols_augment_by('d', g, y, [x1, x2]) WHERE id = 16
+----
+true	true
+
+# order_by does not change the per-row values
+query I
+SELECT count(*) FROM ols_augment_by('d', g, y, [x1, x2], split := split, order_by := -id) a
+JOIN aug b ON b.model = 'ols' AND a.row_id = b.row_id
+WHERE abs(a.cooks_d - b.cooks_d) > 1e-12 OR (a.cooks_d IS NULL) <> (b.cooks_d IS NULL)
+----
+0
+
+# fit_intercept := false drops the intercept from n_params
+query I
+SELECT DISTINCT n_params FROM ols_augment_by('d', g, y, [x1, x2], options := {'fit_intercept': false})
+----
+2
+
+# Leverages of a fit sum to n_params (trace of the hat matrix)
+query II
+SELECT model_id, round(sum(leverage), 9) FROM ols_augment_by('d', g, y, [x1, x2], split := split) GROUP BY 1 ORDER BY 1
+----
+a	3.0
+b	3.0
+
+# A NULL feature makes a row non-training and its fitted NULL
+statement ok
+INSERT INTO d VALUES (33, 'b', NULL, 6, 7.0, 1, 'train');
+
+query IIII
+SELECT is_training, fitted, residual, weight FROM ols_augment_by('d', g, y, [x1, x2]) WHERE id = 33
+----
+false	NULL	NULL	1.0
+
+# A NULL weight keeps the row out of the WLS fit
+query II
+SELECT is_training, fitted IS NOT NULL FROM wls_augment_by('d', g, y, [x1, x2], CASE WHEN id = 1 THEN NULL ELSE w END) WHERE id = 1
+----
+false	true
+
+# Unknown options are rejected
+statement error
+SELECT * FROM ols_augment_by('d', g, y, [x1, x2], options := {'bogus': 1})
+----
+bogus
+
+# A group with too few training rows yields NULL diagnostics instead of an error
+statement ok
+CREATE TABLE tiny AS SELECT * FROM (VALUES ('t', 1.0, 2.0)) v(g, x, y);
+
+query III
+SELECT fitted, leverage, is_training FROM ols_augment_by('tiny', g, y, [x])
+----
+NULL	NULL	NULL

@@ -40,6 +40,12 @@ static_assert(sizeof(AnofoxQuantileFitResultCore) ==
                   offsetof(AnofoxQuantileFitResultCore, summary) + sizeof(AnofoxModelSummaryFFI),
               "AnofoxQuantileFitResultCore must end with its summary, as QuantileFitResultCore does");
 
+// Eight array pointers, len + n_params, the resid_type name (no padding).
+static_assert(offsetof(AnofoxAugmentResult, len) == 8 * sizeof(double *) &&
+                  offsetof(AnofoxAugmentResult, resid_type) == 8 * sizeof(double *) + 2 * sizeof(size_t) &&
+                  sizeof(AnofoxAugmentResult) == 8 * sizeof(double *) + 2 * sizeof(size_t) + ANOFOX_MODEL_NAME_LEN,
+              "AnofoxAugmentResult must match AugmentResultFFI in crates/anofox-stats-ffi/src/types.rs");
+
 static bool HasField(const child_list_t<LogicalType> &children, const string &name) {
 	for (auto &child : children) {
 		if (child.first == name) {

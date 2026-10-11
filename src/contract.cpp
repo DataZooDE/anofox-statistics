@@ -41,6 +41,7 @@ static const struct {
     {"tweedie_tidy_by", "terms"}, {"tweedie_glance_by", "summary"},
     {"alm_tidy_by", "terms"}, {"alm_glance_by", "summary"},
     {"aft_tidy_by", "terms"}, {"aft_glance_by", "summary"},
+    {"ols_augment_by", "obs"}, {"wls_augment_by", "obs"},
     {nullptr, nullptr}
 };
 // clang-format on

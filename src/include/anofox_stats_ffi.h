@@ -2662,6 +2662,47 @@ bool anofox_glmm_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count
 /** Free the arrays owned by a GLMM result. */
 void anofox_free_glmm_result(AnofoxGlmmResult *result);
 
+/* ============================================================================
+ * Per-observation diagnostics (broom augment) -- issue #151
+ * ============================================================================ */
+
+/**
+ * Per-row diagnostics of an OLS/WLS fit (layout of AugmentResultFFI in
+ * crates/anofox-stats-ffi/src/types.rs). Every array has len entries, one per
+ * input row in input order; NaN marks a value that does not apply (rows not
+ * used in the fit only have fitted). Released by anofox_free_augment_result.
+ */
+typedef struct {
+	double *fitted;
+	double *residual;
+	double *std_residual;
+	double *stud_residual;
+	double *leverage;
+	double *cooks_d;
+	double *dffits;
+	bool *used;
+	size_t len;
+	size_t n_params;
+	char resid_type[ANOFOX_MODEL_NAME_LEN];
+} AnofoxAugmentResult;
+
+/**
+ * Fit OLS on the usable rows (finite y and features; NaN y marks a row that is
+ * only predicted) and return per-row diagnostics for every input row.
+ */
+bool anofox_ols_augment(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, AnofoxOlsOptions options,
+                        AnofoxAugmentResult *out_result, AnofoxError *out_error);
+
+/**
+ * Fit WLS on the usable rows (finite y and features, positive weight) and
+ * return per-row diagnostics for every input row.
+ */
+bool anofox_wls_augment(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, AnofoxDataArray weights,
+                        AnofoxWlsOptions options, AnofoxAugmentResult *out_result, AnofoxError *out_error);
+
+/** Free the arrays owned by an augment result. */
+void anofox_free_augment_result(AnofoxAugmentResult *result);
+
 #ifdef __cplusplus
 }
 #endif
