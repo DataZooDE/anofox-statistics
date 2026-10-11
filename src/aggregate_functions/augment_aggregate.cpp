@@ -235,14 +235,14 @@ static void AugmentAggFinalize(Vector &state_vector, AggregateInputData &aggr_in
         for (auto &col : x_cols) {
             x_arrays.push_back({col.data(), nullptr, col.size()});
         }
-        AnofoxDataArray y_array {state.y.data(), nullptr, n_rows};
+        AnofoxDataArray y_array {state.y.data(), nullptr, static_cast<size_t>(n_rows)};
 
         AnofoxAugmentResult aug;
         std::memset(&aug, 0, sizeof(aug));
         AnofoxError error;
         bool ok;
         if (bind_data.weighted) {
-            AnofoxDataArray w_array {state.weight.data(), nullptr, n_rows};
+            AnofoxDataArray w_array {state.weight.data(), nullptr, static_cast<size_t>(n_rows)};
             AnofoxWlsOptions options;
             options.fit_intercept = bind_data.fit_intercept;
             options.compute_inference = false;
