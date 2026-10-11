@@ -1,16 +1,23 @@
-//! Per-observation diagnostics (broom `augment`) for OLS and WLS.
+//! Per-observation diagnostics (broom `augment`) for OLS, WLS and the GLMs.
 //!
 //! This module only marshals data: it fits the model exactly as
 //! [`crate::models::fit_ols`] / [`crate::models::fit_wls`] do (same row
 //! filtering, same non-estimable-column handling) and hands the fit to
 //! upstream `anofox_regression::diagnostics::augment`, which computes every
-//! measure. Rows that are not used for fitting get the fit's prediction as
-//! `fitted` and NaN everywhere else.
+//! measure. The GLMs are fitted by upstream's `PenalizedGlmRegressor`, which
+//! runs the same `penalized_glm::fit_*` as [`crate::models::fit_poisson`] and
+//! friends, and augmented by its `augment` (`diagnostics::augment_glm`). Rows
+//! that are not used for fitting get the fit's prediction as `fitted` and NaN
+//! everywhere else.
 
 use crate::errors::{StatsError, StatsResult};
-use crate::types::{OlsOptions, SolverType, WlsOptions};
+use crate::types::{
+    BinomialOptions, GammaOptions, GlmPriorOptions, LogisticOptions, NegBinomialOptions,
+    OlsOptions, PoissonOptions, SolverType, TweedieOptions, WlsOptions,
+};
 use anofox_regression::diagnostics::{augment, Augment, Augmentable};
 use anofox_regression::prelude::*;
+use anofox_regression::solvers::penalized_glm::{PenalizedGlmFamily, PenalizedGlmRegressor};
 use faer::{Col, Mat};
 
 /// Per-row diagnostics of an OLS/WLS fit, one entry per input row.
@@ -33,7 +40,8 @@ pub struct AugmentResult {
     pub dffits: Vec<f64>,
     /// Whether the row was used to fit the model.
     pub used: Vec<bool>,
-    /// Name of the residual type (`"response"`).
+    /// Name of the residual type (`"response"` for OLS/WLS, `"deviance"` for
+    /// the GLMs).
     pub resid_type: &'static str,
     /// Number of estimated coefficients, intercept included (upstream's
     /// `n_parameters`, aliased columns excluded).
@@ -194,6 +202,239 @@ pub fn augment_wls(
     })
 }
 
+/// The fit settings shared by the six GLM families.
+struct GlmSpec<'a> {
+    family: PenalizedGlmFamily,
+    fit_intercept: bool,
+    max_iterations: u32,
+    tolerance: f64,
+    lambda: f64,
+    prior_opts: &'a GlmPriorOptions,
+    /// 1-based column of `x` holding the offset, as in the `fit_*` options.
+    offset_column: Option<usize>,
+    estimate_dispersion: bool,
+}
+
+/// Fit a GLM on the usable rows and return per-row diagnostics for every row.
+///
+/// `x` is laid out as for the `fit_*` functions (the offset column, if any,
+/// included). The fit drops rows with a non-finite `y`, feature or offset;
+/// those rows get the fit's prediction (NaN if a feature or the offset is
+/// missing) and NaN diagnostics.
+fn augment_glm_spec(y: &[f64], x: &[Vec<f64>], spec: GlmSpec<'_>) -> StatsResult<AugmentResult> {
+    if y.is_empty() {
+        return Err(StatsError::EmptyInput { field: "y" });
+    }
+    if x.is_empty() {
+        return Err(StatsError::EmptyInput { field: "x" });
+    }
+    let n_obs = y.len();
+    crate::validation::validate_x_columns(n_obs, x)?;
+    let offset_idx = match spec.offset_column {
+        None => None,
+        Some(c) if c >= 1 && c <= x.len() => Some(c - 1),
+        Some(c) => {
+            return Err(StatsError::InvalidValue {
+                field: "offset",
+                message: format!("offset column {c} is outside the {} x columns", x.len()),
+            })
+        }
+    };
+    let features: Vec<&Vec<f64>> = x
+        .iter()
+        .enumerate()
+        .filter(|(j, _)| Some(*j) != offset_idx)
+        .map(|(_, c)| c)
+        .collect();
+    let x_mat = Mat::from_fn(n_obs, features.len(), |i, j| features[j][i]);
+    let y_col = Col::from_fn(n_obs, |i| y[i]);
+    let offset = offset_idx.map(|k| Col::from_fn(n_obs, |i| x[k][i]));
+
+    let mut builder = PenalizedGlmRegressor::builder()
+        .family(spec.family)
+        .with_intercept(spec.fit_intercept)
+        .max_iterations(spec.max_iterations)
+        .tolerance(spec.tolerance)
+        .compute_inference(false)
+        .lambda(spec.lambda)
+        .priors(spec.prior_opts.priors.clone())
+        .vcov_type(spec.prior_opts.vcov)
+        .estimate_dispersion(spec.estimate_dispersion);
+    if let Some(off) = &offset {
+        builder = builder.offset(off.clone());
+    }
+    let fitted_model = builder
+        .build()
+        .fit(&x_mat, &y_col)
+        .map_err(StatsError::from)?;
+    let aug = fitted_model
+        .augment(&x_mat, &y_col)
+        .map_err(StatsError::from)?;
+    let predicted = match &offset {
+        Some(off) => fitted_model.predict_with_offset(&x_mat, off),
+        None => fitted_model.predict(&x_mat),
+    };
+
+    let result = fitted_model.result();
+    let mut used = vec![false; n_obs];
+    for &i in &result.valid_rows {
+        used[i] = true;
+    }
+    let n_params = result
+        .core
+        .coefficients
+        .iter()
+        .filter(|b| b.is_finite())
+        .count()
+        + usize::from(result.core.intercept.is_some());
+    let col = |c: &Col<f64>, i: usize| if used[i] { c[i] } else { f64::NAN };
+    Ok(AugmentResult {
+        fitted: (0..n_obs)
+            .map(|i| if used[i] { aug.fitted[i] } else { predicted[i] })
+            .collect(),
+        residual: (0..n_obs).map(|i| col(&aug.residual, i)).collect(),
+        std_residual: (0..n_obs).map(|i| col(&aug.std_residual, i)).collect(),
+        stud_residual: (0..n_obs).map(|i| col(&aug.stud_residual, i)).collect(),
+        leverage: (0..n_obs).map(|i| col(&aug.leverage, i)).collect(),
+        cooks_d: (0..n_obs).map(|i| col(&aug.cooks_d, i)).collect(),
+        dffits: (0..n_obs).map(|i| col(&aug.dffits, i)).collect(),
+        resid_type: aug.resid_type.as_str(),
+        n_params,
+        used,
+    })
+}
+
+/// Per-row diagnostics of a Poisson fit (options as [`crate::models::fit_poisson`]).
+pub fn augment_poisson(
+    y: &[f64],
+    x: &[Vec<f64>],
+    o: &PoissonOptions,
+) -> StatsResult<AugmentResult> {
+    augment_glm_spec(
+        y,
+        x,
+        GlmSpec {
+            family: PenalizedGlmFamily::Poisson(o.link),
+            fit_intercept: o.fit_intercept,
+            max_iterations: o.max_iterations,
+            tolerance: o.tolerance,
+            lambda: o.lambda,
+            prior_opts: &o.prior_opts,
+            offset_column: o.offset_column,
+            estimate_dispersion: o.estimate_dispersion,
+        },
+    )
+}
+
+/// Per-row diagnostics of a Binomial fit (options as [`crate::models::fit_binomial`]).
+pub fn augment_binomial(
+    y: &[f64],
+    x: &[Vec<f64>],
+    o: &BinomialOptions,
+) -> StatsResult<AugmentResult> {
+    augment_glm_spec(
+        y,
+        x,
+        GlmSpec {
+            family: PenalizedGlmFamily::Binomial(o.link),
+            fit_intercept: o.fit_intercept,
+            max_iterations: o.max_iterations,
+            tolerance: o.tolerance,
+            lambda: o.lambda,
+            prior_opts: &o.prior_opts,
+            offset_column: o.offset_column,
+            estimate_dispersion: false,
+        },
+    )
+}
+
+/// Per-row diagnostics of a logistic fit (options as [`crate::models::fit_logistic`]).
+pub fn augment_logistic(
+    y: &[f64],
+    x: &[Vec<f64>],
+    o: &LogisticOptions,
+) -> StatsResult<AugmentResult> {
+    augment_glm_spec(
+        y,
+        x,
+        GlmSpec {
+            family: PenalizedGlmFamily::Logistic {
+                threshold: o.threshold,
+            },
+            fit_intercept: o.fit_intercept,
+            max_iterations: o.max_iterations,
+            tolerance: o.tolerance,
+            lambda: o.lambda,
+            prior_opts: &o.prior_opts,
+            offset_column: o.offset_column,
+            estimate_dispersion: false,
+        },
+    )
+}
+
+/// Per-row diagnostics of a Negative Binomial fit (options as
+/// [`crate::models::fit_negbinomial`]; `alpha` is the fixed `theta`).
+pub fn augment_negbinomial(
+    y: &[f64],
+    x: &[Vec<f64>],
+    o: &NegBinomialOptions,
+) -> StatsResult<AugmentResult> {
+    augment_glm_spec(
+        y,
+        x,
+        GlmSpec {
+            family: PenalizedGlmFamily::NegativeBinomial { theta: o.alpha },
+            fit_intercept: o.fit_intercept,
+            max_iterations: o.max_iterations,
+            tolerance: o.tolerance,
+            lambda: o.lambda,
+            prior_opts: &o.prior_opts,
+            offset_column: o.offset_column,
+            estimate_dispersion: false,
+        },
+    )
+}
+
+/// Per-row diagnostics of a Gamma fit (options as [`crate::models::fit_gamma`]).
+pub fn augment_gamma(y: &[f64], x: &[Vec<f64>], o: &GammaOptions) -> StatsResult<AugmentResult> {
+    augment_glm_spec(
+        y,
+        x,
+        GlmSpec {
+            family: PenalizedGlmFamily::Gamma,
+            fit_intercept: o.fit_intercept,
+            max_iterations: o.max_iterations,
+            tolerance: o.tolerance,
+            lambda: o.lambda,
+            prior_opts: &o.prior_opts,
+            offset_column: o.offset_column,
+            estimate_dispersion: false,
+        },
+    )
+}
+
+/// Per-row diagnostics of a Tweedie fit (options as [`crate::models::fit_tweedie`]).
+pub fn augment_tweedie(
+    y: &[f64],
+    x: &[Vec<f64>],
+    o: &TweedieOptions,
+) -> StatsResult<AugmentResult> {
+    augment_glm_spec(
+        y,
+        x,
+        GlmSpec {
+            family: PenalizedGlmFamily::Tweedie { power: o.power },
+            fit_intercept: o.fit_intercept,
+            max_iterations: o.max_iterations,
+            tolerance: o.tolerance,
+            lambda: o.lambda,
+            prior_opts: &o.prior_opts,
+            offset_column: o.offset_column,
+            estimate_dispersion: false,
+        },
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -224,6 +465,34 @@ mod tests {
         assert!(r.residual[3].is_nan());
         let h: f64 = r.leverage.iter().filter(|v| v.is_finite()).sum();
         assert!((h - 2.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn poisson_augment_predicts_held_out_rows() {
+        let x = vec![
+            vec![0.1, 0.4, 0.9, 1.3, 1.8, 2.2, 2.9, 3.1, 1.0],
+            vec![1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0],
+        ];
+        let y = vec![1.0, 1.0, 3.0, 2.0, 6.0, 5.0, 14.0, 11.0, f64::NAN];
+        let r = augment_poisson(&y, &x, &PoissonOptions::default()).unwrap();
+        assert_eq!(r.resid_type, "deviance");
+        assert_eq!(r.n_params, 3);
+        assert!(!r.used[8] && r.used[0]);
+        assert!(r.fitted[8].is_finite() && r.fitted[8] > 0.0);
+        assert!(r.residual[8].is_nan() && r.leverage[8].is_nan());
+        let h: f64 = r.leverage.iter().filter(|v| v.is_finite()).sum();
+        assert!((h - 3.0).abs() < 1e-8);
+    }
+
+    #[test]
+    fn penalized_glm_augment_is_rejected() {
+        let x = vec![vec![0.1, 0.4, 0.9, 1.3, 1.8, 2.2]];
+        let y = vec![1.0, 1.0, 3.0, 2.0, 6.0, 5.0];
+        let o = PoissonOptions {
+            lambda: 1.0,
+            ..Default::default()
+        };
+        assert!(augment_poisson(&y, &x, &o).is_err());
     }
 
     #[test]

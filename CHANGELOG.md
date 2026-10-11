@@ -36,6 +36,15 @@ Breaking changes are called out explicitly.
   Backed by the window aggregates `ols_augment_agg` / `wls_augment_agg` and computed by
   `anofox_regression::diagnostics::augment`; validated against R `lm` (`rstandard`,
   `rstudent`, `hatvalues`, `cooks.distance`, `dffits`).
+- GLM augment macros (#151): `poisson_augment_by`, `binomial_augment_by`,
+  `logistic_augment_by`, `negbinom_augment_by`, `gamma_augment_by` and
+  `tweedie_augment_by` (window aggregates `<family>_augment_agg`), with the same `obs`
+  columns as `ols_augment_by`. `fitted` is on the response scale, `residual` is the
+  deviance residual (`resid_type = 'deviance'`); non-training rows get the
+  response-scale prediction. Computed by
+  `anofox_regression::diagnostics::augment_glm` (anofox-regression 0.5.25) and
+  validated against R `glm`, `MASS::glm.nb` and `statmod::tweedie`. Penalized fits
+  (`glm_lambda > 0` or a `prior`) are rejected.
 
 - anofox integration contract scaffolding (#160): `anofox_contract_version()` returns
   `'1'` (registered only if no other anofox extension has registered it yet), and every

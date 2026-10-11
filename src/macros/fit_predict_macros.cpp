@@ -233,6 +233,186 @@ FROM (
 ORDER BY group_col, row_id
 )"},
 
+    // poisson_augment_by: per-row diagnostics of a Poisson GLM fit per group (broom augment, contract `obs` schema, #151)
+    // C++ API: poisson_augment_by(table_name, group_col, y_col, x_cols, options, split, order_by)
+    // Options: fit_intercept, max_iterations, tolerance, offset, poisson_link (glm_lambda > 0 / prior: error)
+    // Returns: as ols_augment_by; fitted on the response scale, residual = deviance residual, weight = 1
+    {"poisson_augment_by", {"source", "group_col", "y_col", "x_cols", nullptr}, {{"options", "NULL"}, {"split", "NULL"}, {"order_by", "NULL"}},
+R"(
+SELECT
+    * EXCLUDE (_aug, _rn, _anofox_rid),
+    group_col::VARCHAR AS model_id,
+    _anofox_rid AS row_id,
+    (_aug[_rn]).fitted AS fitted,
+    (_aug[_rn]).residual AS residual,
+    (_aug[_rn]).resid_type AS resid_type,
+    (_aug[_rn]).std_residual AS std_residual,
+    (_aug[_rn]).stud_residual AS stud_residual,
+    (_aug[_rn]).leverage AS leverage,
+    (_aug[_rn]).cooks_d AS cooks_d,
+    (_aug[_rn]).dffits AS dffits,
+    (_aug[_rn]).weight AS weight,
+    (_aug[_rn]).is_training AS is_training,
+    (_aug[_rn]).n_params AS n_params
+FROM (
+    SELECT *,
+        ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _rn,
+        poisson_augment_agg(CASE WHEN split IS NOT NULL AND split != 'train' THEN NULL ELSE y_col END, x_cols, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _aug
+    FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR))
+) sub
+ORDER BY group_col, row_id
+)"},
+
+    // binomial_augment_by: per-row diagnostics of a Binomial GLM fit per group (broom augment, contract `obs` schema, #151)
+    // C++ API: binomial_augment_by(table_name, group_col, y_col, x_cols, options, split, order_by)
+    // Options: fit_intercept, max_iterations, tolerance, offset, binomial_link (glm_lambda > 0 / prior: error)
+    // Returns: as ols_augment_by; fitted on the response scale, residual = deviance residual, weight = 1
+    {"binomial_augment_by", {"source", "group_col", "y_col", "x_cols", nullptr}, {{"options", "NULL"}, {"split", "NULL"}, {"order_by", "NULL"}},
+R"(
+SELECT
+    * EXCLUDE (_aug, _rn, _anofox_rid),
+    group_col::VARCHAR AS model_id,
+    _anofox_rid AS row_id,
+    (_aug[_rn]).fitted AS fitted,
+    (_aug[_rn]).residual AS residual,
+    (_aug[_rn]).resid_type AS resid_type,
+    (_aug[_rn]).std_residual AS std_residual,
+    (_aug[_rn]).stud_residual AS stud_residual,
+    (_aug[_rn]).leverage AS leverage,
+    (_aug[_rn]).cooks_d AS cooks_d,
+    (_aug[_rn]).dffits AS dffits,
+    (_aug[_rn]).weight AS weight,
+    (_aug[_rn]).is_training AS is_training,
+    (_aug[_rn]).n_params AS n_params
+FROM (
+    SELECT *,
+        ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _rn,
+        binomial_augment_agg(CASE WHEN split IS NOT NULL AND split != 'train' THEN NULL ELSE y_col END, x_cols, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _aug
+    FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR))
+) sub
+ORDER BY group_col, row_id
+)"},
+
+    // logistic_augment_by: per-row diagnostics of a logistic regression fit per group (broom augment, contract `obs` schema, #151)
+    // C++ API: logistic_augment_by(table_name, group_col, y_col, x_cols, options, split, order_by)
+    // Options: fit_intercept, max_iterations, tolerance, offset (glm_lambda > 0 / prior: error)
+    // Returns: as ols_augment_by; fitted on the response scale, residual = deviance residual, weight = 1
+    {"logistic_augment_by", {"source", "group_col", "y_col", "x_cols", nullptr}, {{"options", "NULL"}, {"split", "NULL"}, {"order_by", "NULL"}},
+R"(
+SELECT
+    * EXCLUDE (_aug, _rn, _anofox_rid),
+    group_col::VARCHAR AS model_id,
+    _anofox_rid AS row_id,
+    (_aug[_rn]).fitted AS fitted,
+    (_aug[_rn]).residual AS residual,
+    (_aug[_rn]).resid_type AS resid_type,
+    (_aug[_rn]).std_residual AS std_residual,
+    (_aug[_rn]).stud_residual AS stud_residual,
+    (_aug[_rn]).leverage AS leverage,
+    (_aug[_rn]).cooks_d AS cooks_d,
+    (_aug[_rn]).dffits AS dffits,
+    (_aug[_rn]).weight AS weight,
+    (_aug[_rn]).is_training AS is_training,
+    (_aug[_rn]).n_params AS n_params
+FROM (
+    SELECT *,
+        ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _rn,
+        logistic_augment_agg(CASE WHEN split IS NOT NULL AND split != 'train' THEN NULL ELSE y_col END, x_cols, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _aug
+    FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR))
+) sub
+ORDER BY group_col, row_id
+)"},
+
+    // negbinom_augment_by: per-row diagnostics of a Negative Binomial GLM fit per group (broom augment, contract `obs` schema, #151)
+    // C++ API: negbinom_augment_by(table_name, group_col, y_col, x_cols, options, split, order_by)
+    // Options: fit_intercept, max_iterations, tolerance, offset, theta (glm_lambda > 0 / prior: error)
+    // Returns: as ols_augment_by; fitted on the response scale, residual = deviance residual, weight = 1
+    {"negbinom_augment_by", {"source", "group_col", "y_col", "x_cols", nullptr}, {{"options", "NULL"}, {"split", "NULL"}, {"order_by", "NULL"}},
+R"(
+SELECT
+    * EXCLUDE (_aug, _rn, _anofox_rid),
+    group_col::VARCHAR AS model_id,
+    _anofox_rid AS row_id,
+    (_aug[_rn]).fitted AS fitted,
+    (_aug[_rn]).residual AS residual,
+    (_aug[_rn]).resid_type AS resid_type,
+    (_aug[_rn]).std_residual AS std_residual,
+    (_aug[_rn]).stud_residual AS stud_residual,
+    (_aug[_rn]).leverage AS leverage,
+    (_aug[_rn]).cooks_d AS cooks_d,
+    (_aug[_rn]).dffits AS dffits,
+    (_aug[_rn]).weight AS weight,
+    (_aug[_rn]).is_training AS is_training,
+    (_aug[_rn]).n_params AS n_params
+FROM (
+    SELECT *,
+        ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _rn,
+        negbinom_augment_agg(CASE WHEN split IS NOT NULL AND split != 'train' THEN NULL ELSE y_col END, x_cols, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _aug
+    FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR))
+) sub
+ORDER BY group_col, row_id
+)"},
+
+    // gamma_augment_by: per-row diagnostics of a Gamma GLM (log link) fit per group (broom augment, contract `obs` schema, #151)
+    // C++ API: gamma_augment_by(table_name, group_col, y_col, x_cols, options, split, order_by)
+    // Options: fit_intercept, max_iterations, tolerance, offset (glm_lambda > 0 / prior: error)
+    // Returns: as ols_augment_by; fitted on the response scale, residual = deviance residual, weight = 1
+    {"gamma_augment_by", {"source", "group_col", "y_col", "x_cols", nullptr}, {{"options", "NULL"}, {"split", "NULL"}, {"order_by", "NULL"}},
+R"(
+SELECT
+    * EXCLUDE (_aug, _rn, _anofox_rid),
+    group_col::VARCHAR AS model_id,
+    _anofox_rid AS row_id,
+    (_aug[_rn]).fitted AS fitted,
+    (_aug[_rn]).residual AS residual,
+    (_aug[_rn]).resid_type AS resid_type,
+    (_aug[_rn]).std_residual AS std_residual,
+    (_aug[_rn]).stud_residual AS stud_residual,
+    (_aug[_rn]).leverage AS leverage,
+    (_aug[_rn]).cooks_d AS cooks_d,
+    (_aug[_rn]).dffits AS dffits,
+    (_aug[_rn]).weight AS weight,
+    (_aug[_rn]).is_training AS is_training,
+    (_aug[_rn]).n_params AS n_params
+FROM (
+    SELECT *,
+        ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _rn,
+        gamma_augment_agg(CASE WHEN split IS NOT NULL AND split != 'train' THEN NULL ELSE y_col END, x_cols, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _aug
+    FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR))
+) sub
+ORDER BY group_col, row_id
+)"},
+
+    // tweedie_augment_by: per-row diagnostics of a Tweedie GLM (log link) fit per group (broom augment, contract `obs` schema, #151)
+    // C++ API: tweedie_augment_by(table_name, group_col, y_col, x_cols, options, split, order_by)
+    // Options: fit_intercept, max_iterations, tolerance, offset, power (glm_lambda > 0 / prior: error)
+    // Returns: as ols_augment_by; fitted on the response scale, residual = deviance residual, weight = 1
+    {"tweedie_augment_by", {"source", "group_col", "y_col", "x_cols", nullptr}, {{"options", "NULL"}, {"split", "NULL"}, {"order_by", "NULL"}},
+R"(
+SELECT
+    * EXCLUDE (_aug, _rn, _anofox_rid),
+    group_col::VARCHAR AS model_id,
+    _anofox_rid AS row_id,
+    (_aug[_rn]).fitted AS fitted,
+    (_aug[_rn]).residual AS residual,
+    (_aug[_rn]).resid_type AS resid_type,
+    (_aug[_rn]).std_residual AS std_residual,
+    (_aug[_rn]).stud_residual AS stud_residual,
+    (_aug[_rn]).leverage AS leverage,
+    (_aug[_rn]).cooks_d AS cooks_d,
+    (_aug[_rn]).dffits AS dffits,
+    (_aug[_rn]).weight AS weight,
+    (_aug[_rn]).is_training AS is_training,
+    (_aug[_rn]).n_params AS n_params
+FROM (
+    SELECT *,
+        ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _rn,
+        tweedie_augment_agg(CASE WHEN split IS NOT NULL AND split != 'train' THEN NULL ELSE y_col END, x_cols, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _aug
+    FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR))
+) sub
+ORDER BY group_col, row_id
+)"},
+
     // rls_fit_predict_by: RLS fit and predict per group (long format)
     // C++ API: rls_fit_predict_by(table_name, group_col, y_col, x_cols, options)
     // Options: forgetting_factor, initial_p_diagonal, fit_intercept, confidence_level, null_policy
@@ -642,6 +822,12 @@ static const FitPredictTableMacroDoc fit_predict_table_macro_docs[] = {
     {"wls_fit_predict_by", "Table macro: fits a weighted least squares (WLS) regression per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "wls_fit_predict_by('my_table', group_col, y, [x1, x2], weight)", "regression"},
     {"ols_augment_by", "Table macro: fits an OLS regression per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with the per-observation diagnostics of the fit (broom augment, contract obs schema): model_id, row_id, fitted, residual, resid_type, std_residual, stud_residual, leverage, cooks_d, dffits, weight, is_training, n_params. Non-training rows get the prediction as fitted and NULL diagnostics.", "ols_augment_by('my_table', group_col, y, [x1, x2])", "regression"},
     {"wls_augment_by", "Table macro: fits a weighted least squares (WLS) regression per group of source (training rows: y_col NOT NULL, a positive weight and split NULL or 'train') and returns every source row with the per-observation diagnostics of the fit (broom augment, contract obs schema): model_id, row_id, fitted, residual, resid_type, std_residual, stud_residual, leverage, cooks_d, dffits, weight, is_training, n_params. Non-training rows get the prediction as fitted and NULL diagnostics.", "wls_augment_by('my_table', group_col, y, [x1, x2], w)", "regression"},
+    {"poisson_augment_by", "Table macro: fits a Poisson GLM per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with the per-observation diagnostics of the fit (broom augment, contract obs schema): model_id, row_id, fitted (response scale), residual (deviance), resid_type, std_residual, stud_residual, leverage, cooks_d, dffits, weight, is_training, n_params. Non-training rows get the prediction as fitted and NULL diagnostics. Penalized fits (glm_lambda > 0 or a prior) are rejected.", "poisson_augment_by('my_table', group_col, y, [x1, x2])", "regression"},
+    {"binomial_augment_by", "Table macro: fits a Binomial GLM per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with the per-observation diagnostics of the fit (broom augment, contract obs schema): model_id, row_id, fitted (response scale), residual (deviance), resid_type, std_residual, stud_residual, leverage, cooks_d, dffits, weight, is_training, n_params. Non-training rows get the prediction as fitted and NULL diagnostics. Penalized fits (glm_lambda > 0 or a prior) are rejected.", "binomial_augment_by('my_table', group_col, y, [x1, x2])", "regression"},
+    {"logistic_augment_by", "Table macro: fits a logistic regression per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with the per-observation diagnostics of the fit (broom augment, contract obs schema): model_id, row_id, fitted (response scale), residual (deviance), resid_type, std_residual, stud_residual, leverage, cooks_d, dffits, weight, is_training, n_params. Non-training rows get the prediction as fitted and NULL diagnostics. Penalized fits (glm_lambda > 0 or a prior) are rejected.", "logistic_augment_by('my_table', group_col, y, [x1, x2])", "regression"},
+    {"negbinom_augment_by", "Table macro: fits a Negative Binomial GLM per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with the per-observation diagnostics of the fit (broom augment, contract obs schema): model_id, row_id, fitted (response scale), residual (deviance), resid_type, std_residual, stud_residual, leverage, cooks_d, dffits, weight, is_training, n_params. Non-training rows get the prediction as fitted and NULL diagnostics. Penalized fits (glm_lambda > 0 or a prior) are rejected.", "negbinom_augment_by('my_table', group_col, y, [x1, x2])", "regression"},
+    {"gamma_augment_by", "Table macro: fits a Gamma GLM (log link) per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with the per-observation diagnostics of the fit (broom augment, contract obs schema): model_id, row_id, fitted (response scale), residual (deviance), resid_type, std_residual, stud_residual, leverage, cooks_d, dffits, weight, is_training, n_params. Non-training rows get the prediction as fitted and NULL diagnostics. Penalized fits (glm_lambda > 0 or a prior) are rejected.", "gamma_augment_by('my_table', group_col, y, [x1, x2])", "regression"},
+    {"tweedie_augment_by", "Table macro: fits a Tweedie GLM (log link) per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with the per-observation diagnostics of the fit (broom augment, contract obs schema): model_id, row_id, fitted (response scale), residual (deviance), resid_type, std_residual, stud_residual, leverage, cooks_d, dffits, weight, is_training, n_params. Non-training rows get the prediction as fitted and NULL diagnostics. Penalized fits (glm_lambda > 0 or a prior) are rejected.", "tweedie_augment_by('my_table', group_col, y, [x1, x2])", "regression"},
     {"rls_fit_predict_by", "Table macro: fits a Recursive Least Squares (RLS) regression per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "rls_fit_predict_by('my_table', group_col, y, [x1, x2])", "regression"},
     {"bls_fit_predict_by", "Table macro: fits a bounded/non-negative least squares (BLS) regression per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "bls_fit_predict_by('my_table', group_col, y, [x1, x2])", "regression"},
     {"alm_fit_predict_by", "Table macro: fits an Augmented Linear Model (ALM) per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "alm_fit_predict_by('my_table', group_col, y, [x1, x2])", "regression"},

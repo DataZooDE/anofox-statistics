@@ -1,5 +1,6 @@
 #include <cmath>
 #include <cstring>
+#include <limits>
 #include <vector>
 
 #include "duckdb.hpp"
@@ -12,6 +13,7 @@
 #include "../include/error_dispatch.hpp"
 #include "../include/ffi_enum_converters.hpp"
 #include "../include/map_options_parser.hpp"
+#include "../include/glm_prior_options.hpp"
 #include "telemetry.hpp"
 #include "aggregate_combine.hpp"
 #include "aggregate_finalize_guard.hpp"
@@ -19,18 +21,20 @@
 namespace duckdb {
 
 //===--------------------------------------------------------------------===//
-// ols_augment_agg / wls_augment_agg (#151)
+// ols_augment_agg / wls_augment_agg and the GLM <family>_augment_agg (#151)
 //
 // Window aggregates over a whole partition that return one STRUCT per input
 // row, in frame order, with the per-observation diagnostics of an OLS / WLS
 // fit (the integration contract's `obs` columns). The fit and every measure
 // come from anofox_regression::diagnostics::augment through
-// anofox_ols_augment / anofox_wls_augment; this file only collects the rows
-// and lays the result out.
+// anofox_ols_augment / anofox_wls_augment, and for the GLMs from
+// anofox_regression::diagnostics::augment_glm through anofox_<family>_augment;
+// this file only collects the rows and lays the result out.
 //
 // A row is used for fitting when y, every feature (and, for WLS, a positive
 // weight) are present; other rows get the prediction as `fitted` and NULL
-// diagnostics.
+// diagnostics. GLM residuals are deviance residuals and `fitted` is on the
+// response scale; a GLM offset is one of the x columns (option 'offset').
 //===--------------------------------------------------------------------===//
 struct AugmentAggState {
     vector<double> y;               // NaN = row is not a training candidate
@@ -42,27 +46,145 @@ struct AugmentAggState {
     AugmentAggState() : n_features(0), initialized(false) {}
 };
 
+enum class AugmentModel : uint8_t { OLS, WLS, POISSON, BINOMIAL, LOGISTIC, NEGBINOM, GAMMA, TWEEDIE };
+
+static const char *AugmentAggName(AugmentModel model) {
+    switch (model) {
+    case AugmentModel::OLS:
+        return "ols_augment_agg";
+    case AugmentModel::WLS:
+        return "wls_augment_agg";
+    case AugmentModel::POISSON:
+        return "poisson_augment_agg";
+    case AugmentModel::BINOMIAL:
+        return "binomial_augment_agg";
+    case AugmentModel::LOGISTIC:
+        return "logistic_augment_agg";
+    case AugmentModel::NEGBINOM:
+        return "negbinom_augment_agg";
+    case AugmentModel::GAMMA:
+        return "gamma_augment_agg";
+    case AugmentModel::TWEEDIE:
+        return "tweedie_augment_agg";
+    }
+    return "augment_agg";
+}
+
 struct AugmentAggBindData : public FunctionData {
+    AugmentModel model = AugmentModel::OLS;
     bool weighted = false;
     bool fit_intercept = true;
     SolverType solver = SolverType::SVD;
     NullPolicy null_policy = NullPolicy::DROP;
+    // GLM settings, with the defaults of the matching <family>_fit_agg.
+    GlmPriorBindData prior_opts;
+    PoissonLink poisson_link = PoissonLink::LOG;
+    BinomialLink binomial_link = BinomialLink::LOGIT;
+    double power = 1.5;                                     // Tweedie
+    double theta = std::numeric_limits<double>::quiet_NaN(); // Negative Binomial; NaN = estimate
+    uint32_t max_iterations = 100;
+    double tolerance = 1e-8;
+    double glm_lambda = 0.0;
+    idx_t offset_column = 0; // 1-based index into x; 0 = none
 
     unique_ptr<FunctionData> Copy() const override {
-        auto result = make_uniq<AugmentAggBindData>();
-        result->weighted = weighted;
-        result->fit_intercept = fit_intercept;
-        result->solver = solver;
-        result->null_policy = null_policy;
-        return std::move(result);
+        return make_uniq<AugmentAggBindData>(*this);
     }
 
     bool Equals(const FunctionData &other_p) const override {
         auto &other = other_p.Cast<AugmentAggBindData>();
-        return weighted == other.weighted && fit_intercept == other.fit_intercept && solver == other.solver &&
-               null_policy == other.null_policy;
+        auto same_double = [](double a, double b) { return a == b || (std::isnan(a) && std::isnan(b)); };
+        return model == other.model && weighted == other.weighted && fit_intercept == other.fit_intercept &&
+               solver == other.solver && null_policy == other.null_policy && prior_opts.Equals(other.prior_opts) &&
+               poisson_link == other.poisson_link && binomial_link == other.binomial_link &&
+               same_double(power, other.power) && same_double(theta, other.theta) &&
+               max_iterations == other.max_iterations && same_double(tolerance, other.tolerance) &&
+               same_double(glm_lambda, other.glm_lambda) && offset_column == other.offset_column;
     }
 };
+
+//! Fill the fields every GLM options struct shares.
+template <typename OPTIONS>
+static void FillGlmOptions(OPTIONS &options, const AugmentAggBindData &bind, const GlmPriorState &priors) {
+    options.fit_intercept = bind.fit_intercept;
+    options.max_iterations = bind.max_iterations;
+    options.tolerance = bind.tolerance;
+    options.compute_inference = false;
+    options.confidence_level = 0.95;
+    options.lambda = bind.glm_lambda;
+    options.offset_column = static_cast<size_t>(bind.offset_column);
+    priors.Apply(options);
+}
+
+static AnofoxPoissonLink ToFfiPoissonLink(PoissonLink link) {
+    switch (link) {
+    case PoissonLink::IDENTITY:
+        return ANOFOX_POISSON_LINK_IDENTITY;
+    case PoissonLink::SQRT:
+        return ANOFOX_POISSON_LINK_SQRT;
+    case PoissonLink::LOG:
+    default:
+        return ANOFOX_POISSON_LINK_LOG;
+    }
+}
+
+static AnofoxBinomialLink ToFfiBinomialLink(BinomialLink link) {
+    switch (link) {
+    case BinomialLink::PROBIT:
+        return ANOFOX_BINOMIAL_LINK_PROBIT;
+    case BinomialLink::CLOGLOG:
+        return ANOFOX_BINOMIAL_LINK_CLOGLOG;
+    case BinomialLink::LOGIT:
+    default:
+        return ANOFOX_BINOMIAL_LINK_LOGIT;
+    }
+}
+
+//! Run the GLM augment of `bind.model`.
+static bool RunGlmAugment(const AugmentAggBindData &bind, idx_t n_features, AnofoxDataArray y_array,
+                          vector<AnofoxDataArray> &x_arrays, AnofoxAugmentResult *aug, AnofoxError *error) {
+    GlmPriorState priors;
+    priors.Materialize(bind.prior_opts, n_features, bind.fit_intercept);
+    switch (bind.model) {
+    case AugmentModel::POISSON: {
+        AnofoxPoissonOptions options {};
+        FillGlmOptions(options, bind, priors);
+        options.link = ToFfiPoissonLink(bind.poisson_link);
+        return anofox_poisson_augment(y_array, x_arrays.data(), x_arrays.size(), options, aug, error);
+    }
+    case AugmentModel::BINOMIAL: {
+        AnofoxBinomialOptions options {};
+        FillGlmOptions(options, bind, priors);
+        options.link = ToFfiBinomialLink(bind.binomial_link);
+        return anofox_binomial_augment(y_array, x_arrays.data(), x_arrays.size(), options, aug, error);
+    }
+    case AugmentModel::LOGISTIC: {
+        AnofoxLogisticOptions options {};
+        FillGlmOptions(options, bind, priors);
+        options.threshold = 0.5;
+        return anofox_logistic_augment(y_array, x_arrays.data(), x_arrays.size(), options, aug, error);
+    }
+    case AugmentModel::NEGBINOM: {
+        AnofoxNegBinomialOptions options {};
+        FillGlmOptions(options, bind, priors);
+        options.alpha = bind.theta;
+        return anofox_negbinomial_augment(y_array, x_arrays.data(), x_arrays.size(), options, aug, error);
+    }
+    case AugmentModel::GAMMA: {
+        AnofoxGammaOptions options {};
+        FillGlmOptions(options, bind, priors);
+        return anofox_gamma_augment(y_array, x_arrays.data(), x_arrays.size(), options, aug, error);
+    }
+    case AugmentModel::TWEEDIE: {
+        AnofoxTweedieOptions options {};
+        FillGlmOptions(options, bind, priors);
+        options.power = bind.power;
+        return anofox_tweedie_augment(y_array, x_arrays.data(), x_arrays.size(), options, aug, error);
+    }
+    default:
+        throw InternalException("RunGlmAugment: not a GLM");
+    }
+}
 
 //! LIST(STRUCT(...)) with the `obs` columns the aggregate owns.
 static LogicalType GetAugmentAggResultType() {
@@ -207,7 +329,7 @@ static inline void WriteDouble(Vector &vec, idx_t idx, double v) {
 static void AugmentAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_data, Vector &result, idx_t count,
                                idx_t offset) {
     auto &bind_data = aggr_input_data.bind_data->Cast<AugmentAggBindData>();
-    const char *fn_name = bind_data.weighted ? "wls_augment_agg" : "ols_augment_agg";
+    const char *fn_name = AugmentAggName(bind_data.model);
 
     UnifiedVectorFormat sdata;
     state_vector.ToUnifiedFormat(count, sdata);
@@ -233,7 +355,7 @@ static void AugmentAggFinalize(Vector &state_vector, AggregateInputData &aggr_in
         }
         vector<AnofoxDataArray> x_arrays;
         for (auto &col : x_cols) {
-            x_arrays.push_back({col.data(), nullptr, col.size()});
+            x_arrays.push_back({col.data(), nullptr, static_cast<size_t>(col.size())});
         }
         AnofoxDataArray y_array {state.y.data(), nullptr, static_cast<size_t>(n_rows)};
 
@@ -241,7 +363,9 @@ static void AugmentAggFinalize(Vector &state_vector, AggregateInputData &aggr_in
         std::memset(&aug, 0, sizeof(aug));
         AnofoxError error;
         bool ok;
-        if (bind_data.weighted) {
+        if (bind_data.model != AugmentModel::OLS && bind_data.model != AugmentModel::WLS) {
+            ok = RunGlmAugment(bind_data, state.n_features, y_array, x_arrays, &aug, &error);
+        } else if (bind_data.weighted) {
             AnofoxDataArray w_array {state.weight.data(), nullptr, static_cast<size_t>(n_rows)};
             AnofoxWlsOptions options;
             options.fit_intercept = bind_data.fit_intercept;
@@ -314,14 +438,32 @@ static void AugmentAggFinalize(Vector &state_vector, AggregateInputData &aggr_in
 }
 
 static unique_ptr<FunctionData> AugmentAggBindImpl(ClientContext &context, AggregateFunction &function,
-                                                   vector<unique_ptr<Expression>> &arguments, bool weighted) {
-    const char *fn_name = weighted ? "wls_augment_agg" : "ols_augment_agg";
+                                                   vector<unique_ptr<Expression>> &arguments, AugmentModel model) {
+    const char *fn_name = AugmentAggName(model);
     auto result = make_uniq<AugmentAggBindData>();
-    result->weighted = weighted;
-    idx_t options_idx = weighted ? 3 : 2;
+    result->model = model;
+    result->weighted = model == AugmentModel::WLS;
+    idx_t options_idx = result->weighted ? 3 : 2;
     if (arguments.size() > options_idx) {
-        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[options_idx], fn_name,
-                                                              {"fit_intercept", "null_policy", "solver"});
+        bool linear = model == AugmentModel::OLS || model == AugmentModel::WLS;
+        // The keys of the matching <family>_fit_agg that change the fit; 'glm_lambda' and 'prior' are accepted
+        // so that a penalized fit is rejected with upstream's error rather than as an unknown key.
+        vector<string> allowed;
+        if (linear) {
+            allowed = {"fit_intercept", "null_policy", "solver"};
+        } else {
+            allowed = {"fit_intercept", "max_iterations", "tolerance", "offset", "glm_lambda", "prior", "feature_names"};
+            if (model == AugmentModel::POISSON) {
+                allowed.push_back("poisson_link");
+            } else if (model == AugmentModel::BINOMIAL) {
+                allowed.push_back("binomial_link");
+            } else if (model == AugmentModel::NEGBINOM) {
+                allowed.push_back("theta");
+            } else if (model == AugmentModel::TWEEDIE) {
+                allowed.push_back("power");
+            }
+        }
+        auto opts = RegressionMapOptions::ParseFromExpression(context, *arguments[options_idx], fn_name, allowed);
         if (opts.fit_intercept.has_value()) {
             result->fit_intercept = opts.fit_intercept.value();
         }
@@ -331,20 +473,43 @@ static unique_ptr<FunctionData> AugmentAggBindImpl(ClientContext &context, Aggre
         if (opts.solver.has_value()) {
             result->solver = opts.solver.value();
         }
+        if (!linear) {
+            result->prior_opts.LoadFrom(opts);
+        }
+        if (opts.poisson_link.has_value()) {
+            result->poisson_link = opts.poisson_link.value();
+        }
+        if (opts.binomial_link.has_value()) {
+            result->binomial_link = opts.binomial_link.value();
+        }
+        if (opts.tweedie_power.has_value()) {
+            result->power = opts.tweedie_power.value();
+        }
+        if (opts.nb_theta.has_value()) {
+            result->theta = opts.nb_theta.value();
+        }
+        if (opts.max_iterations.has_value()) {
+            result->max_iterations = opts.max_iterations.value();
+        }
+        if (opts.tolerance.has_value()) {
+            result->tolerance = opts.tolerance.value();
+        }
+        if (opts.glm_lambda.has_value()) {
+            result->glm_lambda = opts.glm_lambda.value();
+        }
+        if (opts.offset_column.has_value()) {
+            result->offset_column = opts.offset_column.value();
+        }
     }
     function.return_type = GetAugmentAggResultType();
     PostHogTelemetry::Instance().RecordFunctionCall(fn_name);
     return std::move(result);
 }
 
-static unique_ptr<FunctionData> OlsAugmentAggBind(ClientContext &context, AggregateFunction &function,
-                                                  vector<unique_ptr<Expression>> &arguments) {
-    return AugmentAggBindImpl(context, function, arguments, false);
-}
-
-static unique_ptr<FunctionData> WlsAugmentAggBind(ClientContext &context, AggregateFunction &function,
-                                                  vector<unique_ptr<Expression>> &arguments) {
-    return AugmentAggBindImpl(context, function, arguments, true);
+template <AugmentModel MODEL>
+static unique_ptr<FunctionData> AugmentAggBind(ClientContext &context, AggregateFunction &function,
+                                               vector<unique_ptr<Expression>> &arguments) {
+    return AugmentAggBindImpl(context, function, arguments, MODEL);
 }
 
 static AggregateFunction MakeAugmentAgg(const string &name, vector<LogicalType> args, bind_aggregate_function_t bind) {
@@ -373,9 +538,9 @@ void RegisterAugmentAggregateFunctions(ExtensionLoader &loader) {
     // ols_augment_agg(y, x [, options])
     {
         AggregateFunctionSet set("ols_augment_agg");
-        set.AddFunction(MakeAugmentAgg("ols_augment_agg", {LogicalType::DOUBLE, list_double}, OlsAugmentAggBind));
+        set.AddFunction(MakeAugmentAgg("ols_augment_agg", {LogicalType::DOUBLE, list_double}, AugmentAggBind<AugmentModel::OLS>));
         set.AddFunction(MakeAugmentAgg("ols_augment_agg", {LogicalType::DOUBLE, list_double, LogicalType::ANY},
-                                       OlsAugmentAggBind));
+                                       AugmentAggBind<AugmentModel::OLS>));
         CreateAggregateFunctionInfo info(std::move(set));
         info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
         const string desc = "Fits OLS over a partition (rows with y and every feature present) and returns one STRUCT "
@@ -394,10 +559,10 @@ void RegisterAugmentAggregateFunctions(ExtensionLoader &loader) {
     {
         AggregateFunctionSet set("wls_augment_agg");
         set.AddFunction(MakeAugmentAgg("wls_augment_agg", {LogicalType::DOUBLE, list_double, LogicalType::DOUBLE},
-                                       WlsAugmentAggBind));
+                                       AugmentAggBind<AugmentModel::WLS>));
         set.AddFunction(MakeAugmentAgg("wls_augment_agg",
                                        {LogicalType::DOUBLE, list_double, LogicalType::DOUBLE, LogicalType::ANY},
-                                       WlsAugmentAggBind));
+                                       AugmentAggBind<AugmentModel::WLS>));
         CreateAggregateFunctionInfo info(std::move(set));
         info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
         const string desc = "Fits WLS over a partition (rows with y, every feature and a positive weight) and returns "
@@ -409,6 +574,61 @@ void RegisterAugmentAggregateFunctions(ExtensionLoader &loader) {
         info.descriptions.push_back(AugmentDescription(
             desc, "wls_augment_agg(y, [x1, x2], w, {'fit_intercept': true}) OVER ()", {"y", "x", "weight", "options"},
             {LogicalType::DOUBLE, list_double, LogicalType::DOUBLE, LogicalType::ANY}));
+        loader.RegisterFunction(std::move(info));
+    }
+    // <family>_augment_agg(y, x [, options]) for the six GLMs
+    struct GlmAugmentAgg {
+        AugmentModel model;
+        const char *label;
+        const char *option_example;
+    };
+    const GlmAugmentAgg glms[] = {
+        {AugmentModel::POISSON, "a Poisson GLM", "{'poisson_link': 'log'}"},
+        {AugmentModel::BINOMIAL, "a Binomial GLM", "{'binomial_link': 'logit'}"},
+        {AugmentModel::LOGISTIC, "a logistic regression", "{'fit_intercept': true}"},
+        {AugmentModel::NEGBINOM, "a Negative Binomial GLM", "{'theta': 2.0}"},
+        {AugmentModel::GAMMA, "a Gamma GLM (log link)", "{'fit_intercept': true}"},
+        {AugmentModel::TWEEDIE, "a Tweedie GLM (log link)", "{'power': 1.5}"},
+    };
+    for (auto &glm : glms) {
+        string name = AugmentAggName(glm.model);
+        bind_aggregate_function_t bind = nullptr;
+        switch (glm.model) {
+        case AugmentModel::POISSON:
+            bind = AugmentAggBind<AugmentModel::POISSON>;
+            break;
+        case AugmentModel::BINOMIAL:
+            bind = AugmentAggBind<AugmentModel::BINOMIAL>;
+            break;
+        case AugmentModel::LOGISTIC:
+            bind = AugmentAggBind<AugmentModel::LOGISTIC>;
+            break;
+        case AugmentModel::NEGBINOM:
+            bind = AugmentAggBind<AugmentModel::NEGBINOM>;
+            break;
+        case AugmentModel::GAMMA:
+            bind = AugmentAggBind<AugmentModel::GAMMA>;
+            break;
+        default:
+            bind = AugmentAggBind<AugmentModel::TWEEDIE>;
+            break;
+        }
+        AggregateFunctionSet set(name);
+        set.AddFunction(MakeAugmentAgg(name, {LogicalType::DOUBLE, list_double}, bind));
+        set.AddFunction(MakeAugmentAgg(name, {LogicalType::DOUBLE, list_double, LogicalType::ANY}, bind));
+        CreateAggregateFunctionInfo info(std::move(set));
+        info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
+        const string desc = "Fits " + string(glm.label) +
+                            " over a partition (rows with y and every feature present) and returns one STRUCT per "
+                            "row, in frame order, with fitted (response scale), residual (deviance), resid_type, "
+                            "std_residual, stud_residual, leverage, cooks_d, dffits, weight, is_training and n_params "
+                            "(broom augment). Penalized fits (glm_lambda > 0 or a prior) are rejected.";
+        info.descriptions.push_back(AugmentDescription(desc, name + "(y, [x1, x2]) OVER (PARTITION BY g)",
+                                                       {"y", "x"}, {LogicalType::DOUBLE, list_double}));
+        info.descriptions.push_back(AugmentDescription(desc,
+                                                       name + "(y, [x1, x2], " + glm.option_example + ") OVER ()",
+                                                       {"y", "x", "options"},
+                                                       {LogicalType::DOUBLE, list_double, LogicalType::ANY}));
         loader.RegisterFunction(std::move(info));
     }
 }

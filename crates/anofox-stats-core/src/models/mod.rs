@@ -28,7 +28,10 @@ mod wls;
 pub use aft::{fit_aft, AftDistribution, AftFitResult, AftInference, AftOptions, AftResult};
 pub use aid::{compute_aid, compute_aid_anomalies};
 pub use alm::{fit_alm, AlmInferenceResult, AlmResult};
-pub use augment::{augment_ols, augment_wls, AugmentResult};
+pub use augment::{
+    augment_binomial, augment_gamma, augment_logistic, augment_negbinomial, augment_ols,
+    augment_poisson, augment_tweedie, augment_wls, AugmentResult,
+};
 pub use bls::{fit_bls, fit_nnls};
 pub use eb_shrink::{eb_shrink, EbShrinkOptions, EbShrinkResult, ShrunkenGroup, TauMethod};
 pub use elasticnet::fit_elasticnet;

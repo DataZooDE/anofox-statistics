@@ -55,11 +55,162 @@ weight	DOUBLE
 is_training	BOOLEAN
 n_params	INTEGER
 
-# Both macros are tagged as obs producers of contract version 1
+# The GLM macros return the same obs columns
+statement ok
+CREATE TABLE dg AS SELECT range::DOUBLE AS x1, (range % 7)::DOUBLE AS x2, (range % 5)::DOUBLE AS yc,
+    ((range * 7) % 5 < 2)::INTEGER::DOUBLE AS yb, (1.0 + (range % 4) + 0.1 * range)::DOUBLE AS yp,
+    (range % 2)::VARCHAR AS g
+FROM range(40);
+
+query II
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM poisson_augment_by('dg', g, yc, [x1, x2]))
+----
+x1	DOUBLE
+x2	DOUBLE
+yc	DOUBLE
+yb	DOUBLE
+yp	DOUBLE
+g	VARCHAR
+model_id	VARCHAR
+row_id	BIGINT
+fitted	DOUBLE
+residual	DOUBLE
+resid_type	VARCHAR
+std_residual	DOUBLE
+stud_residual	DOUBLE
+leverage	DOUBLE
+cooks_d	DOUBLE
+dffits	DOUBLE
+weight	DOUBLE
+is_training	BOOLEAN
+n_params	INTEGER
+
+query II
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM binomial_augment_by('dg', g, yb, [x1, x2]))
+----
+x1	DOUBLE
+x2	DOUBLE
+yc	DOUBLE
+yb	DOUBLE
+yp	DOUBLE
+g	VARCHAR
+model_id	VARCHAR
+row_id	BIGINT
+fitted	DOUBLE
+residual	DOUBLE
+resid_type	VARCHAR
+std_residual	DOUBLE
+stud_residual	DOUBLE
+leverage	DOUBLE
+cooks_d	DOUBLE
+dffits	DOUBLE
+weight	DOUBLE
+is_training	BOOLEAN
+n_params	INTEGER
+
+query II
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM logistic_augment_by('dg', g, yb, [x1, x2]))
+----
+x1	DOUBLE
+x2	DOUBLE
+yc	DOUBLE
+yb	DOUBLE
+yp	DOUBLE
+g	VARCHAR
+model_id	VARCHAR
+row_id	BIGINT
+fitted	DOUBLE
+residual	DOUBLE
+resid_type	VARCHAR
+std_residual	DOUBLE
+stud_residual	DOUBLE
+leverage	DOUBLE
+cooks_d	DOUBLE
+dffits	DOUBLE
+weight	DOUBLE
+is_training	BOOLEAN
+n_params	INTEGER
+
+query II
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM negbinom_augment_by('dg', g, yc, [x1, x2]))
+----
+x1	DOUBLE
+x2	DOUBLE
+yc	DOUBLE
+yb	DOUBLE
+yp	DOUBLE
+g	VARCHAR
+model_id	VARCHAR
+row_id	BIGINT
+fitted	DOUBLE
+residual	DOUBLE
+resid_type	VARCHAR
+std_residual	DOUBLE
+stud_residual	DOUBLE
+leverage	DOUBLE
+cooks_d	DOUBLE
+dffits	DOUBLE
+weight	DOUBLE
+is_training	BOOLEAN
+n_params	INTEGER
+
+query II
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM gamma_augment_by('dg', g, yp, [x1, x2]))
+----
+x1	DOUBLE
+x2	DOUBLE
+yc	DOUBLE
+yb	DOUBLE
+yp	DOUBLE
+g	VARCHAR
+model_id	VARCHAR
+row_id	BIGINT
+fitted	DOUBLE
+residual	DOUBLE
+resid_type	VARCHAR
+std_residual	DOUBLE
+stud_residual	DOUBLE
+leverage	DOUBLE
+cooks_d	DOUBLE
+dffits	DOUBLE
+weight	DOUBLE
+is_training	BOOLEAN
+n_params	INTEGER
+
+query II
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM tweedie_augment_by('dg', g, yp, [x1, x2], {'power': 1.5}))
+----
+x1	DOUBLE
+x2	DOUBLE
+yc	DOUBLE
+yb	DOUBLE
+yp	DOUBLE
+g	VARCHAR
+model_id	VARCHAR
+row_id	BIGINT
+fitted	DOUBLE
+residual	DOUBLE
+resid_type	VARCHAR
+std_residual	DOUBLE
+stud_residual	DOUBLE
+leverage	DOUBLE
+cooks_d	DOUBLE
+dffits	DOUBLE
+weight	DOUBLE
+is_training	BOOLEAN
+n_params	INTEGER
+
+# All eight macros are tagged as obs producers of contract version 1
 query III
 SELECT DISTINCT function_name, tags['anofox.output'], tags['anofox.contract'] FROM duckdb_functions()
 WHERE function_name LIKE '%\_augment\_by' ESCAPE '\'
 ORDER BY function_name
 ----
+binomial_augment_by	obs	1
+gamma_augment_by	obs	1
+logistic_augment_by	obs	1
+negbinom_augment_by	obs	1
 ols_augment_by	obs	1
+poisson_augment_by	obs	1
+tweedie_augment_by	obs	1
 wls_augment_by	obs	1
