@@ -6,6 +6,7 @@
 #include "duckdb/main/extension/extension_loader.hpp"
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
+#include "../include/test_struct.hpp"
 #include "../include/anofox_stats_ffi.h"
 #include "../include/error_dispatch.hpp"
 #include "../include/map_options_parser.hpp"
@@ -48,6 +49,7 @@ static LogicalType GetMcNemarAggResultType() {
     children.push_back(make_pair("n", LogicalType::BIGINT));
     children.push_back(make_pair("alternative", LogicalType::VARCHAR));
 
+    AppendTestResultFields(children);
     return LogicalType::STRUCT(std::move(children));
 }
 
@@ -200,7 +202,8 @@ static void McNemarAggFinalize(Vector &state_vector, AggregateInputData &aggr_in
         FlatVector::GetData<string_t>(method_vector)[result_idx] =
             StringVector::AddString(method_vector, mcnemar_result.method ? mcnemar_result.method : "McNemar's test");
         FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = static_cast<int64_t>(a + b + c + d);
-        SetResultNull(*struct_entries[struct_idx++], result_idx); // alternative: chi-square test
+        SetResultNull(*struct_entries[struct_idx++], result_idx);
+        WriteTestResultFields(result, result_idx, struct_idx, mcnemar_result.unified); // alternative: chi-square test
 
         anofox_free_chisq_result(&mcnemar_result);
         state.Reset();

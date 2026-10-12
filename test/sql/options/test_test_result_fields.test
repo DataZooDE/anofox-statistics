@@ -259,26 +259,27 @@ FROM (SELECT clark_west_agg(actual, f1, f2) AS r FROM fc);
 ----
 DOUBLE	DOUBLE	BIGINT	VARCHAR	VARCHAR	80	greater	true
 
-# Existing fields keep their position; new fields are appended at the end.
+# Existing fields keep their position; new fields are appended at the end
+# (the unified test fields of #159 last).
 query T
 SELECT typeof(cohen_kappa_agg(r1, r2)) FROM kp;
 ----
-STRUCT(kappa DOUBLE, se DOUBLE, ci_lower DOUBLE, ci_upper DOUBLE, z DOUBLE, p_value DOUBLE, statistic DOUBLE, n BIGINT, "method" VARCHAR, alternative VARCHAR)
+STRUCT(kappa DOUBLE, se DOUBLE, ci_lower DOUBLE, ci_upper DOUBLE, z DOUBLE, p_value DOUBLE, statistic DOUBLE, n BIGINT, "method" VARCHAR, alternative VARCHAR, df1 DOUBLE, df2 DOUBLE, estimate DOUBLE, conf_low DOUBLE, conf_high DOUBLE, conf_level DOUBLE, effect_size DOUBLE, effect_name VARCHAR)
 
 query T
 SELECT typeof(icc_agg(rating, subject, rater)) FROM rt;
 ----
-STRUCT(icc DOUBLE, f_statistic DOUBLE, ci_lower DOUBLE, ci_upper DOUBLE, n_subjects BIGINT, n_raters BIGINT, "method" VARCHAR, statistic DOUBLE, p_value DOUBLE, n BIGINT, alternative VARCHAR)
+STRUCT(icc DOUBLE, f_statistic DOUBLE, ci_lower DOUBLE, ci_upper DOUBLE, n_subjects BIGINT, n_raters BIGINT, "method" VARCHAR, statistic DOUBLE, p_value DOUBLE, n BIGINT, alternative VARCHAR, df1 DOUBLE, df2 DOUBLE, estimate DOUBLE, conf_low DOUBLE, conf_high DOUBLE, conf_level DOUBLE, effect_size DOUBLE, effect_name VARCHAR)
 
 query T
 SELECT typeof(t_test_agg(v, g)) FROM tg;
 ----
-STRUCT(statistic DOUBLE, p_value DOUBLE, df DOUBLE, effect_size DOUBLE, ci_lower DOUBLE, ci_upper DOUBLE, n1 BIGINT, n2 BIGINT, "method" VARCHAR, n BIGINT, alternative VARCHAR)
+STRUCT(statistic DOUBLE, p_value DOUBLE, df DOUBLE, effect_size DOUBLE, ci_lower DOUBLE, ci_upper DOUBLE, n1 BIGINT, n2 BIGINT, "method" VARCHAR, n BIGINT, alternative VARCHAR, df1 DOUBLE, df2 DOUBLE, estimate DOUBLE, conf_low DOUBLE, conf_high DOUBLE, conf_level DOUBLE, effect_name VARCHAR)
 
 query T
 SELECT typeof(jarque_bera([1.0, 2.0, 3.5, 4.0, 7.0, 2.2, 3.1, 0.4]));
 ----
-STRUCT(statistic DOUBLE, p_value DOUBLE, skewness DOUBLE, kurtosis DOUBLE, n BIGINT, "method" VARCHAR, alternative VARCHAR)
+STRUCT(statistic DOUBLE, p_value DOUBLE, skewness DOUBLE, kurtosis DOUBLE, n BIGINT, "method" VARCHAR, alternative VARCHAR, df1 DOUBLE, df2 DOUBLE, estimate DOUBLE, conf_low DOUBLE, conf_high DOUBLE, conf_level DOUBLE, effect_size DOUBLE, effect_name VARCHAR)
 
 # The statistic of cohen_kappa_agg is its z, of icc_agg its F.
 query II

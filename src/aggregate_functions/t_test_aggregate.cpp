@@ -6,6 +6,7 @@
 #include "duckdb/main/extension/extension_loader.hpp"
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
+#include "../include/test_struct.hpp"
 #include "../include/anofox_stats_ffi.h"
 #include "../include/ffi_enum_converters.hpp"
 #include "../include/result_fields.hpp"
@@ -51,6 +52,7 @@ static LogicalType GetTTestAggResultType() {
     children.push_back(make_pair("n", LogicalType::BIGINT));
     children.push_back(make_pair("alternative", LogicalType::VARCHAR));
 
+    AppendTestResultFields(children);
     return LogicalType::STRUCT(std::move(children));
 }
 
@@ -223,6 +225,7 @@ static void TTestAggFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
             StringVector::AddString(method_vector, test_result.method ? test_result.method : "t-test");
         FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = static_cast<int64_t>(test_result.n1 + test_result.n2);
         SetResultString(*struct_entries[struct_idx++], result_idx, AlternativeName(options.alternative));
+        WriteTestResultFields(result, result_idx, struct_idx, test_result.unified);
 
         anofox_free_test_result(&test_result);
         state.Reset();

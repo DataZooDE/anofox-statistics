@@ -83,6 +83,9 @@ pub fn permutation_t_test(
             "Permutation t-test ({} permutations)",
             options.n_permutations
         ),
+        unified: super::UnifiedTestResult::from(&result)
+            .with_alternative(options.alternative)
+            .with_n(g1.len() + g2.len()),
     })
 }
 

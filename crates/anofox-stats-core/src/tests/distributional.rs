@@ -42,6 +42,7 @@ pub fn shapiro_wilk(data: &[f64]) -> StatsResult<TestResult> {
         n2: 0,
         alternative: Alternative::TwoSided,
         method: "Shapiro-Wilk test".into(),
+        unified: super::UnifiedTestResult::from(&result).with_n(filtered.len()),
     })
 }
 
@@ -72,6 +73,7 @@ pub fn dagostino_k_squared(data: &[f64]) -> StatsResult<TestResult> {
         n2: 0,
         alternative: Alternative::TwoSided,
         method: "D'Agostino K-squared test".into(),
+        unified: super::UnifiedTestResult::from(&result).with_n(filtered.len()),
     })
 }
 

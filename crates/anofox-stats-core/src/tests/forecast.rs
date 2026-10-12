@@ -137,6 +137,7 @@ pub fn diebold_mariano(
         n2: 0,
         alternative: options.alternative,
         method: "Diebold-Mariano test".into(),
+        unified: super::UnifiedTestResult::from(&result).with_n(valid.len()),
     })
 }
 
@@ -195,6 +196,7 @@ pub fn clark_west(
         n2: 0,
         alternative: Alternative::Greater,
         method: "Clark-West test".into(),
+        unified: super::UnifiedTestResult::from(&result).with_n(valid.len()),
     })
 }
 

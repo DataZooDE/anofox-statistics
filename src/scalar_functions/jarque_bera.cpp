@@ -7,6 +7,7 @@
 #include "duckdb/main/extension/extension_loader.hpp"
 #include "duckdb/parser/parsed_data/create_scalar_function_info.hpp"
 
+#include "../include/test_struct.hpp"
 #include "../include/anofox_stats_ffi.h"
 #include "../include/result_fields.hpp"
 #include "../include/error_dispatch.hpp"
@@ -26,6 +27,7 @@ static LogicalType GetJarqueBeraResultType() {
     children.push_back(make_pair("method", LogicalType::VARCHAR));
     children.push_back(make_pair("alternative", LogicalType::VARCHAR));
 
+    AppendTestResultFields(children);
     return LogicalType::STRUCT(std::move(children));
 }
 
@@ -111,6 +113,7 @@ static void JarqueBeraFunctionImpl(DataChunk &args, ExpressionState &state, Vect
         FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[row] = jb_result.n;
         SetResultString(*struct_entries[struct_idx++], row, "Jarque-Bera test");
         SetResultNull(*struct_entries[struct_idx++], row); // alternative: not applicable
+        WriteTestResultFields(result, row, struct_idx, jb_result.unified);
     }
 }
 

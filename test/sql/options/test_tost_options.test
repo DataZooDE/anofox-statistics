@@ -30,17 +30,26 @@ FROM tg;
 ----
 true
 
+# conf_level (#159, from upstream: 1 - 2 * alpha) can differ in the last bit between
+# alpha := 1 - confidence_level and the default alpha, so compare the other fields.
 query I
 SELECT tost_paired_agg(x, y, {'alpha': 0.1}) = tost_paired_agg(x, y, {'confidence_level': 0.9})
-   AND tost_paired_agg(x, y, {'confidence_level': 0.95}) = tost_paired_agg(x, y)
+   AND (tost_paired_agg(x, y, {'confidence_level': 0.95})).ci_lower = (tost_paired_agg(x, y)).ci_lower
+   AND (tost_paired_agg(x, y, {'confidence_level': 0.95})).ci_upper = (tost_paired_agg(x, y)).ci_upper
+   AND (tost_paired_agg(x, y, {'confidence_level': 0.95})).p_value = (tost_paired_agg(x, y)).p_value
+   AND abs((tost_paired_agg(x, y, {'confidence_level': 0.95})).conf_level - (tost_paired_agg(x, y)).conf_level) < 1e-12
    AND (tost_paired_agg(x, y, {'confidence_level': 0.9})).ci_lower != (tost_paired_agg(x, y)).ci_lower
 FROM pr;
 ----
 true
 
+# conf_level: see tost_paired_agg above.
 query I
 SELECT tost_correlation_agg(x, y, {'alpha': 0.1}) = tost_correlation_agg(x, y, {'confidence_level': 0.9})
-   AND tost_correlation_agg(x, y, {'confidence_level': 0.95}) = tost_correlation_agg(x, y)
+   AND (tost_correlation_agg(x, y, {'confidence_level': 0.95})).ci_lower = (tost_correlation_agg(x, y)).ci_lower
+   AND (tost_correlation_agg(x, y, {'confidence_level': 0.95})).ci_upper = (tost_correlation_agg(x, y)).ci_upper
+   AND (tost_correlation_agg(x, y, {'confidence_level': 0.95})).p_value = (tost_correlation_agg(x, y)).p_value
+   AND abs((tost_correlation_agg(x, y, {'confidence_level': 0.95})).conf_level - (tost_correlation_agg(x, y)).conf_level) < 1e-12
 FROM pr;
 ----
 true

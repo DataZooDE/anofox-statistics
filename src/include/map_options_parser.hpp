@@ -340,6 +340,21 @@ struct TTestMapOptions {
 };
 
 /**
+ * Options for the pairwise post-hoc tests (pairwise_t_test_agg, tukey_hsd_agg,
+ * dunn_test_agg). p_adjust is passed through to the upstream parser.
+ */
+struct PosthocMapOptions {
+	std::optional<string> p_adjust;
+	std::optional<bool> pool_sd;
+	std::optional<Alternative> alternative;
+	std::optional<double> confidence_level;
+
+	//! `allow_*` select which keys the calling function accepts.
+	static PosthocMapOptions ParseFromValue(const Value &map_value, const string &function_name, bool allow_p_adjust,
+	                                        bool allow_t_options, bool allow_confidence);
+};
+
+/**
  * Options for Mann-Whitney U test
  */
 struct MannWhitneyMapOptions {

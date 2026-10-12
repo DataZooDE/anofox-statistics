@@ -6,6 +6,7 @@
 #include "duckdb/main/extension/extension_loader.hpp"
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
+#include "../include/test_struct.hpp"
 #include "../include/anofox_stats_ffi.h"
 #include "../include/result_fields.hpp"
 #include "../include/error_dispatch.hpp"
@@ -51,6 +52,7 @@ static LogicalType GetTostPairedAggResultType() {
     children.push_back(make_pair("statistic", LogicalType::DOUBLE));
     children.push_back(make_pair("alternative", LogicalType::VARCHAR));
 
+    AppendTestResultFields(children);
     return LogicalType::STRUCT(std::move(children));
 }
 
@@ -219,7 +221,8 @@ static void TostPairedAggFinalize(Vector &state_vector, AggregateInputData &aggr
             StringVector::AddString(method_vector, tost_result.method ? tost_result.method : "TOST paired t-test");
         // statistic of the one-sided test that determines the TOST p-value
         FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = tost_result.p_lower >= tost_result.p_upper ? tost_result.t_lower : tost_result.t_upper;
-        SetResultNull(*struct_entries[struct_idx++], result_idx); // alternative: not applicable
+        SetResultNull(*struct_entries[struct_idx++], result_idx);
+        WriteTestResultFields(result, result_idx, struct_idx, tost_result.unified); // alternative: not applicable
 
         anofox_free_tost_result(&tost_result);
         state.Reset();

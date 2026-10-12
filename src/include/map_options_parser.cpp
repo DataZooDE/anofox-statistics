@@ -1191,6 +1191,36 @@ TTestMapOptions TTestMapOptions::ParseFromValue(const Value &map_value, const st
 	                                         });
 }
 
+PosthocMapOptions PosthocMapOptions::ParseFromValue(const Value &map_value, const string &function_name,
+                                                    bool allow_p_adjust, bool allow_t_options, bool allow_confidence) {
+	vector<OptionKeyDef> keys;
+	if (allow_p_adjust) {
+		keys.push_back({"p_adjust", {"p_adjust_method", "p.adjust.method"}});
+	}
+	if (allow_t_options) {
+		keys.push_back({"pool_sd", {"pooled_sd", "pool.sd"}});
+		keys.push_back(KEY_ALTERNATIVE);
+	}
+	if (allow_confidence) {
+		keys.push_back({"confidence_level", {"confidence", "conf_level", "conf.level"}});
+	}
+	return ParseTestOptions<PosthocMapOptions>(map_value, function_name, keys,
+	                                           [](PosthocMapOptions &result, const string &key, const Value &val) {
+		                                           if (val.IsNull()) {
+			                                           return;
+		                                           }
+		                                           if (key == "p_adjust") {
+			                                           result.p_adjust = val.ToString();
+		                                           } else if (key == "pool_sd") {
+			                                           result.pool_sd = ExtractBool(val);
+		                                           } else if (key == "alternative") {
+			                                           result.alternative = ExtractAlternative(val);
+		                                           } else if (key == "confidence_level") {
+			                                           result.confidence_level = ExtractConfidenceLevel(val);
+		                                           }
+	                                           });
+}
+
 MannWhitneyMapOptions MannWhitneyMapOptions::ParseFromValue(const Value &map_value, const string &function_name) {
 	static const vector<OptionKeyDef> keys = {
 	    KEY_ALTERNATIVE, KEY_CONFIDENCE, {"continuity_correction", {"correction"}}, {"exact", {}}, {"mu", {}}};

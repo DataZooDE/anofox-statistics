@@ -12,6 +12,32 @@ Breaking changes are called out explicitly.
 
 ### Added
 
+- Unified hypothesis-test results (#159): every test aggregate (`t_test_agg`,
+  `yuen_agg`, `mann_whitney_u_agg`, `wilcoxon_signed_rank_agg`, `brunner_munzel_agg`,
+  `permutation_t_test_agg`, `kruskal_wallis_agg`, `one_way_anova_agg`,
+  `brown_forsythe_agg`, `shapiro_wilk_agg`, `jarque_bera_agg` (and the scalar
+  `jarque_bera`), `dagostino_k2_agg`, `energy_distance_agg`, `mmd_agg`, `pearson_agg`,
+  `spearman_agg`, `kendall_agg`, `distance_cor_agg`, `icc_agg`, `chisq_test_agg`,
+  `chisq_gof_agg`, `g_test_agg`, `fisher_exact_agg`, `mcnemar_agg`, `cohen_kappa_agg`,
+  `prop_test_one_agg`, `prop_test_two_agg`, `binom_test_agg`, `tost_t_test_agg`,
+  `tost_paired_agg`, `tost_correlation_agg`, `diebold_mariano_agg`, `clark_west_agg`)
+  now returns the integration contract's `test` fields `method, alternative,
+  statistic, df1, df2, p_value, estimate, conf_low, conf_high, conf_level,
+  effect_size, effect_name, n`, always present and NULL when not applicable, taken
+  from upstream `TestResult`. The fields a test lacked are appended after its
+  existing ones. Validated against R `t.test`, `wilcox.test`, `kruskal.test`,
+  `oneway.test`, `chisq.test`, `fisher.test` and `cor.test`. Requires
+  anofox-statistics 0.4.7.
+- Pairwise post-hoc tests (#159): `pairwise_t_test_agg` (R `pairwise.t.test`, with
+  `p_adjust` holm/hochberg/hommel/bonferroni/BH/BY/none, `pool_sd`, `alternative`),
+  `tukey_hsd_agg` (R `TukeyHSD`) and `dunn_test_agg` (`FSA::dunnTest`), returning one
+  `{group1, group2, estimate, statistic, p_value, p_adj, conf_low, conf_high, method,
+  ...}` per pair, and the table macros `pairwise_t_test_by`, `tukey_hsd_by`,
+  `dunn_test_by` emitting the long `test` schema. Validated against R
+  `pairwise.t.test` (none, holm, bonferroni, BH; pooled and Welch) and `TukeyHSD`.
+- All hypothesis-test aggregates and the post-hoc aggregates and macros are tagged
+  `anofox.output = 'test'` in `duckdb_functions()`.
+
 - Stable model outputs for every fit (#152): the linear and robust fits (`ols`, `wls`,
   `ridge`, `elasticnet`, `lars`, `rls`, `huber`, `ransac`, `theil_sen`, aggregate and
   scalar), the GLMs (`poisson`, `binomial`, `logistic`, `negbinom`, `gamma`, `tweedie`),
@@ -111,6 +137,11 @@ Breaking changes are called out explicitly.
   gain `method`.
 
 ### Changed
+
+- Hypothesis-test result structs gain the unified `test` fields (#159) after their
+  existing fields; existing field names, positions and values are unchanged. Code that
+  compares whole result structs with `=` now also compares the new fields (for TOST,
+  `conf_level` is `1 - 2 * alpha` as computed upstream).
 
 - **Model structs have a stable shape (#152).** The coefficient inference fields
   (`std_errors`, `t_values`, `p_values`, `ci_lower`, `ci_upper`, `f_statistic`,
@@ -293,6 +324,11 @@ Breaking changes are called out explicitly.
   estimators (ridge, elastic net, ...) are unchanged.
 
 ### Deprecated
+
+- Hypothesis-test fields superseded by the unified `test` fields (#159): `ci_lower` /
+  `ci_upper` (use `conf_low` / `conf_high`), `df` (use `df1`), and in
+  `one_way_anova_agg` `f_statistic` (use `statistic`), `df_between` / `df_within` (use
+  `df1` / `df2`). The aliases are removed in the next minor release.
 
 - `ci_lower` / `ci_upper` in the model structs: use `conf_low` / `conf_high`. The aliases are removed in the next minor release.
 

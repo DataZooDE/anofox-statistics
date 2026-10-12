@@ -2141,6 +2141,8 @@ pub struct JarqueBeraResultFFI {
     pub kurtosis: f64,
     /// Number of observations
     pub n: usize,
+    /// Unified test fields (#159); keep last
+    pub unified: TestSummaryFFI,
 }
 
 impl Default for JarqueBeraResultFFI {
@@ -2151,6 +2153,7 @@ impl Default for JarqueBeraResultFFI {
             skewness: f64::NAN,
             kurtosis: f64::NAN,
             n: 0,
+            unified: TestSummaryFFI::default(),
         }
     }
 }
@@ -2189,6 +2192,9 @@ pub unsafe extern "C" fn anofox_jarque_bera(
                     skewness: result.skewness,
                     kurtosis: result.kurtosis,
                     n: result.n,
+                    unified: TestSummaryFFI::from(
+                        &anofox_stats_core::tests::UnifiedTestResult::from(&result),
+                    ),
                 };
                 true
             }
@@ -4783,6 +4789,7 @@ pub unsafe extern "C" fn anofox_t_test(
                     n2: r.n2,
                     alternative: r.alternative.into(),
                     method: alloc_string(&r.method),
+                    unified: TestSummaryFFI::from(&r.unified),
                 };
                 true
             }
@@ -4850,6 +4857,7 @@ pub unsafe extern "C" fn anofox_shapiro_wilk(
                     n2: r.n2,
                     alternative: r.alternative.into(),
                     method: alloc_string(&r.method),
+                    unified: TestSummaryFFI::from(&r.unified),
                 };
                 true
             }
@@ -4918,6 +4926,7 @@ pub unsafe extern "C" fn anofox_dagostino_k2(
                     n2: r.n2,
                     alternative: r.alternative.into(),
                     method: alloc_string(&r.method),
+                    unified: TestSummaryFFI::from(&r.unified),
                 };
                 true
             }
@@ -4992,6 +5001,7 @@ pub unsafe extern "C" fn anofox_pearson_cor(
                     confidence_level: r.confidence_level,
                     n: r.n,
                     method: alloc_string(&r.method),
+                    unified: TestSummaryFFI::from(&r.unified),
                 };
                 true
             }
@@ -5066,6 +5076,7 @@ pub unsafe extern "C" fn anofox_spearman_cor(
                     confidence_level: r.confidence_level,
                     n: r.n,
                     method: alloc_string(&r.method),
+                    unified: TestSummaryFFI::from(&r.unified),
                 };
                 true
             }
@@ -5141,6 +5152,7 @@ pub unsafe extern "C" fn anofox_kendall_cor(
                     confidence_level: r.confidence_level,
                     n: r.n,
                     method: alloc_string(&r.method),
+                    unified: TestSummaryFFI::from(&r.unified),
                 };
                 true
             }
@@ -5231,6 +5243,7 @@ pub unsafe extern "C" fn anofox_mann_whitney_u(
                     n2: r.n2,
                     alternative: r.alternative.into(),
                     method: alloc_string(&r.method),
+                    unified: TestSummaryFFI::from(&r.unified),
                 };
                 true
             }
@@ -5310,6 +5323,7 @@ pub unsafe extern "C" fn anofox_brunner_munzel(
                     n2: r.n2,
                     alternative: r.alternative.into(),
                     method: alloc_string(&r.method),
+                    unified: TestSummaryFFI::from(&r.unified),
                 };
                 true
             }
@@ -5390,6 +5404,7 @@ pub unsafe extern "C" fn anofox_one_way_anova(
                     n_groups: r.n_groups,
                     n: r.n,
                     method: alloc_string(&r.method),
+                    unified: TestSummaryFFI::from(&r.unified),
                 };
                 true
             }
@@ -5472,6 +5487,7 @@ pub unsafe extern "C" fn anofox_kruskal_wallis(
                     n2: r.n2,
                     alternative: r.alternative.into(),
                     method: alloc_string(&r.method),
+                    unified: TestSummaryFFI::from(&r.unified),
                 };
                 true
             }
@@ -5589,6 +5605,7 @@ pub unsafe extern "C" fn anofox_chisq_test(
                     p_value: r.p_value,
                     df: r.df,
                     method: alloc_string(&r.method),
+                    unified: TestSummaryFFI::from(&r.unified),
                 };
                 true
             }
@@ -5667,6 +5684,7 @@ unsafe fn fisher_exact_ffi_impl(
                 } else {
                     "Fisher's exact test"
                 }),
+                unified: TestSummaryFFI::from(&r.unified),
             };
             true
         }
@@ -5798,6 +5816,7 @@ pub unsafe extern "C" fn anofox_energy_distance(
                     n2: r.n2,
                     alternative: r.alternative.into(),
                     method: alloc_string(&r.method),
+                    unified: TestSummaryFFI::from(&r.unified),
                 };
                 true
             }
@@ -5877,6 +5896,7 @@ pub unsafe extern "C" fn anofox_mmd(
                     n2: r.n2,
                     alternative: r.alternative.into(),
                     method: alloc_string(&r.method),
+                    unified: TestSummaryFFI::from(&r.unified),
                 };
                 true
             }
@@ -5959,6 +5979,7 @@ pub unsafe extern "C" fn anofox_tost_t_test(
                     equivalent: r.equivalent,
                     n: r.n,
                     method: alloc_string(&r.method),
+                    unified: TestSummaryFFI::from(&r.unified),
                 };
                 true
             }
@@ -6041,6 +6062,7 @@ pub unsafe extern "C" fn anofox_tost_t_test_paired(
                     equivalent: r.equivalent,
                     n: r.n,
                     method: alloc_string(&r.method),
+                    unified: TestSummaryFFI::from(&r.unified),
                 };
                 true
             }
@@ -6148,6 +6170,7 @@ pub unsafe extern "C" fn anofox_tost_correlation(
                     equivalent: r.equivalent,
                     n: r.n,
                     method: alloc_string(&r.method),
+                    unified: TestSummaryFFI::from(&r.unified),
                 };
                 true
             }
@@ -6241,6 +6264,7 @@ pub unsafe extern "C" fn anofox_wilcoxon_signed_rank(
                     n2: r.n2,
                     alternative: r.alternative.into(),
                     method: alloc_string(&r.method),
+                    unified: TestSummaryFFI::from(&r.unified),
                 };
                 true
             }
@@ -6326,6 +6350,7 @@ pub unsafe extern "C" fn anofox_chisq_goodness_of_fit(
                     p_value: r.p_value,
                     df: r.df,
                     method: alloc_string(&r.method),
+                    unified: TestSummaryFFI::from(&r.unified),
                 };
                 true
             }
@@ -6425,6 +6450,7 @@ pub unsafe extern "C" fn anofox_prop_test_one_with_conf_level(
                     n: trials,
                     alternative: r.alternative.into(),
                     method: alloc_string("One-sample proportion z-test"),
+                    unified: TestSummaryFFI::from(&r.unified),
                 };
                 true
             }
@@ -6530,6 +6556,7 @@ pub unsafe extern "C" fn anofox_prop_test_two_with_conf_level(
                     n: trials1 + trials2,
                     alternative: r.alternative.into(),
                     method: alloc_string("Two-sample proportion z-test"),
+                    unified: TestSummaryFFI::from(&r.unified),
                 };
                 true
             }
@@ -6629,6 +6656,7 @@ pub unsafe extern "C" fn anofox_binom_test_with_conf_level(
                     n: trials,
                     alternative: r.alternative.into(),
                     method: alloc_string("Exact binomial test"),
+                    unified: TestSummaryFFI::from(&r.unified),
                 };
                 true
             }
@@ -6778,6 +6806,7 @@ pub unsafe extern "C" fn anofox_cohen_kappa(
                     ci_upper: r.ci_upper,
                     z: r.z,
                     p_value: r.p_value,
+                    unified: TestSummaryFFI::from(&r.unified),
                 };
                 true
             }
@@ -6854,6 +6883,7 @@ pub unsafe extern "C" fn anofox_g_test(
                     p_value: r.p_value,
                     df: r.df,
                     method: alloc_string(&r.method),
+                    unified: TestSummaryFFI::from(&r.unified),
                 };
                 true
             }
@@ -6920,6 +6950,7 @@ pub unsafe extern "C" fn anofox_mcnemar_test(
                     p_value: r.p_value,
                     df: r.df,
                     method: alloc_string(&r.method),
+                    unified: TestSummaryFFI::from(&r.unified),
                 };
                 true
             }
@@ -7140,6 +7171,7 @@ pub unsafe extern "C" fn anofox_yuen_test(
                     n2: r.n2,
                     alternative: r.alternative.into(),
                     method: alloc_string(&r.method),
+                    unified: TestSummaryFFI::from(&r.unified),
                 };
                 true
             }
@@ -7233,6 +7265,7 @@ pub unsafe extern "C" fn anofox_brown_forsythe(
                     n2: r.n2,
                     alternative: r.alternative.into(),
                     method: alloc_string(&r.method),
+                    unified: TestSummaryFFI::from(&r.unified),
                 };
                 true
             }
@@ -7400,6 +7433,7 @@ pub unsafe extern "C" fn anofox_distance_cor_test_seeded(
                     n2: r.n2,
                     alternative: r.alternative.into(),
                     method: alloc_string(&r.method),
+                    unified: TestSummaryFFI::from(&r.unified),
                 };
                 true
             }
@@ -7484,6 +7518,7 @@ pub unsafe extern "C" fn anofox_icc(
                     n_raters,
                     method: alloc_string(&r.icc_type),
                     p_value: r.p_value,
+                    unified: TestSummaryFFI::from(&r.unified),
                 };
                 true
             }
@@ -7608,6 +7643,7 @@ pub unsafe extern "C" fn anofox_diebold_mariano(
                     n2: r.n2,
                     alternative: r.alternative.into(),
                     method: alloc_string(&r.method),
+                    unified: TestSummaryFFI::from(&r.unified),
                 };
                 true
             }
@@ -7681,6 +7717,7 @@ pub unsafe extern "C" fn anofox_clark_west(
                     n2: r.n2,
                     alternative: r.alternative.into(),
                     method: alloc_string(&r.method),
+                    unified: TestSummaryFFI::from(&r.unified),
                 };
                 true
             }
@@ -7770,6 +7807,7 @@ pub unsafe extern "C" fn anofox_permutation_t_test(
                     n2: r.n2,
                     alternative: r.alternative.into(),
                     method: alloc_string(&r.method),
+                    unified: TestSummaryFFI::from(&r.unified),
                 };
                 true
             }
@@ -7780,6 +7818,182 @@ pub unsafe extern "C" fn anofox_permutation_t_test(
                 false
             }
         }
+    })
+}
+
+// ============================================================================
+// Pairwise post-hoc tests (#159)
+// ============================================================================
+
+/// Read the NUL-terminated `p_adjust` method name; NULL means holm (R's default).
+unsafe fn read_p_adjust(
+    p_adjust: *const c_char,
+) -> anofox_stats_core::StatsResult<anofox_tests::PAdjustMethod> {
+    let name = if p_adjust.is_null() {
+        "holm".to_string()
+    } else {
+        std::ffi::CStr::from_ptr(p_adjust)
+            .to_string_lossy()
+            .into_owned()
+    };
+    anofox_stats_core::tests::posthoc::parse_p_adjust(&name)
+}
+
+/// Shared body of the pairwise FFI functions: read the inputs, run `test`, copy
+/// the result out.
+unsafe fn run_pairwise(
+    values: DataArray,
+    groups: *const u64,
+    out_result: *mut PairwiseResultFFI,
+    out_error: *mut AnofoxError,
+    test: impl FnOnce(
+        &[f64],
+        &[u64],
+    ) -> anofox_stats_core::StatsResult<
+        anofox_stats_core::tests::posthoc::PairwiseResult<u64>,
+    >,
+) -> bool {
+    if !out_error.is_null() {
+        *out_error = AnofoxError::success();
+    }
+    if out_result.is_null() || (groups.is_null() && values.len > 0) {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "out_result or groups is NULL");
+        }
+        return false;
+    }
+    let v = values.to_vec();
+    let g: &[u64] = if values.len == 0 {
+        &[]
+    } else {
+        slice::from_raw_parts(groups, values.len)
+    };
+    match test(&v, g) {
+        Ok(r) => match PairwiseResultFFI::from_result(&r) {
+            Some(out) => {
+                *out_result = out;
+                true
+            }
+            None => {
+                if !out_error.is_null() {
+                    (*out_error).set(ErrorCode::AllocationFailure, "out of memory");
+                }
+                false
+            }
+        },
+        Err(e) => {
+            if !out_error.is_null() {
+                (*out_error).set(error_to_code(&e), &e.to_string());
+            }
+            false
+        }
+    }
+}
+
+/// Pairwise t-tests with p-value adjustment (R `pairwise.t.test`).
+///
+/// # Safety
+/// - `values` must be a valid DataArray and `groups` must point to `values.len`
+///   group codes
+/// - `p_adjust` must be NULL or a NUL-terminated string
+/// - `out_result` must be a valid pointer; free it with `anofox_free_pairwise_result`
+#[no_mangle]
+pub unsafe extern "C" fn anofox_pairwise_t_test(
+    values: DataArray,
+    groups: *const u64,
+    pooled_sd: bool,
+    p_adjust: *const c_char,
+    alternative: AlternativeFFI,
+    out_result: *mut PairwiseResultFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    ffi_guard(out_error, false, || {
+        let method = match read_p_adjust(p_adjust) {
+            Ok(m) => m,
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                return false;
+            }
+        };
+        run_pairwise(values, groups, out_result, out_error, |v, g| {
+            anofox_stats_core::tests::posthoc::pairwise_t_test(
+                v,
+                g,
+                pooled_sd,
+                method,
+                alternative.into(),
+            )
+        })
+    })
+}
+
+/// Tukey's honest significant difference (R `TukeyHSD(aov(...))`).
+///
+/// # Safety
+/// See [`anofox_pairwise_t_test`].
+#[no_mangle]
+pub unsafe extern "C" fn anofox_tukey_hsd(
+    values: DataArray,
+    groups: *const u64,
+    conf_level: f64,
+    out_result: *mut PairwiseResultFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    ffi_guard(out_error, false, || {
+        if !check_confidence_level(conf_level, out_error) {
+            return false;
+        }
+        run_pairwise(values, groups, out_result, out_error, |v, g| {
+            anofox_stats_core::tests::posthoc::tukey_hsd(v, g, conf_level)
+        })
+    })
+}
+
+/// Dunn's rank test with p-value adjustment (`FSA::dunnTest`).
+///
+/// # Safety
+/// See [`anofox_pairwise_t_test`].
+#[no_mangle]
+pub unsafe extern "C" fn anofox_dunn_test(
+    values: DataArray,
+    groups: *const u64,
+    p_adjust: *const c_char,
+    out_result: *mut PairwiseResultFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    ffi_guard(out_error, false, || {
+        let method = match read_p_adjust(p_adjust) {
+            Ok(m) => m,
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                return false;
+            }
+        };
+        run_pairwise(values, groups, out_result, out_error, |v, g| {
+            anofox_stats_core::tests::posthoc::dunn_test(v, g, method)
+        })
+    })
+}
+
+/// Free the rows of a pairwise post-hoc result.
+///
+/// # Safety
+/// - `result` must be NULL or a valid pointer to a PairwiseResultFFI
+#[no_mangle]
+pub unsafe extern "C" fn anofox_free_pairwise_result(result: *mut PairwiseResultFFI) {
+    ffi_guard(std::ptr::null_mut(), (), || {
+        if result.is_null() {
+            return;
+        }
+        if !(*result).rows.is_null() {
+            libc::free((*result).rows as *mut libc::c_void);
+            (*result).rows = std::ptr::null_mut();
+        }
+        (*result).len = 0;
     })
 }
 

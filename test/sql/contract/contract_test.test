@@ -1,0 +1,126 @@
+# name: test/sql/contract/contract_test.test
+# description: #159 integration contract `test` schema: post-hoc _by macros, pairwise aggregates and the unified fields of every test aggregate
+# group: [contract]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE d AS SELECT 'e' || (i % 2) AS experiment, chr((65 + i % 3)::INTEGER) AS treatment,
+    (i % 3) + sin(i * 1.7) AS response FROM range(60) t(i);
+
+query II
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM pairwise_t_test_by('d', experiment, response, treatment))
+----
+experiment	VARCHAR
+model_id	VARCHAR
+test_id	VARCHAR
+method	VARCHAR
+statistic	DOUBLE
+p_value	DOUBLE
+group1	VARCHAR
+group2	VARCHAR
+p_adj	DOUBLE
+df1	DOUBLE
+df2	DOUBLE
+estimate	DOUBLE
+conf_low	DOUBLE
+conf_high	DOUBLE
+conf_level	DOUBLE
+effect_size	DOUBLE
+effect_name	VARCHAR
+alternative	VARCHAR
+p_adjust_method	VARCHAR
+
+# The three post-hoc macros share one shape.
+query I
+SELECT count(DISTINCT cols) FROM (
+    SELECT string_agg(column_name || ' ' || column_type, ', ') cols FROM (DESCRIBE SELECT * FROM pairwise_t_test_by('d', experiment, response, treatment))
+    UNION ALL SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM tukey_hsd_by('d', experiment, response, treatment))
+    UNION ALL SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM dunn_test_by('d', experiment, response, treatment))
+)
+----
+1
+
+query I
+SELECT count(DISTINCT typeof(r)) FROM (
+    SELECT pairwise_t_test_agg(response, treatment) r FROM d
+    UNION ALL SELECT tukey_hsd_agg(response, treatment) FROM d
+    UNION ALL SELECT dunn_test_agg(response, treatment) FROM d)
+----
+1
+
+query T
+SELECT typeof(pairwise_t_test_agg(response, treatment)) FROM d
+----
+STRUCT(group1 VARCHAR, group2 VARCHAR, estimate DOUBLE, statistic DOUBLE, p_value DOUBLE, p_adj DOUBLE, conf_low DOUBLE, conf_high DOUBLE, "method" VARCHAR, df1 DOUBLE, alternative VARCHAR, conf_level DOUBLE, p_adjust_method VARCHAR)[]
+
+# The required test columns are never NULL.
+query I
+SELECT count(*) FROM tukey_hsd_by('d', experiment, response, treatment)
+WHERE method IS NULL OR statistic IS NULL OR p_value IS NULL OR group1 IS NULL OR group2 IS NULL OR p_adj IS NULL
+----
+0
+
+# Producers are tagged as `test` (all hypothesis-test aggregates, post-hoc aggregates and macros).
+query I
+SELECT count(DISTINCT function_name) FROM duckdb_functions()
+WHERE tags['anofox.output'] = 'test' AND tags['anofox.contract'] = anofox_contract_version()
+----
+39
+
+# Every test aggregate carries all thirteen unified fields with the contract types.
+statement ok
+CREATE TABLE tt AS SELECT i, (sin(i * 1.7) * 2 + (i % 3))::DOUBLE AS v, (i % 2)::INTEGER AS g2, (i % 3)::INTEGER AS g3,
+    (cos(i * 0.7) + i * 0.1)::DOUBLE AS x, (sin(i * 0.3) + i * 0.1)::DOUBLE AS y,
+    (i % 2 = 0)::INTEGER AS b1, (i % 3 = 0 OR i % 7 = 0)::INTEGER AS b2,
+    (i % 3)::INTEGER AS c1, ((i * 7 + i // 5) % 3)::INTEGER AS c2
+FROM range(40) t(i);
+
+statement ok
+CREATE TABLE types AS
+SELECT 't_test_agg' f, typeof(t_test_agg(v, g2::BIGINT)) t FROM tt UNION ALL
+SELECT 'yuen_agg', typeof(yuen_agg(v, g2)) FROM tt UNION ALL
+SELECT 'mann_whitney_u_agg', typeof(mann_whitney_u_agg(v, g2::BIGINT)) FROM tt UNION ALL
+SELECT 'brunner_munzel_agg', typeof(brunner_munzel_agg(v, g2::BIGINT)) FROM tt UNION ALL
+SELECT 'permutation_t_test_agg', typeof(permutation_t_test_agg(v, g2::BIGINT)) FROM tt UNION ALL
+SELECT 'wilcoxon_signed_rank_agg', typeof(wilcoxon_signed_rank_agg(x, y)) FROM tt UNION ALL
+SELECT 'kruskal_wallis_agg', typeof(kruskal_wallis_agg(v, g3)) FROM tt UNION ALL
+SELECT 'one_way_anova_agg', typeof(one_way_anova_agg(v, g3)) FROM tt UNION ALL
+SELECT 'brown_forsythe_agg', typeof(brown_forsythe_agg(v, g3)) FROM tt UNION ALL
+SELECT 'shapiro_wilk_agg', typeof(shapiro_wilk_agg(v)) FROM tt UNION ALL
+SELECT 'dagostino_k2_agg', typeof(dagostino_k2_agg(v)) FROM tt UNION ALL
+SELECT 'jarque_bera_agg', typeof(jarque_bera_agg(v)) FROM tt UNION ALL
+SELECT 'energy_distance_agg', typeof(energy_distance_agg(v, g2)) FROM tt UNION ALL
+SELECT 'mmd_agg', typeof(mmd_agg(v, g2)) FROM tt UNION ALL
+SELECT 'pearson_agg', typeof(pearson_agg(x, y)) FROM tt UNION ALL
+SELECT 'spearman_agg', typeof(spearman_agg(x, y)) FROM tt UNION ALL
+SELECT 'kendall_agg', typeof(kendall_agg(x, y)) FROM tt UNION ALL
+SELECT 'distance_cor_agg', typeof(distance_cor_agg(x, y)) FROM tt UNION ALL
+SELECT 'chisq_test_agg', typeof(chisq_test_agg(c1, c2)) FROM tt UNION ALL
+SELECT 'g_test_agg', typeof(g_test_agg(c1, c2)) FROM tt UNION ALL
+SELECT 'fisher_exact_agg', typeof(fisher_exact_agg(b1, b2)) FROM tt UNION ALL
+SELECT 'mcnemar_agg', typeof(mcnemar_agg(b1, b2)) FROM tt UNION ALL
+SELECT 'cohen_kappa_agg', typeof(cohen_kappa_agg(c1, c2)) FROM tt UNION ALL
+SELECT 'diebold_mariano_agg', typeof(diebold_mariano_agg(v, x, y)) FROM tt UNION ALL
+SELECT 'clark_west_agg', typeof(clark_west_agg(v, x, y)) FROM tt UNION ALL
+SELECT 'tost_t_test_agg', typeof(tost_t_test_agg(v, g2)) FROM tt UNION ALL
+SELECT 'tost_paired_agg', typeof(tost_paired_agg(x, y)) FROM tt UNION ALL
+SELECT 'tost_correlation_agg', typeof(tost_correlation_agg(x, y)) FROM tt UNION ALL
+SELECT 'binom_test_agg', typeof(binom_test_agg(b1)) FROM tt UNION ALL
+SELECT 'prop_test_one_agg', typeof(prop_test_one_agg(b1)) FROM tt UNION ALL
+SELECT 'prop_test_two_agg', typeof(prop_test_two_agg(b1, g2)) FROM tt UNION ALL
+SELECT 'chisq_gof_agg', typeof(chisq_gof_agg(c1 + 5, 6.0)) FROM tt UNION ALL
+SELECT 'icc_agg', typeof(icc_agg(v, i // 4, i % 4)) FROM tt;
+
+query I
+SELECT count(*) FROM types WHERE NOT list_bool_and([contains(t, field) FOR field IN [
+    '"method" VARCHAR', 'alternative VARCHAR', 'statistic DOUBLE', 'df1 DOUBLE', 'df2 DOUBLE', 'p_value DOUBLE',
+    'estimate DOUBLE', 'conf_low DOUBLE', 'conf_high DOUBLE', 'conf_level DOUBLE', 'effect_size DOUBLE',
+    'effect_name VARCHAR', 'n BIGINT']])
+----
+0
+
+query I
+SELECT count(*) FROM types
+----
+33

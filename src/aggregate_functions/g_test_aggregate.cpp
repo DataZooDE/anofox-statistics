@@ -7,6 +7,7 @@
 #include "duckdb/main/extension/extension_loader.hpp"
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
+#include "../include/test_struct.hpp"
 #include "../include/anofox_stats_ffi.h"
 #include "../include/result_fields.hpp"
 #include "../include/error_dispatch.hpp"
@@ -47,6 +48,7 @@ static LogicalType GetGTestAggResultType() {
     children.push_back(make_pair("n", LogicalType::BIGINT));
     children.push_back(make_pair("alternative", LogicalType::VARCHAR));
 
+    AppendTestResultFields(children);
     return LogicalType::STRUCT(std::move(children));
 }
 
@@ -195,7 +197,8 @@ static void GTestAggFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
         FlatVector::GetData<string_t>(method_vector)[result_idx] =
             StringVector::AddString(method_vector, g_result.method ? g_result.method : "G-test");
         FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = static_cast<int64_t>(state.row_values.size());
-        SetResultNull(*struct_entries[struct_idx++], result_idx); // alternative: not applicable
+        SetResultNull(*struct_entries[struct_idx++], result_idx);
+        WriteTestResultFields(result, result_idx, struct_idx, g_result.unified); // alternative: not applicable
 
         anofox_free_chisq_result(&g_result);
         state.Reset();

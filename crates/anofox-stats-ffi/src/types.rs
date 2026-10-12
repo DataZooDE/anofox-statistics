@@ -301,6 +301,168 @@ impl From<&anofox_stats_core::ModelSummary> for ModelSummaryFFI {
     }
 }
 
+/// Length of the NUL-terminated method buffer in [`TestSummaryFFI`].
+pub const TEST_METHOD_LEN: usize = 96;
+/// Length of the NUL-terminated alternative / effect-name buffers in [`TestSummaryFFI`].
+pub const TEST_NAME_LEN: usize = 32;
+
+/// The unified hypothesis-test fields (#159, the integration contract's `test`
+/// row), copied from upstream `anofox_statistics::TestResult`. A field that
+/// does not apply is NaN (numbers), -1 (`n`) or an empty string (names), all
+/// NULL in SQL. Every test result struct ends with one.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct TestSummaryFFI {
+    pub statistic: f64,
+    pub df1: f64,
+    pub df2: f64,
+    pub p_value: f64,
+    pub estimate: f64,
+    pub conf_low: f64,
+    pub conf_high: f64,
+    pub conf_level: f64,
+    pub effect_size: f64,
+    pub n: i64,
+    pub method: [c_char; TEST_METHOD_LEN],
+    pub alternative: [c_char; TEST_NAME_LEN],
+    pub effect_name: [c_char; TEST_NAME_LEN],
+}
+
+/// The extension's spelling of an alternative hypothesis (as `AlternativeName` in C++).
+fn alternative_name(a: anofox_stats_core::tests::Alternative) -> &'static str {
+    match a {
+        anofox_stats_core::tests::Alternative::TwoSided => "two_sided",
+        anofox_stats_core::tests::Alternative::Less => "less",
+        anofox_stats_core::tests::Alternative::Greater => "greater",
+    }
+}
+
+fn fixed_buffer<const N: usize>(name: &str) -> [c_char; N] {
+    let mut buf = [0 as c_char; N];
+    for (dst, &b) in buf.iter_mut().zip(name.as_bytes().iter().take(N - 1)) {
+        *dst = b as c_char;
+    }
+    buf
+}
+
+impl Default for TestSummaryFFI {
+    fn default() -> Self {
+        Self {
+            statistic: f64::NAN,
+            df1: f64::NAN,
+            df2: f64::NAN,
+            p_value: f64::NAN,
+            estimate: f64::NAN,
+            conf_low: f64::NAN,
+            conf_high: f64::NAN,
+            conf_level: f64::NAN,
+            effect_size: f64::NAN,
+            n: -1,
+            method: [0; TEST_METHOD_LEN],
+            alternative: [0; TEST_NAME_LEN],
+            effect_name: [0; TEST_NAME_LEN],
+        }
+    }
+}
+
+impl From<&anofox_stats_core::tests::UnifiedTestResult> for TestSummaryFFI {
+    fn from(t: &anofox_stats_core::tests::UnifiedTestResult) -> Self {
+        let num = |v: Option<f64>| v.unwrap_or(f64::NAN);
+        Self {
+            statistic: num(t.statistic),
+            df1: num(t.df1),
+            df2: num(t.df2),
+            p_value: num(t.p_value),
+            estimate: num(t.estimate),
+            conf_low: num(t.conf_low),
+            conf_high: num(t.conf_high),
+            conf_level: num(t.conf_level),
+            effect_size: num(t.effect_size),
+            n: t.n.and_then(|n| i64::try_from(n).ok()).unwrap_or(-1),
+            method: fixed_buffer(&t.method),
+            // The extension spells the alternatives two_sided / less / greater.
+            alternative: fixed_buffer(t.alternative.map(alternative_name).unwrap_or("")),
+            effect_name: fixed_buffer(t.effect_name.as_deref().unwrap_or("")),
+        }
+    }
+}
+
+/// One comparison of a pairwise post-hoc test (#159). `group1` / `group2` are
+/// the caller's group codes. NaN marks a value that does not apply.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct PairwiseRowFFI {
+    pub estimate: f64,
+    pub statistic: f64,
+    pub df: f64,
+    pub p_value: f64,
+    pub p_adj: f64,
+    pub conf_low: f64,
+    pub conf_high: f64,
+    pub group1: u64,
+    pub group2: u64,
+}
+
+impl From<&anofox_stats_core::tests::posthoc::PairwiseComparison<u64>> for PairwiseRowFFI {
+    fn from(c: &anofox_stats_core::tests::posthoc::PairwiseComparison<u64>) -> Self {
+        Self {
+            estimate: c.estimate,
+            statistic: c.statistic,
+            df: c.df.unwrap_or(f64::NAN),
+            p_value: c.p_value,
+            p_adj: c.p_adj,
+            conf_low: c.conf_low.unwrap_or(f64::NAN),
+            conf_high: c.conf_high.unwrap_or(f64::NAN),
+            group1: c.group1,
+            group2: c.group2,
+        }
+    }
+}
+
+/// Result of a pairwise post-hoc test: `len` rows (malloc'ed; free with
+/// `anofox_free_pairwise_result`) plus the names that describe the test.
+/// `conf_level` is NaN and `p_adjust_method` empty when they do not apply.
+#[repr(C)]
+pub struct PairwiseResultFFI {
+    pub rows: *mut PairwiseRowFFI,
+    pub len: usize,
+    pub conf_level: f64,
+    pub method: [c_char; TEST_METHOD_LEN],
+    pub p_adjust_method: [c_char; TEST_NAME_LEN],
+    pub alternative: [c_char; TEST_NAME_LEN],
+}
+
+impl Default for PairwiseResultFFI {
+    fn default() -> Self {
+        Self {
+            rows: std::ptr::null_mut(),
+            len: 0,
+            conf_level: f64::NAN,
+            method: [0; TEST_METHOD_LEN],
+            p_adjust_method: [0; TEST_NAME_LEN],
+            alternative: [0; TEST_NAME_LEN],
+        }
+    }
+}
+
+impl PairwiseResultFFI {
+    /// Copy an upstream result; `None` when the row buffer cannot be allocated.
+    pub fn from_result(r: &anofox_stats_core::tests::posthoc::PairwiseResult<u64>) -> Option<Self> {
+        let rows: Vec<PairwiseRowFFI> = r.comparisons.iter().map(PairwiseRowFFI::from).collect();
+        let buf = FfiVec::<PairwiseRowFFI>::alloc(rows.len())?;
+        // Safety: the buffer holds exactly rows.len() elements.
+        unsafe { buf.copy_from_slice(&rows) };
+        Some(Self {
+            rows: buf.into_raw(),
+            len: rows.len(),
+            conf_level: r.conf_level.unwrap_or(f64::NAN),
+            method: fixed_buffer(&r.method),
+            p_adjust_method: fixed_buffer(r.p_adjust_method.map(|m| m.r_name()).unwrap_or("")),
+            alternative: fixed_buffer(alternative_name(r.alternative)),
+        })
+    }
+}
+
 #[cfg(test)]
 mod layout_tests {
     use super::{
@@ -308,6 +470,50 @@ mod layout_tests {
         GlmmResultFFI, IsotonicFitResultCore, ModelSummaryFFI, PlsFitResultCore,
         QuantileFitResultCore, MODEL_NAME_LEN,
     };
+
+    /// Mirrors the static_asserts in src/include/test_struct.cpp (#159).
+    #[test]
+    fn test_summary_layout() {
+        use super::{
+            AnovaResultFFI, ChiSquareResultFFI, CorrelationResultFFI, IccResultFFI, KappaResultFFI,
+            PairwiseResultFFI, PairwiseRowFFI, PropTestResultFFI, TestResultFFI, TestSummaryFFI,
+            TostResultFFI, TEST_METHOD_LEN, TEST_NAME_LEN,
+        };
+        use std::mem::{offset_of, size_of};
+        assert_eq!(offset_of!(TestSummaryFFI, n), 9 * size_of::<f64>());
+        assert_eq!(offset_of!(TestSummaryFFI, method), 10 * size_of::<f64>());
+        assert_eq!(
+            size_of::<TestSummaryFFI>(),
+            10 * size_of::<f64>() + TEST_METHOD_LEN + 2 * TEST_NAME_LEN
+        );
+        macro_rules! unified_last {
+            ($($t:ty),*) => {$(
+                assert_eq!(size_of::<$t>(), offset_of!($t, unified) + size_of::<TestSummaryFFI>());
+            )*};
+        }
+        unified_last!(
+            TestResultFFI,
+            AnovaResultFFI,
+            CorrelationResultFFI,
+            ChiSquareResultFFI,
+            TostResultFFI,
+            IccResultFFI,
+            PropTestResultFFI,
+            KappaResultFFI,
+            crate::JarqueBeraResultFFI
+        );
+        assert_eq!(offset_of!(PairwiseRowFFI, group1), 7 * size_of::<f64>());
+        assert_eq!(
+            size_of::<PairwiseRowFFI>(),
+            7 * size_of::<f64>() + 2 * size_of::<u64>()
+        );
+        let head = size_of::<*mut PairwiseRowFFI>() + size_of::<usize>();
+        assert_eq!(offset_of!(PairwiseResultFFI, conf_level), head);
+        assert_eq!(
+            size_of::<PairwiseResultFFI>(),
+            head + size_of::<f64>() + TEST_METHOD_LEN + 2 * TEST_NAME_LEN
+        );
+    }
 
     /// Mirrors the static_asserts in src/include/model_struct.cpp, which pin the
     /// hand-written C header to these layouts.
@@ -1675,6 +1881,8 @@ pub struct TestResultFFI {
     pub alternative: AlternativeFFI,
     /// Test method/name (must be freed)
     pub method: *mut c_char,
+    /// Unified test fields (#159, contract `test` row); keep last for ABI order
+    pub unified: TestSummaryFFI,
 }
 
 impl Default for TestResultFFI {
@@ -1692,6 +1900,7 @@ impl Default for TestResultFFI {
             n2: 0,
             alternative: AlternativeFFI::TwoSided,
             method: std::ptr::null_mut(),
+            unified: TestSummaryFFI::default(),
         }
     }
 }
@@ -1717,6 +1926,8 @@ pub struct AnovaResultFFI {
     pub n: usize,
     /// Test method (must be freed)
     pub method: *mut c_char,
+    /// Unified test fields (#159, contract `test` row); keep last for ABI order
+    pub unified: TestSummaryFFI,
 }
 
 impl Default for AnovaResultFFI {
@@ -1731,6 +1942,7 @@ impl Default for AnovaResultFFI {
             n_groups: 0,
             n: 0,
             method: std::ptr::null_mut(),
+            unified: TestSummaryFFI::default(),
         }
     }
 }
@@ -1754,6 +1966,8 @@ pub struct CorrelationResultFFI {
     pub n: usize,
     /// Method name (must be freed)
     pub method: *mut c_char,
+    /// Unified test fields (#159, contract `test` row); keep last for ABI order
+    pub unified: TestSummaryFFI,
 }
 
 impl Default for CorrelationResultFFI {
@@ -1767,6 +1981,7 @@ impl Default for CorrelationResultFFI {
             confidence_level: 0.95,
             n: 0,
             method: std::ptr::null_mut(),
+            unified: TestSummaryFFI::default(),
         }
     }
 }
@@ -1782,6 +1997,8 @@ pub struct ChiSquareResultFFI {
     pub df: usize,
     /// Method name (must be freed)
     pub method: *mut c_char,
+    /// Unified test fields (#159, contract `test` row); keep last for ABI order
+    pub unified: TestSummaryFFI,
 }
 
 impl Default for ChiSquareResultFFI {
@@ -1791,6 +2008,7 @@ impl Default for ChiSquareResultFFI {
             p_value: f64::NAN,
             df: 0,
             method: std::ptr::null_mut(),
+            unified: TestSummaryFFI::default(),
         }
     }
 }
@@ -1826,6 +2044,8 @@ pub struct TostResultFFI {
     pub n: usize,
     /// Method name (must be freed)
     pub method: *mut c_char,
+    /// Unified test fields (#159, contract `test` row); keep last for ABI order
+    pub unified: TestSummaryFFI,
 }
 
 impl Default for TostResultFFI {
@@ -1845,6 +2065,7 @@ impl Default for TostResultFFI {
             equivalent: false,
             n: 0,
             method: std::ptr::null_mut(),
+            unified: TestSummaryFFI::default(),
         }
     }
 }
@@ -2216,6 +2437,8 @@ pub struct IccResultFFI {
     pub method: *mut c_char,
     /// p-value of the F test of H0: ICC = 0 (appended; keep last for ABI order)
     pub p_value: f64,
+    /// Unified test fields (#159, contract `test` row); keep last for ABI order
+    pub unified: TestSummaryFFI,
 }
 
 impl Default for IccResultFFI {
@@ -2230,6 +2453,7 @@ impl Default for IccResultFFI {
             n_raters: 0,
             method: std::ptr::null_mut(),
             p_value: f64::NAN,
+            unified: TestSummaryFFI::default(),
         }
     }
 }
@@ -2257,6 +2481,8 @@ pub struct PropTestResultFFI {
     pub alternative: AlternativeFFI,
     /// Method name (must be freed)
     pub method: *mut c_char,
+    /// Unified test fields (#159, contract `test` row); keep last for ABI order
+    pub unified: TestSummaryFFI,
 }
 
 impl Default for PropTestResultFFI {
@@ -2270,6 +2496,7 @@ impl Default for PropTestResultFFI {
             n: 0,
             alternative: AlternativeFFI::TwoSided,
             method: std::ptr::null_mut(),
+            unified: TestSummaryFFI::default(),
         }
     }
 }
@@ -2289,6 +2516,8 @@ pub struct KappaResultFFI {
     pub z: f64,
     /// p-value
     pub p_value: f64,
+    /// Unified test fields (#159, contract `test` row); keep last for ABI order
+    pub unified: TestSummaryFFI,
 }
 
 impl Default for KappaResultFFI {
@@ -2300,6 +2529,7 @@ impl Default for KappaResultFFI {
             ci_upper: f64::NAN,
             z: f64::NAN,
             p_value: f64::NAN,
+            unified: TestSummaryFFI::default(),
         }
     }
 }
