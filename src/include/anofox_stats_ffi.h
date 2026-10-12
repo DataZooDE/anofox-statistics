@@ -2818,6 +2818,59 @@ bool anofox_tweedie_augment(AnofoxDataArray y, const AnofoxDataArray *x, size_t 
 /** Free the arrays owned by an augment result. */
 void anofox_free_augment_result(AnofoxAugmentResult *result);
 
+/* ============================================================================
+ * Classifier evaluation curves -- issue #153
+ * ============================================================================ */
+
+/**
+ * One curve of a binary classifier. Must match ClassifierCurveFFI. Non-null
+ * arrays have `len` entries in curve order; free with
+ * anofox_free_classifier_curve.
+ *   ROC: x = false positive rate, y = true positive rate.
+ *   PR: x = recall, y = precision.
+ *   Calibration: x = mean predicted probability, y = fraction of positives,
+ *   y_low/y_high = Wilson bounds, bin = zero-based bin, n = bin count.
+ * y_low, y_high, bin and n are NULL for ROC and PR. threshold is NaN where a
+ * point has none (final PR point, calibration bins) and +inf at the first ROC
+ * point.
+ */
+typedef struct {
+	double *x;
+	double *y;
+	double *threshold;
+	double *y_low;
+	double *y_high;
+	int64_t *bin;
+	int64_t *n;
+	size_t len;
+} AnofoxClassifierCurve;
+
+/** Scalar metric computed by anofox_classifier_metric. */
+typedef enum {
+	ANOFOX_CLASSIFIER_METRIC_AUC = 0,
+	ANOFOX_CLASSIFIER_METRIC_BRIER = 1,
+	ANOFOX_CLASSIFIER_METRIC_LOG_LOSS = 2,
+} AnofoxClassifierMetric;
+
+/**
+ * Labels are 0/1 (nonzero = positive). Scores may be +-inf but not NaN;
+ * probabilities must be in [0, 1].
+ */
+/** ROC curve (sklearn roc_curve). drop_intermediate as sklearn's default (true). */
+bool anofox_roc_curve(AnofoxDataArray scores, AnofoxDataArray labels, bool drop_intermediate,
+                      AnofoxClassifierCurve *out_result, AnofoxError *out_error);
+/** Precision-recall curve (sklearn precision_recall_curve). */
+bool anofox_pr_curve(AnofoxDataArray scores, AnofoxDataArray labels, AnofoxClassifierCurve *out_result,
+                     AnofoxError *out_error);
+/** Calibration curve (sklearn calibration_curve, uniform bins) with Wilson intervals. */
+bool anofox_calibration_curve(AnofoxDataArray probs, AnofoxDataArray labels, size_t n_bins, double conf_level,
+                              AnofoxClassifierCurve *out_result, AnofoxError *out_error);
+/** Free the arrays owned by a classifier curve. */
+void anofox_free_classifier_curve(AnofoxClassifierCurve *result);
+/** ROC AUC, Brier score or log loss. */
+bool anofox_classifier_metric(AnofoxClassifierMetric metric, AnofoxDataArray scores, AnofoxDataArray labels,
+                              double *out_value, AnofoxError *out_error);
+
 #ifdef __cplusplus
 }
 #endif

@@ -9,6 +9,7 @@ mod tests;
 
 pub use types::*;
 
+use anofox_stats_core::tests::classification;
 use anofox_stats_core::{
     diagnostics::{compute_aic, compute_bic, compute_residuals, compute_vif, jarque_bera},
     models::{
@@ -9285,5 +9286,224 @@ pub unsafe extern "C" fn anofox_free_augment_result(result: *mut AugmentResultFF
             (*result).used = std::ptr::null_mut();
         }
         (*result).len = 0;
+    })
+}
+
+// =============================================================================
+// Classifier evaluation curves — issue #153
+// =============================================================================
+
+/// Scores (or probabilities) and labels of a binary classifier. A label is
+/// positive when nonzero.
+unsafe fn classifier_inputs(scores: &DataArray, labels: &DataArray) -> (Vec<f64>, Vec<bool>) {
+    let s = scores.to_vec();
+    let l = labels.to_vec().iter().map(|&v| v != 0.0).collect();
+    (s, l)
+}
+
+/// Store a curve result, or the error, in the out-pointers.
+unsafe fn write_classifier_curve(
+    outcome: Result<ClassifierCurveFFI, StatsError>,
+    out_result: *mut ClassifierCurveFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    match outcome {
+        Ok(curve) => {
+            *out_result = curve;
+            true
+        }
+        Err(e) => {
+            if !out_error.is_null() {
+                (*out_error).set(error_to_code(&e), &e.to_string());
+            }
+            false
+        }
+    }
+}
+
+/// Validate the out-pointers of a classifier FFI call.
+unsafe fn check_classifier_out<T>(out: *mut T, out_error: *mut AnofoxError) -> bool {
+    if !out_error.is_null() {
+        *out_error = AnofoxError::success();
+    }
+    if out.is_null() {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+        }
+        return false;
+    }
+    true
+}
+
+/// ROC curve (scikit-learn `roc_curve`). Points run from `(0, 0)` at
+/// threshold +inf to `(1, 1)`; `drop_intermediate` drops collinear points.
+///
+/// # Safety
+/// `scores` and `labels` must be valid `AnofoxDataArray`s of equal length.
+#[no_mangle]
+pub unsafe extern "C" fn anofox_roc_curve(
+    scores: DataArray,
+    labels: DataArray,
+    drop_intermediate: bool,
+    out_result: *mut ClassifierCurveFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    ffi_guard(out_error, false, || {
+        if !check_classifier_out(out_result, out_error) {
+            return false;
+        }
+        let (s, l) = classifier_inputs(&scores, &labels);
+        let outcome =
+            classification::roc_curve(&s, &l, drop_intermediate).map(|r| ClassifierCurveFFI {
+                x: alloc_f64(&r.fpr),
+                y: alloc_f64(&r.tpr),
+                threshold: alloc_f64(&r.thresholds),
+                len: r.fpr.len(),
+                ..Default::default()
+            });
+        write_classifier_curve(outcome, out_result, out_error)
+    })
+}
+
+/// Precision-recall curve (scikit-learn `precision_recall_curve`): increasing
+/// thresholds, then the point `(recall 0, precision 1)` with a NaN threshold.
+///
+/// # Safety
+/// `scores` and `labels` must be valid `AnofoxDataArray`s of equal length.
+#[no_mangle]
+pub unsafe extern "C" fn anofox_pr_curve(
+    scores: DataArray,
+    labels: DataArray,
+    out_result: *mut ClassifierCurveFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    ffi_guard(out_error, false, || {
+        if !check_classifier_out(out_result, out_error) {
+            return false;
+        }
+        let (s, l) = classifier_inputs(&scores, &labels);
+        let outcome = classification::pr_curve(&s, &l).map(|r| {
+            let mut thr = r.thresholds.clone();
+            thr.resize(r.precision.len(), f64::NAN);
+            ClassifierCurveFFI {
+                x: alloc_f64(&r.recall),
+                y: alloc_f64(&r.precision),
+                threshold: alloc_f64(&thr),
+                len: r.precision.len(),
+                ..Default::default()
+            }
+        });
+        write_classifier_curve(outcome, out_result, out_error)
+    })
+}
+
+/// Calibration curve (scikit-learn `calibration_curve(strategy = "uniform")`)
+/// with Wilson intervals at `conf_level`; one point per non-empty bin.
+///
+/// # Safety
+/// `probs` and `labels` must be valid `AnofoxDataArray`s of equal length.
+#[no_mangle]
+pub unsafe extern "C" fn anofox_calibration_curve(
+    probs: DataArray,
+    labels: DataArray,
+    n_bins: usize,
+    conf_level: f64,
+    out_result: *mut ClassifierCurveFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    ffi_guard(out_error, false, || {
+        if !check_classifier_out(out_result, out_error) {
+            return false;
+        }
+        let (p, l) = classifier_inputs(&probs, &labels);
+        let outcome = classification::calibration_curve(&p, &l, n_bins, conf_level).map(|r| {
+            let col = |f: fn(&classification::CalibrationBin) -> f64| -> Vec<f64> {
+                r.bins.iter().map(f).collect()
+            };
+            let bin: Vec<i64> = r.bins.iter().map(|b| b.bin as i64).collect();
+            let n: Vec<i64> = r.bins.iter().map(|b| b.n as i64).collect();
+            ClassifierCurveFFI {
+                x: alloc_f64(&col(|b| b.mean_pred)),
+                y: alloc_f64(&col(|b| b.frac_pos)),
+                threshold: alloc_f64(&vec![f64::NAN; r.bins.len()]),
+                y_low: alloc_f64(&col(|b| b.conf_low)),
+                y_high: alloc_f64(&col(|b| b.conf_high)),
+                bin: alloc_i64(&bin),
+                n: alloc_i64(&n),
+                len: r.bins.len(),
+            }
+        });
+        write_classifier_curve(outcome, out_result, out_error)
+    })
+}
+
+/// Release the arrays owned by a `ClassifierCurveFFI`.
+///
+/// # Safety
+/// `result` must come from a successful `anofox_*_curve` call. Safe to call
+/// more than once.
+#[no_mangle]
+pub unsafe extern "C" fn anofox_free_classifier_curve(result: *mut ClassifierCurveFFI) {
+    ffi_guard(std::ptr::null_mut(), (), || {
+        if result.is_null() {
+            return;
+        }
+        for p in [
+            &mut (*result).x,
+            &mut (*result).y,
+            &mut (*result).threshold,
+            &mut (*result).y_low,
+            &mut (*result).y_high,
+        ] {
+            if !p.is_null() {
+                libc::free(*p as *mut libc::c_void);
+                *p = std::ptr::null_mut();
+            }
+        }
+        for p in [&mut (*result).bin, &mut (*result).n] {
+            if !p.is_null() {
+                libc::free(*p as *mut libc::c_void);
+                *p = std::ptr::null_mut();
+            }
+        }
+        (*result).len = 0;
+    })
+}
+
+/// A scalar classifier metric: ROC AUC (sklearn `roc_auc_score`), Brier score
+/// (`brier_score_loss`) or log loss (`log_loss`).
+///
+/// # Safety
+/// `scores` and `labels` must be valid `AnofoxDataArray`s of equal length.
+#[no_mangle]
+pub unsafe extern "C" fn anofox_classifier_metric(
+    metric: ClassifierMetricFFI,
+    scores: DataArray,
+    labels: DataArray,
+    out_value: *mut f64,
+    out_error: *mut AnofoxError,
+) -> bool {
+    ffi_guard(out_error, false, || {
+        if !check_classifier_out(out_value, out_error) {
+            return false;
+        }
+        let (s, l) = classifier_inputs(&scores, &labels);
+        let outcome = match metric {
+            ClassifierMetricFFI::Auc => classification::auc(&s, &l),
+            ClassifierMetricFFI::Brier => classification::brier_score(&s, &l),
+            ClassifierMetricFFI::LogLoss => classification::log_loss(&s, &l),
+        };
+        match outcome {
+            Ok(v) => {
+                *out_value = v;
+                true
+            }
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
+        }
     })
 }

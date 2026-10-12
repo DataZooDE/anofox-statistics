@@ -112,6 +112,7 @@ Per-group model fitting and prediction in a single call. `source` is a table nam
 | `glmm_fit_by` | One mixed model across groups; returns per-group random effects ([glmm](docs/api/glm/glmm.md)) |
 | `eb_shrink_by` | Empirical-Bayes shrinkage of existing per-group estimates ([eb_shrink](docs/api/glm/eb_shrink.md)) |
 | `aid_by`, `aid_anomaly_by` | Per-group demand classification / per-row anomaly flags ([aid](docs/api/aid/aid.md)) |
+| `roc_curve_by`, `pr_curve_by`, `calibration_curve_by` | Per-group classifier curves in the contract `curve` schema ([classification](docs/api/statistics/classification.md)) |
 
 ### Statistical Hypothesis Tests
 
@@ -127,6 +128,7 @@ Per-group model fitting and prediction in a single call. `source` is a table nam
 | Categorical | `chisq_test_agg`, `chisq_gof_agg`, `g_test_agg`, `fisher_exact_agg`, `mcnemar_agg` | [categorical](docs/api/statistics/categorical.md) |
 | Effect size | `cramers_v_agg`, `phi_coefficient_agg`, `contingency_coef_agg`, `cohen_kappa_agg` | [categorical](docs/api/statistics/categorical.md) |
 | Proportion | `prop_test_one_agg`, `prop_test_two_agg`, `binom_test_agg` | [categorical](docs/api/statistics/categorical.md) |
+| Classifier evaluation | `roc_agg`, `pr_agg`, `calibration_agg`, `auc_agg`, `brier_agg`, `log_loss_agg` | [classification](docs/api/statistics/classification.md) |
 
 ### Diagnostics & Utilities
 

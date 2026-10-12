@@ -34,6 +34,7 @@ page under [`docs/api/`](#detailed-documentation) with longer explanations.
 - [Empirical-Bayes Shrinkage](#empirical-bayes-shrinkage)
 - [AID Demand Classification](#aid-demand-classification)
 - [Statistical Hypothesis Tests](#statistical-hypothesis-tests)
+- [Classifier Evaluation](#classifier-evaluation)
 - [Fit-Predict Window Functions](#fit-predict-window-functions)
 - [Fit-Predict Aggregate Functions](#fit-predict-aggregate-functions)
 - [Fit-Predict Table Macros](#fit-predict-table-macros)
@@ -130,6 +131,7 @@ fitted model struct).
 | Pairwise post-hoc | `pairwise_t_test_agg`, `tukey_hsd_agg`, `dunn_test_agg`, `pairwise_t_test_by`, `tukey_hsd_by`, `dunn_test_by` | [Hypothesis tests](api/statistics/hypothesis.md#pairwise-post-hoc-tests) |
 | Effect sizes | `cramers_v_agg`, `phi_coefficient_agg`, `contingency_coef_agg`, `cohen_kappa_agg` | [Categorical](api/statistics/categorical.md) |
 | Proportions | `prop_test_one_agg`, `prop_test_two_agg`, `binom_test_agg` | [Categorical](api/statistics/categorical.md) |
+| Classifier evaluation | `roc_agg`, `pr_agg`, `calibration_agg`, `auc_agg`, `brier_agg`, `log_loss_agg`, `roc_curve_by`, `pr_curve_by`, `calibration_curve_by` | [Classification](api/statistics/classification.md) |
 
 ### Diagnostics and Utilities
 
@@ -1174,6 +1176,39 @@ The `_by` table macros run the test within each group of a table and return the
 ```sql
 SELECT category, group1, group2, estimate, p_adj
 FROM tukey_hsd_by('reg_data', category, y, grp3);
+```
+
+## Classifier Evaluation
+
+ROC, precision-recall and calibration curves, ROC AUC, Brier score and log loss
+of a binary classifier (#153), following scikit-learn and validated against it
+and R `pROC`. `y_true` is BOOLEAN or a numeric 0/1; rows with a NULL `y_true` or
+score are skipped. See [Classification](api/statistics/classification.md) for
+ties, constant scores and single-class input.
+
+| Function | Signature | Returns |
+|----------|-----------|---------|
+| `roc_agg` | `(y_true, score DOUBLE [, drop_intermediate BOOLEAN])` | `LIST(STRUCT(threshold, fpr, tpr))`, as sklearn `roc_curve` |
+| `pr_agg` | `(y_true, score DOUBLE)` | `LIST(STRUCT(threshold, recall, precision))`, as sklearn `precision_recall_curve` |
+| `calibration_agg` | `(y_true, prob DOUBLE, n_bins BIGINT [, conf_level DOUBLE])` | `LIST(STRUCT(bin, mean_pred, frac_pos, n, conf_low, conf_high))`, as sklearn `calibration_curve` with Wilson intervals |
+| `auc_agg` | `(y_true, score DOUBLE)` | `DOUBLE`, sklearn `roc_auc_score` / pROC `auc`; NULL with one class |
+| `brier_agg` | `(y_true, prob DOUBLE)` | `DOUBLE`, sklearn `brier_score_loss` |
+| `log_loss_agg` | `(y_true, prob DOUBLE)` | `DOUBLE`, sklearn `log_loss` |
+
+```sql
+SELECT category, auc_agg(y_binary = 1, x1) AS auc FROM reg_data GROUP BY category;
+```
+
+The table macros `roc_curve_by(source, group_col, y_true_col, score_col,
+drop_intermediate := true)`, `pr_curve_by(source, group_col, y_true_col,
+score_col)` and `calibration_curve_by(source, group_col, y_true_col, prob_col,
+n_bins := 10, conf_level := 0.95)` return the integration contract's `curve`
+schema, one row per point: the group column, `model_id`, `series`, `curve_type`
+(`'roc'`, `'pr'`, `'calibration'`), `x`, `y`, `y_low`, `y_high`, `threshold`,
+`weight`, `n_censor`.
+
+```sql
+SELECT category, x AS fpr, y AS tpr FROM roc_curve_by('reg_data', category, y_binary, x1);
 ```
 
 ## Fit-Predict Window Functions

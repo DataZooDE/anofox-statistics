@@ -1,0 +1,198 @@
+# name: test/sql/classification/classifier_curves.test
+# description: #153 classifier evaluation aggregates and *_curve_by macros: input types, NULLs, errors, grouping
+# group: [classification]
+#
+# Values are validated against scikit-learn / pROC in test/sql/reference/classification_reference.test.
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE d AS SELECT * FROM (VALUES
+ (1, 1, 0.9), (2, 0, 0.1), (3, 1, 0.8), (4, 1, 0.65), (5, 0, 0.4), (6, 0, 0.3), (7, 1, 0.55),
+ (8, 0, 0.55), (9, 1, 0.7), (10, 0, 0.2), (11, 1, 0.35), (12, 1, 0.95), (13, 0, 0.6), (14, 0, 0.05),
+ (15, 1, 0.45), (16, 0, 0.5), (17, 0, 0.25), (18, 1, 0.75), (19, 1, 0.55), (20, 0, 0.15)
+) t(id, y, s);
+
+# y_true as BOOLEAN, INTEGER and DOUBLE gives the same result
+query IIII
+SELECT roc_agg(y::BOOLEAN, s) = roc_agg(y, s), roc_agg(y::DOUBLE, s) = roc_agg(y, s),
+       pr_agg(y::BOOLEAN, s) = pr_agg(y::TINYINT, s), auc_agg(y::BOOLEAN, s) = auc_agg(y, s)
+FROM d;
+----
+true	true	true	true
+
+query II
+SELECT calibration_agg(y::BOOLEAN, s, 5) = calibration_agg(y, s, 5), brier_agg(y::BOOLEAN, s) = brier_agg(y, s)
+FROM d;
+----
+true	true
+
+# Result types
+query I
+SELECT typeof(roc_agg(y, s)) FROM d;
+----
+STRUCT(threshold DOUBLE, fpr DOUBLE, tpr DOUBLE)[]
+
+query I
+SELECT typeof(pr_agg(y, s)) FROM d;
+----
+STRUCT(threshold DOUBLE, recall DOUBLE, "precision" DOUBLE)[]
+
+query I
+SELECT typeof(calibration_agg(y, s, 5)) FROM d;
+----
+STRUCT(bin BIGINT, mean_pred DOUBLE, frac_pos DOUBLE, n BIGINT, conf_low DOUBLE, conf_high DOUBLE)[]
+
+# Rows with a NULL y_true or score are skipped
+query III
+SELECT auc_agg(y, s) = (SELECT auc_agg(y, s) FROM d), brier_agg(y, s) = (SELECT brier_agg(y, s) FROM d),
+       roc_agg(y, s) = (SELECT roc_agg(y, s) FROM d)
+FROM (SELECT y, s FROM d UNION ALL SELECT NULL, 0.3 UNION ALL SELECT 1, NULL);
+----
+true	true	true
+
+# No rows, or only NULLs: NULL
+query IIIIII
+SELECT roc_agg(y, s), pr_agg(y, s), calibration_agg(y, s, 5), auc_agg(y, s), brier_agg(y, s), log_loss_agg(y, s)
+FROM d WHERE id > 100;
+----
+NULL	NULL	NULL	NULL	NULL	NULL
+
+query II
+SELECT auc_agg(y, s), roc_agg(y, s) FROM (VALUES (NULL::INTEGER, 0.1), (1, NULL::DOUBLE)) t(y, s);
+----
+NULL	NULL
+
+# A NaN score is degenerate: NULL
+query II
+SELECT auc_agg(y, s), roc_agg(y, s) FROM (VALUES (1, 'nan'::DOUBLE), (0, 0.2)) t(y, s);
+----
+NULL	NULL
+
+# +-inf scores are ordinary extreme scores (as pROC; sklearn rejects them): 3 of 4 pairs ordered
+query I
+SELECT auc_agg(y, s) FROM (VALUES (1, 'inf'::DOUBLE), (0, '-inf'::DOUBLE), (1, 0.3), (0, 0.4)) t(y, s);
+----
+0.75
+
+# Single-class groups: the undefined rate is NULL, AUC NULL; pr recall is 1 with no positives (sklearn)
+query II
+SELECT [p.tpr IS NULL FOR p IN roc_agg(y, s)], auc_agg(y, s) FROM (VALUES (0, 0.2), (0, 0.4)) t(y, s);
+----
+[true, true, true]	NULL
+
+query I
+SELECT [p.recall FOR p IN pr_agg(y, s)] FROM (VALUES (0, 0.2), (0, 0.4)) t(y, s);
+----
+[1.0, 1.0, 0.0]
+
+# Brier and log loss are defined for one class
+query I
+SELECT round(brier_agg(y, p), 12) FROM (VALUES (1, 0.8), (1, 0.6)) t(y, p);
+----
+0.1
+
+# ---------------------------------------------------------------------------
+# Errors
+# ---------------------------------------------------------------------------
+statement error
+SELECT roc_agg(y, s) FROM (VALUES (2, 0.1), (0, 0.4)) t(y, s);
+----
+roc_agg: y_true must be BOOLEAN or 0/1
+
+statement error
+SELECT auc_agg(y, s) FROM (VALUES (0.5, 0.1)) t(y, s);
+----
+auc_agg: y_true must be BOOLEAN or 0/1
+
+statement error
+SELECT brier_agg(y, p) FROM (VALUES (1, 1.5), (0, 0.2)) t(y, p);
+----
+probabilities must be in [0, 1], got 1.5
+
+statement error
+SELECT calibration_agg(y, p, 5) FROM (VALUES (1, -0.1)) t(y, p);
+----
+probabilities must be in [0, 1], got -0.1
+
+statement error
+SELECT calibration_agg(y, s, 0) FROM d;
+----
+calibration_agg: n_bins must be >= 1
+
+statement error
+SELECT calibration_agg(y, s, 5, 1.5) FROM d;
+----
+calibration_agg: conf_level must be in (0, 1)
+
+statement error
+SELECT calibration_agg(y, s, id) FROM d;
+----
+calibration_agg: n_bins must be a constant
+
+statement error
+SELECT roc_agg(y, s, NULL) FROM d;
+----
+roc_agg: drop_intermediate must not be NULL
+
+# ---------------------------------------------------------------------------
+# GROUP BY and window use
+# ---------------------------------------------------------------------------
+# sklearn roc_auc_score per group: 1.0 and 16/21
+query II
+SELECT g, round(auc_agg(y, s), 10) FROM (SELECT id % 2 AS g, y, s FROM d) GROUP BY g ORDER BY g;
+----
+0	1.0
+1	0.7619047619
+
+query I
+SELECT count(DISTINCT a) FROM (SELECT auc_agg(y, s) OVER () AS a FROM d);
+----
+1
+
+query I
+SELECT round(max(a), 10) FROM (SELECT auc_agg(y, s) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS a FROM d);
+----
+1.0
+
+# ---------------------------------------------------------------------------
+# *_curve_by table macros (contract `curve` schema)
+# ---------------------------------------------------------------------------
+statement ok
+CREATE TABLE scored AS
+SELECT 'a' AS model, y::BOOLEAN AS label, s AS score FROM d
+UNION ALL SELECT 'b', y::BOOLEAN, 1 - s FROM d;
+
+query IIII
+SELECT model, model_id, count(*), bool_and(curve_type = 'roc') FROM roc_curve_by('scored', model, label, score)
+GROUP BY ALL ORDER BY model;
+----
+a	a	10	true
+b	b	10	true
+
+# Points come in curve order and match roc_agg
+query I
+SELECT [p.fpr FOR p IN (SELECT roc_agg(y, s) FROM d)] = (SELECT list(x) FROM roc_curve_by('scored', model, label, score) WHERE model = 'a');
+----
+true
+
+query I
+SELECT count(*) FROM roc_curve_by('scored', model, label, score, drop_intermediate := false) WHERE model = 'a';
+----
+19
+
+query IIII
+SELECT count(*), count(threshold), min(y), max(y) FROM pr_curve_by('scored', model, label, score) WHERE model = 'a';
+----
+19	18	0.5	1.0
+
+query IIII
+SELECT x, round(y, 4), round(y_low, 4), weight FROM calibration_curve_by('scored', model, label, score, n_bins := 5)
+WHERE model = 'a' AND y = 0.5;
+----
+0.5333333333333333	0.5	0.1876	6.0
+
+query I
+SELECT count(*) FROM calibration_curve_by('scored', model, label, score, n_bins := 2, conf_level := 0.9);
+----
+4
