@@ -42,6 +42,9 @@ static const struct {
     {"alm_tidy_by", "terms"}, {"alm_glance_by", "summary"},
     {"aft_tidy_by", "terms"}, {"aft_glance_by", "summary"},
     {"ols_augment_by", "obs"}, {"wls_augment_by", "obs"},
+    {"poisson_augment_by", "obs"}, {"binomial_augment_by", "obs"},
+    {"logistic_augment_by", "obs"}, {"negbinom_augment_by", "obs"},
+    {"gamma_augment_by", "obs"}, {"tweedie_augment_by", "obs"},
     {nullptr, nullptr}
 };
 // clang-format on

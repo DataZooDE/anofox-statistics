@@ -139,7 +139,7 @@ fitted model struct).
 | `tidy` | Per-term table (estimate, std. error, statistic, p-value, CI) of a fitted model | [Model tools](api/regression/model_tools.md) |
 | `glance` | One-row summary of a fitted model, the same fields for every model | [Model tools](api/regression/model_tools.md) |
 | `<model>_tidy_by`, `<model>_glance_by` | Per-group coefficient table / fit statistics in long form | [Model output macros](#model-output-table-macros) |
-| `ols_augment_by`, `wls_augment_by` | Per-row fitted values, residuals, leverage, Cook's distance, DFFITS (`obs`) | [Per-observation diagnostics](#per-observation-diagnostics-ols_augment_by--wls_augment_by) |
+| `ols_augment_by`, `wls_augment_by`, `<glm>_augment_by` | Per-row fitted values, residuals, leverage, Cook's distance, DFFITS (`obs`) | [Per-observation diagnostics](#per-observation-diagnostics-ols_augment_by--wls_augment_by) |
 | `vif`, `vif_agg` | Variance inflation factors | [Diagnostics](api/diagnostics/diagnostics.md) |
 | `aic`, `bic` | Information criteria from RSS | [Diagnostics](api/diagnostics/diagnostics.md) |
 | `jarque_bera`, `jarque_bera_agg` | Jarque-Bera normality test | [Diagnostics](api/diagnostics/diagnostics.md) |
@@ -1459,6 +1459,8 @@ ols_augment_by(source, group_col, y_col, x_cols [, options := ..., split := ...,
 wls_augment_by(source, group_col, y_col, x_cols, weight_col [, options := ..., split := ..., order_by := ...])
 ols_augment_agg(y, x [, options]) OVER (...)           -> LIST(STRUCT(...)), one entry per frame row
 wls_augment_agg(y, x, weight [, options]) OVER (...)
+poisson_augment_by(source, group_col, y_col, x_cols [, options := ..., split := ..., order_by := ...])
+-- likewise binomial_, logistic_, negbinom_, gamma_, tweedie_augment_by / _augment_agg
 ```
 
 broom `augment` for OLS and WLS: one model per group, every source row returned
@@ -1470,8 +1472,8 @@ with the integration contract's `obs` columns appended (tagged
 | `model_id` | VARCHAR | `group_col` as text |
 | `row_id` | BIGINT | source row number |
 | `fitted` | DOUBLE | fitted value; the prediction for non-training rows |
-| `residual` | DOUBLE | response residual `y - fitted` |
-| `resid_type` | VARCHAR | `'response'` |
+| `residual` | DOUBLE | response residual `y - fitted` (GLMs: deviance residual) |
+| `resid_type` | VARCHAR | `'response'` (GLMs: `'deviance'`) |
 | `std_residual` | DOUBLE | standardised residual (R `rstandard`) |
 | `stud_residual` | DOUBLE | externally studentised residual (R `rstudent`) |
 | `leverage` | DOUBLE | hat value (R `hatvalues`) |
@@ -1487,6 +1489,35 @@ Training rows have `y_col` NOT NULL, every feature present, `split` NULL or
 The measures come from `anofox_regression::diagnostics::augment` and match R
 `lm()` (with `weights =` for WLS). A group with fewer than two training rows
 gives NULL columns.
+
+**GLMs.** `poisson_augment_by`, `binomial_augment_by`, `logistic_augment_by`,
+`negbinom_augment_by`, `gamma_augment_by` and `tweedie_augment_by` (same
+arguments as `ols_augment_by`; window aggregates `<family>_augment_agg(y, x [, options])`)
+return the same columns for the matching GLM:
+
+- `fitted` is the mean on the response scale (the prediction for non-training rows);
+- `residual` is the **deviance** residual and `resid_type` is `'deviance'` (as R / broom);
+- `std_residual` is the deviance residual standardised by `sqrt(phi * (1 - h))`
+  (R `rstandard(fit, type = "deviance")`), `stud_residual` is R `rstudent`;
+- `leverage` is the hat value of the IRLS-weighted design, `weight` is 1;
+- the dispersion `phi` is 1 for Poisson, binomial, logistic and Negative Binomial
+  (as `MASS::glm.nb`), and the Pearson estimate for Gamma and Tweedie.
+
+Options are those of the matching `<family>_fit_agg` that change the fit:
+`fit_intercept`, `max_iterations`, `tolerance`, `offset` (1-based index of the
+offset column in `x_cols`), plus `link` (Poisson, binomial), `theta` (Negative
+Binomial) and `power` (Tweedie). Penalized fits (`glm_lambda > 0` or a `prior`)
+are rejected with an error: their leverage and Cook's distance have no R
+counterpart. The values come from `anofox_regression::diagnostics::augment_glm`
+and match R `glm()`, `MASS::glm.nb()` and `statmod::tweedie`.
+
+```sql
+-- Poisson: the rows with the largest Cook's distance per category
+SELECT category, row_id, y_count, fitted, residual, leverage, cooks_d
+FROM poisson_augment_by('reg_data', category, y_count, [x1, x2])
+QUALIFY row_number() OVER (PARTITION BY category ORDER BY cooks_d DESC) <= 2
+ORDER BY category, cooks_d DESC;
+```
 
 ```sql
 SELECT category, row_id, fitted, residual, leverage, cooks_d

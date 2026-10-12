@@ -12,7 +12,7 @@ be fitted once per group and then applied, summarised or reported in plain SQL.
 | [`tidy(model [, names])`](#tidy) | `STRUCT(...)[]` | One entry per term: estimate and inference |
 | [`glance(model)`](#glance) | `STRUCT` | Model-level summary, the same fields for every model |
 | [`<model>_tidy_by`, `<model>_glance_by`](#tidy_by-and-glance_by) | table | Per-group coefficient table and fit statistics |
-| [`ols_augment_by`, `wls_augment_by`](#augment_by) | table | Per-row fitted values, residuals, leverage, Cook's distance, DFFITS |
+| [`ols_augment_by`, `wls_augment_by`, `<glm>_augment_by`](#augment_by) | table | Per-row fitted values, residuals, leverage, Cook's distance, DFFITS |
 
 The examples on this page use this table:
 
@@ -266,6 +266,28 @@ ORDER BY id;
 The window aggregates behind them, `ols_augment_agg(y, x [, options])` and
 `wls_augment_agg(y, x, weight [, options])`, return one STRUCT with these fields
 per row of a whole-partition frame, in frame order.
+
+The GLMs have the same macros: `poisson_augment_by`, `binomial_augment_by`,
+`logistic_augment_by`, `negbinom_augment_by`, `gamma_augment_by` and
+`tweedie_augment_by` (arguments as `ols_augment_by`). For them `fitted` is the
+mean on the response scale, `residual` is the deviance residual with
+`resid_type = 'deviance'` (as R and broom), `std_residual` is R
+`rstandard(fit, type = "deviance")` and `weight` is 1. The dispersion is 1 for
+Poisson, binomial, logistic and Negative Binomial (as `MASS::glm.nb`) and the
+Pearson estimate for Gamma and Tweedie. Options: `fit_intercept`,
+`max_iterations`, `tolerance`, `offset`, and `link` (Poisson, binomial),
+`theta` (Negative Binomial) or `power` (Tweedie). A penalized fit
+(`glm_lambda > 0` or a `prior`) is an error. The values match R `glm()`,
+`MASS::glm.nb()` and `statmod::tweedie`.
+
+```sql
+-- Poisson counts: deviance residuals and influence, held-out rows predicted
+SELECT id, y_count, fitted, residual, resid_type, cooks_d, is_training
+FROM poisson_augment_by('mt_demo', grp, y_count, [x1],
+                        split := CASE WHEN id > 36 THEN 'test' ELSE 'train' END)
+WHERE grp = 'A' AND id > 30
+ORDER BY id;
+```
 
 ## See Also
 

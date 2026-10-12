@@ -1191,3 +1191,46 @@ fn augment_round_trip_and_null_out() {
         anofox_free_augment_result(&mut out);
     }
 }
+
+#[test]
+fn glm_augment_round_trip_predicts_held_out_rows() {
+    let y = [8.0, 2.0, 1.0, 5.0, 7.0, 2.0, 2.0, 8.0, 6.0, f64::NAN];
+    let x0 = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.25, 1.1];
+    let x1 = [1.4, 0.6, 2.0, 1.2, 0.4, 1.8, 1.0, 0.2, 1.6, 0.9];
+    let xs = [arr(&x0), arr(&x1)];
+    let mut e = err();
+    unsafe {
+        let mut out = AugmentResultFFI::default();
+        assert!(anofox_poisson_augment(
+            arr(&y),
+            xs.as_ptr(),
+            2,
+            PoissonOptionsFFI::default(),
+            &mut out,
+            &mut e
+        ));
+        assert_eq!(out.len, 10);
+        assert_eq!(out.n_params, 3);
+        assert!(!*out.used.add(9) && *out.used.add(0));
+        assert!((*out.fitted.add(9)).is_finite());
+        assert!((*out.residual.add(9)).is_nan());
+        let rt = std::ffi::CStr::from_ptr(out.resid_type.as_ptr());
+        assert_eq!(rt.to_str().unwrap(), "deviance");
+        anofox_free_augment_result(&mut out);
+
+        let opts = PoissonOptionsFFI {
+            lambda: 1.0,
+            ..PoissonOptionsFFI::default()
+        };
+        let mut out = AugmentResultFFI::default();
+        assert!(!anofox_poisson_augment(
+            arr(&y),
+            xs.as_ptr(),
+            2,
+            opts,
+            &mut out,
+            &mut e
+        ));
+        assert_eq!(e.code, ErrorCode::InvalidInput);
+    }
+}

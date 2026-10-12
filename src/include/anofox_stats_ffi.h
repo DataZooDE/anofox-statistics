@@ -2667,7 +2667,7 @@ void anofox_free_glmm_result(AnofoxGlmmResult *result);
  * ============================================================================ */
 
 /**
- * Per-row diagnostics of an OLS/WLS fit (layout of AugmentResultFFI in
+ * Per-row diagnostics of an OLS/WLS/GLM fit (layout of AugmentResultFFI in
  * crates/anofox-stats-ffi/src/types.rs). Every array has len entries, one per
  * input row in input order; NaN marks a value that does not apply (rows not
  * used in the fit only have fitted). Released by anofox_free_augment_result.
@@ -2699,6 +2699,27 @@ bool anofox_ols_augment(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_co
  */
 bool anofox_wls_augment(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, AnofoxDataArray weights,
                         AnofoxWlsOptions options, AnofoxAugmentResult *out_result, AnofoxError *out_error);
+
+/**
+ * GLM augment: fit the family on the usable rows (finite y, features and
+ * offset; NaN y marks a row that is only predicted) with the options of the
+ * matching *_fit call and return per-row diagnostics for every input row, with
+ * deviance residuals (resid_type "deviance") and fitted on the response scale.
+ * Penalized fits (lambda > 0 or a non-flat prior) fail with an error.
+ */
+bool anofox_poisson_augment(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, AnofoxPoissonOptions options,
+                            AnofoxAugmentResult *out_result, AnofoxError *out_error);
+bool anofox_binomial_augment(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count,
+                             AnofoxBinomialOptions options, AnofoxAugmentResult *out_result, AnofoxError *out_error);
+bool anofox_logistic_augment(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count,
+                             AnofoxLogisticOptions options, AnofoxAugmentResult *out_result, AnofoxError *out_error);
+bool anofox_negbinomial_augment(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count,
+                                AnofoxNegBinomialOptions options, AnofoxAugmentResult *out_result,
+                                AnofoxError *out_error);
+bool anofox_gamma_augment(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, AnofoxGammaOptions options,
+                          AnofoxAugmentResult *out_result, AnofoxError *out_error);
+bool anofox_tweedie_augment(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, AnofoxTweedieOptions options,
+                            AnofoxAugmentResult *out_result, AnofoxError *out_error);
 
 /** Free the arrays owned by an augment result. */
 void anofox_free_augment_result(AnofoxAugmentResult *result);

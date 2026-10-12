@@ -12,12 +12,13 @@ pub use types::*;
 use anofox_stats_core::{
     diagnostics::{compute_aic, compute_bic, compute_residuals, compute_vif, jarque_bera},
     models::{
-        augment_ols, augment_wls, compute_aid, compute_aid_anomalies, eb_shrink, fit_aft, fit_alm,
-        fit_binomial, fit_bls, fit_elasticnet, fit_gamma, fit_glmm, fit_glmm_crossed, fit_huber,
-        fit_isotonic, fit_lars, fit_lm_dynamic, fit_logistic, fit_negbinomial, fit_ols, fit_pls,
-        fit_poisson, fit_quantile, fit_ransac, fit_ridge, fit_rls, fit_theilsen, fit_tweedie,
-        fit_wls, predict, AftDistribution, AftOptions, EbShrinkOptions, GlmmFamily, GlmmOptions,
-        RlsOptions, TauMethod,
+        augment_binomial, augment_gamma, augment_logistic, augment_negbinomial, augment_ols,
+        augment_poisson, augment_tweedie, augment_wls, compute_aid, compute_aid_anomalies,
+        eb_shrink, fit_aft, fit_alm, fit_binomial, fit_bls, fit_elasticnet, fit_gamma, fit_glmm,
+        fit_glmm_crossed, fit_huber, fit_isotonic, fit_lars, fit_lm_dynamic, fit_logistic,
+        fit_negbinomial, fit_ols, fit_pls, fit_poisson, fit_quantile, fit_ransac, fit_ridge,
+        fit_rls, fit_theilsen, fit_tweedie, fit_wls, predict, AftDistribution, AftOptions,
+        EbShrinkOptions, GlmmFamily, GlmmOptions, RlsOptions, TauMethod,
     },
     AidOptions, AlmDistribution, AlmLoss, AlmOptions, BinomialLink, BinomialOptions, BlsOptions,
     ElasticNetOptions, GammaOptions, GlmPriorOptions, HcType, HuberOptions, InformationCriterion,
@@ -2496,6 +2497,162 @@ pub unsafe extern "C" fn anofox_predict_with_interval_matrix(
     })
 }
 
+/// Core options of a `poisson` fit from its FFI options (shared by the fit and
+/// augment entry points).
+unsafe fn poisson_options_from_ffi(options: &PoissonOptionsFFI) -> PoissonOptions {
+    let link = match options.link {
+        PoissonLinkFFI::Log => PoissonLink::Log,
+        PoissonLinkFFI::Identity => PoissonLink::Identity,
+        PoissonLinkFFI::Sqrt => PoissonLink::Sqrt,
+    };
+
+    PoissonOptions {
+        fit_intercept: options.fit_intercept,
+        link,
+        max_iterations: options.max_iterations,
+        tolerance: options.tolerance,
+        compute_inference: options.compute_inference,
+        confidence_level: options.confidence_level,
+        lambda: options.lambda,
+        prior_opts: GlmPriorOptions {
+            priors: priors_from_ffi(options.priors, options.priors_len),
+            vcov: vcov_from_ffi(options.vcov),
+        },
+        offset_column: if options.offset_column == 0 {
+            None
+        } else {
+            Some(options.offset_column)
+        },
+        // Dispersion fixed at 1, as R's glm(family = poisson) / summary.glm.
+        estimate_dispersion: false,
+    }
+}
+
+/// Core options of a `binomial` fit from its FFI options (shared by the fit and
+/// augment entry points).
+unsafe fn binomial_options_from_ffi(options: &BinomialOptionsFFI) -> BinomialOptions {
+    let link = match options.link {
+        BinomialLinkFFI::Logit => BinomialLink::Logit,
+        BinomialLinkFFI::Probit => BinomialLink::Probit,
+        BinomialLinkFFI::Cloglog => BinomialLink::Cloglog,
+    };
+
+    BinomialOptions {
+        fit_intercept: options.fit_intercept,
+        link,
+        max_iterations: options.max_iterations,
+        tolerance: options.tolerance,
+        compute_inference: options.compute_inference,
+        confidence_level: options.confidence_level,
+        lambda: options.lambda,
+        prior_opts: GlmPriorOptions {
+            priors: priors_from_ffi(options.priors, options.priors_len),
+            vcov: vcov_from_ffi(options.vcov),
+        },
+        offset_column: if options.offset_column == 0 {
+            None
+        } else {
+            Some(options.offset_column)
+        },
+    }
+}
+
+/// Core options of a `negbinomial` fit from its FFI options (shared by the fit and
+/// augment entry points).
+unsafe fn negbinomial_options_from_ffi(options: &NegBinomialOptionsFFI) -> NegBinomialOptions {
+    NegBinomialOptions {
+        fit_intercept: options.fit_intercept,
+        // NaN on the wire means "estimate theta from the data".
+        alpha: if options.alpha.is_nan() {
+            None
+        } else {
+            Some(options.alpha)
+        },
+        max_iterations: options.max_iterations,
+        tolerance: options.tolerance,
+        compute_inference: options.compute_inference,
+        confidence_level: options.confidence_level,
+        lambda: options.lambda,
+        prior_opts: GlmPriorOptions {
+            priors: priors_from_ffi(options.priors, options.priors_len),
+            vcov: vcov_from_ffi(options.vcov),
+        },
+        offset_column: if options.offset_column == 0 {
+            None
+        } else {
+            Some(options.offset_column)
+        },
+    }
+}
+
+/// Core options of a `tweedie` fit from its FFI options (shared by the fit and
+/// augment entry points).
+unsafe fn tweedie_options_from_ffi(options: &TweedieOptionsFFI) -> TweedieOptions {
+    TweedieOptions {
+        fit_intercept: options.fit_intercept,
+        power: options.power,
+        max_iterations: options.max_iterations,
+        tolerance: options.tolerance,
+        compute_inference: options.compute_inference,
+        confidence_level: options.confidence_level,
+        lambda: options.lambda,
+        prior_opts: GlmPriorOptions {
+            priors: priors_from_ffi(options.priors, options.priors_len),
+            vcov: vcov_from_ffi(options.vcov),
+        },
+        offset_column: if options.offset_column == 0 {
+            None
+        } else {
+            Some(options.offset_column)
+        },
+    }
+}
+
+/// Core options of a `gamma` fit from its FFI options (shared by the fit and
+/// augment entry points).
+unsafe fn gamma_options_from_ffi(options: &GammaOptionsFFI) -> GammaOptions {
+    GammaOptions {
+        fit_intercept: options.fit_intercept,
+        max_iterations: options.max_iterations,
+        tolerance: options.tolerance,
+        compute_inference: options.compute_inference,
+        confidence_level: options.confidence_level,
+        lambda: options.lambda,
+        prior_opts: GlmPriorOptions {
+            priors: priors_from_ffi(options.priors, options.priors_len),
+            vcov: vcov_from_ffi(options.vcov),
+        },
+        offset_column: if options.offset_column == 0 {
+            None
+        } else {
+            Some(options.offset_column)
+        },
+    }
+}
+
+/// Core options of a `logistic` fit from its FFI options (shared by the fit and
+/// augment entry points).
+unsafe fn logistic_options_from_ffi(options: &LogisticOptionsFFI) -> LogisticOptions {
+    LogisticOptions {
+        fit_intercept: options.fit_intercept,
+        lambda: options.lambda,
+        threshold: options.threshold,
+        max_iterations: options.max_iterations,
+        tolerance: options.tolerance,
+        compute_inference: options.compute_inference,
+        confidence_level: options.confidence_level,
+        prior_opts: GlmPriorOptions {
+            priors: priors_from_ffi(options.priors, options.priors_len),
+            vcov: vcov_from_ffi(options.vcov),
+        },
+        offset_column: if options.offset_column == 0 {
+            None
+        } else {
+            Some(options.offset_column)
+        },
+    }
+}
+
 // =============================================================================
 // GLM (Generalized Linear Models) FFI Functions
 // =============================================================================
@@ -2550,33 +2707,7 @@ pub unsafe extern "C" fn anofox_poisson_fit(
         let x_arrays = slice::from_raw_parts(x, x_count);
         let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
 
-        // Convert FFI options to core options
-        let link = match options.link {
-            PoissonLinkFFI::Log => PoissonLink::Log,
-            PoissonLinkFFI::Identity => PoissonLink::Identity,
-            PoissonLinkFFI::Sqrt => PoissonLink::Sqrt,
-        };
-
-        let opts = PoissonOptions {
-            fit_intercept: options.fit_intercept,
-            link,
-            max_iterations: options.max_iterations,
-            tolerance: options.tolerance,
-            compute_inference: options.compute_inference,
-            confidence_level: options.confidence_level,
-            lambda: options.lambda,
-            prior_opts: GlmPriorOptions {
-                priors: priors_from_ffi(options.priors, options.priors_len),
-                vcov: vcov_from_ffi(options.vcov),
-            },
-            offset_column: if options.offset_column == 0 {
-                None
-            } else {
-                Some(options.offset_column)
-            },
-            // Dispersion fixed at 1, as R's glm(family = poisson) / summary.glm.
-            estimate_dispersion: false,
-        };
+        let opts = poisson_options_from_ffi(&options);
 
         let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             fit_poisson(&y_vec, &x_vecs, &opts)
@@ -2725,30 +2856,7 @@ pub unsafe extern "C" fn anofox_binomial_fit(
         let x_arrays = slice::from_raw_parts(x, x_count);
         let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
 
-        let link = match options.link {
-            BinomialLinkFFI::Logit => BinomialLink::Logit,
-            BinomialLinkFFI::Probit => BinomialLink::Probit,
-            BinomialLinkFFI::Cloglog => BinomialLink::Cloglog,
-        };
-
-        let opts = BinomialOptions {
-            fit_intercept: options.fit_intercept,
-            link,
-            max_iterations: options.max_iterations,
-            tolerance: options.tolerance,
-            compute_inference: options.compute_inference,
-            confidence_level: options.confidence_level,
-            lambda: options.lambda,
-            prior_opts: GlmPriorOptions {
-                priors: priors_from_ffi(options.priors, options.priors_len),
-                vcov: vcov_from_ffi(options.vcov),
-            },
-            offset_column: if options.offset_column == 0 {
-                None
-            } else {
-                Some(options.offset_column)
-            },
-        };
+        let opts = binomial_options_from_ffi(&options);
 
         let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             fit_binomial(&y_vec, &x_vecs, &opts)
@@ -2896,29 +3004,7 @@ pub unsafe extern "C" fn anofox_negbinomial_fit(
         let x_arrays = slice::from_raw_parts(x, x_count);
         let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
 
-        let opts = NegBinomialOptions {
-            fit_intercept: options.fit_intercept,
-            // NaN on the wire means "estimate theta from the data".
-            alpha: if options.alpha.is_nan() {
-                None
-            } else {
-                Some(options.alpha)
-            },
-            max_iterations: options.max_iterations,
-            tolerance: options.tolerance,
-            compute_inference: options.compute_inference,
-            confidence_level: options.confidence_level,
-            lambda: options.lambda,
-            prior_opts: GlmPriorOptions {
-                priors: priors_from_ffi(options.priors, options.priors_len),
-                vcov: vcov_from_ffi(options.vcov),
-            },
-            offset_column: if options.offset_column == 0 {
-                None
-            } else {
-                Some(options.offset_column)
-            },
-        };
+        let opts = negbinomial_options_from_ffi(&options);
 
         let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             fit_negbinomial(&y_vec, &x_vecs, &opts)
@@ -3069,24 +3155,7 @@ pub unsafe extern "C" fn anofox_tweedie_fit(
         let x_arrays = slice::from_raw_parts(x, x_count);
         let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
 
-        let opts = TweedieOptions {
-            fit_intercept: options.fit_intercept,
-            power: options.power,
-            max_iterations: options.max_iterations,
-            tolerance: options.tolerance,
-            compute_inference: options.compute_inference,
-            confidence_level: options.confidence_level,
-            lambda: options.lambda,
-            prior_opts: GlmPriorOptions {
-                priors: priors_from_ffi(options.priors, options.priors_len),
-                vcov: vcov_from_ffi(options.vcov),
-            },
-            offset_column: if options.offset_column == 0 {
-                None
-            } else {
-                Some(options.offset_column)
-            },
-        };
+        let opts = tweedie_options_from_ffi(&options);
 
         let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             fit_tweedie(&y_vec, &x_vecs, &opts)
@@ -3234,23 +3303,7 @@ pub unsafe extern "C" fn anofox_gamma_fit(
         let x_arrays = slice::from_raw_parts(x, x_count);
         let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
 
-        let opts = GammaOptions {
-            fit_intercept: options.fit_intercept,
-            max_iterations: options.max_iterations,
-            tolerance: options.tolerance,
-            compute_inference: options.compute_inference,
-            confidence_level: options.confidence_level,
-            lambda: options.lambda,
-            prior_opts: GlmPriorOptions {
-                priors: priors_from_ffi(options.priors, options.priors_len),
-                vcov: vcov_from_ffi(options.vcov),
-            },
-            offset_column: if options.offset_column == 0 {
-                None
-            } else {
-                Some(options.offset_column)
-            },
-        };
+        let opts = gamma_options_from_ffi(&options);
 
         let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             fit_gamma(&y_vec, &x_vecs, &opts)
@@ -3400,24 +3453,7 @@ pub unsafe extern "C" fn anofox_logistic_fit(
         let x_arrays = slice::from_raw_parts(x, x_count);
         let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
 
-        let opts = LogisticOptions {
-            fit_intercept: options.fit_intercept,
-            lambda: options.lambda,
-            threshold: options.threshold,
-            max_iterations: options.max_iterations,
-            tolerance: options.tolerance,
-            compute_inference: options.compute_inference,
-            confidence_level: options.confidence_level,
-            prior_opts: GlmPriorOptions {
-                priors: priors_from_ffi(options.priors, options.priors_len),
-                vcov: vcov_from_ffi(options.vcov),
-            },
-            offset_column: if options.offset_column == 0 {
-                None
-            } else {
-                Some(options.offset_column)
-            },
-        };
+        let opts = logistic_options_from_ffi(&options);
 
         let fit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             fit_logistic(&y_vec, &x_vecs, &opts)
@@ -8804,11 +8840,212 @@ pub unsafe extern "C" fn anofox_wls_augment(
     })
 }
 
+/// Read the `x` columns of an augment call; `None` (with the error set) when
+/// `x` is NULL or empty.
+unsafe fn augment_x(
+    x: *const DataArray,
+    x_count: usize,
+    out_error: *mut AnofoxError,
+) -> Option<Vec<Vec<f64>>> {
+    if x.is_null() || x_count == 0 {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "x is NULL or empty");
+        }
+        return None;
+    }
+    Some(
+        slice::from_raw_parts(x, x_count)
+            .iter()
+            .map(|arr| arr.to_vec())
+            .collect(),
+    )
+}
+
+/// Fit a Poisson GLM on the usable rows (finite y, features and offset; pass
+/// NaN as y for rows that are only predicted) and return per-row diagnostics
+/// for every input row with deviance residuals, computed by
+/// `anofox_regression::diagnostics::augment_glm`. Penalized fits (`lambda > 0`
+/// or a non-flat prior) are rejected upstream.
+///
+/// # Safety
+/// As [`anofox_ols_augment`]; `options.priors` must point to `priors_len`
+/// entries (or be NULL).
+#[no_mangle]
+pub unsafe extern "C" fn anofox_poisson_augment(
+    y: DataArray,
+    x: *const DataArray,
+    x_count: usize,
+    options: PoissonOptionsFFI,
+    out_result: *mut AugmentResultFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    ffi_guard(out_error, false, || {
+        let Some(x_vecs) = augment_x(x, x_count, out_error) else {
+            return false;
+        };
+        let y_vec = y.to_vec();
+        let opts = poisson_options_from_ffi(&options);
+        augment_entry("Poisson augment", out_result, out_error, || {
+            augment_poisson(&y_vec, &x_vecs, &opts)
+        })
+    })
+}
+
+/// Fit a Binomial GLM on the usable rows (finite y, features and offset; pass
+/// NaN as y for rows that are only predicted) and return per-row diagnostics
+/// for every input row with deviance residuals, computed by
+/// `anofox_regression::diagnostics::augment_glm`. Penalized fits (`lambda > 0`
+/// or a non-flat prior) are rejected upstream.
+///
+/// # Safety
+/// As [`anofox_ols_augment`]; `options.priors` must point to `priors_len`
+/// entries (or be NULL).
+#[no_mangle]
+pub unsafe extern "C" fn anofox_binomial_augment(
+    y: DataArray,
+    x: *const DataArray,
+    x_count: usize,
+    options: BinomialOptionsFFI,
+    out_result: *mut AugmentResultFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    ffi_guard(out_error, false, || {
+        let Some(x_vecs) = augment_x(x, x_count, out_error) else {
+            return false;
+        };
+        let y_vec = y.to_vec();
+        let opts = binomial_options_from_ffi(&options);
+        augment_entry("Binomial augment", out_result, out_error, || {
+            augment_binomial(&y_vec, &x_vecs, &opts)
+        })
+    })
+}
+
+/// Fit a logistic GLM on the usable rows (finite y, features and offset; pass
+/// NaN as y for rows that are only predicted) and return per-row diagnostics
+/// for every input row with deviance residuals, computed by
+/// `anofox_regression::diagnostics::augment_glm`. Penalized fits (`lambda > 0`
+/// or a non-flat prior) are rejected upstream.
+///
+/// # Safety
+/// As [`anofox_ols_augment`]; `options.priors` must point to `priors_len`
+/// entries (or be NULL).
+#[no_mangle]
+pub unsafe extern "C" fn anofox_logistic_augment(
+    y: DataArray,
+    x: *const DataArray,
+    x_count: usize,
+    options: LogisticOptionsFFI,
+    out_result: *mut AugmentResultFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    ffi_guard(out_error, false, || {
+        let Some(x_vecs) = augment_x(x, x_count, out_error) else {
+            return false;
+        };
+        let y_vec = y.to_vec();
+        let opts = logistic_options_from_ffi(&options);
+        augment_entry("logistic augment", out_result, out_error, || {
+            augment_logistic(&y_vec, &x_vecs, &opts)
+        })
+    })
+}
+
+/// Fit a Negative Binomial GLM on the usable rows (finite y, features and offset; pass
+/// NaN as y for rows that are only predicted) and return per-row diagnostics
+/// for every input row with deviance residuals, computed by
+/// `anofox_regression::diagnostics::augment_glm`. Penalized fits (`lambda > 0`
+/// or a non-flat prior) are rejected upstream.
+///
+/// # Safety
+/// As [`anofox_ols_augment`]; `options.priors` must point to `priors_len`
+/// entries (or be NULL).
+#[no_mangle]
+pub unsafe extern "C" fn anofox_negbinomial_augment(
+    y: DataArray,
+    x: *const DataArray,
+    x_count: usize,
+    options: NegBinomialOptionsFFI,
+    out_result: *mut AugmentResultFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    ffi_guard(out_error, false, || {
+        let Some(x_vecs) = augment_x(x, x_count, out_error) else {
+            return false;
+        };
+        let y_vec = y.to_vec();
+        let opts = negbinomial_options_from_ffi(&options);
+        augment_entry("Negative Binomial augment", out_result, out_error, || {
+            augment_negbinomial(&y_vec, &x_vecs, &opts)
+        })
+    })
+}
+
+/// Fit a Gamma GLM on the usable rows (finite y, features and offset; pass
+/// NaN as y for rows that are only predicted) and return per-row diagnostics
+/// for every input row with deviance residuals, computed by
+/// `anofox_regression::diagnostics::augment_glm`. Penalized fits (`lambda > 0`
+/// or a non-flat prior) are rejected upstream.
+///
+/// # Safety
+/// As [`anofox_ols_augment`]; `options.priors` must point to `priors_len`
+/// entries (or be NULL).
+#[no_mangle]
+pub unsafe extern "C" fn anofox_gamma_augment(
+    y: DataArray,
+    x: *const DataArray,
+    x_count: usize,
+    options: GammaOptionsFFI,
+    out_result: *mut AugmentResultFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    ffi_guard(out_error, false, || {
+        let Some(x_vecs) = augment_x(x, x_count, out_error) else {
+            return false;
+        };
+        let y_vec = y.to_vec();
+        let opts = gamma_options_from_ffi(&options);
+        augment_entry("Gamma augment", out_result, out_error, || {
+            augment_gamma(&y_vec, &x_vecs, &opts)
+        })
+    })
+}
+
+/// Fit a Tweedie GLM on the usable rows (finite y, features and offset; pass
+/// NaN as y for rows that are only predicted) and return per-row diagnostics
+/// for every input row with deviance residuals, computed by
+/// `anofox_regression::diagnostics::augment_glm`. Penalized fits (`lambda > 0`
+/// or a non-flat prior) are rejected upstream.
+///
+/// # Safety
+/// As [`anofox_ols_augment`]; `options.priors` must point to `priors_len`
+/// entries (or be NULL).
+#[no_mangle]
+pub unsafe extern "C" fn anofox_tweedie_augment(
+    y: DataArray,
+    x: *const DataArray,
+    x_count: usize,
+    options: TweedieOptionsFFI,
+    out_result: *mut AugmentResultFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    ffi_guard(out_error, false, || {
+        let Some(x_vecs) = augment_x(x, x_count, out_error) else {
+            return false;
+        };
+        let y_vec = y.to_vec();
+        let opts = tweedie_options_from_ffi(&options);
+        augment_entry("Tweedie augment", out_result, out_error, || {
+            augment_tweedie(&y_vec, &x_vecs, &opts)
+        })
+    })
+}
+
 /// Release the arrays owned by an `AugmentResultFFI`.
 ///
 /// # Safety
-/// `result` must come from a successful `anofox_ols_augment` /
-/// `anofox_wls_augment`. Safe to call more than once.
+/// `result` must come from a successful `anofox_*_augment` call. Safe to call
+/// more than once.
 #[no_mangle]
 pub unsafe extern "C" fn anofox_free_augment_result(result: *mut AugmentResultFFI) {
     ffi_guard(std::ptr::null_mut(), (), || {
