@@ -231,6 +231,7 @@ static void RansacFitFunctionImpl(DataChunk &args, ExpressionState &state, Vecto
         auto &coef_list = *struct_vec[struct_idx++];
         auto &coef_child = ListVector::GetEntry(coef_list);
         auto coef_offset = ListVector::GetListSize(coef_list);
+        ListVector::Reserve(coef_list, coef_offset + core_result.coefficients_len);
         ListVector::SetListSize(coef_list, coef_offset + core_result.coefficients_len);
         auto coef_data = FlatVector::GetData<double>(coef_child);
         for (size_t i = 0; i < core_result.coefficients_len; i++) {
