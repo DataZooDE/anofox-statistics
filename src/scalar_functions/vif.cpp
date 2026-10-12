@@ -89,6 +89,7 @@ static void VifFunctionImpl(DataChunk &args, ExpressionState &state, Vector &res
         // Build result list
         auto &result_child = ListVector::GetEntry(result);
         auto result_offset = ListVector::GetListSize(result);
+        ListVector::Reserve(result, result_offset + vif_len);
         ListVector::SetListSize(result, result_offset + vif_len);
         auto result_data = FlatVector::GetData<double>(result_child);
 
