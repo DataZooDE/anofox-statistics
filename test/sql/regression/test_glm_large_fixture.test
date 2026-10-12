@@ -1,0 +1,113 @@
+# name: test/sql/regression/test_glm_large_fixture.test
+# description: GLM aggregates on fixtures large enough for faer's blocked QR/GEMM path (#93)
+# group: [regression]
+
+require anofox_statistics
+
+# Regression test for #93. Above ~150 rows the IRLS weighted-least-squares QR
+# (faer ColPivQr) switches to the blocked Householder path, which calls the
+# private-gemm-x86 assembly kernels. In the unittest build the static extension
+# lives in libduckdb.so; the kernels' tail jumps went through lazily bound PLT
+# stubs whose resolver clobbered r11, and pack_lhs dereferenced garbage
+# (SIGSEGV, seen on the DuckDB v1.4.4 / v1.4.5 harness). Fixed by linking the
+# Rust archive with --exclude-libs (CMakeLists.txt, 606c7e6). The CI LTS job
+# runs this file in the v1.4.5 harness.
+
+# Exact trigger from the issue: 250 rows of the test_negbinom_basic design.
+statement ok
+CREATE TABLE big_glm AS
+SELECT CAST(ROUND(EXP(0.5 + 0.3 * (i % 10)) + ((i * 7) % 5)) AS DOUBLE) AS y, (i % 10)::DOUBLE AS x
+FROM range(0, 250) t(i);
+
+query II
+SELECT (negbinom_fit_agg(y, [x])).n_observations, (negbinom_fit_agg(y, [x])).coefficients[1] BETWEEN 0.0 AND 1.0
+FROM big_glm;
+----
+250	true
+
+query II
+SELECT (poisson_fit_agg(y, [x])).n_observations, (poisson_fit_agg(y, [x])).coefficients[1] BETWEEN 0.0 AND 1.0
+FROM big_glm;
+----
+250	true
+
+# 1000 rows, 4 features, deterministic pseudo-random design.
+statement ok
+CREATE TABLE glm_wide AS
+SELECT i,
+       x1, x2, x3, x4,
+       -- counts ~ exp(0.3 + 0.2 x1 - 0.3 x2 + 0.1 x3), rounded with a deterministic jitter
+       ROUND(EXP(0.3 + 0.2 * x1 - 0.3 * x2 + 0.1 * x3) + u1 * 2.0)::DOUBLE AS cnt,
+       EXP(0.5 + 0.1 * x1 - 0.2 * x2 + 0.05 * x4) * (0.5 + u1) AS pos,
+       ((0.8 * x1 - 0.5 * x2 + 0.3 * x3 + (u1 - 0.5) * 3.0) > 4.0)::INT::DOUBLE AS bin
+FROM (
+    SELECT i,
+           ((hash(i * 8 + 1) % 1000003) / 1000003.0) * 10.0 AS x1,
+           ((hash(i * 8 + 2) % 1000003) / 1000003.0) * 4.0 - 2.0 AS x2,
+           ((hash(i * 8 + 3) % 1000003) / 1000003.0) * 3.0 AS x3,
+           ((hash(i * 8 + 4) % 1000003) / 1000003.0) * 2.0 - 1.0 AS x4,
+           ((hash(i * 8 + 5) % 1000003) / 1000003.0) AS u1
+    FROM range(0, 1000) r(i)
+);
+
+foreach rows 200 500 1000
+
+query I
+SELECT (poisson_fit_agg(cnt, [x1, x2, x3, x4])).n_observations = ${rows} FROM glm_wide WHERE i < ${rows};
+----
+true
+
+query I
+SELECT (negbinom_fit_agg(cnt, [x1, x2, x3, x4])).n_observations = ${rows} FROM glm_wide WHERE i < ${rows};
+----
+true
+
+query I
+SELECT (tweedie_fit_agg(pos, [x1, x2, x3, x4], {'power': 1.5})).n_observations = ${rows} FROM glm_wide WHERE i < ${rows};
+----
+true
+
+query I
+SELECT (gamma_fit_agg(pos, [x1, x2, x3, x4])).n_observations = ${rows} FROM glm_wide WHERE i < ${rows};
+----
+true
+
+query I
+SELECT (binomial_fit_agg(bin, [x1, x2, x3, x4])).n_observations = ${rows} FROM glm_wide WHERE i < ${rows};
+----
+true
+
+query I
+SELECT (logistic_fit_agg(bin, [x1, x2, x3, x4])).n_observations = ${rows} FROM glm_wide WHERE i < ${rows};
+----
+true
+
+endloop
+
+# The fits are meaningful, not just non-crashing: signs of the true effects.
+query IIIII
+SELECT (poisson_fit_agg(cnt, [x1, x2, x3, x4])).coefficients[1] > 0,
+       (poisson_fit_agg(cnt, [x1, x2, x3, x4])).coefficients[2] < 0,
+       (gamma_fit_agg(pos, [x1, x2, x3, x4])).coefficients[2] < 0,
+       (tweedie_fit_agg(pos, [x1, x2, x3, x4], {'power': 1.5})).coefficients[1] > 0,
+       (binomial_fit_agg(bin, [x1, x2, x3, x4])).coefficients[1] > 0
+FROM glm_wide;
+----
+true	true	true	true	true
+
+# Per-group GLM fits of the blocked size, through GROUP BY and the _by macro.
+statement ok
+CREATE TABLE glm_groups AS SELECT i % 3 AS g, * FROM glm_wide;
+
+query II
+SELECT g, (poisson_fit_agg(cnt, [x1, x2, x3, x4])).n_observations FROM glm_groups GROUP BY g ORDER BY g;
+----
+0	334
+1	333
+2	333
+
+query I
+SELECT count(*) FILTER (WHERE yhat IS NOT NULL AND isfinite(yhat))
+FROM poisson_fit_predict_by('glm_groups', g, cnt, [x1, x2, x3, x4]);
+----
+1000
