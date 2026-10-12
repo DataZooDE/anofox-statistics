@@ -290,7 +290,7 @@ void RegisterPathMacros(ExtensionLoader &loader) {
 		             : string("one row per index value and term in the `terms` schema: the group column, model_id, "
 		                      "term, estimate, std_error, statistic, p_value, conf_low, conf_high, conf_level, "
 		                      "index_name ('") +
-		                   (string(m.agg) == "quantile_process" ? "tau" : "lambda") +
+		                   (string(m.agg) == "quantile_process" ? "tau" : string(m.agg) == "lars_path" ? "alpha" : "lambda") +
 		                   "'), index_value. names := [...] labels the terms.");
 		vector<pair<string, string>> named = {{"options", "NULL"}};
 		if (!m.curve) {

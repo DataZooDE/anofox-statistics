@@ -70,13 +70,13 @@ SELECT elasticnet_path_agg(NULL::DOUBLE, [x1, x2]) IS NULL FROM d;
 ----
 true
 
-# LARS: lasso path by default; ends at least squares, starts with all slopes 0
-query III
-SELECT r[1].estimate = (SELECT avg(y) FROM d), r[2].estimate = 0,
+# LARS: lasso path by default; ends at least squares, starts with all slopes 0; indexed by alpha
+query IIII
+SELECT r[1].index_name, r[1].estimate = (SELECT avg(y) FROM d), r[2].estimate = 0,
        abs(r[len(r) - 1].estimate - (SELECT (ols_fit_agg(y, [x1, x2])).coefficients[1] FROM d)) < 1e-8
 FROM (SELECT lars_path_agg(y, [x1, x2], {'standardize': false}) AS r FROM d);
 ----
-true	true	true
+alpha	true	true	true
 
 # CV curve: one row per lambda, curve_type 'lambda_cv', one minimum and one 1-SE lambda
 query IIIIII

@@ -14,7 +14,8 @@ Breaking changes are called out explicitly.
 
 - Regularisation paths and cross-validation (#154): `ridge_path_agg`,
   `elasticnet_path_agg` and `lars_path_agg` return the coefficient path as
-  `terms` rows (`index_name = 'lambda'`), glmnet's Gaussian objective and default
+  `terms` rows (`index_name = 'lambda'`; `'alpha'` on upstream's LARS scale for
+  `lars_path_agg`), glmnet's Gaussian objective and default
   grid (`lambdas`, `n_lambda`, `lambda_min_ratio`, `standardize`, `l1_ratio`);
   `ridge_cv_agg` / `elasticnet_cv_agg` return the k-fold CV curve as `curve` rows
   (`curve_type = 'lambda_cv'`: `cv_mean`, `cv_se`, `is_min`, `is_1se`, as
@@ -363,8 +364,9 @@ Breaking changes are called out explicitly.
 
 ### Fixed
 
-- `quantile_fit_agg` / `quantile_fit_predict_agg` with `{'fit_intercept': false}`
-  fitted with an intercept and dropped it; the fit now has no intercept.
+- `quantile_fit_agg` (and `quantile_fit_predict_agg`) now honours
+  `fit_intercept = false` (previously ignored: it fitted with an intercept and
+  dropped it).
 - `t_test`, `one_way_anova`, `brown_forsythe` and `yuen` on constant data no longer
   abort with an internal error (fixed upstream in `anofox-statistics` 0.4.3); they
   return a NaN p-value.

@@ -1,7 +1,8 @@
 // Coefficient paths, cross-validation curves and the regression-quantile process.
 //
 //   ridge_path_agg / elasticnet_path_agg / lars_path_agg (#154) -> LIST of `terms`
-//     rows, one per lambda and term: index_name 'lambda', index_value the penalty.
+//     rows, one per lambda and term: index_name 'lambda', index_value the penalty
+//     (LARS: index_name 'alpha', upstream's LARS scale, one row per knot and term).
 //   ridge_cv_agg / elasticnet_cv_agg (#154) -> LIST of `curve` rows, curve_type
 //     'lambda_cv': x = lambda, y = cv_mean, y_low / y_high = cv_mean -/+ cv_se, with
 //     lambda, cv_mean, cv_se, n_nonzero, is_min, is_1se.
@@ -187,13 +188,15 @@ void WritePath(const PathBindData &bind, const AnofoxRegPathResult &path, Vector
 	idx_t out = ReserveRows(result, row, path.n_lambda * per);
 	TermsWriter w(result);
 	const double nan = std::numeric_limits<double>::quiet_NaN();
+	// The LARS knots are upstream's alpha, not glmnet's lambda.
+	const char *index_name = bind.kind == PathKind::LARS_PATH ? "alpha" : "lambda";
 	for (idx_t l = 0; l < path.n_lambda; l++) {
 		double lambda = path.lambdas[l];
 		if (bind.fit_intercept) {
-			w.Write(out++, "(Intercept)", path.intercepts[l], nan, nan, nan, nan, nan, nan, "lambda", lambda);
+			w.Write(out++, "(Intercept)", path.intercepts[l], nan, nan, nan, nan, nan, nan, index_name, lambda);
 		}
 		for (idx_t j = 0; j < p; j++) {
-			w.Write(out++, TermName(bind, j), path.coefficients[l * p + j], nan, nan, nan, nan, nan, nan, "lambda",
+			w.Write(out++, TermName(bind, j), path.coefficients[l * p + j], nan, nan, nan, nan, nan, nan, index_name,
 			        lambda);
 		}
 	}
@@ -511,7 +514,7 @@ void RegisterPathAggregateFunctions(ExtensionLoader &loader) {
 	    "elasticnet_path_agg(y, [x1, x2], {'l1_ratio': 0.5, 'lambdas': [1.0, 0.1, 0.01]})");
 	RegisterPath<PathKind::LARS_PATH>(
 	    loader,
-	    "LARS / Lasso-LARS coefficient path per group, one entry per knot (index_name 'lambda', index_value the "
+	    "LARS / Lasso-LARS coefficient path per group, one entry per knot (index_name 'alpha', index_value the "
 	    "knot's alpha = max_j |x_j'(y - yhat)| on the centred design, columns scaled to unit norm with "
 	    "standardize; this is n * glmnet's lambda without standardize and sqrt(n) * lambda with it). Options: "
 	    "method ('lasso' default, 'lar'), standardize (true), n_nonzero_coefs, fit_intercept, feature_names.",

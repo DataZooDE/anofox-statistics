@@ -242,6 +242,7 @@ for (std in c(FALSE, TRUE)) {
     sprintf("# %d knots read from the extension (%s).", length(knots), paste(signif(knots, 6), collapse = ", ")),
     sprintf("# The first knot is max|x~'(y - mean(y))| with all coefficients 0; the coefficients at every knot are the lasso solution at lambda = alpha / %s (glmnet objective, alpha = 1, standardize = %s, coordinate descent); the last knot is coef(lm(y ~ x)).", if (std) "sqrt(n)" else "n", std), "")
   L <- c(L, checks("first knot: alpha_max", src, "r[1].index_value", amax, 1e-10))
+  L <- c(L, "query I", sprintf("SELECT DISTINCT e.index_name FROM (SELECT unnest(r) AS e FROM %s);", src), "----", "alpha", "")
   L <- c(L, checks("lasso solution at every knot", src,
     unlist(lapply(seq_along(inner), function(l) c(el(l, 0), sapply(1:P, function(j) el(l, j))))),
     unlist(lapply(seq_along(inner), function(l) c(lasso_at$a0[l], lasso_at$beta[, l]))), 1e-6))

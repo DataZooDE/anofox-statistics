@@ -143,7 +143,7 @@ fitted model struct).
 | `ols_augment_by`, `wls_augment_by`, `<glm>_augment_by` | Per-row fitted values, residuals, leverage, Cook's distance, DFFITS (`obs`) | [Per-observation diagnostics](#per-observation-diagnostics-ols_augment_by--wls_augment_by) |
 | `predict(model, x, {'se_fit', 'interval', 'level'})` | Prediction with standard error and confidence / prediction interval from the model's `vcov` (OLS, WLS, Ridge, GLMs) | [Model tools](api/regression/model_tools.md#standard-errors-and-intervals) |
 | `<model>_partial_residuals_by`, `<model>_partial_residuals_agg` | Partial-residual (crPlots) and added-variable (avPlots) coordinates for OLS, WLS and the GLMs | [Model tools](api/regression/model_tools.md#partial_residuals_by) |
-| `ridge_path_agg`, `elasticnet_path_agg`, `lars_path_agg`, `<model>_path_by` | Coefficient path over lambda (`terms`, `index_name = 'lambda'`) | [Regularisation paths](api/regression/paths.md) |
+| `ridge_path_agg`, `elasticnet_path_agg`, `lars_path_agg`, `<model>_path_by` | Coefficient path over lambda (`terms`, `index_name = 'lambda'`; LARS: `'alpha'`) | [Regularisation paths](api/regression/paths.md) |
 | `ridge_cv_agg`, `elasticnet_cv_agg`, `<model>_cv_by` | k-fold CV curve over lambda (`curve`, `curve_type = 'lambda_cv'`) | [Regularisation paths](api/regression/paths.md) |
 | `quantile_process_agg`, `quantile_process_by` | Quantile process: one quantile fit per tau with inference (`terms`, `index_name = 'tau'`) | [Quantile](api/regression/quantile.md#quantile_process_agg) |
 | `vif`, `vif_agg` | Variance inflation factors | [Diagnostics](api/diagnostics/diagnostics.md) |

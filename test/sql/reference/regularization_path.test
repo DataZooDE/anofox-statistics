@@ -731,6 +731,11 @@ FROM (SELECT lars_path_agg(y, [x1, x2, x3, x4], {'standardize': false}) AS r FRO
 ----
 true
 
+query I
+SELECT DISTINCT e.index_name FROM (SELECT unnest(r) AS e FROM (SELECT lars_path_agg(y, [x1, x2, x3, x4], {'standardize': false}) AS r FROM d3) s);
+----
+alpha
+
 # lasso solution at every knot
 query IIIIII
 SELECT
@@ -802,6 +807,11 @@ SELECT
 FROM (SELECT lars_path_agg(y, [x1, x2, x3, x4], {'standardize': true}) AS r FROM d3) s;
 ----
 true
+
+query I
+SELECT DISTINCT e.index_name FROM (SELECT unnest(r) AS e FROM (SELECT lars_path_agg(y, [x1, x2, x3, x4], {'standardize': true}) AS r FROM d3) s);
+----
+alpha
 
 # lasso solution at every knot
 query IIIIII

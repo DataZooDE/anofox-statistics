@@ -4,7 +4,7 @@ Ridge, Elastic Net and LARS fits return one solution. Choosing the penalty needs
 the coefficient path over a grid of penalties and a cross-validation curve
 (`glmnet`'s `plot(fit)` and `plot(cv.glmnet(...))`). These functions return both
 in the long shapes of the integration contract: the path as `terms` rows with
-`index_name = 'lambda'`, the CV curve as `curve` rows with
+`index_name = 'lambda'` (`'alpha'` for LARS, see below), the CV curve as `curve` rows with
 `curve_type = 'lambda_cv'`.
 
 | Function | Type | Returns |
@@ -89,7 +89,9 @@ lars_path_agg(y DOUBLE, x DOUBLE[] [, options]) -> STRUCT(...)[]
 
 The LARS (`'method': 'lar'`) or Lasso-LARS (`'lasso'`, the default) path, one
 entry per knot, from `FittedLars::path`. The first knot has all slopes 0, the
-last is the least-squares fit. `index_value` is upstream's `alpha` at the knot:
+last is the least-squares fit. `index_name` is `'alpha'` and `index_value` is
+upstream's `alpha` at the knot (not glmnet's `lambda`, so do not overlay it on a
+ridge / elastic-net path without rescaling):
 `max_j |x_j'(y − ŷ)|` on the centred design (columns scaled to unit norm with
 `standardize`). It is `n · λ` of the glmnet objective above without
 `standardize` and `sqrt(n) · λ` with it. Options: `method`, `standardize`
@@ -146,7 +148,7 @@ WHERE c.is_min OR c.is_1se;
 
 `ridge_path_by`, `elasticnet_path_by`, `lars_path_by(source, group_col, y_col, x_cols [, options := ..., names := [...]])`
 return the group column, `model_id` and the `terms` columns (the same columns as
-`<model>_tidy_by`). `ridge_cv_by` and `elasticnet_cv_by(source, group_col, y_col, x_cols [, options := ...])`
+`<model>_tidy_by`; `index_name` is `'lambda'`, `'alpha'` for LARS). `ridge_cv_by` and `elasticnet_cv_by(source, group_col, y_col, x_cols [, options := ...])`
 return the group column, `model_id` and the `curve` columns `curve_type, series,
 x, y, y_low, y_high, threshold, weight, n_censor` (the optional ones NULL) plus
 `lambda, cv_mean, cv_se, n_nonzero, is_min, is_1se, n_folds`. All five are
