@@ -58,6 +58,7 @@ static const struct {
     {"t_test_agg", "test"}, {"wilcoxon_signed_rank_agg", "test"}, {"yuen_agg", "test"},
     {"pairwise_t_test_agg", "test"}, {"tukey_hsd_agg", "test"}, {"dunn_test_agg", "test"},
     {"pairwise_t_test_by", "test"}, {"tukey_hsd_by", "test"}, {"dunn_test_by", "test"},
+    {"roc_curve_by", "curve"}, {"pr_curve_by", "curve"}, {"calibration_curve_by", "curve"},
     {nullptr, nullptr}
 };
 // clang-format on

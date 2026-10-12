@@ -11,6 +11,7 @@ that run on every CI build. There are no separate validation runs to do by hand.
 | `validation/generators/make_reference_tests.R` | Reference values for hypothesis tests, normality, correlation, categorical and proportion tests (base R). |
 | `validation/generators/make_reference_tests.py` | Reference values only scipy provides (`normaltest`, `brunnermunzel`, `kendalltau`, ...). |
 | `validation/generators/make_reference_regression.R` | Reference values for OLS/WLS (inference, HC1/HC3, intervals), GLMs, quantile, AFT and GLMM. |
+| `validation/generators/make_reference_classification.{py,R}` | Reference values for the classifier curves and metrics (#153): scikit-learn and R `pROC` / `prop.test`. |
 | `test/sql/reference/*.test` | The sqllogictests that hold those values. Each value carries a comment naming the R/scipy call that produced it. |
 
 Each generator builds small fixed datasets (the same ones inlined in the `.test`
@@ -22,6 +23,8 @@ numbers to full precision.
 ```bash
 Rscript validation/generators/make_reference_tests.R
 python3 validation/generators/make_reference_tests.py
+uv run --no-project --with scikit-learn python3 validation/generators/make_reference_classification.py
+Rscript validation/generators/make_reference_classification.R
 Rscript validation/generators/make_reference_regression.R
 ```
 

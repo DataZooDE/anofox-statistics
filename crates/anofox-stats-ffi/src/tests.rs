@@ -1234,3 +1234,82 @@ fn glm_augment_round_trip_predicts_held_out_rows() {
         assert_eq!(e.code, ErrorCode::InvalidInput);
     }
 }
+
+// ---------------------------------------------------------------------------
+// Classifier evaluation curves (#153)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn classifier_curves_round_trip() {
+    let s = [0.1, 0.4, 0.35, 0.8];
+    let y = [0.0, 0.0, 1.0, 1.0];
+    let mut e = err();
+    unsafe {
+        let mut out = ClassifierCurveFFI::default();
+        assert!(anofox_roc_curve(arr(&s), arr(&y), false, &mut out, &mut e));
+        assert_eq!(out.len, 5);
+        assert!((*out.threshold).is_infinite());
+        assert_eq!(*out.x.add(4), 1.0);
+        assert!(out.y_low.is_null() && out.bin.is_null());
+        anofox_free_classifier_curve(&mut out);
+        anofox_free_classifier_curve(&mut out);
+
+        let mut out = ClassifierCurveFFI::default();
+        assert!(anofox_pr_curve(arr(&s), arr(&y), &mut out, &mut e));
+        assert_eq!(out.len, 5);
+        // The final (recall 0, precision 1) point has no threshold.
+        assert!((*out.threshold.add(4)).is_nan());
+        assert_eq!((*out.x.add(4), *out.y.add(4)), (0.0, 1.0));
+        anofox_free_classifier_curve(&mut out);
+
+        let mut out = ClassifierCurveFFI::default();
+        assert!(anofox_calibration_curve(
+            arr(&s),
+            arr(&y),
+            2,
+            0.95,
+            &mut out,
+            &mut e
+        ));
+        assert_eq!(out.len, 2);
+        assert_eq!((*out.bin, *out.n), (0, 3));
+        assert!(*out.y_low <= *out.y && *out.y <= *out.y_high);
+        anofox_free_classifier_curve(&mut out);
+
+        let mut v = f64::NAN;
+        assert!(anofox_classifier_metric(
+            ClassifierMetricFFI::Auc,
+            arr(&s),
+            arr(&y),
+            &mut v,
+            &mut e
+        ));
+        assert!((v - 0.75).abs() < 1e-15);
+        // One class only: degenerate.
+        assert!(!anofox_classifier_metric(
+            ClassifierMetricFFI::Auc,
+            arr(&s),
+            arr(&[1.0; 4]),
+            &mut v,
+            &mut e
+        ));
+        assert_eq!(e.code, ErrorCode::InsufficientData);
+        // A probability outside [0, 1] is an input error.
+        assert!(!anofox_classifier_metric(
+            ClassifierMetricFFI::Brier,
+            arr(&[1.5]),
+            arr(&[1.0]),
+            &mut v,
+            &mut e
+        ));
+        assert_eq!(e.code, ErrorCode::InvalidInput);
+        assert!(!anofox_roc_curve(
+            arr(&s),
+            arr(&y),
+            true,
+            ptr::null_mut(),
+            &mut e
+        ));
+        assert_eq!(e.code, ErrorCode::InvalidInput);
+    }
+}

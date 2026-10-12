@@ -30,6 +30,7 @@ passed through and the prediction columns appended.
 | `eb_shrink_by` | `eb_shrink_agg` | one row per input row (shrunken estimates) |
 | `aid_by` | `aid_agg` | one row per group (demand classification) |
 | `aid_anomaly_by` | `aid_anomaly_agg` | one row per input row (anomaly flags) |
+| `roc_curve_by`, `pr_curve_by`, `calibration_curve_by` | `roc_agg`, `pr_agg`, `calibration_agg` | one row per curve point (`curve` schema, see [Classification](../statistics/classification.md)) |
 
 ## Common interface of the *_fit_predict_by macros
 
