@@ -163,6 +163,8 @@ void LoadInternal(ExtensionLoader &loader) {
 
     // Forecast tests
     RegisterDieboldMarianoAggregateFunction(loader);
+    RegisterTimeSeriesDiagnosticsAggregateFunctions(loader);
+    RegisterSurvivalAggregateFunctions(loader);
     RegisterClarkWestAggregateFunction(loader);
 
     // Resampling tests
@@ -224,6 +226,7 @@ void LoadInternal(ExtensionLoader &loader) {
     // <model>_tidy_by / <model>_glance_by (#152)
     RegisterModelOutputMacros(loader);
     RegisterPosthocMacros(loader);
+    RegisterCurveMacros(loader);
 
     RegisterContractVersionFunction(loader);
     ApplyContractTags(loader, preexisting);

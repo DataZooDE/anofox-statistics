@@ -509,7 +509,151 @@ static void AftQuantileFunctionImpl(DataChunk &args, ExpressionState &state, Vec
 	});
 }
 
+//===--------------------------------------------------------------------===//
+// aft_survival(model, x, times) -> [{time, surv}] (#156)
+//
+// S(t | x) of the fitted model that aft_fit_agg returns, at each of `times`, for
+// the covariate row `x` (R psurvreg(t, eta, scale, dist, lower.tail = FALSE)).
+//===--------------------------------------------------------------------===//
+static LogicalType AftSurvivalResultType() {
+	child_list_t<LogicalType> children;
+	children.push_back(make_pair("time", LogicalType::DOUBLE));
+	children.push_back(make_pair("surv", LogicalType::DOUBLE));
+	return LogicalType::LIST(LogicalType::STRUCT(std::move(children)));
+}
+
+static const Value *AftModelField(const child_list_t<Value> &fields, const char *name) {
+	for (auto &f : fields) {
+		if (f.first == name) {
+			return &f.second;
+		}
+	}
+	return nullptr;
+}
+
+static unique_ptr<FunctionData> AftSurvivalBind(ClientContext &, ScalarFunction &bound_function,
+                                                vector<unique_ptr<Expression>> &arguments) {
+	auto &type = arguments[0]->return_type;
+	if (type.id() != LogicalTypeId::STRUCT) {
+		throw InvalidInputException("aft_survival: model must be the STRUCT returned by aft_fit_agg");
+	}
+	for (auto name : {"coefficients", "intercept", "scale", "family"}) {
+		bool found = false;
+		for (auto &child : StructType::GetChildTypes(type)) {
+			found = found || child.first == name;
+		}
+		if (!found) {
+			throw InvalidInputException("aft_survival: model has no '%s' field; pass the STRUCT returned by "
+			                            "aft_fit_agg",
+			                            string(name));
+		}
+	}
+	bound_function.arguments[0] = type;
+	return nullptr;
+}
+
+static vector<double> DoubleListValue(const Value &v) {
+	vector<double> out;
+	for (auto &child : ListValue::GetChildren(v)) {
+		out.push_back(child.IsNull() ? NAN : child.GetValue<double>());
+	}
+	return out;
+}
+
+static void AftSurvivalFunctionImpl(DataChunk &args, ExpressionState &state, Vector &result) {
+	const idx_t count = args.size();
+	result.SetVectorType(VectorType::FLAT_VECTOR);
+	ListVector::SetListSize(result, 0);
+	auto list_data = FlatVector::GetData<list_entry_t>(result);
+	auto &mask = FlatVector::Validity(result);
+
+	for (idx_t i = 0; i < count; i++) {
+		auto model = args.data[0].GetValue(i);
+		auto x_value = args.data[1].GetValue(i);
+		auto times_value = args.data[2].GetValue(i);
+		if (model.IsNull() || x_value.IsNull() || times_value.IsNull()) {
+			mask.SetInvalid(i);
+			continue;
+		}
+		auto &fields = StructValue::GetChildren(model);
+		auto &model_type = model.type();
+		child_list_t<Value> named;
+		for (idx_t f = 0; f < fields.size(); f++) {
+			named.push_back(make_pair(StructType::GetChildName(model_type, f), fields[f]));
+		}
+		auto coef_v = AftModelField(named, "coefficients");
+		auto scale_v = AftModelField(named, "scale");
+		auto family_v = AftModelField(named, "family");
+		auto intercept_v = AftModelField(named, "intercept");
+		if (coef_v->IsNull() || scale_v->IsNull() || family_v->IsNull()) {
+			mask.SetInvalid(i);
+			continue;
+		}
+		auto coefficients = DoubleListValue(*coef_v);
+		auto x = DoubleListValue(x_value);
+		auto times = DoubleListValue(times_value);
+		if (x.size() != coefficients.size()) {
+			throw InvalidInputException("aft_survival: x has %llu values but the model has %llu coefficients",
+			                            (unsigned long long)x.size(), (unsigned long long)coefficients.size());
+		}
+		double intercept = intercept_v->IsNull() ? NAN : intercept_v->GetValue<double>();
+		vector<double> surv(times.size());
+		anofox_aft_survival(coefficients.data(), coefficients.size(), intercept, scale_v->GetValue<double>(),
+		                    ParseAftDistName(family_v->ToString()), x.data(), times.data(), times.size(),
+		                    surv.data());
+
+		auto n = static_cast<idx_t>(times.size());
+		auto offset = ListVector::GetListSize(result);
+		ListVector::Reserve(result, offset + n);
+		auto &entries = StructVector::GetEntries(ListVector::GetEntry(result));
+		for (idx_t k = 0; k < n; k++) {
+			auto out = offset + k;
+			if (std::isnan(times[k])) {
+				FlatVector::SetNull(*entries[0], out, true);
+			} else {
+				FlatVector::GetData<double>(*entries[0])[out] = times[k];
+			}
+			if (std::isnan(surv[k])) {
+				FlatVector::SetNull(*entries[1], out, true);
+			} else {
+				FlatVector::GetData<double>(*entries[1])[out] = surv[k];
+			}
+		}
+		ListVector::SetListSize(result, offset + n);
+		list_data[i] = list_entry_t(offset, n);
+	}
+}
+
+// Constant inputs must yield a CONSTANT_VECTOR (DuckDB constant folding
+// asserts this in debug builds).
+static void AftSurvivalFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+	const bool all_constant = args.AllConstant();
+	AftSurvivalFunctionImpl(args, state, result);
+	if (all_constant) {
+		result.SetVectorType(VectorType::CONSTANT_VECTOR);
+	}
+}
+
 void RegisterAftScalarFunctions(ExtensionLoader &loader) {
+	ScalarFunction survival("aft_survival",
+	                        {LogicalType::ANY, LogicalType::LIST(LogicalType::DOUBLE),
+	                         LogicalType::LIST(LogicalType::DOUBLE)},
+	                        AftSurvivalResultType(), AftSurvivalFunction, AftSurvivalBind);
+	{
+		CreateScalarFunctionInfo info(survival);
+		FunctionDescription d;
+		d.description = "Model-based survival curve S(t | x) of a fitted AFT model (the STRUCT returned by "
+		                "aft_fit_agg) for the covariate row x, at each of times (R psurvreg(t, eta, scale, dist, "
+		                "lower.tail = FALSE)): one {time, surv} per time.";
+		d.examples = {"aft_survival(m, [1.0, 0.5], [1, 5, 10, 20])"};
+		d.categories = {"survival"};
+		d.parameter_names = {"model", "x", "times"};
+		d.parameter_types = {LogicalType::ANY, LogicalType::LIST(LogicalType::DOUBLE),
+		                     LogicalType::LIST(LogicalType::DOUBLE)};
+		info.descriptions.push_back(std::move(d));
+		loader.RegisterFunction(std::move(info));
+	}
+
 	ScalarFunction cdf("aft_cdf",
 	                   {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::VARCHAR},
 	                   LogicalType::DOUBLE, AftCdfFunction);

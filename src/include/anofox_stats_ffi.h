@@ -2818,6 +2818,83 @@ bool anofox_tweedie_augment(AnofoxDataArray y, const AnofoxDataArray *x, size_t 
 /** Free the arrays owned by an augment result. */
 void anofox_free_augment_result(AnofoxAugmentResult *result);
 
+/* ============================================================================
+ * Time-series residual diagnostics -- issue #155
+ * ============================================================================ */
+
+/**
+ * Sample (partial) autocorrelations. Must match AcfResultFFI. values[i] is the
+ * value at lag first_lag + i (0 for the ACF, 1 for the PACF); free with
+ * anofox_free_acf_result.
+ */
+typedef struct {
+	double conf_bound;
+	double *values;
+	size_t len;
+	size_t first_lag;
+	size_t n;
+} AnofoxAcfResult;
+
+/** ACF (R acf) or, with partial, PACF (R pacf) of x in time order; max_lag < 0 uses R's default. */
+bool anofox_autocorrelation(AnofoxDataArray x, int64_t max_lag, bool partial, AnofoxAcfResult *out_result,
+                            AnofoxError *out_error);
+void anofox_free_acf_result(AnofoxAcfResult *result);
+
+/** Ljung-Box or, with box_pierce, Box-Pierce test (R Box.test). */
+bool anofox_portmanteau(AnofoxDataArray x, size_t lag, size_t fitdf, bool box_pierce,
+                        AnofoxTestSummaryFFI *out_result, AnofoxError *out_error);
+
+/** Durbin-Watson statistic (p_value is NaN). */
+bool anofox_durbin_watson(AnofoxDataArray residuals, AnofoxTestSummaryFFI *out_result, AnofoxError *out_error);
+
+/** Breusch-Pagan test (R lmtest::bptest; studentize is its default). */
+bool anofox_breusch_pagan(AnofoxDataArray residuals, const AnofoxDataArray *x, size_t x_count, bool studentize,
+                          AnofoxTestSummaryFFI *out_result, AnofoxError *out_error);
+
+/** White's test: Breusch-Pagan on x, its squares and cross-products. */
+bool anofox_white_test(AnofoxDataArray residuals, const AnofoxDataArray *x, size_t x_count,
+                       AnofoxTestSummaryFFI *out_result, AnofoxError *out_error);
+
+/* ============================================================================
+ * Survival curves -- issue #156
+ * ============================================================================ */
+
+/**
+ * Kaplan-Meier curve, one entry per distinct observed time. Must match
+ * KaplanMeierResultFFI. Every array has len elements; std_err, conf_low and
+ * conf_high are NaN where R gives NA. Free with anofox_free_kaplan_meier_result.
+ */
+typedef struct {
+	double conf_level;
+	double *time;
+	double *survival;
+	double *std_err;
+	double *conf_low;
+	double *conf_high;
+	uint64_t *n_risk;
+	uint64_t *n_event;
+	uint64_t *n_censor;
+	size_t len;
+	size_t n;
+} AnofoxKaplanMeierResult;
+
+/** Kaplan-Meier (R survfit); event non-zero = observed; conf_type 0 log, 1 log-log, 2 plain. */
+bool anofox_kaplan_meier(AnofoxDataArray time, AnofoxDataArray event, int32_t conf_type, double conf_level,
+                         AnofoxKaplanMeierResult *out_result, AnofoxError *out_error);
+void anofox_free_kaplan_meier_result(AnofoxKaplanMeierResult *result);
+
+/** Log-rank test (R survdiff); groups holds time.len group codes. */
+bool anofox_log_rank(AnofoxDataArray time, AnofoxDataArray event, const uint64_t *groups,
+                     AnofoxTestSummaryFFI *out_result, AnofoxError *out_error);
+
+/**
+ * S(t | x) of a fitted AFT model at n_times times into out_survival (R psurvreg,
+ * lower.tail = FALSE). intercept NaN = no intercept; x has n_coefficients values.
+ */
+bool anofox_aft_survival(const double *coefficients, size_t n_coefficients, double intercept, double scale,
+                         AnofoxAftDistribution dist, const double *x, const double *times, size_t n_times,
+                         double *out_survival);
+
 #ifdef __cplusplus
 }
 #endif

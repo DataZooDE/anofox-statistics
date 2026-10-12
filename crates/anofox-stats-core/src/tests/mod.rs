@@ -13,6 +13,8 @@ pub mod nonparametric;
 pub mod parametric;
 pub mod posthoc;
 pub mod resampling;
+pub mod survival;
+pub mod timeseries;
 
 // Re-export common types from anofox-tests
 pub use anofox_tests::Alternative;
@@ -168,6 +170,7 @@ fn is_degenerate_data_message(msg: &str) -> bool {
         "empty cell",
         "limited to n <=",
         "non-finite value",
+        "all residuals are zero",
     ]
     .iter()
     .any(|needle| lower.contains(needle))

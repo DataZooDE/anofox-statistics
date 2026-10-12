@@ -158,7 +158,62 @@ string PosthocSql(const PosthocMacro &m) {
 	       "ORDER BY group_col, _i";
 }
 
+// Curve producers (#155, #156): one row per curve point in the integration
+// contract's `curve` schema: model_id, series, curve_type, x, y, y_low, y_high,
+// threshold, weight, n_censor (NULL where they do not apply).
+string AcfCurveSql(const char *agg, const char *curve_type, const char *field) {
+	return "SELECT group_col, group_col::VARCHAR AS model_id, NULL::VARCHAR AS series, '" + string(curve_type) +
+	       "' AS curve_type, (_r).lag::DOUBLE AS x, (_r)." + field +
+	       " AS y, (_r).conf_low AS y_low, (_r).conf_high AS y_high, NULL::DOUBLE AS threshold, "
+	       "NULL::DOUBLE AS weight, NULL::BIGINT AS n_censor "
+	       "FROM (SELECT group_col, unnest(" +
+	       agg +
+	       "(value_col::DOUBLE, max_lag ORDER BY order_col)) AS _r FROM query_table(source::VARCHAR) "
+	       "GROUP BY group_col) ORDER BY group_col, x";
+}
+
+const char *const KAPLAN_MEIER_BY_SQL =
+    "SELECT strata_col, strata_col::VARCHAR AS model_id, strata_col::VARCHAR AS series, 'km' AS curve_type, "
+    "(_r).time AS x, (_r).surv AS y, (_r).conf_low AS y_low, (_r).conf_high AS y_high, NULL::DOUBLE AS threshold, "
+    "(_r).n_risk::DOUBLE AS weight, (_r).n_censor AS n_censor, (_r).n_risk AS n_risk, (_r).n_event AS n_event, "
+    "(_r).std_err AS std_err "
+    "FROM (SELECT strata_col, unnest(kaplan_meier_agg(time_col::DOUBLE, event_col, conf_level, conf_type)) AS _r "
+    "FROM query_table(source::VARCHAR) GROUP BY strata_col) ORDER BY strata_col, x";
+
 } // namespace
+
+void RegisterCurveMacros(ExtensionLoader &loader) {
+	struct AcfMacro {
+		const char *name;
+		const char *agg;
+		const char *curve_type;
+		const char *label;
+	};
+	const AcfMacro acf_macros[] = {{"acf_by", "acf_agg", "acf", "sample autocorrelation function (R acf)"},
+	                               {"pacf_by", "pacf_agg", "pacf", "sample partial autocorrelation function (R pacf)"}};
+	for (auto &m : acf_macros) {
+		auto macro = CreateTableMacro(
+		    m.name, {"source", "group_col", "value_col", "order_col"}, {{"max_lag", "NULL"}},
+		    AcfCurveSql(m.agg, m.curve_type, m.curve_type),
+		    "Table macro: the " + string(m.label) + " of value_col ordered by order_col within each group of source, "
+		    "one row per lag (the integration contract's `curve` schema, curve_type '" + m.curve_type +
+		        "'): the group column, model_id, series, curve_type, x (lag), y, y_low / y_high (95% white-noise "
+		        "band), threshold, weight, n_censor. max_lag defaults to R's floor(10 log10 n).",
+		    string(m.name) + "('residuals', store, resid, t, max_lag := 12)", {"time-series", "diagnostics", "table-macro"});
+		loader.RegisterFunction(*macro);
+	}
+
+	auto km = CreateTableMacro(
+	    "kaplan_meier_by", {"source", "strata_col", "time_col", "event_col"},
+	    {{"conf_level", "0.95"}, {"conf_type", "'log'"}}, KAPLAN_MEIER_BY_SQL,
+	    "Table macro: one Kaplan-Meier curve per stratum of source (R survfit(Surv(time, event) ~ strata)), one row "
+	    "per distinct time (the integration contract's `curve` schema, curve_type 'km', series = stratum): the "
+	    "stratum column, model_id, series, curve_type, x (time), y (survival), y_low / y_high (pointwise interval), "
+	    "threshold, weight (number at risk), n_censor, then n_risk, n_event and std_err.",
+	    "kaplan_meier_by('patients', treatment, duration, event, conf_type := 'log-log')",
+	    {"survival", "table-macro"});
+	loader.RegisterFunction(*km);
+}
 
 void RegisterPosthocMacros(ExtensionLoader &loader) {
 	for (auto &m : POSTHOC_MACROS) {

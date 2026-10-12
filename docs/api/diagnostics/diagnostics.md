@@ -205,6 +205,7 @@ FROM (VALUES (1.0, 1.1, 1.0), (2.0, 1.9, 2.0), (3.0, 3.2, 3.0),
 
 ## See Also
 
+- [Time-series diagnostics](timeseries.md) - ACF/PACF, Ljung-Box, Durbin-Watson, Breusch-Pagan, White
 - [OLS](../regression/ols.md) - Standard regression
 - [Ridge](../regression/ridge.md) - Regularization for multicollinearity
 - [Hypothesis tests](../statistics/hypothesis.md) - Statistical tests
