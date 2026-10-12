@@ -241,6 +241,15 @@ struct RegressionMapOptions {
 	std::optional<bool> lars_lasso;           // 'method': 'lar' (false) | 'lasso' (true)
 	std::optional<int64_t> n_nonzero_coefs;  // Cap on non-zero coefficients
 	std::optional<bool> standardize;         // Standardize features before fitting
+	// Regularisation paths / CV (#154)
+	std::optional<vector<double>> lambdas;   // Penalty grid (glmnet scale)
+	std::optional<uint32_t> n_lambda;        // Size of the default grid
+	std::optional<double> lambda_min_ratio;  // Smallest / largest lambda of the default grid
+	std::optional<uint32_t> folds;           // Number of CV folds
+	// Quantile inference (#157)
+	std::optional<vector<double>> taus;      // Quantiles of the process
+	std::optional<string> se_type;           // 'iid' | 'nid' | 'boot'
+	std::optional<uint32_t> n_boot;          // Bootstrap replications
 
 	/// Raw value of the context-dependent `link` key; resolved to poisson_link or
 	/// binomial_link by ParseFromValue according to the function's supported keys.

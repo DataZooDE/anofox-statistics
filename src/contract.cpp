@@ -58,6 +58,8 @@ static const struct {
     {"t_test_agg", "test"}, {"wilcoxon_signed_rank_agg", "test"}, {"yuen_agg", "test"},
     {"pairwise_t_test_agg", "test"}, {"tukey_hsd_agg", "test"}, {"dunn_test_agg", "test"},
     {"pairwise_t_test_by", "test"}, {"tukey_hsd_by", "test"}, {"dunn_test_by", "test"},
+    {"ridge_path_by", "terms"}, {"elasticnet_path_by", "terms"}, {"lars_path_by", "terms"},
+    {"quantile_process_by", "terms"}, {"ridge_cv_by", "curve"}, {"elasticnet_cv_by", "curve"},
     {nullptr, nullptr}
 };
 // clang-format on

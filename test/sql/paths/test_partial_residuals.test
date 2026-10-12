@@ -1,0 +1,91 @@
+# name: test/sql/paths/test_partial_residuals.test
+# description: <model>_partial_residuals_agg / _by (#158): layout, offsets, dropped columns, NULL rows (values: test/sql/reference/partial_residuals.test)
+# group: [paths]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE d AS SELECT range AS id, (range % 2)::INT AS g, range::DOUBLE AS x1, (range % 7)::DOUBLE AS x2, 1.0 + (range % 4) AS w,
+    (2 * range + (range % 7) + (range % 3) * 1.5 + sin(range))::DOUBLE AS y, ((range * 7 + 3) % 9)::DOUBLE AS cnt,
+    (range % 3 <> 0)::DOUBLE AS bin, 1.0 + (range % 5) / 2 + abs(sin(range)) AS pos, ln(1 + range % 3) AS lexp
+FROM range(40);
+
+# One row per input row and term
+query IIII
+SELECT count(*), count(DISTINCT row_id), list_sort(list_distinct(list(term))), count(*) FILTER (WHERE x_residual IS NULL)
+FROM ols_partial_residuals_by('d', g, y, [x1, x2]);
+----
+80	40	[x1, x2]	0
+
+# partial_residual = residual + component; the component is centred; names label the terms
+query III
+SELECT bool_and(abs(p.partial_residual - p.component - a.residual) < 1e-9), abs(sum(p.component)) < 1e-9, min(p.term)
+FROM ols_partial_residuals_by('d', g, y, [x1, x2], names := ['price', 'promo']) p
+JOIN ols_augment_by('d', g, y, [x1, x2]) a USING (row_id);
+----
+true	true	price
+
+# Frisch-Waugh-Lovell: the added-variable slope is the coefficient
+query I
+SELECT abs(sum(x_residual * y_residual) / sum(x_residual * x_residual) - (SELECT (ols_fit_agg(y, [x1, x2])).coefficients[1] FROM d WHERE g = 0)) < 1e-9
+FROM ols_partial_residuals_by('d', g, y, [x1, x2]) WHERE g = 0 AND term_index = 1;
+----
+true
+
+# WLS: the weighted added-variable slope is the WLS coefficient
+query I
+SELECT abs(sum(w * x_residual * y_residual) / sum(w * x_residual * x_residual) - (SELECT (wls_fit_agg(y, [x1, x2], w)).coefficients[2] FROM d WHERE g = 1)) < 1e-9
+FROM wls_partial_residuals_by('d', g, y, [x1, x2], w) p JOIN (SELECT row_number() OVER () AS row_id, w FROM d) USING (row_id)
+WHERE g = 1 AND term_index = 2;
+----
+true
+
+# A row with NULL y is kept with NULL residuals; its x is still reported
+statement ok
+CREATE VIEW d_null AS SELECT g, x1, x2, CASE WHEN id = 4 THEN NULL ELSE y END AS y FROM d ORDER BY id;
+
+query IIII
+SELECT count(*), bool_and(partial_residual IS NULL), bool_and(x_residual IS NULL), min(x)
+FROM ols_partial_residuals_by('d_null', g, y, [x1, x2], order_by := x1) WHERE row_id = 5;
+----
+2	true	true	4.0
+
+# A constant column is dropped from the terms
+statement ok
+CREATE VIEW d_const AS SELECT *, 1.0 AS one FROM d;
+
+query I
+SELECT list_sort(list_distinct(list(term_index))) FROM ols_partial_residuals_by('d_const', g, y, [x1, one, x2]);
+----
+[1, 3]
+
+# GLMs: working residual + component, no added-variable coordinates
+query III
+SELECT count(*), count(x_residual), count(partial_residual) FROM poisson_partial_residuals_by('d', g, cnt, [x1, x2]);
+----
+80	0	80
+
+# The offset column is not a term
+query I
+SELECT list_distinct(list(term_index)) FROM poisson_partial_residuals_by('d', g, cnt, [x1, lexp], options := {'offset': 2});
+----
+[1]
+
+query IIII
+SELECT (SELECT count(*) FROM binomial_partial_residuals_by('d', g, bin, [x1, x2])),
+       (SELECT count(*) FROM logistic_partial_residuals_by('d', g, bin, [x1, x2])),
+       (SELECT count(*) FROM gamma_partial_residuals_by('d', g, pos, [x1, x2])),
+       (SELECT count(*) FROM tweedie_partial_residuals_by('d', g, pos, [x1, x2]));
+----
+80	80	80	80
+
+query I
+SELECT count(*) FROM negbinom_partial_residuals_by('d', g, cnt, [x1, x2], options := {'theta': 2.0});
+----
+80
+
+# The window aggregate returns one LIST of terms per row
+query II
+SELECT len(pr), len(pr[1]) FROM (SELECT ols_partial_residuals_agg(y, [x1, x2]) OVER () AS pr FROM d LIMIT 1);
+----
+40	2

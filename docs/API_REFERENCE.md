@@ -141,6 +141,11 @@ fitted model struct).
 | `glance` | One-row summary of a fitted model, the same fields for every model | [Model tools](api/regression/model_tools.md) |
 | `<model>_tidy_by`, `<model>_glance_by` | Per-group coefficient table / fit statistics in long form | [Model output macros](#model-output-table-macros) |
 | `ols_augment_by`, `wls_augment_by`, `<glm>_augment_by` | Per-row fitted values, residuals, leverage, Cook's distance, DFFITS (`obs`) | [Per-observation diagnostics](#per-observation-diagnostics-ols_augment_by--wls_augment_by) |
+| `predict(model, x, {'se_fit', 'interval', 'level'})` | Prediction with standard error and confidence / prediction interval from the model's `vcov` (OLS, WLS, Ridge, GLMs) | [Model tools](api/regression/model_tools.md#standard-errors-and-intervals) |
+| `<model>_partial_residuals_by`, `<model>_partial_residuals_agg` | Partial-residual (crPlots) and added-variable (avPlots) coordinates for OLS, WLS and the GLMs | [Model tools](api/regression/model_tools.md#partial_residuals_by) |
+| `ridge_path_agg`, `elasticnet_path_agg`, `lars_path_agg`, `<model>_path_by` | Coefficient path over lambda (`terms`, `index_name = 'lambda'`) | [Regularisation paths](api/regression/paths.md) |
+| `ridge_cv_agg`, `elasticnet_cv_agg`, `<model>_cv_by` | k-fold CV curve over lambda (`curve`, `curve_type = 'lambda_cv'`) | [Regularisation paths](api/regression/paths.md) |
+| `quantile_process_agg`, `quantile_process_by` | Quantile process: one quantile fit per tau with inference (`terms`, `index_name = 'tau'`) | [Quantile](api/regression/quantile.md#quantile_process_agg) |
 | `vif`, `vif_agg` | Variance inflation factors | [Diagnostics](api/diagnostics/diagnostics.md) |
 | `aic`, `bic` | Information criteria from RSS | [Diagnostics](api/diagnostics/diagnostics.md) |
 | `jarque_bera`, `jarque_bera_agg` | Jarque-Bera normality test | [Diagnostics](api/diagnostics/diagnostics.md) |
@@ -509,7 +514,7 @@ fit-predict aggregates (`pls_fit_predict_agg`, `isotonic_fit_predict_agg`,
 |--------|-------------------|-------|
 | PLS | `n_components` (1), `fit_intercept` (true) | SIMPLS latent components; for collinear or wide data |
 | Isotonic | `increasing` (true) | Monotone fit (PAVA); `x` is a single `DOUBLE`, not a list |
-| Quantile | `tau` (alias `quantile`, 0.5), `fit_intercept` (true), `max_iterations` (1000), `tolerance` (1e-6) | Conditional quantile; `tau = 0.5` is median regression |
+| Quantile | `tau` (alias `quantile`, 0.5), `fit_intercept` (true), `max_iterations` (1000), `tolerance` (1e-6), `se` (`'iid'`, `'nid'`, `'boot'`), `compute_inference`, `confidence_level`, `n_boot`, `seed` | Conditional quantile; `tau = 0.5` is median regression; with `se` the fit carries `quantreg::summary.rq` standard errors |
 
 ```sql
 SELECT

@@ -1,0 +1,80 @@
+# name: test/sql/parallel/parallel_paths.test
+# description: 12k-row parallel (threads=8) vs single-threaded results for the path / CV / quantile-process aggregates and the partial residuals (#154, #157, #158). The seeded folds and the bootstrap draw rows by position, so the aggregates sort rows canonically first; the results must not depend on the thread count.
+#              Tolerances: 1e-9 relative (closed form / LP; only summation order differs), 1e-6 for coordinate descent.
+# group: [parallel]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE big AS
+SELECT i, g, x1, x2, x3, e, 1.0 + g + 2.0 * x1 - 0.5 * x2 + 0.2 * x3 + e * (1 + x1 / 10) AS y, (i % 5)::BIGINT AS fold
+FROM (
+    SELECT i, (i % 8)::INT AS g,
+           ((hash(i * 16 + 1) % 1000003) / 1000003.0) * 10.0 AS x1,
+           ((hash(i * 16 + 2) % 1000003) / 1000003.0) * 5.0 - 2.5 AS x2,
+           ((hash(i * 16 + 6) % 1000003) / 1000003.0) * 3.0 AS x3,
+           (((hash(i * 16 + 3) % 1000003) / 1000003.0) + ((hash(i * 16 + 4) % 1000003) / 1000003.0) + ((hash(i * 16 + 5) % 1000003) / 1000003.0) - 1.5) AS e
+    FROM range(0, 12000) r(i)
+);
+
+statement ok
+CREATE VIEW small AS SELECT * FROM big WHERE i % 5 = 0;
+
+statement ok
+CREATE MACRO vclose(a, b, tol) AS
+    len(a) = len(b) AND coalesce(list_max(list_transform(range(1, len(a) + 1), k ->
+        CASE WHEN a[k] IS NULL AND b[k] IS NULL THEN 0.0
+             WHEN a[k] IS NULL OR b[k] IS NULL THEN 1e300
+             ELSE abs(a[k] - b[k]) / greatest(1.0, abs(b[k])) END)), 0.0) <= tol;
+
+statement ok
+CREATE VIEW results AS
+    SELECT 'ridge_path_agg' AS fn, g, 1e-9::DOUBLE AS tol, [e.estimate FOR e IN r] AS vals FROM (SELECT g, ridge_path_agg(y, [x1, x2, x3], {'n_lambda': 8}) AS r FROM big GROUP BY g)
+    UNION ALL
+    SELECT 'elasticnet_path_agg' AS fn, g, 1e-6::DOUBLE AS tol, [e.estimate FOR e IN r] AS vals FROM (SELECT g, elasticnet_path_agg(y, [x1, x2, x3], {'n_lambda': 8}) AS r FROM big GROUP BY g)
+    UNION ALL
+    SELECT 'lars_path_agg' AS fn, g, 1e-8::DOUBLE AS tol, [e.estimate FOR e IN r] AS vals FROM (SELECT g, lars_path_agg(y, [x1, x2, x3]) AS r FROM big GROUP BY g)
+    UNION ALL
+    SELECT 'ridge_cv_agg_seed' AS fn, g, 1e-9::DOUBLE AS tol, [e.cv_mean FOR e IN r] AS vals FROM (SELECT g, ridge_cv_agg(y, [x1, x2, x3], {'n_lambda': 6, 'folds': 5, 'seed': 11}) AS r FROM big GROUP BY g)
+    UNION ALL
+    SELECT 'elasticnet_cv_agg_fold' AS fn, g, 1e-6::DOUBLE AS tol, [e.cv_mean FOR e IN r] AS vals FROM (SELECT g, elasticnet_cv_agg(y, [x1, x2, x3], fold, {'n_lambda': 6}) AS r FROM big GROUP BY g)
+    UNION ALL
+    SELECT 'quantile_process_agg' AS fn, g, 1e-9::DOUBLE AS tol, [e.std_error FOR e IN r] AS vals FROM (SELECT g, quantile_process_agg(y, [x1, x2], {'taus': [0.25, 0.75]}) AS r FROM small GROUP BY g)
+    UNION ALL
+    SELECT 'quantile_fit_agg_boot' AS fn, g, 1e-9::DOUBLE AS tol, (quantile_fit_agg(y, [x1, x2], {'se': 'boot', 'n_boot': 30, 'seed': 5})).std_errors AS vals FROM small GROUP BY g
+    UNION ALL
+    SELECT 'ols_partial_residuals_by' AS fn, g, 1e-9::DOUBLE AS tol, list(partial_residual ORDER BY row_id, term_index) AS vals FROM ols_partial_residuals_by('small', g, y, [x1, x2]) GROUP BY g;
+
+statement ok
+SET threads = 1;
+
+statement ok
+CREATE TABLE ref AS SELECT * FROM results;
+
+statement ok
+SET threads = 8;
+
+statement ok
+PRAGMA verify_parallelism;
+
+statement ok
+CREATE TABLE par AS SELECT * FROM results;
+
+query I
+SELECT DISTINCT fn FROM ref WHERE vals IS NULL OR len(vals) = 0 OR list_count(list_filter(vals, v -> v IS NULL OR isnan(v))) > 0 ORDER BY fn;
+----
+
+query III
+SELECT fn, count(*), bool_and(vclose(par.vals, ref.vals, ref.tol))
+FROM ref JOIN par USING (fn, g)
+GROUP BY fn
+ORDER BY fn;
+----
+elasticnet_cv_agg_fold	8	true
+elasticnet_path_agg	8	true
+lars_path_agg	8	true
+ols_partial_residuals_by	8	true
+quantile_fit_agg_boot	8	true
+quantile_process_agg	8	true
+ridge_cv_agg_seed	8	true
+ridge_path_agg	8	true

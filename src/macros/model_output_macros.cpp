@@ -45,7 +45,7 @@ const ModelOutputModel MODEL_OUTPUT_MODELS[] = {
     {"bls", "a bounded least squares regression", nullptr, false},
     {"nnls", "a non-negative least squares regression", nullptr, false},
     {"pls", "a partial least squares regression", nullptr, false},
-    {"quantile", "a quantile regression", nullptr, false},
+    {"quantile", "a quantile regression", nullptr, true},
     {"poisson", "a Poisson GLM", nullptr, true},
     {"binomial", "a binomial GLM", nullptr, true},
     {"logistic", "a logistic regression", nullptr, true},
@@ -158,6 +158,75 @@ string PosthocSql(const PosthocMacro &m) {
 	       "ORDER BY group_col, _i";
 }
 
+// Coefficient paths, CV curves and the quantile process per group (#154, #157):
+// the `terms` schema with index_name 'lambda' / 'tau' and the `curve` schema with
+// curve_type 'lambda_cv'.
+struct PathMacro {
+	const char *agg;
+	const char *label;
+	bool curve;
+};
+
+const PathMacro PATH_MACROS[] = {
+    {"ridge_path", "the ridge coefficient path (glmnet alpha = 0)", false},
+    {"elasticnet_path", "the elastic-net coefficient path (glmnet, l1_ratio = alpha)", false},
+    {"lars_path", "the LARS / Lasso-LARS coefficient path", false},
+    {"quantile_process", "the regression-quantile process (one quantile regression per tau, with inference)", false},
+    {"ridge_cv", "the k-fold cross-validation curve of the ridge path (cv.glmnet)", true},
+    {"elasticnet_cv", "the k-fold cross-validation curve of the elastic-net path (cv.glmnet)", true},
+};
+
+string PathSql(const PathMacro &m) {
+	string inner = "FROM (SELECT group_col, model_id, unnest(range(len(_l))) AS _i, unnest(_l) AS _t "
+	               "FROM (SELECT group_col, group_col::VARCHAR AS model_id, " +
+	               string(m.agg) + "_agg(y_col, x_cols, options) AS _l FROM query_table(source::VARCHAR) "
+	                               "GROUP BY group_col)) ORDER BY group_col, _i";
+	if (m.curve) {
+		return "SELECT group_col, model_id, (_t).curve_type AS curve_type, NULL::VARCHAR AS series, (_t).x AS x, "
+		       "(_t).y AS y, (_t).y_low AS y_low, (_t).y_high AS y_high, (_t).threshold AS threshold, "
+		       "NULL::DOUBLE AS weight, NULL::BIGINT AS n_censor, (_t).lambda AS lambda, (_t).cv_mean AS cv_mean, "
+		       "(_t).cv_se AS cv_se, (_t).n_nonzero AS n_nonzero, (_t).is_min AS is_min, (_t).is_1se AS is_1se, "
+		       "(_t).n_folds AS n_folds " +
+		       inner;
+	}
+	// names := [...] relabels the default x1, x2, ... terms.
+	return "SELECT group_col, model_id, CASE WHEN names IS NULL OR (_t).term = '(Intercept)' THEN (_t).term "
+	       "ELSE COALESCE((names::VARCHAR[])[TRY_CAST(substr((_t).term, 2) AS BIGINT)], (_t).term) END AS term, "
+	       "(_t).estimate AS estimate, (_t).std_error AS std_error, (_t).statistic AS statistic, "
+	       "(_t).p_value AS p_value, (_t).conf_low AS conf_low, (_t).conf_high AS conf_high, "
+	       "(_t).conf_level AS conf_level, (_t).index_name AS index_name, (_t).index_value AS index_value " +
+	       inner;
+}
+
+// <model>_partial_residuals_by (#158): one row per input row and fitted term.
+struct PartialMacro {
+	const char *prefix;
+	const char *label;
+	bool weighted;
+};
+
+const PartialMacro PARTIAL_MACROS[] = {
+    {"ols", "an OLS regression", false},          {"wls", "a weighted least squares regression", true},
+    {"poisson", "a Poisson GLM", false},          {"binomial", "a binomial GLM", false},
+    {"logistic", "a logistic regression", false}, {"negbinom", "a negative binomial GLM", false},
+    {"gamma", "a Gamma GLM", false},              {"tweedie", "a Tweedie GLM", false},
+};
+
+string PartialSql(const PartialMacro &m) {
+	const string frame = "OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED "
+	                     "PRECEDING AND UNBOUNDED FOLLOWING)";
+	return "SELECT group_col, model_id, row_id, (_t).term_index AS term_index, "
+	       "COALESCE((names::VARCHAR[])[(_t).term_index], 'x' || (_t).term_index) AS term, (_t).x AS x, "
+	       "(_t).partial_residual AS partial_residual, (_t).component AS component, "
+	       "(_t).x_residual AS x_residual, (_t).y_residual AS y_residual "
+	       "FROM (SELECT group_col, group_col::VARCHAR AS model_id, _anofox_rid AS row_id, unnest(_pr[_rn]) AS _t "
+	       "FROM (SELECT group_col, _anofox_rid, ROW_NUMBER() " +
+	       frame + " AS _rn, " + m.prefix + "_partial_residuals_agg(y_col, x_cols, " +
+	       (m.weighted ? "weight_col, " : "") + "options) " + frame +
+	       " AS _pr FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR)))) "
+	       "ORDER BY group_col, term_index, row_id";
+}
+
 } // namespace
 
 void RegisterPosthocMacros(ExtensionLoader &loader) {
@@ -205,6 +274,51 @@ void RegisterModelOutputMacros(ExtensionLoader &loader) {
 		        "the group column, model_id, model_type, metric, value.",
 		    prefix + "_glance_by(" + args + ")");
 		loader.RegisterFunction(*glance);
+	}
+}
+
+void RegisterPathMacros(ExtensionLoader &loader) {
+	for (auto &m : PATH_MACROS) {
+		string name = string(m.agg) + "_by";
+		string description =
+		    "Table macro: computes " + string(m.label) + " per group of source with " + m.agg +
+		    "_agg (same options) and returns " +
+		    (m.curve ? string("one row per lambda in the integration contract's `curve` schema: the group column, "
+		                      "model_id, curve_type ('lambda_cv'), series, x (lambda), y (cv_mean), y_low, y_high "
+		                      "(cv_mean -/+ cv_se), threshold, weight, n_censor, lambda, cv_mean, cv_se, n_nonzero, "
+		                      "is_min, is_1se, n_folds.")
+		             : string("one row per index value and term in the `terms` schema: the group column, model_id, "
+		                      "term, estimate, std_error, statistic, p_value, conf_low, conf_high, conf_level, "
+		                      "index_name ('") +
+		                   (string(m.agg) == "quantile_process" ? "tau" : "lambda") +
+		                   "'), index_value. names := [...] labels the terms.");
+		vector<pair<string, string>> named = {{"options", "NULL"}};
+		if (!m.curve) {
+			named.push_back({"names", "NULL"});
+		}
+		auto macro = CreateTableMacro(name, {"source", "group_col", "y_col", "x_cols"}, named, PathSql(m),
+		                              description, name + "('my_table', group_col, y, [x1, x2])");
+		loader.RegisterFunction(*macro);
+	}
+	for (auto &m : PARTIAL_MACROS) {
+		string name = string(m.prefix) + "_partial_residuals_by";
+		vector<string> params = {"source", "group_col", "y_col", "x_cols"};
+		if (m.weighted) {
+			params.push_back("weight_col");
+		}
+		bool linear = string(m.prefix) == "ols" || m.weighted;
+		auto macro = CreateTableMacro(
+		    name, params, {{"options", "NULL"}, {"names", "NULL"}, {"order_by", "NULL"}}, PartialSql(m),
+		    "Table macro: fits " + string(m.label) +
+		        " per group of source and returns one row per input row and fitted term with partial-residual "
+		        "(component-plus-residual, car::crPlots) and added-variable (car::avPlots) coordinates: the group "
+		        "column, model_id, row_id, term_index, term, x, partial_residual (= " +
+		        (linear ? "residual" : "working residual") +
+		        " + component), component (b_j (x_j - mean(x_j))), x_residual, y_residual (" +
+		        (linear ? "x_j and y residualised on the other columns" : "NULL for GLMs") +
+		        "). Rows not used for fitting get NULL residuals. names := [...] labels the terms.",
+		    name + "('my_table', group_col, y, [x1, x2]" + (m.weighted ? ", w" : "") + ")");
+		loader.RegisterFunction(*macro);
 	}
 }
 

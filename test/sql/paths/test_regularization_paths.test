@@ -1,0 +1,143 @@
+# name: test/sql/paths/test_regularization_paths.test
+# description: ridge/elasticnet/lars_path_agg and ridge/elasticnet_cv_agg (#154): layout, options, NULL handling, errors (values: test/sql/reference/regularization_path.test)
+# group: [paths]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE d AS SELECT range AS id, (range % 3)::INT AS g, range::DOUBLE AS x1, (range % 7)::DOUBLE AS x2,
+    sin(range)::DOUBLE AS x3, (2 * range + (range % 7) + (range % 3) * 1.5 + sin(range))::DOUBLE AS y,
+    (range % 4)::BIGINT AS fold
+FROM range(60);
+
+# One row per lambda and term, intercept first, index_name 'lambda'
+query IIII
+SELECT len(r), r[1].term, r[2].term, r[1].index_name
+FROM (SELECT ridge_path_agg(y, [x1, x2, x3], {'n_lambda': 7}) AS r FROM d);
+----
+28	(Intercept)	x1	lambda
+
+# The default grid has 100 lambdas, decreasing; the lasso path starts with all slopes 0
+query III
+SELECT len(r) // 3, r[1].index_value > r[4].index_value, list_count(list_filter(r[1:3], e -> e.term <> '(Intercept)' AND e.estimate = 0))
+FROM (SELECT elasticnet_path_agg(y, [x1, x2], {'l1_ratio': 1.0}) AS r FROM d);
+----
+100	true	2
+
+# Given lambdas keep their order; feature_names label the terms; inference fields are NULL
+query IIIII
+SELECT [e.index_value FOR e IN r if e.term = 'a'], r[2].term, r[3].term, r[2].std_error IS NULL, r[2].conf_level IS NULL
+FROM (SELECT elasticnet_path_agg(y, [x1, x2], {'lambdas': [0.01, 1.0, 0.1], 'feature_names': ['a', 'b']}) AS r FROM d);
+----
+[0.01, 1.0, 0.1]	a	b	true	true
+
+# Without an intercept there is no (Intercept) row
+query II
+SELECT len(r), r[1].term FROM (SELECT ridge_path_agg(y, [x1, x2], {'lambdas': [1.0], 'fit_intercept': false}) AS r FROM d);
+----
+2	x1
+
+# lambda = 0 is least squares
+query I
+SELECT bool_and(abs(p.estimate - o.estimate) < 1e-8)
+FROM (SELECT unnest(ridge_path_agg(y, [x1, x2], {'lambdas': [0.0]})) AS p, unnest(tidy(ols_fit_agg(y, [x1, x2]))) AS o FROM d);
+----
+true
+
+# A constant column is dropped (NULL estimates), a NULL row is skipped
+query III
+SELECT r[4].term, r[4].estimate IS NULL, r[2].estimate IS NOT NULL
+FROM (SELECT ridge_path_agg(CASE WHEN id = 5 THEN NULL ELSE y END, [x1, x2, 1.0], {'lambdas': [0.5]}) AS r FROM d);
+----
+x3	true	true
+
+# Grouped
+query II
+SELECT g, len(ridge_path_agg(y, [x1, x2], {'n_lambda': 4})) FROM d GROUP BY g ORDER BY g;
+----
+0	12
+1	12
+2	12
+
+# Empty input and all-NULL input give NULL
+query I
+SELECT ridge_path_agg(y, [x1, x2]) IS NULL FROM d WHERE id < 0;
+----
+true
+
+query I
+SELECT elasticnet_path_agg(NULL::DOUBLE, [x1, x2]) IS NULL FROM d;
+----
+true
+
+# LARS: lasso path by default; ends at least squares, starts with all slopes 0
+query III
+SELECT r[1].estimate = (SELECT avg(y) FROM d), r[2].estimate = 0,
+       abs(r[len(r) - 1].estimate - (SELECT (ols_fit_agg(y, [x1, x2])).coefficients[1] FROM d)) < 1e-8
+FROM (SELECT lars_path_agg(y, [x1, x2], {'standardize': false}) AS r FROM d);
+----
+true	true	true
+
+# CV curve: one row per lambda, curve_type 'lambda_cv', one minimum and one 1-SE lambda
+query IIIIII
+SELECT len(r), r[1].curve_type, list_count(list_filter(r, e -> e.is_min)), list_count(list_filter(r, e -> e.is_1se)),
+       list_bool_and([e.y_low < e.y AND e.y < e.y_high FOR e IN r]), r[1].n_folds
+FROM (SELECT elasticnet_cv_agg(y, [x1, x2, x3], {'n_lambda': 10, 'folds': 5, 'seed': 3}) AS r FROM d);
+----
+10	lambda_cv	1	1	true	5
+
+query I
+SELECT list_bool_and([e.x = e."lambda" AND e.y = e.cv_mean AND e.threshold IS NULL FOR e IN r])
+FROM (SELECT ridge_cv_agg(y, [x1, x2], {'n_lambda': 5}) AS r FROM d);
+----
+true
+
+# lambda.1se is at least lambda.min
+query I
+SELECT list_filter(r, e -> e.is_1se)[1]."lambda" >= list_filter(r, e -> e.is_min)[1]."lambda"
+FROM (SELECT ridge_cv_agg(y, [x1, x2, x3], {'n_lambda': 20, 'folds': 5}) AS r FROM d);
+----
+true
+
+# The same seed gives the same curve; explicit fold ids (any labels) are used as given
+query I
+SELECT a = b FROM (SELECT ridge_cv_agg(y, [x1, x2], {'n_lambda': 6, 'seed': 9}) AS a,
+                          ridge_cv_agg(y, [x1, x2], {'n_lambda': 6, 'seed': 9}) AS b FROM d);
+----
+true
+
+query II
+SELECT r[1].n_folds, len(r) FROM (SELECT ridge_cv_agg(y, [x1, x2], fold * 10 + 7, {'n_lambda': 6}) AS r FROM d);
+----
+4	6
+
+# Errors: unknown options, bad values, too few folds
+statement error
+SELECT ridge_path_agg(y, [x1, x2], {'l1_ratio': 0.5}) FROM d;
+----
+ridge_path_agg: unsupported option 'l1_ratio'
+
+statement error
+SELECT elasticnet_path_agg(y, [x1, x2], {'l1_ratio': 1.5}) FROM d;
+----
+l1_ratio must be in [0, 1]
+
+statement error
+SELECT ridge_path_agg(y, [x1, x2], {'lambdas': [1.0, -1.0]}) FROM d;
+----
+lambdas must be >= 0
+
+statement error
+SELECT ridge_cv_agg(y, [x1, x2], {'folds': 2}) FROM d;
+----
+folds must be at least 3
+
+statement error
+SELECT ridge_cv_agg(y, [x1, x2], fold % 2, {'n_lambda': 3}) FROM d;
+----
+at least 3 folds
+
+statement error
+SELECT ridge_path_agg(y, [x1, x2], {'feature_names': ['a']}) FROM d;
+----
+feature_names has 1 entries but x has 2 features

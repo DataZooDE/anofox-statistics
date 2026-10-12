@@ -1,3 +1,4 @@
+#include <cmath>
 #include <limits>
 #include <vector>
 
@@ -107,6 +108,7 @@ static LogicalType GetGammaAggResultType() {
 	children.push_back(make_pair("link", LogicalType::VARCHAR));
 
 	AppendModelSummaryFields(children);
+	AppendCovarianceFields(children);
 
 	return LogicalType::STRUCT(std::move(children));
 }
@@ -332,6 +334,9 @@ static void GammaAggFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
 		// (family and link come from upstream).
 		writer.WriteInference(result_idx, state.compute_inference ? &inference_result : nullptr);
 		writer.WriteSummary(result_idx, core_result.summary);
+		writer.WriteCovariance(result_idx, state.compute_inference ? core_result.vcov : nullptr, core_result.vcov_dim,
+		                       ResidualDf(core_result.n_observations, core_result.coefficients,
+		                                  core_result.coefficients_len, std::isfinite(core_result.intercept)));
 		if (state.compute_inference) {
 			anofox_free_result_inference(&inference_result);
 		}

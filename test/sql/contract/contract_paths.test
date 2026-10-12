@@ -1,0 +1,77 @@
+# name: test/sql/contract/contract_paths.test
+# description: integration contract `terms` (index_name lambda / tau) and `curve` (lambda_cv) producers of #154 / #157
+# group: [contract]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE d AS SELECT range::DOUBLE AS x1, (range % 7)::DOUBLE AS x2,
+    (2 * range + (range % 7) + (range % 3) * 1.5 + sin(range))::DOUBLE AS y, (range % 2)::VARCHAR AS g
+FROM range(40);
+
+# The path / process macros have exactly the tidy_by columns
+query I
+SELECT count(DISTINCT cols) FROM (
+    SELECT string_agg(column_name || ' ' || column_type, ', ') cols FROM (DESCRIBE SELECT * FROM ols_tidy_by('d', g, y, [x1, x2]))
+    UNION ALL SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM ridge_path_by('d', g, y, [x1, x2]))
+    UNION ALL SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM elasticnet_path_by('d', g, y, [x1, x2]))
+    UNION ALL SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM lars_path_by('d', g, y, [x1, x2]))
+    UNION ALL SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM quantile_process_by('d', g, y, [x1, x2]))
+)
+----
+1
+
+query III
+SELECT DISTINCT index_name, count(DISTINCT index_value), count(DISTINCT term) FROM quantile_process_by('d', g, y, [x1, x2], options := {'taus': [0.25, 0.75]}, names := ['a', 'b'])
+GROUP BY index_name;
+----
+tau	2	3
+
+query II
+SELECT DISTINCT index_name, model_id FROM ridge_path_by('d', g, y, [x1, x2], options := {'n_lambda': 3}) ORDER BY model_id;
+----
+lambda	0
+lambda	1
+
+# curve schema: required curve_type, x, y; the optional columns are always present
+query II
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM ridge_cv_by('d', g, y, [x1, x2]))
+----
+g	VARCHAR
+model_id	VARCHAR
+curve_type	VARCHAR
+series	VARCHAR
+x	DOUBLE
+y	DOUBLE
+y_low	DOUBLE
+y_high	DOUBLE
+threshold	DOUBLE
+weight	DOUBLE
+n_censor	BIGINT
+lambda	DOUBLE
+cv_mean	DOUBLE
+cv_se	DOUBLE
+n_nonzero	BIGINT
+is_min	BOOLEAN
+is_1se	BOOLEAN
+n_folds	BIGINT
+
+query III
+SELECT DISTINCT curve_type, count(*), bool_and(x = "lambda") FROM elasticnet_cv_by('d', g, y, [x1, x2], options := {'n_lambda': 5, 'folds': 4})
+GROUP BY curve_type;
+----
+lambda_cv	10	true
+
+# Tagged as contract producers
+query II
+SELECT function_name, tags['anofox.output'] FROM duckdb_functions()
+WHERE function_name IN ('ridge_path_by', 'elasticnet_path_by', 'lars_path_by', 'quantile_process_by', 'ridge_cv_by', 'elasticnet_cv_by')
+  AND tags['anofox.contract'] = '1'
+ORDER BY function_name;
+----
+elasticnet_cv_by	curve
+elasticnet_path_by	terms
+lars_path_by	terms
+quantile_process_by	terms
+ridge_cv_by	curve
+ridge_path_by	terms

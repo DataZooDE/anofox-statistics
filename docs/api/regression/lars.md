@@ -98,6 +98,8 @@ LIMIT 5;
 
 ## See Also
 
+- [Regularisation paths](paths.md) - `lars_path_agg`: the coefficient path
+
 - [Elastic Net](elasticnet.md) - L1+L2 penalty
 - [Ridge](ridge.md) - L2 penalty
 - [OLS](ols.md) - Unregularized baseline

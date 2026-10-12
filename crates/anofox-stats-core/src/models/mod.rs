@@ -16,8 +16,10 @@ mod lars;
 mod lm_dynamic;
 mod lowess;
 mod ols;
+mod path;
 mod pls;
 mod predict;
+mod predict_se;
 mod quantile;
 mod ransac;
 mod ridge;
@@ -30,7 +32,10 @@ pub use aid::{compute_aid, compute_aid_anomalies};
 pub use alm::{fit_alm, AlmInferenceResult, AlmResult};
 pub use augment::{
     augment_binomial, augment_gamma, augment_logistic, augment_negbinomial, augment_ols,
-    augment_poisson, augment_tweedie, augment_wls, AugmentResult,
+    augment_poisson, augment_tweedie, augment_wls, partial_residuals_binomial,
+    partial_residuals_gamma, partial_residuals_logistic, partial_residuals_negbinomial,
+    partial_residuals_ols, partial_residuals_poisson, partial_residuals_tweedie,
+    partial_residuals_wls, AugmentResult, PartialResidualsResult,
 };
 pub use bls::{fit_bls, fit_nnls};
 pub use eb_shrink::{eb_shrink, EbShrinkOptions, EbShrinkResult, ShrunkenGroup, TauMethod};
@@ -52,9 +57,13 @@ pub use lars::fit_lars;
 pub use lm_dynamic::fit_lm_dynamic;
 pub use lowess::fit_lowess;
 pub use ols::fit_ols;
+pub use path::{cv_reg_path, fit_reg_path, lars_path, CvPathResult, RegPathOptions, RegPathResult};
 pub use pls::fit_pls;
 pub use predict::predict;
-pub use quantile::fit_quantile;
+pub use predict_se::{
+    coefficient_vcov, glm_vcov, predict_se_glm, predict_se_linear, PredictInterval, PredictSe,
+};
+pub use quantile::{fit_quantile, quantile_process, QuantileProcessRow, QuantileSeType};
 pub use ransac::{fit_ransac, RansacResult};
 pub use ridge::fit_ridge;
 pub use rls::{fit_rls, RlsOptions};

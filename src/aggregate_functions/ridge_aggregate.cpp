@@ -95,6 +95,7 @@ static LogicalType GetRidgeAggResultType() {
     // without compute_inference.
     AppendCoefficientInferenceFields(children);
     AppendModelSummaryFields(children);
+    AppendCovarianceFields(children);
 
     return LogicalType::STRUCT(std::move(children));
 }
@@ -335,6 +336,10 @@ static void RidgeAggFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
         // alpha == 0 is OLS and keeps its inference.
         writer.WriteInference(result_idx, state.compute_inference && state.alpha == 0 ? &inference_result : nullptr);
         writer.WriteSummary(result_idx, core_result.summary);
+        // Ridge sandwich covariance with the effective (raw) penalty, as the fit-predict intervals.
+        writer.WriteLinearCovariance(result_idx, state.compute_inference, x_arrays, core_result, state.fit_intercept,
+                                     nullptr,
+                                     state.lambda_scaling == LambdaScaling::GLMNET ? state.alpha * (double)core_result.n_observations : state.alpha);
         if (state.compute_inference) {
             anofox_free_result_inference(&inference_result);
         }

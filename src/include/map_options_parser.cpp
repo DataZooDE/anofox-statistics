@@ -543,6 +543,31 @@ static std::optional<vector<string>> ExtractStringList(const Value &val) {
 	return out;
 }
 
+// A LIST of numbers without NULL / non-finite entries (lambdas, taus).
+static std::optional<vector<double>> ExtractDoubleList(const Value &val, const char *key) {
+	if (val.IsNull()) {
+		return std::nullopt;
+	}
+	if (val.type().id() != LogicalTypeId::LIST) {
+		throw InvalidInputException("%s must be a LIST of numbers, got %s", key, val.type().ToString());
+	}
+	vector<double> out;
+	for (auto &child : ListValue::GetChildren(val)) {
+		if (child.IsNull()) {
+			throw InvalidInputException("%s must not contain NULL", key);
+		}
+		double v = child.DefaultCastAs(LogicalType::DOUBLE).GetValue<double>();
+		if (!std::isfinite(v)) {
+			throw InvalidInputException("%s must contain finite numbers, got %s", key, child.ToString());
+		}
+		out.push_back(v);
+	}
+	if (out.empty()) {
+		throw InvalidInputException("%s must not be empty", key);
+	}
+	return out;
+}
+
 static PriorKindOpt ParsePriorKindName(const string &raw) {
 	string v = ToLower(raw);
 	if (v == "normal" || v == "gaussian") {
@@ -795,6 +820,13 @@ static const vector<OptionKeyDef> &RegressionKeyTable() {
 	    {"method", {}},
 	    {"n_nonzero_coefs", {}},
 	    {"standardize", {}},
+	    {"lambdas", {}},
+	    {"n_lambda", {"nlambda"}},
+	    {"lambda_min_ratio", {}},
+	    {"folds", {"n_folds", "nfolds"}},
+	    {"taus", {}},
+	    {"se", {"se_type"}},
+	    {"n_boot", {}},
 	};
 	return table;
 }
@@ -1047,6 +1079,45 @@ RegressionMapOptions RegressionMapOptions::ParseFromValue(const Value &map_value
 			}
 		} else if (key == "standardize") {
 			result.standardize = ExtractBool(val);
+		} else if (key == "lambdas") {
+			result.lambdas = ExtractDoubleList(val, "lambdas");
+			for (auto v : *result.lambdas) {
+				if (v < 0) {
+					throw InvalidInputException("%s: lambdas must be >= 0, got %g", function_name, v);
+				}
+			}
+		} else if (key == "n_lambda") {
+			auto v = ExtractUInt32(val);
+			if (v.has_value() && v.value() == 0) {
+				throw InvalidInputException("%s: n_lambda must be >= 1", function_name);
+			}
+			result.n_lambda = v;
+		} else if (key == "lambda_min_ratio") {
+			result.lambda_min_ratio = ExtractDouble(val);
+			if (result.lambda_min_ratio.has_value() &&
+			    !(result.lambda_min_ratio.value() > 0.0 && result.lambda_min_ratio.value() < 1.0)) {
+				throw InvalidInputException("%s: lambda_min_ratio must be in (0, 1), got %s", function_name,
+				                            val.ToString());
+			}
+		} else if (key == "folds") {
+			result.folds = ExtractUInt32(val);
+		} else if (key == "taus") {
+			result.taus = ExtractDoubleList(val, "taus");
+		} else if (key == "se") {
+			if (!val.IsNull()) {
+				const string v = ToLower(val.ToString());
+				if (v != "iid" && v != "nid" && v != "boot") {
+					throw InvalidInputException("%s: se must be 'iid', 'nid' or 'boot', got '%s'", function_name,
+					                            val.ToString());
+				}
+				result.se_type = v;
+			}
+		} else if (key == "n_boot") {
+			auto v = ExtractUInt32(val);
+			if (v.has_value() && v.value() < 2) {
+				throw InvalidInputException("%s: n_boot must be >= 2", function_name);
+			}
+			result.n_boot = v;
 		} else {
 			throw InternalException("RegressionMapOptions: unhandled option key '%s'", key);
 		}

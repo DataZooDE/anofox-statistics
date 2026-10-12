@@ -102,6 +102,13 @@ The aggregate skips rows where `y`, `x` or `weight` is NULL, or where `x`
 contains a NULL element. `wls_fit` drops positions with NaN or infinite
 values.
 
+## Coefficient covariance
+
+With `compute_inference` the struct also carries `vcov`, the coefficient covariance
+`σ²(X'WX)⁻¹` (row-major `k × k`, intercept first), and `df_residual = n − k`;
+[`predict`](model_tools.md#standard-errors-and-intervals) uses them for `se_fit` and
+confidence / prediction intervals.
+
 ## See Also
 
 - [OLS](ols.md) - Equal-weighted regression

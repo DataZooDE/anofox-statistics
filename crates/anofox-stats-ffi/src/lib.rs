@@ -2,11 +2,13 @@
 //!
 //! This crate provides C-compatible functions for calling from the C++ DuckDB extension layer.
 
+mod inference_ffi;
 mod types;
 
 #[cfg(test)]
 mod tests;
 
+pub use inference_ffi::*;
 pub use types::*;
 
 use anofox_stats_core::{
@@ -2744,6 +2746,7 @@ pub unsafe extern "C" fn anofox_poisson_fit(
                 }
                 std::ptr::copy_nonoverlapping(result.core.coefficients.as_ptr(), coef_ptr, n_coef);
 
+                let (vcov_ptr, vcov_dim) = glm_vcov_ffi(&result);
                 (*out_result) = GlmFitResultCore {
                     coefficients: coef_ptr,
                     coefficients_len: n_coef,
@@ -2760,6 +2763,8 @@ pub unsafe extern "C" fn anofox_poisson_fit(
                     summary: ModelSummaryFFI::from(&anofox_stats_core::ModelSummary::from_glm(
                         &result,
                     )),
+                    vcov: vcov_ptr,
+                    vcov_dim,
                 };
 
                 // Fill inference if available
@@ -2893,6 +2898,7 @@ pub unsafe extern "C" fn anofox_binomial_fit(
                 }
                 std::ptr::copy_nonoverlapping(result.core.coefficients.as_ptr(), coef_ptr, n_coef);
 
+                let (vcov_ptr, vcov_dim) = glm_vcov_ffi(&result);
                 (*out_result) = GlmFitResultCore {
                     coefficients: coef_ptr,
                     coefficients_len: n_coef,
@@ -2909,6 +2915,8 @@ pub unsafe extern "C" fn anofox_binomial_fit(
                     summary: ModelSummaryFFI::from(&anofox_stats_core::ModelSummary::from_glm(
                         &result,
                     )),
+                    vcov: vcov_ptr,
+                    vcov_dim,
                 };
 
                 if !out_inference.is_null() {
@@ -3044,6 +3052,7 @@ pub unsafe extern "C" fn anofox_negbinomial_fit(
                 }
                 std::ptr::copy_nonoverlapping(result.core.coefficients.as_ptr(), coef_ptr, n_coef);
 
+                let (vcov_ptr, vcov_dim) = glm_vcov_ffi(&result);
                 (*out_result) = GlmFitResultCore {
                     coefficients: coef_ptr,
                     coefficients_len: n_coef,
@@ -3060,6 +3069,8 @@ pub unsafe extern "C" fn anofox_negbinomial_fit(
                     summary: ModelSummaryFFI::from(&anofox_stats_core::ModelSummary::from_glm(
                         &result,
                     )),
+                    vcov: vcov_ptr,
+                    vcov_dim,
                 };
 
                 if !out_inference.is_null() {
@@ -3192,6 +3203,7 @@ pub unsafe extern "C" fn anofox_tweedie_fit(
                 }
                 std::ptr::copy_nonoverlapping(result.core.coefficients.as_ptr(), coef_ptr, n_coef);
 
+                let (vcov_ptr, vcov_dim) = glm_vcov_ffi(&result);
                 (*out_result) = GlmFitResultCore {
                     coefficients: coef_ptr,
                     coefficients_len: n_coef,
@@ -3208,6 +3220,8 @@ pub unsafe extern "C" fn anofox_tweedie_fit(
                     summary: ModelSummaryFFI::from(&anofox_stats_core::ModelSummary::from_glm(
                         &result,
                     )),
+                    vcov: vcov_ptr,
+                    vcov_dim,
                 };
 
                 if !out_inference.is_null() {
@@ -3340,6 +3354,7 @@ pub unsafe extern "C" fn anofox_gamma_fit(
                 }
                 std::ptr::copy_nonoverlapping(result.core.coefficients.as_ptr(), coef_ptr, n_coef);
 
+                let (vcov_ptr, vcov_dim) = glm_vcov_ffi(&result);
                 (*out_result) = GlmFitResultCore {
                     coefficients: coef_ptr,
                     coefficients_len: n_coef,
@@ -3356,6 +3371,8 @@ pub unsafe extern "C" fn anofox_gamma_fit(
                     summary: ModelSummaryFFI::from(&anofox_stats_core::ModelSummary::from_glm(
                         &result,
                     )),
+                    vcov: vcov_ptr,
+                    vcov_dim,
                 };
 
                 if !out_inference.is_null() {
@@ -3491,6 +3508,7 @@ pub unsafe extern "C" fn anofox_logistic_fit(
                 }
                 std::ptr::copy_nonoverlapping(result.core.coefficients.as_ptr(), coef_ptr, n_coef);
 
+                let (vcov_ptr, vcov_dim) = glm_vcov_ffi(&result);
                 (*out_result) = GlmFitResultCore {
                     coefficients: coef_ptr,
                     coefficients_len: n_coef,
@@ -3507,6 +3525,8 @@ pub unsafe extern "C" fn anofox_logistic_fit(
                     summary: ModelSummaryFFI::from(&anofox_stats_core::ModelSummary::from_glm(
                         &result,
                     )),
+                    vcov: vcov_ptr,
+                    vcov_dim,
                 };
 
                 if !out_inference.is_null() {
@@ -3564,6 +3584,22 @@ pub unsafe extern "C" fn anofox_logistic_fit(
     })
 }
 
+/// The covariance behind a GLM's standard errors (`models::glm_vcov`) as a
+/// malloc'd row-major matrix, or (NULL, 0) without inference.
+unsafe fn glm_vcov_ffi(result: &anofox_stats_core::models::GlmResult) -> (*mut f64, usize) {
+    match anofox_stats_core::models::glm_vcov(result) {
+        Some((m, dim)) => {
+            let ptr = alloc_f64(&m);
+            if ptr.is_null() {
+                (std::ptr::null_mut(), 0)
+            } else {
+                (ptr, dim)
+            }
+        }
+        None => (std::ptr::null_mut(), 0),
+    }
+}
+
 /// Free memory allocated by GLM fit functions
 ///
 /// # Safety
@@ -3578,6 +3614,11 @@ pub unsafe extern "C" fn anofox_free_glm_result(result: *mut GlmFitResultCore) {
         if !(*result).coefficients.is_null() {
             libc::free((*result).coefficients as *mut libc::c_void);
             (*result).coefficients = std::ptr::null_mut();
+        }
+        if !(*result).vcov.is_null() {
+            libc::free((*result).vcov as *mut libc::c_void);
+            (*result).vcov = std::ptr::null_mut();
+            (*result).vcov_dim = 0;
         }
     })
 }

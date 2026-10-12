@@ -149,6 +149,7 @@ set(EXTENSION_SOURCES
     src/table_functions/rls_fit.cpp
     src/aggregate_functions/ols_aggregate.cpp
     src/aggregate_functions/extra_fit_aggregates.cpp
+    src/aggregate_functions/path_aggregates.cpp
     src/aggregate_functions/ridge_aggregate.cpp
     src/aggregate_functions/elasticnet_aggregate.cpp
     src/aggregate_functions/lars_aggregate.cpp

@@ -17,7 +17,9 @@ use crate::types::{
 };
 use anofox_regression::diagnostics::{augment, Augment, Augmentable};
 use anofox_regression::prelude::*;
-use anofox_regression::solvers::penalized_glm::{PenalizedGlmFamily, PenalizedGlmRegressor};
+use anofox_regression::solvers::penalized_glm::{
+    FittedPenalizedGlm, PenalizedGlmFamily, PenalizedGlmRegressor,
+};
 use faer::{Col, Mat};
 
 /// Per-row diagnostics of an OLS/WLS fit, one entry per input row.
@@ -202,6 +204,133 @@ pub fn augment_wls(
     })
 }
 
+/// Partial-residual (CCPR) and added-variable plot data, one entry per input
+/// row and x column (term-major: entry `j * len + i` is column `j`, row `i`).
+///
+/// Computed by `anofox_regression::diagnostics::{partial_residuals,
+/// partial_residuals_glm, added_variable}`. Rows not used for fitting, columns
+/// the fit dropped (aliased / constant) and a GLM offset column are NaN; `x`
+/// is the raw feature value. The added-variable coordinates exist for OLS /
+/// WLS only (`has_added_variable`); for the GLMs they are NaN.
+#[derive(Debug, Clone)]
+pub struct PartialResidualsResult {
+    pub n_terms: usize,
+    pub len: usize,
+    pub x: Vec<f64>,
+    /// `b_j (x_j - mean(x_j))` (uncentred without an intercept).
+    pub component: Vec<f64>,
+    /// residual (working residual for GLMs) + component.
+    pub partial_residual: Vec<f64>,
+    /// Residual of `x_j` on the other columns (`car::avPlots`).
+    pub x_residual: Vec<f64>,
+    /// Residual of `y` on the other columns.
+    pub y_residual: Vec<f64>,
+    pub has_added_variable: bool,
+}
+
+impl PartialResidualsResult {
+    fn new(x: &[Vec<f64>], has_added_variable: bool) -> Self {
+        let len = x.first().map_or(0, Vec::len);
+        let nan = vec![f64::NAN; x.len() * len];
+        Self {
+            n_terms: x.len(),
+            len,
+            x: x.iter().flat_map(|c| c.iter().copied()).collect(),
+            component: nan.clone(),
+            partial_residual: nan.clone(),
+            x_residual: nan.clone(),
+            y_residual: nan,
+            has_added_variable,
+        }
+    }
+}
+
+/// OLS / WLS partial residuals and added-variable coordinates on the usable rows.
+fn partial_residuals_linear(
+    y: &[f64],
+    x: &[Vec<f64>],
+    weights: Option<&[f64]>,
+    fit_intercept: bool,
+    solver: SolverType,
+) -> StatsResult<PartialResidualsResult> {
+    use anofox_regression::diagnostics::{added_variable, partial_residuals};
+    let Design { valid, kept, .. } = prepare(y, x, weights, fit_intercept)?;
+    let y_col = Col::from_fn(valid.len(), |i| y[valid[i]]);
+    let x_mat = Mat::from_fn(valid.len(), kept.len(), |i, j| x[kept[j]][valid[i]]);
+    let w_col = weights.map(|w| Col::from_fn(valid.len(), |i| w[valid[i]]));
+    let terms = match &w_col {
+        Some(w) => {
+            let fit = WlsRegressor::builder()
+                .with_intercept(fit_intercept)
+                .weights(w.clone())
+                .compute_inference(false)
+                .solve_method(convert_solver(solver))
+                .build()
+                .fit(&x_mat, &y_col)
+                .map_err(StatsError::from)?;
+            partial_residuals(&fit, &x_mat, &y_col)
+        }
+        None => {
+            let fit = OlsRegressor::builder()
+                .with_intercept(fit_intercept)
+                .compute_inference(false)
+                .solve_method(convert_solver(solver))
+                .build()
+                .fit(&x_mat, &y_col)
+                .map_err(StatsError::from)?;
+            partial_residuals(&fit, &x_mat, &y_col)
+        }
+    }
+    .map_err(StatsError::from)?;
+    let av =
+        added_variable(&x_mat, &y_col, w_col.as_ref(), fit_intercept).map_err(StatsError::from)?;
+
+    let mut out = PartialResidualsResult::new(x, true);
+    let len = out.len;
+    for t in &terms {
+        let j = kept[t.term];
+        for (r, &i) in valid.iter().enumerate() {
+            out.component[j * len + i] = t.component[r];
+            out.partial_residual[j * len + i] = t.partial_residual[r];
+        }
+    }
+    for a in &av {
+        let j = kept[a.term];
+        // An aliased column has no coefficient; leave its coordinates NaN too.
+        if terms.iter().all(|t| t.term != a.term) {
+            continue;
+        }
+        for (r, &i) in valid.iter().enumerate() {
+            out.x_residual[j * len + i] = a.x_residual[r];
+            out.y_residual[j * len + i] = a.y_residual[r];
+        }
+    }
+    Ok(out)
+}
+
+/// Partial residuals (R `residuals(lm, type = "partial")`, `car::crPlots`) and
+/// added-variable coordinates (`car::avPlots`) of an OLS fit.
+pub fn partial_residuals_ols(
+    y: &[f64],
+    x: &[Vec<f64>],
+    options: &OlsOptions,
+) -> StatsResult<PartialResidualsResult> {
+    partial_residuals_linear(y, x, None, options.fit_intercept, options.solver)
+}
+
+/// As [`partial_residuals_ols`] for a WLS fit (`lm(weights = w)`).
+pub fn partial_residuals_wls(
+    y: &[f64],
+    x: &[Vec<f64>],
+    weights: &[f64],
+    options: &WlsOptions,
+) -> StatsResult<PartialResidualsResult> {
+    if weights.is_empty() {
+        return Err(StatsError::EmptyInput { field: "weights" });
+    }
+    partial_residuals_linear(y, x, Some(weights), options.fit_intercept, options.solver)
+}
+
 /// The fit settings shared by the six GLM families.
 struct GlmSpec<'a> {
     family: PenalizedGlmFamily,
@@ -215,13 +344,11 @@ struct GlmSpec<'a> {
     estimate_dispersion: bool,
 }
 
-/// Fit a GLM on the usable rows and return per-row diagnostics for every row.
-///
-/// `x` is laid out as for the `fit_*` functions (the offset column, if any,
-/// included). The fit drops rows with a non-finite `y`, feature or offset;
-/// those rows get the fit's prediction (NaN if a feature or the offset is
-/// missing) and NaN diagnostics.
-fn augment_glm_spec(y: &[f64], x: &[Vec<f64>], spec: GlmSpec<'_>) -> StatsResult<AugmentResult> {
+/// A GLM fit with the feature matrix over all rows, `y` and the offset column.
+type GlmFit = (FittedPenalizedGlm, Mat<f64>, Col<f64>, Option<Col<f64>>);
+
+/// The GLM fit shared by the augment and partial-residual entry points.
+fn fit_glm_spec(y: &[f64], x: &[Vec<f64>], spec: GlmSpec<'_>) -> StatsResult<GlmFit> {
     if y.is_empty() {
         return Err(StatsError::EmptyInput { field: "y" });
     }
@@ -267,6 +394,18 @@ fn augment_glm_spec(y: &[f64], x: &[Vec<f64>], spec: GlmSpec<'_>) -> StatsResult
         .build()
         .fit(&x_mat, &y_col)
         .map_err(StatsError::from)?;
+    Ok((fitted_model, x_mat, y_col, offset))
+}
+
+/// Fit a GLM on the usable rows and return per-row diagnostics for every row.
+///
+/// `x` is laid out as for the `fit_*` functions (the offset column, if any,
+/// included). The fit drops rows with a non-finite `y`, feature or offset;
+/// those rows get the fit's prediction (NaN if a feature or the offset is
+/// missing) and NaN diagnostics.
+fn augment_glm_spec(y: &[f64], x: &[Vec<f64>], spec: GlmSpec<'_>) -> StatsResult<AugmentResult> {
+    let n_obs = y.len();
+    let (fitted_model, x_mat, y_col, offset) = fit_glm_spec(y, x, spec)?;
     let aug = fitted_model
         .augment(&x_mat, &y_col)
         .map_err(StatsError::from)?;
@@ -304,15 +443,36 @@ fn augment_glm_spec(y: &[f64], x: &[Vec<f64>], spec: GlmSpec<'_>) -> StatsResult
     })
 }
 
-/// Per-row diagnostics of a Poisson fit (options as [`crate::models::fit_poisson`]).
-pub fn augment_poisson(
+/// GLM partial residuals (working residual + component, R
+/// `residuals(glm, type = "partial")`); no added-variable coordinates.
+fn partial_residuals_glm_spec(
     y: &[f64],
     x: &[Vec<f64>],
-    o: &PoissonOptions,
-) -> StatsResult<AugmentResult> {
-    augment_glm_spec(
-        y,
-        x,
+    spec: GlmSpec<'_>,
+) -> StatsResult<PartialResidualsResult> {
+    let offset_idx = spec.offset_column.and_then(|c| c.checked_sub(1));
+    let (fitted_model, ..) = fit_glm_spec(y, x, spec)?;
+    let terms = anofox_regression::diagnostics::partial_residuals_glm(fitted_model.result(), y, x)
+        .map_err(StatsError::from)?;
+    let mut out = PartialResidualsResult::new(x, false);
+    let len = out.len;
+    // Terms are numbered over the features, the offset column excluded.
+    let positions: Vec<usize> = (0..x.len()).filter(|&j| Some(j) != offset_idx).collect();
+    if let Some(o) = offset_idx {
+        out.x[o * len..(o + 1) * len].fill(f64::NAN);
+    }
+    for t in &terms {
+        let j = positions[t.term];
+        for i in 0..len {
+            out.component[j * len + i] = t.component[i];
+            out.partial_residual[j * len + i] = t.partial_residual[i];
+        }
+    }
+    Ok(out)
+}
+
+impl<'a> From<&'a PoissonOptions> for GlmSpec<'a> {
+    fn from(o: &'a PoissonOptions) -> Self {
         GlmSpec {
             family: PenalizedGlmFamily::Poisson(o.link),
             fit_intercept: o.fit_intercept,
@@ -322,19 +482,30 @@ pub fn augment_poisson(
             prior_opts: &o.prior_opts,
             offset_column: o.offset_column,
             estimate_dispersion: o.estimate_dispersion,
-        },
-    )
+        }
+    }
 }
 
-/// Per-row diagnostics of a Binomial fit (options as [`crate::models::fit_binomial`]).
-pub fn augment_binomial(
+/// Per-row diagnostics of a Poisson fit (options as [`crate::models::fit_poisson`]).
+pub fn augment_poisson(
     y: &[f64],
     x: &[Vec<f64>],
-    o: &BinomialOptions,
+    o: &PoissonOptions,
 ) -> StatsResult<AugmentResult> {
-    augment_glm_spec(
-        y,
-        x,
+    augment_glm_spec(y, x, o.into())
+}
+
+/// Partial residuals of a Poisson fit (options as [`crate::models::fit_poisson`]).
+pub fn partial_residuals_poisson(
+    y: &[f64],
+    x: &[Vec<f64>],
+    o: &PoissonOptions,
+) -> StatsResult<PartialResidualsResult> {
+    partial_residuals_glm_spec(y, x, o.into())
+}
+
+impl<'a> From<&'a BinomialOptions> for GlmSpec<'a> {
+    fn from(o: &'a BinomialOptions) -> Self {
         GlmSpec {
             family: PenalizedGlmFamily::Binomial(o.link),
             fit_intercept: o.fit_intercept,
@@ -344,19 +515,30 @@ pub fn augment_binomial(
             prior_opts: &o.prior_opts,
             offset_column: o.offset_column,
             estimate_dispersion: false,
-        },
-    )
+        }
+    }
 }
 
-/// Per-row diagnostics of a logistic fit (options as [`crate::models::fit_logistic`]).
-pub fn augment_logistic(
+/// Per-row diagnostics of a Binomial fit (options as [`crate::models::fit_binomial`]).
+pub fn augment_binomial(
     y: &[f64],
     x: &[Vec<f64>],
-    o: &LogisticOptions,
+    o: &BinomialOptions,
 ) -> StatsResult<AugmentResult> {
-    augment_glm_spec(
-        y,
-        x,
+    augment_glm_spec(y, x, o.into())
+}
+
+/// Partial residuals of a Binomial fit (options as [`crate::models::fit_binomial`]).
+pub fn partial_residuals_binomial(
+    y: &[f64],
+    x: &[Vec<f64>],
+    o: &BinomialOptions,
+) -> StatsResult<PartialResidualsResult> {
+    partial_residuals_glm_spec(y, x, o.into())
+}
+
+impl<'a> From<&'a LogisticOptions> for GlmSpec<'a> {
+    fn from(o: &'a LogisticOptions) -> Self {
         GlmSpec {
             family: PenalizedGlmFamily::Logistic {
                 threshold: o.threshold,
@@ -368,20 +550,30 @@ pub fn augment_logistic(
             prior_opts: &o.prior_opts,
             offset_column: o.offset_column,
             estimate_dispersion: false,
-        },
-    )
+        }
+    }
 }
 
-/// Per-row diagnostics of a Negative Binomial fit (options as
-/// [`crate::models::fit_negbinomial`]; `alpha` is the fixed `theta`).
-pub fn augment_negbinomial(
+/// Per-row diagnostics of a logistic fit (options as [`crate::models::fit_logistic`]).
+pub fn augment_logistic(
     y: &[f64],
     x: &[Vec<f64>],
-    o: &NegBinomialOptions,
+    o: &LogisticOptions,
 ) -> StatsResult<AugmentResult> {
-    augment_glm_spec(
-        y,
-        x,
+    augment_glm_spec(y, x, o.into())
+}
+
+/// Partial residuals of a logistic fit (options as [`crate::models::fit_logistic`]).
+pub fn partial_residuals_logistic(
+    y: &[f64],
+    x: &[Vec<f64>],
+    o: &LogisticOptions,
+) -> StatsResult<PartialResidualsResult> {
+    partial_residuals_glm_spec(y, x, o.into())
+}
+
+impl<'a> From<&'a NegBinomialOptions> for GlmSpec<'a> {
+    fn from(o: &'a NegBinomialOptions) -> Self {
         GlmSpec {
             family: PenalizedGlmFamily::NegativeBinomial { theta: o.alpha },
             fit_intercept: o.fit_intercept,
@@ -391,15 +583,30 @@ pub fn augment_negbinomial(
             prior_opts: &o.prior_opts,
             offset_column: o.offset_column,
             estimate_dispersion: false,
-        },
-    )
+        }
+    }
 }
 
-/// Per-row diagnostics of a Gamma fit (options as [`crate::models::fit_gamma`]).
-pub fn augment_gamma(y: &[f64], x: &[Vec<f64>], o: &GammaOptions) -> StatsResult<AugmentResult> {
-    augment_glm_spec(
-        y,
-        x,
+/// Per-row diagnostics of a Negative Binomial fit (options as [`crate::models::fit_negbinomial`]; `alpha` is the fixed `theta`).
+pub fn augment_negbinomial(
+    y: &[f64],
+    x: &[Vec<f64>],
+    o: &NegBinomialOptions,
+) -> StatsResult<AugmentResult> {
+    augment_glm_spec(y, x, o.into())
+}
+
+/// Partial residuals of a Negative Binomial fit (options as [`crate::models::fit_negbinomial`]; `alpha` is the fixed `theta`).
+pub fn partial_residuals_negbinomial(
+    y: &[f64],
+    x: &[Vec<f64>],
+    o: &NegBinomialOptions,
+) -> StatsResult<PartialResidualsResult> {
+    partial_residuals_glm_spec(y, x, o.into())
+}
+
+impl<'a> From<&'a GammaOptions> for GlmSpec<'a> {
+    fn from(o: &'a GammaOptions) -> Self {
         GlmSpec {
             family: PenalizedGlmFamily::Gamma,
             fit_intercept: o.fit_intercept,
@@ -409,19 +616,26 @@ pub fn augment_gamma(y: &[f64], x: &[Vec<f64>], o: &GammaOptions) -> StatsResult
             prior_opts: &o.prior_opts,
             offset_column: o.offset_column,
             estimate_dispersion: false,
-        },
-    )
+        }
+    }
 }
 
-/// Per-row diagnostics of a Tweedie fit (options as [`crate::models::fit_tweedie`]).
-pub fn augment_tweedie(
+/// Per-row diagnostics of a Gamma fit (options as [`crate::models::fit_gamma`]).
+pub fn augment_gamma(y: &[f64], x: &[Vec<f64>], o: &GammaOptions) -> StatsResult<AugmentResult> {
+    augment_glm_spec(y, x, o.into())
+}
+
+/// Partial residuals of a Gamma fit (options as [`crate::models::fit_gamma`]).
+pub fn partial_residuals_gamma(
     y: &[f64],
     x: &[Vec<f64>],
-    o: &TweedieOptions,
-) -> StatsResult<AugmentResult> {
-    augment_glm_spec(
-        y,
-        x,
+    o: &GammaOptions,
+) -> StatsResult<PartialResidualsResult> {
+    partial_residuals_glm_spec(y, x, o.into())
+}
+
+impl<'a> From<&'a TweedieOptions> for GlmSpec<'a> {
+    fn from(o: &'a TweedieOptions) -> Self {
         GlmSpec {
             family: PenalizedGlmFamily::Tweedie { power: o.power },
             fit_intercept: o.fit_intercept,
@@ -431,8 +645,26 @@ pub fn augment_tweedie(
             prior_opts: &o.prior_opts,
             offset_column: o.offset_column,
             estimate_dispersion: false,
-        },
-    )
+        }
+    }
+}
+
+/// Per-row diagnostics of a Tweedie fit (options as [`crate::models::fit_tweedie`]).
+pub fn augment_tweedie(
+    y: &[f64],
+    x: &[Vec<f64>],
+    o: &TweedieOptions,
+) -> StatsResult<AugmentResult> {
+    augment_glm_spec(y, x, o.into())
+}
+
+/// Partial residuals of a Tweedie fit (options as [`crate::models::fit_tweedie`]).
+pub fn partial_residuals_tweedie(
+    y: &[f64],
+    x: &[Vec<f64>],
+    o: &TweedieOptions,
+) -> StatsResult<PartialResidualsResult> {
+    partial_residuals_glm_spec(y, x, o.into())
 }
 
 #[cfg(test)]
@@ -493,6 +725,53 @@ mod tests {
             ..Default::default()
         };
         assert!(augment_poisson(&y, &x, &o).is_err());
+    }
+
+    #[test]
+    fn ols_partial_residuals_add_component_to_residual() {
+        let x = vec![
+            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0],
+            vec![2.0, 1.0, 4.0, 3.0, 6.0, 5.0, 9.0],
+        ];
+        let y = vec![1.1, 2.3, 2.9, 4.2, f64::NAN, 6.1, 9.7];
+        let r = partial_residuals_ols(&y, &x, &OlsOptions::default()).unwrap();
+        assert_eq!((r.n_terms, r.len), (2, 7));
+        assert!(r.has_added_variable);
+        assert!(r.partial_residual[4].is_nan() && r.x[4] == 5.0);
+        // Components of a term are centred over the rows used.
+        let c: f64 = (0..7)
+            .map(|i| r.component[i])
+            .filter(|v| v.is_finite())
+            .sum();
+        assert!(c.abs() < 1e-10);
+        // Frisch-Waugh-Lovell: the AV slope is the coefficient, i.e. the
+        // component's slope in x.
+        let (mut sxy, mut sxx) = (0.0, 0.0);
+        for i in 0..7 {
+            if r.x_residual[i].is_finite() {
+                sxy += r.x_residual[i] * r.y_residual[i];
+                sxx += r.x_residual[i] * r.x_residual[i];
+            }
+        }
+        let b = (r.component[1] - r.component[0]) / (x[0][1] - x[0][0]);
+        assert!((sxy / sxx - b).abs() < 1e-10);
+    }
+
+    #[test]
+    fn glm_partial_residuals_skip_the_offset() {
+        let x = vec![
+            vec![0.1, 0.4, 0.9, 1.3, 1.8, 2.2, 2.9, 3.1],
+            vec![0.0, 0.1, 0.0, 0.2, 0.1, 0.0, 0.3, 0.1],
+        ];
+        let y = vec![1.0, 1.0, 3.0, 2.0, 6.0, 5.0, 14.0, 11.0];
+        let o = PoissonOptions {
+            offset_column: Some(2),
+            ..Default::default()
+        };
+        let r = partial_residuals_poisson(&y, &x, &o).unwrap();
+        assert!(!r.has_added_variable);
+        assert!(r.partial_residual[0].is_finite());
+        assert!(r.partial_residual[8].is_nan() && r.x[8].is_nan());
     }
 
     #[test]
