@@ -73,13 +73,21 @@ pub fn t_test(group1: &[f64], group2: &[f64], options: &TTestOptions) -> StatsRe
     )
     .map_err(convert_error)?;
 
+    // Cohen's d (R effectsize::cohens_d): pooled SD for Student, average
+    // variance for Welch, d_z for paired samples.
+    let cohens_d = lib_cohens_d(&g1, &g2, options.kind, options.mu).unwrap_or(f64::NAN);
+    let mut unified = super::UnifiedTestResult::from(&result)
+        .with_alternative(options.alternative)
+        .with_n(g1.len() + g2.len());
+    if !cohens_d.is_nan() {
+        unified = unified.with_effect_size("cohens_d", cohens_d);
+    }
+
     Ok(TestResult {
         statistic: result.statistic,
         p_value: result.p_value,
         df: result.df,
-        // Cohen's d (R effectsize::cohens_d): pooled SD for Student, average
-        // variance for Welch, d_z for paired samples.
-        effect_size: lib_cohens_d(&g1, &g2, options.kind, options.mu).unwrap_or(f64::NAN),
+        effect_size: cohens_d,
         ci_lower: result
             .conf_int
             .as_ref()
@@ -96,6 +104,7 @@ pub fn t_test(group1: &[f64], group2: &[f64], options: &TTestOptions) -> StatsRe
         n2: g2.len(),
         alternative: options.alternative,
         method: format!("{:?} t-test", options.kind),
+        unified,
     })
 }
 
@@ -173,6 +182,9 @@ pub fn yuen_test(group1: &[f64], group2: &[f64], options: &YuenOptions) -> Stats
         n2: g2.len(),
         alternative: options.alternative,
         method: format!("Yuen test (trim={:.2})", options.trim),
+        unified: super::UnifiedTestResult::from(&result)
+            .with_alternative(options.alternative)
+            .with_n(g1.len() + g2.len()),
     })
 }
 
@@ -232,6 +244,7 @@ pub fn one_way_anova(groups: &[Vec<f64>], options: &AnovaOptions) -> StatsResult
         n_groups: filtered.len(),
         n,
         method: format!("{:?} One-way ANOVA", options.kind),
+        unified: super::UnifiedTestResult::from(&result).with_n(n),
     })
 }
 
@@ -278,6 +291,7 @@ pub fn brown_forsythe(groups: &[Vec<f64>]) -> StatsResult<TestResult> {
         n2: 0,
         alternative: Alternative::TwoSided,
         method: "Brown-Forsythe test".into(),
+        unified: super::UnifiedTestResult::from(&result).with_n(n),
     })
 }
 

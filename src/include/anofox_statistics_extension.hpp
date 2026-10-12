@@ -93,6 +93,7 @@ void RegisterPearsonAggregateFunction(ExtensionLoader &loader);
 void RegisterSpearmanAggregateFunction(ExtensionLoader &loader);
 void RegisterMannWhitneyAggregateFunction(ExtensionLoader &loader);
 void RegisterAnovaAggregateFunction(ExtensionLoader &loader);
+void RegisterPairwisePosthocAggregateFunctions(ExtensionLoader &loader);
 void RegisterKruskalWallisAggregateFunction(ExtensionLoader &loader);
 void RegisterChiSquareAggregateFunction(ExtensionLoader &loader);
 
@@ -128,6 +129,7 @@ void RegisterContingencyCoefAggregateFunction(ExtensionLoader &loader);
 // Table Macros for fit_predict_by functions
 void RegisterFitPredictTableMacros(ExtensionLoader &loader);
 void RegisterModelOutputMacros(ExtensionLoader &loader);
+void RegisterPosthocMacros(ExtensionLoader &loader);
 
 // Extension class required for static linking
 class AnofoxStatisticsExtension : public Extension {

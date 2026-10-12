@@ -6,6 +6,7 @@
 #include "duckdb/main/extension/extension_loader.hpp"
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
+#include "../include/test_struct.hpp"
 #include "../include/anofox_stats_ffi.h"
 #include "../include/ffi_enum_converters.hpp"
 #include "../include/result_fields.hpp"
@@ -52,6 +53,7 @@ static LogicalType GetFisherExactAggResultType() {
     children.push_back(make_pair("conditional_ci_lower", LogicalType::DOUBLE));
     children.push_back(make_pair("conditional_ci_upper", LogicalType::DOUBLE));
 
+    AppendTestResultFields(children);
     return LogicalType::STRUCT(std::move(children));
 }
 
@@ -238,6 +240,8 @@ static void FisherExactAggFinalize(Vector &state_vector, AggregateInputData &agg
         FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = cond_result.statistic;
         FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = cond_result.ci_lower;
         FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = cond_result.ci_upper;
+        // The unified estimate and interval are the conditional MLE ones, as R fisher.test reports.
+        WriteTestResultFields(result, result_idx, struct_idx, cond_result.unified);
 
         anofox_free_test_result(&cond_result);
         anofox_free_test_result(&test_result);

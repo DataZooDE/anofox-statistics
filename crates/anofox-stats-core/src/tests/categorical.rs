@@ -70,6 +70,7 @@ pub fn chisq_test(
         p_value: result.p_value,
         df: result.df as usize,
         method: "Chi-square test for independence".into(),
+        unified: super::UnifiedTestResult::from(&result),
     })
 }
 
@@ -100,6 +101,7 @@ pub fn chisq_goodness_of_fit(observed: &[usize], expected: &[f64]) -> StatsResul
         p_value: result.p_value,
         df: result.df as usize,
         method: "Chi-square goodness-of-fit test".into(),
+        unified: super::UnifiedTestResult::from(&result),
     })
 }
 
@@ -118,6 +120,7 @@ pub fn chisq_goodness_of_fit_uniform(observed: &[usize]) -> StatsResult<ChiSquar
         p_value: result.p_value,
         df: result.df as usize,
         method: "Chi-square goodness-of-fit test (uniform)".into(),
+        unified: super::UnifiedTestResult::from(&result),
     })
 }
 
@@ -151,6 +154,7 @@ pub fn g_test(table: &[Vec<usize>]) -> StatsResult<ChiSquareResult> {
         p_value: result.p_value,
         df: result.df as usize,
         method: "G-test (log-likelihood ratio)".into(),
+        unified: super::UnifiedTestResult::from(&result),
     })
 }
 
@@ -167,6 +171,8 @@ pub struct FisherExactResult {
     pub ci_upper: f64,
     /// Alternative hypothesis
     pub alternative: Alternative,
+    /// Unified result (contract `test` row), from the upstream result
+    pub unified: super::UnifiedTestResult,
 }
 
 /// Options for Fisher's exact test
@@ -216,7 +222,11 @@ pub fn fisher_exact(
     let result =
         lib_fisher_exact_with_conf_level(table, options.alternative, options.confidence_level)
             .map_err(convert_error)?;
-    Ok(fisher_result(result, options.alternative))
+    Ok(fisher_result(
+        result,
+        options.alternative,
+        options.confidence_level,
+    ))
 }
 
 /// Fisher's exact test for 2x2 tables with R `fisher.test` semantics
@@ -234,12 +244,17 @@ pub fn fisher_exact_conditional(
     validate_fisher_confidence(options.confidence_level)?;
     let result = lib_fisher_exact_conditional(table, options.alternative, options.confidence_level)
         .map_err(convert_error)?;
-    Ok(fisher_result(result, options.alternative))
+    Ok(fisher_result(
+        result,
+        options.alternative,
+        options.confidence_level,
+    ))
 }
 
 fn fisher_result(
     result: anofox_tests::FisherResult,
     alternative: Alternative,
+    confidence_level: f64,
 ) -> FisherExactResult {
     FisherExactResult {
         p_value: result.p_value,
@@ -247,6 +262,7 @@ fn fisher_result(
         ci_lower: result.conf_int_lower,
         ci_upper: result.conf_int_upper,
         alternative,
+        unified: super::UnifiedTestResult::from(&result).with_conf_level(confidence_level),
     }
 }
 
@@ -287,6 +303,7 @@ pub fn mcnemar_test(
             p_value: result.p_value,
             df: 0, // Exact test doesn't have df
             method: "McNemar's exact test".into(),
+            unified: super::UnifiedTestResult::from(&result),
         })
     } else {
         let result = lib_mcnemar_test(table, options.correction).map_err(convert_error)?;
@@ -295,6 +312,7 @@ pub fn mcnemar_test(
             p_value: result.p_value,
             df: 1,
             method: "McNemar's test".into(),
+            unified: super::UnifiedTestResult::from(&result),
         })
     }
 }
@@ -350,6 +368,8 @@ pub struct KappaResult {
     pub z: f64,
     /// p-value
     pub p_value: f64,
+    /// Unified result (contract `test` row), from the upstream result
+    pub unified: super::UnifiedTestResult,
 }
 
 /// Cohen's kappa for inter-rater agreement
@@ -373,6 +393,7 @@ pub fn cohen_kappa(table: &[Vec<usize>], weighted: bool) -> StatsResult<KappaRes
         ci_upper: result.conf_int_upper,
         z: result.z,
         p_value: result.p_value,
+        unified: super::UnifiedTestResult::from(&result),
     })
 }
 
@@ -391,6 +412,8 @@ pub struct PropTestResult {
     pub ci_upper: f64,
     /// Alternative hypothesis
     pub alternative: Alternative,
+    /// Unified result (contract `test` row), from the upstream result
+    pub unified: super::UnifiedTestResult,
 }
 
 /// Options for proportion tests
@@ -452,10 +475,11 @@ pub fn prop_test_one(
     Ok(PropTestResult {
         statistic: result.statistic,
         p_value: result.p_value,
-        estimate: result.estimate,
+        estimate: result.estimate.clone(),
         ci_lower: result.conf_int_lower,
         ci_upper: result.conf_int_upper,
         alternative: options.alternative,
+        unified: super::UnifiedTestResult::from(&result).with_conf_level(options.confidence_level),
     })
 }
 
@@ -494,10 +518,11 @@ pub fn prop_test_two(
     Ok(PropTestResult {
         statistic: result.statistic,
         p_value: result.p_value,
-        estimate: result.estimate,
+        estimate: result.estimate.clone(),
         ci_lower: result.conf_int_lower,
         ci_upper: result.conf_int_upper,
         alternative: options.alternative,
+        unified: super::UnifiedTestResult::from(&result).with_conf_level(options.confidence_level),
     })
 }
 
@@ -548,6 +573,7 @@ pub fn binom_test(
         ci_lower: result.conf_int_lower,
         ci_upper: result.conf_int_upper,
         alternative: options.alternative,
+        unified: super::UnifiedTestResult::from(&result).with_conf_level(options.confidence_level),
     })
 }
 

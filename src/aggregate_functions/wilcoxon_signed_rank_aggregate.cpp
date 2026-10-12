@@ -6,6 +6,7 @@
 #include "duckdb/main/extension/extension_loader.hpp"
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
+#include "../include/test_struct.hpp"
 #include "../include/anofox_stats_ffi.h"
 #include "../include/ffi_enum_converters.hpp"
 #include "../include/result_fields.hpp"
@@ -48,6 +49,7 @@ static LogicalType GetWilcoxonSignedRankAggResultType() {
     children.push_back(make_pair("method", LogicalType::VARCHAR));
     children.push_back(make_pair("alternative", LogicalType::VARCHAR));
 
+    AppendTestResultFields(children);
     return LogicalType::STRUCT(std::move(children));
 }
 
@@ -223,6 +225,7 @@ static void WilcoxonSignedRankAggFinalize(Vector &state_vector, AggregateInputDa
         FlatVector::GetData<string_t>(method_vector)[result_idx] =
             StringVector::AddString(method_vector, test_result.method ? test_result.method : "Wilcoxon signed-rank test");
         SetResultString(*struct_entries[struct_idx++], result_idx, AlternativeName(options.alternative));
+        WriteTestResultFields(result, result_idx, struct_idx, test_result.unified);
 
         anofox_free_test_result(&test_result);
         state.Reset();

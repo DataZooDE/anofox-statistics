@@ -45,11 +45,15 @@ pub struct TostResult {
     pub n: usize,
     /// Test method
     pub method: String,
+    /// Unified result (contract `test` row), from the upstream result
+    pub unified: super::UnifiedTestResult,
 }
 
 /// Helper function to convert library TostResult to our TostResult
 fn convert_tost_result(result: anofox_tests::TostResult) -> TostResult {
+    let unified = super::UnifiedTestResult::from(&result);
     TostResult {
+        unified,
         estimate: result.estimate,
         ci_lower: result.ci.0,
         ci_upper: result.ci.1,

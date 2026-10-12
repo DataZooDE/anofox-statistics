@@ -6,6 +6,7 @@
 #include "duckdb/main/extension/extension_loader.hpp"
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
+#include "../include/test_struct.hpp"
 #include "../include/anofox_stats_ffi.h"
 #include "../include/result_fields.hpp"
 #include "../include/error_dispatch.hpp"
@@ -49,6 +50,7 @@ static LogicalType GetPropTestOneAggResultType() {
     children.push_back(make_pair("method", LogicalType::VARCHAR));
     children.push_back(make_pair("alternative", LogicalType::VARCHAR));
 
+    AppendTestResultFields(children);
     return LogicalType::STRUCT(std::move(children));
 }
 
@@ -189,6 +191,7 @@ static void PropTestOneAggFinalize(Vector &state_vector, AggregateInputData &agg
         FlatVector::GetData<string_t>(method_vector)[result_idx] =
             StringVector::AddString(method_vector, prop_result.method ? prop_result.method : "One-sample proportion test");
         SetResultString(*struct_entries[struct_idx++], result_idx, AlternativeName(bind_data.alternative));
+        WriteTestResultFields(result, result_idx, struct_idx, prop_result.unified);
 
         anofox_free_prop_test_result(&prop_result);
         state.Reset();

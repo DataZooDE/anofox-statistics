@@ -7,6 +7,7 @@
 #include "duckdb/main/extension/extension_loader.hpp"
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
 
+#include "../include/test_struct.hpp"
 #include "../include/anofox_stats_ffi.h"
 #include "../include/result_fields.hpp"
 #include "../include/error_dispatch.hpp"
@@ -56,6 +57,7 @@ static LogicalType GetIccAggResultType() {
     children.push_back(make_pair("n", LogicalType::BIGINT));
     children.push_back(make_pair("alternative", LogicalType::VARCHAR));
 
+    AppendTestResultFields(children);
     return LogicalType::STRUCT(std::move(children));
 }
 
@@ -255,7 +257,8 @@ static void IccAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
         FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = icc_result.p_value; // F test, H0: ICC = 0
         FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] =
             static_cast<int64_t>(icc_result.n_subjects * icc_result.n_raters);
-        SetResultNull(*struct_entries[struct_idx++], result_idx); // alternative: not applicable
+        SetResultNull(*struct_entries[struct_idx++], result_idx);
+        WriteTestResultFields(result, result_idx, struct_idx, icc_result.unified); // alternative: not applicable
 
         anofox_free_icc_result(&icc_result);
         state.Reset();

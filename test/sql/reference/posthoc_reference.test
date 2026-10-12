@@ -1,0 +1,153 @@
+# name: test/sql/reference/posthoc_reference.test
+# description: #159 pairwise post-hoc aggregates vs R (pairwise.t.test, TukeyHSD, p.adjust)
+# group: [reference]
+#
+# R (4.x):
+#   A <- c(4.2, 5.1, 4.8, 5.5, 4.9); B <- c(6.3, 6.9, 7.1, 6.5)
+#   C <- c(5.5, 5.0, 5.9, 6.1, 5.2, 5.7); D <- c(4.0, 4.4, 3.9, 4.6)
+#   v <- c(A, B, C, D); g <- factor(rep(c("A", "B", "C", "D"), c(5, 4, 6, 4)))
+#   pairwise.t.test(v, g, p.adjust.method = "none" | "holm" | "bonferroni" | "BH")$p.value
+#   pairwise.t.test(v, g, p.adjust.method = "holm", pool.sd = FALSE)$p.value
+#   TukeyHSD(aov(v ~ g))$g
+# FSA / dunn.test are not installed here, so dunn_test_agg is checked for shape and
+# invariants only (its values come from upstream anofox-statistics, which is
+# validated against FSA::dunnTest there).
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE ph AS SELECT * FROM (VALUES
+    ('A', 4.2), ('A', 5.1), ('A', 4.8), ('A', 5.5), ('A', 4.9),
+    ('B', 6.3), ('B', 6.9), ('B', 7.1), ('B', 6.5),
+    ('C', 5.5), ('C', 5.0), ('C', 5.9), ('C', 6.1), ('C', 5.2), ('C', 5.7),
+    ('D', 4.0), ('D', 4.4), ('D', 3.9), ('D', 4.6)) t(g, v);
+
+# Reference p-values, one row per pair in R's order (B-A, C-A, D-A, C-B, D-B, D-C).
+statement ok
+CREATE TABLE ref AS SELECT * FROM (VALUES
+    ('A', 'B', 8.86057018420620e-06, 4.4302850921031e-05, 5.31634211052372e-05, 2.65817105526186e-05, 0.00178289597092602),
+    ('A', 'C', 1.65796712563508e-02, 0.033159342512701619, 9.94780275381049e-02, 1.98956055076210e-02, 0.07910388644602177),
+    ('A', 'D', 2.62896804667003e-02, 0.033159342512701619, 1.57738082800202e-01, 2.62896804667003e-02, 0.07910388644602177),
+    ('B', 'C', 6.31828134762951e-04, 1.89548440428885e-03, 3.79096880857770e-03, 9.47742202144426e-04, 0.00743344201369709),
+    ('B', 'D', 3.64040212241668e-07, 2.18424127345001e-06, 2.18424127345001e-06, 2.18424127345001e-06, 0.00035882718849505),
+    ('C', 'D', 0.000132983416119299, 0.000531933664477197, 0.000797900496715796, 0.000265966832238599, 0.00230052108541994))
+    t(group1, group2, p_none, p_holm, p_bonferroni, p_bh, p_welch_holm);
+
+# pairwise.t.test, pooled SD: raw and holm / bonferroni / BH adjusted p-values.
+query IIII
+SELECT bool_and(abs(h.p_value - ref.p_none) < 1e-12),
+       bool_and(abs(h.p_adj - ref.p_holm) < 1e-12),
+       bool_and(abs(b.p_adj - ref.p_bonferroni) < 1e-12),
+       bool_and(abs(f.p_adj - ref.p_bh) < 1e-12)
+FROM (SELECT unnest(pairwise_t_test_agg(v, g), recursive := true) FROM ph) h
+JOIN (SELECT unnest(pairwise_t_test_agg(v, g, {'p_adjust': 'bonferroni'}), recursive := true) FROM ph) b USING (group1, group2)
+JOIN (SELECT unnest(pairwise_t_test_agg(v, g, {'p_adjust': 'BH'}), recursive := true) FROM ph) f USING (group1, group2)
+JOIN ref USING (group1, group2);
+----
+true	true	true	true
+
+# pairwise.t.test(pool.sd = FALSE): Welch t-test per pair, holm.
+query I
+SELECT bool_and(abs(w.p_adj - ref.p_welch_holm) < 1e-10)
+FROM (SELECT unnest(pairwise_t_test_agg(v, g, {'pool_sd': false}), recursive := true) FROM ph) w
+JOIN ref USING (group1, group2);
+----
+true
+
+# Rows: group1 < group2 in label order, estimate = mean(group2) - mean(group1), df = N - k.
+query TTRRT
+SELECT group1, group2, round(estimate, 10), df1, p_adjust_method
+FROM (SELECT unnest(pairwise_t_test_agg(v, g), recursive := true) FROM ph);
+----
+A	B	1.8	15.0	holm
+A	C	0.6666666667	15.0	holm
+A	D	-0.675	15.0	holm
+B	C	-1.1333333333	15.0	holm
+B	D	-2.475	15.0	holm
+C	D	-1.3416666667	15.0	holm
+
+# TukeyHSD(aov(v ~ g)): diff, lwr, upr, p adj.
+statement ok
+CREATE TABLE tukey_ref AS SELECT * FROM (VALUES
+    ('A', 'B',  1.800000000000000,  1.0105595421471478,  2.589440457852852, 4.73245173117087e-05),
+    ('A', 'C',  0.666666666666667, -0.0459382886411072,  1.379271621974441, 7.05791534730034e-02),
+    ('A', 'D', -0.675000000000000, -1.4644404578528518,  0.114440457852852, 1.07076749736065e-01),
+    ('B', 'C', -1.133333333333333, -1.8929727680842088, -0.373693898582457, 3.15598757925850e-03),
+    ('B', 'D', -2.475000000000000, -3.3071433079670567, -1.642856692032943, 1.98496509629109e-06),
+    ('C', 'D', -1.341666666666667, -2.1013061014175429, -0.582027231915791, 6.86760611060988e-04))
+    t(group1, group2, diff, lwr, upr, p_adj);
+
+query IIIII
+SELECT bool_and(abs(t.estimate - r.diff) < 1e-12), bool_and(abs(t.conf_low - r.lwr) < 1e-9),
+       bool_and(abs(t.conf_high - r.upr) < 1e-9), bool_and(abs(t.p_adj - r.p_adj) < 1e-9),
+       bool_and(t.p_value = t.p_adj AND t.conf_level = 0.95 AND t.p_adjust_method IS NULL)
+FROM (SELECT unnest(tukey_hsd_agg(v, g), recursive := true) FROM ph) t
+JOIN tukey_ref r USING (group1, group2);
+----
+true	true	true	true	true
+
+# A wider family-wise level gives a wider interval.
+query I
+SELECT bool_and(w.conf_high - w.conf_low > t.conf_high - t.conf_low)
+FROM (SELECT unnest(tukey_hsd_agg(v, g, {'confidence_level': 0.99}), recursive := true) FROM ph) w
+JOIN (SELECT unnest(tukey_hsd_agg(v, g), recursive := true) FROM ph) t USING (group1, group2);
+----
+true
+
+# Dunn: mean-rank differences, z without df or interval, holm-adjusted p >= raw p.
+query IIII
+SELECT count(*), bool_and(p_adj >= p_value), bool_and(df1 IS NULL AND conf_low IS NULL), any_value(p_adjust_method)
+FROM (SELECT unnest(dunn_test_agg(v, g), recursive := true) FROM ph);
+----
+6	true	true	holm
+
+# Mean ranks: A = 5.4, B = 15.6 -> B - A = 10.2.
+query R
+SELECT estimate FROM (SELECT unnest(dunn_test_agg(v, g), recursive := true) FROM ph) WHERE group1 = 'A' AND group2 = 'B';
+----
+10.2
+
+# Integer group labels sort numerically (10 after 9).
+query TT
+SELECT group1, group2 FROM (SELECT unnest(pairwise_t_test_agg(v, CASE g WHEN 'A' THEN 9 WHEN 'B' THEN 10 ELSE 11 END), recursive := true) FROM ph);
+----
+9	10
+9	11
+10	11
+
+# Fewer than two groups: NULL. Unknown adjustment: error.
+query I
+SELECT tukey_hsd_agg(v, g) IS NULL FROM ph WHERE g = 'A';
+----
+true
+
+statement error
+SELECT pairwise_t_test_agg(v, g, {'p_adjust': 'nope'}) FROM ph;
+----
+unknown p-value adjustment method
+
+statement error
+SELECT tukey_hsd_agg(v, g, {'p_adjust': 'holm'}) FROM ph;
+----
+unknown option
+
+# The _by macros: one row per pair within each group of source, test schema.
+statement ok
+CREATE TABLE ph2 AS SELECT 'e' || i AS experiment, g, v + i AS v FROM ph, range(2) r(i);
+
+query TTTTRT
+SELECT experiment, model_id, test_id, group1, round(p_adj, 12), p_adjust_method
+FROM pairwise_t_test_by('ph2', experiment, v, g) WHERE group2 = 'B';
+----
+e0	e0	B-A	A	0.000044302851	holm
+e1	e1	B-A	A	0.000044302851	holm
+
+query II
+SELECT count(*), count(DISTINCT experiment) FROM tukey_hsd_by('ph2', experiment, v, g, {'confidence_level': 0.9});
+----
+12	2
+
+query IT
+SELECT count(*), any_value(p_adjust_method) FROM dunn_test_by('ph2', experiment, v, g, {'p_adjust': 'bonferroni'});
+----
+12	bonferroni

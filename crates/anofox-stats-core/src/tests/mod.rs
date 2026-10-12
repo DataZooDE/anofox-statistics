@@ -11,10 +11,15 @@ pub mod forecast;
 pub mod modern;
 pub mod nonparametric;
 pub mod parametric;
+pub mod posthoc;
 pub mod resampling;
 
 // Re-export common types from anofox-tests
 pub use anofox_tests::Alternative;
+/// The upstream unified test result (the integration contract's `test` row).
+/// Every wrapper fills it from the upstream result with `From`, adding only
+/// facts the wrapper knows (alternative, n, confidence level, effect-size name).
+pub use anofox_tests::TestResult as UnifiedTestResult;
 
 use crate::StatsError;
 
@@ -45,6 +50,8 @@ pub struct TestResult {
     pub alternative: Alternative,
     /// Test method/name
     pub method: String,
+    /// Unified result (contract `test` row), from the upstream result
+    pub unified: UnifiedTestResult,
 }
 
 impl Default for TestResult {
@@ -62,6 +69,7 @@ impl Default for TestResult {
             n2: 0,
             alternative: Alternative::TwoSided,
             method: String::new(),
+            unified: UnifiedTestResult::default(),
         }
     }
 }
@@ -87,6 +95,8 @@ pub struct AnovaResult {
     pub n: usize,
     /// Test method
     pub method: String,
+    /// Unified result (contract `test` row), from the upstream result
+    pub unified: UnifiedTestResult,
 }
 
 /// Correlation test result
@@ -108,6 +118,8 @@ pub struct CorrelationResult {
     pub n: usize,
     /// Method name
     pub method: String,
+    /// Unified result (contract `test` row), from the upstream result
+    pub unified: UnifiedTestResult,
 }
 
 /// Chi-square test result
@@ -121,6 +133,8 @@ pub struct ChiSquareResult {
     pub df: usize,
     /// Method name
     pub method: String,
+    /// Unified result (contract `test` row), from the upstream result
+    pub unified: UnifiedTestResult,
 }
 
 /// Convert anofox_tests StatError to our StatsError

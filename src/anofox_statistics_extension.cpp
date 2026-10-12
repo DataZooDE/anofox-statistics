@@ -138,6 +138,7 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterSpearmanAggregateFunction(loader);
     RegisterMannWhitneyAggregateFunction(loader);
     RegisterAnovaAggregateFunction(loader);
+    RegisterPairwisePosthocAggregateFunctions(loader);
     RegisterKruskalWallisAggregateFunction(loader);
     RegisterChiSquareAggregateFunction(loader);
 
@@ -222,6 +223,7 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterFitPredictTableMacros(loader);
     // <model>_tidy_by / <model>_glance_by (#152)
     RegisterModelOutputMacros(loader);
+    RegisterPosthocMacros(loader);
 
     RegisterContractVersionFunction(loader);
     ApplyContractTags(loader, preexisting);

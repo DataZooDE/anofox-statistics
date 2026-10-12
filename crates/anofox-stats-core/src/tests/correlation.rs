@@ -83,6 +83,7 @@ pub fn pearson(x: &[f64], y: &[f64], options: &PearsonOptions) -> StatsResult<Co
         confidence_level: options.confidence_level.unwrap_or(0.95),
         n: x_filtered.len(),
         method: "Pearson correlation".into(),
+        unified: super::UnifiedTestResult::from(&result),
     })
 }
 
@@ -144,6 +145,7 @@ pub fn spearman(x: &[f64], y: &[f64], options: &SpearmanOptions) -> StatsResult<
         confidence_level: options.confidence_level.unwrap_or(0.95),
         n: x_filtered.len(),
         method: "Spearman rank correlation".into(),
+        unified: super::UnifiedTestResult::from(&result),
     })
 }
 
@@ -204,6 +206,7 @@ pub fn kendall(x: &[f64], y: &[f64], options: &KendallOptions) -> StatsResult<Co
         confidence_level: f64::NAN,
         n: x_filtered.len(),
         method: format!("Kendall's {:?}", options.variant),
+        unified: super::UnifiedTestResult::from(&result),
     })
 }
 
@@ -267,6 +270,7 @@ pub fn partial_cor(x: &[f64], y: &[f64], z: &[Vec<f64>]) -> StatsResult<Correlat
             "Partial correlation (controlling for {} variables)",
             z.len()
         ),
+        unified: super::UnifiedTestResult::from(&result),
     })
 }
 
@@ -321,6 +325,7 @@ pub fn semi_partial_cor(x: &[f64], y: &[f64], z: &[Vec<f64>]) -> StatsResult<Cor
             "Semi-partial correlation (controlling for {} variables on y)",
             z.len()
         ),
+        unified: super::UnifiedTestResult::from(&result),
     })
 }
 
@@ -442,6 +447,7 @@ pub fn distance_cor_test(
             "Distance correlation test ({} permutations)",
             options.n_permutations
         ),
+        unified: super::UnifiedTestResult::from(&result).with_alternative(Alternative::TwoSided),
     })
 }
 
@@ -460,6 +466,8 @@ pub struct ICCResult {
     pub ci_upper: f64,
     /// ICC type
     pub icc_type: String,
+    /// Unified result (contract `test` row), from the upstream result
+    pub unified: super::UnifiedTestResult,
 }
 
 /// Intraclass correlation coefficient
@@ -495,6 +503,7 @@ pub fn icc(data: &[Vec<f64>], icc_type: ICCType) -> StatsResult<ICCResult> {
         ci_lower: result.conf_int_lower,
         ci_upper: result.conf_int_upper,
         icc_type: format!("{:?}", icc_type),
+        unified: super::UnifiedTestResult::from(&result),
     })
 }
 

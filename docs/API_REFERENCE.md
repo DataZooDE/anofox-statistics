@@ -127,6 +127,7 @@ fitted model struct).
 | Forecast comparison | `diebold_mariano_agg`, `clark_west_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
 | Correlation | `pearson_agg`, `spearman_agg`, `kendall_agg`, `distance_cor_agg`, `icc_agg` | [Correlation](api/statistics/correlation.md) |
 | Categorical | `chisq_test_agg`, `chisq_gof_agg`, `g_test_agg`, `fisher_exact_agg`, `mcnemar_agg` | [Categorical](api/statistics/categorical.md) |
+| Pairwise post-hoc | `pairwise_t_test_agg`, `tukey_hsd_agg`, `dunn_test_agg`, `pairwise_t_test_by`, `tukey_hsd_by`, `dunn_test_by` | [Hypothesis tests](api/statistics/hypothesis.md#pairwise-post-hoc-tests) |
 | Effect sizes | `cramers_v_agg`, `phi_coefficient_agg`, `contingency_coef_agg`, `cohen_kappa_agg` | [Categorical](api/statistics/categorical.md) |
 | Proportions | `prop_test_one_agg`, `prop_test_two_agg`, `binom_test_agg` | [Categorical](api/statistics/categorical.md) |
 
@@ -932,6 +933,26 @@ All tests are aggregates. Two-sample tests take a value and an `INTEGER` group
 indicator with two distinct values; paired tests take two `DOUBLE` columns.
 Unless noted, tests return `statistic`, `p_value` and a `method` label.
 
+> **Unified result fields (#159).** Every test aggregate also returns the
+> integration contract's `test` fields: `method, alternative, statistic, df1, df2,
+> p_value, estimate, conf_low, conf_high, conf_level, effect_size, effect_name, n`.
+> They are always present and NULL when they do not apply (for example `df2` of a
+> t-test, or `conf_low` of a normality test). A test keeps its own fields in their
+> existing order; the unified fields it did not already have are appended after
+> them. The values come from the upstream `anofox-statistics` `TestResult`: `df1`
+> / `df2` are the (numerator / denominator) degrees of freedom, `estimate` the
+> point estimate (for two-sample tests `group1 - group2`), and `conf_level` the
+> level of `conf_low` / `conf_high`.
+>
+> Deprecated aliases (removed in the next minor release): `ci_lower` / `ci_upper`
+> (use `conf_low` / `conf_high`), `df` (use `df1`), and in `one_way_anova_agg`
+> `f_statistic` (use `statistic`) and `df_between` / `df_within` (use `df1` / `df2`).
+
+```sql
+SELECT r.statistic, r.df1, r.estimate, r.conf_low, r.conf_high, r.effect_name
+FROM (SELECT t_test_agg(y, grp2) AS r FROM reg_data);
+```
+
 > **Option syntax.** Most tests read options from a struct literal
 > (`{'alternative': 'less'}`). The functions marked **MAP** in the tables below
 > currently read options only from a `MAP` literal (`MAP {'trim': 0.1}`).
@@ -1111,6 +1132,49 @@ FROM reg_data;
 ```
 
 ---
+
+### Pairwise Post-hoc Tests
+
+Pairwise comparisons between all levels of a group column (#159). Each returns
+`LIST(STRUCT(group1, group2, estimate, statistic, p_value, p_adj, conf_low,
+conf_high, method, df1, alternative, conf_level, p_adjust_method))`, one element
+per pair. Groups are the sorted distinct labels (`VARCHAR` or integer);
+`group1` sorts before `group2` and `estimate` is `group2 - group1`. Rows follow R's
+order (`B-A, C-A, C-B, ...` for `TukeyHSD`).
+
+| Function | Signature | Options | Matches |
+|----------|-----------|---------|---------|
+| `pairwise_t_test_agg` | `(value DOUBLE, group VARCHAR \| BIGINT [, options])` | `p_adjust` ('holm'; 'hochberg', 'hommel', 'bonferroni', 'BH'/'fdr', 'BY', 'none'), `pool_sd` (true), `alternative` ('two_sided') | R `pairwise.t.test` |
+| `tukey_hsd_agg` | `(value DOUBLE, group VARCHAR \| BIGINT [, options])` | `confidence_level` (0.95) | R `TukeyHSD(aov(value ~ group))` |
+| `dunn_test_agg` | `(value DOUBLE, group VARCHAR \| BIGINT [, options])` | `p_adjust` ('holm') | `FSA::dunnTest` |
+
+`p_value` is the unadjusted p-value and `p_adj` the adjusted one (for Tukey HSD both
+are the family-wise p-value). Tukey HSD alone has a simultaneous interval
+(`conf_low`, `conf_high`); Dunn's z has no `df1`. Fewer than two groups give NULL.
+
+```sql
+SELECT unnest(pairwise_t_test_agg(y, grp3, {'p_adjust': 'BH'}), recursive := true)
+FROM reg_data;
+
+SELECT unnest(tukey_hsd_agg(y, grp3), recursive := true) FROM reg_data;
+```
+
+The `_by` table macros run the test within each group of a table and return the
+`test` schema in long form, one row per pair: the group column, `model_id`,
+`test_id` (`'<group2>-<group1>'`), `method`, `statistic`, `p_value`, `group1`,
+`group2`, `p_adj`, `df1`, `df2`, `estimate`, `conf_low`, `conf_high`,
+`conf_level`, `effect_size`, `effect_name`, `alternative`, `p_adjust_method`.
+
+| Macro | Signature |
+|-------|-----------|
+| `pairwise_t_test_by` | `(source, group_col, value_col, factor_col, options := NULL)` |
+| `tukey_hsd_by` | `(source, group_col, value_col, factor_col, options := NULL)` |
+| `dunn_test_by` | `(source, group_col, value_col, factor_col, options := NULL)` |
+
+```sql
+SELECT category, group1, group2, estimate, p_adj
+FROM tukey_hsd_by('reg_data', category, y, grp3);
+```
 
 ## Fit-Predict Window Functions
 

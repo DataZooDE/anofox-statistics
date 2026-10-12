@@ -68,14 +68,20 @@ pub fn mann_whitney_u(
     )
     .map_err(convert_error)?;
 
+    // Rank-biserial correlation r = 1 - 2*U1 / (n1*n2) from the reported
+    // U1 (R's W, after any `mu` shift): r > 0 when group 2 tends to be
+    // larger than group 1, r < 0 when group 1 tends to be larger.
+    let rank_biserial = lib_rank_biserial_from_u(result.statistic, g1.len(), g2.len());
+    let unified = super::UnifiedTestResult::from(&result)
+        .with_alternative(options.alternative)
+        .with_n(g1.len() + g2.len())
+        .with_effect_size("rank_biserial", rank_biserial);
+
     Ok(TestResult {
         statistic: result.statistic,
         p_value: result.p_value,
         df: f64::NAN,
-        // Rank-biserial correlation r = 1 - 2*U1 / (n1*n2) from the reported
-        // U1 (R's W, after any `mu` shift): r > 0 when group 2 tends to be
-        // larger than group 1, r < 0 when group 1 tends to be larger.
-        effect_size: lib_rank_biserial_from_u(result.statistic, g1.len(), g2.len()),
+        effect_size: rank_biserial,
         ci_lower: result
             .conf_int
             .as_ref()
@@ -92,6 +98,7 @@ pub fn mann_whitney_u(
         n2: g2.len(),
         alternative: options.alternative,
         method: "Mann-Whitney U test".into(),
+        unified,
     })
 }
 
@@ -184,6 +191,9 @@ pub fn wilcoxon_signed_rank(
         n2: y_filtered.len(),
         alternative: options.alternative,
         method: "Wilcoxon signed-rank test".into(),
+        unified: super::UnifiedTestResult::from(&result)
+            .with_alternative(options.alternative)
+            .with_n(x_filtered.len()),
     })
 }
 
@@ -226,6 +236,7 @@ pub fn kruskal_wallis(groups: &[Vec<f64>]) -> StatsResult<TestResult> {
         n2: 0,
         alternative: Alternative::TwoSided,
         method: "Kruskal-Wallis H test".into(),
+        unified: super::UnifiedTestResult::from(&result).with_n(n),
     })
 }
 
@@ -299,6 +310,10 @@ pub fn brunner_munzel(
         n2: g2.len(),
         alternative: options.alternative,
         method: "Brunner-Munzel test".into(),
+        unified: super::UnifiedTestResult::from(&result)
+            .with_alternative(options.alternative)
+            .with_n(g1.len() + g2.len())
+            .with_effect_size("relative_effect", result.estimate),
     })
 }
 

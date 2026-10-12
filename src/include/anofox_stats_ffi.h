@@ -72,6 +72,32 @@ typedef struct {
 	double intercept_conf_high;
 } AnofoxModelSummaryFFI;
 
+#define ANOFOX_TEST_METHOD_LEN 96
+#define ANOFOX_TEST_NAME_LEN 32
+
+/**
+ * Unified hypothesis-test fields (#159, the integration contract's `test` row),
+ * copied from upstream anofox_statistics::TestResult. Must match TestSummaryFFI
+ * in crates/anofox-stats-ffi/src/types.rs. A field that does not apply is NaN
+ * (numbers), -1 (n) or an empty string (names): NULL in SQL. Every test result
+ * struct ends with one.
+ */
+typedef struct {
+	double statistic;
+	double df1;
+	double df2;
+	double p_value;
+	double estimate;
+	double conf_low;
+	double conf_high;
+	double conf_level;
+	double effect_size;
+	int64_t n;
+	char method[ANOFOX_TEST_METHOD_LEN];
+	char alternative[ANOFOX_TEST_NAME_LEN];
+	char effect_name[ANOFOX_TEST_NAME_LEN];
+} AnofoxTestSummaryFFI;
+
 /**
  * Core fit result (always returned)
  */
@@ -655,6 +681,8 @@ typedef struct {
 	double kurtosis;
 	/** Number of observations */
 	size_t n;
+	/** Unified test fields (#159); keep last */
+	AnofoxTestSummaryFFI unified;
 } AnofoxJarqueBeraResult;
 
 /**
@@ -1682,6 +1710,8 @@ typedef struct {
 	AnofoxAlternative alternative;
 	/** Method name - must be freed */
 	char *method;
+	/** Unified test fields (#159); keep last */
+	AnofoxTestSummaryFFI unified;
 } AnofoxTestResult;
 
 /**
@@ -1706,6 +1736,8 @@ typedef struct {
 	size_t n;
 	/** Method name - must be freed */
 	char *method;
+	/** Unified test fields (#159); keep last */
+	AnofoxTestSummaryFFI unified;
 } AnofoxAnovaResult;
 
 /**
@@ -1728,6 +1760,8 @@ typedef struct {
 	size_t n;
 	/** Method name - must be freed */
 	char *method;
+	/** Unified test fields (#159); keep last */
+	AnofoxTestSummaryFFI unified;
 } AnofoxCorrelationResult;
 
 /**
@@ -1742,6 +1776,8 @@ typedef struct {
 	size_t df;
 	/** Method name - must be freed */
 	char *method;
+	/** Unified test fields (#159); keep last */
+	AnofoxTestSummaryFFI unified;
 } AnofoxChiSquareResult;
 
 /**
@@ -1776,6 +1812,8 @@ typedef struct {
 	size_t n;
 	/** Method name - must be freed */
 	char *method;
+	/** Unified test fields (#159); keep last */
+	AnofoxTestSummaryFFI unified;
 } AnofoxTostResult;
 
 /**
@@ -2073,6 +2111,8 @@ typedef struct {
 	AnofoxAlternative alternative;
 	/** Method name (must be freed) */
 	char *method;
+	/** Unified test fields (#159); keep last */
+	AnofoxTestSummaryFFI unified;
 } AnofoxPropTestResult;
 
 /**
@@ -2091,6 +2131,8 @@ typedef struct {
 	double z;
 	/** p-value */
 	double p_value;
+	/** Unified test fields (#159); keep last */
+	AnofoxTestSummaryFFI unified;
 } AnofoxKappaResult;
 
 /**
@@ -2244,6 +2286,8 @@ typedef struct {
 	char *method;
 	/** p-value of the F test of H0: ICC = 0 */
 	double p_value;
+	/** Unified test fields (#159); keep last */
+	AnofoxTestSummaryFFI unified;
 } AnofoxIccResult;
 
 /**
@@ -2326,6 +2370,56 @@ bool anofox_permutation_t_test(AnofoxDataArray group1, AnofoxDataArray group2, A
  * Free memory allocated by test functions
  */
 void anofox_free_test_result(AnofoxTestResult *result);
+
+/* ----------------------------------------------------------------------------
+ * Pairwise post-hoc tests (#159)
+ * ------------------------------------------------------------------------- */
+
+/**
+ * One comparison of a pairwise post-hoc test. Must match PairwiseRowFFI in
+ * crates/anofox-stats-ffi/src/types.rs. group1 / group2 are the caller's group
+ * codes; NaN marks a value that does not apply.
+ */
+typedef struct {
+	double estimate;
+	double statistic;
+	double df;
+	double p_value;
+	double p_adj;
+	double conf_low;
+	double conf_high;
+	uint64_t group1;
+	uint64_t group2;
+} AnofoxPairwiseRow;
+
+/**
+ * Result of a pairwise post-hoc test. Must match PairwiseResultFFI. `rows` is
+ * freed by anofox_free_pairwise_result; conf_level is NaN and p_adjust_method
+ * empty when they do not apply.
+ */
+typedef struct {
+	AnofoxPairwiseRow *rows;
+	size_t len;
+	double conf_level;
+	char method[ANOFOX_TEST_METHOD_LEN];
+	char p_adjust_method[ANOFOX_TEST_NAME_LEN];
+	char alternative[ANOFOX_TEST_NAME_LEN];
+} AnofoxPairwiseResult;
+
+/** Pairwise t-tests (R pairwise.t.test); p_adjust NULL means holm. groups has values.len codes. */
+bool anofox_pairwise_t_test(AnofoxDataArray values, const uint64_t *groups, bool pooled_sd, const char *p_adjust,
+                            AnofoxAlternative alternative, AnofoxPairwiseResult *out_result, AnofoxError *out_error);
+
+/** Tukey HSD (R TukeyHSD(aov(...))). */
+bool anofox_tukey_hsd(AnofoxDataArray values, const uint64_t *groups, double conf_level,
+                      AnofoxPairwiseResult *out_result, AnofoxError *out_error);
+
+/** Dunn's test (FSA::dunnTest); p_adjust NULL means holm. */
+bool anofox_dunn_test(AnofoxDataArray values, const uint64_t *groups, const char *p_adjust,
+                      AnofoxPairwiseResult *out_result, AnofoxError *out_error);
+
+/** Free the rows of a pairwise result. */
+void anofox_free_pairwise_result(AnofoxPairwiseResult *result);
 
 /**
  * Free memory allocated by ANOVA functions

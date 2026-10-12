@@ -98,7 +98,8 @@ string GlanceSql(const ModelOutputModel &m) {
 
 unique_ptr<CreateMacroInfo> CreateTableMacro(const string &name, const vector<string> &parameters,
                                              const vector<pair<string, string>> &named_parameters, const string &sql,
-                                             const string &description, const string &example) {
+                                             const string &description, const string &example,
+                                             const vector<string> &categories = {"regression", "table-macro"}) {
 	Parser parser;
 	parser.ParseQuery(sql);
 	if (parser.statements.size() != 1 || parser.statements[0]->type != StatementType::SELECT_STATEMENT) {
@@ -124,13 +125,56 @@ unique_ptr<CreateMacroInfo> CreateTableMacro(const string &name, const vector<st
 	FunctionDescription desc;
 	desc.description = description;
 	desc.examples = {example};
-	desc.categories = {"regression", "table-macro"};
+	desc.categories = categories;
 	desc.parameter_names = parameters;
 	info->descriptions.push_back(std::move(desc));
 	return info;
 }
 
+// Pairwise post-hoc tests (#159): <test>_by emits the `test` schema, one row
+// per pair of factor levels within each group of source.
+struct PosthocMacro {
+	const char *test;
+	const char *label;
+};
+
+const PosthocMacro POSTHOC_MACROS[] = {
+    {"pairwise_t_test", "pairwise t-tests with p-value adjustment (R pairwise.t.test)"},
+    {"tukey_hsd", "Tukey's HSD (R TukeyHSD(aov(...)))"},
+    {"dunn_test", "Dunn's rank test with p-value adjustment (FSA::dunnTest)"},
+};
+
+string PosthocSql(const PosthocMacro &m) {
+	return "SELECT group_col, model_id, (_r).group2 || '-' || (_r).group1 AS test_id, (_r).method AS method, "
+	       "(_r).statistic AS statistic, (_r).p_value AS p_value, (_r).group1 AS group1, (_r).group2 AS group2, "
+	       "(_r).p_adj AS p_adj, (_r).df1 AS df1, NULL::DOUBLE AS df2, (_r).estimate AS estimate, "
+	       "(_r).conf_low AS conf_low, (_r).conf_high AS conf_high, (_r).conf_level AS conf_level, "
+	       "NULL::DOUBLE AS effect_size, NULL::VARCHAR AS effect_name, (_r).alternative AS alternative, "
+	       "(_r).p_adjust_method AS p_adjust_method "
+	       "FROM (SELECT group_col, model_id, unnest(range(len(_l))) AS _i, unnest(_l) AS _r "
+	       "FROM (SELECT group_col, group_col::VARCHAR AS model_id, " +
+	       string(m.test) +
+	       "_agg(value_col::DOUBLE, factor_col, options) AS _l FROM query_table(source::VARCHAR) GROUP BY group_col)) "
+	       "ORDER BY group_col, _i";
+}
+
 } // namespace
+
+void RegisterPosthocMacros(ExtensionLoader &loader) {
+	for (auto &m : POSTHOC_MACROS) {
+		string name = string(m.test) + "_by";
+		auto macro = CreateTableMacro(
+		    name, {"source", "group_col", "value_col", "factor_col"}, {{"options", "NULL"}}, PosthocSql(m),
+		    "Table macro: runs " + string(m.label) +
+		        " between the levels of factor_col within each group of source and returns one row per pair "
+		        "(the integration contract's `test` schema): the group column, model_id, test_id ('<group2>-<group1>'), "
+		        "method, statistic, p_value, group1, group2, p_adj, df1, df2, estimate, conf_low, conf_high, "
+		        "conf_level, effect_size, effect_name, alternative, p_adjust_method. options are passed to " +
+		        m.test + "_agg.",
+		    name + "('my_table', experiment, response, treatment)", {"hypothesis-testing", "post-hoc", "table-macro"});
+		loader.RegisterFunction(*macro);
+	}
+}
 
 void RegisterModelOutputMacros(ExtensionLoader &loader) {
 	for (auto &m : MODEL_OUTPUT_MODELS) {

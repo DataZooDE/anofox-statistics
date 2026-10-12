@@ -74,6 +74,9 @@ pub fn energy_distance_test(
             "Energy distance test ({} permutations)",
             options.n_permutations
         ),
+        unified: super::UnifiedTestResult::from(&result)
+            .with_alternative(Alternative::TwoSided)
+            .with_n(g1.len() + g2.len()),
     })
 }
 
@@ -138,6 +141,9 @@ pub fn mmd_test(group1: &[f64], group2: &[f64], options: &MmdOptions) -> StatsRe
             "MMD test (Gaussian kernel, {} permutations)",
             options.n_permutations
         ),
+        unified: super::UnifiedTestResult::from(&result)
+            .with_alternative(Alternative::TwoSided)
+            .with_n(g1.len() + g2.len()),
     })
 }
 

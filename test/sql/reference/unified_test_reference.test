@@ -1,0 +1,122 @@
+# name: test/sql/reference/unified_test_reference.test
+# description: #159 unified test fields (df1, df2, estimate, conf_low, conf_high, conf_level, effect_size) vs R htest
+# group: [reference]
+#
+# R (4.x):
+#   A <- c(4.2, 5.1, 4.8, 5.5, 4.9); B <- c(6.3, 6.9, 7.1, 6.5)
+#   C <- c(5.5, 5.0, 5.9, 6.1, 5.2, 5.7); D <- c(4.0, 4.4, 3.9, 4.6)
+#   v <- c(A, B, C, D); g <- factor(rep(1:4, c(5, 4, 6, 4)))
+#   x <- c(1.2, 2.3, 2.9, 4.1, 5.2, 5.8, 7.1, 8.3); y <- c(2.1, 2.9, 3.2, 4.8, 4.9, 6.7, 6.9, 8.8)
+# The unified estimate of a two-sample test is the difference group1 - group2 (R
+# reports the two means; diff(rev(t.test(A, B)$estimate)) = -1.8).
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE ab AS SELECT * FROM (VALUES
+    (1, 4.2), (1, 5.1), (1, 4.8), (1, 5.5), (1, 4.9),
+    (2, 6.3), (2, 6.9), (2, 7.1), (2, 6.5),
+    (3, 5.5), (3, 5.0), (3, 5.9), (3, 6.1), (3, 5.2), (3, 5.7),
+    (4, 4.0), (4, 4.4), (4, 3.9), (4, 4.6)) t(g, v);
+
+statement ok
+CREATE TABLE xy AS SELECT * FROM (VALUES (1.2, 2.1), (2.3, 2.9), (2.9, 3.2), (4.1, 4.8), (5.2, 4.9), (5.8, 6.7), (7.1, 6.9), (8.3, 8.8)) t(x, y);
+
+# t.test(A, B): t = -6.43130640909447, df = 6.99973593873779, CI -2.46181828889195 -1.13818171110805
+query IIIIII
+SELECT abs(r.statistic + 6.43130640909447) < 1e-10, abs(r.df1 - 6.99973593873779) < 1e-10, r.df2 IS NULL,
+       abs(r.estimate + 1.8) < 1e-12, abs(r.conf_low + 2.46181828889195) < 1e-10 AND abs(r.conf_high + 1.13818171110805) < 1e-10,
+       r.conf_level = 0.95 AND r.effect_name = 'cohens_d' AND r.effect_size = r.effect_size
+FROM (SELECT t_test_agg(v::DOUBLE, g::BIGINT) AS r FROM ab WHERE g <= 2);
+----
+true	true	true	true	true	true
+
+# t.test(A, B, var.equal = TRUE): t = -6.22649425995325, df = 7, CI -2.48358268315483 -1.11641731684517
+query IIII
+SELECT abs(r.statistic + 6.22649425995325) < 1e-10, r.df1 = 7, abs(r.estimate + 1.8) < 1e-12,
+       abs(r.conf_low + 2.48358268315483) < 1e-10 AND abs(r.conf_high + 1.11641731684517) < 1e-10
+FROM (SELECT t_test_agg(v::DOUBLE, g::BIGINT, {'kind': 'student'}) AS r FROM ab WHERE g <= 2);
+----
+true	true	true	true
+
+# wilcox.test(A, B, exact = FALSE, correct = TRUE, conf.int = TRUE):
+# W = 0, p = 0.0199644533052161, estimate -1.75037792308338, CI -2.700001633528698 -0.999979876138469
+query IIIII
+SELECT r.statistic = 0, abs(r.p_value - 0.0199644533052161) < 1e-10, abs(r.estimate + 1.75037792308338) < 1e-6,
+       abs(r.conf_low + 2.700001633528698) < 1e-5 AND abs(r.conf_high + 0.999979876138469) < 1e-5,
+       r.df1 IS NULL AND r.effect_name = 'rank_biserial'
+FROM (SELECT mann_whitney_u_agg(v::DOUBLE, g::BIGINT) AS r FROM ab WHERE g <= 2);
+----
+true	true	true	true	true
+
+# wilcox.test(x, y, paired = TRUE, exact = FALSE, correct = TRUE, conf.int = TRUE):
+# V = 3, p = 0.04231527490571399, (pseudo)median -0.460324791265268, CI -0.800014150003175 -0.0000654515032
+query IIII
+SELECT r.statistic = 3, abs(r.p_value - 0.04231527490571399) < 1e-10, abs(r.estimate + 0.460324791265268) < 1e-5,
+       abs(r.conf_low + 0.800014150003175) < 1e-5 AND abs(r.conf_high + 0.0000654515032) < 1e-5
+FROM (SELECT wilcoxon_signed_rank_agg(x::DOUBLE, y::DOUBLE) AS r FROM xy);
+----
+true	true	true	true
+
+# kruskal.test(v, g): chi-squared = 15.1551360842845, df = 3, p = 0.00168876085010463
+query IIII
+SELECT abs(r.statistic - 15.1551360842845) < 1e-10, r.df1 = 3, r.df2 IS NULL, abs(r.p_value - 0.00168876085010463) < 1e-12
+FROM (SELECT kruskal_wallis_agg(v::DOUBLE, g) AS r FROM ab);
+----
+true	true	true	true
+
+# oneway.test(v ~ g, var.equal = TRUE): F = 27.283975516933, num df = 3, denom df = 15;
+# eta squared = summary(lm(v ~ g))$r.squared = 0.845124402433724
+query IIIII
+SELECT abs(r.statistic - 27.283975516933) < 1e-9, r.df1 = 3, r.df2 = 15, abs(r.p_value - 2.53353742083573e-06) < 1e-14,
+       abs(r.effect_size - 0.845124402433724) < 1e-12 AND r.effect_name = 'eta_squared'
+FROM (SELECT one_way_anova_agg(v::DOUBLE, g) AS r FROM ab);
+----
+true	true	true	true	true
+
+# Deprecated aliases keep their values: df_between = df1, df_within = df2, f_statistic = statistic.
+query I
+SELECT r.df_between = r.df1 AND r.df_within = r.df2 AND r.f_statistic = r.statistic
+FROM (SELECT one_way_anova_agg(v::DOUBLE, g) AS r FROM ab);
+----
+true
+
+# cor.test(x, y): t = 13.0216971799556, df = 6, r = 0.982763727962048, CI 0.904439720656392 0.996992462889358
+query IIIII
+SELECT abs(r.statistic - 13.0216971799556) < 1e-9, r.df1 = 6, abs(r.estimate - 0.982763727962048) < 1e-12,
+       abs(r.conf_low - 0.904439720656392) < 1e-10 AND abs(r.conf_high - 0.996992462889358) < 1e-10,
+       r.effect_name = 'r' AND r.conf_level = 0.95 AND r.conf_low = r.ci_lower AND r.conf_high = r.ci_upper
+FROM (SELECT pearson_agg(x::DOUBLE, y::DOUBLE) AS r FROM xy);
+----
+true	true	true	true	true
+
+# chisq.test(matrix(c(12, 5, 7, 9), 2)) (Yates): X-squared = 1.45599637881468, df = 1, p = 0.22756821457581
+statement ok
+CREATE TABLE t22 AS SELECT r::INTEGER AS r, c::INTEGER AS c
+FROM (VALUES (0, 0, 12), (1, 0, 5), (0, 1, 7), (1, 1, 9)) t(r, c, n), range(n);
+
+query III
+SELECT abs(r.statistic - 1.45599637881468) < 1e-10, r.df1 = 1, abs(r.p_value - 0.22756821457581) < 1e-10
+FROM (SELECT chisq_test_agg(r, c, {'correction': true}) AS r FROM t22);
+----
+true	true	true
+
+# chisq.test(matrix(c(10, 20, 30, 15, 25, 5), 2)): X-squared = 16.6586538461538, df = 2, p = 0.000241334426858109
+query III
+SELECT abs(r.statistic - 16.6586538461538) < 1e-10, r.df1 = 2, abs(r.p_value - 0.000241334426858109) < 1e-12
+FROM (SELECT chisq_test_agg(r::INTEGER, c::INTEGER) AS r FROM (VALUES (0, 0, 10), (1, 0, 20), (0, 1, 30), (1, 1, 15), (0, 2, 25), (1, 2, 5)) t(r, c, n), range(n));
+----
+true	true	true
+
+# fisher.test(matrix(c(12, 5, 7, 9), 2)): p = 0.166320065773565, conditional MLE odds ratio
+# 2.976547271813802, CI 0.599262480737033 16.645480216467814.
+# Upstream's conditional MLE / exact interval agree with R to ~1e-4 relative (2.97678,
+# [0.599266, 16.6474]); the same values as the existing conditional_* fields.
+query IIIII
+SELECT abs(r.p_value - 0.166320065773565) < 1e-10, abs(r.estimate - 2.976547271813802) < 1e-3,
+       abs(r.conf_low - 0.599262480737033) < 1e-4 AND abs(r.conf_high - 16.645480216467814) < 5e-3,
+       r.conf_level = 0.95,
+       r.estimate = r.conditional_odds_ratio AND r.conf_low = r.conditional_ci_lower AND r.conf_high = r.conditional_ci_upper
+FROM (SELECT fisher_exact_agg(r, c) AS r FROM t22);
+----
+true	true	true	true	true

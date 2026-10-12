@@ -2,6 +2,34 @@
 
 Comprehensive statistical hypothesis testing functions for comparing groups and distributions.
 
+## Unified Result Fields
+
+Every test aggregate returns the integration contract's `test` fields (#159), always
+present and NULL when not applicable:
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `method` | VARCHAR | Name of the test |
+| `alternative` | VARCHAR | `two_sided`, `less` or `greater` (NULL for omnibus tests) |
+| `statistic` | DOUBLE | Test statistic |
+| `df1`, `df2` | DOUBLE | (Numerator / denominator) degrees of freedom |
+| `p_value` | DOUBLE | p-value |
+| `estimate` | DOUBLE | Point estimate (difference `group1 - group2`, odds ratio, correlation, ...) |
+| `conf_low`, `conf_high`, `conf_level` | DOUBLE | Confidence interval of `estimate` and its level |
+| `effect_size`, `effect_name` | DOUBLE, VARCHAR | Effect size and its name (`cohens_d`, `rank_biserial`, `eta_squared`, `r`, `rho`, `tau`, `kappa`, ...) |
+| `n` | BIGINT | Number of observations |
+
+A test keeps its existing fields in their order and appends the unified fields it
+did not have. `ci_lower` / `ci_upper`, `df` and the ANOVA `f_statistic`,
+`df_between`, `df_within` are deprecated aliases of `conf_low` / `conf_high`, `df1`,
+`statistic`, `df1`, `df2`; they are removed in the next minor release.
+
+```sql
+SELECT r.df1, r.estimate, r.conf_low, r.conf_high, r.effect_size, r.effect_name
+FROM (SELECT t_test_agg(value, group_id) AS r
+      FROM (VALUES (4.2, 0), (5.1, 0), (4.8, 0), (5.5, 0), (6.3, 1), (6.9, 1), (7.1, 1), (6.5, 1)) t(value, group_id));
+```
+
 ## Parametric Tests
 
 ### t_test_agg
@@ -286,6 +314,36 @@ Clark-West test for nested forecast models.
 **Signature:**
 ```text
 clark_west_agg(actual DOUBLE, forecast1 DOUBLE, forecast2 DOUBLE) -> STRUCT
+```
+
+## Pairwise Post-hoc Tests
+
+`pairwise_t_test_agg(value, group [, options])` (R `pairwise.t.test`; options
+`p_adjust` default `'holm'`, `pool_sd` default true, `alternative`),
+`tukey_hsd_agg(value, group [, options])` (R `TukeyHSD(aov(...))`; option
+`confidence_level`) and `dunn_test_agg(value, group [, options])` (`FSA::dunnTest`;
+option `p_adjust`) compare every pair of groups. Each returns
+`LIST(STRUCT(group1, group2, estimate, statistic, p_value, p_adj, conf_low, conf_high,
+method, df1, alternative, conf_level, p_adjust_method))` with `estimate = group2 -
+group1`. `p_adjust` accepts R's `p.adjust` methods: holm, hochberg, hommel,
+bonferroni, BH (fdr), BY, none.
+
+```sql
+SELECT unnest(tukey_hsd_agg(value, grp), recursive := true)
+FROM (VALUES ('A', 4.2), ('A', 5.1), ('A', 4.8), ('B', 6.3), ('B', 6.9), ('B', 7.1),
+             ('C', 5.5), ('C', 5.0), ('C', 5.9)) t(grp, value);
+```
+
+`pairwise_t_test_by(source, group_col, value_col, factor_col, options := NULL)`,
+`tukey_hsd_by` and `dunn_test_by` return the long `test` table (group column,
+`model_id`, `test_id`, `method`, `statistic`, `p_value`, `group1`, `group2`, `p_adj`,
+`df1`, `df2`, `estimate`, `conf_low`, `conf_high`, `conf_level`, `effect_size`,
+`effect_name`, `alternative`, `p_adjust_method`), ready for significance brackets.
+
+```sql
+CREATE TABLE trial AS SELECT 'site_' || (i % 2) AS site, chr((65 + i % 3)::INTEGER) AS arm,
+    (i % 3) + sin(i) AS response FROM range(60) t(i);
+SELECT site, group1, group2, p_adj FROM pairwise_t_test_by('trial', site, response, arm);
 ```
 
 ## See Also

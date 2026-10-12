@@ -137,6 +137,7 @@ set(EXTENSION_SOURCES
     src/contract.cpp
     src/include/map_options_parser.cpp
     src/include/model_struct.cpp
+    src/include/test_struct.cpp
     src/table_functions/ols_fit.cpp
     src/table_functions/ridge_fit.cpp
     src/table_functions/elasticnet_fit.cpp
@@ -185,6 +186,7 @@ set(EXTENSION_SOURCES
     src/aggregate_functions/aid_aggregate.cpp
     src/aggregate_functions/shapiro_wilk_aggregate.cpp
     src/aggregate_functions/t_test_aggregate.cpp
+    src/aggregate_functions/pairwise_posthoc_aggregate.cpp
     src/aggregate_functions/pearson_aggregate.cpp
     src/aggregate_functions/spearman_aggregate.cpp
     src/aggregate_functions/mann_whitney_aggregate.cpp
