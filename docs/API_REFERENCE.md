@@ -139,6 +139,7 @@ fitted model struct).
 | `tidy` | Per-term table (estimate, std. error, statistic, p-value, CI) of a fitted model | [Model tools](api/regression/model_tools.md) |
 | `glance` | One-row summary of a fitted model, the same fields for every model | [Model tools](api/regression/model_tools.md) |
 | `<model>_tidy_by`, `<model>_glance_by` | Per-group coefficient table / fit statistics in long form | [Model output macros](#model-output-table-macros) |
+| `ols_augment_by`, `wls_augment_by` | Per-row fitted values, residuals, leverage, Cook's distance, DFFITS (`obs`) | [Per-observation diagnostics](#per-observation-diagnostics-ols_augment_by--wls_augment_by) |
 | `vif`, `vif_agg` | Variance inflation factors | [Diagnostics](api/diagnostics/diagnostics.md) |
 | `aic`, `bic` | Information criteria from RSS | [Diagnostics](api/diagnostics/diagnostics.md) |
 | `jarque_bera`, `jarque_bera_agg` | Jarque-Bera normality test | [Diagnostics](api/diagnostics/diagnostics.md) |
@@ -1449,6 +1450,49 @@ SELECT * FROM ols_glance_by('reg_data', category, y, [x1, x2])
 UNION ALL
 SELECT * FROM huber_glance_by('reg_data', category, y, [x1, x2])
 ORDER BY category, metric, model_type;
+```
+
+### Per-observation diagnostics: ols_augment_by / wls_augment_by
+
+```sql skip
+ols_augment_by(source, group_col, y_col, x_cols [, options := ..., split := ..., order_by := ...])
+wls_augment_by(source, group_col, y_col, x_cols, weight_col [, options := ..., split := ..., order_by := ...])
+ols_augment_agg(y, x [, options]) OVER (...)           -> LIST(STRUCT(...)), one entry per frame row
+wls_augment_agg(y, x, weight [, options]) OVER (...)
+```
+
+broom `augment` for OLS and WLS: one model per group, every source row returned
+with the integration contract's `obs` columns appended (tagged
+`anofox.output = 'obs'`):
+
+| Column | Type | Meaning |
+|--------|------|---------|
+| `model_id` | VARCHAR | `group_col` as text |
+| `row_id` | BIGINT | source row number |
+| `fitted` | DOUBLE | fitted value; the prediction for non-training rows |
+| `residual` | DOUBLE | response residual `y - fitted` |
+| `resid_type` | VARCHAR | `'response'` |
+| `std_residual` | DOUBLE | standardised residual (R `rstandard`) |
+| `stud_residual` | DOUBLE | externally studentised residual (R `rstudent`) |
+| `leverage` | DOUBLE | hat value (R `hatvalues`) |
+| `cooks_d` | DOUBLE | Cook's distance (R `cooks.distance`) |
+| `dffits` | DOUBLE | DFFITS (R `dffits`) |
+| `weight` | DOUBLE | prior weight (`weight_col` for WLS, 1 for OLS) |
+| `is_training` | BOOLEAN | the row was used to fit |
+| `n_params` | INTEGER | estimated coefficients, intercept included |
+
+Training rows have `y_col` NOT NULL, every feature present, `split` NULL or
+`'train'` and, for WLS, a positive weight. Other rows get the prediction as
+`fitted` and NULL diagnostics. Options: `fit_intercept`, `null_policy`, `solver`.
+The measures come from `anofox_regression::diagnostics::augment` and match R
+`lm()` (with `weights =` for WLS). A group with fewer than two training rows
+gives NULL columns.
+
+```sql
+SELECT category, row_id, fitted, residual, leverage, cooks_d
+FROM ols_augment_by('reg_data', category, y, [x1, x2])
+ORDER BY cooks_d DESC
+LIMIT 5;
 ```
 
 ### vif / vif_agg

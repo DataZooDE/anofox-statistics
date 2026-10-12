@@ -254,7 +254,7 @@ pub struct ModelSummaryFFI {
 }
 
 /// Copy `name` into a NUL-terminated buffer, truncating to fit.
-fn name_buffer(name: &str) -> [c_char; MODEL_NAME_LEN] {
+pub(crate) fn name_buffer(name: &str) -> [c_char; MODEL_NAME_LEN] {
     let mut buf = [0 as c_char; MODEL_NAME_LEN];
     for (dst, &b) in buf
         .iter_mut()
@@ -346,6 +346,22 @@ mod layout_tests {
         assert_eq!(
             size_of::<GlmmResultFFI>(),
             offset_of!(GlmmResultFFI, summary) + size_of::<ModelSummaryFFI>()
+        );
+    }
+
+    /// Mirrors the static_assert on AnofoxAugmentResult in src/include/model_struct.cpp.
+    #[test]
+    fn augment_result_layout_matches_c_header() {
+        use super::AugmentResultFFI;
+        use std::mem::{offset_of, size_of};
+        assert_eq!(offset_of!(AugmentResultFFI, len), 8 * size_of::<*mut f64>());
+        assert_eq!(
+            offset_of!(AugmentResultFFI, resid_type),
+            8 * size_of::<*mut f64>() + 2 * size_of::<usize>()
+        );
+        assert_eq!(
+            size_of::<AugmentResultFFI>(),
+            8 * size_of::<*mut f64>() + 2 * size_of::<usize>() + MODEL_NAME_LEN
         );
     }
 
@@ -2869,4 +2885,48 @@ pub struct GlmmResultFFI {
     pub nb_theta: f64,
     /// Model description, fit statistics and intercept inference (#152)
     pub summary: ModelSummaryFFI,
+}
+
+// =============================================================================
+// Per-observation diagnostics (broom `augment`) — issue #151
+// =============================================================================
+
+/// Per-row diagnostics of an OLS/WLS fit. Every array has `len` entries, one
+/// per input row in input order; NaN marks a value that does not apply (rows
+/// not used in the fit have only `fitted`). All arrays are caller-owned and
+/// released by `anofox_free_augment_result`.
+#[repr(C)]
+pub struct AugmentResultFFI {
+    pub fitted: *mut f64,
+    pub residual: *mut f64,
+    pub std_residual: *mut f64,
+    pub stud_residual: *mut f64,
+    pub leverage: *mut f64,
+    pub cooks_d: *mut f64,
+    pub dffits: *mut f64,
+    /// Whether the row was used to fit the model.
+    pub used: *mut bool,
+    pub len: usize,
+    /// Estimated coefficients, intercept included, aliased columns excluded.
+    pub n_params: usize,
+    /// NUL-terminated residual type of `residual` (`"response"`).
+    pub resid_type: [c_char; MODEL_NAME_LEN],
+}
+
+impl Default for AugmentResultFFI {
+    fn default() -> Self {
+        Self {
+            fitted: std::ptr::null_mut(),
+            residual: std::ptr::null_mut(),
+            std_residual: std::ptr::null_mut(),
+            stud_residual: std::ptr::null_mut(),
+            leverage: std::ptr::null_mut(),
+            cooks_d: std::ptr::null_mut(),
+            dffits: std::ptr::null_mut(),
+            used: std::ptr::null_mut(),
+            len: 0,
+            n_params: 0,
+            resid_type: [0; MODEL_NAME_LEN],
+        }
+    }
 }

@@ -12,6 +12,7 @@ be fitted once per group and then applied, summarised or reported in plain SQL.
 | [`tidy(model [, names])`](#tidy) | `STRUCT(...)[]` | One entry per term: estimate and inference |
 | [`glance(model)`](#glance) | `STRUCT` | Model-level summary, the same fields for every model |
 | [`<model>_tidy_by`, `<model>_glance_by`](#tidy_by-and-glance_by) | table | Per-group coefficient table and fit statistics |
+| [`ols_augment_by`, `wls_augment_by`](#augment_by) | table | Per-row fitted values, residuals, leverage, Cook's distance, DFFITS |
 
 The examples on this page use this table:
 
@@ -228,6 +229,44 @@ UNION ALL
 SELECT * FROM huber_glance_by('mt_demo', grp, y, [x1, x2])
 ORDER BY grp, metric, model_type;
 ```
+## augment_by
+
+`ols_augment_by(source, group_col, y_col, x_cols [, options := ..., split := ..., order_by := ...])`
+and `wls_augment_by(source, group_col, y_col, x_cols, weight_col [, ...])` are
+broom's `augment`: they fit one model per group and return every source row
+with the integration contract's `obs` columns appended: `model_id`, `row_id`
+(source row number), `fitted`, `residual` (response residual), `resid_type`
+(`'response'`), `std_residual` (R `rstandard`), `stud_residual` (R `rstudent`),
+`leverage` (R `hatvalues`), `cooks_d` (R `cooks.distance`), `dffits`, `weight`
+(the prior weight; 1 for OLS), `is_training` and `n_params` (coefficients
+including the intercept).
+
+Training rows follow the `_fit_predict_by` macros: `y_col` NOT NULL and `split`
+NULL or `'train'` (WLS also needs a positive weight). Every other row gets the
+model's prediction as `fitted` and NULL diagnostics. Options: `fit_intercept`,
+`null_policy`, `solver`. The values match R `lm()` / `lm(weights = )`.
+
+```sql
+-- The five most influential observations per group
+SELECT grp, id, fitted, residual, leverage, cooks_d
+FROM ols_augment_by('mt_demo', grp, y, [x1, x2])
+QUALIFY row_number() OVER (PARTITION BY grp ORDER BY cooks_d DESC) <= 5
+ORDER BY grp, cooks_d DESC;
+```
+
+```sql
+-- Hold out the last rows: they get a prediction but no diagnostics
+SELECT id, fitted, residual, is_training
+FROM wls_augment_by('mt_demo', grp, y, [x1, x2], x1,
+                    split := CASE WHEN id > 36 THEN 'test' ELSE 'train' END)
+WHERE grp = 'A' AND id > 30
+ORDER BY id;
+```
+
+The window aggregates behind them, `ols_augment_agg(y, x [, options])` and
+`wls_augment_agg(y, x, weight [, options])`, return one STRUCT with these fields
+per row of a whole-partition frame, in frame order.
+
 ## See Also
 
 - [Window fit-predict](fit_predict_window.md) - predictions per window frame

@@ -201,6 +201,7 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterTheilSenFitPredictAggregateFunction(loader);
     RegisterRidgeFitPredictAggregateFunction(loader);
     RegisterWlsFitPredictAggregateFunction(loader);
+    RegisterAugmentAggregateFunctions(loader);
     RegisterRlsFitPredictAggregateFunction(loader);
     RegisterElasticNetFitPredictAggregateFunction(loader);
     RegisterBlsFitPredictAggregateFunction(loader);
