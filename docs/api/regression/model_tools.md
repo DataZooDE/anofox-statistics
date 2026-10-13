@@ -6,13 +6,14 @@ be fitted once per group and then applied, summarised or reported in plain SQL.
 
 | Function | Returns | Description |
 |----------|---------|-------------|
-| [`predict(model, x [, options])`](#predict) | `DOUBLE` | Prediction for one row from a fitted model |
+| [`predict(model, x [, options])`](#predict) | `DOUBLE` or `STRUCT` | Prediction for one row from a fitted model, optionally with standard error and interval |
 | [`predict(x, coefficients, intercept)`](#linear_predict) | `DOUBLE[]` | Column-layout linear prediction (also `linear_predict`) |
 | [`linear_predict(x, coefficients, intercept)`](#linear_predict) | `DOUBLE[]` | Same as the column-layout `predict` |
 | [`tidy(model [, names])`](#tidy) | `STRUCT(...)[]` | One entry per term: estimate and inference |
 | [`glance(model)`](#glance) | `STRUCT` | Model-level summary, the same fields for every model |
 | [`<model>_tidy_by`, `<model>_glance_by`](#tidy_by-and-glance_by) | table | Per-group coefficient table and fit statistics |
 | [`ols_augment_by`, `wls_augment_by`, `<glm>_augment_by`](#augment_by) | table | Per-row fitted values, residuals, leverage, Cook's distance, DFFITS |
+| [`<model>_partial_residuals_by`](#partial_residuals_by) | table | Partial-residual (crPlots) and added-variable (avPlots) coordinates |
 
 The examples on this page use this table:
 
@@ -34,13 +35,22 @@ FROM range(1, 41) t(i);
 
 ```text
 predict(model STRUCT, x DOUBLE[] [, options MAP]) -> DOUBLE
+predict(model STRUCT, x DOUBLE[], {'se_fit': true | 'interval': ... [, 'level': ...]})
+    -> STRUCT(yhat DOUBLE, se_fit DOUBLE, yhat_lower DOUBLE, yhat_upper DOUBLE)
 ```
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `model` | `STRUCT` | The result of any `*_fit_agg` or `*_fit` function |
 | `x` | `DOUBLE[]` | The features of one row, in the order used for fitting |
-| `options` | `MAP` / `STRUCT` | `{'type': 'response'}` (default) or `{'type': 'link'}` |
+| `options` | `MAP` / `STRUCT` | `type`, `se_fit`, `interval`, `level` (below) |
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `type` | `'response'` | `'link'` returns a GLM prediction on the link scale |
+| `se_fit` | `false` | Return the STRUCT with the standard error of the fitted mean |
+| `interval` | `'none'` | `'confidence'` (mean response) or `'prediction'` (new observation, linear models only); returns the STRUCT |
+| `level` | `0.95` | Level of the interval |
 
 How the prediction is computed depends on the model:
 
@@ -60,6 +70,44 @@ How the prediction is computed depends on the model:
 NULL handling: a NULL model (for example a group whose fit was degenerate), a
 NULL `x`, or a NULL element in `x` gives NULL. An `x` whose length does not
 match the number of coefficients raises an error.
+
+### Standard errors and intervals
+
+With `se_fit` or `interval` the result is
+`STRUCT(yhat, se_fit, yhat_lower, yhat_upper)` (without `interval` the bounds
+are NULL). Without these options `predict` returns a `DOUBLE` exactly as before.
+They need the model's coefficient covariance, the `vcov` field that OLS, WLS,
+Ridge and the GLM `*_fit_agg` aggregates carry when fitted with
+`{'compute_inference': true}` (row-major `k × k`, intercept first, with
+`df_residual = n − k`); a model without it raises an error. The values are
+computed by anofox-regression (`intervals_from_variance_factor`,
+`GlmResult::predict_se`):
+
+- **OLS, WLS, Ridge**, as R `predict.lm(se.fit = TRUE, interval = ...)`:
+  `se_fit = sqrt(x0' V x0)`, a confidence interval `yhat ∓ t(df) · se_fit` and a
+  prediction interval `yhat ∓ t(df) · sqrt(se_fit² + σ²)` with
+  `σ = residual_std_error` (for WLS a new observation of weight 1, R's
+  default). For Ridge `V` is the sandwich covariance of the shrunken
+  coefficients, as the fit-predict intervals use. `vcov` is the classical
+  covariance even when `hc_type` asks for robust standard errors.
+- **GLMs** (`poisson`, `binomial`, `logistic`, `negbinom`, `gamma`, `tweedie`),
+  as R `predict.glm(se.fit = TRUE)`: on the link scale `se_fit = sqrt(x0' V x0)`
+  (`V` includes the estimated dispersion of Gamma and Tweedie); on the response
+  scale (the default `type`) `se_fit` is the delta-method value. The interval
+  is `η ∓ z · se` on the link scale, mapped through the inverse link for the
+  response scale, so it stays inside the range of the mean. A prediction
+  interval is an error for a GLM.
+
+```sql
+-- 90% prediction interval and the standard error of the mean at a new x
+SELECT predict(m, [41.0, 3.0], {'se_fit': true, 'interval': 'prediction', 'level': 0.9}) AS p
+FROM (SELECT ols_fit_agg(y, [x1, x2], {'compute_inference': true}) AS m FROM mt_demo);
+
+-- Expected count with a 95% confidence interval (link-scale interval, back-transformed)
+SELECT (p).yhat, (p).yhat_lower, (p).yhat_upper
+FROM (SELECT predict(poisson_fit_agg(y_count, [x1], {'compute_inference': true}), [45.0], {'interval': 'confidence'}) AS p
+      FROM mt_demo);
+```
 
 **Examples:**
 
@@ -289,8 +337,47 @@ WHERE grp = 'A' AND id > 30
 ORDER BY id;
 ```
 
+## partial_residuals_by
+
+`<model>_partial_residuals_by(source, group_col, y_col, x_cols [, weight_col] [, options := ..., names := [...], order_by := ...])`
+for `ols`, `wls` (with `weight_col`), `poisson`, `binomial`, `logistic`,
+`negbinom`, `gamma` and `tweedie` fits one model per group and returns one row
+per source row and fitted term with the data behind component-plus-residual
+plots (`car::crPlots`, statsmodels `plot_ccpr`) and added-variable plots
+(`car::avPlots`, statsmodels `plot_partregress`):
+
+| Column | Description |
+|--------|-------------|
+| group column, `model_id`, `row_id` | the group, its id and the source row number |
+| `term_index`, `term` | 1-based position in `x_cols`, and its label (`names` or `x1`, `x2`, ...) |
+| `x` | the feature value |
+| `component` | `b_j (x_j − mean(x_j))` (uncentred without an intercept) |
+| `partial_residual` | residual + component, R `residuals(fit, type = "partial")`; for the GLMs the working residual |
+| `x_residual`, `y_residual` | `x_j` and `y` residualised on the other columns (weighted for WLS); NULL for the GLMs |
+
+They are computed by anofox-regression
+(`diagnostics::{partial_residuals, partial_residuals_glm, added_variable}`).
+The slope of `y_residual` on `x_residual` through the origin is the coefficient
+of `x_j`. Rows with a NULL `y` (or a NULL feature, or for WLS a non-positive
+weight) are not used for fitting and get NULL residuals; a column the fit drops
+(constant) and a GLM offset column (option `offset`) are not terms. Options are
+those of the matching `<model>_augment_by`. The window aggregates behind them,
+`<model>_partial_residuals_agg(y, x [, weight] [, options])`, return per row of a
+whole-partition frame a LIST with one STRUCT per term. Added-variable
+coordinates for GLMs are not available upstream.
+
+```sql
+-- Component-plus-residual data for x1, per group
+SELECT grp, row_id, x, partial_residual, component
+FROM ols_partial_residuals_by('mt_demo', grp, y, [x1, x2], names := ['trend', 'cycle'])
+WHERE term = 'trend'
+ORDER BY grp, row_id
+LIMIT 5;
+```
+
 ## See Also
 
 - [Window fit-predict](fit_predict_window.md) - predictions per window frame
 - [Fit-predict aggregates](fit_predict_agg.md) - one prediction per row of a group
 - [Table macros](../macros/table_macros.md) - per-group fit and predict in long format
+- [Regularisation paths](paths.md) - coefficient paths and CV curves (`terms` / `curve`)

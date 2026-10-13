@@ -74,9 +74,11 @@ poisson_fit_agg(y DOUBLE, x DOUBLE[] [, options MAP]) -> STRUCT
 | `ci_upper` | DOUBLE[] | Only with `compute_inference` |
 | `family` | VARCHAR | `'poisson'`; used by [`predict`](../regression/model_tools.md#predict) |
 | `link` | VARCHAR | The link used: `'log'`, `'identity'` or `'sqrt'` |
+| `vcov` | DOUBLE[] | Coefficient covariance (row-major `k × k`, intercept first, dispersion included), only with `compute_inference`; gives [`predict`](../regression/model_tools.md#standard-errors-and-intervals) its `se_fit` and intervals |
+| `df_residual` | DOUBLE | `n − k`, only with `compute_inference` |
 
-The same struct (with `dispersion`, `iterations`, `converged`, `family` and
-`link`) is returned by
+The same struct (with `dispersion`, `iterations`, `converged`, `family`,
+`link`, `vcov` and `df_residual`) is returned by
 all GLM aggregates: `poisson`, [`binomial`](binomial.md),
 [`negbinom`](negbinom.md), [`gamma`](gamma.md), [`tweedie`](tweedie.md); the
 [`logistic`](logistic.md) aggregate replaces `dispersion` with `accuracy` and

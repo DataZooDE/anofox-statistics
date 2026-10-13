@@ -12,6 +12,7 @@
 
 #include "../include/anofox_stats_ffi.h"
 #include "../include/error_dispatch.hpp"
+#include "../include/list_input.hpp"
 #include "telemetry.hpp"
 #include "anofox_statistics_banner.hpp"
 #include "duckdb/execution/expression_executor.hpp"
@@ -157,6 +158,13 @@ static void PredictFunctionImpl(DataChunk &args, ExpressionState &state, Vector 
 // nothing). GLM structs carry a `link` field and the prediction is mapped back to the
 // response scale unless {'type': 'link'} is given. Isotonic structs (x knots + fitted
 // values) are evaluated by linear interpolation at x[1], clamped to the end knots.
+//
+// {'se_fit': true} and/or {'interval': 'confidence' | 'prediction', 'level': 0.95}
+// (#158) return STRUCT(yhat, se_fit, yhat_lower, yhat_upper) instead of a DOUBLE,
+// from the model's coefficient covariance `vcov` (fits with 'compute_inference'):
+// R predict.lm(se.fit = TRUE, interval = ...) for OLS / WLS / Ridge, and for the
+// GLMs predict.glm(se.fit = TRUE) with the interval built on the link scale and
+// mapped through the inverse link (anofox_predict_se -> upstream predict_se).
 namespace {
 
 enum class ModelKind : uint8_t { LINEAR, ISOTONIC };
@@ -169,6 +177,17 @@ struct PredictModelBindData : public FunctionData {
 	idx_t knots_idx = DConstants::INVALID_INDEX;
 	idx_t fitted_idx = DConstants::INVALID_INDEX;
 	bool response_scale = true;
+	// Standard errors / intervals (#158)
+	bool se_fit = false;
+	int32_t interval = ANOFOX_PREDICT_INTERVAL_NONE;
+	double level = 0.95;
+	idx_t vcov_idx = DConstants::INVALID_INDEX;
+	idx_t df_idx = DConstants::INVALID_INDEX;
+	idx_t rse_idx = DConstants::INVALID_INDEX;
+
+	bool WithSe() const {
+		return se_fit || interval != ANOFOX_PREDICT_INTERVAL_NONE;
+	}
 
 	unique_ptr<FunctionData> Copy() const override {
 		return make_uniq<PredictModelBindData>(*this);
@@ -177,9 +196,19 @@ struct PredictModelBindData : public FunctionData {
 		auto &o = other_p.Cast<PredictModelBindData>();
 		return kind == o.kind && coef_idx == o.coef_idx && intercept_idx == o.intercept_idx &&
 		       link_idx == o.link_idx && knots_idx == o.knots_idx && fitted_idx == o.fitted_idx &&
-		       response_scale == o.response_scale;
+		       response_scale == o.response_scale && se_fit == o.se_fit && interval == o.interval &&
+		       level == o.level && vcov_idx == o.vcov_idx && df_idx == o.df_idx && rse_idx == o.rse_idx;
 	}
 };
+
+LogicalType PredictSeType() {
+	child_list_t<LogicalType> c;
+	c.push_back(make_pair("yhat", LogicalType::DOUBLE));
+	c.push_back(make_pair("se_fit", LogicalType::DOUBLE));
+	c.push_back(make_pair("yhat_lower", LogicalType::DOUBLE));
+	c.push_back(make_pair("yhat_upper", LogicalType::DOUBLE));
+	return LogicalType::STRUCT(std::move(c));
+}
 
 bool IsDoubleList(const LogicalType &t) {
 	return t.id() == LogicalTypeId::LIST && ListType::GetChildType(t).id() == LogicalTypeId::DOUBLE;
@@ -245,6 +274,12 @@ unique_ptr<FunctionData> PredictModelBind(ClientContext &context, ScalarFunction
 			data->knots_idx = i;
 		} else if (name == "fitted" && IsDoubleList(type)) {
 			data->fitted_idx = i;
+		} else if (name == "vcov" && IsDoubleList(type)) {
+			data->vcov_idx = i;
+		} else if (name == "df_residual" && type.id() == LogicalTypeId::DOUBLE) {
+			data->df_idx = i;
+		} else if (name == "residual_std_error" && type.id() == LogicalTypeId::DOUBLE) {
+			data->rse_idx = i;
 		}
 	}
 	if (data->coef_idx == DConstants::INVALID_INDEX) {
@@ -273,8 +308,30 @@ unique_ptr<FunctionData> PredictModelBind(ClientContext &context, ScalarFunction
 						throw InvalidInputException("predict: option 'type' must be 'response' or 'link', got '%s'",
 						                            val.ToString());
 					}
+				} else if (key == "se_fit") {
+					data->se_fit = !val.IsNull() && val.DefaultCastAs(LogicalType::BOOLEAN).GetValue<bool>();
+				} else if (key == "interval") {
+					auto v = val.IsNull() ? string("none") : StringUtil::Lower(val.ToString());
+					if (v == "none") {
+						data->interval = ANOFOX_PREDICT_INTERVAL_NONE;
+					} else if (v == "confidence") {
+						data->interval = ANOFOX_PREDICT_INTERVAL_CONFIDENCE;
+					} else if (v == "prediction") {
+						data->interval = ANOFOX_PREDICT_INTERVAL_PREDICTION;
+					} else {
+						throw InvalidInputException(
+						    "predict: option 'interval' must be 'none', 'confidence' or 'prediction', got '%s'",
+						    val.ToString());
+					}
+				} else if (key == "level") {
+					data->level = val.DefaultCastAs(LogicalType::DOUBLE).GetValue<double>();
+					if (!(data->level > 0.0 && data->level < 1.0)) {
+						throw InvalidInputException("predict: option 'level' must be in (0, 1), got %s",
+						                            val.ToString());
+					}
 				} else {
-					throw InvalidInputException("predict: unknown option '%s' (supported: type)", key);
+					throw InvalidInputException(
+					    "predict: unknown option '%s' (supported: type, se_fit, interval, level)", key);
 				}
 			};
 			if (options.type().id() == LogicalTypeId::STRUCT) {
@@ -291,6 +348,15 @@ unique_ptr<FunctionData> PredictModelBind(ClientContext &context, ScalarFunction
 				throw InvalidInputException("predict: options must be a MAP or STRUCT");
 			}
 		}
+	}
+	if (data->WithSe()) {
+		if (data->kind != ModelKind::LINEAR || data->vcov_idx == DConstants::INVALID_INDEX) {
+			throw InvalidInputException(
+			    "predict: 'se_fit' / 'interval' need a model with a coefficient covariance (vcov): an OLS, WLS, "
+			    "Ridge or GLM *_fit_agg fitted with {'compute_inference': true}; got %s",
+			    model_type.ToString());
+		}
+		bound_function.return_type = PredictSeType();
 	}
 	PostHogTelemetry::Instance().RecordFunctionCall("predict");
 	return std::move(data);
@@ -326,11 +392,112 @@ void PredictModelFunction(DataChunk &args, ExpressionState &state, Vector &resul
 	}
 }
 
+static double ScalarFieldOr(Vector &vec, idx_t row, double fallback) {
+	if (FlatVector::IsNull(vec, row)) {
+		return fallback;
+	}
+	return FlatVector::GetData<double>(vec)[row];
+}
+
+//! predict() with standard errors / intervals: STRUCT(yhat, se_fit, yhat_lower, yhat_upper).
+static void PredictSeFunctionImpl(DataChunk &args, const PredictModelBindData &bind, Vector &result) {
+	idx_t count = args.size();
+	auto &model_vec = args.data[0];
+	auto &x_vec = args.data[1];
+	auto &entries = StructVector::GetEntries(model_vec);
+	auto &out = StructVector::GetEntries(result);
+	auto x_lists = FlatVector::GetData<list_entry_t>(x_vec);
+	auto &x_child = ListVector::GetEntry(x_vec);
+	auto x_child_data = FlatVector::GetData<double>(x_child);
+	auto &x_child_validity = FlatVector::Validity(x_child);
+	const double nan = std::numeric_limits<double>::quiet_NaN();
+	// The linear models carry residual_std_error; the GLMs are predicted through their link.
+	const bool linear = bind.rse_idx != DConstants::INVALID_INDEX;
+
+	auto write = [&](Vector &vec, idx_t row, double v) {
+		if (std::isfinite(v)) {
+			FlatVector::GetData<double>(vec)[row] = v;
+		} else {
+			FlatVector::SetNull(vec, row, true);
+		}
+	};
+
+	for (idx_t row = 0; row < count; row++) {
+		auto &coef_vec = *entries[bind.coef_idx];
+		auto &vcov_vec = *entries[bind.vcov_idx];
+		if (FlatVector::IsNull(model_vec, row) || FlatVector::IsNull(x_vec, row) || FlatVector::IsNull(coef_vec, row)) {
+			FlatVector::SetNull(result, row, true);
+			continue;
+		}
+		auto x_entry = x_lists[row];
+		if (ListHasNullElement(x_child_validity, x_entry)) {
+			FlatVector::SetNull(result, row, true);
+			continue;
+		}
+		auto c = FlatVector::GetData<list_entry_t>(coef_vec)[row];
+		if (c.length != x_entry.length) {
+			throw InvalidInputException("predict: model has %llu coefficients but x has %llu values",
+			                            (unsigned long long)c.length, (unsigned long long)x_entry.length);
+		}
+		if (FlatVector::IsNull(vcov_vec, row)) {
+			throw InvalidInputException("predict: the model has no coefficient covariance (vcov is NULL); fit it "
+			                            "with {'compute_inference': true} to get 'se_fit' / 'interval'");
+		}
+		auto &coef_child = ListVector::GetEntry(coef_vec);
+		auto cd = FlatVector::GetData<double>(coef_child);
+		auto &coef_validity = FlatVector::Validity(coef_child);
+		vector<double> coefs(c.length);
+		for (idx_t j = 0; j < c.length; j++) {
+			coefs[j] = coef_validity.RowIsValid(c.offset + j) ? cd[c.offset + j] : nan;
+		}
+		auto v = FlatVector::GetData<list_entry_t>(vcov_vec)[row];
+		auto vd = FlatVector::GetData<double>(ListVector::GetEntry(vcov_vec)) + v.offset;
+		idx_t dim = 0;
+		while (dim * dim < v.length) {
+			dim++;
+		}
+		double intercept = bind.intercept_idx == DConstants::INVALID_INDEX
+		                       ? nan
+		                       : ScalarFieldOr(*entries[bind.intercept_idx], row, nan);
+		// Without an intercept the covariance has one row per coefficient.
+		if (dim == c.length) {
+			intercept = nan;
+		}
+		string link;
+		if (!linear && bind.link_idx != DConstants::INVALID_INDEX &&
+		    !FlatVector::IsNull(*entries[bind.link_idx], row)) {
+			link = FlatVector::GetData<string_t>(*entries[bind.link_idx])[row].GetString();
+		}
+		if (!linear && link.empty()) {
+			throw InvalidInputException("predict: the model has no link; cannot compute GLM standard errors");
+		}
+		double rse = linear ? ScalarFieldOr(*entries[bind.rse_idx], row, nan) : nan;
+		double df = bind.df_idx == DConstants::INVALID_INDEX ? nan : ScalarFieldOr(*entries[bind.df_idx], row, nan);
+		int32_t interval = bind.interval;
+		AnofoxPredictSeResult pred;
+		AnofoxError error;
+		if (!anofox_predict_se(coefs.data(), coefs.size(), intercept, x_child_data + x_entry.offset, vd, dim,
+		                       linear ? nullptr : link.c_str(), bind.response_scale, rse, df, interval, bind.level,
+		                       &pred, &error)) {
+			throw InvalidInputException("predict: %s", error.message);
+		}
+		write(*out[0], row, pred.yhat);
+		write(*out[1], row, pred.se_fit);
+		write(*out[2], row, pred.yhat_lower);
+		write(*out[3], row, pred.yhat_upper);
+	}
+	result.SetVectorType(VectorType::FLAT_VECTOR);
+}
+
 static void PredictModelFunctionImpl(DataChunk &args, ExpressionState &state, Vector &result) {
 	auto &func_expr = state.expr.Cast<BoundFunctionExpression>();
 	auto &bind = func_expr.bind_info->Cast<PredictModelBindData>();
 	idx_t count = args.size();
 	args.Flatten();
+	if (bind.WithSe()) {
+		PredictSeFunctionImpl(args, bind, result);
+		return;
+	}
 	auto &model_vec = args.data[0];
 	auto &x_vec = args.data[1];
 	auto &entries = StructVector::GetEntries(model_vec);
@@ -475,8 +642,13 @@ void RegisterPredictFunction(ExtensionLoader &loader) {
     info.descriptions.push_back(std::move(model_desc));
     FunctionDescription model_opts_desc;
     model_opts_desc.description = "Predicts one row from a fitted model STRUCT with a MAP of options; {'type': "
-                                  "'link'} returns a GLM prediction on the link scale.";
-    model_opts_desc.examples = {"predict(model, [x1, x2], {'type': 'link'})"};
+                                  "'link'} returns a GLM prediction on the link scale. {'se_fit': true} and/or "
+                                  "{'interval': 'confidence' | 'prediction', 'level': 0.95} return STRUCT(yhat, "
+                                  "se_fit, yhat_lower, yhat_upper) from the model's covariance (OLS, WLS, Ridge and "
+                                  "GLM fits with {'compute_inference': true}); GLM intervals are built on the link "
+                                  "scale and transformed.";
+    model_opts_desc.examples = {"predict(model, [x1, x2], {'type': 'link'})",
+                                "predict(model, [x1, x2], {'se_fit': true, 'interval': 'prediction', 'level': 0.9})"};
     model_opts_desc.categories = {"regression", "prediction"};
     model_opts_desc.parameter_names = {"model", "x", "options"};
     model_opts_desc.parameter_types = {LogicalType::ANY, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY};

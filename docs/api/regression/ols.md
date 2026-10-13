@@ -144,6 +144,8 @@ Always present:
 | `model_type` | `VARCHAR` | `'ols'` |
 | `family` | `VARCHAR` | `'gaussian'` |
 | `link` | `VARCHAR` | `'identity'` |
+| `vcov` | `DOUBLE[]` | Coefficient covariance `σ²(X'X)⁻¹`, row-major `k × k`, intercept first; only with `compute_inference` (used by [`predict`](model_tools.md#standard-errors-and-intervals) for `se_fit` / intervals) |
+| `df_residual` | `DOUBLE` | `n − k`; only with `compute_inference` |
 
 ## NULL handling
 

@@ -39,6 +39,25 @@ and the generated test explains the difference in a comment.
 The datasets are literal constants in the script (drawn once with a fixed seed
 and rounded), so the output does not depend on R's RNG implementation.
 
+## `make_reference_paths_inference.R`
+
+```bash
+Rscript validation/generators/make_reference_paths_inference.R
+```
+
+Requires `quantreg`, `grpreg`, `MASS` and a built extension
+(`build/release`, for the LARS knots). glmnet is not needed: the path and CV
+references implement glmnet's documented Gaussian objective, default lambda
+grid and `cv.glmnet` aggregates (as anofox-regression's own validation does),
+with grpreg as an independent lasso solver. It (re)writes:
+
+| File | Extension functions | R reference |
+|------|---------------------|-------------|
+| `regularization_path.test` | `ridge_path_agg`, `elasticnet_path_agg`, `lars_path_agg`, `ridge_cv_agg`, `elasticnet_cv_agg` | glmnet objective (closed form / coordinate descent), `cv.glmnet` aggregates with fold ids, `grpreg`, `lm` |
+| `quantile_inference.test` | `quantile_fit_agg` (`se` iid / nid / boot), `quantile_process_agg`, `quantile_tidy_by` | `quantreg::rq`, `summary.rq(se = ...)` |
+| `predict_se.test` | `predict(model, x, {'se_fit', 'interval', 'level'})` for OLS, WLS, Poisson, binomial, Gamma | `predict.lm(se.fit = TRUE, interval = ...)`, `predict.glm(se.fit = TRUE)` |
+| `partial_residuals.test` | `ols_` / `wls_` / `poisson_partial_residuals_by` | `residuals(type = "partial")` (`car::crPlots`), `lsfit` residuals (`car::avPlots`) |
+
 ## `make_reference_ts_survival.R`
 
 ```bash

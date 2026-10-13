@@ -217,6 +217,7 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterIsotonicFitPredictAggregateFunction(loader);
     RegisterQuantileFitPredictAggregateFunction(loader);
     RegisterExtraFitAggregateFunctions(loader);
+    RegisterPathAggregateFunctions(loader);
 
     // Register diagnostic functions
     RegisterVifFunction(loader);
@@ -229,6 +230,8 @@ void LoadInternal(ExtensionLoader &loader) {
     // <model>_tidy_by / <model>_glance_by (#152)
     RegisterModelOutputMacros(loader);
     RegisterPosthocMacros(loader);
+    // Paths, CV curves, the quantile process and partial residuals (#154, #157, #158)
+    RegisterPathMacros(loader);
     RegisterCurveMacros(loader);
     RegisterClassifierCurveMacros(loader);
 

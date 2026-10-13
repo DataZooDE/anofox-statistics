@@ -70,8 +70,15 @@ static const char *AugmentAggName(AugmentModel model) {
     return "augment_agg";
 }
 
+//! <model>_partial_residuals_agg (#158): the same fit, partial residuals instead of augment.
+static string PartialResidualsAggName(AugmentModel model) {
+    string name = AugmentAggName(model);
+    return name.substr(0, name.size() - string("_augment_agg").size()) + "_partial_residuals_agg";
+}
+
 struct AugmentAggBindData : public FunctionData {
     AugmentModel model = AugmentModel::OLS;
+    bool partial = false;
     bool weighted = false;
     bool fit_intercept = true;
     SolverType solver = SolverType::SVD;
@@ -94,7 +101,8 @@ struct AugmentAggBindData : public FunctionData {
     bool Equals(const FunctionData &other_p) const override {
         auto &other = other_p.Cast<AugmentAggBindData>();
         auto same_double = [](double a, double b) { return a == b || (std::isnan(a) && std::isnan(b)); };
-        return model == other.model && weighted == other.weighted && fit_intercept == other.fit_intercept &&
+        return model == other.model && partial == other.partial && weighted == other.weighted &&
+               fit_intercept == other.fit_intercept &&
                solver == other.solver && null_policy == other.null_policy && prior_opts.Equals(other.prior_opts) &&
                poisson_link == other.poisson_link && binomial_link == other.binomial_link &&
                same_double(power, other.power) && same_double(theta, other.theta) &&
@@ -184,6 +192,66 @@ static bool RunGlmAugment(const AugmentAggBindData &bind, idx_t n_features, Anof
     default:
         throw InternalException("RunGlmAugment: not a GLM");
     }
+}
+
+//! Run the GLM partial residuals of `bind.model` (#158).
+static bool RunGlmPartialResiduals(const AugmentAggBindData &bind, idx_t n_features, AnofoxDataArray y_array,
+                                   vector<AnofoxDataArray> &x_arrays, AnofoxPartialResidualsResult *out,
+                                   AnofoxError *error) {
+    GlmPriorState priors;
+    priors.Materialize(bind.prior_opts, n_features, bind.fit_intercept);
+    switch (bind.model) {
+    case AugmentModel::POISSON: {
+        AnofoxPoissonOptions options {};
+        FillGlmOptions(options, bind, priors);
+        options.link = ToFfiPoissonLink(bind.poisson_link);
+        return anofox_poisson_partial_residuals(y_array, x_arrays.data(), x_arrays.size(), options, out, error);
+    }
+    case AugmentModel::BINOMIAL: {
+        AnofoxBinomialOptions options {};
+        FillGlmOptions(options, bind, priors);
+        options.link = ToFfiBinomialLink(bind.binomial_link);
+        return anofox_binomial_partial_residuals(y_array, x_arrays.data(), x_arrays.size(), options, out, error);
+    }
+    case AugmentModel::LOGISTIC: {
+        AnofoxLogisticOptions options {};
+        FillGlmOptions(options, bind, priors);
+        options.threshold = 0.5;
+        return anofox_logistic_partial_residuals(y_array, x_arrays.data(), x_arrays.size(), options, out, error);
+    }
+    case AugmentModel::NEGBINOM: {
+        AnofoxNegBinomialOptions options {};
+        FillGlmOptions(options, bind, priors);
+        options.alpha = bind.theta;
+        return anofox_negbinomial_partial_residuals(y_array, x_arrays.data(), x_arrays.size(), options, out, error);
+    }
+    case AugmentModel::GAMMA: {
+        AnofoxGammaOptions options {};
+        FillGlmOptions(options, bind, priors);
+        return anofox_gamma_partial_residuals(y_array, x_arrays.data(), x_arrays.size(), options, out, error);
+    }
+    case AugmentModel::TWEEDIE: {
+        AnofoxTweedieOptions options {};
+        FillGlmOptions(options, bind, priors);
+        options.power = bind.power;
+        return anofox_tweedie_partial_residuals(y_array, x_arrays.data(), x_arrays.size(), options, out, error);
+    }
+    default:
+        throw InternalException("RunGlmPartialResiduals: not a GLM");
+    }
+}
+
+//! LIST (one per input row, in frame order) of LIST (one per fitted term) of the
+//! partial-residual and added-variable coordinates (#158).
+static LogicalType GetPartialResidualsAggResultType() {
+    child_list_t<LogicalType> term;
+    term.push_back(make_pair("term_index", LogicalType::INTEGER));
+    term.push_back(make_pair("x", LogicalType::DOUBLE));
+    term.push_back(make_pair("partial_residual", LogicalType::DOUBLE));
+    term.push_back(make_pair("component", LogicalType::DOUBLE));
+    term.push_back(make_pair("x_residual", LogicalType::DOUBLE));
+    term.push_back(make_pair("y_residual", LogicalType::DOUBLE));
+    return LogicalType::LIST(LogicalType::LIST(LogicalType::STRUCT(std::move(term))));
 }
 
 //! LIST(STRUCT(...)) with the `obs` columns the aggregate owns.
@@ -326,6 +394,85 @@ static inline void WriteDouble(Vector &vec, idx_t idx, double v) {
     }
 }
 
+//! Partial residuals of one partition into `result[result_idx]` (#158). Terms the
+//! fit dropped (aliased columns, a GLM offset) are left out.
+static void WritePartialResiduals(const AugmentAggBindData &bind_data, AugmentAggState &state,
+                                  AnofoxDataArray y_array, vector<AnofoxDataArray> &x_arrays, Vector &result,
+                                  idx_t result_idx) {
+    auto fn_name = PartialResidualsAggName(bind_data.model);
+    idx_t n_rows = state.y.size();
+    AnofoxPartialResidualsResult pr;
+    std::memset(&pr, 0, sizeof(pr));
+    AnofoxError error;
+    bool ok;
+    if (bind_data.model != AugmentModel::OLS && bind_data.model != AugmentModel::WLS) {
+        ok = RunGlmPartialResiduals(bind_data, state.n_features, y_array, x_arrays, &pr, &error);
+    } else if (bind_data.weighted) {
+        AnofoxDataArray w_array {state.weight.data(), nullptr, static_cast<size_t>(n_rows)};
+        AnofoxWlsOptions options;
+        options.fit_intercept = bind_data.fit_intercept;
+        options.compute_inference = false;
+        options.confidence_level = 0.95;
+        options.solver = ConvertSolverType(bind_data.solver);
+        options.hc_type = ANOFOX_HC_NONE;
+        ok = anofox_wls_partial_residuals(y_array, x_arrays.data(), x_arrays.size(), w_array, options, &pr, &error);
+    } else {
+        AnofoxOlsOptions options;
+        options.fit_intercept = bind_data.fit_intercept;
+        options.compute_inference = false;
+        options.confidence_level = 0.95;
+        options.solver = ConvertSolverType(bind_data.solver);
+        options.hc_type = ANOFOX_HC_NONE;
+        ok = anofox_ols_partial_residuals(y_array, x_arrays.data(), x_arrays.size(), options, &pr, &error);
+    }
+    if (!ok) {
+        ThrowUnlessDegenerate(fn_name.c_str(), error);
+        FlatVector::SetNull(result, result_idx, true);
+        return;
+    }
+    if (pr.len != n_rows) {
+        anofox_free_partial_residuals_result(&pr);
+        throw InternalException("%s: returned %llu rows for %llu inputs", fn_name.c_str(), (uint64_t)pr.len,
+                                (uint64_t)n_rows);
+    }
+    vector<idx_t> terms;
+    for (idx_t j = 0; j < pr.n_terms; j++) {
+        for (idx_t r = 0; r < n_rows; r++) {
+            if (std::isfinite(pr.component[j * n_rows + r])) {
+                terms.push_back(j);
+                break;
+            }
+        }
+    }
+
+    // Outer list: one entry per input row.
+    auto row_offset = ListVector::GetListSize(result);
+    ListVector::Reserve(result, row_offset + n_rows);
+    ListVector::SetListSize(result, row_offset + n_rows);
+    ListVector::GetData(result)[result_idx] = {row_offset, n_rows};
+    auto &rows = ListVector::GetEntry(result);
+    // Inner lists: one entry per term.
+    auto term_offset = ListVector::GetListSize(rows);
+    ListVector::Reserve(rows, term_offset + n_rows * terms.size());
+    ListVector::SetListSize(rows, term_offset + n_rows * terms.size());
+    auto &entries = StructVector::GetEntries(ListVector::GetEntry(rows));
+    for (idx_t r = 0; r < n_rows; r++) {
+        ListVector::GetData(rows)[row_offset + r] = {term_offset + r * terms.size(), terms.size()};
+        for (idx_t t = 0; t < terms.size(); t++) {
+            idx_t j = terms[t];
+            idx_t c = term_offset + r * terms.size() + t;
+            idx_t k = j * n_rows + r;
+            FlatVector::GetData<int32_t>(*entries[0])[c] = static_cast<int32_t>(j + 1);
+            WriteDouble(*entries[1], c, pr.x[k]);
+            WriteDouble(*entries[2], c, pr.partial_residual[k]);
+            WriteDouble(*entries[3], c, pr.component[k]);
+            WriteDouble(*entries[4], c, pr.x_residual[k]);
+            WriteDouble(*entries[5], c, pr.y_residual[k]);
+        }
+    }
+    anofox_free_partial_residuals_result(&pr);
+}
+
 static void AugmentAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_data, Vector &result, idx_t count,
                                idx_t offset) {
     auto &bind_data = aggr_input_data.bind_data->Cast<AugmentAggBindData>();
@@ -358,6 +505,11 @@ static void AugmentAggFinalize(Vector &state_vector, AggregateInputData &aggr_in
             x_arrays.push_back({col.data(), nullptr, static_cast<size_t>(col.size())});
         }
         AnofoxDataArray y_array {state.y.data(), nullptr, static_cast<size_t>(n_rows)};
+
+        if (bind_data.partial) {
+            WritePartialResiduals(bind_data, state, y_array, x_arrays, result, result_idx);
+            continue;
+        }
 
         AnofoxAugmentResult aug;
         std::memset(&aug, 0, sizeof(aug));
@@ -438,10 +590,13 @@ static void AugmentAggFinalize(Vector &state_vector, AggregateInputData &aggr_in
 }
 
 static unique_ptr<FunctionData> AugmentAggBindImpl(ClientContext &context, AggregateFunction &function,
-                                                   vector<unique_ptr<Expression>> &arguments, AugmentModel model) {
-    const char *fn_name = AugmentAggName(model);
+                                                   vector<unique_ptr<Expression>> &arguments, AugmentModel model,
+                                                   bool partial) {
+    const string fn_name_str = partial ? PartialResidualsAggName(model) : string(AugmentAggName(model));
+    const char *fn_name = fn_name_str.c_str();
     auto result = make_uniq<AugmentAggBindData>();
     result->model = model;
+    result->partial = partial;
     result->weighted = model == AugmentModel::WLS;
     idx_t options_idx = result->weighted ? 3 : 2;
     if (arguments.size() > options_idx) {
@@ -501,15 +656,15 @@ static unique_ptr<FunctionData> AugmentAggBindImpl(ClientContext &context, Aggre
             result->offset_column = opts.offset_column.value();
         }
     }
-    function.return_type = GetAugmentAggResultType();
+    function.return_type = partial ? GetPartialResidualsAggResultType() : GetAugmentAggResultType();
     PostHogTelemetry::Instance().RecordFunctionCall(fn_name);
     return std::move(result);
 }
 
-template <AugmentModel MODEL>
+template <AugmentModel MODEL, bool PARTIAL = false>
 static unique_ptr<FunctionData> AugmentAggBind(ClientContext &context, AggregateFunction &function,
                                                vector<unique_ptr<Expression>> &arguments) {
-    return AugmentAggBindImpl(context, function, arguments, MODEL);
+    return AugmentAggBindImpl(context, function, arguments, MODEL, PARTIAL);
 }
 
 static AggregateFunction MakeAugmentAgg(const string &name, vector<LogicalType> args, bind_aggregate_function_t bind) {
@@ -629,6 +784,58 @@ void RegisterAugmentAggregateFunctions(ExtensionLoader &loader) {
                                                        name + "(y, [x1, x2], " + glm.option_example + ") OVER ()",
                                                        {"y", "x", "options"},
                                                        {LogicalType::DOUBLE, list_double, LogicalType::ANY}));
+        loader.RegisterFunction(std::move(info));
+    }
+
+    // <model>_partial_residuals_agg (#158): component-plus-residual (car::crPlots) and
+    // added-variable (car::avPlots, OLS / WLS only) coordinates per row and term.
+    struct PartialAgg {
+        AugmentModel model;
+        bind_aggregate_function_t bind;
+        const char *label;
+    };
+    const PartialAgg partials[] = {
+        {AugmentModel::OLS, AugmentAggBind<AugmentModel::OLS, true>, "OLS"},
+        {AugmentModel::WLS, AugmentAggBind<AugmentModel::WLS, true>, "WLS"},
+        {AugmentModel::POISSON, AugmentAggBind<AugmentModel::POISSON, true>, "a Poisson GLM"},
+        {AugmentModel::BINOMIAL, AugmentAggBind<AugmentModel::BINOMIAL, true>, "a Binomial GLM"},
+        {AugmentModel::LOGISTIC, AugmentAggBind<AugmentModel::LOGISTIC, true>, "a logistic regression"},
+        {AugmentModel::NEGBINOM, AugmentAggBind<AugmentModel::NEGBINOM, true>, "a Negative Binomial GLM"},
+        {AugmentModel::GAMMA, AugmentAggBind<AugmentModel::GAMMA, true>, "a Gamma GLM (log link)"},
+        {AugmentModel::TWEEDIE, AugmentAggBind<AugmentModel::TWEEDIE, true>, "a Tweedie GLM (log link)"},
+    };
+    for (auto &pa : partials) {
+        string name = PartialResidualsAggName(pa.model);
+        bool weighted = pa.model == AugmentModel::WLS;
+        bool linear = weighted || pa.model == AugmentModel::OLS;
+        vector<LogicalType> args = {LogicalType::DOUBLE, list_double};
+        vector<string> arg_names = {"y", "x"};
+        if (weighted) {
+            args.push_back(LogicalType::DOUBLE);
+            arg_names.push_back("weight");
+        }
+        AggregateFunctionSet set(name);
+        set.AddFunction(MakeAugmentAgg(name, args, pa.bind));
+        auto args_opt = args;
+        args_opt.push_back(LogicalType::ANY);
+        set.AddFunction(MakeAugmentAgg(name, args_opt, pa.bind));
+        CreateAggregateFunctionInfo info(std::move(set));
+        info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
+        const string desc =
+            "Fits " + string(pa.label) +
+            " over a partition and returns, per row in frame order, a LIST with one STRUCT per fitted term: "
+            "term_index (1-based position in x), x, partial_residual = residual + component (R residuals(type = "
+            "'partial'), car::crPlots" +
+            (linear ? string("") : string("; the working residual")) +
+            "), component = b_j (x_j - mean(x_j)), and the added-variable coordinates x_residual, y_residual "
+            "(car::avPlots" +
+            (linear ? string(")") : string("; NULL for GLMs)")) +
+            ". Rows not used for fitting get NULL residuals.";
+        string example = name + (weighted ? "(y, [x1, x2], w) OVER (PARTITION BY g)" : "(y, [x1, x2]) OVER (PARTITION BY g)");
+        info.descriptions.push_back(AugmentDescription(desc, example, arg_names, args));
+        auto names_opt = arg_names;
+        names_opt.push_back("options");
+        info.descriptions.push_back(AugmentDescription(desc, example, names_opt, args_opt));
         loader.RegisterFunction(std::move(info));
     }
 }

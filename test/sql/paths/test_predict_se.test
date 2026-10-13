@@ -1,0 +1,119 @@
+# name: test/sql/paths/test_predict_se.test
+# description: predict(model, x, {'se_fit', 'interval', 'level'}) and the vcov / df_residual model fields (#158) (values: test/sql/reference/predict_se.test)
+# group: [paths]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE d AS SELECT range AS id, range::DOUBLE AS x1, (range % 7)::DOUBLE AS x2, 1.0 + (range % 4) AS w,
+    (2 * range + (range % 7) + (range % 3) * 1.5 + sin(range))::DOUBLE AS y, ((range * 7 + 3) % 9)::DOUBLE AS cnt,
+    (range % 3 <> 0)::DOUBLE AS bin
+FROM range(40);
+
+# Existing calls are unchanged: a DOUBLE, and {'type': 'link'}
+query II
+SELECT typeof(predict(m, [1.0, 2.0])), typeof(predict(m, [1.0, 2.0], {'type': 'link'}))
+FROM (SELECT ols_fit_agg(y, [x1, x2]) AS m FROM d);
+----
+DOUBLE	DOUBLE
+
+# vcov is (k x k) with k = intercept + slopes; df_residual = n - k; NULL without inference
+query IIII
+SELECT len(a.vcov), a.df_residual, b.vcov IS NULL, b.df_residual IS NULL
+FROM (SELECT ols_fit_agg(y, [x1, x2], {'compute_inference': true}) AS a, ols_fit_agg(y, [x1, x2]) AS b FROM d);
+----
+9	37.0	true	true
+
+# sqrt(diag(vcov)) are the standard errors
+query I
+SELECT abs(sqrt(m.vcov[5]) - m.std_errors[1]) < 1e-10 AND abs(sqrt(m.vcov[9]) - m.std_errors[2]) < 1e-10
+       AND abs(sqrt(m.vcov[1]) - m.intercept_std_error) < 1e-10
+FROM (SELECT ols_fit_agg(y, [x1, x2], {'compute_inference': true}) AS m FROM d);
+----
+true
+
+query I
+SELECT abs(sqrt(m.vcov[5]) - m.std_errors[1]) < 1e-8 FROM (SELECT gamma_fit_agg(y + 1, [x1, x2], {'compute_inference': true}) AS m FROM d);
+----
+true
+
+# The SE result is STRUCT(yhat, se_fit, yhat_lower, yhat_upper); se_fit only: no bounds
+query IIII
+SELECT abs(p.yhat - predict(m, [3.0, 4.0])) < 1e-10, p.se_fit > 0, p.yhat_lower IS NULL, p.yhat_upper IS NULL
+FROM (SELECT m, predict(m, [3.0, 4.0], {'se_fit': true}) AS p
+      FROM (SELECT ols_fit_agg(y, [x1, x2], {'compute_inference': true}) AS m FROM d));
+----
+true	true	true	true
+
+# Prediction intervals are wider than confidence intervals; a lower level is narrower
+query II
+SELECT p.yhat_upper - p.yhat_lower > c.yhat_upper - c.yhat_lower, c90.yhat_upper - c90.yhat_lower < c.yhat_upper - c.yhat_lower
+FROM (SELECT predict(m, [3.0, 4.0], {'interval': 'prediction'}) AS p, predict(m, [3.0, 4.0], {'interval': 'confidence'}) AS c,
+             predict(m, [3.0, 4.0], {'interval': 'confidence', 'level': 0.9}) AS c90
+      FROM (SELECT wls_fit_agg(y, [x1, x2], w, {'compute_inference': true}) AS m FROM d));
+----
+true	true
+
+# Ridge: the sandwich covariance
+query I
+SELECT p.se_fit > 0 AND p.yhat_lower < p.yhat AND p.yhat < p.yhat_upper
+FROM (SELECT predict(ridge_fit_agg(y, [x1, x2], {'alpha': 1.0, 'compute_inference': true}), [3.0, 4.0], {'interval': 'prediction'}) AS p FROM d);
+----
+true
+
+# GLMs: response-scale interval is the link interval through the inverse link
+query III
+SELECT abs(exp(l.yhat_lower) - r.yhat_lower) < 1e-12, abs(exp(l.yhat) - r.yhat) < 1e-12, abs(r.se_fit - l.se_fit * r.yhat) < 1e-12
+FROM (SELECT predict(m, [1.0, 2.0], {'type': 'link', 'interval': 'confidence'}) AS l, predict(m, [1.0, 2.0], {'interval': 'confidence'}) AS r
+      FROM (SELECT poisson_fit_agg(cnt, [x1, x2], {'compute_inference': true}) AS m FROM d));
+----
+true	true	true
+
+query I
+SELECT p.yhat_lower > 0 AND p.yhat_upper < 1
+FROM (SELECT predict(logistic_fit_agg(bin, [x1, x2], {'compute_inference': true}), [5.0, 2.0], {'interval': 'confidence'}) AS p FROM d);
+----
+true
+
+query I
+SELECT p.se_fit > 0
+FROM (SELECT predict(m, [1.0, 2.0], {'se_fit': true}) AS p FROM (SELECT negbinom_fit_agg(cnt, [x1, x2], {'compute_inference': true}) AS m FROM d));
+----
+true
+
+# NULL x gives NULL; works per group
+query I
+SELECT predict(ols_fit_agg(y, [x1, x2], {'compute_inference': true}), [NULL, 2.0], {'se_fit': true}) IS NULL FROM d;
+----
+true
+
+# Errors: no covariance (no inference), a model without vcov, prediction interval for a GLM, bad options
+statement error
+SELECT predict(ols_fit_agg(y, [x1, x2]), [1.0, 2.0], {'se_fit': true}) FROM d;
+----
+fit it with {'compute_inference': true}
+
+statement error
+SELECT predict(huber_fit_agg(y, [x1, x2]), [1.0, 2.0], {'se_fit': true}) FROM d;
+----
+need a model with a coefficient covariance
+
+statement error
+SELECT predict(poisson_fit_agg(cnt, [x1, x2], {'compute_inference': true}), [1.0, 2.0], {'interval': 'prediction'}) FROM d;
+----
+prediction intervals are only defined for linear models
+
+statement error
+SELECT predict(ols_fit_agg(y, [x1, x2], {'compute_inference': true}), [1.0, 2.0], {'interval': 'tolerance'}) FROM d;
+----
+option 'interval' must be 'none', 'confidence' or 'prediction'
+
+statement error
+SELECT predict(ols_fit_agg(y, [x1, x2], {'compute_inference': true}), [1.0, 2.0], {'level': 1.5}) FROM d;
+----
+option 'level' must be in (0, 1)
+
+statement error
+SELECT predict(ols_fit_agg(y, [x1, x2], {'compute_inference': true}), [1.0, 2.0], {'se': true}) FROM d;
+----
+unknown option 'se' (supported: type, se_fit, interval, level)

@@ -126,7 +126,16 @@ Constant features get a NaN coefficient.
 - Stabilising coefficient estimates
 - Preventing overfitting with many features
 
+## Coefficient covariance
+
+With `compute_inference` the struct also carries `vcov`, the coefficient covariance
+(the sandwich `σ² A X'X A`, `A = (X'X + λI)⁻¹` with an unpenalised intercept) (row-major `k × k`, intercept first), and `df_residual = n − k`;
+[`predict`](model_tools.md#standard-errors-and-intervals) uses them for `se_fit` and
+confidence / prediction intervals.
+
 ## See Also
+
+- [Regularisation paths](paths.md) - `ridge_path_agg`, `ridge_cv_agg`: the coefficient path and the CV curve over lambda
 
 - [OLS](ols.md) - Unregularized baseline
 - [Elastic Net](elasticnet.md) - Combined L1+L2 penalty

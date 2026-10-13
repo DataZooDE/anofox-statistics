@@ -55,6 +55,7 @@ void RegisterPlsFitPredictAggregateFunction(ExtensionLoader &loader);
 void RegisterIsotonicFitPredictAggregateFunction(ExtensionLoader &loader);
 void RegisterQuantileFitPredictAggregateFunction(ExtensionLoader &loader);
 void RegisterExtraFitAggregateFunctions(ExtensionLoader &loader);
+void RegisterPathAggregateFunctions(ExtensionLoader &loader);
 
 // GLM aggregate functions
 void RegisterPoissonAggregateFunction(ExtensionLoader &loader);
@@ -135,6 +136,7 @@ void RegisterClassifierAggregateFunctions(ExtensionLoader &loader);
 void RegisterFitPredictTableMacros(ExtensionLoader &loader);
 void RegisterModelOutputMacros(ExtensionLoader &loader);
 void RegisterPosthocMacros(ExtensionLoader &loader);
+void RegisterPathMacros(ExtensionLoader &loader);
 void RegisterCurveMacros(ExtensionLoader &loader);
 void RegisterClassifierCurveMacros(ExtensionLoader &loader);
 

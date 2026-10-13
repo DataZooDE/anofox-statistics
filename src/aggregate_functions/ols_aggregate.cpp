@@ -92,6 +92,7 @@ static LogicalType GetOlsAggResultType() {
     // without compute_inference.
     AppendCoefficientInferenceFields(children);
     AppendModelSummaryFields(children);
+    AppendCovarianceFields(children);
 
     return LogicalType::STRUCT(std::move(children));
 }
@@ -334,6 +335,7 @@ static void OlsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
         // Inference (NULL unless requested), CI fields and the model summary
         writer.WriteInference(result_idx, state.compute_inference ? &inference_result : nullptr);
         writer.WriteSummary(result_idx, core_result.summary);
+        writer.WriteLinearCovariance(result_idx, state.compute_inference, x_arrays, core_result, state.fit_intercept);
         if (state.compute_inference) {
             anofox_free_result_inference(&inference_result);
         }

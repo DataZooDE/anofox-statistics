@@ -113,6 +113,8 @@ element. `elasticnet_fit` drops positions with NaN or infinite values.
 
 ## See Also
 
+- [Regularisation paths](paths.md) - `elasticnet_path_agg`, `elasticnet_cv_agg`: the coefficient path and the CV curve
+
 - [Ridge](ridge.md) - L2 penalty only
 - [LARS](lars.md) - Least angle regression
 - [Table macros](../macros/table_macros.md#elasticnet_fit_predict_by) - Per-group predictions

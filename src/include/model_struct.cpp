@@ -13,10 +13,28 @@ static_assert(sizeof(AnofoxFitResultCore) ==
                   sizeof(double *) + 3 * sizeof(size_t) + 4 * sizeof(double) + sizeof(AnofoxModelSummaryFFI),
               "AnofoxFitResultCore must match FitResultCore in crates/anofox-stats-ffi/src/types.rs");
 
-// The summary is appended last to these result structs (after padding).
-static_assert(sizeof(AnofoxGlmFitResultCore) ==
-                  offsetof(AnofoxGlmFitResultCore, summary) + sizeof(AnofoxModelSummaryFFI),
-              "AnofoxGlmFitResultCore must end with its summary, as GlmFitResultCore does");
+// The summary is appended last to these result structs (after padding); the GLM
+// result has the covariance (#158) after it.
+static_assert(offsetof(AnofoxGlmFitResultCore, vcov) ==
+                      offsetof(AnofoxGlmFitResultCore, summary) + sizeof(AnofoxModelSummaryFFI) &&
+                  sizeof(AnofoxGlmFitResultCore) ==
+                      offsetof(AnofoxGlmFitResultCore, vcov) + sizeof(double *) + sizeof(size_t),
+              "AnofoxGlmFitResultCore must end with summary, vcov, vcov_dim, as GlmFitResultCore does");
+
+// #154 / #157 / #158 result structs (crates/anofox-stats-ffi/src/inference_ffi.rs).
+static_assert(sizeof(AnofoxRegPathResult) == 4 * sizeof(double *) + 3 * sizeof(size_t),
+              "AnofoxRegPathResult must match RegPathResultFFI");
+static_assert(sizeof(AnofoxCvPathResult) == 4 * sizeof(double *) + 5 * sizeof(size_t),
+              "AnofoxCvPathResult must match CvPathResultFFI");
+static_assert(offsetof(AnofoxQuantileProcessResult, n_tau) == 7 * sizeof(double *) &&
+                  offsetof(AnofoxQuantileProcessResult, has_intercept) ==
+                      7 * sizeof(double *) + 3 * sizeof(size_t) + 2 * sizeof(double),
+              "AnofoxQuantileProcessResult must match QuantileProcessResultFFI");
+static_assert(sizeof(AnofoxPredictSeResult) == 4 * sizeof(double), "AnofoxPredictSeResult must match PredictSeResultFFI");
+static_assert(offsetof(AnofoxPartialResidualsResult, n_terms) == 5 * sizeof(double *) &&
+                  offsetof(AnofoxPartialResidualsResult, has_added_variable) ==
+                      5 * sizeof(double *) + 2 * sizeof(size_t),
+              "AnofoxPartialResidualsResult must match PartialResidualsResultFFI");
 static_assert(sizeof(AnofoxAftFitResultCore) ==
                   offsetof(AnofoxAftFitResultCore, summary) + sizeof(AnofoxModelSummaryFFI),
               "AnofoxAftFitResultCore must end with its summary, as AftFitResultCore does");
@@ -93,6 +111,21 @@ void AppendModelSummaryFields(child_list_t<LogicalType> &children) {
 	AppendIfMissing(children, "model_type", LogicalType::VARCHAR);
 	AppendIfMissing(children, "family", LogicalType::VARCHAR);
 	AppendIfMissing(children, "link", LogicalType::VARCHAR);
+}
+
+void AppendCovarianceFields(child_list_t<LogicalType> &children) {
+	AppendIfMissing(children, "vcov", LogicalType::LIST(LogicalType::DOUBLE));
+	AppendIfMissing(children, "df_residual", LogicalType::DOUBLE);
+}
+
+double ResidualDf(idx_t n_observations, const double *coefficients, idx_t coefficients_len, bool has_intercept) {
+	idx_t n_params = has_intercept ? 1 : 0;
+	for (idx_t j = 0; j < coefficients_len; j++) {
+		if (std::isfinite(coefficients[j]) && coefficients[j] != 0.0) {
+			n_params++;
+		}
+	}
+	return static_cast<double>(n_observations) - static_cast<double>(n_params);
 }
 
 ModelStructWriter::ModelStructWriter(Vector &result) {
@@ -198,6 +231,33 @@ void ModelStructWriter::WriteSummary(idx_t row, const AnofoxModelSummaryFFI &sum
 	WriteDouble(Field("intercept_p_value"), row, summary.intercept_p_value);
 	WriteDouble(Field("intercept_conf_low"), row, summary.intercept_conf_low);
 	WriteDouble(Field("intercept_conf_high"), row, summary.intercept_conf_high);
+}
+
+void ModelStructWriter::WriteCovariance(idx_t row, const double *vcov, idx_t dim, double df_residual) {
+	if (!vcov || dim == 0) {
+		WriteNull(Field("vcov"), row);
+		WriteNull(Field("df_residual"), row);
+		return;
+	}
+	WriteList(Field("vcov"), row, vcov, dim * dim);
+	WriteDouble(Field("df_residual"), row, df_residual);
+}
+
+void ModelStructWriter::WriteLinearCovariance(idx_t row, bool compute, const vector<AnofoxDataArray> &x,
+                                              const AnofoxFitResultCore &core, bool fit_intercept,
+                                              const AnofoxDataArray *weights, double ridge_lambda) {
+	double *matrix = nullptr;
+	size_t dim = 0;
+	AnofoxError error;
+	if (!compute || !anofox_coefficient_vcov(x.data(), x.size(), core.coefficients, core.coefficients_len,
+	                                         fit_intercept, weights, ridge_lambda, core.residual_std_error,
+	                                         &matrix, &dim, &error)) {
+		WriteCovariance(row, nullptr, 0, 0.0);
+		return;
+	}
+	WriteCovariance(row, matrix, dim,
+	                ResidualDf(core.n_observations, core.coefficients, core.coefficients_len, fit_intercept));
+	anofox_free_interval_matrix(matrix);
 }
 
 } // namespace duckdb

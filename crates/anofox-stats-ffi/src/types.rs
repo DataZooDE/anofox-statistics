@@ -521,9 +521,14 @@ mod layout_tests {
     #[test]
     fn summary_is_last() {
         use std::mem::{offset_of, size_of};
+        // GLM: the summary, then the covariance appended by #158.
+        assert_eq!(
+            offset_of!(GlmFitResultCore, vcov),
+            offset_of!(GlmFitResultCore, summary) + size_of::<ModelSummaryFFI>()
+        );
         assert_eq!(
             size_of::<GlmFitResultCore>(),
-            offset_of!(GlmFitResultCore, summary) + size_of::<ModelSummaryFFI>()
+            offset_of!(GlmFitResultCore, vcov) + size_of::<*mut f64>() + size_of::<usize>()
         );
         assert_eq!(
             size_of::<AftFitResultCore>(),
@@ -1466,6 +1471,11 @@ pub struct GlmFitResultCore {
     pub converged: bool,
     /// Model description, fit statistics and intercept inference (#152)
     pub summary: ModelSummaryFFI,
+    /// Coefficient covariance (#158): malloc'd row-major `vcov_dim x vcov_dim`,
+    /// intercept first, dispersion included; NULL without inference.
+    /// Appended last to preserve the ABI.
+    pub vcov: *mut f64,
+    pub vcov_dim: usize,
 }
 
 impl Default for GlmFitResultCore {
@@ -1484,6 +1494,8 @@ impl Default for GlmFitResultCore {
             iterations: 0,
             converged: false,
             summary: ModelSummaryFFI::default(),
+            vcov: std::ptr::null_mut(),
+            vcov_dim: 0,
         }
     }
 }

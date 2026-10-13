@@ -1,0 +1,95 @@
+# name: test/sql/paths/test_quantile_process.test
+# description: quantile_fit_agg inference and quantile_process_agg (#157): layout, options, errors (values: test/sql/reference/quantile_inference.test)
+# group: [paths]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE d AS SELECT range AS id, (range % 2)::INT AS g, (range % 17)::DOUBLE / 2 AS x1, cos(range)::DOUBLE AS x2,
+    (1.0 + 0.7 * ((range % 17) / 2) - 1.2 * cos(range) + (0.5 + 0.15 * ((range % 17) / 2)) * sin(range * 1.7))::DOUBLE AS y
+FROM range(81);
+
+# Without inference options the fields stay NULL (stable shape)
+query III
+SELECT r.std_errors IS NULL, r.conf_low IS NULL, r.intercept_std_error IS NULL
+FROM (SELECT quantile_fit_agg(y, [x1, x2], {'tau': 0.5}) AS r FROM d);
+----
+true	true	true
+
+# compute_inference uses 'nid'; CI = estimate -/+ qt(.975, n - 3) * se; tidy() picks it up
+query IIII
+SELECT r.std_errors[1] > 0, abs(r.conf_high[1] - r.coefficients[1] - 1.9908470688116539 * r.std_errors[1]) < 1e-9,
+       r.conf_level, len(tidy(r)) = 3 AND tidy(r)[1].std_error = r.intercept_std_error
+FROM (SELECT quantile_fit_agg(y, [x1, x2], {'compute_inference': true}) AS r FROM d);
+----
+true	true	0.95	true
+
+query I
+SELECT a.std_errors = b.std_errors FROM
+    (SELECT quantile_fit_agg(y, [x1, x2], {'compute_inference': true}) AS a, quantile_fit_agg(y, [x1, x2], {'se': 'nid'}) AS b FROM d);
+----
+true
+
+# The bootstrap is seeded: same seed, same SE; another seed, another SE
+query II
+SELECT a.std_errors = b.std_errors, a.std_errors <> c.std_errors FROM
+    (SELECT quantile_fit_agg(y, [x1, x2], {'se': 'boot', 'n_boot': 50, 'seed': 1}) AS a,
+            quantile_fit_agg(y, [x1, x2], {'se': 'boot', 'n_boot': 50, 'seed': 1}) AS b,
+            quantile_fit_agg(y, [x1, x2], {'se': 'boot', 'n_boot': 50, 'seed': 2}) AS c FROM d);
+----
+true	true
+
+# confidence_level
+query II
+SELECT r.conf_level, r.conf_high[1] - r.conf_low[1] < s.conf_high[1] - s.conf_low[1] FROM
+    (SELECT quantile_fit_agg(y, [x1, x2], {'se': 'iid', 'confidence_level': 0.8}) AS r,
+            quantile_fit_agg(y, [x1, x2], {'se': 'iid'}) AS s FROM d);
+----
+0.8	true
+
+# quantile_process_agg: one row per tau and term, index_name 'tau'
+query IIIII
+SELECT len(r), r[1].term, r[1].index_name, [e.index_value FOR e IN r IF e.term = 'x1'], r[1].conf_level
+FROM (SELECT quantile_process_agg(y, [x1, x2], {'taus': [0.25, 0.5, 0.75]}) AS r FROM d);
+----
+9	(Intercept)	tau	[0.25, 0.5, 0.75]	0.95
+
+# Default taus 0.1, ..., 0.9; the process at tau equals quantile_fit_agg at tau
+query II
+SELECT len(r), abs(r[13].estimate - (SELECT (quantile_fit_agg(y, [x1, x2], {'tau': 0.5})).intercept FROM d)) < 1e-9
+FROM (SELECT quantile_process_agg(y, [x1, x2]) AS r FROM d);
+----
+27	true
+
+# compute_inference false: estimates only
+query II
+SELECT r[2].estimate IS NOT NULL, r[2].std_error IS NULL
+FROM (SELECT quantile_process_agg(y, [x1, x2], {'taus': [0.5], 'compute_inference': false, 'feature_names': ['a', 'b']}) AS r FROM d);
+----
+true	true
+
+query II
+SELECT g, len(quantile_process_agg(y, [x1, x2], {'taus': [0.3, 0.7], 'se': 'iid'})) FROM d GROUP BY g ORDER BY g;
+----
+0	6
+1	6
+
+query I
+SELECT quantile_process_agg(y, [x1, x2]) IS NULL FROM d WHERE id < 0;
+----
+true
+
+statement error
+SELECT quantile_fit_agg(y, [x1, x2], {'se': 'rank'}) FROM d;
+----
+se must be 'iid', 'nid' or 'boot'
+
+statement error
+SELECT quantile_process_agg(y, [x1, x2], {'taus': [0.5, 1.0]}) FROM d;
+----
+taus must be in (0, 1)
+
+statement error
+SELECT quantile_fit_agg(y, [x1, x2], {'se': 'boot', 'n_boot': 1}) FROM d;
+----
+n_boot must be >= 2

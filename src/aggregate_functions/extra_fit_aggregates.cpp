@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <numeric>
 #include <vector>
 
@@ -21,35 +22,17 @@
 #include "aggregate_combine.hpp"
 #include "error_dispatch.hpp"
 #include "list_input.hpp"
+#include "xy_rows_aggregate.hpp"
+#include "canonical_order.hpp"
 #include "telemetry.hpp"
 
 namespace duckdb {
 
 namespace {
 
-//===--------------------------------------------------------------------===//
-// Shared state: complete (y, x) rows of one group
-//===--------------------------------------------------------------------===//
-struct ExtraFitState {
-	vector<double> y_values;
-	vector<vector<double>> x_columns;
-	idx_t n_features;
-	bool initialized;
-
-	ExtraFitState() : n_features(0), initialized(false) {
-	}
-};
-
-//! State pointers of a state vector, whatever its vector type.
-struct StatePointers {
-	UnifiedVectorFormat format;
-	StatePointers(Vector &v, idx_t count) {
-		v.ToUnifiedFormat(count, format);
-	}
-	ExtraFitState &operator[](idx_t i) const {
-		return *reinterpret_cast<ExtraFitState *const *>(format.data)[format.sel->get_index(i)];
-	}
-};
+// Shared state: complete (y, x) rows of one group (xy_rows_aggregate.hpp).
+using ExtraFitState = XyRowsState;
+using StatePointers = XyRowsStatePointers;
 
 struct ExtraFitBindData : public FunctionData {
 	bool fit_intercept = true;
@@ -58,6 +41,12 @@ struct ExtraFitBindData : public FunctionData {
 	uint32_t max_iterations = 1000;
 	double tolerance = 1e-6;
 	bool increasing = true;
+	// Quantile inference (#157)
+	bool compute_inference = false;
+	int32_t se_type = ANOFOX_QUANTILE_SE_NID;
+	double confidence_level = 0.95;
+	uint32_t n_boot = 200;
+	uint64_t seed = 42;
 
 	unique_ptr<FunctionData> Copy() const override {
 		return make_uniq<ExtraFitBindData>(*this);
@@ -65,61 +54,11 @@ struct ExtraFitBindData : public FunctionData {
 	bool Equals(const FunctionData &other_p) const override {
 		auto &o = other_p.Cast<ExtraFitBindData>();
 		return fit_intercept == o.fit_intercept && n_components == o.n_components && tau == o.tau &&
-		       max_iterations == o.max_iterations && tolerance == o.tolerance && increasing == o.increasing;
+		       max_iterations == o.max_iterations && tolerance == o.tolerance && increasing == o.increasing &&
+		       compute_inference == o.compute_inference && se_type == o.se_type &&
+		       confidence_level == o.confidence_level && n_boot == o.n_boot && seed == o.seed;
 	}
 };
-
-void ExtraFitInitialize(const AggregateFunction &, data_ptr_t state_p) {
-	new (state_p) ExtraFitState();
-}
-
-void ExtraFitDestroy(Vector &state_vector, AggregateInputData &, idx_t count) {
-	StatePointers states(state_vector, count);
-	for (idx_t i = 0; i < count; i++) {
-		states[i].~ExtraFitState();
-	}
-}
-
-//! Update for (y DOUBLE, x LIST(DOUBLE)); rows with any NULL/NaN are skipped later by Rust,
-//! rows with a NULL y, NULL list or NULL list element are skipped here.
-void ExtraFitListUpdate(Vector inputs[], AggregateInputData &, idx_t, Vector &state_vector, idx_t count) {
-	UnifiedVectorFormat y_data, x_data, sdata;
-	inputs[0].ToUnifiedFormat(count, y_data);
-	inputs[1].ToUnifiedFormat(count, x_data);
-	state_vector.ToUnifiedFormat(count, sdata);
-	auto y_values = UnifiedVectorFormat::GetData<double>(y_data);
-	auto x_list_data = UnifiedVectorFormat::GetData<list_entry_t>(x_data);
-	auto &x_child = ListVector::GetEntry(inputs[1]);
-	auto x_child_data = FlatVector::GetData<double>(x_child);
-	auto &x_child_validity = FlatVector::Validity(x_child);
-	auto states = (ExtraFitState **)sdata.data;
-
-	for (idx_t i = 0; i < count; i++) {
-		auto &state = *states[sdata.sel->get_index(i)];
-		auto y_idx = y_data.sel->get_index(i);
-		auto x_idx = x_data.sel->get_index(i);
-		if (!y_data.validity.RowIsValid(y_idx) || !x_data.validity.RowIsValid(x_idx)) {
-			continue;
-		}
-		auto list_entry = x_list_data[x_idx];
-		if (ListHasNullElement(x_child_validity, list_entry)) {
-			continue;
-		}
-		if (!state.initialized) {
-			state.n_features = list_entry.length;
-			state.x_columns.resize(state.n_features);
-			state.initialized = true;
-		}
-		if (list_entry.length != state.n_features) {
-			throw InvalidInputException("Inconsistent feature count: expected %lu, got %lu", state.n_features,
-			                            list_entry.length);
-		}
-		state.y_values.push_back(y_values[y_idx]);
-		for (idx_t j = 0; j < state.n_features; j++) {
-			state.x_columns[j].push_back(x_child_data[list_entry.offset + j]);
-		}
-	}
-}
 
 //! Update for (y DOUBLE, x DOUBLE) — isotonic regression has a single regressor.
 void ExtraFitScalarUpdate(Vector inputs[], AggregateInputData &, idx_t, Vector &state_vector, idx_t count) {
@@ -153,67 +92,9 @@ void ExtraFitScalarUpdate(Vector inputs[], AggregateInputData &, idx_t, Vector &
 	}
 }
 
-void ExtraFitCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &aggr_input_data, idx_t count) {
-	StatePointers sources(source_vector, count);
-	StatePointers targets(target_vector, count);
-	for (idx_t i = 0; i < count; i++) {
-		auto &source = sources[i];
-		auto &target = targets[i];
-		if (!source.initialized) {
-			continue;
-		}
-		if (!target.initialized) {
-			target.y_values = CombineTake(source.y_values, aggr_input_data);
-			target.x_columns = CombineTake(source.x_columns, aggr_input_data);
-			target.n_features = source.n_features;
-			target.initialized = true;
-			continue;
-		}
-		if (source.n_features != target.n_features) {
-			throw InvalidInputException("Inconsistent feature count: expected %lu, got %lu", target.n_features,
-			                            source.n_features);
-		}
-		target.y_values.insert(target.y_values.end(), source.y_values.begin(), source.y_values.end());
-		for (idx_t j = 0; j < target.n_features; j++) {
-			target.x_columns[j].insert(target.x_columns[j].end(), source.x_columns[j].begin(),
-			                           source.x_columns[j].end());
-		}
-	}
-}
-
-vector<AnofoxDataArray> ColumnArrays(ExtraFitState &state) {
-	vector<AnofoxDataArray> arrays;
-	for (auto &col : state.x_columns) {
-		arrays.push_back({col.data(), nullptr, col.size()});
-	}
-	return arrays;
-}
-
-void SetDoubleList(Vector &list_vec, idx_t row, const double *values, idx_t n) {
-	auto list_data = FlatVector::GetData<list_entry_t>(list_vec);
-	auto offset = ListVector::GetListSize(list_vec);
-	ListVector::Reserve(list_vec, offset + n);
-	auto child_data = FlatVector::GetData<double>(ListVector::GetEntry(list_vec));
-	auto &child_validity = FlatVector::Validity(ListVector::GetEntry(list_vec));
-	for (idx_t j = 0; j < n; j++) {
-		if (std::isfinite(values[j])) {
-			child_data[offset + j] = values[j];
-		} else {
-			child_validity.SetInvalid(offset + j);
-		}
-	}
-	list_data[row].offset = offset;
-	list_data[row].length = n;
-	ListVector::SetListSize(list_vec, offset + n);
-}
-
-void SetDouble(Vector &vec, idx_t row, double value) {
-	if (std::isfinite(value)) {
-		FlatVector::GetData<double>(vec)[row] = value;
-	} else {
-		FlatVector::SetNull(vec, row, true);
-	}
-}
+const auto ColumnArrays = XyRowsColumnArrays;
+const auto SetDoubleList = XyRowsSetDoubleList;
+const auto SetDouble = XyRowsSetDouble;
 
 //===--------------------------------------------------------------------===//
 // pls_fit_agg
@@ -300,6 +181,10 @@ void QuantileFitAggFinalize(Vector &state_vector, AggregateInputData &aggr_input
 			FlatVector::SetNull(result, row, true);
 			continue;
 		}
+		if (bind.compute_inference && bind.se_type == ANOFOX_QUANTILE_SE_BOOT) {
+			// The seeded bootstrap draws rows by position: fix their order.
+			SortRowsCanonically(state.y_values, state.x_columns);
+		}
 		AnofoxDataArray y = {state.y_values.data(), nullptr, state.y_values.size()};
 		auto x = ColumnArrays(state);
 		AnofoxQuantileOptions options;
@@ -319,7 +204,45 @@ void QuantileFitAggFinalize(Vector &state_vector, AggregateInputData &aggr_input
 		SetDouble(*entries[2], row, fit.tau);
 		FlatVector::GetData<int64_t>(*entries[3])[row] = (int64_t)fit.n_observations;
 		FlatVector::GetData<int64_t>(*entries[4])[row] = (int64_t)fit.n_features;
-		writer.WriteInference(row, nullptr);
+		// Coefficient inference (#157): quantreg::summary.rq(se = iid | nid | boot)
+		// from upstream's quantile_inference, slopes in the lists and the
+		// intercept in the intercept_* fields.
+		AnofoxQuantileProcessResult inf;
+		bool has_inference = false;
+		if (bind.compute_inference) {
+			has_inference = anofox_quantile_process(y, x.data(), x.size(), &bind.tau, 1, bind.fit_intercept,
+			                                        bind.se_type, bind.seed, bind.n_boot, bind.confidence_level,
+			                                        &inf, &error);
+			if (!has_inference) {
+				ThrowUnlessDegenerate("quantile_fit_agg", error);
+			}
+		}
+		if (has_inference && inf.k == fit.coefficients_len + (bind.fit_intercept ? 1 : 0)) {
+			idx_t shift = bind.fit_intercept ? 1 : 0;
+			AnofoxFitResultInference slopes;
+			slopes.std_errors = inf.std_error + shift;
+			slopes.t_values = inf.statistic + shift;
+			slopes.p_values = inf.p_value + shift;
+			slopes.ci_lower = inf.conf_low + shift;
+			slopes.ci_upper = inf.conf_high + shift;
+			slopes.len = fit.coefficients_len;
+			slopes.confidence_level = inf.conf_level;
+			slopes.f_statistic = std::numeric_limits<double>::quiet_NaN();
+			slopes.f_pvalue = std::numeric_limits<double>::quiet_NaN();
+			if (bind.fit_intercept) {
+				fit.summary.intercept_std_error = inf.std_error[0];
+				fit.summary.intercept_statistic = inf.statistic[0];
+				fit.summary.intercept_p_value = inf.p_value[0];
+				fit.summary.intercept_conf_low = inf.conf_low[0];
+				fit.summary.intercept_conf_high = inf.conf_high[0];
+			}
+			writer.WriteInference(row, &slopes);
+		} else {
+			writer.WriteInference(row, nullptr);
+		}
+		if (has_inference) {
+			anofox_free_quantile_process_result(&inf);
+		}
 		writer.WriteSummary(row, fit.summary);
 		anofox_free_quantile_result(&fit);
 	}
@@ -394,6 +317,31 @@ void IsotonicFitAggFinalize(Vector &state_vector, AggregateInputData &aggr_input
 //===--------------------------------------------------------------------===//
 // Bind
 //===--------------------------------------------------------------------===//
+//! 'se' (iid | nid | boot) turns inference on; 'compute_inference' alone uses 'nid'
+//! (quantreg's default for large n; its rank-inversion default for small n is not
+//! available upstream).
+void ApplyQuantileInferenceOptions(const RegressionMapOptions &opts, ExtraFitBindData &bind) {
+	if (opts.compute_inference.has_value()) {
+		bind.compute_inference = opts.compute_inference.value();
+	}
+	if (opts.se_type.has_value()) {
+		bind.compute_inference = true;
+		const auto &se = opts.se_type.value();
+		bind.se_type = se == "iid" ? ANOFOX_QUANTILE_SE_IID
+		               : se == "boot" ? ANOFOX_QUANTILE_SE_BOOT
+		                              : ANOFOX_QUANTILE_SE_NID;
+	}
+	if (opts.confidence_level.has_value()) {
+		bind.confidence_level = opts.confidence_level.value();
+	}
+	if (opts.n_boot.has_value()) {
+		bind.n_boot = opts.n_boot.value();
+	}
+	if (opts.random_state.has_value()) {
+		bind.seed = opts.random_state.value();
+	}
+}
+
 template <const char *NAME>
 unique_ptr<FunctionData> ExtraFitBind(ClientContext &context, AggregateFunction &, vector<unique_ptr<Expression>> &args) {
 	// Format messages with this string, never with NAME itself: MSVC miscompiles
@@ -405,7 +353,9 @@ unique_ptr<FunctionData> ExtraFitBind(ClientContext &context, AggregateFunction 
 		// Each function declares the keys it reads; anything else is rejected.
 		// 'quantile' resolves to 'tau' for quantile_fit_agg (contextual alias).
 		static const vector<string> pls_keys = {"fit_intercept", "n_components"};
-		static const vector<string> quantile_keys = {"fit_intercept", "tau", "max_iterations", "tolerance"};
+		static const vector<string> quantile_keys = {"fit_intercept", "tau",    "max_iterations", "tolerance",
+		                                             "compute_inference", "confidence_level", "se", "n_boot",
+		                                             "random_state"};
 		static const vector<string> isotonic_keys = {"increasing"};
 		const vector<string> &keys =
 		    name == "pls_fit_agg" ? pls_keys : (name == "quantile_fit_agg" ? quantile_keys : isotonic_keys);
@@ -430,6 +380,7 @@ unique_ptr<FunctionData> ExtraFitBind(ClientContext &context, AggregateFunction 
 		if (opts.increasing.has_value()) {
 			bind->increasing = opts.increasing.value();
 		}
+		ApplyQuantileInferenceOptions(opts, *bind);
 	}
 	if (!(bind->tau > 0.0 && bind->tau < 1.0)) {
 		throw InvalidInputException("%s: tau must be in (0, 1), got %g", name, bind->tau);
@@ -454,8 +405,8 @@ void RegisterExtraFit(ExtensionLoader &loader, const char *name, const LogicalTy
 		if (with_options) {
 			args.push_back(LogicalType::ANY);
 		}
-		AggregateFunction fn(name, args, result_type, AggregateFunction::StateSize<ExtraFitState>, ExtraFitInitialize,
-		                     update, ExtraFitCombine, finalize, nullptr, bind, ExtraFitDestroy);
+		AggregateFunction fn(name, args, result_type, AggregateFunction::StateSize<ExtraFitState>, XyRowsInitialize,
+		                     update, XyRowsCombine, finalize, nullptr, bind, XyRowsDestroy);
 		set.AddFunction(fn);
 	}
 	CreateAggregateFunctionInfo info(std::move(set));
@@ -480,16 +431,17 @@ void RegisterExtraFit(ExtensionLoader &loader, const char *name, const LogicalTy
 } // namespace
 
 void RegisterExtraFitAggregateFunctions(ExtensionLoader &loader) {
-	RegisterExtraFit(loader, kPlsName, LogicalType::LIST(LogicalType::DOUBLE), ExtraFitListUpdate, PlsFitAggFinalize,
+	RegisterExtraFit(loader, kPlsName, LogicalType::LIST(LogicalType::DOUBLE), XyRowsUpdate, PlsFitAggFinalize,
 	                 ExtraFitBind<kPlsName>, PlsFitAggResultType(),
 	                 "Fits a Partial Least Squares regression per group and returns the coefficients, intercept, R^2 "
 	                 "and number of components.",
 	                 "pls_fit_agg(y, [x1, x2, x3])", "pls_fit_agg(y, [x1, x2, x3], {'n_components': 2})");
-	RegisterExtraFit(loader, kQuantileName, LogicalType::LIST(LogicalType::DOUBLE), ExtraFitListUpdate,
+	RegisterExtraFit(loader, kQuantileName, LogicalType::LIST(LogicalType::DOUBLE), XyRowsUpdate,
 	                 QuantileFitAggFinalize, ExtraFitBind<kQuantileName>, QuantileFitAggResultType(),
 	                 "Fits a linear quantile regression per group and returns the coefficients and intercept for the "
-	                 "requested quantile tau.",
-	                 "quantile_fit_agg(y, [x1, x2])", "quantile_fit_agg(y, [x1, x2], {'tau': 0.9})");
+	                 "requested quantile tau. With {'compute_inference': true} or {'se': 'iid' | 'nid' | 'boot'} it "
+	                 "adds standard errors, t statistics, p-values and conf_low / conf_high (quantreg::summary.rq).",
+	                 "quantile_fit_agg(y, [x1, x2])", "quantile_fit_agg(y, [x1, x2], {'tau': 0.9, 'se': 'nid'})");
 	RegisterExtraFit(loader, kIsotonicName, LogicalType::DOUBLE, ExtraFitScalarUpdate, IsotonicFitAggFinalize,
 	                 ExtraFitBind<kIsotonicName>, IsotonicFitAggResultType(),
 	                 "Fits a monotonic (isotonic) regression of y on a single x per group and returns the step "

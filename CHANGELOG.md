@@ -12,6 +12,35 @@ Breaking changes are called out explicitly.
 
 ### Added
 
+- Regularisation paths and cross-validation (#154): `ridge_path_agg`,
+  `elasticnet_path_agg` and `lars_path_agg` return the coefficient path as
+  `terms` rows (`index_name = 'lambda'`; `'alpha'` on upstream's LARS scale for
+  `lars_path_agg`), glmnet's Gaussian objective and default
+  grid (`lambdas`, `n_lambda`, `lambda_min_ratio`, `standardize`, `l1_ratio`);
+  `ridge_cv_agg` / `elasticnet_cv_agg` return the k-fold CV curve as `curve` rows
+  (`curve_type = 'lambda_cv'`: `cv_mean`, `cv_se`, `is_min`, `is_1se`, as
+  `cv.glmnet`) with seeded folds or a fold-id column; table macros
+  `ridge_path_by`, `elasticnet_path_by`, `lars_path_by`, `ridge_cv_by`,
+  `elasticnet_cv_by` (contract producers). Validated against glmnet's documented
+  objective / grid / `cv.glmnet` aggregates and grpreg.
+- Quantile-regression inference (#157): `quantile_fit_agg` fills `std_errors`,
+  `t_values`, `p_values`, `conf_low`, `conf_high` and the intercept inference with
+  `{'se': 'iid' | 'nid' | 'boot'}` or `{'compute_inference': true}` (`'nid'`), as
+  `quantreg::summary.rq`; `quantile_tidy_by` computes it by default.
+  `quantile_process_agg` / `quantile_process_by` return the regression-quantile
+  process (`terms`, `index_name = 'tau'`). Validated against quantreg.
+- Predictions with standard errors (#158): `predict(model, x, {'se_fit': true,
+  'interval': 'confidence' | 'prediction', 'level': 0.95})` returns
+  `STRUCT(yhat, se_fit, yhat_lower, yhat_upper)` for OLS, WLS, Ridge and the GLMs
+  (GLM intervals on the link scale, transformed); calls without these options
+  are unchanged. The OLS, WLS, Ridge and GLM `*_fit_agg` structs gain `vcov` and
+  `df_residual` (NULL unless `compute_inference`). Validated against R
+  `predict.lm` / `predict.glm(se.fit = TRUE)`.
+- Partial residuals (#158): `<model>_partial_residuals_by` and
+  `<model>_partial_residuals_agg` for `ols`, `wls` and the six GLMs return
+  component-plus-residual (`car::crPlots`) and, for OLS / WLS, added-variable
+  (`car::avPlots`) coordinates per row and term. Validated against R
+  `residuals(type = "partial")` and `lsfit`.
 - Time-series regression diagnostics (#155): `acf_agg` / `pacf_agg`
   (`agg(x [, max_lag] ORDER BY t)` -> `[{lag, acf|pacf, conf_low, conf_high}]` with
   the 95% white-noise band), `ljung_box_agg` / `box_pierce_agg` (`lag`, `fitdf`),
@@ -350,6 +379,9 @@ Breaking changes are called out explicitly.
 
 ### Fixed
 
+- `quantile_fit_agg` (and `quantile_fit_predict_agg`) now honours
+  `fit_intercept = false` (previously ignored: it fitted with an intercept and
+  dropped it).
 - `t_test`, `one_way_anova`, `brown_forsythe` and `yuen` on constant data no longer
   abort with an internal error (fixed upstream in `anofox-statistics` 0.4.3); they
   return a NaN p-value.

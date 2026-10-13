@@ -38,6 +38,15 @@ void AppendCoefficientInferenceFields(child_list_t<LogicalType> &children, const
 //! family, link.
 void AppendModelSummaryFields(child_list_t<LogicalType> &children);
 
+//! The coefficient covariance tail of models that predict() can give standard
+//! errors for (#158): vcov LIST(DOUBLE) (row-major, intercept first) and
+//! df_residual DOUBLE. Appended after the shared tail.
+void AppendCovarianceFields(child_list_t<LogicalType> &children);
+
+//! Residual degrees of freedom n - (intercept + estimated coefficients); a NaN or
+//! exactly-zero coefficient is not estimated (as LeverageIntervals counts them).
+double ResidualDf(idx_t n_observations, const double *coefficients, idx_t coefficients_len, bool has_intercept);
+
 //! Fills the stable fields of a model STRUCT result vector by name.
 class ModelStructWriter {
 public:
@@ -50,6 +59,16 @@ public:
 	//! model_type, family, link, log_likelihood, aic, bic and the intercept inference.
 	//! NaN and an empty family are written as NULL.
 	void WriteSummary(idx_t row, const AnofoxModelSummaryFFI &summary);
+
+	//! vcov (dim x dim, row-major) and df_residual; a null `vcov` writes NULL to both.
+	void WriteCovariance(idx_t row, const double *vcov, idx_t dim, double df_residual);
+
+	//! vcov = sigma^2 M of an OLS / WLS / Ridge fit from its training design
+	//! (anofox_coefficient_vcov) when `compute`, else NULL. A covariance that
+	//! cannot be formed (e.g. a singular design) is NULL too.
+	void WriteLinearCovariance(idx_t row, bool compute, const vector<AnofoxDataArray> &x,
+	                           const AnofoxFitResultCore &core, bool fit_intercept,
+	                           const AnofoxDataArray *weights = nullptr, double ridge_lambda = 0.0);
 
 private:
 	Vector *Field(const char *name) const;

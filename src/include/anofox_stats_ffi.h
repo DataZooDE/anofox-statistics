@@ -858,6 +858,11 @@ typedef struct {
 	bool converged;
 	/** Model description, fit statistics and intercept inference (#152) */
 	AnofoxModelSummaryFFI summary;
+	/** Coefficient covariance (#158): row-major vcov_dim x vcov_dim, intercept
+	    first, dispersion included; NULL without inference. Freed by
+	    anofox_free_glm_result. Appended last to preserve the ABI. */
+	double *vcov;
+	size_t vcov_dim;
 } AnofoxGlmFitResultCore;
 
 /*
@@ -2817,6 +2822,194 @@ bool anofox_tweedie_augment(AnofoxDataArray y, const AnofoxDataArray *x, size_t 
 
 /** Free the arrays owned by an augment result. */
 void anofox_free_augment_result(AnofoxAugmentResult *result);
+
+/*
+ * ============================================================================
+ * Regularisation paths and CV curves (#154)
+ * ============================================================================
+ */
+
+/** Options of anofox_reg_path / anofox_cv_reg_path (glmnet conventions). */
+typedef struct {
+	/** Elastic-net mixing in [0, 1]: 0 = ridge, 1 = lasso (glmnet's alpha). */
+	double l1_ratio;
+	bool fit_intercept;
+	/** glmnet's standardize. */
+	bool standardize;
+	/** Penalties on glmnet's scale; NULL / 0 for glmnet's default grid. */
+	const double *lambdas;
+	size_t lambdas_len;
+	/** Size of the default grid. */
+	size_t n_lambda;
+	/** Smallest / largest lambda of the default grid; NaN for glmnet's default. */
+	double lambda_min_ratio;
+} AnofoxRegPathOptions;
+
+/** A coefficient path: n_lambda entries, coefficients row-major (n_lambda x n_features). */
+typedef struct {
+	double *lambdas;
+	/** NaN without an intercept. */
+	double *intercepts;
+	/** NaN for columns the fit dropped. */
+	double *coefficients;
+	/** Number of non-zero coefficients per lambda. */
+	double *df;
+	size_t n_lambda;
+	size_t n_features;
+	size_t n_observations;
+} AnofoxRegPathResult;
+
+/** A k-fold CV curve (cv.glmnet, type.measure = "mse"). */
+typedef struct {
+	double *lambdas;
+	double *cv_mean;
+	double *cv_se;
+	double *df;
+	size_t n_lambda;
+	size_t index_min;
+	size_t index_1se;
+	size_t n_folds;
+	size_t n_observations;
+} AnofoxCvPathResult;
+
+/** Ridge / elastic-net path (solvers::path::fit_path); rows with a non-finite value are dropped. */
+bool anofox_reg_path(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, AnofoxRegPathOptions options,
+                     AnofoxRegPathResult *out, AnofoxError *out_error);
+/** LARS / Lasso-LARS path (FittedLars::path); lambdas are the knots' alphas. */
+bool anofox_lars_path(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, AnofoxLarsOptions options,
+                      AnofoxRegPathResult *out, AnofoxError *out_error);
+void anofox_free_reg_path_result(AnofoxRegPathResult *result);
+/**
+ * k-fold CV of the ridge / elastic-net path (solvers::path::cv_path). fold_ids
+ * (one label per row, any values) or, when NULL, n_folds folds drawn with
+ * kfold_ids(n, n_folds, seed) over the usable rows in input order.
+ */
+bool anofox_cv_reg_path(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, const int64_t *fold_ids,
+                        size_t n_folds, uint64_t seed, AnofoxRegPathOptions options, AnofoxCvPathResult *out,
+                        AnofoxError *out_error);
+void anofox_free_cv_path_result(AnofoxCvPathResult *result);
+
+/*
+ * ============================================================================
+ * Quantile-regression inference (#157)
+ * ============================================================================
+ */
+
+/** Standard-error type (quantreg::summary.rq se). */
+typedef enum {
+	ANOFOX_QUANTILE_SE_NONE = 0,
+	ANOFOX_QUANTILE_SE_IID = 1,
+	ANOFOX_QUANTILE_SE_NID = 2,
+	ANOFOX_QUANTILE_SE_BOOT = 3,
+} AnofoxQuantileSe;
+
+/** Coefficient tables of n_tau quantiles, k entries each (intercept first), row-major per tau. */
+typedef struct {
+	double *taus;
+	double *estimate;
+	double *std_error;
+	double *statistic;
+	double *p_value;
+	double *conf_low;
+	double *conf_high;
+	size_t n_tau;
+	size_t k;
+	size_t n_observations;
+	double conf_level;
+	double df_residual;
+	bool has_intercept;
+} AnofoxQuantileProcessResult;
+
+/** Fit at each tau with inference (solvers::quantile_inference::quantile_process). */
+bool anofox_quantile_process(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, const double *taus,
+                             size_t n_taus, bool fit_intercept, int32_t se_type, uint64_t seed, size_t n_boot,
+                             double confidence_level, AnofoxQuantileProcessResult *out, AnofoxError *out_error);
+void anofox_free_quantile_process_result(AnofoxQuantileProcessResult *result);
+
+/*
+ * ============================================================================
+ * Coefficient covariance, predictions with SE, partial residuals (#158)
+ * ============================================================================
+ */
+
+/**
+ * Coefficient covariance sigma^2 M of an OLS / WLS / Ridge fit from its training
+ * design (M as anofox_interval_matrix), row-major dim x dim, intercept first.
+ * Free with anofox_free_interval_matrix.
+ */
+bool anofox_coefficient_vcov(const AnofoxDataArray *x, size_t x_count, const double *coefficients,
+                             size_t coefficients_len, bool fit_intercept, const AnofoxDataArray *weights,
+                             double ridge_lambda, double residual_std_error, double **out_matrix, size_t *out_dim,
+                             AnofoxError *out_error);
+
+/** Interval of anofox_predict_se. */
+typedef enum {
+	ANOFOX_PREDICT_INTERVAL_NONE = 0,
+	ANOFOX_PREDICT_INTERVAL_CONFIDENCE = 1,
+	ANOFOX_PREDICT_INTERVAL_PREDICTION = 2,
+} AnofoxPredictInterval;
+
+typedef struct {
+	double yhat;
+	double se_fit;
+	double yhat_lower;
+	double yhat_upper;
+} AnofoxPredictSeResult;
+
+/**
+ * One prediction with standard error and interval from coefficients and their
+ * covariance (vcov: dim x dim, intercept first; intercept NaN = none). link NULL:
+ * linear model (t intervals with df_residual; prediction intervals add
+ * residual_std_error^2). Otherwise the GLM link name: intervals on the link
+ * scale, mapped through the inverse link when response_scale.
+ */
+bool anofox_predict_se(const double *coefficients, size_t coefficients_len, double intercept, const double *x,
+                       const double *vcov, size_t dim, const char *link, bool response_scale,
+                       double residual_std_error, double df_residual, int32_t interval, double level,
+                       AnofoxPredictSeResult *out, AnofoxError *out_error);
+
+/**
+ * Partial-residual (CCPR) and added-variable data, term-major (n_terms x len):
+ * entry j * len + i is x column j, input row i. Rows not used for fitting,
+ * dropped columns and a GLM offset column are NaN; x_residual / y_residual are
+ * NaN for the GLMs (has_added_variable false).
+ */
+typedef struct {
+	double *x;
+	double *component;
+	double *partial_residual;
+	double *x_residual;
+	double *y_residual;
+	size_t n_terms;
+	size_t len;
+	bool has_added_variable;
+} AnofoxPartialResidualsResult;
+
+bool anofox_ols_partial_residuals(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count,
+                                  AnofoxOlsOptions options, AnofoxPartialResidualsResult *out,
+                                  AnofoxError *out_error);
+bool anofox_wls_partial_residuals(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count,
+                                  AnofoxDataArray weights, AnofoxWlsOptions options,
+                                  AnofoxPartialResidualsResult *out, AnofoxError *out_error);
+bool anofox_poisson_partial_residuals(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count,
+                                      AnofoxPoissonOptions options, AnofoxPartialResidualsResult *out,
+                                      AnofoxError *out_error);
+bool anofox_binomial_partial_residuals(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count,
+                                       AnofoxBinomialOptions options, AnofoxPartialResidualsResult *out,
+                                       AnofoxError *out_error);
+bool anofox_logistic_partial_residuals(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count,
+                                       AnofoxLogisticOptions options, AnofoxPartialResidualsResult *out,
+                                       AnofoxError *out_error);
+bool anofox_negbinomial_partial_residuals(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count,
+                                          AnofoxNegBinomialOptions options, AnofoxPartialResidualsResult *out,
+                                          AnofoxError *out_error);
+bool anofox_gamma_partial_residuals(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count,
+                                    AnofoxGammaOptions options, AnofoxPartialResidualsResult *out,
+                                    AnofoxError *out_error);
+bool anofox_tweedie_partial_residuals(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count,
+                                      AnofoxTweedieOptions options, AnofoxPartialResidualsResult *out,
+                                      AnofoxError *out_error);
+void anofox_free_partial_residuals_result(AnofoxPartialResidualsResult *result);
 
 /* ============================================================================
  * Time-series residual diagnostics -- issue #155
