@@ -111,7 +111,8 @@ fitted model struct).
 | Gamma | `gamma_fit_agg` | `gamma_fit_predict_by` | [Gamma](api/glm/gamma.md) |
 | Tweedie | `tweedie_fit_agg` | `tweedie_fit_predict_by` | [Tweedie](api/glm/tweedie.md) |
 | ALM (24 distributions) | `alm_fit_agg` | `alm_fit_predict_agg`, `alm_fit_predict_by` | [ALM](api/glm/alm.md) |
-| AFT survival | `aft_fit_agg` | scalars `aft_cdf`, `aft_quantile` | [AFT](api/survival/aft.md) |
+| AFT survival | `aft_fit_agg` | scalars `aft_cdf`, `aft_quantile`, `aft_survival` | [AFT](api/survival/aft.md) |
+| Survival curves | `kaplan_meier_agg`, `log_rank_test_agg` | `kaplan_meier_by` (`curve`), scalar `aft_survival` | [Survival curves](api/survival/survival_curves.md) |
 | Mixed effects | `glmm_fit_agg` | `glmm_fit_by` | [Mixed-effects GLMs](api/glm/glmm.md) |
 | Empirical-Bayes shrinkage | `eb_shrink_agg` | `eb_shrink_by` | [EB shrinkage](api/glm/eb_shrink.md) |
 | Explicit priors | options on the GLM and AFT aggregates | - | [Priors](api/glm/priors.md) |
@@ -126,6 +127,9 @@ fitted model struct).
 | Distribution comparison | `energy_distance_agg`, `mmd_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
 | Equivalence (TOST) | `tost_t_test_agg`, `tost_paired_agg`, `tost_correlation_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
 | Forecast comparison | `diebold_mariano_agg`, `clark_west_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
+| Residual autocorrelation | `ljung_box_agg`, `box_pierce_agg`, `durbin_watson_agg` | [Time-series diagnostics](api/diagnostics/timeseries.md) |
+| Heteroskedasticity | `breusch_pagan_agg`, `white_test_agg` | [Time-series diagnostics](api/diagnostics/timeseries.md) |
+| Survival | `log_rank_test_agg` | [Survival curves](api/survival/survival_curves.md) |
 | Correlation | `pearson_agg`, `spearman_agg`, `kendall_agg`, `distance_cor_agg`, `icc_agg` | [Correlation](api/statistics/correlation.md) |
 | Categorical | `chisq_test_agg`, `chisq_gof_agg`, `g_test_agg`, `fisher_exact_agg`, `mcnemar_agg` | [Categorical](api/statistics/categorical.md) |
 | Pairwise post-hoc | `pairwise_t_test_agg`, `tukey_hsd_agg`, `dunn_test_agg`, `pairwise_t_test_by`, `tukey_hsd_by`, `dunn_test_by` | [Hypothesis tests](api/statistics/hypothesis.md#pairwise-post-hoc-tests) |
@@ -147,6 +151,7 @@ fitted model struct).
 | `aic`, `bic` | Information criteria from RSS | [Diagnostics](api/diagnostics/diagnostics.md) |
 | `jarque_bera`, `jarque_bera_agg` | Jarque-Bera normality test | [Diagnostics](api/diagnostics/diagnostics.md) |
 | `residuals_diagnostics`, `residuals_diagnostics_agg` | Raw, standardized, studentized residuals, leverage, Cook's distance | [Diagnostics](api/diagnostics/diagnostics.md) |
+| `acf_agg`, `pacf_agg`, `acf_by`, `pacf_by` | Residual (partial) autocorrelation with the white-noise band (`curve`) | [Time-series diagnostics](api/diagnostics/timeseries.md) |
 | `aid_agg`, `aid_anomaly_agg`, `aid_by`, `aid_anomaly_by` | Demand classification and anomaly flags | [AID](api/aid/aid.md) |
 | `anofox_contract_version` | Version of the anofox integration contract; functions are tagged in `duckdb_functions()` | [Discovery](#anofox_contract_version--function-tags) |
 

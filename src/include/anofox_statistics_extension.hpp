@@ -110,6 +110,8 @@ void RegisterDistanceCorAggregateFunction(ExtensionLoader &loader);
 void RegisterYuenAggregateFunction(ExtensionLoader &loader);
 void RegisterBrownForsytheAggregateFunction(ExtensionLoader &loader);
 void RegisterDieboldMarianoAggregateFunction(ExtensionLoader &loader);
+void RegisterTimeSeriesDiagnosticsAggregateFunctions(ExtensionLoader &loader);
+void RegisterSurvivalAggregateFunctions(ExtensionLoader &loader);
 void RegisterClarkWestAggregateFunction(ExtensionLoader &loader);
 void RegisterPermutationTTestAggregateFunction(ExtensionLoader &loader);
 void RegisterTostPairedAggregateFunction(ExtensionLoader &loader);
@@ -133,6 +135,7 @@ void RegisterClassifierAggregateFunctions(ExtensionLoader &loader);
 void RegisterFitPredictTableMacros(ExtensionLoader &loader);
 void RegisterModelOutputMacros(ExtensionLoader &loader);
 void RegisterPosthocMacros(ExtensionLoader &loader);
+void RegisterCurveMacros(ExtensionLoader &loader);
 void RegisterClassifierCurveMacros(ExtensionLoader &loader);
 
 // Extension class required for static linking

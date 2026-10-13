@@ -72,7 +72,8 @@ Function names have no prefix (`ols_fit_agg`, `theil_sen_fit`, …), and model o
 | Tweedie | `tweedie_fit_agg`, `tweedie_fit_predict_by` | GLM for zero-inflated positive-skew outcomes | [tweedie](docs/api/glm/tweedie.md) |
 | GLM priors | `prior` option | Normal / Laplace priors on GLM coefficients | [priors](docs/api/glm/priors.md) |
 | ALM | `alm_fit_agg`, `alm_fit_predict_agg`, `alm_fit_predict_by` | Augmented Linear Model with 25 error distributions | [alm](docs/api/glm/alm.md) |
-| AFT survival | `aft_fit_agg`, `aft_cdf`, `aft_quantile` | Accelerated failure time models with right censoring; CDF and quantile helpers | [aft](docs/api/survival/aft.md) |
+| AFT survival | `aft_fit_agg`, `aft_cdf`, `aft_quantile`, `aft_survival` | Accelerated failure time models with right censoring; CDF, quantile and survival-curve helpers | [aft](docs/api/survival/aft.md) |
+| Survival curves | `kaplan_meier_agg`, `kaplan_meier_by`, `log_rank_test_agg` | Kaplan-Meier curves with confidence bands per stratum, log-rank test | [survival_curves](docs/api/survival/survival_curves.md) |
 | GLM results | `family`, `link` fields | Every GLM result struct ends with its `family` and `link`, so `predict` returns response-scale predictions | [model_tools](docs/api/regression/model_tools.md) |
 | Mixed effects | `glmm_fit_agg`, `glmm_fit_by` | Random intercepts / slopes over grouping factors | [glmm](docs/api/glm/glmm.md) |
 | EB shrinkage | `eb_shrink_agg`, `eb_shrink_by` | Empirical-Bayes partial pooling of per-group estimates | [eb_shrink](docs/api/glm/eb_shrink.md) |
@@ -124,6 +125,9 @@ Per-group model fitting and prediction in a single call. `source` is a table nam
 | Equivalence | `tost_t_test_agg`, `tost_paired_agg`, `tost_correlation_agg` | [hypothesis](docs/api/statistics/hypothesis.md) |
 | Distribution | `energy_distance_agg`, `mmd_agg` | [hypothesis](docs/api/statistics/hypothesis.md) |
 | Forecast | `diebold_mariano_agg`, `clark_west_agg` | [hypothesis](docs/api/statistics/hypothesis.md) |
+| Residual autocorrelation | `ljung_box_agg`, `box_pierce_agg`, `durbin_watson_agg` | [timeseries](docs/api/diagnostics/timeseries.md) |
+| Heteroskedasticity | `breusch_pagan_agg`, `white_test_agg` | [timeseries](docs/api/diagnostics/timeseries.md) |
+| Survival | `log_rank_test_agg` | [survival_curves](docs/api/survival/survival_curves.md) |
 | Correlation | `pearson_agg`, `spearman_agg`, `kendall_agg`, `distance_cor_agg`, `icc_agg` | [correlation](docs/api/statistics/correlation.md) |
 | Categorical | `chisq_test_agg`, `chisq_gof_agg`, `g_test_agg`, `fisher_exact_agg`, `mcnemar_agg` | [categorical](docs/api/statistics/categorical.md) |
 | Effect size | `cramers_v_agg`, `phi_coefficient_agg`, `contingency_coef_agg`, `cohen_kappa_agg` | [categorical](docs/api/statistics/categorical.md) |
@@ -138,6 +142,7 @@ Per-group model fitting and prediction in a single call. `source` is a table nam
 | `aic`, `bic` | Model selection criteria from RSS, n and k | [diagnostics](docs/api/diagnostics/diagnostics.md) |
 | `jarque_bera`, `jarque_bera_agg` | Jarque-Bera normality test (scalar on an array, or aggregate) | [diagnostics](docs/api/diagnostics/diagnostics.md) |
 | `residuals_diagnostics`, `residuals_diagnostics_agg` | Raw, standardized, studentized residuals and leverage | [diagnostics](docs/api/diagnostics/diagnostics.md) |
+| `acf_agg`, `pacf_agg`, `acf_by`, `pacf_by` | Residual (partial) autocorrelation with the white-noise band | [timeseries](docs/api/diagnostics/timeseries.md) |
 | `aid_agg`, `aid_anomaly_agg` | Demand classification (regular / intermittent) and per-row anomaly flags | [aid](docs/api/aid/aid.md) |
 
 ### Behaviour

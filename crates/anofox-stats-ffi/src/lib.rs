@@ -9290,6 +9290,455 @@ pub unsafe extern "C" fn anofox_free_augment_result(result: *mut AugmentResultFF
 }
 
 // =============================================================================
+// Time-series residual diagnostics -- issue #155
+// =============================================================================
+
+unsafe fn set_error(out_error: *mut AnofoxError, e: &StatsError) {
+    if !out_error.is_null() {
+        (*out_error).set(error_to_code(e), &e.to_string());
+    }
+}
+
+unsafe fn reset_error(out_error: *mut AnofoxError) {
+    if !out_error.is_null() {
+        *out_error = AnofoxError::success();
+    }
+}
+
+unsafe fn check_out<T>(out: *mut T, out_error: *mut AnofoxError) -> bool {
+    if out.is_null() {
+        if !out_error.is_null() {
+            (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+        }
+        return false;
+    }
+    true
+}
+
+unsafe fn write_summary(
+    result: anofox_stats_core::StatsResult<anofox_stats_core::tests::UnifiedTestResult>,
+    out_result: *mut TestSummaryFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    match result {
+        Ok(t) => {
+            *out_result = TestSummaryFFI::from(&t);
+            true
+        }
+        Err(e) => {
+            set_error(out_error, &e);
+            false
+        }
+    }
+}
+
+/// Sample autocorrelation (`partial = false`, R `acf`) or partial
+/// autocorrelation (`partial = true`, R `pacf`) of `x` in time order, at lags up
+/// to `max_lag` (negative: R's default `floor(10 log10 n)`).
+///
+/// # Safety
+/// `x` must be a valid `AnofoxDataArray`; `out_result` is required.
+#[no_mangle]
+pub unsafe extern "C" fn anofox_autocorrelation(
+    x: DataArray,
+    max_lag: i64,
+    partial: bool,
+    out_result: *mut AcfResultFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    ffi_guard(out_error, false, || {
+        reset_error(out_error);
+        if !check_out(out_result, out_error) {
+            return false;
+        }
+        let lag = if max_lag < 0 {
+            None
+        } else {
+            Some(max_lag as usize)
+        };
+        match anofox_stats_core::tests::timeseries::autocorrelation(&x.to_vec(), lag, partial) {
+            Ok(r) => {
+                let values = alloc_f64(&r.values);
+                if values.is_null() && !r.values.is_empty() {
+                    if !out_error.is_null() {
+                        (*out_error).set(
+                            ErrorCode::AllocationFailure,
+                            "Failed to allocate ACF values",
+                        );
+                    }
+                    return false;
+                }
+                *out_result = AcfResultFFI {
+                    conf_bound: r.conf_bound,
+                    values,
+                    len: r.values.len(),
+                    first_lag: r.lags.first().copied().unwrap_or(0),
+                    n: r.n,
+                };
+                true
+            }
+            Err(e) => {
+                set_error(out_error, &e);
+                false
+            }
+        }
+    })
+}
+
+/// Free the values of an `AcfResultFFI`.
+///
+/// # Safety
+/// `result` must be NULL or come from a successful `anofox_autocorrelation`.
+#[no_mangle]
+pub unsafe extern "C" fn anofox_free_acf_result(result: *mut AcfResultFFI) {
+    ffi_guard(std::ptr::null_mut(), (), || {
+        if result.is_null() {
+            return;
+        }
+        if !(*result).values.is_null() {
+            libc::free((*result).values as *mut libc::c_void);
+            (*result).values = std::ptr::null_mut();
+        }
+        (*result).len = 0;
+    })
+}
+
+/// Ljung-Box (`box_pierce = false`) or Box-Pierce test of `x` in time order
+/// (R `Box.test(x, lag, type, fitdf)`).
+///
+/// # Safety
+/// `x` must be a valid `AnofoxDataArray`; `out_result` is required.
+#[no_mangle]
+pub unsafe extern "C" fn anofox_portmanteau(
+    x: DataArray,
+    lag: usize,
+    fitdf: usize,
+    box_pierce: bool,
+    out_result: *mut TestSummaryFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    ffi_guard(out_error, false, || {
+        reset_error(out_error);
+        if !check_out(out_result, out_error) {
+            return false;
+        }
+        let r =
+            anofox_stats_core::tests::timeseries::portmanteau(&x.to_vec(), lag, fitdf, box_pierce);
+        write_summary(r, out_result, out_error)
+    })
+}
+
+/// Durbin-Watson statistic of residuals in time order (`p_value` is NaN).
+///
+/// # Safety
+/// `residuals` must be a valid `AnofoxDataArray`; `out_result` is required.
+#[no_mangle]
+pub unsafe extern "C" fn anofox_durbin_watson(
+    residuals: DataArray,
+    out_result: *mut TestSummaryFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    ffi_guard(out_error, false, || {
+        reset_error(out_error);
+        if !check_out(out_result, out_error) {
+            return false;
+        }
+        let r = anofox_stats_core::tests::timeseries::durbin_watson(&residuals.to_vec());
+        write_summary(r, out_result, out_error)
+    })
+}
+
+unsafe fn columns(x: *const DataArray, x_count: usize) -> Vec<Vec<f64>> {
+    if x.is_null() || x_count == 0 {
+        return Vec::new();
+    }
+    slice::from_raw_parts(x, x_count)
+        .iter()
+        .map(|a| a.to_vec())
+        .collect()
+}
+
+/// Breusch-Pagan test of `residuals` against the `x_count` regressor columns
+/// `x` (R `lmtest::bptest`; `studentize = true` is its default).
+///
+/// # Safety
+/// `x` must point to `x_count` valid arrays; `out_result` is required.
+#[no_mangle]
+pub unsafe extern "C" fn anofox_breusch_pagan(
+    residuals: DataArray,
+    x: *const DataArray,
+    x_count: usize,
+    studentize: bool,
+    out_result: *mut TestSummaryFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    ffi_guard(out_error, false, || {
+        reset_error(out_error);
+        if !check_out(out_result, out_error) {
+            return false;
+        }
+        let r = anofox_stats_core::diagnostics::breusch_pagan(
+            &residuals.to_vec(),
+            &columns(x, x_count),
+            studentize,
+        );
+        write_summary(r, out_result, out_error)
+    })
+}
+
+/// White's test of `residuals` against `x`, its squares and cross-products.
+///
+/// # Safety
+/// As `anofox_breusch_pagan`.
+#[no_mangle]
+pub unsafe extern "C" fn anofox_white_test(
+    residuals: DataArray,
+    x: *const DataArray,
+    x_count: usize,
+    out_result: *mut TestSummaryFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    ffi_guard(out_error, false, || {
+        reset_error(out_error);
+        if !check_out(out_result, out_error) {
+            return false;
+        }
+        let r =
+            anofox_stats_core::diagnostics::white_test(&residuals.to_vec(), &columns(x, x_count));
+        write_summary(r, out_result, out_error)
+    })
+}
+
+// =============================================================================
+// Survival curves -- issue #156
+// =============================================================================
+
+unsafe fn alloc_u64(values: &[usize]) -> *mut u64 {
+    if values.is_empty() {
+        return std::ptr::null_mut();
+    }
+    let ptr = libc::malloc(values.len() * std::mem::size_of::<u64>()) as *mut u64;
+    if !ptr.is_null() {
+        for (i, &v) in values.iter().enumerate() {
+            *ptr.add(i) = v as u64;
+        }
+    }
+    ptr
+}
+
+/// Kaplan-Meier curve of right-censored `time` (`event` non-zero = observed),
+/// R `survfit(Surv(time, event) ~ 1, conf.type, conf.int)`. `conf_type`: 0 log
+/// (R's default), 1 log-log, 2 plain.
+///
+/// # Safety
+/// `time` and `event` must be valid arrays of equal length; `out_result` is required.
+#[no_mangle]
+pub unsafe extern "C" fn anofox_kaplan_meier(
+    time: DataArray,
+    event: DataArray,
+    conf_type: i32,
+    conf_level: f64,
+    out_result: *mut KaplanMeierResultFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    use anofox_stats_core::tests::survival::{kaplan_meier, KmConfType};
+    ffi_guard(out_error, false, || {
+        reset_error(out_error);
+        if !check_out(out_result, out_error) {
+            return false;
+        }
+        if !check_confidence_level(conf_level, out_error) {
+            return false;
+        }
+        let conf_type = match conf_type {
+            0 => KmConfType::Log,
+            1 => KmConfType::LogLog,
+            2 => KmConfType::Plain,
+            _ => {
+                if !out_error.is_null() {
+                    (*out_error).set(ErrorCode::InvalidInput, "unknown conf_type");
+                }
+                return false;
+            }
+        };
+        let events: Vec<bool> = event.to_vec().iter().map(|&e| e != 0.0).collect();
+        match kaplan_meier(&time.to_vec(), &events, conf_type, conf_level) {
+            Ok(r) => {
+                let out = KaplanMeierResultFFI {
+                    conf_level: r.conf_level,
+                    time: alloc_f64(&r.time),
+                    survival: alloc_f64(&r.survival),
+                    std_err: alloc_f64(&r.std_err),
+                    conf_low: alloc_f64(&r.conf_low),
+                    conf_high: alloc_f64(&r.conf_high),
+                    n_risk: alloc_u64(&r.n_risk),
+                    n_event: alloc_u64(&r.n_event),
+                    n_censor: alloc_u64(&r.n_censor),
+                    len: r.time.len(),
+                    n: r.n,
+                };
+                *out_result = out;
+                let failed = [
+                    (*out_result).time.is_null(),
+                    (*out_result).survival.is_null(),
+                    (*out_result).std_err.is_null(),
+                    (*out_result).conf_low.is_null(),
+                    (*out_result).conf_high.is_null(),
+                    (*out_result).n_risk.is_null(),
+                    (*out_result).n_event.is_null(),
+                    (*out_result).n_censor.is_null(),
+                ]
+                .iter()
+                .any(|&f| f);
+                if failed && !r.time.is_empty() {
+                    anofox_free_kaplan_meier_result(out_result);
+                    if !out_error.is_null() {
+                        (*out_error).set(
+                            ErrorCode::AllocationFailure,
+                            "Failed to allocate Kaplan-Meier curve",
+                        );
+                    }
+                    return false;
+                }
+                true
+            }
+            Err(e) => {
+                set_error(out_error, &e);
+                false
+            }
+        }
+    })
+}
+
+/// Free the arrays of a `KaplanMeierResultFFI`.
+///
+/// # Safety
+/// `result` must be NULL or come from a successful `anofox_kaplan_meier`.
+#[no_mangle]
+pub unsafe extern "C" fn anofox_free_kaplan_meier_result(result: *mut KaplanMeierResultFFI) {
+    ffi_guard(std::ptr::null_mut(), (), || {
+        if result.is_null() {
+            return;
+        }
+        let r = &mut *result;
+        for p in [
+            &mut r.time,
+            &mut r.survival,
+            &mut r.std_err,
+            &mut r.conf_low,
+            &mut r.conf_high,
+        ] {
+            if !p.is_null() {
+                libc::free(*p as *mut libc::c_void);
+                *p = std::ptr::null_mut();
+            }
+        }
+        for p in [&mut r.n_risk, &mut r.n_event, &mut r.n_censor] {
+            if !p.is_null() {
+                libc::free(*p as *mut libc::c_void);
+                *p = std::ptr::null_mut();
+            }
+        }
+        r.len = 0;
+    })
+}
+
+/// Log-rank test of equal survival across the groups coded by `groups`
+/// (`time.len` codes), R `survdiff(Surv(time, event) ~ group)`.
+///
+/// # Safety
+/// `time` and `event` must be valid arrays of equal length, `groups` must hold
+/// `time.len` codes; `out_result` is required.
+#[no_mangle]
+pub unsafe extern "C" fn anofox_log_rank(
+    time: DataArray,
+    event: DataArray,
+    groups: *const u64,
+    out_result: *mut TestSummaryFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    ffi_guard(out_error, false, || {
+        reset_error(out_error);
+        if !check_out(out_result, out_error) {
+            return false;
+        }
+        let n = time.len;
+        if groups.is_null() && n > 0 {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InvalidInput, "groups is NULL");
+            }
+            return false;
+        }
+        let codes: &[u64] = if n == 0 {
+            &[]
+        } else {
+            slice::from_raw_parts(groups, n)
+        };
+        let events: Vec<bool> = event.to_vec().iter().map(|&e| e != 0.0).collect();
+        let r = anofox_stats_core::tests::survival::log_rank(&time.to_vec(), &events, codes);
+        write_summary(r, out_result, out_error)
+    })
+}
+
+/// Model-based survival `S(t | x)` of a fitted AFT model at `n_times` times,
+/// written to `out_survival` (R `psurvreg(t, eta, scale, dist, lower.tail = FALSE)`).
+/// `intercept` NaN means a model without intercept. Returns false only for
+/// NULL pointers.
+///
+/// # Safety
+/// `coefficients` and `x` must hold `n_coefficients` values, `times` and
+/// `out_survival` `n_times` values.
+#[no_mangle]
+pub unsafe extern "C" fn anofox_aft_survival(
+    coefficients: *const f64,
+    n_coefficients: usize,
+    intercept: f64,
+    scale: f64,
+    dist: AftDistributionFFI,
+    x: *const f64,
+    times: *const f64,
+    n_times: usize,
+    out_survival: *mut f64,
+) -> bool {
+    ffi_guard(std::ptr::null_mut(), false, || {
+        if (n_coefficients > 0 && (coefficients.is_null() || x.is_null()))
+            || (n_times > 0 && (times.is_null() || out_survival.is_null()))
+        {
+            return false;
+        }
+        unsafe fn view<'a>(p: *const f64, n: usize) -> &'a [f64] {
+            if n == 0 {
+                &[]
+            } else {
+                slice::from_raw_parts(p, n)
+            }
+        }
+        let d = match dist {
+            AftDistributionFFI::Weibull => AftDistribution::Weibull,
+            AftDistributionFFI::LogNormal => AftDistribution::LogNormal,
+            AftDistributionFFI::LogLogistic => AftDistribution::LogLogistic,
+            AftDistributionFFI::Exponential => AftDistribution::Exponential,
+        };
+        let surv = anofox_stats_core::models::aft_survival_curve(
+            view(coefficients, n_coefficients),
+            if intercept.is_nan() {
+                None
+            } else {
+                Some(intercept)
+            },
+            scale,
+            d,
+            view(x, n_coefficients),
+            view(times, n_times),
+        );
+        for (i, s) in surv.iter().enumerate() {
+            *out_survival.add(i) = *s;
+        }
+        true
+    })
+}
+
+// =============================================================================
 // Classifier evaluation curves — issue #153
 // =============================================================================
 

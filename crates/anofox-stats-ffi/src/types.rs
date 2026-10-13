@@ -3162,6 +3162,94 @@ impl Default for AugmentResultFFI {
 }
 
 // =============================================================================
+// Time-series and survival diagnostics -- issues #155, #156
+// =============================================================================
+
+/// Sample (partial) autocorrelations: `values[i]` is the value at lag
+/// `first_lag + i` (0 for the ACF, 1 for the PACF). `values` is malloc'ed; free
+/// with `anofox_free_acf_result`.
+#[repr(C)]
+pub struct AcfResultFFI {
+    /// Half-width of the 95% white-noise band, `qnorm(0.975) / sqrt(n)`.
+    pub conf_bound: f64,
+    pub values: *mut f64,
+    pub len: usize,
+    pub first_lag: usize,
+    pub n: usize,
+}
+
+impl Default for AcfResultFFI {
+    fn default() -> Self {
+        Self {
+            conf_bound: f64::NAN,
+            values: std::ptr::null_mut(),
+            len: 0,
+            first_lag: 0,
+            n: 0,
+        }
+    }
+}
+
+/// Kaplan-Meier curve, one entry per distinct observed time. Every array has
+/// `len` elements and is malloc'ed; free with `anofox_free_kaplan_meier_result`.
+/// `std_err`, `conf_low` and `conf_high` are NaN where R gives `NA`.
+#[repr(C)]
+pub struct KaplanMeierResultFFI {
+    pub conf_level: f64,
+    pub time: *mut f64,
+    pub survival: *mut f64,
+    pub std_err: *mut f64,
+    pub conf_low: *mut f64,
+    pub conf_high: *mut f64,
+    pub n_risk: *mut u64,
+    pub n_event: *mut u64,
+    pub n_censor: *mut u64,
+    pub len: usize,
+    pub n: usize,
+}
+
+impl Default for KaplanMeierResultFFI {
+    fn default() -> Self {
+        Self {
+            conf_level: f64::NAN,
+            time: std::ptr::null_mut(),
+            survival: std::ptr::null_mut(),
+            std_err: std::ptr::null_mut(),
+            conf_low: std::ptr::null_mut(),
+            conf_high: std::ptr::null_mut(),
+            n_risk: std::ptr::null_mut(),
+            n_event: std::ptr::null_mut(),
+            n_censor: std::ptr::null_mut(),
+            len: 0,
+            n: 0,
+        }
+    }
+}
+
+#[cfg(test)]
+mod ts_survival_layout_tests {
+    use super::{AcfResultFFI, KaplanMeierResultFFI};
+    use std::mem::{offset_of, size_of};
+
+    /// Mirrors the static_asserts in src/aggregate_functions/timeseries_diagnostics_aggregate.cpp
+    /// and src/aggregate_functions/survival_aggregate.cpp.
+    #[test]
+    fn layouts() {
+        let p = size_of::<*mut f64>();
+        assert_eq!(offset_of!(AcfResultFFI, values), size_of::<f64>());
+        assert_eq!(
+            offset_of!(AcfResultFFI, n),
+            size_of::<f64>() + p + 2 * size_of::<usize>()
+        );
+        assert_eq!(offset_of!(KaplanMeierResultFFI, time), size_of::<f64>());
+        assert_eq!(
+            offset_of!(KaplanMeierResultFFI, n),
+            size_of::<f64>() + 8 * p + size_of::<usize>()
+        );
+    }
+}
+
+// =============================================================================
 // Classifier evaluation curves — issue #153
 // =============================================================================
 

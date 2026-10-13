@@ -25,7 +25,9 @@ mod rls;
 mod theil_sen;
 mod wls;
 
-pub use aft::{fit_aft, AftDistribution, AftFitResult, AftInference, AftOptions, AftResult};
+pub use aft::{
+    aft_survival_curve, fit_aft, AftDistribution, AftFitResult, AftInference, AftOptions, AftResult,
+};
 pub use aid::{compute_aid, compute_aid_anomalies};
 pub use alm::{fit_alm, AlmInferenceResult, AlmResult};
 pub use augment::{

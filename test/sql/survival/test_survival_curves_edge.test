@@ -1,0 +1,97 @@
+# name: test/sql/survival/test_survival_curves_edge.test
+# description: #156 kaplan_meier_agg / log_rank_test_agg / aft_survival: NULLs, empty input, options, groups
+# group: [survival]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE p AS SELECT i, 1 + (i * 7) % 11 AS dur, (i % 4 <> 0)::INTEGER AS ev, (i % 3)::VARCHAR AS arm,
+    (i % 5) * 0.2 AS x1 FROM range(40) t(i);
+
+query II
+SELECT kaplan_meier_agg(dur, ev), log_rank_test_agg(dur, ev, arm) FROM p WHERE i < 0
+----
+NULL	NULL
+
+# One group: no log-rank test.
+query I
+SELECT log_rank_test_agg(dur, ev, arm) FROM p WHERE arm = '1'
+----
+NULL
+
+# KM steps: survival is non-increasing and starts with everyone at risk.
+query III
+SELECT r[1].n_risk, list_bool_and(list_transform(range(1, len(r)), k -> r[k + 1].surv <= r[k].surv)),
+    list_sum(list_transform(r, e -> e.n_event + e.n_censor))
+FROM (SELECT kaplan_meier_agg(dur, ev) AS r FROM p)
+----
+40	true	40
+
+# NULL rows are skipped.
+query I
+SELECT kaplan_meier_agg(CASE WHEN i = 5 THEN NULL ELSE dur END, ev) = (SELECT kaplan_meier_agg(dur, ev) FROM p WHERE i <> 5) FROM p
+----
+true
+
+# All censored: survival stays 1 and the interval collapses to it.
+query III
+SELECT list_distinct(list_transform(r, e -> e.surv)), list_distinct(list_transform(r, e -> e.conf_low)),
+    list_distinct(list_transform(r, e -> e.std_err))
+FROM (SELECT kaplan_meier_agg(dur, false) AS r FROM p)
+----
+[1.0]	[1.0]	[0.0]
+
+# Grouped KM matches kaplan_meier_by
+query I
+SELECT count(*) FROM (SELECT arm, unnest(kaplan_meier_agg(dur, ev)) AS r FROM p GROUP BY arm) a
+JOIN kaplan_meier_by('p', arm, dur, ev) b ON a.arm = b.series AND (a.r).time = b.x
+WHERE (a.r).surv IS DISTINCT FROM b.y OR (a.r).conf_low IS DISTINCT FROM b.y_low
+----
+0
+
+statement error
+SELECT kaplan_meier_agg(dur, ev, 1.5) FROM p
+----
+conf_level must be in (0, 1)
+
+statement error
+SELECT kaplan_meier_agg(dur, ev, 0.95, 'logit') FROM p
+----
+unknown conf_type
+
+# aft_survival: S(0) = 1, non-increasing, NULL inputs give NULL.
+statement ok
+CREATE TABLE m AS SELECT aft_fit_agg(dur::DOUBLE, [x1], ev::DOUBLE) AS m FROM p
+
+query II
+SELECT r[1].surv, list_bool_and(list_transform(range(1, len(r)), k -> r[k + 1].surv <= r[k].surv))
+FROM (SELECT aft_survival(m, [0.4], [0, 1, 2, 5, 10, 20]) AS r FROM m)
+----
+1.0	true
+
+query III
+SELECT aft_survival(m, NULL, [1.0]), aft_survival(m, [0.4], NULL), aft_survival(NULL::STRUCT(coefficients DOUBLE[], intercept DOUBLE, scale DOUBLE, family VARCHAR), [0.4], [1.0]) FROM m
+----
+NULL	NULL	NULL
+
+query I
+SELECT len(aft_survival(m, [0.4], [])) FROM m
+----
+0
+
+statement error
+SELECT aft_survival(m, [0.4, 1.0], [1.0]) FROM m
+----
+x has 2 values but the model has 1 coefficients
+
+statement error
+SELECT aft_survival({'a': 1}, [0.4], [1.0])
+----
+model has no 'coefficients' field
+
+# Per-row covariate profiles
+query I
+SELECT count(*) FROM (SELECT x, aft_survival(m, [x], [5.0])[1].surv AS s FROM m, (VALUES (0.0), (0.5), (1.0)) v(x))
+WHERE s > 0 AND s < 1
+----
+3

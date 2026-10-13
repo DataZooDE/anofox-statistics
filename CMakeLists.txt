@@ -159,6 +159,8 @@ set(EXTENSION_SOURCES
     src/aggregate_functions/rls_aggregate.cpp
     src/aggregate_functions/vif_aggregate.cpp
     src/aggregate_functions/jarque_bera_aggregate.cpp
+    src/aggregate_functions/timeseries_diagnostics_aggregate.cpp
+    src/aggregate_functions/survival_aggregate.cpp
     src/aggregate_functions/residuals_diagnostics_aggregate.cpp
     src/aggregate_functions/ols_predict_aggregate.cpp
     src/aggregate_functions/huber_predict_aggregate.cpp
