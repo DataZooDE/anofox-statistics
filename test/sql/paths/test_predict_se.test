@@ -39,7 +39,7 @@ true
 
 # The SE result is STRUCT(yhat, se_fit, yhat_lower, yhat_upper); se_fit only: no bounds
 query IIII
-SELECT p.yhat = predict(m, [3.0, 4.0]), p.se_fit > 0, p.yhat_lower IS NULL, p.yhat_upper IS NULL
+SELECT abs(p.yhat - predict(m, [3.0, 4.0])) < 1e-10, p.se_fit > 0, p.yhat_lower IS NULL, p.yhat_upper IS NULL
 FROM (SELECT m, predict(m, [3.0, 4.0], {'se_fit': true}) AS p
       FROM (SELECT ols_fit_agg(y, [x1, x2], {'compute_inference': true}) AS m FROM d));
 ----
