@@ -187,6 +187,9 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterPhiCoefficientAggregateFunction(loader);
     RegisterContingencyCoefAggregateFunction(loader);
 
+    // Classifier evaluation (#153)
+    RegisterClassifierAggregateFunctions(loader);
+
     // Register window aggregate functions (fit_predict)
     RegisterOlsFitPredictFunction(loader);
     RegisterHuberFitPredictFunction(loader);
@@ -227,6 +230,7 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterModelOutputMacros(loader);
     RegisterPosthocMacros(loader);
     RegisterCurveMacros(loader);
+    RegisterClassifierCurveMacros(loader);
 
     RegisterContractVersionFunction(loader);
     ApplyContractTags(loader, preexisting);

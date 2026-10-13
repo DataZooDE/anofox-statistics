@@ -4,6 +4,7 @@
 //! for statistical hypothesis testing in DuckDB.
 
 pub mod categorical;
+pub mod classification;
 pub mod correlation;
 pub mod distributional;
 pub mod equivalence;
@@ -171,6 +172,7 @@ fn is_degenerate_data_message(msg: &str) -> bool {
         "limited to n <=",
         "non-finite value",
         "all residuals are zero",
+        "only one class is present",
     ]
     .iter()
     .any(|needle| lower.contains(needle))

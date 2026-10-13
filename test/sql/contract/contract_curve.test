@@ -1,0 +1,54 @@
+# name: test/sql/contract/contract_curve.test
+# description: integration contract `curve` schema (#153): columns and types of roc_curve_by, pr_curve_by, calibration_curve_by
+# group: [contract]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE d AS SELECT (range % 3 = 0) AS label, ((range * 37) % 100) / 100.0 AS score, (range % 2)::VARCHAR AS g
+FROM range(40);
+
+query II
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM roc_curve_by('d', g, label, score))
+----
+g	VARCHAR
+model_id	VARCHAR
+series	VARCHAR
+curve_type	VARCHAR
+x	DOUBLE
+y	DOUBLE
+y_low	DOUBLE
+y_high	DOUBLE
+threshold	DOUBLE
+weight	DOUBLE
+n_censor	BIGINT
+
+# The three macros share one shape, so their curves UNION into one plot input.
+query I
+SELECT count(DISTINCT cols) FROM (
+    SELECT string_agg(column_name || ' ' || column_type, ', ') cols FROM (DESCRIBE SELECT * FROM roc_curve_by('d', g, label, score))
+    UNION ALL SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM pr_curve_by('d', g, label, score))
+    UNION ALL SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM calibration_curve_by('d', g, label, score))
+)
+----
+1
+
+query II
+SELECT curve_type, count(DISTINCT model_id) FROM (
+    SELECT * FROM roc_curve_by('d', g, label, score)
+    UNION ALL SELECT * FROM pr_curve_by('d', g, label, score)
+    UNION ALL SELECT * FROM calibration_curve_by('d', g, label, score, n_bins := 4)
+) GROUP BY curve_type ORDER BY curve_type
+----
+calibration	2
+pr	2
+roc	2
+
+query II
+SELECT function_name, tags['anofox.output'] FROM duckdb_functions()
+WHERE function_name IN ('roc_curve_by', 'pr_curve_by', 'calibration_curve_by') AND tags['anofox.contract'] = '1'
+ORDER BY function_name
+----
+calibration_curve_by	curve
+pr_curve_by	curve
+roc_curve_by	curve

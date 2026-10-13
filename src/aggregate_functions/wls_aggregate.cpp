@@ -261,6 +261,7 @@ static void WlsAggCombine(Vector &source_vector, Vector &target_vector, Aggregat
 static void SetListInResult(Vector &list_vec, idx_t row, double *data, size_t len) {
     auto &child = ListVector::GetEntry(list_vec);
     auto offset = ListVector::GetListSize(list_vec);
+    ListVector::Reserve(list_vec, offset + len);
     ListVector::SetListSize(list_vec, offset + len);
     auto vec_data = FlatVector::GetData<double>(child);
     for (size_t i = 0; i < len; i++) {

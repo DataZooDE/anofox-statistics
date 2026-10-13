@@ -1,0 +1,200 @@
+# name: test/sql/issues/issue_137.test
+# description: #137 *_fit_agg over many groups wrote list results past the list child capacity
+# group: [issues]
+
+require anofox_statistics
+
+# Finalize wrote each group's coefficient list with ListVector::SetListSize but
+# never ListVector::Reserve, so once a result chunk held more list elements than
+# the child vector's capacity (STANDARD_VECTOR_SIZE = 2048; ~300 groups x 7
+# coefficients) the writes ran past the heap buffer: SIGSEGV on a 20,000-group
+# panel, silent corruption (or an ASAN report) on smaller ones.
+
+statement ok
+SET threads=8;
+
+statement ok
+CREATE TABLE panel AS
+SELECT i // 12 AS uid, i % 12 AS t,
+       (i % 12) / 12.0 AS f1,
+       sin(2 * pi() * (i % 12) / 12) AS f2, cos(2 * pi() * (i % 12) / 12) AS f3,
+       sin(4 * pi() * (i % 12) / 12) + (hash(i * 5) % 100) / 1000.0 AS f4, cos(4 * pi() * (i % 12) / 12) AS f5,
+       ((hash(i * 11) % 1000) / 1000.0) AS f6,
+       ((hash(i) % 1000) / 1000.0) AS f7,
+       ln(4 + 3 * sin(2 * pi() * (i % 12) / 12) + (hash(i * 3) % 100) / 20.0 + (i // 60) % 17) AS y,
+       round(abs(5 + 3 * sin(2 * pi() * (i % 12) / 12) + (hash(i * 3) % 100) / 20.0))::DOUBLE AS cnt,
+       exp(0.5 + 0.2 * sin(2 * pi() * (i % 12) / 12)) * (0.5 + (hash(i * 3) % 100) / 100.0) AS pos,
+       ((hash(i * 3) % 100) < 30 + 40 * ((i % 12) > 5)::INT)::INT::DOUBLE AS bin,
+       0.5 + (hash(i * 13) % 100) / 100.0 AS w
+FROM range(0, 30000) r(i);
+
+# ols_fit_agg: one result per group, and group 0's fit equals its standalone fit
+query II
+SELECT count(*), count(*) FILTER (WHERE len(m.coefficients) = 7) > 0 FROM (SELECT uid, ols_fit_agg(y, [f1, f2, f3, f4, f5, f6, f7]) AS m FROM panel GROUP BY uid);
+----
+2500	true
+
+query I
+SELECT (SELECT ols_fit_agg(y, [f1, f2, f3, f4, f5, f6, f7]) FROM panel WHERE uid = 1).coefficients IS NOT DISTINCT FROM (SELECT m FROM (SELECT uid, ols_fit_agg(y, [f1, f2, f3, f4, f5, f6, f7]) AS m FROM panel GROUP BY uid) WHERE uid = 1).coefficients;
+----
+true
+
+# ridge_fit_agg: one result per group, and group 0's fit equals its standalone fit
+query II
+SELECT count(*), count(*) FILTER (WHERE len(m.coefficients) = 7) > 0 FROM (SELECT uid, ridge_fit_agg(y, [f1, f2, f3, f4, f5, f6, f7], {'alpha': 0.1}) AS m FROM panel GROUP BY uid);
+----
+2500	true
+
+query I
+SELECT (SELECT ridge_fit_agg(y, [f1, f2, f3, f4, f5, f6, f7], {'alpha': 0.1}) FROM panel WHERE uid = 1).coefficients IS NOT DISTINCT FROM (SELECT m FROM (SELECT uid, ridge_fit_agg(y, [f1, f2, f3, f4, f5, f6, f7], {'alpha': 0.1}) AS m FROM panel GROUP BY uid) WHERE uid = 1).coefficients;
+----
+true
+
+# elasticnet_fit_agg: one result per group, and group 0's fit equals its standalone fit
+query II
+SELECT count(*), count(*) FILTER (WHERE len(m.coefficients) = 7) > 0 FROM (SELECT uid, elasticnet_fit_agg(y, [f1, f2, f3, f4, f5, f6, f7], {'alpha': 0.01, 'l1_ratio': 0.5}) AS m FROM panel GROUP BY uid);
+----
+2500	true
+
+query I
+SELECT (SELECT elasticnet_fit_agg(y, [f1, f2, f3, f4, f5, f6, f7], {'alpha': 0.01, 'l1_ratio': 0.5}) FROM panel WHERE uid = 1).coefficients IS NOT DISTINCT FROM (SELECT m FROM (SELECT uid, elasticnet_fit_agg(y, [f1, f2, f3, f4, f5, f6, f7], {'alpha': 0.01, 'l1_ratio': 0.5}) AS m FROM panel GROUP BY uid) WHERE uid = 1).coefficients;
+----
+true
+
+# huber_fit_agg: one result per group, and group 0's fit equals its standalone fit
+query II
+SELECT count(*), count(*) FILTER (WHERE len(m.coefficients) = 7) > 0 FROM (SELECT uid, huber_fit_agg(y, [f1, f2, f3, f4, f5, f6, f7]) AS m FROM panel GROUP BY uid);
+----
+2500	true
+
+query I
+SELECT (SELECT huber_fit_agg(y, [f1, f2, f3, f4, f5, f6, f7]) FROM panel WHERE uid = 1).coefficients IS NOT DISTINCT FROM (SELECT m FROM (SELECT uid, huber_fit_agg(y, [f1, f2, f3, f4, f5, f6, f7]) AS m FROM panel GROUP BY uid) WHERE uid = 1).coefficients;
+----
+true
+
+# wls_fit_agg: one result per group, and group 0's fit equals its standalone fit
+query II
+SELECT count(*), count(*) FILTER (WHERE len(m.coefficients) = 7) > 0 FROM (SELECT uid, wls_fit_agg(y, [f1, f2, f3, f4, f5, f6, f7], w) AS m FROM panel GROUP BY uid);
+----
+2500	true
+
+query I
+SELECT (SELECT wls_fit_agg(y, [f1, f2, f3, f4, f5, f6, f7], w) FROM panel WHERE uid = 1).coefficients IS NOT DISTINCT FROM (SELECT m FROM (SELECT uid, wls_fit_agg(y, [f1, f2, f3, f4, f5, f6, f7], w) AS m FROM panel GROUP BY uid) WHERE uid = 1).coefficients;
+----
+true
+
+# rls_fit_agg: one result per group, and group 0's fit equals its standalone fit
+query II
+SELECT count(*), count(*) FILTER (WHERE len(m.coefficients) = 7) > 0 FROM (SELECT uid, rls_fit_agg(y, [f1, f2, f3, f4, f5, f6, f7]) AS m FROM panel GROUP BY uid);
+----
+2500	true
+
+query I
+SELECT (SELECT rls_fit_agg(y, [f1, f2, f3, f4, f5, f6, f7]) FROM panel WHERE uid = 1).coefficients IS NOT DISTINCT FROM (SELECT m FROM (SELECT uid, rls_fit_agg(y, [f1, f2, f3, f4, f5, f6, f7]) AS m FROM panel GROUP BY uid) WHERE uid = 1).coefficients;
+----
+true
+
+# bls_fit_agg: one result per group, and group 0's fit equals its standalone fit
+query II
+SELECT count(*), count(*) FILTER (WHERE len(m.coefficients) = 7) > 0 FROM (SELECT uid, bls_fit_agg(y, [f1, f2, f3, f4, f5, f6, f7]) AS m FROM panel GROUP BY uid);
+----
+2500	true
+
+query I
+SELECT (SELECT bls_fit_agg(y, [f1, f2, f3, f4, f5, f6, f7]) FROM panel WHERE uid = 1).coefficients IS NOT DISTINCT FROM (SELECT m FROM (SELECT uid, bls_fit_agg(y, [f1, f2, f3, f4, f5, f6, f7]) AS m FROM panel GROUP BY uid) WHERE uid = 1).coefficients;
+----
+true
+
+# lars_fit_agg: one result per group, and group 0's fit equals its standalone fit
+query II
+SELECT count(*), count(*) FILTER (WHERE len(m.coefficients) = 7) > 0 FROM (SELECT uid, lars_fit_agg(y, [f1, f2, f3, f4, f5, f6, f7]) AS m FROM panel GROUP BY uid);
+----
+2500	true
+
+query I
+SELECT (SELECT lars_fit_agg(y, [f1, f2, f3, f4, f5, f6, f7]) FROM panel WHERE uid = 1).coefficients IS NOT DISTINCT FROM (SELECT m FROM (SELECT uid, lars_fit_agg(y, [f1, f2, f3, f4, f5, f6, f7]) AS m FROM panel GROUP BY uid) WHERE uid = 1).coefficients;
+----
+true
+
+# alm_fit_agg: one result per group, and group 0's fit equals its standalone fit
+query II
+SELECT count(*), count(*) FILTER (WHERE len(m.coefficients) = 7) > 0 FROM (SELECT uid, alm_fit_agg(y, [f1, f2, f3, f4, f5, f6, f7]) AS m FROM panel GROUP BY uid);
+----
+2500	true
+
+query I
+SELECT (SELECT alm_fit_agg(y, [f1, f2, f3, f4, f5, f6, f7]) FROM panel WHERE uid = 1).coefficients IS NOT DISTINCT FROM (SELECT m FROM (SELECT uid, alm_fit_agg(y, [f1, f2, f3, f4, f5, f6, f7]) AS m FROM panel GROUP BY uid) WHERE uid = 1).coefficients;
+----
+true
+
+# poisson_fit_agg: one result per group, and group 0's fit equals its standalone fit
+query II
+SELECT count(*), count(*) FILTER (WHERE len(m.coefficients) = 7) > 0 FROM (SELECT uid, poisson_fit_agg(cnt, [f1, f2, f3, f4, f5, f6, f7]) AS m FROM panel GROUP BY uid);
+----
+2500	true
+
+query I
+SELECT (SELECT poisson_fit_agg(cnt, [f1, f2, f3, f4, f5, f6, f7]) FROM panel WHERE uid = 1).coefficients IS NOT DISTINCT FROM (SELECT m FROM (SELECT uid, poisson_fit_agg(cnt, [f1, f2, f3, f4, f5, f6, f7]) AS m FROM panel GROUP BY uid) WHERE uid = 1).coefficients;
+----
+true
+
+# negbinom_fit_agg: one result per group, and group 0's fit equals its standalone fit
+query II
+SELECT count(*), count(*) FILTER (WHERE len(m.coefficients) = 7) > 0 FROM (SELECT uid, negbinom_fit_agg(cnt, [f1, f2, f3, f4, f5, f6, f7]) AS m FROM panel GROUP BY uid);
+----
+2500	true
+
+query I
+SELECT (SELECT negbinom_fit_agg(cnt, [f1, f2, f3, f4, f5, f6, f7]) FROM panel WHERE uid = 1).coefficients IS NOT DISTINCT FROM (SELECT m FROM (SELECT uid, negbinom_fit_agg(cnt, [f1, f2, f3, f4, f5, f6, f7]) AS m FROM panel GROUP BY uid) WHERE uid = 1).coefficients;
+----
+true
+
+# gamma_fit_agg: one result per group, and group 0's fit equals its standalone fit
+query II
+SELECT count(*), count(*) FILTER (WHERE len(m.coefficients) = 7) > 0 FROM (SELECT uid, gamma_fit_agg(pos, [f1, f2, f3, f4, f5, f6, f7]) AS m FROM panel GROUP BY uid);
+----
+2500	true
+
+query I
+SELECT (SELECT gamma_fit_agg(pos, [f1, f2, f3, f4, f5, f6, f7]) FROM panel WHERE uid = 1).coefficients IS NOT DISTINCT FROM (SELECT m FROM (SELECT uid, gamma_fit_agg(pos, [f1, f2, f3, f4, f5, f6, f7]) AS m FROM panel GROUP BY uid) WHERE uid = 1).coefficients;
+----
+true
+
+# tweedie_fit_agg: one result per group, and group 0's fit equals its standalone fit
+query II
+SELECT count(*), count(*) FILTER (WHERE len(m.coefficients) = 7) > 0 FROM (SELECT uid, tweedie_fit_agg(pos, [f1, f2, f3, f4, f5, f6, f7], {'power': 1.5}) AS m FROM panel GROUP BY uid);
+----
+2500	true
+
+query I
+SELECT (SELECT tweedie_fit_agg(pos, [f1, f2, f3, f4, f5, f6, f7], {'power': 1.5}) FROM panel WHERE uid = 1).coefficients IS NOT DISTINCT FROM (SELECT m FROM (SELECT uid, tweedie_fit_agg(pos, [f1, f2, f3, f4, f5, f6, f7], {'power': 1.5}) AS m FROM panel GROUP BY uid) WHERE uid = 1).coefficients;
+----
+true
+
+# binomial_fit_agg: one result per group, and group 0's fit equals its standalone fit
+query II
+SELECT count(*), count(*) FILTER (WHERE len(m.coefficients) = 7) > 0 FROM (SELECT uid, binomial_fit_agg(bin, [f1, f2, f3, f4, f5, f6, f7]) AS m FROM panel GROUP BY uid);
+----
+2500	true
+
+query I
+SELECT (SELECT binomial_fit_agg(bin, [f1, f2, f3, f4, f5, f6, f7]) FROM panel WHERE uid = 1).coefficients IS NOT DISTINCT FROM (SELECT m FROM (SELECT uid, binomial_fit_agg(bin, [f1, f2, f3, f4, f5, f6, f7]) AS m FROM panel GROUP BY uid) WHERE uid = 1).coefficients;
+----
+true
+
+# logistic_fit_agg: one result per group, and group 0's fit equals its standalone fit
+query II
+SELECT count(*), count(*) FILTER (WHERE len(m.coefficients) = 7) > 0 FROM (SELECT uid, logistic_fit_agg(bin, [f1, f2, f3, f4, f5, f6, f7]) AS m FROM panel GROUP BY uid);
+----
+2500	true
+
+query I
+SELECT (SELECT logistic_fit_agg(bin, [f1, f2, f3, f4, f5, f6, f7]) FROM panel WHERE uid = 1).coefficients IS NOT DISTINCT FROM (SELECT m FROM (SELECT uid, logistic_fit_agg(bin, [f1, f2, f3, f4, f5, f6, f7]) AS m FROM panel GROUP BY uid) WHERE uid = 1).coefficients;
+----
+true
+
+# Through the _by macros (window path) as well
+query II
+SELECT count(*), count(yhat) = count(*) FROM ols_fit_predict_by('panel', uid, y, [f1, f2, f3, f4, f5, f6, f7]);
+----
+30000	true

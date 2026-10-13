@@ -128,11 +128,15 @@ void RegisterMcNemarAggregateFunction(ExtensionLoader &loader);
 void RegisterPhiCoefficientAggregateFunction(ExtensionLoader &loader);
 void RegisterContingencyCoefAggregateFunction(ExtensionLoader &loader);
 
+// Classifier evaluation: ROC/PR/calibration curves, AUC, Brier, log loss (#153)
+void RegisterClassifierAggregateFunctions(ExtensionLoader &loader);
+
 // Table Macros for fit_predict_by functions
 void RegisterFitPredictTableMacros(ExtensionLoader &loader);
 void RegisterModelOutputMacros(ExtensionLoader &loader);
 void RegisterPosthocMacros(ExtensionLoader &loader);
 void RegisterCurveMacros(ExtensionLoader &loader);
+void RegisterClassifierCurveMacros(ExtensionLoader &loader);
 
 // Extension class required for static linking
 class AnofoxStatisticsExtension : public Extension {

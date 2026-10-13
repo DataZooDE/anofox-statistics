@@ -3248,3 +3248,58 @@ mod ts_survival_layout_tests {
         );
     }
 }
+
+// =============================================================================
+// Classifier evaluation curves — issue #153
+// =============================================================================
+
+/// One curve of a binary classifier (ROC, precision-recall or calibration).
+/// All non-null arrays have `len` entries in curve order and are caller-owned,
+/// released by `anofox_free_classifier_curve`.
+///
+/// - ROC: `x` = false positive rate, `y` = true positive rate.
+/// - PR: `x` = recall, `y` = precision.
+/// - Calibration: `x` = mean predicted probability, `y` = fraction of
+///   positives; `y_low`/`y_high` are its Wilson bounds, `bin` the zero-based
+///   bin index and `n` the bin count. These three are null for ROC and PR.
+///
+/// `threshold` is NaN where a point has no threshold (the final PR point,
+/// every calibration bin); a threshold can be +inf (the first ROC point).
+#[repr(C)]
+pub struct ClassifierCurveFFI {
+    pub x: *mut f64,
+    pub y: *mut f64,
+    pub threshold: *mut f64,
+    pub y_low: *mut f64,
+    pub y_high: *mut f64,
+    pub bin: *mut i64,
+    pub n: *mut i64,
+    pub len: usize,
+}
+
+impl Default for ClassifierCurveFFI {
+    fn default() -> Self {
+        Self {
+            x: std::ptr::null_mut(),
+            y: std::ptr::null_mut(),
+            threshold: std::ptr::null_mut(),
+            y_low: std::ptr::null_mut(),
+            y_high: std::ptr::null_mut(),
+            bin: std::ptr::null_mut(),
+            n: std::ptr::null_mut(),
+            len: 0,
+        }
+    }
+}
+
+/// Which scalar classifier metric `anofox_classifier_metric` computes.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClassifierMetricFFI {
+    /// Area under the ROC curve (input: scores).
+    Auc = 0,
+    /// Brier score (input: probabilities).
+    Brier = 1,
+    /// Log loss (input: probabilities).
+    LogLoss = 2,
+}
