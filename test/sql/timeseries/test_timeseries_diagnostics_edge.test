@@ -1,0 +1,98 @@
+# name: test/sql/timeseries/test_timeseries_diagnostics_edge.test
+# description: #155 acf/pacf/Box tests/Durbin-Watson/Breusch-Pagan: NULLs, empty and short input, options, groups
+# group: [timeseries]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE s AS SELECT i AS t, (i % 2)::VARCHAR AS g, sin(i * 1.3) + 0.2 * (i % 4) AS e,
+    i * 0.1 AS x1, (i * 7 % 5)::DOUBLE AS x2 FROM range(30) t(i);
+
+# Empty input gives NULL.
+query IIIIII
+SELECT acf_agg(e ORDER BY t), pacf_agg(e ORDER BY t), ljung_box_agg(e ORDER BY t), durbin_watson_agg(e ORDER BY t),
+    breusch_pagan_agg(e, [x1, x2]), white_test_agg(e, [x1, x2]) FROM s WHERE t < 0
+----
+NULL	NULL	NULL	NULL	NULL	NULL
+
+# A series no longer than max_lag / lag gives NULL (not an error).
+query III
+SELECT acf_agg(e, 5 ORDER BY t) IS NULL, pacf_agg(e, 5 ORDER BY t) IS NULL, ljung_box_agg(e, 5 ORDER BY t) IS NULL FROM s WHERE t < 5
+----
+true	true	true
+
+# A single value: NULL.
+query II
+SELECT acf_agg(e ORDER BY t) IS NULL, durbin_watson_agg(e ORDER BY t) IS NULL FROM s WHERE t = 0
+----
+true	true
+
+# NULL values are skipped: the same as filtering them out.
+query I
+SELECT acf_agg(CASE WHEN t % 7 = 3 THEN NULL ELSE e END, 4 ORDER BY t) = (SELECT acf_agg(e, 4 ORDER BY t) FROM s WHERE t % 7 <> 3) FROM s
+----
+true
+
+# ORDER BY matters for the order-sensitive aggregates.
+query I
+SELECT durbin_watson_agg(e ORDER BY t) <> durbin_watson_agg(e ORDER BY e) FROM s
+----
+true
+
+# max_lag = 0 gives the lag-0 autocorrelation only; NULL max_lag is the default.
+query IIII
+SELECT len(r), r[1].acf, round(r[1].conf_high, 6), n FROM (SELECT acf_agg(e, 0 ORDER BY t) AS r, len(acf_agg(e, NULL ORDER BY t)) AS n FROM s)
+----
+1	1.0	0.357839	15
+
+# A constant series has no autocorrelation: NULL values (R gives NaN).
+query I
+SELECT list_transform(acf_agg(1.0, 2 ORDER BY t), r -> r.acf) FROM s
+----
+[NULL, NULL, NULL]
+
+# Grouped
+query II
+SELECT g, ljung_box_agg(e, 3 ORDER BY t).df1 FROM s GROUP BY g ORDER BY g
+----
+0	3.0
+1	3.0
+
+# Invalid arguments are errors.
+statement error
+SELECT pacf_agg(e, 0 ORDER BY t) FROM s
+----
+max_lag must be >= 1
+
+statement error
+SELECT ljung_box_agg(e, 3, 3 ORDER BY t) FROM s
+----
+fitdf must be < lag
+
+statement error
+SELECT acf_agg(e, t ORDER BY t) FROM s
+----
+must be a constant
+
+statement error
+SELECT breusch_pagan_agg(e, CASE WHEN t = 3 THEN [x1] ELSE [x1, x2] END) FROM s
+----
+inconsistent feature count
+
+# All-zero residuals (a perfect fit): NULL, not an error.
+query II
+SELECT durbin_watson_agg(0.0 ORDER BY t), breusch_pagan_agg(0.0, [x1]) FROM s
+----
+NULL	NULL
+
+# Durbin-Watson reports no p-value (the exact dwtest p-value needs the design matrix).
+query III
+SELECT r.method, r.p_value IS NULL, r.statistic > 0 FROM (SELECT durbin_watson_agg(e ORDER BY t) AS r FROM s)
+----
+Durbin-Watson test	true	true
+
+# A row with a NULL list element is skipped, like a NULL row.
+query I
+SELECT breusch_pagan_agg(e, [x1, CASE WHEN t = 4 THEN NULL ELSE x2 END]).n FROM s
+----
+29

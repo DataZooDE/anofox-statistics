@@ -160,6 +160,8 @@ set(EXTENSION_SOURCES
     src/aggregate_functions/rls_aggregate.cpp
     src/aggregate_functions/vif_aggregate.cpp
     src/aggregate_functions/jarque_bera_aggregate.cpp
+    src/aggregate_functions/timeseries_diagnostics_aggregate.cpp
+    src/aggregate_functions/survival_aggregate.cpp
     src/aggregate_functions/residuals_diagnostics_aggregate.cpp
     src/aggregate_functions/ols_predict_aggregate.cpp
     src/aggregate_functions/huber_predict_aggregate.cpp
@@ -173,6 +175,7 @@ set(EXTENSION_SOURCES
     src/aggregate_functions/poisson_aggregate.cpp
     src/aggregate_functions/aft_aggregate.cpp
     src/aggregate_functions/eb_shrink_aggregate.cpp
+    src/aggregate_functions/classifier_curves_aggregate.cpp
     src/aggregate_functions/glmm_aggregate.cpp
     src/aggregate_functions/binomial_aggregate.cpp
     src/aggregate_functions/negbinom_aggregate.cpp

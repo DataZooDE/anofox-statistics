@@ -15,6 +15,7 @@ attenuates covariate effects and understates the spread.
 | `aft_fit_agg` | Aggregate | Fit an AFT model with right censoring |
 | `aft_cdf` | Scalar | `P(T <= t)` for a fitted model |
 | `aft_quantile` | Scalar | The `p`-quantile of `T` |
+| `aft_survival` | Scalar | Survival curve `S(t \| x)` of a fitted model; see [Survival curves](survival_curves.md) |
 
 The examples on this page use this table:
 
@@ -182,5 +183,6 @@ dropped from the fit; `n_observations` reports how many were actually used.
 
 ## See Also
 
+- [Survival curves](survival_curves.md) - Kaplan-Meier, log-rank test, `aft_survival`
 - [Explicit priors](../glm/priors.md) — priors and `vcov` work on AFT coefficients
 - [Gamma GLM](../glm/gamma.md) — for positive durations with no censoring

@@ -41,6 +41,21 @@ Breaking changes are called out explicitly.
   component-plus-residual (`car::crPlots`) and, for OLS / WLS, added-variable
   (`car::avPlots`) coordinates per row and term. Validated against R
   `residuals(type = "partial")` and `lsfit`.
+- Time-series regression diagnostics (#155): `acf_agg` / `pacf_agg`
+  (`agg(x [, max_lag] ORDER BY t)` -> `[{lag, acf|pacf, conf_low, conf_high}]` with
+  the 95% white-noise band), `ljung_box_agg` / `box_pierce_agg` (`lag`, `fitdf`),
+  `durbin_watson_agg` (statistic only), and the heteroskedasticity tests
+  `breusch_pagan_agg(resid, x [, studentize])` and `white_test_agg(resid, x)`, all
+  returning the unified test fields; `acf_by` / `pacf_by` table macros emit the
+  contract's `curve` schema (`curve_type` 'acf' / 'pacf'). Validated against R
+  `acf`, `pacf`, `Box.test`, `lmtest::dwtest` and `lmtest::bptest`.
+- Survival curves (#156): `kaplan_meier_agg(time, event [, conf_level [, conf_type]])`
+  (Greenwood standard errors, log / log-log / plain intervals), the
+  `kaplan_meier_by` table macro (one `curve` per stratum, `curve_type` 'km'),
+  `log_rank_test_agg(time, event, group)` (unified test fields) and
+  `aft_survival(model, x, times)` for the model-based survival curve of an
+  `aft_fit_agg` fit. Validated against R `survival::survfit`, `survdiff` and
+  `survreg` / `psurvreg`.
 
 - Unified hypothesis-test results (#159): every test aggregate (`t_test_agg`,
   `yuen_agg`, `mann_whitney_u_agg`, `wilcoxon_signed_rank_agg`, `brunner_munzel_agg`,

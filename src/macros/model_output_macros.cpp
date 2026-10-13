@@ -227,7 +227,120 @@ string PartialSql(const PartialMacro &m) {
 	       "ORDER BY group_col, term_index, row_id";
 }
 
+// Curve producers (#155, #156): one row per curve point in the integration
+// contract's `curve` schema: model_id, series, curve_type, x, y, y_low, y_high,
+// threshold, weight, n_censor (NULL where they do not apply).
+string AcfCurveSql(const char *agg, const char *curve_type, const char *field) {
+	return "SELECT group_col, group_col::VARCHAR AS model_id, NULL::VARCHAR AS series, '" + string(curve_type) +
+	       "' AS curve_type, (_r).lag::DOUBLE AS x, (_r)." + field +
+	       " AS y, (_r).conf_low AS y_low, (_r).conf_high AS y_high, NULL::DOUBLE AS threshold, "
+	       "NULL::DOUBLE AS weight, NULL::BIGINT AS n_censor "
+	       "FROM (SELECT group_col, unnest(" +
+	       agg +
+	       "(value_col::DOUBLE, max_lag ORDER BY order_col)) AS _r FROM query_table(source::VARCHAR) "
+	       "GROUP BY group_col) ORDER BY group_col, x";
+}
+
+const char *const KAPLAN_MEIER_BY_SQL =
+    "SELECT strata_col, strata_col::VARCHAR AS model_id, strata_col::VARCHAR AS series, 'km' AS curve_type, "
+    "(_r).time AS x, (_r).surv AS y, (_r).conf_low AS y_low, (_r).conf_high AS y_high, NULL::DOUBLE AS threshold, "
+    "(_r).n_risk::DOUBLE AS weight, (_r).n_censor AS n_censor, (_r).n_risk AS n_risk, (_r).n_event AS n_event, "
+    "(_r).std_err AS std_err "
+    "FROM (SELECT strata_col, unnest(kaplan_meier_agg(time_col::DOUBLE, event_col, conf_level, conf_type)) AS _r "
+    "FROM query_table(source::VARCHAR) GROUP BY strata_col) ORDER BY strata_col, x";
+
+// Classifier evaluation curves (#153): <curve>_curve_by emits the `curve`
+// schema, one row per curve point within each group of source, in curve order.
+struct ClassifierCurveMacro {
+	const char *curve;
+	//! Aggregate call producing the LIST of points.
+	const char *agg_call;
+	//! Named parameters with defaults.
+	vector<pair<string, string>> named;
+	//! Contract columns x, y, y_low, y_high, threshold, weight from point _p.
+	const char *columns;
+	const char *label;
+	const char *example;
+};
+
+string ClassifierCurveSql(const ClassifierCurveMacro &m) {
+	return string("SELECT group_col, model_id, NULL::VARCHAR AS series, '") + m.curve +
+	       "'::VARCHAR AS curve_type, " + m.columns +
+	       ", NULL::BIGINT AS n_censor "
+	       "FROM (SELECT group_col, model_id, unnest(range(len(_l))) AS _i, unnest(_l) AS _p "
+	       "FROM (SELECT group_col, group_col::VARCHAR AS model_id, " +
+	       m.agg_call + " AS _l FROM query_table(source::VARCHAR) GROUP BY group_col)) ORDER BY group_col, _i";
+}
+
 } // namespace
+
+void RegisterCurveMacros(ExtensionLoader &loader) {
+	struct AcfMacro {
+		const char *name;
+		const char *agg;
+		const char *curve_type;
+		const char *label;
+	};
+	const AcfMacro acf_macros[] = {{"acf_by", "acf_agg", "acf", "sample autocorrelation function (R acf)"},
+	                               {"pacf_by", "pacf_agg", "pacf", "sample partial autocorrelation function (R pacf)"}};
+	for (auto &m : acf_macros) {
+		auto macro = CreateTableMacro(
+		    m.name, {"source", "group_col", "value_col", "order_col"}, {{"max_lag", "NULL"}},
+		    AcfCurveSql(m.agg, m.curve_type, m.curve_type),
+		    "Table macro: the " + string(m.label) + " of value_col ordered by order_col within each group of source, "
+		    "one row per lag (the integration contract's `curve` schema, curve_type '" + m.curve_type +
+		        "'): the group column, model_id, series, curve_type, x (lag), y, y_low / y_high (95% white-noise "
+		        "band), threshold, weight, n_censor. max_lag defaults to R's floor(10 log10 n).",
+		    string(m.name) + "('residuals', store, resid, t, max_lag := 12)", {"time-series", "diagnostics", "table-macro"});
+		loader.RegisterFunction(*macro);
+	}
+
+	auto km = CreateTableMacro(
+	    "kaplan_meier_by", {"source", "strata_col", "time_col", "event_col"},
+	    {{"conf_level", "0.95"}, {"conf_type", "'log'"}}, KAPLAN_MEIER_BY_SQL,
+	    "Table macro: one Kaplan-Meier curve per stratum of source (R survfit(Surv(time, event) ~ strata)), one row "
+	    "per distinct time (the integration contract's `curve` schema, curve_type 'km', series = stratum): the "
+	    "stratum column, model_id, series, curve_type, x (time), y (survival), y_low / y_high (pointwise interval), "
+	    "threshold, weight (number at risk), n_censor, then n_risk, n_event and std_err.",
+	    "kaplan_meier_by('patients', treatment, duration, event, conf_type := 'log-log')",
+	    {"survival", "table-macro"});
+	loader.RegisterFunction(*km);
+}
+
+void RegisterClassifierCurveMacros(ExtensionLoader &loader) {
+	const ClassifierCurveMacro macros[] = {
+	    {"roc", "roc_agg(y_true_col, score_col, drop_intermediate)", {{"drop_intermediate", "true"}},
+	     "(_p).fpr AS x, (_p).tpr AS y, NULL::DOUBLE AS y_low, NULL::DOUBLE AS y_high, (_p).threshold AS threshold, "
+	     "NULL::DOUBLE AS weight",
+	     "the ROC curve (x = false positive rate, y = true positive rate; scikit-learn roc_curve, see roc_agg)",
+	     "roc_curve_by('scored', model, label, score)"},
+	    {"pr", "pr_agg(y_true_col, score_col)", {},
+	     "(_p).recall AS x, (_p).precision AS y, NULL::DOUBLE AS y_low, NULL::DOUBLE AS y_high, "
+	     "(_p).threshold AS threshold, NULL::DOUBLE AS weight",
+	     "the precision-recall curve (x = recall, y = precision; scikit-learn precision_recall_curve, see pr_agg)",
+	     "pr_curve_by('scored', model, label, score)"},
+	    {"calibration", "calibration_agg(y_true_col, prob_col, n_bins, conf_level)",
+	     {{"n_bins", "10"}, {"conf_level", "0.95"}},
+	     "(_p).mean_pred AS x, (_p).frac_pos AS y, (_p).conf_low AS y_low, (_p).conf_high AS y_high, "
+	     "NULL::DOUBLE AS threshold, (_p).n::DOUBLE AS weight",
+	     "the calibration curve (x = mean predicted probability, y = fraction of positives, y_low/y_high = Wilson "
+	     "interval, weight = bin count; see calibration_agg)",
+	     "calibration_curve_by('scored', model, label, prob, n_bins := 10)"},
+	};
+	for (auto &m : macros) {
+		string name = string(m.curve) + "_curve_by";
+		string value_col = string(m.curve) == "calibration" ? "prob_col" : "score_col";
+		auto macro = CreateTableMacro(
+		    name, {"source", "group_col", "y_true_col", value_col}, m.named, ClassifierCurveSql(m),
+		    "Table macro: computes " + string(m.label) +
+		        " per group of source and returns one row per point in curve order (the integration contract's "
+		        "`curve` schema): the group column, model_id, series, curve_type ('" +
+		        m.curve +
+		        "'), x, y, y_low, y_high, threshold, weight, n_censor. y_true_col is BOOLEAN or 0/1.",
+		    m.example, {"classification", "table-macro"});
+		loader.RegisterFunction(*macro);
+	}
+}
 
 void RegisterPosthocMacros(ExtensionLoader &loader) {
 	for (auto &m : POSTHOC_MACROS) {

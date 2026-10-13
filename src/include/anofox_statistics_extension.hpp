@@ -111,6 +111,8 @@ void RegisterDistanceCorAggregateFunction(ExtensionLoader &loader);
 void RegisterYuenAggregateFunction(ExtensionLoader &loader);
 void RegisterBrownForsytheAggregateFunction(ExtensionLoader &loader);
 void RegisterDieboldMarianoAggregateFunction(ExtensionLoader &loader);
+void RegisterTimeSeriesDiagnosticsAggregateFunctions(ExtensionLoader &loader);
+void RegisterSurvivalAggregateFunctions(ExtensionLoader &loader);
 void RegisterClarkWestAggregateFunction(ExtensionLoader &loader);
 void RegisterPermutationTTestAggregateFunction(ExtensionLoader &loader);
 void RegisterTostPairedAggregateFunction(ExtensionLoader &loader);
@@ -127,11 +129,16 @@ void RegisterMcNemarAggregateFunction(ExtensionLoader &loader);
 void RegisterPhiCoefficientAggregateFunction(ExtensionLoader &loader);
 void RegisterContingencyCoefAggregateFunction(ExtensionLoader &loader);
 
+// Classifier evaluation: ROC/PR/calibration curves, AUC, Brier, log loss (#153)
+void RegisterClassifierAggregateFunctions(ExtensionLoader &loader);
+
 // Table Macros for fit_predict_by functions
 void RegisterFitPredictTableMacros(ExtensionLoader &loader);
 void RegisterModelOutputMacros(ExtensionLoader &loader);
 void RegisterPosthocMacros(ExtensionLoader &loader);
 void RegisterPathMacros(ExtensionLoader &loader);
+void RegisterCurveMacros(ExtensionLoader &loader);
+void RegisterClassifierCurveMacros(ExtensionLoader &loader);
 
 // Extension class required for static linking
 class AnofoxStatisticsExtension : public Extension {

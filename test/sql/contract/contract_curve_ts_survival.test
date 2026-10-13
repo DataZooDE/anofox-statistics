@@ -1,0 +1,84 @@
+# name: test/sql/contract/contract_curve_ts_survival.test
+# description: #155 / #156 integration contract `curve` schema: acf_by, pacf_by and kaplan_meier_by
+# group: [contract]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE r AS SELECT 's' || (i % 2) AS store, i // 2 AS t, sin(i * 0.9) + (i % 5) * 0.1 AS resid,
+    1 + (i * 7) % 13 AS dur, (i % 3 <> 0) AS event FROM range(60) t(i);
+
+query II
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM acf_by('r', store, resid, t))
+----
+store	VARCHAR
+model_id	VARCHAR
+series	VARCHAR
+curve_type	VARCHAR
+x	DOUBLE
+y	DOUBLE
+y_low	DOUBLE
+y_high	DOUBLE
+threshold	DOUBLE
+weight	DOUBLE
+n_censor	BIGINT
+
+query II
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM kaplan_meier_by('r', store, dur, event))
+----
+store	VARCHAR
+model_id	VARCHAR
+series	VARCHAR
+curve_type	VARCHAR
+x	DOUBLE
+y	DOUBLE
+y_low	DOUBLE
+y_high	DOUBLE
+threshold	DOUBLE
+weight	DOUBLE
+n_censor	BIGINT
+n_risk	BIGINT
+n_event	BIGINT
+std_err	DOUBLE
+
+# acf_by and pacf_by share one shape.
+query I
+SELECT count(DISTINCT cols) FROM (
+    SELECT string_agg(column_name || ' ' || column_type, ', ') cols FROM (DESCRIBE SELECT * FROM acf_by('r', store, resid, t))
+    UNION ALL SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM pacf_by('r', store, resid, t)))
+----
+1
+
+# One curve per group; lags 0..max_lag for the ACF, 1..max_lag for the PACF.
+query IIIII
+SELECT store, curve_type, count(*), min(x), max(x) FROM acf_by('r', store, resid, t, max_lag := 6) GROUP BY ALL ORDER BY 1
+----
+s0	acf	7	0.0	6.0
+s1	acf	7	0.0	6.0
+
+query IIII
+SELECT curve_type, count(*), min(x), max(x) FROM pacf_by('r', store, resid, t, max_lag := 6) GROUP BY ALL
+----
+pacf	12	1.0	6.0
+
+# The required curve columns are never NULL; series is the stratum for KM.
+query I
+SELECT count(*) FROM (
+    SELECT curve_type, x, y FROM acf_by('r', store, resid, t)
+    UNION ALL SELECT curve_type, x, y FROM pacf_by('r', store, resid, t)
+    UNION ALL SELECT curve_type, x, y FROM kaplan_meier_by('r', store, dur, event))
+WHERE curve_type IS NULL OR x IS NULL OR y IS NULL
+----
+0
+
+query I
+SELECT count(*) FROM kaplan_meier_by('r', store, dur, event) WHERE series IS DISTINCT FROM store OR curve_type <> 'km'
+----
+0
+
+# Tagged as curve producers.
+query T
+SELECT list(DISTINCT function_name ORDER BY function_name) FROM duckdb_functions()
+WHERE tags['anofox.output'] = 'curve' AND function_name IN ('acf_by', 'pacf_by', 'kaplan_meier_by')
+----
+[acf_by, kaplan_meier_by, pacf_by]

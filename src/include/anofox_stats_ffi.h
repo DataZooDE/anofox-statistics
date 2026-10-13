@@ -3011,6 +3011,136 @@ bool anofox_tweedie_partial_residuals(AnofoxDataArray y, const AnofoxDataArray *
                                       AnofoxError *out_error);
 void anofox_free_partial_residuals_result(AnofoxPartialResidualsResult *result);
 
+/* ============================================================================
+ * Time-series residual diagnostics -- issue #155
+ * ============================================================================ */
+
+/**
+ * Sample (partial) autocorrelations. Must match AcfResultFFI. values[i] is the
+ * value at lag first_lag + i (0 for the ACF, 1 for the PACF); free with
+ * anofox_free_acf_result.
+ */
+typedef struct {
+	double conf_bound;
+	double *values;
+	size_t len;
+	size_t first_lag;
+	size_t n;
+} AnofoxAcfResult;
+
+/** ACF (R acf) or, with partial, PACF (R pacf) of x in time order; max_lag < 0 uses R's default. */
+bool anofox_autocorrelation(AnofoxDataArray x, int64_t max_lag, bool partial, AnofoxAcfResult *out_result,
+                            AnofoxError *out_error);
+void anofox_free_acf_result(AnofoxAcfResult *result);
+
+/** Ljung-Box or, with box_pierce, Box-Pierce test (R Box.test). */
+bool anofox_portmanteau(AnofoxDataArray x, size_t lag, size_t fitdf, bool box_pierce,
+                        AnofoxTestSummaryFFI *out_result, AnofoxError *out_error);
+
+/** Durbin-Watson statistic (p_value is NaN). */
+bool anofox_durbin_watson(AnofoxDataArray residuals, AnofoxTestSummaryFFI *out_result, AnofoxError *out_error);
+
+/** Breusch-Pagan test (R lmtest::bptest; studentize is its default). */
+bool anofox_breusch_pagan(AnofoxDataArray residuals, const AnofoxDataArray *x, size_t x_count, bool studentize,
+                          AnofoxTestSummaryFFI *out_result, AnofoxError *out_error);
+
+/** White's test: Breusch-Pagan on x, its squares and cross-products. */
+bool anofox_white_test(AnofoxDataArray residuals, const AnofoxDataArray *x, size_t x_count,
+                       AnofoxTestSummaryFFI *out_result, AnofoxError *out_error);
+
+/* ============================================================================
+ * Survival curves -- issue #156
+ * ============================================================================ */
+
+/**
+ * Kaplan-Meier curve, one entry per distinct observed time. Must match
+ * KaplanMeierResultFFI. Every array has len elements; std_err, conf_low and
+ * conf_high are NaN where R gives NA. Free with anofox_free_kaplan_meier_result.
+ */
+typedef struct {
+	double conf_level;
+	double *time;
+	double *survival;
+	double *std_err;
+	double *conf_low;
+	double *conf_high;
+	uint64_t *n_risk;
+	uint64_t *n_event;
+	uint64_t *n_censor;
+	size_t len;
+	size_t n;
+} AnofoxKaplanMeierResult;
+
+/** Kaplan-Meier (R survfit); event non-zero = observed; conf_type 0 log, 1 log-log, 2 plain. */
+bool anofox_kaplan_meier(AnofoxDataArray time, AnofoxDataArray event, int32_t conf_type, double conf_level,
+                         AnofoxKaplanMeierResult *out_result, AnofoxError *out_error);
+void anofox_free_kaplan_meier_result(AnofoxKaplanMeierResult *result);
+
+/** Log-rank test (R survdiff); groups holds time.len group codes. */
+bool anofox_log_rank(AnofoxDataArray time, AnofoxDataArray event, const uint64_t *groups,
+                     AnofoxTestSummaryFFI *out_result, AnofoxError *out_error);
+
+/**
+ * S(t | x) of a fitted AFT model at n_times times into out_survival (R psurvreg,
+ * lower.tail = FALSE). intercept NaN = no intercept; x has n_coefficients values.
+ */
+bool anofox_aft_survival(const double *coefficients, size_t n_coefficients, double intercept, double scale,
+                         AnofoxAftDistribution dist, const double *x, const double *times, size_t n_times,
+                         double *out_survival);
+
+/* ============================================================================
+ * Classifier evaluation curves -- issue #153
+ * ============================================================================ */
+
+/**
+ * One curve of a binary classifier. Must match ClassifierCurveFFI. Non-null
+ * arrays have `len` entries in curve order; free with
+ * anofox_free_classifier_curve.
+ *   ROC: x = false positive rate, y = true positive rate.
+ *   PR: x = recall, y = precision.
+ *   Calibration: x = mean predicted probability, y = fraction of positives,
+ *   y_low/y_high = Wilson bounds, bin = zero-based bin, n = bin count.
+ * y_low, y_high, bin and n are NULL for ROC and PR. threshold is NaN where a
+ * point has none (final PR point, calibration bins) and +inf at the first ROC
+ * point.
+ */
+typedef struct {
+	double *x;
+	double *y;
+	double *threshold;
+	double *y_low;
+	double *y_high;
+	int64_t *bin;
+	int64_t *n;
+	size_t len;
+} AnofoxClassifierCurve;
+
+/** Scalar metric computed by anofox_classifier_metric. */
+typedef enum {
+	ANOFOX_CLASSIFIER_METRIC_AUC = 0,
+	ANOFOX_CLASSIFIER_METRIC_BRIER = 1,
+	ANOFOX_CLASSIFIER_METRIC_LOG_LOSS = 2,
+} AnofoxClassifierMetric;
+
+/**
+ * Labels are 0/1 (nonzero = positive). Scores may be +-inf but not NaN;
+ * probabilities must be in [0, 1].
+ */
+/** ROC curve (sklearn roc_curve). drop_intermediate as sklearn's default (true). */
+bool anofox_roc_curve(AnofoxDataArray scores, AnofoxDataArray labels, bool drop_intermediate,
+                      AnofoxClassifierCurve *out_result, AnofoxError *out_error);
+/** Precision-recall curve (sklearn precision_recall_curve). */
+bool anofox_pr_curve(AnofoxDataArray scores, AnofoxDataArray labels, AnofoxClassifierCurve *out_result,
+                     AnofoxError *out_error);
+/** Calibration curve (sklearn calibration_curve, uniform bins) with Wilson intervals. */
+bool anofox_calibration_curve(AnofoxDataArray probs, AnofoxDataArray labels, size_t n_bins, double conf_level,
+                              AnofoxClassifierCurve *out_result, AnofoxError *out_error);
+/** Free the arrays owned by a classifier curve. */
+void anofox_free_classifier_curve(AnofoxClassifierCurve *result);
+/** ROC AUC, Brier score or log loss. */
+bool anofox_classifier_metric(AnofoxClassifierMetric metric, AnofoxDataArray scores, AnofoxDataArray labels,
+                              double *out_value, AnofoxError *out_error);
+
 #ifdef __cplusplus
 }
 #endif

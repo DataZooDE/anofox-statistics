@@ -58,6 +58,19 @@ with grpreg as an independent lasso solver. It (re)writes:
 | `predict_se.test` | `predict(model, x, {'se_fit', 'interval', 'level'})` for OLS, WLS, Poisson, binomial, Gamma | `predict.lm(se.fit = TRUE, interval = ...)`, `predict.glm(se.fit = TRUE)` |
 | `partial_residuals.test` | `ols_` / `wls_` / `poisson_partial_residuals_by` | `residuals(type = "partial")` (`car::crPlots`), `lsfit` residuals (`car::avPlots`) |
 
+## `make_reference_ts_survival.R`
+
+```bash
+Rscript validation/generators/make_reference_ts_survival.R
+```
+
+Requires `survival` and `lmtest`. It (re)writes:
+
+| File | Extension functions | R reference |
+|------|---------------------|-------------|
+| `timeseries_diagnostics.test` | `acf_agg`, `pacf_agg`, `ljung_box_agg`, `box_pierce_agg`, `durbin_watson_agg`, `breusch_pagan_agg`, `white_test_agg` | `acf`, `pacf`, `Box.test`, `lmtest::dwtest` (statistic), `lmtest::bptest` |
+| `survival_curves.test` | `kaplan_meier_agg` (log / log-log / plain), `kaplan_meier_by`, `log_rank_test_agg`, `aft_survival` | `survival::survfit`, `survdiff`, `survreg` + `psurvreg` |
+
 ## Other generators
 
 `make_reference_tests.R` / `make_reference_tests.py` produce the

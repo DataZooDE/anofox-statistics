@@ -34,6 +34,7 @@ passed through and the prediction columns appended.
 | `ridge_cv_by`, `elasticnet_cv_by` | `<model>_cv_agg` | one row per lambda (`curve`, `lambda_cv`), see [Regularisation paths](../regression/paths.md) |
 | `quantile_process_by` | `quantile_process_agg` | one row per tau and term (`terms`), see [Quantile](../regression/quantile.md#quantile_process_agg) |
 | `<model>_partial_residuals_by` | `<model>_partial_residuals_agg` | one row per input row and term, see [Model tools](../regression/model_tools.md#partial_residuals_by) |
+| `roc_curve_by`, `pr_curve_by`, `calibration_curve_by` | `roc_agg`, `pr_agg`, `calibration_agg` | one row per curve point (`curve` schema, see [Classification](../statistics/classification.md)) |
 
 ## Common interface of the *_fit_predict_by macros
 

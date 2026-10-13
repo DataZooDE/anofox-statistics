@@ -163,6 +163,8 @@ void LoadInternal(ExtensionLoader &loader) {
 
     // Forecast tests
     RegisterDieboldMarianoAggregateFunction(loader);
+    RegisterTimeSeriesDiagnosticsAggregateFunctions(loader);
+    RegisterSurvivalAggregateFunctions(loader);
     RegisterClarkWestAggregateFunction(loader);
 
     // Resampling tests
@@ -184,6 +186,9 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterMcNemarAggregateFunction(loader);
     RegisterPhiCoefficientAggregateFunction(loader);
     RegisterContingencyCoefAggregateFunction(loader);
+
+    // Classifier evaluation (#153)
+    RegisterClassifierAggregateFunctions(loader);
 
     // Register window aggregate functions (fit_predict)
     RegisterOlsFitPredictFunction(loader);
@@ -227,6 +232,8 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterPosthocMacros(loader);
     // Paths, CV curves, the quantile process and partial residuals (#154, #157, #158)
     RegisterPathMacros(loader);
+    RegisterCurveMacros(loader);
+    RegisterClassifierCurveMacros(loader);
 
     RegisterContractVersionFunction(loader);
     ApplyContractTags(loader, preexisting);

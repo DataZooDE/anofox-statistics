@@ -1,6 +1,7 @@
 //! Diagnostic functions for regression models, and for Markov-chain output.
 
 mod condition;
+mod heteroskedasticity;
 mod information_criteria;
 mod jarque_bera;
 mod mcmc;
@@ -9,6 +10,7 @@ mod separation;
 mod vif;
 
 pub use condition::{compute_condition_diagnostic, compute_condition_number};
+pub use heteroskedasticity::{breusch_pagan, white_test};
 pub use information_criteria::{compute_aic, compute_aic_bic, compute_bic};
 pub use jarque_bera::{jarque_bera, JarqueBeraResult};
 pub use mcmc::{ess_bulk, ess_tail, rhat};
