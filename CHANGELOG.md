@@ -10,6 +10,8 @@ Breaking changes are called out explicitly.
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-14
+
 ### Added
 
 - Contract `prediction` producers (#183): `<model>_prediction_by(source, group_col,

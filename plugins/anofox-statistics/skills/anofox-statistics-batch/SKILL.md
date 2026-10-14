@@ -25,13 +25,13 @@ description: >
   large panels. Use when the task is "fit one model per group" at scale, or
   "give me a coefficient / fit / residual / prediction table per group",
   rather than a single global fit.
-version: 0.10.0
+version: 0.11.0
 user-invocable: false
 ---
 
 # Anofox Statistics — Batch / Per-Group Fitting Cheat Sheet
 
-**Extension:** `anofox_statistics` v0.10.0 | **DuckDB:** v1.4.5 LTS / v1.5.x
+**Extension:** `anofox_statistics` v0.11.0 | **DuckDB:** v1.4.5 LTS / v1.5.x
 
 The extension's superpower for AI/analytics pipelines: **fit one model per group in a single SQL statement**, using DuckDB's `HASH_GROUP_BY` for parallelism — no Python loop, no per-group round-trips. Three patterns, from highest-level to lowest.
 
