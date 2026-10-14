@@ -28,7 +28,7 @@ user-invocable: false
 
 Fit functions return STRUCTs and LISTs. For charts, the `_by` table macros return **long tables with fixed columns** (one row per mark), the schemas of the anofox integration contract shared by anofox-statistics, anofox-forecast and the plotting extension anofox-visualization. Optional columns are always present (NULL when not computed) and the group column is kept.
 
-**Identifiers.** Macros that fit one of the extension's models (`_tidy_by`, `_glance_by`, `_augment_by`, `_partial_residuals_by`, `_rolling_tidy_by`, `_path_by`, `_cv_by`, `quantile_process_by`, `_prediction_by`, `_effects_by`) set `model_id` = `model_name` = the method (`'ols'`, `'poisson'`, …) and `id` = the group as VARCHAR. Macros whose groups are the things compared (`roc_curve_by`, `pr_curve_by`, `calibration_curve_by`, `acf_by`, `pacf_by`, `kaplan_meier_by`, `pairwise_t_test_by`, `tukey_hsd_by`, `dunn_test_by`) set `model_id` = the group value.
+**Identifiers.** Macros that fit one of the extension's models (`_tidy_by`, `_glance_by`, `_augment_by`, `_partial_residuals_by`, `_rolling_tidy_by`, `_path_by`, `_cv_by`, `quantile_process_by`, `_prediction_by`, `_effects_by`) return the group column, `id` (the group as VARCHAR), `model_id` and `model_name` (the method: `'ols'`, `'poisson'`, …), in that order, before the schema columns. `_augment_by` keeps all source columns and adds `model_id` / `model_name` but **no `id`** (a source column named `id` would collide). Macros whose groups are the things compared (`roc_curve_by`, `pr_curve_by`, `calibration_curve_by`, `acf_by`, `pacf_by`, `kaplan_meier_by`, `pairwise_t_test_by`, `tukey_hsd_by`, `dunn_test_by`) set `model_id` = the group value.
 
 ## Which table do I need?
 
@@ -53,13 +53,13 @@ Signatures of these macros are in the **anofox-statistics-batch** skill; the sou
 
 ## Schemas (columns after the group column)
 
-The model macros also carry `id` and `model_name` next to `model_id` (see **Identifiers** above).
+The model macros also carry `id` (not `_augment_by`) and `model_name` next to `model_id` (see **Identifiers** above).
 
 | Schema | Columns |
 |---|---|
 | `terms` | `model_id, term, estimate, std_error, statistic, p_value, conf_low, conf_high, conf_level, index_name, index_value` (rolling adds `window_end` before `term` and `n_window` at the end) |
 | `summary` | `model_id, model_type, metric, value` |
-| `obs` | all source columns + `model_id, row_id, fitted, residual, resid_type, std_residual, stud_residual, leverage, cooks_d, dffits, weight, is_training, n_params` |
+| `obs` | all source columns + `model_id, model_name, row_id, fitted, residual, resid_type, std_residual, stud_residual, leverage, cooks_d, dffits, weight, is_training, n_params` |
 | `prediction` | `id, model_id, model_name, x, y, yhat, yhat_lower, yhat_upper, level, split` (`effects_by` adds `focal` and `se_fit`) |
 | `curve` | `model_id, series, curve_type, x, y, y_low, y_high, threshold, weight, n_censor` (+ `n_risk, n_event, std_err` for KM; `lambda, cv_mean, cv_se, n_nonzero, is_min, is_1se, n_folds` for CV) |
 | `test` | `model_id, test_id, method, statistic, p_value, group1, group2, p_adj, df1, df2, estimate, conf_low, conf_high, conf_level, effect_size, effect_name, alternative, p_adjust_method` |

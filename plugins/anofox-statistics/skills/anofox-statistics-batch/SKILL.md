@@ -96,13 +96,13 @@ LIMIT 5;
 
 ## Pattern 1b — per-group long tables (`_tidy_by`, `_glance_by`, `_augment_by`, `_prediction_by`, …)
 
-When you want a **report table** per group instead of predictions, use the output macros. They share the `*_fit_predict_by` call shape (`source` is a table-name string, columns unquoted) and return long tables with fixed columns (the integration contract schemas — see **anofox-statistics-plotting**). Every table keeps the group column and adds `id` (the group as VARCHAR) and `model_id` = `model_name` = the method (`'ols'`, `'poisson'`, …), so tables of several models stack with `UNION ALL BY NAME`. (The curve and test macros below, whose groups are what is compared, set `model_id` to the group value instead.)
+When you want a **report table** per group instead of predictions, use the output macros. They share the `*_fit_predict_by` call shape (`source` is a table-name string, columns unquoted) and return long tables with fixed columns (the integration contract schemas — see **anofox-statistics-plotting**). Every table starts with the group column, `id` (the group as VARCHAR), `model_id` and `model_name` (the method: `'ols'`, `'poisson'`, …), so tables of several models stack with `UNION ALL BY NAME`. `_augment_by` is the exception: it keeps all source columns and adds `model_id` / `model_name` but no `id`. (The curve and test macros below, whose groups are what is compared, set `model_id` to the group value instead.)
 
 | Macro | Signature | Main columns (besides group, `id`, `model_id`, `model_name`) |
 |---|---|---|
 | `<model>_tidy_by` | `(source, group_col, y_col, x_cols [, weight_col \| event_col] [, options := …, names := […]])` | `term, estimate, std_error, statistic, p_value, conf_low, conf_high, conf_level, index_name, index_value` (one row per term, intercept first) |
 | `<model>_glance_by` | `(source, group_col, y_col, x_cols [, weight_col \| event_col] [, options := …])` | `model_type, metric, value` (one row per available fit statistic) |
-| `ols_augment_by`, `<glm>_augment_by` | `(source, group_col, y_col, x_cols [, options := …, split := …, order_by := …])` | all source columns + `row_id, fitted, residual, resid_type, std_residual, stud_residual, leverage, cooks_d, dffits, weight, is_training, n_params` |
+| `ols_augment_by`, `<glm>_augment_by` | `(source, group_col, y_col, x_cols [, options := …, split := …, order_by := …])` | all source columns + `model_id, model_name, row_id, fitted, residual, resid_type, std_residual, stud_residual, leverage, cooks_d, dffits, weight, is_training, n_params` |
 | `wls_augment_by` | `(source, group_col, y_col, x_cols, weight_col [, …])` | as above |
 | `<model>_partial_residuals_by` | `(source, group_col, y_col, x_cols [, weight_col] [, options := …, names := […], order_by := …])` | `row_id, term_index, term, x, partial_residual, component, x_residual, y_residual` |
 | `<model>_prediction_by` | `(source, group_col, x_col, y_col, x_cols [, weight_col] [, options := …, level := 0.95, split := …])` | `id, model_name, x, y, yhat, yhat_lower, yhat_upper, level, split` (`'train'` / `'test'` / `'future'`) |
@@ -120,7 +120,7 @@ Model coverage:
 
 Other per-group long tables: `acf_by` / `pacf_by(source, group_col, value_col, order_col[, max_lag := …])`, `kaplan_meier_by(source, strata_col, time_col, event_col[, conf_level := …, conf_type := …])`, `roc_curve_by` / `pr_curve_by` / `calibration_curve_by(source, group_col, y_true_col, score_col …)` (`curve` schema), and `pairwise_t_test_by` / `tukey_hsd_by` / `dunn_test_by(source, group_col, value_col, factor_col, options := NULL)` (`test` schema).
 
-`_tidy_by` computes inference by default (quantile: `'nid'` standard errors); your own `options := {…}` are applied on top of that default.
+`_tidy_by` and `_rolling_tidy_by` compute inference by default (quantile: `'nid'` standard errors), also when you pass other `options`; `{'compute_inference': false}` turns it off.
 
 ```sql
 -- Coefficient table and fit statistics per category
