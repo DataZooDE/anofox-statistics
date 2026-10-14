@@ -39,7 +39,7 @@ user-invocable: false
 3. **Every test returns the unified fields** (below), always present and NULL where they do not apply, after the test's own fields (`n1`, `n2`, `ss_between`, …). Read `(r).p_value`, `(r).estimate`, `(r).conf_low` the same way for every test.
 4. **Deprecated aliases.** `ci_lower` / `ci_upper` → `conf_low` / `conf_high`; `df` → `df1`; ANOVA `f_statistic` → `statistic`, `df_between` / `df_within` → `df1` / `df2`. They still work but are removed in the next minor release; write the new names.
 5. **Correlation has scalar + agg forms for some** (`spearman`, `icc` have both); most others are agg-only.
-6. **Group arguments are long format.** Two-sample tests take `t_test_agg(value, group)` with exactly two group labels (BIGINT or VARCHAR); `estimate` is the difference `group1 - group2`. The k-sample `one_way_anova_agg`, `kruskal_wallis_agg` and `brown_forsythe_agg` take an **INTEGER** group id only — map labels with `dense_rank() OVER (ORDER BY label)::INTEGER`. The post-hoc tests accept BIGINT or VARCHAR.
+6. **Group arguments are long format.** Two-sample tests take `t_test_agg(value, group)` with exactly two group labels (BIGINT or VARCHAR); `estimate` is the difference `group1 - group2`. The k-sample tests take `one_way_anova_agg(value DOUBLE, group BIGINT | VARCHAR)` (likewise `kruskal_wallis_agg`, `brown_forsythe_agg`), as do the post-hoc tests.
 7. **Order-sensitive aggregates need their own `ORDER BY`, after the constant arguments**: `ljung_box_agg(resid, 10 ORDER BY t)`, `durbin_watson_agg(resid, [x1, x2] ORDER BY t)`. In `ljung_box_agg(resid ORDER BY t, 10)` the 10 becomes a second sort key. Applies to `acf_agg`, `pacf_agg`, `ljung_box_agg`, `box_pierce_agg`, `durbin_watson_agg`.
 
 ## Unified result fields
@@ -206,7 +206,7 @@ FROM ab;
 CREATE TABLE trial AS SELECT 'site_' || (i % 2) AS site, chr((65 + i % 3)::INTEGER) AS arm,
     (i % 3) + sin(i) AS response FROM range(60) t(i);
 SELECT (r).statistic, (r).df1, (r).df2, (r).p_value, (r).effect_size, (r).effect_name
-FROM (SELECT one_way_anova_agg(response, (ascii(arm) - 64)::INTEGER) AS r FROM trial);
+FROM (SELECT one_way_anova_agg(response, arm) AS r FROM trial);
 SELECT unnest(tukey_hsd_agg(response, arm), recursive := true) FROM trial;
 -- Holm-adjusted pairwise t-tests per site, as a long table
 SELECT site, group1, group2, round(p_adj, 4) AS p_adj
