@@ -35,6 +35,8 @@ passed through and the prediction columns appended.
 | `quantile_process_by` | `quantile_process_agg` | one row per tau and term (`terms`), see [Quantile](../regression/quantile.md#quantile_process_agg) |
 | `<model>_partial_residuals_by` | `<model>_partial_residuals_agg` | one row per input row and term, see [Model tools](../regression/model_tools.md#partial_residuals_by) |
 | `roc_curve_by`, `pr_curve_by`, `calibration_curve_by` | `roc_agg`, `pr_agg`, `calibration_agg` | one row per curve point (`curve` schema, see [Classification](../statistics/classification.md)) |
+| `<model>_prediction_by` | `<model>_fit_predict_by` | one row per input row (`prediction` schema), see [Model tools](../regression/model_tools.md#prediction_by-and-effects_by) |
+| `<model>_effects_by` | `<model>_fit_agg` + `predict` | one row per grid point of the focal feature (`prediction` schema) |
 
 ## Common interface of the *_fit_predict_by macros
 

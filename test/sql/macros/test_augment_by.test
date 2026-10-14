@@ -185,11 +185,11 @@ ols	32	6.817528836	NULL	NULL	NULL	NULL	NULL	NULL	false	1.0
 wls	16	3.958489688	NULL	NULL	NULL	NULL	NULL	NULL	false	1.0
 wls	32	6.81867285	NULL	NULL	NULL	NULL	NULL	NULL	false	2.0
 
-# model_id, resid_type, n_params, is_training; OLS weight is 1, WLS weight is the prior weight
+# model_id = model_name = the method; resid_type, n_params, is_training per group; OLS weight is 1, WLS weight is the prior weight
 query IIIIIII
-SELECT model, model_id, any_value(resid_type), min(n_params), max(n_params), count(*) FILTER (WHERE is_training),
-    bool_and(CASE WHEN model = 'ols' THEN weight = 1.0 ELSE weight = w END)
-FROM aug GROUP BY model, model_id ORDER BY model, model_id
+SELECT model, g, any_value(resid_type), min(n_params), max(n_params), count(*) FILTER (WHERE is_training),
+    bool_and(CASE WHEN model = 'ols' THEN weight = 1.0 ELSE weight = w END) AND bool_and(model_id = model AND model_name = model)
+FROM aug GROUP BY model, g ORDER BY model, g
 ----
 ols	a	response	3	3	15	true
 ols	b	response	3	3	15	true
@@ -226,7 +226,7 @@ SELECT DISTINCT n_params FROM ols_augment_by('d', g, y, [x1, x2], options := {'f
 
 # Leverages of a fit sum to n_params (trace of the hat matrix)
 query II
-SELECT model_id, round(sum(leverage), 9) FROM ols_augment_by('d', g, y, [x1, x2], split := split) GROUP BY 1 ORDER BY 1
+SELECT g, round(sum(leverage), 9) FROM ols_augment_by('d', g, y, [x1, x2], split := split) GROUP BY 1 ORDER BY 1
 ----
 a	3.0
 b	3.0

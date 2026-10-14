@@ -1546,11 +1546,12 @@ For `ols`, `wls` (with `weight_col`), `ridge`, `elasticnet`, `huber`, `ransac`,
 `<model>_fit_agg` and return long tables in the anofox integration contract's
 `terms` and `summary` schemas:
 
-- `_tidy_by`: the group column, `model_id`, then `term, estimate, std_error,
+- `_tidy_by`: the group column, `id` (the group as text), `model_id` and `model_name` (the method, e.g. `'ols'`), then `term, estimate, std_error,
   statistic, p_value, conf_low, conf_high, conf_level, index_name,
-  index_value`, one row per term. Inference is computed by default (options
-  `{'compute_inference': true}`) for models that have it.
-- `_glance_by`: the group column, `model_id`, `model_type, metric, value`, one
+  index_value`, one row per term. Inference is computed by default for models
+  that have it (`compute_inference` is merged under the user's `options`, so
+  passing other options keeps it; `{'compute_inference': false}` turns it off).
+- `_glance_by`: the group column, `id` (the group as text), `model_id` and `model_name` (the method, e.g. `'ols'`), `model_type, metric, value`, one
   row per available numeric metric, so several models compare with a `UNION`.
 
 ```sql
@@ -1579,7 +1580,7 @@ with the integration contract's `obs` columns appended (tagged
 
 | Column | Type | Meaning |
 |--------|------|---------|
-| `model_id` | VARCHAR | `group_col` as text |
+| `model_id`, `model_name` | VARCHAR | the method (`'ols'`, `'poisson'`, ...); the group column is among the source columns |
 | `row_id` | BIGINT | source row number |
 | `fitted` | DOUBLE | fitted value; the prediction for non-training rows |
 | `residual` | DOUBLE | response residual `y - fitted` (GLMs: deviance residual) |

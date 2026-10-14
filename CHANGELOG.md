@@ -12,6 +12,11 @@ Breaking changes are called out explicitly.
 
 ### Added
 
+- Contract `prediction` producers (#183): `<model>_prediction_by(source, group_col,
+  x_col, y_col, x_cols, level := 0.95)` (19 models) returns fitted values with their
+  band as `prediction` rows (`id, model_id, model_name, x, y, yhat, yhat_lower,
+  yhat_upper, level, split`), aligned with anofox-forecast; `<model>_effects_by`
+  (OLS, WLS, Ridge, GLMs) returns marginal-effect grids with confidence bands.
 - Rolling coefficients (#177): `<model>_rolling_tidy_by(source, group_col,
   order_col, y_col, x_cols, window_size := 30, min_obs := NULL)` for `ols`, `wls`,
   `ridge`, `elasticnet`, `huber` and `poisson` returns the coefficients of every
@@ -196,6 +201,14 @@ Breaking changes are called out explicitly.
 
 ### Changed
 
+- **Breaking:** `model_id` in the model-fitting `_by` macros (`<model>_tidy_by`,
+  `_glance_by`, `_augment_by`, `_rolling_tidy_by`, `_partial_residuals_by`, the
+  path / CV / quantile-process macros) is now the method (`'ols'`, ...) instead of
+  the group value. A new `model_name` column holds the same, and a new `id` column
+  holds the group as text (except in `_augment_by`, which keeps the source
+  columns). Outputs of several methods now stack with `UNION ALL`, as
+  `_prediction_by` and anofox-forecast do. The test and curve macros keep the group
+  as `model_id`.
 - Hypothesis-test result structs gain the unified `test` fields (#159) after their
   existing fields; existing field names, positions and values are unchanged. Code that
   compares whole result structs with `=` now also compares the new fields (for TOST,
@@ -395,6 +408,8 @@ Breaking changes are called out explicitly.
 - `one_way_anova_agg`, `kruskal_wallis_agg` and `brown_forsythe_agg` accept any
   group label (integer or VARCHAR), as the two-sample and post-hoc tests do;
   they used to bind only INTEGER group ids (#186).
+- `<model>_tidy_by` / `_rolling_tidy_by` kept inference only while `options` was
+  omitted; `compute_inference` is now merged under the user's options.
 - `quantile_fit_agg` (and `quantile_fit_predict_agg`) now honours
   `fit_intercept = false` (previously ignored: it fitted with an intercept and
   dropped it).

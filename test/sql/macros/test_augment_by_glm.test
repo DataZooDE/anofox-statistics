@@ -454,9 +454,9 @@ WHERE a.row_id IN (21, 42);
 ----
 14	true	true	0	true
 
-# Alignment: every source row once per model, row_id in source order, model_id = group, source columns kept
+# Alignment: every source row once per model, row_id in source order, model_id = model_name = the method, source columns kept
 query IIIII
-SELECT model, count(*), count(*) FILTER (WHERE row_id <> id OR model_id <> g), min(n_params), max(n_params)
+SELECT model, count(*), count(*) FILTER (WHERE row_id <> id OR model_id <> split_part(model, '_', 1) OR model_name <> model_id), min(n_params), max(n_params)
 FROM aug GROUP BY model ORDER BY model;
 ----
 binomial	42	0	3	3
@@ -468,7 +468,7 @@ poisson_offset	42	0	2	2
 tweedie	42	0	3	3
 
 query III
-SELECT bool_and(resid_type = 'deviance'), bool_and(weight = 1.0), count(DISTINCT model_id)
+SELECT bool_and(resid_type = 'deviance'), bool_and(weight = 1.0), count(DISTINCT g)
 FROM aug;
 ----
 true	true	2

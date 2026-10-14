@@ -68,14 +68,30 @@ string FitCall(const ModelOutputModel &m) {
 	       ", options)";
 }
 
+//! The fit call of <model>_tidy_by: inference on by default (compute_inference := true merged under the
+//! user's options, which win), so passing other options does not drop the standard errors.
+string TidyFitCall(const ModelOutputModel &m) {
+	if (!m.inference) {
+		return FitCall(m);
+	}
+	return string(m.prefix) + "_fit_agg(y_col, x_cols" + (m.extra_col ? string(", ") + m.extra_col : string()) +
+	       ", map_concat(MAP {'compute_inference': 'true'}, coalesce(options::MAP(VARCHAR, VARCHAR), "
+	       "MAP {}::MAP(VARCHAR, VARCHAR))))";
+}
+
+//! model_id / model_name are the method and id the group (#183): the group column is kept as well.
+string ModelIds(const string &method) {
+	return "group_col::VARCHAR AS id, '" + method + "' AS model_id, '" + method + "' AS model_name";
+}
+
 string TidySql(const ModelOutputModel &m) {
-	return "SELECT group_col, model_id, (_t).term AS term, (_t).estimate AS estimate, (_t).std_error AS std_error, "
+	return "SELECT group_col, id, model_id, model_name, (_t).term AS term, (_t).estimate AS estimate, "
+	       "(_t).std_error AS std_error, "
 	       "(_t).statistic AS statistic, (_t).p_value AS p_value, (_t).conf_low AS conf_low, "
 	       "(_t).conf_high AS conf_high, (_t).conf_level AS conf_level, (_t).index_name AS index_name, "
 	       "(_t).index_value AS index_value "
-	       "FROM (SELECT group_col, group_col::VARCHAR AS model_id, unnest(tidy(_m, names)) AS _t "
 	       "FROM (SELECT group_col, " +
-	       FitCall(m) +
+	       ModelIds(m.prefix) + ", unnest(tidy(_m, names)) AS _t FROM (SELECT group_col, " + TidyFitCall(m) +
 	       " AS _m FROM query_table(source::VARCHAR) GROUP BY group_col)) "
 	       "ORDER BY group_col";
 }
@@ -87,14 +103,15 @@ string TidySql(const ModelOutputModel &m) {
 const char *const ROLLING_MODELS[] = {"ols", "wls", "ridge", "elasticnet", "huber", "poisson"};
 
 string RollingTidySql(const ModelOutputModel &m) {
-	return "SELECT group_col, model_id, window_end, (_t).term AS term, (_t).estimate AS estimate, "
+	return "SELECT group_col, id, model_id, model_name, window_end, (_t).term AS term, (_t).estimate AS estimate, "
 	       "(_t).std_error AS std_error, (_t).statistic AS statistic, (_t).p_value AS p_value, "
 	       "(_t).conf_low AS conf_low, (_t).conf_high AS conf_high, (_t).conf_level AS conf_level, "
 	       "'window_end' AS index_name, _pos::DOUBLE AS index_value, _n AS n_window "
-	       "FROM (SELECT group_col, group_col::VARCHAR AS model_id, window_end, _pos, _n, unnest(tidy(_m, names)) AS _t "
+	       "FROM (SELECT group_col, " +
+	       ModelIds(m.prefix) + ", window_end, _pos, _n, unnest(tidy(_m, names)) AS _t "
 	       "FROM (SELECT group_col, order_col AS window_end, "
 	       "row_number() OVER (PARTITION BY group_col ORDER BY order_col) AS _pos, count(*) OVER _w AS _n, " +
-	       FitCall(m) +
+	       TidyFitCall(m) +
 	       " OVER _w AS _m FROM query_table(source::VARCHAR) "
 	       "WINDOW _w AS (PARTITION BY group_col ORDER BY order_col ROWS BETWEEN window_size - 1 PRECEDING AND "
 	       "CURRENT ROW)) "
@@ -110,8 +127,9 @@ string GlanceSql(const ModelOutputModel &m) {
 		}
 		metrics += "{'metric': '" + string(metric) + "', 'value': (_g)." + metric + "::DOUBLE}";
 	}
-	return "SELECT group_col, model_id, model_type, (_mv).metric AS metric, (_mv).value AS value "
-	       "FROM (SELECT group_col, group_col::VARCHAR AS model_id, (_g).model_type AS model_type, unnest([" +
+	return "SELECT group_col, id, model_id, model_name, model_type, (_mv).metric AS metric, (_mv).value AS value "
+	       "FROM (SELECT group_col, " +
+	       ModelIds(m.prefix) + ", (_g).model_type AS model_type, unnest([" +
 	       metrics +
 	       "]) AS _mv FROM (SELECT group_col, glance(" + FitCall(m) +
 	       ") AS _g FROM query_table(source::VARCHAR) GROUP BY group_col)) "
@@ -187,24 +205,27 @@ struct PathMacro {
 	const char *agg;
 	const char *label;
 	bool curve;
+	//! The model, reported as model_id / model_name.
+	const char *method;
 };
 
 const PathMacro PATH_MACROS[] = {
-    {"ridge_path", "the ridge coefficient path (glmnet alpha = 0)", false},
-    {"elasticnet_path", "the elastic-net coefficient path (glmnet, l1_ratio = alpha)", false},
-    {"lars_path", "the LARS / Lasso-LARS coefficient path", false},
-    {"quantile_process", "the regression-quantile process (one quantile regression per tau, with inference)", false},
-    {"ridge_cv", "the k-fold cross-validation curve of the ridge path (cv.glmnet)", true},
-    {"elasticnet_cv", "the k-fold cross-validation curve of the elastic-net path (cv.glmnet)", true},
+    {"ridge_path", "the ridge coefficient path (glmnet alpha = 0)", false, "ridge"},
+    {"elasticnet_path", "the elastic-net coefficient path (glmnet, l1_ratio = alpha)", false, "elasticnet"},
+    {"lars_path", "the LARS / Lasso-LARS coefficient path", false, "lars"},
+    {"quantile_process", "the regression-quantile process (one quantile regression per tau, with inference)", false, "quantile"},
+    {"ridge_cv", "the k-fold cross-validation curve of the ridge path (cv.glmnet)", true, "ridge"},
+    {"elasticnet_cv", "the k-fold cross-validation curve of the elastic-net path (cv.glmnet)", true, "elasticnet"},
 };
 
 string PathSql(const PathMacro &m) {
-	string inner = "FROM (SELECT group_col, model_id, unnest(range(len(_l))) AS _i, unnest(_l) AS _t "
-	               "FROM (SELECT group_col, group_col::VARCHAR AS model_id, " +
+	string inner = "FROM (SELECT group_col, id, model_id, model_name, unnest(range(len(_l))) AS _i, unnest(_l) AS _t "
+	               "FROM (SELECT group_col, " +
+	               ModelIds(m.method) + ", " +
 	               string(m.agg) + "_agg(y_col, x_cols, options) AS _l FROM query_table(source::VARCHAR) "
 	                               "GROUP BY group_col)) ORDER BY group_col, _i";
 	if (m.curve) {
-		return "SELECT group_col, model_id, (_t).curve_type AS curve_type, NULL::VARCHAR AS series, (_t).x AS x, "
+		return "SELECT group_col, id, model_id, model_name, (_t).curve_type AS curve_type, NULL::VARCHAR AS series, (_t).x AS x, "
 		       "(_t).y AS y, (_t).y_low AS y_low, (_t).y_high AS y_high, (_t).threshold AS threshold, "
 		       "NULL::DOUBLE AS weight, NULL::BIGINT AS n_censor, (_t).lambda AS lambda, (_t).cv_mean AS cv_mean, "
 		       "(_t).cv_se AS cv_se, (_t).n_nonzero AS n_nonzero, (_t).is_min AS is_min, (_t).is_1se AS is_1se, "
@@ -212,7 +233,7 @@ string PathSql(const PathMacro &m) {
 		       inner;
 	}
 	// names := [...] relabels the default x1, x2, ... terms.
-	return "SELECT group_col, model_id, CASE WHEN names IS NULL OR (_t).term = '(Intercept)' THEN (_t).term "
+	return "SELECT group_col, id, model_id, model_name, CASE WHEN names IS NULL OR (_t).term = '(Intercept)' THEN (_t).term "
 	       "ELSE COALESCE((names::VARCHAR[])[TRY_CAST(substr((_t).term, 2) AS BIGINT)], (_t).term) END AS term, "
 	       "(_t).estimate AS estimate, (_t).std_error AS std_error, (_t).statistic AS statistic, "
 	       "(_t).p_value AS p_value, (_t).conf_low AS conf_low, (_t).conf_high AS conf_high, "
@@ -237,11 +258,12 @@ const PartialMacro PARTIAL_MACROS[] = {
 string PartialSql(const PartialMacro &m) {
 	const string frame = "OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED "
 	                     "PRECEDING AND UNBOUNDED FOLLOWING)";
-	return "SELECT group_col, model_id, row_id, (_t).term_index AS term_index, "
+	return "SELECT group_col, id, model_id, model_name, row_id, (_t).term_index AS term_index, "
 	       "COALESCE((names::VARCHAR[])[(_t).term_index], 'x' || (_t).term_index) AS term, (_t).x AS x, "
 	       "(_t).partial_residual AS partial_residual, (_t).component AS component, "
 	       "(_t).x_residual AS x_residual, (_t).y_residual AS y_residual "
-	       "FROM (SELECT group_col, group_col::VARCHAR AS model_id, _anofox_rid AS row_id, unnest(_pr[_rn]) AS _t "
+	       "FROM (SELECT group_col, " +
+	       ModelIds(m.prefix) + ", _anofox_rid AS row_id, unnest(_pr[_rn]) AS _t "
 	       "FROM (SELECT group_col, _anofox_rid, ROW_NUMBER() " +
 	       frame + " AS _rn, " + m.prefix + "_partial_residuals_agg(y_col, x_cols, " +
 	       (m.weighted ? "weight_col, " : "") + "options) " + frame +
@@ -392,12 +414,12 @@ void RegisterModelOutputMacros(ExtensionLoader &loader) {
 
 		auto tidy = CreateTableMacro(
 		    prefix + "_tidy_by", params,
-		    {{"options", m.inference ? "{'compute_inference': true}" : "NULL"}, {"names", "NULL"}}, TidySql(m),
+		    {{"options", "NULL"}, {"names", "NULL"}}, TidySql(m),
 		    "Table macro: fits " + string(m.label) +
-		        " per group of source and returns one row per term (intercept first): the group column, model_id, "
+		        " per group of source and returns one row per term (intercept first): the group column, id (the group), model_id and model_name (the method), "
 		        "term, estimate, std_error, statistic, p_value, conf_low, conf_high, conf_level, index_name, "
 		        "index_value. " +
-		        (m.inference ? "Inference is computed by default. " : "The model has no coefficient inference. ") +
+		        (m.inference ? "Inference is computed by default (compute_inference is merged under options). " : "The model has no coefficient inference. ") +
 		        "names := [...] labels the terms.",
 		    prefix + "_tidy_by(" + args + ", names := ['x1', 'x2'])");
 		loader.RegisterFunction(*tidy);
@@ -406,7 +428,7 @@ void RegisterModelOutputMacros(ExtensionLoader &loader) {
 		    prefix + "_glance_by", params, {{"options", "NULL"}}, GlanceSql(m),
 		    "Table macro: fits " + string(m.label) +
 		        " per group of source and returns its fit statistics in long form, one row per available metric: "
-		        "the group column, model_id, model_type, metric, value.",
+		        "the group column, id (the group), model_id and model_name (the method), model_type, metric, value.",
 		    prefix + "_glance_by(" + args + ")");
 		loader.RegisterFunction(*glance);
 
@@ -423,13 +445,13 @@ void RegisterModelOutputMacros(ExtensionLoader &loader) {
 			    prefix + "_rolling_tidy_by", rparams,
 			    {{"window_size", "30"},
 			     {"min_obs", "NULL"},
-			     {"options", m.inference ? "{'compute_inference': true}" : "NULL"},
+			     {"options", "NULL"},
 			     {"names", "NULL"}},
 			    RollingTidySql(m),
 			    "Table macro: fits " + string(m.label) +
 			        " over a trailing window of window_size rows (ordered by order_col) within each group of source "
 			        "and returns the coefficients of every window as `terms` rows (integration contract): the group "
-			        "column, model_id, window_end (order_col of the window's last row), term, estimate, std_error, "
+			        "column, id (the group), model_id and model_name (the method), window_end (order_col of the window's last row), term, estimate, std_error, "
 			        "statistic, p_value, conf_low, conf_high, conf_level, index_name ('window_end'), index_value (the "
 			        "window's 1-based end position in its group) and n_window. Windows with fewer than min_obs rows "
 			        "(default window_size) are skipped.",
@@ -448,10 +470,10 @@ void RegisterPathMacros(ExtensionLoader &loader) {
 		    "Table macro: computes " + string(m.label) + " per group of source with " + m.agg +
 		    "_agg (same options) and returns " +
 		    (m.curve ? string("one row per lambda in the integration contract's `curve` schema: the group column, "
-		                      "model_id, curve_type ('lambda_cv'), series, x (lambda), y (cv_mean), y_low, y_high "
+		                      "id (the group), model_id and model_name (the method), curve_type ('lambda_cv'), series, x (lambda), y (cv_mean), y_low, y_high "
 		                      "(cv_mean -/+ cv_se), threshold, weight, n_censor, lambda, cv_mean, cv_se, n_nonzero, "
 		                      "is_min, is_1se, n_folds.")
-		             : string("one row per index value and term in the `terms` schema: the group column, model_id, "
+		             : string("one row per index value and term in the `terms` schema: the group column, id (the group), model_id and model_name (the method), "
 		                      "term, estimate, std_error, statistic, p_value, conf_low, conf_high, conf_level, "
 		                      "index_name ('") +
 		                   (string(m.agg) == "quantile_process" ? "tau" : string(m.agg) == "lars_path" ? "alpha" : "lambda") +
@@ -476,7 +498,7 @@ void RegisterPathMacros(ExtensionLoader &loader) {
 		    "Table macro: fits " + string(m.label) +
 		        " per group of source and returns one row per input row and fitted term with partial-residual "
 		        "(component-plus-residual, car::crPlots) and added-variable (car::avPlots) coordinates: the group "
-		        "column, model_id, row_id, term_index, term, x, partial_residual (= " +
+		        "column, id (the group), model_id and model_name (the method), row_id, term_index, term, x, partial_residual (= " +
 		        (linear ? "residual" : "working residual") +
 		        " + component), component (b_j (x_j - mean(x_j))), x_residual, y_residual (" +
 		        (linear ? "x_j and y residualised on the other columns" : "NULL for GLMs") +
@@ -484,6 +506,13 @@ void RegisterPathMacros(ExtensionLoader &loader) {
 		    name + "('my_table', group_col, y, [x1, x2]" + (m.weighted ? ", w" : "") + ")");
 		loader.RegisterFunction(*macro);
 	}
+}
+
+unique_ptr<CreateMacroInfo> CreateContractTableMacro(const string &name, const vector<string> &parameters,
+                                                     const vector<pair<string, string>> &named_parameters,
+                                                     const string &sql, const string &description,
+                                                     const string &example, const vector<string> &categories) {
+	return CreateTableMacro(name, parameters, named_parameters, sql, description, example, categories);
 }
 
 } // namespace duckdb

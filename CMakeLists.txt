@@ -242,6 +242,7 @@ set(EXTENSION_SOURCES
     src/window_functions/elasticnet_fit_predict.cpp
     src/macros/fit_predict_macros.cpp
     src/macros/model_output_macros.cpp
+    src/macros/prediction_macros.cpp
 )
 
 # Build static extension
