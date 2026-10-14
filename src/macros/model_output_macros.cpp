@@ -80,6 +80,28 @@ string TidySql(const ModelOutputModel &m) {
 	       "ORDER BY group_col";
 }
 
+// Rolling coefficients (#177): <model>_fit_agg over a trailing window of
+// window_size rows per group, as `terms` rows with index_name 'window_end'.
+// index_value is the 1-based position of the window's last row in its group
+// (DOUBLE in the contract); window_end carries the order value itself.
+const char *const ROLLING_MODELS[] = {"ols", "wls", "ridge", "elasticnet", "huber", "poisson"};
+
+string RollingTidySql(const ModelOutputModel &m) {
+	return "SELECT group_col, model_id, window_end, (_t).term AS term, (_t).estimate AS estimate, "
+	       "(_t).std_error AS std_error, (_t).statistic AS statistic, (_t).p_value AS p_value, "
+	       "(_t).conf_low AS conf_low, (_t).conf_high AS conf_high, (_t).conf_level AS conf_level, "
+	       "'window_end' AS index_name, _pos::DOUBLE AS index_value, _n AS n_window "
+	       "FROM (SELECT group_col, group_col::VARCHAR AS model_id, window_end, _pos, _n, unnest(tidy(_m, names)) AS _t "
+	       "FROM (SELECT group_col, order_col AS window_end, "
+	       "row_number() OVER (PARTITION BY group_col ORDER BY order_col) AS _pos, count(*) OVER _w AS _n, " +
+	       FitCall(m) +
+	       " OVER _w AS _m FROM query_table(source::VARCHAR) "
+	       "WINDOW _w AS (PARTITION BY group_col ORDER BY order_col ROWS BETWEEN window_size - 1 PRECEDING AND "
+	       "CURRENT ROW)) "
+	       "WHERE _n >= coalesce(min_obs, window_size)) "
+	       "ORDER BY group_col, window_end";
+}
+
 string GlanceSql(const ModelOutputModel &m) {
 	string metrics;
 	for (auto metric : GLANCE_METRICS) {
@@ -387,6 +409,35 @@ void RegisterModelOutputMacros(ExtensionLoader &loader) {
 		        "the group column, model_id, model_type, metric, value.",
 		    prefix + "_glance_by(" + args + ")");
 		loader.RegisterFunction(*glance);
+
+		bool rolling = false;
+		for (auto r : ROLLING_MODELS) {
+			rolling = rolling || prefix == r;
+		}
+		if (rolling) {
+			vector<string> rparams = {"source", "group_col", "order_col", "y_col", "x_cols"};
+			if (m.extra_col) {
+				rparams.push_back(m.extra_col);
+			}
+			auto roll = CreateTableMacro(
+			    prefix + "_rolling_tidy_by", rparams,
+			    {{"window_size", "30"},
+			     {"min_obs", "NULL"},
+			     {"options", m.inference ? "{'compute_inference': true}" : "NULL"},
+			     {"names", "NULL"}},
+			    RollingTidySql(m),
+			    "Table macro: fits " + string(m.label) +
+			        " over a trailing window of window_size rows (ordered by order_col) within each group of source "
+			        "and returns the coefficients of every window as `terms` rows (integration contract): the group "
+			        "column, model_id, window_end (order_col of the window's last row), term, estimate, std_error, "
+			        "statistic, p_value, conf_low, conf_high, conf_level, index_name ('window_end'), index_value (the "
+			        "window's 1-based end position in its group) and n_window. Windows with fewer than min_obs rows "
+			        "(default window_size) are skipped.",
+			    prefix + "_rolling_tidy_by('my_table', group_col, t, y, [x1, x2]" +
+			        (!m.extra_col ? "" : string(m.extra_col) == "weight_col" ? ", w" : ", event") +
+			        ", window_size := 24)");
+			loader.RegisterFunction(*roll);
+		}
 	}
 }
 

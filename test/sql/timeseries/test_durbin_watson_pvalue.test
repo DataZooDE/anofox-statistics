@@ -1,0 +1,100 @@
+# name: test/sql/timeseries/test_durbin_watson_pvalue.test
+# description: durbin_watson_agg(resid, x ...) with the lmtest::dwtest p-value (#177)
+# group: [timeseries]
+
+require anofox_statistics
+
+# Reference: validation/generators/make_reference_dwtest.R (R lmtest::dwtest).
+statement ok
+CREATE TABLE d AS
+SELECT i AS t,
+       sin(i / 3.0) + (i % 5) / 10.0 AS x1,
+       1 + 0.5 * (sin(i / 3.0) + (i % 5) / 10.0) + 0.02 * i
+         + sum((((i * 7) % 11) - 5) / 20.0) OVER (ORDER BY i ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS y,
+       1 + 0.5 * (sin(i / 3.0) + (i % 5) / 10.0) + (((i * 7) % 11) - 5) / 20.0 AS y2
+FROM range(0, 40) r(i);
+
+# OLS residuals of y ~ x1 + t, y2 ~ x1, y ~ 1 and y ~ x1 - 1
+statement ok
+CREATE TABLE r AS
+WITH m AS (SELECT ols_fit_agg(y, [x1, t::DOUBLE]) AS a, ols_fit_agg(y2, [x1]) AS b,
+                  ols_fit_agg(y, [x1], {'fit_intercept': false}) AS c FROM d)
+SELECT t, x1, t::DOUBLE AS tt,
+       y - (m.a.intercept + m.a.coefficients[1] * x1 + m.a.coefficients[2] * t) AS e_a,
+       y2 - (m.b.intercept + m.b.coefficients[1] * x1) AS e_b,
+       y - avg(y) OVER () AS e_1,
+       y - m.c.coefficients[1] * x1 AS e_c
+FROM d, m;
+
+# y ~ x1 + t, the three alternatives
+query III
+SELECT abs(s.statistic - 1.59733972613197) < 1e-8, abs(s.p_value - 0.0514601804779217) < 1e-6, s.method
+FROM (SELECT durbin_watson_agg(e_a, [x1, tt] ORDER BY t) AS s FROM r);
+----
+true	true	Durbin-Watson test
+
+query I
+SELECT abs((durbin_watson_agg(e_a, [x1, tt], 'less' ORDER BY t)).p_value - 0.948539819522078) < 1e-6 FROM r;
+----
+true
+
+query I
+SELECT abs((durbin_watson_agg(e_a, [x1, tt], 'two_sided' ORDER BY t)).p_value - 0.102920360955843) < 1e-6 FROM r;
+----
+true
+
+# y2 ~ x1 (negative autocorrelation side)
+query II
+SELECT abs(s.statistic - 2.70918774560085) < 1e-8, abs(s.p_value - 0.985352107156262) < 1e-6
+FROM (SELECT durbin_watson_agg(e_b, [x1] ORDER BY t) AS s FROM r);
+----
+true	true
+
+# Intercept-only model: empty x
+query II
+SELECT abs(s.statistic - 0.339546958721023) < 1e-8, abs(s.p_value - 2.65394544568276e-12) < 1e-10
+FROM (SELECT durbin_watson_agg(e_1, []::DOUBLE[] ORDER BY t) AS s FROM r);
+----
+true	true
+
+# No intercept: y ~ x1 - 1. R: p = 2.4e-35; the exact p-value is accurate to an
+# absolute ~1e-11 (Imhof integration), so a tiny p is checked in absolute terms.
+query II
+SELECT abs(s.statistic - 0.0227781878245041) < 1e-8, s.p_value < 1e-10
+FROM (SELECT durbin_watson_agg(e_c, [x1], 'greater', false ORDER BY t) AS s FROM r);
+----
+true	true
+
+# n >= 100: normal approximation
+statement ok
+CREATE TABLE da AS
+SELECT j AS t, cos(j / 7.0) AS xa,
+       2 + cos(j / 7.0) + sum((((j * 5) % 13) - 6) / 30.0) OVER (ORDER BY j ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS ya
+FROM range(0, 150) r(j);
+
+query II
+WITH m AS (SELECT ols_fit_agg(ya, [xa]) AS f FROM da)
+SELECT abs(s.statistic - 1.72568426016038) < 1e-8, abs(s.p_value - 0.0380677573580991) < 1e-6
+FROM (SELECT durbin_watson_agg(ya - (m.f.intercept + m.f.coefficients[1] * xa), [xa] ORDER BY t) AS s FROM da, m);
+----
+true	true
+
+# The statistic equals the residual-only form, whose p_value stays NULL
+query II
+SELECT abs((durbin_watson_agg(e_a, [x1, tt] ORDER BY t)).statistic - (durbin_watson_agg(e_a ORDER BY t)).statistic) < 1e-12,
+       (durbin_watson_agg(e_a ORDER BY t)).p_value IS NULL
+FROM r;
+----
+true	true
+
+# Order matters: ORDER BY is honoured (DW is reversal-invariant, so shuffle instead)
+query I
+SELECT abs((durbin_watson_agg(e_a, [x1, tt] ORDER BY t)).statistic - (durbin_watson_agg(e_a, [x1, tt] ORDER BY (t * 17) % 41)).statistic) > 1e-3
+FROM r;
+----
+true
+
+statement error
+SELECT durbin_watson_agg(e_a, [x1, tt], 'sideways' ORDER BY t) FROM r;
+----
+invalid alternative
