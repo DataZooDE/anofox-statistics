@@ -194,8 +194,8 @@ One entry per term, in the style of R's `broom::tidy`:
   come from the model's inference fields (`std_errors`, `t_values` /
   `z_values`, `p_values`, `conf_low`, `conf_high`; for the intercept its
   `intercept_*` fields). They are NULL when the model has no inference, for
-  example a fit without `compute_inference`, or PLS, Quantile and LARS, which
-  do not compute it.
+  example a fit without `compute_inference`, or PLS and LARS, which do not
+  compute it (Quantile computes it with its `se` option).
 - `conf_level` is the confidence level of the interval; `index_name` and
   `index_value` identify a point on a coefficient path or process (lambda,
   tau, ...) and are NULL for a single fit.
