@@ -10,6 +10,38 @@ Breaking changes are called out explicitly.
 
 ## [Unreleased]
 
+### Added
+
+- `<model>_effects_by` returns `focal_name VARCHAR` (last column), the name of the
+  focal feature, for labelling marginal-effect plots (#197). It is `names[focal]`
+  with the new `names := [...]` parameter (as `<model>_tidy_by`), else
+  `'x' || focal` (`x1`, `x2`, …), the same labels as the default `_tidy_by` terms.
+  `focal` (the 1-based index) is unchanged.
+- `pairwise_t_test_agg` / `pairwise_t_test_by` fill `conf_low`, `conf_high` and
+  `conf_level` for each difference (#198). The interval uses the same standard error
+  and degrees of freedom as the t test (pooled SD or Welch) and is one-sided for a
+  one-sided `alternative`. It is per comparison with `p_adjust` `'none'`, and
+  Bonferroni-adjusted otherwise, as `emmeans::confint(pairs(...), adjust = )`.
+  New option `confidence_level` (default 0.95). Validated against `emmeans` and
+  `t.test` (anofox-statistics 0.4.10).
+
+### Changed
+
+- **Behaviour change:** `prop_test_two_agg`'s `estimate` is now the difference of
+  proportions p₁ − p₂, the quantity that its confidence interval, statistic and
+  p-value are for (#195). It used to be p₁, the proportion of group 1
+  (`group_id = 0`), which could lie outside its own interval. To get p₁, compute it
+  directly, e.g. `avg(value) FILTER (WHERE group_id = 0)`. The other fields are
+  unchanged.
+
+### Fixed
+
+- `lars_fit_agg` and `lars_glance_by` reported `log_likelihood`, `aic` and
+  `bic` as 0, so LARS looked like the best model by AIC/BIC (#196). They are now the
+  Gaussian log-likelihood and information criteria with the LARS degrees of
+  freedom (active coefficients plus intercept), equal to R's `lm` on the full LARS
+  path (anofox-regression 0.5.27).
+
 ## [0.11.0] - 2026-10-14
 
 ### Added

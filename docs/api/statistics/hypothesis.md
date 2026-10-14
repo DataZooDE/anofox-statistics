@@ -319,7 +319,8 @@ clark_west_agg(actual DOUBLE, forecast1 DOUBLE, forecast2 DOUBLE) -> STRUCT
 ## Pairwise Post-hoc Tests
 
 `pairwise_t_test_agg(value, group [, options])` (R `pairwise.t.test`; options
-`p_adjust` default `'holm'`, `pool_sd` default true, `alternative`),
+`p_adjust` default `'holm'`, `pool_sd` default true, `alternative`,
+`confidence_level` default 0.95),
 `tukey_hsd_agg(value, group [, options])` (R `TukeyHSD(aov(...))`; option
 `confidence_level`) and `dunn_test_agg(value, group [, options])` (`FSA::dunnTest`;
 option `p_adjust`) compare every pair of groups. Each returns
@@ -327,6 +328,18 @@ option `p_adjust`) compare every pair of groups. Each returns
 method, df1, alternative, conf_level, p_adjust_method))` with `estimate = group2 -
 group1`. `p_adjust` accepts R's `p.adjust` methods: holm, hochberg, hommel,
 bonferroni, BH (fdr), BY, none.
+
+`pairwise_t_test_agg` fills `conf_low` / `conf_high` with the confidence interval of
+each difference, from the same standard error and degrees of freedom as its t test
+(pooled SD with N − k df when `pool_sd`, Welch otherwise); one-sided intervals
+(`±inf`) for a one-sided `alternative`. With `p_adjust` `'none'` it is the
+per-comparison interval at `confidence_level`. With any other adjustment it is the
+Bonferroni simultaneous interval at `1 − (1 − confidence_level) / m` for the m pairs,
+as `emmeans::confint(pairs(...), adjust = )`, which also uses Bonferroni for
+step-wise and FDR methods. `conf_level` is the family-wise level `confidence_level`.
+R's `pairwise.t.test` has no intervals; the pooled-SD values equal
+`confint(pairs(emmeans(lm(value ~ group), ~ group), reverse = TRUE), adjust = )`.
+`dunn_test_agg` has no interval.
 
 ```sql
 SELECT unnest(tukey_hsd_agg(value, grp), recursive := true)
@@ -343,7 +356,8 @@ FROM (VALUES ('A', 4.2), ('A', 5.1), ('A', 4.8), ('B', 6.3), ('B', 6.9), ('B', 7
 ```sql
 CREATE TABLE trial AS SELECT 'site_' || (i % 2) AS site, chr((65 + i % 3)::INTEGER) AS arm,
     (i % 3) + sin(i) AS response FROM range(60) t(i);
-SELECT site, group1, group2, p_adj FROM pairwise_t_test_by('trial', site, response, arm);
+SELECT site, group1, group2, p_adj, estimate, conf_low, conf_high
+FROM pairwise_t_test_by('trial', site, response, arm);
 ```
 
 ## See Also

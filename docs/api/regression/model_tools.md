@@ -317,12 +317,16 @@ It exists for `ols`, `wls`, `ridge`, `elasticnet`, `huber`, `ransac`,
 PLS, quantile and isotonic have no band. For isotonic there is no `x_cols`:
 `x_col` is the one feature.
 
-`<model>_effects_by(source, group_col, y_col, x_cols [, weight_col] [, focal := 1, n_points := 50, at_values := NULL, options := ..., level := 0.95])`
+`<model>_effects_by(source, group_col, y_col, x_cols [, weight_col] [, focal := 1, n_points := 50, at_values := NULL, options := ..., level := 0.95, names := [...]])`
 is a marginal-effect (effect-plot) grid:
 - the fitted mean over `n_points` values spanning the range of feature `focal`, its 1-based position in `x_cols`;
 - the other features held at their means over the fitted rows, or at `at_values`, one value per feature;
 - a confidence band from `predict(model, x, {'interval': 'confidence', 'level': level})`, on the response scale for GLMs;
-- `y` and `split` are NULL, `focal` and `se_fit` are added.
+- `y` and `split` are NULL, `focal` and `se_fit` are added;
+- `focal_name` (VARCHAR, last column) names the focal feature: `names[focal]` when
+  `names := [...]` is given, else `'x' || focal` (`x1`, `x2`, …), the same labels as
+  the terms of `<model>_tidy_by`. A table macro cannot see the expressions in
+  `x_cols`, so pass `names` to get the column names.
 
 It exists for the models whose `predict` gives standard errors: `ols`, `wls`,
 `ridge` and the GLMs.
@@ -334,8 +338,9 @@ SELECT * FROM ols_prediction_by('mt_demo', grp, id, y, [x1, x2], level := 0.9) L
 
 ```sql
 -- How the expected count changes with x1, other features at their means
-SELECT x, yhat, yhat_lower, yhat_upper
-FROM poisson_effects_by('mt_demo', grp, y_count, [x1, x2], focal := 1, n_points := 5)
+SELECT focal_name, x, yhat, yhat_lower, yhat_upper
+FROM poisson_effects_by('mt_demo', grp, y_count, [x1, x2], focal := 1, n_points := 5,
+                        names := ['x1', 'x2'])
 WHERE grp = 'A';
 ```
 

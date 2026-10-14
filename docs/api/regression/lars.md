@@ -71,6 +71,8 @@ inference output.
 | `residual_std_error` | `DOUBLE` | Residual standard error sqrt(RSS / (n - df)); NULL when n <= df |
 | `n_observations` | `BIGINT` | Rows used in the fit |
 | `n_features` | `BIGINT` | Number of features |
+| `log_likelihood` | `DOUBLE` | Gaussian log-likelihood at the ML variance RSS / n (R `logLik.lm`); NULL for a perfect fit or an intercept-only fit |
+| `aic`, `bic` | `DOUBLE` | AIC and BIC with k = df + 1 (the residual variance counts), as R `AIC` / `BIC` of `lm` on the active set |
 
 ## NULL handling
 
