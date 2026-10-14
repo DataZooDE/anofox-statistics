@@ -12,6 +12,14 @@ Breaking changes are called out explicitly.
 
 ### Added
 
+- Rolling coefficients (#177): `<model>_rolling_tidy_by(source, group_col,
+  order_col, y_col, x_cols, window_size := 30, min_obs := NULL)` for `ols`, `wls`,
+  `ridge`, `elasticnet`, `huber` and `poisson` returns the coefficients of every
+  trailing window as contract `terms` rows (`index_name = 'window_end'`).
+- Durbin-Watson p-value (#177): `durbin_watson_agg(resid, x [, alternative [,
+  fit_intercept]] ORDER BY t)` returns the `lmtest::dwtest` p-value (exact via
+  Imhof for n < 100, else the normal approximation; anofox-statistics 0.4.9).
+  The residual-only form keeps its NULL p-value. Validated against R.
 - Regularisation paths and cross-validation (#154): `ridge_path_agg`,
   `elasticnet_path_agg` and `lars_path_agg` return the coefficient path as
   `terms` rows (`index_name = 'lambda'`; `'alpha'` on upstream's LARS scale for

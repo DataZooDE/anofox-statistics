@@ -9527,6 +9527,45 @@ pub unsafe extern "C" fn anofox_breusch_pagan(
     })
 }
 
+/// Durbin-Watson test with a p-value (R `lmtest::dwtest`) of `residuals` in
+/// time order against the regressors `x` (intercept prepended when
+/// `fit_intercept`). `exact`: -1 = R's default (exact for n < 100), 0 = normal
+/// approximation, 1 = exact.
+///
+/// # Safety
+/// As `anofox_breusch_pagan`.
+#[no_mangle]
+pub unsafe extern "C" fn anofox_durbin_watson_test(
+    residuals: DataArray,
+    x: *const DataArray,
+    x_count: usize,
+    fit_intercept: bool,
+    alternative: AlternativeFFI,
+    exact: i32,
+    out_result: *mut TestSummaryFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    ffi_guard(out_error, false, || {
+        reset_error(out_error);
+        if !check_out(out_result, out_error) {
+            return false;
+        }
+        let exact = match exact {
+            0 => Some(false),
+            1 => Some(true),
+            _ => None,
+        };
+        let r = anofox_stats_core::tests::timeseries::durbin_watson_test(
+            &residuals.to_vec(),
+            &columns(x, x_count),
+            fit_intercept,
+            alternative.into(),
+            exact,
+        );
+        write_summary(r, out_result, out_error)
+    })
+}
+
 /// White's test of `residuals` against `x`, its squares and cross-products.
 ///
 /// # Safety

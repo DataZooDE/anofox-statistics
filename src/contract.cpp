@@ -64,6 +64,8 @@ static const struct {
     {"breusch_pagan_agg", "test"}, {"white_test_agg", "test"}, {"log_rank_test_agg", "test"},
     {"acf_by", "curve"}, {"pacf_by", "curve"}, {"kaplan_meier_by", "curve"},
     {"roc_curve_by", "curve"}, {"pr_curve_by", "curve"}, {"calibration_curve_by", "curve"},
+    {"ols_rolling_tidy_by", "terms"}, {"wls_rolling_tidy_by", "terms"}, {"ridge_rolling_tidy_by", "terms"},
+    {"elasticnet_rolling_tidy_by", "terms"}, {"huber_rolling_tidy_by", "terms"}, {"poisson_rolling_tidy_by", "terms"},
     {nullptr, nullptr}
 };
 // clang-format on

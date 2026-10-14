@@ -3048,6 +3048,11 @@ bool anofox_breusch_pagan(AnofoxDataArray residuals, const AnofoxDataArray *x, s
 bool anofox_white_test(AnofoxDataArray residuals, const AnofoxDataArray *x, size_t x_count,
                        AnofoxTestSummaryFFI *out_result, AnofoxError *out_error);
 
+/** Durbin-Watson test with p-value (R lmtest::dwtest); intercept prepended when fit_intercept; exact -1 = default (n < 100), 0 = approximation, 1 = exact. */
+bool anofox_durbin_watson_test(AnofoxDataArray residuals, const AnofoxDataArray *x, size_t x_count, bool fit_intercept,
+                               AnofoxAlternative alternative, int32_t exact, AnofoxTestSummaryFFI *out_result,
+                               AnofoxError *out_error);
+
 /* ============================================================================
  * Survival curves -- issue #156
  * ============================================================================ */

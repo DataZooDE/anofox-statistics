@@ -13,7 +13,7 @@ fits): residual autocorrelation and heteroskedasticity. Results match R's
 | `acf_by`, `pacf_by` | Table macro | One ACF / PACF curve per group (`curve` schema) | |
 | `ljung_box_agg` | Aggregate | Ljung-Box portmanteau test | `Box.test(x, lag, "Ljung-Box", fitdf)` |
 | `box_pierce_agg` | Aggregate | Box-Pierce portmanteau test | `Box.test(x, lag, "Box-Pierce", fitdf)` |
-| `durbin_watson_agg` | Aggregate | Durbin-Watson statistic | `lmtest::dwtest(fit)$statistic` |
+| `durbin_watson_agg` | Aggregate | Durbin-Watson test (statistic; with `x`, the p-value) | `lmtest::dwtest(fit)` |
 | `breusch_pagan_agg` | Aggregate | Breusch-Pagan heteroskedasticity test | `lmtest::bptest(fit)` |
 | `white_test_agg` | Aggregate | White's heteroskedasticity test | `bptest(fit, ~ x1 * x2 + I(x1^2) + I(x2^2))` |
 
@@ -27,8 +27,8 @@ the 12 would be a second sort key). Without it DuckDB may feed the rows in any o
 the remaining rows. Empty input, or a series no longer than the requested lag,
 gives NULL. Constant or all-zero residuals give NULL values rather than an error.
 
-**Constant arguments.** `max_lag`, `lag`, `fitdf` and `studentize` must be
-constants.
+**Constant arguments.** `max_lag`, `lag`, `fitdf`, `studentize`, `alternative` and
+`fit_intercept` must be constants.
 
 The tests return the unified test fields (`method, alternative, statistic, df1,
 df2, p_value, estimate, conf_low, conf_high, conf_level, effect_size,
@@ -105,16 +105,30 @@ FROM fit_resid GROUP BY store ORDER BY store;
 
 ```sql skip
 durbin_watson_agg(resid DOUBLE ORDER BY t) -> STRUCT(<unified test fields>)
+durbin_watson_agg(resid DOUBLE, x DOUBLE[] [, alternative VARCHAR [, fit_intercept BOOLEAN]] ORDER BY t)
+    -> STRUCT(<unified test fields>)
 ```
 
 `statistic = sum (e_t - e_{t-1})^2 / sum e_t^2`, between 0 and 4; values near 2
 mean no first-order autocorrelation, values well below 2 positive autocorrelation.
-`p_value` is NULL: the exact `dwtest` p-value needs the regression's design
-matrix, which the residuals alone do not carry. Use `ljung_box_agg(resid, 1 ORDER BY t)`
-for a p-value.
+
+The null distribution depends on the regression's design matrix, so the
+p-value needs the regressors: pass the model's `x` (the same columns as the fit;
+an intercept column is added unless `fit_intercept` is false, and `[]::DOUBLE[]`
+is an intercept-only model). The p-value is that of R `lmtest::dwtest`: exact for
+n < 100 (computed with Imhof's method), otherwise the normal approximation.
+`alternative` is `'greater'` (default, positive autocorrelation), `'less'` or
+`'two_sided'`. With the residuals alone, `p_value` is NULL.
+
+R's exact method (a 15-term series) can fail for some designs, and `dwtest` then
+falls back to the normal approximation; the extension returns the exact
+p-value in those cases, so it can differ from R there. The exact p-value is
+computed to an absolute accuracy of about 1e-11, so p-values smaller than that
+are reliable only as "below 1e-11".
 
 ```sql
-SELECT store, (durbin_watson_agg(resid ORDER BY t)).statistic AS dw
+SELECT store, (durbin_watson_agg(resid ORDER BY t)).statistic AS dw,
+       (durbin_watson_agg(resid, [x1, x2] ORDER BY t)).p_value AS p_value
 FROM fit_resid GROUP BY store ORDER BY store;
 ```
 

@@ -85,6 +85,31 @@ pub fn durbin_watson(residuals: &[f64]) -> StatsResult<UnifiedTestResult> {
     Ok(t)
 }
 
+/// Durbin-Watson test with a p-value (R `lmtest::dwtest`): residuals in time
+/// order of a regression on the columns `x`; `fit_intercept` prepends the
+/// intercept column. `exact = None` is R's default (exact for n < 100).
+/// Delegates to `anofox_statistics::durbin_watson_test`.
+pub fn durbin_watson_test(
+    residuals: &[f64],
+    x: &[Vec<f64>],
+    fit_intercept: bool,
+    alternative: super::Alternative,
+    exact: Option<bool>,
+) -> StatsResult<UnifiedTestResult> {
+    let ones = vec![1.0; residuals.len()];
+    let mut cols: Vec<&[f64]> = Vec::with_capacity(x.len() + 1);
+    if fit_intercept {
+        cols.push(&ones);
+    }
+    cols.extend(x.iter().map(|c| c.as_slice()));
+    if cols.is_empty() {
+        return Err(StatsError::InvalidInput(
+            "Durbin-Watson test needs at least one design column (x or the intercept)".into(),
+        ));
+    }
+    anofox_tests::durbin_watson_test(residuals, &cols, alternative, exact).map_err(convert_error)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -120,6 +145,16 @@ mod tests {
             portmanteau(&X[..3], 5, 0, false),
             Err(StatsError::InsufficientDataMsg(_))
         ));
+    }
+
+    #[test]
+    fn durbin_watson_test_matches_dwtest() {
+        // Sanity check only; the R-validated values are in the SQL reference test.
+        let t: Vec<f64> = (1..=10).map(f64::from).collect();
+        let r =
+            durbin_watson_test(&X, &[t], true, super::super::Alternative::Greater, None).unwrap();
+        assert_eq!(r.method, "Durbin-Watson test");
+        assert!(r.p_value.unwrap() > 0.0 && r.p_value.unwrap() < 1.0);
     }
 
     #[test]

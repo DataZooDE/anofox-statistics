@@ -12,6 +12,7 @@ be fitted once per group and then applied, summarised or reported in plain SQL.
 | [`tidy(model [, names])`](#tidy) | `STRUCT(...)[]` | One entry per term: estimate and inference |
 | [`glance(model)`](#glance) | `STRUCT` | Model-level summary, the same fields for every model |
 | [`<model>_tidy_by`, `<model>_glance_by`](#tidy_by-and-glance_by) | table | Per-group coefficient table and fit statistics |
+| [`<model>_rolling_tidy_by`](#rolling_tidy_by) | table | Coefficients of a trailing-window fit, per window |
 | [`ols_augment_by`, `wls_augment_by`, `<glm>_augment_by`](#augment_by) | table | Per-row fitted values, residuals, leverage, Cook's distance, DFFITS |
 | [`<model>_partial_residuals_by`](#partial_residuals_by) | table | Partial-residual (crPlots) and added-variable (avPlots) coordinates |
 
@@ -277,6 +278,30 @@ UNION ALL
 SELECT * FROM huber_glance_by('mt_demo', grp, y, [x1, x2])
 ORDER BY grp, metric, model_type;
 ```
+
+## rolling_tidy_by
+
+`<model>_rolling_tidy_by(source, group_col, order_col, y_col, x_cols [, weight_col] [, window_size := 30, min_obs := NULL, options := ..., names := [...]])`
+fits the model over a trailing window of `window_size` rows (ordered by
+`order_col`) within each group and returns the coefficients of every window, for
+`ols`, `wls`, `ridge`, `elasticnet`, `huber` and `poisson`. It is
+`<model>_fit_agg(...) OVER (PARTITION BY group_col ORDER BY order_col ROWS BETWEEN window_size - 1 PRECEDING AND CURRENT ROW)`
+in the integration contract's `terms` shape, for rolling-coefficient plots.
+
+Columns: the group column, `model_id`, `window_end` (the `order_col` value of
+the window's last row, in its own type), the `tidy` columns, `index_name`
+(`'window_end'`), `index_value` (the window's 1-based end position in its group)
+and `n_window` (rows in the window). Windows with fewer than `min_obs` rows
+(default `window_size`, so only full windows) are skipped. Inference is computed
+by default where the model has it.
+
+```sql
+SELECT window_end, term, estimate, conf_low, conf_high
+FROM ols_rolling_tidy_by('mt_demo', grp, id, y, [x1, x2], window_size := 12, names := ['trend', 'cycle'])
+WHERE grp = 'A' AND term = 'trend'
+ORDER BY window_end;
+```
+
 ## augment_by
 
 `ols_augment_by(source, group_col, y_col, x_cols [, options := ..., split := ..., order_by := ...])`
