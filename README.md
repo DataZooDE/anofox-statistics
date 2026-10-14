@@ -176,7 +176,7 @@ The time-series functions (`acf_agg`, `pacf_agg`, `ljung_box_agg`, `box_pierce_a
 
 - **Options are validated**: an option key the function does not support raises an error at bind time instead of being ignored, and out-of-range values are rejected.
 - **Input validation**: dimension mismatches, too few rows, all-non-finite input and similar problems raise a descriptive error before any computation.
-- **Stable model structs**: every fit returns the same fields whatever the options (inference fields are NULL without `compute_inference`) and ends with the intercept's inference, `log_likelihood`, `aic`, `bic` and `model_type`, `family`, `link`. Linear models share `r_squared`, `residual_std_error`, `n_observations`, `n_features`; GLM and AFT results report `z_values` (Wald z) instead of `t_values`.
+- **Stable model structs**: every fit returns the same fields whatever the options (inference fields are NULL without `compute_inference`), including the intercept's inference, `log_likelihood`, `aic`, `bic` and `model_type`, `family`, `link`. Linear models share `r_squared`, `residual_std_error`, `n_observations`, `n_features`; GLM and AFT results report `z_values` (Wald z) instead of `t_values`.
 - **Unified test results**: every test aggregate returns `method`, `alternative`, `statistic`, `df1`, `df2`, `p_value`, `estimate`, `conf_low`, `conf_high`, `conf_level`, `effect_size`, `effect_name` and `n`, NULL where they do not apply.
 - **Documented NULL handling**: see [docs/NULL_SEMANTICS.md](docs/NULL_SEMANTICS.md). The statistical methods are described in [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 
