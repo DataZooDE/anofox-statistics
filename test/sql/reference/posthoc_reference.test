@@ -9,6 +9,9 @@
 #   pairwise.t.test(v, g, p.adjust.method = "none" | "holm" | "bonferroni" | "BH")$p.value
 #   pairwise.t.test(v, g, p.adjust.method = "holm", pool.sd = FALSE)$p.value
 #   TukeyHSD(aov(v ~ g))$g
+#   pr <- pairs(emmeans::emmeans(lm(v ~ g), ~ g), reverse = TRUE)   # intervals of pairwise_t_test_agg (#198)
+#   confint(pr, adjust = "none" | "holm", level = 0.95 | 0.9, side = "=" | ">")
+#   t.test(v[g == b], v[g == a], conf.level = 1 - 0.05 / 6)$conf.int   # Welch, Bonferroni level
 # FSA / dunn.test are not installed here, so dunn_test_agg is checked for shape and
 # invariants only (its values come from upstream anofox-statistics, which is
 # validated against FSA::dunnTest there).
@@ -93,6 +96,58 @@ FROM (SELECT unnest(tukey_hsd_agg(v, g, {'confidence_level': 0.99}), recursive :
 JOIN (SELECT unnest(tukey_hsd_agg(v, g), recursive := true) FROM ph) t USING (group1, group2);
 ----
 true
+
+# pairwise_t_test_agg intervals (#198): the CI of estimate from the test's SE and df. Per comparison
+# with p_adjust none; with any adjustment Bonferroni at 1 - 0.05/6, which emmeans also uses for holm.
+statement ok
+CREATE TABLE pt_ci AS SELECT * FROM (VALUES
+    ('A', 'B',  1.21618122304592,   2.38381877695408,   0.968341018755809,  2.63165898124419,  1.31982737910385,  2.28017262089615,  0.782393121633408,  2.81760687836659),
+    ('A', 'C',  0.139670426075276,  1.19366290725806,  -0.084047722576469,  1.4173810559098,   0.233228798553885, 1.10010453477945, -0.27587075770034,   1.60920409103367),
+    ('A', 'D', -1.25881877695408,  -0.0911812230459219, -1.50665898124419,  0.156658981244191, -1.15517262089615, -0.194827379103848, -1.65629437534828, 0.306294375348274),
+    ('B', 'C', -1.69511321338732,  -0.571553453279342, -1.93359756115884,  -0.333069105507827, -1.5953796532198, -0.671287013446864, -2.0319468665722,  -0.234719800094465),
+    ('B', 'D', -3.09039902531623,  -1.85960097468376,  -3.35164553908897,  -1.59835446091103, -2.98114638402813, -1.96885361597187, -3.43023920891126, -1.51976079108874),
+    ('C', 'D', -1.90344654672066,  -0.779886786612675, -2.14193089449217,  -0.54140243884116, -1.80371298655314, -0.879620346780197, -2.18077053563538, -0.50256279769795))
+    t(group1, group2, lo_none, hi_none, lo_holm, hi_holm, lo_90, hi_90, lo_welch, hi_welch);
+
+query IIIIII
+SELECT bool_and(abs(n.conf_low - r.lo_none) < 1e-9 AND abs(n.conf_high - r.hi_none) < 1e-9),
+       bool_and(abs(h.conf_low - r.lo_holm) < 1e-9 AND abs(h.conf_high - r.hi_holm) < 1e-9),
+       bool_and(abs(c.conf_low - r.lo_90) < 1e-9 AND abs(c.conf_high - r.hi_90) < 1e-9),
+       bool_and(abs(w.conf_low - r.lo_welch) < 1e-9 AND abs(w.conf_high - r.hi_welch) < 1e-9),
+       bool_and(n.conf_level = 0.95 AND h.conf_level = 0.95 AND c.conf_level = 0.9 AND w.conf_level = 0.95),
+       bool_and(h.estimate BETWEEN h.conf_low AND h.conf_high)
+FROM (SELECT unnest(pairwise_t_test_agg(v, g, {'p_adjust': 'none'}), recursive := true) FROM ph) n
+JOIN (SELECT unnest(pairwise_t_test_agg(v, g), recursive := true) FROM ph) h USING (group1, group2)
+JOIN (SELECT unnest(pairwise_t_test_agg(v, g, {'p_adjust': 'none', 'confidence_level': 0.9}), recursive := true) FROM ph) c USING (group1, group2)
+JOIN (SELECT unnest(pairwise_t_test_agg(v, g, {'pool_sd': false}), recursive := true) FROM ph) w USING (group1, group2)
+JOIN pt_ci r USING (group1, group2);
+----
+true	true	true	true	true	true
+
+# One-sided alternative: one-sided interval; the lower bound of 'greater' at 0.95 is the
+# two-sided 0.90 lower bound (emmeans side = ">").
+query II
+SELECT bool_and(abs(g.conf_low - r.lo_90) < 1e-9), bool_and(g.conf_high = 'inf'::DOUBLE)
+FROM (SELECT unnest(pairwise_t_test_agg(v, g, {'p_adjust': 'none', 'alternative': 'greater'}), recursive := true) FROM ph) g
+JOIN pt_ci r USING (group1, group2);
+----
+true	true
+
+# pairwise_t_test_by passes the options through and fills the same intervals.
+statement ok
+CREATE TABLE ph_by AS SELECT 'all' AS grp, * FROM ph;
+
+query I
+SELECT bool_and(abs(b.conf_low - r.lo_90) < 1e-9 AND abs(b.conf_high - r.hi_90) < 1e-9 AND b.conf_level = 0.9)
+FROM pairwise_t_test_by('ph_by', grp, v, g, options := {'p_adjust': 'none', 'confidence_level': 0.9}) b
+JOIN pt_ci r USING (group1, group2);
+----
+true
+
+statement error
+SELECT pairwise_t_test_agg(v, g, {'confidence_level': 1.5}) FROM ph;
+----
+confidence_level
 
 # Dunn: mean-rank differences, z without df or interval, holm-adjusted p >= raw p.
 query IIII

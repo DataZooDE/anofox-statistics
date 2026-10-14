@@ -1,0 +1,60 @@
+# name: test/sql/reference/regression_lars.test
+# description: #196 LARS log-likelihood / AIC / BIC vs R lm (they were 0)
+# group: [reference]
+#
+# On the full LARS path the fit is least squares on all predictors, so the
+# log-likelihood and information criteria equal R's for lm on the same data:
+#   i <- 1:60; x1 <- i; x2 <- (i * 3) %% 7; y <- 1 + 0.5 * i - 0.3 * x2 + sin(i)
+#   s <- i %% 2 == 0; m <- lm(y[s] ~ x1[s] + x2[s]); c(logLik(m), AIC(m), BIC(m))   # grp 'A'
+#   s <- i %% 2 == 1; ...                                                            # grp 'B'
+# LassoLars uses df = active coefficients + intercept and k = df + 1.
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE d AS SELECT i AS id, CASE WHEN i % 2 = 0 THEN 'A' ELSE 'B' END AS grp, i::DOUBLE AS x1,
+  ((i * 3) % 7)::DOUBLE AS x2, 1.0 + 0.5 * i - 0.3 * ((i * 3) % 7) + sin(i) AS y FROM range(1, 61) t(i);
+
+statement ok
+CREATE TABLE ref AS SELECT * FROM (VALUES
+    ('A', -32.2577558375799, 72.5155116751597, 78.1203012018083),
+    ('B', -31.937903924767,  71.875807849534,  77.4805973761826)) t(grp, ll, aic, bic);
+
+# lars_glance_by (the issue's repro) and the lars_fit_agg struct
+query III
+SELECT bool_and(abs(g.value - CASE g.metric WHEN 'log_likelihood' THEN r.ll WHEN 'aic' THEN r.aic ELSE r.bic END) < 1e-9),
+       count(*), count(DISTINCT g.metric)
+FROM lars_glance_by('d', grp, y, [x1, x2]) g JOIN ref r USING (grp)
+WHERE g.metric IN ('log_likelihood', 'aic', 'bic');
+----
+true	6	3
+
+query III
+SELECT bool_and(abs((m).log_likelihood - r.ll) < 1e-9), bool_and(abs((m).aic - r.aic) < 1e-9), bool_and(abs((m).bic - r.bic) < 1e-9)
+FROM (SELECT grp, lars_fit_agg(y, [x1, x2]) AS m FROM d GROUP BY grp) JOIN ref r USING (grp);
+----
+true	true	true
+
+# Same as OLS on the full path
+query I
+SELECT bool_and(abs(l.value - o.value) < 1e-8)
+FROM lars_glance_by('d', grp, y, [x1, x2]) l
+JOIN ols_glance_by('d', grp, y, [x1, x2]) o USING (grp, metric)
+WHERE metric IN ('log_likelihood', 'aic', 'bic');
+----
+true
+
+# LassoLars: Gaussian log-likelihood at RSS / n with k = active coefficients + intercept + 1
+query III
+WITH f AS (SELECT grp, lars_fit_agg(y, [x1, x2], {'method': 'lasso', 'alpha': 2.0}) AS m FROM d GROUP BY grp),
+     r AS (SELECT grp, count(*) AS n,
+                  sum(pow(y - (f.m).intercept - (f.m).coefficients[1] * x1 - (f.m).coefficients[2] * x2, 2)) AS rss,
+                  any_value(len(list_filter((f.m).coefficients, lambda c: c != 0)) + 2) AS k
+           FROM d JOIN f USING (grp) GROUP BY grp),
+     ll AS (SELECT grp, -n / 2.0 * (ln(2 * pi()) + 1 + ln(rss / n)) AS ll, n, k FROM r)
+SELECT bool_and(abs((f.m).log_likelihood - ll.ll) < 1e-9),
+       bool_and(abs((f.m).aic - (2 * k - 2 * ll.ll)) < 1e-9),
+       bool_and(abs((f.m).bic - (k * ln(n) - 2 * ll.ll)) < 1e-9)
+FROM f JOIN ll USING (grp);
+----
+true	true	true

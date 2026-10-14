@@ -43,6 +43,7 @@ yhat_upper	DOUBLE
 level	DOUBLE
 split	VARCHAR
 se_fit	DOUBLE
+focal_name	VARCHAR
 
 statement ok
 CREATE TABLE ref AS SELECT
@@ -172,6 +173,32 @@ query III
 SELECT min(x), max(x), count(DISTINCT round(yhat, 9)) FROM ols_effects_by('d', g, y, [x1, x2], focal := 2, n_points := 5, at_values := [10.0, 0.0]) WHERE g = 'g0';
 ----
 0.0	4.0	5
+
+# focal_name (#197): names[focal] when names := [...] is given, else 'x' || focal like the
+# default terms of <model>_tidy_by; focal stays the 1-based index
+query III
+SELECT DISTINCT focal, focal_name, focal_name IN (SELECT term FROM ols_tidy_by('d', g, y, [x1, x2]))
+FROM ols_effects_by('d', g, y, [x1, x2], focal := 2, n_points := 3);
+----
+2	x2	true
+
+query II
+SELECT DISTINCT focal, focal_name FROM poisson_effects_by('d', g, cnt, [x1, x2], focal := 1, n_points := 3, names := ['price', 'promo']);
+----
+1	price
+
+query II
+SELECT DISTINCT focal_name = term, focal_name
+FROM wls_effects_by('d', g, y, [x1, x2], w, focal := 2, n_points := 3, names := ['price', 'promo'])
+JOIN (SELECT DISTINCT term FROM wls_tidy_by('d', g, y, [x1, x2], w, names := ['price', 'promo']) WHERE term = 'promo') ON true;
+----
+true	promo
+
+# names shorter than x_cols: falls back to 'x' || focal
+query I
+SELECT DISTINCT focal_name FROM ridge_effects_by('d', g, y, [x1, x2], focal := 2, n_points := 3, names := ['price']);
+----
+x2
 
 # No band, no level (PLS has no interval)
 query I

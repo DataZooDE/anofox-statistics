@@ -111,7 +111,7 @@ user-invocable: false
 | Function | Test |
 |---|---|
 | `prop_test_one_agg` | One-proportion z-test |
-| `prop_test_two_agg` | Two-proportion z-test |
+| `prop_test_two_agg` | Two-proportion test (R `prop.test`); group 1 is `group_id = 0`; `estimate` = p₁ − p₂ (the CI's quantity) |
 | `binom_test_agg` | Exact binomial test |
 
 ### Equivalence (TOST)
@@ -136,7 +136,7 @@ user-invocable: false
 ### Pairwise post-hoc (after an omnibus test)
 | Function | Test |
 |---|---|
-| `pairwise_t_test_agg(value, group[, opts])` | R `pairwise.t.test`; `p_adjust` (default `'holm'`), `pool_sd` (true), `alternative` |
+| `pairwise_t_test_agg(value, group[, opts])` | R `pairwise.t.test`; `p_adjust` (default `'holm'`), `pool_sd` (true), `alternative`, `confidence_level` (0.95). `conf_low`/`conf_high`: CI of each difference, per comparison for `'none'`, Bonferroni otherwise (as `emmeans`) |
 | `tukey_hsd_agg(value, group[, opts])` | R `TukeyHSD(aov(...))`; `confidence_level` |
 | `dunn_test_agg(value, group[, opts])` | `FSA::dunnTest` (after Kruskal-Wallis); `p_adjust` |
 | `pairwise_t_test_by`, `tukey_hsd_by`, `dunn_test_by` `(source, group_col, value_col, factor_col, options := NULL)` | The same per group of `source`, as the long `test` table |
@@ -209,7 +209,7 @@ SELECT (r).statistic, (r).df1, (r).df2, (r).p_value, (r).effect_size, (r).effect
 FROM (SELECT one_way_anova_agg(response, arm) AS r FROM trial);
 SELECT unnest(tukey_hsd_agg(response, arm), recursive := true) FROM trial;
 -- Holm-adjusted pairwise t-tests per site, as a long table
-SELECT site, group1, group2, round(p_adj, 4) AS p_adj
+SELECT site, group1, group2, round(p_adj, 4) AS p_adj, round(conf_low, 3) AS lo, round(conf_high, 3) AS hi
 FROM pairwise_t_test_by('trial', site, response, arm, options := {'p_adjust': 'holm'})
 ORDER BY site, group1, group2;
 ```

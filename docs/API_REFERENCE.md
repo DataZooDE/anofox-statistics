@@ -1158,7 +1158,7 @@ order (`B-A, C-A, C-B, ...` for `TukeyHSD`).
 
 | Function | Signature | Options | Matches |
 |----------|-----------|---------|---------|
-| `pairwise_t_test_agg` | `(value DOUBLE, group VARCHAR \| BIGINT [, options])` | `p_adjust` ('holm'; 'hochberg', 'hommel', 'bonferroni', 'BH'/'fdr', 'BY', 'none'), `pool_sd` (true), `alternative` ('two_sided') | R `pairwise.t.test` |
+| `pairwise_t_test_agg` | `(value DOUBLE, group VARCHAR \| BIGINT [, options])` | `p_adjust` ('holm'; 'hochberg', 'hommel', 'bonferroni', 'BH'/'fdr', 'BY', 'none'), `pool_sd` (true), `alternative` ('two_sided'), `confidence_level` (0.95; interval per comparison for 'none', else Bonferroni) | R `pairwise.t.test`, intervals as `emmeans` |
 | `tukey_hsd_agg` | `(value DOUBLE, group VARCHAR \| BIGINT [, options])` | `confidence_level` (0.95) | R `TukeyHSD(aov(value ~ group))` |
 | `dunn_test_agg` | `(value DOUBLE, group VARCHAR \| BIGINT [, options])` | `p_adjust` ('holm') | `FSA::dunnTest` |
 

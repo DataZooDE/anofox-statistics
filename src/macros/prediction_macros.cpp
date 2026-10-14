@@ -6,10 +6,13 @@
 //       via <model>_fit_predict_by; x_col is the plot's x position (also the
 //       row order for order-sensitive models).
 //   <model>_effects_by(source, group_col, y_col, x_cols [, weight_col],
-//                      focal := 1, n_points := 50, at_values := NULL, options := NULL, level := 0.95)
+//                      focal := 1, n_points := 50, at_values := NULL, options := NULL, level := 0.95,
+//                      names := NULL)
 //       a marginal-effect grid: the fitted mean over the range of feature `focal`
 //       with the other features at their group means (or at_values), with a
 //       confidence band from predict(model, x, {'interval': 'confidence'}).
+//       focal_name labels the focal feature: names[focal], else 'x' || focal
+//       (as <model>_tidy_by's terms).
 //
 // Columns: the group column, id, model_id, model_name, x, y, yhat, yhat_lower,
 // yhat_upper, level, split ('train' | 'test' | 'future'; NULL on effect grids),
@@ -90,7 +93,8 @@ string EffectsSql(const PredictionModel &m) {
 	return string("SELECT group_col, group_col::VARCHAR AS id, '") + m.prefix + "' AS model_id, '" + m.prefix +
 	       "' AS model_name, focal::BIGINT AS focal, _xv AS x, NULL::DOUBLE AS y, (_p).yhat AS yhat, "
 	       "(_p).yhat_lower AS yhat_lower, (_p).yhat_upper AS yhat_upper, level::DOUBLE AS level, "
-	       "NULL::VARCHAR AS split, (_p).se_fit AS se_fit "
+	       "NULL::VARCHAR AS split, (_p).se_fit AS se_fit, "
+	       "COALESCE((names::VARCHAR[])[focal::BIGINT], 'x' || focal::BIGINT) AS focal_name "
 	       "FROM (SELECT group_col, _xv, predict(_m, list_transform(range(1, len(_base) + 1), "
 	       "lambda _j: CASE WHEN _j = focal THEN _xv ELSE _base[_j] END), {'interval': 'confidence', 'level': level}) AS _p "
 	       "FROM (SELECT group_col, _m, _base, _lo + _k * (_hi - _lo) / greatest(n_points - 1, 1) AS _xv "
@@ -144,7 +148,12 @@ void RegisterPredictionMacros(ExtensionLoader &loader) {
 			}
 			auto eff = CreateContractTableMacro(
 			    prefix + "_effects_by", eparams,
-			    {{"focal", "1"}, {"n_points", "50"}, {"at_values", "NULL"}, {"options", "NULL"}, {"level", "0.95"}},
+			    {{"focal", "1"},
+			     {"n_points", "50"},
+			     {"at_values", "NULL"},
+			     {"options", "NULL"},
+			     {"level", "0.95"},
+			     {"names", "NULL"}},
 			    EffectsSql(m),
 			    "Table macro: marginal-effect grid of " + string(m.label) +
 			        " per group of source: the fitted mean over n_points values spanning the range of feature "
@@ -152,9 +161,11 @@ void RegisterPredictionMacros(ExtensionLoader &loader) {
 			        "at_values, a list with one value per feature), and its confidence band at level from "
 			        "predict(model, x, {'interval': 'confidence'}) (response scale for GLMs). Integration contract "
 			        "`prediction` schema: the group column, id, model_id, model_name, focal, x (the focal value), y "
-			        "(NULL), yhat, yhat_lower, yhat_upper, level, split (NULL), se_fit.",
+			        "(NULL), yhat, yhat_lower, yhat_upper, level, split (NULL), se_fit, focal_name (the focal "
+			        "feature's name: names[focal] when names := [...] is given, else 'x' || focal, as the terms of " +
+			        prefix + "_tidy_by).",
 			    prefix + "_effects_by('sales', store, revenue, [price, promo]" + extra_example +
-			        ", focal := 1, n_points := 25)",
+			        ", focal := 1, n_points := 25, names := ['price', 'promo'])",
 			    categories);
 			loader.RegisterFunction(*eff);
 		}

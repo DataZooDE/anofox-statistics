@@ -6599,7 +6599,9 @@ pub unsafe extern "C" fn anofox_prop_test_two_with_conf_level(
                 (*out_result) = PropTestResultFFI {
                     statistic: r.statistic,
                     p_value: r.p_value,
-                    estimate: r.estimate.first().copied().unwrap_or(f64::NAN),
+                    // p1 - p2, the quantity the interval and the test are for
+                    // (R's prop.test reports the two proportions).
+                    estimate: r.unified.estimate.unwrap_or(f64::NAN),
                     ci_lower: r.ci_lower,
                     ci_upper: r.ci_upper,
                     n: trials1 + trials2,
@@ -7956,7 +7958,40 @@ pub unsafe extern "C" fn anofox_pairwise_t_test(
     out_result: *mut PairwiseResultFFI,
     out_error: *mut AnofoxError,
 ) -> bool {
+    anofox_pairwise_t_test_with_conf_level(
+        values,
+        groups,
+        pooled_sd,
+        p_adjust,
+        alternative,
+        0.95,
+        out_result,
+        out_error,
+    )
+}
+
+/// Pairwise t-tests with the confidence level of the intervals of the
+/// differences (per comparison without p-value adjustment, Bonferroni
+/// otherwise, as `emmeans`); must be in (0, 1).
+///
+/// # Safety
+/// See [`anofox_pairwise_t_test`].
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn anofox_pairwise_t_test_with_conf_level(
+    values: DataArray,
+    groups: *const u64,
+    pooled_sd: bool,
+    p_adjust: *const c_char,
+    alternative: AlternativeFFI,
+    conf_level: f64,
+    out_result: *mut PairwiseResultFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
     ffi_guard(out_error, false, || {
+        if !check_confidence_level(conf_level, out_error) {
+            return false;
+        }
         let method = match read_p_adjust(p_adjust) {
             Ok(m) => m,
             Err(e) => {
@@ -7973,6 +8008,7 @@ pub unsafe extern "C" fn anofox_pairwise_t_test(
                 pooled_sd,
                 method,
                 alternative.into(),
+                conf_level,
             )
         })
     })

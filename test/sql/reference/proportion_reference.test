@@ -8,7 +8,7 @@
 #    (= sqrt of R's prop.test(correct = FALSE) X-squared, signed); CI = Wilson score (no cc),
 #    one-sided for one-sided alternatives (= R).
 #  * prop_test_two_agg: continuity correction on by default (= R); statistic is R's X-squared;
-#    estimate = p1 (proportion of group 1); CI = R's prop.test interval (Wald, widened by the
+#    estimate = p1 - p2 (the difference the CI is for, #195); CI = R's prop.test interval (Wald, widened by the
 #    continuity correction when 'correction' is true).
 #  * binom_test_agg: statistic is NaN (successes are in n * estimate); CI = Clopper-Pearson,
 #    one-sided for one-sided alternatives (= R binom.test).
@@ -90,10 +90,24 @@ true
 # ---------------------------------------------------------------------------
 query IIII
 SELECT abs(r.statistic - 1.7261904761904763) < 1e-9, abs(r.p_value - 0.18889814101097729) < 1e-9,
-       abs(r.estimate - 0.6) < 1e-12, r.n = 58
+       abs(r.estimate - 0.20714285714285713) < 1e-12, r.n = 58
 FROM (SELECT prop_test_two_agg(v, g) AS r FROM p2);
 ----
 true	true	true	true
+
+# #195: estimate is p1 - p2 and lies inside its own interval.
+# R: r <- prop.test(c(30, 45), c(100, 100)); r$estimate[1] - r$estimate[2]; r$conf.int
+statement ok
+CREATE TABLE p195 AS SELECT (CASE WHEN g = 0 THEN i < 30 ELSE i < 45 END)::BIGINT AS v, g::BIGINT AS g
+FROM range(100) a(i), range(2) b(g);
+
+query IIIIII
+SELECT abs(r.estimate + 0.15000000000000002) < 1e-12, abs(r.conf_low + 0.2925695066924352) < 1e-9,
+       abs(r.conf_high + 0.0074304933075648449) < 1e-9, abs(r.statistic - 4.1813333333333329) < 1e-9,
+       abs(r.p_value - 0.040871534089006199) < 1e-9, r.estimate BETWEEN r.conf_low AND r.conf_high
+FROM (SELECT prop_test_two_agg(v, g) AS r FROM p195);
+----
+true	true	true	true	true	true
 
 # R: prop.test(c(18, 11), c(30, 28), correct = FALSE)
 query II

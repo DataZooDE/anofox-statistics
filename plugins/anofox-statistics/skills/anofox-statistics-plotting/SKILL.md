@@ -60,7 +60,7 @@ The model macros also carry `id` (not `_augment_by`) and `model_name` next to `m
 | `terms` | `model_id, term, estimate, std_error, statistic, p_value, conf_low, conf_high, conf_level, index_name, index_value` (rolling adds `window_end` before `term` and `n_window` at the end) |
 | `summary` | `model_id, model_type, metric, value` |
 | `obs` | all source columns + `model_id, model_name, row_id, fitted, residual, resid_type, std_residual, stud_residual, leverage, cooks_d, dffits, weight, is_training, n_params` |
-| `prediction` | `id, model_id, model_name, x, y, yhat, yhat_lower, yhat_upper, level, split` (`effects_by` adds `focal` and `se_fit`) |
+| `prediction` | `id, model_id, model_name, x, y, yhat, yhat_lower, yhat_upper, level, split` (`effects_by` adds `focal`, `se_fit` and `focal_name`, the axis label: `names[focal]` with `names := [...]`, else `'x' || focal`) |
 | `curve` | `model_id, series, curve_type, x, y, y_low, y_high, threshold, weight, n_censor` (+ `n_risk, n_event, std_err` for KM; `lambda, cv_mean, cv_se, n_nonzero, is_min, is_1se, n_folds` for CV) |
 | `test` | `model_id, test_id, method, statistic, p_value, group1, group2, p_adj, df1, df2, estimate, conf_low, conf_high, conf_level, effect_size, effect_name, alternative, p_adjust_method` |
 
@@ -121,8 +121,8 @@ FROM ols_prediction_by('plot_demo', grp, id, y, [x1, x2], level := 0.9,
 WHERE x > 34 ORDER BY id, x;
 
 -- prediction: expected count as x1 varies, x2 at its mean (GLM band on the response scale)
-SELECT id, round(x, 1) AS x1, round(yhat, 2) AS yhat, round(yhat_lower, 2) AS lo, round(yhat_upper, 2) AS hi
-FROM poisson_effects_by('plot_demo', grp, y_count, [x1, x2], focal := 1, n_points := 3)
+SELECT id, focal_name, round(x, 1) AS x1, round(yhat, 2) AS yhat, round(yhat_lower, 2) AS lo, round(yhat_upper, 2) AS hi
+FROM poisson_effects_by('plot_demo', grp, y_count, [x1, x2], focal := 1, n_points := 3, names := ['x1', 'x2'])
 ORDER BY id, x1;
 
 -- curve: ROC and calibration curves of a classifier per group (plot each curve_type separately)

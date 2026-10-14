@@ -290,6 +290,19 @@ prop_test_two_agg(value BIGINT, group_id BIGINT [, options MAP]) -> STRUCT
 Both proportion tests return `STRUCT(statistic DOUBLE, p_value DOUBLE,
 estimate DOUBLE, ci_lower DOUBLE, ci_upper DOUBLE, n BIGINT, method VARCHAR)`.
 
+For `prop_test_two_agg`, group 1 is `group_id = 0` and group 2 every other value.
+`estimate` is the difference of proportions p₁ − p₂, the quantity that the
+interval (`ci_lower`/`ci_upper`, `conf_low`/`conf_high`) and the test are for.
+R's `prop.test` reports the two proportions instead; their difference is
+`estimate[1] - estimate[2]`. Up to v0.11.0, `estimate` was p₁.
+
+```sql
+-- 30/100 vs 45/100: estimate = -0.15, 95% CI [-0.2926, -0.0074] (= R prop.test)
+SELECT (prop_test_two_agg(v, g)).estimate
+FROM (SELECT (CASE WHEN g = 0 THEN i < 30 ELSE i < 45 END)::BIGINT AS v, g::BIGINT AS g
+      FROM range(100) a(i), range(2) b(g));
+```
+
 ```sql
 SELECT unnest(prop_test_one_agg(success, MAP {'p0': 0.3}))
 FROM (SELECT CASE WHEN i % 5 < 2 THEN 1 ELSE 0 END AS success FROM range(100) r(i));

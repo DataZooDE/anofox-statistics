@@ -106,7 +106,7 @@ When you want a **report table** per group instead of predictions, use the outpu
 | `wls_augment_by` | `(source, group_col, y_col, x_cols, weight_col [, …])` | as above |
 | `<model>_partial_residuals_by` | `(source, group_col, y_col, x_cols [, weight_col] [, options := …, names := […], order_by := …])` | `row_id, term_index, term, x, partial_residual, component, x_residual, y_residual` |
 | `<model>_prediction_by` | `(source, group_col, x_col, y_col, x_cols [, weight_col] [, options := …, level := 0.95, split := …])` | `id, model_name, x, y, yhat, yhat_lower, yhat_upper, level, split` (`'train'` / `'test'` / `'future'`) |
-| `<model>_effects_by` | `(source, group_col, y_col, x_cols [, weight_col] [, focal := 1, n_points := 50, at_values := NULL, options := …, level := 0.95])` | `id, model_name, focal, x, y (NULL), yhat, yhat_lower, yhat_upper, level, split (NULL), se_fit` |
+| `<model>_effects_by` | `(source, group_col, y_col, x_cols [, weight_col] [, focal := 1, n_points := 50, at_values := NULL, options := …, level := 0.95, names := […]])` | `id, model_name, focal, x, y (NULL), yhat, yhat_lower, yhat_upper, level, split (NULL), se_fit, focal_name` (`names[focal]`, else `'x' \|\| focal` like `_tidy_by` terms) |
 | `<model>_rolling_tidy_by` | `(source, group_col, order_col, y_col, x_cols [, weight_col] [, window_size := 30, min_obs := NULL, options := …, names := […]])` | `window_end` + the tidy columns (`index_name = 'window_end'`, `index_value` = window position) + `n_window` |
 | `ridge_path_by`, `elasticnet_path_by`, `lars_path_by`, `quantile_process_by` | `(source, group_col, y_col, x_cols [, options := …, names := […]])` | the tidy columns, `index_name` `'lambda'` (`'alpha'` for LARS, `'tau'` for the quantile process) |
 | `ridge_cv_by`, `elasticnet_cv_by` | `(source, group_col, y_col, x_cols [, options := …])` | `curve_type, series, x, y, y_low, y_high, threshold, weight, n_censor, lambda, cv_mean, cv_se, n_nonzero, is_min, is_1se, n_folds` |
@@ -146,8 +146,8 @@ FROM ols_prediction_by('sales', category, units, revenue, [units, price], level 
 ORDER BY id, x LIMIT 4;
 
 -- Marginal effect of price, units held at its mean, per category
-SELECT id, round(x, 2) AS price, round(yhat, 2) AS yhat, round(yhat_lower, 2) AS lo, round(yhat_upper, 2) AS hi
-FROM ols_effects_by('sales', category, revenue, [units, price], focal := 2, n_points := 3)
+SELECT id, focal_name, round(x, 2) AS price, round(yhat, 2) AS yhat, round(yhat_lower, 2) AS lo, round(yhat_upper, 2) AS hi
+FROM ols_effects_by('sales', category, revenue, [units, price], focal := 2, n_points := 3, names := ['units', 'price'])
 ORDER BY id, price;
 ```
 
