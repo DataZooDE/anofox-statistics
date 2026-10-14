@@ -392,6 +392,9 @@ Breaking changes are called out explicitly.
 
 ### Fixed
 
+- `one_way_anova_agg`, `kruskal_wallis_agg` and `brown_forsythe_agg` accept any
+  group label (integer or VARCHAR), as the two-sample and post-hoc tests do;
+  they used to bind only INTEGER group ids (#186).
 - `quantile_fit_agg` (and `quantile_fit_predict_agg`) now honours
   `fit_intercept = false` (previously ignored: it fitted with an intercept and
   dropped it).

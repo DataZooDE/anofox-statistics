@@ -117,6 +117,32 @@ private:
 };
 
 //! Read a group label from a unified vector of BIGINT or VARCHAR.
+//! Dense numeric codes for arbitrary group labels (k-sample tests, #186). The
+//! codes are what the FFI groups by; their order is arbitrary, which the
+//! k-sample statistics do not depend on. Relocatable (a plain vector).
+struct GroupCoder {
+	vector<GroupLabel> labels;
+
+	double Code(const GroupLabel &label) {
+		for (idx_t k = 0; k < labels.size(); k++) {
+			if (labels[k] == label) {
+				return static_cast<double>(k);
+			}
+		}
+		labels.push_back(label);
+		return static_cast<double>(labels.size() - 1);
+	}
+
+	//! This coder's code for each of source's codes (adding unseen labels).
+	vector<double> Remap(const GroupCoder &source) {
+		vector<double> map(source.labels.size());
+		for (idx_t k = 0; k < source.labels.size(); k++) {
+			map[k] = Code(source.labels[k]);
+		}
+		return map;
+	}
+};
+
 inline GroupLabel ReadGroupLabel(const UnifiedVectorFormat &group_data, idx_t idx, bool is_string) {
 	if (is_string) {
 		return GroupLabel::FromString(UnifiedVectorFormat::GetData<string_t>(group_data)[idx].GetString());

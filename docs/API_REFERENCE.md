@@ -990,9 +990,9 @@ FROM reg_data;
 | Function | Signature | Options | Returns |
 |----------|-----------|---------|---------|
 | `t_test_agg` | `(value DOUBLE, group_id INTEGER [, options])` | `alternative` ('two_sided'), `confidence_level` (0.95), `kind` ('welch'; or 'student', alias `var_equal`), `mu` (0) | `statistic, p_value, df, effect_size, ci_lower, ci_upper, n1, n2, method` |
-| `one_way_anova_agg` | `(value DOUBLE, group_id INTEGER)` | - | `f_statistic, p_value, df_between, df_within, ss_between, ss_within, n_groups, n, method` |
+| `one_way_anova_agg` | `(value DOUBLE, group BIGINT \| VARCHAR)` | - | `f_statistic, p_value, df_between, df_within, ss_between, ss_within, n_groups, n, method` |
 | `yuen_agg` **MAP** | `(value DOUBLE, group_id INTEGER [, options])` | `trim` (0.2), `alternative`, `confidence_level` (0.95) | `statistic, p_value, df, effect_size, ci_lower, ci_upper, n1, n2, method` |
-| `brown_forsythe_agg` | `(value DOUBLE, group_id INTEGER)` | - | `statistic, p_value, df, n, method` |
+| `brown_forsythe_agg` | `(value DOUBLE, group BIGINT \| VARCHAR)` | - | `statistic, p_value, df, n, method` |
 
 ```sql
 SELECT (t_test_agg(y, grp2)).p_value AS welch_p,
@@ -1008,7 +1008,7 @@ FROM reg_data;
 | Function | Signature | Options | Returns |
 |----------|-----------|---------|---------|
 | `mann_whitney_u_agg` | `(value DOUBLE, group_id INTEGER [, options])` | `alternative`, `confidence_level`, `continuity_correction` (alias `correction`) | `statistic, p_value, effect_size, ci_lower, ci_upper, n1, n2, method` |
-| `kruskal_wallis_agg` | `(value DOUBLE, group_id INTEGER)` | - | `statistic, p_value, df, n, method` |
+| `kruskal_wallis_agg` | `(value DOUBLE, group BIGINT \| VARCHAR)` | - | `statistic, p_value, df, n, method` |
 | `wilcoxon_signed_rank_agg` | `(x DOUBLE, y DOUBLE [, options])` | `alternative`, `confidence_level`, `continuity_correction` | `statistic, p_value, ci_lower, ci_upper, n, method` |
 | `brunner_munzel_agg` | `(value DOUBLE, group_id INTEGER [, options])` | `alternative`, `confidence_level` | `statistic, p_value, df, effect_size, ci_lower, ci_upper, n1, n2, method` |
 | `permutation_t_test_agg` **MAP** | `(value DOUBLE, group_id INTEGER [, options])` | `alternative`, `n_permutations` (10000) | `statistic, p_value, n1, n2, method` |
