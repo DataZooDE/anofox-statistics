@@ -1,0 +1,194 @@
+# name: test/sql/contract/contract_prediction.test
+# description: integration contract `prediction` schema: <model>_prediction_by and <model>_effects_by (#183)
+# group: [contract]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE d AS SELECT 'g' || (i % 2) AS g, i AS t, i::DOUBLE AS x1, (i % 5)::DOUBLE AS x2,
+    CASE WHEN i < 72 THEN 2 * i + (i % 3) + sin(i) END::DOUBLE AS y,
+    round(exp(0.5 + 0.03 * i) + (i % 3))::DOUBLE AS cnt, 1.0 + round(exp(0.5 + 0.03 * i))::DOUBLE AS pos,
+    ((i * 5 + 1) % 3 = 0 OR i > 60)::DOUBLE AS bin, 1.0 + (i % 3) AS w
+FROM range(80) r(i);
+
+# Column names and types (the group column keeps its name)
+query II
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM ols_prediction_by('d', g, t, y, [x1, x2]))
+----
+g	VARCHAR
+id	VARCHAR
+model_id	VARCHAR
+model_name	VARCHAR
+x	BIGINT
+y	DOUBLE
+yhat	DOUBLE
+yhat_lower	DOUBLE
+yhat_upper	DOUBLE
+level	DOUBLE
+split	VARCHAR
+
+query II
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM ols_effects_by('d', g, y, [x1, x2]))
+----
+g	VARCHAR
+id	VARCHAR
+model_id	VARCHAR
+model_name	VARCHAR
+focal	BIGINT
+x	DOUBLE
+y	DOUBLE
+yhat	DOUBLE
+yhat_lower	DOUBLE
+yhat_upper	DOUBLE
+level	DOUBLE
+split	VARCHAR
+se_fit	DOUBLE
+
+statement ok
+CREATE TABLE ref AS SELECT
+    (SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM ols_prediction_by('d', g, t, y, [x1, x2]))) AS pred_cols,
+    (SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM ols_effects_by('d', g, y, [x1, x2]))) AS eff_cols;
+
+# Every prediction_by producer: same columns, runs
+foreach model ols ridge elasticnet huber ransac theil_sen rls bls pls quantile alm
+
+query II
+SELECT (SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM ${model}_prediction_by('d', g, t, y, [x1, x2]))) = pred_cols,
+       (SELECT count(*) = 80 AND bool_and(model_id = '${model}') FROM ${model}_prediction_by('d', g, t, y, [x1, x2]))
+FROM ref;
+----
+true	true
+
+endloop
+
+foreach model poisson negbinom tweedie
+
+query II
+SELECT (SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM ${model}_prediction_by('d', g, t, cnt, [x1, x2]))) = pred_cols,
+       (SELECT count(*) = 80 FROM ${model}_prediction_by('d', g, t, cnt, [x1, x2]))
+FROM ref;
+----
+true	true
+
+endloop
+
+foreach model binomial logistic
+
+query II
+SELECT (SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM ${model}_prediction_by('d', g, t, bin, [x1, x2]))) = pred_cols,
+       (SELECT count(*) = 80 FROM ${model}_prediction_by('d', g, t, bin, [x1, x2]))
+FROM ref;
+----
+true	true
+
+endloop
+
+query II
+SELECT (SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM gamma_prediction_by('d', g, t, pos, [x1, x2]))) = pred_cols,
+       (SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM wls_prediction_by('d', g, t, y, [x1, x2], w))) = pred_cols
+FROM ref;
+----
+true	true
+
+# Every effects_by producer: same columns, n_points rows per group
+foreach model ols ridge
+
+query II
+SELECT (SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM ${model}_effects_by('d', g, y, [x1, x2]))) = eff_cols,
+       (SELECT count(*) = 2 * 20 FROM ${model}_effects_by('d', g, y, [x1, x2], n_points := 20))
+FROM ref;
+----
+true	true
+
+endloop
+
+foreach model poisson negbinom tweedie
+
+query II
+SELECT (SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM ${model}_effects_by('d', g, cnt, [x1, x2]))) = eff_cols,
+       (SELECT count(*) = 2 * 20 FROM ${model}_effects_by('d', g, cnt, [x1, x2], n_points := 20))
+FROM ref;
+----
+true	true
+
+endloop
+
+foreach model binomial logistic
+
+query I
+SELECT (SELECT count(*) = 2 * 20 AND bool_and(yhat BETWEEN 0 AND 1 AND yhat_lower <= yhat AND yhat <= yhat_upper)
+        FROM ${model}_effects_by('d', g, bin, [x1, x2], n_points := 20));
+----
+true
+
+endloop
+
+query II
+SELECT (SELECT count(*) = 40 FROM gamma_effects_by('d', g, pos, [x1, x2], n_points := 20)),
+       (SELECT count(*) = 40 FROM wls_effects_by('d', g, y, [x1, x2], w, n_points := 20));
+----
+true	true
+
+# prediction_by equals fit_predict_by, with the split labels
+query IIII
+WITH p AS (SELECT * FROM ols_prediction_by('d', g, t, y, [x1, x2])),
+     f AS (SELECT * FROM ols_fit_predict_by('d', g, y, [x1, x2], order_by := t))
+SELECT count(*) = 80,
+       bool_and(abs(p.yhat - f.yhat) < 1e-12 AND abs(p.yhat_lower - f.yhat_lower) < 1e-12),
+       count(*) FILTER (WHERE p.split = 'future') = 8 AND bool_and((p.split = 'future') = (f.y IS NULL)),
+       bool_and(p.level = 0.95 OR (p.level IS NULL AND p.yhat_lower IS NULL))
+FROM p JOIN f ON p.g = f.g AND p.x = f.t;
+----
+true	true	true	true
+
+# level sets the band (and overrides a confidence_level in options)
+query II
+SELECT (SELECT avg(yhat_upper - yhat_lower) FROM ols_prediction_by('d', g, t, y, [x1, x2], level := 0.5))
+     < (SELECT avg(yhat_upper - yhat_lower) FROM ols_prediction_by('d', g, t, y, [x1, x2], level := 0.99)),
+       (SELECT avg(yhat_upper - yhat_lower) FROM ols_prediction_by('d', g, t, y, [x1, x2], options := {'confidence_level': 0.5}, level := 0.99))
+     = (SELECT avg(yhat_upper - yhat_lower) FROM ols_prediction_by('d', g, t, y, [x1, x2], level := 0.99));
+----
+true	true
+
+# Held-out rows via split are 'test'
+query I
+SELECT count(*) FILTER (WHERE split = 'test') FROM ols_prediction_by('d', g, t, y, [x1, x2], split := CASE WHEN t BETWEEN 60 AND 71 THEN 'test' ELSE 'train' END);
+----
+12
+
+# effects_by: each grid point is predict() at the focal value with the other feature at its group mean
+query I
+WITH e AS (SELECT * FROM ols_effects_by('d', g, y, [x1, x2], focal := 1, n_points := 5)),
+     m AS (SELECT g, ols_fit_agg(y, [x1, x2], {'compute_inference': true}) AS m, avg(x2) FILTER (WHERE y IS NOT NULL) AS x2bar,
+                  min(x1) FILTER (WHERE y IS NOT NULL) AS lo, max(x1) FILTER (WHERE y IS NOT NULL) AS hi FROM d GROUP BY g)
+SELECT count(*) = 10 AND bool_and(abs(e.yhat - (predict(m.m, [e.x, m.x2bar], {'interval': 'confidence'})).yhat) < 1e-9
+                                  AND abs(e.yhat_upper - (predict(m.m, [e.x, m.x2bar], {'interval': 'confidence'})).yhat_upper) < 1e-9)
+FROM e JOIN m USING (g);
+----
+true
+
+# at_values fixes the non-focal features; focal 2 spans x2's range
+query III
+SELECT min(x), max(x), count(DISTINCT round(yhat, 9)) FROM ols_effects_by('d', g, y, [x1, x2], focal := 2, n_points := 5, at_values := [10.0, 0.0]) WHERE g = 'g0';
+----
+0.0	4.0	5
+
+# No band, no level (PLS has no interval)
+query I
+SELECT bool_and(level IS NULL AND yhat_lower IS NULL) FROM pls_prediction_by('d', g, t, y, [x1, x2]);
+----
+true
+
+# Isotonic: x_col is the one feature
+query II
+SELECT count(*) = 80, bool_and(yhat_lower IS NULL) FROM isotonic_prediction_by('d', g, x1, y);
+----
+true	true
+
+# Tags: 19 prediction_by + 9 effects_by producers
+query II
+SELECT count(DISTINCT function_name) FILTER (WHERE function_name LIKE '%\_prediction\_by' ESCAPE '\'),
+       count(DISTINCT function_name) FILTER (WHERE function_name LIKE '%\_effects\_by' ESCAPE '\')
+FROM duckdb_functions() WHERE tags['anofox.output'] = 'prediction' AND tags['anofox.contract'] = '1';
+----
+19	9

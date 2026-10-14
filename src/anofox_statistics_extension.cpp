@@ -232,6 +232,8 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterPosthocMacros(loader);
     // Paths, CV curves, the quantile process and partial residuals (#154, #157, #158)
     RegisterPathMacros(loader);
+    // Contract `prediction` producers: fitted values with bands, marginal-effect grids (#183)
+    RegisterPredictionMacros(loader);
     RegisterCurveMacros(loader);
     RegisterClassifierCurveMacros(loader);
 

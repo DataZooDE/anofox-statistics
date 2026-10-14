@@ -12,6 +12,7 @@ be fitted once per group and then applied, summarised or reported in plain SQL.
 | [`tidy(model [, names])`](#tidy) | `STRUCT(...)[]` | One entry per term: estimate and inference |
 | [`glance(model)`](#glance) | `STRUCT` | Model-level summary, the same fields for every model |
 | [`<model>_tidy_by`, `<model>_glance_by`](#tidy_by-and-glance_by) | table | Per-group coefficient table and fit statistics |
+| [`<model>_prediction_by`, `<model>_effects_by`](#prediction_by-and-effects_by) | table | Fitted values with bands, and marginal-effect grids, in the contract `prediction` shape |
 | [`<model>_rolling_tidy_by`](#rolling_tidy_by) | table | Coefficients of a trailing-window fit, per window |
 | [`ols_augment_by`, `wls_augment_by`, `<glm>_augment_by`](#augment_by) | table | Per-row fitted values, residuals, leverage, Cook's distance, DFFITS |
 | [`<model>_partial_residuals_by`](#partial_residuals_by) | table | Partial-residual (crPlots) and added-variable (avPlots) coordinates |
@@ -277,6 +278,51 @@ SELECT * FROM ols_glance_by('mt_demo', grp, y, [x1, x2])
 UNION ALL
 SELECT * FROM huber_glance_by('mt_demo', grp, y, [x1, x2])
 ORDER BY grp, metric, model_type;
+```
+## prediction_by and effects_by
+
+Both return the integration contract's `prediction` schema, the shape of
+anofox-forecast's forecasts. One fan/band plot (`anofox_plot`) therefore draws
+fitted values, effect grids and forecasts alike. The columns are:
+
+- the group column and `id` (the group as text, for faceting);
+- `model_id` and `model_name` (the method, for example `'ols'`, so several models can be overlaid);
+- `x`, `y`, `yhat`, `yhat_lower` and `yhat_upper`;
+- `level`, the interval level, NULL where the model has no band;
+- `split`.
+
+`<model>_prediction_by(source, group_col, x_col, y_col, x_cols [, weight_col] [, options := ..., level := 0.95, split := NULL])`
+fits the model per group with `<model>_fit_predict_by` and returns one row per
+input row:
+- `x_col` is the plot position, for example a time or the main feature, and the row order for order-sensitive models.
+- `split` is `'train'` for fitted rows, `'future'` for rows with a NULL `y`, and `'test'` for rows held out with `split :=`, as in `_fit_predict_by`.
+- `level` sets the interval and overrides any `confidence_level` in `options`.
+
+It exists for `ols`, `wls`, `ridge`, `elasticnet`, `huber`, `ransac`,
+`theil_sen`, `rls`, `bls`, `pls`, `quantile`, `alm`, the GLMs and `isotonic`.
+PLS, quantile and isotonic have no band. For isotonic there is no `x_cols`:
+`x_col` is the one feature.
+
+`<model>_effects_by(source, group_col, y_col, x_cols [, weight_col] [, focal := 1, n_points := 50, at_values := NULL, options := ..., level := 0.95])`
+is a marginal-effect (effect-plot) grid:
+- the fitted mean over `n_points` values spanning the range of feature `focal`, its 1-based position in `x_cols`;
+- the other features held at their means over the fitted rows, or at `at_values`, one value per feature;
+- a confidence band from `predict(model, x, {'interval': 'confidence', 'level': level})`, on the response scale for GLMs;
+- `y` and `split` are NULL, `focal` and `se_fit` are added.
+
+It exists for the models whose `predict` gives standard errors: `ols`, `wls`,
+`ridge` and the GLMs.
+
+```sql
+-- Fitted line with a 90% band per group, ready for a band plot
+SELECT * FROM ols_prediction_by('mt_demo', grp, id, y, [x1, x2], level := 0.9) LIMIT 5;
+```
+
+```sql
+-- How the expected count changes with x1, other features at their means
+SELECT x, yhat, yhat_lower, yhat_upper
+FROM poisson_effects_by('mt_demo', grp, y_count, [x1, x2], focal := 1, n_points := 5)
+WHERE grp = 'A';
 ```
 
 ## rolling_tidy_by

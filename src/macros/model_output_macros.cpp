@@ -486,4 +486,11 @@ void RegisterPathMacros(ExtensionLoader &loader) {
 	}
 }
 
+unique_ptr<CreateMacroInfo> CreateContractTableMacro(const string &name, const vector<string> &parameters,
+                                                     const vector<pair<string, string>> &named_parameters,
+                                                     const string &sql, const string &description,
+                                                     const string &example, const vector<string> &categories) {
+	return CreateTableMacro(name, parameters, named_parameters, sql, description, example, categories);
+}
+
 } // namespace duckdb
