@@ -20,6 +20,7 @@ y	DOUBLE
 w	DOUBLE
 g	VARCHAR
 model_id	VARCHAR
+model_name	VARCHAR
 row_id	BIGINT
 fitted	DOUBLE
 residual	DOUBLE
@@ -42,6 +43,7 @@ y	DOUBLE
 w	DOUBLE
 g	VARCHAR
 model_id	VARCHAR
+model_name	VARCHAR
 row_id	BIGINT
 fitted	DOUBLE
 residual	DOUBLE
@@ -72,6 +74,7 @@ yb	DOUBLE
 yp	DOUBLE
 g	VARCHAR
 model_id	VARCHAR
+model_name	VARCHAR
 row_id	BIGINT
 fitted	DOUBLE
 residual	DOUBLE
@@ -95,6 +98,7 @@ yb	DOUBLE
 yp	DOUBLE
 g	VARCHAR
 model_id	VARCHAR
+model_name	VARCHAR
 row_id	BIGINT
 fitted	DOUBLE
 residual	DOUBLE
@@ -118,6 +122,7 @@ yb	DOUBLE
 yp	DOUBLE
 g	VARCHAR
 model_id	VARCHAR
+model_name	VARCHAR
 row_id	BIGINT
 fitted	DOUBLE
 residual	DOUBLE
@@ -141,6 +146,7 @@ yb	DOUBLE
 yp	DOUBLE
 g	VARCHAR
 model_id	VARCHAR
+model_name	VARCHAR
 row_id	BIGINT
 fitted	DOUBLE
 residual	DOUBLE
@@ -164,6 +170,7 @@ yb	DOUBLE
 yp	DOUBLE
 g	VARCHAR
 model_id	VARCHAR
+model_name	VARCHAR
 row_id	BIGINT
 fitted	DOUBLE
 residual	DOUBLE
@@ -187,6 +194,7 @@ yb	DOUBLE
 yp	DOUBLE
 g	VARCHAR
 model_id	VARCHAR
+model_name	VARCHAR
 row_id	BIGINT
 fitted	DOUBLE
 residual	DOUBLE

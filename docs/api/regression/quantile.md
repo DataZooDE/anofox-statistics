@@ -114,7 +114,7 @@ Each element is a `terms` row (`term`, `estimate`, `std_error`, `statistic`,
 only), `confidence_level`, `n_boot`, `seed`, `fit_intercept`, `feature_names`.
 
 `quantile_process_by(source, group_col, y_col, x_cols [, options := ..., names := [...]])`
-returns it per group with `model_id`, in the columns of `<model>_tidy_by`
+returns it per group with `id` (the group) and `model_id` = `'quantile'`, in the columns of `<model>_tidy_by`
 (an integration-contract `terms` producer).
 
 ```sql

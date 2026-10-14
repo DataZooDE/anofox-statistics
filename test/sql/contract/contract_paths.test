@@ -33,7 +33,7 @@ SELECT DISTINCT index_name FROM lars_path_by('d', g, y, [x1, x2]);
 alpha
 
 query II
-SELECT DISTINCT index_name, model_id FROM ridge_path_by('d', g, y, [x1, x2], options := {'n_lambda': 3}) ORDER BY model_id;
+SELECT DISTINCT index_name, id FROM ridge_path_by('d', g, y, [x1, x2], options := {'n_lambda': 3}) ORDER BY id;
 ----
 lambda	0
 lambda	1
@@ -43,7 +43,9 @@ query II
 SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM ridge_cv_by('d', g, y, [x1, x2]))
 ----
 g	VARCHAR
+id	VARCHAR
 model_id	VARCHAR
+model_name	VARCHAR
 curve_type	VARCHAR
 series	VARCHAR
 x	DOUBLE

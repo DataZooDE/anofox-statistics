@@ -201,6 +201,14 @@ Breaking changes are called out explicitly.
 
 ### Changed
 
+- **Breaking:** `model_id` in the model-fitting `_by` macros (`<model>_tidy_by`,
+  `_glance_by`, `_augment_by`, `_rolling_tidy_by`, `_partial_residuals_by`, the
+  path / CV / quantile-process macros) is now the method (`'ols'`, ...) instead of
+  the group value. A new `model_name` column holds the same, and a new `id` column
+  holds the group as text (except in `_augment_by`, which keeps the source
+  columns). Outputs of several methods now stack with `UNION ALL`, as
+  `_prediction_by` and anofox-forecast do. The test and curve macros keep the group
+  as `model_id`.
 - Hypothesis-test result structs gain the unified `test` fields (#159) after their
   existing fields; existing field names, positions and values are unchanged. Code that
   compares whole result structs with `=` now also compares the new fields (for TOST,
@@ -397,6 +405,8 @@ Breaking changes are called out explicitly.
 
 ### Fixed
 
+- `<model>_tidy_by` / `_rolling_tidy_by` kept inference only while `options` was
+  omitted; `compute_inference` is now merged under the user's options.
 - `quantile_fit_agg` (and `quantile_fit_predict_agg`) now honours
   `fit_intercept = false` (previously ignored: it fitted with an intercept and
   dropped it).
