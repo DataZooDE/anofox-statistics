@@ -2419,6 +2419,12 @@ typedef struct {
 bool anofox_pairwise_t_test(AnofoxDataArray values, const uint64_t *groups, bool pooled_sd, const char *p_adjust,
                             AnofoxAlternative alternative, AnofoxPairwiseResult *out_result, AnofoxError *out_error);
 
+/** Pairwise t-tests with the confidence level of the difference intervals (per comparison for p_adjust
+ * none, Bonferroni otherwise); conf_level in (0, 1). */
+bool anofox_pairwise_t_test_with_conf_level(AnofoxDataArray values, const uint64_t *groups, bool pooled_sd,
+                                            const char *p_adjust, AnofoxAlternative alternative, double conf_level,
+                                            AnofoxPairwiseResult *out_result, AnofoxError *out_error);
+
 /** Tukey HSD (R TukeyHSD(aov(...))). */
 bool anofox_tukey_hsd(AnofoxDataArray values, const uint64_t *groups, double conf_level,
                       AnofoxPairwiseResult *out_result, AnofoxError *out_error);

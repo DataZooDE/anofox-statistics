@@ -214,8 +214,8 @@ static void PosthocFinalize(Vector &state_vector, AggregateInputData &aggr_input
 		bool ok;
 		switch (bind.kind) {
 		case PosthocKind::PAIRWISE_T:
-			ok = anofox_pairwise_t_test(values_array, codes.data(), bind.pool_sd, bind.p_adjust.c_str(),
-			                            bind.alternative, &res, &error);
+			ok = anofox_pairwise_t_test_with_conf_level(values_array, codes.data(), bind.pool_sd, bind.p_adjust.c_str(),
+			                                            bind.alternative, bind.confidence_level, &res, &error);
 			break;
 		case PosthocKind::TUKEY_HSD:
 			ok = anofox_tukey_hsd(values_array, codes.data(), bind.confidence_level, &res, &error);
@@ -271,7 +271,7 @@ static unique_ptr<FunctionData> PosthocBind(ClientContext &context, AggregateFun
 	if (arguments.size() >= 3) {
 		Value options_val = EvaluateConstantOptions(context, *arguments[2], fn_name);
 		auto opts = PosthocMapOptions::ParseFromValue(options_val, fn_name, KIND != PosthocKind::TUKEY_HSD,
-		                                              KIND == PosthocKind::PAIRWISE_T, KIND == PosthocKind::TUKEY_HSD);
+		                                              KIND == PosthocKind::PAIRWISE_T, KIND != PosthocKind::DUNN);
 		if (opts.p_adjust) {
 			bind->p_adjust = *opts.p_adjust;
 		}
@@ -324,10 +324,13 @@ void RegisterPairwisePosthocAggregateFunctions(ExtensionLoader &loader) {
 	RegisterPosthoc<PosthocKind::PAIRWISE_T>(
 	    loader,
 	    "Pairwise t-tests between all groups with multiple-comparison adjustment (R pairwise.t.test). Returns "
-	    "one row per pair: group1, group2, estimate (mean of group2 - group1), statistic (t), p_value, p_adj.",
+	    "one row per pair: group1, group2, estimate (mean of group2 - group1), statistic (t), p_value, p_adj, and "
+	    "the confidence interval of estimate (conf_low, conf_high at conf_level) from the same SE and df: per "
+	    "comparison with p_adjust none, Bonferroni-adjusted otherwise (as emmeans); one-sided for a one-sided "
+	    "alternative.",
 	    "pairwise_t_test_agg(value, group, {'p_adjust': 'holm', 'pool_sd': true})",
 	    "Options: p_adjust (holm [default], hochberg, hommel, bonferroni, BH/fdr, BY, none), pool_sd (default true), "
-	    "alternative (two_sided, less, greater; for group2 - group1).");
+	    "alternative (two_sided, less, greater; for group2 - group1), confidence_level (default 0.95).");
 	RegisterPosthoc<PosthocKind::TUKEY_HSD>(
 	    loader,
 	    "Tukey's honest significant difference for all pairwise differences of group means (R "

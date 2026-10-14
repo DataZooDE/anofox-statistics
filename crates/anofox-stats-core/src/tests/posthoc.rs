@@ -7,8 +7,8 @@
 use super::{convert_error, Alternative};
 use crate::{StatsError, StatsResult};
 use anofox_tests::{
-    dunn_test as lib_dunn_test, pairwise_t_test as lib_pairwise_t_test, tukey_hsd as lib_tukey_hsd,
-    PAdjustMethod,
+    dunn_test as lib_dunn_test, pairwise_t_test_with_conf_level as lib_pairwise_t_test,
+    tukey_hsd as lib_tukey_hsd, PAdjustMethod,
 };
 
 pub use anofox_tests::{PairwiseComparison, PairwiseResult};
@@ -38,16 +38,20 @@ fn check_groups(values: &[f64], groups: &[u64]) -> StatsResult<()> {
     Ok(())
 }
 
-/// Pairwise t-tests with p-value adjustment (R `pairwise.t.test`).
+/// Pairwise t-tests with p-value adjustment (R `pairwise.t.test`), with the
+/// confidence interval of each difference at `conf_level`: per comparison
+/// without adjustment, Bonferroni otherwise (as `emmeans`).
 pub fn pairwise_t_test(
     values: &[f64],
     groups: &[u64],
     pooled_sd: bool,
     p_adjust: PAdjustMethod,
     alternative: Alternative,
+    conf_level: f64,
 ) -> StatsResult<PairwiseResult<u64>> {
     check_groups(values, groups)?;
-    lib_pairwise_t_test(values, groups, pooled_sd, p_adjust, alternative).map_err(convert_error)
+    lib_pairwise_t_test(values, groups, pooled_sd, p_adjust, alternative, conf_level)
+        .map_err(convert_error)
 }
 
 /// Tukey's honest significant difference (R `TukeyHSD(aov(...))`).
@@ -84,9 +88,14 @@ mod tests {
             true,
             parse_p_adjust("holm").unwrap(),
             Alternative::TwoSided,
+            0.95,
         )
         .unwrap();
         assert_eq!(res.comparisons.len(), 3);
+        // Bonferroni 95% interval of 4 - 1 = 3 (#198): pooled SD 1, df 6, se sqrt(2/3).
+        let c = &res.comparisons[0];
+        assert!(c.conf_low.unwrap() < 3.0 && 3.0 < c.conf_high.unwrap());
+        assert_eq!(res.conf_level, Some(0.95));
         assert_eq!(
             (res.comparisons[0].group1, res.comparisons[0].group2),
             (0, 1)
