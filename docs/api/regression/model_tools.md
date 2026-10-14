@@ -255,6 +255,19 @@ ORDER BY grp;
 
 ## tidy_by and glance_by
 
+**Model identifiers.** In every `<model>_*_by` macro that fits one of the
+extension's models (`tidy_by`, `glance_by`, `augment_by`, `rolling_tidy_by`,
+`partial_residuals_by`, the path, CV and quantile-process macros,
+`prediction_by`, `effects_by`):
+
+- `model_id` and `model_name` are the method, for example `'ols'`;
+- `id` is the group value as text, and the group column itself is kept. (`augment_by`, which returns the source columns, has no `id`.)
+
+So the outputs of several methods stack with `UNION ALL` and stay
+distinguishable, as anofox-forecast's forecasts do. The test and curve macros
+whose groups are themselves the models (`roc_curve_by`, `kaplan_meier_by`, the
+post-hoc `_by` tests, ...) keep `model_id` = the group.
+
 `<model>_tidy_by(source, group_col, y_col, x_cols [, weight_col] [, options := ..., names := [...]])`
 and `<model>_glance_by(source, group_col, y_col, x_cols [, weight_col] [, options := ...])`
 fit one model per group and return long tables (for `ols`, `wls`, `ridge`,
@@ -263,9 +276,10 @@ fit one model per group and return long tables (for `ols`, `wls`, `ridge`,
 `gamma`, `tweedie`, and `alm`, `aft`; `wls` takes `weight_col`, `aft`
 `event_col`):
 
-- `_tidy_by`: the group column, `model_id`, and the `tidy` columns, one row per
-  term. Inference is computed by default for models that have it.
-- `_glance_by`: the group column, `model_id`, `model_type`, `metric`, `value`,
+- `_tidy_by`: the group column, `id` (the group as text), `model_id` and `model_name` (the method, e.g. `'ols'`), and the `tidy` columns, one row per
+  term. Inference is computed by default for models that have it, also when
+  other `options` are passed.
+- `_glance_by`: the group column, `id` (the group as text), `model_id` and `model_name` (the method, e.g. `'ols'`), `model_type`, `metric`, `value`,
   one row per available numeric metric.
 
 ```sql
@@ -334,7 +348,7 @@ fits the model over a trailing window of `window_size` rows (ordered by
 `<model>_fit_agg(...) OVER (PARTITION BY group_col ORDER BY order_col ROWS BETWEEN window_size - 1 PRECEDING AND CURRENT ROW)`
 in the integration contract's `terms` shape, for rolling-coefficient plots.
 
-Columns: the group column, `model_id`, `window_end` (the `order_col` value of
+Columns: the group column, `id` (the group as text), `model_id` and `model_name` (the method, e.g. `'ols'`), `window_end` (the `order_col` value of
 the window's last row, in its own type), the `tidy` columns, `index_name`
 (`'window_end'`), `index_value` (the window's 1-based end position in its group)
 and `n_window` (rows in the window). Windows with fewer than `min_obs` rows
@@ -353,7 +367,8 @@ ORDER BY window_end;
 `ols_augment_by(source, group_col, y_col, x_cols [, options := ..., split := ..., order_by := ...])`
 and `wls_augment_by(source, group_col, y_col, x_cols, weight_col [, ...])` are
 broom's `augment`: they fit one model per group and return every source row
-with the integration contract's `obs` columns appended: `model_id`, `row_id`
+with the integration contract's `obs` columns appended: `model_id` and
+`model_name` (the method; the group column is among the source columns), `row_id`
 (source row number), `fitted`, `residual` (response residual), `resid_type`
 (`'response'`), `std_residual` (R `rstandard`), `stud_residual` (R `rstudent`),
 `leverage` (R `hatvalues`), `cooks_d` (R `cooks.distance`), `dffits`, `weight`
@@ -419,7 +434,7 @@ plots (`car::crPlots`, statsmodels `plot_ccpr`) and added-variable plots
 
 | Column | Description |
 |--------|-------------|
-| group column, `model_id`, `row_id` | the group, its id and the source row number |
+| group column, `id`, `model_id`, `model_name`, `row_id` | the group, the group as text, the method, and the source row number |
 | `term_index`, `term` | 1-based position in `x_cols`, and its label (`names` or `x1`, `x2`, ...) |
 | `x` | the feature value |
 | `component` | `b_j (x_j − mean(x_j))` (uncentred without an intercept) |
