@@ -6599,7 +6599,9 @@ pub unsafe extern "C" fn anofox_prop_test_two_with_conf_level(
                 (*out_result) = PropTestResultFFI {
                     statistic: r.statistic,
                     p_value: r.p_value,
-                    estimate: r.estimate.first().copied().unwrap_or(f64::NAN),
+                    // p1 - p2, the quantity the interval and the test are for
+                    // (R's prop.test reports the two proportions).
+                    estimate: r.unified.estimate.unwrap_or(f64::NAN),
                     ci_lower: r.ci_lower,
                     ci_upper: r.ci_upper,
                     n: trials1 + trials2,

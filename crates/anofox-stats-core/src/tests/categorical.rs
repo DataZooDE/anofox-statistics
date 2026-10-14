@@ -738,6 +738,12 @@ mod tests {
         close(r.ci_upper, 0.79333596671715334, 1e-12);
 
         let r = prop_test_two(18, 30, 11, 28, &o).unwrap();
+        // The unified estimate is p1 - p2, the quantity of the interval (#195).
+        close(
+            r.unified.estimate.unwrap(),
+            18.0 / 30.0 - 11.0 / 28.0,
+            1e-15,
+        );
         close(r.ci_lower, -0.079284640161607245, 1e-12);
         close(r.ci_upper, 0.4935703544473215, 1e-12);
         let r = prop_test_one(
