@@ -227,7 +227,7 @@ SELECT (ljung_box_agg(resid, 10 ORDER BY t)).p_value               AS ljung_box_
 FROM fit_resid;
 ```
 
-```sql skip
+```sql
 -- Durbin-Watson p-value (lmtest::dwtest): pass the regressors of the fitted model
 SELECT (durbin_watson_agg(resid, [x1, x2], 'greater' ORDER BY t)).p_value AS dw_p FROM fit_resid;
 ```

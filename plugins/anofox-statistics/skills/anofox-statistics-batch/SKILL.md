@@ -151,7 +151,7 @@ FROM ols_effects_by('sales', category, revenue, [units, price], focal := 2, n_po
 ORDER BY id, price;
 ```
 
-```sql skip
+```sql
 -- Rolling 12-row coefficients per category, ordered by units
 SELECT category, window_end, term, estimate, conf_low, conf_high
 FROM ols_rolling_tidy_by('sales', category, units, revenue, [units, price], window_size := 12, names := ['units', 'price'])
