@@ -30,14 +30,23 @@ script_dir="$(dirname "$(readlink -f "$0")")"
 # fixed offset DuckDB v1.5.3+ checks, causing the install to fail with
 # "metadata at the end of the file is invalid".
 #
-# wasm artifacts do not carry the placeholder, so the strip is gated on
-# the native-binary path only.
+# wasm artifacts from current extension-ci-tools also end with a complete
+# `duckdb_signature` custom section (metadata + zeroed 256-byte placeholder).
+# Appending a second section breaks LOAD in DuckDB-Wasm ("Unknown ABI type",
+# #192), so a wasm artifact that already has the section is treated like a
+# native one: only its placeholder is replaced. Older wasm artifacts without
+# the section still get one appended.
+has_wasm_sig_section=0
+if [[ $4 == wasm* ]] && tail -c 1024 $ext | grep -qa 'duckdb_signature'; then
+  has_wasm_sig_section=1
+fi
+
 cat $ext > $ext.append
-if [[ $4 != wasm* ]]; then
+if [[ $4 != wasm* || $has_wasm_sig_section == 1 ]]; then
   truncate -s -256 $ext.append
 fi
 
-if [[ $4 == wasm* ]]; then
+if [[ $4 == wasm* && $has_wasm_sig_section == 0 ]]; then
   # 0 for custom section
   # 113 in hex = 275 in decimal, total lenght of what follows (1 + 16 + 2 + 256)
   # [1(continuation) + 0010011(payload) = \x93, 0(continuation) + 10(payload) = \x02]
@@ -66,6 +75,15 @@ truncate -s 256 $ext.sign
 
 # append signature to extension binary
 cat $ext.sign >> $ext.append
+
+# A wasm extension must carry exactly one duckdb_signature section (#192).
+if [[ $4 == wasm* ]]; then
+  n_sig=$(tail -c 2048 $ext.append | grep -ao 'duckdb_signature' | wc -l)
+  if [[ $n_sig != 1 ]]; then
+    echo "error: $ext.append has $n_sig duckdb_signature sections, expected 1" >&2
+    exit 1
+  fi
+fi
 
 # compress extension binary
 if [[ $4 == wasm_* ]]; then
