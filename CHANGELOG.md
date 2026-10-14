@@ -12,6 +12,11 @@ Breaking changes are called out explicitly.
 
 ### Added
 
+- Contract `prediction` producers (#183): `<model>_prediction_by(source, group_col,
+  x_col, y_col, x_cols, level := 0.95)` (19 models) returns fitted values with their
+  band as `prediction` rows (`id, model_id, model_name, x, y, yhat, yhat_lower,
+  yhat_upper, level, split`), aligned with anofox-forecast; `<model>_effects_by`
+  (OLS, WLS, Ridge, GLMs) returns marginal-effect grids with confidence bands.
 - `alias_tolerance` option (#164) for `ols_fit`, `ols_fit_agg`, `wls_fit`,
   `wls_fit_agg`, the OLS / WLS `*_fit_predict_agg` aggregates and
   `*_fit_predict` window functions: the tolerance of the collinearity test

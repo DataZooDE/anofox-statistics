@@ -64,6 +64,15 @@ static const struct {
     {"breusch_pagan_agg", "test"}, {"white_test_agg", "test"}, {"log_rank_test_agg", "test"},
     {"acf_by", "curve"}, {"pacf_by", "curve"}, {"kaplan_meier_by", "curve"},
     {"roc_curve_by", "curve"}, {"pr_curve_by", "curve"}, {"calibration_curve_by", "curve"},
+    {"ols_prediction_by", "prediction"}, {"wls_prediction_by", "prediction"}, {"ridge_prediction_by", "prediction"},
+    {"elasticnet_prediction_by", "prediction"}, {"huber_prediction_by", "prediction"}, {"ransac_prediction_by", "prediction"},
+    {"theil_sen_prediction_by", "prediction"}, {"rls_prediction_by", "prediction"}, {"bls_prediction_by", "prediction"},
+    {"pls_prediction_by", "prediction"}, {"quantile_prediction_by", "prediction"}, {"alm_prediction_by", "prediction"},
+    {"poisson_prediction_by", "prediction"}, {"binomial_prediction_by", "prediction"}, {"logistic_prediction_by", "prediction"},
+    {"negbinom_prediction_by", "prediction"}, {"gamma_prediction_by", "prediction"}, {"tweedie_prediction_by", "prediction"}, {"isotonic_prediction_by", "prediction"},
+    {"ols_effects_by", "prediction"}, {"wls_effects_by", "prediction"}, {"ridge_effects_by", "prediction"},
+    {"poisson_effects_by", "prediction"}, {"binomial_effects_by", "prediction"}, {"logistic_effects_by", "prediction"},
+    {"negbinom_effects_by", "prediction"}, {"gamma_effects_by", "prediction"}, {"tweedie_effects_by", "prediction"},
     {nullptr, nullptr}
 };
 // clang-format on

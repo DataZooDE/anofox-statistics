@@ -1,0 +1,91 @@
+# name: test/sql/contract/contract_tidy_glance_all.test
+# description: every <model>_tidy_by / <model>_glance_by (21 models) has the contract columns and tags, and runs (#160)
+# group: [contract]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE d AS SELECT range::DOUBLE AS x1, (range % 7)::DOUBLE AS x2,
+    (2 * range + (range % 7) + (range % 3) * 1.5 + sin(range))::DOUBLE AS y, 1.0 + (range % 4) AS w,
+    ((range * 7 + 3) % 9)::DOUBLE AS cnt, 1.0 + ((range * 7 + 3) % 9)::DOUBLE AS pos,
+    ((range * 5 + 1) % 3 = 0)::DOUBLE AS bin, (range % 4 <> 0)::DOUBLE AS ev,
+    (range % 2)::VARCHAR AS g
+FROM range(80);
+
+# Reference shapes (ols)
+statement ok
+CREATE TABLE ref AS SELECT
+    (SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM ols_tidy_by('d', g, y, [x1, x2]))) AS tidy_cols,
+    (SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM ols_glance_by('d', g, y, [x1, x2]))) AS glance_cols;
+
+# Gaussian-response models: y ~ x1 + x2
+foreach model ols ridge elasticnet huber ransac theil_sen rls lars bls nnls pls quantile alm
+
+query III
+SELECT (SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM ${model}_tidy_by('d', g, y, [x1, x2]))) = tidy_cols,
+       (SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM ${model}_glance_by('d', g, y, [x1, x2]))) = glance_cols,
+       (SELECT count(*) > 0 FROM ${model}_tidy_by('d', g, y, [x1, x2])) AND (SELECT count(*) > 0 FROM ${model}_glance_by('d', g, y, [x1, x2]))
+FROM ref;
+----
+true	true	true
+
+endloop
+
+# Count / positive-response GLMs
+foreach model poisson negbinom tweedie
+
+query III
+SELECT (SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM ${model}_tidy_by('d', g, cnt, [x1, x2]))) = tidy_cols,
+       (SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM ${model}_glance_by('d', g, cnt, [x1, x2]))) = glance_cols,
+       (SELECT count(*) > 0 FROM ${model}_tidy_by('d', g, cnt, [x1, x2])) AND (SELECT count(*) > 0 FROM ${model}_glance_by('d', g, cnt, [x1, x2]))
+FROM ref;
+----
+true	true	true
+
+endloop
+
+query III
+SELECT (SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM gamma_tidy_by('d', g, pos, [x1, x2]))) = tidy_cols,
+       (SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM gamma_glance_by('d', g, pos, [x1, x2]))) = glance_cols,
+       (SELECT count(*) > 0 FROM gamma_tidy_by('d', g, pos, [x1, x2])) AND (SELECT count(*) > 0 FROM gamma_glance_by('d', g, pos, [x1, x2]))
+FROM ref;
+----
+true	true	true
+
+# Binary-response GLMs
+foreach model binomial logistic
+
+query III
+SELECT (SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM ${model}_tidy_by('d', g, bin, [x1, x2]))) = tidy_cols,
+       (SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM ${model}_glance_by('d', g, bin, [x1, x2]))) = glance_cols,
+       (SELECT count(*) > 0 FROM ${model}_tidy_by('d', g, bin, [x1, x2])) AND (SELECT count(*) > 0 FROM ${model}_glance_by('d', g, bin, [x1, x2]))
+FROM ref;
+----
+true	true	true
+
+endloop
+
+# Models with an extra column: WLS weights, AFT event indicator
+query III
+SELECT (SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM wls_tidy_by('d', g, y, [x1, x2], w))) = tidy_cols,
+       (SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM wls_glance_by('d', g, y, [x1, x2], w))) = glance_cols,
+       (SELECT count(*) > 0 FROM wls_tidy_by('d', g, y, [x1, x2], w)) AND (SELECT count(*) > 0 FROM wls_glance_by('d', g, y, [x1, x2], w))
+FROM ref;
+----
+true	true	true
+
+query III
+SELECT (SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM aft_tidy_by('d', g, pos, [x1, x2], ev))) = tidy_cols,
+       (SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM aft_glance_by('d', g, pos, [x1, x2], ev))) = glance_cols,
+       (SELECT count(*) > 0 FROM aft_tidy_by('d', g, pos, [x1, x2], ev)) AND (SELECT count(*) > 0 FROM aft_glance_by('d', g, pos, [x1, x2], ev))
+FROM ref;
+----
+true	true	true
+
+# Every one of the 21 models is a tagged producer, tidy_by as terms and glance_by as summary
+query II
+SELECT count(DISTINCT function_name) FILTER (WHERE function_name LIKE '%\_tidy\_by' ESCAPE '\' AND function_name NOT LIKE '%rolling%' AND tags['anofox.output'] = 'terms'),
+       count(DISTINCT function_name) FILTER (WHERE function_name LIKE '%\_glance\_by' ESCAPE '\' AND tags['anofox.output'] = 'summary')
+FROM duckdb_functions() WHERE tags['anofox.contract'] = '1';
+----
+21	21
