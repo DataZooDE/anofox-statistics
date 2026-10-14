@@ -4,9 +4,8 @@
 
 require anofox_statistics
 
-# NOTE: fixture capped at 100 rows — larger fixtures push the IRLS QR into
-# faer's blocked-GEMM path which segfaults in the DuckDB v1.4.4 unittest
-# harness (pre-existing bug, affects poisson_fit_agg identically).
+# 1000 rows: large enough for faer's blocked QR/GEMM path in IRLS, which
+# crashed the unittest harness before 606c7e6 (#93).
 
 # Binary labels generated from a sigmoid of x. The sign of x roughly
 # determines the class, so a Logistic fit should recover a positive slope.
@@ -18,7 +17,7 @@ SELECT
         ELSE 0.0
     END::DOUBLE AS y,
     (i % 10)::DOUBLE AS x
-FROM range(0, 100) t(i);
+FROM range(0, 1000) t(i);
 
 # TEST 1: result struct populated
 query I
@@ -55,7 +54,7 @@ true
 query I
 SELECT (logistic_fit_agg(y, [x])).n_observations FROM logistic_data;
 ----
-100
+1000
 
 # TEST 7: fully-qualified name resolves
 query I
