@@ -226,6 +226,7 @@ ols_fit_agg(y DOUBLE, x LIST(DOUBLE) [, options]) -> STRUCT
 | confidence_level | DOUBLE | 0.95 | Confidence level for the intervals |
 | solver | VARCHAR | 'svd' | `'svd'`, `'qr'` or `'cholesky'` (see [solver](#solver)) |
 | hc_type | VARCHAR | 'none' | Heteroscedasticity-consistent standard errors (see [hc_type](#hc_type)) |
+| alias_tolerance | DOUBLE | 1e-7 | Collinearity (aliasing) tolerance, R `lm`'s `tol` (> 0); aliased columns get a NaN coefficient |
 
 **Examples:**
 
@@ -324,7 +325,7 @@ wls_fit(y LIST(DOUBLE), x LIST(LIST(DOUBLE)), weights LIST(DOUBLE) [, options]) 
 wls_fit_agg(y DOUBLE, x LIST(DOUBLE), weight DOUBLE [, options]) -> STRUCT
 ```
 
-**Options:** same as OLS (`fit_intercept`, `compute_inference`, `confidence_level`, `solver`, `hc_type`).
+**Options:** same as OLS (`fit_intercept`, `compute_inference`, `confidence_level`, `solver`, `hc_type`, `alias_tolerance`).
 
 ```sql
 SELECT wls_fit(

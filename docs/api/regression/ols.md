@@ -86,6 +86,7 @@ ORDER BY region;
 | `confidence_level` (alias `confidence`) | DOUBLE | `0.95` | Level of the coefficient confidence intervals |
 | `solver` | VARCHAR | `'svd'` | `'svd'`, `'qr'` or `'cholesky'` |
 | `hc_type` | VARCHAR | `'none'` | Robust standard errors: `'none'`, `'hc0'`, `'hc1'`, `'hc2'`, `'hc3'` |
+| `alias_tolerance` | DOUBLE | `1e-7` | Tolerance of the collinearity (aliasing) test, as R `lm`'s `tol`: a column whose residual norm, relative to its own norm, is below it after projecting out the earlier columns is aliased (NaN coefficient). Must be > 0 |
 
 Option keys the function does not support raise an error.
 

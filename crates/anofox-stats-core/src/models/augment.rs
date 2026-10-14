@@ -167,13 +167,14 @@ fn run<M: Augmentable + FittedRegressor>(
 pub fn augment_ols(y: &[f64], x: &[Vec<f64>], options: &OlsOptions) -> StatsResult<AugmentResult> {
     let design = prepare(y, x, None, options.fit_intercept)?;
     run(y, x, design, |x_mat, y_col| {
-        OlsRegressor::builder()
+        let mut builder = OlsRegressor::builder()
             .with_intercept(options.fit_intercept)
             .compute_inference(false)
-            .solve_method(convert_solver(options.solver))
-            .build()
-            .fit(x_mat, y_col)
-            .map_err(StatsError::from)
+            .solve_method(convert_solver(options.solver));
+        if let Some(tol) = options.alias_tolerance {
+            builder = builder.alias_tolerance(tol);
+        }
+        builder.build().fit(x_mat, y_col).map_err(StatsError::from)
     })
 }
 
@@ -193,14 +194,15 @@ pub fn augment_wls(
     let design = prepare(y, x, Some(weights), options.fit_intercept)?;
     let w_col = Col::from_fn(design.valid.len(), |i| weights[design.valid[i]]);
     run(y, x, design, |x_mat, y_col| {
-        WlsRegressor::builder()
+        let mut builder = WlsRegressor::builder()
             .with_intercept(options.fit_intercept)
             .weights(w_col)
             .compute_inference(false)
-            .solve_method(convert_solver(options.solver))
-            .build()
-            .fit(x_mat, y_col)
-            .map_err(StatsError::from)
+            .solve_method(convert_solver(options.solver));
+        if let Some(tol) = options.alias_tolerance {
+            builder = builder.alias_tolerance(tol);
+        }
+        builder.build().fit(x_mat, y_col).map_err(StatsError::from)
     })
 }
 

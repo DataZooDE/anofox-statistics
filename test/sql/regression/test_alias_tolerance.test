@@ -1,0 +1,99 @@
+# name: test/sql/regression/test_alias_tolerance.test
+# description: alias_tolerance option (R lm's tol) for OLS / WLS (#164)
+# group: [regression]
+
+require anofox_statistics
+
+# x2 = x1 + 1e-9 * noise. R (validation reference):
+#   i <- 0:29; x1 <- (i %% 7) + i / 10; x2 <- x1 + 1e-9 * ((i * 13) %% 5 - 2)
+#   y <- 1 + 2 * x1 + ((i * 7) %% 5) / 10; w <- 1 + (i %% 3)
+#   coef(lm(y ~ x1 + x2))                         1.20552183488209 1.99871085566955 NA
+#   coef(lm(y ~ x1 + x2, tol = 1e-12))            1.20552420881399 42993.6990569399 -42991.7003466385
+#   coef(lm(y ~ x1 + x2, weights = w))            1.26119959335818 1.98576753642833 NA
+#   coef(lm(y ~ x1 + x2, weights = w, tol = 1e-12)) 1.26189878297343 2399197.43373943 -2399195.4481345
+# With tol = 1e-12 the split between x1 and x2 is ill-conditioned, so only
+# that x2 is kept and that b1 + b2 matches R are checked.
+statement ok
+CREATE TABLE d AS
+SELECT i AS t,
+       (i % 7) + i / 10.0 AS x1,
+       (i % 7) + i / 10.0 + 1e-9 * (((i * 13) % 5) - 2) AS x2,
+       1 + 2 * ((i % 7) + i / 10.0) + ((i * 7) % 5) / 10.0 AS y,
+       1.0 + (i % 3) AS w
+FROM range(0, 30) r(i);
+
+# Default (1e-7): x2 is aliased (NaN coefficient; R lm: NA)
+query III
+SELECT abs(m.intercept - 1.20552183488209) < 1e-8, abs(m.coefficients[1] - 1.99871085566955) < 1e-8, isnan(m.coefficients[2])
+FROM (SELECT ols_fit_agg(y, [x1, x2]) AS m FROM d);
+----
+true	true	true
+
+# An explicit 1e-7 is the default
+query I
+SELECT isnan(m.coefficients[2]) FROM (SELECT ols_fit_agg(y, [x1, x2], {'alias_tolerance': 1e-7}) AS m FROM d);
+----
+true
+
+# 1e-12: x2 is kept; b1 + b2 matches R
+query II
+SELECT NOT isnan(m.coefficients[2]), abs(m.coefficients[1] + m.coefficients[2] - 1.9987103) < 1e-3
+FROM (SELECT ols_fit_agg(y, [x1, x2], {'alias_tolerance': 1e-12}) AS m FROM d);
+----
+true	true
+
+# WLS, default and 1e-12
+query III
+SELECT abs(m.intercept - 1.26119959335818) < 1e-8, abs(m.coefficients[1] - 1.98576753642833) < 1e-8, isnan(m.coefficients[2])
+FROM (SELECT wls_fit_agg(y, [x1, x2], w) AS m FROM d);
+----
+true	true	true
+
+query II
+SELECT NOT isnan(m.coefficients[2]), abs(m.coefficients[1] + m.coefficients[2] - 1.98564) < 1e-2
+FROM (SELECT wls_fit_agg(y, [x1, x2], w, {'alias_tolerance': 1e-12}) AS m FROM d);
+----
+true	true
+
+# A coarse tolerance aliases a column the default keeps: x3 = x1 + 1e-4 * noise
+statement ok
+CREATE TABLE d3 AS SELECT y, x1, x1 + 1e-4 * (((t * 13) % 5) - 2) AS x3 FROM d;
+
+query II
+SELECT (SELECT ols_fit_agg(y, [x1, x3]) FROM d3).coefficients[2] IS NOT NULL AND NOT isnan((SELECT ols_fit_agg(y, [x1, x3]) FROM d3).coefficients[2]),
+       isnan((SELECT ols_fit_agg(y, [x1, x3], {'alias_tolerance': 1e-2}) FROM d3).coefficients[2])
+FROM (SELECT 1);
+----
+true	true
+
+# Fit-predict aggregate and window function accept the option
+query I
+SELECT count(*) FROM (SELECT unnest(ols_fit_predict_agg(y, [x1, x2], {'alias_tolerance': 1e-12} ORDER BY t)) AS r FROM d);
+----
+30
+
+# (an explicit 1e-7 gives the same predictions as the default; the first rows have too few observations)
+query I
+SELECT count(*) FILTER (WHERE a IS NOT DISTINCT FROM b) FROM (
+    SELECT (wls_fit_predict(y, [x1, x2], w, {'alias_tolerance': 1e-7}) OVER (ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)).yhat AS a,
+           (wls_fit_predict(y, [x1, x2], w) OVER (ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)).yhat AS b
+    FROM d);
+----
+30
+
+# Invalid values are rejected
+statement error
+SELECT ols_fit_agg(y, [x1, x2], {'alias_tolerance': 0.0}) FROM d;
+----
+alias_tolerance must be a positive number
+
+statement error
+SELECT ols_fit_agg(y, [x1, x2], {'alias_tolerance': -1e-7}) FROM d;
+----
+alias_tolerance must be a positive number
+
+# Only OLS / WLS accept it
+statement error
+SELECT ridge_fit_agg(y, [x1, x2], {'alias_tolerance': 1e-7}) FROM d;
+----
+alias_tolerance

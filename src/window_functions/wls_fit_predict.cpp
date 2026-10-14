@@ -35,10 +35,11 @@ struct WlsFitPredictState {
     NullPolicy null_policy;
     SolverType solver;
     HcType hc_type;
+    double alias_tolerance;
 
     WlsFitPredictState()
         : n_features(0), initialized(false), has_current_x(false), fit_intercept(true), confidence_level(0.95),
-          null_policy(NullPolicy::DROP), solver(SolverType::SVD), hc_type(HcType::NONE) {}
+          null_policy(NullPolicy::DROP), solver(SolverType::SVD), hc_type(HcType::NONE), alias_tolerance(0.0) {}
 
     void Reset() {
         y_values.clear();
@@ -57,6 +58,7 @@ struct WlsFitPredictBindData : public FunctionData {
     NullPolicy null_policy = NullPolicy::DROP;
     SolverType solver = SolverType::SVD;
     HcType hc_type = HcType::NONE;
+    double alias_tolerance = 0.0; // <= 0: upstream default (1e-7, R lm tol)
 
     unique_ptr<FunctionData> Copy() const override {
         auto result = make_uniq<WlsFitPredictBindData>();
@@ -65,13 +67,14 @@ struct WlsFitPredictBindData : public FunctionData {
         result->null_policy = null_policy;
         result->solver = solver;
         result->hc_type = hc_type;
+        result->alias_tolerance = alias_tolerance;
         return std::move(result);
     }
 
     bool Equals(const FunctionData &other_p) const override {
         auto &other = other_p.Cast<WlsFitPredictBindData>();
         return fit_intercept == other.fit_intercept && confidence_level == other.confidence_level &&
-               null_policy == other.null_policy && solver == other.solver && hc_type == other.hc_type;
+               null_policy == other.null_policy && solver == other.solver && hc_type == other.hc_type && alias_tolerance == other.alias_tolerance;
     }
 };
 
@@ -126,6 +129,7 @@ static void WlsFitPredictUpdate(Vector inputs[], AggregateInputData &aggr_input_
         state.null_policy = bind_data.null_policy;
         state.solver = bind_data.solver;
         state.hc_type = bind_data.hc_type;
+        state.alias_tolerance = bind_data.alias_tolerance;
 
         auto x_idx = x_data.sel->get_index(i);
         if (!x_data.validity.RowIsValid(x_idx)) {
@@ -206,6 +210,7 @@ static void WlsFitPredictCombine(Vector &source_vector, Vector &target_vector, A
             target.null_policy = source.null_policy;
             target.solver = source.solver;
             target.hc_type = source.hc_type;
+            target.alias_tolerance = source.alias_tolerance;
             continue;
         }
 
@@ -256,12 +261,13 @@ static void WlsFitPredictFinalize(Vector &state_vector, AggregateInputData &, Ve
             x_arrays.push_back({col.data(), nullptr, col.size()});
         }
 
-        AnofoxWlsOptions options;
+        AnofoxWlsOptions options {};
         options.fit_intercept = state.fit_intercept;
         options.compute_inference = false;
         options.confidence_level = state.confidence_level;
         options.solver = ConvertSolverType(state.solver);
         options.hc_type = ConvertHcType(state.hc_type);
+        options.alias_tolerance = state.alias_tolerance;
         AnofoxFitResultCore core_result;
         AnofoxError error;
 
@@ -303,7 +309,7 @@ static unique_ptr<FunctionData> WlsFitPredictBind(ClientContext &context, Aggreg
     if (arguments.size() >= 4) {
         auto opts = RegressionMapOptions::ParseFromExpression(
             context, *arguments[3], "wls_fit_predict",
-            {"fit_intercept", "confidence_level", "null_policy", "solver", "hc_type"});
+            {"fit_intercept", "confidence_level", "null_policy", "solver", "hc_type", "alias_tolerance"});
         if (opts.fit_intercept.has_value())
             result->fit_intercept = opts.fit_intercept.value();
         if (opts.confidence_level.has_value())
@@ -314,6 +320,8 @@ static unique_ptr<FunctionData> WlsFitPredictBind(ClientContext &context, Aggreg
             result->solver = opts.solver.value();
         if (opts.hc_type.has_value())
             result->hc_type = opts.hc_type.value();
+        if (opts.alias_tolerance.has_value())
+            result->alias_tolerance = opts.alias_tolerance.value();
     }
 
     function.return_type = GetWlsFitPredictResultType();

@@ -174,6 +174,11 @@ fn convert_lambda_scaling_ffi(scaling: LambdaScalingFFI) -> LambdaScaling {
     }
 }
 
+/// FFI alias tolerance: <= 0 or non-finite means the upstream default.
+fn alias_tolerance_ffi(tol: f64) -> Option<f64> {
+    (tol.is_finite() && tol > 0.0).then_some(tol)
+}
+
 fn convert_hc_type_ffi(hc: HcTypeFFI) -> Option<HcType> {
     match hc {
         HcTypeFFI::None => None,
@@ -284,6 +289,7 @@ pub unsafe extern "C" fn anofox_ols_fit(
             confidence_level: options.confidence_level,
             solver: convert_solver_ffi(options.solver),
             hc_type: convert_hc_type_ffi(options.hc_type),
+            alias_tolerance: alias_tolerance_ffi(options.alias_tolerance),
         };
 
         // Call the core function with panic catching
@@ -1411,6 +1417,7 @@ pub unsafe extern "C" fn anofox_wls_fit(
             confidence_level: options.confidence_level,
             solver: convert_solver_ffi(options.solver),
             hc_type: convert_hc_type_ffi(options.hc_type),
+            alias_tolerance: alias_tolerance_ffi(options.alias_tolerance),
         };
 
         // Call the core function with panic catching
@@ -9047,6 +9054,7 @@ pub unsafe extern "C" fn anofox_ols_augment(
             confidence_level: options.confidence_level,
             solver: convert_solver_ffi(options.solver),
             hc_type: None,
+            alias_tolerance: alias_tolerance_ffi(options.alias_tolerance),
         };
         augment_entry("OLS augment", out_result, out_error, || {
             augment_ols(&y_vec, &x_vecs, &opts)
@@ -9089,6 +9097,7 @@ pub unsafe extern "C" fn anofox_wls_augment(
             confidence_level: options.confidence_level,
             solver: convert_solver_ffi(options.solver),
             hc_type: None,
+            alias_tolerance: alias_tolerance_ffi(options.alias_tolerance),
         };
         augment_entry("WLS augment", out_result, out_error, || {
             augment_wls(&y_vec, &x_vecs, &w_vec, &opts)

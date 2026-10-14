@@ -725,6 +725,8 @@ pub struct OlsOptionsFFI {
     pub solver: SolverTypeFFI,
     /// Heteroscedasticity-consistent SE type
     pub hc_type: HcTypeFFI,
+    /// Tolerance of R `lm`'s aliasing test; <= 0 or non-finite = upstream default (1e-7)
+    pub alias_tolerance: f64,
 }
 
 impl Default for OlsOptionsFFI {
@@ -735,6 +737,7 @@ impl Default for OlsOptionsFFI {
             confidence_level: 0.95,
             solver: SolverTypeFFI::Qr,
             hc_type: HcTypeFFI::None,
+            alias_tolerance: 0.0,
         }
     }
 }
@@ -1071,6 +1074,8 @@ pub struct WlsOptionsFFI {
     pub solver: SolverTypeFFI,
     /// Heteroscedasticity-consistent SE type
     pub hc_type: HcTypeFFI,
+    /// Tolerance of R `lm`'s aliasing test; <= 0 or non-finite = upstream default (1e-7)
+    pub alias_tolerance: f64,
 }
 
 impl Default for WlsOptionsFFI {
@@ -1081,6 +1086,7 @@ impl Default for WlsOptionsFFI {
             confidence_level: 0.95,
             solver: SolverTypeFFI::Qr,
             hc_type: HcTypeFFI::None,
+            alias_tolerance: 0.0,
         }
     }
 }
