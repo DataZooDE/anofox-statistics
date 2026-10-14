@@ -286,14 +286,15 @@ CREATE OR REPLACE TABLE houses AS SELECT * FROM (VALUES
     (95.0, 225.0), (110.0, 265.0), (125.0, 300.0)
 ) t(sqm, price_keur);
 
--- Columns: term, estimate, std_error, statistic, p_value, conf_low, conf_high
--- sqm: estimate 2.4095, std_error 0.0258, t = 93.4, p = 7.9e-08
--- ((Intercept) carries only its estimate: ols_fit_agg reports inference for the slopes)
+-- Columns: term, estimate, std_error, statistic, p_value, conf_low, conf_high, conf_level, index_name, index_value
+-- (Intercept): estimate -1.6667, std_error 2.3514, p = 0.518
+-- sqm:         estimate  2.4095, std_error 0.0258, t = 93.4, p = 7.9e-08
 SELECT unnest(tidy(ols_fit_agg(price_keur, [sqm], {'compute_inference': true}), ['sqm']), recursive := true)
 FROM houses;
 
--- Columns: intercept, r_squared, adj_r_squared, residual_std_error, n_observations, n_features
--- r_squared = 0.99954, residual_std_error = 1.618, n_observations = 6, n_features = 1
+-- The same 19 columns for every model: model_type, family, link, n_observations, r_squared,
+-- log_likelihood, aic, bic, deviance, ... (NULL where the model has no such value)
+-- model_type = 'ols', r_squared = 0.99954, residual_std_error = 1.618, aic = 26.37
 SELECT unnest(glance(ols_fit_agg(price_keur, [sqm]))) FROM houses;
 ```
 
