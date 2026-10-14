@@ -17,6 +17,14 @@ Breaking changes are called out explicitly.
   band as `prediction` rows (`id, model_id, model_name, x, y, yhat, yhat_lower,
   yhat_upper, level, split`), aligned with anofox-forecast; `<model>_effects_by`
   (OLS, WLS, Ridge, GLMs) returns marginal-effect grids with confidence bands.
+- Rolling coefficients (#177): `<model>_rolling_tidy_by(source, group_col,
+  order_col, y_col, x_cols, window_size := 30, min_obs := NULL)` for `ols`, `wls`,
+  `ridge`, `elasticnet`, `huber` and `poisson` returns the coefficients of every
+  trailing window as contract `terms` rows (`index_name = 'window_end'`).
+- Durbin-Watson p-value (#177): `durbin_watson_agg(resid, x [, alternative [,
+  fit_intercept]] ORDER BY t)` returns the `lmtest::dwtest` p-value (exact via
+  Imhof for n < 100, else the normal approximation; anofox-statistics 0.4.9).
+  The residual-only form keeps its NULL p-value. Validated against R.
 - `alias_tolerance` option (#164) for `ols_fit`, `ols_fit_agg`, `wls_fit`,
   `wls_fit_agg`, the OLS / WLS `*_fit_predict_agg` aggregates and
   `*_fit_predict` window functions: the tolerance of the collinearity test

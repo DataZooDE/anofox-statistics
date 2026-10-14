@@ -73,6 +73,8 @@ static const struct {
     {"ols_effects_by", "prediction"}, {"wls_effects_by", "prediction"}, {"ridge_effects_by", "prediction"},
     {"poisson_effects_by", "prediction"}, {"binomial_effects_by", "prediction"}, {"logistic_effects_by", "prediction"},
     {"negbinom_effects_by", "prediction"}, {"gamma_effects_by", "prediction"}, {"tweedie_effects_by", "prediction"},
+    {"ols_rolling_tidy_by", "terms"}, {"wls_rolling_tidy_by", "terms"}, {"ridge_rolling_tidy_by", "terms"},
+    {"elasticnet_rolling_tidy_by", "terms"}, {"huber_rolling_tidy_by", "terms"}, {"poisson_rolling_tidy_by", "terms"},
     {nullptr, nullptr}
 };
 // clang-format on

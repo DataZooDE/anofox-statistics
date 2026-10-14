@@ -61,9 +61,15 @@ ORDER BY g, term
 1	x1	true	0.95
 1	x2	true	0.95
 
-# Every tidy_by is tagged as a terms producer
+# Every tidy_by (21 models) and rolling_tidy_by (6) is tagged as a terms producer
 query I
 SELECT count(DISTINCT function_name) FROM duckdb_functions()
 WHERE function_name LIKE '%\_tidy\_by' ESCAPE '\' AND tags['anofox.output'] = 'terms' AND tags['anofox.contract'] = '1'
 ----
-21
+27
+
+query I
+SELECT list(function_name ORDER BY function_name) FROM (SELECT DISTINCT function_name FROM duckdb_functions()
+WHERE function_name LIKE '%\_rolling\_tidy\_by' ESCAPE '\' AND tags['anofox.output'] = 'terms')
+----
+[elasticnet_rolling_tidy_by, huber_rolling_tidy_by, ols_rolling_tidy_by, poisson_rolling_tidy_by, ridge_rolling_tidy_by, wls_rolling_tidy_by]

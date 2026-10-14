@@ -1,0 +1,77 @@
+# name: test/sql/window/rolling_tidy_by.test
+# description: <model>_rolling_tidy_by: rolling coefficients as contract `terms` rows (#177)
+# group: [window]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE d AS
+SELECT i AS t, 'g' || (i % 2) AS g,
+       ((i * 17) % 23)::DOUBLE + 0.05 * i AS x1,
+       3.0 - 0.8 * (((i * 17) % 23) + 0.05 * i) + 0.01 * i * (((i * 17) % 23)) / 10 + ((i * 31) % 11 - 5) * 0.4 AS y,
+       1.0 + (i % 3) * 0.5 AS w
+FROM range(1, 201) r(i);
+
+# One row per (group, full window, term): 2 groups x (100 - 20 + 1) windows x 2 terms
+query IIII
+SELECT count(*), count(DISTINCT g), min(n_window), max(n_window)
+FROM ols_rolling_tidy_by('d', g, t, y, [x1], window_size := 20);
+----
+324	2	20	20
+
+# Contract columns
+query I
+SELECT list(column_name) FROM (DESCRIBE SELECT * FROM ols_rolling_tidy_by('d', g, t, y, [x1], window_size := 20));
+----
+[g, model_id, window_end, term, estimate, std_error, statistic, p_value, conf_low, conf_high, conf_level, index_name, index_value, n_window]
+
+# Each window equals a direct fit on the same 20 rows (estimate and std_error)
+query I
+WITH roll AS (
+    SELECT g, window_end, term, estimate, std_error FROM ols_rolling_tidy_by('d', g, t, y, [x1], window_size := 20, names := ['x1'])),
+direct AS (
+    -- each group holds every other t, so a 20-row window is t in (a.t - 40, a.t]
+    SELECT a.g, a.t AS window_end, unnest(tidy(ols_fit_agg(b.y, [b.x1], {'compute_inference': true}), ['x1'])) AS _t
+    FROM d a JOIN d b ON a.g = b.g AND b.t <= a.t AND b.t > a.t - 40
+    GROUP BY a.g, a.t
+    HAVING count(*) = 20)
+SELECT count(*) = 324 AND bool_and(abs(r.estimate - (x._t).estimate) < 1e-9 * greatest(1, abs((x._t).estimate))
+                         AND abs(r.std_error - (x._t).std_error) < 1e-9 * greatest(1, abs((x._t).std_error)))
+FROM roll r JOIN direct x ON r.g = x.g AND r.window_end = x.window_end AND r.term = (x._t).term;
+----
+true
+
+# index_name / index_value: window_end position within the group
+query III
+SELECT bool_and(index_name = 'window_end'), min(index_value), max(index_value)
+FROM ols_rolling_tidy_by('d', g, t, y, [x1], window_size := 20);
+----
+true	20.0	100.0
+
+# min_obs keeps the shorter leading windows
+query II
+SELECT min(n_window), count(DISTINCT window_end)
+FROM ols_rolling_tidy_by('d', g, t, y, [x1], window_size := 20, min_obs := 5);
+----
+5	192
+
+# WLS (extra weight column) and a GLM
+query I
+SELECT count(*) FROM wls_rolling_tidy_by('d', g, t, y, [x1], w, window_size := 30);
+----
+284
+
+query I
+SELECT count(*) > 0 AND bool_and(term IN ('(Intercept)', 'x1'))
+FROM poisson_rolling_tidy_by('d', g, t, abs(round(y))::DOUBLE, [x1], window_size := 40, names := ['x1']);
+----
+true
+
+# A DATE order column works: window_end keeps its type
+statement ok
+CREATE TABLE d2 AS SELECT g, DATE '2024-01-01' + t::INTEGER AS dt, y, x1 FROM d;
+
+query I
+SELECT typeof(window_end) FROM ols_rolling_tidy_by('d2', g, dt, y, [x1], window_size := 10) LIMIT 1;
+----
+DATE
