@@ -444,7 +444,7 @@ LIMIT 5;
 
 ## Plot-Ready Outputs
 
-Model STRUCTs are convenient in SQL but awkward to chart. The `_by` table macros therefore also return **long tables with fixed column sets**, the six schemas of the anofox integration contract. A table has one row per mark: a coefficient, an observation, a curve point, a test. Optional columns are always present (NULL when not computed), and every table carries `model_id` next to your group column. Other anofox extensions such as anofox-forecast use the same schemas.
+Model STRUCTs are convenient in SQL but awkward to chart. The `_by` table macros therefore also return **long tables with fixed column sets**, the six schemas of the anofox integration contract. A table has one row per mark: a coefficient, an observation, a curve point, a test. Optional columns are always present (NULL when not computed), and your group column is kept. The macros that fit one of the extension's models (`_tidy_by`, `_glance_by`, `_augment_by`, `_partial_residuals_by`, `_rolling_tidy_by`, `_path_by`, `_cv_by`, `quantile_process_by`, `_prediction_by`, `_effects_by`) set `model_id` and `model_name` to the method (`'ols'`, `'poisson'`, …) and `id` to the group as text, so the tables of several models stack with `UNION ALL BY NAME`. In the curve and test macros whose groups are the things being compared (`roc_curve_by`, `pr_curve_by`, `calibration_curve_by`, `acf_by`, `pacf_by`, `kaplan_meier_by`, `pairwise_t_test_by`, `tukey_hsd_by`, `dunn_test_by`), `model_id` is the group value. Other anofox extensions such as anofox-forecast use the same schemas.
 
 | Schema | Main columns | Produced by |
 |--------|--------------|-------------|
@@ -495,9 +495,12 @@ ORDER BY output, function_name;
 ```sql skip
 LOAD anofox_visualization;
 
--- Coefficient forest, the categories dodged and coloured by model_id
+-- Coefficient forest comparing OLS and Huber for category A, coloured by model_id
 SELECT anofox_plot_terms(t)
-FROM ols_tidy_by('sales_data', category, revenue, [units_sold], names := ['units_sold']) t;
+FROM (SELECT * FROM ols_tidy_by('sales_data', category, revenue, [units_sold], names := ['units_sold'])
+      UNION ALL BY NAME
+      SELECT * FROM huber_tidy_by('sales_data', category, revenue, [units_sold], names := ['units_sold'])) t
+WHERE category = 'A';
 
 -- Observed points, fitted line and 90% band, one panel per category
 SELECT anofox_plot_prediction(p)

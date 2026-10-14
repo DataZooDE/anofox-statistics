@@ -96,9 +96,9 @@ LIMIT 5;
 
 ## Pattern 1b — per-group long tables (`_tidy_by`, `_glance_by`, `_augment_by`, `_prediction_by`, …)
 
-When you want a **report table** per group instead of predictions, use the output macros. They share the `*_fit_predict_by` call shape (`source` is a table-name string, columns unquoted) and return long tables with fixed columns (the integration contract schemas — see **anofox-statistics-plotting**). Every table has the group column and `model_id` (the group as VARCHAR).
+When you want a **report table** per group instead of predictions, use the output macros. They share the `*_fit_predict_by` call shape (`source` is a table-name string, columns unquoted) and return long tables with fixed columns (the integration contract schemas — see **anofox-statistics-plotting**). Every table keeps the group column and adds `id` (the group as VARCHAR) and `model_id` = `model_name` = the method (`'ols'`, `'poisson'`, …), so tables of several models stack with `UNION ALL BY NAME`. (The curve and test macros below, whose groups are what is compared, set `model_id` to the group value instead.)
 
-| Macro | Signature | Columns after group, `model_id` |
+| Macro | Signature | Main columns (besides group, `id`, `model_id`, `model_name`) |
 |---|---|---|
 | `<model>_tidy_by` | `(source, group_col, y_col, x_cols [, weight_col \| event_col] [, options := …, names := […]])` | `term, estimate, std_error, statistic, p_value, conf_low, conf_high, conf_level, index_name, index_value` (one row per term, intercept first) |
 | `<model>_glance_by` | `(source, group_col, y_col, x_cols [, weight_col \| event_col] [, options := …])` | `model_type, metric, value` (one row per available fit statistic) |
@@ -120,7 +120,7 @@ Model coverage:
 
 Other per-group long tables: `acf_by` / `pacf_by(source, group_col, value_col, order_col[, max_lag := …])`, `kaplan_meier_by(source, strata_col, time_col, event_col[, conf_level := …, conf_type := …])`, `roc_curve_by` / `pr_curve_by` / `calibration_curve_by(source, group_col, y_true_col, score_col …)` (`curve` schema), and `pairwise_t_test_by` / `tukey_hsd_by` / `dunn_test_by(source, group_col, value_col, factor_col, options := NULL)` (`test` schema).
 
-**Inference default gotcha:** `_tidy_by` computes inference by default, but only through its default `options`. Passing your own `options := {…}` replaces them, so add `'compute_inference': true` (quantile: `'se': 'nid'`) or `std_error` / `p_value` / `conf_low` / `conf_high` come back NULL.
+`_tidy_by` computes inference by default (quantile: `'nid'` standard errors); your own `options := {…}` are applied on top of that default.
 
 ```sql
 -- Coefficient table and fit statistics per category
@@ -130,15 +130,15 @@ ORDER BY category, term;
 SELECT * FROM ols_glance_by('sales', category, revenue, [units, price])
 WHERE metric IN ('r_squared', 'aic') ORDER BY category, metric;
 
--- Compare two models per group: union their glance tables
+-- Compare two models per group: stack their glance tables
 SELECT * FROM ols_glance_by('sales', category, revenue, [units, price])
-UNION ALL
+UNION ALL BY NAME
 SELECT * FROM huber_glance_by('sales', category, revenue, [units, price])
 ORDER BY category, metric, model_type;
 
--- Own options: keep inference on explicitly
+-- HC3 robust standard errors
 SELECT category, term, std_error
-FROM ols_tidy_by('sales', category, revenue, [units, price], options := {'compute_inference': true, 'hc_type': 'hc3'});
+FROM ols_tidy_by('sales', category, revenue, [units, price], options := {'hc_type': 'hc3'});
 
 -- Fitted values with a 90% band, positioned on units (prediction schema)
 SELECT id, x, y, round(yhat, 2) AS yhat, round(yhat_lower, 2) AS lo, round(yhat_upper, 2) AS hi, split

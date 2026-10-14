@@ -26,7 +26,9 @@ user-invocable: false
 
 **Extension:** `anofox_statistics` v0.10.0 | **DuckDB:** v1.4.5 LTS / v1.5.x | **Contract version:** `anofox_contract_version()` = `'1'`
 
-Fit functions return STRUCTs and LISTs. For charts, the `_by` table macros return **long tables with fixed columns** (one row per mark), the schemas of the anofox integration contract shared by anofox-statistics, anofox-forecast and the plotting extension anofox-visualization. Optional columns are always present (NULL when not computed), and every table carries `model_id` next to the group column.
+Fit functions return STRUCTs and LISTs. For charts, the `_by` table macros return **long tables with fixed columns** (one row per mark), the schemas of the anofox integration contract shared by anofox-statistics, anofox-forecast and the plotting extension anofox-visualization. Optional columns are always present (NULL when not computed) and the group column is kept.
+
+**Identifiers.** Macros that fit one of the extension's models (`_tidy_by`, `_glance_by`, `_augment_by`, `_partial_residuals_by`, `_rolling_tidy_by`, `_path_by`, `_cv_by`, `quantile_process_by`, `_prediction_by`, `_effects_by`) set `model_id` = `model_name` = the method (`'ols'`, `'poisson'`, …) and `id` = the group as VARCHAR. Macros whose groups are the things compared (`roc_curve_by`, `pr_curve_by`, `calibration_curve_by`, `acf_by`, `pacf_by`, `kaplan_meier_by`, `pairwise_t_test_by`, `tukey_hsd_by`, `dunn_test_by`) set `model_id` = the group value.
 
 ## Which table do I need?
 
@@ -50,6 +52,8 @@ Fit functions return STRUCTs and LISTs. For charts, the `_by` table macros retur
 Signatures of these macros are in the **anofox-statistics-batch** skill; the source is always a table-name string (`'my_table'`), columns are unquoted.
 
 ## Schemas (columns after the group column)
+
+The model macros also carry `id` and `model_name` next to `model_id` (see **Identifiers** above).
 
 | Schema | Columns |
 |---|---|
@@ -79,12 +83,11 @@ All functions of this extension also carry `tags['anofox.family'] = 'statistics'
 ## Gotchas
 
 1. **One `curve_type` per curve plot.** ROC and calibration rows share columns (so `UNION ALL` works) but are plotted separately: `GROUP BY curve_type` or filter.
-2. **Combine models with `UNION ALL`, and label them.** Same schema, same columns. In `_tidy_by`, `_glance_by`, `_augment_by` and the curve / test macros `model_id` is the **group value**, so two models of the same group collide: relabel with `SELECT * REPLACE ('ols:' || model_id AS model_id) FROM ols_tidy_by(…)`. `_glance_by` also has `model_type`; `_prediction_by` / `_effects_by` set `model_id` = `model_name` = the method (`'ols'`) and put the group in `id`.
-3. **`_tidy_by` inference needs `compute_inference` once you pass `options`.** The default options turn inference on; your own `options := {…}` replace them. Add `'compute_inference': true` (quantile: `'se': 'nid'`) or the interval columns are NULL.
-4. **LARS paths are on a different scale.** `lars_path_by` has `index_name = 'alpha'` (upstream's LARS alpha), the ridge / elastic-net paths `'lambda'` (glmnet's). Do not overlay them without rescaling.
-5. **`*_fit_predict_by` is not the `prediction` schema.** It keeps the source columns and adds `yhat`, `yhat_lower`, `yhat_upper`, `is_training`; use `<model>_prediction_by` for the contract columns (`x`, `id`, `split`, `level`).
-6. **STRUCT outputs to long rows:** `unnest(tidy(model), recursive := true)` gives `terms` columns for one model; `unnest(acf_agg(resid, 12 ORDER BY t), recursive := true)` gives the ACF points. The `_by` macros do this per group for you.
-7. **`lambda` is a SQL keyword:** quote `"lambda"` in the CV tables, or use `x`.
+2. **Combine models with `UNION ALL BY NAME`.** Same schema, same columns; `model_id` tells the methods apart and `id` the groups. Filter or facet on `id` (or the group column) when one plot should show one group.
+3. **LARS paths are on a different scale.** `lars_path_by` has `index_name = 'alpha'` (upstream's LARS alpha), the ridge / elastic-net paths `'lambda'` (glmnet's). Do not overlay them without rescaling.
+4. **`*_fit_predict_by` is not the `prediction` schema.** It keeps the source columns and adds `yhat`, `yhat_lower`, `yhat_upper`, `is_training`; use `<model>_prediction_by` for the contract columns (`x`, `id`, `split`, `level`).
+5. **STRUCT outputs to long rows:** `unnest(tidy(model), recursive := true)` gives `terms` columns for one model; `unnest(acf_agg(resid, 12 ORDER BY t), recursive := true)` gives the ACF points. The `_by` macros do this per group for you.
+6. **`lambda` is a SQL keyword:** quote `"lambda"` in the CV tables, or use `x`.
 
 ## Worked examples
 
@@ -96,10 +99,10 @@ SELECT i AS id, CASE WHEN i % 2 = 0 THEN 'A' ELSE 'B' END AS grp, i::DOUBLE AS x
        1.0 / (1.0 + exp(-(sin(i) + 0.05 * i - 0.5))) AS prob
 FROM range(1, 41) t(i);
 
--- terms: two models' coefficients in one table, model_id relabelled so they can be told apart
-SELECT * REPLACE ('ols:' || model_id AS model_id) FROM ols_tidy_by('plot_demo', grp, y, [x1, x2], names := ['trend', 'cycle'])
-UNION ALL
-SELECT * REPLACE ('huber:' || model_id AS model_id) FROM huber_tidy_by('plot_demo', grp, y, [x1, x2], names := ['trend', 'cycle'])
+-- terms: two models' coefficients in one table (model_id = the method)
+SELECT * FROM ols_tidy_by('plot_demo', grp, y, [x1, x2], names := ['trend', 'cycle'])
+UNION ALL BY NAME
+SELECT * FROM huber_tidy_by('plot_demo', grp, y, [x1, x2], names := ['trend', 'cycle'])
 ORDER BY grp, term, model_id;
 
 -- summary: R² and AIC per group
@@ -139,8 +142,12 @@ anofox-visualization is a separate DuckDB extension that renders SQL results to 
 ```sql skip
 LOAD anofox_visualization;
 
--- Coefficient forest: models dodged and coloured by model_id
-SELECT anofox_plot_terms(t) FROM ols_tidy_by('plot_demo', grp, y, [x1, x2], names := ['trend', 'cycle']) t;
+-- Coefficient forest for group A: OLS and Huber dodged and coloured by model_id
+SELECT anofox_plot_terms(t)
+FROM (SELECT * FROM ols_tidy_by('plot_demo', grp, y, [x1, x2], names := ['trend', 'cycle'])
+      UNION ALL BY NAME
+      SELECT * FROM huber_tidy_by('plot_demo', grp, y, [x1, x2], names := ['trend', 'cycle'])) t
+WHERE grp = 'A';
 
 -- Fit + band, one panel per group (id), coloured by split
 SELECT anofox_plot_prediction(p)
@@ -158,7 +165,8 @@ SELECT anofox_plot_diagnostics(o) FROM ols_augment_by('plot_demo', grp, y, [x1, 
 -- Fit statistics of two models side by side
 SELECT anofox_plot_summary(s)
 FROM (SELECT * FROM ols_glance_by('plot_demo', grp, y, [x1, x2])
-      UNION ALL SELECT * FROM huber_glance_by('plot_demo', grp, y, [x1, x2])) s;
+      UNION ALL BY NAME SELECT * FROM huber_glance_by('plot_demo', grp, y, [x1, x2])) s
+WHERE grp = 'A';
 ```
 
 Its plot macros: `anofox_plot_terms`, `anofox_plot_prediction(tbl, x := NULL, y := NULL, facet := NULL)`, `anofox_plot_curve`, `anofox_plot_summary`, `anofox_plot_obs(tbl, kind := 'resid_fitted' | 'qq' | 'scale_location' | 'leverage' | 'cooks', label_top := 3)`, `anofox_plot_diagnostics` and `anofox_plot` (picks the chart from the columns); all take `width :=` / `height :=`. It has no macro for the `test` schema. For a `*_fit_predict_by` result name the position column: `anofox_plot_prediction(p, x := 'x1', facet := 'grp')`.
