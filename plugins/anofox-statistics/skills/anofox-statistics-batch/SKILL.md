@@ -10,13 +10,21 @@ description: >
   poisson_fit_predict_by, binomial_fit_predict_by, logistic_fit_predict_by,
   negbinom_fit_predict_by, gamma_fit_predict_by, tweedie_fit_predict_by,
   pls_fit_predict_by, isotonic_fit_predict_by, quantile_fit_predict_by)
-  with split := and order_by :=, per-group aggregate fitting with GROUP BY
-  plus predict / tidy / glance on the per-group model structs,
-  the *_fit_predict_agg aggregates, rolling *_fit_predict window
-  functions, the glmm_fit_by / eb_shrink_by /
-  aid_by macros, and scaling patterns for fitting a separate model per
-  segment / SKU / cohort over large panels. Use when the task is "fit one
-  model per group" at scale rather than a single global fit.
+  with split := and order_by :=, the per-group long-table macros
+  <model>_tidy_by and <model>_glance_by (21 models), ols/wls/GLM
+  _augment_by, <model>_partial_residuals_by, <model>_prediction_by (19
+  models), <model>_effects_by (marginal effects), <model>_rolling_tidy_by
+  (rolling coefficients), ridge/elasticnet/lars_path_by,
+  ridge/elasticnet_cv_by, quantile_process_by, acf_by / pacf_by,
+  kaplan_meier_by, roc/pr/calibration_curve_by and
+  pairwise_t_test_by / tukey_hsd_by / dunn_test_by, per-group aggregate
+  fitting with GROUP BY plus predict / tidy / glance on the per-group model
+  structs, the *_fit_predict_agg aggregates, rolling *_fit_predict window
+  functions, the glmm_fit_by / eb_shrink_by / aid_by macros, and scaling
+  patterns for fitting a separate model per segment / SKU / cohort over
+  large panels. Use when the task is "fit one model per group" at scale, or
+  "give me a coefficient / fit / residual / prediction table per group",
+  rather than a single global fit.
 version: 0.10.0
 user-invocable: false
 ---
@@ -84,6 +92,70 @@ SELECT category, units, revenue, round(yhat, 2) AS yhat
 FROM gamma_fit_predict_by('sales', category, revenue, [units])
 ORDER BY category, units
 LIMIT 5;
+```
+
+## Pattern 1b — per-group long tables (`_tidy_by`, `_glance_by`, `_augment_by`, `_prediction_by`, …)
+
+When you want a **report table** per group instead of predictions, use the output macros. They share the `*_fit_predict_by` call shape (`source` is a table-name string, columns unquoted) and return long tables with fixed columns (the integration contract schemas — see **anofox-statistics-plotting**). Every table starts with the group column, `id` (the group as VARCHAR), `model_id` and `model_name` (the method: `'ols'`, `'poisson'`, …), so tables of several models stack with `UNION ALL BY NAME`. `_augment_by` is the exception: it keeps all source columns and adds `model_id` / `model_name` but no `id`. (The curve and test macros below, whose groups are what is compared, set `model_id` to the group value instead.)
+
+| Macro | Signature | Main columns (besides group, `id`, `model_id`, `model_name`) |
+|---|---|---|
+| `<model>_tidy_by` | `(source, group_col, y_col, x_cols [, weight_col \| event_col] [, options := …, names := […]])` | `term, estimate, std_error, statistic, p_value, conf_low, conf_high, conf_level, index_name, index_value` (one row per term, intercept first) |
+| `<model>_glance_by` | `(source, group_col, y_col, x_cols [, weight_col \| event_col] [, options := …])` | `model_type, metric, value` (one row per available fit statistic) |
+| `ols_augment_by`, `<glm>_augment_by` | `(source, group_col, y_col, x_cols [, options := …, split := …, order_by := …])` | all source columns + `model_id, model_name, row_id, fitted, residual, resid_type, std_residual, stud_residual, leverage, cooks_d, dffits, weight, is_training, n_params` |
+| `wls_augment_by` | `(source, group_col, y_col, x_cols, weight_col [, …])` | as above |
+| `<model>_partial_residuals_by` | `(source, group_col, y_col, x_cols [, weight_col] [, options := …, names := […], order_by := …])` | `row_id, term_index, term, x, partial_residual, component, x_residual, y_residual` |
+| `<model>_prediction_by` | `(source, group_col, x_col, y_col, x_cols [, weight_col] [, options := …, level := 0.95, split := …])` | `id, model_name, x, y, yhat, yhat_lower, yhat_upper, level, split` (`'train'` / `'test'` / `'future'`) |
+| `<model>_effects_by` | `(source, group_col, y_col, x_cols [, weight_col] [, focal := 1, n_points := 50, at_values := NULL, options := …, level := 0.95])` | `id, model_name, focal, x, y (NULL), yhat, yhat_lower, yhat_upper, level, split (NULL), se_fit` |
+| `<model>_rolling_tidy_by` | `(source, group_col, order_col, y_col, x_cols [, weight_col] [, window_size := 30, min_obs := NULL, options := …, names := […]])` | `window_end` + the tidy columns (`index_name = 'window_end'`, `index_value` = window position) + `n_window` |
+| `ridge_path_by`, `elasticnet_path_by`, `lars_path_by`, `quantile_process_by` | `(source, group_col, y_col, x_cols [, options := …, names := […]])` | the tidy columns, `index_name` `'lambda'` (`'alpha'` for LARS, `'tau'` for the quantile process) |
+| `ridge_cv_by`, `elasticnet_cv_by` | `(source, group_col, y_col, x_cols [, options := …])` | `curve_type, series, x, y, y_low, y_high, threshold, weight, n_censor, lambda, cv_mean, cv_se, n_nonzero, is_min, is_1se, n_folds` |
+
+Model coverage:
+- `_tidy_by` / `_glance_by` (21): `ols`, `wls` (+`weight_col`), `ridge`, `elasticnet`, `lars`, `rls`, `huber`, `ransac`, `theil_sen`, `bls`, `nnls`, `pls`, `quantile`, `poisson`, `binomial`, `logistic`, `negbinom`, `gamma`, `tweedie`, `alm`, `aft` (+`event_col`). Not `glmm`, `isotonic`.
+- `_augment_by` and `_partial_residuals_by`: `ols`, `wls`, `poisson`, `binomial`, `logistic`, `negbinom`, `gamma`, `tweedie`.
+- `_prediction_by` (19): every `*_fit_predict_by` model; `pls`, `quantile`, `isotonic` have no band; `isotonic_prediction_by(source, group_col, x_col, y_col)` has no `x_cols`.
+- `_effects_by` (9): `ols`, `wls`, `ridge` and the six GLMs (models whose `predict` has standard errors); GLM bands on the response scale.
+- `_rolling_tidy_by` (6): `ols`, `wls`, `ridge`, `elasticnet`, `huber`, `poisson`. Windows shorter than `min_obs` (default `window_size`: full windows only) are skipped; `window_end` keeps the type of `order_col`.
+
+Other per-group long tables: `acf_by` / `pacf_by(source, group_col, value_col, order_col[, max_lag := …])`, `kaplan_meier_by(source, strata_col, time_col, event_col[, conf_level := …, conf_type := …])`, `roc_curve_by` / `pr_curve_by` / `calibration_curve_by(source, group_col, y_true_col, score_col …)` (`curve` schema), and `pairwise_t_test_by` / `tukey_hsd_by` / `dunn_test_by(source, group_col, value_col, factor_col, options := NULL)` (`test` schema).
+
+`_tidy_by` and `_rolling_tidy_by` compute inference by default (quantile: `'nid'` standard errors), also when you pass other `options`; `{'compute_inference': false}` turns it off.
+
+```sql
+-- Coefficient table and fit statistics per category
+SELECT category, term, round(estimate, 3) AS estimate, round(std_error, 4) AS se, p_value
+FROM ols_tidy_by('sales', category, revenue, [units, price], names := ['units', 'price'])
+ORDER BY category, term;
+SELECT * FROM ols_glance_by('sales', category, revenue, [units, price])
+WHERE metric IN ('r_squared', 'aic') ORDER BY category, metric;
+
+-- Compare two models per group: stack their glance tables
+SELECT * FROM ols_glance_by('sales', category, revenue, [units, price])
+UNION ALL BY NAME
+SELECT * FROM huber_glance_by('sales', category, revenue, [units, price])
+ORDER BY category, metric, model_type;
+
+-- HC3 robust standard errors
+SELECT category, term, std_error
+FROM ols_tidy_by('sales', category, revenue, [units, price], options := {'hc_type': 'hc3'});
+
+-- Fitted values with a 90% band, positioned on units (prediction schema)
+SELECT id, x, y, round(yhat, 2) AS yhat, round(yhat_lower, 2) AS lo, round(yhat_upper, 2) AS hi, split
+FROM ols_prediction_by('sales', category, units, revenue, [units, price], level := 0.9)
+ORDER BY id, x LIMIT 4;
+
+-- Marginal effect of price, units held at its mean, per category
+SELECT id, round(x, 2) AS price, round(yhat, 2) AS yhat, round(yhat_lower, 2) AS lo, round(yhat_upper, 2) AS hi
+FROM ols_effects_by('sales', category, revenue, [units, price], focal := 2, n_points := 3)
+ORDER BY id, price;
+```
+
+```sql
+-- Rolling 12-row coefficients per category, ordered by units
+SELECT category, window_end, term, estimate, conf_low, conf_high
+FROM ols_rolling_tidy_by('sales', category, units, revenue, [units, price], window_size := 12, names := ['units', 'price'])
+WHERE term = 'price' ORDER BY category, window_end;
 ```
 
 ## Pattern 2 — `*_fit_agg` with `GROUP BY` (extract per-group coefficients)

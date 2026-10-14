@@ -3,17 +3,27 @@ name: anofox-statistics-regression
 description: >
   Regression models and the fit / fit_agg / predict API surface of the
   anofox_statistics DuckDB extension. Covers OLS, robust estimators
-  (Huber, RANSAC, Theil-Sen), penalized regression (Ridge, Elastic Net),
-  WLS, recursive least squares (RLS), bounded/non-negative LS (BLS/NNLS),
-  PLS, isotonic, quantile regression, GLMs (Poisson, Binomial/Logistic,
-  Negative Binomial, Tweedie, Gamma), ALM, AFT survival, mixed-effects
-  GLMM, and empirical-Bayes shrinkage — with the MAP-style option keys,
-  return-struct field names (including GLM/AFT z_values), and the three
-  call surfaces (scalar fit, aggregate fit_agg, window *_fit_predict,
-  *_fit_predict_agg, predict), the model tools predict(model, x),
-  linear_predict, tidy and glance, plus LARS (lars_fit_agg) and the AFT
-  aft_cdf / aft_quantile helpers. Use when picking a regression method or
-  writing ols_fit_agg / ridge_fit / ols_fit_predict / predict / tidy calls.
+  (Huber, RANSAC, Theil-Sen), penalized regression (Ridge, Elastic Net,
+  LARS), WLS, recursive least squares (RLS), bounded/non-negative LS
+  (BLS/NNLS), PLS, isotonic, quantile regression with standard errors
+  (se option iid / nid / boot) and the quantile process
+  (quantile_process_agg), GLMs (Poisson, Binomial/Logistic, Negative
+  Binomial, Tweedie, Gamma), ALM, AFT survival, mixed-effects GLMM, and
+  empirical-Bayes shrinkage — with the MAP-style option keys (including
+  alias_tolerance for collinear columns in OLS / WLS), the stable
+  return-struct fields (model_type, intercept inference, log_likelihood /
+  aic / bic, vcov, df_residual, GLM/AFT z_values), the call surfaces
+  (scalar fit, aggregate fit_agg, window *_fit_predict, *_fit_predict_agg),
+  predict(model, x) with se_fit / confidence and prediction intervals,
+  linear_predict, tidy and glance, regularisation paths and
+  cross-validation (ridge_path_agg, elasticnet_path_agg, lars_path_agg,
+  ridge_cv_agg, elasticnet_cv_agg, lambda.min / lambda.1se), and the AFT
+  aft_cdf / aft_quantile / aft_survival helpers. Use when picking a
+  regression method, choosing a penalty, getting standard errors or
+  intervals for predictions, or writing ols_fit_agg / ridge_fit /
+  ols_fit_predict / predict / tidy calls. For per-group long tables
+  (tidy_by, prediction_by, effects_by, rolling_tidy_by) see the batch and
+  plotting skills.
 version: 0.10.0
 user-invocable: false
 ---
@@ -31,6 +41,7 @@ Regression families expose up to five call surfaces:
 | **Window** `{model}_fit_predict(y, [x1, …][, opts]) OVER (ORDER BY t ROWS BETWEEN … AND CURRENT ROW)` | returns `STRUCT(yhat, yhat_lower, yhat_upper)` for the **last row of the frame** | Expanding / rolling in-sample fits |
 | **Fit-predict aggregate** `{model}_fit_predict_agg(y, [x1, …][, opts])` | returns `LIST<STRUCT(y, yhat, yhat_lower, yhat_upper, is_training)>` | Fit once on non-NULL `y`, predict every row of the group |
 | **Predict (model)** `predict(model, [x1, …][, {'type': 'response'\|'link'}])` | `model` = STRUCT from any `*_fit_agg` / `*_fit`, returns `DOUBLE` | Score one row; GLMs on the response scale by default, isotonic interpolates knots |
+| **Predict with SE** `predict(model, [x1, …], {'se_fit': true, 'interval': 'confidence'\|'prediction', 'level': 0.95})` | returns `STRUCT(yhat, se_fit, yhat_lower, yhat_upper)` | OLS, WLS, Ridge, GLMs fitted with `compute_inference` (see below) |
 | **Predict (columns)** `predict(X_new, coefficients, intercept)` = `linear_predict(...)` | column-major `X_new`, returns `DOUBLE[]` | Score many points from raw coefficients |
 | **Report** `tidy(model[, names])`, `glance(model)` | per-term LIST of structs / STRUCT of scalar fields | Coefficient table (`unnest(…, recursive := true)`) and one-row fit summary |
 
@@ -41,7 +52,7 @@ Fit-predict aggregates exist for those eight plus `bls`, `alm`, `poisson`, `pls`
 
 Prediction intervals (`yhat_lower`/`yhat_upper`) are leverage-aware, `yhat ± t(n−p)·s·sqrt(1 + x₀ᵀMx₀)`: exact for OLS (= R `predict.lm`) and WLS, ridge sandwich for Ridge, OLS-leverage approximation for Huber / RANSAC / Theil-Sen / RLS / BLS / ALM / Elastic Net. NULL when no interval exists (zero residual df, singular design); zero-width for an exact fit.
 
-> For per-group **batch** fit+predict in one call (`*_fit_predict_by` table macros), see the **anofox-statistics-batch** skill.
+> For per-group **batch** fit+predict in one call (`*_fit_predict_by`) and the per-group long tables (`<model>_tidy_by`, `_glance_by`, `_prediction_by`, `_effects_by`, `_rolling_tidy_by`, `_path_by`, `_cv_by`), see the **anofox-statistics-batch** skill; for which long table feeds which plot, the **anofox-statistics-plotting** skill.
 
 ## Critical gotchas
 
@@ -49,14 +60,16 @@ Prediction intervals (`yhat_lower`/`yhat_upper`) are leverage-aware, `yhat ± t(
 2. **Aggregate `X` is a list of features per row.** `ols_fit_agg(y, [x1, x2])` — the second arg is the feature vector for *that row*.
 3. **No `anofox_stats_` prefix.** The prefix was removed in v0.10.0 (`ols_fit_agg`, `theil_sen_fit`, …). `theilsen` → `theil_sen`.
 4. **Use `.r_squared`, never `.r2`.** And `.n_observations` / `.n_features` (not `.n_obs`).
-5. **GLM & AFT report `z_values`, not `t_values`, and have no `r_squared`** — Wald statistics are asymptotically normal. Don't force z→t. GLMs report `pseudo_r_squared`, `iterations`, `converged`.
-6. **Inference is opt-in.** `std_errors` / `t_values` / `p_values` / `ci_lower` / `ci_upper` (and OLS `f_statistic` / `f_pvalue`) only exist with `{'compute_inference': true}`.
+5. **GLM & AFT report `z_values`, not `t_values`, and have no `r_squared`** — Wald statistics are asymptotically normal. Don't force z→t. GLMs report `pseudo_r_squared`, `iterations`, `converged`; every model reports `model_type` (`'ols'`, `'glm'`, `'aft'`, …), `family`, `link`.
+6. **Inference is opt-in, the struct shape is not.** `std_errors` / `t_values` / `p_values` / `ci_lower` / `ci_upper` (also as `conf_low` / `conf_high`), OLS `f_statistic` / `f_pvalue`, the `intercept_*` inference and `vcov` are always present in the models that report them, and NULL unless `{'compute_inference': true}`.
 7. **Option keys a function does not support raise `InvalidInputException` at bind time** — no silent ignore. Out-of-range values also raise.
 8. **Too few rows → NULL, not an error.** A group or window frame with fewer than `n_features + 1` usable rows yields `NULL`.
-9. **Constant / aliased columns get `NaN` coefficients** rather than failing.
+9. **Constant / aliased columns get `NaN` coefficients** rather than failing; OLS and WLS alias like R's `lm`, and `alias_tolerance` (default `1e-7`, `lm`'s `tol`) sets how close to collinear a column must be.
 10. **Window `*_fit_predict` predicts the last row of the frame.** Frames must end at `CURRENT ROW` over a unique `ORDER BY`. `*_fit_predict … AND 1 PRECEDING` is NOT a one-step-ahead forecast — for that use `predict((ols_fit_agg(y, [x]) OVER (ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)), [x])`. `OVER (PARTITION BY g)` without `ORDER BY` gives every row the same value; avoid `RANGE` frames with ties. For per-row predictions over a whole group use `*_fit_predict_agg` / `*_fit_predict_by`.
 11. **Two `predict` forms.** `predict(model_struct, [x1, x2])` → one `DOUBLE`; `predict([[col1…], [col2…]], coefficients, intercept)` → `DOUBLE[]` (column-major, alias `linear_predict`). NULL model / NULL feature → NULL; wrong feature count → error. For GLMs prefer the model form — the 3-argument form returns the linear predictor, not the response.
-12. **`tidy` intercept row has NULL inference for `ols_fit_agg`** (inference covers slopes only); inference columns are all NULL without `compute_inference`. Expand `glance(m)` with `unnest(glance(m))` — `glance(m).*` is a parser error.
+12. **`tidy` rows come intercept first, with the intercept's own inference**; inference columns are all NULL without `compute_inference`. Expand `glance(m)` with `unnest(glance(m))` — `glance(m).*` is a parser error.
+13. **`predict` with `se_fit` / `interval` needs `vcov`**: fit an OLS, WLS, Ridge or GLM `*_fit_agg` with `{'compute_inference': true}`, otherwise it raises. `'prediction'` intervals are an error for GLMs. `vcov` is the classical covariance even with `hc_type`.
+14. **`lambda` is a SQL keyword.** Quote the CV field as `c."lambda"` (or read `x`).
 
 ## Models
 
@@ -64,8 +77,8 @@ Prediction intervals (`yhat_lower`/`yhat_upper`) are leverage-aware, `yhat ± t(
 
 | Model | Functions | Notes |
 |---|---|---|
-| OLS | `ols_fit`, `ols_fit_agg` | Supports `compute_inference`, `hc_type` (`none`/`hc0`–`hc3`, default `none`), `solver` |
-| WLS | `wls_fit`, `wls_fit_agg` | Weight is the 3rd positional argument |
+| OLS | `ols_fit`, `ols_fit_agg` | Supports `compute_inference`, `hc_type` (`none`/`hc0`–`hc3`, default `none`), `solver`, `alias_tolerance` |
+| WLS | `wls_fit`, `wls_fit_agg` | Weight is the 3rd positional argument; `alias_tolerance` as OLS |
 | RLS | `rls_fit`, `rls_fit_agg` | Recursive/online least squares; `forgetting_factor` (1.0), `initial_p_diagonal` (100) |
 | Ridge | `ridge_fit`, `ridge_fit_agg` | L2; `alpha` (alias `lambda`), default `1.0`, must be ≥ 0. `alpha = 0` is accepted and reproduces OLS |
 | Elastic Net | `elasticnet_fit`, `elasticnet_fit_agg` | L1+L2; `alpha` (alias `lambda`, default 1.0), `l1_ratio ∈ [0,1]` (default 0.5) |
@@ -73,7 +86,20 @@ Prediction intervals (`yhat_lower`/`yhat_upper`) are leverage-aware, `yhat ± t(
 | BLS / NNLS | `bls_fit_agg`, `nnls_fit_agg` | Bounded (`lower_bound`, `upper_bound`) / non-negative coefficients |
 | PLS | `pls_fit_agg`, `pls_fit_predict_agg` | Partial least squares; `n_components` (1), `fit_intercept`. Returns `coefficients`, `intercept`, `r_squared`, `n_components`, `n_observations`, `n_features` |
 | Isotonic | `isotonic_fit_agg`, `isotonic_fit_predict_agg` | Monotonic regression on a single `x DOUBLE`; `increasing` (true). Returns knots `x[]`, `fitted[]`, `increasing`, `r_squared`, `n_observations`; `predict(m, [x])` interpolates, clamped at the ends |
-| Quantile | `quantile_fit_agg`, `quantile_fit_predict_agg` | Quantile / median regression; `tau` (alias `quantile`, 0.5), `fit_intercept`, `max_iterations`, `tolerance`. Returns `coefficients`, `intercept`, `tau`, `n_observations`, `n_features` |
+| Quantile | `quantile_fit_agg`, `quantile_fit_predict_agg` | Quantile / median regression; `tau` (alias `quantile`, 0.5), `fit_intercept`, `max_iterations`, `tolerance`. Returns `coefficients`, `intercept`, `tau`, `n_observations`, `n_features` + inference fields. Standard errors with `se` (`'iid'`, `'nid'`, `'boot'`; `compute_inference: true` = `'nid'`), `n_boot` (200), `seed` (42), as `quantreg::summary.rq` |
+| Quantile process | `quantile_process_agg(y, x[, opts])` | One fit per tau as `terms` rows (`index_name = 'tau'`); `taus` (default 0.1…0.9), `se` (`'nid'`), `compute_inference` (false = estimates only), `feature_names` |
+
+### Regularisation paths and cross-validation
+
+Pick the penalty from a path or a CV curve instead of guessing `alpha`. Each aggregate returns a LIST of long rows; `unnest` it.
+
+| Function | Returns |
+|---|---|
+| `ridge_path_agg(y, x[, opts])`, `elasticnet_path_agg(y, x[, opts])` | `terms` rows (`term, estimate, std_error, statistic, p_value, conf_low, conf_high, conf_level, index_name, index_value`), `index_name = 'lambda'`; inference columns NULL |
+| `lars_path_agg(y, x[, opts])` | `terms` rows per knot, **`index_name = 'alpha'`** (upstream's LARS scale, not glmnet's lambda — don't overlay on a ridge path); `method` (`'lasso'` default / `'lar'`), `standardize` (true), `n_nonzero_coefs` |
+| `ridge_cv_agg(y, x[, opts])`, `ridge_cv_agg(y, x, fold_id, opts)`, same for `elasticnet_cv_agg` | `curve` rows: `curve_type = 'lambda_cv'`, `x` (= lambda), `y` (= cv_mean), `y_low`/`y_high` (± cv_se), `threshold`, `lambda`, `cv_mean`, `cv_se`, `n_nonzero`, `is_min`, `is_1se`, `n_folds` |
+
+Path options: `lambdas` (glmnet scale, default glmnet's grid), `n_lambda` (100), `lambda_min_ratio`, `l1_ratio` (EN, 0.5), `standardize` (false), `fit_intercept`, `feature_names`. CV adds `folds` (10, ≥ 3) and `seed` (42); with a `fold_id` column (≥ 3 distinct labels) the folds are given. The path `lambda` is glmnet's per-observation penalty, **not** the `alpha`/`lambda` option of `ridge_fit_agg` (raw scaling). Per-group table macros: `ridge_path_by`, `elasticnet_path_by`, `lars_path_by`, `ridge_cv_by`, `elasticnet_cv_by` (batch skill).
 
 ### Robust (outlier-resistant)
 
@@ -96,6 +122,7 @@ Prediction intervals (`yhat_lower`/`yhat_upper`) are leverage-aware, `yhat ± t(
 | ALM | `alm_fit_agg` | Augmented Linear Model, 24 error distributions (`distribution`, `loss`); reports `t_values` |
 | AFT survival | `aft_fit_agg` | Duration models with right censoring (`distribution`: weibull / lognormal / loglogistic / exponential) |
 | AFT helpers | `aft_cdf(t, eta, scale, dist)`, `aft_quantile(p, eta, scale, dist)` | Scalar: `P(T ≤ t)` and the `p`-quantile of `T` given linear predictor `eta = intercept + x·β` and the fitted `scale` |
+| AFT survival curve | `aft_survival(model, x, times)` | `LIST<STRUCT(time, surv)>`: `S(t \| x)` of an `aft_fit_agg` model at each of `times` |
 | Mixed effects | `glmm_fit_agg(y, x, group[, opts])` | Random intercepts / slopes; `family` option selects the GLM family |
 | EB shrinkage | `eb_shrink_agg(estimate, se[, opts])` | Partial pooling of per-group estimates |
 
@@ -125,24 +152,39 @@ All GLMs accept `glm_lambda` (L2 penalty), `prior` + `feature_names` (coefficien
 | `family` | VARCHAR | `'gaussian'` | GLMM only |
 | `distribution` | VARCHAR | — | ALM, AFT |
 | `null_policy` | VARCHAR | `'drop'` | `*_fit_predict`, `*_fit_predict_agg` (`'drop'` / `'drop_y_zero_x'`) |
+| `alias_tolerance` | DOUBLE | `1e-7` | OLS / WLS (`*_fit`, `*_fit_agg`, `*_fit_predict_agg`, `*_fit_predict`): collinearity tolerance (R `lm`'s `tol`); not accepted by Ridge etc. |
+| `se`, `n_boot`, `seed` | VARCHAR / INT / BIGINT | — / 200 / 42 | Quantile inference (`'iid'`/`'nid'`/`'boot'`) |
 
 Prediction intervals in the fit-predict functions use `confidence_level`; there is no `interval_type` option.
 
+`predict(model, x, opts)` options: `type` (`'response'` default / `'link'`), `se_fit` (false), `interval` (`'none'` / `'confidence'` / `'prediction'`), `level` (0.95). OLS/WLS/Ridge follow R `predict.lm(se.fit = TRUE, interval = …)`; GLMs follow `predict.glm(se.fit = TRUE)` with the interval built on the link scale and back-transformed.
+
 ## Return-struct fields
 
-**Linear (OLS, Ridge, WLS, Huber, RANSAC, Theil-Sen):**
+Every model struct has a **stable shape**: the same fields whatever the options, NULL when not computed.
+
+**Linear (OLS, Ridge, WLS, Huber, RANSAC, Theil-Sen, Elastic Net, LARS, RLS):**
 `coefficients DOUBLE[]`, `intercept`, `r_squared`, `adj_r_squared`, `residual_std_error`,
-`n_observations BIGINT`, `n_features BIGINT`; with inference also `std_errors[]`, `t_values[]`,
-`p_values[]`, `ci_lower[]`, `ci_upper[]`, `f_statistic`, `f_pvalue`.
-Elastic Net, LARS, RLS: the first seven fields only.
+`n_observations`, `n_features`, model extras (Huber `scale`, `n_outliers`; RANSAC `residual_threshold`,
+`n_inliers`, `n_trials`), then `std_errors[]`, `t_values[]`, `p_values[]` (NULL without inference; always NULL
+for Elastic Net, LARS, RLS) and, except for Elastic Net, LARS and RLS, `ci_lower[]`, `ci_upper[]`, `f_statistic`, `f_pvalue`.
 
 **GLM (Poisson/Binomial/Logistic/NegBinom/Gamma/Tweedie):** `coefficients`, `intercept`, `deviance`,
 `null_deviance`, `pseudo_r_squared`, `aic`, `dispersion` (logistic: `accuracy`, `threshold`),
-`n_observations`, `n_features`, `iterations`, `converged`; with inference `std_errors`, `z_values`,
-`p_values`, `ci_lower`, `ci_upper`; always last: `family VARCHAR`, `link VARCHAR` (logistic reports `'binomial'` / `'logit'`). **No** `r_squared`, `log_likelihood` or `bic`.
+`n_observations`, `n_features`, `iterations`, `converged`, `std_errors`, `z_values`,
+`p_values`, `ci_lower`, `ci_upper`, `family`, `link` (logistic reports `'binomial'` / `'logit'`). **No** `r_squared`.
 
 **AFT survival:** `coefficients`, `intercept`, `scale`, `log_likelihood`, `null_log_likelihood`, `aic`, `bic`,
-`n_observations`, `n_events`, `n_censored`, `n_features`, `iterations`, `converged`; with inference `z_values` etc.
+`n_observations`, `n_events`, `n_censored`, `n_features`, `iterations`, `converged`; inference as `z_values` etc.
+
+**Trailing fields on every model** (`ols`, `wls`, `ridge`, `elasticnet`, `lars`, `rls`, `huber`, `ransac`,
+`theil_sen`, the GLMs, `alm`, `aft`, `glmm`, `bls`/`nnls`, `pls`, `quantile`, `isotonic`):
+`conf_low[]`, `conf_high[]`, `conf_level`, the intercept's inference `intercept_std_error`,
+`intercept_statistic`, `intercept_p_value`, `intercept_conf_low`, `intercept_conf_high`,
+`log_likelihood`, `aic`, `bic` (R's `logLik` / `AIC` / `BIC`; NULL without a likelihood),
+`model_type` (`'ols'`, `'glm'`, `'aft'`, …), `family`, `link`. OLS, WLS, Ridge and the GLM `*_fit_agg`
+structs end with `vcov DOUBLE[]` (row-major k × k, intercept first) and `df_residual`, NULL unless
+`compute_inference`.
 
 ## Worked examples
 
@@ -211,6 +253,59 @@ FROM (SELECT * FROM houses UNION ALL SELECT 140.0, NULL);
 -- AFT helpers: median survival time and P(T <= 5) for eta = 2, scale = 1
 SELECT aft_quantile(0.5, 2.0, 1.0, 'weibull') AS median_t,
        aft_cdf(5.0, 2.0, 1.0, 'weibull')      AS p_by_5;
+```
+
+```sql
+-- Standard error and a 90% prediction interval at a new point (needs compute_inference)
+SELECT predict(ols_fit_agg(price, [sqm], {'compute_inference': true}), [140.0],
+               {'se_fit': true, 'interval': 'prediction', 'level': 0.9}) AS p
+FROM houses;
+-- -> {'yhat': ..., 'se_fit': ..., 'yhat_lower': ..., 'yhat_upper': ...}
+
+-- GLM: confidence interval for the expected count (link scale, back-transformed)
+SELECT (p).yhat, (p).yhat_lower, (p).yhat_upper
+FROM (SELECT predict(poisson_fit_agg(n, [x], {'compute_inference': true}), [3.0], {'interval': 'confidence'}) AS p
+      FROM (VALUES (1.0, 2.0), (2.0, 3.0), (3.0, 5.0), (4.0, 8.0), (5.0, 12.0)) t(x, n));
+```
+
+```sql
+-- Collinear design: the later column is aliased (NaN), as R lm(); alias_tolerance = lm's tol
+SELECT (ols_fit_agg(price, [sqm, 2 * sqm + 1e-9 * price], {'alias_tolerance': 1e-7})).coefficients
+FROM houses;
+```
+
+```sql
+-- Choose the ridge penalty by 5-fold CV: lambda.min and lambda.1se ("lambda" must be quoted)
+CREATE TABLE cv_demo AS
+SELECT i::DOUBLE AS x1, ((i * 3) % 7)::DOUBLE AS x2, sin(i) AS x3,
+       1.0 + 0.5 * i - 0.3 * ((i * 3) % 7) + sin(i) + cos(3 * i) AS y, (i % 5)::BIGINT AS fold
+FROM range(1, 81) t(i);
+SELECT c."lambda", round(c.cv_mean, 4) AS cv_mean, c.is_min, c.is_1se
+FROM (SELECT unnest(ridge_cv_agg(y, [x1, x2, x3], fold, {'n_lambda': 30})) AS c FROM cv_demo)
+WHERE c.is_min OR c.is_1se;
+
+-- The lasso path at three penalties (glmnet scale), as terms rows
+SELECT e.index_value AS lambda_, e.term, round(e.estimate, 4) AS estimate
+FROM (SELECT unnest(elasticnet_path_agg(y, [x1, x2, x3], {'l1_ratio': 1.0, 'lambdas': [1.0, 0.3, 0.01]})) AS e
+      FROM cv_demo)
+ORDER BY lambda_ DESC, e.term;
+```
+
+```sql
+-- Median regression with Hendricks-Koenker ('nid') standard errors, and the tau process
+SELECT unnest(tidy(quantile_fit_agg(y, [x1], {'tau': 0.5, 'se': 'nid'}), ['x1']), recursive := true)
+FROM cv_demo;
+SELECT e.index_value AS tau, e.term, round(e.estimate, 3) AS estimate, round(e.conf_low, 3) AS lo, round(e.conf_high, 3) AS hi
+FROM (SELECT unnest(quantile_process_agg(y, [x1], {'taus': [0.1, 0.5, 0.9], 'feature_names': ['x1']})) AS e FROM cv_demo)
+WHERE e.term = 'x1';
+```
+
+```sql
+-- AFT survival curve S(t | x) at chosen times
+SELECT unnest(aft_survival(m, [1.0], [1.0, 5.0, 10.0]), recursive := true)
+FROM (SELECT aft_fit_agg(t, [x], event, {'distribution': 'weibull'}) AS m
+      FROM (VALUES (2.0, 0.0, 1.0), (3.0, 1.0, 1.0), (5.0, 0.0, 0.0), (7.0, 1.0, 1.0), (4.0, 1.0, 1.0),
+                   (9.0, 0.0, 1.0), (6.0, 1.0, 0.0), (8.0, 0.0, 1.0), (3.5, 1.0, 1.0), (10.0, 0.0, 0.0)) d(t, x, event));
 ```
 
 ```sql skip

@@ -283,7 +283,7 @@ FROM reg_data;
 
 ### elasticnet_fit / elasticnet_fit_agg
 
-Elastic Net (combined L1/L2 penalty, coordinate descent). No inference fields.
+Elastic Net (combined L1/L2 penalty, coordinate descent). The inference fields (`std_errors`, `t_values`, `p_values`) are always NULL.
 
 **Signatures:**
 
@@ -340,7 +340,7 @@ FROM reg_data;
 
 ### rls_fit / rls_fit_agg
 
-Recursive least squares with optional exponential forgetting. No inference fields.
+Recursive least squares with optional exponential forgetting. The inference fields (`std_errors`, `t_values`, `p_values`) are always NULL.
 
 **Signatures:**
 
@@ -550,7 +550,8 @@ The isotonic model is a monotone function given by its knots (`x`) and the
 fitted value at each knot (`fitted`); `predict(model, [x])` interpolates
 between knots and clamps outside the training range. All three models work
 with [`predict`](#predict); PLS and quantile models also work with
-[`tidy`](#tidy) (estimates only, no inference). A group with too few usable
+[`tidy`](#tidy) (PLS: estimates only; quantile: with inference when fitted
+with the `se` or `compute_inference` option). A group with too few usable
 rows returns NULL.
 
 ```sql

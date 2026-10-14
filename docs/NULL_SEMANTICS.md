@@ -169,8 +169,8 @@ ORDER BY t;
   returns NULL for NULL inputs.
 - `tidy(model)` reports NULL `std_error`, `statistic`, `p_value`, `conf_low` and
   `conf_high` for terms the model has no inference for (all terms of a model
-  fitted without inference, and the intercept row of `ols_fit_agg` with
-  `compute_inference`).
+  fitted without inference, or of PLS and LARS, which do not compute it). The
+  intercept row carries the intercept's own inference when the model has it.
 
 ## `*_fit_predict_agg` and `*_fit_predict_by`
 

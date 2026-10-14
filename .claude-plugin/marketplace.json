@@ -8,8 +8,8 @@
     {
       "name": "anofox-statistics",
       "source": "./plugins/anofox-statistics",
-      "description": "SQL-native statistical regression and inference skills for the anofox_statistics DuckDB extension — regression (OLS/robust/GLM/AFT/mixed-effects), hypothesis tests & correlation, diagnostics (VIF/AIC/BIC/residuals), and AI-ready batch per-group model fitting.",
-      "keywords": ["duckdb", "statistics", "regression", "inference", "sql", "analytics", "claude-code"]
+      "description": "SQL-native statistical regression and inference skills for the anofox_statistics DuckDB extension — regression (OLS/robust/GLM/AFT/mixed-effects, paths and CV, predictions with standard errors), hypothesis, post-hoc, time-series, survival tests and classifier evaluation, diagnostics (influence, residuals, autocorrelation, heteroskedasticity, VIF), AI-ready batch per-group model fitting, and plot-ready long tables for anofox-visualization.",
+      "keywords": ["duckdb", "statistics", "regression", "inference", "sql", "analytics", "visualization", "claude-code"]
     }
   ]
 }
