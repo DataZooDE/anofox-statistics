@@ -289,7 +289,7 @@ No backward-compatibility aliases are provided for the removed names.
 
 ## 6. Documentation Rules
 
-`scripts/validate_docs_sql.py` executes every fenced `sql` block in `README.md`, `guides/*.md`, `docs/*.md` and `docs/api/**/*.md` against the built extension (blocks marked `sql skip` are excluded). Examples must:
+`scripts/validate_docs_sql.py` executes every fenced `sql` block in `README.md`, `guides/*.md`, `docs/*.md`, `docs/api/**/*.md` and the Claude Code skills (`plugins/anofox-statistics/skills/*/SKILL.md`) against the built extension (blocks marked `sql skip` are excluded). Examples must:
 
 1. Use unprefixed function names.
 2. Use `r_squared` (not `r2`) for the coefficient of determination.

@@ -1,7 +1,7 @@
 # Doc-SQL validation gate — prevents documentation drift from breaking the build.
 #
-# Every fenced ```sql block in README.md, guides/0*.md, docs/*.md and
-# docs/api/**/*.md is extracted and executed against the locally-built
+# Every fenced ```sql block in README.md, guides/0*.md, docs/*.md,
+# docs/api/**/*.md and plugins/anofox-statistics/skills/*/SKILL.md is extracted and executed against the locally-built
 # extension via scripts/validate_docs_sql.py (blocks fenced as ```sql skip are
 # excluded).  A non-zero harness exit (any SQL
 # block fails) fails this job — there is NO continue-on-error.  Future pull

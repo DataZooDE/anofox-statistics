@@ -61,8 +61,8 @@ For the WASM build, see [test/wasm/README.md](test/wasm/README.md).
 
 ## Documentation and doc-SQL validation
 
-Every fenced ` ```sql ` block in `README.md`, `guides/0*.md`, `docs/*.md` and
-`docs/api/**/*.md` is executed against the local release build. CI fails if any
+Every fenced ` ```sql ` block in `README.md`, `guides/0*.md`, `docs/*.md`,
+`docs/api/**/*.md` and `plugins/anofox-statistics/skills/*/SKILL.md` is executed against the local release build. CI fails if any
 block fails:
 
 ```bash

@@ -579,7 +579,7 @@ cargo test
 make test
 ```
 
-**Documentation SQL validation**: CI runs every fenced `sql` block in this README, `guides/*.md`, `docs/*.md` and `docs/api/**/*.md` against the built extension; the blocks of one file share a session. Blocks marked `sql skip` (such as network installs) are excluded:
+**Documentation SQL validation**: CI runs every fenced `sql` block in this README, `guides/*.md`, `docs/*.md`, `docs/api/**/*.md` and the Claude Code skills (`plugins/anofox-statistics/skills/*/SKILL.md`) against the built extension; the blocks of one file share a session. Blocks marked `sql skip` (such as network installs) are excluded:
 
 ```bash
 python3 scripts/validate_docs_sql.py                     # all documentation files

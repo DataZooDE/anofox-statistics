@@ -2,7 +2,8 @@
 """Doc-SQL validation harness for the anofox-statistics DuckDB extension.
 
 Extracts every fenced sql code block from the documentation files listed in
-DOC_FILES plus every Markdown page under DOC_GLOBS (docs/*.md, docs/api/**),
+DOC_FILES plus every Markdown page under DOC_GLOBS (docs/*.md, docs/api/**,
+the Claude Code skills in plugins/anofox-statistics/skills/*/SKILL.md),
 runs each file's blocks (concatenated in document order into a
 single DuckDB session) against the locally-built extension, and reports pass or
 fail per file.  Exits non-zero if any file's SQL fails.
@@ -76,10 +77,11 @@ DOC_FILES = [
 
 # Additional files picked up by glob (relative to the repo root).  Every
 # Markdown page in docs/ and docs/api/** is validated, so new reference pages
-# are covered automatically.
+# are covered automatically, and so is every Claude Code skill.
 DOC_GLOBS = [
     "docs/*.md",
     "docs/api/**/*.md",
+    "plugins/anofox-statistics/skills/*/SKILL.md",
 ]
 
 
