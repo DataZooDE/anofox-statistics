@@ -85,7 +85,7 @@ One-way Analysis of Variance for comparing means across multiple groups.
 
 **Signature:**
 ```text
-one_way_anova_agg(value DOUBLE, group_id INTEGER) -> STRUCT
+one_way_anova_agg(value DOUBLE, group ANY) -> STRUCT
 ```
 
 **Returns:**
@@ -132,7 +132,7 @@ Brown-Forsythe test for equality of variances.
 
 **Signature:**
 ```text
-brown_forsythe_agg(value DOUBLE, group_id INTEGER) -> STRUCT
+brown_forsythe_agg(value DOUBLE, group ANY) -> STRUCT
 ```
 
 ## Nonparametric Tests
@@ -173,7 +173,7 @@ Kruskal-Wallis H test. Non-parametric alternative to ANOVA.
 
 **Signature:**
 ```text
-kruskal_wallis_agg(value DOUBLE, group_id INTEGER) -> STRUCT
+kruskal_wallis_agg(value DOUBLE, group ANY) -> STRUCT
 ```
 
 ### wilcoxon_signed_rank_agg

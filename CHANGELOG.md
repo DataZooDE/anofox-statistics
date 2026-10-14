@@ -405,6 +405,9 @@ Breaking changes are called out explicitly.
 
 ### Fixed
 
+- `one_way_anova_agg`, `kruskal_wallis_agg` and `brown_forsythe_agg` accept any
+  group label (integer or VARCHAR), as the two-sample and post-hoc tests do;
+  they used to bind only INTEGER group ids (#186).
 - `<model>_tidy_by` / `_rolling_tidy_by` kept inference only while `options` was
   omitted; `compute_inference` is now merged under the user's options.
 - `quantile_fit_agg` (and `quantile_fit_predict_agg`) now honours

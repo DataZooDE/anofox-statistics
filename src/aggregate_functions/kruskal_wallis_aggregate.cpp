@@ -1,6 +1,7 @@
 #include <vector>
 
 #include "duckdb.hpp"
+#include "../include/two_group.hpp"
 #include "duckdb/common/types/data_chunk.hpp"
 #include "duckdb/function/aggregate_function.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
@@ -22,6 +23,7 @@ namespace duckdb {
 struct KruskalWallisAggregateState {
     vector<double> values;
     vector<double> groups;
+    GroupCoder coder; // label -> code (#186)
     bool initialized;
 
     KruskalWallisAggregateState() : initialized(false) {}
@@ -29,6 +31,7 @@ struct KruskalWallisAggregateState {
     void Reset() {
         values.clear();
         groups.clear();
+        coder.labels.clear();
         initialized = false;
     }
 };
@@ -75,7 +78,7 @@ static void KruskalWallisAggUpdate(Vector inputs[], AggregateInputData &aggr_inp
     inputs[0].ToUnifiedFormat(count, value_data);
     inputs[1].ToUnifiedFormat(count, group_data);
     auto values = UnifiedVectorFormat::GetData<double>(value_data);
-    auto groups = UnifiedVectorFormat::GetData<int32_t>(group_data);
+    const bool group_is_string = inputs[1].GetType().id() == LogicalTypeId::VARCHAR;
 
     UnifiedVectorFormat sdata;
     state_vector.ToUnifiedFormat(count, sdata);
@@ -93,14 +96,13 @@ static void KruskalWallisAggUpdate(Vector inputs[], AggregateInputData &aggr_inp
         }
 
         double val = values[val_idx];
-        int32_t group = groups[grp_idx];
 
         if (std::isnan(val)) {
             continue;
         }
 
         state.values.push_back(val);
-        state.groups.push_back(static_cast<double>(group));
+        state.groups.push_back(state.coder.Code(ReadGroupLabel(group_data, grp_idx, group_is_string)));
     }
 }
 
@@ -123,12 +125,16 @@ static void KruskalWallisAggCombine(Vector &source_vector, Vector &target_vector
         if (!target.initialized) {
             target.values = CombineTake(source.values, aggr_input_data);
             target.groups = CombineTake(source.groups, aggr_input_data);
+            target.coder.labels = CombineTake(source.coder.labels, aggr_input_data);
             target.initialized = true;
             continue;
         }
 
         target.values.insert(target.values.end(), source.values.begin(), source.values.end());
-        target.groups.insert(target.groups.end(), source.groups.begin(), source.groups.end());
+        auto remap = target.coder.Remap(source.coder);
+        for (auto code : source.groups) {
+            target.groups.push_back(remap[static_cast<idx_t>(code)]);
+        }
     }
 }
 
@@ -197,11 +203,13 @@ void RegisterKruskalWallisAggregateFunction(ExtensionLoader &loader) {
     AggregateFunctionSet func_set("kruskal_wallis_agg");
 
     auto func = AggregateFunction(
-        "kruskal_wallis_agg", {LogicalType::DOUBLE, LogicalType::INTEGER},
+        "kruskal_wallis_agg", {LogicalType::DOUBLE, LogicalType::BIGINT},
         LogicalType::ANY,
         AggregateFunction::StateSize<KruskalWallisAggregateState>, KruskalWallisAggInitialize,
         ANOFOX_GUARDED_UPDATE(KruskalWallisAggUpdate, KruskalWallisAggDestroy, KruskalWallisAggInitialize), KruskalWallisAggCombine, ANOFOX_GUARDED_FINALIZE(KruskalWallisAggFinalize, KruskalWallisAggDestroy, KruskalWallisAggInitialize),
         nullptr, KruskalWallisAggBind, KruskalWallisAggDestroy);
+    func_set.AddFunction(func);
+    func.arguments[1] = LogicalType::VARCHAR; // any group label (#186)
     func_set.AddFunction(func);
 
     CreateAggregateFunctionInfo info(std::move(func_set));
@@ -211,8 +219,12 @@ void RegisterKruskalWallisAggregateFunction(ExtensionLoader &loader) {
     d1.examples        = {"kruskal_wallis_agg(value, group_id)"};
     d1.categories      = {"hypothesis-testing", "nonparametric"};
     d1.parameter_names = {"value", "group_id"};
-    d1.parameter_types = {LogicalType::DOUBLE, LogicalType::INTEGER};
+    d1.parameter_types = {LogicalType::DOUBLE, LogicalType::BIGINT};
     info.descriptions.push_back(std::move(d1));
+    // The VARCHAR-label overload (#186): same description, VARCHAR group.
+    FunctionDescription d2 = info.descriptions.back();
+    d2.parameter_types = {LogicalType::DOUBLE, LogicalType::VARCHAR};
+    info.descriptions.push_back(std::move(d2));
     loader.RegisterFunction(std::move(info));
 
 }

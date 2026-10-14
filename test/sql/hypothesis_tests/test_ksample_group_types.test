@@ -1,0 +1,47 @@
+# name: test/sql/hypothesis_tests/test_ksample_group_types.test
+# description: one_way_anova_agg, kruskal_wallis_agg, brown_forsythe_agg accept any group label (#186)
+# group: [hypothesis_tests]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE d AS
+SELECT i, (i % 4) AS gi, (i % 4)::BIGINT * 1000000000000 AS gbig, 'grp_' || chr((65 + (i % 4))::INTEGER) AS gs,
+       (i % 4) * 0.7 + ((i * 37) % 11) / 5.0 AS v
+FROM range(0, 200) r(i);
+
+# VARCHAR, BIGINT and INTEGER labels give the same results
+foreach fn one_way_anova_agg kruskal_wallis_agg brown_forsythe_agg
+
+query II
+SELECT abs((${fn}(v, gs)).statistic - (${fn}(v, gi::INTEGER)).statistic) < 1e-12,
+       abs((${fn}(v, gbig)).p_value - (${fn}(v, gi::INTEGER)).p_value) < 1e-12
+FROM d;
+----
+true	true
+
+endloop
+
+# Per-group results with VARCHAR labels, and NULL labels skipped
+query I
+SELECT count(*) FROM (SELECT i % 2 AS half, one_way_anova_agg(v, CASE WHEN i % 10 = 0 THEN NULL ELSE gs END) AS r FROM d GROUP BY half) WHERE (r).statistic IS NOT NULL;
+----
+2
+
+# Parallel combine: labels numbered differently per thread are remapped
+statement ok
+SET threads = 8;
+
+statement ok
+CREATE TABLE big AS
+SELECT i, 'g' || ((i * 7919) % 13) AS gs, ((i * 7919) % 13) AS gi, ((i * 7919) % 13) * 0.1 + ((i * 31) % 17) / 3.0 AS v
+FROM range(0, 20000) r(i);
+
+foreach fn one_way_anova_agg kruskal_wallis_agg brown_forsythe_agg
+
+query I
+SELECT abs((${fn}(v, gs)).statistic - (${fn}(v, gi::INTEGER)).statistic) < 1e-9 * greatest(1, abs((${fn}(v, gi::INTEGER)).statistic)) FROM big;
+----
+true
+
+endloop
