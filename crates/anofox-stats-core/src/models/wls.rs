@@ -123,12 +123,16 @@ pub fn fit_wls(
     let x_mat = Mat::from_fn(n_valid, kept.len(), |i, j| x[kept[j]][valid_indices[i]]);
     let w_col = Col::from_fn(n_valid, |i| weights[valid_indices[i]]);
 
-    let fitted = WlsRegressor::builder()
+    let mut builder = WlsRegressor::builder()
         .with_intercept(options.fit_intercept)
         .weights(w_col)
         .compute_inference(options.compute_inference)
         .confidence_level(options.confidence_level)
-        .solve_method(convert_solver(options.solver))
+        .solve_method(convert_solver(options.solver));
+    if let Some(tol) = options.alias_tolerance {
+        builder = builder.alias_tolerance(tol);
+    }
+    let fitted = builder
         .build()
         .fit(&x_mat, &y_col)
         .map_err(StatsError::from)?;

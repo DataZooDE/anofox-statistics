@@ -215,6 +215,7 @@ struct RegressionMapOptions {
 	// Solver/inference options (OLS, Ridge, WLS)
 	std::optional<SolverType> solver; // Decomposition method: qr, svd, cholesky
 	std::optional<HcType> hc_type;    // HC standard errors: none, hc0, hc1, hc2, hc3
+	std::optional<double> alias_tolerance; // OLS/WLS aliasing tolerance (R lm's tol), > 0
 
 	// Lambda scaling (Ridge, ElasticNet)
 	std::optional<LambdaScaling> lambda_scaling; // Lambda scaling: raw, glmnet

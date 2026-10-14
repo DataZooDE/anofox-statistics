@@ -118,6 +118,7 @@ The table lists the most common keys; each reference page in [docs/api/](api/) l
 | `lambda_scaling` | VARCHAR | `'raw'` | Ridge, Elastic Net | `'raw'` or `'glmnet'` (divide penalty by n) |
 | `solver` | VARCHAR | `'svd'` | OLS, WLS, Ridge | `'qr'`, `'svd'` or `'cholesky'` |
 | `hc_type` | VARCHAR | `'none'` | OLS, WLS | Heteroscedasticity-consistent SEs: `'none'`, `'hc0'`, `'hc1'`, `'hc2'`, `'hc3'` |
+| `alias_tolerance` | DOUBLE | `1e-7` | OLS, WLS | Collinearity (aliasing) tolerance, R `lm`'s `tol`; aliased columns get a NaN coefficient |
 | `max_iterations` (`max_iter`) | INTEGER | function-specific | Iterative solvers | Maximum iterations |
 | `tolerance` (`tol`) | DOUBLE | function-specific | Iterative solvers | Convergence tolerance |
 | `epsilon` | DOUBLE | `1.35` | Huber | Huber threshold |

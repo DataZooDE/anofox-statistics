@@ -409,7 +409,7 @@ static void WritePartialResiduals(const AugmentAggBindData &bind_data, AugmentAg
         ok = RunGlmPartialResiduals(bind_data, state.n_features, y_array, x_arrays, &pr, &error);
     } else if (bind_data.weighted) {
         AnofoxDataArray w_array {state.weight.data(), nullptr, static_cast<size_t>(n_rows)};
-        AnofoxWlsOptions options;
+        AnofoxWlsOptions options {};
         options.fit_intercept = bind_data.fit_intercept;
         options.compute_inference = false;
         options.confidence_level = 0.95;
@@ -417,7 +417,7 @@ static void WritePartialResiduals(const AugmentAggBindData &bind_data, AugmentAg
         options.hc_type = ANOFOX_HC_NONE;
         ok = anofox_wls_partial_residuals(y_array, x_arrays.data(), x_arrays.size(), w_array, options, &pr, &error);
     } else {
-        AnofoxOlsOptions options;
+        AnofoxOlsOptions options {};
         options.fit_intercept = bind_data.fit_intercept;
         options.compute_inference = false;
         options.confidence_level = 0.95;
@@ -519,7 +519,7 @@ static void AugmentAggFinalize(Vector &state_vector, AggregateInputData &aggr_in
             ok = RunGlmAugment(bind_data, state.n_features, y_array, x_arrays, &aug, &error);
         } else if (bind_data.weighted) {
             AnofoxDataArray w_array {state.weight.data(), nullptr, static_cast<size_t>(n_rows)};
-            AnofoxWlsOptions options;
+            AnofoxWlsOptions options {};
             options.fit_intercept = bind_data.fit_intercept;
             options.compute_inference = false;
             options.confidence_level = 0.95;
@@ -527,7 +527,7 @@ static void AugmentAggFinalize(Vector &state_vector, AggregateInputData &aggr_in
             options.hc_type = ANOFOX_HC_NONE;
             ok = anofox_wls_augment(y_array, x_arrays.data(), x_arrays.size(), w_array, options, &aug, &error);
         } else {
-            AnofoxOlsOptions options;
+            AnofoxOlsOptions options {};
             options.fit_intercept = bind_data.fit_intercept;
             options.compute_inference = false;
             options.confidence_level = 0.95;

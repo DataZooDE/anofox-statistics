@@ -12,6 +12,11 @@ Breaking changes are called out explicitly.
 
 ### Added
 
+- `alias_tolerance` option (#164) for `ols_fit`, `ols_fit_agg`, `wls_fit`,
+  `wls_fit_agg`, the OLS / WLS `*_fit_predict_agg` aggregates and
+  `*_fit_predict` window functions: the tolerance of the collinearity test
+  (R `lm`'s `tol`, default `1e-7`) that decides when a column is aliased (NaN
+  coefficient). Validated against `lm(..., tol =)`.
 - Regularisation paths and cross-validation (#154): `ridge_path_agg`,
   `elasticnet_path_agg` and `lars_path_agg` return the coefficient path as
   `terms` rows (`index_name = 'lambda'`; `'alpha'` on upstream's LARS scale for

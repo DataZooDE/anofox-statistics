@@ -108,11 +108,15 @@ pub fn fit_ols(y: &[f64], x: &[Vec<f64>], options: &OlsOptions) -> StatsResult<F
     let y_col = Col::from_fn(n_valid, |i| y[valid_indices[i]]);
     let x_mat = Mat::from_fn(n_valid, kept.len(), |i, j| x[kept[j]][valid_indices[i]]);
 
-    let fitted = OlsRegressor::builder()
+    let mut builder = OlsRegressor::builder()
         .with_intercept(options.fit_intercept)
         .compute_inference(options.compute_inference && options.hc_type.is_none())
         .confidence_level(options.confidence_level)
-        .solve_method(convert_solver(options.solver))
+        .solve_method(convert_solver(options.solver));
+    if let Some(tol) = options.alias_tolerance {
+        builder = builder.alias_tolerance(tol);
+    }
+    let fitted = builder
         .build()
         .fit(&x_mat, &y_col)
         .map_err(StatsError::from)?;

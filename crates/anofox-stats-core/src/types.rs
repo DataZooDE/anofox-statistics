@@ -270,6 +270,8 @@ pub struct OlsOptions {
     pub solver: SolverType,
     /// Heteroscedasticity-consistent SE type (None = classical inference)
     pub hc_type: Option<HcType>,
+    /// Tolerance of R `lm`'s aliasing test (`tol`); None = upstream default 1e-7
+    pub alias_tolerance: Option<f64>,
 }
 
 impl Default for OlsOptions {
@@ -280,6 +282,7 @@ impl Default for OlsOptions {
             confidence_level: 0.95,
             solver: SolverType::Qr,
             hc_type: None,
+            alias_tolerance: None,
         }
     }
 }
@@ -516,6 +519,8 @@ pub struct WlsOptions {
     pub solver: SolverType,
     /// Heteroscedasticity-consistent SE type (None = classical inference)
     pub hc_type: Option<HcType>,
+    /// Tolerance of R `lm`'s aliasing test (`tol`); None = upstream default 1e-7
+    pub alias_tolerance: Option<f64>,
 }
 
 impl Default for WlsOptions {
@@ -526,6 +531,7 @@ impl Default for WlsOptions {
             confidence_level: 0.95,
             solver: SolverType::Qr,
             hc_type: None,
+            alias_tolerance: None,
         }
     }
 }

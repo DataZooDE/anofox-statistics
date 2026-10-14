@@ -188,6 +188,8 @@ typedef struct {
 	AnofoxSolverType solver;
 	/** HC standard errors type (None = classical) */
 	AnofoxHcType hc_type;
+	/** Tolerance of R lm's aliasing test (tol); <= 0 = default 1e-7. Zero-initialise the struct. */
+	double alias_tolerance;
 } AnofoxOlsOptions;
 
 /**
@@ -504,6 +506,8 @@ typedef struct {
 	AnofoxSolverType solver;
 	/** HC standard errors type (None = classical) */
 	AnofoxHcType hc_type;
+	/** Tolerance of R lm's aliasing test (tol); <= 0 = default 1e-7. Zero-initialise the struct. */
+	double alias_tolerance;
 } AnofoxWlsOptions;
 
 /**

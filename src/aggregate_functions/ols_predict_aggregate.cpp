@@ -42,12 +42,13 @@ struct OlsPredictAggState {
     double confidence_level;
     SolverType solver;
     HcType hc_type;
+    double alias_tolerance;
     NullPolicy null_policy;
     bool use_split_col;  // True if using split column instead of y NULL
 
     OlsPredictAggState()
         : n_features(0), initialized(false), fit_intercept(true), confidence_level(0.95),
-          solver(SolverType::SVD), hc_type(HcType::NONE),
+          solver(SolverType::SVD), hc_type(HcType::NONE), alias_tolerance(0.0),
           null_policy(NullPolicy::DROP), use_split_col(false) {}
 
     void Reset() {
@@ -70,6 +71,7 @@ struct OlsPredictAggBindData : public FunctionData {
     double confidence_level = 0.95;
     SolverType solver = SolverType::SVD;
     HcType hc_type = HcType::NONE;
+    double alias_tolerance = 0.0; // <= 0: upstream default (1e-7, R lm tol)
     NullPolicy null_policy = NullPolicy::DROP;
     bool use_split_col = false;  // True if split column is provided
 
@@ -79,6 +81,7 @@ struct OlsPredictAggBindData : public FunctionData {
         result->confidence_level = confidence_level;
         result->solver = solver;
         result->hc_type = hc_type;
+        result->alias_tolerance = alias_tolerance;
         result->null_policy = null_policy;
         result->use_split_col = use_split_col;
         return std::move(result);
@@ -87,7 +90,7 @@ struct OlsPredictAggBindData : public FunctionData {
     bool Equals(const FunctionData &other_p) const override {
         auto &other = other_p.Cast<OlsPredictAggBindData>();
         return fit_intercept == other.fit_intercept && confidence_level == other.confidence_level &&
-               solver == other.solver && hc_type == other.hc_type &&
+               solver == other.solver && hc_type == other.hc_type && alias_tolerance == other.alias_tolerance &&
                null_policy == other.null_policy && use_split_col == other.use_split_col;
     }
 };
@@ -172,6 +175,7 @@ static void OlsPredictAggUpdate(Vector inputs[], AggregateInputData &aggr_input_
         state.confidence_level = bind_data.confidence_level;
         state.solver = bind_data.solver;
         state.hc_type = bind_data.hc_type;
+        state.alias_tolerance = bind_data.alias_tolerance;
         state.null_policy = bind_data.null_policy;
         state.use_split_col = bind_data.use_split_col;
 
@@ -306,6 +310,7 @@ static void OlsPredictAggCombine(Vector &source_vector, Vector &target_vector, A
             target.confidence_level = source.confidence_level;
             target.solver = source.solver;
             target.hc_type = source.hc_type;
+            target.alias_tolerance = source.alias_tolerance;
             target.null_policy = source.null_policy;
             target.use_split_col = source.use_split_col;
             PrependOutputRows(target, std::move(pending_rows));
@@ -364,12 +369,13 @@ static void OlsPredictAggFinalize(Vector &state_vector, AggregateInputData &aggr
             x_arrays.push_back(arr);
         }
 
-        AnofoxOlsOptions options;
+        AnofoxOlsOptions options {};
         options.fit_intercept = state.fit_intercept;
         options.compute_inference = false;
         options.confidence_level = state.confidence_level;
         options.solver = ConvertSolverType(state.solver);
         options.hc_type = ConvertHcType(state.hc_type);
+        options.alias_tolerance = state.alias_tolerance;
 
         AnofoxFitResultCore core_result;
         AnofoxError error;
@@ -451,7 +457,7 @@ static unique_ptr<FunctionData> OlsPredictAggBind(ClientContext &context, Aggreg
     if (arguments.size() >= 3) {
         auto opts = RegressionMapOptions::ParseFromExpression(
             context, *arguments[2], "ols_fit_predict_agg",
-            {"fit_intercept", "confidence_level", "null_policy", "solver", "hc_type"});
+            {"fit_intercept", "confidence_level", "null_policy", "solver", "hc_type", "alias_tolerance"});
         if (opts.fit_intercept.has_value()) {
             result->fit_intercept = opts.fit_intercept.value();
         }
@@ -466,6 +472,9 @@ static unique_ptr<FunctionData> OlsPredictAggBind(ClientContext &context, Aggreg
         }
         if (opts.hc_type.has_value()) {
             result->hc_type = opts.hc_type.value();
+        }
+        if (opts.alias_tolerance.has_value()) {
+            result->alias_tolerance = opts.alias_tolerance.value();
         }
     }
 
@@ -484,7 +493,7 @@ static unique_ptr<FunctionData> OlsPredictAggBindWithSplit(ClientContext &contex
     if (arguments.size() >= 4) {
         auto opts = RegressionMapOptions::ParseFromExpression(
             context, *arguments[3], "ols_fit_predict_agg",
-            {"fit_intercept", "confidence_level", "null_policy", "solver", "hc_type"});
+            {"fit_intercept", "confidence_level", "null_policy", "solver", "hc_type", "alias_tolerance"});
         if (opts.fit_intercept.has_value()) {
             result->fit_intercept = opts.fit_intercept.value();
         }
@@ -499,6 +508,9 @@ static unique_ptr<FunctionData> OlsPredictAggBindWithSplit(ClientContext &contex
         }
         if (opts.hc_type.has_value()) {
             result->hc_type = opts.hc_type.value();
+        }
+        if (opts.alias_tolerance.has_value()) {
+            result->alias_tolerance = opts.alias_tolerance.value();
         }
     }
 
