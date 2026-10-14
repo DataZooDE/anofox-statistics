@@ -14,8 +14,8 @@ in the long shapes of the integration contract: the path as `terms` rows with
 | `lars_path_agg(y, x [, options])` | Aggregate | `terms` rows, one per knot and term |
 | `ridge_cv_agg(y, x [, fold_id], options)` | Aggregate | `curve` rows, one per lambda |
 | `elasticnet_cv_agg(y, x [, fold_id], options)` | Aggregate | `curve` rows, one per lambda |
-| `ridge_path_by`, `elasticnet_path_by`, `lars_path_by` | Table macro | the path per group, with `model_id` |
-| `ridge_cv_by`, `elasticnet_cv_by` | Table macro | the CV curve per group, with `model_id` |
+| `ridge_path_by`, `elasticnet_path_by`, `lars_path_by` | Table macro | the path per group, with `id` (group) and `model_id` (method) |
+| `ridge_cv_by`, `elasticnet_cv_by` | Table macro | the CV curve per group, with `id` (group) and `model_id` (method) |
 
 The paths and CV curves are computed by anofox-regression
 (`solvers::path::{fit_path, lambda_grid, cv_path, kfold_ids}` and
@@ -147,9 +147,9 @@ WHERE c.is_min OR c.is_1se;
 ## Table macros
 
 `ridge_path_by`, `elasticnet_path_by`, `lars_path_by(source, group_col, y_col, x_cols [, options := ..., names := [...]])`
-return the group column, `model_id` and the `terms` columns (the same columns as
+return the group column, `id` (the group as text), `model_id` and `model_name` (the method) and the `terms` columns (the same columns as
 `<model>_tidy_by`; `index_name` is `'lambda'`, `'alpha'` for LARS). `ridge_cv_by` and `elasticnet_cv_by(source, group_col, y_col, x_cols [, options := ...])`
-return the group column, `model_id` and the `curve` columns `curve_type, series,
+return the group column, `id`, `model_id`, `model_name` and the `curve` columns `curve_type, series,
 x, y, y_low, y_high, threshold, weight, n_censor` (the optional ones NULL) plus
 `lambda, cv_mean, cv_se, n_nonzero, is_min, is_1se, n_folds`. All five are
 tagged as integration-contract producers in `duckdb_functions()`.

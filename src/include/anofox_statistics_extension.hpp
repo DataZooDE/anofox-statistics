@@ -4,6 +4,8 @@
 
 namespace duckdb {
 
+struct CreateMacroInfo;
+
 class ExtensionLoader;
 
 // Forward declarations for function registration
@@ -137,6 +139,12 @@ void RegisterFitPredictTableMacros(ExtensionLoader &loader);
 void RegisterModelOutputMacros(ExtensionLoader &loader);
 void RegisterPosthocMacros(ExtensionLoader &loader);
 void RegisterPathMacros(ExtensionLoader &loader);
+void RegisterPredictionMacros(ExtensionLoader &loader);
+//! Build a table macro (shared by the contract macro files).
+unique_ptr<CreateMacroInfo> CreateContractTableMacro(const string &name, const vector<string> &parameters,
+                                                     const vector<pair<string, string>> &named_parameters,
+                                                     const string &sql, const string &description,
+                                                     const string &example, const vector<string> &categories);
 void RegisterCurveMacros(ExtensionLoader &loader);
 void RegisterClassifierCurveMacros(ExtensionLoader &loader);
 

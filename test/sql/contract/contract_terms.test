@@ -11,12 +11,14 @@ CREATE TABLE d AS SELECT range::DOUBLE AS x1, (range % 7)::DOUBLE AS x2,
     (range % 2)::VARCHAR AS g
 FROM range(40);
 
-# The user's group column, then model_id and the terms columns
+# The user's group column, id (the group), model_id and model_name (the method), then the terms columns
 query II
 SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM ols_tidy_by('d', g, y, [x1, x2]))
 ----
 g	VARCHAR
+id	VARCHAR
 model_id	VARCHAR
+model_name	VARCHAR
 term	VARCHAR
 estimate	DOUBLE
 std_error	DOUBLE
@@ -61,9 +63,30 @@ ORDER BY g, term
 1	x1	true	0.95
 1	x2	true	0.95
 
-# Every tidy_by is tagged as a terms producer
+# Every tidy_by (21 models) and rolling_tidy_by (6) is tagged as a terms producer
 query I
 SELECT count(DISTINCT function_name) FROM duckdb_functions()
 WHERE function_name LIKE '%\_tidy\_by' ESCAPE '\' AND tags['anofox.output'] = 'terms' AND tags['anofox.contract'] = '1'
 ----
-21
+27
+
+query I
+SELECT list(function_name ORDER BY function_name) FROM (SELECT DISTINCT function_name FROM duckdb_functions()
+WHERE function_name LIKE '%\_rolling\_tidy\_by' ESCAPE '\' AND tags['anofox.output'] = 'terms')
+----
+[elasticnet_rolling_tidy_by, huber_rolling_tidy_by, ols_rolling_tidy_by, poisson_rolling_tidy_by, ridge_rolling_tidy_by, wls_rolling_tidy_by]
+
+# Inference stays on when other options are passed; an explicit compute_inference false wins
+query III
+SELECT (SELECT bool_and(std_error IS NOT NULL) FROM poisson_tidy_by('d', g, cnt, [x1, x2], options := {'max_iterations': 50})),
+       (SELECT bool_and(std_error IS NOT NULL) FROM quantile_tidy_by('d', g, y, [x1, x2], options := {'tau': 0.9})),
+       (SELECT bool_and(std_error IS NULL) FROM ols_tidy_by('d', g, y, [x1, x2], options := {'compute_inference': false}));
+----
+true	true	true
+
+# model_id / model_name are the method and id the group, so models can be stacked
+query III
+SELECT count(DISTINCT model_id), count(DISTINCT id), count(DISTINCT (model_id, id, term)) = count(*)
+FROM (SELECT * FROM ols_tidy_by('d', g, y, [x1, x2]) UNION ALL SELECT * FROM huber_tidy_by('d', g, y, [x1, x2]));
+----
+2	2	true

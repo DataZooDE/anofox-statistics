@@ -277,6 +277,17 @@ static unique_ptr<FunctionData> SeriesBind(ClientContext &context, AggregateFunc
 }
 
 template <SeriesKind KIND>
+static AggregateFunction SeriesFunction(vector<LogicalType> args) {
+	AggregateFunction fn(SeriesName(KIND), std::move(args), LogicalType::ANY, AggregateFunction::StateSize<SeriesState>,
+	                     SeriesInitialize, ANOFOX_GUARDED_UPDATE(SeriesUpdate, SeriesDestroy, SeriesInitialize),
+	                     SeriesCombine, ANOFOX_GUARDED_FINALIZE(SeriesFinalize, SeriesDestroy, SeriesInitialize),
+	                     nullptr, SeriesBind<KIND>, SeriesDestroy);
+	// Row order is part of the input: declare it so DuckDB honours `agg(... ORDER BY t)`.
+	fn.order_dependent = AggregateOrderDependent::ORDER_DEPENDENT; // field form works on DuckDB v1.4 LTS and v1.5
+	return fn;
+}
+
+template <SeriesKind KIND>
 static void RegisterSeries(ExtensionLoader &loader, const vector<vector<string>> &overloads, const string &description,
                            const string &example, const vector<string> &categories) {
 	const string name = SeriesName(KIND);
@@ -286,13 +297,7 @@ static void RegisterSeries(ExtensionLoader &loader, const vector<vector<string>>
 		for (idx_t p = 1; p < params.size(); p++) {
 			args.push_back(LogicalType::BIGINT);
 		}
-		AggregateFunction fn(name, args, LogicalType::ANY, AggregateFunction::StateSize<SeriesState>, SeriesInitialize,
-		                     ANOFOX_GUARDED_UPDATE(SeriesUpdate, SeriesDestroy, SeriesInitialize), SeriesCombine,
-		                     ANOFOX_GUARDED_FINALIZE(SeriesFinalize, SeriesDestroy, SeriesInitialize), nullptr,
-		                     SeriesBind<KIND>, SeriesDestroy);
-		// Row order is part of the input: declare it so DuckDB honours `agg(... ORDER BY t)`.
-		fn.order_dependent = AggregateOrderDependent::ORDER_DEPENDENT; // field form works on DuckDB v1.4 LTS and v1.5
-		set.AddFunction(fn);
+		set.AddFunction(SeriesFunction<KIND>(args));
 	}
 	CreateAggregateFunctionInfo info(std::move(set));
 	info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
@@ -321,21 +326,34 @@ struct HeteroState {
 	bool initialized = false;
 };
 
+//! breusch_pagan_agg, white_test_agg, and durbin_watson_agg(resid, x ...) (the test with a p-value).
+enum class HeteroKind : uint8_t { BREUSCH_PAGAN, WHITE, DURBIN_WATSON };
+
 struct HeteroBindData : public FunctionData {
-	bool white = false;
+	HeteroKind kind = HeteroKind::BREUSCH_PAGAN;
 	bool studentize = true;
+	AnofoxAlternative alternative = ANOFOX_ALTERNATIVE_GREATER;
+	bool fit_intercept = true;
 
 	unique_ptr<FunctionData> Copy() const override {
 		return make_uniq<HeteroBindData>(*this);
 	}
 	bool Equals(const FunctionData &other_p) const override {
 		auto &o = other_p.Cast<HeteroBindData>();
-		return white == o.white && studentize == o.studentize;
+		return kind == o.kind && studentize == o.studentize && alternative == o.alternative &&
+		       fit_intercept == o.fit_intercept;
 	}
 };
 
-static const char *HeteroName(bool white) {
-	return white ? "white_test_agg" : "breusch_pagan_agg";
+static const char *HeteroName(HeteroKind kind) {
+	switch (kind) {
+	case HeteroKind::WHITE:
+		return "white_test_agg";
+	case HeteroKind::DURBIN_WATSON:
+		return "durbin_watson_agg";
+	default:
+		return "breusch_pagan_agg";
+	}
 }
 
 static void HeteroInitialize(const AggregateFunction &, data_ptr_t state_p) {
@@ -383,7 +401,7 @@ static void HeteroUpdate(Vector inputs[], AggregateInputData &aggr_input_data, i
 		}
 		if (entry.length != state.n_features) {
 			throw InvalidInputException("%s: inconsistent feature count: expected %llu, got %llu",
-			                            HeteroName(bind.white), (unsigned long long)state.n_features,
+			                            HeteroName(bind.kind), (unsigned long long)state.n_features,
 			                            (unsigned long long)entry.length);
 		}
 		state.residuals.push_back(resid[r_idx]);
@@ -415,7 +433,7 @@ static void HeteroCombine(Vector &source_vector, Vector &target_vector, Aggregat
 			continue;
 		}
 		if (source.n_features != target.n_features) {
-			throw InvalidInputException("%s: inconsistent feature count during combine", HeteroName(bind.white));
+			throw InvalidInputException("%s: inconsistent feature count during combine", HeteroName(bind.kind));
 		}
 		target.residuals.insert(target.residuals.end(), source.residuals.begin(), source.residuals.end());
 		for (idx_t j = 0; j < target.n_features; j++) {
@@ -435,7 +453,8 @@ static void HeteroFinalize(Vector &state_vector, AggregateInputData &aggr_input_
 	for (idx_t i = 0; i < count; i++) {
 		auto &state = *states[sdata.sel->get_index(i)];
 		idx_t row = i + offset;
-		if (!state.initialized || state.residuals.empty() || state.n_features == 0) {
+		const bool dw = bind.kind == HeteroKind::DURBIN_WATSON;
+		if (!state.initialized || state.residuals.empty() || (state.n_features == 0 && !(dw && bind.fit_intercept))) {
 			FlatVector::SetNull(result, row, true);
 			continue;
 		}
@@ -451,10 +470,21 @@ static void HeteroFinalize(Vector &state_vector, AggregateInputData &aggr_input_
 		}
 		AnofoxTestSummaryFFI summary;
 		AnofoxError error;
-		bool ok = bind.white ? anofox_white_test(resid, x.data(), x.size(), &summary, &error)
-		                     : anofox_breusch_pagan(resid, x.data(), x.size(), bind.studentize, &summary, &error);
+		bool ok;
+		switch (bind.kind) {
+		case HeteroKind::WHITE:
+			ok = anofox_white_test(resid, x.data(), x.size(), &summary, &error);
+			break;
+		case HeteroKind::DURBIN_WATSON:
+			ok = anofox_durbin_watson_test(resid, x.data(), x.size(), bind.fit_intercept, bind.alternative, -1, &summary,
+			                               &error);
+			break;
+		default:
+			ok = anofox_breusch_pagan(resid, x.data(), x.size(), bind.studentize, &summary, &error);
+			break;
+		}
 		if (!ok) {
-			ThrowUnlessDegenerate(HeteroName(bind.white), error);
+			ThrowUnlessDegenerate(HeteroName(bind.kind), error);
 			FlatVector::SetNull(result, row, true);
 			continue;
 		}
@@ -462,32 +492,62 @@ static void HeteroFinalize(Vector &state_vector, AggregateInputData &aggr_input_
 	}
 }
 
-template <bool WHITE>
+template <HeteroKind KIND>
 static unique_ptr<FunctionData> HeteroBind(ClientContext &context, AggregateFunction &function,
                                            vector<unique_ptr<Expression>> &arguments) {
 	auto bind = make_uniq<HeteroBindData>();
-	bind->white = WHITE;
-	if (!WHITE && arguments.size() >= 3) {
-		auto v = ConstantArgument(context, *arguments[2], HeteroName(WHITE), "studentize");
+	bind->kind = KIND;
+	const string name = HeteroName(KIND);
+	if (KIND == HeteroKind::BREUSCH_PAGAN && arguments.size() >= 3) {
+		auto v = ConstantArgument(context, *arguments[2], name.c_str(), "studentize");
 		if (v.IsNull()) {
-			throw InvalidInputException("%s: studentize must not be NULL", HeteroName(WHITE));
+			throw InvalidInputException("%s: studentize must not be NULL", name);
 		}
 		bind->studentize = v.GetValue<bool>();
+	}
+	if (KIND == HeteroKind::DURBIN_WATSON && arguments.size() >= 3) {
+		auto v = ConstantArgument(context, *arguments[2], name.c_str(), "alternative");
+		if (v.IsNull()) {
+			throw InvalidInputException("%s: alternative must not be NULL", name);
+		}
+		auto alt = StringUtil::Lower(v.ToString());
+		if (alt == "greater" || alt == "right") {
+			bind->alternative = ANOFOX_ALTERNATIVE_GREATER;
+		} else if (alt == "less" || alt == "left") {
+			bind->alternative = ANOFOX_ALTERNATIVE_LESS;
+		} else if (alt == "two_sided" || alt == "two-sided" || alt == "two.sided" || alt == "twosided") {
+			bind->alternative = ANOFOX_ALTERNATIVE_TWO_SIDED;
+		} else {
+			throw InvalidInputException("%s: invalid alternative '%s' (expected 'greater', 'less' or 'two_sided')", name,
+			                            alt);
+		}
+	}
+	if (KIND == HeteroKind::DURBIN_WATSON && arguments.size() >= 4) {
+		auto v = ConstantArgument(context, *arguments[3], name.c_str(), "fit_intercept");
+		if (v.IsNull()) {
+			throw InvalidInputException("%s: fit_intercept must not be NULL", name);
+		}
+		bind->fit_intercept = v.GetValue<bool>();
 	}
 	child_list_t<LogicalType> children;
 	AppendTestResultFields(children);
 	function.return_type = LogicalType::STRUCT(std::move(children));
-	PostHogTelemetry::Instance().RecordFunctionCall(HeteroName(WHITE));
+	PostHogTelemetry::Instance().RecordFunctionCall(name);
 	return std::move(bind);
 }
 
-template <bool WHITE>
+template <HeteroKind KIND>
 static AggregateFunction HeteroFunction(vector<LogicalType> args) {
-	return AggregateFunction(HeteroName(WHITE), std::move(args), LogicalType::ANY,
-	                         AggregateFunction::StateSize<HeteroState>, HeteroInitialize,
-	                         ANOFOX_GUARDED_UPDATE(HeteroUpdate, HeteroDestroy, HeteroInitialize), HeteroCombine,
-	                         ANOFOX_GUARDED_FINALIZE(HeteroFinalize, HeteroDestroy, HeteroInitialize), nullptr,
-	                         HeteroBind<WHITE>, HeteroDestroy);
+	AggregateFunction fn(HeteroName(KIND), std::move(args), LogicalType::ANY,
+	                     AggregateFunction::StateSize<HeteroState>, HeteroInitialize,
+	                     ANOFOX_GUARDED_UPDATE(HeteroUpdate, HeteroDestroy, HeteroInitialize), HeteroCombine,
+	                     ANOFOX_GUARDED_FINALIZE(HeteroFinalize, HeteroDestroy, HeteroInitialize), nullptr,
+	                     HeteroBind<KIND>, HeteroDestroy);
+	if (KIND == HeteroKind::DURBIN_WATSON) {
+		// Residual order is part of the input: honour `agg(... ORDER BY t)`.
+		fn.order_dependent = AggregateOrderDependent::ORDER_DEPENDENT;
+	}
+	return fn;
 }
 
 void RegisterTimeSeriesDiagnosticsAggregateFunctions(ExtensionLoader &loader) {
@@ -513,17 +573,12 @@ void RegisterTimeSeriesDiagnosticsAggregateFunctions(ExtensionLoader &loader) {
 	    "Box-Pierce portmanteau test for autocorrelation of x in the aggregate's ORDER BY order (R Box.test(x, lag, "
 	    "type = 'Box-Pierce', fitdf)). lag defaults to 1, fitdf to 0.",
 	    "box_pierce_agg(resid, 10 ORDER BY t)", ts);
-	RegisterSeries<SeriesKind::DURBIN_WATSON>(
-	    loader, {{"resid"}},
-	    "Durbin-Watson statistic sum((e_t - e_{t-1})^2) / sum(e_t^2) of residuals in the aggregate's ORDER BY order "
-	    "(the statistic of R lmtest::dwtest). p_value is NULL: the exact p-value needs the design matrix.",
-	    "durbin_watson_agg(resid ORDER BY t)", ts);
 
 	const auto x_type = LogicalType::LIST(LogicalType::DOUBLE);
 	{
 		AggregateFunctionSet set("breusch_pagan_agg");
-		set.AddFunction(HeteroFunction<false>({LogicalType::DOUBLE, x_type}));
-		set.AddFunction(HeteroFunction<false>({LogicalType::DOUBLE, x_type, LogicalType::BOOLEAN}));
+		set.AddFunction(HeteroFunction<HeteroKind::BREUSCH_PAGAN>({LogicalType::DOUBLE, x_type}));
+		set.AddFunction(HeteroFunction<HeteroKind::BREUSCH_PAGAN>({LogicalType::DOUBLE, x_type, LogicalType::BOOLEAN}));
 		CreateAggregateFunctionInfo info(std::move(set));
 		info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
 		for (bool with_flag : {false, true}) {
@@ -546,7 +601,7 @@ void RegisterTimeSeriesDiagnosticsAggregateFunctions(ExtensionLoader &loader) {
 	}
 	{
 		AggregateFunctionSet set("white_test_agg");
-		set.AddFunction(HeteroFunction<true>({LogicalType::DOUBLE, x_type}));
+		set.AddFunction(HeteroFunction<HeteroKind::WHITE>({LogicalType::DOUBLE, x_type}));
 		CreateAggregateFunctionInfo info(std::move(set));
 		info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
 		FunctionDescription d;
@@ -557,6 +612,47 @@ void RegisterTimeSeriesDiagnosticsAggregateFunctions(ExtensionLoader &loader) {
 		d.parameter_names = {"resid", "x"};
 		d.parameter_types = {LogicalType::DOUBLE, x_type};
 		info.descriptions.push_back(std::move(d));
+		loader.RegisterFunction(std::move(info));
+	}
+	{
+		// durbin_watson_agg(resid, x [, alternative [, fit_intercept]] ORDER BY t): the test with a p-value.
+		const vector<vector<LogicalType>> arg_lists = {
+		    {LogicalType::DOUBLE, x_type},
+		    {LogicalType::DOUBLE, x_type, LogicalType::VARCHAR},
+		    {LogicalType::DOUBLE, x_type, LogicalType::VARCHAR, LogicalType::BOOLEAN}};
+		AggregateFunctionSet set("durbin_watson_agg");
+		set.AddFunction(SeriesFunction<SeriesKind::DURBIN_WATSON>({LogicalType::DOUBLE}));
+		for (auto &args : arg_lists) {
+			set.AddFunction(HeteroFunction<HeteroKind::DURBIN_WATSON>(args));
+		}
+		CreateAggregateFunctionInfo info(std::move(set));
+		{
+			FunctionDescription d;
+			d.description =
+			    "Durbin-Watson statistic sum((e_t - e_{t-1})^2) / sum(e_t^2) of residuals in the aggregate's ORDER BY "
+			    "order (the statistic of R lmtest::dwtest). p_value is NULL here: pass the regressors, "
+			    "durbin_watson_agg(resid, x ORDER BY t), for the test with a p-value.";
+			d.examples = {"durbin_watson_agg(resid ORDER BY t)"};
+			d.categories = ts;
+			d.parameter_names = {"resid"};
+			d.parameter_types = {LogicalType::DOUBLE};
+			info.descriptions.push_back(std::move(d));
+		}
+		for (auto &args : arg_lists) {
+			FunctionDescription d;
+			d.description =
+			    "Durbin-Watson test for first-order autocorrelation of regression residuals in the aggregate's ORDER "
+			    "BY order, with the p-value of R lmtest::dwtest: x are the model's regressors (an intercept column is "
+			    "added unless fit_intercept is false). The p-value is exact (Imhof) for n < 100, else the normal "
+			    "approximation. alternative: 'greater' (default, positive autocorrelation), 'less' or 'two_sided'.";
+			d.examples = {"durbin_watson_agg(resid, [x1, x2] ORDER BY t)"};
+			d.categories = ts;
+			d.parameter_names = {"resid", "x", "alternative", "fit_intercept"};
+			d.parameter_names.resize(args.size());
+			d.parameter_types = args;
+			info.descriptions.push_back(std::move(d));
+		}
+		info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
 		loader.RegisterFunction(std::move(info));
 	}
 }

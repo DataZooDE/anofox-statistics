@@ -12,6 +12,8 @@ be fitted once per group and then applied, summarised or reported in plain SQL.
 | [`tidy(model [, names])`](#tidy) | `STRUCT(...)[]` | One entry per term: estimate and inference |
 | [`glance(model)`](#glance) | `STRUCT` | Model-level summary, the same fields for every model |
 | [`<model>_tidy_by`, `<model>_glance_by`](#tidy_by-and-glance_by) | table | Per-group coefficient table and fit statistics |
+| [`<model>_prediction_by`, `<model>_effects_by`](#prediction_by-and-effects_by) | table | Fitted values with bands, and marginal-effect grids, in the contract `prediction` shape |
+| [`<model>_rolling_tidy_by`](#rolling_tidy_by) | table | Coefficients of a trailing-window fit, per window |
 | [`ols_augment_by`, `wls_augment_by`, `<glm>_augment_by`](#augment_by) | table | Per-row fitted values, residuals, leverage, Cook's distance, DFFITS |
 | [`<model>_partial_residuals_by`](#partial_residuals_by) | table | Partial-residual (crPlots) and added-variable (avPlots) coordinates |
 
@@ -253,6 +255,19 @@ ORDER BY grp;
 
 ## tidy_by and glance_by
 
+**Model identifiers.** In every `<model>_*_by` macro that fits one of the
+extension's models (`tidy_by`, `glance_by`, `augment_by`, `rolling_tidy_by`,
+`partial_residuals_by`, the path, CV and quantile-process macros,
+`prediction_by`, `effects_by`):
+
+- `model_id` and `model_name` are the method, for example `'ols'`;
+- `id` is the group value as text, and the group column itself is kept. (`augment_by`, which returns the source columns, has no `id`.)
+
+So the outputs of several methods stack with `UNION ALL` and stay
+distinguishable, as anofox-forecast's forecasts do. The test and curve macros
+whose groups are themselves the models (`roc_curve_by`, `kaplan_meier_by`, the
+post-hoc `_by` tests, ...) keep `model_id` = the group.
+
 `<model>_tidy_by(source, group_col, y_col, x_cols [, weight_col] [, options := ..., names := [...]])`
 and `<model>_glance_by(source, group_col, y_col, x_cols [, weight_col] [, options := ...])`
 fit one model per group and return long tables (for `ols`, `wls`, `ridge`,
@@ -261,9 +276,10 @@ fit one model per group and return long tables (for `ols`, `wls`, `ridge`,
 `gamma`, `tweedie`, and `alm`, `aft`; `wls` takes `weight_col`, `aft`
 `event_col`):
 
-- `_tidy_by`: the group column, `model_id`, and the `tidy` columns, one row per
-  term. Inference is computed by default for models that have it.
-- `_glance_by`: the group column, `model_id`, `model_type`, `metric`, `value`,
+- `_tidy_by`: the group column, `id` (the group as text), `model_id` and `model_name` (the method, e.g. `'ols'`), and the `tidy` columns, one row per
+  term. Inference is computed by default for models that have it, also when
+  other `options` are passed.
+- `_glance_by`: the group column, `id` (the group as text), `model_id` and `model_name` (the method, e.g. `'ols'`), `model_type`, `metric`, `value`,
   one row per available numeric metric.
 
 ```sql
@@ -277,12 +293,82 @@ UNION ALL
 SELECT * FROM huber_glance_by('mt_demo', grp, y, [x1, x2])
 ORDER BY grp, metric, model_type;
 ```
+## prediction_by and effects_by
+
+Both return the integration contract's `prediction` schema, the shape of
+anofox-forecast's forecasts. One fan/band plot (`anofox_plot`) therefore draws
+fitted values, effect grids and forecasts alike. The columns are:
+
+- the group column and `id` (the group as text, for faceting);
+- `model_id` and `model_name` (the method, for example `'ols'`, so several models can be overlaid);
+- `x`, `y`, `yhat`, `yhat_lower` and `yhat_upper`;
+- `level`, the interval level, NULL where the model has no band;
+- `split`.
+
+`<model>_prediction_by(source, group_col, x_col, y_col, x_cols [, weight_col] [, options := ..., level := 0.95, split := NULL])`
+fits the model per group with `<model>_fit_predict_by` and returns one row per
+input row:
+- `x_col` is the plot position, for example a time or the main feature, and the row order for order-sensitive models.
+- `split` is `'train'` for fitted rows, `'future'` for rows with a NULL `y`, and `'test'` for rows held out with `split :=`, as in `_fit_predict_by`.
+- `level` sets the interval and overrides any `confidence_level` in `options`.
+
+It exists for `ols`, `wls`, `ridge`, `elasticnet`, `huber`, `ransac`,
+`theil_sen`, `rls`, `bls`, `pls`, `quantile`, `alm`, the GLMs and `isotonic`.
+PLS, quantile and isotonic have no band. For isotonic there is no `x_cols`:
+`x_col` is the one feature.
+
+`<model>_effects_by(source, group_col, y_col, x_cols [, weight_col] [, focal := 1, n_points := 50, at_values := NULL, options := ..., level := 0.95])`
+is a marginal-effect (effect-plot) grid:
+- the fitted mean over `n_points` values spanning the range of feature `focal`, its 1-based position in `x_cols`;
+- the other features held at their means over the fitted rows, or at `at_values`, one value per feature;
+- a confidence band from `predict(model, x, {'interval': 'confidence', 'level': level})`, on the response scale for GLMs;
+- `y` and `split` are NULL, `focal` and `se_fit` are added.
+
+It exists for the models whose `predict` gives standard errors: `ols`, `wls`,
+`ridge` and the GLMs.
+
+```sql
+-- Fitted line with a 90% band per group, ready for a band plot
+SELECT * FROM ols_prediction_by('mt_demo', grp, id, y, [x1, x2], level := 0.9) LIMIT 5;
+```
+
+```sql
+-- How the expected count changes with x1, other features at their means
+SELECT x, yhat, yhat_lower, yhat_upper
+FROM poisson_effects_by('mt_demo', grp, y_count, [x1, x2], focal := 1, n_points := 5)
+WHERE grp = 'A';
+```
+
+## rolling_tidy_by
+
+`<model>_rolling_tidy_by(source, group_col, order_col, y_col, x_cols [, weight_col] [, window_size := 30, min_obs := NULL, options := ..., names := [...]])`
+fits the model over a trailing window of `window_size` rows (ordered by
+`order_col`) within each group and returns the coefficients of every window, for
+`ols`, `wls`, `ridge`, `elasticnet`, `huber` and `poisson`. It is
+`<model>_fit_agg(...) OVER (PARTITION BY group_col ORDER BY order_col ROWS BETWEEN window_size - 1 PRECEDING AND CURRENT ROW)`
+in the integration contract's `terms` shape, for rolling-coefficient plots.
+
+Columns: the group column, `id` (the group as text), `model_id` and `model_name` (the method, e.g. `'ols'`), `window_end` (the `order_col` value of
+the window's last row, in its own type), the `tidy` columns, `index_name`
+(`'window_end'`), `index_value` (the window's 1-based end position in its group)
+and `n_window` (rows in the window). Windows with fewer than `min_obs` rows
+(default `window_size`, so only full windows) are skipped. Inference is computed
+by default where the model has it.
+
+```sql
+SELECT window_end, term, estimate, conf_low, conf_high
+FROM ols_rolling_tidy_by('mt_demo', grp, id, y, [x1, x2], window_size := 12, names := ['trend', 'cycle'])
+WHERE grp = 'A' AND term = 'trend'
+ORDER BY window_end;
+```
+
 ## augment_by
 
 `ols_augment_by(source, group_col, y_col, x_cols [, options := ..., split := ..., order_by := ...])`
 and `wls_augment_by(source, group_col, y_col, x_cols, weight_col [, ...])` are
 broom's `augment`: they fit one model per group and return every source row
-with the integration contract's `obs` columns appended: `model_id`, `row_id`
+with the integration contract's `obs` columns appended: `model_id` and
+`model_name` (the method; the group column is among the source columns), `row_id`
 (source row number), `fitted`, `residual` (response residual), `resid_type`
 (`'response'`), `std_residual` (R `rstandard`), `stud_residual` (R `rstudent`),
 `leverage` (R `hatvalues`), `cooks_d` (R `cooks.distance`), `dffits`, `weight`
@@ -348,7 +434,7 @@ plots (`car::crPlots`, statsmodels `plot_ccpr`) and added-variable plots
 
 | Column | Description |
 |--------|-------------|
-| group column, `model_id`, `row_id` | the group, its id and the source row number |
+| group column, `id`, `model_id`, `model_name`, `row_id` | the group, the group as text, the method, and the source row number |
 | `term_index`, `term` | 1-based position in `x_cols`, and its label (`names` or `x1`, `x2`, ...) |
 | `x` | the feature value |
 | `component` | `b_j (x_j − mean(x_j))` (uncentred without an intercept) |
