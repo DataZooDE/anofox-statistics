@@ -41,10 +41,11 @@ struct WlsPredictAggState {
     bool use_split_col;
     SolverType solver;
     HcType hc_type;
+    double alias_tolerance;
 
     WlsPredictAggState()
         : n_features(0), initialized(false), fit_intercept(true), confidence_level(0.95),
-          null_policy(NullPolicy::DROP), use_split_col(false), solver(SolverType::SVD), hc_type(HcType::NONE) {}
+          null_policy(NullPolicy::DROP), use_split_col(false), solver(SolverType::SVD), hc_type(HcType::NONE), alias_tolerance(0.0) {}
 
     void Reset() {
         y_train.clear();
@@ -70,6 +71,7 @@ struct WlsPredictAggBindData : public FunctionData {
     bool use_split_col = false;
     SolverType solver = SolverType::SVD;
     HcType hc_type = HcType::NONE;
+    double alias_tolerance = 0.0; // <= 0: upstream default (1e-7, R lm tol)
 
     unique_ptr<FunctionData> Copy() const override {
         auto result = make_uniq<WlsPredictAggBindData>();
@@ -79,6 +81,7 @@ struct WlsPredictAggBindData : public FunctionData {
         result->use_split_col = use_split_col;
         result->solver = solver;
         result->hc_type = hc_type;
+        result->alias_tolerance = alias_tolerance;
         return std::move(result);
     }
 
@@ -86,7 +89,7 @@ struct WlsPredictAggBindData : public FunctionData {
         auto &other = other_p.Cast<WlsPredictAggBindData>();
         return fit_intercept == other.fit_intercept && confidence_level == other.confidence_level &&
                null_policy == other.null_policy && use_split_col == other.use_split_col &&
-               solver == other.solver && hc_type == other.hc_type;
+               solver == other.solver && hc_type == other.hc_type && alias_tolerance == other.alias_tolerance;
     }
 };
 
@@ -171,6 +174,7 @@ static void WlsPredictAggUpdate(Vector inputs[], AggregateInputData &aggr_input_
         state.use_split_col = bind_data.use_split_col;
         state.solver = bind_data.solver;
         state.hc_type = bind_data.hc_type;
+        state.alias_tolerance = bind_data.alias_tolerance;
 
         auto x_idx = x_data.sel->get_index(i);
         auto w_idx = w_data.sel->get_index(i);
@@ -298,6 +302,7 @@ static void WlsPredictAggCombine(Vector &source_vector, Vector &target_vector, A
             target.use_split_col = source.use_split_col;
             target.solver = source.solver;
             target.hc_type = source.hc_type;
+            target.alias_tolerance = source.alias_tolerance;
             PrependOutputRows(target, std::move(pending_rows));
             PrependTo(target.weights_all, std::move(pending_weights));
             continue;
@@ -356,12 +361,13 @@ static void WlsPredictAggFinalize(Vector &state_vector, AggregateInputData &aggr
             x_arrays.push_back(arr);
         }
 
-        AnofoxWlsOptions options;
+        AnofoxWlsOptions options {};
         options.fit_intercept = state.fit_intercept;
         options.compute_inference = false;
         options.confidence_level = state.confidence_level;
         options.solver = ConvertSolverType(state.solver);
         options.hc_type = ConvertHcType(state.hc_type);
+        options.alias_tolerance = state.alias_tolerance;
 
         AnofoxFitResultCore core_result;
         AnofoxError error;
@@ -437,7 +443,7 @@ static unique_ptr<FunctionData> WlsPredictAggBind(ClientContext &context, Aggreg
     if (arguments.size() >= 4) {
         auto opts = RegressionMapOptions::ParseFromExpression(
             context, *arguments[3], "wls_fit_predict_agg",
-            {"fit_intercept", "confidence_level", "null_policy", "solver", "hc_type"});
+            {"fit_intercept", "confidence_level", "null_policy", "solver", "hc_type", "alias_tolerance"});
         if (opts.fit_intercept.has_value()) {
             result->fit_intercept = opts.fit_intercept.value();
         }
@@ -452,6 +458,9 @@ static unique_ptr<FunctionData> WlsPredictAggBind(ClientContext &context, Aggreg
         }
         if (opts.hc_type.has_value()) {
             result->hc_type = opts.hc_type.value();
+        }
+        if (opts.alias_tolerance.has_value()) {
+            result->alias_tolerance = opts.alias_tolerance.value();
         }
     }
 
@@ -469,7 +478,7 @@ static unique_ptr<FunctionData> WlsPredictAggBindWithSplit(ClientContext &contex
     if (arguments.size() >= 5) {
         auto opts = RegressionMapOptions::ParseFromExpression(
             context, *arguments[4], "wls_fit_predict_agg",
-            {"fit_intercept", "confidence_level", "null_policy", "solver", "hc_type"});
+            {"fit_intercept", "confidence_level", "null_policy", "solver", "hc_type", "alias_tolerance"});
         if (opts.fit_intercept.has_value()) {
             result->fit_intercept = opts.fit_intercept.value();
         }
@@ -484,6 +493,9 @@ static unique_ptr<FunctionData> WlsPredictAggBindWithSplit(ClientContext &contex
         }
         if (opts.hc_type.has_value()) {
             result->hc_type = opts.hc_type.value();
+        }
+        if (opts.alias_tolerance.has_value()) {
+            result->alias_tolerance = opts.alias_tolerance.value();
         }
     }
 

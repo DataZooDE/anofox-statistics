@@ -46,6 +46,7 @@ struct WlsFitBindData : public FunctionData {
     double confidence_level = 0.95;
     SolverType solver = SolverType::SVD;
     HcType hc_type = HcType::NONE;
+    double alias_tolerance = 0.0; // <= 0: upstream default (1e-7, R lm tol)
 
     unique_ptr<FunctionData> Copy() const override {
         auto result = make_uniq<WlsFitBindData>();
@@ -54,13 +55,14 @@ struct WlsFitBindData : public FunctionData {
         result->confidence_level = confidence_level;
         result->solver = solver;
         result->hc_type = hc_type;
+        result->alias_tolerance = alias_tolerance;
         return std::move(result);
     }
 
     bool Equals(const FunctionData &other_p) const override {
         auto &other = other_p.Cast<WlsFitBindData>();
         return fit_intercept == other.fit_intercept && compute_inference == other.compute_inference &&
-               confidence_level == other.confidence_level && solver == other.solver && hc_type == other.hc_type;
+               confidence_level == other.confidence_level && solver == other.solver && hc_type == other.hc_type && alias_tolerance == other.alias_tolerance;
     }
 };
 
@@ -73,7 +75,7 @@ static unique_ptr<FunctionData> WlsFitBind(ClientContext &context, ScalarFunctio
     if (arguments.size() >= 4) {
         auto opts = RegressionMapOptions::ParseFromExpression(
             context, *arguments[3], "wls_fit",
-            {"fit_intercept", "compute_inference", "confidence_level", "solver", "hc_type"});
+            {"fit_intercept", "compute_inference", "confidence_level", "solver", "hc_type", "alias_tolerance"});
         if (opts.fit_intercept.has_value()) {
             result->fit_intercept = opts.fit_intercept.value();
         }
@@ -88,6 +90,9 @@ static unique_ptr<FunctionData> WlsFitBind(ClientContext &context, ScalarFunctio
         }
         if (opts.hc_type.has_value()) {
             result->hc_type = opts.hc_type.value();
+        }
+        if (opts.alias_tolerance.has_value()) {
+            result->alias_tolerance = opts.alias_tolerance.value();
         }
     }
 
@@ -179,12 +184,13 @@ static void WlsFitFunctionImpl(DataChunk &args, ExpressionState &state, Vector &
         }
 
         // Set options
-        AnofoxWlsOptions options;
+        AnofoxWlsOptions options {};
         options.fit_intercept = bind_data.fit_intercept;
         options.compute_inference = bind_data.compute_inference;
         options.confidence_level = bind_data.confidence_level;
         options.solver = ConvertSolverType(bind_data.solver);
         options.hc_type = ConvertHcType(bind_data.hc_type);
+        options.alias_tolerance = bind_data.alias_tolerance;
 
         // Call Rust FFI
         AnofoxFitResultCore core_result;
@@ -273,7 +279,7 @@ void RegisterWlsFitFunction(ExtensionLoader &loader) {
         info.descriptions.push_back(std::move(d1));
 
         FunctionDescription d2;
-        d2.description     = "Fits a WLS regression model with optional MAP of settings (fit_intercept, compute_inference, confidence_level, solver, hc_type).";
+        d2.description     = "Fits a WLS regression model with optional MAP of settings (fit_intercept, compute_inference, confidence_level, solver, hc_type, alias_tolerance).";
         d2.examples        = {"wls_fit(y, x, weights, {'compute_inference': true})"};
         d2.categories      = {"regression"};
         d2.parameter_names = {"y", "x", "weights", "options"};

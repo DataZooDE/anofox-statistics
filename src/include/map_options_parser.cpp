@@ -803,6 +803,7 @@ static const vector<OptionKeyDef> &RegressionKeyTable() {
 	    {"increasing", {}},
 	    {"solver", {}},
 	    {"hc_type", {}},
+	    {"alias_tolerance", {}},
 	    {"lambda_scaling", {}},
 	    {"glm_lambda", {}},
 	    {"threshold", {}},
@@ -1019,6 +1020,12 @@ RegressionMapOptions RegressionMapOptions::ParseFromValue(const Value &map_value
 			result.solver = ExtractSolverType(val);
 		} else if (key == "hc_type") {
 			result.hc_type = ExtractHcType(val);
+		} else if (key == "alias_tolerance") {
+			auto v = ExtractDouble(val);
+			if (v.has_value() && !(std::isfinite(v.value()) && v.value() > 0.0)) {
+				throw InvalidInputException("alias_tolerance must be a positive number, got %s", val.ToString());
+			}
+			result.alias_tolerance = v;
 		} else if (key == "lambda_scaling") {
 			result.lambda_scaling = ExtractLambdaScaling(val);
 		} else if (key == "glm_lambda") {
