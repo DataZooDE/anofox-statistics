@@ -51,7 +51,7 @@ Could not convert string 'abc' to DOUBLE
 statement error
 SELECT ransac_fit_agg(y, [x], {'max_trials': -3}) FROM d;
 ----
-Expected a non-negative integer, got -3
+expected a non-negative integer, got -3
 
 statement error
 SELECT ols_fit_agg(y, [x], {'solver': 'lu'}) FROM d;

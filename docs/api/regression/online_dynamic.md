@@ -119,7 +119,8 @@ log-likelihood. Inference fields, `aic` and `bic` are NULL.
 `lm_dynamic_fit_predict_agg` returns per row `y`, `yhat`, `is_training`,
 `intercept` and `coefficients`: training rows get their own time-varying fit,
 and the other rows (NULL `y`, held out by `split`) are scored with the
-time-averaged coefficients. `yhat_lower` and `yhat_upper` are NULL.
+time-averaged coefficients, as greybox's `predict()` scores new data with an
+`lmDynamic` model's `coefficients` (checked with greybox 2.0.9). `yhat_lower` and `yhat_upper` are NULL.
 
 ## LOWESS
 

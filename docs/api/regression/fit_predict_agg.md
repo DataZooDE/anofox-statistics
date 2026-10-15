@@ -87,8 +87,7 @@ with `Σ` the posterior covariance and `α` the noise precision (scikit-learn's
 ## Common options
 
 Accepted by every function except PLS, quantile and isotonic, in addition to
-the model options (Bayesian Ridge and ARD take `confidence_level` but not
-`null_policy`; Passive-Aggressive and lmDynamic take neither):
+the model options (Passive-Aggressive and lmDynamic take neither):
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|

@@ -22,6 +22,7 @@
 #include "anofox_stats_ffi.h"
 #include "fit_predict_rows.hpp"
 #include "list_input.hpp"
+#include "map_options_parser.hpp"
 
 namespace duckdb {
 
@@ -39,6 +40,8 @@ struct FitPredictRowsState {
 //! Bind data of these aggregates derives from this: Update reads the split flag.
 struct FitPredictRowsBindBase : public FunctionData {
 	bool use_split_col = false;
+	//! 'drop_y_zero_x' also keeps rows with a zero feature out of the fit.
+	NullPolicy null_policy = NullPolicy::DROP;
 };
 
 inline void FitPredictRowsInitialize(const AggregateFunction &, data_ptr_t state_p) {
@@ -108,6 +111,14 @@ inline void FitPredictRowsUpdate(Vector inputs[], AggregateInputData &aggr_input
 		}
 
 		bool training = y_valid && std::isfinite(y_val) && complete;
+		if (training && bind.null_policy == NullPolicy::DROP_Y_ZERO_X) {
+			for (auto v : x_row) {
+				if (v == 0.0) {
+					training = false;
+					break;
+				}
+			}
+		}
 		if (with_split) {
 			auto s_idx = split_data.sel->get_index(i);
 			training = training && split_data.validity.RowIsValid(s_idx) &&

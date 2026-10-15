@@ -339,12 +339,12 @@ confidence_level must be in (0, 1)
 statement error
 SELECT permutation_t_test_agg(v, g, {'n_permutations': -5}) FROM tg;
 ----
-Expected a non-negative integer, got -5
+expected a non-negative integer, got -5
 
 statement error
 SELECT distance_cor_agg(x, y, {'n_permutations': -5}) FROM pr;
 ----
-Expected a non-negative integer, got -5
+expected a non-negative integer, got -5
 
 statement error
 SELECT energy_distance_agg(v, g::INTEGER, {'n_permutations': 10000000000}) FROM tg;
@@ -354,12 +354,12 @@ is too large (maximum 4294967295)
 statement error
 SELECT diebold_mariano_agg(actual, f1, f2, {'horizon': -1}) FROM fc;
 ----
-Expected a non-negative integer, got -1
+expected a non-negative integer, got -1
 
 statement error
 SELECT mmd_agg(v, g::INTEGER, {'seed': -3}) FROM tg;
 ----
-Expected a non-negative integer, got -3
+expected a non-negative integer, got -3
 
 # =============================================================================
 # Options must be constant

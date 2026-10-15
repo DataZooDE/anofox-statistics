@@ -67,3 +67,15 @@ statement error
 SELECT lowess_agg(y, x, 0.5, -1) FROM s;
 ----
 iterations must be in [0, 1000]
+
+# As a window aggregate: the curve of the frame's rows
+query II
+SELECT len(c), c = (SELECT lowess_agg(y, x, 0.5) FROM s WHERE i BETWEEN 91 AND 110)
+FROM (SELECT i, lowess_agg(y, x, 0.5) OVER (ORDER BY i ROWS BETWEEN 19 PRECEDING AND CURRENT ROW) AS c FROM s) WHERE i = 110;
+----
+20	true
+
+statement error
+SELECT lowess_agg(y, x, x) FROM s;
+----
+frac must be a constant

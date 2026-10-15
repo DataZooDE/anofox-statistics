@@ -13,6 +13,7 @@
 #include "duckdb/function/aggregate_function.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
 #include "duckdb/parser/parsed_data/create_aggregate_function_info.hpp"
+#include "duckdb/execution/expression_executor.hpp"
 #include "duckdb/planner/expression.hpp"
 
 #include "../include/anofox_stats_ffi.h"
@@ -150,18 +151,26 @@ void LowessFinalize(Vector &state_vector, AggregateInputData &aggr_input_data, V
 	}
 }
 
+//! The value of a constant argument; a non-constant one is an error naming it.
+Value ConstantArgument(ClientContext &context, Expression &expr, const string &name, const char *argument) {
+	if (!expr.IsFoldable()) {
+		throw InvalidInputException("%s: %s must be a constant", name, argument);
+	}
+	return ExpressionExecutor::EvaluateScalar(context, expr);
+}
+
 unique_ptr<FunctionData> LowessBind(ClientContext &context, AggregateFunction &function,
                                     vector<unique_ptr<Expression>> &arguments) {
 	const string name(kLowessName);
 	auto bind = make_uniq<LowessBindData>();
 	if (arguments.size() >= 3) {
-		auto frac = EvaluateConstantOptions(context, *arguments[2], name);
+		auto frac = ConstantArgument(context, *arguments[2], name, "frac");
 		if (!frac.IsNull()) {
 			bind->frac = frac.GetValue<double>();
 		}
 	}
 	if (arguments.size() >= 4) {
-		auto iterations = EvaluateConstantOptions(context, *arguments[3], name);
+		auto iterations = ConstantArgument(context, *arguments[3], name, "iterations");
 		if (!iterations.IsNull()) {
 			auto v = iterations.GetValue<int64_t>();
 			if (v < 0 || v > 1000) {

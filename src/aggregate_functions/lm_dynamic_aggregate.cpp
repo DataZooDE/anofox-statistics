@@ -239,7 +239,7 @@ void LmDynamicPredictFinalize(Vector &state_vector, AggregateInputData &aggr_inp
 				XyRowsSetDoubleList(*entries[6], child, coefs + 1, width - 1);
 				train_row++;
 			} else {
-				// Rows outside the fit: the time-averaged coefficients (greybox's mean model).
+				// Rows outside the fit: the time-averaged coefficients, as greybox predict() on new data.
 				yhat = std::isfinite(fit.intercept) ? fit.intercept : 0.0;
 				for (idx_t j = 0; j < p; j++) {
 					if (std::isfinite(fit.coefficients[j])) {

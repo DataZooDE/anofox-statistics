@@ -49,7 +49,7 @@ struct BayesianBindData : public FitPredictRowsBindBase {
 		       options.alpha_1 == o.options.alpha_1 && options.alpha_2 == o.options.alpha_2 &&
 		       options.lambda_1 == o.options.lambda_1 && options.lambda_2 == o.options.lambda_2 &&
 		       options.threshold_lambda == o.options.threshold_lambda && confidence_level == o.confidence_level &&
-		       use_split_col == o.use_split_col;
+		       use_split_col == o.use_split_col && null_policy == o.null_policy;
 	}
 };
 
@@ -71,6 +71,7 @@ void ParseBayesianOptions(ClientContext &context, Expression &expr, BayesianBind
 	}
 	if (fit_predict) {
 		keys.push_back("confidence_level");
+		keys.push_back("null_policy");
 	}
 	auto opts = RegressionMapOptions::ParseFromExpression(context, expr, name, keys);
 	auto &o = bind.options;
@@ -98,6 +99,9 @@ void ParseBayesianOptions(ClientContext &context, Expression &expr, BayesianBind
 	if (opts.threshold_lambda.has_value()) {
 		o.threshold_lambda = opts.threshold_lambda.value();
 	}
+	if (opts.null_policy.has_value()) {
+		bind.null_policy = opts.null_policy.value();
+	}
 	if (opts.confidence_level.has_value()) {
 		bind.confidence_level = opts.confidence_level.value();
 	}
@@ -110,7 +114,7 @@ void ValidateBayesianOptions(const BayesianBindData &bind, const string &name) {
 			throw InvalidInputException("%s: alpha_1, alpha_2, lambda_1 and lambda_2 must be finite and >= 0", name);
 		}
 	}
-	if (!(o.tolerance > 0.0)) {
+	if (!(std::isfinite(o.tolerance) && o.tolerance > 0.0)) {
 		throw InvalidInputException("%s: tolerance must be > 0", name);
 	}
 	if (o.max_iterations == 0) {

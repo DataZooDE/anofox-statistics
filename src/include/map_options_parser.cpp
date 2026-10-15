@@ -77,6 +77,15 @@ static std::optional<double> ExtractConfidenceLevel(const Value &val, const stri
 	return v;
 }
 
+// The option being parsed, so the integer extractors can name it in their
+// errors ("max_iterations: expected a non-negative integer, got -1"). Set by the
+// option visitors before each value is extracted.
+static thread_local string current_option_key;
+
+static string OptionKeyPrefix() {
+	return current_option_key.empty() ? string() : current_option_key + ": ";
+}
+
 // Extract a non-negative integer no larger than `max_value`. Negative,
 // fractional or overflowing values raise instead of being truncated.
 static std::optional<uint64_t> ExtractBoundedUInt(const Value &val, uint64_t max_value) {
@@ -98,14 +107,14 @@ static std::optional<uint64_t> ExtractBoundedUInt(const Value &val, uint64_t max
 	case LogicalTypeId::DECIMAL: {
 		auto d = val.GetValue<double>();
 		if (d < 0) {
-			throw InvalidInputException("Expected a non-negative integer, got %s", val.ToString());
+			throw InvalidInputException("%sexpected a non-negative integer, got %s", OptionKeyPrefix(), val.ToString());
 		}
 		if (d != std::floor(d)) {
-			throw InvalidInputException("Expected an integer, got %s", val.ToString());
+			throw InvalidInputException("%sexpected an integer, got %s", OptionKeyPrefix(), val.ToString());
 		}
 		if (d > static_cast<double>(max_value)) {
-			throw InvalidInputException("Integer value %s is too large (maximum %llu)", val.ToString(),
-			                            (unsigned long long)max_value);
+			throw InvalidInputException("%sinteger value %s is too large (maximum %llu)", OptionKeyPrefix(),
+			                            val.ToString(), (unsigned long long)max_value);
 		}
 		result = static_cast<uint64_t>(d);
 		break;
@@ -113,15 +122,15 @@ static std::optional<uint64_t> ExtractBoundedUInt(const Value &val, uint64_t max
 	default: {
 		auto v = val.GetValue<int64_t>();
 		if (v < 0) {
-			throw InvalidInputException("Expected a non-negative integer, got %lld", (long long)v);
+			throw InvalidInputException("%sexpected a non-negative integer, got %lld", OptionKeyPrefix(), (long long)v);
 		}
 		result = static_cast<uint64_t>(v);
 		break;
 	}
 	}
 	if (result > max_value) {
-		throw InvalidInputException("Integer value %s is too large (maximum %llu)", val.ToString(),
-		                            (unsigned long long)max_value);
+		throw InvalidInputException("%sinteger value %s is too large (maximum %llu)", OptionKeyPrefix(),
+		                            val.ToString(), (unsigned long long)max_value);
 	}
 	return result;
 }
@@ -925,6 +934,7 @@ RegressionMapOptions RegressionMapOptions::ParseFromValue(const Value &map_value
 			                            DescribeSupportedRegressionKeys(supported_keys));
 		}
 		const string key = def->canonical;
+		current_option_key = user_key;
 		if (!Contains(supported_keys, key)) {
 			if (!ResolveContextualAlias(key, supported_keys).empty()) {
 				contextual.emplace_back(key, val);
@@ -1274,6 +1284,7 @@ static T ParseTestOptions(const Value &map_value, const string &function_name, c
 			                            DescribeAllKeys(keys));
 		}
 		const string canonical(def->canonical);
+		current_option_key = user_key;
 		if (canonical == "confidence_level") {
 			ExtractConfidenceLevel(val, function_name); // validate with the function name in the message
 		}

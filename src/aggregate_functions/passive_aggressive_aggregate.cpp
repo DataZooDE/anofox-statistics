@@ -84,7 +84,7 @@ void ParsePaOptions(ClientContext &context, Expression &expr, PaBindData &bind, 
 	if (o.max_epochs == 0) {
 		throw InvalidInputException("%s: max_iterations (passes over the rows) must be at least 1", name);
 	}
-	if (!(o.tolerance > 0.0)) {
+	if (!(std::isfinite(o.tolerance) && o.tolerance > 0.0)) {
 		throw InvalidInputException("%s: tolerance must be > 0", name);
 	}
 }

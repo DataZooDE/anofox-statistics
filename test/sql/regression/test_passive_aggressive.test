@@ -99,3 +99,23 @@ statement error
 SELECT passive_aggressive_fit_predict_agg(y, [x1], {'confidence_level': 0.9}) FROM s;
 ----
 unsupported option 'confidence_level'
+
+# Sliding ROWS frame: each window runs the online update over its own 20 rows
+statement ok
+CREATE TABLE slide AS SELECT t, x1, x2, (passive_aggressive_fit_predict(y, [x1, x2]) OVER (ORDER BY t ROWS BETWEEN 19 PRECEDING AND CURRENT ROW)).yhat AS p FROM s;
+
+query I
+SELECT count(*) FROM slide, LATERAL (SELECT passive_aggressive_fit_agg(y, [x1, x2] ORDER BY t) AS m FROM s WHERE s.t BETWEEN slide.t - 19 AND slide.t) f
+WHERE slide.t IN (5, 20, 21, 64, 120) AND abs(slide.p - (f.m.intercept + f.m.coefficients[1] * slide.x1 + f.m.coefficients[2] * slide.x2)) < 1e-12;
+----
+5
+
+statement error
+SELECT passive_aggressive_fit_agg(y, [x1], {'tolerance': 'inf'::DOUBLE} ORDER BY t) FROM s;
+----
+tolerance must be > 0
+
+statement error
+SELECT passive_aggressive_fit_agg(y, [x1], {'max_iterations': -1} ORDER BY t) FROM s;
+----
+max_iterations: expected a non-negative integer, got -1

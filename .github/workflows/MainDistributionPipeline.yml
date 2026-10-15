@@ -70,6 +70,82 @@ jobs:
       deploy_latest: ${{ startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main' }}
       deploy_versioned: ${{ startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main' }}
 
+  # Older DuckDB 1.5.x patch versions (#192): get.erpl.io serves one build per
+  # DuckDB version, and DuckDB-Wasm `latest` embeds an older patch release, so
+  # the current extension is built, smoke-tested and deployed for v1.5.5 too.
+  # Same ci-tools branch; the Windows MSVC gate runs once, on v1.5.6.
+  duckdb-155-build:
+    name: Build extension binaries (v1.5.5)
+    uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.5-variegata
+    with:
+      duckdb_version: v1.5.5
+      ci_tools_version: v1.5-variegata
+      extension_name: anofox_statistics
+      enable_rust: true
+      reduced_ci_mode: disabled
+      exclude_archs: "windows_amd64;windows_amd64_mingw"
+
+  duckdb-155-smoke-test:
+    name: Smoke test (v1.5.5)
+    needs: duckdb-155-build
+    uses: ./.github/workflows/_extension_smoke_test.yml
+    with:
+      duckdb_version: v1.5.5
+      extension_name: anofox_statistics
+      exclude_archs: 'windows_amd64;windows_amd64_mingw'
+
+  duckdb-155-deploy:
+    name: Deploy extension binaries (v1.5.5)
+    needs: [duckdb-155-build, duckdb-155-smoke-test, duckdb-stable-windows-msvc-test]
+    if: ${{ !cancelled() && needs.duckdb-155-smoke-test.result == 'success' && needs.duckdb-stable-windows-msvc-test.result == 'success' }}
+    uses: ./.github/workflows/_extension_deploy.yml
+    secrets: inherit
+    with:
+      duckdb_version: v1.5.5
+      ci_tools_version: v1.5-variegata
+      extension_name: anofox_statistics
+      exclude_archs: "windows_amd64;windows_amd64_mingw"
+      deploy_latest: ${{ startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main' }}
+      deploy_versioned: ${{ startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main' }}
+
+  # Older DuckDB 1.5.x patch versions (#192): get.erpl.io serves one build per
+  # DuckDB version, and DuckDB-Wasm `latest` embeds an older patch release, so
+  # the current extension is built, smoke-tested and deployed for v1.5.4 too.
+  # Same ci-tools branch; the Windows MSVC gate runs once, on v1.5.6.
+  duckdb-154-build:
+    name: Build extension binaries (v1.5.4)
+    uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.5-variegata
+    with:
+      duckdb_version: v1.5.4
+      ci_tools_version: v1.5-variegata
+      extension_name: anofox_statistics
+      enable_rust: true
+      reduced_ci_mode: disabled
+      exclude_archs: "windows_amd64;windows_amd64_mingw"
+
+  duckdb-154-smoke-test:
+    name: Smoke test (v1.5.4)
+    needs: duckdb-154-build
+    uses: ./.github/workflows/_extension_smoke_test.yml
+    with:
+      duckdb_version: v1.5.4
+      extension_name: anofox_statistics
+      exclude_archs: 'windows_amd64;windows_amd64_mingw'
+
+  duckdb-154-deploy:
+    name: Deploy extension binaries (v1.5.4)
+    needs: [duckdb-154-build, duckdb-154-smoke-test, duckdb-stable-windows-msvc-test]
+    if: ${{ !cancelled() && needs.duckdb-154-smoke-test.result == 'success' && needs.duckdb-stable-windows-msvc-test.result == 'success' }}
+    uses: ./.github/workflows/_extension_deploy.yml
+    secrets: inherit
+    with:
+      duckdb_version: v1.5.4
+      ci_tools_version: v1.5-variegata
+      extension_name: anofox_statistics
+      exclude_archs: "windows_amd64;windows_amd64_mingw"
+      deploy_latest: ${{ startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main' }}
+      deploy_versioned: ${{ startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main' }}
+
   wasm-runtime-test:
     name: WASM runtime test (Node harness, v1.5.6 wasm_eh)
     # A green wasm build only proves the extension COMPILES + LINKS. This job
@@ -180,7 +256,7 @@ jobs:
 
   duckdb-lts-build:
     name: Build extension binaries (DuckDB LTS v1.4.5)
-    uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.4-andium
+    uses: ./.github/workflows/_extension_distribution_lts.yml
     with:
       duckdb_version: v1.4.5
       ci_tools_version: v1.4-andium
