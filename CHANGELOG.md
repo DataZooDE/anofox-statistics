@@ -30,7 +30,7 @@ Breaking changes are called out explicitly.
   `alpha_1`, `alpha_2`, `lambda_1`, `lambda_2`, `threshold_lambda` (ARD).
   See [docs/api/regression/bayesian.md](docs/api/regression/bayesian.md).
 - Passive-Aggressive regression, lmDynamic and LOWESS (#63), from
-  anofox-regression 0.5.28 (see [docs/api/regression/online_dynamic.md](docs/api/regression/online_dynamic.md)):
+  anofox-regression 0.5.29 (see [docs/api/regression/online_dynamic.md](docs/api/regression/online_dynamic.md)):
   - `passive_aggressive_fit_agg(y, x[, options] ORDER BY t)`, the window
     `passive_aggressive_fit_predict`, `passive_aggressive_fit_predict_agg` /
     `_fit_predict_by` / `_prediction_by`, and `passive_aggressive_tidy_by` /
