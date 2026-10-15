@@ -57,7 +57,7 @@ predict(model STRUCT, x DOUBLE[], {'se_fit': true | 'interval': ... [, 'level': 
 How the prediction is computed depends on the model:
 
 - **Linear models** (OLS, Ridge, WLS, Elastic Net, RLS, Huber, RANSAC,
-  Theil-Sen, BLS/NNLS, LARS, PLS, Quantile, ALM, ...):
+  Theil-Sen, BLS/NNLS, LARS, Bayesian Ridge, ARD, PLS, Quantile, ALM, ...):
   `intercept + Σ coefficients[j] · x[j]`. A `NaN` coefficient (an aliased or
   constant column) contributes nothing.
 - **GLMs** (`poisson`, `binomial`, `logistic`, `negbinom`, `gamma`, `tweedie`):
@@ -271,7 +271,8 @@ post-hoc `_by` tests, ...) keep `model_id` = the group.
 `<model>_tidy_by(source, group_col, y_col, x_cols [, weight_col] [, options := ..., names := [...]])`
 and `<model>_glance_by(source, group_col, y_col, x_cols [, weight_col] [, options := ...])`
 fit one model per group and return long tables (for `ols`, `wls`, `ridge`,
-`elasticnet`, `huber`, `ransac`, `theil_sen`, `rls`, `lars`, `bls`, `nnls`,
+`elasticnet`, `huber`, `ransac`, `theil_sen`, `rls`, `lars`, `bayesian_ridge`,
+`ard`, `bls`, `nnls`,
 `pls`, `quantile`, the GLMs `poisson`, `binomial`, `logistic`, `negbinom`,
 `gamma`, `tweedie`, and `alm`, `aft`; `wls` takes `weight_col`, `aft`
 `event_col`):
@@ -313,8 +314,9 @@ input row:
 - `level` sets the interval and overrides any `confidence_level` in `options`.
 
 It exists for `ols`, `wls`, `ridge`, `elasticnet`, `huber`, `ransac`,
-`theil_sen`, `rls`, `bls`, `pls`, `quantile`, `alm`, the GLMs and `isotonic`.
-PLS, quantile and isotonic have no band. For isotonic there is no `x_cols`:
+`theil_sen`, `rls`, `bls`, `bayesian_ridge`, `ard`, `pls`, `quantile`, `alm`,
+the GLMs and `isotonic`. PLS, quantile and isotonic have no band; for Bayesian
+Ridge and ARD the band is the posterior predictive interval. For isotonic there is no `x_cols`:
 `x_col` is the one feature.
 
 `<model>_effects_by(source, group_col, y_col, x_cols [, weight_col] [, focal := 1, n_points := 50, at_values := NULL, options := ..., level := 0.95, names := [...]])`

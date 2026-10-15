@@ -42,6 +42,8 @@ const ModelOutputModel MODEL_OUTPUT_MODELS[] = {
     {"theil_sen", "a Theil-Sen regression", nullptr, true},
     {"rls", "a recursive least squares regression", nullptr, false},
     {"lars", "a LARS / Lasso-LARS regression", nullptr, false},
+    {"bayesian_ridge", "a Bayesian Ridge regression", nullptr, false},
+    {"ard", "an ARD (automatic relevance determination) regression", nullptr, false},
     {"bls", "a bounded least squares regression", nullptr, false},
     {"nnls", "a non-negative least squares regression", nullptr, false},
     {"pls", "a partial least squares regression", nullptr, false},

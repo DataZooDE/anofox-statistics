@@ -251,6 +251,13 @@ struct RegressionMapOptions {
 	std::optional<vector<double>> taus;      // Quantiles of the process
 	std::optional<string> se_type;           // 'iid' | 'nid' | 'boot'
 	std::optional<uint32_t> n_boot;          // Bootstrap replications
+	// Bayesian Ridge / ARD (#61): gamma-prior shape / rate of the noise and
+	// weight precisions, and ARD's pruning threshold
+	std::optional<double> alpha_1;
+	std::optional<double> alpha_2;
+	std::optional<double> lambda_1;
+	std::optional<double> lambda_2;
+	std::optional<double> threshold_lambda;
 
 	/// Raw value of the context-dependent `link` key; resolved to poisson_link or
 	/// binomial_link by ParseFromValue according to the function's supported keys.

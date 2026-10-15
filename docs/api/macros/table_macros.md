@@ -23,6 +23,8 @@ passed through and the prediction columns appended.
 | `negbinom_fit_predict_by` | `negbinom_fit_agg` + `predict` | one row per input row, no intervals |
 | `gamma_fit_predict_by` | `gamma_fit_agg` + `predict` | one row per input row, no intervals |
 | `tweedie_fit_predict_by` | `tweedie_fit_agg` + `predict` | one row per input row, no intervals |
+| `bayesian_ridge_fit_predict_by` | `bayesian_ridge_fit_predict_agg` | one row per input row, posterior predictive interval |
+| `ard_fit_predict_by` | `ard_fit_predict_agg` | one row per input row, posterior predictive interval |
 | `pls_fit_predict_by` | `pls_fit_predict_agg` | one row per input row, no intervals |
 | `quantile_fit_predict_by` | `quantile_fit_predict_agg` | one row per input row, no intervals |
 | `isotonic_fit_predict_by` | `isotonic_fit_predict_agg` | one row per input row, no intervals |

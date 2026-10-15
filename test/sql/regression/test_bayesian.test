@@ -1,0 +1,176 @@
+# name: test/sql/regression/test_bayesian.test
+# description: bayesian_ridge_fit_agg / ard_fit_agg and their fit_predict aggregates (#61); scikit-learn parity is in test/sql/reference/regression_bayesian.test
+# group: [regression]
+
+require anofox_statistics
+
+# Deterministic standard-normal noise e and e2 (the two Box-Muller draws from two
+# low-discrepancy sequences), three regressors and a group column.
+statement ok
+CREATE TABLE n AS SELECT i, (i % 2)::VARCHAR AS g,
+    sqrt(-2 * ln((((i * 0.6180339887498949) % 1) + 0.0001) / 1.0002)) * cos(2 * pi() * ((i * 0.41421356237309503) % 1)) AS e,
+    sqrt(-2 * ln((((i * 0.6180339887498949) % 1) + 0.0001) / 1.0002)) * sin(2 * pi() * ((i * 0.41421356237309503) % 1)) AS e2,
+    sin(i * 0.37) * 2 AS x1, cos(i * 0.11) AS x2, ((i * 13) % 17) / 17.0 AS x3
+FROM range(1, 401) r(i);
+
+# Stable model STRUCT (#152): no frequentist inference, posterior quantities instead
+query IIIIIII
+SELECT m.model_type, m.family, m.link, m.n_observations, m.n_features, m.std_errors IS NULL AND m.p_values IS NULL AND m.conf_low IS NULL,
+       m.log_likelihood IS NULL AND m.aic IS NULL AND m.bic IS NULL
+FROM (SELECT bayesian_ridge_fit_agg(1 + 2 * x1 - x2 + 0.5 * e, [x1, x2, x3]) AS m FROM n);
+----
+bayesian_ridge	gaussian	identity	400	3	true	true
+
+# Noise-tunable fixture: the posterior noise precision recovers the simulated noise
+# SD (1 / sqrt(noise_precision)); the coefficients are close to the truth and every
+# posterior SD is positive.
+foreach sd 0.1 0.5 2.0
+
+query III
+SELECT abs(1 / sqrt(m.noise_precision) / ${sd} - 1) < 0.05,
+       abs(m.coefficients[1] - 2) < 0.1 * (1 + ${sd}) AND abs(m.coefficients[2] + 1) < 0.2 * (1 + ${sd}),
+       list_min(m.posterior_sd) > 0 AND len(m.posterior_sd) = 3
+FROM (SELECT bayesian_ridge_fit_agg(1 + 2 * x1 - x2 + ${sd} * e, [x1, x2, x3]) AS m FROM n);
+----
+true	true	true
+
+endloop
+
+# The posterior SD grows with the noise
+query I
+SELECT (SELECT bayesian_ridge_fit_agg(1 + 2 * x1 - x2 + 2.0 * e, [x1, x2, x3]).posterior_sd[1] FROM n)
+     > 5 * (SELECT bayesian_ridge_fit_agg(1 + 2 * x1 - x2 + 0.1 * e, [x1, x2, x3]).posterior_sd[1] FROM n);
+----
+true
+
+# ARD on a high-dimensional sparse truth: 10 regressors, 3 relevant. The irrelevant
+# ones are pruned to exactly 0 with posterior SD 0 and a precision at or above
+# threshold_lambda; the relevant ones are recovered.
+statement ok
+CREATE TABLE s AS SELECT i,
+    [sin(i * 0.37), cos(i * 0.11), sin(i * 0.53 + 1), cos(i * 0.71 + 2), sin(i * 0.29 + 3),
+     cos(i * 0.97 + 4), sin(i * 1.13 + 5), cos(i * 0.17 + 6), sin(i * 0.83 + 7), cos(i * 0.43 + 8)] AS x,
+    0.1 * e AS noise
+FROM n;
+
+query IIII
+SELECT abs(m.coefficients[1] - 3) < 0.05 AND abs(m.coefficients[4] + 2) < 0.05 AND abs(m.coefficients[7] - 1) < 0.05,
+       list_filter(list_zip(range(1, 11), m.coefficients), lambda z: z[2] = 0) = list_filter(list_zip(range(1, 11), m.coefficients), lambda z: z[1] NOT IN (1, 4, 7)),
+       list_sum(list_transform(m.posterior_sd, lambda v: (v = 0)::INT)) = 7,
+       len(m.weight_precisions) = 10 AND m.weight_precisions[2] >= 10000
+FROM (SELECT ard_fit_agg(0.5 + 3 * x[1] - 2 * x[4] + x[7] + noise, x) AS m FROM s);
+----
+true	true	true	true
+
+# Bayesian Ridge keeps every coefficient (no pruning), all small but non-zero
+query I
+SELECT list_min(list_transform(m.coefficients, lambda c: abs(c))) > 0
+FROM (SELECT bayesian_ridge_fit_agg(0.5 + 3 * x[1] - 2 * x[4] + x[7] + noise, x) AS m FROM s);
+----
+true
+
+# Per group, and as a window aggregate
+query II
+SELECT g, round(m.coefficients[1], 1) FROM (SELECT g, ard_fit_agg(1 + 2 * x1 - x2 + 0.1 * e, [x1, x2, x3]) AS m FROM n GROUP BY g) ORDER BY g;
+----
+0	2.0
+1	2.0
+
+query I
+SELECT count(DISTINCT round(m.coefficients[1], 1)) FROM (
+    SELECT bayesian_ridge_fit_agg(1 + 2 * x1 - x2 + 0.1 * e, [x1, x2, x3]) OVER (PARTITION BY g) AS m FROM n);
+----
+1
+
+# tidy / glance / predict work on the model
+query III
+SELECT len(tidy(m)), glance(m).iterations > 0, abs(predict(m, [1.0, 0.0, 0.0]) - 3) < 0.05
+FROM (SELECT bayesian_ridge_fit_agg(1 + 2 * x1 - x2 + 0.1 * e, [x1, x2, x3]) AS m FROM n);
+----
+4	true	true
+
+# Rows with a NULL y, a NULL x list or a NULL element are skipped; fewer than two
+# complete rows give NULL
+query II
+SELECT bayesian_ridge_fit_agg(y, x).n_observations, ard_fit_agg(y, x).n_observations
+FROM (VALUES (1.0, [1.0, 2.0]), (2.0, [2.0, 1.0]), (NULL, [3.0, 3.0]), (4.0, NULL), (5.0, [NULL, 1.0]), (3.5, [3.0, 4.0]), (2.0, [1.5, 0.5])) t(y, x);
+----
+4	4
+
+query II
+SELECT bayesian_ridge_fit_agg(y, x) IS NULL, ard_fit_agg(y, x) IS NULL FROM (VALUES (1.0, [1.0])) t(y, x);
+----
+true	true
+
+# fit_intercept = false: intercept 0
+query I
+SELECT m.intercept FROM (SELECT bayesian_ridge_fit_agg(2 * x1, [x1], {'fit_intercept': false}) AS m FROM n);
+----
+0.0
+
+# Options are validated at bind time
+statement error
+SELECT bayesian_ridge_fit_agg(x1, [x2], {'threshold_lambda': 10}) FROM n;
+----
+unsupported option 'threshold_lambda'
+
+statement error
+SELECT ard_fit_agg(x1, [x2], {'alpha_1': -1}) FROM n;
+----
+must be finite and >= 0
+
+statement error
+SELECT ard_fit_agg(x1, [x2], {'tolerance': 0}) FROM n;
+----
+tolerance must be > 0
+
+statement error
+SELECT ard_fit_agg(x1, [x2], {'threshold_lambda': 0}) FROM n;
+----
+threshold_lambda must be > 0
+
+statement error
+SELECT bayesian_ridge_fit_predict_agg(x1, [x2], {'confidence_level': 1.5}) FROM n;
+----
+confidence_level
+
+# fit_predict_agg: one row per input row; rows with a NULL y are predicted, not
+# trained on; a NULL x row passes through with NULL predictions; bands bracket yhat
+query IIIII
+SELECT count(*), count(*) FILTER (WHERE (p).is_training), count(*) FILTER (WHERE (p).yhat IS NULL),
+       bool_and((p).yhat_lower < (p).yhat AND (p).yhat < (p).yhat_upper OR (p).yhat IS NULL),
+       count(*) FILTER (WHERE (p).y IS NULL)
+FROM (SELECT unnest(bayesian_ridge_fit_predict_agg(y, x)) AS p FROM (
+    SELECT CASE WHEN i % 10 = 0 THEN NULL ELSE 1 + 2 * x1 - x2 + 0.5 * e END AS y,
+           CASE WHEN i = 7 THEN NULL ELSE [x1, x2, x3] END AS x FROM n));
+----
+400	359	1	true	40
+
+# The 95% posterior predictive band covers about 95% of fresh draws (e2) of the same model
+query I
+SELECT avg((1 + 2 * n.x1 - n.x2 + 0.5 * n.e2 BETWEEN (q.p).yhat_lower AND (q.p).yhat_upper)::INT) BETWEEN 0.92 AND 0.98
+FROM (SELECT unnest(range(1, 401)) AS i, unnest(ard_fit_predict_agg(1 + 2 * x1 - x2 + 0.5 * e, [x1, x2, x3] ORDER BY i)) AS p FROM n) q
+JOIN n USING (i);
+----
+true
+
+# Narrower level, narrower band
+query I
+SELECT bool_and((a).yhat_upper - (a).yhat_lower > (b).yhat_upper - (b).yhat_lower) FROM (
+    SELECT unnest(bayesian_ridge_fit_predict_agg(1 + x1 + 0.5 * e, [x1])) AS a,
+           unnest(bayesian_ridge_fit_predict_agg(1 + x1 + 0.5 * e, [x1], {'confidence_level': 0.5})) AS b FROM n);
+----
+true
+
+# split column: only 'train' rows are fitted
+query II
+SELECT count(*) FILTER (WHERE (p).is_training), count(*)
+FROM (SELECT unnest(ard_fit_predict_agg(1 + x1 + 0.1 * e, [x1], CASE WHEN i <= 300 THEN 'train' ELSE 'test' END)) AS p FROM n);
+----
+300	400
+
+query I
+SELECT count(*) FILTER (WHERE (p).is_training)
+FROM (SELECT unnest(bayesian_ridge_fit_predict_agg(1 + x1 + 0.1 * e, [x1], CASE WHEN i <= 100 THEN 'train' END, {'fit_intercept': true})) AS p FROM n);
+----
+100

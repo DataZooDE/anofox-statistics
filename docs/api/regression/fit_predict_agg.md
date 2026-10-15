@@ -22,6 +22,8 @@ and return one output row per input row.
 | `bls_fit_predict_agg` | `DOUBLE[]` | yes | [BLS](bls.md#bls_fit_agg) |
 | `alm_fit_predict_agg` | `DOUBLE[]` | yes | [ALM](../glm/alm.md) |
 | `poisson_fit_predict_agg` | `DOUBLE[]` | yes | [Poisson](../glm/poisson.md) |
+| `bayesian_ridge_fit_predict_agg` | `DOUBLE[]` | yes (posterior predictive) | [Bayesian](bayesian.md#options) |
+| `ard_fit_predict_agg` | `DOUBLE[]` | yes (posterior predictive) | [Bayesian](bayesian.md#options) |
 | `pls_fit_predict_agg` | `DOUBLE[]` | no | [PLS](pls.md#options) |
 | `quantile_fit_predict_agg` | `DOUBLE[]` | no | [Quantile](quantile.md#options) |
 | `isotonic_fit_predict_agg` | `DOUBLE` (single feature) | no | [Isotonic](isotonic.md#options) |
@@ -75,10 +77,16 @@ training data. The bounds are NULL when no interval exists (zero residual
 degrees of freedom, singular design) and equal to `yhat` for an exact fit. See
 [Methodology](../../METHODOLOGY.md#prediction-intervals).
 
+Bayesian Ridge and ARD bound each prediction with the Gaussian posterior
+predictive interval instead, `yhat ± z · sqrt((x₀ − x̄)ᵀ Σ (x₀ − x̄) + 1/α)`
+with `Σ` the posterior covariance and `α` the noise precision (scikit-learn's
+`predict(return_std=True)`), see [Bayesian](bayesian.md).
+
 ## Common options
 
 Accepted by every function except PLS, quantile and isotonic, in addition to
-the model options:
+the model options (Bayesian Ridge and ARD take `confidence_level` but not
+`null_policy`):
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|

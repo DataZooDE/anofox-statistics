@@ -88,6 +88,8 @@ error rather than being silently ignored. Option values must be constants.
 | RANSAC | `ransac_fit` | `ransac_fit_agg` | `ransac_fit_predict` | `ransac_fit_predict_agg` | `ransac_fit_predict_by` | [RANSAC](api/regression/ransac.md) |
 | Theil-Sen | `theil_sen_fit` | `theil_sen_fit_agg` | `theil_sen_fit_predict` | `theil_sen_fit_predict_agg` | `theil_sen_fit_predict_by` | [Theil-Sen](api/regression/theil_sen.md) |
 | LARS | - | `lars_fit_agg` | - | - | - | [LARS](api/regression/lars.md) |
+| Bayesian Ridge | - | `bayesian_ridge_fit_agg` | - | `bayesian_ridge_fit_predict_agg` | `bayesian_ridge_fit_predict_by` | [Bayesian](api/regression/bayesian.md) |
+| ARD | - | `ard_fit_agg` | - | `ard_fit_predict_agg` | `ard_fit_predict_by` | [Bayesian](api/regression/bayesian.md) |
 | BLS | - | `bls_fit_agg` | - | `bls_fit_predict_agg` | `bls_fit_predict_by` | [BLS/NNLS](api/regression/bls.md) |
 | NNLS | - | `nnls_fit_agg` | - | - | - | [BLS/NNLS](api/regression/bls.md) |
 | PLS | - | `pls_fit_agg` | - | `pls_fit_predict_agg` | `pls_fit_predict_by` | [PLS](api/regression/pls.md) |
@@ -1973,7 +1975,7 @@ SELECT ols_fit_agg(y, [x]) IS NULL AS is_null FROM (VALUES (1.0, 2.0)) AS t(y, x
 
 ## Detailed Documentation
 
-- **Regression:** [OLS](api/regression/ols.md) | [Ridge](api/regression/ridge.md) | [Elastic Net](api/regression/elasticnet.md) | [WLS](api/regression/wls.md) | [RLS](api/regression/rls.md) | [Huber](api/regression/huber.md) | [RANSAC](api/regression/ransac.md) | [Theil-Sen](api/regression/theil_sen.md) | [LARS](api/regression/lars.md) | [BLS/NNLS](api/regression/bls.md) | [PLS](api/regression/pls.md) | [Isotonic](api/regression/isotonic.md) | [Quantile](api/regression/quantile.md)
+- **Regression:** [OLS](api/regression/ols.md) | [Ridge](api/regression/ridge.md) | [Elastic Net](api/regression/elasticnet.md) | [WLS](api/regression/wls.md) | [RLS](api/regression/rls.md) | [Huber](api/regression/huber.md) | [RANSAC](api/regression/ransac.md) | [Theil-Sen](api/regression/theil_sen.md) | [LARS](api/regression/lars.md) | [Bayesian Ridge / ARD](api/regression/bayesian.md) | [BLS/NNLS](api/regression/bls.md) | [PLS](api/regression/pls.md) | [Isotonic](api/regression/isotonic.md) | [Quantile](api/regression/quantile.md)
 - **Prediction:** [Window functions](api/regression/fit_predict_window.md) | [Fit-predict aggregates](api/regression/fit_predict_agg.md) | [Table macros](api/macros/table_macros.md) | [Model tools (predict, tidy, glance)](api/regression/model_tools.md)
 - **GLM:** [Poisson](api/glm/poisson.md) | [Binomial](api/glm/binomial.md) | [Logistic](api/glm/logistic.md) | [Negative Binomial](api/glm/negbinom.md) | [Gamma](api/glm/gamma.md) | [Tweedie](api/glm/tweedie.md) | [ALM](api/glm/alm.md) | [Priors](api/glm/priors.md) | [GLMM](api/glm/glmm.md) | [EB shrinkage](api/glm/eb_shrink.md)
 - **Survival:** [AFT](api/survival/aft.md)

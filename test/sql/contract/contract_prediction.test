@@ -51,7 +51,7 @@ CREATE TABLE ref AS SELECT
     (SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM ols_effects_by('d', g, y, [x1, x2]))) AS eff_cols;
 
 # Every prediction_by producer: same columns, runs
-foreach model ols ridge elasticnet huber ransac theil_sen rls bls pls quantile alm
+foreach model ols ridge elasticnet huber ransac theil_sen rls bls pls quantile alm bayesian_ridge ard
 
 query II
 SELECT (SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM ${model}_prediction_by('d', g, t, y, [x1, x2]))) = pred_cols,
@@ -212,10 +212,10 @@ SELECT count(*) = 80, bool_and(yhat_lower IS NULL) FROM isotonic_prediction_by('
 ----
 true	true
 
-# Tags: 19 prediction_by + 9 effects_by producers
+# Tags: 21 prediction_by + 9 effects_by producers
 query II
 SELECT count(DISTINCT function_name) FILTER (WHERE function_name LIKE '%\_prediction\_by' ESCAPE '\'),
        count(DISTINCT function_name) FILTER (WHERE function_name LIKE '%\_effects\_by' ESCAPE '\')
 FROM duckdb_functions() WHERE tags['anofox.output'] = 'prediction' AND tags['anofox.contract'] = '1';
 ----
-19	9
+21	9

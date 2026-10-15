@@ -57,6 +57,8 @@ void RegisterPlsFitPredictAggregateFunction(ExtensionLoader &loader);
 void RegisterIsotonicFitPredictAggregateFunction(ExtensionLoader &loader);
 void RegisterQuantileFitPredictAggregateFunction(ExtensionLoader &loader);
 void RegisterExtraFitAggregateFunctions(ExtensionLoader &loader);
+// Bayesian Ridge / ARD fit and fit-predict aggregates (#61)
+void RegisterBayesianAggregateFunctions(ExtensionLoader &loader);
 void RegisterPathAggregateFunctions(ExtensionLoader &loader);
 
 // GLM aggregate functions

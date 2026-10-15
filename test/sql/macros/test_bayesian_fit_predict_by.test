@@ -1,0 +1,63 @@
+# name: test/sql/macros/test_bayesian_fit_predict_by.test
+# description: bayesian_ridge_fit_predict_by / ard_fit_predict_by and the contract producers bayesian_ridge_* / ard_* (_tidy_by, _glance_by, _prediction_by) (#61)
+# group: [macros]
+
+require anofox_statistics
+
+# Two groups, 15 training rows each plus two out-of-sample rows (y NULL, i = 16, 17).
+statement ok
+CREATE TABLE src AS
+SELECT g, i::DOUBLE AS x, ((i * 7) % 5)::DOUBLE AS x2,
+       CASE WHEN i > 15 THEN NULL
+            ELSE (CASE g WHEN 'A' THEN 1.0 + 2.0 * i ELSE 10.0 - 0.5 * i END + ((i * 37) % 11) / 7.0)::DOUBLE
+       END AS y
+FROM (VALUES ('A'), ('B')) v(g), range(1, 18) r(i);
+
+foreach model bayesian_ridge ard
+
+# One output row per source row; out-of-sample rows are predicted with a band
+query IIIII
+SELECT count(*), count(DISTINCT g), count(*) FILTER (WHERE is_training),
+       count(*) FILTER (WHERE NOT is_training AND y IS NULL AND yhat IS NOT NULL),
+       bool_and(yhat_lower < yhat AND yhat < yhat_upper)
+FROM ${model}_fit_predict_by('src', g, y, [x, x2]);
+----
+34	2	30	4	true
+
+# The macro carries the aggregate's predictions; confidence_level sets the band
+query I
+WITH m AS (SELECT g, y, yhat, yhat_lower FROM ${model}_fit_predict_by('src', g, y, [x, x2], options := {'confidence_level': 0.8}) WHERE y IS NOT NULL),
+     a AS (SELECT g, unnest(${model}_fit_predict_agg(y, [x, x2], {'confidence_level': 0.8})) AS e FROM src GROUP BY g)
+SELECT count(*) FILTER (WHERE abs(m.yhat - a.e.yhat) > 1e-12 OR abs(m.yhat_lower - a.e.yhat_lower) > 1e-12)
+FROM m JOIN a ON m.g = a.g AND m.y = a.e.y;
+----
+0
+
+# split: rows outside 'train' are held out
+query I
+SELECT count(*) FILTER (WHERE is_training) FROM ${model}_fit_predict_by('src', g, y, [x, x2], split := CASE WHEN x <= 10 THEN 'train' ELSE 'test' END);
+----
+20
+
+# prediction_by: the contract's prediction schema with the posterior band at level
+query IIII
+SELECT count(*), bool_and(model_id = '${model}' AND id = g), count(*) FILTER (WHERE split = 'future'),
+       bool_and(level = 0.9 AND yhat_lower < yhat AND yhat < yhat_upper)
+FROM ${model}_prediction_by('src', g, x, y, [x, x2], level := 0.9);
+----
+34	true	4	true
+
+# tidy_by: estimates only (intercept first), names label the terms
+query ITII
+SELECT count(*), list(term ORDER BY g, term), bool_and(std_error IS NULL), bool_and(model_id = '${model}')
+FROM ${model}_tidy_by('src', g, y, [x, x2], names := ['trend', 'cycle']);
+----
+6	['(Intercept)', cycle, trend, '(Intercept)', cycle, trend]	true	true
+
+# glance_by: the available metrics
+query I
+SELECT list(DISTINCT metric ORDER BY metric) FROM ${model}_glance_by('src', g, y, [x, x2]);
+----
+[iterations, n_features, n_observations, r_squared]
+
+endloop
