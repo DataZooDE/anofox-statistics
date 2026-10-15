@@ -13,7 +13,7 @@ Breaking changes are called out explicitly.
 ### Added
 
 - Bayesian Ridge and ARD regression (#61), scikit-learn's `BayesianRidge` /
-  `ARDRegression` from anofox-regression 0.5.28 (results agree with scikit-learn
+  `ARDRegression` from anofox-regression 0.5.29 (results agree with scikit-learn
   1.9.1 to about 1e-8): `bayesian_ridge_fit_agg`, `ard_fit_agg`,
   `bayesian_ridge_fit_predict_agg`, `ard_fit_predict_agg`,
   `bayesian_ridge_fit_predict_by`, `ard_fit_predict_by` and the contract
