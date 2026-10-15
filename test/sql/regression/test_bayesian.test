@@ -174,3 +174,34 @@ SELECT count(*) FILTER (WHERE (p).is_training)
 FROM (SELECT unnest(bayesian_ridge_fit_predict_agg(1 + x1 + 0.1 * e, [x1], CASE WHEN i <= 100 THEN 'train' END, {'fit_intercept': true})) AS p FROM n);
 ----
 100
+
+# Sliding ROWS frame: each window equals a fresh fit on the frame's rows
+statement ok
+CREATE TABLE win AS SELECT i, bayesian_ridge_fit_agg(1 + 2 * x1 - x2 + 0.5 * e, [x1, x2]) OVER (ORDER BY i ROWS BETWEEN 19 PRECEDING AND CURRENT ROW) AS m,
+       ard_fit_predict_agg(1 + 2 * x1 - x2 + 0.5 * e, [x1, x2]) OVER (ORDER BY i ROWS BETWEEN 19 PRECEDING AND CURRENT ROW) AS p
+FROM n;
+
+query I
+SELECT count(*) FROM win, LATERAL (
+    SELECT bayesian_ridge_fit_agg(1 + 2 * x1 - x2 + 0.5 * e, [x1, x2]) AS m2,
+           ard_fit_predict_agg(1 + 2 * x1 - x2 + 0.5 * e, [x1, x2] ORDER BY i) AS p2
+    FROM n WHERE n.i BETWEEN win.i - 19 AND win.i) f
+WHERE win.i IN (2, 20, 21, 137, 400)
+  AND abs(win.m.coefficients[1] - f.m2.coefficients[1]) < 1e-9
+  AND abs(win.p[len(win.p)].yhat - f.p2[len(f.p2)].yhat) < 1e-9
+  AND abs(win.p[len(win.p)].yhat_upper - f.p2[len(f.p2)].yhat_upper) < 1e-9;
+----
+5
+
+# null_policy 'drop_y_zero_x' leaves rows with a zero feature out of the fit
+query II
+SELECT count(*) FILTER (WHERE (p).is_training), count(*) FILTER (WHERE (p).yhat IS NOT NULL)
+FROM (SELECT unnest(bayesian_ridge_fit_predict_agg(1 + 2 * x, [x], {'null_policy': 'drop_y_zero_x'})) AS p
+      FROM (SELECT (i % 4)::DOUBLE AS x FROM range(40) r(i)));
+----
+30	40
+
+statement error
+SELECT ard_fit_agg(x1, [x2], {'tolerance': 'inf'::DOUBLE}) FROM n;
+----
+tolerance must be > 0

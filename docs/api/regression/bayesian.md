@@ -91,6 +91,7 @@ FROM (SELECT ard_fit_agg(y, [x1, x2, x3]) AS m FROM bayes_demo);
 | `lambda_1`, `lambda_2` | DOUBLE | `1e-6` | Shape and rate of the gamma prior on the weight precision(s); >= 0 |
 | `threshold_lambda` | DOUBLE | `10000` | ARD only: prune a feature once its precision reaches this; > 0 |
 | `confidence_level` (alias `confidence`) | DOUBLE | `0.95` | `*_fit_predict_agg` / `_by` only: level of the posterior predictive interval |
+| `null_policy` | VARCHAR | `'drop'` | `*_fit_predict_agg` / `_by` only: `'drop_y_zero_x'` also leaves rows with a feature equal to 0 out of the fit, see [null_policy](fit_predict_agg.md#null_policy) |
 
 The defaults are scikit-learn's. Option keys a function does not support raise
 an error.

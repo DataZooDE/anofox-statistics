@@ -81,7 +81,11 @@ are NULL). Without these options `predict` returns a `DOUBLE` exactly as before.
 They need the model's coefficient covariance, the `vcov` field that OLS, WLS,
 Ridge and the GLM `*_fit_agg` aggregates carry when fitted with
 `{'compute_inference': true}` (row-major `k × k`, intercept first, with
-`df_residual = n − k`); a model without it raises an error. The values are
+`df_residual = n − k`); a model without it raises an error. Bayesian Ridge and
+ARD models predict point values with `predict(model, x)` but carry no `vcov`,
+so `se_fit` / `interval` raise an error; their posterior predictive band comes
+from `bayesian_ridge_` / `ard_fit_predict_agg`, `_fit_predict_by` and
+`_prediction_by`. The values are
 computed by anofox-regression (`intervals_from_variance_factor`,
 `GlmResult::predict_se`):
 
