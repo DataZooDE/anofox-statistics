@@ -763,6 +763,44 @@ FROM (
 ORDER BY group_col
 )"},
 
+    // passive_aggressive_fit_predict_by: Passive-Aggressive fit and predict per group (long format, #63)
+    // Options: c, epsilon, variant, fit_intercept, max_iterations, tolerance. Rows are processed in order_by order (sequential model).
+    {"passive_aggressive_fit_predict_by", {"source", "group_col", "y_col", "x_cols", nullptr}, {{"options", "NULL"}, {"split", "NULL"}, {"order_by", "NULL"}},
+R"(
+SELECT
+    * EXCLUDE (_pred, _rn, _anofox_rid),
+    (_pred[_rn]).yhat AS yhat,
+    (_pred[_rn]).yhat_lower AS yhat_lower,
+    (_pred[_rn]).yhat_upper AS yhat_upper,
+    (_pred[_rn]).is_training AS is_training
+FROM (
+    SELECT *,
+        ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _rn,
+        passive_aggressive_fit_predict_agg(CASE WHEN split IS NOT NULL AND split != 'train' THEN NULL ELSE y_col END, x_cols, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
+    FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR))
+) sub
+ORDER BY group_col
+)"},
+
+    // lm_dynamic_fit_predict_by: lmDynamic (time-varying coefficients) fit and predict per group (long format, #63)
+    // Options: ic, span, fit_intercept. Rows are processed in order_by order (sequential model).
+    {"lm_dynamic_fit_predict_by", {"source", "group_col", "y_col", "x_cols", nullptr}, {{"options", "NULL"}, {"split", "NULL"}, {"order_by", "NULL"}},
+R"(
+SELECT
+    * EXCLUDE (_pred, _rn, _anofox_rid),
+    (_pred[_rn]).yhat AS yhat,
+    (_pred[_rn]).yhat_lower AS yhat_lower,
+    (_pred[_rn]).yhat_upper AS yhat_upper,
+    (_pred[_rn]).is_training AS is_training
+FROM (
+    SELECT *,
+        ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _rn,
+        lm_dynamic_fit_predict_agg(CASE WHEN split IS NOT NULL AND split != 'train' THEN NULL ELSE y_col END, x_cols, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
+    FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR))
+) sub
+ORDER BY group_col
+)"},
+
     // quantile_fit_predict_by: Quantile regression fit and predict per group (long format)
     // C++ API: quantile_fit_predict_by(table_name, group_col, y_col, x_cols, options)
     // Options: tau, fit_intercept, max_iterations, tolerance, confidence_level, null_policy
@@ -894,6 +932,8 @@ static const FitPredictTableMacroDoc fit_predict_table_macro_docs[] = {
     {"aid_anomaly_by", "Table macro: AID anomaly flags per group of source, ordered by order_col; returns one row per input row with stockout, new_product, obsolete_product, high_outlier and low_outlier flags.", "aid_anomaly_by('sales', product_id, date, demand)", "demand-analysis"},
     {"bayesian_ridge_fit_predict_by", "Table macro: fits a Bayesian Ridge regression per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with yhat, yhat_lower / yhat_upper (posterior predictive interval at confidence_level, default 0.95) and is_training appended.", "bayesian_ridge_fit_predict_by('my_table', group_col, y, [x1, x2])", "regression"},
     {"ard_fit_predict_by", "Table macro: fits an ARD (automatic relevance determination) regression per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with yhat, yhat_lower / yhat_upper (posterior predictive interval at confidence_level, default 0.95) and is_training appended.", "ard_fit_predict_by('my_table', group_col, y, [x1, x2, x3])", "regression"},
+    {"passive_aggressive_fit_predict_by", "Table macro: fits a Passive-Aggressive online regression per group of source, updating row by row in order_by order (training rows: y_col NOT NULL and split NULL or 'train'), and returns every source row with yhat from the final coefficients, yhat_lower / yhat_upper (NULL: no interval) and is_training appended.", "passive_aggressive_fit_predict_by('my_table', group_col, y, [x1, x2], order_by := t)", "regression"},
+    {"lm_dynamic_fit_predict_by", "Table macro: fits a dynamic linear model with time-varying coefficients (greybox lmDynamic) per group of source in order_by order (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with yhat (the row's own time-varying fit; rows outside the fit use the time-averaged coefficients), yhat_lower / yhat_upper (NULL) and is_training appended.", "lm_dynamic_fit_predict_by('my_table', group_col, y, [x1, x2], order_by := t)", "regression"},
     {nullptr, nullptr, nullptr, nullptr}
 };
 // clang-format on

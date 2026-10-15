@@ -1,0 +1,59 @@
+# name: test/sql/macros/test_online_fit_predict_by.test
+# description: passive_aggressive_* and lm_dynamic_* table macros (_fit_predict_by, _tidy_by, _glance_by, _prediction_by): order_by / order_col decide the row order (#63)
+# group: [macros]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE src AS SELECT g, i AS t, sin(i * 0.61) AS x1, cos(i * 0.23) AS x2,
+    CASE WHEN i > 28 THEN NULL ELSE 1 + 2 * sin(i * 0.61) - cos(i * 0.23) + 0.2 * sin(i * 2.9) END AS y
+FROM (VALUES ('A'), ('B')) v(g), range(1, 31) r(i);
+
+# Shuffle the physical order so the macros must sort by order_by / order_col.
+statement ok
+CREATE TABLE shuffled AS SELECT * FROM src ORDER BY (t * 7) % 31, g;
+
+foreach model passive_aggressive lm_dynamic
+
+query IIII
+SELECT count(*), count(*) FILTER (WHERE is_training), count(*) FILTER (WHERE y IS NULL AND yhat IS NOT NULL), bool_and(yhat_lower IS NULL)
+FROM ${model}_fit_predict_by('shuffled', g, y, [x1, x2], order_by := t);
+----
+60	56	4	true
+
+# The macro equals the ordered aggregate per group
+query I
+WITH m AS (SELECT g, t, yhat FROM ${model}_fit_predict_by('shuffled', g, y, [x1, x2], order_by := t)),
+     a AS (SELECT g, unnest(${model}_fit_predict_agg(y, [x1, x2] ORDER BY t)) AS e, unnest(list(t ORDER BY t)) AS t FROM shuffled GROUP BY g)
+SELECT count(*) FILTER (WHERE abs(m.yhat - (a.e).yhat) > 1e-12) FROM m JOIN a USING (g, t);
+----
+0
+
+query III
+SELECT count(*), bool_and(model_id = '${model}' AND level IS NULL), count(*) FILTER (WHERE split = 'future')
+FROM ${model}_prediction_by('shuffled', g, t, y, [x1, x2]);
+----
+60	true	4
+
+query I
+SELECT count(DISTINCT metric) > 2 FROM ${model}_glance_by('shuffled', g, t, y, [x1, x2]);
+----
+true
+
+endloop
+
+# passive_aggressive_tidy_by: the ordered fit's coefficients, one row per term
+query II
+WITH t AS (SELECT * FROM passive_aggressive_tidy_by('shuffled', g, t, y, [x1, x2], names := ['a', 'b'])),
+     f AS (SELECT g, passive_aggressive_fit_agg(y, [x1, x2] ORDER BY t) AS m FROM shuffled GROUP BY g)
+SELECT count(*), bool_and(abs(estimate - CASE term WHEN '(Intercept)' THEN m.intercept WHEN 'a' THEN m.coefficients[1] ELSE m.coefficients[2] END) < 1e-12)
+FROM t JOIN f USING (g);
+----
+6	true
+
+# lm_dynamic_tidy_by: one set of terms per fitted row (window_end = t)
+query III
+SELECT count(*), max(window_end), bool_and(index_name = 'window_end')
+FROM lm_dynamic_tidy_by('shuffled', g, t, y, [x1, x2]);
+----
+168	28	true

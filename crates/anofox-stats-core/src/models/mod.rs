@@ -17,6 +17,7 @@ mod lars;
 mod lm_dynamic;
 mod lowess;
 mod ols;
+mod passive_aggressive;
 mod path;
 mod pls;
 mod predict;
@@ -63,6 +64,9 @@ pub use lars::fit_lars;
 pub use lm_dynamic::fit_lm_dynamic;
 pub use lowess::fit_lowess;
 pub use ols::fit_ols;
+pub use passive_aggressive::{
+    fit_passive_aggressive, PassiveAggressiveOptions, PassiveAggressiveResult,
+};
 pub use path::{cv_reg_path, fit_reg_path, lars_path, CvPathResult, RegPathOptions, RegPathResult};
 pub use pls::fit_pls;
 pub use predict::predict;

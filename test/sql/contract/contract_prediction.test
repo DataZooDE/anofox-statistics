@@ -212,10 +212,10 @@ SELECT count(*) = 80, bool_and(yhat_lower IS NULL) FROM isotonic_prediction_by('
 ----
 true	true
 
-# Tags: 21 prediction_by + 9 effects_by producers
+# Tags: 23 prediction_by + 9 effects_by producers
 query II
 SELECT count(DISTINCT function_name) FILTER (WHERE function_name LIKE '%\_prediction\_by' ESCAPE '\'),
        count(DISTINCT function_name) FILTER (WHERE function_name LIKE '%\_effects\_by' ESCAPE '\')
 FROM duckdb_functions() WHERE tags['anofox.output'] = 'prediction' AND tags['anofox.contract'] = '1';
 ----
-21	9
+23	9

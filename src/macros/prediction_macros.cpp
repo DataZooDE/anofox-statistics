@@ -64,6 +64,8 @@ const PredictionModel PREDICTION_MODELS[] = {
     {"gamma", "a Gamma GLM", nullptr, false, true},
     {"tweedie", "a Tweedie GLM", nullptr, false, true},
     {"isotonic", "an isotonic regression", nullptr, true, false, false, true},
+    {"passive_aggressive", "a Passive-Aggressive online regression", nullptr, true, false, false},
+    {"lm_dynamic", "a dynamic linear model with time-varying coefficients (greybox lmDynamic)", nullptr, true, false, false},
 };
 // clang-format on
 

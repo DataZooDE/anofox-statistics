@@ -2,9 +2,14 @@
 //!
 //! Uses information-theoretic model averaging with optional LOWESS smoothing
 //! to produce time-varying (observation-varying) coefficient estimates.
+//! Upstream reproduces `greybox::lmDynamic(bruteforce = TRUE)` for the normal
+//! distribution; rows are in input order (the order is the time index).
 
 use crate::errors::{StatsError, StatsResult};
-use crate::types::{AlmDistribution, InformationCriterion, LmDynamicOptions, LmDynamicResult};
+use crate::types::{
+    AlmDistribution, InformationCriterion, LmDynamicOptions, LmDynamicResult, ModelSummary,
+};
+use anofox_regression::core::HasModelInfo;
 use anofox_regression::prelude::AlmDistribution as UpstreamAlmDist;
 use anofox_regression::prelude::*;
 use anofox_regression::solvers::lm_dynamic::{
@@ -51,6 +56,9 @@ fn convert_distribution(dist: AlmDistribution) -> UpstreamAlmDist {
         AlmDistribution::CumulativeNormal => UpstreamAlmDist::CumulativeNormal,
     }
 }
+
+/// Largest number of (non-constant) regressors: 2^14 candidate models.
+const MAX_FEATURES: usize = 14;
 
 /// Fit a time-varying coefficient model using information-theoretic model averaging
 ///
@@ -144,9 +152,17 @@ pub fn fit_lm_dynamic(
         builder = builder.no_smoothing();
     }
 
-    if let Some(max_models) = options.max_models {
-        builder = builder.max_models(max_models);
+    // Every subset of the regressors (greybox's bruteforce), unless capped.
+    if n_effective_features > MAX_FEATURES {
+        return Err(StatsError::InvalidValue {
+            field: "x",
+            message: format!(
+                "lm_dynamic averages all 2^p regressor subsets; at most {MAX_FEATURES} \
+                 non-constant regressors are supported, got {n_effective_features}"
+            ),
+        });
     }
+    builder = builder.max_models(options.max_models.unwrap_or(1 << n_effective_features));
 
     let fitted = builder
         .build()
@@ -169,16 +185,21 @@ pub fn fit_lm_dynamic(
         None
     };
 
-    // Extract dynamic coefficients
+    // Per input row: [intercept, coef_1..coef_p] and the fitted value; rows
+    // dropped for non-finite values stay NaN.
     let dyn_coefs = fitted.dynamic_coefficients();
-    let n_dyn_cols = dyn_coefs.ncols(); // n_effective_features (+ intercept if present)
-    let mut dynamic_coefficients = Vec::with_capacity(n_valid);
-    for i in 0..n_valid {
-        let mut row = Vec::with_capacity(n_dyn_cols);
-        for j in 0..n_dyn_cols {
-            row.push(dyn_coefs[(i, j)]);
+    let offset = usize::from(options.fit_intercept);
+    let mut dynamic_coefficients = vec![vec![f64::NAN; n_features + 1]; n_obs];
+    let mut fitted_values = vec![f64::NAN; n_obs];
+    for (row, &orig_row) in valid_indices.iter().enumerate() {
+        let out = &mut dynamic_coefficients[orig_row];
+        if options.fit_intercept {
+            out[0] = dyn_coefs[(row, 0)];
         }
-        dynamic_coefficients.push(row);
+        for (reduced_idx, &orig_idx) in non_constant_indices.iter().enumerate() {
+            out[orig_idx + 1] = dyn_coefs[(row, reduced_idx + offset)];
+        }
+        fitted_values[orig_row] = result.fitted_values[row];
     }
 
     Ok(LmDynamicResult {
@@ -190,6 +211,9 @@ pub fn fit_lm_dynamic(
         n_observations: n_valid,
         n_features,
         dynamic_coefficients,
+        fitted_values,
+        n_models: fitted.model_specs().len(),
+        summary: ModelSummary::from_result(fitted.model_info(), result, false),
     })
 }
 
@@ -273,5 +297,46 @@ mod tests {
 
         let options = LmDynamicOptions::default();
         assert!(fit_lm_dynamic(&y, &x, &options).is_err());
+    }
+
+    #[test]
+    fn test_lm_dynamic_maps_rows_and_dropped_columns() {
+        let x1: Vec<f64> = (0..20).map(|i| (i as f64 * 0.7).sin()).collect();
+        let constant = vec![3.0; 20];
+        let mut y: Vec<f64> = (0..20)
+            .map(|i| 1.0 + 2.0 * x1[i] + 0.1 * (i as f64).cos())
+            .collect();
+        y[5] = f64::NAN;
+        let options = LmDynamicOptions {
+            lowess_span: None,
+            ..Default::default()
+        };
+        let r = fit_lm_dynamic(&y, &[x1.clone(), constant], &options).unwrap();
+        assert_eq!(r.n_observations, 19);
+        assert_eq!(r.dynamic_coefficients.len(), 20);
+        assert_eq!(r.fitted_values.len(), 20);
+        assert!(r.dynamic_coefficients[5].iter().all(|v| v.is_nan()));
+        assert!(r.fitted_values[5].is_nan());
+        // [intercept, x1, constant]: the constant column is dropped (NaN).
+        let row = &r.dynamic_coefficients[0];
+        assert!(row[0].is_finite() && row[1].is_finite() && row[2].is_nan());
+        assert!((r.fitted_values[0] - (row[0] + row[1] * x1[0])).abs() < 1e-9);
+        // Intercept-only model plus {x1}.
+        assert_eq!(r.n_models, 2);
+        assert!(r.summary.log_likelihood.is_finite());
+        assert!(r.summary.aic.is_nan());
+    }
+
+    #[test]
+    fn test_lm_dynamic_too_many_regressors() {
+        let x: Vec<Vec<f64>> = (0..15)
+            .map(|j| {
+                (0..40)
+                    .map(|i| ((i * (j + 3)) as f64 * 0.37).sin())
+                    .collect()
+            })
+            .collect();
+        let y: Vec<f64> = (0..40).map(|i| i as f64).collect();
+        assert!(fit_lm_dynamic(&y, &x, &LmDynamicOptions::default()).is_err());
     }
 }

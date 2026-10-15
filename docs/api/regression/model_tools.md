@@ -272,7 +272,9 @@ post-hoc `_by` tests, ...) keep `model_id` = the group.
 and `<model>_glance_by(source, group_col, y_col, x_cols [, weight_col] [, options := ...])`
 fit one model per group and return long tables (for `ols`, `wls`, `ridge`,
 `elasticnet`, `huber`, `ransac`, `theil_sen`, `rls`, `lars`, `bayesian_ridge`,
-`ard`, `bls`, `nnls`,
+`ard`, `passive_aggressive` and `lm_dynamic` (these two take an `order_col`
+after `group_col`; `lm_dynamic_tidy_by` returns the coefficients of every row
+with `index_name = 'window_end'`), `bls`, `nnls`,
 `pls`, `quantile`, the GLMs `poisson`, `binomial`, `logistic`, `negbinom`,
 `gamma`, `tweedie`, and `alm`, `aft`; `wls` takes `weight_col`, `aft`
 `event_col`):
@@ -314,8 +316,8 @@ input row:
 - `level` sets the interval and overrides any `confidence_level` in `options`.
 
 It exists for `ols`, `wls`, `ridge`, `elasticnet`, `huber`, `ransac`,
-`theil_sen`, `rls`, `bls`, `bayesian_ridge`, `ard`, `pls`, `quantile`, `alm`,
-the GLMs and `isotonic`. PLS, quantile and isotonic have no band; for Bayesian
+`theil_sen`, `rls`, `bls`, `bayesian_ridge`, `ard`, `passive_aggressive`,
+`lm_dynamic`, `pls`, `quantile`, `alm`, the GLMs and `isotonic`. PLS, quantile, isotonic, Passive-Aggressive and lmDynamic have no band; for Bayesian
 Ridge and ARD the band is the posterior predictive interval. For isotonic there is no `x_cols`:
 `x_col` is the one feature.
 

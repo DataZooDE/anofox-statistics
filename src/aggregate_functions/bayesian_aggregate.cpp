@@ -19,7 +19,7 @@
 #include "duckdb/planner/expression.hpp"
 
 #include "../include/anofox_stats_ffi.h"
-#include "../include/fit_predict_rows.hpp"
+#include "../include/fit_predict_state.hpp"
 #include "../include/map_options_parser.hpp"
 #include "../include/model_struct.hpp"
 #include "aggregate_combine.hpp"
@@ -34,11 +34,10 @@ namespace duckdb {
 
 namespace {
 
-struct BayesianBindData : public FunctionData {
+struct BayesianBindData : public FitPredictRowsBindBase {
 	bool ard = false;
 	AnofoxBayesianOptions options = {true, 300, 1e-3, 1e-6, 1e-6, 1e-6, 1e-6, 10000.0};
 	double confidence_level = 0.95;
-	bool use_split_col = false;
 
 	unique_ptr<FunctionData> Copy() const override {
 		return make_uniq<BayesianBindData>(*this);
@@ -214,160 +213,12 @@ unique_ptr<FunctionData> BayesianFitBind(ClientContext &context, AggregateFuncti
 //===--------------------------------------------------------------------===//
 // bayesian_ridge_fit_predict_agg / ard_fit_predict_agg
 //===--------------------------------------------------------------------===//
-struct BayesianPredictState {
-	// Training rows (y NOT NULL, complete x, and split 'train' when given)
-	vector<double> y_train;
-	vector<vector<double>> x_train;
-	// Every row, for the output
-	vector<double> y_all;
-	vector<bool> y_is_null;
-	vector<bool> is_training;
-	vector<vector<double>> x_all;
-	idx_t n_features = 0;
-	bool initialized = false;
-};
-
-LogicalType BayesianPredictResultType() {
-	child_list_t<LogicalType> row;
-	row.push_back(make_pair("y", LogicalType::DOUBLE));
-	row.push_back(make_pair("yhat", LogicalType::DOUBLE));
-	row.push_back(make_pair("yhat_lower", LogicalType::DOUBLE));
-	row.push_back(make_pair("yhat_upper", LogicalType::DOUBLE));
-	row.push_back(make_pair("is_training", LogicalType::BOOLEAN));
-	return LogicalType::LIST(LogicalType::STRUCT(std::move(row)));
-}
-
-void BayesianPredictInitialize(const AggregateFunction &, data_ptr_t state_p) {
-	new (state_p) BayesianPredictState();
-}
-
-void BayesianPredictDestroy(Vector &state_vector, AggregateInputData &, idx_t count) {
-	UnifiedVectorFormat sdata;
-	state_vector.ToUnifiedFormat(count, sdata);
-	auto states = (BayesianPredictState **)sdata.data;
-	for (idx_t i = 0; i < count; i++) {
-		states[sdata.sel->get_index(i)]->~BayesianPredictState();
-	}
-}
-
-bool IsTrainSplit(const string_t &split) {
-	auto value = StringUtil::Lower(split.GetString());
-	return value == "train" || value == "training";
-}
-
-void BayesianPredictUpdate(Vector inputs[], AggregateInputData &aggr_input_data, idx_t input_count,
-                           Vector &state_vector, idx_t count) {
-	auto &bind = aggr_input_data.bind_data->Cast<BayesianBindData>();
-	UnifiedVectorFormat y_data, x_data, split_data, sdata;
-	inputs[0].ToUnifiedFormat(count, y_data);
-	inputs[1].ToUnifiedFormat(count, x_data);
-	const bool with_split = bind.use_split_col && input_count >= 3;
-	if (with_split) {
-		inputs[2].ToUnifiedFormat(count, split_data);
-	}
-	state_vector.ToUnifiedFormat(count, sdata);
-	auto y_values = UnifiedVectorFormat::GetData<double>(y_data);
-	auto x_lists = UnifiedVectorFormat::GetData<list_entry_t>(x_data);
-	auto &x_child = ListVector::GetEntry(inputs[1]);
-	auto x_child_data = FlatVector::GetData<double>(x_child);
-	auto &x_child_validity = FlatVector::Validity(x_child);
-	auto states = (BayesianPredictState **)sdata.data;
-
-	for (idx_t i = 0; i < count; i++) {
-		auto &state = *states[sdata.sel->get_index(i)];
-		auto y_idx = y_data.sel->get_index(i);
-		bool y_valid = y_data.validity.RowIsValid(y_idx);
-		double y_val = y_valid ? y_values[y_idx] : std::nan("");
-
-		auto x_idx = x_data.sel->get_index(i);
-		if (!x_data.validity.RowIsValid(x_idx)) {
-			// Kept as a non-training row with NULL predictions so positions line up.
-			PushNullXRow(state, y_valid, y_val);
-			continue;
-		}
-		auto entry = x_lists[x_idx];
-		if (!state.initialized) {
-			state.n_features = entry.length;
-			state.x_train.resize(state.n_features);
-			state.initialized = true;
-		}
-		if (entry.length != state.n_features) {
-			throw InvalidInputException("Inconsistent feature count: expected %llu, got %llu",
-			                            static_cast<unsigned long long>(state.n_features),
-			                            static_cast<unsigned long long>(entry.length));
-		}
-		vector<double> x_row(state.n_features);
-		bool complete = true;
-		for (idx_t j = 0; j < state.n_features; j++) {
-			x_row[j] = ListChildValue(x_child_data, x_child_validity, entry.offset + j);
-			complete = complete && std::isfinite(x_row[j]);
-		}
-
-		bool training = y_valid && std::isfinite(y_val) && complete;
-		if (with_split) {
-			auto s_idx = split_data.sel->get_index(i);
-			training = training && split_data.validity.RowIsValid(s_idx) &&
-			           IsTrainSplit(UnifiedVectorFormat::GetData<string_t>(split_data)[s_idx]);
-		}
-
-		state.y_all.push_back(y_val);
-		state.y_is_null.push_back(!y_valid);
-		state.is_training.push_back(training);
-		if (training) {
-			state.y_train.push_back(y_val);
-			for (idx_t j = 0; j < state.n_features; j++) {
-				state.x_train[j].push_back(x_row[j]);
-			}
-		}
-		state.x_all.push_back(std::move(x_row));
-	}
-}
-
-void BayesianPredictCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &aggr_input_data,
-                            idx_t count) {
-	UnifiedVectorFormat source_data, target_data;
-	source_vector.ToUnifiedFormat(count, source_data);
-	target_vector.ToUnifiedFormat(count, target_data);
-	auto sources = (BayesianPredictState **)source_data.data;
-	auto targets = (BayesianPredictState **)target_data.data;
-	for (idx_t i = 0; i < count; i++) {
-		auto &source = *sources[source_data.sel->get_index(i)];
-		auto &target = *targets[target_data.sel->get_index(i)];
-		if (!source.initialized) {
-			// Only NULL-x rows; keep them.
-			AppendOutputRows(target, source);
-			continue;
-		}
-		if (!target.initialized) {
-			auto pending = TakeOutputRows(target);
-			target.y_train = CombineTake(source.y_train, aggr_input_data);
-			target.x_train = CombineTake(source.x_train, aggr_input_data);
-			target.y_all = CombineTake(source.y_all, aggr_input_data);
-			target.y_is_null = CombineTake(source.y_is_null, aggr_input_data);
-			target.is_training = CombineTake(source.is_training, aggr_input_data);
-			target.x_all = CombineTake(source.x_all, aggr_input_data);
-			target.n_features = source.n_features;
-			target.initialized = true;
-			PrependOutputRows(target, std::move(pending));
-			continue;
-		}
-		if (source.n_features != target.n_features) {
-			throw InvalidInputException("Cannot combine states with different feature counts");
-		}
-		AppendTo(target.y_train, source.y_train);
-		for (idx_t j = 0; j < target.n_features; j++) {
-			AppendTo(target.x_train[j], source.x_train[j]);
-		}
-		AppendOutputRows(target, source);
-	}
-}
-
 void BayesianPredictFinalize(Vector &state_vector, AggregateInputData &aggr_input_data, Vector &result, idx_t count,
                              idx_t offset) {
 	auto &bind = aggr_input_data.bind_data->Cast<BayesianBindData>();
 	UnifiedVectorFormat sdata;
 	state_vector.ToUnifiedFormat(count, sdata);
-	auto states = (BayesianPredictState **)sdata.data;
+	auto states = (FitPredictRowsState **)sdata.data;
 
 	for (idx_t i = 0; i < count; i++) {
 		auto &state = *states[sdata.sel->get_index(i)];
@@ -386,10 +237,7 @@ void BayesianPredictFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
 			}
 		}
 		AnofoxDataArray y = {state.y_train.data(), nullptr, state.y_train.size()};
-		vector<AnofoxDataArray> x;
-		for (auto &col : state.x_train) {
-			x.push_back({col.data(), nullptr, col.size()});
-		}
+		auto x = FitPredictTrainColumns(state);
 		vector<double> yhat(n_rows), lower(n_rows), upper(n_rows);
 		AnofoxError error;
 		if (!anofox_bayesian_fit_predict(y, x.data(), x.size(), rows.data(), static_cast<size_t>(n_rows),
@@ -400,25 +248,7 @@ void BayesianPredictFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
 			continue;
 		}
 
-		auto list_data = ListVector::GetData(result);
-		auto list_offset = ListVector::GetListSize(result);
-		ListVector::Reserve(result, list_offset + n_rows);
-		list_data[result_idx].offset = list_offset;
-		list_data[result_idx].length = n_rows;
-		auto &entries = StructVector::GetEntries(ListVector::GetEntry(result));
-		for (idx_t r = 0; r < n_rows; r++) {
-			idx_t child = list_offset + r;
-			if (state.y_is_null[r]) {
-				FlatVector::SetNull(*entries[0], child, true);
-			} else {
-				FlatVector::GetData<double>(*entries[0])[child] = state.y_all[r];
-			}
-			WriteIntervalBound(*entries[1], child, yhat[r]);
-			WriteIntervalBound(*entries[2], child, lower[r]);
-			WriteIntervalBound(*entries[3], child, upper[r]);
-			FlatVector::GetData<bool>(*entries[4])[child] = state.is_training[r];
-		}
-		ListVector::SetListSize(result, list_offset + n_rows);
+		WriteFitPredictRows(result, result_idx, state, yhat.data(), lower.data(), upper.data());
 	}
 }
 
@@ -434,7 +264,7 @@ unique_ptr<FunctionData> BayesianPredictBind(ClientContext &context, AggregateFu
 		ParseBayesianOptions(context, *arguments[options_idx], *bind, name, true);
 	}
 	ValidateBayesianOptions(*bind, name);
-	function.return_type = BayesianPredictResultType();
+	function.return_type = FitPredictRowsResultType();
 	PostHogTelemetry::Instance().RecordFunctionCall(name);
 	return std::move(bind);
 }
@@ -484,13 +314,12 @@ void RegisterBayesianModel(ExtensionLoader &loader, const string &label, const s
 	for (auto &args : signatures) {
 		bool split = args.size() >= 3 && args[2].id() == LogicalTypeId::VARCHAR;
 		AggregateFunction fn(
-		    predict_name, args, LogicalType::ANY, AggregateFunction::StateSize<BayesianPredictState>,
-		    BayesianPredictInitialize,
-		    ANOFOX_GUARDED_UPDATE(BayesianPredictUpdate, BayesianPredictDestroy, BayesianPredictInitialize),
-		    BayesianPredictCombine,
-		    ANOFOX_GUARDED_FINALIZE(BayesianPredictFinalize, BayesianPredictDestroy, BayesianPredictInitialize),
-		    nullptr, split ? BayesianPredictBind<ARD, true> : BayesianPredictBind<ARD, false>,
-		    BayesianPredictDestroy);
+		    predict_name, args, LogicalType::ANY, AggregateFunction::StateSize<FitPredictRowsState>,
+		    FitPredictRowsInitialize,
+		    ANOFOX_GUARDED_UPDATE(FitPredictRowsUpdate, FitPredictRowsDestroy, FitPredictRowsInitialize),
+		    FitPredictRowsCombine,
+		    ANOFOX_GUARDED_FINALIZE(BayesianPredictFinalize, FitPredictRowsDestroy, FitPredictRowsInitialize),
+		    nullptr, split ? BayesianPredictBind<ARD, true> : BayesianPredictBind<ARD, false>, FitPredictRowsDestroy);
 		predict_set.AddFunction(fn);
 	}
 	CreateAggregateFunctionInfo predict_info(std::move(predict_set));

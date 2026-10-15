@@ -1,9 +1,14 @@
-//! C FFI for Bayesian Ridge and ARD regression (#61). Every struct is
+//! C FFI for Bayesian Ridge and ARD regression (#61) and for
+//! Passive-Aggressive regression, lmDynamic and LOWESS (#63). Every struct is
 //! mirrored in `src/include/anofox_stats_ffi.h`; the layouts are pinned by the
 //! tests below and the static_asserts in `src/include/model_struct.cpp`.
 
 use super::*;
-use anofox_stats_core::models::{fit_bayesian, fit_predict_bayesian, BayesianOptions};
+use anofox_stats_core::models::{
+    fit_bayesian, fit_lm_dynamic, fit_lowess, fit_passive_aggressive, fit_predict_bayesian,
+    BayesianOptions, PassiveAggressiveOptions,
+};
+use anofox_stats_core::{LmDynamicOptions, LowessOptions};
 
 /// Options of `anofox_bayesian_fit` / `anofox_bayesian_fit_predict`
 /// (scikit-learn's `BayesianRidge` / `ARDRegression` parameters).
@@ -282,6 +287,367 @@ pub unsafe extern "C" fn anofox_free_bayesian_result(result: *mut BayesianFitRes
     r.weight_precisions_len = 0;
 }
 
+// =============================================================================
+// Passive-Aggressive regression (#63)
+// =============================================================================
+
+/// Options of `anofox_passive_aggressive_fit`.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct PassiveAggressiveOptionsFFI {
+    pub fit_intercept: bool,
+    /// PA-II (squared epsilon-insensitive loss) instead of PA-I.
+    pub squared_loss: bool,
+    /// Passes over the rows; 1 = a single online pass.
+    pub max_epochs: u32,
+    pub c: f64,
+    pub epsilon: f64,
+    pub tolerance: f64,
+}
+
+/// A fitted Passive-Aggressive model; `coefficients` has `n_features`
+/// entries. Released with `anofox_free_passive_aggressive_result`.
+#[repr(C)]
+#[derive(Debug)]
+pub struct PassiveAggressiveResultFFI {
+    pub intercept: f64,
+    pub r_squared: f64,
+    pub coefficients: *mut f64,
+    pub n_observations: usize,
+    pub n_features: usize,
+    pub epochs: usize,
+    pub summary: ModelSummaryFFI,
+}
+
+impl Default for PassiveAggressiveResultFFI {
+    fn default() -> Self {
+        Self {
+            intercept: f64::NAN,
+            r_squared: f64::NAN,
+            coefficients: std::ptr::null_mut(),
+            n_observations: 0,
+            n_features: 0,
+            epochs: 0,
+            summary: ModelSummaryFFI::default(),
+        }
+    }
+}
+
+/// Fit a Passive-Aggressive regressor on the complete rows of (y, x), in
+/// input order.
+///
+/// # Safety
+/// `x` must point to `x_count` DataArrays of the length of `y`. `out` is
+/// required and is released with `anofox_free_passive_aggressive_result`.
+#[no_mangle]
+pub unsafe extern "C" fn anofox_passive_aggressive_fit(
+    y: DataArray,
+    x: *const DataArray,
+    x_count: usize,
+    options: PassiveAggressiveOptionsFFI,
+    out: *mut PassiveAggressiveResultFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    ffi_guard(out_error, false, || {
+        if out.is_null() || x.is_null() || x_count == 0 {
+            report(
+                out_error,
+                ErrorCode::InvalidInput,
+                "x or out is NULL or empty",
+            );
+            return false;
+        }
+        *out = PassiveAggressiveResultFFI::default();
+        let y_vec = y.to_vec();
+        let x_vecs = x_columns(x, x_count);
+        let opts = PassiveAggressiveOptions {
+            fit_intercept: options.fit_intercept,
+            c: options.c,
+            epsilon: options.epsilon,
+            squared_loss: options.squared_loss,
+            max_epochs: options.max_epochs as usize,
+            tolerance: options.tolerance,
+        };
+        let Some(r) = run_model("Passive-Aggressive fit", out_error, || {
+            fit_passive_aggressive(&y_vec, &x_vecs, &opts)
+        }) else {
+            return false;
+        };
+        let coefficients = alloc_f64(&r.coefficients);
+        if coefficients.is_null() {
+            report(
+                out_error,
+                ErrorCode::AllocationFailure,
+                "Failed to allocate Passive-Aggressive coefficients",
+            );
+            return false;
+        }
+        *out = PassiveAggressiveResultFFI {
+            intercept: r.intercept.unwrap_or(f64::NAN),
+            r_squared: r.r_squared,
+            coefficients,
+            n_observations: r.n_observations,
+            n_features: r.n_features,
+            epochs: r.epochs,
+            summary: ModelSummaryFFI::from(&r.summary),
+        };
+        true
+    })
+}
+
+/// Release the coefficients of a `PassiveAggressiveResultFFI`.
+///
+/// # Safety
+/// `result` must be NULL or a result filled by `anofox_passive_aggressive_fit`.
+#[no_mangle]
+pub unsafe extern "C" fn anofox_free_passive_aggressive_result(
+    result: *mut PassiveAggressiveResultFFI,
+) {
+    if result.is_null() || (*result).coefficients.is_null() {
+        return;
+    }
+    libc::free((*result).coefficients as *mut libc::c_void);
+    (*result).coefficients = std::ptr::null_mut();
+}
+
+// =============================================================================
+// lmDynamic (#63)
+// =============================================================================
+
+/// A fitted lmDynamic model. `coefficients` (time-averaged) has `n_features`
+/// entries; `dynamic_coefficients` is `n_rows x n_coefs_per_row` row-major
+/// (`[intercept, coef_1..coef_p]` per input row) and `fitted_values` has
+/// `n_rows`; rows dropped for non-finite values are NaN. Released with
+/// `anofox_free_lm_dynamic_fit_result`.
+#[repr(C)]
+#[derive(Debug)]
+pub struct LmDynamicFitFFI {
+    pub intercept: f64,
+    pub r_squared: f64,
+    pub adj_r_squared: f64,
+    pub residual_std_error: f64,
+    pub coefficients: *mut f64,
+    pub dynamic_coefficients: *mut f64,
+    pub fitted_values: *mut f64,
+    pub n_rows: usize,
+    pub n_coefs_per_row: usize,
+    pub n_observations: usize,
+    pub n_features: usize,
+    pub n_models: usize,
+    pub summary: ModelSummaryFFI,
+}
+
+impl Default for LmDynamicFitFFI {
+    fn default() -> Self {
+        Self {
+            intercept: f64::NAN,
+            r_squared: f64::NAN,
+            adj_r_squared: f64::NAN,
+            residual_std_error: f64::NAN,
+            coefficients: std::ptr::null_mut(),
+            dynamic_coefficients: std::ptr::null_mut(),
+            fitted_values: std::ptr::null_mut(),
+            n_rows: 0,
+            n_coefs_per_row: 0,
+            n_observations: 0,
+            n_features: 0,
+            n_models: 0,
+            summary: ModelSummaryFFI::default(),
+        }
+    }
+}
+
+/// Fit lmDynamic (greybox `lmDynamic(bruteforce = TRUE)`) on (y, x) in input
+/// order. `options.lowess_span` 0 disables the weight smoothing;
+/// `options.max_models` 0 averages every regressor subset.
+///
+/// # Safety
+/// `x` must point to `x_count` DataArrays of the length of `y`. `out` is
+/// required and is released with `anofox_free_lm_dynamic_fit_result`.
+#[no_mangle]
+pub unsafe extern "C" fn anofox_lm_dynamic_fit(
+    y: DataArray,
+    x: *const DataArray,
+    x_count: usize,
+    options: LmDynamicOptionsFFI,
+    out: *mut LmDynamicFitFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    ffi_guard(out_error, false, || {
+        if out.is_null() || x.is_null() || x_count == 0 {
+            report(
+                out_error,
+                ErrorCode::InvalidInput,
+                "x or out is NULL or empty",
+            );
+            return false;
+        }
+        *out = LmDynamicFitFFI::default();
+        let y_vec = y.to_vec();
+        let x_vecs = x_columns(x, x_count);
+        let opts = LmDynamicOptions {
+            fit_intercept: options.fit_intercept,
+            ic: convert_ic_ffi(options.ic),
+            distribution: convert_alm_distribution(options.distribution),
+            lowess_span: (options.lowess_span > 0.0).then_some(options.lowess_span),
+            max_models: (options.max_models > 0).then_some(options.max_models as usize),
+            confidence_level: options.confidence_level,
+        };
+        let Some(r) = run_model("lmDynamic fit", out_error, || {
+            fit_lm_dynamic(&y_vec, &x_vecs, &opts)
+        }) else {
+            return false;
+        };
+        let per_row = x_count + 1;
+        let flat: Vec<f64> = r.dynamic_coefficients.iter().flatten().copied().collect();
+        let mut res = LmDynamicFitFFI {
+            intercept: r.intercept.unwrap_or(f64::NAN),
+            r_squared: r.r_squared,
+            adj_r_squared: r.adj_r_squared,
+            residual_std_error: r.rmse,
+            coefficients: alloc_f64(&r.coefficients),
+            dynamic_coefficients: alloc_f64(&flat),
+            fitted_values: alloc_f64(&r.fitted_values),
+            n_rows: r.fitted_values.len(),
+            n_coefs_per_row: per_row,
+            n_observations: r.n_observations,
+            n_features: r.n_features,
+            n_models: r.n_models,
+            summary: ModelSummaryFFI::from(&r.summary),
+        };
+        if res.coefficients.is_null()
+            || res.dynamic_coefficients.is_null()
+            || res.fitted_values.is_null()
+        {
+            anofox_free_lm_dynamic_fit_result(&mut res);
+            report(
+                out_error,
+                ErrorCode::AllocationFailure,
+                "Failed to allocate lmDynamic result",
+            );
+            return false;
+        }
+        *out = res;
+        true
+    })
+}
+
+/// Release the arrays of an `LmDynamicFitFFI`.
+///
+/// # Safety
+/// `result` must be NULL or a result filled by `anofox_lm_dynamic_fit`.
+#[no_mangle]
+pub unsafe extern "C" fn anofox_free_lm_dynamic_fit_result(result: *mut LmDynamicFitFFI) {
+    if result.is_null() {
+        return;
+    }
+    let r = &mut *result;
+    for p in [
+        &mut r.coefficients,
+        &mut r.dynamic_coefficients,
+        &mut r.fitted_values,
+    ] {
+        if !p.is_null() {
+            libc::free(*p as *mut libc::c_void);
+            *p = std::ptr::null_mut();
+        }
+    }
+}
+
+// =============================================================================
+// LOWESS (#63)
+// =============================================================================
+
+/// The LOWESS curve: `len` points, x increasing. Released with
+/// `anofox_free_lowess_result`.
+#[repr(C)]
+#[derive(Debug)]
+pub struct LowessResultFFI {
+    pub x: *mut f64,
+    pub fitted: *mut f64,
+    pub len: usize,
+}
+
+impl Default for LowessResultFFI {
+    fn default() -> Self {
+        Self {
+            x: std::ptr::null_mut(),
+            fitted: std::ptr::null_mut(),
+            len: 0,
+        }
+    }
+}
+
+/// R's `stats::lowess(x, y, f = frac, iter = iterations, delta)` on the
+/// complete rows of (x, y); a NaN `delta` uses R's default, 1% of the range of x.
+///
+/// # Safety
+/// `x` and `y` must be valid DataArrays of equal length. `out` is required
+/// and is released with `anofox_free_lowess_result`.
+#[no_mangle]
+pub unsafe extern "C" fn anofox_lowess(
+    x: DataArray,
+    y: DataArray,
+    frac: f64,
+    iterations: u32,
+    delta: f64,
+    out: *mut LowessResultFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    ffi_guard(out_error, false, || {
+        if out.is_null() {
+            report(out_error, ErrorCode::InvalidInput, "out is NULL");
+            return false;
+        }
+        *out = LowessResultFFI::default();
+        let x_vec = x.to_vec();
+        let y_vec = y.to_vec();
+        let opts = LowessOptions {
+            frac,
+            iterations: iterations as usize,
+            delta: (!delta.is_nan()).then_some(delta),
+        };
+        let Some(r) = run_model("LOWESS", out_error, || fit_lowess(&x_vec, &y_vec, &opts)) else {
+            return false;
+        };
+        let mut res = LowessResultFFI {
+            x: alloc_f64(&r.x),
+            fitted: alloc_f64(&r.fitted),
+            len: r.x.len(),
+        };
+        if res.x.is_null() || res.fitted.is_null() {
+            anofox_free_lowess_result(&mut res);
+            report(
+                out_error,
+                ErrorCode::AllocationFailure,
+                "Failed to allocate LOWESS result",
+            );
+            return false;
+        }
+        *out = res;
+        true
+    })
+}
+
+/// Release the arrays of a `LowessResultFFI`.
+///
+/// # Safety
+/// `result` must be NULL or a result filled by `anofox_lowess`.
+#[no_mangle]
+pub unsafe extern "C" fn anofox_free_lowess_result(result: *mut LowessResultFFI) {
+    if result.is_null() {
+        return;
+    }
+    let r = &mut *result;
+    for p in [&mut r.x, &mut r.fitted] {
+        if !p.is_null() {
+            libc::free(*p as *mut libc::c_void);
+            *p = std::ptr::null_mut();
+        }
+    }
+    r.len = 0;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -308,6 +674,120 @@ mod tests {
         );
         assert_eq!(offset_of!(BayesianOptionsFFI, tolerance), d);
         assert_eq!(size_of::<BayesianOptionsFFI>(), 7 * d);
+    }
+
+    /// Mirrors the #63 static_asserts in src/include/model_struct.cpp.
+    #[test]
+    fn online_dynamic_lowess_layout() {
+        let ptr = size_of::<*mut f64>();
+        let sz = size_of::<usize>();
+        let d = size_of::<f64>();
+        assert_eq!(offset_of!(PassiveAggressiveOptionsFFI, max_epochs), 4);
+        assert_eq!(offset_of!(PassiveAggressiveOptionsFFI, c), d);
+        assert_eq!(size_of::<PassiveAggressiveOptionsFFI>(), 4 * d);
+        assert_eq!(offset_of!(PassiveAggressiveResultFFI, coefficients), 2 * d);
+        assert_eq!(
+            offset_of!(PassiveAggressiveResultFFI, summary),
+            2 * d + ptr + 3 * sz
+        );
+        assert_eq!(
+            size_of::<PassiveAggressiveResultFFI>(),
+            offset_of!(PassiveAggressiveResultFFI, summary) + size_of::<ModelSummaryFFI>()
+        );
+        assert_eq!(offset_of!(LmDynamicFitFFI, coefficients), 4 * d);
+        assert_eq!(
+            offset_of!(LmDynamicFitFFI, summary),
+            4 * d + 3 * ptr + 5 * sz
+        );
+        assert_eq!(
+            size_of::<LmDynamicFitFFI>(),
+            offset_of!(LmDynamicFitFFI, summary) + size_of::<ModelSummaryFFI>()
+        );
+        assert_eq!(size_of::<LowessResultFFI>(), 2 * ptr + sz);
+    }
+
+    #[test]
+    fn online_dynamic_lowess_round_trip() {
+        let x1: Vec<f64> = (0..40).map(|i| (i as f64 * 0.37).sin()).collect();
+        let y: Vec<f64> = (0..40)
+            .map(|i| 1.0 + if i < 20 { 0.5 } else { 2.0 } * x1[i] + 0.05 * (i as f64).cos())
+            .collect();
+        let xs = [arr(&x1)];
+        unsafe {
+            let mut err = AnofoxError::success();
+            let mut pa = PassiveAggressiveResultFFI::default();
+            let pa_opts = PassiveAggressiveOptionsFFI {
+                fit_intercept: true,
+                squared_loss: true,
+                max_epochs: 1,
+                c: 1.0,
+                epsilon: 0.1,
+                tolerance: 1e-3,
+            };
+            assert!(anofox_passive_aggressive_fit(
+                arr(&y),
+                xs.as_ptr(),
+                1,
+                pa_opts,
+                &mut pa,
+                &mut err
+            ));
+            assert_eq!(pa.n_features, 1);
+            assert_eq!(pa.epochs, 1);
+            assert!((*pa.coefficients).is_finite());
+            anofox_free_passive_aggressive_result(&mut pa);
+            assert!(pa.coefficients.is_null());
+
+            let mut dynamic = LmDynamicFitFFI::default();
+            let opts = LmDynamicOptionsFFI {
+                lowess_span: 0.0,
+                ..Default::default()
+            };
+            assert!(anofox_lm_dynamic_fit(
+                arr(&y),
+                xs.as_ptr(),
+                1,
+                opts,
+                &mut dynamic,
+                &mut err
+            ));
+            assert_eq!(dynamic.n_rows, 40);
+            assert_eq!(dynamic.n_coefs_per_row, 2);
+            assert_eq!(dynamic.n_models, 2);
+            // The x1 effect grows after the step change.
+            let early = *dynamic.dynamic_coefficients.add(2 * 2 + 1);
+            let late = *dynamic.dynamic_coefficients.add(2 * 35 + 1);
+            assert!(late > early);
+            anofox_free_lm_dynamic_fit_result(&mut dynamic);
+            assert!(dynamic.fitted_values.is_null());
+
+            let mut curve = LowessResultFFI::default();
+            assert!(anofox_lowess(
+                arr(&x1),
+                arr(&y),
+                2.0 / 3.0,
+                3,
+                f64::NAN,
+                &mut curve,
+                &mut err
+            ));
+            assert_eq!(curve.len, 40);
+            assert!(*curve.x <= *curve.x.add(1));
+            anofox_free_lowess_result(&mut curve);
+            assert!(curve.x.is_null());
+
+            // Invalid options are reported, not panicked on.
+            assert!(!anofox_lowess(
+                arr(&x1),
+                arr(&y),
+                0.0,
+                3,
+                f64::NAN,
+                &mut curve,
+                &mut err
+            ));
+            assert_eq!(err.code, ErrorCode::InvalidInput);
+        }
     }
 
     fn arr(v: &[f64]) -> DataArray {

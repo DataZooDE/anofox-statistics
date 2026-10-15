@@ -1,0 +1,69 @@
+# name: test/sql/regression/test_lowess.test
+# description: lowess_agg and lowess_by (#63): noisy-scatter fixture, NULL handling, options; R parity is in test/sql/reference/lowess_reference.test
+# group: [regression]
+
+require anofox_statistics
+
+# Noisy scatter around a smooth curve, x unsorted, two groups
+statement ok
+CREATE TABLE s AS SELECT i, (i % 2)::VARCHAR AS g, ((i * 37) % 200) / 20.0 AS x,
+    sin(((i * 37) % 200) / 20.0) + 0.4 * sin(i * 12.9898) AS y
+FROM range(1, 201) r(i);
+
+# One point per row, x increasing, and the smoother is closer to the true curve than the data
+query IIII
+SELECT len(c), list_sort(list_transform(c, lambda p: p.x)) = list_transform(c, lambda p: p.x),
+       list_avg(list_transform(c, lambda p: abs(p.yhat - sin(p.x)))) < 0.1,
+       (SELECT avg(abs(y - sin(x))) FROM s) > 0.2
+FROM (SELECT lowess_agg(y, x, 0.2) AS c FROM s);
+----
+200	true	true	true
+
+# A straight line is reproduced exactly
+query I
+SELECT bool_and(abs(p.yhat - (2 * p.x + 1)) < 1e-9)
+FROM (SELECT unnest(lowess_agg(2 * x + 1, x, 0.3)) AS p FROM s);
+----
+true
+
+# The default span (2/3) oversmooths this curve; a smaller span follows it
+query I
+SELECT (SELECT list_avg(list_transform(lowess_agg(y, x), lambda p: abs(p.yhat - sin(p.x)))) FROM s)
+     > (SELECT list_avg(list_transform(lowess_agg(y, x, 0.2), lambda p: abs(p.yhat - sin(p.x)))) FROM s);
+----
+true
+
+# Per group; NULL / non-finite rows are skipped; a single point is returned as is
+query II
+SELECT g, len(lowess_agg(y, x)) FROM s GROUP BY g ORDER BY g;
+----
+0	100
+1	100
+
+query I
+SELECT lowess_agg(y, x) FROM (VALUES (1.0, 2.0), (NULL, 3.0), (2.0, NULL), ('NaN'::DOUBLE, 4.0)) v(y, x);
+----
+[{'x': 2.0, 'yhat': 1.0}]
+
+query I
+SELECT lowess_agg(y, x) IS NULL FROM (VALUES (NULL::DOUBLE, 1.0)) v(y, x);
+----
+true
+
+# lowess_by: the contract's curve schema, curve_type 'lowess', one row per point
+query IIII
+SELECT count(*), count(DISTINCT g), bool_and(curve_type = 'lowess' AND model_id = 'lowess' AND id = g), bool_and(y_low IS NULL)
+FROM lowess_by('s', g, x, y, frac := 0.3, iterations := 2);
+----
+200	2	true	true
+
+# Options
+statement error
+SELECT lowess_agg(y, x, 0.0) FROM s;
+----
+frac must be finite and > 0
+
+statement error
+SELECT lowess_agg(y, x, 0.5, -1) FROM s;
+----
+iterations must be in [0, 1000]

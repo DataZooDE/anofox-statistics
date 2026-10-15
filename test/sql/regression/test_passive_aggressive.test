@@ -1,0 +1,101 @@
+# name: test/sql/regression/test_passive_aggressive.test
+# description: Passive-Aggressive online regression (#63): order dependence, streaming updates over time-ordered prefixes, options; scikit-learn parity is in test/sql/reference/regression_passive_aggressive.test
+# group: [regression]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE s AS SELECT i AS t, (i % 3)::VARCHAR AS g, sin(i * 0.37) * 2 AS x1, cos(i * 0.11) AS x2,
+    1 + 2 * sin(i * 0.37) * 2 - cos(i * 0.11) + 0.2 * sin(i * 1.7) AS y
+FROM range(1, 121) r(i);
+
+# Stable model STRUCT: no inference, no likelihood (family NULL), one pass by default
+query IIIIII
+SELECT m.model_type, m.family IS NULL, m.iterations, m.n_observations, m.std_errors IS NULL AND m.p_values IS NULL,
+       m.log_likelihood IS NULL AND m.aic IS NULL
+FROM (SELECT passive_aggressive_fit_agg(y, [x1, x2] ORDER BY t) AS m FROM s);
+----
+passive_aggressive	true	1	120	true	true
+
+# The row order is part of the input: reversing it changes the online fit
+query I
+SELECT (SELECT passive_aggressive_fit_agg(y, [x1, x2] ORDER BY t).coefficients FROM s)
+    <> (SELECT passive_aggressive_fit_agg(y, [x1, x2] ORDER BY t DESC).coefficients FROM s);
+----
+true
+
+# Streaming fixture: the window over a growing, time-ordered frame equals a fresh
+# fit_agg on every prefix (the online update is repeated, not re-shuffled), and
+# predicts the frame's last row with it.
+statement ok
+CREATE TABLE w AS SELECT t, x1, x2, (passive_aggressive_fit_predict(y, [x1, x2], {'c': 0.5}) OVER (ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)) AS p FROM s;
+
+query I
+SELECT count(*) FROM (
+    SELECT w.t, abs((w.p).yhat - (m.intercept + m.coefficients[1] * w.x1 + m.coefficients[2] * w.x2)) AS diff
+    FROM w, LATERAL (SELECT passive_aggressive_fit_agg(y, [x1, x2], {'c': 0.5} ORDER BY t) AS m FROM s WHERE s.t <= w.t) f
+    WHERE w.t IN (1, 2, 5, 30, 60, 119, 120)
+) WHERE diff < 1e-12;
+----
+7
+
+query I
+SELECT bool_and((p).yhat_lower IS NULL AND (p).yhat_upper IS NULL) FROM w;
+----
+true
+
+# Several passes run (scikit-learn's early stopping ends them); PA-II differs from PA-I
+query II
+SELECT (SELECT passive_aggressive_fit_agg(y, [x1, x2], {'max_iterations': 100, 'tolerance': 1e-6} ORDER BY t).iterations FROM s) > 1,
+       (SELECT passive_aggressive_fit_agg(y, [x1, x2], {'variant': 'pa2'} ORDER BY t).coefficients FROM s)
+    <> (SELECT passive_aggressive_fit_agg(y, [x1, x2] ORDER BY t).coefficients FROM s);
+----
+true	true
+
+# Per group
+query II
+SELECT g, m.n_observations FROM (SELECT g, passive_aggressive_fit_agg(y, [x1, x2] ORDER BY t) AS m FROM s GROUP BY g) ORDER BY g;
+----
+0	40
+1	40
+2	40
+
+# Rows with a NULL y or x are skipped
+query I
+SELECT passive_aggressive_fit_agg(y, x ORDER BY t).n_observations
+FROM (VALUES (1, 1.0, [1.0]), (2, NULL, [2.0]), (3, 2.0, NULL), (4, 3.0, [NULL]), (5, 2.5, [2.0])) v(t, y, x);
+----
+2
+
+# fit_predict_agg: the final coefficients score every row; split selects the training rows
+query III
+SELECT count(*), count(*) FILTER (WHERE (p).is_training), bool_and((p).yhat IS NOT NULL)
+FROM (SELECT unnest(passive_aggressive_fit_predict_agg(y, [x1, x2], CASE WHEN t <= 100 THEN 'train' ELSE 'test' END ORDER BY t)) AS p FROM s);
+----
+120	100	true
+
+# Options are validated at bind time
+statement error
+SELECT passive_aggressive_fit_agg(y, [x1], {'c': 0} ORDER BY t) FROM s;
+----
+c must be finite and > 0
+
+statement error
+SELECT passive_aggressive_fit_agg(y, [x1], {'epsilon': -0.1} ORDER BY t) FROM s;
+----
+epsilon must be finite and >= 0
+
+statement error
+SELECT passive_aggressive_fit_agg(y, [x1], {'variant': 'pa3'} ORDER BY t) FROM s;
+----
+variant must be 'pa1' or 'pa2'
+
+statement error
+SELECT passive_aggressive_fit_agg(y, [x1], {'max_iterations': 0} ORDER BY t) FROM s;
+----
+max_iterations (passes over the rows) must be at least 1
+
+statement error
+SELECT passive_aggressive_fit_predict_agg(y, [x1], {'confidence_level': 0.9}) FROM s;
+----
+unsupported option 'confidence_level'

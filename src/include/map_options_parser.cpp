@@ -833,6 +833,10 @@ static const vector<OptionKeyDef> &RegressionKeyTable() {
 	    {"lambda_1", {}},
 	    {"lambda_2", {}},
 	    {"threshold_lambda", {}},
+	    {"c", {}},
+	    {"variant", {"pa_variant"}},
+	    {"ic", {"information_criterion"}},
+	    {"span", {"lowess_span", "f"}},
 	};
 	return table;
 }
@@ -956,6 +960,36 @@ RegressionMapOptions RegressionMapOptions::ParseFromValue(const Value &map_value
 			result.lambda_2 = ExtractDouble(val);
 		} else if (key == "threshold_lambda") {
 			result.threshold_lambda = ExtractDouble(val);
+		} else if (key == "c") {
+			result.pa_c = ExtractDouble(val);
+		} else if (key == "variant") {
+			if (!val.IsNull()) {
+				const string v = ToLower(val.ToString());
+				if (v == "pa1" || v == "pa-i" || v == "pa_i" || v == "epsilon_insensitive") {
+					result.pa_squared_loss = false;
+				} else if (v == "pa2" || v == "pa-ii" || v == "pa_ii" || v == "squared_epsilon_insensitive") {
+					result.pa_squared_loss = true;
+				} else {
+					throw InvalidInputException("%s: variant must be 'pa1' or 'pa2', got '%s'", function_name,
+					                            val.ToString());
+				}
+			}
+		} else if (key == "ic") {
+			if (!val.IsNull()) {
+				const string v = ToLower(val.ToString());
+				if (v == "aic") {
+					result.lm_dynamic_ic = 0;
+				} else if (v == "aicc") {
+					result.lm_dynamic_ic = 1;
+				} else if (v == "bic") {
+					result.lm_dynamic_ic = 2;
+				} else {
+					throw InvalidInputException("%s: ic must be 'aic', 'aicc' or 'bic', got '%s'", function_name,
+					                            val.ToString());
+				}
+			}
+		} else if (key == "span") {
+			result.lowess_span = ExtractDouble(val);
 		} else if (key == "epsilon") {
 			result.epsilon = ExtractDouble(val);
 		} else if (key == "residual_threshold") {
