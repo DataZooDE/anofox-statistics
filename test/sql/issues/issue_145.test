@@ -29,7 +29,7 @@ FROM (SELECT residuals_diagnostics_agg(y, yhat, [x1, x2] ORDER BY i) AS r FROM f
 #    cooks = 0.511363636364 0.083487940631 0.170454545455 0.333951762523 0.511363636364
 query I
 SELECT list_transform((residuals_diagnostics([1.0, 2, 3, 4, 5], [1.1, 1.9, 3.2, 3.8, 5.1],
-                       [[1.0, 2, 3, 4, 5]], sqrt(0.11 / 3), true)).cooks_distance, c -> round(c, 9));
+                       [[1.0, 2, 3, 4, 5]], sqrt(0.11 / 3), true)).cooks_distance, lambda c: round(c, 9));
 ----
 [0.511363636, 0.083487941, 0.170454545, 0.333951763, 0.511363636]
 

@@ -19,7 +19,7 @@ FROM (SELECT ridge_path_agg(y, [x1, x2, x3], {'n_lambda': 7}) AS r FROM d);
 
 # The default grid has 100 lambdas, decreasing; the lasso path starts with all slopes 0
 query III
-SELECT len(r) // 3, r[1].index_value > r[4].index_value, list_count(list_filter(r[1:3], e -> e.term <> '(Intercept)' AND e.estimate = 0))
+SELECT len(r) // 3, r[1].index_value > r[4].index_value, list_count(list_filter(r[1:3], lambda e: e.term <> '(Intercept)' AND e.estimate = 0))
 FROM (SELECT elasticnet_path_agg(y, [x1, x2], {'l1_ratio': 1.0}) AS r FROM d);
 ----
 100	true	2
@@ -80,7 +80,7 @@ alpha	true	true	true
 
 # CV curve: one row per lambda, curve_type 'lambda_cv', one minimum and one 1-SE lambda
 query IIIIII
-SELECT len(r), r[1].curve_type, list_count(list_filter(r, e -> e.is_min)), list_count(list_filter(r, e -> e.is_1se)),
+SELECT len(r), r[1].curve_type, list_count(list_filter(r, lambda e: e.is_min)), list_count(list_filter(r, lambda e: e.is_1se)),
        list_bool_and([e.y_low < e.y AND e.y < e.y_high FOR e IN r]), r[1].n_folds
 FROM (SELECT elasticnet_cv_agg(y, [x1, x2, x3], {'n_lambda': 10, 'folds': 5, 'seed': 3}) AS r FROM d);
 ----
@@ -94,7 +94,7 @@ true
 
 # lambda.1se is at least lambda.min
 query I
-SELECT list_filter(r, e -> e.is_1se)[1]."lambda" >= list_filter(r, e -> e.is_min)[1]."lambda"
+SELECT list_filter(r, lambda e: e.is_1se)[1]."lambda" >= list_filter(r, lambda e: e.is_min)[1]."lambda"
 FROM (SELECT ridge_cv_agg(y, [x1, x2, x3], {'n_lambda': 20, 'folds': 5}) AS r FROM d);
 ----
 true

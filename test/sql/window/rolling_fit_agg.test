@@ -21,7 +21,7 @@ FROM range(1, 501) r(i);
 
 statement ok
 CREATE MACRO vclose(a, b, tol) AS
-    (a IS NULL AND b IS NULL) OR (len(a) = len(b) AND coalesce(list_max(list_transform(range(1, len(a) + 1), k ->
+    (a IS NULL AND b IS NULL) OR (len(a) = len(b) AND coalesce(list_max(list_transform(range(1, len(a) + 1), lambda k:
         CASE WHEN a[k] IS NULL AND b[k] IS NULL THEN 0.0
              WHEN a[k] IS NULL OR b[k] IS NULL THEN 1e300
              WHEN isnan(a[k]) AND isnan(b[k]) THEN 0.0

@@ -47,7 +47,7 @@ SELECT len(r), r[1].acf, round(r[1].conf_high, 6), n FROM (SELECT acf_agg(e, 0 O
 
 # A constant series has no autocorrelation: NULL values (R gives NaN).
 query I
-SELECT list_transform(acf_agg(1.0, 2 ORDER BY t), r -> r.acf) FROM s
+SELECT list_transform(acf_agg(1.0, 2 ORDER BY t), lambda r: r.acf) FROM s
 ----
 [NULL, NULL, NULL]
 
