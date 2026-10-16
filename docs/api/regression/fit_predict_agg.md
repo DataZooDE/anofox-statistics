@@ -24,6 +24,8 @@ and return one output row per input row.
 | `poisson_fit_predict_agg` | `DOUBLE[]` | yes | [Poisson](../glm/poisson.md) |
 | `bayesian_ridge_fit_predict_agg` | `DOUBLE[]` | yes (posterior predictive) | [Bayesian](bayesian.md#options) |
 | `ard_fit_predict_agg` | `DOUBLE[]` | yes (posterior predictive) | [Bayesian](bayesian.md#options) |
+| `passive_aggressive_fit_predict_agg` | `DOUBLE[]` (order dependent) | no (bounds NULL) | [Online / dynamic](online_dynamic.md#passive-aggressive) |
+| `lm_dynamic_fit_predict_agg` | `DOUBLE[]` (order dependent) | no (bounds NULL) | [Online / dynamic](online_dynamic.md#lmdynamic) |
 | `pls_fit_predict_agg` | `DOUBLE[]` | no | [PLS](pls.md#options) |
 | `quantile_fit_predict_agg` | `DOUBLE[]` | no | [Quantile](quantile.md#options) |
 | `isotonic_fit_predict_agg` | `DOUBLE` (single feature) | no | [Isotonic](isotonic.md#options) |
@@ -85,7 +87,7 @@ with `Σ` the posterior covariance and `α` the noise precision (scikit-learn's
 ## Common options
 
 Accepted by every function except PLS, quantile and isotonic, in addition to
-the model options:
+the model options (Passive-Aggressive and lmDynamic take neither):
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|

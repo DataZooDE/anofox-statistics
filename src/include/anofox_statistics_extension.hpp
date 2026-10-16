@@ -59,6 +59,10 @@ void RegisterQuantileFitPredictAggregateFunction(ExtensionLoader &loader);
 void RegisterExtraFitAggregateFunctions(ExtensionLoader &loader);
 // Bayesian Ridge / ARD fit and fit-predict aggregates (#61)
 void RegisterBayesianAggregateFunctions(ExtensionLoader &loader);
+// Passive-Aggressive (aggregates and window), lmDynamic and lowess_agg (#63)
+void RegisterPassiveAggressiveFunctions(ExtensionLoader &loader);
+void RegisterLmDynamicFunctions(ExtensionLoader &loader);
+void RegisterLowessFunction(ExtensionLoader &loader);
 void RegisterPathAggregateFunctions(ExtensionLoader &loader);
 
 // GLM aggregate functions

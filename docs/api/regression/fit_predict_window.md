@@ -1,6 +1,6 @@
 # Window Fit-Predict Functions
 
-Eight regressions have a window-aggregate form that fits a model over the
+Nine regressions have a window-aggregate form that fits a model over the
 current window frame and returns the prediction, with a prediction interval,
 for the frame's last row.
 
@@ -14,6 +14,7 @@ for the frame's last row.
 | `huber_fit_predict` | Huber M-estimator | [Huber](huber.md) |
 | `ransac_fit_predict` | RANSAC | [RANSAC](ransac.md) |
 | `theil_sen_fit_predict` | Theil-Sen | [Theil-Sen](theil_sen.md) |
+| `passive_aggressive_fit_predict` | Passive-Aggressive (online; no interval, bounds NULL) | [Online / dynamic](online_dynamic.md) |
 
 ## Signatures
 

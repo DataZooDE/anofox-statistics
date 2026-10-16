@@ -29,6 +29,27 @@ Breaking changes are called out explicitly.
   bootstrap. Options: `fit_intercept`, `max_iterations`, `tolerance`,
   `alpha_1`, `alpha_2`, `lambda_1`, `lambda_2`, `threshold_lambda` (ARD).
   See [docs/api/regression/bayesian.md](docs/api/regression/bayesian.md).
+- Passive-Aggressive regression, lmDynamic and LOWESS (#63), from
+  anofox-regression 0.5.29 (see [docs/api/regression/online_dynamic.md](docs/api/regression/online_dynamic.md)):
+  - `passive_aggressive_fit_agg(y, x[, options] ORDER BY t)`, the window
+    `passive_aggressive_fit_predict`, `passive_aggressive_fit_predict_agg` /
+    `_fit_predict_by` / `_prediction_by`, and `passive_aggressive_tidy_by` /
+    `_glance_by(source, group_col, order_col, y_col, x_cols, ...)`: online
+    regression updated row by row in the given order (scikit-learn
+    `PassiveAggressiveRegressor`; one pass equals `partial_fit`, validated to
+    1e-9). Options `c`, `epsilon`, `variant` (`'pa1'` | `'pa2'`),
+    `fit_intercept`, `max_iterations` (passes, default 1), `tolerance`.
+  - `lm_dynamic_fit_agg(y, x[, options] ORDER BY t)`, `lm_dynamic_fit_predict_agg`
+    / `_fit_predict_by` / `_prediction_by`, `lm_dynamic_glance_by` and
+    `lm_dynamic_tidy_by(source, group_col, order_col, y_col, x_cols, ...)`, which
+    returns the coefficients of every row as `terms` with `index_name =
+    'window_end'` (the shape of `rolling_tidy_by`): time-varying coefficients
+    from greybox's `lmDynamic(bruteforce = TRUE)` (normal distribution, validated
+    against greybox 2.0.9 to 1e-8). Options `ic` (`'aicc'` | `'aic'` | `'bic'`),
+    `span` (lowess smoothing of the weights, 0 = none), `fit_intercept`.
+  - `lowess_agg(y, x[, frac[, iterations]])` returns R's `stats::lowess` curve
+    as `LIST(STRUCT(x, yhat))` (validated to 1e-10), and `lowess_by` returns it
+    per group in the contract's `curve` schema with `curve_type = 'lowess'`.
 - `<model>_effects_by` returns `focal_name VARCHAR` (last column), the name of the
   focal feature, for labelling marginal-effect plots (#197). It is `names[focal]`
   with the new `names := [...]` parameter (as `<model>_tidy_by`), else

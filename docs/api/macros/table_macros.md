@@ -25,6 +25,9 @@ passed through and the prediction columns appended.
 | `tweedie_fit_predict_by` | `tweedie_fit_agg` + `predict` | one row per input row, no intervals |
 | `bayesian_ridge_fit_predict_by` | `bayesian_ridge_fit_predict_agg` | one row per input row, posterior predictive interval |
 | `ard_fit_predict_by` | `ard_fit_predict_agg` | one row per input row, posterior predictive interval |
+| `passive_aggressive_fit_predict_by` | `passive_aggressive_fit_predict_agg` | one row per input row in `order_by` order, no intervals |
+| `lm_dynamic_fit_predict_by` | `lm_dynamic_fit_predict_agg` | one row per input row in `order_by` order, no intervals |
+| `lowess_by` | `lowess_agg` | one row per curve point (`curve` schema, `curve_type = 'lowess'`), see [Online / dynamic](../regression/online_dynamic.md#lowess) |
 | `pls_fit_predict_by` | `pls_fit_predict_agg` | one row per input row, no intervals |
 | `quantile_fit_predict_by` | `quantile_fit_predict_agg` | one row per input row, no intervals |
 | `isotonic_fit_predict_by` | `isotonic_fit_predict_agg` | one row per input row, no intervals |

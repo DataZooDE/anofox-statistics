@@ -45,6 +45,24 @@ static_assert(offsetof(AnofoxBayesianFitResult, coefficients) == 5 * sizeof(doub
 static_assert(offsetof(AnofoxBayesianOptions, tolerance) == sizeof(double) &&
                   sizeof(AnofoxBayesianOptions) == 7 * sizeof(double),
               "AnofoxBayesianOptions must match BayesianOptionsFFI");
+// #63 (crates/anofox-stats-ffi/src/models_ffi.rs).
+static_assert(offsetof(AnofoxPassiveAggressiveOptions, max_epochs) == 4 &&
+                  offsetof(AnofoxPassiveAggressiveOptions, c) == sizeof(double) &&
+                  sizeof(AnofoxPassiveAggressiveOptions) == 4 * sizeof(double),
+              "AnofoxPassiveAggressiveOptions must match PassiveAggressiveOptionsFFI");
+static_assert(offsetof(AnofoxPassiveAggressiveResult, coefficients) == 2 * sizeof(double) &&
+                  offsetof(AnofoxPassiveAggressiveResult, summary) ==
+                      2 * sizeof(double) + sizeof(double *) + 3 * sizeof(size_t) &&
+                  sizeof(AnofoxPassiveAggressiveResult) ==
+                      offsetof(AnofoxPassiveAggressiveResult, summary) + sizeof(AnofoxModelSummaryFFI),
+              "AnofoxPassiveAggressiveResult must match PassiveAggressiveResultFFI");
+static_assert(offsetof(AnofoxLmDynamicFit, coefficients) == 4 * sizeof(double) &&
+                  offsetof(AnofoxLmDynamicFit, summary) ==
+                      4 * sizeof(double) + 3 * sizeof(double *) + 5 * sizeof(size_t) &&
+                  sizeof(AnofoxLmDynamicFit) == offsetof(AnofoxLmDynamicFit, summary) + sizeof(AnofoxModelSummaryFFI),
+              "AnofoxLmDynamicFit must match LmDynamicFitFFI");
+static_assert(sizeof(AnofoxLowessResult) == 2 * sizeof(double *) + sizeof(size_t),
+              "AnofoxLowessResult must match LowessResultFFI");
 static_assert(sizeof(AnofoxAftFitResultCore) ==
                   offsetof(AnofoxAftFitResultCore, summary) + sizeof(AnofoxModelSummaryFFI),
               "AnofoxAftFitResultCore must end with its summary, as AftFitResultCore does");

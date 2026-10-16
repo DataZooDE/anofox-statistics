@@ -945,28 +945,36 @@ pub struct QuantileFitResult {
 // LOWESS Types
 // ============================================================================
 
-/// Options for LOWESS smoothing
+/// Options for LOWESS smoothing, with the defaults of R's `stats::lowess`.
 #[derive(Debug, Clone)]
 pub struct LowessOptions {
-    /// Smoothing span (0.0 to 1.0), fraction of data used for each local regression
-    pub span: f64,
+    /// Smoother span: the fraction of points that influence each value (R's `f`).
+    pub frac: f64,
+    /// Robustifying iterations (R's `iter`).
+    pub iterations: usize,
+    /// Interpolation distance (R's `delta`); `None` = 1% of the range of x.
+    pub delta: Option<f64>,
 }
 
 impl Default for LowessOptions {
     fn default() -> Self {
-        Self { span: 0.3 }
+        Self {
+            frac: 2.0 / 3.0,
+            iterations: 3,
+            delta: None,
+        }
     }
 }
 
-/// Result from LOWESS smoothing
+/// Result from LOWESS smoothing: the curve at the sorted x values.
 #[derive(Debug, Clone)]
 pub struct LowessResult {
-    /// Smoothed values
-    pub fitted_values: Vec<f64>,
-    /// Number of observations
+    /// The x values of the complete rows, increasing (ties in input order).
+    pub x: Vec<f64>,
+    /// Smoothed value at each x.
+    pub fitted: Vec<f64>,
+    /// Number of complete rows used.
     pub n_observations: usize,
-    /// Span used
-    pub span: f64,
 }
 
 // ============================================================================
@@ -1018,7 +1026,8 @@ impl Default for LmDynamicOptions {
 /// Result from LmDynamic fitting
 #[derive(Debug, Clone)]
 pub struct LmDynamicResult {
-    /// Averaged regression coefficients (excluding intercept)
+    /// Time-averaged regression coefficients (excluding intercept); NaN for
+    /// constant columns dropped from the fit
     pub coefficients: Vec<f64>,
     /// Intercept term (if fitted with intercept)
     pub intercept: Option<f64>,
@@ -1032,7 +1041,14 @@ pub struct LmDynamicResult {
     pub n_observations: usize,
     /// Number of features (excluding intercept)
     pub n_features: usize,
-    /// Time-varying coefficients: dynamic_coefficients[obs_idx][coef_idx]
-    /// Includes intercept as the last element if fit_intercept=true
+    /// Time-varying coefficients, one row per input row:
+    /// `[intercept, coef_1, ..., coef_p]` (intercept NaN without one; a
+    /// dropped constant column and an incomplete input row are NaN)
     pub dynamic_coefficients: Vec<Vec<f64>>,
+    /// Fitted value of each input row, `x_t' beta_t` (NaN for incomplete rows)
+    pub fitted_values: Vec<f64>,
+    /// Number of candidate models averaged
+    pub n_models: usize,
+    /// Model description; `log_likelihood` is greybox's combined log-likelihood
+    pub summary: ModelSummary,
 }

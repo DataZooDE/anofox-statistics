@@ -1,63 +1,60 @@
-//! LOWESS (Locally Weighted Scatterplot Smoothing)
+//! LOWESS (Locally Weighted Scatterplot Smoothing) wrapper (#63)
+//!
+//! Cleveland's robust locally weighted regression, upstream's port of R's
+//! `stats::lowess` (`anofox_regression::solvers::lowess::lowess`).
 
 use crate::errors::{StatsError, StatsResult};
 use crate::types::{LowessOptions, LowessResult};
-use anofox_regression::solvers::lowess::lowess_smooth;
-use faer::Col;
+use anofox_regression::solvers::lowess::{lowess, LowessOptions as UpstreamOptions};
 
-/// Apply LOWESS smoothing to a response variable
+/// Smooth `y` on `x` as R's `lowess(x, y, f = frac, iter = iterations, delta)`.
 ///
-/// LOWESS uses local weighted regression to produce a smooth curve.
-/// Each point is fitted using nearby observations weighted by a tricube kernel.
-///
-/// # Arguments
-/// * `y` - Response variable to smooth
-/// * `options` - Smoothing options (span controls bandwidth)
-///
-/// # Returns
-/// * `LowessResult` with smoothed values
-pub fn fit_lowess(y: &[f64], options: &LowessOptions) -> StatsResult<LowessResult> {
-    if y.is_empty() {
-        return Err(StatsError::EmptyInput { field: "y" });
+/// Rows with a non-finite `x` or `y` are dropped. Returns the curve at the
+/// sorted `x` values of the remaining rows.
+pub fn fit_lowess(x: &[f64], y: &[f64], options: &LowessOptions) -> StatsResult<LowessResult> {
+    if x.len() != y.len() {
+        return Err(StatsError::DimensionMismatchMsg(format!(
+            "x has {} values but y has {}",
+            x.len(),
+            y.len()
+        )));
     }
-
-    if y.len() < 3 {
-        return Err(StatsError::InsufficientDataMsg(
-            "LOWESS requires at least 3 observations".to_string(),
-        ));
-    }
-
-    if options.span <= 0.0 || options.span > 1.0 {
+    if !(options.frac.is_finite() && options.frac > 0.0) {
         return Err(StatsError::InvalidValue {
-            field: "span",
-            message: "Span must be in (0, 1]".to_string(),
+            field: "frac",
+            message: format!("frac must be finite and > 0, got {}", options.frac),
         });
     }
-
-    // Filter NaN/Inf values
-    let valid_indices: Vec<usize> = (0..y.len())
-        .filter(|&i| !y[i].is_nan() && !y[i].is_infinite())
+    if let Some(delta) = options.delta {
+        if !(delta.is_finite() && delta >= 0.0) {
+            return Err(StatsError::InvalidValue {
+                field: "delta",
+                message: format!("delta must be finite and >= 0, got {delta}"),
+            });
+        }
+    }
+    let rows: Vec<usize> = (0..x.len())
+        .filter(|&i| x[i].is_finite() && y[i].is_finite())
         .collect();
-
-    if valid_indices.len() < 3 {
+    if rows.is_empty() {
         return Err(StatsError::NoValidData);
     }
-
-    let n_valid = valid_indices.len();
-    let y_col = Col::from_fn(n_valid, |i| y[valid_indices[i]]);
-
-    let smoothed = lowess_smooth(&y_col, options.span);
-
-    // Map back to full array with NaN for invalid positions
-    let mut fitted_values = vec![f64::NAN; y.len()];
-    for (smooth_idx, &orig_idx) in valid_indices.iter().enumerate() {
-        fitted_values[orig_idx] = smoothed[smooth_idx];
-    }
-
+    let xs: Vec<f64> = rows.iter().map(|&i| x[i]).collect();
+    let ys: Vec<f64> = rows.iter().map(|&i| y[i]).collect();
+    let fit = lowess(
+        &xs,
+        &ys,
+        &UpstreamOptions {
+            frac: options.frac,
+            iterations: options.iterations,
+            delta: options.delta,
+        },
+    )
+    .map_err(StatsError::from)?;
     Ok(LowessResult {
-        fitted_values,
-        n_observations: n_valid,
-        span: options.span,
+        x: fit.x,
+        fitted: fit.fitted,
+        n_observations: rows.len(),
     })
 }
 
@@ -66,104 +63,40 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_lowess_basic() {
-        // Noisy sine wave
-        let y: Vec<f64> = (0..50)
-            .map(|i| {
-                let x = i as f64 * 0.1;
-                x.sin() + 0.1 * (i as f64 * 0.3).sin()
-            })
-            .collect();
-
-        let options = LowessOptions { span: 0.3 };
-        let result = fit_lowess(&y, &options).unwrap();
-
-        assert_eq!(result.fitted_values.len(), 50);
-        assert_eq!(result.n_observations, 50);
-        assert!((result.span - 0.3).abs() < 1e-10);
-
-        // Smoothed values should be finite
-        for &v in &result.fitted_values {
-            assert!(v.is_finite());
+    fn test_lowess_sorts_and_smooths() {
+        let x = vec![5.0, 1.0, 3.0, 2.0, 4.0, 6.0, 7.0, 8.0];
+        let y: Vec<f64> = x.iter().map(|v| 2.0 * v + 1.0).collect();
+        let r = fit_lowess(&x, &y, &LowessOptions::default()).unwrap();
+        assert_eq!(r.x, vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]);
+        // A straight line is reproduced exactly by local linear fits.
+        for (xi, fi) in r.x.iter().zip(&r.fitted) {
+            assert!((fi - (2.0 * xi + 1.0)).abs() < 1e-10);
         }
+        assert_eq!(r.n_observations, 8);
     }
 
     #[test]
-    fn test_lowess_constant() {
-        let y = vec![5.0; 20];
-        let options = LowessOptions::default();
-        let result = fit_lowess(&y, &options).unwrap();
-
-        // Smoothing a constant should return the constant
-        for &v in &result.fitted_values {
-            assert!((v - 5.0).abs() < 1e-10);
-        }
+    fn test_lowess_drops_non_finite_rows() {
+        let x = vec![1.0, 2.0, f64::NAN, 4.0];
+        let y = vec![1.0, f64::INFINITY, 3.0, 4.0];
+        let r = fit_lowess(&x, &y, &LowessOptions::default()).unwrap();
+        assert_eq!(r.x, vec![1.0, 4.0]);
     }
 
     #[test]
-    fn test_lowess_with_nan() {
-        let mut y = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0];
-        y[3] = f64::NAN;
-        y[7] = f64::NAN;
-
-        let options = LowessOptions { span: 0.5 };
-        let result = fit_lowess(&y, &options).unwrap();
-
-        // NaN positions should remain NaN
-        assert!(result.fitted_values[3].is_nan());
-        assert!(result.fitted_values[7].is_nan());
-        // Valid positions should be finite
-        assert!(result.fitted_values[0].is_finite());
-        assert_eq!(result.n_observations, 8);
-    }
-
-    #[test]
-    fn test_lowess_empty() {
-        let y: Vec<f64> = vec![];
-        let options = LowessOptions::default();
-        assert!(fit_lowess(&y, &options).is_err());
-    }
-
-    #[test]
-    fn test_lowess_invalid_span() {
-        let y = vec![1.0, 2.0, 3.0, 4.0, 5.0];
-        let options = LowessOptions { span: 0.0 };
-        assert!(fit_lowess(&y, &options).is_err());
-
-        let options = LowessOptions { span: 1.5 };
-        assert!(fit_lowess(&y, &options).is_err());
-    }
-
-    #[test]
-    fn test_lowess_reduces_noise() {
-        // Linear trend with noise
-        let y: Vec<f64> = (0..30)
-            .map(|i| {
-                let x = i as f64;
-                2.0 * x + if i % 2 == 0 { 3.0 } else { -3.0 }
-            })
-            .collect();
-
-        let options = LowessOptions { span: 0.4 };
-        let result = fit_lowess(&y, &options).unwrap();
-
-        // Smoothed values should be closer to the trend (2x) than the noisy data
-        // Check that variance of smoothed is less than variance of original
-        let mean_y: f64 = y.iter().sum::<f64>() / y.len() as f64;
-        let var_y: f64 = y.iter().map(|v| (v - mean_y).powi(2)).sum::<f64>() / y.len() as f64;
-
-        let mean_s: f64 =
-            result.fitted_values.iter().sum::<f64>() / result.fitted_values.len() as f64;
-        let var_s: f64 = result
-            .fitted_values
-            .iter()
-            .map(|v| (v - mean_s).powi(2))
-            .sum::<f64>()
-            / result.fitted_values.len() as f64;
-
-        assert!(
-            var_s < var_y,
-            "Smoothed variance should be less than original"
-        );
+    fn test_lowess_invalid_options() {
+        let x = vec![1.0, 2.0, 3.0];
+        let bad = LowessOptions {
+            frac: 0.0,
+            ..Default::default()
+        };
+        assert!(fit_lowess(&x, &x, &bad).is_err());
+        let bad = LowessOptions {
+            delta: Some(-1.0),
+            ..Default::default()
+        };
+        assert!(fit_lowess(&x, &x, &bad).is_err());
+        assert!(fit_lowess(&x, &x[..2], &LowessOptions::default()).is_err());
+        assert!(fit_lowess(&[f64::NAN], &[1.0], &LowessOptions::default()).is_err());
     }
 }

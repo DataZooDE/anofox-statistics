@@ -258,6 +258,12 @@ struct RegressionMapOptions {
 	std::optional<double> lambda_1;
 	std::optional<double> lambda_2;
 	std::optional<double> threshold_lambda;
+	// Passive-Aggressive (#63)
+	std::optional<double> pa_c;            // 'c' (alias 'C'): aggressiveness
+	std::optional<bool> pa_squared_loss;   // 'variant': 'pa1' (false) | 'pa2' (true)
+	// lmDynamic (#63)
+	std::optional<int> lm_dynamic_ic;      // 'ic': mirrors AnofoxInformationCriterion
+	std::optional<double> lowess_span;     // 'span': lowess f of the weight smoothing, 0 = none
 
 	/// Raw value of the context-dependent `link` key; resolved to poisson_link or
 	/// binomial_link by ParseFromValue according to the function's supported keys.

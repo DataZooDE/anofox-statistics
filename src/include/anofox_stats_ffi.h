@@ -2516,16 +2516,17 @@ typedef struct {
 /**
  * Fit a time-varying coefficient model using information-theoretic model averaging
  *
- * @param y Response variable array
- * @param x Pointer to array of feature arrays
- * @param x_count Number of feature arrays
+ * @param y Response values (y_len)
+ * @param x_flat Features, column-major (n_features columns of y_len values)
  * @param options LmDynamic fitting options
  * @param out_result Output: fit result (required)
- * @param out_error Output: error information (required)
- * @return true on success, false on error
+ * @param out_error Output: error information (required); code ANOFOX_ERROR_SUCCESS on success
+ *
+ * Legacy entry point; the extension uses anofox_lm_dynamic_fit (#63).
  */
-bool anofox_fit_lm_dynamic(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, AnofoxLmDynamicOptions options,
-                           AnofoxLmDynamicFitResult *out_result, AnofoxError *out_error);
+void anofox_fit_lm_dynamic(const double *y, size_t y_len, const double *x_flat, size_t n_features,
+                           const AnofoxLmDynamicOptions *options, AnofoxLmDynamicFitResult *out_result,
+                           AnofoxError *out_error);
 
 /**
  * Free memory allocated for LmDynamic fit result
@@ -3216,6 +3217,92 @@ bool anofox_bayesian_fit_predict(AnofoxDataArray y, const AnofoxDataArray *x, si
 
 /** Free the arrays of a Bayesian fit result. */
 void anofox_free_bayesian_result(AnofoxBayesianFitResult *result);
+
+/* ============================================================================
+ * Passive-Aggressive regression, lmDynamic and LOWESS -- issue #63
+ * (crates/anofox-stats-ffi/src/models_ffi.rs)
+ * ============================================================================ */
+
+/** Options of anofox_passive_aggressive_fit. */
+typedef struct {
+	bool fit_intercept;
+	/** PA-II (squared epsilon-insensitive loss) instead of PA-I. */
+	bool squared_loss;
+	/** Passes over the rows; 1 = a single online pass. */
+	uint32_t max_epochs;
+	double c;
+	double epsilon;
+	double tolerance;
+} AnofoxPassiveAggressiveOptions;
+
+/** A fitted Passive-Aggressive model; coefficients has n_features entries. Must match PassiveAggressiveResultFFI. */
+typedef struct {
+	double intercept;
+	double r_squared;
+	double *coefficients;
+	size_t n_observations;
+	size_t n_features;
+	size_t epochs;
+	AnofoxModelSummaryFFI summary;
+} AnofoxPassiveAggressiveResult;
+
+/** Fit a Passive-Aggressive regressor on the complete rows of (y, x), in input order (no shuffling). */
+bool anofox_passive_aggressive_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count,
+                                   AnofoxPassiveAggressiveOptions options, AnofoxPassiveAggressiveResult *out,
+                                   AnofoxError *out_error);
+
+/** Free the coefficients of a Passive-Aggressive result. */
+void anofox_free_passive_aggressive_result(AnofoxPassiveAggressiveResult *result);
+
+/**
+ * A fitted lmDynamic model. coefficients (time-averaged) has n_features entries;
+ * dynamic_coefficients is n_rows x n_coefs_per_row, row-major ([intercept, coef_1..coef_p]
+ * per input row), fitted_values has n_rows; rows dropped for non-finite values are NaN.
+ * Must match LmDynamicFitFFI.
+ */
+typedef struct {
+	double intercept;
+	double r_squared;
+	double adj_r_squared;
+	double residual_std_error;
+	double *coefficients;
+	double *dynamic_coefficients;
+	double *fitted_values;
+	size_t n_rows;
+	size_t n_coefs_per_row;
+	size_t n_observations;
+	size_t n_features;
+	size_t n_models;
+	AnofoxModelSummaryFFI summary;
+} AnofoxLmDynamicFit;
+
+/**
+ * Fit lmDynamic (greybox lmDynamic(bruteforce = TRUE)) on (y, x) in input order.
+ * options.lowess_span 0 disables the weight smoothing; options.max_models 0 averages
+ * every regressor subset.
+ */
+bool anofox_lm_dynamic_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, AnofoxLmDynamicOptions options,
+                           AnofoxLmDynamicFit *out, AnofoxError *out_error);
+
+/** Free the arrays of an lmDynamic result. */
+void anofox_free_lm_dynamic_fit_result(AnofoxLmDynamicFit *result);
+
+/** A LOWESS curve: len points, x increasing. Must match LowessResultFFI. */
+typedef struct {
+	double *x;
+	double *fitted;
+	size_t len;
+} AnofoxLowessResult;
+
+/**
+ * R's stats::lowess(x, y, f = frac, iter = iterations, delta) on the complete rows of
+ * (x, y); a NaN delta uses R's default, 1% of the range of x.
+ */
+bool anofox_lowess(AnofoxDataArray x, AnofoxDataArray y, double frac, uint32_t iterations, double delta,
+                   AnofoxLowessResult *out, AnofoxError *out_error);
+
+/** Free the arrays of a LOWESS result. */
+void anofox_free_lowess_result(AnofoxLowessResult *result);
 
 #ifdef __cplusplus
 }

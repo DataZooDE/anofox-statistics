@@ -1,0 +1,106 @@
+# name: test/sql/regression/test_lm_dynamic.test
+# description: lmDynamic time-varying coefficients (#63): step-change fixture, smoothing, row alignment, options; greybox parity is in test/sql/reference/lm_dynamic_reference.test
+# group: [regression]
+
+require anofox_statistics
+
+# Step change: x1 has no effect up to t = 50 and an effect of 1 after; x2 has a
+# constant effect. lmDynamic averages the regressor subsets with time-varying
+# weights, so the x1 coefficient grows when the models with x1 take over.
+statement ok
+CREATE TABLE s AS SELECT i AS t, (i % 2)::VARCHAR AS g, sin(i * 0.61) * 2 AS x1, cos(i * 0.23) AS x2,
+    1 + CASE WHEN i > 50 THEN 1.0 ELSE 0.0 END * sin(i * 0.61) * 2 + 0.4 * cos(i * 0.23) + 0.6 * sin(i * 2.9) AS y
+FROM range(1, 101) r(i);
+
+# Stable model STRUCT: per-row lists in input (ORDER BY) order, 2^p candidate models
+query IIIIIII
+SELECT m.model_type, m.n_models, len(m.dynamic_intercept), len(m.dynamic_coefficients), len(m.fitted_values),
+       m.std_errors IS NULL AND m.aic IS NULL, m.log_likelihood IS NOT NULL
+FROM (SELECT lm_dynamic_fit_agg(y, [x1, x2] ORDER BY t) AS m FROM s);
+----
+lm_dynamic	4	100	100	100	true	true
+
+# The x1 coefficient follows the step: smaller before than after, and below the
+# time-averaged coefficient before
+query II
+SELECT list_avg(list_transform(m.dynamic_coefficients[61:100], lambda c: c[1]))
+     - list_avg(list_transform(m.dynamic_coefficients[1:40], lambda c: c[1])) > 0.15,
+       list_avg(list_transform(m.dynamic_coefficients[1:40], lambda c: c[1])) < m.coefficients[1]
+FROM (SELECT lm_dynamic_fit_agg(y, [x1, x2], {'span': 0.3} ORDER BY t) AS m FROM s);
+----
+true	true
+
+# fitted_values are x_t' beta_t
+query I
+SELECT bool_and(abs(m.fitted_values[i] - (m.dynamic_intercept[i] + m.dynamic_coefficients[i][1] * x1 + m.dynamic_coefficients[i][2] * x2)) < 1e-9)
+FROM (SELECT lm_dynamic_fit_agg(y, [x1, x2] ORDER BY t) AS m FROM s), (SELECT t AS i, x1, x2 FROM s);
+----
+true
+
+# Smoothing (span > 0) makes the coefficient path smoother than the raw pointwise weights
+query I
+WITH p AS (SELECT lm_dynamic_fit_agg(y, [x1, x2], {'span': 0} ORDER BY t) AS raw,
+                  lm_dynamic_fit_agg(y, [x1, x2], {'span': 0.5} ORDER BY t) AS smooth FROM s)
+SELECT list_sum(list_transform(range(2, 101), lambda i: abs(smooth.dynamic_coefficients[i][1] - smooth.dynamic_coefficients[i - 1][1])))
+     < list_sum(list_transform(range(2, 101), lambda i: abs(raw.dynamic_coefficients[i][1] - raw.dynamic_coefficients[i - 1][1])))
+FROM p;
+----
+true
+
+# With smoothing the time order matters
+query I
+SELECT (SELECT lm_dynamic_fit_agg(y, [x1, x2] ORDER BY t).coefficients FROM s)
+    <> (SELECT lm_dynamic_fit_agg(y, [x1, x2] ORDER BY (t * 37) % 101).coefficients FROM s);
+----
+true
+
+# Rows with a NULL are skipped; a NaN row stays in the per-row lists as NULL
+query III
+SELECT m.n_observations, len(m.fitted_values), m.fitted_values[3] IS NULL AND m.dynamic_intercept[3] IS NULL
+FROM (SELECT lm_dynamic_fit_agg(y, x ORDER BY t) AS m FROM (
+    SELECT t, CASE WHEN t = 5 THEN NULL WHEN t = 3 THEN 'NaN'::DOUBLE ELSE y END AS y, [x1] AS x FROM s));
+----
+98	99	true
+
+# fit_predict_agg: training rows carry their own fit and coefficients; future rows
+# (y NULL) are scored with the time-averaged coefficients
+query IIII
+WITH m AS (SELECT lm_dynamic_fit_agg(y, [x1, x2] ORDER BY t) AS m FROM s WHERE t <= 90),
+     p AS (SELECT unnest(lm_dynamic_fit_predict_agg(CASE WHEN t <= 90 THEN y END, [x1, x2] ORDER BY t)) AS p,
+                  unnest(list(t ORDER BY t)) AS t, unnest(list(x1 ORDER BY t)) AS x1, unnest(list(x2 ORDER BY t)) AS x2 FROM s)
+SELECT count(*) FILTER (WHERE (p).is_training),
+       bool_and(abs((p).yhat - m.fitted_values[t]) < 1e-12) FILTER (WHERE (p).is_training),
+       bool_and(abs((p).yhat - (m.intercept + m.coefficients[1] * x1 + m.coefficients[2] * x2)) < 1e-12 AND (p).coefficients IS NULL) FILTER (WHERE NOT (p).is_training),
+       bool_and((p).yhat_lower IS NULL)
+FROM p, m;
+----
+90	true	true	true
+
+# Options
+statement error
+SELECT lm_dynamic_fit_agg(y, [x1], {'span': 1.5} ORDER BY t) FROM s;
+----
+span must be in [0, 1]
+
+statement error
+SELECT lm_dynamic_fit_agg(y, [x1], {'ic': 'hqic'} ORDER BY t) FROM s;
+----
+ic must be 'aic', 'aicc' or 'bic'
+
+statement error
+SELECT lm_dynamic_fit_agg(y, [x1], {'distribution': 'laplace'} ORDER BY t) FROM s;
+----
+unsupported option 'distribution'
+
+# Every subset of the regressors is fitted: at most 14 regressors
+statement error
+SELECT lm_dynamic_fit_agg(y, list_transform(range(15), lambda j: sin(t * (j + 1) * 0.37)) ORDER BY t) FROM s;
+----
+at most 14
+
+# lm_dynamic_tidy_by: (p + 1) terms per fitted row, labelled, in time order
+query IIII
+SELECT count(*), count(DISTINCT window_end), list(DISTINCT term ORDER BY term), bool_and(index_name = 'window_end')
+FROM lm_dynamic_tidy_by('s', g, t, y, [x1, x2], names := ['trend', 'level']);
+----
+300	100	['(Intercept)', level, trend]	true

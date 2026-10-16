@@ -52,3 +52,28 @@ ORDER BY function_name
 calibration_curve_by	curve
 pr_curve_by	curve
 roc_curve_by	curve
+
+# lowess_by (#63): the curve schema with id / model_id / model_name before it (a model fit),
+# curve_type 'lowess'
+query II
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM lowess_by('d', g, score, label::DOUBLE))
+----
+g	VARCHAR
+id	VARCHAR
+model_id	VARCHAR
+model_name	VARCHAR
+curve_type	VARCHAR
+series	VARCHAR
+x	DOUBLE
+y	DOUBLE
+y_low	DOUBLE
+y_high	DOUBLE
+threshold	DOUBLE
+weight	DOUBLE
+n_censor	BIGINT
+
+query III
+SELECT tags['anofox.output'], (SELECT count(*) FROM lowess_by('d', g, score, label::DOUBLE)), (SELECT bool_and(curve_type = 'lowess') FROM lowess_by('d', g, score, label::DOUBLE))
+FROM duckdb_functions() WHERE function_name = 'lowess_by' AND tags['anofox.contract'] = '1';
+----
+curve	40	true

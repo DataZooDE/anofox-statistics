@@ -267,7 +267,7 @@ confidence_level must be in (0, 1), got 95
 statement error
 SELECT ransac_fit_agg(y, [x1], {'max_trials': -5}) FROM d;
 ----
-Expected a non-negative integer, got -5
+expected a non-negative integer, got -5
 
 statement error
 SELECT ransac_fit_agg(y, [x1], {'max_trials': 5000000000}) FROM d;
@@ -277,12 +277,12 @@ is too large (maximum 4294967295)
 statement error
 SELECT elasticnet_fit_agg(y, [x1], {'max_iterations': 2.5}) FROM d;
 ----
-Expected an integer, got 2.5
+expected an integer, got 2.5
 
 statement error
 SELECT ransac_fit_agg(y, [x1], {'seed': -1}) FROM d;
 ----
-Expected a non-negative integer, got -1
+expected a non-negative integer, got -1
 
 # Options must be a constant; a per-row expression used to be skipped silently.
 statement error

@@ -10,10 +10,11 @@ description: >
   poisson_fit_predict_by, binomial_fit_predict_by, logistic_fit_predict_by,
   negbinom_fit_predict_by, gamma_fit_predict_by, tweedie_fit_predict_by,
   pls_fit_predict_by, isotonic_fit_predict_by, quantile_fit_predict_by,
-  bayesian_ridge_fit_predict_by, ard_fit_predict_by)
+  bayesian_ridge_fit_predict_by, ard_fit_predict_by,
+  passive_aggressive_fit_predict_by, lm_dynamic_fit_predict_by)
   with split := and order_by :=, the per-group long-table macros
-  <model>_tidy_by and <model>_glance_by (23 models), ols/wls/GLM
-  _augment_by, <model>_partial_residuals_by, <model>_prediction_by (21
+  <model>_tidy_by and <model>_glance_by (25 models), ols/wls/GLM
+  _augment_by, <model>_partial_residuals_by, <model>_prediction_by (23
   models), <model>_effects_by (marginal effects), <model>_rolling_tidy_by
   (rolling coefficients), ridge/elasticnet/lars_path_by,
   ridge/elasticnet_cv_by, quantile_process_by, acf_by / pacf_by,
@@ -60,7 +61,7 @@ Available macros: `ols_fit_predict_by`, `huber_fit_predict_by`, `ransac_fit_pred
 `theil_sen_fit_predict_by`, `ridge_fit_predict_by`, `elasticnet_fit_predict_by`,
 `wls_fit_predict_by`, `rls_fit_predict_by`, `bls_fit_predict_by`, `alm_fit_predict_by`,
 `poisson_fit_predict_by`, `pls_fit_predict_by`, `isotonic_fit_predict_by`,
-`quantile_fit_predict_by`, `bayesian_ridge_fit_predict_by`, `ard_fit_predict_by` (posterior predictive band), and the GLM macros `binomial_fit_predict_by`,
+`quantile_fit_predict_by`, `bayesian_ridge_fit_predict_by`, `ard_fit_predict_by` (posterior predictive band), `passive_aggressive_fit_predict_by`, `lm_dynamic_fit_predict_by` (sequential: pass `order_by := t`), and the GLM macros `binomial_fit_predict_by`,
 `logistic_fit_predict_by`, `negbinom_fit_predict_by`, `gamma_fit_predict_by`,
 `tweedie_fit_predict_by`. Related grouped macros: `glmm_fit_by(source, group_col, y_col, x_cols[, options])`,
 `eb_shrink_by(source, estimate_col, se_col[, options])`, `aid_by`, `aid_anomaly_by`.
@@ -113,9 +114,9 @@ When you want a **report table** per group instead of predictions, use the outpu
 | `ridge_cv_by`, `elasticnet_cv_by` | `(source, group_col, y_col, x_cols [, options := …])` | `curve_type, series, x, y, y_low, y_high, threshold, weight, n_censor, lambda, cv_mean, cv_se, n_nonzero, is_min, is_1se, n_folds` |
 
 Model coverage:
-- `_tidy_by` / `_glance_by` (23): `ols`, `wls` (+`weight_col`), `ridge`, `elasticnet`, `lars`, `bayesian_ridge`, `ard`, `rls`, `huber`, `ransac`, `theil_sen`, `bls`, `nnls`, `pls`, `quantile`, `poisson`, `binomial`, `logistic`, `negbinom`, `gamma`, `tweedie`, `alm`, `aft` (+`event_col`). Not `glmm`, `isotonic`.
+- `_tidy_by` / `_glance_by` (25): `ols`, `wls` (+`weight_col`), `ridge`, `elasticnet`, `lars`, `bayesian_ridge`, `ard`, `passive_aggressive` and `lm_dynamic` (both `(source, group_col, order_col, y_col, x_cols, …)`; `lm_dynamic_tidy_by` = per-row coefficients with `window_end`), `rls`, `huber`, `ransac`, `theil_sen`, `bls`, `nnls`, `pls`, `quantile`, `poisson`, `binomial`, `logistic`, `negbinom`, `gamma`, `tweedie`, `alm`, `aft` (+`event_col`). Not `glmm`, `isotonic`.
 - `_augment_by` and `_partial_residuals_by`: `ols`, `wls`, `poisson`, `binomial`, `logistic`, `negbinom`, `gamma`, `tweedie`.
-- `_prediction_by` (21): every `*_fit_predict_by` model; `pls`, `quantile`, `isotonic` have no band; `isotonic_prediction_by(source, group_col, x_col, y_col)` has no `x_cols`.
+- `_prediction_by` (23): every `*_fit_predict_by` model; `pls`, `quantile`, `isotonic` have no band; `isotonic_prediction_by(source, group_col, x_col, y_col)` has no `x_cols`.
 - `_effects_by` (9): `ols`, `wls`, `ridge` and the six GLMs (models whose `predict` has standard errors); GLM bands on the response scale.
 - `_rolling_tidy_by` (6): `ols`, `wls`, `ridge`, `elasticnet`, `huber`, `poisson`. Windows shorter than `min_obs` (default `window_size`: full windows only) are skipped; `window_end` keeps the type of `order_col`.
 

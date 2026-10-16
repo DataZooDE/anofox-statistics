@@ -86,6 +86,22 @@ no-intercept, informative-prior and `threshold_lambda` fits) against
 `*_fit_predict_agg` posterior predictive bands against `predict(X,
 return_std=True)` with normal quantiles.
 
+## `make_reference_passive_aggressive.py` and `make_reference_smoothing.R`
+
+```bash
+uv run --no-project --with scikit-learn python3 validation/generators/make_reference_passive_aggressive.py
+Rscript validation/generators/make_reference_smoothing.R
+```
+
+The first (re)writes `regression_passive_aggressive.test`: `passive_aggressive_fit_agg`
+(one online pass, PA-I and PA-II, and a multi-pass fit), the window
+`passive_aggressive_fit_predict` over cumulative frames and
+`passive_aggressive_fit_predict_agg` against scikit-learn's
+`PassiveAggressiveRegressor` (`shuffle=False`, `partial_fit` / `fit`). The second
+needs `greybox` and (re)writes `lowess_reference.test` (`lowess_agg`, `lowess_by`
+against `stats::lowess`) and `lm_dynamic_reference.test` (`lm_dynamic_fit_agg`
+against `greybox::lmDynamic(bruteforce = TRUE)` with an explicit lowess `f`).
+
 ## Other generators
 
 `make_reference_tests.R` / `make_reference_tests.py` produce the

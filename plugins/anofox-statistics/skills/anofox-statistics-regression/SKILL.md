@@ -4,7 +4,9 @@ description: >
   Regression models and the fit / fit_agg / predict API surface of the
   anofox_statistics DuckDB extension. Covers OLS, robust estimators
   (Huber, RANSAC, Theil-Sen), penalized regression (Ridge, Elastic Net,
-  LARS), Bayesian Ridge and ARD (posterior predictive intervals), WLS, recursive least squares (RLS), bounded/non-negative LS
+  LARS), Bayesian Ridge and ARD (posterior predictive intervals),
+  Passive-Aggressive online regression, lmDynamic time-varying
+  coefficients, LOWESS smoothing (lowess_agg), WLS, recursive least squares (RLS), bounded/non-negative LS
   (BLS/NNLS), PLS, isotonic, quantile regression with standard errors
   (se option iid / nid / boot) and the quantile process
   (quantile_process_agg), GLMs (Poisson, Binomial/Logistic, Negative
@@ -84,6 +86,9 @@ Prediction intervals (`yhat_lower`/`yhat_upper`) are leverage-aware, `yhat ± t(
 | Elastic Net | `elasticnet_fit`, `elasticnet_fit_agg` | L1+L2; `alpha` (alias `lambda`, default 1.0), `l1_ratio ∈ [0,1]` (default 0.5) |
 | LARS | `lars_fit_agg` | Least Angle Regression; options `fit_intercept`, `alpha` (alias `lambda`, default 0.0); returns the 7 standard fields |
 | Bayesian Ridge / ARD | `bayesian_ridge_fit_agg`, `ard_fit_agg`, `*_fit_predict_agg`, `*_fit_predict_by` | scikit-learn `BayesianRidge` / `ARDRegression` (matches to ~1e-8): penalty from the evidence, no CV. Options `fit_intercept`, `max_iterations` (300), `tolerance` (1e-3), `alpha_1`, `alpha_2`, `lambda_1`, `lambda_2` (1e-6), ARD `threshold_lambda` (1e4). Returns `coefficients`, `intercept`, `r_squared`, `noise_precision` (sklearn `alpha_`; noise SD = 1/sqrt), `weight_precision` (BR) / `weight_precisions[]` (ARD, pruned ≥ threshold → coef exactly 0), `posterior_sd[]`, `iterations`, `log_marginal_likelihood` (BR). Inference fields and `aic`/`bic` NULL. Fit-predict bands are posterior predictive intervals at `confidence_level` |
+| Passive-Aggressive | `passive_aggressive_fit_agg(y, x[, opts] ORDER BY t)`, window `passive_aggressive_fit_predict`, `*_fit_predict_agg`, `*_fit_predict_by` | Online regression (sklearn `PassiveAggressiveRegressor`, matches to 1e-9): rows updated in **ORDER BY order** (no ORDER BY = arbitrary order). Options `c` (1.0), `epsilon` (0.1), `variant` (`'pa1'`/`'pa2'`), `fit_intercept`, `max_iterations` (passes, 1 = online `partial_fit`), `tolerance`. Returns `coefficients`, `intercept`, `r_squared`, `n_observations`, `n_features`, `iterations`; no intervals (bounds NULL) |
+| lmDynamic | `lm_dynamic_fit_agg(y, x[, opts] ORDER BY t)`, `lm_dynamic_fit_predict_agg`, `_by` macros | Time-varying coefficients (greybox `lmDynamic` bruteforce, matches to 1e-8): all 2^p subsets (p ≤ 14) weighted per row by pointwise `ic` (`'aicc'`/`'aic'`/`'bic'`), weights smoothed with lowess `span` (0.3; 0 = none). Returns time-averaged `coefficients`/`intercept`, `n_models`, per-row `dynamic_intercept[]`, `dynamic_coefficients[][]`, `fitted_values[]`, greybox `log_likelihood` |
+| LOWESS | `lowess_agg(y, x[, frac[, iterations]])`, `lowess_by` | R `stats::lowess` (matches to 1e-10): returns `LIST(STRUCT(x, yhat))`, x increasing; `frac` 2/3, `iterations` 3 (positional, not a MAP) |
 | BLS / NNLS | `bls_fit_agg`, `nnls_fit_agg` | Bounded (`lower_bound`, `upper_bound`) / non-negative coefficients |
 | PLS | `pls_fit_agg`, `pls_fit_predict_agg` | Partial least squares; `n_components` (1), `fit_intercept`. Returns `coefficients`, `intercept`, `r_squared`, `n_components`, `n_observations`, `n_features` |
 | Isotonic | `isotonic_fit_agg`, `isotonic_fit_predict_agg` | Monotonic regression on a single `x DOUBLE`; `increasing` (true). Returns knots `x[]`, `fitted[]`, `increasing`, `r_squared`, `n_observations`; `predict(m, [x])` interpolates, clamped at the ends |
@@ -180,7 +185,7 @@ for Elastic Net, LARS, RLS) and, except for Elastic Net, LARS and RLS, `ci_lower
 **AFT survival:** `coefficients`, `intercept`, `scale`, `log_likelihood`, `null_log_likelihood`, `aic`, `bic`,
 `n_observations`, `n_events`, `n_censored`, `n_features`, `iterations`, `converged`; inference as `z_values` etc.
 
-**Trailing fields on every model** (`ols`, `wls`, `ridge`, `elasticnet`, `lars`, `bayesian_ridge`, `ard`, `rls`, `huber`, `ransac`,
+**Trailing fields on every model** (`ols`, `wls`, `ridge`, `elasticnet`, `lars`, `bayesian_ridge`, `ard`, `passive_aggressive`, `lm_dynamic`, `rls`, `huber`, `ransac`,
 `theil_sen`, the GLMs, `alm`, `aft`, `glmm`, `bls`/`nnls`, `pls`, `quantile`, `isotonic`):
 `conf_low[]`, `conf_high[]`, `conf_level`, the intercept's inference `intercept_std_error`,
 `intercept_statistic`, `intercept_p_value`, `intercept_conf_low`, `intercept_conf_high`,

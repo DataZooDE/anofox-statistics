@@ -40,12 +40,14 @@ Fit functions return STRUCTs and LISTs. For charts, the `_by` table macros retur
 | Effect across quantiles | `quantile_process_by` | `terms` (`'tau'`) | `anofox_plot_terms` |
 | Compare fit statistics (R², AIC, …) across models | `<model>_glance_by` | `summary` | `anofox_plot_summary` |
 | Residuals vs fitted, QQ, leverage, Cook's distance | `ols_augment_by`, `wls_augment_by`, `<glm>_augment_by` | `obs` | `anofox_plot_obs`, `anofox_plot_diagnostics` (plot.lm 2×2) |
-| Fitted line / band, train vs test vs future | `<model>_prediction_by` (21 models) | `prediction` | `anofox_plot_prediction` |
+| Fitted line / band, train vs test vs future | `<model>_prediction_by` (23 models) | `prediction` | `anofox_plot_prediction` |
 | Marginal effect of one feature (effect plot) | `<model>_effects_by` (`ols`, `wls`, `ridge`, six GLMs) | `prediction` | `anofox_plot_prediction` |
 | ROC / PR / calibration curve | `roc_curve_by`, `pr_curve_by`, `calibration_curve_by` | `curve` | `anofox_plot_curve` |
 | CV error over lambda (`lambda.min`, `lambda.1se`) | `ridge_cv_by`, `elasticnet_cv_by` | `curve` (`'lambda_cv'`) | `anofox_plot_curve` |
 | Survival curves per stratum | `kaplan_meier_by` | `curve` (`'km'`) | `anofox_plot_curve` |
 | Residual autocorrelation | `acf_by`, `pacf_by` | `curve` (`'acf'` / `'pacf'`) | `anofox_plot_curve` |
+| Scatterplot smoother | `lowess_by(source, group_col, x_col, y_col[, frac, iterations])` | `curve` (`'lowess'`; not yet in the contract's curve_type vocabulary) | `anofox_plot_curve` |
+| Time-varying coefficients | `lm_dynamic_tidy_by(source, group_col, order_col, y_col, x_cols)` | `terms` (`'window_end'`, as rolling coefficients) | `anofox_plot_terms` |
 | Pairwise comparisons (significance brackets) | `pairwise_t_test_by`, `tukey_hsd_by`, `dunn_test_by` | `test` | no dedicated plot macro |
 | Partial-residual / added-variable plot | `<model>_partial_residuals_by` (`ols`, `wls`, six GLMs) | not a contract schema | plot `x` vs `partial_residual` (or `x_residual` vs `y_residual`) with a generic scatter |
 

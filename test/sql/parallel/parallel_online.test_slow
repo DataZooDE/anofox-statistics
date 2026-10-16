@@ -1,0 +1,76 @@
+# name: test/sql/parallel/parallel_online.test_slow
+# description: 200k-row parallel (threads=8) vs single-threaded results for the order-dependent Passive-Aggressive and lmDynamic paths (#63): ordered fit_agg, fit_predict_agg, the passive_aggressive_fit_predict window and the _fit_predict_by / _tidy_by macros over large multi-group partitions.
+# group: [parallel]
+
+require anofox_statistics
+
+# .test_slow files are still matched by `unittest "test/*"` (make test), so gate on an env var:
+#   ANOFOX_SLOW_TESTS=1 build/release/test/unittest "test/sql/parallel/*"
+require-env ANOFOX_SLOW_TESTS
+
+statement ok
+CREATE TABLE big AS
+SELECT i AS t, (i % 4)::INT AS g, x1, x2,
+       1.0 + 2.0 * x1 - 0.5 * x2 + CASE WHEN i % 4 = 1 AND i > 100000 THEN x1 ELSE 0 END + e AS y
+FROM (
+    SELECT i,
+           ((hash(i * 8 + 1) % 1000003) / 1000003.0) * 4.0 - 2.0 AS x1,
+           ((hash(i * 8 + 2) % 1000003) / 1000003.0) * 2.0 - 1.0 AS x2,
+           ((hash(i * 8 + 3) % 1000003) / 1000003.0) - 0.5 AS e
+    FROM range(0, 200000) r(i)
+);
+
+# lmDynamic's candidate fits are O(n) per subset; keep its partitions at 10k rows
+statement ok
+CREATE VIEW medium AS SELECT * FROM big WHERE t % 20 < 4;
+
+statement ok
+CREATE MACRO fp_summary(l) AS [len(l), list_sum(list_transform(l, lambda p: p.yhat)), list_sum(list_transform(l, lambda p: p.yhat * p.yhat)), list_sum(list_transform(l, lambda p: p.is_training::INT))::DOUBLE]::DOUBLE[];
+
+statement ok
+CREATE VIEW results AS
+    SELECT 'pa_fit_agg' AS fn, g, (passive_aggressive_fit_agg(y, [x1, x2], {'c': 0.5} ORDER BY t)).coefficients AS vals FROM big GROUP BY g
+    UNION ALL
+    SELECT 'pa_fit_predict_agg', g, fp_summary(passive_aggressive_fit_predict_agg(CASE WHEN t % 7 = 0 THEN NULL ELSE y END, [x1, x2] ORDER BY t)) FROM big GROUP BY g
+    UNION ALL
+    SELECT 'pa_window', g, [sum(p), sum(p * p), count(p)]::DOUBLE[] FROM (
+        SELECT g, (passive_aggressive_fit_predict(y, [x1, x2]) OVER (PARTITION BY g ORDER BY t ROWS BETWEEN 999 PRECEDING AND CURRENT ROW)).yhat AS p FROM big WHERE t % 5 = 0) GROUP BY g
+    UNION ALL
+    SELECT 'pa_fit_predict_by', g, [sum(yhat), sum(yhat * yhat), count(*) FILTER (WHERE is_training)]::DOUBLE[] FROM passive_aggressive_fit_predict_by('big', g, y, [x1, x2], order_by := t) GROUP BY g
+    UNION ALL
+    SELECT 'lm_dynamic_fit_agg', g, (lm_dynamic_fit_agg(y, [x1, x2], {'span': 0.3} ORDER BY t)).coefficients FROM medium GROUP BY g
+    UNION ALL
+    SELECT 'lm_dynamic_fit_predict_by', g, [sum(yhat), sum(yhat * yhat), count(*) FILTER (WHERE is_training)]::DOUBLE[] FROM lm_dynamic_fit_predict_by('medium', g, y, [x1, x2], order_by := t) GROUP BY g
+    UNION ALL
+    SELECT 'lm_dynamic_tidy_by', g, [sum(estimate), sum(estimate * index_value), count(*)]::DOUBLE[] FROM lm_dynamic_tidy_by('medium', g, t, y, [x1, x2]) GROUP BY g;
+
+statement ok
+SET threads = 1;
+
+statement ok
+CREATE TABLE ref AS SELECT * FROM results;
+
+statement ok
+SET threads = 8;
+
+statement ok
+PRAGMA verify_parallelism;
+
+statement ok
+CREATE TABLE par AS SELECT * FROM results;
+
+# The fits see the rows in ORDER BY order whatever the threads; only the SQL sums
+# that summarize them may differ in the last digits
+query III
+SELECT fn, count(*), bool_and(list_count(ref.vals) > 0 AND len(par.vals) = len(ref.vals) AND
+    list_max(list_transform(range(1, len(ref.vals) + 1), lambda k: abs(par.vals[k] - ref.vals[k]) / greatest(1.0, abs(ref.vals[k])))) < 1e-9)
+FROM ref JOIN par USING (fn, g)
+GROUP BY fn ORDER BY fn;
+----
+lm_dynamic_fit_agg	4	true
+lm_dynamic_fit_predict_by	4	true
+lm_dynamic_tidy_by	4	true
+pa_fit_agg	4	true
+pa_fit_predict_agg	4	true
+pa_fit_predict_by	4	true
+pa_window	4	true

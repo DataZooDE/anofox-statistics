@@ -1,5 +1,5 @@
 # name: test/sql/contract/contract_tidy_glance_all.test
-# description: every <model>_tidy_by / <model>_glance_by (23 models) has the contract columns and tags, and runs (#160)
+# description: every <model>_tidy_by / <model>_glance_by (25 models) has the contract columns and tags, and runs (#160)
 # group: [contract]
 
 require anofox_statistics
@@ -82,10 +82,25 @@ FROM ref;
 ----
 true	true	true
 
-# Every one of the 23 models is a tagged producer, tidy_by as terms and glance_by as summary
+# Sequential models (#63) take an order_col after group_col; lm_dynamic_tidy_by adds
+# window_end (one set of terms per observation, as <model>_rolling_tidy_by)
+query III
+SELECT (SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM passive_aggressive_tidy_by('d', g, x1, y, [x1, x2]))) = tidy_cols,
+       (SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM passive_aggressive_glance_by('d', g, x1, y, [x1, x2]))) = glance_cols,
+       (SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM lm_dynamic_glance_by('d', g, x1, y, [x1, x2]))) = glance_cols
+FROM ref;
+----
+true	true	true
+
+query I
+SELECT string_agg(column_name, ', ') FROM (DESCRIBE SELECT * FROM lm_dynamic_tidy_by('d', g, x1, y, [x1, x2]));
+----
+g, id, model_id, model_name, window_end, term, estimate, std_error, statistic, p_value, conf_low, conf_high, conf_level, index_name, index_value
+
+# Every one of the 25 models is a tagged producer, tidy_by as terms and glance_by as summary
 query II
 SELECT count(DISTINCT function_name) FILTER (WHERE function_name LIKE '%\_tidy\_by' ESCAPE '\' AND function_name NOT LIKE '%rolling%' AND tags['anofox.output'] = 'terms'),
        count(DISTINCT function_name) FILTER (WHERE function_name LIKE '%\_glance\_by' ESCAPE '\' AND tags['anofox.output'] = 'summary')
 FROM duckdb_functions() WHERE tags['anofox.contract'] = '1';
 ----
-23	23
+25	25

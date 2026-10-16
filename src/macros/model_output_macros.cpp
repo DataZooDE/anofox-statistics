@@ -29,6 +29,12 @@ struct ModelOutputModel {
 	//! Whether the model has coefficient inference (accepts compute_inference);
 	//! <prefix>_tidy_by then computes it by default.
 	bool inference;
+	//! Sequential models (#63): the fit depends on the row order, so the macros
+	//! take an order_col after group_col and fit with ORDER BY order_col.
+	bool ordered = false;
+	//! The coefficients vary over time (lmDynamic): <prefix>_tidy_by returns one
+	//! set of terms per observation (DynamicTidySql) instead of tidy().
+	bool dynamic_terms = false;
 };
 
 // clang-format off
@@ -56,6 +62,8 @@ const ModelOutputModel MODEL_OUTPUT_MODELS[] = {
     {"tweedie", "a Tweedie GLM", nullptr, true},
     {"alm", "an augmented linear model (ALM)", nullptr, true},
     {"aft", "an accelerated failure time (AFT) survival model", "event_col", true},
+    {"passive_aggressive", "a Passive-Aggressive online regression", nullptr, false, true},
+    {"lm_dynamic", "a dynamic linear model with time-varying coefficients (greybox lmDynamic)", nullptr, false, true, true},
 };
 // clang-format on
 
@@ -67,7 +75,7 @@ const char *const GLANCE_METRICS[] = {"n_observations", "n_features",     "r_squ
 
 string FitCall(const ModelOutputModel &m) {
 	return string(m.prefix) + "_fit_agg(y_col, x_cols" + (m.extra_col ? string(", ") + m.extra_col : string()) +
-	       ", options)";
+	       ", options" + (m.ordered ? " ORDER BY order_col" : "") + ")";
 }
 
 //! The fit call of <model>_tidy_by: inference on by default (compute_inference := true merged under the
@@ -103,6 +111,31 @@ string TidySql(const ModelOutputModel &m) {
 // index_value is the 1-based position of the window's last row in its group
 // (DOUBLE in the contract); window_end carries the order value itself.
 const char *const ROLLING_MODELS[] = {"ols", "wls", "ridge", "elasticnet", "huber", "poisson"};
+
+// lmDynamic (#63): the time-varying coefficients of every observation as `terms`
+// rows with index_name 'window_end', the shape of <model>_rolling_tidy_by, so
+// the same plot draws them. window_end is the observation's order_col value and
+// index_value its 1-based position among the fitted rows of its group.
+string DynamicTidySql(const ModelOutputModel &m) {
+	const string frame = "OVER (PARTITION BY group_col ORDER BY order_col, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING "
+	                     "AND UNBOUNDED FOLLOWING)";
+	return "SELECT group_col, id, model_id, model_name, window_end, "
+	       "CASE WHEN _j = 0 THEN '(Intercept)' ELSE COALESCE((names::VARCHAR[])[_j], 'x' || _j) END AS term, "
+	       "CASE WHEN _j = 0 THEN (_p).intercept ELSE (_p).coefficients[_j] END AS estimate, "
+	       "NULL::DOUBLE AS std_error, NULL::DOUBLE AS statistic, NULL::DOUBLE AS p_value, NULL::DOUBLE AS conf_low, "
+	       "NULL::DOUBLE AS conf_high, NULL::DOUBLE AS conf_level, 'window_end' AS index_name, "
+	       "_pos::DOUBLE AS index_value "
+	       "FROM (SELECT group_col, " +
+	       ModelIds(m.prefix) +
+	       ", window_end, _p, row_number() OVER (PARTITION BY group_col ORDER BY _rn) AS _pos, "
+	       "unnest(range(0, len((_p).coefficients) + 1)) AS _j "
+	       "FROM (SELECT group_col, window_end, _rn, _pred[_rn] AS _p "
+	       "FROM (SELECT group_col, order_col AS window_end, row_number() " +
+	       frame + " AS _rn, " + m.prefix + "_fit_predict_agg(y_col, x_cols, options) " + frame +
+	       " AS _pred FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR)))) "
+	       "WHERE (_p).is_training) "
+	       "ORDER BY group_col, window_end, _j";
+}
 
 string RollingTidySql(const ModelOutputModel &m) {
 	return "SELECT group_col, id, model_id, model_name, window_end, (_t).term AS term, (_t).estimate AS estimate, "
@@ -320,6 +353,17 @@ string ClassifierCurveSql(const ClassifierCurveMacro &m) {
 
 } // namespace
 
+// lowess_by (#63): the LOWESS curve of y on x per group in the contract's
+// `curve` schema, curve_type 'lowess'. model_id / model_name are the method and
+// id the group, as the other model-fitting macros.
+const char *const LOWESS_BY_SQL =
+    "SELECT group_col, group_col::VARCHAR AS id, 'lowess' AS model_id, 'lowess' AS model_name, "
+    "'lowess' AS curve_type, NULL::VARCHAR AS series, (_p).x AS x, (_p).yhat AS y, NULL::DOUBLE AS y_low, "
+    "NULL::DOUBLE AS y_high, NULL::DOUBLE AS threshold, NULL::DOUBLE AS weight, NULL::BIGINT AS n_censor "
+    "FROM (SELECT group_col, unnest(range(len(_l))) AS _i, unnest(_l) AS _p "
+    "FROM (SELECT group_col, lowess_agg(y_col::DOUBLE, x_col::DOUBLE, frac::DOUBLE, iterations::INTEGER) AS _l "
+    "FROM query_table(source::VARCHAR) GROUP BY group_col)) ORDER BY group_col, _i";
+
 void RegisterCurveMacros(ExtensionLoader &loader) {
 	struct AcfMacro {
 		const char *name;
@@ -351,6 +395,16 @@ void RegisterCurveMacros(ExtensionLoader &loader) {
 	    "kaplan_meier_by('patients', treatment, duration, event, conf_type := 'log-log')",
 	    {"survival", "table-macro"});
 	loader.RegisterFunction(*km);
+
+	auto lowess = CreateTableMacro(
+	    "lowess_by", {"source", "group_col", "x_col", "y_col"}, {{"frac", "2 / 3"}, {"iterations", "3"}},
+	    LOWESS_BY_SQL,
+	    "Table macro: the LOWESS smoother of y_col on x_col per group of source (R stats::lowess(x, y, f = frac, "
+	    "iter = iterations), see lowess_agg), one row per point in x order (the integration contract's `curve` "
+	    "schema, curve_type 'lowess'): the group column, id (the group), model_id and model_name ('lowess'), "
+	    "curve_type, series, x, y (the smoothed value), y_low, y_high, threshold, weight, n_censor.",
+	    "lowess_by('measurements', sensor, temperature, load, frac := 0.3)", {"regression", "smoothing", "table-macro"});
+	loader.RegisterFunction(*lowess);
 }
 
 void RegisterClassifierCurveMacros(ExtensionLoader &loader) {
@@ -407,22 +461,34 @@ void RegisterPosthocMacros(ExtensionLoader &loader) {
 void RegisterModelOutputMacros(ExtensionLoader &loader) {
 	for (auto &m : MODEL_OUTPUT_MODELS) {
 		vector<string> params = {"source", "group_col", "y_col", "x_cols"};
+		if (m.ordered) {
+			params.insert(params.begin() + 2, "order_col");
+		}
 		if (m.extra_col) {
 			params.push_back(m.extra_col);
 		}
-		string args = string("'my_table', group_col, y, [x1, x2]") +
+		string args = string(m.ordered ? "'my_table', group_col, t, y, [x1, x2]" : "'my_table', group_col, y, [x1, x2]") +
 		              (!m.extra_col ? "" : string(m.extra_col) == "weight_col" ? ", w" : ", event");
 		string prefix = m.prefix;
+		const string order_note = m.ordered ? " Rows are fitted in order_col order (the model is sequential). " : " ";
 
 		auto tidy = CreateTableMacro(
 		    prefix + "_tidy_by", params,
-		    {{"options", "NULL"}, {"names", "NULL"}}, TidySql(m),
-		    "Table macro: fits " + string(m.label) +
-		        " per group of source and returns one row per term (intercept first): the group column, id (the group), model_id and model_name (the method), "
-		        "term, estimate, std_error, statistic, p_value, conf_low, conf_high, conf_level, index_name, "
-		        "index_value. " +
-		        (m.inference ? "Inference is computed by default (compute_inference is merged under options). " : "The model has no coefficient inference. ") +
-		        "names := [...] labels the terms.",
+		    {{"options", "NULL"}, {"names", "NULL"}}, m.dynamic_terms ? DynamicTidySql(m) : TidySql(m),
+		    m.dynamic_terms
+		        ? "Table macro: fits " + string(m.label) +
+		              " per group of source (rows in order_col order) and returns the time-varying coefficients of "
+		              "every fitted row as `terms` rows, intercept first (the shape of <model>_rolling_tidy_by): the "
+		              "group column, id (the group), model_id and model_name (the method), window_end (the row's "
+		              "order_col value), term, estimate, std_error, statistic, p_value, conf_low, conf_high, "
+		              "conf_level (NULL: no inference), index_name ('window_end'), index_value (the row's 1-based "
+		              "position among the fitted rows). names := [...] labels the terms."
+		        : "Table macro: fits " + string(m.label) +
+		              " per group of source and returns one row per term (intercept first): the group column, id (the group), model_id and model_name (the method), "
+		              "term, estimate, std_error, statistic, p_value, conf_low, conf_high, conf_level, index_name, "
+		              "index_value." + order_note +
+		              (m.inference ? "Inference is computed by default (compute_inference is merged under options). " : "The model has no coefficient inference. ") +
+		              "names := [...] labels the terms.",
 		    prefix + "_tidy_by(" + args + ", names := ['x1', 'x2'])");
 		loader.RegisterFunction(*tidy);
 
@@ -430,7 +496,8 @@ void RegisterModelOutputMacros(ExtensionLoader &loader) {
 		    prefix + "_glance_by", params, {{"options", "NULL"}}, GlanceSql(m),
 		    "Table macro: fits " + string(m.label) +
 		        " per group of source and returns its fit statistics in long form, one row per available metric: "
-		        "the group column, id (the group), model_id and model_name (the method), model_type, metric, value.",
+		        "the group column, id (the group), model_id and model_name (the method), model_type, metric, value." +
+		        (m.ordered ? " Rows are fitted in order_col order (the model is sequential)." : ""),
 		    prefix + "_glance_by(" + args + ")");
 		loader.RegisterFunction(*glance);
 
