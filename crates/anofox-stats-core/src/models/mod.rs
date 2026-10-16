@@ -4,6 +4,7 @@ mod aft;
 mod aid;
 mod alm;
 mod augment;
+mod bayesian;
 mod bls;
 mod eb_shrink;
 mod elasticnet;
@@ -38,6 +39,9 @@ pub use augment::{
     partial_residuals_gamma, partial_residuals_logistic, partial_residuals_negbinomial,
     partial_residuals_ols, partial_residuals_poisson, partial_residuals_tweedie,
     partial_residuals_wls, AugmentResult, PartialResidualsResult,
+};
+pub use bayesian::{
+    fit_bayesian, fit_predict_bayesian, BayesianFitResult, BayesianOptions, BayesianPredictions,
 };
 pub use bls::{fit_bls, fit_nnls};
 pub use eb_shrink::{eb_shrink, EbShrinkOptions, EbShrinkResult, ShrunkenGroup, TauMethod};

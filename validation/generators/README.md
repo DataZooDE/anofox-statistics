@@ -71,6 +71,21 @@ Requires `survival` and `lmtest`. It (re)writes:
 | `timeseries_diagnostics.test` | `acf_agg`, `pacf_agg`, `ljung_box_agg`, `box_pierce_agg`, `durbin_watson_agg`, `breusch_pagan_agg`, `white_test_agg` | `acf`, `pacf`, `Box.test`, `lmtest::dwtest` (statistic), `lmtest::bptest` |
 | `survival_curves.test` | `kaplan_meier_agg` (log / log-log / plain), `kaplan_meier_by`, `log_rank_test_agg`, `aft_survival` | `survival::survfit`, `survdiff`, `survreg` + `psurvreg` |
 
+## `make_reference_bayesian.py`
+
+```bash
+uv run --no-project --with scikit-learn python3 validation/generators/make_reference_bayesian.py
+```
+
+Requires scikit-learn >= 1.8 (earlier releases did not centre `x` in
+`predict(return_std=True)`). It (re)writes `regression_bayesian.test`:
+`bayesian_ridge_fit_agg` / `ard_fit_agg` (coefficients, intercept, noise and
+weight precisions, posterior SDs, iterations, log marginal likelihood; default,
+no-intercept, informative-prior and `threshold_lambda` fits) against
+`sklearn.linear_model.BayesianRidge` / `ARDRegression`, and the
+`*_fit_predict_agg` posterior predictive bands against `predict(X,
+return_std=True)` with normal quantiles.
+
 ## Other generators
 
 `make_reference_tests.R` / `make_reference_tests.py` produce the

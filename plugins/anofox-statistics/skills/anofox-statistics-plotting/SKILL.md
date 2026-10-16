@@ -40,7 +40,7 @@ Fit functions return STRUCTs and LISTs. For charts, the `_by` table macros retur
 | Effect across quantiles | `quantile_process_by` | `terms` (`'tau'`) | `anofox_plot_terms` |
 | Compare fit statistics (R², AIC, …) across models | `<model>_glance_by` | `summary` | `anofox_plot_summary` |
 | Residuals vs fitted, QQ, leverage, Cook's distance | `ols_augment_by`, `wls_augment_by`, `<glm>_augment_by` | `obs` | `anofox_plot_obs`, `anofox_plot_diagnostics` (plot.lm 2×2) |
-| Fitted line / band, train vs test vs future | `<model>_prediction_by` (19 models) | `prediction` | `anofox_plot_prediction` |
+| Fitted line / band, train vs test vs future | `<model>_prediction_by` (21 models) | `prediction` | `anofox_plot_prediction` |
 | Marginal effect of one feature (effect plot) | `<model>_effects_by` (`ols`, `wls`, `ridge`, six GLMs) | `prediction` | `anofox_plot_prediction` |
 | ROC / PR / calibration curve | `roc_curve_by`, `pr_curve_by`, `calibration_curve_by` | `curve` | `anofox_plot_curve` |
 | CV error over lambda (`lambda.min`, `lambda.1se`) | `ridge_cv_by`, `elasticnet_cv_by` | `curve` (`'lambda_cv'`) | `anofox_plot_curve` |

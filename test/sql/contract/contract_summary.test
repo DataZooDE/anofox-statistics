@@ -33,6 +33,8 @@ SELECT count(DISTINCT cols) FROM (
     UNION ALL SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM theil_sen_glance_by('d', g, y, [x1, x2]))
     UNION ALL SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM rls_glance_by('d', g, y, [x1, x2]))
     UNION ALL SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM lars_glance_by('d', g, y, [x1, x2]))
+    UNION ALL SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM bayesian_ridge_glance_by('d', g, y, [x1, x2]))
+    UNION ALL SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM ard_glance_by('d', g, y, [x1, x2]))
     UNION ALL SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM poisson_glance_by('d', g, cnt, [x1, x2]))
     UNION ALL SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM alm_glance_by('d', g, y, [x1, x2]))
     UNION ALL SELECT string_agg(column_name || ' ' || column_type, ', ') FROM (DESCRIBE SELECT * FROM aft_glance_by('d', g, y, [x1, x2], ev))
@@ -59,4 +61,4 @@ query I
 SELECT count(DISTINCT function_name) FROM duckdb_functions()
 WHERE function_name LIKE '%\_glance\_by' ESCAPE '\' AND tags['anofox.output'] = 'summary' AND tags['anofox.contract'] = '1'
 ----
-21
+23

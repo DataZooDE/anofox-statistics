@@ -51,6 +51,7 @@ Function names have no prefix (`ols_fit_agg`, `theil_sen_fit`, …), and model o
 | Ridge | `ridge_fit`, `ridge_fit_agg` | L2 regularization | [ridge](docs/api/regression/ridge.md) |
 | Elastic Net | `elasticnet_fit`, `elasticnet_fit_agg` | Combined L1+L2 regularization | [elasticnet](docs/api/regression/elasticnet.md) |
 | LARS / Lasso | `lars_fit_agg` | Least Angle Regression | [lars](docs/api/regression/lars.md) |
+| Bayesian Ridge / ARD | `bayesian_ridge_fit_agg`, `ard_fit_agg`, `*_fit_predict_agg` | Empirical-Bayes ridge and automatic relevance determination (scikit-learn `BayesianRidge` / `ARDRegression`): noise and weight precisions from the evidence, posterior SDs, posterior predictive intervals, ARD feature pruning | [bayesian](docs/api/regression/bayesian.md) |
 | WLS | `wls_fit`, `wls_fit_agg` | Weighted Least Squares (also takes `alias_tolerance`) | [wls](docs/api/regression/wls.md) |
 | RLS | `rls_fit`, `rls_fit_agg` | Recursive Least Squares (online) | [rls](docs/api/regression/rls.md) |
 | Huber | `huber_fit`, `huber_fit_agg` | Robust M-estimator (reports robust `scale` and `n_outliers`) | [huber](docs/api/regression/huber.md) |
@@ -90,7 +91,7 @@ Function names have no prefix (`ols_fit_agg`, `theil_sen_fit`, …), and model o
 | `tidy(model[, names])` | One row per term (intercept first, with its own inference): estimate, std. error, statistic, p-value, confidence interval — use with `unnest(..., recursive := true)` | [model_tools](docs/api/regression/model_tools.md) |
 | `glance(model)` | One-row summary with the same 19 fields for every model (`model_type`, R², log-likelihood, AIC/BIC, deviance, …; NULL where a model has no such value) | [model_tools](docs/api/regression/model_tools.md) |
 | `ols_fit_predict`, `ridge_fit_predict`, `elasticnet_fit_predict`, `wls_fit_predict`, `rls_fit_predict`, `huber_fit_predict`, `ransac_fit_predict`, `theil_sen_fit_predict` | Window aggregates (`OVER (...)`): fit on the frame and return `yhat`, `yhat_lower`, `yhat_upper` for the last row of the frame (use frames ending at `CURRENT ROW`) | [fit_predict_window](docs/api/regression/fit_predict_window.md) |
-| `ols_fit_predict_agg`, `ridge_fit_predict_agg`, `elasticnet_fit_predict_agg`, `wls_fit_predict_agg`, `rls_fit_predict_agg`, `huber_fit_predict_agg`, `ransac_fit_predict_agg`, `theil_sen_fit_predict_agg`, `bls_fit_predict_agg`, `alm_fit_predict_agg`, `poisson_fit_predict_agg`, `pls_fit_predict_agg`, `isotonic_fit_predict_agg`, `quantile_fit_predict_agg` | Fit on rows with non-NULL `y`, return a LIST of per-row predictions (`y`, `yhat`, `yhat_lower`, `yhat_upper`, `is_training`) | [fit_predict_agg](docs/api/regression/fit_predict_agg.md) |
+| `ols_fit_predict_agg`, `ridge_fit_predict_agg`, `elasticnet_fit_predict_agg`, `wls_fit_predict_agg`, `rls_fit_predict_agg`, `huber_fit_predict_agg`, `ransac_fit_predict_agg`, `theil_sen_fit_predict_agg`, `bls_fit_predict_agg`, `alm_fit_predict_agg`, `poisson_fit_predict_agg`, `pls_fit_predict_agg`, `isotonic_fit_predict_agg`, `quantile_fit_predict_agg`, `bayesian_ridge_fit_predict_agg`, `ard_fit_predict_agg` | Fit on rows with non-NULL `y`, return a LIST of per-row predictions (`y`, `yhat`, `yhat_lower`, `yhat_upper`, `is_training`) | [fit_predict_agg](docs/api/regression/fit_predict_agg.md) |
 
 ### Model Outputs per Group (long tables)
 
@@ -98,11 +99,11 @@ These table macros fit one model per group of a table and return long tables in 
 
 | Macro | Models | Returns | Docs |
 |-------|--------|---------|------|
-| `<model>_tidy_by` | 21: `ols`, `wls`, `ridge`, `elasticnet`, `lars`, `rls`, `huber`, `ransac`, `theil_sen`, `bls`, `nnls`, `pls`, `quantile`, the six GLMs, `alm`, `aft` | One row per group and term: `estimate`, `std_error`, `statistic`, `p_value`, `conf_low`, `conf_high` (`terms`) | [model_tools](docs/api/regression/model_tools.md#tidy_by-and-glance_by) |
-| `<model>_glance_by` | the same 21 | One row per group and fit statistic: `model_type`, `metric`, `value` (`summary`) | [model_tools](docs/api/regression/model_tools.md#tidy_by-and-glance_by) |
+| `<model>_tidy_by` | 23: `ols`, `wls`, `ridge`, `elasticnet`, `lars`, `bayesian_ridge`, `ard`, `rls`, `huber`, `ransac`, `theil_sen`, `bls`, `nnls`, `pls`, `quantile`, the six GLMs, `alm`, `aft` | One row per group and term: `estimate`, `std_error`, `statistic`, `p_value`, `conf_low`, `conf_high` (`terms`) | [model_tools](docs/api/regression/model_tools.md#tidy_by-and-glance_by) |
+| `<model>_glance_by` | the same 23 | One row per group and fit statistic: `model_type`, `metric`, `value` (`summary`) | [model_tools](docs/api/regression/model_tools.md#tidy_by-and-glance_by) |
 | `ols_augment_by`, `wls_augment_by`, `<glm>_augment_by` | OLS, WLS, the six GLMs | Every source row plus `fitted`, `residual`, `std_residual`, `stud_residual`, `leverage`, `cooks_d`, `dffits` (`obs`, as broom's `augment`) | [model_tools](docs/api/regression/model_tools.md#augment_by) |
 | `<model>_partial_residuals_by` | OLS, WLS, the six GLMs | Component-plus-residual (`car::crPlots`) and, for OLS/WLS, added-variable (`car::avPlots`) coordinates per row and term | [model_tools](docs/api/regression/model_tools.md#partial_residuals_by) |
-| `<model>_prediction_by` | 19 (every `*_fit_predict_by` model) | Fitted values with their band and `split` (`train` / `test` / `future`), keyed by a plot position `x_col` (`prediction`) | [model_tools](docs/api/regression/model_tools.md#prediction_by-and-effects_by) |
+| `<model>_prediction_by` | 21 (every `*_fit_predict_by` model) | Fitted values with their band and `split` (`train` / `test` / `future`), keyed by a plot position `x_col` (`prediction`) | [model_tools](docs/api/regression/model_tools.md#prediction_by-and-effects_by) |
 | `<model>_effects_by` | OLS, WLS, Ridge, the six GLMs | Marginal-effect grid over one focal feature, other features at their means, with a confidence band (`prediction`) | [model_tools](docs/api/regression/model_tools.md#prediction_by-and-effects_by) |
 | `<model>_rolling_tidy_by` | OLS, WLS, Ridge, Elastic Net, Huber, Poisson | Coefficients of every trailing window of `window_size` rows ordered by `order_col` (`terms`, `index_name = 'window_end'`) | [model_tools](docs/api/regression/model_tools.md#rolling_tidy_by) |
 | `ridge_path_by`, `elasticnet_path_by`, `lars_path_by` | — | Coefficient path per group (`terms`, `index_name = 'lambda'`; `'alpha'` for LARS) | [paths](docs/api/regression/paths.md) |
@@ -130,6 +131,7 @@ Per-group model fitting and prediction in a single call. `source` is a table nam
 | `poisson_fit_predict_by` | Poisson GLM per-group fit + predict |
 | `binomial_fit_predict_by`, `logistic_fit_predict_by`, `negbinom_fit_predict_by`, `gamma_fit_predict_by`, `tweedie_fit_predict_by` | GLM per-group fit + predict; `yhat` on the response scale, `yhat_lower`/`yhat_upper` NULL |
 | `pls_fit_predict_by` | PLS per-group fit + predict |
+| `bayesian_ridge_fit_predict_by`, `ard_fit_predict_by` | Bayesian Ridge / ARD per-group fit + predict; the band is the posterior predictive interval |
 | `isotonic_fit_predict_by` | Isotonic per-group fit + predict (single `x_col`) |
 | `quantile_fit_predict_by` | Quantile per-group fit + predict |
 | `glmm_fit_by` | One mixed model across groups; returns per-group random effects ([glmm](docs/api/glm/glmm.md)) |

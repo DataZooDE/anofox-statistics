@@ -828,6 +828,11 @@ static const vector<OptionKeyDef> &RegressionKeyTable() {
 	    {"taus", {}},
 	    {"se", {"se_type"}},
 	    {"n_boot", {}},
+	    {"alpha_1", {}},
+	    {"alpha_2", {}},
+	    {"lambda_1", {}},
+	    {"lambda_2", {}},
+	    {"threshold_lambda", {}},
 	};
 	return table;
 }
@@ -941,6 +946,16 @@ RegressionMapOptions RegressionMapOptions::ParseFromValue(const Value &map_value
 			result.max_iterations = ExtractUInt32(val);
 		} else if (key == "tolerance") {
 			result.tolerance = ExtractDouble(val);
+		} else if (key == "alpha_1") {
+			result.alpha_1 = ExtractDouble(val);
+		} else if (key == "alpha_2") {
+			result.alpha_2 = ExtractDouble(val);
+		} else if (key == "lambda_1") {
+			result.lambda_1 = ExtractDouble(val);
+		} else if (key == "lambda_2") {
+			result.lambda_2 = ExtractDouble(val);
+		} else if (key == "threshold_lambda") {
+			result.threshold_lambda = ExtractDouble(val);
 		} else if (key == "epsilon") {
 			result.epsilon = ExtractDouble(val);
 		} else if (key == "residual_threshold") {

@@ -217,6 +217,7 @@ void LoadInternal(ExtensionLoader &loader) {
     RegisterIsotonicFitPredictAggregateFunction(loader);
     RegisterQuantileFitPredictAggregateFunction(loader);
     RegisterExtraFitAggregateFunctions(loader);
+    RegisterBayesianAggregateFunctions(loader);
     RegisterPathAggregateFunctions(loader);
 
     // Register diagnostic functions

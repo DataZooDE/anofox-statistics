@@ -4,7 +4,7 @@ description: >
   Regression models and the fit / fit_agg / predict API surface of the
   anofox_statistics DuckDB extension. Covers OLS, robust estimators
   (Huber, RANSAC, Theil-Sen), penalized regression (Ridge, Elastic Net,
-  LARS), WLS, recursive least squares (RLS), bounded/non-negative LS
+  LARS), Bayesian Ridge and ARD (posterior predictive intervals), WLS, recursive least squares (RLS), bounded/non-negative LS
   (BLS/NNLS), PLS, isotonic, quantile regression with standard errors
   (se option iid / nid / boot) and the quantile process
   (quantile_process_agg), GLMs (Poisson, Binomial/Logistic, Negative
@@ -83,6 +83,7 @@ Prediction intervals (`yhat_lower`/`yhat_upper`) are leverage-aware, `yhat ± t(
 | Ridge | `ridge_fit`, `ridge_fit_agg` | L2; `alpha` (alias `lambda`), default `1.0`, must be ≥ 0. `alpha = 0` is accepted and reproduces OLS |
 | Elastic Net | `elasticnet_fit`, `elasticnet_fit_agg` | L1+L2; `alpha` (alias `lambda`, default 1.0), `l1_ratio ∈ [0,1]` (default 0.5) |
 | LARS | `lars_fit_agg` | Least Angle Regression; options `fit_intercept`, `alpha` (alias `lambda`, default 0.0); returns the 7 standard fields |
+| Bayesian Ridge / ARD | `bayesian_ridge_fit_agg`, `ard_fit_agg`, `*_fit_predict_agg`, `*_fit_predict_by` | scikit-learn `BayesianRidge` / `ARDRegression` (matches to ~1e-8): penalty from the evidence, no CV. Options `fit_intercept`, `max_iterations` (300), `tolerance` (1e-3), `alpha_1`, `alpha_2`, `lambda_1`, `lambda_2` (1e-6), ARD `threshold_lambda` (1e4). Returns `coefficients`, `intercept`, `r_squared`, `noise_precision` (sklearn `alpha_`; noise SD = 1/sqrt), `weight_precision` (BR) / `weight_precisions[]` (ARD, pruned ≥ threshold → coef exactly 0), `posterior_sd[]`, `iterations`, `log_marginal_likelihood` (BR). Inference fields and `aic`/`bic` NULL. Fit-predict bands are posterior predictive intervals at `confidence_level` |
 | BLS / NNLS | `bls_fit_agg`, `nnls_fit_agg` | Bounded (`lower_bound`, `upper_bound`) / non-negative coefficients |
 | PLS | `pls_fit_agg`, `pls_fit_predict_agg` | Partial least squares; `n_components` (1), `fit_intercept`. Returns `coefficients`, `intercept`, `r_squared`, `n_components`, `n_observations`, `n_features` |
 | Isotonic | `isotonic_fit_agg`, `isotonic_fit_predict_agg` | Monotonic regression on a single `x DOUBLE`; `increasing` (true). Returns knots `x[]`, `fitted[]`, `increasing`, `r_squared`, `n_observations`; `predict(m, [x])` interpolates, clamped at the ends |
@@ -145,6 +146,8 @@ All GLMs accept `glm_lambda` (L2 penalty), `prior` + `feature_names` (coefficien
 | `solver` | VARCHAR | `'svd'` | OLS, WLS, Ridge (`qr`/`svd`/`cholesky`) |
 | `hc_type` | VARCHAR | `'none'` | OLS, WLS robust SEs (`hc0`–`hc3`) |
 | `max_iterations`, `tolerance` | INT / DOUBLE | function-specific | iterative solvers |
+| `alpha_1`, `alpha_2`, `lambda_1`, `lambda_2` | DOUBLE | `1e-6` | Bayesian Ridge / ARD gamma priors on the noise / weight precisions (not the ridge `alpha`) |
+| `threshold_lambda` | DOUBLE | `10000` | ARD: prune a feature once its precision reaches this |
 | `epsilon` | DOUBLE | `1.35` | Huber |
 | `max_trials`, `residual_threshold`, `min_samples`, `random_state` | — | 100 / MAD / p+1 / — | RANSAC |
 | `link` / `binomial_link` | VARCHAR | `'log'` / `'logit'` | Poisson / Binomial |
@@ -177,7 +180,7 @@ for Elastic Net, LARS, RLS) and, except for Elastic Net, LARS and RLS, `ci_lower
 **AFT survival:** `coefficients`, `intercept`, `scale`, `log_likelihood`, `null_log_likelihood`, `aic`, `bic`,
 `n_observations`, `n_events`, `n_censored`, `n_features`, `iterations`, `converged`; inference as `z_values` etc.
 
-**Trailing fields on every model** (`ols`, `wls`, `ridge`, `elasticnet`, `lars`, `rls`, `huber`, `ransac`,
+**Trailing fields on every model** (`ols`, `wls`, `ridge`, `elasticnet`, `lars`, `bayesian_ridge`, `ard`, `rls`, `huber`, `ransac`,
 `theil_sen`, the GLMs, `alm`, `aft`, `glmm`, `bls`/`nnls`, `pls`, `quantile`, `isotonic`):
 `conf_low[]`, `conf_high[]`, `conf_level`, the intercept's inference `intercept_std_error`,
 `intercept_statistic`, `intercept_p_value`, `intercept_conf_low`, `intercept_conf_high`,
@@ -306,6 +309,18 @@ SELECT unnest(aft_survival(m, [1.0], [1.0, 5.0, 10.0]), recursive := true)
 FROM (SELECT aft_fit_agg(t, [x], event, {'distribution': 'weibull'}) AS m
       FROM (VALUES (2.0, 0.0, 1.0), (3.0, 1.0, 1.0), (5.0, 0.0, 0.0), (7.0, 1.0, 1.0), (4.0, 1.0, 1.0),
                    (9.0, 0.0, 1.0), (6.0, 1.0, 0.0), (8.0, 0.0, 1.0), (3.5, 1.0, 1.0), (10.0, 0.0, 0.0)) d(t, x, event));
+```
+
+```sql
+-- Bayesian Ridge: data-driven penalty, posterior SDs, posterior predictive band.
+-- ARD prunes x3 (coefficient exactly 0).
+CREATE TABLE bayes AS SELECT sin(i * 0.37) AS x1, cos(i * 0.11) AS x2, ((i * 13) % 17) / 17.0 AS x3,
+  1 + 2 * sin(i * 0.37) - cos(i * 0.11) + 0.2 * sin(i * 1.7) AS y FROM range(1, 101) t(i);
+SELECT round(1 / sqrt(m.noise_precision), 3) AS noise_sd, m.posterior_sd
+FROM (SELECT bayesian_ridge_fit_agg(y, [x1, x2, x3]) AS m FROM bayes);
+SELECT (ard_fit_agg(y, [x1, x2, x3])).coefficients FROM bayes;
+SELECT p.yhat, p.yhat_lower, p.yhat_upper
+FROM (SELECT unnest(bayesian_ridge_fit_predict_agg(y, [x1, x2, x3], {'confidence_level': 0.9})) AS p FROM bayes) LIMIT 3;
 ```
 
 ```sql skip

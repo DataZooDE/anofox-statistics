@@ -12,6 +12,23 @@ Breaking changes are called out explicitly.
 
 ### Added
 
+- Bayesian Ridge and ARD regression (#61), scikit-learn's `BayesianRidge` /
+  `ARDRegression` from anofox-regression 0.5.29 (results agree with scikit-learn
+  1.9.1 to about 1e-8): `bayesian_ridge_fit_agg`, `ard_fit_agg`,
+  `bayesian_ridge_fit_predict_agg`, `ard_fit_predict_agg`,
+  `bayesian_ridge_fit_predict_by`, `ard_fit_predict_by` and the contract
+  producers `bayesian_ridge_` / `ard_tidy_by`, `_glance_by` and `_prediction_by`.
+  The noise precision, weight precision(s) (`alpha_`, `lambda_`) and the penalty
+  are estimated from the evidence; the model STRUCT has `noise_precision`,
+  `weight_precision` (ARD: `weight_precisions[]`, pruned features at or above
+  `threshold_lambda` get a coefficient of exactly 0), `posterior_sd[]`,
+  `iterations` and, for Bayesian Ridge, `log_marginal_likelihood`; the
+  frequentist inference fields and `log_likelihood` / `aic` / `bic` are NULL.
+  The fit-predict bands are posterior predictive intervals at
+  `confidence_level` (scikit-learn's `predict(return_std=True)`), with no
+  bootstrap. Options: `fit_intercept`, `max_iterations`, `tolerance`,
+  `alpha_1`, `alpha_2`, `lambda_1`, `lambda_2`, `threshold_lambda` (ARD).
+  See [docs/api/regression/bayesian.md](docs/api/regression/bayesian.md).
 - `<model>_effects_by` returns `focal_name VARCHAR` (last column), the name of the
   focal feature, for labelling marginal-effect plots (#197). It is `names[focal]`
   with the new `names := [...]` parameter (as `<model>_tidy_by`), else

@@ -52,6 +52,8 @@ const PredictionModel PREDICTION_MODELS[] = {
     {"theil_sen", "a Theil-Sen regression", nullptr, true, false},
     {"rls", "a recursive least squares regression", nullptr, true, false},
     {"bls", "a bounded least squares regression", nullptr, true, false},
+    {"bayesian_ridge", "a Bayesian Ridge regression", nullptr, true, false},
+    {"ard", "an ARD (automatic relevance determination) regression", nullptr, true, false},
     {"pls", "a partial least squares regression", nullptr, true, false, false},
     {"quantile", "a quantile regression", nullptr, true, false, false},
     {"alm", "an augmented linear model (ALM)", nullptr, true, false},

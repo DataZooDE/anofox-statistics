@@ -3156,6 +3156,67 @@ void anofox_free_classifier_curve(AnofoxClassifierCurve *result);
 bool anofox_classifier_metric(AnofoxClassifierMetric metric, AnofoxDataArray scores, AnofoxDataArray labels,
                               double *out_value, AnofoxError *out_error);
 
+/* ============================================================================
+ * Bayesian Ridge and ARD regression -- issue #61
+ * (crates/anofox-stats-ffi/src/models_ffi.rs)
+ * ============================================================================ */
+
+/** Options of scikit-learn's BayesianRidge / ARDRegression. */
+typedef struct {
+	bool fit_intercept;
+	uint32_t max_iterations;
+	double tolerance;
+	/** Gamma-prior shape / rate of the noise precision. */
+	double alpha_1;
+	double alpha_2;
+	/** Gamma-prior shape / rate of the weight precision(s). */
+	double lambda_1;
+	double lambda_2;
+	/** ARD only: features whose precision reaches this value are pruned. */
+	double threshold_lambda;
+} AnofoxBayesianOptions;
+
+/**
+ * A fitted Bayesian Ridge / ARD model. coefficients and posterior_sd have
+ * coefficients_len entries; weight_precisions (ARD) has weight_precisions_len
+ * (0 and NULL for Bayesian Ridge). Must match BayesianFitResultFFI.
+ */
+typedef struct {
+	double intercept;
+	double r_squared;
+	/** Noise precision (sklearn alpha_). */
+	double noise_precision;
+	/** Weight precision (sklearn lambda_); NaN for ARD. */
+	double weight_precision;
+	/** Log marginal likelihood (evidence); NaN for ARD. */
+	double log_marginal_likelihood;
+	double *coefficients;
+	double *posterior_sd;
+	double *weight_precisions;
+	size_t coefficients_len;
+	size_t weight_precisions_len;
+	size_t n_observations;
+	size_t n_features;
+	size_t iterations;
+	AnofoxModelSummaryFFI summary;
+} AnofoxBayesianFitResult;
+
+/** Fit Bayesian Ridge (ard = false) or ARD (ard = true) on the complete rows of (y, x). */
+bool anofox_bayesian_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, AnofoxBayesianOptions options,
+                         bool ard, AnofoxBayesianFitResult *out, AnofoxError *out_error);
+
+/**
+ * Fit on the complete rows of (y, x) and predict the n_new rows of x_new
+ * (row-major, x_count columns) with posterior predictive intervals at level;
+ * rows with a non-finite value predict NaN. The outputs hold n_new doubles each.
+ */
+bool anofox_bayesian_fit_predict(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, const double *x_new,
+                                 size_t n_new, AnofoxBayesianOptions options, bool ard, double level,
+                                 double *out_yhat, double *out_lower, double *out_upper, AnofoxError *out_error);
+
+/** Free the arrays of a Bayesian fit result. */
+void anofox_free_bayesian_result(AnofoxBayesianFitResult *result);
+
 #ifdef __cplusplus
 }
 #endif

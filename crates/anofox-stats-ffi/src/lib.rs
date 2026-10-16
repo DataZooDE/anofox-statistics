@@ -3,12 +3,14 @@
 //! This crate provides C-compatible functions for calling from the C++ DuckDB extension layer.
 
 mod inference_ffi;
+mod models_ffi;
 mod types;
 
 #[cfg(test)]
 mod tests;
 
 pub use inference_ffi::*;
+pub use models_ffi::*;
 pub use types::*;
 
 use anofox_stats_core::tests::classification;
