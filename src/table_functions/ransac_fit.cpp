@@ -153,6 +153,9 @@ static void RansacFitFunctionImpl(DataChunk &args, ExpressionState &state, Vecto
 static void RansacFitFunction(DataChunk &args, ExpressionState &state, Vector &result) {
 	// Check before the call: implementations may Flatten() args in place.
 	const bool all_constant = args.AllConstant();
+	// The implementation reads list arguments by row index; flatten constant and
+	// dictionary inputs first so every row has its own entry (#210).
+	args.Flatten();
 	RansacFitFunctionImpl(args, state, result);
 	if (all_constant) {
 		result.SetVectorType(VectorType::CONSTANT_VECTOR);
