@@ -155,12 +155,17 @@ static std::optional<NullPolicy> ExtractNullPolicy(const Value &val) {
 		return std::nullopt;
 	}
 	string str = ToLower(StringValue::Get(val));
-	if (str == "drop") {
+	// 'ignore' (no handling, nulls already removed upstream) is an alias for 'drop':
+	// a NULL can never reach the solver, so skipping such rows is the least handling possible.
+	if (str == "drop" || str == "ignore") {
 		return NullPolicy::DROP;
 	} else if (str == "drop_y_zero_x") {
 		return NullPolicy::DROP_Y_ZERO_X;
+	} else if (str == "zero") {
+		return NullPolicy::ZERO;
 	} else {
-		throw InvalidInputException("Invalid null_policy: '%s'. Valid values are 'drop', 'drop_y_zero_x'", str);
+		throw InvalidInputException(
+		    "Invalid null_policy: '%s'. Valid values are 'drop', 'drop_y_zero_x', 'zero', 'ignore'", str);
 	}
 }
 

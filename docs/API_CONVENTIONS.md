@@ -135,7 +135,7 @@ The table lists the most common keys; each reference page in [docs/api/](api/) l
 | `prior`, `feature_names` | MAP / LIST | — | GLMs | Coefficient priors, see [api/glm/priors.md](api/glm/priors.md) |
 | `family` | VARCHAR | `'gaussian'` | GLMM only | `'gaussian'`, `'poisson'`, `'binomial'`, `'negbinomial'`, `'gamma'`, `'tweedie'` |
 | `distribution` (`dist`) | VARCHAR | model-specific | ALM, AFT | Error / survival distribution |
-| `null_policy` | VARCHAR | `'drop'` | `*_fit_predict`, `*_fit_predict_agg` | `'drop'` or `'drop_y_zero_x'`, see [NULL_SEMANTICS.md](NULL_SEMANTICS.md) |
+| `null_policy` | VARCHAR | `'drop'` | `*_fit_predict`, `*_fit_predict_agg` | `'drop'`, `'drop_y_zero_x'`, `'zero'` or `'ignore'`, see [NULL_SEMANTICS.md](NULL_SEMANTICS.md) |
 
 There is no `family` key for the single-family GLM aggregates: the family is chosen by the function (`poisson_fit_agg`, `binomial_fit_agg`, `negbinom_fit_agg`, `gamma_fit_agg`, `tweedie_fit_agg`, `logistic_fit_agg`). WLS weights are a positional argument (`wls_fit_agg(y, x, weight)`), and the `wls_fit_predict_by` macro takes a `weight_col` argument; neither is an option key. Prediction intervals from the fit-predict functions always use `confidence_level`; there is no `interval_type` option.
 

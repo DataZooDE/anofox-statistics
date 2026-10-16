@@ -69,6 +69,7 @@ LIMIT 3;
 | `fit_intercept` | BOOLEAN | `true` | Learn an intercept |
 | `max_iterations` (alias `max_iter`) | INTEGER | `1` | Passes over the rows; 1 is the online update, more passes use scikit-learn's early stopping |
 | `tolerance` (alias `tol`) | DOUBLE | `0.001` | Early-stopping tolerance of multi-pass fits |
+| `null_policy` | VARCHAR | `'drop'` | `*_fit_predict_agg` / `_by` only: `'drop'`, `'drop_y_zero_x'`, `'zero'` or `'ignore'`, see [null_policy](fit_predict_agg.md#null_policy) |
 
 The model STRUCT has `coefficients`, `intercept`, `r_squared`,
 `n_observations`, `n_features` and `iterations` (passes run), then the
@@ -104,6 +105,7 @@ LIMIT 6;
 | `ic` (alias `information_criterion`) | VARCHAR | `'aicc'` | Pointwise criterion that weights the subsets: `'aic'`, `'aicc'`, `'bic'` |
 | `span` (aliases `lowess_span`, `f`) | DOUBLE | `0.3` | LOWESS span smoothing the weights over time (greybox's `f`); `0` = no smoothing |
 | `fit_intercept` | BOOLEAN | `true` | Include an intercept in every candidate |
+| `null_policy` | VARCHAR | `'drop'` | `*_fit_predict_agg` / `_by` only: `'drop'`, `'drop_y_zero_x'`, `'zero'` or `'ignore'`, see [null_policy](fit_predict_agg.md#null_policy) |
 
 All `2^p` subsets of the regressors are fitted (greybox's `bruteforce`), so at
 most 14 regressors are accepted. The normal distribution is used (greybox's

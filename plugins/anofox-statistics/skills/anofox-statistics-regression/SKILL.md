@@ -159,7 +159,7 @@ All GLMs accept `glm_lambda` (L2 penalty), `prior` + `feature_names` (coefficien
 | `power` | DOUBLE | `1.5` | Tweedie |
 | `family` | VARCHAR | `'gaussian'` | GLMM only |
 | `distribution` | VARCHAR | — | ALM, AFT |
-| `null_policy` | VARCHAR | `'drop'` | `*_fit_predict`, `*_fit_predict_agg` (`'drop'` / `'drop_y_zero_x'`) |
+| `null_policy` | VARCHAR | `'drop'` | `*_fit_predict`, `*_fit_predict_agg` (`'drop'` / `'drop_y_zero_x'` / `'zero'` / `'ignore'`; `'zero'` fits NULL `y`/`x` as 0, `'ignore'` = `'drop'`) |
 | `alias_tolerance` | DOUBLE | `1e-7` | OLS / WLS (`*_fit`, `*_fit_agg`, `*_fit_predict_agg`, `*_fit_predict`): collinearity tolerance (R `lm`'s `tol`); not accepted by Ridge etc. |
 | `se`, `n_boot`, `seed` | VARCHAR / INT / BIGINT | — / 200 / 42 | Quantile inference (`'iid'`/`'nid'`/`'boot'`) |
 

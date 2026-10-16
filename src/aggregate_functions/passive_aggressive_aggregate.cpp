@@ -49,13 +49,19 @@ struct PaBindData : public FitPredictRowsBindBase {
 		return options.fit_intercept == o.options.fit_intercept && options.squared_loss == o.options.squared_loss &&
 		       options.max_epochs == o.options.max_epochs && options.c == o.options.c &&
 		       options.epsilon == o.options.epsilon && options.tolerance == o.options.tolerance &&
-		       use_split_col == o.use_split_col;
+		       use_split_col == o.use_split_col && null_policy == o.null_policy;
 	}
 };
 
 void ParsePaOptions(ClientContext &context, Expression &expr, PaBindData &bind, const string &name) {
-	auto opts = RegressionMapOptions::ParseFromExpression(
-	    context, expr, name, {"fit_intercept", "c", "epsilon", "variant", "max_iterations", "tolerance"});
+	vector<string> keys = {"fit_intercept", "c", "epsilon", "variant", "max_iterations", "tolerance"};
+	if (name == kFitPredictName) {
+		keys.push_back("null_policy");
+	}
+	auto opts = RegressionMapOptions::ParseFromExpression(context, expr, name, keys);
+	if (opts.null_policy.has_value()) {
+		bind.null_policy = opts.null_policy.value();
+	}
 	auto &o = bind.options;
 	if (opts.fit_intercept.has_value()) {
 		o.fit_intercept = opts.fit_intercept.value();

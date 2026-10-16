@@ -62,6 +62,28 @@ Breaking changes are called out explicitly.
   Bonferroni-adjusted otherwise, as `emmeans::confint(pairs(...), adjust = )`.
   New option `confidence_level` (default 0.95). Validated against `emmeans` and
   `t.test` (anofox-statistics 0.4.10).
+- `null_policy` accepts `'zero'` and `'ignore'` (#8), in every function that reads
+  it: the `*_fit_predict_agg` aggregates and `*_fit_predict_by` macros (OLS, Ridge,
+  WLS, RLS, Elastic Net, Huber, RANSAC, Theil-Sen, BLS, ALM, Poisson, Bayesian Ridge,
+  ARD, Passive-Aggressive, lmDynamic), the window
+  `*_fit_predict` functions and `ols_augment_agg` / `wls_augment_agg`. `'zero'` fits
+  a NULL `y` or a NULL element of `x` as 0, the same result as fitting
+  `COALESCE(..., 0)`-filled input. A NULL `y` then no longer marks a row to predict,
+  so use a split column to hold out future rows. A NULL `x` list and `NaN` values
+  are not filled. `'ignore'` is an alias for `'drop'`, for input with no NULLs. See
+  `docs/NULL_SEMANTICS.md`. `passive_aggressive_fit_predict_agg` and
+  `lm_dynamic_fit_predict_agg` now accept `null_policy`. The `*_fit_predict_by`
+  macros now pass `split :=` to the aggregate's split argument instead of NULLing `y`
+  for held-out rows (`ols_augment_by` / `wls_augment_by` pass NaN), so held-out rows
+  stay out of the fit under `'zero'`. Results under the other policies are unchanged.
+- Docs: "Fit per series, score new rows per series" in
+  `docs/api/regression/model_tools.md` and the batch skill shows two ways to score new
+  rows with per-series models: `*_fit_predict_by` with a NULL `y`, or a `GROUP BY` fit
+  table joined to the new rows with `predict(model, x)`, and what INNER, LEFT and FULL
+  joins do with series missing on one side (#7).
+- Docs: `docs/api/aid/aid.md` and the diagnostics skill recommend unnesting
+  `aid_anomaly_agg` once in a subquery and then reading the struct fields, instead
+  of repeating `(unnest(flags)).field`, which has crashed some ADBC clients (#27).
 
 ### Changed
 

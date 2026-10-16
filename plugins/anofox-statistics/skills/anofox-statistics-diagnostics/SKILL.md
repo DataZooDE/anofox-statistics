@@ -152,4 +152,20 @@ FROM (SELECT 'sku' || (i % 2) AS sku,
              CASE WHEN i % 2 = 0 THEN 10.0 + (i % 4) WHEN i % 5 = 0 THEN 3.0 ELSE 0.0 END AS demand
       FROM range(1, 61) t(i))
 GROUP BY sku ORDER BY sku;
+
+-- AID per-observation flags: unnest ONCE in a subquery, then read the struct fields
+SELECT sku, t, flag.stockout, flag.high_outlier
+FROM (SELECT sku,
+             unnest(list(t ORDER BY t))                 AS t,
+             unnest(aid_anomaly_agg(demand ORDER BY t)) AS flag
+      FROM (SELECT 'sku' || (i % 2) AS sku, i AS t,
+                   CASE WHEN i % 2 = 0 THEN 10.0 + (i % 4) WHEN i = 7 THEN 0.0 ELSE 5.0 END AS demand
+            FROM range(1, 41) t(i))
+      GROUP BY sku)
+WHERE flag.stockout OR flag.high_outlier
+ORDER BY sku, t;
 ```
+
+Read `aid_anomaly_agg` results with the subquery pattern above (or use `aid_anomaly_by`),
+not with one `(unnest(flags)).field` per field in the same `SELECT`: that form has
+crashed or returned corrupted results in some ADBC-based clients (e.g. Bruin).

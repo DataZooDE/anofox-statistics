@@ -96,6 +96,26 @@ ORDER BY category, units
 LIMIT 5;
 ```
 
+**Scoring new rows per series** (a forecast horizon, a test set): either stack the
+new rows into the source with a NULL `y` and read the rows with `is_training IS NOT TRUE`
+from `*_fit_predict_by` (a series without history has NULL `is_training` and `yhat`), or keep a fit table
+(`SELECT id, ols_fit_agg(y, [x1, x2]) AS model FROM history GROUP BY id`) and score with
+`new_rows LEFT JOIN models USING (id)` plus `predict(model, [x1, x2])`. A series with new
+rows but no model gets a NULL `yhat` (with an INNER JOIN it is dropped); a series with a
+model but no new rows produces no rows.
+
+```sql
+CREATE OR REPLACE TABLE sales_models AS
+SELECT category, ols_fit_agg(revenue, [units, price]) AS model
+FROM sales
+GROUP BY category;
+
+SELECT n.category, n.units, round(predict(m.model, [n.units, n.price]), 2) AS yhat
+FROM (VALUES ('A', 41.0, 1.0), ('B', 42.0, 2.0), ('Z', 43.0, 3.0)) n(category, units, price)
+LEFT JOIN sales_models m USING (category)   -- 'Z' has no model: yhat is NULL
+ORDER BY n.category;
+```
+
 ## Pattern 1b — per-group long tables (`_tidy_by`, `_glance_by`, `_augment_by`, `_prediction_by`, …)
 
 When you want a **report table** per group instead of predictions, use the output macros. They share the `*_fit_predict_by` call shape (`source` is a table-name string, columns unquoted) and return long tables with fixed columns (the integration contract schemas — see **anofox-statistics-plotting**). Every table starts with the group column, `id` (the group as VARCHAR), `model_id` and `model_name` (the method: `'ols'`, `'poisson'`, …), so tables of several models stack with `UNION ALL BY NAME`. `_augment_by` is the exception: it keeps all source columns and adds `model_id` / `model_name` but no `id`. (The curve and test macros below, whose groups are what is compared, set `model_id` to the group value instead.)

@@ -474,6 +474,102 @@ ORDER BY grp, row_id
 LIMIT 5;
 ```
 
+## Fit per series, score new rows per series
+
+A common task is to fit one model per series (`unique_id`) on history and then
+score new rows, such as a forecast horizon, with each series' own model. The
+two sides rarely hold the same series. A series can have history but no new
+rows, or new rows but no history. There are two ways to do this.
+
+The examples use three series with history (`A`, `B`, `C`) and new rows for
+`A`, `B` and `D`:
+
+```sql
+CREATE OR REPLACE TABLE series_history AS
+SELECT s.unique_id, i AS t, i::DOUBLE AS trend, (i % 3)::DOUBLE AS promo,
+       s.base + 0.8 * i + 2.0 * (i % 3) + sin(i) AS y
+FROM (VALUES ('A', 10.0), ('B', 20.0), ('C', 30.0)) s(unique_id, base), range(1, 21) r(i);
+
+CREATE OR REPLACE TABLE series_new AS
+SELECT s.unique_id, i AS t, i::DOUBLE AS trend, (i % 3)::DOUBLE AS promo
+FROM (VALUES ('A'), ('B'), ('D')) s(unique_id), range(21, 25) r(i);
+```
+
+**1. One table, `y` NULL for the new rows, `<model>_fit_predict_by`.** Stack
+history and new rows, with a NULL `y` for the new rows. The macro fits each
+series on its rows with a `y` and predicts every row of that series. The new
+rows come back with `is_training = false`. The same input works with
+`<model>_prediction_by`, which labels these rows `split = 'future'` for plotting.
+
+```sql
+CREATE OR REPLACE VIEW series_all AS
+SELECT unique_id, t, trend, promo, y FROM series_history
+UNION ALL
+SELECT unique_id, t, trend, promo, NULL::DOUBLE FROM series_new;
+
+SELECT unique_id, t, round(yhat, 2) AS yhat,
+       round(yhat_lower, 2) AS yhat_lower, round(yhat_upper, 2) AS yhat_upper
+FROM ols_fit_predict_by('series_all', unique_id, y, [trend, promo], order_by := t)
+WHERE is_training IS NOT TRUE
+ORDER BY unique_id, t;
+```
+
+Each series is fitted on its own rows only, so:
+
+- `C` (history, no new rows) has no rows with `is_training = false`;
+- `D` (new rows, no history) has no training rows, so its fit fails. Its rows are
+  returned with `yhat`, `yhat_lower`, `yhat_upper` and `is_training` all NULL, which
+  is why the filter is `is_training IS NOT TRUE` and not `NOT is_training`.
+
+**2. A fit table, joined to the new rows, `predict(model, x)`.** Fit once per
+series with `GROUP BY` and keep the models in a table. Then join the new rows
+to it on the series column and call the model-aware
+[`predict`](#predict) on each row. This also scores rows that arrive later
+without refitting.
+
+```sql
+CREATE OR REPLACE TABLE series_models AS
+SELECT unique_id, ols_fit_agg(y, [trend, promo], {'compute_inference': true}) AS model
+FROM series_history
+GROUP BY unique_id;
+
+-- INNER JOIN: only series with both a model and new rows (A, B)
+SELECT n.unique_id, n.t, round(predict(m.model, [n.trend, n.promo]), 2) AS yhat
+FROM series_new n
+JOIN series_models m USING (unique_id)
+ORDER BY n.unique_id, n.t;
+```
+
+The join decides what happens to series that are missing on one side:
+
+| Join | Series with new rows but no model (`D`) | Series with a model but no new rows (`C`) |
+|------|------------------------------------------|-------------------------------------------|
+| `series_new JOIN series_models` | dropped | dropped |
+| `series_new LEFT JOIN series_models` | kept, `yhat` is NULL | dropped |
+| `series_new FULL JOIN series_models` | kept, `yhat` is NULL | one row with NULL features and a NULL `yhat` |
+
+A `LEFT JOIN` from the new rows keeps every row that has to be scored and makes
+a missing model visible as a NULL `yhat`, because `predict` of a NULL model is
+NULL. For an interval (the model needs `compute_inference`, as in the fit table
+above), call `predict` once in a subquery and read the fields from the returned
+struct:
+
+```sql
+SELECT unique_id, t, round(p.yhat, 2) AS yhat,
+       round(p.yhat_lower, 2) AS yhat_lower, round(p.yhat_upper, 2) AS yhat_upper
+FROM (
+    SELECT n.unique_id, n.t,
+           predict(m.model, [n.trend, n.promo], {'interval': 'prediction'}) AS p
+    FROM series_new n
+    LEFT JOIN series_models m USING (unique_id)
+)
+ORDER BY unique_id, t;
+```
+
+Both ways give the same predictions for `A` and `B`. Use way 1 when history and
+new rows are scored in one pass. Use way 2 to keep the models, to inspect them
+with [`tidy`](#tidy) / [`glance`](#glance), or to score new rows later.
+
 ## See Also
 
 - [Window fit-predict](fit_predict_window.md) - predictions per window frame

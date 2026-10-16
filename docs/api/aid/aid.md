@@ -252,6 +252,35 @@ WHERE result.has_stockouts
 ORDER BY result.stockout_count DESC;
 ```
 
+**Reading the flags (recommended pattern):** unnest the list **once** in a
+subquery, give the struct a name, and read its fields in the outer query. To keep
+each flag next to its row, unnest a list of the order column in the same
+subquery. Two `unnest` calls in one `SELECT` are zipped element by element.
+
+```sql
+SELECT sku, period,
+       CASE WHEN flag.stockout THEN 1.0 ELSE 0.0 END     AS is_stockout,
+       CASE WHEN flag.new_product THEN 1.0 ELSE 0.0 END  AS is_new_product,
+       CASE WHEN flag.high_outlier THEN 1.0 ELSE 0.0 END AS is_high_outlier
+FROM (
+    SELECT sku,
+           unnest(list(period ORDER BY period))            AS period,
+           unnest(aid_anomaly_agg(demand ORDER BY period)) AS flag
+    FROM sales
+    GROUP BY sku
+)
+WHERE flag.stockout OR flag.high_outlier
+ORDER BY sku, period;
+```
+
+Avoid repeating `(unnest(flags)).field` once per field in the same `SELECT`, as in
+`CASE WHEN (unnest(flags)).stockout ...`, `CASE WHEN (unnest(flags)).new_product ...`.
+The DuckDB CLI accepts it, but some clients that run queries through ADBC, such as
+Bruin, have crashed or returned corrupted results on it (#27). The subquery form
+unnests once and works in every client. [`aid_anomaly_by`](#aid_anomaly_by)
+returns the flags already joined to the source rows and avoids the unnest
+altogether.
+
 ---
 
 ## NULL Handling

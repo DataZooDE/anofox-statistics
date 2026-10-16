@@ -1750,6 +1750,13 @@ Used by the window and fit-predict functions.
 |-------|---------------|-------------|
 | `'drop'` (default) | Rows where `y` is not `NULL` | Every row |
 | `'drop_y_zero_x'` | Rows where `y` is not `NULL` and no feature is 0 | Every row |
+| `'zero'` | Every row; a `NULL` `y` or `NULL` feature is fitted as 0 | Every row; a `NULL` feature counts as 0 |
+| `'ignore'` | Same as `'drop'` (alias for input with no `NULL`s) | Every row |
+
+Under `'zero'`, a `NULL` `y` no longer marks a row to predict, so every row is a
+training row; use a `split_col` to keep future rows out of the fit. A `NULL` `x`
+list and `NaN` values are not zero-filled. See
+[NULL_SEMANTICS.md](NULL_SEMANTICS.md#the-null_policy-option).
 
 ### solver
 

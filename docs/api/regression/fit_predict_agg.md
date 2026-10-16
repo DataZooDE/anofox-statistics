@@ -103,6 +103,12 @@ support raise an error.
 |-------|---------------|----------------|
 | `'drop'` (default) | `y` is not NULL | all rows |
 | `'drop_y_zero_x'` | `y` is not NULL and no feature equals 0 | all rows |
+| `'zero'` | all rows: a NULL `y` or NULL feature is fitted as 0 | all rows (a NULL feature counts as 0) |
+| `'ignore'` | same as `'drop'` (alias for input with no NULLs) | all rows |
+
+Under `'zero'`, a NULL `y` no longer marks a row to predict: every row is a
+training row. Use the `split_col` variant to keep future rows out of the fit.
+See [NULL_SEMANTICS.md](../../NULL_SEMANTICS.md#the-null_policy-option).
 
 ## Examples
 

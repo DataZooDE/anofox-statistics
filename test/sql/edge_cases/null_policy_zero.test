@@ -1,0 +1,380 @@
+# name: test/sql/edge_cases/null_policy_zero.test
+# description: null_policy 'zero' fits a NULL y or NULL x element as 0, which must equal
+#              fitting the explicitly COALESCE(..., 0)-filled data; 'ignore' is an alias for
+#              'drop' (#8). Covers every function that accepts null_policy.
+# group: [edge_cases]
+
+require anofox_statistics
+
+# NULL y at t = 5, 17 (and the 'test' rows 28-30); NULL x2 at t = 9, 23, 29.
+statement ok
+CREATE TABLE nz AS
+SELECT t, 'a' AS g,
+       CASE WHEN t IN (5, 17) OR t >= 28 THEN NULL ELSE 2.0 + 0.5 * t + 0.3 * ((t * 7) % 11) + sin(t) END AS y,
+       CASE WHEN t IN (5, 17) OR t >= 28 THEN NULL ELSE round(exp(0.5 + 0.05 * t)) END::DOUBLE AS y_cnt,
+       t::DOUBLE AS x1,
+       CASE WHEN t IN (9, 23, 29) THEN NULL ELSE ((t * 7) % 11)::DOUBLE END AS x2,
+       (1.0 + t % 3)::DOUBLE AS w,
+       CASE WHEN t <= 27 THEN 'train' ELSE 'test' END AS split
+FROM range(1, 31) r(t);
+
+statement ok
+CREATE VIEW nz_filled AS
+SELECT t, g, coalesce(y, 0.0) AS y, coalesce(y_cnt, 0.0) AS y_cnt, x1, coalesce(x2, 0.0) AS x2, w, split FROM nz;
+
+# =============================================================================
+# *_fit_predict_agg: 'zero' == fitting the zero-filled data (no split column, so every
+# row trains), and with a split column (the 'test' rows are predicted, not trained on)
+# =============================================================================
+
+query II
+SELECT
+    (SELECT ols_fit_predict_agg(y, [x1, x2], {'null_policy': 'zero'} ORDER BY t) FROM nz)
+  = (SELECT ols_fit_predict_agg(y, [x1, x2] ORDER BY t) FROM nz_filled),
+    (SELECT ols_fit_predict_agg(y, [x1, x2], split, {'null_policy': 'zero'} ORDER BY t) FROM nz)
+  = (SELECT ols_fit_predict_agg(y, [x1, x2], split ORDER BY t) FROM nz_filled);
+----
+true	true
+
+query II
+SELECT
+    (SELECT ridge_fit_predict_agg(y, [x1, x2], {'null_policy': 'zero'} ORDER BY t) FROM nz)
+  = (SELECT ridge_fit_predict_agg(y, [x1, x2] ORDER BY t) FROM nz_filled),
+    (SELECT ridge_fit_predict_agg(y, [x1, x2], split, {'null_policy': 'zero'} ORDER BY t) FROM nz)
+  = (SELECT ridge_fit_predict_agg(y, [x1, x2], split ORDER BY t) FROM nz_filled);
+----
+true	true
+
+query II
+SELECT
+    (SELECT elasticnet_fit_predict_agg(y, [x1, x2], {'null_policy': 'zero'} ORDER BY t) FROM nz)
+  = (SELECT elasticnet_fit_predict_agg(y, [x1, x2] ORDER BY t) FROM nz_filled),
+    (SELECT elasticnet_fit_predict_agg(y, [x1, x2], split, {'null_policy': 'zero'} ORDER BY t) FROM nz)
+  = (SELECT elasticnet_fit_predict_agg(y, [x1, x2], split ORDER BY t) FROM nz_filled);
+----
+true	true
+
+query II
+SELECT
+    (SELECT huber_fit_predict_agg(y, [x1, x2], {'null_policy': 'zero'} ORDER BY t) FROM nz)
+  = (SELECT huber_fit_predict_agg(y, [x1, x2] ORDER BY t) FROM nz_filled),
+    (SELECT huber_fit_predict_agg(y, [x1, x2], split, {'null_policy': 'zero'} ORDER BY t) FROM nz)
+  = (SELECT huber_fit_predict_agg(y, [x1, x2], split ORDER BY t) FROM nz_filled);
+----
+true	true
+
+query II
+SELECT
+    (SELECT ransac_fit_predict_agg(y, [x1, x2], {'null_policy': 'zero'} ORDER BY t) FROM nz)
+  = (SELECT ransac_fit_predict_agg(y, [x1, x2] ORDER BY t) FROM nz_filled),
+    (SELECT ransac_fit_predict_agg(y, [x1, x2], split, {'null_policy': 'zero'} ORDER BY t) FROM nz)
+  = (SELECT ransac_fit_predict_agg(y, [x1, x2], split ORDER BY t) FROM nz_filled);
+----
+true	true
+
+query II
+SELECT
+    (SELECT theil_sen_fit_predict_agg(y, [x1, x2], {'null_policy': 'zero'} ORDER BY t) FROM nz)
+  = (SELECT theil_sen_fit_predict_agg(y, [x1, x2] ORDER BY t) FROM nz_filled),
+    (SELECT theil_sen_fit_predict_agg(y, [x1, x2], split, {'null_policy': 'zero'} ORDER BY t) FROM nz)
+  = (SELECT theil_sen_fit_predict_agg(y, [x1, x2], split ORDER BY t) FROM nz_filled);
+----
+true	true
+
+query II
+SELECT
+    (SELECT rls_fit_predict_agg(y, [x1, x2], {'null_policy': 'zero'} ORDER BY t) FROM nz)
+  = (SELECT rls_fit_predict_agg(y, [x1, x2] ORDER BY t) FROM nz_filled),
+    (SELECT rls_fit_predict_agg(y, [x1, x2], split, {'null_policy': 'zero'} ORDER BY t) FROM nz)
+  = (SELECT rls_fit_predict_agg(y, [x1, x2], split ORDER BY t) FROM nz_filled);
+----
+true	true
+
+query II
+SELECT
+    (SELECT bls_fit_predict_agg(y, [x1, x2], {'null_policy': 'zero'} ORDER BY t) FROM nz)
+  = (SELECT bls_fit_predict_agg(y, [x1, x2] ORDER BY t) FROM nz_filled),
+    (SELECT bls_fit_predict_agg(y, [x1, x2], split, {'null_policy': 'zero'} ORDER BY t) FROM nz)
+  = (SELECT bls_fit_predict_agg(y, [x1, x2], split ORDER BY t) FROM nz_filled);
+----
+true	true
+
+query II
+SELECT
+    (SELECT alm_fit_predict_agg(y, [x1, x2], {'null_policy': 'zero'} ORDER BY t) FROM nz)
+  = (SELECT alm_fit_predict_agg(y, [x1, x2] ORDER BY t) FROM nz_filled),
+    (SELECT alm_fit_predict_agg(y, [x1, x2], split, {'null_policy': 'zero'} ORDER BY t) FROM nz)
+  = (SELECT alm_fit_predict_agg(y, [x1, x2], split ORDER BY t) FROM nz_filled);
+----
+true	true
+
+query II
+SELECT
+    (SELECT poisson_fit_predict_agg(y_cnt, [x1, x2], {'null_policy': 'zero'} ORDER BY t) FROM nz)
+  = (SELECT poisson_fit_predict_agg(y_cnt, [x1, x2] ORDER BY t) FROM nz_filled),
+    (SELECT poisson_fit_predict_agg(y_cnt, [x1, x2], split, {'null_policy': 'zero'} ORDER BY t) FROM nz)
+  = (SELECT poisson_fit_predict_agg(y_cnt, [x1, x2], split ORDER BY t) FROM nz_filled);
+----
+true	true
+
+query II
+SELECT
+    (SELECT bayesian_ridge_fit_predict_agg(y, [x1, x2], {'null_policy': 'zero'} ORDER BY t) FROM nz)
+  = (SELECT bayesian_ridge_fit_predict_agg(y, [x1, x2] ORDER BY t) FROM nz_filled),
+    (SELECT bayesian_ridge_fit_predict_agg(y, [x1, x2], split, {'null_policy': 'zero'} ORDER BY t) FROM nz)
+  = (SELECT bayesian_ridge_fit_predict_agg(y, [x1, x2], split ORDER BY t) FROM nz_filled);
+----
+true	true
+
+query II
+SELECT
+    (SELECT ard_fit_predict_agg(y, [x1, x2], {'null_policy': 'zero'} ORDER BY t) FROM nz)
+  = (SELECT ard_fit_predict_agg(y, [x1, x2] ORDER BY t) FROM nz_filled),
+    (SELECT ard_fit_predict_agg(y, [x1, x2], split, {'null_policy': 'zero'} ORDER BY t) FROM nz)
+  = (SELECT ard_fit_predict_agg(y, [x1, x2], split ORDER BY t) FROM nz_filled);
+----
+true	true
+
+query II
+SELECT
+    (SELECT passive_aggressive_fit_predict_agg(y, [x1, x2], {'null_policy': 'zero'} ORDER BY t) FROM nz)
+  = (SELECT passive_aggressive_fit_predict_agg(y, [x1, x2] ORDER BY t) FROM nz_filled),
+    (SELECT passive_aggressive_fit_predict_agg(y, [x1, x2], split, {'null_policy': 'zero'} ORDER BY t) FROM nz)
+  = (SELECT passive_aggressive_fit_predict_agg(y, [x1, x2], split ORDER BY t) FROM nz_filled);
+----
+true	true
+
+query II
+SELECT
+    (SELECT lm_dynamic_fit_predict_agg(y, [x1, x2], {'null_policy': 'zero'} ORDER BY t) FROM nz)
+  = (SELECT lm_dynamic_fit_predict_agg(y, [x1, x2] ORDER BY t) FROM nz_filled),
+    (SELECT lm_dynamic_fit_predict_agg(y, [x1, x2], split, {'null_policy': 'zero'} ORDER BY t) FROM nz)
+  = (SELECT lm_dynamic_fit_predict_agg(y, [x1, x2], split ORDER BY t) FROM nz_filled);
+----
+true	true
+
+query II
+SELECT
+    (SELECT wls_fit_predict_agg(y, [x1, x2], w, {'null_policy': 'zero'} ORDER BY t) FROM nz)
+  = (SELECT wls_fit_predict_agg(y, [x1, x2], w ORDER BY t) FROM nz_filled),
+    (SELECT wls_fit_predict_agg(y, [x1, x2], w, split, {'null_policy': 'zero'} ORDER BY t) FROM nz)
+  = (SELECT wls_fit_predict_agg(y, [x1, x2], w, split ORDER BY t) FROM nz_filled);
+----
+true	true
+
+# Every row trains without a split column; the zero-filled y is reported as 0
+query III
+SELECT count(*) FILTER (WHERE p.is_training), count(*) FILTER (WHERE p.y = 0.0), count(*) FILTER (WHERE p.yhat IS NULL)
+FROM (SELECT unnest(ols_fit_predict_agg(y, [x1, x2], {'null_policy': 'zero'} ORDER BY t)) AS p FROM nz);
+----
+30	5	0
+
+# With a split column the 'test' rows (NULL y, one NULL x2) are predicted, not trained on
+query II
+SELECT count(*) FILTER (WHERE p.is_training), count(*) FILTER (WHERE NOT p.is_training AND p.yhat IS NOT NULL)
+FROM (SELECT unnest(ols_fit_predict_agg(y, [x1, x2], split, {'null_policy': 'zero'} ORDER BY t)) AS p FROM nz);
+----
+27	3
+
+# The default 'drop' leaves the NULL rows out of training
+query I
+SELECT count(*) FILTER (WHERE p.is_training)
+FROM (SELECT unnest(ols_fit_predict_agg(y, [x1, x2] ORDER BY t)) AS p FROM nz);
+----
+23
+
+# A NULL x list is not zero-filled (its length is unknown): the row is left out as under 'drop'
+query II
+SELECT p.is_training, p.yhat IS NULL
+FROM (SELECT (ols_fit_predict_agg(y, x, {'null_policy': 'zero'} ORDER BY t))[3] AS p
+      FROM (SELECT t, y, CASE WHEN t = 3 THEN NULL ELSE [x1] END AS x FROM nz));
+----
+false	true
+
+# NaN is not NULL and is not zero-filled
+statement ok
+CREATE VIEW nan_rows AS
+SELECT t, CASE WHEN t = 2 THEN 'NaN'::DOUBLE ELSE coalesce(y, 1.0) END AS y, x1 FROM nz;
+
+query I
+SELECT (SELECT ols_fit_predict_agg(y, [x1], {'null_policy': 'zero'} ORDER BY t) FROM nan_rows)
+     = (SELECT ols_fit_predict_agg(y, [x1] ORDER BY t) FROM nan_rows)
+FROM (SELECT 1);
+----
+true
+
+# =============================================================================
+# *_fit_predict_by macros pass null_policy through
+# =============================================================================
+
+query I
+SELECT count(*) FILTER (WHERE is_training)
+FROM ols_fit_predict_by('nz', g, y, [x1, x2], {'null_policy': 'zero'}, order_by := t);
+----
+30
+
+# With split := the held-out rows stay out of the fit under 'zero' (the macros pass the
+# split to the aggregate rather than NULLing y), for the fit-predict and augment macros
+query II
+SELECT count(*) FILTER (WHERE is_training), count(*) FILTER (WHERE NOT is_training AND yhat IS NOT NULL)
+FROM ols_fit_predict_by('nz', g, y, [x1, x2], {'null_policy': 'zero'}, split := split, order_by := t);
+----
+27	3
+
+query I
+SELECT count(*) FILTER (WHERE is_training)
+FROM lm_dynamic_fit_predict_by('nz', g, y, [x1, x2], {'null_policy': 'zero'}, split := split, order_by := t);
+----
+27
+
+query I
+SELECT count(*) FILTER (WHERE is_training)
+FROM ols_augment_by('nz', g, y, [x1, x2], {'null_policy': 'zero'}, split := split, order_by := t);
+----
+27
+
+# The split change leaves the default 'drop' results of the macros unchanged
+query I
+SELECT count(*) FILTER (WHERE is_training)
+FROM ols_fit_predict_by('nz', g, y, [x1, x2], split := split, order_by := t);
+----
+23
+
+# =============================================================================
+# Window *_fit_predict: 'zero' == the zero-filled data
+# =============================================================================
+
+query I
+SELECT bool_and(a IS NOT DISTINCT FROM b) FROM (
+    SELECT t, ols_fit_predict(y, [x1, x2], {'null_policy': 'zero'})
+               OVER (ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS a FROM nz
+) JOIN (
+    SELECT t, ols_fit_predict(y, [x1, x2])
+               OVER (ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS b FROM nz_filled
+) USING (t);
+----
+true
+
+query I
+SELECT bool_and(a IS NOT DISTINCT FROM b) FROM (
+    SELECT t, ridge_fit_predict(y, [x1, x2], {'null_policy': 'zero'})
+               OVER (ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS a FROM nz
+) JOIN (
+    SELECT t, ridge_fit_predict(y, [x1, x2])
+               OVER (ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS b FROM nz_filled
+) USING (t);
+----
+true
+
+query I
+SELECT bool_and(a IS NOT DISTINCT FROM b) FROM (
+    SELECT t, elasticnet_fit_predict(y, [x1, x2], {'null_policy': 'zero'})
+               OVER (ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS a FROM nz
+) JOIN (
+    SELECT t, elasticnet_fit_predict(y, [x1, x2])
+               OVER (ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS b FROM nz_filled
+) USING (t);
+----
+true
+
+query I
+SELECT bool_and(a IS NOT DISTINCT FROM b) FROM (
+    SELECT t, huber_fit_predict(y, [x1, x2], {'null_policy': 'zero'})
+               OVER (ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS a FROM nz
+) JOIN (
+    SELECT t, huber_fit_predict(y, [x1, x2])
+               OVER (ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS b FROM nz_filled
+) USING (t);
+----
+true
+
+query I
+SELECT bool_and(a IS NOT DISTINCT FROM b) FROM (
+    SELECT t, ransac_fit_predict(y, [x1, x2], {'null_policy': 'zero'})
+               OVER (ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS a FROM nz
+) JOIN (
+    SELECT t, ransac_fit_predict(y, [x1, x2])
+               OVER (ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS b FROM nz_filled
+) USING (t);
+----
+true
+
+query I
+SELECT bool_and(a IS NOT DISTINCT FROM b) FROM (
+    SELECT t, theil_sen_fit_predict(y, [x1, x2], {'null_policy': 'zero'})
+               OVER (ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS a FROM nz
+) JOIN (
+    SELECT t, theil_sen_fit_predict(y, [x1, x2])
+               OVER (ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS b FROM nz_filled
+) USING (t);
+----
+true
+
+query I
+SELECT bool_and(a IS NOT DISTINCT FROM b) FROM (
+    SELECT t, rls_fit_predict(y, [x1, x2], {'null_policy': 'zero'})
+               OVER (ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS a FROM nz
+) JOIN (
+    SELECT t, rls_fit_predict(y, [x1, x2])
+               OVER (ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS b FROM nz_filled
+) USING (t);
+----
+true
+
+query I
+SELECT bool_and(a IS NOT DISTINCT FROM b) FROM (
+    SELECT t, wls_fit_predict(y, [x1, x2], w, {'null_policy': 'zero'})
+               OVER (ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS a FROM nz
+) JOIN (
+    SELECT t, wls_fit_predict(y, [x1, x2], w)
+               OVER (ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS b FROM nz_filled
+) USING (t);
+----
+true
+
+# Row t = 29 (NULL y, NULL x2) gets a prediction under 'zero', NaN under 'drop'
+query II
+SELECT
+    (SELECT p FROM (SELECT t, (ols_fit_predict(y, [x1, x2], {'null_policy': 'zero'})
+        OVER (ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)).yhat AS p FROM nz) WHERE t = 29) > 0,
+    (SELECT p FROM (SELECT t, (ols_fit_predict(y, [x1, x2])
+        OVER (ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)).yhat AS p FROM nz) WHERE t = 29)
+        IS NOT DISTINCT FROM 'NaN'::DOUBLE;
+----
+true	true
+
+# =============================================================================
+# ols_augment_agg / wls_augment_agg
+# =============================================================================
+
+query II
+SELECT
+    (SELECT ols_augment_agg(y, [x1, x2], {'null_policy': 'zero'} ORDER BY t) FROM nz)
+  = (SELECT ols_augment_agg(y, [x1, x2] ORDER BY t) FROM nz_filled),
+    (SELECT wls_augment_agg(y, [x1, x2], w, {'null_policy': 'zero'} ORDER BY t) FROM nz)
+  = (SELECT wls_augment_agg(y, [x1, x2], w ORDER BY t) FROM nz_filled);
+----
+true	true
+
+# =============================================================================
+# 'ignore' is an alias for 'drop'; values are case-insensitive
+# =============================================================================
+
+query III
+SELECT
+    (SELECT ols_fit_predict_agg(y, [x1, x2], {'null_policy': 'ignore'} ORDER BY t) FROM nz)
+  = (SELECT ols_fit_predict_agg(y, [x1, x2], {'null_policy': 'drop'} ORDER BY t) FROM nz),
+    (SELECT ols_fit_predict_agg(y, [x1, x2], {'null_policy': 'ZERO'} ORDER BY t) FROM nz)
+  = (SELECT ols_fit_predict_agg(y, [x1, x2], {'null_policy': 'zero'} ORDER BY t) FROM nz),
+    (SELECT bool_and(a IS NOT DISTINCT FROM b) FROM (
+        SELECT t, ridge_fit_predict(y, [x1, x2], {'null_policy': 'ignore'})
+                   OVER (ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS a,
+                  ridge_fit_predict(y, [x1, x2])
+                   OVER (ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS b FROM nz));
+----
+true	true	true
+
+statement error
+SELECT ols_fit_predict_agg(y, [x1], {'null_policy': 'fill'}) FROM nz;
+----
+Invalid null_policy: 'fill'. Valid values are 'drop', 'drop_y_zero_x', 'zero', 'ignore'

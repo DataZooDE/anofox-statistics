@@ -233,13 +233,19 @@ static void AlmFitPredictAggUpdate(Vector inputs[], AggregateInputData &aggr_inp
             // uninitialized and must not be read (returned garbage that poisoned
             // predictions, #95). Substitute NaN so a missing feature yields a
             // NaN/NULL prediction instead of garbage.
-            x_row[j] = x_child_validity.RowIsValid(child_pos) ? x_child_data[child_pos] : std::nan("");
+            x_row[j] = x_child_validity.RowIsValid(child_pos) ? x_child_data[child_pos]
+                                                                : NullFill(bind_data.null_policy);
         }
 
         // Check y validity
         auto y_idx = y_data.sel->get_index(i);
         bool y_valid = y_data.validity.RowIsValid(y_idx);
         double y_val = y_valid ? y_values[y_idx] : std::nan("");
+        // null_policy 'zero' fits a NULL y as 0.
+        if (!y_valid && bind_data.null_policy == NullPolicy::ZERO) {
+            y_valid = true;
+            y_val = 0.0;
+        }
 
         // Determine if this row is for training
         bool row_is_training;

@@ -13,12 +13,19 @@ using AnofoxAftDistribution_t = int;
 namespace duckdb {
 
 /**
- * Null policy for handling NULL values in y (response variable)
+ * Null policy for handling NULL values in y (response variable) and x elements
  */
 enum class NullPolicy {
-	DROP,         // Drop rows with NULL y from training, but include in output with predictions
-	DROP_Y_ZERO_X // Drop rows with NULL y OR zero x values from training
+	DROP,          // Drop rows with NULL y from training, but include in output with predictions ('ignore' is an alias)
+	DROP_Y_ZERO_X, // Drop rows with NULL y OR zero x values from training
+	ZERO           // Fit a NULL y or NULL x element as 0.0
 };
+
+//! The value a NULL y or NULL x element takes under the policy: 0.0 for ZERO,
+//! otherwise NaN, which keeps the row out of the fit.
+inline double NullFill(NullPolicy policy) {
+	return policy == NullPolicy::ZERO ? 0.0 : std::numeric_limits<double>::quiet_NaN();
+}
 
 /**
  * Poisson link functions
