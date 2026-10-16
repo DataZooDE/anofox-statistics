@@ -10,6 +10,18 @@ Breaking changes are called out explicitly.
 
 ## [Unreleased]
 
+## [0.12.1] - 2026-10-16
+
+### Fixed
+
+- The DuckDB 2.0 WebAssembly build in the community-extensions registry failed
+  to link (`wasm-opt: Unknown option '--enable-bulk-memory-opt'`). The registry
+  builds with Rust 1.97, whose wasm output (including the precompiled
+  `wasm32-unknown-emscripten` std) uses target features the pinned emsdk 3.1.71
+  cannot optimise. A `rust-toolchain.toml` now pins Rust 1.86.0 for all builds,
+  the version extension-ci-tools v1.4/v1.5 already use for wasm. There are no
+  code changes. CI now also builds `wasm_eh` in the DuckDB 2.0-dev job.
+
 ## [0.12.0] - 2026-10-16
 
 ### Added
@@ -794,7 +806,8 @@ Breaking changes are called out explicitly.
 - Initial release: OLS, Ridge, WLS, RLS and Elastic Net regression as scalar
   and aggregate functions, plus diagnostics.
 
-[Unreleased]: https://github.com/DataZooDE/anofox-statistics/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/DataZooDE/anofox-statistics/compare/v0.12.1...HEAD
+[0.12.1]: https://github.com/DataZooDE/anofox-statistics/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/DataZooDE/anofox-statistics/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/DataZooDE/anofox-statistics/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/DataZooDE/anofox-statistics/compare/v0.9.0...v0.10.0

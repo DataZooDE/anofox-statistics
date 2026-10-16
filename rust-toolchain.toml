@@ -1,0 +1,29 @@
+# Pins the Rust toolchain for every build, including the DuckDB community-extensions
+# registry build. rustup prefers this file over the CI's default toolchain.
+#
+# Why 1.86: Rust >= 1.87 (LLVM 20) marks wasm objects, including the precompiled
+# wasm32-unknown-emscripten std, with the `bulk-memory-opt` and `call-indirect-overlong`
+# target features. The emsdk that DuckDB's CI pins (3.1.71, binaryen v120) runs
+# `wasm-opt -O3` after linking (hardcoded in duckdb/extension/extension_build_tools.cmake),
+# and that wasm-opt rejects those features ("Unknown option '--enable-bulk-memory-opt'"),
+# so the wasm builds fail. 1.86 is also the Rust that extension-ci-tools v1.4/v1.5 use for wasm.
+#
+# Remove this file once the emsdk pinned by DuckDB's CI understands those features.
+[toolchain]
+channel = "1.86.0"
+components = ["rustfmt", "clippy"]
+# Every target CMakeLists.txt can select as Rust_CARGO_TARGET (minus
+# aarch64-pc-windows-gnu, which has no prebuilt std). The CI installs targets for
+# its own default toolchain only, so cross-compiles (e.g. osx_amd64 on arm64
+# runners, musl) need them listed here.
+targets = [
+    "wasm32-unknown-emscripten",
+    "x86_64-unknown-linux-gnu",
+    "x86_64-unknown-linux-musl",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+    "x86_64-pc-windows-msvc",
+    "aarch64-pc-windows-msvc",
+    "x86_64-pc-windows-gnu",
+]
