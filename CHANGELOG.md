@@ -87,6 +87,13 @@ Breaking changes are called out explicitly.
 
 ### Changed
 
+- The extension builds against DuckDB 2.0-dev (duckdb `b15358c`) as well as
+  v1.5.x and the v1.4 LTS. A small compatibility header
+  (`src/include/duckdb_compat.hpp`) detects the changed C++ APIs (struct child
+  names as `Identifier`, batched aggregate initialize, bind inputs, read-only
+  `FlatVector::GetData`, accessor-only function fields); no behaviour changes.
+  CI gains a non-blocking DuckDB 2.0-dev build-and-test job.
+
 - **Behaviour change:** `prop_test_two_agg`'s `estimate` is now the difference of
   proportions p₁ − p₂, the quantity that its confidence interval, statistic and
   p-value are for (#195). It used to be p₁, the proportion of group 1
