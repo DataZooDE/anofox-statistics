@@ -359,7 +359,17 @@ auto SetFallible(T &x, int) -> decltype(x.SetFallible(), void()) {
 template <class T>
 void SetFallible(T &, long) {
 }
+template <class T, class = void>
+struct HasSetFallible : std::false_type {};
+template <class T>
+struct HasSetFallible<T, decltype(std::declval<T &>().SetFallible(), void())> : std::true_type {};
 } // namespace compat_detail
+
+// On DuckDB 2.0 the no-op fallback above must never be chosen: an unmarked function
+// that throws turns every user-facing error into an InternalException.
+static_assert(!compat_detail::BindAdapter<bind_scalar_function_t>::kNewApi ||
+                  compat_detail::HasSetFallible<ScalarFunction>::value,
+              "DuckDB 2.0 API without ScalarFunction::SetFallible(): update MarkFallible");
 
 //! Mark a scalar function that can throw at execution time. DuckDB 2.0 rejects an
 //! execution error from a function that is not marked (InternalException); on
