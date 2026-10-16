@@ -103,6 +103,13 @@ Breaking changes are called out explicitly.
 
 ### Fixed
 
+- The scalar `ols_fit`, `ridge_fit`, `wls_fit`, `elasticnet_fit`, `huber_fit`,
+  `ransac_fit`, `rls_fit`, `theil_sen_fit`, `vif`, `residuals_diagnostics` and
+  `jarque_bera` returned NULL (or failed) for every row after the first when one
+  list argument was a constant and another varied per row, and mixing both shapes
+  in one SELECT could crash DuckDB (#210). List arguments are now read per row
+  for constant, per-row and dictionary (join / filter) inputs alike.
+
 - `lars_fit_agg` and `lars_glance_by` reported `log_likelihood`, `aic` and
   `bic` as 0, so LARS looked like the best model by AIC/BIC (#196). They are now the
   Gaussian log-likelihood and information criteria with the LARS degrees of

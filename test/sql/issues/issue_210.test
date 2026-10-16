@@ -1,0 +1,224 @@
+# name: test/sql/issues/issue_210.test
+# description: Scalar fits and diagnostics with constant, per-row and dictionary list arguments (#210)
+# group: [issues]
+
+require anofox_statistics
+
+statement ok
+SET threads=1;
+
+# y and x vary per row; yc / xc / wc hold the same list in every row, equal to the
+# literals used as constant arguments below.
+statement ok
+CREATE TABLE d AS
+SELECT i AS g,
+       [1.0 + i, 2.1 + 2 * i, 2.9 + 3 * i, 4.2 + 4 * i + i * i, 5.1 + i, 6.3 - i]::DOUBLE[] AS y,
+       [[1.0, 2.0 + 0.1 * i, 3.0, 4.0 - 0.2 * i, 5.0, 6.0 + 0.3 * i]]::DOUBLE[][] AS x,
+       [1.0, 1.0 + i, 2.0, 2.0, 1.0, 1.0]::DOUBLE[] AS w,
+       [1.0, 2.1, 2.9, 4.2, 5.1, 6.3]::DOUBLE[] AS yc,
+       [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]]::DOUBLE[][] AS xc,
+       [1.0, 1.0, 2.0, 2.0, 1.0, 1.0]::DOUBLE[] AS wc
+FROM range(4) r(i);
+
+# A copy joined back in: columns from the join / filter arrive as dictionary vectors.
+statement ok
+CREATE TABLE e AS SELECT g, y AS ey, x AS ex, w AS ew FROM d;
+
+# Repro from the issue: rows >= 1 were NULL, and mixing both shapes in one SELECT segfaulted.
+query II
+SELECT g, round(ols_fit(y, [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]]).r_squared, 9) = round(ols_fit(y, xc).r_squared, 9) FROM d ORDER BY g;
+----
+0	true
+1	true
+2	true
+3	true
+
+query II
+SELECT g, round(ols_fit([1.0, 2.1, 2.9, 4.2, 5.1, 6.3], x).r_squared, 9) = round(ols_fit(yc, x).r_squared, 9) FROM d ORDER BY g;
+----
+0	true
+1	true
+2	true
+3	true
+
+query III
+SELECT count(*), count(ols_fit(y, x).r_squared), count(ols_fit(y, [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]]).r_squared) FROM d;
+----
+4	4	4
+
+# ols_fit: constant x / per-row y, constant y / per-row x, dictionary inputs
+query IIII
+SELECT bool_and(ols_fit(y, [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]]) IS NOT DISTINCT FROM ols_fit(y, xc)),
+       bool_and(ols_fit([1.0, 2.1, 2.9, 4.2, 5.1, 6.3], x) IS NOT DISTINCT FROM ols_fit(yc, x)),
+       count(ols_fit(y, [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]]).coefficients),
+       count(ols_fit([1.0, 2.1, 2.9, 4.2, 5.1, 6.3], x).coefficients)
+FROM d;
+----
+true	true	4	4
+
+query II
+SELECT bool_and(ols_fit(e.ey, e.ex) IS NOT DISTINCT FROM ols_fit(d.y, d.x)),
+       bool_and(ols_fit(e.ey, [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]]) IS NOT DISTINCT FROM ols_fit(d.y, d.xc))
+FROM d JOIN e USING (g) WHERE g <> 1;
+----
+true	true
+
+# ridge_fit: constant x / per-row y, constant y / per-row x, dictionary inputs
+query IIII
+SELECT bool_and(ridge_fit(y, [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]], {'alpha': 0.5}) IS NOT DISTINCT FROM ridge_fit(y, xc, {'alpha': 0.5})),
+       bool_and(ridge_fit([1.0, 2.1, 2.9, 4.2, 5.1, 6.3], x, {'alpha': 0.5}) IS NOT DISTINCT FROM ridge_fit(yc, x, {'alpha': 0.5})),
+       count(ridge_fit(y, [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]], {'alpha': 0.5}).coefficients),
+       count(ridge_fit([1.0, 2.1, 2.9, 4.2, 5.1, 6.3], x, {'alpha': 0.5}).coefficients)
+FROM d;
+----
+true	true	4	4
+
+query II
+SELECT bool_and(ridge_fit(e.ey, e.ex, {'alpha': 0.5}) IS NOT DISTINCT FROM ridge_fit(d.y, d.x, {'alpha': 0.5})),
+       bool_and(ridge_fit(e.ey, [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]], {'alpha': 0.5}) IS NOT DISTINCT FROM ridge_fit(d.y, d.xc, {'alpha': 0.5}))
+FROM d JOIN e USING (g) WHERE g <> 1;
+----
+true	true
+
+# elasticnet_fit: constant x / per-row y, constant y / per-row x, dictionary inputs
+query IIII
+SELECT bool_and(elasticnet_fit(y, [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]], {'alpha': 0.1, 'l1_ratio': 0.5}) IS NOT DISTINCT FROM elasticnet_fit(y, xc, {'alpha': 0.1, 'l1_ratio': 0.5})),
+       bool_and(elasticnet_fit([1.0, 2.1, 2.9, 4.2, 5.1, 6.3], x, {'alpha': 0.1, 'l1_ratio': 0.5}) IS NOT DISTINCT FROM elasticnet_fit(yc, x, {'alpha': 0.1, 'l1_ratio': 0.5})),
+       count(elasticnet_fit(y, [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]], {'alpha': 0.1, 'l1_ratio': 0.5}).coefficients),
+       count(elasticnet_fit([1.0, 2.1, 2.9, 4.2, 5.1, 6.3], x, {'alpha': 0.1, 'l1_ratio': 0.5}).coefficients)
+FROM d;
+----
+true	true	4	4
+
+query II
+SELECT bool_and(elasticnet_fit(e.ey, e.ex, {'alpha': 0.1, 'l1_ratio': 0.5}) IS NOT DISTINCT FROM elasticnet_fit(d.y, d.x, {'alpha': 0.1, 'l1_ratio': 0.5})),
+       bool_and(elasticnet_fit(e.ey, [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]], {'alpha': 0.1, 'l1_ratio': 0.5}) IS NOT DISTINCT FROM elasticnet_fit(d.y, d.xc, {'alpha': 0.1, 'l1_ratio': 0.5}))
+FROM d JOIN e USING (g) WHERE g <> 1;
+----
+true	true
+
+# huber_fit: constant x / per-row y, constant y / per-row x, dictionary inputs
+query IIII
+SELECT bool_and(huber_fit(y, [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]]) IS NOT DISTINCT FROM huber_fit(y, xc)),
+       bool_and(huber_fit([1.0, 2.1, 2.9, 4.2, 5.1, 6.3], x) IS NOT DISTINCT FROM huber_fit(yc, x)),
+       count(huber_fit(y, [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]]).coefficients),
+       count(huber_fit([1.0, 2.1, 2.9, 4.2, 5.1, 6.3], x).coefficients)
+FROM d;
+----
+true	true	4	4
+
+query II
+SELECT bool_and(huber_fit(e.ey, e.ex) IS NOT DISTINCT FROM huber_fit(d.y, d.x)),
+       bool_and(huber_fit(e.ey, [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]]) IS NOT DISTINCT FROM huber_fit(d.y, d.xc))
+FROM d JOIN e USING (g) WHERE g <> 1;
+----
+true	true
+
+# ransac_fit: constant x / per-row y, constant y / per-row x, dictionary inputs
+query IIII
+SELECT bool_and(ransac_fit(y, [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]], {'seed': 42}) IS NOT DISTINCT FROM ransac_fit(y, xc, {'seed': 42})),
+       bool_and(ransac_fit([1.0, 2.1, 2.9, 4.2, 5.1, 6.3], x, {'seed': 42}) IS NOT DISTINCT FROM ransac_fit(yc, x, {'seed': 42})),
+       count(ransac_fit(y, [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]], {'seed': 42}).coefficients),
+       count(ransac_fit([1.0, 2.1, 2.9, 4.2, 5.1, 6.3], x, {'seed': 42}).coefficients)
+FROM d;
+----
+true	true	4	4
+
+query II
+SELECT bool_and(ransac_fit(e.ey, e.ex, {'seed': 42}) IS NOT DISTINCT FROM ransac_fit(d.y, d.x, {'seed': 42})),
+       bool_and(ransac_fit(e.ey, [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]], {'seed': 42}) IS NOT DISTINCT FROM ransac_fit(d.y, d.xc, {'seed': 42}))
+FROM d JOIN e USING (g) WHERE g <> 1;
+----
+true	true
+
+# rls_fit: constant x / per-row y, constant y / per-row x, dictionary inputs
+query IIII
+SELECT bool_and(rls_fit(y, [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]]) IS NOT DISTINCT FROM rls_fit(y, xc)),
+       bool_and(rls_fit([1.0, 2.1, 2.9, 4.2, 5.1, 6.3], x) IS NOT DISTINCT FROM rls_fit(yc, x)),
+       count(rls_fit(y, [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]]).coefficients),
+       count(rls_fit([1.0, 2.1, 2.9, 4.2, 5.1, 6.3], x).coefficients)
+FROM d;
+----
+true	true	4	4
+
+query II
+SELECT bool_and(rls_fit(e.ey, e.ex) IS NOT DISTINCT FROM rls_fit(d.y, d.x)),
+       bool_and(rls_fit(e.ey, [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]]) IS NOT DISTINCT FROM rls_fit(d.y, d.xc))
+FROM d JOIN e USING (g) WHERE g <> 1;
+----
+true	true
+
+# theil_sen_fit: constant x / per-row y, constant y / per-row x, dictionary inputs
+query IIII
+SELECT bool_and(theil_sen_fit(y, [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]], {'seed': 42}) IS NOT DISTINCT FROM theil_sen_fit(y, xc, {'seed': 42})),
+       bool_and(theil_sen_fit([1.0, 2.1, 2.9, 4.2, 5.1, 6.3], x, {'seed': 42}) IS NOT DISTINCT FROM theil_sen_fit(yc, x, {'seed': 42})),
+       count(theil_sen_fit(y, [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]], {'seed': 42}).coefficients),
+       count(theil_sen_fit([1.0, 2.1, 2.9, 4.2, 5.1, 6.3], x, {'seed': 42}).coefficients)
+FROM d;
+----
+true	true	4	4
+
+query II
+SELECT bool_and(theil_sen_fit(e.ey, e.ex, {'seed': 42}) IS NOT DISTINCT FROM theil_sen_fit(d.y, d.x, {'seed': 42})),
+       bool_and(theil_sen_fit(e.ey, [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]], {'seed': 42}) IS NOT DISTINCT FROM theil_sen_fit(d.y, d.xc, {'seed': 42}))
+FROM d JOIN e USING (g) WHERE g <> 1;
+----
+true	true
+
+# wls_fit: each of y, x and the weights constant while the others vary
+query IIII
+SELECT bool_and(wls_fit(y, [[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]], w) IS NOT DISTINCT FROM wls_fit(y, xc, w)),
+       bool_and(wls_fit([1.0, 2.1, 2.9, 4.2, 5.1, 6.3], x, w) IS NOT DISTINCT FROM wls_fit(yc, x, w)),
+       bool_and(wls_fit(y, x, [1.0, 1.0, 2.0, 2.0, 1.0, 1.0]) IS NOT DISTINCT FROM wls_fit(y, x, wc)),
+       count(wls_fit(y, x, [1.0, 1.0, 2.0, 2.0, 1.0, 1.0]).coefficients)
+FROM d;
+----
+true	true	true	4
+
+query I
+SELECT bool_and(wls_fit(e.ey, e.ex, e.ew) IS NOT DISTINCT FROM wls_fit(d.y, d.x, d.w))
+FROM d JOIN e USING (g) WHERE g <> 1;
+----
+true
+
+# vif (one LIST(LIST) argument): per-row next to a constant call, and dictionary input
+query II
+SELECT count(vif(list_concat(x, [[5.0, 3.0, 1.0, 4.0, 2.0, 6.0]]))),
+       count(vif([[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], [5.0, 3.0, 1.0, 4.0, 2.0, 6.0]]))
+FROM d;
+----
+4	4
+
+query I
+SELECT bool_and(vif(list_concat(e.ex, [[5.0, 3.0, 1.0, 4.0, 2.0, 6.0]])) IS NOT DISTINCT FROM vif(list_concat(d.x, [[5.0, 3.0, 1.0, 4.0, 2.0, 6.0]])))
+FROM d JOIN e USING (g) WHERE g <> 1;
+----
+true
+
+# residuals_diagnostics: constant actuals / per-row predictions and the reverse
+query III
+SELECT bool_and(residuals_diagnostics([1.0, 2.1, 2.9, 4.2, 5.1, 6.3], y) IS NOT DISTINCT FROM residuals_diagnostics(yc, y)),
+       bool_and(residuals_diagnostics(y, [1.0, 2.1, 2.9, 4.2, 5.1, 6.3]) IS NOT DISTINCT FROM residuals_diagnostics(y, yc)),
+       count(residuals_diagnostics(y, [1.0, 2.1, 2.9, 4.2, 5.1, 6.3]))
+FROM d;
+----
+true	true	4
+
+query I
+SELECT bool_and(residuals_diagnostics(e.ey, e.ew) IS NOT DISTINCT FROM residuals_diagnostics(d.y, d.w))
+FROM d JOIN e USING (g) WHERE g <> 1;
+----
+true
+
+# jarque_bera (one LIST argument): per-row next to a constant call, and dictionary input
+query II
+SELECT bool_and(jarque_bera(y) IS NOT DISTINCT FROM jarque_bera(e.ey)),
+       count(jarque_bera([1.0, 2.1, 2.9, 4.2, 5.1, 6.3]))
+FROM d JOIN e USING (g) WHERE g <> 1;
+----
+true	3
+
+query I
+SELECT count(*) FILTER (jarque_bera(y) IS NOT NULL AND jarque_bera([1.0, 2.1, 2.9, 4.2, 5.1, 6.3]) IS NOT NULL) FROM d;
+----
+4
