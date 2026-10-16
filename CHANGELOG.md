@@ -20,7 +20,10 @@ Breaking changes are called out explicitly.
   `wasm32-unknown-emscripten` std) uses target features the pinned emsdk 3.1.71
   cannot optimise. A `rust-toolchain.toml` now pins Rust 1.86.0 for all builds,
   the version extension-ci-tools v1.4/v1.5 already use for wasm. There are no
-  code changes. CI now also builds `wasm_eh` in the DuckDB 2.0-dev job.
+  functional code changes. CI now also builds `wasm_eh` in the DuckDB 2.0-dev job.
+- The Linux musl build is now chosen from the CI's `DUCKDB_PLATFORM` (or a musl
+  libc for local builds) instead of from whether the musl Rust target happens to
+  be installed, which the toolchain pin now does on every platform.
 
 ## [0.12.0] - 2026-10-16
 
