@@ -79,7 +79,7 @@ struct KendallBindData : public FunctionData {
 // Aggregate function operations
 //===--------------------------------------------------------------------===//
 
-static void KendallAggInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void KendallAggInitialize(data_ptr_t state_p) {
     new (state_p) KendallAggregateState();
 }
 
@@ -214,16 +214,16 @@ static void KendallAggFinalize(Vector &state_vector, AggregateInputData &aggr_in
 
         // Fill STRUCT result
         idx_t struct_idx = 0;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = cor_result.r;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = cor_result.statistic;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = cor_result.p_value;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = cor_result.ci_lower;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = cor_result.ci_upper;
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = static_cast<int64_t>(cor_result.n);
-        auto& method_vector = *struct_entries[struct_idx++];
-        FlatVector::GetData<string_t>(method_vector)[result_idx] =
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = cor_result.r;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = cor_result.statistic;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = cor_result.p_value;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = cor_result.ci_lower;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = cor_result.ci_upper;
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = static_cast<int64_t>(cor_result.n);
+        auto& method_vector = StructEntry(struct_entries[struct_idx++]);
+        FlatDataMut<string_t>(method_vector)[result_idx] =
             StringVector::AddString(method_vector, cor_result.method ? cor_result.method : "Kendall");
-        SetResultString(*struct_entries[struct_idx++], result_idx, AlternativeName(options.alternative));
+        SetResultString(StructEntry(struct_entries[struct_idx++]), result_idx, AlternativeName(options.alternative));
         WriteTestResultFields(result, result_idx, struct_idx, cor_result.unified);
 
         anofox_free_correlation_result(&cor_result);
@@ -234,9 +234,9 @@ static void KendallAggFinalize(Vector &state_vector, AggregateInputData &aggr_in
 //===--------------------------------------------------------------------===//
 // Bind function
 //===--------------------------------------------------------------------===//
-static unique_ptr<FunctionData> KendallAggBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> KendallAggBind(ClientContext &context, AggregateBindFunction &function,
                                                 vector<unique_ptr<Expression>> &arguments) {
-    function.return_type = GetKendallAggResultType();
+    SetReturnTypeOf(function, GetKendallAggResultType());
     auto bind_data = make_uniq<KendallBindData>();
 
     if (arguments.size() >= 3) {
@@ -258,18 +258,18 @@ void RegisterKendallAggregateFunction(ExtensionLoader &loader) {
     auto func_with_opts = AggregateFunction(
         "kendall_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::ANY},
         LogicalType::ANY,
-        AggregateFunction::StateSize<KendallAggregateState>, KendallAggInitialize,
+        AggregateFunction::StateSize<KendallAggregateState>, ANOFOX_AGG_INIT(KendallAggInitialize),
         ANOFOX_GUARDED_UPDATE(KendallAggUpdate, KendallAggDestroy, KendallAggInitialize), KendallAggCombine, ANOFOX_GUARDED_FINALIZE(KendallAggFinalize, KendallAggDestroy, KendallAggInitialize),
-        nullptr, KendallAggBind, KendallAggDestroy);
+        nullptr, ANOFOX_AGG_BIND(KendallAggBind), KendallAggDestroy);
     func_set.AddFunction(func_with_opts);
 
     // Without options
     auto func_no_opts = AggregateFunction(
         "kendall_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE},
         LogicalType::ANY,
-        AggregateFunction::StateSize<KendallAggregateState>, KendallAggInitialize,
+        AggregateFunction::StateSize<KendallAggregateState>, ANOFOX_AGG_INIT(KendallAggInitialize),
         ANOFOX_GUARDED_UPDATE(KendallAggUpdate, KendallAggDestroy, KendallAggInitialize), KendallAggCombine, ANOFOX_GUARDED_FINALIZE(KendallAggFinalize, KendallAggDestroy, KendallAggInitialize),
-        nullptr, KendallAggBind, KendallAggDestroy);
+        nullptr, ANOFOX_AGG_BIND(KendallAggBind), KendallAggDestroy);
     func_set.AddFunction(func_no_opts);
 
     CreateAggregateFunctionInfo info(std::move(func_set));

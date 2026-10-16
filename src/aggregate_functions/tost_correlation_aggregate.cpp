@@ -93,7 +93,7 @@ struct TostCorrelationBindData : public FunctionData {
 // Aggregate function operations
 //===--------------------------------------------------------------------===//
 
-static void TostCorrelationAggInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void TostCorrelationAggInitialize(data_ptr_t state_p) {
     new (state_p) TostCorrelationAggregateState();
 }
 
@@ -214,18 +214,18 @@ static void TostCorrelationAggFinalize(Vector &state_vector, AggregateInputData 
         }
 
         idx_t struct_idx = 0;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = tost_result.estimate;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = tost_result.ci_lower;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = tost_result.ci_upper;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = tost_result.p_value;
-        FlatVector::GetData<bool>(*struct_entries[struct_idx++])[result_idx] = tost_result.equivalent;
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = static_cast<int64_t>(tost_result.n);
-        auto& method_vector = *struct_entries[struct_idx++];
-        FlatVector::GetData<string_t>(method_vector)[result_idx] =
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = tost_result.estimate;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = tost_result.ci_lower;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = tost_result.ci_upper;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = tost_result.p_value;
+        FlatDataMut<bool>(StructEntry(struct_entries[struct_idx++]))[result_idx] = tost_result.equivalent;
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = static_cast<int64_t>(tost_result.n);
+        auto& method_vector = StructEntry(struct_entries[struct_idx++]);
+        FlatDataMut<string_t>(method_vector)[result_idx] =
             StringVector::AddString(method_vector, tost_result.method ? tost_result.method : "TOST correlation");
         // statistic of the one-sided test that determines the TOST p-value
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = tost_result.p_lower >= tost_result.p_upper ? tost_result.t_lower : tost_result.t_upper;
-        SetResultNull(*struct_entries[struct_idx++], result_idx);
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = tost_result.p_lower >= tost_result.p_upper ? tost_result.t_lower : tost_result.t_upper;
+        SetResultNull(StructEntry(struct_entries[struct_idx++]), result_idx);
         WriteTestResultFields(result, result_idx, struct_idx, tost_result.unified); // alternative: not applicable
 
         anofox_free_tost_result(&tost_result);
@@ -236,9 +236,9 @@ static void TostCorrelationAggFinalize(Vector &state_vector, AggregateInputData 
 //===--------------------------------------------------------------------===//
 // Bind function
 //===--------------------------------------------------------------------===//
-static unique_ptr<FunctionData> TostCorrelationAggBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> TostCorrelationAggBind(ClientContext &context, AggregateBindFunction &function,
                                                     vector<unique_ptr<Expression>> &arguments) {
-    function.return_type = GetTostCorrelationAggResultType();
+    SetReturnTypeOf(function, GetTostCorrelationAggResultType());
     auto bind_data = make_uniq<TostCorrelationBindData>();
 
     if (arguments.size() >= 3) {
@@ -276,17 +276,17 @@ void RegisterTostCorrelationAggregateFunction(ExtensionLoader &loader) {
     auto func_with_opts = AggregateFunction(
         "tost_correlation_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::ANY},
         LogicalType::ANY,
-        AggregateFunction::StateSize<TostCorrelationAggregateState>, TostCorrelationAggInitialize,
+        AggregateFunction::StateSize<TostCorrelationAggregateState>, ANOFOX_AGG_INIT(TostCorrelationAggInitialize),
         ANOFOX_GUARDED_UPDATE(TostCorrelationAggUpdate, TostCorrelationAggDestroy, TostCorrelationAggInitialize), TostCorrelationAggCombine, ANOFOX_GUARDED_FINALIZE(TostCorrelationAggFinalize, TostCorrelationAggDestroy, TostCorrelationAggInitialize),
-        nullptr, TostCorrelationAggBind, TostCorrelationAggDestroy);
+        nullptr, ANOFOX_AGG_BIND(TostCorrelationAggBind), TostCorrelationAggDestroy);
 
     // Without options: (x, y)
     auto func_no_opts = AggregateFunction(
         "tost_correlation_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE},
         LogicalType::ANY,
-        AggregateFunction::StateSize<TostCorrelationAggregateState>, TostCorrelationAggInitialize,
+        AggregateFunction::StateSize<TostCorrelationAggregateState>, ANOFOX_AGG_INIT(TostCorrelationAggInitialize),
         ANOFOX_GUARDED_UPDATE(TostCorrelationAggUpdate, TostCorrelationAggDestroy, TostCorrelationAggInitialize), TostCorrelationAggCombine, ANOFOX_GUARDED_FINALIZE(TostCorrelationAggFinalize, TostCorrelationAggDestroy, TostCorrelationAggInitialize),
-        nullptr, TostCorrelationAggBind, TostCorrelationAggDestroy);
+        nullptr, ANOFOX_AGG_BIND(TostCorrelationAggBind), TostCorrelationAggDestroy);
 
     {
         AggregateFunctionSet func_set("tost_correlation_agg");

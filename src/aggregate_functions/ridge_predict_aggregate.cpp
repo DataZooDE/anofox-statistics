@@ -111,7 +111,7 @@ static LogicalType GetRidgePredictAggResultType() {
 // Aggregate function operations
 //===--------------------------------------------------------------------===//
 
-static void RidgePredictAggInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void RidgePredictAggInitialize(data_ptr_t state_p) {
     new (state_p) RidgePredictAggState();
 }
 
@@ -145,10 +145,10 @@ static void RidgePredictAggUpdate(Vector inputs[], AggregateInputData &aggr_inpu
     inputs[1].ToUnifiedFormat(count, x_data);
 
     auto y_values = UnifiedVectorFormat::GetData<double>(y_data);
-    auto x_list_data = ListVector::GetData(inputs[1]);
+    auto x_list_data = UnifiedVectorFormat::GetData<list_entry_t>(x_data);
     auto &x_child = ListVector::GetEntry(inputs[1]);
-    auto x_child_data = FlatVector::GetData<double>(x_child);
-    auto &x_child_validity = FlatVector::Validity(x_child);
+    auto x_child_data = FlatDataMut<double>(x_child);
+    auto &x_child_validity = FlatValidityMut(x_child);
 
     // Optional split column (when use_split_col is true, it's at index 2)
     UnifiedVectorFormat split_data;
@@ -381,11 +381,11 @@ static void RidgePredictAggFinalize(Vector &state_vector, AggregateInputData &ag
         auto &child_struct = ListVector::GetEntry(result);
         auto &struct_entries = StructVector::GetEntries(child_struct);
 
-        auto &y_vec = *struct_entries[0];
-        auto &yhat_vec = *struct_entries[1];
-        auto &yhat_lower_vec = *struct_entries[2];
-        auto &yhat_upper_vec = *struct_entries[3];
-        auto &is_training_vec = *struct_entries[4];
+        auto &y_vec = StructEntry(struct_entries[0]);
+        auto &yhat_vec = StructEntry(struct_entries[1]);
+        auto &yhat_lower_vec = StructEntry(struct_entries[2]);
+        auto &yhat_upper_vec = StructEntry(struct_entries[3]);
+        auto &is_training_vec = StructEntry(struct_entries[4]);
 
         LeverageIntervals intervals(x_arrays, core_result.coefficients, core_result.coefficients_len,
                                     core_result.intercept, state.fit_intercept, core_result.residual_std_error, core_result.n_observations,
@@ -396,14 +396,14 @@ for (idx_t row = 0; row < n_rows; row++) {
             if (state.y_is_null[row]) {
                 FlatVector::SetNull(y_vec, child_idx, true);
             } else {
-                FlatVector::GetData<double>(y_vec)[child_idx] = state.y_all[row];
+                FlatDataMut<double>(y_vec)[child_idx] = state.y_all[row];
             }
 
             AnofoxPredictionResult pred;
             bool pred_success = intervals.Predict(state.x_all[row].data(), state.n_features, state.confidence_level, pred);
 
             if (pred_success && std::isfinite(pred.yhat)) {
-                FlatVector::GetData<double>(yhat_vec)[child_idx] = pred.yhat;
+                FlatDataMut<double>(yhat_vec)[child_idx] = pred.yhat;
                 WriteIntervalBound(yhat_lower_vec, child_idx, pred.yhat_lower);
                 WriteIntervalBound(yhat_upper_vec, child_idx, pred.yhat_upper);
             } else {
@@ -412,7 +412,7 @@ for (idx_t row = 0; row < n_rows; row++) {
                 FlatVector::SetNull(yhat_upper_vec, child_idx, true);
             }
 
-            FlatVector::GetData<bool>(is_training_vec)[child_idx] = state.is_training[row];
+            FlatDataMut<bool>(is_training_vec)[child_idx] = state.is_training[row];
         }
 
         anofox_free_result_core(&core_result);
@@ -423,7 +423,7 @@ for (idx_t row = 0; row < n_rows; row++) {
 //===--------------------------------------------------------------------===//
 // Bind function
 //===--------------------------------------------------------------------===//
-static unique_ptr<FunctionData> RidgePredictAggBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> RidgePredictAggBind(ClientContext &context, AggregateBindFunction &function,
                                                      vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<RidgePredictAggBindData>();
 
@@ -451,13 +451,13 @@ static unique_ptr<FunctionData> RidgePredictAggBind(ClientContext &context, Aggr
         }
     }
 
-    function.return_type = GetRidgePredictAggResultType();
+    SetReturnTypeOf(function, GetRidgePredictAggResultType());
     PostHogTelemetry::Instance().RecordFunctionCall("ridge_fit_predict_agg");
     return std::move(result);
 }
 
 // Bind function for versions with split column
-static unique_ptr<FunctionData> RidgePredictAggBindWithSplit(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> RidgePredictAggBindWithSplit(ClientContext &context, AggregateBindFunction &function,
                                                               vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<RidgePredictAggBindData>();
     result->use_split_col = true;
@@ -487,7 +487,7 @@ static unique_ptr<FunctionData> RidgePredictAggBindWithSplit(ClientContext &cont
         }
     }
 
-    function.return_type = GetRidgePredictAggResultType();
+    SetReturnTypeOf(function, GetRidgePredictAggResultType());
     PostHogTelemetry::Instance().RecordFunctionCall("ridge_fit_predict_agg");
     return std::move(result);
 }
@@ -501,32 +501,32 @@ void RegisterRidgeFitPredictAggregateFunction(ExtensionLoader &loader) {
 
     auto basic_func = AggregateFunction(
         "ridge_fit_predict_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
-        LogicalType::ANY, AggregateFunction::StateSize<RidgePredictAggState>, RidgePredictAggInitialize,
-        ANOFOX_GUARDED_UPDATE(RidgePredictAggUpdate, RidgePredictAggDestroy, RidgePredictAggInitialize), RidgePredictAggCombine, ANOFOX_GUARDED_FINALIZE(RidgePredictAggFinalize, RidgePredictAggDestroy, RidgePredictAggInitialize), nullptr, RidgePredictAggBind,
+        LogicalType::ANY, AggregateFunction::StateSize<RidgePredictAggState>, ANOFOX_AGG_INIT(RidgePredictAggInitialize),
+        ANOFOX_GUARDED_UPDATE(RidgePredictAggUpdate, RidgePredictAggDestroy, RidgePredictAggInitialize), RidgePredictAggCombine, ANOFOX_GUARDED_FINALIZE(RidgePredictAggFinalize, RidgePredictAggDestroy, RidgePredictAggInitialize), nullptr, ANOFOX_AGG_BIND(RidgePredictAggBind),
         RidgePredictAggDestroy);
     func_set.AddFunction(basic_func);
 
     auto map_func = AggregateFunction(
         "ridge_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY}, LogicalType::ANY,
-        AggregateFunction::StateSize<RidgePredictAggState>, RidgePredictAggInitialize, ANOFOX_GUARDED_UPDATE(RidgePredictAggUpdate, RidgePredictAggDestroy, RidgePredictAggInitialize),
-        RidgePredictAggCombine, ANOFOX_GUARDED_FINALIZE(RidgePredictAggFinalize, RidgePredictAggDestroy, RidgePredictAggInitialize), nullptr, RidgePredictAggBind, RidgePredictAggDestroy);
+        AggregateFunction::StateSize<RidgePredictAggState>, ANOFOX_AGG_INIT(RidgePredictAggInitialize), ANOFOX_GUARDED_UPDATE(RidgePredictAggUpdate, RidgePredictAggDestroy, RidgePredictAggInitialize),
+        RidgePredictAggCombine, ANOFOX_GUARDED_FINALIZE(RidgePredictAggFinalize, RidgePredictAggDestroy, RidgePredictAggInitialize), nullptr, ANOFOX_AGG_BIND(RidgePredictAggBind), RidgePredictAggDestroy);
     func_set.AddFunction(map_func);
 
     // Version with split column: ridge_fit_predict_agg(y, x, split_col)
     auto split_func = AggregateFunction(
         "ridge_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR}, LogicalType::ANY,
-        AggregateFunction::StateSize<RidgePredictAggState>, RidgePredictAggInitialize, ANOFOX_GUARDED_UPDATE(RidgePredictAggUpdate, RidgePredictAggDestroy, RidgePredictAggInitialize),
-        RidgePredictAggCombine, ANOFOX_GUARDED_FINALIZE(RidgePredictAggFinalize, RidgePredictAggDestroy, RidgePredictAggInitialize), nullptr, RidgePredictAggBindWithSplit, RidgePredictAggDestroy);
+        AggregateFunction::StateSize<RidgePredictAggState>, ANOFOX_AGG_INIT(RidgePredictAggInitialize), ANOFOX_GUARDED_UPDATE(RidgePredictAggUpdate, RidgePredictAggDestroy, RidgePredictAggInitialize),
+        RidgePredictAggCombine, ANOFOX_GUARDED_FINALIZE(RidgePredictAggFinalize, RidgePredictAggDestroy, RidgePredictAggInitialize), nullptr, ANOFOX_AGG_BIND(RidgePredictAggBindWithSplit), RidgePredictAggDestroy);
     func_set.AddFunction(split_func);
 
     // Version with split column and options: ridge_fit_predict_agg(y, x, split_col, options)
     auto split_opts_func = AggregateFunction(
         "ridge_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR, LogicalType::ANY},
-        LogicalType::ANY, AggregateFunction::StateSize<RidgePredictAggState>, RidgePredictAggInitialize,
-        ANOFOX_GUARDED_UPDATE(RidgePredictAggUpdate, RidgePredictAggDestroy, RidgePredictAggInitialize), RidgePredictAggCombine, ANOFOX_GUARDED_FINALIZE(RidgePredictAggFinalize, RidgePredictAggDestroy, RidgePredictAggInitialize), nullptr, RidgePredictAggBindWithSplit,
+        LogicalType::ANY, AggregateFunction::StateSize<RidgePredictAggState>, ANOFOX_AGG_INIT(RidgePredictAggInitialize),
+        ANOFOX_GUARDED_UPDATE(RidgePredictAggUpdate, RidgePredictAggDestroy, RidgePredictAggInitialize), RidgePredictAggCombine, ANOFOX_GUARDED_FINALIZE(RidgePredictAggFinalize, RidgePredictAggDestroy, RidgePredictAggInitialize), nullptr, ANOFOX_AGG_BIND(RidgePredictAggBindWithSplit),
         RidgePredictAggDestroy);
     func_set.AddFunction(split_opts_func);
 

@@ -94,7 +94,7 @@ static_assert(offsetof(AnofoxAugmentResult, len) == 8 * sizeof(double *) &&
 
 static bool HasField(const child_list_t<LogicalType> &children, const string &name) {
 	for (auto &child : children) {
-		if (child.first == name) {
+		if (NameString(child.first) == name) {
 			return true;
 		}
 	}
@@ -103,7 +103,7 @@ static bool HasField(const child_list_t<LogicalType> &children, const string &na
 
 static void AppendIfMissing(child_list_t<LogicalType> &children, const string &name, const LogicalType &type) {
 	if (!HasField(children, name)) {
-		children.push_back(make_pair(name, type));
+		children.push_back(MakeChild(name, type));
 	}
 }
 
@@ -160,7 +160,7 @@ ModelStructWriter::ModelStructWriter(Vector &result) {
 	auto &types = StructType::GetChildTypes(result.GetType());
 	auto &entries = StructVector::GetEntries(result);
 	for (idx_t i = 0; i < types.size(); i++) {
-		fields[types[i].first] = entries[i].get();
+		fields[NameString(types[i].first)] = &StructEntry(entries[i]);
 	}
 }
 
@@ -176,7 +176,7 @@ static void WriteDouble(Vector *vec, idx_t row, double value) {
 	if (std::isnan(value)) {
 		FlatVector::SetNull(*vec, row, true);
 	} else {
-		FlatVector::GetData<double>(*vec)[row] = value;
+		FlatDataMut<double>(*vec)[row] = value;
 	}
 }
 
@@ -191,7 +191,7 @@ static void WriteList(Vector *vec, idx_t row, const double *data, size_t len) {
 	auto offset = ListVector::GetListSize(*vec);
 	ListVector::Reserve(*vec, offset + len);
 	auto &child = ListVector::GetEntry(*vec);
-	auto child_data = FlatVector::GetData<double>(child);
+	auto child_data = FlatDataMut<double>(child);
 	for (size_t i = 0; i < len; i++) {
 		child_data[offset + i] = data[i];
 	}
@@ -207,7 +207,7 @@ static void WriteString(Vector *vec, idx_t row, const char *value) {
 		FlatVector::SetNull(*vec, row, true);
 		return;
 	}
-	FlatVector::GetData<string_t>(*vec)[row] = StringVector::AddString(*vec, value);
+	FlatDataMut<string_t>(*vec)[row] = StringVector::AddString(*vec, value);
 }
 
 static void WriteNull(Vector *vec, idx_t row) {
@@ -240,10 +240,10 @@ void ModelStructWriter::WriteInference(idx_t row, const AnofoxFitResultInference
 	WriteDouble(Field("conf_level"), row, inference->confidence_level);
 	// The F test keeps its NaN (no F test for this fit) as NaN, as before.
 	if (auto f = Field("f_statistic")) {
-		FlatVector::GetData<double>(*f)[row] = inference->f_statistic;
+		FlatDataMut<double>(*f)[row] = inference->f_statistic;
 	}
 	if (auto f = Field("f_pvalue")) {
-		FlatVector::GetData<double>(*f)[row] = inference->f_pvalue;
+		FlatDataMut<double>(*f)[row] = inference->f_pvalue;
 	}
 }
 

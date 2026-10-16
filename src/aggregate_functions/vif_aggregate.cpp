@@ -36,7 +36,7 @@ struct VifAggregateState {
 // Aggregate function operations
 //===--------------------------------------------------------------------===//
 
-static void VifAggInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void VifAggInitialize(data_ptr_t state_p) {
     new (state_p) VifAggregateState();
 }
 
@@ -56,10 +56,10 @@ static void VifAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data, i
     UnifiedVectorFormat x_data;
     inputs[0].ToUnifiedFormat(count, x_data); // x: LIST(DOUBLE)
 
-    auto x_list_data = ListVector::GetData(inputs[0]);
+    auto x_list_data = UnifiedVectorFormat::GetData<list_entry_t>(x_data);
     auto &x_child = ListVector::GetEntry(inputs[0]);
-    auto x_child_data = FlatVector::GetData<double>(x_child);
-    auto &x_child_validity = FlatVector::Validity(x_child);
+    auto x_child_data = FlatDataMut<double>(x_child);
+    auto &x_child_validity = FlatValidityMut(x_child);
 
     UnifiedVectorFormat sdata;
     state_vector.ToUnifiedFormat(count, sdata);
@@ -144,7 +144,7 @@ static void SetListInResult(Vector &list_vec, idx_t row, double *data, size_t le
     auto offset = ListVector::GetListSize(list_vec);
     ListVector::Reserve(list_vec, offset + len);
     ListVector::SetListSize(list_vec, offset + len);
-    auto vec_data = FlatVector::GetData<double>(child);
+    auto vec_data = FlatDataMut<double>(child);
     for (size_t i = 0; i < len; i++) {
         vec_data[offset + i] = data[i];
     }
@@ -201,9 +201,9 @@ static void VifAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
 //===--------------------------------------------------------------------===//
 // Bind function
 //===--------------------------------------------------------------------===//
-static unique_ptr<FunctionData> VifAggBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> VifAggBind(ClientContext &context, AggregateBindFunction &function,
                                            vector<unique_ptr<Expression>> &arguments) {
-    function.return_type = LogicalType::LIST(LogicalType::DOUBLE);
+    SetReturnTypeOf(function, LogicalType::LIST(LogicalType::DOUBLE));
     PostHogTelemetry::Instance().RecordFunctionCall("vif_agg");
     return nullptr;
 }
@@ -216,10 +216,10 @@ void RegisterVifAggregateFunction(ExtensionLoader &loader) {
 
     auto func = AggregateFunction("vif_agg", {LogicalType::LIST(LogicalType::DOUBLE)},
                                   LogicalType::ANY, // Set in bind
-                                  AggregateFunction::StateSize<VifAggregateState>, VifAggInitialize, ANOFOX_GUARDED_UPDATE(VifAggUpdate, VifAggDestroy, VifAggInitialize),
+                                  AggregateFunction::StateSize<VifAggregateState>, ANOFOX_AGG_INIT(VifAggInitialize), ANOFOX_GUARDED_UPDATE(VifAggUpdate, VifAggDestroy, VifAggInitialize),
                                   VifAggCombine, ANOFOX_GUARDED_FINALIZE(VifAggFinalize, VifAggDestroy, VifAggInitialize),
                                   nullptr, // simple_update
-                                  VifAggBind, VifAggDestroy);
+                                  ANOFOX_AGG_BIND(VifAggBind), VifAggDestroy);
     func_set.AddFunction(func);
 
     CreateAggregateFunctionInfo info(std::move(func_set));

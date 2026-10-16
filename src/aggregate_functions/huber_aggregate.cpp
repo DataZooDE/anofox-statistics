@@ -111,7 +111,7 @@ static LogicalType GetHuberAggResultType() {
 // State machine: Initialize / Destroy / Update / Combine / Finalize
 //===--------------------------------------------------------------------===//
 
-static void HuberAggInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void HuberAggInitialize(data_ptr_t state_p) {
     new (state_p) HuberAggregateState();
 }
 
@@ -136,10 +136,10 @@ static void HuberAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data,
     inputs[1].ToUnifiedFormat(count, x_data); // x: LIST(DOUBLE)
 
     auto y_values = UnifiedVectorFormat::GetData<double>(y_data);
-    auto x_list_data = ListVector::GetData(inputs[1]);
+    auto x_list_data = UnifiedVectorFormat::GetData<list_entry_t>(x_data);
     auto &x_child = ListVector::GetEntry(inputs[1]);
-    auto x_child_data = FlatVector::GetData<double>(x_child);
-    auto &x_child_validity = FlatVector::Validity(x_child);
+    auto x_child_data = FlatDataMut<double>(x_child);
+    auto &x_child_validity = FlatValidityMut(x_child);
 
     UnifiedVectorFormat sdata;
     state_vector.ToUnifiedFormat(count, sdata);
@@ -244,7 +244,7 @@ static void SetListInResult(Vector &list_vec, idx_t row, double *data, size_t le
     auto offset = ListVector::GetListSize(list_vec);
     ListVector::Reserve(list_vec, offset + len);
     ListVector::SetListSize(list_vec, offset + len);
-    auto vec_data = FlatVector::GetData<double>(child);
+    auto vec_data = FlatDataMut<double>(child);
     for (size_t i = 0; i < len; i++) {
         vec_data[offset + i] = data[i];
     }
@@ -308,17 +308,17 @@ static void HuberAggFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
 
         idx_t struct_idx = 0;
 
-        SetListInResult(*struct_entries[struct_idx++], result_idx, core_result.coefficients,
+        SetListInResult(StructEntry(struct_entries[struct_idx++]), result_idx, core_result.coefficients,
                         core_result.coefficients_len);
 
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = core_result.intercept;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = core_result.r_squared;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = core_result.adj_r_squared;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = core_result.residual_std_error;
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = core_result.n_observations;
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = core_result.n_features;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = extras_result.scale;
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = (int64_t)extras_result.n_outliers;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = core_result.intercept;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = core_result.r_squared;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = core_result.adj_r_squared;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = core_result.residual_std_error;
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = core_result.n_observations;
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = core_result.n_features;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = extras_result.scale;
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = (int64_t)extras_result.n_outliers;
 
         // Inference (NULL unless requested), CI fields and the model summary
         writer.WriteInference(result_idx, state.compute_inference ? &inference_result : nullptr);
@@ -337,7 +337,7 @@ static void HuberAggFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
 //===--------------------------------------------------------------------===//
 // Bind function — parse optional MAP and set return type.
 //===--------------------------------------------------------------------===//
-static unique_ptr<FunctionData> HuberAggBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> HuberAggBind(ClientContext &context, AggregateBindFunction &function,
                                              vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<HuberAggregateBindData>();
 
@@ -368,7 +368,7 @@ static unique_ptr<FunctionData> HuberAggBind(ClientContext &context, AggregateFu
         }
     }
 
-    function.return_type = GetHuberAggResultType();
+    SetReturnTypeOf(function, GetHuberAggResultType());
 
     PostHogTelemetry::Instance().RecordFunctionCall("huber_fit_agg");
     return std::move(result);
@@ -382,15 +382,15 @@ void RegisterHuberAggregateFunction(ExtensionLoader &loader) {
 
     auto basic_func = AggregateFunction(
         "huber_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
-        LogicalType::ANY, AggregateFunction::StateSize<HuberAggregateState>, HuberAggInitialize, ANOFOX_GUARDED_UPDATE(HuberAggUpdate, HuberAggDestroy, HuberAggInitialize),
-        HuberAggCombine, ANOFOX_GUARDED_FINALIZE(HuberAggFinalize, HuberAggDestroy, HuberAggInitialize), nullptr, HuberAggBind, HuberAggDestroy);
+        LogicalType::ANY, AggregateFunction::StateSize<HuberAggregateState>, ANOFOX_AGG_INIT(HuberAggInitialize), ANOFOX_GUARDED_UPDATE(HuberAggUpdate, HuberAggDestroy, HuberAggInitialize),
+        HuberAggCombine, ANOFOX_GUARDED_FINALIZE(HuberAggFinalize, HuberAggDestroy, HuberAggInitialize), nullptr, ANOFOX_AGG_BIND(HuberAggBind), HuberAggDestroy);
     func_set.AddFunction(basic_func);
 
     auto map_func = AggregateFunction(
         "huber_fit_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY}, LogicalType::ANY,
-        AggregateFunction::StateSize<HuberAggregateState>, HuberAggInitialize, ANOFOX_GUARDED_UPDATE(HuberAggUpdate, HuberAggDestroy, HuberAggInitialize), HuberAggCombine,
-        ANOFOX_GUARDED_FINALIZE(HuberAggFinalize, HuberAggDestroy, HuberAggInitialize), nullptr, HuberAggBind, HuberAggDestroy);
+        AggregateFunction::StateSize<HuberAggregateState>, ANOFOX_AGG_INIT(HuberAggInitialize), ANOFOX_GUARDED_UPDATE(HuberAggUpdate, HuberAggDestroy, HuberAggInitialize), HuberAggCombine,
+        ANOFOX_GUARDED_FINALIZE(HuberAggFinalize, HuberAggDestroy, HuberAggInitialize), nullptr, ANOFOX_AGG_BIND(HuberAggBind), HuberAggDestroy);
     func_set.AddFunction(map_func);
 
     CreateAggregateFunctionInfo info(std::move(func_set));

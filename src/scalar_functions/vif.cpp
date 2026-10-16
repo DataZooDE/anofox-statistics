@@ -16,7 +16,7 @@ namespace duckdb {
 static vector<double> ExtractDoubleList(Vector &vec, idx_t row_idx) {
     auto list_data = ListVector::GetData(vec);
     auto &child = ListVector::GetEntry(vec);
-    auto child_data = FlatVector::GetData<double>(child);
+    auto child_data = FlatDataMut<double>(child);
 
     vector<double> result;
     auto offset = list_data[row_idx].offset;
@@ -91,7 +91,7 @@ static void VifFunctionImpl(DataChunk &args, ExpressionState &state, Vector &res
         auto result_offset = ListVector::GetListSize(result);
         ListVector::Reserve(result, result_offset + vif_len);
         ListVector::SetListSize(result, result_offset + vif_len);
-        auto result_data = FlatVector::GetData<double>(result_child);
+        auto result_data = FlatDataMut<double>(result_child);
 
         for (size_t i = 0; i < vif_len; i++) {
             result_data[result_offset + i] = vif_values[i];
@@ -109,6 +109,7 @@ static void VifFunctionImpl(DataChunk &args, ExpressionState &state, Vector &res
 void RegisterVifFunction(ExtensionLoader &loader) {
     ScalarFunction func({LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE))},
                         LogicalType::LIST(LogicalType::DOUBLE), VifFunction);
+    MarkFallible(func);
 
     // Primary
     {

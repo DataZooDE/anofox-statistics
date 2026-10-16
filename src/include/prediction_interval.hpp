@@ -1,6 +1,7 @@
 #pragma once
 
 #include "duckdb.hpp"
+#include "duckdb_compat.hpp"
 #include "anofox_stats_ffi.h"
 
 #include <cmath>
@@ -99,7 +100,7 @@ private:
 //! Write a bound into a DOUBLE vector, as NULL when it is not finite.
 inline void WriteIntervalBound(Vector &vec, idx_t idx, double value) {
 	if (std::isfinite(value)) {
-		FlatVector::GetData<double>(vec)[idx] = value;
+		FlatDataMut<double>(vec)[idx] = value;
 	} else {
 		FlatVector::SetNull(vec, idx, true);
 	}

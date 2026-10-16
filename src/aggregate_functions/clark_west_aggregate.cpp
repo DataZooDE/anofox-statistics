@@ -78,7 +78,7 @@ struct ClarkWestBindData : public FunctionData {
 // Aggregate function operations
 //===--------------------------------------------------------------------===//
 
-static void ClarkWestAggInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void ClarkWestAggInitialize(data_ptr_t state_p) {
     new (state_p) ClarkWestAggregateState();
 }
 
@@ -213,14 +213,14 @@ static void ClarkWestAggFinalize(Vector &state_vector, AggregateInputData &aggr_
         }
 
         idx_t struct_idx = 0;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = test_result.statistic;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = test_result.p_value;
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = static_cast<int64_t>(test_result.n);
-        auto& method_vector = *struct_entries[struct_idx++];
-        FlatVector::GetData<string_t>(method_vector)[result_idx] =
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = test_result.statistic;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = test_result.p_value;
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = static_cast<int64_t>(test_result.n);
+        auto& method_vector = StructEntry(struct_entries[struct_idx++]);
+        FlatDataMut<string_t>(method_vector)[result_idx] =
             StringVector::AddString(method_vector, test_result.method ? test_result.method : "Clark-West test");
         // Clark-West is one-sided by construction: H1 = the unrestricted model is better.
-        SetResultString(*struct_entries[struct_idx++], result_idx, "greater");
+        SetResultString(StructEntry(struct_entries[struct_idx++]), result_idx, "greater");
         WriteTestResultFields(result, result_idx, struct_idx, test_result.unified);
 
         anofox_free_test_result(&test_result);
@@ -231,9 +231,9 @@ static void ClarkWestAggFinalize(Vector &state_vector, AggregateInputData &aggr_
 //===--------------------------------------------------------------------===//
 // Bind function
 //===--------------------------------------------------------------------===//
-static unique_ptr<FunctionData> ClarkWestAggBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> ClarkWestAggBind(ClientContext &context, AggregateBindFunction &function,
                                                    vector<unique_ptr<Expression>> &arguments) {
-    function.return_type = GetClarkWestAggResultType();
+    SetReturnTypeOf(function, GetClarkWestAggResultType());
     auto bind_data = make_uniq<ClarkWestBindData>();
 
     if (arguments.size() >= 4) {
@@ -257,26 +257,26 @@ void RegisterClarkWestAggregateFunction(ExtensionLoader &loader) {
         "clark_west_agg",
         {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::ANY},
         LogicalType::ANY,
-        AggregateFunction::StateSize<ClarkWestAggregateState>, ClarkWestAggInitialize,
+        AggregateFunction::StateSize<ClarkWestAggregateState>, ANOFOX_AGG_INIT(ClarkWestAggInitialize),
         ANOFOX_GUARDED_UPDATE(ClarkWestAggUpdate, ClarkWestAggDestroy, ClarkWestAggInitialize), ClarkWestAggCombine, ANOFOX_GUARDED_FINALIZE(ClarkWestAggFinalize, ClarkWestAggDestroy, ClarkWestAggInitialize),
-        nullptr, ClarkWestAggBind, ClarkWestAggDestroy);
+        nullptr, ANOFOX_AGG_BIND(ClarkWestAggBind), ClarkWestAggDestroy);
 
     // Without options: (actual, forecast_restricted, forecast_unrestricted)
     auto func_no_opts = AggregateFunction(
         "clark_west_agg",
         {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::DOUBLE},
         LogicalType::ANY,
-        AggregateFunction::StateSize<ClarkWestAggregateState>, ClarkWestAggInitialize,
+        AggregateFunction::StateSize<ClarkWestAggregateState>, ANOFOX_AGG_INIT(ClarkWestAggInitialize),
         ANOFOX_GUARDED_UPDATE(ClarkWestAggUpdate, ClarkWestAggDestroy, ClarkWestAggInitialize), ClarkWestAggCombine, ANOFOX_GUARDED_FINALIZE(ClarkWestAggFinalize, ClarkWestAggDestroy, ClarkWestAggInitialize),
-        nullptr, ClarkWestAggBind, ClarkWestAggDestroy);
+        nullptr, ANOFOX_AGG_BIND(ClarkWestAggBind), ClarkWestAggDestroy);
 
     {
         AggregateFunctionSet func_set("clark_west_agg");
         // Row order is part of the input (sequential / time-series estimator):
         // declare it so DuckDB honours `agg(... ORDER BY t)`.
-        func_with_opts.order_dependent = AggregateOrderDependent::ORDER_DEPENDENT; // field form works on DuckDB v1.4 LTS and v1.5
+        SetOrderDependentOf(func_with_opts, AggregateOrderDependent::ORDER_DEPENDENT); // field form works on DuckDB v1.4 LTS and v1.5
         func_set.AddFunction(func_with_opts);
-        func_no_opts.order_dependent = AggregateOrderDependent::ORDER_DEPENDENT; // field form works on DuckDB v1.4 LTS and v1.5
+        SetOrderDependentOf(func_no_opts, AggregateOrderDependent::ORDER_DEPENDENT); // field form works on DuckDB v1.4 LTS and v1.5
         func_set.AddFunction(func_no_opts);
         CreateAggregateFunctionInfo info(std::move(func_set));
         info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;

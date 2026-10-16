@@ -443,7 +443,7 @@ static void VisitOptionEntries(const Value &map_value, Callback callback) {
 		auto &children = StructValue::GetChildren(map_value);
 		auto &child_types = StructType::GetChildTypes(map_value.type());
 		for (idx_t i = 0; i < child_types.size(); i++) {
-			callback(ToLower(child_types[i].first), children[i]);
+			callback(ToLower(NameString(child_types[i].first)), children[i]);
 		}
 	} else {
 		throw InvalidInputException("Expected MAP or STRUCT type for options, got %s", map_value.type().ToString());
@@ -622,7 +622,7 @@ static PriorSpecOpt ParsePriorSpecValue(const string &feature, const Value &val)
 	bool have_scale = false;
 
 	for (idx_t i = 0; i < child_types.size(); i++) {
-		string key = ToLower(child_types[i].first);
+		string key = ToLower(NameString(child_types[i].first));
 		const Value &child = children[i];
 
 		if (key == "dist" || key == "distribution" || key == "kind") {

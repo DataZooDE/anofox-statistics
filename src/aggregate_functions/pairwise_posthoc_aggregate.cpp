@@ -95,7 +95,7 @@ static LogicalType GetPosthocRowType() {
 	return LogicalType::STRUCT(std::move(children));
 }
 
-static void PosthocInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void PosthocInitialize(data_ptr_t state_p) {
 	new (state_p) PosthocState();
 }
 
@@ -162,7 +162,7 @@ static void SetName(Vector &vec, idx_t row, const char *value, size_t capacity) 
 	if (len == 0) {
 		FlatVector::SetNull(vec, row, true);
 	} else {
-		FlatVector::GetData<string_t>(vec)[row] = StringVector::AddString(vec, value, len);
+		FlatDataMut<string_t>(vec)[row] = StringVector::AddString(vec, value, len);
 	}
 }
 
@@ -170,7 +170,7 @@ static void SetNumber(Vector &vec, idx_t row, double value) {
 	if (std::isnan(value)) {
 		FlatVector::SetNull(vec, row, true);
 	} else {
-		FlatVector::GetData<double>(vec)[row] = value;
+		FlatDataMut<double>(vec)[row] = value;
 	}
 }
 
@@ -241,19 +241,19 @@ static void PosthocFinalize(Vector &state_vector, AggregateInputData &aggr_input
 			auto out = list_offset + r;
 			auto g1 = LabelText(state.labels[order[static_cast<idx_t>(row.group1)]]);
 			auto g2 = LabelText(state.labels[order[static_cast<idx_t>(row.group2)]]);
-			FlatVector::GetData<string_t>(*fields[0])[out] = StringVector::AddString(*fields[0], g1);
-			FlatVector::GetData<string_t>(*fields[1])[out] = StringVector::AddString(*fields[1], g2);
-			SetNumber(*fields[2], out, row.estimate);
-			SetNumber(*fields[3], out, row.statistic);
-			SetNumber(*fields[4], out, row.p_value);
-			SetNumber(*fields[5], out, row.p_adj);
-			SetNumber(*fields[6], out, row.conf_low);
-			SetNumber(*fields[7], out, row.conf_high);
-			SetName(*fields[8], out, res.method, ANOFOX_TEST_METHOD_LEN);
-			SetNumber(*fields[9], out, row.df);
-			SetName(*fields[10], out, res.alternative, ANOFOX_TEST_NAME_LEN);
-			SetNumber(*fields[11], out, res.conf_level);
-			SetName(*fields[12], out, res.p_adjust_method, ANOFOX_TEST_NAME_LEN);
+			FlatDataMut<string_t>(StructEntry(fields[0]))[out] = StringVector::AddString(StructEntry(fields[0]), g1);
+			FlatDataMut<string_t>(StructEntry(fields[1]))[out] = StringVector::AddString(StructEntry(fields[1]), g2);
+			SetNumber(StructEntry(fields[2]), out, row.estimate);
+			SetNumber(StructEntry(fields[3]), out, row.statistic);
+			SetNumber(StructEntry(fields[4]), out, row.p_value);
+			SetNumber(StructEntry(fields[5]), out, row.p_adj);
+			SetNumber(StructEntry(fields[6]), out, row.conf_low);
+			SetNumber(StructEntry(fields[7]), out, row.conf_high);
+			SetName(StructEntry(fields[8]), out, res.method, ANOFOX_TEST_METHOD_LEN);
+			SetNumber(StructEntry(fields[9]), out, row.df);
+			SetName(StructEntry(fields[10]), out, res.alternative, ANOFOX_TEST_NAME_LEN);
+			SetNumber(StructEntry(fields[11]), out, res.conf_level);
+			SetName(StructEntry(fields[12]), out, res.p_adjust_method, ANOFOX_TEST_NAME_LEN);
 		}
 		ListVector::SetListSize(result, list_offset + n_rows);
 		ListVector::GetData(result)[result_idx] = list_entry_t(list_offset, n_rows);
@@ -262,9 +262,9 @@ static void PosthocFinalize(Vector &state_vector, AggregateInputData &aggr_input
 }
 
 template <PosthocKind KIND>
-static unique_ptr<FunctionData> PosthocBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> PosthocBind(ClientContext &context, AggregateBindFunction &function,
                                             vector<unique_ptr<Expression>> &arguments) {
-	function.return_type = LogicalType::LIST(GetPosthocRowType());
+	SetReturnTypeOf(function, LogicalType::LIST(GetPosthocRowType()));
 	auto bind = make_uniq<PosthocBindData>();
 	bind->kind = KIND;
 	const std::string fn_name = PosthocName(KIND);
@@ -293,7 +293,7 @@ template <PosthocKind KIND>
 static void RegisterPosthoc(ExtensionLoader &loader, const char *description, const char *example,
                             const char *options_doc) {
 	const std::string name = PosthocName(KIND);
-	AggregateFunctionSet set(name);
+	AggregateFunctionSet set(AsDuckName(name));
 	for (auto group_type : {LogicalType::VARCHAR, LogicalType::BIGINT}) {
 		for (bool with_options : {false, true}) {
 			vector<LogicalType> args = {LogicalType::DOUBLE, group_type};
@@ -301,10 +301,10 @@ static void RegisterPosthoc(ExtensionLoader &loader, const char *description, co
 				args.push_back(LogicalType::ANY);
 			}
 			AggregateFunction fn(
-			    name, args, LogicalType::ANY, AggregateFunction::StateSize<PosthocState>, PosthocInitialize,
+			    AsDuckName(name), args, LogicalType::ANY, AggregateFunction::StateSize<PosthocState>, ANOFOX_AGG_INIT(PosthocInitialize),
 			    ANOFOX_GUARDED_UPDATE(PosthocUpdate, PosthocDestroy, PosthocInitialize), PosthocCombine,
 			    ANOFOX_GUARDED_FINALIZE(PosthocFinalize, PosthocDestroy, PosthocInitialize), nullptr,
-			    PosthocBind<KIND>, PosthocDestroy);
+			    ANOFOX_AGG_BIND(PosthocBind<KIND>), PosthocDestroy);
 			set.AddFunction(fn);
 		}
 	}

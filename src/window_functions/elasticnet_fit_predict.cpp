@@ -93,7 +93,7 @@ static LogicalType GetElasticNetFitPredictResultType() {
     return LogicalType::STRUCT(std::move(children));
 }
 
-static void ElasticNetFitPredictInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void ElasticNetFitPredictInitialize(data_ptr_t state_p) {
     new (state_p) ElasticNetFitPredictState();
 }
 
@@ -116,10 +116,10 @@ static void ElasticNetFitPredictUpdate(Vector inputs[], AggregateInputData &aggr
     inputs[1].ToUnifiedFormat(count, x_data);
 
     auto y_values = UnifiedVectorFormat::GetData<double>(y_data);
-    auto x_list_data = ListVector::GetData(inputs[1]);
+    auto x_list_data = UnifiedVectorFormat::GetData<list_entry_t>(x_data);
     auto &x_child = ListVector::GetEntry(inputs[1]);
-    auto x_child_data = FlatVector::GetData<double>(x_child);
-    auto &x_child_validity = FlatVector::Validity(x_child);
+    auto x_child_data = FlatDataMut<double>(x_child);
+    auto &x_child_validity = FlatValidityMut(x_child);
 
     UnifiedVectorFormat sdata;
     state_vector.ToUnifiedFormat(count, sdata);
@@ -299,15 +299,15 @@ static void ElasticNetFitPredictFinalize(Vector &state_vector, AggregateInputDat
             continue;
         }
 
-        FlatVector::GetData<double>(*struct_entries[0])[result_idx] = pred_result.yhat;
-        WriteIntervalBound(*struct_entries[1], result_idx, pred_result.yhat_lower);
-        WriteIntervalBound(*struct_entries[2], result_idx, pred_result.yhat_upper);
+        FlatDataMut<double>(StructEntry(struct_entries[0]))[result_idx] = pred_result.yhat;
+        WriteIntervalBound(StructEntry(struct_entries[1]), result_idx, pred_result.yhat_lower);
+        WriteIntervalBound(StructEntry(struct_entries[2]), result_idx, pred_result.yhat_upper);
 
         state.Reset();
     }
 }
 
-static unique_ptr<FunctionData> ElasticNetFitPredictBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> ElasticNetFitPredictBind(ClientContext &context, AggregateBindFunction &function,
                                                           vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<ElasticNetFitPredictBindData>();
 
@@ -334,7 +334,7 @@ static unique_ptr<FunctionData> ElasticNetFitPredictBind(ClientContext &context,
             result->lambda_scaling = opts.lambda_scaling.value();
     }
 
-    function.return_type = GetElasticNetFitPredictResultType();
+    SetReturnTypeOf(function, GetElasticNetFitPredictResultType());
     PostHogTelemetry::Instance().RecordFunctionCall("elasticnet_fit_predict");
     return std::move(result);
 }
@@ -343,15 +343,15 @@ void RegisterElasticNetFitPredictFunction(ExtensionLoader &loader) {
     auto basic_func = AggregateFunction(
         "elasticnet_fit_predict", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
         GetElasticNetFitPredictResultType(), AggregateFunction::StateSize<ElasticNetFitPredictState>,
-        ElasticNetFitPredictInitialize, ANOFOX_GUARDED_UPDATE(ElasticNetFitPredictUpdate, ElasticNetFitPredictDestroy, ElasticNetFitPredictInitialize), ElasticNetFitPredictCombine,
-        ANOFOX_GUARDED_FINALIZE(ElasticNetFitPredictFinalize, ElasticNetFitPredictDestroy, ElasticNetFitPredictInitialize), nullptr, ElasticNetFitPredictBind, ElasticNetFitPredictDestroy);
+        ANOFOX_AGG_INIT(ElasticNetFitPredictInitialize), ANOFOX_GUARDED_UPDATE(ElasticNetFitPredictUpdate, ElasticNetFitPredictDestroy, ElasticNetFitPredictInitialize), ElasticNetFitPredictCombine,
+        ANOFOX_GUARDED_FINALIZE(ElasticNetFitPredictFinalize, ElasticNetFitPredictDestroy, ElasticNetFitPredictInitialize), nullptr, ANOFOX_AGG_BIND(ElasticNetFitPredictBind), ElasticNetFitPredictDestroy);
 
     auto map_func = AggregateFunction(
         "elasticnet_fit_predict",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
         GetElasticNetFitPredictResultType(), AggregateFunction::StateSize<ElasticNetFitPredictState>,
-        ElasticNetFitPredictInitialize, ANOFOX_GUARDED_UPDATE(ElasticNetFitPredictUpdate, ElasticNetFitPredictDestroy, ElasticNetFitPredictInitialize), ElasticNetFitPredictCombine,
-        ANOFOX_GUARDED_FINALIZE(ElasticNetFitPredictFinalize, ElasticNetFitPredictDestroy, ElasticNetFitPredictInitialize), nullptr, ElasticNetFitPredictBind, ElasticNetFitPredictDestroy);
+        ANOFOX_AGG_INIT(ElasticNetFitPredictInitialize), ANOFOX_GUARDED_UPDATE(ElasticNetFitPredictUpdate, ElasticNetFitPredictDestroy, ElasticNetFitPredictInitialize), ElasticNetFitPredictCombine,
+        ANOFOX_GUARDED_FINALIZE(ElasticNetFitPredictFinalize, ElasticNetFitPredictDestroy, ElasticNetFitPredictInitialize), nullptr, ANOFOX_AGG_BIND(ElasticNetFitPredictBind), ElasticNetFitPredictDestroy);
 
     {
         AggregateFunctionSet func_set("elasticnet_fit_predict");

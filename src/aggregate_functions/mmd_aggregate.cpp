@@ -78,7 +78,7 @@ struct MmdBindData : public FunctionData {
 // Aggregate function operations
 //===--------------------------------------------------------------------===//
 
-static void MmdAggInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void MmdAggInitialize(data_ptr_t state_p) {
     new (state_p) MmdAggregateState();
 }
 
@@ -211,16 +211,16 @@ static void MmdAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
 
         // Fill STRUCT result
         idx_t struct_idx = 0;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = test_result.statistic;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = test_result.p_value;
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = static_cast<int64_t>(test_result.n1);
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = static_cast<int64_t>(test_result.n2);
-        auto& method_vector = *struct_entries[struct_idx++];
-        FlatVector::GetData<string_t>(method_vector)[result_idx] =
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = test_result.statistic;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = test_result.p_value;
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = static_cast<int64_t>(test_result.n1);
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = static_cast<int64_t>(test_result.n2);
+        auto& method_vector = StructEntry(struct_entries[struct_idx++]);
+        FlatDataMut<string_t>(method_vector)[result_idx] =
             StringVector::AddString(method_vector, test_result.method ? test_result.method : "MMD Test");
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] =
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] =
             static_cast<int64_t>(test_result.n1 + test_result.n2);
-        SetResultNull(*struct_entries[struct_idx++], result_idx);
+        SetResultNull(StructEntry(struct_entries[struct_idx++]), result_idx);
         WriteTestResultFields(result, result_idx, struct_idx, test_result.unified); // alternative: omnibus test
 
         anofox_free_test_result(&test_result);
@@ -231,9 +231,9 @@ static void MmdAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
 //===--------------------------------------------------------------------===//
 // Bind function
 //===--------------------------------------------------------------------===//
-static unique_ptr<FunctionData> MmdAggBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> MmdAggBind(ClientContext &context, AggregateBindFunction &function,
                                             vector<unique_ptr<Expression>> &arguments) {
-    function.return_type = GetMmdAggResultType();
+    SetReturnTypeOf(function, GetMmdAggResultType());
     auto bind_data = make_uniq<MmdBindData>();
 
     if (arguments.size() >= 3) {
@@ -253,17 +253,17 @@ void RegisterMmdAggregateFunction(ExtensionLoader &loader) {
     auto func_with_opts = AggregateFunction(
         "mmd_agg", {LogicalType::DOUBLE, LogicalType::INTEGER, LogicalType::ANY},
         LogicalType::ANY,
-        AggregateFunction::StateSize<MmdAggregateState>, MmdAggInitialize,
+        AggregateFunction::StateSize<MmdAggregateState>, ANOFOX_AGG_INIT(MmdAggInitialize),
         ANOFOX_GUARDED_UPDATE(MmdAggUpdate, MmdAggDestroy, MmdAggInitialize), MmdAggCombine, ANOFOX_GUARDED_FINALIZE(MmdAggFinalize, MmdAggDestroy, MmdAggInitialize),
-        nullptr, MmdAggBind, MmdAggDestroy);
+        nullptr, ANOFOX_AGG_BIND(MmdAggBind), MmdAggDestroy);
 
     // Without options
     auto func_no_opts = AggregateFunction(
         "mmd_agg", {LogicalType::DOUBLE, LogicalType::INTEGER},
         LogicalType::ANY,
-        AggregateFunction::StateSize<MmdAggregateState>, MmdAggInitialize,
+        AggregateFunction::StateSize<MmdAggregateState>, ANOFOX_AGG_INIT(MmdAggInitialize),
         ANOFOX_GUARDED_UPDATE(MmdAggUpdate, MmdAggDestroy, MmdAggInitialize), MmdAggCombine, ANOFOX_GUARDED_FINALIZE(MmdAggFinalize, MmdAggDestroy, MmdAggInitialize),
-        nullptr, MmdAggBind, MmdAggDestroy);
+        nullptr, ANOFOX_AGG_BIND(MmdAggBind), MmdAggDestroy);
 
     {
         AggregateFunctionSet func_set("mmd_agg");

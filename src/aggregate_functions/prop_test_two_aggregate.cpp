@@ -87,7 +87,7 @@ struct PropTestTwoBindData : public FunctionData {
 // Aggregate function operations
 //===--------------------------------------------------------------------===//
 
-static void PropTestTwoAggInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void PropTestTwoAggInitialize(data_ptr_t state_p) {
     new (state_p) PropTestTwoAggregateState();
 }
 
@@ -200,16 +200,16 @@ static void PropTestTwoAggFinalize(Vector &state_vector, AggregateInputData &agg
         }
 
         idx_t struct_idx = 0;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = prop_result.statistic;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = prop_result.p_value;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = prop_result.estimate;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = prop_result.ci_lower;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = prop_result.ci_upper;
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = static_cast<int64_t>(prop_result.n);
-        auto& method_vector = *struct_entries[struct_idx++];
-        FlatVector::GetData<string_t>(method_vector)[result_idx] =
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = prop_result.statistic;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = prop_result.p_value;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = prop_result.estimate;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = prop_result.ci_lower;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = prop_result.ci_upper;
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = static_cast<int64_t>(prop_result.n);
+        auto& method_vector = StructEntry(struct_entries[struct_idx++]);
+        FlatDataMut<string_t>(method_vector)[result_idx] =
             StringVector::AddString(method_vector, prop_result.method ? prop_result.method : "Two-sample proportion test");
-        SetResultString(*struct_entries[struct_idx++], result_idx, AlternativeName(bind_data.alternative));
+        SetResultString(StructEntry(struct_entries[struct_idx++]), result_idx, AlternativeName(bind_data.alternative));
         WriteTestResultFields(result, result_idx, struct_idx, prop_result.unified);
 
         anofox_free_prop_test_result(&prop_result);
@@ -220,9 +220,9 @@ static void PropTestTwoAggFinalize(Vector &state_vector, AggregateInputData &agg
 //===--------------------------------------------------------------------===//
 // Bind function
 //===--------------------------------------------------------------------===//
-static unique_ptr<FunctionData> PropTestTwoAggBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> PropTestTwoAggBind(ClientContext &context, AggregateBindFunction &function,
                                                     vector<unique_ptr<Expression>> &arguments) {
-    function.return_type = GetPropTestTwoAggResultType();
+    SetReturnTypeOf(function, GetPropTestTwoAggResultType());
     auto bind_data = make_uniq<PropTestTwoBindData>();
 
     if (arguments.size() >= 3) {
@@ -253,18 +253,18 @@ void RegisterPropTestTwoAggregateFunction(ExtensionLoader &loader) {
     auto func_with_opts = AggregateFunction(
         "prop_test_two_agg", {LogicalType::BIGINT, LogicalType::BIGINT, LogicalType::ANY},
         LogicalType::ANY,
-        AggregateFunction::StateSize<PropTestTwoAggregateState>, PropTestTwoAggInitialize,
+        AggregateFunction::StateSize<PropTestTwoAggregateState>, ANOFOX_AGG_INIT(PropTestTwoAggInitialize),
         ANOFOX_GUARDED_UPDATE(PropTestTwoAggUpdate, PropTestTwoAggDestroy, PropTestTwoAggInitialize), PropTestTwoAggCombine, ANOFOX_GUARDED_FINALIZE(PropTestTwoAggFinalize, PropTestTwoAggDestroy, PropTestTwoAggInitialize),
-        nullptr, PropTestTwoAggBind, PropTestTwoAggDestroy);
+        nullptr, ANOFOX_AGG_BIND(PropTestTwoAggBind), PropTestTwoAggDestroy);
     func_set.AddFunction(func_with_opts);
 
     // Without options: (value BIGINT, group_id BIGINT)
     auto func_no_opts = AggregateFunction(
         "prop_test_two_agg", {LogicalType::BIGINT, LogicalType::BIGINT},
         LogicalType::ANY,
-        AggregateFunction::StateSize<PropTestTwoAggregateState>, PropTestTwoAggInitialize,
+        AggregateFunction::StateSize<PropTestTwoAggregateState>, ANOFOX_AGG_INIT(PropTestTwoAggInitialize),
         ANOFOX_GUARDED_UPDATE(PropTestTwoAggUpdate, PropTestTwoAggDestroy, PropTestTwoAggInitialize), PropTestTwoAggCombine, ANOFOX_GUARDED_FINALIZE(PropTestTwoAggFinalize, PropTestTwoAggDestroy, PropTestTwoAggInitialize),
-        nullptr, PropTestTwoAggBind, PropTestTwoAggDestroy);
+        nullptr, ANOFOX_AGG_BIND(PropTestTwoAggBind), PropTestTwoAggDestroy);
     func_set.AddFunction(func_no_opts);
 
     CreateAggregateFunctionInfo info(std::move(func_set));

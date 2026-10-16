@@ -100,7 +100,7 @@ static LogicalType GetLarsAggResultType() {
 // Aggregate function operations
 //===--------------------------------------------------------------------===//
 
-static void LarsAggInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void LarsAggInitialize(data_ptr_t state_p) {
     new (state_p) LarsAggregateState();
 }
 
@@ -125,10 +125,10 @@ static void LarsAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data, 
     inputs[1].ToUnifiedFormat(count, x_data); // x: LIST(DOUBLE)
 
     auto y_values = UnifiedVectorFormat::GetData<double>(y_data);
-    auto x_list_data = ListVector::GetData(inputs[1]);
+    auto x_list_data = UnifiedVectorFormat::GetData<list_entry_t>(x_data);
     auto &x_child = ListVector::GetEntry(inputs[1]);
-    auto x_child_data = FlatVector::GetData<double>(x_child);
-    auto &x_child_validity = FlatVector::Validity(x_child);
+    auto x_child_data = FlatDataMut<double>(x_child);
+    auto &x_child_validity = FlatValidityMut(x_child);
 
     UnifiedVectorFormat sdata;
     state_vector.ToUnifiedFormat(count, sdata);
@@ -230,7 +230,7 @@ static void SetListInResult(Vector &list_vec, idx_t row, double *data, size_t le
     auto offset = ListVector::GetListSize(list_vec);
     ListVector::Reserve(list_vec, offset + len);
     ListVector::SetListSize(list_vec, offset + len);
-    auto vec_data = FlatVector::GetData<double>(child);
+    auto vec_data = FlatDataMut<double>(child);
     for (size_t i = 0; i < len; i++) {
         vec_data[offset + i] = data[i];
     }
@@ -288,22 +288,22 @@ static void LarsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input
         }
 
         idx_t struct_idx = 0;
-        SetListInResult(*struct_entries[struct_idx++], result_idx, core_result.coefficients,
+        SetListInResult(StructEntry(struct_entries[struct_idx++]), result_idx, core_result.coefficients,
                         core_result.coefficients_len);
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = core_result.intercept;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = core_result.r_squared;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = core_result.intercept;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = core_result.r_squared;
         // adj_r_squared / residual_std_error are NaN when n <= df (active coefficients
         // + intercept); report NULL rather than NaN.
         for (double v : {core_result.adj_r_squared, core_result.residual_std_error}) {
-            auto &entry = *struct_entries[struct_idx++];
+            auto &entry = StructEntry(struct_entries[struct_idx++]);
             if (std::isnan(v)) {
                 FlatVector::SetNull(entry, result_idx, true);
             } else {
-                FlatVector::GetData<double>(entry)[result_idx] = v;
+                FlatDataMut<double>(entry)[result_idx] = v;
             }
         }
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = core_result.n_observations;
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = core_result.n_features;
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = core_result.n_observations;
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = core_result.n_features;
 
         writer.WriteInference(result_idx, nullptr);
         writer.WriteSummary(result_idx, core_result.summary);
@@ -315,7 +315,7 @@ static void LarsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input
 //===--------------------------------------------------------------------===//
 // Bind function
 //===--------------------------------------------------------------------===//
-static unique_ptr<FunctionData> LarsAggBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> LarsAggBind(ClientContext &context, AggregateBindFunction &function,
                                             vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<LarsAggregateBindData>();
 
@@ -351,7 +351,7 @@ static unique_ptr<FunctionData> LarsAggBind(ClientContext &context, AggregateFun
         }
     }
 
-    function.return_type = GetLarsAggResultType();
+    SetReturnTypeOf(function, GetLarsAggResultType());
 
     PostHogTelemetry::Instance().RecordFunctionCall("lars_fit_agg");
     return std::move(result);
@@ -365,15 +365,15 @@ void RegisterLarsAggregateFunction(ExtensionLoader &loader) {
 
     auto basic_func = AggregateFunction(
         "lars_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
-        LogicalType::ANY, AggregateFunction::StateSize<LarsAggregateState>, LarsAggInitialize, ANOFOX_GUARDED_UPDATE(LarsAggUpdate, LarsAggDestroy, LarsAggInitialize),
-        LarsAggCombine, ANOFOX_GUARDED_FINALIZE(LarsAggFinalize, LarsAggDestroy, LarsAggInitialize), nullptr, LarsAggBind, LarsAggDestroy);
+        LogicalType::ANY, AggregateFunction::StateSize<LarsAggregateState>, ANOFOX_AGG_INIT(LarsAggInitialize), ANOFOX_GUARDED_UPDATE(LarsAggUpdate, LarsAggDestroy, LarsAggInitialize),
+        LarsAggCombine, ANOFOX_GUARDED_FINALIZE(LarsAggFinalize, LarsAggDestroy, LarsAggInitialize), nullptr, ANOFOX_AGG_BIND(LarsAggBind), LarsAggDestroy);
     func_set.AddFunction(basic_func);
 
     auto map_func = AggregateFunction(
         "lars_fit_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY}, LogicalType::ANY,
-        AggregateFunction::StateSize<LarsAggregateState>, LarsAggInitialize, ANOFOX_GUARDED_UPDATE(LarsAggUpdate, LarsAggDestroy, LarsAggInitialize), LarsAggCombine,
-        ANOFOX_GUARDED_FINALIZE(LarsAggFinalize, LarsAggDestroy, LarsAggInitialize), nullptr, LarsAggBind, LarsAggDestroy);
+        AggregateFunction::StateSize<LarsAggregateState>, ANOFOX_AGG_INIT(LarsAggInitialize), ANOFOX_GUARDED_UPDATE(LarsAggUpdate, LarsAggDestroy, LarsAggInitialize), LarsAggCombine,
+        ANOFOX_GUARDED_FINALIZE(LarsAggFinalize, LarsAggDestroy, LarsAggInitialize), nullptr, ANOFOX_AGG_BIND(LarsAggBind), LarsAggDestroy);
     func_set.AddFunction(map_func);
 
     CreateAggregateFunctionInfo info(std::move(func_set));

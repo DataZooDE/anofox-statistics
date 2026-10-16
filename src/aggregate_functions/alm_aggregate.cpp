@@ -115,7 +115,7 @@ static LogicalType GetAlmAggResultType() {
 // Aggregate function operations
 //===--------------------------------------------------------------------===//
 
-static void AlmAggInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void AlmAggInitialize(data_ptr_t state_p) {
     new (state_p) AlmAggregateState();
 }
 
@@ -148,10 +148,10 @@ static void AlmAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data, i
     inputs[1].ToUnifiedFormat(count, x_data);
 
     auto y_values = UnifiedVectorFormat::GetData<double>(y_data);
-    auto x_list_data = ListVector::GetData(inputs[1]);
+    auto x_list_data = UnifiedVectorFormat::GetData<list_entry_t>(x_data);
     auto &x_child = ListVector::GetEntry(inputs[1]);
-    auto x_child_data = FlatVector::GetData<double>(x_child);
-    auto &x_child_validity = FlatVector::Validity(x_child);
+    auto x_child_data = FlatDataMut<double>(x_child);
+    auto &x_child_validity = FlatValidityMut(x_child);
 
     UnifiedVectorFormat sdata;
     state_vector.ToUnifiedFormat(count, sdata);
@@ -260,7 +260,7 @@ static void SetListInResult(Vector &list_vec, idx_t row, double *data, size_t le
     auto offset = ListVector::GetListSize(list_vec);
     ListVector::Reserve(list_vec, offset + len);
     ListVector::SetListSize(list_vec, offset + len);
-    auto vec_data = FlatVector::GetData<double>(child);
+    auto vec_data = FlatDataMut<double>(child);
     for (size_t i = 0; i < len; i++) {
         vec_data[offset + i] = data[i];
     }
@@ -326,17 +326,17 @@ static void AlmAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
 
         idx_t struct_idx = 0;
 
-        SetListInResult(*struct_entries[struct_idx++], result_idx, core_result.coefficients,
+        SetListInResult(StructEntry(struct_entries[struct_idx++]), result_idx, core_result.coefficients,
                         core_result.coefficients_len);
 
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = core_result.intercept;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = core_result.log_likelihood;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = core_result.aic;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = core_result.bic;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = core_result.scale;
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = core_result.n_observations;
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = core_result.n_features;
-        FlatVector::GetData<int32_t>(*struct_entries[struct_idx++])[result_idx] = core_result.iterations;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = core_result.intercept;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = core_result.log_likelihood;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = core_result.aic;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = core_result.bic;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = core_result.scale;
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = core_result.n_observations;
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = core_result.n_features;
+        FlatDataMut<int32_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = core_result.iterations;
 
         // Inference (NULL unless requested), CI fields and the model summary
         writer.WriteInference(result_idx, state.compute_inference ? &inference_result : nullptr);
@@ -354,7 +354,7 @@ static void AlmAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
 //===--------------------------------------------------------------------===//
 // Bind function
 //===--------------------------------------------------------------------===//
-static unique_ptr<FunctionData> AlmAggBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> AlmAggBind(ClientContext &context, AggregateBindFunction &function,
                                            vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<AlmAggregateBindData>();
 
@@ -391,7 +391,7 @@ static unique_ptr<FunctionData> AlmAggBind(ClientContext &context, AggregateFunc
         }
     }
 
-    function.return_type = GetAlmAggResultType();
+    SetReturnTypeOf(function, GetAlmAggResultType());
 
     PostHogTelemetry::Instance().RecordFunctionCall("alm_fit_agg");
     return std::move(result);
@@ -405,14 +405,14 @@ void RegisterAlmAggregateFunction(ExtensionLoader &loader) {
 
     auto basic_func = AggregateFunction(
         "alm_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)}, LogicalType::ANY,
-        AggregateFunction::StateSize<AlmAggregateState>, AlmAggInitialize, ANOFOX_GUARDED_UPDATE(AlmAggUpdate, AlmAggDestroy, AlmAggInitialize), AlmAggCombine, ANOFOX_GUARDED_FINALIZE(AlmAggFinalize, AlmAggDestroy, AlmAggInitialize),
-        nullptr, AlmAggBind, AlmAggDestroy);
+        AggregateFunction::StateSize<AlmAggregateState>, ANOFOX_AGG_INIT(AlmAggInitialize), ANOFOX_GUARDED_UPDATE(AlmAggUpdate, AlmAggDestroy, AlmAggInitialize), AlmAggCombine, ANOFOX_GUARDED_FINALIZE(AlmAggFinalize, AlmAggDestroy, AlmAggInitialize),
+        nullptr, ANOFOX_AGG_BIND(AlmAggBind), AlmAggDestroy);
     func_set.AddFunction(basic_func);
 
     auto map_func = AggregateFunction(
         "alm_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
-        LogicalType::ANY, AggregateFunction::StateSize<AlmAggregateState>, AlmAggInitialize, ANOFOX_GUARDED_UPDATE(AlmAggUpdate, AlmAggDestroy, AlmAggInitialize),
-        AlmAggCombine, ANOFOX_GUARDED_FINALIZE(AlmAggFinalize, AlmAggDestroy, AlmAggInitialize), nullptr, AlmAggBind, AlmAggDestroy);
+        LogicalType::ANY, AggregateFunction::StateSize<AlmAggregateState>, ANOFOX_AGG_INIT(AlmAggInitialize), ANOFOX_GUARDED_UPDATE(AlmAggUpdate, AlmAggDestroy, AlmAggInitialize),
+        AlmAggCombine, ANOFOX_GUARDED_FINALIZE(AlmAggFinalize, AlmAggDestroy, AlmAggInitialize), nullptr, ANOFOX_AGG_BIND(AlmAggBind), AlmAggDestroy);
     func_set.AddFunction(map_func);
 
     CreateAggregateFunctionInfo info(std::move(func_set));

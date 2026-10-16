@@ -36,7 +36,7 @@ struct PhiCoefficientAggregateState {
 // Aggregate function operations
 //===--------------------------------------------------------------------===//
 
-static void PhiCoefficientAggInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void PhiCoefficientAggInitialize(data_ptr_t state_p) {
     new (state_p) PhiCoefficientAggregateState();
 }
 
@@ -113,7 +113,7 @@ static void PhiCoefficientAggFinalize(Vector &state_vector, AggregateInputData &
     state_vector.ToUnifiedFormat(count, sdata);
     auto states = (PhiCoefficientAggregateState **)sdata.data;
 
-    auto result_data = FlatVector::GetData<double>(result);
+    auto result_data = FlatDataMut<double>(result);
 
     for (idx_t i = 0; i < count; i++) {
         auto &state = *states[sdata.sel->get_index(i)];
@@ -184,9 +184,9 @@ static void PhiCoefficientAggFinalize(Vector &state_vector, AggregateInputData &
 //===--------------------------------------------------------------------===//
 // Bind function
 //===--------------------------------------------------------------------===//
-static unique_ptr<FunctionData> PhiCoefficientAggBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> PhiCoefficientAggBind(ClientContext &context, AggregateBindFunction &function,
                                                        vector<unique_ptr<Expression>> &arguments) {
-    function.return_type = LogicalType::DOUBLE;
+    SetReturnTypeOf(function, LogicalType::DOUBLE);
     PostHogTelemetry::Instance().RecordFunctionCall("phi_coefficient_agg");
     return nullptr;
 }
@@ -201,9 +201,9 @@ void RegisterPhiCoefficientAggregateFunction(ExtensionLoader &loader) {
     auto func = AggregateFunction(
         "phi_coefficient_agg", {LogicalType::BIGINT, LogicalType::BIGINT},
         LogicalType::DOUBLE,
-        AggregateFunction::StateSize<PhiCoefficientAggregateState>, PhiCoefficientAggInitialize,
+        AggregateFunction::StateSize<PhiCoefficientAggregateState>, ANOFOX_AGG_INIT(PhiCoefficientAggInitialize),
         ANOFOX_GUARDED_UPDATE(PhiCoefficientAggUpdate, PhiCoefficientAggDestroy, PhiCoefficientAggInitialize), PhiCoefficientAggCombine, ANOFOX_GUARDED_FINALIZE(PhiCoefficientAggFinalize, PhiCoefficientAggDestroy, PhiCoefficientAggInitialize),
-        nullptr, PhiCoefficientAggBind, PhiCoefficientAggDestroy);
+        nullptr, ANOFOX_AGG_BIND(PhiCoefficientAggBind), PhiCoefficientAggDestroy);
     func_set.AddFunction(func);
 
     CreateAggregateFunctionInfo info(std::move(func_set));

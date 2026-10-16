@@ -63,7 +63,7 @@ static LogicalType GetAnovaAggResultType() {
 // Aggregate function operations
 //===--------------------------------------------------------------------===//
 
-static void AnovaAggInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void AnovaAggInitialize(data_ptr_t state_p) {
     new (state_p) AnovaAggregateState();
 }
 
@@ -183,19 +183,19 @@ static void AnovaAggFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
         }
 
         idx_t struct_idx = 0;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = anova_result.f_statistic;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = anova_result.p_value;
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = static_cast<int64_t>(anova_result.df_between);
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = static_cast<int64_t>(anova_result.df_within);
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = anova_result.ss_between;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = anova_result.ss_within;
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = static_cast<int64_t>(anova_result.n_groups);
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = static_cast<int64_t>(anova_result.n);
-        auto& method_vector = *struct_entries[struct_idx++];
-        FlatVector::GetData<string_t>(method_vector)[result_idx] =
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = anova_result.f_statistic;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = anova_result.p_value;
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = static_cast<int64_t>(anova_result.df_between);
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = static_cast<int64_t>(anova_result.df_within);
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = anova_result.ss_between;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = anova_result.ss_within;
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = static_cast<int64_t>(anova_result.n_groups);
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = static_cast<int64_t>(anova_result.n);
+        auto& method_vector = StructEntry(struct_entries[struct_idx++]);
+        FlatDataMut<string_t>(method_vector)[result_idx] =
             StringVector::AddString(method_vector, anova_result.method ? anova_result.method : "One-Way ANOVA");
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = anova_result.f_statistic;
-        SetResultNull(*struct_entries[struct_idx++], result_idx);
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = anova_result.f_statistic;
+        SetResultNull(StructEntry(struct_entries[struct_idx++]), result_idx);
         WriteTestResultFields(result, result_idx, struct_idx, anova_result.unified); // alternative: not applicable
 
         anofox_free_anova_result(&anova_result);
@@ -203,9 +203,9 @@ static void AnovaAggFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
     }
 }
 
-static unique_ptr<FunctionData> AnovaAggBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> AnovaAggBind(ClientContext &context, AggregateBindFunction &function,
                                               vector<unique_ptr<Expression>> &arguments) {
-    function.return_type = GetAnovaAggResultType();
+    SetReturnTypeOf(function, GetAnovaAggResultType());
     PostHogTelemetry::Instance().RecordFunctionCall("one_way_anova_agg");
     return nullptr;
 }
@@ -216,11 +216,11 @@ void RegisterAnovaAggregateFunction(ExtensionLoader &loader) {
     auto func = AggregateFunction(
         "one_way_anova_agg", {LogicalType::DOUBLE, LogicalType::BIGINT},
         LogicalType::ANY,
-        AggregateFunction::StateSize<AnovaAggregateState>, AnovaAggInitialize,
+        AggregateFunction::StateSize<AnovaAggregateState>, ANOFOX_AGG_INIT(AnovaAggInitialize),
         ANOFOX_GUARDED_UPDATE(AnovaAggUpdate, AnovaAggDestroy, AnovaAggInitialize), AnovaAggCombine, ANOFOX_GUARDED_FINALIZE(AnovaAggFinalize, AnovaAggDestroy, AnovaAggInitialize),
-        nullptr, AnovaAggBind, AnovaAggDestroy);
+        nullptr, ANOFOX_AGG_BIND(AnovaAggBind), AnovaAggDestroy);
     func_set.AddFunction(func);
-    func.arguments[1] = LogicalType::VARCHAR; // any group label (#186)
+    SetArgumentTypeOf(func, 1, LogicalType::VARCHAR); // any group label (#186)
     func_set.AddFunction(func);
 
     CreateAggregateFunctionInfo info(std::move(func_set));

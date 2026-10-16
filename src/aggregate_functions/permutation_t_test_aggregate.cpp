@@ -85,7 +85,7 @@ struct PermutationTTestBindData : public FunctionData {
 // Aggregate function operations
 //===--------------------------------------------------------------------===//
 
-static void PermutationTTestAggInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void PermutationTTestAggInitialize(data_ptr_t state_p) {
     new (state_p) PermutationTTestAggregateState();
 }
 
@@ -208,16 +208,16 @@ static void PermutationTTestAggFinalize(Vector &state_vector, AggregateInputData
         }
 
         idx_t struct_idx = 0;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = test_result.statistic;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = test_result.p_value;
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = static_cast<int64_t>(test_result.n1);
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = static_cast<int64_t>(test_result.n2);
-        auto& method_vector = *struct_entries[struct_idx++];
-        FlatVector::GetData<string_t>(method_vector)[result_idx] =
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = test_result.statistic;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = test_result.p_value;
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = static_cast<int64_t>(test_result.n1);
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = static_cast<int64_t>(test_result.n2);
+        auto& method_vector = StructEntry(struct_entries[struct_idx++]);
+        FlatDataMut<string_t>(method_vector)[result_idx] =
             StringVector::AddString(method_vector, test_result.method ? test_result.method : "Permutation t-test");
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] =
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] =
             static_cast<int64_t>(test_result.n1 + test_result.n2);
-        SetResultString(*struct_entries[struct_idx++], result_idx, AlternativeName(bind_data.alternative));
+        SetResultString(StructEntry(struct_entries[struct_idx++]), result_idx, AlternativeName(bind_data.alternative));
         WriteTestResultFields(result, result_idx, struct_idx, test_result.unified);
 
         anofox_free_test_result(&test_result);
@@ -228,9 +228,9 @@ static void PermutationTTestAggFinalize(Vector &state_vector, AggregateInputData
 //===--------------------------------------------------------------------===//
 // Bind function
 //===--------------------------------------------------------------------===//
-static unique_ptr<FunctionData> PermutationTTestAggBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> PermutationTTestAggBind(ClientContext &context, AggregateBindFunction &function,
                                                           vector<unique_ptr<Expression>> &arguments) {
-    function.return_type = GetPermutationTTestAggResultType();
+    SetReturnTypeOf(function, GetPermutationTTestAggResultType());
     auto bind_data = make_uniq<PermutationTTestBindData>();
 
     if (arguments.size() >= 3) {
@@ -262,22 +262,22 @@ void RegisterPermutationTTestAggregateFunction(ExtensionLoader &loader) {
     auto func_with_opts = AggregateFunction(
         "permutation_t_test_agg", {LogicalType::DOUBLE, LogicalType::BIGINT, LogicalType::ANY},
         LogicalType::ANY,
-        AggregateFunction::StateSize<PermutationTTestAggregateState>, PermutationTTestAggInitialize,
+        AggregateFunction::StateSize<PermutationTTestAggregateState>, ANOFOX_AGG_INIT(PermutationTTestAggInitialize),
         ANOFOX_GUARDED_UPDATE(PermutationTTestAggUpdate, PermutationTTestAggDestroy, PermutationTTestAggInitialize), PermutationTTestAggCombine, ANOFOX_GUARDED_FINALIZE(PermutationTTestAggFinalize, PermutationTTestAggDestroy, PermutationTTestAggInitialize),
-        nullptr, PermutationTTestAggBind, PermutationTTestAggDestroy);
+        nullptr, ANOFOX_AGG_BIND(PermutationTTestAggBind), PermutationTTestAggDestroy);
     func_set.AddFunction(func_with_opts);
-    func_with_opts.arguments[1] = LogicalType::VARCHAR;
+    SetArgumentTypeOf(func_with_opts, 1, LogicalType::VARCHAR);
     func_set.AddFunction(func_with_opts);
 
     // Without options: (value, group_id)
     auto func_no_opts = AggregateFunction(
         "permutation_t_test_agg", {LogicalType::DOUBLE, LogicalType::BIGINT},
         LogicalType::ANY,
-        AggregateFunction::StateSize<PermutationTTestAggregateState>, PermutationTTestAggInitialize,
+        AggregateFunction::StateSize<PermutationTTestAggregateState>, ANOFOX_AGG_INIT(PermutationTTestAggInitialize),
         ANOFOX_GUARDED_UPDATE(PermutationTTestAggUpdate, PermutationTTestAggDestroy, PermutationTTestAggInitialize), PermutationTTestAggCombine, ANOFOX_GUARDED_FINALIZE(PermutationTTestAggFinalize, PermutationTTestAggDestroy, PermutationTTestAggInitialize),
-        nullptr, PermutationTTestAggBind, PermutationTTestAggDestroy);
+        nullptr, ANOFOX_AGG_BIND(PermutationTTestAggBind), PermutationTTestAggDestroy);
     func_set.AddFunction(func_no_opts);
-    func_no_opts.arguments[1] = LogicalType::VARCHAR;
+    SetArgumentTypeOf(func_no_opts, 1, LogicalType::VARCHAR);
     func_set.AddFunction(func_no_opts);
 
     CreateAggregateFunctionInfo info(std::move(func_set));

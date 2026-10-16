@@ -134,7 +134,7 @@ static AnofoxAlmLoss ConvertAlmLoss(AlmLoss loss) {
 // Aggregate function operations
 //===--------------------------------------------------------------------===//
 
-static void AlmFitPredictAggInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void AlmFitPredictAggInitialize(data_ptr_t state_p) {
     new (state_p) AlmFitPredictAggState();
 }
 
@@ -168,10 +168,10 @@ static void AlmFitPredictAggUpdate(Vector inputs[], AggregateInputData &aggr_inp
     inputs[1].ToUnifiedFormat(count, x_data);
 
     auto y_values = UnifiedVectorFormat::GetData<double>(y_data);
-    auto x_list_data = ListVector::GetData(inputs[1]);
+    auto x_list_data = UnifiedVectorFormat::GetData<list_entry_t>(x_data);
     auto &x_child = ListVector::GetEntry(inputs[1]);
-    auto x_child_data = FlatVector::GetData<double>(x_child);
-    auto &x_child_validity = FlatVector::Validity(x_child);
+    auto x_child_data = FlatDataMut<double>(x_child);
+    auto &x_child_validity = FlatValidityMut(x_child);
 
     UnifiedVectorFormat split_data;
     const string_t *split_values = nullptr;
@@ -434,11 +434,11 @@ static void AlmFitPredictAggFinalize(Vector &state_vector, AggregateInputData &a
         auto &struct_entries = StructVector::GetEntries(child_struct);
 
         // struct_entries: [y, yhat, yhat_lower, yhat_upper, is_training]
-        auto &y_vec = *struct_entries[0];
-        auto &yhat_vec = *struct_entries[1];
-        auto &yhat_lower_vec = *struct_entries[2];
-        auto &yhat_upper_vec = *struct_entries[3];
-        auto &is_training_vec = *struct_entries[4];
+        auto &y_vec = StructEntry(struct_entries[0]);
+        auto &yhat_vec = StructEntry(struct_entries[1]);
+        auto &yhat_lower_vec = StructEntry(struct_entries[2]);
+        auto &yhat_upper_vec = StructEntry(struct_entries[3]);
+        auto &is_training_vec = StructEntry(struct_entries[4]);
 
         LeverageIntervals intervals(x_arrays, core_result.coefficients, core_result.coefficients_len,
                                     core_result.intercept, state.fit_intercept, residual_std_error, core_result.n_observations,
@@ -450,7 +450,7 @@ for (idx_t row = 0; row < n_rows; row++) {
             if (state.y_is_null[row]) {
                 FlatVector::SetNull(y_vec, child_idx, true);
             } else {
-                FlatVector::GetData<double>(y_vec)[child_idx] = state.y_all[row];
+                FlatDataMut<double>(y_vec)[child_idx] = state.y_all[row];
             }
 
             // Compute prediction for this row
@@ -458,7 +458,7 @@ for (idx_t row = 0; row < n_rows; row++) {
             bool pred_success = intervals.Predict(state.x_all[row].data(), state.n_features, state.confidence_level, pred);
 
             if (pred_success && std::isfinite(pred.yhat)) {
-                FlatVector::GetData<double>(yhat_vec)[child_idx] = pred.yhat;
+                FlatDataMut<double>(yhat_vec)[child_idx] = pred.yhat;
                 WriteIntervalBound(yhat_lower_vec, child_idx, pred.yhat_lower);
                 WriteIntervalBound(yhat_upper_vec, child_idx, pred.yhat_upper);
             } else {
@@ -468,7 +468,7 @@ for (idx_t row = 0; row < n_rows; row++) {
             }
 
             // Set is_training flag
-            FlatVector::GetData<bool>(is_training_vec)[child_idx] = state.is_training[row];
+            FlatDataMut<bool>(is_training_vec)[child_idx] = state.is_training[row];
         }
 
         anofox_free_alm_result(&core_result);
@@ -479,7 +479,7 @@ for (idx_t row = 0; row < n_rows; row++) {
 //===--------------------------------------------------------------------===//
 // Bind function
 //===--------------------------------------------------------------------===//
-static unique_ptr<FunctionData> AlmFitPredictAggBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> AlmFitPredictAggBind(ClientContext &context, AggregateBindFunction &function,
                                                      vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<AlmFitPredictAggBindData>();
 
@@ -517,12 +517,12 @@ static unique_ptr<FunctionData> AlmFitPredictAggBind(ClientContext &context, Agg
         }
     }
 
-    function.return_type = GetAlmFitPredictAggResultType();
+    SetReturnTypeOf(function, GetAlmFitPredictAggResultType());
     PostHogTelemetry::Instance().RecordFunctionCall("alm_fit_predict_agg");
     return std::move(result);
 }
 
-static unique_ptr<FunctionData> AlmFitPredictAggBindWithSplit(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> AlmFitPredictAggBindWithSplit(ClientContext &context, AggregateBindFunction &function,
                                                                vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<AlmFitPredictAggBindData>();
     result->use_split_col = true;
@@ -560,7 +560,7 @@ static unique_ptr<FunctionData> AlmFitPredictAggBindWithSplit(ClientContext &con
         }
     }
 
-    function.return_type = GetAlmFitPredictAggResultType();
+    SetReturnTypeOf(function, GetAlmFitPredictAggResultType());
     PostHogTelemetry::Instance().RecordFunctionCall("alm_fit_predict_agg");
     return std::move(result);
 }
@@ -575,8 +575,8 @@ void RegisterAlmFitPredictAggregateFunction(ExtensionLoader &loader) {
     // Basic version: alm_fit_predict_agg(y, x)
     auto basic_func =
         AggregateFunction("alm_fit_predict_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
-                          LogicalType::ANY, AggregateFunction::StateSize<AlmFitPredictAggState>, AlmFitPredictAggInitialize,
-                          ANOFOX_GUARDED_UPDATE(AlmFitPredictAggUpdate, AlmFitPredictAggDestroy, AlmFitPredictAggInitialize), AlmFitPredictAggCombine, ANOFOX_GUARDED_FINALIZE(AlmFitPredictAggFinalize, AlmFitPredictAggDestroy, AlmFitPredictAggInitialize), nullptr, AlmFitPredictAggBind,
+                          LogicalType::ANY, AggregateFunction::StateSize<AlmFitPredictAggState>, ANOFOX_AGG_INIT(AlmFitPredictAggInitialize),
+                          ANOFOX_GUARDED_UPDATE(AlmFitPredictAggUpdate, AlmFitPredictAggDestroy, AlmFitPredictAggInitialize), AlmFitPredictAggCombine, ANOFOX_GUARDED_FINALIZE(AlmFitPredictAggFinalize, AlmFitPredictAggDestroy, AlmFitPredictAggInitialize), nullptr, ANOFOX_AGG_BIND(AlmFitPredictAggBind),
                           AlmFitPredictAggDestroy);
     func_set.AddFunction(basic_func);
 
@@ -584,22 +584,22 @@ void RegisterAlmFitPredictAggregateFunction(ExtensionLoader &loader) {
     auto map_func = AggregateFunction(
         "alm_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY}, LogicalType::ANY,
-        AggregateFunction::StateSize<AlmFitPredictAggState>, AlmFitPredictAggInitialize, ANOFOX_GUARDED_UPDATE(AlmFitPredictAggUpdate, AlmFitPredictAggDestroy, AlmFitPredictAggInitialize),
-        AlmFitPredictAggCombine, ANOFOX_GUARDED_FINALIZE(AlmFitPredictAggFinalize, AlmFitPredictAggDestroy, AlmFitPredictAggInitialize), nullptr, AlmFitPredictAggBind, AlmFitPredictAggDestroy);
+        AggregateFunction::StateSize<AlmFitPredictAggState>, ANOFOX_AGG_INIT(AlmFitPredictAggInitialize), ANOFOX_GUARDED_UPDATE(AlmFitPredictAggUpdate, AlmFitPredictAggDestroy, AlmFitPredictAggInitialize),
+        AlmFitPredictAggCombine, ANOFOX_GUARDED_FINALIZE(AlmFitPredictAggFinalize, AlmFitPredictAggDestroy, AlmFitPredictAggInitialize), nullptr, ANOFOX_AGG_BIND(AlmFitPredictAggBind), AlmFitPredictAggDestroy);
     func_set.AddFunction(map_func);
 
     auto split_func = AggregateFunction(
         "alm_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR}, LogicalType::ANY,
-        AggregateFunction::StateSize<AlmFitPredictAggState>, AlmFitPredictAggInitialize, ANOFOX_GUARDED_UPDATE(AlmFitPredictAggUpdate, AlmFitPredictAggDestroy, AlmFitPredictAggInitialize),
-        AlmFitPredictAggCombine, ANOFOX_GUARDED_FINALIZE(AlmFitPredictAggFinalize, AlmFitPredictAggDestroy, AlmFitPredictAggInitialize), nullptr, AlmFitPredictAggBindWithSplit, AlmFitPredictAggDestroy);
+        AggregateFunction::StateSize<AlmFitPredictAggState>, ANOFOX_AGG_INIT(AlmFitPredictAggInitialize), ANOFOX_GUARDED_UPDATE(AlmFitPredictAggUpdate, AlmFitPredictAggDestroy, AlmFitPredictAggInitialize),
+        AlmFitPredictAggCombine, ANOFOX_GUARDED_FINALIZE(AlmFitPredictAggFinalize, AlmFitPredictAggDestroy, AlmFitPredictAggInitialize), nullptr, ANOFOX_AGG_BIND(AlmFitPredictAggBindWithSplit), AlmFitPredictAggDestroy);
     func_set.AddFunction(split_func);
 
     auto split_opts_func = AggregateFunction(
         "alm_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR, LogicalType::ANY},
-        LogicalType::ANY, AggregateFunction::StateSize<AlmFitPredictAggState>, AlmFitPredictAggInitialize,
-        ANOFOX_GUARDED_UPDATE(AlmFitPredictAggUpdate, AlmFitPredictAggDestroy, AlmFitPredictAggInitialize), AlmFitPredictAggCombine, ANOFOX_GUARDED_FINALIZE(AlmFitPredictAggFinalize, AlmFitPredictAggDestroy, AlmFitPredictAggInitialize), nullptr, AlmFitPredictAggBindWithSplit,
+        LogicalType::ANY, AggregateFunction::StateSize<AlmFitPredictAggState>, ANOFOX_AGG_INIT(AlmFitPredictAggInitialize),
+        ANOFOX_GUARDED_UPDATE(AlmFitPredictAggUpdate, AlmFitPredictAggDestroy, AlmFitPredictAggInitialize), AlmFitPredictAggCombine, ANOFOX_GUARDED_FINALIZE(AlmFitPredictAggFinalize, AlmFitPredictAggDestroy, AlmFitPredictAggInitialize), nullptr, ANOFOX_AGG_BIND(AlmFitPredictAggBindWithSplit),
         AlmFitPredictAggDestroy);
     func_set.AddFunction(split_opts_func);
 

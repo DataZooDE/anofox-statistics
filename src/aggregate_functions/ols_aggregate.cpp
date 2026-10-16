@@ -105,7 +105,7 @@ static LogicalType GetOlsAggResultType() {
 //===--------------------------------------------------------------------===//
 
 // Initialize aggregate state (const version for new API)
-static void OlsAggInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void OlsAggInitialize(data_ptr_t state_p) {
     new (state_p) OlsAggregateState();
 }
 
@@ -132,10 +132,10 @@ static void OlsAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data, i
     inputs[1].ToUnifiedFormat(count, x_data); // x: LIST(DOUBLE)
 
     auto y_values = UnifiedVectorFormat::GetData<double>(y_data);
-    auto x_list_data = ListVector::GetData(inputs[1]);
+    auto x_list_data = UnifiedVectorFormat::GetData<list_entry_t>(x_data);
     auto &x_child = ListVector::GetEntry(inputs[1]);
-    auto x_child_data = FlatVector::GetData<double>(x_child);
-    auto &x_child_validity = FlatVector::Validity(x_child);
+    auto x_child_data = FlatDataMut<double>(x_child);
+    auto &x_child_validity = FlatValidityMut(x_child);
 
     UnifiedVectorFormat sdata;
     state_vector.ToUnifiedFormat(count, sdata);
@@ -251,7 +251,7 @@ static void SetListInResult(Vector &list_vec, idx_t row, double *data, size_t le
     auto offset = ListVector::GetListSize(list_vec);
     ListVector::Reserve(list_vec, offset + len);
     ListVector::SetListSize(list_vec, offset + len);
-    auto vec_data = FlatVector::GetData<double>(child);
+    auto vec_data = FlatDataMut<double>(child);
     for (size_t i = 0; i < len; i++) {
         vec_data[offset + i] = data[i];
     }
@@ -327,16 +327,16 @@ static void OlsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
         idx_t struct_idx = 0;
 
         // Coefficients
-        SetListInResult(*struct_entries[struct_idx++], result_idx, core_result.coefficients,
+        SetListInResult(StructEntry(struct_entries[struct_idx++]), result_idx, core_result.coefficients,
                         core_result.coefficients_len);
 
         // Scalars
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = core_result.intercept;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = core_result.r_squared;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = core_result.adj_r_squared;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = core_result.residual_std_error;
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = core_result.n_observations;
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = core_result.n_features;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = core_result.intercept;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = core_result.r_squared;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = core_result.adj_r_squared;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = core_result.residual_std_error;
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = core_result.n_observations;
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = core_result.n_features;
 
         // Inference (NULL unless requested), CI fields and the model summary
         writer.WriteInference(result_idx, state.compute_inference ? &inference_result : nullptr);
@@ -356,7 +356,7 @@ static void OlsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
 //===--------------------------------------------------------------------===//
 // Bind function
 //===--------------------------------------------------------------------===//
-static unique_ptr<FunctionData> OlsAggBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> OlsAggBind(ClientContext &context, AggregateBindFunction &function,
                                            vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<OlsAggregateBindData>();
 
@@ -386,7 +386,7 @@ static unique_ptr<FunctionData> OlsAggBind(ClientContext &context, AggregateFunc
     }
 
     // Set return type based on options
-    function.return_type = GetOlsAggResultType();
+    SetReturnTypeOf(function, GetOlsAggResultType());
 
     PostHogTelemetry::Instance().RecordFunctionCall("ols_fit_agg");
     return std::move(result);
@@ -402,9 +402,9 @@ void RegisterOlsAggregateFunction(ExtensionLoader &loader) {
     auto basic_func = AggregateFunction(
         "ols_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
         LogicalType::ANY, // Set in bind
-        AggregateFunction::StateSize<OlsAggregateState>, OlsAggInitialize, ANOFOX_GUARDED_UPDATE(OlsAggUpdate, OlsAggDestroy, OlsAggInitialize), OlsAggCombine, ANOFOX_GUARDED_FINALIZE(OlsAggFinalize, OlsAggDestroy, OlsAggInitialize),
+        AggregateFunction::StateSize<OlsAggregateState>, ANOFOX_AGG_INIT(OlsAggInitialize), ANOFOX_GUARDED_UPDATE(OlsAggUpdate, OlsAggDestroy, OlsAggInitialize), OlsAggCombine, ANOFOX_GUARDED_FINALIZE(OlsAggFinalize, OlsAggDestroy, OlsAggInitialize),
         nullptr, // simple_update
-        OlsAggBind, OlsAggDestroy);
+        ANOFOX_AGG_BIND(OlsAggBind), OlsAggDestroy);
     func_set.AddFunction(basic_func);
 
     // Version with MAP options: ols_fit_agg(y, x, {'intercept': true, ...})
@@ -412,8 +412,8 @@ void RegisterOlsAggregateFunction(ExtensionLoader &loader) {
                                       {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE),
                                        LogicalType::ANY}, // MAP or STRUCT for options
                                       LogicalType::ANY, AggregateFunction::StateSize<OlsAggregateState>,
-                                      OlsAggInitialize, ANOFOX_GUARDED_UPDATE(OlsAggUpdate, OlsAggDestroy, OlsAggInitialize), OlsAggCombine, ANOFOX_GUARDED_FINALIZE(OlsAggFinalize, OlsAggDestroy, OlsAggInitialize), nullptr,
-                                      OlsAggBind, OlsAggDestroy);
+                                      ANOFOX_AGG_INIT(OlsAggInitialize), ANOFOX_GUARDED_UPDATE(OlsAggUpdate, OlsAggDestroy, OlsAggInitialize), OlsAggCombine, ANOFOX_GUARDED_FINALIZE(OlsAggFinalize, OlsAggDestroy, OlsAggInitialize), nullptr,
+                                      ANOFOX_AGG_BIND(OlsAggBind), OlsAggDestroy);
     func_set.AddFunction(map_func);
 
     CreateAggregateFunctionInfo info(std::move(func_set));

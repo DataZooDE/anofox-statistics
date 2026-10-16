@@ -72,7 +72,7 @@ struct TheilSenFitBindData : public FunctionData {
     }
 };
 
-static unique_ptr<FunctionData> TheilSenFitBind(ClientContext &context, ScalarFunction &bound_function,
+static unique_ptr<FunctionData> TheilSenFitBind(ClientContext &context, ScalarBindFunction &bound_function,
                                                 vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<TheilSenFitBindData>();
 
@@ -107,7 +107,7 @@ static unique_ptr<FunctionData> TheilSenFitBind(ClientContext &context, ScalarFu
         }
     }
 
-    bound_function.return_type = GetTheilSenResultType();
+    SetReturnTypeOf(bound_function, GetTheilSenResultType());
 
     PostHogTelemetry::Instance().RecordFunctionCall("theil_sen_fit");
     return std::move(result);
@@ -116,7 +116,7 @@ static unique_ptr<FunctionData> TheilSenFitBind(ClientContext &context, ScalarFu
 static vector<double> ExtractDoubleList(Vector &vec, idx_t row_idx) {
     auto list_data = ListVector::GetData(vec);
     auto &child = ListVector::GetEntry(vec);
-    auto child_data = FlatVector::GetData<double>(child);
+    auto child_data = FlatDataMut<double>(child);
 
     vector<double> result;
     auto offset = list_data[row_idx].offset;
@@ -143,7 +143,7 @@ static void TheilSenFitFunction(DataChunk &args, ExpressionState &state, Vector 
 }
 
 static void TheilSenFitFunctionImpl(DataChunk &args, ExpressionState &state, Vector &result) {
-    auto &bind_data = state.expr.Cast<BoundFunctionExpression>().bind_info->Cast<TheilSenFitBindData>();
+    auto &bind_data = BindInfoOf(state.expr.Cast<BoundFunctionExpression>())->Cast<TheilSenFitBindData>();
 
     auto &y_vec = args.data[0];
     auto &x_vec = args.data[1];
@@ -206,23 +206,23 @@ static void TheilSenFitFunctionImpl(DataChunk &args, ExpressionState &state, Vec
         ModelStructWriter writer(result);
         idx_t struct_idx = 0;
 
-        auto &coef_list = *struct_vec[struct_idx++];
+        auto &coef_list = StructEntry(struct_vec[struct_idx++]);
         auto &coef_child = ListVector::GetEntry(coef_list);
         auto coef_offset = ListVector::GetListSize(coef_list);
         ListVector::Reserve(coef_list, coef_offset + core_result.coefficients_len);
         ListVector::SetListSize(coef_list, coef_offset + core_result.coefficients_len);
-        auto coef_data = FlatVector::GetData<double>(coef_child);
+        auto coef_data = FlatDataMut<double>(coef_child);
         for (size_t i = 0; i < core_result.coefficients_len; i++) {
             coef_data[coef_offset + i] = core_result.coefficients[i];
         }
         ListVector::GetData(coef_list)[row] = {coef_offset, core_result.coefficients_len};
 
-        FlatVector::GetData<double>(*struct_vec[struct_idx++])[row] = core_result.intercept;
-        FlatVector::GetData<double>(*struct_vec[struct_idx++])[row] = core_result.r_squared;
-        FlatVector::GetData<double>(*struct_vec[struct_idx++])[row] = core_result.adj_r_squared;
-        FlatVector::GetData<double>(*struct_vec[struct_idx++])[row] = core_result.residual_std_error;
-        FlatVector::GetData<int64_t>(*struct_vec[struct_idx++])[row] = core_result.n_observations;
-        FlatVector::GetData<int64_t>(*struct_vec[struct_idx++])[row] = core_result.n_features;
+        FlatDataMut<double>(StructEntry(struct_vec[struct_idx++]))[row] = core_result.intercept;
+        FlatDataMut<double>(StructEntry(struct_vec[struct_idx++]))[row] = core_result.r_squared;
+        FlatDataMut<double>(StructEntry(struct_vec[struct_idx++]))[row] = core_result.adj_r_squared;
+        FlatDataMut<double>(StructEntry(struct_vec[struct_idx++]))[row] = core_result.residual_std_error;
+        FlatDataMut<int64_t>(StructEntry(struct_vec[struct_idx++]))[row] = core_result.n_observations;
+        FlatDataMut<int64_t>(StructEntry(struct_vec[struct_idx++]))[row] = core_result.n_features;
 
         // Inference (NULL unless requested), CI fields and the model summary
         writer.WriteInference(row, bind_data.compute_inference ? &inference_result : nullptr);
@@ -241,12 +241,14 @@ void RegisterTheilSenFitFunction(ExtensionLoader &loader) {
     ScalarFunction basic_func(
         {LogicalType::LIST(LogicalType::DOUBLE), LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE))},
         LogicalType::ANY, DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, TheilSenFitFunction),
-                        DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, TheilSenFitBind));
+                        ANOFOX_SCALAR_BIND(DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, TheilSenFitBind)));
+    MarkFallible(basic_func);
 
     ScalarFunction map_func({LogicalType::LIST(LogicalType::DOUBLE),
                              LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)), LogicalType::ANY},
                             LogicalType::ANY, DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, TheilSenFitFunction),
-                        DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, TheilSenFitBind));
+                        ANOFOX_SCALAR_BIND(DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, TheilSenFitBind)));
+    MarkFallible(map_func);
 
     {
         ScalarFunctionSet func_set("theil_sen_fit");

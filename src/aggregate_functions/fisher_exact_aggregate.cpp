@@ -82,7 +82,7 @@ struct FisherExactBindData : public FunctionData {
 // Aggregate function operations
 //===--------------------------------------------------------------------===//
 
-static void FisherExactAggInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void FisherExactAggInitialize(data_ptr_t state_p) {
     new (state_p) FisherExactAggregateState();
 }
 
@@ -227,19 +227,19 @@ static void FisherExactAggFinalize(Vector &state_vector, AggregateInputData &agg
 
         // Fill STRUCT result
         idx_t struct_idx = 0;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = test_result.statistic; // sample odds ratio
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = test_result.p_value;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = test_result.effect_size; // odds ratio
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = test_result.ci_lower;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = test_result.ci_upper;
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = static_cast<int64_t>(n);
-        auto& method_vector = *struct_entries[struct_idx++];
-        FlatVector::GetData<string_t>(method_vector)[result_idx] =
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = test_result.statistic; // sample odds ratio
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = test_result.p_value;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = test_result.effect_size; // odds ratio
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = test_result.ci_lower;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = test_result.ci_upper;
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = static_cast<int64_t>(n);
+        auto& method_vector = StructEntry(struct_entries[struct_idx++]);
+        FlatDataMut<string_t>(method_vector)[result_idx] =
             StringVector::AddString(method_vector, test_result.method ? test_result.method : "Fisher's Exact Test");
-        SetResultString(*struct_entries[struct_idx++], result_idx, AlternativeName(options.alternative));
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = cond_result.statistic;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = cond_result.ci_lower;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = cond_result.ci_upper;
+        SetResultString(StructEntry(struct_entries[struct_idx++]), result_idx, AlternativeName(options.alternative));
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = cond_result.statistic;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = cond_result.ci_lower;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = cond_result.ci_upper;
         // The unified estimate and interval are the conditional MLE ones, as R fisher.test reports.
         WriteTestResultFields(result, result_idx, struct_idx, cond_result.unified);
 
@@ -252,9 +252,9 @@ static void FisherExactAggFinalize(Vector &state_vector, AggregateInputData &agg
 //===--------------------------------------------------------------------===//
 // Bind function
 //===--------------------------------------------------------------------===//
-static unique_ptr<FunctionData> FisherExactAggBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> FisherExactAggBind(ClientContext &context, AggregateBindFunction &function,
                                                     vector<unique_ptr<Expression>> &arguments) {
-    function.return_type = GetFisherExactAggResultType();
+    SetReturnTypeOf(function, GetFisherExactAggResultType());
     auto bind_data = make_uniq<FisherExactBindData>();
 
     if (arguments.size() >= 3) {
@@ -276,18 +276,18 @@ void RegisterFisherExactAggregateFunction(ExtensionLoader &loader) {
     auto func_with_opts = AggregateFunction(
         "fisher_exact_agg", {LogicalType::INTEGER, LogicalType::INTEGER, LogicalType::ANY},
         LogicalType::ANY,
-        AggregateFunction::StateSize<FisherExactAggregateState>, FisherExactAggInitialize,
+        AggregateFunction::StateSize<FisherExactAggregateState>, ANOFOX_AGG_INIT(FisherExactAggInitialize),
         ANOFOX_GUARDED_UPDATE(FisherExactAggUpdate, FisherExactAggDestroy, FisherExactAggInitialize), FisherExactAggCombine, ANOFOX_GUARDED_FINALIZE(FisherExactAggFinalize, FisherExactAggDestroy, FisherExactAggInitialize),
-        nullptr, FisherExactAggBind, FisherExactAggDestroy);
+        nullptr, ANOFOX_AGG_BIND(FisherExactAggBind), FisherExactAggDestroy);
     func_set.AddFunction(func_with_opts);
 
     // Without options
     auto func_no_opts = AggregateFunction(
         "fisher_exact_agg", {LogicalType::INTEGER, LogicalType::INTEGER},
         LogicalType::ANY,
-        AggregateFunction::StateSize<FisherExactAggregateState>, FisherExactAggInitialize,
+        AggregateFunction::StateSize<FisherExactAggregateState>, ANOFOX_AGG_INIT(FisherExactAggInitialize),
         ANOFOX_GUARDED_UPDATE(FisherExactAggUpdate, FisherExactAggDestroy, FisherExactAggInitialize), FisherExactAggCombine, ANOFOX_GUARDED_FINALIZE(FisherExactAggFinalize, FisherExactAggDestroy, FisherExactAggInitialize),
-        nullptr, FisherExactAggBind, FisherExactAggDestroy);
+        nullptr, ANOFOX_AGG_BIND(FisherExactAggBind), FisherExactAggDestroy);
     func_set.AddFunction(func_no_opts);
 
     CreateAggregateFunctionInfo info(std::move(func_set));

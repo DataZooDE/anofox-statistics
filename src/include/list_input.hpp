@@ -2,6 +2,7 @@
 
 #include "duckdb/common/types/validity_mask.hpp"
 #include "duckdb/common/types/vector.hpp"
+#include "duckdb_compat.hpp"
 
 #include <limits>
 

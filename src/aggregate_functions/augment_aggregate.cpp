@@ -271,7 +271,7 @@ static LogicalType GetAugmentAggResultType() {
     return LogicalType::LIST(LogicalType::STRUCT(std::move(row)));
 }
 
-static void AugmentAggInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void AugmentAggInitialize(data_ptr_t state_p) {
     new (state_p) AugmentAggState();
 }
 
@@ -293,10 +293,10 @@ static void AugmentAggUpdate(Vector inputs[], AggregateInputData &aggr_input_dat
     inputs[0].ToUnifiedFormat(count, y_data);
     inputs[1].ToUnifiedFormat(count, x_data);
     auto y_values = UnifiedVectorFormat::GetData<double>(y_data);
-    auto x_list_data = ListVector::GetData(inputs[1]);
+    auto x_list_data = UnifiedVectorFormat::GetData<list_entry_t>(x_data);
     auto &x_child = ListVector::GetEntry(inputs[1]);
-    auto x_child_data = FlatVector::GetData<double>(x_child);
-    auto &x_child_validity = FlatVector::Validity(x_child);
+    auto x_child_data = FlatDataMut<double>(x_child);
+    auto &x_child_validity = FlatValidityMut(x_child);
     const double *w_values = nullptr;
     if (bind_data.weighted) {
         inputs[2].ToUnifiedFormat(count, w_data);
@@ -389,7 +389,7 @@ static void AugmentAggCombine(Vector &source_vector, Vector &target_vector, Aggr
 
 static inline void WriteDouble(Vector &vec, idx_t idx, double v) {
     if (std::isfinite(v)) {
-        FlatVector::GetData<double>(vec)[idx] = v;
+        FlatDataMut<double>(vec)[idx] = v;
     } else {
         FlatVector::SetNull(vec, idx, true);
     }
@@ -463,12 +463,12 @@ static void WritePartialResiduals(const AugmentAggBindData &bind_data, AugmentAg
             idx_t j = terms[t];
             idx_t c = term_offset + r * terms.size() + t;
             idx_t k = j * n_rows + r;
-            FlatVector::GetData<int32_t>(*entries[0])[c] = static_cast<int32_t>(j + 1);
-            WriteDouble(*entries[1], c, pr.x[k]);
-            WriteDouble(*entries[2], c, pr.partial_residual[k]);
-            WriteDouble(*entries[3], c, pr.component[k]);
-            WriteDouble(*entries[4], c, pr.x_residual[k]);
-            WriteDouble(*entries[5], c, pr.y_residual[k]);
+            FlatDataMut<int32_t>(StructEntry(entries[0]))[c] = static_cast<int32_t>(j + 1);
+            WriteDouble(StructEntry(entries[1]), c, pr.x[k]);
+            WriteDouble(StructEntry(entries[2]), c, pr.partial_residual[k]);
+            WriteDouble(StructEntry(entries[3]), c, pr.component[k]);
+            WriteDouble(StructEntry(entries[4]), c, pr.x_residual[k]);
+            WriteDouble(StructEntry(entries[5]), c, pr.y_residual[k]);
         }
     }
     anofox_free_partial_residuals_result(&pr);
@@ -555,17 +555,17 @@ static void AugmentAggFinalize(Vector &state_vector, AggregateInputData &aggr_in
         ListVector::SetListSize(result, list_offset + n_rows);
 
         auto &entries = StructVector::GetEntries(ListVector::GetEntry(result));
-        auto &fitted_vec = *entries[0];
-        auto &residual_vec = *entries[1];
-        auto &resid_type_vec = *entries[2];
-        auto &std_vec = *entries[3];
-        auto &stud_vec = *entries[4];
-        auto &leverage_vec = *entries[5];
-        auto &cooks_vec = *entries[6];
-        auto &dffits_vec = *entries[7];
-        auto &weight_vec = *entries[8];
-        auto &training_vec = *entries[9];
-        auto &n_params_vec = *entries[10];
+        auto &fitted_vec = StructEntry(entries[0]);
+        auto &residual_vec = StructEntry(entries[1]);
+        auto &resid_type_vec = StructEntry(entries[2]);
+        auto &std_vec = StructEntry(entries[3]);
+        auto &stud_vec = StructEntry(entries[4]);
+        auto &leverage_vec = StructEntry(entries[5]);
+        auto &cooks_vec = StructEntry(entries[6]);
+        auto &dffits_vec = StructEntry(entries[7]);
+        auto &weight_vec = StructEntry(entries[8]);
+        auto &training_vec = StructEntry(entries[9]);
+        auto &n_params_vec = StructEntry(entries[10]);
 
         string resid_type(aug.resid_type, strnlen(aug.resid_type, ANOFOX_MODEL_NAME_LEN));
         auto n_params = static_cast<int32_t>(aug.n_params);
@@ -581,16 +581,16 @@ static void AugmentAggFinalize(Vector &state_vector, AggregateInputData &aggr_in
             WriteDouble(cooks_vec, c, aug.cooks_d[r]);
             WriteDouble(dffits_vec, c, aug.dffits[r]);
             WriteDouble(weight_vec, c, state.weight[r]);
-            FlatVector::GetData<string_t>(resid_type_vec)[c] = StringVector::AddString(resid_type_vec, resid_type);
-            FlatVector::GetData<bool>(training_vec)[c] = used;
-            FlatVector::GetData<int32_t>(n_params_vec)[c] = n_params;
+            FlatDataMut<string_t>(resid_type_vec)[c] = StringVector::AddString(resid_type_vec, resid_type);
+            FlatDataMut<bool>(training_vec)[c] = used;
+            FlatDataMut<int32_t>(n_params_vec)[c] = n_params;
         }
 
         anofox_free_augment_result(&aug);
     }
 }
 
-static unique_ptr<FunctionData> AugmentAggBindImpl(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> AugmentAggBindImpl(ClientContext &context, AggregateBindFunction &function,
                                                    vector<unique_ptr<Expression>> &arguments, AugmentModel model,
                                                    bool partial) {
     const string fn_name_str = partial ? PartialResidualsAggName(model) : string(AugmentAggName(model));
@@ -657,20 +657,20 @@ static unique_ptr<FunctionData> AugmentAggBindImpl(ClientContext &context, Aggre
             result->offset_column = opts.offset_column.value();
         }
     }
-    function.return_type = partial ? GetPartialResidualsAggResultType() : GetAugmentAggResultType();
+    SetReturnTypeOf(function, partial ? GetPartialResidualsAggResultType() : GetAugmentAggResultType());
     PostHogTelemetry::Instance().RecordFunctionCall(fn_name);
     return std::move(result);
 }
 
 template <AugmentModel MODEL, bool PARTIAL = false>
-static unique_ptr<FunctionData> AugmentAggBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> AugmentAggBind(ClientContext &context, AggregateBindFunction &function,
                                                vector<unique_ptr<Expression>> &arguments) {
     return AugmentAggBindImpl(context, function, arguments, MODEL, PARTIAL);
 }
 
 static AggregateFunction MakeAugmentAgg(const string &name, vector<LogicalType> args, bind_aggregate_function_t bind) {
-    return AggregateFunction(name, std::move(args), LogicalType::ANY, AggregateFunction::StateSize<AugmentAggState>,
-                             AugmentAggInitialize,
+    return AggregateFunction(AsDuckName(name), std::move(args), LogicalType::ANY, AggregateFunction::StateSize<AugmentAggState>,
+                             ANOFOX_AGG_INIT(AugmentAggInitialize),
                              ANOFOX_GUARDED_UPDATE(AugmentAggUpdate, AugmentAggDestroy, AugmentAggInitialize),
                              AugmentAggCombine,
                              ANOFOX_GUARDED_FINALIZE(AugmentAggFinalize, AugmentAggDestroy, AugmentAggInitialize),
@@ -694,9 +694,9 @@ void RegisterAugmentAggregateFunctions(ExtensionLoader &loader) {
     // ols_augment_agg(y, x [, options])
     {
         AggregateFunctionSet set("ols_augment_agg");
-        set.AddFunction(MakeAugmentAgg("ols_augment_agg", {LogicalType::DOUBLE, list_double}, AugmentAggBind<AugmentModel::OLS>));
+        set.AddFunction(MakeAugmentAgg("ols_augment_agg", {LogicalType::DOUBLE, list_double}, ANOFOX_AGG_BIND(AugmentAggBind<AugmentModel::OLS>)));
         set.AddFunction(MakeAugmentAgg("ols_augment_agg", {LogicalType::DOUBLE, list_double, LogicalType::ANY},
-                                       AugmentAggBind<AugmentModel::OLS>));
+                                       ANOFOX_AGG_BIND(AugmentAggBind<AugmentModel::OLS>)));
         CreateAggregateFunctionInfo info(std::move(set));
         info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
         const string desc = "Fits OLS over a partition (rows with y and every feature present) and returns one STRUCT "
@@ -715,10 +715,10 @@ void RegisterAugmentAggregateFunctions(ExtensionLoader &loader) {
     {
         AggregateFunctionSet set("wls_augment_agg");
         set.AddFunction(MakeAugmentAgg("wls_augment_agg", {LogicalType::DOUBLE, list_double, LogicalType::DOUBLE},
-                                       AugmentAggBind<AugmentModel::WLS>));
+                                       ANOFOX_AGG_BIND(AugmentAggBind<AugmentModel::WLS>)));
         set.AddFunction(MakeAugmentAgg("wls_augment_agg",
                                        {LogicalType::DOUBLE, list_double, LogicalType::DOUBLE, LogicalType::ANY},
-                                       AugmentAggBind<AugmentModel::WLS>));
+                                       ANOFOX_AGG_BIND(AugmentAggBind<AugmentModel::WLS>)));
         CreateAggregateFunctionInfo info(std::move(set));
         info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
         const string desc = "Fits WLS over a partition (rows with y, every feature and a positive weight) and returns "
@@ -751,25 +751,25 @@ void RegisterAugmentAggregateFunctions(ExtensionLoader &loader) {
         bind_aggregate_function_t bind = nullptr;
         switch (glm.model) {
         case AugmentModel::POISSON:
-            bind = AugmentAggBind<AugmentModel::POISSON>;
+            bind = ANOFOX_AGG_BIND(AugmentAggBind<AugmentModel::POISSON>);
             break;
         case AugmentModel::BINOMIAL:
-            bind = AugmentAggBind<AugmentModel::BINOMIAL>;
+            bind = ANOFOX_AGG_BIND(AugmentAggBind<AugmentModel::BINOMIAL>);
             break;
         case AugmentModel::LOGISTIC:
-            bind = AugmentAggBind<AugmentModel::LOGISTIC>;
+            bind = ANOFOX_AGG_BIND(AugmentAggBind<AugmentModel::LOGISTIC>);
             break;
         case AugmentModel::NEGBINOM:
-            bind = AugmentAggBind<AugmentModel::NEGBINOM>;
+            bind = ANOFOX_AGG_BIND(AugmentAggBind<AugmentModel::NEGBINOM>);
             break;
         case AugmentModel::GAMMA:
-            bind = AugmentAggBind<AugmentModel::GAMMA>;
+            bind = ANOFOX_AGG_BIND(AugmentAggBind<AugmentModel::GAMMA>);
             break;
         default:
-            bind = AugmentAggBind<AugmentModel::TWEEDIE>;
+            bind = ANOFOX_AGG_BIND(AugmentAggBind<AugmentModel::TWEEDIE>);
             break;
         }
-        AggregateFunctionSet set(name);
+        AggregateFunctionSet set(AsDuckName(name));
         set.AddFunction(MakeAugmentAgg(name, {LogicalType::DOUBLE, list_double}, bind));
         set.AddFunction(MakeAugmentAgg(name, {LogicalType::DOUBLE, list_double, LogicalType::ANY}, bind));
         CreateAggregateFunctionInfo info(std::move(set));
@@ -796,14 +796,14 @@ void RegisterAugmentAggregateFunctions(ExtensionLoader &loader) {
         const char *label;
     };
     const PartialAgg partials[] = {
-        {AugmentModel::OLS, AugmentAggBind<AugmentModel::OLS, true>, "OLS"},
-        {AugmentModel::WLS, AugmentAggBind<AugmentModel::WLS, true>, "WLS"},
-        {AugmentModel::POISSON, AugmentAggBind<AugmentModel::POISSON, true>, "a Poisson GLM"},
-        {AugmentModel::BINOMIAL, AugmentAggBind<AugmentModel::BINOMIAL, true>, "a Binomial GLM"},
-        {AugmentModel::LOGISTIC, AugmentAggBind<AugmentModel::LOGISTIC, true>, "a logistic regression"},
-        {AugmentModel::NEGBINOM, AugmentAggBind<AugmentModel::NEGBINOM, true>, "a Negative Binomial GLM"},
-        {AugmentModel::GAMMA, AugmentAggBind<AugmentModel::GAMMA, true>, "a Gamma GLM (log link)"},
-        {AugmentModel::TWEEDIE, AugmentAggBind<AugmentModel::TWEEDIE, true>, "a Tweedie GLM (log link)"},
+        {AugmentModel::OLS, ANOFOX_AGG_BIND(AugmentAggBind<AugmentModel::OLS, true>), "OLS"},
+        {AugmentModel::WLS, ANOFOX_AGG_BIND(AugmentAggBind<AugmentModel::WLS, true>), "WLS"},
+        {AugmentModel::POISSON, ANOFOX_AGG_BIND(AugmentAggBind<AugmentModel::POISSON, true>), "a Poisson GLM"},
+        {AugmentModel::BINOMIAL, ANOFOX_AGG_BIND(AugmentAggBind<AugmentModel::BINOMIAL, true>), "a Binomial GLM"},
+        {AugmentModel::LOGISTIC, ANOFOX_AGG_BIND(AugmentAggBind<AugmentModel::LOGISTIC, true>), "a logistic regression"},
+        {AugmentModel::NEGBINOM, ANOFOX_AGG_BIND(AugmentAggBind<AugmentModel::NEGBINOM, true>), "a Negative Binomial GLM"},
+        {AugmentModel::GAMMA, ANOFOX_AGG_BIND(AugmentAggBind<AugmentModel::GAMMA, true>), "a Gamma GLM (log link)"},
+        {AugmentModel::TWEEDIE, ANOFOX_AGG_BIND(AugmentAggBind<AugmentModel::TWEEDIE, true>), "a Tweedie GLM (log link)"},
     };
     for (auto &pa : partials) {
         string name = PartialResidualsAggName(pa.model);
@@ -815,7 +815,7 @@ void RegisterAugmentAggregateFunctions(ExtensionLoader &loader) {
             args.push_back(LogicalType::DOUBLE);
             arg_names.push_back("weight");
         }
-        AggregateFunctionSet set(name);
+        AggregateFunctionSet set(AsDuckName(name));
         set.AddFunction(MakeAugmentAgg(name, args, pa.bind));
         auto args_opt = args;
         args_opt.push_back(LogicalType::ANY);

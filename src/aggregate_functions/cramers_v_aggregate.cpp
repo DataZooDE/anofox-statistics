@@ -44,7 +44,7 @@ static LogicalType GetCramersVAggResultType() {
 // Aggregate function operations
 //===--------------------------------------------------------------------===//
 
-static void CramersVAggInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void CramersVAggInitialize(data_ptr_t state_p) {
     new (state_p) CramersVAggregateState();
 }
 
@@ -121,7 +121,7 @@ static void CramersVAggFinalize(Vector &state_vector, AggregateInputData &aggr_i
     state_vector.ToUnifiedFormat(count, sdata);
     auto states = (CramersVAggregateState **)sdata.data;
 
-    auto result_data = FlatVector::GetData<double>(result);
+    auto result_data = FlatDataMut<double>(result);
 
     for (idx_t i = 0; i < count; i++) {
         auto &state = *states[sdata.sel->get_index(i)];
@@ -184,9 +184,9 @@ static void CramersVAggFinalize(Vector &state_vector, AggregateInputData &aggr_i
 //===--------------------------------------------------------------------===//
 // Bind function
 //===--------------------------------------------------------------------===//
-static unique_ptr<FunctionData> CramersVAggBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> CramersVAggBind(ClientContext &context, AggregateBindFunction &function,
                                                  vector<unique_ptr<Expression>> &arguments) {
-    function.return_type = GetCramersVAggResultType();
+    SetReturnTypeOf(function, GetCramersVAggResultType());
     PostHogTelemetry::Instance().RecordFunctionCall("cramers_v_agg");
     return nullptr;
 }
@@ -201,9 +201,9 @@ void RegisterCramersVAggregateFunction(ExtensionLoader &loader) {
     auto func = AggregateFunction(
         "cramers_v_agg", {LogicalType::BIGINT, LogicalType::BIGINT},
         LogicalType::DOUBLE,
-        AggregateFunction::StateSize<CramersVAggregateState>, CramersVAggInitialize,
+        AggregateFunction::StateSize<CramersVAggregateState>, ANOFOX_AGG_INIT(CramersVAggInitialize),
         ANOFOX_GUARDED_UPDATE(CramersVAggUpdate, CramersVAggDestroy, CramersVAggInitialize), CramersVAggCombine, ANOFOX_GUARDED_FINALIZE(CramersVAggFinalize, CramersVAggDestroy, CramersVAggInitialize),
-        nullptr, CramersVAggBind, CramersVAggDestroy);
+        nullptr, ANOFOX_AGG_BIND(CramersVAggBind), CramersVAggDestroy);
     func_set.AddFunction(func);
 
     CreateAggregateFunctionInfo info(std::move(func_set));

@@ -81,7 +81,7 @@ struct BrunnerMunzelBindData : public FunctionData {
 // Aggregate function operations
 //===--------------------------------------------------------------------===//
 
-static void BrunnerMunzelAggInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void BrunnerMunzelAggInitialize(data_ptr_t state_p) {
     new (state_p) BrunnerMunzelAggregateState();
 }
 
@@ -206,19 +206,19 @@ static void BrunnerMunzelAggFinalize(Vector &state_vector, AggregateInputData &a
 
         // Fill STRUCT result
         idx_t struct_idx = 0;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = test_result.statistic;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = test_result.p_value;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = test_result.df;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = test_result.effect_size;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = test_result.ci_lower;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = test_result.ci_upper;
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = static_cast<int64_t>(test_result.n1);
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = static_cast<int64_t>(test_result.n2);
-        auto& method_vector = *struct_entries[struct_idx++];
-        FlatVector::GetData<string_t>(method_vector)[result_idx] =
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = test_result.statistic;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = test_result.p_value;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = test_result.df;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = test_result.effect_size;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = test_result.ci_lower;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = test_result.ci_upper;
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = static_cast<int64_t>(test_result.n1);
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = static_cast<int64_t>(test_result.n2);
+        auto& method_vector = StructEntry(struct_entries[struct_idx++]);
+        FlatDataMut<string_t>(method_vector)[result_idx] =
             StringVector::AddString(method_vector, test_result.method ? test_result.method : "Brunner-Munzel");
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = static_cast<int64_t>(test_result.n1 + test_result.n2);
-        SetResultString(*struct_entries[struct_idx++], result_idx, AlternativeName(options.alternative));
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = static_cast<int64_t>(test_result.n1 + test_result.n2);
+        SetResultString(StructEntry(struct_entries[struct_idx++]), result_idx, AlternativeName(options.alternative));
         WriteTestResultFields(result, result_idx, struct_idx, test_result.unified);
 
         anofox_free_test_result(&test_result);
@@ -229,9 +229,9 @@ static void BrunnerMunzelAggFinalize(Vector &state_vector, AggregateInputData &a
 //===--------------------------------------------------------------------===//
 // Bind function
 //===--------------------------------------------------------------------===//
-static unique_ptr<FunctionData> BrunnerMunzelAggBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> BrunnerMunzelAggBind(ClientContext &context, AggregateBindFunction &function,
                                                       vector<unique_ptr<Expression>> &arguments) {
-    function.return_type = GetBrunnerMunzelAggResultType();
+    SetReturnTypeOf(function, GetBrunnerMunzelAggResultType());
     auto bind_data = make_uniq<BrunnerMunzelBindData>();
 
     if (arguments.size() >= 3) {
@@ -253,22 +253,22 @@ void RegisterBrunnerMunzelAggregateFunction(ExtensionLoader &loader) {
     auto func_with_opts = AggregateFunction(
         "brunner_munzel_agg", {LogicalType::DOUBLE, LogicalType::BIGINT, LogicalType::ANY},
         LogicalType::ANY,
-        AggregateFunction::StateSize<BrunnerMunzelAggregateState>, BrunnerMunzelAggInitialize,
+        AggregateFunction::StateSize<BrunnerMunzelAggregateState>, ANOFOX_AGG_INIT(BrunnerMunzelAggInitialize),
         ANOFOX_GUARDED_UPDATE(BrunnerMunzelAggUpdate, BrunnerMunzelAggDestroy, BrunnerMunzelAggInitialize), BrunnerMunzelAggCombine, ANOFOX_GUARDED_FINALIZE(BrunnerMunzelAggFinalize, BrunnerMunzelAggDestroy, BrunnerMunzelAggInitialize),
-        nullptr, BrunnerMunzelAggBind, BrunnerMunzelAggDestroy);
+        nullptr, ANOFOX_AGG_BIND(BrunnerMunzelAggBind), BrunnerMunzelAggDestroy);
     func_set.AddFunction(func_with_opts);
-    func_with_opts.arguments[1] = LogicalType::VARCHAR;
+    SetArgumentTypeOf(func_with_opts, 1, LogicalType::VARCHAR);
     func_set.AddFunction(func_with_opts);
 
     // Without options
     auto func_no_opts = AggregateFunction(
         "brunner_munzel_agg", {LogicalType::DOUBLE, LogicalType::BIGINT},
         LogicalType::ANY,
-        AggregateFunction::StateSize<BrunnerMunzelAggregateState>, BrunnerMunzelAggInitialize,
+        AggregateFunction::StateSize<BrunnerMunzelAggregateState>, ANOFOX_AGG_INIT(BrunnerMunzelAggInitialize),
         ANOFOX_GUARDED_UPDATE(BrunnerMunzelAggUpdate, BrunnerMunzelAggDestroy, BrunnerMunzelAggInitialize), BrunnerMunzelAggCombine, ANOFOX_GUARDED_FINALIZE(BrunnerMunzelAggFinalize, BrunnerMunzelAggDestroy, BrunnerMunzelAggInitialize),
-        nullptr, BrunnerMunzelAggBind, BrunnerMunzelAggDestroy);
+        nullptr, ANOFOX_AGG_BIND(BrunnerMunzelAggBind), BrunnerMunzelAggDestroy);
     func_set.AddFunction(func_no_opts);
-    func_no_opts.arguments[1] = LogicalType::VARCHAR;
+    SetArgumentTypeOf(func_no_opts, 1, LogicalType::VARCHAR);
     func_set.AddFunction(func_no_opts);
 
     CreateAggregateFunctionInfo info(std::move(func_set));

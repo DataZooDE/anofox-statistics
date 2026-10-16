@@ -57,7 +57,7 @@ static LogicalType GetKruskalWallisAggResultType() {
 // Aggregate function operations
 //===--------------------------------------------------------------------===//
 
-static void KruskalWallisAggInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void KruskalWallisAggInitialize(data_ptr_t state_p) {
     new (state_p) KruskalWallisAggregateState();
 }
 
@@ -177,14 +177,14 @@ static void KruskalWallisAggFinalize(Vector &state_vector, AggregateInputData &a
         }
 
         idx_t struct_idx = 0;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = test_result.statistic;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = test_result.p_value;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = test_result.df;
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = static_cast<int64_t>(test_result.n);
-        auto& method_vector = *struct_entries[struct_idx++];
-        FlatVector::GetData<string_t>(method_vector)[result_idx] =
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = test_result.statistic;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = test_result.p_value;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = test_result.df;
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = static_cast<int64_t>(test_result.n);
+        auto& method_vector = StructEntry(struct_entries[struct_idx++]);
+        FlatDataMut<string_t>(method_vector)[result_idx] =
             StringVector::AddString(method_vector, test_result.method ? test_result.method : "Kruskal-Wallis");
-        SetResultNull(*struct_entries[struct_idx++], result_idx);
+        SetResultNull(StructEntry(struct_entries[struct_idx++]), result_idx);
         WriteTestResultFields(result, result_idx, struct_idx, test_result.unified); // alternative: not applicable
 
         anofox_free_test_result(&test_result);
@@ -192,9 +192,9 @@ static void KruskalWallisAggFinalize(Vector &state_vector, AggregateInputData &a
     }
 }
 
-static unique_ptr<FunctionData> KruskalWallisAggBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> KruskalWallisAggBind(ClientContext &context, AggregateBindFunction &function,
                                                       vector<unique_ptr<Expression>> &arguments) {
-    function.return_type = GetKruskalWallisAggResultType();
+    SetReturnTypeOf(function, GetKruskalWallisAggResultType());
     PostHogTelemetry::Instance().RecordFunctionCall("kruskal_wallis_agg");
     return nullptr;
 }
@@ -205,11 +205,11 @@ void RegisterKruskalWallisAggregateFunction(ExtensionLoader &loader) {
     auto func = AggregateFunction(
         "kruskal_wallis_agg", {LogicalType::DOUBLE, LogicalType::BIGINT},
         LogicalType::ANY,
-        AggregateFunction::StateSize<KruskalWallisAggregateState>, KruskalWallisAggInitialize,
+        AggregateFunction::StateSize<KruskalWallisAggregateState>, ANOFOX_AGG_INIT(KruskalWallisAggInitialize),
         ANOFOX_GUARDED_UPDATE(KruskalWallisAggUpdate, KruskalWallisAggDestroy, KruskalWallisAggInitialize), KruskalWallisAggCombine, ANOFOX_GUARDED_FINALIZE(KruskalWallisAggFinalize, KruskalWallisAggDestroy, KruskalWallisAggInitialize),
-        nullptr, KruskalWallisAggBind, KruskalWallisAggDestroy);
+        nullptr, ANOFOX_AGG_BIND(KruskalWallisAggBind), KruskalWallisAggDestroy);
     func_set.AddFunction(func);
-    func.arguments[1] = LogicalType::VARCHAR; // any group label (#186)
+    SetArgumentTypeOf(func, 1, LogicalType::VARCHAR); // any group label (#186)
     func_set.AddFunction(func);
 
     CreateAggregateFunctionInfo info(std::move(func_set));

@@ -53,7 +53,7 @@ static LogicalType GetJarqueBeraAggResultType() {
 // Aggregate function operations
 //===--------------------------------------------------------------------===//
 
-static void JarqueBeraAggInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void JarqueBeraAggInitialize(data_ptr_t state_p) {
     new (state_p) JarqueBeraAggregateState();
 }
 
@@ -156,13 +156,13 @@ static void JarqueBeraAggFinalize(Vector &state_vector, AggregateInputData &aggr
 
         // Fill STRUCT result
         idx_t struct_idx = 0;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = jb_result.statistic;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = jb_result.p_value;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = jb_result.skewness;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = jb_result.kurtosis;
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = jb_result.n;
-        SetResultString(*struct_entries[struct_idx++], result_idx, "Jarque-Bera test");
-        SetResultNull(*struct_entries[struct_idx++], result_idx);
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = jb_result.statistic;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = jb_result.p_value;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = jb_result.skewness;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = jb_result.kurtosis;
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = jb_result.n;
+        SetResultString(StructEntry(struct_entries[struct_idx++]), result_idx, "Jarque-Bera test");
+        SetResultNull(StructEntry(struct_entries[struct_idx++]), result_idx);
         WriteTestResultFields(result, result_idx, struct_idx, jb_result.unified); // alternative: not applicable
 
         state.Reset();
@@ -172,9 +172,9 @@ static void JarqueBeraAggFinalize(Vector &state_vector, AggregateInputData &aggr
 //===--------------------------------------------------------------------===//
 // Bind function
 //===--------------------------------------------------------------------===//
-static unique_ptr<FunctionData> JarqueBeraAggBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> JarqueBeraAggBind(ClientContext &context, AggregateBindFunction &function,
                                                   vector<unique_ptr<Expression>> &arguments) {
-    function.return_type = GetJarqueBeraAggResultType();
+    SetReturnTypeOf(function, GetJarqueBeraAggResultType());
     PostHogTelemetry::Instance().RecordFunctionCall("jarque_bera_agg");
     return nullptr;
 }
@@ -185,10 +185,10 @@ static unique_ptr<FunctionData> JarqueBeraAggBind(ClientContext &context, Aggreg
 void RegisterJarqueBeraAggregateFunction(ExtensionLoader &loader) {
     auto func = AggregateFunction("jarque_bera_agg", {LogicalType::DOUBLE},
                                   LogicalType::ANY, // Set in bind
-                                  AggregateFunction::StateSize<JarqueBeraAggregateState>, JarqueBeraAggInitialize,
+                                  AggregateFunction::StateSize<JarqueBeraAggregateState>, ANOFOX_AGG_INIT(JarqueBeraAggInitialize),
                                   ANOFOX_GUARDED_UPDATE(JarqueBeraAggUpdate, JarqueBeraAggDestroy, JarqueBeraAggInitialize), JarqueBeraAggCombine, ANOFOX_GUARDED_FINALIZE(JarqueBeraAggFinalize, JarqueBeraAggDestroy, JarqueBeraAggInitialize),
                                   nullptr, // simple_update
-                                  JarqueBeraAggBind, JarqueBeraAggDestroy);
+                                  ANOFOX_AGG_BIND(JarqueBeraAggBind), JarqueBeraAggDestroy);
 
     {
         AggregateFunctionSet func_set("jarque_bera_agg");

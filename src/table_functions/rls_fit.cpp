@@ -60,7 +60,7 @@ struct RlsFitBindData : public FunctionData {
 };
 
 // Bind function
-static unique_ptr<FunctionData> RlsFitBind(ClientContext &context, ScalarFunction &bound_function,
+static unique_ptr<FunctionData> RlsFitBind(ClientContext &context, ScalarBindFunction &bound_function,
                                            vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<RlsFitBindData>();
 
@@ -81,7 +81,7 @@ static unique_ptr<FunctionData> RlsFitBind(ClientContext &context, ScalarFunctio
     }
 
     // Set return type
-    bound_function.return_type = GetRlsResultType();
+    SetReturnTypeOf(bound_function, GetRlsResultType());
 
     PostHogTelemetry::Instance().RecordFunctionCall("rls_fit");
     return std::move(result);
@@ -91,7 +91,7 @@ static unique_ptr<FunctionData> RlsFitBind(ClientContext &context, ScalarFunctio
 static vector<double> ExtractDoubleList(Vector &vec, idx_t row_idx) {
     auto list_data = ListVector::GetData(vec);
     auto &child = ListVector::GetEntry(vec);
-    auto child_data = FlatVector::GetData<double>(child);
+    auto child_data = FlatDataMut<double>(child);
 
     vector<double> result;
     auto offset = list_data[row_idx].offset;
@@ -110,7 +110,7 @@ static void SetListResult(Vector &list_vec, idx_t row, double *data, size_t len)
     auto offset = ListVector::GetListSize(list_vec);
     ListVector::Reserve(list_vec, offset + len);
     ListVector::SetListSize(list_vec, offset + len);
-    auto vec_data = FlatVector::GetData<double>(child);
+    auto vec_data = FlatDataMut<double>(child);
     for (size_t i = 0; i < len; i++) {
         vec_data[offset + i] = data[i];
     }
@@ -132,7 +132,7 @@ static void RlsFitFunction(DataChunk &args, ExpressionState &state, Vector &resu
 }
 
 static void RlsFitFunctionImpl(DataChunk &args, ExpressionState &state, Vector &result) {
-    auto &bind_data = state.expr.Cast<BoundFunctionExpression>().bind_info->Cast<RlsFitBindData>();
+    auto &bind_data = BindInfoOf(state.expr.Cast<BoundFunctionExpression>())->Cast<RlsFitBindData>();
 
     auto &y_vec = args.data[0]; // LIST(DOUBLE)
     auto &x_vec = args.data[1]; // LIST(LIST(DOUBLE)) - list of feature columns
@@ -195,15 +195,15 @@ static void RlsFitFunctionImpl(DataChunk &args, ExpressionState &state, Vector &
         idx_t struct_idx = 0;
 
         // Coefficients
-        SetListResult(*struct_entries[struct_idx++], row, core_result.coefficients, core_result.coefficients_len);
+        SetListResult(StructEntry(struct_entries[struct_idx++]), row, core_result.coefficients, core_result.coefficients_len);
 
         // Scalars
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[row] = core_result.intercept;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[row] = core_result.r_squared;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[row] = core_result.adj_r_squared;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[row] = core_result.residual_std_error;
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[row] = core_result.n_observations;
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[row] = core_result.n_features;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[row] = core_result.intercept;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[row] = core_result.r_squared;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[row] = core_result.adj_r_squared;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[row] = core_result.residual_std_error;
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[row] = core_result.n_observations;
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[row] = core_result.n_features;
 
         writer.WriteInference(row, nullptr);
         writer.WriteSummary(row, core_result.summary);
@@ -217,13 +217,15 @@ void RegisterRlsFitFunction(ExtensionLoader &loader) {
         {LogicalType::LIST(LogicalType::DOUBLE), LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE))},
         LogicalType::ANY,
         DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, RlsFitFunction),
-                        DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, RlsFitBind));
+                        ANOFOX_SCALAR_BIND(DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, RlsFitBind)));
+    MarkFallible(basic_func);
 
     ScalarFunction map_func({LogicalType::LIST(LogicalType::DOUBLE),
                              LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)),
                              LogicalType::ANY},
                             LogicalType::ANY, DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, RlsFitFunction),
-                        DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, RlsFitBind));
+                        ANOFOX_SCALAR_BIND(DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, RlsFitBind)));
+    MarkFallible(map_func);
 
     // Primary
     {

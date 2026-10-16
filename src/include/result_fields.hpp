@@ -1,6 +1,7 @@
 #pragma once
 
 #include "duckdb.hpp"
+#include "duckdb_compat.hpp"
 
 namespace duckdb {
 
@@ -12,7 +13,7 @@ inline void SetResultString(Vector &child, idx_t row, const char *value) {
 		FlatVector::SetNull(child, row, true);
 		return;
 	}
-	FlatVector::GetData<string_t>(child)[row] = StringVector::AddString(child, value);
+	FlatDataMut<string_t>(child)[row] = StringVector::AddString(child, value);
 }
 
 //! Store NULL in a child of any type.

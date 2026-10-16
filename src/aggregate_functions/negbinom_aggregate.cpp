@@ -119,7 +119,7 @@ static LogicalType GetNegBinomAggResultType() {
 	return LogicalType::STRUCT(std::move(children));
 }
 
-static void NegBinomAggInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void NegBinomAggInitialize(data_ptr_t state_p) {
 	new (state_p) NegBinomAggregateState();
 }
 
@@ -144,13 +144,13 @@ static void NegBinomAggUpdate(Vector inputs[], AggregateInputData &aggr_input_da
 	inputs[1].ToUnifiedFormat(count, x_data);
 
 	auto y_values = UnifiedVectorFormat::GetData<double>(y_data);
-	auto x_list_data = ListVector::GetData(inputs[1]);
+	auto x_list_data = UnifiedVectorFormat::GetData<list_entry_t>(x_data);
 	auto &x_child = ListVector::GetEntry(inputs[1]);
-	auto x_child_data = FlatVector::GetData<double>(x_child);
+	auto x_child_data = FlatDataMut<double>(x_child);
 	// A LIST containing NULLs is not itself NULL, so the list-level validity mask
 	// says nothing about the elements. Read the child mask too and pass NaN for a
 	// NULL element; the Rust side drops any row that is not finite throughout.
-	auto &x_child_validity = FlatVector::Validity(x_child);
+	auto &x_child_validity = FlatValidityMut(x_child);
 
 	UnifiedVectorFormat sdata;
 	state_vector.ToUnifiedFormat(count, sdata);
@@ -259,7 +259,7 @@ static void SetListInResult(Vector &list_vec, idx_t row, double *data, size_t le
 	auto offset = ListVector::GetListSize(list_vec);
 	ListVector::Reserve(list_vec, offset + len);
 	ListVector::SetListSize(list_vec, offset + len);
-	auto vec_data = FlatVector::GetData<double>(child);
+	auto vec_data = FlatDataMut<double>(child);
 	for (size_t i = 0; i < len; i++) {
 		vec_data[offset + i] = data[i];
 	}
@@ -326,21 +326,21 @@ static void NegBinomAggFinalize(Vector &state_vector, AggregateInputData &aggr_i
 
 		idx_t struct_idx = 0;
 
-		SetListInResult(*struct_entries[struct_idx++], result_idx, core_result.coefficients,
+		SetListInResult(StructEntry(struct_entries[struct_idx++]), result_idx, core_result.coefficients,
 		                core_result.coefficients_len);
 
-		FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = core_result.intercept;
-		FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = core_result.deviance;
-		FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = core_result.null_deviance;
-		FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = core_result.pseudo_r_squared;
-		FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = core_result.aic;
+		FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = core_result.intercept;
+		FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = core_result.deviance;
+		FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = core_result.null_deviance;
+		FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = core_result.pseudo_r_squared;
+		FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = core_result.aic;
 		// For NegBin, the upstream "dispersion" field carries the estimated `alpha`
 		// overdispersion parameter — i.e. var(y) = mu + alpha * mu^2.
-		FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = core_result.dispersion;
-		FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = core_result.n_observations;
-		FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = core_result.n_features;
-		FlatVector::GetData<int32_t>(*struct_entries[struct_idx++])[result_idx] = core_result.iterations;
-		FlatVector::GetData<bool>(*struct_entries[struct_idx++])[result_idx] = core_result.converged;
+		FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = core_result.dispersion;
+		FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = core_result.n_observations;
+		FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = core_result.n_features;
+		FlatDataMut<int32_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = core_result.iterations;
+		FlatDataMut<bool>(StructEntry(struct_entries[struct_idx++]))[result_idx] = core_result.converged;
 
 		// Inference (NULL unless requested), CI fields and the model summary
 		// (family and link come from upstream).
@@ -359,7 +359,7 @@ static void NegBinomAggFinalize(Vector &state_vector, AggregateInputData &aggr_i
 	}
 }
 
-static unique_ptr<FunctionData> NegBinomAggBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> NegBinomAggBind(ClientContext &context, AggregateBindFunction &function,
                                                 vector<unique_ptr<Expression>> &arguments) {
 	auto result = make_uniq<NegBinomAggregateBindData>();
 
@@ -394,7 +394,7 @@ static unique_ptr<FunctionData> NegBinomAggBind(ClientContext &context, Aggregat
 		}
 	}
 
-	function.return_type = GetNegBinomAggResultType();
+	SetReturnTypeOf(function, GetNegBinomAggResultType());
 
 	PostHogTelemetry::Instance().RecordFunctionCall("negbinom_fit_agg");
 	return std::move(result);
@@ -405,15 +405,15 @@ void RegisterNegBinomAggregateFunction(ExtensionLoader &loader) {
 
 	auto basic_func = AggregateFunction(
 	    "negbinom_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
-	    LogicalType::ANY, AggregateFunction::StateSize<NegBinomAggregateState>, NegBinomAggInitialize,
-	    ANOFOX_GUARDED_UPDATE(NegBinomAggUpdate, NegBinomAggDestroy, NegBinomAggInitialize), NegBinomAggCombine, ANOFOX_GUARDED_FINALIZE(NegBinomAggFinalize, NegBinomAggDestroy, NegBinomAggInitialize), nullptr, NegBinomAggBind, NegBinomAggDestroy);
+	    LogicalType::ANY, AggregateFunction::StateSize<NegBinomAggregateState>, ANOFOX_AGG_INIT(NegBinomAggInitialize),
+	    ANOFOX_GUARDED_UPDATE(NegBinomAggUpdate, NegBinomAggDestroy, NegBinomAggInitialize), NegBinomAggCombine, ANOFOX_GUARDED_FINALIZE(NegBinomAggFinalize, NegBinomAggDestroy, NegBinomAggInitialize), nullptr, ANOFOX_AGG_BIND(NegBinomAggBind), NegBinomAggDestroy);
 	func_set.AddFunction(basic_func);
 
 	auto map_func = AggregateFunction("negbinom_fit_agg",
 	                                  {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
 	                                  LogicalType::ANY, AggregateFunction::StateSize<NegBinomAggregateState>,
-	                                  NegBinomAggInitialize, ANOFOX_GUARDED_UPDATE(NegBinomAggUpdate, NegBinomAggDestroy, NegBinomAggInitialize), NegBinomAggCombine, ANOFOX_GUARDED_FINALIZE(NegBinomAggFinalize, NegBinomAggDestroy, NegBinomAggInitialize),
-	                                  nullptr, NegBinomAggBind, NegBinomAggDestroy);
+	                                  ANOFOX_AGG_INIT(NegBinomAggInitialize), ANOFOX_GUARDED_UPDATE(NegBinomAggUpdate, NegBinomAggDestroy, NegBinomAggInitialize), NegBinomAggCombine, ANOFOX_GUARDED_FINALIZE(NegBinomAggFinalize, NegBinomAggDestroy, NegBinomAggInitialize),
+	                                  nullptr, ANOFOX_AGG_BIND(NegBinomAggBind), NegBinomAggDestroy);
 	func_set.AddFunction(map_func);
 
 	CreateAggregateFunctionInfo info(std::move(func_set));

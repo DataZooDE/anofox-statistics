@@ -77,7 +77,7 @@ struct EnergyDistanceBindData : public FunctionData {
 // Aggregate function operations
 //===--------------------------------------------------------------------===//
 
-static void EnergyDistanceAggInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void EnergyDistanceAggInitialize(data_ptr_t state_p) {
     new (state_p) EnergyDistanceAggregateState();
 }
 
@@ -210,16 +210,16 @@ static void EnergyDistanceAggFinalize(Vector &state_vector, AggregateInputData &
 
         // Fill STRUCT result
         idx_t struct_idx = 0;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = test_result.statistic;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = test_result.p_value;
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = static_cast<int64_t>(test_result.n1);
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = static_cast<int64_t>(test_result.n2);
-        auto& method_vector = *struct_entries[struct_idx++];
-        FlatVector::GetData<string_t>(method_vector)[result_idx] =
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = test_result.statistic;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = test_result.p_value;
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = static_cast<int64_t>(test_result.n1);
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = static_cast<int64_t>(test_result.n2);
+        auto& method_vector = StructEntry(struct_entries[struct_idx++]);
+        FlatDataMut<string_t>(method_vector)[result_idx] =
             StringVector::AddString(method_vector, test_result.method ? test_result.method : "Energy Distance Test");
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] =
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] =
             static_cast<int64_t>(test_result.n1 + test_result.n2);
-        SetResultNull(*struct_entries[struct_idx++], result_idx);
+        SetResultNull(StructEntry(struct_entries[struct_idx++]), result_idx);
         WriteTestResultFields(result, result_idx, struct_idx, test_result.unified); // alternative: omnibus test
 
         anofox_free_test_result(&test_result);
@@ -230,9 +230,9 @@ static void EnergyDistanceAggFinalize(Vector &state_vector, AggregateInputData &
 //===--------------------------------------------------------------------===//
 // Bind function
 //===--------------------------------------------------------------------===//
-static unique_ptr<FunctionData> EnergyDistanceAggBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> EnergyDistanceAggBind(ClientContext &context, AggregateBindFunction &function,
                                                        vector<unique_ptr<Expression>> &arguments) {
-    function.return_type = GetEnergyDistanceAggResultType();
+    SetReturnTypeOf(function, GetEnergyDistanceAggResultType());
     auto bind_data = make_uniq<EnergyDistanceBindData>();
 
     if (arguments.size() >= 3) {
@@ -252,17 +252,17 @@ void RegisterEnergyDistanceAggregateFunction(ExtensionLoader &loader) {
     auto func_with_opts = AggregateFunction(
         "energy_distance_agg", {LogicalType::DOUBLE, LogicalType::INTEGER, LogicalType::ANY},
         LogicalType::ANY,
-        AggregateFunction::StateSize<EnergyDistanceAggregateState>, EnergyDistanceAggInitialize,
+        AggregateFunction::StateSize<EnergyDistanceAggregateState>, ANOFOX_AGG_INIT(EnergyDistanceAggInitialize),
         ANOFOX_GUARDED_UPDATE(EnergyDistanceAggUpdate, EnergyDistanceAggDestroy, EnergyDistanceAggInitialize), EnergyDistanceAggCombine, ANOFOX_GUARDED_FINALIZE(EnergyDistanceAggFinalize, EnergyDistanceAggDestroy, EnergyDistanceAggInitialize),
-        nullptr, EnergyDistanceAggBind, EnergyDistanceAggDestroy);
+        nullptr, ANOFOX_AGG_BIND(EnergyDistanceAggBind), EnergyDistanceAggDestroy);
 
     // Without options
     auto func_no_opts = AggregateFunction(
         "energy_distance_agg", {LogicalType::DOUBLE, LogicalType::INTEGER},
         LogicalType::ANY,
-        AggregateFunction::StateSize<EnergyDistanceAggregateState>, EnergyDistanceAggInitialize,
+        AggregateFunction::StateSize<EnergyDistanceAggregateState>, ANOFOX_AGG_INIT(EnergyDistanceAggInitialize),
         ANOFOX_GUARDED_UPDATE(EnergyDistanceAggUpdate, EnergyDistanceAggDestroy, EnergyDistanceAggInitialize), EnergyDistanceAggCombine, ANOFOX_GUARDED_FINALIZE(EnergyDistanceAggFinalize, EnergyDistanceAggDestroy, EnergyDistanceAggInitialize),
-        nullptr, EnergyDistanceAggBind, EnergyDistanceAggDestroy);
+        nullptr, ANOFOX_AGG_BIND(EnergyDistanceAggBind), EnergyDistanceAggDestroy);
 
     {
         AggregateFunctionSet func_set("energy_distance_agg");

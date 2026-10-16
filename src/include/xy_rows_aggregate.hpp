@@ -13,6 +13,7 @@
 
 #include "duckdb.hpp"
 #include "duckdb/function/aggregate_function.hpp"
+#include "duckdb_compat.hpp"
 
 #include "aggregate_combine.hpp"
 #include "anofox_stats_ffi.h"
@@ -42,7 +43,7 @@ struct XyRowsStatePointers {
 	}
 };
 
-inline void XyRowsInitialize(const AggregateFunction &, data_ptr_t state_p) {
+inline void XyRowsInitialize(data_ptr_t state_p) {
 	new (state_p) XyRowsState();
 }
 
@@ -66,8 +67,8 @@ inline void XyRowsUpdateImpl(Vector inputs[], idx_t count, Vector &state_vector,
 	auto y_values = UnifiedVectorFormat::GetData<double>(y_data);
 	auto x_list_data = UnifiedVectorFormat::GetData<list_entry_t>(x_data);
 	auto &x_child = ListVector::GetEntry(inputs[1]);
-	auto x_child_data = FlatVector::GetData<double>(x_child);
-	auto &x_child_validity = FlatVector::Validity(x_child);
+	auto x_child_data = FlatDataMut<double>(x_child);
+	auto &x_child_validity = FlatValidityMut(x_child);
 	auto states = (XyRowsState **)sdata.data;
 
 	for (idx_t i = 0; i < count; i++) {
@@ -157,11 +158,11 @@ inline vector<AnofoxDataArray> XyRowsColumnArrays(XyRowsState &state) {
 
 //! Write a LIST(DOUBLE) value; non-finite elements become NULL.
 inline void XyRowsSetDoubleList(Vector &list_vec, idx_t row, const double *values, idx_t n) {
-	auto list_data = FlatVector::GetData<list_entry_t>(list_vec);
+	auto list_data = FlatDataMut<list_entry_t>(list_vec);
 	auto offset = ListVector::GetListSize(list_vec);
 	ListVector::Reserve(list_vec, offset + n);
-	auto child_data = FlatVector::GetData<double>(ListVector::GetEntry(list_vec));
-	auto &child_validity = FlatVector::Validity(ListVector::GetEntry(list_vec));
+	auto child_data = FlatDataMut<double>(ListVector::GetEntry(list_vec));
+	auto &child_validity = FlatValidityMut(ListVector::GetEntry(list_vec));
 	for (idx_t j = 0; j < n; j++) {
 		if (std::isfinite(values[j])) {
 			child_data[offset + j] = values[j];
@@ -177,7 +178,7 @@ inline void XyRowsSetDoubleList(Vector &list_vec, idx_t row, const double *value
 //! Write a DOUBLE; non-finite becomes NULL.
 inline void XyRowsSetDouble(Vector &vec, idx_t row, double value) {
 	if (std::isfinite(value)) {
-		FlatVector::GetData<double>(vec)[row] = value;
+		FlatDataMut<double>(vec)[row] = value;
 	} else {
 		FlatVector::SetNull(vec, row, true);
 	}

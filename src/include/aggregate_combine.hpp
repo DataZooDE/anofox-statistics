@@ -1,6 +1,7 @@
 #pragma once
 
 #include "duckdb/function/aggregate_state.hpp"
+#include "duckdb_compat.hpp"
 
 #include <utility>
 

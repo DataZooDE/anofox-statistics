@@ -26,8 +26,8 @@ namespace duckdb {
 static vector<double> ExtractDoubleList(Vector &vec, idx_t row_idx) {
     auto list_data = ListVector::GetData(vec);
     auto &child = ListVector::GetEntry(vec);
-    auto child_data = FlatVector::GetData<double>(child);
-    auto &child_validity = FlatVector::Validity(child);
+    auto child_data = FlatDataMut<double>(child);
+    auto &child_validity = FlatValidityMut(child);
 
     vector<double> result;
     auto offset = list_data[row_idx].offset;
@@ -71,7 +71,7 @@ static void PredictFunctionImpl(DataChunk &args, ExpressionState &state, Vector 
     // NULL inputs give a NULL row (the inputs are flattened below so row indexing is direct)
     x_vec.Flatten(count);
     coef_vec.Flatten(count);
-    auto &result_validity = FlatVector::Validity(result);
+    auto &result_validity = FlatValidityMut(result);
 
     // Process each row
     for (idx_t row = 0; row < count; row++) {
@@ -129,9 +129,9 @@ static void PredictFunctionImpl(DataChunk &args, ExpressionState &state, Vector 
         auto result_offset = ListVector::GetListSize(result);
         ListVector::Reserve(result, result_offset + predictions_len);
         ListVector::SetListSize(result, result_offset + predictions_len);
-        auto result_data = FlatVector::GetData<double>(result_child);
+        auto result_data = FlatDataMut<double>(result_child);
 
-        auto &result_child_validity = FlatVector::Validity(result_child);
+        auto &result_child_validity = FlatValidityMut(result_child);
         for (size_t i = 0; i < predictions_len; i++) {
             // A NULL (NaN) feature value gives a NULL prediction for that observation
             if (std::isfinite(predictions[i])) {
@@ -214,10 +214,10 @@ bool IsDoubleList(const LogicalType &t) {
 	return t.id() == LogicalTypeId::LIST && ListType::GetChildType(t).id() == LogicalTypeId::DOUBLE;
 }
 
-unique_ptr<FunctionData> PredictModelBind(ClientContext &context, ScalarFunction &bound_function,
+unique_ptr<FunctionData> PredictModelBind(ClientContext &context, ScalarBindFunction &bound_function,
                                           vector<unique_ptr<Expression>> &arguments) {
-	if (arguments[0]->return_type.id() != LogicalTypeId::STRUCT) {
-		if (arguments.size() == 3 && arguments[0]->return_type.id() == LogicalTypeId::LIST) {
+	if (ReturnTypeOf(*arguments[0]).id() != LogicalTypeId::STRUCT) {
+		if (arguments.size() == 3 && ReturnTypeOf(*arguments[0]).id() == LogicalTypeId::LIST) {
 			// Legacy column-layout call predict(x, coefficients, intercept) whose argument
 			// types (e.g. DECIMAL literals) made the binder pick this overload.
 			arguments[0] = BoundCastExpression::AddCastToType(
@@ -225,20 +225,20 @@ unique_ptr<FunctionData> PredictModelBind(ClientContext &context, ScalarFunction
 			arguments[1] = BoundCastExpression::AddCastToType(context, std::move(arguments[1]),
 			                                                  LogicalType::LIST(LogicalType::DOUBLE));
 			arguments[2] = BoundCastExpression::AddCastToType(context, std::move(arguments[2]), LogicalType::DOUBLE);
-			bound_function.arguments = {LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)),
+			ArgumentsOf(bound_function) = {LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)),
 			                            LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE};
-			bound_function.return_type = LogicalType::LIST(LogicalType::DOUBLE);
-			bound_function.function = DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, PredictFunction);
-			bound_function.null_handling = FunctionNullHandling::DEFAULT_NULL_HANDLING;
+			SetReturnTypeOf(bound_function, LogicalType::LIST(LogicalType::DOUBLE));
+			SetFunctionCallbackOf(bound_function, DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, PredictFunction));
+			SetNullHandlingOf(bound_function, FunctionNullHandling::DEFAULT_NULL_HANDLING);
 			return nullptr;
 		}
 		throw InvalidInputException("predict(model, x): model must be the STRUCT returned by a *_fit_agg or *_fit "
 		                            "function, got %s",
-		                            arguments[0]->return_type.ToString());
+		                            ReturnTypeOf(*arguments[0]).ToString());
 	}
 	// Numeric fields of a hand-written model literal (e.g. DECIMAL) are cast to DOUBLE.
 	{
-		auto &in_type = arguments[0]->return_type;
+		auto &in_type = ReturnTypeOf(*arguments[0]);
 		child_list_t<LogicalType> cast_children;
 		bool needs_cast = false;
 		for (auto &child : StructType::GetChildTypes(in_type)) {
@@ -258,7 +258,7 @@ unique_ptr<FunctionData> PredictModelBind(ClientContext &context, ScalarFunction
 			                                                  LogicalType::STRUCT(std::move(cast_children)));
 		}
 	}
-	auto &model_type = arguments[0]->return_type;
+	auto &model_type = ReturnTypeOf(*arguments[0]);
 	auto data = make_uniq<PredictModelBindData>();
 	auto &children = StructType::GetChildTypes(model_type);
 	for (idx_t i = 0; i < children.size(); i++) {
@@ -337,7 +337,7 @@ unique_ptr<FunctionData> PredictModelBind(ClientContext &context, ScalarFunction
 			if (options.type().id() == LogicalTypeId::STRUCT) {
 				auto &vals = StructValue::GetChildren(options);
 				for (idx_t i = 0; i < vals.size(); i++) {
-					visit(StructType::GetChildName(options.type(), i), vals[i]);
+					visit(NameString(StructType::GetChildName(options.type(), i)), vals[i]);
 				}
 			} else if (options.type().id() == LogicalTypeId::MAP) {
 				for (auto &entry : MapValue::GetChildren(options)) {
@@ -356,7 +356,7 @@ unique_ptr<FunctionData> PredictModelBind(ClientContext &context, ScalarFunction
 			    "Ridge or GLM *_fit_agg fitted with {'compute_inference': true}; got %s",
 			    model_type.ToString());
 		}
-		bound_function.return_type = PredictSeType();
+		SetReturnTypeOf(bound_function, PredictSeType());
 	}
 	PostHogTelemetry::Instance().RecordFunctionCall("predict");
 	return std::move(data);
@@ -396,7 +396,7 @@ static double ScalarFieldOr(Vector &vec, idx_t row, double fallback) {
 	if (FlatVector::IsNull(vec, row)) {
 		return fallback;
 	}
-	return FlatVector::GetData<double>(vec)[row];
+	return FlatDataMut<double>(vec)[row];
 }
 
 //! predict() with standard errors / intervals: STRUCT(yhat, se_fit, yhat_lower, yhat_upper).
@@ -406,25 +406,25 @@ static void PredictSeFunctionImpl(DataChunk &args, const PredictModelBindData &b
 	auto &x_vec = args.data[1];
 	auto &entries = StructVector::GetEntries(model_vec);
 	auto &out = StructVector::GetEntries(result);
-	auto x_lists = FlatVector::GetData<list_entry_t>(x_vec);
+	auto x_lists = FlatDataMut<list_entry_t>(x_vec);
 	auto &x_child = ListVector::GetEntry(x_vec);
-	auto x_child_data = FlatVector::GetData<double>(x_child);
-	auto &x_child_validity = FlatVector::Validity(x_child);
+	auto x_child_data = FlatDataMut<double>(x_child);
+	auto &x_child_validity = FlatValidityMut(x_child);
 	const double nan = std::numeric_limits<double>::quiet_NaN();
 	// The linear models carry residual_std_error; the GLMs are predicted through their link.
 	const bool linear = bind.rse_idx != DConstants::INVALID_INDEX;
 
 	auto write = [&](Vector &vec, idx_t row, double v) {
 		if (std::isfinite(v)) {
-			FlatVector::GetData<double>(vec)[row] = v;
+			FlatDataMut<double>(vec)[row] = v;
 		} else {
 			FlatVector::SetNull(vec, row, true);
 		}
 	};
 
 	for (idx_t row = 0; row < count; row++) {
-		auto &coef_vec = *entries[bind.coef_idx];
-		auto &vcov_vec = *entries[bind.vcov_idx];
+		auto &coef_vec = StructEntry(entries[bind.coef_idx]);
+		auto &vcov_vec = StructEntry(entries[bind.vcov_idx]);
 		if (FlatVector::IsNull(model_vec, row) || FlatVector::IsNull(x_vec, row) || FlatVector::IsNull(coef_vec, row)) {
 			FlatVector::SetNull(result, row, true);
 			continue;
@@ -434,7 +434,7 @@ static void PredictSeFunctionImpl(DataChunk &args, const PredictModelBindData &b
 			FlatVector::SetNull(result, row, true);
 			continue;
 		}
-		auto c = FlatVector::GetData<list_entry_t>(coef_vec)[row];
+		auto c = FlatDataMut<list_entry_t>(coef_vec)[row];
 		if (c.length != x_entry.length) {
 			throw InvalidInputException("predict: model has %llu coefficients but x has %llu values",
 			                            (unsigned long long)c.length, (unsigned long long)x_entry.length);
@@ -444,35 +444,35 @@ static void PredictSeFunctionImpl(DataChunk &args, const PredictModelBindData &b
 			                            "with {'compute_inference': true} to get 'se_fit' / 'interval'");
 		}
 		auto &coef_child = ListVector::GetEntry(coef_vec);
-		auto cd = FlatVector::GetData<double>(coef_child);
-		auto &coef_validity = FlatVector::Validity(coef_child);
+		auto cd = FlatDataMut<double>(coef_child);
+		auto &coef_validity = FlatValidityMut(coef_child);
 		vector<double> coefs(c.length);
 		for (idx_t j = 0; j < c.length; j++) {
 			coefs[j] = coef_validity.RowIsValid(c.offset + j) ? cd[c.offset + j] : nan;
 		}
-		auto v = FlatVector::GetData<list_entry_t>(vcov_vec)[row];
-		auto vd = FlatVector::GetData<double>(ListVector::GetEntry(vcov_vec)) + v.offset;
+		auto v = FlatDataMut<list_entry_t>(vcov_vec)[row];
+		auto vd = FlatDataMut<double>(ListVector::GetEntry(vcov_vec)) + v.offset;
 		idx_t dim = 0;
 		while (dim * dim < v.length) {
 			dim++;
 		}
 		double intercept = bind.intercept_idx == DConstants::INVALID_INDEX
 		                       ? nan
-		                       : ScalarFieldOr(*entries[bind.intercept_idx], row, nan);
+		                       : ScalarFieldOr(StructEntry(entries[bind.intercept_idx]), row, nan);
 		// Without an intercept the covariance has one row per coefficient.
 		if (dim == c.length) {
 			intercept = nan;
 		}
 		string link;
 		if (!linear && bind.link_idx != DConstants::INVALID_INDEX &&
-		    !FlatVector::IsNull(*entries[bind.link_idx], row)) {
-			link = FlatVector::GetData<string_t>(*entries[bind.link_idx])[row].GetString();
+		    !FlatVector::IsNull(StructEntry(entries[bind.link_idx]), row)) {
+			link = FlatDataMut<string_t>(StructEntry(entries[bind.link_idx]))[row].GetString();
 		}
 		if (!linear && link.empty()) {
 			throw InvalidInputException("predict: the model has no link; cannot compute GLM standard errors");
 		}
-		double rse = linear ? ScalarFieldOr(*entries[bind.rse_idx], row, nan) : nan;
-		double df = bind.df_idx == DConstants::INVALID_INDEX ? nan : ScalarFieldOr(*entries[bind.df_idx], row, nan);
+		double rse = linear ? ScalarFieldOr(StructEntry(entries[bind.rse_idx]), row, nan) : nan;
+		double df = bind.df_idx == DConstants::INVALID_INDEX ? nan : ScalarFieldOr(StructEntry(entries[bind.df_idx]), row, nan);
 		int32_t interval = bind.interval;
 		AnofoxPredictSeResult pred;
 		AnofoxError error;
@@ -481,17 +481,17 @@ static void PredictSeFunctionImpl(DataChunk &args, const PredictModelBindData &b
 		                       &pred, &error)) {
 			throw InvalidInputException("predict: %s", error.message);
 		}
-		write(*out[0], row, pred.yhat);
-		write(*out[1], row, pred.se_fit);
-		write(*out[2], row, pred.yhat_lower);
-		write(*out[3], row, pred.yhat_upper);
+		write(StructEntry(out[0]), row, pred.yhat);
+		write(StructEntry(out[1]), row, pred.se_fit);
+		write(StructEntry(out[2]), row, pred.yhat_lower);
+		write(StructEntry(out[3]), row, pred.yhat_upper);
 	}
 	result.SetVectorType(VectorType::FLAT_VECTOR);
 }
 
 static void PredictModelFunctionImpl(DataChunk &args, ExpressionState &state, Vector &result) {
 	auto &func_expr = state.expr.Cast<BoundFunctionExpression>();
-	auto &bind = func_expr.bind_info->Cast<PredictModelBindData>();
+	auto &bind = BindInfoOf(func_expr)->Cast<PredictModelBindData>();
 	idx_t count = args.size();
 	args.Flatten();
 	if (bind.WithSe()) {
@@ -501,13 +501,13 @@ static void PredictModelFunctionImpl(DataChunk &args, ExpressionState &state, Ve
 	auto &model_vec = args.data[0];
 	auto &x_vec = args.data[1];
 	auto &entries = StructVector::GetEntries(model_vec);
-	auto result_data = FlatVector::GetData<double>(result);
-	auto &result_validity = FlatVector::Validity(result);
+	auto result_data = FlatDataMut<double>(result);
+	auto &result_validity = FlatValidityMut(result);
 
-	auto x_lists = FlatVector::GetData<list_entry_t>(x_vec);
+	auto x_lists = FlatDataMut<list_entry_t>(x_vec);
 	auto &x_child = ListVector::GetEntry(x_vec);
-	auto x_child_data = FlatVector::GetData<double>(x_child);
-	auto &x_child_validity = FlatVector::Validity(x_child);
+	auto x_child_data = FlatDataMut<double>(x_child);
+	auto &x_child_validity = FlatValidityMut(x_child);
 
 	for (idx_t row = 0; row < count; row++) {
 		if (FlatVector::IsNull(model_vec, row) || FlatVector::IsNull(x_vec, row)) {
@@ -526,8 +526,8 @@ static void PredictModelFunctionImpl(DataChunk &args, ExpressionState &state, Ve
 		const double *x = x_child_data + x_entry.offset;
 
 		if (bind.kind == ModelKind::ISOTONIC) {
-			auto &knot_vec = *entries[bind.knots_idx];
-			auto &fit_vec = *entries[bind.fitted_idx];
+			auto &knot_vec = StructEntry(entries[bind.knots_idx]);
+			auto &fit_vec = StructEntry(entries[bind.fitted_idx]);
 			if (FlatVector::IsNull(knot_vec, row) || FlatVector::IsNull(fit_vec, row) || x_entry.length != 1) {
 				if (x_entry.length != 1 && !FlatVector::IsNull(knot_vec, row)) {
 					throw InvalidInputException("predict: an isotonic model takes exactly one feature, got %llu",
@@ -536,10 +536,10 @@ static void PredictModelFunctionImpl(DataChunk &args, ExpressionState &state, Ve
 				result_validity.SetInvalid(row);
 				continue;
 			}
-			auto k = FlatVector::GetData<list_entry_t>(knot_vec)[row];
-			auto f = FlatVector::GetData<list_entry_t>(fit_vec)[row];
-			auto kd = FlatVector::GetData<double>(ListVector::GetEntry(knot_vec)) + k.offset;
-			auto fd = FlatVector::GetData<double>(ListVector::GetEntry(fit_vec)) + f.offset;
+			auto k = FlatDataMut<list_entry_t>(knot_vec)[row];
+			auto f = FlatDataMut<list_entry_t>(fit_vec)[row];
+			auto kd = FlatDataMut<double>(ListVector::GetEntry(knot_vec)) + k.offset;
+			auto fd = FlatDataMut<double>(ListVector::GetEntry(fit_vec)) + f.offset;
 			idx_t n = MinValue<idx_t>(k.length, f.length);
 			if (n == 0) {
 				result_validity.SetInvalid(row);
@@ -559,24 +559,24 @@ static void PredictModelFunctionImpl(DataChunk &args, ExpressionState &state, Ve
 			continue;
 		}
 
-		auto &coef_vec = *entries[bind.coef_idx];
+		auto &coef_vec = StructEntry(entries[bind.coef_idx]);
 		if (FlatVector::IsNull(coef_vec, row)) {
 			result_validity.SetInvalid(row);
 			continue;
 		}
-		auto c = FlatVector::GetData<list_entry_t>(coef_vec)[row];
+		auto c = FlatDataMut<list_entry_t>(coef_vec)[row];
 		auto &coef_child = ListVector::GetEntry(coef_vec);
-		auto cd = FlatVector::GetData<double>(coef_child);
-		auto &coef_validity = FlatVector::Validity(coef_child);
+		auto cd = FlatDataMut<double>(coef_child);
+		auto &coef_validity = FlatValidityMut(coef_child);
 		if (c.length != x_entry.length) {
 			throw InvalidInputException("predict: model has %llu coefficients but x has %llu values",
 			                            (unsigned long long)c.length, (unsigned long long)x_entry.length);
 		}
 		double eta = 0.0;
 		if (bind.intercept_idx != DConstants::INVALID_INDEX) {
-			auto &icpt_vec = *entries[bind.intercept_idx];
+			auto &icpt_vec = StructEntry(entries[bind.intercept_idx]);
 			if (!FlatVector::IsNull(icpt_vec, row)) {
-				double icpt = FlatVector::GetData<double>(icpt_vec)[row];
+				double icpt = FlatDataMut<double>(icpt_vec)[row];
 				if (std::isfinite(icpt)) {
 					eta += icpt;
 				}
@@ -589,9 +589,9 @@ static void PredictModelFunctionImpl(DataChunk &args, ExpressionState &state, Ve
 			}
 		}
 		if (bind.response_scale && bind.link_idx != DConstants::INVALID_INDEX) {
-			auto &link_vec = *entries[bind.link_idx];
+			auto &link_vec = StructEntry(entries[bind.link_idx]);
 			if (!FlatVector::IsNull(link_vec, row)) {
-				eta = InverseLink(FlatVector::GetData<string_t>(link_vec)[row].GetString(), eta);
+				eta = InverseLink(FlatDataMut<string_t>(link_vec)[row].GetString(), eta);
 			}
 		}
 		result_data[row] = eta;
@@ -607,6 +607,7 @@ void RegisterPredictFunction(ExtensionLoader &loader) {
                          LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE},
                         LogicalType::LIST(LogicalType::DOUBLE),
                         DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, PredictFunction));
+    MarkFallible(func);
 
     ScalarFunctionSet func_set("predict");
     func_set.AddFunction(func);
@@ -617,8 +618,9 @@ void RegisterPredictFunction(ExtensionLoader &loader) {
             model_args.push_back(LogicalType::ANY);
         }
         ScalarFunction model_func(model_args, LogicalType::DOUBLE,
-                                  DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, PredictModelFunction), PredictModelBind);
-        model_func.null_handling = FunctionNullHandling::SPECIAL_HANDLING;
+                                  DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, PredictModelFunction), ANOFOX_SCALAR_BIND(PredictModelBind));
+        MarkFallible(model_func);
+        SetNullHandlingOf(model_func, FunctionNullHandling::SPECIAL_HANDLING);
         func_set.AddFunction(model_func);
     }
     CreateScalarFunctionInfo info(std::move(func_set));

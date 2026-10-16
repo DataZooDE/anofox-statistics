@@ -51,7 +51,7 @@ static LogicalType GetDAgostinoK2AggResultType() {
 // Aggregate function operations
 //===--------------------------------------------------------------------===//
 
-static void DAgostinoK2AggInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void DAgostinoK2AggInitialize(data_ptr_t state_p) {
     new (state_p) DAgostinoK2AggregateState();
 }
 
@@ -155,13 +155,13 @@ static void DAgostinoK2AggFinalize(Vector &state_vector, AggregateInputData &agg
 
         // Fill STRUCT result
         idx_t struct_idx = 0;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = test_result.statistic;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = test_result.p_value;
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = static_cast<int64_t>(test_result.n);
-        auto& method_vector = *struct_entries[struct_idx++];
-        FlatVector::GetData<string_t>(method_vector)[result_idx] =
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = test_result.statistic;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = test_result.p_value;
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = static_cast<int64_t>(test_result.n);
+        auto& method_vector = StructEntry(struct_entries[struct_idx++]);
+        FlatDataMut<string_t>(method_vector)[result_idx] =
             StringVector::AddString(method_vector, test_result.method ? test_result.method : "D'Agostino-Pearson K²");
-        SetResultNull(*struct_entries[struct_idx++], result_idx);
+        SetResultNull(StructEntry(struct_entries[struct_idx++]), result_idx);
         WriteTestResultFields(result, result_idx, struct_idx, test_result.unified); // alternative: not applicable
 
         anofox_free_test_result(&test_result);
@@ -172,9 +172,9 @@ static void DAgostinoK2AggFinalize(Vector &state_vector, AggregateInputData &agg
 //===--------------------------------------------------------------------===//
 // Bind function
 //===--------------------------------------------------------------------===//
-static unique_ptr<FunctionData> DAgostinoK2AggBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> DAgostinoK2AggBind(ClientContext &context, AggregateBindFunction &function,
                                                     vector<unique_ptr<Expression>> &arguments) {
-    function.return_type = GetDAgostinoK2AggResultType();
+    SetReturnTypeOf(function, GetDAgostinoK2AggResultType());
     PostHogTelemetry::Instance().RecordFunctionCall("dagostino_k2_agg");
     return nullptr;
 }
@@ -185,9 +185,9 @@ static unique_ptr<FunctionData> DAgostinoK2AggBind(ClientContext &context, Aggre
 void RegisterDAgostinoK2AggregateFunction(ExtensionLoader &loader) {
     auto func = AggregateFunction("dagostino_k2_agg", {LogicalType::DOUBLE},
                                   LogicalType::ANY,
-                                  AggregateFunction::StateSize<DAgostinoK2AggregateState>, DAgostinoK2AggInitialize,
+                                  AggregateFunction::StateSize<DAgostinoK2AggregateState>, ANOFOX_AGG_INIT(DAgostinoK2AggInitialize),
                                   ANOFOX_GUARDED_UPDATE(DAgostinoK2AggUpdate, DAgostinoK2AggDestroy, DAgostinoK2AggInitialize), DAgostinoK2AggCombine, ANOFOX_GUARDED_FINALIZE(DAgostinoK2AggFinalize, DAgostinoK2AggDestroy, DAgostinoK2AggInitialize),
-                                  nullptr, DAgostinoK2AggBind, DAgostinoK2AggDestroy);
+                                  nullptr, ANOFOX_AGG_BIND(DAgostinoK2AggBind), DAgostinoK2AggDestroy);
 
     {
         AggregateFunctionSet func_set("dagostino_k2_agg");

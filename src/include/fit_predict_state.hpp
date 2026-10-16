@@ -44,7 +44,7 @@ struct FitPredictRowsBindBase : public FunctionData {
 	NullPolicy null_policy = NullPolicy::DROP;
 };
 
-inline void FitPredictRowsInitialize(const AggregateFunction &, data_ptr_t state_p) {
+inline void FitPredictRowsInitialize(data_ptr_t state_p) {
 	new (state_p) FitPredictRowsState();
 }
 
@@ -77,8 +77,8 @@ inline void FitPredictRowsUpdate(Vector inputs[], AggregateInputData &aggr_input
 	auto y_values = UnifiedVectorFormat::GetData<double>(y_data);
 	auto x_lists = UnifiedVectorFormat::GetData<list_entry_t>(x_data);
 	auto &x_child = ListVector::GetEntry(inputs[1]);
-	auto x_child_data = FlatVector::GetData<double>(x_child);
-	auto &x_child_validity = FlatVector::Validity(x_child);
+	auto x_child_data = FlatDataMut<double>(x_child);
+	auto &x_child_validity = FlatValidityMut(x_child);
 	auto states = (FitPredictRowsState **)sdata.data;
 
 	for (idx_t i = 0; i < count; i++) {
@@ -216,7 +216,7 @@ inline void WriteFitPredictRows(Vector &result, idx_t result_idx, const FitPredi
 	auto &entries = StructVector::GetEntries(ListVector::GetEntry(result));
 	auto write = [](Vector &vec, idx_t idx, double value) {
 		if (std::isfinite(value)) {
-			FlatVector::GetData<double>(vec)[idx] = value;
+			FlatDataMut<double>(vec)[idx] = value;
 		} else {
 			FlatVector::SetNull(vec, idx, true);
 		}
@@ -224,14 +224,14 @@ inline void WriteFitPredictRows(Vector &result, idx_t result_idx, const FitPredi
 	for (idx_t r = 0; r < n_rows; r++) {
 		idx_t child = list_offset + r;
 		if (state.y_is_null[r]) {
-			FlatVector::SetNull(*entries[0], child, true);
+			FlatVector::SetNull(StructEntry(entries[0]), child, true);
 		} else {
-			FlatVector::GetData<double>(*entries[0])[child] = state.y_all[r];
+			FlatDataMut<double>(StructEntry(entries[0]))[child] = state.y_all[r];
 		}
-		write(*entries[1], child, yhat[r]);
-		write(*entries[2], child, lower ? lower[r] : std::nan(""));
-		write(*entries[3], child, upper ? upper[r] : std::nan(""));
-		FlatVector::GetData<bool>(*entries[4])[child] = state.is_training[r];
+		write(StructEntry(entries[1]), child, yhat[r]);
+		write(StructEntry(entries[2]), child, lower ? lower[r] : std::nan(""));
+		write(StructEntry(entries[3]), child, upper ? upper[r] : std::nan(""));
+		FlatDataMut<bool>(StructEntry(entries[4]))[child] = state.is_training[r];
 	}
 	ListVector::SetListSize(result, list_offset + n_rows);
 }

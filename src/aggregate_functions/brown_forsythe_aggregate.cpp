@@ -73,7 +73,7 @@ struct BrownForsytheBindData : public FunctionData {
 // Aggregate function operations
 //===--------------------------------------------------------------------===//
 
-static void BrownForsytheAggInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void BrownForsytheAggInitialize(data_ptr_t state_p) {
     new (state_p) BrownForsytheAggregateState();
 }
 
@@ -193,14 +193,14 @@ static void BrownForsytheAggFinalize(Vector &state_vector, AggregateInputData &a
         }
 
         idx_t struct_idx = 0;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = test_result.statistic;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = test_result.p_value;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = test_result.df;
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = static_cast<int64_t>(test_result.n);
-        auto& method_vector = *struct_entries[struct_idx++];
-        FlatVector::GetData<string_t>(method_vector)[result_idx] =
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = test_result.statistic;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = test_result.p_value;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = test_result.df;
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = static_cast<int64_t>(test_result.n);
+        auto& method_vector = StructEntry(struct_entries[struct_idx++]);
+        FlatDataMut<string_t>(method_vector)[result_idx] =
             StringVector::AddString(method_vector, test_result.method ? test_result.method : "Brown-Forsythe test");
-        SetResultNull(*struct_entries[struct_idx++], result_idx);
+        SetResultNull(StructEntry(struct_entries[struct_idx++]), result_idx);
         WriteTestResultFields(result, result_idx, struct_idx, test_result.unified); // alternative: not applicable
 
         anofox_free_test_result(&test_result);
@@ -211,9 +211,9 @@ static void BrownForsytheAggFinalize(Vector &state_vector, AggregateInputData &a
 //===--------------------------------------------------------------------===//
 // Bind function
 //===--------------------------------------------------------------------===//
-static unique_ptr<FunctionData> BrownForsytheAggBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> BrownForsytheAggBind(ClientContext &context, AggregateBindFunction &function,
                                                        vector<unique_ptr<Expression>> &arguments) {
-    function.return_type = GetBrownForsytheAggResultType();
+    SetReturnTypeOf(function, GetBrownForsytheAggResultType());
     PostHogTelemetry::Instance().RecordFunctionCall("brown_forsythe_agg");
     return make_uniq<BrownForsytheBindData>();
 }
@@ -228,11 +228,11 @@ void RegisterBrownForsytheAggregateFunction(ExtensionLoader &loader) {
     auto func = AggregateFunction(
         "brown_forsythe_agg", {LogicalType::DOUBLE, LogicalType::BIGINT},
         LogicalType::ANY,
-        AggregateFunction::StateSize<BrownForsytheAggregateState>, BrownForsytheAggInitialize,
+        AggregateFunction::StateSize<BrownForsytheAggregateState>, ANOFOX_AGG_INIT(BrownForsytheAggInitialize),
         ANOFOX_GUARDED_UPDATE(BrownForsytheAggUpdate, BrownForsytheAggDestroy, BrownForsytheAggInitialize), BrownForsytheAggCombine, ANOFOX_GUARDED_FINALIZE(BrownForsytheAggFinalize, BrownForsytheAggDestroy, BrownForsytheAggInitialize),
-        nullptr, BrownForsytheAggBind, BrownForsytheAggDestroy);
+        nullptr, ANOFOX_AGG_BIND(BrownForsytheAggBind), BrownForsytheAggDestroy);
     func_set.AddFunction(func);
-    func.arguments[1] = LogicalType::VARCHAR; // any group label (#186)
+    SetArgumentTypeOf(func, 1, LogicalType::VARCHAR); // any group label (#186)
     func_set.AddFunction(func);
 
     CreateAggregateFunctionInfo info(std::move(func_set));

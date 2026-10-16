@@ -41,7 +41,7 @@ static void AicFunctionImpl(DataChunk &args, ExpressionState &state, Vector &res
     auto n_values = UnifiedVectorFormat::GetData<int64_t>(n_data);
     auto k_values = UnifiedVectorFormat::GetData<int64_t>(k_data);
 
-    auto result_data = FlatVector::GetData<double>(result);
+    auto result_data = FlatDataMut<double>(result);
 
     for (idx_t row = 0; row < count; row++) {
         auto rss_idx = rss_data.sel->get_index(row);
@@ -104,7 +104,7 @@ static void BicFunctionImpl(DataChunk &args, ExpressionState &state, Vector &res
     auto n_values = UnifiedVectorFormat::GetData<int64_t>(n_data);
     auto k_values = UnifiedVectorFormat::GetData<int64_t>(k_data);
 
-    auto result_data = FlatVector::GetData<double>(result);
+    auto result_data = FlatDataMut<double>(result);
 
     for (idx_t row = 0; row < count; row++) {
         auto rss_idx = rss_data.sel->get_index(row);
@@ -139,7 +139,9 @@ static void BicFunctionImpl(DataChunk &args, ExpressionState &state, Vector &res
 // Register the functions
 void RegisterAicBicFunctions(ExtensionLoader &loader) {
     ScalarFunction aic_func({LogicalType::DOUBLE, LogicalType::BIGINT, LogicalType::BIGINT}, LogicalType::DOUBLE, AicFunction);
+    MarkFallible(aic_func);
     ScalarFunction bic_func({LogicalType::DOUBLE, LogicalType::BIGINT, LogicalType::BIGINT}, LogicalType::DOUBLE, BicFunction);
+    MarkFallible(bic_func);
 
     // AIC primary
     {

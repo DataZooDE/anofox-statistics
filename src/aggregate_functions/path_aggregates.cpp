@@ -147,26 +147,26 @@ idx_t ReserveRows(Vector &result, idx_t row, idx_t n) {
 	auto offset = ListVector::GetListSize(result);
 	ListVector::Reserve(result, offset + n);
 	ListVector::SetListSize(result, offset + n);
-	FlatVector::GetData<list_entry_t>(result)[row] = {offset, n};
+	FlatDataMut<list_entry_t>(result)[row] = {offset, n};
 	return offset;
 }
 
 struct TermsWriter {
-	vector<unique_ptr<Vector>> &f;
+	StructEntries &f;
 	explicit TermsWriter(Vector &result) : f(StructVector::GetEntries(ListVector::GetEntry(result))) {
 	}
 	void Write(idx_t out, const string &term, double estimate, double se, double stat, double p, double lo,
 	           double hi, double level, const char *index_name, double index_value) {
-		f[0]->SetValue(out, Value(term));
-		XyRowsSetDouble(*f[1], out, estimate);
-		XyRowsSetDouble(*f[2], out, se);
-		XyRowsSetDouble(*f[3], out, stat);
-		XyRowsSetDouble(*f[4], out, p);
-		XyRowsSetDouble(*f[5], out, lo);
-		XyRowsSetDouble(*f[6], out, hi);
-		XyRowsSetDouble(*f[7], out, level);
-		f[8]->SetValue(out, Value(index_name));
-		XyRowsSetDouble(*f[9], out, index_value);
+		StructEntry(f[0]).SetValue(out, Value(term));
+		XyRowsSetDouble(StructEntry(f[1]), out, estimate);
+		XyRowsSetDouble(StructEntry(f[2]), out, se);
+		XyRowsSetDouble(StructEntry(f[3]), out, stat);
+		XyRowsSetDouble(StructEntry(f[4]), out, p);
+		XyRowsSetDouble(StructEntry(f[5]), out, lo);
+		XyRowsSetDouble(StructEntry(f[6]), out, hi);
+		XyRowsSetDouble(StructEntry(f[7]), out, level);
+		StructEntry(f[8]).SetValue(out, Value(index_name));
+		XyRowsSetDouble(StructEntry(f[9]), out, index_value);
 	}
 };
 
@@ -208,19 +208,19 @@ void WriteCv(const AnofoxCvPathResult &cv, Vector &result, idx_t row) {
 	for (idx_t l = 0; l < cv.n_lambda; l++, out++) {
 		double m = cv.cv_mean[l];
 		double se = cv.cv_se[l];
-		f[0]->SetValue(out, Value("lambda_cv"));
-		XyRowsSetDouble(*f[1], out, cv.lambdas[l]);
-		XyRowsSetDouble(*f[2], out, m);
-		XyRowsSetDouble(*f[3], out, m - se);
-		XyRowsSetDouble(*f[4], out, m + se);
-		FlatVector::SetNull(*f[5], out, true);
-		XyRowsSetDouble(*f[6], out, cv.lambdas[l]);
-		XyRowsSetDouble(*f[7], out, m);
-		XyRowsSetDouble(*f[8], out, se);
-		FlatVector::GetData<int64_t>(*f[9])[out] = static_cast<int64_t>(cv.df[l]);
-		FlatVector::GetData<bool>(*f[10])[out] = l == cv.index_min;
-		FlatVector::GetData<bool>(*f[11])[out] = l == cv.index_1se;
-		FlatVector::GetData<int64_t>(*f[12])[out] = static_cast<int64_t>(cv.n_folds);
+		StructEntry(f[0]).SetValue(out, Value("lambda_cv"));
+		XyRowsSetDouble(StructEntry(f[1]), out, cv.lambdas[l]);
+		XyRowsSetDouble(StructEntry(f[2]), out, m);
+		XyRowsSetDouble(StructEntry(f[3]), out, m - se);
+		XyRowsSetDouble(StructEntry(f[4]), out, m + se);
+		FlatVector::SetNull(StructEntry(f[5]), out, true);
+		XyRowsSetDouble(StructEntry(f[6]), out, cv.lambdas[l]);
+		XyRowsSetDouble(StructEntry(f[7]), out, m);
+		XyRowsSetDouble(StructEntry(f[8]), out, se);
+		FlatDataMut<int64_t>(StructEntry(f[9]))[out] = static_cast<int64_t>(cv.df[l]);
+		FlatDataMut<bool>(StructEntry(f[10]))[out] = l == cv.index_min;
+		FlatDataMut<bool>(StructEntry(f[11]))[out] = l == cv.index_1se;
+		FlatDataMut<int64_t>(StructEntry(f[12]))[out] = static_cast<int64_t>(cv.n_folds);
 	}
 }
 
@@ -323,7 +323,7 @@ void PathFinalize(Vector &state_vector, AggregateInputData &aggr_input_data, Vec
 	}
 }
 
-unique_ptr<FunctionData> PathBindImpl(ClientContext &context, AggregateFunction &function,
+unique_ptr<FunctionData> PathBindImpl(ClientContext &context, AggregateBindFunction &function,
                                       vector<unique_ptr<Expression>> &arguments, PathKind kind) {
 	const string name(PathKindName(kind));
 	auto bind = make_uniq<PathBindData>();
@@ -424,21 +424,21 @@ unique_ptr<FunctionData> PathBindImpl(ClientContext &context, AggregateFunction 
 			throw InvalidInputException("%s: taus must be in (0, 1), got %g", name, tau);
 		}
 	}
-	function.return_type = LogicalType::LIST(IsCv(kind) ? CvRowType() : TermsRowType());
+	SetReturnTypeOf(function, LogicalType::LIST(IsCv(kind) ? CvRowType() : TermsRowType()));
 	PostHogTelemetry::Instance().RecordFunctionCall(name);
 	return std::move(bind);
 }
 
 template <PathKind KIND>
-unique_ptr<FunctionData> PathBind(ClientContext &context, AggregateFunction &function,
+unique_ptr<FunctionData> PathBind(ClientContext &context, AggregateBindFunction &function,
                                   vector<unique_ptr<Expression>> &arguments) {
 	return PathBindImpl(context, function, arguments, KIND);
 }
 
 AggregateFunction MakePathAgg(const string &name, vector<LogicalType> args, aggregate_update_t update,
                               bind_aggregate_function_t bind) {
-	return AggregateFunction(name, std::move(args), LogicalType::ANY, AggregateFunction::StateSize<XyRowsState>,
-	                         XyRowsInitialize, update, XyRowsCombine,
+	return AggregateFunction(AsDuckName(name), std::move(args), LogicalType::ANY, AggregateFunction::StateSize<XyRowsState>,
+	                         ANOFOX_AGG_INIT(XyRowsInitialize), update, XyRowsCombine,
 	                         ANOFOX_GUARDED_FINALIZE(PathFinalize, XyRowsDestroy, XyRowsInitialize), nullptr, bind,
 	                         XyRowsDestroy);
 }
@@ -458,10 +458,10 @@ template <PathKind KIND>
 void RegisterPath(ExtensionLoader &loader, const string &description, const string &example) {
 	const string name = PathKindName(KIND);
 	auto list_double = LogicalType::LIST(LogicalType::DOUBLE);
-	AggregateFunctionSet set(name);
-	set.AddFunction(MakePathAgg(name, {LogicalType::DOUBLE, list_double}, XyRowsUpdate, PathBind<KIND>));
+	AggregateFunctionSet set(AsDuckName(name));
+	set.AddFunction(MakePathAgg(name, {LogicalType::DOUBLE, list_double}, XyRowsUpdate, ANOFOX_AGG_BIND(PathBind<KIND>)));
 	set.AddFunction(
-	    MakePathAgg(name, {LogicalType::DOUBLE, list_double, LogicalType::ANY}, XyRowsUpdate, PathBind<KIND>));
+	    MakePathAgg(name, {LogicalType::DOUBLE, list_double, LogicalType::ANY}, XyRowsUpdate, ANOFOX_AGG_BIND(PathBind<KIND>)));
 	CreateAggregateFunctionInfo info(std::move(set));
 	info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
 	info.descriptions.push_back(
@@ -475,12 +475,12 @@ template <PathKind KIND>
 void RegisterCv(ExtensionLoader &loader, const string &description, const string &example) {
 	const string name = PathKindName(KIND);
 	auto list_double = LogicalType::LIST(LogicalType::DOUBLE);
-	AggregateFunctionSet set(name);
-	set.AddFunction(MakePathAgg(name, {LogicalType::DOUBLE, list_double}, XyRowsUpdate, PathBind<KIND>));
+	AggregateFunctionSet set(AsDuckName(name));
+	set.AddFunction(MakePathAgg(name, {LogicalType::DOUBLE, list_double}, XyRowsUpdate, ANOFOX_AGG_BIND(PathBind<KIND>)));
 	set.AddFunction(
-	    MakePathAgg(name, {LogicalType::DOUBLE, list_double, LogicalType::ANY}, XyRowsUpdate, PathBind<KIND>));
+	    MakePathAgg(name, {LogicalType::DOUBLE, list_double, LogicalType::ANY}, XyRowsUpdate, ANOFOX_AGG_BIND(PathBind<KIND>)));
 	set.AddFunction(MakePathAgg(name, {LogicalType::DOUBLE, list_double, LogicalType::BIGINT, LogicalType::ANY},
-	                            XyRowsExtraUpdate, PathBind<KIND>));
+	                            XyRowsExtraUpdate, ANOFOX_AGG_BIND(PathBind<KIND>)));
 	CreateAggregateFunctionInfo info(std::move(set));
 	info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
 	info.descriptions.push_back(

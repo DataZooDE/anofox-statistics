@@ -85,7 +85,7 @@ struct IccBindData : public FunctionData {
 // Aggregate function operations
 //===--------------------------------------------------------------------===//
 
-static void IccAggInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void IccAggInitialize(data_ptr_t state_p) {
     new (state_p) IccAggregateState();
 }
 
@@ -244,20 +244,20 @@ static void IccAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
         }
 
         idx_t struct_idx = 0;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = icc_result.icc;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = icc_result.f_statistic;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = icc_result.ci_lower;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = icc_result.ci_upper;
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = static_cast<int64_t>(icc_result.n_subjects);
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = static_cast<int64_t>(icc_result.n_raters);
-        auto& method_vector = *struct_entries[struct_idx++];
-        FlatVector::GetData<string_t>(method_vector)[result_idx] =
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = icc_result.icc;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = icc_result.f_statistic;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = icc_result.ci_lower;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = icc_result.ci_upper;
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = static_cast<int64_t>(icc_result.n_subjects);
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = static_cast<int64_t>(icc_result.n_raters);
+        auto& method_vector = StructEntry(struct_entries[struct_idx++]);
+        FlatDataMut<string_t>(method_vector)[result_idx] =
             StringVector::AddString(method_vector, icc_result.method ? icc_result.method : "ICC");
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = icc_result.f_statistic; // statistic
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = icc_result.p_value; // F test, H0: ICC = 0
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] =
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = icc_result.f_statistic; // statistic
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = icc_result.p_value; // F test, H0: ICC = 0
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] =
             static_cast<int64_t>(icc_result.n_subjects * icc_result.n_raters);
-        SetResultNull(*struct_entries[struct_idx++], result_idx);
+        SetResultNull(StructEntry(struct_entries[struct_idx++]), result_idx);
         WriteTestResultFields(result, result_idx, struct_idx, icc_result.unified); // alternative: not applicable
 
         anofox_free_icc_result(&icc_result);
@@ -268,9 +268,9 @@ static void IccAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
 //===--------------------------------------------------------------------===//
 // Bind function
 //===--------------------------------------------------------------------===//
-static unique_ptr<FunctionData> IccAggBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> IccAggBind(ClientContext &context, AggregateBindFunction &function,
                                             vector<unique_ptr<Expression>> &arguments) {
-    function.return_type = GetIccAggResultType();
+    SetReturnTypeOf(function, GetIccAggResultType());
     auto bind_data = make_uniq<IccBindData>();
 
     if (arguments.size() >= 4) {
@@ -295,18 +295,18 @@ void RegisterIccAggregateFunction(ExtensionLoader &loader) {
     auto func_with_opts = AggregateFunction(
         "icc_agg", {LogicalType::DOUBLE, LogicalType::BIGINT, LogicalType::BIGINT, LogicalType::ANY},
         LogicalType::ANY,
-        AggregateFunction::StateSize<IccAggregateState>, IccAggInitialize,
+        AggregateFunction::StateSize<IccAggregateState>, ANOFOX_AGG_INIT(IccAggInitialize),
         ANOFOX_GUARDED_UPDATE(IccAggUpdate, IccAggDestroy, IccAggInitialize), IccAggCombine, ANOFOX_GUARDED_FINALIZE(IccAggFinalize, IccAggDestroy, IccAggInitialize),
-        nullptr, IccAggBind, IccAggDestroy);
+        nullptr, ANOFOX_AGG_BIND(IccAggBind), IccAggDestroy);
     func_set.AddFunction(func_with_opts);
 
     // Without options: (value DOUBLE, subject_id BIGINT, rater_id BIGINT)
     auto func_no_opts = AggregateFunction(
         "icc_agg", {LogicalType::DOUBLE, LogicalType::BIGINT, LogicalType::BIGINT},
         LogicalType::ANY,
-        AggregateFunction::StateSize<IccAggregateState>, IccAggInitialize,
+        AggregateFunction::StateSize<IccAggregateState>, ANOFOX_AGG_INIT(IccAggInitialize),
         ANOFOX_GUARDED_UPDATE(IccAggUpdate, IccAggDestroy, IccAggInitialize), IccAggCombine, ANOFOX_GUARDED_FINALIZE(IccAggFinalize, IccAggDestroy, IccAggInitialize),
-        nullptr, IccAggBind, IccAggDestroy);
+        nullptr, ANOFOX_AGG_BIND(IccAggBind), IccAggDestroy);
     func_set.AddFunction(func_no_opts);
 
     CreateAggregateFunctionInfo info(std::move(func_set));

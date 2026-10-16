@@ -99,7 +99,7 @@ static LogicalType GetHuberFitPredictResultType() {
 // State machine
 //===--------------------------------------------------------------------===//
 
-static void HuberFitPredictInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void HuberFitPredictInitialize(data_ptr_t state_p) {
     new (state_p) HuberFitPredictState();
 }
 
@@ -124,10 +124,10 @@ static void HuberFitPredictUpdate(Vector inputs[], AggregateInputData &aggr_inpu
     inputs[1].ToUnifiedFormat(count, x_data);
 
     auto y_values = UnifiedVectorFormat::GetData<double>(y_data);
-    auto x_list_data = ListVector::GetData(inputs[1]);
+    auto x_list_data = UnifiedVectorFormat::GetData<list_entry_t>(x_data);
     auto &x_child = ListVector::GetEntry(inputs[1]);
-    auto x_child_data = FlatVector::GetData<double>(x_child);
-    auto &x_child_validity = FlatVector::Validity(x_child);
+    auto x_child_data = FlatDataMut<double>(x_child);
+    auto &x_child_validity = FlatValidityMut(x_child);
 
     UnifiedVectorFormat sdata;
     state_vector.ToUnifiedFormat(count, sdata);
@@ -323,9 +323,9 @@ static void HuberFitPredictFinalize(Vector &state_vector, AggregateInputData &, 
             continue;
         }
 
-        FlatVector::GetData<double>(*struct_entries[0])[result_idx] = pred_result.yhat;
-        WriteIntervalBound(*struct_entries[1], result_idx, pred_result.yhat_lower);
-        WriteIntervalBound(*struct_entries[2], result_idx, pred_result.yhat_upper);
+        FlatDataMut<double>(StructEntry(struct_entries[0]))[result_idx] = pred_result.yhat;
+        WriteIntervalBound(StructEntry(struct_entries[1]), result_idx, pred_result.yhat_lower);
+        WriteIntervalBound(StructEntry(struct_entries[2]), result_idx, pred_result.yhat_upper);
 
         state.Reset();
     }
@@ -334,7 +334,7 @@ static void HuberFitPredictFinalize(Vector &state_vector, AggregateInputData &, 
 //===--------------------------------------------------------------------===//
 // Bind + registration
 //===--------------------------------------------------------------------===//
-static unique_ptr<FunctionData> HuberFitPredictBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> HuberFitPredictBind(ClientContext &context, AggregateBindFunction &function,
                                                      vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<HuberFitPredictBindData>();
 
@@ -365,7 +365,7 @@ static unique_ptr<FunctionData> HuberFitPredictBind(ClientContext &context, Aggr
         }
     }
 
-    function.return_type = GetHuberFitPredictResultType();
+    SetReturnTypeOf(function, GetHuberFitPredictResultType());
     PostHogTelemetry::Instance().RecordFunctionCall("huber_fit_predict");
     return std::move(result);
 }
@@ -374,15 +374,15 @@ void RegisterHuberFitPredictFunction(ExtensionLoader &loader) {
     auto basic_func = AggregateFunction(
         "huber_fit_predict", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
         GetHuberFitPredictResultType(), AggregateFunction::StateSize<HuberFitPredictState>,
-        HuberFitPredictInitialize, ANOFOX_GUARDED_UPDATE(HuberFitPredictUpdate, HuberFitPredictDestroy, HuberFitPredictInitialize), HuberFitPredictCombine, ANOFOX_GUARDED_FINALIZE(HuberFitPredictFinalize, HuberFitPredictDestroy, HuberFitPredictInitialize), nullptr,
-        HuberFitPredictBind, HuberFitPredictDestroy);
+        ANOFOX_AGG_INIT(HuberFitPredictInitialize), ANOFOX_GUARDED_UPDATE(HuberFitPredictUpdate, HuberFitPredictDestroy, HuberFitPredictInitialize), HuberFitPredictCombine, ANOFOX_GUARDED_FINALIZE(HuberFitPredictFinalize, HuberFitPredictDestroy, HuberFitPredictInitialize), nullptr,
+        ANOFOX_AGG_BIND(HuberFitPredictBind), HuberFitPredictDestroy);
 
     auto map_func = AggregateFunction(
         "huber_fit_predict",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
         GetHuberFitPredictResultType(), AggregateFunction::StateSize<HuberFitPredictState>,
-        HuberFitPredictInitialize, ANOFOX_GUARDED_UPDATE(HuberFitPredictUpdate, HuberFitPredictDestroy, HuberFitPredictInitialize), HuberFitPredictCombine, ANOFOX_GUARDED_FINALIZE(HuberFitPredictFinalize, HuberFitPredictDestroy, HuberFitPredictInitialize), nullptr,
-        HuberFitPredictBind, HuberFitPredictDestroy);
+        ANOFOX_AGG_INIT(HuberFitPredictInitialize), ANOFOX_GUARDED_UPDATE(HuberFitPredictUpdate, HuberFitPredictDestroy, HuberFitPredictInitialize), HuberFitPredictCombine, ANOFOX_GUARDED_FINALIZE(HuberFitPredictFinalize, HuberFitPredictDestroy, HuberFitPredictInitialize), nullptr,
+        ANOFOX_AGG_BIND(HuberFitPredictBind), HuberFitPredictDestroy);
 
     {
         AggregateFunctionSet func_set("huber_fit_predict");

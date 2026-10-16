@@ -68,7 +68,7 @@ struct RidgeFitBindData : public FunctionData {
 };
 
 // Bind function
-static unique_ptr<FunctionData> RidgeFitBind(ClientContext &context, ScalarFunction &bound_function,
+static unique_ptr<FunctionData> RidgeFitBind(ClientContext &context, ScalarBindFunction &bound_function,
                                              vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<RidgeFitBindData>();
 
@@ -100,7 +100,7 @@ static unique_ptr<FunctionData> RidgeFitBind(ClientContext &context, ScalarFunct
     }
 
     // Set return type
-    bound_function.return_type = GetRidgeResultType();
+    SetReturnTypeOf(bound_function, GetRidgeResultType());
 
     PostHogTelemetry::Instance().RecordFunctionCall("ridge_fit");
     return std::move(result);
@@ -110,7 +110,7 @@ static unique_ptr<FunctionData> RidgeFitBind(ClientContext &context, ScalarFunct
 static vector<double> ExtractDoubleList(Vector &vec, idx_t row_idx) {
     auto list_data = ListVector::GetData(vec);
     auto &child = ListVector::GetEntry(vec);
-    auto child_data = FlatVector::GetData<double>(child);
+    auto child_data = FlatDataMut<double>(child);
 
     vector<double> result;
     auto offset = list_data[row_idx].offset;
@@ -138,7 +138,7 @@ static void RidgeFitFunction(DataChunk &args, ExpressionState &state, Vector &re
 }
 
 static void RidgeFitFunctionImpl(DataChunk &args, ExpressionState &state, Vector &result) {
-    auto &bind_data = state.expr.Cast<BoundFunctionExpression>().bind_info->Cast<RidgeFitBindData>();
+    auto &bind_data = BindInfoOf(state.expr.Cast<BoundFunctionExpression>())->Cast<RidgeFitBindData>();
 
     auto &y_vec = args.data[0]; // LIST(DOUBLE)
     auto &x_vec = args.data[1]; // LIST(LIST(DOUBLE)) - list of feature columns
@@ -206,24 +206,24 @@ static void RidgeFitFunctionImpl(DataChunk &args, ExpressionState &state, Vector
         idx_t struct_idx = 0;
 
         // Coefficients
-        auto &coef_list = *struct_vec[struct_idx++];
+        auto &coef_list = StructEntry(struct_vec[struct_idx++]);
         auto &coef_child = ListVector::GetEntry(coef_list);
         auto coef_offset = ListVector::GetListSize(coef_list);
         ListVector::Reserve(coef_list, coef_offset + core_result.coefficients_len);
         ListVector::SetListSize(coef_list, coef_offset + core_result.coefficients_len);
-        auto coef_data = FlatVector::GetData<double>(coef_child);
+        auto coef_data = FlatDataMut<double>(coef_child);
         for (size_t i = 0; i < core_result.coefficients_len; i++) {
             coef_data[coef_offset + i] = core_result.coefficients[i];
         }
         ListVector::GetData(coef_list)[row] = {coef_offset, core_result.coefficients_len};
 
         // Scalars
-        FlatVector::GetData<double>(*struct_vec[struct_idx++])[row] = core_result.intercept;
-        FlatVector::GetData<double>(*struct_vec[struct_idx++])[row] = core_result.r_squared;
-        FlatVector::GetData<double>(*struct_vec[struct_idx++])[row] = core_result.adj_r_squared;
-        FlatVector::GetData<double>(*struct_vec[struct_idx++])[row] = core_result.residual_std_error;
-        FlatVector::GetData<int64_t>(*struct_vec[struct_idx++])[row] = core_result.n_observations;
-        FlatVector::GetData<int64_t>(*struct_vec[struct_idx++])[row] = core_result.n_features;
+        FlatDataMut<double>(StructEntry(struct_vec[struct_idx++]))[row] = core_result.intercept;
+        FlatDataMut<double>(StructEntry(struct_vec[struct_idx++]))[row] = core_result.r_squared;
+        FlatDataMut<double>(StructEntry(struct_vec[struct_idx++]))[row] = core_result.adj_r_squared;
+        FlatDataMut<double>(StructEntry(struct_vec[struct_idx++]))[row] = core_result.residual_std_error;
+        FlatDataMut<int64_t>(StructEntry(struct_vec[struct_idx++]))[row] = core_result.n_observations;
+        FlatDataMut<int64_t>(StructEntry(struct_vec[struct_idx++]))[row] = core_result.n_features;
 
         // Inference (NULL unless requested), CI fields and the model summary.
         // alpha > 0: classical inference on shrunken coefficients is not valid, so
@@ -248,13 +248,15 @@ void RegisterRidgeFitFunction(ExtensionLoader &loader) {
         {LogicalType::LIST(LogicalType::DOUBLE), LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE))},
         LogicalType::ANY,
         DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, RidgeFitFunction),
-                        DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, RidgeFitBind));
+                        ANOFOX_SCALAR_BIND(DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, RidgeFitBind)));
+    MarkFallible(basic_func);
 
     ScalarFunction map_func({LogicalType::LIST(LogicalType::DOUBLE),
                              LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)),
                              LogicalType::ANY},
                             LogicalType::ANY, DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, RidgeFitFunction),
-                        DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, RidgeFitBind));
+                        ANOFOX_SCALAR_BIND(DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, RidgeFitBind)));
+    MarkFallible(map_func);
 
     // Primary
     {

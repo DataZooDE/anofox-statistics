@@ -91,7 +91,7 @@ struct DieboldMarianoBindData : public FunctionData {
 // Aggregate function operations
 //===--------------------------------------------------------------------===//
 
-static void DieboldMarianoAggInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void DieboldMarianoAggInitialize(data_ptr_t state_p) {
     new (state_p) DieboldMarianoAggregateState();
 }
 
@@ -226,13 +226,13 @@ static void DieboldMarianoAggFinalize(Vector &state_vector, AggregateInputData &
         }
 
         idx_t struct_idx = 0;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = test_result.statistic;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = test_result.p_value;
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = static_cast<int64_t>(test_result.n);
-        auto& method_vector = *struct_entries[struct_idx++];
-        FlatVector::GetData<string_t>(method_vector)[result_idx] =
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = test_result.statistic;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = test_result.p_value;
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = static_cast<int64_t>(test_result.n);
+        auto& method_vector = StructEntry(struct_entries[struct_idx++]);
+        FlatDataMut<string_t>(method_vector)[result_idx] =
             StringVector::AddString(method_vector, test_result.method ? test_result.method : "Diebold-Mariano test");
-        SetResultString(*struct_entries[struct_idx++], result_idx, AlternativeName(bind_data.alternative));
+        SetResultString(StructEntry(struct_entries[struct_idx++]), result_idx, AlternativeName(bind_data.alternative));
         WriteTestResultFields(result, result_idx, struct_idx, test_result.unified);
 
         anofox_free_test_result(&test_result);
@@ -243,9 +243,9 @@ static void DieboldMarianoAggFinalize(Vector &state_vector, AggregateInputData &
 //===--------------------------------------------------------------------===//
 // Bind function
 //===--------------------------------------------------------------------===//
-static unique_ptr<FunctionData> DieboldMarianoAggBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> DieboldMarianoAggBind(ClientContext &context, AggregateBindFunction &function,
                                                         vector<unique_ptr<Expression>> &arguments) {
-    function.return_type = GetDieboldMarianoAggResultType();
+    SetReturnTypeOf(function, GetDieboldMarianoAggResultType());
     auto bind_data = make_uniq<DieboldMarianoBindData>();
 
     if (arguments.size() >= 4) {
@@ -278,26 +278,26 @@ void RegisterDieboldMarianoAggregateFunction(ExtensionLoader &loader) {
         "diebold_mariano_agg",
         {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::ANY},
         LogicalType::ANY,
-        AggregateFunction::StateSize<DieboldMarianoAggregateState>, DieboldMarianoAggInitialize,
+        AggregateFunction::StateSize<DieboldMarianoAggregateState>, ANOFOX_AGG_INIT(DieboldMarianoAggInitialize),
         ANOFOX_GUARDED_UPDATE(DieboldMarianoAggUpdate, DieboldMarianoAggDestroy, DieboldMarianoAggInitialize), DieboldMarianoAggCombine, ANOFOX_GUARDED_FINALIZE(DieboldMarianoAggFinalize, DieboldMarianoAggDestroy, DieboldMarianoAggInitialize),
-        nullptr, DieboldMarianoAggBind, DieboldMarianoAggDestroy);
+        nullptr, ANOFOX_AGG_BIND(DieboldMarianoAggBind), DieboldMarianoAggDestroy);
 
     // Without options: (actual, forecast1, forecast2)
     auto func_no_opts = AggregateFunction(
         "diebold_mariano_agg",
         {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::DOUBLE},
         LogicalType::ANY,
-        AggregateFunction::StateSize<DieboldMarianoAggregateState>, DieboldMarianoAggInitialize,
+        AggregateFunction::StateSize<DieboldMarianoAggregateState>, ANOFOX_AGG_INIT(DieboldMarianoAggInitialize),
         ANOFOX_GUARDED_UPDATE(DieboldMarianoAggUpdate, DieboldMarianoAggDestroy, DieboldMarianoAggInitialize), DieboldMarianoAggCombine, ANOFOX_GUARDED_FINALIZE(DieboldMarianoAggFinalize, DieboldMarianoAggDestroy, DieboldMarianoAggInitialize),
-        nullptr, DieboldMarianoAggBind, DieboldMarianoAggDestroy);
+        nullptr, ANOFOX_AGG_BIND(DieboldMarianoAggBind), DieboldMarianoAggDestroy);
 
     {
         AggregateFunctionSet func_set("diebold_mariano_agg");
         // Row order is part of the input (sequential / time-series estimator):
         // declare it so DuckDB honours `agg(... ORDER BY t)`.
-        func_with_opts.order_dependent = AggregateOrderDependent::ORDER_DEPENDENT; // field form works on DuckDB v1.4 LTS and v1.5
+        SetOrderDependentOf(func_with_opts, AggregateOrderDependent::ORDER_DEPENDENT); // field form works on DuckDB v1.4 LTS and v1.5
         func_set.AddFunction(func_with_opts);
-        func_no_opts.order_dependent = AggregateOrderDependent::ORDER_DEPENDENT; // field form works on DuckDB v1.4 LTS and v1.5
+        SetOrderDependentOf(func_no_opts, AggregateOrderDependent::ORDER_DEPENDENT); // field form works on DuckDB v1.4 LTS and v1.5
         func_set.AddFunction(func_no_opts);
         CreateAggregateFunctionInfo info(std::move(func_set));
         info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;

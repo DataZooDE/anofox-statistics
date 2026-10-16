@@ -89,7 +89,7 @@ struct TostTTestBindData : public FunctionData {
 // Aggregate function operations
 //===--------------------------------------------------------------------===//
 
-static void TostTTestAggInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void TostTTestAggInitialize(data_ptr_t state_p) {
     new (state_p) TostTTestAggregateState();
 }
 
@@ -226,25 +226,25 @@ static void TostTTestAggFinalize(Vector &state_vector, AggregateInputData &aggr_
 
         // Fill STRUCT result
         idx_t struct_idx = 0;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = tost_result.t_lower;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = tost_result.t_upper;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = tost_result.p_lower;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = tost_result.p_upper;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = tost_result.p_value;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = tost_result.df;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = tost_result.estimate;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = tost_result.ci_lower;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = tost_result.ci_upper;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = tost_result.bound_lower;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = tost_result.bound_upper;
-        FlatVector::GetData<bool>(*struct_entries[struct_idx++])[result_idx] = tost_result.equivalent;
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = static_cast<int64_t>(tost_result.n);
-        auto& method_vector = *struct_entries[struct_idx++];
-        FlatVector::GetData<string_t>(method_vector)[result_idx] =
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = tost_result.t_lower;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = tost_result.t_upper;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = tost_result.p_lower;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = tost_result.p_upper;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = tost_result.p_value;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = tost_result.df;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = tost_result.estimate;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = tost_result.ci_lower;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = tost_result.ci_upper;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = tost_result.bound_lower;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = tost_result.bound_upper;
+        FlatDataMut<bool>(StructEntry(struct_entries[struct_idx++]))[result_idx] = tost_result.equivalent;
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = static_cast<int64_t>(tost_result.n);
+        auto& method_vector = StructEntry(struct_entries[struct_idx++]);
+        FlatDataMut<string_t>(method_vector)[result_idx] =
             StringVector::AddString(method_vector, tost_result.method ? tost_result.method : "TOST Two-Sample t-test");
         // statistic of the one-sided test that determines the TOST p-value
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = tost_result.p_lower >= tost_result.p_upper ? tost_result.t_lower : tost_result.t_upper;
-        SetResultNull(*struct_entries[struct_idx++], result_idx);
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = tost_result.p_lower >= tost_result.p_upper ? tost_result.t_lower : tost_result.t_upper;
+        SetResultNull(StructEntry(struct_entries[struct_idx++]), result_idx);
         WriteTestResultFields(result, result_idx, struct_idx, tost_result.unified); // alternative: not applicable
 
         anofox_free_tost_result(&tost_result);
@@ -255,9 +255,9 @@ static void TostTTestAggFinalize(Vector &state_vector, AggregateInputData &aggr_
 //===--------------------------------------------------------------------===//
 // Bind function
 //===--------------------------------------------------------------------===//
-static unique_ptr<FunctionData> TostTTestAggBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> TostTTestAggBind(ClientContext &context, AggregateBindFunction &function,
                                                   vector<unique_ptr<Expression>> &arguments) {
-    function.return_type = GetTostTTestAggResultType();
+    SetReturnTypeOf(function, GetTostTTestAggResultType());
     auto bind_data = make_uniq<TostTTestBindData>();
 
     if (arguments.size() >= 3) {
@@ -280,18 +280,18 @@ void RegisterTostTTestAggregateFunction(ExtensionLoader &loader) {
     auto func_with_opts = AggregateFunction(
         "tost_t_test_agg", {LogicalType::DOUBLE, LogicalType::INTEGER, LogicalType::ANY},
         LogicalType::ANY,
-        AggregateFunction::StateSize<TostTTestAggregateState>, TostTTestAggInitialize,
+        AggregateFunction::StateSize<TostTTestAggregateState>, ANOFOX_AGG_INIT(TostTTestAggInitialize),
         ANOFOX_GUARDED_UPDATE(TostTTestAggUpdate, TostTTestAggDestroy, TostTTestAggInitialize), TostTTestAggCombine, ANOFOX_GUARDED_FINALIZE(TostTTestAggFinalize, TostTTestAggDestroy, TostTTestAggInitialize),
-        nullptr, TostTTestAggBind, TostTTestAggDestroy);
+        nullptr, ANOFOX_AGG_BIND(TostTTestAggBind), TostTTestAggDestroy);
     func_set.AddFunction(func_with_opts);
 
     // Without options
     auto func_no_opts = AggregateFunction(
         "tost_t_test_agg", {LogicalType::DOUBLE, LogicalType::INTEGER},
         LogicalType::ANY,
-        AggregateFunction::StateSize<TostTTestAggregateState>, TostTTestAggInitialize,
+        AggregateFunction::StateSize<TostTTestAggregateState>, ANOFOX_AGG_INIT(TostTTestAggInitialize),
         ANOFOX_GUARDED_UPDATE(TostTTestAggUpdate, TostTTestAggDestroy, TostTTestAggInitialize), TostTTestAggCombine, ANOFOX_GUARDED_FINALIZE(TostTTestAggFinalize, TostTTestAggDestroy, TostTTestAggInitialize),
-        nullptr, TostTTestAggBind, TostTTestAggDestroy);
+        nullptr, ANOFOX_AGG_BIND(TostTTestAggBind), TostTTestAggDestroy);
     func_set.AddFunction(func_no_opts);
 
     CreateAggregateFunctionInfo info(std::move(func_set));

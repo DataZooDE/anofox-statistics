@@ -19,6 +19,7 @@
 // fields it already had (GLMs' family, link, aic) are filled in place.
 
 #include "duckdb.hpp"
+#include "duckdb_compat.hpp"
 
 #include "anofox_stats_ffi.h"
 

@@ -16,6 +16,7 @@
 #include "duckdb/main/extension/extension_loader.hpp"
 #include "duckdb/parser/parsed_data/create_scalar_function_info.hpp"
 #include "duckdb/planner/expression/bound_function_expression.hpp"
+#include "duckdb_compat.hpp"
 
 #include "anofox_statistics_banner.hpp"
 #include "telemetry.hpp"
@@ -50,7 +51,7 @@ bool IsDoubleList(const LogicalType &t) {
 }
 
 const LogicalType &RequireModelStruct(const char *fn, const unique_ptr<Expression> &arg) {
-	auto &type = arg->return_type;
+	auto &type = ReturnTypeOf(*arg);
 	if (type.id() != LogicalTypeId::STRUCT) {
 		throw InvalidInputException("%s(model): model must be the STRUCT returned by a *_fit_agg or *_fit function, "
 		                            "got %s",
@@ -76,7 +77,7 @@ LogicalType TidyRowType() {
 	return LogicalType::STRUCT(std::move(c));
 }
 
-unique_ptr<FunctionData> TidyBind(ClientContext &, ScalarFunction &, vector<unique_ptr<Expression>> &arguments) {
+unique_ptr<FunctionData> TidyBind(ClientContext &, ScalarBindFunction &, vector<unique_ptr<Expression>> &arguments) {
 	auto &type = RequireModelStruct("tidy", arguments[0]);
 	auto data = make_uniq<TidyBindData>();
 	auto &children = StructType::GetChildTypes(type);
@@ -130,11 +131,11 @@ struct DoubleListView {
 	idx_t length = 0;
 	bool present = false;
 
-	DoubleListView(const vector<unique_ptr<Vector>> &entries, idx_t field, idx_t row) {
+	DoubleListView(const StructEntries &entries, idx_t field, idx_t row) {
 		if (field == kNone) {
 			return;
 		}
-		auto &vec = *entries[field];
+		auto &vec = StructEntry(entries[field]);
 		if (FlatVector::IsNull(vec, row)) {
 			return;
 		}
@@ -156,16 +157,16 @@ struct DoubleListView {
 	}
 };
 
-double ScalarField(const vector<unique_ptr<Vector>> &entries, idx_t field, idx_t row) {
-	if (field == kNone || FlatVector::IsNull(*entries[field], row)) {
+double ScalarField(const StructEntries &entries, idx_t field, idx_t row) {
+	if (field == kNone || FlatVector::IsNull(StructEntry(entries[field]), row)) {
 		return std::nan("");
 	}
-	return FlatVector::GetData<double>(*entries[field])[row];
+	return FlatVector::GetData<double>(StructEntry(entries[field]))[row];
 }
 
 void WriteDouble(Vector &vec, idx_t idx, double v) {
 	if (std::isfinite(v)) {
-		FlatVector::GetData<double>(vec)[idx] = v;
+		FlatDataMut<double>(vec)[idx] = v;
 	} else {
 		FlatVector::SetNull(vec, idx, true);
 	}
@@ -185,15 +186,15 @@ void TidyFunction(DataChunk &args, ExpressionState &state, Vector &result) {
 }
 
 static void TidyFunctionImpl(DataChunk &args, ExpressionState &state, Vector &result) {
-	auto &bind = state.expr.Cast<BoundFunctionExpression>().bind_info->Cast<TidyBindData>();
+	auto &bind = BindInfoOf(state.expr.Cast<BoundFunctionExpression>())->Cast<TidyBindData>();
 	idx_t count = args.size();
 	args.Flatten();
 	auto &model = args.data[0];
 	auto &entries = StructVector::GetEntries(model);
 	bool has_names = args.ColumnCount() >= 2;
 
-	auto result_lists = FlatVector::GetData<list_entry_t>(result);
-	auto &result_validity = FlatVector::Validity(result);
+	auto result_lists = FlatDataMut<list_entry_t>(result);
+	auto &result_validity = FlatValidityMut(result);
 
 	for (idx_t row = 0; row < count; row++) {
 		if (FlatVector::IsNull(model, row)) {
@@ -219,9 +220,9 @@ static void TidyFunctionImpl(DataChunk &args, ExpressionState &state, Vector &re
 		// Optional term names
 		vector<string> names;
 		if (has_names && !FlatVector::IsNull(args.data[1], row)) {
-			auto entry = FlatVector::GetData<list_entry_t>(args.data[1])[row];
+			auto entry = FlatDataMut<list_entry_t>(args.data[1])[row];
 			auto &child = ListVector::GetEntry(args.data[1]);
-			auto child_data = FlatVector::GetData<string_t>(child);
+			auto child_data = FlatDataMut<string_t>(child);
 			for (idx_t j = 0; j < entry.length; j++) {
 				names.push_back(FlatVector::IsNull(child, entry.offset + j) ? ""
 				                                                           : child_data[entry.offset + j].GetString());
@@ -240,34 +241,34 @@ static void TidyFunctionImpl(DataChunk &args, ExpressionState &state, Vector &re
 		idx_t out = list_offset;
 
 		if (has_intercept) {
-			fields[0]->SetValue(out, Value("(Intercept)"));
-			WriteDouble(*fields[1], out, intercept);
+			StructEntry(fields[0]).SetValue(out, Value("(Intercept)"));
+			WriteDouble(StructEntry(fields[1]), out, intercept);
 			// The intercept's inference is either the first entry of the inference
 			// lists or its own intercept_* fields (#152).
 			auto intercept_field = [&](idx_t field, const DoubleListView &list) {
 				return inference_has_intercept ? list.At(0) : ScalarField(entries, field, row);
 			};
-			WriteDouble(*fields[2], out, intercept_field(bind.intercept_se, se));
-			WriteDouble(*fields[3], out, intercept_field(bind.intercept_statistic, stat));
-			WriteDouble(*fields[4], out, intercept_field(bind.intercept_p_value, pv));
-			WriteDouble(*fields[5], out, intercept_field(bind.intercept_conf_low, lo));
-			WriteDouble(*fields[6], out, intercept_field(bind.intercept_conf_high, hi));
-			WriteDouble(*fields[7], out, conf_level);
-			FlatVector::SetNull(*fields[8], out, true);
-			FlatVector::SetNull(*fields[9], out, true);
+			WriteDouble(StructEntry(fields[2]), out, intercept_field(bind.intercept_se, se));
+			WriteDouble(StructEntry(fields[3]), out, intercept_field(bind.intercept_statistic, stat));
+			WriteDouble(StructEntry(fields[4]), out, intercept_field(bind.intercept_p_value, pv));
+			WriteDouble(StructEntry(fields[5]), out, intercept_field(bind.intercept_conf_low, lo));
+			WriteDouble(StructEntry(fields[6]), out, intercept_field(bind.intercept_conf_high, hi));
+			WriteDouble(StructEntry(fields[7]), out, conf_level);
+			FlatVector::SetNull(StructEntry(fields[8]), out, true);
+			FlatVector::SetNull(StructEntry(fields[9]), out, true);
 			out++;
 		}
 		for (idx_t j = 0; j < k; j++, out++) {
-			fields[0]->SetValue(out, Value(names.empty() ? "x" + std::to_string(j + 1) : names[j]));
-			WriteDouble(*fields[1], out, coef.At(j));
-			WriteDouble(*fields[2], out, se.At(j + shift));
-			WriteDouble(*fields[3], out, stat.At(j + shift));
-			WriteDouble(*fields[4], out, pv.At(j + shift));
-			WriteDouble(*fields[5], out, lo.At(j + shift));
-			WriteDouble(*fields[6], out, hi.At(j + shift));
-			WriteDouble(*fields[7], out, conf_level);
-			FlatVector::SetNull(*fields[8], out, true);
-			FlatVector::SetNull(*fields[9], out, true);
+			StructEntry(fields[0]).SetValue(out, Value(names.empty() ? "x" + std::to_string(j + 1) : names[j]));
+			WriteDouble(StructEntry(fields[1]), out, coef.At(j));
+			WriteDouble(StructEntry(fields[2]), out, se.At(j + shift));
+			WriteDouble(StructEntry(fields[3]), out, stat.At(j + shift));
+			WriteDouble(StructEntry(fields[4]), out, pv.At(j + shift));
+			WriteDouble(StructEntry(fields[5]), out, lo.At(j + shift));
+			WriteDouble(StructEntry(fields[6]), out, hi.At(j + shift));
+			WriteDouble(StructEntry(fields[7]), out, conf_level);
+			FlatVector::SetNull(StructEntry(fields[8]), out, true);
+			FlatVector::SetNull(StructEntry(fields[9]), out, true);
 		}
 		result_lists[row] = {list_offset, n_terms};
 		ListVector::SetListSize(result, list_offset + n_terms);
@@ -324,7 +325,7 @@ bool IsScalarType(const LogicalType &t) {
 	       id != LogicalTypeId::ARRAY;
 }
 
-unique_ptr<FunctionData> GlanceBind(ClientContext &, ScalarFunction &, vector<unique_ptr<Expression>> &arguments) {
+unique_ptr<FunctionData> GlanceBind(ClientContext &, ScalarBindFunction &, vector<unique_ptr<Expression>> &arguments) {
 	auto &type = RequireModelStruct("glance", arguments[0]);
 	auto data = make_uniq<GlanceBindData>();
 	auto &children = StructType::GetChildTypes(type);
@@ -356,7 +357,7 @@ void GlanceFunction(DataChunk &args, ExpressionState &state, Vector &result) {
 }
 
 static void GlanceFunctionImpl(DataChunk &args, ExpressionState &state, Vector &result) {
-	auto &bind = state.expr.Cast<BoundFunctionExpression>().bind_info->Cast<GlanceBindData>();
+	auto &bind = BindInfoOf(state.expr.Cast<BoundFunctionExpression>())->Cast<GlanceBindData>();
 	idx_t count = args.size();
 	args.Flatten();
 	auto &model = args.data[0];
@@ -365,15 +366,15 @@ static void GlanceFunctionImpl(DataChunk &args, ExpressionState &state, Vector &
 	for (idx_t k = 0; k < bind.sources.size(); k++) {
 		auto source = bind.sources[k];
 		if (source == kNone) {
-			out[k]->SetVectorType(VectorType::FLAT_VECTOR);
-			FlatVector::Validity(*out[k]).SetAllInvalid(count);
-		} else if (entries[source]->GetType() == out[k]->GetType()) {
-			out[k]->Reference(*entries[source]);
+			StructEntry(out[k]).SetVectorType(VectorType::FLAT_VECTOR);
+			FlatValidityMut(StructEntry(out[k])).SetAllInvalid(count);
+		} else if (StructEntry(entries[source]).GetType() == StructEntry(out[k]).GetType()) {
+			StructEntry(out[k]).Reference(StructEntry(entries[source]));
 		} else {
-			VectorOperations::DefaultCast(*entries[source], *out[k], count);
+			VectorOperations::DefaultCast(StructEntry(entries[source]), StructEntry(out[k]), count);
 		}
 	}
-	auto &validity = FlatVector::Validity(result);
+	auto &validity = FlatValidityMut(result);
 	for (idx_t row = 0; row < count; row++) {
 		if (FlatVector::IsNull(model, row)) {
 			validity.SetInvalid(row);
@@ -387,11 +388,13 @@ static void GlanceFunctionImpl(DataChunk &args, ExpressionState &state, Vector &
 void RegisterTidyGlanceFunctions(ExtensionLoader &loader) {
 	ScalarFunctionSet tidy_set("tidy");
 	ScalarFunction tidy1({LogicalType::ANY}, LogicalType::LIST(TidyRowType()),
-	                     DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, TidyFunction), TidyBind);
+	                     DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, TidyFunction), ANOFOX_SCALAR_BIND(TidyBind));
+	MarkFallible(tidy1);
 	ScalarFunction tidy2({LogicalType::ANY, LogicalType::LIST(LogicalType::VARCHAR)}, LogicalType::LIST(TidyRowType()),
-	                     DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, TidyFunction), TidyBind);
-	tidy1.null_handling = FunctionNullHandling::SPECIAL_HANDLING;
-	tidy2.null_handling = FunctionNullHandling::SPECIAL_HANDLING;
+	                     DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, TidyFunction), ANOFOX_SCALAR_BIND(TidyBind));
+	MarkFallible(tidy2);
+	SetNullHandlingOf(tidy1, FunctionNullHandling::SPECIAL_HANDLING);
+	SetNullHandlingOf(tidy2, FunctionNullHandling::SPECIAL_HANDLING);
 	tidy_set.AddFunction(tidy1);
 	tidy_set.AddFunction(tidy2);
 	CreateScalarFunctionInfo tidy_info(std::move(tidy_set));
@@ -409,8 +412,9 @@ void RegisterTidyGlanceFunctions(ExtensionLoader &loader) {
 	loader.RegisterFunction(std::move(tidy_info));
 
 	ScalarFunction glance("glance", {LogicalType::ANY}, GlanceType(),
-	                      DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, GlanceFunction), GlanceBind);
-	glance.null_handling = FunctionNullHandling::SPECIAL_HANDLING;
+	                      DATAZOO_GUARD(ANOFOX_STATISTICS_BANNER, GlanceFunction), ANOFOX_SCALAR_BIND(GlanceBind));
+	MarkFallible(glance);
+	SetNullHandlingOf(glance, FunctionNullHandling::SPECIAL_HANDLING);
 	CreateScalarFunctionInfo glance_info(glance);
 	glance_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
 	FunctionDescription gd;

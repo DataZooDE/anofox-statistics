@@ -5,6 +5,7 @@
 #include "duckdb/main/extension/extension_loader.hpp"
 #include "duckdb/parser/parsed_data/create_scalar_function_info.hpp"
 #include "duckdb/transaction/meta_transaction.hpp"
+#include "duckdb_compat.hpp"
 
 namespace duckdb {
 
@@ -94,7 +95,7 @@ case_insensitive_set_t SnapshotSystemFunctionNames(ExtensionLoader &loader) {
 	case_insensitive_set_t names;
 	auto &schema = SystemMainSchema(loader);
 	for (auto type : FUNCTION_CATALOG_TYPES) {
-		schema.Scan(type, [&](CatalogEntry &entry) { names.insert(entry.name); });
+		schema.Scan(type, [&](CatalogEntry &entry) { names.insert(NameOf(entry)); });
 	}
 	return names;
 }
@@ -129,11 +130,11 @@ void ApplyContractTags(ExtensionLoader &loader, const case_insensitive_set_t &pr
 		schema.Scan(type, [&](CatalogEntry &entry) {
 			// anofox_contract_version() is shared by the whole anofox family;
 			// whichever extension loads first registers it, untagged.
-			if (preexisting.find(entry.name) != preexisting.end() || entry.name == "anofox_contract_version") {
+			if (preexisting.find(NameOf(entry)) != preexisting.end() || NameOf(entry) == "anofox_contract_version") {
 				return;
 			}
 			entry.tags["anofox.family"] = "statistics";
-			auto output = outputs.find(entry.name);
+			auto output = outputs.find(NameOf(entry));
 			if (output != outputs.end()) {
 				entry.tags["anofox.contract"] = ANOFOX_CONTRACT_VERSION;
 				entry.tags["anofox.output"] = output->second;
