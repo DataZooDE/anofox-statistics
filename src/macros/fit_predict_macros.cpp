@@ -5,6 +5,7 @@
 #include "duckdb/parser/statement/select_statement.hpp"
 #include "duckdb/parser/expression/columnref_expression.hpp"
 #include "duckdb/function/table_macro_function.hpp"
+#include "duckdb_compat.hpp"
 
 namespace duckdb {
 
@@ -944,7 +945,7 @@ static const FitPredictTableMacroDoc fit_predict_table_macro_docs[] = {
 // Helper function to create a table macro from the definition
 static unique_ptr<CreateMacroInfo> CreateFitPredictTableMacro(const FitPredictTableMacro &macro_def) {
 	// Parse the SQL
-	Parser parser;
+	auto parser = MakeParser();
 	parser.ParseQuery(macro_def.macro);
 	if (parser.statements.size() != 1 || parser.statements[0]->type != StatementType::SELECT_STATEMENT) {
 		throw InternalException("Expected a single select statement in CreateFitPredictTableMacro");
@@ -956,25 +957,24 @@ static unique_ptr<CreateMacroInfo> CreateFitPredictTableMacro(const FitPredictTa
 
 	// Add positional parameters
 	for (idx_t i = 0; macro_def.parameters[i] != nullptr; i++) {
-		function->parameters.push_back(make_uniq<ColumnRefExpression>(macro_def.parameters[i]));
+		function->parameters.push_back(make_uniq<ColumnRefExpression>(AsDuckName(macro_def.parameters[i])));
 	}
 
 	// Add named parameters with defaults
 	for (idx_t i = 0; macro_def.named_params[i].name != nullptr; i++) {
 		const auto &param = macro_def.named_params[i];
-		function->parameters.push_back(make_uniq<ColumnRefExpression>(param.name));
+		function->parameters.push_back(make_uniq<ColumnRefExpression>(AsDuckName(param.name)));
 
 		// Parse the default value
-		auto expr_list = Parser::ParseExpressionList(param.default_value);
+		auto expr_list = parser.ParseExpressionList(param.default_value);
 		if (!expr_list.empty()) {
-			function->default_parameters.insert(make_pair(string(param.name), std::move(expr_list[0])));
+			function->default_parameters.insert(make_pair(AsDuckName(param.name), std::move(expr_list[0])));
 		}
 	}
 
 	// Create the macro info
 	auto info = make_uniq<CreateMacroInfo>(CatalogType::TABLE_MACRO_ENTRY);
-	info->schema = DEFAULT_SCHEMA;
-	info->name = macro_def.name;
+	SetCreateInfoName(*info, DEFAULT_SCHEMA, macro_def.name);
 	info->temporary = true;
 	info->internal = true;
 	info->macros.push_back(std::move(function));

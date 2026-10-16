@@ -21,8 +21,8 @@ NULL
 
 # KM steps: survival is non-increasing and starts with everyone at risk.
 query III
-SELECT r[1].n_risk, list_bool_and(list_transform(range(1, len(r)), k -> r[k + 1].surv <= r[k].surv)),
-    list_sum(list_transform(r, e -> e.n_event + e.n_censor))
+SELECT r[1].n_risk, list_bool_and(list_transform(range(1, len(r)), lambda k: r[k + 1].surv <= r[k].surv)),
+    list_sum(list_transform(r, lambda e: e.n_event + e.n_censor))
 FROM (SELECT kaplan_meier_agg(dur, ev) AS r FROM p)
 ----
 40	true	40
@@ -35,8 +35,8 @@ true
 
 # All censored: survival stays 1 and the interval collapses to it.
 query III
-SELECT list_distinct(list_transform(r, e -> e.surv)), list_distinct(list_transform(r, e -> e.conf_low)),
-    list_distinct(list_transform(r, e -> e.std_err))
+SELECT list_distinct(list_transform(r, lambda e: e.surv)), list_distinct(list_transform(r, lambda e: e.conf_low)),
+    list_distinct(list_transform(r, lambda e: e.std_err))
 FROM (SELECT kaplan_meier_agg(dur, false) AS r FROM p)
 ----
 [1.0]	[1.0]	[0.0]
@@ -64,7 +64,7 @@ statement ok
 CREATE TABLE m AS SELECT aft_fit_agg(dur::DOUBLE, [x1], ev::DOUBLE) AS m FROM p
 
 query II
-SELECT r[1].surv, list_bool_and(list_transform(range(1, len(r)), k -> r[k + 1].surv <= r[k].surv))
+SELECT r[1].surv, list_bool_and(list_transform(range(1, len(r)), lambda k: r[k + 1].surv <= r[k].surv))
 FROM (SELECT aft_survival(m, [0.4], [0, 1, 2, 5, 10, 20]) AS r FROM m)
 ----
 1.0	true

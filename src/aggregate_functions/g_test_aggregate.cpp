@@ -57,7 +57,7 @@ static LogicalType GetGTestAggResultType() {
 // Aggregate function operations
 //===--------------------------------------------------------------------===//
 
-static void GTestAggInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void GTestAggInitialize(data_ptr_t state_p) {
     new (state_p) GTestAggregateState();
 }
 
@@ -190,14 +190,14 @@ static void GTestAggFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
         }
 
         idx_t struct_idx = 0;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = g_result.statistic;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = g_result.p_value;
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = static_cast<int64_t>(g_result.df);
-        auto& method_vector = *struct_entries[struct_idx++];
-        FlatVector::GetData<string_t>(method_vector)[result_idx] =
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = g_result.statistic;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = g_result.p_value;
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = static_cast<int64_t>(g_result.df);
+        auto& method_vector = StructEntry(struct_entries[struct_idx++]);
+        FlatDataMut<string_t>(method_vector)[result_idx] =
             StringVector::AddString(method_vector, g_result.method ? g_result.method : "G-test");
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = static_cast<int64_t>(state.row_values.size());
-        SetResultNull(*struct_entries[struct_idx++], result_idx);
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = static_cast<int64_t>(state.row_values.size());
+        SetResultNull(StructEntry(struct_entries[struct_idx++]), result_idx);
         WriteTestResultFields(result, result_idx, struct_idx, g_result.unified); // alternative: not applicable
 
         anofox_free_chisq_result(&g_result);
@@ -208,9 +208,9 @@ static void GTestAggFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
 //===--------------------------------------------------------------------===//
 // Bind function
 //===--------------------------------------------------------------------===//
-static unique_ptr<FunctionData> GTestAggBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> GTestAggBind(ClientContext &context, AggregateBindFunction &function,
                                               vector<unique_ptr<Expression>> &arguments) {
-    function.return_type = GetGTestAggResultType();
+    SetReturnTypeOf(function, GetGTestAggResultType());
     PostHogTelemetry::Instance().RecordFunctionCall("g_test_agg");
     return nullptr;
 }
@@ -225,9 +225,9 @@ void RegisterGTestAggregateFunction(ExtensionLoader &loader) {
     auto func = AggregateFunction(
         "g_test_agg", {LogicalType::BIGINT, LogicalType::BIGINT},
         LogicalType::ANY,
-        AggregateFunction::StateSize<GTestAggregateState>, GTestAggInitialize,
+        AggregateFunction::StateSize<GTestAggregateState>, ANOFOX_AGG_INIT(GTestAggInitialize),
         ANOFOX_GUARDED_UPDATE(GTestAggUpdate, GTestAggDestroy, GTestAggInitialize), GTestAggCombine, ANOFOX_GUARDED_FINALIZE(GTestAggFinalize, GTestAggDestroy, GTestAggInitialize),
-        nullptr, GTestAggBind, GTestAggDestroy);
+        nullptr, ANOFOX_AGG_BIND(GTestAggBind), GTestAggDestroy);
     func_set.AddFunction(func);
 
     CreateAggregateFunctionInfo info(std::move(func_set));

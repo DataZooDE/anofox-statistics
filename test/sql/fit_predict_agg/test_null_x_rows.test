@@ -68,7 +68,7 @@ SELECT bool_and(len(r) = n AND nulls = expected_nulls)
 FROM (
     SELECT k, count(*) AS n, count(*) FILTER (WHERE x IS NULL) AS expected_nulls,
            ols_fit_predict_agg(y, x) AS r,
-           len(list_filter(ols_fit_predict_agg(y, x), e -> e.yhat IS NULL)) AS nulls
+           len(list_filter(ols_fit_predict_agg(y, x), lambda e: e.yhat IS NULL)) AS nulls
     FROM big GROUP BY k
 );
 ----

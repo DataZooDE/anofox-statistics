@@ -85,7 +85,7 @@ static LogicalType GetRidgeFitPredictResultType() {
     return LogicalType::STRUCT(std::move(children));
 }
 
-static void RidgeFitPredictInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void RidgeFitPredictInitialize(data_ptr_t state_p) {
     new (state_p) RidgeFitPredictState();
 }
 
@@ -108,10 +108,10 @@ static void RidgeFitPredictUpdate(Vector inputs[], AggregateInputData &aggr_inpu
     inputs[1].ToUnifiedFormat(count, x_data);
 
     auto y_values = UnifiedVectorFormat::GetData<double>(y_data);
-    auto x_list_data = ListVector::GetData(inputs[1]);
+    auto x_list_data = UnifiedVectorFormat::GetData<list_entry_t>(x_data);
     auto &x_child = ListVector::GetEntry(inputs[1]);
-    auto x_child_data = FlatVector::GetData<double>(x_child);
-    auto &x_child_validity = FlatVector::Validity(x_child);
+    auto x_child_data = FlatDataMut<double>(x_child);
+    auto &x_child_validity = FlatValidityMut(x_child);
 
     UnifiedVectorFormat sdata;
     state_vector.ToUnifiedFormat(count, sdata);
@@ -287,15 +287,15 @@ static void RidgeFitPredictFinalize(Vector &state_vector, AggregateInputData &, 
             continue;
         }
 
-        FlatVector::GetData<double>(*struct_entries[0])[result_idx] = pred_result.yhat;
-        WriteIntervalBound(*struct_entries[1], result_idx, pred_result.yhat_lower);
-        WriteIntervalBound(*struct_entries[2], result_idx, pred_result.yhat_upper);
+        FlatDataMut<double>(StructEntry(struct_entries[0]))[result_idx] = pred_result.yhat;
+        WriteIntervalBound(StructEntry(struct_entries[1]), result_idx, pred_result.yhat_lower);
+        WriteIntervalBound(StructEntry(struct_entries[2]), result_idx, pred_result.yhat_upper);
 
         state.Reset();
     }
 }
 
-static unique_ptr<FunctionData> RidgeFitPredictBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> RidgeFitPredictBind(ClientContext &context, AggregateBindFunction &function,
                                                      vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<RidgeFitPredictBindData>();
 
@@ -318,7 +318,7 @@ static unique_ptr<FunctionData> RidgeFitPredictBind(ClientContext &context, Aggr
             result->lambda_scaling = opts.lambda_scaling.value();
     }
 
-    function.return_type = GetRidgeFitPredictResultType();
+    SetReturnTypeOf(function, GetRidgeFitPredictResultType());
     PostHogTelemetry::Instance().RecordFunctionCall("ridge_fit_predict");
     return std::move(result);
 }
@@ -327,16 +327,16 @@ void RegisterRidgeFitPredictFunction(ExtensionLoader &loader) {
     auto basic_func =
         AggregateFunction("ridge_fit_predict",
                           {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)}, GetRidgeFitPredictResultType(),
-                          AggregateFunction::StateSize<RidgeFitPredictState>, RidgeFitPredictInitialize,
+                          AggregateFunction::StateSize<RidgeFitPredictState>, ANOFOX_AGG_INIT(RidgeFitPredictInitialize),
                           ANOFOX_GUARDED_UPDATE(RidgeFitPredictUpdate, RidgeFitPredictDestroy, RidgeFitPredictInitialize), RidgeFitPredictCombine, ANOFOX_GUARDED_FINALIZE(RidgeFitPredictFinalize, RidgeFitPredictDestroy, RidgeFitPredictInitialize), nullptr,
-                          RidgeFitPredictBind, RidgeFitPredictDestroy);
+                          ANOFOX_AGG_BIND(RidgeFitPredictBind), RidgeFitPredictDestroy);
 
     auto map_func =
         AggregateFunction("ridge_fit_predict",
                           {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
                           GetRidgeFitPredictResultType(), AggregateFunction::StateSize<RidgeFitPredictState>,
-                          RidgeFitPredictInitialize, ANOFOX_GUARDED_UPDATE(RidgeFitPredictUpdate, RidgeFitPredictDestroy, RidgeFitPredictInitialize), RidgeFitPredictCombine,
-                          ANOFOX_GUARDED_FINALIZE(RidgeFitPredictFinalize, RidgeFitPredictDestroy, RidgeFitPredictInitialize), nullptr, RidgeFitPredictBind, RidgeFitPredictDestroy);
+                          ANOFOX_AGG_INIT(RidgeFitPredictInitialize), ANOFOX_GUARDED_UPDATE(RidgeFitPredictUpdate, RidgeFitPredictDestroy, RidgeFitPredictInitialize), RidgeFitPredictCombine,
+                          ANOFOX_GUARDED_FINALIZE(RidgeFitPredictFinalize, RidgeFitPredictDestroy, RidgeFitPredictInitialize), nullptr, ANOFOX_AGG_BIND(RidgeFitPredictBind), RidgeFitPredictDestroy);
 
     {
         AggregateFunctionSet func_set("ridge_fit_predict");

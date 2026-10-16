@@ -210,7 +210,7 @@ static LogicalType GetGlmmResultType() {
 	return LogicalType::STRUCT(std::move(children));
 }
 
-static void GlmmAggInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void GlmmAggInitialize(data_ptr_t state_p) {
 	new (state_p) GlmmAggregateState();
 }
 
@@ -231,13 +231,13 @@ static void GlmmAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data, 
 	inputs[0].ToUnifiedFormat(count, y_data);
 	inputs[1].ToUnifiedFormat(count, x_data);
 	auto y_values = UnifiedVectorFormat::GetData<double>(y_data);
-	auto x_list_data = ListVector::GetData(inputs[1]);
+	auto x_list_data = UnifiedVectorFormat::GetData<list_entry_t>(x_data);
 	auto &x_child = ListVector::GetEntry(inputs[1]);
-	auto x_child_data = FlatVector::GetData<double>(x_child);
+	auto x_child_data = FlatDataMut<double>(x_child);
 	// A LIST containing NULLs is not itself NULL, so the list-level validity mask
 	// says nothing about the elements. Read the child mask too and pass NaN for a
 	// NULL element; the Rust side drops any row that is not finite throughout.
-	auto &x_child_validity = FlatVector::Validity(x_child);
+	auto &x_child_validity = FlatValidityMut(x_child);
 
 	// The grouping key can be any type, so it is read through Vector::GetValue and
 	// rendered to a string for the dictionary. That is slower than a typed fast
@@ -347,10 +347,10 @@ static void GlmmAggCombine(Vector &source_vector, Vector &target_vector, Aggrega
 }
 
 static void SetDoubleListG(Vector &target, idx_t row, const double *values, idx_t len) {
-	auto list_data = FlatVector::GetData<list_entry_t>(target);
+	auto list_data = FlatDataMut<list_entry_t>(target);
 	auto child_offset = ListVector::GetListSize(target);
 	ListVector::Reserve(target, child_offset + len);
-	auto child_values = FlatVector::GetData<double>(ListVector::GetEntry(target));
+	auto child_values = FlatDataMut<double>(ListVector::GetEntry(target));
 	for (idx_t j = 0; j < len; j++) {
 		child_values[child_offset + j] = values[j];
 	}
@@ -456,33 +456,33 @@ static void GlmmAggFinalize(Vector &state_vector, AggregateInputData &, Vector &
 		}
 
 		idx_t c = 0;
-		SetDoubleListG(*struct_entries[c++], row, res.coefficients, res.coefficients_len);
-		FlatVector::GetData<double>(*struct_entries[c++])[row] = res.intercept;
-		FlatVector::GetData<double>(*struct_entries[c++])[row] = res.var_group;
-		FlatVector::GetData<double>(*struct_entries[c++])[row] = res.var_residual;
-		FlatVector::GetData<double>(*struct_entries[c++])[row] = res.icc;
-		FlatVector::GetData<double>(*struct_entries[c++])[row] = res.log_likelihood;
-		FlatVector::GetData<double>(*struct_entries[c++])[row] = res.aic;
-		FlatVector::GetData<double>(*struct_entries[c++])[row] = res.bic;
-		FlatVector::GetData<double>(*struct_entries[c++])[row] = res.deviance;
-		FlatVector::GetData<int64_t>(*struct_entries[c++])[row] = (int64_t)res.n_observations;
-		FlatVector::GetData<int64_t>(*struct_entries[c++])[row] = (int64_t)res.n_groups;
-		FlatVector::GetData<int64_t>(*struct_entries[c++])[row] = (int64_t)res.n_features;
-		FlatVector::GetData<int32_t>(*struct_entries[c++])[row] = (int32_t)res.iterations;
-		FlatVector::GetData<bool>(*struct_entries[c++])[row] = res.converged;
-		SetDoubleListG(*struct_entries[c++], row, res.random_cov, res.random_dim * res.random_dim);
-		FlatVector::GetData<int32_t>(*struct_entries[c++])[row] = (int32_t)res.random_dim;
+		SetDoubleListG(StructEntry(struct_entries[c++]), row, res.coefficients, res.coefficients_len);
+		FlatDataMut<double>(StructEntry(struct_entries[c++]))[row] = res.intercept;
+		FlatDataMut<double>(StructEntry(struct_entries[c++]))[row] = res.var_group;
+		FlatDataMut<double>(StructEntry(struct_entries[c++]))[row] = res.var_residual;
+		FlatDataMut<double>(StructEntry(struct_entries[c++]))[row] = res.icc;
+		FlatDataMut<double>(StructEntry(struct_entries[c++]))[row] = res.log_likelihood;
+		FlatDataMut<double>(StructEntry(struct_entries[c++]))[row] = res.aic;
+		FlatDataMut<double>(StructEntry(struct_entries[c++]))[row] = res.bic;
+		FlatDataMut<double>(StructEntry(struct_entries[c++]))[row] = res.deviance;
+		FlatDataMut<int64_t>(StructEntry(struct_entries[c++]))[row] = (int64_t)res.n_observations;
+		FlatDataMut<int64_t>(StructEntry(struct_entries[c++]))[row] = (int64_t)res.n_groups;
+		FlatDataMut<int64_t>(StructEntry(struct_entries[c++]))[row] = (int64_t)res.n_features;
+		FlatDataMut<int32_t>(StructEntry(struct_entries[c++]))[row] = (int32_t)res.iterations;
+		FlatDataMut<bool>(StructEntry(struct_entries[c++]))[row] = res.converged;
+		SetDoubleListG(StructEntry(struct_entries[c++]), row, res.random_cov, res.random_dim * res.random_dim);
+		FlatDataMut<int32_t>(StructEntry(struct_entries[c++]))[row] = (int32_t)res.random_dim;
 
 		// Per-factor variance components LIST(STRUCT(n_levels, var)).
 		{
-			auto &fac_vec = *struct_entries[c++];
-			auto fac_list = FlatVector::GetData<list_entry_t>(fac_vec);
+			auto &fac_vec = StructEntry(struct_entries[c++]);
+			auto fac_list = FlatDataMut<list_entry_t>(fac_vec);
 			auto fac_off = ListVector::GetListSize(fac_vec);
 			ListVector::Reserve(fac_vec, fac_off + res.factor_len);
 			auto &fac_struct = ListVector::GetEntry(fac_vec);
 			auto &fac_children = StructVector::GetEntries(fac_struct);
-			auto f_levels = FlatVector::GetData<int64_t>(*fac_children[0]);
-			auto f_var = FlatVector::GetData<double>(*fac_children[1]);
+			auto f_levels = FlatDataMut<int64_t>(StructEntry(fac_children[0]));
+			auto f_var = FlatDataMut<double>(StructEntry(fac_children[1]));
 			for (idx_t j = 0; j < res.factor_len; j++) {
 				f_levels[fac_off + j] = (int64_t)res.factor_n_levels[j];
 				f_var[fac_off + j] = res.factor_var[j];
@@ -507,22 +507,22 @@ static void GlmmAggFinalize(Vector &state_vector, AggregateInputData &, Vector &
 		c += 6;
 
 		// The random-effects LIST(STRUCT(group, intercept, se, n)).
-		auto &ranef_vec = *struct_entries[c];
-		auto ranef_list = FlatVector::GetData<list_entry_t>(ranef_vec);
+		auto &ranef_vec = StructEntry(struct_entries[c]);
+		auto ranef_list = FlatDataMut<list_entry_t>(ranef_vec);
 		auto ranef_off = ListVector::GetListSize(ranef_vec);
 		ListVector::Reserve(ranef_vec, ranef_off + res.ranef_len);
 		auto &ranef_struct = ListVector::GetEntry(ranef_vec);
 		auto &ranef_children = StructVector::GetEntries(ranef_struct);
-		auto r_group = FlatVector::GetData<string_t>(*ranef_children[0]);
-		auto r_value = FlatVector::GetData<double>(*ranef_children[1]);
-		auto r_se = FlatVector::GetData<double>(*ranef_children[2]);
-		auto r_n = FlatVector::GetData<int64_t>(*ranef_children[3]);
+		auto r_group = FlatDataMut<string_t>(StructEntry(ranef_children[0]));
+		auto r_value = FlatDataMut<double>(StructEntry(ranef_children[1]));
+		auto r_se = FlatDataMut<double>(StructEntry(ranef_children[2]));
+		auto r_n = FlatDataMut<int64_t>(StructEntry(ranef_children[3]));
 
 		for (idx_t j = 0; j < res.ranef_len; j++) {
 			auto id = res.ranef_group[j];
 			const string &label =
 			    (id >= 0 && (idx_t)id < state.group_labels.size()) ? state.group_labels[id] : string();
-			r_group[ranef_off + j] = StringVector::AddString(*ranef_children[0], label);
+			r_group[ranef_off + j] = StringVector::AddString(StructEntry(ranef_children[0]), label);
 			r_value[ranef_off + j] = res.ranef_value[j];
 			r_se[ranef_off + j] = res.ranef_se[j];
 			r_n[ranef_off + j] = res.ranef_n[j];
@@ -531,11 +531,11 @@ static void GlmmAggFinalize(Vector &state_vector, AggregateInputData &, Vector &
 		ranef_list[row].offset = ranef_off;
 		ranef_list[row].length = res.ranef_len;
 
-		auto &nb_theta_vec = *struct_entries[c + 1];
+		auto &nb_theta_vec = StructEntry(struct_entries[c + 1]);
 		if (std::isnan(res.nb_theta)) {
 			FlatVector::SetNull(nb_theta_vec, row, true);
 		} else {
-			FlatVector::GetData<double>(nb_theta_vec)[row] = res.nb_theta;
+			FlatDataMut<double>(nb_theta_vec)[row] = res.nb_theta;
 		}
 
 		anofox_free_glmm_result(&res);
@@ -543,7 +543,7 @@ static void GlmmAggFinalize(Vector &state_vector, AggregateInputData &, Vector &
 	}
 }
 
-static unique_ptr<FunctionData> GlmmAggBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> GlmmAggBind(ClientContext &context, AggregateBindFunction &function,
                                             vector<unique_ptr<Expression>> &arguments) {
 	auto result = make_uniq<GlmmAggregateBindData>();
 
@@ -608,7 +608,7 @@ static unique_ptr<FunctionData> GlmmAggBind(ClientContext &context, AggregateFun
 		}
 	}
 
-	function.return_type = GetGlmmResultType();
+	SetReturnTypeOf(function, GetGlmmResultType());
 	PostHogTelemetry::Instance().RecordFunctionCall("glmm_fit_agg");
 	return std::move(result);
 }
@@ -618,15 +618,15 @@ void RegisterGlmmAggregateFunction(ExtensionLoader &loader) {
 
 	auto basic = AggregateFunction(
 	    "glmm_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
-	    LogicalType::ANY, AggregateFunction::StateSize<GlmmAggregateState>, GlmmAggInitialize, ANOFOX_GUARDED_UPDATE(GlmmAggUpdate, GlmmAggDestroy, GlmmAggInitialize),
-	    GlmmAggCombine, ANOFOX_GUARDED_FINALIZE(GlmmAggFinalize, GlmmAggDestroy, GlmmAggInitialize), nullptr, GlmmAggBind, GlmmAggDestroy);
+	    LogicalType::ANY, AggregateFunction::StateSize<GlmmAggregateState>, ANOFOX_AGG_INIT(GlmmAggInitialize), ANOFOX_GUARDED_UPDATE(GlmmAggUpdate, GlmmAggDestroy, GlmmAggInitialize),
+	    GlmmAggCombine, ANOFOX_GUARDED_FINALIZE(GlmmAggFinalize, GlmmAggDestroy, GlmmAggInitialize), nullptr, ANOFOX_AGG_BIND(GlmmAggBind), GlmmAggDestroy);
 	func_set.AddFunction(basic);
 
 	auto with_opts = AggregateFunction(
 	    "glmm_fit_agg",
 	    {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY, LogicalType::ANY},
-	    LogicalType::ANY, AggregateFunction::StateSize<GlmmAggregateState>, GlmmAggInitialize, ANOFOX_GUARDED_UPDATE(GlmmAggUpdate, GlmmAggDestroy, GlmmAggInitialize),
-	    GlmmAggCombine, ANOFOX_GUARDED_FINALIZE(GlmmAggFinalize, GlmmAggDestroy, GlmmAggInitialize), nullptr, GlmmAggBind, GlmmAggDestroy);
+	    LogicalType::ANY, AggregateFunction::StateSize<GlmmAggregateState>, ANOFOX_AGG_INIT(GlmmAggInitialize), ANOFOX_GUARDED_UPDATE(GlmmAggUpdate, GlmmAggDestroy, GlmmAggInitialize),
+	    GlmmAggCombine, ANOFOX_GUARDED_FINALIZE(GlmmAggFinalize, GlmmAggDestroy, GlmmAggInitialize), nullptr, ANOFOX_AGG_BIND(GlmmAggBind), GlmmAggDestroy);
 	func_set.AddFunction(with_opts);
 
 	CreateAggregateFunctionInfo info(func_set);

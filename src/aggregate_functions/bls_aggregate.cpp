@@ -109,7 +109,7 @@ static LogicalType GetBlsAggResultType() {
 // Aggregate function operations
 //===--------------------------------------------------------------------===//
 
-static void BlsAggInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void BlsAggInitialize(data_ptr_t state_p) {
     new (state_p) BlsAggregateState();
 }
 
@@ -134,10 +134,10 @@ static void BlsAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data, i
     inputs[1].ToUnifiedFormat(count, x_data);
 
     auto y_values = UnifiedVectorFormat::GetData<double>(y_data);
-    auto x_list_data = ListVector::GetData(inputs[1]);
+    auto x_list_data = UnifiedVectorFormat::GetData<list_entry_t>(x_data);
     auto &x_child = ListVector::GetEntry(inputs[1]);
-    auto x_child_data = FlatVector::GetData<double>(x_child);
-    auto &x_child_validity = FlatVector::Validity(x_child);
+    auto x_child_data = FlatDataMut<double>(x_child);
+    auto &x_child_validity = FlatValidityMut(x_child);
 
     UnifiedVectorFormat sdata;
     state_vector.ToUnifiedFormat(count, sdata);
@@ -242,7 +242,7 @@ static void SetListInResult(Vector &list_vec, idx_t row, double *data, size_t le
     auto offset = ListVector::GetListSize(list_vec);
     ListVector::Reserve(list_vec, offset + len);
     ListVector::SetListSize(list_vec, offset + len);
-    auto vec_data = FlatVector::GetData<double>(child);
+    auto vec_data = FlatDataMut<double>(child);
     for (size_t i = 0; i < len; i++) {
         vec_data[offset + i] = data[i];
     }
@@ -254,7 +254,7 @@ static void SetBoolListInResult(Vector &list_vec, idx_t row, bool *data, size_t 
     auto offset = ListVector::GetListSize(list_vec);
     ListVector::Reserve(list_vec, offset + len);
     ListVector::SetListSize(list_vec, offset + len);
-    auto vec_data = FlatVector::GetData<bool>(child);
+    auto vec_data = FlatDataMut<bool>(child);
     for (size_t i = 0; i < len; i++) {
         vec_data[offset + i] = data[i];
     }
@@ -339,19 +339,19 @@ static void BlsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
 
         idx_t struct_idx = 0;
 
-        SetListInResult(*struct_entries[struct_idx++], result_idx, core_result.coefficients,
+        SetListInResult(StructEntry(struct_entries[struct_idx++]), result_idx, core_result.coefficients,
                         core_result.coefficients_len);
 
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = core_result.intercept;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = core_result.ssr;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = core_result.r_squared;
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = core_result.n_observations;
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = core_result.n_features;
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = core_result.n_active_constraints;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = core_result.intercept;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = core_result.ssr;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = core_result.r_squared;
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = core_result.n_observations;
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = core_result.n_features;
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = core_result.n_active_constraints;
 
-        SetBoolListInResult(*struct_entries[struct_idx++], result_idx, core_result.at_lower_bound,
+        SetBoolListInResult(StructEntry(struct_entries[struct_idx++]), result_idx, core_result.at_lower_bound,
                             core_result.coefficients_len);
-        SetBoolListInResult(*struct_entries[struct_idx++], result_idx, core_result.at_upper_bound,
+        SetBoolListInResult(StructEntry(struct_entries[struct_idx++]), result_idx, core_result.at_upper_bound,
                             core_result.coefficients_len);
 
         writer.WriteInference(result_idx, nullptr);
@@ -365,7 +365,7 @@ static void BlsAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
 //===--------------------------------------------------------------------===//
 // Bind function
 //===--------------------------------------------------------------------===//
-static unique_ptr<FunctionData> BlsAggBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> BlsAggBind(ClientContext &context, AggregateBindFunction &function,
                                            vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<BlsAggregateBindData>();
 
@@ -392,14 +392,14 @@ static unique_ptr<FunctionData> BlsAggBind(ClientContext &context, AggregateFunc
         }
     }
 
-    function.return_type = GetBlsAggResultType();
+    SetReturnTypeOf(function, GetBlsAggResultType());
 
     PostHogTelemetry::Instance().RecordFunctionCall("bls_fit_agg");
     return std::move(result);
 }
 
 // Bind for NNLS (Non-Negative Least Squares)
-static unique_ptr<FunctionData> NnlsAggBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> NnlsAggBind(ClientContext &context, AggregateBindFunction &function,
                                             vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<BlsAggregateBindData>();
 
@@ -425,7 +425,7 @@ static unique_ptr<FunctionData> NnlsAggBind(ClientContext &context, AggregateFun
         }
     }
 
-    function.return_type = GetBlsAggResultType();
+    SetReturnTypeOf(function, GetBlsAggResultType());
 
     PostHogTelemetry::Instance().RecordFunctionCall("nnls_fit_agg");
     return std::move(result);
@@ -441,14 +441,14 @@ void RegisterBlsAggregateFunction(ExtensionLoader &loader) {
 
         auto bls_basic = AggregateFunction(
             "bls_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)}, LogicalType::ANY,
-            AggregateFunction::StateSize<BlsAggregateState>, BlsAggInitialize, ANOFOX_GUARDED_UPDATE(BlsAggUpdate, BlsAggDestroy, BlsAggInitialize), BlsAggCombine,
-            ANOFOX_GUARDED_FINALIZE(BlsAggFinalize, BlsAggDestroy, BlsAggInitialize), nullptr, BlsAggBind, BlsAggDestroy);
+            AggregateFunction::StateSize<BlsAggregateState>, ANOFOX_AGG_INIT(BlsAggInitialize), ANOFOX_GUARDED_UPDATE(BlsAggUpdate, BlsAggDestroy, BlsAggInitialize), BlsAggCombine,
+            ANOFOX_GUARDED_FINALIZE(BlsAggFinalize, BlsAggDestroy, BlsAggInitialize), nullptr, ANOFOX_AGG_BIND(BlsAggBind), BlsAggDestroy);
         bls_set.AddFunction(bls_basic);
 
         auto bls_map = AggregateFunction(
             "bls_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
-            LogicalType::ANY, AggregateFunction::StateSize<BlsAggregateState>, BlsAggInitialize, ANOFOX_GUARDED_UPDATE(BlsAggUpdate, BlsAggDestroy, BlsAggInitialize),
-            BlsAggCombine, ANOFOX_GUARDED_FINALIZE(BlsAggFinalize, BlsAggDestroy, BlsAggInitialize), nullptr, BlsAggBind, BlsAggDestroy);
+            LogicalType::ANY, AggregateFunction::StateSize<BlsAggregateState>, ANOFOX_AGG_INIT(BlsAggInitialize), ANOFOX_GUARDED_UPDATE(BlsAggUpdate, BlsAggDestroy, BlsAggInitialize),
+            BlsAggCombine, ANOFOX_GUARDED_FINALIZE(BlsAggFinalize, BlsAggDestroy, BlsAggInitialize), nullptr, ANOFOX_AGG_BIND(BlsAggBind), BlsAggDestroy);
         bls_set.AddFunction(bls_map);
 
         CreateAggregateFunctionInfo bls_info(std::move(bls_set));
@@ -476,15 +476,15 @@ void RegisterBlsAggregateFunction(ExtensionLoader &loader) {
 
         auto nnls_basic = AggregateFunction(
             "nnls_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)}, LogicalType::ANY,
-            AggregateFunction::StateSize<BlsAggregateState>, BlsAggInitialize, ANOFOX_GUARDED_UPDATE(BlsAggUpdate, BlsAggDestroy, BlsAggInitialize), BlsAggCombine,
-            ANOFOX_GUARDED_FINALIZE(BlsAggFinalize, BlsAggDestroy, BlsAggInitialize), nullptr, NnlsAggBind, BlsAggDestroy);
+            AggregateFunction::StateSize<BlsAggregateState>, ANOFOX_AGG_INIT(BlsAggInitialize), ANOFOX_GUARDED_UPDATE(BlsAggUpdate, BlsAggDestroy, BlsAggInitialize), BlsAggCombine,
+            ANOFOX_GUARDED_FINALIZE(BlsAggFinalize, BlsAggDestroy, BlsAggInitialize), nullptr, ANOFOX_AGG_BIND(NnlsAggBind), BlsAggDestroy);
         nnls_set.AddFunction(nnls_basic);
 
         auto nnls_map = AggregateFunction(
             "nnls_fit_agg",
             {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY}, LogicalType::ANY,
-            AggregateFunction::StateSize<BlsAggregateState>, BlsAggInitialize, ANOFOX_GUARDED_UPDATE(BlsAggUpdate, BlsAggDestroy, BlsAggInitialize), BlsAggCombine,
-            ANOFOX_GUARDED_FINALIZE(BlsAggFinalize, BlsAggDestroy, BlsAggInitialize), nullptr, NnlsAggBind, BlsAggDestroy);
+            AggregateFunction::StateSize<BlsAggregateState>, ANOFOX_AGG_INIT(BlsAggInitialize), ANOFOX_GUARDED_UPDATE(BlsAggUpdate, BlsAggDestroy, BlsAggInitialize), BlsAggCombine,
+            ANOFOX_GUARDED_FINALIZE(BlsAggFinalize, BlsAggDestroy, BlsAggInitialize), nullptr, ANOFOX_AGG_BIND(NnlsAggBind), BlsAggDestroy);
         nnls_set.AddFunction(nnls_map);
 
         CreateAggregateFunctionInfo nnls_info(std::move(nnls_set));

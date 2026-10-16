@@ -82,7 +82,7 @@ struct BinomTestBindData : public FunctionData {
 // Aggregate function operations
 //===--------------------------------------------------------------------===//
 
-static void BinomTestAggInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void BinomTestAggInitialize(data_ptr_t state_p) {
     new (state_p) BinomTestAggregateState();
 }
 
@@ -181,16 +181,16 @@ static void BinomTestAggFinalize(Vector &state_vector, AggregateInputData &aggr_
         }
 
         idx_t struct_idx = 0;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = binom_result.statistic;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = binom_result.p_value;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = binom_result.estimate;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = binom_result.ci_lower;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = binom_result.ci_upper;
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = static_cast<int64_t>(binom_result.n);
-        auto& method_vector = *struct_entries[struct_idx++];
-        FlatVector::GetData<string_t>(method_vector)[result_idx] =
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = binom_result.statistic;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = binom_result.p_value;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = binom_result.estimate;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = binom_result.ci_lower;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = binom_result.ci_upper;
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = static_cast<int64_t>(binom_result.n);
+        auto& method_vector = StructEntry(struct_entries[struct_idx++]);
+        FlatDataMut<string_t>(method_vector)[result_idx] =
             StringVector::AddString(method_vector, binom_result.method ? binom_result.method : "Exact binomial test");
-        SetResultString(*struct_entries[struct_idx++], result_idx, AlternativeName(bind_data.alternative));
+        SetResultString(StructEntry(struct_entries[struct_idx++]), result_idx, AlternativeName(bind_data.alternative));
         WriteTestResultFields(result, result_idx, struct_idx, binom_result.unified);
 
         anofox_free_prop_test_result(&binom_result);
@@ -201,9 +201,9 @@ static void BinomTestAggFinalize(Vector &state_vector, AggregateInputData &aggr_
 //===--------------------------------------------------------------------===//
 // Bind function
 //===--------------------------------------------------------------------===//
-static unique_ptr<FunctionData> BinomTestAggBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> BinomTestAggBind(ClientContext &context, AggregateBindFunction &function,
                                                   vector<unique_ptr<Expression>> &arguments) {
-    function.return_type = GetBinomTestAggResultType();
+    SetReturnTypeOf(function, GetBinomTestAggResultType());
     auto bind_data = make_uniq<BinomTestBindData>();
 
     if (arguments.size() >= 2) {
@@ -234,18 +234,18 @@ void RegisterBinomTestAggregateFunction(ExtensionLoader &loader) {
     auto func_with_opts = AggregateFunction(
         "binom_test_agg", {LogicalType::BIGINT, LogicalType::ANY},
         LogicalType::ANY,
-        AggregateFunction::StateSize<BinomTestAggregateState>, BinomTestAggInitialize,
+        AggregateFunction::StateSize<BinomTestAggregateState>, ANOFOX_AGG_INIT(BinomTestAggInitialize),
         ANOFOX_GUARDED_UPDATE(BinomTestAggUpdate, BinomTestAggDestroy, BinomTestAggInitialize), BinomTestAggCombine, ANOFOX_GUARDED_FINALIZE(BinomTestAggFinalize, BinomTestAggDestroy, BinomTestAggInitialize),
-        nullptr, BinomTestAggBind, BinomTestAggDestroy);
+        nullptr, ANOFOX_AGG_BIND(BinomTestAggBind), BinomTestAggDestroy);
     func_set.AddFunction(func_with_opts);
 
     // Without options: (value BIGINT)
     auto func_no_opts = AggregateFunction(
         "binom_test_agg", {LogicalType::BIGINT},
         LogicalType::ANY,
-        AggregateFunction::StateSize<BinomTestAggregateState>, BinomTestAggInitialize,
+        AggregateFunction::StateSize<BinomTestAggregateState>, ANOFOX_AGG_INIT(BinomTestAggInitialize),
         ANOFOX_GUARDED_UPDATE(BinomTestAggUpdate, BinomTestAggDestroy, BinomTestAggInitialize), BinomTestAggCombine, ANOFOX_GUARDED_FINALIZE(BinomTestAggFinalize, BinomTestAggDestroy, BinomTestAggInitialize),
-        nullptr, BinomTestAggBind, BinomTestAggDestroy);
+        nullptr, ANOFOX_AGG_BIND(BinomTestAggBind), BinomTestAggDestroy);
     func_set.AddFunction(func_no_opts);
 
     CreateAggregateFunctionInfo info(std::move(func_set));

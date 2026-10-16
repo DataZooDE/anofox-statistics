@@ -82,7 +82,7 @@ struct CohenKappaBindData : public FunctionData {
 // Aggregate function operations
 //===--------------------------------------------------------------------===//
 
-static void CohenKappaAggInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void CohenKappaAggInitialize(data_ptr_t state_p) {
     new (state_p) CohenKappaAggregateState();
 }
 
@@ -215,19 +215,19 @@ static void CohenKappaAggFinalize(Vector &state_vector, AggregateInputData &aggr
         }
 
         idx_t struct_idx = 0;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = kappa_result.kappa;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = kappa_result.se;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = kappa_result.ci_lower;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = kappa_result.ci_upper;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = kappa_result.z;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = kappa_result.p_value;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = kappa_result.z; // statistic
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] =
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = kappa_result.kappa;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = kappa_result.se;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = kappa_result.ci_lower;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = kappa_result.ci_upper;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = kappa_result.z;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = kappa_result.p_value;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = kappa_result.z; // statistic
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] =
             static_cast<int64_t>(state.rater1_values.size());
-        SetResultString(*struct_entries[struct_idx++], result_idx,
+        SetResultString(StructEntry(struct_entries[struct_idx++]), result_idx,
                         bind_data.weighted ? "Weighted Cohen's kappa" : "Cohen's kappa");
         // The core's z-test p-value is two-sided.
-        SetResultString(*struct_entries[struct_idx++], result_idx, "two_sided");
+        SetResultString(StructEntry(struct_entries[struct_idx++]), result_idx, "two_sided");
         WriteTestResultFields(result, result_idx, struct_idx, kappa_result.unified);
 
         state.Reset();
@@ -237,9 +237,9 @@ static void CohenKappaAggFinalize(Vector &state_vector, AggregateInputData &aggr
 //===--------------------------------------------------------------------===//
 // Bind function
 //===--------------------------------------------------------------------===//
-static unique_ptr<FunctionData> CohenKappaAggBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> CohenKappaAggBind(ClientContext &context, AggregateBindFunction &function,
                                                    vector<unique_ptr<Expression>> &arguments) {
-    function.return_type = GetCohenKappaAggResultType();
+    SetReturnTypeOf(function, GetCohenKappaAggResultType());
     auto bind_data = make_uniq<CohenKappaBindData>();
 
     if (arguments.size() >= 3) {
@@ -264,18 +264,18 @@ void RegisterCohenKappaAggregateFunction(ExtensionLoader &loader) {
     auto func_with_opts = AggregateFunction(
         "cohen_kappa_agg", {LogicalType::BIGINT, LogicalType::BIGINT, LogicalType::ANY},
         LogicalType::ANY,
-        AggregateFunction::StateSize<CohenKappaAggregateState>, CohenKappaAggInitialize,
+        AggregateFunction::StateSize<CohenKappaAggregateState>, ANOFOX_AGG_INIT(CohenKappaAggInitialize),
         ANOFOX_GUARDED_UPDATE(CohenKappaAggUpdate, CohenKappaAggDestroy, CohenKappaAggInitialize), CohenKappaAggCombine, ANOFOX_GUARDED_FINALIZE(CohenKappaAggFinalize, CohenKappaAggDestroy, CohenKappaAggInitialize),
-        nullptr, CohenKappaAggBind, CohenKappaAggDestroy);
+        nullptr, ANOFOX_AGG_BIND(CohenKappaAggBind), CohenKappaAggDestroy);
     func_set.AddFunction(func_with_opts);
 
     // Without options: (rater1 BIGINT, rater2 BIGINT)
     auto func_no_opts = AggregateFunction(
         "cohen_kappa_agg", {LogicalType::BIGINT, LogicalType::BIGINT},
         LogicalType::ANY,
-        AggregateFunction::StateSize<CohenKappaAggregateState>, CohenKappaAggInitialize,
+        AggregateFunction::StateSize<CohenKappaAggregateState>, ANOFOX_AGG_INIT(CohenKappaAggInitialize),
         ANOFOX_GUARDED_UPDATE(CohenKappaAggUpdate, CohenKappaAggDestroy, CohenKappaAggInitialize), CohenKappaAggCombine, ANOFOX_GUARDED_FINALIZE(CohenKappaAggFinalize, CohenKappaAggDestroy, CohenKappaAggInitialize),
-        nullptr, CohenKappaAggBind, CohenKappaAggDestroy);
+        nullptr, ANOFOX_AGG_BIND(CohenKappaAggBind), CohenKappaAggDestroy);
     func_set.AddFunction(func_no_opts);
 
     CreateAggregateFunctionInfo info(std::move(func_set));

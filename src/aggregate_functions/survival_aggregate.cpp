@@ -76,7 +76,7 @@ static LogicalType KaplanMeierResultType() {
 	return LogicalType::LIST(LogicalType::STRUCT(std::move(children)));
 }
 
-static void KaplanMeierInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void KaplanMeierInitialize(data_ptr_t state_p) {
 	new (state_p) KaplanMeierState();
 }
 
@@ -134,7 +134,7 @@ static void SetSurvNumber(Vector &vec, idx_t row, double value) {
 	if (std::isnan(value)) {
 		FlatVector::SetNull(vec, row, true);
 	} else {
-		FlatVector::GetData<double>(vec)[row] = value;
+		FlatDataMut<double>(vec)[row] = value;
 	}
 }
 
@@ -167,14 +167,14 @@ static void KaplanMeierFinalize(Vector &state_vector, AggregateInputData &aggr_i
 		auto &fields = StructVector::GetEntries(ListVector::GetEntry(result));
 		for (idx_t k = 0; k < len; k++) {
 			auto out = list_offset + k;
-			FlatVector::GetData<double>(*fields[0])[out] = km.time[k];
-			SetSurvNumber(*fields[1], out, km.survival[k]);
-			SetSurvNumber(*fields[2], out, km.conf_low[k]);
-			SetSurvNumber(*fields[3], out, km.conf_high[k]);
-			FlatVector::GetData<int64_t>(*fields[4])[out] = static_cast<int64_t>(km.n_risk[k]);
-			FlatVector::GetData<int64_t>(*fields[5])[out] = static_cast<int64_t>(km.n_event[k]);
-			FlatVector::GetData<int64_t>(*fields[6])[out] = static_cast<int64_t>(km.n_censor[k]);
-			SetSurvNumber(*fields[7], out, km.std_err[k]);
+			FlatDataMut<double>(StructEntry(fields[0]))[out] = km.time[k];
+			SetSurvNumber(StructEntry(fields[1]), out, km.survival[k]);
+			SetSurvNumber(StructEntry(fields[2]), out, km.conf_low[k]);
+			SetSurvNumber(StructEntry(fields[3]), out, km.conf_high[k]);
+			FlatDataMut<int64_t>(StructEntry(fields[4]))[out] = static_cast<int64_t>(km.n_risk[k]);
+			FlatDataMut<int64_t>(StructEntry(fields[5]))[out] = static_cast<int64_t>(km.n_event[k]);
+			FlatDataMut<int64_t>(StructEntry(fields[6]))[out] = static_cast<int64_t>(km.n_censor[k]);
+			SetSurvNumber(StructEntry(fields[7]), out, km.std_err[k]);
 		}
 		ListVector::SetListSize(result, list_offset + len);
 		ListVector::GetData(result)[row] = list_entry_t(list_offset, len);
@@ -193,7 +193,7 @@ static Value SurvivalConstant(ClientContext &context, Expression &expr, const ch
 	return value;
 }
 
-static unique_ptr<FunctionData> KaplanMeierBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> KaplanMeierBind(ClientContext &context, AggregateBindFunction &function,
                                                 vector<unique_ptr<Expression>> &arguments) {
 	auto bind = make_uniq<KaplanMeierBindData>();
 	if (arguments.size() >= 3) {
@@ -216,7 +216,7 @@ static unique_ptr<FunctionData> KaplanMeierBind(ClientContext &context, Aggregat
 			                            raw);
 		}
 	}
-	function.return_type = KaplanMeierResultType();
+	SetReturnTypeOf(function, KaplanMeierResultType());
 	PostHogTelemetry::Instance().RecordFunctionCall("kaplan_meier_agg");
 	return std::move(bind);
 }
@@ -242,7 +242,7 @@ struct LogRankState {
 	}
 };
 
-static void LogRankInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void LogRankInitialize(data_ptr_t state_p) {
 	new (state_p) LogRankState();
 }
 
@@ -336,11 +336,11 @@ static void LogRankFinalize(Vector &state_vector, AggregateInputData &, Vector &
 	}
 }
 
-static unique_ptr<FunctionData> LogRankBind(ClientContext &, AggregateFunction &function,
+static unique_ptr<FunctionData> LogRankBind(ClientContext &, AggregateBindFunction &function,
                                             vector<unique_ptr<Expression>> &) {
 	child_list_t<LogicalType> children;
 	AppendTestResultFields(children);
-	function.return_type = LogicalType::STRUCT(std::move(children));
+	SetReturnTypeOf(function, LogicalType::STRUCT(std::move(children)));
 	PostHogTelemetry::Instance().RecordFunctionCall("log_rank_test_agg");
 	return nullptr;
 }
@@ -359,11 +359,11 @@ void RegisterSurvivalAggregateFunctions(ExtensionLoader &loader) {
 				}
 				set.AddFunction(AggregateFunction(
 				    "kaplan_meier_agg", args, LogicalType::ANY, AggregateFunction::StateSize<KaplanMeierState>,
-				    KaplanMeierInitialize,
+				    ANOFOX_AGG_INIT(KaplanMeierInitialize),
 				    ANOFOX_GUARDED_UPDATE(KaplanMeierUpdate, KaplanMeierDestroy, KaplanMeierInitialize),
 				    KaplanMeierCombine,
 				    ANOFOX_GUARDED_FINALIZE(KaplanMeierFinalize, KaplanMeierDestroy, KaplanMeierInitialize), nullptr,
-				    KaplanMeierBind, KaplanMeierDestroy));
+				    ANOFOX_AGG_BIND(KaplanMeierBind), KaplanMeierDestroy));
 			}
 		}
 		CreateAggregateFunctionInfo info(std::move(set));
@@ -387,9 +387,9 @@ void RegisterSurvivalAggregateFunctions(ExtensionLoader &loader) {
 			for (auto group_type : {LogicalType::VARCHAR, LogicalType::BIGINT}) {
 				set.AddFunction(AggregateFunction(
 				    "log_rank_test_agg", {LogicalType::DOUBLE, event_type, group_type}, LogicalType::ANY,
-				    AggregateFunction::StateSize<LogRankState>, LogRankInitialize,
+				    AggregateFunction::StateSize<LogRankState>, ANOFOX_AGG_INIT(LogRankInitialize),
 				    ANOFOX_GUARDED_UPDATE(LogRankUpdate, LogRankDestroy, LogRankInitialize), LogRankCombine,
-				    ANOFOX_GUARDED_FINALIZE(LogRankFinalize, LogRankDestroy, LogRankInitialize), nullptr, LogRankBind,
+				    ANOFOX_GUARDED_FINALIZE(LogRankFinalize, LogRankDestroy, LogRankInitialize), nullptr, ANOFOX_AGG_BIND(LogRankBind),
 				    LogRankDestroy));
 			}
 		}

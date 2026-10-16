@@ -126,7 +126,7 @@ LogicalType LmDynamicFitResultType() {
 
 //! Write `rows` lists of `width` values each (row-major `values`) as LIST(LIST(DOUBLE)).
 void SetNestedList(Vector &vec, idx_t row, const double *values, idx_t rows, idx_t width, idx_t skip) {
-	auto outer = FlatVector::GetData<list_entry_t>(vec);
+	auto outer = FlatDataMut<list_entry_t>(vec);
 	auto outer_offset = ListVector::GetListSize(vec);
 	ListVector::Reserve(vec, outer_offset + rows);
 	auto &inner = ListVector::GetEntry(vec);
@@ -155,34 +155,34 @@ void LmDynamicFitFinalize(Vector &state_vector, AggregateInputData &aggr_input_d
 		}
 		const idx_t n_rows = static_cast<idx_t>(fit.n_rows);
 		const idx_t width = static_cast<idx_t>(fit.n_coefs_per_row);
-		XyRowsSetDoubleList(*entries[0], row, fit.coefficients, static_cast<idx_t>(fit.n_features));
-		XyRowsSetDouble(*entries[1], row, bind.fit_intercept ? fit.intercept : 0.0);
-		XyRowsSetDouble(*entries[2], row, fit.r_squared);
-		XyRowsSetDouble(*entries[3], row, fit.adj_r_squared);
-		XyRowsSetDouble(*entries[4], row, fit.residual_std_error);
-		FlatVector::GetData<int64_t>(*entries[5])[row] = static_cast<int64_t>(fit.n_observations);
-		FlatVector::GetData<int64_t>(*entries[6])[row] = static_cast<int64_t>(fit.n_features);
-		FlatVector::GetData<int64_t>(*entries[7])[row] = static_cast<int64_t>(fit.n_models);
+		XyRowsSetDoubleList(StructEntry(entries[0]), row, fit.coefficients, static_cast<idx_t>(fit.n_features));
+		XyRowsSetDouble(StructEntry(entries[1]), row, bind.fit_intercept ? fit.intercept : 0.0);
+		XyRowsSetDouble(StructEntry(entries[2]), row, fit.r_squared);
+		XyRowsSetDouble(StructEntry(entries[3]), row, fit.adj_r_squared);
+		XyRowsSetDouble(StructEntry(entries[4]), row, fit.residual_std_error);
+		FlatDataMut<int64_t>(StructEntry(entries[5]))[row] = static_cast<int64_t>(fit.n_observations);
+		FlatDataMut<int64_t>(StructEntry(entries[6]))[row] = static_cast<int64_t>(fit.n_features);
+		FlatDataMut<int64_t>(StructEntry(entries[7]))[row] = static_cast<int64_t>(fit.n_models);
 		vector<double> intercepts(n_rows);
 		for (idx_t r = 0; r < n_rows; r++) {
 			intercepts[r] = bind.fit_intercept ? fit.dynamic_coefficients[r * width] : 0.0;
 		}
-		XyRowsSetDoubleList(*entries[8], row, intercepts.data(), n_rows);
-		SetNestedList(*entries[9], row, fit.dynamic_coefficients, n_rows, width, 1);
-		XyRowsSetDoubleList(*entries[10], row, fit.fitted_values, n_rows);
+		XyRowsSetDoubleList(StructEntry(entries[8]), row, intercepts.data(), n_rows);
+		SetNestedList(StructEntry(entries[9]), row, fit.dynamic_coefficients, n_rows, width, 1);
+		XyRowsSetDoubleList(StructEntry(entries[10]), row, fit.fitted_values, n_rows);
 		writer.WriteInference(row, nullptr);
 		writer.WriteSummary(row, fit.summary);
 		anofox_free_lm_dynamic_fit_result(&fit);
 	}
 }
 
-unique_ptr<FunctionData> LmDynamicFitBind(ClientContext &context, AggregateFunction &function,
+unique_ptr<FunctionData> LmDynamicFitBind(ClientContext &context, AggregateBindFunction &function,
                                           vector<unique_ptr<Expression>> &arguments) {
 	auto bind = make_uniq<LmDynamicBindData>();
 	if (arguments.size() >= 3) {
 		ParseLmDynamicOptions(context, *arguments[2], *bind, kFitName);
 	}
-	function.return_type = LmDynamicFitResultType();
+	SetReturnTypeOf(function, LmDynamicFitResultType());
 	PostHogTelemetry::Instance().RecordFunctionCall(kFitName);
 	return std::move(bind);
 }
@@ -234,17 +234,17 @@ void LmDynamicPredictFinalize(Vector &state_vector, AggregateInputData &aggr_inp
 		for (idx_t r = 0; r < n_rows; r++) {
 			idx_t child = list_offset + r;
 			if (state.y_is_null[r]) {
-				FlatVector::SetNull(*entries[0], child, true);
+				FlatVector::SetNull(StructEntry(entries[0]), child, true);
 			} else {
-				FlatVector::GetData<double>(*entries[0])[child] = state.y_all[r];
+				FlatDataMut<double>(StructEntry(entries[0]))[child] = state.y_all[r];
 			}
 			double yhat;
 			if (state.is_training[r]) {
 				// The row's own time-varying fit.
 				const double *coefs = fit.dynamic_coefficients + train_row * width;
 				yhat = fit.fitted_values[train_row];
-				XyRowsSetDouble(*entries[5], child, bind.fit_intercept ? coefs[0] : 0.0);
-				XyRowsSetDoubleList(*entries[6], child, coefs + 1, width - 1);
+				XyRowsSetDouble(StructEntry(entries[5]), child, bind.fit_intercept ? coefs[0] : 0.0);
+				XyRowsSetDoubleList(StructEntry(entries[6]), child, coefs + 1, width - 1);
 				train_row++;
 			} else {
 				// Rows outside the fit: the time-averaged coefficients, as greybox predict() on new data.
@@ -254,13 +254,13 @@ void LmDynamicPredictFinalize(Vector &state_vector, AggregateInputData &aggr_inp
 						yhat += fit.coefficients[j] * state.x_all[r][j];
 					}
 				}
-				FlatVector::SetNull(*entries[5], child, true);
-				FlatVector::SetNull(*entries[6], child, true);
+				FlatVector::SetNull(StructEntry(entries[5]), child, true);
+				FlatVector::SetNull(StructEntry(entries[6]), child, true);
 			}
-			XyRowsSetDouble(*entries[1], child, yhat);
-			FlatVector::SetNull(*entries[2], child, true);
-			FlatVector::SetNull(*entries[3], child, true);
-			FlatVector::GetData<bool>(*entries[4])[child] = state.is_training[r];
+			XyRowsSetDouble(StructEntry(entries[1]), child, yhat);
+			FlatVector::SetNull(StructEntry(entries[2]), child, true);
+			FlatVector::SetNull(StructEntry(entries[3]), child, true);
+			FlatDataMut<bool>(StructEntry(entries[4]))[child] = state.is_training[r];
 		}
 		ListVector::SetListSize(result, list_offset + n_rows);
 		anofox_free_lm_dynamic_fit_result(&fit);
@@ -268,7 +268,7 @@ void LmDynamicPredictFinalize(Vector &state_vector, AggregateInputData &aggr_inp
 }
 
 template <bool SPLIT>
-unique_ptr<FunctionData> LmDynamicPredictBind(ClientContext &context, AggregateFunction &function,
+unique_ptr<FunctionData> LmDynamicPredictBind(ClientContext &context, AggregateBindFunction &function,
                                               vector<unique_ptr<Expression>> &arguments) {
 	auto bind = make_uniq<LmDynamicBindData>();
 	bind->use_split_col = SPLIT;
@@ -276,7 +276,7 @@ unique_ptr<FunctionData> LmDynamicPredictBind(ClientContext &context, AggregateF
 	if (arguments.size() > options_idx) {
 		ParseLmDynamicOptions(context, *arguments[options_idx], *bind, kFitPredictName);
 	}
-	function.return_type = LmDynamicPredictResultType();
+	SetReturnTypeOf(function, LmDynamicPredictResultType());
 	PostHogTelemetry::Instance().RecordFunctionCall(kFitPredictName);
 	return std::move(bind);
 }
@@ -307,11 +307,11 @@ void RegisterLmDynamicFunctions(ExtensionLoader &loader) {
 			args.push_back(LogicalType::ANY);
 		}
 		AggregateFunction fn(kFitName, args, LogicalType::ANY, AggregateFunction::StateSize<XyRowsState>,
-		                     XyRowsInitialize, XyRowsUpdate, XyRowsCombine,
+		                     ANOFOX_AGG_INIT(XyRowsInitialize), XyRowsUpdate, XyRowsCombine,
 		                     ANOFOX_GUARDED_FINALIZE(LmDynamicFitFinalize, XyRowsDestroy, XyRowsInitialize), nullptr,
-		                     LmDynamicFitBind, XyRowsDestroy);
+		                     ANOFOX_AGG_BIND(LmDynamicFitBind), XyRowsDestroy);
 		// The row order is the time index.
-		fn.order_dependent = AggregateOrderDependent::ORDER_DEPENDENT;
+		SetOrderDependentOf(fn, AggregateOrderDependent::ORDER_DEPENDENT);
 		fit_set.AddFunction(fn);
 	}
 	CreateAggregateFunctionInfo fit_info(std::move(fit_set));
@@ -338,12 +338,12 @@ void RegisterLmDynamicFunctions(ExtensionLoader &loader) {
 		bool split = args.size() >= 3 && args[2].id() == LogicalTypeId::VARCHAR;
 		AggregateFunction fn(
 		    kFitPredictName, args, LogicalType::ANY, AggregateFunction::StateSize<FitPredictRowsState>,
-		    FitPredictRowsInitialize,
+		    ANOFOX_AGG_INIT(FitPredictRowsInitialize),
 		    ANOFOX_GUARDED_UPDATE(FitPredictRowsUpdate, FitPredictRowsDestroy, FitPredictRowsInitialize),
 		    FitPredictRowsCombine,
 		    ANOFOX_GUARDED_FINALIZE(LmDynamicPredictFinalize, FitPredictRowsDestroy, FitPredictRowsInitialize),
-		    nullptr, split ? LmDynamicPredictBind<true> : LmDynamicPredictBind<false>, FitPredictRowsDestroy);
-		fn.order_dependent = AggregateOrderDependent::ORDER_DEPENDENT;
+		    nullptr, split ? ANOFOX_AGG_BIND(LmDynamicPredictBind<true>) : ANOFOX_AGG_BIND(LmDynamicPredictBind<false>), FitPredictRowsDestroy);
+		SetOrderDependentOf(fn, AggregateOrderDependent::ORDER_DEPENDENT);
 		predict_set.AddFunction(fn);
 	}
 	CreateAggregateFunctionInfo predict_info(std::move(predict_set));

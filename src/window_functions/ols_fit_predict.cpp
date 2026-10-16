@@ -101,7 +101,7 @@ static LogicalType GetOlsFitPredictResultType() {
 // Aggregate function operations
 //===--------------------------------------------------------------------===//
 
-static void OlsFitPredictInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void OlsFitPredictInitialize(data_ptr_t state_p) {
     new (state_p) OlsFitPredictState();
 }
 
@@ -127,10 +127,10 @@ static void OlsFitPredictUpdate(Vector inputs[], AggregateInputData &aggr_input_
     inputs[1].ToUnifiedFormat(count, x_data); // x: LIST(DOUBLE)
 
     auto y_values = UnifiedVectorFormat::GetData<double>(y_data);
-    auto x_list_data = ListVector::GetData(inputs[1]);
+    auto x_list_data = UnifiedVectorFormat::GetData<list_entry_t>(x_data);
     auto &x_child = ListVector::GetEntry(inputs[1]);
-    auto x_child_data = FlatVector::GetData<double>(x_child);
-    auto &x_child_validity = FlatVector::Validity(x_child);
+    auto x_child_data = FlatDataMut<double>(x_child);
+    auto &x_child_validity = FlatValidityMut(x_child);
 
     UnifiedVectorFormat sdata;
     state_vector.ToUnifiedFormat(count, sdata);
@@ -334,9 +334,9 @@ static void OlsFitPredictFinalize(Vector &state_vector, AggregateInputData &, Ve
         }
 
         // Fill result
-        FlatVector::GetData<double>(*struct_entries[0])[result_idx] = pred_result.yhat;
-        WriteIntervalBound(*struct_entries[1], result_idx, pred_result.yhat_lower);
-        WriteIntervalBound(*struct_entries[2], result_idx, pred_result.yhat_upper);
+        FlatDataMut<double>(StructEntry(struct_entries[0]))[result_idx] = pred_result.yhat;
+        WriteIntervalBound(StructEntry(struct_entries[1]), result_idx, pred_result.yhat_lower);
+        WriteIntervalBound(StructEntry(struct_entries[2]), result_idx, pred_result.yhat_upper);
 
         state.Reset();
     }
@@ -345,7 +345,7 @@ static void OlsFitPredictFinalize(Vector &state_vector, AggregateInputData &, Ve
 //===--------------------------------------------------------------------===//
 // Bind function
 //===--------------------------------------------------------------------===//
-static unique_ptr<FunctionData> OlsFitPredictBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> OlsFitPredictBind(ClientContext &context, AggregateBindFunction &function,
                                                    vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<OlsFitPredictBindData>();
 
@@ -373,7 +373,7 @@ static unique_ptr<FunctionData> OlsFitPredictBind(ClientContext &context, Aggreg
         }
     }
 
-    function.return_type = GetOlsFitPredictResultType();
+    SetReturnTypeOf(function, GetOlsFitPredictResultType());
     PostHogTelemetry::Instance().RecordFunctionCall("ols_fit_predict");
     return std::move(result);
 }
@@ -385,16 +385,16 @@ void RegisterOlsFitPredictFunction(ExtensionLoader &loader) {
     auto basic_func =
         AggregateFunction("ols_fit_predict",
                           {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)}, GetOlsFitPredictResultType(),
-                          AggregateFunction::StateSize<OlsFitPredictState>, OlsFitPredictInitialize,
+                          AggregateFunction::StateSize<OlsFitPredictState>, ANOFOX_AGG_INIT(OlsFitPredictInitialize),
                           ANOFOX_GUARDED_UPDATE(OlsFitPredictUpdate, OlsFitPredictDestroy, OlsFitPredictInitialize), OlsFitPredictCombine, ANOFOX_GUARDED_FINALIZE(OlsFitPredictFinalize, OlsFitPredictDestroy, OlsFitPredictInitialize),
                           nullptr, // simple_update
-                          OlsFitPredictBind, OlsFitPredictDestroy);
+                          ANOFOX_AGG_BIND(OlsFitPredictBind), OlsFitPredictDestroy);
 
     auto map_func = AggregateFunction("ols_fit_predict",
                                       {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
                                       GetOlsFitPredictResultType(), AggregateFunction::StateSize<OlsFitPredictState>,
-                                      OlsFitPredictInitialize, ANOFOX_GUARDED_UPDATE(OlsFitPredictUpdate, OlsFitPredictDestroy, OlsFitPredictInitialize), OlsFitPredictCombine,
-                                      ANOFOX_GUARDED_FINALIZE(OlsFitPredictFinalize, OlsFitPredictDestroy, OlsFitPredictInitialize), nullptr, OlsFitPredictBind, OlsFitPredictDestroy);
+                                      ANOFOX_AGG_INIT(OlsFitPredictInitialize), ANOFOX_GUARDED_UPDATE(OlsFitPredictUpdate, OlsFitPredictDestroy, OlsFitPredictInitialize), OlsFitPredictCombine,
+                                      ANOFOX_GUARDED_FINALIZE(OlsFitPredictFinalize, OlsFitPredictDestroy, OlsFitPredictInitialize), nullptr, ANOFOX_AGG_BIND(OlsFitPredictBind), OlsFitPredictDestroy);
 
     {
         AggregateFunctionSet func_set("ols_fit_predict");

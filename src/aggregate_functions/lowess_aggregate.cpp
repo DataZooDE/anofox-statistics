@@ -47,7 +47,7 @@ struct LowessBindData : public FunctionData {
 	}
 };
 
-void LowessInitialize(const AggregateFunction &, data_ptr_t state_p) {
+void LowessInitialize(data_ptr_t state_p) {
 	new (state_p) LowessState();
 }
 
@@ -140,8 +140,8 @@ void LowessFinalize(Vector &state_vector, AggregateInputData &aggr_input_data, V
 		list_data[row].offset = list_offset;
 		list_data[row].length = n;
 		auto &entries = StructVector::GetEntries(ListVector::GetEntry(result));
-		auto x_out = FlatVector::GetData<double>(*entries[0]);
-		auto y_out = FlatVector::GetData<double>(*entries[1]);
+		auto x_out = FlatDataMut<double>(StructEntry(entries[0]));
+		auto y_out = FlatDataMut<double>(StructEntry(entries[1]));
 		for (idx_t k = 0; k < n; k++) {
 			x_out[list_offset + k] = curve.x[k];
 			y_out[list_offset + k] = curve.fitted[k];
@@ -159,7 +159,7 @@ Value ConstantArgument(ClientContext &context, Expression &expr, const string &n
 	return ExpressionExecutor::EvaluateScalar(context, expr);
 }
 
-unique_ptr<FunctionData> LowessBind(ClientContext &context, AggregateFunction &function,
+unique_ptr<FunctionData> LowessBind(ClientContext &context, AggregateBindFunction &function,
                                     vector<unique_ptr<Expression>> &arguments) {
 	const string name(kLowessName);
 	auto bind = make_uniq<LowessBindData>();
@@ -182,7 +182,7 @@ unique_ptr<FunctionData> LowessBind(ClientContext &context, AggregateFunction &f
 	if (!(std::isfinite(bind->frac) && bind->frac > 0.0)) {
 		throw InvalidInputException("%s: frac must be finite and > 0", name);
 	}
-	function.return_type = LowessResultType();
+	SetReturnTypeOf(function, LowessResultType());
 	PostHogTelemetry::Instance().RecordFunctionCall(name);
 	return std::move(bind);
 }
@@ -197,9 +197,9 @@ void RegisterLowessFunction(ExtensionLoader &loader) {
 	    {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::INTEGER}};
 	for (auto &args : signatures) {
 		AggregateFunction fn(kLowessName, args, LogicalType::ANY, AggregateFunction::StateSize<LowessState>,
-		                     LowessInitialize, ANOFOX_GUARDED_UPDATE(LowessUpdate, LowessDestroy, LowessInitialize),
+		                     ANOFOX_AGG_INIT(LowessInitialize), ANOFOX_GUARDED_UPDATE(LowessUpdate, LowessDestroy, LowessInitialize),
 		                     LowessCombine, ANOFOX_GUARDED_FINALIZE(LowessFinalize, LowessDestroy, LowessInitialize),
-		                     nullptr, LowessBind, LowessDestroy);
+		                     nullptr, ANOFOX_AGG_BIND(LowessBind), LowessDestroy);
 		set.AddFunction(fn);
 	}
 	CreateAggregateFunctionInfo info(std::move(set));

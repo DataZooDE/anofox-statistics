@@ -79,7 +79,7 @@ static LogicalType GetEbShrinkResultType() {
 	return LogicalType::STRUCT(std::move(children));
 }
 
-static void EbShrinkInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void EbShrinkInitialize(data_ptr_t state_p) {
 	new (state_p) EbShrinkState();
 }
 
@@ -175,26 +175,26 @@ static void EbShrinkFinalize(Vector &state_vector, AggregateInputData &, Vector 
 			continue;
 		}
 
-		FlatVector::GetData<double>(*struct_entries[0])[row] = res.mu;
-		FlatVector::GetData<double>(*struct_entries[1])[row] = res.mu_se;
-		FlatVector::GetData<double>(*struct_entries[2])[row] = res.tau_squared;
-		FlatVector::GetData<double>(*struct_entries[3])[row] = res.i_squared;
-		FlatVector::GetData<double>(*struct_entries[4])[row] = res.q;
-		FlatVector::GetData<int64_t>(*struct_entries[5])[row] = (int64_t)res.n_groups;
+		FlatDataMut<double>(StructEntry(struct_entries[0]))[row] = res.mu;
+		FlatDataMut<double>(StructEntry(struct_entries[1]))[row] = res.mu_se;
+		FlatDataMut<double>(StructEntry(struct_entries[2]))[row] = res.tau_squared;
+		FlatDataMut<double>(StructEntry(struct_entries[3]))[row] = res.i_squared;
+		FlatDataMut<double>(StructEntry(struct_entries[4]))[row] = res.q;
+		FlatDataMut<int64_t>(StructEntry(struct_entries[5]))[row] = (int64_t)res.n_groups;
 
 		// The per-group LIST(STRUCT(...)).
-		auto &list_vec = *struct_entries[6];
-		auto list_data = FlatVector::GetData<list_entry_t>(list_vec);
+		auto &list_vec = StructEntry(struct_entries[6]);
+		auto list_data = FlatDataMut<list_entry_t>(list_vec);
 		auto child_offset = ListVector::GetListSize(list_vec);
 		ListVector::Reserve(list_vec, child_offset + res.len);
 		auto &child_struct = ListVector::GetEntry(list_vec);
 		auto &child_entries = StructVector::GetEntries(child_struct);
 
-		auto c_est = FlatVector::GetData<double>(*child_entries[0]);
-		auto c_se = FlatVector::GetData<double>(*child_entries[1]);
-		auto c_shr = FlatVector::GetData<double>(*child_entries[2]);
-		auto c_sse = FlatVector::GetData<double>(*child_entries[3]);
-		auto c_w = FlatVector::GetData<double>(*child_entries[4]);
+		auto c_est = FlatDataMut<double>(StructEntry(child_entries[0]));
+		auto c_se = FlatDataMut<double>(StructEntry(child_entries[1]));
+		auto c_shr = FlatDataMut<double>(StructEntry(child_entries[2]));
+		auto c_sse = FlatDataMut<double>(StructEntry(child_entries[3]));
+		auto c_w = FlatDataMut<double>(StructEntry(child_entries[4]));
 
 		for (idx_t j = 0; j < res.len; j++) {
 			c_est[child_offset + j] = res.estimate[j];
@@ -212,7 +212,7 @@ static void EbShrinkFinalize(Vector &state_vector, AggregateInputData &, Vector 
 	}
 }
 
-static unique_ptr<FunctionData> EbShrinkBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> EbShrinkBind(ClientContext &context, AggregateBindFunction &function,
                                              vector<unique_ptr<Expression>> &arguments) {
 	auto result = make_uniq<EbShrinkBindData>();
 
@@ -228,7 +228,7 @@ static unique_ptr<FunctionData> EbShrinkBind(ClientContext &context, AggregateFu
 		}
 	}
 
-	function.return_type = GetEbShrinkResultType();
+	SetReturnTypeOf(function, GetEbShrinkResultType());
 	PostHogTelemetry::Instance().RecordFunctionCall("eb_shrink_agg");
 	return std::move(result);
 }
@@ -238,14 +238,14 @@ void RegisterEbShrinkAggregateFunction(ExtensionLoader &loader) {
 
 	auto basic =
 	    AggregateFunction("eb_shrink_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE}, LogicalType::ANY,
-	                      AggregateFunction::StateSize<EbShrinkState>, EbShrinkInitialize, ANOFOX_GUARDED_UPDATE(EbShrinkUpdate, EbShrinkDestroy, EbShrinkInitialize),
-	                      EbShrinkCombine, ANOFOX_GUARDED_FINALIZE(EbShrinkFinalize, EbShrinkDestroy, EbShrinkInitialize), nullptr, EbShrinkBind, EbShrinkDestroy);
+	                      AggregateFunction::StateSize<EbShrinkState>, ANOFOX_AGG_INIT(EbShrinkInitialize), ANOFOX_GUARDED_UPDATE(EbShrinkUpdate, EbShrinkDestroy, EbShrinkInitialize),
+	                      EbShrinkCombine, ANOFOX_GUARDED_FINALIZE(EbShrinkFinalize, EbShrinkDestroy, EbShrinkInitialize), nullptr, ANOFOX_AGG_BIND(EbShrinkBind), EbShrinkDestroy);
 	func_set.AddFunction(basic);
 
 	auto with_opts =
 	    AggregateFunction("eb_shrink_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::ANY},
-	                      LogicalType::ANY, AggregateFunction::StateSize<EbShrinkState>, EbShrinkInitialize,
-	                      ANOFOX_GUARDED_UPDATE(EbShrinkUpdate, EbShrinkDestroy, EbShrinkInitialize), EbShrinkCombine, ANOFOX_GUARDED_FINALIZE(EbShrinkFinalize, EbShrinkDestroy, EbShrinkInitialize), nullptr, EbShrinkBind, EbShrinkDestroy);
+	                      LogicalType::ANY, AggregateFunction::StateSize<EbShrinkState>, ANOFOX_AGG_INIT(EbShrinkInitialize),
+	                      ANOFOX_GUARDED_UPDATE(EbShrinkUpdate, EbShrinkDestroy, EbShrinkInitialize), EbShrinkCombine, ANOFOX_GUARDED_FINALIZE(EbShrinkFinalize, EbShrinkDestroy, EbShrinkInitialize), nullptr, ANOFOX_AGG_BIND(EbShrinkBind), EbShrinkDestroy);
 	func_set.AddFunction(with_opts);
 
 	CreateAggregateFunctionInfo info(func_set);

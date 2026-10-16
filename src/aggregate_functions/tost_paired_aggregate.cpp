@@ -86,7 +86,7 @@ struct TostPairedBindData : public FunctionData {
 // Aggregate function operations
 //===--------------------------------------------------------------------===//
 
-static void TostPairedAggInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void TostPairedAggInitialize(data_ptr_t state_p) {
     new (state_p) TostPairedAggregateState();
 }
 
@@ -210,18 +210,18 @@ static void TostPairedAggFinalize(Vector &state_vector, AggregateInputData &aggr
         }
 
         idx_t struct_idx = 0;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = tost_result.estimate;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = tost_result.ci_lower;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = tost_result.ci_upper;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = tost_result.p_value;
-        FlatVector::GetData<bool>(*struct_entries[struct_idx++])[result_idx] = tost_result.equivalent;
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = static_cast<int64_t>(tost_result.n);
-        auto& method_vector = *struct_entries[struct_idx++];
-        FlatVector::GetData<string_t>(method_vector)[result_idx] =
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = tost_result.estimate;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = tost_result.ci_lower;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = tost_result.ci_upper;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = tost_result.p_value;
+        FlatDataMut<bool>(StructEntry(struct_entries[struct_idx++]))[result_idx] = tost_result.equivalent;
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = static_cast<int64_t>(tost_result.n);
+        auto& method_vector = StructEntry(struct_entries[struct_idx++]);
+        FlatDataMut<string_t>(method_vector)[result_idx] =
             StringVector::AddString(method_vector, tost_result.method ? tost_result.method : "TOST paired t-test");
         // statistic of the one-sided test that determines the TOST p-value
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = tost_result.p_lower >= tost_result.p_upper ? tost_result.t_lower : tost_result.t_upper;
-        SetResultNull(*struct_entries[struct_idx++], result_idx);
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = tost_result.p_lower >= tost_result.p_upper ? tost_result.t_lower : tost_result.t_upper;
+        SetResultNull(StructEntry(struct_entries[struct_idx++]), result_idx);
         WriteTestResultFields(result, result_idx, struct_idx, tost_result.unified); // alternative: not applicable
 
         anofox_free_tost_result(&tost_result);
@@ -232,9 +232,9 @@ static void TostPairedAggFinalize(Vector &state_vector, AggregateInputData &aggr
 //===--------------------------------------------------------------------===//
 // Bind function
 //===--------------------------------------------------------------------===//
-static unique_ptr<FunctionData> TostPairedAggBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> TostPairedAggBind(ClientContext &context, AggregateBindFunction &function,
                                                     vector<unique_ptr<Expression>> &arguments) {
-    function.return_type = GetTostPairedAggResultType();
+    SetReturnTypeOf(function, GetTostPairedAggResultType());
     auto bind_data = make_uniq<TostPairedBindData>();
 
     if (arguments.size() >= 3) {
@@ -268,18 +268,18 @@ void RegisterTostPairedAggregateFunction(ExtensionLoader &loader) {
     auto func_with_opts = AggregateFunction(
         "tost_paired_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::ANY},
         LogicalType::ANY,
-        AggregateFunction::StateSize<TostPairedAggregateState>, TostPairedAggInitialize,
+        AggregateFunction::StateSize<TostPairedAggregateState>, ANOFOX_AGG_INIT(TostPairedAggInitialize),
         ANOFOX_GUARDED_UPDATE(TostPairedAggUpdate, TostPairedAggDestroy, TostPairedAggInitialize), TostPairedAggCombine, ANOFOX_GUARDED_FINALIZE(TostPairedAggFinalize, TostPairedAggDestroy, TostPairedAggInitialize),
-        nullptr, TostPairedAggBind, TostPairedAggDestroy);
+        nullptr, ANOFOX_AGG_BIND(TostPairedAggBind), TostPairedAggDestroy);
     func_set.AddFunction(func_with_opts);
 
     // Without options: (x, y)
     auto func_no_opts = AggregateFunction(
         "tost_paired_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE},
         LogicalType::ANY,
-        AggregateFunction::StateSize<TostPairedAggregateState>, TostPairedAggInitialize,
+        AggregateFunction::StateSize<TostPairedAggregateState>, ANOFOX_AGG_INIT(TostPairedAggInitialize),
         ANOFOX_GUARDED_UPDATE(TostPairedAggUpdate, TostPairedAggDestroy, TostPairedAggInitialize), TostPairedAggCombine, ANOFOX_GUARDED_FINALIZE(TostPairedAggFinalize, TostPairedAggDestroy, TostPairedAggInitialize),
-        nullptr, TostPairedAggBind, TostPairedAggDestroy);
+        nullptr, ANOFOX_AGG_BIND(TostPairedAggBind), TostPairedAggDestroy);
     func_set.AddFunction(func_no_opts);
 
     CreateAggregateFunctionInfo info(std::move(func_set));

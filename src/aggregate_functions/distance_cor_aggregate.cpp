@@ -82,7 +82,7 @@ struct DistanceCorBindData : public FunctionData {
 // Aggregate function operations
 //===--------------------------------------------------------------------===//
 
-static void DistanceCorAggInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void DistanceCorAggInitialize(data_ptr_t state_p) {
     new (state_p) DistanceCorAggregateState();
 }
 
@@ -226,14 +226,14 @@ static void DistanceCorAggFinalize(Vector &state_vector, AggregateInputData &agg
 
         // Fill STRUCT result
         idx_t struct_idx = 0;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = dcor_result.dcor;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = test_result.statistic;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = test_result.p_value;
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = static_cast<int64_t>(test_result.n);
-        auto& method_vector = *struct_entries[struct_idx++];
-        FlatVector::GetData<string_t>(method_vector)[result_idx] =
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = dcor_result.dcor;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = test_result.statistic;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = test_result.p_value;
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = static_cast<int64_t>(test_result.n);
+        auto& method_vector = StructEntry(struct_entries[struct_idx++]);
+        FlatDataMut<string_t>(method_vector)[result_idx] =
             StringVector::AddString(method_vector, test_result.method ? test_result.method : "Distance correlation test");
-        SetResultNull(*struct_entries[struct_idx++], result_idx);
+        SetResultNull(StructEntry(struct_entries[struct_idx++]), result_idx);
         WriteTestResultFields(result, result_idx, struct_idx, test_result.unified); // alternative: omnibus test
 
         anofox_free_test_result(&test_result);
@@ -244,9 +244,9 @@ static void DistanceCorAggFinalize(Vector &state_vector, AggregateInputData &agg
 //===--------------------------------------------------------------------===//
 // Bind function
 //===--------------------------------------------------------------------===//
-static unique_ptr<FunctionData> DistanceCorAggBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> DistanceCorAggBind(ClientContext &context, AggregateBindFunction &function,
                                                     vector<unique_ptr<Expression>> &arguments) {
-    function.return_type = GetDistanceCorAggResultType();
+    SetReturnTypeOf(function, GetDistanceCorAggResultType());
     auto bind_data = make_uniq<DistanceCorBindData>();
 
     // Parse n_permutations from options if provided
@@ -274,17 +274,17 @@ void RegisterDistanceCorAggregateFunction(ExtensionLoader &loader) {
     auto func_with_opts = AggregateFunction(
         "distance_cor_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::ANY},
         LogicalType::ANY,
-        AggregateFunction::StateSize<DistanceCorAggregateState>, DistanceCorAggInitialize,
+        AggregateFunction::StateSize<DistanceCorAggregateState>, ANOFOX_AGG_INIT(DistanceCorAggInitialize),
         ANOFOX_GUARDED_UPDATE(DistanceCorAggUpdate, DistanceCorAggDestroy, DistanceCorAggInitialize), DistanceCorAggCombine, ANOFOX_GUARDED_FINALIZE(DistanceCorAggFinalize, DistanceCorAggDestroy, DistanceCorAggInitialize),
-        nullptr, DistanceCorAggBind, DistanceCorAggDestroy);
+        nullptr, ANOFOX_AGG_BIND(DistanceCorAggBind), DistanceCorAggDestroy);
 
     // Without options: (x, y)
     auto func_no_opts = AggregateFunction(
         "distance_cor_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE},
         LogicalType::ANY,
-        AggregateFunction::StateSize<DistanceCorAggregateState>, DistanceCorAggInitialize,
+        AggregateFunction::StateSize<DistanceCorAggregateState>, ANOFOX_AGG_INIT(DistanceCorAggInitialize),
         ANOFOX_GUARDED_UPDATE(DistanceCorAggUpdate, DistanceCorAggDestroy, DistanceCorAggInitialize), DistanceCorAggCombine, ANOFOX_GUARDED_FINALIZE(DistanceCorAggFinalize, DistanceCorAggDestroy, DistanceCorAggInitialize),
-        nullptr, DistanceCorAggBind, DistanceCorAggDestroy);
+        nullptr, ANOFOX_AGG_BIND(DistanceCorAggBind), DistanceCorAggDestroy);
 
     {
         AggregateFunctionSet func_set("distance_cor_agg");

@@ -20,6 +20,7 @@
 // existing fields never change.
 
 #include "duckdb.hpp"
+#include "duckdb_compat.hpp"
 
 #include "anofox_stats_ffi.h"
 

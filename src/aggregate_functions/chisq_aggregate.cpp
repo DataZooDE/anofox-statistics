@@ -76,7 +76,7 @@ struct ChiSquareBindData : public FunctionData {
 // Aggregate function operations
 //===--------------------------------------------------------------------===//
 
-static void ChiSquareAggInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void ChiSquareAggInitialize(data_ptr_t state_p) {
     new (state_p) ChiSquareAggregateState();
 }
 
@@ -193,14 +193,14 @@ static void ChiSquareAggFinalize(Vector &state_vector, AggregateInputData &aggr_
         }
 
         idx_t struct_idx = 0;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = chisq_result.statistic;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = chisq_result.p_value;
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = static_cast<int64_t>(chisq_result.df);
-        auto& method_vector = *struct_entries[struct_idx++];
-        FlatVector::GetData<string_t>(method_vector)[result_idx] =
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = chisq_result.statistic;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = chisq_result.p_value;
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = static_cast<int64_t>(chisq_result.df);
+        auto& method_vector = StructEntry(struct_entries[struct_idx++]);
+        FlatDataMut<string_t>(method_vector)[result_idx] =
             StringVector::AddString(method_vector, chisq_result.method ? chisq_result.method : "Chi-Square");
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = static_cast<int64_t>(state.row_var.size());
-        SetResultNull(*struct_entries[struct_idx++], result_idx);
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = static_cast<int64_t>(state.row_var.size());
+        SetResultNull(StructEntry(struct_entries[struct_idx++]), result_idx);
         WriteTestResultFields(result, result_idx, struct_idx, chisq_result.unified); // alternative: not applicable
 
         anofox_free_chisq_result(&chisq_result);
@@ -208,9 +208,9 @@ static void ChiSquareAggFinalize(Vector &state_vector, AggregateInputData &aggr_
     }
 }
 
-static unique_ptr<FunctionData> ChiSquareAggBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> ChiSquareAggBind(ClientContext &context, AggregateBindFunction &function,
                                                   vector<unique_ptr<Expression>> &arguments) {
-    function.return_type = GetChiSquareAggResultType();
+    SetReturnTypeOf(function, GetChiSquareAggResultType());
     auto bind_data = make_uniq<ChiSquareBindData>();
 
     if (arguments.size() >= 3) {
@@ -228,17 +228,17 @@ void RegisterChiSquareAggregateFunction(ExtensionLoader &loader) {
     auto func_with_opts = AggregateFunction(
         "chisq_test_agg", {LogicalType::INTEGER, LogicalType::INTEGER, LogicalType::ANY},
         LogicalType::ANY,
-        AggregateFunction::StateSize<ChiSquareAggregateState>, ChiSquareAggInitialize,
+        AggregateFunction::StateSize<ChiSquareAggregateState>, ANOFOX_AGG_INIT(ChiSquareAggInitialize),
         ANOFOX_GUARDED_UPDATE(ChiSquareAggUpdate, ChiSquareAggDestroy, ChiSquareAggInitialize), ChiSquareAggCombine, ANOFOX_GUARDED_FINALIZE(ChiSquareAggFinalize, ChiSquareAggDestroy, ChiSquareAggInitialize),
-        nullptr, ChiSquareAggBind, ChiSquareAggDestroy);
+        nullptr, ANOFOX_AGG_BIND(ChiSquareAggBind), ChiSquareAggDestroy);
     func_set.AddFunction(func_with_opts);
 
     auto func_no_opts = AggregateFunction(
         "chisq_test_agg", {LogicalType::INTEGER, LogicalType::INTEGER},
         LogicalType::ANY,
-        AggregateFunction::StateSize<ChiSquareAggregateState>, ChiSquareAggInitialize,
+        AggregateFunction::StateSize<ChiSquareAggregateState>, ANOFOX_AGG_INIT(ChiSquareAggInitialize),
         ANOFOX_GUARDED_UPDATE(ChiSquareAggUpdate, ChiSquareAggDestroy, ChiSquareAggInitialize), ChiSquareAggCombine, ANOFOX_GUARDED_FINALIZE(ChiSquareAggFinalize, ChiSquareAggDestroy, ChiSquareAggInitialize),
-        nullptr, ChiSquareAggBind, ChiSquareAggDestroy);
+        nullptr, ANOFOX_AGG_BIND(ChiSquareAggBind), ChiSquareAggDestroy);
     func_set.AddFunction(func_no_opts);
 
     CreateAggregateFunctionInfo info(std::move(func_set));

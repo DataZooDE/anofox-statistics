@@ -78,7 +78,7 @@ struct SpearmanBindData : public FunctionData {
 // Aggregate function operations
 //===--------------------------------------------------------------------===//
 
-static void SpearmanAggInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void SpearmanAggInitialize(data_ptr_t state_p) {
     new (state_p) SpearmanAggregateState();
 }
 
@@ -200,16 +200,16 @@ static void SpearmanAggFinalize(Vector &state_vector, AggregateInputData &aggr_i
         }
 
         idx_t struct_idx = 0;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = cor_result.r;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = cor_result.statistic;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = cor_result.p_value;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = cor_result.ci_lower;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = cor_result.ci_upper;
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = static_cast<int64_t>(cor_result.n);
-        auto& method_vector = *struct_entries[struct_idx++];
-        FlatVector::GetData<string_t>(method_vector)[result_idx] =
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = cor_result.r;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = cor_result.statistic;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = cor_result.p_value;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = cor_result.ci_lower;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = cor_result.ci_upper;
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = static_cast<int64_t>(cor_result.n);
+        auto& method_vector = StructEntry(struct_entries[struct_idx++]);
+        FlatDataMut<string_t>(method_vector)[result_idx] =
             StringVector::AddString(method_vector, cor_result.method ? cor_result.method : "Spearman");
-        SetResultString(*struct_entries[struct_idx++], result_idx, AlternativeName(options.alternative));
+        SetResultString(StructEntry(struct_entries[struct_idx++]), result_idx, AlternativeName(options.alternative));
         WriteTestResultFields(result, result_idx, struct_idx, cor_result.unified);
 
         anofox_free_correlation_result(&cor_result);
@@ -217,9 +217,9 @@ static void SpearmanAggFinalize(Vector &state_vector, AggregateInputData &aggr_i
     }
 }
 
-static unique_ptr<FunctionData> SpearmanAggBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> SpearmanAggBind(ClientContext &context, AggregateBindFunction &function,
                                                  vector<unique_ptr<Expression>> &arguments) {
-    function.return_type = GetSpearmanAggResultType();
+    SetReturnTypeOf(function, GetSpearmanAggResultType());
     auto bind_data = make_uniq<SpearmanBindData>();
 
     if (arguments.size() >= 3) {
@@ -237,17 +237,17 @@ void RegisterSpearmanAggregateFunction(ExtensionLoader &loader) {
     auto func_with_opts = AggregateFunction(
         "spearman_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::ANY},
         LogicalType::ANY,
-        AggregateFunction::StateSize<SpearmanAggregateState>, SpearmanAggInitialize,
+        AggregateFunction::StateSize<SpearmanAggregateState>, ANOFOX_AGG_INIT(SpearmanAggInitialize),
         ANOFOX_GUARDED_UPDATE(SpearmanAggUpdate, SpearmanAggDestroy, SpearmanAggInitialize), SpearmanAggCombine, ANOFOX_GUARDED_FINALIZE(SpearmanAggFinalize, SpearmanAggDestroy, SpearmanAggInitialize),
-        nullptr, SpearmanAggBind, SpearmanAggDestroy);
+        nullptr, ANOFOX_AGG_BIND(SpearmanAggBind), SpearmanAggDestroy);
     func_set.AddFunction(func_with_opts);
 
     auto func_no_opts = AggregateFunction(
         "spearman_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE},
         LogicalType::ANY,
-        AggregateFunction::StateSize<SpearmanAggregateState>, SpearmanAggInitialize,
+        AggregateFunction::StateSize<SpearmanAggregateState>, ANOFOX_AGG_INIT(SpearmanAggInitialize),
         ANOFOX_GUARDED_UPDATE(SpearmanAggUpdate, SpearmanAggDestroy, SpearmanAggInitialize), SpearmanAggCombine, ANOFOX_GUARDED_FINALIZE(SpearmanAggFinalize, SpearmanAggDestroy, SpearmanAggInitialize),
-        nullptr, SpearmanAggBind, SpearmanAggDestroy);
+        nullptr, ANOFOX_AGG_BIND(SpearmanAggBind), SpearmanAggDestroy);
     func_set.AddFunction(func_no_opts);
 
     CreateAggregateFunctionInfo info(std::move(func_set));

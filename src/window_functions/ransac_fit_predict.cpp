@@ -110,7 +110,7 @@ static LogicalType GetRansacFitPredictResultType() {
     return LogicalType::STRUCT(std::move(children));
 }
 
-static void RansacFitPredictInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void RansacFitPredictInitialize(data_ptr_t state_p) {
     new (state_p) RansacFitPredictState();
 }
 
@@ -135,10 +135,10 @@ static void RansacFitPredictUpdate(Vector inputs[], AggregateInputData &aggr_inp
     inputs[1].ToUnifiedFormat(count, x_data);
 
     auto y_values = UnifiedVectorFormat::GetData<double>(y_data);
-    auto x_list_data = ListVector::GetData(inputs[1]);
+    auto x_list_data = UnifiedVectorFormat::GetData<list_entry_t>(x_data);
     auto &x_child = ListVector::GetEntry(inputs[1]);
-    auto x_child_data = FlatVector::GetData<double>(x_child);
-    auto &x_child_validity = FlatVector::Validity(x_child);
+    auto x_child_data = FlatDataMut<double>(x_child);
+    auto &x_child_validity = FlatValidityMut(x_child);
 
     UnifiedVectorFormat sdata;
     state_vector.ToUnifiedFormat(count, sdata);
@@ -350,15 +350,15 @@ static void RansacFitPredictFinalize(Vector &state_vector, AggregateInputData &,
             continue;
         }
 
-        FlatVector::GetData<double>(*struct_entries[0])[result_idx] = pred_result.yhat;
-        WriteIntervalBound(*struct_entries[1], result_idx, pred_result.yhat_lower);
-        WriteIntervalBound(*struct_entries[2], result_idx, pred_result.yhat_upper);
+        FlatDataMut<double>(StructEntry(struct_entries[0]))[result_idx] = pred_result.yhat;
+        WriteIntervalBound(StructEntry(struct_entries[1]), result_idx, pred_result.yhat_lower);
+        WriteIntervalBound(StructEntry(struct_entries[2]), result_idx, pred_result.yhat_upper);
 
         state.Reset();
     }
 }
 
-static unique_ptr<FunctionData> RansacFitPredictBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> RansacFitPredictBind(ClientContext &context, AggregateBindFunction &function,
                                                      vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<RansacFitPredictBindData>();
 
@@ -398,7 +398,7 @@ static unique_ptr<FunctionData> RansacFitPredictBind(ClientContext &context, Agg
         }
     }
 
-    function.return_type = GetRansacFitPredictResultType();
+    SetReturnTypeOf(function, GetRansacFitPredictResultType());
     PostHogTelemetry::Instance().RecordFunctionCall("ransac_fit_predict");
     return std::move(result);
 }
@@ -407,15 +407,15 @@ void RegisterRansacFitPredictFunction(ExtensionLoader &loader) {
     auto basic_func = AggregateFunction(
         "ransac_fit_predict", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
         GetRansacFitPredictResultType(), AggregateFunction::StateSize<RansacFitPredictState>,
-        RansacFitPredictInitialize, ANOFOX_GUARDED_UPDATE(RansacFitPredictUpdate, RansacFitPredictDestroy, RansacFitPredictInitialize), RansacFitPredictCombine, ANOFOX_GUARDED_FINALIZE(RansacFitPredictFinalize, RansacFitPredictDestroy, RansacFitPredictInitialize),
-        nullptr, RansacFitPredictBind, RansacFitPredictDestroy);
+        ANOFOX_AGG_INIT(RansacFitPredictInitialize), ANOFOX_GUARDED_UPDATE(RansacFitPredictUpdate, RansacFitPredictDestroy, RansacFitPredictInitialize), RansacFitPredictCombine, ANOFOX_GUARDED_FINALIZE(RansacFitPredictFinalize, RansacFitPredictDestroy, RansacFitPredictInitialize),
+        nullptr, ANOFOX_AGG_BIND(RansacFitPredictBind), RansacFitPredictDestroy);
 
     auto map_func = AggregateFunction(
         "ransac_fit_predict",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
         GetRansacFitPredictResultType(), AggregateFunction::StateSize<RansacFitPredictState>,
-        RansacFitPredictInitialize, ANOFOX_GUARDED_UPDATE(RansacFitPredictUpdate, RansacFitPredictDestroy, RansacFitPredictInitialize), RansacFitPredictCombine, ANOFOX_GUARDED_FINALIZE(RansacFitPredictFinalize, RansacFitPredictDestroy, RansacFitPredictInitialize),
-        nullptr, RansacFitPredictBind, RansacFitPredictDestroy);
+        ANOFOX_AGG_INIT(RansacFitPredictInitialize), ANOFOX_GUARDED_UPDATE(RansacFitPredictUpdate, RansacFitPredictDestroy, RansacFitPredictInitialize), RansacFitPredictCombine, ANOFOX_GUARDED_FINALIZE(RansacFitPredictFinalize, RansacFitPredictDestroy, RansacFitPredictInitialize),
+        nullptr, ANOFOX_AGG_BIND(RansacFitPredictBind), RansacFitPredictDestroy);
 
     {
         AggregateFunctionSet func_set("ransac_fit_predict");

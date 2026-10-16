@@ -63,7 +63,7 @@ void AppendTestResultFields(child_list_t<LogicalType> &children) {
 			}
 		}
 		if (!present) {
-			children.push_back(make_pair(string(name), TestFieldType(name)));
+			children.push_back(MakeChild(name, TestFieldType(name)));
 		}
 	}
 }
@@ -72,7 +72,7 @@ static void WriteDouble(Vector &vec, idx_t row, double value) {
 	if (std::isnan(value)) {
 		FlatVector::SetNull(vec, row, true);
 	} else {
-		FlatVector::GetData<double>(vec)[row] = value;
+		FlatDataMut<double>(vec)[row] = value;
 	}
 }
 
@@ -83,7 +83,7 @@ static void WriteName(Vector &vec, idx_t row, const char *value, size_t capacity
 		FlatVector::SetNull(vec, row, true);
 		return;
 	}
-	FlatVector::GetData<string_t>(vec)[row] = StringVector::AddString(vec, value, len);
+	FlatDataMut<string_t>(vec)[row] = StringVector::AddString(vec, value, len);
 }
 
 void WriteTestResultFields(Vector &result, idx_t row, idx_t first_field, const AnofoxTestSummaryFFI &s) {
@@ -91,7 +91,7 @@ void WriteTestResultFields(Vector &result, idx_t row, idx_t first_field, const A
 	auto &entries = StructVector::GetEntries(result);
 	for (idx_t i = first_field; i < types.size(); i++) {
 		auto &name = types[i].first;
-		auto &vec = *entries[i];
+		auto &vec = StructEntry(entries[i]);
 		if (name == "method") {
 			WriteName(vec, row, s.method, ANOFOX_TEST_METHOD_LEN);
 		} else if (name == "alternative") {
@@ -102,7 +102,7 @@ void WriteTestResultFields(Vector &result, idx_t row, idx_t first_field, const A
 			if (s.n < 0) {
 				FlatVector::SetNull(vec, row, true);
 			} else {
-				FlatVector::GetData<int64_t>(vec)[row] = s.n;
+				FlatDataMut<int64_t>(vec)[row] = s.n;
 			}
 		} else if (name == "statistic") {
 			WriteDouble(vec, row, s.statistic);

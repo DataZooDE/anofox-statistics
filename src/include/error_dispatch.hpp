@@ -1,5 +1,6 @@
 #pragma once
 #include "duckdb.hpp"
+#include "duckdb_compat.hpp"
 #include "anofox_stats_ffi.h"
 #include <string>
 

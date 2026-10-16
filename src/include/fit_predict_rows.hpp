@@ -1,5 +1,6 @@
 #pragma once
 #include "duckdb.hpp"
+#include "duckdb_compat.hpp"
 #include <cmath>
 #include <utility>
 

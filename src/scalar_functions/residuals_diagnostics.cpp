@@ -27,9 +27,9 @@ static LogicalType GetResidualsDiagnosticsResultType() {
 }
 
 // Bind function
-static unique_ptr<FunctionData> ResidualsDiagnosticsBind(ClientContext &context, ScalarFunction &bound_function,
+static unique_ptr<FunctionData> ResidualsDiagnosticsBind(ClientContext &context, ScalarBindFunction &bound_function,
                                                          vector<unique_ptr<Expression>> &arguments) {
-    bound_function.return_type = GetResidualsDiagnosticsResultType();
+    SetReturnTypeOf(bound_function, GetResidualsDiagnosticsResultType());
     PostHogTelemetry::Instance().RecordFunctionCall("residuals_diagnostics");
     return nullptr;
 }
@@ -38,7 +38,7 @@ static unique_ptr<FunctionData> ResidualsDiagnosticsBind(ClientContext &context,
 static vector<double> ExtractDoubleList(Vector &vec, idx_t row_idx) {
     auto list_data = ListVector::GetData(vec);
     auto &child = ListVector::GetEntry(vec);
-    auto child_data = FlatVector::GetData<double>(child);
+    auto child_data = FlatDataMut<double>(child);
 
     vector<double> result;
     auto offset = list_data[row_idx].offset;
@@ -61,7 +61,7 @@ static void SetListInResult(Vector &list_vec, idx_t row, double *data, size_t le
     auto offset = ListVector::GetListSize(list_vec);
     ListVector::Reserve(list_vec, offset + len);
     ListVector::SetListSize(list_vec, offset + len);
-    auto vec_data = FlatVector::GetData<double>(child);
+    auto vec_data = FlatDataMut<double>(child);
     for (size_t i = 0; i < len; i++) {
         vec_data[offset + i] = data[i];
     }
@@ -152,7 +152,7 @@ static void ResidualsDiagnosticsFunctionImpl(DataChunk &args, ExpressionState &s
         double rse = std::nan("");
         if (has_rse) {
             auto &rse_vec = args.data[3];
-            auto rse_data = FlatVector::GetData<double>(rse_vec);
+            auto rse_data = FlatDataMut<double>(rse_vec);
             rse = rse_data[row];
         }
 
@@ -160,7 +160,7 @@ static void ResidualsDiagnosticsFunctionImpl(DataChunk &args, ExpressionState &s
         bool include_studentized = true;
         if (has_studentized_flag) {
             auto &flag_vec = args.data[4];
-            auto flag_data = FlatVector::GetData<bool>(flag_vec);
+            auto flag_data = FlatDataMut<bool>(flag_vec);
             include_studentized = flag_data[row];
         }
 
@@ -181,34 +181,34 @@ static void ResidualsDiagnosticsFunctionImpl(DataChunk &args, ExpressionState &s
         idx_t struct_idx = 0;
 
         // Raw residuals
-        SetListInResult(*struct_entries[struct_idx++], row, resid_result.raw, resid_result.len);
+        SetListInResult(StructEntry(struct_entries[struct_idx++]), row, resid_result.raw, resid_result.len);
 
         // Standardized residuals
         if (resid_result.has_standardized) {
-            SetListInResult(*struct_entries[struct_idx++], row, resid_result.standardized, resid_result.len);
+            SetListInResult(StructEntry(struct_entries[struct_idx++]), row, resid_result.standardized, resid_result.len);
         } else {
-            FlatVector::SetNull(*struct_entries[struct_idx++], row, true);
+            FlatVector::SetNull(StructEntry(struct_entries[struct_idx++]), row, true);
         }
 
         // Studentized residuals
         if (resid_result.has_studentized) {
-            SetListInResult(*struct_entries[struct_idx++], row, resid_result.studentized, resid_result.len);
+            SetListInResult(StructEntry(struct_entries[struct_idx++]), row, resid_result.studentized, resid_result.len);
         } else {
-            FlatVector::SetNull(*struct_entries[struct_idx++], row, true);
+            FlatVector::SetNull(StructEntry(struct_entries[struct_idx++]), row, true);
         }
 
         // Leverage
         if (resid_result.has_leverage) {
-            SetListInResult(*struct_entries[struct_idx++], row, resid_result.leverage, resid_result.len);
+            SetListInResult(StructEntry(struct_entries[struct_idx++]), row, resid_result.leverage, resid_result.len);
         } else {
-            FlatVector::SetNull(*struct_entries[struct_idx++], row, true);
+            FlatVector::SetNull(StructEntry(struct_entries[struct_idx++]), row, true);
         }
 
         // Cook's distance (needs x and a residual standard error)
         if (resid_result.has_cooks_distance) {
-            SetListInResult(*struct_entries[struct_idx++], row, resid_result.cooks_distance, resid_result.len);
+            SetListInResult(StructEntry(struct_entries[struct_idx++]), row, resid_result.cooks_distance, resid_result.len);
         } else {
-            FlatVector::SetNull(*struct_entries[struct_idx++], row, true);
+            FlatVector::SetNull(StructEntry(struct_entries[struct_idx++]), row, true);
         }
 
         anofox_free_residuals(&resid_result);
@@ -219,11 +219,13 @@ static void ResidualsDiagnosticsFunctionImpl(DataChunk &args, ExpressionState &s
 void RegisterResidualsDiagnosticsFunction(ExtensionLoader &loader) {
     auto basic_func = ScalarFunction({LogicalType::LIST(LogicalType::DOUBLE), LogicalType::LIST(LogicalType::DOUBLE)},
                                      LogicalType::ANY,
-                                     ResidualsDiagnosticsFunction, ResidualsDiagnosticsBind);
+                                     ResidualsDiagnosticsFunction, ANOFOX_SCALAR_BIND(ResidualsDiagnosticsBind));
+    MarkFallible(basic_func);
     auto full_func = ScalarFunction({LogicalType::LIST(LogicalType::DOUBLE), LogicalType::LIST(LogicalType::DOUBLE),
                                      LogicalType::LIST(LogicalType::LIST(LogicalType::DOUBLE)), LogicalType::DOUBLE,
                                      LogicalType::BOOLEAN},
-                                    LogicalType::ANY, ResidualsDiagnosticsFunction, ResidualsDiagnosticsBind);
+                                    LogicalType::ANY, ResidualsDiagnosticsFunction, ANOFOX_SCALAR_BIND(ResidualsDiagnosticsBind));
+    MarkFallible(full_func);
 
     // Primary (2 overloads)
     {

@@ -43,7 +43,7 @@ FROM (
 
 SELECT
     round(intercept, 4) as intercept,
-    list_transform(coefficients, x -> round(x, 4)) as coefficients,
+    list_transform(coefficients, lambda x: round(x, 4)) as coefficients,
     round(r_squared, 4) as r_squared,
     round(residual_std_error, 4) as std_error,
     n_obs

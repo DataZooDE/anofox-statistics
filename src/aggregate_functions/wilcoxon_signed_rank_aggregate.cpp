@@ -79,7 +79,7 @@ struct WilcoxonSignedRankBindData : public FunctionData {
 // Aggregate function operations
 //===--------------------------------------------------------------------===//
 
-static void WilcoxonSignedRankAggInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void WilcoxonSignedRankAggInitialize(data_ptr_t state_p) {
     new (state_p) WilcoxonSignedRankAggregateState();
 }
 
@@ -216,15 +216,15 @@ static void WilcoxonSignedRankAggFinalize(Vector &state_vector, AggregateInputDa
 
         // Fill STRUCT result
         idx_t struct_idx = 0;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = test_result.statistic;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = test_result.p_value;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = test_result.ci_lower;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = test_result.ci_upper;
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = static_cast<int64_t>(test_result.n);
-        auto& method_vector = *struct_entries[struct_idx++];
-        FlatVector::GetData<string_t>(method_vector)[result_idx] =
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = test_result.statistic;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = test_result.p_value;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = test_result.ci_lower;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = test_result.ci_upper;
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = static_cast<int64_t>(test_result.n);
+        auto& method_vector = StructEntry(struct_entries[struct_idx++]);
+        FlatDataMut<string_t>(method_vector)[result_idx] =
             StringVector::AddString(method_vector, test_result.method ? test_result.method : "Wilcoxon signed-rank test");
-        SetResultString(*struct_entries[struct_idx++], result_idx, AlternativeName(options.alternative));
+        SetResultString(StructEntry(struct_entries[struct_idx++]), result_idx, AlternativeName(options.alternative));
         WriteTestResultFields(result, result_idx, struct_idx, test_result.unified);
 
         anofox_free_test_result(&test_result);
@@ -235,9 +235,9 @@ static void WilcoxonSignedRankAggFinalize(Vector &state_vector, AggregateInputDa
 //===--------------------------------------------------------------------===//
 // Bind function
 //===--------------------------------------------------------------------===//
-static unique_ptr<FunctionData> WilcoxonSignedRankAggBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> WilcoxonSignedRankAggBind(ClientContext &context, AggregateBindFunction &function,
                                                            vector<unique_ptr<Expression>> &arguments) {
-    function.return_type = GetWilcoxonSignedRankAggResultType();
+    SetReturnTypeOf(function, GetWilcoxonSignedRankAggResultType());
     auto bind_data = make_uniq<WilcoxonSignedRankBindData>();
 
     if (arguments.size() >= 3) {
@@ -259,18 +259,18 @@ void RegisterWilcoxonSignedRankAggregateFunction(ExtensionLoader &loader) {
     auto func_with_opts = AggregateFunction(
         "wilcoxon_signed_rank_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::ANY},
         LogicalType::ANY,
-        AggregateFunction::StateSize<WilcoxonSignedRankAggregateState>, WilcoxonSignedRankAggInitialize,
+        AggregateFunction::StateSize<WilcoxonSignedRankAggregateState>, ANOFOX_AGG_INIT(WilcoxonSignedRankAggInitialize),
         ANOFOX_GUARDED_UPDATE(WilcoxonSignedRankAggUpdate, WilcoxonSignedRankAggDestroy, WilcoxonSignedRankAggInitialize), WilcoxonSignedRankAggCombine, ANOFOX_GUARDED_FINALIZE(WilcoxonSignedRankAggFinalize, WilcoxonSignedRankAggDestroy, WilcoxonSignedRankAggInitialize),
-        nullptr, WilcoxonSignedRankAggBind, WilcoxonSignedRankAggDestroy);
+        nullptr, ANOFOX_AGG_BIND(WilcoxonSignedRankAggBind), WilcoxonSignedRankAggDestroy);
     func_set.AddFunction(func_with_opts);
 
     // Without options: (x, y)
     auto func_no_opts = AggregateFunction(
         "wilcoxon_signed_rank_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE},
         LogicalType::ANY,
-        AggregateFunction::StateSize<WilcoxonSignedRankAggregateState>, WilcoxonSignedRankAggInitialize,
+        AggregateFunction::StateSize<WilcoxonSignedRankAggregateState>, ANOFOX_AGG_INIT(WilcoxonSignedRankAggInitialize),
         ANOFOX_GUARDED_UPDATE(WilcoxonSignedRankAggUpdate, WilcoxonSignedRankAggDestroy, WilcoxonSignedRankAggInitialize), WilcoxonSignedRankAggCombine, ANOFOX_GUARDED_FINALIZE(WilcoxonSignedRankAggFinalize, WilcoxonSignedRankAggDestroy, WilcoxonSignedRankAggInitialize),
-        nullptr, WilcoxonSignedRankAggBind, WilcoxonSignedRankAggDestroy);
+        nullptr, ANOFOX_AGG_BIND(WilcoxonSignedRankAggBind), WilcoxonSignedRankAggDestroy);
     func_set.AddFunction(func_no_opts);
 
     CreateAggregateFunctionInfo info(std::move(func_set));

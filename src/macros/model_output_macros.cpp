@@ -14,6 +14,7 @@
 #include "duckdb/parser/parsed_data/create_macro_info.hpp"
 #include "duckdb/parser/parser.hpp"
 #include "duckdb/parser/statement/select_statement.hpp"
+#include "duckdb_compat.hpp"
 
 namespace duckdb {
 
@@ -175,24 +176,23 @@ unique_ptr<CreateMacroInfo> CreateTableMacro(const string &name, const vector<st
                                              const vector<pair<string, string>> &named_parameters, const string &sql,
                                              const string &description, const string &example,
                                              const vector<string> &categories = {"regression", "table-macro"}) {
-	Parser parser;
+	auto parser = MakeParser();
 	parser.ParseQuery(sql);
 	if (parser.statements.size() != 1 || parser.statements[0]->type != StatementType::SELECT_STATEMENT) {
 		throw InternalException("Expected a single select statement for table macro %s", name);
 	}
 	auto function = make_uniq<TableMacroFunction>(std::move(parser.statements[0]->Cast<SelectStatement>().node));
 	for (auto &p : parameters) {
-		function->parameters.push_back(make_uniq<ColumnRefExpression>(p));
+		function->parameters.push_back(make_uniq<ColumnRefExpression>(AsDuckName(p)));
 	}
 	for (auto &np : named_parameters) {
-		function->parameters.push_back(make_uniq<ColumnRefExpression>(np.first));
-		auto defaults = Parser::ParseExpressionList(np.second);
-		function->default_parameters.insert(make_pair(np.first, std::move(defaults[0])));
+		function->parameters.push_back(make_uniq<ColumnRefExpression>(AsDuckName(np.first)));
+		auto defaults = parser.ParseExpressionList(np.second);
+		function->default_parameters.insert(make_pair(AsDuckName(np.first), std::move(defaults[0])));
 	}
 
 	auto info = make_uniq<CreateMacroInfo>(CatalogType::TABLE_MACRO_ENTRY);
-	info->schema = DEFAULT_SCHEMA;
-	info->name = name;
+	SetCreateInfoName(*info, DEFAULT_SCHEMA, name);
 	info->temporary = true;
 	info->internal = true;
 	info->macros.push_back(std::move(function));

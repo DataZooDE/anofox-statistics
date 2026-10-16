@@ -123,7 +123,7 @@ static LogicalType SeriesResultType(SeriesKind kind) {
 	return LogicalType::STRUCT(std::move(children));
 }
 
-static void SeriesInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void SeriesInitialize(data_ptr_t state_p) {
 	new (state_p) SeriesState();
 }
 
@@ -173,7 +173,7 @@ static void SetNumberOrNull(Vector &vec, idx_t row, double value) {
 	if (std::isnan(value)) {
 		FlatVector::SetNull(vec, row, true);
 	} else {
-		FlatVector::GetData<double>(vec)[row] = value;
+		FlatDataMut<double>(vec)[row] = value;
 	}
 }
 
@@ -211,10 +211,10 @@ static void SeriesFinalize(Vector &state_vector, AggregateInputData &aggr_input_
 			auto &fields = StructVector::GetEntries(ListVector::GetEntry(result));
 			for (idx_t k = 0; k < len; k++) {
 				auto out = list_offset + k;
-				FlatVector::GetData<int64_t>(*fields[0])[out] = static_cast<int64_t>(acf.first_lag + k);
-				SetNumberOrNull(*fields[1], out, acf.values[k]);
-				FlatVector::GetData<double>(*fields[2])[out] = -acf.conf_bound;
-				FlatVector::GetData<double>(*fields[3])[out] = acf.conf_bound;
+				FlatDataMut<int64_t>(StructEntry(fields[0]))[out] = static_cast<int64_t>(acf.first_lag + k);
+				SetNumberOrNull(StructEntry(fields[1]), out, acf.values[k]);
+				FlatDataMut<double>(StructEntry(fields[2]))[out] = -acf.conf_bound;
+				FlatDataMut<double>(StructEntry(fields[3]))[out] = acf.conf_bound;
 			}
 			ListVector::SetListSize(result, list_offset + len);
 			ListVector::GetData(result)[row] = list_entry_t(list_offset, len);
@@ -238,15 +238,15 @@ static void SeriesFinalize(Vector &state_vector, AggregateInputData &aggr_input_
 		idx_t struct_idx = 0;
 		auto &entries = StructVector::GetEntries(result);
 		if (bind.kind != SeriesKind::DURBIN_WATSON) {
-			FlatVector::GetData<int64_t>(*entries[struct_idx++])[row] = bind.lag;
-			FlatVector::GetData<int64_t>(*entries[struct_idx++])[row] = bind.fitdf;
+			FlatDataMut<int64_t>(StructEntry(entries[struct_idx++]))[row] = bind.lag;
+			FlatDataMut<int64_t>(StructEntry(entries[struct_idx++]))[row] = bind.fitdf;
 		}
 		WriteTestResultFields(result, row, struct_idx, summary);
 	}
 }
 
 template <SeriesKind KIND>
-static unique_ptr<FunctionData> SeriesBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> SeriesBind(ClientContext &context, AggregateBindFunction &function,
                                            vector<unique_ptr<Expression>> &arguments) {
 	const string fn_name = SeriesName(KIND);
 	auto bind = make_uniq<SeriesBindData>();
@@ -271,7 +271,7 @@ static unique_ptr<FunctionData> SeriesBind(ClientContext &context, AggregateFunc
 			                            (long long)bind->lag);
 		}
 	}
-	function.return_type = SeriesResultType(KIND);
+	SetReturnTypeOf(function, SeriesResultType(KIND));
 	PostHogTelemetry::Instance().RecordFunctionCall(fn_name);
 	return std::move(bind);
 }
@@ -279,11 +279,11 @@ static unique_ptr<FunctionData> SeriesBind(ClientContext &context, AggregateFunc
 template <SeriesKind KIND>
 static AggregateFunction SeriesFunction(vector<LogicalType> args) {
 	AggregateFunction fn(SeriesName(KIND), std::move(args), LogicalType::ANY, AggregateFunction::StateSize<SeriesState>,
-	                     SeriesInitialize, ANOFOX_GUARDED_UPDATE(SeriesUpdate, SeriesDestroy, SeriesInitialize),
+	                     ANOFOX_AGG_INIT(SeriesInitialize), ANOFOX_GUARDED_UPDATE(SeriesUpdate, SeriesDestroy, SeriesInitialize),
 	                     SeriesCombine, ANOFOX_GUARDED_FINALIZE(SeriesFinalize, SeriesDestroy, SeriesInitialize),
-	                     nullptr, SeriesBind<KIND>, SeriesDestroy);
+	                     nullptr, ANOFOX_AGG_BIND(SeriesBind<KIND>), SeriesDestroy);
 	// Row order is part of the input: declare it so DuckDB honours `agg(... ORDER BY t)`.
-	fn.order_dependent = AggregateOrderDependent::ORDER_DEPENDENT; // field form works on DuckDB v1.4 LTS and v1.5
+	SetOrderDependentOf(fn, AggregateOrderDependent::ORDER_DEPENDENT); // field form works on DuckDB v1.4 LTS and v1.5
 	return fn;
 }
 
@@ -291,7 +291,7 @@ template <SeriesKind KIND>
 static void RegisterSeries(ExtensionLoader &loader, const vector<vector<string>> &overloads, const string &description,
                            const string &example, const vector<string> &categories) {
 	const string name = SeriesName(KIND);
-	AggregateFunctionSet set(name);
+	AggregateFunctionSet set(AsDuckName(name));
 	for (auto &params : overloads) {
 		vector<LogicalType> args = {LogicalType::DOUBLE};
 		for (idx_t p = 1; p < params.size(); p++) {
@@ -356,7 +356,7 @@ static const char *HeteroName(HeteroKind kind) {
 	}
 }
 
-static void HeteroInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void HeteroInitialize(data_ptr_t state_p) {
 	new (state_p) HeteroState();
 }
 
@@ -379,8 +379,8 @@ static void HeteroUpdate(Vector inputs[], AggregateInputData &aggr_input_data, i
 	auto resid = UnifiedVectorFormat::GetData<double>(resid_data);
 	auto x_lists = UnifiedVectorFormat::GetData<list_entry_t>(x_data);
 	auto &x_child = ListVector::GetEntry(inputs[1]);
-	auto x_child_data = FlatVector::GetData<double>(x_child);
-	auto &x_child_validity = FlatVector::Validity(x_child);
+	auto x_child_data = FlatDataMut<double>(x_child);
+	auto &x_child_validity = FlatValidityMut(x_child);
 	auto states = (HeteroState **)sdata.data;
 
 	for (idx_t i = 0; i < count; i++) {
@@ -493,7 +493,7 @@ static void HeteroFinalize(Vector &state_vector, AggregateInputData &aggr_input_
 }
 
 template <HeteroKind KIND>
-static unique_ptr<FunctionData> HeteroBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> HeteroBind(ClientContext &context, AggregateBindFunction &function,
                                            vector<unique_ptr<Expression>> &arguments) {
 	auto bind = make_uniq<HeteroBindData>();
 	bind->kind = KIND;
@@ -531,7 +531,7 @@ static unique_ptr<FunctionData> HeteroBind(ClientContext &context, AggregateFunc
 	}
 	child_list_t<LogicalType> children;
 	AppendTestResultFields(children);
-	function.return_type = LogicalType::STRUCT(std::move(children));
+	SetReturnTypeOf(function, LogicalType::STRUCT(std::move(children)));
 	PostHogTelemetry::Instance().RecordFunctionCall(name);
 	return std::move(bind);
 }
@@ -539,13 +539,13 @@ static unique_ptr<FunctionData> HeteroBind(ClientContext &context, AggregateFunc
 template <HeteroKind KIND>
 static AggregateFunction HeteroFunction(vector<LogicalType> args) {
 	AggregateFunction fn(HeteroName(KIND), std::move(args), LogicalType::ANY,
-	                     AggregateFunction::StateSize<HeteroState>, HeteroInitialize,
+	                     AggregateFunction::StateSize<HeteroState>, ANOFOX_AGG_INIT(HeteroInitialize),
 	                     ANOFOX_GUARDED_UPDATE(HeteroUpdate, HeteroDestroy, HeteroInitialize), HeteroCombine,
 	                     ANOFOX_GUARDED_FINALIZE(HeteroFinalize, HeteroDestroy, HeteroInitialize), nullptr,
-	                     HeteroBind<KIND>, HeteroDestroy);
+	                     ANOFOX_AGG_BIND(HeteroBind<KIND>), HeteroDestroy);
 	if (KIND == HeteroKind::DURBIN_WATSON) {
 		// Residual order is part of the input: honour `agg(... ORDER BY t)`.
-		fn.order_dependent = AggregateOrderDependent::ORDER_DEPENDENT;
+		SetOrderDependentOf(fn, AggregateOrderDependent::ORDER_DEPENDENT);
 	}
 	return fn;
 }

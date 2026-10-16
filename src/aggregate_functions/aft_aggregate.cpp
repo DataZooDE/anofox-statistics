@@ -115,7 +115,7 @@ static LogicalType GetAftAggResultType() {
 	return LogicalType::STRUCT(std::move(children));
 }
 
-static void AftAggInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void AftAggInitialize(data_ptr_t state_p) {
 	new (state_p) AftAggregateState();
 }
 
@@ -139,10 +139,10 @@ static void AftAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data, i
 
 	auto time_values = UnifiedVectorFormat::GetData<double>(time_data);
 	auto event_values = UnifiedVectorFormat::GetData<double>(event_data);
-	auto x_list_data = ListVector::GetData(inputs[1]);
+	auto x_list_data = UnifiedVectorFormat::GetData<list_entry_t>(x_data);
 	auto &x_child = ListVector::GetEntry(inputs[1]);
-	auto x_child_data = FlatVector::GetData<double>(x_child);
-	auto &x_child_validity = FlatVector::Validity(x_child);
+	auto x_child_data = FlatDataMut<double>(x_child);
+	auto &x_child_validity = FlatValidityMut(x_child);
 
 	UnifiedVectorFormat sdata;
 	state_vector.ToUnifiedFormat(count, sdata);
@@ -239,10 +239,10 @@ static void AftAggCombine(Vector &source_vector, Vector &target_vector, Aggregat
 
 //! Copy a double array into a LIST child of the result STRUCT.
 static void SetDoubleList(Vector &target, idx_t row, const double *values, idx_t len) {
-	auto list_data = FlatVector::GetData<list_entry_t>(target);
+	auto list_data = FlatDataMut<list_entry_t>(target);
 	auto child_offset = ListVector::GetListSize(target);
 	ListVector::Reserve(target, child_offset + len);
-	auto child_values = FlatVector::GetData<double>(ListVector::GetEntry(target));
+	auto child_values = FlatDataMut<double>(ListVector::GetEntry(target));
 	for (idx_t j = 0; j < len; j++) {
 		child_values[child_offset + j] = values[j];
 	}
@@ -262,7 +262,7 @@ static void AftAggFinalize(Vector &state_vector, AggregateInputData &, Vector &r
 		auto &types = StructType::GetChildTypes(result.GetType());
 		for (idx_t k = 0; k < types.size(); k++) {
 			if (types[k].first == "log_scale_std_error") {
-				log_scale_se = struct_entries[k].get();
+				log_scale_se = &StructEntry(struct_entries[k]);
 			}
 		}
 	}
@@ -307,19 +307,19 @@ static void AftAggFinalize(Vector &state_vector, AggregateInputData &, Vector &r
 		}
 
 		idx_t c = 0;
-		SetDoubleList(*struct_entries[c++], row, core.coefficients, core.coefficients_len);
-		FlatVector::GetData<double>(*struct_entries[c++])[row] = core.intercept;
-		FlatVector::GetData<double>(*struct_entries[c++])[row] = core.scale;
-		FlatVector::GetData<double>(*struct_entries[c++])[row] = core.log_likelihood;
-		FlatVector::GetData<double>(*struct_entries[c++])[row] = core.null_log_likelihood;
-		FlatVector::GetData<double>(*struct_entries[c++])[row] = core.aic;
-		FlatVector::GetData<double>(*struct_entries[c++])[row] = core.bic;
-		FlatVector::GetData<int64_t>(*struct_entries[c++])[row] = (int64_t)core.n_observations;
-		FlatVector::GetData<int64_t>(*struct_entries[c++])[row] = (int64_t)core.n_events;
-		FlatVector::GetData<int64_t>(*struct_entries[c++])[row] = (int64_t)core.n_censored;
-		FlatVector::GetData<int64_t>(*struct_entries[c++])[row] = (int64_t)core.n_features;
-		FlatVector::GetData<int32_t>(*struct_entries[c++])[row] = (int32_t)core.iterations;
-		FlatVector::GetData<bool>(*struct_entries[c++])[row] = core.converged;
+		SetDoubleList(StructEntry(struct_entries[c++]), row, core.coefficients, core.coefficients_len);
+		FlatDataMut<double>(StructEntry(struct_entries[c++]))[row] = core.intercept;
+		FlatDataMut<double>(StructEntry(struct_entries[c++]))[row] = core.scale;
+		FlatDataMut<double>(StructEntry(struct_entries[c++]))[row] = core.log_likelihood;
+		FlatDataMut<double>(StructEntry(struct_entries[c++]))[row] = core.null_log_likelihood;
+		FlatDataMut<double>(StructEntry(struct_entries[c++]))[row] = core.aic;
+		FlatDataMut<double>(StructEntry(struct_entries[c++]))[row] = core.bic;
+		FlatDataMut<int64_t>(StructEntry(struct_entries[c++]))[row] = (int64_t)core.n_observations;
+		FlatDataMut<int64_t>(StructEntry(struct_entries[c++]))[row] = (int64_t)core.n_events;
+		FlatDataMut<int64_t>(StructEntry(struct_entries[c++]))[row] = (int64_t)core.n_censored;
+		FlatDataMut<int64_t>(StructEntry(struct_entries[c++]))[row] = (int64_t)core.n_features;
+		FlatDataMut<int32_t>(StructEntry(struct_entries[c++]))[row] = (int32_t)core.iterations;
+		FlatDataMut<bool>(StructEntry(struct_entries[c++]))[row] = core.converged;
 
 		// Inference (NULL unless requested), CI fields and the model summary
 		if (state.compute_inference) {
@@ -328,7 +328,7 @@ static void AftAggFinalize(Vector &state_vector, AggregateInputData &, Vector &r
 			                                  inference.ci_lower,  inference.ci_upper, inference.len,
 			                                  inference.confidence_level, NAN, NAN};
 			writer.WriteInference(row, &view);
-			FlatVector::GetData<double>(*log_scale_se)[row] = inference.log_scale_std_error;
+			FlatDataMut<double>(*log_scale_se)[row] = inference.log_scale_std_error;
 		} else {
 			writer.WriteInference(row, nullptr);
 			FlatVector::SetNull(*log_scale_se, row, true);
@@ -343,7 +343,7 @@ static void AftAggFinalize(Vector &state_vector, AggregateInputData &, Vector &r
 	}
 }
 
-static unique_ptr<FunctionData> AftAggBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> AftAggBind(ClientContext &context, AggregateBindFunction &function,
                                            vector<unique_ptr<Expression>> &arguments) {
 	auto result = make_uniq<AftAggregateBindData>();
 
@@ -372,7 +372,7 @@ static unique_ptr<FunctionData> AftAggBind(ClientContext &context, AggregateFunc
 		}
 	}
 
-	function.return_type = GetAftAggResultType();
+	SetReturnTypeOf(function, GetAftAggResultType());
 	PostHogTelemetry::Instance().RecordFunctionCall("aft_fit_agg");
 	return std::move(result);
 }
@@ -382,15 +382,15 @@ void RegisterAftAggregateFunction(ExtensionLoader &loader) {
 
 	auto basic = AggregateFunction("aft_fit_agg",
 	                               {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE},
-	                               LogicalType::ANY, AggregateFunction::StateSize<AftAggregateState>, AftAggInitialize,
-	                               ANOFOX_GUARDED_UPDATE(AftAggUpdate, AftAggDestroy, AftAggInitialize), AftAggCombine, ANOFOX_GUARDED_FINALIZE(AftAggFinalize, AftAggDestroy, AftAggInitialize), nullptr, AftAggBind, AftAggDestroy);
+	                               LogicalType::ANY, AggregateFunction::StateSize<AftAggregateState>, ANOFOX_AGG_INIT(AftAggInitialize),
+	                               ANOFOX_GUARDED_UPDATE(AftAggUpdate, AftAggDestroy, AftAggInitialize), AftAggCombine, ANOFOX_GUARDED_FINALIZE(AftAggFinalize, AftAggDestroy, AftAggInitialize), nullptr, ANOFOX_AGG_BIND(AftAggBind), AftAggDestroy);
 	func_set.AddFunction(basic);
 
 	auto with_opts = AggregateFunction(
 	    "aft_fit_agg",
 	    {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE, LogicalType::ANY},
-	    LogicalType::ANY, AggregateFunction::StateSize<AftAggregateState>, AftAggInitialize, ANOFOX_GUARDED_UPDATE(AftAggUpdate, AftAggDestroy, AftAggInitialize),
-	    AftAggCombine, ANOFOX_GUARDED_FINALIZE(AftAggFinalize, AftAggDestroy, AftAggInitialize), nullptr, AftAggBind, AftAggDestroy);
+	    LogicalType::ANY, AggregateFunction::StateSize<AftAggregateState>, ANOFOX_AGG_INIT(AftAggInitialize), ANOFOX_GUARDED_UPDATE(AftAggUpdate, AftAggDestroy, AftAggInitialize),
+	    AftAggCombine, ANOFOX_GUARDED_FINALIZE(AftAggFinalize, AftAggDestroy, AftAggInitialize), nullptr, ANOFOX_AGG_BIND(AftAggBind), AftAggDestroy);
 	func_set.AddFunction(with_opts);
 
 	CreateAggregateFunctionInfo info(func_set);
@@ -454,8 +454,8 @@ static void AftScalarDriver(DataChunk &args, Vector &result, FN &&fn) {
 	auto v3 = UnifiedVectorFormat::GetData<string_t>(a3);
 
 	result.SetVectorType(VectorType::FLAT_VECTOR);
-	auto out = FlatVector::GetData<double>(result);
-	auto &mask = FlatVector::Validity(result);
+	auto out = FlatDataMut<double>(result);
+	auto &mask = FlatValidityMut(result);
 
 	for (idx_t i = 0; i < count; i++) {
 		auto i0 = a0.sel->get_index(i);
@@ -531,9 +531,9 @@ static const Value *AftModelField(const child_list_t<Value> &fields, const char 
 	return nullptr;
 }
 
-static unique_ptr<FunctionData> AftSurvivalBind(ClientContext &, ScalarFunction &bound_function,
+static unique_ptr<FunctionData> AftSurvivalBind(ClientContext &, ScalarBindFunction &bound_function,
                                                 vector<unique_ptr<Expression>> &arguments) {
-	auto &type = arguments[0]->return_type;
+	auto &type = ReturnTypeOf(*arguments[0]);
 	if (type.id() != LogicalTypeId::STRUCT) {
 		throw InvalidInputException("aft_survival: model must be the STRUCT returned by aft_fit_agg");
 	}
@@ -548,7 +548,7 @@ static unique_ptr<FunctionData> AftSurvivalBind(ClientContext &, ScalarFunction 
 			                            string(name));
 		}
 	}
-	bound_function.arguments[0] = type;
+	SetArgumentTypeOf(bound_function, 0, type);
 	return nullptr;
 }
 
@@ -564,8 +564,8 @@ static void AftSurvivalFunctionImpl(DataChunk &args, ExpressionState &state, Vec
 	const idx_t count = args.size();
 	result.SetVectorType(VectorType::FLAT_VECTOR);
 	ListVector::SetListSize(result, 0);
-	auto list_data = FlatVector::GetData<list_entry_t>(result);
-	auto &mask = FlatVector::Validity(result);
+	auto list_data = FlatDataMut<list_entry_t>(result);
+	auto &mask = FlatValidityMut(result);
 
 	for (idx_t i = 0; i < count; i++) {
 		auto model = args.data[0].GetValue(i);
@@ -609,14 +609,14 @@ static void AftSurvivalFunctionImpl(DataChunk &args, ExpressionState &state, Vec
 		for (idx_t k = 0; k < n; k++) {
 			auto out = offset + k;
 			if (std::isnan(times[k])) {
-				FlatVector::SetNull(*entries[0], out, true);
+				FlatVector::SetNull(StructEntry(entries[0]), out, true);
 			} else {
-				FlatVector::GetData<double>(*entries[0])[out] = times[k];
+				FlatDataMut<double>(StructEntry(entries[0]))[out] = times[k];
 			}
 			if (std::isnan(surv[k])) {
-				FlatVector::SetNull(*entries[1], out, true);
+				FlatVector::SetNull(StructEntry(entries[1]), out, true);
 			} else {
-				FlatVector::GetData<double>(*entries[1])[out] = surv[k];
+				FlatDataMut<double>(StructEntry(entries[1]))[out] = surv[k];
 			}
 		}
 		ListVector::SetListSize(result, offset + n);
@@ -638,7 +638,8 @@ void RegisterAftScalarFunctions(ExtensionLoader &loader) {
 	ScalarFunction survival("aft_survival",
 	                        {LogicalType::ANY, LogicalType::LIST(LogicalType::DOUBLE),
 	                         LogicalType::LIST(LogicalType::DOUBLE)},
-	                        AftSurvivalResultType(), AftSurvivalFunction, AftSurvivalBind);
+	                        AftSurvivalResultType(), AftSurvivalFunction, ANOFOX_SCALAR_BIND(AftSurvivalBind));
+	MarkFallible(survival);
 	{
 		CreateScalarFunctionInfo info(survival);
 		FunctionDescription d;
@@ -657,6 +658,7 @@ void RegisterAftScalarFunctions(ExtensionLoader &loader) {
 	ScalarFunction cdf("aft_cdf",
 	                   {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::VARCHAR},
 	                   LogicalType::DOUBLE, AftCdfFunction);
+	MarkFallible(cdf);
 	{
 		CreateScalarFunctionInfo info(cdf);
 		FunctionDescription d;
@@ -672,6 +674,7 @@ void RegisterAftScalarFunctions(ExtensionLoader &loader) {
 	ScalarFunction quantile("aft_quantile",
 	                        {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::VARCHAR},
 	                        LogicalType::DOUBLE, AftQuantileFunction);
+	MarkFallible(quantile);
 	{
 		CreateScalarFunctionInfo info(quantile);
 		FunctionDescription d;

@@ -105,7 +105,7 @@ static bool IsotonicIsSplitTraining(const string_t &split_val) {
 // Aggregate function operations
 //===--------------------------------------------------------------------===//
 
-static void IsotonicPredictAggInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void IsotonicPredictAggInitialize(data_ptr_t state_p) {
     new (state_p) IsotonicPredictAggState();
 }
 
@@ -343,9 +343,9 @@ static void IsotonicPredictAggFinalize(Vector &state_vector, AggregateInputData 
         auto &child_struct = ListVector::GetEntry(result);
         auto &struct_entries = StructVector::GetEntries(child_struct);
 
-        auto &y_vec = *struct_entries[0];
-        auto &yhat_vec = *struct_entries[1];
-        auto &is_training_vec = *struct_entries[2];
+        auto &y_vec = StructEntry(struct_entries[0]);
+        auto &yhat_vec = StructEntry(struct_entries[1]);
+        auto &is_training_vec = StructEntry(struct_entries[2]);
 
         for (idx_t row = 0; row < n_rows; row++) {
             idx_t child_idx = list_offset + row;
@@ -353,7 +353,7 @@ static void IsotonicPredictAggFinalize(Vector &state_vector, AggregateInputData 
             if (state.y_is_null[row]) {
                 FlatVector::SetNull(y_vec, child_idx, true);
             } else {
-                FlatVector::GetData<double>(y_vec)[child_idx] = state.y_all[row];
+                FlatDataMut<double>(y_vec)[child_idx] = state.y_all[row];
             }
 
             // Predict using isotonic model
@@ -362,10 +362,10 @@ static void IsotonicPredictAggFinalize(Vector &state_vector, AggregateInputData 
                 FlatVector::SetNull(yhat_vec, child_idx, true);
             } else {
                 double yhat = IsotonicPredict(state.sorted_x, state.fitted_y, state.x_all[row]);
-                FlatVector::GetData<double>(yhat_vec)[child_idx] = yhat;
+                FlatDataMut<double>(yhat_vec)[child_idx] = yhat;
             }
 
-            FlatVector::GetData<bool>(is_training_vec)[child_idx] = state.is_training[row];
+            FlatDataMut<bool>(is_training_vec)[child_idx] = state.is_training[row];
         }
 
         anofox_free_isotonic_result(&core_result);
@@ -376,7 +376,7 @@ static void IsotonicPredictAggFinalize(Vector &state_vector, AggregateInputData 
 //===--------------------------------------------------------------------===//
 // Bind function
 //===--------------------------------------------------------------------===//
-static unique_ptr<FunctionData> IsotonicPredictAggBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> IsotonicPredictAggBind(ClientContext &context, AggregateBindFunction &function,
                                                         vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<IsotonicPredictAggBindData>();
 
@@ -389,13 +389,13 @@ static unique_ptr<FunctionData> IsotonicPredictAggBind(ClientContext &context, A
         }
     }
 
-    function.return_type = GetIsotonicPredictAggResultType();
+    SetReturnTypeOf(function, GetIsotonicPredictAggResultType());
     PostHogTelemetry::Instance().RecordFunctionCall("isotonic_fit_predict_agg");
     return std::move(result);
 }
 
 // Bind function with split column
-static unique_ptr<FunctionData> IsotonicPredictAggBindWithSplit(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> IsotonicPredictAggBindWithSplit(ClientContext &context, AggregateBindFunction &function,
                                                                   vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<IsotonicPredictAggBindData>();
     result->use_split_col = true;
@@ -410,7 +410,7 @@ static unique_ptr<FunctionData> IsotonicPredictAggBindWithSplit(ClientContext &c
         }
     }
 
-    function.return_type = GetIsotonicPredictAggResultType();
+    SetReturnTypeOf(function, GetIsotonicPredictAggResultType());
     PostHogTelemetry::Instance().RecordFunctionCall("isotonic_fit_predict_agg");
     return std::move(result);
 }
@@ -424,32 +424,32 @@ void RegisterIsotonicFitPredictAggregateFunction(ExtensionLoader &loader) {
     // isotonic_fit_predict_agg(y, x) - y is response, x is 1D input
     auto basic_func =
         AggregateFunction("isotonic_fit_predict_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE},
-                          LogicalType::ANY, AggregateFunction::StateSize<IsotonicPredictAggState>, IsotonicPredictAggInitialize,
-                          ANOFOX_GUARDED_UPDATE(IsotonicPredictAggUpdate, IsotonicPredictAggDestroy, IsotonicPredictAggInitialize), IsotonicPredictAggCombine, ANOFOX_GUARDED_FINALIZE(IsotonicPredictAggFinalize, IsotonicPredictAggDestroy, IsotonicPredictAggInitialize), nullptr, IsotonicPredictAggBind,
+                          LogicalType::ANY, AggregateFunction::StateSize<IsotonicPredictAggState>, ANOFOX_AGG_INIT(IsotonicPredictAggInitialize),
+                          ANOFOX_GUARDED_UPDATE(IsotonicPredictAggUpdate, IsotonicPredictAggDestroy, IsotonicPredictAggInitialize), IsotonicPredictAggCombine, ANOFOX_GUARDED_FINALIZE(IsotonicPredictAggFinalize, IsotonicPredictAggDestroy, IsotonicPredictAggInitialize), nullptr, ANOFOX_AGG_BIND(IsotonicPredictAggBind),
                           IsotonicPredictAggDestroy);
     func_set.AddFunction(basic_func);
 
     auto map_func = AggregateFunction(
         "isotonic_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::ANY}, LogicalType::ANY,
-        AggregateFunction::StateSize<IsotonicPredictAggState>, IsotonicPredictAggInitialize, ANOFOX_GUARDED_UPDATE(IsotonicPredictAggUpdate, IsotonicPredictAggDestroy, IsotonicPredictAggInitialize),
-        IsotonicPredictAggCombine, ANOFOX_GUARDED_FINALIZE(IsotonicPredictAggFinalize, IsotonicPredictAggDestroy, IsotonicPredictAggInitialize), nullptr, IsotonicPredictAggBind, IsotonicPredictAggDestroy);
+        AggregateFunction::StateSize<IsotonicPredictAggState>, ANOFOX_AGG_INIT(IsotonicPredictAggInitialize), ANOFOX_GUARDED_UPDATE(IsotonicPredictAggUpdate, IsotonicPredictAggDestroy, IsotonicPredictAggInitialize),
+        IsotonicPredictAggCombine, ANOFOX_GUARDED_FINALIZE(IsotonicPredictAggFinalize, IsotonicPredictAggDestroy, IsotonicPredictAggInitialize), nullptr, ANOFOX_AGG_BIND(IsotonicPredictAggBind), IsotonicPredictAggDestroy);
     func_set.AddFunction(map_func);
 
     // Version with split column: isotonic_fit_predict_agg(y, x, split)
     auto split_func = AggregateFunction(
         "isotonic_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::VARCHAR}, LogicalType::ANY,
-        AggregateFunction::StateSize<IsotonicPredictAggState>, IsotonicPredictAggInitialize, ANOFOX_GUARDED_UPDATE(IsotonicPredictAggUpdate, IsotonicPredictAggDestroy, IsotonicPredictAggInitialize),
-        IsotonicPredictAggCombine, ANOFOX_GUARDED_FINALIZE(IsotonicPredictAggFinalize, IsotonicPredictAggDestroy, IsotonicPredictAggInitialize), nullptr, IsotonicPredictAggBindWithSplit, IsotonicPredictAggDestroy);
+        AggregateFunction::StateSize<IsotonicPredictAggState>, ANOFOX_AGG_INIT(IsotonicPredictAggInitialize), ANOFOX_GUARDED_UPDATE(IsotonicPredictAggUpdate, IsotonicPredictAggDestroy, IsotonicPredictAggInitialize),
+        IsotonicPredictAggCombine, ANOFOX_GUARDED_FINALIZE(IsotonicPredictAggFinalize, IsotonicPredictAggDestroy, IsotonicPredictAggInitialize), nullptr, ANOFOX_AGG_BIND(IsotonicPredictAggBindWithSplit), IsotonicPredictAggDestroy);
     func_set.AddFunction(split_func);
 
     // Version with split column and options: isotonic_fit_predict_agg(y, x, split, options)
     auto split_map_func = AggregateFunction(
         "isotonic_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::VARCHAR, LogicalType::ANY}, LogicalType::ANY,
-        AggregateFunction::StateSize<IsotonicPredictAggState>, IsotonicPredictAggInitialize, ANOFOX_GUARDED_UPDATE(IsotonicPredictAggUpdate, IsotonicPredictAggDestroy, IsotonicPredictAggInitialize),
-        IsotonicPredictAggCombine, ANOFOX_GUARDED_FINALIZE(IsotonicPredictAggFinalize, IsotonicPredictAggDestroy, IsotonicPredictAggInitialize), nullptr, IsotonicPredictAggBindWithSplit, IsotonicPredictAggDestroy);
+        AggregateFunction::StateSize<IsotonicPredictAggState>, ANOFOX_AGG_INIT(IsotonicPredictAggInitialize), ANOFOX_GUARDED_UPDATE(IsotonicPredictAggUpdate, IsotonicPredictAggDestroy, IsotonicPredictAggInitialize),
+        IsotonicPredictAggCombine, ANOFOX_GUARDED_FINALIZE(IsotonicPredictAggFinalize, IsotonicPredictAggDestroy, IsotonicPredictAggInitialize), nullptr, ANOFOX_AGG_BIND(IsotonicPredictAggBindWithSplit), IsotonicPredictAggDestroy);
     func_set.AddFunction(split_map_func);
 
     CreateAggregateFunctionInfo info(std::move(func_set));

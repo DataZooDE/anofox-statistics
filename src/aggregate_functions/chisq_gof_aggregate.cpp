@@ -54,7 +54,7 @@ static LogicalType GetChisqGofAggResultType() {
 // Aggregate function operations
 //===--------------------------------------------------------------------===//
 
-static void ChisqGofAggInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void ChisqGofAggInitialize(data_ptr_t state_p) {
     new (state_p) ChisqGofAggregateState();
 }
 
@@ -164,18 +164,18 @@ static void ChisqGofAggFinalize(Vector &state_vector, AggregateInputData &aggr_i
         }
 
         idx_t struct_idx = 0;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = chisq_result.statistic;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = chisq_result.p_value;
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = static_cast<int64_t>(chisq_result.df);
-        auto& method_vector = *struct_entries[struct_idx++];
-        FlatVector::GetData<string_t>(method_vector)[result_idx] =
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = chisq_result.statistic;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = chisq_result.p_value;
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = static_cast<int64_t>(chisq_result.df);
+        auto& method_vector = StructEntry(struct_entries[struct_idx++]);
+        FlatDataMut<string_t>(method_vector)[result_idx] =
             StringVector::AddString(method_vector, chisq_result.method ? chisq_result.method : "Chi-square goodness-of-fit");
         int64_t n_total = 0;
         for (auto o : state.observed) {
             n_total += static_cast<int64_t>(o);
         }
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = static_cast<int64_t>(n_total);
-        SetResultNull(*struct_entries[struct_idx++], result_idx);
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = static_cast<int64_t>(n_total);
+        SetResultNull(StructEntry(struct_entries[struct_idx++]), result_idx);
         WriteTestResultFields(result, result_idx, struct_idx, chisq_result.unified); // alternative: not applicable
 
         anofox_free_chisq_result(&chisq_result);
@@ -186,9 +186,9 @@ static void ChisqGofAggFinalize(Vector &state_vector, AggregateInputData &aggr_i
 //===--------------------------------------------------------------------===//
 // Bind function
 //===--------------------------------------------------------------------===//
-static unique_ptr<FunctionData> ChisqGofAggBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> ChisqGofAggBind(ClientContext &context, AggregateBindFunction &function,
                                                  vector<unique_ptr<Expression>> &arguments) {
-    function.return_type = GetChisqGofAggResultType();
+    SetReturnTypeOf(function, GetChisqGofAggResultType());
     PostHogTelemetry::Instance().RecordFunctionCall("chisq_gof_agg");
     return nullptr;
 }
@@ -203,9 +203,9 @@ void RegisterChisqGofAggregateFunction(ExtensionLoader &loader) {
     auto func = AggregateFunction(
         "chisq_gof_agg", {LogicalType::BIGINT, LogicalType::DOUBLE},
         LogicalType::ANY,
-        AggregateFunction::StateSize<ChisqGofAggregateState>, ChisqGofAggInitialize,
+        AggregateFunction::StateSize<ChisqGofAggregateState>, ANOFOX_AGG_INIT(ChisqGofAggInitialize),
         ANOFOX_GUARDED_UPDATE(ChisqGofAggUpdate, ChisqGofAggDestroy, ChisqGofAggInitialize), ChisqGofAggCombine, ANOFOX_GUARDED_FINALIZE(ChisqGofAggFinalize, ChisqGofAggDestroy, ChisqGofAggInitialize),
-        nullptr, ChisqGofAggBind, ChisqGofAggDestroy);
+        nullptr, ANOFOX_AGG_BIND(ChisqGofAggBind), ChisqGofAggDestroy);
     func_set.AddFunction(func);
 
     CreateAggregateFunctionInfo info(std::move(func_set));

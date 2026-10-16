@@ -176,22 +176,22 @@ void BayesianFitFinalize(Vector &state_vector, AggregateInputData &aggr_input_da
 			continue;
 		}
 		idx_t k = 0;
-		XyRowsSetDoubleList(*entries[k++], row, fit.coefficients, static_cast<idx_t>(fit.coefficients_len));
-		XyRowsSetDouble(*entries[k++], row, bind.options.fit_intercept ? fit.intercept : 0.0);
-		XyRowsSetDouble(*entries[k++], row, fit.r_squared);
-		FlatVector::GetData<int64_t>(*entries[k++])[row] = static_cast<int64_t>(fit.n_observations);
-		FlatVector::GetData<int64_t>(*entries[k++])[row] = static_cast<int64_t>(fit.n_features);
-		XyRowsSetDouble(*entries[k++], row, fit.noise_precision);
+		XyRowsSetDoubleList(StructEntry(entries[k++]), row, fit.coefficients, static_cast<idx_t>(fit.coefficients_len));
+		XyRowsSetDouble(StructEntry(entries[k++]), row, bind.options.fit_intercept ? fit.intercept : 0.0);
+		XyRowsSetDouble(StructEntry(entries[k++]), row, fit.r_squared);
+		FlatDataMut<int64_t>(StructEntry(entries[k++]))[row] = static_cast<int64_t>(fit.n_observations);
+		FlatDataMut<int64_t>(StructEntry(entries[k++]))[row] = static_cast<int64_t>(fit.n_features);
+		XyRowsSetDouble(StructEntry(entries[k++]), row, fit.noise_precision);
 		if (bind.ard) {
-			XyRowsSetDoubleList(*entries[k++], row, fit.weight_precisions,
+			XyRowsSetDoubleList(StructEntry(entries[k++]), row, fit.weight_precisions,
 			                    static_cast<idx_t>(fit.weight_precisions_len));
 		} else {
-			XyRowsSetDouble(*entries[k++], row, fit.weight_precision);
+			XyRowsSetDouble(StructEntry(entries[k++]), row, fit.weight_precision);
 		}
-		XyRowsSetDoubleList(*entries[k++], row, fit.posterior_sd, static_cast<idx_t>(fit.coefficients_len));
-		FlatVector::GetData<int64_t>(*entries[k++])[row] = static_cast<int64_t>(fit.iterations);
+		XyRowsSetDoubleList(StructEntry(entries[k++]), row, fit.posterior_sd, static_cast<idx_t>(fit.coefficients_len));
+		FlatDataMut<int64_t>(StructEntry(entries[k++]))[row] = static_cast<int64_t>(fit.iterations);
 		if (!bind.ard) {
-			XyRowsSetDouble(*entries[k++], row, fit.log_marginal_likelihood);
+			XyRowsSetDouble(StructEntry(entries[k++]), row, fit.log_marginal_likelihood);
 		}
 		writer.WriteInference(row, nullptr);
 		writer.WriteSummary(row, fit.summary);
@@ -200,7 +200,7 @@ void BayesianFitFinalize(Vector &state_vector, AggregateInputData &aggr_input_da
 }
 
 template <bool ARD>
-unique_ptr<FunctionData> BayesianFitBind(ClientContext &context, AggregateFunction &function,
+unique_ptr<FunctionData> BayesianFitBind(ClientContext &context, AggregateBindFunction &function,
                                          vector<unique_ptr<Expression>> &arguments) {
 	const string name(FitName(ARD));
 	auto bind = make_uniq<BayesianBindData>();
@@ -209,7 +209,7 @@ unique_ptr<FunctionData> BayesianFitBind(ClientContext &context, AggregateFuncti
 		ParseBayesianOptions(context, *arguments[2], *bind, name, false);
 	}
 	ValidateBayesianOptions(*bind, name);
-	function.return_type = BayesianFitResultType(ARD);
+	SetReturnTypeOf(function, BayesianFitResultType(ARD));
 	PostHogTelemetry::Instance().RecordFunctionCall(name);
 	return std::move(bind);
 }
@@ -257,7 +257,7 @@ void BayesianPredictFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
 }
 
 template <bool ARD, bool SPLIT>
-unique_ptr<FunctionData> BayesianPredictBind(ClientContext &context, AggregateFunction &function,
+unique_ptr<FunctionData> BayesianPredictBind(ClientContext &context, AggregateBindFunction &function,
                                              vector<unique_ptr<Expression>> &arguments) {
 	const string name(FitPredictName(ARD));
 	auto bind = make_uniq<BayesianBindData>();
@@ -268,7 +268,7 @@ unique_ptr<FunctionData> BayesianPredictBind(ClientContext &context, AggregateFu
 		ParseBayesianOptions(context, *arguments[options_idx], *bind, name, true);
 	}
 	ValidateBayesianOptions(*bind, name);
-	function.return_type = FitPredictRowsResultType();
+	SetReturnTypeOf(function, FitPredictRowsResultType());
 	PostHogTelemetry::Instance().RecordFunctionCall(name);
 	return std::move(bind);
 }
@@ -279,16 +279,16 @@ void RegisterBayesianModel(ExtensionLoader &loader, const string &label, const s
 	const string fit_name = FitName(ARD);
 	const string predict_name = FitPredictName(ARD);
 
-	AggregateFunctionSet fit_set(fit_name);
+	AggregateFunctionSet fit_set(AsDuckName(fit_name));
 	for (bool with_options : {false, true}) {
 		vector<LogicalType> args = {LogicalType::DOUBLE, x_type};
 		if (with_options) {
 			args.push_back(LogicalType::ANY);
 		}
-		AggregateFunction fn(fit_name, args, LogicalType::ANY, AggregateFunction::StateSize<XyRowsState>,
-		                     XyRowsInitialize, XyRowsUpdate, XyRowsCombine,
+		AggregateFunction fn(AsDuckName(fit_name), args, LogicalType::ANY, AggregateFunction::StateSize<XyRowsState>,
+		                     ANOFOX_AGG_INIT(XyRowsInitialize), XyRowsUpdate, XyRowsCombine,
 		                     ANOFOX_GUARDED_FINALIZE(BayesianFitFinalize, XyRowsDestroy, XyRowsInitialize), nullptr,
-		                     BayesianFitBind<ARD>, XyRowsDestroy);
+		                     ANOFOX_AGG_BIND(BayesianFitBind<ARD>), XyRowsDestroy);
 		fit_set.AddFunction(fn);
 	}
 	CreateAggregateFunctionInfo fit_info(std::move(fit_set));
@@ -310,7 +310,7 @@ void RegisterBayesianModel(ExtensionLoader &loader, const string &label, const s
 	fit_info.descriptions.push_back(std::move(f2));
 	loader.RegisterFunction(std::move(fit_info));
 
-	AggregateFunctionSet predict_set(predict_name);
+	AggregateFunctionSet predict_set(AsDuckName(predict_name));
 	const vector<vector<LogicalType>> signatures = {{LogicalType::DOUBLE, x_type},
 	                                                {LogicalType::DOUBLE, x_type, LogicalType::ANY},
 	                                                {LogicalType::DOUBLE, x_type, LogicalType::VARCHAR},
@@ -318,12 +318,12 @@ void RegisterBayesianModel(ExtensionLoader &loader, const string &label, const s
 	for (auto &args : signatures) {
 		bool split = args.size() >= 3 && args[2].id() == LogicalTypeId::VARCHAR;
 		AggregateFunction fn(
-		    predict_name, args, LogicalType::ANY, AggregateFunction::StateSize<FitPredictRowsState>,
-		    FitPredictRowsInitialize,
+		    AsDuckName(predict_name), args, LogicalType::ANY, AggregateFunction::StateSize<FitPredictRowsState>,
+		    ANOFOX_AGG_INIT(FitPredictRowsInitialize),
 		    ANOFOX_GUARDED_UPDATE(FitPredictRowsUpdate, FitPredictRowsDestroy, FitPredictRowsInitialize),
 		    FitPredictRowsCombine,
 		    ANOFOX_GUARDED_FINALIZE(BayesianPredictFinalize, FitPredictRowsDestroy, FitPredictRowsInitialize),
-		    nullptr, split ? BayesianPredictBind<ARD, true> : BayesianPredictBind<ARD, false>, FitPredictRowsDestroy);
+		    nullptr, split ? ANOFOX_AGG_BIND(BayesianPredictBind<ARD, true>) : ANOFOX_AGG_BIND(BayesianPredictBind<ARD, false>), FitPredictRowsDestroy);
 		predict_set.AddFunction(fn);
 	}
 	CreateAggregateFunctionInfo predict_info(std::move(predict_set));

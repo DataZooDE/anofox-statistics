@@ -101,7 +101,7 @@ static LogicalType GetAidAnomalyResultType() {
 // AID Classification Aggregate function operations
 //===--------------------------------------------------------------------===//
 
-static void AidAggInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void AidAggInitialize(data_ptr_t state_p) {
     new (state_p) AidAggregateState();
 }
 
@@ -215,35 +215,35 @@ static void AidAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
         idx_t struct_idx = 0;
 
         // demand_type (VARCHAR)
-        FlatVector::GetData<string_t>(*struct_entries[struct_idx])[result_idx] =
-            StringVector::AddString(*struct_entries[struct_idx], aid_result.demand_type);
+        FlatDataMut<string_t>(StructEntry(struct_entries[struct_idx]))[result_idx] =
+            StringVector::AddString(StructEntry(struct_entries[struct_idx]), aid_result.demand_type);
         struct_idx++;
 
         // is_intermittent (BOOLEAN)
-        FlatVector::GetData<bool>(*struct_entries[struct_idx++])[result_idx] = aid_result.is_intermittent;
+        FlatDataMut<bool>(StructEntry(struct_entries[struct_idx++]))[result_idx] = aid_result.is_intermittent;
 
         // distribution (VARCHAR)
-        FlatVector::GetData<string_t>(*struct_entries[struct_idx])[result_idx] =
-            StringVector::AddString(*struct_entries[struct_idx], aid_result.distribution);
+        FlatDataMut<string_t>(StructEntry(struct_entries[struct_idx]))[result_idx] =
+            StringVector::AddString(StructEntry(struct_entries[struct_idx]), aid_result.distribution);
         struct_idx++;
 
         // Statistics
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = aid_result.mean;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = aid_result.variance;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = aid_result.zero_proportion;
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = aid_result.n_observations;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = aid_result.mean;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = aid_result.variance;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = aid_result.zero_proportion;
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = aid_result.n_observations;
 
         // Pattern flags
-        FlatVector::GetData<bool>(*struct_entries[struct_idx++])[result_idx] = aid_result.has_stockouts;
-        FlatVector::GetData<bool>(*struct_entries[struct_idx++])[result_idx] = aid_result.is_new_product;
-        FlatVector::GetData<bool>(*struct_entries[struct_idx++])[result_idx] = aid_result.is_obsolete_product;
+        FlatDataMut<bool>(StructEntry(struct_entries[struct_idx++]))[result_idx] = aid_result.has_stockouts;
+        FlatDataMut<bool>(StructEntry(struct_entries[struct_idx++]))[result_idx] = aid_result.is_new_product;
+        FlatDataMut<bool>(StructEntry(struct_entries[struct_idx++]))[result_idx] = aid_result.is_obsolete_product;
 
         // Counts
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = aid_result.stockout_count;
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = aid_result.new_product_count;
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = aid_result.obsolete_product_count;
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = aid_result.high_outlier_count;
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = aid_result.low_outlier_count;
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = aid_result.stockout_count;
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = aid_result.new_product_count;
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = aid_result.obsolete_product_count;
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = aid_result.high_outlier_count;
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = aid_result.low_outlier_count;
 
         anofox_free_aid_result(&aid_result);
 
@@ -303,11 +303,11 @@ static void AidAnomalyAggFinalize(Vector &state_vector, AggregateInputData &aggr
         ListVector::SetListSize(result, list_offset + n);
 
         // Copy anomaly flags to struct list
-        auto stockout_data = FlatVector::GetData<bool>(*struct_entries[0]);
-        auto new_product_data = FlatVector::GetData<bool>(*struct_entries[1]);
-        auto obsolete_product_data = FlatVector::GetData<bool>(*struct_entries[2]);
-        auto high_outlier_data = FlatVector::GetData<bool>(*struct_entries[3]);
-        auto low_outlier_data = FlatVector::GetData<bool>(*struct_entries[4]);
+        auto stockout_data = FlatDataMut<bool>(StructEntry(struct_entries[0]));
+        auto new_product_data = FlatDataMut<bool>(StructEntry(struct_entries[1]));
+        auto obsolete_product_data = FlatDataMut<bool>(StructEntry(struct_entries[2]));
+        auto high_outlier_data = FlatDataMut<bool>(StructEntry(struct_entries[3]));
+        auto low_outlier_data = FlatDataMut<bool>(StructEntry(struct_entries[4]));
 
         for (size_t j = 0; j < n; j++) {
             stockout_data[list_offset + j] = anomaly_result.flags[j].stockout;
@@ -326,7 +326,7 @@ static void AidAnomalyAggFinalize(Vector &state_vector, AggregateInputData &aggr
 //===--------------------------------------------------------------------===//
 // Bind functions
 //===--------------------------------------------------------------------===//
-static unique_ptr<FunctionData> AidAggBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> AidAggBind(ClientContext &context, AggregateBindFunction &function,
                                            vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<AidAggregateBindData>();
 
@@ -344,13 +344,13 @@ static unique_ptr<FunctionData> AidAggBind(ClientContext &context, AggregateFunc
         }
     }
 
-    function.return_type = GetAidAggResultType();
+    SetReturnTypeOf(function, GetAidAggResultType());
 
     PostHogTelemetry::Instance().RecordFunctionCall("aid_agg");
     return std::move(result);
 }
 
-static unique_ptr<FunctionData> AidAnomalyAggBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> AidAnomalyAggBind(ClientContext &context, AggregateBindFunction &function,
                                                   vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<AidAggregateBindData>();
 
@@ -368,7 +368,7 @@ static unique_ptr<FunctionData> AidAnomalyAggBind(ClientContext &context, Aggreg
         }
     }
 
-    function.return_type = GetAidAnomalyResultType();
+    SetReturnTypeOf(function, GetAidAnomalyResultType());
 
     PostHogTelemetry::Instance().RecordFunctionCall("aid_anomaly_agg");
     return std::move(result);
@@ -383,17 +383,17 @@ void RegisterAidAggregateFunction(ExtensionLoader &loader) {
 
     auto aid_basic =
         AggregateFunction("aid_agg", {LogicalType::DOUBLE}, LogicalType::ANY,
-                          AggregateFunction::StateSize<AidAggregateState>, AidAggInitialize, ANOFOX_GUARDED_UPDATE(AidAggUpdate, AidAggDestroy, AidAggInitialize), AidAggCombine,
-                          ANOFOX_GUARDED_FINALIZE(AidAggFinalize, AidAggDestroy, AidAggInitialize), nullptr, AidAggBind, AidAggDestroy);
+                          AggregateFunction::StateSize<AidAggregateState>, ANOFOX_AGG_INIT(AidAggInitialize), ANOFOX_GUARDED_UPDATE(AidAggUpdate, AidAggDestroy, AidAggInitialize), AidAggCombine,
+                          ANOFOX_GUARDED_FINALIZE(AidAggFinalize, AidAggDestroy, AidAggInitialize), nullptr, ANOFOX_AGG_BIND(AidAggBind), AidAggDestroy);
     // Row order is part of the input (sequential / time-series estimator):
     // declare it so DuckDB honours `agg(... ORDER BY t)`.
-    aid_basic.order_dependent = AggregateOrderDependent::ORDER_DEPENDENT; // field form works on DuckDB v1.4 LTS and v1.5
+    SetOrderDependentOf(aid_basic, AggregateOrderDependent::ORDER_DEPENDENT); // field form works on DuckDB v1.4 LTS and v1.5
     aid_set.AddFunction(aid_basic);
 
     auto aid_map = AggregateFunction("aid_agg", {LogicalType::DOUBLE, LogicalType::ANY}, LogicalType::ANY,
-                                     AggregateFunction::StateSize<AidAggregateState>, AidAggInitialize, ANOFOX_GUARDED_UPDATE(AidAggUpdate, AidAggDestroy, AidAggInitialize),
-                                     AidAggCombine, ANOFOX_GUARDED_FINALIZE(AidAggFinalize, AidAggDestroy, AidAggInitialize), nullptr, AidAggBind, AidAggDestroy);
-    aid_map.order_dependent = AggregateOrderDependent::ORDER_DEPENDENT; // field form works on DuckDB v1.4 LTS and v1.5
+                                     AggregateFunction::StateSize<AidAggregateState>, ANOFOX_AGG_INIT(AidAggInitialize), ANOFOX_GUARDED_UPDATE(AidAggUpdate, AidAggDestroy, AidAggInitialize),
+                                     AidAggCombine, ANOFOX_GUARDED_FINALIZE(AidAggFinalize, AidAggDestroy, AidAggInitialize), nullptr, ANOFOX_AGG_BIND(AidAggBind), AidAggDestroy);
+    SetOrderDependentOf(aid_map, AggregateOrderDependent::ORDER_DEPENDENT); // field form works on DuckDB v1.4 LTS and v1.5
     aid_set.AddFunction(aid_map);
 
     {
@@ -425,16 +425,16 @@ void RegisterAidAggregateFunction(ExtensionLoader &loader) {
 
     auto aid_anomaly_basic = AggregateFunction(
         "aid_anomaly_agg", {LogicalType::DOUBLE}, LogicalType::ANY,
-        AggregateFunction::StateSize<AidAggregateState>, AidAggInitialize, ANOFOX_GUARDED_UPDATE(AidAggUpdate, AidAggDestroy, AidAggInitialize), AidAggCombine,
-        ANOFOX_GUARDED_FINALIZE(AidAnomalyAggFinalize, AidAggDestroy, AidAggInitialize), nullptr, AidAnomalyAggBind, AidAggDestroy);
-    aid_anomaly_basic.order_dependent = AggregateOrderDependent::ORDER_DEPENDENT; // field form works on DuckDB v1.4 LTS and v1.5
+        AggregateFunction::StateSize<AidAggregateState>, ANOFOX_AGG_INIT(AidAggInitialize), ANOFOX_GUARDED_UPDATE(AidAggUpdate, AidAggDestroy, AidAggInitialize), AidAggCombine,
+        ANOFOX_GUARDED_FINALIZE(AidAnomalyAggFinalize, AidAggDestroy, AidAggInitialize), nullptr, ANOFOX_AGG_BIND(AidAnomalyAggBind), AidAggDestroy);
+    SetOrderDependentOf(aid_anomaly_basic, AggregateOrderDependent::ORDER_DEPENDENT); // field form works on DuckDB v1.4 LTS and v1.5
     aid_anomaly_set.AddFunction(aid_anomaly_basic);
 
     auto aid_anomaly_map = AggregateFunction(
         "aid_anomaly_agg", {LogicalType::DOUBLE, LogicalType::ANY}, LogicalType::ANY,
-        AggregateFunction::StateSize<AidAggregateState>, AidAggInitialize, ANOFOX_GUARDED_UPDATE(AidAggUpdate, AidAggDestroy, AidAggInitialize), AidAggCombine,
-        ANOFOX_GUARDED_FINALIZE(AidAnomalyAggFinalize, AidAggDestroy, AidAggInitialize), nullptr, AidAnomalyAggBind, AidAggDestroy);
-    aid_anomaly_map.order_dependent = AggregateOrderDependent::ORDER_DEPENDENT; // field form works on DuckDB v1.4 LTS and v1.5
+        AggregateFunction::StateSize<AidAggregateState>, ANOFOX_AGG_INIT(AidAggInitialize), ANOFOX_GUARDED_UPDATE(AidAggUpdate, AidAggDestroy, AidAggInitialize), AidAggCombine,
+        ANOFOX_GUARDED_FINALIZE(AidAnomalyAggFinalize, AidAggDestroy, AidAggInitialize), nullptr, ANOFOX_AGG_BIND(AidAnomalyAggBind), AidAggDestroy);
+    SetOrderDependentOf(aid_anomaly_map, AggregateOrderDependent::ORDER_DEPENDENT); // field form works on DuckDB v1.4 LTS and v1.5
     aid_anomaly_set.AddFunction(aid_anomaly_map);
 
     {

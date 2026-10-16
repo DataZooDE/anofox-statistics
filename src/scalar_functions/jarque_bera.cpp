@@ -32,9 +32,9 @@ static LogicalType GetJarqueBeraResultType() {
 }
 
 // Bind function
-static unique_ptr<FunctionData> JarqueBeraBind(ClientContext &context, ScalarFunction &bound_function,
+static unique_ptr<FunctionData> JarqueBeraBind(ClientContext &context, ScalarBindFunction &bound_function,
                                                vector<unique_ptr<Expression>> &arguments) {
-    bound_function.return_type = GetJarqueBeraResultType();
+    SetReturnTypeOf(bound_function, GetJarqueBeraResultType());
     PostHogTelemetry::Instance().RecordFunctionCall("jarque_bera");
     return nullptr;
 }
@@ -43,7 +43,7 @@ static unique_ptr<FunctionData> JarqueBeraBind(ClientContext &context, ScalarFun
 static vector<double> ExtractDoubleList(Vector &vec, idx_t row_idx) {
     auto list_data = ListVector::GetData(vec);
     auto &child = ListVector::GetEntry(vec);
-    auto child_data = FlatVector::GetData<double>(child);
+    auto child_data = FlatDataMut<double>(child);
 
     vector<double> result;
     auto offset = list_data[row_idx].offset;
@@ -106,13 +106,13 @@ static void JarqueBeraFunctionImpl(DataChunk &args, ExpressionState &state, Vect
 
         // Fill result struct
         idx_t struct_idx = 0;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[row] = jb_result.statistic;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[row] = jb_result.p_value;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[row] = jb_result.skewness;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[row] = jb_result.kurtosis;
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[row] = jb_result.n;
-        SetResultString(*struct_entries[struct_idx++], row, "Jarque-Bera test");
-        SetResultNull(*struct_entries[struct_idx++], row); // alternative: not applicable
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[row] = jb_result.statistic;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[row] = jb_result.p_value;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[row] = jb_result.skewness;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[row] = jb_result.kurtosis;
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[row] = jb_result.n;
+        SetResultString(StructEntry(struct_entries[struct_idx++]), row, "Jarque-Bera test");
+        SetResultNull(StructEntry(struct_entries[struct_idx++]), row); // alternative: not applicable
         WriteTestResultFields(result, row, struct_idx, jb_result.unified);
     }
 }
@@ -121,7 +121,8 @@ static void JarqueBeraFunctionImpl(DataChunk &args, ExpressionState &state, Vect
 void RegisterJarqueBeraFunction(ExtensionLoader &loader) {
     auto func = ScalarFunction({LogicalType::LIST(LogicalType::DOUBLE)},
                                LogicalType::ANY,
-                               JarqueBeraFunction, JarqueBeraBind);
+                               JarqueBeraFunction, ANOFOX_SCALAR_BIND(JarqueBeraBind));
+    MarkFallible(func);
 
     // Primary
     {

@@ -139,12 +139,12 @@ void PlsFitAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_data
 			FlatVector::SetNull(result, row, true);
 			continue;
 		}
-		SetDoubleList(*entries[0], row, fit.coefficients, fit.coefficients_len);
-		SetDouble(*entries[1], row, bind.fit_intercept ? fit.intercept : 0.0);
-		SetDouble(*entries[2], row, fit.r_squared);
-		FlatVector::GetData<int64_t>(*entries[3])[row] = (int64_t)fit.n_components;
-		FlatVector::GetData<int64_t>(*entries[4])[row] = (int64_t)fit.n_observations;
-		FlatVector::GetData<int64_t>(*entries[5])[row] = (int64_t)fit.n_features;
+		SetDoubleList(StructEntry(entries[0]), row, fit.coefficients, fit.coefficients_len);
+		SetDouble(StructEntry(entries[1]), row, bind.fit_intercept ? fit.intercept : 0.0);
+		SetDouble(StructEntry(entries[2]), row, fit.r_squared);
+		FlatDataMut<int64_t>(StructEntry(entries[3]))[row] = (int64_t)fit.n_components;
+		FlatDataMut<int64_t>(StructEntry(entries[4]))[row] = (int64_t)fit.n_observations;
+		FlatDataMut<int64_t>(StructEntry(entries[5]))[row] = (int64_t)fit.n_features;
 		writer.WriteInference(row, nullptr);
 		writer.WriteSummary(row, fit.summary);
 		anofox_free_pls_result(&fit);
@@ -199,11 +199,11 @@ void QuantileFitAggFinalize(Vector &state_vector, AggregateInputData &aggr_input
 			FlatVector::SetNull(result, row, true);
 			continue;
 		}
-		SetDoubleList(*entries[0], row, fit.coefficients, fit.coefficients_len);
-		SetDouble(*entries[1], row, bind.fit_intercept ? fit.intercept : 0.0);
-		SetDouble(*entries[2], row, fit.tau);
-		FlatVector::GetData<int64_t>(*entries[3])[row] = (int64_t)fit.n_observations;
-		FlatVector::GetData<int64_t>(*entries[4])[row] = (int64_t)fit.n_features;
+		SetDoubleList(StructEntry(entries[0]), row, fit.coefficients, fit.coefficients_len);
+		SetDouble(StructEntry(entries[1]), row, bind.fit_intercept ? fit.intercept : 0.0);
+		SetDouble(StructEntry(entries[2]), row, fit.tau);
+		FlatDataMut<int64_t>(StructEntry(entries[3]))[row] = (int64_t)fit.n_observations;
+		FlatDataMut<int64_t>(StructEntry(entries[4]))[row] = (int64_t)fit.n_features;
 		// Coefficient inference (#157): quantreg::summary.rq(se = iid | nid | boot)
 		// from upstream's quantile_inference, slopes in the lists and the
 		// intercept in the intercept_* fields.
@@ -303,11 +303,11 @@ void IsotonicFitAggFinalize(Vector &state_vector, AggregateInputData &aggr_input
 				fitted.push_back(fit.fitted_values[k]);
 			}
 		}
-		SetDoubleList(*entries[0], row, knots.data(), knots.size());
-		SetDoubleList(*entries[1], row, fitted.data(), fitted.size());
-		FlatVector::GetData<bool>(*entries[2])[row] = fit.increasing;
-		SetDouble(*entries[3], row, fit.r_squared);
-		FlatVector::GetData<int64_t>(*entries[4])[row] = (int64_t)fit.n_observations;
+		SetDoubleList(StructEntry(entries[0]), row, knots.data(), knots.size());
+		SetDoubleList(StructEntry(entries[1]), row, fitted.data(), fitted.size());
+		FlatDataMut<bool>(StructEntry(entries[2]))[row] = fit.increasing;
+		SetDouble(StructEntry(entries[3]), row, fit.r_squared);
+		FlatDataMut<int64_t>(StructEntry(entries[4]))[row] = (int64_t)fit.n_observations;
 		writer.WriteInference(row, nullptr);
 		writer.WriteSummary(row, fit.summary);
 		anofox_free_isotonic_result(&fit);
@@ -343,7 +343,7 @@ void ApplyQuantileInferenceOptions(const RegressionMapOptions &opts, ExtraFitBin
 }
 
 template <const char *NAME>
-unique_ptr<FunctionData> ExtraFitBind(ClientContext &context, AggregateFunction &, vector<unique_ptr<Expression>> &args) {
+unique_ptr<FunctionData> ExtraFitBind(ClientContext &context, AggregateBindFunction &, vector<unique_ptr<Expression>> &args) {
 	// Format messages with this string, never with NAME itself: MSVC miscompiles
 	// a `const char *` template argument bound to the formatter's `const T &`
 	// and dereferences the name's characters as a pointer (#162).
@@ -399,13 +399,13 @@ constexpr char kIsotonicName[] = "isotonic_fit_agg";
 void RegisterExtraFit(ExtensionLoader &loader, const char *name, const LogicalType &x_type, aggregate_update_t update,
                       aggregate_finalize_t finalize, bind_aggregate_function_t bind, const LogicalType &result_type,
                       const string &description, const string &example, const string &options_example) {
-	AggregateFunctionSet set(name);
+	AggregateFunctionSet set(AsDuckName(name));
 	for (bool with_options : {false, true}) {
 		vector<LogicalType> args = {LogicalType::DOUBLE, x_type};
 		if (with_options) {
 			args.push_back(LogicalType::ANY);
 		}
-		AggregateFunction fn(name, args, result_type, AggregateFunction::StateSize<ExtraFitState>, XyRowsInitialize,
+		AggregateFunction fn(AsDuckName(name), args, result_type, AggregateFunction::StateSize<ExtraFitState>, ANOFOX_AGG_INIT(XyRowsInitialize),
 		                     update, XyRowsCombine, finalize, nullptr, bind, XyRowsDestroy);
 		set.AddFunction(fn);
 	}
@@ -431,19 +431,19 @@ void RegisterExtraFit(ExtensionLoader &loader, const char *name, const LogicalTy
 } // namespace
 
 void RegisterExtraFitAggregateFunctions(ExtensionLoader &loader) {
-	RegisterExtraFit(loader, kPlsName, LogicalType::LIST(LogicalType::DOUBLE), XyRowsUpdate, PlsFitAggFinalize,
-	                 ExtraFitBind<kPlsName>, PlsFitAggResultType(),
+	RegisterExtraFit(loader, kPlsName, LogicalType::LIST(LogicalType::DOUBLE), XyRowsUpdate, ANOFOX_AGG_FINALIZE(PlsFitAggFinalize),
+	                 ANOFOX_AGG_BIND(ExtraFitBind<kPlsName>), PlsFitAggResultType(),
 	                 "Fits a Partial Least Squares regression per group and returns the coefficients, intercept, R^2 "
 	                 "and number of components.",
 	                 "pls_fit_agg(y, [x1, x2, x3])", "pls_fit_agg(y, [x1, x2, x3], {'n_components': 2})");
 	RegisterExtraFit(loader, kQuantileName, LogicalType::LIST(LogicalType::DOUBLE), XyRowsUpdate,
-	                 QuantileFitAggFinalize, ExtraFitBind<kQuantileName>, QuantileFitAggResultType(),
+	                 ANOFOX_AGG_FINALIZE(QuantileFitAggFinalize), ANOFOX_AGG_BIND(ExtraFitBind<kQuantileName>), QuantileFitAggResultType(),
 	                 "Fits a linear quantile regression per group and returns the coefficients and intercept for the "
 	                 "requested quantile tau. With {'compute_inference': true} or {'se': 'iid' | 'nid' | 'boot'} it "
 	                 "adds standard errors, t statistics, p-values and conf_low / conf_high (quantreg::summary.rq).",
 	                 "quantile_fit_agg(y, [x1, x2])", "quantile_fit_agg(y, [x1, x2], {'tau': 0.9, 'se': 'nid'})");
-	RegisterExtraFit(loader, kIsotonicName, LogicalType::DOUBLE, ExtraFitScalarUpdate, IsotonicFitAggFinalize,
-	                 ExtraFitBind<kIsotonicName>, IsotonicFitAggResultType(),
+	RegisterExtraFit(loader, kIsotonicName, LogicalType::DOUBLE, ExtraFitScalarUpdate, ANOFOX_AGG_FINALIZE(IsotonicFitAggFinalize),
+	                 ANOFOX_AGG_BIND(ExtraFitBind<kIsotonicName>), IsotonicFitAggResultType(),
 	                 "Fits a monotonic (isotonic) regression of y on a single x per group and returns the step "
 	                 "function as sorted knots x with fitted values.",
 	                 "isotonic_fit_agg(y, x)", "isotonic_fit_agg(y, x, {'increasing': false})");

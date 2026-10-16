@@ -86,7 +86,7 @@ static LogicalType GetWlsFitPredictResultType() {
     return LogicalType::STRUCT(std::move(children));
 }
 
-static void WlsFitPredictInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void WlsFitPredictInitialize(data_ptr_t state_p) {
     new (state_p) WlsFitPredictState();
 }
 
@@ -112,10 +112,10 @@ static void WlsFitPredictUpdate(Vector inputs[], AggregateInputData &aggr_input_
 
     auto y_values = UnifiedVectorFormat::GetData<double>(y_data);
     auto w_values = UnifiedVectorFormat::GetData<double>(w_data);
-    auto x_list_data = ListVector::GetData(inputs[1]);
+    auto x_list_data = UnifiedVectorFormat::GetData<list_entry_t>(x_data);
     auto &x_child = ListVector::GetEntry(inputs[1]);
-    auto x_child_data = FlatVector::GetData<double>(x_child);
-    auto &x_child_validity = FlatVector::Validity(x_child);
+    auto x_child_data = FlatDataMut<double>(x_child);
+    auto &x_child_validity = FlatValidityMut(x_child);
 
     UnifiedVectorFormat sdata;
     state_vector.ToUnifiedFormat(count, sdata);
@@ -298,15 +298,15 @@ static void WlsFitPredictFinalize(Vector &state_vector, AggregateInputData &, Ve
             continue;
         }
 
-        FlatVector::GetData<double>(*struct_entries[0])[result_idx] = pred_result.yhat;
-        WriteIntervalBound(*struct_entries[1], result_idx, pred_result.yhat_lower);
-        WriteIntervalBound(*struct_entries[2], result_idx, pred_result.yhat_upper);
+        FlatDataMut<double>(StructEntry(struct_entries[0]))[result_idx] = pred_result.yhat;
+        WriteIntervalBound(StructEntry(struct_entries[1]), result_idx, pred_result.yhat_lower);
+        WriteIntervalBound(StructEntry(struct_entries[2]), result_idx, pred_result.yhat_upper);
 
         state.Reset();
     }
 }
 
-static unique_ptr<FunctionData> WlsFitPredictBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> WlsFitPredictBind(ClientContext &context, AggregateBindFunction &function,
                                                    vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<WlsFitPredictBindData>();
 
@@ -328,7 +328,7 @@ static unique_ptr<FunctionData> WlsFitPredictBind(ClientContext &context, Aggreg
             result->alias_tolerance = opts.alias_tolerance.value();
     }
 
-    function.return_type = GetWlsFitPredictResultType();
+    SetReturnTypeOf(function, GetWlsFitPredictResultType());
     PostHogTelemetry::Instance().RecordFunctionCall("wls_fit_predict");
     return std::move(result);
 }
@@ -338,15 +338,15 @@ void RegisterWlsFitPredictFunction(ExtensionLoader &loader) {
     auto basic_func = AggregateFunction(
         "wls_fit_predict",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE},
-        GetWlsFitPredictResultType(), AggregateFunction::StateSize<WlsFitPredictState>, WlsFitPredictInitialize,
-        ANOFOX_GUARDED_UPDATE(WlsFitPredictUpdate, WlsFitPredictDestroy, WlsFitPredictInitialize), WlsFitPredictCombine, ANOFOX_GUARDED_FINALIZE(WlsFitPredictFinalize, WlsFitPredictDestroy, WlsFitPredictInitialize), nullptr, WlsFitPredictBind,
+        GetWlsFitPredictResultType(), AggregateFunction::StateSize<WlsFitPredictState>, ANOFOX_AGG_INIT(WlsFitPredictInitialize),
+        ANOFOX_GUARDED_UPDATE(WlsFitPredictUpdate, WlsFitPredictDestroy, WlsFitPredictInitialize), WlsFitPredictCombine, ANOFOX_GUARDED_FINALIZE(WlsFitPredictFinalize, WlsFitPredictDestroy, WlsFitPredictInitialize), nullptr, ANOFOX_AGG_BIND(WlsFitPredictBind),
         WlsFitPredictDestroy);
 
     auto map_func = AggregateFunction(
         "wls_fit_predict",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::DOUBLE, LogicalType::ANY},
-        GetWlsFitPredictResultType(), AggregateFunction::StateSize<WlsFitPredictState>, WlsFitPredictInitialize,
-        ANOFOX_GUARDED_UPDATE(WlsFitPredictUpdate, WlsFitPredictDestroy, WlsFitPredictInitialize), WlsFitPredictCombine, ANOFOX_GUARDED_FINALIZE(WlsFitPredictFinalize, WlsFitPredictDestroy, WlsFitPredictInitialize), nullptr, WlsFitPredictBind,
+        GetWlsFitPredictResultType(), AggregateFunction::StateSize<WlsFitPredictState>, ANOFOX_AGG_INIT(WlsFitPredictInitialize),
+        ANOFOX_GUARDED_UPDATE(WlsFitPredictUpdate, WlsFitPredictDestroy, WlsFitPredictInitialize), WlsFitPredictCombine, ANOFOX_GUARDED_FINALIZE(WlsFitPredictFinalize, WlsFitPredictDestroy, WlsFitPredictInitialize), nullptr, ANOFOX_AGG_BIND(WlsFitPredictBind),
         WlsFitPredictDestroy);
 
     {

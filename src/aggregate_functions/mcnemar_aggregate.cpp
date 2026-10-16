@@ -79,7 +79,7 @@ struct McNemarBindData : public FunctionData {
 // Aggregate function operations
 //===--------------------------------------------------------------------===//
 
-static void McNemarAggInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void McNemarAggInitialize(data_ptr_t state_p) {
     new (state_p) McNemarAggregateState();
 }
 
@@ -195,14 +195,14 @@ static void McNemarAggFinalize(Vector &state_vector, AggregateInputData &aggr_in
         }
 
         idx_t struct_idx = 0;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = mcnemar_result.statistic;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = mcnemar_result.p_value;
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = static_cast<int64_t>(mcnemar_result.df);
-        auto& method_vector = *struct_entries[struct_idx++];
-        FlatVector::GetData<string_t>(method_vector)[result_idx] =
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = mcnemar_result.statistic;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = mcnemar_result.p_value;
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = static_cast<int64_t>(mcnemar_result.df);
+        auto& method_vector = StructEntry(struct_entries[struct_idx++]);
+        FlatDataMut<string_t>(method_vector)[result_idx] =
             StringVector::AddString(method_vector, mcnemar_result.method ? mcnemar_result.method : "McNemar's test");
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = static_cast<int64_t>(a + b + c + d);
-        SetResultNull(*struct_entries[struct_idx++], result_idx);
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = static_cast<int64_t>(a + b + c + d);
+        SetResultNull(StructEntry(struct_entries[struct_idx++]), result_idx);
         WriteTestResultFields(result, result_idx, struct_idx, mcnemar_result.unified); // alternative: chi-square test
 
         anofox_free_chisq_result(&mcnemar_result);
@@ -213,9 +213,9 @@ static void McNemarAggFinalize(Vector &state_vector, AggregateInputData &aggr_in
 //===--------------------------------------------------------------------===//
 // Bind function
 //===--------------------------------------------------------------------===//
-static unique_ptr<FunctionData> McNemarAggBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> McNemarAggBind(ClientContext &context, AggregateBindFunction &function,
                                                 vector<unique_ptr<Expression>> &arguments) {
-    function.return_type = GetMcNemarAggResultType();
+    SetReturnTypeOf(function, GetMcNemarAggResultType());
     auto bind_data = make_uniq<McNemarBindData>();
 
     if (arguments.size() >= 3) {
@@ -243,18 +243,18 @@ void RegisterMcNemarAggregateFunction(ExtensionLoader &loader) {
     auto func_with_opts = AggregateFunction(
         "mcnemar_agg", {LogicalType::BIGINT, LogicalType::BIGINT, LogicalType::ANY},
         LogicalType::ANY,
-        AggregateFunction::StateSize<McNemarAggregateState>, McNemarAggInitialize,
+        AggregateFunction::StateSize<McNemarAggregateState>, ANOFOX_AGG_INIT(McNemarAggInitialize),
         ANOFOX_GUARDED_UPDATE(McNemarAggUpdate, McNemarAggDestroy, McNemarAggInitialize), McNemarAggCombine, ANOFOX_GUARDED_FINALIZE(McNemarAggFinalize, McNemarAggDestroy, McNemarAggInitialize),
-        nullptr, McNemarAggBind, McNemarAggDestroy);
+        nullptr, ANOFOX_AGG_BIND(McNemarAggBind), McNemarAggDestroy);
     func_set.AddFunction(func_with_opts);
 
     // Without options: (var1 BIGINT, var2 BIGINT)
     auto func_no_opts = AggregateFunction(
         "mcnemar_agg", {LogicalType::BIGINT, LogicalType::BIGINT},
         LogicalType::ANY,
-        AggregateFunction::StateSize<McNemarAggregateState>, McNemarAggInitialize,
+        AggregateFunction::StateSize<McNemarAggregateState>, ANOFOX_AGG_INIT(McNemarAggInitialize),
         ANOFOX_GUARDED_UPDATE(McNemarAggUpdate, McNemarAggDestroy, McNemarAggInitialize), McNemarAggCombine, ANOFOX_GUARDED_FINALIZE(McNemarAggFinalize, McNemarAggDestroy, McNemarAggInitialize),
-        nullptr, McNemarAggBind, McNemarAggDestroy);
+        nullptr, ANOFOX_AGG_BIND(McNemarAggBind), McNemarAggDestroy);
     func_set.AddFunction(func_no_opts);
 
     CreateAggregateFunctionInfo info(std::move(func_set));

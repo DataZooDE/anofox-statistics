@@ -36,7 +36,7 @@ struct ContingencyCoefAggregateState {
 // Aggregate function operations
 //===--------------------------------------------------------------------===//
 
-static void ContingencyCoefAggInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void ContingencyCoefAggInitialize(data_ptr_t state_p) {
     new (state_p) ContingencyCoefAggregateState();
 }
 
@@ -113,7 +113,7 @@ static void ContingencyCoefAggFinalize(Vector &state_vector, AggregateInputData 
     state_vector.ToUnifiedFormat(count, sdata);
     auto states = (ContingencyCoefAggregateState **)sdata.data;
 
-    auto result_data = FlatVector::GetData<double>(result);
+    auto result_data = FlatDataMut<double>(result);
 
     for (idx_t i = 0; i < count; i++) {
         auto &state = *states[sdata.sel->get_index(i)];
@@ -176,9 +176,9 @@ static void ContingencyCoefAggFinalize(Vector &state_vector, AggregateInputData 
 //===--------------------------------------------------------------------===//
 // Bind function
 //===--------------------------------------------------------------------===//
-static unique_ptr<FunctionData> ContingencyCoefAggBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> ContingencyCoefAggBind(ClientContext &context, AggregateBindFunction &function,
                                                         vector<unique_ptr<Expression>> &arguments) {
-    function.return_type = LogicalType::DOUBLE;
+    SetReturnTypeOf(function, LogicalType::DOUBLE);
     PostHogTelemetry::Instance().RecordFunctionCall("contingency_coef_agg");
     return nullptr;
 }
@@ -193,9 +193,9 @@ void RegisterContingencyCoefAggregateFunction(ExtensionLoader &loader) {
     auto func = AggregateFunction(
         "contingency_coef_agg", {LogicalType::BIGINT, LogicalType::BIGINT},
         LogicalType::DOUBLE,
-        AggregateFunction::StateSize<ContingencyCoefAggregateState>, ContingencyCoefAggInitialize,
+        AggregateFunction::StateSize<ContingencyCoefAggregateState>, ANOFOX_AGG_INIT(ContingencyCoefAggInitialize),
         ANOFOX_GUARDED_UPDATE(ContingencyCoefAggUpdate, ContingencyCoefAggDestroy, ContingencyCoefAggInitialize), ContingencyCoefAggCombine, ANOFOX_GUARDED_FINALIZE(ContingencyCoefAggFinalize, ContingencyCoefAggDestroy, ContingencyCoefAggInitialize),
-        nullptr, ContingencyCoefAggBind, ContingencyCoefAggDestroy);
+        nullptr, ANOFOX_AGG_BIND(ContingencyCoefAggBind), ContingencyCoefAggDestroy);
     func_set.AddFunction(func);
 
     CreateAggregateFunctionInfo info(std::move(func_set));

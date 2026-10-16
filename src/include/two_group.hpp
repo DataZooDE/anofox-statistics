@@ -2,6 +2,7 @@
 
 #include "duckdb.hpp"
 #include "duckdb/function/aggregate_state.hpp"
+#include "duckdb_compat.hpp"
 #include "aggregate_combine.hpp"
 
 #include <algorithm>

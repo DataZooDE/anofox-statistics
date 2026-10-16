@@ -57,7 +57,7 @@ static LogicalType GetResidualsDiagnosticsAggResultType() {
 // Aggregate function operations
 //===--------------------------------------------------------------------===//
 
-static void ResidualsDiagnosticsAggInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void ResidualsDiagnosticsAggInitialize(data_ptr_t state_p) {
     new (state_p) ResidualsDiagnosticsAggregateState();
 }
 
@@ -117,10 +117,10 @@ static void ResidualsDiagnosticsAggUpdateFull(Vector inputs[], AggregateInputDat
 
     auto y_values = UnifiedVectorFormat::GetData<double>(y_data);
     auto y_hat_values = UnifiedVectorFormat::GetData<double>(y_hat_data);
-    auto x_list_data = ListVector::GetData(inputs[2]);
+    auto x_list_data = UnifiedVectorFormat::GetData<list_entry_t>(x_data);
     auto &x_child = ListVector::GetEntry(inputs[2]);
-    auto x_child_data = FlatVector::GetData<double>(x_child);
-    auto &x_child_validity = FlatVector::Validity(x_child);
+    auto x_child_data = FlatDataMut<double>(x_child);
+    auto &x_child_validity = FlatValidityMut(x_child);
 
     UnifiedVectorFormat sdata;
     state_vector.ToUnifiedFormat(count, sdata);
@@ -222,7 +222,7 @@ static void SetListInResult(Vector &list_vec, idx_t row, double *data, size_t le
     auto offset = ListVector::GetListSize(list_vec);
     ListVector::Reserve(list_vec, offset + len);
     ListVector::SetListSize(list_vec, offset + len);
-    auto vec_data = FlatVector::GetData<double>(child);
+    auto vec_data = FlatDataMut<double>(child);
     for (size_t i = 0; i < len; i++) {
         vec_data[offset + i] = data[i];
     }
@@ -290,31 +290,31 @@ static void ResidualsDiagnosticsAggFinalize(Vector &state_vector, AggregateInput
         // Fill STRUCT result
         idx_t struct_idx = 0;
 
-        SetListInResult(*struct_entries[struct_idx++], result_idx, resid_result.raw, resid_result.len);
+        SetListInResult(StructEntry(struct_entries[struct_idx++]), result_idx, resid_result.raw, resid_result.len);
 
         if (resid_result.has_standardized) {
-            SetListInResult(*struct_entries[struct_idx++], result_idx, resid_result.standardized, resid_result.len);
+            SetListInResult(StructEntry(struct_entries[struct_idx++]), result_idx, resid_result.standardized, resid_result.len);
         } else {
-            FlatVector::SetNull(*struct_entries[struct_idx++], result_idx, true);
+            FlatVector::SetNull(StructEntry(struct_entries[struct_idx++]), result_idx, true);
         }
 
         if (resid_result.has_studentized) {
-            SetListInResult(*struct_entries[struct_idx++], result_idx, resid_result.studentized, resid_result.len);
+            SetListInResult(StructEntry(struct_entries[struct_idx++]), result_idx, resid_result.studentized, resid_result.len);
         } else {
-            FlatVector::SetNull(*struct_entries[struct_idx++], result_idx, true);
+            FlatVector::SetNull(StructEntry(struct_entries[struct_idx++]), result_idx, true);
         }
 
         if (resid_result.has_leverage) {
-            SetListInResult(*struct_entries[struct_idx++], result_idx, resid_result.leverage, resid_result.len);
+            SetListInResult(StructEntry(struct_entries[struct_idx++]), result_idx, resid_result.leverage, resid_result.len);
         } else {
-            FlatVector::SetNull(*struct_entries[struct_idx++], result_idx, true);
+            FlatVector::SetNull(StructEntry(struct_entries[struct_idx++]), result_idx, true);
         }
 
         // Cook's distance (needs x and a residual standard error)
         if (resid_result.has_cooks_distance) {
-            SetListInResult(*struct_entries[struct_idx++], result_idx, resid_result.cooks_distance, resid_result.len);
+            SetListInResult(StructEntry(struct_entries[struct_idx++]), result_idx, resid_result.cooks_distance, resid_result.len);
         } else {
-            FlatVector::SetNull(*struct_entries[struct_idx++], result_idx, true);
+            FlatVector::SetNull(StructEntry(struct_entries[struct_idx++]), result_idx, true);
         }
 
         anofox_free_residuals(&resid_result);
@@ -325,9 +325,9 @@ static void ResidualsDiagnosticsAggFinalize(Vector &state_vector, AggregateInput
 //===--------------------------------------------------------------------===//
 // Bind function
 //===--------------------------------------------------------------------===//
-static unique_ptr<FunctionData> ResidualsDiagnosticsAggBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> ResidualsDiagnosticsAggBind(ClientContext &context, AggregateBindFunction &function,
                                                             vector<unique_ptr<Expression>> &arguments) {
-    function.return_type = GetResidualsDiagnosticsAggResultType();
+    SetReturnTypeOf(function, GetResidualsDiagnosticsAggResultType());
     PostHogTelemetry::Instance().RecordFunctionCall("residuals_diagnostics_agg");
     return nullptr;
 }
@@ -342,19 +342,19 @@ void RegisterResidualsDiagnosticsAggregateFunction(ExtensionLoader &loader) {
     auto basic_func = AggregateFunction(
         "residuals_diagnostics_agg", {LogicalType::DOUBLE, LogicalType::DOUBLE},
         LogicalType::ANY, // Set in bind
-        AggregateFunction::StateSize<ResidualsDiagnosticsAggregateState>, ResidualsDiagnosticsAggInitialize,
+        AggregateFunction::StateSize<ResidualsDiagnosticsAggregateState>, ANOFOX_AGG_INIT(ResidualsDiagnosticsAggInitialize),
         ANOFOX_GUARDED_UPDATE(ResidualsDiagnosticsAggUpdateBasic, ResidualsDiagnosticsAggDestroy, ResidualsDiagnosticsAggInitialize), ResidualsDiagnosticsAggCombine, ANOFOX_GUARDED_FINALIZE(ResidualsDiagnosticsAggFinalize, ResidualsDiagnosticsAggDestroy, ResidualsDiagnosticsAggInitialize),
         nullptr, // simple_update
-        ResidualsDiagnosticsAggBind, ResidualsDiagnosticsAggDestroy);
+        ANOFOX_AGG_BIND(ResidualsDiagnosticsAggBind), ResidualsDiagnosticsAggDestroy);
     func_set.AddFunction(basic_func);
 
     // Full version: residuals_diagnostics_agg(y, y_hat, x)
     auto full_func = AggregateFunction(
         "residuals_diagnostics_agg",
         {LogicalType::DOUBLE, LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)}, LogicalType::ANY,
-        AggregateFunction::StateSize<ResidualsDiagnosticsAggregateState>, ResidualsDiagnosticsAggInitialize,
+        AggregateFunction::StateSize<ResidualsDiagnosticsAggregateState>, ANOFOX_AGG_INIT(ResidualsDiagnosticsAggInitialize),
         ANOFOX_GUARDED_UPDATE(ResidualsDiagnosticsAggUpdateFull, ResidualsDiagnosticsAggDestroy, ResidualsDiagnosticsAggInitialize), ResidualsDiagnosticsAggCombine, ANOFOX_GUARDED_FINALIZE(ResidualsDiagnosticsAggFinalize, ResidualsDiagnosticsAggDestroy, ResidualsDiagnosticsAggInitialize), nullptr,
-        ResidualsDiagnosticsAggBind, ResidualsDiagnosticsAggDestroy);
+        ANOFOX_AGG_BIND(ResidualsDiagnosticsAggBind), ResidualsDiagnosticsAggDestroy);
     func_set.AddFunction(full_func);
 
     CreateAggregateFunctionInfo info(std::move(func_set));

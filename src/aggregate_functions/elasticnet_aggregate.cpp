@@ -104,7 +104,7 @@ static LogicalType GetElasticNetAggResultType() {
 //===--------------------------------------------------------------------===//
 
 // Initialize aggregate state
-static void ElasticNetAggInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void ElasticNetAggInitialize(data_ptr_t state_p) {
     new (state_p) ElasticNetAggregateState();
 }
 
@@ -131,10 +131,10 @@ static void ElasticNetAggUpdate(Vector inputs[], AggregateInputData &aggr_input_
     inputs[1].ToUnifiedFormat(count, x_data); // x: LIST(DOUBLE)
 
     auto y_values = UnifiedVectorFormat::GetData<double>(y_data);
-    auto x_list_data = ListVector::GetData(inputs[1]);
+    auto x_list_data = UnifiedVectorFormat::GetData<list_entry_t>(x_data);
     auto &x_child = ListVector::GetEntry(inputs[1]);
-    auto x_child_data = FlatVector::GetData<double>(x_child);
-    auto &x_child_validity = FlatVector::Validity(x_child);
+    auto x_child_data = FlatDataMut<double>(x_child);
+    auto &x_child_validity = FlatValidityMut(x_child);
 
     UnifiedVectorFormat sdata;
     state_vector.ToUnifiedFormat(count, sdata);
@@ -250,7 +250,7 @@ static void SetListInResult(Vector &list_vec, idx_t row, double *data, size_t le
     auto offset = ListVector::GetListSize(list_vec);
     ListVector::Reserve(list_vec, offset + len);
     ListVector::SetListSize(list_vec, offset + len);
-    auto vec_data = FlatVector::GetData<double>(child);
+    auto vec_data = FlatDataMut<double>(child);
     for (size_t i = 0; i < len; i++) {
         vec_data[offset + i] = data[i];
     }
@@ -317,16 +317,16 @@ static void ElasticNetAggFinalize(Vector &state_vector, AggregateInputData &aggr
         idx_t struct_idx = 0;
 
         // Coefficients
-        SetListInResult(*struct_entries[struct_idx++], result_idx, core_result.coefficients,
+        SetListInResult(StructEntry(struct_entries[struct_idx++]), result_idx, core_result.coefficients,
                         core_result.coefficients_len);
 
         // Scalars
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = core_result.intercept;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = core_result.r_squared;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = core_result.adj_r_squared;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = core_result.residual_std_error;
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = core_result.n_observations;
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = core_result.n_features;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = core_result.intercept;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = core_result.r_squared;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = core_result.adj_r_squared;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = core_result.residual_std_error;
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = core_result.n_observations;
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = core_result.n_features;
 
         writer.WriteInference(result_idx, nullptr);
         writer.WriteSummary(result_idx, core_result.summary);
@@ -340,7 +340,7 @@ static void ElasticNetAggFinalize(Vector &state_vector, AggregateInputData &aggr
 //===--------------------------------------------------------------------===//
 // Bind function
 //===--------------------------------------------------------------------===//
-static unique_ptr<FunctionData> ElasticNetAggBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> ElasticNetAggBind(ClientContext &context, AggregateBindFunction &function,
                                                   vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<ElasticNetAggregateBindData>();
 
@@ -371,7 +371,7 @@ static unique_ptr<FunctionData> ElasticNetAggBind(ClientContext &context, Aggreg
     }
 
     // Set return type
-    function.return_type = GetElasticNetAggResultType();
+    SetReturnTypeOf(function, GetElasticNetAggResultType());
 
     PostHogTelemetry::Instance().RecordFunctionCall("elasticnet_fit_agg");
     return std::move(result);
@@ -387,10 +387,10 @@ void RegisterElasticNetAggregateFunction(ExtensionLoader &loader) {
     auto basic_func = AggregateFunction(
         "elasticnet_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
         LogicalType::ANY, // Set in bind
-        AggregateFunction::StateSize<ElasticNetAggregateState>, ElasticNetAggInitialize, ANOFOX_GUARDED_UPDATE(ElasticNetAggUpdate, ElasticNetAggDestroy, ElasticNetAggInitialize),
+        AggregateFunction::StateSize<ElasticNetAggregateState>, ANOFOX_AGG_INIT(ElasticNetAggInitialize), ANOFOX_GUARDED_UPDATE(ElasticNetAggUpdate, ElasticNetAggDestroy, ElasticNetAggInitialize),
         ElasticNetAggCombine, ANOFOX_GUARDED_FINALIZE(ElasticNetAggFinalize, ElasticNetAggDestroy, ElasticNetAggInitialize),
         nullptr, // simple_update
-        ElasticNetAggBind, ElasticNetAggDestroy);
+        ANOFOX_AGG_BIND(ElasticNetAggBind), ElasticNetAggDestroy);
     func_set.AddFunction(basic_func);
 
     // Version with MAP options: elasticnet_fit_agg(y, x, {'alpha': 1.0, 'l1_ratio': 0.5, ...})
@@ -398,8 +398,8 @@ void RegisterElasticNetAggregateFunction(ExtensionLoader &loader) {
                                       {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE),
                                        LogicalType::ANY}, // MAP or STRUCT for options
                                       LogicalType::ANY, AggregateFunction::StateSize<ElasticNetAggregateState>,
-                                      ElasticNetAggInitialize, ANOFOX_GUARDED_UPDATE(ElasticNetAggUpdate, ElasticNetAggDestroy, ElasticNetAggInitialize), ElasticNetAggCombine,
-                                      ANOFOX_GUARDED_FINALIZE(ElasticNetAggFinalize, ElasticNetAggDestroy, ElasticNetAggInitialize), nullptr, ElasticNetAggBind, ElasticNetAggDestroy);
+                                      ANOFOX_AGG_INIT(ElasticNetAggInitialize), ANOFOX_GUARDED_UPDATE(ElasticNetAggUpdate, ElasticNetAggDestroy, ElasticNetAggInitialize), ElasticNetAggCombine,
+                                      ANOFOX_GUARDED_FINALIZE(ElasticNetAggFinalize, ElasticNetAggDestroy, ElasticNetAggInitialize), nullptr, ANOFOX_AGG_BIND(ElasticNetAggBind), ElasticNetAggDestroy);
     func_set.AddFunction(map_func);
 
     CreateAggregateFunctionInfo info(std::move(func_set));

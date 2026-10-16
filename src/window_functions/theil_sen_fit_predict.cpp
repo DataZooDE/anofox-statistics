@@ -98,7 +98,7 @@ static LogicalType GetTheilSenFitPredictResultType() {
     return LogicalType::STRUCT(std::move(children));
 }
 
-static void TheilSenFitPredictInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void TheilSenFitPredictInitialize(data_ptr_t state_p) {
     new (state_p) TheilSenFitPredictState();
 }
 
@@ -123,10 +123,10 @@ static void TheilSenFitPredictUpdate(Vector inputs[], AggregateInputData &aggr_i
     inputs[1].ToUnifiedFormat(count, x_data);
 
     auto y_values = UnifiedVectorFormat::GetData<double>(y_data);
-    auto x_list_data = ListVector::GetData(inputs[1]);
+    auto x_list_data = UnifiedVectorFormat::GetData<list_entry_t>(x_data);
     auto &x_child = ListVector::GetEntry(inputs[1]);
-    auto x_child_data = FlatVector::GetData<double>(x_child);
-    auto &x_child_validity = FlatVector::Validity(x_child);
+    auto x_child_data = FlatDataMut<double>(x_child);
+    auto &x_child_validity = FlatValidityMut(x_child);
 
     UnifiedVectorFormat sdata;
     state_vector.ToUnifiedFormat(count, sdata);
@@ -330,15 +330,15 @@ static void TheilSenFitPredictFinalize(Vector &state_vector, AggregateInputData 
             continue;
         }
 
-        FlatVector::GetData<double>(*struct_entries[0])[result_idx] = pred_result.yhat;
-        WriteIntervalBound(*struct_entries[1], result_idx, pred_result.yhat_lower);
-        WriteIntervalBound(*struct_entries[2], result_idx, pred_result.yhat_upper);
+        FlatDataMut<double>(StructEntry(struct_entries[0]))[result_idx] = pred_result.yhat;
+        WriteIntervalBound(StructEntry(struct_entries[1]), result_idx, pred_result.yhat_lower);
+        WriteIntervalBound(StructEntry(struct_entries[2]), result_idx, pred_result.yhat_upper);
 
         state.Reset();
     }
 }
 
-static unique_ptr<FunctionData> TheilSenFitPredictBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> TheilSenFitPredictBind(ClientContext &context, AggregateBindFunction &function,
                                                        vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<TheilSenFitPredictBindData>();
 
@@ -373,7 +373,7 @@ static unique_ptr<FunctionData> TheilSenFitPredictBind(ClientContext &context, A
         }
     }
 
-    function.return_type = GetTheilSenFitPredictResultType();
+    SetReturnTypeOf(function, GetTheilSenFitPredictResultType());
     PostHogTelemetry::Instance().RecordFunctionCall("theil_sen_fit_predict");
     return std::move(result);
 }
@@ -382,15 +382,15 @@ void RegisterTheilSenFitPredictFunction(ExtensionLoader &loader) {
     auto basic_func = AggregateFunction(
         "theil_sen_fit_predict", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
         GetTheilSenFitPredictResultType(), AggregateFunction::StateSize<TheilSenFitPredictState>,
-        TheilSenFitPredictInitialize, ANOFOX_GUARDED_UPDATE(TheilSenFitPredictUpdate, TheilSenFitPredictDestroy, TheilSenFitPredictInitialize), TheilSenFitPredictCombine,
-        ANOFOX_GUARDED_FINALIZE(TheilSenFitPredictFinalize, TheilSenFitPredictDestroy, TheilSenFitPredictInitialize), nullptr, TheilSenFitPredictBind, TheilSenFitPredictDestroy);
+        ANOFOX_AGG_INIT(TheilSenFitPredictInitialize), ANOFOX_GUARDED_UPDATE(TheilSenFitPredictUpdate, TheilSenFitPredictDestroy, TheilSenFitPredictInitialize), TheilSenFitPredictCombine,
+        ANOFOX_GUARDED_FINALIZE(TheilSenFitPredictFinalize, TheilSenFitPredictDestroy, TheilSenFitPredictInitialize), nullptr, ANOFOX_AGG_BIND(TheilSenFitPredictBind), TheilSenFitPredictDestroy);
 
     auto map_func = AggregateFunction(
         "theil_sen_fit_predict",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
         GetTheilSenFitPredictResultType(), AggregateFunction::StateSize<TheilSenFitPredictState>,
-        TheilSenFitPredictInitialize, ANOFOX_GUARDED_UPDATE(TheilSenFitPredictUpdate, TheilSenFitPredictDestroy, TheilSenFitPredictInitialize), TheilSenFitPredictCombine,
-        ANOFOX_GUARDED_FINALIZE(TheilSenFitPredictFinalize, TheilSenFitPredictDestroy, TheilSenFitPredictInitialize), nullptr, TheilSenFitPredictBind, TheilSenFitPredictDestroy);
+        ANOFOX_AGG_INIT(TheilSenFitPredictInitialize), ANOFOX_GUARDED_UPDATE(TheilSenFitPredictUpdate, TheilSenFitPredictDestroy, TheilSenFitPredictInitialize), TheilSenFitPredictCombine,
+        ANOFOX_GUARDED_FINALIZE(TheilSenFitPredictFinalize, TheilSenFitPredictDestroy, TheilSenFitPredictInitialize), nullptr, ANOFOX_AGG_BIND(TheilSenFitPredictBind), TheilSenFitPredictDestroy);
 
     {
         AggregateFunctionSet func_set("theil_sen_fit_predict");

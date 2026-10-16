@@ -132,7 +132,7 @@ static LogicalType GetRansacAggResultType() {
     return LogicalType::STRUCT(std::move(children));
 }
 
-static void RansacAggInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void RansacAggInitialize(data_ptr_t state_p) {
     new (state_p) RansacAggregateState();
 }
 
@@ -157,10 +157,10 @@ static void RansacAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data
     inputs[1].ToUnifiedFormat(count, x_data);
 
     auto y_values = UnifiedVectorFormat::GetData<double>(y_data);
-    auto x_list_data = ListVector::GetData(inputs[1]);
+    auto x_list_data = UnifiedVectorFormat::GetData<list_entry_t>(x_data);
     auto &x_child = ListVector::GetEntry(inputs[1]);
-    auto x_child_data = FlatVector::GetData<double>(x_child);
-    auto &x_child_validity = FlatVector::Validity(x_child);
+    auto x_child_data = FlatDataMut<double>(x_child);
+    auto &x_child_validity = FlatValidityMut(x_child);
 
     UnifiedVectorFormat sdata;
     state_vector.ToUnifiedFormat(count, sdata);
@@ -273,7 +273,7 @@ static void SetListInResult(Vector &list_vec, idx_t row, double *data, size_t le
     auto offset = ListVector::GetListSize(list_vec);
     ListVector::Reserve(list_vec, offset + len);
     ListVector::SetListSize(list_vec, offset + len);
-    auto vec_data = FlatVector::GetData<double>(child);
+    auto vec_data = FlatDataMut<double>(child);
     for (size_t i = 0; i < len; i++) {
         vec_data[offset + i] = data[i];
     }
@@ -348,18 +348,18 @@ static void RansacAggFinalize(Vector &state_vector, AggregateInputData &aggr_inp
 
         idx_t struct_idx = 0;
 
-        SetListInResult(*struct_entries[struct_idx++], result_idx, core_result.coefficients,
+        SetListInResult(StructEntry(struct_entries[struct_idx++]), result_idx, core_result.coefficients,
                         core_result.coefficients_len);
 
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = core_result.intercept;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = core_result.r_squared;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = core_result.adj_r_squared;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = core_result.residual_std_error;
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = core_result.n_observations;
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = core_result.n_features;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = extras_result.residual_threshold;
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = (int64_t)extras_result.n_inliers;
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = (int64_t)extras_result.n_trials;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = core_result.intercept;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = core_result.r_squared;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = core_result.adj_r_squared;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = core_result.residual_std_error;
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = core_result.n_observations;
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = core_result.n_features;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = extras_result.residual_threshold;
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = (int64_t)extras_result.n_inliers;
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = (int64_t)extras_result.n_trials;
 
         // Inference (NULL unless requested), CI fields and the model summary
         writer.WriteInference(result_idx, state.compute_inference ? &inference_result : nullptr);
@@ -412,7 +412,7 @@ static void ExtractRansacOptions(ClientContext &context, Expression &opts_expr, 
     }
 }
 
-static unique_ptr<FunctionData> RansacAggBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> RansacAggBind(ClientContext &context, AggregateBindFunction &function,
                                               vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<RansacAggregateBindData>();
 
@@ -420,7 +420,7 @@ static unique_ptr<FunctionData> RansacAggBind(ClientContext &context, AggregateF
         ExtractRansacOptions(context, *arguments[2], *result);
     }
 
-    function.return_type = GetRansacAggResultType();
+    SetReturnTypeOf(function, GetRansacAggResultType());
 
     PostHogTelemetry::Instance().RecordFunctionCall("ransac_fit_agg");
     return std::move(result);
@@ -431,15 +431,15 @@ void RegisterRansacAggregateFunction(ExtensionLoader &loader) {
 
     auto basic_func = AggregateFunction(
         "ransac_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
-        LogicalType::ANY, AggregateFunction::StateSize<RansacAggregateState>, RansacAggInitialize, ANOFOX_GUARDED_UPDATE(RansacAggUpdate, RansacAggDestroy, RansacAggInitialize),
-        RansacAggCombine, ANOFOX_GUARDED_FINALIZE(RansacAggFinalize, RansacAggDestroy, RansacAggInitialize), nullptr, RansacAggBind, RansacAggDestroy);
+        LogicalType::ANY, AggregateFunction::StateSize<RansacAggregateState>, ANOFOX_AGG_INIT(RansacAggInitialize), ANOFOX_GUARDED_UPDATE(RansacAggUpdate, RansacAggDestroy, RansacAggInitialize),
+        RansacAggCombine, ANOFOX_GUARDED_FINALIZE(RansacAggFinalize, RansacAggDestroy, RansacAggInitialize), nullptr, ANOFOX_AGG_BIND(RansacAggBind), RansacAggDestroy);
     func_set.AddFunction(basic_func);
 
     auto map_func = AggregateFunction(
         "ransac_fit_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY}, LogicalType::ANY,
-        AggregateFunction::StateSize<RansacAggregateState>, RansacAggInitialize, ANOFOX_GUARDED_UPDATE(RansacAggUpdate, RansacAggDestroy, RansacAggInitialize), RansacAggCombine,
-        ANOFOX_GUARDED_FINALIZE(RansacAggFinalize, RansacAggDestroy, RansacAggInitialize), nullptr, RansacAggBind, RansacAggDestroy);
+        AggregateFunction::StateSize<RansacAggregateState>, ANOFOX_AGG_INIT(RansacAggInitialize), ANOFOX_GUARDED_UPDATE(RansacAggUpdate, RansacAggDestroy, RansacAggInitialize), RansacAggCombine,
+        ANOFOX_GUARDED_FINALIZE(RansacAggFinalize, RansacAggDestroy, RansacAggInitialize), nullptr, ANOFOX_AGG_BIND(RansacAggBind), RansacAggDestroy);
     func_set.AddFunction(map_func);
 
     CreateAggregateFunctionInfo info(std::move(func_set));

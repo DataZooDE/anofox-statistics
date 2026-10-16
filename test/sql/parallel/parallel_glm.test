@@ -45,7 +45,7 @@ CREATE VIEW tiny AS SELECT * FROM big WHERE i % 25 = 0;
 # relative closeness of two DOUBLE[] (NULL/NaN/Inf must match exactly)
 statement ok
 CREATE MACRO vclose(a, b, tol) AS
-    len(a) = len(b) AND coalesce(list_max(list_transform(range(1, len(a) + 1), k ->
+    len(a) = len(b) AND coalesce(list_max(list_transform(range(1, len(a) + 1), lambda k:
         CASE WHEN a[k] IS NULL AND b[k] IS NULL THEN 0.0
              WHEN a[k] IS NULL OR b[k] IS NULL THEN 1e300
              WHEN isnan(a[k]) AND isnan(b[k]) THEN 0.0
@@ -112,7 +112,7 @@ CREATE TABLE par AS SELECT * FROM results;
 # sanity: the reference results are real numbers (a NULL/NaN result would compare equal trivially)
 query I
 SELECT DISTINCT fn FROM ref
-WHERE vals IS NULL OR len(vals) = 0 OR list_count(list_filter(vals, v -> v IS NULL OR isnan(v))) > 0
+WHERE vals IS NULL OR len(vals) = 0 OR list_count(list_filter(vals, lambda v: v IS NULL OR isnan(v))) > 0
 ORDER BY fn;
 ----
 

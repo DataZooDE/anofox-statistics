@@ -96,7 +96,7 @@ static LogicalType CurveType(ClassifierKind kind) {
 	return LogicalType::LIST(LogicalType::STRUCT(std::move(c)));
 }
 
-static void ClassifierInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void ClassifierInitialize(data_ptr_t state_p) {
 	new (state_p) ClassifierState();
 }
 
@@ -165,12 +165,12 @@ static inline void SetDoubleOrNull(Vector &vec, idx_t idx, double v) {
 	if (std::isnan(v)) {
 		FlatVector::SetNull(vec, idx, true);
 	} else {
-		FlatVector::GetData<double>(vec)[idx] = v;
+		FlatDataMut<double>(vec)[idx] = v;
 	}
 }
 
 static void WriteCurve(ClassifierKind kind, const AnofoxClassifierCurve &curve, Vector &result, idx_t row) {
-	auto list_data = FlatVector::GetData<list_entry_t>(result);
+	auto list_data = FlatDataMut<list_entry_t>(result);
 	auto child_offset = ListVector::GetListSize(result);
 	ListVector::Reserve(result, child_offset + curve.len);
 	auto &entries = StructVector::GetEntries(ListVector::GetEntry(result));
@@ -178,16 +178,16 @@ static void WriteCurve(ClassifierKind kind, const AnofoxClassifierCurve &curve, 
 	for (idx_t j = 0; j < curve.len; j++) {
 		const idx_t k = child_offset + j;
 		if (kind == ClassifierKind::CALIBRATION) {
-			FlatVector::GetData<int64_t>(*entries[0])[k] = curve.bin[j];
-			SetDoubleOrNull(*entries[1], k, curve.x[j]);
-			SetDoubleOrNull(*entries[2], k, curve.y[j]);
-			FlatVector::GetData<int64_t>(*entries[3])[k] = curve.n[j];
-			SetDoubleOrNull(*entries[4], k, curve.y_low[j]);
-			SetDoubleOrNull(*entries[5], k, curve.y_high[j]);
+			FlatDataMut<int64_t>(StructEntry(entries[0]))[k] = curve.bin[j];
+			SetDoubleOrNull(StructEntry(entries[1]), k, curve.x[j]);
+			SetDoubleOrNull(StructEntry(entries[2]), k, curve.y[j]);
+			FlatDataMut<int64_t>(StructEntry(entries[3]))[k] = curve.n[j];
+			SetDoubleOrNull(StructEntry(entries[4]), k, curve.y_low[j]);
+			SetDoubleOrNull(StructEntry(entries[5]), k, curve.y_high[j]);
 		} else {
-			SetDoubleOrNull(*entries[0], k, curve.threshold[j]);
-			SetDoubleOrNull(*entries[1], k, curve.x[j]);
-			SetDoubleOrNull(*entries[2], k, curve.y[j]);
+			SetDoubleOrNull(StructEntry(entries[0]), k, curve.threshold[j]);
+			SetDoubleOrNull(StructEntry(entries[1]), k, curve.x[j]);
+			SetDoubleOrNull(StructEntry(entries[2]), k, curve.y[j]);
 		}
 	}
 	ListVector::SetListSize(result, child_offset + curve.len);
@@ -224,7 +224,7 @@ static void ClassifierFinalize(Vector &state_vector, AggregateInputData &aggr_in
 			double value = 0.0;
 			ok = anofox_classifier_metric(metric, scores, labels, &value, &error);
 			if (ok) {
-				FlatVector::GetData<double>(result)[row] = value;
+				FlatDataMut<double>(result)[row] = value;
 			}
 		} else {
 			AnofoxClassifierCurve curve {};
@@ -266,9 +266,9 @@ static Value ConstantArgument(ClientContext &context, Expression &expr, const st
 }
 
 template <ClassifierKind KIND>
-static unique_ptr<FunctionData> ClassifierBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> ClassifierBind(ClientContext &context, AggregateBindFunction &function,
                                                vector<unique_ptr<Expression>> &arguments) {
-	auto result = make_uniq<ClassifierBindData>(KIND, function.name);
+	auto result = make_uniq<ClassifierBindData>(KIND, NameOf(function));
 	const string &fn = result->name;
 	if (KIND == ClassifierKind::ROC && arguments.size() >= 3) {
 		result->drop_intermediate =
@@ -289,7 +289,7 @@ static unique_ptr<FunctionData> ClassifierBind(ClientContext &context, Aggregate
 			result->conf_level = conf_level;
 		}
 	}
-	function.return_type = CurveType(KIND);
+	SetReturnTypeOf(function, CurveType(KIND));
 	PostHogTelemetry::Instance().RecordFunctionCall(fn);
 	return std::move(result);
 }
@@ -308,7 +308,7 @@ struct ClassifierSpec {
 };
 
 static void RegisterClassifierAggregate(ExtensionLoader &loader, const ClassifierSpec &spec) {
-	AggregateFunctionSet func_set(spec.name);
+	AggregateFunctionSet func_set(AsDuckName(spec.name));
 	vector<FunctionDescription> descriptions;
 	const vector<LogicalType> y_types = {LogicalType::BOOLEAN, LogicalType::DOUBLE};
 
@@ -326,7 +326,7 @@ static void RegisterClassifierAggregate(ExtensionLoader &loader, const Classifie
 				names.push_back(spec.optional_extra[k].first);
 			}
 			AggregateFunction fn(spec.name, args, LogicalType::ANY, AggregateFunction::StateSize<ClassifierState>,
-			                     ClassifierInitialize,
+			                     ANOFOX_AGG_INIT(ClassifierInitialize),
 			                     ANOFOX_GUARDED_UPDATE(ClassifierUpdate, ClassifierDestroy, ClassifierInitialize),
 			                     ClassifierCombine,
 			                     ANOFOX_GUARDED_FINALIZE(ClassifierFinalize, ClassifierDestroy, ClassifierInitialize),
@@ -349,31 +349,31 @@ static void RegisterClassifierAggregate(ExtensionLoader &loader, const Classifie
 
 void RegisterClassifierAggregateFunctions(ExtensionLoader &loader) {
 	const ClassifierSpec specs[] = {
-	    {"roc_agg", ClassifierKind::ROC, ClassifierBind<ClassifierKind::ROC>, "score", {},
+	    {"roc_agg", ClassifierKind::ROC, ANOFOX_AGG_BIND(ClassifierBind<ClassifierKind::ROC>), "score", {},
 	     {{"drop_intermediate", LogicalType::BOOLEAN}},
 	     "ROC curve of a binary classifier as a LIST of {threshold, fpr, tpr}, as scikit-learn roc_curve: the "
 	     "first point is (0, 0) at threshold +inf, tied scores form one point, and drop_intermediate (default "
 	     "true) drops collinear points. y_true is BOOLEAN or 0/1.",
 	     "roc_agg(y_true, score)"},
-	    {"pr_agg", ClassifierKind::PR, ClassifierBind<ClassifierKind::PR>, "score", {}, {},
+	    {"pr_agg", ClassifierKind::PR, ANOFOX_AGG_BIND(ClassifierBind<ClassifierKind::PR>), "score", {}, {},
 	     "Precision-recall curve as a LIST of {threshold, recall, precision} in increasing threshold order, as "
 	     "scikit-learn precision_recall_curve; the final point (recall 0, precision 1) has a NULL threshold.",
 	     "pr_agg(y_true, score)"},
-	    {"calibration_agg", ClassifierKind::CALIBRATION, ClassifierBind<ClassifierKind::CALIBRATION>, "prob",
+	    {"calibration_agg", ClassifierKind::CALIBRATION, ANOFOX_AGG_BIND(ClassifierBind<ClassifierKind::CALIBRATION>), "prob",
 	     {{"n_bins", LogicalType::BIGINT}}, {{"conf_level", LogicalType::DOUBLE}},
 	     "Calibration (reliability) curve over n_bins equal-width bins of [0, 1] as a LIST of {bin, mean_pred, "
 	     "frac_pos, n, conf_low, conf_high} (scikit-learn calibration_curve, strategy 'uniform'); empty bins are "
 	     "omitted, bin is zero-based, and conf_low/conf_high are Wilson intervals (default conf_level 0.95).",
 	     "calibration_agg(y_true, prob, 10)"},
-	    {"auc_agg", ClassifierKind::AUC, ClassifierBind<ClassifierKind::AUC>, "score", {}, {},
+	    {"auc_agg", ClassifierKind::AUC, ANOFOX_AGG_BIND(ClassifierBind<ClassifierKind::AUC>), "score", {}, {},
 	     "Area under the ROC curve (scikit-learn roc_auc_score, pROC auc); ties count one half. NULL when only "
 	     "one class is present.",
 	     "auc_agg(y_true, score)"},
-	    {"brier_agg", ClassifierKind::BRIER, ClassifierBind<ClassifierKind::BRIER>, "prob", {}, {},
+	    {"brier_agg", ClassifierKind::BRIER, ANOFOX_AGG_BIND(ClassifierBind<ClassifierKind::BRIER>), "prob", {}, {},
 	     "Brier score: mean squared difference between the predicted probability and the 0/1 outcome "
 	     "(scikit-learn brier_score_loss).",
 	     "brier_agg(y_true, prob)"},
-	    {"log_loss_agg", ClassifierKind::LOG_LOSS, ClassifierBind<ClassifierKind::LOG_LOSS>, "prob", {}, {},
+	    {"log_loss_agg", ClassifierKind::LOG_LOSS, ANOFOX_AGG_BIND(ClassifierBind<ClassifierKind::LOG_LOSS>), "prob", {}, {},
 	     "Log loss (mean binary cross-entropy, scikit-learn log_loss); probabilities are clipped to "
 	     "[eps, 1 - eps].",
 	     "log_loss_agg(y_true, prob)"},

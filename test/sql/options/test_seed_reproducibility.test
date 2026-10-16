@@ -68,16 +68,16 @@ SET threads = 1;
 
 statement ok
 CREATE TABLE p1 AS
-SELECT list_sort(list_transform(ransac_fit_predict_agg(y, [x1, x2], {'seed': 5}), r -> r.yhat)) AS rp,
-       list_sort(list_transform(theil_sen_fit_predict_agg(y, [x1, x2], {'seed': 5, 'max_subpopulation': 300}), r -> r.yhat)) AS tp
+SELECT list_sort(list_transform(ransac_fit_predict_agg(y, [x1, x2], {'seed': 5}), lambda r: r.yhat)) AS rp,
+       list_sort(list_transform(theil_sen_fit_predict_agg(y, [x1, x2], {'seed': 5, 'max_subpopulation': 300}), lambda r: r.yhat)) AS tp
 FROM big WHERE i % 50 = 0;
 
 statement ok
 SET threads = 8;
 
 query II
-SELECT list_sort(list_transform(ransac_fit_predict_agg(y, [x1, x2], {'seed': 5}), r -> r.yhat)) = (SELECT rp FROM p1),
-       list_sort(list_transform(theil_sen_fit_predict_agg(y, [x1, x2], {'seed': 5, 'max_subpopulation': 300}), r -> r.yhat)) = (SELECT tp FROM p1)
+SELECT list_sort(list_transform(ransac_fit_predict_agg(y, [x1, x2], {'seed': 5}), lambda r: r.yhat)) = (SELECT rp FROM p1),
+       list_sort(list_transform(theil_sen_fit_predict_agg(y, [x1, x2], {'seed': 5, 'max_subpopulation': 300}), lambda r: r.yhat)) = (SELECT tp FROM p1)
 FROM big WHERE i % 50 = 0;
 ----
 true	true

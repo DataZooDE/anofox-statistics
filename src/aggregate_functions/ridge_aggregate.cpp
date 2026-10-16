@@ -105,7 +105,7 @@ static LogicalType GetRidgeAggResultType() {
 //===--------------------------------------------------------------------===//
 
 // Initialize aggregate state
-static void RidgeAggInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void RidgeAggInitialize(data_ptr_t state_p) {
     new (state_p) RidgeAggregateState();
 }
 
@@ -132,10 +132,10 @@ static void RidgeAggUpdate(Vector inputs[], AggregateInputData &aggr_input_data,
     inputs[1].ToUnifiedFormat(count, x_data); // x: LIST(DOUBLE)
 
     auto y_values = UnifiedVectorFormat::GetData<double>(y_data);
-    auto x_list_data = ListVector::GetData(inputs[1]);
+    auto x_list_data = UnifiedVectorFormat::GetData<list_entry_t>(x_data);
     auto &x_child = ListVector::GetEntry(inputs[1]);
-    auto x_child_data = FlatVector::GetData<double>(x_child);
-    auto &x_child_validity = FlatVector::Validity(x_child);
+    auto x_child_data = FlatDataMut<double>(x_child);
+    auto &x_child_validity = FlatValidityMut(x_child);
 
     UnifiedVectorFormat sdata;
     state_vector.ToUnifiedFormat(count, sdata);
@@ -251,7 +251,7 @@ static void SetListInResult(Vector &list_vec, idx_t row, double *data, size_t le
     auto offset = ListVector::GetListSize(list_vec);
     ListVector::Reserve(list_vec, offset + len);
     ListVector::SetListSize(list_vec, offset + len);
-    auto vec_data = FlatVector::GetData<double>(child);
+    auto vec_data = FlatDataMut<double>(child);
     for (size_t i = 0; i < len; i++) {
         vec_data[offset + i] = data[i];
     }
@@ -320,16 +320,16 @@ static void RidgeAggFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
         idx_t struct_idx = 0;
 
         // Coefficients
-        SetListInResult(*struct_entries[struct_idx++], result_idx, core_result.coefficients,
+        SetListInResult(StructEntry(struct_entries[struct_idx++]), result_idx, core_result.coefficients,
                         core_result.coefficients_len);
 
         // Scalars
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = core_result.intercept;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = core_result.r_squared;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = core_result.adj_r_squared;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = core_result.residual_std_error;
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = core_result.n_observations;
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = core_result.n_features;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = core_result.intercept;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = core_result.r_squared;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = core_result.adj_r_squared;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = core_result.residual_std_error;
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = core_result.n_observations;
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = core_result.n_features;
 
         // Inference (NULL unless requested), CI fields and the model summary.
         // alpha > 0: classical inference on shrunken coefficients is not valid, so
@@ -355,7 +355,7 @@ static void RidgeAggFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
 //===--------------------------------------------------------------------===//
 // Bind function
 //===--------------------------------------------------------------------===//
-static unique_ptr<FunctionData> RidgeAggBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> RidgeAggBind(ClientContext &context, AggregateBindFunction &function,
                                              vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<RidgeAggregateBindData>();
 
@@ -386,7 +386,7 @@ static unique_ptr<FunctionData> RidgeAggBind(ClientContext &context, AggregateFu
     }
 
     // Set return type based on options
-    function.return_type = GetRidgeAggResultType();
+    SetReturnTypeOf(function, GetRidgeAggResultType());
 
     PostHogTelemetry::Instance().RecordFunctionCall("ridge_fit_agg");
     return std::move(result);
@@ -402,10 +402,10 @@ void RegisterRidgeAggregateFunction(ExtensionLoader &loader) {
     auto basic_func = AggregateFunction(
         "ridge_fit_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
         LogicalType::ANY, // Set in bind
-        AggregateFunction::StateSize<RidgeAggregateState>, RidgeAggInitialize, ANOFOX_GUARDED_UPDATE(RidgeAggUpdate, RidgeAggDestroy, RidgeAggInitialize), RidgeAggCombine,
+        AggregateFunction::StateSize<RidgeAggregateState>, ANOFOX_AGG_INIT(RidgeAggInitialize), ANOFOX_GUARDED_UPDATE(RidgeAggUpdate, RidgeAggDestroy, RidgeAggInitialize), RidgeAggCombine,
         ANOFOX_GUARDED_FINALIZE(RidgeAggFinalize, RidgeAggDestroy, RidgeAggInitialize),
         nullptr, // simple_update
-        RidgeAggBind, RidgeAggDestroy);
+        ANOFOX_AGG_BIND(RidgeAggBind), RidgeAggDestroy);
     func_set.AddFunction(basic_func);
 
     // Version with MAP options: ridge_fit_agg(y, x, {'alpha': 1.0, ...})
@@ -413,8 +413,8 @@ void RegisterRidgeAggregateFunction(ExtensionLoader &loader) {
                                       {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE),
                                        LogicalType::ANY}, // MAP or STRUCT for options
                                       LogicalType::ANY, AggregateFunction::StateSize<RidgeAggregateState>,
-                                      RidgeAggInitialize, ANOFOX_GUARDED_UPDATE(RidgeAggUpdate, RidgeAggDestroy, RidgeAggInitialize), RidgeAggCombine, ANOFOX_GUARDED_FINALIZE(RidgeAggFinalize, RidgeAggDestroy, RidgeAggInitialize), nullptr,
-                                      RidgeAggBind, RidgeAggDestroy);
+                                      ANOFOX_AGG_INIT(RidgeAggInitialize), ANOFOX_GUARDED_UPDATE(RidgeAggUpdate, RidgeAggDestroy, RidgeAggInitialize), RidgeAggCombine, ANOFOX_GUARDED_FINALIZE(RidgeAggFinalize, RidgeAggDestroy, RidgeAggInitialize), nullptr,
+                                      ANOFOX_AGG_BIND(RidgeAggBind), RidgeAggDestroy);
     func_set.AddFunction(map_func);
 
     CreateAggregateFunctionInfo info(std::move(func_set));

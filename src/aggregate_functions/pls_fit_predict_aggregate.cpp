@@ -101,7 +101,7 @@ static bool PlsIsSplitTraining(const string_t &split_val) {
 // Aggregate function operations
 //===--------------------------------------------------------------------===//
 
-static void PlsPredictAggInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void PlsPredictAggInitialize(data_ptr_t state_p) {
     new (state_p) PlsPredictAggState();
 }
 
@@ -126,10 +126,10 @@ static void PlsPredictAggUpdate(Vector inputs[], AggregateInputData &aggr_input_
     inputs[1].ToUnifiedFormat(count, x_data);
 
     auto y_values = UnifiedVectorFormat::GetData<double>(y_data);
-    auto x_list_data = ListVector::GetData(inputs[1]);
+    auto x_list_data = UnifiedVectorFormat::GetData<list_entry_t>(x_data);
     auto &x_child = ListVector::GetEntry(inputs[1]);
-    auto x_child_data = FlatVector::GetData<double>(x_child);
-    auto &x_child_validity = FlatVector::Validity(x_child);
+    auto x_child_data = FlatDataMut<double>(x_child);
+    auto &x_child_validity = FlatValidityMut(x_child);
 
     // Handle split column if provided (y, x, split)
     UnifiedVectorFormat split_data;
@@ -336,9 +336,9 @@ static void PlsPredictAggFinalize(Vector &state_vector, AggregateInputData &aggr
         auto &child_struct = ListVector::GetEntry(result);
         auto &struct_entries = StructVector::GetEntries(child_struct);
 
-        auto &y_vec = *struct_entries[0];
-        auto &yhat_vec = *struct_entries[1];
-        auto &is_training_vec = *struct_entries[2];
+        auto &y_vec = StructEntry(struct_entries[0]);
+        auto &yhat_vec = StructEntry(struct_entries[1]);
+        auto &is_training_vec = StructEntry(struct_entries[2]);
 
         for (idx_t row = 0; row < n_rows; row++) {
             idx_t child_idx = list_offset + row;
@@ -346,7 +346,7 @@ static void PlsPredictAggFinalize(Vector &state_vector, AggregateInputData &aggr
             if (state.y_is_null[row]) {
                 FlatVector::SetNull(y_vec, child_idx, true);
             } else {
-                FlatVector::GetData<double>(y_vec)[child_idx] = state.y_all[row];
+                FlatDataMut<double>(y_vec)[child_idx] = state.y_all[row];
             }
 
             // Compute prediction: yhat = intercept + sum(coef[j] * x[j])
@@ -359,13 +359,13 @@ static void PlsPredictAggFinalize(Vector &state_vector, AggregateInputData &aggr
                 }
             }
             if (std::isfinite(yhat)) {
-                FlatVector::GetData<double>(yhat_vec)[child_idx] = yhat;
+                FlatDataMut<double>(yhat_vec)[child_idx] = yhat;
             } else {
                 // Missing feature (NULL) or undefined prediction (#95).
                 FlatVector::SetNull(yhat_vec, child_idx, true);
             }
 
-            FlatVector::GetData<bool>(is_training_vec)[child_idx] = state.is_training[row];
+            FlatDataMut<bool>(is_training_vec)[child_idx] = state.is_training[row];
         }
 
         anofox_free_pls_result(&core_result);
@@ -376,7 +376,7 @@ static void PlsPredictAggFinalize(Vector &state_vector, AggregateInputData &aggr
 //===--------------------------------------------------------------------===//
 // Bind function
 //===--------------------------------------------------------------------===//
-static unique_ptr<FunctionData> PlsPredictAggBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> PlsPredictAggBind(ClientContext &context, AggregateBindFunction &function,
                                                    vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<PlsPredictAggBindData>();
 
@@ -392,13 +392,13 @@ static unique_ptr<FunctionData> PlsPredictAggBind(ClientContext &context, Aggreg
         }
     }
 
-    function.return_type = GetPlsPredictAggResultType();
+    SetReturnTypeOf(function, GetPlsPredictAggResultType());
     PostHogTelemetry::Instance().RecordFunctionCall("pls_fit_predict_agg");
     return std::move(result);
 }
 
 // Bind function with split column
-static unique_ptr<FunctionData> PlsPredictAggBindWithSplit(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> PlsPredictAggBindWithSplit(ClientContext &context, AggregateBindFunction &function,
                                                             vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<PlsPredictAggBindData>();
     result->use_split_col = true;
@@ -416,7 +416,7 @@ static unique_ptr<FunctionData> PlsPredictAggBindWithSplit(ClientContext &contex
         }
     }
 
-    function.return_type = GetPlsPredictAggResultType();
+    SetReturnTypeOf(function, GetPlsPredictAggResultType());
     PostHogTelemetry::Instance().RecordFunctionCall("pls_fit_predict_agg");
     return std::move(result);
 }
@@ -429,32 +429,32 @@ void RegisterPlsFitPredictAggregateFunction(ExtensionLoader &loader) {
 
     auto basic_func =
         AggregateFunction("pls_fit_predict_agg", {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)},
-                          LogicalType::ANY, AggregateFunction::StateSize<PlsPredictAggState>, PlsPredictAggInitialize,
-                          ANOFOX_GUARDED_UPDATE(PlsPredictAggUpdate, PlsPredictAggDestroy, PlsPredictAggInitialize), PlsPredictAggCombine, ANOFOX_GUARDED_FINALIZE(PlsPredictAggFinalize, PlsPredictAggDestroy, PlsPredictAggInitialize), nullptr, PlsPredictAggBind,
+                          LogicalType::ANY, AggregateFunction::StateSize<PlsPredictAggState>, ANOFOX_AGG_INIT(PlsPredictAggInitialize),
+                          ANOFOX_GUARDED_UPDATE(PlsPredictAggUpdate, PlsPredictAggDestroy, PlsPredictAggInitialize), PlsPredictAggCombine, ANOFOX_GUARDED_FINALIZE(PlsPredictAggFinalize, PlsPredictAggDestroy, PlsPredictAggInitialize), nullptr, ANOFOX_AGG_BIND(PlsPredictAggBind),
                           PlsPredictAggDestroy);
     func_set.AddFunction(basic_func);
 
     auto map_func = AggregateFunction(
         "pls_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY}, LogicalType::ANY,
-        AggregateFunction::StateSize<PlsPredictAggState>, PlsPredictAggInitialize, ANOFOX_GUARDED_UPDATE(PlsPredictAggUpdate, PlsPredictAggDestroy, PlsPredictAggInitialize),
-        PlsPredictAggCombine, ANOFOX_GUARDED_FINALIZE(PlsPredictAggFinalize, PlsPredictAggDestroy, PlsPredictAggInitialize), nullptr, PlsPredictAggBind, PlsPredictAggDestroy);
+        AggregateFunction::StateSize<PlsPredictAggState>, ANOFOX_AGG_INIT(PlsPredictAggInitialize), ANOFOX_GUARDED_UPDATE(PlsPredictAggUpdate, PlsPredictAggDestroy, PlsPredictAggInitialize),
+        PlsPredictAggCombine, ANOFOX_GUARDED_FINALIZE(PlsPredictAggFinalize, PlsPredictAggDestroy, PlsPredictAggInitialize), nullptr, ANOFOX_AGG_BIND(PlsPredictAggBind), PlsPredictAggDestroy);
     func_set.AddFunction(map_func);
 
     // Version with split column: pls_fit_predict_agg(y, x, split)
     auto split_func = AggregateFunction(
         "pls_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR}, LogicalType::ANY,
-        AggregateFunction::StateSize<PlsPredictAggState>, PlsPredictAggInitialize, ANOFOX_GUARDED_UPDATE(PlsPredictAggUpdate, PlsPredictAggDestroy, PlsPredictAggInitialize),
-        PlsPredictAggCombine, ANOFOX_GUARDED_FINALIZE(PlsPredictAggFinalize, PlsPredictAggDestroy, PlsPredictAggInitialize), nullptr, PlsPredictAggBindWithSplit, PlsPredictAggDestroy);
+        AggregateFunction::StateSize<PlsPredictAggState>, ANOFOX_AGG_INIT(PlsPredictAggInitialize), ANOFOX_GUARDED_UPDATE(PlsPredictAggUpdate, PlsPredictAggDestroy, PlsPredictAggInitialize),
+        PlsPredictAggCombine, ANOFOX_GUARDED_FINALIZE(PlsPredictAggFinalize, PlsPredictAggDestroy, PlsPredictAggInitialize), nullptr, ANOFOX_AGG_BIND(PlsPredictAggBindWithSplit), PlsPredictAggDestroy);
     func_set.AddFunction(split_func);
 
     // Version with split column and options: pls_fit_predict_agg(y, x, split, options)
     auto split_map_func = AggregateFunction(
         "pls_fit_predict_agg",
         {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::VARCHAR, LogicalType::ANY}, LogicalType::ANY,
-        AggregateFunction::StateSize<PlsPredictAggState>, PlsPredictAggInitialize, ANOFOX_GUARDED_UPDATE(PlsPredictAggUpdate, PlsPredictAggDestroy, PlsPredictAggInitialize),
-        PlsPredictAggCombine, ANOFOX_GUARDED_FINALIZE(PlsPredictAggFinalize, PlsPredictAggDestroy, PlsPredictAggInitialize), nullptr, PlsPredictAggBindWithSplit, PlsPredictAggDestroy);
+        AggregateFunction::StateSize<PlsPredictAggState>, ANOFOX_AGG_INIT(PlsPredictAggInitialize), ANOFOX_GUARDED_UPDATE(PlsPredictAggUpdate, PlsPredictAggDestroy, PlsPredictAggInitialize),
+        PlsPredictAggCombine, ANOFOX_GUARDED_FINALIZE(PlsPredictAggFinalize, PlsPredictAggDestroy, PlsPredictAggInitialize), nullptr, ANOFOX_AGG_BIND(PlsPredictAggBindWithSplit), PlsPredictAggDestroy);
     func_set.AddFunction(split_map_func);
 
     CreateAggregateFunctionInfo info(std::move(func_set));

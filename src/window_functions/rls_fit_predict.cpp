@@ -81,7 +81,7 @@ static LogicalType GetRlsFitPredictResultType() {
     return LogicalType::STRUCT(std::move(children));
 }
 
-static void RlsFitPredictInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void RlsFitPredictInitialize(data_ptr_t state_p) {
     new (state_p) RlsFitPredictState();
 }
 
@@ -104,10 +104,10 @@ static void RlsFitPredictUpdate(Vector inputs[], AggregateInputData &aggr_input_
     inputs[1].ToUnifiedFormat(count, x_data);
 
     auto y_values = UnifiedVectorFormat::GetData<double>(y_data);
-    auto x_list_data = ListVector::GetData(inputs[1]);
+    auto x_list_data = UnifiedVectorFormat::GetData<list_entry_t>(x_data);
     auto &x_child = ListVector::GetEntry(inputs[1]);
-    auto x_child_data = FlatVector::GetData<double>(x_child);
-    auto &x_child_validity = FlatVector::Validity(x_child);
+    auto x_child_data = FlatDataMut<double>(x_child);
+    auto &x_child_validity = FlatValidityMut(x_child);
 
     UnifiedVectorFormat sdata;
     state_vector.ToUnifiedFormat(count, sdata);
@@ -275,15 +275,15 @@ static void RlsFitPredictFinalize(Vector &state_vector, AggregateInputData &, Ve
             continue;
         }
 
-        FlatVector::GetData<double>(*struct_entries[0])[result_idx] = pred_result.yhat;
-        WriteIntervalBound(*struct_entries[1], result_idx, pred_result.yhat_lower);
-        WriteIntervalBound(*struct_entries[2], result_idx, pred_result.yhat_upper);
+        FlatDataMut<double>(StructEntry(struct_entries[0]))[result_idx] = pred_result.yhat;
+        WriteIntervalBound(StructEntry(struct_entries[1]), result_idx, pred_result.yhat_lower);
+        WriteIntervalBound(StructEntry(struct_entries[2]), result_idx, pred_result.yhat_upper);
 
         state.Reset();
     }
 }
 
-static unique_ptr<FunctionData> RlsFitPredictBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> RlsFitPredictBind(ClientContext &context, AggregateBindFunction &function,
                                                    vector<unique_ptr<Expression>> &arguments) {
     auto result = make_uniq<RlsFitPredictBindData>();
 
@@ -303,7 +303,7 @@ static unique_ptr<FunctionData> RlsFitPredictBind(ClientContext &context, Aggreg
             result->null_policy = opts.null_policy.value();
     }
 
-    function.return_type = GetRlsFitPredictResultType();
+    SetReturnTypeOf(function, GetRlsFitPredictResultType());
     PostHogTelemetry::Instance().RecordFunctionCall("rls_fit_predict");
     return std::move(result);
 }
@@ -312,16 +312,16 @@ void RegisterRlsFitPredictFunction(ExtensionLoader &loader) {
     auto basic_func =
         AggregateFunction("rls_fit_predict",
                           {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE)}, GetRlsFitPredictResultType(),
-                          AggregateFunction::StateSize<RlsFitPredictState>, RlsFitPredictInitialize,
+                          AggregateFunction::StateSize<RlsFitPredictState>, ANOFOX_AGG_INIT(RlsFitPredictInitialize),
                           ANOFOX_GUARDED_UPDATE(RlsFitPredictUpdate, RlsFitPredictDestroy, RlsFitPredictInitialize), RlsFitPredictCombine, ANOFOX_GUARDED_FINALIZE(RlsFitPredictFinalize, RlsFitPredictDestroy, RlsFitPredictInitialize), nullptr,
-                          RlsFitPredictBind, RlsFitPredictDestroy);
+                          ANOFOX_AGG_BIND(RlsFitPredictBind), RlsFitPredictDestroy);
 
     auto map_func =
         AggregateFunction("rls_fit_predict",
                           {LogicalType::DOUBLE, LogicalType::LIST(LogicalType::DOUBLE), LogicalType::ANY},
                           GetRlsFitPredictResultType(), AggregateFunction::StateSize<RlsFitPredictState>,
-                          RlsFitPredictInitialize, ANOFOX_GUARDED_UPDATE(RlsFitPredictUpdate, RlsFitPredictDestroy, RlsFitPredictInitialize), RlsFitPredictCombine, ANOFOX_GUARDED_FINALIZE(RlsFitPredictFinalize, RlsFitPredictDestroy, RlsFitPredictInitialize),
-                          nullptr, RlsFitPredictBind, RlsFitPredictDestroy);
+                          ANOFOX_AGG_INIT(RlsFitPredictInitialize), ANOFOX_GUARDED_UPDATE(RlsFitPredictUpdate, RlsFitPredictDestroy, RlsFitPredictInitialize), RlsFitPredictCombine, ANOFOX_GUARDED_FINALIZE(RlsFitPredictFinalize, RlsFitPredictDestroy, RlsFitPredictInitialize),
+                          nullptr, ANOFOX_AGG_BIND(RlsFitPredictBind), RlsFitPredictDestroy);
 
     {
         AggregateFunctionSet func_set("rls_fit_predict");

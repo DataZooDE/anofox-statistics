@@ -51,7 +51,7 @@ static LogicalType GetShapiroWilkAggResultType() {
 // Aggregate function operations
 //===--------------------------------------------------------------------===//
 
-static void ShapiroWilkAggInitialize(const AggregateFunction &, data_ptr_t state_p) {
+static void ShapiroWilkAggInitialize(data_ptr_t state_p) {
     new (state_p) ShapiroWilkAggregateState();
 }
 
@@ -154,13 +154,13 @@ static void ShapiroWilkAggFinalize(Vector &state_vector, AggregateInputData &agg
 
         // Fill STRUCT result
         idx_t struct_idx = 0;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = test_result.statistic;
-        FlatVector::GetData<double>(*struct_entries[struct_idx++])[result_idx] = test_result.p_value;
-        FlatVector::GetData<int64_t>(*struct_entries[struct_idx++])[result_idx] = static_cast<int64_t>(test_result.n);
-        auto& method_vector = *struct_entries[struct_idx++];
-        FlatVector::GetData<string_t>(method_vector)[result_idx] =
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = test_result.statistic;
+        FlatDataMut<double>(StructEntry(struct_entries[struct_idx++]))[result_idx] = test_result.p_value;
+        FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = static_cast<int64_t>(test_result.n);
+        auto& method_vector = StructEntry(struct_entries[struct_idx++]);
+        FlatDataMut<string_t>(method_vector)[result_idx] =
             StringVector::AddString(method_vector, test_result.method ? test_result.method : "Shapiro-Wilk");
-        SetResultNull(*struct_entries[struct_idx++], result_idx);
+        SetResultNull(StructEntry(struct_entries[struct_idx++]), result_idx);
         WriteTestResultFields(result, result_idx, struct_idx, test_result.unified); // alternative: not applicable
 
         // Free the method string
@@ -173,9 +173,9 @@ static void ShapiroWilkAggFinalize(Vector &state_vector, AggregateInputData &agg
 //===--------------------------------------------------------------------===//
 // Bind function
 //===--------------------------------------------------------------------===//
-static unique_ptr<FunctionData> ShapiroWilkAggBind(ClientContext &context, AggregateFunction &function,
+static unique_ptr<FunctionData> ShapiroWilkAggBind(ClientContext &context, AggregateBindFunction &function,
                                                     vector<unique_ptr<Expression>> &arguments) {
-    function.return_type = GetShapiroWilkAggResultType();
+    SetReturnTypeOf(function, GetShapiroWilkAggResultType());
     PostHogTelemetry::Instance().RecordFunctionCall("shapiro_wilk_agg");
     return nullptr;
 }
@@ -186,10 +186,10 @@ static unique_ptr<FunctionData> ShapiroWilkAggBind(ClientContext &context, Aggre
 void RegisterShapiroWilkAggregateFunction(ExtensionLoader &loader) {
     auto func = AggregateFunction("shapiro_wilk_agg", {LogicalType::DOUBLE},
                                   LogicalType::ANY, // Set in bind
-                                  AggregateFunction::StateSize<ShapiroWilkAggregateState>, ShapiroWilkAggInitialize,
+                                  AggregateFunction::StateSize<ShapiroWilkAggregateState>, ANOFOX_AGG_INIT(ShapiroWilkAggInitialize),
                                   ANOFOX_GUARDED_UPDATE(ShapiroWilkAggUpdate, ShapiroWilkAggDestroy, ShapiroWilkAggInitialize), ShapiroWilkAggCombine, ANOFOX_GUARDED_FINALIZE(ShapiroWilkAggFinalize, ShapiroWilkAggDestroy, ShapiroWilkAggInitialize),
                                   nullptr, // simple_update
-                                  ShapiroWilkAggBind, ShapiroWilkAggDestroy);
+                                  ANOFOX_AGG_BIND(ShapiroWilkAggBind), ShapiroWilkAggDestroy);
 
     {
         AggregateFunctionSet func_set("shapiro_wilk_agg");

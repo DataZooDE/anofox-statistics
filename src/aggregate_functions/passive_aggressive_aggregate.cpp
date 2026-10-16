@@ -152,25 +152,25 @@ void PaFitFinalize(Vector &state_vector, AggregateInputData &aggr_input_data, Ve
 			FlatVector::SetNull(result, row, true);
 			continue;
 		}
-		XyRowsSetDoubleList(*entries[0], row, fit.coefficients, static_cast<idx_t>(fit.n_features));
-		XyRowsSetDouble(*entries[1], row, bind.options.fit_intercept ? fit.intercept : 0.0);
-		XyRowsSetDouble(*entries[2], row, fit.r_squared);
-		FlatVector::GetData<int64_t>(*entries[3])[row] = static_cast<int64_t>(fit.n_observations);
-		FlatVector::GetData<int64_t>(*entries[4])[row] = static_cast<int64_t>(fit.n_features);
-		FlatVector::GetData<int64_t>(*entries[5])[row] = static_cast<int64_t>(fit.epochs);
+		XyRowsSetDoubleList(StructEntry(entries[0]), row, fit.coefficients, static_cast<idx_t>(fit.n_features));
+		XyRowsSetDouble(StructEntry(entries[1]), row, bind.options.fit_intercept ? fit.intercept : 0.0);
+		XyRowsSetDouble(StructEntry(entries[2]), row, fit.r_squared);
+		FlatDataMut<int64_t>(StructEntry(entries[3]))[row] = static_cast<int64_t>(fit.n_observations);
+		FlatDataMut<int64_t>(StructEntry(entries[4]))[row] = static_cast<int64_t>(fit.n_features);
+		FlatDataMut<int64_t>(StructEntry(entries[5]))[row] = static_cast<int64_t>(fit.epochs);
 		writer.WriteInference(row, nullptr);
 		writer.WriteSummary(row, fit.summary);
 		anofox_free_passive_aggressive_result(&fit);
 	}
 }
 
-unique_ptr<FunctionData> PaFitBind(ClientContext &context, AggregateFunction &function,
+unique_ptr<FunctionData> PaFitBind(ClientContext &context, AggregateBindFunction &function,
                                    vector<unique_ptr<Expression>> &arguments) {
 	auto bind = make_uniq<PaBindData>();
 	if (arguments.size() >= 3) {
 		ParsePaOptions(context, *arguments[2], *bind, kFitName);
 	}
-	function.return_type = PaFitResultType();
+	SetReturnTypeOf(function, PaFitResultType());
 	PostHogTelemetry::Instance().RecordFunctionCall(kFitName);
 	return std::move(bind);
 }
@@ -204,7 +204,7 @@ void PaPredictFinalize(Vector &state_vector, AggregateInputData &aggr_input_data
 }
 
 template <bool SPLIT>
-unique_ptr<FunctionData> PaPredictBind(ClientContext &context, AggregateFunction &function,
+unique_ptr<FunctionData> PaPredictBind(ClientContext &context, AggregateBindFunction &function,
                                        vector<unique_ptr<Expression>> &arguments) {
 	auto bind = make_uniq<PaBindData>();
 	bind->use_split_col = SPLIT;
@@ -212,7 +212,7 @@ unique_ptr<FunctionData> PaPredictBind(ClientContext &context, AggregateFunction
 	if (arguments.size() > options_idx) {
 		ParsePaOptions(context, *arguments[options_idx], *bind, kFitPredictName);
 	}
-	function.return_type = FitPredictRowsResultType();
+	SetReturnTypeOf(function, FitPredictRowsResultType());
 	PostHogTelemetry::Instance().RecordFunctionCall(kFitPredictName);
 	return std::move(bind);
 }
@@ -230,7 +230,7 @@ struct PaWindowState {
 	bool initialized = false;
 };
 
-void PaWindowInitialize(const AggregateFunction &, data_ptr_t state_p) {
+void PaWindowInitialize(data_ptr_t state_p) {
 	new (state_p) PaWindowState();
 }
 
@@ -251,8 +251,8 @@ void PaWindowUpdate(Vector inputs[], AggregateInputData &, idx_t, Vector &state_
 	auto y_values = UnifiedVectorFormat::GetData<double>(y_data);
 	auto x_lists = UnifiedVectorFormat::GetData<list_entry_t>(x_data);
 	auto &x_child = ListVector::GetEntry(inputs[1]);
-	auto x_child_data = FlatVector::GetData<double>(x_child);
-	auto &x_child_validity = FlatVector::Validity(x_child);
+	auto x_child_data = FlatDataMut<double>(x_child);
+	auto &x_child_validity = FlatValidityMut(x_child);
 	auto states = (PaWindowState **)sdata.data;
 	for (idx_t i = 0; i < count; i++) {
 		auto &state = *states[sdata.sel->get_index(i)];
@@ -348,19 +348,19 @@ void PaWindowFinalize(Vector &state_vector, AggregateInputData &aggr_input_data,
 		}
 		double yhat = PaPredict(fit, state.current_x.data(), state.n_features);
 		anofox_free_passive_aggressive_result(&fit);
-		XyRowsSetDouble(*entries[0], row, yhat);
-		FlatVector::SetNull(*entries[1], row, true);
-		FlatVector::SetNull(*entries[2], row, true);
+		XyRowsSetDouble(StructEntry(entries[0]), row, yhat);
+		FlatVector::SetNull(StructEntry(entries[1]), row, true);
+		FlatVector::SetNull(StructEntry(entries[2]), row, true);
 	}
 }
 
-unique_ptr<FunctionData> PaWindowBind(ClientContext &context, AggregateFunction &function,
+unique_ptr<FunctionData> PaWindowBind(ClientContext &context, AggregateBindFunction &function,
                                       vector<unique_ptr<Expression>> &arguments) {
 	auto bind = make_uniq<PaBindData>();
 	if (arguments.size() >= 3) {
 		ParsePaOptions(context, *arguments[2], *bind, kWindowName);
 	}
-	function.return_type = PaWindowResultType();
+	SetReturnTypeOf(function, PaWindowResultType());
 	PostHogTelemetry::Instance().RecordFunctionCall(kWindowName);
 	return std::move(bind);
 }
@@ -393,11 +393,11 @@ void RegisterPassiveAggressiveFunctions(ExtensionLoader &loader) {
 			args.push_back(LogicalType::ANY);
 		}
 		AggregateFunction fn(kFitName, args, LogicalType::ANY, AggregateFunction::StateSize<XyRowsState>,
-		                     XyRowsInitialize, XyRowsUpdate, XyRowsCombine,
+		                     ANOFOX_AGG_INIT(XyRowsInitialize), XyRowsUpdate, XyRowsCombine,
 		                     ANOFOX_GUARDED_FINALIZE(PaFitFinalize, XyRowsDestroy, XyRowsInitialize), nullptr,
-		                     PaFitBind, XyRowsDestroy);
+		                     ANOFOX_AGG_BIND(PaFitBind), XyRowsDestroy);
 		// Sequential estimator: the row order is part of the input.
-		fn.order_dependent = AggregateOrderDependent::ORDER_DEPENDENT;
+		SetOrderDependentOf(fn, AggregateOrderDependent::ORDER_DEPENDENT);
 		fit_set.AddFunction(fn);
 	}
 	CreateAggregateFunctionInfo fit_info(std::move(fit_set));
@@ -424,12 +424,12 @@ void RegisterPassiveAggressiveFunctions(ExtensionLoader &loader) {
 		bool split = args.size() >= 3 && args[2].id() == LogicalTypeId::VARCHAR;
 		AggregateFunction fn(
 		    kFitPredictName, args, LogicalType::ANY, AggregateFunction::StateSize<FitPredictRowsState>,
-		    FitPredictRowsInitialize,
+		    ANOFOX_AGG_INIT(FitPredictRowsInitialize),
 		    ANOFOX_GUARDED_UPDATE(FitPredictRowsUpdate, FitPredictRowsDestroy, FitPredictRowsInitialize),
 		    FitPredictRowsCombine,
 		    ANOFOX_GUARDED_FINALIZE(PaPredictFinalize, FitPredictRowsDestroy, FitPredictRowsInitialize), nullptr,
-		    split ? PaPredictBind<true> : PaPredictBind<false>, FitPredictRowsDestroy);
-		fn.order_dependent = AggregateOrderDependent::ORDER_DEPENDENT;
+		    split ? ANOFOX_AGG_BIND(PaPredictBind<true>) : ANOFOX_AGG_BIND(PaPredictBind<false>), FitPredictRowsDestroy);
+		SetOrderDependentOf(fn, AggregateOrderDependent::ORDER_DEPENDENT);
 		predict_set.AddFunction(fn);
 	}
 	CreateAggregateFunctionInfo predict_info(std::move(predict_set));
@@ -458,11 +458,11 @@ void RegisterPassiveAggressiveFunctions(ExtensionLoader &loader) {
 			args.push_back(LogicalType::ANY);
 		}
 		AggregateFunction fn(kWindowName, args, PaWindowResultType(), AggregateFunction::StateSize<PaWindowState>,
-		                     PaWindowInitialize,
+		                     ANOFOX_AGG_INIT(PaWindowInitialize),
 		                     ANOFOX_GUARDED_UPDATE(PaWindowUpdate, PaWindowDestroy, PaWindowInitialize),
 		                     PaWindowCombine,
 		                     ANOFOX_GUARDED_FINALIZE(PaWindowFinalize, PaWindowDestroy, PaWindowInitialize), nullptr,
-		                     PaWindowBind, PaWindowDestroy);
+		                     ANOFOX_AGG_BIND(PaWindowBind), PaWindowDestroy);
 		window_set.AddFunction(fn);
 	}
 	CreateAggregateFunctionInfo window_info(std::move(window_set));
