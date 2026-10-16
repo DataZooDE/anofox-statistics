@@ -18,13 +18,13 @@ description: >
   model or test result plottable, asks "which table do I need for this
   chart", wants long / tidy tables instead of STRUCTs, or wants to combine
   several models or groups into one plot.
-version: 0.11.0
+version: 0.12.0
 user-invocable: false
 ---
 
 # Anofox Statistics — Plot-Ready Outputs Cheat Sheet
 
-**Extension:** `anofox_statistics` v0.11.0 | **DuckDB:** v1.4.5 LTS / v1.5.x | **Contract version:** `anofox_contract_version()` = `'1'`
+**Extension:** `anofox_statistics` v0.12.0 | **DuckDB:** v1.4.5 LTS / v1.5.x | **Contract version:** `anofox_contract_version()` = `'1'`
 
 Fit functions return STRUCTs and LISTs. For charts, the `_by` table macros return **long tables with fixed columns** (one row per mark), the schemas of the anofox integration contract shared by anofox-statistics, anofox-forecast and the plotting extension anofox-visualization. Optional columns are always present (NULL when not computed) and the group column is kept.
 
