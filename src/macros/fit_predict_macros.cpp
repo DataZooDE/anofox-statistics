@@ -21,6 +21,9 @@ struct FitPredictTableMacro {
 
 // clang-format off
 static const FitPredictTableMacro fit_predict_table_macros[] = {
+    // The fit-predict macros hold rows out with the aggregate's split argument, not by NULLing y:
+    // under null_policy 'zero' a NULL y is fitted as 0, so it cannot mark a held-out row (#8).
+    // The augment macros (no split argument) pass NaN instead, which 'zero' does not fill.
     // ols_fit_predict_by: OLS fit and predict per group (long format - one row per observation)
     // C++ API: ols_fit_predict_by(table_name, group_col, y_col, x_cols, options)
     // Options: fit_intercept, confidence_level, null_policy
@@ -37,7 +40,7 @@ SELECT
 FROM (
     SELECT *,
         ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _rn,
-        ols_fit_predict_agg(CASE WHEN split IS NOT NULL AND split != 'train' THEN NULL ELSE y_col END, x_cols, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
+        ols_fit_predict_agg(y_col, x_cols, CASE WHEN split IS NOT NULL AND split != 'train' THEN 'test' ELSE 'train' END, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
     FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR))
 ) sub
 ORDER BY group_col
@@ -59,7 +62,7 @@ SELECT
 FROM (
     SELECT *,
         ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _rn,
-        huber_fit_predict_agg(CASE WHEN split IS NOT NULL AND split != 'train' THEN NULL ELSE y_col END, x_cols, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
+        huber_fit_predict_agg(y_col, x_cols, CASE WHEN split IS NOT NULL AND split != 'train' THEN 'test' ELSE 'train' END, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
     FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR))
 ) sub
 ORDER BY group_col
@@ -81,7 +84,7 @@ SELECT
 FROM (
     SELECT *,
         ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _rn,
-        ransac_fit_predict_agg(CASE WHEN split IS NOT NULL AND split != 'train' THEN NULL ELSE y_col END, x_cols, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
+        ransac_fit_predict_agg(y_col, x_cols, CASE WHEN split IS NOT NULL AND split != 'train' THEN 'test' ELSE 'train' END, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
     FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR))
 ) sub
 ORDER BY group_col
@@ -103,7 +106,7 @@ SELECT
 FROM (
     SELECT *,
         ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _rn,
-        theil_sen_fit_predict_agg(CASE WHEN split IS NOT NULL AND split != 'train' THEN NULL ELSE y_col END, x_cols, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
+        theil_sen_fit_predict_agg(y_col, x_cols, CASE WHEN split IS NOT NULL AND split != 'train' THEN 'test' ELSE 'train' END, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
     FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR))
 ) sub
 ORDER BY group_col
@@ -124,7 +127,7 @@ SELECT
 FROM (
     SELECT *,
         ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _rn,
-        ridge_fit_predict_agg(CASE WHEN split IS NOT NULL AND split != 'train' THEN NULL ELSE y_col END, x_cols, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
+        ridge_fit_predict_agg(y_col, x_cols, CASE WHEN split IS NOT NULL AND split != 'train' THEN 'test' ELSE 'train' END, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
     FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR))
 ) sub
 ORDER BY group_col
@@ -145,7 +148,7 @@ SELECT
 FROM (
     SELECT *,
         ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _rn,
-        elasticnet_fit_predict_agg(CASE WHEN split IS NOT NULL AND split != 'train' THEN NULL ELSE y_col END, x_cols, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
+        elasticnet_fit_predict_agg(y_col, x_cols, CASE WHEN split IS NOT NULL AND split != 'train' THEN 'test' ELSE 'train' END, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
     FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR))
 ) sub
 ORDER BY group_col
@@ -166,7 +169,7 @@ SELECT
 FROM (
     SELECT *,
         ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _rn,
-        wls_fit_predict_agg(CASE WHEN split IS NOT NULL AND split != 'train' THEN NULL ELSE y_col END, x_cols, weight_col, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
+        wls_fit_predict_agg(y_col, x_cols, weight_col, CASE WHEN split IS NOT NULL AND split != 'train' THEN 'test' ELSE 'train' END, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
     FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR))
 ) sub
 ORDER BY group_col
@@ -198,7 +201,7 @@ SELECT
 FROM (
     SELECT *,
         ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _rn,
-        ols_augment_agg(CASE WHEN split IS NOT NULL AND split != 'train' THEN NULL ELSE y_col END, x_cols, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _aug
+        ols_augment_agg(CASE WHEN split IS NOT NULL AND split != 'train' THEN 'NaN'::DOUBLE ELSE y_col END, x_cols, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _aug
     FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR))
 ) sub
 ORDER BY group_col, row_id
@@ -229,7 +232,7 @@ SELECT
 FROM (
     SELECT *,
         ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _rn,
-        wls_augment_agg(CASE WHEN split IS NOT NULL AND split != 'train' THEN NULL ELSE y_col END, x_cols, weight_col, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _aug
+        wls_augment_agg(CASE WHEN split IS NOT NULL AND split != 'train' THEN 'NaN'::DOUBLE ELSE y_col END, x_cols, weight_col, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _aug
     FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR))
 ) sub
 ORDER BY group_col, row_id
@@ -436,7 +439,7 @@ SELECT
 FROM (
     SELECT *,
         ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _rn,
-        rls_fit_predict_agg(CASE WHEN split IS NOT NULL AND split != 'train' THEN NULL ELSE y_col END, x_cols, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
+        rls_fit_predict_agg(y_col, x_cols, CASE WHEN split IS NOT NULL AND split != 'train' THEN 'test' ELSE 'train' END, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
     FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR))
 ) sub
 ORDER BY group_col
@@ -457,7 +460,7 @@ SELECT
 FROM (
     SELECT *,
         ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _rn,
-        bls_fit_predict_agg(CASE WHEN split IS NOT NULL AND split != 'train' THEN NULL ELSE y_col END, x_cols, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
+        bls_fit_predict_agg(y_col, x_cols, CASE WHEN split IS NOT NULL AND split != 'train' THEN 'test' ELSE 'train' END, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
     FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR))
 ) sub
 ORDER BY group_col
@@ -478,7 +481,7 @@ SELECT
 FROM (
     SELECT *,
         ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _rn,
-        alm_fit_predict_agg(CASE WHEN split IS NOT NULL AND split != 'train' THEN NULL ELSE y_col END, x_cols, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
+        alm_fit_predict_agg(y_col, x_cols, CASE WHEN split IS NOT NULL AND split != 'train' THEN 'test' ELSE 'train' END, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
     FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR))
 ) sub
 ORDER BY group_col
@@ -548,7 +551,7 @@ SELECT
 FROM (
     SELECT *,
         ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _rn,
-        poisson_fit_predict_agg(CASE WHEN split IS NOT NULL AND split != 'train' THEN NULL ELSE y_col END, x_cols, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
+        poisson_fit_predict_agg(y_col, x_cols, CASE WHEN split IS NOT NULL AND split != 'train' THEN 'test' ELSE 'train' END, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
     FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR))
 ) sub
 ORDER BY group_col
@@ -737,7 +740,7 @@ SELECT
 FROM (
     SELECT *,
         ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _rn,
-        bayesian_ridge_fit_predict_agg(CASE WHEN split IS NOT NULL AND split != 'train' THEN NULL ELSE y_col END, x_cols, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
+        bayesian_ridge_fit_predict_agg(y_col, x_cols, CASE WHEN split IS NOT NULL AND split != 'train' THEN 'test' ELSE 'train' END, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
     FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR))
 ) sub
 ORDER BY group_col
@@ -757,7 +760,7 @@ SELECT
 FROM (
     SELECT *,
         ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _rn,
-        ard_fit_predict_agg(CASE WHEN split IS NOT NULL AND split != 'train' THEN NULL ELSE y_col END, x_cols, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
+        ard_fit_predict_agg(y_col, x_cols, CASE WHEN split IS NOT NULL AND split != 'train' THEN 'test' ELSE 'train' END, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
     FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR))
 ) sub
 ORDER BY group_col
@@ -776,7 +779,7 @@ SELECT
 FROM (
     SELECT *,
         ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _rn,
-        passive_aggressive_fit_predict_agg(CASE WHEN split IS NOT NULL AND split != 'train' THEN NULL ELSE y_col END, x_cols, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
+        passive_aggressive_fit_predict_agg(y_col, x_cols, CASE WHEN split IS NOT NULL AND split != 'train' THEN 'test' ELSE 'train' END, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
     FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR))
 ) sub
 ORDER BY group_col
@@ -795,7 +798,7 @@ SELECT
 FROM (
     SELECT *,
         ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _rn,
-        lm_dynamic_fit_predict_agg(CASE WHEN split IS NOT NULL AND split != 'train' THEN NULL ELSE y_col END, x_cols, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
+        lm_dynamic_fit_predict_agg(y_col, x_cols, CASE WHEN split IS NOT NULL AND split != 'train' THEN 'test' ELSE 'train' END, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
     FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR))
 ) sub
 ORDER BY group_col

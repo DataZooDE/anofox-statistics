@@ -148,13 +148,17 @@ static void RidgeFitPredictUpdate(Vector inputs[], AggregateInputData &aggr_inpu
 
         state.current_x.resize(n_features);
         for (idx_t j = 0; j < n_features; j++) {
-            state.current_x[j] = ListChildValue(x_child_data, x_child_validity, list_entry.offset + j);
+            state.current_x[j] = ListChildValue(x_child_data, x_child_validity, list_entry.offset + j,
+                                                NullFill(state.null_policy));
         }
         state.has_current_x = true;
 
         auto y_idx = y_data.sel->get_index(i);
         bool y_valid = y_data.validity.RowIsValid(y_idx);
-        bool use_for_training = y_valid && !ListHasNullElement(x_child_validity, list_entry);
+        // null_policy 'zero' fits a NULL y or NULL x element as 0.
+        bool zero_fill = state.null_policy == NullPolicy::ZERO;
+        bool use_for_training = (y_valid || zero_fill) &&
+                                (zero_fill || !ListHasNullElement(x_child_validity, list_entry));
 
         if (use_for_training && state.null_policy == NullPolicy::DROP_Y_ZERO_X) {
             for (idx_t j = 0; j < n_features; j++) {
@@ -166,9 +170,9 @@ static void RidgeFitPredictUpdate(Vector inputs[], AggregateInputData &aggr_inpu
         }
 
         if (use_for_training) {
-            state.y_values.push_back(y_values[y_idx]);
+            state.y_values.push_back(y_valid ? y_values[y_idx] : 0.0);
             for (idx_t j = 0; j < n_features; j++) {
-                state.x_columns[j].push_back(x_child_data[list_entry.offset + j]);
+                state.x_columns[j].push_back(state.current_x[j]);
             }
         }
     }

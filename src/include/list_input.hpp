@@ -24,9 +24,10 @@ inline bool ListHasNullElement(const ValidityMask &child_validity, const list_en
 	return false;
 }
 
-//! The element at child_idx, or NaN when it is NULL.
-inline double ListChildValue(const double *child_data, const ValidityMask &child_validity, idx_t child_idx) {
-	return child_validity.RowIsValid(child_idx) ? child_data[child_idx] : std::numeric_limits<double>::quiet_NaN();
+//! The element at child_idx, or null_value (NaN by default) when it is NULL.
+inline double ListChildValue(const double *child_data, const ValidityMask &child_validity, idx_t child_idx,
+                             double null_value = std::numeric_limits<double>::quiet_NaN()) {
+	return child_validity.RowIsValid(child_idx) ? child_data[child_idx] : null_value;
 }
 
 } // namespace duckdb

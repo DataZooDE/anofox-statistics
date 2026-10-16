@@ -202,15 +202,45 @@ training rows:
 |-------|---------|
 | `'drop'` (default) | Rows with a NULL `y` or an incomplete `x` are not used for training |
 | `'drop_y_zero_x'` | Like `'drop'`, but a row with any feature exactly equal to `0.0` is also left out of training. Such rows still get a prediction |
+| `'zero'` | A NULL `y` and a NULL element of `x` are replaced by `0.0` before fitting. Every row with a non-NULL `x` list is a training row, and a NULL feature counts as `0.0` in the row's prediction |
+| `'ignore'` | Alias for `'drop'`. Use it when NULLs were already handled upstream |
 
-`null_policy` is read by the window `*_fit_predict` functions and by the
+`null_policy` is read by the window `*_fit_predict` functions, by the
 `*_fit_predict_agg` functions (and `*_fit_predict_by` macros) for OLS, Ridge, WLS,
-RLS, Elastic Net, Huber, RANSAC, Theil-Sen, BLS, ALM and Poisson. PLS, isotonic
-and quantile fit-predict do not read it.
+RLS, Elastic Net, Huber, RANSAC, Theil-Sen, BLS, ALM, Poisson, Bayesian Ridge, ARD,
+Passive-Aggressive and lmDynamic, and by
+`ols_augment_agg` / `wls_augment_agg` (with their `_by` and partial-residual
+forms). PLS, isotonic and quantile fit-predict do not
+read it.
+
+`'zero'` details:
+
+- A NULL `y` no longer marks a row to predict, because it becomes a training row
+  with `y = 0`. To forecast future rows under `'zero'`, mark them with a split
+  column (`*_fit_predict_agg(y, x, split, options)` or the `split` argument of the
+  `*_by` macros). Rows not marked `'train'` are then predicted, not trained on.
+  A training row (split `'train'`) with a NULL `y` is trained on with `y = 0`.
+- The returned `y` of a zero-filled row is `0`, the value that was fitted.
+- A NULL `x` list is not zero-filled, because its length is unknown. The row is
+  handled as under `'drop'`.
+- Only SQL NULL is filled. `NaN` and `±Inf` values are still dropped before
+  fitting, and a NULL weight in WLS still keeps the row out of the fit.
+
+`'ignore'` exists for parity with `polars_ols`, where it means "no NULL handling".
+In SQL a NULL can never be passed to the solver, so the least handling possible is
+to skip those rows, which is what `'drop'` does. On input without NULLs every
+policy except `'drop_y_zero_x'` gives the same result.
 
 ```sql
 SELECT unnest(ols_fit_predict_agg(y, [x], {'null_policy': 'drop_y_zero_x'}), recursive := true)
 FROM (VALUES (3.1, 1.0), (0.4, 0.0), (7.2, 3.0), (8.8, 4.0), (11.2, 5.0)) t(y, x);
+```
+
+```sql
+-- 'zero': the NULL y and the NULL feature are fitted as 0; 'test' rows are predicted
+SELECT unnest(ols_fit_predict_agg(y, [x, z], split, {'null_policy': 'zero'}), recursive := true)
+FROM (VALUES (3.1, 1.0, 0.5, 'train'), (NULL, 2.0, 1.0, 'train'), (7.2, 3.0, NULL, 'train'),
+             (8.8, 4.0, 2.0, 'train'), (11.2, 5.0, 2.5, 'train'), (NULL, 6.0, NULL, 'test')) t(y, x, z, split);
 ```
 
 ### Predictions that cannot be computed

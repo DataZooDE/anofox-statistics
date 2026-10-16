@@ -47,7 +47,8 @@ struct LmDynamicBindData : public FitPredictRowsBindBase {
 	}
 	bool Equals(const FunctionData &other_p) const override {
 		auto &o = other_p.Cast<LmDynamicBindData>();
-		return fit_intercept == o.fit_intercept && ic == o.ic && span == o.span && use_split_col == o.use_split_col;
+		return fit_intercept == o.fit_intercept && ic == o.ic && span == o.span && use_split_col == o.use_split_col &&
+		       null_policy == o.null_policy;
 	}
 
 	AnofoxLmDynamicOptions Options() const {
@@ -63,7 +64,14 @@ struct LmDynamicBindData : public FitPredictRowsBindBase {
 };
 
 void ParseLmDynamicOptions(ClientContext &context, Expression &expr, LmDynamicBindData &bind, const string &name) {
-	auto opts = RegressionMapOptions::ParseFromExpression(context, expr, name, {"fit_intercept", "ic", "span"});
+	vector<string> keys = {"fit_intercept", "ic", "span"};
+	if (name == kFitPredictName) {
+		keys.push_back("null_policy");
+	}
+	auto opts = RegressionMapOptions::ParseFromExpression(context, expr, name, keys);
+	if (opts.null_policy.has_value()) {
+		bind.null_policy = opts.null_policy.value();
+	}
 	if (opts.fit_intercept.has_value()) {
 		bind.fit_intercept = opts.fit_intercept.value();
 	}

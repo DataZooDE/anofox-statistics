@@ -82,7 +82,7 @@ alm_fit_predict_agg(y DOUBLE, x DOUBLE[], split VARCHAR [, options MAP])
 Rows with a NULL `y` are predicted but not trained on; with the `split` form
 only rows whose split value is `'train'` are trained on. Options: the
 `alm_fit_agg` keys except `compute_inference`, plus `null_policy`
-(`'drop'` default, or `'drop_y_zero_x'`).
+(`'drop'` default, `'drop_y_zero_x'`, `'zero'` or `'ignore'`; see [NULL_SEMANTICS](../../NULL_SEMANTICS.md#the-null_policy-option)).
 
 ## alm_fit_predict_by
 

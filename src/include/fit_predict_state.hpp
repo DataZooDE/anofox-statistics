@@ -106,10 +106,15 @@ inline void FitPredictRowsUpdate(Vector inputs[], AggregateInputData &aggr_input
 		vector<double> x_row(state.n_features);
 		bool complete = true;
 		for (idx_t j = 0; j < state.n_features; j++) {
-			x_row[j] = ListChildValue(x_child_data, x_child_validity, entry.offset + j);
+			x_row[j] = ListChildValue(x_child_data, x_child_validity, entry.offset + j, NullFill(bind.null_policy));
 			complete = complete && std::isfinite(x_row[j]);
 		}
 
+		// null_policy 'zero' fits a NULL y as 0 (a NULL x element is filled above).
+		if (!y_valid && bind.null_policy == NullPolicy::ZERO) {
+			y_valid = true;
+			y_val = 0.0;
+		}
 		bool training = y_valid && std::isfinite(y_val) && complete;
 		if (training && bind.null_policy == NullPolicy::DROP_Y_ZERO_X) {
 			for (auto v : x_row) {

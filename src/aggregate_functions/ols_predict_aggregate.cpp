@@ -215,6 +215,8 @@ static void OlsPredictAggUpdate(Vector inputs[], AggregateInputData &aggr_input_
             idx_t child_pos = list_entry.offset + j;
             if (x_child_validity.RowIsValid(child_pos)) {
                 x_row[j] = x_child_data[child_pos];
+            } else if (bind_data.null_policy == NullPolicy::ZERO) {
+                x_row[j] = 0.0;
             } else {
                 x_row[j] = std::nan("");
                 row_has_null_feature = true;
@@ -225,6 +227,11 @@ static void OlsPredictAggUpdate(Vector inputs[], AggregateInputData &aggr_input_
         auto y_idx = y_data.sel->get_index(i);
         bool y_valid = y_data.validity.RowIsValid(y_idx);
         double y_val = y_valid ? y_values[y_idx] : std::nan("");
+        // null_policy 'zero' fits a NULL y as 0.
+        if (!y_valid && bind_data.null_policy == NullPolicy::ZERO) {
+            y_valid = true;
+            y_val = 0.0;
+        }
 
         // Determine if this row is for training
         bool row_is_training;

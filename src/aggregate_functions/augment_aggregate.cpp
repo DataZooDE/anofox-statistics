@@ -311,7 +311,7 @@ static void AugmentAggUpdate(Vector inputs[], AggregateInputData &aggr_input_dat
         auto &state = *states[sdata.sel->get_index(i)];
 
         auto y_idx = y_data.sel->get_index(i);
-        double y_val = y_data.validity.RowIsValid(y_idx) ? y_values[y_idx] : std::nan("");
+        double y_val = y_data.validity.RowIsValid(y_idx) ? y_values[y_idx] : NullFill(bind_data.null_policy);
 
         double w_val = 1.0;
         if (bind_data.weighted) {
@@ -336,7 +336,8 @@ static void AugmentAggUpdate(Vector inputs[], AggregateInputData &aggr_input_dat
             x_row.resize(n_features);
             for (idx_t j = 0; j < n_features; j++) {
                 idx_t child_pos = list_entry.offset + j;
-                x_row[j] = x_child_validity.RowIsValid(child_pos) ? x_child_data[child_pos] : std::nan("");
+                x_row[j] = x_child_validity.RowIsValid(child_pos) ? x_child_data[child_pos]
+                                                                    : NullFill(bind_data.null_policy);
             }
             if (bind_data.null_policy == NullPolicy::DROP_Y_ZERO_X) {
                 for (auto v : x_row) {

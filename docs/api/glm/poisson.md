@@ -140,7 +140,7 @@ is not NULL are used for training; every row still gets a prediction.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `null_policy` | VARCHAR | `'drop'` | `'drop'`: rows with NULL `y` are predicted but not trained on. `'drop_y_zero_x'`: additionally excludes training rows with any NULL feature. |
+| `null_policy` | VARCHAR | `'drop'` | `'drop'`: rows with NULL `y` are predicted but not trained on. `'drop_y_zero_x'`: additionally excludes training rows with any feature equal to 0. `'zero'`: fits a NULL `y` or NULL feature as 0. `'ignore'`: alias for `'drop'`. |
 
 `yhat` is the predicted mean on the response scale. `yhat_lower`/`yhat_upper`
 form an approximate interval derived from the dispersion on the link scale

@@ -162,7 +162,7 @@ Each function accepts the model options listed on its model page (for example
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `confidence_level` (alias `confidence`) | DOUBLE | `0.95` | Level of the prediction interval |
-| `null_policy` | VARCHAR | `'drop'` | `'drop'`: train on rows with non-NULL `y`. `'drop_y_zero_x'`: additionally exclude rows where any feature is 0 from training |
+| `null_policy` | VARCHAR | `'drop'` | `'drop'`: train on rows with non-NULL `y`. `'drop_y_zero_x'`: additionally exclude rows where any feature is 0 from training. `'zero'`: fit a NULL `y` or NULL feature as 0. `'ignore'`: alias for `'drop'` |
 | `fit_intercept` (alias `intercept`) | BOOLEAN | `true` | Include an intercept term |
 
 `compute_inference` has no effect in the window form. Option keys the function
