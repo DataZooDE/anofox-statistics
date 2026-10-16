@@ -19,7 +19,16 @@ if("${OS_NAME}" STREQUAL "linux")
     elseif("${CMAKE_CXX_COMPILER}" MATCHES "aarch64")
         set(Rust_CARGO_TARGET "aarch64-unknown-linux-gnu")
     else()
-        string(FIND "${RUST_TARGETS}" "musl" MUSL_TARGET_FOUND)
+        # musl: take it from the CI's DUCKDB_PLATFORM (e.g. linux_amd64_musl), or
+        # detect a musl libc for local builds. Don't infer it from the installed
+        # rustup targets: rust-toolchain.toml installs the musl target everywhere.
+        if(DEFINED ENV{DUCKDB_PLATFORM})
+            string(FIND "$ENV{DUCKDB_PLATFORM}" "musl" MUSL_TARGET_FOUND)
+        elseif(EXISTS "/lib/ld-musl-x86_64.so.1")
+            set(MUSL_TARGET_FOUND 0)
+        else()
+            set(MUSL_TARGET_FOUND -1)
+        endif()
         if(NOT MUSL_TARGET_FOUND EQUAL -1)
             set(Rust_CARGO_TARGET "x86_64-unknown-linux-musl")
         else()

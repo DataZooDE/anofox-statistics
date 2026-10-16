@@ -298,7 +298,9 @@ jobs:
     # together. Non-blocking: no job `needs` this one and it deploys nothing,
     # so a moving 2.0-dev target never holds up a release. (A reusable-workflow
     # job cannot set continue-on-error; a red run here only flags the drift.)
-    # Linux x86 only: that leg runs the full sqllogictest suite.
+    # Linux x86 runs the full sqllogictest suite. wasm_eh mirrors the registry's
+    # PR build, which uses ci-tools' Rust (1.97+) with the old emsdk 3.1.71; see
+    # rust-toolchain.toml for why that combination needs a pinned Rust.
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v2.0-cyanoptera
     with:
       duckdb_version: b15358c371daf10dad799a43b6167f6ccdce84d8
@@ -307,7 +309,7 @@ jobs:
       enable_rust: true
       reduced_ci_mode: disabled
       artifact_postfix: "-duckdb-next"
-      exclude_archs: "linux_arm64;linux_amd64_musl;linux_arm64_musl;osx_amd64;osx_arm64;windows_amd64;windows_amd64_mingw;windows_arm64;wasm_mvp;wasm_eh;wasm_threads"
+      exclude_archs: "linux_arm64;linux_amd64_musl;linux_arm64_musl;osx_amd64;osx_arm64;windows_amd64;windows_amd64_mingw;windows_arm64;wasm_mvp;wasm_threads"
 
   build-and-test-rust:
     name: Build and test Rust components

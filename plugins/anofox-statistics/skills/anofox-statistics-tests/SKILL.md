@@ -24,13 +24,13 @@ description: >
   Brier score, log loss, roc_curve_by). Use when running a significance
   test, comparing many groups, measuring association/effect size,
   evaluating a classifier, or comparing distributions or survival in SQL.
-version: 0.12.0
+version: 0.12.1
 user-invocable: false
 ---
 
 # Anofox Statistics — Hypothesis Tests Cheat Sheet
 
-**Extension:** `anofox_statistics` v0.12.0 | **DuckDB:** v1.4.5 LTS / v1.5.x | Tests are **aggregates** — use with `GROUP BY` for per-segment tests.
+**Extension:** `anofox_statistics` v0.12.1 | **DuckDB:** v1.4.5 LTS / v1.5.x | Tests are **aggregates** — use with `GROUP BY` for per-segment tests.
 
 ## Gotchas
 
