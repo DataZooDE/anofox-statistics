@@ -10,6 +10,17 @@ Breaking changes are called out explicitly.
 
 ## [Unreleased]
 
+## [0.12.2] - 2026-10-22
+
+### Fixed
+
+- **macOS build against DuckDB v2.0.0.** DuckDB 2.0's bundled HTTP client uses the
+  macOS keychain, so on macOS the extension must link the `Security` framework (next to
+  `CoreFoundation`). Without it the `osx_arm64` build on v2.0.0 failed to link with
+  undefined `_Sec*` symbols; the community-extensions registry builds macOS only after
+  merge, and one failed platform skips the deploy for every platform. The 2.0 CI job is
+  pinned to the v2.0.0 commit (`d54cbbe`). No SQL or numeric changes.
+
 ## [0.12.1] - 2026-10-16
 
 ### Fixed
