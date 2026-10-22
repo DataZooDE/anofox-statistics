@@ -305,11 +305,12 @@ SELECT p_adjust_list([0.01, 0.02, 0.03]), p_adjust_list([0.01, 0.02, 0.03], 'BH'
 ----
 [0.03, 0.04, 0.04]	[0.03, 0.03, 0.03]
 
-# NULL elements stay NULL and are not counted; NULL method / n mean the defaults.
+# NULL elements stay NULL and are not counted; NULL method / n mean the defaults
+# (holm, n = 2). R: p.adjust(c(0.01, NA, 0.02), "bonferroni") = 0.02 NA 0.04; holm = 0.02 NA 0.02
 query II
 SELECT p_adjust_list([0.01, NULL, 0.02], 'bonferroni'), p_adjust_list([0.01, NULL, 0.02], NULL, NULL);
 ----
-[0.02, NULL, 0.04]	[0.02, NULL, 0.04]
+[0.02, NULL, 0.04]	[0.02, NULL, 0.02]
 
 # A single p-value is returned unchanged unless n > 1 (R: p.adjust(0.3, "bonferroni", n = 2) = 0.6).
 query III

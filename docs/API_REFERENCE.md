@@ -1211,6 +1211,8 @@ hypotheses) defaults to the number of non-NULL p-values and may not be smaller.
 | `p_adjust_list` | `(p DOUBLE[] [, method VARCHAR [, n BIGINT]])` | `DOUBLE[]` in list order |
 
 ```sql
+CREATE OR REPLACE TABLE results AS SELECT * FROM (VALUES
+    ('weight', 'dose_a', 0.012), ('weight', 'dose_b', 0.030), ('bp', 'dose_a', 0.001)) t(endpoint, test, p_value);
 SELECT * FROM p_adjust_by('results', endpoint, p_value, method := 'BH');
 SELECT endpoint, p_adjust_agg(p_value, 'holm' ORDER BY test) FROM results GROUP BY endpoint;
 SELECT p_adjust_list([0.01, 0.02, 0.04], 'BY');
