@@ -1,6 +1,6 @@
 # Anofox Statistics Extension - API Reference
 
-**Version:** 0.12.1
+**Version:** 0.12.2
 **DuckDB versions:** v1.4.5 (LTS) and v1.5.x
 **Backend:** Rust (anofox-regression 0.5, anofox-statistics 0.4, faer)
 
