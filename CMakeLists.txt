@@ -300,8 +300,8 @@ if(ANOFOX_TELEMETRY_ENABLED)
     # posthog-telemetry reads the machine id from the IORegistry on macOS
     # (IORegistryEntryFromPath et al.), which requires linking IOKit explicitly.
     if(APPLE)
-        target_link_libraries(${EXTENSION_NAME} "-framework IOKit" "-framework CoreFoundation")
-        target_link_libraries(${LOADABLE_EXTENSION_NAME} "-framework IOKit" "-framework CoreFoundation")
+        target_link_libraries(${EXTENSION_NAME} "-framework IOKit" "-framework CoreFoundation" "-framework Security")
+        target_link_libraries(${LOADABLE_EXTENSION_NAME} "-framework IOKit" "-framework CoreFoundation" "-framework Security")
     endif()
 else()
     # Since posthog-telemetry consolidated on main (DataZooDE/posthog-telemetry#5),
