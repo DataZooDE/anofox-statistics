@@ -39,7 +39,8 @@ Fit functions return STRUCTs and LISTs. For charts, the `_by` table macros retur
 | Regularisation path | `ridge_path_by`, `elasticnet_path_by`, `lars_path_by` | `terms` (`'lambda'`; `'alpha'` for LARS) | `anofox_plot_terms` |
 | Effect across quantiles | `quantile_process_by` | `terms` (`'tau'`) | `anofox_plot_terms` |
 | Compare fit statistics (R², AIC, …) across models | `<model>_glance_by` | `summary` | `anofox_plot_summary` |
-| Residuals vs fitted, QQ, leverage, Cook's distance | `ols_augment_by`, `wls_augment_by`, `<glm>_augment_by` | `obs` | `anofox_plot_obs`, `anofox_plot_diagnostics` (plot.lm 2×2) |
+| Mixed model: fixed effects, BLUPs per level (caterpillar) | `glmm_tidy_by(source, group_col, y_col, x_cols, re_group)` | `terms` (+ `effect`: filter `'fixed'` or `'ran_vals'`) | `anofox_plot_terms` |
+| Residuals vs fitted, QQ, leverage, Cook's distance | `ols_augment_by`, `wls_augment_by`, `<glm>_augment_by`, `glmm_augment_by` (no leverage / Cook's) | `obs` | `anofox_plot_obs`, `anofox_plot_diagnostics` (plot.lm 2×2) |
 | Fitted line / band, train vs test vs future | `<model>_prediction_by` (23 models) | `prediction` | `anofox_plot_prediction` |
 | Marginal effect of one feature (effect plot) | `<model>_effects_by` (`ols`, `wls`, `ridge`, six GLMs) | `prediction` | `anofox_plot_prediction` |
 | ROC / PR / calibration curve | `roc_curve_by`, `pr_curve_by`, `calibration_curve_by` | `curve` | `anofox_plot_curve` |

@@ -2691,6 +2691,14 @@ typedef enum {
 	ANOFOX_GLMM_TWEEDIE = 5,
 } AnofoxGlmmFamily;
 
+/** Degrees-of-freedom method of the fixed-effect tests. */
+typedef enum {
+	/** The family default: Satterthwaite for gaussian, Wald otherwise. */
+	ANOFOX_GLMM_DDF_DEFAULT = 0,
+	ANOFOX_GLMM_DDF_WALD = 1,
+	ANOFOX_GLMM_DDF_SATTERTHWAITE = 2,
+} AnofoxGlmmDdf;
+
 typedef struct {
 	AnofoxGlmmFamily family;
 	bool fit_intercept;
@@ -2710,6 +2718,7 @@ typedef struct {
 	    carry a random slope. Null/zero-length = random intercept only. */
 	const size_t *random_slopes;
 	size_t random_slopes_len;
+	AnofoxGlmmDdf ddf;
 } AnofoxGlmmOptions;
 
 typedef struct {
@@ -2756,9 +2765,34 @@ typedef struct {
 	size_t factor_len;
 	/** Negative-binomial size theta (estimated or fixed); NaN for other families. */
 	double nb_theta;
+	/** Satterthwaite degrees of freedom of the coefficients (inference_len); NULL for
+	    Wald inference or without inference. */
+	double *df;
+	/** Satterthwaite degrees of freedom of the intercept; NaN otherwise. */
+	double intercept_df;
+	/** Conditional standard errors of ranef_effects, same layout. */
+	double *ranef_effects_se;
+	/** Length of each group's vector in ranef_effects / ranef_effects_se (differs from
+	    random_dim for crossed fits, whose random_cov is empty without random slopes). */
+	size_t ranef_dim;
+	/** Normal intervals of ranef_effects at confidence_level, same layout. */
+	double *ranef_effects_conf_low;
+	double *ranef_effects_conf_high;
+	/** Residual degrees of freedom n - k (lme4 df.residual()). */
+	double df_residual;
 	/** Model description, fit statistics and intercept inference (#152) */
 	AnofoxModelSummaryFFI summary;
 } AnofoxGlmmResult;
+
+/** Per-row fitted values and residuals of a GLMM, one per input row (input order). */
+typedef struct {
+	double *fitted;
+	double *fitted_population;
+	double *residual;
+	double *pearson_residual;
+	bool *is_training;
+	size_t len;
+} AnofoxGlmmAugmentResult;
 
 /**
  * Fit a mixed-effects GLM with a random intercept over one grouping factor.
@@ -2771,6 +2805,18 @@ bool anofox_glmm_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count
 
 /** Free the arrays owned by a GLMM result. */
 void anofox_free_glmm_result(AnofoxGlmmResult *result);
+
+/**
+ * Per-row fitted values (conditional and population-level, response scale) and
+ * response / Pearson residuals of the same fit as anofox_glmm_fit. Rows the fit
+ * dropped are NaN with is_training = false.
+ */
+bool anofox_glmm_augment(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, const int32_t *group_ids,
+                         size_t n_obs, const int32_t *const *extra_group_ids, size_t n_extra_factors,
+                         AnofoxGlmmOptions options, AnofoxGlmmAugmentResult *out_result, AnofoxError *out_error);
+
+/** Free the arrays owned by a GLMM augment result. */
+void anofox_free_glmm_augment_result(AnofoxGlmmAugmentResult *result);
 
 /* ============================================================================
  * Per-observation diagnostics (broom augment) -- issue #151

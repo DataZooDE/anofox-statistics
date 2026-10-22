@@ -52,7 +52,8 @@ pub use glm::{
     LogisticResult,
 };
 pub use glmm::{
-    fit_glmm, fit_glmm_crossed, FactorVariance, GlmmFamily, GlmmOptions, GlmmResult, RandomEffect,
+    fit_glmm, fit_glmm_crossed, FactorVariance, GlmmDdf, GlmmFamily, GlmmObservations, GlmmOptions,
+    GlmmResult, RandomEffect,
 };
 pub use huber::{fit_huber, HuberResult};
 pub use interval::{

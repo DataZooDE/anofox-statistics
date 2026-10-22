@@ -61,4 +61,4 @@ query I
 SELECT count(DISTINCT function_name) FROM duckdb_functions()
 WHERE function_name LIKE '%\_glance\_by' ESCAPE '\' AND tags['anofox.output'] = 'summary' AND tags['anofox.contract'] = '1'
 ----
-25
+26

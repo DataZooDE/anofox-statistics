@@ -450,6 +450,21 @@ static void VisitOptionEntries(const Value &map_value, Callback callback) {
 	}
 }
 
+// Values mirror AnofoxGlmmDdf in anofox_stats_ffi.h.
+static std::optional<int> ParseGlmmDdf(const Value &val) {
+	if (val.IsNull()) {
+		return std::nullopt;
+	}
+	string v = ToLower(val.ToString());
+	if (v == "wald" || v == "z" || v == "asymptotic") {
+		return 1;
+	}
+	if (v == "satterthwaite") {
+		return 2;
+	}
+	throw InvalidInputException("Unknown ddf '%s'. Expected 'satterthwaite' or 'wald'.", val.ToString());
+}
+
 // Values mirror AnofoxGlmmFamily in anofox_stats_ffi.h.
 static std::optional<int> ParseGlmmFamily(const Value &val) {
 	if (val.IsNull()) {
@@ -522,12 +537,21 @@ static std::optional<vector<idx_t>> ExtractIndexList(const Value &val) {
 	if (val.IsNull()) {
 		return std::nullopt;
 	}
-	if (val.type().id() != LogicalTypeId::LIST) {
+	// A list rendered as text ('[1, 2]'), as it arrives through a MAP(VARCHAR, VARCHAR)
+	// of options -- the form the table macros pass on.
+	Value list = val;
+	if (val.type().id() == LogicalTypeId::VARCHAR) {
+		if (!val.DefaultTryCastAs(LogicalType::LIST(LogicalType::BIGINT), list, nullptr)) {
+			throw InvalidInputException("'random' must be a LIST of integer column indices, got '%s'",
+			                            val.ToString());
+		}
+	}
+	if (list.type().id() != LogicalTypeId::LIST) {
 		throw InvalidInputException("'random' must be a LIST of integer column indices, got %s",
 		                            val.type().ToString());
 	}
 	vector<idx_t> out;
-	for (auto &child : ListValue::GetChildren(val)) {
+	for (auto &child : ListValue::GetChildren(list)) {
 		if (child.IsNull()) {
 			throw InvalidInputException("'random' must not contain NULL");
 		}
@@ -828,6 +852,7 @@ static const vector<OptionKeyDef> &RegressionKeyTable() {
 	    {"offset", {}},
 	    {"random", {"random_slopes"}},
 	    {"groups", {"crossed"}},
+	    {"ddf", {}},
 	    {"vcov", {"vcov_type"}},
 	    {"tau_squared", {"tau2"}},
 	    {"tau_method", {"shrinkage"}},
@@ -1113,6 +1138,8 @@ RegressionMapOptions RegressionMapOptions::ParseFromValue(const Value &map_value
 			result.random_slopes = ExtractIndexList(val);
 		} else if (key == "groups") {
 			result.group_columns = ExtractIndexList(val);
+		} else if (key == "ddf") {
+			result.glmm_ddf = ParseGlmmDdf(val);
 		} else if (key == "tau_squared") {
 			result.tau_squared = ExtractDouble(val);
 		} else if (key == "tau_method") {

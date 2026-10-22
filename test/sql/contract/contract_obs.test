@@ -208,7 +208,7 @@ weight	DOUBLE
 is_training	BOOLEAN
 n_params	INTEGER
 
-# All eight macros are tagged as obs producers of contract version 1
+# All nine macros (incl. glmm_augment_by, #218) are tagged as obs producers of contract version 1
 query III
 SELECT DISTINCT function_name, tags['anofox.output'], tags['anofox.contract'] FROM duckdb_functions()
 WHERE function_name LIKE '%\_augment\_by' ESCAPE '\'
@@ -216,6 +216,7 @@ ORDER BY function_name
 ----
 binomial_augment_by	obs	1
 gamma_augment_by	obs	1
+glmm_augment_by	obs	1
 logistic_augment_by	obs	1
 negbinom_augment_by	obs	1
 ols_augment_by	obs	1

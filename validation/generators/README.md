@@ -28,6 +28,7 @@ not needed). It (re)writes:
 | `regression_quantile.test` | `quantile_fit_predict_agg` | `quantreg::rq` |
 | `glm_fit.test` | `poisson_fit_agg`, `binomial_fit_agg` (logit/probit/cloglog), `logistic_fit_agg`, `negbinom_fit_agg`, `gamma_fit_agg` (log link) | `glm`, `MASS::glm.nb`, `negative.binomial()` |
 | `glm_glmm.test` | `glmm_fit_agg` (gaussian REML/ML, poisson, binomial) | `lme4::lmer`, `lme4::glmer(nAGQ = 0)` |
+| `glmm_inference.test` (generator `make_reference_glmm_inference.R`) | `glmm_fit_agg` Satterthwaite / Wald inference and BLUP SEs, `glmm_tidy_by`, `glmm_glance_by`, `glmm_augment_by` (#218) | `lmerTest::contest1D`, `confint(method = "Wald")`, `ranef(condVar = TRUE)`, `broom.mixed::tidy` / `glance` / `augment` |
 | `survival_aft.test` | `aft_fit_agg` (weibull, lognormal, loglogistic, exponential) | `survival::survreg` |
 
 Where the extension follows a different convention from R's default (e.g. centred

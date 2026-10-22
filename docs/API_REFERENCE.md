@@ -118,7 +118,7 @@ fitted model struct).
 | ALM (24 distributions) | `alm_fit_agg` | `alm_fit_predict_agg`, `alm_fit_predict_by` | [ALM](api/glm/alm.md) |
 | AFT survival | `aft_fit_agg` | scalars `aft_cdf`, `aft_quantile`, `aft_survival` | [AFT](api/survival/aft.md) |
 | Survival curves | `kaplan_meier_agg`, `log_rank_test_agg` | `kaplan_meier_by` (`curve`), scalar `aft_survival` | [Survival curves](api/survival/survival_curves.md) |
-| Mixed effects | `glmm_fit_agg` | `glmm_fit_by` | [Mixed-effects GLMs](api/glm/glmm.md) |
+| Mixed effects | `glmm_fit_agg`, `glmm_augment_agg` | `glmm_fit_by`, `glmm_tidy_by` (`terms`), `glmm_glance_by` (`summary`), `glmm_augment_by` (`obs`) | [Mixed-effects GLMs](api/glm/glmm.md) |
 | Empirical-Bayes shrinkage | `eb_shrink_agg` | `eb_shrink_by` | [EB shrinkage](api/glm/eb_shrink.md) |
 | Explicit priors | options on the GLM and AFT aggregates | - | [Priors](api/glm/priors.md) |
 
@@ -773,7 +773,8 @@ glmm_fit_agg(y DOUBLE, x LIST(DOUBLE), group ANY [, options]) -> STRUCT
 | fit_intercept | BOOLEAN | true | Include a fixed intercept |
 | max_iterations | INTEGER | 100 | Inner iterations |
 | tolerance | DOUBLE | 1e-8 | Convergence tolerance |
-| compute_inference | BOOLEAN | false | Fixed-effect standard errors, z-tests, intervals |
+| compute_inference | BOOLEAN | false | Fixed-effect standard errors, tests, intervals |
+| ddf | VARCHAR | family default | `'satterthwaite'` (t tests with lmerTest's Satterthwaite df; gaussian only, its default) or `'wald'` (z tests; the default for the other families) |
 | confidence_level | DOUBLE | 0.95 | Confidence level for the intervals |
 
 **Returns:**
@@ -788,8 +789,16 @@ STRUCT(coefficients DOUBLE[], intercept DOUBLE,
        factors STRUCT(n_levels BIGINT, var DOUBLE)[]
      [, std_errors DOUBLE[], z_values DOUBLE[], p_values DOUBLE[],
         ci_lower DOUBLE[], ci_upper DOUBLE[], intercept_std_error DOUBLE],
-       ranef STRUCT("group" VARCHAR, intercept DOUBLE, se DOUBLE, n BIGINT)[])
+       ranef STRUCT("group" VARCHAR, intercept DOUBLE, se DOUBLE, n BIGINT,
+                    effects DOUBLE[], effects_se DOUBLE[],
+                    effects_conf_low DOUBLE[], effects_conf_high DOUBLE[])[],
+       nb_theta DOUBLE, df DOUBLE[], intercept_df DOUBLE, df_residual DOUBLE, t_values DOUBLE[], ...)
 ```
+
+`ranef[].se` / `effects_se` are the BLUPs' conditional standard errors
+(lme4 `ranef(condVar = TRUE)`); `df` / `intercept_df` the Satterthwaite degrees of
+freedom (NULL for Wald). Under Satterthwaite the statistics are in `t_values`
+(`z_values` NULL), under Wald in `z_values` (`t_values` NULL). See [GLMM](api/glm/glmm.md#inference).
 
 ```sql
 SELECT (glmm_fit_agg(y, [x1, x2], store)).icc AS icc FROM reg_data;
@@ -809,6 +818,28 @@ Output columns: `group`, `ranef`, `ranef_se`, `n`, `fixed_intercept`,
 
 ```sql
 SELECT * FROM glmm_fit_by('reg_data', store, y, [x1, x2]);
+```
+
+### glmm_tidy_by, glmm_glance_by, glmm_augment_by
+
+Integration-contract outputs of one GLMM per `group_col` with random effects over
+`re_group` (broom.mixed `tidy` / `glance` / `augment`); `model_id` = `model_name` =
+`'glmm'`. See [GLMM](api/glm/glmm.md#glmm_tidy_by-glmm_glance_by-glmm_augment_by).
+
+```sql skip
+glmm_tidy_by(source, group_col, y_col, x_cols, re_group [, options, names, re_names]) -> TABLE  -- terms
+glmm_glance_by(source, group_col, y_col, x_cols, re_group [, options]) -> TABLE                 -- summary
+glmm_augment_by(source, group_col, y_col, x_cols, re_group [, options, order_by]) -> TABLE      -- obs
+```
+
+`glmm_tidy_by` adds `effect` (`fixed`, `ran_pars`, `ran_vals`), `re_group`,
+`re_level` and `df` after the `terms` columns; `glmm_augment_by` adds
+`fitted_population` and `pearson_residual` after the `obs` columns.
+
+```sql
+CREATE OR REPLACE TABLE reg_scope AS SELECT 'all' AS scope, * FROM reg_data;
+SELECT effect, term, estimate, std_error, df
+FROM glmm_tidy_by('reg_scope', scope, y, [x1, x2], store) WHERE effect <> 'ran_vals';
 ```
 
 ---
@@ -1414,6 +1445,7 @@ columns are passed through and prediction columns are appended.
   interval exists.
 
 Other table macros on this page: [`glmm_fit_by`](#glmm_fit_by),
+[`glmm_tidy_by`, `glmm_glance_by`, `glmm_augment_by`](#glmm_tidy_by-glmm_glance_by-glmm_augment_by),
 [`eb_shrink_by`](#eb_shrink_by), [`aid_by`](#aid_by),
 [`aid_anomaly_by`](#aid_anomaly_by). See also [Table Macros](api/macros/table_macros.md).
 

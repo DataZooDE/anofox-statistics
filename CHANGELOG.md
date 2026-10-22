@@ -10,6 +10,43 @@ Breaking changes are called out explicitly.
 
 ## [Unreleased]
 
+### Added
+
+- **GLMM inference and contract macros (#218).** `glmm_fit_agg` with
+  `compute_inference := true` now reports, per the new `ddf` option, lmerTest's
+  **Satterthwaite** t tests (`'satterthwaite'`, the gaussian default: t statistics,
+  t p-values and t intervals, the statistics in the new `t_values` field and the
+  degrees of freedom in the new `df` / `intercept_df` fields) or Wald z tests (`'wald'`, the default for the other
+  families; `df` is NULL). `compute_inference` stays opt-in. The BLUPs' conditional
+  standard errors are now filled in (`ranef[].se`, previously NaN; lme4
+  `ranef(condVar = TRUE)`), and every `ranef` entry also carries its full
+  random-effect vector `effects` with `effects_se` and a normal interval
+  (`effects_conf_low` / `effects_conf_high`). New field `df_residual` (lme4
+  `df.residual()`). Crossed fits (`groups`) now fill `ranef` for the positional
+  `group` factor (it was empty).
+- **`glmm_tidy_by`, `glmm_glance_by`, `glmm_augment_by`** (integration contract v1
+  `terms`, `summary` and `obs`, as broom.mixed `tidy` / `glance` / `augment`): one
+  GLMM per `group_col` with random effects over `re_group`; `model_id` =
+  `model_name` = `'glmm'`, `id` the group (not in `_augment_by`). `glmm_tidy_by`
+  returns fixed effects (with `df`), variance components (`ran_pars`: SDs,
+  correlations, residual SD) and BLUPs (`ran_vals`: conditional SEs and intervals),
+  told apart by the extra `effect`, `re_group` and `re_level` columns.
+  `glmm_augment_by` adds `fitted_population` and `pearson_residual`. The window
+  aggregate `glmm_augment_agg` returns the per-row values.
+- Index-list options (`random`, `groups`) also accept a list rendered as text
+  (`'[1, 2]'`), the form they take when a macro passes options through a
+  `MAP(VARCHAR, VARCHAR)`.
+
+### Behaviour change
+
+- **Gaussian `glmm_fit_agg` inference uses Satterthwaite t tests by default.** With
+  `compute_inference := true`, a gaussian GLMM's `p_values`, `ci_lower` / `ci_upper`
+  and the intercept's p-value and interval were normal (z); they now follow
+  lmerTest's Satterthwaite t distribution. The statistics move to the new
+  `t_values` field and `z_values` is NULL (a non-NULL `df` also marks t tests);
+  under Wald inference `z_values` is filled and `t_values` is NULL. The standard
+  errors are unchanged. `{'ddf': 'wald'}` restores the previous values.
+
 ### Changed
 
 - CI builds, smoke-tests and deploys the extension for **DuckDB v2.0.0** on every
@@ -17,6 +54,10 @@ Breaking changes are called out explicitly.
   publishes it to get.erpl.io, like the 1.5.x lines. This replaces the
   non-blocking 2.0-dev job, which built only linux_amd64 and wasm_eh and deployed
   nothing. The smoke test downloads DuckDB 2.0's renamed `.tar.gz` CLI assets.
+- Random-slope and crossed GLMM fits converge more tightly (anofox-regression
+  0.5.33 polishes the variance parameters with Newton steps after Nelder–Mead), so
+  their estimates can move in the 5th–6th digit towards lme4's.
+- anofox-regression 0.5.33.
 
 ## [0.12.2] - 2026-10-22
 

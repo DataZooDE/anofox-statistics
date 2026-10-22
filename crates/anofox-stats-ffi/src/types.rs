@@ -3043,6 +3043,17 @@ pub enum GlmmFamilyFFI {
     Tweedie = 5,
 }
 
+/// Degrees-of-freedom method of the GLMM fixed-effect tests.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum GlmmDdfFFI {
+    /// The family default: Satterthwaite for gaussian, Wald otherwise.
+    #[default]
+    Default = 0,
+    Wald = 1,
+    Satterthwaite = 2,
+}
+
 /// Options for a mixed-effects fit.
 #[repr(C)]
 pub struct GlmmOptionsFFI {
@@ -3063,6 +3074,7 @@ pub struct GlmmOptionsFFI {
     /// additionally carry a random slope. Null/zero-length = random intercept only.
     pub random_slopes: *const usize,
     pub random_slopes_len: usize,
+    pub ddf: GlmmDdfFFI,
 }
 
 impl Default for GlmmOptionsFFI {
@@ -3080,6 +3092,7 @@ impl Default for GlmmOptionsFFI {
             offset_column: 0,
             random_slopes: std::ptr::null(),
             random_slopes_len: 0,
+            ddf: GlmmDdfFFI::Default,
         }
     }
 }
@@ -3131,8 +3144,37 @@ pub struct GlmmResultFFI {
     pub factor_len: usize,
     /// Negative-binomial size theta (estimated or fixed); NaN for other families.
     pub nb_theta: f64,
+    /// Satterthwaite degrees of freedom of the coefficients (`inference_len`);
+    /// null for Wald inference or without inference.
+    pub df: *mut f64,
+    /// Satterthwaite degrees of freedom of the intercept; NaN otherwise.
+    pub intercept_df: f64,
+    /// Conditional standard errors of `ranef_effects`, same layout.
+    pub ranef_effects_se: *mut f64,
+    /// Length of each group's vector in `ranef_effects` / `ranef_effects_se`
+    /// (differs from `random_dim` for crossed fits, whose `random_cov` is empty
+    /// without random slopes).
+    pub ranef_dim: usize,
+    /// Normal intervals of `ranef_effects` at `confidence_level`, same layout.
+    pub ranef_effects_conf_low: *mut f64,
+    pub ranef_effects_conf_high: *mut f64,
+    /// Residual degrees of freedom `n − k` (lme4 `df.residual()`).
+    pub df_residual: f64,
     /// Model description, fit statistics and intercept inference (#152)
     pub summary: ModelSummaryFFI,
+}
+
+/// Per-row fitted values and residuals of a mixed-effects fit, all of length
+/// `len` (the number of input rows, in input order). Released by
+/// `anofox_free_glmm_augment_result`.
+#[repr(C)]
+pub struct GlmmAugmentResultFFI {
+    pub fitted: *mut f64,
+    pub fitted_population: *mut f64,
+    pub residual: *mut f64,
+    pub pearson_residual: *mut f64,
+    pub is_training: *mut bool,
+    pub len: usize,
 }
 
 // =============================================================================

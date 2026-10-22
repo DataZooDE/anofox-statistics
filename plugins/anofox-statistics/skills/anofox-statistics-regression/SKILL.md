@@ -129,7 +129,7 @@ Path options: `lambdas` (glmnet scale, default glmnet's grid), `n_lambda` (100),
 | AFT survival | `aft_fit_agg` | Duration models with right censoring (`distribution`: weibull / lognormal / loglogistic / exponential) |
 | AFT helpers | `aft_cdf(t, eta, scale, dist)`, `aft_quantile(p, eta, scale, dist)` | Scalar: `P(T ≤ t)` and the `p`-quantile of `T` given linear predictor `eta = intercept + x·β` and the fitted `scale` |
 | AFT survival curve | `aft_survival(model, x, times)` | `LIST<STRUCT(time, surv)>`: `S(t \| x)` of an `aft_fit_agg` model at each of `times` |
-| Mixed effects | `glmm_fit_agg(y, x, group[, opts])` | Random intercepts / slopes; `family` option selects the GLM family |
+| Mixed effects | `glmm_fit_agg(y, x, group[, opts])` | Random intercepts / slopes; `family` option selects the GLM family. With `compute_inference`: Satterthwaite t tests for gaussian (lmerTest; `t_values` + `df`, `z_values` NULL), Wald z otherwise (`z_values`; `ddf` option); `ranef[].se` = BLUP conditional SEs. Long outputs: `glmm_tidy_by` / `glmm_glance_by` / `glmm_augment_by` (batch skill) |
 | EB shrinkage | `eb_shrink_agg(estimate, se[, opts])` | Partial pooling of per-group estimates |
 
 All GLMs accept `glm_lambda` (L2 penalty), `prior` + `feature_names` (coefficient priors), `max_iterations`, `tolerance`, `compute_inference`, `confidence_level`. There is no `family` key on the single-family GLM aggregates. Every GLM has a per-group table macro `{poisson,binomial,logistic,negbinom,gamma,tweedie}_fit_predict_by` (response-scale `yhat`; see the batch skill).
@@ -158,6 +158,7 @@ All GLMs accept `glm_lambda` (L2 penalty), `prior` + `feature_names` (coefficien
 | `link` / `binomial_link` | VARCHAR | `'log'` / `'logit'` | Poisson / Binomial |
 | `power` | DOUBLE | `1.5` | Tweedie |
 | `family` | VARCHAR | `'gaussian'` | GLMM only |
+| `ddf` | VARCHAR | `'satterthwaite'` (gaussian), `'wald'` (others) | GLMM only: degrees of freedom of the fixed-effect tests; `'satterthwaite'` is gaussian-only |
 | `distribution` | VARCHAR | — | ALM, AFT |
 | `null_policy` | VARCHAR | `'drop'` | `*_fit_predict`, `*_fit_predict_agg` (`'drop'` / `'drop_y_zero_x'` / `'zero'` / `'ignore'`; `'zero'` fits NULL `y`/`x` as 0, `'ignore'` = `'drop'`) |
 | `alias_tolerance` | DOUBLE | `1e-7` | OLS / WLS (`*_fit`, `*_fit_agg`, `*_fit_predict_agg`, `*_fit_predict`): collinearity tolerance (R `lm`'s `tol`); not accepted by Ridge etc. |
