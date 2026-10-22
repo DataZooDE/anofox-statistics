@@ -158,7 +158,7 @@ FROM (
 `theil_sen_tidy_by` computes the intervals by default and carries them into
 the `terms` rows (`std_error`, `statistic`, `p_value`, `conf_low`, `conf_high`).
 
-**Behaviour change (#222):** before, `compute_inference` returned these
+**Before #222** `compute_inference` returned these
 fields but left them empty (NaN / NULL): the solver had no inference. See the
 [changelog](../../../CHANGELOG.md).
 

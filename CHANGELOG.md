@@ -35,7 +35,8 @@ Breaking changes are called out explicitly.
   `trend::sens.slope` to 1e-12. `'bootstrap'` (the default with several features)
   is the pairs bootstrap: bootstrap standard errors and percentile intervals for
   every coefficient and the intercept, deterministic for a seed whatever the row
-  order or thread count. `theil_sen_tidy_by` carries them into `terms`. `n_bootstrap`
+  order or thread count. `theil_sen_tidy_by` carries them into `terms`. Previously
+  these fields were NaN / NULL (see Fixed). `n_bootstrap`
   is also an alias of `quantile_fit_agg`'s `n_boot`.
 
 ### Changed
@@ -46,18 +47,19 @@ Breaking changes are called out explicitly.
   non-blocking 2.0-dev job, which built only linux_amd64 and wasm_eh and deployed
   nothing. The smoke test downloads DuckDB 2.0's renamed `.tar.gz` CLI assets.
 
-- **Behaviour change (Theil-Sen inference, #222).** `compute_inference := true` on
-  Theil-Sen used to return the inference fields without values: the upstream solver
-  had no inference, so `std_errors`, `t_values`, `p_values` and the intervals were
-  NaN / NULL and the documentation's "standard errors, t-values, ... and the F-test"
-  did not hold (they were never OLS-style values). They now carry valid intervals
-  from the method above. The field names are unchanged, but what each holds depends
-  on the method: with `'exact'` `t_values` is Kendall's z (not a t statistic) and
-  `std_errors` stays NaN; with `'bootstrap'` `t_values` / `p_values` stay NaN.
-  `f_statistic` / `f_pvalue` stay NaN: Theil-Sen has no F-test. Multi-feature fits
-  with `compute_inference` (and `theil_sen_tidy_by`, which turns it on by default)
-  now refit the model `n_bootstrap` times per group; lower `n_bootstrap` or pass
-  `{'compute_inference': false}` where that is too slow.
+### Fixed
+
+- **Theil-Sen `compute_inference` now populates the inference fields (#222).**
+  Previously they were returned but always NaN / NULL: the upstream solver had no
+  inference, so the documented "standard errors, t-values, ... and the F-test" were
+  never computed (they were never OLS-style values). They now hold the exact or
+  bootstrap intervals described under Added. Field names are unchanged; what each
+  holds depends on the method: with `'exact'` `t_values` is Kendall's z (not a t
+  statistic) and `std_errors` stays NaN; with `'bootstrap'` `t_values` / `p_values`
+  stay NaN. `f_statistic` / `f_pvalue` stay NaN: Theil-Sen has no F-test. Note the
+  cost: multi-feature fits with `compute_inference` (and `theil_sen_tidy_by`, which
+  turns it on by default) refit the model `n_bootstrap` times per group; lower
+  `n_bootstrap` or pass `{'compute_inference': false}` where that is too slow.
 
 ## [0.12.2] - 2026-10-22
 
