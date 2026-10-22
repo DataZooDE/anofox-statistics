@@ -291,25 +291,49 @@ jobs:
       deploy_latest: ${{ startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main' }}
       deploy_versioned: ${{ startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main' }}
 
-  duckdb-next-build:
-    name: Build + test against DuckDB 2.0-dev (non-blocking)
-    # Early warning for the next DuckDB major. Pinned to the duckdb commit the
-    # duckdb/community-extensions CI builds 2.0-dev against; bump both refs
-    # together. Non-blocking: no job `needs` this one and it deploys nothing,
-    # so a moving 2.0-dev target never holds up a release. (A reusable-workflow
-    # job cannot set continue-on-error; a red run here only flags the drift.)
-    # Linux x86 runs the full sqllogictest suite. wasm_eh mirrors the registry's
-    # PR build, which uses ci-tools' Rust (1.97+) with the old emsdk 3.1.71; see
-    # rust-toolchain.toml for why that combination needs a pinned Rust.
+  # DuckDB 2.0 (released 2026-10-21): built, smoke-tested and deployed to
+  # get.erpl.io like the 1.5.x lines. This replaces the earlier non-blocking
+  # 2.0-dev job, which built only linux_amd64 and wasm_eh and deployed nothing.
+  # That is how the 2.0 osx_arm64 link failure (#215) reached the
+  # community-extensions registry: registry PR checks build only Linux,
+  # Windows and wasm_eh, so a macOS break shows up only in its post-merge
+  # build, where it skips the deploy for every platform.
+  # Full matrix (reduced_ci_mode disabled), as for 1.5.x. The registry itself
+  # builds in reduced mode. wasm_eh here mirrors the registry's Rust 1.97 +
+  # emsdk 3.1.71 setup; see rust-toolchain.toml.
+  duckdb-200-build:
+    name: Build extension binaries (v2.0.0)
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v2.0-cyanoptera
     with:
-      duckdb_version: d54cbbe3df17e8e5ce68312f483b4155836112aa
+      duckdb_version: v2.0.0
       ci_tools_version: v2.0-cyanoptera
       extension_name: anofox_statistics
       enable_rust: true
       reduced_ci_mode: disabled
-      artifact_postfix: "-duckdb-next"
-      exclude_archs: "linux_arm64;linux_amd64_musl;linux_arm64_musl;osx_amd64;osx_arm64;windows_amd64;windows_amd64_mingw;windows_arm64;wasm_mvp;wasm_threads"
+      exclude_archs: "windows_amd64;windows_amd64_mingw"
+
+  duckdb-200-smoke-test:
+    name: Smoke test (v2.0.0)
+    needs: duckdb-200-build
+    uses: ./.github/workflows/_extension_smoke_test.yml
+    with:
+      duckdb_version: v2.0.0
+      extension_name: anofox_statistics
+      exclude_archs: 'windows_amd64;windows_amd64_mingw'
+
+  duckdb-200-deploy:
+    name: Deploy extension binaries (v2.0.0)
+    needs: [duckdb-200-build, duckdb-200-smoke-test, duckdb-stable-windows-msvc-test]
+    if: ${{ !cancelled() && needs.duckdb-200-smoke-test.result == 'success' && needs.duckdb-stable-windows-msvc-test.result == 'success' }}
+    uses: ./.github/workflows/_extension_deploy.yml
+    secrets: inherit
+    with:
+      duckdb_version: v2.0.0
+      ci_tools_version: v2.0-cyanoptera
+      extension_name: anofox_statistics
+      exclude_archs: "windows_amd64;windows_amd64_mingw"
+      deploy_latest: ${{ startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main' }}
+      deploy_versioned: ${{ startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main' }}
 
   build-and-test-rust:
     name: Build and test Rust components
