@@ -18,9 +18,9 @@ dependencies = [
 
 [[package]]
 name = "anofox-statistics"
-version = "0.4.10"
+version = "0.4.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c9f7e5db253da54e1cbdbccfdb219a10b3e71bb08022348aa9f798fcc6c0364"
+checksum = "f98f6c761bec2ddcc691f88cd773ec5d2ef4a55ba2c8bd72b6af0ed913b2a56c"
 dependencies = [
  "rand 0.8.5",
  "rand_chacha 0.3.1",

@@ -10,6 +10,26 @@ Breaking changes are called out explicitly.
 
 ## [Unreleased]
 
+### Added
+
+- **Multiple-testing correction for any p-values (#219).** R's
+  `p.adjust(p, method, n)`, from upstream anofox-statistics 0.4.11 (which adds the
+  explicit `n`), in three forms:
+  - `p_adjust_by(source, group_col, p_col, method := 'holm', n := NULL)` returns every
+    source row, in source order, with `p_adjusted`; each group is one family.
+  - `p_adjust_agg(p [, method [, n]])` returns the adjusted p-values of a group as a
+    `DOUBLE[]` in input order (`ORDER BY` inside the call).
+  - `p_adjust_list(p DOUBLE[] [, method [, n]])` adjusts a list.
+
+  Methods: `holm` (default), `hochberg`, `hommel`, `bonferroni`, `BH` (alias `fdr`),
+  `BY`, `none`; case-insensitive. An unknown method is an error at bind time. NULL
+  p-values stay NULL and are not counted. `n` (the number of hypotheses) defaults to the
+  number of non-NULL p-values; a smaller `n` is an error. All methods, with and without
+  `n`, match R 4.6.1 to 1e-14 (`test/sql/reference/p_adjust_reference.test`). A
+  `p_adjust(p) OVER (PARTITION BY ...)` window function is not possible on DuckDB 1.x:
+  an extension's window aggregate is not told which row of a whole-partition frame it is
+  computing (follow-up for DuckDB 2.0: #224).
+
 ### Changed
 
 - CI builds, smoke-tests and deploys the extension for **DuckDB v2.0.0** on every

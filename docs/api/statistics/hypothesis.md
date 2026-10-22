@@ -360,6 +360,48 @@ SELECT site, group1, group2, p_adj, estimate, conf_low, conf_high
 FROM pairwise_t_test_by('trial', site, response, arm);
 ```
 
+## Multiple Testing
+
+Adjust p-values from any set of tests for multiple comparisons, with R's
+`p.adjust(p, method, n)` semantics (#219). Methods: `'holm'` (default), `'hochberg'`,
+`'hommel'`, `'bonferroni'`, `'BH'` (alias `'fdr'`), `'BY'`, `'none'`; names are
+case-insensitive and an unknown method is an error. NULL p-values stay NULL and are
+not counted. `n` is the number of hypotheses in the family, for when not every test
+appears as a row; it defaults to the number of non-NULL p-values and may not be
+smaller (an error, as `stopifnot(n >= lp)` in R).
+
+| Function | Signature | Returns |
+|----------|-----------|---------|
+| `p_adjust_by` | `(source, group_col, p_col, method := 'holm', n := NULL)` | Every source row, in source order, with `p_adjusted`; each group of `group_col` is one family |
+| `p_adjust_agg` | `(p DOUBLE [, method VARCHAR [, n BIGINT]])` | `DOUBLE[]`, the adjusted p-values in input order (`ORDER BY` inside the call fixes it) |
+| `p_adjust_list` | `(p DOUBLE[] [, method VARCHAR [, n BIGINT]])` | `DOUBLE[]`, the adjusted list in the same order |
+
+`method` and `n` of `p_adjust_agg` must be constants; `p_adjust_list` also takes
+per-row values.
+
+```sql
+CREATE TABLE results AS SELECT * FROM (VALUES
+    ('weight', 'dose_a', 0.012), ('weight', 'dose_b', 0.030), ('weight', 'dose_c', 0.200),
+    ('bp', 'dose_a', 0.001), ('bp', 'dose_b', 0.049)) t(endpoint, test, p_value);
+
+-- One family per endpoint, Benjamini-Hochberg; the rows keep their order.
+SELECT endpoint, test, p_value, p_adjusted
+FROM p_adjust_by('results', endpoint, p_value, method := 'BH');
+
+-- The same as lists, per endpoint.
+SELECT endpoint, list(test ORDER BY test) AS tests,
+       p_adjust_agg(p_value, 'BH' ORDER BY test) AS p_adj
+FROM results GROUP BY endpoint;
+
+-- A list of p-values, with 10 hypotheses of which only three were observed.
+SELECT p_adjust_list([0.01, 0.02, 0.04], 'holm', 10);
+```
+
+There is no `p_adjust(p) OVER (PARTITION BY ...)` window function: in DuckDB 1.x an
+extension's window aggregate does not learn which row of a whole-partition frame it
+is computing, so it cannot return a different value per row. Use `p_adjust_by` for
+row-aligned results (a window function for DuckDB 2.0 is tracked in #224).
+
 ## See Also
 
 - [Correlation](correlation.md) - Correlation tests

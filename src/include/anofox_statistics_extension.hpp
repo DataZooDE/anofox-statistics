@@ -103,6 +103,7 @@ void RegisterSpearmanAggregateFunction(ExtensionLoader &loader);
 void RegisterMannWhitneyAggregateFunction(ExtensionLoader &loader);
 void RegisterAnovaAggregateFunction(ExtensionLoader &loader);
 void RegisterPairwisePosthocAggregateFunctions(ExtensionLoader &loader);
+void RegisterPAdjustFunctions(ExtensionLoader &loader);
 void RegisterKruskalWallisAggregateFunction(ExtensionLoader &loader);
 void RegisterChiSquareAggregateFunction(ExtensionLoader &loader);
 

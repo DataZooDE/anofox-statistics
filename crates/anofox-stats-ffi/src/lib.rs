@@ -8066,6 +8066,56 @@ pub unsafe extern "C" fn anofox_dunn_test(
     })
 }
 
+/// Adjust p-values for multiple testing (R `p.adjust(p, method, n)`, #219).
+///
+/// NULL (or NaN) entries of `p` pass through as NaN and are not counted. `n`
+/// is the number of hypotheses; a negative `n` means the number of non-NULL
+/// p-values, and an `n` below that number is an error. With `p.len == 0` this
+/// only validates `p_adjust` and `n`.
+///
+/// # Safety
+/// - `p` must be a valid DataArray
+/// - `p_adjust` must be NULL (holm) or a NUL-terminated string
+/// - `out` must point to `p.len` writable doubles (may be NULL when `p.len == 0`)
+#[no_mangle]
+pub unsafe extern "C" fn anofox_p_adjust(
+    p: DataArray,
+    p_adjust: *const c_char,
+    n: i64,
+    out: *mut f64,
+    out_error: *mut AnofoxError,
+) -> bool {
+    ffi_guard(out_error, false, || {
+        if !out_error.is_null() {
+            *out_error = AnofoxError::success();
+        }
+        if out.is_null() && p.len > 0 {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InvalidInput, "out is NULL");
+            }
+            return false;
+        }
+        let result = read_p_adjust(p_adjust).and_then(|method| {
+            let n = if n < 0 { None } else { Some(n as usize) };
+            anofox_stats_core::tests::posthoc::p_adjust(&p.to_vec(), method, n)
+        });
+        match result {
+            Ok(adj) => {
+                if !adj.is_empty() {
+                    std::ptr::copy_nonoverlapping(adj.as_ptr(), out, adj.len());
+                }
+                true
+            }
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
+        }
+    })
+}
+
 /// Free the rows of a pairwise post-hoc result.
 ///
 /// # Safety
