@@ -49,8 +49,9 @@ FROM (SELECT ols_anova_agg(y, [x1, x2], [x1, x2, x3]) AS r FROM d);
 true	1.0	true	true
 
 query I
-SELECT abs((SELECT (ols_anova_agg(y, [x1, x2], [x1, x2, x3])).statistic FROM d)
-         - (SELECT pow((ols_fit_agg(y, [x1, x2, x3], {'compute_inference': true})).t_values[3], 2) FROM d)) < 1e-9;
+SELECT abs((a).statistic - pow((f).t_values[3], 2)) < 1e-9
+FROM (SELECT ols_anova_agg(y, [x1, x2], [x1, x2, x3]) AS a,
+             ols_fit_agg(y, [x1, x2, x3], {'compute_inference': true}) AS f FROM d);
 ----
 true
 
@@ -64,7 +65,7 @@ true	3.0	true	true	0.0
 
 query I
 SELECT abs((SELECT (ols_anova_agg(y, [], [x1, x2, x3])).statistic FROM d)
-         - (SELECT (ols_fit_agg(y, [x1, x2, x3])).f_statistic FROM d)) < 1e-8;
+         - (SELECT (ols_fit_agg(y, [x1, x2, x3], {'compute_inference': true})).f_statistic FROM d)) < 1e-8;
 ----
 true
 

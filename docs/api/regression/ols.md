@@ -179,7 +179,7 @@ ols_anova_by(source VARCHAR, group_col, y_col, x_reduced := [], x_full := [...],
   `x_reduced is not nested in x_full`.
 - **Intercept-only reduced model.** `x_reduced := []` (the macro's default)
   compares the full model with the intercept-only model. That reproduces the
-  overall F test of `ols_fit_agg` (`f_statistic`).
+  overall F test of `ols_fit_agg` (its `f_statistic` with `compute_inference`).
 - **Same rows.** A row is used by both fits only when `y`, both lists and every
   list element are non-NULL and finite.
 - **Options.** `fit_intercept` (default `true`) applies to both models.
