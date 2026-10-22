@@ -1,0 +1,134 @@
+# name: test/sql/options/test_default_seed.test
+# description: The Monte Carlo tests (permutation_t_test_agg, energy_distance_agg,
+#              mmd_agg, distance_cor_agg) use a fixed default seed (42) when no
+#              'seed' is given, so repeated calls return the same p-value (#214).
+#              An explicit seed overrides the default.
+# group: [options]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE d AS
+SELECT i,
+       sin(i * 0.37) + 0.5 * cos(i * 1.91) + CASE WHEN i % 2 = 0 THEN 0.0 ELSE 0.08 END AS v,
+       (i % 2)::INT AS g,
+       sin(i * 0.013) AS x,
+       sin(i * 0.013) * 0.2 + cos(i * 2.3) AS y
+FROM range(120) t(i);
+
+# 30 calls without a seed, each with its own aggregate state: one distinct result.
+query IIII
+SELECT count(DISTINCT perm), count(DISTINCT energy), count(DISTINCT mmd), count(DISTINCT dcor)
+FROM (
+    SELECT rep,
+           permutation_t_test_agg(v, g, {'n_permutations': 199}) AS perm,
+           energy_distance_agg(v, g, {'n_permutations': 99}) AS energy,
+           mmd_agg(v, g, {'n_permutations': 99}) AS mmd,
+           distance_cor_agg(x, y, {'n_permutations': 99}) AS dcor
+    FROM d, range(30) r(rep)
+    GROUP BY rep
+);
+----
+1	1	1	1
+
+# No options at all: also reproducible.
+query IIII
+SELECT count(DISTINCT perm), count(DISTINCT energy), count(DISTINCT mmd), count(DISTINCT dcor)
+FROM (
+    SELECT rep, permutation_t_test_agg(v, g) AS perm, energy_distance_agg(v, g) AS energy,
+           mmd_agg(v, g) AS mmd, distance_cor_agg(x, y) AS dcor
+    FROM d, range(5) r(rep)
+    GROUP BY rep
+);
+----
+1	1	1	1
+
+# The default seed is 42.
+query IIII
+SELECT permutation_t_test_agg(v, g, {'n_permutations': 199}) = permutation_t_test_agg(v, g, {'n_permutations': 199, 'seed': 42}),
+       energy_distance_agg(v, g, {'n_permutations': 99}) = energy_distance_agg(v, g, {'n_permutations': 99, 'seed': 42}),
+       mmd_agg(v, g, {'n_permutations': 99}) = mmd_agg(v, g, {'n_permutations': 99, 'random_state': 42}),
+       distance_cor_agg(x, y, {'n_permutations': 99}) = distance_cor_agg(x, y, {'n_permutations': 99, 'seed': 42})
+FROM d;
+----
+true	true	true	true
+
+# An explicit seed overrides the default: other seeds draw other permutations,
+# and the same explicit seed draws the same ones.
+query IIII
+SELECT count(DISTINCT perm) > 1, count(DISTINCT energy) > 1, count(DISTINCT mmd) > 1, count(DISTINCT dcor) > 1
+FROM (
+    SELECT (permutation_t_test_agg(v, g, {'n_permutations': 199, 'seed': 1})).p_value AS perm,
+           (energy_distance_agg(v, g, {'n_permutations': 99, 'seed': 1})).p_value AS energy,
+           (mmd_agg(v, g, {'n_permutations': 99, 'seed': 1})).p_value AS mmd,
+           (distance_cor_agg(x, y, {'n_permutations': 99, 'seed': 1})).p_value AS dcor
+    FROM d
+    UNION ALL
+    SELECT (permutation_t_test_agg(v, g, {'n_permutations': 199, 'seed': 2})).p_value AS perm,
+           (energy_distance_agg(v, g, {'n_permutations': 99, 'seed': 2})).p_value AS energy,
+           (mmd_agg(v, g, {'n_permutations': 99, 'seed': 2})).p_value AS mmd,
+           (distance_cor_agg(x, y, {'n_permutations': 99, 'seed': 2})).p_value AS dcor
+    FROM d
+    UNION ALL
+    SELECT (permutation_t_test_agg(v, g, {'n_permutations': 199, 'seed': 3})).p_value AS perm,
+           (energy_distance_agg(v, g, {'n_permutations': 99, 'seed': 3})).p_value AS energy,
+           (mmd_agg(v, g, {'n_permutations': 99, 'seed': 3})).p_value AS mmd,
+           (distance_cor_agg(x, y, {'n_permutations': 99, 'seed': 3})).p_value AS dcor
+    FROM d
+    UNION ALL
+    SELECT (permutation_t_test_agg(v, g, {'n_permutations': 199, 'seed': 4})).p_value AS perm,
+           (energy_distance_agg(v, g, {'n_permutations': 99, 'seed': 4})).p_value AS energy,
+           (mmd_agg(v, g, {'n_permutations': 99, 'seed': 4})).p_value AS mmd,
+           (distance_cor_agg(x, y, {'n_permutations': 99, 'seed': 4})).p_value AS dcor
+    FROM d
+    UNION ALL
+    SELECT (permutation_t_test_agg(v, g, {'n_permutations': 199, 'seed': 5})).p_value AS perm,
+           (energy_distance_agg(v, g, {'n_permutations': 99, 'seed': 5})).p_value AS energy,
+           (mmd_agg(v, g, {'n_permutations': 99, 'seed': 5})).p_value AS mmd,
+           (distance_cor_agg(x, y, {'n_permutations': 99, 'seed': 5})).p_value AS dcor
+    FROM d
+);
+----
+true	true	true	true
+
+query IIII
+SELECT permutation_t_test_agg(v, g, {'n_permutations': 199, 'seed': 7}) = permutation_t_test_agg(v, g, {'n_permutations': 199, 'seed': 7}),
+       energy_distance_agg(v, g, {'n_permutations': 99, 'seed': 7}) = energy_distance_agg(v, g, {'n_permutations': 99, 'seed': 7}),
+       (permutation_t_test_agg(v, g, {'n_permutations': 199, 'seed': 7})).p_value
+           <> (permutation_t_test_agg(v, g, {'n_permutations': 199})).p_value,
+       (energy_distance_agg(v, g, {'n_permutations': 99, 'seed': 7})).p_value
+           <> (energy_distance_agg(v, g, {'n_permutations': 99})).p_value
+FROM d;
+----
+true	true	true	true
+
+# The default-seeded result does not depend on the thread count or row order.
+statement ok
+CREATE TABLE big AS
+SELECT i, sin(i * 0.37) + 0.5 * cos(i * 1.91) + CASE WHEN i % 2 = 0 THEN 0.0 ELSE 0.004 END AS v,
+       (i % 2)::INT AS g
+FROM range(300000) t(i);
+
+statement ok
+SET threads = 1;
+
+statement ok
+CREATE TABLE r1 AS
+SELECT permutation_t_test_agg(v, g, {'n_permutations': 99}) AS perm,
+       (SELECT energy_distance_agg(v, g, {'n_permutations': 49}) FROM big WHERE i % 1000 < 2) AS energy,
+       (SELECT mmd_agg(v, g, {'n_permutations': 49}) FROM big WHERE i % 1000 < 2) AS mmd
+FROM big;
+
+statement ok
+SET threads = 8;
+
+query III
+SELECT perm = (SELECT perm FROM r1), energy = (SELECT energy FROM r1), mmd = (SELECT mmd FROM r1)
+FROM (
+    SELECT permutation_t_test_agg(v, g, {'n_permutations': 99} ORDER BY hash(i)) AS perm,
+           (SELECT energy_distance_agg(v, g, {'n_permutations': 49} ORDER BY -i) FROM big WHERE i % 1000 < 2) AS energy,
+           (SELECT mmd_agg(v, g, {'n_permutations': 49}) FROM big WHERE i % 1000 < 2) AS mmd
+    FROM big
+);
+----
+true	true	true

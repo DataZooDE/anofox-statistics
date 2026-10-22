@@ -1017,7 +1017,7 @@ FROM reg_data;
 | `kruskal_wallis_agg` | `(value DOUBLE, group BIGINT \| VARCHAR)` | - | `statistic, p_value, df, n, method` |
 | `wilcoxon_signed_rank_agg` | `(x DOUBLE, y DOUBLE [, options])` | `alternative`, `confidence_level`, `continuity_correction` | `statistic, p_value, ci_lower, ci_upper, n, method` |
 | `brunner_munzel_agg` | `(value DOUBLE, group_id INTEGER [, options])` | `alternative`, `confidence_level` | `statistic, p_value, df, effect_size, ci_lower, ci_upper, n1, n2, method` |
-| `permutation_t_test_agg` **MAP** | `(value DOUBLE, group_id INTEGER [, options])` | `alternative`, `n_permutations` (10000) | `statistic, p_value, n1, n2, method` |
+| `permutation_t_test_agg` **MAP** | `(value DOUBLE, group_id INTEGER [, options])` | `alternative`, `n_permutations` (10000), `seed` (42) | `statistic, p_value, n1, n2, method` |
 
 ```sql
 SELECT (mann_whitney_u_agg(y, grp2, {'alternative': 'greater'})).p_value AS mw_p,
@@ -1032,8 +1032,8 @@ FROM reg_data;
 
 | Function | Signature | Options | Returns |
 |----------|-----------|---------|---------|
-| `energy_distance_agg` | `(value DOUBLE, group_id INTEGER [, options])` | `n_permutations` (alias `permutations`) | `statistic, p_value, n1, n2, method` |
-| `mmd_agg` | `(value DOUBLE, group_id INTEGER [, options])` | `bandwidth` (alias `sigma`), `n_permutations` | `statistic, p_value, n1, n2, method` |
+| `energy_distance_agg` | `(value DOUBLE, group_id INTEGER [, options])` | `n_permutations` (alias `permutations`), `seed` (42) | `statistic, p_value, n1, n2, method` |
+| `mmd_agg` | `(value DOUBLE, group_id INTEGER [, options])` | `n_permutations` (alias `permutations`), `seed` (42) | `statistic, p_value, n1, n2, method` |
 
 ```sql
 SELECT (energy_distance_agg(y, grp2, {'n_permutations': 199})).p_value AS energy_p,
@@ -1076,7 +1076,7 @@ FROM reg_data;
 | `pearson_agg` | `(x DOUBLE, y DOUBLE [, options])` | `confidence_level` (0.95) | `r, statistic, p_value, ci_lower, ci_upper, n, method` |
 | `spearman_agg` | `(x DOUBLE, y DOUBLE [, options])` | `confidence_level` | `r, statistic, p_value, ci_lower, ci_upper, n, method` |
 | `kendall_agg` | `(x DOUBLE, y DOUBLE [, options])` | `confidence_level`, `variant` ('tau_a', 'tau_b', 'tau_c') | `tau, statistic, p_value, ci_lower, ci_upper, n, method` |
-| `distance_cor_agg` **MAP** | `(x DOUBLE, y DOUBLE [, options])` | `n_permutations` (1000) | `dcor, statistic, p_value, n, method` |
+| `distance_cor_agg` **MAP** | `(x DOUBLE, y DOUBLE [, options])` | `n_permutations` (1000), `seed` (42) | `dcor, statistic, p_value, n, method` |
 | `icc_agg` **MAP** | `(value DOUBLE, subject_id BIGINT, rater_id BIGINT [, options])` | `type` ('single' or 'average') | `icc, f_statistic, ci_lower, ci_upper, n_subjects, n_raters, method` |
 
 ```sql

@@ -457,12 +457,17 @@ struct FisherExactMapOptions {
 	static FisherExactMapOptions ParseFromValue(const Value &map_value, const string &function_name);
 };
 
+//! Seed of the Monte Carlo tests (permutation_t_test_agg, energy_distance_agg,
+//! mmd_agg, distance_cor_agg) when the caller passes none, so their p-values are
+//! reproducible by default (#214). An explicit 'seed' overrides it.
+constexpr uint64_t ANOFOX_DEFAULT_MC_SEED = 42;
+
 /**
  * Options for Energy distance test
  */
 struct EnergyDistanceMapOptions {
 	std::optional<uint32_t> n_permutations;
-	std::optional<uint64_t> seed; // also accepted as random_state
+	std::optional<uint64_t> seed; // also accepted as random_state; default ANOFOX_DEFAULT_MC_SEED
 
 	static EnergyDistanceMapOptions ParseFromValue(const Value &map_value, const string &function_name);
 };
@@ -473,7 +478,7 @@ struct EnergyDistanceMapOptions {
 struct MmdMapOptions {
 	std::optional<double> bandwidth; // Not supported by the core (median heuristic); the key is rejected
 	std::optional<uint32_t> n_permutations;
-	std::optional<uint64_t> seed; // also accepted as random_state
+	std::optional<uint64_t> seed; // also accepted as random_state; default ANOFOX_DEFAULT_MC_SEED
 
 	static MmdMapOptions ParseFromValue(const Value &map_value, const string &function_name);
 };
@@ -540,7 +545,7 @@ struct YuenMapOptions {
 struct PermutationMapOptions {
 	std::optional<Alternative> alternative;
 	std::optional<uint32_t> n_permutations;
-	std::optional<uint64_t> seed; // also accepted as random_state
+	std::optional<uint64_t> seed; // also accepted as random_state; default ANOFOX_DEFAULT_MC_SEED
 
 	static PermutationMapOptions ParseFromValue(const Value &map_value, const string &function_name);
 };
@@ -550,7 +555,7 @@ struct PermutationMapOptions {
  */
 struct DistanceCorMapOptions {
 	std::optional<uint32_t> n_permutations;
-	std::optional<uint64_t> seed; // also accepted as random_state
+	std::optional<uint64_t> seed; // also accepted as random_state; default ANOFOX_DEFAULT_MC_SEED
 
 	static DistanceCorMapOptions ParseFromValue(const Value &map_value, const string &function_name);
 };

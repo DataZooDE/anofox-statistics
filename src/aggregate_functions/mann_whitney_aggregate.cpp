@@ -175,6 +175,9 @@ static void MannWhitneyAggFinalize(Vector &state_vector, AggregateInputData &agg
             continue;
         }
 
+        // Bitwise-reproducible result regardless of the row order (#214).
+        state.samples.SortValues();
+
         AnofoxDataArray group1_array;
         group1_array.data = state.samples.Group1().data();
         group1_array.validity = nullptr;

@@ -60,21 +60,19 @@ static LogicalType GetDistanceCorAggResultType() {
 struct DistanceCorBindData : public FunctionData {
     uint32_t n_permutations;
     uint64_t seed;
-    bool has_seed;
 
-    DistanceCorBindData() : n_permutations(1000), seed(0), has_seed(false) {}
+    DistanceCorBindData() : n_permutations(1000), seed(ANOFOX_DEFAULT_MC_SEED) {}
 
     unique_ptr<FunctionData> Copy() const override {
         auto copy = make_uniq<DistanceCorBindData>();
         copy->n_permutations = n_permutations;
         copy->seed = seed;
-        copy->has_seed = has_seed;
         return copy;
     }
 
     bool Equals(const FunctionData &other_p) const override {
         auto &other = other_p.Cast<DistanceCorBindData>();
-        return n_permutations == other.n_permutations && seed == other.seed && has_seed == other.has_seed;
+        return n_permutations == other.n_permutations && seed == other.seed;
     }
 };
 
@@ -178,18 +176,16 @@ static void DistanceCorAggFinalize(Vector &state_vector, AggregateInputData &agg
             continue;
         }
 
-        if (bind_data.has_seed) {
-            // Make the seeded result independent of the row order threads
-            // delivered: sort the (x, y) pairs canonically.
-            vector<std::pair<double, double>> pairs(state.x_values.size());
-            for (idx_t k = 0; k < pairs.size(); k++) {
-                pairs[k] = std::make_pair(state.x_values[k], state.y_values[k]);
-            }
-            std::sort(pairs.begin(), pairs.end());
-            for (idx_t k = 0; k < pairs.size(); k++) {
-                state.x_values[k] = pairs[k].first;
-                state.y_values[k] = pairs[k].second;
-            }
+        // The RNG is always seeded: make the result independent of the row order
+        // threads delivered by sorting the (x, y) pairs canonically.
+        vector<std::pair<double, double>> pairs(state.x_values.size());
+        for (idx_t k = 0; k < pairs.size(); k++) {
+            pairs[k] = std::make_pair(state.x_values[k], state.y_values[k]);
+        }
+        std::sort(pairs.begin(), pairs.end());
+        for (idx_t k = 0; k < pairs.size(); k++) {
+            state.x_values[k] = pairs[k].first;
+            state.y_values[k] = pairs[k].second;
         }
 
         // First compute distance correlation
@@ -216,7 +212,7 @@ static void DistanceCorAggFinalize(Vector &state_vector, AggregateInputData &agg
         // Then compute the test with permutations
         AnofoxTestResult test_result;
         bool test_success = anofox_distance_cor_test_seeded(x_array, y_array, bind_data.n_permutations, bind_data.seed,
-                                                            bind_data.has_seed, &test_result, &error);
+                                                            true, &test_result, &error);
 
         if (!test_success) {
             ThrowUnlessDegenerate("distance_cor_agg", error);
@@ -258,7 +254,6 @@ static unique_ptr<FunctionData> DistanceCorAggBind(ClientContext &context, Aggre
         }
         if (opts.seed.has_value()) {
             bind_data->seed = opts.seed.value();
-            bind_data->has_seed = true;
         }
     }
 

@@ -161,6 +161,8 @@ static void AnovaAggFinalize(Vector &state_vector, AggregateInputData &aggr_inpu
             continue;
         }
 
+        state.coder.Canonicalize(state.groups);
+
         AnofoxDataArray values_array;
         values_array.data = state.values.data();
         values_array.validity = nullptr;

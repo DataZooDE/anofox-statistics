@@ -10,10 +10,35 @@ Breaking changes are called out explicitly.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Bitwise-reproducible group tests (#214).** `brown_forsythe_agg`,
+  `kruskal_wallis_agg` and `one_way_anova_agg` could differ in their last bits
+  between identical runs, even with `threads = 1` and ordered input: the FFI split
+  the rows into groups through a Rust `HashMap`, whose per-instance random seed
+  changed the group (and hence summation) order on every call. The groups are now
+  ordered by label and the values within each group are sorted before the test
+  runs. The two-sample tests (`t_test_agg`, `mann_whitney_u_agg`, `yuen_agg`,
+  `brunner_munzel_agg`, `tost_t_test_agg`) and the post-hoc tests (`tukey_hsd_agg`,
+  `pairwise_t_test_agg`, `dunn_test_agg`) sort their samples the same way. The same
+  rows now give the bitwise-identical result whatever the thread count, the row
+  order or the order in which the group labels first appear. Statistics can change
+  in the last bits relative to earlier versions.
+
 ### Changed
 
+- **Behaviour change: the Monte Carlo tests are seeded by default (#214).**
+  `permutation_t_test_agg`, `energy_distance_agg`, `mmd_agg` and `distance_cor_agg`
+  drew a fresh random set of permutations, and so a different p-value, on every
+  call unless `{'seed': ...}` was passed. Without a seed they now use the fixed
+  default seed 42, so repeated calls return the same p-value; an explicit `seed`
+  (alias `random_state`) still overrides it. Their samples are always put in a
+  canonical order first, so the seeded result is also independent of the thread
+  count. To get a different draw, pass a different seed.
+
 - CI builds, smoke-tests and deploys the extension for **DuckDB v2.0.0** on every
-  platform (Linux incl. musl and arm64, macOS arm64 and x86_64, WASM) and
+  default platform (Linux amd64 and arm64, macOS arm64, WASM; `osx_amd64` and
+  musl are opt-in in DuckDB 2.0's CI tooling and are not built) and
   publishes it to get.erpl.io, like the 1.5.x lines. This replaces the
   non-blocking 2.0-dev job, which built only linux_amd64 and wasm_eh and deployed
   nothing. The smoke test downloads DuckDB 2.0's renamed `.tar.gz` CLI assets.

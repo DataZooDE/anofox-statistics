@@ -1313,3 +1313,47 @@ fn classifier_curves_round_trip() {
         assert_eq!(e.code, ErrorCode::InvalidInput);
     }
 }
+
+// ---------------------------------------------------------------------------
+// k-sample tests: bitwise-reproducible group order (#214)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn k_sample_tests_do_not_depend_on_row_order() {
+    // Values spanning several magnitudes, so the sums depend on the order. n is
+    // prime, so every stride below gives a permutation of the rows.
+    let n = 307;
+    let values: Vec<f64> = (0..n)
+        .map(|i| (3.0 * (i as f64 * 0.37).sin()).exp() * 1000.0 + (i as f64 * 1.91).cos())
+        .collect();
+    let groups: Vec<f64> = (0..n).map(|i| ((i * 7 + 3) % 5) as f64).collect();
+    let run = |v: &[f64], g: &[f64]| unsafe {
+        let mut e = err();
+        let mut bf = TestResultFFI::default();
+        assert!(anofox_brown_forsythe(arr(v), arr(g), &mut bf, &mut e));
+        let mut kw = TestResultFFI::default();
+        assert!(anofox_kruskal_wallis(arr(v), arr(g), &mut kw, &mut e));
+        let mut aov = AnovaResultFFI::default();
+        assert!(anofox_one_way_anova(arr(v), arr(g), &mut aov, &mut e));
+        let out = [
+            bf.statistic.to_bits(),
+            bf.p_value.to_bits(),
+            kw.statistic.to_bits(),
+            kw.p_value.to_bits(),
+            aov.f_statistic.to_bits(),
+            aov.ss_within.to_bits(),
+        ];
+        anofox_free_test_result(&mut bf);
+        anofox_free_test_result(&mut kw);
+        anofox_free_anova_result(&mut aov);
+        out
+    };
+    let reference = run(&values, &groups);
+    for k in 1..40 {
+        // A different row order each time, and fresh group containers each call.
+        let order: Vec<usize> = (0..n).map(|i| (i * (6 * k + 1)) % n).collect();
+        let v: Vec<f64> = order.iter().map(|&i| values[i]).collect();
+        let g: Vec<f64> = order.iter().map(|&i| groups[i]).collect();
+        assert_eq!(run(&v, &g), reference, "row order {k}");
+    }
+}

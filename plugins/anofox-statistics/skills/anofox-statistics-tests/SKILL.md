@@ -79,7 +79,7 @@ user-invocable: false
 | `kruskal_wallis_agg` | Kruskal-Wallis |
 | `wilcoxon_signed_rank_agg` | Wilcoxon signed-rank (paired) |
 | `brunner_munzel_agg` | Brunner-Munzel |
-| `permutation_t_test_agg` | Permutation t-test |
+| `permutation_t_test_agg` | Permutation t-test; `n_permutations` (10000), `seed` (default 42, so the p-value is reproducible) |
 
 ### Correlation
 | Function | Measure |
@@ -87,7 +87,7 @@ user-invocable: false
 | `pearson_agg` | Pearson r |
 | `spearman_agg` / `spearman` | Spearman ρ |
 | `kendall_agg` | Kendall τ |
-| `distance_cor_agg` | Distance correlation |
+| `distance_cor_agg` | Distance correlation; permutation test with `n_permutations` (1000), `seed` (default 42) |
 | `icc_agg` / `icc` | Intraclass correlation |
 
 ### Categorical / contingency
@@ -124,8 +124,8 @@ user-invocable: false
 ### Distribution comparison
 | Function | Measure |
 |---|---|
-| `energy_distance_agg` | Energy distance |
-| `mmd_agg` | Maximum mean discrepancy |
+| `energy_distance_agg` | Energy distance; `n_permutations` (1000), `seed` (default 42) |
+| `mmd_agg` | Maximum mean discrepancy; `n_permutations` (1000), `seed` (default 42) |
 
 ### Forecast evaluation
 | Function | Test |

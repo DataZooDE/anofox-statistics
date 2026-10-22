@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <vector>
 
 #include "duckdb.hpp"
@@ -189,6 +190,10 @@ static void TostTTestAggFinalize(Vector &state_vector, AggregateInputData &aggr_
         }
 
         // Prepare FFI data
+        // Bitwise-reproducible result regardless of the row order (#214).
+        std::sort(state.group1.begin(), state.group1.end());
+        std::sort(state.group2.begin(), state.group2.end());
+
         AnofoxDataArray group1_array;
         group1_array.data = state.group1.data();
         group1_array.validity = nullptr;

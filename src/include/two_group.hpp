@@ -6,6 +6,7 @@
 #include "aggregate_combine.hpp"
 
 #include <algorithm>
+#include <numeric>
 #include <string>
 #include <utility>
 #include <vector>
@@ -79,9 +80,9 @@ struct TwoGroupSamples {
 		}
 	}
 
-	//! Sort both samples. Seeded resampling tests call this before handing the
-	//! samples to the core, so the result does not depend on the order in which
-	//! parallel threads delivered the rows.
+	//! Sort both samples. The finalizers call this before handing the samples to
+	//! the core, so the result (including a seeded resampling draw) is bitwise
+	//! independent of the order in which parallel threads delivered the rows.
 	void SortValues() {
 		std::sort(values[0].begin(), values[0].end());
 		std::sort(values[1].begin(), values[1].end());
@@ -119,8 +120,9 @@ private:
 
 //! Read a group label from a unified vector of BIGINT or VARCHAR.
 //! Dense numeric codes for arbitrary group labels (k-sample tests, #186). The
-//! codes are what the FFI groups by; their order is arbitrary, which the
-//! k-sample statistics do not depend on. Relocatable (a plain vector).
+//! codes are what the FFI groups by. They are handed out in first-seen order,
+//! which depends on the row order; Canonicalize renumbers them by label before
+//! the FFI call. Relocatable (a plain vector).
 struct GroupCoder {
 	vector<GroupLabel> labels;
 
@@ -141,6 +143,25 @@ struct GroupCoder {
 			map[k] = Code(source.labels[k]);
 		}
 		return map;
+	}
+
+	//! Renumber the labels and `codes` so code k is the k-th smallest label. The
+	//! FFI orders the groups by code (and sorts the values within each group), so
+	//! the result is then bitwise independent of the row order (#214).
+	void Canonicalize(vector<double> &codes) {
+		vector<idx_t> order(labels.size());
+		std::iota(order.begin(), order.end(), idx_t(0));
+		std::sort(order.begin(), order.end(), [&](idx_t a, idx_t b) { return labels[a] < labels[b]; });
+		vector<double> rank(labels.size());
+		vector<GroupLabel> sorted(labels.size());
+		for (idx_t r = 0; r < order.size(); r++) {
+			rank[order[r]] = static_cast<double>(r);
+			sorted[r] = labels[order[r]];
+		}
+		for (auto &code : codes) {
+			code = rank[static_cast<idx_t>(code)];
+		}
+		labels = std::move(sorted);
 	}
 };
 
