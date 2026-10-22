@@ -36,6 +36,8 @@ struct ModelOutputModel {
 	//! The coefficients vary over time (lmDynamic): <prefix>_tidy_by returns one
 	//! set of terms per observation (DynamicTidySql) instead of tidy().
 	bool dynamic_terms = false;
+	//! The intervals are Bayesian credible intervals (#222), not confidence intervals.
+	bool credible = false;
 };
 
 // clang-format off
@@ -49,8 +51,8 @@ const ModelOutputModel MODEL_OUTPUT_MODELS[] = {
     {"theil_sen", "a Theil-Sen regression", nullptr, true},
     {"rls", "a recursive least squares regression", nullptr, false},
     {"lars", "a LARS / Lasso-LARS regression", nullptr, false},
-    {"bayesian_ridge", "a Bayesian Ridge regression", nullptr, false},
-    {"ard", "an ARD (automatic relevance determination) regression", nullptr, false},
+    {"bayesian_ridge", "a Bayesian Ridge regression", nullptr, false, false, false, true},
+    {"ard", "an ARD (automatic relevance determination) regression", nullptr, false, false, false, true},
     {"bls", "a bounded least squares regression", nullptr, false},
     {"nnls", "a non-negative least squares regression", nullptr, false},
     {"pls", "a partial least squares regression", nullptr, false},
@@ -487,7 +489,11 @@ void RegisterModelOutputMacros(ExtensionLoader &loader) {
 		              " per group of source and returns one row per term (intercept first): the group column, id (the group), model_id and model_name (the method), "
 		              "term, estimate, std_error, statistic, p_value, conf_low, conf_high, conf_level, index_name, "
 		              "index_value." + order_note +
-		              (m.inference ? "Inference is computed by default (compute_inference is merged under options). " : "The model has no coefficient inference. ") +
+		              (m.inference ? "Inference is computed by default (compute_inference is merged under options). "
+		               : m.credible ? "std_error is the posterior standard deviation and conf_low / conf_high the "
+		                              "central Bayesian credible interval at conf_level (options' confidence_level), "
+		                              "not a frequentist confidence interval; statistic and p_value are NULL. "
+		                            : "The model has no coefficient inference. ") +
 		              "names := [...] labels the terms.",
 		    prefix + "_tidy_by(" + args + ", names := ['x1', 'x2'])");
 		loader.RegisterFunction(*tidy);

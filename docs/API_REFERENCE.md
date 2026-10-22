@@ -465,7 +465,17 @@ theil_sen_fit_agg(y DOUBLE, x LIST(DOUBLE) [, options]) -> STRUCT
 | n_subsamples | INTEGER | automatic | Rows per subset |
 | max_iterations | INTEGER | 300 | Iterations of the spatial-median solver |
 | tolerance | DOUBLE | 1e-3 | Convergence tolerance |
-| random_state (alias `seed`) | INTEGER | 0 | Random seed |
+| random_state (alias `seed`) | INTEGER | 0 | Random seed (subsets and bootstrap) |
+| compute_inference | BOOLEAN | false | Coefficient confidence intervals |
+| confidence_level | DOUBLE | 0.95 | Level of the intervals |
+| ci_method | VARCHAR | `'exact'` (one feature), else `'bootstrap'` | `'exact'`: Sen's distribution-free slope interval with Kendall's z / p-value (`trend::sens.slope`); `'bootstrap'`: pairs bootstrap SDs and percentile intervals, also for the intercept |
+| n_bootstrap (alias `n_boot`) | INTEGER | 999 | Bootstrap resamples |
+
+With `compute_inference` the exact method fills `conf_low` / `conf_high`,
+`t_values` (Kendall's z) and `p_values` for the slope (no standard error, no
+intercept interval); the bootstrap fills `std_errors`, `conf_low` /
+`conf_high` and the `intercept_*` SD and interval (no test). There is no
+F-test. See [Theil-Sen](api/regression/theil_sen.md#inference).
 
 ```sql
 SELECT theil_sen_fit(
@@ -1546,7 +1556,7 @@ ORDER BY category;
 ```
 
 For `ols`, `wls` (with `weight_col`), `ridge`, `elasticnet`, `huber`, `ransac`,
-`theil_sen`, `rls`, `lars`, `bls`, `nnls`, `pls`, `quantile`, `poisson`,
+`theil_sen`, `rls`, `lars`, `bayesian_ridge`, `ard`, `bls`, `nnls`, `pls`, `quantile`, `poisson`,
 `binomial`, `logistic`, `negbinom`, `gamma`, `tweedie`, `alm` and `aft` (with
 `event_col`). They fit one model per group with
 `<model>_fit_agg` and return long tables in the anofox integration contract's
@@ -1557,6 +1567,10 @@ For `ols`, `wls` (with `weight_col`), `ridge`, `elasticnet`, `huber`, `ransac`,
   index_value`, one row per term. Inference is computed by default for models
   that have it (`compute_inference` is merged under the user's `options`, so
   passing other options keeps it; `{'compute_inference': false}` turns it off).
+  For `bayesian_ridge` and `ard` `std_error` is the posterior SD and
+  `conf_low` / `conf_high` the central Bayesian credible interval at
+  `confidence_level` (not a confidence interval; `statistic` and `p_value` are
+  NULL).
 - `_glance_by`: the group column, `id` (the group as text), `model_id` and `model_name` (the method, e.g. `'ols'`), `model_type, metric, value`, one
   row per available numeric metric, so several models compare with a `UNION`.
 

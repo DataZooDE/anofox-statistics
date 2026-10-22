@@ -39,11 +39,13 @@ struct TheilSenAggregateState {
 
     bool n_subsamples_set;
     uint32_t n_subsamples_value;
+    int32_t ci_method;
+    uint32_t n_bootstrap;
 
     TheilSenAggregateState()
         : n_features(0), initialized(false), fit_intercept(true), compute_inference(false),
           confidence_level(0.95), max_subpopulation(10000), max_iterations(300), tolerance(1e-3), random_state(0),
-          n_subsamples_set(false), n_subsamples_value(0) {}
+          n_subsamples_set(false), n_subsamples_value(0), ci_method(0), n_bootstrap(999) {}
 
     void Reset() {
         y_values.clear();
@@ -63,6 +65,8 @@ struct TheilSenAggregateBindData : public FunctionData {
     uint64_t random_state = 0;
     bool n_subsamples_set = false;
     uint32_t n_subsamples_value = 0;
+    int32_t ci_method = 0; // 0 = auto, 1 = exact, 2 = bootstrap
+    uint32_t n_bootstrap = 999;
 
     unique_ptr<FunctionData> Copy() const override {
         auto result = make_uniq<TheilSenAggregateBindData>();
@@ -75,6 +79,8 @@ struct TheilSenAggregateBindData : public FunctionData {
         result->random_state = random_state;
         result->n_subsamples_set = n_subsamples_set;
         result->n_subsamples_value = n_subsamples_value;
+        result->ci_method = ci_method;
+        result->n_bootstrap = n_bootstrap;
         return std::move(result);
     }
 
@@ -84,7 +90,8 @@ struct TheilSenAggregateBindData : public FunctionData {
                confidence_level == o.confidence_level && max_subpopulation == o.max_subpopulation &&
                max_iterations == o.max_iterations && tolerance == o.tolerance &&
                random_state == o.random_state && n_subsamples_set == o.n_subsamples_set &&
-               n_subsamples_value == o.n_subsamples_value;
+               n_subsamples_value == o.n_subsamples_value && ci_method == o.ci_method &&
+               n_bootstrap == o.n_bootstrap;
     }
 };
 
@@ -155,6 +162,8 @@ static void TheilSenAggUpdate(Vector inputs[], AggregateInputData &aggr_input_da
         state.random_state = bind_data.random_state;
         state.n_subsamples_set = bind_data.n_subsamples_set;
         state.n_subsamples_value = bind_data.n_subsamples_value;
+        state.ci_method = bind_data.ci_method;
+        state.n_bootstrap = bind_data.n_bootstrap;
 
         auto y_idx = y_data.sel->get_index(i);
         if (!y_data.validity.RowIsValid(y_idx)) {
@@ -223,6 +232,8 @@ static void TheilSenAggCombine(Vector &source_vector, Vector &target_vector, Agg
             target.random_state = source.random_state;
             target.n_subsamples_set = source.n_subsamples_set;
             target.n_subsamples_value = source.n_subsamples_value;
+            target.ci_method = source.ci_method;
+            target.n_bootstrap = source.n_bootstrap;
             continue;
         }
 
@@ -298,6 +309,8 @@ static void TheilSenAggFinalize(Vector &state_vector, AggregateInputData &aggr_i
         options.random_state = state.random_state;
         options.n_subsamples_set = state.n_subsamples_set;
         options.n_subsamples_value = state.n_subsamples_value;
+        options.ci_method = state.ci_method;
+        options.n_bootstrap = state.n_bootstrap;
 
         AnofoxFitResultCore core_result;
         AnofoxFitResultInference inference_result;
@@ -340,7 +353,7 @@ static void ExtractTheilSenOptions(ClientContext &context, Expression &opts_expr
                                    TheilSenAggregateBindData &result) {
     auto opts = RegressionMapOptions::ParseFromExpression(
             context, opts_expr, "theil_sen_fit_agg",
-            {"fit_intercept", "compute_inference", "confidence_level", "max_iterations", "tolerance", "random_state", "max_subpopulation", "n_subsamples"});
+            {"fit_intercept", "compute_inference", "confidence_level", "max_iterations", "tolerance", "random_state", "max_subpopulation", "n_subsamples", "ci_method", "n_boot"});
     if (opts.fit_intercept.has_value()) {
         result.fit_intercept = opts.fit_intercept.value();
     }
@@ -365,6 +378,12 @@ static void ExtractTheilSenOptions(ClientContext &context, Expression &opts_expr
     if (opts.n_subsamples.has_value()) {
         result.n_subsamples_set = true;
         result.n_subsamples_value = opts.n_subsamples.value();
+    }
+    if (opts.ci_method.has_value()) {
+        result.ci_method = opts.ci_method.value();
+    }
+    if (opts.n_boot.has_value()) {
+        result.n_bootstrap = opts.n_boot.value();
     }
 }
 

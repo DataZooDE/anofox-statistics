@@ -10,6 +10,34 @@ Breaking changes are called out explicitly.
 
 ## [Unreleased]
 
+### Added
+
+- **Credible intervals for Bayesian Ridge / ARD (#222).** `bayesian_ridge_fit_agg` and
+  `ard_fit_agg` now fill the shared inference fields from the posterior: `std_errors`
+  is the posterior SD (`posterior_sd`, 0 for features ARD pruned), `conf_low` /
+  `conf_high` the central credible interval `coefficient ∓ z · sd` at
+  `confidence_level` (now accepted by the fit aggregates, default 0.95) and
+  `conf_level` that level. The intercept gets a flat prior: `intercept_std_error` is
+  `sqrt(1/(n·α) + x̄ᵀ Σ x̄)` with its interval in `intercept_conf_low` /
+  `intercept_conf_high`. There is no test, so `t_values`, `p_values` and the intercept
+  statistic / p-value stay NULL. `bayesian_ridge_tidy_by` / `ard_tidy_by` carry the
+  values into the `terms` rows; they are Bayesian credible intervals, not confidence
+  intervals (documented; the `terms` schema is unchanged). Validated against
+  scikit-learn 1.9.1's `sigma_` to 1e-7 (`test/sql/reference/regression_bayesian.test`;
+  the intercept SD against the inverted full posterior precision). Previously these
+  fields were NULL. Requires anofox-regression 0.5.30.
+- **Theil-Sen confidence intervals (#222).** New options `ci_method` (`'exact'` |
+  `'bootstrap'`) and `n_bootstrap` (alias `n_boot`, default 999; the existing `seed` /
+  `random_state` seeds it) for `theil_sen_fit` / `theil_sen_fit_agg` with
+  `compute_inference`. `'exact'` (the default with one feature) is Sen's (1968)
+  distribution-free slope interval with Kendall's tie-corrected variance, plus
+  Kendall's continuity-corrected z in `t_values` and its p-value; it matches R's
+  `trend::sens.slope` to 1e-12. `'bootstrap'` (the default with several features)
+  is the pairs bootstrap: bootstrap standard errors and percentile intervals for
+  every coefficient and the intercept, deterministic for a seed whatever the row
+  order or thread count. `theil_sen_tidy_by` carries them into `terms`. `n_bootstrap`
+  is also an alias of `quantile_fit_agg`'s `n_boot`.
+
 ### Changed
 
 - CI builds, smoke-tests and deploys the extension for **DuckDB v2.0.0** on every
@@ -17,6 +45,19 @@ Breaking changes are called out explicitly.
   publishes it to get.erpl.io, like the 1.5.x lines. This replaces the
   non-blocking 2.0-dev job, which built only linux_amd64 and wasm_eh and deployed
   nothing. The smoke test downloads DuckDB 2.0's renamed `.tar.gz` CLI assets.
+
+- **Behaviour change (Theil-Sen inference, #222).** `compute_inference := true` on
+  Theil-Sen used to return the inference fields without values: the upstream solver
+  had no inference, so `std_errors`, `t_values`, `p_values` and the intervals were
+  NaN / NULL and the documentation's "standard errors, t-values, ... and the F-test"
+  did not hold (they were never OLS-style values). They now carry valid intervals
+  from the method above. The field names are unchanged, but what each holds depends
+  on the method: with `'exact'` `t_values` is Kendall's z (not a t statistic) and
+  `std_errors` stays NaN; with `'bootstrap'` `t_values` / `p_values` stay NaN.
+  `f_statistic` / `f_pvalue` stay NaN: Theil-Sen has no F-test. Multi-feature fits
+  with `compute_inference` (and `theil_sen_tidy_by`, which turns it on by default)
+  now refit the model `n_bootstrap` times per group; lower `n_bootstrap` or pass
+  `{'compute_inference': false}` where that is too slow.
 
 ## [0.12.2] - 2026-10-22
 

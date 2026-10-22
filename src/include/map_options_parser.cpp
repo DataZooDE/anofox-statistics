@@ -841,7 +841,8 @@ static const vector<OptionKeyDef> &RegressionKeyTable() {
 	    {"folds", {"n_folds", "nfolds"}},
 	    {"taus", {}},
 	    {"se", {"se_type"}},
-	    {"n_boot", {}},
+	    {"n_boot", {"n_bootstrap"}},
+	    {"ci_method", {}},
 	    {"alpha_1", {}},
 	    {"alpha_2", {}},
 	    {"lambda_1", {}},
@@ -1189,6 +1190,18 @@ RegressionMapOptions RegressionMapOptions::ParseFromValue(const Value &map_value
 				throw InvalidInputException("%s: n_boot must be >= 2", function_name);
 			}
 			result.n_boot = v;
+		} else if (key == "ci_method") {
+			if (!val.IsNull()) {
+				const string v = ToLower(val.ToString());
+				if (v == "exact") {
+					result.ci_method = 1;
+				} else if (v == "bootstrap") {
+					result.ci_method = 2;
+				} else {
+					throw InvalidInputException("%s: ci_method must be 'exact' or 'bootstrap', got '%s'",
+					                            function_name, val.ToString());
+				}
+			}
 		} else {
 			throw InternalException("RegressionMapOptions: unhandled option key '%s'", key);
 		}

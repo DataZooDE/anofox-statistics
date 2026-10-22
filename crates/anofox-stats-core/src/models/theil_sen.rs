@@ -2,9 +2,10 @@
 //!
 //! Wraps `anofox_regression::solvers::TheilSenRegressor` and reshapes its
 //! result into the workspace-local `FitResult`. Theil-Sen has no
-//! consensus-set diagnostics to surface (no inlier mask, no trial count) —
-//! the upstream `FittedTheilSen` exposes only the standard `RegressionResult`
-//! and a `with_intercept` flag.
+//! consensus-set diagnostics to surface (no inlier mask, no trial count).
+//! With `compute_inference` the coefficient intervals come from upstream
+//! (#222): Sen's exact interval for one feature, the pairs bootstrap
+//! otherwise.
 
 use crate::errors::{StatsError, StatsResult};
 use crate::types::{FitResult, FitResultCore, ModelSummary, TheilSenOptions};
@@ -89,7 +90,11 @@ pub fn fit_theilsen(
         .max_subpopulation(options.max_subpopulation as usize)
         .max_iter(options.max_iterations as usize)
         .tolerance(options.tolerance)
-        .random_state(options.random_state);
+        .random_state(options.random_state)
+        .compute_inference(options.compute_inference)
+        .confidence_level(options.confidence_level)
+        .ci_method(options.ci_method)
+        .n_bootstrap(options.n_bootstrap);
     if let Some(n) = options.n_subsamples {
         builder = builder.n_subsamples(n);
     }
@@ -118,9 +123,10 @@ pub fn fit_theilsen(
         n_features,
     };
 
-    // Upstream Theil-Sen has no coefficient inference; when it is requested
-    // the lists still carry one (NaN, i.e. NULL) entry per feature, as
-    // documented.
+    // Upstream fills the intervals from Sen's exact interval (one feature:
+    // also Kendall's z and p-value, no standard error) or the pairs bootstrap
+    // (standard errors and intervals, no test); what a method does not give
+    // is NaN. Theil-Sen has no F test.
     let inference = options
         .compute_inference
         .then(|| super::inference_from_result(result, n_features, options.confidence_level));

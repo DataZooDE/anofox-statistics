@@ -36,14 +36,14 @@ static_assert(offsetof(AnofoxPartialResidualsResult, n_terms) == 5 * sizeof(doub
                       5 * sizeof(double *) + 2 * sizeof(size_t),
               "AnofoxPartialResidualsResult must match PartialResidualsResultFFI");
 // #61 (crates/anofox-stats-ffi/src/models_ffi.rs).
-static_assert(offsetof(AnofoxBayesianFitResult, coefficients) == 5 * sizeof(double) &&
+static_assert(offsetof(AnofoxBayesianFitResult, coefficients) == 6 * sizeof(double) &&
                   offsetof(AnofoxBayesianFitResult, summary) ==
-                      5 * sizeof(double) + 3 * sizeof(double *) + 5 * sizeof(size_t) &&
+                      6 * sizeof(double) + 5 * sizeof(double *) + 5 * sizeof(size_t) &&
                   sizeof(AnofoxBayesianFitResult) ==
                       offsetof(AnofoxBayesianFitResult, summary) + sizeof(AnofoxModelSummaryFFI),
               "AnofoxBayesianFitResult must match BayesianFitResultFFI");
 static_assert(offsetof(AnofoxBayesianOptions, tolerance) == sizeof(double) &&
-                  sizeof(AnofoxBayesianOptions) == 7 * sizeof(double),
+                  sizeof(AnofoxBayesianOptions) == 8 * sizeof(double),
               "AnofoxBayesianOptions must match BayesianOptionsFFI");
 // #63 (crates/anofox-stats-ffi/src/models_ffi.rs).
 static_assert(offsetof(AnofoxPassiveAggressiveOptions, max_epochs) == 4 &&
