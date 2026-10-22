@@ -10,6 +10,14 @@ Breaking changes are called out explicitly.
 
 ## [Unreleased]
 
+### Changed
+
+- CI builds, smoke-tests and deploys the extension for **DuckDB v2.0.0** on every
+  platform (Linux incl. musl and arm64, macOS arm64 and x86_64, WASM) and
+  publishes it to get.erpl.io, like the 1.5.x lines. This replaces the
+  non-blocking 2.0-dev job, which built only linux_amd64 and wasm_eh and deployed
+  nothing. The smoke test downloads DuckDB 2.0's renamed `.tar.gz` CLI assets.
+
 ## [0.12.2] - 2026-10-22
 
 ### Fixed
