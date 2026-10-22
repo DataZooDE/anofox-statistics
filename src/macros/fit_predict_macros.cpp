@@ -514,12 +514,47 @@ FROM (
 ORDER BY r.group
 )"},
 
+    // ols_anova_by: nested-model F test per group (issue #221), R's
+    // anova(lm(y ~ x_reduced), lm(y ~ x_full)) on the same rows.
+    // C++ API: ols_anova_by(source, group_col, y_col, x_reduced := [...], x_full := [...], options)
+    // x_reduced defaults to [] (the intercept-only model: the overall F test).
+    // Returns: one row per group -- the group column, id (the group as text),
+    // model_id / model_name 'ols' (#187), the contract `test` fields method,
+    // statistic, p_value, df1, df2, then rss_reduced, rss_full,
+    // adj_r_squared_reduced, adj_r_squared_full, delta_adj_r_squared and n_observations.
+    {"ols_anova_by", {"source", "group_col", "y_col", nullptr}, {{"x_reduced", "[]"}, {"x_full", "NULL"}, {"options", "NULL"}},
+R"(
+SELECT
+    group_col,
+    group_col::VARCHAR AS id,
+    'ols' AS model_id,
+    'ols' AS model_name,
+    (_t).method AS method,
+    (_t).statistic AS statistic,
+    (_t).p_value AS p_value,
+    (_t).df1 AS df1,
+    (_t).df2 AS df2,
+    (_t).rss_reduced AS rss_reduced,
+    (_t).rss_full AS rss_full,
+    (_t).adj_r_squared_reduced AS adj_r_squared_reduced,
+    (_t).adj_r_squared_full AS adj_r_squared_full,
+    (_t).delta_adj_r_squared AS delta_adj_r_squared,
+    (_t).n_observations AS n_observations
+FROM (
+    SELECT group_col, ols_anova_agg(y_col, x_reduced, x_full, options) AS _t
+    FROM query_table(source::VARCHAR)
+    GROUP BY group_col
+) sub
+ORDER BY group_col
+)"},
+
     // eb_shrink_by: empirical-Bayes shrinkage of per-group estimates (issue #107)
     // C++ API: eb_shrink_by(source, estimate_col, se_col, options)
     // Unlike the *_fit_predict_by macros this does not fit a model -- it consumes
     // estimates that already exist (typically one row per group from a GROUP BY
     // fit) and shrinks each toward the precision-weighted mean.
     // Returns: all source columns + shrunken, shrunken_se, weight, mu, tau_squared
+    {"ols_anova_by", "Table macro: nested-model F test per group of source (R's anova(lm(y ~ x_reduced), lm(y ~ x_full)) on the same rows); returns one row per group with method 'nested F', statistic, p_value, df1, df2, both RSS values and the adjusted R^2 of both models. x_reduced := [] (the default) is the intercept-only model.", "ols_anova_by('sales', region, y, x_reduced := [price], x_full := [price, promo, temp])", "regression"},
     {"eb_shrink_by", {"source", "estimate_col", "se_col", nullptr}, {{"options", "NULL"}},
 R"(
 SELECT

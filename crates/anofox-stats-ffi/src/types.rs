@@ -387,6 +387,22 @@ impl From<&anofox_stats_core::tests::UnifiedTestResult> for TestSummaryFFI {
     }
 }
 
+/// The `test` fields of a nested-model F test (#221): method `nested F`, the
+/// F statistic with both degrees of freedom and the rows used.
+impl From<&anofox_stats_core::models::NestedFTest> for TestSummaryFFI {
+    fn from(t: &anofox_stats_core::models::NestedFTest) -> Self {
+        Self {
+            statistic: t.f_statistic,
+            df1: t.df1 as f64,
+            df2: t.df2 as f64,
+            p_value: t.p_value,
+            n: i64::try_from(t.n_observations).unwrap_or(-1),
+            method: fixed_buffer("nested F"),
+            ..Self::default()
+        }
+    }
+}
+
 /// One comparison of a pairwise post-hoc test (#159). `group1` / `group2` are
 /// the caller's group codes. NaN marks a value that does not apply.
 #[repr(C)]

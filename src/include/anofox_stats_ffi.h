@@ -3304,6 +3304,40 @@ bool anofox_lowess(AnofoxDataArray x, AnofoxDataArray y, double frac, uint32_t i
 /** Free the arrays of a LOWESS result. */
 void anofox_free_lowess_result(AnofoxLowessResult *result);
 
+/* ============================================================================
+ * Nested-model F test of two OLS fits -- issue #221
+ * ============================================================================ */
+
+/**
+ * Result of anofox_ols_anova. NaN marks a value that does not apply (the
+ * statistic and p-value when the full model adds no rank or leaves no residual
+ * degrees of freedom). Must match OlsAnovaResultFFI in the Rust FFI crate.
+ */
+typedef struct {
+	double statistic;
+	double df1;
+	double df2;
+	double p_value;
+	double rss_reduced;
+	double rss_full;
+	double adj_r_squared_reduced;
+	double adj_r_squared_full;
+	double delta_adj_r_squared;
+	size_t n_observations;
+	/** Unified test fields (#159); keep last */
+	AnofoxTestSummaryFFI unified;
+} AnofoxOlsAnovaResult;
+
+/**
+ * Nested-model F test (R's anova(lm(reduced), lm(full))) of the OLS fit of y on
+ * the x_reduced columns against the fit on the x_full columns, on the rows where
+ * every value is finite. x_reduced may be empty (NULL, 0): the intercept-only
+ * model. Its columns must lie in the span of x_full (INVALID_INPUT otherwise).
+ */
+bool anofox_ols_anova(AnofoxDataArray y, const AnofoxDataArray *x_reduced, size_t x_reduced_count,
+                      const AnofoxDataArray *x_full, size_t x_full_count, bool fit_intercept,
+                      AnofoxOlsAnovaResult *out_result, AnofoxError *out_error);
+
 #ifdef __cplusplus
 }
 #endif

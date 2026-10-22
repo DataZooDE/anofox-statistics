@@ -33,6 +33,7 @@ passed through and the prediction columns appended.
 | `isotonic_fit_predict_by` | `isotonic_fit_predict_agg` | one row per input row, no intervals |
 | `glmm_fit_by` | `glmm_fit_agg` | one row per group (random effects) |
 | `eb_shrink_by` | `eb_shrink_agg` | one row per input row (shrunken estimates) |
+| `ols_anova_by` | `ols_anova_agg` | one row per group (nested-model F test, `test` schema) |
 | `aid_by` | `aid_agg` | one row per group (demand classification) |
 | `aid_anomaly_by` | `aid_anomaly_agg` | one row per input row (anomaly flags) |
 | `ridge_path_by`, `elasticnet_path_by`, `lars_path_by` | `<model>_path_agg` | one row per lambda / LARS knot and term (`terms`), see [Regularisation paths](../regression/paths.md) |
@@ -385,6 +386,27 @@ SELECT * FROM (VALUES ('a', 1.2, 0.3), ('b', 0.4, 0.5), ('c', 2.1, 0.8), ('d', 0
 
 SELECT segment, estimate, round(shrunken, 3) AS shrunken
 FROM eb_shrink_by('macro_estimates', estimate, se);
+```
+
+## ols_anova_by
+
+```text
+ols_anova_by(source VARCHAR, group_col, y_col, x_reduced := [], x_full := [...], options := NULL) -> TABLE
+```
+
+Nested-model F test per group: fits `y ~ x_reduced` and `y ~ x_full` by OLS on
+the same rows and tests whether the full model fits significantly better, as
+R's `anova(lm(reduced), lm(full))`. `x_reduced` columns must appear in
+`x_full`; `x_reduced := []` (the default) is the intercept-only model. Returns
+one row per group: the group column, `id`, `model_id` / `model_name` (`'ols'`),
+`method` (`'nested F'`), `statistic`, `p_value`, `df1`, `df2`, `rss_reduced`,
+`rss_full`, `adj_r_squared_reduced`, `adj_r_squared_full`,
+`delta_adj_r_squared` and `n_observations`. The only option is `fit_intercept`.
+See [OLS](../regression/ols.md#nested-model-f-test-ols_anova_agg--ols_anova_by).
+
+```sql
+SELECT region, round(statistic, 2) AS f, df1, df2, round(delta_adj_r_squared, 4) AS delta_adj_r2
+FROM ols_anova_by('macro_demo', region, sales, x_reduced := [price], x_full := [price, promo]);
 ```
 
 ## aid_by

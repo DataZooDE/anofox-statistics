@@ -1,0 +1,209 @@
+# name: test/sql/regression/test_ols_anova.test
+# description: ols_anova_agg / ols_anova_by (#221): nested-model F test against R's
+#              anova(lm(reduced), lm(full)) and summary()$adj.r.squared, df1 = 1 (F = t^2),
+#              intercept-only and no-intercept models, rank deficiency, NULL rows, errors.
+# group: [regression]
+
+require anofox_statistics
+
+# R reference (anofox-regression tests/r_scripts/generate_nested_f_validation.R):
+#   x1 <- c(1.2, 2.5, 3.1, 4.8, 5.0, 6.7, 7.3, 8.1, 9.6, 10.2, 11.5, 12.9)
+#   x2 <- c(0.5, -1.2, 2.3, 0.8, -0.4, 1.9, -2.1, 0.3, 1.1, -0.7, 2.6, -1.5)
+#   x3 <- c(3, 1, 4, 1, 5, 9, 2, 6, 5, 3, 5, 8)
+#   y  <- c(2.9, 4.1, 7.8, 8.2, 9.1, 14.0, 10.9, 14.6, 17.9, 17.1, 23.0, 20.4)
+#   x4 <- 2 * x1 - x2
+statement ok
+CREATE TABLE d AS
+SELECT 'a' AS g, x1, x2, x3, 2 * x1 - x2 AS x4, y FROM (VALUES
+    (1.2, 0.5, 3.0, 2.9), (2.5, -1.2, 1.0, 4.1), (3.1, 2.3, 4.0, 7.8), (4.8, 0.8, 1.0, 8.2),
+    (5.0, -0.4, 5.0, 9.1), (6.7, 1.9, 9.0, 14.0), (7.3, -2.1, 2.0, 10.9), (8.1, 0.3, 6.0, 14.6),
+    (9.6, 1.1, 5.0, 17.9), (10.2, -0.7, 3.0, 17.1), (11.5, 2.6, 5.0, 23.0), (12.9, -1.5, 8.0, 20.4)
+) t(x1, x2, x3, y);
+
+# anova(lm(y ~ x1), lm(y ~ x1 + x2 + x3))
+query IIIIIIIIIII
+SELECT r.method, abs(r.statistic - 39.1675014697775055) < 1e-8, r.df1, r.df2,
+       abs(r.p_value - 7.37245814150955264e-05) < 1e-12,
+       abs(r.rss_reduced - 27.0743110048637554) < 1e-8, abs(r.rss_full - 2.50876794653673052) < 1e-8,
+       abs(r.adj_r_squared_reduced - 0.933383120598241467) < 1e-10,
+       abs(r.adj_r_squared_full - 0.992283908364675837) < 1e-10,
+       abs(r.delta_adj_r_squared - (0.992283908364675837 - 0.933383120598241467)) < 1e-10,
+       r.n_observations
+FROM (SELECT ols_anova_agg(y, [x1], [x1, x2, x3]) AS r FROM d);
+----
+nested F	true	2.0	8.0	true	true	true	true	true	true	12
+
+# The unified test fields: n, and NULL for what does not apply.
+query IIII
+SELECT r.n, r.alternative IS NULL, r.estimate IS NULL, r.effect_size IS NULL
+FROM (SELECT ols_anova_agg(y, [x1], [x1, x2, x3]) AS r FROM d);
+----
+12	true	true	true
+
+# df1 = 1: F equals the squared t statistic of the added term (R: 0.468661087541795252).
+query IIII
+SELECT abs(r.statistic - 0.468661087541795252) < 1e-9, r.df1, abs(r.p_value - 0.512944752624747702) < 1e-9,
+       abs(r.adj_r_squared_reduced - 0.992739448335558272) < 1e-10
+FROM (SELECT ols_anova_agg(y, [x1, x2], [x1, x2, x3]) AS r FROM d);
+----
+true	1.0	true	true
+
+query I
+SELECT abs((SELECT (ols_anova_agg(y, [x1, x2], [x1, x2, x3])).statistic FROM d)
+         - (SELECT pow((ols_fit_agg(y, [x1, x2, x3], {'compute_inference': true})).t_values[3], 2) FROM d)) < 1e-9;
+----
+true
+
+# Intercept-only reduced model: the overall F test (R: summary(lm(y ~ x1 + x2 + x3))$fstatistic).
+query IIIII
+SELECT abs(r.statistic - 472.530731181841475) < 1e-7, r.df1, abs(r.p_value - 2.43501816046052847e-09) < 1e-15,
+       abs(r.rss_reduced - 447.06) < 1e-9, r.adj_r_squared_reduced
+FROM (SELECT ols_anova_agg(y, [], [x1, x2, x3]) AS r FROM d);
+----
+true	3.0	true	true	0.0
+
+query I
+SELECT abs((SELECT (ols_anova_agg(y, [], [x1, x2, x3])).statistic FROM d)
+         - (SELECT (ols_fit_agg(y, [x1, x2, x3])).f_statistic FROM d)) < 1e-8;
+----
+true
+
+# Without an intercept: anova(lm(y ~ 0 + x1), lm(y ~ 0 + x1 + x2 + x3))
+query IIIIII
+SELECT abs(r.statistic - 42.2237417729931153) < 1e-8, r.df1, r.df2, abs(r.p_value - 2.67015851514641252e-05) < 1e-12,
+       abs(r.adj_r_squared_reduced - 0.986126496973946276) < 1e-10,
+       abs(r.adj_r_squared_full - 0.998366905908049662) < 1e-10
+FROM (SELECT ols_anova_agg(y, [x1], [x1, x2, x3], {'fit_intercept': false}) AS r FROM d);
+----
+true	2.0	9.0	true	true	true
+
+# Rank-deficient full design (x4 = 2 x1 - x2 is aliased): R uses the rank, same test as above.
+query IIII
+SELECT abs(r.statistic - 39.1675014697775055) < 1e-7, r.df1, r.df2, abs(r.adj_r_squared_full - 0.992283908364675837) < 1e-10
+FROM (SELECT ols_anova_agg(y, [x1], [x1, x2, x4, x3]) AS r FROM d);
+----
+true	2.0	8.0	true
+
+# The full model adds only aliased columns: df1 = 0, statistic and p-value NULL (R: NA).
+query IIII
+SELECT r.df1, r.statistic IS NULL, r.p_value IS NULL, abs(r.rss_reduced - r.rss_full) < 1e-9
+FROM (SELECT ols_anova_agg(y, [x1, x2], [x1, x2, x4]) AS r FROM d);
+----
+0.0	true	true	true
+
+# A rescaled copy of a full column is nested.
+query I
+SELECT (ols_anova_agg(y, [2 * x1 + 1], [x1, x2, x3])).df1 FROM d;
+----
+2.0
+
+# Not nested: x3 is not in the span of x1, x2.
+statement error
+SELECT ols_anova_agg(y, [x3], [x1, x2]) FROM d;
+----
+x_reduced is not nested in x_full
+
+statement error
+SELECT ols_anova_agg(y, [x1], NULL) FROM d;
+----
+x_full is required
+
+statement error
+SELECT ols_anova_agg(y, [x1], [x1, x2], {'alpha': 1.0}) FROM d;
+----
+alpha
+
+# Both models use the same rows: a NULL in any column drops the row from both fits.
+statement ok
+CREATE TABLE dn AS SELECT * REPLACE (CASE WHEN x1 = 4.8 THEN NULL ELSE x3 END AS x3) FROM d;
+
+query III
+SELECT (a).n_observations, abs((a).statistic - (b).statistic) < 1e-10, abs((a).rss_reduced - (b).rss_reduced) < 1e-10
+FROM (SELECT (SELECT ols_anova_agg(y, [x1], [x1, x2, x3]) FROM dn) a,
+             (SELECT ols_anova_agg(y, [x1], [x1, x2, x3]) FROM dn WHERE x3 IS NOT NULL) b);
+----
+11	true	true
+
+# Too few rows for the full fit: NULL, not an error.
+query I
+SELECT ols_anova_agg(y, [x1], [x1, x2, x3]) IS NULL FROM d WHERE x1 < 3;
+----
+true
+
+# Inconsistent list lengths are an error.
+statement error
+SELECT ols_anova_agg(y, [x1], CASE WHEN x1 < 5 THEN [x1, x2] ELSE [x1, x2, x3] END) FROM d;
+----
+inconsistent x_full length
+
+# ols_anova_by: one row per group, contract `test` columns plus the adjusted R^2 values.
+statement ok
+CREATE TABLE d2 AS SELECT * FROM d UNION ALL SELECT 'b', x1, x2, x3, x4, y + 0.5 * x3 * x3 FROM d;
+
+query II
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM ols_anova_by('d2', g, y, x_reduced := [x1], x_full := [x1, x2, x3]));
+----
+g	VARCHAR
+id	VARCHAR
+model_id	VARCHAR
+model_name	VARCHAR
+method	VARCHAR
+statistic	DOUBLE
+p_value	DOUBLE
+df1	DOUBLE
+df2	DOUBLE
+rss_reduced	DOUBLE
+rss_full	DOUBLE
+adj_r_squared_reduced	DOUBLE
+adj_r_squared_full	DOUBLE
+delta_adj_r_squared	DOUBLE
+n_observations	BIGINT
+
+query IIIIIIII
+SELECT g, id, model_id, method, abs(statistic - (SELECT (ols_anova_agg(y, [x1], [x1, x2, x3])).statistic FROM d2 WHERE d2.g = r.g)) < 1e-12,
+       df1, df2, n_observations
+FROM ols_anova_by('d2', g, y, x_reduced := [x1], x_full := [x1, x2, x3]) r;
+----
+a	a	ols	nested F	true	2.0	8.0	12
+b	b	ols	nested F	true	2.0	8.0	12
+
+query I
+SELECT abs(statistic - 39.1675014697775055) < 1e-8 FROM ols_anova_by('d2', g, y, x_reduced := [x1], x_full := [x1, x2, x3]) WHERE g = 'a';
+----
+true
+
+# x_reduced defaults to [] (the overall F test); options pass through.
+query II
+SELECT df1, abs(statistic - 472.530731181841475) < 1e-7 FROM ols_anova_by('d2', g, y, x_full := [x1, x2, x3]) WHERE g = 'a';
+----
+3.0	true
+
+query I
+SELECT df2 FROM ols_anova_by('d2', g, y, x_reduced := [x1], x_full := [x1, x2, x3], options := {'fit_intercept': false}) WHERE g = 'a';
+----
+9.0
+
+statement error
+SELECT * FROM ols_anova_by('d2', g, y, x_reduced := [x1]);
+----
+x_full is required
+
+statement error
+SELECT * FROM ols_anova_by('d2', g, y, x_reduced := [x3], x_full := [x1, x2]);
+----
+x_reduced is not nested in x_full
+
+# Tagged as a contract `test` producer.
+query II
+SELECT DISTINCT function_name, tags['anofox.output'] FROM duckdb_functions()
+WHERE function_name IN ('ols_anova_agg', 'ols_anova_by') ORDER BY 1;
+----
+ols_anova_agg	test
+ols_anova_by	test
+
+# Described in duckdb_functions() like the other table macros (#150).
+query I
+SELECT description IS NOT NULL AND len(examples) > 0 AND list_contains(categories, 'table-macro')
+FROM duckdb_functions() WHERE function_name = 'ols_anova_by';
+----
+true
