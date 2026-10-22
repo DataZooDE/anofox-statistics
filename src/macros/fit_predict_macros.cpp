@@ -537,6 +537,41 @@ FROM (
 ) sub
 )"},
 
+    // mediation_by: causal mediation analysis per group (issue #223)
+    // C++ API: mediation_by(source, group_col, treatment, mediator, outcome, covariates, options)
+    // Fits m ~ x + covariates and y ~ x + m + covariates per group with mediation_agg
+    // and returns the contract `terms` columns, one row per effect (acme, ade, total,
+    // prop_mediated), plus method, n_obs and n_sims. id is the group, model_id 'mediation' (#187).
+    {"mediation_by", {"source", "group_col", "treatment", "mediator", "outcome", nullptr}, {{"covariates", "NULL"}, {"options", "NULL"}},
+R"(
+SELECT
+    group_col, id, model_id, model_name,
+    (_t).term AS term,
+    (_t).estimate AS estimate,
+    (_t).std_error AS std_error,
+    (_t).statistic AS statistic,
+    (_t).p_value AS p_value,
+    (_t).conf_low AS conf_low,
+    (_t).conf_high AS conf_high,
+    (_t).conf_level AS conf_level,
+    NULL::VARCHAR AS index_name,
+    NULL::DOUBLE AS index_value,
+    (_t).method AS method,
+    (_t).n_obs AS n_obs,
+    (_t).n_sims AS n_sims
+FROM (
+    SELECT group_col, group_col::VARCHAR AS id, 'mediation' AS model_id, 'mediation' AS model_name, unnest(_m) AS _t
+    FROM (
+        SELECT group_col,
+            mediation_agg(outcome::DOUBLE, mediator::DOUBLE, treatment::DOUBLE,
+                          coalesce(covariates, []::DOUBLE[])::DOUBLE[], options) AS _m
+        FROM query_table(source::VARCHAR)
+        GROUP BY group_col
+    )
+)
+ORDER BY group_col, list_position(['acme', 'ade', 'total', 'prop_mediated'], term)
+)"},
+
     // poisson_fit_predict_by: Poisson GLM fit and predict per group (long format)
     // C++ API: poisson_fit_predict_by(table_name, group_col, y_col, x_cols, options)
     // Options: link, intercept, max_iterations, tolerance, confidence_level, null_policy
@@ -932,6 +967,7 @@ static const FitPredictTableMacroDoc fit_predict_table_macro_docs[] = {
     {"quantile_fit_predict_by", "Table macro: fits a quantile regression per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "quantile_fit_predict_by('my_table', group_col, y, [x1, x2])", "regression"},
     {"glmm_fit_by", "Table macro: fits one generalized linear mixed model (random intercept per group_col) over the whole table and returns one row per group with its random effect and the fixed effects and variance components.", "glmm_fit_by('my_table', group_col, y, [x1, x2])", "mixed-models"},
     {"eb_shrink_by", "Table macro: empirical-Bayes shrinkage of the estimates in estimate_col (standard errors in se_col); returns every source row with shrunken, shrunken_se, weight, mu and tau_squared appended.", "eb_shrink_by('my_table', estimate, se)", "shrinkage"},
+    {"mediation_by", "Table macro: causal mediation analysis per group of source (linear models, as R mediation::mediate): fits mediator ~ treatment + covariates and outcome ~ treatment + mediator + covariates and returns one row per group and effect (acme, ade, total, prop_mediated) in the contract terms schema plus method, n_obs and n_sims. Inference by nonparametric bootstrap (default, n_bootstrap 1000, seed 42), Sobel or quasi-Bayesian Monte Carlo (options method, ci_type, n_bootstrap, seed, confidence_level, treat_value, control_value).", "mediation_by('trial', site, treat, m, y, covariates := [age, baseline])", "mediation"},
     {"aid_by", "Table macro: Automatic Identification of Demand (AID); classifies the demand pattern of each group of source and returns one row per group.", "aid_by('sales', product_id, demand)", "demand-analysis"},
     {"aid_anomaly_by", "Table macro: AID anomaly flags per group of source, ordered by order_col; returns one row per input row with stockout, new_product, obsolete_product, high_outlier and low_outlier flags.", "aid_anomaly_by('sales', product_id, date, demand)", "demand-analysis"},
     {"bayesian_ridge_fit_predict_by", "Table macro: fits a Bayesian Ridge regression per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with yhat, yhat_lower / yhat_upper (posterior predictive interval at confidence_level, default 0.95) and is_training appended.", "bayesian_ridge_fit_predict_by('my_table', group_col, y, [x1, x2])", "regression"},

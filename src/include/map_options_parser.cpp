@@ -1694,4 +1694,35 @@ CohenKappaMapOptions CohenKappaMapOptions::ParseFromValue(const Value &map_value
 	    });
 }
 
+MediationMapOptions MediationMapOptions::ParseFromValue(const Value &map_value, const string &function_name) {
+	static const vector<OptionKeyDef> keys = {{"method", {}},
+	                                          {"ci_type", {"boot_ci_type", "boot.ci.type"}},
+	                                          {"n_bootstrap", {"n_sims", "sims", "n_boot"}},
+	                                          KEY_SEED,
+	                                          {"confidence_level", {"confidence", "conf_level", "conf.level"}},
+	                                          {"treat_value", {"treat.value"}},
+	                                          {"control_value", {"control.value"}}};
+	return ParseTestOptions<MediationMapOptions>(
+	    map_value, function_name, keys, [](MediationMapOptions &result, const string &key, const Value &val) {
+		    if (val.IsNull()) {
+			    return;
+		    }
+		    if (key == "method") {
+			    result.method = ExtractChoice(val, "method", {"bootstrap", "sobel", "quasi_bayesian"});
+		    } else if (key == "ci_type") {
+			    result.ci_type = ExtractChoice(val, "ci_type", {"percentile", "bca"});
+		    } else if (key == "n_bootstrap") {
+			    result.n_bootstrap = ExtractUInt32(val);
+		    } else if (key == "seed") {
+			    result.seed = ExtractUInt64(val);
+		    } else if (key == "confidence_level") {
+			    result.confidence_level = ExtractConfidenceLevel(val);
+		    } else if (key == "treat_value") {
+			    result.treat_value = ExtractDouble(val);
+		    } else if (key == "control_value") {
+			    result.control_value = ExtractDouble(val);
+		    }
+	    });
+}
+
 } // namespace duckdb

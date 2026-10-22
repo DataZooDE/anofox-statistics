@@ -65,6 +65,7 @@ static const struct {
     {"pairwise_t_test_by", "test"}, {"tukey_hsd_by", "test"}, {"dunn_test_by", "test"},
     {"ridge_path_by", "terms"}, {"elasticnet_path_by", "terms"}, {"lars_path_by", "terms"},
     {"quantile_process_by", "terms"}, {"ridge_cv_by", "curve"}, {"elasticnet_cv_by", "curve"},
+    {"mediation_by", "terms"},
     {"ljung_box_agg", "test"}, {"box_pierce_agg", "test"}, {"durbin_watson_agg", "test"},
     {"breusch_pagan_agg", "test"}, {"white_test_agg", "test"}, {"log_rank_test_agg", "test"},
     {"acf_by", "curve"}, {"pacf_by", "curve"}, {"kaplan_meier_by", "curve"},

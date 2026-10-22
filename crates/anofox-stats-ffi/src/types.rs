@@ -3321,3 +3321,71 @@ pub enum ClassifierMetricFFI {
     /// Log loss (input: probabilities).
     LogLoss = 2,
 }
+
+// =============================================================================
+// Causal mediation analysis — issue #223
+// =============================================================================
+
+/// Inference method of a mediation analysis.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MediationMethodFFI {
+    /// Nonparametric case-resampling bootstrap.
+    #[default]
+    Bootstrap = 0,
+    /// Delta-method (Sobel) standard errors.
+    Sobel = 1,
+    /// Quasi-Bayesian Monte Carlo (`mediation::mediate`'s default).
+    QuasiBayesian = 2,
+}
+
+/// Bootstrap interval type.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MediationCiFFI {
+    #[default]
+    Percentile = 0,
+    Bca = 1,
+}
+
+/// Options of a mediation analysis.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct MediationOptionsFFI {
+    pub method: MediationMethodFFI,
+    pub ci_type: MediationCiFFI,
+    pub n_sims: u32,
+    pub seed: u64,
+    pub conf_level: f64,
+    pub treat_value: f64,
+    pub control_value: f64,
+}
+
+/// One mediation effect; non-finite values mean "not available".
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct MediationEffectFFI {
+    pub estimate: f64,
+    pub std_error: f64,
+    pub statistic: f64,
+    pub p_value: f64,
+    pub conf_low: f64,
+    pub conf_high: f64,
+}
+
+/// Result of a mediation analysis (no owned memory).
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct MediationResultFFI {
+    pub acme: MediationEffectFFI,
+    pub ade: MediationEffectFFI,
+    pub total: MediationEffectFFI,
+    pub prop_mediated: MediationEffectFFI,
+    pub a: f64,
+    pub b: f64,
+    pub c_prime: f64,
+    pub r_squared_mediator: f64,
+    pub r_squared_outcome: f64,
+    pub n_obs: usize,
+    pub n_sims: usize,
+}

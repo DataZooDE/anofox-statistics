@@ -141,6 +141,7 @@ Per-group model fitting and prediction in a single call. `source` is a table nam
 | `quantile_fit_predict_by` | Quantile per-group fit + predict |
 | `glmm_fit_by` | One mixed model across groups; returns per-group random effects ([glmm](docs/api/glm/glmm.md)) |
 | `eb_shrink_by` | Empirical-Bayes shrinkage of existing per-group estimates ([eb_shrink](docs/api/glm/eb_shrink.md)) |
+| `mediation_by` | Causal mediation analysis per group: ACME, ADE, total effect, proportion mediated ([mediation](docs/api/statistics/mediation.md)) |
 | `aid_by`, `aid_anomaly_by` | Per-group demand classification / per-row anomaly flags ([aid](docs/api/aid/aid.md)) |
 | `roc_curve_by`, `pr_curve_by`, `calibration_curve_by` | Per-group classifier curves in the contract `curve` schema ([classification](docs/api/statistics/classification.md)) |
 
