@@ -361,7 +361,7 @@ void RegisterRlsAggregateFunction(ExtensionLoader &loader) {
         ANOFOX_AGG_BIND(RlsAggBind), RlsAggDestroy);
     // Row order is part of the input (sequential / time-series estimator):
     // declare it so DuckDB honours `agg(... ORDER BY t)`.
-    SetOrderDependentOf(basic_func, AggregateOrderDependent::ORDER_DEPENDENT); // field form works on DuckDB v1.4 LTS and v1.5
+    SetOrderDependentOf(basic_func, AggregateOrderDependent::ORDER_DEPENDENT); // compat helper works on DuckDB 1.5 and 2.0
     func_set.AddFunction(basic_func);
 
     // Version with MAP options: rls_fit_agg(y, x, {'forgetting_factor': 0.99, ...})
@@ -371,7 +371,7 @@ void RegisterRlsAggregateFunction(ExtensionLoader &loader) {
                                       LogicalType::ANY, AggregateFunction::StateSize<RlsAggregateState>,
                                       ANOFOX_AGG_INIT(RlsAggInitialize), ANOFOX_GUARDED_UPDATE(RlsAggUpdate, RlsAggDestroy, RlsAggInitialize), RlsAggCombine, ANOFOX_GUARDED_FINALIZE(RlsAggFinalize, RlsAggDestroy, RlsAggInitialize), nullptr,
                                       ANOFOX_AGG_BIND(RlsAggBind), RlsAggDestroy);
-    SetOrderDependentOf(map_func, AggregateOrderDependent::ORDER_DEPENDENT); // field form works on DuckDB v1.4 LTS and v1.5
+    SetOrderDependentOf(map_func, AggregateOrderDependent::ORDER_DEPENDENT); // compat helper works on DuckDB 1.5 and 2.0
     func_set.AddFunction(map_func);
 
     CreateAggregateFunctionInfo info(std::move(func_set));

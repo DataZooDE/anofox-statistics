@@ -32,7 +32,7 @@ user-invocable: false
 
 # Anofox Statistics — Regression Cheat Sheet
 
-**Extension:** `anofox_statistics` v0.12.1 (Rust crate `anofox-regression`) | **DuckDB:** v1.4.5 LTS / v1.5.x | **API:** unprefixed, MAP-style options
+**Extension:** `anofox_statistics` v0.12.1 (Rust crate `anofox-regression`) | **DuckDB:** v1.5.x / v2.0 | **API:** unprefixed, MAP-style options
 
 Regression families expose up to five call surfaces:
 

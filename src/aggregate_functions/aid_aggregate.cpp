@@ -387,13 +387,13 @@ void RegisterAidAggregateFunction(ExtensionLoader &loader) {
                           ANOFOX_GUARDED_FINALIZE(AidAggFinalize, AidAggDestroy, AidAggInitialize), nullptr, ANOFOX_AGG_BIND(AidAggBind), AidAggDestroy);
     // Row order is part of the input (sequential / time-series estimator):
     // declare it so DuckDB honours `agg(... ORDER BY t)`.
-    SetOrderDependentOf(aid_basic, AggregateOrderDependent::ORDER_DEPENDENT); // field form works on DuckDB v1.4 LTS and v1.5
+    SetOrderDependentOf(aid_basic, AggregateOrderDependent::ORDER_DEPENDENT); // compat helper works on DuckDB 1.5 and 2.0
     aid_set.AddFunction(aid_basic);
 
     auto aid_map = AggregateFunction("aid_agg", {LogicalType::DOUBLE, LogicalType::ANY}, LogicalType::ANY,
                                      AggregateFunction::StateSize<AidAggregateState>, ANOFOX_AGG_INIT(AidAggInitialize), ANOFOX_GUARDED_UPDATE(AidAggUpdate, AidAggDestroy, AidAggInitialize),
                                      AidAggCombine, ANOFOX_GUARDED_FINALIZE(AidAggFinalize, AidAggDestroy, AidAggInitialize), nullptr, ANOFOX_AGG_BIND(AidAggBind), AidAggDestroy);
-    SetOrderDependentOf(aid_map, AggregateOrderDependent::ORDER_DEPENDENT); // field form works on DuckDB v1.4 LTS and v1.5
+    SetOrderDependentOf(aid_map, AggregateOrderDependent::ORDER_DEPENDENT); // compat helper works on DuckDB 1.5 and 2.0
     aid_set.AddFunction(aid_map);
 
     {
@@ -427,14 +427,14 @@ void RegisterAidAggregateFunction(ExtensionLoader &loader) {
         "aid_anomaly_agg", {LogicalType::DOUBLE}, LogicalType::ANY,
         AggregateFunction::StateSize<AidAggregateState>, ANOFOX_AGG_INIT(AidAggInitialize), ANOFOX_GUARDED_UPDATE(AidAggUpdate, AidAggDestroy, AidAggInitialize), AidAggCombine,
         ANOFOX_GUARDED_FINALIZE(AidAnomalyAggFinalize, AidAggDestroy, AidAggInitialize), nullptr, ANOFOX_AGG_BIND(AidAnomalyAggBind), AidAggDestroy);
-    SetOrderDependentOf(aid_anomaly_basic, AggregateOrderDependent::ORDER_DEPENDENT); // field form works on DuckDB v1.4 LTS and v1.5
+    SetOrderDependentOf(aid_anomaly_basic, AggregateOrderDependent::ORDER_DEPENDENT); // compat helper works on DuckDB 1.5 and 2.0
     aid_anomaly_set.AddFunction(aid_anomaly_basic);
 
     auto aid_anomaly_map = AggregateFunction(
         "aid_anomaly_agg", {LogicalType::DOUBLE, LogicalType::ANY}, LogicalType::ANY,
         AggregateFunction::StateSize<AidAggregateState>, ANOFOX_AGG_INIT(AidAggInitialize), ANOFOX_GUARDED_UPDATE(AidAggUpdate, AidAggDestroy, AidAggInitialize), AidAggCombine,
         ANOFOX_GUARDED_FINALIZE(AidAnomalyAggFinalize, AidAggDestroy, AidAggInitialize), nullptr, ANOFOX_AGG_BIND(AidAnomalyAggBind), AidAggDestroy);
-    SetOrderDependentOf(aid_anomaly_map, AggregateOrderDependent::ORDER_DEPENDENT); // field form works on DuckDB v1.4 LTS and v1.5
+    SetOrderDependentOf(aid_anomaly_map, AggregateOrderDependent::ORDER_DEPENDENT); // compat helper works on DuckDB 1.5 and 2.0
     aid_anomaly_set.AddFunction(aid_anomaly_map);
 
     {

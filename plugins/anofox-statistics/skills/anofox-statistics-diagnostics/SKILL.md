@@ -25,7 +25,7 @@ user-invocable: false
 
 # Anofox Statistics — Diagnostics Cheat Sheet
 
-**Extension:** `anofox_statistics` v0.12.1 | **DuckDB:** v1.4.5 LTS / v1.5.x
+**Extension:** `anofox_statistics` v0.12.1 | **DuckDB:** v1.5.x / v2.0
 
 Diagnostics answer "is this fit trustworthy?" — run them after fitting a model (see **anofox-statistics-regression**).
 

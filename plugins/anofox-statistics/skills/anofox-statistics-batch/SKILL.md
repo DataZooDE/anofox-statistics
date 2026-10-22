@@ -33,7 +33,7 @@ user-invocable: false
 
 # Anofox Statistics — Batch / Per-Group Fitting Cheat Sheet
 
-**Extension:** `anofox_statistics` v0.12.1 | **DuckDB:** v1.4.5 LTS / v1.5.x
+**Extension:** `anofox_statistics` v0.12.1 | **DuckDB:** v1.5.x / v2.0
 
 The extension's superpower for AI/analytics pipelines: **fit one model per group in a single SQL statement**, using DuckDB's `HASH_GROUP_BY` for parallelism — no Python loop, no per-group round-trips. Three patterns, from highest-level to lowest.
 

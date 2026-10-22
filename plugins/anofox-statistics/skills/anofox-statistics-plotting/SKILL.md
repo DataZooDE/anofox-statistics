@@ -24,7 +24,7 @@ user-invocable: false
 
 # Anofox Statistics — Plot-Ready Outputs Cheat Sheet
 
-**Extension:** `anofox_statistics` v0.12.1 | **DuckDB:** v1.4.5 LTS / v1.5.x | **Contract version:** `anofox_contract_version()` = `'1'`
+**Extension:** `anofox_statistics` v0.12.1 | **DuckDB:** v1.5.x / v2.0 | **Contract version:** `anofox_contract_version()` = `'1'`
 
 Fit functions return STRUCTs and LISTs. For charts, the `_by` table macros return **long tables with fixed columns** (one row per mark), the schemas of the anofox integration contract shared by anofox-statistics, anofox-forecast and the plotting extension anofox-visualization. Optional columns are always present (NULL when not computed) and the group column is kept.
 

@@ -283,7 +283,7 @@ static AggregateFunction SeriesFunction(vector<LogicalType> args) {
 	                     SeriesCombine, ANOFOX_GUARDED_FINALIZE(SeriesFinalize, SeriesDestroy, SeriesInitialize),
 	                     nullptr, ANOFOX_AGG_BIND(SeriesBind<KIND>), SeriesDestroy);
 	// Row order is part of the input: declare it so DuckDB honours `agg(... ORDER BY t)`.
-	SetOrderDependentOf(fn, AggregateOrderDependent::ORDER_DEPENDENT); // field form works on DuckDB v1.4 LTS and v1.5
+	SetOrderDependentOf(fn, AggregateOrderDependent::ORDER_DEPENDENT); // compat helper works on DuckDB 1.5 and 2.0
 	return fn;
 }
 

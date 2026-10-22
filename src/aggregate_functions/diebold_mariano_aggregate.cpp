@@ -295,9 +295,9 @@ void RegisterDieboldMarianoAggregateFunction(ExtensionLoader &loader) {
         AggregateFunctionSet func_set("diebold_mariano_agg");
         // Row order is part of the input (sequential / time-series estimator):
         // declare it so DuckDB honours `agg(... ORDER BY t)`.
-        SetOrderDependentOf(func_with_opts, AggregateOrderDependent::ORDER_DEPENDENT); // field form works on DuckDB v1.4 LTS and v1.5
+        SetOrderDependentOf(func_with_opts, AggregateOrderDependent::ORDER_DEPENDENT); // compat helper works on DuckDB 1.5 and 2.0
         func_set.AddFunction(func_with_opts);
-        SetOrderDependentOf(func_no_opts, AggregateOrderDependent::ORDER_DEPENDENT); // field form works on DuckDB v1.4 LTS and v1.5
+        SetOrderDependentOf(func_no_opts, AggregateOrderDependent::ORDER_DEPENDENT); // compat helper works on DuckDB 1.5 and 2.0
         func_set.AddFunction(func_no_opts);
         CreateAggregateFunctionInfo info(std::move(func_set));
         info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;

@@ -3,7 +3,7 @@
 A DuckDB extension for regression, generalized linear models, hypothesis tests and model diagnostics in SQL. Models are fitted inside DuckDB's aggregation engine, so you can fit one model per group, per window frame or per table without moving data out of the database.
 
 [![License: BSL 1.1](https://img.shields.io/badge/License-BSL%201.1-blue.svg)](LICENSE)
-[![DuckDB Version](https://img.shields.io/badge/DuckDB-v1.4.5%20LTS%20%7C%20v1.5.x-brightgreen.svg)](https://duckdb.org)
+[![DuckDB Version](https://img.shields.io/badge/DuckDB-v1.5.x%20%7C%20v2.0-brightgreen.svg)](https://duckdb.org)
 [![Build & WASM tests](https://github.com/DataZooDE/anofox-statistics/actions/workflows/MainDistributionPipeline.yml/badge.svg?branch=main)](https://github.com/DataZooDE/anofox-statistics/actions/workflows/MainDistributionPipeline.yml)
 [![Claude Code Plugin](https://img.shields.io/badge/Claude_Code-plugin-8A2BE2)](#claude-code-plugin)
 
@@ -204,7 +204,7 @@ Profiling shows that most of the query time is spent in DuckDB's `GROUP BY` mach
 
 ## Installation
 
-Supported DuckDB versions: **v1.4.5 LTS** and **v1.5.x** (release binaries are built against v1.4.5 and v1.5.6).
+Supported DuckDB versions: **v1.5.x** and **v2.0** (release binaries are built against v1.5.4, v1.5.5 and v1.5.6).
 
 ### From the DataZoo extension repository (recommended)
 

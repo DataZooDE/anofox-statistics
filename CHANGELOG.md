@@ -10,6 +10,11 @@ Breaking changes are called out explicitly.
 
 ## [Unreleased]
 
+### Changed
+
+- Dropped DuckDB 1.4.x LTS support; supported: DuckDB 1.5.6 and 2.0. CI no
+  longer builds, smoke-tests or deploys the v1.4.5 line.
+
 ## [0.12.1] - 2026-10-16
 
 ### Fixed
