@@ -29,6 +29,8 @@ struct TheilSenFitPredictState {
 
     vector<double> current_x;
     bool has_current_x;
+    // Saw any row, NULL x included: such a state ends a combined frame (#208)
+    bool saw_row;
 
     bool fit_intercept;
     double confidence_level;
@@ -41,7 +43,7 @@ struct TheilSenFitPredictState {
     NullPolicy null_policy;
 
     TheilSenFitPredictState()
-        : n_features(0), initialized(false), has_current_x(false), fit_intercept(true), confidence_level(0.95),
+        : n_features(0), initialized(false), has_current_x(false), saw_row(false), fit_intercept(true), confidence_level(0.95),
           max_subpopulation(10000), max_iterations(300), tolerance(1e-3), random_state(0),
           n_subsamples_set(false), n_subsamples_value(0), null_policy(NullPolicy::DROP) {}
 
@@ -52,6 +54,7 @@ struct TheilSenFitPredictState {
         n_features = 0;
         initialized = false;
         has_current_x = false;
+        saw_row = false;
     }
 };
 
@@ -148,6 +151,7 @@ static void TheilSenFitPredictUpdate(Vector inputs[], AggregateInputData &aggr_i
         auto x_idx = x_data.sel->get_index(i);
         if (!x_data.validity.RowIsValid(x_idx)) {
             state.has_current_x = false;
+            state.saw_row = true;
             continue;
         }
 
@@ -171,6 +175,7 @@ static void TheilSenFitPredictUpdate(Vector inputs[], AggregateInputData &aggr_i
                                                 NullFill(state.null_policy));
         }
         state.has_current_x = true;
+        state.saw_row = true;
 
         auto y_idx = y_data.sel->get_index(i);
         bool y_valid = y_data.validity.RowIsValid(y_idx);
@@ -212,7 +217,12 @@ static void TheilSenFitPredictCombine(Vector &source_vector, Vector &target_vect
         auto &source = *sources[source_data.sel->get_index(i)];
         auto &target = *targets[target_data.sel->get_index(i)];
 
+        // The source holds the later rows, so its last row is the frame's last row
+        target.saw_row = target.saw_row || source.saw_row;
         if (!source.initialized) {
+            if (source.saw_row) {
+                target.has_current_x = false;
+            }
             continue;
         }
 
@@ -245,9 +255,9 @@ static void TheilSenFitPredictCombine(Vector &source_vector, Vector &target_vect
                                        source.x_columns[j].end());
         }
 
-        if (source.has_current_x) {
+        if (source.saw_row) {
             target.current_x = CombineTake(source.current_x, aggr_input_data);
-            target.has_current_x = true;
+            target.has_current_x = source.has_current_x;
         }
     }
 }
@@ -264,7 +274,8 @@ static void TheilSenFitPredictFinalize(Vector &state_vector, AggregateInputData 
         auto &state = *states[sdata.sel->get_index(i)];
         idx_t result_idx = i + offset;
 
-        if (!state.initialized || !state.has_current_x) {
+        // A NULL or incomplete current x has no prediction: NULL, not NaN (#208)
+        if (!state.initialized || !state.has_current_x || !AllFinite(state.current_x)) {
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
@@ -325,7 +336,7 @@ static void TheilSenFitPredictFinalize(Vector &state_vector, AggregateInputData 
 
         anofox_free_result_core(&core_result);
 
-        if (!pred_success) {
+        if (!pred_success || !std::isfinite(pred_result.yhat)) {
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }

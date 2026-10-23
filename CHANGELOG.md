@@ -12,11 +12,33 @@ Breaking changes are called out explicitly.
 
 ### Changed
 
+- **Behaviour change: window `*_fit_predict` returns NULL, not NaN, for a row with an
+  incomplete `x`** (#208). When the last row of the frame has an `x` list with a NULL,
+  NaN or ±Inf element, `ols_fit_predict`, `ridge_fit_predict`, `wls_fit_predict`,
+  `rls_fit_predict`, `elasticnet_fit_predict`, `huber_fit_predict`,
+  `ransac_fit_predict` and `theil_sen_fit_predict` used to return `yhat = NaN`; they
+  now return NULL, as `passive_aggressive_fit_predict` and a NULL `x` list already did.
+  NaN propagated silently through `avg()` and similar aggregates; NULL is skipped.
+  Code that tested `isnan(yhat)` for these rows should test `yhat IS NULL`. Rows with a
+  complete `x` are unchanged, and under `null_policy = 'zero'` a NULL element still
+  counts as 0.
 - CI builds, smoke-tests and deploys the extension for **DuckDB v2.0.0** on every
   platform (Linux incl. musl and arm64, macOS arm64 and x86_64, WASM) and
   publishes it to get.erpl.io, like the 1.5.x lines. This replaces the
   non-blocking 2.0-dev job, which built only linux_amd64 and wasm_eh and deployed
   nothing. The smoke test downloads DuckDB 2.0's renamed `.tar.gz` CLI assets.
+
+### Fixed
+
+- **Window `*_fit_predict` in long partitions** (#208). When the frame's last row had a
+  NULL `x` list and the frame was assembled from several pre-aggregated blocks, all nine
+  window `*_fit_predict` functions could return the prediction for an earlier row's `x`
+  instead of NULL. The frame now always ends at its own last row.
+- **`docs/NULL_SEMANTICS.md` described the NULL-`x` behaviour wrongly** (#208). Every
+  `*_fit_predict_agg` keeps a row whose `x` list is NULL, in input order, with `yhat`
+  NULL and `is_training = false`; the doc said the row was left out. The doc,
+  `fit_predict_agg.md`, `fit_predict_window.md`, the isotonic and quantile pages and the
+  regression skill now describe the actual behaviour. No aggregate changed.
 
 ## [0.12.2] - 2026-10-22
 

@@ -4,7 +4,9 @@
 #include "duckdb/common/types/vector.hpp"
 #include "duckdb_compat.hpp"
 
+#include <cmath>
 #include <limits>
+#include <vector>
 
 namespace duckdb {
 
@@ -29,6 +31,16 @@ inline bool ListHasNullElement(const ValidityMask &child_validity, const list_en
 inline double ListChildValue(const double *child_data, const ValidityMask &child_validity, idx_t child_idx,
                              double null_value = std::numeric_limits<double>::quiet_NaN()) {
 	return child_validity.RowIsValid(child_idx) ? child_data[child_idx] : null_value;
+}
+
+//! True when every value is finite, i.e. a feature row with no NULL (read as NaN) or NaN/Inf element.
+inline bool AllFinite(const std::vector<double> &values) {
+	for (auto v : values) {
+		if (!std::isfinite(v)) {
+			return false;
+		}
+	}
+	return true;
 }
 
 } // namespace duckdb

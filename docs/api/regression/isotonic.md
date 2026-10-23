@@ -97,7 +97,9 @@ repeats until the sequence is monotone.
 
 ## NULL handling
 
-Rows where `x` is NULL are skipped. Rows with NULL `y` are prediction rows.
+Rows where `x` is NULL are not used for fitting. The fit-predict
+aggregate keeps them in its output with a NULL `yhat`. Rows with NULL `y` are
+prediction rows.
 
 ## Use Cases
 

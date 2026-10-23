@@ -226,6 +226,8 @@ struct PaWindowState {
 	vector<vector<double>> x_columns;
 	vector<double> current_x;
 	bool has_current_x = false;
+	// Saw any row, NULL x included: such a state ends a combined frame (#208)
+	bool saw_row = false;
 	idx_t n_features = 0;
 	bool initialized = false;
 };
@@ -259,6 +261,7 @@ void PaWindowUpdate(Vector inputs[], AggregateInputData &, idx_t, Vector &state_
 		auto x_idx = x_data.sel->get_index(i);
 		if (!x_data.validity.RowIsValid(x_idx)) {
 			state.has_current_x = false;
+			state.saw_row = true;
 			continue;
 		}
 		auto entry = x_lists[x_idx];
@@ -277,6 +280,7 @@ void PaWindowUpdate(Vector inputs[], AggregateInputData &, idx_t, Vector &state_
 			complete = complete && std::isfinite(state.current_x[j]);
 		}
 		state.has_current_x = true;
+		state.saw_row = true;
 		auto y_idx = y_data.sel->get_index(i);
 		if (y_data.validity.RowIsValid(y_idx) && std::isfinite(y_values[y_idx]) && complete) {
 			state.y_values.push_back(y_values[y_idx]);
@@ -296,7 +300,12 @@ void PaWindowCombine(Vector &source_vector, Vector &target_vector, AggregateInpu
 	for (idx_t i = 0; i < count; i++) {
 		auto &source = *sources[source_data.sel->get_index(i)];
 		auto &target = *targets[target_data.sel->get_index(i)];
+		// The source holds the later rows, so its last row is the frame's last row
+		target.saw_row = target.saw_row || source.saw_row;
 		if (!source.initialized) {
+			if (source.saw_row) {
+				target.has_current_x = false;
+			}
 			continue;
 		}
 		if (!target.initialized) {
@@ -315,9 +324,9 @@ void PaWindowCombine(Vector &source_vector, Vector &target_vector, AggregateInpu
 		for (idx_t j = 0; j < target.n_features; j++) {
 			AppendTo(target.x_columns[j], source.x_columns[j]);
 		}
-		if (source.has_current_x) {
+		if (source.saw_row) {
 			target.current_x = CombineTake(source.current_x, aggr_input_data);
-			target.has_current_x = true;
+			target.has_current_x = source.has_current_x;
 		}
 	}
 }
@@ -341,7 +350,8 @@ void PaWindowFinalize(Vector &state_vector, AggregateInputData &aggr_input_data,
 		auto &state = *states[sdata.sel->get_index(i)];
 		idx_t row = i + offset;
 		AnofoxPassiveAggressiveResult fit;
-		if (!state.initialized || !state.has_current_x || state.y_values.empty() ||
+		// A NULL or incomplete current x has no prediction (#208)
+		if (!state.initialized || !state.has_current_x || !AllFinite(state.current_x) || state.y_values.empty() ||
 		    !FitPa(kWindowName, state.y_values, state.x_columns, bind.options, fit)) {
 			FlatVector::SetNull(result, row, true);
 			continue;

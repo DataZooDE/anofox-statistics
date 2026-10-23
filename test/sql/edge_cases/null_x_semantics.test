@@ -1,0 +1,378 @@
+# name: test/sql/edge_cases/null_x_semantics.test
+# description: NULL / incomplete x contract of docs/NULL_SEMANTICS.md (#208).
+#              *_fit_predict_agg keeps a row whose x list is NULL (yhat NULL, is_training false).
+#              Window *_fit_predict returns NULL (never NaN) for a row whose x is NULL or has a
+#              NULL/NaN element, in cumulative and sliding frames, also across segment-tree
+#              combines of long partitions.
+# group: [edge_cases]
+
+require anofox_statistics
+
+# 20 rows: t = 5 has a NULL x list, t = 6 a NULL element, t = 10 a NaN element, t = 8 a NULL y.
+statement ok
+CREATE TABLE d AS
+SELECT i AS t,
+       CASE WHEN i = 5 THEN NULL
+            WHEN i = 6 THEN [6.0, NULL]
+            WHEN i = 10 THEN [10.0, 'NaN'::DOUBLE]
+            ELSE [i::DOUBLE, ((i * 7) % 5)::DOUBLE] END AS x,
+       CASE WHEN i = 8 THEN NULL ELSE 1.0 + 2 * i + ((i * 7) % 5) + 0.3 * sin(i) END AS y,
+       1.0 + (i % 3) AS w,
+       (x IS NULL OR len(list_filter(x, lambda e: e IS NULL OR isnan(e))) > 0) AS bad_x
+FROM range(1, 21) r(i);
+
+# =============================================================================
+# *_fit_predict_agg: a NULL x list keeps its row, in input order, with NULL yhat
+# =============================================================================
+
+query IIIII
+SELECT len(r), r[5].yhat IS NULL, r[5].is_training, r[5].y IS NOT NULL, r[6].yhat IS NULL
+FROM (SELECT ols_fit_predict_agg(y, x ORDER BY t) AS r FROM d);
+----
+20	true	false	true	true
+
+query IIIII
+SELECT len(r), r[5].yhat IS NULL, r[5].is_training, r[5].y IS NOT NULL, r[6].yhat IS NULL
+FROM (SELECT ridge_fit_predict_agg(y, x ORDER BY t) AS r FROM d);
+----
+20	true	false	true	true
+
+query IIIII
+SELECT len(r), r[5].yhat IS NULL, r[5].is_training, r[5].y IS NOT NULL, r[6].yhat IS NULL
+FROM (SELECT wls_fit_predict_agg(y, x, w ORDER BY t) AS r FROM d);
+----
+20	true	false	true	true
+
+query IIIII
+SELECT len(r), r[5].yhat IS NULL, r[5].is_training, r[5].y IS NOT NULL, r[6].yhat IS NULL
+FROM (SELECT rls_fit_predict_agg(y, x ORDER BY t) AS r FROM d);
+----
+20	true	false	true	true
+
+query IIIII
+SELECT len(r), r[5].yhat IS NULL, r[5].is_training, r[5].y IS NOT NULL, r[6].yhat IS NULL
+FROM (SELECT elasticnet_fit_predict_agg(y, x ORDER BY t) AS r FROM d);
+----
+20	true	false	true	true
+
+query IIIII
+SELECT len(r), r[5].yhat IS NULL, r[5].is_training, r[5].y IS NOT NULL, r[6].yhat IS NULL
+FROM (SELECT huber_fit_predict_agg(y, x ORDER BY t) AS r FROM d);
+----
+20	true	false	true	true
+
+query IIIII
+SELECT len(r), r[5].yhat IS NULL, r[5].is_training, r[5].y IS NOT NULL, r[6].yhat IS NULL
+FROM (SELECT ransac_fit_predict_agg(y, x ORDER BY t) AS r FROM d);
+----
+20	true	false	true	true
+
+query IIIII
+SELECT len(r), r[5].yhat IS NULL, r[5].is_training, r[5].y IS NOT NULL, r[6].yhat IS NULL
+FROM (SELECT theil_sen_fit_predict_agg(y, x ORDER BY t) AS r FROM d);
+----
+20	true	false	true	true
+
+query IIIII
+SELECT len(r), r[5].yhat IS NULL, r[5].is_training, r[5].y IS NOT NULL, r[6].yhat IS NULL
+FROM (SELECT bls_fit_predict_agg(y, x ORDER BY t) AS r FROM d);
+----
+20	true	false	true	true
+
+query IIIII
+SELECT len(r), r[5].yhat IS NULL, r[5].is_training, r[5].y IS NOT NULL, r[6].yhat IS NULL
+FROM (SELECT alm_fit_predict_agg(y, x ORDER BY t) AS r FROM d);
+----
+20	true	false	true	true
+
+query IIIII
+SELECT len(r), r[5].yhat IS NULL, r[5].is_training, r[5].y IS NOT NULL, r[6].yhat IS NULL
+FROM (SELECT poisson_fit_predict_agg(round(y), x ORDER BY t) AS r FROM d);
+----
+20	true	false	true	true
+
+query IIIII
+SELECT len(r), r[5].yhat IS NULL, r[5].is_training, r[5].y IS NOT NULL, r[6].yhat IS NULL
+FROM (SELECT pls_fit_predict_agg(y, x ORDER BY t) AS r FROM d);
+----
+20	true	false	true	true
+
+query IIIII
+SELECT len(r), r[5].yhat IS NULL, r[5].is_training, r[5].y IS NOT NULL, r[6].yhat IS NULL
+FROM (SELECT quantile_fit_predict_agg(y, x ORDER BY t) AS r FROM d);
+----
+20	true	false	true	true
+
+query IIIII
+SELECT len(r), r[5].yhat IS NULL, r[5].is_training, r[5].y IS NOT NULL, r[6].yhat IS NULL
+FROM (SELECT bayesian_ridge_fit_predict_agg(y, x ORDER BY t) AS r FROM d);
+----
+20	true	false	true	true
+
+query IIIII
+SELECT len(r), r[5].yhat IS NULL, r[5].is_training, r[5].y IS NOT NULL, r[6].yhat IS NULL
+FROM (SELECT ard_fit_predict_agg(y, x ORDER BY t) AS r FROM d);
+----
+20	true	false	true	true
+
+query IIIII
+SELECT len(r), r[5].yhat IS NULL, r[5].is_training, r[5].y IS NOT NULL, r[6].yhat IS NULL
+FROM (SELECT passive_aggressive_fit_predict_agg(y, x ORDER BY t) AS r FROM d);
+----
+20	true	false	true	true
+
+query IIIII
+SELECT len(r), r[5].yhat IS NULL, r[5].is_training, r[5].y IS NOT NULL, r[6].yhat IS NULL
+FROM (SELECT lm_dynamic_fit_predict_agg(y, x ORDER BY t) AS r FROM d);
+----
+20	true	false	true	true
+
+# isotonic takes a scalar x: a NULL x keeps the row with NULL yhat
+query III
+SELECT len(r), r[5].yhat IS NULL, r[5].is_training
+FROM (SELECT isotonic_fit_predict_agg(y, CASE WHEN t = 5 THEN NULL ELSE t::DOUBLE END ORDER BY t) AS r FROM d);
+----
+20	true	false
+
+# The _by macros keep the row as well
+statement ok
+CREATE TABLE dg AS SELECT 1 AS g, t, y, x FROM d;
+
+query III
+SELECT count(*), bool_and(yhat IS NULL) FILTER (WHERE t = 5), count(*) FILTER (WHERE isnan(yhat))
+FROM ols_fit_predict_by('dg', g, y, x);
+----
+20	true	0
+
+# =============================================================================
+# Window *_fit_predict: NULL, never NaN, for an incomplete current x
+# =============================================================================
+
+# ols_fit_predict, cumulative frame
+query III
+SELECT bool_and(yhat IS NULL) FILTER (WHERE bad_x), count(*) FILTER (WHERE isnan(yhat)),
+       bool_and(yhat IS NOT NULL) FILTER (WHERE NOT bad_x AND t >= 12)
+FROM (SELECT t, bad_x, (ols_fit_predict(y, x) OVER (ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)).yhat AS yhat FROM d);
+----
+true	0	true
+
+# ridge_fit_predict, cumulative frame
+query III
+SELECT bool_and(yhat IS NULL) FILTER (WHERE bad_x), count(*) FILTER (WHERE isnan(yhat)),
+       bool_and(yhat IS NOT NULL) FILTER (WHERE NOT bad_x AND t >= 12)
+FROM (SELECT t, bad_x, (ridge_fit_predict(y, x) OVER (ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)).yhat AS yhat FROM d);
+----
+true	0	true
+
+# wls_fit_predict, cumulative frame
+query III
+SELECT bool_and(yhat IS NULL) FILTER (WHERE bad_x), count(*) FILTER (WHERE isnan(yhat)),
+       bool_and(yhat IS NOT NULL) FILTER (WHERE NOT bad_x AND t >= 12)
+FROM (SELECT t, bad_x, (wls_fit_predict(y, x, w) OVER (ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)).yhat AS yhat FROM d);
+----
+true	0	true
+
+# rls_fit_predict, cumulative frame
+query III
+SELECT bool_and(yhat IS NULL) FILTER (WHERE bad_x), count(*) FILTER (WHERE isnan(yhat)),
+       bool_and(yhat IS NOT NULL) FILTER (WHERE NOT bad_x AND t >= 12)
+FROM (SELECT t, bad_x, (rls_fit_predict(y, x) OVER (ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)).yhat AS yhat FROM d);
+----
+true	0	true
+
+# elasticnet_fit_predict, cumulative frame
+query III
+SELECT bool_and(yhat IS NULL) FILTER (WHERE bad_x), count(*) FILTER (WHERE isnan(yhat)),
+       bool_and(yhat IS NOT NULL) FILTER (WHERE NOT bad_x AND t >= 12)
+FROM (SELECT t, bad_x, (elasticnet_fit_predict(y, x) OVER (ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)).yhat AS yhat FROM d);
+----
+true	0	true
+
+# huber_fit_predict, cumulative frame
+query III
+SELECT bool_and(yhat IS NULL) FILTER (WHERE bad_x), count(*) FILTER (WHERE isnan(yhat)),
+       bool_and(yhat IS NOT NULL) FILTER (WHERE NOT bad_x AND t >= 12)
+FROM (SELECT t, bad_x, (huber_fit_predict(y, x) OVER (ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)).yhat AS yhat FROM d);
+----
+true	0	true
+
+# ransac_fit_predict, cumulative frame
+query III
+SELECT bool_and(yhat IS NULL) FILTER (WHERE bad_x), count(*) FILTER (WHERE isnan(yhat)),
+       bool_and(yhat IS NOT NULL) FILTER (WHERE NOT bad_x AND t >= 12)
+FROM (SELECT t, bad_x, (ransac_fit_predict(y, x) OVER (ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)).yhat AS yhat FROM d);
+----
+true	0	true
+
+# theil_sen_fit_predict, cumulative frame
+query III
+SELECT bool_and(yhat IS NULL) FILTER (WHERE bad_x), count(*) FILTER (WHERE isnan(yhat)),
+       bool_and(yhat IS NOT NULL) FILTER (WHERE NOT bad_x AND t >= 12)
+FROM (SELECT t, bad_x, (theil_sen_fit_predict(y, x) OVER (ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)).yhat AS yhat FROM d);
+----
+true	0	true
+
+# passive_aggressive_fit_predict, cumulative frame
+query III
+SELECT bool_and(yhat IS NULL) FILTER (WHERE bad_x), count(*) FILTER (WHERE isnan(yhat)),
+       bool_and(yhat IS NOT NULL) FILTER (WHERE NOT bad_x AND t >= 12)
+FROM (SELECT t, bad_x, (passive_aggressive_fit_predict(y, x) OVER (ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)).yhat AS yhat FROM d);
+----
+true	0	true
+
+# ols_fit_predict, sliding frame
+query III
+SELECT bool_and(yhat IS NULL) FILTER (WHERE bad_x), count(*) FILTER (WHERE isnan(yhat)),
+       bool_and(yhat IS NOT NULL) FILTER (WHERE NOT bad_x AND t >= 12)
+FROM (SELECT t, bad_x, (ols_fit_predict(y, x) OVER (ORDER BY t ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)).yhat AS yhat FROM d);
+----
+true	0	true
+
+# ridge_fit_predict, sliding frame
+query III
+SELECT bool_and(yhat IS NULL) FILTER (WHERE bad_x), count(*) FILTER (WHERE isnan(yhat)),
+       bool_and(yhat IS NOT NULL) FILTER (WHERE NOT bad_x AND t >= 12)
+FROM (SELECT t, bad_x, (ridge_fit_predict(y, x) OVER (ORDER BY t ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)).yhat AS yhat FROM d);
+----
+true	0	true
+
+# wls_fit_predict, sliding frame
+query III
+SELECT bool_and(yhat IS NULL) FILTER (WHERE bad_x), count(*) FILTER (WHERE isnan(yhat)),
+       bool_and(yhat IS NOT NULL) FILTER (WHERE NOT bad_x AND t >= 12)
+FROM (SELECT t, bad_x, (wls_fit_predict(y, x, w) OVER (ORDER BY t ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)).yhat AS yhat FROM d);
+----
+true	0	true
+
+# rls_fit_predict, sliding frame
+query III
+SELECT bool_and(yhat IS NULL) FILTER (WHERE bad_x), count(*) FILTER (WHERE isnan(yhat)),
+       bool_and(yhat IS NOT NULL) FILTER (WHERE NOT bad_x AND t >= 12)
+FROM (SELECT t, bad_x, (rls_fit_predict(y, x) OVER (ORDER BY t ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)).yhat AS yhat FROM d);
+----
+true	0	true
+
+# elasticnet_fit_predict, sliding frame
+query III
+SELECT bool_and(yhat IS NULL) FILTER (WHERE bad_x), count(*) FILTER (WHERE isnan(yhat)),
+       bool_and(yhat IS NOT NULL) FILTER (WHERE NOT bad_x AND t >= 12)
+FROM (SELECT t, bad_x, (elasticnet_fit_predict(y, x) OVER (ORDER BY t ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)).yhat AS yhat FROM d);
+----
+true	0	true
+
+# huber_fit_predict, sliding frame
+query III
+SELECT bool_and(yhat IS NULL) FILTER (WHERE bad_x), count(*) FILTER (WHERE isnan(yhat)),
+       bool_and(yhat IS NOT NULL) FILTER (WHERE NOT bad_x AND t >= 12)
+FROM (SELECT t, bad_x, (huber_fit_predict(y, x) OVER (ORDER BY t ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)).yhat AS yhat FROM d);
+----
+true	0	true
+
+# ransac_fit_predict, sliding frame
+query III
+SELECT bool_and(yhat IS NULL) FILTER (WHERE bad_x), count(*) FILTER (WHERE isnan(yhat)),
+       bool_and(yhat IS NOT NULL) FILTER (WHERE NOT bad_x AND t >= 12)
+FROM (SELECT t, bad_x, (ransac_fit_predict(y, x) OVER (ORDER BY t ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)).yhat AS yhat FROM d);
+----
+true	0	true
+
+# theil_sen_fit_predict, sliding frame
+query III
+SELECT bool_and(yhat IS NULL) FILTER (WHERE bad_x), count(*) FILTER (WHERE isnan(yhat)),
+       bool_and(yhat IS NOT NULL) FILTER (WHERE NOT bad_x AND t >= 12)
+FROM (SELECT t, bad_x, (theil_sen_fit_predict(y, x) OVER (ORDER BY t ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)).yhat AS yhat FROM d);
+----
+true	0	true
+
+# passive_aggressive_fit_predict, sliding frame
+query III
+SELECT bool_and(yhat IS NULL) FILTER (WHERE bad_x), count(*) FILTER (WHERE isnan(yhat)),
+       bool_and(yhat IS NOT NULL) FILTER (WHERE NOT bad_x AND t >= 12)
+FROM (SELECT t, bad_x, (passive_aggressive_fit_predict(y, x) OVER (ORDER BY t ROWS BETWEEN 6 PRECEDING AND CURRENT ROW)).yhat AS yhat FROM d);
+----
+true	0	true
+
+# The whole struct is NULL, so the bounds are NULL too
+query I
+SELECT bool_and(r IS NULL) FROM (SELECT t, ols_fit_predict(y, x) OVER (ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS r FROM d) WHERE t IN (5, 6, 10);
+----
+true
+
+# null_policy 'zero' fills a NULL element (t = 6 is predicted) but not a NULL list or NaN
+query III
+SELECT t, r IS NULL, isnan(r) FROM (
+    SELECT t, (ols_fit_predict(y, x, {'null_policy': 'zero'}) OVER (ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)).yhat AS r FROM d
+) WHERE t IN (5, 6, 10) ORDER BY t;
+----
+5	true	NULL
+6	false	false
+10	true	NULL
+
+# Long partition: frames are built from segment-tree combines. A frame whose last row has
+# a NULL x must not reuse the x of an earlier combined block.
+statement ok
+CREATE TABLE big AS
+SELECT i AS t,
+       CASE WHEN i % 37 = 0 THEN NULL
+            WHEN i % 41 = 0 THEN [i::DOUBLE, NULL]
+            WHEN i % 43 = 0 THEN [i::DOUBLE, 'NaN'::DOUBLE]
+            ELSE [i::DOUBLE, ((i * 7) % 11)::DOUBLE] END AS x,
+       2.0 * i + sin(i) AS y,
+       1.0 + i % 3 AS w
+FROM range(1, 2001) r(i);
+
+statement ok
+CREATE TABLE big_pred AS
+SELECT t, (x IS NULL OR len(list_filter(x, lambda e: e IS NULL OR isnan(e))) > 0) AS bad_x,
+       [(ols_fit_predict(y, x) OVER s).yhat, (ridge_fit_predict(y, x) OVER s).yhat,
+        (wls_fit_predict(y, x, w) OVER s).yhat, (rls_fit_predict(y, x) OVER s).yhat,
+        (elasticnet_fit_predict(y, x) OVER s).yhat, (huber_fit_predict(y, x) OVER s).yhat,
+        (ransac_fit_predict(y, x) OVER s).yhat, (theil_sen_fit_predict(y, x) OVER s).yhat,
+        (passive_aggressive_fit_predict(y, x) OVER s).yhat,
+        (ols_fit_predict(y, x) OVER c).yhat, (passive_aggressive_fit_predict(y, x) OVER c).yhat] AS preds
+FROM big
+WINDOW s AS (ORDER BY t ROWS BETWEEN 50 PRECEDING AND CURRENT ROW),
+       c AS (ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW);
+
+query III
+SELECT count(*) FILTER (WHERE bad_x AND v IS NOT NULL),
+       count(*) FILTER (WHERE isnan(v)),
+       count(*) FILTER (WHERE NOT bad_x AND v IS NULL AND t > 60)
+FROM (SELECT t, bad_x, unnest(preds) AS v FROM big_pred);
+----
+0	0	0
+
+# =============================================================================
+# ols_augment_by / wls_augment_by: the NaN that marks held-out rows never leaks
+# =============================================================================
+
+statement ok
+CREATE TABLE aug AS
+SELECT i AS t, 1 AS g,
+       CASE WHEN i IN (4, 10) THEN NULL ELSE i::DOUBLE END AS x1,
+       CASE WHEN i = 7 THEN NULL ELSE 2.0 * i + sin(i) END AS y,
+       1.0 + i % 2 AS w,
+       CASE WHEN i > 8 THEN 'test' ELSE 'train' END AS s
+FROM range(1, 11) r(i);
+
+query II
+SELECT count(*) FILTER (WHERE isnan(y) OR isnan(fitted) OR isnan(residual) OR isnan(std_residual) OR isnan(stud_residual)
+                         OR isnan(leverage) OR isnan(cooks_d) OR isnan(dffits) OR isnan(weight)),
+       count(*) FILTER (WHERE t = 9 AND y IS NOT NULL AND residual IS NULL AND fitted IS NOT NULL AND NOT is_training)
+FROM ols_augment_by('aug', g, y, [x1], split := s);
+----
+0	1
+
+query II
+SELECT count(*) FILTER (WHERE isnan(y) OR isnan(fitted) OR isnan(residual) OR isnan(std_residual) OR isnan(stud_residual)
+                         OR isnan(leverage) OR isnan(cooks_d) OR isnan(dffits) OR isnan(weight)),
+       count(*) FILTER (WHERE t = 9 AND y IS NOT NULL AND residual IS NULL AND fitted IS NOT NULL AND NOT is_training)
+FROM wls_augment_by('aug', g, y, [x1], w, split := s);
+----
+0	1
+
+query I
+SELECT count(*) FILTER (WHERE isnan(y) OR isnan(fitted) OR isnan(residual) OR isnan(leverage) OR isnan(cooks_d))
+FROM ols_augment_by('aug', g, y, [x1], {'null_policy': 'zero'}, split := s);
+----
+0
