@@ -3,37 +3,40 @@ name: anofox-statistics-tests
 description: >
   Statistical hypothesis tests, post-hoc comparisons, correlation, effect
   sizes, equivalence testing, classifier evaluation, and time-series and
-  survival tests in the anofox_statistics DuckDB extension. Covers the
-  unified test-result fields (method, alternative, statistic, df1, df2,
-  p_value, estimate, conf_low, conf_high, conf_level, effect_size,
-  effect_name, n) and their deprecated aliases, normality tests
-  (Shapiro-Wilk, Jarque-Bera, D'Agostino K2), parametric tests (t-test,
-  one-way ANOVA, Yuen, Brown-Forsythe), nonparametric tests (Mann-Whitney U,
-  Kruskal-Wallis, Wilcoxon signed-rank, Brunner-Munzel, permutation t-test),
-  pairwise post-hoc tests (pairwise_t_test_agg, tukey_hsd_agg,
-  dunn_test_agg and their _by macros, p_adjust holm / BH / bonferroni),
-  multiple-testing correction of any p-values (p_adjust_by, p_adjust_agg,
-  p_adjust_list; R p.adjust),
-  correlation (Pearson, Spearman, Kendall, distance correlation, ICC),
-  categorical / contingency tests (chi-squared, chi-squared GOF, G-test,
-  Fisher's exact, McNemar), effect sizes (Cramér's V, phi, contingency
-  coefficient, Cohen's kappa), proportion tests, TOST equivalence tests,
-  distribution comparison (energy distance, MMD), forecast-evaluation tests
-  (Diebold-Mariano, Clark-West), residual autocorrelation and
-  heteroskedasticity tests (Ljung-Box, Box-Pierce, Durbin-Watson with
-  p-value, Breusch-Pagan, White), survival tests (Kaplan-Meier,
-  log-rank), causal mediation analysis (mediation_by / mediation_agg:
-  ACME, ADE, total effect, proportion mediated), and classifier evaluation (ROC / PR / calibration curves, AUC,
-  Brier score, log loss, roc_curve_by). Use when running a significance
-  test, comparing many groups, measuring association/effect size,
-  evaluating a classifier, or comparing distributions or survival in SQL.
-version: 0.12.2
+  survival tests in the anofox_statistics DuckDB extension. Covers the unified
+  test-result fields (method, alternative, statistic, df1, df2, p_value,
+  estimate, conf_low, conf_high, conf_level, effect_size, effect_name, n) and
+  their deprecated aliases, normality tests (Shapiro-Wilk, Jarque-Bera,
+  D'Agostino K2), parametric tests (t-test, one-way ANOVA, Yuen,
+  Brown-Forsythe), nonparametric tests (Mann-Whitney U, Kruskal-Wallis,
+  Wilcoxon signed-rank, Brunner-Munzel, permutation t-test), pairwise post-hoc
+  tests (pairwise_t_test_agg, tukey_hsd_agg, dunn_test_agg and their _by
+  macros, p_adjust holm / BH / bonferroni), multiple-testing correction of any
+  p-values (p_adjust_by, p_adjust_agg, p_adjust_list; R p.adjust), correlation
+  (Pearson, Spearman, Kendall, distance correlation, ICC), categorical /
+  contingency tests (chi-squared, chi-squared GOF, G-test, Fisher's exact,
+  McNemar), effect sizes (Cramér's V, phi, contingency coefficient, Cohen's
+  kappa), proportion tests, TOST equivalence tests, distribution comparison
+  (energy distance, MMD), forecast-evaluation tests (Diebold-Mariano,
+  Clark-West), residual autocorrelation and heteroskedasticity tests
+  (Ljung-Box, Box-Pierce, Durbin-Watson with p-value, Breusch-Pagan, White),
+  survival tests (Kaplan-Meier, log-rank), causal mediation analysis
+  (mediation_by / mediation_agg: ACME, ADE, total effect, proportion
+  mediated), and classifier evaluation (ROC / PR / calibration curves, AUC,
+  Brier score, log loss, roc_curve_by). Also: multiple-testing correction
+  (p_adjust_by / p_adjust_agg / p_adjust_list, holm / BH / BY …), causal
+  mediation (mediation_by: ACME, ADE, proportion mediated), the nested-model F
+  test (ols_anova_by), and seeded, bitwise-reproducible Monte Carlo and group
+  tests. Use when running a significance test, comparing many groups,
+  measuring association/effect size, evaluating a classifier, or comparing
+  distributions or survival in SQL.
+version: 0.13.0
 user-invocable: false
 ---
 
 # Anofox Statistics — Hypothesis Tests Cheat Sheet
 
-**Extension:** `anofox_statistics` v0.12.2 | **DuckDB:** v1.4.5 LTS / v1.5.x | Tests are **aggregates** — use with `GROUP BY` for per-segment tests.
+**Extension:** `anofox_statistics` v0.13.0 | **DuckDB:** v1.4.5 LTS / v1.5.x / v2.0 | Tests are **aggregates** — use with `GROUP BY` for per-segment tests.
 
 ## Gotchas
 

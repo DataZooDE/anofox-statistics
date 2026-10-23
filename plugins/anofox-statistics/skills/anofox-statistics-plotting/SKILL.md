@@ -2,29 +2,30 @@
 name: anofox-statistics-plotting
 description: >
   Plot-ready outputs of the anofox_statistics DuckDB extension: the anofox
-  integration contract's long-table schemas (terms, summary, obs,
-  prediction, curve, test), which table macro produces each one, their
-  columns, how to discover producers with duckdb_functions() tags
-  (anofox.contract, anofox.output) and anofox_contract_version(), and how
-  to hand the tables to the anofox-visualization extension
-  (anofox_plot_terms, anofox_plot_prediction, anofox_plot_curve,
-  anofox_plot_summary, anofox_plot_obs, anofox_plot_diagnostics,
-  anofox_plot). Covers coefficient forests (tidy_by), model comparison
-  (glance_by), residual / influence plots (augment_by), fitted lines with
-  bands and marginal effects (prediction_by, effects_by), rolling
-  coefficients (rolling_tidy_by), regularisation paths and CV curves,
-  quantile process, ROC / PR / calibration curves, Kaplan-Meier curves,
-  ACF / PACF and post-hoc test tables. Use when the user wants to make a
-  model or test result plottable, asks "which table do I need for this
-  chart", wants long / tidy tables instead of STRUCTs, or wants to combine
-  several models or groups into one plot.
-version: 0.12.2
+  integration contract's long-table schemas (terms, summary, obs, prediction,
+  curve, test), which table macro produces each one, their columns, how to
+  discover producers with duckdb_functions() tags (anofox.contract,
+  anofox.output) and anofox_contract_version(), and how to hand the tables to
+  the anofox-visualization extension (anofox_plot_terms,
+  anofox_plot_prediction, anofox_plot_curve, anofox_plot_summary,
+  anofox_plot_obs, anofox_plot_diagnostics, anofox_plot). Covers coefficient
+  forests (tidy_by), model comparison (glance_by), residual / influence plots
+  (augment_by), fitted lines with bands and marginal effects (prediction_by,
+  effects_by), rolling coefficients (rolling_tidy_by), regularisation paths
+  and CV curves, quantile process, ROC / PR / calibration curves, Kaplan-Meier
+  curves, ACF / PACF and post-hoc test tables. Also GLMM tables (glmm_tidy_by
+  ran_vals for caterpillar plots), mediation_by, ols_anova_by, nested-CV
+  curves and LOO columns. Use when the user wants to make a model or test
+  result plottable, asks "which table do I need for this chart", wants long /
+  tidy tables instead of STRUCTs, or wants to combine several models or groups
+  into one plot.
+version: 0.13.0
 user-invocable: false
 ---
 
 # Anofox Statistics — Plot-Ready Outputs Cheat Sheet
 
-**Extension:** `anofox_statistics` v0.12.2 | **DuckDB:** v1.4.5 LTS / v1.5.x | **Contract version:** `anofox_contract_version()` = `'1'`
+**Extension:** `anofox_statistics` v0.13.0 | **DuckDB:** v1.4.5 LTS / v1.5.x / v2.0 | **Contract version:** `anofox_contract_version()` = `'1'`
 
 Fit functions return STRUCTs and LISTs. For charts, the `_by` table macros return **long tables with fixed columns** (one row per mark), the schemas of the anofox integration contract shared by anofox-statistics, anofox-forecast and the plotting extension anofox-visualization. Optional columns are always present (NULL when not computed) and the group column is kept.
 

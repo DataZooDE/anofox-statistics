@@ -11,29 +11,31 @@ description: >
   negbinom_fit_predict_by, gamma_fit_predict_by, tweedie_fit_predict_by,
   pls_fit_predict_by, isotonic_fit_predict_by, quantile_fit_predict_by,
   bayesian_ridge_fit_predict_by, ard_fit_predict_by,
-  passive_aggressive_fit_predict_by, lm_dynamic_fit_predict_by)
-  with split := and order_by :=, the per-group long-table macros
-  <model>_tidy_by and <model>_glance_by (25 models), ols/wls/GLM
-  _augment_by, <model>_partial_residuals_by, <model>_prediction_by (23
-  models), <model>_effects_by (marginal effects), <model>_rolling_tidy_by
-  (rolling coefficients), ridge/elasticnet/lars_path_by,
-  ridge/elasticnet_cv_by, ridge/elasticnet_nested_cv_by, quantile_process_by, acf_by / pacf_by,
-  kaplan_meier_by, roc/pr/calibration_curve_by and
-  pairwise_t_test_by / tukey_hsd_by / dunn_test_by, per-group aggregate
-  fitting with GROUP BY plus predict / tidy / glance on the per-group model
-  structs, the *_fit_predict_agg aggregates, rolling *_fit_predict window
-  functions, the glmm_fit_by / eb_shrink_by / aid_by macros, and scaling
-  patterns for fitting a separate model per segment / SKU / cohort over
-  large panels. Use when the task is "fit one model per group" at scale, or
-  "give me a coefficient / fit / residual / prediction table per group",
+  passive_aggressive_fit_predict_by, lm_dynamic_fit_predict_by) with split :=
+  and order_by :=, the per-group long-table macros <model>_tidy_by and
+  <model>_glance_by (25 models), ols/wls/GLM _augment_by,
+  <model>_partial_residuals_by, <model>_prediction_by (23 models),
+  <model>_effects_by (marginal effects), <model>_rolling_tidy_by (rolling
+  coefficients), ridge/elasticnet/lars_path_by, ridge/elasticnet_cv_by,
+  ridge/elasticnet_nested_cv_by, quantile_process_by, acf_by / pacf_by,
+  kaplan_meier_by, roc/pr/calibration_curve_by and pairwise_t_test_by /
+  tukey_hsd_by / dunn_test_by, per-group aggregate fitting with GROUP BY plus
+  predict / tidy / glance on the per-group model structs, the
+  *_fit_predict_agg aggregates, rolling *_fit_predict window functions, the
+  glmm_fit_by / eb_shrink_by / aid_by macros, and scaling patterns for fitting
+  a separate model per segment / SKU / cohort over large panels. Also
+  glmm_tidy_by / glance_by / augment_by, ols_anova_by, mediation_by,
+  p_adjust_by, ridge / elasticnet_nested_cv_by, the split := rule and order_by
+  := for rls_tidy_by. Use when the task is "fit one model per group" at scale,
+  or "give me a coefficient / fit / residual / prediction table per group",
   rather than a single global fit.
-version: 0.12.2
+version: 0.13.0
 user-invocable: false
 ---
 
 # Anofox Statistics — Batch / Per-Group Fitting Cheat Sheet
 
-**Extension:** `anofox_statistics` v0.12.2 | **DuckDB:** v1.4.5 LTS / v1.5.x
+**Extension:** `anofox_statistics` v0.13.0 | **DuckDB:** v1.4.5 LTS / v1.5.x / v2.0
 
 The extension's superpower for AI/analytics pipelines: **fit one model per group in a single SQL statement**, using DuckDB's `HASH_GROUP_BY` for parallelism — no Python loop, no per-group round-trips. Three patterns, from highest-level to lowest.
 
@@ -138,7 +140,7 @@ When you want a **report table** per group instead of predictions, use the outpu
 | `ridge_nested_cv_by`, `elasticnet_nested_cv_by` | `(source, group_col, y_col, x_cols [, options := …, cv_key := col])` | `curve_type ('nested_cv'), series ('fold' / 'mean'), x, y, y_low, y_high, threshold, weight, n_censor, fold, lambda, test_error, test_se, inner_cv_mean, inner_cv_se, n_train, n_test, n_inner_folds, n_folds, metric` |
 
 Model coverage:
-- `_tidy_by` / `_glance_by` (25): `ols`, `wls` (+`weight_col`), `ridge`, `elasticnet`, `lars`, `bayesian_ridge`, `ard`, `passive_aggressive` and `lm_dynamic` (both `(source, group_col, order_col, y_col, x_cols, …)`; `lm_dynamic_tidy_by` = per-row coefficients with `window_end`), `rls` (sequential: pass `order_by := t` by name, else the row order is undefined), `huber`, `ransac`, `theil_sen`, `bls`, `nnls`, `pls`, `quantile`, `poisson`, `binomial`, `logistic`, `negbinom`, `gamma`, `tweedie`, `alm`, `aft` (+`event_col`); `glmm_tidy_by` / `glmm_glance_by` take the random-effects factor `re_group` after `x_cols` (one mixed model per `group_col`, the outer group). Not `isotonic`.
+- `_tidy_by` / `_glance_by` (26): `ols`, `wls` (+`weight_col`), `ridge`, `elasticnet`, `lars`, `bayesian_ridge`, `ard`, `passive_aggressive` and `lm_dynamic` (both `(source, group_col, order_col, y_col, x_cols, …)`; `lm_dynamic_tidy_by` = per-row coefficients with `window_end`), `rls` (sequential: pass `order_by := t` by name, else the row order is undefined), `huber`, `ransac`, `theil_sen`, `bls`, `nnls`, `pls`, `quantile`, `poisson`, `binomial`, `logistic`, `negbinom`, `gamma`, `tweedie`, `alm`, `aft` (+`event_col`); `glmm_tidy_by` / `glmm_glance_by` take the random-effects factor `re_group` after `x_cols` (one mixed model per `group_col`, the outer group). Not `isotonic`
 - `_augment_by`: `ols`, `wls`, `poisson`, `binomial`, `logistic`, `negbinom`, `gamma`, `tweedie`, `glmm` (+`re_group`). `_partial_residuals_by`: the same without `glmm`.
 - `_prediction_by` (23): every `*_fit_predict_by` model; `pls`, `quantile`, `isotonic` have no band; `isotonic_prediction_by(source, group_col, x_col, y_col)` has no `x_cols`.
 - `_effects_by` (9): `ols`, `wls`, `ridge` and the six GLMs (models whose `predict` has standard errors); GLM bands on the response scale.
