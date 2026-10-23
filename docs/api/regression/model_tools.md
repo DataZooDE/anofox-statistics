@@ -294,8 +294,8 @@ The columns:
   term. Inference is computed by default for models that have it, also when
   other `options` are passed.
 - `_glance_by`: the group column, `id` (the group as text), `model_id` and `model_name` (the method, e.g. `'ols'`), `model_type`, `metric`, `value`,
-  one row per available numeric metric. `ols_glance_by` and `wls_glance_by`
-  include the leave-one-out metrics `press`, `press_rmse` and `loo_r_squared`
+  one row per available numeric metric. `ols_glance_by`, `wls_glance_by` and
+  `ridge_glance_by` include the leave-one-out metrics `press`, `press_rmse` and `loo_r_squared`
   (see [Leave-one-out diagnostics](#leave-one-out-diagnostics)).
 
 ```sql
@@ -431,14 +431,14 @@ per row of a whole-partition frame, in frame order.
 
 ### Leave-one-out diagnostics
 
-For OLS and WLS the exact leave-one-out quantities follow from the leverage
-`h` without refitting (#220):
+For OLS, WLS and Ridge the exact leave-one-out quantities follow from the
+leverage `h` without refitting (#220, Ridge #235, see [Ridge](#ridge)):
 
 | Column / metric | Where | Definition | R |
 |---|---|---|---|
-| `loo_residual` | `ols_augment_by`, `wls_augment_by` | `residual / (1 - leverage)`: `y` minus the prediction of the fit without the row (the PRESS residual) | `residuals(fit) / (1 - hatvalues(fit))`; OLS: `rstandard(fit, type = "predictive")` |
-| `loo_fitted` | `ols_augment_by`, `wls_augment_by` | `y - loo_residual`, the prediction for the row from the fit without it | |
-| `press` | `ols_glance_by`, `wls_glance_by`; `ols_fit_agg`, `wls_fit_agg`, `ols_fit`, `wls_fit` with `compute_loo` (and `glance()` of them) | `sum(weight * loo_residual^2)` | `sum(rstandard(fit, type = "predictive")^2)` |
+| `loo_residual` | `ols_augment_by`, `wls_augment_by`, `ridge_augment_by` | `residual / (1 - leverage)`: `y` minus the prediction of the fit without the row (the PRESS residual) | `residuals(fit) / (1 - hatvalues(fit))`; OLS: `rstandard(fit, type = "predictive")` |
+| `loo_fitted` | `ols_augment_by`, `wls_augment_by`, `ridge_augment_by` | `y - loo_residual`, the prediction for the row from the fit without it | |
+| `press` | `ols_glance_by`, `wls_glance_by`, `ridge_glance_by`; `ols_fit_agg`, `wls_fit_agg`, `ridge_fit_agg`, `ols_fit`, `wls_fit`, `ridge_fit` with `compute_loo` (and `glance()` of them) | `sum(weight * loo_residual^2)` | `sum(rstandard(fit, type = "predictive")^2)` |
 | `press_rmse` | as `press` | `sqrt(press / n)` | |
 | `loo_r_squared` | as `press` | predicted R² (Q²) `1 - press / SST`, with the SST of `r_squared` (centred with an intercept, uncentred without) | |
 
@@ -459,8 +459,71 @@ any row of a fit with as many coefficients as rows) determines its own fitted
 value and has no leave-one-out prediction: its `loo_residual` and `loo_fitted`
 are NULL, and `press`, `press_rmse` and `loo_r_squared` of the group are NULL
 (absent from `_glance_by`). Rows outside training (`split`, NULL `y`) have NULL
-leave-one-out columns. The GLM `_augment_by` macros do not have these columns,
-and the other models' `glance()` has them as NULL. Ridge is not covered yet.
+leave-one-out columns. The GLM `_augment_by` macros do not have these columns
+(they have the approximation below), and the other models' `glance()` has them
+as NULL.
+
+#### Ridge
+
+Ridge is a linear smoother too, so its leave-one-out values are exact (#235):
+`H = X(XᵀX + λI)⁻¹Xᵀ` with the intercept unpenalised (as the fit centres the
+data), `loo_residual = residual / (1 - leverage)` is `y` minus the prediction
+of the ridge fit without the row at the same λ. `ridge_glance_by` reports
+`press`, `press_rmse` and `loo_r_squared` (on by default as for OLS),
+`ridge_fit_agg` / `ridge_fit` fill them with `{'compute_loo': true}` (one SVD
+of the design), and `ridge_augment_by(source, group_col, y_col, x_cols [,
+options, split, order_by])` returns the `obs` columns with `leverage` (the
+ridge hat diagonal; it sums to the effective degrees of freedom, below the
+number of coefficients) and `loo_residual` / `loo_fitted`. `std_residual`,
+`stud_residual`, `cooks_d` and `dffits` have no ridge definition in R and are
+NULL. Options of `ridge_augment_by`: `alpha` (or `lambda`), `lambda_scaling`,
+`fit_intercept`, `null_policy`, `solver`.
+
+λ is the penalty on the sum-of-squares scale. With `'lambda_scaling':
+'glmnet'` that is `alpha · n` of the full fit, held fixed for the
+leave-one-out fits (a refit on the `n − 1` other rows with glmnet scaling would
+use `alpha · (n − 1)`). With `alpha = 0` the values are those of OLS.
+PRESS over a grid of `alpha` is the leave-one-out cross-validation curve.
+
+```sql
+-- Exact LOO PRESS of a ridge fit per group, next to its in-sample R²
+SELECT grp, metric, round(value, 4) AS value
+FROM ridge_glance_by('mt_demo', grp, y, [x1, x2], {'alpha': 1.0})
+WHERE metric IN ('r_squared', 'press', 'loo_r_squared')
+ORDER BY grp, metric;
+```
+
+```sql
+-- The rows whose prediction moves most when they are left out
+SELECT grp, id, round(leverage, 3) AS leverage, round(loo_residual, 3) AS loo_residual
+FROM ridge_augment_by('mt_demo', grp, y, [x1, x2], {'alpha': 1.0})
+QUALIFY row_number() OVER (PARTITION BY grp ORDER BY abs(loo_residual) DESC) <= 3
+ORDER BY grp, abs(loo_residual) DESC;
+```
+
+#### Approximate leave-one-out for the GLMs
+
+A GLM has no closed-form leave-one-out fit. The GLM `_augment_by` macros
+instead have `approx_loo_fitted` and `approx_loo_residual`: the one-step
+(Pregibon 1981) approximation, a single IRLS step from the full fit without
+the row. It moves the linear predictor to
+`η₍ᵢ₎ ≈ ηᵢ − hᵢ zᵢ / (1 − hᵢ)`, with `zᵢ = (yᵢ − μᵢ) g'(μᵢ)` the working
+residual and `hᵢ` the leverage; `approx_loo_fitted = g⁻¹(η₍ᵢ₎)` is on the
+response scale and `approx_loo_residual = y - approx_loo_fitted`. This is R's
+`influence(fit)$coefficients` (the one-step coefficient change) applied to the
+row: `linkinv(predict(fit) - rowSums(model.matrix(fit) * influence(fit)$coefficients))`.
+It is an approximation, named so on purpose: usually close to the refit (much
+closer than the full-data fit), less so for rows with high leverage or a large
+Pearson residual. Rows with leverage 1 and rows off the fit are NULL. There is
+no approximate PRESS metric.
+
+```sql
+SELECT grp, id, round(fitted, 3) AS fitted, round(approx_loo_fitted, 3) AS approx_loo_fitted
+FROM poisson_augment_by('mt_demo', grp, y_count, [x1])
+WHERE grp = 'A'
+ORDER BY abs(approx_loo_residual) DESC
+LIMIT 3;
+```
 
 ```sql
 -- How far each fitted value moves when its row is left out, and PRESS per group

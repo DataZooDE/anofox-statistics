@@ -348,7 +348,7 @@ static void RidgePredictAggFinalize(Vector &state_vector, AggregateInputData &ag
             x_arrays.push_back(arr);
         }
 
-        AnofoxRidgeOptions options;
+        AnofoxRidgeOptions options {};
         options.alpha = state.alpha;
         options.fit_intercept = state.fit_intercept;
         options.compute_inference = false;

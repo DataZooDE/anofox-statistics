@@ -81,9 +81,9 @@ pub struct ModelSummary {
     pub intercept_conf_low: f64,
     pub intercept_conf_high: f64,
     /// Leave-one-out fit statistics of OLS / WLS (#220, upstream
-    /// `diagnostics::press`): prediction sum of squares, `√(press / n)` and the
-    /// predicted R² `1 − press / SST`. NaN for other models and when a row has
-    /// leverage 1.
+    /// `diagnostics::press`) and Ridge (#235, `FittedRidge::loo`): prediction
+    /// sum of squares, `√(press / n)` and the predicted R² `1 − press / SST`.
+    /// NaN for other models and when a row has leverage 1.
     pub press: f64,
     pub press_rmse: f64,
     pub loo_r_squared: f64,
@@ -324,6 +324,11 @@ pub struct RidgeOptions {
     pub solver: SolverType,
     /// Lambda scaling convention (Raw or Glmnet)
     pub lambda_scaling: LambdaScaling,
+    /// Compute the exact leave-one-out statistics (`ModelSummary::press`,
+    /// `press_rmse`, `loo_r_squared`, #235) from the ridge hat matrix. Costs one
+    /// SVD of the design, so only the fit entry points that report them turn
+    /// it on.
+    pub compute_loo: bool,
 }
 
 impl Default for RidgeOptions {
@@ -335,6 +340,7 @@ impl Default for RidgeOptions {
             confidence_level: 0.95,
             solver: SolverType::Qr,
             lambda_scaling: LambdaScaling::Raw,
+            compute_loo: false,
         }
     }
 }

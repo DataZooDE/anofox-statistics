@@ -25,7 +25,7 @@ description: >
   inference and BLUP SEs (ddf, glmm_tidy_by), Bayesian credible intervals,
   Theil-Sen exact / bootstrap CIs (ci_method), nested F tests (ols_anova_by),
   CV strategies (cv_strategy group / logo / stratified / time_series, nested
-  CV) and leave-one-out PRESS (compute_loo). Use when picking a regression
+  CV) and exact leave-one-out PRESS for OLS / WLS / Ridge (compute_loo). Use when picking a regression
   method, choosing a penalty, getting standard errors or intervals for
   predictions, or writing ols_fit_agg / ridge_fit / ols_fit_predict / predict
   / tidy calls. For per-group long tables (tidy_by, prediction_by, effects_by,
@@ -200,12 +200,15 @@ for Elastic Net, LARS, RLS) and, except for Elastic Net, LARS and RLS, `ci_lower
 `model_type` (`'ols'`, `'glm'`, `'aft'`, …), `family`, `link`. OLS, WLS, Ridge and the GLM `*_fit_agg`
 structs end with `vcov DOUBLE[]` (row-major k × k, intercept first) and `df_residual`, NULL unless
 `compute_inference`.
-OLS and WLS (`*_fit_agg` and `ols_fit` / `wls_fit`) then add the leave-one-out statistics `press`
+OLS, WLS and Ridge (`*_fit_agg` and `ols_fit` / `wls_fit` / `ridge_fit`) then add the leave-one-out statistics `press`
 (Σ (eᵢ/(1−hᵢᵢ))², R `sum(rstandard(fit, type = "predictive")^2)`; WLS weighted), `press_rmse`
 (√(press/n)) and `loo_r_squared` (predicted R² / Q² = 1 − press/SST, never above `r_squared`), NULL
-unless `{'compute_loo': true}` (opt-in, one more QR; not implied by `compute_inference`; `ols_glance_by` /
-`wls_glance_by` turn it on) and when a row has leverage 1. `glance()` carries them too (NULL for other models);
-per-row `loo_residual` / `loo_fitted` are in `ols_augment_by` / `wls_augment_by`.
+unless `{'compute_loo': true}` (opt-in, one more QR / SVD; not implied by `compute_inference`; `ols_glance_by` /
+`wls_glance_by` / `ridge_glance_by` turn it on) and when a row has leverage 1. `glance()` carries them too (NULL for other models);
+per-row `loo_residual` / `loo_fitted` are in `ols_augment_by` / `wls_augment_by` / `ridge_augment_by`. Ridge is exact
+too: hat matrix `X(XᵀX + λI)⁻¹Xᵀ`, intercept unpenalised, same λ (glmnet scaling: `alpha·n` of the full fit held
+fixed), so PRESS over an `alpha` grid is exact LOO-CV. GLMs have no exact LOO; their `_augment_by` has the one-step
+approximation `approx_loo_fitted` / `approx_loo_residual` instead (not the refit).
 
 ## Worked examples
 
