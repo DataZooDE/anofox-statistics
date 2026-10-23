@@ -2,22 +2,23 @@
 name: anofox-statistics-plotting
 description: >
   Plot-ready outputs of the anofox_statistics DuckDB extension: the anofox
-  integration contract's long-table schemas (terms, summary, obs,
-  prediction, curve, test), which table macro produces each one, their
-  columns, how to discover producers with duckdb_functions() tags
-  (anofox.contract, anofox.output) and anofox_contract_version(), and how
-  to hand the tables to the anofox-visualization extension
-  (anofox_plot_terms, anofox_plot_prediction, anofox_plot_curve,
-  anofox_plot_summary, anofox_plot_obs, anofox_plot_diagnostics,
-  anofox_plot). Covers coefficient forests (tidy_by), model comparison
-  (glance_by), residual / influence plots (augment_by), fitted lines with
-  bands and marginal effects (prediction_by, effects_by), rolling
-  coefficients (rolling_tidy_by), regularisation paths and CV curves,
-  quantile process, ROC / PR / calibration curves, Kaplan-Meier curves,
-  ACF / PACF and post-hoc test tables. Use when the user wants to make a
-  model or test result plottable, asks "which table do I need for this
-  chart", wants long / tidy tables instead of STRUCTs, or wants to combine
-  several models or groups into one plot.
+  integration contract's long-table schemas (terms, summary, obs, prediction,
+  curve, test), which table macro produces each one, their columns, how to
+  discover producers with duckdb_functions() tags (anofox.contract,
+  anofox.output) and anofox_contract_version(), and how to hand the tables to
+  the anofox-visualization extension (anofox_plot_terms,
+  anofox_plot_prediction, anofox_plot_curve, anofox_plot_summary,
+  anofox_plot_obs, anofox_plot_diagnostics, anofox_plot). Covers coefficient
+  forests (tidy_by), model comparison (glance_by), residual / influence plots
+  (augment_by), fitted lines with bands and marginal effects (prediction_by,
+  effects_by), rolling coefficients (rolling_tidy_by), regularisation paths
+  and CV curves, quantile process, ROC / PR / calibration curves, Kaplan-Meier
+  curves, ACF / PACF and post-hoc test tables. Also GLMM tables (glmm_tidy_by
+  ran_vals for caterpillar plots), mediation_by, ols_anova_by, nested-CV
+  curves and LOO columns. Use when the user wants to make a model or test
+  result plottable, asks "which table do I need for this chart", wants long /
+  tidy tables instead of STRUCTs, or wants to combine several models or groups
+  into one plot.
 version: 0.12.2
 user-invocable: false
 ---

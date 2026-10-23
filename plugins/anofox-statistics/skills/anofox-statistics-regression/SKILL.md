@@ -2,32 +2,34 @@
 name: anofox-statistics-regression
 description: >
   Regression models and the fit / fit_agg / predict API surface of the
-  anofox_statistics DuckDB extension. Covers OLS, robust estimators
-  (Huber, RANSAC, Theil-Sen), penalized regression (Ridge, Elastic Net,
-  LARS), Bayesian Ridge and ARD (posterior predictive intervals),
-  Passive-Aggressive online regression, lmDynamic time-varying
-  coefficients, LOWESS smoothing (lowess_agg), WLS, recursive least squares (RLS), bounded/non-negative LS
-  (BLS/NNLS), PLS, isotonic, quantile regression with standard errors
-  (se option iid / nid / boot) and the quantile process
-  (quantile_process_agg), GLMs (Poisson, Binomial/Logistic, Negative
-  Binomial, Tweedie, Gamma), ALM, AFT survival, mixed-effects GLMM, and
-  empirical-Bayes shrinkage — with the MAP-style option keys (including
-  alias_tolerance for collinear columns in OLS / WLS), the stable
-  return-struct fields (model_type, intercept inference, log_likelihood /
-  aic / bic, vcov, df_residual, GLM/AFT z_values), the call surfaces
-  (scalar fit, aggregate fit_agg, window *_fit_predict, *_fit_predict_agg),
-  predict(model, x) with se_fit / confidence and prediction intervals,
-  linear_predict, tidy and glance, regularisation paths and
-  cross-validation (ridge_path_agg, elasticnet_path_agg, lars_path_agg,
+  anofox_statistics DuckDB extension. Covers OLS, robust estimators (Huber,
+  RANSAC, Theil-Sen), penalized regression (Ridge, Elastic Net, LARS),
+  Bayesian Ridge and ARD (posterior predictive intervals), Passive-Aggressive
+  online regression, lmDynamic time-varying coefficients, LOWESS smoothing
+  (lowess_agg), WLS, recursive least squares (RLS), bounded/non-negative LS
+  (BLS/NNLS), PLS, isotonic, quantile regression with standard errors (se
+  option iid / nid / boot) and the quantile process (quantile_process_agg),
+  GLMs (Poisson, Binomial/Logistic, Negative Binomial, Tweedie, Gamma), ALM,
+  AFT survival, mixed-effects GLMM, and empirical-Bayes shrinkage — with the
+  MAP-style option keys (including alias_tolerance for collinear columns in
+  OLS / WLS), the stable return-struct fields (model_type, intercept
+  inference, log_likelihood / aic / bic, vcov, df_residual, GLM/AFT z_values),
+  the call surfaces (scalar fit, aggregate fit_agg, window *_fit_predict,
+  *_fit_predict_agg), predict(model, x) with se_fit / confidence and
+  prediction intervals, linear_predict, tidy and glance, regularisation paths
+  and cross-validation (ridge_path_agg, elasticnet_path_agg, lars_path_agg,
   ridge_cv_agg, elasticnet_cv_agg, lambda.min / lambda.1se, group /
-  leave-one-group-out / stratified / time-series folds via cv_strategy,
-  nested CV with ridge_nested_cv_agg / elasticnet_nested_cv_agg), and the AFT
-  aft_cdf / aft_quantile / aft_survival helpers. Use when picking a
-  regression method, choosing a penalty, getting standard errors or
-  intervals for predictions, or writing ols_fit_agg / ridge_fit /
-  ols_fit_predict / predict / tidy calls. For per-group long tables
-  (tidy_by, prediction_by, effects_by, rolling_tidy_by) see the batch and
-  plotting skills.
+  leave-one-group-out / stratified / time-series folds via cv_strategy, nested
+  CV with ridge_nested_cv_agg / elasticnet_nested_cv_agg), and the AFT aft_cdf
+  / aft_quantile / aft_survival helpers. Also: GLMM Wald / Satterthwaite
+  inference and BLUP SEs (ddf, glmm_tidy_by), Bayesian credible intervals,
+  Theil-Sen exact / bootstrap CIs (ci_method), nested F tests (ols_anova_by),
+  CV strategies (cv_strategy group / logo / stratified / time_series, nested
+  CV) and leave-one-out PRESS (compute_loo). Use when picking a regression
+  method, choosing a penalty, getting standard errors or intervals for
+  predictions, or writing ols_fit_agg / ridge_fit / ols_fit_predict / predict
+  / tidy calls. For per-group long tables (tidy_by, prediction_by, effects_by,
+  rolling_tidy_by) see the batch and plotting skills.
 version: 0.12.2
 user-invocable: false
 ---

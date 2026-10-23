@@ -9,16 +9,17 @@ description: >
   residual, std / studentized residuals, leverage, Cook's distance, DFFITS),
   partial residuals and added-variable data (<model>_partial_residuals_by,
   car::crPlots / avPlots), Variance Inflation Factor (vif / vif_agg), AIC /
-  BIC, residual diagnostics (residuals_diagnostics / residuals_diagnostics_agg),
-  residual ACF / PACF with the white-noise band (acf_agg, pacf_agg, acf_by,
-  pacf_by), Ljung-Box / Box-Pierce, Durbin-Watson (with p-value),
-  Breusch-Pagan and White heteroskedasticity tests, AID demand-pattern and
-  anomaly classification (aid_agg, aid_anomaly_agg, aid_by, aid_anomaly_by),
-  plus tidy / glance and model-aware predict for fitted values. Use when
-  checking whether a fitted regression is sound — influential points,
-  outliers, nonlinearity, multicollinearity, autocorrelated or
-  heteroskedastic residuals — or classifying a series' demand regime before
-  choosing a model.
+  BIC, residual diagnostics (residuals_diagnostics /
+  residuals_diagnostics_agg), residual ACF / PACF with the white-noise band
+  (acf_agg, pacf_agg, acf_by, pacf_by), Ljung-Box / Box-Pierce, Durbin-Watson
+  (with p-value), Breusch-Pagan and White heteroskedasticity tests, AID
+  demand-pattern and anomaly classification (aid_agg, aid_anomaly_agg, aid_by,
+  aid_anomaly_by), plus tidy / glance and model-aware predict for fitted
+  values. Also leave-one-out diagnostics: loo_residual / loo_fitted in
+  augment_by, PRESS, press_rmse and loo_r_squared in glance_by (compute_loo).
+  Use when checking whether a fitted regression is sound — influential points,
+  outliers, nonlinearity, multicollinearity, autocorrelated or heteroskedastic
+  residuals — or classifying a series' demand regime before choosing a model.
 version: 0.12.2
 user-invocable: false
 ---
