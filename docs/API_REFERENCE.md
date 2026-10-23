@@ -469,13 +469,14 @@ theil_sen_fit_agg(y DOUBLE, x LIST(DOUBLE) [, options]) -> STRUCT
 | compute_inference | BOOLEAN | false | Coefficient confidence intervals |
 | confidence_level | DOUBLE | 0.95 | Level of the intervals |
 | ci_method | VARCHAR | `'exact'` (one feature), else `'bootstrap'` | `'exact'`: Sen's distribution-free slope interval with Kendall's z / p-value (`trend::sens.slope`); `'bootstrap'`: pairs bootstrap SDs and percentile intervals, also for the intercept |
-| n_bootstrap (alias `n_boot`) | INTEGER | 999 | Bootstrap resamples |
+| n_bootstrap (alias `n_boot`) | INTEGER | 999 (`theil_sen_tidy_by`: 199) | Bootstrap resamples |
 
 With `compute_inference` the exact method fills `conf_low` / `conf_high`,
 `t_values` (Kendall's z) and `p_values` for the slope (no standard error, no
-intercept interval); the bootstrap fills `std_errors`, `conf_low` /
-`conf_high` and the `intercept_*` SD and interval (no test). There is no
-F-test. See [Theil-Sen](api/regression/theil_sen.md#inference).
+intercept interval: `std_errors` and the `intercept_*` fields are NULL); the
+bootstrap fills `std_errors`, `conf_low` / `conf_high` and the `intercept_*` SD
+and interval (`t_values` / `p_values` NULL). There is no F-test (`f_statistic` /
+`f_pvalue` NULL). See [Theil-Sen](api/regression/theil_sen.md#inference).
 
 ```sql
 SELECT theil_sen_fit(

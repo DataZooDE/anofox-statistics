@@ -338,7 +338,7 @@ static void TheilSenAggFinalize(Vector &state_vector, AggregateInputData &aggr_i
         FlatDataMut<int64_t>(StructEntry(struct_entries[struct_idx++]))[result_idx] = core_result.n_features;
 
         // Inference (NULL unless requested), CI fields and the model summary
-        writer.WriteInference(result_idx, state.compute_inference ? &inference_result : nullptr);
+        writer.WriteInferenceNullUndefined(result_idx, state.compute_inference ? &inference_result : nullptr);
         writer.WriteSummary(result_idx, core_result.summary);
         if (state.compute_inference) {
             anofox_free_result_inference(&inference_result);

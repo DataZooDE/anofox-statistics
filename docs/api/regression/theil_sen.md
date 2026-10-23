@@ -81,7 +81,7 @@ ORDER BY grp;
 | `compute_inference` (alias `inference`) | BOOLEAN | `false` | Add coefficient confidence intervals, see [Inference](#inference) |
 | `confidence_level` (alias `confidence`) | DOUBLE | `0.95` | Confidence level for intervals |
 | `ci_method` | VARCHAR | `'exact'` for one feature, `'bootstrap'` otherwise | `'exact'`: Sen's distribution-free interval (one feature with an intercept only); `'bootstrap'`: pairs bootstrap |
-| `n_bootstrap` (alias `n_boot`) | INTEGER | `999` | Bootstrap resamples, at least 2 |
+| `n_bootstrap` (alias `n_boot`) | INTEGER | `999` (`theil_sen_tidy_by`: `199`) | Bootstrap resamples, at least 2 |
 
 The window, fit-predict aggregate and table-macro forms also accept
 `null_policy` (see [Fit-predict aggregates](fit_predict_agg.md#null_policy));
@@ -116,9 +116,9 @@ coefficients, computed in one of two ways (`ci_method`):
   `t_values` holds Kendall's continuity-corrected `z = sign(S)(|S| − 1) / sqrt(Var S)`
   and `p_values` its two-sided normal p-value for slope = 0 (R `trend::sens.slope`;
   with ties in `x`, `cor.test(x, y, method = "kendall", continuity = TRUE)`).
-  The interval has no standard error (`std_errors` is NaN) and there is none for
+  The interval has no standard error (`std_errors` is NULL) and there is none for
   the intercept. With very few rows the rank falls outside `1..N` and the
-  bound is NaN (with 4 rows at 95%, for example).
+  bounds are NULL (with 4 rows at 95%, for example).
 - **`'bootstrap'`** (the default otherwise, and for the intercept): the pairs
   bootstrap. `n_bootstrap` resamples of the rows are refitted with the same
   options; `std_errors` and `intercept_std_error` are the bootstrap standard
@@ -126,10 +126,11 @@ coefficients, computed in one of two ways (`ci_method`):
   The result is deterministic for a given `seed` and does not depend on the
   row order or the number of threads. Resamples that cannot be fitted (e.g.
   all `x` equal) are skipped. There is no test statistic: `t_values` and
-  `p_values` are NaN. The bootstrap refits the model `n_bootstrap` times, so it
+  `p_values` are NULL. The bootstrap refits the model `n_bootstrap` times, so it
   costs about that many fits; lower `n_bootstrap` for large groups.
 
-Theil-Sen has no F-test: `f_statistic` and `f_pvalue` are NaN. A coverage
+Theil-Sen has no F-test: `f_statistic` and `f_pvalue` are NULL. Statistics a
+method does not define are NULL (not applicable), never NaN. A coverage
 simulation (400 data sets, n = 40, Laplace noise, 90% level) gave 88.5% for the
 exact interval, 88.5% / 87.0% for the one-feature bootstrap slope / intercept
 and 91.0% / 91.2% for a two-feature bootstrap.
@@ -157,6 +158,15 @@ FROM (
 
 `theil_sen_tidy_by` computes the intervals by default and carries them into
 the `terms` rows (`std_error`, `statistic`, `p_value`, `conf_low`, `conf_high`).
+It bootstraps with **199** resamples by default (the aggregates: 999), because
+it fits every group; pass `options := {'n_bootstrap': 999}` for more.
+For scale: on 50 groups of 500 rows with 3 features (a loaded 20-core
+machine), the point fits take about 10 ms per group, `theil_sen_tidy_by` with
+its defaults about 1.4 s of CPU per group (69 s in total) and
+`theil_sen_fit_agg` with `compute_inference` and 999 resamples about 8 s of CPU
+per group. DuckDB finalizes the groups of a small table on few threads, so
+expect these as wall-clock times too. One-feature exact intervals cost about as
+much as the point fit.
 
 **Before #222** `compute_inference` returned these
 fields but left them empty (NaN / NULL): the solver had no inference. See the

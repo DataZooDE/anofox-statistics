@@ -15,16 +15,16 @@ CREATE TABLE s AS SELECT 'a' AS g, i::DOUBLE AS t, y FROM (SELECT unnest(range(1
             9.9, 10.2, 7.9, 12.6, 7.1, 6.1, 11.6, 10.4, 11.0, 14.7]) AS y);
 
 # Exact (the default for one feature): conf_low / conf_high, Kendall's z in t_values,
-# its p-value; no standard error, no intercept interval, no F test
+# its p-value; no standard error, no intercept interval, no F test (all NULL)
 query IIIIIIIII
 SELECT abs(m.coefficients[1] - 0.36923076923076920) < 1e-12,
        abs(m.conf_low[1] - 0.27142857142857141) < 1e-12,
        abs(m.conf_high[1] - 0.46956521739130430) < 1e-12,
        abs(m.t_values[1] - 4.9800259490986427) < 1e-10,
        abs(m.p_values[1] - 6.3575748208488164e-07) < 1e-15,
-       m.conf_level, isnan(m.std_errors[1]),
+       m.conf_level, m.std_errors IS NULL,
        m.intercept_conf_low IS NULL AND m.intercept_std_error IS NULL,
-       isnan(m.f_statistic)
+       m.f_statistic IS NULL AND m.f_pvalue IS NULL
 FROM (SELECT theil_sen_fit_agg(y, [t], {'compute_inference': true}) AS m FROM s);
 ----
 true	true	true	true	true	0.95	true	true	true
@@ -58,12 +58,12 @@ FROM (SELECT theil_sen_fit_agg(y, [x], {'compute_inference': true}) AS m FROM ti
 ----
 true	true	true	true
 
-# Too few rows for the exact interval at this level: NULL-like NaN bounds, the test stays
+# Too few rows for the exact interval at this level: NULL bounds, the test stays
 statement ok
 CREATE TABLE tiny AS SELECT unnest([1.0, 2.0, 3.0, 4.0]) AS x, unnest([1.0, 3.0, 2.0, 5.0]) AS y;
 
 query II
-SELECT isnan(m.conf_low[1]) AND isnan(m.conf_high[1]), m.p_values[1] BETWEEN 0 AND 1
+SELECT m.conf_low IS NULL AND m.conf_high IS NULL, m.p_values[1] BETWEEN 0 AND 1
 FROM (SELECT theil_sen_fit_agg(y, [x], {'compute_inference': true}) AS m FROM tiny);
 ----
 true	true
@@ -89,7 +89,7 @@ SELECT g,
        a.conf_low[1] < a.coefficients[1] AND a.coefficients[1] < a.conf_high[1]
            AND a.conf_low[2] < a.coefficients[2] AND a.coefficients[2] < a.conf_high[2]
            AND a.intercept_conf_low < a.intercept AND a.intercept < a.intercept_conf_high,
-       isnan(a.t_values[1]) AND isnan(a.p_values[2]) AND a.intercept_p_value IS NULL,
+       a.t_values IS NULL AND a.p_values IS NULL AND a.intercept_p_value IS NULL AND a.f_statistic IS NULL,
        a.std_errors = r.std_errors AND a.conf_low = r.conf_low AND a.intercept_conf_high = r.intercept_conf_high,
        a.std_errors <> s7.std_errors,
        a.conf_level
@@ -102,7 +102,7 @@ FROM b ORDER BY g;
 query III
 SELECT m.intercept_conf_low < m.intercept AND m.intercept < m.intercept_conf_high,
        abs(m.conf_low[1] - 0.2714) < 0.1 AND abs(m.conf_high[1] - 0.4696) < 0.1,
-       isnan(m.t_values[1])
+       m.t_values IS NULL AND m.p_values IS NULL
 FROM (SELECT theil_sen_fit_agg(y, [t], {'compute_inference': true, 'ci_method': 'bootstrap', 'n_boot': 299}) AS m FROM s);
 ----
 true	true	true
@@ -131,3 +131,28 @@ statement error
 SELECT theil_sen_fit_agg(y, [x1, x2], {'compute_inference': true, 'n_bootstrap': 1}) FROM m2;
 ----
 n_boot must be >= 2
+
+# theil_sen_tidy_by bootstraps with 199 resamples by default (the aggregate: 999);
+# options override it
+query I
+SELECT bool_and(std_error > 0) FROM theil_sen_tidy_by('m2', g, y, [x1, x2]);
+----
+true
+
+query I
+SELECT count(*) FROM (
+    SELECT t.g, t.term, t.std_error
+    FROM theil_sen_tidy_by('m2', g, y, [x1, x2]) t
+    JOIN (SELECT g, unnest(tidy(theil_sen_fit_agg(y, [x1, x2], {'compute_inference': true, 'n_boot': 199}))) AS r FROM m2 GROUP BY g) a
+      ON a.g = t.g AND (a.r).term = t.term AND (a.r).std_error = t.std_error);
+----
+6
+
+query I
+SELECT count(*) FROM (
+    SELECT t.g, t.term, t.std_error
+    FROM theil_sen_tidy_by('m2', g, y, [x1, x2], options := {'n_bootstrap': 99}) t
+    JOIN (SELECT g, unnest(tidy(theil_sen_fit_agg(y, [x1, x2], {'compute_inference': true, 'n_boot': 99}))) AS r FROM m2 GROUP BY g) a
+      ON a.g = t.g AND (a.r).term = t.term AND (a.r).std_error = t.std_error);
+----
+6

@@ -38,6 +38,9 @@ struct ModelOutputModel {
 	bool dynamic_terms = false;
 	//! The intervals are Bayesian credible intervals (#222), not confidence intervals.
 	bool credible = false;
+	//! Extra option defaults of <prefix>_tidy_by, merged under the user's options
+	//! (Theil-Sen #222: a smaller bootstrap than the aggregate's default).
+	const char *tidy_defaults = nullptr;
 };
 
 // clang-format off
@@ -48,7 +51,7 @@ const ModelOutputModel MODEL_OUTPUT_MODELS[] = {
     {"elasticnet", "an Elastic Net regression", nullptr, false},
     {"huber", "a Huber M-estimator regression", nullptr, true},
     {"ransac", "a RANSAC regression", nullptr, true},
-    {"theil_sen", "a Theil-Sen regression", nullptr, true},
+    {"theil_sen", "a Theil-Sen regression", nullptr, true, false, false, false, "'n_boot': '199'"},
     {"rls", "a recursive least squares regression", nullptr, false},
     {"lars", "a LARS / Lasso-LARS regression", nullptr, false},
     {"bayesian_ridge", "a Bayesian Ridge regression", nullptr, false, false, false, true},
@@ -88,7 +91,9 @@ string TidyFitCall(const ModelOutputModel &m) {
 		return FitCall(m);
 	}
 	return string(m.prefix) + "_fit_agg(y_col, x_cols" + (m.extra_col ? string(", ") + m.extra_col : string()) +
-	       ", map_concat(MAP {'compute_inference': 'true'}, coalesce(options::MAP(VARCHAR, VARCHAR), "
+	       ", map_concat(MAP {'compute_inference': 'true'" +
+	       (m.tidy_defaults ? ", " + string(m.tidy_defaults) : string()) +
+	       "}, coalesce(options::MAP(VARCHAR, VARCHAR), "
 	       "MAP {}::MAP(VARCHAR, VARCHAR))))";
 }
 
@@ -489,7 +494,8 @@ void RegisterModelOutputMacros(ExtensionLoader &loader) {
 		              " per group of source and returns one row per term (intercept first): the group column, id (the group), model_id and model_name (the method), "
 		              "term, estimate, std_error, statistic, p_value, conf_low, conf_high, conf_level, index_name, "
 		              "index_value." + order_note +
-		              (m.inference ? "Inference is computed by default (compute_inference is merged under options). "
+		              (m.inference ? "Inference is computed by default (compute_inference is merged under options" +
+		                                 (m.tidy_defaults ? ", with " + string(m.tidy_defaults) : string()) + "). "
 		               : m.credible ? "std_error is the posterior standard deviation and conf_low / conf_high the "
 		                              "central Bayesian credible interval at conf_level (options' confidence_level), "
 		                              "not a frequentist confidence interval; statistic and p_value are NULL. "

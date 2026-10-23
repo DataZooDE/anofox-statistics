@@ -25,9 +25,10 @@ Breaking changes are called out explicitly.
   intervals (documented; the `terms` schema is unchanged). Validated against
   scikit-learn 1.9.1's `sigma_` to 1e-7 (`test/sql/reference/regression_bayesian.test`;
   the intercept SD against the inverted full posterior precision). Previously these
-  fields were NULL. Requires anofox-regression 0.5.30.
+  fields were NULL. Requires anofox-regression 0.5.34.
 - **Theil-Sen confidence intervals (#222).** New options `ci_method` (`'exact'` |
-  `'bootstrap'`) and `n_bootstrap` (alias `n_boot`, default 999; the existing `seed` /
+  `'bootstrap'`) and `n_bootstrap` (alias `n_boot`, default 999, 199 in
+  `theil_sen_tidy_by`; the existing `seed` /
   `random_state` seeds it) for `theil_sen_fit` / `theil_sen_fit_agg` with
   `compute_inference`. `'exact'` (the default with one feature) is Sen's (1968)
   distribution-free slope interval with Kendall's tie-corrected variance, plus
@@ -55,10 +56,13 @@ Breaking changes are called out explicitly.
   never computed (they were never OLS-style values). They now hold the exact or
   bootstrap intervals described under Added. Field names are unchanged; what each
   holds depends on the method: with `'exact'` `t_values` is Kendall's z (not a t
-  statistic) and `std_errors` stays NaN; with `'bootstrap'` `t_values` / `p_values`
-  stay NaN. `f_statistic` / `f_pvalue` stay NaN: Theil-Sen has no F-test. Note the
+  statistic) and `std_errors` is NULL; with `'bootstrap'` `t_values` / `p_values`
+  are NULL. `f_statistic` / `f_pvalue` are NULL: Theil-Sen has no F-test. Statistics
+  a method does not define are NULL, not NaN. Note the
   cost: multi-feature fits with `compute_inference` (and `theil_sen_tidy_by`, which
-  turns it on by default) refit the model `n_bootstrap` times per group; lower
+  turns it on by default, with 199 resamples) refit the model `n_bootstrap` times
+  per group: on 500 rows × 3 features about 1.4 s of CPU per group for
+  `theil_sen_tidy_by` and 8 s with the aggregate's 999 resamples. Lower
   `n_bootstrap` or pass `{'compute_inference': false}` where that is too slow.
 
 ## [0.12.2] - 2026-10-22

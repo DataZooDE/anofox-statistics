@@ -247,6 +247,39 @@ void ModelStructWriter::WriteInference(idx_t row, const AnofoxFitResultInference
 	}
 }
 
+static bool AllNaN(const double *data, size_t len) {
+	if (!data) {
+		return true;
+	}
+	for (size_t i = 0; i < len; i++) {
+		if (!std::isnan(data[i])) {
+			return false;
+		}
+	}
+	return true;
+}
+
+void ModelStructWriter::WriteInferenceNullUndefined(idx_t row, const AnofoxFitResultInference *inference) {
+	if (!inference) {
+		WriteInference(row, nullptr);
+		return;
+	}
+	AnofoxFitResultInference shown = *inference;
+	auto len = shown.len;
+	for (double **list : {&shown.std_errors, &shown.t_values, &shown.p_values, &shown.ci_lower, &shown.ci_upper}) {
+		if (len > 0 && AllNaN(*list, len)) {
+			*list = nullptr; // WriteList writes a NULL list
+		}
+	}
+	WriteInference(row, &shown);
+	if (std::isnan(shown.f_statistic)) {
+		WriteNull(Field("f_statistic"), row);
+	}
+	if (std::isnan(shown.f_pvalue)) {
+		WriteNull(Field("f_pvalue"), row);
+	}
+}
+
 void ModelStructWriter::WriteSummary(idx_t row, const AnofoxModelSummaryFFI &summary) {
 	WriteString(Field("model_type"), row, summary.model_type);
 	WriteString(Field("family"), row, summary.family);

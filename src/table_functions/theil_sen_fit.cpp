@@ -241,7 +241,7 @@ static void TheilSenFitFunctionImpl(DataChunk &args, ExpressionState &state, Vec
         FlatDataMut<int64_t>(StructEntry(struct_vec[struct_idx++]))[row] = core_result.n_features;
 
         // Inference (NULL unless requested), CI fields and the model summary
-        writer.WriteInference(row, bind_data.compute_inference ? &inference_result : nullptr);
+        writer.WriteInferenceNullUndefined(row, bind_data.compute_inference ? &inference_result : nullptr);
         writer.WriteSummary(row, core_result.summary);
         if (bind_data.compute_inference) {
             anofox_free_result_inference(&inference_result);
