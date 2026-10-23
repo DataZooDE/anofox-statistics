@@ -1611,7 +1611,8 @@ The measures come from `anofox_regression::diagnostics::augment` and match R
 gives NULL columns.
 
 **Leave-one-out (#220).** `ols_glance_by` / `wls_glance_by` (and the
-`ols_fit_agg` / `wls_fit_agg` / `ols_fit` / `wls_fit` STRUCT, so `glance()`)
+`ols_fit_agg` / `wls_fit_agg` / `ols_fit` / `wls_fit` STRUCT with the opt-in
+option `{'compute_loo': true}`, one more QR of the design; so `glance()`)
 add `press = sum(weight * loo_residual^2)`, `press_rmse = sqrt(press / n)` and
 the predicted R² `loo_r_squared = 1 - press / SST` (SST as for `r_squared`).
 For WLS `loo_residual` is on the response scale and `press` is weighted by the

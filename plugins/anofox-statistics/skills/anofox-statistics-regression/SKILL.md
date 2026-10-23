@@ -195,8 +195,9 @@ structs end with `vcov DOUBLE[]` (row-major k × k, intercept first) and `df_res
 `compute_inference`.
 OLS and WLS (`*_fit_agg` and `ols_fit` / `wls_fit`) then add the leave-one-out statistics `press`
 (Σ (eᵢ/(1−hᵢᵢ))², R `sum(rstandard(fit, type = "predictive")^2)`; WLS weighted), `press_rmse`
-(√(press/n)) and `loo_r_squared` (predicted R² / Q² = 1 − press/SST, never above `r_squared`), always
-computed, NULL when a row has leverage 1. `glance()` carries them too (NULL for other models);
+(√(press/n)) and `loo_r_squared` (predicted R² / Q² = 1 − press/SST, never above `r_squared`), NULL
+unless `{'compute_loo': true}` (opt-in, one more QR; not implied by `compute_inference`; `ols_glance_by` /
+`wls_glance_by` turn it on) and when a row has leverage 1. `glance()` carries them too (NULL for other models);
 per-row `loo_residual` / `loo_fitted` are in `ols_augment_by` / `wls_augment_by`.
 
 ## Worked examples

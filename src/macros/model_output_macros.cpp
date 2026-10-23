@@ -36,12 +36,15 @@ struct ModelOutputModel {
 	//! The coefficients vary over time (lmDynamic): <prefix>_tidy_by returns one
 	//! set of terms per observation (DynamicTidySql) instead of tidy().
 	bool dynamic_terms = false;
+	//! The fit has the opt-in leave-one-out statistics (#220): <prefix>_glance_by
+	//! turns compute_loo on, so press / press_rmse / loo_r_squared are reported.
+	bool loo = false;
 };
 
 // clang-format off
 const ModelOutputModel MODEL_OUTPUT_MODELS[] = {
-    {"ols", "an OLS regression", nullptr, true},
-    {"wls", "a weighted least squares regression", "weight_col", true},
+    {"ols", "an OLS regression", nullptr, true, false, false, true},
+    {"wls", "a weighted least squares regression", "weight_col", true, false, false, true},
     {"ridge", "a Ridge regression", nullptr, true},
     {"elasticnet", "an Elastic Net regression", nullptr, false},
     {"huber", "a Huber M-estimator regression", nullptr, true},
@@ -156,6 +159,17 @@ string RollingTidySql(const ModelOutputModel &m) {
 	       "ORDER BY group_col, window_end";
 }
 
+//! The fit call of <model>_glance_by: compute_loo := true merged under the user's options for the models
+//! with leave-one-out statistics (#220).
+string GlanceFitCall(const ModelOutputModel &m) {
+	if (!m.loo) {
+		return FitCall(m);
+	}
+	return string(m.prefix) + "_fit_agg(y_col, x_cols" + (m.extra_col ? string(", ") + m.extra_col : string()) +
+	       ", map_concat(MAP {'compute_loo': 'true'}, coalesce(options::MAP(VARCHAR, VARCHAR), "
+	       "MAP {}::MAP(VARCHAR, VARCHAR))))";
+}
+
 string GlanceSql(const ModelOutputModel &m) {
 	string metrics;
 	for (auto metric : GLANCE_METRICS) {
@@ -168,7 +182,7 @@ string GlanceSql(const ModelOutputModel &m) {
 	       "FROM (SELECT group_col, " +
 	       ModelIds(m.prefix) + ", (_g).model_type AS model_type, unnest([" +
 	       metrics +
-	       "]) AS _mv FROM (SELECT group_col, glance(" + FitCall(m) +
+	       "]) AS _mv FROM (SELECT group_col, glance(" + GlanceFitCall(m) +
 	       ") AS _g FROM query_table(source::VARCHAR) GROUP BY group_col)) "
 	       "WHERE (_mv).value IS NOT NULL ORDER BY group_col, metric";
 }

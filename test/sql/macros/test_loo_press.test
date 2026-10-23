@@ -214,19 +214,43 @@ SELECT count(*) FROM ols_glance_by('dt', g, y, [x1, x2]) WHERE g = 'c' AND metri
 ----
 0
 
-# The fields come from the fit STRUCT: ols_fit_agg / wls_fit_agg and glance()
+# The fields come from the fit STRUCT (opt-in: compute_loo, one more QR of the design) and glance()
 query IIII
 SELECT g, round((m).press, 8), round((m).press_rmse, 8), round(glance(m).loo_r_squared, 8)
-FROM (SELECT g, ols_fit_agg(y, [x1, x2]) AS m FROM dt GROUP BY g) ORDER BY g;
+FROM (SELECT g, ols_fit_agg(y, [x1, x2], {'compute_loo': true}) AS m FROM dt GROUP BY g) ORDER BY g;
 ----
 a	15.53509011	1.01768004	0.95332867
 b	10.45451185	0.83484577	0.92643660
 c	NULL	NULL	NULL
 
 query II
-SELECT g, round((wls_fit_agg(y, [x1, x2], w)).press, 8) FROM dt WHERE g = 'a' GROUP BY g;
+SELECT g, round((wls_fit_agg(y, [x1, x2], w, {'compute_loo': true})).press, 8) FROM dt WHERE g = 'a' GROUP BY g;
 ----
 a	27.17647881
+
+# Without compute_loo the fields are present and NULL; compute_inference does not imply it
+query III
+SELECT (ols_fit_agg(y, [x1, x2])).press IS NULL,
+       (ols_fit_agg(y, [x1, x2], {'compute_inference': true})).loo_r_squared IS NULL,
+       (wls_fit_agg(y, [x1, x2], w)).press_rmse IS NULL
+FROM dt WHERE g = 'a';
+----
+true	true	true
+
+# The scalar fits take the option too
+query II
+SELECT (ols_fit(list(y ORDER BY id), [list(x1 ORDER BY id), list(x2 ORDER BY id)])).press IS NULL,
+       round((ols_fit(list(y ORDER BY id), [list(x1 ORDER BY id), list(x2 ORDER BY id)], {'compute_loo': true})).press, 8)
+FROM dt WHERE g = 'a';
+----
+true	15.53509011
+
+# glance_by turns compute_loo on; an explicit compute_loo := false from the user wins
+query I
+SELECT count(*) FROM ols_glance_by('dt', g, y, [x1, x2], options := {'compute_loo': false})
+WHERE metric IN ('press', 'press_rmse', 'loo_r_squared');
+----
+0
 
 # Models without exact leave-one-out statistics report NULL
 query II

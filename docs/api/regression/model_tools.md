@@ -426,7 +426,7 @@ For OLS and WLS the exact leave-one-out quantities follow from the leverage
 |---|---|---|---|
 | `loo_residual` | `ols_augment_by`, `wls_augment_by` | `residual / (1 - leverage)`: `y` minus the prediction of the fit without the row (the PRESS residual) | `residuals(fit) / (1 - hatvalues(fit))`; OLS: `rstandard(fit, type = "predictive")` |
 | `loo_fitted` | `ols_augment_by`, `wls_augment_by` | `y - loo_residual`, the prediction for the row from the fit without it | |
-| `press` | `ols_glance_by`, `wls_glance_by`, `ols_fit_agg`, `wls_fit_agg`, `ols_fit`, `wls_fit`, `glance()` | `sum(weight * loo_residual^2)` | `sum(rstandard(fit, type = "predictive")^2)` |
+| `press` | `ols_glance_by`, `wls_glance_by`; `ols_fit_agg`, `wls_fit_agg`, `ols_fit`, `wls_fit` with `compute_loo` (and `glance()` of them) | `sum(weight * loo_residual^2)` | `sum(rstandard(fit, type = "predictive")^2)` |
 | `press_rmse` | as `press` | `sqrt(press / n)` | |
 | `loo_r_squared` | as `press` | predicted R² (Q²) `1 - press / SST`, with the SST of `r_squared` (centred with an intercept, uncentred without) | |
 
@@ -435,6 +435,12 @@ is that of the weighted fit, and `press` weights the squares by the prior
 weights (R's predictive residual is `sqrt(w)` times `loo_residual`).
 `loo_r_squared` is never above `r_squared`; a large gap points to rows that
 the fit leans on.
+
+On the fit functions the three statistics cost one more QR of the design and
+are opt-in: pass `{'compute_loo': true}` (independent of `compute_inference`);
+otherwise the fields are NULL. `ols_glance_by` / `wls_glance_by` turn it on
+(an explicit `compute_loo := false` in `options` wins). The `_augment_by`
+columns are always computed, from the leverage they already have.
 
 A row with leverage 1 (for example the only observation of a dummy level, or
 any row of a fit with as many coefficients as rows) determines its own fitted

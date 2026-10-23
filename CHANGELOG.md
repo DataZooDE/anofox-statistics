@@ -22,8 +22,10 @@ Breaking changes are called out explicitly.
   - `ols_glance_by` / `wls_glance_by` add the metrics `press` (Σ loo_residual², weighted
     by the prior weights for WLS), `press_rmse = sqrt(press / n)` and `loo_r_squared`, the
     predicted R² (Q²) `1 - press / SST` with the SST of `r_squared`. They come from new
-    fields of the `ols_fit_agg`, `wls_fit_agg`, `ols_fit` and `wls_fit` STRUCT, and
-    `glance()` has them for every model (NULL where not computed).
+    fields of the `ols_fit_agg`, `wls_fit_agg`, `ols_fit` and `wls_fit` STRUCT, filled
+    with the new opt-in option `compute_loo` (default false: one more QR of the design;
+    independent of `compute_inference`), which the glance macros turn on; `glance()` has
+    them for every model (NULL where not computed).
   - A row with leverage 1 (e.g. the only observation of a dummy level, or a fit with zero
     residual degrees of freedom) has NULL `loo_residual` / `loo_fitted`, and the group's
     `press`, `press_rmse` and `loo_r_squared` are NULL; rows outside training have NULL
