@@ -28,7 +28,10 @@ namespace {
 constexpr idx_t kNone = DConstants::INVALID_INDEX;
 
 struct TidyBindData : public FunctionData {
-	idx_t coef = kNone, intercept = kNone, std_errors = kNone, statistic = kNone, p_values = kNone,
+	//! statistic_alt: a second statistic list (a GLMM has t_values and z_values, one of
+	//! them NULL per fit); a row reads whichever is set.
+	idx_t coef = kNone, intercept = kNone, std_errors = kNone, statistic = kNone, statistic_alt = kNone,
+	      p_values = kNone,
 	      ci_lower = kNone, ci_upper = kNone, intercept_se = kNone, intercept_statistic = kNone,
 	      intercept_p_value = kNone, intercept_conf_low = kNone, intercept_conf_high = kNone, conf_level = kNone;
 
@@ -38,7 +41,7 @@ struct TidyBindData : public FunctionData {
 	bool Equals(const FunctionData &other_p) const override {
 		auto &o = other_p.Cast<TidyBindData>();
 		return coef == o.coef && intercept == o.intercept && std_errors == o.std_errors &&
-		       statistic == o.statistic && p_values == o.p_values && ci_lower == o.ci_lower &&
+		       statistic == o.statistic && statistic_alt == o.statistic_alt && p_values == o.p_values && ci_lower == o.ci_lower &&
 		       ci_upper == o.ci_upper && intercept_se == o.intercept_se &&
 		       intercept_statistic == o.intercept_statistic && intercept_p_value == o.intercept_p_value &&
 		       intercept_conf_low == o.intercept_conf_low && intercept_conf_high == o.intercept_conf_high &&
@@ -90,7 +93,7 @@ unique_ptr<FunctionData> TidyBind(ClientContext &, ScalarBindFunction &, vector<
 			} else if (name == "std_errors") {
 				data->std_errors = i;
 			} else if (name == "t_values" || name == "z_values") {
-				data->statistic = i;
+				(data->statistic == kNone ? data->statistic : data->statistic_alt) = i;
 			} else if (name == "p_values") {
 				data->p_values = i;
 			} else if (name == "conf_low" || (name == "ci_lower" && data->ci_lower == kNone)) {
@@ -208,6 +211,9 @@ static void TidyFunctionImpl(DataChunk &args, ExpressionState &state, Vector &re
 		}
 		DoubleListView se(entries, bind.std_errors, row), stat(entries, bind.statistic, row),
 		    pv(entries, bind.p_values, row), lo(entries, bind.ci_lower, row), hi(entries, bind.ci_upper, row);
+		if (!stat.present) {
+			stat = DoubleListView(entries, bind.statistic_alt, row);
+		}
 		double intercept = ScalarField(entries, bind.intercept, row);
 		// conf_level only describes rows that have an interval.
 		double conf_level = lo.present ? ScalarField(entries, bind.conf_level, row) : std::nan("");
@@ -297,6 +303,9 @@ const GlanceField GLANCE_FIELDS[] = {
     {"null_deviance", LogicalTypeId::DOUBLE}, {"pseudo_r_squared", LogicalTypeId::DOUBLE},
     {"dispersion", LogicalTypeId::DOUBLE},    {"iterations", LogicalTypeId::BIGINT},
     {"converged", LogicalTypeId::BOOLEAN},
+    // Leave-one-out statistics of OLS / WLS fits (#220).
+    {"press", LogicalTypeId::DOUBLE},         {"press_rmse", LogicalTypeId::DOUBLE},
+    {"loo_r_squared", LogicalTypeId::DOUBLE},
 };
 
 LogicalType GlanceType() {
@@ -421,7 +430,8 @@ void RegisterTidyGlanceFunctions(ExtensionLoader &loader) {
 	gd.description = "Model-level summary with the same fields for every model: model_type, family, link, "
 	                 "n_observations, n_features, r_squared, adj_r_squared, residual_std_error, f_statistic, "
 	                 "f_pvalue, log_likelihood, aic, bic, deviance, null_deviance, pseudo_r_squared, dispersion, "
-	                 "iterations, converged. Fields a model does not have are NULL.";
+	                 "iterations, converged, press, press_rmse, loo_r_squared. Fields a model does not have are "
+	                 "NULL.";
 	gd.examples = {"glance(ols_fit_agg(y, [x1, x2])).*"};
 	gd.categories = {"regression"};
 	gd.parameter_names = {"model"};

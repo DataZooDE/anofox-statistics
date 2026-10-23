@@ -10,6 +10,212 @@ Breaking changes are called out explicitly.
 
 ## [Unreleased]
 
+### Added
+
+- **Credible intervals for Bayesian Ridge / ARD (#222).** `bayesian_ridge_fit_agg` and
+  `ard_fit_agg` now fill the shared inference fields from the posterior: `std_errors`
+  is the posterior SD (`posterior_sd`, 0 for features ARD pruned), `conf_low` /
+  `conf_high` the central credible interval `coefficient ∓ z · sd` at
+  `confidence_level` (now accepted by the fit aggregates, default 0.95) and
+  `conf_level` that level. The intercept gets a flat prior: `intercept_std_error` is
+  `sqrt(1/(n·α) + x̄ᵀ Σ x̄)` with its interval in `intercept_conf_low` /
+  `intercept_conf_high`. There is no test, so `t_values`, `p_values` and the intercept
+  statistic / p-value stay NULL. `bayesian_ridge_tidy_by` / `ard_tidy_by` carry the
+  values into the `terms` rows; they are Bayesian credible intervals, not confidence
+  intervals (documented; the `terms` schema is unchanged). Validated against
+  scikit-learn 1.9.1's `sigma_` to 1e-7 (`test/sql/reference/regression_bayesian.test`;
+  the intercept SD against the inverted full posterior precision). Previously these
+  fields were NULL. Requires anofox-regression 0.5.34.
+
+- **Theil-Sen confidence intervals (#222).** New options `ci_method` (`'exact'` |
+  `'bootstrap'` | `'exact_or_none'`) and `n_bootstrap` (alias `n_boot`, default 999;
+  the existing `seed` /
+  `random_state` seeds it) for `theil_sen_fit` / `theil_sen_fit_agg` with
+  `compute_inference`. `'exact'` (the default with one feature) is Sen's (1968)
+  distribution-free slope interval with Kendall's tie-corrected variance, plus
+  Kendall's continuity-corrected z in `t_values` and its p-value; it matches R's
+  `trend::sens.slope` to 1e-12. `'bootstrap'` (the default with several features)
+  is the pairs bootstrap: bootstrap standard errors and percentile intervals for
+  every coefficient and the intercept, deterministic for a seed whatever the row
+  order or thread count; it costs about `n_bootstrap` point fits per group (about
+  8 s per group at 500 rows × 3 features). `theil_sen_tidy_by` carries the
+  intervals into `terms`; it defaults to `'exact_or_none'` (one feature: exact;
+  several features: NULL intervals and no bootstrap, so existing multi-feature
+  calls stay as fast as before) and bootstraps only with `options :=
+  {'ci_method': 'bootstrap'}` (199 resamples by default there). Previously
+  these fields were NaN / NULL (see Fixed). `n_bootstrap`
+  is also an alias of `quantile_fit_agg`'s `n_boot`.
+
+- **Multiple-testing correction for any p-values (#219).** R's
+  `p.adjust(p, method, n)`, from upstream anofox-statistics 0.4.11 (which adds the
+  explicit `n`), in three forms:
+  - `p_adjust_by(source, group_col, p_col, method := 'holm', n := NULL)` returns every
+    source row, in source order, with `p_adjusted`; each group is one family.
+  - `p_adjust_agg(p [, method [, n]])` returns the adjusted p-values of a group as a
+    `DOUBLE[]` in input order (`ORDER BY` inside the call).
+  - `p_adjust_list(p DOUBLE[] [, method [, n]])` adjusts a list.
+
+  Methods: `holm` (default), `hochberg`, `hommel`, `bonferroni`, `BH` (alias `fdr`),
+  `BY`, `none`; case-insensitive. An unknown method is an error at bind time. NULL
+  p-values stay NULL and are not counted. `n` (the number of hypotheses) defaults to the
+  number of non-NULL p-values; a smaller `n` is an error. All methods, with and without
+  `n`, match R 4.6.1 to 1e-14 (`test/sql/reference/p_adjust_reference.test`). A
+  `p_adjust(p) OVER (PARTITION BY ...)` window function is not possible on DuckDB 1.x:
+  an extension's window aggregate is not told which row of a whole-partition frame it is
+  computing (follow-up for DuckDB 2.0: #224).
+
+- **`mediation_by` and `mediation_agg`: causal mediation analysis per group (#223).**
+  `mediation_by(source, group_col, treatment, mediator, outcome, covariates := [...],
+  options := {...})` fits the mediator model `m ~ x + covariates` and the outcome model
+  `y ~ x + m + covariates` by OLS on the same complete rows (rows with a NULL anywhere
+  are dropped from both) and returns, per group, the ACME (indirect effect `a·b`), the
+  ADE (direct effect `c'`), the total effect and the proportion mediated for the
+  contrast `treat_value − control_value`, in the contract `terms` schema (`id` = group,
+  `model_id = 'mediation'`) plus `method`, `n_obs` and `n_sims`. Inference by a
+  nonparametric case-resampling bootstrap (default: `n_bootstrap` 1000, `seed` 42,
+  percentile or `mediate`'s BCa interval, `mediate`'s p-value), the Sobel / delta
+  method (`method := 'sobel'`) or `mediate`'s quasi-Bayesian Monte Carlo. Bootstrap
+  results are reproducible: the rows are put in a canonical order before resampling,
+  so neither the thread count nor the input order changes them. `mediation_agg(y, m, x
+  [, covariates [, options]])` is the aggregate building block. The computation is
+  upstream (anofox-regression 0.5.31, `solvers::mediation`), validated against R
+  `mediation::mediate`, `lavaan` and `bda::mediation.test`. Linear models only for now:
+  binary outcomes or mediators, a treatment × mediator interaction, multiple mediators
+  and the sensitivity analysis are not supported. See
+  [Mediation](docs/api/statistics/mediation.md).
+
+- **`ols_anova_agg` / `ols_anova_by`: nested-model F test (#221).** Tests whether a full
+  OLS model fits significantly better than a reduced one, as R's
+  `anova(lm(y ~ x_reduced), lm(y ~ x_full))`, with both fits on the same rows (a row is
+  dropped when `y` or any list element is NULL). `ols_anova_agg(y, x_reduced, x_full[, options])`
+  returns the contract `test` fields (`method = 'nested F'`, `statistic`, `df1`, `df2`,
+  `p_value`, ...) plus `rss_reduced`, `rss_full`, the adjusted R² of both models
+  (`adj_r_squared_reduced` / `adj_r_squared_full`), `delta_adj_r_squared` and
+  `n_observations`. `ols_anova_by(source, group_col, y_col, x_reduced := [...], x_full := [...])`
+  returns one row per group with `id` = the group and `model_id = 'ols'` (#187), and both are
+  tagged as `test` producers. The `x_reduced` columns must lie in the span of `x_full`
+  (an error otherwise), and `x_reduced := []` (the macro's default) is the intercept-only model,
+  i.e. the overall F test. Degrees of freedom count the numerical rank as R does, so aliased
+  columns add none; when `df1 = 0` or `df2 = 0` the statistic and p-value are NULL (R's `NA`;
+  upstream's NaN is never passed through, so `avg()` over the results is not poisoned). The fits and the test come from
+  anofox-regression 0.5.32 (`inference::nested_f_test`), which is validated against R, including
+  `df1 = 1` (F = t²), the intercept-only and no-intercept models and a rank-deficient design.
+  Sequential (type I) and partial (type II) per-term ANOVA tables are not included.
+
+- **GLMM inference and contract macros (#218).** `glmm_fit_agg` with
+  `compute_inference := true` now reports, per the new `ddf` option, lmerTest's
+  **Satterthwaite** t tests (`'satterthwaite'`, the gaussian default: t statistics,
+  t p-values and t intervals, the statistics in the new `t_values` field and the
+  degrees of freedom in the new `df` / `intercept_df` fields) or Wald z tests (`'wald'`, the default for the other
+  families; `df` is NULL). `compute_inference` stays opt-in. The BLUPs' conditional
+  standard errors are now filled in (`ranef[].se`, previously NaN; lme4
+  `ranef(condVar = TRUE)`), and every `ranef` entry also carries its full
+  random-effect vector `effects` with `effects_se` and a normal interval
+  (`effects_conf_low` / `effects_conf_high`). New field `df_residual` (lme4
+  `df.residual()`). Crossed fits (`groups`) now fill `ranef` for the positional
+  `group` factor (it was empty).
+
+- **`glmm_tidy_by`, `glmm_glance_by`, `glmm_augment_by`** (integration contract v1
+  `terms`, `summary` and `obs`, as broom.mixed `tidy` / `glance` / `augment`): one
+  GLMM per `group_col` with random effects over `re_group`; `model_id` =
+  `model_name` = `'glmm'`, `id` the group (not in `_augment_by`). `glmm_tidy_by`
+  returns fixed effects (with `df`), variance components (`ran_pars`: SDs,
+  correlations, residual SD) and BLUPs (`ran_vals`: conditional SEs and intervals),
+  told apart by the extra `effect`, `re_group` and `re_level` columns.
+  `glmm_augment_by` adds `fitted_population` and `pearson_residual`. The window
+  aggregate `glmm_augment_agg` returns the per-row values.
+
+- Index-list options (`random`, `groups`) also accept a list rendered as text
+  (`'[1, 2]'`), the form they take when a macro passes options through a
+  `MAP(VARCHAR, VARCHAR)`.
+
+- **Leave-one-out diagnostics for OLS and WLS (#220).** Exact, from the hat-matrix
+  diagonal, without refitting (computed upstream in anofox-regression,
+  `diagnostics::press` and `Augment::loo_residual` / `loo_fitted`):
+  - `ols_augment_by` / `wls_augment_by` (and `ols_augment_agg` / `wls_augment_agg`)
+    add `loo_residual = residual / (1 - leverage)`, the error of the fit without the
+    row (R `rstandard(fit, type = "predictive")` for OLS), and `loo_fitted = y -
+    loo_residual`, the prediction from the fit without the row.
+  - `ols_glance_by` / `wls_glance_by` add the metrics `press` (Σ loo_residual², weighted
+    by the prior weights for WLS), `press_rmse = sqrt(press / n)` and `loo_r_squared`, the
+    predicted R² (Q²) `1 - press / SST` with the SST of `r_squared`. They come from new
+    fields of the `ols_fit_agg`, `wls_fit_agg`, `ols_fit` and `wls_fit` STRUCT, filled
+    with the new opt-in option `compute_loo` (default false: one more QR of the design;
+    independent of `compute_inference`), which the glance macros turn on; `glance()` has
+    them for every model (NULL where not computed).
+  - A row with leverage 1 (e.g. the only observation of a dummy level, or a fit with zero
+    residual degrees of freedom) has NULL `loo_residual` / `loo_fitted`, and the group's
+    `press`, `press_rmse` and `loo_r_squared` are NULL; rows outside training have NULL
+    leave-one-out columns. Validated against R `lm()` (`residuals / (1 - hatvalues)`,
+    `rstandard(type = "predictive")`, explicit refits).
+  - Additive to the integration contract v1 (`obs`, `summary`). Ridge and the GLMs have no
+    leave-one-out columns yet.
+
+- **Cross-validation strategies and nested CV for ridge / elastic net (#204).** The fold
+  generators, explicit splits and the nested loop are anofox-regression 0.5.30's
+  `solvers::cv` (validated against scikit-learn); the extension maps arguments.
+  - `ridge_cv_agg` / `elasticnet_cv_agg` take a `cv_key` argument of any type and a
+    `cv_strategy` option: `'kfold'` (default without a key), `'fold_id'` (default with a
+    key: the key is the fold, as the previous BIGINT `fold_id` form, which keeps working),
+    `'group'` (group k-fold balanced by rows, sklearn `GroupKFold`), `'logo'`
+    (leave one group out), `'stratified'` (stratum key, or without a key `n_bins` quantile
+    bins of y) and `'time_series'` (rolling origin over a numeric / date / timestamp key
+    with `test_size` (alias `horizon`), `gap`, `window`, `max_train_size`; the splits are
+    over the distinct times, so all series of a date stay on one side). Several group
+    variables form one key as a STRUCT (`{'store': store, 'region': region}`), hashed in
+    the extension. New options `repeats` (repeated k-fold / stratified) and `metric`
+    (`'mse'`, `'mae'`).
+  - `ridge_nested_cv_agg` / `elasticnet_nested_cv_agg` (and `ridge_nested_cv_by` /
+    `elasticnet_nested_cv_by`): lambda is chosen by an inner CV (`inner_folds`, built from
+    each outer training set only with the same key; `rule` `'min'` or `'1se'`; per-fold
+    default grids) and scored on the outer test rows. They return `curve` rows
+    (`curve_type = 'nested_cv'`): one per outer fold (`series = 'fold'`, with `lambda`,
+    `test_error`, `inner_cv_mean`, `inner_cv_se`, `n_train`, `n_test`, `n_inner_folds`) and
+    a summary row (`series = 'mean'`, the test-size weighted mean and `test_se`).
+  - `ridge_cv_by` / `elasticnet_cv_by` and the nested macros take `cv_key := column`.
+
+### Changed
+
+- **Behaviour change: the Monte Carlo tests are seeded by default (#214).**
+  `permutation_t_test_agg`, `energy_distance_agg`, `mmd_agg` and `distance_cor_agg`
+  drew a fresh random set of permutations, and so a different p-value, on every
+  call unless `{'seed': ...}` was passed. Without a seed they now use the fixed
+  default seed 42, so repeated calls return the same p-value; an explicit `seed`
+  (alias `random_state`) still overrides it. Their samples are always put in a
+  canonical order first, so the seeded result is also independent of the thread
+  count. To get a different draw, pass a different seed.
+
+- **Behaviour change: window `*_fit_predict` returns NULL, not NaN, for a row with an
+  incomplete `x`** (#208). When the last row of the frame has an `x` list with a NULL,
+  NaN or ±Inf element, `ols_fit_predict`, `ridge_fit_predict`, `wls_fit_predict`,
+  `rls_fit_predict`, `elasticnet_fit_predict`, `huber_fit_predict`,
+  `ransac_fit_predict` and `theil_sen_fit_predict` used to return `yhat = NaN`; they
+  now return NULL, as `passive_aggressive_fit_predict` and a NULL `x` list already did.
+  NaN propagated silently through `avg()` and similar aggregates; NULL is skipped.
+  Code that tested `isnan(yhat)` for these rows should test `yhat IS NULL`. Rows with a
+  complete `x` are unchanged, and under `null_policy = 'zero'` a NULL element still
+  counts as 0.
+
+- CI builds, smoke-tests and deploys the extension for **DuckDB v2.0.0** on every
+  default platform (Linux amd64 and arm64, macOS arm64, WASM; `osx_amd64` and
+  musl are opt-in in DuckDB 2.0's CI tooling and are not built) and
+  publishes it to get.erpl.io, like the 1.5.x lines. This replaces the
+  non-blocking 2.0-dev job, which built only linux_amd64 and wasm_eh and deployed
+  nothing. The smoke test downloads DuckDB 2.0's renamed `.tar.gz` CLI assets.
+
+- Random-slope and crossed GLMM fits converge more tightly (anofox-regression
+  0.5.33 polishes the variance parameters with Newton steps after Nelder–Mead), so
+  their estimates can move in the 5th–6th digit towards lme4's.
+
+- anofox-regression 0.5.33.
+
+- **Behaviour change: the `split` argument of the `*_fit_predict_by`, `*_augment_by` and
+  `*_prediction_by` macros follows the `*_fit_predict_agg` `split_col` rule (#205).** A row
+  whose split value is `'train'` or `'training'` in any case (`'Train'`, `'TRAINING'`, ...)
+  is a training row; any other value is a prediction row. A per-row NULL split value is now
+  a prediction row (the macros trained on it before). Calls that omit `split` (or pass
+  `split := NULL`) are unchanged: every row with a non-NULL `y` trains.
+
 ### Fixed
 
 - **Bitwise-reproducible group tests (#214).** `brown_forsythe_agg`,
@@ -25,23 +231,56 @@ Breaking changes are called out explicitly.
   order or the order in which the group labels first appear. Statistics can change
   in the last bits relative to earlier versions.
 
-### Changed
+- **Theil-Sen `compute_inference` now populates the inference fields (#222).**
+  Previously they were returned but always NaN / NULL: the upstream solver had no
+  inference, so the documented "standard errors, t-values, ... and the F-test" were
+  never computed (they were never OLS-style values). They now hold the exact or
+  bootstrap intervals described under Added. Field names are unchanged; what each
+  holds depends on the method: with `'exact'` `t_values` is Kendall's z (not a t
+  statistic) and `std_errors` is NULL; with `'bootstrap'` `t_values` / `p_values`
+  are NULL. `f_statistic` / `f_pvalue` are NULL: Theil-Sen has no F-test. Statistics
+  a method does not define are NULL, not NaN. Note the
+  cost: multi-feature fits with `compute_inference` (and `theil_sen_tidy_by`, which bootstraps
+  only on request) refit the model `n_bootstrap` times per group: on 500 rows ×
+  3 features about 8 s of CPU per group with the aggregate's 999 resamples and
+  1.4 s with tidy_by's 199. Lower `n_bootstrap`, use `'exact_or_none'` or pass
+  `{'compute_inference': false}` where that is too slow.
 
-- **Behaviour change: the Monte Carlo tests are seeded by default (#214).**
-  `permutation_t_test_agg`, `energy_distance_agg`, `mmd_agg` and `distance_cor_agg`
-  drew a fresh random set of permutations, and so a different p-value, on every
-  call unless `{'seed': ...}` was passed. Without a seed they now use the fixed
-  default seed 42, so repeated calls return the same p-value; an explicit `seed`
-  (alias `random_state`) still overrides it. Their samples are always put in a
-  canonical order first, so the seeded result is also independent of the thread
-  count. To get a different draw, pass a different seed.
+- **Window `*_fit_predict` in long partitions** (#208). When the frame's last row had a
+  NULL `x` list and the frame was assembled from several pre-aggregated blocks, all nine
+  window `*_fit_predict` functions could return the prediction for an earlier row's `x`
+  instead of NULL. The frame now always ends at its own last row.
 
-- CI builds, smoke-tests and deploys the extension for **DuckDB v2.0.0** on every
-  default platform (Linux amd64 and arm64, macOS arm64, WASM; `osx_amd64` and
-  musl are opt-in in DuckDB 2.0's CI tooling and are not built) and
-  publishes it to get.erpl.io, like the 1.5.x lines. This replaces the
-  non-blocking 2.0-dev job, which built only linux_amd64 and wasm_eh and deployed
-  nothing. The smoke test downloads DuckDB 2.0's renamed `.tar.gz` CLI assets.
+- **`docs/NULL_SEMANTICS.md` described the NULL-`x` behaviour wrongly** (#208). Every
+  `*_fit_predict_agg` keeps a row whose `x` list is NULL, in input order, with `yhat`
+  NULL and `is_training = false`; the doc said the row was left out. The doc,
+  `fit_predict_agg.md`, `fit_predict_window.md`, the isotonic and quantile pages and the
+  regression skill now describe the actual behaviour. No aggregate changed.
+
+- `*_fit_predict_by` and the other split-taking macros treated only an exact `'train'` as
+  training, so `split = 'Training'` or `'TRAIN'` silently held every row out, and they fitted
+  rows with a NULL split value that the aggregates predict. A macro and its aggregate called
+  with the same split column now train on the same rows (#205).
+
+- `rls_tidy_by` / `rls_glance_by` without `order_by` fit the rows in scan order,
+  which is not deterministic under parallel scans, so the coefficients could
+  change between runs (#206). Pass `order_by := t` for a reproducible fit; the
+  docs now say the order is undefined without it.
+
+### Behaviour change
+
+- **Gaussian `glmm_fit_agg` inference uses Satterthwaite t tests by default.** With
+  `compute_inference := true`, a gaussian GLMM's `p_values`, `ci_lower` / `ci_upper`
+  and the intercept's p-value and interval were normal (z); they now follow
+  lmerTest's Satterthwaite t distribution. The statistics move to the new
+  `t_values` field and `z_values` is NULL (a non-NULL `df` also marks t tests);
+  under Wald inference `z_values` is filled and `t_values` is NULL. The standard
+  errors are unchanged. `{'ddf': 'wald'}` restores the previous values.
+
+- `rls_tidy_by` and `rls_glance_by` take an optional named `order_by := <column>`
+  (#206). Recursive least squares depends on the row order; with `order_by` each
+  group's rows are fed to `rls_fit_agg` in that order (`ORDER BY order_by`), as
+  `rls_fit_predict_by` already did. Existing calls are unchanged.
 
 ## [0.12.2] - 2026-10-22
 

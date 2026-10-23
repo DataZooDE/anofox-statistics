@@ -32,6 +32,7 @@ page under [`docs/api/`](#detailed-documentation) with longer explanations.
 - [AFT Survival Regression](#aft-survival-regression)
 - [Mixed-Effects GLMs](#mixed-effects-glms)
 - [Empirical-Bayes Shrinkage](#empirical-bayes-shrinkage)
+- [Causal Mediation Analysis](#causal-mediation-analysis)
 - [AID Demand Classification](#aid-demand-classification)
 - [Statistical Hypothesis Tests](#statistical-hypothesis-tests)
 - [Classifier Evaluation](#classifier-evaluation)
@@ -98,6 +99,7 @@ error rather than being silently ignored. Option values must be constants.
 | lmDynamic | - | `lm_dynamic_fit_agg` | - | `lm_dynamic_fit_predict_agg` | `lm_dynamic_fit_predict_by` | [Online / dynamic](api/regression/online_dynamic.md) |
 | LOWESS | - | `lowess_agg` | - | - | `lowess_by` | [Online / dynamic](api/regression/online_dynamic.md) |
 | Quantile | - | `quantile_fit_agg` | - | `quantile_fit_predict_agg` | `quantile_fit_predict_by` | [Quantile](api/regression/quantile.md) |
+| Nested-model F test (OLS) | - | `ols_anova_agg` | - | - | `ols_anova_by` | [OLS](api/regression/ols.md#nested-model-f-test-ols_anova_agg--ols_anova_by) |
 
 Overview pages: [window functions](api/regression/fit_predict_window.md),
 [fit-predict aggregates](api/regression/fit_predict_agg.md),
@@ -118,7 +120,7 @@ fitted model struct).
 | ALM (24 distributions) | `alm_fit_agg` | `alm_fit_predict_agg`, `alm_fit_predict_by` | [ALM](api/glm/alm.md) |
 | AFT survival | `aft_fit_agg` | scalars `aft_cdf`, `aft_quantile`, `aft_survival` | [AFT](api/survival/aft.md) |
 | Survival curves | `kaplan_meier_agg`, `log_rank_test_agg` | `kaplan_meier_by` (`curve`), scalar `aft_survival` | [Survival curves](api/survival/survival_curves.md) |
-| Mixed effects | `glmm_fit_agg` | `glmm_fit_by` | [Mixed-effects GLMs](api/glm/glmm.md) |
+| Mixed effects | `glmm_fit_agg`, `glmm_augment_agg` | `glmm_fit_by`, `glmm_tidy_by` (`terms`), `glmm_glance_by` (`summary`), `glmm_augment_by` (`obs`) | [Mixed-effects GLMs](api/glm/glmm.md) |
 | Empirical-Bayes shrinkage | `eb_shrink_agg` | `eb_shrink_by` | [EB shrinkage](api/glm/eb_shrink.md) |
 | Explicit priors | options on the GLM and AFT aggregates | - | [Priors](api/glm/priors.md) |
 
@@ -128,6 +130,7 @@ fitted model struct).
 |----------|-----------|------|
 | Normality | `shapiro_wilk_agg`, `jarque_bera_agg`, `dagostino_k2_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
 | Parametric | `t_test_agg`, `one_way_anova_agg`, `yuen_agg`, `brown_forsythe_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
+| Nested models (OLS) | `ols_anova_agg`, `ols_anova_by` | [OLS](api/regression/ols.md#nested-model-f-test-ols_anova_agg--ols_anova_by) |
 | Nonparametric | `mann_whitney_u_agg`, `kruskal_wallis_agg`, `wilcoxon_signed_rank_agg`, `brunner_munzel_agg`, `permutation_t_test_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
 | Distribution comparison | `energy_distance_agg`, `mmd_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
 | Equivalence (TOST) | `tost_t_test_agg`, `tost_paired_agg`, `tost_correlation_agg` | [Hypothesis tests](api/statistics/hypothesis.md) |
@@ -138,9 +141,11 @@ fitted model struct).
 | Correlation | `pearson_agg`, `spearman_agg`, `kendall_agg`, `distance_cor_agg`, `icc_agg` | [Correlation](api/statistics/correlation.md) |
 | Categorical | `chisq_test_agg`, `chisq_gof_agg`, `g_test_agg`, `fisher_exact_agg`, `mcnemar_agg` | [Categorical](api/statistics/categorical.md) |
 | Pairwise post-hoc | `pairwise_t_test_agg`, `tukey_hsd_agg`, `dunn_test_agg`, `pairwise_t_test_by`, `tukey_hsd_by`, `dunn_test_by` | [Hypothesis tests](api/statistics/hypothesis.md#pairwise-post-hoc-tests) |
+| Multiple testing | `p_adjust_by`, `p_adjust_agg`, `p_adjust_list` | [Hypothesis tests](api/statistics/hypothesis.md#multiple-testing) |
 | Effect sizes | `cramers_v_agg`, `phi_coefficient_agg`, `contingency_coef_agg`, `cohen_kappa_agg` | [Categorical](api/statistics/categorical.md) |
 | Proportions | `prop_test_one_agg`, `prop_test_two_agg`, `binom_test_agg` | [Categorical](api/statistics/categorical.md) |
 | Classifier evaluation | `roc_agg`, `pr_agg`, `calibration_agg`, `auc_agg`, `brier_agg`, `log_loss_agg`, `roc_curve_by`, `pr_curve_by`, `calibration_curve_by` | [Classification](api/statistics/classification.md) |
+| Causal mediation | `mediation_agg`, `mediation_by` (ACME, ADE, total effect, proportion mediated; bootstrap, Sobel or quasi-Bayesian) | [Mediation](api/statistics/mediation.md) |
 
 ### Diagnostics and Utilities
 
@@ -155,7 +160,8 @@ fitted model struct).
 | `predict(model, x, {'se_fit', 'interval', 'level'})` | Prediction with standard error and confidence / prediction interval from the model's `vcov` (OLS, WLS, Ridge, GLMs) | [Model tools](api/regression/model_tools.md#standard-errors-and-intervals) |
 | `<model>_partial_residuals_by`, `<model>_partial_residuals_agg` | Partial-residual (crPlots) and added-variable (avPlots) coordinates for OLS, WLS and the GLMs | [Model tools](api/regression/model_tools.md#partial_residuals_by) |
 | `ridge_path_agg`, `elasticnet_path_agg`, `lars_path_agg`, `<model>_path_by` | Coefficient path over lambda (`terms`, `index_name = 'lambda'`; LARS: `'alpha'`) | [Regularisation paths](api/regression/paths.md) |
-| `ridge_cv_agg`, `elasticnet_cv_agg`, `<model>_cv_by` | k-fold CV curve over lambda (`curve`, `curve_type = 'lambda_cv'`) | [Regularisation paths](api/regression/paths.md) |
+| `ridge_cv_agg`, `elasticnet_cv_agg`, `<model>_cv_by` | CV curve over lambda (`curve`, `curve_type = 'lambda_cv'`): k-fold, repeated, group, leave-one-group-out, stratified or time-series folds (`cv_strategy`, `cv_key`) | [Regularisation paths](api/regression/paths.md#cv-strategies) |
+| `ridge_nested_cv_agg`, `elasticnet_nested_cv_agg`, `<model>_nested_cv_by` | Nested CV: lambda chosen by an inner CV on each outer training set, error on the outer test rows (`curve`, `curve_type = 'nested_cv'`) | [Regularisation paths](api/regression/paths.md#ridge_nested_cv_agg--elasticnet_nested_cv_agg) |
 | `quantile_process_agg`, `quantile_process_by` | Quantile process: one quantile fit per tau with inference (`terms`, `index_name = 'tau'`) | [Quantile](api/regression/quantile.md#quantile_process_agg) |
 | `vif`, `vif_agg` | Variance inflation factors | [Diagnostics](api/diagnostics/diagnostics.md) |
 | `aic`, `bic` | Information criteria from RSS | [Diagnostics](api/diagnostics/diagnostics.md) |
@@ -255,6 +261,38 @@ SELECT id,
 FROM reg_data
 ORDER BY id
 LIMIT 5;
+```
+
+### ols_anova_agg / ols_anova_by
+
+Nested-model F test: does the full OLS model fit significantly better than the
+reduced one? R's `anova(lm(y ~ x_reduced), lm(y ~ x_full))`, both fits on the
+same rows. Returns the `test` fields (`method = 'nested F'`, `statistic`,
+`df1`, `df2`, `p_value`) plus `rss_reduced`, `rss_full`,
+`adj_r_squared_reduced`, `adj_r_squared_full`, `delta_adj_r_squared` and
+`n_observations`. The `x_reduced` columns must appear in `x_full`, and
+`x_reduced := []` is the intercept-only model (the overall F test). Rank is
+counted as in R; when `df1 = 0` or `df2 = 0` the statistic and p-value are NULL (R's `NA`, never NaN). The only option is
+`fit_intercept`. Per-term (type I / II) ANOVA tables are not available yet.
+
+**Signatures:**
+
+```sql skip
+ols_anova_agg(y DOUBLE, x_reduced LIST(DOUBLE), x_full LIST(DOUBLE) [, options]) -> STRUCT
+ols_anova_by(source VARCHAR, group_col, y_col, x_reduced := [], x_full := [...] [, options := ...]) -> TABLE
+```
+
+**Examples:**
+
+```sql
+-- Do x2 and x3 add to x1, per category?
+SELECT category, (ols_anova_agg(y, [x1], [x1, x2, x3])).p_value < 0.05 AS improves
+FROM reg_data
+GROUP BY category
+ORDER BY category;
+
+SELECT category, df1, df2, round(adj_r_squared_reduced, 3) AS before, round(adj_r_squared_full, 3) AS after
+FROM ols_anova_by('reg_data', category, y, x_reduced := [x1], x_full := [x1, x2, x3]);
 ```
 
 ### ridge_fit / ridge_fit_agg
@@ -465,7 +503,18 @@ theil_sen_fit_agg(y DOUBLE, x LIST(DOUBLE) [, options]) -> STRUCT
 | n_subsamples | INTEGER | automatic | Rows per subset |
 | max_iterations | INTEGER | 300 | Iterations of the spatial-median solver |
 | tolerance | DOUBLE | 1e-3 | Convergence tolerance |
-| random_state (alias `seed`) | INTEGER | 0 | Random seed |
+| random_state (alias `seed`) | INTEGER | 0 | Random seed (subsets and bootstrap) |
+| compute_inference | BOOLEAN | false | Coefficient confidence intervals |
+| confidence_level | DOUBLE | 0.95 | Level of the intervals |
+| ci_method | VARCHAR | `'exact'` (one feature), else `'bootstrap'`; `theil_sen_tidy_by`: `'exact_or_none'` (exact where it applies, otherwise NULL intervals) | `'exact'`: Sen's distribution-free slope interval with Kendall's z / p-value (`trend::sens.slope`); `'bootstrap'`: pairs bootstrap SDs and percentile intervals, also for the intercept |
+| n_bootstrap (alias `n_boot`) | INTEGER | 999 (`theil_sen_tidy_by`: 199) | Bootstrap resamples; the bootstrap costs about this many point fits per group |
+
+With `compute_inference` the exact method fills `conf_low` / `conf_high`,
+`t_values` (Kendall's z) and `p_values` for the slope (no standard error, no
+intercept interval: `std_errors` and the `intercept_*` fields are NULL); the
+bootstrap fills `std_errors`, `conf_low` / `conf_high` and the `intercept_*` SD
+and interval (`t_values` / `p_values` NULL). There is no F-test (`f_statistic` /
+`f_pvalue` NULL). See [Theil-Sen](api/regression/theil_sen.md#inference).
 
 ```sql
 SELECT theil_sen_fit(
@@ -773,7 +822,8 @@ glmm_fit_agg(y DOUBLE, x LIST(DOUBLE), group ANY [, options]) -> STRUCT
 | fit_intercept | BOOLEAN | true | Include a fixed intercept |
 | max_iterations | INTEGER | 100 | Inner iterations |
 | tolerance | DOUBLE | 1e-8 | Convergence tolerance |
-| compute_inference | BOOLEAN | false | Fixed-effect standard errors, z-tests, intervals |
+| compute_inference | BOOLEAN | false | Fixed-effect standard errors, tests, intervals |
+| ddf | VARCHAR | family default | `'satterthwaite'` (t tests with lmerTest's Satterthwaite df; gaussian only, its default) or `'wald'` (z tests; the default for the other families) |
 | confidence_level | DOUBLE | 0.95 | Confidence level for the intervals |
 
 **Returns:**
@@ -788,8 +838,16 @@ STRUCT(coefficients DOUBLE[], intercept DOUBLE,
        factors STRUCT(n_levels BIGINT, var DOUBLE)[]
      [, std_errors DOUBLE[], z_values DOUBLE[], p_values DOUBLE[],
         ci_lower DOUBLE[], ci_upper DOUBLE[], intercept_std_error DOUBLE],
-       ranef STRUCT("group" VARCHAR, intercept DOUBLE, se DOUBLE, n BIGINT)[])
+       ranef STRUCT("group" VARCHAR, intercept DOUBLE, se DOUBLE, n BIGINT,
+                    effects DOUBLE[], effects_se DOUBLE[],
+                    effects_conf_low DOUBLE[], effects_conf_high DOUBLE[])[],
+       nb_theta DOUBLE, df DOUBLE[], intercept_df DOUBLE, df_residual DOUBLE, t_values DOUBLE[], ...)
 ```
+
+`ranef[].se` / `effects_se` are the BLUPs' conditional standard errors
+(lme4 `ranef(condVar = TRUE)`); `df` / `intercept_df` the Satterthwaite degrees of
+freedom (NULL for Wald). Under Satterthwaite the statistics are in `t_values`
+(`z_values` NULL), under Wald in `z_values` (`t_values` NULL). See [GLMM](api/glm/glmm.md#inference).
 
 ```sql
 SELECT (glmm_fit_agg(y, [x1, x2], store)).icc AS icc FROM reg_data;
@@ -809,6 +867,28 @@ Output columns: `group`, `ranef`, `ranef_se`, `n`, `fixed_intercept`,
 
 ```sql
 SELECT * FROM glmm_fit_by('reg_data', store, y, [x1, x2]);
+```
+
+### glmm_tidy_by, glmm_glance_by, glmm_augment_by
+
+Integration-contract outputs of one GLMM per `group_col` with random effects over
+`re_group` (broom.mixed `tidy` / `glance` / `augment`); `model_id` = `model_name` =
+`'glmm'`. See [GLMM](api/glm/glmm.md#glmm_tidy_by-glmm_glance_by-glmm_augment_by).
+
+```sql skip
+glmm_tidy_by(source, group_col, y_col, x_cols, re_group [, options, names, re_names]) -> TABLE  -- terms
+glmm_glance_by(source, group_col, y_col, x_cols, re_group [, options]) -> TABLE                 -- summary
+glmm_augment_by(source, group_col, y_col, x_cols, re_group [, options, order_by]) -> TABLE      -- obs
+```
+
+`glmm_tidy_by` adds `effect` (`fixed`, `ran_pars`, `ran_vals`), `re_group`,
+`re_level` and `df` after the `terms` columns; `glmm_augment_by` adds
+`fitted_population` and `pearson_residual` after the `obs` columns.
+
+```sql
+CREATE OR REPLACE TABLE reg_scope AS SELECT 'all' AS scope, * FROM reg_data;
+SELECT effect, term, estimate, std_error, df
+FROM glmm_tidy_by('reg_scope', scope, y, [x1, x2], store) WHERE effect <> 'ran_vals';
 ```
 
 ---
@@ -859,6 +939,64 @@ eb_shrink_by(source VARCHAR, estimate_col, se_col [, options]) -> TABLE
 
 ```sql
 SELECT store, est, shrunken FROM eb_shrink_by('store_slopes', est, se) ORDER BY store;
+```
+
+---
+
+## Causal Mediation Analysis
+
+Mediation analysis as R's `mediation::mediate` for linear models: per group, the
+mediator model `m ~ x + covariates` (path `a`) and the outcome model
+`y ~ x + m + covariates` (`b`, direct path `c'`) are fitted by OLS on the same
+complete rows. See [Mediation](api/statistics/mediation.md) for the inference
+details.
+
+### mediation_by
+
+```sql skip
+mediation_by(source VARCHAR, group_col, treatment, mediator, outcome
+             [, covariates := [c1, ...]] [, options := {...}]) -> TABLE
+```
+
+One row per group and effect (`term` = `acme` `a·b·Δ`, `ade` `c'·Δ`, `total`,
+`prop_mediated`, with `Δ = treat_value − control_value`) in the contract `terms`
+schema (`id` = group, `model_id = model_name = 'mediation'`), plus `method`,
+`n_obs` and `n_sims`.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| method | VARCHAR | 'bootstrap' | `'bootstrap'` (case resampling), `'sobel'` (delta method) or `'quasi_bayesian'` (`mediate`'s Monte Carlo) |
+| ci_type | VARCHAR | 'percentile' | Bootstrap interval: `'percentile'` or `'bca'` |
+| n_bootstrap (aliases `n_sims`, `sims`) | INTEGER | 1000 | Resamples / draws |
+| seed (alias `random_state`) | INTEGER | 42 | Seed of the draws; results are reproducible |
+| confidence_level | DOUBLE | 0.95 | Interval level |
+| treat_value, control_value | DOUBLE | 1, 0 | Treatment contrast |
+
+```sql
+CREATE OR REPLACE TABLE med_data AS
+SELECT i, 'g' || (i % 2) AS grp, ((i // 2) % 2)::DOUBLE AS x, sin(i * 1.3) AS c1,
+       0.5 + 0.8 * ((i // 2) % 2) + 0.3 * sin(i * 1.3) + sin(i * 2.1 + 0.4) * 0.9 AS m
+FROM range(120) t(i);
+CREATE OR REPLACE TABLE med_data AS
+SELECT *, 1 + 0.4 * x + 0.6 * m - 0.2 * c1 + cos(i * 1.7 + 0.2) * 0.8 AS y FROM med_data;
+
+SELECT grp, term, round(estimate, 3) AS estimate, round(conf_low, 3) AS conf_low, round(conf_high, 3) AS conf_high
+FROM mediation_by('med_data', grp, treatment := x, mediator := m, outcome := y, covariates := [c1]);
+```
+
+### mediation_agg
+
+```sql skip
+mediation_agg(y DOUBLE, m DOUBLE, x DOUBLE [, covariates DOUBLE[] [, options]]) -> LIST(STRUCT)
+```
+
+The aggregate behind `mediation_by`; returns the four effect rows
+`STRUCT(term, estimate, std_error, statistic, p_value, conf_low, conf_high,
+conf_level, method, n_obs, n_sims)`, or NULL for a degenerate group.
+
+```sql
+SELECT grp, (mediation_agg(y, m, x, [c1], {'method': 'sobel'}))[1].p_value AS acme_p
+FROM med_data GROUP BY grp ORDER BY grp;
 ```
 
 ---
@@ -1195,6 +1333,34 @@ SELECT category, group1, group2, estimate, p_adj
 FROM tukey_hsd_by('reg_data', category, y, grp3);
 ```
 
+### Multiple Testing
+
+Adjust p-values from any tests for multiple comparisons, as R
+`p.adjust(p, method, n)` (#219). `method`: 'holm' (default), 'hochberg', 'hommel',
+'bonferroni', 'BH' (alias 'fdr'), 'BY', 'none'; case-insensitive, an unknown
+method is an error. NULL p-values stay NULL and are not counted. `n` (number of
+hypotheses) defaults to the number of non-NULL p-values and may not be smaller.
+
+| Function | Signature | Returns |
+|----------|-----------|---------|
+| `p_adjust_by` | `(source, group_col, p_col, method := 'holm', n := NULL)` | every source row, in source order, with `p_adjusted` (one family per group) |
+| `p_adjust_agg` | `(p DOUBLE [, method VARCHAR [, n BIGINT]])` | `DOUBLE[]` in input order (use `ORDER BY` inside the call); constant `method`/`n` |
+| `p_adjust_list` | `(p DOUBLE[] [, method VARCHAR [, n BIGINT]])` | `DOUBLE[]` in list order |
+
+```sql
+CREATE OR REPLACE TABLE results AS SELECT * FROM (VALUES
+    ('weight', 'dose_a', 0.012), ('weight', 'dose_b', 0.030), ('bp', 'dose_a', 0.001)) t(endpoint, test, p_value);
+SELECT * FROM p_adjust_by('results', endpoint, p_value, method := 'BH');
+SELECT endpoint, p_adjust_agg(p_value, 'holm' ORDER BY test) FROM results GROUP BY endpoint;
+SELECT p_adjust_list([0.01, 0.02, 0.04], 'BY');
+```
+
+A `p_adjust(p) OVER (PARTITION BY ...)` window function is not possible in DuckDB
+1.x (a window aggregate cannot tell which row of a whole-partition frame it
+computes); `p_adjust_by` gives the row-aligned result. For inline use, Bonferroni,
+Holm and BH can also be written with plain window functions; see
+[Multiple Testing](api/statistics/hypothesis.md#row-aligned-with-plain-window-functions).
+
 ## Classifier Evaluation
 
 ROC, precision-recall and calibration curves, ROC AUC, Brier score and log loss
@@ -1414,7 +1580,8 @@ columns are passed through and prediction columns are appended.
   interval exists.
 
 Other table macros on this page: [`glmm_fit_by`](#glmm_fit_by),
-[`eb_shrink_by`](#eb_shrink_by), [`aid_by`](#aid_by),
+[`eb_shrink_by`](#eb_shrink_by), [`ols_anova_by`](#ols_anova_agg--ols_anova_by), [`aid_by`](#aid_by),
+[`glmm_tidy_by`, `glmm_glance_by`, `glmm_augment_by`](#glmm_tidy_by-glmm_glance_by-glmm_augment_by),
 [`aid_anomaly_by`](#aid_anomaly_by). See also [Table Macros](api/macros/table_macros.md).
 
 ```sql
@@ -1523,7 +1690,8 @@ ORDER BY category;
 ```sql skip
 glance(model STRUCT) -> STRUCT(model_type, family, link, n_observations, n_features,
     r_squared, adj_r_squared, residual_std_error, f_statistic, f_pvalue, log_likelihood,
-    aic, bic, deviance, null_deviance, pseudo_r_squared, dispersion, iterations, converged)
+    aic, bic, deviance, null_deviance, pseudo_r_squared, dispersion, iterations, converged,
+    press, press_rmse, loo_r_squared)
 ```
 
 The same fields for every model; those a model does not have are NULL.
@@ -1543,10 +1711,15 @@ ORDER BY category;
 <model>_tidy_by(source, group_col, y_col, x_cols [, weight_col]
                 [, options := ..., names := [...]])
 <model>_glance_by(source, group_col, y_col, x_cols [, weight_col] [, options := ...])
+rls_tidy_by(source, group_col, y_col, x_cols [, options := ..., names := [...], order_by := ...])
+rls_glance_by(source, group_col, y_col, x_cols [, options := ..., order_by := ...])
 ```
 
+RLS is order dependent: pass `order_by := <column>` to fit each group's rows
+in that order (without it the order, and so the fit, is undefined).
+
 For `ols`, `wls` (with `weight_col`), `ridge`, `elasticnet`, `huber`, `ransac`,
-`theil_sen`, `rls`, `lars`, `bls`, `nnls`, `pls`, `quantile`, `poisson`,
+`theil_sen`, `rls`, `lars`, `bayesian_ridge`, `ard`, `bls`, `nnls`, `pls`, `quantile`, `poisson`,
 `binomial`, `logistic`, `negbinom`, `gamma`, `tweedie`, `alm` and `aft` (with
 `event_col`). They fit one model per group with
 `<model>_fit_agg` and return long tables in the anofox integration contract's
@@ -1557,6 +1730,10 @@ For `ols`, `wls` (with `weight_col`), `ridge`, `elasticnet`, `huber`, `ransac`,
   index_value`, one row per term. Inference is computed by default for models
   that have it (`compute_inference` is merged under the user's `options`, so
   passing other options keeps it; `{'compute_inference': false}` turns it off).
+  For `bayesian_ridge` and `ard` `std_error` is the posterior SD and
+  `conf_low` / `conf_high` the central Bayesian credible interval at
+  `confidence_level` (not a confidence interval; `statistic` and `p_value` are
+  NULL).
 - `_glance_by`: the group column, `id` (the group as text), `model_id` and `model_name` (the method, e.g. `'ols'`), `model_type, metric, value`, one
   row per available numeric metric, so several models compare with a `UNION`.
 
@@ -1599,13 +1776,26 @@ with the integration contract's `obs` columns appended (tagged
 | `weight` | DOUBLE | prior weight (`weight_col` for WLS, 1 for OLS) |
 | `is_training` | BOOLEAN | the row was used to fit |
 | `n_params` | INTEGER | estimated coefficients, intercept included |
+| `loo_residual` | DOUBLE | leave-one-out (PRESS) residual `residual / (1 - leverage)`, `y` minus the prediction of the fit without the row (R `rstandard(fit, type = "predictive")` for OLS); OLS / WLS only, NULL where `leverage = 1` |
+| `loo_fitted` | DOUBLE | `y - loo_residual`, the leave-one-out prediction; OLS / WLS only |
 
-Training rows have `y_col` NOT NULL, every feature present, `split` NULL or
-`'train'` and, for WLS, a positive weight. Other rows get the prediction as
+Training rows have `y_col` NOT NULL, every feature present, `split` omitted or
+`'train'` / `'training'` in any case (a NULL split value is not a training row) and, for WLS, a positive weight. Other rows get the prediction as
 `fitted` and NULL diagnostics. Options: `fit_intercept`, `null_policy`, `solver`.
 The measures come from `anofox_regression::diagnostics::augment` and match R
 `lm()` (with `weights =` for WLS). A group with fewer than two training rows
 gives NULL columns.
+
+**Leave-one-out (#220).** `ols_glance_by` / `wls_glance_by` (and the
+`ols_fit_agg` / `wls_fit_agg` / `ols_fit` / `wls_fit` STRUCT with the opt-in
+option `{'compute_loo': true}`, one more QR of the design; so `glance()`)
+add `press = sum(weight * loo_residual^2)`, `press_rmse = sqrt(press / n)` and
+the predicted R² `loo_r_squared = 1 - press / SST` (SST as for `r_squared`).
+For WLS `loo_residual` is on the response scale and `press` is weighted by the
+prior weights, which equals R's `sum(rstandard(fit, type = "predictive")^2)`.
+A row with leverage 1 (e.g. the only observation of a dummy level) has NULL
+leave-one-out columns and makes the group's `press` metrics NULL. See
+[model_tools](api/regression/model_tools.md#leave-one-out-diagnostics).
 
 **GLMs.** `poisson_augment_by`, `binomial_augment_by`, `logistic_augment_by`,
 `negbinom_augment_by`, `gamma_augment_by` and `tweedie_augment_by` (same
@@ -1989,7 +2179,7 @@ SELECT ols_fit_agg(y, [x]) IS NULL AS is_null FROM (VALUES (1.0, 2.0)) AS t(y, x
 - **Prediction:** [Window functions](api/regression/fit_predict_window.md) | [Fit-predict aggregates](api/regression/fit_predict_agg.md) | [Table macros](api/macros/table_macros.md) | [Model tools (predict, tidy, glance)](api/regression/model_tools.md)
 - **GLM:** [Poisson](api/glm/poisson.md) | [Binomial](api/glm/binomial.md) | [Logistic](api/glm/logistic.md) | [Negative Binomial](api/glm/negbinom.md) | [Gamma](api/glm/gamma.md) | [Tweedie](api/glm/tweedie.md) | [ALM](api/glm/alm.md) | [Priors](api/glm/priors.md) | [GLMM](api/glm/glmm.md) | [EB shrinkage](api/glm/eb_shrink.md)
 - **Survival:** [AFT](api/survival/aft.md)
-- **Statistics:** [Hypothesis tests](api/statistics/hypothesis.md) | [Correlation](api/statistics/correlation.md) | [Categorical](api/statistics/categorical.md)
+- **Statistics:** [Hypothesis tests](api/statistics/hypothesis.md) | [Correlation](api/statistics/correlation.md) | [Categorical](api/statistics/categorical.md) | [Mediation](api/statistics/mediation.md)
 - **Demand:** [AID](api/aid/aid.md)
 - **Diagnostics:** [Model diagnostics](api/diagnostics/diagnostics.md)
 - **Background:** [API conventions](API_CONVENTIONS.md) | [Methodology](METHODOLOGY.md) | [NULL semantics](NULL_SEMANTICS.md) | [Migration from v0.9](MIGRATION.md)

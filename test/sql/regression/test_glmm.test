@@ -74,11 +74,12 @@ FROM (
 true
 
 # ==== TEST 7: BLUP conditional standard errors ====
-# The upstream mixed-effects solver does not yet expose the per-group BLUP
-# conditional SE (tracked: anofox-regression#29), so `se` is NaN for now while
-# the BLUP value itself is finite.
+# Every BLUP carries its conditional SE (lme4 ranef(condVar = TRUE); values are
+# checked against lme4 in test/sql/reference/glmm_inference.test), the full
+# effect vector with its SEs, and a normal interval around it.
 query I
-SELECT bool_and(isnan(r.se) AND NOT isnan(r.intercept))
+SELECT bool_and(r.se > 0 AND NOT isnan(r.intercept) AND r.effects = [r.intercept] AND r.effects_se = [r.se]
+                AND r.effects_conf_low[1] < r.intercept AND r.intercept < r.effects_conf_high[1])
 FROM (SELECT glmm_fit_agg(y, [x], sku) AS f FROM panel) t, LATERAL UNNEST(t.f.ranef) AS u(r);
 ----
 true

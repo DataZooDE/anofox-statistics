@@ -5,7 +5,7 @@
 
 namespace duckdb {
 
-static_assert(sizeof(AnofoxModelSummaryFFI) == 3 * ANOFOX_MODEL_NAME_LEN + 8 * sizeof(double),
+static_assert(sizeof(AnofoxModelSummaryFFI) == 3 * ANOFOX_MODEL_NAME_LEN + 11 * sizeof(double),
               "AnofoxModelSummaryFFI must match ModelSummaryFFI in crates/anofox-stats-ffi/src/types.rs");
 // coefficients + coefficients_len, 4 doubles, n_observations + n_features, summary
 // (no padding on 64-bit or wasm32).
@@ -36,14 +36,14 @@ static_assert(offsetof(AnofoxPartialResidualsResult, n_terms) == 5 * sizeof(doub
                       5 * sizeof(double *) + 2 * sizeof(size_t),
               "AnofoxPartialResidualsResult must match PartialResidualsResultFFI");
 // #61 (crates/anofox-stats-ffi/src/models_ffi.rs).
-static_assert(offsetof(AnofoxBayesianFitResult, coefficients) == 5 * sizeof(double) &&
+static_assert(offsetof(AnofoxBayesianFitResult, coefficients) == 6 * sizeof(double) &&
                   offsetof(AnofoxBayesianFitResult, summary) ==
-                      5 * sizeof(double) + 3 * sizeof(double *) + 5 * sizeof(size_t) &&
+                      6 * sizeof(double) + 5 * sizeof(double *) + 5 * sizeof(size_t) &&
                   sizeof(AnofoxBayesianFitResult) ==
                       offsetof(AnofoxBayesianFitResult, summary) + sizeof(AnofoxModelSummaryFFI),
               "AnofoxBayesianFitResult must match BayesianFitResultFFI");
 static_assert(offsetof(AnofoxBayesianOptions, tolerance) == sizeof(double) &&
-                  sizeof(AnofoxBayesianOptions) == 7 * sizeof(double),
+                  sizeof(AnofoxBayesianOptions) == 8 * sizeof(double),
               "AnofoxBayesianOptions must match BayesianOptionsFFI");
 // #63 (crates/anofox-stats-ffi/src/models_ffi.rs).
 static_assert(offsetof(AnofoxPassiveAggressiveOptions, max_epochs) == 4 &&
@@ -86,10 +86,10 @@ static_assert(sizeof(AnofoxQuantileFitResultCore) ==
                   offsetof(AnofoxQuantileFitResultCore, summary) + sizeof(AnofoxModelSummaryFFI),
               "AnofoxQuantileFitResultCore must end with its summary, as QuantileFitResultCore does");
 
-// Eight array pointers, len + n_params, the resid_type name (no padding).
-static_assert(offsetof(AnofoxAugmentResult, len) == 8 * sizeof(double *) &&
-                  offsetof(AnofoxAugmentResult, resid_type) == 8 * sizeof(double *) + 2 * sizeof(size_t) &&
-                  sizeof(AnofoxAugmentResult) == 8 * sizeof(double *) + 2 * sizeof(size_t) + ANOFOX_MODEL_NAME_LEN,
+// Ten array pointers, len + n_params, the resid_type name (no padding).
+static_assert(offsetof(AnofoxAugmentResult, len) == 10 * sizeof(double *) &&
+                  offsetof(AnofoxAugmentResult, resid_type) == 10 * sizeof(double *) + 2 * sizeof(size_t) &&
+                  sizeof(AnofoxAugmentResult) == 10 * sizeof(double *) + 2 * sizeof(size_t) + ANOFOX_MODEL_NAME_LEN,
               "AnofoxAugmentResult must match AugmentResultFFI in crates/anofox-stats-ffi/src/types.rs");
 
 static bool HasField(const child_list_t<LogicalType> &children, const string &name) {
@@ -144,6 +144,12 @@ void AppendModelSummaryFields(child_list_t<LogicalType> &children) {
 void AppendCovarianceFields(child_list_t<LogicalType> &children) {
 	AppendIfMissing(children, "vcov", LogicalType::LIST(LogicalType::DOUBLE));
 	AppendIfMissing(children, "df_residual", LogicalType::DOUBLE);
+}
+
+void AppendLooFields(child_list_t<LogicalType> &children) {
+	AppendIfMissing(children, "press", LogicalType::DOUBLE);
+	AppendIfMissing(children, "press_rmse", LogicalType::DOUBLE);
+	AppendIfMissing(children, "loo_r_squared", LogicalType::DOUBLE);
 }
 
 double ResidualDf(idx_t n_observations, const double *coefficients, idx_t coefficients_len, bool has_intercept) {
@@ -247,6 +253,39 @@ void ModelStructWriter::WriteInference(idx_t row, const AnofoxFitResultInference
 	}
 }
 
+static bool AllNaN(const double *data, size_t len) {
+	if (!data) {
+		return true;
+	}
+	for (size_t i = 0; i < len; i++) {
+		if (!std::isnan(data[i])) {
+			return false;
+		}
+	}
+	return true;
+}
+
+void ModelStructWriter::WriteInferenceNullUndefined(idx_t row, const AnofoxFitResultInference *inference) {
+	if (!inference || (!inference->std_errors && !inference->ci_lower)) {
+		WriteInference(row, nullptr); // no inference computed: all NULL
+		return;
+	}
+	AnofoxFitResultInference shown = *inference;
+	auto len = shown.len;
+	for (double **list : {&shown.std_errors, &shown.t_values, &shown.p_values, &shown.ci_lower, &shown.ci_upper}) {
+		if (len > 0 && AllNaN(*list, len)) {
+			*list = nullptr; // WriteList writes a NULL list
+		}
+	}
+	WriteInference(row, &shown);
+	if (std::isnan(shown.f_statistic)) {
+		WriteNull(Field("f_statistic"), row);
+	}
+	if (std::isnan(shown.f_pvalue)) {
+		WriteNull(Field("f_pvalue"), row);
+	}
+}
+
 void ModelStructWriter::WriteSummary(idx_t row, const AnofoxModelSummaryFFI &summary) {
 	WriteString(Field("model_type"), row, summary.model_type);
 	WriteString(Field("family"), row, summary.family);
@@ -259,6 +298,9 @@ void ModelStructWriter::WriteSummary(idx_t row, const AnofoxModelSummaryFFI &sum
 	WriteDouble(Field("intercept_p_value"), row, summary.intercept_p_value);
 	WriteDouble(Field("intercept_conf_low"), row, summary.intercept_conf_low);
 	WriteDouble(Field("intercept_conf_high"), row, summary.intercept_conf_high);
+	WriteDouble(Field("press"), row, summary.press);
+	WriteDouble(Field("press_rmse"), row, summary.press_rmse);
+	WriteDouble(Field("loo_r_squared"), row, summary.loo_r_squared);
 }
 
 void ModelStructWriter::WriteCovariance(idx_t row, const double *vcov, idx_t dim, double df_residual) {

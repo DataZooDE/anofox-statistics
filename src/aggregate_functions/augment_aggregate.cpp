@@ -268,6 +268,10 @@ static LogicalType GetAugmentAggResultType() {
     row.push_back(make_pair("weight", LogicalType::DOUBLE));
     row.push_back(make_pair("is_training", LogicalType::BOOLEAN));
     row.push_back(make_pair("n_params", LogicalType::INTEGER));
+    // Leave-one-out (PRESS) residual and prediction (#220); NULL for the GLMs
+    // and rows with leverage 1.
+    row.push_back(make_pair("loo_residual", LogicalType::DOUBLE));
+    row.push_back(make_pair("loo_fitted", LogicalType::DOUBLE));
     return LogicalType::LIST(LogicalType::STRUCT(std::move(row)));
 }
 
@@ -566,6 +570,8 @@ static void AugmentAggFinalize(Vector &state_vector, AggregateInputData &aggr_in
         auto &weight_vec = StructEntry(entries[8]);
         auto &training_vec = StructEntry(entries[9]);
         auto &n_params_vec = StructEntry(entries[10]);
+        auto &loo_residual_vec = StructEntry(entries[11]);
+        auto &loo_fitted_vec = StructEntry(entries[12]);
 
         string resid_type(aug.resid_type, strnlen(aug.resid_type, ANOFOX_MODEL_NAME_LEN));
         auto n_params = static_cast<int32_t>(aug.n_params);
@@ -580,6 +586,8 @@ static void AugmentAggFinalize(Vector &state_vector, AggregateInputData &aggr_in
             WriteDouble(leverage_vec, c, aug.leverage[r]);
             WriteDouble(cooks_vec, c, aug.cooks_d[r]);
             WriteDouble(dffits_vec, c, aug.dffits[r]);
+            WriteDouble(loo_residual_vec, c, aug.loo_residual[r]);
+            WriteDouble(loo_fitted_vec, c, aug.loo_fitted[r]);
             WriteDouble(weight_vec, c, state.weight[r]);
             FlatDataMut<string_t>(resid_type_vec)[c] = StringVector::AddString(resid_type_vec, resid_type);
             FlatDataMut<bool>(training_vec)[c] = used;

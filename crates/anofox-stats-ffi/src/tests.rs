@@ -1357,3 +1357,93 @@ fn k_sample_tests_do_not_depend_on_row_order() {
         assert_eq!(run(&v, &g), reference, "row order {k}");
     }
 }
+
+#[test]
+fn mediation_round_trip_and_errors() {
+    let x: Vec<f64> = (0..30).map(|i| ((i / 2) % 2) as f64).collect();
+    let c: Vec<f64> = (0..30).map(|i| (i as f64 * 1.3).sin()).collect();
+    let m: Vec<f64> = (0..30)
+        .map(|i| 0.8 * x[i] + 0.3 * c[i] + (i as f64 * 2.1).sin())
+        .collect();
+    let y: Vec<f64> = (0..30)
+        .map(|i| 0.4 * x[i] + 0.6 * m[i] + (i as f64 * 1.7).cos())
+        .collect();
+    let covs = [arr(&c)];
+    let mut opts = MediationOptionsFFI {
+        method: MediationMethodFFI::Sobel,
+        ci_type: MediationCiFFI::Percentile,
+        n_sims: 100,
+        seed: 42,
+        conf_level: 0.95,
+        treat_value: 1.0,
+        control_value: 0.0,
+    };
+    let mut r = MediationResultFFI::default();
+    let mut e = err();
+    unsafe {
+        assert!(anofox_mediation(
+            arr(&y),
+            arr(&m),
+            arr(&x),
+            covs.as_ptr(),
+            1,
+            opts,
+            &mut r,
+            &mut e
+        ));
+        assert_eq!(r.n_obs, 30);
+        assert_eq!(r.n_sims, 0);
+        assert!((r.acme.estimate - r.a * r.b).abs() < 1e-12);
+        assert!((r.acme.estimate + r.ade.estimate - r.total.estimate).abs() < 1e-12);
+
+        opts.method = MediationMethodFFI::Bootstrap;
+        assert!(anofox_mediation(
+            arr(&y),
+            arr(&m),
+            arr(&x),
+            ptr::null(),
+            0,
+            opts,
+            &mut r,
+            &mut e
+        ));
+        assert_eq!(r.n_sims, 100);
+        assert!(r.acme.statistic.is_nan());
+
+        // A constant treatment is degenerate, an invalid option an input error.
+        assert!(!anofox_mediation(
+            arr(&y),
+            arr(&m),
+            arr(&[1.0; 30]),
+            ptr::null(),
+            0,
+            opts,
+            &mut r,
+            &mut e
+        ));
+        assert_eq!(e.code, ErrorCode::SingularMatrix);
+        opts.conf_level = 2.0;
+        assert!(!anofox_mediation(
+            arr(&y),
+            arr(&m),
+            arr(&x),
+            ptr::null(),
+            0,
+            opts,
+            &mut r,
+            &mut e
+        ));
+        assert_eq!(e.code, ErrorCode::InvalidInput);
+        assert!(!anofox_mediation(
+            arr(&y),
+            arr(&m),
+            arr(&x),
+            ptr::null(),
+            1,
+            opts,
+            &mut r,
+            &mut e
+        ));
+        assert_eq!(e.code, ErrorCode::InvalidInput);
+    }
+}

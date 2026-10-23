@@ -36,7 +36,7 @@ namespace {
 
 struct BayesianBindData : public FitPredictRowsBindBase {
 	bool ard = false;
-	AnofoxBayesianOptions options = {true, 300, 1e-3, 1e-6, 1e-6, 1e-6, 1e-6, 10000.0};
+	AnofoxBayesianOptions options = {true, 300, 1e-3, 1e-6, 1e-6, 1e-6, 1e-6, 10000.0, 0.95};
 	double confidence_level = 0.95;
 
 	unique_ptr<FunctionData> Copy() const override {
@@ -69,8 +69,10 @@ void ParseBayesianOptions(ClientContext &context, Expression &expr, BayesianBind
 	if (bind.ard) {
 		keys.push_back("threshold_lambda");
 	}
+	// The level of the coefficient credible intervals (fit) or of the
+	// posterior predictive interval (fit-predict).
+	keys.push_back("confidence_level");
 	if (fit_predict) {
-		keys.push_back("confidence_level");
 		keys.push_back("null_policy");
 	}
 	auto opts = RegressionMapOptions::ParseFromExpression(context, expr, name, keys);
@@ -104,6 +106,7 @@ void ParseBayesianOptions(ClientContext &context, Expression &expr, BayesianBind
 	}
 	if (opts.confidence_level.has_value()) {
 		bind.confidence_level = opts.confidence_level.value();
+		o.confidence_level = bind.confidence_level;
 	}
 }
 
@@ -122,6 +125,9 @@ void ValidateBayesianOptions(const BayesianBindData &bind, const string &name) {
 	}
 	if (!(o.threshold_lambda > 0.0)) {
 		throw InvalidInputException("%s: threshold_lambda must be > 0", name);
+	}
+	if (!(bind.confidence_level > 0.0 && bind.confidence_level < 1.0)) {
+		throw InvalidInputException("%s: confidence_level must be in (0, 1)", name);
 	}
 }
 
@@ -146,8 +152,9 @@ LogicalType BayesianFitResultType(bool ard) {
 	if (!ard) {
 		c.push_back(make_pair("log_marginal_likelihood", LogicalType::DOUBLE));
 	}
-	// Stable shape (#152): no frequentist coefficient inference; the posterior
-	// standard deviations are in posterior_sd.
+	// Stable shape (#152). The inference fields carry the posterior (#222):
+	// std_errors = posterior_sd, conf_low / conf_high the central credible
+	// interval at conf_level; no test, so t_values / p_values are NULL.
 	AppendCoefficientInferenceFields(c, "t_values", false, false);
 	AppendModelSummaryFields(c);
 	return LogicalType::STRUCT(std::move(c));
@@ -193,7 +200,16 @@ void BayesianFitFinalize(Vector &state_vector, AggregateInputData &aggr_input_da
 		if (!bind.ard) {
 			XyRowsSetDouble(StructEntry(entries[k++]), row, fit.log_marginal_likelihood);
 		}
-		writer.WriteInference(row, nullptr);
+		// Credible intervals, not a test: NULL t_values / p_values.
+		AnofoxFitResultInference credible = {};
+		credible.std_errors = fit.posterior_sd;
+		credible.ci_lower = fit.credible_lower;
+		credible.ci_upper = fit.credible_upper;
+		credible.len = fit.coefficients_len;
+		credible.confidence_level = fit.confidence_level;
+		credible.f_statistic = std::nan("");
+		credible.f_pvalue = std::nan("");
+		writer.WriteInference(row, &credible);
 		writer.WriteSummary(row, fit.summary);
 		anofox_free_bayesian_result(&fit);
 	}
@@ -330,8 +346,9 @@ void RegisterBayesianModel(ExtensionLoader &loader, const string &label, const s
 	predict_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
 	const string predict_description =
 	    "Fits " + label +
-	    " over a partition (training rows: y NOT NULL, or split = 'train') and returns one STRUCT per row: y, yhat, "
-	    "yhat_lower / yhat_upper (posterior predictive interval at confidence_level, default 0.95) and is_training.";
+	    " over a partition (training rows: y NOT NULL and, with split_col, split 'train' / 'training' in any "
+	    "case) and returns one STRUCT per row: y, yhat, yhat_lower / yhat_upper (posterior predictive interval at "
+	    "confidence_level, default 0.95) and is_training.";
 	const vector<vector<string>> names = {
 	    {"y", "x"}, {"y", "x", "options"}, {"y", "x", "split_col"}, {"y", "x", "split_col", "options"}};
 	const vector<string> examples = {predict_name + "(y, x)", predict_name + "(y, x, {'confidence_level': 0.9})",

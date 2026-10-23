@@ -40,6 +40,11 @@ pub struct AugmentResult {
     pub cooks_d: Vec<f64>,
     /// DFFITS; NaN for rows not used in the fit.
     pub dffits: Vec<f64>,
+    /// Leave-one-out (PRESS) residual `y − ŷ₍ᵢ₎` (#220); NaN for the GLMs,
+    /// rows with leverage 1 and rows not used in the fit.
+    pub loo_residual: Vec<f64>,
+    /// Leave-one-out prediction `ŷ₍ᵢ₎`; NaN where `loo_residual` is.
+    pub loo_fitted: Vec<f64>,
     /// Whether the row was used to fit the model.
     pub used: Vec<bool>,
     /// Name of the residual type (`"response"` for OLS/WLS, `"deviance"` for
@@ -144,6 +149,8 @@ fn run<M: Augmentable + FittedRegressor>(
         leverage: vec![f64::NAN; n_obs],
         cooks_d: vec![f64::NAN; n_obs],
         dffits: vec![f64::NAN; n_obs],
+        loo_residual: vec![f64::NAN; n_obs],
+        loo_fitted: vec![f64::NAN; n_obs],
         used,
         resid_type: aug.resid_type.as_str(),
         n_params: fitted_model.result().n_parameters,
@@ -156,6 +163,8 @@ fn run<M: Augmentable + FittedRegressor>(
         out.leverage[i] = aug.leverage[r];
         out.cooks_d[i] = aug.cooks_d[r];
         out.dffits[i] = aug.dffits[r];
+        out.loo_residual[i] = aug.loo_residual[r];
+        out.loo_fitted[i] = aug.loo_fitted[r];
     }
     Ok(out)
 }
@@ -439,6 +448,8 @@ fn augment_glm_spec(y: &[f64], x: &[Vec<f64>], spec: GlmSpec<'_>) -> StatsResult
         leverage: (0..n_obs).map(|i| col(&aug.leverage, i)).collect(),
         cooks_d: (0..n_obs).map(|i| col(&aug.cooks_d, i)).collect(),
         dffits: (0..n_obs).map(|i| col(&aug.dffits, i)).collect(),
+        loo_residual: (0..n_obs).map(|i| col(&aug.loo_residual, i)).collect(),
+        loo_fitted: (0..n_obs).map(|i| col(&aug.loo_fitted, i)).collect(),
         resid_type: aug.resid_type.as_str(),
         n_params,
         used,
@@ -687,6 +698,13 @@ mod tests {
         assert!((h - 2.0).abs() < 1e-10);
         assert_eq!(r.n_params, 2);
         assert_eq!(r.resid_type, "response");
+        // Leave-one-out (#220): e / (1 - h), and y minus it.
+        assert!(r.loo_residual[4].is_nan() && r.loo_fitted[4].is_nan());
+        for i in [0, 1, 2, 3, 5, 6] {
+            let want = r.residual[i] / (1.0 - r.leverage[i]);
+            assert!((r.loo_residual[i] - want).abs() < 1e-12);
+            assert!((r.loo_fitted[i] - (y[i] - want)).abs() < 1e-12);
+        }
     }
 
     #[test]
@@ -716,6 +734,8 @@ mod tests {
         assert!(r.residual[8].is_nan() && r.leverage[8].is_nan());
         let h: f64 = r.leverage.iter().filter(|v| v.is_finite()).sum();
         assert!((h - 3.0).abs() < 1e-8);
+        // No exact leave-one-out residuals for a GLM.
+        assert!(r.loo_residual.iter().all(|v| v.is_nan()));
     }
 
     #[test]

@@ -70,6 +70,10 @@ typedef struct {
 	double intercept_p_value;
 	double intercept_conf_low;
 	double intercept_conf_high;
+	/* Leave-one-out fit statistics (#220); NaN except for OLS / WLS. */
+	double press;
+	double press_rmse;
+	double loo_r_squared;
 } AnofoxModelSummaryFFI;
 
 #define ANOFOX_TEST_METHOD_LEN 96
@@ -190,6 +194,8 @@ typedef struct {
 	AnofoxHcType hc_type;
 	/** Tolerance of R lm's aliasing test (tol); <= 0 = default 1e-7. Zero-initialise the struct. */
 	double alias_tolerance;
+	/** Compute the leave-one-out statistics (press, press_rmse, loo_r_squared) in the summary (#220) */
+	bool compute_loo;
 } AnofoxOlsOptions;
 
 /**
@@ -375,6 +381,13 @@ typedef struct {
 
 	bool n_subsamples_set;
 	size_t n_subsamples_value;
+
+	/** Interval method with compute_inference: 0 = auto (exact for one feature,
+	 *  bootstrap otherwise), 1 = exact (Sen), 2 = pairs bootstrap, 3 = exact where it
+	 *  applies, otherwise no intervals ('exact_or_none'). */
+	int32_t ci_method;
+	/** Bootstrap resamples (seeded by random_state). */
+	uint32_t n_bootstrap;
 } AnofoxTheilSenOptions;
 
 /**
@@ -508,6 +521,8 @@ typedef struct {
 	AnofoxHcType hc_type;
 	/** Tolerance of R lm's aliasing test (tol); <= 0 = default 1e-7. Zero-initialise the struct. */
 	double alias_tolerance;
+	/** Compute the leave-one-out statistics (press, press_rmse, loo_r_squared) in the summary (#220) */
+	bool compute_loo;
 } AnofoxWlsOptions;
 
 /**
@@ -2433,6 +2448,14 @@ bool anofox_tukey_hsd(AnofoxDataArray values, const uint64_t *groups, double con
 bool anofox_dunn_test(AnofoxDataArray values, const uint64_t *groups, const char *p_adjust,
                       AnofoxPairwiseResult *out_result, AnofoxError *out_error);
 
+/**
+ * Adjust p-values for multiple testing (R p.adjust(p, method, n), #219). NULL/NaN
+ * entries pass through as NaN and are not counted; n < 0 means the number of
+ * non-NULL p-values, and a smaller n is an error. p_adjust NULL means holm.
+ * out has p.len doubles; with p.len == 0 the call only validates p_adjust and n.
+ */
+bool anofox_p_adjust(AnofoxDataArray p, const char *p_adjust, int64_t n, double *out, AnofoxError *out_error);
+
 /** Free the rows of a pairwise result. */
 void anofox_free_pairwise_result(AnofoxPairwiseResult *result);
 
@@ -2691,6 +2714,14 @@ typedef enum {
 	ANOFOX_GLMM_TWEEDIE = 5,
 } AnofoxGlmmFamily;
 
+/** Degrees-of-freedom method of the fixed-effect tests. */
+typedef enum {
+	/** The family default: Satterthwaite for gaussian, Wald otherwise. */
+	ANOFOX_GLMM_DDF_DEFAULT = 0,
+	ANOFOX_GLMM_DDF_WALD = 1,
+	ANOFOX_GLMM_DDF_SATTERTHWAITE = 2,
+} AnofoxGlmmDdf;
+
 typedef struct {
 	AnofoxGlmmFamily family;
 	bool fit_intercept;
@@ -2710,6 +2741,7 @@ typedef struct {
 	    carry a random slope. Null/zero-length = random intercept only. */
 	const size_t *random_slopes;
 	size_t random_slopes_len;
+	AnofoxGlmmDdf ddf;
 } AnofoxGlmmOptions;
 
 typedef struct {
@@ -2756,9 +2788,34 @@ typedef struct {
 	size_t factor_len;
 	/** Negative-binomial size theta (estimated or fixed); NaN for other families. */
 	double nb_theta;
+	/** Satterthwaite degrees of freedom of the coefficients (inference_len); NULL for
+	    Wald inference or without inference. */
+	double *df;
+	/** Satterthwaite degrees of freedom of the intercept; NaN otherwise. */
+	double intercept_df;
+	/** Conditional standard errors of ranef_effects, same layout. */
+	double *ranef_effects_se;
+	/** Length of each group's vector in ranef_effects / ranef_effects_se (differs from
+	    random_dim for crossed fits, whose random_cov is empty without random slopes). */
+	size_t ranef_dim;
+	/** Normal intervals of ranef_effects at confidence_level, same layout. */
+	double *ranef_effects_conf_low;
+	double *ranef_effects_conf_high;
+	/** Residual degrees of freedom n - k (lme4 df.residual()). */
+	double df_residual;
 	/** Model description, fit statistics and intercept inference (#152) */
 	AnofoxModelSummaryFFI summary;
 } AnofoxGlmmResult;
+
+/** Per-row fitted values and residuals of a GLMM, one per input row (input order). */
+typedef struct {
+	double *fitted;
+	double *fitted_population;
+	double *residual;
+	double *pearson_residual;
+	bool *is_training;
+	size_t len;
+} AnofoxGlmmAugmentResult;
 
 /**
  * Fit a mixed-effects GLM with a random intercept over one grouping factor.
@@ -2771,6 +2828,18 @@ bool anofox_glmm_fit(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count
 
 /** Free the arrays owned by a GLMM result. */
 void anofox_free_glmm_result(AnofoxGlmmResult *result);
+
+/**
+ * Per-row fitted values (conditional and population-level, response scale) and
+ * response / Pearson residuals of the same fit as anofox_glmm_fit. Rows the fit
+ * dropped are NaN with is_training = false.
+ */
+bool anofox_glmm_augment(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, const int32_t *group_ids,
+                         size_t n_obs, const int32_t *const *extra_group_ids, size_t n_extra_factors,
+                         AnofoxGlmmOptions options, AnofoxGlmmAugmentResult *out_result, AnofoxError *out_error);
+
+/** Free the arrays owned by a GLMM augment result. */
+void anofox_free_glmm_augment_result(AnofoxGlmmAugmentResult *result);
 
 /* ============================================================================
  * Per-observation diagnostics (broom augment) -- issue #151
@@ -2790,6 +2859,8 @@ typedef struct {
 	double *leverage;
 	double *cooks_d;
 	double *dffits;
+	double *loo_residual; /* leave-one-out (PRESS) residual, #220 */
+	double *loo_fitted;
 	bool *used;
 	size_t len;
 	size_t n_params;
@@ -2890,15 +2961,66 @@ bool anofox_reg_path(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count
 bool anofox_lars_path(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, AnofoxLarsOptions options,
                       AnofoxRegPathResult *out, AnofoxError *out_error);
 void anofox_free_reg_path_result(AnofoxRegPathResult *result);
+/** CV strategy (#204): how the splits of anofox_cv_reg_path / anofox_nested_cv_reg_path are built. */
+typedef enum {
+	ANOFOX_CV_KFOLD = 0,
+	ANOFOX_CV_FOLD_IDS = 1,
+	ANOFOX_CV_GROUP = 2,
+	ANOFOX_CV_LOGO = 3,
+	ANOFOX_CV_STRATIFIED = 4,
+	ANOFOX_CV_TIME_SERIES = 5,
+} AnofoxCvStrategy;
+
+typedef struct {
+	int32_t strategy;
+	/** k of the k-fold strategies, n_splits of time_series (outer folds of nested CV). */
+	size_t n_folds;
+	uint64_t seed;
+	/** kfold / stratified: repetitions with seeds seed, seed + 1, ... */
+	size_t repeats;
+	/** time_series: time points per test block (0: n / (n_splits + 1)), gap, sliding window (0: expanding). */
+	size_t test_size;
+	size_t gap;
+	size_t max_train_size;
+	/** stratified without a key: quantile bins of y. */
+	size_t n_bins;
+	/** Mean absolute error instead of the mean squared error. */
+	bool mae;
+	/** Nested CV: inner folds and the lambda rule (lambda_1se instead of lambda_min). */
+	size_t inner_folds;
+	bool one_se;
+} AnofoxCvSpec;
+
 /**
- * k-fold CV of the ridge / elastic-net path (solvers::path::cv_path). fold_ids
- * (one label per row, any values) or, when NULL, n_folds folds drawn with
- * kfold_ids(n, n_folds, seed) over the usable rows in input order.
+ * CV of the ridge / elastic-net path on the splits of a CV strategy
+ * (solvers::cv::cv_path_splits). keys: one value per row (fold label, group,
+ * stratum or time, by strategy) or NULL.
  */
-bool anofox_cv_reg_path(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, const int64_t *fold_ids,
-                        size_t n_folds, uint64_t seed, AnofoxRegPathOptions options, AnofoxCvPathResult *out,
+bool anofox_cv_reg_path(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, const double *keys,
+                        AnofoxCvSpec spec, AnofoxRegPathOptions options, AnofoxCvPathResult *out,
                         AnofoxError *out_error);
 void anofox_free_cv_path_result(AnofoxCvPathResult *result);
+
+/** Nested CV (#204): one entry per outer split (arrays of n_folds), plus the weighted mean and its se. */
+typedef struct {
+	double *lambda;
+	double *test_error;
+	double *inner_cv_mean;
+	double *inner_cv_se;
+	double *n_train;
+	double *n_test;
+	double *n_inner_folds;
+	size_t n_folds;
+	double mean;
+	double se;
+	size_t n_observations;
+} AnofoxNestedCvResult;
+
+/** Nested CV of the ridge / elastic-net path (solvers::cv::nested_cv_path). */
+bool anofox_nested_cv_reg_path(AnofoxDataArray y, const AnofoxDataArray *x, size_t x_count, const double *keys,
+                               AnofoxCvSpec spec, AnofoxRegPathOptions options, AnofoxNestedCvResult *out,
+                               AnofoxError *out_error);
+void anofox_free_nested_cv_result(AnofoxNestedCvResult *result);
 
 /*
  * ============================================================================
@@ -3175,10 +3297,13 @@ typedef struct {
 	double lambda_2;
 	/** ARD only: features whose precision reaches this value are pruned. */
 	double threshold_lambda;
+	/** Level of the coefficient credible intervals. */
+	double confidence_level;
 } AnofoxBayesianOptions;
 
 /**
- * A fitted Bayesian Ridge / ARD model. coefficients and posterior_sd have
+ * A fitted Bayesian Ridge / ARD model. coefficients, posterior_sd and the
+ * credible bounds credible_lower / credible_upper (at confidence_level) have
  * coefficients_len entries; weight_precisions (ARD) has weight_precisions_len
  * (0 and NULL for Bayesian Ridge). Must match BayesianFitResultFFI.
  */
@@ -3191,8 +3316,11 @@ typedef struct {
 	double weight_precision;
 	/** Log marginal likelihood (evidence); NaN for ARD. */
 	double log_marginal_likelihood;
+	double confidence_level;
 	double *coefficients;
 	double *posterior_sd;
+	double *credible_lower;
+	double *credible_upper;
 	double *weight_precisions;
 	size_t coefficients_len;
 	size_t weight_precisions_len;
@@ -3303,6 +3431,98 @@ bool anofox_lowess(AnofoxDataArray x, AnofoxDataArray y, double frac, uint32_t i
 
 /** Free the arrays of a LOWESS result. */
 void anofox_free_lowess_result(AnofoxLowessResult *result);
+
+/* ============================================================================
+ * Causal mediation analysis -- issue #223
+ * ============================================================================ */
+
+typedef enum {
+	ANOFOX_MEDIATION_BOOTSTRAP = 0,
+	ANOFOX_MEDIATION_SOBEL = 1,
+	ANOFOX_MEDIATION_QUASI_BAYESIAN = 2,
+} AnofoxMediationMethod;
+
+typedef enum {
+	ANOFOX_MEDIATION_CI_PERCENTILE = 0,
+	ANOFOX_MEDIATION_CI_BCA = 1,
+} AnofoxMediationCi;
+
+typedef struct {
+	AnofoxMediationMethod method;
+	AnofoxMediationCi ci_type;
+	uint32_t n_sims;
+	uint64_t seed;
+	double conf_level;
+	double treat_value;
+	double control_value;
+} AnofoxMediationOptions;
+
+/** One effect; non-finite values mean "not available". */
+typedef struct {
+	double estimate;
+	double std_error;
+	double statistic;
+	double p_value;
+	double conf_low;
+	double conf_high;
+} AnofoxMediationEffect;
+
+/** Mediation result (owns no memory). */
+typedef struct {
+	AnofoxMediationEffect acme;
+	AnofoxMediationEffect ade;
+	AnofoxMediationEffect total;
+	AnofoxMediationEffect prop_mediated;
+	double a;
+	double b;
+	double c_prime;
+	double r_squared_mediator;
+	double r_squared_outcome;
+	size_t n_obs;
+	size_t n_sims;
+} AnofoxMediationResult;
+
+/**
+ * Causal mediation analysis of x -> m -> y with covariate_count covariates
+ * (mediator model m ~ x + C, outcome model y ~ x + m + C, both OLS).
+ */
+bool anofox_mediation(AnofoxDataArray y, AnofoxDataArray m, AnofoxDataArray x, const AnofoxDataArray *covariates,
+                      size_t covariate_count, AnofoxMediationOptions options, AnofoxMediationResult *out_result,
+                      AnofoxError *out_error);
+
+/* ============================================================================
+ * Nested-model F test of two OLS fits -- issue #221
+ * ============================================================================ */
+
+/**
+ * Result of anofox_ols_anova. NaN marks a value that does not apply (the
+ * statistic and p-value when the full model adds no rank or leaves no residual
+ * degrees of freedom). Must match OlsAnovaResultFFI in the Rust FFI crate.
+ */
+typedef struct {
+	double statistic;
+	double df1;
+	double df2;
+	double p_value;
+	double rss_reduced;
+	double rss_full;
+	double adj_r_squared_reduced;
+	double adj_r_squared_full;
+	double delta_adj_r_squared;
+	size_t n_observations;
+	/** Unified test fields (#159); keep last */
+	AnofoxTestSummaryFFI unified;
+} AnofoxOlsAnovaResult;
+
+/**
+ * Nested-model F test (R's anova(lm(reduced), lm(full))) of the OLS fit of y on
+ * the x_reduced columns against the fit on the x_full columns, on the rows where
+ * every value is finite. x_reduced may be empty (NULL, 0): the intercept-only
+ * model. Its columns must lie in the span of x_full (INVALID_INPUT otherwise).
+ */
+bool anofox_ols_anova(AnofoxDataArray y, const AnofoxDataArray *x_reduced, size_t x_reduced_count,
+                      const AnofoxDataArray *x_full, size_t x_full_count, bool fit_intercept,
+                      AnofoxOlsAnovaResult *out_result, AnofoxError *out_error);
 
 #ifdef __cplusplus
 }

@@ -1,0 +1,261 @@
+# name: test/sql/macros/test_loo_press.test
+# description: leave-one-out diagnostics (#220): loo_residual / loo_fitted in ols_augment_by and
+#              wls_augment_by, press / press_rmse / loo_r_squared in ols_glance_by, wls_glance_by and the
+#              ols_fit_agg / wls_fit_agg STRUCT, against R lm(); leverage-1 rows, non-training rows.
+# group: [macros]
+
+require anofox_statistics
+
+# Data as in test_augment_by.test (groups a and b) plus group c, whose dummy x2 has a single 1
+# (that row has leverage 1 and no leave-one-out prediction). Reference values from R 4.6.1:
+#   (same data construction as test_augment_by.test)
+#   for (grp in c("a", "b")) for (m in c("ols", "wls")) {
+#     s <- d[d$g == grp, ]
+#     f <- if (m == "ols") lm(y ~ x1 + x2, data = s) else lm(y ~ x1 + x2, data = s, weights = w)
+#     ww <- if (m == "ols") 1 else s$w
+#     lr <- residuals(f) / (1 - hatvalues(f))        # = refit without the row, y - prediction
+#     press <- sum(rstandard(f, type = "predictive")^2)   # = sum(ww * lr^2)
+#     loo_r2 <- 1 - press / sum(ww * (s$y - weighted.mean(s$y, ww))^2)
+#     # loo_fitted = s$y - lr; press_rmse = sqrt(press / nrow(s))
+#   }
+#   x <- 1:8; dd <- c(0, 0, 0, 0, 0, 0, 0, 1); y <- c(1.2, 1.9, 3.2, 3.8, 5.1, 6.2, 6.8, 20)
+#   rstandard(lm(y ~ x + dd), type = "predictive")  # 0.18 -0.25 0.1782609 -0.2666667 0.1173913 0.31 -0.2866667 NaN
+
+statement ok
+CREATE TABLE d (id INTEGER, g VARCHAR, x1 DOUBLE, x2 DOUBLE, y DOUBLE, w DOUBLE, split VARCHAR);
+
+statement ok
+INSERT INTO d VALUES
+(1, 'a', 1, 7, 0.364, 2, 'train'),
+(2, 'a', 2, 3, 1.616, 3, 'train'),
+(3, 'a', 3, 10, -1.188, 1, 'train'),
+(4, 'a', 4, 6, 0.317, 2, 'train'),
+(5, 'a', 5, 2, 3.115, 3, 'train'),
+(6, 'a', 6, 9, 2.299, 1, 'train'),
+(7, 'a', 7, 5, 3.319, 2, 'train'),
+(8, 'a', 8, 1, 3.872, 3, 'train'),
+(9, 'a', 9, 8, 2.338, 1, 'train'),
+(10, 'a', 10, 4, 5.22, 2, 'train'),
+(11, 'a', 11, 0, 7.487, 3, 'train'),
+(12, 'a', 12, 7, 5.008, 1, 'train'),
+(13, 'a', 13, 3, 5.671, 2, 'train'),
+(14, 'a', 14, 10, 4.395, 3, 'train'),
+(15, 'a', 40, 6, 19.806, 1, 'train'),
+(16, 'a', 7.5, 3, 5.0, 1, 'test'),
+(17, 'b', 0.5, 5, 7.665, 2, 'train'),
+(18, 'b', 1, 10, 10.97, 3, 'train'),
+(19, 'b', 1.5, 2, 3.795, 1, 'train'),
+(20, 'b', 2, 7, 7.258, 2, 'train'),
+(21, 'b', 2.5, 12, 11.164, 3, 'train'),
+(22, 'b', 3, 4, 5.11, 1, 'train'),
+(23, 'b', 3.5, 9, 9.687, 2, 'train'),
+(24, 'b', 4, 1, 3.776, 3, 'train'),
+(25, 'b', 4.5, 6, 7.9, 1, 'train'),
+(26, 'b', 5, 11, 11.554, 2, 'train'),
+(27, 'b', 5.5, 3, 4.453, 3, 'train'),
+(28, 'b', 6, 8, 7.681, 1, 'train'),
+(29, 'b', 6.5, 0, 0.752, 2, 'train'),
+(30, 'b', 7, 5, 4.67, 3, 'train'),
+(31, 'b', 7.5, 10, 9.024, 1, 'train'),
+(32, 'b', 4.2, 6, NULL, 2, 'train');
+
+statement ok
+INSERT INTO d VALUES
+(33, 'c', 1, 0, 1.2, 1, 'train'),
+(34, 'c', 2, 0, 1.9, 1, 'train'),
+(35, 'c', 3, 0, 3.2, 1, 'train'),
+(36, 'c', 4, 0, 3.8, 1, 'train'),
+(37, 'c', 5, 0, 5.1, 1, 'train'),
+(38, 'c', 6, 0, 6.2, 1, 'train'),
+(39, 'c', 7, 0, 6.8, 1, 'train'),
+(40, 'c', 8, 1, 20, 1, 'train');
+
+statement ok
+CREATE TABLE ref (model VARCHAR, row_id BIGINT, loo_residual DOUBLE, loo_fitted DOUBLE);
+
+statement ok
+INSERT INTO ref VALUES
+('ols', 1, 1.23146374803, -0.867463748028),
+('ols', 2, 0.53765838369, 1.07834161631),
+('ols', 3, -0.685418960337, -0.502581039663),
+('ols', 4, -0.943247488667, 1.26024748867),
+('ols', 5, 0.11756860479, 2.99743139521),
+('ols', 6, 1.35080357193, 0.94819642807),
+('ols', 7, 0.317134333536, 3.00186566646),
+('ols', 8, -1.25852206872, 5.13052206872),
+('ols', 9, -0.785851511936, 3.12385151194),
+('ols', 10, 0.369135048902, 4.8508649511),
+('ols', 11, 1.046738517, 6.440261483),
+('ols', 12, 0.130641683892, 4.87735831611),
+('ols', 13, -1.20627989535, 6.87727989535),
+('ols', 14, -0.652568755672, 5.04756875567),
+('ols', 15, 2.25821649941, 17.5477835006),
+('wls', 1, 1.26582438585, -0.901824385847),
+('wls', 2, 0.490021194641, 1.12597880536),
+('wls', 3, -0.576028033588, -0.611971966412),
+('wls', 4, -0.971907982897, 1.2889079829),
+('wls', 5, 0.0634646773451, 3.05153532265),
+('wls', 6, 1.30259151698, 0.996408483018),
+('wls', 7, 0.32564406969, 2.99335593031),
+('wls', 8, -1.32948483222, 5.20148483222),
+('wls', 9, -0.680541958075, 3.01854195807),
+('wls', 10, 0.394676275497, 4.8253237245),
+('wls', 11, 1.11690172559, 6.37009827441),
+('wls', 12, 0.213100619373, 4.79489938063),
+('wls', 13, -1.14881813581, 6.81981813581),
+('wls', 14, -0.629783823529, 5.02478382353),
+('wls', 15, 2.32702036897, 17.478979631),
+('ols', 17, 0.888822660099, 6.7761773399),
+('ols', 18, 0.139514778325, 10.8304852217),
+('ols', 19, -0.733876237624, 4.52887623762),
+('ols', 20, -1.07956993007, 8.33756993007),
+('ols', 21, -1.21601237624, 12.3800123762),
+('ols', 22, -0.480355967078, 5.59035596708),
+('ols', 23, 0.320098765432, 9.36690123457),
+('ols', 24, 1.13207142857, 2.64392857143),
+('ols', 25, 1.25024013158, 6.64975986842),
+('ols', 26, 1.19686866359, 10.3571313364),
+('ols', 27, 0.44343776824, 4.00956223176),
+('ols', 28, -0.299446351931, 7.98044635193),
+('ols', 29, -0.985167582418, 1.73716758242),
+('ols', 30, -0.752828244275, 5.42282824427),
+('ols', 31, -0.168266483516, 9.19226648352),
+('wls', 17, 0.724133816187, 6.94086618381),
+('wls', 18, 0.202599361828, 10.7674006382),
+('wls', 19, -0.888721942949, 4.68372194295),
+('wls', 20, -1.1112571404, 8.3692571404),
+('wls', 21, -1.13192113683, 12.2959211368),
+('wls', 22, -0.561995286051, 5.67199528605),
+('wls', 23, 0.401239485653, 9.28576051435),
+('wls', 24, 1.04792246636, 2.72807753364),
+('wls', 25, 1.2134432755, 6.6865567245),
+('wls', 26, 1.46878732073, 10.0852126793),
+('wls', 27, 0.397406870133, 4.05559312987),
+('wls', 28, -0.152583931133, 7.83358393113),
+('wls', 29, -1.08931927331, 1.84131927331),
+('wls', 30, -0.799979565075, 5.46997956507),
+('wls', 31, 0.142346906315, 8.88165309369);
+
+statement ok
+CREATE TABLE aug AS
+SELECT 'ols' AS model, id, g, y, residual, leverage, loo_residual, loo_fitted, is_training
+FROM ols_augment_by('d', g, y, [x1, x2], split := split)
+UNION ALL
+SELECT 'wls', id, g, y, residual, leverage, loo_residual, loo_fitted, is_training
+FROM wls_augment_by('d', g, y, [x1, x2], w, split := split);
+
+# The macro's row_id is the source position; join the reference on id (the R row_id).
+query II
+SELECT count(*), count(*) FILTER (WHERE abs(a.loo_residual - r.loo_residual) > 1e-8
+                                   OR abs(a.loo_fitted - r.loo_fitted) > 1e-8)
+FROM aug a JOIN ref r ON a.model = r.model AND a.id = r.row_id;
+----
+60	0
+
+# loo_residual = residual / (1 - leverage) and loo_fitted = y - loo_residual on every training row
+query I
+SELECT count(*) FILTER (WHERE abs(loo_residual - residual / (1 - leverage)) > 1e-10
+                         OR abs(loo_fitted - (y - loo_residual)) > 1e-10)
+FROM aug WHERE is_training AND g IN ('a', 'b');
+----
+0
+
+# Rows not used by the fit (split = 'test', NULL y) have no leave-one-out values
+query IIIII
+SELECT model, id, is_training, loo_residual IS NULL, loo_fitted IS NULL FROM aug WHERE id IN (16, 32) ORDER BY model, id;
+----
+ols	16	false	true	true
+ols	32	false	true	true
+wls	16	false	true	true
+wls	32	false	true	true
+
+# Leverage 1 (the single-observation dummy): NULL; the other rows match R
+query IIII
+SELECT id, round(leverage, 7), round(loo_residual, 7), round(loo_fitted, 7) FROM aug WHERE model = 'ols' AND g = 'c' ORDER BY id;
+----
+33	0.4642857	0.18	1.02
+34	0.2857143	-0.25	2.15
+35	0.1785714	0.1782609	3.0217391
+36	0.1428571	-0.2666667	4.0666667
+37	0.1785714	0.1173913	4.9826087
+38	0.2857143	0.31	5.89
+39	0.4642857	-0.2866667	7.0866667
+40	1.0	NULL	NULL
+
+statement ok
+CREATE VIEW dt AS SELECT * FROM d WHERE split = 'train' AND y IS NOT NULL;
+
+# glance_by: PRESS, its RMSE and the predicted R-squared (Q^2), against R
+query IIIII
+SELECT model_id, g,
+       max(value) FILTER (WHERE metric = 'press'),
+       max(value) FILTER (WHERE metric = 'press_rmse'),
+       max(value) FILTER (WHERE metric = 'loo_r_squared')
+FROM (SELECT * FROM ols_glance_by('dt', g, y, [x1, x2]) UNION ALL SELECT * FROM wls_glance_by('dt', g, y, [x1, x2], w))
+WHERE g IN ('a', 'b')
+GROUP BY ALL ORDER BY ALL;
+----
+ols	a	15.5350901067	1.0176800449	0.953328668314
+ols	b	10.4545118506	0.834845768216	0.926436603095
+wls	a	27.1764788071	1.34601829624	0.932541453145
+wls	b	22.8050694466	1.23301985511	0.928791224018
+
+# Predicted R-squared never exceeds R-squared
+query I
+SELECT bool_and(q < r2) FROM (
+    SELECT g, max(value) FILTER (WHERE metric = 'loo_r_squared') AS q, max(value) FILTER (WHERE metric = 'r_squared') AS r2
+    FROM ols_glance_by('dt', g, y, [x1, x2]) WHERE g IN ('a', 'b') GROUP BY g);
+----
+true
+
+# A row with leverage 1 makes PRESS undefined: the metrics are absent (NULL) for group c
+query I
+SELECT count(*) FROM ols_glance_by('dt', g, y, [x1, x2]) WHERE g = 'c' AND metric IN ('press', 'press_rmse', 'loo_r_squared');
+----
+0
+
+# The fields come from the fit STRUCT (opt-in: compute_loo, one more QR of the design) and glance()
+query IIII
+SELECT g, round((m).press, 8), round((m).press_rmse, 8), round(glance(m).loo_r_squared, 8)
+FROM (SELECT g, ols_fit_agg(y, [x1, x2], {'compute_loo': true}) AS m FROM dt GROUP BY g) ORDER BY g;
+----
+a	15.53509011	1.01768004	0.95332867
+b	10.45451185	0.83484577	0.92643660
+c	NULL	NULL	NULL
+
+query II
+SELECT g, round((wls_fit_agg(y, [x1, x2], w, {'compute_loo': true})).press, 8) FROM dt WHERE g = 'a' GROUP BY g;
+----
+a	27.17647881
+
+# Without compute_loo the fields are present and NULL; compute_inference does not imply it
+query III
+SELECT (ols_fit_agg(y, [x1, x2])).press IS NULL,
+       (ols_fit_agg(y, [x1, x2], {'compute_inference': true})).loo_r_squared IS NULL,
+       (wls_fit_agg(y, [x1, x2], w)).press_rmse IS NULL
+FROM dt WHERE g = 'a';
+----
+true	true	true
+
+# The scalar fits take the option too
+query II
+SELECT (ols_fit(list(y ORDER BY id), [list(x1 ORDER BY id), list(x2 ORDER BY id)])).press IS NULL,
+       round((ols_fit(list(y ORDER BY id), [list(x1 ORDER BY id), list(x2 ORDER BY id)], {'compute_loo': true})).press, 8)
+FROM dt WHERE g = 'a';
+----
+true	15.53509011
+
+# glance_by turns compute_loo on; an explicit compute_loo := false from the user wins
+query I
+SELECT count(*) FROM ols_glance_by('dt', g, y, [x1, x2], options := {'compute_loo': false})
+WHERE metric IN ('press', 'press_rmse', 'loo_r_squared');
+----
+0
+
+# Models without exact leave-one-out statistics report NULL
+query II
+SELECT glance(ridge_fit_agg(y, [x1, x2], {'alpha': 1.0})).press IS NULL,
+       glance(poisson_fit_agg(round(abs(y))::DOUBLE, [x1, x2])).press IS NULL
+FROM dt WHERE g = 'a';
+----
+true	true

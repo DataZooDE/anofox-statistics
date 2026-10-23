@@ -24,6 +24,8 @@ pub struct BayesianOptionsFFI {
     pub lambda_2: f64,
     /// ARD only.
     pub threshold_lambda: f64,
+    /// Level of the coefficient credible intervals.
+    pub confidence_level: f64,
 }
 
 impl From<&BayesianOptionsFFI> for BayesianOptions {
@@ -37,12 +39,14 @@ impl From<&BayesianOptionsFFI> for BayesianOptions {
             lambda_1: o.lambda_1,
             lambda_2: o.lambda_2,
             threshold_lambda: o.threshold_lambda,
+            confidence_level: o.confidence_level,
         }
     }
 }
 
-/// A fitted Bayesian Ridge / ARD model. `coefficients` and `posterior_sd`
-/// have `coefficients_len` entries; `weight_precisions` (ARD) has
+/// A fitted Bayesian Ridge / ARD model. `coefficients`, `posterior_sd` and
+/// the credible bounds `credible_lower` / `credible_upper` (at
+/// `confidence_level`) have `coefficients_len` entries; `weight_precisions` (ARD) has
 /// `weight_precisions_len` (0 and NULL for Bayesian Ridge). Released with
 /// `anofox_free_bayesian_result`. The doubles come first so the layout has no
 /// padding on 64-bit or wasm32.
@@ -56,8 +60,11 @@ pub struct BayesianFitResultFFI {
     pub weight_precision: f64,
     /// NaN for ARD.
     pub log_marginal_likelihood: f64,
+    pub confidence_level: f64,
     pub coefficients: *mut f64,
     pub posterior_sd: *mut f64,
+    pub credible_lower: *mut f64,
+    pub credible_upper: *mut f64,
     pub weight_precisions: *mut f64,
     pub coefficients_len: usize,
     pub weight_precisions_len: usize,
@@ -75,8 +82,11 @@ impl Default for BayesianFitResultFFI {
             noise_precision: f64::NAN,
             weight_precision: f64::NAN,
             log_marginal_likelihood: f64::NAN,
+            confidence_level: f64::NAN,
             coefficients: std::ptr::null_mut(),
             posterior_sd: std::ptr::null_mut(),
+            credible_lower: std::ptr::null_mut(),
+            credible_upper: std::ptr::null_mut(),
             weight_precisions: std::ptr::null_mut(),
             coefficients_len: 0,
             weight_precisions_len: 0,
@@ -168,8 +178,11 @@ pub unsafe extern "C" fn anofox_bayesian_fit(
             noise_precision: r.noise_precision,
             weight_precision: r.weight_precision,
             log_marginal_likelihood: r.log_marginal_likelihood,
+            confidence_level: r.confidence_level,
             coefficients: alloc_f64(&r.coefficients),
             posterior_sd: alloc_f64(&r.posterior_sd),
+            credible_lower: alloc_f64(&r.credible_lower),
+            credible_upper: alloc_f64(&r.credible_upper),
             weight_precisions: alloc_f64(&r.weight_precisions),
             coefficients_len: r.coefficients.len(),
             weight_precisions_len: r.weight_precisions.len(),
@@ -180,6 +193,8 @@ pub unsafe extern "C" fn anofox_bayesian_fit(
         };
         if res.coefficients.is_null()
             || res.posterior_sd.is_null()
+            || res.credible_lower.is_null()
+            || res.credible_upper.is_null()
             || (res.weight_precisions.is_null() && !r.weight_precisions.is_empty())
         {
             anofox_free_bayesian_result(&mut res);
@@ -276,6 +291,8 @@ pub unsafe extern "C" fn anofox_free_bayesian_result(result: *mut BayesianFitRes
     for p in [
         &mut r.coefficients,
         &mut r.posterior_sd,
+        &mut r.credible_lower,
+        &mut r.credible_upper,
         &mut r.weight_precisions,
     ] {
         if !p.is_null() {
@@ -659,21 +676,21 @@ mod tests {
         let ptr = size_of::<*mut f64>();
         let sz = size_of::<usize>();
         let d = size_of::<f64>();
-        assert_eq!(offset_of!(BayesianFitResultFFI, coefficients), 5 * d);
+        assert_eq!(offset_of!(BayesianFitResultFFI, coefficients), 6 * d);
         assert_eq!(
             offset_of!(BayesianFitResultFFI, coefficients_len),
-            5 * d + 3 * ptr
+            6 * d + 5 * ptr
         );
         assert_eq!(
             offset_of!(BayesianFitResultFFI, summary),
-            5 * d + 3 * ptr + 5 * sz
+            6 * d + 5 * ptr + 5 * sz
         );
         assert_eq!(
             size_of::<BayesianFitResultFFI>(),
             offset_of!(BayesianFitResultFFI, summary) + size_of::<ModelSummaryFFI>()
         );
         assert_eq!(offset_of!(BayesianOptionsFFI, tolerance), d);
-        assert_eq!(size_of::<BayesianOptionsFFI>(), 7 * d);
+        assert_eq!(size_of::<BayesianOptionsFFI>(), 8 * d);
     }
 
     /// Mirrors the #63 static_asserts in src/include/model_struct.cpp.
@@ -808,6 +825,7 @@ mod tests {
             lambda_1: 1e-6,
             lambda_2: 1e-6,
             threshold_lambda: 1e4,
+            confidence_level: 0.95,
         }
     }
 
@@ -835,8 +853,13 @@ mod tests {
                 assert_eq!(res.coefficients_len, 2);
                 assert_eq!(res.weight_precisions_len, if ard { 2 } else { 0 });
                 assert!((*res.coefficients - 2.0).abs() < 0.05);
+                // Central 95% credible interval around the posterior mean.
+                let half = 1.959_963_984_540_054 * *res.posterior_sd;
+                assert!((*res.credible_lower - (*res.coefficients - half)).abs() < 1e-12);
+                assert!((*res.credible_upper - (*res.coefficients + half)).abs() < 1e-12);
+                assert_eq!(res.confidence_level, 0.95);
                 anofox_free_bayesian_result(&mut res);
-                assert!(res.coefficients.is_null());
+                assert!(res.coefficients.is_null() && res.credible_lower.is_null());
 
                 let rows = [0.5, 0.5, f64::NAN, 0.0];
                 let (mut yhat, mut lo, mut hi) = ([0.0; 2], [0.0; 2], [0.0; 2]);

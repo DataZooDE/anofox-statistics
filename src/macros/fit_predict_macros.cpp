@@ -41,7 +41,7 @@ SELECT
 FROM (
     SELECT *,
         ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _rn,
-        ols_fit_predict_agg(y_col, x_cols, CASE WHEN split IS NOT NULL AND split != 'train' THEN 'test' ELSE 'train' END, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
+        ols_fit_predict_agg(y_col, x_cols, CASE WHEN SPLIT_IS_TRAIN THEN 'train' ELSE 'test' END, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
     FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR))
 ) sub
 ORDER BY group_col
@@ -63,7 +63,7 @@ SELECT
 FROM (
     SELECT *,
         ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _rn,
-        huber_fit_predict_agg(y_col, x_cols, CASE WHEN split IS NOT NULL AND split != 'train' THEN 'test' ELSE 'train' END, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
+        huber_fit_predict_agg(y_col, x_cols, CASE WHEN SPLIT_IS_TRAIN THEN 'train' ELSE 'test' END, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
     FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR))
 ) sub
 ORDER BY group_col
@@ -85,7 +85,7 @@ SELECT
 FROM (
     SELECT *,
         ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _rn,
-        ransac_fit_predict_agg(y_col, x_cols, CASE WHEN split IS NOT NULL AND split != 'train' THEN 'test' ELSE 'train' END, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
+        ransac_fit_predict_agg(y_col, x_cols, CASE WHEN SPLIT_IS_TRAIN THEN 'train' ELSE 'test' END, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
     FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR))
 ) sub
 ORDER BY group_col
@@ -107,7 +107,7 @@ SELECT
 FROM (
     SELECT *,
         ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _rn,
-        theil_sen_fit_predict_agg(y_col, x_cols, CASE WHEN split IS NOT NULL AND split != 'train' THEN 'test' ELSE 'train' END, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
+        theil_sen_fit_predict_agg(y_col, x_cols, CASE WHEN SPLIT_IS_TRAIN THEN 'train' ELSE 'test' END, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
     FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR))
 ) sub
 ORDER BY group_col
@@ -128,7 +128,7 @@ SELECT
 FROM (
     SELECT *,
         ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _rn,
-        ridge_fit_predict_agg(y_col, x_cols, CASE WHEN split IS NOT NULL AND split != 'train' THEN 'test' ELSE 'train' END, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
+        ridge_fit_predict_agg(y_col, x_cols, CASE WHEN SPLIT_IS_TRAIN THEN 'train' ELSE 'test' END, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
     FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR))
 ) sub
 ORDER BY group_col
@@ -149,7 +149,7 @@ SELECT
 FROM (
     SELECT *,
         ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _rn,
-        elasticnet_fit_predict_agg(y_col, x_cols, CASE WHEN split IS NOT NULL AND split != 'train' THEN 'test' ELSE 'train' END, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
+        elasticnet_fit_predict_agg(y_col, x_cols, CASE WHEN SPLIT_IS_TRAIN THEN 'train' ELSE 'test' END, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
     FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR))
 ) sub
 ORDER BY group_col
@@ -170,7 +170,7 @@ SELECT
 FROM (
     SELECT *,
         ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _rn,
-        wls_fit_predict_agg(y_col, x_cols, weight_col, CASE WHEN split IS NOT NULL AND split != 'train' THEN 'test' ELSE 'train' END, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
+        wls_fit_predict_agg(y_col, x_cols, weight_col, CASE WHEN SPLIT_IS_TRAIN THEN 'train' ELSE 'test' END, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
     FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR))
 ) sub
 ORDER BY group_col
@@ -180,7 +180,8 @@ ORDER BY group_col
     // C++ API: ols_augment_by(table_name, group_col, y_col, x_cols, options, split, order_by)
     // Options: fit_intercept, null_policy, solver
     // Returns: all source columns (incl. the group column) + model_id, model_name, row_id, fitted, residual, resid_type, std_residual,
-    //          stud_residual, leverage, cooks_d, dffits, weight, is_training, n_params
+    //          stud_residual, leverage, cooks_d, dffits, weight, is_training, n_params, loo_residual, loo_fitted
+    //          (leave-one-out, #220: residual / (1 - leverage) and y - loo_residual; NULL where leverage = 1 or off the fit)
     {"ols_augment_by", {"source", "group_col", "y_col", "x_cols", nullptr}, {{"options", "NULL"}, {"split", "NULL"}, {"order_by", "NULL"}},
 R"(
 SELECT
@@ -198,11 +199,13 @@ SELECT
     (_aug[_rn]).dffits AS dffits,
     (_aug[_rn]).weight AS weight,
     (_aug[_rn]).is_training AS is_training,
-    (_aug[_rn]).n_params AS n_params
+    (_aug[_rn]).n_params AS n_params,
+    (_aug[_rn]).loo_residual AS loo_residual,
+    (_aug[_rn]).loo_fitted AS loo_fitted
 FROM (
     SELECT *,
         ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _rn,
-        ols_augment_agg(CASE WHEN split IS NOT NULL AND split != 'train' THEN 'NaN'::DOUBLE ELSE y_col END, x_cols, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _aug
+        ols_augment_agg(CASE WHEN SPLIT_IS_TRAIN THEN y_col ELSE 'NaN'::DOUBLE END, x_cols, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _aug
     FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR))
 ) sub
 ORDER BY group_col, row_id
@@ -211,7 +214,7 @@ ORDER BY group_col, row_id
     // wls_augment_by: per-row diagnostics of a WLS fit per group (broom augment, contract `obs` schema, #151)
     // C++ API: wls_augment_by(table_name, group_col, y_col, x_cols, weight_col, options, split, order_by)
     // Options: fit_intercept, null_policy, solver
-    // Returns: as ols_augment_by; weight is the prior weight from weight_col
+    // Returns: as ols_augment_by; weight is the prior weight from weight_col; loo_residual is on the response scale
     {"wls_augment_by", {"source", "group_col", "y_col", "x_cols", "weight_col", nullptr}, {{"options", "NULL"}, {"split", "NULL"}, {"order_by", "NULL"}},
 R"(
 SELECT
@@ -229,11 +232,13 @@ SELECT
     (_aug[_rn]).dffits AS dffits,
     (_aug[_rn]).weight AS weight,
     (_aug[_rn]).is_training AS is_training,
-    (_aug[_rn]).n_params AS n_params
+    (_aug[_rn]).n_params AS n_params,
+    (_aug[_rn]).loo_residual AS loo_residual,
+    (_aug[_rn]).loo_fitted AS loo_fitted
 FROM (
     SELECT *,
         ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _rn,
-        wls_augment_agg(CASE WHEN split IS NOT NULL AND split != 'train' THEN 'NaN'::DOUBLE ELSE y_col END, x_cols, weight_col, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _aug
+        wls_augment_agg(CASE WHEN SPLIT_IS_TRAIN THEN y_col ELSE 'NaN'::DOUBLE END, x_cols, weight_col, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _aug
     FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR))
 ) sub
 ORDER BY group_col, row_id
@@ -264,7 +269,7 @@ SELECT
 FROM (
     SELECT *,
         ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _rn,
-        poisson_augment_agg(CASE WHEN split IS NOT NULL AND split != 'train' THEN NULL ELSE y_col END, x_cols, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _aug
+        poisson_augment_agg(CASE WHEN SPLIT_IS_TRAIN THEN y_col END, x_cols, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _aug
     FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR))
 ) sub
 ORDER BY group_col, row_id
@@ -295,7 +300,7 @@ SELECT
 FROM (
     SELECT *,
         ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _rn,
-        binomial_augment_agg(CASE WHEN split IS NOT NULL AND split != 'train' THEN NULL ELSE y_col END, x_cols, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _aug
+        binomial_augment_agg(CASE WHEN SPLIT_IS_TRAIN THEN y_col END, x_cols, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _aug
     FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR))
 ) sub
 ORDER BY group_col, row_id
@@ -326,7 +331,7 @@ SELECT
 FROM (
     SELECT *,
         ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _rn,
-        logistic_augment_agg(CASE WHEN split IS NOT NULL AND split != 'train' THEN NULL ELSE y_col END, x_cols, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _aug
+        logistic_augment_agg(CASE WHEN SPLIT_IS_TRAIN THEN y_col END, x_cols, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _aug
     FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR))
 ) sub
 ORDER BY group_col, row_id
@@ -357,7 +362,7 @@ SELECT
 FROM (
     SELECT *,
         ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _rn,
-        negbinom_augment_agg(CASE WHEN split IS NOT NULL AND split != 'train' THEN NULL ELSE y_col END, x_cols, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _aug
+        negbinom_augment_agg(CASE WHEN SPLIT_IS_TRAIN THEN y_col END, x_cols, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _aug
     FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR))
 ) sub
 ORDER BY group_col, row_id
@@ -388,7 +393,7 @@ SELECT
 FROM (
     SELECT *,
         ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _rn,
-        gamma_augment_agg(CASE WHEN split IS NOT NULL AND split != 'train' THEN NULL ELSE y_col END, x_cols, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _aug
+        gamma_augment_agg(CASE WHEN SPLIT_IS_TRAIN THEN y_col END, x_cols, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _aug
     FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR))
 ) sub
 ORDER BY group_col, row_id
@@ -419,7 +424,7 @@ SELECT
 FROM (
     SELECT *,
         ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _rn,
-        tweedie_augment_agg(CASE WHEN split IS NOT NULL AND split != 'train' THEN NULL ELSE y_col END, x_cols, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _aug
+        tweedie_augment_agg(CASE WHEN SPLIT_IS_TRAIN THEN y_col END, x_cols, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _aug
     FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR))
 ) sub
 ORDER BY group_col, row_id
@@ -440,7 +445,7 @@ SELECT
 FROM (
     SELECT *,
         ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _rn,
-        rls_fit_predict_agg(y_col, x_cols, CASE WHEN split IS NOT NULL AND split != 'train' THEN 'test' ELSE 'train' END, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
+        rls_fit_predict_agg(y_col, x_cols, CASE WHEN SPLIT_IS_TRAIN THEN 'train' ELSE 'test' END, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
     FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR))
 ) sub
 ORDER BY group_col
@@ -461,7 +466,7 @@ SELECT
 FROM (
     SELECT *,
         ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _rn,
-        bls_fit_predict_agg(y_col, x_cols, CASE WHEN split IS NOT NULL AND split != 'train' THEN 'test' ELSE 'train' END, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
+        bls_fit_predict_agg(y_col, x_cols, CASE WHEN SPLIT_IS_TRAIN THEN 'train' ELSE 'test' END, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
     FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR))
 ) sub
 ORDER BY group_col
@@ -482,7 +487,7 @@ SELECT
 FROM (
     SELECT *,
         ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _rn,
-        alm_fit_predict_agg(y_col, x_cols, CASE WHEN split IS NOT NULL AND split != 'train' THEN 'test' ELSE 'train' END, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
+        alm_fit_predict_agg(y_col, x_cols, CASE WHEN SPLIT_IS_TRAIN THEN 'train' ELSE 'test' END, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
     FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR))
 ) sub
 ORDER BY group_col
@@ -514,6 +519,40 @@ FROM (
 ORDER BY r.group
 )"},
 
+    // ols_anova_by: nested-model F test per group (issue #221), R's
+    // anova(lm(y ~ x_reduced), lm(y ~ x_full)) on the same rows.
+    // C++ API: ols_anova_by(source, group_col, y_col, x_reduced := [...], x_full := [...], options)
+    // x_reduced defaults to [] (the intercept-only model: the overall F test).
+    // Returns: one row per group -- the group column, id (the group as text),
+    // model_id / model_name 'ols' (#187), the contract `test` fields method,
+    // statistic, p_value, df1, df2, then rss_reduced, rss_full,
+    // adj_r_squared_reduced, adj_r_squared_full, delta_adj_r_squared and n_observations.
+    {"ols_anova_by", {"source", "group_col", "y_col", nullptr}, {{"x_reduced", "[]"}, {"x_full", "NULL"}, {"options", "NULL"}},
+R"(
+SELECT
+    group_col,
+    group_col::VARCHAR AS id,
+    'ols' AS model_id,
+    'ols' AS model_name,
+    (_t).method AS method,
+    (_t).statistic AS statistic,
+    (_t).p_value AS p_value,
+    (_t).df1 AS df1,
+    (_t).df2 AS df2,
+    (_t).rss_reduced AS rss_reduced,
+    (_t).rss_full AS rss_full,
+    (_t).adj_r_squared_reduced AS adj_r_squared_reduced,
+    (_t).adj_r_squared_full AS adj_r_squared_full,
+    (_t).delta_adj_r_squared AS delta_adj_r_squared,
+    (_t).n_observations AS n_observations
+FROM (
+    SELECT group_col, ols_anova_agg(y_col, x_reduced, x_full, options) AS _t
+    FROM query_table(source::VARCHAR)
+    GROUP BY group_col
+) sub
+ORDER BY group_col
+)"},
+
     // eb_shrink_by: empirical-Bayes shrinkage of per-group estimates (issue #107)
     // C++ API: eb_shrink_by(source, estimate_col, se_col, options)
     // Unlike the *_fit_predict_by macros this does not fit a model -- it consumes
@@ -537,6 +576,64 @@ FROM (
 ) sub
 )"},
 
+    // p_adjust_by: multiple-testing correction per group (issue #219)
+    // C++ API: p_adjust_by(source, group_col, p_col, method := 'holm', n := NULL)
+    // Adjusts the p-values of each group with p_adjust_agg (R p.adjust) and aligns
+    // them back to their rows through a row id: one aggregate per group, so the
+    // cost is linear (a windowed list per row would be quadratic).
+    // Returns: all source columns + p_adjusted, in source order
+    {"p_adjust_by", {"source", "group_col", "p_col", nullptr}, {{"method", "'holm'"}, {"n", "NULL"}},
+R"(
+WITH _anofox_src AS MATERIALIZED (
+    SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR)
+),
+_anofox_adj AS (
+    SELECT
+        UNNEST(list(_anofox_rid ORDER BY _anofox_rid)) AS _anofox_rid,
+        UNNEST(p_adjust_agg(p_col, method, n ORDER BY _anofox_rid)) AS p_adjusted
+    FROM _anofox_src
+    GROUP BY group_col
+)
+SELECT _anofox_src.* EXCLUDE (_anofox_rid), _anofox_adj.p_adjusted
+FROM _anofox_src JOIN _anofox_adj USING (_anofox_rid)
+ORDER BY _anofox_src._anofox_rid
+)"},
+
+    // mediation_by: causal mediation analysis per group (issue #223)
+    // C++ API: mediation_by(source, group_col, treatment, mediator, outcome, covariates, options)
+    // Fits m ~ x + covariates and y ~ x + m + covariates per group with mediation_agg
+    // and returns the contract `terms` columns, one row per effect (acme, ade, total,
+    // prop_mediated), plus method, n_obs and n_sims. id is the group, model_id 'mediation' (#187).
+    {"mediation_by", {"source", "group_col", "treatment", "mediator", "outcome", nullptr}, {{"covariates", "NULL"}, {"options", "NULL"}},
+R"(
+SELECT
+    group_col, id, model_id, model_name,
+    (_t).term AS term,
+    (_t).estimate AS estimate,
+    (_t).std_error AS std_error,
+    (_t).statistic AS statistic,
+    (_t).p_value AS p_value,
+    (_t).conf_low AS conf_low,
+    (_t).conf_high AS conf_high,
+    (_t).conf_level AS conf_level,
+    NULL::VARCHAR AS index_name,
+    NULL::DOUBLE AS index_value,
+    (_t).method AS method,
+    (_t).n_obs AS n_obs,
+    (_t).n_sims AS n_sims
+FROM (
+    SELECT group_col, group_col::VARCHAR AS id, 'mediation' AS model_id, 'mediation' AS model_name, unnest(_m) AS _t
+    FROM (
+        SELECT group_col,
+            mediation_agg(outcome::DOUBLE, mediator::DOUBLE, treatment::DOUBLE,
+                          coalesce(covariates, []::DOUBLE[])::DOUBLE[], options) AS _m
+        FROM query_table(source::VARCHAR)
+        GROUP BY group_col
+    )
+)
+ORDER BY group_col, list_position(['acme', 'ade', 'total', 'prop_mediated'], term)
+)"},
+
     // poisson_fit_predict_by: Poisson GLM fit and predict per group (long format)
     // C++ API: poisson_fit_predict_by(table_name, group_col, y_col, x_cols, options)
     // Options: link, intercept, max_iterations, tolerance, confidence_level, null_policy
@@ -552,7 +649,7 @@ SELECT
 FROM (
     SELECT *,
         ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _rn,
-        poisson_fit_predict_agg(y_col, x_cols, CASE WHEN split IS NOT NULL AND split != 'train' THEN 'test' ELSE 'train' END, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
+        poisson_fit_predict_agg(y_col, x_cols, CASE WHEN SPLIT_IS_TRAIN THEN 'train' ELSE 'test' END, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
     FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR))
 ) sub
 ORDER BY group_col
@@ -560,7 +657,7 @@ ORDER BY group_col
 
     // binomial_fit_predict_by: Binomial GLM (success rates in [0,1]; link via options) fit per group, predictions on the response scale.
     // C++ API: binomial_fit_predict_by(source, group_col, y_col, x_cols, options := NULL, split := NULL)
-    // Fits binomial_fit_agg on each group's training rows (y not NULL and split NULL or 'train') and
+    // Fits binomial_fit_agg on each group's training rows (y not NULL and split omitted or 'train' / 'training' in any case) and
     // applies predict(model, x) to every row. Returns all source columns + yhat, yhat_lower,
     // yhat_upper (NULL: no interval for GLMs), is_training.
     {"binomial_fit_predict_by", {"source", "group_col", "y_col", "x_cols", nullptr}, {{"options", "NULL"}, {"split", "NULL"}},
@@ -571,7 +668,7 @@ WITH _anofox_src AS (
 _anofox_fits AS (
     SELECT group_col AS _anofox_group, binomial_fit_agg(y_col, x_cols, options) AS _anofox_model
     FROM _anofox_src
-    WHERE y_col IS NOT NULL AND (split IS NULL OR split = 'train')
+    WHERE y_col IS NOT NULL AND SPLIT_IS_TRAIN
     GROUP BY group_col
 )
 SELECT
@@ -579,14 +676,14 @@ SELECT
     predict(_anofox_model, x_cols) AS yhat,
     NULL::DOUBLE AS yhat_lower,
     NULL::DOUBLE AS yhat_upper,
-    (y_col IS NOT NULL AND (split IS NULL OR split = 'train')) AS is_training
+    (y_col IS NOT NULL AND SPLIT_IS_TRAIN) AS is_training
 FROM _anofox_src
 LEFT JOIN _anofox_fits ON group_col IS NOT DISTINCT FROM _anofox_group
 ORDER BY group_col
 )"},
     // logistic_fit_predict_by: Logistic regression (binary y; predictions are probabilities) fit per group, predictions on the response scale.
     // C++ API: logistic_fit_predict_by(source, group_col, y_col, x_cols, options := NULL, split := NULL)
-    // Fits logistic_fit_agg on each group's training rows (y not NULL and split NULL or 'train') and
+    // Fits logistic_fit_agg on each group's training rows (y not NULL and split omitted or 'train' / 'training' in any case) and
     // applies predict(model, x) to every row. Returns all source columns + yhat, yhat_lower,
     // yhat_upper (NULL: no interval for GLMs), is_training.
     {"logistic_fit_predict_by", {"source", "group_col", "y_col", "x_cols", nullptr}, {{"options", "NULL"}, {"split", "NULL"}},
@@ -597,7 +694,7 @@ WITH _anofox_src AS (
 _anofox_fits AS (
     SELECT group_col AS _anofox_group, logistic_fit_agg(y_col, x_cols, options) AS _anofox_model
     FROM _anofox_src
-    WHERE y_col IS NOT NULL AND (split IS NULL OR split = 'train')
+    WHERE y_col IS NOT NULL AND SPLIT_IS_TRAIN
     GROUP BY group_col
 )
 SELECT
@@ -605,14 +702,14 @@ SELECT
     predict(_anofox_model, x_cols) AS yhat,
     NULL::DOUBLE AS yhat_lower,
     NULL::DOUBLE AS yhat_upper,
-    (y_col IS NOT NULL AND (split IS NULL OR split = 'train')) AS is_training
+    (y_col IS NOT NULL AND SPLIT_IS_TRAIN) AS is_training
 FROM _anofox_src
 LEFT JOIN _anofox_fits ON group_col IS NOT DISTINCT FROM _anofox_group
 ORDER BY group_col
 )"},
     // negbinom_fit_predict_by: Negative Binomial GLM (overdispersed counts, log link) fit per group, predictions on the response scale.
     // C++ API: negbinom_fit_predict_by(source, group_col, y_col, x_cols, options := NULL, split := NULL)
-    // Fits negbinom_fit_agg on each group's training rows (y not NULL and split NULL or 'train') and
+    // Fits negbinom_fit_agg on each group's training rows (y not NULL and split omitted or 'train' / 'training' in any case) and
     // applies predict(model, x) to every row. Returns all source columns + yhat, yhat_lower,
     // yhat_upper (NULL: no interval for GLMs), is_training.
     {"negbinom_fit_predict_by", {"source", "group_col", "y_col", "x_cols", nullptr}, {{"options", "NULL"}, {"split", "NULL"}},
@@ -623,7 +720,7 @@ WITH _anofox_src AS (
 _anofox_fits AS (
     SELECT group_col AS _anofox_group, negbinom_fit_agg(y_col, x_cols, options) AS _anofox_model
     FROM _anofox_src
-    WHERE y_col IS NOT NULL AND (split IS NULL OR split = 'train')
+    WHERE y_col IS NOT NULL AND SPLIT_IS_TRAIN
     GROUP BY group_col
 )
 SELECT
@@ -631,14 +728,14 @@ SELECT
     predict(_anofox_model, x_cols) AS yhat,
     NULL::DOUBLE AS yhat_lower,
     NULL::DOUBLE AS yhat_upper,
-    (y_col IS NOT NULL AND (split IS NULL OR split = 'train')) AS is_training
+    (y_col IS NOT NULL AND SPLIT_IS_TRAIN) AS is_training
 FROM _anofox_src
 LEFT JOIN _anofox_fits ON group_col IS NOT DISTINCT FROM _anofox_group
 ORDER BY group_col
 )"},
     // gamma_fit_predict_by: Gamma GLM (strictly positive y, log link) fit per group, predictions on the response scale.
     // C++ API: gamma_fit_predict_by(source, group_col, y_col, x_cols, options := NULL, split := NULL)
-    // Fits gamma_fit_agg on each group's training rows (y not NULL and split NULL or 'train') and
+    // Fits gamma_fit_agg on each group's training rows (y not NULL and split omitted or 'train' / 'training' in any case) and
     // applies predict(model, x) to every row. Returns all source columns + yhat, yhat_lower,
     // yhat_upper (NULL: no interval for GLMs), is_training.
     {"gamma_fit_predict_by", {"source", "group_col", "y_col", "x_cols", nullptr}, {{"options", "NULL"}, {"split", "NULL"}},
@@ -649,7 +746,7 @@ WITH _anofox_src AS (
 _anofox_fits AS (
     SELECT group_col AS _anofox_group, gamma_fit_agg(y_col, x_cols, options) AS _anofox_model
     FROM _anofox_src
-    WHERE y_col IS NOT NULL AND (split IS NULL OR split = 'train')
+    WHERE y_col IS NOT NULL AND SPLIT_IS_TRAIN
     GROUP BY group_col
 )
 SELECT
@@ -657,14 +754,14 @@ SELECT
     predict(_anofox_model, x_cols) AS yhat,
     NULL::DOUBLE AS yhat_lower,
     NULL::DOUBLE AS yhat_upper,
-    (y_col IS NOT NULL AND (split IS NULL OR split = 'train')) AS is_training
+    (y_col IS NOT NULL AND SPLIT_IS_TRAIN) AS is_training
 FROM _anofox_src
 LEFT JOIN _anofox_fits ON group_col IS NOT DISTINCT FROM _anofox_group
 ORDER BY group_col
 )"},
     // tweedie_fit_predict_by: Tweedie GLM (non-negative skewed y, log link) fit per group, predictions on the response scale.
     // C++ API: tweedie_fit_predict_by(source, group_col, y_col, x_cols, options := NULL, split := NULL)
-    // Fits tweedie_fit_agg on each group's training rows (y not NULL and split NULL or 'train') and
+    // Fits tweedie_fit_agg on each group's training rows (y not NULL and split omitted or 'train' / 'training' in any case) and
     // applies predict(model, x) to every row. Returns all source columns + yhat, yhat_lower,
     // yhat_upper (NULL: no interval for GLMs), is_training.
     {"tweedie_fit_predict_by", {"source", "group_col", "y_col", "x_cols", nullptr}, {{"options", "NULL"}, {"split", "NULL"}},
@@ -675,7 +772,7 @@ WITH _anofox_src AS (
 _anofox_fits AS (
     SELECT group_col AS _anofox_group, tweedie_fit_agg(y_col, x_cols, options) AS _anofox_model
     FROM _anofox_src
-    WHERE y_col IS NOT NULL AND (split IS NULL OR split = 'train')
+    WHERE y_col IS NOT NULL AND SPLIT_IS_TRAIN
     GROUP BY group_col
 )
 SELECT
@@ -683,7 +780,7 @@ SELECT
     predict(_anofox_model, x_cols) AS yhat,
     NULL::DOUBLE AS yhat_lower,
     NULL::DOUBLE AS yhat_upper,
-    (y_col IS NOT NULL AND (split IS NULL OR split = 'train')) AS is_training
+    (y_col IS NOT NULL AND SPLIT_IS_TRAIN) AS is_training
 FROM _anofox_src
 LEFT JOIN _anofox_fits ON group_col IS NOT DISTINCT FROM _anofox_group
 ORDER BY group_col
@@ -701,7 +798,7 @@ SELECT
 FROM (
     SELECT *,
         ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _rn,
-        pls_fit_predict_agg(CASE WHEN split IS NOT NULL AND split != 'train' THEN NULL ELSE y_col END, x_cols, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
+        pls_fit_predict_agg(CASE WHEN SPLIT_IS_TRAIN THEN y_col END, x_cols, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
     FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR))
 ) sub
 ORDER BY group_col
@@ -721,7 +818,7 @@ SELECT
 FROM (
     SELECT *,
         ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _rn,
-        isotonic_fit_predict_agg(CASE WHEN split IS NOT NULL AND split != 'train' THEN NULL ELSE y_col END, x_col, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
+        isotonic_fit_predict_agg(CASE WHEN SPLIT_IS_TRAIN THEN y_col END, x_col, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
     FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR))
 ) sub
 ORDER BY group_col
@@ -741,7 +838,7 @@ SELECT
 FROM (
     SELECT *,
         ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _rn,
-        bayesian_ridge_fit_predict_agg(y_col, x_cols, CASE WHEN split IS NOT NULL AND split != 'train' THEN 'test' ELSE 'train' END, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
+        bayesian_ridge_fit_predict_agg(y_col, x_cols, CASE WHEN SPLIT_IS_TRAIN THEN 'train' ELSE 'test' END, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
     FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR))
 ) sub
 ORDER BY group_col
@@ -761,7 +858,7 @@ SELECT
 FROM (
     SELECT *,
         ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _rn,
-        ard_fit_predict_agg(y_col, x_cols, CASE WHEN split IS NOT NULL AND split != 'train' THEN 'test' ELSE 'train' END, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
+        ard_fit_predict_agg(y_col, x_cols, CASE WHEN SPLIT_IS_TRAIN THEN 'train' ELSE 'test' END, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
     FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR))
 ) sub
 ORDER BY group_col
@@ -780,7 +877,7 @@ SELECT
 FROM (
     SELECT *,
         ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _rn,
-        passive_aggressive_fit_predict_agg(y_col, x_cols, CASE WHEN split IS NOT NULL AND split != 'train' THEN 'test' ELSE 'train' END, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
+        passive_aggressive_fit_predict_agg(y_col, x_cols, CASE WHEN SPLIT_IS_TRAIN THEN 'train' ELSE 'test' END, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
     FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR))
 ) sub
 ORDER BY group_col
@@ -799,7 +896,7 @@ SELECT
 FROM (
     SELECT *,
         ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _rn,
-        lm_dynamic_fit_predict_agg(y_col, x_cols, CASE WHEN split IS NOT NULL AND split != 'train' THEN 'test' ELSE 'train' END, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
+        lm_dynamic_fit_predict_agg(y_col, x_cols, CASE WHEN SPLIT_IS_TRAIN THEN 'train' ELSE 'test' END, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
     FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR))
 ) sub
 ORDER BY group_col
@@ -818,7 +915,7 @@ SELECT
 FROM (
     SELECT *,
         ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _rn,
-        quantile_fit_predict_agg(CASE WHEN split IS NOT NULL AND split != 'train' THEN NULL ELSE y_col END, x_cols, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
+        quantile_fit_predict_agg(CASE WHEN SPLIT_IS_TRAIN THEN y_col END, x_cols, options) OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _pred
     FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR))
 ) sub
 ORDER BY group_col
@@ -903,50 +1000,60 @@ struct FitPredictTableMacroDoc {
 
 // clang-format off
 static const FitPredictTableMacroDoc fit_predict_table_macro_docs[] = {
-    {"ols_fit_predict_by", "Table macro: fits an OLS regression per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "ols_fit_predict_by('my_table', group_col, y, [x1, x2])", "regression"},
-    {"huber_fit_predict_by", "Table macro: fits a Huber M-estimator regression per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "huber_fit_predict_by('my_table', group_col, y, [x1, x2])", "regression"},
-    {"ransac_fit_predict_by", "Table macro: fits a RANSAC robust regression per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "ransac_fit_predict_by('my_table', group_col, y, [x1, x2])", "regression"},
-    {"theil_sen_fit_predict_by", "Table macro: fits a Theil-Sen regression per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "theil_sen_fit_predict_by('my_table', group_col, y, [x1, x2])", "regression"},
-    {"ridge_fit_predict_by", "Table macro: fits a Ridge regression per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "ridge_fit_predict_by('my_table', group_col, y, [x1, x2])", "regression"},
-    {"elasticnet_fit_predict_by", "Table macro: fits an ElasticNet regression per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "elasticnet_fit_predict_by('my_table', group_col, y, [x1, x2])", "regression"},
-    {"wls_fit_predict_by", "Table macro: fits a weighted least squares (WLS) regression per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "wls_fit_predict_by('my_table', group_col, y, [x1, x2], weight)", "regression"},
-    {"ols_augment_by", "Table macro: fits an OLS regression per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with the per-observation diagnostics of the fit (broom augment, contract obs schema): model_id and model_name (the method; the group column is among the source columns), row_id, fitted, residual, resid_type, std_residual, stud_residual, leverage, cooks_d, dffits, weight, is_training, n_params. Non-training rows get the prediction as fitted and NULL diagnostics.", "ols_augment_by('my_table', group_col, y, [x1, x2])", "regression"},
-    {"wls_augment_by", "Table macro: fits a weighted least squares (WLS) regression per group of source (training rows: y_col NOT NULL, a positive weight and split NULL or 'train') and returns every source row with the per-observation diagnostics of the fit (broom augment, contract obs schema): model_id and model_name (the method; the group column is among the source columns), row_id, fitted, residual, resid_type, std_residual, stud_residual, leverage, cooks_d, dffits, weight, is_training, n_params. Non-training rows get the prediction as fitted and NULL diagnostics.", "wls_augment_by('my_table', group_col, y, [x1, x2], w)", "regression"},
-    {"poisson_augment_by", "Table macro: fits a Poisson GLM per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with the per-observation diagnostics of the fit (broom augment, contract obs schema): model_id and model_name (the method; the group column is among the source columns), row_id, fitted (response scale), residual (deviance), resid_type, std_residual, stud_residual, leverage, cooks_d, dffits, weight, is_training, n_params. Non-training rows get the prediction as fitted and NULL diagnostics. Penalized fits (glm_lambda > 0 or a prior) are rejected.", "poisson_augment_by('my_table', group_col, y, [x1, x2])", "regression"},
-    {"binomial_augment_by", "Table macro: fits a Binomial GLM per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with the per-observation diagnostics of the fit (broom augment, contract obs schema): model_id and model_name (the method; the group column is among the source columns), row_id, fitted (response scale), residual (deviance), resid_type, std_residual, stud_residual, leverage, cooks_d, dffits, weight, is_training, n_params. Non-training rows get the prediction as fitted and NULL diagnostics. Penalized fits (glm_lambda > 0 or a prior) are rejected.", "binomial_augment_by('my_table', group_col, y, [x1, x2])", "regression"},
-    {"logistic_augment_by", "Table macro: fits a logistic regression per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with the per-observation diagnostics of the fit (broom augment, contract obs schema): model_id and model_name (the method; the group column is among the source columns), row_id, fitted (response scale), residual (deviance), resid_type, std_residual, stud_residual, leverage, cooks_d, dffits, weight, is_training, n_params. Non-training rows get the prediction as fitted and NULL diagnostics. Penalized fits (glm_lambda > 0 or a prior) are rejected.", "logistic_augment_by('my_table', group_col, y, [x1, x2])", "regression"},
-    {"negbinom_augment_by", "Table macro: fits a Negative Binomial GLM per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with the per-observation diagnostics of the fit (broom augment, contract obs schema): model_id and model_name (the method; the group column is among the source columns), row_id, fitted (response scale), residual (deviance), resid_type, std_residual, stud_residual, leverage, cooks_d, dffits, weight, is_training, n_params. Non-training rows get the prediction as fitted and NULL diagnostics. Penalized fits (glm_lambda > 0 or a prior) are rejected.", "negbinom_augment_by('my_table', group_col, y, [x1, x2])", "regression"},
-    {"gamma_augment_by", "Table macro: fits a Gamma GLM (log link) per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with the per-observation diagnostics of the fit (broom augment, contract obs schema): model_id and model_name (the method; the group column is among the source columns), row_id, fitted (response scale), residual (deviance), resid_type, std_residual, stud_residual, leverage, cooks_d, dffits, weight, is_training, n_params. Non-training rows get the prediction as fitted and NULL diagnostics. Penalized fits (glm_lambda > 0 or a prior) are rejected.", "gamma_augment_by('my_table', group_col, y, [x1, x2])", "regression"},
-    {"tweedie_augment_by", "Table macro: fits a Tweedie GLM (log link) per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with the per-observation diagnostics of the fit (broom augment, contract obs schema): model_id and model_name (the method; the group column is among the source columns), row_id, fitted (response scale), residual (deviance), resid_type, std_residual, stud_residual, leverage, cooks_d, dffits, weight, is_training, n_params. Non-training rows get the prediction as fitted and NULL diagnostics. Penalized fits (glm_lambda > 0 or a prior) are rejected.", "tweedie_augment_by('my_table', group_col, y, [x1, x2])", "regression"},
-    {"rls_fit_predict_by", "Table macro: fits a Recursive Least Squares (RLS) regression per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "rls_fit_predict_by('my_table', group_col, y, [x1, x2])", "regression"},
-    {"bls_fit_predict_by", "Table macro: fits a bounded/non-negative least squares (BLS) regression per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "bls_fit_predict_by('my_table', group_col, y, [x1, x2])", "regression"},
-    {"alm_fit_predict_by", "Table macro: fits an Augmented Linear Model (ALM) per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "alm_fit_predict_by('my_table', group_col, y, [x1, x2])", "regression"},
-    {"poisson_fit_predict_by", "Table macro: fits a Poisson GLM per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "poisson_fit_predict_by('my_table', group_col, y, [x1, x2])", "glm"},
-    {"binomial_fit_predict_by", "Table macro: fits a binomial GLM per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "binomial_fit_predict_by('my_table', group_col, y, [x1, x2])", "glm"},
-    {"logistic_fit_predict_by", "Table macro: fits a logistic regression per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "logistic_fit_predict_by('my_table', group_col, y, [x1, x2])", "glm"},
-    {"negbinom_fit_predict_by", "Table macro: fits a negative binomial GLM per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "negbinom_fit_predict_by('my_table', group_col, y, [x1, x2])", "glm"},
-    {"gamma_fit_predict_by", "Table macro: fits a Gamma GLM per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "gamma_fit_predict_by('my_table', group_col, y, [x1, x2])", "glm"},
-    {"tweedie_fit_predict_by", "Table macro: fits a Tweedie GLM per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "tweedie_fit_predict_by('my_table', group_col, y, [x1, x2])", "glm"},
-    {"pls_fit_predict_by", "Table macro: fits a partial least squares (PLS) regression per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "pls_fit_predict_by('my_table', group_col, y, [x1, x2])", "regression"},
-    {"isotonic_fit_predict_by", "Table macro: fits an isotonic regression per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "isotonic_fit_predict_by('my_table', group_col, y, x)", "regression"},
-    {"quantile_fit_predict_by", "Table macro: fits a quantile regression per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "quantile_fit_predict_by('my_table', group_col, y, [x1, x2])", "regression"},
+    {"ols_fit_predict_by", "Table macro: fits an OLS regression per group of source (training rows: y_col NOT NULL and split omitted or 'train' / 'training' in any case) and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "ols_fit_predict_by('my_table', group_col, y, [x1, x2])", "regression"},
+    {"huber_fit_predict_by", "Table macro: fits a Huber M-estimator regression per group of source (training rows: y_col NOT NULL and split omitted or 'train' / 'training' in any case) and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "huber_fit_predict_by('my_table', group_col, y, [x1, x2])", "regression"},
+    {"ransac_fit_predict_by", "Table macro: fits a RANSAC robust regression per group of source (training rows: y_col NOT NULL and split omitted or 'train' / 'training' in any case) and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "ransac_fit_predict_by('my_table', group_col, y, [x1, x2])", "regression"},
+    {"theil_sen_fit_predict_by", "Table macro: fits a Theil-Sen regression per group of source (training rows: y_col NOT NULL and split omitted or 'train' / 'training' in any case) and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "theil_sen_fit_predict_by('my_table', group_col, y, [x1, x2])", "regression"},
+    {"ridge_fit_predict_by", "Table macro: fits a Ridge regression per group of source (training rows: y_col NOT NULL and split omitted or 'train' / 'training' in any case) and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "ridge_fit_predict_by('my_table', group_col, y, [x1, x2])", "regression"},
+    {"elasticnet_fit_predict_by", "Table macro: fits an ElasticNet regression per group of source (training rows: y_col NOT NULL and split omitted or 'train' / 'training' in any case) and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "elasticnet_fit_predict_by('my_table', group_col, y, [x1, x2])", "regression"},
+    {"wls_fit_predict_by", "Table macro: fits a weighted least squares (WLS) regression per group of source (training rows: y_col NOT NULL and split omitted or 'train' / 'training' in any case) and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "wls_fit_predict_by('my_table', group_col, y, [x1, x2], weight)", "regression"},
+    {"ols_augment_by", "Table macro: fits an OLS regression per group of source (training rows: y_col NOT NULL and split omitted or 'train' / 'training' in any case) and returns every source row with the per-observation diagnostics of the fit (broom augment, contract obs schema): model_id and model_name (the method; the group column is among the source columns), row_id, fitted, residual, resid_type, std_residual, stud_residual, leverage, cooks_d, dffits, weight, is_training, n_params, loo_residual and loo_fitted (exact leave-one-out: residual / (1 - leverage) and y minus it, NULL where leverage = 1). Non-training rows get the prediction as fitted and NULL diagnostics.", "ols_augment_by('my_table', group_col, y, [x1, x2])", "regression"},
+    {"wls_augment_by", "Table macro: fits a weighted least squares (WLS) regression per group of source (training rows: y_col NOT NULL, a positive weight and split omitted or 'train' / 'training' in any case) and returns every source row with the per-observation diagnostics of the fit (broom augment, contract obs schema): model_id and model_name (the method; the group column is among the source columns), row_id, fitted, residual, resid_type, std_residual, stud_residual, leverage, cooks_d, dffits, weight, is_training, n_params, loo_residual and loo_fitted (exact leave-one-out on the response scale: residual / (1 - leverage) and y minus it, NULL where leverage = 1). Non-training rows get the prediction as fitted and NULL diagnostics.", "wls_augment_by('my_table', group_col, y, [x1, x2], w)", "regression"},
+    {"poisson_augment_by", "Table macro: fits a Poisson GLM per group of source (training rows: y_col NOT NULL and split omitted or 'train' / 'training' in any case) and returns every source row with the per-observation diagnostics of the fit (broom augment, contract obs schema): model_id and model_name (the method; the group column is among the source columns), row_id, fitted (response scale), residual (deviance), resid_type, std_residual, stud_residual, leverage, cooks_d, dffits, weight, is_training, n_params. Non-training rows get the prediction as fitted and NULL diagnostics. Penalized fits (glm_lambda > 0 or a prior) are rejected.", "poisson_augment_by('my_table', group_col, y, [x1, x2])", "regression"},
+    {"binomial_augment_by", "Table macro: fits a Binomial GLM per group of source (training rows: y_col NOT NULL and split omitted or 'train' / 'training' in any case) and returns every source row with the per-observation diagnostics of the fit (broom augment, contract obs schema): model_id and model_name (the method; the group column is among the source columns), row_id, fitted (response scale), residual (deviance), resid_type, std_residual, stud_residual, leverage, cooks_d, dffits, weight, is_training, n_params. Non-training rows get the prediction as fitted and NULL diagnostics. Penalized fits (glm_lambda > 0 or a prior) are rejected.", "binomial_augment_by('my_table', group_col, y, [x1, x2])", "regression"},
+    {"logistic_augment_by", "Table macro: fits a logistic regression per group of source (training rows: y_col NOT NULL and split omitted or 'train' / 'training' in any case) and returns every source row with the per-observation diagnostics of the fit (broom augment, contract obs schema): model_id and model_name (the method; the group column is among the source columns), row_id, fitted (response scale), residual (deviance), resid_type, std_residual, stud_residual, leverage, cooks_d, dffits, weight, is_training, n_params. Non-training rows get the prediction as fitted and NULL diagnostics. Penalized fits (glm_lambda > 0 or a prior) are rejected.", "logistic_augment_by('my_table', group_col, y, [x1, x2])", "regression"},
+    {"negbinom_augment_by", "Table macro: fits a Negative Binomial GLM per group of source (training rows: y_col NOT NULL and split omitted or 'train' / 'training' in any case) and returns every source row with the per-observation diagnostics of the fit (broom augment, contract obs schema): model_id and model_name (the method; the group column is among the source columns), row_id, fitted (response scale), residual (deviance), resid_type, std_residual, stud_residual, leverage, cooks_d, dffits, weight, is_training, n_params. Non-training rows get the prediction as fitted and NULL diagnostics. Penalized fits (glm_lambda > 0 or a prior) are rejected.", "negbinom_augment_by('my_table', group_col, y, [x1, x2])", "regression"},
+    {"gamma_augment_by", "Table macro: fits a Gamma GLM (log link) per group of source (training rows: y_col NOT NULL and split omitted or 'train' / 'training' in any case) and returns every source row with the per-observation diagnostics of the fit (broom augment, contract obs schema): model_id and model_name (the method; the group column is among the source columns), row_id, fitted (response scale), residual (deviance), resid_type, std_residual, stud_residual, leverage, cooks_d, dffits, weight, is_training, n_params. Non-training rows get the prediction as fitted and NULL diagnostics. Penalized fits (glm_lambda > 0 or a prior) are rejected.", "gamma_augment_by('my_table', group_col, y, [x1, x2])", "regression"},
+    {"tweedie_augment_by", "Table macro: fits a Tweedie GLM (log link) per group of source (training rows: y_col NOT NULL and split omitted or 'train' / 'training' in any case) and returns every source row with the per-observation diagnostics of the fit (broom augment, contract obs schema): model_id and model_name (the method; the group column is among the source columns), row_id, fitted (response scale), residual (deviance), resid_type, std_residual, stud_residual, leverage, cooks_d, dffits, weight, is_training, n_params. Non-training rows get the prediction as fitted and NULL diagnostics. Penalized fits (glm_lambda > 0 or a prior) are rejected.", "tweedie_augment_by('my_table', group_col, y, [x1, x2])", "regression"},
+    {"rls_fit_predict_by", "Table macro: fits a Recursive Least Squares (RLS) regression per group of source (training rows: y_col NOT NULL and split omitted or 'train' / 'training' in any case) and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "rls_fit_predict_by('my_table', group_col, y, [x1, x2])", "regression"},
+    {"bls_fit_predict_by", "Table macro: fits a bounded/non-negative least squares (BLS) regression per group of source (training rows: y_col NOT NULL and split omitted or 'train' / 'training' in any case) and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "bls_fit_predict_by('my_table', group_col, y, [x1, x2])", "regression"},
+    {"alm_fit_predict_by", "Table macro: fits an Augmented Linear Model (ALM) per group of source (training rows: y_col NOT NULL and split omitted or 'train' / 'training' in any case) and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "alm_fit_predict_by('my_table', group_col, y, [x1, x2])", "regression"},
+    {"poisson_fit_predict_by", "Table macro: fits a Poisson GLM per group of source (training rows: y_col NOT NULL and split omitted or 'train' / 'training' in any case) and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "poisson_fit_predict_by('my_table', group_col, y, [x1, x2])", "glm"},
+    {"binomial_fit_predict_by", "Table macro: fits a binomial GLM per group of source (training rows: y_col NOT NULL and split omitted or 'train' / 'training' in any case) and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "binomial_fit_predict_by('my_table', group_col, y, [x1, x2])", "glm"},
+    {"logistic_fit_predict_by", "Table macro: fits a logistic regression per group of source (training rows: y_col NOT NULL and split omitted or 'train' / 'training' in any case) and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "logistic_fit_predict_by('my_table', group_col, y, [x1, x2])", "glm"},
+    {"negbinom_fit_predict_by", "Table macro: fits a negative binomial GLM per group of source (training rows: y_col NOT NULL and split omitted or 'train' / 'training' in any case) and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "negbinom_fit_predict_by('my_table', group_col, y, [x1, x2])", "glm"},
+    {"gamma_fit_predict_by", "Table macro: fits a Gamma GLM per group of source (training rows: y_col NOT NULL and split omitted or 'train' / 'training' in any case) and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "gamma_fit_predict_by('my_table', group_col, y, [x1, x2])", "glm"},
+    {"tweedie_fit_predict_by", "Table macro: fits a Tweedie GLM per group of source (training rows: y_col NOT NULL and split omitted or 'train' / 'training' in any case) and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "tweedie_fit_predict_by('my_table', group_col, y, [x1, x2])", "glm"},
+    {"pls_fit_predict_by", "Table macro: fits a partial least squares (PLS) regression per group of source (training rows: y_col NOT NULL and split omitted or 'train' / 'training' in any case) and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "pls_fit_predict_by('my_table', group_col, y, [x1, x2])", "regression"},
+    {"isotonic_fit_predict_by", "Table macro: fits an isotonic regression per group of source (training rows: y_col NOT NULL and split omitted or 'train' / 'training' in any case) and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "isotonic_fit_predict_by('my_table', group_col, y, x)", "regression"},
+    {"quantile_fit_predict_by", "Table macro: fits a quantile regression per group of source (training rows: y_col NOT NULL and split omitted or 'train' / 'training' in any case) and returns every source row with yhat (plus yhat_lower / yhat_upper prediction-interval bounds where the model provides them) and is_training appended.", "quantile_fit_predict_by('my_table', group_col, y, [x1, x2])", "regression"},
     {"glmm_fit_by", "Table macro: fits one generalized linear mixed model (random intercept per group_col) over the whole table and returns one row per group with its random effect and the fixed effects and variance components.", "glmm_fit_by('my_table', group_col, y, [x1, x2])", "mixed-models"},
+    {"ols_anova_by", "Table macro: nested-model F test per group of source (R's anova(lm(y ~ x_reduced), lm(y ~ x_full)) on the same rows); returns one row per group with method 'nested F', statistic, p_value, df1, df2, both RSS values and the adjusted R^2 of both models. x_reduced := [] (the default) is the intercept-only model.", "ols_anova_by('sales', region, y, x_reduced := [price], x_full := [price, promo, temp])", "regression"},
     {"eb_shrink_by", "Table macro: empirical-Bayes shrinkage of the estimates in estimate_col (standard errors in se_col); returns every source row with shrunken, shrunken_se, weight, mu and tau_squared appended.", "eb_shrink_by('my_table', estimate, se)", "shrinkage"},
+    {"p_adjust_by", "Table macro: adjusts the p-values in p_col for multiple testing within each group of group_col (R p.adjust; method holm (default), hochberg, hommel, bonferroni, BH/fdr, BY or none; n: number of hypotheses per group, default the number of non-NULL p-values); returns every source row, in source order, with p_adjusted appended. NULL p-values stay NULL and are not counted.", "p_adjust_by('results', endpoint, p_value, method := 'BH')", "multiple-testing"},
+    {"mediation_by", "Table macro: causal mediation analysis per group of source (linear models, as R mediation::mediate): fits mediator ~ treatment + covariates and outcome ~ treatment + mediator + covariates and returns one row per group and effect (acme, ade, total, prop_mediated) in the contract terms schema plus method, n_obs and n_sims. Inference by nonparametric bootstrap (default, n_bootstrap 1000, seed 42), Sobel or quasi-Bayesian Monte Carlo (options method, ci_type, n_bootstrap, seed, confidence_level, treat_value, control_value).", "mediation_by('trial', site, treat, m, y, covariates := [age, baseline])", "mediation"},
     {"aid_by", "Table macro: Automatic Identification of Demand (AID); classifies the demand pattern of each group of source and returns one row per group.", "aid_by('sales', product_id, demand)", "demand-analysis"},
     {"aid_anomaly_by", "Table macro: AID anomaly flags per group of source, ordered by order_col; returns one row per input row with stockout, new_product, obsolete_product, high_outlier and low_outlier flags.", "aid_anomaly_by('sales', product_id, date, demand)", "demand-analysis"},
-    {"bayesian_ridge_fit_predict_by", "Table macro: fits a Bayesian Ridge regression per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with yhat, yhat_lower / yhat_upper (posterior predictive interval at confidence_level, default 0.95) and is_training appended.", "bayesian_ridge_fit_predict_by('my_table', group_col, y, [x1, x2])", "regression"},
-    {"ard_fit_predict_by", "Table macro: fits an ARD (automatic relevance determination) regression per group of source (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with yhat, yhat_lower / yhat_upper (posterior predictive interval at confidence_level, default 0.95) and is_training appended.", "ard_fit_predict_by('my_table', group_col, y, [x1, x2, x3])", "regression"},
-    {"passive_aggressive_fit_predict_by", "Table macro: fits a Passive-Aggressive online regression per group of source, updating row by row in order_by order (training rows: y_col NOT NULL and split NULL or 'train'), and returns every source row with yhat from the final coefficients, yhat_lower / yhat_upper (NULL: no interval) and is_training appended.", "passive_aggressive_fit_predict_by('my_table', group_col, y, [x1, x2], order_by := t)", "regression"},
-    {"lm_dynamic_fit_predict_by", "Table macro: fits a dynamic linear model with time-varying coefficients (greybox lmDynamic) per group of source in order_by order (training rows: y_col NOT NULL and split NULL or 'train') and returns every source row with yhat (the row's own time-varying fit; rows outside the fit use the time-averaged coefficients), yhat_lower / yhat_upper (NULL) and is_training appended.", "lm_dynamic_fit_predict_by('my_table', group_col, y, [x1, x2], order_by := t)", "regression"},
+    {"bayesian_ridge_fit_predict_by", "Table macro: fits a Bayesian Ridge regression per group of source (training rows: y_col NOT NULL and split omitted or 'train' / 'training' in any case) and returns every source row with yhat, yhat_lower / yhat_upper (posterior predictive interval at confidence_level, default 0.95) and is_training appended.", "bayesian_ridge_fit_predict_by('my_table', group_col, y, [x1, x2])", "regression"},
+    {"ard_fit_predict_by", "Table macro: fits an ARD (automatic relevance determination) regression per group of source (training rows: y_col NOT NULL and split omitted or 'train' / 'training' in any case) and returns every source row with yhat, yhat_lower / yhat_upper (posterior predictive interval at confidence_level, default 0.95) and is_training appended.", "ard_fit_predict_by('my_table', group_col, y, [x1, x2, x3])", "regression"},
+    {"passive_aggressive_fit_predict_by", "Table macro: fits a Passive-Aggressive online regression per group of source, updating row by row in order_by order (training rows: y_col NOT NULL and split omitted or 'train' / 'training' in any case), and returns every source row with yhat from the final coefficients, yhat_lower / yhat_upper (NULL: no interval) and is_training appended.", "passive_aggressive_fit_predict_by('my_table', group_col, y, [x1, x2], order_by := t)", "regression"},
+    {"lm_dynamic_fit_predict_by", "Table macro: fits a dynamic linear model with time-varying coefficients (greybox lmDynamic) per group of source in order_by order (training rows: y_col NOT NULL and split omitted or 'train' / 'training' in any case) and returns every source row with yhat (the row's own time-varying fit; rows outside the fit use the time-averaged coefficients), yhat_lower / yhat_upper (NULL) and is_training appended.", "lm_dynamic_fit_predict_by('my_table', group_col, y, [x1, x2], order_by := t)", "regression"},
     {nullptr, nullptr, nullptr, nullptr}
 };
 // clang-format on
+
+// SPLIT_IS_TRAIN in a macro body: whether a row is a training row by its split, as the
+// *_fit_predict_agg split_col (#205): 'train' / 'training' in any case. With split omitted
+// (the NULL literal default, typed "NULL") every row is a training row; a split column's
+// per-row NULL is a prediction row. Never NULL, so it can be returned as is_training.
+static const char *const SPLIT_IS_TRAIN_SQL =
+    "coalesce(lower(split::VARCHAR) IN ('train', 'training'), replace(typeof(split), '\"', '') = 'NULL')";
 
 // Helper function to create a table macro from the definition
 static unique_ptr<CreateMacroInfo> CreateFitPredictTableMacro(const FitPredictTableMacro &macro_def) {
 	// Parse the SQL
 	auto parser = MakeParser();
-	parser.ParseQuery(macro_def.macro);
+	parser.ParseQuery(StringUtil::Replace(macro_def.macro, "SPLIT_IS_TRAIN", SPLIT_IS_TRAIN_SQL));
 	if (parser.statements.size() != 1 || parser.statements[0]->type != StatementType::SELECT_STATEMENT) {
 		throw InternalException("Expected a single select statement in CreateFitPredictTableMacro");
 	}

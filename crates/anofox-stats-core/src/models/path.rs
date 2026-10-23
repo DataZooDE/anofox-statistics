@@ -1,14 +1,20 @@
-//! Regularisation paths and k-fold cross-validation curves (#154).
+//! Regularisation paths, cross-validation curves (#154) and CV strategies /
+//! nested CV (#204).
 //!
 //! Marshalling only: the ridge / elastic-net path, glmnet's default lambda
-//! grid, the seeded folds and the `cv.glmnet` aggregates come from
-//! `anofox_regression::solvers::path`, the LARS path from
-//! `FittedLars::path`. This module drops rows with a non-finite value, drops
+//! grid, the fold generators, the explicit splits, the `cv.glmnet` aggregates
+//! and nested CV come from `anofox_regression::solvers::{path, cv}`, the LARS
+//! path from `FittedLars::path`. This module drops rows with a non-finite value, drops
 //! the columns the fits drop (reported as NaN coefficients) and lays the path
 //! out per lambda.
 
 use crate::errors::{StatsError, StatsResult};
 use crate::types::LarsOptions;
+use anofox_regression::solvers::cv::{
+    cv_path_splits, group_codes, group_kfold_ids, group_time_series_splits, logo_ids,
+    nested_cv_path, quantile_strata, splits_from_fold_ids, stratified_kfold_ids, CvMetric, CvSplit,
+    GroupBalance, InnerFolds, LambdaRule, NestedCvOptions, TimeSeriesSplitOptions, TrainWindow,
+};
 use anofox_regression::solvers::path::RegPath as UpPath;
 use anofox_regression::solvers::path::{cv_path, fit_path, kfold_ids, lambda_grid, PathOptions};
 use anofox_regression::solvers::{LarsMethod, LarsRegressor, Regressor};
@@ -252,6 +258,359 @@ pub fn cv_reg_path(
     })
 }
 
+/// How the cross-validation splits are built (`cv_strategy`, #204).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CvStrategy {
+    /// Seeded random k-fold (`kfold_ids`), no key.
+    Kfold,
+    /// The key is the fold label of each row (any labels, at least 3).
+    FoldIds,
+    /// Group k-fold balanced by rows (`group_kfold_ids`, sklearn `GroupKFold`):
+    /// the key is the group.
+    Group,
+    /// Leave-one-group-out (`logo_ids`): the key is the group.
+    Logo,
+    /// Stratified k-fold (`stratified_kfold_ids`): the key is the stratum;
+    /// without a key, `quantile_strata(y, n_bins)`.
+    Stratified,
+    /// Rolling-origin splits over the distinct key values in increasing order
+    /// (`group_time_series_splits`): the key is the time.
+    TimeSeries,
+}
+
+/// Options of [`cv_reg_path_strategy`] / [`nested_cv_reg_path`].
+#[derive(Debug, Clone)]
+pub struct CvSpec {
+    pub strategy: CvStrategy,
+    /// k of the k-fold strategies, `n_splits` of `time_series` (the outer
+    /// folds of nested CV).
+    pub n_folds: usize,
+    pub seed: u64,
+    /// Repetitions of `kfold` / `stratified` with seeds `seed, seed + 1, ...`;
+    /// the splits of all repetitions form one curve.
+    pub repeats: usize,
+    /// `time_series`: time points per test block (0: sklearn's default).
+    pub test_size: usize,
+    /// `time_series`: time points left out between training and test.
+    pub gap: usize,
+    /// `time_series`: sliding window of at most this many time points
+    /// (0: expanding window).
+    pub max_train_size: usize,
+    /// `stratified` without a key: number of quantile bins of `y`.
+    pub n_bins: usize,
+    /// Mean absolute error instead of the mean squared error.
+    pub mae: bool,
+    /// Nested CV: inner folds (k, or the time-series splits).
+    pub inner_folds: usize,
+    /// Nested CV: choose `lambda_1se` instead of `lambda_min`.
+    pub one_se: bool,
+}
+
+impl Default for CvSpec {
+    fn default() -> Self {
+        Self {
+            strategy: CvStrategy::Kfold,
+            n_folds: 10,
+            seed: 42,
+            repeats: 1,
+            test_size: 0,
+            gap: 0,
+            max_train_size: 0,
+            n_bins: 5,
+            mae: false,
+            inner_folds: 5,
+            one_se: false,
+        }
+    }
+}
+
+impl CvSpec {
+    fn metric(&self) -> CvMetric {
+        if self.mae {
+            CvMetric::Mae
+        } else {
+            CvMetric::Mse
+        }
+    }
+
+    fn time_options(&self, n_splits: usize, test_size: usize) -> TimeSeriesSplitOptions {
+        TimeSeriesSplitOptions {
+            n_splits,
+            test_size: (test_size > 0).then_some(test_size),
+            gap: self.gap,
+            window: if self.max_train_size > 0 {
+                TrainWindow::Sliding(self.max_train_size)
+            } else {
+                TrainWindow::Expanding
+            },
+            min_train_size: None,
+        }
+    }
+}
+
+/// A total order on the f64 keys (integers, hashes or times as doubles).
+fn ord_key(v: f64) -> i64 {
+    let b = v.to_bits() as i64;
+    b ^ (((b >> 63) as u64) >> 1) as i64
+}
+
+fn invalid(field: &'static str, message: String) -> StatsError {
+    StatsError::InvalidValue { field, message }
+}
+
+/// The keys of the usable rows, as ordered codes.
+fn key_codes(keys: Option<&[f64]>, data: &PathData, spec: &CvSpec) -> StatsResult<Vec<usize>> {
+    let keys = keys.ok_or_else(|| {
+        invalid(
+            "cv_key",
+            format!(
+                "cv_strategy '{}' needs a cv_key argument",
+                strategy_name(spec.strategy)
+            ),
+        )
+    })?;
+    let ord: Vec<i64> = data.rows.iter().map(|&i| ord_key(keys[i])).collect();
+    Ok(group_codes(&ord).0)
+}
+
+fn strategy_name(s: CvStrategy) -> &'static str {
+    match s {
+        CvStrategy::Kfold => "kfold",
+        CvStrategy::FoldIds => "fold_id",
+        CvStrategy::Group => "group",
+        CvStrategy::Logo => "logo",
+        CvStrategy::Stratified => "stratified",
+        CvStrategy::TimeSeries => "time_series",
+    }
+}
+
+/// The outer splits of a strategy over the usable rows.
+fn strategy_splits(
+    keys: Option<&[f64]>,
+    data: &PathData,
+    spec: &CvSpec,
+) -> StatsResult<Vec<CvSplit>> {
+    let n = data.rows.len();
+    let k = spec.n_folds;
+    let repeats = spec.repeats.max(1);
+    if repeats > 1 && !matches!(spec.strategy, CvStrategy::Kfold | CvStrategy::Stratified) {
+        return Err(invalid(
+            "repeats",
+            "repeats applies to cv_strategy 'kfold' and 'stratified' only".to_string(),
+        ));
+    }
+    if keys.is_some() && spec.strategy == CvStrategy::Kfold {
+        return Err(invalid(
+            "cv_key",
+            "cv_strategy 'kfold' draws random folds and takes no cv_key; use 'fold_id' for given folds"
+                .to_string(),
+        ));
+    }
+    let up = |e| StatsError::from(e);
+    let mut splits = Vec::new();
+    match spec.strategy {
+        CvStrategy::Kfold => {
+            if k > n {
+                return Err(invalid(
+                    "folds",
+                    format!("{k} folds for {n} usable rows; use at most one fold per row"),
+                ));
+            }
+            for r in 0..repeats {
+                splits.extend(splits_from_fold_ids(&kfold_ids(
+                    n,
+                    k,
+                    spec.seed.wrapping_add(r as u64),
+                )));
+            }
+        }
+        CvStrategy::FoldIds => {
+            let codes = key_codes(keys, data, spec)?;
+            splits = splits_from_fold_ids(&codes);
+            if splits.len() < 3 {
+                return Err(invalid(
+                    "fold_id",
+                    format!(
+                        "cross-validation needs at least 3 folds, got {}",
+                        splits.len()
+                    ),
+                ));
+            }
+        }
+        CvStrategy::Group => {
+            let codes = key_codes(keys, data, spec)?;
+            splits = splits_from_fold_ids(
+                &group_kfold_ids(&codes, k, GroupBalance::Rows, spec.seed).map_err(up)?,
+            );
+        }
+        CvStrategy::Logo => {
+            let codes = key_codes(keys, data, spec)?;
+            splits = splits_from_fold_ids(&logo_ids(&codes));
+        }
+        CvStrategy::Stratified => {
+            let strata = match keys {
+                Some(_) => key_codes(keys, data, spec)?,
+                None => quantile_strata(&data.y, spec.n_bins),
+            };
+            for r in 0..repeats {
+                let ids = stratified_kfold_ids(&strata, k, Some(spec.seed.wrapping_add(r as u64)))
+                    .map_err(up)?;
+                splits.extend(splits_from_fold_ids(&ids));
+            }
+        }
+        CvStrategy::TimeSeries => {
+            let codes = key_codes(keys, data, spec)?;
+            splits = group_time_series_splits(&codes, &spec.time_options(k, spec.test_size))
+                .map_err(up)?;
+        }
+    }
+    Ok(splits)
+}
+
+/// The inner folds of nested CV for a strategy: the same key, `inner_folds`
+/// folds. `fold_id` and `kfold` use seeded random inner folds, `logo` uses
+/// group k-fold on the same groups.
+fn inner_folds(keys: Option<&[f64]>, data: &PathData, spec: &CvSpec) -> StatsResult<InnerFolds> {
+    let k = spec.inner_folds;
+    Ok(match spec.strategy {
+        CvStrategy::Kfold | CvStrategy::FoldIds => InnerFolds::Kfold { k, seed: spec.seed },
+        CvStrategy::Group | CvStrategy::Logo => InnerFolds::Group {
+            groups: key_codes(keys, data, spec)?,
+            k,
+            balance: GroupBalance::Rows,
+            seed: spec.seed,
+        },
+        CvStrategy::Stratified => InnerFolds::Stratified {
+            strata: match keys {
+                Some(_) => key_codes(keys, data, spec)?,
+                None => quantile_strata(&data.y, spec.n_bins),
+            },
+            k,
+            seed: Some(spec.seed),
+        },
+        CvStrategy::TimeSeries => InnerFolds::TimeSeries {
+            opts: spec.time_options(k, 0),
+            time_keys: Some(key_codes(keys, data, spec)?),
+        },
+    })
+}
+
+fn check_keys(keys: Option<&[f64]>, n: usize) -> StatsResult<()> {
+    if let Some(k) = keys {
+        if k.len() != n {
+            return Err(StatsError::DimensionMismatch {
+                y_len: n,
+                x_rows: k.len(),
+            });
+        }
+    }
+    Ok(())
+}
+
+/// Cross-validation of the ridge / elastic-net path with a CV strategy
+/// (`cv_path_splits` on the strategy's splits).
+///
+/// `keys` holds one value per row (the fold label, group, stratum or time,
+/// depending on the strategy; integers, hashes or times as doubles). Rows
+/// dropped for missing values drop their key. Rows are used in the order
+/// given (the caller orders them canonically).
+pub fn cv_reg_path_strategy(
+    y: &[f64],
+    x: &[Vec<f64>],
+    keys: Option<&[f64]>,
+    spec: &CvSpec,
+    opts: &RegPathOptions,
+) -> StatsResult<CvPathResult> {
+    check_keys(keys, y.len())?;
+    let data = prepare(y, x, opts.fit_intercept)?;
+    let up = upstream_options(opts)?;
+    let splits = strategy_splits(keys, &data, spec)?;
+    let lambdas = lambdas_for(&data, opts, &up)?;
+    let cv = cv_path_splits(&data.x, &data.y, &lambdas, &splits, &up, spec.metric())
+        .map_err(StatsError::from)?;
+    Ok(CvPathResult {
+        lambdas: cv.lambdas,
+        cv_mean: cv.cv_mean,
+        cv_se: cv.cv_se,
+        df: cv.df,
+        index_min: cv.index_min,
+        index_1se: cv.index_1se,
+        n_folds: cv.n_folds,
+        n_observations: data.rows.len(),
+    })
+}
+
+/// Nested cross-validation, one entry per outer split.
+#[derive(Debug, Clone)]
+pub struct NestedCvResult {
+    /// Selected lambda of each outer split.
+    pub lambda: Vec<f64>,
+    /// Test error (MSE or MAE) of the refit at that lambda on the outer test rows.
+    pub test_error: Vec<f64>,
+    /// Inner CV error and its standard error at the selected lambda.
+    pub inner_cv_mean: Vec<f64>,
+    pub inner_cv_se: Vec<f64>,
+    pub n_train: Vec<usize>,
+    pub n_test: Vec<usize>,
+    pub n_inner_folds: Vec<usize>,
+    /// Outer test error averaged with the test sizes as weights, and its
+    /// standard error.
+    pub mean: f64,
+    pub se: f64,
+    pub n_observations: usize,
+}
+
+/// Nested cross-validation of the ridge / elastic-net path
+/// (`anofox_regression::solvers::cv::nested_cv_path`): the outer splits come
+/// from the strategy, the inner folds from the outer training rows only
+/// (same key, `inner_folds` folds), and lambda is chosen by the 'min' or
+/// '1se' rule. Without `lambdas` each outer split uses glmnet's default grid
+/// of its own training rows.
+pub fn nested_cv_reg_path(
+    y: &[f64],
+    x: &[Vec<f64>],
+    keys: Option<&[f64]>,
+    spec: &CvSpec,
+    opts: &RegPathOptions,
+) -> StatsResult<NestedCvResult> {
+    check_keys(keys, y.len())?;
+    if spec.repeats > 1 {
+        return Err(invalid(
+            "repeats",
+            "repeats is not supported by nested cross-validation".to_string(),
+        ));
+    }
+    let data = prepare(y, x, opts.fit_intercept)?;
+    let up = upstream_options(opts)?;
+    let outer = strategy_splits(keys, &data, spec)?;
+    let nested = NestedCvOptions {
+        inner: inner_folds(keys, &data, spec)?,
+        rule: if spec.one_se {
+            LambdaRule::OneSe
+        } else {
+            LambdaRule::Min
+        },
+        metric: spec.metric(),
+        n_lambda: opts.n_lambda,
+        lambda_min_ratio: (!opts.lambda_min_ratio.is_nan()).then_some(opts.lambda_min_ratio),
+    };
+    let lambdas = (!opts.lambdas.is_empty()).then_some(opts.lambdas.as_slice());
+    let r = nested_cv_path(&data.x, &data.y, lambdas, &outer, &up, &nested)
+        .map_err(StatsError::from)?;
+    Ok(NestedCvResult {
+        lambda: r.folds.iter().map(|f| f.lambda).collect(),
+        test_error: r.folds.iter().map(|f| f.test_metric).collect(),
+        inner_cv_mean: r.folds.iter().map(|f| f.inner.cv_mean[f.index]).collect(),
+        inner_cv_se: r.folds.iter().map(|f| f.inner.cv_se[f.index]).collect(),
+        n_train: r.folds.iter().map(|f| f.n_train).collect(),
+        n_test: r.folds.iter().map(|f| f.n_test).collect(),
+        n_inner_folds: r.folds.iter().map(|f| f.inner.n_folds).collect(),
+        mean: r.mean,
+        se: r.se,
+        n_observations: data.rows.len(),
+    })
+}
+
 /// The LARS / Lasso-LARS coefficient path (`FittedLars::path`), one entry per
 /// knot; `lambdas` are the knots' regularisation levels (`alphas`).
 pub fn lars_path(y: &[f64], x: &[Vec<f64>], options: &LarsOptions) -> StatsResult<RegPathResult> {
@@ -339,6 +698,114 @@ mod tests {
         }
         assert_eq!(a.n_folds, 5);
         assert!(cv_reg_path(&y, &x, None, 2, 3, &opts).is_err());
+    }
+
+    #[test]
+    fn strategies_map_to_upstream_folds() {
+        let (y, x) = data();
+        let opts = RegPathOptions {
+            n_lambda: 6,
+            ..Default::default()
+        };
+        // Group keys (hashes as doubles in the extension): 8 groups of 5 rows.
+        let groups: Vec<f64> = (0..40).map(|i| ((i % 8) * 1_000_003) as f64).collect();
+        let spec = CvSpec {
+            strategy: CvStrategy::Group,
+            n_folds: 4,
+            ..Default::default()
+        };
+        let a = cv_reg_path_strategy(&y, &x, Some(&groups), &spec, &opts).unwrap();
+        // The same folds passed as fold ids.
+        let codes: Vec<usize> = (0..40).map(|i| i % 8).collect();
+        let ids: Vec<f64> = group_kfold_ids(&codes, 4, GroupBalance::Rows, 0)
+            .unwrap()
+            .iter()
+            .map(|&f| f as f64)
+            .collect();
+        let fold_spec = CvSpec {
+            strategy: CvStrategy::FoldIds,
+            ..Default::default()
+        };
+        let b = cv_reg_path_strategy(&y, &x, Some(&ids), &fold_spec, &opts).unwrap();
+        assert_eq!(a.cv_mean, b.cv_mean);
+        assert_eq!(a.n_folds, 4);
+
+        let logo = CvSpec {
+            strategy: CvStrategy::Logo,
+            ..Default::default()
+        };
+        assert_eq!(
+            cv_reg_path_strategy(&y, &x, Some(&groups), &logo, &opts)
+                .unwrap()
+                .n_folds,
+            8
+        );
+
+        // Time series over 20 time points of 2 rows each.
+        let time: Vec<f64> = (0..40).map(|i| (i / 2) as f64).collect();
+        let ts = CvSpec {
+            strategy: CvStrategy::TimeSeries,
+            n_folds: 4,
+            test_size: 3,
+            gap: 1,
+            ..Default::default()
+        };
+        assert_eq!(
+            cv_reg_path_strategy(&y, &x, Some(&time), &ts, &opts)
+                .unwrap()
+                .n_folds,
+            4
+        );
+
+        // Repeated stratified k-fold on quantile strata of y.
+        let strat = CvSpec {
+            strategy: CvStrategy::Stratified,
+            n_folds: 4,
+            repeats: 3,
+            ..Default::default()
+        };
+        assert_eq!(
+            cv_reg_path_strategy(&y, &x, None, &strat, &opts)
+                .unwrap()
+                .n_folds,
+            12
+        );
+
+        // A strategy that needs a key, and repeats where they do not apply.
+        assert!(cv_reg_path_strategy(&y, &x, None, &spec, &opts).is_err());
+        let bad = CvSpec {
+            repeats: 2,
+            ..spec.clone()
+        };
+        assert!(cv_reg_path_strategy(&y, &x, Some(&groups), &bad, &opts).is_err());
+    }
+
+    #[test]
+    fn nested_cv_shapes() {
+        let (y, x) = data();
+        let opts = RegPathOptions {
+            n_lambda: 8,
+            ..Default::default()
+        };
+        let groups: Vec<f64> = (0..40).map(|i| (i % 8) as f64).collect();
+        let spec = CvSpec {
+            strategy: CvStrategy::Group,
+            n_folds: 4,
+            inner_folds: 3,
+            one_se: true,
+            ..Default::default()
+        };
+        let r = nested_cv_reg_path(&y, &x, Some(&groups), &spec, &opts).unwrap();
+        assert_eq!(r.lambda.len(), 4);
+        assert_eq!(r.n_test.iter().sum::<usize>(), 40);
+        assert!(r.n_inner_folds.iter().all(|&k| k == 3));
+        assert!(r.mean.is_finite() && r.se.is_finite());
+        let plain = CvSpec {
+            n_folds: 5,
+            ..Default::default()
+        };
+        let r = nested_cv_reg_path(&y, &x, None, &plain, &opts).unwrap();
+        assert_eq!(r.lambda.len(), 5);
     }
 
     #[test]

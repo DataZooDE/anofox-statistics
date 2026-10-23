@@ -160,6 +160,22 @@ impl From<anofox_regression::solvers::eb_shrink::EbShrinkError> for StatsError {
     }
 }
 
+/// Map errors of the upstream mediation analysis: option errors are raised,
+/// too few rows / an unidentified path / a failed bootstrap are degenerate (NULL).
+impl From<anofox_regression::solvers::mediation::MediationError> for StatsError {
+    fn from(err: anofox_regression::solvers::mediation::MediationError) -> Self {
+        use anofox_regression::solvers::mediation::MediationError as E;
+        match err {
+            E::DimensionMismatch { .. } => StatsError::DimensionMismatchMsg(err.to_string()),
+            E::InsufficientData { .. } => StatsError::InsufficientDataMsg(err.to_string()),
+            E::NotIdentified(_) => StatsError::SingularMatrix,
+            E::BootstrapFailed { .. } => StatsError::NumericalFailure(err.to_string()),
+            E::InvalidValue { field, message } => StatsError::InvalidValue { field, message },
+            other => StatsError::RegressError(other.to_string()),
+        }
+    }
+}
+
 /// Upstream `NumericalError` mixes three kinds of failure under one variant:
 /// option/parameter validation ("tau must be between 0 and 1"), structurally
 /// degenerate data ("needs at least two distinct groups") and genuine numerical

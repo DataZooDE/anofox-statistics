@@ -20,13 +20,16 @@
 //!   random slopes there apply to the first factor only.
 //! * Families gaussian, poisson, binomial, negative binomial (θ estimated or
 //!   fixed), Gamma and Tweedie (log link), and an offset column.
-//!
-//! Per-group BLUP standard errors are not exposed upstream (`se` is NaN).
+//! * Fixed-effect inference with Wald z tests or, for the gaussian family,
+//!   lmerTest's Satterthwaite t tests ([`GlmmOptions::ddf`]); the conditional
+//!   standard errors of the BLUPs; and, on request, the training rows' fitted
+//!   values and residuals ([`GlmmOptions::observations`]).
 
 use crate::errors::{StatsError, StatsResult};
 use crate::types::ModelSummary;
 use anofox_regression::core::HasModelInfo;
-use anofox_regression::solvers::{GlmmRegressor, GlmmRegressorBuilder};
+pub use anofox_regression::solvers::GlmmDdf;
+use anofox_regression::solvers::{FittedGlmm, GlmmInference, GlmmRegressor, GlmmRegressorBuilder};
 use faer::{Col, Mat};
 
 /// Which response family the mixed model uses.
@@ -81,6 +84,13 @@ pub struct GlmmOptions {
     /// random slope (alongside the random intercept), with an unstructured
     /// covariance shared across groups. Empty = random intercept only.
     pub random_slopes: Vec<usize>,
+    /// Degrees-of-freedom method of the fixed-effect tests. `None` is the
+    /// family default: Satterthwaite for gaussian, Wald for the others.
+    /// Satterthwaite is only available for the gaussian family.
+    pub ddf: Option<GlmmDdf>,
+    /// Also return the fitted values and residuals of every input row
+    /// ([`GlmmResult::observations`]).
+    pub observations: bool,
 }
 
 impl Default for GlmmOptions {
@@ -95,6 +105,27 @@ impl Default for GlmmOptions {
             reml: true,
             offset_column: None,
             random_slopes: Vec::new(),
+            ddf: None,
+            observations: false,
+        }
+    }
+}
+
+impl GlmmOptions {
+    /// The degrees-of-freedom method in effect: the requested one, or the
+    /// family default (Satterthwaite for gaussian, Wald otherwise).
+    pub fn effective_ddf(&self) -> StatsResult<GlmmDdf> {
+        let gaussian = self.family == GlmmFamily::Gaussian;
+        match self.ddf {
+            None if gaussian => Ok(GlmmDdf::Satterthwaite),
+            None => Ok(GlmmDdf::Wald),
+            Some(GlmmDdf::Satterthwaite) if !gaussian => Err(StatsError::InvalidValue {
+                field: "ddf",
+                message: "Satterthwaite degrees of freedom are only defined for the gaussian \
+                          family; use 'wald'"
+                    .to_string(),
+            }),
+            Some(d) => Ok(d),
         }
     }
 }
@@ -106,11 +137,17 @@ pub struct RandomEffect {
     pub group: i32,
     /// Conditional mode of the random intercept (the BLUP) — `effects[0]`.
     pub value: f64,
-    /// Conditional standard deviation (NaN: not exposed by the upstream solver).
+    /// Conditional standard error of the intercept BLUP — `effects_se[0]`.
     pub se: f64,
     /// Full random-effect vector for this group: `[intercept, slope_1, …]` in the
     /// order the slopes were requested. Length `q`.
     pub effects: Vec<f64>,
+    /// Conditional standard errors of `effects` (lme4 `ranef(condVar = TRUE)`).
+    pub effects_se: Vec<f64>,
+    /// Normal interval for `effects` at the fit's confidence level,
+    /// `effects ∓ z·effects_se` (broom.mixed `ran_vals`).
+    pub effects_conf_low: Vec<f64>,
+    pub effects_conf_high: Vec<f64>,
     /// Number of observations in the group.
     pub n: usize,
 }
@@ -124,6 +161,22 @@ pub struct FactorVariance {
     pub var: f64,
 }
 
+/// Fitted values and residuals of every input row, in input order. Rows the
+/// fit dropped (a non-finite value or a missing group) are NaN and not
+/// `is_training`.
+#[derive(Debug, Clone, Default)]
+pub struct GlmmObservations {
+    /// Conditional fitted value (with the BLUPs) on the response scale.
+    pub fitted: Vec<f64>,
+    /// Population-level fitted value (random effects at zero).
+    pub fitted_population: Vec<f64>,
+    /// Response residual `y − fitted`.
+    pub residual: Vec<f64>,
+    /// Pearson residual `(y − fitted) / sqrt(V(fitted))`.
+    pub pearson_residual: Vec<f64>,
+    pub is_training: Vec<bool>,
+}
+
 /// Result of a mixed-effects fit.
 #[derive(Debug, Clone)]
 pub struct GlmmResult {
@@ -135,6 +188,13 @@ pub struct GlmmResult {
     pub ci_lower: Option<Vec<f64>>,
     pub ci_upper: Option<Vec<f64>>,
     pub intercept_std_error: Option<f64>,
+    /// Satterthwaite degrees of freedom of the coefficients; `None` for Wald or
+    /// without inference.
+    pub df: Option<Vec<f64>>,
+    /// Satterthwaite degrees of freedom of the intercept.
+    pub intercept_df: Option<f64>,
+    /// Residual degrees of freedom `n − k`, lme4's `df.residual()`.
+    pub df_residual: f64,
     pub confidence_level: f64,
     /// Between-group variance `sigma_b^2`.
     pub var_group: f64,
@@ -162,6 +222,8 @@ pub struct GlmmResult {
     pub factors: Vec<FactorVariance>,
     /// Negative-binomial size θ (estimated or fixed); `None` for other families.
     pub nb_theta: Option<f64>,
+    /// Per-row fitted values and residuals, when [`GlmmOptions::observations`].
+    pub observations: Option<GlmmObservations>,
 }
 
 /// The upstream builder for the requested family.
@@ -269,6 +331,7 @@ pub fn fit_glmm(
     }
 
     let builder = family_builder(options.family)?;
+    let ddf = options.effective_ddf()?;
     let (design, offset_col, slopes) = design_layout(x.len(), options)?;
 
     // Keep rows finite throughout and carrying a valid group.
@@ -330,7 +393,8 @@ pub fn fit_glmm(
         .random_slopes(slopes)
         .max_iterations(options.max_iterations as usize)
         .tolerance(options.tolerance)
-        .reml(options.reml);
+        .reml(options.reml)
+        .satterthwaite(options.compute_inference && ddf == GlmmDdf::Satterthwaite);
     if let Some(o) = offset_col {
         builder = builder.offset(Col::from_fn(n, |r| x[o][rows[r]]));
     }
@@ -345,29 +409,17 @@ pub fn fit_glmm(
         (fit.fixed_effects().to_vec(), None)
     };
 
-    let (std_errors, z_values, p_values, ci_lower, ci_upper, intercept_std_error) =
-        if options.compute_inference {
-            fixed_effect_inference(&fit, options.fit_intercept, options.confidence_level)
-        } else {
-            (None, None, None, None, None, None)
-        };
+    let inference = FixedInference::new(&fit, options, ddf)?;
 
-    // Per-group random-effect vectors `[intercept, slope_1, …]`. Upstream does not
-    // expose the conditional SE of the BLUPs (tracked upstream:
-    // anofox-regression#29), so `se` is NaN.
-    let re_matrix = fit.random_effects_matrix();
-    let ranef: Vec<RandomEffect> = (0..n_groups)
-        .map(|g| {
-            let effects = re_matrix.get(g).cloned().unwrap_or_default();
-            RandomEffect {
-                group: orig[g],
-                value: effects.first().copied().unwrap_or(f64::NAN),
-                se: f64::NAN,
-                effects,
-                n: group_sizes[g],
-            }
-        })
-        .collect();
+    // Per-group random-effect vectors `[intercept, slope_1, …]` and their
+    // conditional standard errors.
+    let ranef = random_effects(
+        fit.random_effects_matrix(),
+        fit.random_effects_se_matrix(),
+        fit.random_effects_conf_int(options.confidence_level),
+        &orig,
+        &group_sizes,
+    );
 
     let random_cov: Vec<Vec<f64>> = fit.random_cov().to_vec();
 
@@ -382,17 +434,23 @@ pub fn fit_glmm(
     // Upstream reports lme4's logLik(glmer) (saturated term included) and its
     // AIC / BIC with lme4's parameter count.
     let ll = fit.log_likelihood();
-    let summary = glmm_summary(&fit, options);
+    let summary = glmm_summary(&fit, options, inference.all.as_ref());
+    let observations = options
+        .observations
+        .then(|| observations(&fit, &rows, y.len()));
 
     Ok(GlmmResult {
         coefficients,
         intercept,
-        std_errors,
-        z_values,
-        p_values,
-        ci_lower,
-        ci_upper,
-        intercept_std_error,
+        std_errors: inference.std_errors,
+        z_values: inference.z_values,
+        p_values: inference.p_values,
+        ci_lower: inference.ci_lower,
+        ci_upper: inference.ci_upper,
+        intercept_std_error: inference.intercept_std_error,
+        df: inference.df,
+        intercept_df: inference.intercept_df,
+        df_residual: fit.df_residual(),
         confidence_level: options.confidence_level,
         var_group,
         var_residual,
@@ -411,6 +469,7 @@ pub fn fit_glmm(
         ranef,
         factors: Vec::new(),
         nb_theta: fit.nb_theta(),
+        observations,
     })
 }
 
@@ -455,6 +514,7 @@ pub fn fit_glmm_crossed(
         }
     }
     let builder = family_builder(options.family)?;
+    let ddf = options.effective_ddf()?;
     let (design, offset_col, slopes) = design_layout(x.len(), options)?;
 
     // Rows finite throughout and with a valid level in every factor.
@@ -478,26 +538,34 @@ pub fn fit_glmm_crossed(
         });
     }
 
-    // Compact each factor independently over the surviving rows.
+    // Compact each factor independently over the surviving rows, keeping the
+    // first factor's map back to the caller's ids to label its random effects.
     let mut factor_ids: Vec<Vec<usize>> = Vec::with_capacity(group_factors.len());
-    for g in group_factors {
+    let mut orig: Vec<i32> = Vec::new();
+    for (f, g) in group_factors.iter().enumerate() {
         let mut compact: std::collections::HashMap<i32, usize> = std::collections::HashMap::new();
         let mut ids = Vec::with_capacity(n);
-        let mut next = 0usize;
+        let mut labels = Vec::new();
         for &i in &rows {
             let id = *compact.entry(g[i]).or_insert_with(|| {
-                let v = next;
-                next += 1;
-                v
+                labels.push(g[i]);
+                labels.len() - 1
             });
             ids.push(id);
         }
-        if next < 2 {
+        if labels.len() < 2 {
             return Err(StatsError::InsufficientDataMsg(
                 "each grouping factor needs at least two levels".to_string(),
             ));
         }
+        if f == 0 {
+            orig = labels;
+        }
         factor_ids.push(ids);
+    }
+    let mut group_sizes = vec![0usize; orig.len()];
+    for &g in &factor_ids[0] {
+        group_sizes[g] += 1;
     }
 
     let xm = Mat::from_fn(n, n_features, |r, c| x[design[c]][rows[r]]);
@@ -507,7 +575,8 @@ pub fn fit_glmm_crossed(
         .with_intercept(options.fit_intercept)
         .max_iterations(options.max_iterations as usize)
         .tolerance(options.tolerance)
-        .reml(options.reml);
+        .reml(options.reml)
+        .satterthwaite(options.compute_inference && ddf == GlmmDdf::Satterthwaite);
     // Random slopes apply to the first (positional) grouping factor:
     // `(1 + x | group) + (1 | other) + ...`.
     let has_slopes = !slopes.is_empty();
@@ -532,12 +601,16 @@ pub fn fit_glmm_crossed(
         (fit.fixed_effects().to_vec(), None)
     };
 
-    let (std_errors, z_values, p_values, ci_lower, ci_upper, intercept_std_error) =
-        if options.compute_inference {
-            fixed_effect_inference(&fit, options.fit_intercept, options.confidence_level)
-        } else {
-            (None, None, None, None, None, None)
-        };
+    let inference = FixedInference::new(&fit, options, ddf)?;
+    // The first factor's random effects (the positional `group`).
+    let ranef = match (
+        fit.factor_random_effects_matrix(0),
+        fit.factor_random_effects_se_matrix(0),
+        fit.factor_random_effects_conf_int(0, options.confidence_level),
+    ) {
+        (Some(re), Some(se), Some(ci)) => random_effects(re, se, ci, &orig, &group_sizes),
+        _ => Vec::new(),
+    };
 
     let factors: Vec<FactorVariance> = fit
         .factors()
@@ -567,17 +640,23 @@ pub fn fit_glmm_crossed(
     // Upstream reports lme4's logLik(glmer) (saturated term included) and its
     // AIC / BIC with lme4's parameter count.
     let ll = fit.log_likelihood();
-    let summary = glmm_summary(&fit, options);
+    let summary = glmm_summary(&fit, options, inference.all.as_ref());
+    let observations = options
+        .observations
+        .then(|| observations(&fit, &rows, y.len()));
 
     Ok(GlmmResult {
         coefficients,
         intercept,
-        std_errors,
-        z_values,
-        p_values,
-        ci_lower,
-        ci_upper,
-        intercept_std_error,
+        std_errors: inference.std_errors,
+        z_values: inference.z_values,
+        p_values: inference.p_values,
+        ci_lower: inference.ci_lower,
+        ci_upper: inference.ci_upper,
+        intercept_std_error: inference.intercept_std_error,
+        df: inference.df,
+        intercept_df: inference.intercept_df,
+        df_residual: fit.df_residual(),
         confidence_level: options.confidence_level,
         var_group,
         var_residual,
@@ -593,63 +672,129 @@ pub fn fit_glmm_crossed(
         n_features,
         iterations: fit.iterations() as u32,
         converged: fit.converged(),
-        ranef: Vec::new(),
+        ranef,
         factors,
         nb_theta: fit.nb_theta(),
+        observations,
     })
 }
 
-/// Slope inference (standard errors, z, p, Wald interval) and the intercept's
-/// standard error, all from upstream. Upstream vectors cover every fixed effect,
-/// intercept first.
-type FixedEffectInference = (
-    Option<Vec<f64>>,
-    Option<Vec<f64>>,
-    Option<Vec<f64>>,
-    Option<Vec<f64>>,
-    Option<Vec<f64>>,
-    Option<f64>,
-);
+/// One [`RandomEffect`] per group from upstream's BLUP, conditional-SE and
+/// interval matrices (`n_groups × q`), labelled with the caller's ids.
+fn random_effects(
+    re: &[Vec<f64>],
+    se: &[Vec<f64>],
+    (lo, hi): (Vec<Vec<f64>>, Vec<Vec<f64>>),
+    orig: &[i32],
+    group_sizes: &[usize],
+) -> Vec<RandomEffect> {
+    (0..orig.len())
+        .map(|g| {
+            let effects = re.get(g).cloned().unwrap_or_default();
+            let effects_se = se.get(g).cloned().unwrap_or_default();
+            RandomEffect {
+                group: orig[g],
+                value: effects.first().copied().unwrap_or(f64::NAN),
+                se: effects_se.first().copied().unwrap_or(f64::NAN),
+                effects,
+                effects_se,
+                effects_conf_low: lo.get(g).cloned().unwrap_or_default(),
+                effects_conf_high: hi.get(g).cloned().unwrap_or_default(),
+                n: group_sizes[g],
+            }
+        })
+        .collect()
+}
+
+/// Upstream's per-observation fitted values and residuals, placed back at the
+/// input rows they came from (`rows[r]` is the input row of fitted row `r`).
+fn observations(fit: &FittedGlmm, rows: &[usize], n_input: usize) -> GlmmObservations {
+    let mut out = GlmmObservations {
+        fitted: vec![f64::NAN; n_input],
+        fitted_population: vec![f64::NAN; n_input],
+        residual: vec![f64::NAN; n_input],
+        pearson_residual: vec![f64::NAN; n_input],
+        is_training: vec![false; n_input],
+    };
+    let residuals = fit.residuals();
+    for (r, &i) in rows.iter().enumerate() {
+        out.fitted[i] = fit.fitted_values()[r];
+        out.fitted_population[i] = fit.fitted_population()[r];
+        out.residual[i] = residuals[r];
+        out.pearson_residual[i] = fit.pearson_residuals()[r];
+        out.is_training[i] = true;
+    }
+    out
+}
+
+/// Fixed-effect inference from upstream, split into the slopes and the
+/// intercept (upstream vectors cover every fixed effect, intercept first).
+/// Everything is `None` without `compute_inference`.
+#[derive(Default)]
+struct FixedInference {
+    std_errors: Option<Vec<f64>>,
+    z_values: Option<Vec<f64>>,
+    p_values: Option<Vec<f64>>,
+    ci_lower: Option<Vec<f64>>,
+    ci_upper: Option<Vec<f64>>,
+    intercept_std_error: Option<f64>,
+    df: Option<Vec<f64>>,
+    intercept_df: Option<f64>,
+    all: Option<GlmmInference>,
+}
+
+impl FixedInference {
+    fn new(fit: &FittedGlmm, options: &GlmmOptions, ddf: GlmmDdf) -> StatsResult<Self> {
+        if !options.compute_inference {
+            return Ok(Self::default());
+        }
+        let inf = fit
+            .inference(ddf, options.confidence_level)
+            .map_err(StatsError::from)?;
+        let off = usize::from(options.fit_intercept);
+        let slopes = |v: &[f64]| v.get(off..).map(<[f64]>::to_vec).unwrap_or_default();
+        let intercept = |v: &[f64]| {
+            options
+                .fit_intercept
+                .then(|| v.first().copied().unwrap_or(f64::NAN))
+        };
+        Ok(Self {
+            std_errors: Some(slopes(&inf.std_errors)),
+            z_values: Some(slopes(&inf.statistics)),
+            p_values: Some(slopes(&inf.p_values)),
+            ci_lower: Some(slopes(&inf.conf_low)),
+            ci_upper: Some(slopes(&inf.conf_high)),
+            intercept_std_error: intercept(&inf.std_errors),
+            df: inf.df.as_deref().map(slopes),
+            intercept_df: inf.df.as_deref().and_then(intercept),
+            all: Some(inf),
+        })
+    }
+}
 
 /// Model description, fit statistics and, with inference, the intercept's
 /// inference (the first fixed effect), all from upstream.
 fn glmm_summary(
-    fit: &anofox_regression::solvers::FittedGlmm,
+    fit: &FittedGlmm,
     options: &GlmmOptions,
+    inference: Option<&GlmmInference>,
 ) -> ModelSummary {
     let mut summary = ModelSummary::new(fit.model_info());
     summary.log_likelihood = fit.log_likelihood();
     summary.aic = fit.aic();
     summary.bic = fit.bic();
-    if options.compute_inference && options.fit_intercept {
-        let (lo, hi) = fit.conf_int(options.confidence_level);
+    if let (Some(inf), true) = (inference, options.fit_intercept) {
         summary.set_intercept_inference(
-            fit.std_errors().first().copied(),
-            fit.z_values().first().copied(),
-            fit.p_values().first().copied(),
-            lo.first().copied().zip(hi.first().copied()),
+            inf.std_errors.first().copied(),
+            inf.statistics.first().copied(),
+            inf.p_values.first().copied(),
+            inf.conf_low
+                .first()
+                .copied()
+                .zip(inf.conf_high.first().copied()),
         );
     }
     summary
-}
-
-fn fixed_effect_inference(
-    fit: &anofox_regression::solvers::FittedGlmm,
-    fit_intercept: bool,
-    confidence_level: f64,
-) -> FixedEffectInference {
-    let off = usize::from(fit_intercept);
-    let slopes = |v: &[f64]| v.get(off..).map(<[f64]>::to_vec).unwrap_or_default();
-    let se = fit.std_errors();
-    let (lo, hi) = fit.conf_int(confidence_level);
-    (
-        Some(slopes(se)),
-        Some(slopes(&fit.z_values())),
-        Some(slopes(&fit.p_values())),
-        Some(slopes(&lo)),
-        Some(slopes(&hi)),
-        fit_intercept.then(|| se.first().copied().unwrap_or(f64::NAN)),
-    )
 }
 
 #[cfg(test)]
@@ -818,12 +963,83 @@ mod tests {
         assert!(fit.ci_lower.as_ref().unwrap()[0] < fit.coefficients[0]);
         assert!(fit.ci_upper.as_ref().unwrap()[0] > fit.coefficients[0]);
         assert!(fit.intercept_std_error.unwrap() > 0.0);
-        // BLUPs are populated; their conditional SE is not yet exposed by the
-        // upstream solver (tracked: anofox-regression#29), so `se` is NaN for now.
+        // Gaussian defaults to Satterthwaite degrees of freedom.
+        let df = fit.df.as_ref().expect("Satterthwaite df");
+        assert_eq!(df.len(), 1);
+        assert!(df[0] > 1.0 && df[0].is_finite());
+        assert!(fit.intercept_df.unwrap() > 1.0);
+        // BLUPs come with their conditional standard errors.
         for r in &fit.ranef {
             assert!(r.value.is_finite(), "ranef value {}", r.value);
-            assert!(r.se.is_nan(), "ranef se currently NaN pending upstream #29");
+            assert!(r.se > 0.0 && r.se.is_finite(), "ranef se {}", r.se);
+            assert_eq!(r.effects_se, vec![r.se]);
         }
+
+        // Wald on request: same SEs, z statistics, no df.
+        let wald = fit_glmm(
+            &y,
+            &x,
+            &g,
+            &GlmmOptions {
+                ddf: Some(GlmmDdf::Wald),
+                ..opts.clone()
+            },
+        )
+        .unwrap();
+        assert!(wald.df.is_none() && wald.intercept_df.is_none());
+        assert_eq!(wald.std_errors, fit.std_errors);
+        // A t interval is wider than the normal one.
+        assert!(fit.ci_upper.as_ref().unwrap()[0] > wald.ci_upper.as_ref().unwrap()[0]);
+
+        // Without compute_inference nothing is computed.
+        let none = fit_glmm(&y, &x, &g, &GlmmOptions::default()).unwrap();
+        assert!(none.df.is_none() && none.std_errors.is_none());
+    }
+
+    #[test]
+    fn satterthwaite_needs_the_gaussian_family() {
+        let (y, x, g) = gaussian_panel(10, 8, 0.5, 0.3);
+        let y: Vec<f64> = y.iter().map(|v| v.abs().round()).collect();
+        let opts = GlmmOptions {
+            family: GlmmFamily::Poisson,
+            compute_inference: true,
+            ddf: Some(GlmmDdf::Satterthwaite),
+            ..Default::default()
+        };
+        assert!(matches!(
+            fit_glmm(&y, &x, &g, &opts),
+            Err(StatsError::InvalidValue { field: "ddf", .. })
+        ));
+        // The Poisson default is Wald.
+        let fit = fit_glmm(&y, &x, &g, &GlmmOptions { ddf: None, ..opts }).unwrap();
+        assert!(fit.df.is_none() && fit.std_errors.is_some());
+    }
+
+    #[test]
+    fn observations_are_returned_per_input_row() {
+        let (mut y, mut x, mut g) = gaussian_panel(10, 10, 0.5, 0.2);
+        // A dropped row keeps its place, with NaN values.
+        y.insert(3, f64::NAN);
+        x[0].insert(3, 1.0);
+        g.insert(3, 0);
+        let opts = GlmmOptions {
+            observations: true,
+            ..Default::default()
+        };
+        let fit = fit_glmm(&y, &x, &g, &opts).unwrap();
+        let obs = fit.observations.as_ref().unwrap();
+        assert_eq!(obs.fitted.len(), y.len());
+        assert!(!obs.is_training[3] && obs.fitted[3].is_nan());
+        for i in (0..y.len()).filter(|&i| i != 3) {
+            assert!(obs.is_training[i]);
+            assert!((obs.residual[i] - (y[i] - obs.fitted[i])).abs() < 1e-12);
+            // Gaussian: Pearson residuals are the response residuals.
+            assert!((obs.pearson_residual[i] - obs.residual[i]).abs() < 1e-12);
+        }
+        assert!(fit_glmm(&y, &x, &g, &GlmmOptions::default())
+            .unwrap()
+            .observations
+            .is_none());
     }
 
     #[test]
@@ -894,6 +1110,9 @@ mod tests {
 
         let fit = fit_glmm_crossed(&y, &x, &[&region, &store], &opts).unwrap();
         assert_eq!(fit.factors.len(), 2, "one variance component per factor");
+        // The first factor's random effects, with standard errors.
+        assert_eq!(fit.ranef.len(), 3);
+        assert!(fit.ranef.iter().all(|r| r.se > 0.0 && r.n == 50));
         assert_eq!(fit.factors[0].n_levels, 3);
         assert_eq!(fit.factors[1].n_levels, 5);
         assert!(fit.factors[0].var >= 0.0 && fit.factors[1].var >= 0.0);

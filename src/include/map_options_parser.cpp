@@ -1,9 +1,12 @@
+#include <cerrno>
+#include <cstdlib>
 #include "map_options_parser.hpp"
 
 #include <cmath>
 #include <limits>
 #include <unordered_map>
 #include "duckdb/common/types/value.hpp"
+#include "duckdb/common/string_util.hpp"
 #include "duckdb/planner/expression/bound_constant_expression.hpp"
 #include "duckdb/execution/expression_executor.hpp"
 
@@ -450,6 +453,21 @@ static void VisitOptionEntries(const Value &map_value, Callback callback) {
 	}
 }
 
+// Values mirror AnofoxGlmmDdf in anofox_stats_ffi.h.
+static std::optional<int> ParseGlmmDdf(const Value &val) {
+	if (val.IsNull()) {
+		return std::nullopt;
+	}
+	string v = ToLower(val.ToString());
+	if (v == "wald" || v == "z" || v == "asymptotic") {
+		return 1;
+	}
+	if (v == "satterthwaite") {
+		return 2;
+	}
+	throw InvalidInputException("Unknown ddf '%s'. Expected 'satterthwaite' or 'wald'.", val.ToString());
+}
+
 // Values mirror AnofoxGlmmFamily in anofox_stats_ffi.h.
 static std::optional<int> ParseGlmmFamily(const Value &val) {
 	if (val.IsNull()) {
@@ -518,24 +536,49 @@ static std::optional<VcovTypeOpt> ExtractVcovType(const Value &val) {
 }
 
 // Extract a LIST of positive integers (1-based column indices).
+static idx_t CheckedIndex(int64_t v) {
+	if (v < 1) {
+		throw InvalidInputException("'random' indices are 1-based and must be >= 1, got %lld", (long long)v);
+	}
+	return (idx_t)v;
+}
+
 static std::optional<vector<idx_t>> ExtractIndexList(const Value &val) {
 	if (val.IsNull()) {
 		return std::nullopt;
+	}
+	vector<idx_t> out;
+	// A list rendered as text ('[1, 2]'), as it arrives through a MAP(VARCHAR, VARCHAR)
+	// of options -- the form the table macros pass on. Parsed by hand: the Value cast
+	// API differs between DuckDB 1.x and 2.0.
+	if (val.type().id() == LogicalTypeId::VARCHAR) {
+		string text = StringUtil::Replace(StringUtil::Replace(val.ToString(), "[", ""), "]", "");
+		StringUtil::Trim(text);
+		if (text.empty()) {
+			return out;
+		}
+		for (auto &item : StringUtil::Split(text, ',')) {
+			StringUtil::Trim(item);
+			char *end = nullptr;
+			errno = 0;
+			long long v = std::strtoll(item.c_str(), &end, 10);
+			if (item.empty() || errno != 0 || end == nullptr || *end != '\0') {
+				throw InvalidInputException("'random' must be a LIST of integer column indices, got '%s'",
+				                            val.ToString());
+			}
+			out.push_back(CheckedIndex(v));
+		}
+		return out;
 	}
 	if (val.type().id() != LogicalTypeId::LIST) {
 		throw InvalidInputException("'random' must be a LIST of integer column indices, got %s",
 		                            val.type().ToString());
 	}
-	vector<idx_t> out;
 	for (auto &child : ListValue::GetChildren(val)) {
 		if (child.IsNull()) {
 			throw InvalidInputException("'random' must not contain NULL");
 		}
-		auto v = child.GetValue<int64_t>();
-		if (v < 1) {
-			throw InvalidInputException("'random' indices are 1-based and must be >= 1, got %lld", (long long)v);
-		}
-		out.push_back((idx_t)v);
+		out.push_back(CheckedIndex(child.GetValue<int64_t>()));
 	}
 	return out;
 }
@@ -782,6 +825,7 @@ static const vector<OptionKeyDef> &RegressionKeyTable() {
 	static const vector<OptionKeyDef> table = {
 	    {"fit_intercept", {"intercept"}},
 	    {"compute_inference", {"inference"}},
+	    {"compute_loo", {}},
 	    {"confidence_level", {"confidence"}},
 	    {"alpha", {}},
 	    {"lambda", {}},
@@ -828,6 +872,7 @@ static const vector<OptionKeyDef> &RegressionKeyTable() {
 	    {"offset", {}},
 	    {"random", {"random_slopes"}},
 	    {"groups", {"crossed"}},
+	    {"ddf", {}},
 	    {"vcov", {"vcov_type"}},
 	    {"tau_squared", {"tau2"}},
 	    {"tau_method", {"shrinkage"}},
@@ -838,10 +883,21 @@ static const vector<OptionKeyDef> &RegressionKeyTable() {
 	    {"lambdas", {}},
 	    {"n_lambda", {"nlambda"}},
 	    {"lambda_min_ratio", {}},
-	    {"folds", {"n_folds", "nfolds"}},
+	    {"folds", {"n_folds", "nfolds", "outer_folds"}},
+	    {"cv_strategy", {"strategy"}},
+	    {"repeats", {"n_repeats"}},
+	    {"test_size", {"horizon"}},
+	    {"gap", {}},
+	    {"window", {}},
+	    {"max_train_size", {}},
+	    {"n_bins", {}},
+	    {"metric", {"type_measure"}},
+	    {"inner_folds", {}},
+	    {"rule", {"lambda_rule"}},
 	    {"taus", {}},
 	    {"se", {"se_type"}},
-	    {"n_boot", {}},
+	    {"n_boot", {"n_bootstrap"}},
+	    {"ci_method", {}},
 	    {"alpha_1", {}},
 	    {"alpha_2", {}},
 	    {"lambda_1", {}},
@@ -953,6 +1009,8 @@ RegressionMapOptions RegressionMapOptions::ParseFromValue(const Value &map_value
 			result.fit_intercept = ExtractBool(val);
 		} else if (key == "compute_inference") {
 			result.compute_inference = ExtractBool(val);
+		} else if (key == "compute_loo") {
+			result.compute_loo = ExtractBool(val);
 		} else if (key == "confidence_level") {
 			result.confidence_level = ExtractConfidenceLevel(val, function_name);
 		} else if (key == "alpha") {
@@ -1113,6 +1171,8 @@ RegressionMapOptions RegressionMapOptions::ParseFromValue(const Value &map_value
 			result.random_slopes = ExtractIndexList(val);
 		} else if (key == "groups") {
 			result.group_columns = ExtractIndexList(val);
+		} else if (key == "ddf") {
+			result.glmm_ddf = ParseGlmmDdf(val);
 		} else if (key == "tau_squared") {
 			result.tau_squared = ExtractDouble(val);
 		} else if (key == "tau_method") {
@@ -1172,6 +1232,42 @@ RegressionMapOptions RegressionMapOptions::ParseFromValue(const Value &map_value
 			}
 		} else if (key == "folds") {
 			result.folds = ExtractUInt32(val);
+		} else if (key == "cv_strategy" || key == "window" || key == "metric" || key == "rule") {
+			if (!val.IsNull()) {
+				const string v = ToLower(val.ToString());
+				vector<string> allowed;
+				if (key == "cv_strategy") {
+					allowed = {"kfold", "fold_id", "group", "logo", "stratified", "time_series"};
+				} else if (key == "window") {
+					allowed = {"expanding", "sliding"};
+				} else if (key == "metric") {
+					allowed = {"mse", "mae"};
+				} else {
+					allowed = {"min", "1se"};
+				}
+				if (std::find(allowed.begin(), allowed.end(), v) == allowed.end()) {
+					throw InvalidInputException("%s: %s must be one of '%s', got '%s'", function_name, key,
+					                            StringUtil::Join(allowed, "', '"), val.ToString());
+				}
+				(key == "cv_strategy" ? result.cv_strategy
+				 : key == "window"    ? result.window
+				 : key == "metric"    ? result.cv_metric
+				                      : result.lambda_rule) = v;
+			}
+		} else if (key == "repeats" || key == "test_size" || key == "max_train_size" || key == "n_bins" ||
+		           key == "inner_folds") {
+			auto v = ExtractUInt32(val);
+			uint32_t min = key == "inner_folds" ? 2 : 1;
+			if (v.has_value() && v.value() < min) {
+				throw InvalidInputException("%s: %s must be >= %u, got %u", function_name, key, min, v.value());
+			}
+			(key == "repeats"          ? result.repeats
+			 : key == "test_size"      ? result.test_size
+			 : key == "max_train_size" ? result.max_train_size
+			 : key == "n_bins"         ? result.n_bins
+			                           : result.inner_folds) = v;
+		} else if (key == "gap") {
+			result.gap = ExtractUInt32(val);
 		} else if (key == "taus") {
 			result.taus = ExtractDoubleList(val, "taus");
 		} else if (key == "se") {
@@ -1189,6 +1285,20 @@ RegressionMapOptions RegressionMapOptions::ParseFromValue(const Value &map_value
 				throw InvalidInputException("%s: n_boot must be >= 2", function_name);
 			}
 			result.n_boot = v;
+		} else if (key == "ci_method") {
+			if (!val.IsNull()) {
+				const string v = ToLower(val.ToString());
+				if (v == "exact") {
+					result.ci_method = 1;
+				} else if (v == "bootstrap") {
+					result.ci_method = 2;
+				} else if (v == "exact_or_none") {
+					result.ci_method = 3;
+				} else {
+					throw InvalidInputException("%s: ci_method must be 'exact', 'bootstrap' or 'exact_or_none', got '%s'",
+					                            function_name, val.ToString());
+				}
+			}
 		} else {
 			throw InternalException("RegressionMapOptions: unhandled option key '%s'", key);
 		}
@@ -1690,6 +1800,37 @@ CohenKappaMapOptions CohenKappaMapOptions::ParseFromValue(const Value &map_value
 	    map_value, function_name, keys, [](CohenKappaMapOptions &result, const string &key, const Value &val) {
 		    if (key == "weighted") {
 			    result.weighted = ExtractBool(val);
+		    }
+	    });
+}
+
+MediationMapOptions MediationMapOptions::ParseFromValue(const Value &map_value, const string &function_name) {
+	static const vector<OptionKeyDef> keys = {{"method", {}},
+	                                          {"ci_type", {"boot_ci_type", "boot.ci.type"}},
+	                                          {"n_bootstrap", {"n_sims", "sims", "n_boot"}},
+	                                          KEY_SEED,
+	                                          {"confidence_level", {"confidence", "conf_level", "conf.level"}},
+	                                          {"treat_value", {"treat.value"}},
+	                                          {"control_value", {"control.value"}}};
+	return ParseTestOptions<MediationMapOptions>(
+	    map_value, function_name, keys, [](MediationMapOptions &result, const string &key, const Value &val) {
+		    if (val.IsNull()) {
+			    return;
+		    }
+		    if (key == "method") {
+			    result.method = ExtractChoice(val, "method", {"bootstrap", "sobel", "quasi_bayesian"});
+		    } else if (key == "ci_type") {
+			    result.ci_type = ExtractChoice(val, "ci_type", {"percentile", "bca"});
+		    } else if (key == "n_bootstrap") {
+			    result.n_bootstrap = ExtractUInt32(val);
+		    } else if (key == "seed") {
+			    result.seed = ExtractUInt64(val);
+		    } else if (key == "confidence_level") {
+			    result.confidence_level = ExtractConfidenceLevel(val);
+		    } else if (key == "treat_value") {
+			    result.treat_value = ExtractDouble(val);
+		    } else if (key == "control_value") {
+			    result.control_value = ExtractDouble(val);
 		    }
 	    });
 }

@@ -1,0 +1,253 @@
+# name: test/sql/mediation/test_mediation.test
+# description: mediation_agg / mediation_by (#223): causal mediation analysis against R mediation::mediate, bda::mediation.test and lm
+# group: [mediation]
+
+require anofox_statistics
+
+# Two groups of 60 rows. The reference values come from R 4.6.1 (mediation 4.5.1,
+# bda 19.1.3) on the same rows: lm(m ~ x + c1 + c2), lm(y ~ x + m + c1 + c2),
+# mediate(fm, fy, treat = "x", mediator = "m", boot = TRUE, sims = 1000).
+statement ok
+CREATE TABLE med AS
+SELECT i, g, x, c1, c2, m, 1 + 0.4 * x + 0.6 * m - 0.2 * c1 + 0.1 * c2 + cos(i * 1.7 + 0.2) * 0.8 AS y
+FROM (
+    SELECT i, CASE WHEN i % 2 = 0 THEN 'a' ELSE 'b' END AS g,
+           ((i // 2) % 2)::DOUBLE AS x,
+           sin(i * 1.3) AS c1,
+           cos(i * 0.7) AS c2,
+           0.5 + (CASE WHEN i % 2 = 0 THEN 0.8 ELSE 0.3 END) * ((i // 2) % 2) + 0.3 * sin(i * 1.3)
+               + sin(i * 2.1 + 0.4) * 0.9 AS m
+    FROM range(120) t(i)
+);
+
+# Output schema: the user's group column, id, model_id, model_name, the contract terms columns, then method, n_obs, n_sims
+query II
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM mediation_by('med', g, x, m, y, covariates := [c1, c2]))
+----
+g	VARCHAR
+id	VARCHAR
+model_id	VARCHAR
+model_name	VARCHAR
+term	VARCHAR
+estimate	DOUBLE
+std_error	DOUBLE
+statistic	DOUBLE
+p_value	DOUBLE
+conf_low	DOUBLE
+conf_high	DOUBLE
+conf_level	DOUBLE
+index_name	VARCHAR
+index_value	DOUBLE
+method	VARCHAR
+n_obs	BIGINT
+n_sims	BIGINT
+
+# Point estimates equal mediate's (d0, z0, tau.coef, n0) exactly
+query IIIIIIII
+SELECT g, id, model_id, term, method, n_obs, n_sims,
+       abs(estimate - CASE g || term
+           WHEN 'aacme' THEN 0.5258842564 WHEN 'aade' THEN 0.3468205162
+           WHEN 'atotal' THEN 0.8727047726 WHEN 'aprop_mediated' THEN 0.6025912461
+           WHEN 'bacme' THEN 0.1761410044 WHEN 'bade' THEN 0.6033589031
+           WHEN 'btotal' THEN 0.7794999074 WHEN 'bprop_mediated' THEN 0.2259666777 END) < 1e-9
+FROM mediation_by('med', g, x, m, y, covariates := [c1, c2])
+----
+a	a	mediation	acme	bootstrap_percentile	60	1000	true
+a	a	mediation	ade	bootstrap_percentile	60	1000	true
+a	a	mediation	total	bootstrap_percentile	60	1000	true
+a	a	mediation	prop_mediated	bootstrap_percentile	60	1000	true
+b	b	mediation	acme	bootstrap_percentile	60	1000	true
+b	b	mediation	ade	bootstrap_percentile	60	1000	true
+b	b	mediation	total	bootstrap_percentile	60	1000	true
+b	b	mediation	prop_mediated	bootstrap_percentile	60	1000	true
+
+# Bootstrap intervals bracket the estimate, statistic is NULL, and they agree with
+# mediate's percentile intervals within simulation error (R: a acme [0.2573, 0.8266],
+# ade [0.0073, 0.7139]; b acme [-0.0083, 0.4303], ade [0.3119, 0.9026])
+query IIIIIII
+SELECT g, term, conf_low < estimate AND estimate < conf_high, statistic IS NULL, conf_level,
+       abs(conf_low - CASE g || term WHEN 'aacme' THEN 0.2573 WHEN 'aade' THEN 0.0073
+                                     WHEN 'bacme' THEN -0.0083 WHEN 'bade' THEN 0.3119 END) < 0.25 * std_error,
+       abs(conf_high - CASE g || term WHEN 'aacme' THEN 0.8266 WHEN 'aade' THEN 0.7139
+                                      WHEN 'bacme' THEN 0.4303 WHEN 'bade' THEN 0.9026 END) < 0.25 * std_error
+FROM mediation_by('med', g, x, m, y, covariates := [c1, c2])
+WHERE term IN ('acme', 'ade')
+----
+a	acme	true	true	0.95	true	true
+a	ade	true	true	0.95	true	true
+b	acme	true	true	0.95	true	true
+b	ade	true	true	0.95	true	true
+
+# mediate's bootstrap p-values: acme clearly non-zero in group a, ade in group b
+query III
+SELECT g, term, p_value < 0.01
+FROM mediation_by('med', g, x, m, y, covariates := [c1, c2])
+WHERE (g = 'a' AND term = 'acme') OR (g = 'b' AND term = 'ade')
+----
+a	acme	true
+b	ade	true
+
+# Deterministic: the default seed (42) gives the same draws on every call and any
+# thread count (rows are put into a canonical order before resampling)
+statement ok
+CREATE TABLE r1 AS SELECT * FROM mediation_by('med', g, x, m, y, covariates := [c1, c2]);
+
+statement ok
+SET threads = 1;
+
+statement ok
+CREATE TABLE r2 AS SELECT * FROM mediation_by('med', g, x, m, y, covariates := [c1, c2], options := {'seed': 42});
+
+statement ok
+RESET threads;
+
+query I
+SELECT count(*) FROM r1 JOIN r2 USING (g, term)
+WHERE r1.conf_low = r2.conf_low AND r1.conf_high = r2.conf_high AND r1.std_error = r2.std_error AND r1.p_value = r2.p_value
+----
+8
+
+# Shuffled input order: same result
+statement ok
+CREATE VIEW med_shuffled AS SELECT * FROM med ORDER BY hash(i);
+
+query I
+SELECT count(*) FROM r1 JOIN (
+    SELECT * FROM mediation_by('med_shuffled', g, x, m, y, covariates := [c1, c2])
+) r3 USING (g, term)
+WHERE r1.conf_low = r3.conf_low AND r1.conf_high = r3.conf_high
+----
+8
+
+# Another seed draws other resamples
+query I
+SELECT count(*) FROM r1 JOIN (
+    SELECT * FROM mediation_by('med', g, x, m, y, covariates := [c1, c2], options := {'seed': 7})
+) r4 USING (g, term)
+WHERE r1.conf_low = r4.conf_low
+----
+0
+
+# Sobel: delta-method SE of a*b, OLS SE of c' (ade) and of c in y ~ x + covariates (total)
+query IIIII
+SELECT g, term, method,
+       abs(std_error - CASE g || term
+           WHEN 'aacme' THEN 0.1461840818 WHEN 'aade' THEN 0.1769748706 WHEN 'atotal' THEN 0.1858760650
+           WHEN 'bacme' THEN 0.1098925801 WHEN 'bade' THEN 0.1546590700 WHEN 'btotal' THEN 0.1824272154 END) < 1e-9,
+       abs(statistic - estimate / std_error) < 1e-12
+FROM mediation_by('med', g, x, m, y, covariates := [c1, c2], options := {'method': 'sobel'})
+WHERE term <> 'prop_mediated'
+----
+a	acme	sobel	true	true
+a	ade	sobel	true	true
+a	total	sobel	true	true
+b	acme	sobel	true	true
+b	ade	sobel	true	true
+b	total	sobel	true	true
+
+# Sobel without covariates matches bda::mediation.test (z, p)
+query IIII
+SELECT g, n_sims,
+       abs(statistic - CASE g WHEN 'a' THEN 3.2306002466 ELSE 1.4629151723 END) < 1e-8,
+       abs(p_value - CASE g WHEN 'a' THEN 0.0012353058 ELSE 0.1434905919 END) < 1e-8
+FROM mediation_by('med', g, x, m, y, options := {'method': 'sobel'})
+WHERE term = 'acme'
+----
+a	0	true	true
+b	0	true	true
+
+# The aggregate building block; a continuous contrast scales the effects (control 0 -> treat 2)
+query IIII
+SELECT g, len(r), r[1].term,
+       abs(r[1].estimate - CASE g WHEN 'a' THEN 1.0517685128 ELSE 0.3522820087 END) < 1e-9
+FROM (
+    SELECT g, mediation_agg(y, m, x, [c1, c2], {'method': 'sobel', 'treat_value': 2, 'control_value': 0}) AS r
+    FROM med GROUP BY g
+)
+ORDER BY g
+----
+a	4	acme	true
+b	4	acme	true
+
+# Quasi-Bayesian Monte Carlo and BCa intervals
+query IIII
+SELECT g, method, n_sims, conf_low < conf_high
+FROM mediation_by('med', g, x, m, y, covariates := [c1, c2], options := {'method': 'quasi_bayesian', 'n_bootstrap': 500})
+WHERE term = 'acme'
+----
+a	quasi_bayesian	500	true
+b	quasi_bayesian	500	true
+
+query III
+SELECT g, method, conf_low < conf_high
+FROM mediation_by('med', g, x, m, y, covariates := [c1, c2], options := {'ci_type': 'bca', 'n_bootstrap': 200, 'confidence_level': 0.9})
+WHERE term = 'acme'
+----
+a	bootstrap_bca	true
+b	bootstrap_bca	true
+
+# Named arguments in any order, as in the issue
+query I
+SELECT count(*) FROM mediation_by('med', g, outcome := y, mediator := m, treatment := x, covariates := [c1, c2],
+                                  options := {'n_bootstrap': 50})
+----
+8
+
+# Rows with a NULL in x, m, y or a covariate are dropped from both models
+statement ok
+CREATE VIEW med_nulls AS
+SELECT g, CASE WHEN i = 0 THEN NULL ELSE x END AS x, CASE WHEN i = 1 THEN NULL ELSE m END AS m, y,
+       CASE WHEN i = 2 THEN NULL ELSE c1 END AS c1, c2, i FROM med;
+
+query II
+SELECT g, n_obs FROM mediation_by('med_nulls', g, x, m, y, covariates := [c1, c2], options := {'method': 'sobel'})
+WHERE term = 'acme'
+----
+a	58
+b	59
+
+# Degenerate groups give no rows: too few rows, or a constant treatment
+statement ok
+CREATE VIEW med_small AS SELECT * FROM med WHERE i < 8;
+
+query I
+SELECT count(*) FROM mediation_by('med_small', g, x, m, y, covariates := [c1, c2])
+----
+0
+
+query I
+SELECT mediation_agg(y, m, 1.0, [c1]) IS NULL FROM med
+----
+true
+
+# Option errors are raised
+statement error
+SELECT mediation_agg(y, m, x, [c1], {'method': 'bayes'}) FROM med
+----
+Invalid method
+
+statement error
+SELECT mediation_agg(y, m, x, [c1], {'n_bootstrap': 1}) FROM med
+----
+n_bootstrap must be at least 2
+
+statement error
+SELECT mediation_agg(y, m, x, [c1], {'treat_value': 1, 'control_value': 1}) FROM med
+----
+treat_value and control_value must differ
+
+statement error
+SELECT mediation_agg(y, m, x, [c1], {'confidence_level': 1.5}) FROM med
+----
+confidence_level
+
+statement error
+SELECT mediation_agg(y, m, x, [c1], {'sims_count': 10}) FROM med
+----
+unknown option
+
+# Contract tags
+query II
+SELECT DISTINCT function_name, tags['anofox.output'] FROM duckdb_functions() WHERE function_name = 'mediation_by'
+----
+mediation_by	terms

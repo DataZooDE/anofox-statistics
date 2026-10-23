@@ -392,6 +392,85 @@ SELECT site, group1, group2, p_adj, estimate, conf_low, conf_high
 FROM pairwise_t_test_by('trial', site, response, arm);
 ```
 
+## Multiple Testing
+
+Adjust p-values from any set of tests for multiple comparisons, with R's
+`p.adjust(p, method, n)` semantics (#219). Methods: `'holm'` (default), `'hochberg'`,
+`'hommel'`, `'bonferroni'`, `'BH'` (alias `'fdr'`), `'BY'`, `'none'`; names are
+case-insensitive and an unknown method is an error. NULL p-values stay NULL and are
+not counted. `n` is the number of hypotheses in the family, for when not every test
+appears as a row; it defaults to the number of non-NULL p-values and may not be
+smaller (an error, as `stopifnot(n >= lp)` in R).
+
+| Function | Signature | Returns |
+|----------|-----------|---------|
+| `p_adjust_by` | `(source, group_col, p_col, method := 'holm', n := NULL)` | Every source row, in source order, with `p_adjusted`; each group of `group_col` is one family |
+| `p_adjust_agg` | `(p DOUBLE [, method VARCHAR [, n BIGINT]])` | `DOUBLE[]`, the adjusted p-values in input order (`ORDER BY` inside the call fixes it) |
+| `p_adjust_list` | `(p DOUBLE[] [, method VARCHAR [, n BIGINT]])` | `DOUBLE[]`, the adjusted list in the same order |
+
+`method` and `n` of `p_adjust_agg` must be constants; `p_adjust_list` also takes
+per-row values.
+
+```sql
+CREATE TABLE results AS SELECT * FROM (VALUES
+    ('weight', 'dose_a', 0.012), ('weight', 'dose_b', 0.030), ('weight', 'dose_c', 0.200),
+    ('bp', 'dose_a', 0.001), ('bp', 'dose_b', 0.049)) t(endpoint, test, p_value);
+
+-- One family per endpoint, Benjamini-Hochberg; the rows keep their order.
+SELECT endpoint, test, p_value, p_adjusted
+FROM p_adjust_by('results', endpoint, p_value, method := 'BH');
+
+-- The same as lists, per endpoint.
+SELECT endpoint, list(test ORDER BY test) AS tests,
+       p_adjust_agg(p_value, 'BH' ORDER BY test) AS p_adj
+FROM results GROUP BY endpoint;
+
+-- A list of p-values, with 10 hypotheses of which only three were observed.
+SELECT p_adjust_list([0.01, 0.02, 0.04], 'holm', 10);
+```
+
+There is no `p_adjust(p) OVER (PARTITION BY ...)` window function: in DuckDB 1.x an
+extension's window aggregate is not told which row of a whole-partition frame it is
+computing, so it cannot return a different value per row (a window function for
+DuckDB 2.0 is tracked in #224). `p_adjust_by` is the supported way to get row-aligned
+results.
+
+### Row-aligned with plain window functions
+
+For inline use in a larger query, Bonferroni, Holm and Benjamini-Hochberg can be written
+with built-in window functions. With `n` = the number of non-NULL p-values in the
+family and `i` = the rank of `p` in ascending order:
+
+- Bonferroni: `least(1, n·p)`
+- Holm: the running maximum, over `p` ascending, of `least(1, (n − i + 1)·p)`
+- BH: the running minimum, over `p` descending, of `least(1, n·p / i)`
+
+This gives the same result as `p_adjust_by` and R `p.adjust`, including for ties, NULLs
+and p = 0 or 1 (`test/sql/reference/p_adjust_reference.test`). Keep the default `RANGE`
+frame (ties share it) and `NULLS LAST`, and guard NULLs with `CASE`. `least` ignores
+NULL arguments, and a NULL row's frame contains the non-NULL p-values.
+
+```sql
+WITH ranked AS (
+    SELECT *,
+           count(p_value) OVER (PARTITION BY endpoint) AS n_tests,
+           row_number() OVER (PARTITION BY endpoint ORDER BY p_value NULLS LAST) AS i
+    FROM results
+)
+SELECT endpoint, test, p_value,
+       CASE WHEN p_value IS NOT NULL THEN least(1, n_tests * p_value) END AS p_bonferroni,
+       CASE WHEN p_value IS NOT NULL THEN
+           max(least(1, (n_tests - i + 1) * p_value))
+               OVER (PARTITION BY endpoint ORDER BY p_value NULLS LAST) END AS p_holm,
+       CASE WHEN p_value IS NOT NULL THEN
+           min(least(1, n_tests * p_value / i))
+               OVER (PARTITION BY endpoint ORDER BY p_value DESC NULLS LAST) END AS p_bh
+FROM ranked
+ORDER BY endpoint, test;
+```
+
+For the other methods (hochberg, hommel, BY) or an explicit `n`, use `p_adjust_by`.
+
 ## See Also
 
 - [Correlation](correlation.md) - Correlation tests

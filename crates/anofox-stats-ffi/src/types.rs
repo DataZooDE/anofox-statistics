@@ -251,6 +251,10 @@ pub struct ModelSummaryFFI {
     pub intercept_p_value: f64,
     pub intercept_conf_low: f64,
     pub intercept_conf_high: f64,
+    /// Leave-one-out fit statistics (#220); NaN except for OLS / WLS.
+    pub press: f64,
+    pub press_rmse: f64,
+    pub loo_r_squared: f64,
 }
 
 /// Copy `name` into a NUL-terminated buffer, truncating to fit.
@@ -279,6 +283,9 @@ impl Default for ModelSummaryFFI {
             intercept_p_value: f64::NAN,
             intercept_conf_low: f64::NAN,
             intercept_conf_high: f64::NAN,
+            press: f64::NAN,
+            press_rmse: f64::NAN,
+            loo_r_squared: f64::NAN,
         }
     }
 }
@@ -297,6 +304,9 @@ impl From<&anofox_stats_core::ModelSummary> for ModelSummaryFFI {
             intercept_p_value: s.intercept_p_value,
             intercept_conf_low: s.intercept_conf_low,
             intercept_conf_high: s.intercept_conf_high,
+            press: s.press,
+            press_rmse: s.press_rmse,
+            loo_r_squared: s.loo_r_squared,
         }
     }
 }
@@ -383,6 +393,22 @@ impl From<&anofox_stats_core::tests::UnifiedTestResult> for TestSummaryFFI {
             // The extension spells the alternatives two_sided / less / greater.
             alternative: fixed_buffer(t.alternative.map(alternative_name).unwrap_or("")),
             effect_name: fixed_buffer(t.effect_name.as_deref().unwrap_or("")),
+        }
+    }
+}
+
+/// The `test` fields of a nested-model F test (#221): method `nested F`, the
+/// F statistic with both degrees of freedom and the rows used.
+impl From<&anofox_stats_core::models::NestedFTest> for TestSummaryFFI {
+    fn from(t: &anofox_stats_core::models::NestedFTest) -> Self {
+        Self {
+            statistic: t.f_statistic,
+            df1: t.df1 as f64,
+            df2: t.df2 as f64,
+            p_value: t.p_value,
+            n: i64::try_from(t.n_observations).unwrap_or(-1),
+            method: fixed_buffer("nested F"),
+            ..Self::default()
         }
     }
 }
@@ -565,14 +591,17 @@ mod layout_tests {
     fn augment_result_layout_matches_c_header() {
         use super::AugmentResultFFI;
         use std::mem::{offset_of, size_of};
-        assert_eq!(offset_of!(AugmentResultFFI, len), 8 * size_of::<*mut f64>());
+        assert_eq!(
+            offset_of!(AugmentResultFFI, len),
+            10 * size_of::<*mut f64>()
+        );
         assert_eq!(
             offset_of!(AugmentResultFFI, resid_type),
-            8 * size_of::<*mut f64>() + 2 * size_of::<usize>()
+            10 * size_of::<*mut f64>() + 2 * size_of::<usize>()
         );
         assert_eq!(
             size_of::<AugmentResultFFI>(),
-            8 * size_of::<*mut f64>() + 2 * size_of::<usize>() + MODEL_NAME_LEN
+            10 * size_of::<*mut f64>() + 2 * size_of::<usize>() + MODEL_NAME_LEN
         );
     }
 
@@ -581,7 +610,7 @@ mod layout_tests {
         use std::mem::size_of;
         assert_eq!(
             size_of::<ModelSummaryFFI>(),
-            3 * MODEL_NAME_LEN + 8 * size_of::<f64>()
+            3 * MODEL_NAME_LEN + 11 * size_of::<f64>()
         );
         assert_eq!(
             size_of::<FitResultCore>(),
@@ -727,6 +756,8 @@ pub struct OlsOptionsFFI {
     pub hc_type: HcTypeFFI,
     /// Tolerance of R `lm`'s aliasing test; <= 0 or non-finite = upstream default (1e-7)
     pub alias_tolerance: f64,
+    /// Compute the leave-one-out statistics in the summary (#220)
+    pub compute_loo: bool,
 }
 
 impl Default for OlsOptionsFFI {
@@ -738,6 +769,7 @@ impl Default for OlsOptionsFFI {
             solver: SolverTypeFFI::Qr,
             hc_type: HcTypeFFI::None,
             alias_tolerance: 0.0,
+            compute_loo: false,
         }
     }
 }
@@ -968,6 +1000,13 @@ pub struct TheilSenOptionsFFI {
 
     pub n_subsamples_set: bool,
     pub n_subsamples_value: usize,
+
+    /// Interval method with `compute_inference`: 0 = auto (exact for one
+    /// feature, bootstrap otherwise), 1 = exact (Sen), 2 = pairs bootstrap,
+    /// 3 = exact where it applies, otherwise no intervals.
+    pub ci_method: i32,
+    /// Bootstrap resamples (seeded by `random_state`).
+    pub n_bootstrap: u32,
 }
 
 impl Default for TheilSenOptionsFFI {
@@ -982,6 +1021,8 @@ impl Default for TheilSenOptionsFFI {
             random_state: 0,
             n_subsamples_set: false,
             n_subsamples_value: 0,
+            ci_method: 0,
+            n_bootstrap: 999,
         }
     }
 }
@@ -1076,6 +1117,8 @@ pub struct WlsOptionsFFI {
     pub hc_type: HcTypeFFI,
     /// Tolerance of R `lm`'s aliasing test; <= 0 or non-finite = upstream default (1e-7)
     pub alias_tolerance: f64,
+    /// Compute the leave-one-out statistics in the summary (#220)
+    pub compute_loo: bool,
 }
 
 impl Default for WlsOptionsFFI {
@@ -1087,6 +1130,7 @@ impl Default for WlsOptionsFFI {
             solver: SolverTypeFFI::Qr,
             hc_type: HcTypeFFI::None,
             alias_tolerance: 0.0,
+            compute_loo: false,
         }
     }
 }
@@ -3043,6 +3087,17 @@ pub enum GlmmFamilyFFI {
     Tweedie = 5,
 }
 
+/// Degrees-of-freedom method of the GLMM fixed-effect tests.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum GlmmDdfFFI {
+    /// The family default: Satterthwaite for gaussian, Wald otherwise.
+    #[default]
+    Default = 0,
+    Wald = 1,
+    Satterthwaite = 2,
+}
+
 /// Options for a mixed-effects fit.
 #[repr(C)]
 pub struct GlmmOptionsFFI {
@@ -3063,6 +3118,7 @@ pub struct GlmmOptionsFFI {
     /// additionally carry a random slope. Null/zero-length = random intercept only.
     pub random_slopes: *const usize,
     pub random_slopes_len: usize,
+    pub ddf: GlmmDdfFFI,
 }
 
 impl Default for GlmmOptionsFFI {
@@ -3080,6 +3136,7 @@ impl Default for GlmmOptionsFFI {
             offset_column: 0,
             random_slopes: std::ptr::null(),
             random_slopes_len: 0,
+            ddf: GlmmDdfFFI::Default,
         }
     }
 }
@@ -3131,8 +3188,37 @@ pub struct GlmmResultFFI {
     pub factor_len: usize,
     /// Negative-binomial size theta (estimated or fixed); NaN for other families.
     pub nb_theta: f64,
+    /// Satterthwaite degrees of freedom of the coefficients (`inference_len`);
+    /// null for Wald inference or without inference.
+    pub df: *mut f64,
+    /// Satterthwaite degrees of freedom of the intercept; NaN otherwise.
+    pub intercept_df: f64,
+    /// Conditional standard errors of `ranef_effects`, same layout.
+    pub ranef_effects_se: *mut f64,
+    /// Length of each group's vector in `ranef_effects` / `ranef_effects_se`
+    /// (differs from `random_dim` for crossed fits, whose `random_cov` is empty
+    /// without random slopes).
+    pub ranef_dim: usize,
+    /// Normal intervals of `ranef_effects` at `confidence_level`, same layout.
+    pub ranef_effects_conf_low: *mut f64,
+    pub ranef_effects_conf_high: *mut f64,
+    /// Residual degrees of freedom `n − k` (lme4 `df.residual()`).
+    pub df_residual: f64,
     /// Model description, fit statistics and intercept inference (#152)
     pub summary: ModelSummaryFFI,
+}
+
+/// Per-row fitted values and residuals of a mixed-effects fit, all of length
+/// `len` (the number of input rows, in input order). Released by
+/// `anofox_free_glmm_augment_result`.
+#[repr(C)]
+pub struct GlmmAugmentResultFFI {
+    pub fitted: *mut f64,
+    pub fitted_population: *mut f64,
+    pub residual: *mut f64,
+    pub pearson_residual: *mut f64,
+    pub is_training: *mut bool,
+    pub len: usize,
 }
 
 // =============================================================================
@@ -3152,6 +3238,10 @@ pub struct AugmentResultFFI {
     pub leverage: *mut f64,
     pub cooks_d: *mut f64,
     pub dffits: *mut f64,
+    /// Leave-one-out (PRESS) residual and prediction (#220); NaN for GLMs and
+    /// rows with leverage 1.
+    pub loo_residual: *mut f64,
+    pub loo_fitted: *mut f64,
     /// Whether the row was used to fit the model.
     pub used: *mut bool,
     pub len: usize,
@@ -3171,6 +3261,8 @@ impl Default for AugmentResultFFI {
             leverage: std::ptr::null_mut(),
             cooks_d: std::ptr::null_mut(),
             dffits: std::ptr::null_mut(),
+            loo_residual: std::ptr::null_mut(),
+            loo_fitted: std::ptr::null_mut(),
             used: std::ptr::null_mut(),
             len: 0,
             n_params: 0,
@@ -3320,4 +3412,72 @@ pub enum ClassifierMetricFFI {
     Brier = 1,
     /// Log loss (input: probabilities).
     LogLoss = 2,
+}
+
+// =============================================================================
+// Causal mediation analysis — issue #223
+// =============================================================================
+
+/// Inference method of a mediation analysis.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MediationMethodFFI {
+    /// Nonparametric case-resampling bootstrap.
+    #[default]
+    Bootstrap = 0,
+    /// Delta-method (Sobel) standard errors.
+    Sobel = 1,
+    /// Quasi-Bayesian Monte Carlo (`mediation::mediate`'s default).
+    QuasiBayesian = 2,
+}
+
+/// Bootstrap interval type.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MediationCiFFI {
+    #[default]
+    Percentile = 0,
+    Bca = 1,
+}
+
+/// Options of a mediation analysis.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct MediationOptionsFFI {
+    pub method: MediationMethodFFI,
+    pub ci_type: MediationCiFFI,
+    pub n_sims: u32,
+    pub seed: u64,
+    pub conf_level: f64,
+    pub treat_value: f64,
+    pub control_value: f64,
+}
+
+/// One mediation effect; non-finite values mean "not available".
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct MediationEffectFFI {
+    pub estimate: f64,
+    pub std_error: f64,
+    pub statistic: f64,
+    pub p_value: f64,
+    pub conf_low: f64,
+    pub conf_high: f64,
+}
+
+/// Result of a mediation analysis (no owned memory).
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct MediationResultFFI {
+    pub acme: MediationEffectFFI,
+    pub ade: MediationEffectFFI,
+    pub total: MediationEffectFFI,
+    pub prop_mediated: MediationEffectFFI,
+    pub a: f64,
+    pub b: f64,
+    pub c_prime: f64,
+    pub r_squared_mediator: f64,
+    pub r_squared_outcome: f64,
+    pub n_obs: usize,
+    pub n_sims: usize,
 }

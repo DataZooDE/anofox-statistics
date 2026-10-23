@@ -349,9 +349,10 @@ void RegisterLmDynamicFunctions(ExtensionLoader &loader) {
 	CreateAggregateFunctionInfo predict_info(std::move(predict_set));
 	predict_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
 	const string predict_description =
-	    "Fits a dynamic linear model (greybox lmDynamic) on the training rows of a partition (y NOT NULL, or split = "
-	    "'train') in input order and returns one STRUCT per row: y, yhat (the row's own time-varying fit; rows "
-	    "outside the fit use the time-averaged coefficients), yhat_lower / yhat_upper (NULL), is_training, and the "
+	    "Fits a dynamic linear model (greybox lmDynamic) on the training rows of a partition (y NOT NULL and, with "
+	    "split_col, split 'train' / 'training' in any case) in input order and returns one STRUCT per row: y, yhat "
+	    "(the row's own time-varying fit; rows outside the fit use the time-averaged coefficients), yhat_lower / "
+	    "yhat_upper (NULL), is_training, and the "
 	    "row's dynamic intercept and coefficients (NULL outside the fit)." +
 	    options_note;
 	const vector<vector<string>> names = {
