@@ -190,6 +190,8 @@ struct RegressionMapOptions {
 	std::optional<vector<idx_t>> random_slopes;
 	//! 1-based indices into x of additional crossed grouping-factor columns (GLMM).
 	std::optional<vector<idx_t>> group_columns;
+	//! GLMM degrees-of-freedom method; mirrors AnofoxGlmmDdf (1 = wald, 2 = satterthwaite).
+	std::optional<int> glmm_ddf;
 
 	// Empirical-Bayes shrinkage (issue #107)
 	std::optional<double> tau_squared; // Fixed between-group variance; unset = estimate

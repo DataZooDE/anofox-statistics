@@ -23,7 +23,7 @@ use anofox_stats_core::{
         fit_glmm_crossed, fit_huber, fit_isotonic, fit_lars, fit_lm_dynamic, fit_logistic,
         fit_negbinomial, fit_ols, fit_pls, fit_poisson, fit_quantile, fit_ransac, fit_ridge,
         fit_rls, fit_theilsen, fit_tweedie, fit_wls, ols_anova, predict, AftDistribution,
-        AftOptions, EbShrinkOptions, GlmmFamily, GlmmOptions, NestedFTestOptions, RlsOptions,
+        AftOptions, EbShrinkOptions, GlmmDdf, GlmmFamily, GlmmOptions, GlmmResult, NestedFTestOptions, RlsOptions,
         TauMethod,
     },
     AidOptions, AlmDistribution, AlmLoss, AlmOptions, BinomialLink, BinomialOptions, BlsOptions,
@@ -8781,6 +8781,91 @@ unsafe fn alloc_i64(values: &[i64]) -> *mut i64 {
     ptr
 }
 
+/// The core options of a mixed-effects fit from its FFI options.
+unsafe fn glmm_core_options(options: &GlmmOptionsFFI, observations: bool) -> GlmmOptions {
+    let family = match options.family {
+        GlmmFamilyFFI::Gaussian => GlmmFamily::Gaussian,
+        GlmmFamilyFFI::Poisson => GlmmFamily::Poisson,
+        GlmmFamilyFFI::Binomial => GlmmFamily::Binomial,
+        // NaN on the wire means "estimate theta" (lme4::glmer.nb).
+        GlmmFamilyFFI::NegativeBinomial => GlmmFamily::NegativeBinomial {
+            theta: (!options.theta.is_nan()).then_some(options.theta),
+        },
+        GlmmFamilyFFI::Gamma => GlmmFamily::Gamma,
+        GlmmFamilyFFI::Tweedie => GlmmFamily::Tweedie {
+            power: options.power,
+        },
+    };
+    let random_slopes: Vec<usize> =
+        if options.random_slopes.is_null() || options.random_slopes_len == 0 {
+            Vec::new()
+        } else {
+            slice::from_raw_parts(options.random_slopes, options.random_slopes_len).to_vec()
+        };
+    GlmmOptions {
+        family,
+        fit_intercept: options.fit_intercept,
+        max_iterations: options.max_iterations,
+        tolerance: options.tolerance,
+        compute_inference: options.compute_inference,
+        confidence_level: options.confidence_level,
+        reml: options.reml,
+        offset_column: if options.offset_column == 0 {
+            None
+        } else {
+            Some(options.offset_column)
+        },
+        random_slopes,
+        ddf: match options.ddf {
+            GlmmDdfFFI::Default => None,
+            GlmmDdfFFI::Wald => Some(GlmmDdf::Wald),
+            GlmmDdfFFI::Satterthwaite => Some(GlmmDdf::Satterthwaite),
+        },
+        observations,
+    }
+}
+
+/// Copy the inputs of a mixed-effects fit and run it on one grouping factor or,
+/// with `extra_group_ids`, on several crossed / nested ones. `None` if the fit
+/// panicked.
+#[allow(clippy::too_many_arguments)]
+unsafe fn run_glmm(
+    y: DataArray,
+    x: *const DataArray,
+    x_count: usize,
+    group_ids: *const i32,
+    n_obs: usize,
+    extra_group_ids: *const *const i32,
+    n_extra_factors: usize,
+    opts: &GlmmOptions,
+) -> Option<anofox_stats_core::StatsResult<GlmmResult>> {
+    let y_vec = y.to_vec();
+    let x_arrays = slice::from_raw_parts(x, x_count);
+    let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
+    let groups = slice::from_raw_parts(group_ids, n_obs).to_vec();
+    let extra_factors: Vec<Vec<i32>> = if n_extra_factors == 0 || extra_group_ids.is_null() {
+        Vec::new()
+    } else {
+        slice::from_raw_parts(extra_group_ids, n_extra_factors)
+            .iter()
+            .map(|&p| slice::from_raw_parts(p, n_obs).to_vec())
+            .collect()
+    };
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        if extra_factors.is_empty() {
+            fit_glmm(&y_vec, &x_vecs, &groups, opts)
+        } else {
+            let mut factors: Vec<&[i32]> = Vec::with_capacity(1 + extra_factors.len());
+            factors.push(&groups);
+            for e in &extra_factors {
+                factors.push(e.as_slice());
+            }
+            fit_glmm_crossed(&y_vec, &x_vecs, &factors, opts)
+        }
+    }))
+    .ok()
+}
+
 /// Fit a mixed-effects GLM with a random intercept over one grouping factor.
 ///
 /// # Safety
@@ -8822,79 +8907,21 @@ pub unsafe extern "C" fn anofox_glmm_fit(
             return false;
         }
 
-        let y_vec = y.to_vec();
-        let x_arrays = slice::from_raw_parts(x, x_count);
-        let x_vecs: Vec<Vec<f64>> = x_arrays.iter().map(|arr| arr.to_vec()).collect();
-        let groups = slice::from_raw_parts(group_ids, n_obs).to_vec();
-
-        let family = match options.family {
-            GlmmFamilyFFI::Gaussian => GlmmFamily::Gaussian,
-            GlmmFamilyFFI::Poisson => GlmmFamily::Poisson,
-            GlmmFamilyFFI::Binomial => GlmmFamily::Binomial,
-            // NaN on the wire means "estimate theta" (lme4::glmer.nb).
-            GlmmFamilyFFI::NegativeBinomial => GlmmFamily::NegativeBinomial {
-                theta: (!options.theta.is_nan()).then_some(options.theta),
-            },
-            GlmmFamilyFFI::Gamma => GlmmFamily::Gamma,
-            GlmmFamilyFFI::Tweedie => GlmmFamily::Tweedie {
-                power: options.power,
-            },
-        };
-
-        let random_slopes: Vec<usize> =
-            if options.random_slopes.is_null() || options.random_slopes_len == 0 {
-                Vec::new()
-            } else {
-                slice::from_raw_parts(options.random_slopes, options.random_slopes_len).to_vec()
-            };
-
-        let opts = GlmmOptions {
-            family,
-            fit_intercept: options.fit_intercept,
-            max_iterations: options.max_iterations,
-            tolerance: options.tolerance,
-            compute_inference: options.compute_inference,
-            confidence_level: options.confidence_level,
-            reml: options.reml,
-            offset_column: if options.offset_column == 0 {
-                None
-            } else {
-                Some(options.offset_column)
-            },
-            random_slopes,
-        };
-
-        // Additional crossed/nested grouping factors, if any.
-        let extra_factors: Vec<Vec<i32>> = if n_extra_factors == 0 || extra_group_ids.is_null() {
-            Vec::new()
-        } else {
-            slice::from_raw_parts(extra_group_ids, n_extra_factors)
-                .iter()
-                .map(|&p| slice::from_raw_parts(p, n_obs).to_vec())
-                .collect()
-        };
-
-        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            if extra_factors.is_empty() {
-                fit_glmm(&y_vec, &x_vecs, &groups, &opts)
-            } else {
-                let mut factors: Vec<&[i32]> = Vec::with_capacity(1 + extra_factors.len());
-                factors.push(&groups);
-                for e in &extra_factors {
-                    factors.push(e.as_slice());
-                }
-                fit_glmm_crossed(&y_vec, &x_vecs, &factors, &opts)
+        let opts = glmm_core_options(&options, false);
+        let Some(outcome) = run_glmm(
+            y,
+            x,
+            x_count,
+            group_ids,
+            n_obs,
+            extra_group_ids,
+            n_extra_factors,
+            &opts,
+        ) else {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InternalError, "Internal panic in GLMM fit");
             }
-        }));
-
-        let outcome = match outcome {
-            Ok(r) => r,
-            Err(_) => {
-                if !out_error.is_null() {
-                    (*out_error).set(ErrorCode::InternalError, "Internal panic in GLMM fit");
-                }
-                return false;
-            }
+            return false;
         };
 
         match outcome {
@@ -8910,6 +8937,21 @@ pub unsafe extern "C" fn anofox_glmm_fit(
                     .ranef
                     .iter()
                     .flat_map(|e| e.effects.iter().copied())
+                    .collect();
+                let ranef_effects_se_flat: Vec<f64> = r
+                    .ranef
+                    .iter()
+                    .flat_map(|e| e.effects_se.iter().copied())
+                    .collect();
+                let ranef_lo_flat: Vec<f64> = r
+                    .ranef
+                    .iter()
+                    .flat_map(|e| e.effects_conf_low.iter().copied())
+                    .collect();
+                let ranef_hi_flat: Vec<f64> = r
+                    .ranef
+                    .iter()
+                    .flat_map(|e| e.effects_conf_high.iter().copied())
                     .collect();
                 let factor_var: Vec<f64> = r.factors.iter().map(|f| f.var).collect();
                 let factor_levels: Vec<i64> = r.factors.iter().map(|f| f.n_levels as i64).collect();
@@ -8952,6 +8994,13 @@ pub unsafe extern "C" fn anofox_glmm_fit(
                     factor_n_levels: alloc_i64(&factor_levels),
                     factor_len: r.factors.len(),
                     nb_theta: r.nb_theta.unwrap_or(f64::NAN),
+                    df: r.df.as_ref().map_or(std::ptr::null_mut(), |d| alloc_f64(d)),
+                    intercept_df: r.intercept_df.unwrap_or(f64::NAN),
+                    ranef_effects_se: alloc_f64(&ranef_effects_se_flat),
+                    ranef_dim: r.ranef.first().map_or(0, |e| e.effects.len()),
+                    ranef_effects_conf_low: alloc_f64(&ranef_lo_flat),
+                    ranef_effects_conf_high: alloc_f64(&ranef_hi_flat),
+                    df_residual: r.df_residual,
                     summary: ModelSummaryFFI::from(&r.summary),
                 };
                 true
@@ -8987,6 +9036,10 @@ pub unsafe extern "C" fn anofox_free_glmm_result(result: *mut GlmmResultFFI) {
             &mut (*result).ranef_se,
             &mut (*result).random_cov,
             &mut (*result).ranef_effects,
+            &mut (*result).ranef_effects_se,
+            &mut (*result).ranef_effects_conf_low,
+            &mut (*result).ranef_effects_conf_high,
+            &mut (*result).df,
             &mut (*result).factor_var,
         ] {
             if !p.is_null() {
@@ -9006,6 +9059,122 @@ pub unsafe extern "C" fn anofox_free_glmm_result(result: *mut GlmmResultFFI) {
             libc::free((*result).ranef_n as *mut libc::c_void);
             (*result).ranef_n = std::ptr::null_mut();
         }
+    })
+}
+
+/// Per-row fitted values and residuals of a mixed-effects fit (the same fit as
+/// `anofox_glmm_fit`), one entry per input row in input order; rows the fit
+/// dropped are NaN with `is_training = false`.
+///
+/// # Safety
+/// As `anofox_glmm_fit`.
+#[no_mangle]
+pub unsafe extern "C" fn anofox_glmm_augment(
+    y: DataArray,
+    x: *const DataArray,
+    x_count: usize,
+    group_ids: *const i32,
+    n_obs: usize,
+    extra_group_ids: *const *const i32,
+    n_extra_factors: usize,
+    options: GlmmOptionsFFI,
+    out_result: *mut GlmmAugmentResultFFI,
+    out_error: *mut AnofoxError,
+) -> bool {
+    ffi_guard(out_error, false, || {
+        if !out_error.is_null() {
+            *out_error = AnofoxError::success();
+        }
+        if out_result.is_null() {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InvalidInput, "out_result is NULL");
+            }
+            return false;
+        }
+        if x.is_null() || x_count == 0 || group_ids.is_null() {
+            if !out_error.is_null() {
+                (*out_error).set(
+                    ErrorCode::InsufficientData,
+                    "x or group_ids is NULL or empty",
+                );
+            }
+            return false;
+        }
+        // Inference is not needed for the fitted values.
+        let mut opts = glmm_core_options(&options, true);
+        opts.compute_inference = false;
+        let Some(outcome) = run_glmm(
+            y,
+            x,
+            x_count,
+            group_ids,
+            n_obs,
+            extra_group_ids,
+            n_extra_factors,
+            &opts,
+        ) else {
+            if !out_error.is_null() {
+                (*out_error).set(ErrorCode::InternalError, "Internal panic in GLMM fit");
+            }
+            return false;
+        };
+        match outcome {
+            Ok(r) => {
+                let obs = r.observations.unwrap_or_default();
+                let is_training = libc::malloc(obs.is_training.len().max(1)) as *mut bool;
+                if !is_training.is_null() {
+                    std::ptr::copy_nonoverlapping(
+                        obs.is_training.as_ptr(),
+                        is_training,
+                        obs.is_training.len(),
+                    );
+                }
+                (*out_result) = GlmmAugmentResultFFI {
+                    fitted: alloc_f64(&obs.fitted),
+                    fitted_population: alloc_f64(&obs.fitted_population),
+                    residual: alloc_f64(&obs.residual),
+                    pearson_residual: alloc_f64(&obs.pearson_residual),
+                    is_training,
+                    len: obs.fitted.len(),
+                };
+                true
+            }
+            Err(e) => {
+                if !out_error.is_null() {
+                    (*out_error).set(error_to_code(&e), &e.to_string());
+                }
+                false
+            }
+        }
+    })
+}
+
+/// Release the arrays owned by a `GlmmAugmentResultFFI`.
+///
+/// # Safety
+/// `result` must come from a successful `anofox_glmm_augment`. Safe to call once.
+#[no_mangle]
+pub unsafe extern "C" fn anofox_free_glmm_augment_result(result: *mut GlmmAugmentResultFFI) {
+    ffi_guard(std::ptr::null_mut(), (), || {
+        if result.is_null() {
+            return;
+        }
+        for p in [
+            &mut (*result).fitted,
+            &mut (*result).fitted_population,
+            &mut (*result).residual,
+            &mut (*result).pearson_residual,
+        ] {
+            if !p.is_null() {
+                libc::free(*p as *mut libc::c_void);
+                *p = std::ptr::null_mut();
+            }
+        }
+        if !(*result).is_training.is_null() {
+            libc::free((*result).is_training as *mut libc::c_void);
+            (*result).is_training = std::ptr::null_mut();
+        }
+        (*result).len = 0;
     })
 }
 

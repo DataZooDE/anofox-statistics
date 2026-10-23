@@ -32,6 +32,9 @@ passed through and the prediction columns appended.
 | `quantile_fit_predict_by` | `quantile_fit_predict_agg` | one row per input row, no intervals |
 | `isotonic_fit_predict_by` | `isotonic_fit_predict_agg` | one row per input row, no intervals |
 | `glmm_fit_by` | `glmm_fit_agg` | one row per group (random effects) |
+| `glmm_tidy_by` | `glmm_fit_agg` + `tidy` | one row per fixed effect, variance component and BLUP (`terms`) |
+| `glmm_glance_by` | `glmm_fit_agg` | one row per fit statistic (`summary`) |
+| `glmm_augment_by` | `glmm_augment_agg` | one row per input row (`obs`) |
 | `eb_shrink_by` | `eb_shrink_agg` | one row per input row (shrunken estimates) |
 | `mediation_by` | `mediation_agg` | one row per group and effect (`terms`), see [Mediation](../statistics/mediation.md) |
 | `ols_anova_by` | `ols_anova_agg` | one row per group (nested-model F test, `test` schema) |
@@ -367,6 +370,31 @@ See [GLMM](../glm/glmm.md) for the options.
 ```sql
 SELECT "group", round(ranef, 3) AS ranef, n, round(icc, 3) AS icc
 FROM glmm_fit_by('macro_demo', region, price, [promo]);
+```
+
+## glmm_tidy_by, glmm_glance_by, glmm_augment_by
+
+```text
+glmm_tidy_by(source VARCHAR, group_col, y_col, x_cols, re_group,
+             options := NULL, names := NULL, re_names := NULL) -> TABLE
+glmm_glance_by(source VARCHAR, group_col, y_col, x_cols, re_group, options := NULL) -> TABLE
+glmm_augment_by(source VARCHAR, group_col, y_col, x_cols, re_group,
+                options := NULL, order_by := NULL) -> TABLE
+```
+
+The integration-contract `terms`, `summary` and `obs` outputs of a mixed model
+(broom.mixed `tidy`, `glance`, `augment`): one GLMM per `group_col`, with random
+effects over `re_group`. `model_id` = `model_name` = `'glmm'`; `id` is the group
+(not in `glmm_augment_by`). `glmm_tidy_by` always computes inference (Satterthwaite
+t tests for gaussian, Wald z otherwise; option `ddf`) and adds `effect`
+(`fixed` / `ran_pars` / `ran_vals`), `re_group`, `re_level` and `df`.
+`glmm_augment_by` adds `fitted_population` and `pearson_residual`. See
+[GLMM](../glm/glmm.md#glmm_tidy_by-glmm_glance_by-glmm_augment_by).
+
+```sql
+SELECT region, effect, term, round(estimate, 3) AS estimate, round(df, 1) AS df
+FROM glmm_tidy_by('macro_demo', region, sales, [price], promo)
+WHERE effect <> 'ran_vals';
 ```
 
 ## eb_shrink_by

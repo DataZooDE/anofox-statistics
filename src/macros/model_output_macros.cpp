@@ -466,6 +466,171 @@ void RegisterPosthocMacros(ExtensionLoader &loader) {
 	}
 }
 
+// GLMM contract macros (#218): one mixed model per group_col (the outer group),
+// with re_group the random-effects grouping factor. model_id = model_name =
+// 'glmm' and id = the outer group, as the other model-fitting macros (#187).
+//
+// The fit with inference on, its option-derived labels, and the label of every
+// random-effect component: '(Intercept)', then each random slope named like its
+// fixed effect (names := [...] labels the design columns; the 'random' / 'offset'
+// / 'groups' indices count x columns, so the offset and grouping columns are
+// skipped when mapping one to the other).
+const char *const GLMM_FITS_SQL =
+    "WITH _fits AS (SELECT group_col, group_col::VARCHAR AS id, 'glmm' AS model_id, 'glmm' AS model_name, "
+    "glmm_fit_agg(y_col, x_cols, re_group, map_concat(MAP {'compute_inference': 'true'}, "
+    "coalesce(options::MAP(VARCHAR, VARCHAR), MAP {}::MAP(VARCHAR, VARCHAR)))) AS _m "
+    "FROM query_table(source::VARCHAR) GROUP BY group_col), "
+    "_cfg AS (SELECT coalesce(TRY_CAST(coalesce(map_extract(_o, 'random')[1], map_extract(_o, 'random_slopes')[1]) "
+    "AS INTEGER[]), []::INTEGER[]) AS _rs, "
+    "coalesce(TRY_CAST(coalesce(map_extract(_o, 'groups')[1], map_extract(_o, 'crossed')[1]) AS INTEGER[]), "
+    "[]::INTEGER[]) AS _gc, TRY_CAST(map_extract(_o, 'offset')[1] AS INTEGER) AS _off "
+    "FROM (SELECT coalesce(options::MAP(VARCHAR, VARCHAR), MAP {}::MAP(VARCHAR, VARCHAR)) AS _o)), "
+    "_f AS (SELECT _fits.*, _gc, coalesce((re_names::VARCHAR[])[1], 'group') AS _re_label, "
+    "list_concat(['(Intercept)'], list_transform(_rs, lambda _k: coalesce((names::VARCHAR[])[_k - "
+    "len(list_filter(list_concat(_gc, [_off]), lambda _d: _d < _k))], 'x' || (_k - "
+    "len(list_filter(list_concat(_gc, [_off]), lambda _d: _d < _k)))))) AS _re_terms "
+    "FROM _fits, _cfg WHERE _m IS NOT NULL) ";
+
+// The `terms` columns, then effect / re_group / re_level / df (broom.mixed::tidy).
+const char *const GLMM_TERMS_COLUMNS =
+    "group_col, id, model_id, model_name, term, estimate, std_error, statistic, p_value, conf_low, conf_high, "
+    "conf_level, index_name, index_value, effect, _re_grp AS re_group, re_level, df";
+
+static string GlmmTidySql() {
+	const string no_inference = "NULL::DOUBLE AS std_error, NULL::DOUBLE AS statistic, NULL::DOUBLE AS p_value, "
+	                            "NULL::DOUBLE AS conf_low, NULL::DOUBLE AS conf_high, NULL::DOUBLE AS conf_level, ";
+	const string no_index = "NULL::VARCHAR AS index_name, NULL::DOUBLE AS index_value, ";
+	// Fixed effects: tidy() of the fit, with the Satterthwaite df alongside.
+	const string fixed =
+	    "SELECT group_col, id, model_id, model_name, (_t).term AS term, (_t).estimate AS estimate, "
+	    "(_t).std_error AS std_error, (_t).statistic AS statistic, (_t).p_value AS p_value, (_t).conf_low AS conf_low, "
+	    "(_t).conf_high AS conf_high, (_t).conf_level AS conf_level, (_t).index_name AS index_name, "
+	    "(_t).index_value AS index_value, 'fixed' AS effect, NULL::VARCHAR AS _re_grp, NULL::VARCHAR AS re_level, "
+	    "_df AS df, 1 AS _sec, _i AS _pos "
+	    "FROM (SELECT *, unnest(tidy(_m, names)) AS _t, unnest(range(len(tidy(_m, names)))) AS _i, "
+	    "unnest(list_concat(CASE WHEN (_m).intercept IS NULL THEN []::DOUBLE[] ELSE [(_m).intercept_df] END, "
+	    "coalesce((_m).df, []::DOUBLE[]))) AS _df FROM _f)";
+	// Variance components of re_group: the SD of every random effect and their
+	// correlations, from the covariance Sigma (a crossed fit without random slopes
+	// has no Sigma; its first factor's variance is factors[1]).
+	const string ran_pars =
+	    "SELECT group_col, id, model_id, model_name, CASE WHEN _a = _b THEN 'sd__' || _re_terms[_a + 1] "
+	    "ELSE 'cor__' || _re_terms[_a + 1] || '.' || _re_terms[_b + 1] END AS term, "
+	    "CASE WHEN _a = _b THEN sqrt(_cov[_a * _q + _a + 1]) "
+	    "ELSE _cov[_a * _q + _b + 1] / sqrt(_cov[_a * _q + _a + 1] * _cov[_b * _q + _b + 1]) END AS estimate, " +
+	    no_inference + no_index +
+	    "'ran_pars' AS effect, _re_label AS _re_grp, NULL::VARCHAR AS re_level, NULL::DOUBLE AS df, 2 AS _sec, "
+	    "CASE WHEN _a = _b THEN _a ELSE _q + _a * _q + _b END AS _pos "
+	    "FROM (SELECT *, unnest(range(_a, _q)) AS _b FROM (SELECT *, unnest(range(_q)) AS _a FROM (SELECT *, "
+	    "CASE WHEN (_m).random_dim > 0 THEN (_m).random_cov ELSE [((_m).factors[1]).var] END AS _cov, "
+	    "greatest((_m).random_dim, 1) AS _q FROM _f)))";
+	// The random-intercept SD of every further crossed factor ('groups'), labelled by
+	// re_names[2..] or its x column.
+	const string crossed =
+	    "SELECT group_col, id, model_id, model_name, 'sd__(Intercept)' AS term, "
+	    "sqrt(((_m).factors[_fi]).var) AS estimate, " +
+	    no_inference + no_index +
+	    "'ran_pars' AS effect, coalesce((re_names::VARCHAR[])[_fi], 'x' || _gc[_fi - 1]) AS _re_grp, "
+	    "NULL::VARCHAR AS re_level, NULL::DOUBLE AS df, 2 AS _sec, 1000000 + _fi AS _pos "
+	    "FROM (SELECT *, unnest(range(2, len((_m).factors) + 1)) AS _fi FROM _f)";
+	// The residual SD, for the families with a free dispersion.
+	const string residual =
+	    "SELECT group_col, id, model_id, model_name, 'sd__Observation' AS term, sqrt((_m).var_residual) AS estimate, " +
+	    no_inference + no_index +
+	    "'ran_pars' AS effect, 'Residual' AS _re_grp, NULL::VARCHAR AS re_level, NULL::DOUBLE AS df, 2 AS _sec, "
+	    "2000000 AS _pos FROM _f WHERE (_m).family NOT IN ('poisson', 'binomial', 'negative_binomial')";
+	// The BLUP of every level of re_group and random effect, with its conditional
+	// standard error and normal interval.
+	const string ran_vals =
+	    "SELECT group_col, id, model_id, model_name, _re_terms[_a + 1] AS term, (_r).effects[_a + 1] AS estimate, "
+	    "(_r).effects_se[_a + 1] AS std_error, NULL::DOUBLE AS statistic, NULL::DOUBLE AS p_value, "
+	    "(_r).effects_conf_low[_a + 1] AS conf_low, (_r).effects_conf_high[_a + 1] AS conf_high, "
+	    "(_m).conf_level AS conf_level, " +
+	    no_index +
+	    "'ran_vals' AS effect, _re_label AS _re_grp, (_r).group AS re_level, NULL::DOUBLE AS df, 3 AS _sec, "
+	    "_a AS _pos FROM (SELECT *, unnest(range(len((_r).effects))) AS _a FROM (SELECT *, unnest((_m).ranef) AS _r "
+	    "FROM _f))";
+	return string(GLMM_FITS_SQL) + "SELECT " + GLMM_TERMS_COLUMNS + " FROM (" + fixed + " UNION ALL " + ran_pars +
+	       " UNION ALL " + crossed + " UNION ALL " + residual + " UNION ALL " + ran_vals +
+	       ") ORDER BY group_col, _sec, re_level NULLS FIRST, _pos";
+}
+
+// The `summary` metrics of glmm_glance_by, in order (broom.mixed::glance plus the
+// variance components).
+const char *const GLMM_GLANCE_METRICS[] = {"n_observations", "n_groups", "n_features", "log_likelihood", "aic",
+                                           "bic", "deviance", "df_residual", "var_group", "var_residual", "icc",
+                                           "nb_theta", "iterations"};
+
+static string GlmmGlanceSql() {
+	string metrics;
+	for (auto metric : GLMM_GLANCE_METRICS) {
+		metrics += "{'metric': '" + string(metric) + "', 'value': (_m)." + metric + "::DOUBLE}, ";
+	}
+	metrics += "{'metric': 'sigma', 'value': sqrt((_m).var_residual)}, "
+	           "{'metric': 'converged', 'value': (_m).converged::DOUBLE}";
+	return "SELECT group_col, id, model_id, model_name, model_type, (_mv).metric AS metric, (_mv).value AS value "
+	       "FROM (SELECT group_col, group_col::VARCHAR AS id, 'glmm' AS model_id, 'glmm' AS model_name, "
+	       "(_m).model_type AS model_type, unnest([" +
+	       metrics +
+	       "]) AS _mv FROM (SELECT group_col, glmm_fit_agg(y_col, x_cols, re_group, options) AS _m "
+	       "FROM query_table(source::VARCHAR) GROUP BY group_col) WHERE _m IS NOT NULL) "
+	       "WHERE (_mv).value IS NOT NULL ORDER BY group_col, metric";
+}
+
+// The `obs` columns of <model>_augment_by, then fitted_population and
+// pearson_residual. No id column: the source columns are all kept (#187).
+const char *const GLMM_AUGMENT_SQL =
+    "SELECT * EXCLUDE (_aug, _rn, _anofox_rid), 'glmm' AS model_id, 'glmm' AS model_name, _anofox_rid AS row_id, "
+    "(_aug[_rn]).fitted AS fitted, (_aug[_rn]).residual AS residual, 'response' AS resid_type, "
+    "NULL::DOUBLE AS std_residual, NULL::DOUBLE AS stud_residual, NULL::DOUBLE AS leverage, NULL::DOUBLE AS cooks_d, "
+    "NULL::DOUBLE AS dffits, 1.0::DOUBLE AS weight, (_aug[_rn]).is_training AS is_training, NULL::INTEGER AS n_params, "
+    "(_aug[_rn]).fitted_population AS fitted_population, (_aug[_rn]).pearson_residual AS pearson_residual "
+    "FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED "
+    "PRECEDING AND UNBOUNDED FOLLOWING) AS _rn, glmm_augment_agg(y_col, x_cols, re_group, options) OVER (PARTITION "
+    "BY group_col ORDER BY order_by, _anofox_rid ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS _aug "
+    "FROM (SELECT *, row_number() OVER () AS _anofox_rid FROM query_table(source::VARCHAR))) "
+    "ORDER BY group_col, row_id";
+
+static void RegisterGlmmOutputMacros(ExtensionLoader &loader) {
+	const vector<string> params = {"source", "group_col", "y_col", "x_cols", "re_group"};
+	const vector<string> categories = {"mixed-models", "regression", "table-macro"};
+	auto tidy = CreateTableMacro(
+	    "glmm_tidy_by", params, {{"options", "NULL"}, {"names", "NULL"}, {"re_names", "NULL"}}, GlmmTidySql(),
+	    "Table macro: fits one generalized linear mixed model (glmm_fit_agg, random effects over re_group) per "
+	    "group_col and returns its terms (the integration contract's `terms` schema, broom.mixed::tidy): the group "
+	    "column, id (the group), model_id and model_name ('glmm'), term, estimate, std_error, statistic, p_value, "
+	    "conf_low, conf_high, conf_level, index_name, index_value, then effect ('fixed', 'ran_pars', 'ran_vals'), "
+	    "re_group, re_level and df. Fixed effects carry Wald z or, for gaussian, Satterthwaite t inference (option "
+	    "ddf; inference is always computed); ran_pars rows are the random-effect SDs (sd__<term>), correlations "
+	    "(cor__<term>.<term>) and the residual SD; ran_vals rows are the BLUPs with their conditional standard "
+	    "errors and normal intervals. names := [...] labels the fixed-effect columns, re_names := [...] the random "
+	    "effects' grouping factors (default 'group').",
+	    "glmm_tidy_by('sales', region, revenue, [price], store, names := ['price'])", categories);
+	loader.RegisterFunction(*tidy);
+
+	auto glance = CreateTableMacro(
+	    "glmm_glance_by", params, {{"options", "NULL"}}, GlmmGlanceSql(),
+	    "Table macro: fits one generalized linear mixed model (glmm_fit_agg, random effects over re_group) per "
+	    "group_col and returns its fit statistics in long form (the integration contract's `summary` schema, "
+	    "broom.mixed::glance): the group column, id (the group), model_id and model_name ('glmm'), model_type, "
+	    "metric, value. Metrics: n_observations, n_groups, n_features, sigma, log_likelihood, aic, bic, deviance (the "
+	    "REML criterion for a REML fit), df_residual, var_group, var_residual, icc, nb_theta (negative binomial), "
+	    "converged (1/0), iterations.",
+	    "glmm_glance_by('sales', region, revenue, [price], store)", categories);
+	loader.RegisterFunction(*glance);
+
+	auto augment = CreateTableMacro(
+	    "glmm_augment_by", params, {{"options", "NULL"}, {"order_by", "NULL"}}, GLMM_AUGMENT_SQL,
+	    "Table macro: fits one generalized linear mixed model (glmm_augment_agg, random effects over re_group) per "
+	    "group_col and returns every source row with its per-observation results (the integration contract's `obs` "
+	    "schema, broom.mixed::augment): all source columns, model_id and model_name ('glmm'), row_id, fitted "
+	    "(conditional on the BLUPs, response scale), residual (y - fitted), resid_type ('response'), std_residual, "
+	    "stud_residual, leverage, cooks_d, dffits (NULL), weight, is_training, n_params (NULL), then "
+	    "fitted_population (random effects at zero) and pearson_residual. Rows the fit could not use get NULLs.",
+	    "glmm_augment_by('sales', region, revenue, [price], store)", categories);
+	loader.RegisterFunction(*augment);
+}
+
 void RegisterModelOutputMacros(ExtensionLoader &loader) {
 	for (auto &m : MODEL_OUTPUT_MODELS) {
 		vector<string> params = {"source", "group_col", "y_col", "x_cols"};
@@ -543,6 +708,7 @@ void RegisterModelOutputMacros(ExtensionLoader &loader) {
 			loader.RegisterFunction(*roll);
 		}
 	}
+	RegisterGlmmOutputMacros(loader);
 }
 
 void RegisterPathMacros(ExtensionLoader &loader) {
