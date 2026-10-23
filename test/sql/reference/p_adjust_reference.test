@@ -1,5 +1,5 @@
 # name: test/sql/reference/p_adjust_reference.test
-# description: #219 p_adjust_agg, p_adjust_list and p_adjust_by vs R p.adjust (all methods, NULLs, ties, p = 0 / 1, a single p-value, n > count, several groups)
+# description: #219 p_adjust_agg, p_adjust_list, p_adjust_by and the plain-window recipe vs R p.adjust (all methods, NULLs, ties, p = 0 / 1, a single p-value, n > count, several groups)
 # group: [reference]
 #
 # R 4.6.1:
@@ -282,6 +282,55 @@ SELECT count(*) FILTER (WHERE NOT padj_matches(a.p_adjusted, ref.expected)) || '
 FROM p_adjust_by('results', endpoint, p, method := '${method}', n := 15) a
 JOIN ref USING (endpoint, id)
 WHERE ref.method = '${method}' AND ref.n = 15;
+----
+0 mismatches of 14
+
+endloop
+
+# ---------------------------------------------------------------------------
+# Row-aligned recipe with plain window functions (docs: hypothesis.md, "Multiple
+# Testing"): Bonferroni, Holm and BH must equal R and p_adjust_by.
+# ---------------------------------------------------------------------------
+
+statement ok
+CREATE TABLE recipe AS
+WITH ranked AS (
+    SELECT *,
+           count(p) OVER (PARTITION BY endpoint) AS n_tests,
+           row_number() OVER (PARTITION BY endpoint ORDER BY p NULLS LAST) AS i
+    FROM results
+)
+SELECT *,
+       CASE WHEN p IS NOT NULL THEN least(1, n_tests * p) END AS p_bonferroni,
+       CASE WHEN p IS NOT NULL THEN
+           max(least(1, (n_tests - i + 1) * p)) OVER (PARTITION BY endpoint ORDER BY p NULLS LAST) END AS p_holm,
+       CASE WHEN p IS NOT NULL THEN
+           min(least(1, n_tests * p / i)) OVER (PARTITION BY endpoint ORDER BY p DESC NULLS LAST) END AS p_bh
+FROM ranked;
+
+statement ok
+CREATE TABLE recipe_long AS
+SELECT endpoint, id, 'bonferroni' AS method, p_bonferroni AS got FROM recipe
+UNION ALL SELECT endpoint, id, 'holm', p_holm FROM recipe
+UNION ALL SELECT endpoint, id, 'BH', p_bh FROM recipe;
+
+query II
+SELECT method, count(*) FILTER (WHERE NOT padj_matches(got, expected)) || ' mismatches of ' || count(*)
+FROM recipe_long JOIN ref USING (endpoint, id, method)
+WHERE ref.n IS NULL
+GROUP BY method ORDER BY method;
+----
+BH	0 mismatches of 14
+bonferroni	0 mismatches of 14
+holm	0 mismatches of 14
+
+foreach method bonferroni holm BH
+
+query I
+SELECT count(*) FILTER (WHERE NOT padj_matches(r.got, a.p_adjusted)) || ' mismatches of ' || count(*)
+FROM recipe_long r
+JOIN p_adjust_by('results', endpoint, p, method := '${method}') a USING (endpoint, id)
+WHERE r.method = '${method}';
 ----
 0 mismatches of 14
 

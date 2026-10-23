@@ -1220,7 +1220,9 @@ SELECT p_adjust_list([0.01, 0.02, 0.04], 'BY');
 
 A `p_adjust(p) OVER (PARTITION BY ...)` window function is not possible in DuckDB
 1.x (a window aggregate cannot tell which row of a whole-partition frame it
-computes); `p_adjust_by` gives the row-aligned result.
+computes); `p_adjust_by` gives the row-aligned result. For inline use, Bonferroni,
+Holm and BH can also be written with plain window functions; see
+[Multiple Testing](api/statistics/hypothesis.md#row-aligned-with-plain-window-functions).
 
 ## Classifier Evaluation
 
