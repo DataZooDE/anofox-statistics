@@ -188,6 +188,10 @@ SELECT * FROM rls_fit_predict_by('macro_demo', region, sales, [price, promo],
 LIMIT 5;
 ```
 
+The per-group coefficient and fit-statistic tables `rls_tidy_by` and
+`rls_glance_by` take the same `order_by := t`
+([model output macros](../regression/model_tools.md#tidy_by-and-glance_by)).
+
 ## huber_fit_predict_by
 
 Options: [Huber](../regression/huber.md#options) (`epsilon`, `alpha`, ...).

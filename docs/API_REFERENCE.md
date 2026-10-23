@@ -1543,7 +1543,12 @@ ORDER BY category;
 <model>_tidy_by(source, group_col, y_col, x_cols [, weight_col]
                 [, options := ..., names := [...]])
 <model>_glance_by(source, group_col, y_col, x_cols [, weight_col] [, options := ...])
+rls_tidy_by(source, group_col, y_col, x_cols [, options := ..., names := [...], order_by := ...])
+rls_glance_by(source, group_col, y_col, x_cols [, options := ..., order_by := ...])
 ```
+
+RLS is order dependent: pass `order_by := <column>` to fit each group's rows
+in that order (without it the order, and so the fit, is undefined).
 
 For `ols`, `wls` (with `weight_col`), `ridge`, `elasticnet`, `huber`, `ransac`,
 `theil_sen`, `rls`, `lars`, `bls`, `nnls`, `pls`, `quantile`, `poisson`,

@@ -10,6 +10,20 @@ Breaking changes are called out explicitly.
 
 ## [Unreleased]
 
+### Added
+
+- `rls_tidy_by` and `rls_glance_by` take an optional named `order_by := <column>`
+  (#206). Recursive least squares depends on the row order; with `order_by` each
+  group's rows are fed to `rls_fit_agg` in that order (`ORDER BY order_by`), as
+  `rls_fit_predict_by` already did. Existing calls are unchanged.
+
+### Fixed
+
+- `rls_tidy_by` / `rls_glance_by` without `order_by` fit the rows in scan order,
+  which is not deterministic under parallel scans, so the coefficients could
+  change between runs (#206). Pass `order_by := t` for a reproducible fit; the
+  docs now say the order is undefined without it.
+
 ## [0.12.2] - 2026-10-22
 
 ### Fixed

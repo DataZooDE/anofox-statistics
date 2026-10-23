@@ -1,0 +1,121 @@
+# name: test/sql/issues/issue_206.test
+# description: rls_tidy_by / rls_glance_by take order_by := <column> and then fit
+#              each group's rows in that order, whatever the scan order (#206)
+# group: [issues]
+
+require anofox_statistics
+
+# Several row groups, inserted in random order. The slope drifts with t and the
+# forgetting factor is < 1, so the fit depends on the feed order.
+statement ok
+CREATE TABLE rls_shuffled AS
+SELECT g, t, x1, x2, (1.0 + t / 70000.0) * x1 - 0.5 * x2 + sin(t) AS y
+FROM (
+    SELECT i % 4 AS g, i // 4 AS t, ((i * 7919) % 101)::DOUBLE / 10 AS x1, ((i * 104729) % 37)::DOUBLE / 5 AS x2
+    FROM range(280000) r(i)
+)
+ORDER BY random();
+
+# Reference: the ordered aggregate, one row per group and term.
+statement ok
+CREATE TABLE rls_ref AS
+SELECT g, unnest(['(Intercept)', 'x1', 'x2']) AS term,
+       unnest([(m).intercept, (m).coefficients[1], (m).coefficients[2]]) AS estimate
+FROM (SELECT g, rls_fit_agg(y, [x1, x2], {'forgetting_factor': 0.99} ORDER BY t) AS m FROM rls_shuffled GROUP BY g);
+
+statement ok
+SET threads = 1;
+
+query I
+SELECT count(*) FROM rls_ref r
+FULL JOIN rls_tidy_by('rls_shuffled', g, y, [x1, x2], options := {'forgetting_factor': 0.99},
+                      names := ['x1', 'x2'], order_by := t) b
+    ON r.g = b.g AND r.term = b.term
+WHERE r.estimate IS DISTINCT FROM b.estimate;
+----
+0
+
+statement ok
+SET threads = 8;
+
+query I
+SELECT count(*) FROM rls_ref r
+FULL JOIN rls_tidy_by('rls_shuffled', g, y, [x1, x2], options := {'forgetting_factor': 0.99},
+                      names := ['x1', 'x2'], order_by := t) b
+    ON r.g = b.g AND r.term = b.term
+WHERE r.estimate IS DISTINCT FROM b.estimate;
+----
+0
+
+# glance_by: the same fit, so the same fit statistics as the ordered aggregate.
+query I
+SELECT count(*) FROM (
+    SELECT g, metric, value FROM rls_glance_by('rls_shuffled', g, y, [x1, x2],
+                                               options := {'forgetting_factor': 0.99}, order_by := t)
+) b
+FULL JOIN (
+    SELECT g, 'r_squared' AS metric, (m).r_squared AS value
+    FROM (SELECT g, rls_fit_agg(y, [x1, x2], {'forgetting_factor': 0.99} ORDER BY t) AS m FROM rls_shuffled GROUP BY g)
+) r ON r.g = b.g AND r.metric = b.metric
+WHERE r.metric IS NOT NULL AND r.value IS DISTINCT FROM b.value;
+----
+0
+
+statement ok
+SET threads = 1;
+
+query I
+SELECT count(*) FROM (
+    SELECT g, metric, value FROM rls_glance_by('rls_shuffled', g, y, [x1, x2],
+                                               options := {'forgetting_factor': 0.99}, order_by := t)
+) b
+FULL JOIN (
+    SELECT g, 'r_squared' AS metric, (m).r_squared AS value
+    FROM (SELECT g, rls_fit_agg(y, [x1, x2], {'forgetting_factor': 0.99} ORDER BY t) AS m FROM rls_shuffled GROUP BY g)
+) r ON r.g = b.g AND r.metric = b.metric
+WHERE r.metric IS NOT NULL AND r.value IS DISTINCT FROM b.value;
+----
+0
+
+# The order matters: fitting in reverse order gives other coefficients.
+query I
+SELECT count(*) > 0 FROM rls_ref r
+JOIN rls_tidy_by('rls_shuffled', g, y, [x1, x2], options := {'forgetting_factor': 0.99},
+                 names := ['x1', 'x2'], order_by := -t) b
+    ON r.g = b.g AND r.term = b.term
+WHERE abs(r.estimate - b.estimate) > 1e-6;
+----
+true
+
+# Backward compatible: the positional calls without order_by still work.
+query II
+SELECT count(*), count(DISTINCT g) FROM rls_tidy_by('rls_shuffled', g, y, [x1, x2]);
+----
+12	4
+
+query II
+SELECT count(*), count(DISTINCT g) FROM rls_tidy_by('rls_shuffled', g, y, [x1, x2], {'forgetting_factor': 0.99});
+----
+12	4
+
+query I
+SELECT count(DISTINCT g) FROM rls_glance_by('rls_shuffled', g, y, [x1, x2]);
+----
+4
+
+query I
+SELECT count(DISTINCT g) FROM rls_glance_by('rls_shuffled', g, y, [x1, x2], {'forgetting_factor': 0.99});
+----
+4
+
+# In a sorted table, order_by := t equals the default scan order (single thread).
+statement ok
+CREATE TABLE rls_sorted AS SELECT * FROM rls_shuffled WHERE t < 1000 ORDER BY g, t;
+
+query I
+SELECT count(*) FROM rls_tidy_by('rls_sorted', g, y, [x1, x2], options := {'forgetting_factor': 0.95}) a
+JOIN rls_tidy_by('rls_sorted', g, y, [x1, x2], options := {'forgetting_factor': 0.95}, order_by := t) b
+    ON a.g = b.g AND a.term = b.term
+WHERE a.estimate IS DISTINCT FROM b.estimate;
+----
+0

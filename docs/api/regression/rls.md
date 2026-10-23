@@ -62,6 +62,18 @@ SELECT
 FROM rls_demo;
 ```
 
+The per-group table macros take the order as `order_by := <column>`:
+`rls_tidy_by`, `rls_glance_by` and `rls_fit_predict_by`. Without `order_by`
+the rows reach the fit in scan order, which is not deterministic under
+parallel scans, so the result can change from run to run.
+
+```sql
+-- Coefficients per segment (before / after the slope change), rows fed in t order
+SELECT seg, term, estimate
+FROM rls_tidy_by('(SELECT *, t > 20 AS seg FROM rls_demo)', seg, y, [x],
+    options := {'forgetting_factor': 0.9}, order_by := t);
+```
+
 ## Options
 
 | Key | Type | Default | Description |
@@ -104,3 +116,4 @@ element. `rls_fit` drops positions with NaN or infinite values.
 - [OLS](ols.md) - Static regression
 - [WLS](wls.md) - Weighted regression
 - [Table macros](../macros/table_macros.md#rls_fit_predict_by) - Per-group predictions
+- [Model output macros](model_tools.md#tidy_by-and-glance_by) - `rls_tidy_by` / `rls_glance_by`

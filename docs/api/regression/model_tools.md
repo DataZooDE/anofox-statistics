@@ -281,7 +281,14 @@ after `group_col`; `lm_dynamic_tidy_by` returns the coefficients of every row
 with `index_name = 'window_end'`), `bls`, `nnls`,
 `pls`, `quantile`, the GLMs `poisson`, `binomial`, `logistic`, `negbinom`,
 `gamma`, `tweedie`, and `alm`, `aft`; `wls` takes `weight_col`, `aft`
-`event_col`):
+`event_col`).
+
+RLS is sequential too: `rls_tidy_by` and `rls_glance_by` take an optional
+`order_by := <column>` and fit each group's rows in that order. Without it the
+row order, and so the fit, is undefined (it can change between runs under
+parallel scans).
+
+The columns:
 
 - `_tidy_by`: the group column, `id` (the group as text), `model_id` and `model_name` (the method, e.g. `'ols'`), and the `tidy` columns, one row per
   term. Inference is computed by default for models that have it, also when
@@ -299,6 +306,11 @@ SELECT * FROM ols_glance_by('mt_demo', grp, y, [x1, x2])
 UNION ALL
 SELECT * FROM huber_glance_by('mt_demo', grp, y, [x1, x2])
 ORDER BY grp, metric, model_type;
+```
+
+```sql
+-- RLS: feed each group's rows in id order
+SELECT * FROM rls_tidy_by('mt_demo', grp, y, [x1, x2], options := {'forgetting_factor': 0.95}, order_by := id);
 ```
 ## prediction_by and effects_by
 
