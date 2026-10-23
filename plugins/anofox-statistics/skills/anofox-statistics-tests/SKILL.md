@@ -36,7 +36,7 @@ user-invocable: false
 
 # Anofox Statistics — Hypothesis Tests Cheat Sheet
 
-**Extension:** `anofox_statistics` v0.13.0 | **DuckDB:** v1.4.5 LTS / v1.5.x / v2.0 | Tests are **aggregates** — use with `GROUP BY` for per-segment tests.
+**Extension:** `anofox_statistics` v0.13.0 | **DuckDB:** v1.5.6 / v2.0 | Tests are **aggregates** — use with `GROUP BY` for per-segment tests.
 
 ## Gotchas
 

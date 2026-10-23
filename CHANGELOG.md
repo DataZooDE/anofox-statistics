@@ -10,6 +10,14 @@ Breaking changes are called out explicitly.
 
 ## [Unreleased]
 
+### Changed
+
+- **Supported DuckDB versions are now v1.5.6 and v2.0.** CI no longer builds,
+  smoke-tests or deploys the v1.4.5 LTS line or the older v1.5.4 / v1.5.5 patch lines,
+  and the vendored LTS distribution workflow is removed. Binaries already published
+  for those versions on get.erpl.io stay in place; v0.13.0 is the last release built
+  for them.
+
 ## [0.13.0] - 2026-10-23
 
 ### Added

@@ -10,8 +10,7 @@ require anofox_statistics
 # lives in libduckdb.so; the kernels' tail jumps went through lazily bound PLT
 # stubs whose resolver clobbered r11, and pack_lhs dereferenced garbage
 # (SIGSEGV, seen on the DuckDB v1.4.4 / v1.4.5 harness). Fixed by linking the
-# Rust archive with --exclude-libs (CMakeLists.txt, 606c7e6). The CI LTS job
-# runs this file in the v1.4.5 harness.
+# Rust archive with --exclude-libs (CMakeLists.txt, 606c7e6).
 
 # Exact trigger from the issue: 250 rows of the test_negbinom_basic design.
 statement ok
