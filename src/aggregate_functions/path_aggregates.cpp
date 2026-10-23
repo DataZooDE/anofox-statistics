@@ -651,7 +651,7 @@ unique_ptr<FunctionData> PathBindImpl(ClientContext &context, AggregateBindFunct
 	bind->kind = kind;
 	const bool key_arg = UsesFolds(kind) && arguments.size() == 4;
 	if (key_arg) {
-		bind->key_mode = CvKeyModeFor(name, arguments[2]->return_type);
+		bind->key_mode = CvKeyModeFor(name, ReturnTypeOf(*arguments[2]));
 	}
 	if (IsElasticNet(kind)) {
 		bind->l1_ratio = 0.5;
