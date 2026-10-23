@@ -32,12 +32,20 @@ passed through and the prediction columns appended.
 | `quantile_fit_predict_by` | `quantile_fit_predict_agg` | one row per input row, no intervals |
 | `isotonic_fit_predict_by` | `isotonic_fit_predict_agg` | one row per input row, no intervals |
 | `glmm_fit_by` | `glmm_fit_agg` | one row per group (random effects) |
+| `glmm_tidy_by` | `glmm_fit_agg` + `tidy` | one row per fixed effect, variance component and BLUP (`terms`) |
+| `glmm_glance_by` | `glmm_fit_agg` | one row per fit statistic (`summary`) |
+| `glmm_augment_by` | `glmm_augment_agg` | one row per input row (`obs`) |
 | `eb_shrink_by` | `eb_shrink_agg` | one row per input row (shrunken estimates) |
+| `mediation_by` | `mediation_agg` | one row per group and effect (`terms`), see [Mediation](../statistics/mediation.md) |
+| `ols_anova_by` | `ols_anova_agg` | one row per group (nested-model F test, `test` schema) |
 | `aid_by` | `aid_agg` | one row per group (demand classification) |
 | `aid_anomaly_by` | `aid_anomaly_agg` | one row per input row (anomaly flags) |
 | `ridge_path_by`, `elasticnet_path_by`, `lars_path_by` | `<model>_path_agg` | one row per lambda / LARS knot and term (`terms`), see [Regularisation paths](../regression/paths.md) |
-| `ridge_cv_by`, `elasticnet_cv_by` | `<model>_cv_agg` | one row per lambda (`curve`, `lambda_cv`), see [Regularisation paths](../regression/paths.md) |
+| `ridge_cv_by`, `elasticnet_cv_by` | `<model>_cv_agg` | one row per lambda (`curve`, `lambda_cv`); `cv_key :=` for group / stratified / time-series folds, see [Regularisation paths](../regression/paths.md) |
+| `ridge_nested_cv_by`, `elasticnet_nested_cv_by` | `<model>_nested_cv_agg` | one row per outer fold plus a summary row (`curve`, `nested_cv`), see [Regularisation paths](../regression/paths.md#ridge_nested_cv_agg--elasticnet_nested_cv_agg) |
 | `quantile_process_by` | `quantile_process_agg` | one row per tau and term (`terms`), see [Quantile](../regression/quantile.md#quantile_process_agg) |
+| `<model>_glance_by` | `<model>_fit_agg` + `glance` | one row per group and fit statistic (`summary`); `ols_glance_by` / `wls_glance_by` include the leave-one-out `press`, `press_rmse`, `loo_r_squared`, see [Model tools](../regression/model_tools.md#leave-one-out-diagnostics) |
+| `ols_augment_by`, `wls_augment_by`, `<glm>_augment_by` | `<model>_augment_agg` | one row per input row (`obs`: fitted, residuals, leverage, Cook's distance, DFFITS; OLS / WLS also `loo_residual`, `loo_fitted`), see [Model tools](../regression/model_tools.md#augment_by) |
 | `<model>_partial_residuals_by` | `<model>_partial_residuals_agg` | one row per input row and term, see [Model tools](../regression/model_tools.md#partial_residuals_by) |
 | `roc_curve_by`, `pr_curve_by`, `calibration_curve_by` | `roc_agg`, `pr_agg`, `calibration_agg` | one row per curve point (`curve` schema, see [Classification](../statistics/classification.md)) |
 | `<model>_prediction_by` | `<model>_fit_predict_by` | one row per input row (`prediction` schema), see [Model tools](../regression/model_tools.md#prediction_by-and-effects_by) |
@@ -52,7 +60,7 @@ passed through and the prediction columns appended.
     y_col,                   -- response column; NULL marks a row to predict
     x_cols,                  -- feature columns as a list, e.g. [x1, x2]
     options := NULL,         -- optional MAP/STRUCT of model options
-    split := NULL,           -- optional column with 'train' / other values
+    split := NULL,           -- optional column: 'train' / 'training' (any case) or other values
     order_by := NULL         -- optional column that orders the rows of each group
 ) -> TABLE
 ```
@@ -96,8 +104,13 @@ Rows are returned ordered by `group_col`.
 
 **Training rows:** without `split`, rows with a non-NULL `y` train the model
 and rows with NULL `y` are predicted. With `split`, rows whose split value is
-`'train'` or NULL (and whose `y` is not NULL) are trained on; rows with any
-other split value are predicted only.
+`'train'` or `'training'` in any case (`'Train'`, `'TRAINING'`, ...) and whose `y`
+is not NULL are trained on; rows with any other split value, or a NULL split
+value, are predicted only. This is the rule of the `split_col` argument of the
+[fit-predict aggregates](../regression/fit_predict_agg.md), so a macro and its
+aggregate called with the same split column train on the same rows. A NULL split
+value marks a training row only when `split` is omitted (or passed as the
+literal `split := NULL`).
 
 **Prediction intervals:** `yhat_lower`/`yhat_upper` are leverage-aware
 (`yhat ± t(n − p) · s · sqrt(1 + x₀ᵀ M x₀)`, see
@@ -187,6 +200,10 @@ SELECT * FROM rls_fit_predict_by('macro_demo', region, sales, [price, promo],
     {'forgetting_factor': 0.95}, order_by := t)
 LIMIT 5;
 ```
+
+The per-group coefficient and fit-statistic tables `rls_tidy_by` and
+`rls_glance_by` take the same `order_by := t`
+([model output macros](../regression/model_tools.md#tidy_by-and-glance_by)).
 
 ## huber_fit_predict_by
 
@@ -367,6 +384,31 @@ SELECT "group", round(ranef, 3) AS ranef, n, round(icc, 3) AS icc
 FROM glmm_fit_by('macro_demo', region, price, [promo]);
 ```
 
+## glmm_tidy_by, glmm_glance_by, glmm_augment_by
+
+```text
+glmm_tidy_by(source VARCHAR, group_col, y_col, x_cols, re_group,
+             options := NULL, names := NULL, re_names := NULL) -> TABLE
+glmm_glance_by(source VARCHAR, group_col, y_col, x_cols, re_group, options := NULL) -> TABLE
+glmm_augment_by(source VARCHAR, group_col, y_col, x_cols, re_group,
+                options := NULL, order_by := NULL) -> TABLE
+```
+
+The integration-contract `terms`, `summary` and `obs` outputs of a mixed model
+(broom.mixed `tidy`, `glance`, `augment`): one GLMM per `group_col`, with random
+effects over `re_group`. `model_id` = `model_name` = `'glmm'`; `id` is the group
+(not in `glmm_augment_by`). `glmm_tidy_by` always computes inference (Satterthwaite
+t tests for gaussian, Wald z otherwise; option `ddf`) and adds `effect`
+(`fixed` / `ran_pars` / `ran_vals`), `re_group`, `re_level` and `df`.
+`glmm_augment_by` adds `fitted_population` and `pearson_residual`. See
+[GLMM](../glm/glmm.md#glmm_tidy_by-glmm_glance_by-glmm_augment_by).
+
+```sql
+SELECT region, effect, term, round(estimate, 3) AS estimate, round(df, 1) AS df
+FROM glmm_tidy_by('macro_demo', region, sales, [price], promo)
+WHERE effect <> 'ran_vals';
+```
+
 ## eb_shrink_by
 
 ```text
@@ -385,6 +427,28 @@ SELECT * FROM (VALUES ('a', 1.2, 0.3), ('b', 0.4, 0.5), ('c', 2.1, 0.8), ('d', 0
 
 SELECT segment, estimate, round(shrunken, 3) AS shrunken
 FROM eb_shrink_by('macro_estimates', estimate, se);
+```
+
+## ols_anova_by
+
+```text
+ols_anova_by(source VARCHAR, group_col, y_col, x_reduced := [], x_full := [...], options := NULL) -> TABLE
+```
+
+Nested-model F test per group: fits `y ~ x_reduced` and `y ~ x_full` by OLS on
+the same rows and tests whether the full model fits significantly better, as
+R's `anova(lm(reduced), lm(full))`. `x_reduced` columns must appear in
+`x_full`; `x_reduced := []` (the default) is the intercept-only model. Returns
+one row per group: the group column, `id`, `model_id` / `model_name` (`'ols'`),
+`method` (`'nested F'`), `statistic`, `p_value`, `df1`, `df2`, `rss_reduced`,
+`rss_full`, `adj_r_squared_reduced`, `adj_r_squared_full`,
+`delta_adj_r_squared` and `n_observations`. When `df1` or `df2` is 0, `statistic` and
+`p_value` are NULL (never NaN). The only option is `fit_intercept`.
+See [OLS](../regression/ols.md#nested-model-f-test-ols_anova_agg--ols_anova_by).
+
+```sql
+SELECT region, round(statistic, 2) AS f, df1, df2, round(delta_adj_r_squared, 4) AS delta_adj_r2
+FROM ols_anova_by('macro_demo', region, sales, x_reduced := [price], x_full := [price, promo]);
 ```
 
 ## aid_by

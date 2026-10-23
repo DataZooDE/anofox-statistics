@@ -332,14 +332,14 @@ SELECT bool_and(a IS NOT DISTINCT FROM b) FROM (
 ----
 true
 
-# Row t = 29 (NULL y, NULL x2) gets a prediction under 'zero', NaN under 'drop'
+# Row t = 29 (NULL y, NULL x2) gets a prediction under 'zero', NULL under 'drop' (#208)
 query II
 SELECT
     (SELECT p FROM (SELECT t, (ols_fit_predict(y, [x1, x2], {'null_policy': 'zero'})
         OVER (ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)).yhat AS p FROM nz) WHERE t = 29) > 0,
     (SELECT p FROM (SELECT t, (ols_fit_predict(y, [x1, x2])
         OVER (ORDER BY t ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)).yhat AS p FROM nz) WHERE t = 29)
-        IS NOT DISTINCT FROM 'NaN'::DOUBLE;
+        IS NULL;
 ----
 true	true
 

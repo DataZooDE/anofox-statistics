@@ -7,8 +7,9 @@
 use super::{convert_error, Alternative};
 use crate::{StatsError, StatsResult};
 use anofox_tests::{
-    dunn_test as lib_dunn_test, pairwise_t_test_with_conf_level as lib_pairwise_t_test,
-    tukey_hsd as lib_tukey_hsd, PAdjustMethod,
+    dunn_test as lib_dunn_test, p_adjust as lib_p_adjust, p_adjust_n as lib_p_adjust_n,
+    pairwise_t_test_with_conf_level as lib_pairwise_t_test, tukey_hsd as lib_tukey_hsd,
+    PAdjustMethod,
 };
 
 pub use anofox_tests::{PairwiseComparison, PairwiseResult};
@@ -74,6 +75,16 @@ pub fn dunn_test(
     lib_dunn_test(values, groups, p_adjust).map_err(convert_error)
 }
 
+/// Adjust p-values for multiple testing (R `p.adjust(p, method, n)`, #219).
+/// NaN entries pass through as NaN and are not counted; `n` (the number of
+/// hypotheses) defaults to the number of non-NaN values and may not be smaller.
+pub fn p_adjust(p: &[f64], method: PAdjustMethod, n: Option<usize>) -> StatsResult<Vec<f64>> {
+    match n {
+        None => Ok(lib_p_adjust(p, method)),
+        Some(n) => lib_p_adjust_n(p, method, n).map_err(convert_error),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -114,5 +125,22 @@ mod tests {
             parse_p_adjust("nope"),
             Err(StatsError::InvalidInput(_))
         ));
+    }
+
+    #[test]
+    fn p_adjust_matches_r() {
+        // R: p.adjust(c(0.01, NA, 0.04, 0.03), "BH") -> 0.04 NA 0.04 0.04
+        let r = p_adjust(&[0.01, f64::NAN, 0.04, 0.03], PAdjustMethod::BH, None).unwrap();
+        assert!((r[0] - 0.03).abs() < 1e-15 && r[1].is_nan());
+        assert!((r[2] - 0.04).abs() < 1e-15 && (r[3] - 0.04).abs() < 1e-15);
+        // R: p.adjust(c(0.01, 0.04), "bonferroni", n = 5) -> 0.05 0.2
+        let r = p_adjust(&[0.01, 0.04], PAdjustMethod::Bonferroni, Some(5)).unwrap();
+        assert!((r[0] - 0.05).abs() < 1e-15 && (r[1] - 0.2).abs() < 1e-15);
+    }
+
+    #[test]
+    fn p_adjust_n_below_count_is_invalid_input() {
+        let err = p_adjust(&[0.01, 0.02, 0.03], PAdjustMethod::Holm, Some(2)).unwrap_err();
+        assert!(matches!(err, StatsError::InvalidInput(_)));
     }
 }

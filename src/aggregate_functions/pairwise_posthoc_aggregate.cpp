@@ -200,6 +200,8 @@ static void PosthocFinalize(Vector &state_vector, AggregateInputData &aggr_input
 		std::vector<uint64_t> codes;
 		for (idx_t code = 0; code < order.size(); code++) {
 			auto &sample = state.samples[order[code]];
+			// Bitwise-reproducible result regardless of the row order (#214).
+			std::sort(sample.begin(), sample.end());
 			values.insert(values.end(), sample.begin(), sample.end());
 			codes.insert(codes.end(), sample.size(), static_cast<uint64_t>(code));
 		}

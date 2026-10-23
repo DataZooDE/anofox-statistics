@@ -1,0 +1,174 @@
+# name: test/sql/regression/test_theil_sen_inference.test
+# description: Theil-Sen coefficient intervals (#222): Sen's exact interval with Kendall's test (one feature) and the pairs bootstrap
+# group: [regression]
+
+require anofox_statistics
+
+# A series against time with ties in y. R 4.6.1, trend 1.1.9:
+#   y <- c(3.4, 0.8, ..., 14.7); trend::sens.slope(y, conf.level = 0.95)   # and 0.9
+# gives slope 0.36923076923076920, 95% CI [0.27142857142857141, 0.46956521739130430],
+# 90% CI [0.27857142857142853, 0.45999999999999996], z = 4.9800259490986427,
+# p = 6.3575748208488164e-07. deming::theilsen(y ~ x, conf = 0.95) gives the same slope CI.
+statement ok
+CREATE TABLE s AS SELECT 'a' AS g, i::DOUBLE AS t, y FROM (SELECT unnest(range(1, 31)) AS i,
+    unnest([3.4, 0.8, 4.0, 0.8, 2.4, 1.9, 0.4, 6.3, 4.5, 1.6, 6.5, 2.2, 3.8, 6.8, 5.6, 4.0, 2.8, 7.2, 8.6, 6.5,
+            9.9, 10.2, 7.9, 12.6, 7.1, 6.1, 11.6, 10.4, 11.0, 14.7]) AS y);
+
+# Exact (the default for one feature): conf_low / conf_high, Kendall's z in t_values,
+# its p-value; no standard error, no intercept interval, no F test (all NULL)
+query IIIIIIIII
+SELECT abs(m.coefficients[1] - 0.36923076923076920) < 1e-12,
+       abs(m.conf_low[1] - 0.27142857142857141) < 1e-12,
+       abs(m.conf_high[1] - 0.46956521739130430) < 1e-12,
+       abs(m.t_values[1] - 4.9800259490986427) < 1e-10,
+       abs(m.p_values[1] - 6.3575748208488164e-07) < 1e-15,
+       m.conf_level, m.std_errors IS NULL,
+       m.intercept_conf_low IS NULL AND m.intercept_std_error IS NULL,
+       m.f_statistic IS NULL AND m.f_pvalue IS NULL
+FROM (SELECT theil_sen_fit_agg(y, [t], {'compute_inference': true}) AS m FROM s);
+----
+true	true	true	true	true	0.95	true	true	true
+
+query III
+SELECT abs(m.conf_low[1] - 0.27857142857142853) < 1e-12,
+       abs(m.conf_high[1] - 0.45999999999999996) < 1e-12,
+       m.ci_lower = m.conf_low AND m.ci_upper = m.conf_high
+FROM (SELECT theil_sen_fit_agg(y, [t], {'compute_inference': true, 'confidence_level': 0.9, 'ci_method': 'exact'}) AS m FROM s);
+----
+true	true	true
+
+# The scalar form agrees
+query II
+SELECT abs(m.conf_low[1] - 0.27142857142857141) < 1e-12, abs(m.conf_high[1] - 0.46956521739130430) < 1e-12
+FROM (SELECT theil_sen_fit(list(y ORDER BY t), [list(t ORDER BY t)], {'compute_inference': true}) AS m FROM s);
+----
+true	true
+
+# Ties in x and in y: the interval from Kendall's tie-corrected Var(S); z and p as
+# R's cor.test(x, y, method = "kendall", exact = FALSE, continuity = TRUE):
+# z = -5.2198105317308174, p = 1.791062678743747e-07; slope CI [-1, -2/3].
+statement ok
+CREATE TABLE ties AS SELECT unnest([10, 3, 12, 7, 2, 10, 6, 8, 8, 3, 8, 8, 6, 8, 11, 10, 12, 3, 4, 8, 2, 6, 6, 11, 5])::DOUBLE AS x,
+    unnest([-6, 1, -6, 3, 3, -5, -2, -3, -3, 3, -4, -2, -3, -4, -6, -5, -7, -1, 0, -4, 2, -1, -1, -5, -3])::DOUBLE AS y;
+
+query IIII
+SELECT abs(m.conf_low[1] + 1) < 1e-12, abs(m.conf_high[1] + 2.0 / 3) < 1e-12,
+       abs(m.t_values[1] + 5.2198105317308174) < 1e-10, abs(m.p_values[1] - 1.791062678743747e-07) < 1e-15
+FROM (SELECT theil_sen_fit_agg(y, [x], {'compute_inference': true}) AS m FROM ties);
+----
+true	true	true	true
+
+# Too few rows for the exact interval at this level: NULL bounds, the test stays
+statement ok
+CREATE TABLE tiny AS SELECT unnest([1.0, 2.0, 3.0, 4.0]) AS x, unnest([1.0, 3.0, 2.0, 5.0]) AS y;
+
+query II
+SELECT m.conf_low IS NULL AND m.conf_high IS NULL, m.p_values[1] BETWEEN 0 AND 1
+FROM (SELECT theil_sen_fit_agg(y, [x], {'compute_inference': true}) AS m FROM tiny);
+----
+true	true
+
+# Bootstrap (the default for several features): standard errors and percentile
+# intervals for every coefficient and the intercept, no test; deterministic for a
+# seed whatever the row order or thread count
+statement ok
+CREATE TABLE m2 AS SELECT i, (i % 2)::VARCHAR AS g, (i % 7)::DOUBLE + i * 0.1 AS x1, cos(i)::DOUBLE AS x2,
+    (1 + 0.5 * ((i % 7) + i * 0.1) - 2 * cos(i) + 0.3 * sin(i * 3.7))::DOUBLE AS y
+FROM range(1, 31) t(i);
+
+statement ok
+CREATE TABLE b AS
+SELECT g, theil_sen_fit_agg(y, [x1, x2], {'compute_inference': true, 'n_bootstrap': 199}) AS a,
+       theil_sen_fit_agg(y, [x1, x2], {'compute_inference': true, 'n_bootstrap': 199} ORDER BY i DESC) AS r,
+       theil_sen_fit_agg(y, [x1, x2], {'compute_inference': true, 'n_bootstrap': 199, 'seed': 7}) AS s7
+FROM m2 GROUP BY g;
+
+query IIIIIII
+SELECT g,
+       list_min(a.std_errors) > 0 AND a.intercept_std_error > 0,
+       a.conf_low[1] < a.coefficients[1] AND a.coefficients[1] < a.conf_high[1]
+           AND a.conf_low[2] < a.coefficients[2] AND a.coefficients[2] < a.conf_high[2]
+           AND a.intercept_conf_low < a.intercept AND a.intercept < a.intercept_conf_high,
+       a.t_values IS NULL AND a.p_values IS NULL AND a.intercept_p_value IS NULL AND a.f_statistic IS NULL,
+       a.std_errors = r.std_errors AND a.conf_low = r.conf_low AND a.intercept_conf_high = r.intercept_conf_high,
+       a.std_errors <> s7.std_errors,
+       a.conf_level
+FROM b ORDER BY g;
+----
+0	true	true	true	true	true	0.95
+1	true	true	true	true	true	0.95
+
+# Bootstrap on one feature on request, with an intercept interval
+query III
+SELECT m.intercept_conf_low < m.intercept AND m.intercept < m.intercept_conf_high,
+       abs(m.conf_low[1] - 0.2714) < 0.1 AND abs(m.conf_high[1] - 0.4696) < 0.1,
+       m.t_values IS NULL AND m.p_values IS NULL
+FROM (SELECT theil_sen_fit_agg(y, [t], {'compute_inference': true, 'ci_method': 'bootstrap', 'n_boot': 299}) AS m FROM s);
+----
+true	true	true
+
+# theil_sen_tidy_by carries the intervals into `terms` (exact: no std_error or
+# intercept interval)
+query IIII
+SELECT term, std_error IS NULL, abs(conf_low - 0.27142857142857141) < 1e-12 OR term = '(Intercept)', statistic IS NOT NULL
+FROM theil_sen_tidy_by('s', g, y, [t], names := ['t']) ORDER BY term;
+----
+(Intercept)	true	true	false
+t	true	true	true
+
+# Exact needs exactly one feature
+statement error
+SELECT theil_sen_fit_agg(y, [x1, x2], {'compute_inference': true, 'ci_method': 'exact'}) FROM m2;
+----
+exact Theil-Sen interval needs exactly one feature
+
+statement error
+SELECT theil_sen_fit_agg(y, [x1, x2], {'compute_inference': true, 'ci_method': 'percentile'}) FROM m2;
+----
+ci_method must be 'exact', 'bootstrap' or 'exact_or_none'
+
+statement error
+SELECT theil_sen_fit_agg(y, [x1, x2], {'compute_inference': true, 'n_bootstrap': 1}) FROM m2;
+----
+n_boot must be >= 2
+
+# theil_sen_tidy_by defaults to ci_method 'exact_or_none': one feature gets Sen's
+# exact interval (above), several features get no intervals (NULL) and no bootstrap,
+# so the default stays as cheap as the point fit. 20 groups x 500 rows x 3 features
+# would take ~30 s with a 199-resample bootstrap.
+statement ok
+CREATE TABLE big AS SELECT (i % 20) AS g, sin(i * 0.37) * 3 AS x1, cos(i * 0.11) * 2 AS x2, ((i * 13) % 17) / 17.0 AS x3,
+    1 + 2 * sin(i * 0.37) * 3 - cos(i * 0.11) * 2 + sin(i * 1.7) AS y
+FROM range(10000) t(i);
+
+query IIII
+SELECT count(*), bool_and(std_error IS NULL AND conf_low IS NULL AND conf_high IS NULL),
+       bool_and(statistic IS NULL AND p_value IS NULL AND conf_level IS NULL), bool_and(estimate IS NOT NULL)
+FROM theil_sen_tidy_by('big', g, y, [x1, x2, x3]);
+----
+80	true	true	true
+
+# The aggregate with the same option behaves the same way
+query I
+SELECT m.std_errors IS NULL AND m.conf_low IS NULL AND m.conf_level IS NULL
+FROM (SELECT theil_sen_fit_agg(y, [x1, x2], {'compute_inference': true, 'ci_method': 'exact_or_none'}) AS m FROM m2);
+----
+true
+
+# Opt-in: ci_method 'bootstrap' bootstraps with tidy_by's 199 resamples (the
+# aggregate's default is 999); n_bootstrap overrides it
+query I
+SELECT count(*) FROM (
+    SELECT t.g FROM theil_sen_tidy_by('m2', g, y, [x1, x2], options := {'ci_method': 'bootstrap'}) t
+    JOIN (SELECT g, unnest(tidy(theil_sen_fit_agg(y, [x1, x2], {'compute_inference': true, 'n_boot': 199}))) AS r FROM m2 GROUP BY g) a
+      ON a.g = t.g AND (a.r).term = t.term AND (a.r).std_error = t.std_error AND (a.r).conf_low = t.conf_low);
+----
+6
+
+query I
+SELECT count(*) FROM (
+    SELECT t.g FROM theil_sen_tidy_by('m2', g, y, [x1, x2], options := {'ci_method': 'bootstrap', 'n_bootstrap': 99}) t
+    JOIN (SELECT g, unnest(tidy(theil_sen_fit_agg(y, [x1, x2], {'compute_inference': true, 'n_boot': 99}))) AS r FROM m2 GROUP BY g) a
+      ON a.g = t.g AND (a.r).term = t.term AND (a.r).std_error = t.std_error);
+----
+6

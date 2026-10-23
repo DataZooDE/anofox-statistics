@@ -174,6 +174,9 @@ static void BrunnerMunzelAggFinalize(Vector &state_vector, AggregateInputData &a
             continue;
         }
 
+        // Bitwise-reproducible result regardless of the row order (#214).
+        state.samples.SortValues();
+
         // Prepare FFI data
         AnofoxDataArray group1_array;
         group1_array.data = state.samples.Group1().data();

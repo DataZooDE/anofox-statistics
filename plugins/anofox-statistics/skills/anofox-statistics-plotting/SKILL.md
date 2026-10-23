@@ -2,29 +2,30 @@
 name: anofox-statistics-plotting
 description: >
   Plot-ready outputs of the anofox_statistics DuckDB extension: the anofox
-  integration contract's long-table schemas (terms, summary, obs,
-  prediction, curve, test), which table macro produces each one, their
-  columns, how to discover producers with duckdb_functions() tags
-  (anofox.contract, anofox.output) and anofox_contract_version(), and how
-  to hand the tables to the anofox-visualization extension
-  (anofox_plot_terms, anofox_plot_prediction, anofox_plot_curve,
-  anofox_plot_summary, anofox_plot_obs, anofox_plot_diagnostics,
-  anofox_plot). Covers coefficient forests (tidy_by), model comparison
-  (glance_by), residual / influence plots (augment_by), fitted lines with
-  bands and marginal effects (prediction_by, effects_by), rolling
-  coefficients (rolling_tidy_by), regularisation paths and CV curves,
-  quantile process, ROC / PR / calibration curves, Kaplan-Meier curves,
-  ACF / PACF and post-hoc test tables. Use when the user wants to make a
-  model or test result plottable, asks "which table do I need for this
-  chart", wants long / tidy tables instead of STRUCTs, or wants to combine
-  several models or groups into one plot.
-version: 0.12.1
+  integration contract's long-table schemas (terms, summary, obs, prediction,
+  curve, test), which table macro produces each one, their columns, how to
+  discover producers with duckdb_functions() tags (anofox.contract,
+  anofox.output) and anofox_contract_version(), and how to hand the tables to
+  the anofox-visualization extension (anofox_plot_terms,
+  anofox_plot_prediction, anofox_plot_curve, anofox_plot_summary,
+  anofox_plot_obs, anofox_plot_diagnostics, anofox_plot). Covers coefficient
+  forests (tidy_by), model comparison (glance_by), residual / influence plots
+  (augment_by), fitted lines with bands and marginal effects (prediction_by,
+  effects_by), rolling coefficients (rolling_tidy_by), regularisation paths
+  and CV curves, quantile process, ROC / PR / calibration curves, Kaplan-Meier
+  curves, ACF / PACF and post-hoc test tables. Also GLMM tables (glmm_tidy_by
+  ran_vals for caterpillar plots), mediation_by, ols_anova_by, nested-CV
+  curves and LOO columns. Use when the user wants to make a model or test
+  result plottable, asks "which table do I need for this chart", wants long /
+  tidy tables instead of STRUCTs, or wants to combine several models or groups
+  into one plot.
+version: 0.13.0
 user-invocable: false
 ---
 
 # Anofox Statistics — Plot-Ready Outputs Cheat Sheet
 
-**Extension:** `anofox_statistics` v0.12.1 | **DuckDB:** v1.5.x / v2.0 | **Contract version:** `anofox_contract_version()` = `'1'`
+**Extension:** `anofox_statistics` v0.13.0 | **DuckDB:** v1.5.6 / v2.0 | **Contract version:** `anofox_contract_version()` = `'1'`
 
 Fit functions return STRUCTs and LISTs. For charts, the `_by` table macros return **long tables with fixed columns** (one row per mark), the schemas of the anofox integration contract shared by anofox-statistics, anofox-forecast and the plotting extension anofox-visualization. Optional columns are always present (NULL when not computed) and the group column is kept.
 
@@ -39,7 +40,8 @@ Fit functions return STRUCTs and LISTs. For charts, the `_by` table macros retur
 | Regularisation path | `ridge_path_by`, `elasticnet_path_by`, `lars_path_by` | `terms` (`'lambda'`; `'alpha'` for LARS) | `anofox_plot_terms` |
 | Effect across quantiles | `quantile_process_by` | `terms` (`'tau'`) | `anofox_plot_terms` |
 | Compare fit statistics (R², AIC, …) across models | `<model>_glance_by` | `summary` | `anofox_plot_summary` |
-| Residuals vs fitted, QQ, leverage, Cook's distance | `ols_augment_by`, `wls_augment_by`, `<glm>_augment_by` | `obs` | `anofox_plot_obs`, `anofox_plot_diagnostics` (plot.lm 2×2) |
+| Mixed model: fixed effects, BLUPs per level (caterpillar) | `glmm_tidy_by(source, group_col, y_col, x_cols, re_group)` | `terms` (+ `effect`: filter `'fixed'` or `'ran_vals'`) | `anofox_plot_terms` |
+| Residuals vs fitted, QQ, leverage, Cook's distance | `ols_augment_by`, `wls_augment_by`, `<glm>_augment_by`, `glmm_augment_by` (no leverage / Cook's) | `obs` | `anofox_plot_obs`, `anofox_plot_diagnostics` (plot.lm 2×2) |
 | Fitted line / band, train vs test vs future | `<model>_prediction_by` (23 models) | `prediction` | `anofox_plot_prediction` |
 | Marginal effect of one feature (effect plot) | `<model>_effects_by` (`ols`, `wls`, `ridge`, six GLMs) | `prediction` | `anofox_plot_prediction` |
 | ROC / PR / calibration curve | `roc_curve_by`, `pr_curve_by`, `calibration_curve_by` | `curve` | `anofox_plot_curve` |
@@ -61,7 +63,7 @@ The model macros also carry `id` (not `_augment_by`) and `model_name` next to `m
 |---|---|
 | `terms` | `model_id, term, estimate, std_error, statistic, p_value, conf_low, conf_high, conf_level, index_name, index_value` (rolling adds `window_end` before `term` and `n_window` at the end) |
 | `summary` | `model_id, model_type, metric, value` |
-| `obs` | all source columns + `model_id, model_name, row_id, fitted, residual, resid_type, std_residual, stud_residual, leverage, cooks_d, dffits, weight, is_training, n_params` |
+| `obs` | all source columns + `model_id, model_name, row_id, fitted, residual, resid_type, std_residual, stud_residual, leverage, cooks_d, dffits, weight, is_training, n_params` (+ `loo_residual, loo_fitted` for OLS / WLS) |
 | `prediction` | `id, model_id, model_name, x, y, yhat, yhat_lower, yhat_upper, level, split` (`effects_by` adds `focal`, `se_fit` and `focal_name`, the axis label: `names[focal]` with `names := [...]`, else `'x' || focal`) |
 | `curve` | `model_id, series, curve_type, x, y, y_low, y_high, threshold, weight, n_censor` (+ `n_risk, n_event, std_err` for KM; `lambda, cv_mean, cv_se, n_nonzero, is_min, is_1se, n_folds` for CV) |
 | `test` | `model_id, test_id, method, statistic, p_value, group1, group2, p_adj, df1, df2, estimate, conf_low, conf_high, conf_level, effect_size, effect_name, alternative, p_adjust_method` |

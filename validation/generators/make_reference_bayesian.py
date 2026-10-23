@@ -6,7 +6,10 @@ Usage (from the repository root):
 
 Writes the .test file. bayesian_ridge_fit_agg / ard_fit_agg are checked against
 sklearn.linear_model.BayesianRidge / ARDRegression (coef_, intercept_, alpha_,
-lambda_, sqrt(diag(sigma_)), n_iter_, scores_ with compute_score=True), and the
+lambda_, sqrt(diag(sigma_)), n_iter_, scores_ with compute_score=True), the
+coefficient credible intervals (#222: std_errors = sqrt(diag(sigma_)),
+conf_low / conf_high = coef_ -/+ z * sd; the intercept SD from the inverted full
+posterior precision of (b0, beta) with a flat prior on b0), and the
 *_fit_predict_agg bands against predict(X, return_std=True) with normal
 quantiles. Requires scikit-learn >= 1.8 (earlier releases did not center X in
 return_std).
@@ -58,7 +61,18 @@ def posterior_sd(model, p):
     return sd
 
 
-def fit_checks(name, fn, model, y_col, opts, p):
+def intercept_sd(model, p):
+    """Posterior SD of the intercept under a flat prior on it: the (0, 0)
+    element of the inverse of alpha [1 X]'[1 X] + diag(0, lambda) over the
+    kept features. Independent of the closed form used upstream."""
+    kept = model.lambda_ < model.threshold_lambda if hasattr(model, "threshold_lambda") else np.ones(p, bool)
+    lam = np.broadcast_to(np.asarray(model.lambda_, dtype=float), (p,))[kept]
+    design = np.column_stack([np.ones(N), X[:, :p][:, kept]])
+    precision = model.alpha_ * design.T @ design + np.diag(np.concatenate([[0.0], lam]))
+    return float(np.sqrt(np.linalg.inv(precision)[0, 0]))
+
+
+def fit_checks(name, fn, model, y_col, opts, p, level=0.95):
     sd = posterior_sd(model, p)
     conds = [close("m.intercept", float(model.intercept_)) if model.fit_intercept else "m.intercept = 0"]
     conds += [close(f"m.coefficients[{j + 1}]", float(model.coef_[j])) for j in range(p)]
@@ -71,6 +85,20 @@ def fit_checks(name, fn, model, y_col, opts, p):
                   close("m.log_marginal_likelihood", float(model.scores_[-1]))]
     conds += [close(f"m.posterior_sd[{j + 1}]", float(sd[j])) for j in range(p)]
     conds += [f"m.iterations = {int(model.n_iter_)}"]
+    # Credible intervals in the inference fields (#222)
+    z = norm.ppf(0.5 + level / 2)
+    conds += [f"m.conf_level = {level!r}", "m.t_values IS NULL AND m.p_values IS NULL"]
+    conds += [close(f"m.std_errors[{j + 1}]", float(sd[j])) for j in range(p)]
+    conds += [close(f"m.conf_low[{j + 1}]", float(model.coef_[j] - z * sd[j])) for j in range(p)]
+    conds += [close(f"m.conf_high[{j + 1}]", float(model.coef_[j] + z * sd[j])) for j in range(p)]
+    if model.fit_intercept:
+        b0_sd = intercept_sd(model, p)
+        conds += [close("m.intercept_std_error", b0_sd),
+                  close("m.intercept_conf_low", float(model.intercept_ - z * b0_sd)),
+                  close("m.intercept_conf_high", float(model.intercept_ + z * b0_sd)),
+                  "m.intercept_statistic IS NULL AND m.intercept_p_value IS NULL"]
+    else:
+        conds += ["m.intercept_std_error IS NULL AND m.intercept_conf_low IS NULL"]
     x_list = "[" + ", ".join(f"x{j + 1}" for j in range(p)) + "]"
     query = f"FROM (SELECT {fn}({y_col}, {x_list}{opts}) AS m FROM d)"
     check(name, query, conds)
@@ -114,8 +142,8 @@ predict_checks("bayesian_ridge_fit_predict_agg: predict(return_std=True), 95% no
                "bayesian_ridge_fit_predict_agg", br, "y", "", 4, 0.95)
 
 br_ni = BayesianRidge(compute_score=True, fit_intercept=False).fit(X[:, :3], Y)
-fit_checks("bayesian_ridge_fit_agg: fit_intercept = false", "bayesian_ridge_fit_agg", br_ni, "y",
-           ", {'fit_intercept': false}", 3)
+fit_checks("bayesian_ridge_fit_agg: fit_intercept = false, 90% credible intervals", "bayesian_ridge_fit_agg",
+           br_ni, "y", ", {'fit_intercept': false, 'confidence_level': 0.9}", 3, level=0.9)
 
 br_prior = BayesianRidge(compute_score=True, alpha_1=2.0, alpha_2=0.5, lambda_1=1.0, lambda_2=3.0,
                          tol=1e-6, max_iter=500).fit(X, Y)
@@ -130,8 +158,9 @@ predict_checks("ard_fit_predict_agg: predict(return_std=True), 90% normal band",
                "y_ard", "", 4, 0.9)
 
 ard_t = ARDRegression(compute_score=True, threshold_lambda=50.0).fit(X, Y_ARD)
-fit_checks(f"ard_fit_agg: threshold_lambda = 50 (kept: {[int(j) + 1 for j in np.where(ard_t.lambda_ < 50)[0]]})",
-           "ard_fit_agg", ard_t, "y_ard", ", {'threshold_lambda': 50}", 4)
+fit_checks(f"ard_fit_agg: threshold_lambda = 50 (kept: {[int(j) + 1 for j in np.where(ard_t.lambda_ < 50)[0]]}), "
+           "80% credible intervals", "ard_fit_agg", ard_t, "y_ard",
+           ", {'threshold_lambda': 50, 'confidence_level': 0.8}", 4, level=0.8)
 
 with open(OUT, "w") as f:
     f.write("\n".join(lines).rstrip() + "\n")

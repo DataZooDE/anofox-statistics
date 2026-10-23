@@ -171,6 +171,8 @@ static void BrownForsytheAggFinalize(Vector &state_vector, AggregateInputData &a
             continue;
         }
 
+        state.coder.Canonicalize(state.groups);
+
         AnofoxDataArray values_array;
         values_array.data = state.values.data();
         values_array.validity = nullptr;

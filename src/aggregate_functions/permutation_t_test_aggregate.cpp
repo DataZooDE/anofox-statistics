@@ -60,24 +60,21 @@ struct PermutationTTestBindData : public FunctionData {
     AnofoxAlternative alternative;
     size_t n_permutations;
     uint64_t seed;
-    bool has_seed;
 
     PermutationTTestBindData()
-        : alternative(ANOFOX_ALTERNATIVE_TWO_SIDED), n_permutations(10000), seed(0), has_seed(false) {}
+        : alternative(ANOFOX_ALTERNATIVE_TWO_SIDED), n_permutations(10000), seed(ANOFOX_DEFAULT_MC_SEED) {}
 
     unique_ptr<FunctionData> Copy() const override {
         auto copy = make_uniq<PermutationTTestBindData>();
         copy->alternative = alternative;
         copy->n_permutations = n_permutations;
         copy->seed = seed;
-        copy->has_seed = has_seed;
         return copy;
     }
 
     bool Equals(const FunctionData &other_p) const override {
         auto &other = other_p.Cast<PermutationTTestBindData>();
-        return alternative == other.alternative && n_permutations == other.n_permutations && seed == other.seed &&
-               has_seed == other.has_seed;
+        return alternative == other.alternative && n_permutations == other.n_permutations && seed == other.seed;
     }
 };
 
@@ -178,10 +175,9 @@ static void PermutationTTestAggFinalize(Vector &state_vector, AggregateInputData
             continue;
         }
 
-        if (bind_data.has_seed) {
-            // Make the seeded result independent of the row order threads delivered.
-            state.samples.SortValues();
-        }
+        // The RNG is always seeded: make the result independent of the row order
+        // threads delivered.
+        state.samples.SortValues();
 
         AnofoxDataArray group1_array;
         group1_array.data = state.samples.Group1().data();
@@ -198,7 +194,7 @@ static void PermutationTTestAggFinalize(Vector &state_vector, AggregateInputData
 
         bool success = anofox_permutation_t_test(group1_array, group2_array,
                                                   bind_data.alternative, bind_data.n_permutations,
-                                                  bind_data.seed, bind_data.has_seed,
+                                                  bind_data.seed, true,
                                                   &test_result, &error);
 
         if (!success) {
@@ -244,7 +240,6 @@ static unique_ptr<FunctionData> PermutationTTestAggBind(ClientContext &context, 
         }
         if (opts.seed.has_value()) {
             bind_data->seed = opts.seed.value();
-            bind_data->has_seed = true;
         }
     }
 

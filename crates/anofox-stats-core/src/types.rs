@@ -80,6 +80,13 @@ pub struct ModelSummary {
     pub intercept_p_value: f64,
     pub intercept_conf_low: f64,
     pub intercept_conf_high: f64,
+    /// Leave-one-out fit statistics of OLS / WLS (#220, upstream
+    /// `diagnostics::press`): prediction sum of squares, `√(press / n)` and the
+    /// predicted R² `1 − press / SST`. NaN for other models and when a row has
+    /// leverage 1.
+    pub press: f64,
+    pub press_rmse: f64,
+    pub loo_r_squared: f64,
 }
 
 impl ModelSummary {
@@ -97,7 +104,17 @@ impl ModelSummary {
             intercept_p_value: f64::NAN,
             intercept_conf_low: f64::NAN,
             intercept_conf_high: f64::NAN,
+            press: f64::NAN,
+            press_rmse: f64::NAN,
+            loo_r_squared: f64::NAN,
         }
+    }
+
+    /// Set the leave-one-out statistics from upstream `diagnostics::press`.
+    pub fn set_press(&mut self, p: &anofox_regression::diagnostics::Press) {
+        self.press = p.press;
+        self.press_rmse = p.press_rmse;
+        self.loo_r_squared = p.loo_r_squared;
     }
 
     /// Fit statistics from an upstream result. The intercept inference is taken
@@ -272,6 +289,10 @@ pub struct OlsOptions {
     pub hc_type: Option<HcType>,
     /// Tolerance of R `lm`'s aliasing test (`tol`); None = upstream default 1e-7
     pub alias_tolerance: Option<f64>,
+    /// Compute the leave-one-out statistics (`ModelSummary::press`,
+    /// `press_rmse`, `loo_r_squared`, #220). Costs one more QR of the design,
+    /// so only the fit entry points that report them turn it on.
+    pub compute_loo: bool,
 }
 
 impl Default for OlsOptions {
@@ -283,6 +304,7 @@ impl Default for OlsOptions {
             solver: SolverType::Qr,
             hc_type: None,
             alias_tolerance: None,
+            compute_loo: false,
         }
     }
 }
@@ -456,6 +478,9 @@ impl Default for RansacOptions {
     }
 }
 
+/// Interval method of Theil-Sen inference (#222).
+pub use anofox_regression::solvers::TheilSenCiMethod;
+
 /// Options for Theil-Sen robust regression
 #[derive(Debug, Clone)]
 pub struct TheilSenOptions {
@@ -472,12 +497,19 @@ pub struct TheilSenOptions {
     pub tolerance: f64,
     /// Random seed for the trial subsampler.
     pub random_state: u64,
-    /// Whether to compute inference statistics. Theil-Sen does not produce
-    /// analytical confidence intervals upstream; populated only when the
-    /// underlying RegressionResult exposes asymptotic SEs.
+    /// Whether to compute coefficient intervals: Sen's exact interval with
+    /// Kendall's test (one feature) or the pairs bootstrap.
     pub compute_inference: bool,
-    /// Confidence level (kept for API parity).
+    /// Level of the intervals.
     pub confidence_level: f64,
+    /// Interval method; `Auto` = exact for one feature, bootstrap otherwise.
+    pub ci_method: TheilSenCiMethod,
+    /// Bootstrap resamples (seeded by `random_state`).
+    pub n_bootstrap: usize,
+    /// Compute intervals only where the exact method applies (one feature with
+    /// an intercept); otherwise return no inference instead of bootstrapping
+    /// (`ci_method := 'exact_or_none'`, the `theil_sen_tidy_by` default).
+    pub skip_bootstrap: bool,
 }
 
 impl Default for TheilSenOptions {
@@ -491,6 +523,9 @@ impl Default for TheilSenOptions {
             random_state: 0,
             compute_inference: false,
             confidence_level: 0.95,
+            ci_method: TheilSenCiMethod::Auto,
+            n_bootstrap: 999,
+            skip_bootstrap: false,
         }
     }
 }
@@ -521,6 +556,10 @@ pub struct WlsOptions {
     pub hc_type: Option<HcType>,
     /// Tolerance of R `lm`'s aliasing test (`tol`); None = upstream default 1e-7
     pub alias_tolerance: Option<f64>,
+    /// Compute the leave-one-out statistics (`ModelSummary::press`,
+    /// `press_rmse`, `loo_r_squared`, #220). Costs one more QR of the design,
+    /// so only the fit entry points that report them turn it on.
+    pub compute_loo: bool,
 }
 
 impl Default for WlsOptions {
@@ -532,6 +571,7 @@ impl Default for WlsOptions {
             solver: SolverType::Qr,
             hc_type: None,
             alias_tolerance: None,
+            compute_loo: false,
         }
     }
 }

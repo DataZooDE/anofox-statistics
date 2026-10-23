@@ -76,10 +76,12 @@ ORDER BY grp;
 | `max_subpopulation` | INTEGER | `10000` | Maximum number of subsets; if there are more combinations, a random sample of this size is used. Must be > 0 |
 | `max_iterations` (alias `max_iter`) | INTEGER | `300` | Maximum iterations of the spatial-median solver |
 | `tolerance` (alias `tol`) | DOUBLE | `1e-3` | Convergence tolerance of the spatial-median solver |
-| `random_state` (alias `seed`) | INTEGER | `0` | Seed used when subsets are sampled |
+| `random_state` (alias `seed`) | INTEGER | `0` | Seed used when subsets are sampled and for the bootstrap resamples |
 | `fit_intercept` (alias `intercept`) | BOOLEAN | `true` | Include an intercept term |
-| `compute_inference` (alias `inference`) | BOOLEAN | `false` | Add standard errors, t-values, p-values, confidence intervals and the F-test |
+| `compute_inference` (alias `inference`) | BOOLEAN | `false` | Add coefficient confidence intervals, see [Inference](#inference) |
 | `confidence_level` (alias `confidence`) | DOUBLE | `0.95` | Confidence level for intervals |
+| `ci_method` | VARCHAR | `'exact'` for one feature, `'bootstrap'` otherwise (`theil_sen_tidy_by`: `'exact_or_none'`) | `'exact'`: Sen's distribution-free interval (one feature with an intercept only); `'bootstrap'`: pairs bootstrap; `'exact_or_none'`: `'exact'` where it applies, otherwise no intervals |
+| `n_bootstrap` (alias `n_boot`) | INTEGER | `999` (`theil_sen_tidy_by`: `199`) | Bootstrap resamples, at least 2 |
 
 The window, fit-predict aggregate and table-macro forms also accept
 `null_policy` (see [Fit-predict aggregates](fit_predict_agg.md#null_policy));
@@ -100,6 +102,95 @@ FROM theil_sen_fit_predict_by('theil_sen_demo', grp, y, [x])
 LIMIT 5;
 ```
 
+## Inference
+
+With `compute_inference = true` the fit carries confidence intervals for the
+coefficients, computed in one of two ways (`ci_method`).
+
+> **Cost.** With more than one feature the default is the bootstrap, which
+> refits the model `n_bootstrap` (999) times per group: on 500 rows with 3
+> features about **8 s per group** instead of about 10 ms for the point fit.
+> Lower `n_bootstrap`, or use `ci_method := 'exact_or_none'` to get intervals
+> only where the cheap exact method applies. One-feature exact intervals cost
+> about as much as the point fit.
+
+- **`'exact'`** (the default with one feature and an intercept): the
+  distribution-free interval of Sen (1968), the interval R's
+  `trend::sens.slope` reports. The `N` pairwise slopes are sorted and the
+  bounds are the slopes at ranks `round((N − C)/2)` and `round((N + C)/2 + 1)`,
+  with `C = z_{(1+level)/2} · sqrt(Var S)` and `Var S` the null variance of
+  Kendall's score `S` of `(x, y)`, corrected for ties in `x` and in `y`.
+  `t_values` holds Kendall's continuity-corrected `z = sign(S)(|S| − 1) / sqrt(Var S)`
+  and `p_values` its two-sided normal p-value for slope = 0 (R `trend::sens.slope`;
+  with ties in `x`, `cor.test(x, y, method = "kendall", continuity = TRUE)`).
+  The interval has no standard error (`std_errors` is NULL) and there is none for
+  the intercept. With very few rows the rank falls outside `1..N` and the
+  bounds are NULL (with 4 rows at 95%, for example).
+- **`'bootstrap'`** (the default otherwise, and for the intercept): the pairs
+  bootstrap. `n_bootstrap` resamples of the rows are refitted with the same
+  options; `std_errors` and `intercept_std_error` are the bootstrap standard
+  deviations and the intervals are percentile intervals (R `quantile` type 7).
+  The result is deterministic for a given `seed` and does not depend on the
+  row order or the number of threads. Resamples that cannot be fitted (e.g.
+  all `x` equal) are skipped. There is no test statistic: `t_values` and
+  `p_values` are NULL. The bootstrap refits the model `n_bootstrap` times, so it
+  costs about that many fits; lower `n_bootstrap` for large groups.
+
+Theil-Sen has no F-test: `f_statistic` and `f_pvalue` are NULL. Statistics a
+method does not define are NULL (not applicable), never NaN. A coverage
+simulation (400 data sets, n = 40, Laplace noise, 90% level) gave 88.5% for the
+exact interval, 88.5% / 87.0% for the one-feature bootstrap slope / intercept
+and 91.0% / 91.2% for a two-feature bootstrap.
+
+```sql
+-- Sen's exact interval and Kendall's test for the slope
+SELECT
+    grp,
+    round((m).conf_low[1], 3) AS slope_low,
+    round((m).conf_high[1], 3) AS slope_high,
+    round((m).p_values[1], 6) AS p_value
+FROM (SELECT grp, theil_sen_fit_agg(y, [x], {'compute_inference': true}) AS m FROM theil_sen_demo GROUP BY grp)
+ORDER BY grp;
+
+-- Bootstrap standard errors and intervals, also for the intercept
+SELECT
+    round((m).std_errors[1], 3) AS slope_se,
+    round((m).intercept_conf_low, 3) AS intercept_low,
+    round((m).intercept_conf_high, 3) AS intercept_high
+FROM (
+    SELECT theil_sen_fit_agg(y, [x], {'compute_inference': true, 'ci_method': 'bootstrap', 'n_bootstrap': 199, 'seed': 1}) AS m
+    FROM theil_sen_demo
+);
+```
+
+`theil_sen_tidy_by` carries the intervals into the `terms` rows (`std_error`,
+`statistic`, `p_value`, `conf_low`, `conf_high`). By default it uses
+`ci_method := 'exact_or_none'`: with one feature it reports Sen's exact
+interval (cheap); with several features the interval columns are NULL and no
+bootstrap runs, so the macro costs about one point fit per group. Pass
+`options := {'ci_method': 'bootstrap'}` (and optionally `n_bootstrap`, default
+199 here) for bootstrap intervals; that costs about `n_bootstrap` point fits per
+group.
+
+For scale, on 50 groups of 500 rows with 3 features (a loaded 20-core machine):
+the point fits take about 10 ms per group; with `ci_method := 'bootstrap'`
+`theil_sen_tidy_by` (199 resamples) takes about 1.4 s of CPU per group (69 s in
+total) and `theil_sen_fit_agg` with `compute_inference` (999 resamples) about
+8 s of CPU per group. DuckDB finalizes the groups of a small table on few
+threads, so expect these as wall-clock times too.
+
+```sql
+-- Multi-feature bootstrap intervals in terms (opt-in)
+SELECT grp, term, round(conf_low, 3) AS conf_low, round(conf_high, 3) AS conf_high
+FROM theil_sen_tidy_by('theil_sen_demo', grp, y, [x, x * x],
+                       options := {'ci_method': 'bootstrap', 'n_bootstrap': 99})
+ORDER BY grp, term;
+```
+
+**Before #222** `compute_inference` returned these
+fields but left them empty (NaN / NULL): the solver had no inference. See the
+[changelog](../../../CHANGELOG.md).
+
 ## Returns
 
 | Field | Type | Description |
@@ -112,9 +203,11 @@ LIMIT 5;
 | `n_observations` | `BIGINT` | Rows used in the fit |
 | `n_features` | `BIGINT` | Number of features |
 
-With `compute_inference = true` these fields are added: `std_errors`,
-`t_values`, `p_values`, `ci_lower`, `ci_upper` (`DOUBLE[]`), `f_statistic` and
-`f_pvalue` (`DOUBLE`).
+Like every model STRUCT the result also has the inference fields
+`std_errors`, `t_values`, `p_values`, `conf_low` / `conf_high` (aliases
+`ci_lower` / `ci_upper`), `conf_level`, `f_statistic`, `f_pvalue` and the
+`intercept_*` fields, NULL without `compute_inference`; see
+[Inference](#inference) for what each method fills.
 
 ## NULL handling
 

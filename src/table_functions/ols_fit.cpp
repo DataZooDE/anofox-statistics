@@ -35,6 +35,7 @@ static LogicalType GetOlsResultType() {
     // without compute_inference.
     AppendCoefficientInferenceFields(children);
     AppendModelSummaryFields(children);
+    AppendLooFields(children);
 
     return LogicalType::STRUCT(std::move(children));
 }
@@ -47,6 +48,7 @@ struct OlsFitBindData : public FunctionData {
     SolverType solver = SolverType::SVD;
     HcType hc_type = HcType::NONE;
     double alias_tolerance = 0.0; // <= 0: upstream default (1e-7, R lm tol)
+    bool compute_loo = false;     // press, press_rmse, loo_r_squared (#220): one more QR
 
     unique_ptr<FunctionData> Copy() const override {
         auto result = make_uniq<OlsFitBindData>();
@@ -56,13 +58,15 @@ struct OlsFitBindData : public FunctionData {
         result->solver = solver;
         result->hc_type = hc_type;
         result->alias_tolerance = alias_tolerance;
+        result->compute_loo = compute_loo;
         return std::move(result);
     }
 
     bool Equals(const FunctionData &other_p) const override {
         auto &other = other_p.Cast<OlsFitBindData>();
         return fit_intercept == other.fit_intercept && compute_inference == other.compute_inference &&
-               confidence_level == other.confidence_level && solver == other.solver && hc_type == other.hc_type && alias_tolerance == other.alias_tolerance;
+               confidence_level == other.confidence_level && solver == other.solver && hc_type == other.hc_type && alias_tolerance == other.alias_tolerance &&
+               compute_loo == other.compute_loo;
     }
 };
 
@@ -75,7 +79,8 @@ static unique_ptr<FunctionData> OlsFitBind(ClientContext &context, ScalarBindFun
     if (arguments.size() >= 3) {
         auto opts = RegressionMapOptions::ParseFromExpression(
             context, *arguments[2], "ols_fit",
-            {"fit_intercept", "compute_inference", "confidence_level", "solver", "hc_type", "alias_tolerance"});
+            {"fit_intercept", "compute_inference", "confidence_level", "solver", "hc_type", "alias_tolerance",
+             "compute_loo"});
         if (opts.fit_intercept.has_value()) {
             result->fit_intercept = opts.fit_intercept.value();
         }
@@ -93,6 +98,9 @@ static unique_ptr<FunctionData> OlsFitBind(ClientContext &context, ScalarBindFun
         }
         if (opts.alias_tolerance.has_value()) {
             result->alias_tolerance = opts.alias_tolerance.value();
+        }
+        if (opts.compute_loo.has_value()) {
+            result->compute_loo = opts.compute_loo.value();
         }
     }
 
@@ -185,6 +193,7 @@ static void OlsFitFunctionImpl(DataChunk &args, ExpressionState &state, Vector &
         options.solver = ConvertSolverType(bind_data.solver);
         options.hc_type = ConvertHcType(bind_data.hc_type);
         options.alias_tolerance = bind_data.alias_tolerance;
+        options.compute_loo = bind_data.compute_loo;
 
         // Call Rust FFI
         AnofoxFitResultCore core_result;
@@ -272,7 +281,7 @@ void RegisterOlsFitFunction(ExtensionLoader &loader) {
         info.descriptions.push_back(std::move(d1));
 
         FunctionDescription d2;
-        d2.description     = "Fits an OLS regression model with optional MAP of settings (fit_intercept, compute_inference, confidence_level, solver, hc_type, alias_tolerance).";
+        d2.description     = "Fits an OLS regression model with optional MAP of settings (fit_intercept, compute_inference, confidence_level, solver, hc_type, alias_tolerance, compute_loo).";
         d2.examples        = {"ols_fit(y, x, {'compute_inference': true, 'confidence_level': 0.95})"};
         d2.categories      = {"regression"};
         d2.parameter_names = {"y", "x", "options"};

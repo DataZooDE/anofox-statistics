@@ -44,8 +44,8 @@ The build produces:
 - `build/release/extension/anofox_statistics/anofox_statistics.duckdb_extension`,
   the loadable extension.
 
-Supported DuckDB versions are **v1.5.x** and **v2.0**. CI builds against
-v1.5.4, v1.5.5, v1.5.6 and DuckDB 2.0. The `duckdb` submodule pins the version used by a local build.
+Supported DuckDB versions are **v1.5.6** and **v2.0**. CI builds against
+v1.5.6 and DuckDB v2.0.0. The `duckdb` submodule pins the version used by a local build.
 
 ## Testing
 

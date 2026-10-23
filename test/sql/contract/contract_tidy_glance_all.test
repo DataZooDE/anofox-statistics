@@ -97,10 +97,10 @@ SELECT string_agg(column_name, ', ') FROM (DESCRIBE SELECT * FROM lm_dynamic_tid
 ----
 g, id, model_id, model_name, window_end, term, estimate, std_error, statistic, p_value, conf_low, conf_high, conf_level, index_name, index_value
 
-# Every one of the 25 models is a tagged producer, tidy_by as terms and glance_by as summary
+# Every one of the 25 models and glmm (#218) is a tagged producer, tidy_by as terms and glance_by as summary
 query II
 SELECT count(DISTINCT function_name) FILTER (WHERE function_name LIKE '%\_tidy\_by' ESCAPE '\' AND function_name NOT LIKE '%rolling%' AND tags['anofox.output'] = 'terms'),
        count(DISTINCT function_name) FILTER (WHERE function_name LIKE '%\_glance\_by' ESCAPE '\' AND tags['anofox.output'] = 'summary')
 FROM duckdb_functions() WHERE tags['anofox.contract'] = '1';
 ----
-25	25
+26	26

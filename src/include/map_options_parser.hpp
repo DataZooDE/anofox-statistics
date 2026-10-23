@@ -144,6 +144,8 @@ struct RegressionMapOptions {
 	// Common options
 	std::optional<bool> fit_intercept;
 	std::optional<bool> compute_inference;
+	//! Leave-one-out statistics (press, press_rmse, loo_r_squared) of OLS / WLS fits (#220)
+	std::optional<bool> compute_loo;
 	std::optional<double> confidence_level;
 
 	// Ridge/ElasticNet regularization
@@ -190,6 +192,8 @@ struct RegressionMapOptions {
 	std::optional<vector<idx_t>> random_slopes;
 	//! 1-based indices into x of additional crossed grouping-factor columns (GLMM).
 	std::optional<vector<idx_t>> group_columns;
+	//! GLMM degrees-of-freedom method; mirrors AnofoxGlmmDdf (1 = wald, 2 = satterthwaite).
+	std::optional<int> glmm_ddf;
 
 	// Empirical-Bayes shrinkage (issue #107)
 	std::optional<double> tau_squared; // Fixed between-group variance; unset = estimate
@@ -255,10 +259,22 @@ struct RegressionMapOptions {
 	std::optional<uint32_t> n_lambda;        // Size of the default grid
 	std::optional<double> lambda_min_ratio;  // Smallest / largest lambda of the default grid
 	std::optional<uint32_t> folds;           // Number of CV folds
+	// CV strategies and nested CV (#204)
+	std::optional<string> cv_strategy;       // 'kfold' | 'fold_id' | 'group' | 'logo' | 'stratified' | 'time_series'
+	std::optional<uint32_t> repeats;         // Repeated k-fold
+	std::optional<uint32_t> test_size;       // time_series: time points per test block (alias 'horizon')
+	std::optional<uint32_t> gap;             // time_series: time points between train and test
+	std::optional<string> window;            // time_series: 'expanding' | 'sliding'
+	std::optional<uint32_t> max_train_size;  // time_series: sliding window length
+	std::optional<uint32_t> n_bins;          // stratified without a key: quantile bins of y
+	std::optional<string> cv_metric;         // 'mse' | 'mae'
+	std::optional<uint32_t> inner_folds;     // Nested CV: inner folds
+	std::optional<string> lambda_rule;       // Nested CV: 'min' | '1se'
 	// Quantile inference (#157)
 	std::optional<vector<double>> taus;      // Quantiles of the process
 	std::optional<string> se_type;           // 'iid' | 'nid' | 'boot'
 	std::optional<uint32_t> n_boot;          // Bootstrap replications
+	std::optional<int32_t> ci_method;        // Theil-Sen (#222): 1 = 'exact', 2 = 'bootstrap', 3 = 'exact_or_none'
 	// Bayesian Ridge / ARD (#61): gamma-prior shape / rate of the noise and
 	// weight precisions, and ARD's pruning threshold
 	std::optional<double> alpha_1;
@@ -457,12 +473,17 @@ struct FisherExactMapOptions {
 	static FisherExactMapOptions ParseFromValue(const Value &map_value, const string &function_name);
 };
 
+//! Seed of the Monte Carlo tests (permutation_t_test_agg, energy_distance_agg,
+//! mmd_agg, distance_cor_agg) when the caller passes none, so their p-values are
+//! reproducible by default (#214). An explicit 'seed' overrides it.
+constexpr uint64_t ANOFOX_DEFAULT_MC_SEED = 42;
+
 /**
  * Options for Energy distance test
  */
 struct EnergyDistanceMapOptions {
 	std::optional<uint32_t> n_permutations;
-	std::optional<uint64_t> seed; // also accepted as random_state
+	std::optional<uint64_t> seed; // also accepted as random_state; default ANOFOX_DEFAULT_MC_SEED
 
 	static EnergyDistanceMapOptions ParseFromValue(const Value &map_value, const string &function_name);
 };
@@ -473,7 +494,7 @@ struct EnergyDistanceMapOptions {
 struct MmdMapOptions {
 	std::optional<double> bandwidth; // Not supported by the core (median heuristic); the key is rejected
 	std::optional<uint32_t> n_permutations;
-	std::optional<uint64_t> seed; // also accepted as random_state
+	std::optional<uint64_t> seed; // also accepted as random_state; default ANOFOX_DEFAULT_MC_SEED
 
 	static MmdMapOptions ParseFromValue(const Value &map_value, const string &function_name);
 };
@@ -540,7 +561,7 @@ struct YuenMapOptions {
 struct PermutationMapOptions {
 	std::optional<Alternative> alternative;
 	std::optional<uint32_t> n_permutations;
-	std::optional<uint64_t> seed; // also accepted as random_state
+	std::optional<uint64_t> seed; // also accepted as random_state; default ANOFOX_DEFAULT_MC_SEED
 
 	static PermutationMapOptions ParseFromValue(const Value &map_value, const string &function_name);
 };
@@ -550,7 +571,7 @@ struct PermutationMapOptions {
  */
 struct DistanceCorMapOptions {
 	std::optional<uint32_t> n_permutations;
-	std::optional<uint64_t> seed; // also accepted as random_state
+	std::optional<uint64_t> seed; // also accepted as random_state; default ANOFOX_DEFAULT_MC_SEED
 
 	static DistanceCorMapOptions ParseFromValue(const Value &map_value, const string &function_name);
 };
@@ -624,6 +645,21 @@ struct CohenKappaMapOptions {
 	std::optional<bool> weighted;
 
 	static CohenKappaMapOptions ParseFromValue(const Value &map_value, const string &function_name);
+};
+
+/**
+ * Options for causal mediation analysis (mediation_agg / mediation_by)
+ */
+struct MediationMapOptions {
+	std::optional<string> method;   // 'bootstrap' | 'sobel' | 'quasi_bayesian'
+	std::optional<string> ci_type;  // 'percentile' | 'bca' (bootstrap only)
+	std::optional<uint32_t> n_bootstrap;
+	std::optional<uint64_t> seed; // also accepted as random_state
+	std::optional<double> confidence_level;
+	std::optional<double> treat_value;
+	std::optional<double> control_value;
+
+	static MediationMapOptions ParseFromValue(const Value &map_value, const string &function_name);
 };
 
 } // namespace duckdb

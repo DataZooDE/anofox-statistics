@@ -64,11 +64,13 @@ SELECT (theil_sen_fit([3.0, 5.0, 'nan'::DOUBLE, 9.0, 11.0, 13.0], [[1.0, 2.0, 3.
 ----
 5
 
-# compute_inference = true adds one entry per feature (documented; empty today)
-query I
-SELECT len((theil_sen_fit(list(y ORDER BY i), [list(x ORDER BY i)], {'compute_inference': true})).std_errors) FROM t;
+# compute_inference = true: Sen's exact interval here (#222), one entry per feature;
+# it has no standard error, so std_errors is NULL
+query II
+SELECT len(m.conf_low), m.std_errors IS NULL
+FROM (SELECT theil_sen_fit(list(y ORDER BY i), [list(x ORDER BY i)], {'compute_inference': true}) AS m FROM t);
 ----
-1
+1	true
 
 statement error
 SELECT theil_sen_fit([1.0, 2.0, 3.0, 4.0], [[1.0, 2.0, 3.0]]);

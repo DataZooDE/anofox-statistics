@@ -5,8 +5,8 @@
 // path / CV / quantile-process aggregates of path_aggregates.cpp.
 //
 // Rows with a NULL y, a NULL x list or a NULL list element are skipped. An
-// optional per-row `extra` value (a CV fold id) travels with the row; rows
-// whose extra value is NULL are skipped too.
+// optional per-row `extra` value (a CV key: fold label, group, stratum or time)
+// travels with the row; rows whose extra value is NULL are skipped too.
 
 #include <cmath>
 #include <vector>
@@ -54,14 +54,15 @@ inline void XyRowsDestroy(Vector &state_vector, AggregateInputData &, idx_t coun
 	}
 }
 
-//! Update for (y DOUBLE, x LIST(DOUBLE)[, extra BIGINT][, options]). With
-//! `with_extra`, inputs[2] is the per-row extra value.
-inline void XyRowsUpdateImpl(Vector inputs[], idx_t count, Vector &state_vector, bool with_extra) {
+//! Update for (y DOUBLE, x LIST(DOUBLE)[, ...]). With `extra` (a DOUBLE vector of
+//! `count` rows), each row's extra value is collected too.
+inline void XyRowsUpdateImpl(Vector inputs[], idx_t count, Vector &state_vector, Vector *extra = nullptr) {
+	const bool with_extra = extra != nullptr;
 	UnifiedVectorFormat y_data, x_data, e_data, sdata;
 	inputs[0].ToUnifiedFormat(count, y_data);
 	inputs[1].ToUnifiedFormat(count, x_data);
 	if (with_extra) {
-		inputs[2].ToUnifiedFormat(count, e_data);
+		extra->ToUnifiedFormat(count, e_data);
 	}
 	state_vector.ToUnifiedFormat(count, sdata);
 	auto y_values = UnifiedVectorFormat::GetData<double>(y_data);
@@ -84,7 +85,7 @@ inline void XyRowsUpdateImpl(Vector inputs[], idx_t count, Vector &state_vector,
 			if (!e_data.validity.RowIsValid(e_idx)) {
 				continue;
 			}
-			extra = static_cast<double>(UnifiedVectorFormat::GetData<int64_t>(e_data)[e_idx]);
+			extra = UnifiedVectorFormat::GetData<double>(e_data)[e_idx];
 		}
 		auto list_entry = x_list_data[x_idx];
 		if (ListHasNullElement(x_child_validity, list_entry)) {
@@ -110,11 +111,7 @@ inline void XyRowsUpdateImpl(Vector inputs[], idx_t count, Vector &state_vector,
 }
 
 inline void XyRowsUpdate(Vector inputs[], AggregateInputData &, idx_t, Vector &state_vector, idx_t count) {
-	XyRowsUpdateImpl(inputs, count, state_vector, false);
-}
-
-inline void XyRowsExtraUpdate(Vector inputs[], AggregateInputData &, idx_t, Vector &state_vector, idx_t count) {
-	XyRowsUpdateImpl(inputs, count, state_vector, true);
+	XyRowsUpdateImpl(inputs, count, state_vector);
 }
 
 inline void XyRowsCombine(Vector &source_vector, Vector &target_vector, AggregateInputData &aggr_input_data,

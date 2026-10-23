@@ -1,0 +1,335 @@
+# name: test/sql/paths/test_cv_strategies.test
+# description: CV strategies (cv_key, cv_strategy) and nested CV (#204): group integrity against scikit-learn GroupKFold, time-series splits against TimeSeriesSplit by hand, nested CV against a hand-written outer loop and under perturbed outer test responses, macros and errors
+# group: [paths]
+
+require anofox_statistics
+
+# The groups and GroupKFold(n_splits=4) folds of anofox-regression's scikit-learn
+# 1.9.1 fixture (tests/fixtures/cv_splits_validation.rs: GKF_GROUPS, GKF_FOLDS).
+statement ok
+CREATE TABLE g AS
+SELECT i, grp, skfold, ((i * 7) % 13)::DOUBLE + i / 100.0 AS x1, ((i * 5) % 11)::DOUBLE AS x2,
+       1.0 + 0.8 * ((i * 7) % 13) - 0.4 * ((i * 5) % 11) + (grp % 5) / 2.0 + sin(i) AS y
+FROM (SELECT unnest(range(59)) AS i,
+             unnest([156, 114, 128, 135, 128, 121, 114, 114, 149, 184, 156, 107, 128, 128, 191, 114, 128, 114, 121, 128, 184, 156, 107, 142, 114, 114, 100, 184, 107, 107, 177, 163, 121, 121, 191, 163, 191, 177, 135, 177, 114, 128, 121, 191, 135, 149, 149, 149, 191, 107, 170, 128, 100, 128, 107, 107, 135, 191, 149]) AS grp,
+             unnest([0, 1, 0, 1, 0, 2, 1, 1, 3, 0, 0, 2, 0, 0, 3, 1, 0, 1, 2, 0, 0, 0, 2, 2, 1, 1, 2, 0, 2, 2, 3, 1, 2, 2, 3, 1, 3, 3, 1, 3, 1, 0, 2, 3, 1, 3, 3, 3, 3, 2, 1, 0, 2, 0, 2, 2, 1, 3, 3]) AS skfold);
+
+# Group k-fold equals the same CV with scikit-learn's GroupKFold folds passed as fold ids
+query III
+SELECT a[1].n_folds, list_max(list_transform(range(1, 13), lambda k: abs(a[k].cv_mean - b[k].cv_mean))) = 0,
+       list_position(list_transform(a, lambda c: c.is_min), true) = list_position(list_transform(b, lambda c: c.is_min), true)
+FROM (SELECT ridge_cv_agg(y, [x1, x2], grp, {'cv_strategy': 'group', 'folds': 4, 'n_lambda': 12}) AS a,
+             ridge_cv_agg(y, [x1, x2], skfold, {'n_lambda': 12}) AS b FROM g);
+----
+4	true	true
+
+# Leave-one-group-out: one fold per group; a text key (hashed) gives the same folds
+query II
+SELECT a[1].n_folds, list_max(list_transform(range(1, 9), lambda k: abs(a[k].cv_mean - b[k].cv_mean))) < 1e-9
+FROM (SELECT ridge_cv_agg(y, [x1, x2], grp, {'cv_strategy': 'logo', 'n_lambda': 8}) AS a,
+             ridge_cv_agg(y, [x1, x2], 'store-' || grp::VARCHAR, {'cv_strategy': 'logo', 'n_lambda': 8}) AS b FROM g);
+----
+14	true
+
+# Group folds with a text key keep every group whole: as LOGO, k = number of groups
+query II
+SELECT a[1].n_folds, list_max(list_transform(range(1, 9), lambda k: abs(a[k].cv_mean - b[k].cv_mean))) < 1e-9
+FROM (SELECT ridge_cv_agg(y, [x1, x2], 'store-' || grp::VARCHAR, {'cv_strategy': 'group', 'folds': 14, 'n_lambda': 8}) AS a,
+             ridge_cv_agg(y, [x1, x2], grp, {'cv_strategy': 'logo', 'n_lambda': 8}) AS b FROM g);
+----
+14	true
+
+# Several group variables as a STRUCT key: one fold per (grp, half) combination
+query I
+SELECT r[1].n_folds = (SELECT count(DISTINCT (grp, i < 30)) FROM g) AND r[1].n_folds > 14
+FROM (SELECT ridge_cv_agg(y, [x1, x2], {'grp': grp, 'half': i < 30}, {'cv_strategy': 'logo', 'n_lambda': 5}) AS r FROM g);
+----
+true
+
+# Rows with a NULL cv_key are skipped
+query I
+SELECT ridge_cv_agg(y, [x1, x2], CASE WHEN grp = 100 THEN NULL ELSE grp END, {'cv_strategy': 'logo', 'n_lambda': 5})[1].n_folds FROM g;
+----
+13
+
+# Stratified: strata given, or quantile bins of y; repeats pool the folds of several seeds
+query III
+SELECT a[1].n_folds, b[1].n_folds, c[1].n_folds
+FROM (SELECT ridge_cv_agg(y, [x1, x2], grp % 3, {'cv_strategy': 'stratified', 'folds': 4, 'n_lambda': 5}) AS a,
+             ridge_cv_agg(y, [x1, x2], {'cv_strategy': 'stratified', 'folds': 5, 'n_bins': 4, 'n_lambda': 5}) AS b,
+             ridge_cv_agg(y, [x1, x2], {'folds': 4, 'repeats': 3, 'n_lambda': 5}) AS c FROM g);
+----
+4	5	12
+
+# Repeated k-fold with repeats = 1 is plain k-fold; the seeded strategies are deterministic
+query II
+SELECT a = b, c = d
+FROM (SELECT ridge_cv_agg(y, [x1, x2], {'folds': 4, 'repeats': 1, 'n_lambda': 5}) AS a,
+             ridge_cv_agg(y, [x1, x2], {'folds': 4, 'n_lambda': 5}) AS b,
+             ridge_cv_agg(y, [x1, x2], {'cv_strategy': 'stratified', 'folds': 4, 'seed': 3, 'n_lambda': 5}) AS c,
+             ridge_cv_agg(y, [x1, x2], {'cv_strategy': 'stratified', 'folds': 4, 'seed': 3, 'n_lambda': 5}) AS d FROM g);
+----
+true	true
+
+# MAE instead of MSE
+query I
+SELECT list_max(list_transform(range(1, 6), lambda k: abs(a[k].cv_mean - b[k].cv_mean))) > 0.1
+FROM (SELECT ridge_cv_agg(y, [x1, x2], {'folds': 4, 'metric': 'mae', 'n_lambda': 5}) AS a,
+             ridge_cv_agg(y, [x1, x2], {'folds': 4, 'n_lambda': 5}) AS b FROM g);
+----
+true
+
+# --- Time series --------------------------------------------------------------
+# A panel of 2 series over 30 days. TimeSeriesSplit(n_splits=3, test_size=5, gap=2) over
+# the 30 days (scikit-learn fixture TSS_CASES): train days [0, 13), [0, 18), [0, 23); test
+# days [15, 20), [20, 25), [25, 30). The CV curve equals the hand-computed one: each split's
+# ridge path fitted on its training days and scored on its test days.
+statement ok
+CREATE TABLE ts AS
+SELECT i, i // 2 AS t, DATE '2024-03-01' + (i // 2)::INTEGER AS day, ((i * 7) % 13)::DOUBLE + i / 100.0 AS x1,
+       ((i * 5) % 11)::DOUBLE AS x2, 2.0 + 0.6 * ((i * 7) % 13) - 0.3 * ((i * 5) % 11) + 0.05 * i + cos(i) AS y
+FROM range(60) r(i);
+
+statement ok
+CREATE TABLE ts_splits AS
+SELECT * FROM (VALUES (1, 0, 13, 15, 20), (2, 0, 18, 20, 25), (3, 0, 23, 25, 30)) v(s, tr0, tr1, te0, te1);
+
+statement ok
+CREATE TABLE ts_hand AS
+WITH fits AS (
+    SELECT s.s, unnest(ridge_path_agg(ts.y, [ts.x1, ts.x2], {'lambdas': [0.5, 0.05]})) AS e
+    FROM ts JOIN ts_splits s ON ts.t >= s.tr0 AND ts.t < s.tr1
+    GROUP BY s.s),
+coef AS (
+    SELECT s, e.index_value AS lam,
+           max(e.estimate) FILTER (WHERE e.term = '(Intercept)') AS b0,
+           max(e.estimate) FILTER (WHERE e.term = 'x1') AS b1,
+           max(e.estimate) FILTER (WHERE e.term = 'x2') AS b2
+    FROM fits GROUP BY s, lam),
+err AS (
+    SELECT c.s, c.lam, avg((ts.y - (c.b0 + c.b1 * ts.x1 + c.b2 * ts.x2)) ^ 2) AS mse, count(*) AS n
+    FROM coef c JOIN ts_splits sp ON sp.s = c.s JOIN ts ON ts.t >= sp.te0 AND ts.t < sp.te1
+    GROUP BY c.s, c.lam)
+SELECT lam, sum(n * mse) / sum(n) AS cv_mean FROM err GROUP BY lam;
+
+query III
+SELECT c.n_folds, bool_and(abs(c.cv_mean - h.cv_mean) < 1e-9 * (1 + h.cv_mean)), count(*)
+FROM (SELECT unnest(ridge_cv_agg(y, [x1, x2], day, {'cv_strategy': 'time_series', 'folds': 3, 'test_size': 5, 'gap': 2, 'lambdas': [0.5, 0.05]})) AS c FROM ts) u
+JOIN ts_hand h ON h.lam = (u.c)."lambda"
+GROUP BY c.n_folds;
+----
+3	true	2
+
+# The integer time index and the date give the same splits; 'horizon' is an alias of test_size
+query I
+SELECT a = b
+FROM (SELECT ridge_cv_agg(y, [x1, x2], day, {'cv_strategy': 'time_series', 'folds': 3, 'test_size': 5, 'gap': 2, 'n_lambda': 6}) AS a,
+             ridge_cv_agg(y, [x1, x2], t, {'cv_strategy': 'time_series', 'folds': 3, 'horizon': 5, 'gap': 2, 'n_lambda': 6}) AS b FROM ts);
+----
+true
+
+# Sliding window: TimeSeriesSplit(n_splits=2, gap=3, max_train_size=6) over 17 time points
+# (fixture: train [0, 4) -> test [7, 12), train [3, 9) -> test [12, 17)), by hand
+statement ok
+CREATE TABLE ts_splits2 AS
+SELECT * FROM (VALUES (1, 0, 4, 7, 12), (2, 3, 9, 12, 17)) v(s, tr0, tr1, te0, te1);
+
+statement ok
+CREATE TABLE ts_hand2 AS
+WITH fits AS (
+    SELECT s.s, unnest(ridge_path_agg(ts.y, [ts.x1, ts.x2], {'lambdas': [0.3]})) AS e
+    FROM ts JOIN ts_splits2 s ON ts.t >= s.tr0 AND ts.t < s.tr1
+    GROUP BY s.s),
+coef AS (
+    SELECT s, max(e.estimate) FILTER (WHERE e.term = '(Intercept)') AS b0,
+           max(e.estimate) FILTER (WHERE e.term = 'x1') AS b1,
+           max(e.estimate) FILTER (WHERE e.term = 'x2') AS b2
+    FROM fits GROUP BY s),
+err AS (
+    SELECT c.s, avg((ts.y - (c.b0 + c.b1 * ts.x1 + c.b2 * ts.x2)) ^ 2) AS mse, count(*) AS n
+    FROM coef c JOIN ts_splits2 sp ON sp.s = c.s JOIN ts ON ts.t >= sp.te0 AND ts.t < sp.te1
+    GROUP BY c.s)
+SELECT sum(n * mse) / sum(n) AS cv_mean FROM err;
+
+query II
+SELECT r[1].n_folds, abs(r[1].cv_mean - (SELECT cv_mean FROM ts_hand2)) < 1e-9 * (1 + r[1].cv_mean)
+FROM (SELECT ridge_cv_agg(y, [x1, x2], t, {'cv_strategy': 'time_series', 'folds': 2, 'gap': 3, 'max_train_size': 6, 'window': 'sliding', 'lambdas': [0.3]}) AS r
+      FROM ts WHERE t < 17);
+----
+2	true
+
+# --- Nested CV ----------------------------------------------------------------
+statement ok
+CREATE TABLE n AS
+SELECT i, i % 4 AS fold, i % 6 AS store, ((i * 7) % 13)::DOUBLE + i / 100.0 AS x1, ((i * 5) % 11)::DOUBLE AS x2,
+       sin(i)::DOUBLE AS x3, i % 2 AS half, 1.0 + 0.7 * ((i * 7) % 13) - 0.5 * ((i * 5) % 11) + 2 * sin(i) + cos(3 * i) AS y
+FROM range(96) r(i);
+
+# Shape: one row per outer fold, then the summary row
+query IIIIII
+SELECT len(r), r[1].curve_type, r[1].series, r[5].series, r[5].n_test, r[1].metric
+FROM (SELECT ridge_nested_cv_agg(y, [x1, x2, x3], fold, {'inner_folds': 3, 'n_lambda': 15}) AS r FROM n);
+----
+5	nested_cv	fold	mean	96	mse
+
+# Each outer fold's lambda and inner error are a plain CV on its training rows only (same
+# seeded inner folds, grid from those rows), and its test error the refit scored on the fold
+statement ok
+CREATE TABLE nested_out AS
+SELECT unnest(ridge_nested_cv_agg(y, [x1, x2, x3], fold, {'inner_folds': 3, 'seed': 7, 'n_lambda': 15, 'rule': '1se'})) AS e FROM n;
+
+statement ok
+CREATE TABLE nested_hand AS
+WITH cv AS (
+    SELECT f.k, unnest(ridge_cv_agg(n.y, [n.x1, n.x2, n.x3], {'folds': 3, 'seed': 7, 'n_lambda': 15})) AS c
+    FROM n, (SELECT DISTINCT fold AS k FROM n) f WHERE n.fold <> f.k GROUP BY f.k)
+SELECT k, (c)."lambda" AS lam, (c).cv_mean AS inner_cv_mean FROM cv WHERE (c).is_1se;
+
+query II
+SELECT count(*), bool_and(abs((e)."lambda" - h.lam) < 1e-12 * h.lam AND abs((e).inner_cv_mean - h.inner_cv_mean) < 1e-10)
+FROM nested_out JOIN nested_hand h ON h.k + 1 = (e).fold;
+----
+4	true
+
+# The refit: the path of the training rows on their default grid, at the chosen lambda
+statement ok
+CREATE TABLE nested_hand_err AS
+WITH fits AS (
+    SELECT f.k, unnest(ridge_path_agg(n.y, [n.x1, n.x2, n.x3], {'n_lambda': 15})) AS e
+    FROM n, (SELECT DISTINCT fold AS k FROM n) f WHERE n.fold <> f.k GROUP BY f.k),
+coef AS (
+    SELECT fits.k, max(e.estimate) FILTER (WHERE e.term = '(Intercept)') AS b0,
+           max(e.estimate) FILTER (WHERE e.term = 'x1') AS b1,
+           max(e.estimate) FILTER (WHERE e.term = 'x2') AS b2,
+           max(e.estimate) FILTER (WHERE e.term = 'x3') AS b3
+    FROM fits JOIN nested_hand h ON h.k = fits.k AND e.index_value = h.lam GROUP BY fits.k)
+SELECT c.k, avg((n.y - (c.b0 + c.b1 * n.x1 + c.b2 * n.x2 + c.b3 * n.x3)) ^ 2) AS mse
+FROM coef c JOIN n ON n.fold = c.k GROUP BY c.k;
+
+query II
+SELECT bool_and(abs((e).test_error - h.mse) < 1e-9 * (1 + h.mse)),
+       abs((SELECT (e).test_error FROM nested_out WHERE (e).series = 'mean') - avg(h.mse)) < 1e-9
+FROM nested_out JOIN nested_hand_err h ON h.k + 1 = (e).fold;
+----
+true	true
+
+# Leakage: perturbing y on outer fold 2's test rows (fold label 1) changes its test error
+# but neither its selected lambda nor its inner CV curve
+statement ok
+CREATE TABLE n2 AS SELECT * REPLACE (CASE WHEN fold = 1 THEN y + 500 * ((i % 3) - 1) ELSE y END AS y) FROM n;
+
+query III
+SELECT (a[2])."lambda" = (b[2])."lambda", (a[2]).inner_cv_mean = (b[2]).inner_cv_mean, (a[2]).test_error <> (b[2]).test_error
+FROM (SELECT ridge_nested_cv_agg(y, [x1, x2, x3], fold, {'inner_folds': 3, 'n_lambda': 15}) AS a FROM n),
+     (SELECT ridge_nested_cv_agg(y, [x1, x2, x3], fold, {'inner_folds': 3, 'n_lambda': 15}) AS b FROM n2);
+----
+true	true	true
+
+# The same with leave-one-store-out outer folds and group inner folds: store 3 is outer fold 4
+statement ok
+CREATE TABLE n3 AS SELECT * REPLACE (CASE WHEN store = 3 THEN y * 10 ELSE y END AS y) FROM n;
+
+query IIII
+SELECT a[1].n_folds, (a[4])."lambda" = (b[4])."lambda", (a[4]).inner_cv_mean = (b[4]).inner_cv_mean, (a[4]).n_inner_folds
+FROM (SELECT elasticnet_nested_cv_agg(y, [x1, x2, x3], store, {'cv_strategy': 'logo', 'inner_folds': 4, 'n_lambda': 10}) AS a FROM n),
+     (SELECT elasticnet_nested_cv_agg(y, [x1, x2, x3], store, {'cv_strategy': 'logo', 'inner_folds': 4, 'n_lambda': 10}) AS b FROM n3);
+----
+6	true	true	4
+
+# Nested time-series CV and the MAE metric
+query III
+SELECT len(r), r[1].metric, r[4].y_low < r[4].y AND r[4].y < r[4].y_high
+FROM (SELECT ridge_nested_cv_agg(y, [x1, x2], day, {'cv_strategy': 'time_series', 'folds': 3, 'inner_folds': 2, 'metric': 'mae', 'n_lambda': 8}) AS r FROM ts);
+----
+4	mae	true
+
+# --- Table macros ---------------------------------------------------------------
+statement ok
+CREATE TABLE g2 AS SELECT *, CASE WHEN i < 30 THEN 'a' ELSE 'b' END AS region FROM g;
+
+query IIII
+SELECT count(*), count(DISTINCT region), bool_and(n_folds = 3), bool_and(curve_type = 'lambda_cv')
+FROM ridge_cv_by('g2', region, y, [x1, x2],
+                 options := {'cv_strategy': 'group', 'folds': 3, 'n_lambda': 5}, cv_key := grp);
+----
+10	2	true	true
+
+query IIII
+SELECT count(*), count(*) FILTER (WHERE series = 'mean'), bool_and(curve_type = 'nested_cv'), max(n_folds)
+FROM elasticnet_nested_cv_by('n', half, y, [x1, x2], options := {'cv_strategy': 'group', 'folds': 3, 'inner_folds': 2, 'n_lambda': 6},
+                             cv_key := store);
+----
+8	2	true	3
+
+# Without cv_key the macros behave as before
+query I
+SELECT count(*) FROM ridge_cv_by('n', half, y, [x1, x2], options := {'folds': 4, 'n_lambda': 5});
+----
+10
+
+query II
+SELECT tags['anofox.output'], tags['anofox.contract'] IS NOT NULL
+FROM duckdb_functions() WHERE function_name = 'ridge_nested_cv_by' LIMIT 1;
+----
+curve	true
+
+# --- Errors -------------------------------------------------------------------
+statement error
+SELECT ridge_cv_agg(y, [x1, x2], {'cv_strategy': 'group'}) FROM g;
+----
+needs a cv_key argument
+
+statement error
+SELECT ridge_cv_agg(y, [x1, x2], grp, {'cv_strategy': 'kfold'}) FROM g;
+----
+takes no cv_key
+
+statement error
+SELECT ridge_cv_agg(y, [x1, x2], 'a' || grp::VARCHAR, {'cv_strategy': 'time_series'}) FROM g;
+----
+must be a number, date, time or timestamp
+
+statement error
+SELECT ridge_cv_agg(y, [x1, x2], grp, {'cv_strategy': 'group', 'gap': 1}) FROM g;
+----
+apply to cv_strategy 'time_series'
+
+statement error
+SELECT ridge_cv_agg(y, [x1, x2], t, {'cv_strategy': 'time_series', 'window': 'sliding'}) FROM ts;
+----
+needs max_train_size
+
+statement error
+SELECT ridge_cv_agg(y, [x1, x2], grp, {'cv_strategy': 'group', 'repeats': 2}) FROM g;
+----
+repeats applies to
+
+statement error
+SELECT ridge_cv_agg(y, [x1, x2], grp, {'cv_strategy': 'group', 'folds': 1}) FROM g;
+----
+folds must be at least 2
+
+statement error
+SELECT ridge_cv_agg(y, [x1, x2], {'cv_strategy': 'bootstrap'}) FROM g;
+----
+cv_strategy must be one of
+
+statement error
+SELECT ridge_cv_agg(y, [x1, x2], {'inner_folds': 3}) FROM g;
+----
+inner_folds
+
+statement error
+SELECT ridge_nested_cv_agg(y, [x1, x2], fold, {'rule': 'max'}) FROM n;
+----
+rule must be one of
+
+statement error
+SELECT ridge_nested_cv_agg(y, [x1, x2], fold, {'repeats': 2}) FROM n;
+----
+repeats
+
+statement error
+SELECT ridge_cv_agg(y, [x1, x2], {'cv_strategy': 'stratified', 'n_bins': 3, 'metric': 'rmse'}) FROM g;
+----
+metric must be one of

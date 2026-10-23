@@ -177,11 +177,10 @@ static void MmdAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
             continue;
         }
 
-        if (bind_data.options.seed.has_value()) {
-            // Make the seeded result independent of the row order threads delivered.
-            std::sort(state.group1.begin(), state.group1.end());
-            std::sort(state.group2.begin(), state.group2.end());
-        }
+        // The RNG is always seeded: make the result independent of the row order
+        // threads delivered.
+        std::sort(state.group1.begin(), state.group1.end());
+        std::sort(state.group2.begin(), state.group2.end());
 
         AnofoxDataArray group1_array;
         group1_array.data = state.group1.data();
@@ -195,8 +194,8 @@ static void MmdAggFinalize(Vector &state_vector, AggregateInputData &aggr_input_
 
         AnofoxMmdOptions options;
         options.n_permutations = bind_data.options.n_permutations.value_or(1000);
-        options.seed = bind_data.options.seed.value_or(0);
-        options.has_seed = bind_data.options.seed.has_value();
+        options.seed = bind_data.options.seed.value_or(ANOFOX_DEFAULT_MC_SEED);
+        options.has_seed = true;
 
         AnofoxTestResult test_result;
         AnofoxError error;

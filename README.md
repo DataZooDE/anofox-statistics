@@ -64,7 +64,7 @@ Function names have no prefix (`ols_fit_agg`, `theil_sen_fit`, …), and model o
 | lmDynamic | `lm_dynamic_fit_agg`, `lm_dynamic_fit_predict_agg` | Time-varying coefficients by pointwise information-criterion averaging of all regressor subsets (greybox `lmDynamic`) | [online_dynamic](docs/api/regression/online_dynamic.md) |
 | LOWESS | `lowess_agg`, `lowess_by` | Robust locally weighted scatterplot smoother (R `lowess`), as a curve | [online_dynamic](docs/api/regression/online_dynamic.md) |
 | Quantile | `quantile_fit_agg`, `quantile_fit_predict_agg`, `quantile_process_agg` | Quantile / median regression; standard errors with `{'se': 'iid' \| 'nid' \| 'boot'}` (as `quantreg::summary.rq`); the regression-quantile process over a grid of `taus` | [quantile](docs/api/regression/quantile.md) |
-| Paths & CV | `ridge_path_agg`, `elasticnet_path_agg`, `lars_path_agg`, `ridge_cv_agg`, `elasticnet_cv_agg` | Coefficient paths over a penalty grid and k-fold CV curves (glmnet's objective, grid and `cv.glmnet` `lambda.min` / `lambda.1se`) | [paths](docs/api/regression/paths.md) |
+| Paths & CV | `ridge_path_agg`, `elasticnet_path_agg`, `lars_path_agg`, `ridge_cv_agg`, `elasticnet_cv_agg`, `ridge_nested_cv_agg`, `elasticnet_nested_cv_agg` | Coefficient paths over a penalty grid, CV curves (glmnet's objective, grid and `cv.glmnet` `lambda.min` / `lambda.1se`) with k-fold, group, leave-one-group-out, stratified or time-series folds, and nested CV | [paths](docs/api/regression/paths.md) |
 
 ### Generalized Linear, Survival and Hierarchical Models
 
@@ -102,15 +102,16 @@ These table macros fit one model per group of a table and return long tables in 
 
 | Macro | Models | Returns | Docs |
 |-------|--------|---------|------|
-| `<model>_tidy_by` | 25: `ols`, `wls`, `ridge`, `elasticnet`, `lars`, `bayesian_ridge`, `ard`, `passive_aggressive` and `lm_dynamic` (both with an `order_col`; `lm_dynamic` gives per-row coefficients), `rls`, `huber`, `ransac`, `theil_sen`, `bls`, `nnls`, `pls`, `quantile`, the six GLMs, `alm`, `aft` | One row per group and term: `estimate`, `std_error`, `statistic`, `p_value`, `conf_low`, `conf_high` (`terms`) | [model_tools](docs/api/regression/model_tools.md#tidy_by-and-glance_by) |
+| `<model>_tidy_by` | 25: `ols`, `wls`, `ridge`, `elasticnet`, `lars`, `bayesian_ridge`, `ard`, `passive_aggressive` and `lm_dynamic` (both with an `order_col`; `lm_dynamic` gives per-row coefficients), `rls` (pass `order_by := t`), `huber`, `ransac`, `theil_sen`, `bls`, `nnls`, `pls`, `quantile`, the six GLMs, `alm`, `aft` | One row per group and term: `estimate`, `std_error`, `statistic`, `p_value`, `conf_low`, `conf_high` (`terms`) | [model_tools](docs/api/regression/model_tools.md#tidy_by-and-glance_by) |
 | `<model>_glance_by` | the same 25 | One row per group and fit statistic: `model_type`, `metric`, `value` (`summary`) | [model_tools](docs/api/regression/model_tools.md#tidy_by-and-glance_by) |
-| `ols_augment_by`, `wls_augment_by`, `<glm>_augment_by` | OLS, WLS, the six GLMs | Every source row plus `fitted`, `residual`, `std_residual`, `stud_residual`, `leverage`, `cooks_d`, `dffits` (`obs`, as broom's `augment`) | [model_tools](docs/api/regression/model_tools.md#augment_by) |
+| `ols_augment_by`, `wls_augment_by`, `<glm>_augment_by` | OLS, WLS, the six GLMs | Every source row plus `fitted`, `residual`, `std_residual`, `stud_residual`, `leverage`, `cooks_d`, `dffits` (`obs`, as broom's `augment`); OLS / WLS also the leave-one-out `loo_residual`, `loo_fitted` | [model_tools](docs/api/regression/model_tools.md#augment_by) |
 | `<model>_partial_residuals_by` | OLS, WLS, the six GLMs | Component-plus-residual (`car::crPlots`) and, for OLS/WLS, added-variable (`car::avPlots`) coordinates per row and term | [model_tools](docs/api/regression/model_tools.md#partial_residuals_by) |
 | `<model>_prediction_by` | 23 (every `*_fit_predict_by` model) | Fitted values with their band and `split` (`train` / `test` / `future`), keyed by a plot position `x_col` (`prediction`) | [model_tools](docs/api/regression/model_tools.md#prediction_by-and-effects_by) |
 | `<model>_effects_by` | OLS, WLS, Ridge, the six GLMs | Marginal-effect grid over one focal feature, other features at their means, with a confidence band (`prediction`) | [model_tools](docs/api/regression/model_tools.md#prediction_by-and-effects_by) |
 | `<model>_rolling_tidy_by` | OLS, WLS, Ridge, Elastic Net, Huber, Poisson | Coefficients of every trailing window of `window_size` rows ordered by `order_col` (`terms`, `index_name = 'window_end'`) | [model_tools](docs/api/regression/model_tools.md#rolling_tidy_by) |
 | `ridge_path_by`, `elasticnet_path_by`, `lars_path_by` | — | Coefficient path per group (`terms`, `index_name = 'lambda'`; `'alpha'` for LARS) | [paths](docs/api/regression/paths.md) |
-| `ridge_cv_by`, `elasticnet_cv_by` | — | k-fold CV curve per group with `is_min` / `is_1se` (`curve`, `curve_type = 'lambda_cv'`) | [paths](docs/api/regression/paths.md) |
+| `ridge_cv_by`, `elasticnet_cv_by` | — | CV curve per group with `is_min` / `is_1se` (`curve`, `curve_type = 'lambda_cv'`) | [paths](docs/api/regression/paths.md) |
+| `ridge_nested_cv_by`, `elasticnet_nested_cv_by` | — | nested CV per group: chosen lambda and outer error per fold, plus the mean (`curve`, `curve_type = 'nested_cv'`) | [paths](docs/api/regression/paths.md) |
 | `quantile_process_by` | — | Coefficients and intervals over a grid of `taus` (`terms`, `index_name = 'tau'`) | [quantile](docs/api/regression/quantile.md#quantile_process_agg) |
 
 The prediction and rolling macros take a position column: `<model>_prediction_by(source, group_col, x_col, y_col, x_cols[, level := 0.95, split := ...])` and `<model>_rolling_tidy_by(source, group_col, order_col, y_col, x_cols[, window_size := 30, min_obs := ...])`.
@@ -141,6 +142,7 @@ Per-group model fitting and prediction in a single call. `source` is a table nam
 | `quantile_fit_predict_by` | Quantile per-group fit + predict |
 | `glmm_fit_by` | One mixed model across groups; returns per-group random effects ([glmm](docs/api/glm/glmm.md)) |
 | `eb_shrink_by` | Empirical-Bayes shrinkage of existing per-group estimates ([eb_shrink](docs/api/glm/eb_shrink.md)) |
+| `mediation_by` | Causal mediation analysis per group: ACME, ADE, total effect, proportion mediated ([mediation](docs/api/statistics/mediation.md)) |
 | `aid_by`, `aid_anomaly_by` | Per-group demand classification / per-row anomaly flags ([aid](docs/api/aid/aid.md)) |
 | `roc_curve_by`, `pr_curve_by`, `calibration_curve_by` | Per-group classifier curves in the contract `curve` schema ([classification](docs/api/statistics/classification.md)) |
 
@@ -204,7 +206,7 @@ Profiling shows that most of the query time is spent in DuckDB's `GROUP BY` mach
 
 ## Installation
 
-Supported DuckDB versions: **v1.5.x** and **v2.0** (release binaries are built against v1.5.4, v1.5.5 and v1.5.6).
+Supported DuckDB versions: **v1.5.6** and **v2.0** (release binaries are built against v1.5.6 and v2.0.0).
 
 ### From the DataZoo extension repository (recommended)
 
@@ -457,9 +459,9 @@ Model STRUCTs are convenient in SQL but awkward to chart. The `_by` table macros
 |--------|--------------|-------------|
 | `terms` | `model_id, term, estimate, std_error, statistic, p_value, conf_low, conf_high, conf_level, index_name, index_value` | `<model>_tidy_by`, `<model>_rolling_tidy_by`, `ridge_path_by` / `elasticnet_path_by` / `lars_path_by`, `quantile_process_by` |
 | `summary` | `model_id, model_type, metric, value` | `<model>_glance_by` |
-| `obs` | `model_id, model_name, row_id, fitted, residual, resid_type, std_residual, stud_residual, leverage, cooks_d, dffits, weight, is_training, n_params` | `ols_augment_by`, `wls_augment_by`, `<glm>_augment_by` |
+| `obs` | `model_id, model_name, row_id, fitted, residual, resid_type, std_residual, stud_residual, leverage, cooks_d, dffits, weight, is_training, n_params` (+ `loo_residual, loo_fitted` for OLS / WLS) | `ols_augment_by`, `wls_augment_by`, `<glm>_augment_by` |
 | `prediction` | `id, model_id, model_name, x, y, yhat, yhat_lower, yhat_upper, level, split` | `<model>_prediction_by`, `<model>_effects_by` |
-| `curve` | `model_id, series, curve_type, x, y, y_low, y_high, threshold, weight, n_censor` | `roc_curve_by`, `pr_curve_by`, `calibration_curve_by`, `ridge_cv_by`, `elasticnet_cv_by`, `kaplan_meier_by`, `acf_by`, `pacf_by` |
+| `curve` | `model_id, series, curve_type, x, y, y_low, y_high, threshold, weight, n_censor` | `roc_curve_by`, `pr_curve_by`, `calibration_curve_by`, `ridge_cv_by`, `elasticnet_cv_by`, `ridge_nested_cv_by`, `elasticnet_nested_cv_by`, `kaplan_meier_by`, `acf_by`, `pacf_by` |
 | `test` | `model_id, test_id, method, statistic, p_value, group1, group2, p_adj, df1, df2, estimate, conf_low, conf_high, …` | `pairwise_t_test_by`, `tukey_hsd_by`, `dunn_test_by`; the test aggregates return the same fields as a STRUCT |
 
 ```sql
@@ -632,7 +634,7 @@ If you use this extension in research, please cite:
   author  = {{DataZoo GmbH}},
   year    = {2026},
   url     = {https://github.com/DataZooDE/anofox-statistics},
-  version = {0.12.1}
+  version = {0.13.0}
 }
 ```
 

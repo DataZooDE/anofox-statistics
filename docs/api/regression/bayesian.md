@@ -14,8 +14,10 @@ hyperpriors on both.
   reaches `threshold_lambda` the feature is pruned (coefficient exactly 0), so
   ARD selects features on wide, sparse problems.
 
-Both return the posterior mean coefficients and the posterior standard
-deviation of each one. The fit-predict forms bound every prediction with the
+Both return the posterior mean coefficients, the posterior standard
+deviation of each one and its **central credible interval**
+`mean ± z_{(1+level)/2} · sd` (see [Credible intervals](#credible-intervals)).
+The fit-predict forms bound every prediction with the
 **posterior predictive interval**, `yhat ± z · sd` with
 `sd = sqrt((x − x̄)' Σ (x − x̄) + 1/alpha)` and `Σ` the posterior covariance of
 the coefficients (scikit-learn's `predict(X, return_std=True)`), so no
@@ -90,7 +92,7 @@ FROM (SELECT ard_fit_agg(y, [x1, x2, x3]) AS m FROM bayes_demo);
 | `alpha_1`, `alpha_2` | DOUBLE | `1e-6` | Shape and rate of the gamma prior on the noise precision; >= 0 |
 | `lambda_1`, `lambda_2` | DOUBLE | `1e-6` | Shape and rate of the gamma prior on the weight precision(s); >= 0 |
 | `threshold_lambda` | DOUBLE | `10000` | ARD only: prune a feature once its precision reaches this; > 0 |
-| `confidence_level` (alias `confidence`) | DOUBLE | `0.95` | `*_fit_predict_agg` / `_by` only: level of the posterior predictive interval |
+| `confidence_level` (alias `confidence`) | DOUBLE | `0.95` | Level of the coefficient credible intervals (`*_fit_agg`, `*_tidy_by`) and of the posterior predictive interval (`*_fit_predict_agg` / `_by`); in (0, 1) |
 | `null_policy` | VARCHAR | `'drop'` | `*_fit_predict_agg` / `_by` only: `'drop_y_zero_x'` also leaves rows with a feature equal to 0 out of the fit, `'zero'` fits a NULL `y` or feature as 0, `'ignore'` = `'drop'`; see [null_policy](fit_predict_agg.md#null_policy) |
 
 The defaults are scikit-learn's. Option keys a function does not support raise
@@ -114,10 +116,46 @@ an error.
 Like every model STRUCT (see [model tools](model_tools.md)) the result also has
 the inference fields (`std_errors`, `t_values`, `p_values`, `conf_low`,
 `conf_high`, `conf_level`, `intercept_*`) and the shared tail (`log_likelihood`,
-`aic`, `bic`, `model_type`, `family`, `link`). The models have no frequentist
-inference or likelihood-based information criteria, so these are NULL; the
-coefficient uncertainty is in `posterior_sd`. `model_type` is
+`aic`, `bic`, `model_type`, `family`, `link`). The inference fields carry the
+posterior, see [Credible intervals](#credible-intervals); `t_values`,
+`p_values`, `intercept_statistic` and `intercept_p_value` are NULL, and so are
+the likelihood-based `log_likelihood`, `aic` and `bic`. `model_type` is
 `'bayesian_ridge'` or `'ard'`.
+
+## Credible intervals
+
+Conditional on the estimated precisions (empirical Bayes), the posterior of
+the coefficients is Gaussian with mean `coefficients` and covariance `Σ`
+(scikit-learn's `sigma_`). The inference fields hold:
+
+| Field | Value |
+|-------|-------|
+| `std_errors` | Posterior SD `sqrt(diag(Σ))`, the same as `posterior_sd` (ARD: 0 for pruned features) |
+| `conf_low`, `conf_high` | Central credible interval `coefficient ∓ z · sd`, `z` the `(1 + level)/2` normal quantile (ARD: `[0, 0]` for pruned features) |
+| `conf_level` | `confidence_level` |
+| `intercept_std_error` | Posterior SD of the intercept, `sqrt(1/(n·α) + x̄ᵀ Σ x̄)` |
+| `intercept_conf_low`, `intercept_conf_high` | Its credible interval |
+| `t_values`, `p_values`, `intercept_statistic`, `intercept_p_value` | NULL: there is no test |
+
+These are **Bayesian credible intervals**, not frequentist confidence
+intervals: they state where the coefficient lies with probability `level`
+under the model's prior and the estimated precisions. The intercept is not
+part of `Σ` (as in scikit-learn); it has a flat prior, so its posterior
+variance is the noise variance of `ȳ` (`1/(n·α)`) plus the slope uncertainty
+carried over by the centring (`x̄ᵀ Σ x̄`). Without `fit_intercept` the
+`intercept_*` fields are NULL. The values agree with scikit-learn's `sigma_`
+to 1e-7 (`test/sql/reference/regression_bayesian.test`); the intercept SD is
+checked against the inverted full posterior precision of `(intercept, β)`.
+
+```sql
+SELECT
+    list_transform(m.coefficients, lambda c: round(c, 3)) AS coefficients,
+    list_transform(m.conf_low, lambda v: round(v, 3)) AS conf_low,
+    list_transform(m.conf_high, lambda v: round(v, 3)) AS conf_high,
+    round(m.intercept_conf_low, 3) AS intercept_low,
+    round(m.intercept_conf_high, 3) AS intercept_high
+FROM (SELECT bayesian_ridge_fit_agg(y, [x1, x2, x3], {'confidence_level': 0.9}) AS m FROM bayes_demo);
+```
 
 ## bayesian_ridge_fit_predict_agg / ard_fit_predict_agg
 
@@ -151,8 +189,10 @@ SELECT grp, round(yhat, 3) AS yhat, round(yhat_lower, 3) AS lower, round(yhat_up
 FROM bayesian_ridge_fit_predict_by('bayes_demo', grp, y, [x1, x2, x3])
 LIMIT 3;
 
--- Coefficients (integration contract `terms`; std_error etc. are NULL)
-SELECT grp, term, round(estimate, 3) AS estimate
+-- Coefficients with posterior SDs and 95% credible intervals (integration
+-- contract `terms`; statistic and p_value are NULL)
+SELECT grp, term, round(estimate, 3) AS estimate, round(std_error, 4) AS sd,
+       round(conf_low, 3) AS conf_low, round(conf_high, 3) AS conf_high
 FROM ard_tidy_by('bayes_demo', grp, y, [x1, x2, x3], names := ['x1', 'x2', 'x3']);
 
 -- Fit statistics (`summary`): n_observations, n_features, r_squared, iterations
@@ -163,6 +203,11 @@ SELECT grp, x, round(yhat, 3) AS yhat, round(yhat_lower, 3) AS lower, round(yhat
 FROM bayesian_ridge_prediction_by('bayes_demo', grp, x1, y, [x1, x2, x3], level := 0.9)
 LIMIT 3;
 ```
+
+The `terms` rows of `bayesian_ridge_tidy_by` / `ard_tidy_by` carry credible
+intervals in the `conf_low` / `conf_high` columns, which other models use for
+confidence intervals; `model_id` (`'bayesian_ridge'` / `'ard'`) tells them
+apart. Pass `options := {'confidence_level': 0.9}` for another level.
 
 The `_fit_predict_by` macros take `options`, `split` and `order_by` as the
 other [fit-predict table macros](../macros/table_macros.md).

@@ -28,6 +28,8 @@ struct ElasticNetFitPredictState {
 
     vector<double> current_x;
     bool has_current_x;
+    // Saw any row, NULL x included: such a state ends a combined frame (#208)
+    bool saw_row;
 
     bool fit_intercept;
     double confidence_level;
@@ -39,7 +41,7 @@ struct ElasticNetFitPredictState {
     LambdaScaling lambda_scaling;
 
     ElasticNetFitPredictState()
-        : n_features(0), initialized(false), has_current_x(false), fit_intercept(true), confidence_level(0.95),
+        : n_features(0), initialized(false), has_current_x(false), saw_row(false), fit_intercept(true), confidence_level(0.95),
           alpha(1.0), l1_ratio(0.5), max_iterations(1000), tolerance(1e-6), null_policy(NullPolicy::DROP),
           lambda_scaling(LambdaScaling::RAW) {}
 
@@ -50,6 +52,7 @@ struct ElasticNetFitPredictState {
         n_features = 0;
         initialized = false;
         has_current_x = false;
+        saw_row = false;
     }
 };
 
@@ -140,6 +143,7 @@ static void ElasticNetFitPredictUpdate(Vector inputs[], AggregateInputData &aggr
         auto x_idx = x_data.sel->get_index(i);
         if (!x_data.validity.RowIsValid(x_idx)) {
             state.has_current_x = false;
+            state.saw_row = true;
             continue;
         }
 
@@ -162,6 +166,7 @@ static void ElasticNetFitPredictUpdate(Vector inputs[], AggregateInputData &aggr
                                                 NullFill(state.null_policy));
         }
         state.has_current_x = true;
+        state.saw_row = true;
 
         auto y_idx = y_data.sel->get_index(i);
         bool y_valid = y_data.validity.RowIsValid(y_idx);
@@ -201,8 +206,14 @@ static void ElasticNetFitPredictCombine(Vector &source_vector, Vector &target_ve
         auto &source = *sources[source_data.sel->get_index(i)];
         auto &target = *targets[target_data.sel->get_index(i)];
 
-        if (!source.initialized)
+        // The source holds the later rows, so its last row is the frame's last row
+        target.saw_row = target.saw_row || source.saw_row;
+        if (!source.initialized) {
+            if (source.saw_row) {
+                target.has_current_x = false;
+            }
             continue;
+        }
 
         if (!target.initialized) {
             target.y_values = CombineTake(source.y_values, aggr_input_data);
@@ -232,9 +243,9 @@ static void ElasticNetFitPredictCombine(Vector &source_vector, Vector &target_ve
                                        source.x_columns[j].end());
         }
 
-        if (source.has_current_x) {
+        if (source.saw_row) {
             target.current_x = CombineTake(source.current_x, aggr_input_data);
-            target.has_current_x = true;
+            target.has_current_x = source.has_current_x;
         }
     }
 }
@@ -250,7 +261,8 @@ static void ElasticNetFitPredictFinalize(Vector &state_vector, AggregateInputDat
         auto &state = *states[sdata.sel->get_index(i)];
         idx_t result_idx = i + offset;
 
-        if (!state.initialized || !state.has_current_x) {
+        // A NULL or incomplete current x has no prediction: NULL, not NaN (#208)
+        if (!state.initialized || !state.has_current_x || !AllFinite(state.current_x)) {
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }
@@ -294,7 +306,7 @@ static void ElasticNetFitPredictFinalize(Vector &state_vector, AggregateInputDat
 
         anofox_free_result_core(&core_result);
 
-        if (!pred_success) {
+        if (!pred_success || !std::isfinite(pred_result.yhat)) {
             FlatVector::SetNull(result, result_idx, true);
             continue;
         }

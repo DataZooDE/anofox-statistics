@@ -16,7 +16,9 @@ mod isotonic;
 mod lars;
 mod lm_dynamic;
 mod lowess;
+mod mediation;
 mod ols;
+mod ols_anova;
 mod passive_aggressive;
 mod path;
 mod pls;
@@ -52,7 +54,8 @@ pub use glm::{
     LogisticResult,
 };
 pub use glmm::{
-    fit_glmm, fit_glmm_crossed, FactorVariance, GlmmFamily, GlmmOptions, GlmmResult, RandomEffect,
+    fit_glmm, fit_glmm_crossed, FactorVariance, GlmmDdf, GlmmFamily, GlmmObservations, GlmmOptions,
+    GlmmResult, RandomEffect,
 };
 pub use huber::{fit_huber, HuberResult};
 pub use interval::{
@@ -63,11 +66,18 @@ pub use isotonic::fit_isotonic;
 pub use lars::fit_lars;
 pub use lm_dynamic::fit_lm_dynamic;
 pub use lowess::fit_lowess;
+pub use mediation::{
+    mediate, BootCi, MediationEffect, MediationMethod, MediationOptions, MediationResult,
+};
 pub use ols::fit_ols;
+pub use ols_anova::{ols_anova, NestedFTest, NestedFTestOptions};
 pub use passive_aggressive::{
     fit_passive_aggressive, PassiveAggressiveOptions, PassiveAggressiveResult,
 };
-pub use path::{cv_reg_path, fit_reg_path, lars_path, CvPathResult, RegPathOptions, RegPathResult};
+pub use path::{
+    cv_reg_path, cv_reg_path_strategy, fit_reg_path, lars_path, nested_cv_reg_path, CvPathResult,
+    CvSpec, CvStrategy, NestedCvResult, RegPathOptions, RegPathResult,
+};
 pub use pls::fit_pls;
 pub use predict::predict;
 pub use predict_se::{

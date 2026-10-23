@@ -3,34 +3,40 @@ name: anofox-statistics-tests
 description: >
   Statistical hypothesis tests, post-hoc comparisons, correlation, effect
   sizes, equivalence testing, classifier evaluation, and time-series and
-  survival tests in the anofox_statistics DuckDB extension. Covers the
-  unified test-result fields (method, alternative, statistic, df1, df2,
-  p_value, estimate, conf_low, conf_high, conf_level, effect_size,
-  effect_name, n) and their deprecated aliases, normality tests
-  (Shapiro-Wilk, Jarque-Bera, D'Agostino K2), parametric tests (t-test,
-  one-way ANOVA, Yuen, Brown-Forsythe), nonparametric tests (Mann-Whitney U,
-  Kruskal-Wallis, Wilcoxon signed-rank, Brunner-Munzel, permutation t-test),
-  pairwise post-hoc tests (pairwise_t_test_agg, tukey_hsd_agg,
-  dunn_test_agg and their _by macros, p_adjust holm / BH / bonferroni),
-  correlation (Pearson, Spearman, Kendall, distance correlation, ICC),
-  categorical / contingency tests (chi-squared, chi-squared GOF, G-test,
-  Fisher's exact, McNemar), effect sizes (Cramér's V, phi, contingency
-  coefficient, Cohen's kappa), proportion tests, TOST equivalence tests,
-  distribution comparison (energy distance, MMD), forecast-evaluation tests
-  (Diebold-Mariano, Clark-West), residual autocorrelation and
-  heteroskedasticity tests (Ljung-Box, Box-Pierce, Durbin-Watson with
-  p-value, Breusch-Pagan, White), survival tests (Kaplan-Meier,
-  log-rank), and classifier evaluation (ROC / PR / calibration curves, AUC,
-  Brier score, log loss, roc_curve_by). Use when running a significance
-  test, comparing many groups, measuring association/effect size,
-  evaluating a classifier, or comparing distributions or survival in SQL.
-version: 0.12.1
+  survival tests in the anofox_statistics DuckDB extension. Covers the unified
+  test-result fields (method, alternative, statistic, df1, df2, p_value,
+  estimate, conf_low, conf_high, conf_level, effect_size, effect_name, n) and
+  their deprecated aliases, normality tests (Shapiro-Wilk, Jarque-Bera,
+  D'Agostino K2), parametric tests (t-test, one-way ANOVA, Yuen,
+  Brown-Forsythe), nonparametric tests (Mann-Whitney U, Kruskal-Wallis,
+  Wilcoxon signed-rank, Brunner-Munzel, permutation t-test), pairwise post-hoc
+  tests (pairwise_t_test_agg, tukey_hsd_agg, dunn_test_agg and their _by
+  macros, p_adjust holm / BH / bonferroni), multiple-testing correction of any
+  p-values (p_adjust_by, p_adjust_agg, p_adjust_list; R p.adjust), correlation
+  (Pearson, Spearman, Kendall, distance correlation, ICC), categorical /
+  contingency tests (chi-squared, chi-squared GOF, G-test, Fisher's exact,
+  McNemar), effect sizes (Cramér's V, phi, contingency coefficient, Cohen's
+  kappa), proportion tests, TOST equivalence tests, distribution comparison
+  (energy distance, MMD), forecast-evaluation tests (Diebold-Mariano,
+  Clark-West), residual autocorrelation and heteroskedasticity tests
+  (Ljung-Box, Box-Pierce, Durbin-Watson with p-value, Breusch-Pagan, White),
+  survival tests (Kaplan-Meier, log-rank), causal mediation analysis
+  (mediation_by / mediation_agg: ACME, ADE, total effect, proportion
+  mediated), and classifier evaluation (ROC / PR / calibration curves, AUC,
+  Brier score, log loss, roc_curve_by). Also: multiple-testing correction
+  (p_adjust_by / p_adjust_agg / p_adjust_list, holm / BH / BY …), causal
+  mediation (mediation_by: ACME, ADE, proportion mediated), the nested-model F
+  test (ols_anova_by), and seeded, bitwise-reproducible Monte Carlo and group
+  tests. Use when running a significance test, comparing many groups,
+  measuring association/effect size, evaluating a classifier, or comparing
+  distributions or survival in SQL.
+version: 0.13.0
 user-invocable: false
 ---
 
 # Anofox Statistics — Hypothesis Tests Cheat Sheet
 
-**Extension:** `anofox_statistics` v0.12.1 | **DuckDB:** v1.5.x / v2.0 | Tests are **aggregates** — use with `GROUP BY` for per-segment tests.
+**Extension:** `anofox_statistics` v0.13.0 | **DuckDB:** v1.5.6 / v2.0 | Tests are **aggregates** — use with `GROUP BY` for per-segment tests.
 
 ## Gotchas
 
@@ -79,7 +85,7 @@ user-invocable: false
 | `kruskal_wallis_agg` | Kruskal-Wallis |
 | `wilcoxon_signed_rank_agg` | Wilcoxon signed-rank (paired) |
 | `brunner_munzel_agg` | Brunner-Munzel |
-| `permutation_t_test_agg` | Permutation t-test |
+| `permutation_t_test_agg` | Permutation t-test; `n_permutations` (10000), `seed` (default 42, so the p-value is reproducible) |
 
 ### Correlation
 | Function | Measure |
@@ -87,7 +93,7 @@ user-invocable: false
 | `pearson_agg` | Pearson r |
 | `spearman_agg` / `spearman` | Spearman ρ |
 | `kendall_agg` | Kendall τ |
-| `distance_cor_agg` | Distance correlation |
+| `distance_cor_agg` | Distance correlation; permutation test with `n_permutations` (1000), `seed` (default 42) |
 | `icc_agg` / `icc` | Intraclass correlation |
 
 ### Categorical / contingency
@@ -124,8 +130,8 @@ user-invocable: false
 ### Distribution comparison
 | Function | Measure |
 |---|---|
-| `energy_distance_agg` | Energy distance |
-| `mmd_agg` | Maximum mean discrepancy |
+| `energy_distance_agg` | Energy distance; `n_permutations` (1000), `seed` (default 42) |
+| `mmd_agg` | Maximum mean discrepancy; `n_permutations` (1000), `seed` (default 42) |
 
 ### Forecast evaluation
 | Function | Test |
@@ -142,6 +148,15 @@ user-invocable: false
 | `pairwise_t_test_by`, `tukey_hsd_by`, `dunn_test_by` `(source, group_col, value_col, factor_col, options := NULL)` | The same per group of `source`, as the long `test` table |
 
 The aggregates return `LIST<STRUCT(group1, group2, estimate, statistic, p_value, p_adj, conf_low, conf_high, method, df1, alternative, conf_level, p_adjust_method)>`, one entry per pair, with `estimate = group2 - group1`; read them with `unnest(…, recursive := true)`. `p_adjust` takes R's `p.adjust` methods: `holm`, `hochberg`, `hommel`, `bonferroni`, `BH` (`fdr`), `BY`, `none`. The `_by` macros return the group column, `model_id`, `test_id`, `method`, `statistic`, `p_value`, `group1`, `group2`, `p_adj`, `df1`, `df2`, `estimate`, `conf_low`, `conf_high`, `conf_level`, `effect_size`, `effect_name`, `alternative`, `p_adjust_method`.
+
+### Multiple testing (adjust any p-values)
+| Function | Use |
+|---|---|
+| `p_adjust_by(source, group_col, p_col, method := 'holm', n := NULL)` | Every source row (source order) with `p_adjusted`; one family per group. The row-aligned form |
+| `p_adjust_agg(p[, method[, n]] ORDER BY …)` | `DOUBLE[]` per group, in input order; `method`/`n` constant |
+| `p_adjust_list(p_list[, method[, n]])` | `DOUBLE[]` for a list of p-values |
+
+R `p.adjust` semantics: methods `holm` (default), `hochberg`, `hommel`, `bonferroni`, `BH` (`fdr`), `BY`, `none`, case-insensitive (unknown method: error). NULL p-values stay NULL and are not counted; `n` (number of hypotheses) defaults to the non-NULL count and may not be smaller. There is no `p_adjust(...) OVER (...)` window function (DuckDB 1.x window aggregates can't produce per-row values over a whole partition); use `p_adjust_by`. For inline use with `n = count(p) OVER (PARTITION BY g)` and `i = row_number() OVER (PARTITION BY g ORDER BY p NULLS LAST)`: Bonferroni `least(1, n*p)`; Holm `max(least(1, (n-i+1)*p)) OVER (PARTITION BY g ORDER BY p NULLS LAST)`; BH `min(least(1, n*p/i)) OVER (PARTITION BY g ORDER BY p DESC NULLS LAST)`. Keep the default RANGE frame and wrap each in `CASE WHEN p IS NOT NULL`, because `least` ignores NULLs (recipe in docs/api/statistics/hypothesis.md).
 
 ### Residual autocorrelation and heteroskedasticity
 | Function | Test |
@@ -163,6 +178,25 @@ The aggregates return `LIST<STRUCT(group1, group2, estimate, statistic, p_value,
 | `kaplan_meier_by(source, strata_col, time_col, event_col[, conf_level := 0.95, conf_type := 'log'])` | One KM curve per stratum in the `curve` schema (`curve_type = 'km'`) |
 
 `event` is BOOLEAN or numeric (true / non-zero = event observed, else right-censored). Group is VARCHAR or BIGINT.
+
+### Causal mediation
+| Function | Returns |
+|---|---|
+| `mediation_by(source, group_col, treatment, mediator, outcome[, covariates := [c1, ...]][, options := {...}])` | Per group, one row per effect (`term` = `acme`, `ade`, `total`, `prop_mediated`) in the `terms` schema (`id` = group, `model_id = 'mediation'`) plus `method`, `n_obs`, `n_sims` |
+| `mediation_agg(y, m, x[, covariates[, options]])` | The same four rows as `LIST<STRUCT(term, estimate, std_error, statistic, p_value, conf_low, conf_high, conf_level, method, n_obs, n_sims)>` |
+
+Linear models as R `mediation::mediate`: `m ~ x + covariates` (a) and `y ~ x + m + covariates` (b, c'); ACME = a·b·Δ, ADE = c'·Δ, Δ = `treat_value` − `control_value` (default 1 − 0). Options: `method` `'bootstrap'` (default; case resampling, `n_bootstrap` 1000, `seed` 42, `ci_type` `'percentile'` / `'bca'`, p-value as `mediate`), `'sobel'` (delta method, z/t tests) or `'quasi_bayesian'`; `confidence_level`. Rows with a NULL anywhere are dropped from both models. Continuous mediator and outcome only; no treatment × mediator interaction.
+
+```sql
+CREATE OR REPLACE TABLE med_demo AS
+SELECT i, 's' || (i % 2) AS site, ((i // 2) % 2)::DOUBLE AS treat, sin(i * 1.3) AS age_z,
+       0.5 + 0.8 * ((i // 2) % 2) + sin(i * 2.1 + 0.4) * 0.9 AS m
+FROM range(100) t(i);
+CREATE OR REPLACE TABLE med_demo AS SELECT *, 1 + 0.4 * treat + 0.6 * m + cos(i * 1.7) * 0.8 AS y FROM med_demo;
+
+SELECT site, term, round(estimate, 3) AS estimate, round(conf_low, 3) AS conf_low, round(conf_high, 3) AS conf_high
+FROM mediation_by('med_demo', site, treatment := treat, mediator := m, outcome := y, covariates := [age_z]);
+```
 
 ### Classifier evaluation
 | Function | Returns |
@@ -212,6 +246,16 @@ SELECT unnest(tukey_hsd_agg(response, arm), recursive := true) FROM trial;
 SELECT site, group1, group2, round(p_adj, 4) AS p_adj, round(conf_low, 3) AS lo, round(conf_high, 3) AS hi
 FROM pairwise_t_test_by('trial', site, response, arm, options := {'p_adjust': 'holm'})
 ORDER BY site, group1, group2;
+```
+
+```sql
+-- Benjamini-Hochberg within each endpoint, for p-values from any tests
+CREATE TABLE results AS SELECT * FROM (VALUES
+    ('weight', 'dose_a', 0.012), ('weight', 'dose_b', 0.030), ('weight', 'dose_c', 0.200),
+    ('bp', 'dose_a', 0.001), ('bp', 'dose_b', 0.049)) t(endpoint, test, p_value);
+SELECT endpoint, test, p_value, p_adjusted
+FROM p_adjust_by('results', endpoint, p_value, method := 'BH');
+SELECT p_adjust_list([0.01, 0.02, 0.04], 'holm', 10);  -- 10 hypotheses, 3 observed
 ```
 
 ```sql

@@ -47,6 +47,8 @@ struct TheilSenFitBindData : public FunctionData {
     uint64_t random_state = 0;
     bool n_subsamples_set = false;
     uint32_t n_subsamples_value = 0;
+    int32_t ci_method = 0; // 0 = auto, 1 = exact, 2 = bootstrap
+    uint32_t n_bootstrap = 999;
 
     unique_ptr<FunctionData> Copy() const override {
         auto result = make_uniq<TheilSenFitBindData>();
@@ -59,6 +61,8 @@ struct TheilSenFitBindData : public FunctionData {
         result->random_state = random_state;
         result->n_subsamples_set = n_subsamples_set;
         result->n_subsamples_value = n_subsamples_value;
+        result->ci_method = ci_method;
+        result->n_bootstrap = n_bootstrap;
         return std::move(result);
     }
 
@@ -68,7 +72,8 @@ struct TheilSenFitBindData : public FunctionData {
                confidence_level == o.confidence_level && max_subpopulation == o.max_subpopulation &&
                max_iterations == o.max_iterations && tolerance == o.tolerance &&
                random_state == o.random_state && n_subsamples_set == o.n_subsamples_set &&
-               n_subsamples_value == o.n_subsamples_value;
+               n_subsamples_value == o.n_subsamples_value && ci_method == o.ci_method &&
+               n_bootstrap == o.n_bootstrap;
     }
 };
 
@@ -79,7 +84,7 @@ static unique_ptr<FunctionData> TheilSenFitBind(ClientContext &context, ScalarBi
     if (arguments.size() >= 3) {
         auto opts = RegressionMapOptions::ParseFromExpression(
             context, *arguments[2], "theil_sen_fit",
-            {"fit_intercept", "compute_inference", "confidence_level", "max_iterations", "tolerance", "random_state", "max_subpopulation", "n_subsamples"});
+            {"fit_intercept", "compute_inference", "confidence_level", "max_iterations", "tolerance", "random_state", "max_subpopulation", "n_subsamples", "ci_method", "n_boot"});
         if (opts.fit_intercept.has_value()) {
             result->fit_intercept = opts.fit_intercept.value();
         }
@@ -104,6 +109,12 @@ static unique_ptr<FunctionData> TheilSenFitBind(ClientContext &context, ScalarBi
         if (opts.n_subsamples.has_value()) {
             result->n_subsamples_set = true;
             result->n_subsamples_value = opts.n_subsamples.value();
+        }
+        if (opts.ci_method.has_value()) {
+            result->ci_method = opts.ci_method.value();
+        }
+        if (opts.n_boot.has_value()) {
+            result->n_bootstrap = opts.n_boot.value();
         }
     }
 
@@ -191,6 +202,8 @@ static void TheilSenFitFunctionImpl(DataChunk &args, ExpressionState &state, Vec
         options.random_state = bind_data.random_state;
         options.n_subsamples_set = bind_data.n_subsamples_set;
         options.n_subsamples_value = bind_data.n_subsamples_value;
+        options.ci_method = bind_data.ci_method;
+        options.n_bootstrap = bind_data.n_bootstrap;
 
         AnofoxFitResultCore core_result;
         AnofoxFitResultInference inference_result;
@@ -228,7 +241,7 @@ static void TheilSenFitFunctionImpl(DataChunk &args, ExpressionState &state, Vec
         FlatDataMut<int64_t>(StructEntry(struct_vec[struct_idx++]))[row] = core_result.n_features;
 
         // Inference (NULL unless requested), CI fields and the model summary
-        writer.WriteInference(row, bind_data.compute_inference ? &inference_result : nullptr);
+        writer.WriteInferenceNullUndefined(row, bind_data.compute_inference ? &inference_result : nullptr);
         writer.WriteSummary(row, core_result.summary);
         if (bind_data.compute_inference) {
             anofox_free_result_inference(&inference_result);
@@ -273,7 +286,8 @@ void RegisterTheilSenFitFunction(ExtensionLoader &loader) {
         FunctionDescription d2;
         d2.description = "Fits a Theil-Sen regression model with optional MAP of settings (max_subpopulation, "
                          "n_subsamples, max_iterations, tolerance, random_state, fit_intercept, "
-                         "compute_inference, confidence_level).";
+                         "compute_inference, confidence_level, ci_method ('exact' | 'bootstrap'), "
+                         "n_bootstrap).";
         d2.examples = {"theil_sen_fit(y, x, {'random_state': 42, 'max_subpopulation': 5000})"};
         d2.categories = {"regression"};
         d2.parameter_names = {"y", "x", "options"};

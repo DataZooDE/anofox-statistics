@@ -1,0 +1,255 @@
+# name: test/sql/contract/contract_glmm.test
+# description: #218 GLMM contract macros: glmm_tidy_by (terms), glmm_glance_by (summary), glmm_augment_by (obs): columns, tags, row structure, NULL rows and the ddf option
+# group: [contract]
+
+require anofox_statistics
+
+statement ok
+CREATE TABLE p AS
+SELECT 'r' || (i % 2) AS region, 's' || (i % 6) AS store, ((i % 7) + 0.5)::DOUBLE AS x,
+       ((i % 5) * 1.0)::DOUBLE AS z,
+       (2 + 0.7 * ((i % 7) + 0.5) + [-1.2, 0.4, 0.9, -0.3, 1.5, -1.0][(i % 6) + 1] + ((i * 37) % 11) / 10.0 - 0.5)::DOUBLE AS y,
+       (1 + (i * 7) % 5 + (i % 6) % 3)::DOUBLE AS cnt
+FROM range(0, 120) t(i);
+
+# ---- glmm_tidy_by: the terms columns, then effect / re_group / re_level / df
+query II
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM glmm_tidy_by('p', region, y, [x], store))
+----
+region	VARCHAR
+id	VARCHAR
+model_id	VARCHAR
+model_name	VARCHAR
+term	VARCHAR
+estimate	DOUBLE
+std_error	DOUBLE
+statistic	DOUBLE
+p_value	DOUBLE
+conf_low	DOUBLE
+conf_high	DOUBLE
+conf_level	DOUBLE
+index_name	VARCHAR
+index_value	DOUBLE
+effect	VARCHAR
+re_group	VARCHAR
+re_level	VARCHAR
+df	DOUBLE
+
+# Per region: 2 fixed rows, sd__(Intercept) + residual SD, 6 BLUPs
+query IIII
+SELECT region, effect, count(*), count(DISTINCT model_id || model_name || id)
+FROM glmm_tidy_by('p', region, y, [x], store)
+GROUP BY ALL ORDER BY ALL
+----
+r0	fixed	2	1
+r0	ran_pars	2	1
+r0	ran_vals	3	1
+r1	fixed	2	1
+r1	ran_pars	2	1
+r1	ran_vals	3	1
+
+query IIIII
+SELECT effect, re_group, term, model_id, model_name
+FROM glmm_tidy_by('p', region, y, [x], store, names := ['x'], re_names := ['store'])
+WHERE region = 'r0' AND effect <> 'ran_vals'
+----
+fixed	NULL	(Intercept)	glmm	glmm
+fixed	NULL	x	glmm	glmm
+ran_pars	store	sd__(Intercept)	glmm	glmm
+ran_pars	Residual	sd__Observation	glmm	glmm
+
+# Gaussian: Satterthwaite df on the fixed rows; inference is on although options are passed
+query III
+SELECT bool_and(df > 1), bool_and(std_error > 0), bool_and(abs(statistic - estimate / std_error) < 1e-9)
+FROM glmm_tidy_by('p', region, y, [x], store, options := {'max_iterations': 50}) WHERE effect = 'fixed'
+----
+true	true	true
+
+# ddf := 'wald': no df
+query I
+SELECT bool_and(df IS NULL) FROM glmm_tidy_by('p', region, y, [x], store, options := {'ddf': 'wald'})
+----
+true
+
+# ran_vals: one row per level with its conditional SE and interval
+query III
+SELECT count(DISTINCT re_level), bool_and(std_error > 0), bool_and(conf_low < estimate AND estimate < conf_high)
+FROM glmm_tidy_by('p', region, y, [x], store) WHERE effect = 'ran_vals' AND region = 'r1'
+----
+3	true	true
+
+# Random slope: SDs and the correlation, BLUP rows per level and term, slope named like its fixed effect
+query II
+SELECT term, count(*) FROM glmm_tidy_by('p', region, y, [x], store, options := {'random': [1]}, names := ['x'])
+WHERE region = 'r0' AND effect <> 'fixed' GROUP BY term ORDER BY term
+----
+(Intercept)	3
+cor__(Intercept).x	1
+sd__(Intercept)	1
+sd__Observation	1
+sd__x	1
+x	3
+
+# Crossed factors: one SD per factor, labelled by re_names
+query II
+SELECT re_group, term FROM glmm_tidy_by('p', region, y, [x, z], store, options := {'groups': [2]}, names := ['x'], re_names := ['store', 'z'])
+WHERE region = 'r0' AND effect = 'ran_pars' ORDER BY re_group
+----
+Residual	sd__Observation
+store	sd__(Intercept)
+z	sd__(Intercept)
+
+# Poisson: Wald, no residual SD
+query II
+SELECT bool_and(df IS NULL), count(*) FILTER (re_group = 'Residual')
+FROM glmm_tidy_by('p', region, cnt, [x], store, options := {'family': 'poisson'})
+----
+true	0
+
+# Stacks with the other models' terms by name
+query I
+SELECT count(DISTINCT model_id) FROM (
+    SELECT * FROM glmm_tidy_by('p', region, y, [x], store)
+    UNION ALL BY NAME SELECT * FROM ols_tidy_by('p', region, y, [x]))
+----
+2
+
+# ---- glmm_glance_by: the summary columns
+query II
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM glmm_glance_by('p', region, y, [x], store))
+----
+region	VARCHAR
+id	VARCHAR
+model_id	VARCHAR
+model_name	VARCHAR
+model_type	VARCHAR
+metric	VARCHAR
+value	DOUBLE
+
+query II
+SELECT metric, value FROM glmm_glance_by('p', region, y, [x], store)
+WHERE region = 'r0' AND metric IN ('n_observations', 'n_groups', 'n_features', 'converged', 'df_residual')
+ORDER BY metric
+----
+converged	1.0
+df_residual	56.0
+n_features	1.0
+n_groups	3.0
+n_observations	60.0
+
+# sigma^2 = var_residual; nb_theta only for the negative binomial
+query II
+SELECT bool_and(abs(s.value * s.value - v.value) < 1e-12), count(*) FILTER (s.metric = 'nb_theta')
+FROM glmm_glance_by('p', region, y, [x], store) s
+JOIN glmm_glance_by('p', region, y, [x], store) v ON s.region = v.region AND v.metric = 'var_residual'
+WHERE s.metric = 'sigma'
+----
+true	0
+
+query I
+SELECT DISTINCT model_type FROM glmm_glance_by('p', region, y, [x], store)
+----
+glmm
+
+# ---- glmm_augment_by: the source columns, then the obs columns, then fitted_population / pearson_residual
+query II
+SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM glmm_augment_by('p', region, y, [x], store))
+----
+region	VARCHAR
+store	VARCHAR
+x	DOUBLE
+z	DOUBLE
+y	DOUBLE
+cnt	DOUBLE
+model_id	VARCHAR
+model_name	VARCHAR
+row_id	BIGINT
+fitted	DOUBLE
+residual	DOUBLE
+resid_type	VARCHAR
+std_residual	DOUBLE
+stud_residual	DOUBLE
+leverage	DOUBLE
+cooks_d	DOUBLE
+dffits	DOUBLE
+weight	DOUBLE
+is_training	BOOLEAN
+n_params	INTEGER
+fitted_population	DOUBLE
+pearson_residual	DOUBLE
+
+# One row per source row; residual = y - fitted; gaussian Pearson = response residual
+query IIII
+SELECT count(*), bool_and(abs(residual - (y - fitted)) < 1e-9), bool_and(abs(pearson_residual - residual) < 1e-9),
+       bool_and(is_training)
+FROM glmm_augment_by('p', region, y, [x], store)
+----
+120	true	true	true
+
+# The same columns as ols_augment_by, so the obs tables stack by name
+query I
+SELECT count(*) FROM (
+    SELECT * FROM glmm_augment_by('p', region, y, [x], store)
+    UNION ALL BY NAME SELECT * FROM ols_augment_by('p', region, y, [x]))
+----
+240
+
+# The fitted values are those of the fit: a group's mean residual is ~0 only
+# after the BLUP, and the population fit differs from the conditional one
+query I
+SELECT bool_and(abs(fitted - fitted_population) > 0) FROM glmm_augment_by('p', region, y, [x], store)
+----
+true
+
+# NULL y, NULL x element and NULL group rows stay in place with NULL values
+statement ok
+CREATE TABLE pn AS SELECT * FROM p;
+
+statement ok
+INSERT INTO pn VALUES ('r0', 's0', 1.0, 0.0, NULL, 1.0), ('r0', NULL, 1.0, 0.0, 3.0, 1.0), ('r0', 's1', NULL, 0.0, 3.0, 1.0);
+
+query IIII
+SELECT count(*), count(fitted), count(*) FILTER (NOT is_training), count(*) FILTER (NOT is_training AND fitted IS NULL)
+FROM glmm_augment_by('pn', region, y, [x], store)
+----
+123	120	3	3
+
+# Poisson: fitted on the response scale
+query I
+SELECT bool_and(fitted > 0 AND fitted_population > 0) FROM glmm_augment_by('p', region, cnt, [x], store, options := {'family': 'poisson'})
+----
+true
+
+# ---- contract tags
+query II
+SELECT function_name, tags['anofox.output'] FROM duckdb_functions()
+WHERE function_name IN ('glmm_tidy_by', 'glmm_glance_by', 'glmm_augment_by') AND tags['anofox.contract'] = '1'
+ORDER BY function_name
+----
+glmm_augment_by	obs
+glmm_glance_by	summary
+glmm_tidy_by	terms
+
+# ---- the ddf option
+statement error
+SELECT glmm_fit_agg(cnt, [x], store, {'family': 'poisson', 'compute_inference': true, 'ddf': 'satterthwaite'}) FROM p;
+----
+Satterthwaite degrees of freedom are only defined for the gaussian family
+
+statement error
+SELECT glmm_fit_agg(y, [x], store, {'ddf': 'kenward-roger'}) FROM p;
+----
+Unknown ddf 'kenward-roger'
+
+# glmm_fit_agg keeps compute_inference opt-in: no df, no SEs without it
+query II
+SELECT (m).df IS NULL, (m).std_errors IS NULL FROM (SELECT glmm_fit_agg(y, [x], store) AS m FROM p)
+----
+true	true
+
+# Crossed fits now report the positional factor's BLUPs
+query II
+SELECT len((m).ranef), list_bool_and(list_transform((m).ranef, lambda r: r.se > 0))
+FROM (SELECT glmm_fit_agg(y, [x, z], store, {'groups': [2]}) AS m FROM p)
+----
+6	true

@@ -120,8 +120,14 @@ Distance correlation. Measures both linear and non-linear dependence.
 
 **Signature:**
 ```text
-distance_cor_agg(x DOUBLE, y DOUBLE) -> STRUCT
+distance_cor_agg(x DOUBLE, y DOUBLE, [options MAP]) -> STRUCT
 ```
+
+**Options:**
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| n_permutations | INTEGER | 1000 | Number of permutations of the test |
+| seed (alias `random_state`) | INTEGER | 42 | Seed of the permutation draw; without it the default 42 makes the p-value reproducible |
 
 **Returns:**
 ```

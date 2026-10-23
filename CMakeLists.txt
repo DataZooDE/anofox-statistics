@@ -188,6 +188,8 @@ set(EXTENSION_SOURCES
     src/aggregate_functions/poisson_aggregate.cpp
     src/aggregate_functions/aft_aggregate.cpp
     src/aggregate_functions/eb_shrink_aggregate.cpp
+    src/aggregate_functions/mediation_aggregate.cpp
+    src/aggregate_functions/ols_anova_aggregate.cpp
     src/aggregate_functions/classifier_curves_aggregate.cpp
     src/aggregate_functions/glmm_aggregate.cpp
     src/aggregate_functions/binomial_aggregate.cpp
@@ -204,6 +206,7 @@ set(EXTENSION_SOURCES
     src/aggregate_functions/shapiro_wilk_aggregate.cpp
     src/aggregate_functions/t_test_aggregate.cpp
     src/aggregate_functions/pairwise_posthoc_aggregate.cpp
+    src/aggregate_functions/p_adjust_aggregate.cpp
     src/aggregate_functions/pearson_aggregate.cpp
     src/aggregate_functions/spearman_aggregate.cpp
     src/aggregate_functions/mann_whitney_aggregate.cpp
@@ -300,8 +303,8 @@ if(ANOFOX_TELEMETRY_ENABLED)
     # posthog-telemetry reads the machine id from the IORegistry on macOS
     # (IORegistryEntryFromPath et al.), which requires linking IOKit explicitly.
     if(APPLE)
-        target_link_libraries(${EXTENSION_NAME} "-framework IOKit" "-framework CoreFoundation")
-        target_link_libraries(${LOADABLE_EXTENSION_NAME} "-framework IOKit" "-framework CoreFoundation")
+        target_link_libraries(${EXTENSION_NAME} "-framework IOKit" "-framework CoreFoundation" "-framework Security")
+        target_link_libraries(${LOADABLE_EXTENSION_NAME} "-framework IOKit" "-framework CoreFoundation" "-framework Security")
     endif()
 else()
     # Since posthog-telemetry consolidated on main (DataZooDE/posthog-telemetry#5),

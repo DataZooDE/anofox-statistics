@@ -9,23 +9,24 @@ description: >
   residual, std / studentized residuals, leverage, Cook's distance, DFFITS),
   partial residuals and added-variable data (<model>_partial_residuals_by,
   car::crPlots / avPlots), Variance Inflation Factor (vif / vif_agg), AIC /
-  BIC, residual diagnostics (residuals_diagnostics / residuals_diagnostics_agg),
-  residual ACF / PACF with the white-noise band (acf_agg, pacf_agg, acf_by,
-  pacf_by), Ljung-Box / Box-Pierce, Durbin-Watson (with p-value),
-  Breusch-Pagan and White heteroskedasticity tests, AID demand-pattern and
-  anomaly classification (aid_agg, aid_anomaly_agg, aid_by, aid_anomaly_by),
-  plus tidy / glance and model-aware predict for fitted values. Use when
-  checking whether a fitted regression is sound — influential points,
-  outliers, nonlinearity, multicollinearity, autocorrelated or
-  heteroskedastic residuals — or classifying a series' demand regime before
-  choosing a model.
-version: 0.12.1
+  BIC, residual diagnostics (residuals_diagnostics /
+  residuals_diagnostics_agg), residual ACF / PACF with the white-noise band
+  (acf_agg, pacf_agg, acf_by, pacf_by), Ljung-Box / Box-Pierce, Durbin-Watson
+  (with p-value), Breusch-Pagan and White heteroskedasticity tests, AID
+  demand-pattern and anomaly classification (aid_agg, aid_anomaly_agg, aid_by,
+  aid_anomaly_by), plus tidy / glance and model-aware predict for fitted
+  values. Also leave-one-out diagnostics: loo_residual / loo_fitted in
+  augment_by, PRESS, press_rmse and loo_r_squared in glance_by (compute_loo).
+  Use when checking whether a fitted regression is sound — influential points,
+  outliers, nonlinearity, multicollinearity, autocorrelated or heteroskedastic
+  residuals — or classifying a series' demand regime before choosing a model.
+version: 0.13.0
 user-invocable: false
 ---
 
 # Anofox Statistics — Diagnostics Cheat Sheet
 
-**Extension:** `anofox_statistics` v0.12.1 | **DuckDB:** v1.5.x / v2.0
+**Extension:** `anofox_statistics` v0.13.0 | **DuckDB:** v1.5.6 / v2.0
 
 Diagnostics answer "is this fit trustworthy?" — run them after fitting a model (see **anofox-statistics-regression**).
 
@@ -38,7 +39,7 @@ Diagnostics answer "is this fit trustworthy?" — run them after fitting a model
 | `bic(rss, n, k)` | scalar | Bayesian Information Criterion for model selection |
 | `jarque_bera(values[])`, `jarque_bera_agg(value)` | scalar / aggregate | Jarque-Bera normality test (`statistic`, `p_value`, `skewness`, `kurtosis`, `n`) |
 | `residuals_diagnostics`, `residuals_diagnostics_agg` | scalar / aggregate | Residual analysis: `raw`, `standardized`, `studentized`, `leverage` arrays |
-| `ols_augment_by`, `wls_augment_by`, `<glm>_augment_by` | table macro | broom `augment`: every source row + `model_id` / `model_name` (the method; no `id`, the group column is among the source columns), `row_id`, `fitted`, `residual`, `resid_type`, `std_residual` (R `rstandard`), `stud_residual` (`rstudent`), `leverage` (`hatvalues`), `cooks_d`, `dffits`, `weight`, `is_training`, `n_params` (`obs` schema) |
+| `ols_augment_by`, `wls_augment_by`, `<glm>_augment_by` | table macro | broom `augment`: every source row + `model_id` / `model_name` (the method; no `id`, the group column is among the source columns), `row_id`, `fitted`, `residual`, `resid_type`, `std_residual` (R `rstandard`), `stud_residual` (`rstudent`), `leverage` (`hatvalues`), `cooks_d`, `dffits`, `weight`, `is_training`, `n_params` (`obs` schema); OLS / WLS also `loo_residual` (`residual / (1 − leverage)`, the PRESS residual) and `loo_fitted` (prediction without the row), NULL where leverage = 1 |
 | `<model>_partial_residuals_by` | table macro | `ols`, `wls`, six GLMs: one row per source row and term — `term_index`, `term`, `x`, `component`, `partial_residual` (crPlots), `x_residual`, `y_residual` (avPlots; NULL for GLMs) |
 | `acf_agg(x[, max_lag] ORDER BY t)`, `pacf_agg(…)` | aggregate | `LIST<STRUCT(lag, acf\|pacf, conf_low, conf_high)>`; band = ±qnorm(0.975)/√n; `max_lag` default `floor(10·log10(n))` |
 | `acf_by`, `pacf_by` `(source, group_col, value_col, order_col[, max_lag := …])` | table macro | One ACF / PACF curve per group (`curve` schema, `curve_type` `'acf'` / `'pacf'`, `x` = lag, `y_low`/`y_high` = band) |
@@ -56,7 +57,8 @@ Diagnostics answer "is this fit trustworthy?" — run them after fitting a model
 - **AIC / BIC:** lower is better; compare *nested or same-data* models. BIC penalizes complexity harder than AIC. GLM result structs already carry an `aic` field; AFT and ALM results carry both `aic` and `bic`.
 - **Residuals:** `standardized`/`studentized` residuals with |value| > 2–3 flag potential outliers; high `leverage` flags influential x-positions. Structure in residuals ⇒ mis-specified model.
 - **`tidy` inference columns** are NULL when the model has no inference (fit without `compute_inference`, or PLS/LARS; quantile only with its `se` option). The intercept row (first) carries its own inference. Per group use `<model>_tidy_by` (batch skill).
-- **Influence (`*_augment_by`):** `|stud_residual| > 3` flags outliers, `leverage > 2·n_params/n` high-leverage points, `cooks_d > 4/n` (or > 0.5–1) influential rows, `|dffits| > 2·sqrt(n_params/n)`. Rows outside training (`split` ≠ `'train'`, NULL y) get `fitted` but NULL diagnostics. GLMs: `fitted` on the response scale, `residual` is the deviance residual (`resid_type = 'deviance'`); penalized GLM fits (`glm_lambda`, `prior`) are rejected.
+- **Leave-one-out (OLS / WLS):** `ols_glance_by` / `wls_glance_by` report `press`, `press_rmse` and `loo_r_squared` (predicted R², Q²); a big gap to `r_squared` means the fit leans on individual rows, whose large `|loo_residual|` in `*_augment_by` point to them. Exact, from the leverage, no refits. A row with leverage 1 (single-observation dummy level) has NULL `loo_*` and makes the group's `press` metrics NULL.
+- **Influence (`*_augment_by`):** `|stud_residual| > 3` flags outliers, `leverage > 2·n_params/n` high-leverage points, `cooks_d > 4/n` (or > 0.5–1) influential rows, `|dffits| > 2·sqrt(n_params/n)`. Rows outside training (`split` other than `'train'` / `'training'` in any case, or NULL; NULL y) get `fitted` but NULL diagnostics. GLMs: `fitted` on the response scale, `residual` is the deviance residual (`resid_type = 'deviance'`); penalized GLM fits (`glm_lambda`, `prior`) are rejected.
 - **Partial residuals:** curvature of `partial_residual` against `x` ⇒ the term needs a transform; the slope of `y_residual` on `x_residual` through the origin equals the coefficient.
 - **Autocorrelation:** ACF lags outside `[conf_low, conf_high]`, a small Ljung-Box p-value or Durbin-Watson well below 2 ⇒ residuals are autocorrelated (standard errors too small) — add lags / time terms or use a time-series model. `ORDER BY` goes **after** the constant arguments: `acf_agg(resid, 12 ORDER BY t)`.
 - **Heteroskedasticity:** a small Breusch-Pagan / White p-value ⇒ use robust SEs (`'hc_type': 'hc3'` on OLS / WLS) or WLS. Pass the residuals of a model with an intercept and the same regressors.

@@ -211,6 +211,14 @@ pub fn fit_ols(y: &[f64], x: &[Vec<f64>], options: &OlsOptions) -> StatsResult<F
         })
     };
 
+    // Exact leave-one-out statistics from the leverage (#220); a fit they
+    // cannot be computed for keeps them NaN.
+    if options.compute_loo {
+        if let Ok(p) = anofox_regression::diagnostics::press(&fitted, &x_mat, &y_col, None) {
+            summary.set_press(&p);
+        }
+    }
+
     Ok(FitResult {
         core,
         inference,
@@ -266,6 +274,25 @@ mod tests {
 
         // p-value should be significant (< 0.05)
         assert!(inference.p_values[0] < 0.05);
+    }
+
+    #[test]
+    fn test_ols_press_only_when_requested() {
+        // y = x + noise; PRESS = sum((e / (1 - h))^2) >= RSS, so Q^2 <= R^2.
+        let x = vec![vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]];
+        let y = vec![1.3, 1.8, 3.4, 3.9, 5.2, 5.8, 7.4, 7.9];
+        let plain = fit_ols(&y, &x, &OlsOptions::default()).unwrap();
+        assert!(plain.summary.press.is_nan());
+        let options = OlsOptions {
+            compute_loo: true,
+            ..Default::default()
+        };
+        let result = fit_ols(&y, &x, &options).unwrap();
+        let s = result.summary;
+        let rss = (result.core.residual_std_error.powi(2)) * 6.0;
+        assert!(s.press > rss);
+        assert!((s.press_rmse - (s.press / 8.0).sqrt()).abs() < 1e-12);
+        assert!(s.loo_r_squared < result.core.r_squared);
     }
 
     #[test]
